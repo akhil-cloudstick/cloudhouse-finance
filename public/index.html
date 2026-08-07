@@ -1,0 +1,407 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Ambika Gold Finance — Sign In</title>
+<link rel="icon" href="ambika-gold.jpeg" type="image/jpeg">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bodoni+Moda:ital,opsz,wght@0,6..96,400;0,6..96,500;0,6..96,600;0,6..96,700;1,6..96,500&family=Jost:wght@300;400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --gold-deep:#9a6f0f;
+    --gold:#c9971c;
+    --gold-mid:#d4af37;
+    --gold-light:#eccd6f;
+    --gold-pale:#f7e9c4;
+    --charcoal:#231f18;
+    --ink:#3a3325;
+    --ivory:#fdfaf2;
+    --ivory-2:#f7f1e2;
+    --line:#e4d5ac;
+  }
+  *{margin:0;padding:0;box-sizing:border-box}
+
+  body{
+    font-family:'Jost',sans-serif;
+    color:var(--ink);
+    min-height:100vh;
+    background:
+      radial-gradient(1200px 600px at 50% -10%, #fffdf6 0%, transparent 60%),
+      radial-gradient(900px 500px at 85% 110%, #f3e8c9 0%, transparent 55%),
+      radial-gradient(900px 500px at 10% 100%, #f5ecd4 0%, transparent 55%),
+      var(--ivory);
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    padding:32px 16px;
+    position:relative;
+    overflow-x:hidden;
+  }
+
+  /* ── faint jewellery-lattice watermark ─────────────────────── */
+  body::before{
+    content:"";
+    position:fixed;inset:0;
+    background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120' viewBox='0 0 120 120'%3E%3Cg fill='none' stroke='%23c9971c' stroke-width='0.6' opacity='0.10'%3E%3Cpath d='M60 8 L112 60 L60 112 L8 60 Z'/%3E%3Ccircle cx='60' cy='60' r='14'/%3E%3Cpath d='M60 46 L64 56 L74 60 L64 64 L60 74 L56 64 L46 60 L56 56 Z'/%3E%3C/g%3E%3C/svg%3E");
+    pointer-events:none;
+  }
+
+  /* ── floating gold dust ────────────────────────────────────── */
+  .dust{position:fixed;inset:0;pointer-events:none;overflow:hidden}
+  .dust span{
+    position:absolute;bottom:-12px;
+    width:5px;height:5px;border-radius:50%;
+    background:radial-gradient(circle at 35% 35%, #ffe9a8, var(--gold-mid) 60%, rgba(201,151,28,0));
+    opacity:0;
+    animation:rise linear infinite;
+  }
+  @keyframes rise{
+    0%{transform:translateY(0) translateX(0) scale(.6);opacity:0}
+    12%{opacity:.75}
+    85%{opacity:.35}
+    100%{transform:translateY(-105vh) translateX(var(--sway,24px)) scale(1.1);opacity:0}
+  }
+
+  /* ── ornamental page corners ───────────────────────────────── */
+  .corner{position:fixed;width:150px;height:150px;pointer-events:none;opacity:.9}
+  .corner svg{width:100%;height:100%}
+  .corner.tl{top:14px;left:14px}
+  .corner.tr{top:14px;right:14px;transform:scaleX(-1)}
+  .corner.bl{bottom:14px;left:14px;transform:scaleY(-1)}
+  .corner.br{bottom:14px;right:14px;transform:scale(-1,-1)}
+  @media(max-width:720px){.corner{width:84px;height:84px}}
+
+  /* ── card ──────────────────────────────────────────────────── */
+  .card{
+    position:relative;
+    width:100%;max-width:460px;
+    background:linear-gradient(180deg,#fffdf7 0%,#fdf8ec 100%);
+    border:1px solid var(--line);
+    border-radius:6px;
+    box-shadow:
+      0 1px 2px rgba(154,111,15,.08),
+      0 24px 60px -18px rgba(120,86,20,.28);
+    padding:44px 46px 38px;
+    z-index:1;
+  }
+  /* double gold frame */
+  .card::before{
+    content:"";
+    position:absolute;inset:9px;
+    border:1px solid rgba(201,151,28,.55);
+    border-radius:3px;
+    pointer-events:none;
+  }
+  /* gold cap along the top edge */
+  .card::after{
+    content:"";
+    position:absolute;left:9px;right:9px;top:9px;height:3px;
+    background:linear-gradient(90deg,transparent,var(--gold-light) 18%,var(--gold-deep) 50%,var(--gold-light) 82%,transparent);
+    pointer-events:none;
+  }
+
+  /* corner studs on the inner frame */
+  .stud{
+    position:absolute;width:9px;height:9px;
+    background:linear-gradient(135deg,var(--gold-light),var(--gold-deep));
+    transform:rotate(45deg);
+    box-shadow:0 0 0 1px #fffdf7, 0 0 0 2px rgba(201,151,28,.5);
+  }
+  .stud.tl{top:5px;left:5px}.stud.tr{top:5px;right:5px}
+  .stud.bl{bottom:5px;left:5px}.stud.br{bottom:5px;right:5px}
+
+  /* ── brand block ───────────────────────────────────────────── */
+  .brand{text-align:center;margin-bottom:6px}
+  .brand img{
+    width:132px;height:132px;object-fit:cover;border-radius:50%;
+    border:1px solid var(--line);
+    box-shadow:0 0 0 5px #fffdf7,0 0 0 6px rgba(201,151,28,.45),0 10px 24px -10px rgba(154,111,15,.5);
+    background:#fff;
+  }
+  h1{
+    font-family:'Bodoni Moda',serif;
+    font-weight:600;font-size:30px;letter-spacing:.06em;
+    margin-top:18px;color:var(--charcoal);
+  }
+  h1 .gilt{
+    background:linear-gradient(105deg,var(--gold-deep) 0%,var(--gold-mid) 35%,#f3dd9a 50%,var(--gold-mid) 65%,var(--gold-deep) 100%);
+    background-size:200% auto;
+    -webkit-background-clip:text;background-clip:text;
+    -webkit-text-fill-color:transparent;color:transparent;
+    animation:gleam 6s ease-in-out infinite;
+  }
+  @keyframes gleam{0%,100%{background-position:0% center}50%{background-position:100% center}}
+
+  .motto{
+    display:flex;align-items:center;gap:12px;
+    margin:14px 0 26px;color:var(--gold-deep);
+    font-size:10.5px;letter-spacing:.42em;font-weight:500;text-transform:uppercase;
+    justify-content:center;white-space:nowrap;
+  }
+  .motto::before,.motto::after{
+    content:"";flex:1;height:1px;max-width:70px;
+    background:linear-gradient(90deg,transparent,var(--gold-mid));
+  }
+  .motto::after{background:linear-gradient(90deg,var(--gold-mid),transparent)}
+  .motto b{font-weight:500}
+  .motto .dot{color:var(--gold-mid);letter-spacing:0}
+
+  /* ── form ──────────────────────────────────────────────────── */
+  .field{position:relative;margin-bottom:26px}
+  .field input{
+    width:100%;
+    font:inherit;font-size:15.5px;color:var(--charcoal);
+    background:transparent;border:0;outline:0;
+    border-bottom:1px solid var(--line);
+    padding:20px 34px 9px 2px;
+    transition:border-color .25s;
+  }
+  .field label{
+    position:absolute;left:2px;top:22px;
+    font-size:15px;color:#a2946e;letter-spacing:.02em;
+    pointer-events:none;
+    transition:all .22s ease;
+  }
+  .field input:focus + label,
+  .field input:not(:placeholder-shown) + label{
+    top:0;font-size:11px;letter-spacing:.18em;text-transform:uppercase;
+    color:var(--gold-deep);font-weight:500;
+  }
+  .field .bar{
+    position:absolute;left:0;right:0;bottom:0;height:2px;
+    background:linear-gradient(90deg,var(--gold-deep),var(--gold-light),var(--gold-deep));
+    transform:scaleX(0);transform-origin:center;
+    transition:transform .35s ease;
+  }
+  .field input:focus ~ .bar{transform:scaleX(1)}
+  .field .icon{
+    position:absolute;right:2px;top:20px;width:20px;height:20px;
+    color:#bfa254;
+  }
+  .field .icon svg{width:100%;height:100%;display:block}
+  button.eye{
+    position:absolute;right:0;top:16px;
+    background:none;border:0;cursor:pointer;padding:4px;
+    color:#bfa254;
+  }
+  button.eye:hover{color:var(--gold-deep)}
+  button.eye svg{width:20px;height:20px;display:block}
+
+  .aux{
+    display:flex;justify-content:space-between;align-items:center;
+    margin:-8px 0 24px;font-size:13px;
+  }
+  .aux label{display:flex;align-items:center;gap:8px;cursor:pointer;color:#7c6f4e}
+  .aux input{
+    appearance:none;width:15px;height:15px;cursor:pointer;
+    border:1px solid var(--gold);border-radius:2px;background:#fff;
+    display:grid;place-content:center;transition:background .2s;
+  }
+  .aux input::before{
+    content:"";width:8px;height:8px;transform:scale(0) rotate(45deg);
+    background:linear-gradient(135deg,var(--gold-light),var(--gold-deep));
+    transition:transform .15s;
+  }
+  .aux input:checked::before{transform:scale(1) rotate(45deg)}
+  .aux a{color:var(--gold-deep);text-decoration:none;letter-spacing:.02em}
+  .aux a:hover{text-decoration:underline}
+
+  .btn{
+    position:relative;width:100%;
+    font-family:'Jost',sans-serif;font-size:14px;font-weight:600;
+    letter-spacing:.34em;text-transform:uppercase;text-indent:.34em;
+    color:#2b2001;
+    background:linear-gradient(180deg,#f0d382 0%,var(--gold-mid) 45%,#b98a14 100%);
+    border:1px solid #a97f10;border-radius:3px;
+    padding:15px 10px 14px;cursor:pointer;
+    box-shadow:inset 0 1px 0 rgba(255,255,255,.55),0 10px 22px -10px rgba(154,111,15,.65);
+    overflow:hidden;
+    transition:transform .15s ease, box-shadow .2s ease, filter .2s;
+  }
+  .btn:hover{filter:brightness(1.05);transform:translateY(-1px);
+    box-shadow:inset 0 1px 0 rgba(255,255,255,.55),0 14px 26px -10px rgba(154,111,15,.75)}
+  .btn:active{transform:translateY(0)}
+  .btn .shine{
+    position:absolute;top:0;bottom:0;width:55%;left:-70%;
+    background:linear-gradient(105deg,transparent,rgba(255,255,255,.65),transparent);
+    transform:skewX(-20deg);
+    animation:sweep 3.6s ease-in-out infinite;
+  }
+  @keyframes sweep{0%,55%{left:-70%}90%,100%{left:130%}}
+  .btn:disabled{cursor:default;filter:saturate(.6) brightness(.97)}
+
+  .msg{
+    min-height:20px;margin-top:14px;text-align:center;
+    font-size:13.5px;letter-spacing:.03em;
+    color:#9c2f22;opacity:0;transition:opacity .25s;
+  }
+  .msg.show{opacity:1}
+  .msg.ok{color:#6d7c25}
+
+  .foot{
+    margin-top:26px;padding-top:18px;text-align:center;
+    border-top:1px solid var(--line);
+    font-size:12px;color:#8a7d5a;letter-spacing:.05em;
+  }
+  .foot .lock{
+    display:inline-flex;align-items:center;gap:7px;color:#7c6f4e;
+  }
+  .foot svg{width:13px;height:13px;color:var(--gold-deep)}
+
+  .copy{
+    position:relative;z-index:1;text-align:center;margin-top:20px;
+    font-size:11.5px;letter-spacing:.14em;color:#a09367;text-transform:uppercase;
+  }
+
+  .powered{
+    position:relative;z-index:1;text-align:center;margin-top:8px;
+    font-size:12px;letter-spacing:.06em;color:#a09367;
+  }
+  .powered a{
+    text-decoration:none;font-weight:600;letter-spacing:.04em;
+    background:linear-gradient(90deg, rgb(139, 92, 246), rgb(236, 72, 153));
+    -webkit-background-clip:text;background-clip:text;
+    -webkit-text-fill-color:transparent;color:transparent;
+  }
+  .powered a:hover{filter:brightness(1.15)}
+
+  .wrap{width:100%;max-width:460px}
+
+  @media(max-width:520px){
+    .card{padding:36px 26px 30px}
+    .brand img{width:108px;height:108px}
+    h1{font-size:26px}
+    .motto{letter-spacing:.3em;font-size:9.5px}
+  }
+  @media (prefers-reduced-motion: reduce){
+    .dust span,.btn .shine,h1 .gilt{animation:none}
+  }
+</style>
+</head>
+<body>
+
+  <!-- ornamental corners -->
+  <div class="corner tl" aria-hidden="true">
+    <svg viewBox="0 0 150 150" fill="none" stroke="#c9971c" stroke-width="1.4">
+      <path d="M4 146 V30 Q4 4 30 4 H146" opacity=".8"/>
+      <path d="M14 146 V38 Q14 14 38 14 H146" opacity=".45"/>
+      <path d="M4 60 q14 6 14 22 M60 4 q6 14 22 14" opacity=".7"/>
+      <circle cx="30" cy="30" r="5" fill="#c9971c" stroke="none" opacity=".85"/>
+      <path d="M30 18 l3.5 8.5 L42 30 l-8.5 3.5 L30 42 l-3.5-8.5 L18 30 l8.5-3.5 Z" fill="#e7c257" stroke="none" opacity=".65"/>
+    </svg>
+  </div>
+  <div class="corner tr" aria-hidden="true"><svg viewBox="0 0 150 150" fill="none" stroke="#c9971c" stroke-width="1.4"><path d="M4 146 V30 Q4 4 30 4 H146" opacity=".8"/><path d="M14 146 V38 Q14 14 38 14 H146" opacity=".45"/><path d="M4 60 q14 6 14 22 M60 4 q6 14 22 14" opacity=".7"/><circle cx="30" cy="30" r="5" fill="#c9971c" stroke="none" opacity=".85"/><path d="M30 18 l3.5 8.5 L42 30 l-8.5 3.5 L30 42 l-3.5-8.5 L18 30 l8.5-3.5 Z" fill="#e7c257" stroke="none" opacity=".65"/></svg></div>
+  <div class="corner bl" aria-hidden="true"><svg viewBox="0 0 150 150" fill="none" stroke="#c9971c" stroke-width="1.4"><path d="M4 146 V30 Q4 4 30 4 H146" opacity=".8"/><path d="M14 146 V38 Q14 14 38 14 H146" opacity=".45"/><path d="M4 60 q14 6 14 22 M60 4 q6 14 22 14" opacity=".7"/><circle cx="30" cy="30" r="5" fill="#c9971c" stroke="none" opacity=".85"/><path d="M30 18 l3.5 8.5 L42 30 l-8.5 3.5 L30 42 l-3.5-8.5 L18 30 l8.5-3.5 Z" fill="#e7c257" stroke="none" opacity=".65"/></svg></div>
+  <div class="corner br" aria-hidden="true"><svg viewBox="0 0 150 150" fill="none" stroke="#c9971c" stroke-width="1.4"><path d="M4 146 V30 Q4 4 30 4 H146" opacity=".8"/><path d="M14 146 V38 Q14 14 38 14 H146" opacity=".45"/><path d="M4 60 q14 6 14 22 M60 4 q6 14 22 14" opacity=".7"/><circle cx="30" cy="30" r="5" fill="#c9971c" stroke="none" opacity=".85"/><path d="M30 18 l3.5 8.5 L42 30 l-8.5 3.5 L30 42 l-3.5-8.5 L18 30 l8.5-3.5 Z" fill="#e7c257" stroke="none" opacity=".65"/></svg></div>
+
+  <div class="dust" aria-hidden="true"></div>
+
+  <div class="wrap">
+    <main class="card">
+      <span class="stud tl"></span><span class="stud tr"></span>
+      <span class="stud bl"></span><span class="stud br"></span>
+
+      <div class="brand">
+        <img src="ambika-gold.jpeg" alt="Ambika Gold Finance logo">
+        <h1>Welcome to <span class="gilt">Ambika</span></h1>
+      </div>
+
+      <div class="motto"><b>Trust</b><span class="dot">◆</span><b>Value</b><span class="dot">◆</span><b>Growth</b></div>
+
+      <form id="loginForm" novalidate>
+        <div class="field">
+          <input type="text" id="user" placeholder=" " autocomplete="username" required>
+          <label for="user">Customer ID / Mobile Number</label>
+          <span class="icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-6.5 8-6.5s8 2.5 8 6.5"/></svg>
+          </span>
+          <span class="bar"></span>
+        </div>
+
+        <div class="field">
+          <input type="password" id="pass" placeholder=" " autocomplete="current-password" required>
+          <label for="pass">Password</label>
+          <button type="button" class="eye" id="eye" aria-label="Show password">
+            <svg id="eyeOpen" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M2 12s3.5-6.5 10-6.5S22 12 22 12s-3.5 6.5-10 6.5S2 12 2 12Z"/><circle cx="12" cy="12" r="2.8"/></svg>
+            <svg id="eyeShut" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" style="display:none"><path d="M2 12s3.5-6.5 10-6.5S22 12 22 12s-3.5 6.5-10 6.5S2 12 2 12Z"/><path d="M4 4l16 16"/></svg>
+          </button>
+          <span class="bar"></span>
+        </div>
+
+        <div class="aux">
+          <label><input type="checkbox" id="remember"> Remember me</label>
+          <a href="#" onclick="return false">Forgot password?</a>
+        </div>
+
+        <button type="submit" class="btn" id="submitBtn">
+          Unlock My Vault
+          <span class="shine" aria-hidden="true"></span>
+        </button>
+        <p class="msg" id="msg" role="alert"></p>
+      </form>
+
+      <div class="foot">
+        <span class="lock">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="5" y="10" width="14" height="10" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/><circle cx="12" cy="15" r="1.6" fill="currentColor" stroke="none"/></svg>
+          Secured with 256-bit encryption
+        </span>
+      </div>
+    </main>
+
+    <p class="copy">© 2026 Ambika Gold Finance · Trust · Value · Growth</p>
+    <p class="powered">Powered by <a href="https://cloudhousetechnologies.com" target="_blank" rel="noopener">CloudHouse</a></p>
+  </div>
+
+<script>
+  // floating gold dust
+  (function(){
+    const dust=document.querySelector('.dust');
+    for(let i=0;i<18;i++){
+      const s=document.createElement('span');
+      s.style.left=(Math.random()*100)+'vw';
+      s.style.setProperty('--sway',(Math.random()*70-35)+'px');
+      const sc=.5+Math.random();
+      s.style.width=s.style.height=(4*sc)+'px';
+      s.style.animationDuration=(9+Math.random()*10)+'s';
+      s.style.animationDelay=(-Math.random()*16)+'s';
+      dust.appendChild(s);
+    }
+  })();
+
+  // password visibility
+  const pass=document.getElementById('pass');
+  document.getElementById('eye').addEventListener('click',function(){
+    const show=pass.type==='password';
+    pass.type=show?'text':'password';
+    document.getElementById('eyeOpen').style.display=show?'none':'block';
+    document.getElementById('eyeShut').style.display=show?'block':'none';
+    this.setAttribute('aria-label',show?'Hide password':'Show password');
+  });
+
+  // form (design-only: validates client-side, auth wiring pending)
+  document.getElementById('loginForm').addEventListener('submit',function(e){
+    e.preventDefault();
+    const msg=document.getElementById('msg');
+    const user=document.getElementById('user').value.trim();
+    const pw=pass.value;
+    msg.className='msg';
+    if(!user){show('Please enter your Customer ID or mobile number.');return}
+    if(!pw){show('Please enter your password.');return}
+    if(pw.length<6){show('Password must be at least 6 characters.');return}
+    const btn=document.getElementById('submitBtn');
+    btn.disabled=true;btn.firstChild.textContent='Verifying…';
+    setTimeout(()=>{
+      show('Welcome back! Opening your vault…',true);
+      setTimeout(()=>{location.href='app.html#dashboard'},500);
+    },800);
+  });
+  function show(text,ok){
+    const msg=document.getElementById('msg');
+    msg.textContent=text;
+    msg.className='msg show'+(ok?' ok':'');
+  }
+</script>
+</body>
+</html>
