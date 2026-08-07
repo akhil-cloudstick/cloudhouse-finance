@@ -1,0 +1,24 @@
+/* Minimal reset only — page-specific visual styles live in login.css and
+   app/app/app.css, ported verbatim from the legacy static site. Keeping this
+   file intentionally thin so it doesn't leak any competing styles into either
+   page's ported CSS. */
+/* Matches legacy/app.css and legacy/index.html's own `*{margin:0;padding:0;
+   box-sizing:border-box}` reset — without it, default browser margins on
+   headings/paragraphs inflate every page's header heights. */
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html,
+body {
+  max-width: 100vw;
+  padding: 0;
+  margin: 0;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
