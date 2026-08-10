@@ -3,6 +3,10 @@
 import { useEffect, useState } from "react";
 import "./app.css";
 import { DataProvider } from "@/lib/DataProvider";
+import { CustomersProvider } from "@/lib/CustomersProvider";
+import { SchemesProvider } from "@/lib/SchemesProvider";
+import { LoansProvider } from "@/lib/LoansProvider";
+import { GoldRatesProvider } from "@/lib/GoldRatesProvider";
 import { ModalProvider } from "@/components/Modal";
 import { ToastProvider } from "@/components/Toast";
 import { Sidebar } from "@/components/Sidebar";
@@ -20,10 +24,13 @@ import { Requests } from "@/components/Requests";
 import { Cash } from "@/components/Cash";
 import { Auctions } from "@/components/Auctions";
 import { Packets } from "@/components/Packets";
+import { PacketDetail } from "@/components/PacketDetail";
 import { BankPledge } from "@/components/BankPledge";
 import { Reports } from "@/components/Reports";
 import { Employees } from "@/components/Employees";
 import { Calendar } from "@/components/Calendar";
+import { Branches } from "@/components/Branches";
+import { Settings } from "@/components/Settings";
 
 /* Route-to-page-component switch, mirroring legacy/app.js's `routes` object
  * (legacy/app.js:83-100). Stage 2B is being delivered page by page — routes
@@ -53,6 +60,8 @@ function View({ route, arg }: { route: string; arg?: string }) {
       return <Auctions />;
     case "packets":
       return <Packets />;
+    case "packet":
+      return <PacketDetail code={arg} />;
     case "bankpledge":
       return <BankPledge />;
     case "reports":
@@ -61,6 +70,10 @@ function View({ route, arg }: { route: string; arg?: string }) {
       return <Employees />;
     case "calendar":
       return <Calendar />;
+    case "branches":
+      return <Branches />;
+    case "settings":
+      return <Settings />;
     case "dashboard":
     default:
       return <Dashboard />;
@@ -80,7 +93,7 @@ function AppShell() {
     <div className="shell">
       <Sidebar route={route} open={sidebarOpen} />
       <div className="main">
-        <Topbar route={route} onBurger={() => setSidebarOpen((v) => !v)} />
+        <Topbar route={route} arg={arg} onBurger={() => setSidebarOpen((v) => !v)} />
         <main className="page" id="view">
           <View route={route} arg={arg} />
         </main>
@@ -92,11 +105,19 @@ function AppShell() {
 export default function AppPage() {
   return (
     <DataProvider>
-      <ToastProvider>
-        <ModalProvider>
-          <AppShell />
-        </ModalProvider>
-      </ToastProvider>
+      <CustomersProvider>
+        <SchemesProvider>
+          <LoansProvider>
+            <GoldRatesProvider>
+              <ToastProvider>
+                <ModalProvider>
+                  <AppShell />
+                </ModalProvider>
+              </ToastProvider>
+            </GoldRatesProvider>
+          </LoansProvider>
+        </SchemesProvider>
+      </CustomersProvider>
     </DataProvider>
   );
 }

@@ -5,6 +5,422 @@ the actual git history at the time of writing; update it as new commits land.
 
 ## [Unreleased]
 ### Added
+- **Gold Packet Management, Barcode/QR & Locker Management** (compliance
+  doc §9–10), delivered end to end:
+  - New `backend/internal/locker/` package (model/repository/service/
+    handler/routes) — real per-branch Locker/Vault CRUD
+    (`GET|POST|PUT|DELETE /api/v1/lockers`, `GET /api/v1/lockers/:id`),
+    replacing `LockerModal.tsx`'s old `localStorage`-backed mock. Occupancy
+    (`occupied`) is derived, never stored — computed via the narrow
+    `locker.PacketCounter` interface (implemented by `packet.Repository`),
+    injected at `main.go`'s wiring level so `internal/locker` never imports
+    `internal/packet`; the reverse capacity/existence check for a lockerId
+    goes through `packet.LockerCapacityProvider` (implemented by
+    `locker.Repository.Capacity`), so neither package imports the other.
+  - New `backend/internal/packet/` package (model/repository/service/
+    handler/routes) — `Packet` + `PacketMovement` with a full stage-
+    transition graph (`Packet Generated → Locker Stored → {Bank Pledged |
+    Ready For Release}`, `Bank Pledged → Returned`, `Returned → {Locker
+    Stored | Ready For Release}`, `Ready For Release → Released`),
+    rejecting any other transition with 400 `ErrInvalidPacketTransition`.
+    `Service.Create(loanID)` auto-generates a `PKT-%06d` code and the first
+    movement row. Endpoints: `GET /api/v1/packets` (filters: `loanId`,
+    `branchId`, `status`, `lockerId`), `GET /api/v1/packets/:id`,
+    `GET /api/v1/packets/by-code/:code` (keyboard-wedge-scanner-compatible
+    lookup — no camera scanning yet), `GET|POST /api/v1/packets/:id/movements`.
+  - `loan.Service` gained two narrow interfaces — `PacketCreator`
+    (`CreatePacketForLoan(loanID) error`, called at the end of `Create()`)
+    and `PacketMover` (`RecordBankPledgeMovement`/`RecordBankReleaseMovement`,
+    called from `RecordBankPledge`/`ReleaseBankPledge` after their own
+    state change succeeds) — both implemented by `packet.Service` and
+    wired in `main.go`. Both are fail-soft: an error logs and the
+    loan-level action still succeeds, since packet tracking is an
+    enrichment, not a hard lending-flow dependency.
+  - Migration: `locker.Locker`, `packet.Packet`, `packet.PacketMovement`
+    added to `backend/cmd/migrate/main.go`'s `AutoMigrate` call and applied
+    against the dev database.
+  - New `frontend/lib/lockerApi.ts` / `frontend/lib/packetApi.ts`, mirroring
+    `branchApi.ts`/`loansApi.ts`'s conventions.
+  - `frontend/components/modals/LockerModal.tsx` rewired from
+    `db.addLocker()` to real `createLocker()`/`updateLocker()`, with
+    Code/Capacity/Branch validation and edit-mode support.
+  - `frontend/components/Packets.tsx` rewritten to read real data
+    (`listPackets()`/`listLockers()`) instead of synthesizing rows from the
+    loan list, plus a manual "Enter or scan packet code" lookup input
+    (`getPacketByCode()`, submits on Enter).
+  - New `frontend/components/PacketDetail.tsx` (routed via `#packet/<code>`)
+    — a 6-stage visual stepper, full movement-history table, and staff
+    action buttons (Check In to Locker with a locker-picker, Check Out,
+    Mark Ready for Release, Mark Released) calling `recordMovement()`.
+  - `frontend/components/NewLoan.tsx`: after `createLoan()` succeeds, fetches
+    the backend-auto-created packet's real Code (`listPackets({loanId})`)
+    and prefers it in `printPacketLabel()`'s QR/label over the previous
+    provisional loan-id-based URL.
+- Added a `phone` field to the `Bank` resource (`backend/internal/bank/`,
+  10-digit format validated server-side, optional) and a new "+ Add Bank"
+  button/modal (`frontend/components/modals/BankModal.tsx`) on the Bank
+  Re-Pledge page for registering a bank's Name, IFSC Code, Branch Address,
+  and Phone Number directly, instead of only via the find-or-create
+  combobox in the Re-Pledge flow. `frontend/lib/bankApi.ts` gained
+  `createBankFull()` for this. Note: per the backend's existing
+  find-or-create semantics, these extra fields are only persisted when a
+  *new* bank name is created — reusing an existing bank name returns that
+  row unchanged.
+- New `backend/internal/bank/` resource (model/repository/service/handler/
+  routes, mirroring `ornamenttype`'s find-or-create layering) — banks are
+  now a real backend-backed reference list instead of free text.
+  `GET|POST /api/v1/banks` (`frontend/lib/bankApi.ts`). RepledgeModal's
+  "Bank" field is now a `SearchableSelect` with `allowCreate` against this
+  endpoint, matching NewLoan.tsx's ornament-type picker UX. `BankPledge.tsx`
+  also gained a "+ New Re-Pledge" button (via a new
+  `SelectLoanForRepledgeModalContent` in `RepledgeModal.tsx`) so a repledge
+  can be started directly from the Bank Re-Pledge page, not only from a
+  loan's own detail page.
+- Cursor-free pagination for `GET /api/v1/customers` and
+  `GET /api/v1/schemes/active`: passing `limit`/`offset` switches the
+  response to `{ "items": [...], "hasMore": bool }` (omitting `limit` keeps
+  the old plain-array response for existing callers). `SearchableSelect`
+  (`frontend/components/SearchableSelect.tsx`) now paginates in fixed pages
+  of 5 with infinite scroll — opening a dropdown with an empty query loads
+  page 0 immediately (a listing, not a debounced search), typing debounces
+  and restarts pagination, and scrolling near the bottom of the open list
+  loads the next page. Wired into `NewLoan.tsx`'s customer
+  (`searchCustomersPage`) and scheme (`searchActiveSchemesPage`) pickers;
+  the ornament-type and bank pickers keep single-page fetches (small
+  reference lists) via `searchOrnamentTypesPage`/`searchBanksPage` wrappers
+  that satisfy the same paginated `fetchFn` contract.
+- `NewLoan.tsx`: staff can now override the auto-computed eligible loan
+  amount with a manual "Loan amount to disburse" figure before submitting.
+- Fixed `NewLoan.tsx` defaulting `custId`/`schemeId` to the first
+  verified customer / active scheme while their `SearchableSelect` labels
+  stayed blank — a loan could be submitted against that hidden default
+  without anyone ever picking a customer or scheme. Both now start empty.
+- Enforced "today's gold rate must be set" before a loan can be created:
+  - Backend: `backend/internal/loan/service.go`'s `Create()` now compares
+    the latest published gold rate's `Date` against the server's current
+    date (`time.Now()`, compared by calendar year/day — `Year()` +
+    `YearDay()`, no explicit timezone conversion beyond whatever the
+    server's local time already is) after the existing
+    `goldrate.Repository.FindLatest()` call. A rate published on an
+    earlier day now fails with a new `ErrGoldRateNotSetToday` ("today's
+    gold rate has not been set yet — please publish it before creating a
+    loan."), mapped to 400 in `handler.go`'s `statusForErr` alongside the
+    existing `ErrNoGoldRate`. Previously any rate — however old — passed
+    this check as long as one existed at all.
+  - `frontend/lib/GoldRatesProvider.tsx`'s `useGoldRates()` now exposes a
+    derived `isTodaySet` boolean (`latest.date === "YYYY-MM-DD"` for
+    today, matching the `new Date().toISOString().slice(0, 10)`
+    convention already used across `Auctions.tsx`/`Cash.tsx`/
+    `Dashboard.tsx`/etc.) — false both when no rate has ever been
+    published and when the newest one is from an earlier day.
+  - Added a `warning` icon to `frontend/lib/icons.tsx`. `Topbar.tsx`'s
+    rate chip now shows it next to the 22K/24K figures whenever
+    `!isTodaySet`, with a tooltip and a click handler that opens the
+    existing `RateModalContent` (`components/modals/RateModal.tsx`) via
+    `useModal()`.
+  - `frontend/components/NewLoan.tsx`: when `!isTodaySet`, an inline
+    banner (styled like the app's existing `.notice` blocks) now renders
+    at the top of the form with its own 24K/22K/18K inputs and a "Save
+    Rate" button that calls the same `publishGoldRate()`
+    (`frontend/lib/goldRateApi.ts`) `RateModal.tsx` uses, reusing its
+    ">0" validation rule and error copy, then calls `refresh()` from
+    `useGoldRates()` so the form unblocks immediately without navigating
+    away. The "Submit for Approval" button is disabled while
+    `!isTodaySet`, and `submitNewLoan()` still guards against the race
+    where the rate goes stale between page load and submit, surfacing
+    the backend's `ErrGoldRateNotSetToday` message via the existing
+    toast error handling.
+- Fully wired the Employees feature onto the real `backend/internal/employee`
+  API, replacing the mock/localStorage-only implementation:
+  - Backend: added a server-side role whitelist (`employee.ValidRoles` in
+    `backend/internal/employee/service.go`, identical to the frontend's
+    `ROLES` constant) enforced in `validateCreate`/`Update` via a new
+    `ErrInvalidRole` (400). Added phone format validation — optional field,
+    but if provided must match `^\d{10}$` (mirrors `BranchModal.tsx`'s
+    10-digit rule; Customer's phone field is required-only with no format
+    regex, so it wasn't the pattern followed here) — via a new
+    `ErrPhoneInvalid` (400). Both new errors mapped to 400 in
+    `handler.go`'s `statusForErr`.
+  - New `frontend/lib/employeeApi.ts` mirroring `branchApi.ts`'s
+    conventions: `listEmployees()`, `getEmployee()`, `createEmployee()`,
+    `updateEmployee()`, `deleteEmployee()`, a `BackendEmployee` raw-JSON
+    type, and an `EmployeeView` UI shape (`branchName` derived from the
+    nested `branch.name`). `updateEmployee()` takes an `EmployeeUpdateInput`
+    that also carries the four performance counters, since the backend's
+    `PUT` overwrites them unconditionally — the frontend now round-trips
+    the employee's current counters instead of resetting them to 0 on
+    every edit.
+  - `frontend/components/modals/EmployeeModal.tsx` now supports both add
+    and edit modes (`employee?: EmployeeView` prop, following
+    `BranchModal.tsx`'s dual-mode convention) and calls
+    `createEmployee`/`updateEmployee` instead of the mock `db.addEmployee()`.
+    Added client-side validation: name (letters only, ≥3 chars, trimmed),
+    role (must be one of `ROLES`), branch (required), and phone (digits
+    stripped as typed, capped at 10, format-checked against `^\d{10}$` if
+    non-empty) — inline error text via the same `err` state / red
+    paragraph pattern as `LockerModal.tsx`/`BranchModal.tsx`.
+  - `frontend/components/Employees.tsx` now fetches employees from the real
+    API (local `useEffect`+state fetch, mirroring `Branches.tsx` — no
+    dedicated Provider needed) instead of `useData()`/`db.employees`, and
+    gained Edit (opens `EmployeeModalContent` pre-filled) and Delete
+    (hard delete via `window.confirm`, matching `Branches.tsx`'s
+    deactivate-confirm UX) row actions.
+  - Left the mock `Employee` type / `db.employees` / `db.addEmployee()` in
+    `frontend/lib/data.ts` in place: `frontend/components/GlobalSearch.tsx`
+    still reads `db.employees` for its search index and was not migrated
+    as part of this change.
+- Wired the Gold Rates page onto the already-complete `backend/internal/goldrate`
+  API (no backend changes were needed — `GET /api/v1/gold-rates`,
+  `GET /api/v1/gold-rates/latest`, `GET /api/v1/gold-rates/:id`, and
+  `POST /api/v1/gold-rates` already existed and were complete):
+  - New `frontend/lib/goldRateApi.ts` (`listGoldRates()`,
+    `getLatestGoldRate()`, `publishGoldRate()`, `GoldRateView` UI shape +
+    `toView(BackendGoldRate)` mapper, mirroring `customersApi.ts`).
+  - New `frontend/lib/GoldRatesProvider.tsx` (mirrors `CustomersProvider.tsx`'s
+    fetch-once-and-refresh Context pattern, exposing `useGoldRates()` ->
+    `{ latest, history, loading, error, refresh }`), mounted in
+    `frontend/app/app/page.tsx` alongside the other providers.
+  - `GoldRates.tsx`, `Topbar.tsx`, `Dashboard.tsx`, and `NewLoan.tsx` now all
+    read the real published rate/history via `useGoldRates()` instead of the
+    mock `db.rates`/`db.rateHistory` (localStorage keys `agf_rates`/
+    `agf_rate_history`).
+  - `RateModal.tsx`'s `save()` now calls the real `POST /gold-rates`
+    endpoint instead of the old `db.saveRates()` (which wrote straight to
+    localStorage with zero validation). Added client-side validation
+    rejecting any of K24/K22/K18 <= 0 (matching the backend's
+    `ErrInvalidRate`), shown via an inline error message (same pattern as
+    `LockerModal.tsx`'s `err` state); backend validation/network errors are
+    also surfaced through the same inline message.
+  - Removed the now-dead mock rate code from `frontend/lib/data.ts`
+    (`Rates`/`RateHistoryEntry` types, `DB.rates`/`DB.rateHistory`/
+    `DB.saveRates`, and the `agf_rates`/`agf_rate_history` localStorage
+    read/write) — nothing else in the codebase referenced it.
+- New `POST /api/v1/loans/:id/auction` endpoint (`backend/internal/loan/`):
+  records `auctionDate`/`auctionAmount`, sets `status: "Auctioned"`, and
+  zeroes `outstandingAmount` in one call. Added to close the gap left by
+  the Loan Module having no way to record an auction outcome.
+- Wired the Loan Module frontend end-to-end onto the real backend API:
+  - `frontend/lib/loansApi.ts` gained `listLoans()`, `getLoan()`,
+    `approveLoan()`, `recordPayment()`, `recordBankPledge()`,
+    `releaseBankPledge()`, `recordAuction()`, `addOrnament()`,
+    `updateOrnament()`, `recordPurityTest()`, and a `LoanView` UI shape +
+    `toView(BackendLoan)` mapper (mirrors `customersApi.ts`'s
+    `CustomerView`/`toView()` pattern). `createLoan()`/`addOrnamentImage()`
+    are unchanged.
+  - New `frontend/lib/LoansProvider.tsx` (mirrors `CustomersProvider.tsx`'s
+    fetch-once-and-refresh Context pattern), mounted in
+    `frontend/app/app/page.tsx` alongside `CustomersProvider`/
+    `SchemesProvider`.
+  - `Loans.tsx`, `LoanDetail.tsx`, `LoanRow.tsx`, `Dashboard.tsx`,
+    `CustomerDetail.tsx`, `GlobalSearch.tsx`, `Auctions.tsx`, and
+    `BankPledge.tsx` now all read/write real loans via `useLoans()` /
+    `loansApi.ts` instead of the mock `db.loans`. `NewLoan.tsx`'s existing
+    `createLoan()` flow is unchanged; it now also calls
+    `useLoans().refresh()` after a successful submit so the new loan shows
+    up immediately in `Loans.tsx`.
+  - `PaymentModal.tsx`, `RepledgeModal.tsx`, and `AuctionModal.tsx` now post
+    to the real payment/bank-pledge/auction endpoints instead of mutating
+    the mock `db`.
+  - Gaps with no backend equivalent, tracked explicitly rather than
+    silently dropped: gold-packet/locker tracking (`Loan.packet`/`.locker`,
+    the "Gold Packet Tracking" card) — lockers stay mock-only, sourced from
+    `frontend/lib/data.ts`, since no backend locker module exists;
+    `db.banks` (a hardcoded bank directory with per-bank exposure totals)
+    — dropped from `BankPledge.tsx`, replaced with a free-text bank-name
+    field matching `BankPledgeRecord.BankName`; the old mock payment
+    "mode" (Bank Transfer/UPI/Cash) — replaced with the backend's payment
+    "type" (Interest/Principal/Partial/Full Settlement), a different axis
+    with no direct mapping; `db.auctions`/`db.approvals` (always-empty mock
+    lists with no way to add rows) — replaced with derived views over real
+    loans filtered by `status`/`approvalStage`. No auth/session exists
+    anywhere in this codebase yet, so `employeeId` on approve/payment calls
+    is hardcoded to `1` on the frontend as a placeholder.
+- Server-side search (`?q=`, case-insensitive partial match via `ILIKE`) on
+  `GET /api/v1/customers` (across `name`/`code`/`phone`) and on
+  `GET /api/v1/schemes` + `GET /api/v1/schemes/active` (across `name`),
+  wired handler → service → repository. `frontend/lib/customersApi.ts` and
+  `frontend/lib/schemesApi.ts` gained `searchCustomers()` /
+  `searchActiveSchemes()` respectively, without touching the existing
+  `listCustomers()`/`listSchemes()` exports.
+- New `internal/ornamenttype` module (mirrors `internal/scheme`'s
+  handler/service/repository/model/routes layering): `OrnamentType{id,
+  name}` backed by an `ornament_types` table. `GET /api/v1/ornament-types`
+  lists/searches by name (`?q=`); `POST /api/v1/ornament-types` trims the
+  given name, rejects empty (400), and finds-or-creates it — returns the
+  existing row (200) on a case-insensitive name match, otherwise creates
+  and returns a new one (201). Registered in `backend/main.go` and added
+  to the `AutoMigrate` list in both `backend/main.go` and
+  `backend/cmd/migrate/main.go`.
+- `frontend/lib/ornamentTypesApi.ts` (new) and `frontend/lib/loansApi.ts`
+  (new): thin `apiFetch`-based clients for the ornament-type and loan-create
+  endpoints, matching the conventions of the existing `*Api.ts` files.
+- `frontend/components/SearchableSelect.tsx` (new): a reusable
+  debounced (~300ms), stale-response-guarded combobox — text input +
+  dropdown backed by a server-side `fetchFn`, with an optional
+  `allowCreate` mode that shows a "+ Create '<query>'" row wired to an
+  `onCreate` callback.
+- `NewLoan.tsx` rewired end-to-end onto real backend calls: the customer
+  and scheme pickers are now `SearchableSelect`s backed by
+  `searchCustomers()`/`searchActiveSchemes()` (customer results still
+  filtered client-side to `panStatus === "Verified" && aadhaarStatus ===
+  "Verified"`); the per-row ornament-type `<select>` is now a
+  `SearchableSelect` in `allowCreate` mode backed by
+  `searchOrnamentTypes()`/`createOrnamentType()`, replacing the old
+  `localStorage`-backed type list and `window.prompt()` "add type" flow
+  entirely. `submitNewLoan()` now calls `loansApi.createLoan()` with a real
+  payload (ornament `purity` mapped to the backend's exact `"24K"/"22K"/
+  "18K"` strings) instead of writing to the mock `db`, then calls
+  `addOrnamentImage()` for any ornament row with a photo, zipping the
+  response's `ornaments` array to the input rows by index (the backend
+  creates and returns ornaments in submission order — see
+  `internal/loan/service.go`'s `Create` and
+  `OrnamentRepository.FindByLoanID`'s `order by id asc`). Errors from the
+  API are toasted via their message instead of silently falling back to
+  the mock db. Since `NewLoan.tsx` had no branch/session context, the
+  branch is picked from a new "Branch" dropdown backed by
+  `listActiveBranches()`, defaulting to the first active branch — the same
+  "fetch active branches, default to first" pattern already used by
+  `EmployeeModal.tsx`/`ExpenseModal.tsx`/`LockerModal.tsx`. **Known gap:**
+  `LoanDetail.tsx`/`Loans.tsx` still read the in-memory mock `db.loans`
+  (string ids like `"GL-1001"`), so navigating to a newly-created real loan
+  by its `loanNumber` will show "Loan not found" until those are wired to
+  the backend loan API too — left as-is per scope, noted with a `// TODO`-
+  style comment in `NewLoan.tsx`.
+- Gold Loan Creation & Ornaments Management (`backend/internal/loan/`) —
+  `Loan`, `Ornament`, `OrnamentPurityTest`, `OrnamentImage`, `LoanApproval`,
+  `LoanPayment`, `BankPledgeRecord`, all Gin + GORM + PostgreSQL, following
+  the vertical-slice pattern of the existing domains. Consumes the
+  already-existing `customer`/`branch`/`scheme`/`goldrate` modules rather
+  than rebuilding any of them.
+  - Valuation: per-ornament `netWeight = grossWeight - deductionWeight`,
+    `goldValue = netWeight × the latest GoldRate field matching the
+    ornament's declared purity`; loan-level
+    `eligibleLoanAmount = totalGoldValue × scheme.ltvPercent / 100`.
+    Operator-chosen `principalAmount` is capped at `eligibleLoanAmount`;
+    `dueDate` is entered manually.
+  - Fixed 3-step sanction-approval chain
+    (`PendingManager → PendingManagement → Approved`, flipping
+    `status` to `"Active"`; `"Rejected"` at any stage closes the loan) via
+    `POST /api/v1/loans/:id/approve`, fully audited in `LoanApproval` rows
+    (actor/stage/timestamp) — **no employee-authority/role check is
+    enforced yet** (deferred to a future access-control middleware); any
+    `employeeId` can call this endpoint today.
+  - `POST /api/v1/loans` hard-requires `customer.kycStatus == "Verified"`
+    (currently always true, since the Customer Module stubs every customer
+    to `"Verified"` at creation — this starts enforcing automatically once
+    that stub is replaced with real verification).
+  - Purity-test results and ornament photos are separate child tables
+    (`OrnamentPurityTest` 1:1, `OrnamentImage` 1:many) rather than fields
+    on `Ornament`, preserving the distinction between pledge-time declared
+    values and later staff-verified ones; photos are uploaded via the
+    existing shared `internal/upload` endpoint (URL-based, not base64).
+  - Payments and bank pledge are lightweight audit tables
+    (`LoanPayment`, `BankPledgeRecord`), not full sub-workflows; auction is
+    tracked only via `auctionDate`/`auctionAmount` fields plus existing
+    status values — no bidding/settlement workflow.
+  - `Loan` carries a real `branchId` FK into `branches` (same pattern as
+    the existing `Customer`/`Employee`/`Expense` models).
+  - Backend-only in this change — not yet wired into `NewLoan.tsx`/
+    `LoanDetail.tsx` (still on the mock data layer); frontend wiring is a
+    tracked follow-up.
+  - See `api_documentation.md` for the new endpoints and JSON shapes.
+
+- **Customer Module — stage 1** (`backend/internal/customer/`,
+  `backend/internal/upload/`) — real, backend-persisted customer
+  registration with an auto-verified KYC status stub (no live
+  verification call yet; see below). Gin + GORM + PostgreSQL, following
+  the vertical-slice pattern of the existing domains.
+  - `Customer` carries a real, required `branchId` FK into `branches`
+    (same `checkBranch` validation pattern as `Employee`), plus PAN
+    (plaintext — needed verbatim for a future Setu PAN-verify call),
+    Aadhaar (AES-256-GCM encrypted at rest via a new `AADHAAR_ENCRYPTION_KEY`
+    — a **separate** key/cipher instance from Settings', generalized out of
+    the existing `platform.Cipher` as `NewCipher`/`NewAadhaarCipher`; only
+    the last-4 digits are ever exposed, the encrypted value never is),
+    photo/identity-proof/address-proof/KYC-document URLs, and optional
+    nominee name/relation/phone.
+  - `kycStatus`/`panStatus`/`aadhaarStatus` are hardcoded `"Verified"` at
+    creation — **explicitly a stage-1 stub**, no Setu/DigiLocker call is
+    made yet. This unblocks New Loan's customer picker (and now the Loan
+    module's `POST /api/v1/loans` KYC gate) for end-to-end testing.
+  - API responses use a `CustomerResponse` DTO — a structurally separate
+    type from the DB model, not just `json:"-"` tags — so the encrypted
+    Aadhaar field has no path onto the wire even if a future field
+    addition forgets to guard it.
+  - New shared `backend/internal/upload` module (`POST /api/v1/uploads`,
+    static-served from `UPLOADS_DIR`, default `./uploads`, gitignored) —
+    used for Customer's own documents and to fix a pre-existing bug where
+    `NewLoan.tsx` stored ornament photos as giant base64 strings in
+    `localStorage` (now uploads and stores a URL instead); a stray,
+    already-dead `agf_orn_photos` localStorage read in `LoanDetail.tsx`
+    was also removed.
+  - `branch/repository.go`'s `CountReferences` (blocks deactivating an
+    in-use branch) now also checks the `customers` table — previously only
+    checked employees/expenses/cash_movements, so a branch with active
+    customers could have been deactivated unguarded.
+  - Frontend: new `frontend/lib/customersApi.ts`, a shared
+    `CustomersProvider`/`useCustomers()` context (mirrors the existing
+    `DataProvider` pattern) mounted in `app/app/page.tsx`, and a full sweep
+    of every remaining mock-`db.customers` consumer (`Customers.tsx`,
+    `CustomerDetail.tsx`, `RegisterCustomerModal.tsx`, `NewLoan.tsx`'s
+    customer picker, `GlobalSearch.tsx`, and the `custOf()` helper's 7 call
+    sites) — nothing customer-related is left on mock data. Also fixed a
+    related latent bug: `schemeOf()`/`db.schemes` were still stale mock
+    reads post-Schemes-wiring; added an equivalent `SchemesProvider` and
+    rewired the same call sites.
+  - Loan/ornament/payment/auction history on `CustomerDetail.tsx` is
+    unchanged (still mock) — that's the Loan module's territory, not this
+    change's.
+  - See `api_documentation.md` and `database_architecture.md` for the new
+    endpoints/table.
+
+- Admin-only **Settings** page (`backend/internal/settings/`) for storing
+  third-party integration API keys — Notifications, SMS, WhatsApp, KYC
+  Verification, Aadhaar Verification, PAN Verification (a fixed set of 6
+  categories, not admin-extensible). Values are encrypted at rest with
+  AES-256-GCM (new `backend/internal/platform/crypto.go` `Cipher`, key
+  from the new `SETTINGS_ENCRYPTION_KEY` env var — falls back to a fixed
+  dev-only key with a startup warning if unset) and are fully retrievable
+  by the admin (no masking) via `GET/PUT/DELETE /api/v1/settings/api-keys[/:category]`.
+  Storage only — no provider is actually called with these keys yet.
+  - Frontend: new `frontend/components/Settings.tsx` +
+    `frontend/lib/settingsApi.ts`, added to the "Administration" nav
+    section next to Branch Management. Added `eye`/`eyeOff`/`gear` icons
+    to `frontend/lib/icons.tsx`.
+  - See `api_documentation.md` and `database_architecture.md` for the new
+    endpoints/table (`api_key_settings`).
+
+- Centralized **Branch Management** (`backend/internal/branch/`) — the
+  first real multi-branch concept in the app. `Branch` (name, code,
+  address, phone, active/inactive) is a real Gin + GORM + PostgreSQL
+  table with full CRUD (`GET/POST/PUT/DELETE /api/v1/branches`); `DELETE`
+  deactivates rather than hard-deletes, and is rejected if the branch
+  still has linked employees/expenses/cash movements. Admin-only by
+  convention — no auth/RBAC exists yet to enforce that server-side.
+  - `Employee` and `Expense` had their free-text `branch` string replaced
+    with a `branch_id` FK into the new `branches` table (validated on
+    create/update); `CashMovement` gained an optional/nullable `branch_id`
+    too. `backend/cmd/migrate/main.go` backfills existing free-text branch
+    values into real `Branch` rows and populates `branch_id` on legacy
+    rows, idempotently.
+  - Frontend: new `frontend/components/Branches.tsx` +
+    `frontend/components/modals/BranchModal.tsx` (a new "Administration"
+    nav section) call the live API directly — the first frontend page to
+    do so, ahead of the general "migrate mock data to real API" effort.
+    `EmployeeModal.tsx` and `ExpenseModal.tsx` now source their branch
+    dropdown from `frontend/lib/branchApi.ts` instead of a hardcoded list,
+    though the employee/expense records themselves are still saved to the
+    mock layer for now.
+  - See `api_documentation.md` and `database_architecture.md` for the new
+    endpoints/table.
+
+### Changed
+- Moved the API entrypoint from `backend/cmd/api/main.go` to `backend/main.go`
+  (removed the now-empty `cmd/api/` directory). `backend/cmd/migrate/main.go`
+  is unaffected. Run with `go run .` (or `go build .`) from `backend/` instead
+  of `go run ./cmd/api`.
+
+### Added
 - Go backend domains: **Gold Rates** (`backend/internal/goldrate/`),
   **Employees** (`backend/internal/employee/`), and **Cash Movements +
   Expenses** (`backend/internal/cash/`) — Gin + GORM + PostgreSQL,

@@ -1,76 +1,63 @@
 "use client";
 
 import { useState } from "react";
-import { useData } from "@/lib/DataProvider";
 import { useModal } from "@/components/Modal";
 import { useToast } from "@/components/Toast";
 import { Icon } from "@/lib/icons";
 import { fmt, fmtW } from "@/lib/format";
-import { printAuctionLetter } from "@/components/Auctions";
+import { recordAuction, type LoanView } from "@/lib/loansApi";
+import { ApiError } from "@/lib/api";
 
-const DEFAULT_VENUE = "Ambika Gold Finance, Koratty Branch";
-
-/* Ported from legacy/app.js's `openAuctionModal()` / `saveAuctionSchedule()`. */
-export function AuctionModalContent({ loan }: { loan: string }) {
-  const { db, refresh } = useData();
-  const { openModal, closeModal } = useModal();
+/* Ported from legacy/app.js's `openAuctionModal()` / `saveAuctionSchedule()`.
+ * The mock version scheduled an auction date/venue as a separate step from
+ * recording the sale outcome (db.auctions was always empty in this
+ * codebase — see Auctions.tsx's notes). Now backed by the real
+ * POST /loans/:id/auction endpoint, which records the auction date and
+ * sale amount together and closes the loan out as "Auctioned" in one step
+ * (no separate "Scheduled" vs "Sold" backend state exists yet). */
+export function AuctionModalContent({ loan, onSaved }: { loan: LoanView; onSaved: () => void }) {
+  const { closeModal } = useModal();
   const toast = useToast();
   const today = new Date().toISOString().slice(0, 10);
 
-  const a = db.auctions.find((x) => x.loan === loan);
-
-  const [date, setDate] = useState(a && a.auctionDate !== "—" ? a.auctionDate : "");
-  const [venue, setVenue] = useState(a?.venue || DEFAULT_VENUE);
+  const [date, setDate] = useState(today);
+  const [amount, setAmount] = useState("");
   const [err, setErr] = useState("");
+  const [saving, setSaving] = useState(false);
 
-  if (!a) { toast("Auction case not found"); return null; }
-
-  function save() {
+  async function save() {
     if (!date) { setErr("Please select the auction date."); return; }
-    const v = venue.trim() || DEFAULT_VENUE;
-    if (!db.updateAuction(loan, { stage: "Auction Scheduled", auctionDate: date, venue: v })) {
-      setErr("Could not save — storage is full.");
-      return;
+    const amt = +amount;
+    if (!amt || amt <= 0) { setErr("Please enter the sale amount."); return; }
+    setSaving(true);
+    try {
+      await recordAuction(loan.numericId, { auctionDate: date, auctionAmount: amt });
+      onSaved();
+      closeModal();
+      toast(`Auction recorded for ${loan.id} — sale amount ${fmt(amt)}`);
+    } catch (e) {
+      setErr(e instanceof ApiError ? e.message : "Could not record the auction — try again.");
+    } finally {
+      setSaving(false);
     }
-    refresh();
-    openModal(<AuctionConfirmModalContent loan={loan} date={date} venue={v} />);
   }
 
   return (
     <>
-      <div className="hd"><h3>Schedule Auction — {a.loan}</h3><button className="x" onClick={closeModal}>×</button></div>
+      <div className="hd"><h3>Record Auction — {loan.id}</h3><button className="x" onClick={closeModal}>×</button></div>
       <div className="bd">
         <div className="notice" style={{ marginBottom: 16 }}>
-          <Icon name="gavel" /> {a.cust} · {fmtW(a.weight)} gold · outstanding <b>{fmt(a.outstanding)}</b> · notice issued {a.notice}
+          <Icon name="gavel" /> {loan.customerName} · {fmtW(loan.totalNetWeight)} gold · outstanding <b>{fmt(loan.outstanding)}</b>
         </div>
         <div className="frow c2">
-          <div><label className="f">Auction Date *</label><input className="inp" type="date" min={today} value={date} onChange={(e) => setDate(e.target.value)} /></div>
-          <div><label className="f">Venue</label><input className="inp" value={venue} onChange={(e) => setVenue(e.target.value)} /></div>
+          <div><label className="f">Auction Date *</label><input className="inp" type="date" value={date} onChange={(e) => setDate(e.target.value)} /></div>
+          <div><label className="f">Sale Amount (₹) *</label><input className="inp" type="number" min={1} value={amount} onChange={(e) => setAmount(e.target.value)} /></div>
         </div>
         <p style={{ color: "var(--red)", fontSize: 12.5, minHeight: 16, marginTop: 8 }}>{err}</p>
       </div>
       <div className="ft">
         <button className="btn ghost" onClick={closeModal}>Cancel</button>
-        <button className="btn" onClick={save}><Icon name="check" /> Schedule Auction</button>
-      </div>
-    </>
-  );
-}
-
-function AuctionConfirmModalContent({ loan, date, venue }: { loan: string; date: string; venue: string }) {
-  const { db } = useData();
-  const { closeModal } = useModal();
-  const toast = useToast();
-
-  return (
-    <>
-      <div className="hd"><h3>Auction Scheduled — {loan}</h3><button className="x" onClick={closeModal}>×</button></div>
-      <div className="bd">
-        <div className="notice"><Icon name="shield" /> Auction scheduled for <b>{date}</b> at <b>{venue}</b>. Print the auction letter to notify the customer.</div>
-      </div>
-      <div className="ft">
-        <button className="btn ghost" onClick={closeModal}>Close</button>
-        <button className="btn" onClick={() => { closeModal(); printAuctionLetter(db, loan, toast); }}><Icon name="doc" /> Print Auction Letter</button>
+        <button className="btn" onClick={save} disabled={saving}><Icon name="check" /> {saving ? "Saving…" : "Record Auction"}</button>
       </div>
     </>
   );

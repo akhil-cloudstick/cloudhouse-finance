@@ -17,13 +17,13 @@ func (r *Repository) Create(e *Employee) error {
 
 func (r *Repository) FindAll() ([]Employee, error) {
 	var employees []Employee
-	err := r.db.Order("id asc").Find(&employees).Error
+	err := r.db.Preload("Branch").Order("id asc").Find(&employees).Error
 	return employees, err
 }
 
 func (r *Repository) FindByID(id uint) (*Employee, error) {
 	var e Employee
-	if err := r.db.First(&e, id).Error; err != nil {
+	if err := r.db.Preload("Branch").First(&e, id).Error; err != nil {
 		return nil, err
 	}
 	return &e, nil

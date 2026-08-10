@@ -1,20 +1,25 @@
 "use client";
 
-import { useRef, useState } from "react";
-import { useData } from "@/lib/DataProvider";
+import { useEffect, useRef, useState } from "react";
 import { useModal } from "@/components/Modal";
 import { useToast } from "@/components/Toast";
 import { Icon } from "@/lib/icons";
 import { fmt } from "@/lib/format";
-import { shrinkImage } from "@/lib/shrinkImage";
-import type { Expense } from "@/lib/data";
+import { ApiError } from "@/lib/api";
+import { listActiveBranches, type BranchView } from "@/lib/branchApi";
+import { createExpense, uploadReceipt, type ExpenseView } from "@/lib/cashApi";
 
-const CATS = ["Rent & Utilities", "Salaries", "Transportation", "Marketing", "Bank Charges", "Maintenance", "Stationery & Office", "Other"];
+const CATS = ["Rent & Utilities", "Salaries", "Transportation", "Marketing", "Bank Charges", "Maintenance", "Stationery & Office", "Legal & Miscellaneous", "Other"];
 const MODES = ["Cash", "UPI", "Bank"];
 
-/* Ported from legacy/app.js's `openExpenseModal()` / `saveExpense()`. */
-export function ExpenseModalContent() {
-  const { db, refresh } = useData();
+/* Ported from legacy/app.js's `openExpenseModal()` / `saveExpense()`. Now
+ * posts to the real POST /expenses endpoint: branch options come from the
+ * Branch Management API, and a chosen receipt file is uploaded via the
+ * shared /uploads endpoint first (see cashApi.ts's uploadReceipt), storing
+ * the returned URL — no more base64 blobs. Recorded expenses always start
+ * "Pending" server-side and go through the approve/reject flow on
+ * Cash.tsx's Expense Register. */
+export function ExpenseModalContent({ onSaved }: { onSaved?: () => void }) {
   const { closeModal } = useModal();
   const toast = useToast();
   const today = new Date().toISOString().slice(0, 10);
@@ -25,24 +30,45 @@ export function ExpenseModalContent() {
   const [date, setDate] = useState(today);
   const [cat, setCat] = useState(CATS[0]);
   const [mode, setMode] = useState(MODES[0]);
+  const [remarks, setRemarks] = useState("");
+  const [branches, setBranches] = useState<BranchView[]>([]);
+  const [branchId, setBranchId] = useState<number | "">("");
   const [err, setErr] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    listActiveBranches().then((list) => {
+      setBranches(list);
+      if (list.length) setBranchId((cur) => cur || list[0].id);
+    }).catch(() => setErr("Could not load branches — try again later."));
+  }, []);
 
   async function save() {
-    const d = desc.trim();
-    if (!d) { setErr("Please enter a description."); return; }
+    const payee = desc.trim();
+    if (!payee) { setErr("Please enter a description."); return; }
     const amount = +amt;
     if (!(amount > 0)) { setErr("Please enter a valid amount."); return; }
     if (!date) { setErr("Please select the date."); return; }
+    if (!branchId) { setErr("Please select a branch."); return; }
 
-    const e: Expense = { d: date, cat, amt: amount, mode, payee: d, branch: "Koratty", status: "Approved" };
-    // legacy always sets payee = desc; the ported Expense type only has `payee`.
-    const file = fileRef.current?.files?.[0];
-    if (file) e.img = await shrinkImage(file);
+    setSaving(true);
+    try {
+      let receiptImage: string | undefined;
+      const file = fileRef.current?.files?.[0];
+      if (file) receiptImage = await uploadReceipt(file);
 
-    if (!db.addExpense(e)) { setErr("Could not save — storage is full."); return; }
-    refresh();
-    closeModal();
-    toast(`Expense of ${fmt(amount)} recorded`);
+      await createExpense({
+        category: cat, amount, mode, payee, branchId,
+        occurredOn: date, remarks: remarks.trim() || undefined, receiptImage,
+      });
+      onSaved?.();
+      closeModal();
+      toast(`Expense of ${fmt(amount)} recorded`);
+    } catch (e) {
+      setErr(e instanceof ApiError ? e.message : "Could not save — try again.");
+    } finally {
+      setSaving(false);
+    }
   }
 
   return (
@@ -65,20 +91,27 @@ export function ExpenseModalContent() {
               {MODES.map((m) => <option key={m}>{m}</option>)}
             </select></div>
         </div>
+        <div className="frow"><div><label className="f">Branch *</label>
+          <select className="inp" value={branchId} onChange={(e) => setBranchId(e.target.value ? Number(e.target.value) : "")}>
+            <option value="">Select branch…</option>
+            {branches.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
+          </select></div></div>
         <div className="frow"><div><label className="f">Receipt / Bill Image</label>
           <input className="inp" type="file" accept="image/*" ref={fileRef} /></div></div>
+        <div className="frow"><div><label className="f">Remarks</label>
+          <textarea className="inp" rows={2} placeholder="Optional notes for the approver" value={remarks} onChange={(e) => setRemarks(e.target.value)} /></div></div>
         <p style={{ color: "var(--red)", fontSize: 12.5, minHeight: 16, marginTop: 8 }}>{err}</p>
       </div>
       <div className="ft">
         <button className="btn ghost" onClick={closeModal}>Cancel</button>
-        <button className="btn" onClick={save}><Icon name="check" /> Record Expense</button>
+        <button className="btn" onClick={save} disabled={saving}><Icon name="check" /> {saving ? "Saving…" : "Record Expense"}</button>
       </div>
     </>
   );
 }
 
 /* Ported from legacy/app.js's `viewExpenseReceipt()`. */
-export function ReceiptViewModalContent({ e }: { e: Expense }) {
+export function ReceiptViewModalContent({ e }: { e: ExpenseView }) {
   const { closeModal } = useModal();
   return (
     <>

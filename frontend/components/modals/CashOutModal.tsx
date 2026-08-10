@@ -1,15 +1,18 @@
 "use client";
 
 import { useState } from "react";
-import { useData } from "@/lib/DataProvider";
 import { useModal } from "@/components/Modal";
 import { useToast } from "@/components/Toast";
 import { Icon } from "@/lib/icons";
 import { fmt } from "@/lib/format";
+import { ApiError } from "@/lib/api";
+import { createCashMovement } from "@/lib/cashApi";
+import { searchBanksPage, createBank, type BackendBank } from "@/lib/bankApi";
+import { SearchableSelect } from "@/components/SearchableSelect";
 
-/* Ported from legacy/app.js's `openCashOutModal()` / `saveCashOut()`. */
-export function CashOutModalContent() {
-  const { db, refresh } = useData();
+/* Ported from legacy/app.js's `openCashOutModal()` / `saveCashOut()` — now
+ * posts to the real POST /cash-movements endpoint. */
+export function CashOutModalContent({ onSaved }: { onSaved?: () => void }) {
   const { closeModal } = useModal();
   const toast = useToast();
   const today = new Date().toISOString().slice(0, 10);
@@ -19,20 +22,25 @@ export function CashOutModalContent() {
   const [amt, setAmt] = useState("");
   const [date, setDate] = useState(today);
   const [err, setErr] = useState("");
+  const [saving, setSaving] = useState(false);
 
-  function save() {
+  async function save() {
     if (!purpose.trim()) { setErr("Please enter the purpose of this cash withdrawal."); return; }
     const amount = +amt;
     if (!(amount > 0)) { setErr("Please enter a valid cash amount."); return; }
     if (!date) { setErr("Please select the date."); return; }
 
-    if (!db.addCashMovement({ d: date, type: "out", purpose: purpose.trim(), bank, amount })) {
-      setErr("Could not save — storage is full.");
-      return;
+    setSaving(true);
+    try {
+      await createCashMovement({ type: "out", purpose: purpose.trim(), bank: bank || undefined, amount, occurredOn: date });
+      onSaved?.();
+      closeModal();
+      toast(`${fmt(amount)} taken out of cash`);
+    } catch (e) {
+      setErr(e instanceof ApiError ? e.message : "Could not save — try again.");
+    } finally {
+      setSaving(false);
     }
-    refresh();
-    closeModal();
-    toast(`${fmt(amount)} taken out of cash`);
   }
 
   return (
@@ -42,10 +50,16 @@ export function CashOutModalContent() {
         <div className="frow"><div><label className="f">Purpose *</label>
           <input className="inp" placeholder="e.g. Bank deposit" value={purpose} onChange={(e) => setPurpose(e.target.value)} /></div></div>
         <div className="frow"><div><label className="f">Bank</label>
-          <select className="inp" value={bank} onChange={(e) => setBank(e.target.value)}>
-            <option value="">— None / not applicable —</option>
-            {db.banks.map((b) => <option key={b.name}>{b.name}</option>)}
-          </select></div></div>
+          <SearchableSelect<BackendBank>
+            value={bank}
+            onChange={(_id, item) => setBank(item.name)}
+            fetchFn={searchBanksPage}
+            getLabel={(b) => b.name}
+            getId={(b) => String(b.id)}
+            placeholder="— None / not applicable —"
+            allowCreate
+            onCreate={createBank}
+          /></div></div>
         <div className="frow c2">
           <div><label className="f">Amount (₹) *</label><input className="inp" type="number" min={1} value={amt} onChange={(e) => setAmt(e.target.value)} /></div>
           <div><label className="f">Date *</label><input className="inp" type="date" value={date} onChange={(e) => setDate(e.target.value)} /></div>
@@ -54,7 +68,7 @@ export function CashOutModalContent() {
       </div>
       <div className="ft">
         <button className="btn ghost" onClick={closeModal}>Cancel</button>
-        <button className="btn" onClick={save}><Icon name="check" /> Take Cash Out</button>
+        <button className="btn" onClick={save} disabled={saving}><Icon name="check" /> {saving ? "Saving…" : "Take Cash Out"}</button>
       </div>
     </>
   );

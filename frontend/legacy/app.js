@@ -1266,7 +1266,7 @@ function renderGoldRates(){
 function renderPackets(){
   view.innerHTML = `
   <div class="page-h">
-    <div><h1>Gold Packets & Lockers</h1><p>Barcode/QR tracked packets · locker allocation & movement</p></div>
+    <div><h1>Gold Packets & Lockers</h1><p></p></div>
     <div class="sp"></div>
     <button class="btn ghost" onclick="toast('Barcode scanner — full build')">${icon('scan')} Scan Packet</button>
     <button class="btn" onclick="openLockerModal()">${icon('plus')} Add Locker</button>

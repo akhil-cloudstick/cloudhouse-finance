@@ -1,21 +1,71 @@
 # Database Architecture
 
-## Current state: four real tables, the rest still mock
+## Current state: real tables, some entities still mock
 A real PostgreSQL database (`ambikagold`) now exists, connected via GORM
-from the Go backend in `backend/`. Four tables are real so far —
-**schemes**, **gold_rates**, **employees**, **cash_movements**, and
-**expenses** (see below); every other entity described in this document
-is still a plain JavaScript/TypeScript object defined in
+from the Go backend in `backend/`. Real tables so far include
+**branches**, **api_key_settings**, **schemes**, **gold_rates**,
+**employees**, **cash_movements**, **expenses**, **customers**, **loans**
+(+ ornaments/approvals/payments/bank pledges), **banks**,
+**ornament_types**, **lockers**, and **packets**/**packet_movements** (see
+below); every other entity described in this document is still a plain
+JavaScript/TypeScript object defined in
 [frontend/lib/data.ts](../frontend/lib/data.ts), seeded in memory and
 persisted to the browser's `localStorage` (per-browser, not shared between
 users/devices) — see the "Migration notes" section for what's still ahead.
-None of the four real tables are wired to the frontend yet; `data.ts`'s
-mock shapes for these entities (below) are still what the UI actually
-reads/writes until that migration batch happens.
+`branches`, `api_key_settings`, `schemes`, and `customers` are wired to
+the frontend (`frontend/components/Branches.tsx`, `Settings.tsx`,
+`Schemes.tsx`, and `Customers.tsx`/`CustomerDetail.tsx`/
+`modals/RegisterCustomerModal.tsx` call their live endpoints directly);
+`data.ts`'s mock shapes for the other entities (below) are still what the
+UI actually reads/writes until that migration batch happens. Uploaded
+files (customer photos/KYC documents, ornament photos) are NOT a database
+table — they're plain files on local disk under `backend/uploads/`,
+served via `internal/upload`; only their URL string is stored in a row.
+
+`employees` and `expenses` carry a real `branch_id` foreign key into
+`branches` (replacing their old free-text `branch` column); `cash_movements`
+carries a nullable `branch_id` too. `customers` also carries a real,
+required `branch_id` FK from the start (see below). Loans/Lockers still
+use a free-text `branch` string in their mock shapes — they're a planned
+future phase to receive a real `branch_id` FK once those entities get
+real backend tables (see "Migration notes").
 
 This document describes the **effective data model** implied by that mock
 layer, intended as the starting point for designing the remaining real
 database schema.
+
+## branches (real table — implemented)
+Defined in `backend/internal/branch/model.go`, migrated via GORM
+`AutoMigrate`. The central table every branch-scoped domain links to.
+
+| Column | Type | Notes |
+|---|---|---|
+| id | uint, PK | auto-increment |
+| name | string, unique | Branch name, e.g. "Koratty" |
+| code | string, unique | Optional short code, e.g. "KOR01" |
+| address | string | Required |
+| phone | string | Optional |
+| is_active | bool | Defaults `true`; `DELETE` sets this to `false` instead of removing the row (rejected with 400 if the branch still has linked employees/expenses/cash movements) |
+| created_at / updated_at / deleted_at | timestamp | standard GORM timestamps + soft delete |
+
+See [api_documentation.md](api_documentation.md) for the live
+`/api/v1/branches` endpoints built on this table.
+
+## api_key_settings (real table — implemented)
+Defined in `backend/internal/settings/model.go`, migrated via GORM
+`AutoMigrate`. Backs the admin-only Settings page — one row per fixed
+integration category, upserted as the admin sets/updates it.
+
+| Column | Type | Notes |
+|---|---|---|
+| id | uint, PK | auto-increment |
+| category | string, unique | One of `notification`, `sms`, `whatsapp`, `kyc_verification`, `aadhaar_verification`, `pan_verification` — a fixed, not admin-extensible, list |
+| name | string | Admin's own free-text label for the key, e.g. "Twilio prod key" |
+| encrypted_value | text | AES-256-GCM ciphertext (base64), never stored or logged in plaintext — see `internal/platform.Cipher` and `SETTINGS_ENCRYPTION_KEY` in `.env.example` |
+| created_at / updated_at | timestamp | standard GORM timestamps |
+
+See [api_documentation.md](api_documentation.md) for the live
+`/api/v1/settings/api-keys` endpoints built on this table.
 
 ## schemes (real table — implemented)
 Defined in `backend/internal/scheme/model.go`, migrated via GORM
@@ -67,7 +117,7 @@ Defined in `backend/internal/employee/model.go`, migrated via GORM
 | code | string, unique | generated display code, e.g. `EMP-01` |
 | name | string | Employee name |
 | role | string | Role (Administrator, Branch Manager, etc.) |
-| branch | string | Branch assigned |
+| branch_id | uint, FK → branches.id | Required; replaces the old free-text `branch` column |
 | phone | string | Optional |
 | loans_processed | int | Performance counter — starts at 0, admin-editable via `PUT` |
 | collections | float64 | Performance counter — starts at 0, admin-editable via `PUT` |
@@ -91,6 +141,7 @@ Defined in `backend/internal/cash/model.go`, migrated via GORM
 | bank | string | Required when `source = "Loan"` |
 | amount | float64 | Must be `> 0` |
 | status | string | `"Open"`/`"Closed"` — only set for loan-sourced cash-in |
+| branch_id | uint, nullable FK → branches.id | Optional — not every cash movement is tied to a till yet |
 | occurred_on | timestamp | Movement date |
 | created_at | timestamp | standard GORM timestamp |
 
@@ -109,7 +160,7 @@ Defined in `backend/internal/cash/model.go`, migrated via GORM
 | amount | float64 | Must be `> 0` |
 | mode | string | Payment mode, required |
 | payee | string | Required |
-| branch | string | Required |
+| branch_id | uint, FK → branches.id | Required; replaces the old free-text `branch` column |
 | status | string | Always `"Pending"` on create — no approve/reject workflow yet |
 | receipt_image | text | Optional base64 data URL — no object storage wired yet, see architecture.md's File Uploads note |
 | created_at | timestamp | standard GORM timestamp |
@@ -117,9 +168,92 @@ Defined in `backend/internal/cash/model.go`, migrated via GORM
 See [api_documentation.md](api_documentation.md) for the live
 `/api/v1/expenses` endpoints built on this table.
 
+## customers (real table — implemented)
+Defined in `backend/internal/customer/model.go`, migrated via GORM
+`AutoMigrate`. Supersedes the mock `customers` shape below. **Stage 1 —
+no live verification**: `kyc_status`/`pan_status`/`aadhaar_status` are
+hardcoded `"Verified"` at creation (see model-level comment); this
+unblocks downstream flows (New Loan's customer picker) for testing, but
+is not a real KYC result yet.
+
+| Column | Type | Notes |
+|---|---|---|
+| id | uint, PK | auto-increment |
+| code | string, unique | Server-generated, `CUST-01` style |
+| name | string | Required |
+| phone | string | Required |
+| dob | timestamp | Optional |
+| address | string | Optional |
+| branch_id | uint, FK → branches.id | Required |
+| photo_url | string | URL from `POST /api/v1/uploads`, optional |
+| identity_proof_url | string | URL from `POST /api/v1/uploads`, optional |
+| address_proof_url | string | URL from `POST /api/v1/uploads`, optional |
+| kyc_document_url | string | URL from `POST /api/v1/uploads`, optional |
+| pan | string | Plaintext — needed verbatim for a future Setu PAN-verify call |
+| aadhaar_last4 | string(4) | Plaintext, display only |
+| aadhaar_encrypted | text | AES-256-GCM ciphertext (`AADHAAR_ENCRYPTION_KEY`) — the full Aadhaar number is **never** stored in plaintext, and this column is **never** returned by any API response (see `CustomerResponse` in api_documentation.md) |
+| nominee_name / nominee_relation / nominee_phone | string | Optional |
+| kyc_status / pan_status / aadhaar_status | string | Hardcoded `"Verified"` at creation — stage-1 stub, see above |
+| created_at / updated_at | timestamp | standard GORM timestamps |
+
+See [api_documentation.md](api_documentation.md) for the live
+`/api/v1/customers` endpoints built on this table, and
+`/api/v1/uploads` for how the `*_url` columns are populated.
+
+## lockers (real table — implemented)
+Defined in `backend/internal/locker/model.go`. Supersedes the mock
+`lockers` shape below (the old `localStorage`-backed `agf_lockers` list).
+
+| Column | Type | Notes |
+|---|---|---|
+| id | uint, PK | auto-increment |
+| code | string, unique | e.g. `LKR-B2` |
+| branch_id | uint, FK → branches.id | Required |
+| capacity | int | Required, > 0 |
+| is_active | bool | default `true` |
+| created_at / updated_at / deleted_at | timestamp | GORM soft-delete via `deleted_at` |
+
+`occupied` (current packet count) is intentionally **not** a column — it's
+derived at read time by counting `packets` rows with `current_locker_id`
+= this locker and `status = 'Locker Stored'`. See
+`locker.PacketCounter`/`packet.LockerCapacityProvider` in
+api_documentation.md's Lockers/Packets sections for how the two tables
+cross-reference each other's row-counts without either Go package
+importing the other.
+
+## packets / packet_movements (real tables — implemented)
+Defined in `backend/internal/packet/model.go`. Supersedes the mock
+`packets` shape below (which was never actually populated — `Packets.tsx`
+used to synthesize fake rows from the loan list).
+
+**packets**
+
+| Column | Type | Notes |
+|---|---|---|
+| id | uint, PK | auto-increment |
+| code | string, unique | Server-generated, `PKT-000001` style |
+| loan_id | uint, FK → loans.id, indexed | Required — one loan can have more than one packet row over time (e.g. a replacement), but at most one is "active" (non-`Released`) at a time |
+| status | string(30) | `Packet Generated` \| `Locker Stored` \| `Bank Pledged` \| `Returned` \| `Ready For Release` \| `Released` |
+| current_locker_id | uint, nullable | Set only while `status = 'Locker Stored'` |
+| created_at / updated_at | timestamp | standard GORM timestamps |
+
+**packet_movements** — the full audit trail of every stage transition.
+
+| Column | Type | Notes |
+|---|---|---|
+| id | uint, PK | auto-increment |
+| packet_id | uint, FK → packets.id, indexed | Required |
+| from_status | string(30) | Empty on the first row (packet creation) |
+| to_status | string(30) | Required |
+| locker_id | uint, nullable | Set for check-in/check-out transitions |
+| actor_employee_id | uint | `0` for movements auto-triggered by a loan's bank-pledge/release action; a real employee id for staff-driven transitions |
+| remarks | string(255) | Optional |
+| created_at | timestamp | Movement timestamp |
+
 ## localStorage keys
 Mutations are persisted under keys such as: `agf_rates`, `agf_schemes`,
-`agf_new_customers`, and similar `agf_*` keys per entity.
+and similar `agf_*` keys per entity. (`agf_new_customers` was removed —
+customers are fully real now, see "customers (real table)" above.)
 
 ## Entities
 
@@ -155,21 +289,13 @@ above) replaces `duration` with `start_date`/`end_date` and adds `code`.
 | cond | Conditions/terms text |
 | active | Whether scheme is active |
 
-### customers
-| Field | Description |
-|---|---|
-| id | Customer ID |
-| name | Full name |
-| phone | Phone number |
-| dob | Date of birth |
-| addr | Address |
-| pan | PAN number (KYC) |
-| aadhaar | Aadhaar number (KYC) |
-| kyc | KYC status/documents |
-| photo | Photo reference |
-| branch | Branch assigned |
-| loans[] | List of associated loan IDs |
-| since | Customer-since date |
+### customers — mock shape, superseded
+This mock shape no longer exists in `data.ts` — replaced entirely by the
+real `customers` table (see "customers (real table)" above). Kept here
+only as a historical reference for the fields the old prototype used
+(`addr`→`address`, `kyc`→`kyc_status`, `branch`→`branch_id`, `loans[]` was
+never actually a stored column, and `since` was dropped — use
+`created_at`).
 
 ### loans
 | Field | Description |
@@ -196,7 +322,10 @@ Array of `{ n (name), purity, gross, net, qty, val }` per loan.
 Array of `{ d (date), desc, debit, credit, mode, ref }` — transaction history
 per loan.
 
-### packets
+### packets — mock shape, superseded
+Superseded by the real `packets`/`packet_movements` tables — see
+"packets / packet_movements (real tables — implemented)" above.
+
 | Field | Description |
 |---|---|
 | id | Packet ID |
@@ -208,7 +337,10 @@ per loan.
 | status | Packet status |
 | qr | QR code data/reference |
 
-### lockers
+### lockers — mock shape, superseded
+Superseded by the real `lockers` table — see "lockers (real table —
+implemented)" above.
+
 | Field | Description |
 |---|---|
 | id | Locker ID |
@@ -297,16 +429,25 @@ the plain `id` with a server-generated `code` and adds `phone`.
 Keyed by day-of-month → array of `{ t (title), c (category: due/over/fup/pay) }`.
 
 ## Mutator functions (`window.DB`)
-`saveRates`, `addCustomer`, `saveSchemes`, `addLoan`, `saveLockers`,
+`saveRates`, `saveSchemes`, `addLoan`, `saveLockers`,
 `addPayment`, `addCashMovement`, `setCashLoanStatus`, `addExpense`,
-`addEmployee`, `updateLoan`, `updateAuction`.
+`addEmployee`, `updateLoan`, `updateAuction`. (`addCustomer` was removed —
+customers are fully real now, via `lib/customersApi.ts`'s `createCustomer`.)
 
 ## Migration notes for a real database
 When implementing a real backend, this mock model suggests the following
-relational tables (rough sketch): `customers`, `loans` (FK → customers,
-schemes), `schemes`, `ornaments` (FK → loans), `ledger_entries` (FK → loans),
-`packets` (FK → loans, lockers), `lockers`, `expenses`, `cash_movements`,
+relational tables (rough sketch): `customers` (FK → branches) — **done**,
+`loans` (FK → customers, schemes), `schemes`, `ornaments` (FK → loans),
+`ledger_entries` (FK → loans), `packets` (FK → loans, lockers),
+`lockers` (FK → branches), `expenses`, `cash_movements`,
 `requests` (FK → loans, customers), `approvals` (FK → loans), `auctions`
 (FK → loans), `banks`/`bank_pledges`, `employees`, `gold_rates`,
 `gold_rate_history`, `calendar_events`. Exact keys/types/constraints should
 be finalized when the real schema is designed.
+
+`branches`, `employees`, `expenses`, `cash_movements`, and `customers` are
+now real tables (see above) — `lockers` is next in line for a `branch_id`
+FK once it gets a real backend table; for now its mock shape's `branch`
+field is still a free-text string (see the "lockers" entity section
+above), though the UI's branch dropdown already sources its options from
+the real `/api/v1/branches` list.

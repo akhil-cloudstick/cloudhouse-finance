@@ -3,21 +3,42 @@
 > **Status:** this document describes the **planned production architecture**
 > (per the CloudHouse Gold Loan Management proposal). A real Go backend has
 > now been started under `backend/` (Gin + GORM + PostgreSQL, db
-> `ambikagold`) with four domain modules implemented end-to-end —
-> `internal/scheme` (loan schemes), `internal/goldrate` (gold rates),
-> `internal/employee` (employees), and `internal/cash` (cash movements +
-> expenses); see [api_documentation.md](api_documentation.md) and
-> [database_architecture.md](database_architecture.md) for what's live
-> today. The Go binary (`cmd/api`) also now serves the built Next.js
+> `ambikagold`) with eight domain modules implemented end-to-end —
+> `internal/branch` (centralized branch management), `internal/settings`
+> (integration API key storage), `internal/scheme` (loan schemes),
+> `internal/goldrate` (gold rates), `internal/employee` (employees),
+> `internal/cash` (cash movements + expenses), `internal/customer`
+> (Customer Module, stage 1 — see below), `internal/upload` (shared
+> file-upload endpoint), `internal/loan` (Gold Loan Creation & Ornaments
+> Management), and `internal/ornamenttype` (a small find-or-create
+> reference-data resource for ornament type names, backing `NewLoan.tsx`'s
+> ornament-type picker); see [api_documentation.md](api_documentation.md)
+> and [database_architecture.md](database_architecture.md) for what's live
+> today. The Go binary (`backend/main.go`) also now serves the built Next.js
 > export (`frontend/out`) on the same port, via `internal/webstatic`,
 > replacing `backend/server.mjs`'s role — the "single port, no reverse
 > proxy" design below is realized, even though most domains behind it are
-> still mock data. None of the four live domains are wired to the
-> frontend yet (built and verified independently via curl first, per the
-> Sequencing section below). All other domains listed below are still not
-> started; the frontend remains a UI prototype against a mock data layer
-> for everything except these four. See
-> [project_overview.md](project_overview.md) for the full picture.
+> still mock data. Of the eight live domains, `branch`, `settings`,
+> `scheme`, and `customer` are wired to the frontend so far
+> (`frontend/components/Branches.tsx`, `Settings.tsx`, `Schemes.tsx`, and
+> `Customers.tsx`/`CustomerDetail.tsx`/`modals/RegisterCustomerModal.tsx`
+> call their real APIs directly; the rest were built and verified
+> independently via curl first, per the Sequencing section below).
+> Employees and Expenses reference a branch via `branch_id` but still save
+> their own records to the mock layer; Customer carries a real `branch_id`
+> too and is fully real end-to-end. Branch Management, Settings, and the
+> Customer Module are admin-only by convention only — no auth/RBAC exists
+> yet to enforce that server-side (see the Authentication section below).
+> Settings' API keys (Notifications/SMS/WhatsApp/KYC/Aadhaar/PAN) are
+> encrypted at rest but are storage-only — nothing calls those providers
+> with them yet. The Customer Module's `kycStatus`/`panStatus`/
+> `aadhaarStatus` are likewise a stage-1 stub — hardcoded `"Verified"` at
+> creation, no live Setu/DigiLocker call yet, but each customer's Aadhaar
+> number itself IS genuinely encrypted at rest (AES-256-GCM, a separate
+> key from Settings') and never returned by the API. All other domains
+> listed below are still not started; the frontend remains a UI prototype
+> against a mock data layer for everything except these.
+> See [project_overview.md](project_overview.md) for the full picture.
 
 ## Overview
 Ambika Gold Finance is a single Go backend service, serving both the REST
@@ -143,11 +164,11 @@ See [context.md](context.md) for provider selection status.
 The `frontend/` folder has already been scaffolded as a real Next.js app
 (migrated off the old flat HTML/JS prototype, which now lives under
 `legacy/`). `backend/` now has a real Go module started, with four
-domains implemented (`scheme`, `goldrate`, `employee`, `cash`) and the Go
+domains implemented (`branch`, `settings`, `scheme`, `goldrate`, `employee`, `cash`) and the Go
 binary itself serving the built frontend (see "Planned" tree below for
 the full target shape — the actual tree today is a subset of it).
-`server.mjs` still exists in the repo but is superseded — `cmd/api` now
-serves `frontend/out` directly.
+`server.mjs` still exists in the repo but is superseded — the Go binary
+(`backend/main.go`) now serves `frontend/out` directly.
 
 ```
 gold-app/
@@ -155,12 +176,14 @@ gold-app/
 │   ├── server.mjs                    # superseded: legacy static file server (Node), kept for reference
 │   ├── go.mod / go.sum
 │   ├── .env.example
+│   ├── main.go                        # Go REST API + static frontend server bootstrap (:8080)
 │   ├── cmd/
-│   │   ├── api/main.go                # Go REST API + static frontend server bootstrap (:8080)
 │   │   └── migrate/main.go            # standalone AutoMigrate runner
 │   └── internal/
 │       ├── platform/                  # config + GORM/postgres connection
 │       ├── webstatic/                 # serves frontend/out (clean URLs, SPA-style), replaces server.mjs
+│       ├── branch/                    # centralized branch management — implemented
+│       ├── settings/                  # integration API key storage (encrypted at rest) — implemented
 │       ├── scheme/                    # loan scheme CRUD — implemented
 │       │   ├── model.go
 │       │   ├── repository.go
@@ -212,6 +235,7 @@ gold-app/
 │   │       └── main.go               # app bootstrap (:8080)
 │   ├── internal/
 │   │   ├── auth/                     # login, JWT, OTP, RBAC middleware
+│   │   ├── branch/                   # centralized branch management
 │   │   ├── customer/                 # registration, KYC, verification
 │   │   ├── scheme/                   # loan scheme CRUD
 │   │   ├── goldrate/                 # daily rate entry + history

@@ -16,26 +16,28 @@ import (
 )
 
 var mimeTypes = map[string]string{
-	".html": "text/html; charset=utf-8",
-	".css":  "text/css",
-	".js":   "text/javascript",
-	".mjs":  "text/javascript",
-	".json": "application/json",
-	".jpeg": "image/jpeg",
-	".jpg":  "image/jpeg",
-	".png":  "image/png",
-	".svg":  "image/svg+xml",
-	".ico":  "image/x-icon",
-	".woff": "font/woff",
+	".html":  "text/html; charset=utf-8",
+	".css":   "text/css",
+	".js":    "text/javascript",
+	".mjs":   "text/javascript",
+	".json":  "application/json",
+	".jpeg":  "image/jpeg",
+	".jpg":   "image/jpeg",
+	".png":   "image/png",
+	".svg":   "image/svg+xml",
+	".ico":   "image/x-icon",
+	".woff":  "font/woff",
 	".woff2": "font/woff2",
-	".txt":  "text/plain",
+	".txt":   "text/plain",
 }
 
 // Handler serves files out of root, resolving Next.js "clean URL" style
 // paths the same way a static host would:
-//   /            -> index.html
-//   /app         -> app.html (or app/index.html)
-//   /whatever.js -> whatever.js (exact asset)
+//
+//	/            -> index.html
+//	/app         -> app.html (or app/index.html)
+//	/whatever.js -> whatever.js (exact asset)
+//
 // Falls back to 404.html (if present) for anything unresolved.
 type Handler struct {
 	root string

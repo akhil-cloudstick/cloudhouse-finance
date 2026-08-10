@@ -17,15 +17,30 @@ func (r *Repository) Create(s *Scheme) error {
 	return r.db.Create(s).Error
 }
 
-func (r *Repository) FindAll() ([]Scheme, error) {
+func (r *Repository) FindAll(query string) ([]Scheme, error) {
 	var schemes []Scheme
-	err := r.db.Order("id asc").Find(&schemes).Error
+	q := r.db.Order("id asc")
+	if query != "" {
+		q = q.Where("name ILIKE ?", "%"+query+"%")
+	}
+	err := q.Find(&schemes).Error
 	return schemes, err
 }
 
-func (r *Repository) FindActive() ([]Scheme, error) {
+// FindActive mirrors customer.Repository.FindAll's pagination convention:
+// limit == 0 returns every active scheme unpaged (the full Loan Schemes
+// page's behaviour); limit > 0 applies Limit/Offset (the paginated
+// SearchableSelect in NewLoan.tsx).
+func (r *Repository) FindActive(query string, limit, offset int) ([]Scheme, error) {
 	var schemes []Scheme
-	err := r.db.Where("is_active = ?", true).Order("id asc").Find(&schemes).Error
+	q := r.db.Where("is_active = ?", true).Order("id asc")
+	if query != "" {
+		q = q.Where("name ILIKE ?", "%"+query+"%")
+	}
+	if limit > 0 {
+		q = q.Limit(limit).Offset(offset)
+	}
+	err := q.Find(&schemes).Error
 	return schemes, err
 }
 

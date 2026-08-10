@@ -1,34 +1,48 @@
 "use client";
 
 import { useState } from "react";
-import { useData } from "@/lib/DataProvider";
+import { useGoldRates } from "@/lib/GoldRatesProvider";
 import { useModal } from "@/components/Modal";
 import { useToast } from "@/components/Toast";
 import { Icon } from "@/lib/icons";
+import { publishGoldRate } from "@/lib/goldRateApi";
+import { ApiError } from "@/lib/api";
 
-/* Ported from legacy/app.js's `openRateModal()` / `saveRate()`. */
+/* Ported from legacy/app.js's `openRateModal()` / `saveRate()`. Now posts to
+ * the real /gold-rates backend (see backend/internal/goldrate) instead of
+ * db.saveRates()'s unvalidated localStorage write. */
 export function RateModalContent() {
-  const { db, refresh } = useData();
+  const { latest, refresh } = useGoldRates();
   const { closeModal } = useModal();
   const toast = useToast();
 
-  const [r24, setR24] = useState(String(db.rates.k24));
-  const [r22, setR22] = useState(String(db.rates.k22));
-  const [r18, setR18] = useState(String(db.rates.k18));
+  const [r24, setR24] = useState(String(latest.k24 || ""));
+  const [r22, setR22] = useState(String(latest.k22 || ""));
+  const [r18, setR18] = useState(String(latest.k18 || ""));
   const [remarks, setRemarks] = useState("");
+  const [err, setErr] = useState("");
+  const [saving, setSaving] = useState(false);
 
-  function save() {
-    const r = {
-      date: new Date().toISOString().slice(0, 10),
-      k24: +r24 || db.rates.k24,
-      k22: +r22 || db.rates.k22,
-      k18: +r18 || db.rates.k18,
-      setBy: "Rajesh Menon",
-    };
-    db.saveRates(r);
-    refresh();
-    closeModal();
-    toast("Gold rate published for today");
+  async function save() {
+    const k24 = +r24;
+    const k22 = +r22;
+    const k18 = +r18;
+    if (!(k24 > 0) || !(k22 > 0) || !(k18 > 0)) {
+      setErr("K24, K22 and K18 rates must all be greater than zero.");
+      return;
+    }
+    setErr("");
+    setSaving(true);
+    try {
+      await publishGoldRate({ k24, k22, k18, setBy: latest.setBy && latest.setBy !== "—" ? latest.setBy : "Admin" });
+      refresh();
+      closeModal();
+      toast("Gold rate published for today");
+    } catch (e) {
+      setErr(e instanceof ApiError ? e.message : "Could not publish rate — try again");
+    } finally {
+      setSaving(false);
+    }
   }
 
   return (
@@ -44,10 +58,11 @@ export function RateModalContent() {
           <div><label className="f">18K · 750 (₹/g)</label><input className="inp" type="number" value={r18} onChange={(e) => setR18(e.target.value)} /></div>
         </div>
         <div className="frow"><div><label className="f">Remarks (optional)</label><input className="inp" placeholder="e.g. MCX morning reference" value={remarks} onChange={(e) => setRemarks(e.target.value)} /></div></div>
+        <p style={{ color: "var(--red)", fontSize: 12.5, minHeight: 16, marginTop: 8 }}>{err}</p>
       </div>
       <div className="ft">
         <button className="btn ghost" onClick={closeModal}>Cancel</button>
-        <button className="btn" onClick={save}><Icon name="check" /> Publish Rate</button>
+        <button className="btn" onClick={save} disabled={saving}><Icon name="check" /> {saving ? "Publishing…" : "Publish Rate"}</button>
       </div>
     </>
   );

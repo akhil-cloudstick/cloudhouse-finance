@@ -1,79 +1,61 @@
 "use client";
 
 import { useState } from "react";
-import { useData } from "@/lib/DataProvider";
 import { useModal } from "@/components/Modal";
 import { useToast } from "@/components/Toast";
 import { Icon } from "@/lib/icons";
 import { fmt } from "@/lib/format";
+import { recordPayment, type LoanView } from "@/lib/loansApi";
+import { ApiError } from "@/lib/api";
 
-/* Ported from legacy/app.js's `openPaymentModal()` / `pmModeChanged()` /
- * `savePayment()`. */
-export function PaymentModalContent({ loanId }: { loanId: string }) {
-  const { db, refresh } = useData();
+/* Ported from legacy/app.js's `openPaymentModal()` / `savePayment()`. Now
+ * posts to the real POST /loans/:id/payments endpoint instead of the mock
+ * db's local ledger. */
+export function PaymentModalContent({ loan, onSaved }: { loan: LoanView; onSaved: () => void }) {
   const { closeModal } = useModal();
   const toast = useToast();
-
-  const l = db.loans.find((x) => x.id === loanId);
   const today = new Date().toISOString().slice(0, 10);
 
-  const [mode, setMode] = useState("");
-  const [bank, setBank] = useState("");
-  const [txn, setTxn] = useState("");
+  const [type, setType] = useState("");
   const [amt, setAmt] = useState("");
   const [date, setDate] = useState(today);
   const [err, setErr] = useState("");
+  const [saving, setSaving] = useState(false);
 
-  if (!l) { toast("Loan not found"); return null; }
-
-  function save() {
-    if (!mode) { setErr("Please select a payment mode."); return; }
-    let desc = "Payment received";
-    let ref = "PAY-" + String(Date.now()).slice(-4);
-    if (mode === "Bank Transfer") {
-      if (!bank) { setErr("Please select the bank the transfer was received in."); return; }
-      desc = "Payment received — " + bank;
-    }
-    if (mode === "UPI") {
-      const t = txn.trim().toUpperCase();
-      if (!t) { setErr("Please enter the UPI transaction ID."); return; }
-      ref = t;
-    }
+  async function save() {
+    if (!type) { setErr("Please select a payment type."); return; }
     const amount = +amt;
     if (!amount || amount <= 0) { setErr("Please enter a valid payment amount."); return; }
     if (!date) { setErr("Please select the payment date."); return; }
-    const entry = { d: date, desc, debit: 0, credit: amount, mode, ref };
-    if (!db.addPayment(loanId, entry)) { setErr("Could not save the payment — storage is full."); return; }
-    refresh();
-    closeModal();
-    toast(`Payment of ${fmt(amount)} recorded (${mode})`);
+    setSaving(true);
+    try {
+      // No auth/session exists yet — see LoanDetail.tsx's note on employeeId 1.
+      await recordPayment(loan.numericId, { amount, type, paidOn: date, employeeId: 1 });
+      onSaved();
+      closeModal();
+      toast(`Payment of ${fmt(amount)} recorded (${type})`);
+    } catch (e) {
+      setErr(e instanceof ApiError ? e.message : "Could not record the payment — try again.");
+    } finally {
+      setSaving(false);
+    }
   }
 
   return (
     <>
-      <div className="hd"><h3>Record Payment — {l.id}</h3><button className="x" onClick={closeModal}>×</button></div>
+      <div className="hd"><h3>Record Payment — {loan.id}</h3><button className="x" onClick={closeModal}>×</button></div>
       <div className="bd">
         <div className="notice" style={{ marginBottom: 16 }}>
-          <Icon name="coin" /> Current outstanding: <b>{l.outstanding ? fmt(l.outstanding) : "—"}</b>
+          <Icon name="coin" /> Current outstanding: <b>{loan.outstanding ? fmt(loan.outstanding) : "—"}</b>
         </div>
-        <div className="frow"><div><label className="f">Payment Mode *</label>
-          <select className="inp" value={mode} onChange={(e) => setMode(e.target.value)}>
-            <option value="">Select payment mode…</option>
-            <option>Bank Transfer</option>
-            <option>UPI</option>
-            <option>Cash</option>
+        <div className="frow"><div><label className="f">Payment Type *</label>
+          <select className="inp" value={type} onChange={(e) => setType(e.target.value)}>
+            <option value="">Select payment type…</option>
+            <option>Interest</option>
+            <option>Principal</option>
+            <option>Partial</option>
+            <option>Full Settlement</option>
           </select></div></div>
-        {mode === "Bank Transfer" && (
-          <div className="frow"><div><label className="f">Bank *</label>
-            <select className="inp" value={bank} onChange={(e) => setBank(e.target.value)}>
-              <option value="">Select bank…</option>
-              {db.banks.map((b) => <option key={b.name}>{b.name}</option>)}
-            </select></div></div>
-        )}
-        {mode === "UPI" && (
-          <div className="frow"><div><label className="f">UPI Transaction ID *</label>
-            <input className="inp" placeholder="e.g. 417229038511" style={{ textTransform: "uppercase" }} value={txn} onChange={(e) => setTxn(e.target.value)} /></div></div>
-        )}
         <div className="frow c2">
           <div><label className="f">Amount (₹) *</label><input className="inp" type="number" min={1} placeholder="e.g. 5000" value={amt} onChange={(e) => setAmt(e.target.value)} /></div>
           <div><label className="f">Payment Date *</label><input className="inp" type="date" value={date} onChange={(e) => setDate(e.target.value)} /></div>
@@ -82,7 +64,7 @@ export function PaymentModalContent({ loanId }: { loanId: string }) {
       </div>
       <div className="ft">
         <button className="btn ghost" onClick={closeModal}>Cancel</button>
-        <button className="btn" onClick={save}><Icon name="check" /> Record Payment</button>
+        <button className="btn" onClick={save} disabled={saving}><Icon name="check" /> {saving ? "Recording…" : "Record Payment"}</button>
       </div>
     </>
   );

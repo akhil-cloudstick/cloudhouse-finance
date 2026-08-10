@@ -1,48 +1,56 @@
 "use client";
 
 import { useState } from "react";
-import { useData } from "@/lib/DataProvider";
 import { useModal } from "@/components/Modal";
 import { useToast } from "@/components/Toast";
 import { Icon } from "@/lib/icons";
+import { createScheme, updateScheme, type SchemeView } from "@/lib/schemesApi";
 
-const DURATIONS = ["3 months", "6 months", "9 months", "12 months", "18 months", "24 months"];
+const DURATIONS = [3, 6, 9, 12, 18, 24];
 const METHODS = ["Monthly simple interest", "Flat monthly", "Quarterly simple", "Compound monthly"];
 
 /* Ported from legacy/app.js's `openSchemeModal(id)` / `saveScheme(id)`
- * (legacy/app.js:1154-1219). */
-export function SchemeModalContent({ schemeId }: { schemeId?: string }) {
-  const { db, refresh } = useData();
+ * (legacy/app.js:1154-1219). Now calls the Go backend (`POST`/`PUT
+ * /api/v1/schemes`) instead of writing to the localStorage mock store. */
+export function SchemeModalContent({ scheme: s, onSaved }: { scheme?: SchemeView; onSaved: () => void }) {
   const { closeModal } = useModal();
   const toast = useToast();
 
-  const s = schemeId ? db.schemes.find((x) => x.id === schemeId) : undefined;
-
   const [name, setName] = useState(s?.name || "");
   const [rate, setRate] = useState(s ? String(s.rate) : "");
-  const [duration, setDuration] = useState(s?.duration || DURATIONS[3]);
+  const [duration, setDuration] = useState(s?.durationMonths || DURATIONS[3]);
   const [ltv, setLtv] = useState(s ? String(s.ltv) : "");
   const [method, setMethod] = useState(s?.method || METHODS[0]);
-  const [penal, setPenal] = useState(s && s.penal != null ? String(s.penal) : "");
+  const [penal, setPenal] = useState(s ? String(s.penal) : "");
   const [cond, setCond] = useState(s?.cond || "");
   const [active, setActive] = useState(s ? s.active : true);
   const [err, setErr] = useState("");
+  const [saving, setSaving] = useState(false);
 
-  function save() {
+  async function save() {
     const n = name.trim();
     const r = parseFloat(rate);
     const l = parseInt(ltv, 10);
+    const p = parseFloat(penal);
     if (n.length < 3) { setErr("Please enter a scheme name."); return; }
     if (!(r > 0)) { setErr("Please enter a valid interest rate."); return; }
     if (!(l >= 1 && l <= 90)) { setErr("LTV must be between 1 and 90%."); return; }
-    const p = parseFloat(penal);
     if (!(p >= 0 && p <= 10)) { setErr("Please enter penal charges between 0 and 10% per month."); return; }
 
-    const vals = { name: n, rate: r, ltv: l, penal: p, duration, method, cond: cond.trim() || "—", active };
-    db.upsertScheme(schemeId || null, vals);
-    refresh();
-    closeModal();
-    toast(schemeId ? `Scheme "${n}" updated` : `Scheme "${n}" created`);
+    const input = { name: n, rate: r, durationMonths: duration, ltv: l, penal: p, method, cond: cond.trim(), active };
+    setSaving(true);
+    setErr("");
+    try {
+      if (s) await updateScheme(s.id, input);
+      else await createScheme(input);
+      onSaved();
+      closeModal();
+      toast(s ? `Scheme "${n}" updated` : `Scheme "${n}" created`);
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : "Failed to save scheme.");
+    } finally {
+      setSaving(false);
+    }
   }
 
   return (
@@ -55,8 +63,8 @@ export function SchemeModalContent({ schemeId }: { schemeId?: string }) {
         </div>
         <div className="frow c2">
           <div><label className="f">Loan Duration *</label>
-            <select className="inp" value={duration} onChange={(e) => setDuration(e.target.value)}>
-              {DURATIONS.map((d) => <option key={d}>{d}</option>)}
+            <select className="inp" value={duration} onChange={(e) => setDuration(Number(e.target.value))}>
+              {DURATIONS.map((d) => <option key={d} value={d}>{d} months</option>)}
             </select></div>
           <div><label className="f">LTV (%) *</label><input className="inp" type="number" min={1} max={90} placeholder="max 90" value={ltv} onChange={(e) => setLtv(e.target.value)} /></div>
         </div>
@@ -80,7 +88,7 @@ export function SchemeModalContent({ schemeId }: { schemeId?: string }) {
       </div>
       <div className="ft">
         <button className="btn ghost" onClick={closeModal}>Cancel</button>
-        <button className="btn" onClick={save}><Icon name="check" /> {s ? "Save Changes" : "Create Scheme"}</button>
+        <button className="btn" onClick={save} disabled={saving}><Icon name="check" /> {saving ? "Saving…" : s ? "Save Changes" : "Create Scheme"}</button>
       </div>
     </>
   );

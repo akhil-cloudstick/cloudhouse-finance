@@ -2,9 +2,12 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useData } from "@/lib/DataProvider";
+import { useCustomers } from "@/lib/CustomersProvider";
+import { useSchemes } from "@/lib/SchemesProvider";
+import { useLoans } from "@/lib/LoansProvider";
 import { Icon } from "@/lib/icons";
 import { StatusChip } from "./StatusChip";
-import { custOf, fmt, schemeOf } from "@/lib/format";
+import { fmt } from "@/lib/format";
 
 type ResultRow = { href: string; ic: string; t: string; s: string; chip: string | null };
 type ResultGroup = [string, ResultRow[]];
@@ -13,6 +16,9 @@ type ResultGroup = [string, ResultRow[]];
  * keyboard nav, `/` shortcut, click-outside-to-close). */
 export default function GlobalSearch() {
   const { db } = useData();
+  const { customers } = useCustomers();
+  const { schemes } = useSchemes();
+  const { loans } = useLoans();
   const [query, setQuery] = useState("");
   const [open, setOpen] = useState(false);
   const [sel, setSel] = useState(-1);
@@ -24,31 +30,31 @@ export default function GlobalSearch() {
     const hit = (s?: string) => (s || "").toLowerCase().includes(needle);
     const groups: ResultGroup[] = [];
 
-    const loans = db.loans
-      .filter((l) => hit(l.id) || hit(custOf(db, l.cust).name) || hit(l.status))
+    const loanHits = loans
+      .filter((l) => hit(l.id) || hit(l.customerName) || hit(l.status))
       .slice(0, 5)
       .map((l) => ({
         href: "#loan/" + l.id,
         ic: "list",
-        t: l.id + " — " + custOf(db, l.cust).name,
-        s: schemeOf(db, l.scheme).name + " · " + fmt(l.principal),
+        t: l.id + " — " + l.customerName,
+        s: l.schemeName + " · " + fmt(l.principal),
         chip: l.status,
       }));
-    if (loans.length) groups.push(["Loans", loans]);
+    if (loanHits.length) groups.push(["Loans", loanHits]);
 
-    const custs = db.customers
-      .filter((c) => hit(c.name) || hit(c.id) || hit(c.phone) || hit(c.addr))
+    const custs = customers
+      .filter((c) => hit(c.name) || hit(c.id) || hit(c.phone) || hit(c.address))
       .slice(0, 5)
       .map((c) => ({
         href: "#customer/" + c.id,
         ic: "user",
         t: c.name,
-        s: c.id + " · " + c.phone + " · " + c.branch,
-        chip: c.kyc,
+        s: c.code + " · " + c.phone + " · " + c.branchName,
+        chip: c.kycStatus,
       }));
     if (custs.length) groups.push(["Customers", custs]);
 
-    const schs = db.schemes
+    const schs = schemes
       .filter((s) => hit(s.name) || hit(s.id))
       .slice(0, 4)
       .map((s) => ({

@@ -1,6 +1,6 @@
 "use client";
 
-import { useData } from "@/lib/DataProvider";
+import { useGoldRates } from "@/lib/GoldRatesProvider";
 import { useModal } from "@/components/Modal";
 import { RateModalContent } from "@/components/modals/RateModal";
 import { Icon } from "@/lib/icons";
@@ -16,9 +16,11 @@ function RateTile({ k, r }: { k: string; r: number }) {
   );
 }
 
-/* Ported from legacy/app.js's `renderGoldRates()` / `rateTile()`. */
+/* Ported from legacy/app.js's `renderGoldRates()` / `rateTile()`. Now backed
+ * by the real /gold-rates API via GoldRatesProvider instead of the mock
+ * db.rates/db.rateHistory localStorage pair. */
 export function GoldRates() {
-  const { db } = useData();
+  const { latest, history } = useGoldRates();
   const { openModal } = useModal();
 
   return (
@@ -32,9 +34,9 @@ export function GoldRates() {
       </div>
       <hr className="gold-rule" />
       <div className="rates3" style={{ maxWidth: 720, marginBottom: 20 }}>
-        <RateTile k="24K · 999" r={db.rates.k24} />
-        <RateTile k="22K · 916" r={db.rates.k22} />
-        <RateTile k="18K · 750" r={db.rates.k18} />
+        <RateTile k="24K · 999" r={latest.k24} />
+        <RateTile k="22K · 916" r={latest.k22} />
+        <RateTile k="18K · 750" r={latest.k18} />
       </div>
       <div className="card">
         <div className="hd"><h3>Rate History</h3></div>
@@ -44,13 +46,13 @@ export function GoldRates() {
               <tr><th>Date</th><th className="num">24K ₹/g</th><th className="num">22K ₹/g</th><th className="num">18K ₹/g</th><th>Published By</th></tr>
             </thead>
             <tbody>
-              {db.rateHistory.map((r, i) => (
-                <tr key={i}>
+              {history.map((r) => (
+                <tr key={r.id}>
                   <td>{r.date}</td>
                   <td className="num">{fmt(r.k24)}</td>
                   <td className="num">{fmt(r.k22)}</td>
                   <td className="num">{fmt(r.k18)}</td>
-                  <td>{r.by}</td>
+                  <td>{r.setBy}</td>
                 </tr>
               ))}
             </tbody>

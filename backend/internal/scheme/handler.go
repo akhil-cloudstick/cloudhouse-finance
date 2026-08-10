@@ -101,7 +101,7 @@ func (h *Handler) Create(c *gin.Context) {
 }
 
 func (h *Handler) List(c *gin.Context) {
-	rec, err := h.svc.List()
+	rec, err := h.svc.List(c.Query("q"))
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -109,13 +109,34 @@ func (h *Handler) List(c *gin.Context) {
 	c.JSON(http.StatusOK, rec)
 }
 
+// ListActive mirrors customer.Handler.List's pagination convention: plain
+// array when `limit` is absent (unchanged for existing callers), {items,
+// hasMore} envelope when present (the paginated SearchableSelect in
+// NewLoan.tsx).
 func (h *Handler) ListActive(c *gin.Context) {
-	rec, err := h.svc.ListActive()
+	limit, _ := strconv.Atoi(c.Query("limit"))
+	offset, _ := strconv.Atoi(c.Query("offset"))
+
+	if limit <= 0 {
+		rec, err := h.svc.ListActive(c.Query("q"), 0, 0)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		c.JSON(http.StatusOK, rec)
+		return
+	}
+
+	rec, err := h.svc.ListActive(c.Query("q"), limit+1, offset)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
-	c.JSON(http.StatusOK, rec)
+	hasMore := len(rec) > limit
+	if hasMore {
+		rec = rec[:limit]
+	}
+	c.JSON(http.StatusOK, gin.H{"items": rec, "hasMore": hasMore})
 }
 
 func (h *Handler) ListInactive(c *gin.Context) {

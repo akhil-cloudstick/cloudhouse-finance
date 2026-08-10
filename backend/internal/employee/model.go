@@ -6,6 +6,8 @@ import (
 	"time"
 
 	"gorm.io/gorm"
+
+	"ambikagold/backend/internal/branch"
 )
 
 // Employee represents a staff member and their running performance
@@ -15,7 +17,8 @@ type Employee struct {
 	Code           string         `json:"code" gorm:"uniqueIndex;size:20"`
 	Name           string         `json:"name" gorm:"not null;size:120"`
 	Role           string         `json:"role" gorm:"not null;size:60"`
-	Branch         string         `json:"branch" gorm:"not null;size:80"`
+	BranchID       uint           `json:"branchId" gorm:"not null"`
+	Branch         branch.Branch  `json:"branch" gorm:"foreignKey:BranchID"`
 	Phone          string         `json:"phone" gorm:"size:20"`
 	LoansProcessed int            `json:"loansProcessed"`
 	Collections    float64        `json:"collections"`

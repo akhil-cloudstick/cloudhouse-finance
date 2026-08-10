@@ -29,6 +29,10 @@ export const NAV: [string, [string, string, string][]][] = [
     ["cash", "Cash & Expenses", "coin"],
     ["employees", "Employees & Roles", "user"],
   ]],
+  ["Administration", [
+    ["branches", "Branch Management", "bank"],
+    ["settings", "Settings", "gear"],
+  ]],
 ];
 
 export function Sidebar({ route, open }: { route: string; open: boolean }) {

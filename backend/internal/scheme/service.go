@@ -7,13 +7,13 @@ import (
 )
 
 var (
-	ErrNotFound       = errors.New("scheme not found")
-	ErrInvalidDates   = errors.New("end date must be after start date")
-	ErrInvalidLTV     = errors.New("ltv percent must be between 0 and 100")
-	ErrInvalidRate    = errors.New("interest rate must be non-negative")
-	ErrOutsideWindow  = errors.New("scheme cannot be activated outside its validity window")
-	ErrInvalidWeight  = errors.New("gold weight must be greater than zero")
-	ErrInvalidGoldRt  = errors.New("gold rate must be greater than zero")
+	ErrNotFound      = errors.New("scheme not found")
+	ErrInvalidDates  = errors.New("end date must be after start date")
+	ErrInvalidLTV    = errors.New("ltv percent must be between 0 and 100")
+	ErrInvalidRate   = errors.New("interest rate must be non-negative")
+	ErrOutsideWindow = errors.New("scheme cannot be activated outside its validity window")
+	ErrInvalidWeight = errors.New("gold weight must be greater than zero")
+	ErrInvalidGoldRt = errors.New("gold rate must be greater than zero")
 )
 
 // CreateInput / UpdateInput mirror the fields an admin supplies when
@@ -34,11 +34,11 @@ type UpdateInput = CreateInput
 
 // CalculationResult is returned by the loan-eligibility calculator.
 type CalculationResult struct {
-	GoldWeight       float64 `json:"goldWeight"`
-	GoldRate         float64 `json:"goldRate"`
-	GrossGoldValue   float64 `json:"grossGoldValue"`
-	LTVPercent       float64 `json:"ltvPercent"`
-	EligibleLoanAmt  float64 `json:"eligibleLoanAmount"`
+	GoldWeight      float64 `json:"goldWeight"`
+	GoldRate        float64 `json:"goldRate"`
+	GrossGoldValue  float64 `json:"grossGoldValue"`
+	LTVPercent      float64 `json:"ltvPercent"`
+	EligibleLoanAmt float64 `json:"eligibleLoanAmount"`
 }
 
 // Service implements loan-scheme business rules on top of the Repository.
@@ -100,12 +100,12 @@ func (s *Service) Create(in CreateInput) (*Scheme, error) {
 	return rec, nil
 }
 
-func (s *Service) List() ([]Scheme, error) {
-	return s.repo.FindAll()
+func (s *Service) List(query string) ([]Scheme, error) {
+	return s.repo.FindAll(query)
 }
 
-func (s *Service) ListActive() ([]Scheme, error) {
-	return s.repo.FindActive()
+func (s *Service) ListActive(query string, limit, offset int) ([]Scheme, error) {
+	return s.repo.FindActive(query, limit, offset)
 }
 
 func (s *Service) ListInactive() ([]Scheme, error) {
@@ -176,8 +176,9 @@ func (s *Service) ToggleActive(id uint) (*Scheme, error) {
 }
 
 // Calculate applies the scheme's LTV to a given gold weight/rate:
-//   Gold Weight × Applicable Gold Rate = Gross Gold Value
-//   Gross Gold Value × Scheme LTV       = Eligible Loan Amount
+//
+//	Gold Weight × Applicable Gold Rate = Gross Gold Value
+//	Gross Gold Value × Scheme LTV       = Eligible Loan Amount
 func (s *Service) Calculate(id uint, goldWeight, goldRate float64) (*CalculationResult, error) {
 	rec, err := s.repo.FindByID(id)
 	if err != nil {

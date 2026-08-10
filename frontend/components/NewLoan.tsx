@@ -3,92 +3,180 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { toDataURL } from "qrcode";
 import { useData } from "@/lib/DataProvider";
+import { useCustomers } from "@/lib/CustomersProvider";
+import { useSchemes } from "@/lib/SchemesProvider";
+import { useLoans } from "@/lib/LoansProvider";
+import { useGoldRates } from "@/lib/GoldRatesProvider";
 import { useModal } from "@/components/Modal";
 import { useToast } from "@/components/Toast";
 import { Icon } from "@/lib/icons";
 import { fmt, custOf, schemeOf } from "@/lib/format";
-import { shrinkImage } from "@/lib/shrinkImage";
+import { uploadFile, searchCustomersPage, type CustomerView } from "@/lib/customersApi";
+import { searchActiveSchemesPage, type SchemeView } from "@/lib/schemesApi";
+import { searchOrnamentTypesPage, createOrnamentType, type BackendOrnamentType } from "@/lib/ornamentTypesApi";
+import { createLoan, addOrnamentImage } from "@/lib/loansApi";
+import { listPackets } from "@/lib/packetApi";
+import { publishGoldRate } from "@/lib/goldRateApi";
+import { listActiveBranches, type BranchView } from "@/lib/branchApi";
+import { SearchableSelect } from "@/components/SearchableSelect";
 import { openPrintWindow } from "@/lib/print";
+import { ApiError } from "@/lib/api";
 import type { Ornament } from "@/lib/data";
 
-const ORN_TYPES_KEY = "agf_ornament_types";
-const DEFAULT_ORN_TYPES = ["Gold Chain", "Necklace", "Bangle", "Ring", "Earring Set", "Bracelet", "Pendant"];
 const PURITY_LABEL: Record<string, string> = { k24: "24K", k22: "22K", k18: "18K" };
 
 type OrnRow = { n: string; p: "k24" | "k22" | "k18"; w: number; q: number; img?: string; imgName?: string };
 
-/* Ported from legacy/app.js's `renderNewLoan()` (legacy/app.js:845-1151). */
+/* Ported from legacy/app.js's `renderNewLoan()` (legacy/app.js:845-1151).
+ * Customer/scheme/ornament-type pickers now hit the real backend search
+ * endpoints (via SearchableSelect) instead of filtering an in-memory mock
+ * list or a localStorage-backed type list. */
 export function NewLoan() {
   const { db, refresh } = useData();
+  const { customers } = useCustomers();
+  const { schemes } = useSchemes();
+  const { refresh: refreshLoans } = useLoans();
+  const { latest: rates, isTodaySet, refresh: refreshGoldRates } = useGoldRates();
   const { openModal, closeModal } = useModal();
   const toast = useToast();
+
+  // Inline "Set today's gold rate" recovery form (see the banner rendered
+  // below) — lets staff resolve a missing/stale rate without leaving this
+  // page, reusing RateModal.tsx's own validation rules and the same
+  // publishGoldRate() call it makes.
+  const [rateR24, setRateR24] = useState("");
+  const [rateR22, setRateR22] = useState("");
+  const [rateR18, setRateR18] = useState("");
+  const [rateErr, setRateErr] = useState("");
+  const [rateSaving, setRateSaving] = useState(false);
+
+  async function saveTodayRate() {
+    const k24 = +rateR24;
+    const k22 = +rateR22;
+    const k18 = +rateR18;
+    if (!(k24 > 0) || !(k22 > 0) || !(k18 > 0)) {
+      setRateErr("K24, K22 and K18 rates must all be greater than zero.");
+      return;
+    }
+    setRateErr("");
+    setRateSaving(true);
+    try {
+      await publishGoldRate({ k24, k22, k18, setBy: rates.setBy && rates.setBy !== "—" ? rates.setBy : "Admin" });
+      refreshGoldRates();
+      setRateR24(""); setRateR22(""); setRateR18("");
+      toast("Gold rate published for today");
+    } catch (e) {
+      setRateErr(e instanceof ApiError ? e.message : "Could not publish rate — try again");
+    } finally {
+      setRateSaving(false);
+    }
+  }
 
   const provId = useMemo(
     () => "GL-" + (Math.max(0, ...db.loans.map((l) => +String(l.id).slice(3) || 0)) + 1),
     [db.loans]
   );
 
-  const verifiedCustomers = db.customers.filter((c) => c.kyc === "Verified");
-  const activeSchemes = db.schemes.filter((s) => s.active);
   const activeLockers = db.lockers.filter((k) => k.status === "Active");
 
-  const [custId, setCustId] = useState(verifiedCustomers[0]?.id || "");
-  const [schemeId, setSchemeId] = useState(activeSchemes[0]?.id || "");
+  // Deliberately NOT defaulted to the first verified customer/active scheme — the
+  // SearchableSelect fields below start blank (custLabel/schemeLabel === "")
+  // to match, so staff must actively pick from the dropdown. Defaulting
+  // custId to the first verified customer while its label stayed blank used
+  // to let a loan submit against that hidden default without anyone ever
+  // selecting a customer.
+  const [custId, setCustId] = useState("");
+  const [custLabel, setCustLabel] = useState("");
+  const [schemeId, setSchemeId] = useState("");
+  const [schemeLabel, setSchemeLabel] = useState("");
   const [lockerId, setLockerId] = useState("");
-  const [rows, setRows] = useState<OrnRow[]>([
-    { n: "Gold Chain", p: "k22", w: 12.5, q: 1 },
-    { n: "Bangle", p: "k22", w: 8.2, q: 2 },
-  ]);
-  const [ornTypes, setOrnTypes] = useState<string[]>(DEFAULT_ORN_TYPES);
+  const [rows, setRows] = useState<OrnRow[]>([]);
+  // Staff can override the disbursed principal instead of always taking the
+  // scheme-LTV-computed eligible amount as-is (e.g. rounding down, or
+  // sanctioning less than the max eligible). Empty string means "use the
+  // eligible amount" — the field is re-blanked whenever the eligible amount
+  // itself changes so a stale manual figure never silently outlives the
+  // ornaments/scheme it was computed against.
+  const [principalOverride, setPrincipalOverride] = useState("");
   const fileRefs = useRef<(HTMLInputElement | null)[]>([]);
 
+  // NewLoan.tsx has no branch/session context of its own — there's no
+  // auth/session provider anywhere in this codebase yet (see other
+  // components' `listActiveBranches()` + "pick the first one" pattern in
+  // EmployeeModal.tsx/ExpenseModal.tsx/LockerModal.tsx). Mirroring that,
+  // this defaults to the first active branch; a real branch/session
+  // context should replace this once one exists.
+  const [branches, setBranches] = useState<BranchView[]>([]);
+  const [branchId, setBranchId] = useState<number | "">("");
+  const [submitting, setSubmitting] = useState(false);
+  // Real Packet.Code, fetched right after loan creation succeeds (the
+  // backend auto-creates the loan's tracking packet — see
+  // loan.PacketCreator) — printPacketLabel() prefers this over the
+  // provisional provId-based URL once it's known.
+  const [createdPacketCode, setCreatedPacketCode] = useState<string | null>(null);
+
   useEffect(() => {
-    try {
-      const stored = JSON.parse(window.localStorage.getItem(ORN_TYPES_KEY) || "null");
-      if (Array.isArray(stored) && stored.length) setOrnTypes(stored);
-    } catch { /* ignore */ }
+    listActiveBranches()
+      .then((list) => {
+        setBranches(list);
+        if (list.length) setBranchId((cur) => (cur === "" ? list[0].id : cur));
+      })
+      .catch(() => toast("Could not load branches — try again later."));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const sch = db.schemes.find((s) => s.id === schemeId);
+  async function searchVerifiedCustomers(q: string, page: number): Promise<{ items: CustomerView[]; hasMore: boolean }> {
+    const result = await searchCustomersPage(q, page);
+    // Filtering verified-only client-side after the page loads means a
+    // page can legitimately come back short (or empty) even when hasMore
+    // is true — that's fine, the next scroll-triggered page keeps going.
+    return { items: result.items.filter((c) => c.panStatus === "Verified" && c.aadhaarStatus === "Verified"), hasMore: result.hasMore };
+  }
 
-  const rowVals = rows.map((r) => r.w * r.q * db.rates[r.p]);
+  const sch = schemes.find((s) => s.id === schemeId);
+
+  const rowVals = rows.map((r) => r.w * r.q * rates[r.p]);
   const totalWeight = rows.reduce((s, r) => s + r.w * r.q, 0);
   const totalGross = rowVals.reduce((s, v) => s + v, 0);
   const eligible = sch ? (totalGross * sch.ltv) / 100 : 0;
+  const principal = principalOverride.trim() ? Math.max(0, +principalOverride) : Math.round(eligible);
+
+  // Clear a stale manual override whenever the eligible amount it was based
+  // on changes (ornaments edited, scheme swapped, rates refreshed) — the
+  // field falls back to showing the new eligible amount as a placeholder
+  // rather than silently keeping an amount computed against different gold.
+  const roundedEligible = Math.round(eligible);
+  useEffect(() => {
+    setPrincipalOverride("");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [roundedEligible]);
 
   function addOrnRow(pre?: OrnRow) {
-    setRows((rs) => [...rs, pre || { n: "Gold Chain", p: "k22", w: 10, q: 1 }]);
+    // Ornament type starts blank — it must be explicitly picked (or created)
+    // via the SearchableSelect below, never silently defaulted.
+    setRows((rs) => [...rs, pre || { n: "", p: "k22", w: 0, q: 1 }]);
   }
   function delOrnRow(i: number) {
     setRows((rs) => rs.filter((_, idx) => idx !== i));
   }
   function updOrn<K extends keyof OrnRow>(i: number, k: K, v: OrnRow[K]) {
-    setRows((rs) => rs.map((r, idx) => (idx === i ? { ...r, [k]: v } : r)));
-  }
-
-  function ornTypeChanged(i: number, value: string) {
-    if (value !== "__add__") { updOrn(i, "n", value); return; }
-    const name = (window.prompt("New ornament type:") || "").trim();
-    if (!name) return;
-    const existing = ornTypes.find((t) => t.toLowerCase() === name.toLowerCase());
-    if (existing) {
-      toast(`"${existing}" already exists`);
-      updOrn(i, "n", existing);
-    } else {
-      const next = [...ornTypes, name];
-      setOrnTypes(next);
-      window.localStorage.setItem(ORN_TYPES_KEY, JSON.stringify(next));
-      updOrn(i, "n", name);
-      toast(`Ornament type "${name}" added`);
-    }
+    // Weight/qty can never go negative, however the value arrives (native
+    // spinner decrement past 0, typed "-", pasted value, etc.) — clamp here
+    // centrally rather than trusting each call site.
+    const clamped = (k === "w" || k === "q") && typeof v === "number" ? (Math.max(0, v) as OrnRow[K]) : v;
+    setRows((rs) => rs.map((r, idx) => (idx === i ? { ...r, [k]: clamped } : r)));
   }
 
   async function ornImgPicked(i: number, input: HTMLInputElement) {
     const f = input.files?.[0];
     if (!f) return;
     if (!f.type.startsWith("image/")) { toast("Please choose an image file"); input.value = ""; return; }
-    const url = await shrinkImage(f);
-    setRows((rs) => rs.map((r, idx) => (idx === i ? { ...r, img: url, imgName: f.name } : r)));
+    try {
+      const url = await uploadFile(f);
+      setRows((rs) => rs.map((r, idx) => (idx === i ? { ...r, img: url, imgName: f.name } : r)));
+    } catch {
+      toast("Could not upload photo — try again");
+    }
   }
   function delOrnImg(i: number) {
     setRows((rs) => rs.map((r, idx) => {
@@ -109,12 +197,17 @@ export function NewLoan() {
     );
   }
 
+  // TODO: buildDraft()/print* functions build their own Ornament shape
+  // straight from `rows` (not from any backend response), so they stay
+  // consistent even though submitNewLoan() now posts to the real loan API —
+  // no rewrite needed here, but note this if createLoan()'s ornament shape
+  // ever changes and rows are adjusted to match it more closely.
   function buildDraft() {
-    const c = custOf(db, custId);
-    const s = schemeOf(db, schemeId);
+    const c = custOf(customers, custId);
+    const s = schemeOf(schemes, schemeId);
     let weight = 0, gross = 0;
     const orns: Ornament[] = rows.filter((r) => r.w > 0 && r.q > 0).map((r) => {
-      const v = r.w * r.q * db.rates[r.p];
+      const v = r.w * r.q * rates[r.p];
       weight += r.w * r.q; gross += v;
       return { n: r.n, purity: PURITY_LABEL[r.p], gross: r.w, net: r.w, qty: r.q, val: Math.round(v), img: r.img };
     });
@@ -130,7 +223,7 @@ export function NewLoan() {
       <table>
         <tr><th style="width:110px">Loan No</th><td>${provId}</td><th style="width:110px">Date</th><td>${new Date().toLocaleDateString("en-IN")}</td></tr>
         <tr><th>Customer</th><td>${d.c.name} (${d.c.id})</td><th>Phone</th><td>${"phone" in d.c ? d.c.phone : "—"}</td></tr>
-        <tr><th>Address</th><td>${"addr" in d.c ? d.c.addr : "—"}</td><th>Branch</th><td>${"branch" in d.c ? d.c.branch : "—"}</td></tr>
+        <tr><th>Address</th><td>${"address" in d.c ? d.c.address : "—"}</td><th>Branch</th><td>${"branchName" in d.c ? d.c.branchName : "—"}</td></tr>
         <tr><th>Scheme</th><td>${d.sch.name} @ ${d.sch.rate}% p.a. (LTV ${d.sch.ltv}%)</td>
             <th>Locker</th><td>${d.locker ? d.locker.id + " — " + d.locker.branch : "Not assigned"}</td></tr>
       </table>
@@ -143,14 +236,14 @@ export function NewLoan() {
           <tr><th colspan="3">Total</th><th class="num">${d.weight.toFixed(1)}</th><th></th><th class="num">${fmt(d.gross)}</th><th></th></tr>
         </tbody>
       </table>
-      <p><b>Eligible loan amount: ${fmt(d.eligible)}</b> &nbsp;<span class="muted">(at today's published rates — 22K ${fmt(db.rates.k22)}/g)</span></p>
+      <p><b>Eligible loan amount: ${fmt(d.eligible)}</b> &nbsp;<span class="muted">(at today's published rates — 22K ${fmt(rates.k22)}/g)</span></p>
       <div class="sig"><div><span>Customer Signature</span></div><div><span>Cashier</span></div><div><span>Branch Manager</span></div></div>`,
       toast);
   }
 
   function printIndemnity(lang: "en" | "gu" | "hi") {
     const d = buildDraft();
-    const c = d.c as { name?: string; dob?: string; addr?: string; branch?: string; phone?: string };
+    const c = d.c as { name?: string; dob?: string; address?: string; branchName?: string; phone?: string };
     const now = new Date();
     const dd = String(now.getDate()).padStart(2, "0");
     const mm = String(now.getMonth() + 1).padStart(2, "0");
@@ -163,9 +256,9 @@ export function NewLoan() {
       openPrintWindow("વળતર બોન્ડ — " + provId, `
         <h1>વળતર બોન્ડ (INDEMNITY BOND)</h1>
         <p>તારીખ: ${dd} / ${mm} / 20${yy}</p>
-        <p>પ્રતિ,<br>શાખા વ્યવસ્થાપકશ્રી,<br>અંબિકા ગોલ્ડ ફાઇનાન્સ (NBFC)<br>${c.branch || B} શાખા</p>
+        <p>પ્રતિ,<br>શાખા વ્યવસ્થાપકશ્રી,<br>અંબિકા ગોલ્ડ ફાઇનાન્સ (NBFC)<br>${c.branchName || B} શાખા</p>
         <p><b>વિષય: ગોલ્ડ લોન એકાઉન્ટ નં. ${provId} અંગે વળતર બોન્ડ</b></p>
-        <p>હું/અમે, શ્રી/શ્રીમતી <b>${c.name || B}</b>, ઉંમર <b>${age}</b> વર્ષ, રહેવાસી <b>${c.addr || B}</b>, આથી સોગંદપૂર્વક જાહેર કરું/કરીએ છું/છીએ અને બાંહેધરી આપું/આપીએ છીએ કે:</p>
+        <p>હું/અમે, શ્રી/શ્રીમતી <b>${c.name || B}</b>, ઉંમર <b>${age}</b> વર્ષ, રહેવાસી <b>${c.address || B}</b>, આથી સોગંદપૂર્વક જાહેર કરું/કરીએ છું/છીએ અને બાંહેધરી આપું/આપીએ છીએ કે:</p>
         <ol>
           <li>હું/અમે ઉપરોક્ત ગોલ્ડ લોન એકાઉન્ટના કાયદેસર લોનધારક (Borrower) છીએ.</li>
           <li>ઉપરોક્ત ગોલ્ડ લોનની સુરક્ષા (Security) તરીકે મેં/અમે બેંક/NBFC પાસે સોનાના દાગીના/વસ્તુઓ ગીરવે મૂકેલ છે.</li>
@@ -178,7 +271,7 @@ export function NewLoan() {
         </ol>
         <p>આથી હું/અમે આ વળતર બોન્ડ આજ રોજ <b>${dd} / ${mm} / 20${yy}</b> ના રોજ સ્વેચ્છાએ અને કોઈપણ દબાણ વિના હસ્તાક્ષર કરીને અમલમાં મૂકીએ છીએ.</p>
         <p style="margin-top:56px">લોનધારકની સહી: ${B}</p>
-        <p>નામ: <b>${c.name || B}</b><br><br>સરનામું: <b>${c.addr || B}</b></p>
+        <p>નામ: <b>${c.name || B}</b><br><br>સરનામું: <b>${c.address || B}</b></p>
         <hr style="margin:24px 0">
         <p>મોબાઇલ નં.: <b>${c.phone || B}</b></p>
         <p><b>સાક્ષીઓ</b></p>
@@ -192,9 +285,9 @@ export function NewLoan() {
       openPrintWindow("क्षतिपूर्ति बंधपत्र — " + provId, `
         <h1>क्षतिपूर्ति बंधपत्र (INDEMNITY BOND)</h1>
         <p>दिनांक: ${dd} / ${mm} / 20${yy}</p>
-        <p>सेवा में,<br>शाखा प्रबंधक,<br>अंबिका गोल्ड फाइनेंस (NBFC)<br>${c.branch || B} शाखा</p>
+        <p>सेवा में,<br>शाखा प्रबंधक,<br>अंबिका गोल्ड फाइनेंस (NBFC)<br>${c.branchName || B} शाखा</p>
         <p><b>विषय: गोल्ड लोन खाता संख्या ${provId} के संबंध में क्षतिपूर्ति बंधपत्र</b></p>
-        <p>मैं/हम, श्री/श्रीमती <b>${c.name || B}</b>, आयु <b>${age}</b> वर्ष, निवासी <b>${c.addr || B}</b>, एतद्द्वारा गंभीरतापूर्वक घोषणा करता/करती हूँ/करते हैं और वचन देता/देती हूँ/देते हैं कि:</p>
+        <p>मैं/हम, श्री/श्रीमती <b>${c.name || B}</b>, आयु <b>${age}</b> वर्ष, निवासी <b>${c.address || B}</b>, एतद्द्वारा गंभीरतापूर्वक घोषणा करता/करती हूँ/करते हैं और वचन देता/देती हूँ/देते हैं कि:</p>
         <ol>
           <li>मैं/हम उपर्युक्त गोल्ड लोन खाता संख्या ${provId} के अंतर्गत बैंक/NBFC के कानूनी ऋणी (Borrower) हूँ/हैं।</li>
           <li>उक्त गोल्ड लोन की सुरक्षा (Security) के रूप में मैंने/हमने बैंक/NBFC के पास सोने के आभूषण/वस्तुएं गिरवी रखी हैं।</li>
@@ -207,7 +300,7 @@ export function NewLoan() {
         </ol>
         <p>इसके साक्ष्य स्वरूप, मैंने/हमने यह क्षतिपूर्ति बंधपत्र आज <b>${now.getDate()}</b> ${monthName}, 20${yy} को स्वेच्छा से एवं बिना किसी दबाव के निष्पादित किया है।</p>
         <p style="margin-top:56px"><b>ऋणी के हस्ताक्षर</b></p>
-        <p>नाम: <b>${c.name || B}</b><br><br>पता: <b>${c.addr || B}</b></p>
+        <p>नाम: <b>${c.name || B}</b><br><br>पता: <b>${c.address || B}</b></p>
         <hr style="margin:24px 0">
         <p>मोबाइल नं.: <b>${c.phone || B}</b></p>
         <p><b>साक्षीगण</b></p>
@@ -220,9 +313,9 @@ export function NewLoan() {
     openPrintWindow("Indemnity Bond — " + provId, `
       <h1>INDEMNITY BOND</h1>
       <p>Date: ${dd} / ${mm} / 20${yy}</p>
-      <p>To<br>The Branch Manager<br>Ambika Gold Finance (NBFC)<br>${c.branch || B} Branch</p>
+      <p>To<br>The Branch Manager<br>Ambika Gold Finance (NBFC)<br>${c.branchName || B} Branch</p>
       <p><b>Subject: Indemnity Bond in respect of Gold Loan Account No. ${provId}</b></p>
-      <p>I/We, Mr./Ms. <b>${c.name || B}</b>, aged <b>${age}</b> years, residing at <b>${c.addr || B}</b>, do hereby solemnly affirm, declare and undertake as under:</p>
+      <p>I/We, Mr./Ms. <b>${c.name || B}</b>, aged <b>${age}</b> years, residing at <b>${c.address || B}</b>, do hereby solemnly affirm, declare and undertake as under:</p>
       <ol>
         <li>That I/we am/are the borrower(s) under Gold Loan Account No. <b>${provId}</b> with your Bank/NBFC.</li>
         <li>That I/we have pledged certain gold ornaments/articles with the Bank/NBFC as security for the above-mentioned gold loan.</li>
@@ -235,7 +328,7 @@ export function NewLoan() {
       </ol>
       <p>IN WITNESS WHEREOF, I/we have executed this Indemnity Bond on this <b>${now.getDate()}</b> day of <b>${monthName}</b>, 20${yy}.</p>
       <p style="margin-top:56px"><b>Signature of Borrower</b></p>
-      <p>Name: <b>${c.name || B}</b><br><br>Address: <b>${c.addr || B}</b></p>
+      <p>Name: <b>${c.name || B}</b><br><br>Address: <b>${c.address || B}</b></p>
       <hr style="margin:24px 0">
       <p>Mobile No.: <b>${c.phone || B}</b></p>
       <p><b>Witnesses</b></p>
@@ -247,7 +340,15 @@ export function NewLoan() {
   async function printPacketLabel() {
     const d = buildDraft();
     const c = d.c as { name?: string; id?: string; phone?: string };
-    const url = location.origin + "/app#loan/" + provId;
+    // Once the loan has actually been created, the real Packet.Code (see
+    // backend/internal/packet) is known — encode #packet/<code> so a
+    // future scan-lookup app (GET /packets/by-code/:code) resolves it.
+    // Before submission, fall back to the provisional loan-id URL used for
+    // the pre-submission label preview.
+    const packetLabel = createdPacketCode || "PKT-" + provId.slice(3);
+    const url = createdPacketCode
+      ? location.origin + "/app#packet/" + createdPacketCode
+      : location.origin + "/app#loan/" + provId;
     let qr: string;
     try {
       qr = await toDataURL(url, { width: 256, errorCorrectionLevel: "M" });
@@ -274,7 +375,7 @@ export function NewLoan() {
         <img src="${qr}" alt="QR">
         <div class="t">
           <div class="brand">AMBIKA GOLD FINANCE</div>
-          <div class="id">${provId} · PKT-${provId.slice(3)}</div>
+          <div class="id">${provId} · ${packetLabel}</div>
           <div>${c.name || "—"}</div>
           <div>${c.id || "—"} · ${c.phone || ""}</div>
           <div>${new Date().toLocaleDateString("en-IN")} · ${d.weight.toFixed(1)} g · ${d.orns.length} item(s)</div>
@@ -289,74 +390,171 @@ export function NewLoan() {
     setTimeout(() => { try { w.focus(); w.print(); } catch { /* ignore */ } }, 400);
   }
 
-  function submitNewLoan() {
+  async function submitNewLoan() {
     const validRows = rows.filter((r) => r.w > 0 && r.q > 0);
     if (!validRows.length) { toast("Add at least one ornament with weight and qty"); return; }
-    const s = db.schemes.find((x) => x.id === schemeId);
+    if (validRows.some((r) => !r.n.trim())) { toast("Please select an ornament type for every row"); return; }
+    const s = schemes.find((x) => x.id === schemeId);
     if (!s) { toast("Please select a scheme"); return; }
-    const maxN = Math.max(0, ...db.loans.map((l) => +String(l.id).slice(3) || 0));
-    const id = "GL-" + (maxN + 1);
-    let weight = 0, gross = 0;
-    const orns: Ornament[] = validRows.map((r) => {
-      const v = r.w * r.q * db.rates[r.p];
-      weight += r.w * r.q; gross += v;
-      return { n: r.n, purity: PURITY_LABEL[r.p], gross: r.w, net: r.w, qty: r.q, val: Math.round(v), img: r.img };
-    });
-    const principal = Math.round((gross * s.ltv) / 100);
-    const months = parseInt(s.duration) || 12;
+    if (!custId) { toast("Please select a verified customer"); return; }
+    if (branchId === "") { toast("Please select a branch"); return; }
+
+    if (!(principal > 0)) { toast("Please enter a valid loan amount"); return; }
+    if (!isTodaySet) { toast("Today's gold rate must be set before creating a loan."); return; }
+    const months = s.durationMonths || 12;
     const opened = new Date();
     const due = new Date(opened);
     due.setMonth(due.getMonth() + months);
     const iso = (d: Date) => d.toISOString().slice(0, 10);
-    const ok = db.addLoan({
-      id, cust: custId, scheme: s.id, opened: iso(opened), due: iso(due),
-      principal, outstanding: principal, weight: +weight.toFixed(1), status: "Pending Approval",
-      pledge: "Not Pledged", packet: lockerId ? "PKT-" + (maxN + 1) : "—", locker: lockerId || "—",
-    }, orns);
-    refresh();
-    toast(ok ? `Loan ${id} submitted for approval` : `Loan ${id} created, but browser storage is full — photos may not persist`);
-    location.hash = "loan/" + id;
+
+    setSubmitting(true);
+    try {
+      const loan = await createLoan({
+        branchId: Number(branchId),
+        customerId: Number(custId),
+        schemeId: Number(schemeId),
+        openedDate: iso(opened),
+        dueDate: iso(due),
+        principalAmount: principal,
+        ornaments: validRows.map((r) => ({
+          name: r.n,
+          purity: PURITY_LABEL[r.p],
+          grossWeight: r.w,
+          deductionWeight: 0,
+          quantity: r.q,
+        })),
+      });
+
+      // The backend creates + returns ornaments in the same order they were
+      // submitted (internal/loan/service.go's Create, then
+      // OrnamentRepository.FindByLoanID's "order by id asc") — safe to zip
+      // validRows with loan.ornaments by array index.
+      const createdOrnaments = loan.ornaments || [];
+      await Promise.all(
+        validRows.map((r, i) => {
+          const created = createdOrnaments[i];
+          if (r.img && created) return addOrnamentImage(created.id, r.img);
+          return Promise.resolve();
+        })
+      );
+
+      // Fetch the auto-created packet's real Code so any subsequent
+      // printPacketLabel() call encodes it — fail-soft: packet lookup is
+      // enrichment, not a hard dependency of loan submission.
+      try {
+        const pkts = await listPackets({ loanId: loan.id });
+        if (pkts[0]) setCreatedPacketCode(pkts[0].code);
+      } catch {
+        // ignore — packet tracking is enrichment, not required here
+      }
+
+      // Fetch the backend-auto-created tracking packet (loan.PacketCreator,
+      // fired right after loan.Service.Create() succeeds) so
+      // printPacketLabel() can encode its real Code instead of a
+      // provisional loan-id-based URL. Best-effort: a lookup failure here
+      // shouldn't block the loan-creation success path.
+      try {
+        const packets = await listPackets({ loanId: loan.id });
+        if (packets.length) setCreatedPacketCode(packets[0].code);
+      } catch {
+        // ignore — printPacketLabel() falls back to the provisional id
+      }
+
+      refresh();
+      refreshLoans();
+      toast(`Loan ${loan.loanNumber} submitted for approval`);
+      location.hash = "loan/" + loan.loanNumber;
+    } catch (err) {
+      toast(err instanceof ApiError ? err.message : "Could not submit loan — try again");
+    } finally {
+      setSubmitting(false);
+    }
   }
 
   return (
     <>
       <div className="page-h"><div><h1>New Gold Loan</h1><p>Select a verified customer, choose a scheme, and record pledged ornaments</p></div></div>
       <hr className="gold-rule" />
+      {!isTodaySet && (
+        <div className="notice" style={{ borderColor: "var(--red)", marginBottom: 16, flexDirection: "column", alignItems: "stretch", gap: 10 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, color: "var(--red)" }}>
+            <Icon name="warning" /> <b>Today&apos;s gold rate must be set before creating a loan.</b>
+          </div>
+          <div className="frow c3">
+            <div><label className="f">24K · 999 (₹/g)</label><input className="inp" type="number" value={rateR24} onChange={(e) => setRateR24(e.target.value)} /></div>
+            <div><label className="f">22K · 916 (₹/g)</label><input className="inp" type="number" value={rateR22} onChange={(e) => setRateR22(e.target.value)} /></div>
+            <div><label className="f">18K · 750 (₹/g)</label><input className="inp" type="number" value={rateR18} onChange={(e) => setRateR18(e.target.value)} /></div>
+          </div>
+          {rateErr && <p style={{ color: "var(--red)", fontSize: 12.5, margin: 0 }}>{rateErr}</p>}
+          <div>
+            <button className="btn" onClick={saveTodayRate} disabled={rateSaving}>
+              <Icon name="check" /> {rateSaving ? "Saving…" : "Save Rate"}
+            </button>
+          </div>
+        </div>
+      )}
       <div className="grid cols21">
         <div className="card gtop"><div className="bd">
           <div className="frow c2">
             <div><label className="f">Customer (verified only)</label>
-              <select className="inp" value={custId} onChange={(e) => setCustId(e.target.value)}>
-                {verifiedCustomers.map((c) => <option key={c.id} value={c.id}>{c.name} — {c.id}</option>)}
-              </select></div>
+              <SearchableSelect<CustomerView>
+                value={custLabel}
+                onChange={(id, item) => { setCustId(id); setCustLabel(`${item.name} — ${item.id}`); }}
+                fetchFn={searchVerifiedCustomers}
+                getLabel={(c) => `${c.name} — ${c.id}`}
+                getId={(c) => c.id}
+                placeholder="Search verified customers…"
+              /></div>
             <div><label className="f">Scheme</label>
-              <select className="inp" value={schemeId} onChange={(e) => setSchemeId(e.target.value)}>
-                {activeSchemes.map((s) => <option key={s.id} value={s.id}>{s.name} — {s.ltv}% LTV @ {s.rate}%</option>)}
-              </select></div>
+              <SearchableSelect<SchemeView>
+                value={schemeLabel}
+                onChange={(id, item) => { setSchemeId(id); setSchemeLabel(`${item.name} — ${item.ltv}% LTV @ ${item.rate}%`); }}
+                fetchFn={searchActiveSchemesPage}
+                getLabel={(s) => `${s.name} — ${s.ltv}% LTV @ ${s.rate}%`}
+                getId={(s) => s.id}
+                placeholder="Search active schemes…"
+              /></div>
           </div>
           <div className="frow c2">
+            <div><label className="f">Branch</label>
+              <select className="inp" value={branchId} onChange={(e) => setBranchId(+e.target.value)}>
+                {branches.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
+              </select></div>
             <div><label className="f">Locker / Storage</label>
               <select className="inp" value={lockerId} onChange={(e) => setLockerId(e.target.value)}>
                 <option value="">— Assign later —</option>
                 {activeLockers.map((k) => <option key={k.id} value={k.id}>{k.id} — {k.branch} ({k.packets}/{k.cap} packets)</option>)}
               </select></div>
+          </div>
+          <div className="frow c2">
             <div><label className="f">Loan No (auto)</label><input className="inp" value={provId} disabled /></div>
           </div>
           <label className="f" style={{ marginTop: 6 }}>Pledged Ornaments</label>
           <div className="tbl-wrap"><table className="tbl" style={{ minWidth: 640 }}>
             <thead><tr><th>Ornament</th><th>Purity</th><th className="num">Net Wt (g)</th><th className="num">Qty</th><th className="num">Value</th><th style={{ textAlign: "center" }}>Photo</th><th></th></tr></thead>
             <tbody>
+              {rows.length === 0 && (
+                <tr><td colSpan={7} className="empty">No ornaments added yet — click &quot;Add Ornament&quot; below.</td></tr>
+              )}
               {rows.map((r, i) => (
                 <tr key={i}>
-                  <td><select className="inp" style={{ padding: "6px 8px" }} value={r.n} onChange={(e) => ornTypeChanged(i, e.target.value)}>
-                    {ornTypes.map((o) => <option key={o}>{o}</option>)}
-                    <option value="__add__">＋ Add new type…</option>
-                  </select></td>
+                  <td style={{ minWidth: 180 }}>
+                    <SearchableSelect<BackendOrnamentType>
+                      value={r.n}
+                      onChange={(_id, item) => updOrn(i, "n", item.name)}
+                      fetchFn={searchOrnamentTypesPage}
+                      getLabel={(t) => t.name}
+                      getId={(t) => String(t.id)}
+                      placeholder="Ornament type…"
+                      allowCreate
+                      onCreate={createOrnamentType}
+                    />
+                  </td>
                   <td><select className="inp" style={{ padding: "6px 8px", width: 82 }} value={r.p} onChange={(e) => updOrn(i, "p", e.target.value as OrnRow["p"])}>
                     <option value="k24">24K</option><option value="k22">22K</option><option value="k18">18K</option>
                   </select></td>
-                  <td className="num"><input className="inp" style={{ padding: "6px 8px", width: 84, textAlign: "right" }} type="number" value={r.w} onChange={(e) => updOrn(i, "w", +e.target.value || 0)} /></td>
-                  <td className="num"><input className="inp" style={{ padding: "6px 8px", width: 64, textAlign: "right" }} type="number" value={r.q} onChange={(e) => updOrn(i, "q", +e.target.value || 0)} /></td>
+                  <td className="num"><input className="inp" style={{ padding: "6px 8px", width: 84, textAlign: "right" }} type="number" min={0} value={r.w} onChange={(e) => updOrn(i, "w", Math.max(0, +e.target.value || 0))} /></td>
+                  <td className="num"><input className="inp" style={{ padding: "6px 8px", width: 64, textAlign: "right" }} type="number" min={0} value={r.q} onChange={(e) => updOrn(i, "q", Math.max(0, +e.target.value || 0))} /></td>
                   <td className="num">{fmt(rowVals[i])}</td>
                   <td style={{ textAlign: "center", whiteSpace: "nowrap" }}>
                     <input type="file" accept="image/*" ref={(el) => { fileRefs.current[i] = el; }} style={{ display: "none" }} onChange={(e) => ornImgPicked(i, e.target)} />
@@ -384,7 +582,9 @@ export function NewLoan() {
             <button className="btn ghost" onClick={() => printIndemnity("hi")}>🖨 क्षतिपूर्ति बॉन्ड (हिन्दी)</button>
             <button className="btn ghost" onClick={() => printIndemnity("gu")}>🖨 વળતર બોન્ડ (ગુજરાતી)</button>
             <button className="btn ghost" onClick={() => toast("Draft saved (demo)")}>Save Draft</button>
-            <button className="btn" onClick={submitNewLoan}><Icon name="check" /> Submit for Approval</button>
+            <button className="btn" onClick={submitNewLoan} disabled={submitting || !isTodaySet} title={!isTodaySet ? "Today's gold rate must be set before creating a loan." : undefined}>
+              <Icon name="check" /> {submitting ? "Submitting…" : "Submit for Approval"}
+            </button>
           </div>
         </div>
 
@@ -394,10 +594,23 @@ export function NewLoan() {
               <div style={{ display: "flex", justifyContent: "space-between", padding: "5px 0" }}><span>Total net weight</span><b>{totalWeight.toFixed(1)} g</b></div>
               <div style={{ display: "flex", justifyContent: "space-between", padding: "5px 0" }}><span>Gross gold value</span><b>{fmt(totalGross)}</b></div>
               <div style={{ display: "flex", justifyContent: "space-between", padding: "5px 0" }}><span>Scheme LTV</span><b>{sch ? sch.ltv + "%" : "—"}</b></div>
-              <div style={{ display: "flex", justifyContent: "space-between", padding: "10px 0 2px", borderTop: "1px dashed var(--line)", marginTop: 8 }}>
-                <span style={{ fontWeight: 600 }}>Eligible loan amount</span><b style={{ color: "var(--gold-deep)", fontSize: 17 }}>{fmt(eligible)}</b></div>
+              <div style={{ display: "flex", justifyContent: "space-between", padding: "5px 0" }}>
+                <span>Eligible loan amount</span><b>{fmt(eligible)}</b></div>
+              <div style={{ padding: "10px 0 2px", borderTop: "1px dashed var(--line)", marginTop: 8 }}>
+                <label className="f" htmlFor="loan-amount-input">Loan amount to disburse (₹)</label>
+                <input
+                  id="loan-amount-input"
+                  className="inp"
+                  type="number"
+                  min={1}
+                  placeholder={String(Math.round(eligible))}
+                  value={principalOverride}
+                  onChange={(e) => setPrincipalOverride(e.target.value)}
+                  style={{ fontWeight: 600, color: "var(--gold-deep)", fontSize: 16 }}
+                />
+              </div>
             </div>
-            <div className="ft">Uses today&apos;s published rates (22K {fmt(db.rates.k22)}/g)</div></div>
+            <div className="ft">Uses today&apos;s published rates (22K {fmt(rates.k22)}/g) — defaults to the eligible amount but can be overridden</div></div>
           <div className="notice"><Icon name="shield" /> Loans above ₹2,00,000 require Branch Manager + Management sanction (multi-level approval).</div>
         </div>
       </div>
