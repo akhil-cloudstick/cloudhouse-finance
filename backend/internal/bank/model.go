@@ -16,10 +16,13 @@ type Bank struct {
 	Name      string    `json:"name" gorm:"uniqueIndex;not null;size:120"`
 	Branch    string    `json:"branch" gorm:"size:120"`
 	Ifsc      string    `json:"ifsc" gorm:"size:20"`
+	AccountNo string    `json:"accountNo" gorm:"size:40"`
 	Phone     string    `json:"phone" gorm:"size:20"`
 	CreatedAt time.Time `json:"createdAt"`
 	UpdatedAt time.Time `json:"updatedAt"`
 }
+
+
 
 // TableName pins the GORM table name explicitly.
 func (Bank) TableName() string {

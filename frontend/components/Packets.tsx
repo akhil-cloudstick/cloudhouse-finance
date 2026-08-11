@@ -18,7 +18,7 @@ function LockerCard({ l, packets, onChanged }: { l: LockerView; packets: PacketV
     <div className="card gtop">
       <div className="hd"><h3>{l.code}</h3><div className="sp" />
         <span className={`chip ${l.isActive ? "green" : "gray"}`}>{l.isActive ? "Active" : "Inactive"}</span>
-        <button className="btn ghost sm" style={{ marginLeft: 8 }} onClick={() => openModal(<LockerModalContent locker={l} onSaved={onChanged} />)}>Edit</button>
+        <button className="btn ghost sm" style={{ marginLeft: 8 }} onClick={() => openModal(<LockerModalContent key={l.id} locker={l} onSaved={onChanged} />)}>Edit</button>
       </div>
       <div className="bd">
         <div className="kv" style={{ gridTemplateColumns: "1fr 1fr" }}>
@@ -87,7 +87,7 @@ export function Packets() {
       <div className="page-h">
         <div><h1>Gold Packets &amp; Lockers</h1><p>Barcode/QR tracked packets · locker allocation &amp; movement</p></div>
         <div className="sp" />
-        <button className="btn" onClick={() => openModal(<LockerModalContent onSaved={load} />)}><Icon name="plus" /> Add Locker</button>
+        <button className="btn" onClick={() => openModal(<LockerModalContent key="new" onSaved={load} />)}><Icon name="plus" /> Add Locker</button>
       </div>
       <hr className="gold-rule" />
       <div className="frow" style={{ marginBottom: 16 }}>

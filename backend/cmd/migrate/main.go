@@ -8,6 +8,7 @@ import (
 
 	"gorm.io/gorm"
 
+	"ambikagold/backend/internal/authz"
 	"ambikagold/backend/internal/bank"
 	"ambikagold/backend/internal/branch"
 	"ambikagold/backend/internal/cash"
@@ -23,12 +24,30 @@ import (
 	"ambikagold/backend/internal/settings"
 )
 
+// authResources/staffRoles mirror the copies in backend/main.go (see that
+// file's doc comment) — kept identical so cmd/migrate seeds the exact same
+// permission rows the API server would seed on startup.
+var authResources = []string{
+	"banks", "branches", "cash", "customers", "employees", "goldrates",
+	"loans", "lockers", "ornamenttypes", "packets", "schemes", "settings",
+	"uploads", "kyc-documents",
+}
+
+var staffRoles = []string{
+	"Administrator", "Management", "Branch Manager", "Loan Operator", "Cashier",
+	"Accountant", "Collection Staff", "Auction Administrator", "Auditor",
+}
+
 func main() {
 	cfg := platform.LoadConfig()
 
 	db, err := platform.NewDatabase(cfg)
 	if err != nil {
 		log.Fatalf("database connection failed: %v", err)
+	}
+
+	if err := scheme.BackfillDurationMonths(db); err != nil {
+		log.Fatalf("scheme duration backfill failed: %v", err)
 	}
 
 	if err := db.AutoMigrate(
@@ -48,13 +67,20 @@ func main() {
 		&loan.LoanApproval{},
 		&loan.LoanPayment{},
 		&loan.BankPledgeRecord{},
+		&loan.LoanRequest{},
+		&loan.RequestApproval{},
 		&ornamenttype.OrnamentType{},
 		&bank.Bank{},
 		&locker.Locker{},
 		&packet.Packet{},
 		&packet.PacketMovement{},
+		&authz.Permission{},
 	); err != nil {
 		log.Fatalf("auto-migrate failed: %v", err)
+	}
+
+	if err := scheme.DropLegacyDateColumns(db); err != nil {
+		log.Fatalf("legacy scheme date column cleanup failed: %v", err)
 	}
 
 	if err := backfillBranches(db); err != nil {
@@ -64,6 +90,13 @@ func main() {
 	if err := dropLegacyBranchColumn(db); err != nil {
 		log.Fatalf("legacy branch column cleanup failed: %v", err)
 	}
+
+	authzRepo := authz.NewRepository(db)
+	inserted, skipped, err := authzRepo.SeedDefaults(staffRoles, authResources)
+	if err != nil {
+		log.Fatalf("permissions seed failed: %v", err)
+	}
+	log.Printf("permissions seed: %d inserted, %d already present", inserted, skipped)
 
 	log.Println("migrations applied successfully")
 }

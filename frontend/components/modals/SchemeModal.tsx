@@ -6,7 +6,7 @@ import { useToast } from "@/components/Toast";
 import { Icon } from "@/lib/icons";
 import { createScheme, updateScheme, type SchemeView } from "@/lib/schemesApi";
 
-const DURATIONS = [3, 6, 9, 12, 18, 24];
+const DEFAULT_DURATION_MONTHS = 12;
 const METHODS = ["Monthly simple interest", "Flat monthly", "Quarterly simple", "Compound monthly"];
 
 /* Ported from legacy/app.js's `openSchemeModal(id)` / `saveScheme(id)`
@@ -18,7 +18,7 @@ export function SchemeModalContent({ scheme: s, onSaved }: { scheme?: SchemeView
 
   const [name, setName] = useState(s?.name || "");
   const [rate, setRate] = useState(s ? String(s.rate) : "");
-  const [duration, setDuration] = useState(s?.durationMonths || DURATIONS[3]);
+  const [duration, setDuration] = useState(String(s?.durationMonths || DEFAULT_DURATION_MONTHS));
   const [ltv, setLtv] = useState(s ? String(s.ltv) : "");
   const [method, setMethod] = useState(s?.method || METHODS[0]);
   const [penal, setPenal] = useState(s ? String(s.penal) : "");
@@ -30,14 +30,16 @@ export function SchemeModalContent({ scheme: s, onSaved }: { scheme?: SchemeView
   async function save() {
     const n = name.trim();
     const r = parseFloat(rate);
+    const d = parseInt(duration, 10);
     const l = parseInt(ltv, 10);
     const p = parseFloat(penal);
     if (n.length < 3) { setErr("Please enter a scheme name."); return; }
     if (!(r > 0)) { setErr("Please enter a valid interest rate."); return; }
+    if (!(d > 0)) { setErr("Please enter a valid loan duration in months."); return; }
     if (!(l >= 1 && l <= 90)) { setErr("LTV must be between 1 and 90%."); return; }
     if (!(p >= 0 && p <= 10)) { setErr("Please enter penal charges between 0 and 10% per month."); return; }
 
-    const input = { name: n, rate: r, durationMonths: duration, ltv: l, penal: p, method, cond: cond.trim(), active };
+    const input = { name: n, rate: r, durationMonths: d, ltv: l, penal: p, method, cond: cond.trim(), active };
     setSaving(true);
     setErr("");
     try {
@@ -62,10 +64,8 @@ export function SchemeModalContent({ scheme: s, onSaved }: { scheme?: SchemeView
           <div><label className="f">Interest Rate (% p.a.) *</label><input className="inp" type="number" step="0.1" min={0} placeholder="12.5" value={rate} onChange={(e) => setRate(e.target.value)} /></div>
         </div>
         <div className="frow c2">
-          <div><label className="f">Loan Duration *</label>
-            <select className="inp" value={duration} onChange={(e) => setDuration(Number(e.target.value))}>
-              {DURATIONS.map((d) => <option key={d} value={d}>{d} months</option>)}
-            </select></div>
+          <div><label className="f">Loan Duration (months) *</label>
+            <input className="inp" type="number" min={1} step={1} placeholder="e.g. 12" value={duration} onChange={(e) => setDuration(e.target.value)} /></div>
           <div><label className="f">LTV (%) *</label><input className="inp" type="number" min={1} max={90} placeholder="max 90" value={ltv} onChange={(e) => setLtv(e.target.value)} /></div>
         </div>
         <div className="frow c2">

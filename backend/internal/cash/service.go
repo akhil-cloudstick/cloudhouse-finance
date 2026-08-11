@@ -2,6 +2,7 @@ package cash
 
 import (
 	"errors"
+	"fmt"
 	"time"
 
 	"ambikagold/backend/internal/branch"
@@ -124,6 +125,86 @@ func (s *MovementService) Get(id uint) (*CashMovement, error) {
 		return nil, ErrMovementNotFound
 	}
 	return rec, nil
+}
+
+// RecordBankPledgeCashIn creates the cash-in movement for a loan's gold
+// being pledged to a bank (loan.CashRecorder, called from
+// loan.Service.RecordBankPledge). Source "Bank" mirrors the existing
+// "Savings"/"Loan" sources so it renders in the same Cash Movements table
+// without special-casing on the frontend. Returns the new movement's ID so
+// the caller can store it on the pledge record and reverse it later.
+func (s *MovementService) RecordBankPledgeCashIn(loanID uint, bankName string, amount float64, occurredOn time.Time) (uint, error) {
+	rec := &CashMovement{
+		Type:   "in",
+		Source: "Bank",
+		Bank:   bankName,
+		Amount: amount,
+	}
+	if occurredOn.IsZero() {
+		rec.OccurredOn = time.Now()
+	} else {
+		rec.OccurredOn = occurredOn
+	}
+	if err := s.repo.Create(rec); err != nil {
+		return 0, err
+	}
+	return rec.ID, nil
+}
+
+// RecordLoanDisbursementCashOut creates the cash-out movement for a loan's
+// principal being handed to the customer (loan.CashRecorder, called from
+// loan.Service.Approve once a loan clears its final approval stage).
+// Purpose carries the loan number so it reads sensibly in the Cash
+// Movements table without a dedicated column.
+func (s *MovementService) RecordLoanDisbursementCashOut(loanID uint, loanNumber string, amount float64, branchID uint, occurredOn time.Time) (uint, error) {
+	rec := &CashMovement{
+		Type:     "out",
+		Purpose:  "Loan disbursement — " + loanNumber,
+		Amount:   amount,
+		BranchID: &branchID,
+	}
+	if occurredOn.IsZero() {
+		rec.OccurredOn = time.Now()
+	} else {
+		rec.OccurredOn = occurredOn
+	}
+	if err := s.repo.Create(rec); err != nil {
+		return 0, err
+	}
+	return rec.ID, nil
+}
+
+// RecordLoanPaymentCashIn creates the cash-in movement for a customer's loan
+// repayment (loan.CashRecorder, called from loan.Service.RecordPayment).
+// Source is "Collection" — distinct from the "Savings"/"Loan" sources
+// AddCashModal.tsx offers for manually topping up the till (that "Loan"
+// source means the branch itself borrowed cash from a bank, unrelated to a
+// customer repaying their gold loan).
+func (s *MovementService) RecordLoanPaymentCashIn(loanID uint, loanNumber string, amount float64, branchID uint, occurredOn time.Time, paymentType string) (uint, error) {
+	rec := &CashMovement{
+		Type:     "in",
+		Source:   "Collection",
+		Purpose:  fmt.Sprintf("%s — %s", paymentType, loanNumber),
+		Amount:   amount,
+		BranchID: &branchID,
+	}
+	if occurredOn.IsZero() {
+		rec.OccurredOn = time.Now()
+	} else {
+		rec.OccurredOn = occurredOn
+	}
+	if err := s.repo.Create(rec); err != nil {
+		return 0, err
+	}
+	return rec.ID, nil
+}
+
+// DeleteCashMovement removes a cash movement outright (loan.CashRecorder,
+// called from loan.Service.ReleaseBankPledge to undo the cash-in recorded
+// when the gold was pledged) — unlike a reversing "out" entry, this keeps
+// Cash Movements showing only money that's still actually in/out.
+func (s *MovementService) DeleteCashMovement(id uint) error {
+	return s.repo.Delete(id)
 }
 
 // SetLoanStatus updates the Open/Closed status of a loan-sourced cash-in

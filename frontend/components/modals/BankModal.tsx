@@ -11,6 +11,7 @@ const NAME_RE = /^[A-Za-z][A-Za-z\s.'-]*$/;
 const CODE_RE = /^[A-Z0-9-]*$/;
 const ADDRESS_RE = /^[A-Za-z0-9\s,./#'-]*$/;
 const PHONE_RE = /^\d{10}$/;
+const ACCOUNT_RE = /^[A-Za-z0-9]*$/;
 
 /* Add Bank form — follows BranchModal.tsx's pattern exactly. Calls the real
  * Go backend (`POST /api/v1/banks`, find-or-create semantics: an existing
@@ -22,6 +23,7 @@ export function BankModalContent({ onSaved }: { onSaved: () => void }) {
   const [name, setName] = useState("");
   const [ifsc, setIfsc] = useState("");
   const [address, setAddress] = useState("");
+  const [accountNo, setAccountNo] = useState("");
   const [phone, setPhone] = useState("");
   const [err, setErr] = useState("");
   const [saving, setSaving] = useState(false);
@@ -45,10 +47,16 @@ export function BankModalContent({ onSaved }: { onSaved: () => void }) {
     setPhone(digits);
   }
 
+  function onAccountNoChange(v: string) {
+    const upper = v.toUpperCase();
+    if (ACCOUNT_RE.test(upper)) setAccountNo(upper);
+  }
+
   async function save() {
     const n = name.trim();
     const i = ifsc.trim();
     const a = address.trim();
+    const acc = accountNo.trim();
     const p = phone.trim();
 
     if (n.length < 2 || !NAME_RE.test(n)) {
@@ -57,12 +65,13 @@ export function BankModalContent({ onSaved }: { onSaved: () => void }) {
     }
     if (!i) { setErr("Please enter the IFSC code."); return; }
     if (!a || a.length < 3) { setErr("Please enter the branch address (at least 3 characters)."); return; }
+    if (!acc || acc.length < 4) { setErr("Please enter a valid bank account number (at least 4 characters)."); return; }
     if (p && !PHONE_RE.test(p)) { setErr("Phone number must be exactly 10 digits."); return; }
 
     setSaving(true);
     setErr("");
     try {
-      const rec = await createBankFull({ name: n, ifsc: i, branch: a, phone: p });
+      const rec = await createBankFull({ name: n, ifsc: i, branch: a, accountNo: acc, phone: p });
       onSaved();
       closeModal();
       toast(`Bank "${rec.name}" added`);
@@ -104,6 +113,15 @@ export function BankModalContent({ onSaved }: { onSaved: () => void }) {
             value={address}
             onChange={(e) => onAddressChange(e.target.value)}
             maxLength={120}
+            autoComplete="off"
+          /></div></div>
+        <div className="frow"><div><label className="f">Account Number *</label>
+          <input
+            className="inp"
+            placeholder="Bank account number"
+            value={accountNo}
+            onChange={(e) => onAccountNoChange(e.target.value)}
+            maxLength={30}
             autoComplete="off"
           /></div></div>
         <div className="frow"><div><label className="f">Phone Number</label>

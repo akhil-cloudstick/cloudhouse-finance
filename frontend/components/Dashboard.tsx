@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useData } from "@/lib/DataProvider";
 import { useSchemes } from "@/lib/SchemesProvider";
 import { useCustomers } from "@/lib/CustomersProvider";
 import { useLoans } from "@/lib/LoansProvider";
@@ -12,6 +11,8 @@ import { Icon } from "@/lib/icons";
 import { RateModalContent } from "@/components/modals/RateModal";
 import { RegisterCustomerModalContent } from "@/components/modals/RegisterCustomerModal";
 import { listCashMovements, listExpenses, type CashMovementView, type ExpenseView } from "@/lib/cashApi";
+import { getCalendarEvents, type CalendarEvent } from "@/lib/remindersApi";
+import { listLoanRequests, getInterestCollected, type RequestView } from "@/lib/loansApi";
 
 function Kpi({ l, v, s, cls }: { l: string; v: string | number; s?: string; cls?: string }) {
   return (
@@ -61,7 +62,6 @@ const EXPENSE_COLORS = ["#9a6f0f", "#d4af37", "#3b5f7a", "#b3a980", "#7a3b5f", "
 /* Ported from legacy/app.js's `renderDashboard()`. All figures are now
  * derived from live DB state instead of hardcoded demo values. */
 export function Dashboard() {
-  const { db } = useData();
   const { schemes } = useSchemes();
   const { refresh: refreshCustomers } = useCustomers();
   const { loans } = useLoans();
@@ -70,9 +70,19 @@ export function Dashboard() {
 
   const [cashMovements, setCashMovements] = useState<CashMovementView[]>([]);
   const [expenses, setExpenses] = useState<ExpenseView[]>([]);
+  const [upcomingEvents, setUpcomingEvents] = useState<CalendarEvent[]>([]);
+  const [pendingReq, setPendingReq] = useState<RequestView[]>([]);
+  const [interestCollected, setInterestCollected] = useState(0);
   useEffect(() => {
     listCashMovements().then(setCashMovements).catch(() => setCashMovements([]));
     listExpenses().then(setExpenses).catch(() => setExpenses([]));
+    const from = new Date().toISOString().slice(0, 10);
+    const to = new Date(Date.now() + 14 * 86400000).toISOString().slice(0, 10);
+    getCalendarEvents(from, to).then(setUpcomingEvents).catch(() => setUpcomingEvents([]));
+    // Real replacements for the old always-empty db.requests/db.ledger
+    // mock data — see documents/change_log.md.
+    listLoanRequests({ status: "Pending" }).then(setPendingReq).catch(() => setPendingReq([]));
+    getInterestCollected().then(setInterestCollected).catch(() => setInterestCollected(0));
   }, []);
 
   const today = new Date().toISOString().slice(0, 10);
@@ -83,12 +93,10 @@ export function Dashboard() {
   const dueSoon = loans.filter((l) => l.status === "Due Soon");
   const pledged = loans.filter((l) => l.bankPledgeStatus === "Bank Pledged");
   const outstanding = active.reduce((s, l) => s + l.outstanding, 0);
-  const pendingReq = db.requests.filter((r) => r.status === "Pending");
   const expToday = expenses.filter((e) => e.d === today).reduce((s, e) => s + e.amt, 0);
   const openedToday = loans.filter((l) => l.opened === today).length;
   const cashInHand = cashMovements.filter((m) => m.type === "in").reduce((s, m) => s + m.amount, 0)
     - cashMovements.filter((m) => m.type === "out").reduce((s, m) => s + m.amount, 0);
-  const interestCollected = Object.values(db.ledger).flat().filter((e) => e.credit).reduce((s, e) => s + e.credit, 0);
   const expenseByCat = Object.entries(
     expenses.reduce<Record<string, number>>((acc, e) => { acc[e.cat] = (acc[e.cat] || 0) + e.amt; return acc; }, {})
   );
@@ -109,10 +117,12 @@ export function Dashboard() {
   const maxBar = Math.max(1, ...monthBuckets.map(([, v]) => v));
   const pendingApprovalLoans = loans.filter((l) => l.status === "Pending Approval");
   const auctionLoans = loans.filter((l) => l.status === "Auction Eligible" || l.status === "Defaulted");
-  const pendingReminders = [
-    ...pendingApprovalLoans.map((l) => [`Loan approval — ${l.id}`, `${l.customerName} · ${fmt(l.principal)}`, "due"] as [string, string, string]),
-    ...pendingReq.map((r) => [`${r.type} request — ${r.loan}`, `${r.cust} · ${r.detail}`, "fup"] as [string, string, string]),
-  ];
+  // Real upcoming reminders (next 14 days) from the Reminder Calendar — see
+  // backend/internal/reminder's calendar aggregation. Overdue events sort
+  // first regardless of date since they're the most urgent.
+  const pendingReminders = [...upcomingEvents]
+    .sort((a, b) => (a.type === "Overdue" ? -1 : b.type === "Overdue" ? 1 : a.date.localeCompare(b.date)))
+    .slice(0, 8);
 
   const [calcW, setCalcW] = useState("10");
   const [calcP, setCalcP] = useState<"k24" | "k22" | "k18">("k22");
@@ -182,7 +192,7 @@ export function Dashboard() {
                 {pendingReq.map((r) => (
                   <li key={"req-" + r.id}>
                     <span className="ic"><Icon name={r.type === "Extension" ? "clock" : "unlock"} /></span>
-                    <span className="tx"><b>{r.type} request — {r.loan}</b><small>{r.cust} · {r.detail}</small></span>
+                    <span className="tx"><b>{r.type} request — {r.loanId}</b><small>{r.customerName} · {r.detail}</small></span>
                     <span className="rt"><a className="btn sm ghost" href="#requests">Open</a></span>
                   </li>
                 ))}
@@ -239,12 +249,12 @@ export function Dashboard() {
             <div className="hd"><h3>Upcoming Reminders</h3><div className="sp" /><a href="#calendar" style={{ fontSize: 12.5 }}>Calendar →</a></div>
             <div className="bd" style={{ paddingTop: 6 }}>
               <ul className="mini-list">
-                {pendingReminders.length ? pendingReminders.map(([t, s, c], i) => (
-                  <li key={t + i}>
-                    <span className="ic" style={c === "fup" ? { background: "var(--blue-bg)", color: "var(--blue)" } : undefined}>
-                      <Icon name={c === "fup" ? "phone" : "bell"} />
+                {pendingReminders.length ? pendingReminders.map((e, i) => (
+                  <li key={i}>
+                    <span className="ic" style={e.type === "Overdue" ? { background: "var(--red-bg)", color: "var(--red)" } : e.type === "FollowUp" || e.type === "PromiseToPay" ? { background: "var(--blue-bg)", color: "var(--blue)" } : undefined}>
+                      <Icon name={e.type === "FollowUp" ? "phone" : e.type === "PromiseToPay" ? "clock" : "bell"} />
                     </span>
-                    <span className="tx"><b>{t}</b><small>{s}</small></span>
+                    <span className="tx"><b>{e.title}</b><small>{e.detail}{e.loanNumber ? ` · ${e.loanNumber}` : ""} · {e.date}</small></span>
                   </li>
                 )) : <li><span className="tx"><small>No pending reminders.</small></span></li>}
               </ul>

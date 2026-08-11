@@ -1,13 +1,13 @@
 import { apiFetch } from "@/lib/api";
 
-/* Shape returned by the Go backend (backend/internal/scheme/model.go). */
+/* Shape returned by the Go backend (backend/internal/scheme/model.go). A
+ * scheme's tenure is a real field now — no more start/end date window. */
 export type BackendScheme = {
   id: number;
   code: string;
   name: string;
   interestRate: number;
-  startDate: string; // RFC3339
-  endDate: string;
+  durationMonths: number;
   ltvPercent: number;
   interestMethod: string;
   penalRate: number;
@@ -41,20 +41,13 @@ export type SchemeFormInput = {
   active: boolean;
 };
 
-function monthsBetween(start: string, end: string): number {
-  const s = new Date(start);
-  const e = new Date(end);
-  const months = (e.getFullYear() - s.getFullYear()) * 12 + (e.getMonth() - s.getMonth());
-  return Math.max(1, months);
-}
-
 function toView(s: BackendScheme): SchemeView {
   return {
     id: String(s.id),
     code: s.code,
     name: s.name,
     rate: s.interestRate,
-    durationMonths: monthsBetween(s.startDate, s.endDate),
+    durationMonths: s.durationMonths,
     ltv: s.ltvPercent,
     method: s.interestMethod,
     penal: s.penalRate,
@@ -64,19 +57,10 @@ function toView(s: BackendScheme): SchemeView {
 }
 
 function toRequestBody(input: SchemeFormInput) {
-  // The backend models a scheme's StartDate/EndDate as its overall validity
-  // window (when the scheme program is offered), not a per-loan tenure. We
-  // start that window today and run it for the chosen duration.
-  const start = new Date();
-  const end = new Date(start);
-  end.setMonth(end.getMonth() + input.durationMonths);
-  const fmt = (d: Date) => d.toISOString().slice(0, 10);
-
   return {
     name: input.name,
     interestRate: input.rate,
-    startDate: fmt(start),
-    endDate: fmt(end),
+    durationMonths: input.durationMonths,
     ltvPercent: input.ltv,
     interestMethod: input.method,
     penalRate: input.penal,

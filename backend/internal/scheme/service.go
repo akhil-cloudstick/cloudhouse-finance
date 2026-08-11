@@ -3,17 +3,15 @@ package scheme
 import (
 	"errors"
 	"fmt"
-	"time"
 )
 
 var (
-	ErrNotFound      = errors.New("scheme not found")
-	ErrInvalidDates  = errors.New("end date must be after start date")
-	ErrInvalidLTV    = errors.New("ltv percent must be between 0 and 100")
-	ErrInvalidRate   = errors.New("interest rate must be non-negative")
-	ErrOutsideWindow = errors.New("scheme cannot be activated outside its validity window")
-	ErrInvalidWeight = errors.New("gold weight must be greater than zero")
-	ErrInvalidGoldRt = errors.New("gold rate must be greater than zero")
+	ErrNotFound        = errors.New("scheme not found")
+	ErrInvalidDuration = errors.New("duration must be greater than zero months")
+	ErrInvalidLTV      = errors.New("ltv percent must be between 0 and 100")
+	ErrInvalidRate     = errors.New("interest rate must be non-negative")
+	ErrInvalidWeight   = errors.New("gold weight must be greater than zero")
+	ErrInvalidGoldRt   = errors.New("gold rate must be greater than zero")
 )
 
 // CreateInput / UpdateInput mirror the fields an admin supplies when
@@ -21,8 +19,7 @@ var (
 type CreateInput struct {
 	Name           string
 	InterestRate   float64
-	StartDate      time.Time
-	EndDate        time.Time
+	DurationMonths int
 	LTVPercent     float64
 	InterestMethod string
 	PenalRate      float64
@@ -51,8 +48,8 @@ func NewService(repo *Repository) *Service {
 }
 
 func validate(in CreateInput) error {
-	if !in.EndDate.After(in.StartDate) {
-		return ErrInvalidDates
+	if in.DurationMonths <= 0 {
+		return ErrInvalidDuration
 	}
 	if in.LTVPercent <= 0 || in.LTVPercent > 100 {
 		return ErrInvalidLTV
@@ -63,17 +60,9 @@ func validate(in CreateInput) error {
 	return nil
 }
 
-// withinWindow reports whether "now" falls within [start, end].
-func withinWindow(now, start, end time.Time) bool {
-	return !now.Before(start) && !now.After(end)
-}
-
 func (s *Service) Create(in CreateInput) (*Scheme, error) {
 	if err := validate(in); err != nil {
 		return nil, err
-	}
-	if in.IsActive && !withinWindow(time.Now(), in.StartDate, in.EndDate) {
-		return nil, ErrOutsideWindow
 	}
 
 	count, err := s.repo.CountAll()
@@ -86,8 +75,7 @@ func (s *Service) Create(in CreateInput) (*Scheme, error) {
 		Code:           code,
 		Name:           in.Name,
 		InterestRate:   in.InterestRate,
-		StartDate:      in.StartDate,
-		EndDate:        in.EndDate,
+		DurationMonths: in.DurationMonths,
 		LTVPercent:     in.LTVPercent,
 		InterestMethod: in.InterestMethod,
 		PenalRate:      in.PenalRate,
@@ -128,14 +116,10 @@ func (s *Service) Update(id uint, in UpdateInput) (*Scheme, error) {
 	if err != nil {
 		return nil, ErrNotFound
 	}
-	if in.IsActive && !withinWindow(time.Now(), in.StartDate, in.EndDate) {
-		return nil, ErrOutsideWindow
-	}
 
 	rec.Name = in.Name
 	rec.InterestRate = in.InterestRate
-	rec.StartDate = in.StartDate
-	rec.EndDate = in.EndDate
+	rec.DurationMonths = in.DurationMonths
 	rec.LTVPercent = in.LTVPercent
 	rec.InterestMethod = in.InterestMethod
 	rec.PenalRate = in.PenalRate
@@ -155,19 +139,14 @@ func (s *Service) Delete(id uint) error {
 	return s.repo.Delete(id)
 }
 
-// ToggleActive flips IsActive, enforcing the validity-window rule when
-// activating.
+// ToggleActive flips IsActive — schemes have no date window anymore, so
+// there's no eligibility check beyond the scheme existing.
 func (s *Service) ToggleActive(id uint) (*Scheme, error) {
 	rec, err := s.repo.FindByID(id)
 	if err != nil {
 		return nil, ErrNotFound
 	}
-
-	newState := !rec.IsActive
-	if newState && !withinWindow(time.Now(), rec.StartDate, rec.EndDate) {
-		return nil, ErrOutsideWindow
-	}
-	rec.IsActive = newState
+	rec.IsActive = !rec.IsActive
 
 	if err := s.repo.Update(rec); err != nil {
 		return nil, err

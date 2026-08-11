@@ -417,6 +417,8 @@ table.tbl{width:100%;border-collapse:collapse;font-size:13.5px;min-width:640px}
 .track .st.done::before{background:var(--gold-mid);border-color:var(--gold-deep)}
 .track .st.done::after{background:var(--gold-mid)}
 .track .st.done{color:var(--gold-deep);font-weight:600}
+.track .st.on{color:var(--ink);font-weight:600}
+.track .st.on::before{border-color:var(--gold-deep)}
 
 /* detail head */
 .dhead{display:flex;gap:16px;align-items:center;flex-wrap:wrap}

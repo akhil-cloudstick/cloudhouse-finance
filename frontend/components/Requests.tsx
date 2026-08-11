@@ -1,20 +1,62 @@
 "use client";
 
-import { useData } from "@/lib/DataProvider";
+import { useCallback, useEffect, useState } from "react";
+import { useModal } from "@/components/Modal";
 import { useToast } from "@/components/Toast";
 import { StatusChip } from "@/components/StatusChip";
+import { useLoans } from "@/lib/LoansProvider";
+import { listLoanRequests, decideRequest, type RequestView } from "@/lib/loansApi";
+import { ApiError } from "@/lib/api";
+import { ReleaseReviewModalContent } from "@/components/modals/ReleaseReviewModal";
 
-/* Ported from legacy/app.js's `renderRequests()`. Approve/Reject are demo
- * stubs in legacy too — they only toast, no data mutation, no loan status
- * change. Kept identical here, not a place to add real approval logic. */
+/* Real "Extensions & Release" review page — staff approve/reject the
+ * extension/release requests logged from LoanDetail.tsx / CustomerDetail.tsx
+ * (or, later, submitted by the Android app). Approving an Extension pushes
+ * the loan's due date out; approving a Release moves the loan to
+ * "Closure Requested" — both happen server-side in
+ * backend/internal/loan/service.go's DecideRequest. */
 export function Requests() {
-  const { db } = useData();
   const toast = useToast();
+  const { openModal } = useModal();
+  const { refresh: refreshLoans } = useLoans();
+
+  const [reqs, setReqs] = useState<RequestView[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [deciding, setDeciding] = useState<number | null>(null);
+
+  const refresh = useCallback(() => {
+    listLoanRequests()
+      .then(setReqs)
+      .catch(() => setReqs([]))
+      .finally(() => setLoading(false));
+  }, []);
+
+  useEffect(() => { refresh(); }, [refresh]);
+
+  async function decide(id: number, action: "Approved" | "Rejected") {
+    let remarks = "";
+    if (action === "Rejected") {
+      remarks = window.prompt("Reason for rejecting (optional):") || "";
+    }
+    setDeciding(id);
+    try {
+      // No auth/session exists yet — employeeId 1 is a placeholder, same
+      // convention as LoanDetail.tsx's doApprove.
+      await decideRequest(id, action, 1, remarks);
+      refresh();
+      refreshLoans();
+      toast(action === "Approved" ? "Request approved" : "Request rejected");
+    } catch (e) {
+      toast(e instanceof ApiError ? e.message : "Could not record the decision — try again.");
+    } finally {
+      setDeciding(null);
+    }
+  }
 
   return (
     <>
       <div className="page-h">
-        <div><h1>Loan Extensions &amp; Gold Release</h1><p>Requests submitted by customers through the Android app</p></div>
+        <div><h1>Loan Extensions &amp; Gold Release</h1><p>Extension/release requests logged by staff on a customer's behalf — the Android app will submit these directly in a future build</p></div>
       </div>
       <hr className="gold-rule" />
       <div className="card">
@@ -24,21 +66,31 @@ export function Requests() {
               <tr><th>Request</th><th>Type</th><th>Loan</th><th>Customer</th><th>Detail</th><th>Date</th><th>Status</th><th></th></tr>
             </thead>
             <tbody>
-              {db.requests.map((r) => (
+              {loading ? (
+                <tr><td colSpan={8} className="empty">Loading requests…</td></tr>
+              ) : reqs.length === 0 ? (
+                <tr><td colSpan={8} className="empty">No extension or release requests yet.</td></tr>
+              ) : reqs.map((r) => (
                 <tr key={r.id}>
-                  <td><span className="id">{r.id}</span></td>
+                  <td><span className="id">#{r.id}</span></td>
                   <td><span className={`chip ${r.type === "Extension" ? "blue" : "gold"}`}>{r.type}</span></td>
-                  <td><a href={`#loan/${r.loan}`}>{r.loan}</a></td>
-                  <td>{r.cust}</td>
+                  <td><a href={`#loan/${r.loanNumber}`}>{r.loanNumber}</a></td>
+                  <td>{r.customerName}</td>
                   <td>{r.detail}</td>
-                  <td>{r.date}</td>
+                  <td>{r.requestedAt}</td>
                   <td><StatusChip status={r.status} /></td>
                   <td style={{ whiteSpace: "nowrap", textAlign: "right" }}>
-                    {r.status === "Pending" && (
-                      <>
-                        <button className="btn sm" onClick={() => toast(`${r.type} approved (demo)`)}>Approve</button>{" "}
-                        <button className="btn danger sm" onClick={() => toast("Rejected (demo)")}>Reject</button>
-                      </>
+                    {r.type === "Extension" ? (
+                      r.status === "Pending" && (
+                        <>
+                          <button className="btn sm" disabled={deciding === r.id} onClick={() => decide(r.id, "Approved")}>Approve</button>{" "}
+                          <button className="btn danger sm" disabled={deciding === r.id} onClick={() => decide(r.id, "Rejected")}>Reject</button>
+                        </>
+                      )
+                    ) : (
+                      <button className="btn ghost sm" onClick={() => openModal(<ReleaseReviewModalContent request={r} onSaved={refresh} />, true)}>
+                        {r.status === "Pending" ? "Review" : "View"}
+                      </button>
                     )}
                   </td>
                 </tr>

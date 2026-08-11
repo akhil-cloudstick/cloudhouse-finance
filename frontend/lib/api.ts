@@ -5,6 +5,13 @@
  */
 export const API_BASE = process.env.NEXT_PUBLIC_API_BASE || "/api/v1";
 
+/* localStorage keys for the JWT session — shared with lib/auth-context.tsx,
+ * which is the only other module that reads/writes them (keeps the token
+ * source-of-truth in one place while letting this fetch wrapper attach the
+ * header without importing React). */
+export const AUTH_TOKEN_KEY = "ambikagold_token";
+export const AUTH_EMPLOYEE_KEY = "ambikagold_employee";
+
 export class ApiError extends Error {
   status: number;
   constructor(message: string, status: number) {
@@ -13,12 +20,37 @@ export class ApiError extends Error {
   }
 }
 
+function getToken(): string | null {
+  if (typeof window === "undefined") return null;
+  return window.localStorage.getItem(AUTH_TOKEN_KEY);
+}
+
+function authHeader(): Record<string, string> {
+  const token = getToken();
+  return token ? { Authorization: `Bearer ${token}` } : {};
+}
+
+/* Called whenever the backend rejects a request with 401 — clears the
+ * stored session and bounces to /login. Skipped for the /auth/* endpoints
+ * themselves: a wrong password on /auth/login is an expected 401 that the
+ * login form needs to show inline, not a reason to force-navigate away. */
+function handleUnauthorized(path: string) {
+  if (typeof window === "undefined") return;
+  if (path.startsWith("/auth/")) return;
+  window.localStorage.removeItem(AUTH_TOKEN_KEY);
+  window.localStorage.removeItem(AUTH_EMPLOYEE_KEY);
+  if (window.location.pathname !== "/login") {
+    window.location.href = "/login";
+  }
+}
+
 export async function apiFetch<T>(path: string, opts?: RequestInit): Promise<T> {
   const res = await fetch(`${API_BASE}${path}`, {
-    headers: { "Content-Type": "application/json", ...(opts?.headers || {}) },
+    headers: { "Content-Type": "application/json", ...authHeader(), ...(opts?.headers || {}) },
     ...opts,
   });
   if (!res.ok) {
+    if (res.status === 401) handleUnauthorized(path);
     let message = res.statusText;
     try {
       const body = await res.json();
@@ -37,8 +69,13 @@ export async function apiFetch<T>(path: string, opts?: RequestInit): Promise<T> 
  * multipart boundary (apiFetch's default "application/json" would break
  * a FormData body). Used by lib/customersApi.ts's uploadFile(). */
 export async function apiUpload<T>(path: string, formData: FormData): Promise<T> {
-  const res = await fetch(`${API_BASE}${path}`, { method: "POST", body: formData });
+  const res = await fetch(`${API_BASE}${path}`, {
+    method: "POST",
+    headers: { ...authHeader() },
+    body: formData,
+  });
   if (!res.ok) {
+    if (res.status === 401) handleUnauthorized(path);
     let message = res.statusText;
     try {
       const body = await res.json();

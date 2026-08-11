@@ -35,7 +35,8 @@ func parseDate(s string) (time.Time, error) {
 
 func statusForErr(err error) int {
 	switch {
-	case errors.Is(err, ErrNotFound), errors.Is(err, ErrOrnamentNotFound):
+	case errors.Is(err, ErrNotFound), errors.Is(err, ErrOrnamentNotFound), errors.Is(err, ErrRequestNotFound),
+		errors.Is(err, ErrAuctionNotFound):
 		return http.StatusNotFound
 	case errors.Is(err, ErrBranchInvalid), errors.Is(err, ErrCustomerInvalid),
 		errors.Is(err, ErrCustomerNotVerified), errors.Is(err, ErrSchemeInvalid),
@@ -45,8 +46,17 @@ func statusForErr(err error) int {
 		errors.Is(err, ErrPrincipalTooHigh), errors.Is(err, ErrInvalidPrincipal),
 		errors.Is(err, ErrInvalidDueDate), errors.Is(err, ErrWrongStage),
 		errors.Is(err, ErrAlreadyDecided), errors.Is(err, ErrInvalidAction),
-		errors.Is(err, ErrInvalidAmount):
+		errors.Is(err, ErrInvalidAmount), errors.Is(err, ErrInvalidRequestType),
+		errors.Is(err, ErrInvalidMonths), errors.Is(err, ErrRequestAlreadyDecided),
+		errors.Is(err, ErrInvalidPaymentType), errors.Is(err, ErrExceedsOutstanding),
+		errors.Is(err, ErrNotExtensionRequest), errors.Is(err, ErrNotReleaseRequest),
+		errors.Is(err, ErrLoanTerminalState), errors.Is(err, ErrChecklistIncomplete),
+		errors.Is(err, ErrOutstandingBalanceRemains), errors.Is(err, ErrBankPledgeStillActive),
+		errors.Is(err, ErrLoanNotDefaulted), errors.Is(err, ErrAuctionAlreadyStarted),
+		errors.Is(err, ErrAuctionWrongStage):
 		return http.StatusBadRequest
+	case errors.Is(err, ErrReleaseNotApproved):
+		return http.StatusNotFound
 	default:
 		return http.StatusInternalServerError
 	}
@@ -86,6 +96,7 @@ type loanRequest struct {
 	DueDate         string            `json:"dueDate" binding:"required"`
 	PrincipalAmount float64           `json:"principalAmount" binding:"required"`
 	Ornaments       []ornamentRequest `json:"ornaments" binding:"required,min=1"`
+	LockerID        *uint             `json:"lockerId"`
 }
 
 func (req loanRequest) toInput() (CreateInput, error) {
@@ -109,6 +120,7 @@ func (req loanRequest) toInput() (CreateInput, error) {
 		DueDate:         due,
 		PrincipalAmount: req.PrincipalAmount,
 		Ornaments:       ornaments,
+		LockerID:        req.LockerID,
 	}, nil
 }
 
@@ -158,6 +170,17 @@ func (h *Handler) Get(c *gin.Context) {
 		return
 	}
 	rec, err := h.svc.Get(id)
+	if err != nil {
+		fail(c, statusForErr(err), err)
+		return
+	}
+	c.JSON(http.StatusOK, rec)
+}
+
+// GetByLoanNumber backs GET /loans/by-number/:loanNumber — a direct, atomic
+// lookup by the human-readable loan number (mirrors packet.Handler.GetByCode).
+func (h *Handler) GetByLoanNumber(c *gin.Context) {
+	rec, err := h.svc.GetByLoanNumber(c.Param("loanNumber"))
 	if err != nil {
 		fail(c, statusForErr(err), err)
 		return
@@ -274,6 +297,7 @@ type approvalRequest struct {
 	Stage      string `json:"stage" binding:"required"`
 	Action     string `json:"action" binding:"required"`
 	EmployeeID uint   `json:"employeeId" binding:"required"`
+	Role       string `json:"role" binding:"required"`
 	Remarks    string `json:"remarks"`
 }
 
@@ -292,6 +316,7 @@ func (h *Handler) Approve(c *gin.Context) {
 		Stage:           req.Stage,
 		Action:          req.Action,
 		ActorEmployeeID: req.EmployeeID,
+		ActorRole:       req.Role,
 		Remarks:         req.Remarks,
 	})
 	if err != nil {
@@ -301,13 +326,83 @@ func (h *Handler) Approve(c *gin.Context) {
 	c.JSON(http.StatusOK, rec)
 }
 
+// GetCustomer360 handles GET /customers/:id/profile360 — mounted directly
+// on the customers group in main.go (not loan's own route group) since the
+// URL is customer-shaped, even though the aggregation logic lives in
+// internal/loan (see Service.GetCustomer360's doc comment for why).
+func (h *Handler) GetCustomer360(c *gin.Context) {
+	customerID, err := idParam(c, "id")
+	if err != nil {
+		fail(c, http.StatusBadRequest, err)
+		return
+	}
+	rec, err := h.svc.GetCustomer360(customerID)
+	if err != nil {
+		fail(c, statusForErr(err), err)
+		return
+	}
+	c.JSON(http.StatusOK, rec)
+}
+
+// ListApprovals returns the full per-decision audit history for a loan's
+// sanction chain (GET /:id/approvals) — used by the frontend's stage
+// tracker to show who acted at each stage and when.
+func (h *Handler) ListApprovals(c *gin.Context) {
+	loanID, err := idParam(c, "id")
+	if err != nil {
+		fail(c, http.StatusBadRequest, err)
+		return
+	}
+	rec, err := h.svc.ListApprovals(loanID)
+	if err != nil {
+		fail(c, statusForErr(err), err)
+		return
+	}
+	c.JSON(http.StatusOK, rec)
+}
+
+// GetInterestCollected handles GET /loans/interest-collected?from=&to= —
+// both optional, defaulting to the current calendar month (YYYY-MM-01
+// through today) when omitted, matching Dashboard.tsx's default KPI
+// window.
+func (h *Handler) GetInterestCollected(c *gin.Context) {
+	now := time.Now()
+	from := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, now.Location())
+	to := now
+	if v := c.Query("from"); v != "" {
+		parsed, err := parseDate(v)
+		if err != nil {
+			fail(c, http.StatusBadRequest, errors.New("invalid from: expected YYYY-MM-DD"))
+			return
+		}
+		from = parsed
+	}
+	if v := c.Query("to"); v != "" {
+		parsed, err := parseDate(v)
+		if err != nil {
+			fail(c, http.StatusBadRequest, errors.New("invalid to: expected YYYY-MM-DD"))
+			return
+		}
+		to = parsed
+	}
+	total, err := h.svc.GetInterestCollected(from, to)
+	if err != nil {
+		fail(c, http.StatusInternalServerError, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"interestCollected": total, "from": from.Format("2006-01-02"), "to": to.Format("2006-01-02")})
+}
+
 // --- Payments ------------------------------------------------------------
 
 type paymentRequest struct {
-	Amount     float64 `json:"amount" binding:"required"`
-	Type       string  `json:"type" binding:"required"`
-	PaidOn     string  `json:"paidOn" binding:"required"`
-	EmployeeID uint    `json:"employeeId" binding:"required"`
+	Amount      float64 `json:"amount" binding:"required"`
+	Type        string  `json:"type" binding:"required"`
+	PaidOn      string  `json:"paidOn" binding:"required"`
+	EmployeeID  uint    `json:"employeeId" binding:"required"`
+	Method      string  `json:"method"`
+	Reference   string  `json:"reference"`
+	Description string  `json:"description"`
 }
 
 func (h *Handler) RecordPayment(c *gin.Context) {
@@ -331,6 +426,9 @@ func (h *Handler) RecordPayment(c *gin.Context) {
 		Type:                 req.Type,
 		PaidOn:               paidOn,
 		ReceivedByEmployeeID: req.EmployeeID,
+		Method:               req.Method,
+		Reference:            req.Reference,
+		Description:          req.Description,
 	})
 	if err != nil {
 		fail(c, statusForErr(err), err)
@@ -339,20 +437,72 @@ func (h *Handler) RecordPayment(c *gin.Context) {
 	c.JSON(http.StatusCreated, rec)
 }
 
-// --- Auction ---------------------------------------------------------------
+// --- Auction (7-stage workflow) ---------------------------------------------
 
-type auctionRequest struct {
-	AuctionDate   string  `json:"auctionDate" binding:"required"`
-	AuctionAmount float64 `json:"auctionAmount" binding:"required"`
-}
-
-func (h *Handler) RecordAuction(c *gin.Context) {
+func (h *Handler) GetAuction(c *gin.Context) {
 	loanID, err := idParam(c, "id")
 	if err != nil {
 		fail(c, http.StatusBadRequest, err)
 		return
 	}
-	var req auctionRequest
+	rec, err := h.svc.GetAuctionRecord(loanID)
+	if err != nil {
+		fail(c, statusForErr(err), err)
+		return
+	}
+	c.JSON(http.StatusOK, rec)
+}
+
+func (h *Handler) MarkAuctionEligible(c *gin.Context) {
+	loanID, err := idParam(c, "id")
+	if err != nil {
+		fail(c, http.StatusBadRequest, err)
+		return
+	}
+	rec, err := h.svc.MarkAuctionEligible(loanID)
+	if err != nil {
+		fail(c, statusForErr(err), err)
+		return
+	}
+	c.JSON(http.StatusCreated, rec)
+}
+
+type auctionNoticeRequest struct {
+	Method  string `json:"method" binding:"required"`
+	Remarks string `json:"remarks"`
+}
+
+func (h *Handler) IssueAuctionNotice(c *gin.Context) {
+	loanID, err := idParam(c, "id")
+	if err != nil {
+		fail(c, http.StatusBadRequest, err)
+		return
+	}
+	var req auctionNoticeRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		fail(c, http.StatusBadRequest, err)
+		return
+	}
+	rec, err := h.svc.IssueAuctionNotice(loanID, req.Method, req.Remarks)
+	if err != nil {
+		fail(c, statusForErr(err), err)
+		return
+	}
+	c.JSON(http.StatusOK, rec)
+}
+
+type auctionScheduleRequest struct {
+	AuctionDate     string `json:"auctionDate" binding:"required"`
+	ReferenceNumber string `json:"referenceNumber"`
+}
+
+func (h *Handler) ScheduleAuction(c *gin.Context) {
+	loanID, err := idParam(c, "id")
+	if err != nil {
+		fail(c, http.StatusBadRequest, err)
+		return
+	}
+	var req auctionScheduleRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		fail(c, http.StatusBadRequest, err)
 		return
@@ -362,10 +512,54 @@ func (h *Handler) RecordAuction(c *gin.Context) {
 		fail(c, http.StatusBadRequest, errors.New("invalid auctionDate: expected YYYY-MM-DD"))
 		return
 	}
-	rec, err := h.svc.RecordAuction(loanID, AuctionInput{
-		AuctionDate:   auctionDate,
-		AuctionAmount: req.AuctionAmount,
-	})
+	rec, err := h.svc.ScheduleAuction(loanID, auctionDate, req.ReferenceNumber)
+	if err != nil {
+		fail(c, statusForErr(err), err)
+		return
+	}
+	c.JSON(http.StatusOK, rec)
+}
+
+type auctionSaleRequest struct {
+	SaleAmount      float64 `json:"saleAmount" binding:"required"`
+	AuctionExpenses float64 `json:"auctionExpenses"`
+}
+
+func (h *Handler) RecordAuctionSale(c *gin.Context) {
+	loanID, err := idParam(c, "id")
+	if err != nil {
+		fail(c, http.StatusBadRequest, err)
+		return
+	}
+	var req auctionSaleRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		fail(c, http.StatusBadRequest, err)
+		return
+	}
+	rec, err := h.svc.RecordAuctionSale(loanID, req.SaleAmount, req.AuctionExpenses)
+	if err != nil {
+		fail(c, statusForErr(err), err)
+		return
+	}
+	c.JSON(http.StatusOK, rec)
+}
+
+type auctionSettleRequest struct {
+	SettlementStatus string `json:"settlementStatus" binding:"required"`
+}
+
+func (h *Handler) SettleAuction(c *gin.Context) {
+	loanID, err := idParam(c, "id")
+	if err != nil {
+		fail(c, http.StatusBadRequest, err)
+		return
+	}
+	var req auctionSettleRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		fail(c, http.StatusBadRequest, err)
+		return
+	}
+	rec, err := h.svc.SettleAuction(loanID, req.SettlementStatus)
 	if err != nil {
 		fail(c, statusForErr(err), err)
 		return
@@ -376,9 +570,11 @@ func (h *Handler) RecordAuction(c *gin.Context) {
 // --- Bank pledge ---------------------------------------------------------
 
 type bankPledgeRequest struct {
-	BankName      string  `json:"bankName" binding:"required"`
-	PledgedAmount float64 `json:"pledgedAmount" binding:"required"`
-	PledgeDate    string  `json:"pledgeDate" binding:"required"`
+	BankName         string  `json:"bankName" binding:"required"`
+	PledgedAmount    float64 `json:"pledgedAmount" binding:"required"`
+	PledgeDate       string  `json:"pledgeDate" binding:"required"`
+	BankInterestRate float64 `json:"bankInterestRate"`
+	ReferenceNumber  string  `json:"referenceNumber"`
 }
 
 func (h *Handler) RecordBankPledge(c *gin.Context) {
@@ -398,9 +594,11 @@ func (h *Handler) RecordBankPledge(c *gin.Context) {
 		return
 	}
 	rec, err := h.svc.RecordBankPledge(loanID, BankPledgeInput{
-		BankName:      req.BankName,
-		PledgedAmount: req.PledgedAmount,
-		PledgeDate:    pledgeDate,
+		BankName:         req.BankName,
+		PledgedAmount:    req.PledgedAmount,
+		PledgeDate:       pledgeDate,
+		BankInterestRate: req.BankInterestRate,
+		ReferenceNumber:  req.ReferenceNumber,
 	})
 	if err != nil {
 		fail(c, statusForErr(err), err)
@@ -421,6 +619,205 @@ func (h *Handler) ReleaseBankPledge(c *gin.Context) {
 		return
 	}
 	rec, err := h.svc.ReleaseBankPledge(loanID, pledgeID)
+	if err != nil {
+		fail(c, statusForErr(err), err)
+		return
+	}
+	c.JSON(http.StatusOK, rec)
+}
+
+// --- Extension & release requests ------------------------------------------
+
+type extensionRequestRequest struct {
+	Months      int    `json:"months" binding:"required"`
+	Detail      string `json:"detail"`
+	RequestedBy string `json:"requestedBy"`
+}
+
+func (h *Handler) CreateExtensionRequest(c *gin.Context) {
+	loanID, err := idParam(c, "id")
+	if err != nil {
+		fail(c, http.StatusBadRequest, err)
+		return
+	}
+	var req extensionRequestRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		fail(c, http.StatusBadRequest, err)
+		return
+	}
+	rec, err := h.svc.CreateExtensionRequest(loanID, ExtensionRequestInput{
+		Months:      req.Months,
+		Detail:      req.Detail,
+		RequestedBy: req.RequestedBy,
+	})
+	if err != nil {
+		fail(c, statusForErr(err), err)
+		return
+	}
+	c.JSON(http.StatusCreated, rec)
+}
+
+type releaseRequestRequest struct {
+	Detail      string `json:"detail"`
+	RequestedBy string `json:"requestedBy"`
+}
+
+func (h *Handler) CreateReleaseRequest(c *gin.Context) {
+	loanID, err := idParam(c, "id")
+	if err != nil {
+		fail(c, http.StatusBadRequest, err)
+		return
+	}
+	var req releaseRequestRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		fail(c, http.StatusBadRequest, err)
+		return
+	}
+	rec, err := h.svc.CreateReleaseRequest(loanID, ReleaseRequestInput{
+		Detail:      req.Detail,
+		RequestedBy: req.RequestedBy,
+	})
+	if err != nil {
+		fail(c, statusForErr(err), err)
+		return
+	}
+	c.JSON(http.StatusCreated, rec)
+}
+
+func (h *Handler) ListRequests(c *gin.Context) {
+	f := LoanRequestFilter{Status: c.Query("status")}
+	if v := c.Query("loanId"); v != "" {
+		if id, err := strconv.ParseUint(v, 10, 64); err == nil {
+			f.LoanID = uint(id)
+		}
+	}
+	rec, err := h.svc.ListRequests(f)
+	if err != nil {
+		fail(c, http.StatusInternalServerError, err)
+		return
+	}
+	c.JSON(http.StatusOK, rec)
+}
+
+type decideRequestRequest struct {
+	Action     string `json:"action" binding:"required"` // "Approved" | "Rejected"
+	EmployeeID uint   `json:"employeeId" binding:"required"`
+	Remarks    string `json:"remarks"`
+}
+
+func (h *Handler) DecideRequest(c *gin.Context) {
+	requestID, err := idParam(c, "requestId")
+	if err != nil {
+		fail(c, http.StatusBadRequest, err)
+		return
+	}
+	var req decideRequestRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		fail(c, http.StatusBadRequest, err)
+		return
+	}
+	var approve bool
+	switch req.Action {
+	case ApprovalStageApproved:
+		approve = true
+	case ApprovalStageRejected:
+		approve = false
+	default:
+		fail(c, http.StatusBadRequest, ErrInvalidAction)
+		return
+	}
+	rec, err := h.svc.DecideRequest(requestID, approve, req.EmployeeID, req.Remarks)
+	if err != nil {
+		fail(c, statusForErr(err), err)
+		return
+	}
+	c.JSON(http.StatusOK, rec)
+}
+
+// --- Release verification checklist & approval chain ----------------------
+
+type checklistRequest struct {
+	PaymentVerified    *bool    `json:"paymentVerified"`
+	PacketVerified     *bool    `json:"packetVerified"`
+	BankPledgeVerified *bool    `json:"bankPledgeVerified"`
+	CustomerConfirmed  *bool    `json:"customerConfirmed"`
+	VerificationNotes  *string  `json:"verificationNotes"`
+	Charges            *float64 `json:"charges"`
+}
+
+func (h *Handler) VerifyReleaseChecklist(c *gin.Context) {
+	requestID, err := idParam(c, "requestId")
+	if err != nil {
+		fail(c, http.StatusBadRequest, err)
+		return
+	}
+	var req checklistRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		fail(c, http.StatusBadRequest, err)
+		return
+	}
+	rec, err := h.svc.VerifyReleaseChecklist(requestID, ChecklistInput{
+		PaymentVerified:    req.PaymentVerified,
+		PacketVerified:     req.PacketVerified,
+		BankPledgeVerified: req.BankPledgeVerified,
+		CustomerConfirmed:  req.CustomerConfirmed,
+		VerificationNotes:  req.VerificationNotes,
+		Charges:            req.Charges,
+	})
+	if err != nil {
+		fail(c, statusForErr(err), err)
+		return
+	}
+	c.JSON(http.StatusOK, rec)
+}
+
+type releaseApprovalRequest struct {
+	Stage      string `json:"stage" binding:"required"`
+	Action     string `json:"action" binding:"required"`
+	EmployeeID uint   `json:"employeeId" binding:"required"`
+	Remarks    string `json:"remarks"`
+}
+
+func (h *Handler) ApproveReleaseRequest(c *gin.Context) {
+	requestID, err := idParam(c, "requestId")
+	if err != nil {
+		fail(c, http.StatusBadRequest, err)
+		return
+	}
+	var req releaseApprovalRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		fail(c, http.StatusBadRequest, err)
+		return
+	}
+	rec, err := h.svc.ApproveReleaseRequest(requestID, ReleaseApprovalInput{
+		Stage:           req.Stage,
+		Action:          req.Action,
+		ActorEmployeeID: req.EmployeeID,
+		Remarks:         req.Remarks,
+	})
+	if err != nil {
+		fail(c, statusForErr(err), err)
+		return
+	}
+	c.JSON(http.StatusOK, rec)
+}
+
+type completeReleaseRequest struct {
+	EmployeeID uint `json:"employeeId" binding:"required"`
+}
+
+func (h *Handler) CompleteRelease(c *gin.Context) {
+	loanID, err := idParam(c, "id")
+	if err != nil {
+		fail(c, http.StatusBadRequest, err)
+		return
+	}
+	var req completeReleaseRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		fail(c, http.StatusBadRequest, err)
+		return
+	}
+	rec, err := h.svc.CompleteRelease(loanID, req.EmployeeID)
 	if err != nil {
 		fail(c, statusForErr(err), err)
 		return

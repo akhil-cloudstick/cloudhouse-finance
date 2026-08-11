@@ -10,9 +10,12 @@
 > `internal/cash` (cash movements + expenses), `internal/customer`
 > (Customer Module, stage 1 — see below), `internal/upload` (shared
 > file-upload endpoint), `internal/loan` (Gold Loan Creation & Ornaments
-> Management), and `internal/ornamenttype` (a small find-or-create
+> Management), `internal/ornamenttype` (a small find-or-create
 > reference-data resource for ornament type names, backing `NewLoan.tsx`'s
-> ornament-type picker); see [api_documentation.md](api_documentation.md)
+> ornament-type picker), and `internal/reminder` (the Reminder Calendar —
+> manual Customer Follow-Up/Promise-to-Pay/Custom reminders plus a
+> `GET /reminders/calendar` aggregation with live loan due/overdue/interest
+> events, backing `Calendar.tsx`); see [api_documentation.md](api_documentation.md)
 > and [database_architecture.md](database_architecture.md) for what's live
 > today. The Go binary (`backend/main.go`) also now serves the built Next.js
 > export (`frontend/out`) on the same port, via `internal/webstatic`,
@@ -26,9 +29,13 @@
 > independently via curl first, per the Sequencing section below).
 > Employees and Expenses reference a branch via `branch_id` but still save
 > their own records to the mock layer; Customer carries a real `branch_id`
-> too and is fully real end-to-end. Branch Management, Settings, and the
-> Customer Module are admin-only by convention only — no auth/RBAC exists
-> yet to enforce that server-side (see the Authentication section below).
+> too and is fully real end-to-end. JWT authentication + a role-based
+> permission (RBAC) checkpoint are now implemented and wired in front of
+> every `/api/v1/*` route (see the Authentication & Authorization section
+> below) — permissions are currently seeded allow-all for all 9 roles, so
+> Branch Management, Settings, and the Customer Module remain admin-only
+> by convention rather than by an actively-restricting role, until that
+> gets configured via a future admin screen.
 > Settings' API keys (Notifications/SMS/WhatsApp/KYC/Aadhaar/PAN) are
 > encrypted at rest but are storage-only — nothing calls those providers
 > with them yet. The Customer Module's `kycStatus`/`panStatus`/
@@ -121,17 +128,55 @@ the same Go process (cron-style), writing through the same
 service/repository layers as request-driven code — no separate worker
 service in v1.
 
-## Authentication
-JWT-based auth (`golang-jwt/jwt` or similar) + RBAC. `POST /api/v1/auth/login`
-validates credentials (and OTP, where applicable) and issues a JWT (subject,
-role, branch, expiry). A global auth middleware protects all routes except
-those explicitly marked public (e.g. `/auth/login`, `/auth/otp/verify`); a
-roles middleware restricts sensitive routes (gold rate changes, scheme
-modifications, payment reversals, waivers, auction confirmation) to
-authorized roles.
+## Authentication & Authorization
+**Implemented** (previously planned-only) in `internal/auth` (login/
+forgot/reset/me), `internal/authz` (the permissions table), and
+`internal/platform` (JWT issue/parse + the `AuthMiddleware`/
+`RequirePermission` Gin middleware). Login credentials live directly on
+`Employee` (`email`, `passwordHash`, plus reset-token fields) — there is no
+separate `users` table, since roles/branch already live there. See
+[api_documentation.md](api_documentation.md#authentication-api-apiv1auth)
+for the endpoint/permission-table details; summarized here as a request
+flow:
 
-Roles: `admin`, `management`, `branch_manager`, `loan_operator`, `cashier`,
-`accountant`, `collection_staff`, `auction_admin`, `auditor`, `customer`.
+```
+Client → Authorization: Bearer <token> header
+      → AuthMiddleware validates the JWT (signature + expiry),
+        sets employeeId/role/branchId on the request context
+      → RequirePermission(resource, action) looks up
+        (role, resource, action) in the `permissions` table
+      → allowed  → request proceeds to the domain handler
+      → missing/Allowed=false → 403
+      → (any earlier step failing → 401, before the handler runs)
+```
+
+`POST /api/v1/auth/login`, `POST /api/v1/auth/forgot-password`, and
+`POST /api/v1/auth/reset-password` are the only public routes — every other
+route in `main.go`, including `GET /api/v1/auth/me`, sits behind
+`AuthMiddleware` + a per-verb `RequirePermission`. The `permissions` table
+(`role`, `resource`, `action`, `allowed`) is seeded allow-all for all 9
+roles on every startup (existing rows are never overwritten), so today any
+logged-in employee can call any endpoint — the checkpoint exists and is
+wired everywhere, but per-role restriction is deferred to a future admin
+screen that edits this table directly (no code change/redeploy needed to
+tighten a role later).
+
+Roles (final list): `Administrator`, `Management`, `Branch Manager`,
+`Loan Operator`, `Cashier`, `Accountant`, `Collection Staff`,
+`Auction Administrator`, `Auditor`. Customers use a separate mobile app and
+are not part of this employee-login system.
+
+**Deferred/out of scope for this change:**
+- **HTTPS termination** happens at the reverse proxy/hosting layer, not in
+  the Go process itself — this backend speaks plain HTTP; TLS is expected
+  to be handled by whatever sits in front of it in production.
+- **Audit logging** (who did what, when) was intentionally not built as
+  part of this change — `internal/audit` remains unimplemented (see the
+  Folder Structure section) and will be revisited separately.
+- The Loans module's 3-step approval chain still has no real
+  employee-authority check beyond the coarse RBAC above (any role allowed
+  to call `loans:update` can approve/reject any stage) — see
+  [api_documentation.md](api_documentation.md) for that module's caveats.
 
 Token storage differs per platform:
 - **admin (web)** — httpOnly cookie or secure storage, per final decision
@@ -163,10 +208,14 @@ See [context.md](context.md) for provider selection status.
 ### Current (as scaffolded today)
 The `frontend/` folder has already been scaffolded as a real Next.js app
 (migrated off the old flat HTML/JS prototype, which now lives under
-`legacy/`). `backend/` now has a real Go module started, with four
-domains implemented (`branch`, `settings`, `scheme`, `goldrate`, `employee`, `cash`) and the Go
-binary itself serving the built frontend (see "Planned" tree below for
-the full target shape — the actual tree today is a subset of it).
+`legacy/`). `backend/` now has a real Go module started, with `branch`,
+`settings`, `scheme`, `goldrate`, `employee`, `cash`, `customer`, `loan`,
+`ornamenttype`, `bank`, `locker`, `packet`, `upload`, `auth`, and `authz`
+implemented, plus the Go binary itself serving the built frontend (see
+"Planned" tree below for the full target shape — the actual tree today is
+a subset of it). `auth` (login/forgot/reset/me) and `authz` (the
+`permissions` table backing RBAC) are new since the JWT auth work — see
+the Authentication & Authorization section below.
 `server.mjs` still exists in the repo but is superseded — the Go binary
 (`backend/main.go`) now serves `frontend/out` directly.
 

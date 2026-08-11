@@ -6,7 +6,7 @@ import { useToast } from "@/components/Toast";
 import { Icon } from "@/lib/icons";
 import { fmt, fmtW } from "@/lib/format";
 import { recordBankPledge, type LoanView } from "@/lib/loansApi";
-import { searchBanksPage, createBank, type BackendBank } from "@/lib/bankApi";
+import { searchBanksPage, type BackendBank } from "@/lib/bankApi";
 import { SearchableSelect } from "@/components/SearchableSelect";
 import { ApiError } from "@/lib/api";
 
@@ -17,9 +17,12 @@ import { ApiError } from "@/lib/api";
  * backend's BankPledgeRecord.BankName (a plain string, not a Bank
  * resource) — that's since changed: banks are now a real backend resource
  * (see internal/bank), so the field below is a SearchableSelect against
- * `GET /banks` with allowCreate, matching NewLoan.tsx's ornament-type
- * picker — typing a bank that doesn't exist yet shows a "+ Create" row
- * that adds it. */
+ * `GET /banks`. Unlike NewLoan.tsx's ornament-type picker, inline creation
+ * is intentionally disabled here — per the bank re-pledge spec, a bank
+ * must be registered (with its branch/IFSC/account details) via "Add
+ * Bank" (BankModal.tsx) before it can be re-pledged against, so staff
+ * can't accidentally create a bare, detail-less bank record from this
+ * modal. */
 export function RepledgeModalContent({ loan, onSaved }: { loan: LoanView; onSaved: () => void }) {
   const { closeModal } = useModal();
   const toast = useToast();
@@ -29,6 +32,8 @@ export function RepledgeModalContent({ loan, onSaved }: { loan: LoanView; onSave
   const [bankLabel, setBankLabel] = useState("");
   const [amt, setAmt] = useState("");
   const [date, setDate] = useState(today);
+  const [interestRate, setInterestRate] = useState("");
+  const [referenceNumber, setReferenceNumber] = useState("");
   const [err, setErr] = useState("");
   const [saving, setSaving] = useState(false);
 
@@ -39,7 +44,13 @@ export function RepledgeModalContent({ loan, onSaved }: { loan: LoanView; onSave
     if (!amount || amount <= 0) { setErr("Please enter the pledged amount."); return; }
     setSaving(true);
     try {
-      await recordBankPledge(loan.numericId, { bankName: bank.trim(), pledgedAmount: amount, pledgeDate: date });
+      await recordBankPledge(loan.numericId, {
+        bankName: bank.trim(),
+        pledgedAmount: amount,
+        pledgeDate: date,
+        bankInterestRate: interestRate ? +interestRate : undefined,
+        referenceNumber: referenceNumber.trim() || undefined,
+      });
       onSaved();
       closeModal();
       toast(`Gold repledged to ${bank.trim()}`);
@@ -64,13 +75,15 @@ export function RepledgeModalContent({ loan, onSaved }: { loan: LoanView; onSave
             fetchFn={searchBanksPage}
             getLabel={(b) => b.name}
             getId={(b) => String(b.id)}
-            placeholder="Search or add a bank…"
-            allowCreate
-            onCreate={createBank}
+            placeholder="Search for a registered bank…"
           /></div></div>
         <div className="frow c2">
           <div><label className="f">Pledged Amount (₹) *</label><input className="inp" type="number" min={1} placeholder="amount raised from bank" value={amt} onChange={(e) => setAmt(e.target.value)} /></div>
           <div><label className="f">Pledge Date *</label><input className="inp" type="date" value={date} onChange={(e) => setDate(e.target.value)} /></div>
+        </div>
+        <div className="frow c2">
+          <div><label className="f">Bank Interest Rate (% p.a.)</label><input className="inp" type="number" min={0} step={0.01} placeholder="rate charged by the bank" value={interestRate} onChange={(e) => setInterestRate(e.target.value)} /></div>
+          <div><label className="f">Reference Number</label><input className="inp" placeholder="bank's pledge/document reference" value={referenceNumber} onChange={(e) => setReferenceNumber(e.target.value)} maxLength={60} /></div>
         </div>
         <p style={{ color: "var(--red)", fontSize: 12.5, minHeight: 16, marginTop: 8 }}>{err}</p>
       </div>

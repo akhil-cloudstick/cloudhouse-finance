@@ -6,6 +6,7 @@ export type BackendBank = {
   name: string;
   branch: string;
   ifsc: string;
+  accountNo: string;
   phone: string;
   createdAt: string;
   updatedAt: string;
@@ -40,7 +41,7 @@ export async function createBank(name: string): Promise<BackendBank> {
  * find-or-create endpoint as createBank(); note branch/ifsc/phone are only
  * persisted when a NEW bank is created (an existing name-match is returned
  * as-is, per the backend's FindOrCreate semantics). */
-export async function createBankFull(input: { name: string; branch: string; ifsc: string; phone: string }): Promise<BackendBank> {
+export async function createBankFull(input: { name: string; branch: string; ifsc: string; accountNo: string; phone: string }): Promise<BackendBank> {
   return apiFetch<BackendBank>("/banks", {
     method: "POST",
     body: JSON.stringify(input),

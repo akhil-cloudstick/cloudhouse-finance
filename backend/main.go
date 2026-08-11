@@ -7,6 +7,8 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	"ambikagold/backend/internal/auth"
+	"ambikagold/backend/internal/authz"
 	"ambikagold/backend/internal/bank"
 	"ambikagold/backend/internal/branch"
 	"ambikagold/backend/internal/cash"
@@ -18,11 +20,31 @@ import (
 	"ambikagold/backend/internal/ornamenttype"
 	"ambikagold/backend/internal/packet"
 	"ambikagold/backend/internal/platform"
+	"ambikagold/backend/internal/reminder"
 	"ambikagold/backend/internal/scheme"
 	"ambikagold/backend/internal/settings"
 	"ambikagold/backend/internal/upload"
 	"ambikagold/backend/internal/webstatic"
 )
+
+// authResources lists every domain package's permission resource key,
+// seeded with allow-all rows for all 9 roles on startup (see
+// authz.Repository.SeedDefaults). "kyc-documents" has no dedicated routes
+// yet (KYC document URLs currently flow through the generic customer/
+// upload endpoints) but is seeded now per the permissions plan so a future
+// admin screen can restrict it independently without a migration.
+var authResources = []string{
+	"banks", "branches", "cash", "customers", "employees", "goldrates",
+	"loans", "lockers", "ornamenttypes", "packets", "reminders", "schemes",
+	"settings", "uploads", "kyc-documents",
+}
+
+// staffRoles is the canonical 9-role list permissions are seeded for. Keep
+// in sync with employee.ValidRoles.
+var staffRoles = []string{
+	"Administrator", "Management", "Branch Manager", "Loan Operator", "Cashier",
+	"Accountant", "Collection Staff", "Auction Administrator", "Auditor",
+}
 
 // corsMiddleware allows the Next.js dev server (a different origin/port from
 // this API during local development) to make cross-origin requests. In
@@ -49,6 +71,10 @@ func main() {
 		log.Fatalf("database connection failed: %v", err)
 	}
 
+	if err := scheme.BackfillDurationMonths(db); err != nil {
+		log.Fatalf("scheme duration backfill failed: %v", err)
+	}
+
 	if err := db.AutoMigrate(
 		&branch.Branch{},
 		&scheme.Scheme{},
@@ -64,15 +90,32 @@ func main() {
 		&loan.OrnamentPurityTest{},
 		&loan.OrnamentImage{},
 		&loan.LoanApproval{},
+		&loan.LoanRequest{},
+		&loan.RequestApproval{},
 		&loan.LoanPayment{},
 		&loan.BankPledgeRecord{},
+		&loan.AuctionRecord{},
+		&loan.AuctionNotice{},
 		&ornamenttype.OrnamentType{},
 		&bank.Bank{},
 		&locker.Locker{},
 		&packet.Packet{},
 		&packet.PacketMovement{},
+		&reminder.Reminder{},
+		&authz.Permission{},
 	); err != nil {
 		log.Fatalf("auto-migrate failed: %v", err)
+	}
+
+	if err := scheme.DropLegacyDateColumns(db); err != nil {
+		log.Fatalf("legacy scheme date column cleanup failed: %v", err)
+	}
+
+	authzRepo := authz.NewRepository(db)
+	if inserted, skipped, err := authzRepo.SeedDefaults(staffRoles, authResources); err != nil {
+		log.Fatalf("permissions seed failed: %v", err)
+	} else {
+		log.Printf("permissions seed: %d inserted, %d already present", inserted, skipped)
 	}
 
 	settingsCipher, err := platform.NewSettingsCipher(cfg.SettingsEncryptionKey)
@@ -144,12 +187,20 @@ func main() {
 	loanApprovalRepo := loan.NewApprovalRepository(db)
 	loanPaymentRepo := loan.NewPaymentRepository(db)
 	loanPledgeRepo := loan.NewBankPledgeRepository(db)
+	loanRequestRepo := loan.NewLoanRequestRepository(db)
+	requestApprovalRepo := loan.NewRequestApprovalRepository(db)
+	loanAuctionRepo := loan.NewAuctionRepository(db)
 	// packetSvc satisfies both loan.PacketCreator (auto-creates a packet
 	// right after loan creation) and loan.PacketMover (logs a matching
 	// packet movement on bank-pledge/release) — see internal/loan's
-	// PacketCreator/PacketMover doc comments.
-	loanSvc := loan.NewService(loanRepo, loanOrnamentRepo, loanApprovalRepo, loanPaymentRepo, loanPledgeRepo, branchRepo, customerRepo, schemeRepo, goldRateRepo, packetSvc, packetSvc)
+	// PacketCreator/PacketMover doc comments. movementSvc satisfies
+	// loan.CashRecorder, reflecting bank-pledge amounts into Cash-in-Hand.
+	loanSvc := loan.NewService(loanRepo, loanOrnamentRepo, loanApprovalRepo, loanPaymentRepo, loanPledgeRepo, loanRequestRepo, requestApprovalRepo, loanAuctionRepo, branchRepo, customerRepo, schemeRepo, goldRateRepo, packetSvc, packetSvc, movementSvc)
 	loanHandler := loan.NewHandler(loanSvc)
+
+	reminderRepo := reminder.NewRepository(db)
+	reminderSvc := reminder.NewService(reminderRepo, customerRepo, loanRepo)
+	reminderHandler := reminder.NewHandler(reminderSvc)
 
 	uploadHandler := upload.NewHandler(cfg.UploadsDir)
 
@@ -161,22 +212,46 @@ func main() {
 	bankSvc := bank.NewService(bankRepo)
 	bankHandler := bank.NewHandler(bankSvc)
 
+	mailer := platform.NewMailer(cfg.SMTPHost, cfg.SMTPPort, cfg.SMTPUser, cfg.SMTPPass, cfg.SMTPFrom)
+	authSvc := auth.NewService(employeeRepo, mailer, cfg.JWTSecret, cfg.JWTExpiry, cfg.FrontendOrigin)
+	authHandler := auth.NewHandler(authSvc)
+
+	authMiddleware := platform.AuthMiddleware(cfg.JWTSecret)
+
 	v1 := router.Group("/api/v1")
-	branch.RegisterRoutes(v1.Group("/branches"), branchHandler)
-	scheme.RegisterRoutes(v1.Group("/schemes"), schemeHandler)
-	goldrate.RegisterRoutes(v1.Group("/gold-rates"), goldRateHandler)
-	employee.RegisterRoutes(v1.Group("/employees"), employeeHandler)
-	cash.RegisterMovementRoutes(v1.Group("/cash-movements"), movementHandler)
-	cash.RegisterExpenseRoutes(v1.Group("/expenses"), expenseHandler)
-	cash.RegisterCashRoutes(v1.Group("/cash"), openingBalanceHandler, summaryHandler)
-	settings.RegisterRoutes(v1.Group("/settings/api-keys"), settingsHandler)
-	customer.RegisterRoutes(v1.Group("/customers"), customerHandler)
-	loan.RegisterRoutes(v1.Group("/loans"), loanHandler)
-	upload.RegisterRoutes(v1.Group("/uploads"), uploadHandler)
-	ornamenttype.RegisterRoutes(v1.Group("/ornament-types"), ornamentTypeHandler)
-	bank.RegisterRoutes(v1.Group("/banks"), bankHandler)
-	locker.RegisterRoutes(v1.Group("/lockers"), lockerHandler)
-	packet.RegisterRoutes(v1.Group("/packets"), packetHandler)
+
+	// /auth/* is public (login/forgot/reset) except /auth/me, which
+	// RegisterRoutes gates with authMiddleware itself — see
+	// internal/auth/routes.go.
+	auth.RegisterRoutes(v1.Group("/auth"), authHandler, authMiddleware)
+
+	// Every other /api/v1 route requires a valid JWT ("checkpoint 1"), then
+	// a per-verb permission check against the permissions table
+	// ("checkpoint 2" — see platform.CRUDPermissions), currently allow-all
+	// for all 9 roles until an admin screen starts restricting rows.
+	protected := v1.Group("")
+	protected.Use(authMiddleware)
+
+	branch.RegisterRoutes(protected.Group("/branches"), branchHandler, platform.CRUDPermissions(authzRepo, "branches"))
+	scheme.RegisterRoutes(protected.Group("/schemes"), schemeHandler, platform.CRUDPermissions(authzRepo, "schemes"))
+	goldrate.RegisterRoutes(protected.Group("/gold-rates"), goldRateHandler, platform.CRUDPermissions(authzRepo, "goldrates"))
+	employee.RegisterRoutes(protected.Group("/employees"), employeeHandler, platform.CRUDPermissions(authzRepo, "employees"))
+	cash.RegisterMovementRoutes(protected.Group("/cash-movements"), movementHandler, platform.CRUDPermissions(authzRepo, "cash"))
+	cash.RegisterExpenseRoutes(protected.Group("/expenses"), expenseHandler, platform.CRUDPermissions(authzRepo, "cash"))
+	cash.RegisterCashRoutes(protected.Group("/cash"), openingBalanceHandler, summaryHandler, platform.CRUDPermissions(authzRepo, "cash"))
+	settings.RegisterRoutes(protected.Group("/settings/api-keys"), settingsHandler, platform.CRUDPermissions(authzRepo, "settings"))
+	customer.RegisterRoutes(protected.Group("/customers"), customerHandler, platform.CRUDPermissions(authzRepo, "customers"))
+	// Customer 360 lives on loanHandler (see internal/loan/service.go's
+	// GetCustomer360 doc comment — avoids a customer<->loan import cycle)
+	// but is mounted under /customers to keep the URL customer-shaped.
+	protected.GET("/customers/:id/profile360", platform.CRUDPermissions(authzRepo, "customers").Read, loanHandler.GetCustomer360)
+	loan.RegisterRoutes(protected.Group("/loans"), loanHandler, platform.CRUDPermissions(authzRepo, "loans"))
+	upload.RegisterRoutes(protected.Group("/uploads"), uploadHandler, platform.CRUDPermissions(authzRepo, "uploads"))
+	ornamenttype.RegisterRoutes(protected.Group("/ornament-types"), ornamentTypeHandler, platform.CRUDPermissions(authzRepo, "ornamenttypes"))
+	bank.RegisterRoutes(protected.Group("/banks"), bankHandler, platform.CRUDPermissions(authzRepo, "banks"))
+	locker.RegisterRoutes(protected.Group("/lockers"), lockerHandler, platform.CRUDPermissions(authzRepo, "lockers"))
+	packet.RegisterRoutes(protected.Group("/packets"), packetHandler, platform.CRUDPermissions(authzRepo, "packets"))
+	reminder.RegisterRoutes(protected.Group("/reminders"), reminderHandler, platform.CRUDPermissions(authzRepo, "reminders"))
 
 	if err := os.MkdirAll(cfg.UploadsDir, 0o755); err != nil {
 		log.Fatalf("failed to prepare uploads directory: %v", err)

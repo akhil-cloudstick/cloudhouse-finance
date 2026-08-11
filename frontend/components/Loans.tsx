@@ -6,13 +6,27 @@ import { LoanRow } from "@/components/LoanRow";
 import { Icon } from "@/lib/icons";
 import { listLoans, type LoanView } from "@/lib/loansApi";
 
-const CATS = ["All", "Active", "Due Soon", "Overdue", "Pending Approval", "Auction Eligible", "Closed"];
+const CATS = ["All", "Active", "Due Soon", "Overdue", "Defaulted", "Pending Approval", "Auction Eligible", "Closed"];
+
+/* "Due Soon"/"Overdue"/"Defaulted" are computed read-time flags (isDueSoon/
+ * isOverdue/isDefaulted, see loan/accrual.go's enrichStatusFlags), NOT
+ * values of the persisted Loan.Status field — nothing ever sets Status to
+ * those strings. So these three categories filter the already-loaded list
+ * client-side instead of being sent to the server's `status` query param
+ * (which only matches Loan.Status exactly). */
+const COMPUTED_CATS: Partial<Record<string, (l: LoanView) => boolean>> = {
+  "Due Soon": (l) => l.isDueSoon,
+  "Overdue": (l) => l.isOverdue,
+  "Defaulted": (l) => l.isDefaulted,
+};
 
 /* Ported from legacy/app.js's `renderLoans()`. Backed by the real loan API:
  * the initial list comes from LoansProvider, but once a status filter or
  * search term is applied, this re-queries `GET /loans` directly (via
  * listLoans's `q`/`status` params) so filtering happens server-side instead
- * of only scanning the client's already-loaded page. */
+ * of only scanning the client's already-loaded page — except for the
+ * computed-flag categories above, which filter client-side (see
+ * COMPUTED_CATS). */
 export function Loans() {
   const { loans: allLoans, loading: providerLoading, error: providerError } = useLoans();
   const [cat, setCat] = useState("All");
@@ -21,8 +35,10 @@ export function Loans() {
   const [searching, setSearching] = useState(false);
   const [searchError, setSearchError] = useState("");
 
+  const computedPredicate = COMPUTED_CATS[cat];
+
   useEffect(() => {
-    if (cat === "All" && !q.trim()) {
+    if (computedPredicate || (cat === "All" && !q.trim())) {
       setFiltered(null);
       return;
     }
@@ -35,11 +51,18 @@ export function Loans() {
         .finally(() => { if (!cancelled) setSearching(false); });
     }, 300);
     return () => { cancelled = true; clearTimeout(handle); };
-  }, [cat, q]);
+  }, [cat, q, computedPredicate]);
 
   const loading = filtered === null ? providerLoading : searching;
   const error = searchError || providerError;
-  const rows = filtered ?? allLoans;
+  let rows = filtered ?? allLoans;
+  if (computedPredicate) {
+    rows = rows.filter(computedPredicate);
+    if (q.trim()) {
+      const needle = q.trim().toLowerCase();
+      rows = rows.filter((l) => l.id.toLowerCase().includes(needle) || l.customerName.toLowerCase().includes(needle));
+    }
+  }
 
   return (
     <>

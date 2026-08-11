@@ -15,10 +15,11 @@ var phoneRe = regexp.MustCompile(`^\d{10}$`)
 
 // CreateInput mirrors the fields an admin supplies via the "Add Bank" form.
 type CreateInput struct {
-	Name   string
-	Branch string
-	Ifsc   string
-	Phone  string
+	Name      string
+	Branch    string
+	Ifsc      string
+	AccountNo string
+	Phone     string
 }
 
 // Service implements bank business rules on top of the Repository.
@@ -59,7 +60,7 @@ func (s *Service) FindOrCreate(in CreateInput) (*Bank, bool, error) {
 		return nil, false, err
 	}
 
-	rec := &Bank{Name: trimmed, Branch: strings.TrimSpace(in.Branch), Ifsc: strings.TrimSpace(in.Ifsc), Phone: phone}
+	rec := &Bank{Name: trimmed, Branch: strings.TrimSpace(in.Branch), Ifsc: strings.TrimSpace(in.Ifsc), AccountNo: strings.TrimSpace(in.AccountNo), Phone: phone}
 	if err := s.repo.Create(rec); err != nil {
 		return nil, false, err
 	}

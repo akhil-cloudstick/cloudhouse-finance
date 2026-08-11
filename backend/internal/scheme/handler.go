@@ -4,7 +4,6 @@ import (
 	"errors"
 	"net/http"
 	"strconv"
-	"time"
 
 	"github.com/gin-gonic/gin"
 )
@@ -22,8 +21,7 @@ func NewHandler(svc *Service) *Handler {
 type schemeRequest struct {
 	Name           string  `json:"name" binding:"required"`
 	InterestRate   float64 `json:"interestRate" binding:"required"`
-	StartDate      string  `json:"startDate" binding:"required"` // RFC3339 / "2006-01-02"
-	EndDate        string  `json:"endDate" binding:"required"`
+	DurationMonths int     `json:"durationMonths" binding:"required"`
 	LTVPercent     float64 `json:"ltvPercent" binding:"required"`
 	InterestMethod string  `json:"interestMethod"`
 	PenalRate      float64 `json:"penalRate"`
@@ -31,27 +29,11 @@ type schemeRequest struct {
 	IsActive       bool    `json:"isActive"`
 }
 
-func parseDate(s string) (time.Time, error) {
-	if t, err := time.Parse("2006-01-02", s); err == nil {
-		return t, nil
-	}
-	return time.Parse(time.RFC3339, s)
-}
-
 func (req schemeRequest) toInput() (CreateInput, error) {
-	start, err := parseDate(req.StartDate)
-	if err != nil {
-		return CreateInput{}, errors.New("invalid startDate: expected YYYY-MM-DD")
-	}
-	end, err := parseDate(req.EndDate)
-	if err != nil {
-		return CreateInput{}, errors.New("invalid endDate: expected YYYY-MM-DD")
-	}
 	return CreateInput{
 		Name:           req.Name,
 		InterestRate:   req.InterestRate,
-		StartDate:      start,
-		EndDate:        end,
+		DurationMonths: req.DurationMonths,
 		LTVPercent:     req.LTVPercent,
 		InterestMethod: req.InterestMethod,
 		PenalRate:      req.PenalRate,
@@ -72,8 +54,8 @@ func statusForErr(err error) int {
 	switch {
 	case errors.Is(err, ErrNotFound):
 		return http.StatusNotFound
-	case errors.Is(err, ErrInvalidDates), errors.Is(err, ErrInvalidLTV),
-		errors.Is(err, ErrInvalidRate), errors.Is(err, ErrOutsideWindow),
+	case errors.Is(err, ErrInvalidDuration), errors.Is(err, ErrInvalidLTV),
+		errors.Is(err, ErrInvalidRate),
 		errors.Is(err, ErrInvalidWeight), errors.Is(err, ErrInvalidGoldRt):
 		return http.StatusBadRequest
 	default:

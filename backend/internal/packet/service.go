@@ -3,6 +3,7 @@ package packet
 import (
 	"errors"
 	"fmt"
+	"log"
 )
 
 var (
@@ -60,10 +61,19 @@ func NewService(repo *Repository, lockerCapacity LockerCapacityProvider) *Servic
 }
 
 // Create generates a new tracking packet for a loan: Code = "PKT-%06d"
-// (running count), Status = PacketGenerated, plus the first PacketMovement
-// row. Called automatically right after loan.Service.Create() succeeds —
-// see CreatePacketForLoan below (the loan.PacketCreator adapter).
-func (s *Service) Create(loanID uint) (*Packet, error) {
+// (running count), plus the first PacketMovement row. Called automatically
+// right after loan.Service.Create() succeeds — see CreatePacketForLoan
+// below (the loan.PacketCreator adapter).
+//
+// If lockerID is non-nil, the packet is checked straight into that locker
+// at creation (Status = LockerStored) instead of staff having to do a
+// separate manual "check in to locker" step afterward — this is the normal
+// path now that New Loan lets staff pick the locker up front. If the
+// requested locker turns out to be invalid/inactive/full by the time the
+// packet is actually created, that's logged and the packet falls back to
+// PacketGenerated (ungrouped) rather than failing loan creation over it —
+// staff can still check it in manually later from the Packets page.
+func (s *Service) Create(loanID uint, lockerID *uint) (*Packet, error) {
 	count, err := s.repo.CountAll()
 	if err != nil {
 		return nil, err
@@ -73,10 +83,22 @@ func (s *Service) Create(loanID uint) (*Packet, error) {
 		LoanID: loanID,
 		Status: StatusPacketGenerated,
 	}
+
+	remarks := ""
+	if lockerID != nil && *lockerID != 0 {
+		if err := s.checkLockerCapacity(*lockerID); err != nil {
+			log.Printf("packet: requested locker %d unavailable at creation for loan %d: %v — packet left ungrouped", *lockerID, loanID, err)
+		} else {
+			p.Status = StatusLockerStored
+			p.CurrentLockerID = lockerID
+			remarks = "Locker assigned at packet creation"
+		}
+	}
+
 	if err := s.repo.Create(p); err != nil {
 		return nil, err
 	}
-	mv := &PacketMovement{PacketID: p.ID, FromStatus: "", ToStatus: StatusPacketGenerated}
+	mv := &PacketMovement{PacketID: p.ID, FromStatus: "", ToStatus: p.Status, LockerID: p.CurrentLockerID, Remarks: remarks}
 	if err := s.repo.CreateMovement(mv); err != nil {
 		return nil, err
 	}
@@ -87,9 +109,30 @@ func (s *Service) Create(loanID uint) (*Packet, error) {
 // Create that discards the created packet, since loan.Service only cares
 // whether packet-auto-creation succeeded (fail-soft: it logs and continues
 // on error rather than importing internal/packet's types).
-func (s *Service) CreatePacketForLoan(loanID uint) error {
-	_, err := s.Create(loanID)
+func (s *Service) CreatePacketForLoan(loanID uint, lockerID *uint) error {
+	_, err := s.Create(loanID, lockerID)
 	return err
+}
+
+// checkLockerCapacity is shared by Create (locker-at-creation) and
+// RecordMovement (manual check-in) so both enforce the exact same
+// active/exists/capacity rules.
+func (s *Service) checkLockerCapacity(lockerID uint) error {
+	capacity, isActive, ok, err := s.lockerCapacity.Capacity(lockerID)
+	if err != nil {
+		return err
+	}
+	if !ok || !isActive {
+		return ErrLockerInvalid
+	}
+	occupied, err := s.repo.CountActivePackets(lockerID)
+	if err != nil {
+		return err
+	}
+	if occupied >= capacity {
+		return ErrLockerFull
+	}
+	return nil
 }
 
 func (s *Service) Get(id uint) (*Packet, error) {
@@ -136,19 +179,8 @@ func (s *Service) RecordMovement(packetID uint, toStatus string, lockerID *uint,
 		if lockerID == nil || *lockerID == 0 {
 			return nil, ErrLockerRequired
 		}
-		capacity, isActive, ok, err := s.lockerCapacity.Capacity(*lockerID)
-		if err != nil {
+		if err := s.checkLockerCapacity(*lockerID); err != nil {
 			return nil, err
-		}
-		if !ok || !isActive {
-			return nil, ErrLockerInvalid
-		}
-		occupied, err := s.repo.CountActivePackets(*lockerID)
-		if err != nil {
-			return nil, err
-		}
-		if occupied >= capacity {
-			return nil, ErrLockerFull
 		}
 	}
 
@@ -204,5 +236,32 @@ func (s *Service) RecordBankReleaseMovement(loanID uint, remarks string) error {
 		return ErrInvalidPacketTransition
 	}
 	_, err = s.RecordMovement(p.ID, StatusReturned, nil, 0, remarks)
+	return err
+}
+
+// RecordGoldReleaseMovement implements loan.PacketMover — called by
+// loan.Service.CompleteRelease once every release gate (settlement paid,
+// bank pledge released, approval chain complete) has passed. Routes the
+// packet through ReadyForRelease first if it isn't already there (both
+// LockerStored and Returned allow that edge), then to the terminal
+// Released state.
+func (s *Service) RecordGoldReleaseMovement(loanID uint, remarks string) error {
+	p, err := s.repo.FindActiveByLoanID(loanID)
+	if err != nil {
+		return err
+	}
+	if p.Status != StatusReadyForRelease {
+		if !isAllowed(p.Status, StatusReadyForRelease) {
+			return ErrInvalidPacketTransition
+		}
+		if _, err := s.RecordMovement(p.ID, StatusReadyForRelease, nil, 0, remarks); err != nil {
+			return err
+		}
+		p, err = s.repo.FindByID(p.ID)
+		if err != nil {
+			return err
+		}
+	}
+	_, err = s.RecordMovement(p.ID, StatusReleased, nil, 0, remarks)
 	return err
 }

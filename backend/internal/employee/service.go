@@ -4,6 +4,10 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"strings"
+
+	"golang.org/x/crypto/bcrypt"
+	"gorm.io/gorm"
 
 	"ambikagold/backend/internal/branch"
 )
@@ -16,7 +20,17 @@ var (
 	ErrBranchReq     = errors.New("branch is required")
 	ErrBranchInvalid = errors.New("branch does not exist")
 	ErrPhoneInvalid  = errors.New("phone must be a 10-digit number")
+	// ErrEmailTaken is returned when updating an employee's email to one
+	// already used by a different employee (see internal/auth for login,
+	// which relies on email uniqueness).
+	ErrEmailTaken = errors.New("email is already in use by another employee")
+	// ErrEmailInvalid guards against obviously malformed email input.
+	ErrEmailInvalid = errors.New("email is invalid")
+	// ErrPasswordTooShort mirrors a minimal password-strength rule.
+	ErrPasswordTooShort = errors.New("password must be at least 8 characters")
 )
+
+var emailRe = regexp.MustCompile(`^[^\s@]+@[^\s@]+\.[^\s@]+$`)
 
 // ValidRoles is the canonical role whitelist. Keep this list IDENTICAL to
 // the `ROLES` constant in frontend/components/modals/EmployeeModal.tsx —
@@ -24,7 +38,7 @@ var (
 // must be mirrored in the other.
 var ValidRoles = []string{
 	"Administrator", "Management", "Branch Manager", "Loan Operator", "Cashier",
-	"Accountant", "Collection Staff", "Auction Admin", "Auditor",
+	"Accountant", "Collection Staff", "Auction Administrator", "Auditor",
 }
 
 func isValidRole(role string) bool {
@@ -78,6 +92,12 @@ type UpdateInput struct {
 	Collections    float64
 	Followups      int
 	Pending        int
+	// Email/Password are optional — enables an Administrator to set up
+	// login credentials for an employee via the existing update endpoint
+	// (see internal/auth for the login flow that consumes these). Leave
+	// both empty to leave existing credentials untouched.
+	Email    string
+	Password string
 }
 
 // Service implements employee business rules on top of the Repository.
@@ -188,6 +208,31 @@ func (s *Service) Update(id uint, in UpdateInput) (*Employee, error) {
 	rec.Collections = in.Collections
 	rec.Followups = in.Followups
 	rec.Pending = in.Pending
+
+	if strings.TrimSpace(in.Email) != "" {
+		email := strings.ToLower(strings.TrimSpace(in.Email))
+		if !emailRe.MatchString(email) {
+			return nil, ErrEmailInvalid
+		}
+		existing, err := s.repo.FindByEmail(email)
+		if err == nil && existing.ID != rec.ID {
+			return nil, ErrEmailTaken
+		} else if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, err
+		}
+		rec.Email = email
+	}
+
+	if in.Password != "" {
+		if len(in.Password) < 8 {
+			return nil, ErrPasswordTooShort
+		}
+		hash, err := bcrypt.GenerateFromPassword([]byte(in.Password), bcrypt.DefaultCost+2)
+		if err != nil {
+			return nil, err
+		}
+		rec.PasswordHash = string(hash)
+	}
 
 	if err := s.repo.Update(rec); err != nil {
 		return nil, err

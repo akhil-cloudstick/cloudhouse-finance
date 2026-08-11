@@ -1,7 +1,11 @@
 package platform
 
 import (
+	"log"
 	"os"
+	"strconv"
+	"strings"
+	"time"
 
 	"github.com/joho/godotenv"
 )
@@ -30,6 +34,24 @@ type Config struct {
 	// ornament photos) are stored on local disk and served back from
 	// under /uploads — see internal/upload.
 	UploadsDir string
+	// JWTSecret signs/verifies login JWTs (see internal/auth, platform/jwt.go).
+	// No safe default is baked in here — if unset, platform.LoadConfig logs a
+	// loud warning and falls back to a fixed dev-only secret purely so local
+	// dev without a .env file still works. Set a real JWT_SECRET in
+	// production.
+	JWTSecret string
+	// JWTExpiry is how long an issued login token stays valid. JWT_EXPIRY in
+	// .env may be given as "3d"/"7d" (not valid Go duration syntax) or a
+	// normal Go duration like "168h" — see parseJWTExpiry. Defaults to 168h
+	// (7 days) if unset/unparseable.
+	JWTExpiry time.Duration
+	// SMTP* configure the outgoing mailer used for password-reset emails
+	// (see platform/mailer.go).
+	SMTPHost string
+	SMTPPort string
+	SMTPUser string
+	SMTPPass string
+	SMTPFrom string
 }
 
 // LoadConfig reads a .env file if present (local/dev convenience) and
@@ -60,6 +82,13 @@ func LoadConfig() Config {
 		// derives its own fixed dev-only key when this is empty.
 		AadhaarEncryptionKey: getEnv("AADHAAR_ENCRYPTION_KEY", ""),
 		UploadsDir:           getEnv("UPLOADS_DIR", "./uploads"),
+		JWTSecret:            getJWTSecret(),
+		JWTExpiry:            parseJWTExpiry(getEnv("JWT_EXPIRY", "")),
+		SMTPHost:             getEnv("SMTP_HOST", ""),
+		SMTPPort:             getEnv("SMTP_PORT", "587"),
+		SMTPUser:             getEnv("SMTP_USER", ""),
+		SMTPPass:             getEnv("SMTP_PASS", ""),
+		SMTPFrom:             getEnv("SMTP_FROM", ""),
 	}
 }
 
@@ -68,4 +97,46 @@ func getEnv(key, fallback string) string {
 		return v
 	}
 	return fallback
+}
+
+// jwtDevFallbackSecret is used only when JWT_SECRET is unset, so local dev
+// without a .env file still works. Never rely on this in production — a
+// real JWT_SECRET is already configured in backend/.env for this project.
+const jwtDevFallbackSecret = "ambikagold-dev-only-jwt-secret-do-not-use-in-production"
+
+func getJWTSecret() string {
+	if v := os.Getenv("JWT_SECRET"); v != "" {
+		return v
+	}
+	log.Println("WARNING: JWT_SECRET is not set — using a fixed, publicly-known dev-only secret. Set a real one before issuing real tokens.")
+	return jwtDevFallbackSecret
+}
+
+// defaultJWTExpiry is used when JWT_EXPIRY is unset or unparseable.
+const defaultJWTExpiry = 168 * time.Hour
+
+// parseJWTExpiry parses a duration string that may use the non-standard
+// "<n>d" (days) suffix in addition to normal Go duration syntax (e.g.
+// "168h"). Falls back to defaultJWTExpiry (7 days) if raw is empty or
+// unparseable.
+func parseJWTExpiry(raw string) time.Duration {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return defaultJWTExpiry
+	}
+	if strings.HasSuffix(raw, "d") {
+		numPart := strings.TrimSuffix(raw, "d")
+		n, err := strconv.Atoi(numPart)
+		if err != nil || n <= 0 {
+			log.Printf("WARNING: JWT_EXPIRY=%q is invalid, falling back to %s", raw, defaultJWTExpiry)
+			return defaultJWTExpiry
+		}
+		return time.Duration(n) * 24 * time.Hour
+	}
+	d, err := time.ParseDuration(raw)
+	if err != nil || d <= 0 {
+		log.Printf("WARNING: JWT_EXPIRY=%q is invalid, falling back to %s", raw, defaultJWTExpiry)
+		return defaultJWTExpiry
+	}
+	return d
 }

@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Jost, Bodoni_Moda } from "next/font/google";
 import "./globals.css";
+import { AuthProvider } from "@/lib/auth-context";
 
 // Matches the Google Fonts <link> weights used across the legacy index.html
 // and app.html pages (union of both).
@@ -30,7 +31,9 @@ export const metadata: Metadata = {
 export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
     <html lang="en" className={`${jost.variable} ${bodoniModa.variable}`}>
-      <body>{children}</body>
+      <body>
+        <AuthProvider>{children}</AuthProvider>
+      </body>
     </html>
   );
 }

@@ -13,7 +13,7 @@ import { createEmployee, updateEmployee, type EmployeeView } from "@/lib/employe
  * the two, so any edit here must be mirrored there. */
 const ROLES = [
   "Administrator", "Management", "Branch Manager", "Loan Operator", "Cashier",
-  "Accountant", "Collection Staff", "Auction Admin", "Auditor",
+  "Accountant", "Collection Staff", "Auction Administrator", "Auditor",
 ];
 
 const NAME_RE = /^[A-Za-z][A-Za-z\s.'-]*$/;

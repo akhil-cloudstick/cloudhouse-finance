@@ -17,12 +17,20 @@ Nine live domains are implemented so far: **Branches**, **Settings
 (integration API keys)**, **Loan Schemes**, **Gold Rates**, **Employees**,
 **Cash Movements + Expenses**, **Customers**, **Loans (+ Ornaments,
 Approvals, Payments, Bank Pledge)**, and **Uploads**, all documented
-below. None have authentication/RBAC yet (tracked as a follow-up per
-[architecture.md](architecture.md)) — Branch Management, Settings,
-Customers, and Loans are admin-only by convention only, not enforced
-server-side, since no auth/role system exists yet; the Loans module's
-3-step approval chain is likewise not gated by any real employee-authority
-check yet (see below). `Branches`, `Settings`, `Schemes`, and `Customers`
+below. **JWT authentication + role-based permission (RBAC) checks are now
+implemented** (see the new [Authentication](#authentication-api-apiv1auth)
+section below) — every `/api/v1/*` route except `/auth/login`,
+`/auth/forgot-password`, and `/auth/reset-password` requires a valid
+`Authorization: Bearer <token>` header, and every route is additionally
+gated by a `(role, resource, action)` permission check. Permissions are
+currently seeded **allow-all** for all 9 roles, so in practice any logged-in
+employee can still call any endpoint today — role-specific restriction is
+expected to be configured later via an admin UI (not yet built) that edits
+the `permissions` table directly, not via a code change. The Loans module's
+4-stage sanction chain has its own separate, more granular role check (an
+employee's `role` must match the stage's required role, except
+`Administrator` which may act at any stage — see below) on top of the
+coarse-grained RBAC above. `Branches`, `Settings`, `Schemes`, and `Customers`
 are the exceptions to the "not wired to the frontend" note below:
 `frontend/components/Branches.tsx`, `frontend/components/Settings.tsx`,
 `frontend/components/Schemes.tsx`, and `frontend/components/Customers.tsx`/
@@ -47,9 +55,131 @@ production-accurate. Aadhaar numbers are AES-256-GCM encrypted at rest
 (never stored in plaintext) and are never returned by any endpoint — only
 the last 4 digits (`aadhaarLast4`) are exposed.
 
+## Authentication API (`/api/v1/auth`)
+Implemented in `backend/internal/auth/` (login/forgot/reset/me) plus
+`backend/internal/authz/` (the permissions table) and
+`backend/internal/platform/` (JWT issuing/parsing, the `AuthMiddleware`/
+`RequirePermission` Gin middleware). There is no separate `users` table —
+login credentials live directly on `Employee` (`email`, `passwordHash`,
+plus reset-token fields), since roles/branch already live there. Customers
+use a separate mobile app and are **not** part of this login system.
+
+`POST /login`, `POST /forgot-password`, and `POST /reset-password` are
+public (no `Authorization` header needed — that's the point of them).
+**Every other route in the API, including `GET /auth/me`, requires a valid
+JWT** in the request header:
+```
+Authorization: Bearer <token>
+```
+Missing, malformed, unsigned, or expired tokens get `401` before the
+request ever reaches a domain handler. A valid token additionally has to
+pass a per-route `(role, resource, action)` permission check (see
+"Permissions / RBAC model" below) — a role not allowed for that action
+gets `403`.
+
+An employee must have `email`+`password` set before they can log in — an
+Administrator sets these by including `email`/`password` in a
+`PUT /api/v1/employees/:id` call (an existing employee with no email/
+password configured yet gets `401 "this account has not been set up for
+login yet"` from `POST /auth/login`).
+
+Employee JSON (as embedded in `LoginResponse`/`GET /auth/me`) never
+includes `passwordHash` or the reset-token fields — they're tagged `json:"-"`
+on the `Employee` struct — but does include `email` (omitted when blank).
+
+| Method | Path | Purpose | Body | Auth |
+|---|---|---|---|---|
+| POST | `/api/v1/auth/login` | Log in with email + password, get back a JWT | `{ "email", "password" }` → `{ "token", "employee": {...} }` | Public |
+| POST | `/api/v1/auth/forgot-password` | Request a password-reset email | `{ "email" }` → `{ "message": "If that email is registered, a password reset link has been sent." }` (always `200`, regardless of whether the email exists — never reveals account existence) | Public |
+| POST | `/api/v1/auth/reset-password` | Complete a password reset using the emailed token | `{ "token", "newPassword" }` (min 8 chars) → `{ "message": "Password has been reset. You can now log in." }` | Public |
+| GET | `/api/v1/auth/me` | Get the calling employee's own record (id/role/branch/etc., from the token) | — → `Employee` JSON | Bearer token |
+
+**Status codes:**
+- `POST /auth/login` — `200` + `{ "token", "employee" }` on success; `401
+  ErrInvalidCredentials` ("invalid email or password") for a wrong email or
+  password (deliberately the same message for both, so a login attempt
+  never reveals whether an email exists); `401 ErrAccountNotSetUp` if the
+  employee row exists but has no email/password configured.
+- `POST /auth/forgot-password` — always `200`; internally, an unknown
+  email is silently swallowed (still `200`) and any real send/lookup error
+  is logged server-side but still returns `200`, so responses never leak
+  account existence via status/timing.
+- `POST /auth/reset-password` — `200` on success; `400
+  ErrInvalidOrExpiredToken` for an unknown, already-used, or expired
+  (>1 hour old) reset token, or if `newPassword` is under 8 characters.
+- `GET /auth/me` — `200` + `Employee` JSON; `401` if the token is
+  missing/invalid (from `AuthMiddleware`, before the handler runs).
+
+**Forgot/reset password flow:** `ForgotPassword` generates a random
+32-byte token, stores only its SHA-256 hash (plus a 1-hour expiry) on the
+employee row, and emails the **raw** token as a link:
+`${FRONTEND_ORIGIN}/reset-password?token=<rawToken>`. `ResetPassword` hashes
+the incoming token, looks up a matching non-expired row, bcrypt-hashes the
+new password (cost 14), and clears the reset fields so the token can't be
+reused. Emails are sent via `platform.Mailer`, a thin wrapper over
+`net/smtp` — see the SMTP env vars below.
+
+**JWT details:** HS256, signed with `JWT_SECRET`. Claims: `employeeId`,
+`role`, `branchId`, plus standard `iat`/`exp`. Expiry is controlled by the
+`JWT_EXPIRY` env var — **currently configured to 3 days** (`JWT_EXPIRY=3d`
+in `.env`; the value accepts either a `<n>d` shorthand or a normal Go
+duration like `168h`, and falls back to 7 days if unset/unparseable).
+
+### Permissions / RBAC model
+Authorization is a `(role, resource, action)` → `allowed` table in
+Postgres (`permissions` table, `internal/authz.Permission`), not a
+hardcoded role list in Go code:
+- `Role` — one of the 9 staff roles (below).
+- `Resource` — a module key: `banks`, `branches`, `cash`, `customers`,
+  `employees`, `goldrates`, `loans`, `lockers`, `ornamenttypes`, `packets`,
+  `schemes`, `settings`, `uploads`, `kyc-documents`.
+- `Action` — CRUD-grain: `create`, `read`, `update`, `delete` (GET→`read`,
+  POST→`create`, PUT/PATCH→`update`, DELETE→`delete`).
+- `Allowed` — boolean.
+
+On every startup, `SeedDefaults` idempotently inserts one row per
+(role × resource × action) combination with `Allowed=true` for all 9
+roles/all resources, if the row doesn't already exist (existing rows —
+e.g. ones a future admin screen has already edited — are never
+overwritten). **Every role can currently do everything** — this is a
+deliberate "wide open" starting state; each protected route is wrapped in
+`platform.RequirePermission(resource, action)`, which looks up the calling
+role's row and returns `403` if it's missing or `Allowed=false`, so
+restricting a role later is a matter of flipping rows in the `permissions`
+table (via a future admin UI), **not a code change or redeploy**.
+
+`kyc-documents` is seeded as its own resource even though it has no
+dedicated routes yet (KYC document URLs currently flow through the
+generic Customers/Uploads endpoints) — so KYC access can be tightened
+independently of general Customer access once that admin UI exists.
+
+**The 9 roles** (final list — `Auction Admin` was renamed to `Auction
+Administrator` to match this list; keep `employee.ValidRoles`,
+`main.go`'s `staffRoles`, and `frontend/components/modals/
+EmployeeModal.tsx`'s `ROLES` constant in sync manually):
+Administrator, Management, Branch Manager, Loan Operator, Cashier,
+Accountant, Collection Staff, Auction Administrator, Auditor.
+
+### Required environment variables
+In addition to the DB/frontend/encryption vars already documented
+elsewhere, auth requires:
+
+| Var | Purpose |
+|---|---|
+| `JWT_SECRET` | Signs/verifies login JWTs. No safe default — falls back to a fixed, publicly-known dev-only secret (with a loud warning) if unset; set a real value in production. |
+| `JWT_EXPIRY` | Login token lifetime, e.g. `3d` or `168h`. Falls back to `168h` (7 days) if unset/unparseable. |
+| `SMTP_HOST` | Outgoing mail server host, for password-reset emails. |
+| `SMTP_PORT` | Outgoing mail server port (default `587`). |
+| `SMTP_USER` | SMTP auth username. |
+| `SMTP_PASS` | SMTP auth password (e.g. a Gmail app password). |
+| `SMTP_FROM` | `From:` header for reset emails, e.g. `"Ambika Gold <no-reply@ambikagold.com>"`. |
+
 ## Branches API (`/api/v1/branches`)
-Implemented in `backend/internal/branch/`. No authentication/RBAC yet —
-admin-only by convention. Every other branch-scoped domain (Employees,
+Implemented in `backend/internal/branch/`. Requires a valid JWT
+(`Authorization: Bearer <token>`) plus `RequirePermission("branches", ...)`
+— see the Authentication section above; admin-only by convention beyond
+that (permissions are currently seeded allow-all, so this isn't yet
+enforced per-role). Every other branch-scoped domain (Employees,
 Expenses, Cash Movements today; Customers/Loans/Lockers in a future
 phase) links to a branch via `branchId`.
 
@@ -128,8 +258,7 @@ Scheme JSON shape:
   "code": "SCH-01",
   "name": "Swarna Classic",
   "interestRate": 12,
-  "startDate": "2026-08-01T00:00:00Z",
-  "endDate": "2026-12-31T00:00:00Z",
+  "durationMonths": 12,
   "ltvPercent": 75,
   "interestMethod": "Monthly simple interest",
   "penalRate": 2,
@@ -140,9 +269,14 @@ Scheme JSON shape:
 }
 ```
 `code` is server-generated (`SCH-01`, `SCH-02`, …) — do not send it on
-create/update. `startDate`/`endDate` accept `YYYY-MM-DD` or RFC3339.
-`isActive` can only be set `true` if today falls within
-`[startDate, endDate]`, otherwise the request is rejected (400).
+create/update. `durationMonths` is the scheme's fixed tenure (must be
+`> 0`, 400 `ErrInvalidDuration` otherwise) — every loan opened under this
+scheme runs for that many months from its own `openedDate` (see
+`POST /api/v1/loans` below); a scheme has no date window of its own
+anymore (previously `startDate`/`endDate` doubled as both an "offer
+validity window" and, on the frontend, a laundered stand-in for this same
+duration — that indirection is gone). `isActive` is a plain toggle with no
+date-window restriction.
 
 | Method | Path | Purpose | Body |
 |---|---|---|---|
@@ -230,11 +364,17 @@ existing branch); `phone` is optional.
 - `role` must be one of a server-side whitelist (`employee.ValidRoles` in
   `backend/internal/employee/service.go`): `Administrator`, `Management`,
   `Branch Manager`, `Loan Operator`, `Cashier`, `Accountant`,
-  `Collection Staff`, `Auction Admin`, `Auditor`. This list mirrors the
-  `ROLES` constant in `frontend/components/modals/EmployeeModal.tsx` —
-  keep both in sync manually, there is no shared codegen. Submitting a
-  role outside this list returns `400` with `ErrInvalidRole`
-  ("role must be one of the predefined roles").
+  `Collection Staff`, `Auction Administrator`, `Auditor`. This list mirrors
+  the `ROLES` constant in `frontend/components/modals/EmployeeModal.tsx`
+  and `main.go`'s `staffRoles` (used to seed the `permissions` table, see
+  the Authentication section above) — keep all three in sync manually,
+  there is no shared codegen. Submitting a role outside this list returns
+  `400` with `ErrInvalidRole` ("role must be one of the predefined roles").
+- `email`/`password` are optional on both create and update, and enable
+  login for this employee (see the Authentication section above) —
+  `email` must be unique among employees that have one set; `password`,
+  if given, is bcrypt-hashed server-side and never returned by any
+  endpoint (`passwordHash` is `json:"-"`).
 - `phone`, if provided, must match `^\d{10}$` (exactly 10 digits) — the
   same convention used by the Branches API's phone field. It stays
   optional; validation only runs when a value is supplied. A malformed
@@ -404,7 +544,9 @@ for the external banks staff can pick from when re-pledging a loan's gold
 (`RepledgeModalContent`'s "Bank" field, opened either from a loan's own
 detail page or from the "+ New Re-Pledge" button on the Bank Re-Pledge
 page), plus a dedicated "+ Add Bank" button on that same page
-(`BankModalContent`) for registering a bank's full details up front.
+(`BankModalContent`) for registering a bank's full details up front — a
+bank must be registered here (with branch/IFSC/account number) before it
+can be re-pledged against; the repledge picker cannot create one inline.
 Mirrors Ornament Types' find-or-create pattern below. No
 authentication/RBAC yet.
 
@@ -414,6 +556,7 @@ authentication/RBAC yet.
   "name": "State Bank of India",
   "branch": "MG Road",
   "ifsc": "SBIN0001234",
+  "accountNo": "3021145678901",
   "phone": "9876543210",
   "createdAt": "2026-08-10T00:00:00Z",
   "updatedAt": "2026-08-10T00:00:00Z"
@@ -424,18 +567,18 @@ authentication/RBAC yet.
 if given, must be exactly 10 digits (400 `ErrPhoneInvalid` otherwise).
 Lookup for an existing row is case-insensitive: if a row with the same
 name (any case) already exists, that existing row is returned as-is with
-`200 OK` (its `branch`/`ifsc`/`phone` are NOT overwritten by the new
-request's values); otherwise a new row is created (using the request's
-`branch`/`ifsc`/`phone`, all optional) and returned with `201 Created`.
-This lets the frontend's "create if missing, else reuse" combobox flow
-(`RepledgeModal.tsx`'s bank `SearchableSelect` with `allowCreate`) and the
-full "Add Bank" form both call the same endpoint without checking
-existence first.
+`200 OK` (its `branch`/`ifsc`/`accountNo`/`phone` are NOT overwritten by
+the new request's values); otherwise a new row is created (using the
+request's `branch`/`ifsc`/`accountNo`/`phone`, all optional) and returned
+with `201 Created`. The find-or-create semantics are shared by the "Add
+Bank" form; the repledge picker itself only searches (`GET`) — it has no
+create path, since `RepledgeModal.tsx`'s bank `SearchableSelect` runs
+without `allowCreate`.
 
 | Method | Path | Purpose | Body |
 |---|---|---|---|
 | GET | `/api/v1/banks` | List/search banks, ordered by name asc | query: `q`? (case-insensitive partial match on `name`) |
-| POST | `/api/v1/banks` | Find-or-create a bank by name | `{ "name", "branch"?, "ifsc"?, "phone"? }` |
+| POST | `/api/v1/banks` | Find-or-create a bank by name | `{ "name", "branch"?, "ifsc"?, "accountNo"?, "phone"? }` |
 
 ## Ornament Types API (`/api/v1/ornament-types`)
 Implemented in `backend/internal/ornamenttype/` — a small reference-data
@@ -466,11 +609,10 @@ the same endpoint without checking existence first.
 ## Loans API (`/api/v1/loans`)
 Implemented in `backend/internal/loan/` — the Gold Loan Creation &
 Ornaments Management domain. No authentication/RBAC yet — admin-only by
-convention, and the 3-step approval chain below has **no real
-employee-authority check** yet either: any `employeeId` can call
-`POST /:id/approve` for any stage today. `LoanApproval` rows still record
-every actor/stage/timestamp so a real authority check can be added later
-without a schema change. This API is real end-to-end in the backend and is
+convention. The 4-stage approval chain below checks that the acting
+employee's `role` matches the stage's required role (except
+`"Administrator"`, which may act at any stage) — `LoanApproval` rows
+record every actor/role/stage/timestamp/decision. This API is real end-to-end in the backend and is
 now wired to the frontend end-to-end too: `NewLoan.tsx` (loan creation,
 unchanged from before), and `Loans.tsx`/`LoanDetail.tsx`/`LoanRow.tsx`/
 `Dashboard.tsx`/`CustomerDetail.tsx`/`GlobalSearch.tsx`/`Auctions.tsx`/
@@ -506,32 +648,145 @@ yet). A loan's `totalNetWeight`/`totalGoldValue` are the sum across its
 ornaments; `eligibleLoanAmount = totalGoldValue × scheme.ltvPercent / 100`.
 `principalAmount` is operator-chosen and must be `<= eligibleLoanAmount`
 (400 `ErrPrincipalTooHigh` otherwise); `outstandingAmount` starts equal to
-`principalAmount`. `dueDate` is entered manually (no scheme-tenure field
-exists) and must be after `openedDate`.
+`principalAmount`. `dueDate` is still submitted by the caller (the frontend
+computes it as `openedDate + scheme.durationMonths` in `NewLoan.tsx` rather
+than showing a manual date picker — see the Loan Schemes API above for
+where `durationMonths` now lives as a real field) and must be after
+`openedDate` (400 `ErrInvalidDueDate` otherwise); the backend does not
+itself derive `dueDate` from the scheme.
 
-**Approval chain (fixed, 3 steps for every loan):** `status` starts
-`"Pending Approval"` / `approvalStage` starts `"PendingManager"`.
-`POST /:id/approve` with `{ stage: "Manager", action: "Approved" }`
-advances to `approvalStage: "PendingManagement"`; a second call with
-`{ stage: "Management", action: "Approved" }` sets
-`approvalStage: "Approved"` and `status: "Active"`. `action: "Rejected"`
-at either stage sets `approvalStage: "Rejected"` and `status: "Closed"`
-(the doc's status list has no distinct "Rejected" bucket, so "Closed" is
-reused). The `stage` sent must match the loan's current expected stage —
-mismatches return 400 `ErrWrongStage`; calling again after a terminal
-state returns 400 `ErrAlreadyDecided`.
+**Approval chain (fixed, 4 stages for every loan):** `status` starts
+`"Pending Approval"` / `approvalStage` starts `"LoanOperator"`.
+`POST /:id/approve` with `{ stage: "LoanOperator", action: "Approved",
+employeeId, role }` advances to `approvalStage: "BranchManager"`, then
+`"AuthorizedManagement"`, then `"FinalSanction"`; approving at
+`"FinalSanction"` sets `approvalStage: "Approved"` and `status: "Active"`
+(disbursing the principal). `action: "Rejected"` at any stage sets
+`approvalStage: "Rejected"` and `status: "Closed"` (the doc's status list
+has no distinct "Rejected" bucket, so "Closed" is reused). `role` must
+match the required role for the loan's current stage (`Loan Operator` /
+`Branch Manager` / `Management` / `Management`, respectively) — mismatches
+return 400 `ErrWrongStage` — **except** `role: "Administrator"`, which is
+exempt and may act at whichever stage is currently pending. The `stage`
+sent must also match the loan's current `approvalStage`; calling again
+after a terminal state returns 400 `ErrAlreadyDecided`. There is **no hard
+cap on loan amount at any stage** — a hardcoded, advisory-only
+`SanctionLimit` table (`internal/loan/service.go`'s `sanctionLimits`) is
+consulted purely to populate a non-blocking `approvalWarning` string on
+the loan's JSON when the principal exceeds the acting role's typical
+limit; it never prevents the approve/reject action from going through.
+`GET /:id/approvals` returns the full per-decision audit history
+(`stage`/`action`/`actorEmployeeId`/`actorRole`/`remarks`/`createdAt`) for
+the stage tracker UI.
 
 **Payments/Bank Pledge are lightweight audit logs**, not full workflows.
 `POST /:id/payments` records a `LoanPayment` row; non-`"Interest"` types
 (`"Principal"`/`"Partial"`/`"Full Settlement"`) reduce `outstandingAmount`
 and auto-close the loan (`status: "Closed"`) once it reaches `0`.
-`POST /:id/bank-pledge` records a `BankPledgeRecord` and sets
+`POST /:id/bank-pledge` records a `BankPledgeRecord` — `bankName`,
+`pledgedAmount`, `pledgeDate` required; `bankInterestRate` (the bank's
+annual rate on the pledge) and `referenceNumber` (the bank's own
+document/reference number) are optional — and sets
 `bankPledgeStatus: "Bank Pledged"`; `PUT /:id/bank-pledge/:pledgeId/release`
-stamps its `releaseDate` and sets `bankPledgeStatus: "Released"`.
-`POST /:id/auction` records `auctionDate`/`auctionAmount`, sets
-`status: "Auctioned"` and zeroes `outstandingAmount` in one step — no
-separate "scheduled" vs "sold" sub-state, and no bidding/settlement
-sub-workflow exists.
+stamps its `releaseDate` and sets `bankPledgeStatus: "Released"`. Both also
+reflect into Cash-in-Hand & Expenses (`internal/cash`) via the
+`loan.CashRecorder` interface: recording a pledge creates a cash-in
+`CashMovement` (`source: "Bank"`, amount = `pledgedAmount`), stored on the
+`BankPledgeRecord` as `cashMovementId`; releasing that pledge deletes the
+linked movement outright rather than reversing it with a cash-out entry.
+
+**Loan status lifecycle flags** — `isDueSoon`/`isOverdue`/`isDefaulted`/
+`daysOverdue` are computed fresh on every loan read (`enrichStatusFlags` in
+`accrual.go`), purely from `dueDate` vs the current date — they are
+display/filter flags, not persisted `status` values, and do NOT affect
+interest/penal-interest accrual (which already runs independently off
+`dueDate`, see `projectAccrual`). `isDueSoon` = due within 7 days and not
+yet overdue; `isOverdue` = past due date; `isDefaulted` = overdue by more
+than 90 days. `isDefaulted` is what unlocks the "Mark Auction Eligible"
+action below — becoming Defaulted never auto-starts an auction case.
+
+**Auction workflow — full 7 stages**, replacing the old one-shot
+`POST /:id/auction`. A defaulted loan (`isDefaulted`) gets a real
+`AuctionRecord` the moment staff mark it eligible; the case then advances
+one stage at a time:
+- `POST /:id/auction/eligible` — requires `isDefaulted`; creates the
+  `AuctionRecord` at `stage: "AuctionEligible"`, sets
+  `loan.status: "Auction Eligible"`. 400 `ErrLoanNotDefaulted` /
+  `ErrAuctionAlreadyStarted` otherwise.
+- `POST /:id/auction/notice` — `{ "method", "remarks"? }`; appends an
+  `AuctionNotice` (the customer notice history) and advances to
+  `"NoticeIssued"`.
+- `POST /:id/auction/schedule` — `{ "auctionDate", "referenceNumber"? }`;
+  requires stage `"NoticeIssued"`; advances to `"AuctionScheduled"`.
+- `POST /:id/auction/sale` — `{ "saleAmount", "auctionExpenses"? }`;
+  requires stage `"AuctionScheduled"`; computes and persists
+  `surplusShortfall = saleAmount - auctionExpenses -
+  loan.totalOutstandingBalance`, advances to `"Auctioned"`, and sets
+  `loan.status: "Auctioned"` + zeroes `outstandingAmount` (same end effect
+  as the old one-shot endpoint).
+- `POST /:id/auction/settle` — `{ "settlementStatus": "SettledToCustomer"
+  | "SettledToLoanCo" }`; requires stage `"Auctioned"`; advances to the
+  terminal `"Settled"` stage.
+- `GET /:id/auction` — returns the full `AuctionRecord` (404
+  `ErrAuctionNotFound` if the loan was never marked eligible) including its
+  `notices` array.
+
+Every stage-advance call mismatched against the case's current stage
+returns 400 `ErrAuctionWrongStage`.
+
+**Extension & release requests** (`LoanRequest`, the "Extensions & Release"
+page — `frontend/components/Requests.tsx`). Staff log these in person on the
+customer's behalf — a customer's ask to push a loan's due date out
+(`type: "Extension"`) or close the loan and take the gold back
+(`type: "Release"`) — via `POST /:id/extension-request` (`{ "months",
+"detail"? }`) or `POST /:id/release-request` (`{ "detail"? }`). Creating a
+request never itself changes the loan; both create a `status: "Pending"`
+row.
+
+*Extension* is decided in one step: `PUT /requests/:requestId/decide` with
+`{ "action": "Approved" | "Rejected", "employeeId", "remarks"? }` — staff
+review the loan's live `outstanding`/`outstandingInterest`/
+`outstandingPenalInterest` (see the Loan JSON shape below) and the
+requested `months` before deciding. Approving adds `months` to the loan's
+`dueDate` (recalculating status/totals) and stamps `newDueDate` on the
+request; it's blocked with 400 `ErrLoanTerminalState` if the loan is
+already `Closed`/`Auctioned`/`Defaulted` — every other state (`Overdue`,
+high penal interest, etc.) is left to staff judgment. `decide` returns 400
+`ErrNotExtensionRequest` if called on a Release request.
+
+*Release* goes through more scrutiny — the same fixed Manager→Management
+approval chain used for loan sanctioning, gated by a verification
+checklist:
+1. `PUT /requests/:requestId/verify` with any subset of `{
+   "paymentVerified", "packetVerified", "bankPledgeVerified",
+   "customerConfirmed" }` (booleans) plus optional `"verificationNotes"`
+   and `"charges"` (a single staff-entered override amount) — callable
+   repeatedly as staff confirm each item in person. `charges` feeds into
+   the settlement snapshot below.
+2. `POST /requests/:requestId/approve` with `{ "stage": "Manager" |
+   "Management", "action": "Approved" | "Rejected", "employeeId",
+   "remarks"? }` — identical shape to `POST /:id/approve`. Refuses the
+   first stage with 400 `ErrChecklistIncomplete` until all four checklist
+   items are true. `Rejected` at either stage only rejects the request.
+   The final `Approved` (Management stage) snapshots `settlementAmount =
+   loan.totalOutstandingBalance + charges` onto the request and sets the
+   loan's `status: "Closure Requested"` (reusing a status value that
+   previously existed but was never set).
+3. `POST /:id/complete-release` with `{ "employeeId" }` — the actual "hand
+   the gold back" step, separate from approving the request. Requires an
+   Approved Release request for the loan (404 `ErrReleaseNotApproved`
+   otherwise); requires `loan.totalOutstandingBalance <= 0` — **every
+   repayment recorded via the existing `POST /:id/payments` reduces this
+   automatically**, so approving a release does not itself let the gold
+   out, staff must record the remaining settlement payment first (400
+   `ErrOutstandingBalanceRemains` otherwise); and requires the bank pledge
+   already released (400 `ErrBankPledgeStillActive` otherwise). On success
+   it moves the loan's packet through to `Released` and sets the loan's
+   `status: "Closed"`.
+
+`approve` returns 400 `ErrNotReleaseRequest` if called on an Extension
+request. A request already decided (`decide`) or already at a terminal
+`ApprovalStage` (`approve`) returns 400 `ErrRequestAlreadyDecided`.
 
 Loan JSON shape (abbreviated — `customer`/`scheme`/`branch` are the full
 preloaded objects from their own APIs above):
@@ -550,8 +805,13 @@ preloaded objects from their own APIs above):
   "principalAmount": 100000,
   "outstandingAmount": 100000,
   "status": "Pending Approval",
-  "approvalStage": "PendingManager",
+  "approvalStage": "LoanOperator",
   "bankPledgeStatus": "Not Pledged",
+  "isDueSoon": false,
+  "isOverdue": false,
+  "isDefaulted": false,
+  "daysOverdue": 0,
+  "approvalWarning": "",
   "auctionDate": null,
   "auctionAmount": null,
   "ornaments": [
@@ -580,15 +840,31 @@ preloaded objects from their own APIs above):
 | POST | `/api/v1/loans` | Create a loan with its ornaments | `{ "branchId", "customerId", "schemeId", "openedDate", "dueDate", "principalAmount", "ornaments": [{ "name", "purity", "grossWeight", "deductionWeight"?, "quantity"?, "remarks"? }] }` |
 | GET | `/api/v1/loans` | List/filter loans | query: `status`, `branchId`, `customerId`, `q` (matches `loanNumber`) |
 | GET | `/api/v1/loans/:id` | Get one loan with ornaments/approvals/payments/bank-pledge history | — |
+| GET | `/api/v1/loans/by-number/:loanNumber` | Same as above, looked up by the human-readable loan number instead of the numeric id (a single atomic query — used by `LoanDetail.tsx`, mirrors `packet`'s `by-code` lookup) | — |
 | POST | `/api/v1/loans/:id/ornaments` | Pledge an additional ornament, recalculates loan totals | `{ "name", "purity", "grossWeight", "deductionWeight"?, "quantity"?, "remarks"? }` |
 | PUT | `/api/v1/loans/ornaments/:ornamentId` | Edit a pledged ornament, recalculates its loan's totals | same body as above |
 | POST | `/api/v1/loans/ornaments/:ornamentId/purity-test` | Record staff purity re-test (upsert, one per ornament) | `{ "testedPurity", "testedGrossWeight", "testedDeductionWeight"?, "testingRemarks"?, "testedBy", "testedAt" }` |
 | POST | `/api/v1/loans/ornaments/:ornamentId/images` | Attach one photo (upload it first via `/api/v1/uploads`) | `{ "imageUrl" }` |
-| POST | `/api/v1/loans/:id/approve` | Advance/reject the approval chain | `{ "stage": "Manager" \| "Management", "action": "Approved" \| "Rejected", "employeeId", "remarks"? }` |
+| GET | `/api/v1/loans/interest-collected` | Sum interest+penal-interest collected in a date range (Dashboard's "Interest Collected" KPI) — defaults to the current calendar month | query: `from`?, `to`? (`YYYY-MM-DD`) |
+| POST | `/api/v1/loans/:id/approve` | Advance/reject the 4-stage sanction chain | `{ "stage": "LoanOperator" \| "BranchManager" \| "AuthorizedManagement" \| "FinalSanction", "action": "Approved" \| "Rejected", "employeeId", "role", "remarks"? }` |
+| GET | `/api/v1/loans/:id/approvals` | Full per-decision sanction-chain audit history | — |
 | POST | `/api/v1/loans/:id/payments` | Record a payment | `{ "amount", "type": "Interest" \| "Principal" \| "Partial" \| "Full Settlement", "paidOn", "employeeId" }` |
-| POST | `/api/v1/loans/:id/bank-pledge` | Record a bank pledge | `{ "bankName", "pledgedAmount", "pledgeDate" }` |
+| POST | `/api/v1/loans/:id/bank-pledge` | Record a bank pledge | `{ "bankName", "pledgedAmount", "pledgeDate", "bankInterestRate"?, "referenceNumber"? }` |
 | PUT | `/api/v1/loans/:id/bank-pledge/:pledgeId/release` | Release a bank pledge | — |
-| POST | `/api/v1/loans/:id/auction` | Record an auction sale — sets `status: "Auctioned"`, zeroes `outstandingAmount` | `{ "auctionDate", "auctionAmount" }` |
+| GET | `/api/v1/loans/:id/auction` | Get the loan's auction case (notice history included) | — |
+| POST | `/api/v1/loans/:id/auction/eligible` | Start the auction case — requires `isDefaulted` | — |
+| POST | `/api/v1/loans/:id/auction/notice` | Log a customer notice, advances to `NoticeIssued` | `{ "method", "remarks"? }` |
+| POST | `/api/v1/loans/:id/auction/schedule` | Record the auction date/reference, advances to `AuctionScheduled` | `{ "auctionDate", "referenceNumber"? }` |
+| POST | `/api/v1/loans/:id/auction/sale` | Record the sale, compute surplus/shortfall, advances to `Auctioned` | `{ "saleAmount", "auctionExpenses"? }` |
+| POST | `/api/v1/loans/:id/auction/settle` | Record final settlement, advances to `Settled` | `{ "settlementStatus": "SettledToCustomer" \| "SettledToLoanCo" }` |
+| POST | `/api/v1/loans/:id/extension-request` | Log a request to push the loan's due date out | `{ "months", "detail"?, "requestedBy"? }` |
+| POST | `/api/v1/loans/:id/release-request` | Log a request to close the loan / release the gold | `{ "detail"?, "requestedBy"? }` |
+| GET | `/api/v1/loans/requests` | List/filter extension &amp; release requests | query: `status`, `loanId` |
+| PUT | `/api/v1/loans/requests/:requestId/decide` | Decide a pending **Extension** request — approving pushes `dueDate` out | `{ "action": "Approved" \| "Rejected", "employeeId", "remarks"? }` |
+| PUT | `/api/v1/loans/requests/:requestId/verify` | Update a **Release** request's verification checklist/charges | `{ "paymentVerified"?, "packetVerified"?, "bankPledgeVerified"?, "customerConfirmed"?, "verificationNotes"?, "charges"? }` |
+| POST | `/api/v1/loans/requests/:requestId/approve` | Advance/reject a **Release** request's Manager→Management chain (unchanged 2-step chain — not part of the 4-stage loan sanction rework) | `{ "stage": "Manager" \| "Management", "action": "Approved" \| "Rejected", "employeeId", "remarks"? }` |
+| POST | `/api/v1/loans/:id/complete-release` | Hand the gold back — only once settlement is fully paid &amp; bank pledge released | `{ "employeeId" }` |
+| GET | `/api/v1/customers/:id/profile360` | Customer 360°: every loan (ornaments/payments/bank pledges) + auction history + running totals for one customer, in one call. Lives on `loanHandler` (see `internal/loan/service.go`'s `GetCustomer360`) to avoid a customer↔loan import cycle, mounted under `/customers` in `main.go` | — |
 
 `RecordBankPledge`/`ReleaseBankPledge` also fire a matching packet movement
 (see the Packets API below) on the loan's active packet — `Bank Pledged`
@@ -705,6 +981,74 @@ pass a real employee id.
 | GET | `/api/v1/packets/by-code/:code` | Look up a packet by its Code (scanner/manual-entry lookup) | — |
 | GET | `/api/v1/packets/:id/movements` | Full movement history, oldest first | — |
 | POST | `/api/v1/packets/:id/movements` | Record a stage transition | `{ "toStatus", "lockerId"?, "employeeId", "remarks"? }` |
+
+## Reminders / Reminder Calendar API (`/api/v1/reminders`)
+Implemented in `backend/internal/reminder/`. Backs `frontend/components/
+Calendar.tsx` and Dashboard's "Upcoming Reminders" card. Two distinct
+things live under this one resource:
+
+1. **Manual `Reminder` rows** — staff-logged Customer Follow-Ups,
+   Promise-to-Pay dates, or free-form Custom reminders, always tied to a
+   customer and optionally to a specific loan. Plain CRUD + a one-click
+   `Complete` action.
+2. **`GET /reminders/calendar`** — a read-only aggregation that merges
+   those manual rows with events computed live from `internal/loan`
+   (never persisted here): each open loan's (`Active`/`Due Soon`/
+   `Overdue`) Due Date, an `Overdue` event once that date has passed, and
+   a monthly "interest payment" reminder on the loan's opened-date
+   day-of-month (`InterestDue`) — a practical convention since interest
+   accrues continuously rather than on a real billing schedule (see
+   `internal/loan/accrual.go`). This single endpoint is the source of
+   truth both the Calendar page and the Dashboard read from.
+
+```json
+// Reminder
+{
+  "id": 1,
+  "customerId": 4,
+  "customer": { "id": 4, "name": "Anil Varma", "code": "CUST-04", "phone": "9876543210" },
+  "loanId": 12,
+  "type": "Follow-Up",
+  "dueDate": "2026-08-15T00:00:00Z",
+  "note": "Call about overdue interest",
+  "status": "Pending",
+  "createdByEmployeeId": 3,
+  "createdAt": "2026-08-10T00:00:00Z",
+  "updatedAt": "2026-08-10T00:00:00Z"
+}
+```
+
+```json
+// CalendarEvent (GET /reminders/calendar response item)
+{
+  "date": "2026-08-15",
+  "type": "Overdue",
+  "title": "Loan overdue — GL-1004",
+  "detail": "Anil Varma",
+  "loanId": 12,
+  "loanNumber": "GL-1004",
+  "customerId": 4,
+  "customerName": "Anil Varma",
+  "reminderId": null,
+  "status": null
+}
+```
+
+`type` is one of `InterestDue` | `LoanDue` | `Overdue` | `FollowUp` |
+`PromiseToPay` | `Custom`. `reminderId`/`status` are only set for events
+backed by a persisted `Reminder` (`FollowUp`/`PromiseToPay`/`Custom`) — the
+first three types are always computed fresh from `loan.Loan` and have no
+row of their own to edit/delete.
+
+| Method | Path | Purpose | Body / Query |
+|---|---|---|---|
+| POST | `/api/v1/reminders` | Log a manual reminder | `{ "customerId", "loanId"?, "type", "dueDate", "note"?, "employeeId" }` |
+| GET | `/api/v1/reminders` | List manual reminders | query: `customerId`?, `loanId`?, `status`?, `from`?, `to`? (all optional) |
+| GET | `/api/v1/reminders/calendar` | Unified calendar feed | query: `from`, `to` ("YYYY-MM-DD"; defaults to the current calendar month) |
+| GET | `/api/v1/reminders/:id` | Get one manual reminder | — |
+| PUT | `/api/v1/reminders/:id` | Update a manual reminder | `{ "type", "dueDate", "note"?, "status"? }` |
+| PUT | `/api/v1/reminders/:id/complete` | Mark a manual reminder Done | — |
+| DELETE | `/api/v1/reminders/:id` | Delete a manual reminder | — |
 
 ## Uploads API (`/api/v1/uploads`)
 Implemented in `backend/internal/upload/`. A small, shared, storage-only

@@ -34,16 +34,38 @@ const (
 	StatusAuctioned        = "Auctioned"
 )
 
-// Approval-stage values driving the fixed 3-step sanction chain. No
-// role/authority-limit enforcement exists yet (deferred to a future
-// access-control middleware) — any employeeId can advance any stage today;
-// LoanApproval rows exist so that check can be added later without a schema
-// change.
+// ApprovalStageApproved/Rejected are the two terminal values shared by
+// BOTH approval chains in this package: the loan sanction chain below
+// (Loan.ApprovalStage) and the Release-request chain (LoanRequest.
+// ApprovalStage, decided via Service.ApproveReleaseRequest) — kept as one
+// shared pair of constants so both chains render identically in the UI.
+const (
+	ApprovalStageApproved = "Approved"
+	ApprovalStageRejected = "Rejected"
+)
+
+// ApprovalStagePendingManager/PendingManagement are the Release-request
+// chain's two pending stages ONLY (LoanRequest.ApprovalStage) — unrelated
+// to the loan sanction chain below, which has its own 4 pending stages.
 const (
 	ApprovalStagePendingManager    = "PendingManager"
 	ApprovalStagePendingManagement = "PendingManagement"
-	ApprovalStageApproved          = "Approved"
-	ApprovalStageRejected          = "Rejected"
+)
+
+// SanctionStage* values drive the loan sanction chain (Loan.ApprovalStage)
+// — 4 checkpoints per the spec, in order: Loan Operator -> Branch Manager
+// -> Authorized Management -> Final Sanction -> Approved (Status ->
+// Active). Each stage requires an employee with the matching role (see
+// employee.ValidRoles) to act, EXCEPT the "Administrator" role, which may
+// act at any pending stage (see Service.Approve). There is no hard cap
+// enforced on loan amount at any stage — SanctionLimits (in service.go) is
+// consulted only to surface an advisory warning to the reviewer, never to
+// block the decision.
+const (
+	SanctionStageLoanOperator         = "LoanOperator"
+	SanctionStageBranchManager        = "BranchManager"
+	SanctionStageAuthorizedManagement = "AuthorizedManagement"
+	SanctionStageFinalSanction        = "FinalSanction"
 )
 
 // Bank-pledge status values for Loan.BankPledgeStatus.
@@ -79,8 +101,55 @@ type Loan struct {
 	EligibleLoanAmount float64 `json:"eligibleLoanAmount"`
 
 	// PrincipalAmount is operator-chosen, capped at EligibleLoanAmount.
+	// OutstandingAmount tracks *principal* only — interest/penal interest
+	// owed are tracked separately below so each can be paid down (or
+	// waived) independently, per the ledger requirements in the interest &
+	// payment management spec.
 	PrincipalAmount   float64 `json:"principalAmount" gorm:"not null"`
 	OutstandingAmount float64 `json:"outstandingAmount" gorm:"not null"`
+
+	// Interest/penal-interest accrual (see service.go's accrueInterest).
+	// AccruedInterest/AccruedPenalInterest are cumulative totals-ever-owed,
+	// advanced up to LastAccrualDate each time the loan is fetched or paid
+	// against; InterestPaid/PenalInterestPaid are cumulative totals-ever-
+	// paid-or-waived. Outstanding interest/penal interest (accrued − paid)
+	// is a computed, not stored, figure — see Service.enrich.
+	AccruedInterest      float64   `json:"accruedInterest"`
+	InterestPaid         float64   `json:"interestPaid"`
+	AccruedPenalInterest float64   `json:"accruedPenalInterest"`
+	PenalInterestPaid    float64   `json:"penalInterestPaid"`
+	LastAccrualDate      time.Time `json:"lastAccrualDate"`
+
+	// Computed, request-scoped fields — never persisted (gorm:"-"),
+	// populated by Service.enrich before a Loan is returned from Get/List/
+	// Create/Approve/RecordPayment/etc. so every API response carries the
+	// same live "what's owed today" figures without duplicating the
+	// accrual math in every handler.
+	OutstandingInterest      float64 `json:"outstandingInterest" gorm:"-"`
+	OutstandingPenalInterest float64 `json:"outstandingPenalInterest" gorm:"-"`
+	TotalOutstandingBalance  float64 `json:"totalOutstandingBalance" gorm:"-"`
+	SettlementAmount         float64 `json:"settlementAmount" gorm:"-"`
+	TotalPaid                float64 `json:"totalPaid" gorm:"-"`
+
+	// IsDueSoon/IsOverdue/IsDefaulted/DaysOverdue are pure date-vs-DueDate
+	// display flags, recomputed on every read (see enrichStatusFlags in
+	// accrual.go) — they do NOT drive interest/penal-interest accrual
+	// (which already runs off DueDate directly, see projectAccrual) and do
+	// NOT auto-transition the persisted Status field. IsDefaulted (overdue
+	// by more than 90 days) only unlocks the staff-triggered "Mark Auction
+	// Eligible" action — it never fires that transition automatically.
+	IsDueSoon   bool `json:"isDueSoon" gorm:"-"`
+	IsOverdue   bool `json:"isOverdue" gorm:"-"`
+	IsDefaulted bool `json:"isDefaulted" gorm:"-"`
+	DaysOverdue int  `json:"daysOverdue" gorm:"-"`
+
+	// ApprovalWarning is a non-blocking, advisory note shown to whoever is
+	// reviewing the loan's current pending sanction stage, when the
+	// principal exceeds that stage's role's typical SanctionLimit (see
+	// service.go). Empty when there's nothing to flag, or once the loan
+	// has left the sanction chain (Approved/Rejected). Never prevents the
+	// approve/reject action from going through.
+	ApprovalWarning string `json:"approvalWarning" gorm:"-"`
 
 	Status        string `json:"status" gorm:"not null;size:30"`
 	ApprovalStage string `json:"approvalStage" gorm:"not null;size:30"`
@@ -161,16 +230,19 @@ type OrnamentImage struct {
 
 func (OrnamentImage) TableName() string { return "ornament_images" }
 
-// LoanApproval is the audit trail for the fixed 3-step sanction chain.
-// ActorEmployeeID is passed explicitly by the caller (no auth/session
-// exists) — see the "no authority-limit enforcement yet" note above.
+// LoanApproval is the audit trail for the loan's 4-step sanction chain —
+// one row per decision (approve/reject) taken at a stage. ActorEmployeeID/
+// ActorRole are passed explicitly by the caller (no auth/session exists
+// yet); ActorRole records which role actually acted (relevant now that
+// "Administrator" may act on behalf of any pending stage).
 type LoanApproval struct {
 	ID     uint `json:"id" gorm:"primaryKey"`
 	LoanID uint `json:"loanId" gorm:"not null;index"`
 
-	Stage           string `json:"stage" gorm:"not null;size:30"`  // "Manager" | "Management"
+	Stage           string `json:"stage" gorm:"not null;size:30"`  // one of SanctionStage*
 	Action          string `json:"action" gorm:"not null;size:20"` // "Approved" | "Rejected"
 	ActorEmployeeID uint   `json:"actorEmployeeId" gorm:"not null"`
+	ActorRole       string `json:"actorRole" gorm:"size:40"`
 	Remarks         string `json:"remarks" gorm:"size:255"`
 
 	CreatedAt time.Time `json:"createdAt"`
@@ -178,16 +250,49 @@ type LoanApproval struct {
 
 func (LoanApproval) TableName() string { return "loan_approvals" }
 
-// LoanPayment is a lightweight audit record of one payment received
-// against a loan (interest, principal, partial, or full settlement).
+// Payment type values for LoanPayment.Type. Interest/Principal/Partial/Full
+// Settlement all represent cash actually received; Adjustment/Waiver do not
+// (an Adjustment corrects the principal ledger, a Waiver forgives owed
+// interest/penal interest) — see Service.allocatePayment and
+// isCashPaymentType.
+const (
+	PaymentTypeInterest       = "Interest"
+	PaymentTypePrincipal      = "Principal"
+	PaymentTypePartial        = "Partial"
+	PaymentTypeFullSettlement = "Full Settlement"
+	PaymentTypeAdjustment     = "Adjustment"
+	PaymentTypeWaiver         = "Waiver"
+)
+
+// LoanPayment is one entry in a loan's payment ledger: what was received
+// (or adjusted/waived), how it was allocated across the penal-interest/
+// interest/principal buckets, the running balance left after it, and the
+// free-text details (method/reference/description) the spec's ledger
+// calls for.
 type LoanPayment struct {
 	ID     uint `json:"id" gorm:"primaryKey"`
 	LoanID uint `json:"loanId" gorm:"not null;index"`
 
 	Amount               float64   `json:"amount" gorm:"not null"`
-	Type                 string    `json:"type" gorm:"not null;size:30"` // "Interest" | "Principal" | "Partial" | "Full Settlement"
+	Type                 string    `json:"type" gorm:"not null;size:30"` // see PaymentType* constants
 	PaidOn               time.Time `json:"paidOn" gorm:"not null"`
 	ReceivedByEmployeeID uint      `json:"receivedByEmployeeId" gorm:"not null"`
+
+	// Ledger display fields.
+	Description string `json:"description" gorm:"size:255"`
+	Method      string `json:"method" gorm:"size:30"` // e.g. "Cash" | "UPI" | "Bank Transfer" — free text, mirrors cash.Expense.Mode's convention
+	Reference   string `json:"reference" gorm:"size:80"`
+
+	// How Amount was split across the three buckets — lets the ledger show
+	// a breakdown per entry instead of just a lump sum.
+	PenalInterestApplied float64 `json:"penalInterestApplied"`
+	InterestApplied      float64 `json:"interestApplied"`
+	PrincipalApplied     float64 `json:"principalApplied"`
+
+	// RunningBalance is TotalOutstandingBalance immediately after this entry
+	// was applied (principal + outstanding interest + outstanding penal
+	// interest) — the ledger's required "running balance" column.
+	RunningBalance float64 `json:"runningBalance"`
 
 	CreatedAt time.Time `json:"createdAt"`
 }
@@ -205,7 +310,175 @@ type BankPledgeRecord struct {
 	PledgeDate    time.Time  `json:"pledgeDate" gorm:"not null"`
 	ReleaseDate   *time.Time `json:"releaseDate"`
 
+	// BankInterestRate/ReferenceNumber are optional descriptive fields the
+	// spec calls out for the bank re-pledge record — the annual interest
+	// rate the bank charges on the pledge, and the bank's own reference/
+	// document number for it. Both blank/zero for pledges recorded before
+	// this field existed.
+	BankInterestRate float64 `json:"bankInterestRate"`
+	ReferenceNumber  string  `json:"referenceNumber" gorm:"size:60"`
+
+	// CashMovementID links to the Cash-in-Hand movement created for this
+	// pledge (see loan.CashRecorder) so ReleaseBankPledge can remove it
+	// again. Nil for pledges recorded before this linkage existed.
+	CashMovementID *uint `json:"cashMovementId,omitempty"`
+
 	CreatedAt time.Time `json:"createdAt"`
 }
 
 func (BankPledgeRecord) TableName() string { return "bank_pledge_records" }
+
+// Loan-request type/status values for LoanRequest.
+const (
+	RequestTypeExtension = "Extension"
+	RequestTypeRelease   = "Release"
+
+	RequestStatusPending  = "Pending"
+	RequestStatusApproved = "Approved"
+	RequestStatusRejected = "Rejected"
+
+	RequestedByCustomer = "Customer" // submitted through the Android app (not built yet)
+	RequestedByStaff    = "Staff"    // logged by a branch employee on the customer's behalf
+)
+
+// LoanRequest is a staff-logged ask — in person, on the customer's behalf —
+// to either extend a loan's due date or release/close it. Extension
+// requests go through a single staff decision (Service.DecideRequest).
+// Release requests go through the same fixed Manager→Management approval
+// chain used for loan sanctioning (ApprovalStage below, decided via
+// Service.ApproveReleaseRequest), gated by the verification checklist.
+type LoanRequest struct {
+	ID     uint `json:"id" gorm:"primaryKey"`
+	LoanID uint `json:"loanId" gorm:"not null;index"`
+	Loan   Loan `json:"loan" gorm:"foreignKey:LoanID"`
+
+	Type        string `json:"type" gorm:"not null;size:20"`   // "Extension" | "Release"
+	Status      string `json:"status" gorm:"not null;size:20"` // "Pending" | "Approved" | "Rejected"
+	RequestedBy string `json:"requestedBy" gorm:"not null;size:20"`
+	Detail      string `json:"detail" gorm:"size:255"`
+
+	// RequestedExtensionMonths/NewDueDate only apply to Type == Extension.
+	RequestedExtensionMonths *int       `json:"requestedExtensionMonths,omitempty"`
+	NewDueDate               *time.Time `json:"newDueDate,omitempty"`
+
+	// ApprovalStage only applies to Type == Release — reuses the same
+	// ApprovalStage* constants as Loan's sanction chain (PendingManager ->
+	// PendingManagement -> Approved/Rejected). Extension requests are
+	// decided in one step and never set this.
+	ApprovalStage string `json:"approvalStage,omitempty" gorm:"size:30"`
+
+	// Verification checklist, Release only — all four must be true before
+	// the first approval stage can be submitted (see
+	// Service.ApproveReleaseRequest). Staff tick these one at a time via
+	// Service.VerifyReleaseChecklist as they confirm each item in person.
+	PaymentVerified    bool   `json:"paymentVerified"`
+	PacketVerified     bool   `json:"packetVerified"`
+	BankPledgeVerified bool   `json:"bankPledgeVerified"`
+	CustomerConfirmed  bool   `json:"customerConfirmed"`
+	VerificationNotes  string `json:"verificationNotes" gorm:"size:255"`
+
+	// Charges is a single staff-entered override amount (e.g. statutory/
+	// valuation charges), Release only, added into SettlementAmount below.
+	Charges float64 `json:"charges"`
+
+	// SettlementAmount is a snapshot of Loan.TotalOutstandingBalance +
+	// Charges taken the moment the release approval chain reaches its final
+	// "Approved" — the live figure on Loan keeps moving as payments come in,
+	// this freezes what was actually approved for release.
+	SettlementAmount float64 `json:"settlementAmount"`
+
+	Remarks             string     `json:"remarks" gorm:"size:255"`
+	RequestedAt         time.Time  `json:"requestedAt" gorm:"not null"`
+	DecidedAt           *time.Time `json:"decidedAt,omitempty"`
+	DecidedByEmployeeID *uint      `json:"decidedByEmployeeId,omitempty"`
+
+	CreatedAt time.Time `json:"createdAt"`
+	UpdatedAt time.Time `json:"updatedAt"`
+}
+
+func (LoanRequest) TableName() string { return "loan_requests" }
+
+// RequestApproval is the audit trail for a Release LoanRequest's
+// Manager→Management approval chain — mirrors LoanApproval exactly, kept as
+// a separate table since the subject is a request, not a loan.
+type RequestApproval struct {
+	ID        uint `json:"id" gorm:"primaryKey"`
+	RequestID uint `json:"requestId" gorm:"not null;index"`
+
+	Stage           string `json:"stage" gorm:"not null;size:30"`  // "Manager" | "Management"
+	Action          string `json:"action" gorm:"not null;size:20"` // "Approved" | "Rejected"
+	ActorEmployeeID uint   `json:"actorEmployeeId" gorm:"not null"`
+	Remarks         string `json:"remarks" gorm:"size:255"`
+
+	CreatedAt time.Time `json:"createdAt"`
+}
+
+func (RequestApproval) TableName() string { return "request_approvals" }
+
+// Auction stage values driving AuctionRecord.Stage — the full 7-step
+// workflow the spec calls for: Overdue -> Defaulted (both handled
+// upstream, see Loan.IsOverdue/IsDefaulted — no AuctionRecord exists yet
+// at that point) -> AuctionEligible -> NoticeIssued -> AuctionScheduled ->
+// Auctioned -> Settled.
+const (
+	AuctionStageEligible  = "AuctionEligible"
+	AuctionStageNotice    = "NoticeIssued"
+	AuctionStageScheduled = "AuctionScheduled"
+	AuctionStageAuctioned = "Auctioned"
+	AuctionStageSettled   = "Settled"
+)
+
+// Auction final-settlement status values for AuctionRecord.
+// FinalSettlementStatus.
+const (
+	AuctionSettlementPending           = "Pending"
+	AuctionSettlementSettledToCustomer = "SettledToCustomer"
+	AuctionSettlementSettledToLoanCo   = "SettledToLoanCo"
+)
+
+// AuctionRecord is the real, trackable case record created the moment a
+// defaulted loan is marked auction-eligible (Service.MarkAuctionEligible)
+// — replaces the old one-shot RecordAuction() that used to jump a loan
+// straight from any status to "Auctioned" with no intermediate stages.
+// One loan has at most one AuctionRecord (a defaulted loan can only be in
+// the auction pipeline once at a time).
+type AuctionRecord struct {
+	ID     uint `json:"id" gorm:"primaryKey"`
+	LoanID uint `json:"loanId" gorm:"not null;uniqueIndex"`
+
+	Stage string `json:"stage" gorm:"not null;size:20"`
+
+	AuctionEligibleDate    time.Time  `json:"auctionEligibleDate" gorm:"not null"`
+	AuctionDate            *time.Time `json:"auctionDate,omitempty"`
+	AuctionReferenceNumber string     `json:"auctionReferenceNumber" gorm:"size:60"`
+
+	SaleAmount      float64 `json:"saleAmount"`
+	AuctionExpenses float64 `json:"auctionExpenses"`
+	// SurplusShortfall is a snapshot taken at sale time: SaleAmount -
+	// AuctionExpenses - the loan's TotalOutstandingBalance at that moment.
+	// Positive = surplus owed back to the customer, negative = shortfall
+	// still recoverable from them.
+	SurplusShortfall float64 `json:"surplusShortfall"`
+
+	FinalSettlementStatus string `json:"finalSettlementStatus" gorm:"not null;size:20;default:'Pending'"`
+
+	Notices []AuctionNotice `json:"notices,omitempty" gorm:"foreignKey:AuctionRecordID"`
+
+	CreatedAt time.Time `json:"createdAt"`
+	UpdatedAt time.Time `json:"updatedAt"`
+}
+
+func (AuctionRecord) TableName() string { return "auction_records" }
+
+// AuctionNotice is one customer notice logged against an AuctionRecord —
+// multiple can be issued over time (the spec's "customer notice history").
+type AuctionNotice struct {
+	ID              uint      `json:"id" gorm:"primaryKey"`
+	AuctionRecordID uint      `json:"auctionRecordId" gorm:"not null;index"`
+	IssuedAt        time.Time `json:"issuedAt" gorm:"not null"`
+	Method          string    `json:"method" gorm:"size:40"` // e.g. "Registered Post" | "SMS" | "In Person"
+	Remarks         string    `json:"remarks" gorm:"size:255"`
+	CreatedAt       time.Time `json:"createdAt"`
+}
+
+func (AuctionNotice) TableName() string { return "auction_notices" }

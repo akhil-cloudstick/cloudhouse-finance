@@ -1,5 +1,6 @@
 "use client";
 
+import { useRouter } from "next/navigation";
 import { useCustomers } from "@/lib/CustomersProvider";
 import { useGoldRates } from "@/lib/GoldRatesProvider";
 import { fmt } from "@/lib/format";
@@ -7,6 +8,7 @@ import { TITLES } from "@/lib/routes";
 import { useModal } from "@/components/Modal";
 import { RateModalContent } from "@/components/modals/RateModal";
 import { Icon } from "@/lib/icons";
+import { useAuth } from "@/lib/auth-context";
 import GlobalSearch from "./GlobalSearch";
 
 /* Ported from legacy/app.html's <header class="top"> + app.js's
@@ -15,6 +17,14 @@ export function Topbar({ route, arg, onBurger }: { route: string; arg?: string; 
   const { latest, isTodaySet } = useGoldRates();
   const { customers } = useCustomers();
   const { openModal } = useModal();
+  const { employee, logout } = useAuth();
+  const router = useRouter();
+
+  function handleLogout(e: React.MouseEvent) {
+    e.preventDefault();
+    logout();
+    router.replace("/login");
+  }
 
   const crumb =
     route === "customer"
@@ -47,13 +57,13 @@ export function Topbar({ route, arg, onBurger }: { route: string; arg?: string; 
         )}
       </span>
       <span className="user">
-        <span className="av">—</span>
+        <span className="av">{employee?.name ? employee.name.charAt(0).toUpperCase() : "—"}</span>
         <span className="nm">
-          Not signed in
-          <small>No user session</small>
+          {employee?.name || "Not signed in"}
+          <small>{employee?.role || "No user session"}</small>
         </span>
       </span>
-      <a className="logout" href="/">Sign out</a>
+      <a className="logout" href="/login" onClick={handleLogout}>Sign out</a>
     </header>
   );
 }

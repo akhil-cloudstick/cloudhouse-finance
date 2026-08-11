@@ -37,6 +37,10 @@ func (r *MovementRepository) Update(m *CashMovement) error {
 	return r.db.Save(m).Error
 }
 
+func (r *MovementRepository) Delete(id uint) error {
+	return r.db.Delete(&CashMovement{}, id).Error
+}
+
 // ExpenseRepository provides GORM-backed persistence for Expense records.
 type ExpenseRepository struct {
 	db *gorm.DB

@@ -18,6 +18,7 @@ import { createLoan, addOrnamentImage } from "@/lib/loansApi";
 import { listPackets } from "@/lib/packetApi";
 import { publishGoldRate } from "@/lib/goldRateApi";
 import { listActiveBranches, type BranchView } from "@/lib/branchApi";
+import { listLockers, type LockerView } from "@/lib/lockerApi";
 import { SearchableSelect } from "@/components/SearchableSelect";
 import { openPrintWindow } from "@/lib/print";
 import { ApiError } from "@/lib/api";
@@ -32,10 +33,10 @@ type OrnRow = { n: string; p: "k24" | "k22" | "k18"; w: number; q: number; img?:
  * endpoints (via SearchableSelect) instead of filtering an in-memory mock
  * list or a localStorage-backed type list. */
 export function NewLoan() {
-  const { db, refresh } = useData();
+  const { refresh } = useData();
   const { customers } = useCustomers();
   const { schemes } = useSchemes();
-  const { refresh: refreshLoans } = useLoans();
+  const { loans, refresh: refreshLoans } = useLoans();
   const { latest: rates, isTodaySet, refresh: refreshGoldRates } = useGoldRates();
   const { openModal, closeModal } = useModal();
   const toast = useToast();
@@ -72,12 +73,21 @@ export function NewLoan() {
     }
   }
 
-  const provId = useMemo(
-    () => "GL-" + (Math.max(0, ...db.loans.map((l) => +String(l.id).slice(3) || 0)) + 1),
-    [db.loans]
-  );
+  // Preview only — mirrors the backend's actual assignment
+  // (backend/internal/loan/service.go: `fmt.Sprintf("LN-%05d", count+1)`).
+  // The real number is assigned server-side on submit; this just shows what
+  // it's expected to be, from the real backend-backed loan list (`useLoans()`)
+  // rather than the legacy localStorage-backed `db.loans`, which is always
+  // empty now that loans live in the Go backend.
+  const provId = useMemo(() => "LN-" + String(loans.length + 1).padStart(5, "0"), [loans.length]);
 
-  const activeLockers = db.lockers.filter((k) => k.status === "Active");
+  // Lockers are backend-managed (see lockerApi.ts / LockerModal.tsx). Picking
+  // one here checks the loan's auto-created packet straight into it at
+  // creation (see submitNewLoan's `lockerId` on createLoan()) instead of
+  // requiring a separate manual "check in to locker" step afterward on the
+  // Packets page — leaving it on "Assign later" keeps the old manual flow.
+  const [lockers, setLockers] = useState<LockerView[]>([]);
+  const activeLockers = lockers.filter((k) => k.isActive);
 
   // Deliberately NOT defaulted to the first verified customer/active scheme — the
   // SearchableSelect fields below start blank (custLabel/schemeLabel === "")
@@ -89,7 +99,7 @@ export function NewLoan() {
   const [custLabel, setCustLabel] = useState("");
   const [schemeId, setSchemeId] = useState("");
   const [schemeLabel, setSchemeLabel] = useState("");
-  const [lockerId, setLockerId] = useState("");
+  const [lockerId, setLockerId] = useState<number | "">("");
   const [rows, setRows] = useState<OrnRow[]>([]);
   // Staff can override the disbursed principal instead of always taking the
   // scheme-LTV-computed eligible amount as-is (e.g. rounding down, or
@@ -122,6 +132,9 @@ export function NewLoan() {
         if (list.length) setBranchId((cur) => (cur === "" ? list[0].id : cur));
       })
       .catch(() => toast("Could not load branches — try again later."));
+    listLockers()
+      .then(setLockers)
+      .catch(() => toast("Could not load lockers — try again later."));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -211,7 +224,7 @@ export function NewLoan() {
       weight += r.w * r.q; gross += v;
       return { n: r.n, purity: PURITY_LABEL[r.p], gross: r.w, net: r.w, qty: r.q, val: Math.round(v), img: r.img };
     });
-    const locker = db.lockers.find((k) => k.id === lockerId);
+    const locker = lockers.find((k) => k.id === lockerId);
     return { c, sch: s, orns, weight, gross, eligible: Math.round((gross * s.ltv) / 100), locker };
   }
 
@@ -225,7 +238,7 @@ export function NewLoan() {
         <tr><th>Customer</th><td>${d.c.name} (${d.c.id})</td><th>Phone</th><td>${"phone" in d.c ? d.c.phone : "—"}</td></tr>
         <tr><th>Address</th><td>${"address" in d.c ? d.c.address : "—"}</td><th>Branch</th><td>${"branchName" in d.c ? d.c.branchName : "—"}</td></tr>
         <tr><th>Scheme</th><td>${d.sch.name} @ ${d.sch.rate}% p.a. (LTV ${d.sch.ltv}%)</td>
-            <th>Locker</th><td>${d.locker ? d.locker.id + " — " + d.locker.branch : "Not assigned"}</td></tr>
+            <th>Locker</th><td>${d.locker ? d.locker.code + " — " + d.locker.branchName : "Not assigned"}</td></tr>
       </table>
       <table>
         <thead><tr><th>#</th><th>Ornament</th><th>Purity</th><th class="num">Net Wt (g)</th><th class="num">Qty</th><th class="num">Value</th><th>Photo</th></tr></thead>
@@ -423,6 +436,7 @@ export function NewLoan() {
           deductionWeight: 0,
           quantity: r.q,
         })),
+        ...(lockerId !== "" ? { lockerId: Number(lockerId) } : {}),
       });
 
       // The backend creates + returns ornaments in the same order they were
@@ -518,19 +532,33 @@ export function NewLoan() {
           <div className="frow c2">
             <div><label className="f">Branch</label>
               <select className="inp" value={branchId} onChange={(e) => setBranchId(+e.target.value)}>
+                {branches.length === 0 && <option value="">Loading branches…</option>}
                 {branches.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
               </select></div>
             <div><label className="f">Locker / Storage</label>
-              <select className="inp" value={lockerId} onChange={(e) => setLockerId(e.target.value)}>
+              <select className="inp" value={lockerId} onChange={(e) => setLockerId(e.target.value ? +e.target.value : "")}>
                 <option value="">— Assign later —</option>
-                {activeLockers.map((k) => <option key={k.id} value={k.id}>{k.id} — {k.branch} ({k.packets}/{k.cap} packets)</option>)}
+                {activeLockers.map((k) => (
+                  <option key={k.id} value={k.id} disabled={k.occupied >= k.capacity}>
+                    {k.code} — {k.branchName} ({k.occupied}/{k.capacity} packets){k.occupied >= k.capacity ? " · Full" : ""}
+                  </option>
+                ))}
               </select></div>
           </div>
           <div className="frow c2">
             <div><label className="f">Loan No (auto)</label><input className="inp" value={provId} disabled /></div>
           </div>
           <label className="f" style={{ marginTop: 6 }}>Pledged Ornaments</label>
-          <div className="tbl-wrap"><table className="tbl" style={{ minWidth: 640 }}>
+          {/* Deliberately NOT wrapped in .tbl-wrap (unlike other tables) — that
+              class sets overflow-x:auto, and per the CSS overflow spec,
+              setting either overflow axis to a value other than visible
+              forces the other axis to compute as auto too. That turned this
+              box into an unwanted vertical scroll container and clipped the
+              ornament-type SearchableSelect's dropdown, which pops out of
+              its input via position:absolute. A plain div (no overflow
+              rule) avoids both; the page itself scrolls horizontally on
+              very narrow viewports instead. */}
+          <div><table className="tbl" style={{ minWidth: 640 }}>
             <thead><tr><th>Ornament</th><th>Purity</th><th className="num">Net Wt (g)</th><th className="num">Qty</th><th className="num">Value</th><th style={{ textAlign: "center" }}>Photo</th><th></th></tr></thead>
             <tbody>
               {rows.length === 0 && (
@@ -553,7 +581,7 @@ export function NewLoan() {
                   <td><select className="inp" style={{ padding: "6px 8px", width: 82 }} value={r.p} onChange={(e) => updOrn(i, "p", e.target.value as OrnRow["p"])}>
                     <option value="k24">24K</option><option value="k22">22K</option><option value="k18">18K</option>
                   </select></td>
-                  <td className="num"><input className="inp" style={{ padding: "6px 8px", width: 84, textAlign: "right" }} type="number" min={0} value={r.w} onChange={(e) => updOrn(i, "w", Math.max(0, +e.target.value || 0))} /></td>
+                  <td className="num"><input className="inp" style={{ padding: "6px 8px", width: 84, textAlign: "right" }} type="number" min={0} value={r.w === 0 ? "" : r.w} onChange={(e) => updOrn(i, "w", e.target.value === "" ? 0 : Math.max(0, +e.target.value || 0))} /></td>
                   <td className="num"><input className="inp" style={{ padding: "6px 8px", width: 64, textAlign: "right" }} type="number" min={0} value={r.q} onChange={(e) => updOrn(i, "q", Math.max(0, +e.target.value || 0))} /></td>
                   <td className="num">{fmt(rowVals[i])}</td>
                   <td style={{ textAlign: "center", whiteSpace: "nowrap" }}>

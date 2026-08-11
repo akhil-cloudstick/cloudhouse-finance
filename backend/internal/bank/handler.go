@@ -35,10 +35,11 @@ func (h *Handler) List(c *gin.Context) {
 }
 
 type bankRequest struct {
-	Name   string `json:"name"`
-	Branch string `json:"branch"`
-	Ifsc   string `json:"ifsc"`
-	Phone  string `json:"phone"`
+	Name      string `json:"name"`
+	Branch    string `json:"branch"`
+	Ifsc      string `json:"ifsc"`
+	AccountNo string `json:"accountNo"`
+	Phone     string `json:"phone"`
 }
 
 func (h *Handler) Create(c *gin.Context) {
@@ -47,7 +48,7 @@ func (h *Handler) Create(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	rec, created, err := h.svc.FindOrCreate(CreateInput{Name: req.Name, Branch: req.Branch, Ifsc: req.Ifsc, Phone: req.Phone})
+	rec, created, err := h.svc.FindOrCreate(CreateInput{Name: req.Name, Branch: req.Branch, Ifsc: req.Ifsc, AccountNo: req.AccountNo, Phone: req.Phone})
 	if err != nil {
 		c.JSON(statusForErr(err), gin.H{"error": err.Error()})
 		return

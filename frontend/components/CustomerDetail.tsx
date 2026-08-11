@@ -1,13 +1,19 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useLoans } from "@/lib/LoansProvider";
+import { useModal } from "@/components/Modal";
 import { useToast } from "@/components/Toast";
-import { fmt, initials } from "@/lib/format";
+import { fmt, fmtW, initials } from "@/lib/format";
 import { StatusChip } from "@/components/StatusChip";
 import { LoanRow } from "@/components/LoanRow";
 import { Icon } from "@/lib/icons";
-import { getCustomer, type CustomerView } from "@/lib/customersApi";
+import { getCustomer360, type Customer360View } from "@/lib/customersApi";
+import type { LoanView } from "@/lib/loansApi";
+import {
+  SelectLoanForRequestModalContent,
+  RequestExtensionModalContent,
+  RequestReleaseModalContent,
+} from "@/components/modals/RequestExtensionModal";
 
 function ProofLink({ label, url }: { label: string; url: string }) {
   if (!url) return <div className="i"><div className="k">{label}</div><div className="v" style={{ color: "var(--muted)" }}>Not provided</div></div>;
@@ -18,34 +24,50 @@ function ProofLink({ label, url }: { label: string; url: string }) {
   );
 }
 
-/* Ported from legacy/app.js's `renderCustomerDetail(id)`. Personal/KYC/
- * nominee/proof-document sections now come from the real backend
- * (`GET /api/v1/customers/:id`); loan/ornament/payment/auction history
- * still reads the mock `db` — the Loan module itself is out of scope for
- * this stage. SMS reminder / follow-up history is omitted entirely — no
- * data source exists anywhere yet. */
+/* Ported from legacy/app.js's `renderCustomerDetail(id)`. Now a real
+ * Customer 360° view backed by one aggregation call
+ * (`GET /api/v1/customers/:id/profile360`) instead of KYC/profile data
+ * from `GET /api/v1/customers/:id` plus a client-side filter over the
+ * shared loans list — that older approach only ever showed a bare loan
+ * table, with no ornament/payment/bank-pledge/auction history in one
+ * place. SMS reminder / follow-up history is still omitted — no data
+ * source exists anywhere yet. */
 export function CustomerDetail({ id }: { id?: string }) {
-  const { loans } = useLoans();
+  const { openModal } = useModal();
   const toast = useToast();
 
-  const [c, setC] = useState<CustomerView | null>(null);
+  const [profile, setProfile] = useState<Customer360View | null>(null);
   const [error, setError] = useState("");
 
   useEffect(() => {
     if (!id) return;
-    setC(null);
+    setProfile(null);
     setError("");
-    getCustomer(id)
-      .then(setC)
+    getCustomer360(id)
+      .then(setProfile)
       .catch((e) => setError(e instanceof Error ? e.message : "Failed to load customer."));
   }, [id]);
 
   if (error) return <div className="empty">Customer not found — {error}</div>;
-  if (!c) return <div className="empty">Loading customer…</div>;
+  if (!profile) return <div className="empty">Loading customer…</div>;
 
-  const cLoans = loans.filter((l) => l.customerId === c.id);
-  const disbursed = cLoans.reduce((s, l) => s + l.principal, 0);
-  const out = cLoans.reduce((s, l) => s + (l.status === "Closed" ? 0 : l.outstanding), 0);
+  const c = profile.customer;
+  const cLoans = profile.loans;
+
+  function openRequestPicker() {
+    openModal(
+      <SelectLoanForRequestModalContent
+        loans={cLoans}
+        onPicked={(pickedLoan: LoanView, type: "Extension" | "Release") => {
+          if (type === "Extension") {
+            openModal(<RequestExtensionModalContent loan={pickedLoan} onSaved={() => {}} />);
+          } else {
+            openModal(<RequestReleaseModalContent loan={pickedLoan} onSaved={() => {}} />);
+          }
+        }}
+      />
+    );
+  }
 
   return (
     <>
@@ -58,6 +80,7 @@ export function CustomerDetail({ id }: { id?: string }) {
         <button className="btn ghost sm" onClick={() => toast("SMS/WhatsApp composer — full build")}>
           <Icon name="chat" /> Message
         </button>
+        <button className="btn ghost sm" onClick={openRequestPicker}><Icon name="unlock" /> Request Extension / Release</button>
         <a className="btn sm" href="#newloan"><Icon name="plus" /> New Loan</a>
       </div>
       <hr className="gold-rule" />
@@ -97,22 +120,104 @@ export function CustomerDetail({ id }: { id?: string }) {
           )}
           <div className="card"><div className="hd"><h3>Relationship Summary</h3></div>
             <div className="bd"><div className="kv">
-              <div className="i"><div className="k">Total Disbursed</div><div className="v">{fmt(disbursed)}</div></div>
-              <div className="i"><div className="k">Outstanding</div><div className="v">{fmt(out)}</div></div>
-              <div className="i"><div className="k">Active Loans</div><div className="v">{cLoans.filter((l) => l.status !== "Closed").length}</div></div>
-              <div className="i"><div className="k">Closed Loans</div><div className="v">{cLoans.filter((l) => l.status === "Closed").length}</div></div>
+              <div className="i"><div className="k">Total Disbursed</div><div className="v">{fmt(profile.totalDisbursed)}</div></div>
+              <div className="i"><div className="k">Outstanding</div><div className="v">{fmt(profile.totalOutstanding)}</div></div>
+              <div className="i"><div className="k">Total Paid</div><div className="v">{fmt(profile.totalPaid)}</div></div>
+              <div className="i"><div className="k">Active Loans</div><div className="v">{profile.activeLoanCount}</div></div>
+              <div className="i"><div className="k">Closed Loans</div><div className="v">{profile.closedLoanCount}</div></div>
             </div></div>
           </div>
         </div>
-        <div className="card"><div className="hd"><h3>Loan History</h3></div>
-          <div className="tbl-wrap"><table className="tbl">
-            <thead><tr><th>Loan</th><th>Scheme</th><th>Opened / Due</th><th className="num">Principal</th><th className="num">Outstanding</th><th>Pledge</th><th>Status</th></tr></thead>
-            <tbody>
-              {cLoans.length === 0 ? (
-                <tr><td colSpan={7} className="empty">No loans yet.</td></tr>
-              ) : cLoans.map((l) => <LoanRow loan={l} key={l.id} />)}
-            </tbody>
-          </table></div>
+        <div className="grid">
+          <div className="card"><div className="hd"><h3>Loan History</h3></div>
+            <div className="tbl-wrap"><table className="tbl">
+              <thead><tr><th>Loan</th><th>Scheme</th><th>Opened / Due</th><th className="num">Principal</th><th className="num">Outstanding</th><th>Pledge</th><th>Status</th></tr></thead>
+              <tbody>
+                {cLoans.length === 0 ? (
+                  <tr><td colSpan={7} className="empty">No loans yet.</td></tr>
+                ) : cLoans.map((l) => <LoanRow loan={l} key={l.id} />)}
+              </tbody>
+            </table></div>
+          </div>
+
+          <div className="card"><div className="hd"><h3>Pledged Ornaments (all loans)</h3></div>
+            <div className="tbl-wrap"><table className="tbl">
+              <thead><tr><th>Loan</th><th>Ornament</th><th>Purity</th><th className="num">Net (g)</th><th className="num">Gold Value</th></tr></thead>
+              <tbody>
+                {cLoans.flatMap((l) => l.ornaments.map((o) => ({ l, o }))).length === 0 ? (
+                  <tr><td colSpan={5} className="empty">No pledged ornaments yet.</td></tr>
+                ) : cLoans.flatMap((l) => l.ornaments.map((o) => (
+                  <tr key={l.id + "-" + o.id}>
+                    <td><a href={`#loan/${l.id}`}>{l.id}</a></td>
+                    <td>{o.name}</td>
+                    <td><span className="chip gold">{o.purity}</span></td>
+                    <td className="num">{fmtW(o.netWeight)}</td>
+                    <td className="num">{fmt(o.goldValue)}</td>
+                  </tr>
+                )))}
+              </tbody>
+            </table></div>
+          </div>
+
+          <div className="card"><div className="hd"><h3>Payment History (all loans)</h3></div>
+            <div className="tbl-wrap"><table className="tbl">
+              <thead><tr><th>Loan</th><th>Date</th><th>Type</th><th className="num">Amount</th><th>Method</th></tr></thead>
+              <tbody>
+                {cLoans.flatMap((l) => l.payments.map((p) => ({ l, p }))).length === 0 ? (
+                  <tr><td colSpan={5} className="empty">No payments recorded yet.</td></tr>
+                ) : cLoans.flatMap((l) => l.payments.map((p) => (
+                  <tr key={l.id + "-" + p.id}>
+                    <td><a href={`#loan/${l.id}`}>{l.id}</a></td>
+                    <td>{p.paidOn}</td>
+                    <td>{p.type}</td>
+                    <td className="num">{fmt(p.amount)}</td>
+                    <td>{p.method || "—"}</td>
+                  </tr>
+                )))}
+              </tbody>
+            </table></div>
+          </div>
+
+          <div className="card"><div className="hd"><h3>Bank Pledges (all loans)</h3></div>
+            <div className="tbl-wrap"><table className="tbl">
+              <thead><tr><th>Loan</th><th>Bank</th><th className="num">Amount</th><th>Pledged On</th><th>Status</th></tr></thead>
+              <tbody>
+                {cLoans.flatMap((l) => l.bankPledges.map((p) => ({ l, p }))).length === 0 ? (
+                  <tr><td colSpan={5} className="empty">No bank pledges yet.</td></tr>
+                ) : cLoans.flatMap((l) => l.bankPledges.map((p) => (
+                  <tr key={l.id + "-" + p.id}>
+                    <td><a href={`#loan/${l.id}`}>{l.id}</a></td>
+                    <td>{p.bankName}</td>
+                    <td className="num">{fmt(p.pledgedAmount)}</td>
+                    <td>{p.pledgeDate}</td>
+                    <td><StatusChip status={p.isReleased ? "Released" : "Bank Pledged"} /></td>
+                  </tr>
+                )))}
+              </tbody>
+            </table></div>
+          </div>
+
+          {profile.auctionHistory.length > 0 && (
+            <div className="card"><div className="hd"><h3>Auction History</h3></div>
+              <div className="tbl-wrap"><table className="tbl">
+                <thead><tr><th>Loan</th><th>Stage</th><th>Auction Date</th><th className="num">Sale Amount</th><th className="num">Surplus/Shortfall</th></tr></thead>
+                <tbody>
+                  {profile.auctionHistory.map((a) => {
+                    const l = cLoans.find((cl) => cl.numericId === a.loanId);
+                    return (
+                      <tr key={a.id}>
+                        <td>{l ? <a href={`#loan/${l.id}`}>{l.id}</a> : a.loanId}</td>
+                        <td><StatusChip status={a.stage} /></td>
+                        <td>{a.auctionDate || "—"}</td>
+                        <td className="num">{a.saleAmount ? fmt(a.saleAmount) : "—"}</td>
+                        <td className="num" style={{ color: a.surplusShortfall >= 0 ? "var(--green)" : "var(--red)" }}>{a.saleAmount ? fmt(Math.abs(a.surplusShortfall)) : "—"}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table></div>
+            </div>
+          )}
         </div>
       </div>
     </>

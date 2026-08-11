@@ -41,6 +41,10 @@ type updateRequest struct {
 	Collections    float64 `json:"collections"`
 	Followups      int     `json:"followups"`
 	Pending        int     `json:"pending"`
+	// Email/Password are optional — set/rotate an employee's login
+	// credentials via this same endpoint (see internal/auth).
+	Email    string `json:"email"`
+	Password string `json:"password"`
 }
 
 func idParam(c *gin.Context) (uint, error) {
@@ -55,8 +59,10 @@ func statusForErr(err error) int {
 	switch {
 	case errors.Is(err, ErrNotFound):
 		return http.StatusNotFound
-	case errors.Is(err, ErrNameRequired), errors.Is(err, ErrRoleRequired), errors.Is(err, ErrInvalidRole), errors.Is(err, ErrBranchReq), errors.Is(err, ErrBranchInvalid), errors.Is(err, ErrPhoneInvalid):
+	case errors.Is(err, ErrNameRequired), errors.Is(err, ErrRoleRequired), errors.Is(err, ErrInvalidRole), errors.Is(err, ErrBranchReq), errors.Is(err, ErrBranchInvalid), errors.Is(err, ErrPhoneInvalid), errors.Is(err, ErrEmailInvalid), errors.Is(err, ErrPasswordTooShort):
 		return http.StatusBadRequest
+	case errors.Is(err, ErrEmailTaken):
+		return http.StatusConflict
 	default:
 		return http.StatusInternalServerError
 	}
@@ -128,6 +134,7 @@ func (h *Handler) Update(c *gin.Context) {
 		Name: req.Name, Role: req.Role, BranchID: req.BranchID, Phone: req.Phone,
 		LoansProcessed: req.LoansProcessed, Collections: req.Collections,
 		Followups: req.Followups, Pending: req.Pending,
+		Email: req.Email, Password: req.Password,
 	})
 	if err != nil {
 		respondErr(c, err)

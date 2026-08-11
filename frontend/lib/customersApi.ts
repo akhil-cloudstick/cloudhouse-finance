@@ -1,5 +1,6 @@
 import { apiFetch, apiUpload } from "@/lib/api";
 import type { BranchView } from "@/lib/branchApi";
+import { toView as toLoanView, toAuctionRecordView, type BackendLoan, type LoanView, type BackendAuctionRecord, type AuctionRecordView } from "@/lib/loansApi";
 
 /* Shape returned by the Go backend (backend/internal/customer/model.go's
  * CustomerResponse — deliberately never the raw DB model, so there is no
@@ -167,6 +168,50 @@ export async function updateCustomer(id: string, input: CustomerFormInput): Prom
 
 export async function deleteCustomer(id: string): Promise<void> {
   await apiFetch<void>(`/customers/${id}`, { method: "DELETE" });
+}
+
+/* Customer 360° profile — one consolidated view of every loan (with its
+ * ornaments/payments/bank pledges) and every auction case for a customer,
+ * backed by GET /api/v1/customers/:id/profile360 (see
+ * backend/internal/loan/service.go's GetCustomer360 — lives in the loan
+ * package to avoid a customer<->loan import cycle, but mounted under
+ * /customers). Replaces CustomerDetail.tsx's old client-side filter over
+ * the shared useLoans() list, which only ever showed a bare loan table —
+ * no ornament/payment/bank-pledge/auction history. */
+export type Customer360View = {
+  customer: CustomerView;
+  loans: LoanView[];
+  auctionHistory: AuctionRecordView[];
+  totalDisbursed: number;
+  totalOutstanding: number;
+  totalPaid: number;
+  activeLoanCount: number;
+  closedLoanCount: number;
+};
+
+type BackendCustomer360 = {
+  customer: BackendCustomer;
+  loans: BackendLoan[];
+  auctionHistory: BackendAuctionRecord[] | null;
+  totalDisbursed: number;
+  totalOutstanding: number;
+  totalPaid: number;
+  activeLoanCount: number;
+  closedLoanCount: number;
+};
+
+export async function getCustomer360(id: string): Promise<Customer360View> {
+  const rec = await apiFetch<BackendCustomer360>(`/customers/${id}/profile360`);
+  return {
+    customer: toView(rec.customer),
+    loans: (rec.loans || []).map(toLoanView),
+    auctionHistory: (rec.auctionHistory || []).map(toAuctionRecordView),
+    totalDisbursed: rec.totalDisbursed,
+    totalOutstanding: rec.totalOutstanding,
+    totalPaid: rec.totalPaid,
+    activeLoanCount: rec.activeLoanCount,
+    closedLoanCount: rec.closedLoanCount,
+  };
 }
 
 /* Uploads one file (photo/identity proof/address proof/KYC document) to the

@@ -33,7 +33,11 @@ function MovementRow({ m, onToggleLoan }: { m: CashMovementView; onToggleLoan: (
     <tr>
       <td>{m.d}</td>
       <td>{m.type === "in" ? <span className="chip green">Cash In</span> : <span className="chip red">Cash Out</span>}</td>
-      <td>{m.type === "in" ? m.source : m.purpose || "—"}</td>
+      {/* Loan repayments post as source="Collection" with the payment
+          type/loan number in `purpose` (see cash.MovementService.
+          RecordLoanPaymentCashIn) — show both, not just source, so those
+          rows don't all read as a bare "Collection". */}
+      <td>{m.type === "in" ? (m.purpose ? `${m.source} · ${m.purpose}` : m.source) : m.purpose || "—"}</td>
       <td>{m.bank || "—"}</td>
       <td className="num" style={{ color: m.type === "in" ? "var(--green)" : "var(--red)" }}>
         {m.type === "in" ? "+" : "−"}{fmt(m.amount)}
@@ -174,7 +178,7 @@ export function Cash() {
   return (
     <>
       <div className="page-h">
-        <div><h1>Cash-in-Hand &amp; Expenses</h1><p>Opening Cash + Collections − Disbursements − Expenses = Expected Cash in Hand</p></div>
+        <div><h1>Cash-in-Hand &amp; Expenses</h1></div>
         <div className="sp" />
         <button className="btn ghost" onClick={() => openModal(<CashOutModalContent onSaved={refresh} />)}><Icon name="coin" /> Take Cash Out</button>
         <button className="btn ghost" onClick={() => openModal(<AddCashModalContent onSaved={refresh} />)}><Icon name="coin" /> Add Cash</button>

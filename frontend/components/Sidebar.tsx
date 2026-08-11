@@ -1,6 +1,8 @@
 "use client";
 
+import { useRouter } from "next/navigation";
 import { Icon } from "@/lib/icons";
+import { useAuth } from "@/lib/auth-context";
 
 /* Ported from legacy/app.js's `NAV` array + nav-building/active-link logic
  * in `router()`. */
@@ -36,6 +38,15 @@ export const NAV: [string, [string, string, string][]][] = [
 ];
 
 export function Sidebar({ route, open }: { route: string; open: boolean }) {
+  const { logout } = useAuth();
+  const router = useRouter();
+
+  function handleSignOut(e: React.MouseEvent) {
+    e.preventDefault();
+    logout();
+    router.replace("/login");
+  }
+
   return (
     <aside className={`side${open ? " open" : ""}`} id="side">
       <div className="brand">
@@ -58,8 +69,6 @@ export function Sidebar({ route, open }: { route: string; open: boolean }) {
                 <a key={r} href={`#${r}`} className={isOn ? "on" : ""}>
                   <Icon name={ic} />
                   {t}
-                  {r === "requests" && <span className="pill">3</span>}
-                  {r === "auctions" && <span className="pill">1</span>}
                 </a>
               );
             })}
@@ -69,7 +78,7 @@ export function Sidebar({ route, open }: { route: string; open: boolean }) {
       <div className="sfoot">
         Trust · Value · Growth
         <br />
-        <a href="/">← Sign out</a>
+        <a href="/login" onClick={handleSignOut}>← Sign out</a>
       </div>
     </aside>
   );

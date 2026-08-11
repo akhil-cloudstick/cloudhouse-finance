@@ -4,7 +4,199 @@ All notable changes to this project are documented here. This log reflects
 the actual git history at the time of writing; update it as new commits land.
 
 ## [Unreleased]
+### Changed
+- **Spec-compliance sweep: 4-stage loan approval, auction workflow rebuild,
+  loan status lifecycle flags, bank pledge fields, Customer 360, dashboard
+  cleanup.** Closes most of the gaps found in a spec-compliance audit
+  against the client proposal (Management Dashboard explicitly deferred,
+  see below).
+  - **Loan approval: 2-step → 4-stage.** `Loan.ApprovalStage` now
+    progresses `LoanOperator → BranchManager → AuthorizedManagement →
+    FinalSanction → Approved`, replacing the old `PendingManager →
+    PendingManagement` pair (those two constants are now Release-request-only).
+    `POST /loans/:id/approve` requires a `role` matching the current
+    stage's required role, except `"Administrator"` which may act at any
+    stage. Loan amount is never a hard block — a hardcoded, advisory-only
+    `sanctionLimits` table only populates a new `Loan.ApprovalWarning`
+    string. New `GET /loans/:id/approvals` returns the full decision
+    history. `LoanDetail.tsx` gained a role selector, warning banner, and
+    a shared `StageTracker` component (`frontend/components/
+    StageTracker.tsx`) instead of a plain approve/reject button pair.
+  - **Loan status lifecycle: `isDueSoon`/`isOverdue`/`isDefaulted`/
+    `daysOverdue`.** Computed fresh on every loan read
+    (`loan/accrual.go`'s `enrichStatusFlags`) from `dueDate` vs today —
+    display/filter flags only, no cron/scheduler added. `isDefaulted` =
+    overdue by more than 90 days; existing penal-interest accrual is
+    untouched (it already ran independently off `dueDate`). `Loans.tsx`
+    gained a "Defaulted" tab; these three categories now filter
+    client-side instead of via the server `status` query param, since
+    nothing ever sets `Loan.Status` to those values.
+  - **Auction: one-shot `RecordAuction()` → full 7-stage `AuctionRecord`
+    workflow.** New `AuctionRecord`/`AuctionNotice` models
+    (`internal/loan/model.go`) track `AuctionEligible → NoticeIssued →
+    AuctionScheduled → Auctioned → Settled`, replacing the old single
+    `POST /loans/:id/auction` that jumped straight to `"Auctioned"`. New
+    endpoints: `GET/POST .../auction/{eligible,notice,schedule,sale,settle}`.
+    Sale recording computes and persists `SurplusShortfall`. `Auctions.tsx`
+    and `AuctionModal.tsx` rebuilt around the real per-stage actions and
+    the shared `StageTracker`, replacing the old cosmetic 4-box progress
+    bar.
+  - **Bank pledge gained `bankInterestRate`/`referenceNumber`** — spec-called-out
+    fields that were missing from `BankPledgeRecord`. Threaded through
+    `RecordBankPledge`, the frontend types/API, and `RepledgeModal.tsx`'s
+    form + `LoanDetail.tsx`'s pledge summary.
+  - **Customer 360°.** New `GET /customers/:id/profile360`
+    (`internal/loan/service.go`'s `GetCustomer360` — lives in the loan
+    package, not customer, to avoid a customer↔loan import cycle) returns
+    a customer's full loan/ornament/payment/bank-pledge/auction history
+    plus running totals in one call. `CustomerDetail.tsx` rebuilt around
+    it instead of a client-side filter over the shared loans list that
+    only ever showed a bare loan table.
+  - **Dashboard dead-mock-data cleanup.** `Dashboard.tsx`'s "Extension
+    Requests"/"Gold Release Requests" tiles and "Needs Attention" list now
+    read `listLoanRequests()` (a real, already-existing endpoint) instead
+    of the always-empty legacy `db.requests` mock. "Interest Collected"
+    now calls a new `GET /loans/interest-collected` endpoint instead of
+    reading the always-empty `db.ledger` mock.
+  - **Deferred, not part of this change:** a Management Dashboard
+    (interest receivable, collections, overdue totals, auction case count,
+    bank-pledged totals in one management view) — tracked for later.
+- **Bank re-pledge picker can no longer create a bank inline; banks now
+  carry an account number.** Per the Bank & Gold Re-Pledge spec, a bank
+  must be a fully registered resource (branch, IFSC, account details,
+  address) before gold can be pledged against it. `RepledgeModal.tsx`'s
+  bank `SearchableSelect` previously ran with `allowCreate`, letting staff
+  spawn a bare, detail-less `Bank` row (name only) straight from the
+  repledge flow — that's removed; the picker now only searches existing
+  banks, and new banks must go through "+ Add Bank" (`BankModalContent`).
+  Added `Bank.AccountNo` (`account_no`, optional) to `backend/internal/bank`
+  end-to-end (model/service/handler + `bankApi.ts`), and a required
+  "Account Number" field to `BankModalContent`'s form.
+
+- **Loan scheme duration is now a real field, not a laundered date window.**
+  `Scheme` previously had no tenure field at all — `StartDate`/`EndDate`
+  (meant as the scheme *program's* offer-validity window) were the only
+  duration-like data on the backend, and the frontend's "Loan Duration"
+  dropdown in `SchemeModal.tsx` faked a real period by starting that window
+  "today" and running it for N months (`schemesApi.ts`'s `toRequestBody`/
+  `monthsBetween`), then reading the fake window back and re-deriving
+  months from it. Replaced with a real `durationMonths int` column on
+  `Scheme` — `POST`/`PUT /api/v1/schemes` now take `durationMonths`
+  directly (400 `ErrInvalidDuration` if `<= 0`), and `StartDate`/`EndDate`
+  are gone entirely, along with the `isActive`-requires-being-inside-the-
+  window rule they existed to support (`ToggleActive` is now a plain flip).
+  `frontend/lib/schemesApi.ts` no longer does any date math — `BackendScheme`
+  carries `durationMonths` straight through. No change needed to
+  `NewLoan.tsx` (it already read `scheme.durationMonths` to compute a new
+  loan's `dueDate`) or `SchemeModal.tsx` (its form already collected a
+  plain months value).
+
+### Fixed
+- **"Loan not found" flash when clicking into a loan.** `LoanDetail.tsx`
+  looked up a loan by number via `listLoans({q: id})` + a client-side
+  `.find()` + a second `getLoan(numericId)` call — two round trips that
+  could transiently return an empty/non-matching list if that request
+  overlapped with another in-flight `/loans` call (e.g. the same page's own
+  `refreshLoans()`), showing "Loan not found" until a manual refresh.
+  Replaced with a new, single, atomic `GET /loans/by-number/:loanNumber`
+  endpoint (`loan.Repository.FindByLoanNumber`, `Service.GetByLoanNumber` —
+  mirrors `packet`'s existing `by-code` lookup) and a matching
+  `getLoanByNumber()` in `loansApi.ts`, removing the race entirely.
+
 ### Added
+- **Reminder Calendar, backed by a new `reminder` module.** The previously
+  static, hardcoded-July-2026 `Calendar.tsx` is now real end-to-end. New
+  backend package `internal/reminder`: a `Reminder` table for manually
+  logged Customer Follow-Ups / Promise-to-Pay dates / Custom reminders
+  (plain CRUD + `PUT /:id/complete`), plus a read-only aggregation endpoint
+  `GET /reminders/calendar?from=&to=` that merges those with events
+  computed live from `internal/loan` — each open loan's Due Date, an
+  `Overdue` event once it's passed, and a monthly "interest payment"
+  reminder on the loan's opened-date anniversary (`loan.Repository`
+  gained a lean `FindOpenForCalendar` for this, avoiding the full
+  `preloadAll` graph). Frontend: new `remindersApi.ts` +
+  `modals/ReminderModal.tsx` ("Add Reminder", customer-picker via
+  `SearchableSelect`); `Calendar.tsx` rebuilt with real month navigation, a
+  click-to-inspect day panel (Done/Delete on manual reminders, "Open loan"
+  links), and an "Add Reminder" action; Dashboard's "Upcoming Reminders"
+  card now reads the next 14 days from the same calendar feed instead of
+  mocked pending-approval/request data.
+- **Loan Extension & Gold Release workflow, backed by the interest/penal-
+  interest ledger.** The "Extensions & Release" page (`Requests.tsx`) is now
+  real end-to-end: staff log an Extension or Release request in person on a
+  customer's behalf (`POST /:id/extension-request` /
+  `/:id/release-request`). Extension is a one-step decision
+  (`PUT /requests/:requestId/decide`) reviewing the loan's live outstanding
+  principal/interest/penal interest, blocked only if the loan is already
+  Closed/Auctioned/Defaulted. Release goes through the same fixed
+  Manager→Management approval chain used for loan sanctioning
+  (`POST /requests/:requestId/approve`, new `RequestApproval` audit table),
+  gated by a four-item verification checklist (`PUT
+  /requests/:requestId/verify`: payment, packet location, bank pledge,
+  customer confirmation) plus a staff-entered `charges` override — approving
+  snapshots `settlementAmount = totalOutstandingBalance + charges` and moves
+  the loan to `"Closure Requested"`. The actual hand-back
+  (`POST /:id/complete-release`) is a separate, hard-gated step: it refuses
+  to run until `totalOutstandingBalance <= 0` (every `RecordPayment` call
+  reduces this automatically as repayments come in) and any bank pledge is
+  already released, then moves the loan's packet through to `Released` via
+  a new `loan.PacketMover.RecordGoldReleaseMovement` method and closes the
+  loan. Frontend: new `ReleaseReviewModal.tsx` (checklist + approval UI),
+  `LoanDetail.tsx` gained a "Complete Release" button (enabled only once its
+  own gates are met), and `RequestReleaseModalContent` now shows the live
+  principal/interest/penal-interest/settlement breakdown instead of just the
+  outstanding amount.
+- **Bank pledge/release now moves Cash-in-Hand.** A new `loan.CashRecorder`
+  interface (implemented by `cash.MovementService`, mirroring the existing
+  `loan.PacketMover` wiring) makes `POST /:id/bank-pledge` create a cash-in
+  `CashMovement` (`source: "Bank"`) for the pledged amount, and
+  `PUT /:id/bank-pledge/:pledgeId/release` delete that same movement.
+  `BankPledgeRecord` gained a nullable `cashMovementId` to link the two.
+  `LoanDetail.tsx`'s Bank Pledge card also gained a "Release from Bank"
+  button (previously this action only existed on the Bank Re-Pledge page).
+- **JWT login + role-based permissions (RBAC)** — the backend's first real
+  authentication/authorization layer, replacing the "no auth exists
+  anywhere" gap flagged below and in `api_documentation.md`/
+  `architecture.md`:
+  - `Employee` gained `email` (unique, nullable/partial-index),
+    `passwordHash` (bcrypt, cost 14, never serialized), and
+    `passwordResetTokenHash`/`passwordResetExpiresAt` (SHA-256 hash of the
+    reset token + a 1-hour expiry, also never serialized). Set via the
+    existing `PUT /api/v1/employees/:id` (and `POST`) with optional
+    `email`/`password` fields — no separate `users` table.
+  - New `backend/internal/auth/` package: `POST /api/v1/auth/login`
+    (email+password → JWT), `POST /api/v1/auth/forgot-password` (always
+    `200`, emails a reset link, never reveals account existence),
+    `POST /api/v1/auth/reset-password` (token + new password), and
+    `GET /api/v1/auth/me`. JWT (HS256, `github.com/golang-jwt/jwt/v5`)
+    encodes `employeeId`/`role`/`branchId`; expiry from `JWT_EXPIRY`
+    (currently `3d`, defaults to 7 days).
+  - New `backend/internal/authz/` package: a `permissions` table
+    (`role`, `resource`, `action`, `allowed`) checked per-request.
+    Seeded allow-all for all 9 roles × all resources on every startup
+    (idempotent — never overwrites existing rows), so today every
+    logged-in role can do everything; a future admin UI will flip
+    individual rows to restrict roles, with no code change/redeploy.
+  - New `platform.AuthMiddleware` (validates the JWT, 401 if
+    missing/invalid/expired) and `platform.RequirePermission`/
+    `CRUDPermissions` (403 if the role isn't allowed for that
+    resource/action) wired in front of every `/api/v1/*` route in
+    `main.go` except the three public `/auth/*` routes above.
+  - New `platform.Mailer` (`net/smtp`) sends the password-reset email;
+    configured via `SMTP_HOST`/`SMTP_PORT`/`SMTP_USER`/`SMTP_PASS`/
+    `SMTP_FROM`. New `JWT_SECRET`/`JWT_EXPIRY` env vars for token
+    signing/expiry. All added to `backend/.env.example`.
+  - **Role rename:** `"Auction Admin"` → `"Auction Administrator"` in
+    `employee.ValidRoles`, `main.go`'s `staffRoles`, and
+    `frontend/components/modals/EmployeeModal.tsx`'s `ROLES` constant, to
+    match the final 9-role list.
+  - Out of scope for this change: audit logging (deferred, to be revisited
+    separately) and HTTPS termination (expected at the reverse proxy/
+    hosting layer, not the Go process).
+  - See `api_documentation.md` (new Authentication section) and
+    `architecture.md` (new Authentication & Authorization section) for
+    full details.
+
 - **Gold Packet Management, Barcode/QR & Locker Management** (compliance
   doc §9–10), delivered end to end:
   - New `backend/internal/locker/` package (model/repository/service/
