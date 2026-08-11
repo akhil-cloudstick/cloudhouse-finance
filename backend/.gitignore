@@ -4,3 +4,9 @@
 *.exe~
 *.test
 *.out
+
+# Uploaded files (customer photos, KYC docs, ornament images) — keep the
+# folder itself in git (via .gitkeep) so a fresh clone has somewhere for
+# internal/upload to write to, but never commit the actual uploads.
+/uploads/*
+!/uploads/.gitkeep
