@@ -5,6 +5,151 @@ the actual git history at the time of writing; update it as new commits land.
 
 ## [Unreleased]
 ### Changed
+- **Record Payment simplified to a single Amount field, plus an optional
+  processing fee that's added to the loan's total owed and deducted first.**
+  `PaymentModal.tsx`'s Payment Type dropdown (Interest/Principal/Partial/
+  Full Settlement/Adjustment/Waiver) is removed — every payment now always
+  allocates processing fee → penal interest → interest → principal (the
+  backend's existing `"Partial"` waterfall, `allocatePayment`), so a
+  payment covering everything owed (including any outstanding fee)
+  auto-closes the loan via the same generic zero-outstanding check that
+  already ran regardless of type. Adjustment/Waiver are no longer
+  reachable from this modal (an explicit scope decision). New optional
+  `processingFee` on `POST /loans/:id/payments` adds to a new
+  `Loan.OutstandingProcessingFee` running balance *before* `amount` is
+  allocated — so this same payment's `amount` clears it first, folded into
+  `TotalOutstandingBalance`/`SettlementAmount` so it shows up as part of
+  "what's owed" — rather than being extra cash collected on top of
+  `amount` (the cash-in movement is just `amount`, not
+  `amount + processingFee`). `LoanPayment` gained `ProcessingFeeApplied`
+  (how much of this entry's `amount` actually paid down the fee, distinct
+  from `ProcessingFee`, the amount newly charged) for the Payment Ledger's
+  breakdown line; outstanding fee also surfaces in Financial Summary,
+  Settlement Preview, and Record Payment's notice.
+- **Loan Operator's approval limit is now a real, editable, hard-enforced
+  cap — not just an advisory hardcoded number.** New `internal/loan.ApprovalLimit`
+  table (seeded with the previous hardcoded ₹50,000 default via
+  `SeedLoanOperatorLimit`) replaces `sanctionLimits["Loan Operator"]`
+  (Branch Manager/Management keep their old hardcoded, advisory-only
+  entries — unchanged, an explicit scope decision). `Service.Approve`'s
+  stage-role check now hard-blocks a `"Loan Operator"`-role actor's own
+  `Approved` action on a loan whose `principalAmount` exceeds the limit
+  (new `ErrExceedsApprovalLimit`) — `Rejected` is never blocked by this.
+  Branch Manager/Management/Administrator may still act at that stage to
+  clear an over-limit loan (same "step in early" pattern as
+  Administrator's existing stage bypass), so an over-limit loan escalates
+  rather than getting stuck. New `GET`/`PUT /api/v1/loans/approval-limits/
+  loan-operator` endpoints; `Employees.tsx` gained a "Roles" button opening
+  `RolesModal.tsx` to view/edit the limit.
+- **Loan approval/payment/release actions now bind to the real logged-in
+  user, not a client-submitted identity — plus Cashier can no longer create
+  loans.** `POST /loans/:id/approve`, `POST /loans/:id/payments`, `PUT
+  /loans/requests/:requestId/decide`, `POST /loans/requests/:requestId/
+  approve`, and `POST /loans/:id/complete-release` used to accept
+  `employeeId`/`role` as plain JSON body fields and trust them outright —
+  any caller with a valid token for *any* role could submit
+  `{"role":"Administrator"}` and self-approve any stage. New
+  `platform.ActorFromContext(c)` reads the acting employee's real
+  `employeeId`/`role` from the JWT (already set on every request by
+  `AuthMiddleware`) instead; all five handlers now use it, and no longer
+  bind those fields from the body at all. `Administrator`'s existing "may
+  act at any pending stage" bypass is unchanged, just keyed off the real
+  authenticated role. `LoanDetail.tsx`'s dev-only "Acting as: ___" role
+  selector (a stand-in from before real auth existed) is removed — the
+  Approve/Reject buttons now only render for the role the current stage
+  actually requires (or Administrator), with an "Awaiting `<role>`
+  approval" message otherwise; every `loansApi.ts` call site that used to
+  pass a placeholder `employeeId: 1` no longer sends one. Separately,
+  `Cashier` is explicitly outside the loan creation/approval flow: a new
+  `authz.Repository.SetPermission` sets `(Cashier, loans, create)` to
+  `Allowed=false` (narrower than the whole-resource `RestrictResourceToRole`
+  used for Branches), and the "New Loan"/"New Gold Loan" nav item and
+  buttons (`Sidebar.tsx`, `Loans.tsx`, `Dashboard.tsx`,
+  `CustomerDetail.tsx`) are hidden for that role; `NewLoan.tsx` itself also
+  gate-checks the role as a catch-all against direct navigation.
+- **Gold purity is no longer a fixed 24K/22K/18K enum — only the 24K rate is
+  published, every other purity is resolved per-ornament.** `GoldRate` now
+  only carries `K24`; its old independently-entered `K22`/`K18` columns were
+  renamed to `legacy_k22`/`legacy_k18` (preserved read-only, not dropped —
+  see `goldrate.MigrateLegacyColumns`) rather than kept live, since nothing
+  tied their values to K24's true mathematical relationship. `Ornament.Purity`/
+  `OrnamentPurityTest.TestedPurity` moved from a closed `"24K"|"22K"|"18K"`
+  switch to an open unit-suffixed string (`"22K"` or `"91.6%"`), range-checked
+  to 10-24 karat / 0-100 fineness% (`internal/loan/purity.go`'s `ParsePurity`/
+  `rateForPurity`, replacing the old fixed `rateForPurity` switch) and
+  resolved against K24 as `K24 × karat/24` or `K24 × fineness%/100`, rounded
+  to the nearest rupee. A new `internal/puritystandard` reference table
+  (seeded every whole karat 24K→10K) powers a Karat/Fineness% toggle +
+  suggest-or-create picker (`PurityPicker.tsx`) wired into `NewLoan.tsx`'s
+  ornament rows and `Dashboard.tsx`'s gold calculator; it's suggestion-only
+  (no FK from Ornament/GoldRate) so editing a purity standard later can never
+  reinterpret a historical ornament's already-computed `GoldValue`. A one-time
+  idempotent migration (`loan.NormalizeLegacyPurities`) re-parses/reformats
+  every existing purity string through the same validation path, flagging
+  (not coercing) anything unparseable or out of range. `Topbar`/`GoldRates`/
+  `Dashboard`'s 22K/18K tiles are now labeled as client-computed reference
+  values rather than separately published rates.
+- **Bank re-pledge record now captures bank identity, pledged gold snapshot,
+  and a bank-side due date.** `BankPledgeRecord` gained `bankId` (FK to the
+  registered `bank.Bank` row picked from the frontend's search dropdown,
+  alongside the existing `bankName` denormalized snapshot for display
+  history), `pledgedGrossWeight`/`pledgedNetWeight` (server-computed
+  snapshot of the loan's ornament totals at pledge time), and
+  `bankPledgeDueDate` (optional — when the bank's own loan/pledge term is
+  expected to end, distinct from `releaseDate`). A one-time idempotent
+  migration (`backfillBankPledgeBankID` in `cmd/migrate`) backfills `bankId`
+  for existing rows by find-or-creating a matching `bank.Bank` per distinct
+  historical `bankName`. `RepledgeModal.tsx` now shows the loan's ornament
+  list for staff to review before confirming a pledge, and accepts an
+  optional due-date input.
+- **Row-level branch scoping enforced everywhere, Branch Management
+  restricted to Administrator, Schemes made branch-owned.** Previously the
+  `branches` table, employee/customer/loan/locker `branchId` FKs, and
+  JWT `role`/`branchId` claims all existed but nothing filtered requests by
+  the caller's own branch — every logged-in employee could see and edit
+  every branch's data, and any role could manage the Branches table
+  itself. New `platform.GetBranchScope`/`platform.EnforceBranchOnWrite`
+  helpers (`backend/internal/platform/branch_scope.go`) are now threaded
+  through Employees, Customers, Loans (incl. Extension/Release requests,
+  Bank Repledge, Auction), Lockers, Cash Movements/Expenses, Packets (via
+  their Loan's branch), and Reminders (via their Customer's branch,
+  including live-derived calendar events) — `Administrator` is the sole
+  bypass role; everyone else's list/get/create/update/delete is confined to
+  their own branch, with a cross-branch `GET/:id` returning `404` (not
+  `403`, to avoid leaking existence) and writes silently pinned to the
+  caller's own branch regardless of what's submitted. Branch Management
+  (`/api/v1/branches` create/update/delete) is now Administrator-only via
+  a new `authz.Repository.RestrictResourceToRole` (read stays open to all
+  roles, since every branch-selector dropdown needs it). Schemes gained a
+  required `branchId` FK (previously a global catalog) — existing rows
+  backfilled to branch 1. A migration also backfills any pre-existing
+  employee or cash-movement rows with a null/zero `branchId` to branch 1;
+  the latter also fixes a real bug where the "all branches" cash-in-hand
+  total disagreed with a single branch's total because untagged cash
+  movements were silently excluded once a branch filter was applied.
+  Frontend: `auth-context.tsx` now exposes `branchId`/`isAdmin`;
+  Employee/Scheme create modals auto-lock the branch field to the caller's
+  own branch for non-admins; the Branches nav item is hidden for
+  non-admins.
+- **Login switched from email+password to username-or-phone+password;
+  forgot-password switched from an emailed link to a texted 6-digit OTP.**
+  `Employee` gained a unique `Username` field (alongside a now-unique
+  `Phone`) — `POST /auth/login` takes `{ "identifier", "password" }`,
+  matched against either. `Email`/`platform.Mailer` are no longer used for
+  auth (kept for any other future contact-info use). Forgot/reset password
+  (`POST /auth/forgot-password` / `POST /auth/reset-password`) now looks
+  the employee up by `phone`, generates a 6-digit OTP (10-minute expiry,
+  SHA-256 hashed at rest, same as the old link-token pattern), and sends
+  it via a new `platform.SMSSender` interface — currently `LogSMSSender`,
+  a log-only stub (no real SMS gateway is wired up yet; swap one in later
+  via the existing `internal/settings` "sms" API-key category). New
+  `employee.ErrUsernameInvalid/ErrUsernameTaken/ErrPhoneTaken` validation
+  errors; `EmployeeModal.tsx` gained Username/Password fields so an
+  Administrator can set up an employee's login credentials from the UI.
+  Frontend: `login/page.tsx` now collects "Username or Mobile Number" +
+  password; `forgot-password/page.tsx` collects a phone number and
+  redirects to `reset-password/page.tsx`, which collects phone + the
+  6-digit code + new password (previously a `?token=` link).
 - **Spec-compliance sweep: 4-stage loan approval, auction workflow rebuild,
   loan status lifecycle flags, bank pledge fields, Customer 360, dashboard
   cleanup.** Closes most of the gaps found in a spec-compliance audit

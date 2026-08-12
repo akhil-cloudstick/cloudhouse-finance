@@ -40,12 +40,23 @@ function isTokenValid(token: string | null): boolean {
   return payload.exp * 1000 > Date.now();
 }
 
+// ADMIN_ROLE mirrors the backend's sole branch-scoping bypass role
+// (platform.AdministratorRole, "Administrator") — every other role is
+// confined to its own branch server-side; this only drives client-side UI
+// (auto-locking/hiding branch selectors), never enforcement.
+const ADMIN_ROLE = "Administrator";
+
 type AuthContextValue = {
   token: string | null;
   employee: AuthEmployee | null;
   role: string | null;
+  // branchId is the logged-in employee's own branch (from employee.branchId,
+  // falling back to the JWT payload) — non-admin create forms auto-lock to
+  // this. null while loading/logged out.
+  branchId: number | null;
+  isAdmin: boolean;
   loading: boolean;
-  login: (email: string, password: string) => Promise<AuthEmployee>;
+  login: (identifier: string, password: string) => Promise<AuthEmployee>;
   logout: () => void;
 };
 
@@ -77,8 +88,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setLoading(false);
   }, []);
 
-  const login = useCallback(async (email: string, password: string) => {
-    const res = await loginRequest(email, password);
+  const login = useCallback(async (identifier: string, password: string) => {
+    const res = await loginRequest(identifier, password);
     window.localStorage.setItem(AUTH_TOKEN_KEY, res.token);
     window.localStorage.setItem(AUTH_EMPLOYEE_KEY, JSON.stringify(res.employee));
     setToken(res.token);
@@ -95,9 +106,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const role = useMemo(() => employee?.role ?? decodeJwtPayload(token || "")?.role ?? null, [employee, token]);
 
+  const branchId = useMemo(() => {
+    const fromEmployee = employee?.branchId;
+    if (typeof fromEmployee === "number") return fromEmployee;
+    const fromToken = decodeJwtPayload(token || "")?.branchId;
+    return typeof fromToken === "number" ? fromToken : null;
+  }, [employee, token]);
+
+  const isAdmin = role === ADMIN_ROLE;
+
   const value = useMemo(
-    () => ({ token, employee, role, loading, login, logout }),
-    [token, employee, role, loading, login, logout]
+    () => ({ token, employee, role, branchId, isAdmin, loading, login, logout }),
+    [token, employee, role, branchId, isAdmin, loading, login, logout]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

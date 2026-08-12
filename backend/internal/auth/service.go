@@ -3,10 +3,11 @@ package auth
 import (
 	"crypto/rand"
 	"crypto/sha256"
+	"crypto/subtle"
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"log"
+	"math/big"
 	"strings"
 	"time"
 
@@ -18,51 +19,52 @@ import (
 )
 
 var (
-	// ErrInvalidCredentials covers both "no employee with this email" and
-	// "password mismatch" — deliberately not distinguished to callers so a
-	// login attempt never reveals whether an email exists.
-	ErrInvalidCredentials = errors.New("invalid email or password")
-	// ErrInvalidOrExpiredToken covers a reset token that's unknown,
-	// mistyped, already used, or past its 1-hour expiry.
-	ErrInvalidOrExpiredToken = errors.New("invalid or expired password reset token")
+	// ErrInvalidCredentials covers both "no employee with this
+	// username/phone" and "password mismatch" — deliberately not
+	// distinguished to callers so a login attempt never reveals whether an
+	// account exists.
+	ErrInvalidCredentials = errors.New("invalid username/phone or password")
+	// ErrInvalidOrExpiredToken covers an OTP that's unknown, mistyped,
+	// already used, or past its 10-minute expiry.
+	ErrInvalidOrExpiredToken = errors.New("invalid or expired reset code")
 	// ErrAccountNotSetUp is returned by Login when the employee row exists
-	// but has no email/password configured yet (needs an Administrator to
-	// set them via the employee update endpoint first).
+	// but has no password configured yet (needs an Administrator to set
+	// one, along with a username or phone, via the employee update
+	// endpoint first).
 	ErrAccountNotSetUp = errors.New("this account has not been set up for login yet")
 )
 
-// resetTokenTTL is how long a password-reset link stays valid.
-const resetTokenTTL = 1 * time.Hour
+// resetOTPTTL is how long a texted reset code stays valid — short, since
+// unlike an emailed link an SMS OTP is meant to be entered within a couple
+// of minutes of arriving.
+const resetOTPTTL = 10 * time.Minute
 
 // Service implements login/forgot-password/reset-password on top of the
 // employee repository.
 type Service struct {
 	employeeRepo *employee.Repository
-	mailer       *platform.Mailer
+	smsSender    platform.SMSSender
 	jwtSecret    string
 	jwtExpiry    time.Duration
-	frontendURL  string
 }
 
 // NewService wires the auth service's dependencies: the employee repository
-// (for credential lookup/storage), the shared Mailer (for reset emails),
-// the JWT signing secret/expiry, and the frontend origin used to build the
-// reset-password link.
-func NewService(employeeRepo *employee.Repository, mailer *platform.Mailer, jwtSecret string, jwtExpiry time.Duration, frontendURL string) *Service {
+// (for credential lookup/storage), the SMS sender (for reset codes — see
+// platform.SMSSender), and the JWT signing secret/expiry.
+func NewService(employeeRepo *employee.Repository, smsSender platform.SMSSender, jwtSecret string, jwtExpiry time.Duration) *Service {
 	return &Service{
 		employeeRepo: employeeRepo,
-		mailer:       mailer,
+		smsSender:    smsSender,
 		jwtSecret:    jwtSecret,
 		jwtExpiry:    jwtExpiry,
-		frontendURL:  frontendURL,
 	}
 }
 
-// Login verifies email+password and, on success, mints a JWT encoding the
-// employee's ID/role/branch.
-func (s *Service) Login(email, password string) (string, *employee.Employee, error) {
-	email = strings.ToLower(strings.TrimSpace(email))
-	emp, err := s.employeeRepo.FindByEmail(email)
+// Login verifies identifier (username OR phone) + password and, on
+// success, mints a JWT encoding the employee's ID/role/branch.
+func (s *Service) Login(identifier, password string) (string, *employee.Employee, error) {
+	identifier = strings.TrimSpace(identifier)
+	emp, err := s.employeeRepo.FindByUsernameOrPhone(identifier)
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return "", nil, ErrInvalidCredentials
@@ -83,14 +85,25 @@ func (s *Service) Login(email, password string) (string, *employee.Employee, err
 	return token, emp, nil
 }
 
-// ForgotPassword looks up the employee by email; if found, generates a
-// random reset token, stores its SHA-256 hash + a 1-hour expiry, and emails
-// the raw token as a link. Returns ErrInvalidCredentials if no employee has
-// that email — callers (the handler) should swallow that specific case so
-// the API response never reveals whether an email exists.
-func (s *Service) ForgotPassword(email string) error {
-	email = strings.ToLower(strings.TrimSpace(email))
-	emp, err := s.employeeRepo.FindByEmail(email)
+// generateOTP returns a cryptographically random 6-digit numeric code,
+// zero-padded (e.g. "004821").
+func generateOTP() (string, error) {
+	n, err := rand.Int(rand.Reader, big.NewInt(1_000_000))
+	if err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("%06d", n.Int64()), nil
+}
+
+// ForgotPassword looks up the employee by phone; if found, generates a
+// 6-digit OTP, stores its SHA-256 hash + a 10-minute expiry, and texts the
+// raw code via platform.SMSSender. Returns ErrInvalidCredentials if no
+// employee has that phone — callers (the handler) should swallow that
+// specific case so the API response never reveals whether a phone number
+// is registered.
+func (s *Service) ForgotPassword(phone string) error {
+	phone = strings.TrimSpace(phone)
+	emp, err := s.employeeRepo.FindByPhone(phone)
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return ErrInvalidCredentials
@@ -98,50 +111,46 @@ func (s *Service) ForgotPassword(email string) error {
 		return err
 	}
 
-	rawToken := make([]byte, 32)
-	if _, err := rand.Read(rawToken); err != nil {
+	otp, err := generateOTP()
+	if err != nil {
 		return err
 	}
-	rawTokenHex := hex.EncodeToString(rawToken)
-	hash := sha256.Sum256([]byte(rawTokenHex))
+	hash := sha256.Sum256([]byte(otp))
 	hashHex := hex.EncodeToString(hash[:])
 
-	expiresAt := time.Now().Add(resetTokenTTL)
+	expiresAt := time.Now().Add(resetOTPTTL)
 	emp.PasswordResetTokenHash = hashHex
 	emp.PasswordResetExpiresAt = &expiresAt
 	if err := s.employeeRepo.Update(emp); err != nil {
 		return err
 	}
 
-	link := fmt.Sprintf("%s/reset-password?token=%s", strings.TrimRight(s.frontendURL, "/"), rawTokenHex)
-	subject := "Reset your Ambika Gold password"
-	body := fmt.Sprintf(
-		"Hello %s,\n\nA password reset was requested for your account. Click the link below to set a new password (valid for 1 hour):\n\n%s\n\nIf you did not request this, you can safely ignore this email.\n",
-		emp.Name, link,
-	)
-	if err := s.mailer.Send(emp.Email, subject, body); err != nil {
-		log.Printf("auth: failed to send password reset email to %s: %v", emp.Email, err)
-		return err
-	}
-	return nil
+	message := fmt.Sprintf("Your Ambika Gold Finance password reset code is %s. It expires in 10 minutes. Do not share this code with anyone.", otp)
+	return s.smsSender.Send(emp.Phone, message)
 }
 
-// ResetPassword hashes the incoming raw token, looks up a matching
-// non-expired employee row, bcrypt-hashes the new password, and clears the
-// reset fields so the token can't be reused.
-func (s *Service) ResetPassword(token, newPassword string) error {
+// ResetPassword looks up the employee by phone, checks the given OTP
+// against the stored hash (and that it hasn't expired), bcrypt-hashes the
+// new password, and clears the reset fields so the OTP can't be reused.
+func (s *Service) ResetPassword(phone, otp, newPassword string) error {
 	if len(newPassword) < 8 {
 		return errors.New("password must be at least 8 characters")
 	}
-	hash := sha256.Sum256([]byte(token))
-	hashHex := hex.EncodeToString(hash[:])
-
-	emp, err := s.employeeRepo.FindByResetTokenHash(hashHex)
+	phone = strings.TrimSpace(phone)
+	emp, err := s.employeeRepo.FindByPhone(phone)
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return ErrInvalidOrExpiredToken
 		}
 		return err
+	}
+	if emp.PasswordResetTokenHash == "" || emp.PasswordResetExpiresAt == nil || time.Now().After(*emp.PasswordResetExpiresAt) {
+		return ErrInvalidOrExpiredToken
+	}
+	hash := sha256.Sum256([]byte(strings.TrimSpace(otp)))
+	hashHex := hex.EncodeToString(hash[:])
+	if subtle.ConstantTimeCompare([]byte(hashHex), []byte(emp.PasswordResetTokenHash)) != 1 {
+		return ErrInvalidOrExpiredToken
 	}
 
 	newHash, err := bcrypt.GenerateFromPassword([]byte(newPassword), bcrypt.DefaultCost+2)

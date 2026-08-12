@@ -59,10 +59,13 @@ the last 4 digits (`aadhaarLast4`) are exposed.
 Implemented in `backend/internal/auth/` (login/forgot/reset/me) plus
 `backend/internal/authz/` (the permissions table) and
 `backend/internal/platform/` (JWT issuing/parsing, the `AuthMiddleware`/
-`RequirePermission` Gin middleware). There is no separate `users` table —
-login credentials live directly on `Employee` (`email`, `passwordHash`,
-plus reset-token fields), since roles/branch already live there. Customers
-use a separate mobile app and are **not** part of this login system.
+`RequirePermission` Gin middleware, and `SMSSender` for OTP delivery).
+There is no separate `users` table — login credentials live directly on
+`Employee` (`username`, `phone`, `passwordHash`, plus reset-OTP fields),
+since roles/branch already live there. **Login uses Username OR Phone +
+Password — never email.** `Email` is still a field on `Employee` for other
+contact-info purposes, but plays no role in authentication. Customers use
+a separate mobile app and are **not** part of this login system.
 
 `POST /login`, `POST /forgot-password`, and `POST /reset-password` are
 public (no `Authorization` header needed — that's the point of them).
@@ -77,47 +80,57 @@ pass a per-route `(role, resource, action)` permission check (see
 "Permissions / RBAC model" below) — a role not allowed for that action
 gets `403`.
 
-An employee must have `email`+`password` set before they can log in — an
-Administrator sets these by including `email`/`password` in a
-`PUT /api/v1/employees/:id` call (an existing employee with no email/
-password configured yet gets `401 "this account has not been set up for
-login yet"` from `POST /auth/login`).
+An employee must have a `username` **or** `phone` (their login identifier)
+plus a `password` set before they can log in — an Administrator sets these
+by including `username`/`phone`/`password` in a `POST`/`PUT
+/api/v1/employees` call (an existing employee with no password configured
+yet gets `401 "this account has not been set up for login yet"` from
+`POST /auth/login`). Both `username` and `phone` are unique across
+employees (partial unique indexes — any number of employees may leave
+either blank, but a non-blank value can't collide with another employee's).
 
 Employee JSON (as embedded in `LoginResponse`/`GET /auth/me`) never
-includes `passwordHash` or the reset-token fields — they're tagged `json:"-"`
-on the `Employee` struct — but does include `email` (omitted when blank).
+includes `passwordHash` or the reset-OTP fields — they're tagged `json:"-"`
+on the `Employee` struct — but does include `username`/`email` (both
+omitted when blank).
 
 | Method | Path | Purpose | Body | Auth |
 |---|---|---|---|---|
-| POST | `/api/v1/auth/login` | Log in with email + password, get back a JWT | `{ "email", "password" }` → `{ "token", "employee": {...} }` | Public |
-| POST | `/api/v1/auth/forgot-password` | Request a password-reset email | `{ "email" }` → `{ "message": "If that email is registered, a password reset link has been sent." }` (always `200`, regardless of whether the email exists — never reveals account existence) | Public |
-| POST | `/api/v1/auth/reset-password` | Complete a password reset using the emailed token | `{ "token", "newPassword" }` (min 8 chars) → `{ "message": "Password has been reset. You can now log in." }` | Public |
+| POST | `/api/v1/auth/login` | Log in with username-or-phone + password, get back a JWT | `{ "identifier", "password" }` → `{ "token", "employee": {...} }` | Public |
+| POST | `/api/v1/auth/forgot-password` | Request a password-reset SMS | `{ "phone" }` → `{ "message": "If that phone number is registered, a reset code has been sent by SMS." }` (always `200`, regardless of whether the phone exists — never reveals account existence) | Public |
+| POST | `/api/v1/auth/reset-password` | Complete a password reset using the texted OTP | `{ "phone", "otp", "newPassword" }` (min 8 chars) → `{ "message": "Password has been reset. You can now log in." }` | Public |
 | GET | `/api/v1/auth/me` | Get the calling employee's own record (id/role/branch/etc., from the token) | — → `Employee` JSON | Bearer token |
 
 **Status codes:**
 - `POST /auth/login` — `200` + `{ "token", "employee" }` on success; `401
-  ErrInvalidCredentials` ("invalid email or password") for a wrong email or
-  password (deliberately the same message for both, so a login attempt
-  never reveals whether an email exists); `401 ErrAccountNotSetUp` if the
-  employee row exists but has no email/password configured.
+  ErrInvalidCredentials` ("invalid username/phone or password") for a
+  wrong identifier or password (deliberately the same message for both,
+  so a login attempt never reveals whether an account exists); `401
+  ErrAccountNotSetUp` if the employee row exists but has no password
+  configured.
 - `POST /auth/forgot-password` — always `200`; internally, an unknown
-  email is silently swallowed (still `200`) and any real send/lookup error
-  is logged server-side but still returns `200`, so responses never leak
-  account existence via status/timing.
+  phone number is silently swallowed (still `200`) and any real send/
+  lookup error is logged server-side but still returns `200`, so
+  responses never leak account existence via status/timing.
 - `POST /auth/reset-password` — `200` on success; `400
-  ErrInvalidOrExpiredToken` for an unknown, already-used, or expired
-  (>1 hour old) reset token, or if `newPassword` is under 8 characters.
+  ErrInvalidOrExpiredToken` for an unknown phone, a wrong/already-used
+  OTP, or an OTP past its 10-minute expiry, or if `newPassword` is under
+  8 characters.
 - `GET /auth/me` — `200` + `Employee` JSON; `401` if the token is
   missing/invalid (from `AuthMiddleware`, before the handler runs).
 
-**Forgot/reset password flow:** `ForgotPassword` generates a random
-32-byte token, stores only its SHA-256 hash (plus a 1-hour expiry) on the
-employee row, and emails the **raw** token as a link:
-`${FRONTEND_ORIGIN}/reset-password?token=<rawToken>`. `ResetPassword` hashes
-the incoming token, looks up a matching non-expired row, bcrypt-hashes the
-new password (cost 14), and clears the reset fields so the token can't be
-reused. Emails are sent via `platform.Mailer`, a thin wrapper over
-`net/smtp` — see the SMTP env vars below.
+**Forgot/reset password flow (SMS OTP):** `ForgotPassword` looks up the
+employee by `phone`, generates a random 6-digit numeric OTP, stores only
+its SHA-256 hash (plus a 10-minute expiry) on the employee row, and texts
+the **raw** code via `platform.SMSSender`. `ResetPassword` looks the
+employee up again by `phone`, checks the given `otp` against the stored
+hash (constant-time comparison) and that it hasn't expired, bcrypt-hashes
+the new password (cost 14), and clears the reset fields so the OTP can't
+be reused. `platform.SMSSender` is currently `LogSMSSender` — a stub that
+just logs the message server-side (visible in the backend's console
+output) instead of actually sending it; swap in a real gateway
+(MSG91/Twilio/Fast2SMS/etc.) later via the existing `internal/settings`
+"sms" API-key category without changing any caller.
 
 **JWT details:** HS256, signed with `JWT_SECRET`. Claims: `employeeId`,
 `role`, `branchId`, plus standard `iat`/`exp`. Expiry is controlled by the
@@ -153,6 +166,60 @@ dedicated routes yet (KYC document URLs currently flow through the
 generic Customers/Uploads endpoints) — so KYC access can be tightened
 independently of general Customer access once that admin UI exists.
 
+**"branches" is the one resource seeded restricted, not allow-all**: its
+`create`/`update`/`delete` actions are granted to `Administrator` only
+(`authz.Repository.RestrictResourceToRole`, called once at startup after
+the generic `SeedDefaults` pass) — every other role is `Allowed=false` for
+those three actions and gets `403` from Branch Management writes. `read`
+stays open to every role, since every branch-selector dropdown across the
+app (Employee/Customer/Scheme/Loan create forms, etc.) needs the branch
+list even for non-admins who can't manage branches themselves.
+
+**`Cashier` has one narrower override**: `(Cashier, loans, create)` is set
+to `Allowed=false` via `authz.Repository.SetPermission` (a single-action
+override, unlike `RestrictResourceToRole`'s whole-resource lockout) —
+Cashier is outside the loan creation/approval flow and gets `403` from
+`POST /loans`, while every other action on `loans` (and every other
+resource) stays whatever `SeedDefaults` set it to. The frontend hides the
+"New Loan"/"New Gold Loan" nav item and buttons for this role and
+gate-checks `NewLoan.tsx` itself as a catch-all, but the `403` above is the
+real enforcement point.
+
+### Branch scoping (row-level, on top of the RBAC table above)
+Independently of the `(role, resource, action)` table above, every
+branch-owned domain is also scoped to the calling employee's own branch at
+the *row* level: a non-`Administrator` employee's list/get/create/update/
+delete calls are transparently confined to their own `branchId` (from the
+JWT), while `Administrator` sees and acts on every branch. This is
+enforced in `backend/internal/platform/branch_scope.go`:
+- `GetBranchScope(c)` → `nil` for `Administrator` (no filter), else a
+  pointer to the caller's own `branchId`; threaded into every domain's
+  `List`/`Get` as an optional `WHERE branch_id = ?` (or, for domains with
+  no own `branch_id` column, a `JOIN` to the owning record's branch).
+- `EnforceBranchOnWrite(c, submittedBranchID)` → passes an
+  Administrator's submitted `branchId` through unchanged, but silently
+  overrides anyone else's to their own `branchId` — a non-admin can never
+  persist a record under another branch, even by tampering with the
+  request body.
+- A non-admin fetching another branch's specific record by id (`GET
+  /employees/:id`, a loan's `/loans/:id/auction`, etc.) gets the same
+  `404 Not Found` as a genuinely missing id — branch existence is never
+  leaked via a `403`.
+
+Branch-owned domains covered: Employees, Customers, Loans (including its
+Extension/Release request, Bank Repledge, and Auction sub-workflows, all
+scoped via the parent Loan's `branchId`), Lockers, Cash Movements/Expenses,
+Packets (scoped via their Loan's `branchId`), Reminders (scoped via their
+Customer's `branchId`, including the live-derived due-date/overdue/
+interest-anniversary calendar events), and Schemes (see below). Banks,
+Gold Rates, Ornament Types, and Settings are global catalogs with no
+`branchId` and are **not** row-scoped.
+
+**Schemes are now branch-owned** (previously a global catalog usable by
+any branch): `Scheme.branchId` is a required FK, validated the same way as
+Employee's `branchId`. Existing rows were backfilled to branch `1` (see
+`cmd/migrate`'s `backfillSchemeBranch`).
+
 **The 9 roles** (final list — `Auction Admin` was renamed to `Auction
 Administrator` to match this list; keep `employee.ValidRoles`,
 `main.go`'s `staffRoles`, and `frontend/components/modals/
@@ -168,20 +235,27 @@ elsewhere, auth requires:
 |---|---|
 | `JWT_SECRET` | Signs/verifies login JWTs. No safe default — falls back to a fixed, publicly-known dev-only secret (with a loud warning) if unset; set a real value in production. |
 | `JWT_EXPIRY` | Login token lifetime, e.g. `3d` or `168h`. Falls back to `168h` (7 days) if unset/unparseable. |
-| `SMTP_HOST` | Outgoing mail server host, for password-reset emails. |
-| `SMTP_PORT` | Outgoing mail server port (default `587`). |
-| `SMTP_USER` | SMTP auth username. |
-| `SMTP_PASS` | SMTP auth password (e.g. a Gmail app password). |
-| `SMTP_FROM` | `From:` header for reset emails, e.g. `"Ambika Gold <no-reply@ambikagold.com>"`. |
+
+No SMS-gateway env vars exist yet — `platform.LogSMSSender` (the current
+stub) needs none. When a real gateway is wired in, its credentials should
+go through the existing `internal/settings` "sms" `ApiKeySetting` category
+(encrypted at rest) rather than new env vars, consistent with how other
+provider keys are meant to be configured in this app.
+
+The `SMTP_*` env vars (`SMTP_HOST`/`SMTP_PORT`/`SMTP_USER`/`SMTP_PASS`/
+`SMTP_FROM`) and `platform.Mailer` still exist in the codebase but are no
+longer used by auth (password reset is SMS-only now) — they're dead
+config until some other feature needs outgoing email.
 
 ## Branches API (`/api/v1/branches`)
 Implemented in `backend/internal/branch/`. Requires a valid JWT
 (`Authorization: Bearer <token>`) plus `RequirePermission("branches", ...)`
-— see the Authentication section above; admin-only by convention beyond
-that (permissions are currently seeded allow-all, so this isn't yet
-enforced per-role). Every other branch-scoped domain (Employees,
-Expenses, Cash Movements today; Customers/Loans/Lockers in a future
-phase) links to a branch via `branchId`.
+— see the Authentication section above. Unlike every other resource,
+`create`/`update`/`delete` here are restricted to the `Administrator` role
+only (`read` stays open to all roles) — see "branches is the one resource
+seeded restricted" above. Every other branch-owned domain (Employees,
+Customers, Loans, Lockers, Cash Movements/Expenses, Packets, Reminders,
+Schemes — see "Branch scoping" above) links to a branch via `branchId`.
 
 Branch JSON shape:
 ```json
@@ -306,27 +380,57 @@ separate "current rate" record to update; the most recent row (by
 `date`/`id`) is the current rate. This collapses the frontend mock's
 separate `rates` + `rateHistory` shapes into one history table.
 
+**Only the 24K benchmark is published.** Every other purity is resolved
+per-ornament, at pledge/re-test time, as `K24 × (karat/24)` or
+`K24 × (fineness%/100)` — see the Loans API's Ornament purity note below
+and `internal/loan/purity.go`. `GoldRate` previously also carried
+independently staff-entered `k22`/`k18` columns; those were renamed to
+`legacy_k22`/`legacy_k18` (preserved read-only for historical reference,
+no longer part of the live API — see `goldrate.MigrateLegacyColumns`).
+
 GoldRate JSON shape:
 ```json
 {
   "id": 1,
   "date": "2026-08-07T00:00:00Z",
   "k24": 7285,
-  "k22": 6690,
-  "k18": 5480,
   "setBy": "Rajesh Menon",
   "createdAt": "..."
 }
 ```
 `date` accepts `YYYY-MM-DD` on create; omit it to default to today.
-`k24`/`k22`/`k18` must all be `> 0`; `setBy` is required.
+`k24` must be `> 0`; `setBy` is required.
 
 | Method | Path | Purpose | Body |
 |---|---|---|---|
-| POST | `/api/v1/gold-rates` | Publish a new rate (creates a history row) | `{ "k24", "k22", "k18", "setBy", "date"? }` |
+| POST | `/api/v1/gold-rates` | Publish a new rate (creates a history row) | `{ "k24", "setBy", "date"? }` |
 | GET | `/api/v1/gold-rates` | List full rate history, newest first | — |
 | GET | `/api/v1/gold-rates/latest` | Get the current (most recently published) rate | — |
 | GET | `/api/v1/gold-rates/:id` | Get one rate entry by id | — |
+
+## Purity Standards API (`/api/v1/purity-standards`)
+Implemented in `backend/internal/puritystandard/`. A small suggestion-only
+reference-data resource — like `banks`/`ornamenttypes`, a lookup list with
+a find-or-create endpoint — powering the karat/fineness% typeahead
+(`PurityPicker.tsx`) shown wherever an ornament's purity is entered.
+**Nothing else FKs into this table**: `Ornament.Purity`/
+`OrnamentPurityTest.TestedPurity` store a plain unit-suffixed string
+(`"22K"` / `"91.6%"`) computed at entry time, not a `PurityStandardID` —
+editing/removing a row here can never reinterpret a historical ornament's
+already-computed `GoldValue`. Seeded at migration time with every whole
+karat from 24K down to 10K.
+
+PurityStandard JSON shape:
+```json
+{ "id": 3, "karat": 22, "finenessPercent": 91.7, "label": "22K (91.7%)", "isActive": true, "createdAt": "...", "updatedAt": "..." }
+```
+`karat` must be `10-24`; `finenessPercent` must be `> 0` and `<= 100`. At
+least one of the two is required on create.
+
+| Method | Path | Purpose | Body |
+|---|---|---|---|
+| GET | `/api/v1/purity-standards?q=` | Search/list active purity standards | — |
+| POST | `/api/v1/purity-standards` | Find-or-create by karat or finenessPercent | `{ "karat"? , "finenessPercent"?, "label"? }` |
 
 ## Employees API (`/api/v1/employees`)
 Implemented in `backend/internal/employee/`. No authentication/RBAC yet.
@@ -349,6 +453,7 @@ Employee JSON shape:
   "branchId": 1,
   "branch": { "id": 1, "name": "Koratty", "code": "KOR01", "address": "...", "phone": "...", "isActive": true },
   "phone": "9999999999",
+  "username": "rajesh.menon",
   "loansProcessed": 0,
   "collections": 0,
   "followups": 0,
@@ -370,23 +475,29 @@ existing branch); `phone` is optional.
   the Authentication section above) — keep all three in sync manually,
   there is no shared codegen. Submitting a role outside this list returns
   `400` with `ErrInvalidRole` ("role must be one of the predefined roles").
-- `email`/`password` are optional on both create and update, and enable
-  login for this employee (see the Authentication section above) —
-  `email` must be unique among employees that have one set; `password`,
-  if given, is bcrypt-hashed server-side and never returned by any
-  endpoint (`passwordHash` is `json:"-"`).
+- `username`/`password` are optional on both create and update, and
+  enable login for this employee (see the Authentication section above —
+  login accepts `username` OR `phone`, never `email`) — `username` must be
+  unique among employees that have one set (`^[A-Za-z0-9._-]{3,60}$`,
+  `400 ErrUsernameInvalid` otherwise, `409 ErrUsernameTaken` if already in
+  use); `password`, if given, must be at least 8 characters
+  (`400 ErrPasswordTooShort`) and is bcrypt-hashed server-side, never
+  returned by any endpoint (`passwordHash` is `json:"-"`). `email` is
+  still accepted/stored (optional, unique) for other contact-info
+  purposes but is no longer usable for login.
 - `phone`, if provided, must match `^\d{10}$` (exactly 10 digits) — the
-  same convention used by the Branches API's phone field. It stays
-  optional; validation only runs when a value is supplied. A malformed
-  phone returns `400` with `ErrPhoneInvalid` ("phone must be a 10-digit
-  number").
+  same convention used by the Branches API's phone field (`400
+  ErrPhoneInvalid` otherwise) — and must be unique among employees that
+  have one set (`409 ErrPhoneTaken` otherwise), since it doubles as a
+  login identifier. It stays optional; validation only runs when a value
+  is supplied.
 
 | Method | Path | Purpose | Body |
 |---|---|---|---|
-| POST | `/api/v1/employees` | Create a new employee | `{ "name", "role", "branchId", "phone"? }` |
+| POST | `/api/v1/employees` | Create a new employee (optionally with login credentials right away) | `{ "name", "role", "branchId", "phone"?, "username"?, "password"? }` |
 | GET | `/api/v1/employees` | List all employees | — |
 | GET | `/api/v1/employees/:id` | Get one employee by id | — |
-| PUT | `/api/v1/employees/:id` | Update an employee (incl. performance counters — the frontend now round-trips the current counter values so they aren't reset to 0 on every edit) | full employee fields |
+| PUT | `/api/v1/employees/:id` | Update an employee (incl. performance counters — the frontend now round-trips the current counter values so they aren't reset to 0 on every edit) — omit `password` to leave it unchanged | full employee fields + `"username"?, "email"?, "password"?` |
 | DELETE | `/api/v1/employees/:id` | Soft-delete an employee | — |
 
 **Frontend wiring:** `frontend/components/Employees.tsx` and
@@ -641,10 +752,16 @@ even though a (stale) latest rate exists. Publish a fresh
 `POST /api/v1/gold-rates` for today to clear this.
 
 **Valuation.** Per ornament: `NetWeight = GrossWeight - DeductionWeight`;
-`GoldValue = NetWeight × the GoldRate field matching the ornament's
-declared purity` (`k24`/`k22`/`k18`, from the latest published
-`GET /api/v1/gold-rates/latest` row — 400 `ErrNoGoldRate` if none exists
-yet). A loan's `totalNetWeight`/`totalGoldValue` are the sum across its
+`GoldValue = NetWeight × the per-gram rate resolved from the ornament's
+declared purity string against the latest published K24` (400
+`ErrNoGoldRate` if no rate exists yet). `purity` is a plain unit-suffixed
+string — `"22K"` (karat mode, resolved as `K24 × karat/24`) or `"91.6%"`
+(fineness mode, resolved as `K24 × fineness%/100`), range-checked to
+`10-24` karat / `0-100` fineness% (400 `ErrInvalidPurity` otherwise) — see
+`internal/loan/purity.go`'s `ParsePurity`/`rateForPurity` and the Purity
+Standards API above for the suggestion list backing its entry UI. The
+resolved per-gram rate is rounded to the nearest whole rupee before being
+multiplied by weight. A loan's `totalNetWeight`/`totalGoldValue` are the sum across its
 ornaments; `eligibleLoanAmount = totalGoldValue × scheme.ltvPercent / 100`.
 `principalAmount` is operator-chosen and must be `<= eligibleLoanAmount`
 (400 `ErrPrincipalTooHigh` otherwise); `outstandingAmount` starts equal to
@@ -657,24 +774,39 @@ itself derive `dueDate` from the scheme.
 
 **Approval chain (fixed, 4 stages for every loan):** `status` starts
 `"Pending Approval"` / `approvalStage` starts `"LoanOperator"`.
-`POST /:id/approve` with `{ stage: "LoanOperator", action: "Approved",
-employeeId, role }` advances to `approvalStage: "BranchManager"`, then
+`POST /:id/approve` with `{ stage: "LoanOperator", action: "Approved" }`
+advances to `approvalStage: "BranchManager"`, then
 `"AuthorizedManagement"`, then `"FinalSanction"`; approving at
 `"FinalSanction"` sets `approvalStage: "Approved"` and `status: "Active"`
 (disbursing the principal). `action: "Rejected"` at any stage sets
 `approvalStage: "Rejected"` and `status: "Closed"` (the doc's status list
-has no distinct "Rejected" bucket, so "Closed" is reused). `role` must
-match the required role for the loan's current stage (`Loan Operator` /
-`Branch Manager` / `Management` / `Management`, respectively) — mismatches
-return 400 `ErrWrongStage` — **except** `role: "Administrator"`, which is
-exempt and may act at whichever stage is currently pending. The `stage`
-sent must also match the loan's current `approvalStage`; calling again
-after a terminal state returns 400 `ErrAlreadyDecided`. There is **no hard
-cap on loan amount at any stage** — a hardcoded, advisory-only
-`SanctionLimit` table (`internal/loan/service.go`'s `sanctionLimits`) is
-consulted purely to populate a non-blocking `approvalWarning` string on
-the loan's JSON when the principal exceeds the acting role's typical
-limit; it never prevents the approve/reject action from going through.
+has no distinct "Rejected" bucket, so "Closed" is reused). The acting
+employee's `role` is **not** a request field — it's read server-side from
+the caller's own JWT (`platform.ActorFromContext`, never trusted from the
+body) and must match the required role for the loan's current stage
+(`Loan Operator` / `Branch Manager` / `Management` / `Management`,
+respectively) — mismatches return 400 `ErrWrongStage` — **except**
+`Administrator`, which is exempt and may act at whichever stage is
+currently pending. The `stage` sent must also match the loan's current
+`approvalStage`; calling again after a terminal state returns 400
+`ErrAlreadyDecided`.
+
+**Loan Operator has a hard-enforced approval limit; Branch Manager/
+Management stay advisory-only.** A hardcoded, advisory-only
+`SanctionLimit` table (`internal/loan/service.go`'s `sanctionLimits`,
+now covering only `"Branch Manager"`/`"Management"`) is consulted purely
+to populate a non-blocking `approvalWarning` string on the loan's JSON
+when the principal exceeds one of those two roles' typical limit — it
+never prevents their approve/reject action. The Loan Operator stage is
+different: its limit is a real, admin-editable, DB-backed
+`internal/loan.ApprovalLimit` row (see the Approval Limits endpoints
+below) and is a **hard** cap — a `"Loan Operator"`-role actor's own
+`{ "action": "Approved" }` on a loan whose `principalAmount` exceeds it
+fails with 400 `ErrExceedsApprovalLimit`; only `Branch Manager`,
+`Management`, or `Administrator` may clear that same stage when the
+principal is over the limit (same "step in and act early" pattern as
+Administrator's existing stage bypass). `Rejected` is never blocked by
+this check, regardless of amount.
 `GET /:id/approvals` returns the full per-decision audit history
 (`stage`/`action`/`actorEmployeeId`/`actorRole`/`remarks`/`createdAt`) for
 the stage tracker UI.
@@ -684,9 +816,17 @@ the stage tracker UI.
 (`"Principal"`/`"Partial"`/`"Full Settlement"`) reduce `outstandingAmount`
 and auto-close the loan (`status: "Closed"`) once it reaches `0`.
 `POST /:id/bank-pledge` records a `BankPledgeRecord` — `bankName`,
-`pledgedAmount`, `pledgeDate` required; `bankInterestRate` (the bank's
-annual rate on the pledge) and `referenceNumber` (the bank's own
-document/reference number) are optional — and sets
+`pledgedAmount`, `pledgeDate` required; `bankId` (the registered `bank.Bank`
+row the caller picked — stored alongside `bankName`, which stays a
+denormalized display snapshot so history still reads correctly if the bank
+is later renamed), `bankInterestRate` (the bank's annual rate on the
+pledge), `referenceNumber` (the bank's own document/reference number), and
+`bankPledgeDueDate` (when the bank's own loan/pledge term is expected to
+end — distinct from `releaseDate`, only set once actually released) are all
+optional. The record also snapshots `pledgedGrossWeight`/`pledgedNetWeight`
+from the loan's ornament totals at pledge time (server-computed, not part
+of the request body), so it stays self-contained even if the loan's
+ornaments are edited afterwards. The call sets
 `bankPledgeStatus: "Bank Pledged"`; `PUT /:id/bank-pledge/:pledgeId/release`
 stamps its `releaseDate` and sets `bankPledgeStatus: "Released"`. Both also
 reflect into Cash-in-Hand & Expenses (`internal/cash`) via the
@@ -744,8 +884,9 @@ request never itself changes the loan; both create a `status: "Pending"`
 row.
 
 *Extension* is decided in one step: `PUT /requests/:requestId/decide` with
-`{ "action": "Approved" | "Rejected", "employeeId", "remarks"? }` — staff
-review the loan's live `outstanding`/`outstandingInterest`/
+`{ "action": "Approved" | "Rejected", "remarks"? }` — the deciding
+employee is read from the caller's JWT, not the body. Staff review the
+loan's live `outstanding`/`outstandingInterest`/
 `outstandingPenalInterest` (see the Loan JSON shape below) and the
 requested `months` before deciding. Approving adds `months` to the loan's
 `dueDate` (recalculating status/totals) and stamps `newDueDate` on the
@@ -764,16 +905,18 @@ checklist:
    repeatedly as staff confirm each item in person. `charges` feeds into
    the settlement snapshot below.
 2. `POST /requests/:requestId/approve` with `{ "stage": "Manager" |
-   "Management", "action": "Approved" | "Rejected", "employeeId",
-   "remarks"? }` — identical shape to `POST /:id/approve`. Refuses the
+   "Management", "action": "Approved" | "Rejected", "remarks"? }` —
+   identical shape to `POST /:id/approve` (acting employee from the JWT,
+   not the body). Refuses the
    first stage with 400 `ErrChecklistIncomplete` until all four checklist
    items are true. `Rejected` at either stage only rejects the request.
    The final `Approved` (Management stage) snapshots `settlementAmount =
    loan.totalOutstandingBalance + charges` onto the request and sets the
    loan's `status: "Closure Requested"` (reusing a status value that
    previously existed but was never set).
-3. `POST /:id/complete-release` with `{ "employeeId" }` — the actual "hand
-   the gold back" step, separate from approving the request. Requires an
+3. `POST /:id/complete-release` (empty body — the acting employee comes
+   from the caller's JWT) — the actual "hand the gold back" step, separate
+   from approving the request. Requires an
    Approved Release request for the loan (404 `ErrReleaseNotApproved`
    otherwise); requires `loan.totalOutstandingBalance <= 0` — **every
    repayment recorded via the existing `POST /:id/payments` reduces this
@@ -846,10 +989,12 @@ preloaded objects from their own APIs above):
 | POST | `/api/v1/loans/ornaments/:ornamentId/purity-test` | Record staff purity re-test (upsert, one per ornament) | `{ "testedPurity", "testedGrossWeight", "testedDeductionWeight"?, "testingRemarks"?, "testedBy", "testedAt" }` |
 | POST | `/api/v1/loans/ornaments/:ornamentId/images` | Attach one photo (upload it first via `/api/v1/uploads`) | `{ "imageUrl" }` |
 | GET | `/api/v1/loans/interest-collected` | Sum interest+penal-interest collected in a date range (Dashboard's "Interest Collected" KPI) — defaults to the current calendar month | query: `from`?, `to`? (`YYYY-MM-DD`) |
-| POST | `/api/v1/loans/:id/approve` | Advance/reject the 4-stage sanction chain | `{ "stage": "LoanOperator" \| "BranchManager" \| "AuthorizedManagement" \| "FinalSanction", "action": "Approved" \| "Rejected", "employeeId", "role", "remarks"? }` |
+| POST | `/api/v1/loans/:id/approve` | Advance/reject the 4-stage sanction chain — Cashier cannot create loans but may still act here if their role matches a stage (unlikely by design); acting employeeId/role come from the JWT, not the body | `{ "stage": "LoanOperator" \| "BranchManager" \| "AuthorizedManagement" \| "FinalSanction", "action": "Approved" \| "Rejected", "remarks"? }` |
 | GET | `/api/v1/loans/:id/approvals` | Full per-decision sanction-chain audit history | — |
-| POST | `/api/v1/loans/:id/payments` | Record a payment | `{ "amount", "type": "Interest" \| "Principal" \| "Partial" \| "Full Settlement", "paidOn", "employeeId" }` |
-| POST | `/api/v1/loans/:id/bank-pledge` | Record a bank pledge | `{ "bankName", "pledgedAmount", "pledgeDate", "bankInterestRate"?, "referenceNumber"? }` |
+| GET | `/api/v1/loans/approval-limits/loan-operator` | Get the current hard-enforced Loan Operator approval limit | — |
+| PUT | `/api/v1/loans/approval-limits/loan-operator` | Set the Loan Operator approval limit (Employees page's "Roles" panel) | `{ "maxAmount" }` |
+| POST | `/api/v1/loans/:id/payments` | Record a payment (receiving employeeId comes from the JWT, not the body). `type` still accepts the full original set server-side (`"Interest"`/`"Principal"`/`"Partial"`/`"Full Settlement"`/`"Adjustment"`/`"Waiver"`), but `PaymentModal.tsx` now always sends `"Partial"` — its own type picker was removed in favor of a single Amount field, always allocated processing fee → penal interest → interest → principal (see `allocatePayment`'s `Partial` case). `processingFee` is an optional new charge — added to `Loan.OutstandingProcessingFee` *before* `amount` is allocated, so this same payment's `amount` clears it first (highest priority in the waterfall); it is **not** extra cash on top of `amount` — `amount` is the total cash received either way | `{ "amount", "type", "processingFee"?, "paidOn" }` |
+| POST | `/api/v1/loans/:id/bank-pledge` | Record a bank pledge | `{ "bankName", "pledgedAmount", "pledgeDate", "bankId"?, "bankInterestRate"?, "referenceNumber"?, "bankPledgeDueDate"? }` |
 | PUT | `/api/v1/loans/:id/bank-pledge/:pledgeId/release` | Release a bank pledge | — |
 | GET | `/api/v1/loans/:id/auction` | Get the loan's auction case (notice history included) | — |
 | POST | `/api/v1/loans/:id/auction/eligible` | Start the auction case — requires `isDefaulted` | — |
@@ -860,10 +1005,10 @@ preloaded objects from their own APIs above):
 | POST | `/api/v1/loans/:id/extension-request` | Log a request to push the loan's due date out | `{ "months", "detail"?, "requestedBy"? }` |
 | POST | `/api/v1/loans/:id/release-request` | Log a request to close the loan / release the gold | `{ "detail"?, "requestedBy"? }` |
 | GET | `/api/v1/loans/requests` | List/filter extension &amp; release requests | query: `status`, `loanId` |
-| PUT | `/api/v1/loans/requests/:requestId/decide` | Decide a pending **Extension** request — approving pushes `dueDate` out | `{ "action": "Approved" \| "Rejected", "employeeId", "remarks"? }` |
+| PUT | `/api/v1/loans/requests/:requestId/decide` | Decide a pending **Extension** request — approving pushes `dueDate` out (deciding employeeId comes from the JWT, not the body) | `{ "action": "Approved" \| "Rejected", "remarks"? }` |
 | PUT | `/api/v1/loans/requests/:requestId/verify` | Update a **Release** request's verification checklist/charges | `{ "paymentVerified"?, "packetVerified"?, "bankPledgeVerified"?, "customerConfirmed"?, "verificationNotes"?, "charges"? }` |
-| POST | `/api/v1/loans/requests/:requestId/approve` | Advance/reject a **Release** request's Manager→Management chain (unchanged 2-step chain — not part of the 4-stage loan sanction rework) | `{ "stage": "Manager" \| "Management", "action": "Approved" \| "Rejected", "employeeId", "remarks"? }` |
-| POST | `/api/v1/loans/:id/complete-release` | Hand the gold back — only once settlement is fully paid &amp; bank pledge released | `{ "employeeId" }` |
+| POST | `/api/v1/loans/requests/:requestId/approve` | Advance/reject a **Release** request's Manager→Management chain (unchanged 2-step chain — not part of the 4-stage loan sanction rework); acting employeeId comes from the JWT, not the body | `{ "stage": "Manager" \| "Management", "action": "Approved" \| "Rejected", "remarks"? }` |
+| POST | `/api/v1/loans/:id/complete-release` | Hand the gold back — only once settlement is fully paid &amp; bank pledge released (acting employeeId comes from the JWT, not the body) | *(empty)* |
 | GET | `/api/v1/customers/:id/profile360` | Customer 360°: every loan (ornaments/payments/bank pledges) + auction history + running totals for one customer, in one call. Lives on `loanHandler` (see `internal/loan/service.go`'s `GetCustomer360`) to avoid a customer↔loan import cycle, mounted under `/customers` in `main.go` | — |
 
 `RecordBankPledge`/`ReleaseBankPledge` also fire a matching packet movement

@@ -7,6 +7,8 @@ import (
 	"strconv"
 
 	"github.com/gin-gonic/gin"
+
+	"ambikagold/backend/internal/platform"
 )
 
 // genericErr is returned to the client instead of a raw internal error
@@ -29,6 +31,10 @@ type createRequest struct {
 	Role     string `json:"role" binding:"required"`
 	BranchID uint   `json:"branchId" binding:"required"`
 	Phone    string `json:"phone"`
+	// Username/Password optionally set up login credentials right away
+	// (see internal/auth — login accepts Username or Phone).
+	Username string `json:"username"`
+	Password string `json:"password"`
 }
 
 // updateRequest is the JSON body accepted by PUT /employees/:id.
@@ -41,8 +47,10 @@ type updateRequest struct {
 	Collections    float64 `json:"collections"`
 	Followups      int     `json:"followups"`
 	Pending        int     `json:"pending"`
-	// Email/Password are optional — set/rotate an employee's login
-	// credentials via this same endpoint (see internal/auth).
+	// Username/Email/Password are optional — set/rotate an employee's
+	// login credentials via this same endpoint (see internal/auth — login
+	// accepts Username or Phone, not Email).
+	Username string `json:"username"`
 	Email    string `json:"email"`
 	Password string `json:"password"`
 }
@@ -59,9 +67,9 @@ func statusForErr(err error) int {
 	switch {
 	case errors.Is(err, ErrNotFound):
 		return http.StatusNotFound
-	case errors.Is(err, ErrNameRequired), errors.Is(err, ErrRoleRequired), errors.Is(err, ErrInvalidRole), errors.Is(err, ErrBranchReq), errors.Is(err, ErrBranchInvalid), errors.Is(err, ErrPhoneInvalid), errors.Is(err, ErrEmailInvalid), errors.Is(err, ErrPasswordTooShort):
+	case errors.Is(err, ErrNameRequired), errors.Is(err, ErrRoleRequired), errors.Is(err, ErrInvalidRole), errors.Is(err, ErrBranchReq), errors.Is(err, ErrBranchInvalid), errors.Is(err, ErrPhoneInvalid), errors.Is(err, ErrEmailInvalid), errors.Is(err, ErrUsernameInvalid), errors.Is(err, ErrPasswordTooShort):
 		return http.StatusBadRequest
-	case errors.Is(err, ErrEmailTaken):
+	case errors.Is(err, ErrEmailTaken), errors.Is(err, ErrUsernameTaken), errors.Is(err, ErrPhoneTaken):
 		return http.StatusConflict
 	default:
 		return http.StatusInternalServerError
@@ -88,7 +96,8 @@ func (h *Handler) Create(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	rec, err := h.svc.Create(CreateInput{Name: req.Name, Role: req.Role, BranchID: req.BranchID, Phone: req.Phone})
+	branchID := platform.EnforceBranchOnWrite(c, req.BranchID)
+	rec, err := h.svc.Create(CreateInput{Name: req.Name, Role: req.Role, BranchID: branchID, Phone: req.Phone, Username: req.Username, Password: req.Password})
 	if err != nil {
 		respondErr(c, err)
 		return
@@ -97,7 +106,7 @@ func (h *Handler) Create(c *gin.Context) {
 }
 
 func (h *Handler) List(c *gin.Context) {
-	rec, err := h.svc.List()
+	rec, err := h.svc.List(platform.GetBranchScope(c))
 	if err != nil {
 		respondErr(c, err)
 		return
@@ -111,7 +120,7 @@ func (h *Handler) Get(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	rec, err := h.svc.Get(id)
+	rec, err := h.svc.Get(id, platform.GetBranchScope(c))
 	if err != nil {
 		respondErr(c, err)
 		return
@@ -130,12 +139,13 @@ func (h *Handler) Update(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
+	branchID := platform.EnforceBranchOnWrite(c, req.BranchID)
 	rec, err := h.svc.Update(id, UpdateInput{
-		Name: req.Name, Role: req.Role, BranchID: req.BranchID, Phone: req.Phone,
+		Name: req.Name, Role: req.Role, BranchID: branchID, Phone: req.Phone,
 		LoansProcessed: req.LoansProcessed, Collections: req.Collections,
 		Followups: req.Followups, Pending: req.Pending,
-		Email: req.Email, Password: req.Password,
-	})
+		Username: req.Username, Email: req.Email, Password: req.Password,
+	}, platform.GetBranchScope(c))
 	if err != nil {
 		respondErr(c, err)
 		return
@@ -149,7 +159,7 @@ func (h *Handler) Delete(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	if err := h.svc.Delete(id); err != nil {
+	if err := h.svc.Delete(id, platform.GetBranchScope(c)); err != nil {
 		respondErr(c, err)
 		return
 	}

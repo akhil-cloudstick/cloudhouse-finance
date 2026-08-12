@@ -38,8 +38,12 @@ export const NAV: [string, [string, string, string][]][] = [
 ];
 
 export function Sidebar({ route, open }: { route: string; open: boolean }) {
-  const { logout } = useAuth();
+  const { logout, isAdmin, role } = useAuth();
   const router = useRouter();
+  // Cashier is outside the loan creation/approval flow — the backend
+  // already 403s a Cashier's POST /loans, hide the nav entry entirely
+  // rather than let them click into a form that can only ever fail.
+  const canCreateLoans = role !== "Cashier";
 
   function handleSignOut(e: React.MouseEvent) {
     e.preventDefault();
@@ -60,7 +64,14 @@ export function Sidebar({ route, open }: { route: string; open: boolean }) {
         {NAV.map(([group, items]) => (
           <div key={group}>
             <div className="grp">{group}</div>
-            {items.map(([r, t, ic]) => {
+            {items
+              // Branch Management is Administrator-only — the backend
+              // already 403s a non-admin's write attempts, hide the nav
+              // entry entirely rather than let them click into a page that
+              // can only ever fail for them.
+              .filter(([r]) => r !== "branches" || isAdmin)
+              .filter(([r]) => r !== "newloan" || canCreateLoans)
+              .map(([r, t, ic]) => {
               const isOn =
                 route === r ||
                 (route === "loan" && r === "loans") ||

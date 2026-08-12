@@ -6,6 +6,8 @@ import (
 	"strconv"
 
 	"github.com/gin-gonic/gin"
+
+	"ambikagold/backend/internal/platform"
 )
 
 // Handler wires HTTP requests to the Service.
@@ -44,11 +46,7 @@ func (h *Handler) List(c *gin.Context) {
 			f.LoanID = uint(n)
 		}
 	}
-	if v := c.Query("branchId"); v != "" {
-		if n, err := strconv.ParseUint(v, 10, 64); err == nil {
-			f.BranchID = uint(n)
-		}
-	}
+	f.BranchID = platform.GetBranchScope(c)
 	if v := c.Query("lockerId"); v != "" {
 		if n, err := strconv.ParseUint(v, 10, 64); err == nil {
 			f.LockerID = uint(n)
@@ -70,7 +68,7 @@ func (h *Handler) Get(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	rec, err := h.svc.Get(id)
+	rec, err := h.svc.Get(id, platform.GetBranchScope(c))
 	if err != nil {
 		c.JSON(statusForErr(err), gin.H{"error": err.Error()})
 		return
@@ -117,6 +115,10 @@ func (h *Handler) RecordMovement(c *gin.Context) {
 	var req movementRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	if _, err := h.svc.Get(id, platform.GetBranchScope(c)); err != nil {
+		c.JSON(statusForErr(err), gin.H{"error": err.Error()})
 		return
 	}
 	rec, err := h.svc.RecordMovement(id, req.ToStatus, req.LockerID, req.EmployeeID, req.Remarks)

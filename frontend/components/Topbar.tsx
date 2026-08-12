@@ -42,8 +42,8 @@ export function Topbar({ route, arg, onBurger }: { route: string; arg?: string; 
         Ambika Gold Finance &nbsp;/&nbsp; <b>{crumb}</b>
       </span>
       <GlobalSearch />
-      <span className="rate-chip" id="rateChip">
-        <span className="dot"></span> 22K <b>{fmt(latest.k22)}/g</b> · 24K <b>{fmt(latest.k24)}/g</b>
+      <span className="rate-chip" id="rateChip" title="22K is computed from the published 24K rate, not separately published">
+        <span className="dot"></span> 22K (comp.) <b>{fmt(latest.k22)}/g</b> · 24K <b>{fmt(latest.k24)}/g</b>
         {!isTodaySet && (
           <button
             type="button"

@@ -37,6 +37,11 @@ export type EmployeeFormInput = {
   role: string;
   branchId: number;
   phone: string;
+  // Optional login credentials, set up right at creation time (see
+  // backend/internal/employee/service.go's CreateInput — both left blank
+  // means "no login access yet", set later via Update).
+  username?: string;
+  password?: string;
 };
 
 /* PUT /employees/:id also carries the performance counters — the backend

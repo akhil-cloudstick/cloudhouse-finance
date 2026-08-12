@@ -19,12 +19,15 @@ func (r *Repository) Create(c *Customer) error {
 // it applies Limit/Offset (used by the paginated SearchableSelect-backed
 // search — see Service.List); limit == 0 returns every match, unpaged, for
 // callers like the full Customers & KYC list page.
-func (r *Repository) FindAll(query string, limit, offset int) ([]Customer, error) {
+func (r *Repository) FindAll(query string, limit, offset int, branchID *uint) ([]Customer, error) {
 	var customers []Customer
 	q := r.db.Preload("Branch").Order("id asc")
 	if query != "" {
 		like := "%" + query + "%"
 		q = q.Where("name ILIKE ? OR code ILIKE ? OR phone ILIKE ?", like, like, like)
+	}
+	if branchID != nil {
+		q = q.Where("branch_id = ?", *branchID)
 	}
 	if limit > 0 {
 		q = q.Limit(limit).Offset(offset)

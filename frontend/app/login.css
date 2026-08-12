@@ -1,7 +1,9 @@
 /* Ported verbatim from legacy/index.html's inline <style> block.
    Do not rename classes or alter values — this preserves the exact
    look of the original login page. Font stacks reference the same
-   'Jost'/'Bodoni Moda' families now loaded via next/font in layout.tsx. */
+   'Jost'/'Bodoni Moda' families now loaded via next/font in layout.tsx.
+   Selectors have been prefixed with .login-page to scope them and prevent
+   style leakages (such as .card max-width constraints) into the main app shell. */
 .login-page {
   --gold-deep: #9a6f0f;
   --gold: #c9971c;
@@ -42,8 +44,8 @@
 }
 
 /* ── floating gold dust ────────────────────────────────────── */
-.dust { position: fixed; inset: 0; pointer-events: none; overflow: hidden; }
-.dust span {
+.login-page .dust { position: fixed; inset: 0; pointer-events: none; overflow: hidden; }
+.login-page .dust span {
   position: absolute; bottom: -12px;
   width: 5px; height: 5px; border-radius: 50%;
   background: radial-gradient(circle at 35% 35%, #ffe9a8, var(--gold-mid) 60%, rgba(201,151,28,0));
@@ -58,16 +60,16 @@
 }
 
 /* ── ornamental page corners ───────────────────────────────── */
-.corner { position: fixed; width: 150px; height: 150px; pointer-events: none; opacity: .9; }
-.corner svg { width: 100%; height: 100%; }
-.corner.tl { top: 14px; left: 14px; }
-.corner.tr { top: 14px; right: 14px; transform: scaleX(-1); }
-.corner.bl { bottom: 14px; left: 14px; transform: scaleY(-1); }
-.corner.br { bottom: 14px; right: 14px; transform: scale(-1,-1); }
-@media (max-width: 720px) { .corner { width: 84px; height: 84px; } }
+.login-page .corner { position: fixed; width: 150px; height: 150px; pointer-events: none; opacity: .9; }
+.login-page .corner svg { width: 100%; height: 100%; }
+.login-page .corner.tl { top: 14px; left: 14px; }
+.login-page .corner.tr { top: 14px; right: 14px; transform: scaleX(-1); }
+.login-page .corner.bl { bottom: 14px; left: 14px; transform: scaleY(-1); }
+.login-page .corner.br { bottom: 14px; right: 14px; transform: scale(-1,-1); }
+@media (max-width: 720px) { .login-page .corner { width: 84px; height: 84px; } }
 
 /* ── card ──────────────────────────────────────────────────── */
-.card {
+.login-page .card {
   position: relative;
   width: 100%; max-width: 460px;
   background: linear-gradient(180deg,#fffdf7 0%,#fdf8ec 100%);
@@ -80,7 +82,7 @@
   z-index: 1;
 }
 /* double gold frame */
-.card::before {
+.login-page .card::before {
   content: "";
   position: absolute; inset: 9px;
   border: 1px solid rgba(201,151,28,.55);
@@ -88,7 +90,7 @@
   pointer-events: none;
 }
 /* gold cap along the top edge */
-.card::after {
+.login-page .card::after {
   content: "";
   position: absolute; left: 9px; right: 9px; top: 9px; height: 3px;
   background: linear-gradient(90deg,transparent,var(--gold-light) 18%,var(--gold-deep) 50%,var(--gold-light) 82%,transparent);
@@ -96,18 +98,18 @@
 }
 
 /* corner studs on the inner frame */
-.stud {
+.login-page .stud {
   position: absolute; width: 9px; height: 9px;
   background: linear-gradient(135deg,var(--gold-light),var(--gold-deep));
   transform: rotate(45deg);
   box-shadow: 0 0 0 1px #fffdf7, 0 0 0 2px rgba(201,151,28,.5);
 }
-.stud.tl { top: 5px; left: 5px; } .stud.tr { top: 5px; right: 5px; }
-.stud.bl { bottom: 5px; left: 5px; } .stud.br { bottom: 5px; right: 5px; }
+.login-page .stud.tl { top: 5px; left: 5px; } .login-page .stud.tr { top: 5px; right: 5px; }
+.login-page .stud.bl { bottom: 5px; left: 5px; } .login-page .stud.br { bottom: 5px; right: 5px; }
 
 /* ── brand block ───────────────────────────────────────────── */
-.brand { text-align: center; margin-bottom: 6px; }
-.brand img {
+.login-page .brand { text-align: center; margin-bottom: 6px; }
+.login-page .brand img {
   width: 132px; height: 132px; object-fit: cover; border-radius: 50%;
   border: 1px solid var(--line);
   box-shadow: 0 0 0 5px #fffdf7,0 0 0 6px rgba(201,151,28,.45),0 10px 24px -10px rgba(154,111,15,.5);
@@ -127,23 +129,23 @@
 }
 @keyframes gleam { 0%,100% { background-position: 0% center; } 50% { background-position: 100% center; } }
 
-.motto {
+.login-page .motto {
   display: flex; align-items: center; gap: 12px;
   margin: 14px 0 26px; color: var(--gold-deep);
   font-size: 10.5px; letter-spacing: .42em; font-weight: 500; text-transform: uppercase;
   justify-content: center; white-space: nowrap;
 }
-.motto::before, .motto::after {
+.login-page .motto::before, .login-page .motto::after {
   content: ""; flex: 1; height: 1px; max-width: 70px;
   background: linear-gradient(90deg,transparent,var(--gold-mid));
 }
-.motto::after { background: linear-gradient(90deg,var(--gold-mid),transparent); }
-.motto b { font-weight: 500; }
-.motto .dot { color: var(--gold-mid); letter-spacing: 0; }
+.login-page .motto::after { background: linear-gradient(90deg,var(--gold-mid),transparent); }
+.login-page .motto b { font-weight: 500; }
+.login-page .motto .dot { color: var(--gold-mid); letter-spacing: 0; }
 
 /* ── form ──────────────────────────────────────────────────── */
-.field { position: relative; margin-bottom: 26px; }
-.field input {
+.login-page .field { position: relative; margin-bottom: 26px; }
+.login-page .field input {
   width: 100%;
   font: inherit; font-size: 15.5px; color: var(--charcoal);
   background: transparent; border: 0; outline: 0;
@@ -151,64 +153,73 @@
   padding: 20px 34px 9px 2px;
   transition: border-color .25s;
 }
-.field label {
+.login-page .field label {
   position: absolute; left: 2px; top: 22px;
   font-size: 15px; color: #a2946e; letter-spacing: .02em;
   pointer-events: none;
   transition: all .22s ease;
 }
-.field input:focus + label,
-.field input:not(:placeholder-shown) + label {
+.login-page .field input:focus + label,
+.login-page .field input:not(:placeholder-shown) + label,
+.login-page .field input:-webkit-autofill + label,
+.login-page .field input:autofill + label {
   top: 0; font-size: 11px; letter-spacing: .18em; text-transform: uppercase;
   color: var(--gold-deep); font-weight: 500;
 }
-.field .bar {
+.login-page .field .bar {
   position: absolute; left: 0; right: 0; bottom: 0; height: 2px;
   background: linear-gradient(90deg,var(--gold-deep),var(--gold-light),var(--gold-deep));
   transform: scaleX(0); transform-origin: center;
   transition: transform .35s ease;
 }
-.field input:focus ~ .bar { transform: scaleX(1); }
-.field .icon {
+.login-page .field input:focus ~ .bar { transform: scaleX(1); }
+.login-page .field .icon {
   position: absolute; right: 2px; top: 20px; width: 20px; height: 20px;
   color: #bfa254;
 }
-.field .icon svg { width: 100%; height: 100%; display: block; }
-button.eye {
+.login-page .field .icon svg { width: 100%; height: 100%; display: block; }
+.login-page button.eye {
   position: absolute; right: 0; top: 16px;
   background: none; border: 0; cursor: pointer; padding: 4px;
   color: #bfa254;
 }
-button.eye:hover { color: var(--gold-deep); }
-button.eye svg { width: 20px; height: 20px; display: block; }
+.login-page button.eye:hover { color: var(--gold-deep); }
+.login-page button.eye svg { width: 20px; height: 20px; display: block; }
 
-.aux {
+.login-page .aux {
   display: flex; justify-content: space-between; align-items: center;
   margin: -8px 0 24px; font-size: 13px;
 }
-.aux label { display: flex; align-items: center; gap: 8px; cursor: pointer; color: #7c6f4e; }
-.aux input {
+.login-page .aux label { display: flex; align-items: center; gap: 8px; cursor: pointer; color: #7c6f4e; }
+.login-page .aux input {
   appearance: none; width: 15px; height: 15px; cursor: pointer;
   border: 1px solid var(--gold); border-radius: 2px; background: #fff;
   display: grid; place-content: center; transition: background .2s;
 }
-.aux input::before {
+.login-page .aux input::before {
   content: ""; width: 8px; height: 8px; transform: scale(0) rotate(45deg);
   background: linear-gradient(135deg,var(--gold-light),var(--gold-deep));
   transition: transform .15s;
 }
-.aux input:checked::before { transform: scale(1) rotate(45deg); }
-.aux a { color: var(--gold-deep); text-decoration: none; letter-spacing: .02em; }
-.aux a:hover { text-decoration: underline; }
+.login-page .aux input:checked::before { transform: scale(1) rotate(45deg); }
+.login-page .aux a { color: var(--gold-deep); text-decoration: none; letter-spacing: .02em; }
+.login-page .aux a:hover { text-decoration: underline; }
 
 .login-page .btn {
+  display: flex;
+  justify-content: center;
+  align-items: center;
   position: relative; width: 100%;
   font-family: 'Jost', sans-serif; font-size: 14px; font-weight: 600;
-  letter-spacing: .34em; text-transform: uppercase; text-indent: .34em;
+  letter-spacing: .34em; text-transform: uppercase; text-align: center;
   color: #2b2001;
   background: linear-gradient(180deg,#f0d382 0%,var(--gold-mid) 45%,#b98a14 100%);
   border: 1px solid #a97f10; border-radius: 3px;
-  padding: 15px 10px 14px; cursor: pointer;
+  /* extra left padding balances the trailing letter-spacing gap after the
+     last character, which text-align: center alone doesn't account for —
+     that invisible trailing gap otherwise pulls the visible label left of
+     true center */
+  padding: 15px 10px 14px calc(10px + .34em); cursor: pointer;
   box-shadow: inset 0 1px 0 rgba(255,255,255,.55),0 10px 22px -10px rgba(154,111,15,.65);
   overflow: hidden;
   transition: transform .15s ease, box-shadow .2s ease, filter .2s;
@@ -227,49 +238,49 @@ button.eye svg { width: 20px; height: 20px; display: block; }
 @keyframes sweep { 0%,55% { left: -70%; } 90%,100% { left: 130%; } }
 .login-page .btn:disabled { cursor: default; filter: saturate(.6) brightness(.97); }
 
-.msg {
+.login-page .msg {
   min-height: 20px; margin-top: 14px; text-align: center;
   font-size: 13.5px; letter-spacing: .03em;
   color: #9c2f22; opacity: 0; transition: opacity .25s;
 }
-.msg.show { opacity: 1; }
-.msg.ok { color: #6d7c25; }
+.login-page .msg.show { opacity: 1; }
+.login-page .msg.ok { color: #6d7c25; }
 
-.foot {
+.login-page .foot {
   margin-top: 26px; padding-top: 18px; text-align: center;
   border-top: 1px solid var(--line);
   font-size: 12px; color: #8a7d5a; letter-spacing: .05em;
 }
-.foot .lock { display: inline-flex; align-items: center; gap: 7px; color: #7c6f4e; }
-.foot svg { width: 13px; height: 13px; color: var(--gold-deep); }
+.login-page .foot .lock { display: inline-flex; align-items: center; gap: 7px; color: #7c6f4e; }
+.login-page .foot svg { width: 13px; height: 13px; color: var(--gold-deep); }
 
-.copy {
+.login-page .copy {
   position: relative; z-index: 1; text-align: center; margin-top: 20px;
   font-size: 11.5px; letter-spacing: .14em; color: #a09367; text-transform: uppercase;
 }
 
-.powered {
+.login-page .powered {
   position: relative; z-index: 1; text-align: center; margin-top: 8px;
   font-size: 12px; letter-spacing: .06em; color: #a09367;
 }
-.powered a {
+.login-page .powered a {
   text-decoration: none; font-weight: 600; letter-spacing: .04em;
   background: linear-gradient(90deg, rgb(139, 92, 246), rgb(236, 72, 153));
   -webkit-background-clip: text; background-clip: text;
   -webkit-text-fill-color: transparent; color: transparent;
 }
-.powered a:hover { filter: brightness(1.15); }
+.login-page .powered a:hover { filter: brightness(1.15); }
 
-.wrap { width: 100%; max-width: 460px; }
+.login-page .wrap { width: 100%; max-width: 460px; }
 
 @media (max-width: 520px) {
-  .card { padding: 36px 26px 30px; }
-  .brand img { width: 108px; height: 108px; }
+  .login-page .card { padding: 36px 26px 30px; }
+  .login-page .brand img { width: 108px; height: 108px; }
   .login-page h1 { font-size: 26px; }
-  .motto { letter-spacing: .3em; font-size: 9.5px; }
+  .login-page .motto { letter-spacing: .3em; font-size: 9.5px; }
 }
 @media (prefers-reduced-motion: reduce) {
-  .dust span, .login-page .btn .shine, .login-page h1 .gilt { animation: none; }
+  .login-page .dust span, .login-page .btn .shine, .login-page h1 .gilt { animation: none; }
 }
 
 /* ── additive small-phone / orientation rules (new requirement) ──
@@ -277,19 +288,19 @@ button.eye svg { width: 20px; height: 20px; display: block; }
    handles short landscape phone heights; does not alter anything above
    520px or the existing portrait layout. */
 @media (max-width: 380px) {
-  .card { padding: 28px 18px 24px; }
-  .brand img { width: 88px; height: 88px; }
+  .login-page .card { padding: 28px 18px 24px; }
+  .login-page .brand img { width: 88px; height: 88px; }
   .login-page h1 { font-size: 22px; }
-  .motto { letter-spacing: .22em; font-size: 8.5px; gap: 8px; }
-  .aux { font-size: 12px; }
+  .login-page .motto { letter-spacing: .22em; font-size: 8.5px; gap: 8px; }
+  .login-page .aux { font-size: 12px; }
 }
 @media (max-height: 480px) and (orientation: landscape) {
   .login-page { padding: 16px; align-items: flex-start; }
-  .card { padding: 22px 28px 18px; }
-  .brand { margin-bottom: 2px; }
-  .brand img { width: 64px; height: 64px; }
+  .login-page .card { padding: 22px 28px 18px; }
+  .login-page .brand { margin-bottom: 2px; }
+  .login-page .brand img { width: 64px; height: 64px; }
   .login-page h1 { font-size: 20px; margin-top: 8px; }
-  .motto { margin: 8px 0 14px; }
-  .field { margin-bottom: 16px; }
-  .foot { margin-top: 14px; padding-top: 10px; }
+  .login-page .motto { margin: 8px 0 14px; }
+  .login-page .field { margin-bottom: 16px; }
+  .login-page .foot { margin-top: 14px; padding-top: 10px; }
 }

@@ -5,6 +5,7 @@ import { useModal } from "@/components/Modal";
 import { useToast } from "@/components/Toast";
 import { Icon } from "@/lib/icons";
 import { ApiError } from "@/lib/api";
+import { useAuth } from "@/lib/auth-context";
 import { listActiveBranches, type BranchView } from "@/lib/branchApi";
 import { createEmployee, updateEmployee, type EmployeeView } from "@/lib/employeeApi";
 
@@ -18,6 +19,8 @@ const ROLES = [
 
 const NAME_RE = /^[A-Za-z][A-Za-z\s.'-]*$/;
 const PHONE_RE = /^\d{10}$/;
+// Mirrors backend/internal/employee/service.go's usernameRe.
+const USERNAME_RE = /^[A-Za-z0-9._-]{3,60}$/;
 
 /* Ported from legacy/app.js's `openEmployeeModal()` / `saveEmployee()`, now
  * wired to the real Go backend (`POST`/`PUT /api/v1/employees`) following
@@ -27,21 +30,37 @@ const PHONE_RE = /^\d{10}$/;
 export function EmployeeModalContent({ employee, onSaved }: { employee?: EmployeeView; onSaved?: () => void }) {
   const { closeModal } = useModal();
   const toast = useToast();
+  const { isAdmin, branchId: myBranchId } = useAuth();
 
   const [name, setName] = useState(employee?.name || "");
   const [phone, setPhone] = useState(employee?.phone || "");
   const [role, setRole] = useState(employee?.role || "");
   const [branches, setBranches] = useState<BranchView[]>([]);
-  const [branchId, setBranchId] = useState<number | "">(employee?.branchId || "");
+  const [branchId, setBranchId] = useState<number | "">(
+    employee?.branchId || (!isAdmin && myBranchId ? myBranchId : "")
+  );
+  // Login credentials — only offered at creation time (see
+  // employeeApi.ts's EmployeeFormInput doc comment); both blank means "no
+  // login access yet", set up later via Update once that UI exists.
+  const [username, setUsername] = useState("");
+  const [password, setPassword] = useState("");
+  const [passwordVisible, setPasswordVisible] = useState(false);
   const [err, setErr] = useState("");
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
+    // Non-admins are confined to their own branch (the backend enforces
+    // this server-side regardless) — auto-lock the field instead of
+    // offering a dropdown of branches they can't actually use.
+    if (!isAdmin) {
+      if (myBranchId) setBranchId(myBranchId);
+      return;
+    }
     listActiveBranches().then((list) => {
       setBranches(list);
       if (list.length && !employee) setBranchId((cur) => cur || list[0].id);
     }).catch(() => setErr("Could not load branches — try again later."));
-  }, [employee]);
+  }, [employee, isAdmin, myBranchId]);
 
   function onPhoneChange(v: string) {
     // Digits only, capped at 10 — matches BranchModal.tsx's phone input.
@@ -60,6 +79,14 @@ export function EmployeeModalContent({ employee, onSaved }: { employee?: Employe
     if (!role || !ROLES.includes(role)) { setErr("Please select a role."); return; }
     if (!branchId) { setErr("Please select a branch."); return; }
     if (p && !PHONE_RE.test(p)) { setErr("Phone number must be exactly 10 digits."); return; }
+    const uname = username.trim();
+    if (!employee) {
+      if (uname && !USERNAME_RE.test(uname)) {
+        setErr("Username must be at least 3 characters (letters, numbers, dots, underscores or hyphens only).");
+        return;
+      }
+      if (password && password.length < 8) { setErr("Password must be at least 8 characters."); return; }
+    }
 
     setSaving(true);
     setErr("");
@@ -72,7 +99,10 @@ export function EmployeeModalContent({ employee, onSaved }: { employee?: Employe
         });
         toast(`${trimmed} updated`);
       } else {
-        await createEmployee({ name: trimmed, role, branchId: branchId as number, phone: p });
+        await createEmployee({
+          name: trimmed, role, branchId: branchId as number, phone: p,
+          username: uname || undefined, password: password || undefined,
+        });
         toast(`${trimmed} added as ${role}`);
       }
       onSaved?.();
@@ -117,11 +147,55 @@ export function EmployeeModalContent({ employee, onSaved }: { employee?: Employe
               {ROLES.map((r) => <option key={r}>{r}</option>)}
             </select></div>
           <div><label className="f">Branch *</label>
-            <select className="inp" value={branchId} onChange={(e) => setBranchId(e.target.value ? Number(e.target.value) : "")}>
-              <option value="">Select branch…</option>
-              {branches.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
-            </select></div>
+            {isAdmin ? (
+              <select className="inp" value={branchId} onChange={(e) => setBranchId(e.target.value ? Number(e.target.value) : "")}>
+                <option value="">Select branch…</option>
+                {branches.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
+              </select>
+            ) : (
+              // Non-admins are confined to their own branch — the backend
+              // enforces this regardless, so the field is locked rather than
+              // offering a choice they can't actually use.
+              <select className="inp" value={branchId} disabled>
+                <option value={branchId || ""}>{employee?.branchName || "Your branch"}</option>
+              </select>
+            )}</div>
         </div>
+        {!employee && (
+          // Login credentials — set up now, at creation time, so you don't
+          // need a separate "reset password" step just to test as this
+          // employee. Optional: leave both blank to add the employee
+          // without login access yet.
+          <div className="frow c2">
+            <div><label className="f">Username (for login)</label>
+              <input className="inp" placeholder="e.g. arun.kumar" value={username} onChange={(e) => setUsername(e.target.value)} maxLength={60} autoComplete="off" /></div>
+            <div><label className="f">Password</label>
+              <div style={{ position: "relative" }}>
+                <input
+                  className="inp"
+                  type={passwordVisible ? "text" : "password"}
+                  placeholder="At least 8 characters"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  autoComplete="new-password"
+                  style={{ paddingRight: 36 }}
+                />
+                <button
+                  type="button"
+                  className="eye-toggle"
+                  aria-label={passwordVisible ? "Hide password" : "Show password"}
+                  onClick={() => setPasswordVisible((v) => !v)}
+                  style={{
+                    position: "absolute", right: 8, top: "50%", transform: "translateY(-50%)",
+                    background: "none", border: "none", padding: 4, cursor: "pointer", display: "flex",
+                    color: "var(--muted, #888)",
+                  }}
+                >
+                  <Icon name={passwordVisible ? "eyeOff" : "eye"} />
+                </button>
+              </div></div>
+          </div>
+        )}
         <div className="notice"><Icon name="shield" /> The employee gets role-based access — sensitive actions stay behind approval workflows with a full audit trail.</div>
         <p style={{ color: "var(--red)", fontSize: 12.5, minHeight: 16, marginTop: 8 }}>{err}</p>
       </div>

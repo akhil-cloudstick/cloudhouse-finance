@@ -98,3 +98,68 @@ func (r *Repository) SeedDefaults(roles []string, resources []string) (inserted 
 	log.Printf("authz: permissions seed complete — %d inserted, %d already present", inserted, skipped)
 	return inserted, skipped, nil
 }
+
+// RestrictResourceToRole locks a resource's write actions (create/update/
+// delete) down to allowedRole only — every other role in otherRoles is set
+// (or left) Allowed=false for those three actions. "read" is deliberately
+// left alone (kept allowed for every role, admin included): every branch
+// selector across the app (Employee/Customer/Loan/Scheme create modals,
+// etc.) needs to read the Branches list to show branch names, even for
+// non-admins who can't manage branches themselves — only Branches
+// management (create/update/delete) is admin-only. Unlike SeedDefaults
+// (insert-if-missing, never overwrite), this DOES overwrite existing rows
+// for the affected roles/resource, so it can retroactively correct a
+// resource that was previously seeded allow-all for everyone (e.g. Branch
+// management, originally in authResources' allow-all loop). Idempotent and
+// safe to run on every startup.
+func (r *Repository) RestrictResourceToRole(resource, allowedRole string, otherRoles []string) error {
+	writeActions := []string{"create", "update", "delete"}
+
+	if err := r.upsertAllowed(allowedRole, resource, "read", true); err != nil {
+		return err
+	}
+	for _, action := range writeActions {
+		if err := r.upsertAllowed(allowedRole, resource, action, true); err != nil {
+			return err
+		}
+	}
+	for _, role := range otherRoles {
+		if err := r.upsertAllowed(role, resource, "read", true); err != nil {
+			return err
+		}
+		for _, action := range writeActions {
+			if err := r.upsertAllowed(role, resource, action, false); err != nil {
+				return err
+			}
+		}
+	}
+	log.Printf("authz: restricted resource %q writes to role %q (locked out: %v; read stays open to all)", resource, allowedRole, otherRoles)
+	return nil
+}
+
+// SetPermission overwrites a single (role, resource, action) row to
+// Allowed=allowed — for one-off, narrower restrictions than
+// RestrictResourceToRole's whole-resource lockout (e.g. "Cashier may read
+// loans but not create them," leaving every other role/action on that
+// resource untouched). Idempotent and safe to run on every startup.
+func (r *Repository) SetPermission(role, resource, action string, allowed bool) error {
+	return r.upsertAllowed(role, resource, action, allowed)
+}
+
+// upsertAllowed sets Allowed=allowed for (role, resource, action), creating
+// the row if it doesn't exist yet or updating it in place if it does.
+func (r *Repository) upsertAllowed(role, resource, action string, allowed bool) error {
+	var existing Permission
+	err := r.db.Where("role = ? AND resource = ? AND action = ?", role, resource, action).First(&existing).Error
+	if err == nil {
+		if existing.Allowed == allowed {
+			return nil
+		}
+		existing.Allowed = allowed
+		return r.db.Save(&existing).Error
+	}
+	if !errors.Is(err, gorm.ErrRecordNotFound) {
+		return err
+	}
+	return r.db.Create(&Permission{Role: role, Resource: resource, Action: action, Allowed: allowed}).Error
+}

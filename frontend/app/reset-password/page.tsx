@@ -9,8 +9,9 @@ import { ApiError } from "@/lib/api";
 function ResetPasswordForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const token = searchParams.get("token") || "";
 
+  const [phone, setPhone] = useState(searchParams.get("phone") || "");
+  const [otp, setOtp] = useState("");
   const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
   const [submitting, setSubmitting] = useState(false);
@@ -20,12 +21,16 @@ function ResetPasswordForm() {
     e.preventDefault();
     setError(null);
 
-    if (!token) {
-      setError("This reset link is missing its token. Please request a new one.");
+    if (!phone.trim()) {
+      setError("Please enter your phone number.");
       return;
     }
-    if (password.length < 6) {
-      setError("Password must be at least 6 characters.");
+    if (!otp.trim()) {
+      setError("Please enter the code sent by SMS.");
+      return;
+    }
+    if (password.length < 8) {
+      setError("Password must be at least 8 characters.");
       return;
     }
     if (password !== confirm) {
@@ -35,13 +40,13 @@ function ResetPasswordForm() {
 
     setSubmitting(true);
     try {
-      await resetPassword(token, password);
+      await resetPassword(phone.trim(), otp.trim(), password);
       router.push("/login?reset=success");
     } catch (err) {
       const text =
         err instanceof ApiError
-          ? err.message || "This link is invalid or has expired."
-          : "This link is invalid or has expired.";
+          ? err.message || "This code is invalid or has expired."
+          : "This code is invalid or has expired.";
       setError(text);
       setSubmitting(false);
     }
@@ -64,6 +69,35 @@ function ResetPasswordForm() {
           </div>
 
           <form noValidate onSubmit={handleSubmit}>
+            <div className="field">
+              <input
+                type="tel"
+                id="phone"
+                placeholder=" "
+                autoComplete="tel"
+                required
+                value={phone}
+                onChange={(e) => setPhone(e.target.value)}
+              />
+              <label htmlFor="phone">Phone number</label>
+              <span className="bar"></span>
+            </div>
+
+            <div className="field">
+              <input
+                type="text"
+                id="otp"
+                placeholder=" "
+                inputMode="numeric"
+                autoComplete="one-time-code"
+                required
+                value={otp}
+                onChange={(e) => setOtp(e.target.value)}
+              />
+              <label htmlFor="otp">6-digit code</label>
+              <span className="bar"></span>
+            </div>
+
             <div className="field">
               <input
                 type="password"

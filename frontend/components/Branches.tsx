@@ -78,11 +78,13 @@ export function Branches() {
                     <td>{b.address}</td>
                     <td>{b.phone || "—"}</td>
                     <td>{b.isActive ? <span className="chip green">Active</span> : <span className="chip gray">Inactive</span>}</td>
-                    <td style={{ display: "flex", gap: 12 }}>
-                      <a href="#" onClick={(e) => { e.preventDefault(); openModal(<BranchModalContent branch={b} onSaved={onSaved} />); }}>Edit</a>
-                      {b.isActive && (
-                        <a href="#" style={{ color: "var(--red)" }} onClick={(e) => { e.preventDefault(); onDeactivate(b); }}>Deactivate</a>
-                      )}
+                    <td>
+                      <div style={{ display: "flex", gap: 12 }}>
+                        <a href="#" onClick={(e) => { e.preventDefault(); openModal(<BranchModalContent branch={b} onSaved={onSaved} />); }}>Edit</a>
+                        {b.isActive && (
+                          <a href="#" style={{ color: "var(--red)" }} onClick={(e) => { e.preventDefault(); onDeactivate(b); }}>Deactivate</a>
+                        )}
+                      </div>
                     </td>
                   </tr>
                 ))}

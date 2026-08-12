@@ -67,6 +67,11 @@ type LoanFilter struct {
 	BranchID   uint
 	CustomerID uint
 	Query      string // matches LoanNumber (case-insensitive, partial)
+
+	// BranchScope is the caller's branch-scoping restriction (see
+	// platform.GetBranchScope) — nil for Administrator (no restriction),
+	// else limits results to that one branch regardless of BranchID above.
+	BranchScope *uint
 }
 
 func (r *Repository) FindAll(f LoanFilter) ([]Loan, error) {
@@ -82,6 +87,9 @@ func (r *Repository) FindAll(f LoanFilter) ([]Loan, error) {
 	}
 	if f.Query != "" {
 		q = q.Where("loan_number ILIKE ?", "%"+f.Query+"%")
+	}
+	if f.BranchScope != nil {
+		q = q.Where("branch_id = ?", *f.BranchScope)
 	}
 	var loans []Loan
 	err := q.Find(&loans).Error
@@ -263,10 +271,19 @@ func (r *LoanRequestRepository) FindByID(id uint) (*LoanRequest, error) {
 type LoanRequestFilter struct {
 	Status string
 	LoanID uint
+
+	// BranchID is the caller's branch-scoping restriction (see
+	// platform.GetBranchScope) — nil for Administrator (no restriction),
+	// else limits results to requests whose underlying loan belongs to that
+	// branch, applied via a JOIN against loans.
+	BranchID *uint
 }
 
 func (r *LoanRequestRepository) FindAll(f LoanRequestFilter) ([]LoanRequest, error) {
 	q := r.db.Preload("Loan.Customer").Model(&LoanRequest{}).Order("id desc")
+	if f.BranchID != nil {
+		q = q.Joins("JOIN loans ON loans.id = loan_requests.loan_id").Where("loans.branch_id = ?", *f.BranchID)
+	}
 	if f.Status != "" {
 		q = q.Where("status = ?", f.Status)
 	}

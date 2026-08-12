@@ -108,8 +108,10 @@ func (s *Service) Create(in CreateInput) (*View, error) {
 	return &v, nil
 }
 
-func (s *Service) List() ([]View, error) {
-	lockers, err := s.repo.FindAll()
+// List returns lockers, optionally scoped to branchID (nil = all branches —
+// Administrator only, see platform.GetBranchScope).
+func (s *Service) List(branchID *uint) ([]View, error) {
+	lockers, err := s.repo.FindAll(branchID)
 	if err != nil {
 		return nil, err
 	}
@@ -124,9 +126,16 @@ func (s *Service) List() ([]View, error) {
 	return views, nil
 }
 
-func (s *Service) Get(id uint) (*View, error) {
+// Get returns the locker by id, or ErrNotFound if it doesn't exist OR (when
+// branchID is non-nil) belongs to a different branch — a non-admin gets the
+// same "not found" for another branch's locker as for a genuinely missing
+// id, so branch existence is never leaked.
+func (s *Service) Get(id uint, branchID *uint) (*View, error) {
 	rec, err := s.repo.FindByID(id)
 	if err != nil {
+		return nil, ErrNotFound
+	}
+	if branchID != nil && rec.BranchID != *branchID {
 		return nil, ErrNotFound
 	}
 	v, err := s.toView(*rec)
@@ -136,12 +145,19 @@ func (s *Service) Get(id uint) (*View, error) {
 	return &v, nil
 }
 
-func (s *Service) Update(id uint, in UpdateInput) (*View, error) {
+// Update applies in to the locker identified by id. branchID (nil for
+// Administrator) must match the locker's current branch or ErrNotFound is
+// returned before any other validation runs, same not-found-on-mismatch
+// guard as Get.
+func (s *Service) Update(id uint, in UpdateInput, branchID *uint) (*View, error) {
 	if err := s.validate(in.Code, in.BranchID, in.Capacity); err != nil {
 		return nil, err
 	}
 	rec, err := s.repo.FindByID(id)
 	if err != nil {
+		return nil, ErrNotFound
+	}
+	if branchID != nil && rec.BranchID != *branchID {
 		return nil, ErrNotFound
 	}
 	if existing, _ := s.repo.FindByCode(in.Code); existing != nil && existing.ID != id {
@@ -169,9 +185,12 @@ func (s *Service) Update(id uint, in UpdateInput) (*View, error) {
 
 // Delete removes a locker outright, guarded against removing one that
 // still physically holds packets.
-func (s *Service) Delete(id uint) error {
+func (s *Service) Delete(id uint, branchID *uint) error {
 	rec, err := s.repo.FindByID(id)
 	if err != nil {
+		return ErrNotFound
+	}
+	if branchID != nil && rec.BranchID != *branchID {
 		return ErrNotFound
 	}
 	occupied, err := s.packetCounter.CountActivePackets(rec.ID)

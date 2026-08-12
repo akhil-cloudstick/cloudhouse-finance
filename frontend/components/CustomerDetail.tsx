@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { useModal } from "@/components/Modal";
 import { useToast } from "@/components/Toast";
+import { useAuth } from "@/lib/auth-context";
 import { fmt, fmtW, initials } from "@/lib/format";
 import { StatusChip } from "@/components/StatusChip";
 import { LoanRow } from "@/components/LoanRow";
@@ -35,6 +36,11 @@ function ProofLink({ label, url }: { label: string; url: string }) {
 export function CustomerDetail({ id }: { id?: string }) {
   const { openModal } = useModal();
   const toast = useToast();
+  const { role } = useAuth();
+  // Cashier is outside the loan creation/approval flow — the backend
+  // already 403s a Cashier's POST /loans, hide the button rather than let
+  // them click into a form that can only ever fail.
+  const canCreateLoans = role !== "Cashier";
 
   const [profile, setProfile] = useState<Customer360View | null>(null);
   const [error, setError] = useState("");
@@ -81,7 +87,7 @@ export function CustomerDetail({ id }: { id?: string }) {
           <Icon name="chat" /> Message
         </button>
         <button className="btn ghost sm" onClick={openRequestPicker}><Icon name="unlock" /> Request Extension / Release</button>
-        <a className="btn sm" href="#newloan"><Icon name="plus" /> New Loan</a>
+        {canCreateLoans && <a className="btn sm" href="#newloan"><Icon name="plus" /> New Loan</a>}
       </div>
       <hr className="gold-rule" />
       <div className="grid cols12">

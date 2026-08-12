@@ -6,10 +6,13 @@ import { useCustomers } from "@/lib/CustomersProvider";
 import { useLoans } from "@/lib/LoansProvider";
 import { useGoldRates } from "@/lib/GoldRatesProvider";
 import { useModal } from "@/components/Modal";
+import { useAuth } from "@/lib/auth-context";
 import { fmt } from "@/lib/format";
 import { Icon } from "@/lib/icons";
 import { RateModalContent } from "@/components/modals/RateModal";
 import { RegisterCustomerModalContent } from "@/components/modals/RegisterCustomerModal";
+import { PurityPicker } from "@/components/PurityPicker";
+import { rateForPurityString } from "@/lib/purity";
 import { listCashMovements, listExpenses, type CashMovementView, type ExpenseView } from "@/lib/cashApi";
 import { getCalendarEvents, type CalendarEvent } from "@/lib/remindersApi";
 import { listLoanRequests, getInterestCollected, type RequestView } from "@/lib/loansApi";
@@ -65,6 +68,11 @@ export function Dashboard() {
   const { schemes } = useSchemes();
   const { refresh: refreshCustomers } = useCustomers();
   const { loans } = useLoans();
+  const { role } = useAuth();
+  // Cashier is outside the loan creation/approval flow — the backend
+  // already 403s a Cashier's POST /loans, hide the button rather than let
+  // them click into a form that can only ever fail.
+  const canCreateLoans = role !== "Cashier";
   const { latest } = useGoldRates();
   const { openModal } = useModal();
 
@@ -125,12 +133,12 @@ export function Dashboard() {
     .slice(0, 8);
 
   const [calcW, setCalcW] = useState("10");
-  const [calcP, setCalcP] = useState<"k24" | "k22" | "k18">("k22");
+  const [calcP, setCalcP] = useState("22K");
   const activeSchemes = schemes.filter((s) => s.active);
   const [calcS, setCalcS] = useState(activeSchemes[0]?.id || "");
 
   const w = parseFloat(calcW) || 0;
-  const rate = latest[calcP];
+  const rate = rateForPurityString(latest.k24, calcP) ?? 0;
   const sch = schemes.find((s) => s.id === calcS);
   const gross = w * rate;
   const elig = sch ? gross * sch.ltv / 100 : 0;
@@ -143,7 +151,7 @@ export function Dashboard() {
         <button className="btn" onClick={() => openModal(<RateModalContent />)}>
           <Icon name="coin" /> Set Today&apos;s Gold Rate
         </button>
-        <a className="btn ghost" href="#newloan"><Icon name="plus" /> New Loan</a>
+        {canCreateLoans && <a className="btn ghost" href="#newloan"><Icon name="plus" /> New Loan</a>}
         <button className="btn ghost" onClick={() => openModal(<RegisterCustomerModalContent onSaved={refreshCustomers} />)}>
           <Icon name="user" /> Register Customer
         </button>
@@ -213,9 +221,9 @@ export function Dashboard() {
             <div className="hd"><h3>Today&apos;s Gold Rate</h3><div className="sp" /><span style={{ fontSize: 11.5, color: "var(--muted)" }}>{latest.date}</span></div>
             <div className="bd">
               <div className="rates3" style={{ gridTemplateColumns: "1fr" }}>
-                <RateTile k="24K · 999" r={latest.k24} />
-                <RateTile k="22K · 916" r={latest.k22} />
-                <RateTile k="18K · 750" r={latest.k18} />
+                <RateTile k="24K · published" r={latest.k24} />
+                <RateTile k="22K · computed" r={latest.k22} />
+                <RateTile k="18K · computed" r={latest.k18} />
               </div>
             </div>
             <div className="ft">Set by {latest.setBy} · applies to all valuations today</div>
@@ -227,9 +235,7 @@ export function Dashboard() {
               <div className="frow c2">
                 <div><label className="f">Weight (grams)</label><input className="inp" type="number" min={0} value={calcW} onChange={(e) => setCalcW(e.target.value)} /></div>
                 <div><label className="f">Purity</label>
-                  <select className="inp" value={calcP} onChange={(e) => setCalcP(e.target.value as "k24" | "k22" | "k18")}>
-                    <option value="k24">24K</option><option value="k22">22K</option><option value="k18">18K</option>
-                  </select>
+                  <PurityPicker value={calcP} onChange={setCalcP} />
                 </div>
               </div>
               <div className="frow"><div><label className="f">Scheme</label>

@@ -6,6 +6,7 @@ import { useToast } from "@/components/Toast";
 import { Icon } from "@/lib/icons";
 import { fmt, initials } from "@/lib/format";
 import { EmployeeModalContent } from "@/components/modals/EmployeeModal";
+import { RolesModalContent } from "@/components/modals/RolesModal";
 import { deleteEmployee, listEmployees, type EmployeeView } from "@/lib/employeeApi";
 
 /* Ported from legacy/app.js's `renderEmployees()`. Loads real data from the
@@ -47,6 +48,7 @@ export function Employees() {
       <div className="page-h">
         <div><h1>Employees &amp; Roles</h1><p>Role-based access · performance across loans, collections and follow-ups</p></div>
         <div className="sp" />
+        <button className="btn ghost" onClick={() => openModal(<RolesModalContent />)}><Icon name="shield" /> Roles</button>
         <button className="btn" onClick={() => openModal(<EmployeeModalContent onSaved={onSaved} />)}><Icon name="plus" /> Add Employee</button>
       </div>
       <hr className="gold-rule" />
@@ -86,9 +88,11 @@ export function Employees() {
                     <td className="num">{fmt(e.collections)}</td>
                     <td className="num">{e.followups}</td>
                     <td className="num">{e.pending}</td>
-                    <td style={{ display: "flex", gap: 12 }}>
-                      <a href="#" onClick={(ev) => { ev.preventDefault(); openModal(<EmployeeModalContent employee={e} onSaved={onSaved} />); }}>Edit</a>
-                      <a href="#" style={{ color: "var(--red)" }} onClick={(ev) => { ev.preventDefault(); onDelete(e); }}>Delete</a>
+                    <td>
+                      <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                        <a href="#" onClick={(ev) => { ev.preventDefault(); openModal(<EmployeeModalContent employee={e} onSaved={onSaved} />); }}>Edit</a>
+                        <a href="#" style={{ color: "var(--red)" }} onClick={(ev) => { ev.preventDefault(); onDelete(e); }}>Delete</a>
+                      </div>
                     </td>
                   </tr>
                 ))}

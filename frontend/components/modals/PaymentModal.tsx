@@ -10,20 +10,34 @@ import { ApiError } from "@/lib/api";
 
 const METHODS = ["Cash", "UPI", "Bank Transfer", "Cheque"];
 
-/* Ported from legacy/app.js's `openPaymentModal()` / `savePayment()`. Now
- * posts to the real POST /loans/:id/payments endpoint instead of the mock
- * db's local ledger. Amounts are allocated server-side against penal
- * interest → interest → principal per the selected type (see
- * backend/internal/loan/service.go's allocatePayment) — Adjustment/Waiver
- * don't involve cash and are flagged as such below since they don't touch
- * Cash-in-Hand. */
+/* Ported from legacy/app.js's `openPaymentModal()` / `savePayment()`. Posts
+ * to the real POST /loans/:id/payments endpoint. Simplified from a
+ * Payment-Type dropdown (Interest/Principal/Partial/Full Settlement/
+ * Adjustment/Waiver) down to a single Amount field: every payment now goes
+ * through the backend's "Partial" waterfall allocation — processing fee →
+ * penal interest → interest → principal (see
+ * backend/internal/loan/service.go's allocatePayment) — so staff never
+ * have to pick a bucket by hand, and a payment covering everything owed
+ * (including any outstanding fee) auto-closes the loan (same generic
+ * close-on-zero-outstanding check the backend already runs regardless of
+ * payment type). Adjustment/Waiver (non-cash ledger corrections) are no
+ * longer reachable from this modal — an explicit scope decision, not an
+ * oversight; a different entry point would need to be built if they're
+ * still needed.
+ *
+ * Also collects an optional processing fee / additional charge — entering
+ * one adds it to the loan's total owed (Loan.OutstandingProcessingFee)
+ * *before* Amount is allocated, so this same payment's Amount pays the fee
+ * off first, ahead of penal interest/interest/principal (see
+ * LoanPayment.ProcessingFee/ProcessingFeeApplied). It's not extra cash on
+ * top of Amount — Amount is the total cash handed over either way. */
 export function PaymentModalContent({ loan, onSaved }: { loan: LoanView; onSaved: () => void }) {
   const { closeModal } = useModal();
   const toast = useToast();
   const today = new Date().toISOString().slice(0, 10);
 
-  const [type, setType] = useState("");
   const [amt, setAmt] = useState("");
+  const [fee, setFee] = useState("");
   const [date, setDate] = useState(today);
   const [method, setMethod] = useState(METHODS[0]);
   const [reference, setReference] = useState("");
@@ -31,25 +45,27 @@ export function PaymentModalContent({ loan, onSaved }: { loan: LoanView; onSaved
   const [err, setErr] = useState("");
   const [saving, setSaving] = useState(false);
 
-  const isNonCash = type === "Adjustment" || type === "Waiver";
-
   async function save() {
-    if (!type) { setErr("Please select a payment type."); return; }
     const amount = +amt;
     if (!amount || amount <= 0) { setErr("Please enter a valid payment amount."); return; }
+    const processingFee = fee.trim() ? +fee : 0;
+    if (processingFee < 0) { setErr("Processing fee cannot be negative."); return; }
     if (!date) { setErr("Please select the payment date."); return; }
     setSaving(true);
     try {
-      // No auth/session exists yet — see LoanDetail.tsx's note on employeeId 1.
+      // The receiving employee is derived server-side from the logged-in
+      // user's JWT — no employeeId sent from here (see loansApi.ts's
+      // PaymentInput doc comment). Always "Partial" — see this file's doc
+      // comment on why the type picker was removed.
       await recordPayment(loan.numericId, {
-        amount, type, paidOn: date, employeeId: 1,
-        method: isNonCash ? undefined : method,
+        amount, type: "Partial", processingFee: processingFee || undefined, paidOn: date,
+        method,
         reference: reference.trim() || undefined,
         description: description.trim() || undefined,
       });
       onSaved();
       closeModal();
-      toast(`${isNonCash ? "Recorded" : "Payment of " + fmt(amount)} (${type})`);
+      toast(`Payment of ${fmt(amount)} recorded${processingFee ? ` (incl. ${fmt(processingFee)} processing fee charged)` : ""}`);
     } catch (e) {
       setErr(e instanceof ApiError ? e.message : "Could not record the payment — try again.");
     } finally {
@@ -64,36 +80,31 @@ export function PaymentModalContent({ loan, onSaved }: { loan: LoanView; onSaved
         <div className="notice" style={{ marginBottom: 16, flexDirection: "column", alignItems: "stretch", gap: 4 }}>
           <div><Icon name="coin" /> Outstanding principal: <b>{fmt(loan.outstanding)}</b></div>
           <div>Outstanding interest: <b>{fmt(loan.outstandingInterest)}</b>{loan.outstandingPenalInterest > 0 && <> · Penal interest: <b>{fmt(loan.outstandingPenalInterest)}</b></>}</div>
+          {loan.outstandingProcessingFee > 0 && <div>Outstanding processing fee: <b>{fmt(loan.outstandingProcessingFee)}</b></div>}
           <div>Settlement amount (pay this to close today): <b>{fmt(loan.settlementAmount)}</b></div>
         </div>
-        <div className="frow"><div><label className="f">Payment Type *</label>
-          <select className="inp" value={type} onChange={(e) => setType(e.target.value)}>
-            <option value="">Select payment type…</option>
-            <option>Interest</option>
-            <option>Principal</option>
-            <option>Partial</option>
-            <option>Full Settlement</option>
-            <option>Adjustment</option>
-            <option>Waiver</option>
-          </select></div></div>
-        {isNonCash && (
-          <p style={{ fontSize: 12, color: "var(--muted)", marginTop: -6, marginBottom: 10 }}>
-            {type === "Adjustment" ? "Corrects the outstanding principal directly — no cash is received." : "Forgives outstanding interest/penal interest — no cash is received."}
-          </p>
-        )}
+        <p style={{ fontSize: 12, color: "var(--muted)", marginTop: -6, marginBottom: 10 }}>
+          The amount is applied automatically — any outstanding processing fee first, then penal
+          interest, then interest, then principal. Paying the full settlement amount closes the loan.
+        </p>
         <div className="frow c2">
           <div><label className="f">Amount (₹) *</label><input className="inp" type="number" min={1} placeholder="e.g. 5000" value={amt} onChange={(e) => setAmt(e.target.value)} /></div>
-          <div><label className="f">{isNonCash ? "Date *" : "Payment Date *"}</label><input className="inp" type="date" value={date} onChange={(e) => setDate(e.target.value)} /></div>
+          <div><label className="f">Payment Date *</label><input className="inp" type="date" value={date} onChange={(e) => setDate(e.target.value)} /></div>
         </div>
-        {!isNonCash && (
-          <div className="frow c2">
-            <div><label className="f">Payment Method</label>
-              <select className="inp" value={method} onChange={(e) => setMethod(e.target.value)}>
-                {METHODS.map((m) => <option key={m}>{m}</option>)}
-              </select></div>
-            <div><label className="f">Reference No.</label><input className="inp" placeholder="e.g. UPI txn id, cheque no." value={reference} onChange={(e) => setReference(e.target.value)} /></div>
-          </div>
-        )}
+        <div className="frow c2">
+          <div><label className="f">Payment Method</label>
+            <select className="inp" value={method} onChange={(e) => setMethod(e.target.value)}>
+              {METHODS.map((m) => <option key={m}>{m}</option>)}
+            </select></div>
+          <div><label className="f">Reference No.</label><input className="inp" placeholder="e.g. UPI txn id, cheque no." value={reference} onChange={(e) => setReference(e.target.value)} /></div>
+        </div>
+        <div className="frow"><div><label className="f">Processing Fee / Additional Charges (₹)</label>
+          <input className="inp" type="number" min={0} placeholder="optional — e.g. late fee, documentation charge" value={fee} onChange={(e) => setFee(e.target.value)} />
+          <p style={{ fontSize: 12, color: "var(--muted)", margin: "4px 0 0" }}>
+            Added to the total owed, then deducted first from the Amount above — before interest or
+            principal. Not extra cash on top of Amount.
+          </p>
+        </div></div>
         <div className="frow"><div><label className="f">Description</label>
           <input className="inp" placeholder="Optional note for the ledger" value={description} onChange={(e) => setDescription(e.target.value)} /></div></div>
         <p style={{ color: "var(--red)", fontSize: 12.5, minHeight: 16, marginTop: 8 }}>{err}</p>

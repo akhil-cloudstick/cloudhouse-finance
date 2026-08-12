@@ -7,17 +7,16 @@ import (
 
 var (
 	ErrNotFound    = errors.New("gold rate not found")
-	ErrInvalidRate = errors.New("k24, k22 and k18 rates must all be greater than zero")
+	ErrInvalidRate = errors.New("k24 rate must be greater than zero")
 	ErrSetByBlank  = errors.New("setBy is required")
 )
 
 // PublishInput mirrors the fields an admin supplies via the "Set Today's
-// Rate" form (RateModal.tsx).
+// Rate" form (RateModal.tsx). Only the 24K benchmark is published — see
+// this package's doc comment.
 type PublishInput struct {
 	Date  time.Time
 	K24   float64
-	K22   float64
-	K18   float64
 	SetBy string
 }
 
@@ -31,7 +30,7 @@ func NewService(repo *Repository) *Service {
 }
 
 func validate(in PublishInput) error {
-	if in.K24 <= 0 || in.K22 <= 0 || in.K18 <= 0 {
+	if in.K24 <= 0 {
 		return ErrInvalidRate
 	}
 	if in.SetBy == "" {
@@ -54,8 +53,6 @@ func (s *Service) Publish(in PublishInput) (*GoldRate, error) {
 	rec := &GoldRate{
 		Date:  date,
 		K24:   in.K24,
-		K22:   in.K22,
-		K18:   in.K18,
 		SetBy: in.SetBy,
 	}
 	if err := s.repo.Create(rec); err != nil {

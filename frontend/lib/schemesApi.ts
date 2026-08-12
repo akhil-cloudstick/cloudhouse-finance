@@ -13,6 +13,8 @@ export type BackendScheme = {
   penalRate: number;
   conditions: string;
   isActive: boolean;
+  branchId: number;
+  branch?: { id: number; name: string; code?: string };
 };
 
 /* Shape the Schemes UI renders — closer to how a scheme is described on
@@ -28,6 +30,8 @@ export type SchemeView = {
   penal: number;
   cond: string;
   active: boolean;
+  branchId: number;
+  branchName: string;
 };
 
 export type SchemeFormInput = {
@@ -39,6 +43,7 @@ export type SchemeFormInput = {
   penal: number;
   cond: string;
   active: boolean;
+  branchId: number;
 };
 
 function toView(s: BackendScheme): SchemeView {
@@ -53,6 +58,8 @@ function toView(s: BackendScheme): SchemeView {
     penal: s.penalRate,
     cond: s.conditions,
     active: s.isActive,
+    branchId: s.branchId,
+    branchName: s.branch?.name || "",
   };
 }
 
@@ -66,6 +73,7 @@ function toRequestBody(input: SchemeFormInput) {
     penalRate: input.penal,
     conditions: input.cond,
     isActive: input.active,
+    branchId: input.branchId,
   };
 }
 

@@ -54,7 +54,7 @@ function LoginPageInner() {
   const { login, token, loading } = useAuth();
   const [dust, setDust] = useState<DustParticle[]>([]);
   const [passVisible, setPassVisible] = useState(false);
-  const [email, setEmail] = useState("");
+  const [identifier, setIdentifier] = useState("");
   const [pass, setPass] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [msg, setMsg] = useState<{ text: string; ok: boolean } | null>(null);
@@ -80,11 +80,11 @@ function LoginPageInner() {
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    const trimmedEmail = email.trim();
+    const trimmedIdentifier = identifier.trim();
     setMsg(null);
 
-    if (!trimmedEmail) {
-      setMsg({ text: "Please enter your email.", ok: false });
+    if (!trimmedIdentifier) {
+      setMsg({ text: "Please enter your username or phone number.", ok: false });
       return;
     }
     if (!pass) {
@@ -94,14 +94,16 @@ function LoginPageInner() {
 
     setSubmitting(true);
     try {
-      await login(trimmedEmail, pass);
+      await login(trimmedIdentifier, pass);
       setMsg({ text: "Welcome back! Opening your vault…", ok: true });
       setTimeout(() => {
         router.push("/app#dashboard");
       }, 400);
     } catch (err) {
       const text =
-        err instanceof ApiError ? err.message || "Invalid email or password." : "Invalid email or password.";
+        err instanceof ApiError
+          ? err.message || "Invalid username/phone or password."
+          : "Invalid username/phone or password.";
       setMsg({ text, ok: false });
       setSubmitting(false);
     }
@@ -156,15 +158,15 @@ function LoginPageInner() {
           <form id="loginForm" noValidate onSubmit={handleSubmit}>
             <div className="field">
               <input
-                type="email"
-                id="email"
+                type="text"
+                id="identifier"
                 placeholder=" "
                 autoComplete="username"
                 required
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
+                value={identifier}
+                onChange={(e) => setIdentifier(e.target.value)}
               />
-              <label htmlFor="email">Email</label>
+              <label htmlFor="identifier">Username or Phone</label>
               <span className="icon" aria-hidden="true">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6">
                   <circle cx="12" cy="8" r="4" />
@@ -230,16 +232,6 @@ function LoginPageInner() {
             </p>
           </form>
 
-          <div className="foot">
-            <span className="lock">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
-                <rect x="5" y="10" width="14" height="10" rx="2" />
-                <path d="M8 10V7a4 4 0 0 1 8 0v3" />
-                <circle cx="12" cy="15" r="1.6" fill="currentColor" stroke="none" />
-              </svg>
-              Secured with 256-bit encryption
-            </span>
-          </div>
         </main>
 
         <p className="copy">© 2026 Ambika Gold Finance · Trust · Value · Growth</p>

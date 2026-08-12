@@ -115,13 +115,22 @@ func (s *MovementService) Record(in RecordMovementInput) (*CashMovement, error) 
 	return s.repo.FindByID(rec.ID)
 }
 
-func (s *MovementService) List() ([]CashMovement, error) {
-	return s.repo.FindAll()
+// List returns cash movements, optionally scoped to branchID (nil = all
+// branches — Administrator only, see platform.GetBranchScope).
+func (s *MovementService) List(branchID *uint) ([]CashMovement, error) {
+	return s.repo.FindAll(branchID)
 }
 
-func (s *MovementService) Get(id uint) (*CashMovement, error) {
+// Get returns the movement by id, or ErrMovementNotFound if it doesn't
+// exist OR (when branchID is non-nil) belongs to a different branch (or has
+// no branch at all) — a non-admin gets the same "not found" for another
+// branch's movement as for a genuinely missing id.
+func (s *MovementService) Get(id uint, branchID *uint) (*CashMovement, error) {
 	rec, err := s.repo.FindByID(id)
 	if err != nil {
+		return nil, ErrMovementNotFound
+	}
+	if branchID != nil && (rec.BranchID == nil || *rec.BranchID != *branchID) {
 		return nil, ErrMovementNotFound
 	}
 	return rec, nil
@@ -208,13 +217,19 @@ func (s *MovementService) DeleteCashMovement(id uint) error {
 }
 
 // SetLoanStatus updates the Open/Closed status of a loan-sourced cash-in
-// movement, mirroring legacy's setCashLoanStatus/toggleCashLoan.
-func (s *MovementService) SetLoanStatus(id uint, status string) (*CashMovement, error) {
+// movement, mirroring legacy's setCashLoanStatus/toggleCashLoan. branchID
+// (nil for Administrator) must match the movement's branch or
+// ErrMovementNotFound is returned before any other validation runs, same
+// not-found-on-mismatch guard as Get.
+func (s *MovementService) SetLoanStatus(id uint, status string, branchID *uint) (*CashMovement, error) {
 	if status != "Open" && status != "Closed" {
 		return nil, ErrInvalidStatus
 	}
 	rec, err := s.repo.FindByID(id)
 	if err != nil {
+		return nil, ErrMovementNotFound
+	}
+	if branchID != nil && (rec.BranchID == nil || *rec.BranchID != *branchID) {
 		return nil, ErrMovementNotFound
 	}
 	rec.Status = status
@@ -277,13 +292,22 @@ func (s *ExpenseService) Record(in RecordExpenseInput) (*Expense, error) {
 	return s.repo.FindByID(rec.ID)
 }
 
-func (s *ExpenseService) List() ([]Expense, error) {
-	return s.repo.FindAll()
+// List returns expenses, optionally scoped to branchID (nil = all branches
+// — Administrator only, see platform.GetBranchScope).
+func (s *ExpenseService) List(branchID *uint) ([]Expense, error) {
+	return s.repo.FindAll(branchID)
 }
 
-func (s *ExpenseService) Get(id uint) (*Expense, error) {
+// Get returns the expense by id, or ErrExpenseNotFound if it doesn't exist
+// OR (when branchID is non-nil) belongs to a different branch — a
+// non-admin gets the same "not found" for another branch's expense as for
+// a genuinely missing id.
+func (s *ExpenseService) Get(id uint, branchID *uint) (*Expense, error) {
 	rec, err := s.repo.FindByID(id)
 	if err != nil {
+		return nil, ErrExpenseNotFound
+	}
+	if branchID != nil && rec.BranchID != *branchID {
 		return nil, ErrExpenseNotFound
 	}
 	return rec, nil
@@ -291,9 +315,14 @@ func (s *ExpenseService) Get(id uint) (*Expense, error) {
 
 // Approve marks a Pending expense as Approved. Only Pending expenses can be
 // approved — an already-decided expense must be re-recorded, not amended.
-func (s *ExpenseService) Approve(id uint, approvedBy string) (*Expense, error) {
+// branchID (nil for Administrator) must match the expense's branch or
+// ErrExpenseNotFound is returned, same not-found-on-mismatch guard as Get.
+func (s *ExpenseService) Approve(id uint, approvedBy string, branchID *uint) (*Expense, error) {
 	rec, err := s.repo.FindByID(id)
 	if err != nil {
+		return nil, ErrExpenseNotFound
+	}
+	if branchID != nil && rec.BranchID != *branchID {
 		return nil, ErrExpenseNotFound
 	}
 	if rec.Status != "Pending" {
@@ -312,13 +341,18 @@ func (s *ExpenseService) Approve(id uint, approvedBy string) (*Expense, error) {
 }
 
 // Reject marks a Pending expense as Rejected. Remarks are required so a
-// rejection always carries a reason.
-func (s *ExpenseService) Reject(id uint, approvedBy, remarks string) (*Expense, error) {
+// rejection always carries a reason. branchID (nil for Administrator) must
+// match the expense's branch or ErrExpenseNotFound is returned, same
+// not-found-on-mismatch guard as Get.
+func (s *ExpenseService) Reject(id uint, approvedBy, remarks string, branchID *uint) (*Expense, error) {
 	if remarks == "" {
 		return nil, ErrRemarksRequired
 	}
 	rec, err := s.repo.FindByID(id)
 	if err != nil {
+		return nil, ErrExpenseNotFound
+	}
+	if branchID != nil && rec.BranchID != *branchID {
 		return nil, ErrExpenseNotFound
 	}
 	if rec.Status != "Pending" {

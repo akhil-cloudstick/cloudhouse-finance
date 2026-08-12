@@ -89,9 +89,12 @@ func (s *Service) Create(in CreateInput) (*Reminder, error) {
 	return s.repo.FindByID(rec.ID)
 }
 
-func (s *Service) Get(id uint) (*Reminder, error) {
+func (s *Service) Get(id uint, branchID *uint) (*Reminder, error) {
 	rec, err := s.repo.FindByID(id)
 	if err != nil {
+		return nil, ErrNotFound
+	}
+	if branchID != nil && rec.Customer.BranchID != *branchID {
 		return nil, ErrNotFound
 	}
 	return rec, nil
@@ -149,7 +152,7 @@ func (s *Service) Delete(id uint) error {
 // convention since interest here accrues continuously rather than on a
 // real billing schedule, see loan/accrual.go), and every manual Reminder
 // whose DueDate falls in range (FollowUp/PromiseToPay/Custom).
-func (s *Service) GetCalendarEvents(from, to time.Time) ([]CalendarEvent, error) {
+func (s *Service) GetCalendarEvents(from, to time.Time, branchID *uint) ([]CalendarEvent, error) {
 	from = truncateDay(from)
 	to = truncateDay(to)
 
@@ -161,6 +164,9 @@ func (s *Service) GetCalendarEvents(from, to time.Time) ([]CalendarEvent, error)
 	}
 	now := truncateDay(time.Now())
 	for _, l := range loans {
+		if branchID != nil && l.BranchID != *branchID {
+			continue
+		}
 		due := truncateDay(l.DueDate)
 		custID := l.CustomerID
 		custName := l.Customer.Name
@@ -220,7 +226,7 @@ func (s *Service) GetCalendarEvents(from, to time.Time) ([]CalendarEvent, error)
 	}
 
 	from2, to2 := from, to
-	reminders, err := s.repo.FindAll(Filter{From: &from2, To: &to2})
+	reminders, err := s.repo.FindAll(Filter{From: &from2, To: &to2, BranchID: branchID})
 	if err != nil {
 		return nil, err
 	}

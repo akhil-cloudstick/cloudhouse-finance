@@ -19,9 +19,16 @@ func (r *Repository) Create(l *Locker) error {
 	return r.db.Create(l).Error
 }
 
-func (r *Repository) FindAll() ([]Locker, error) {
+// FindAll returns lockers, optionally scoped to a single branch — pass nil
+// for an Administrator's unfiltered "all branches" view, or a non-nil
+// pointer to confine results to that branch (see platform.GetBranchScope).
+func (r *Repository) FindAll(branchID *uint) ([]Locker, error) {
 	var lockers []Locker
-	err := r.db.Preload("Branch").Order("code asc").Find(&lockers).Error
+	q := r.db.Preload("Branch").Order("code asc")
+	if branchID != nil {
+		q = q.Where("branch_id = ?", *branchID)
+	}
+	err := q.Find(&lockers).Error
 	return lockers, err
 }
 

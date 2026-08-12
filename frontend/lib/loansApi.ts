@@ -71,6 +71,8 @@ export type BackendLoanPayment = {
   loanId: number;
   amount: number;
   type: string;
+  processingFee: number;
+  processingFeeApplied: number;
   paidOn: string;
   receivedByEmployeeId: number;
   description: string;
@@ -86,10 +88,14 @@ export type BackendLoanPayment = {
 export type BackendBankPledgeRecord = {
   id: number;
   loanId: number;
+  bankId: number | null;
   bankName: string;
   pledgedAmount: number;
   pledgeDate: string;
   releaseDate: string | null;
+  bankPledgeDueDate: string | null;
+  pledgedGrossWeight: number;
+  pledgedNetWeight: number;
   bankInterestRate: number;
   referenceNumber: string;
   createdAt: string;
@@ -123,6 +129,7 @@ export type BackendLoan = {
   penalInterestPaid: number;
   outstandingInterest: number;
   outstandingPenalInterest: number;
+  outstandingProcessingFee: number;
   totalOutstandingBalance: number;
   settlementAmount: number;
   totalPaid: number;
@@ -165,6 +172,8 @@ export type PaymentView = {
   id: number;
   amount: number;
   type: string;
+  processingFee: number;
+  processingFeeApplied: number;
   paidOn: string; // "YYYY-MM-DD"
   receivedByEmployeeId: number;
   description: string;
@@ -178,10 +187,14 @@ export type PaymentView = {
 
 export type BankPledgeView = {
   id: number;
+  bankId: number | null;
   bankName: string;
   pledgedAmount: number;
   pledgeDate: string;
   releaseDate: string | null;
+  bankPledgeDueDate: string | null;
+  pledgedGrossWeight: number;
+  pledgedNetWeight: number;
   isReleased: boolean;
   bankInterestRate: number;
   referenceNumber: string;
@@ -214,6 +227,7 @@ export type LoanView = {
   penalInterestPaid: number;
   outstandingInterest: number;
   outstandingPenalInterest: number;
+  outstandingProcessingFee: number;
   totalOutstandingBalance: number;
   settlementAmount: number;
   totalPaid: number;
@@ -251,6 +265,8 @@ function toPaymentView(p: BackendLoanPayment): PaymentView {
     id: p.id,
     amount: p.amount,
     type: p.type,
+    processingFee: p.processingFee,
+    processingFeeApplied: p.processingFeeApplied,
     paidOn: p.paidOn.slice(0, 10),
     receivedByEmployeeId: p.receivedByEmployeeId,
     description: p.description,
@@ -266,10 +282,14 @@ function toPaymentView(p: BackendLoanPayment): PaymentView {
 function toBankPledgeView(p: BackendBankPledgeRecord): BankPledgeView {
   return {
     id: p.id,
+    bankId: p.bankId,
     bankName: p.bankName,
     pledgedAmount: p.pledgedAmount,
     pledgeDate: p.pledgeDate.slice(0, 10),
     releaseDate: p.releaseDate ? p.releaseDate.slice(0, 10) : null,
+    bankPledgeDueDate: p.bankPledgeDueDate ? p.bankPledgeDueDate.slice(0, 10) : null,
+    pledgedGrossWeight: p.pledgedGrossWeight,
+    pledgedNetWeight: p.pledgedNetWeight,
     isReleased: !!p.releaseDate,
     bankInterestRate: p.bankInterestRate,
     referenceNumber: p.referenceNumber,
@@ -304,6 +324,7 @@ export function toView(l: BackendLoan): LoanView {
     penalInterestPaid: l.penalInterestPaid,
     outstandingInterest: l.outstandingInterest,
     outstandingPenalInterest: l.outstandingPenalInterest,
+    outstandingProcessingFee: l.outstandingProcessingFee,
     totalOutstandingBalance: l.totalOutstandingBalance,
     settlementAmount: l.settlementAmount,
     totalPaid: l.totalPaid,
@@ -437,7 +458,12 @@ export async function listLoanApprovals(loanId: number): Promise<ApprovalStageRe
   return (await apiFetch<ApprovalStageRecord[]>(`/loans/${loanId}/approvals`)) || [];
 }
 
-export type ApprovalInput = { stage: SanctionStage; action: "Approved" | "Rejected"; employeeId: number; role: string; remarks?: string };
+// employeeId/role are NOT sent — the backend derives the acting employee's
+// identity and role from the authenticated JWT (see
+// platform.ActorFromContext), never from the request body. Administrator's
+// "may act at any pending stage" bypass still works, keyed off their real
+// role.
+export type ApprovalInput = { stage: SanctionStage; action: "Approved" | "Rejected"; remarks?: string };
 
 export async function approveLoan(loanId: number, input: ApprovalInput): Promise<LoanView> {
   const rec = await apiFetch<BackendLoan>(`/loans/${loanId}/approve`, {
@@ -447,11 +473,33 @@ export async function approveLoan(loanId: number, input: ApprovalInput): Promise
   return toView(rec);
 }
 
+/* The Loan Operator's hard-enforced approval limit (see
+ * backend/internal/loan/approval_limit.go) — a Loan Operator's own
+ * "Approved" action on a loan whose principal exceeds this fails with
+ * ErrExceedsApprovalLimit; only Branch Manager/Management/Administrator
+ * may clear that stage above the limit. Editable from the Employees
+ * page's "Roles" panel. */
+export type ApprovalLimitView = { role: string; maxAmount: number };
+
+export async function getLoanOperatorApprovalLimit(): Promise<ApprovalLimitView> {
+  return apiFetch<ApprovalLimitView>("/loans/approval-limits/loan-operator");
+}
+
+export async function setLoanOperatorApprovalLimit(maxAmount: number): Promise<ApprovalLimitView> {
+  return apiFetch<ApprovalLimitView>("/loans/approval-limits/loan-operator", {
+    method: "PUT",
+    body: JSON.stringify({ maxAmount }),
+  });
+}
+
+// employeeId is NOT sent — the backend derives the receiving employee's
+// identity from the authenticated JWT, never the request body (see
+// platform.ActorFromContext).
 export type PaymentInput = {
   amount: number;
   type: string; // "Interest" | "Principal" | "Partial" | "Full Settlement" | "Adjustment" | "Waiver"
+  processingFee?: number; // extra charge collected alongside amount — never applied to penal/interest/principal
   paidOn: string;
-  employeeId: number;
   method?: string;
   reference?: string;
   description?: string;
@@ -466,11 +514,13 @@ export async function recordPayment(loanId: number, input: PaymentInput): Promis
 }
 
 export type BankPledgeInput = {
+  bankId?: number;
   bankName: string;
   pledgedAmount: number;
   pledgeDate: string;
   bankInterestRate?: number;
   referenceNumber?: string;
+  bankPledgeDueDate?: string;
 };
 
 export async function recordBankPledge(loanId: number, input: BankPledgeInput): Promise<LoanView> {
@@ -711,10 +761,12 @@ export async function createReleaseRequest(loanId: number, detail?: string): Pro
  * Release requests use verifyReleaseChecklist + approveReleaseRequest
  * instead (the backend rejects a Release request here with
  * ErrNotExtensionRequest). */
-export async function decideRequest(requestId: number, action: "Approved" | "Rejected", employeeId: number, remarks?: string): Promise<RequestView> {
+// employeeId is NOT sent — the backend derives the deciding employee's
+// identity from the authenticated JWT (see platform.ActorFromContext).
+export async function decideRequest(requestId: number, action: "Approved" | "Rejected", remarks?: string): Promise<RequestView> {
   const rec = await apiFetch<BackendLoanRequest>(`/loans/requests/${requestId}/decide`, {
     method: "PUT",
-    body: JSON.stringify({ action, employeeId, remarks }),
+    body: JSON.stringify({ action, remarks }),
   });
   return toRequestView(rec);
 }
@@ -740,7 +792,8 @@ export async function verifyReleaseChecklist(requestId: number, input: Checklist
   return toRequestView(rec);
 }
 
-export type ReleaseApprovalInput = { stage: "Manager" | "Management"; action: "Approved" | "Rejected"; employeeId: number; remarks?: string };
+// employeeId is NOT sent — see platform.ActorFromContext's doc comment.
+export type ReleaseApprovalInput = { stage: "Manager" | "Management"; action: "Approved" | "Rejected"; remarks?: string };
 
 export async function approveReleaseRequest(requestId: number, input: ReleaseApprovalInput): Promise<RequestView> {
   const rec = await apiFetch<BackendLoanRequest>(`/loans/requests/${requestId}/approve`, {
@@ -753,10 +806,11 @@ export async function approveReleaseRequest(requestId: number, input: ReleaseApp
 /* The actual "hand the gold back" step, separate from approving the
  * request — blocked server-side until the settlement is fully paid and any
  * bank pledge already released (see Service.CompleteRelease). */
-export async function completeRelease(loanId: number, employeeId: number): Promise<LoanView> {
+// No employeeId needed — the backend derives it from the authenticated JWT
+// (see platform.ActorFromContext).
+export async function completeRelease(loanId: number): Promise<LoanView> {
   const rec = await apiFetch<BackendLoan>(`/loans/${loanId}/complete-release`, {
     method: "POST",
-    body: JSON.stringify({ employeeId }),
   });
   return toView(rec);
 }

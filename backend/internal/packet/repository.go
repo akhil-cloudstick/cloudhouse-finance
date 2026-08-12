@@ -53,7 +53,7 @@ func (r *Repository) FindActiveByLoanID(loanID uint) (*Packet, error) {
 // status/lockerId.
 type Filter struct {
 	LoanID   uint
-	BranchID uint
+	BranchID *uint
 	Status   string
 	LockerID uint
 }
@@ -69,8 +69,8 @@ func (r *Repository) FindAll(f Filter) ([]Packet, error) {
 	if f.LockerID != 0 {
 		q = q.Where("packets.current_locker_id = ?", f.LockerID)
 	}
-	if f.BranchID != 0 {
-		q = q.Joins("JOIN loans ON loans.id = packets.loan_id").Where("loans.branch_id = ?", f.BranchID)
+	if f.BranchID != nil {
+		q = q.Joins("JOIN loans ON loans.id = packets.loan_id").Where("loans.branch_id = ?", *f.BranchID)
 	}
 	var packets []Packet
 	err := q.Order("packets.id desc").Find(&packets).Error

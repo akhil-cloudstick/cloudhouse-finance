@@ -44,6 +44,33 @@ func BackfillDurationMonths(db *gorm.DB) error {
 	return nil
 }
 
+// BackfillBranchID is a one-time, idempotent step for existing databases
+// whose schemes table predates the required BranchID FK. Same rationale as
+// BackfillDurationMonths above: GORM adding branch_id as a NOT NULL column
+// on a non-empty schemes table fails immediately ("column branch_id...
+// contains null values") since there's no default to satisfy existing rows.
+// Running as raw SQL first adds a nullable column and points every existing
+// scheme at branch 1 (the same "default to branch 1" convention used
+// elsewhere for newly-branch-scoped tables — see cmd/migrate's
+// backfillEmployeeBranch/backfillCashMovementBranch), so AutoMigrate can
+// then safely tighten it to NOT NULL. Safe to re-run: once branch_id exists
+// and every row is populated, its UPDATE simply matches nothing.
+func BackfillBranchID(db *gorm.DB) error {
+	if !db.Migrator().HasColumn(&Scheme{}, "branch_id") {
+		if err := db.Exec(`ALTER TABLE schemes ADD COLUMN branch_id bigint`).Error; err != nil {
+			return err
+		}
+	}
+	res := db.Exec(`UPDATE schemes SET branch_id = 1 WHERE branch_id IS NULL`)
+	if res.Error != nil {
+		return res.Error
+	}
+	if res.RowsAffected > 0 {
+		log.Printf("backfilled schemes.branch_id -> 1 for %d scheme(s)", res.RowsAffected)
+	}
+	return nil
+}
+
 // DropLegacyDateColumns removes the old start_date/end_date validity-window
 // columns once BackfillDurationMonths has copied their span into
 // duration_months. Safe to re-run: HasColumn is false after the first

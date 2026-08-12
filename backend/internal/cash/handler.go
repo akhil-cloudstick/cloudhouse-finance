@@ -7,6 +7,8 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+
+	"ambikagold/backend/internal/platform"
 )
 
 // MovementHandler wires HTTP requests to the MovementService.
@@ -79,6 +81,13 @@ func (h *MovementHandler) Record(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
+	// Only enforce/override the branch when the caller actually supplied
+	// one — forcing a branch onto a till-less movement would defeat the
+	// "not every movement is tied to a till" design (see model.go).
+	if input.BranchID != nil {
+		branchID := platform.EnforceBranchOnWrite(c, *input.BranchID)
+		input.BranchID = &branchID
+	}
 	rec, err := h.svc.Record(input)
 	if err != nil {
 		c.JSON(movementStatusForErr(err), gin.H{"error": err.Error()})
@@ -88,7 +97,7 @@ func (h *MovementHandler) Record(c *gin.Context) {
 }
 
 func (h *MovementHandler) List(c *gin.Context) {
-	rec, err := h.svc.List()
+	rec, err := h.svc.List(platform.GetBranchScope(c))
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -102,7 +111,7 @@ func (h *MovementHandler) Get(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	rec, err := h.svc.Get(id)
+	rec, err := h.svc.Get(id, platform.GetBranchScope(c))
 	if err != nil {
 		c.JSON(movementStatusForErr(err), gin.H{"error": err.Error()})
 		return
@@ -125,7 +134,7 @@ func (h *MovementHandler) SetStatus(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	rec, err := h.svc.SetLoanStatus(id, req.Status)
+	rec, err := h.svc.SetLoanStatus(id, req.Status, platform.GetBranchScope(c))
 	if err != nil {
 		c.JSON(movementStatusForErr(err), gin.H{"error": err.Error()})
 		return
@@ -189,6 +198,7 @@ func (h *ExpenseHandler) Record(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
+	input.BranchID = platform.EnforceBranchOnWrite(c, input.BranchID)
 	rec, err := h.svc.Record(input)
 	if err != nil {
 		c.JSON(expenseStatusForErr(err), gin.H{"error": err.Error()})
@@ -198,7 +208,7 @@ func (h *ExpenseHandler) Record(c *gin.Context) {
 }
 
 func (h *ExpenseHandler) List(c *gin.Context) {
-	rec, err := h.svc.List()
+	rec, err := h.svc.List(platform.GetBranchScope(c))
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -212,7 +222,7 @@ func (h *ExpenseHandler) Get(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	rec, err := h.svc.Get(id)
+	rec, err := h.svc.Get(id, platform.GetBranchScope(c))
 	if err != nil {
 		c.JSON(expenseStatusForErr(err), gin.H{"error": err.Error()})
 		return
@@ -232,7 +242,7 @@ func (h *ExpenseHandler) Approve(c *gin.Context) {
 	}
 	var req approveExpenseRequest
 	_ = c.ShouldBindJSON(&req) // body is optional
-	rec, err := h.svc.Approve(id, req.ApprovedBy)
+	rec, err := h.svc.Approve(id, req.ApprovedBy, platform.GetBranchScope(c))
 	if err != nil {
 		c.JSON(expenseStatusForErr(err), gin.H{"error": err.Error()})
 		return
@@ -256,7 +266,7 @@ func (h *ExpenseHandler) Reject(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	rec, err := h.svc.Reject(id, req.ApprovedBy, req.Remarks)
+	rec, err := h.svc.Reject(id, req.ApprovedBy, req.Remarks, platform.GetBranchScope(c))
 	if err != nil {
 		c.JSON(expenseStatusForErr(err), gin.H{"error": err.Error()})
 		return

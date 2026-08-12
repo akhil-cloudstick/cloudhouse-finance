@@ -59,7 +59,7 @@ func (h *Handler) Login(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	token, emp, err := h.svc.Login(in.Email, in.Password)
+	token, emp, err := h.svc.Login(in.Identifier, in.Password)
 	if err != nil {
 		respondErr(c, err)
 		return
@@ -67,21 +67,22 @@ func (h *Handler) Login(c *gin.Context) {
 	c.JSON(http.StatusOK, LoginResponse{Token: token, Employee: emp})
 }
 
-// ForgotPassword always responds 200 regardless of whether the email is
-// registered, so the API never reveals which emails have accounts.
-// ErrInvalidCredentials (meaning "no such email" in this context) is
-// swallowed; any other/unexpected error still logs but also responds 200
-// to avoid leaking account existence via timing/error differences.
+// ForgotPassword always responds 200 regardless of whether the phone
+// number is registered, so the API never reveals which phone numbers have
+// accounts. ErrInvalidCredentials (meaning "no such phone" in this
+// context) is swallowed; any other/unexpected error still logs but also
+// responds 200 to avoid leaking account existence via timing/error
+// differences.
 func (h *Handler) ForgotPassword(c *gin.Context) {
 	var in ForgotPasswordInput
 	if err := c.ShouldBindJSON(&in); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	if err := h.svc.ForgotPassword(in.Email); err != nil && !errors.Is(err, ErrInvalidCredentials) {
-		log.Printf("auth: forgot-password error for %q: %v", in.Email, err)
+	if err := h.svc.ForgotPassword(in.Phone); err != nil && !errors.Is(err, ErrInvalidCredentials) {
+		log.Printf("auth: forgot-password error for %q: %v", in.Phone, err)
 	}
-	c.JSON(http.StatusOK, gin.H{"message": "If that email is registered, a password reset link has been sent."})
+	c.JSON(http.StatusOK, gin.H{"message": "If that phone number is registered, a reset code has been sent by SMS."})
 }
 
 func (h *Handler) ResetPassword(c *gin.Context) {
@@ -90,7 +91,7 @@ func (h *Handler) ResetPassword(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	if err := h.svc.ResetPassword(in.Token, in.NewPassword); err != nil {
+	if err := h.svc.ResetPassword(in.Phone, in.OTP, in.NewPassword); err != nil {
 		respondErr(c, err)
 		return
 	}

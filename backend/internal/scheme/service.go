@@ -3,6 +3,8 @@ package scheme
 import (
 	"errors"
 	"fmt"
+
+	"ambikagold/backend/internal/branch"
 )
 
 var (
@@ -12,12 +14,15 @@ var (
 	ErrInvalidRate     = errors.New("interest rate must be non-negative")
 	ErrInvalidWeight   = errors.New("gold weight must be greater than zero")
 	ErrInvalidGoldRt   = errors.New("gold rate must be greater than zero")
+	ErrBranchReq       = errors.New("branch is required")
+	ErrBranchInvalid   = errors.New("branch does not exist")
 )
 
 // CreateInput / UpdateInput mirror the fields an admin supplies when
 // creating/editing a scheme.
 type CreateInput struct {
 	Name           string
+	BranchID       uint
 	InterestRate   float64
 	DurationMonths int
 	LTVPercent     float64
@@ -40,11 +45,12 @@ type CalculationResult struct {
 
 // Service implements loan-scheme business rules on top of the Repository.
 type Service struct {
-	repo *Repository
+	repo       *Repository
+	branchRepo *branch.Repository
 }
 
-func NewService(repo *Repository) *Service {
-	return &Service{repo: repo}
+func NewService(repo *Repository, branchRepo *branch.Repository) *Service {
+	return &Service{repo: repo, branchRepo: branchRepo}
 }
 
 func validate(in CreateInput) error {
@@ -60,8 +66,25 @@ func validate(in CreateInput) error {
 	return nil
 }
 
+func (s *Service) checkBranch(id uint) error {
+	ok, err := s.branchRepo.Exists(id)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return ErrBranchInvalid
+	}
+	return nil
+}
+
 func (s *Service) Create(in CreateInput) (*Scheme, error) {
 	if err := validate(in); err != nil {
+		return nil, err
+	}
+	if in.BranchID == 0 {
+		return nil, ErrBranchReq
+	}
+	if err := s.checkBranch(in.BranchID); err != nil {
 		return nil, err
 	}
 
@@ -73,6 +96,7 @@ func (s *Service) Create(in CreateInput) (*Scheme, error) {
 
 	rec := &Scheme{
 		Code:           code,
+		BranchID:       in.BranchID,
 		Name:           in.Name,
 		InterestRate:   in.InterestRate,
 		DurationMonths: in.DurationMonths,
@@ -88,8 +112,10 @@ func (s *Service) Create(in CreateInput) (*Scheme, error) {
 	return rec, nil
 }
 
-func (s *Service) List(query string) ([]Scheme, error) {
-	return s.repo.FindAll(query)
+// List returns schemes, optionally scoped to branchID (nil = all branches —
+// Administrator only, see platform.GetBranchScope).
+func (s *Service) List(query string, branchID *uint) ([]Scheme, error) {
+	return s.repo.FindAll(query, branchID)
 }
 
 func (s *Service) ListActive(query string, limit, offset int) ([]Scheme, error) {
@@ -100,23 +126,44 @@ func (s *Service) ListInactive() ([]Scheme, error) {
 	return s.repo.FindInactive()
 }
 
-func (s *Service) Get(id uint) (*Scheme, error) {
+// Get returns the scheme by id, or ErrNotFound if it doesn't exist OR (when
+// branchID is non-nil) belongs to a different branch — a non-admin gets the
+// same "not found" for another branch's scheme as for a genuinely missing
+// id, so branch existence is never leaked.
+func (s *Service) Get(id uint, branchID *uint) (*Scheme, error) {
 	rec, err := s.repo.FindByID(id)
 	if err != nil {
+		return nil, ErrNotFound
+	}
+	if branchID != nil && rec.BranchID != *branchID {
 		return nil, ErrNotFound
 	}
 	return rec, nil
 }
 
-func (s *Service) Update(id uint, in UpdateInput) (*Scheme, error) {
+// Update applies in to the scheme identified by id. branchID (nil for
+// Administrator) must match the scheme's current branch or ErrNotFound is
+// returned before any other validation runs, same not-found-on-mismatch
+// guard as Get.
+func (s *Service) Update(id uint, in UpdateInput, branchID *uint) (*Scheme, error) {
 	if err := validate(in); err != nil {
+		return nil, err
+	}
+	if in.BranchID == 0 {
+		return nil, ErrBranchReq
+	}
+	if err := s.checkBranch(in.BranchID); err != nil {
 		return nil, err
 	}
 	rec, err := s.repo.FindByID(id)
 	if err != nil {
 		return nil, ErrNotFound
 	}
+	if branchID != nil && rec.BranchID != *branchID {
+		return nil, ErrNotFound
+	}
 
+	rec.BranchID = in.BranchID
 	rec.Name = in.Name
 	rec.InterestRate = in.InterestRate
 	rec.DurationMonths = in.DurationMonths
@@ -132,8 +179,15 @@ func (s *Service) Update(id uint, in UpdateInput) (*Scheme, error) {
 	return rec, nil
 }
 
-func (s *Service) Delete(id uint) error {
-	if _, err := s.repo.FindByID(id); err != nil {
+// Delete removes the scheme identified by id. branchID (nil for
+// Administrator) must match the scheme's current branch or ErrNotFound is
+// returned, same not-found-on-mismatch guard as Get/Update.
+func (s *Service) Delete(id uint, branchID *uint) error {
+	rec, err := s.repo.FindByID(id)
+	if err != nil {
+		return ErrNotFound
+	}
+	if branchID != nil && rec.BranchID != *branchID {
 		return ErrNotFound
 	}
 	return s.repo.Delete(id)

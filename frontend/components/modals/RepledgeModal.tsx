@@ -29,9 +29,11 @@ export function RepledgeModalContent({ loan, onSaved }: { loan: LoanView; onSave
   const today = new Date().toISOString().slice(0, 10);
 
   const [bank, setBank] = useState("");
+  const [bankId, setBankId] = useState<number | undefined>(undefined);
   const [bankLabel, setBankLabel] = useState("");
   const [amt, setAmt] = useState("");
   const [date, setDate] = useState(today);
+  const [dueDate, setDueDate] = useState("");
   const [interestRate, setInterestRate] = useState("");
   const [referenceNumber, setReferenceNumber] = useState("");
   const [err, setErr] = useState("");
@@ -45,11 +47,13 @@ export function RepledgeModalContent({ loan, onSaved }: { loan: LoanView; onSave
     setSaving(true);
     try {
       await recordBankPledge(loan.numericId, {
+        bankId,
         bankName: bank.trim(),
         pledgedAmount: amount,
         pledgeDate: date,
         bankInterestRate: interestRate ? +interestRate : undefined,
         referenceNumber: referenceNumber.trim() || undefined,
+        bankPledgeDueDate: dueDate || undefined,
       });
       onSaved();
       closeModal();
@@ -68,10 +72,23 @@ export function RepledgeModalContent({ loan, onSaved }: { loan: LoanView; onSave
         <div className="notice" style={{ marginBottom: 16 }}>
           <Icon name="bank" /> {fmtW(loan.totalNetWeight)} gold pledged against this loan
         </div>
+        {loan.ornaments.length > 0 && (
+          <div style={{ marginBottom: 16 }}>
+            <label className="f">Gold/Ornaments Being Pledged</label>
+            <ul style={{ margin: "4px 0 0", paddingLeft: 18, fontSize: 13 }}>
+              {loan.ornaments.map((o) => (
+                <li key={o.id}>
+                  {o.name} — {fmtW(o.netWeight)} net ({o.purity})
+                  {o.quantity > 1 ? ` × ${o.quantity}` : ""}
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
         <div className="frow"><div><label className="f">Bank *</label>
           <SearchableSelect<BackendBank>
             value={bankLabel}
-            onChange={(_id, item) => { setBank(item.name); setBankLabel(item.name); }}
+            onChange={(id, item) => { setBank(item.name); setBankLabel(item.name); setBankId(Number(id) || undefined); }}
             fetchFn={searchBanksPage}
             getLabel={(b) => b.name}
             getId={(b) => String(b.id)}
@@ -85,6 +102,7 @@ export function RepledgeModalContent({ loan, onSaved }: { loan: LoanView; onSave
           <div><label className="f">Bank Interest Rate (% p.a.)</label><input className="inp" type="number" min={0} step={0.01} placeholder="rate charged by the bank" value={interestRate} onChange={(e) => setInterestRate(e.target.value)} /></div>
           <div><label className="f">Reference Number</label><input className="inp" placeholder="bank's pledge/document reference" value={referenceNumber} onChange={(e) => setReferenceNumber(e.target.value)} maxLength={60} /></div>
         </div>
+        <div className="frow"><div><label className="f">Bank Pledge Due Date</label><input className="inp" type="date" value={dueDate} onChange={(e) => setDueDate(e.target.value)} /></div></div>
         <p style={{ color: "var(--red)", fontSize: 12.5, minHeight: 16, marginTop: 8 }}>{err}</p>
       </div>
       <div className="ft">

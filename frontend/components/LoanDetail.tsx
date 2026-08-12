@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { useModal } from "@/components/Modal";
 import { useToast } from "@/components/Toast";
+import { useAuth } from "@/lib/auth-context";
 import { StatusChip } from "@/components/StatusChip";
 import { Icon } from "@/lib/icons";
 import { fmt, fmtW } from "@/lib/format";
@@ -36,6 +37,7 @@ export function LoanDetail({ id }: { id?: string }) {
   // without also refreshing that, those pages kept showing the
   // pre-change status until a full page reload re-fetched everything.
   const { refresh: refreshLoans } = useLoans();
+  const { role: myRole } = useAuth();
 
   const [loan, setLoan] = useState<LoanView | null>(null);
   const [error, setError] = useState("");
@@ -83,16 +85,13 @@ export function LoanDetail({ id }: { id?: string }) {
     );
   }
 
-  // No auth/session exists anywhere in this codebase yet — `actorRole`
-  // lets a tester pick which role is "acting" so the stage-match/
-  // Administrator-override behavior in Approve() is actually exercisable.
-  // employeeId 1 is a placeholder until a real session/auth system exists.
-  const [actorRole, setActorRole] = useState<string>("Administrator");
-
   async function doApprove(stage: SanctionStage, action: "Approved" | "Rejected") {
     setApproving(true);
     try {
-      const updated = await approveLoan(l.numericId, { stage, action, employeeId: 1, role: actorRole });
+      // The acting employee/role are derived server-side from the
+      // logged-in user's JWT — never sent from here (see
+      // loansApi.ts's ApprovalInput doc comment).
+      const updated = await approveLoan(l.numericId, { stage, action });
       setLoan(updated);
       refreshLoans();
       toast(action === "Approved" ? "Approved" : "Rejected");
@@ -105,19 +104,28 @@ export function LoanDetail({ id }: { id?: string }) {
 
   const pendingStageIndex = SANCTION_STAGES.indexOf(l.approvalStage as SanctionStage);
   const pendingStage = pendingStageIndex >= 0 ? SANCTION_STAGES[pendingStageIndex] : null;
+  // Only the role required by the current pending stage (or Administrator,
+  // who may act at any stage) can act — mirrors the backend's real check
+  // (Service.Approve) so someone outside the flow doesn't see clickable
+  // Approve/Reject buttons that would just 403. This is a UX nicety only;
+  // the server enforces it regardless of what the client shows.
+  const requiredRole = pendingStage ? SANCTION_STAGE_ROLES[pendingStage] : null;
+  const canActOnStage = !!requiredRole && (myRole === "Administrator" || myRole === requiredRole);
   const approvalButtons = pendingStage ? (
-    <>
-      <select className="inp sm" value={actorRole} onChange={(e) => setActorRole(e.target.value)} style={{ maxWidth: 180 }}>
-        <option value="Administrator">Acting as: Administrator</option>
-        <option value={SANCTION_STAGE_ROLES[pendingStage]}>Acting as: {SANCTION_STAGE_ROLES[pendingStage]}</option>
-      </select>
-      <button className="btn" disabled={approving} onClick={() => doApprove(pendingStage, "Approved")}>
-        <Icon name="check" /> Approve
-      </button>
-      <button className="btn danger" disabled={approving} onClick={() => doApprove(pendingStage, "Rejected")}>
-        Reject
-      </button>
-    </>
+    canActOnStage ? (
+      <>
+        <button className="btn" disabled={approving} onClick={() => doApprove(pendingStage, "Approved")}>
+          <Icon name="check" /> Approve
+        </button>
+        <button className="btn danger" disabled={approving} onClick={() => doApprove(pendingStage, "Rejected")}>
+          Reject
+        </button>
+      </>
+    ) : (
+      <span style={{ color: "var(--muted)", fontSize: 13 }}>
+        Awaiting {requiredRole} approval
+      </span>
+    )
   ) : null;
 
   const activePledge = l.bankPledges.find((p) => !p.isReleased);
@@ -139,9 +147,9 @@ export function LoanDetail({ id }: { id?: string }) {
   async function doCompleteRelease() {
     setCompleting(true);
     try {
-      // No auth/session exists yet — employeeId 1 is a placeholder, same
-      // convention as the rest of this page.
-      await completeRelease(l.numericId, 1);
+      // The acting employee is derived server-side from the logged-in
+      // user's JWT — no employeeId sent from here.
+      await completeRelease(l.numericId);
       toast("Gold released to customer — loan closed");
       load();
     } catch (err) {
@@ -236,16 +244,25 @@ export function LoanDetail({ id }: { id?: string }) {
                   // credit here since today's only use is reducing
                   // principal (see loan.allocatePayment's Adjustment case).
                   const isCash = p.type !== "Adjustment" && p.type !== "Waiver";
+                  // Fee-applied (from allocatePayment's waterfall) shows
+                  // alongside the other buckets; a newly-charged fee this
+                  // entry (p.processingFee) is noted separately since it's
+                  // not part of what Amount paid down — it's what got
+                  // added to the balance in the first place.
                   const breakdown = [
-                    p.principalApplied > 0 && `Principal ${fmt(p.principalApplied)}`,
-                    p.interestApplied > 0 && `Interest ${fmt(p.interestApplied)}`,
+                    p.processingFeeApplied > 0 && `Fee ${fmt(p.processingFeeApplied)}`,
                     p.penalInterestApplied > 0 && `Penal ${fmt(p.penalInterestApplied)}`,
+                    p.interestApplied > 0 && `Interest ${fmt(p.interestApplied)}`,
+                    p.principalApplied > 0 && `Principal ${fmt(p.principalApplied)}`,
                   ].filter(Boolean).join(" · ");
                   return (
                     <tr key={p.id}>
                       <td>{p.paidOn}</td>
                       <td>
                         {p.type}{p.description ? " — " + p.description : ""}
+                        {p.processingFee > 0 && (
+                          <div style={{ fontSize: 11, color: "var(--red)" }}>+{fmt(p.processingFee)} fee charged</div>
+                        )}
                         {breakdown && <div style={{ fontSize: 11, color: "var(--muted)" }}>{breakdown}</div>}
                       </td>
                       <td>{isCash ? p.method || "—" : <span style={{ color: "var(--muted)" }}>Non-cash</span>}</td>
@@ -273,6 +290,9 @@ export function LoanDetail({ id }: { id?: string }) {
                 <div className="i"><div className="k">Accrued Penal Interest</div><div className="v" style={{ color: "var(--red)" }}>{fmt(l.accruedPenalInterest)}</div></div>
                 <div className="i"><div className="k">Outstanding Penal Interest</div><div className="v" style={{ color: "var(--red)" }}>{fmt(l.outstandingPenalInterest)}</div></div>
               </>}
+              {l.outstandingProcessingFee > 0 && (
+                <div className="i"><div className="k">Outstanding Processing Fee</div><div className="v" style={{ color: "var(--red)" }}>{fmt(l.outstandingProcessingFee)}</div></div>
+              )}
               <div className="i"><div className="k">Total Paid</div><div className="v">{fmt(l.totalPaid)}</div></div>
               <div className="i"><div className="k">Scheme Rate</div><div className="v">{l.schemeRate}% p.a.</div></div>
               <div className="i"><div className="k">LTV</div><div className="v">{l.schemeLtv}%</div></div>
@@ -308,10 +328,13 @@ export function LoanDetail({ id }: { id?: string }) {
               <div style={{ display: "flex", justifyContent: "space-between", padding: "4px 0" }}><span>Outstanding principal</span><b>{fmt(l.outstanding)}</b></div>
               <div style={{ display: "flex", justifyContent: "space-between", padding: "4px 0" }}><span>Outstanding interest</span><b>{fmt(l.outstandingInterest)}</b></div>
               <div style={{ display: "flex", justifyContent: "space-between", padding: "4px 0" }}><span>Outstanding penal interest</span><b>{fmt(l.outstandingPenalInterest)}</b></div>
+              {l.outstandingProcessingFee > 0 && (
+                <div style={{ display: "flex", justifyContent: "space-between", padding: "4px 0" }}><span>Outstanding processing fee</span><b>{fmt(l.outstandingProcessingFee)}</b></div>
+              )}
               <div style={{ display: "flex", justifyContent: "space-between", padding: "8px 0 2px", borderTop: "1px dashed var(--line)", marginTop: 6 }}>
                 <span style={{ fontWeight: 600 }}>Final settlement</span><b style={{ color: "var(--gold-deep)" }}>{fmt(l.settlementAmount)}</b></div>
             </div>
-            <div className="ft">Principal + Interest + Penal Interest − Payments/Waivers = Final Settlement Amount</div></div>
+            <div className="ft">Principal + Interest + Penal Interest + Processing Fee − Payments/Waivers = Final Settlement Amount</div></div>
         </div>
       </div>
     </>

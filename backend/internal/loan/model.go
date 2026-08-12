@@ -108,6 +108,15 @@ type Loan struct {
 	PrincipalAmount   float64 `json:"principalAmount" gorm:"not null"`
 	OutstandingAmount float64 `json:"outstandingAmount" gorm:"not null"`
 
+	// OutstandingProcessingFee is a running balance of processing fees
+	// charged (via a payment's ProcessingFee) but not yet paid off. Charging
+	// a fee adds to this balance immediately; it then has first priority in
+	// allocatePayment's waterfall — the very next rupee paid in goes toward
+	// clearing it before penal interest/interest/principal — and it's
+	// folded into TotalOutstandingBalance/SettlementAmount (see enrich)
+	// so "what's owed" always reflects any unpaid fee.
+	OutstandingProcessingFee float64 `json:"outstandingProcessingFee"`
+
 	// Interest/penal-interest accrual (see service.go's accrueInterest).
 	// AccruedInterest/AccruedPenalInterest are cumulative totals-ever-owed,
 	// advanced up to LastAccrualDate each time the loan is fetched or paid
@@ -180,7 +189,7 @@ type Ornament struct {
 	LoanID uint `json:"loanId" gorm:"not null;index"`
 
 	Name   string `json:"name" gorm:"not null;size:80"`   // e.g. "Chain", "Bangle", "Ring", "Necklace", "Earrings"
-	Purity string `json:"purity" gorm:"not null;size:10"` // "24K" | "22K" | "18K"
+	Purity string `json:"purity" gorm:"not null;size:10"` // unit-suffixed, e.g. "22K" or "91.6%" — see loan/purity.go's ParsePurity
 
 	GrossWeight     float64 `json:"grossWeight" gorm:"not null"`
 	DeductionWeight float64 `json:"deductionWeight"`
@@ -205,7 +214,7 @@ type OrnamentPurityTest struct {
 	ID         uint `json:"id" gorm:"primaryKey"`
 	OrnamentID uint `json:"ornamentId" gorm:"uniqueIndex;not null"`
 
-	TestedPurity          string    `json:"testedPurity" gorm:"not null;size:10"`
+	TestedPurity          string    `json:"testedPurity" gorm:"not null;size:10"` // unit-suffixed, e.g. "22K" or "91.6%" — see loan/purity.go's ParsePurity
 	TestedGrossWeight     float64   `json:"testedGrossWeight" gorm:"not null"`
 	TestedDeductionWeight float64   `json:"testedDeductionWeight"`
 	TestedNetWeight       float64   `json:"testedNetWeight"`
@@ -283,16 +292,33 @@ type LoanPayment struct {
 	Method      string `json:"method" gorm:"size:30"` // e.g. "Cash" | "UPI" | "Bank Transfer" — free text, mirrors cash.Expense.Mode's convention
 	Reference   string `json:"reference" gorm:"size:80"`
 
-	// How Amount was split across the three buckets — lets the ledger show
-	// a breakdown per entry instead of just a lump sum.
+	// How Amount was split across the four buckets — lets the ledger show
+	// a breakdown per entry instead of just a lump sum. ProcessingFeeApplied
+	// is Amount's portion that paid down Loan.OutstandingProcessingFee —
+	// first priority in allocatePayment's waterfall, ahead of penal
+	// interest/interest/principal.
+	ProcessingFeeApplied float64 `json:"processingFeeApplied"`
 	PenalInterestApplied float64 `json:"penalInterestApplied"`
 	InterestApplied      float64 `json:"interestApplied"`
 	PrincipalApplied     float64 `json:"principalApplied"`
 
 	// RunningBalance is TotalOutstandingBalance immediately after this entry
 	// was applied (principal + outstanding interest + outstanding penal
-	// interest) — the ledger's required "running balance" column.
+	// interest + outstanding processing fee) — the ledger's required
+	// "running balance" column.
 	RunningBalance float64 `json:"runningBalance"`
+
+	// ProcessingFee is an additional charge newly CHARGED alongside this
+	// payment (e.g. a documentation/late fee) — added to
+	// Loan.OutstandingProcessingFee before this entry's Amount is
+	// allocated, so the fee has first claim on the very payment that
+	// introduced it (see allocatePayment). Zero for entries that don't add
+	// one. Distinct from ProcessingFeeApplied above, which is how much of
+	// Amount actually went toward paying down that (possibly
+	// pre-existing) fee balance — the two aren't the same figure whenever
+	// Amount doesn't fully cover it, or covers more than just this entry's
+	// new fee.
+	ProcessingFee float64 `json:"processingFee"`
 
 	CreatedAt time.Time `json:"createdAt"`
 }
@@ -305,10 +331,31 @@ type BankPledgeRecord struct {
 	ID     uint `json:"id" gorm:"primaryKey"`
 	LoanID uint `json:"loanId" gorm:"not null;index"`
 
+	// BankID references the registered bank.Bank resource the caller picked
+	// (via the frontend's bank search dropdown). BankName is kept alongside
+	// it as a denormalized snapshot so historical pledge records still
+	// display the bank name used at the time even if the Bank row is later
+	// renamed. BankID is nullable to accommodate pledge rows created before
+	// this column existed (see backfillBankPledgeBankID in cmd/migrate) —
+	// new pledges always set it.
+	BankID        *uint      `json:"bankId"`
 	BankName      string     `json:"bankName" gorm:"not null;size:120"`
 	PledgedAmount float64    `json:"pledgedAmount" gorm:"not null"`
 	PledgeDate    time.Time  `json:"pledgeDate" gorm:"not null"`
 	ReleaseDate   *time.Time `json:"releaseDate"`
+
+	// BankPledgeDueDate is the date the bank's own loan/pledge term is
+	// expected to end — distinct from ReleaseDate, which is only set once
+	// the gold is actually reclaimed from the bank. Optional; nil for
+	// pledges that don't track a bank-side due date.
+	BankPledgeDueDate *time.Time `json:"bankPledgeDueDate"`
+
+	// PledgedGrossWeight/PledgedNetWeight snapshot the loan's ornament
+	// totals at the moment of pledge, so the record stays self-contained
+	// and auditable even if the loan's ornaments are edited afterwards.
+	// Zero for pledges recorded before this field existed.
+	PledgedGrossWeight float64 `json:"pledgedGrossWeight"`
+	PledgedNetWeight   float64 `json:"pledgedNetWeight"`
 
 	// BankInterestRate/ReferenceNumber are optional descriptive fields the
 	// spec calls out for the bank re-pledge record — the annual interest

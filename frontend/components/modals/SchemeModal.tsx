@@ -1,9 +1,11 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useModal } from "@/components/Modal";
 import { useToast } from "@/components/Toast";
 import { Icon } from "@/lib/icons";
+import { useAuth } from "@/lib/auth-context";
+import { listActiveBranches, type BranchView } from "@/lib/branchApi";
 import { createScheme, updateScheme, type SchemeView } from "@/lib/schemesApi";
 
 const DEFAULT_DURATION_MONTHS = 12;
@@ -15,6 +17,7 @@ const METHODS = ["Monthly simple interest", "Flat monthly", "Quarterly simple", 
 export function SchemeModalContent({ scheme: s, onSaved }: { scheme?: SchemeView; onSaved: () => void }) {
   const { closeModal } = useModal();
   const toast = useToast();
+  const { isAdmin, branchId: myBranchId } = useAuth();
 
   const [name, setName] = useState(s?.name || "");
   const [rate, setRate] = useState(s ? String(s.rate) : "");
@@ -24,8 +27,26 @@ export function SchemeModalContent({ scheme: s, onSaved }: { scheme?: SchemeView
   const [penal, setPenal] = useState(s ? String(s.penal) : "");
   const [cond, setCond] = useState(s?.cond || "");
   const [active, setActive] = useState(s ? s.active : true);
+  const [branches, setBranches] = useState<BranchView[]>([]);
+  const [branchId, setBranchId] = useState<number | "">(
+    s?.branchId || (!isAdmin && myBranchId ? myBranchId : "")
+  );
   const [err, setErr] = useState("");
   const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    // Non-admins are confined to their own branch (the backend enforces
+    // this server-side regardless) — auto-lock the field instead of
+    // offering a dropdown of branches they can't actually use.
+    if (!isAdmin) {
+      if (myBranchId) setBranchId(myBranchId);
+      return;
+    }
+    listActiveBranches().then((list) => {
+      setBranches(list);
+      if (list.length && !s) setBranchId((cur) => cur || list[0].id);
+    }).catch(() => setErr("Could not load branches — try again later."));
+  }, [s, isAdmin, myBranchId]);
 
   async function save() {
     const n = name.trim();
@@ -38,8 +59,9 @@ export function SchemeModalContent({ scheme: s, onSaved }: { scheme?: SchemeView
     if (!(d > 0)) { setErr("Please enter a valid loan duration in months."); return; }
     if (!(l >= 1 && l <= 90)) { setErr("LTV must be between 1 and 90%."); return; }
     if (!(p >= 0 && p <= 10)) { setErr("Please enter penal charges between 0 and 10% per month."); return; }
+    if (!branchId) { setErr("Please select a branch."); return; }
 
-    const input = { name: n, rate: r, durationMonths: d, ltv: l, penal: p, method, cond: cond.trim(), active };
+    const input = { name: n, rate: r, durationMonths: d, ltv: l, penal: p, method, cond: cond.trim(), active, branchId: branchId as number };
     setSaving(true);
     setErr("");
     try {
@@ -78,11 +100,27 @@ export function SchemeModalContent({ scheme: s, onSaved }: { scheme?: SchemeView
         </div>
         <div className="frow"><div><label className="f">Applicable Conditions</label>
           <input className="inp" placeholder="e.g. Interest payable monthly; penal 2%/m after due" value={cond} onChange={(e) => setCond(e.target.value)} /></div></div>
-        <div className="frow"><div><label className="f">Status</label>
-          <select className="inp" value={active ? "1" : "0"} onChange={(e) => setActive(e.target.value === "1")}>
-            <option value="1">Active</option>
-            <option value="0">Inactive</option>
-          </select></div></div>
+        <div className="frow c2">
+          <div><label className="f">Status</label>
+            <select className="inp" value={active ? "1" : "0"} onChange={(e) => setActive(e.target.value === "1")}>
+              <option value="1">Active</option>
+              <option value="0">Inactive</option>
+            </select></div>
+          <div><label className="f">Branch *</label>
+            {isAdmin ? (
+              <select className="inp" value={branchId} onChange={(e) => setBranchId(e.target.value ? Number(e.target.value) : "")}>
+                <option value="">Select branch…</option>
+                {branches.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
+              </select>
+            ) : (
+              // Non-admins are confined to their own branch — the backend
+              // enforces this regardless, so the field is locked rather
+              // than offering a choice they can't actually use.
+              <select className="inp" value={branchId} disabled>
+                <option value={branchId || ""}>{s?.branchName || "Your branch"}</option>
+              </select>
+            )}</div>
+        </div>
         <div className="notice"><Icon name="shield" /> Scheme changes are restricted to authorized administrators and recorded in the audit trail.</div>
         <p style={{ color: "var(--red)", fontSize: 12.5, minHeight: 16, marginTop: 8 }}>{err}</p>
       </div>

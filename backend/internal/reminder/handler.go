@@ -7,6 +7,8 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+
+	"ambikagold/backend/internal/platform"
 )
 
 // Handler wires HTTP requests to the Service.
@@ -100,6 +102,7 @@ func (h *Handler) List(c *gin.Context) {
 			f.To = &t
 		}
 	}
+	f.BranchID = platform.GetBranchScope(c)
 	rec, err := h.svc.List(f)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
@@ -114,7 +117,7 @@ func (h *Handler) Get(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	rec, err := h.svc.Get(id)
+	rec, err := h.svc.Get(id, platform.GetBranchScope(c))
 	if err != nil {
 		c.JSON(statusForErr(err), gin.H{"error": err.Error()})
 		return
@@ -203,7 +206,7 @@ func (h *Handler) Calendar(c *gin.Context) {
 		}
 	}
 
-	events, err := h.svc.GetCalendarEvents(from, to)
+	events, err := h.svc.GetCalendarEvents(from, to, platform.GetBranchScope(c))
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return

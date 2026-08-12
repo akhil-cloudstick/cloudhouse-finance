@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import "./app.css";
 import { DataProvider } from "@/lib/DataProvider";
 import { CustomersProvider } from "@/lib/CustomersProvider";
 import { SchemesProvider } from "@/lib/SchemesProvider";

@@ -65,9 +65,9 @@ export function ReleaseReviewModalContent({ request, onSaved }: { request: Reque
     setSaving(true);
     setErr("");
     try {
-      // No auth/session exists yet — employeeId 1 is a placeholder, same
-      // convention used across the loan module (e.g. LoanDetail's doApprove).
-      await approveReleaseRequest(req.id, { stage, action, employeeId: 1 });
+      // The acting employee is derived server-side from the logged-in
+      // user's JWT — no employeeId sent from here.
+      await approveReleaseRequest(req.id, { stage, action });
       onSaved();
       closeModal();
       toast(action === "Approved" ? `Release ${stage} stage approved` : "Release request rejected");

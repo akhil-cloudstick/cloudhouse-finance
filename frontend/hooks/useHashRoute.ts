@@ -18,7 +18,7 @@ function readHash(): HashRoute {
  * stay exactly as shareable/bookmarkable as they are today.
  */
 export function useHashRoute(): HashRoute {
-  const [state, setState] = useState<HashRoute>({ route: "dashboard" });
+  const [state, setState] = useState<HashRoute>(() => readHash());
 
   useEffect(() => {
     const update = () => setState(readHash());

@@ -19,9 +19,16 @@ func (r *Repository) Create(e *Employee) error {
 	return r.db.Create(e).Error
 }
 
-func (r *Repository) FindAll() ([]Employee, error) {
+// FindAll returns employees, optionally scoped to a single branch — pass
+// nil for an Administrator's unfiltered "all branches" view, or a non-nil
+// pointer to confine results to that branch (see platform.GetBranchScope).
+func (r *Repository) FindAll(branchID *uint) ([]Employee, error) {
 	var employees []Employee
-	err := r.db.Preload("Branch").Order("id asc").Find(&employees).Error
+	q := r.db.Preload("Branch").Order("id asc")
+	if branchID != nil {
+		q = q.Where("branch_id = ?", *branchID)
+	}
+	err := q.Find(&employees).Error
 	return employees, err
 }
 
@@ -58,6 +65,49 @@ func (r *Repository) FindByEmail(email string) (*Employee, error) {
 		return nil, gorm.ErrRecordNotFound
 	}
 	if err := r.db.Preload("Branch").Where("email = ?", email).First(&e).Error; err != nil {
+		return nil, err
+	}
+	return &e, nil
+}
+
+// FindByUsername looks up an employee by exact username match. Used by
+// internal/auth for login. Returns gorm.ErrRecordNotFound when no row
+// matches or username is blank.
+func (r *Repository) FindByUsername(username string) (*Employee, error) {
+	var e Employee
+	if username == "" {
+		return nil, gorm.ErrRecordNotFound
+	}
+	if err := r.db.Preload("Branch").Where("username = ?", username).First(&e).Error; err != nil {
+		return nil, err
+	}
+	return &e, nil
+}
+
+// FindByPhone looks up an employee by exact phone match. Used by
+// internal/auth for login and for the SMS-based forgot-password flow.
+// Returns gorm.ErrRecordNotFound when no row matches or phone is blank.
+func (r *Repository) FindByPhone(phone string) (*Employee, error) {
+	var e Employee
+	if phone == "" {
+		return nil, gorm.ErrRecordNotFound
+	}
+	if err := r.db.Preload("Branch").Where("phone = ?", phone).First(&e).Error; err != nil {
+		return nil, err
+	}
+	return &e, nil
+}
+
+// FindByUsernameOrPhone looks up an employee whose Username OR Phone
+// matches the given identifier — backs internal/auth.Login, which accepts
+// either as the "who are you" field (see Service.Login's doc comment for
+// why: this app doesn't use email/password login).
+func (r *Repository) FindByUsernameOrPhone(identifier string) (*Employee, error) {
+	var e Employee
+	if identifier == "" {
+		return nil, gorm.ErrRecordNotFound
+	}
+	if err := r.db.Preload("Branch").Where("username = ? OR phone = ?", identifier, identifier).First(&e).Error; err != nil {
 		return nil, err
 	}
 	return &e, nil

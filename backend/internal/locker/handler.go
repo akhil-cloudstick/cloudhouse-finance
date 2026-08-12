@@ -6,6 +6,8 @@ import (
 	"strconv"
 
 	"github.com/gin-gonic/gin"
+
+	"ambikagold/backend/internal/platform"
 )
 
 // Handler wires HTTP requests to the Service.
@@ -57,7 +59,8 @@ func (h *Handler) Create(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	rec, err := h.svc.Create(CreateInput{Code: req.Code, BranchID: req.BranchID, Capacity: req.Capacity})
+	branchID := platform.EnforceBranchOnWrite(c, req.BranchID)
+	rec, err := h.svc.Create(CreateInput{Code: req.Code, BranchID: branchID, Capacity: req.Capacity})
 	if err != nil {
 		c.JSON(statusForErr(err), gin.H{"error": err.Error()})
 		return
@@ -66,7 +69,7 @@ func (h *Handler) Create(c *gin.Context) {
 }
 
 func (h *Handler) List(c *gin.Context) {
-	rec, err := h.svc.List()
+	rec, err := h.svc.List(platform.GetBranchScope(c))
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -80,7 +83,7 @@ func (h *Handler) Get(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	rec, err := h.svc.Get(id)
+	rec, err := h.svc.Get(id, platform.GetBranchScope(c))
 	if err != nil {
 		c.JSON(statusForErr(err), gin.H{"error": err.Error()})
 		return
@@ -99,9 +102,10 @@ func (h *Handler) Update(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
+	branchID := platform.EnforceBranchOnWrite(c, req.BranchID)
 	rec, err := h.svc.Update(id, UpdateInput{
-		Code: req.Code, BranchID: req.BranchID, Capacity: req.Capacity, IsActive: req.IsActive,
-	})
+		Code: req.Code, BranchID: branchID, Capacity: req.Capacity, IsActive: req.IsActive,
+	}, platform.GetBranchScope(c))
 	if err != nil {
 		c.JSON(statusForErr(err), gin.H{"error": err.Error()})
 		return
@@ -115,7 +119,7 @@ func (h *Handler) Delete(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	if err := h.svc.Delete(id); err != nil {
+	if err := h.svc.Delete(id, platform.GetBranchScope(c)); err != nil {
 		c.JSON(statusForErr(err), gin.H{"error": err.Error()})
 		return
 	}

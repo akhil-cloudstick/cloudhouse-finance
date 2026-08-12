@@ -19,9 +19,17 @@ func (r *MovementRepository) Create(m *CashMovement) error {
 	return r.db.Create(m).Error
 }
 
-func (r *MovementRepository) FindAll() ([]CashMovement, error) {
+// FindAll returns cash movements, optionally scoped to a single branch —
+// pass nil for an Administrator's unfiltered "all branches" view, or a
+// non-nil pointer to confine results to that branch (see
+// platform.GetBranchScope).
+func (r *MovementRepository) FindAll(branchID *uint) ([]CashMovement, error) {
 	var movements []CashMovement
-	err := r.db.Preload("Branch").Order("occurred_on desc, id desc").Find(&movements).Error
+	q := r.db.Preload("Branch").Order("occurred_on desc, id desc")
+	if branchID != nil {
+		q = q.Where("branch_id = ?", *branchID)
+	}
+	err := q.Find(&movements).Error
 	return movements, err
 }
 
@@ -54,9 +62,16 @@ func (r *ExpenseRepository) Create(e *Expense) error {
 	return r.db.Create(e).Error
 }
 
-func (r *ExpenseRepository) FindAll() ([]Expense, error) {
+// FindAll returns expenses, optionally scoped to a single branch — pass nil
+// for an Administrator's unfiltered "all branches" view, or a non-nil
+// pointer to confine results to that branch (see platform.GetBranchScope).
+func (r *ExpenseRepository) FindAll(branchID *uint) ([]Expense, error) {
 	var expenses []Expense
-	err := r.db.Preload("Branch").Order("occurred_on desc, id desc").Find(&expenses).Error
+	q := r.db.Preload("Branch").Order("occurred_on desc, id desc")
+	if branchID != nil {
+		q = q.Where("branch_id = ?", *branchID)
+	}
+	err := q.Find(&expenses).Error
 	return expenses, err
 }
 

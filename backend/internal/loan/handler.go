@@ -7,6 +7,8 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+
+	"ambikagold/backend/internal/platform"
 )
 
 // Handler wires HTTP requests to the Service.
@@ -53,7 +55,7 @@ func statusForErr(err error) int {
 		errors.Is(err, ErrLoanTerminalState), errors.Is(err, ErrChecklistIncomplete),
 		errors.Is(err, ErrOutstandingBalanceRemains), errors.Is(err, ErrBankPledgeStillActive),
 		errors.Is(err, ErrLoanNotDefaulted), errors.Is(err, ErrAuctionAlreadyStarted),
-		errors.Is(err, ErrAuctionWrongStage):
+		errors.Is(err, ErrAuctionWrongStage), errors.Is(err, ErrExceedsApprovalLimit):
 		return http.StatusBadRequest
 	case errors.Is(err, ErrReleaseNotApproved):
 		return http.StatusNotFound
@@ -135,6 +137,7 @@ func (h *Handler) Create(c *gin.Context) {
 		fail(c, http.StatusBadRequest, err)
 		return
 	}
+	input.BranchID = platform.EnforceBranchOnWrite(c, input.BranchID)
 	rec, err := h.svc.Create(input)
 	if err != nil {
 		fail(c, statusForErr(err), err)
@@ -155,6 +158,7 @@ func (h *Handler) List(c *gin.Context) {
 			f.CustomerID = uint(id)
 		}
 	}
+	f.BranchScope = platform.GetBranchScope(c)
 	rec, err := h.svc.List(f)
 	if err != nil {
 		fail(c, http.StatusInternalServerError, err)
@@ -169,7 +173,7 @@ func (h *Handler) Get(c *gin.Context) {
 		fail(c, http.StatusBadRequest, err)
 		return
 	}
-	rec, err := h.svc.Get(id)
+	rec, err := h.svc.Get(id, platform.GetBranchScope(c))
 	if err != nil {
 		fail(c, statusForErr(err), err)
 		return
@@ -294,11 +298,9 @@ func (h *Handler) AddOrnamentImage(c *gin.Context) {
 // --- Approval workflow -------------------------------------------------
 
 type approvalRequest struct {
-	Stage      string `json:"stage" binding:"required"`
-	Action     string `json:"action" binding:"required"`
-	EmployeeID uint   `json:"employeeId" binding:"required"`
-	Role       string `json:"role" binding:"required"`
-	Remarks    string `json:"remarks"`
+	Stage   string `json:"stage" binding:"required"`
+	Action  string `json:"action" binding:"required"`
+	Remarks string `json:"remarks"`
 }
 
 func (h *Handler) Approve(c *gin.Context) {
@@ -312,11 +314,15 @@ func (h *Handler) Approve(c *gin.Context) {
 		fail(c, http.StatusBadRequest, err)
 		return
 	}
+	// Actor identity comes from the authenticated JWT, never the request
+	// body — otherwise any caller could submit {"role":"Administrator"} and
+	// self-approve any stage regardless of who they actually are.
+	actorEmployeeID, actorRole := platform.ActorFromContext(c)
 	rec, err := h.svc.Approve(loanID, ApprovalInput{
 		Stage:           req.Stage,
 		Action:          req.Action,
-		ActorEmployeeID: req.EmployeeID,
-		ActorRole:       req.Role,
+		ActorEmployeeID: actorEmployeeID,
+		ActorRole:       actorRole,
 		Remarks:         req.Remarks,
 	})
 	if err != nil {
@@ -396,13 +402,13 @@ func (h *Handler) GetInterestCollected(c *gin.Context) {
 // --- Payments ------------------------------------------------------------
 
 type paymentRequest struct {
-	Amount      float64 `json:"amount" binding:"required"`
-	Type        string  `json:"type" binding:"required"`
-	PaidOn      string  `json:"paidOn" binding:"required"`
-	EmployeeID  uint    `json:"employeeId" binding:"required"`
-	Method      string  `json:"method"`
-	Reference   string  `json:"reference"`
-	Description string  `json:"description"`
+	Amount        float64 `json:"amount" binding:"required"`
+	Type          string  `json:"type" binding:"required"`
+	ProcessingFee float64 `json:"processingFee"`
+	PaidOn        string  `json:"paidOn" binding:"required"`
+	Method        string  `json:"method"`
+	Reference     string  `json:"reference"`
+	Description   string  `json:"description"`
 }
 
 func (h *Handler) RecordPayment(c *gin.Context) {
@@ -421,11 +427,15 @@ func (h *Handler) RecordPayment(c *gin.Context) {
 		fail(c, http.StatusBadRequest, errors.New("invalid paidOn: expected YYYY-MM-DD"))
 		return
 	}
+	// Actor identity comes from the authenticated JWT, not the request body
+	// — see platform.ActorFromContext's doc comment.
+	actorEmployeeID, _ := platform.ActorFromContext(c)
 	rec, err := h.svc.RecordPayment(loanID, PaymentInput{
 		Amount:               req.Amount,
 		Type:                 req.Type,
+		ProcessingFee:        req.ProcessingFee,
 		PaidOn:               paidOn,
-		ReceivedByEmployeeID: req.EmployeeID,
+		ReceivedByEmployeeID: actorEmployeeID,
 		Method:               req.Method,
 		Reference:            req.Reference,
 		Description:          req.Description,
@@ -445,7 +455,7 @@ func (h *Handler) GetAuction(c *gin.Context) {
 		fail(c, http.StatusBadRequest, err)
 		return
 	}
-	rec, err := h.svc.GetAuctionRecord(loanID)
+	rec, err := h.svc.GetAuctionRecord(loanID, platform.GetBranchScope(c))
 	if err != nil {
 		fail(c, statusForErr(err), err)
 		return
@@ -459,7 +469,7 @@ func (h *Handler) MarkAuctionEligible(c *gin.Context) {
 		fail(c, http.StatusBadRequest, err)
 		return
 	}
-	rec, err := h.svc.MarkAuctionEligible(loanID)
+	rec, err := h.svc.MarkAuctionEligible(loanID, platform.GetBranchScope(c))
 	if err != nil {
 		fail(c, statusForErr(err), err)
 		return
@@ -483,7 +493,7 @@ func (h *Handler) IssueAuctionNotice(c *gin.Context) {
 		fail(c, http.StatusBadRequest, err)
 		return
 	}
-	rec, err := h.svc.IssueAuctionNotice(loanID, req.Method, req.Remarks)
+	rec, err := h.svc.IssueAuctionNotice(loanID, platform.GetBranchScope(c), req.Method, req.Remarks)
 	if err != nil {
 		fail(c, statusForErr(err), err)
 		return
@@ -512,7 +522,7 @@ func (h *Handler) ScheduleAuction(c *gin.Context) {
 		fail(c, http.StatusBadRequest, errors.New("invalid auctionDate: expected YYYY-MM-DD"))
 		return
 	}
-	rec, err := h.svc.ScheduleAuction(loanID, auctionDate, req.ReferenceNumber)
+	rec, err := h.svc.ScheduleAuction(loanID, platform.GetBranchScope(c), auctionDate, req.ReferenceNumber)
 	if err != nil {
 		fail(c, statusForErr(err), err)
 		return
@@ -536,7 +546,7 @@ func (h *Handler) RecordAuctionSale(c *gin.Context) {
 		fail(c, http.StatusBadRequest, err)
 		return
 	}
-	rec, err := h.svc.RecordAuctionSale(loanID, req.SaleAmount, req.AuctionExpenses)
+	rec, err := h.svc.RecordAuctionSale(loanID, platform.GetBranchScope(c), req.SaleAmount, req.AuctionExpenses)
 	if err != nil {
 		fail(c, statusForErr(err), err)
 		return
@@ -559,7 +569,7 @@ func (h *Handler) SettleAuction(c *gin.Context) {
 		fail(c, http.StatusBadRequest, err)
 		return
 	}
-	rec, err := h.svc.SettleAuction(loanID, req.SettlementStatus)
+	rec, err := h.svc.SettleAuction(loanID, platform.GetBranchScope(c), req.SettlementStatus)
 	if err != nil {
 		fail(c, statusForErr(err), err)
 		return
@@ -570,11 +580,13 @@ func (h *Handler) SettleAuction(c *gin.Context) {
 // --- Bank pledge ---------------------------------------------------------
 
 type bankPledgeRequest struct {
-	BankName         string  `json:"bankName" binding:"required"`
-	PledgedAmount    float64 `json:"pledgedAmount" binding:"required"`
-	PledgeDate       string  `json:"pledgeDate" binding:"required"`
-	BankInterestRate float64 `json:"bankInterestRate"`
-	ReferenceNumber  string  `json:"referenceNumber"`
+	BankID            *uint   `json:"bankId"`
+	BankName          string  `json:"bankName" binding:"required"`
+	PledgedAmount     float64 `json:"pledgedAmount" binding:"required"`
+	PledgeDate        string  `json:"pledgeDate" binding:"required"`
+	BankInterestRate  float64 `json:"bankInterestRate"`
+	ReferenceNumber   string  `json:"referenceNumber"`
+	BankPledgeDueDate string  `json:"bankPledgeDueDate"`
 }
 
 func (h *Handler) RecordBankPledge(c *gin.Context) {
@@ -593,12 +605,23 @@ func (h *Handler) RecordBankPledge(c *gin.Context) {
 		fail(c, http.StatusBadRequest, errors.New("invalid pledgeDate: expected YYYY-MM-DD"))
 		return
 	}
-	rec, err := h.svc.RecordBankPledge(loanID, BankPledgeInput{
-		BankName:         req.BankName,
-		PledgedAmount:    req.PledgedAmount,
-		PledgeDate:       pledgeDate,
-		BankInterestRate: req.BankInterestRate,
-		ReferenceNumber:  req.ReferenceNumber,
+	var dueDate *time.Time
+	if req.BankPledgeDueDate != "" {
+		d, err := parseDate(req.BankPledgeDueDate)
+		if err != nil {
+			fail(c, http.StatusBadRequest, errors.New("invalid bankPledgeDueDate: expected YYYY-MM-DD"))
+			return
+		}
+		dueDate = &d
+	}
+	rec, err := h.svc.RecordBankPledge(loanID, platform.GetBranchScope(c), BankPledgeInput{
+		BankID:            req.BankID,
+		BankName:          req.BankName,
+		PledgedAmount:     req.PledgedAmount,
+		PledgeDate:        pledgeDate,
+		BankInterestRate:  req.BankInterestRate,
+		ReferenceNumber:   req.ReferenceNumber,
+		BankPledgeDueDate: dueDate,
 	})
 	if err != nil {
 		fail(c, statusForErr(err), err)
@@ -618,7 +641,7 @@ func (h *Handler) ReleaseBankPledge(c *gin.Context) {
 		fail(c, http.StatusBadRequest, err)
 		return
 	}
-	rec, err := h.svc.ReleaseBankPledge(loanID, pledgeID)
+	rec, err := h.svc.ReleaseBankPledge(loanID, pledgeID, platform.GetBranchScope(c))
 	if err != nil {
 		fail(c, statusForErr(err), err)
 		return
@@ -691,6 +714,7 @@ func (h *Handler) ListRequests(c *gin.Context) {
 			f.LoanID = uint(id)
 		}
 	}
+	f.BranchID = platform.GetBranchScope(c)
 	rec, err := h.svc.ListRequests(f)
 	if err != nil {
 		fail(c, http.StatusInternalServerError, err)
@@ -700,9 +724,8 @@ func (h *Handler) ListRequests(c *gin.Context) {
 }
 
 type decideRequestRequest struct {
-	Action     string `json:"action" binding:"required"` // "Approved" | "Rejected"
-	EmployeeID uint   `json:"employeeId" binding:"required"`
-	Remarks    string `json:"remarks"`
+	Action  string `json:"action" binding:"required"` // "Approved" | "Rejected"
+	Remarks string `json:"remarks"`
 }
 
 func (h *Handler) DecideRequest(c *gin.Context) {
@@ -726,7 +749,10 @@ func (h *Handler) DecideRequest(c *gin.Context) {
 		fail(c, http.StatusBadRequest, ErrInvalidAction)
 		return
 	}
-	rec, err := h.svc.DecideRequest(requestID, approve, req.EmployeeID, req.Remarks)
+	// Actor identity comes from the authenticated JWT, not the request body
+	// — see platform.ActorFromContext's doc comment.
+	actorEmployeeID, _ := platform.ActorFromContext(c)
+	rec, err := h.svc.DecideRequest(requestID, platform.GetBranchScope(c), approve, actorEmployeeID, req.Remarks)
 	if err != nil {
 		fail(c, statusForErr(err), err)
 		return
@@ -756,7 +782,7 @@ func (h *Handler) VerifyReleaseChecklist(c *gin.Context) {
 		fail(c, http.StatusBadRequest, err)
 		return
 	}
-	rec, err := h.svc.VerifyReleaseChecklist(requestID, ChecklistInput{
+	rec, err := h.svc.VerifyReleaseChecklist(requestID, platform.GetBranchScope(c), ChecklistInput{
 		PaymentVerified:    req.PaymentVerified,
 		PacketVerified:     req.PacketVerified,
 		BankPledgeVerified: req.BankPledgeVerified,
@@ -772,10 +798,9 @@ func (h *Handler) VerifyReleaseChecklist(c *gin.Context) {
 }
 
 type releaseApprovalRequest struct {
-	Stage      string `json:"stage" binding:"required"`
-	Action     string `json:"action" binding:"required"`
-	EmployeeID uint   `json:"employeeId" binding:"required"`
-	Remarks    string `json:"remarks"`
+	Stage   string `json:"stage" binding:"required"`
+	Action  string `json:"action" binding:"required"`
+	Remarks string `json:"remarks"`
 }
 
 func (h *Handler) ApproveReleaseRequest(c *gin.Context) {
@@ -789,10 +814,13 @@ func (h *Handler) ApproveReleaseRequest(c *gin.Context) {
 		fail(c, http.StatusBadRequest, err)
 		return
 	}
-	rec, err := h.svc.ApproveReleaseRequest(requestID, ReleaseApprovalInput{
+	// Actor identity comes from the authenticated JWT, not the request body
+	// — see platform.ActorFromContext's doc comment.
+	actorEmployeeID, _ := platform.ActorFromContext(c)
+	rec, err := h.svc.ApproveReleaseRequest(requestID, platform.GetBranchScope(c), ReleaseApprovalInput{
 		Stage:           req.Stage,
 		Action:          req.Action,
-		ActorEmployeeID: req.EmployeeID,
+		ActorEmployeeID: actorEmployeeID,
 		Remarks:         req.Remarks,
 	})
 	if err != nil {
@@ -802,25 +830,47 @@ func (h *Handler) ApproveReleaseRequest(c *gin.Context) {
 	c.JSON(http.StatusOK, rec)
 }
 
-type completeReleaseRequest struct {
-	EmployeeID uint `json:"employeeId" binding:"required"`
-}
-
 func (h *Handler) CompleteRelease(c *gin.Context) {
 	loanID, err := idParam(c, "id")
 	if err != nil {
 		fail(c, http.StatusBadRequest, err)
 		return
 	}
-	var req completeReleaseRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		fail(c, http.StatusBadRequest, err)
-		return
-	}
-	rec, err := h.svc.CompleteRelease(loanID, req.EmployeeID)
+	// Actor identity comes from the authenticated JWT — no request body
+	// needed at all now (previously just carried a spoofable employeeId).
+	actorEmployeeID, _ := platform.ActorFromContext(c)
+	rec, err := h.svc.CompleteRelease(loanID, platform.GetBranchScope(c), actorEmployeeID)
 	if err != nil {
 		fail(c, statusForErr(err), err)
 		return
 	}
 	c.JSON(http.StatusOK, rec)
+}
+
+// --- Approval limits ---------------------------------------------------
+
+// GetLoanOperatorApprovalLimit backs GET /loans/approval-limits/loan-operator
+// — the Employees page's "Roles" panel reads this to show the current
+// hard-enforced cap (see Service.Approve's stage-role check).
+func (h *Handler) GetLoanOperatorApprovalLimit(c *gin.Context) {
+	c.JSON(http.StatusOK, gin.H{"role": "Loan Operator", "maxAmount": h.svc.GetLoanOperatorLimit()})
+}
+
+type approvalLimitRequest struct {
+	MaxAmount float64 `json:"maxAmount" binding:"required"`
+}
+
+// SetLoanOperatorApprovalLimit backs PUT /loans/approval-limits/loan-operator.
+func (h *Handler) SetLoanOperatorApprovalLimit(c *gin.Context) {
+	var req approvalLimitRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		fail(c, http.StatusBadRequest, err)
+		return
+	}
+	amount, err := h.svc.SetLoanOperatorLimit(req.MaxAmount)
+	if err != nil {
+		fail(c, statusForErr(err), err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"role": "Loan Operator", "maxAmount": amount})
 }

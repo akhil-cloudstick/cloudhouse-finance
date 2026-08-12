@@ -18,12 +18,11 @@ func NewHandler(svc *Service) *Handler {
 	return &Handler{svc: svc}
 }
 
-// publishRequest is the JSON body accepted by POST /gold-rates.
+// publishRequest is the JSON body accepted by POST /gold-rates. Only the
+// 24K benchmark is published — see this package's doc comment.
 type publishRequest struct {
 	Date  string  `json:"date"` // optional, "YYYY-MM-DD" — defaults to today
 	K24   float64 `json:"k24" binding:"required"`
-	K22   float64 `json:"k22" binding:"required"`
-	K18   float64 `json:"k18" binding:"required"`
 	SetBy string  `json:"setBy" binding:"required"`
 }
 
@@ -36,7 +35,7 @@ func (req publishRequest) toInput() (PublishInput, error) {
 		}
 		date = parsed
 	}
-	return PublishInput{Date: date, K24: req.K24, K22: req.K22, K18: req.K18, SetBy: req.SetBy}, nil
+	return PublishInput{Date: date, K24: req.K24, SetBy: req.SetBy}, nil
 }
 
 func idParam(c *gin.Context) (uint, error) {

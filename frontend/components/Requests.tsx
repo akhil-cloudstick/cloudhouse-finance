@@ -40,9 +40,9 @@ export function Requests() {
     }
     setDeciding(id);
     try {
-      // No auth/session exists yet — employeeId 1 is a placeholder, same
-      // convention as LoanDetail.tsx's doApprove.
-      await decideRequest(id, action, 1, remarks);
+      // The deciding employee is derived server-side from the logged-in
+      // user's JWT — no employeeId sent from here.
+      await decideRequest(id, action, remarks);
       refresh();
       refreshLoans();
       toast(action === "Approved" ? "Request approved" : "Request rejected");

@@ -20,6 +20,7 @@ import (
 	"ambikagold/backend/internal/ornamenttype"
 	"ambikagold/backend/internal/packet"
 	"ambikagold/backend/internal/platform"
+	"ambikagold/backend/internal/puritystandard"
 	"ambikagold/backend/internal/reminder"
 	"ambikagold/backend/internal/scheme"
 	"ambikagold/backend/internal/settings"
@@ -33,10 +34,14 @@ import (
 // yet (KYC document URLs currently flow through the generic customer/
 // upload endpoints) but is seeded now per the permissions plan so a future
 // admin screen can restrict it independently without a migration.
+// "branches" is deliberately NOT in this list — Branch management writes
+// are restricted to the Administrator role only (see RestrictResourceToRole
+// below), not allow-all-roles like every other resource. Reads stay open to
+// everyone (every branch selector needs the list).
 var authResources = []string{
-	"banks", "branches", "cash", "customers", "employees", "goldrates",
-	"loans", "lockers", "ornamenttypes", "packets", "reminders", "schemes",
-	"settings", "uploads", "kyc-documents",
+	"banks", "cash", "customers", "employees", "goldrates",
+	"loans", "lockers", "ornamenttypes", "packets", "puritystandards", "reminders",
+	"schemes", "settings", "uploads", "kyc-documents",
 }
 
 // staffRoles is the canonical 9-role list permissions are seeded for. Keep
@@ -75,6 +80,14 @@ func main() {
 		log.Fatalf("scheme duration backfill failed: %v", err)
 	}
 
+	if err := scheme.BackfillBranchID(db); err != nil {
+		log.Fatalf("scheme branch_id backfill failed: %v", err)
+	}
+
+	if err := goldrate.MigrateLegacyColumns(db); err != nil {
+		log.Fatalf("gold rate legacy column migration failed: %v", err)
+	}
+
 	if err := db.AutoMigrate(
 		&branch.Branch{},
 		&scheme.Scheme{},
@@ -96,11 +109,13 @@ func main() {
 		&loan.BankPledgeRecord{},
 		&loan.AuctionRecord{},
 		&loan.AuctionNotice{},
+		&loan.ApprovalLimit{},
 		&ornamenttype.OrnamentType{},
 		&bank.Bank{},
 		&locker.Locker{},
 		&packet.Packet{},
 		&packet.PacketMovement{},
+		&puritystandard.PurityStandard{},
 		&reminder.Reminder{},
 		&authz.Permission{},
 	); err != nil {
@@ -111,11 +126,45 @@ func main() {
 		log.Fatalf("legacy scheme date column cleanup failed: %v", err)
 	}
 
+	if err := puritystandard.SeedStandards(db); err != nil {
+		log.Fatalf("purity standard seeding failed: %v", err)
+	}
+
+	if err := loan.NormalizeLegacyPurities(db); err != nil {
+		log.Fatalf("legacy ornament purity normalization failed: %v", err)
+	}
+
+	if err := loan.SeedLoanOperatorLimit(db); err != nil {
+		log.Fatalf("loan operator approval limit seeding failed: %v", err)
+	}
+
 	authzRepo := authz.NewRepository(db)
 	if inserted, skipped, err := authzRepo.SeedDefaults(staffRoles, authResources); err != nil {
 		log.Fatalf("permissions seed failed: %v", err)
 	} else {
 		log.Printf("permissions seed: %d inserted, %d already present", inserted, skipped)
+	}
+
+	// Branch management writes are Administrator-only — every other role is
+	// locked out of create/update/delete on "branches" (read stays open to
+	// all, see authResources' comment above). This also retroactively
+	// corrects any pre-existing allow-all rows from before "branches" was
+	// pulled out of authResources.
+	nonAdminRoles := make([]string, 0, len(staffRoles))
+	for _, role := range staffRoles {
+		if role != platform.AdministratorRole {
+			nonAdminRoles = append(nonAdminRoles, role)
+		}
+	}
+	if err := authzRepo.RestrictResourceToRole("branches", platform.AdministratorRole, nonAdminRoles); err != nil {
+		log.Fatalf("branches permission restriction failed: %v", err)
+	}
+
+	// Cashier is outside the loan creation/approval flow — they may still
+	// read loans (e.g. to record payments) but must not create one. A
+	// narrower, single-action override than RestrictResourceToRole above.
+	if err := authzRepo.SetPermission("Cashier", "loans", "create", false); err != nil {
+		log.Fatalf("cashier loan-create permission restriction failed: %v", err)
 	}
 
 	settingsCipher, err := platform.NewSettingsCipher(cfg.SettingsEncryptionKey)
@@ -135,12 +184,16 @@ func main() {
 	branchHandler := branch.NewHandler(branchSvc)
 
 	schemeRepo := scheme.NewRepository(db)
-	schemeSvc := scheme.NewService(schemeRepo)
+	schemeSvc := scheme.NewService(schemeRepo, branchRepo)
 	schemeHandler := scheme.NewHandler(schemeSvc)
 
 	goldRateRepo := goldrate.NewRepository(db)
 	goldRateSvc := goldrate.NewService(goldRateRepo)
 	goldRateHandler := goldrate.NewHandler(goldRateSvc)
+
+	purityStandardRepo := puritystandard.NewRepository(db)
+	purityStandardSvc := puritystandard.NewService(purityStandardRepo)
+	purityStandardHandler := puritystandard.NewHandler(purityStandardSvc)
 
 	employeeRepo := employee.NewRepository(db)
 	employeeSvc := employee.NewService(employeeRepo, branchRepo)
@@ -190,12 +243,13 @@ func main() {
 	loanRequestRepo := loan.NewLoanRequestRepository(db)
 	requestApprovalRepo := loan.NewRequestApprovalRepository(db)
 	loanAuctionRepo := loan.NewAuctionRepository(db)
+	loanApprovalLimitRepo := loan.NewApprovalLimitRepository(db)
 	// packetSvc satisfies both loan.PacketCreator (auto-creates a packet
 	// right after loan creation) and loan.PacketMover (logs a matching
 	// packet movement on bank-pledge/release) — see internal/loan's
 	// PacketCreator/PacketMover doc comments. movementSvc satisfies
 	// loan.CashRecorder, reflecting bank-pledge amounts into Cash-in-Hand.
-	loanSvc := loan.NewService(loanRepo, loanOrnamentRepo, loanApprovalRepo, loanPaymentRepo, loanPledgeRepo, loanRequestRepo, requestApprovalRepo, loanAuctionRepo, branchRepo, customerRepo, schemeRepo, goldRateRepo, packetSvc, packetSvc, movementSvc)
+	loanSvc := loan.NewService(loanRepo, loanOrnamentRepo, loanApprovalRepo, loanPaymentRepo, loanPledgeRepo, loanRequestRepo, requestApprovalRepo, loanAuctionRepo, loanApprovalLimitRepo, branchRepo, customerRepo, schemeRepo, goldRateRepo, packetSvc, packetSvc, movementSvc)
 	loanHandler := loan.NewHandler(loanSvc)
 
 	reminderRepo := reminder.NewRepository(db)
@@ -212,8 +266,8 @@ func main() {
 	bankSvc := bank.NewService(bankRepo)
 	bankHandler := bank.NewHandler(bankSvc)
 
-	mailer := platform.NewMailer(cfg.SMTPHost, cfg.SMTPPort, cfg.SMTPUser, cfg.SMTPPass, cfg.SMTPFrom)
-	authSvc := auth.NewService(employeeRepo, mailer, cfg.JWTSecret, cfg.JWTExpiry, cfg.FrontendOrigin)
+	smsSender := platform.NewLogSMSSender()
+	authSvc := auth.NewService(employeeRepo, smsSender, cfg.JWTSecret, cfg.JWTExpiry)
 	authHandler := auth.NewHandler(authSvc)
 
 	authMiddleware := platform.AuthMiddleware(cfg.JWTSecret)
@@ -235,6 +289,7 @@ func main() {
 	branch.RegisterRoutes(protected.Group("/branches"), branchHandler, platform.CRUDPermissions(authzRepo, "branches"))
 	scheme.RegisterRoutes(protected.Group("/schemes"), schemeHandler, platform.CRUDPermissions(authzRepo, "schemes"))
 	goldrate.RegisterRoutes(protected.Group("/gold-rates"), goldRateHandler, platform.CRUDPermissions(authzRepo, "goldrates"))
+	puritystandard.RegisterRoutes(protected.Group("/purity-standards"), purityStandardHandler, platform.CRUDPermissions(authzRepo, "puritystandards"))
 	employee.RegisterRoutes(protected.Group("/employees"), employeeHandler, platform.CRUDPermissions(authzRepo, "employees"))
 	cash.RegisterMovementRoutes(protected.Group("/cash-movements"), movementHandler, platform.CRUDPermissions(authzRepo, "cash"))
 	cash.RegisterExpenseRoutes(protected.Group("/expenses"), expenseHandler, platform.CRUDPermissions(authzRepo, "cash"))

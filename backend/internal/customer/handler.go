@@ -6,6 +6,8 @@ import (
 	"strconv"
 	"time"
 
+	"ambikagold/backend/internal/platform"
+
 	"github.com/gin-gonic/gin"
 )
 
@@ -107,6 +109,8 @@ func (h *Handler) Create(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
+	branchID := platform.EnforceBranchOnWrite(c, input.BranchID)
+	input.BranchID = branchID
 	rec, err := h.svc.Create(input)
 	if err != nil {
 		c.JSON(statusForErr(err), gin.H{"error": err.Error()})
@@ -126,7 +130,7 @@ func (h *Handler) List(c *gin.Context) {
 	offset, _ := strconv.Atoi(c.Query("offset"))
 
 	if limit <= 0 {
-		rec, err := h.svc.List(c.Query("q"), 0, 0)
+		rec, err := h.svc.List(c.Query("q"), 0, 0, platform.GetBranchScope(c))
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
@@ -135,7 +139,7 @@ func (h *Handler) List(c *gin.Context) {
 		return
 	}
 
-	rec, err := h.svc.List(c.Query("q"), limit+1, offset)
+	rec, err := h.svc.List(c.Query("q"), limit+1, offset, platform.GetBranchScope(c))
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -153,7 +157,7 @@ func (h *Handler) Get(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	rec, err := h.svc.Get(id)
+	rec, err := h.svc.Get(id, platform.GetBranchScope(c))
 	if err != nil {
 		c.JSON(statusForErr(err), gin.H{"error": err.Error()})
 		return
@@ -177,7 +181,9 @@ func (h *Handler) Update(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	rec, err := h.svc.Update(id, input)
+	branchID := platform.EnforceBranchOnWrite(c, input.BranchID)
+	input.BranchID = branchID
+	rec, err := h.svc.Update(id, input, platform.GetBranchScope(c))
 	if err != nil {
 		c.JSON(statusForErr(err), gin.H{"error": err.Error()})
 		return
@@ -191,7 +197,7 @@ func (h *Handler) Delete(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	if err := h.svc.Delete(id); err != nil {
+	if err := h.svc.Delete(id, platform.GetBranchScope(c)); err != nil {
 		c.JSON(statusForErr(err), gin.H{"error": err.Error()})
 		return
 	}

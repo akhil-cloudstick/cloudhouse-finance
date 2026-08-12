@@ -6,6 +6,8 @@ import (
 	"strconv"
 
 	"github.com/gin-gonic/gin"
+
+	"ambikagold/backend/internal/platform"
 )
 
 // Handler wires HTTP requests to the Service.
@@ -20,6 +22,7 @@ func NewHandler(svc *Service) *Handler {
 // schemeRequest is the JSON body accepted by create/update.
 type schemeRequest struct {
 	Name           string  `json:"name" binding:"required"`
+	BranchID       uint    `json:"branchId"`
 	InterestRate   float64 `json:"interestRate" binding:"required"`
 	DurationMonths int     `json:"durationMonths" binding:"required"`
 	LTVPercent     float64 `json:"ltvPercent" binding:"required"`
@@ -32,6 +35,7 @@ type schemeRequest struct {
 func (req schemeRequest) toInput() (CreateInput, error) {
 	return CreateInput{
 		Name:           req.Name,
+		BranchID:       req.BranchID,
 		InterestRate:   req.InterestRate,
 		DurationMonths: req.DurationMonths,
 		LTVPercent:     req.LTVPercent,
@@ -56,7 +60,8 @@ func statusForErr(err error) int {
 		return http.StatusNotFound
 	case errors.Is(err, ErrInvalidDuration), errors.Is(err, ErrInvalidLTV),
 		errors.Is(err, ErrInvalidRate),
-		errors.Is(err, ErrInvalidWeight), errors.Is(err, ErrInvalidGoldRt):
+		errors.Is(err, ErrInvalidWeight), errors.Is(err, ErrInvalidGoldRt),
+		errors.Is(err, ErrBranchReq), errors.Is(err, ErrBranchInvalid):
 		return http.StatusBadRequest
 	default:
 		return http.StatusInternalServerError
@@ -74,6 +79,7 @@ func (h *Handler) Create(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
+	input.BranchID = platform.EnforceBranchOnWrite(c, input.BranchID)
 	rec, err := h.svc.Create(input)
 	if err != nil {
 		c.JSON(statusForErr(err), gin.H{"error": err.Error()})
@@ -83,7 +89,7 @@ func (h *Handler) Create(c *gin.Context) {
 }
 
 func (h *Handler) List(c *gin.Context) {
-	rec, err := h.svc.List(c.Query("q"))
+	rec, err := h.svc.List(c.Query("q"), platform.GetBranchScope(c))
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -136,7 +142,7 @@ func (h *Handler) Get(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	rec, err := h.svc.Get(id)
+	rec, err := h.svc.Get(id, platform.GetBranchScope(c))
 	if err != nil {
 		c.JSON(statusForErr(err), gin.H{"error": err.Error()})
 		return
@@ -160,7 +166,8 @@ func (h *Handler) Update(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	rec, err := h.svc.Update(id, input)
+	input.BranchID = platform.EnforceBranchOnWrite(c, input.BranchID)
+	rec, err := h.svc.Update(id, input, platform.GetBranchScope(c))
 	if err != nil {
 		c.JSON(statusForErr(err), gin.H{"error": err.Error()})
 		return
@@ -174,7 +181,7 @@ func (h *Handler) Delete(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	if err := h.svc.Delete(id); err != nil {
+	if err := h.svc.Delete(id, platform.GetBranchScope(c)); err != nil {
 		c.JSON(statusForErr(err), gin.H{"error": err.Error()})
 		return
 	}

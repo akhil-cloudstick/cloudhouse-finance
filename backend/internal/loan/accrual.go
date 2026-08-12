@@ -115,7 +115,7 @@ func (s *Service) enrich(l *Loan) {
 	if l.OutstandingPenalInterest < 0 {
 		l.OutstandingPenalInterest = 0
 	}
-	l.TotalOutstandingBalance = l.OutstandingAmount + l.OutstandingInterest + l.OutstandingPenalInterest
+	l.TotalOutstandingBalance = l.OutstandingAmount + l.OutstandingInterest + l.OutstandingPenalInterest + l.OutstandingProcessingFee
 	l.SettlementAmount = l.TotalOutstandingBalance
 
 	var totalPaid float64

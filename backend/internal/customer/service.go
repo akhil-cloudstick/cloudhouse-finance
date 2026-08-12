@@ -146,19 +146,22 @@ func (s *Service) Create(in CreateInput) (*Customer, error) {
 	return s.repo.FindByID(rec.ID)
 }
 
-func (s *Service) List(query string, limit, offset int) ([]Customer, error) {
-	return s.repo.FindAll(query, limit, offset)
+func (s *Service) List(query string, limit, offset int, branchID *uint) ([]Customer, error) {
+	return s.repo.FindAll(query, limit, offset, branchID)
 }
 
-func (s *Service) Get(id uint) (*Customer, error) {
+func (s *Service) Get(id uint, branchID *uint) (*Customer, error) {
 	rec, err := s.repo.FindByID(id)
 	if err != nil {
+		return nil, ErrNotFound
+	}
+	if branchID != nil && rec.BranchID != *branchID {
 		return nil, ErrNotFound
 	}
 	return rec, nil
 }
 
-func (s *Service) Update(id uint, in UpdateInput) (*Customer, error) {
+func (s *Service) Update(id uint, in UpdateInput, branchID *uint) (*Customer, error) {
 	if err := validate(in); err != nil {
 		return nil, err
 	}
@@ -167,6 +170,9 @@ func (s *Service) Update(id uint, in UpdateInput) (*Customer, error) {
 	}
 	rec, err := s.repo.FindByID(id)
 	if err != nil {
+		return nil, ErrNotFound
+	}
+	if branchID != nil && rec.BranchID != *branchID {
 		return nil, ErrNotFound
 	}
 
@@ -199,8 +205,12 @@ func (s *Service) Update(id uint, in UpdateInput) (*Customer, error) {
 	return s.repo.FindByID(rec.ID)
 }
 
-func (s *Service) Delete(id uint) error {
-	if _, err := s.repo.FindByID(id); err != nil {
+func (s *Service) Delete(id uint, branchID *uint) error {
+	rec, err := s.repo.FindByID(id)
+	if err != nil {
+		return ErrNotFound
+	}
+	if branchID != nil && rec.BranchID != *branchID {
 		return ErrNotFound
 	}
 	return s.repo.Delete(id)

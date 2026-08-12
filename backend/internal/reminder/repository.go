@@ -42,10 +42,17 @@ type Filter struct {
 	Status     string
 	From       *time.Time // DueDate >= From
 	To         *time.Time // DueDate <= To
+
+	// BranchID, when non-nil, scopes results to reminders whose Customer
+	// belongs to that branch (Reminder has no branch_id column of its own).
+	BranchID *uint
 }
 
 func (r *Repository) FindAll(f Filter) ([]Reminder, error) {
 	q := r.db.Preload("Customer").Model(&Reminder{}).Order("due_date asc")
+	if f.BranchID != nil {
+		q = q.Joins("JOIN customers ON customers.id = reminders.customer_id").Where("customers.branch_id = ?", *f.BranchID)
+	}
 	if f.CustomerID != 0 {
 		q = q.Where("customer_id = ?", f.CustomerID)
 	}

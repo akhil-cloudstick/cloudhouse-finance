@@ -135,9 +135,12 @@ func (s *Service) checkLockerCapacity(lockerID uint) error {
 	return nil
 }
 
-func (s *Service) Get(id uint) (*Packet, error) {
+func (s *Service) Get(id uint, branchID *uint) (*Packet, error) {
 	rec, err := s.repo.FindByID(id)
 	if err != nil {
+		return nil, ErrNotFound
+	}
+	if branchID != nil && rec.Loan.BranchID != *branchID {
 		return nil, ErrNotFound
 	}
 	return rec, nil

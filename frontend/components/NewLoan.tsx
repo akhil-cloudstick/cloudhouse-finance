@@ -9,6 +9,7 @@ import { useLoans } from "@/lib/LoansProvider";
 import { useGoldRates } from "@/lib/GoldRatesProvider";
 import { useModal } from "@/components/Modal";
 import { useToast } from "@/components/Toast";
+import { useAuth } from "@/lib/auth-context";
 import { Icon } from "@/lib/icons";
 import { fmt, custOf, schemeOf } from "@/lib/format";
 import { uploadFile, searchCustomersPage, type CustomerView } from "@/lib/customersApi";
@@ -20,19 +21,23 @@ import { publishGoldRate } from "@/lib/goldRateApi";
 import { listActiveBranches, type BranchView } from "@/lib/branchApi";
 import { listLockers, type LockerView } from "@/lib/lockerApi";
 import { SearchableSelect } from "@/components/SearchableSelect";
+import { PurityPicker } from "@/components/PurityPicker";
+import { rateForPurityString } from "@/lib/purity";
 import { openPrintWindow } from "@/lib/print";
 import { ApiError } from "@/lib/api";
 import type { Ornament } from "@/lib/data";
 
-const PURITY_LABEL: Record<string, string> = { k24: "24K", k22: "22K", k18: "18K" };
-
-type OrnRow = { n: string; p: "k24" | "k22" | "k18"; w: number; q: number; img?: string; imgName?: string };
+// Purity is now a plain unit-suffixed string ("22K" / "91.6%", see
+// lib/purity.ts) rather than a fixed k24/k22/k18 bucket — PURITY_LABEL is
+// gone since the string itself is already the display label.
+type OrnRow = { n: string; p: string; w: number; q: number; img?: string; imgName?: string };
 
 /* Ported from legacy/app.js's `renderNewLoan()` (legacy/app.js:845-1151).
  * Customer/scheme/ornament-type pickers now hit the real backend search
  * endpoints (via SearchableSelect) instead of filtering an in-memory mock
  * list or a localStorage-backed type list. */
 export function NewLoan() {
+  const { role } = useAuth();
   const { refresh } = useData();
   const { customers } = useCustomers();
   const { schemes } = useSchemes();
@@ -46,25 +51,27 @@ export function NewLoan() {
   // page, reusing RateModal.tsx's own validation rules and the same
   // publishGoldRate() call it makes.
   const [rateR24, setRateR24] = useState("");
-  const [rateR22, setRateR22] = useState("");
-  const [rateR18, setRateR18] = useState("");
   const [rateErr, setRateErr] = useState("");
   const [rateSaving, setRateSaving] = useState(false);
+  // Briefly shakes the rate-recovery banner when staff try to submit
+  // without a published rate for today, so the requirement is impossible
+  // to miss instead of just showing a toast. Re-triggered on every blocked
+  // attempt: re-added on a rAF tick after being cleared, since re-applying
+  // the same class name to an element mid-animation doesn't restart it.
+  const [shakeRateBanner, setShakeRateBanner] = useState(false);
 
   async function saveTodayRate() {
     const k24 = +rateR24;
-    const k22 = +rateR22;
-    const k18 = +rateR18;
-    if (!(k24 > 0) || !(k22 > 0) || !(k18 > 0)) {
-      setRateErr("K24, K22 and K18 rates must all be greater than zero.");
+    if (!(k24 > 0)) {
+      setRateErr("The 24K rate must be greater than zero.");
       return;
     }
     setRateErr("");
     setRateSaving(true);
     try {
-      await publishGoldRate({ k24, k22, k18, setBy: rates.setBy && rates.setBy !== "—" ? rates.setBy : "Admin" });
+      await publishGoldRate({ k24, setBy: rates.setBy && rates.setBy !== "—" ? rates.setBy : "Admin" });
       refreshGoldRates();
-      setRateR24(""); setRateR22(""); setRateR18("");
+      setRateR24("");
       toast("Gold rate published for today");
     } catch (e) {
       setRateErr(e instanceof ApiError ? e.message : "Could not publish rate — try again");
@@ -148,7 +155,7 @@ export function NewLoan() {
 
   const sch = schemes.find((s) => s.id === schemeId);
 
-  const rowVals = rows.map((r) => r.w * r.q * rates[r.p]);
+  const rowVals = rows.map((r) => r.w * r.q * (rateForPurityString(rates.k24, r.p) ?? 0));
   const totalWeight = rows.reduce((s, r) => s + r.w * r.q, 0);
   const totalGross = rowVals.reduce((s, v) => s + v, 0);
   const eligible = sch ? (totalGross * sch.ltv) / 100 : 0;
@@ -167,7 +174,7 @@ export function NewLoan() {
   function addOrnRow(pre?: OrnRow) {
     // Ornament type starts blank — it must be explicitly picked (or created)
     // via the SearchableSelect below, never silently defaulted.
-    setRows((rs) => [...rs, pre || { n: "", p: "k22", w: 0, q: 1 }]);
+    setRows((rs) => [...rs, pre || { n: "", p: "22K", w: 0, q: 1 }]);
   }
   function delOrnRow(i: number) {
     setRows((rs) => rs.filter((_, idx) => idx !== i));
@@ -220,9 +227,9 @@ export function NewLoan() {
     const s = schemeOf(schemes, schemeId);
     let weight = 0, gross = 0;
     const orns: Ornament[] = rows.filter((r) => r.w > 0 && r.q > 0).map((r) => {
-      const v = r.w * r.q * rates[r.p];
+      const v = r.w * r.q * (rateForPurityString(rates.k24, r.p) ?? 0);
       weight += r.w * r.q; gross += v;
-      return { n: r.n, purity: PURITY_LABEL[r.p], gross: r.w, net: r.w, qty: r.q, val: Math.round(v), img: r.img };
+      return { n: r.n, purity: r.p, gross: r.w, net: r.w, qty: r.q, val: Math.round(v), img: r.img };
     });
     const locker = lockers.find((k) => k.id === lockerId);
     return { c, sch: s, orns, weight, gross, eligible: Math.round((gross * s.ltv) / 100), locker };
@@ -413,7 +420,12 @@ export function NewLoan() {
     if (branchId === "") { toast("Please select a branch"); return; }
 
     if (!(principal > 0)) { toast("Please enter a valid loan amount"); return; }
-    if (!isTodaySet) { toast("Today's gold rate must be set before creating a loan."); return; }
+    if (!isTodaySet) {
+      toast("Today's gold rate must be set before creating a loan.");
+      setShakeRateBanner(false);
+      requestAnimationFrame(() => setShakeRateBanner(true));
+      return;
+    }
     const months = s.durationMonths || 12;
     const opened = new Date();
     const due = new Date(opened);
@@ -431,7 +443,7 @@ export function NewLoan() {
         principalAmount: principal,
         ornaments: validRows.map((r) => ({
           name: r.n,
-          purity: PURITY_LABEL[r.p],
+          purity: r.p,
           grossWeight: r.w,
           deductionWeight: 0,
           quantity: r.q,
@@ -485,20 +497,36 @@ export function NewLoan() {
     }
   }
 
+  // Cashier is outside the loan creation/approval flow — the backend
+  // already 403s a Cashier's POST /loans (see authz's Cashier/loans/create
+  // override). This catches direct navigation to #newloan (e.g. a bookmark
+  // or a stale link) even though every entry-point button/nav-item is
+  // already hidden for this role.
+  if (role === "Cashier") {
+    return (
+      <div className="empty">
+        You don&apos;t have permission to create a loan. Contact a Loan Operator, Branch Manager, or Administrator.
+      </div>
+    );
+  }
+
   return (
     <>
       <div className="page-h"><div><h1>New Gold Loan</h1><p>Select a verified customer, choose a scheme, and record pledged ornaments</p></div></div>
       <hr className="gold-rule" />
       {!isTodaySet && (
-        <div className="notice" style={{ borderColor: "var(--red)", marginBottom: 16, flexDirection: "column", alignItems: "stretch", gap: 10 }}>
+        <div
+          className={`notice${shakeRateBanner ? " shake-attention" : ""}`}
+          style={{ borderColor: "var(--red)", marginBottom: 16, flexDirection: "column", alignItems: "stretch", gap: 10 }}
+          onAnimationEnd={() => setShakeRateBanner(false)}
+        >
           <div style={{ display: "flex", alignItems: "center", gap: 8, color: "var(--red)" }}>
             <Icon name="warning" /> <b>Today&apos;s gold rate must be set before creating a loan.</b>
           </div>
-          <div className="frow c3">
-            <div><label className="f">24K · 999 (₹/g)</label><input className="inp" type="number" value={rateR24} onChange={(e) => setRateR24(e.target.value)} /></div>
-            <div><label className="f">22K · 916 (₹/g)</label><input className="inp" type="number" value={rateR22} onChange={(e) => setRateR22(e.target.value)} /></div>
-            <div><label className="f">18K · 750 (₹/g)</label><input className="inp" type="number" value={rateR18} onChange={(e) => setRateR18(e.target.value)} /></div>
-          </div>
+          <div className="frow"><div><label className="f">24K · 999 (₹/g)</label><input className="inp" type="number" value={rateR24} onChange={(e) => setRateR24(e.target.value)} /></div></div>
+          <p style={{ fontSize: 12, color: "var(--muted)", margin: 0 }}>
+            Only the 24K benchmark needs to be set — other purities are resolved per-ornament when pledged.
+          </p>
           {rateErr && <p style={{ color: "var(--red)", fontSize: 12.5, margin: 0 }}>{rateErr}</p>}
           <div>
             <button className="btn" onClick={saveTodayRate} disabled={rateSaving}>
@@ -578,9 +606,7 @@ export function NewLoan() {
                       onCreate={createOrnamentType}
                     />
                   </td>
-                  <td><select className="inp" style={{ padding: "6px 8px", width: 82 }} value={r.p} onChange={(e) => updOrn(i, "p", e.target.value as OrnRow["p"])}>
-                    <option value="k24">24K</option><option value="k22">22K</option><option value="k18">18K</option>
-                  </select></td>
+                  <td style={{ minWidth: 150 }}><PurityPicker value={r.p} onChange={(v) => updOrn(i, "p", v)} /></td>
                   <td className="num"><input className="inp" style={{ padding: "6px 8px", width: 84, textAlign: "right" }} type="number" min={0} value={r.w === 0 ? "" : r.w} onChange={(e) => updOrn(i, "w", e.target.value === "" ? 0 : Math.max(0, +e.target.value || 0))} /></td>
                   <td className="num"><input className="inp" style={{ padding: "6px 8px", width: 64, textAlign: "right" }} type="number" min={0} value={r.q} onChange={(e) => updOrn(i, "q", Math.max(0, +e.target.value || 0))} /></td>
                   <td className="num">{fmt(rowVals[i])}</td>

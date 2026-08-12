@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useLoans } from "@/lib/LoansProvider";
 import { LoanRow } from "@/components/LoanRow";
 import { Icon } from "@/lib/icons";
+import { useAuth } from "@/lib/auth-context";
 import { listLoans, type LoanView } from "@/lib/loansApi";
 
 const CATS = ["All", "Active", "Due Soon", "Overdue", "Defaulted", "Pending Approval", "Auction Eligible", "Closed"];
@@ -29,6 +30,11 @@ const COMPUTED_CATS: Partial<Record<string, (l: LoanView) => boolean>> = {
  * COMPUTED_CATS). */
 export function Loans() {
   const { loans: allLoans, loading: providerLoading, error: providerError } = useLoans();
+  const { role } = useAuth();
+  // Cashier is outside the loan creation/approval flow — the backend
+  // already 403s a Cashier's POST /loans, so hide the button rather than
+  // let them click into a form that can only ever fail.
+  const canCreateLoans = role !== "Cashier";
   const [cat, setCat] = useState("All");
   const [q, setQ] = useState("");
   const [filtered, setFiltered] = useState<LoanView[] | null>(null);
@@ -70,7 +76,7 @@ export function Loans() {
         <div><h1>Loans</h1><p>All customer loans with search and status filters</p></div>
         <div className="sp" />
         <div className="search"><Icon name="search" /><input className="inp" placeholder="Search loan ID or customer…" value={q} onChange={(e) => setQ(e.target.value)} /></div>
-        <a className="btn" href="#newloan"><Icon name="plus" /> New Gold Loan</a>
+        {canCreateLoans && <a className="btn" href="#newloan"><Icon name="plus" /> New Gold Loan</a>}
       </div>
       <hr className="gold-rule" />
       <div style={{ marginBottom: 14 }} className="tabs">

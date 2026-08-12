@@ -57,7 +57,7 @@ var (
 	ErrNoOrnaments               = errors.New("at least one ornament is required")
 	ErrNoGoldRate                = errors.New("no gold rate has been published yet")
 	ErrGoldRateNotSetToday       = errors.New("today's gold rate has not been set yet — please publish it before creating a loan")
-	ErrInvalidPurity             = errors.New("purity must be one of 24K, 22K, 18K")
+	ErrInvalidPurity             = errors.New("purity must be a karat like \"22K\" (10-24) or a fineness percentage like \"91.6%\" (0-100)")
 	ErrInvalidWeight             = errors.New("gross weight must be greater than zero")
 	ErrPrincipalTooHigh          = errors.New("principal amount cannot exceed the eligible loan amount")
 	ErrInvalidPrincipal          = errors.New("principal amount must be greater than zero")
@@ -78,6 +78,7 @@ var (
 	ErrReleaseNotApproved        = errors.New("this loan has no approved release request")
 	ErrOutstandingBalanceRemains = errors.New("the final settlement has not been fully paid yet — record the remaining payment before releasing the gold")
 	ErrBankPledgeStillActive     = errors.New("gold is still pledged to a bank — release the bank pledge before releasing it to the customer")
+	ErrExceedsApprovalLimit      = errors.New("principal exceeds the Loan Operator's approval limit — escalate to Branch Manager or Management")
 	ErrAuctionNotFound           = errors.New("this loan has no auction case yet — mark it auction-eligible first")
 	ErrLoanNotDefaulted          = errors.New("loan must be Defaulted (overdue by more than 90 days) before it can be marked auction-eligible")
 	ErrAuctionAlreadyStarted     = errors.New("this loan already has an auction case in progress")
@@ -96,6 +97,7 @@ type Service struct {
 	requestRepo         *LoanRequestRepository
 	requestApprovalRepo *RequestApprovalRepository
 	auctionRepo         *AuctionRepository
+	approvalLimitRepo   *ApprovalLimitRepository
 
 	branchRepo   *branch.Repository
 	customerRepo *customer.Repository
@@ -116,6 +118,7 @@ func NewService(
 	requestRepo *LoanRequestRepository,
 	requestApprovalRepo *RequestApprovalRepository,
 	auctionRepo *AuctionRepository,
+	approvalLimitRepo *ApprovalLimitRepository,
 	branchRepo *branch.Repository,
 	customerRepo *customer.Repository,
 	schemeRepo *scheme.Repository,
@@ -133,6 +136,7 @@ func NewService(
 		requestRepo:         requestRepo,
 		requestApprovalRepo: requestApprovalRepo,
 		auctionRepo:         auctionRepo,
+		approvalLimitRepo:   approvalLimitRepo,
 		branchRepo:          branchRepo,
 		customerRepo:        customerRepo,
 		schemeRepo:          schemeRepo,
@@ -169,20 +173,8 @@ type CreateInput struct {
 	LockerID *uint
 }
 
-// rateForPurity returns the GoldRate field matching an ornament's declared
-// purity bucket.
-func rateForPurity(gr *goldrate.GoldRate, purity string) (float64, error) {
-	switch purity {
-	case "24K":
-		return gr.K24, nil
-	case "22K":
-		return gr.K22, nil
-	case "18K":
-		return gr.K18, nil
-	default:
-		return 0, ErrInvalidPurity
-	}
-}
+// rateForPurity lives in purity.go (parses "22K"/"91.6%" and resolves the
+// per-gram rate off the day's K24 benchmark).
 
 // valueOrnament fills in NetWeight/GoldValue on an ornament:
 //
@@ -352,12 +344,33 @@ func (s *Service) List(f LoanFilter) ([]Loan, error) {
 	return loans, nil
 }
 
-func (s *Service) Get(id uint) (*Loan, error) {
+func (s *Service) Get(id uint, branchID *uint) (*Loan, error) {
 	rec, err := s.repo.FindByID(id)
 	if err != nil {
 		return nil, ErrNotFound
 	}
+	if branchID != nil && rec.BranchID != *branchID {
+		return nil, ErrNotFound
+	}
 	return s.accrueAndEnrich(rec)
+}
+
+// checkLoanBranch guards a loan-scoped action against branch scoping — nil
+// branchID (Administrator) always passes; otherwise the loan must belong to
+// that branch, or ErrNotFound is returned (same as a direct not-found, so a
+// non-admin can't probe for another branch's loans/requests/auction cases).
+func (s *Service) checkLoanBranch(loanID uint, branchID *uint) error {
+	if branchID == nil {
+		return nil
+	}
+	l, err := s.repo.FindByID(loanID)
+	if err != nil {
+		return ErrNotFound
+	}
+	if l.BranchID != *branchID {
+		return ErrNotFound
+	}
+	return nil
 }
 
 // GetByLoanNumber looks up a loan by its exact LoanNumber in one atomic
@@ -480,7 +493,7 @@ func (s *Service) recalculateAndSave(l *Loan) (*Loan, error) {
 	if err := s.repo.Update(l); err != nil {
 		return nil, err
 	}
-	return s.Get(l.ID)
+	return s.Get(l.ID, nil)
 }
 
 // PurityTestInput mirrors the fields staff enter when manually re-testing
@@ -499,7 +512,7 @@ func (s *Service) RecordPurityTest(ornamentID uint, in PurityTestInput) (*Orname
 	if err != nil {
 		return nil, ErrOrnamentNotFound
 	}
-	if in.TestedPurity != "24K" && in.TestedPurity != "22K" && in.TestedPurity != "18K" {
+	if _, _, err := ParsePurity(in.TestedPurity); err != nil {
 		return nil, ErrInvalidPurity
 	}
 	if in.TestedGrossWeight <= 0 {
@@ -551,16 +564,18 @@ var sanctionChain = []struct{ Stage, Role string }{
 	{SanctionStageFinalSanction, "Management"},
 }
 
-// sanctionLimits is an advisory-only reference table — "a Loan Operator
-// would typically only sign off on loans up to ₹X," etc. It is NEVER used
-// to block an approve/reject decision, only to compute Loan.ApprovalWarning
-// so the UI can show a "consider escalating" note. Hardcoded for now (no
-// admin screen to edit these yet, per the spec's "approved business
-// policies" being a manual/staff judgment call, not a system-enforced
-// rule); revisit as a real settings-backed table if it needs to be
-// editable later.
+// sanctionLimits is an advisory-only reference table for Branch Manager/
+// Management — "a Branch Manager would typically only sign off on loans up
+// to ₹X," etc. It is NEVER used to block an approve/reject decision for
+// these two roles, only to compute Loan.ApprovalWarning so the UI can show
+// a "consider escalating" note. Hardcoded (no admin screen to edit these
+// yet — an explicit scope decision, not an oversight; only the Loan
+// Operator limit below was asked to become editable/hard-enforced).
+//
+// Loan Operator's limit used to live here too, advisory-only; it's now a
+// real, admin-editable, HARD-enforced cap — see ApprovalLimit/
+// loanOperatorLimit/Approve's stage-role check below.
 var sanctionLimits = map[string]float64{
-	"Loan Operator":  50000,
 	"Branch Manager": 200000,
 	"Management":     0, // 0 == no advisory ceiling — Management/Final Sanction can clear any amount
 }
@@ -577,6 +592,40 @@ func sanctionWarning(l *Loan) string {
 		return ""
 	}
 	return ""
+}
+
+// loanOperatorLimit reads the current hard-enforced Loan Operator approval
+// limit from the DB, falling back to DefaultLoanOperatorApprovalLimit if
+// no row exists yet (shouldn't happen past first migration — see
+// SeedLoanOperatorLimit — but a missing row should never silently disable
+// enforcement).
+func (s *Service) loanOperatorLimit() float64 {
+	rec, err := s.approvalLimitRepo.FindByRole("Loan Operator")
+	if err != nil {
+		return DefaultLoanOperatorApprovalLimit
+	}
+	return rec.MaxAmount
+}
+
+// GetLoanOperatorLimit exposes the current limit for GET /loans/approval-limits/loan-operator.
+func (s *Service) GetLoanOperatorLimit() float64 {
+	return s.loanOperatorLimit()
+}
+
+// SetLoanOperatorLimit updates the Loan Operator's hard-enforced approval
+// limit (PUT /loans/approval-limits/loan-operator). amount must be > 0 —
+// a Loan Operator having literally no approval authority isn't a state
+// this endpoint models; remove the role from the sanction chain instead if
+// that's ever needed.
+func (s *Service) SetLoanOperatorLimit(amount float64) (float64, error) {
+	if amount <= 0 {
+		return 0, ErrInvalidAmount
+	}
+	rec, err := s.approvalLimitRepo.Upsert("Loan Operator", amount)
+	if err != nil {
+		return 0, err
+	}
+	return rec.MaxAmount, nil
 }
 
 // ApprovalInput mirrors the body of POST /loans/:id/approve.
@@ -596,8 +645,15 @@ type ApprovalInput struct {
 // the doc's status list has no distinct "Rejected" bucket. Normally
 // in.ActorRole must match the current stage's required role (see
 // sanctionChain); an "Administrator" actor is exempt and may act at
-// whichever stage is currently pending. There is no hard cap on loan
-// amount — sanctionLimits only feeds Loan.ApprovalWarning, purely advisory.
+// whichever stage is currently pending. sanctionLimits (Branch Manager/
+// Management) only feeds Loan.ApprovalWarning, purely advisory — but the
+// Loan Operator stage is a hard cap (see loanOperatorLimit): a Loan
+// Operator cannot themselves approve a loan whose principal exceeds their
+// limit (ErrExceedsApprovalLimit on an Approved action; Rejected is always
+// allowed regardless of amount). Branch Manager/Management/Administrator
+// may still act at the Loan Operator stage in that case — same "step in
+// and clear it" pattern as Administrator's existing stage bypass — so an
+// over-limit loan escalates rather than getting stuck.
 func (s *Service) Approve(loanID uint, in ApprovalInput) (*Loan, error) {
 	l, err := s.repo.FindByID(loanID)
 	if err != nil {
@@ -620,7 +676,12 @@ func (s *Service) Approve(loanID uint, in ApprovalInput) (*Loan, error) {
 				break
 			}
 		}
-		if requiredRole != "" && in.ActorRole != requiredRole {
+		if requiredRole == "Loan Operator" && in.Action == ApprovalStageApproved && l.PrincipalAmount > s.loanOperatorLimit() {
+			// Over the hard cap: only a higher role may clear this stage.
+			if in.ActorRole != "Branch Manager" && in.ActorRole != "Management" {
+				return nil, ErrExceedsApprovalLimit
+			}
+		} else if requiredRole != "" && in.ActorRole != requiredRole {
 			return nil, ErrWrongStage
 		}
 	}
@@ -669,7 +730,7 @@ func (s *Service) Approve(loanID uint, in ApprovalInput) (*Loan, error) {
 		}
 	}
 
-	return s.Get(l.ID)
+	return s.Get(l.ID, nil)
 }
 
 // GetInterestCollected sums the interest + penal-interest portions of
@@ -689,10 +750,13 @@ func (s *Service) ListApprovals(loanID uint) ([]LoanApproval, error) {
 	return s.approvalRepo.FindByLoanID(loanID)
 }
 
-// PaymentInput mirrors the body of POST /loans/:id/payments.
+// PaymentInput mirrors the body of POST /loans/:id/payments. ProcessingFee
+// is an optional additional charge collected alongside Amount — see
+// LoanPayment.ProcessingFee's doc comment.
 type PaymentInput struct {
 	Amount               float64
 	Type                 string
+	ProcessingFee        float64
 	PaidOn               time.Time
 	ReceivedByEmployeeID uint
 	Method               string
@@ -707,36 +771,49 @@ type PaymentInput struct {
 // owed).
 var ErrExceedsOutstanding = errors.New("amount does not match what is owed for this payment type")
 
-// allocatePayment splits amount across the penal-interest/interest/
-// principal buckets according to paymentType's waterfall rule, against l's
-// *current* outstanding figures (call accrueAndSave first so the buckets
-// are up to date). It does not mutate l — the caller applies the returned
-// deltas and decides cash-recording.
-func allocatePayment(l *Loan, paymentType string, amount float64) (penal, interest, principal float64, err error) {
+// allocatePayment splits amount across the processing-fee/penal-interest/
+// interest/principal buckets according to paymentType's waterfall rule,
+// against l's *current* outstanding figures (call accrueAndSave first, and
+// add any newly-charged ProcessingFee to l.OutstandingProcessingFee,
+// before calling this, so the buckets are up to date). Processing fee has
+// first priority — the very next rupee paid in clears it before penal
+// interest/interest/principal — matching Loan Operator/branch expectation
+// that outstanding fees get cleared before anything else. It does not
+// mutate l — the caller applies the returned deltas and decides
+// cash-recording.
+func allocatePayment(l *Loan, paymentType string, amount float64) (fee, penal, interest, principal float64, err error) {
 	const epsilon = 0.01 // guards against float rounding rejecting an exact payoff
+	feeOutstanding := l.OutstandingProcessingFee
 	penalOutstanding := l.AccruedPenalInterest - l.PenalInterestPaid
 	interestOutstanding := l.AccruedInterest - l.InterestPaid
 	principalOutstanding := l.OutstandingAmount
 
 	switch paymentType {
 	case PaymentTypePrincipal:
-		if amount > principalOutstanding+epsilon {
-			return 0, 0, 0, ErrExceedsOutstanding
+		remaining := amount
+		fee = math.Min(remaining, feeOutstanding)
+		remaining -= fee
+		if remaining > principalOutstanding+epsilon {
+			return 0, 0, 0, 0, ErrExceedsOutstanding
 		}
-		principal = amount
+		principal = remaining
 
 	case PaymentTypeInterest:
 		remaining := amount
+		fee = math.Min(remaining, feeOutstanding)
+		remaining -= fee
 		penal = math.Min(remaining, penalOutstanding)
 		remaining -= penal
 		interest = math.Min(remaining, interestOutstanding)
 		remaining -= interest
 		if remaining > epsilon {
-			return 0, 0, 0, ErrExceedsOutstanding
+			return 0, 0, 0, 0, ErrExceedsOutstanding
 		}
 
 	case PaymentTypePartial:
 		remaining := amount
+		fee = math.Min(remaining, feeOutstanding)
+		remaining -= fee
 		penal = math.Min(remaining, penalOutstanding)
 		remaining -= penal
 		interest = math.Min(remaining, interestOutstanding)
@@ -744,49 +821,52 @@ func allocatePayment(l *Loan, paymentType string, amount float64) (penal, intere
 		principal = math.Min(remaining, principalOutstanding)
 		remaining -= principal
 		if remaining > epsilon {
-			return 0, 0, 0, ErrExceedsOutstanding
+			return 0, 0, 0, 0, ErrExceedsOutstanding
 		}
 
 	case PaymentTypeFullSettlement:
-		total := penalOutstanding + interestOutstanding + principalOutstanding
+		total := feeOutstanding + penalOutstanding + interestOutstanding + principalOutstanding
 		if amount+epsilon < total {
-			return 0, 0, 0, ErrExceedsOutstanding
+			return 0, 0, 0, 0, ErrExceedsOutstanding
 		}
-		penal, interest, principal = penalOutstanding, interestOutstanding, principalOutstanding
+		fee, penal, interest, principal = feeOutstanding, penalOutstanding, interestOutstanding, principalOutstanding
 
 	case PaymentTypeAdjustment:
 		// A manual correction to the principal ledger (e.g. fixing a data
 		// entry error) — never overshoots into a negative outstanding
-		// balance, and never touches interest/penal interest.
+		// balance, and never touches fee/interest/penal interest.
 		principal = math.Min(amount, principalOutstanding)
 
 	case PaymentTypeWaiver:
 		// Forgives owed interest/penal interest without any cash changing
 		// hands — same penal-then-interest order as a real payment would
-		// use, but never reaches into principal.
+		// use, but never reaches into fee/principal (a fee is a real charge,
+		// not something a waiver forgives).
 		remaining := amount
 		penal = math.Min(remaining, penalOutstanding)
 		remaining -= penal
 		interest = math.Min(remaining, interestOutstanding)
 		remaining -= interest
 		if remaining > epsilon {
-			return 0, 0, 0, ErrExceedsOutstanding
+			return 0, 0, 0, 0, ErrExceedsOutstanding
 		}
 
 	default:
-		return 0, 0, 0, ErrInvalidPaymentType
+		return 0, 0, 0, 0, ErrInvalidPaymentType
 	}
-	return penal, interest, principal, nil
+	return fee, penal, interest, principal, nil
 }
 
 // RecordPayment logs one ledger entry against a loan: it first brings
 // AccruedInterest/AccruedPenalInterest up to date (so the allocation below
-// is against real, current figures), then allocates the payment across
-// penal interest → interest → principal per its Type (see allocatePayment),
-// updates the paid-so-far totals, and auto-closes the loan once nothing is
-// left owing in any bucket. Only cash-bearing types (see
-// isCashPaymentType) are reflected in Cash-in-Hand — Adjustment/Waiver
-// correct the ledger without any cash actually moving.
+// is against real, current figures), charges any newly-added
+// ProcessingFee onto OutstandingProcessingFee, then allocates the payment
+// across processing fee → penal interest → interest → principal per its
+// Type (see allocatePayment), updates the paid-so-far totals, and
+// auto-closes the loan once nothing is left owing in any bucket
+// (including the fee). Only cash-bearing types (see isCashPaymentType) are
+// reflected in Cash-in-Hand — Adjustment/Waiver correct the ledger without
+// any cash actually moving.
 func (s *Service) RecordPayment(loanID uint, in PaymentInput) (*Loan, error) {
 	l, err := s.repo.FindByID(loanID)
 	if err != nil {
@@ -795,14 +875,28 @@ func (s *Service) RecordPayment(loanID uint, in PaymentInput) (*Loan, error) {
 	if in.Amount <= 0 {
 		return nil, ErrInvalidAmount
 	}
+	if in.ProcessingFee < 0 {
+		return nil, ErrInvalidAmount
+	}
 
 	s.accrueAndSave(l)
 
-	penal, interest, principal, err := allocatePayment(l, in.Type, in.Amount)
+	// Charging the fee before allocating means this same payment's Amount
+	// can immediately go toward clearing it — fee has first priority in
+	// allocatePayment's waterfall.
+	if in.ProcessingFee > 0 {
+		l.OutstandingProcessingFee += in.ProcessingFee
+	}
+
+	fee, penal, interest, principal, err := allocatePayment(l, in.Type, in.Amount)
 	if err != nil {
 		return nil, err
 	}
 
+	l.OutstandingProcessingFee -= fee
+	if l.OutstandingProcessingFee < 0 {
+		l.OutstandingProcessingFee = 0
+	}
 	l.PenalInterestPaid += penal
 	l.InterestPaid += interest
 	l.OutstandingAmount -= principal
@@ -813,6 +907,7 @@ func (s *Service) RecordPayment(loanID uint, in PaymentInput) (*Loan, error) {
 	outstandingInterest := l.AccruedInterest - l.InterestPaid
 	outstandingPenal := l.AccruedPenalInterest - l.PenalInterestPaid
 	if l.OutstandingAmount <= 0 && outstandingInterest <= 0.01 && outstandingPenal <= 0.01 &&
+		l.OutstandingProcessingFee <= 0.01 &&
 		(l.Status == StatusActive || l.Status == StatusDueSoon || l.Status == StatusOverdue) {
 		l.Status = StatusClosed
 	}
@@ -820,11 +915,13 @@ func (s *Service) RecordPayment(loanID uint, in PaymentInput) (*Loan, error) {
 		return nil, err
 	}
 
-	runningBalance := l.OutstandingAmount + math.Max(0, outstandingInterest) + math.Max(0, outstandingPenal)
+	runningBalance := l.OutstandingAmount + math.Max(0, outstandingInterest) + math.Max(0, outstandingPenal) + l.OutstandingProcessingFee
 	p := &LoanPayment{
 		LoanID:               loanID,
 		Amount:               in.Amount,
 		Type:                 in.Type,
+		ProcessingFee:        in.ProcessingFee,
+		ProcessingFeeApplied: fee,
 		PaidOn:               in.PaidOn,
 		ReceivedByEmployeeID: in.ReceivedByEmployeeID,
 		Description:          in.Description,
@@ -839,40 +936,60 @@ func (s *Service) RecordPayment(loanID uint, in PaymentInput) (*Loan, error) {
 		return nil, err
 	}
 
+	// Amount is the actual cash handed over — the fee (if any) is paid out
+	// of this same amount, not collected on top of it (see allocatePayment's
+	// fee-first priority), so the cash-in movement is just Amount.
 	if isCashPaymentType(in.Type) && s.cashRecorder != nil {
 		if _, err := s.cashRecorder.RecordLoanPaymentCashIn(l.ID, l.LoanNumber, in.Amount, l.BranchID, in.PaidOn, in.Type); err != nil {
 			log.Printf("cash-in movement (payment) failed for loan %d: %v", l.ID, err)
 		}
 	}
 
-	return s.Get(l.ID)
+	return s.Get(l.ID, nil)
 }
 
-// BankPledgeInput mirrors the body of POST /loans/:id/bank-pledge.
+// BankPledgeInput mirrors the body of POST /loans/:id/bank-pledge. BankID/
+// BankName both come from the caller — the frontend's bank search dropdown
+// already resolves both for the bank the staff member picked, so the
+// service just stores them as given rather than re-looking the bank up.
 type BankPledgeInput struct {
-	BankName         string
-	PledgedAmount    float64
-	PledgeDate       time.Time
-	BankInterestRate float64
-	ReferenceNumber  string
+	BankID            *uint
+	BankName          string
+	PledgedAmount     float64
+	PledgeDate        time.Time
+	BankInterestRate  float64
+	ReferenceNumber   string
+	BankPledgeDueDate *time.Time
 }
 
-func (s *Service) RecordBankPledge(loanID uint, in BankPledgeInput) (*Loan, error) {
+func (s *Service) RecordBankPledge(loanID uint, branchID *uint, in BankPledgeInput) (*Loan, error) {
 	l, err := s.repo.FindByID(loanID)
 	if err != nil {
+		return nil, ErrNotFound
+	}
+	if branchID != nil && l.BranchID != *branchID {
 		return nil, ErrNotFound
 	}
 	if in.PledgedAmount <= 0 {
 		return nil, ErrInvalidAmount
 	}
 
+	var grossWeight float64
+	for _, o := range l.Ornaments {
+		grossWeight += o.GrossWeight
+	}
+
 	p := &BankPledgeRecord{
-		LoanID:           loanID,
-		BankName:         in.BankName,
-		PledgedAmount:    in.PledgedAmount,
-		PledgeDate:       in.PledgeDate,
-		BankInterestRate: in.BankInterestRate,
-		ReferenceNumber:  in.ReferenceNumber,
+		LoanID:             loanID,
+		BankID:             in.BankID,
+		BankName:           in.BankName,
+		PledgedAmount:      in.PledgedAmount,
+		PledgeDate:         in.PledgeDate,
+		BankInterestRate:   in.BankInterestRate,
+		ReferenceNumber:    in.ReferenceNumber,
+		BankPledgeDueDate:  in.BankPledgeDueDate,
+		PledgedGrossWeight: grossWeight,
+		PledgedNetWeight:   l.TotalNetWeight,
 	}
 	if err := s.pledgeRepo.Create(p); err != nil {
 		return nil, err
@@ -901,7 +1018,7 @@ func (s *Service) RecordBankPledge(loanID uint, in BankPledgeInput) (*Loan, erro
 		}
 	}
 
-	return s.Get(l.ID)
+	return s.Get(l.ID, nil)
 }
 
 // --- Auction workflow (7-stage) --------------------------------------------
@@ -923,7 +1040,10 @@ func (s *Service) getAuctionRecord(loanID uint) (*AuctionRecord, error) {
 // GetAuctionRecord returns a loan's auction case record (including its
 // notice history), or ErrAuctionNotFound if the loan was never marked
 // auction-eligible.
-func (s *Service) GetAuctionRecord(loanID uint) (*AuctionRecord, error) {
+func (s *Service) GetAuctionRecord(loanID uint, branchID *uint) (*AuctionRecord, error) {
+	if err := s.checkLoanBranch(loanID, branchID); err != nil {
+		return nil, err
+	}
 	return s.getAuctionRecord(loanID)
 }
 
@@ -932,9 +1052,12 @@ func (s *Service) GetAuctionRecord(loanID uint) (*AuctionRecord, error) {
 // see accrual.go), creates its AuctionRecord at AuctionEligible, and sets
 // Loan.Status accordingly. A loan can only have one AuctionRecord at a
 // time (LoanID is uniquely indexed).
-func (s *Service) MarkAuctionEligible(loanID uint) (*AuctionRecord, error) {
+func (s *Service) MarkAuctionEligible(loanID uint, branchID *uint) (*AuctionRecord, error) {
 	l, err := s.repo.FindByID(loanID)
 	if err != nil {
+		return nil, ErrNotFound
+	}
+	if branchID != nil && l.BranchID != *branchID {
 		return nil, ErrNotFound
 	}
 	s.enrich(l)
@@ -965,7 +1088,10 @@ func (s *Service) MarkAuctionEligible(loanID uint) (*AuctionRecord, error) {
 // IssueAuctionNotice logs a customer notice against the loan's auction case
 // and advances it to NoticeIssued (idempotent re-issue: additional notices
 // can be logged after the stage has already advanced past Eligible).
-func (s *Service) IssueAuctionNotice(loanID uint, method, remarks string) (*AuctionRecord, error) {
+func (s *Service) IssueAuctionNotice(loanID uint, branchID *uint, method, remarks string) (*AuctionRecord, error) {
+	if err := s.checkLoanBranch(loanID, branchID); err != nil {
+		return nil, err
+	}
 	rec, err := s.getAuctionRecord(loanID)
 	if err != nil {
 		return nil, err
@@ -993,7 +1119,10 @@ func (s *Service) IssueAuctionNotice(loanID uint, method, remarks string) (*Auct
 // ScheduleAuction records the actual auction date/reference and advances
 // the case to AuctionScheduled. Requires at least one notice to have been
 // issued first.
-func (s *Service) ScheduleAuction(loanID uint, date time.Time, referenceNumber string) (*AuctionRecord, error) {
+func (s *Service) ScheduleAuction(loanID uint, branchID *uint, date time.Time, referenceNumber string) (*AuctionRecord, error) {
+	if err := s.checkLoanBranch(loanID, branchID); err != nil {
+		return nil, err
+	}
 	rec, err := s.getAuctionRecord(loanID)
 	if err != nil {
 		return nil, err
@@ -1015,7 +1144,7 @@ func (s *Service) ScheduleAuction(loanID uint, date time.Time, referenceNumber s
 // current TotalOutstandingBalance, advances the case to Auctioned, and
 // closes the loan out (Status -> Auctioned, OutstandingAmount -> 0 — same
 // end effect as the old one-shot RecordAuction()).
-func (s *Service) RecordAuctionSale(loanID uint, saleAmount, expenses float64) (*AuctionRecord, error) {
+func (s *Service) RecordAuctionSale(loanID uint, branchID *uint, saleAmount, expenses float64) (*AuctionRecord, error) {
 	if saleAmount <= 0 {
 		return nil, ErrInvalidAmount
 	}
@@ -1028,6 +1157,9 @@ func (s *Service) RecordAuctionSale(loanID uint, saleAmount, expenses float64) (
 	}
 	l, err := s.repo.FindByID(loanID)
 	if err != nil {
+		return nil, ErrNotFound
+	}
+	if branchID != nil && l.BranchID != *branchID {
 		return nil, ErrNotFound
 	}
 	s.enrich(l)
@@ -1053,11 +1185,14 @@ func (s *Service) RecordAuctionSale(loanID uint, saleAmount, expenses float64) (
 
 // SettleAuction records how the sale's surplus/shortfall was resolved and
 // advances the case to its terminal Settled stage.
-func (s *Service) SettleAuction(loanID uint, settlementStatus string) (*AuctionRecord, error) {
+func (s *Service) SettleAuction(loanID uint, branchID *uint, settlementStatus string) (*AuctionRecord, error) {
 	switch settlementStatus {
 	case AuctionSettlementSettledToCustomer, AuctionSettlementSettledToLoanCo:
 	default:
 		return nil, ErrInvalidAction
+	}
+	if err := s.checkLoanBranch(loanID, branchID); err != nil {
+		return nil, err
 	}
 	rec, err := s.getAuctionRecord(loanID)
 	if err != nil {
@@ -1158,10 +1293,13 @@ func (s *Service) ListRequests(f LoanRequestFilter) ([]LoanRequest, error) {
 // and recalculates status; it's blocked if the loan has already reached a
 // terminal state (nothing left to extend). Rejecting only records the
 // decision — the loan is untouched either way.
-func (s *Service) DecideRequest(requestID uint, approve bool, decidedByEmployeeID uint, remarks string) (*LoanRequest, error) {
+func (s *Service) DecideRequest(requestID uint, branchID *uint, approve bool, decidedByEmployeeID uint, remarks string) (*LoanRequest, error) {
 	req, err := s.requestRepo.FindByID(requestID)
 	if err != nil {
 		return nil, ErrRequestNotFound
+	}
+	if err := s.checkLoanBranch(req.LoanID, branchID); err != nil {
+		return nil, err
 	}
 	if req.Type != RequestTypeExtension {
 		return nil, ErrNotExtensionRequest
@@ -1232,10 +1370,13 @@ type ChecklistInput struct {
 // item in person (payment settled, packet location, bank pledge status,
 // customer confirmation) — ApproveReleaseRequest refuses the first approval
 // stage until all four are true.
-func (s *Service) VerifyReleaseChecklist(requestID uint, in ChecklistInput) (*LoanRequest, error) {
+func (s *Service) VerifyReleaseChecklist(requestID uint, branchID *uint, in ChecklistInput) (*LoanRequest, error) {
 	req, err := s.requestRepo.FindByID(requestID)
 	if err != nil {
 		return nil, ErrRequestNotFound
+	}
+	if err := s.checkLoanBranch(req.LoanID, branchID); err != nil {
+		return nil, err
 	}
 	if req.Type != RequestTypeRelease {
 		return nil, ErrNotReleaseRequest
@@ -1290,10 +1431,13 @@ type ReleaseApprovalInput struct {
 // SettlementAmount = Loan.TotalOutstandingBalance + Charges and moves the
 // loan to StatusClosureRequested; CompleteRelease (below) does the actual
 // hand-back once the settlement is fully paid.
-func (s *Service) ApproveReleaseRequest(requestID uint, in ReleaseApprovalInput) (*LoanRequest, error) {
+func (s *Service) ApproveReleaseRequest(requestID uint, branchID *uint, in ReleaseApprovalInput) (*LoanRequest, error) {
 	req, err := s.requestRepo.FindByID(requestID)
 	if err != nil {
 		return nil, ErrRequestNotFound
+	}
+	if err := s.checkLoanBranch(req.LoanID, branchID); err != nil {
+		return nil, err
 	}
 	if req.Type != RequestTypeRelease {
 		return nil, ErrNotReleaseRequest
@@ -1353,7 +1497,7 @@ func (s *Service) ApproveReleaseRequest(requestID uint, in ReleaseApprovalInput)
 	case ApprovalStagePendingManagement:
 		req.ApprovalStage = ApprovalStageApproved
 
-		l, err := s.Get(req.LoanID)
+		l, err := s.Get(req.LoanID, nil)
 		if err != nil {
 			return nil, err
 		}
@@ -1382,12 +1526,12 @@ func (s *Service) ApproveReleaseRequest(requestID uint, in ReleaseApprovalInput)
 // every repayment recorded via RecordPayment has already reduced this
 // automatically); and the bank pledge already released, if there was one.
 // Only then does it move the loan's packet to Released and close the loan.
-func (s *Service) CompleteRelease(loanID uint, employeeID uint) (*Loan, error) {
+func (s *Service) CompleteRelease(loanID uint, branchID *uint, employeeID uint) (*Loan, error) {
 	if _, err := s.requestRepo.FindApprovedReleaseByLoanID(loanID); err != nil {
 		return nil, ErrReleaseNotApproved
 	}
 
-	l, err := s.Get(loanID)
+	l, err := s.Get(loanID, branchID)
 	if err != nil {
 		return nil, err
 	}
@@ -1408,12 +1552,15 @@ func (s *Service) CompleteRelease(loanID uint, employeeID uint) (*Loan, error) {
 	if err := s.repo.Update(l); err != nil {
 		return nil, err
 	}
-	return s.Get(l.ID)
+	return s.Get(l.ID, nil)
 }
 
-func (s *Service) ReleaseBankPledge(loanID, pledgeID uint) (*Loan, error) {
+func (s *Service) ReleaseBankPledge(loanID, pledgeID uint, branchID *uint) (*Loan, error) {
 	l, err := s.repo.FindByID(loanID)
 	if err != nil {
+		return nil, ErrNotFound
+	}
+	if branchID != nil && l.BranchID != *branchID {
 		return nil, ErrNotFound
 	}
 	p, err := s.pledgeRepo.FindByID(pledgeID)
@@ -1444,7 +1591,7 @@ func (s *Service) ReleaseBankPledge(loanID, pledgeID uint) (*Loan, error) {
 		}
 	}
 
-	return s.Get(l.ID)
+	return s.Get(l.ID, nil)
 }
 
 // --- Customer 360 -----------------------------------------------------------

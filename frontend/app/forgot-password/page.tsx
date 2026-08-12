@@ -1,11 +1,13 @@
 "use client";
 
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 import "../login.css";
 import { forgotPassword } from "@/lib/authApi";
 
 export default function ForgotPasswordPage() {
-  const [email, setEmail] = useState("");
+  const router = useRouter();
+  const [phone, setPhone] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [sent, setSent] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -13,15 +15,15 @@ export default function ForgotPasswordPage() {
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
-    const trimmed = email.trim();
+    const trimmed = phone.trim();
     if (!trimmed) {
-      setError("Please enter your email.");
+      setError("Please enter your phone number.");
       return;
     }
     setSubmitting(true);
     try {
-      // Ignore the actual outcome — the backend never reveals whether an
-      // email is registered, and we don't want to either.
+      // Ignore the actual outcome — the backend never reveals whether a
+      // phone number is registered, and we don't want to either.
       await forgotPassword(trimmed).catch(() => {});
     } finally {
       setSubmitting(false);
@@ -48,9 +50,20 @@ export default function ForgotPasswordPage() {
           {sent ? (
             <>
               <p className="msg show ok" role="status" style={{ position: "static", textAlign: "center" }}>
-                If that email is registered, a password reset link has been sent. Please check your inbox.
+                If that phone number is registered, a reset code has been sent by SMS.
               </p>
               <div className="aux" style={{ justifyContent: "center", marginTop: 18 }}>
+                <a
+                  href="#"
+                  onClick={(e) => {
+                    e.preventDefault();
+                    router.push(`/reset-password?phone=${encodeURIComponent(phone.trim())}`);
+                  }}
+                >
+                  Enter the code →
+                </a>
+              </div>
+              <div className="aux" style={{ justifyContent: "center", marginTop: 8 }}>
                 <a href="/login">← Back to login</a>
               </div>
             </>
@@ -58,15 +71,15 @@ export default function ForgotPasswordPage() {
             <form noValidate onSubmit={handleSubmit}>
               <div className="field">
                 <input
-                  type="email"
-                  id="email"
+                  type="tel"
+                  id="phone"
                   placeholder=" "
-                  autoComplete="username"
+                  autoComplete="tel"
                   required
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
+                  value={phone}
+                  onChange={(e) => setPhone(e.target.value)}
                 />
-                <label htmlFor="email">Email</label>
+                <label htmlFor="phone">Phone number</label>
                 <span className="icon" aria-hidden="true">
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6">
                     <circle cx="12" cy="8" r="4" />
@@ -77,7 +90,7 @@ export default function ForgotPasswordPage() {
               </div>
 
               <button type="submit" className="btn" disabled={submitting}>
-                {submitting ? "Sending…" : "Send reset link"}
+                {submitting ? "Sending…" : "Send reset code"}
                 <span className="shine" aria-hidden="true"></span>
               </button>
               <p className={`msg${error ? " show" : ""}`} role="alert">

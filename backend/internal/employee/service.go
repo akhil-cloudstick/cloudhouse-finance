@@ -20,15 +20,27 @@ var (
 	ErrBranchReq     = errors.New("branch is required")
 	ErrBranchInvalid = errors.New("branch does not exist")
 	ErrPhoneInvalid  = errors.New("phone must be a 10-digit number")
+	// ErrPhoneTaken is returned when an employee's phone number is already
+	// used by a different employee — phone doubles as a login identifier
+	// (see internal/auth), so it must be unique across employees.
+	ErrPhoneTaken = errors.New("phone number is already in use by another employee")
 	// ErrEmailTaken is returned when updating an employee's email to one
-	// already used by a different employee (see internal/auth for login,
-	// which relies on email uniqueness).
+	// already used by a different employee.
 	ErrEmailTaken = errors.New("email is already in use by another employee")
 	// ErrEmailInvalid guards against obviously malformed email input.
 	ErrEmailInvalid = errors.New("email is invalid")
+	// ErrUsernameTaken is returned when setting an employee's username to
+	// one already used by a different employee (see internal/auth for
+	// login, which relies on username uniqueness).
+	ErrUsernameTaken = errors.New("username is already in use by another employee")
+	// ErrUsernameInvalid guards against blank/too-short/invalid-character
+	// usernames.
+	ErrUsernameInvalid = errors.New("username must be at least 3 characters and contain only letters, numbers, dots, underscores or hyphens")
 	// ErrPasswordTooShort mirrors a minimal password-strength rule.
 	ErrPasswordTooShort = errors.New("password must be at least 8 characters")
 )
+
+var usernameRe = regexp.MustCompile(`^[A-Za-z0-9._-]{3,60}$`)
 
 var emailRe = regexp.MustCompile(`^[^\s@]+@[^\s@]+\.[^\s@]+$`)
 
@@ -78,6 +90,12 @@ type CreateInput struct {
 	Role     string
 	BranchID uint
 	Phone    string
+	// Username/Password optionally set up login credentials right at
+	// creation time (both must be given together, or both left blank —
+	// see validateCreate). Leave both blank to add the employee without
+	// login access yet (an Administrator can set them later via Update).
+	Username string
+	Password string
 }
 
 // UpdateInput additionally allows adjusting the performance counters,
@@ -92,10 +110,12 @@ type UpdateInput struct {
 	Collections    float64
 	Followups      int
 	Pending        int
-	// Email/Password are optional — enables an Administrator to set up
+	// Username/Password are optional — enables an Administrator to set up
 	// login credentials for an employee via the existing update endpoint
-	// (see internal/auth for the login flow that consumes these). Leave
-	// both empty to leave existing credentials untouched.
+	// (see internal/auth for the login flow, which accepts Username or
+	// Phone). Leave both empty to leave existing credentials untouched.
+	// Email is still accepted/stored but no longer used for login.
+	Username string
 	Email    string
 	Password string
 }
@@ -123,7 +143,16 @@ func validateCreate(in CreateInput) error {
 	if in.BranchID == 0 {
 		return ErrBranchReq
 	}
-	return validatePhone(in.Phone)
+	if err := validatePhone(in.Phone); err != nil {
+		return err
+	}
+	if in.Username != "" && !usernameRe.MatchString(in.Username) {
+		return ErrUsernameInvalid
+	}
+	if in.Password != "" && len(in.Password) < 8 {
+		return ErrPasswordTooShort
+	}
+	return nil
 }
 
 func (s *Service) checkBranch(id uint) error {
@@ -137,11 +166,47 @@ func (s *Service) checkBranch(id uint) error {
 	return nil
 }
 
+// checkPhoneUnique reports ErrPhoneTaken if phone is non-blank and already
+// used by a different employee (excludeID — 0 when creating). Phone is a
+// login identifier (see internal/auth), so it must stay unique.
+func (s *Service) checkPhoneUnique(phone string, excludeID uint) error {
+	if phone == "" {
+		return nil
+	}
+	existing, err := s.repo.FindByPhone(phone)
+	if err == nil && existing.ID != excludeID {
+		return ErrPhoneTaken
+	} else if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+		return err
+	}
+	return nil
+}
+
+// checkUsernameUnique mirrors checkPhoneUnique for Username.
+func (s *Service) checkUsernameUnique(username string, excludeID uint) error {
+	if username == "" {
+		return nil
+	}
+	existing, err := s.repo.FindByUsername(username)
+	if err == nil && existing.ID != excludeID {
+		return ErrUsernameTaken
+	} else if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+		return err
+	}
+	return nil
+}
+
 func (s *Service) Create(in CreateInput) (*Employee, error) {
 	if err := validateCreate(in); err != nil {
 		return nil, err
 	}
 	if err := s.checkBranch(in.BranchID); err != nil {
+		return nil, err
+	}
+	if err := s.checkPhoneUnique(in.Phone, 0); err != nil {
+		return nil, err
+	}
+	if err := s.checkUsernameUnique(in.Username, 0); err != nil {
 		return nil, err
 	}
 
@@ -157,6 +222,14 @@ func (s *Service) Create(in CreateInput) (*Employee, error) {
 		Role:     in.Role,
 		BranchID: in.BranchID,
 		Phone:    in.Phone,
+		Username: in.Username,
+	}
+	if in.Password != "" {
+		hash, err := bcrypt.GenerateFromPassword([]byte(in.Password), bcrypt.DefaultCost+2)
+		if err != nil {
+			return nil, err
+		}
+		rec.PasswordHash = string(hash)
 	}
 	if err := s.repo.Create(rec); err != nil {
 		return nil, err
@@ -164,19 +237,32 @@ func (s *Service) Create(in CreateInput) (*Employee, error) {
 	return s.repo.FindByID(rec.ID)
 }
 
-func (s *Service) List() ([]Employee, error) {
-	return s.repo.FindAll()
+// List returns employees, optionally scoped to branchID (nil = all
+// branches — Administrator only, see platform.GetBranchScope).
+func (s *Service) List(branchID *uint) ([]Employee, error) {
+	return s.repo.FindAll(branchID)
 }
 
-func (s *Service) Get(id uint) (*Employee, error) {
+// Get returns the employee by id, or ErrNotFound if it doesn't exist OR
+// (when branchID is non-nil) belongs to a different branch — a non-admin
+// gets the same "not found" for another branch's employee as for a
+// genuinely missing id, so branch existence is never leaked.
+func (s *Service) Get(id uint, branchID *uint) (*Employee, error) {
 	rec, err := s.repo.FindByID(id)
 	if err != nil {
+		return nil, ErrNotFound
+	}
+	if branchID != nil && rec.BranchID != *branchID {
 		return nil, ErrNotFound
 	}
 	return rec, nil
 }
 
-func (s *Service) Update(id uint, in UpdateInput) (*Employee, error) {
+// Update applies in to the employee identified by id. branchID (nil for
+// Administrator) must match the employee's current branch or ErrNotFound is
+// returned before any other validation runs, same not-found-on-mismatch
+// guard as Get.
+func (s *Service) Update(id uint, in UpdateInput, branchID *uint) (*Employee, error) {
 	if in.Name == "" {
 		return nil, ErrNameRequired
 	}
@@ -199,6 +285,12 @@ func (s *Service) Update(id uint, in UpdateInput) (*Employee, error) {
 	if err != nil {
 		return nil, ErrNotFound
 	}
+	if branchID != nil && rec.BranchID != *branchID {
+		return nil, ErrNotFound
+	}
+	if err := s.checkPhoneUnique(in.Phone, rec.ID); err != nil {
+		return nil, err
+	}
 
 	rec.Name = in.Name
 	rec.Role = in.Role
@@ -208,6 +300,17 @@ func (s *Service) Update(id uint, in UpdateInput) (*Employee, error) {
 	rec.Collections = in.Collections
 	rec.Followups = in.Followups
 	rec.Pending = in.Pending
+
+	if strings.TrimSpace(in.Username) != "" {
+		username := strings.TrimSpace(in.Username)
+		if !usernameRe.MatchString(username) {
+			return nil, ErrUsernameInvalid
+		}
+		if err := s.checkUsernameUnique(username, rec.ID); err != nil {
+			return nil, err
+		}
+		rec.Username = username
+	}
 
 	if strings.TrimSpace(in.Email) != "" {
 		email := strings.ToLower(strings.TrimSpace(in.Email))
@@ -240,8 +343,15 @@ func (s *Service) Update(id uint, in UpdateInput) (*Employee, error) {
 	return s.repo.FindByID(rec.ID)
 }
 
-func (s *Service) Delete(id uint) error {
-	if _, err := s.repo.FindByID(id); err != nil {
+// Delete removes the employee identified by id. branchID (nil for
+// Administrator) must match the employee's current branch or ErrNotFound is
+// returned, same not-found-on-mismatch guard as Get/Update.
+func (s *Service) Delete(id uint, branchID *uint) error {
+	rec, err := s.repo.FindByID(id)
+	if err != nil {
+		return ErrNotFound
+	}
+	if branchID != nil && rec.BranchID != *branchID {
 		return ErrNotFound
 	}
 	return s.repo.Delete(id)
