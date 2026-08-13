@@ -168,6 +168,23 @@ func (h *Handler) Complete(c *gin.Context) {
 	c.JSON(http.StatusOK, rec)
 }
 
+// SendWhatsApp backs PUT /reminders/:id/send-whatsapp — texts the reminder's
+// note to its customer over WhatsApp (via the OpenWA instance configured
+// under Settings > WhatsApp) and marks the reminder Done.
+func (h *Handler) SendWhatsApp(c *gin.Context) {
+	id, err := idParam(c)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	rec, err := h.svc.SendWhatsApp(id)
+	if err != nil {
+		c.JSON(statusForErr(err), gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, rec)
+}
+
 func (h *Handler) Delete(c *gin.Context) {
 	id, err := idParam(c)
 	if err != nil {

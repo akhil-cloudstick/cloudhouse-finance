@@ -173,9 +173,9 @@ export function Auctions() {
       ) : cases.length === 0 ? (
         <div className="empty">No loans currently in the auction workflow.</div>
       ) : cases.map((l) => <AuctionCard key={l.id} l={l} onLoanChanged={refresh} />)}
-      <div className="notice">
+      {/* <div className="notice">
         <Icon name="shield" /> Workflow: Overdue → Defaulted → Auction Eligible → Notice Issued → Auction Scheduled → Auctioned → Settled, with customer notice history and settlement records at every step.
-      </div>
+      </div> */}
     </>
   );
 }

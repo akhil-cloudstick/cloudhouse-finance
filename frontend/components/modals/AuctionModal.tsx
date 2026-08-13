@@ -16,10 +16,14 @@ import type { LoanView } from "@/lib/loansApi";
  * that recorded a date+sale-amount in one step and jumped straight to
  * "Auctioned" — the real workflow now has 4 separate staff actions. */
 
+// Notice method is no longer picked by staff — every notice goes out on all
+// three channels at once (SMS, WhatsApp, Registered Post), each logged as
+// its own entry in the notice history; see loan.Service.IssueAuctionNotice.
+const NOTICE_CHANNELS = ["SMS", "WhatsApp", "Registered Post"];
+
 export function IssueNoticeModalContent({ loan, onSaved }: { loan: LoanView; onSaved: (rec: AuctionRecordView) => void }) {
   const { closeModal } = useModal();
   const toast = useToast();
-  const [method, setMethod] = useState("Registered Post");
   const [remarks, setRemarks] = useState("");
   const [err, setErr] = useState("");
   const [saving, setSaving] = useState(false);
@@ -27,10 +31,10 @@ export function IssueNoticeModalContent({ loan, onSaved }: { loan: LoanView; onS
   async function save() {
     setSaving(true);
     try {
-      const rec = await issueAuctionNotice(loan.numericId, method, remarks.trim() || undefined);
+      const rec = await issueAuctionNotice(loan.numericId, remarks.trim() || undefined);
       onSaved(rec);
       closeModal();
-      toast(`Notice logged for ${loan.id}`);
+      toast(`Notice sent for ${loan.id} via SMS, WhatsApp & Registered Post`);
     } catch (e) {
       setErr(e instanceof ApiError ? e.message : "Could not log the notice — try again.");
     } finally {
@@ -42,19 +46,14 @@ export function IssueNoticeModalContent({ loan, onSaved }: { loan: LoanView; onS
     <>
       <div className="hd"><h3>Issue Auction Notice — {loan.id}</h3><button className="x" onClick={closeModal}>×</button></div>
       <div className="bd">
-        <div className="frow"><div><label className="f">Method *</label>
-          <select className="inp" value={method} onChange={(e) => setMethod(e.target.value)}>
-            <option>Registered Post</option>
-            <option>SMS</option>
-            <option>In Person</option>
-            <option>Email</option>
-          </select></div></div>
+        <div className="frow"><div><label className="f">Channels</label>
+          <p style={{ fontSize: 13.5, margin: "4px 0 0" }}>{NOTICE_CHANNELS.join(" · ")} — sent automatically</p></div></div>
         <div className="frow"><div><label className="f">Remarks</label><input className="inp" value={remarks} onChange={(e) => setRemarks(e.target.value)} /></div></div>
         <p style={{ color: "var(--red)", fontSize: 12.5, minHeight: 16, marginTop: 8 }}>{err}</p>
       </div>
       <div className="ft">
         <button className="btn ghost" onClick={closeModal}>Cancel</button>
-        <button className="btn" onClick={save} disabled={saving}><Icon name="check" /> {saving ? "Saving…" : "Log Notice"}</button>
+        <button className="btn" onClick={save} disabled={saving}><Icon name="check" /> {saving ? "Sending…" : "Log Notice"}</button>
       </div>
     </>
   );

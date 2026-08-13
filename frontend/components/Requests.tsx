@@ -98,7 +98,7 @@ export function Requests() {
             </tbody>
           </table>
         </div>
-        <div className="ft">Release settlement = Principal + Interest + Penal + Charges − Payments/Waivers · verified against packet location &amp; bank pledge status</div>
+        {/* <div className="ft">Release settlement = Principal + Interest + Penal + Charges − Payments/Waivers · verified against packet location &amp; bank pledge status</div> */}
       </div>
     </>
   );

@@ -7,6 +7,7 @@ import (
 
 	"ambikagold/backend/internal/customer"
 	"ambikagold/backend/internal/loan"
+	"ambikagold/backend/internal/platform"
 )
 
 var (
@@ -48,10 +49,11 @@ type Service struct {
 	repo         *Repository
 	customerRepo *customer.Repository
 	loanRepo     *loan.Repository
+	whatsapp     platform.SMSSender // reused interface — Send(phone, message) matches SMSSender exactly
 }
 
-func NewService(repo *Repository, customerRepo *customer.Repository, loanRepo *loan.Repository) *Service {
-	return &Service{repo: repo, customerRepo: customerRepo, loanRepo: loanRepo}
+func NewService(repo *Repository, customerRepo *customer.Repository, loanRepo *loan.Repository, whatsapp platform.SMSSender) *Service {
+	return &Service{repo: repo, customerRepo: customerRepo, loanRepo: loanRepo, whatsapp: whatsapp}
 }
 
 func validate(customerID uint, typ string, dueDate time.Time) error {
@@ -130,6 +132,30 @@ func (s *Service) Complete(id uint) (*Reminder, error) {
 	rec, err := s.repo.FindByID(id)
 	if err != nil {
 		return nil, ErrNotFound
+	}
+	rec.Status = StatusDone
+	if err := s.repo.Update(rec); err != nil {
+		return nil, err
+	}
+	return s.repo.FindByID(rec.ID)
+}
+
+// SendWhatsApp texts the reminder's note (or a default follow-up line) to
+// its customer's phone via the configured WhatsApp sender (see
+// platform.OpenWASender), then marks the reminder Done — sending IS the
+// action for a manual reminder, the same way Complete is a one-click
+// "actioned" marker.
+func (s *Service) SendWhatsApp(id uint) (*Reminder, error) {
+	rec, err := s.repo.FindByID(id)
+	if err != nil {
+		return nil, ErrNotFound
+	}
+	message := rec.Note
+	if message == "" {
+		message = fmt.Sprintf("This is a reminder from Ambika Gold Finance regarding your %s.", rec.Type)
+	}
+	if err := s.whatsapp.Send(rec.Customer.Phone, message); err != nil {
+		return nil, fmt.Errorf("sending whatsapp reminder: %w", err)
 	}
 	rec.Status = StatusDone
 	if err := s.repo.Update(rec); err != nil {

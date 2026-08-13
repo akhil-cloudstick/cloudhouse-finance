@@ -463,7 +463,12 @@ export async function listLoanApprovals(loanId: number): Promise<ApprovalStageRe
 // platform.ActorFromContext), never from the request body. Administrator's
 // "may act at any pending stage" bypass still works, keyed off their real
 // role.
-export type ApprovalInput = { stage: SanctionStage; action: "Approved" | "Rejected"; remarks?: string };
+// "Verified" is only valid for the LoanOperator stage when the principal
+// exceeds the operator's approval limit (see getLoanOperatorApprovalLimit
+// below) — it records the operator's review without advancing the stage;
+// Branch Manager/Management must still clear it with a normal Approved/
+// Rejected action afterward (backend: Service.Approve/operatorVerified).
+export type ApprovalInput = { stage: SanctionStage; action: "Approved" | "Rejected" | "Verified"; remarks?: string };
 
 export async function approveLoan(loanId: number, input: ApprovalInput): Promise<LoanView> {
   const rec = await apiFetch<BackendLoan>(`/loans/${loanId}/approve`, {
@@ -617,9 +622,12 @@ export async function markAuctionEligible(loanId: number): Promise<AuctionRecord
   return toAuctionRecordView(await apiFetch<BackendAuctionRecord>(`/loans/${loanId}/auction/eligible`, { method: "POST" }));
 }
 
-export async function issueAuctionNotice(loanId: number, method: string, remarks?: string): Promise<AuctionRecordView> {
+// issueAuctionNotice always fires all three notice channels (SMS, WhatsApp,
+// Registered Post) at once — the backend no longer takes a method, it logs
+// one AuctionNotice per channel and sends the WhatsApp message live.
+export async function issueAuctionNotice(loanId: number, remarks?: string): Promise<AuctionRecordView> {
   return toAuctionRecordView(
-    await apiFetch<BackendAuctionRecord>(`/loans/${loanId}/auction/notice`, { method: "POST", body: JSON.stringify({ method, remarks }) })
+    await apiFetch<BackendAuctionRecord>(`/loans/${loanId}/auction/notice`, { method: "POST", body: JSON.stringify({ remarks }) })
   );
 }
 

@@ -44,6 +44,17 @@ const (
 	ApprovalStageRejected = "Rejected"
 )
 
+// ApprovalActionVerified is a third, non-terminal action value for
+// LoanApproval.Action — valid ONLY for a Loan Operator's own decision at
+// the LoanOperator sanction stage when the principal exceeds their
+// hard-enforced approval limit (see Service.loanOperatorLimit). It records
+// that the operator reviewed the loan without granting them approval
+// authority they don't have: the sanction chain doesn't advance on
+// Verified alone — Branch Manager/Management must still clear the stage
+// with a normal Approved (or Rejected) action afterward. See
+// Service.Approve and Service.operatorVerified.
+const ApprovalActionVerified = "Verified"
+
 // ApprovalStagePendingManager/PendingManagement are the Release-request
 // chain's two pending stages ONLY (LoanRequest.ApprovalStage) — unrelated
 // to the loan sanction chain below, which has its own 4 pending stages.
@@ -249,7 +260,7 @@ type LoanApproval struct {
 	LoanID uint `json:"loanId" gorm:"not null;index"`
 
 	Stage           string `json:"stage" gorm:"not null;size:30"`  // one of SanctionStage*
-	Action          string `json:"action" gorm:"not null;size:20"` // "Approved" | "Rejected"
+	Action          string `json:"action" gorm:"not null;size:20"` // "Approved" | "Rejected" | "Verified" (LoanOperator stage only, see ApprovalActionVerified)
 	ActorEmployeeID uint   `json:"actorEmployeeId" gorm:"not null"`
 	ActorRole       string `json:"actorRole" gorm:"size:40"`
 	Remarks         string `json:"remarks" gorm:"size:255"`

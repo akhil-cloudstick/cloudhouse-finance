@@ -2,6 +2,7 @@ package loan
 
 import (
 	"errors"
+	"io"
 	"net/http"
 	"strconv"
 	"time"
@@ -55,7 +56,8 @@ func statusForErr(err error) int {
 		errors.Is(err, ErrLoanTerminalState), errors.Is(err, ErrChecklistIncomplete),
 		errors.Is(err, ErrOutstandingBalanceRemains), errors.Is(err, ErrBankPledgeStillActive),
 		errors.Is(err, ErrLoanNotDefaulted), errors.Is(err, ErrAuctionAlreadyStarted),
-		errors.Is(err, ErrAuctionWrongStage), errors.Is(err, ErrExceedsApprovalLimit):
+		errors.Is(err, ErrAuctionWrongStage), errors.Is(err, ErrExceedsApprovalLimit),
+		errors.Is(err, ErrAwaitingOperatorVerification):
 		return http.StatusBadRequest
 	case errors.Is(err, ErrReleaseNotApproved):
 		return http.StatusNotFound
@@ -477,8 +479,10 @@ func (h *Handler) MarkAuctionEligible(c *gin.Context) {
 	c.JSON(http.StatusCreated, rec)
 }
 
+// auctionNoticeRequest no longer takes a method — IssueAuctionNotice always
+// fires all three channels (SMS, WhatsApp, Registered Post) at once, so
+// remarks is the only optional field left; an empty/missing body is fine.
 type auctionNoticeRequest struct {
-	Method  string `json:"method" binding:"required"`
 	Remarks string `json:"remarks"`
 }
 
@@ -489,11 +493,11 @@ func (h *Handler) IssueAuctionNotice(c *gin.Context) {
 		return
 	}
 	var req auctionNoticeRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
+	if err := c.ShouldBindJSON(&req); err != nil && err != io.EOF {
 		fail(c, http.StatusBadRequest, err)
 		return
 	}
-	rec, err := h.svc.IssueAuctionNotice(loanID, platform.GetBranchScope(c), req.Method, req.Remarks)
+	rec, err := h.svc.IssueAuctionNotice(loanID, platform.GetBranchScope(c), req.Remarks)
 	if err != nil {
 		fail(c, statusForErr(err), err)
 		return

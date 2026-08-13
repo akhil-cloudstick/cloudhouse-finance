@@ -14,6 +14,8 @@ function ResetPasswordForm() {
   const [otp, setOtp] = useState("");
   const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
+  const [passVisible, setPassVisible] = useState(false);
+  const [confirmVisible, setConfirmVisible] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -100,7 +102,7 @@ function ResetPasswordForm() {
 
             <div className="field">
               <input
-                type="password"
+                type={passVisible ? "text" : "password"}
                 id="password"
                 placeholder=" "
                 autoComplete="new-password"
@@ -109,12 +111,39 @@ function ResetPasswordForm() {
                 onChange={(e) => setPassword(e.target.value)}
               />
               <label htmlFor="password">New password</label>
+              <button
+                type="button"
+                className="eye"
+                aria-label={passVisible ? "Hide password" : "Show password"}
+                onClick={() => setPassVisible((v) => !v)}
+              >
+                <svg
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.6"
+                  style={{ display: passVisible ? "none" : "block" }}
+                >
+                  <path d="M2 12s3.5-6.5 10-6.5S22 12 22 12s-3.5 6.5-10 6.5S2 12 2 12Z" />
+                  <circle cx="12" cy="12" r="2.8" />
+                </svg>
+                <svg
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.6"
+                  style={{ display: passVisible ? "block" : "none" }}
+                >
+                  <path d="M2 12s3.5-6.5 10-6.5S22 12 22 12s-3.5 6.5-10 6.5S2 12 2 12Z" />
+                  <path d="M4 4l16 16" />
+                </svg>
+              </button>
               <span className="bar"></span>
             </div>
 
             <div className="field">
               <input
-                type="password"
+                type={confirmVisible ? "text" : "password"}
                 id="confirm"
                 placeholder=" "
                 autoComplete="new-password"
@@ -123,6 +152,33 @@ function ResetPasswordForm() {
                 onChange={(e) => setConfirm(e.target.value)}
               />
               <label htmlFor="confirm">Confirm new password</label>
+              <button
+                type="button"
+                className="eye"
+                aria-label={confirmVisible ? "Hide password" : "Show password"}
+                onClick={() => setConfirmVisible((v) => !v)}
+              >
+                <svg
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.6"
+                  style={{ display: confirmVisible ? "none" : "block" }}
+                >
+                  <path d="M2 12s3.5-6.5 10-6.5S22 12 22 12s-3.5 6.5-10 6.5S2 12 2 12Z" />
+                  <circle cx="12" cy="12" r="2.8" />
+                </svg>
+                <svg
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.6"
+                  style={{ display: confirmVisible ? "block" : "none" }}
+                >
+                  <path d="M2 12s3.5-6.5 10-6.5S22 12 22 12s-3.5 6.5-10 6.5S2 12 2 12Z" />
+                  <path d="M4 4l16 16" />
+                </svg>
+              </button>
               <span className="bar"></span>
             </div>
 

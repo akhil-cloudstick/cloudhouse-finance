@@ -17,5 +17,6 @@ func RegisterRoutes(rg *gin.RouterGroup, h *Handler, perms platform.CRUDMiddlewa
 	rg.GET("/:id", perms.Read, h.Get)
 	rg.PUT("/:id", perms.Update, h.Update)
 	rg.PUT("/:id/complete", perms.Update, h.Complete)
+	rg.PUT("/:id/send-whatsapp", perms.Update, h.SendWhatsApp)
 	rg.DELETE("/:id", perms.Delete, h.Delete)
 }

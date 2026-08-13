@@ -10,6 +10,7 @@ import (
 	"ambikagold/backend/internal/branch"
 	"ambikagold/backend/internal/customer"
 	"ambikagold/backend/internal/goldrate"
+	"ambikagold/backend/internal/platform"
 	"ambikagold/backend/internal/scheme"
 )
 
@@ -48,41 +49,42 @@ type CashRecorder interface {
 }
 
 var (
-	ErrNotFound                  = errors.New("loan not found")
-	ErrOrnamentNotFound          = errors.New("ornament not found")
-	ErrBranchInvalid             = errors.New("branch does not exist")
-	ErrCustomerInvalid           = errors.New("customer does not exist")
-	ErrCustomerNotVerified       = errors.New("customer must be KYC verified before a loan can be created")
-	ErrSchemeInvalid             = errors.New("scheme does not exist")
-	ErrNoOrnaments               = errors.New("at least one ornament is required")
-	ErrNoGoldRate                = errors.New("no gold rate has been published yet")
-	ErrGoldRateNotSetToday       = errors.New("today's gold rate has not been set yet — please publish it before creating a loan")
-	ErrInvalidPurity             = errors.New("purity must be a karat like \"22K\" (10-24) or a fineness percentage like \"91.6%\" (0-100)")
-	ErrInvalidWeight             = errors.New("gross weight must be greater than zero")
-	ErrPrincipalTooHigh          = errors.New("principal amount cannot exceed the eligible loan amount")
-	ErrInvalidPrincipal          = errors.New("principal amount must be greater than zero")
-	ErrInvalidDueDate            = errors.New("due date must be after the opened date")
-	ErrWrongStage                = errors.New("approval action does not match the loan's current approval stage")
-	ErrAlreadyDecided            = errors.New("loan approval has already reached a terminal state")
-	ErrInvalidAction             = errors.New("action must be Approved or Rejected")
-	ErrInvalidAmount             = errors.New("amount must be greater than zero")
-	ErrRequestNotFound           = errors.New("loan request not found")
-	ErrInvalidRequestType        = errors.New("type must be Extension or Release")
-	ErrInvalidMonths             = errors.New("requested extension months must be greater than zero")
-	ErrRequestAlreadyDecided     = errors.New("loan request has already been decided")
-	ErrInvalidPaymentType        = errors.New("type must be Interest, Principal, Partial, Full Settlement, Adjustment, or Waiver")
-	ErrNotExtensionRequest       = errors.New("this request is not an Extension request")
-	ErrNotReleaseRequest         = errors.New("this request is not a Release request")
-	ErrLoanTerminalState         = errors.New("loan is already Closed, Auctioned, or Defaulted — nothing left to extend")
-	ErrChecklistIncomplete       = errors.New("the release verification checklist must be fully complete before approval")
-	ErrReleaseNotApproved        = errors.New("this loan has no approved release request")
-	ErrOutstandingBalanceRemains = errors.New("the final settlement has not been fully paid yet — record the remaining payment before releasing the gold")
-	ErrBankPledgeStillActive     = errors.New("gold is still pledged to a bank — release the bank pledge before releasing it to the customer")
-	ErrExceedsApprovalLimit      = errors.New("principal exceeds the Loan Operator's approval limit — escalate to Branch Manager or Management")
-	ErrAuctionNotFound           = errors.New("this loan has no auction case yet — mark it auction-eligible first")
-	ErrLoanNotDefaulted          = errors.New("loan must be Defaulted (overdue by more than 90 days) before it can be marked auction-eligible")
-	ErrAuctionAlreadyStarted     = errors.New("this loan already has an auction case in progress")
-	ErrAuctionWrongStage         = errors.New("action does not match the auction case's current stage")
+	ErrNotFound                     = errors.New("loan not found")
+	ErrOrnamentNotFound             = errors.New("ornament not found")
+	ErrBranchInvalid                = errors.New("branch does not exist")
+	ErrCustomerInvalid              = errors.New("customer does not exist")
+	ErrCustomerNotVerified          = errors.New("customer must be KYC verified before a loan can be created")
+	ErrSchemeInvalid                = errors.New("scheme does not exist")
+	ErrNoOrnaments                  = errors.New("at least one ornament is required")
+	ErrNoGoldRate                   = errors.New("no gold rate has been published yet")
+	ErrGoldRateNotSetToday          = errors.New("today's gold rate has not been set yet — please publish it before creating a loan")
+	ErrInvalidPurity                = errors.New("purity must be a karat like \"22K\" (10-24) or a fineness percentage like \"91.6%\" (0-100)")
+	ErrInvalidWeight                = errors.New("gross weight must be greater than zero")
+	ErrPrincipalTooHigh             = errors.New("principal amount cannot exceed the eligible loan amount")
+	ErrInvalidPrincipal             = errors.New("principal amount must be greater than zero")
+	ErrInvalidDueDate               = errors.New("due date must be after the opened date")
+	ErrWrongStage                   = errors.New("approval action does not match the loan's current approval stage")
+	ErrAlreadyDecided               = errors.New("loan approval has already reached a terminal state")
+	ErrInvalidAction                = errors.New("action must be Approved or Rejected")
+	ErrInvalidAmount                = errors.New("amount must be greater than zero")
+	ErrRequestNotFound              = errors.New("loan request not found")
+	ErrInvalidRequestType           = errors.New("type must be Extension or Release")
+	ErrInvalidMonths                = errors.New("requested extension months must be greater than zero")
+	ErrRequestAlreadyDecided        = errors.New("loan request has already been decided")
+	ErrInvalidPaymentType           = errors.New("type must be Interest, Principal, Partial, Full Settlement, Adjustment, or Waiver")
+	ErrNotExtensionRequest          = errors.New("this request is not an Extension request")
+	ErrNotReleaseRequest            = errors.New("this request is not a Release request")
+	ErrLoanTerminalState            = errors.New("loan is already Closed, Auctioned, or Defaulted — nothing left to extend")
+	ErrChecklistIncomplete          = errors.New("the release verification checklist must be fully complete before approval")
+	ErrReleaseNotApproved           = errors.New("this loan has no approved release request")
+	ErrOutstandingBalanceRemains    = errors.New("the final settlement has not been fully paid yet — record the remaining payment before releasing the gold")
+	ErrBankPledgeStillActive        = errors.New("gold is still pledged to a bank — release the bank pledge before releasing it to the customer")
+	ErrExceedsApprovalLimit         = errors.New("principal exceeds the Loan Operator's approval limit — escalate to Branch Manager or Management")
+	ErrAwaitingOperatorVerification = errors.New("the Loan Operator must verify this loan before Branch Manager or Management can approve it")
+	ErrAuctionNotFound              = errors.New("this loan has no auction case yet — mark it auction-eligible first")
+	ErrLoanNotDefaulted             = errors.New("loan must be Defaulted (overdue by more than 90 days) before it can be marked auction-eligible")
+	ErrAuctionAlreadyStarted        = errors.New("this loan already has an auction case in progress")
+	ErrAuctionWrongStage            = errors.New("action does not match the auction case's current stage")
 )
 
 // Service implements loan business rules: ornament valuation, eligible-
@@ -107,6 +109,7 @@ type Service struct {
 	packetCreator PacketCreator
 	packetMover   PacketMover
 	cashRecorder  CashRecorder
+	whatsapp      platform.SMSSender // reused interface — Send(phone, message) matches SMSSender exactly
 }
 
 func NewService(
@@ -126,6 +129,7 @@ func NewService(
 	packetCreator PacketCreator,
 	packetMover PacketMover,
 	cashRecorder CashRecorder,
+	whatsapp platform.SMSSender,
 ) *Service {
 	return &Service{
 		repo:                repo,
@@ -144,6 +148,21 @@ func NewService(
 		packetMover:         packetMover,
 		cashRecorder:        cashRecorder,
 		goldRateRepo:        goldRateRepo,
+		whatsapp:            whatsapp,
+	}
+}
+
+// notifyCustomer sends a WhatsApp message to a customer about a loan event
+// (submission, sanction, etc.) and only logs on failure — a notification
+// bounce must never fail the loan operation it's attached to, the same
+// enrichment-not-hard-dependency rule Create already applies to packet
+// auto-creation.
+func (s *Service) notifyCustomer(phone, message string) {
+	if s.whatsapp == nil {
+		return
+	}
+	if err := s.whatsapp.Send(phone, message); err != nil {
+		log.Printf("whatsapp notification failed (phone %s): %v", phone, err)
 	}
 }
 
@@ -321,6 +340,12 @@ func (s *Service) Create(in CreateInput) (*Loan, error) {
 	}
 
 	s.enrich(created)
+
+	s.notifyCustomer(created.Customer.Phone, fmt.Sprintf(
+		"Dear %s, your gold loan application %s for ₹%.2f has been submitted and is pending approval. We'll notify you once it's sanctioned. — Ambika Gold Finance",
+		created.Customer.Name, created.LoanNumber, created.PrincipalAmount,
+	))
+
 	return created, nil
 }
 
@@ -637,6 +662,23 @@ type ApprovalInput struct {
 	Remarks         string
 }
 
+// operatorVerified reports whether the Loan Operator has already recorded
+// an ApprovalActionVerified entry for loanID's LoanOperator stage — the
+// hand-off marker Branch Manager/Management must wait for before they may
+// clear that stage themselves on an over-limit loan (see Approve).
+func (s *Service) operatorVerified(loanID uint) (bool, error) {
+	approvals, err := s.approvalRepo.FindByLoanID(loanID)
+	if err != nil {
+		return false, err
+	}
+	for _, a := range approvals {
+		if a.Stage == SanctionStageLoanOperator && a.Action == ApprovalActionVerified {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
 // Approve advances (or terminates) a loan's 4-step sanction chain:
 //
 //	LoanOperator -> BranchManager -> AuthorizedManagement -> FinalSanction -> Approved (Status -> Active)
@@ -650,16 +692,23 @@ type ApprovalInput struct {
 // Loan Operator stage is a hard cap (see loanOperatorLimit): a Loan
 // Operator cannot themselves approve a loan whose principal exceeds their
 // limit (ErrExceedsApprovalLimit on an Approved action; Rejected is always
-// allowed regardless of amount). Branch Manager/Management/Administrator
-// may still act at the Loan Operator stage in that case — same "step in
-// and clear it" pattern as Administrator's existing stage bypass — so an
-// over-limit loan escalates rather than getting stuck.
+// allowed regardless of amount).
+//
+// Over that limit, the hand-off is two steps rather than Branch Manager/
+// Management silently clearing the Loan Operator's stage on their behalf:
+//  1. The Loan Operator records an ApprovalActionVerified decision — they
+//     still reviewed/verified the loan, just can't grant final approval on
+//     it themselves. Doesn't advance the sanction chain.
+//  2. Only once that exists (operatorVerified) may Branch Manager/
+//     Management clear the LoanOperator stage with a normal Approved (or
+//     Rejected) action, advancing the chain as usual. Attempting to
+//     approve before step 1 returns ErrAwaitingOperatorVerification.
 func (s *Service) Approve(loanID uint, in ApprovalInput) (*Loan, error) {
 	l, err := s.repo.FindByID(loanID)
 	if err != nil {
 		return nil, ErrNotFound
 	}
-	if in.Action != ApprovalStageApproved && in.Action != ApprovalStageRejected {
+	if in.Action != ApprovalStageApproved && in.Action != ApprovalStageRejected && in.Action != ApprovalActionVerified {
 		return nil, ErrInvalidAction
 	}
 	if l.ApprovalStage == ApprovalStageApproved || l.ApprovalStage == ApprovalStageRejected {
@@ -668,18 +717,38 @@ func (s *Service) Approve(loanID uint, in ApprovalInput) (*Loan, error) {
 	if in.Stage != l.ApprovalStage {
 		return nil, ErrWrongStage
 	}
-	if in.ActorRole != "Administrator" {
-		var requiredRole string
-		for _, step := range sanctionChain {
-			if step.Stage == l.ApprovalStage {
-				requiredRole = step.Role
-				break
-			}
+
+	var requiredRole string
+	for _, step := range sanctionChain {
+		if step.Stage == l.ApprovalStage {
+			requiredRole = step.Role
+			break
 		}
-		if requiredRole == "Loan Operator" && in.Action == ApprovalStageApproved && l.PrincipalAmount > s.loanOperatorLimit() {
-			// Over the hard cap: only a higher role may clear this stage.
+	}
+	overLimit := requiredRole == "Loan Operator" && l.PrincipalAmount > s.loanOperatorLimit()
+
+	if in.Action == ApprovalActionVerified {
+		// Verified only exists for the over-limit LoanOperator hand-off, and
+		// only the Loan Operator (or Administrator, standing in) may record it.
+		if requiredRole != "Loan Operator" || !overLimit {
+			return nil, ErrWrongStage
+		}
+		if in.ActorRole != "Loan Operator" && in.ActorRole != "Administrator" {
+			return nil, ErrWrongStage
+		}
+	} else if in.ActorRole != "Administrator" {
+		if requiredRole == "Loan Operator" && in.Action == ApprovalStageApproved && overLimit {
+			// Over the hard cap: only a higher role may clear this stage,
+			// and only after the operator has verified it (see above).
 			if in.ActorRole != "Branch Manager" && in.ActorRole != "Management" {
 				return nil, ErrExceedsApprovalLimit
+			}
+			verified, err := s.operatorVerified(loanID)
+			if err != nil {
+				return nil, err
+			}
+			if !verified {
+				return nil, ErrAwaitingOperatorVerification
 			}
 		} else if requiredRole != "" && in.ActorRole != requiredRole {
 			return nil, ErrWrongStage
@@ -696,6 +765,14 @@ func (s *Service) Approve(loanID uint, in ApprovalInput) (*Loan, error) {
 	}
 	if err := s.approvalRepo.Create(audit); err != nil {
 		return nil, err
+	}
+
+	if in.Action == ApprovalActionVerified {
+		// Leaves the sanction chain exactly where it was — this only adds
+		// the audit-trail entry the stepper/history reads to know the
+		// operator's review happened, ahead of Branch Manager/Management's
+		// actual Approved/Rejected decision at this same stage.
+		return s.Get(l.ID, nil)
 	}
 
 	disbursing := false
@@ -728,6 +805,13 @@ func (s *Service) Approve(loanID uint, in ApprovalInput) (*Loan, error) {
 		if _, err := s.cashRecorder.RecordLoanDisbursementCashOut(l.ID, l.LoanNumber, l.PrincipalAmount, l.BranchID, time.Now()); err != nil {
 			log.Printf("cash-out movement (disbursement) failed for loan %d: %v", l.ID, err)
 		}
+	}
+
+	if disbursing {
+		s.notifyCustomer(l.Customer.Phone, fmt.Sprintf(
+			"Dear %s, your gold loan %s has been sanctioned and ₹%.2f has been disbursed. Due date: %s. — Ambika Gold Finance",
+			l.Customer.Name, l.LoanNumber, l.PrincipalAmount, l.DueDate.Format("02-Jan-2006"),
+		))
 	}
 
 	return s.Get(l.ID, nil)
@@ -1085,10 +1169,23 @@ func (s *Service) MarkAuctionEligible(loanID uint, branchID *uint) (*AuctionReco
 	return s.getAuctionRecord(loanID)
 }
 
+// auctionNoticeChannels are the three channels every auction notice is sent
+// through — the operator no longer picks a method (Registered Post/SMS/In
+// Person/Email); all three fire together and each is logged as its own
+// AuctionNotice row, mirroring the "customer notice history" the compliance
+// spec expects. WhatsApp is the only one with a live gateway today (see
+// notifyCustomer) — SMS and Postal have no provider wired up yet, so they're
+// logged the same way a not-yet-configured WhatsApp send would be.
+var auctionNoticeChannels = []string{"SMS", "WhatsApp", "Registered Post"}
+
 // IssueAuctionNotice logs a customer notice against the loan's auction case
-// and advances it to NoticeIssued (idempotent re-issue: additional notices
-// can be logged after the stage has already advanced past Eligible).
-func (s *Service) IssueAuctionNotice(loanID uint, branchID *uint, method, remarks string) (*AuctionRecord, error) {
+// on every channel in auctionNoticeChannels and advances it to NoticeIssued
+// (idempotent re-issue: additional notices can be logged after the stage has
+// already advanced past Eligible). Actually delivers the WhatsApp message
+// (best-effort — a delivery failure never blocks logging the notice, same
+// rule as notifyCustomer elsewhere); SMS/Postal have no gateway yet and are
+// recorded as logged only.
+func (s *Service) IssueAuctionNotice(loanID uint, branchID *uint, remarks string) (*AuctionRecord, error) {
 	if err := s.checkLoanBranch(loanID, branchID); err != nil {
 		return nil, err
 	}
@@ -1099,14 +1196,29 @@ func (s *Service) IssueAuctionNotice(loanID uint, branchID *uint, method, remark
 	if rec.Stage == AuctionStageAuctioned || rec.Stage == AuctionStageSettled {
 		return nil, ErrAuctionWrongStage
 	}
-	if err := s.auctionRepo.CreateNotice(&AuctionNotice{
-		AuctionRecordID: rec.ID,
-		IssuedAt:        time.Now(),
-		Method:          method,
-		Remarks:         remarks,
-	}); err != nil {
-		return nil, err
+
+	l, err := s.repo.FindByID(loanID)
+	if err != nil {
+		return nil, ErrNotFound
 	}
+
+	for _, method := range auctionNoticeChannels {
+		if err := s.auctionRepo.CreateNotice(&AuctionNotice{
+			AuctionRecordID: rec.ID,
+			IssuedAt:        time.Now(),
+			Method:          method,
+			Remarks:         remarks,
+		}); err != nil {
+			return nil, err
+		}
+		if method == "WhatsApp" {
+			s.notifyCustomer(l.Customer.Phone, fmt.Sprintf(
+				"Dear %s, your gold loan %s is overdue and has been marked for auction. Please contact the branch immediately to settle dues and avoid losing your pledged items.",
+				l.Customer.Name, l.LoanNumber,
+			))
+		}
+	}
+
 	if rec.Stage == AuctionStageEligible {
 		rec.Stage = AuctionStageNotice
 		if err := s.auctionRepo.Update(rec); err != nil {

@@ -12,6 +12,8 @@ import {
   approveLoan,
   releaseBankPledge,
   completeRelease,
+  getLoanOperatorApprovalLimit,
+  listLoanApprovals,
   SANCTION_STAGES,
   SANCTION_STAGE_LABELS,
   SANCTION_STAGE_ROLES,
@@ -44,6 +46,23 @@ export function LoanDetail({ id }: { id?: string }) {
   const [approving, setApproving] = useState(false);
   const [releasing, setReleasing] = useState(false);
   const [completing, setCompleting] = useState(false);
+  // The backend lets a Branch Manager/Management/Administrator clear the
+  // LoanOperator stage itself once the principal exceeds the operator's
+  // hard-enforced limit (Service.Approve's ErrExceedsApprovalLimit escalation
+  // — see approval_limit.go). Fetched once so the UI can mirror that instead
+  // of always gating the stage to "Loan Operator" only.
+  const [operatorLimit, setOperatorLimit] = useState<number | null>(null);
+  // Whether the Loan Operator has already recorded their "Verified"
+  // hand-off decision on this loan's LoanOperator stage (see
+  // ApprovalActionVerified on the backend) — Branch Manager/Management may
+  // only clear that stage themselves once this is true.
+  const [operatorVerified, setOperatorVerified] = useState(false);
+
+  useEffect(() => {
+    getLoanOperatorApprovalLimit()
+      .then((v) => setOperatorLimit(v.maxAmount))
+      .catch(() => {});
+  }, []);
 
   function load() {
     if (!id) return;
@@ -54,7 +73,16 @@ export function LoanDetail({ id }: { id?: string }) {
     // /loans request (e.g. refreshLoans() below, or a stale request from
     // a just-abandoned page). A single request has nothing to race with.
     getLoanByNumber(id)
-      .then(setLoan)
+      .then((v) => {
+        setLoan(v);
+        // Re-derive operatorVerified from this loan's own approval history
+        // rather than the previous state — otherwise it'd still read
+        // "verified" after a Reject/next-stage advance reuses this state
+        // across loans, or before the very first fetch resolves.
+        listLoanApprovals(v.numericId)
+          .then((recs) => setOperatorVerified(recs.some((r) => r.stage === "LoanOperator" && r.action === "Verified")))
+          .catch(() => setOperatorVerified(false));
+      })
       .catch((e) => setError(e instanceof Error ? e.message : "Failed to load loan."));
     // load() also runs as PaymentModal/RepledgeModal's onSaved after a
     // payment/repledge — those change this loan's status/outstanding too,
@@ -85,7 +113,7 @@ export function LoanDetail({ id }: { id?: string }) {
     );
   }
 
-  async function doApprove(stage: SanctionStage, action: "Approved" | "Rejected") {
+  async function doApprove(stage: SanctionStage, action: "Approved" | "Rejected" | "Verified") {
     setApproving(true);
     try {
       // The acting employee/role are derived server-side from the
@@ -94,7 +122,8 @@ export function LoanDetail({ id }: { id?: string }) {
       const updated = await approveLoan(l.numericId, { stage, action });
       setLoan(updated);
       refreshLoans();
-      toast(action === "Approved" ? "Approved" : "Rejected");
+      if (action === "Verified") setOperatorVerified(true);
+      toast(action === "Approved" ? "Approved" : action === "Rejected" ? "Rejected" : "Verified — escalated to Branch Manager/Management");
     } catch (err) {
       toast(err instanceof ApiError ? err.message : "Could not record the decision — try again");
     } finally {
@@ -110,7 +139,21 @@ export function LoanDetail({ id }: { id?: string }) {
   // Approve/Reject buttons that would just 403. This is a UX nicety only;
   // the server enforces it regardless of what the client shows.
   const requiredRole = pendingStage ? SANCTION_STAGE_ROLES[pendingStage] : null;
-  const canActOnStage = !!requiredRole && (myRole === "Administrator" || myRole === requiredRole);
+  // At the LoanOperator stage specifically, once the principal exceeds the
+  // operator's limit the hand-off is two steps (mirrors the backend's
+  // Service.Approve/operatorVerified):
+  //   1. The Loan Operator records a "Verified" decision — reviewed the
+  //      loan, but can't grant final approval on it themselves.
+  //   2. Only after that can Branch Manager/Management clear the stage
+  //      with a normal Approve/Reject, same as any other stage.
+  const operatorLimitExceeded =
+    pendingStage === "LoanOperator" && operatorLimit != null && l.principal > operatorLimit;
+  const canVerify = operatorLimitExceeded && myRole === "Loan Operator" && !operatorVerified;
+  const canActOnStage =
+    !!requiredRole &&
+    (myRole === "Administrator" ||
+      (myRole === requiredRole && !operatorLimitExceeded) ||
+      (operatorLimitExceeded && operatorVerified && (myRole === "Branch Manager" || myRole === "Management")));
   const approvalButtons = pendingStage ? (
     canActOnStage ? (
       <>
@@ -121,9 +164,22 @@ export function LoanDetail({ id }: { id?: string }) {
           Reject
         </button>
       </>
+    ) : canVerify ? (
+      <>
+        <button className="btn" disabled={approving} onClick={() => doApprove(pendingStage, "Verified")}>
+          <Icon name="check" /> Verify &amp; Escalate
+        </button>
+        <button className="btn danger" disabled={approving} onClick={() => doApprove(pendingStage, "Rejected")}>
+          Reject
+        </button>
+      </>
     ) : (
       <span style={{ color: "var(--muted)", fontSize: 13 }}>
-        Awaiting {requiredRole} approval
+        {operatorLimitExceeded
+          ? operatorVerified
+            ? "Verified by Loan Operator — awaiting Branch Manager or Management approval"
+            : "Principal exceeds the Loan Operator's approval limit — awaiting Loan Operator verification"
+          : `Awaiting ${requiredRole} approval`}
       </span>
     )
   ) : null;
@@ -195,7 +251,18 @@ export function LoanDetail({ id }: { id?: string }) {
       {pendingStage && (
         <div className="card" style={{ marginBottom: 14 }}>
           <div className="bd">
-            <StageTracker stages={SANCTION_STAGES.map((s) => SANCTION_STAGE_LABELS[s])} currentIndex={pendingStageIndex} />
+            <StageTracker
+              stages={SANCTION_STAGES.map((s) =>
+                // Surfaces the operator's hand-off on the still-pending
+                // LoanOperator node itself, rather than only in the
+                // sidebar message — the stepper alone used to look
+                // identical whether the operator had reviewed it yet.
+                s === "LoanOperator" && operatorLimitExceeded && operatorVerified
+                  ? `${SANCTION_STAGE_LABELS[s]} ✓ Verified`
+                  : SANCTION_STAGE_LABELS[s]
+              )}
+              currentIndex={pendingStageIndex}
+            />
             {l.approvalWarning && (
               <div className="notice" style={{ marginTop: 10, color: "var(--amber)" }}><Icon name="shield" /> {l.approvalWarning}</div>
             )}

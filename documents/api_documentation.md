@@ -853,9 +853,14 @@ one stage at a time:
   `AuctionRecord` at `stage: "AuctionEligible"`, sets
   `loan.status: "Auction Eligible"`. 400 `ErrLoanNotDefaulted` /
   `ErrAuctionAlreadyStarted` otherwise.
-- `POST /:id/auction/notice` — `{ "method", "remarks"? }`; appends an
-  `AuctionNotice` (the customer notice history) and advances to
-  `"NoticeIssued"`.
+- `POST /:id/auction/notice` — `{ "remarks"? }`; no `method` is chosen by
+  staff anymore — every call fires all three notice channels at once
+  (`"SMS"`, `"WhatsApp"`, `"Registered Post"`), appending one `AuctionNotice`
+  per channel (the customer notice history) and advancing to
+  `"NoticeIssued"`. The WhatsApp leg is actually delivered live via the
+  configured OpenWA sender (Settings > WhatsApp) — a delivery failure is
+  logged but never blocks the notice from being recorded; SMS/Registered
+  Post have no gateway wired up yet and are logged only.
 - `POST /:id/auction/schedule` — `{ "auctionDate", "referenceNumber"? }`;
   requires stage `"NoticeIssued"`; advances to `"AuctionScheduled"`.
 - `POST /:id/auction/sale` — `{ "saleAmount", "auctionExpenses"? }`;
@@ -998,7 +1003,7 @@ preloaded objects from their own APIs above):
 | PUT | `/api/v1/loans/:id/bank-pledge/:pledgeId/release` | Release a bank pledge | — |
 | GET | `/api/v1/loans/:id/auction` | Get the loan's auction case (notice history included) | — |
 | POST | `/api/v1/loans/:id/auction/eligible` | Start the auction case — requires `isDefaulted` | — |
-| POST | `/api/v1/loans/:id/auction/notice` | Log a customer notice, advances to `NoticeIssued` | `{ "method", "remarks"? }` |
+| POST | `/api/v1/loans/:id/auction/notice` | Log a customer notice on all 3 channels (SMS, WhatsApp — sent live, Registered Post), advances to `NoticeIssued` | `{ "remarks"? }` |
 | POST | `/api/v1/loans/:id/auction/schedule` | Record the auction date/reference, advances to `AuctionScheduled` | `{ "auctionDate", "referenceNumber"? }` |
 | POST | `/api/v1/loans/:id/auction/sale` | Record the sale, compute surplus/shortfall, advances to `Auctioned` | `{ "saleAmount", "auctionExpenses"? }` |
 | POST | `/api/v1/loans/:id/auction/settle` | Record final settlement, advances to `Settled` | `{ "settlementStatus": "SettledToCustomer" \| "SettledToLoanCo" }` |

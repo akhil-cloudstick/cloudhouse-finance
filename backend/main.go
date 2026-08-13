@@ -218,6 +218,24 @@ func main() {
 	settingsSvc := settings.NewService(settingsRepo, settingsCipher)
 	settingsHandler := settings.NewHandler(settingsSvc)
 
+	// whatsappSender delivers messages (OTPs, reminders, and anything else
+	// that wants WhatsApp delivery) via a self-hosted OpenWA instance,
+	// configured live through Settings > WhatsApp (settingsSvc, category
+	// "whatsapp") rather than an env var — see platform.OpenWASender. Until
+	// that setting is configured, Send returns a clear "not configured"
+	// error rather than silently doing nothing.
+	whatsappLoader := func() (platform.WhatsAppConfig, error) {
+		view, err := settingsSvc.Get(settings.CategoryWhatsApp)
+		if err != nil {
+			return platform.WhatsAppConfig{}, err
+		}
+		if !view.IsSet {
+			return platform.WhatsAppConfig{}, nil
+		}
+		return platform.ParseWhatsAppConfig(view.Value)
+	}
+	whatsappSender := platform.NewOpenWASender(whatsappLoader)
+
 	customerRepo := customer.NewRepository(db)
 	customerSvc := customer.NewService(customerRepo, branchRepo, aadhaarCipher)
 	customerHandler := customer.NewHandler(customerSvc)
@@ -249,11 +267,11 @@ func main() {
 	// packet movement on bank-pledge/release) — see internal/loan's
 	// PacketCreator/PacketMover doc comments. movementSvc satisfies
 	// loan.CashRecorder, reflecting bank-pledge amounts into Cash-in-Hand.
-	loanSvc := loan.NewService(loanRepo, loanOrnamentRepo, loanApprovalRepo, loanPaymentRepo, loanPledgeRepo, loanRequestRepo, requestApprovalRepo, loanAuctionRepo, loanApprovalLimitRepo, branchRepo, customerRepo, schemeRepo, goldRateRepo, packetSvc, packetSvc, movementSvc)
+	loanSvc := loan.NewService(loanRepo, loanOrnamentRepo, loanApprovalRepo, loanPaymentRepo, loanPledgeRepo, loanRequestRepo, requestApprovalRepo, loanAuctionRepo, loanApprovalLimitRepo, branchRepo, customerRepo, schemeRepo, goldRateRepo, packetSvc, packetSvc, movementSvc, whatsappSender)
 	loanHandler := loan.NewHandler(loanSvc)
 
 	reminderRepo := reminder.NewRepository(db)
-	reminderSvc := reminder.NewService(reminderRepo, customerRepo, loanRepo)
+	reminderSvc := reminder.NewService(reminderRepo, customerRepo, loanRepo, whatsappSender)
 	reminderHandler := reminder.NewHandler(reminderSvc)
 
 	uploadHandler := upload.NewHandler(cfg.UploadsDir)
@@ -266,8 +284,7 @@ func main() {
 	bankSvc := bank.NewService(bankRepo)
 	bankHandler := bank.NewHandler(bankSvc)
 
-	smsSender := platform.NewLogSMSSender()
-	authSvc := auth.NewService(employeeRepo, smsSender, cfg.JWTSecret, cfg.JWTExpiry)
+	authSvc := auth.NewService(employeeRepo, whatsappSender, cfg.JWTSecret, cfg.JWTExpiry)
 	authHandler := auth.NewHandler(authSvc)
 
 	authMiddleware := platform.AuthMiddleware(cfg.JWTSecret)
