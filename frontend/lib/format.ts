@@ -23,6 +23,7 @@ const STATUS_COLOR: Record<string, string> = {
   "Locker Stored": "gold", "Bank Pledged": "blue", "Ready for Release": "amber",
   Released: "gray", "Notice Issued": "amber", "Not Pledged": "gray", "Auction Scheduled": "red",
   "Packet Generated": "blue", "Ready For Release": "amber", Returned: "gold",
+  "Name Mismatch": "red",
 };
 
 export function statusChipColor(status: string): string {

@@ -12,6 +12,7 @@ import { Icon } from "@/lib/icons";
 import { RateModalContent } from "@/components/modals/RateModal";
 import { RegisterCustomerModalContent } from "@/components/modals/RegisterCustomerModal";
 import { PurityPicker } from "@/components/PurityPicker";
+import { Select } from "@/components/Select";
 import { rateForPurityString } from "@/lib/purity";
 import { listCashMovements, listExpenses, type CashMovementView, type ExpenseView } from "@/lib/cashApi";
 import { getCalendarEvents, type CalendarEvent } from "@/lib/remindersApi";
@@ -137,6 +138,21 @@ export function Dashboard() {
   const activeSchemes = schemes.filter((s) => s.active);
   const [calcS, setCalcS] = useState(activeSchemes[0]?.id || "");
 
+  // schemes load asynchronously (SchemesProvider fetches after mount), so
+  // the initial useState above almost always resolves to "" — nothing then
+  // re-synced it once the real list arrived, leaving calcS pointing at a
+  // scheme id absent from `activeSchemes.map(...)`'s <option> list. A
+  // <select> whose value doesn't match any option shows the browser's own
+  // first-item highlight without actually selecting it, which is what
+  // looked like a "selected but empty" row. Re-point calcS at the first
+  // active scheme whenever the current pick no longer exists among them.
+  useEffect(() => {
+    if (activeSchemes.length && !activeSchemes.some((s) => s.id === calcS)) {
+      setCalcS(activeSchemes[0].id);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeSchemes]);
+
   const w = parseFloat(calcW) || 0;
   const rate = rateForPurityString(latest.k24, calcP) ?? 0;
   const sch = schemes.find((s) => s.id === calcS);
@@ -239,9 +255,11 @@ export function Dashboard() {
                 </div>
               </div>
               <div className="frow"><div><label className="f">Scheme</label>
-                <select className="inp" value={calcS} onChange={(e) => setCalcS(e.target.value)}>
-                  {activeSchemes.map((s) => <option key={s.id} value={s.id}>{s.name} — {s.ltv}% LTV @ {s.rate}%</option>)}
-                </select>
+                <Select
+                  options={activeSchemes.map((s) => ({ value: s.id, label: `${s.name} — ${s.ltv}% LTV @ ${s.rate}%` }))}
+                  value={calcS}
+                  onChange={setCalcS}
+                />
               </div></div>
               <div style={{ background: "#fdf6dd", border: "1px solid var(--gold-light)", borderRadius: 8, padding: "12px 14px" }}>
                 <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13, marginBottom: 4 }}><span>Gross Gold Value</span><b>{fmt(gross)}</b></div>

@@ -52,6 +52,22 @@ type Config struct {
 	SMTPUser string
 	SMTPPass string
 	SMTPFrom string
+	// Setu* configure the Setu Data Gateway PAN verification API (see
+	// platform/setu.go). SetuBaseURL switches between sandbox
+	// (https://dg-sandbox.setu.co) and production (https://dg.setu.co).
+	SetuClientID        string
+	SetuClientSecret    string
+	SetuProductInstance string
+	SetuBaseURL         string
+	// SetuDigilocker* configure the separate DigiLocker Aadhaar-verification
+	// product instance (see platform/setu_digilocker.go). A different Setu
+	// product from PAN verification above, so its own client-id/secret/
+	// product-instance-id, though the sandbox/production host pattern is
+	// the same.
+	SetuDigilockerClientID        string
+	SetuDigilockerClientSecret    string
+	SetuDigilockerProductInstance string
+	SetuDigilockerBaseURL         string
 }
 
 // LoadConfig reads a .env file if present (local/dev convenience) and
@@ -89,6 +105,15 @@ func LoadConfig() Config {
 		SMTPUser:             getEnv("SMTP_USER", ""),
 		SMTPPass:             getEnv("SMTP_PASS", ""),
 		SMTPFrom:             getEnv("SMTP_FROM", ""),
+		SetuClientID:         getEnv("SETU_CLIENT_ID", ""),
+		SetuClientSecret:     getEnv("SETU_CLIENT_SECRET", ""),
+		SetuProductInstance:  getEnv("SETU_PRODUCT_INSTANCE_ID", ""),
+		SetuBaseURL:          getEnv("SETU_BASE_URL", "https://dg-sandbox.setu.co"),
+
+		SetuDigilockerClientID:        getEnv("SETU_DIGILOCKER_CLIENT_ID", ""),
+		SetuDigilockerClientSecret:    getEnv("SETU_DIGILOCKER_CLIENT_SECRET", ""),
+		SetuDigilockerProductInstance: getEnv("SETU_DIGILOCKER_PRODUCT_INSTANCE_ID", ""),
+		SetuDigilockerBaseURL:         getEnv("SETU_DIGILOCKER_BASE_URL", "https://dg-sandbox.setu.co"),
 	}
 }
 

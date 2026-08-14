@@ -10,6 +10,7 @@ import { AddCashModalContent } from "@/components/modals/AddCashModal";
 import { CashOutModalContent } from "@/components/modals/CashOutModal";
 import { ExpenseModalContent, ReceiptViewModalContent } from "@/components/modals/ExpenseModal";
 import { listActiveBranches, type BranchView } from "@/lib/branchApi";
+import { SearchableSelect } from "@/components/SearchableSelect";
 import {
   listCashMovements, listExpenses, getCashSummary, setOpeningBalance,
   setCashMovementLoanStatus, approveExpense, rejectExpense,
@@ -99,6 +100,7 @@ export function Cash() {
 
   const [branches, setBranches] = useState<BranchView[]>([]);
   const [branchId, setBranchId] = useState<number | "">("");
+  const [branchLabel, setBranchLabel] = useState("");
   const [movements, setMovements] = useState<CashMovementView[]>([]);
   const [expenses, setExpenses] = useState<ExpenseView[]>([]);
   const [summary, setSummary] = useState<CashSummary | null>(null);
@@ -116,14 +118,28 @@ export function Cash() {
   useEffect(() => {
     listActiveBranches().then((list) => {
       setBranches(list);
-      if (list.length) setBranchId((cur) => cur || list[0].id);
+      if (list.length) {
+        setBranchId((cur) => cur || list[0].id);
+        setBranchLabel((cur) => cur || list[0].name);
+      }
     }).catch(() => {});
   }, []);
+
+  // "All branches" is a synthetic id-0 row (never a real Branch) prepended
+  // to the local filter list — GET /branches is already scoped server-side
+  // (non-admins only ever get their own branch back), so it's only ever
+  // meaningfully different from the single real row for an Administrator.
+  const ALL_BRANCHES: BranchView = { id: 0, name: "All branches", code: "", address: "", phone: "", isActive: true };
+  async function searchBranchesFilter(q: string, _page: number): Promise<{ items: BranchView[]; hasMore: boolean }> {
+    const query = q.trim().toLowerCase();
+    const all = [ALL_BRANCHES, ...branches];
+    const items = query ? all.filter((b) => b.name.toLowerCase().includes(query)) : all;
+    return { items, hasMore: false };
+  }
 
   useEffect(() => { refresh(); }, [refresh]);
 
   const total = expenses.reduce((s, e) => s + e.amt, 0);
-  const expensesToday = expenses.filter((e) => e.d === today).reduce((s, e) => s + e.amt, 0);
   const cashIn = movements.filter((m) => m.type === "in").reduce((s, m) => s + m.amount, 0);
   const cashOut = movements.filter((m) => m.type === "out").reduce((s, m) => s + m.amount, 0);
 
@@ -190,10 +206,16 @@ export function Cash() {
         <div className="hd">
           <h3>Opening Cash Balance — Today</h3>
           <div className="sp" />
-          <select className="inp" style={{ width: 180 }} value={branchId} onChange={(e) => setBranchId(e.target.value ? Number(e.target.value) : "")}>
-            <option value="">All branches</option>
-            {branches.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
-          </select>
+          <div style={{ width: 220 }}>
+            <SearchableSelect<BranchView>
+              value={branchLabel}
+              onChange={(id, item) => { setBranchId(item.id === 0 ? "" : item.id); setBranchLabel(item.name); }}
+              fetchFn={searchBranchesFilter}
+              getLabel={(b) => b.name}
+              getId={(b) => String(b.id)}
+              placeholder="Search branch…"
+            />
+          </div>
           <input className="inp" style={{ width: 140, marginLeft: 8 }} type="number" min={0} value={openingInput} onChange={(e) => setOpeningInput(e.target.value)} />
           <button className="btn sm" style={{ marginLeft: 8 }} onClick={saveOpeningBalance} disabled={!branchId}>Set</button>
         </div>
@@ -202,9 +224,15 @@ export function Cash() {
 
       <div className="kpis" style={{ marginBottom: 18 }}>
         <Kpi l="Opening Cash (today)" v={fmt(summary?.openingCash || 0)} />
-        <Kpi l="Collections / Income" v={fmt(summary?.collections || 0)} s="interest + principal" cls="ok" />
-        <Kpi l="Loan Disbursements" v={fmt(summary?.disbursements || 0)} />
-        <Kpi l="Expenses (today)" v={fmt(expensesToday)} s={fmt(summary?.cashExpenses || 0) + " cash"} />
+        {/* Backend's `collections` is every cash-in movement for the day —
+            Savings top-ups, bank pledges and loan repayments alike, not just
+            interest/principal (see cash.SummaryService.GetExpectedCash). */}
+        <Kpi l="Cash In (today)" v={fmt(summary?.collections || 0)} cls="ok" />
+        {/* Likewise `disbursements` is every cash-out movement for the day —
+            loan principal handed out, manual "Take Cash Out" withdrawals,
+            and bank-pledge releases all land here. */}
+        <Kpi l="Cash Out (today)" v={fmt(summary?.disbursements || 0)} />
+        <Kpi l="Expenses (today)" v={fmt(summary?.expensesToday || 0)} s={fmt(summary?.cashExpenses || 0) + " cash"} />
         <Kpi l="Expected Cash in Hand" v={fmt(summary?.expectedCash || 0)} s="auto-calculated" cls="ok" />
       </div>
 

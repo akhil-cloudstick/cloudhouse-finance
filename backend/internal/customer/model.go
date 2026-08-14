@@ -1,10 +1,10 @@
 // Package customer implements the Customer Module — Stage 1
 // (frontend/components/Customers.tsx, CustomerDetail.tsx,
 // modals/RegisterCustomerModal.tsx): a consolidated, backend-persisted
-// customer profile. KYC/PAN/Aadhaar verification is NOT live in this
-// stage — every customer is auto-marked "Verified" at creation as an
-// explicit stub, so downstream flows (New Loan's customer picker) can be
-// exercised end-to-end before real Setu/DigiLocker verification exists.
+// customer profile. KYC/PAN/Aadhaar verification is NOT live yet — every
+// customer starts KYCStatus/PANStatus/AadhaarStatus "Pending" at creation
+// (see service.Create) until a real Setu PAN-verify (internal/platform/
+// setu.go) or DigiLocker Aadhaar call runs and updates it.
 package customer
 
 import (
@@ -54,13 +54,21 @@ type Customer struct {
 	NomineeRelation string `json:"nomineeRelation" gorm:"size:60"`
 	NomineePhone    string `json:"nomineePhone" gorm:"size:20"`
 
-	// KYCStatus/PANStatus/AadhaarStatus are hardcoded to "Verified" at
-	// creation in service.Create — NO real verification call is made yet.
-	// Replace with a live Setu PAN-verify / DigiLocker Aadhaar call before
-	// this becomes a production status.
+	// KYCStatus/PANStatus/AadhaarStatus start "Pending" at creation in
+	// service.Create — no real verification call happens until a live Setu
+	// PAN-verify (internal/platform/setu.go) / DigiLocker Aadhaar call runs
+	// and updates it.
 	KYCStatus     string `json:"kycStatus" gorm:"size:20"`
 	PANStatus     string `json:"panStatus" gorm:"size:20"`
 	AadhaarStatus string `json:"aadhaarStatus" gorm:"size:20"`
+
+	// DigilockerRequestID is Setu's request id for the customer's most
+	// recent DigiLocker Aadhaar-verify attempt (see
+	// internal/platform/setu_digilocker.go). Set by StartAadhaarVerify,
+	// read back by CheckAadhaarVerify to poll status/fetch the result —
+	// never exposed in the API response, it's purely an internal
+	// correlation id.
+	DigilockerRequestID string `json:"-" gorm:"size:64"`
 
 	CreatedAt time.Time      `json:"createdAt"`
 	UpdatedAt time.Time      `json:"updatedAt"`

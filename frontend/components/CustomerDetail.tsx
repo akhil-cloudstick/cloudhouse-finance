@@ -6,9 +6,10 @@ import { useToast } from "@/components/Toast";
 import { useAuth } from "@/lib/auth-context";
 import { fmt, fmtW, initials } from "@/lib/format";
 import { StatusChip } from "@/components/StatusChip";
+import { DatePicker } from "@/components/DatePicker";
 import { LoanRow } from "@/components/LoanRow";
 import { Icon } from "@/lib/icons";
-import { getCustomer360, type Customer360View } from "@/lib/customersApi";
+import { getCustomer360, verifyCustomerPan, startAadhaarVerify, checkAadhaarVerify, type Customer360View } from "@/lib/customersApi";
 import type { LoanView } from "@/lib/loansApi";
 import {
   SelectLoanForRequestModalContent,
@@ -44,21 +45,99 @@ export function CustomerDetail({ id }: { id?: string }) {
 
   const [profile, setProfile] = useState<Customer360View | null>(null);
   const [error, setError] = useState("");
+  const [verifying, setVerifying] = useState(false);
+  // DigiLocker Aadhaar verify is a redirect flow — "started" means the
+  // customer's been sent the DigiLocker login URL and we're waiting for
+  // them to complete it on their own device, so a "Check Status" button
+  // replaces "Send Verification Link" until they confirm or we give up.
+  const [aadhaarStarted, setAadhaarStarted] = useState(false);
+  const [checkingAadhaar, setCheckingAadhaar] = useState(false);
+  // Opened-date window for the whole profile. Empty = unbounded on that
+  // side; both are handed to the backend, which filters the loans and
+  // recomputes the relationship totals over the narrowed set — nothing here
+  // is filtered client-side.
+  const [from, setFrom] = useState("");
+  const [to, setTo] = useState("");
+  const [reloading, setReloading] = useState(false);
 
   useEffect(() => {
     if (!id) return;
-    setProfile(null);
     setError("");
-    getCustomer360(id)
+    setReloading(true);
+    getCustomer360(id, { from, to })
       .then(setProfile)
-      .catch((e) => setError(e instanceof Error ? e.message : "Failed to load customer."));
-  }, [id]);
+      .catch((e) => setError(e instanceof Error ? e.message : "Failed to load customer."))
+      .finally(() => setReloading(false));
+  }, [id, from, to]);
 
-  if (error) return <div className="empty">Customer not found — {error}</div>;
+  // A range change keeps the previously loaded profile on screen (dimmed
+  // via `reloading`) so the page doesn't blank out between fetches.
+  if (error && !profile) return <div className="empty">Customer not found — {error}</div>;
   if (!profile) return <div className="empty">Loading customer…</div>;
 
   const c = profile.customer;
   const cLoans = profile.loans;
+
+  async function verifyPan() {
+    if (!id) return;
+    setVerifying(true);
+    try {
+      const result = await verifyCustomerPan(id);
+      setProfile((p) => (p ? { ...p, customer: result.customer } : p));
+      const status = result.customer.panStatus;
+      if (status === "Verified") {
+        toast(`PAN verified — Setu returned "${result.matchedName}". ${result.message}`);
+      } else if (status === "Name Mismatch") {
+        toast(`PAN is valid but registered to a different name — Setu returned "${result.matchedName}", which doesn't match this customer's name. Please review before proceeding.`);
+      } else {
+        toast(`PAN verification failed — ${result.message}`);
+      }
+    } catch (e) {
+      toast(e instanceof Error ? e.message : "PAN verification failed.");
+    } finally {
+      setVerifying(false);
+    }
+  }
+
+  async function sendAadhaarVerificationLink() {
+    if (!id) return;
+    setVerifying(true);
+    try {
+      const redirectUrl = `${window.location.origin}/digilocker-callback`;
+      const started = await startAadhaarVerify(id, redirectUrl);
+      window.open(started.url, "_blank", "noopener,noreferrer");
+      setAadhaarStarted(true);
+      toast("DigiLocker login opened in a new tab — ask the customer to complete Aadhaar + OTP login there, then click \"Check Status\" here.");
+    } catch (e) {
+      toast(e instanceof Error ? e.message : "Could not start Aadhaar verification.");
+    } finally {
+      setVerifying(false);
+    }
+  }
+
+  async function checkAadhaarStatus() {
+    if (!id) return;
+    setCheckingAadhaar(true);
+    try {
+      const result = await checkAadhaarVerify(id);
+      if (result.status !== "authenticated" || !result.customer) {
+        toast("Customer hasn't completed DigiLocker login yet — ask them to finish it in the tab that opened, then check again.");
+        return;
+      }
+      setProfile((p) => (p ? { ...p, customer: result.customer! } : p));
+      setAadhaarStarted(false);
+      const status = result.customer.aadhaarStatus;
+      if (status === "Verified") {
+        toast(`Aadhaar verified via DigiLocker — matched name "${result.matchedName}".`);
+      } else if (status === "Name Mismatch") {
+        toast(`Aadhaar verified but registered name "${result.matchedName}" doesn't match this customer's name. Please review before proceeding.`);
+      }
+    } catch (e) {
+      toast(e instanceof Error ? e.message : "Could not check Aadhaar verification status.");
+    } finally {
+      setCheckingAadhaar(false);
+    }
+  }
 
   function openRequestPicker() {
     openModal(
@@ -90,20 +169,53 @@ export function CustomerDetail({ id }: { id?: string }) {
         {canCreateLoans && <a className="btn sm" href="#newloan"><Icon name="plus" /> New Loan</a>}
       </div>
       <hr className="gold-rule" />
-      <div className="grid cols12">
+      {/* Opened-date filter for the whole 360 view — every card below plus
+          the relationship totals come from the backend-filtered loan set. */}
+      <div style={{ display: "flex", alignItems: "flex-end", gap: 12, flexWrap: "wrap", marginBottom: 18 }}>
+        <div style={{ minWidth: 190 }}>
+          <label className="f">Loans Opened From</label>
+          <DatePicker value={from} onChange={setFrom} placeholder="Any start date…" max={to || undefined} />
+        </div>
+        <div style={{ minWidth: 190 }}>
+          <label className="f">To</label>
+          <DatePicker value={to} onChange={setTo} placeholder="Any end date…" min={from || undefined} />
+        </div>
+        {(from || to) && (
+          <button className="btn ghost sm" onClick={() => { setFrom(""); setTo(""); }}>Clear</button>
+        )}
+        {reloading && <span style={{ fontSize: 12.5, color: "var(--muted)" }}>Loading…</span>}
+        {error && <span style={{ fontSize: 12.5, color: "var(--red)" }}>{error}</span>}
+      </div>
+      <div className="grid cols12" style={reloading ? { opacity: 0.6 } : undefined}>
         <div className="grid">
           <div className="card gtop"><div className="hd"><h3>KYC &amp; Verification</h3></div>
             <div className="bd">
               <div className="kv">
-                <div className="i"><div className="k">PAN</div><div className="v">{c.pan || "—"} · <StatusChip status={c.panStatus} /></div></div>
-                <div className="i"><div className="k">Aadhaar</div><div className="v">{c.aadhaarLast4 ? "XXXX-XXXX-" + c.aadhaarLast4 : "—"} · <StatusChip status={c.aadhaarStatus} /></div></div>
+                <div className="i"><div className="k">PAN</div><div className="v" style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                  <span>{c.pan || "—"} · <StatusChip status={c.panStatus} /></span>
+                  {c.pan && c.panStatus !== "Verified" && (
+                    <button className="btn ghost sm" style={{ padding: "2px 8px" }} onClick={verifyPan} disabled={verifying}>
+                      {verifying ? "Verifying…" : "Verify PAN"}
+                    </button>
+                  )}
+                </div></div>
+                <div className="i"><div className="k">Aadhaar</div><div className="v" style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                  <span>{c.aadhaarLast4 ? "XXXX-XXXX-" + c.aadhaarLast4 : "—"} · <StatusChip status={c.aadhaarStatus} /></span>
+                  {c.aadhaarStatus !== "Verified" && !aadhaarStarted && (
+                    <button className="btn ghost sm" style={{ padding: "2px 8px" }} onClick={sendAadhaarVerificationLink} disabled={verifying}>
+                      {verifying ? "Starting…" : "Verify via DigiLocker"}
+                    </button>
+                  )}
+                  {c.aadhaarStatus !== "Verified" && aadhaarStarted && (
+                    <button className="btn ghost sm" style={{ padding: "2px 8px" }} onClick={checkAadhaarStatus} disabled={checkingAadhaar}>
+                      {checkingAadhaar ? "Checking…" : "Check Status"}
+                    </button>
+                  )}
+                </div></div>
                 <div className="i"><div className="k">Overall KYC</div><div className="v"><StatusChip status={c.kycStatus} /></div></div>
                 <div className="i"><div className="k">Date of Birth</div><div className="v">{c.dob || "—"}</div></div>
                 <div className="i"><div className="k">Phone</div><div className="v">{c.phone}</div></div>
                 <div className="i"><div className="k">Address</div><div className="v">{c.address || "—"}</div></div>
-              </div>
-              <div className="notice" style={{ marginTop: 14 }}>
-                <Icon name="shield" /> Stage 1: KYC auto-verified on registration — pending live Setu/DigiLocker integration.
               </div>
             </div>
           </div>

@@ -5,7 +5,7 @@ import { useModal } from "@/components/Modal";
 import { useToast } from "@/components/Toast";
 import { Icon } from "@/lib/icons";
 import { fmt, fmtW } from "@/lib/format";
-import { recordBankPledge, type LoanView } from "@/lib/loansApi";
+import { recordBankPledge, type BankPledgeCashTreatment, type LoanView } from "@/lib/loansApi";
 import { searchBanksPage, type BackendBank } from "@/lib/bankApi";
 import { SearchableSelect } from "@/components/SearchableSelect";
 import { ApiError } from "@/lib/api";
@@ -39,6 +39,13 @@ export function RepledgeModalContent({ loan, onSaved }: { loan: LoanView; onSave
   const [err, setErr] = useState("");
   const [saving, setSaving] = useState(false);
 
+  /* Defaults to RecordOnly — the harmless choice. Staff must actively opt in to
+   * moving money, rather than being blocked by a required field: leaving this
+   * alone just files a paperwork record. Immutable once saved (a wrong pick is
+   * fixed by voiding the record), so the consequence is spelled out below the
+   * control rather than left to be discovered afterwards. */
+  const [cashTreatment, setCashTreatment] = useState<BankPledgeCashTreatment>("RecordOnly");
+
   async function save() {
     if (!bank.trim()) { setErr("Please enter the bank to repledge with."); return; }
     if (!date) { setErr("Please select the pledge date."); return; }
@@ -54,10 +61,15 @@ export function RepledgeModalContent({ loan, onSaved }: { loan: LoanView; onSave
         bankInterestRate: interestRate ? +interestRate : undefined,
         referenceNumber: referenceNumber.trim() || undefined,
         bankPledgeDueDate: dueDate || undefined,
+        cashTreatment,
       });
       onSaved();
       closeModal();
-      toast(`Gold repledged to ${bank.trim()}`);
+      toast(
+        cashTreatment === "CashIn"
+          ? `Gold repledged to ${bank.trim()} — ${fmt(amount)} added to Cash-in-Hand`
+          : `Gold repledged to ${bank.trim()} — recorded only, no cash effect`
+      );
     } catch (e) {
       setErr(e instanceof ApiError ? e.message : "Could not record the pledge — try again.");
     } finally {
@@ -103,6 +115,46 @@ export function RepledgeModalContent({ loan, onSaved }: { loan: LoanView; onSave
           <div><label className="f">Reference Number</label><input className="inp" placeholder="bank's pledge/document reference" value={referenceNumber} onChange={(e) => setReferenceNumber(e.target.value)} maxLength={60} /></div>
         </div>
         <div className="frow"><div><label className="f">Bank Pledge Due Date</label><input className="inp" type="date" value={dueDate} onChange={(e) => setDueDate(e.target.value)} /></div></div>
+
+        {/* Cash treatment. Not every re-pledge brings money into the branch
+          * till — some are purely book-keeping — so this is an explicit choice
+          * per transaction rather than an assumption. */}
+        <div className="frow"><div>
+          <label className="f">Cash Treatment *</label>
+          <div style={{ display: "flex", flexDirection: "column", gap: 6, marginTop: 4 }}>
+            <label style={{ display: "flex", gap: 8, alignItems: "flex-start", fontSize: 13, cursor: "pointer" }}>
+              <input
+                type="radio"
+                name="cashTreatment"
+                checked={cashTreatment === "RecordOnly"}
+                onChange={() => setCashTreatment("RecordOnly")}
+                style={{ marginTop: 3 }}
+              />
+              <span><strong>Record Only</strong> — no cash effect. Files the re-pledge record without touching Cash-in-Hand.</span>
+            </label>
+            <label style={{ display: "flex", gap: 8, alignItems: "flex-start", fontSize: 13, cursor: "pointer" }}>
+              <input
+                type="radio"
+                name="cashTreatment"
+                checked={cashTreatment === "CashIn"}
+                onChange={() => setCashTreatment("CashIn")}
+                style={{ marginTop: 3 }}
+              />
+              <span><strong>Add to Cash-in-Hand</strong> — the bank&apos;s advance came into the branch till.</span>
+            </label>
+          </div>
+          {/* .notice is display:flex — keep the text in one child element. */}
+          <p className="notice" style={{ marginTop: 8, fontSize: 12.5 }}>
+            <Icon name="shield" />
+            <span>
+              {cashTreatment === "CashIn"
+                ? `${amt ? fmt(+amt) : "The pledged amount"} will be added to Cash-in-Hand now, and booked back out when the gold is released.`
+                : "No cash movement will be created, now or on release."}
+              {" "}This cannot be edited later — a wrong choice must be corrected by voiding the record.
+            </span>
+          </p>
+        </div></div>
+
         <p style={{ color: "var(--red)", fontSize: 12.5, minHeight: 16, marginTop: 8 }}>{err}</p>
       </div>
       <div className="ft">

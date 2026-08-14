@@ -14,5 +14,8 @@ func RegisterRoutes(rg *gin.RouterGroup, h *Handler, perms platform.CRUDMiddlewa
 	rg.GET("", perms.Read, h.List)
 	rg.GET("/:id", perms.Read, h.Get)
 	rg.PUT("/:id", perms.Update, h.Update)
+	rg.POST("/:id/verify-pan", perms.Update, h.VerifyPAN)
+	rg.POST("/:id/verify-aadhaar/start", perms.Update, h.StartAadhaarVerify)
+	rg.POST("/:id/verify-aadhaar/check", perms.Update, h.CheckAadhaarVerify)
 	rg.DELETE("/:id", perms.Delete, h.Delete)
 }

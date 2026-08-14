@@ -190,12 +190,27 @@ export async function setOpeningBalance(branchId: number, amount: number, date?:
 }
 
 /* Expected Cash in Hand summary — Opening + Collections - Disbursements - Cash Expenses. */
+export type CashInBreakdown = {
+  repayments: number;
+  pledges: number;
+  topUps: number;
+};
+
+export type CashOutBreakdown = {
+  loanDisbursements: number;
+  bankReleases: number;
+  withdrawals: number;
+};
+
 export type CashSummary = {
   openingCash: number;
   collections: number;
   disbursements: number;
   cashExpenses: number;
+  expensesToday: number;
   expectedCash: number;
+  collectionsBreakdown: CashInBreakdown;
+  disbursementsBreakdown: CashOutBreakdown;
 };
 
 export async function getCashSummary(branchId?: number, date?: string): Promise<CashSummary> {

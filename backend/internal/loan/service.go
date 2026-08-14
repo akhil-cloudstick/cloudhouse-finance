@@ -5,7 +5,10 @@ import (
 	"fmt"
 	"log"
 	"math"
+	"strings"
 	"time"
+
+	"gorm.io/gorm"
 
 	"ambikagold/backend/internal/branch"
 	"ambikagold/backend/internal/customer"
@@ -37,15 +40,32 @@ type PacketMover interface {
 
 // CashRecorder reflects a loan's real cash flow into Cash-in-Hand & Expenses
 // (frontend/components/Cash.tsx): pledging gold with a bank brings cash in
-// (releasing it removes that cash-in again), disbursing a loan's principal
-// to the customer is cash out, and every repayment is cash in. Implemented
-// by cash.MovementService, injected the same way as PacketCreator/
-// PacketMover so internal/loan doesn't import internal/cash directly.
+// AND is mirrored as an auto-approved expense entry (so it also shows up in
+// the Expenses register/reports); releasing it books the same amount back
+// out as a cash-out movement plus a mirrored release expense, without
+// touching the original cash-in entry — both stay as permanent history.
+// Disbursing a loan's principal to the customer is cash out, and every
+// repayment is cash in. Implemented by cash.MovementService, injected the
+// same way as PacketCreator/PacketMover so internal/loan doesn't import
+// internal/cash directly.
 type CashRecorder interface {
 	RecordBankPledgeCashIn(loanID uint, bankName string, amount float64, occurredOn time.Time) (movementID uint, err error)
-	DeleteCashMovement(movementID uint) error
+	RecordBankPledgeExpense(loanID uint, bankName string, amount float64, occurredOn time.Time, branchID uint) (expenseID uint, err error)
+	RecordBankPledgeCashOut(loanID uint, bankName string, amount float64, occurredOn time.Time, branchID uint) (movementID uint, err error)
+	RecordBankPledgeReleaseExpense(loanID uint, bankName string, amount float64, occurredOn time.Time, branchID uint) (expenseID uint, err error)
 	RecordLoanDisbursementCashOut(loanID uint, loanNumber string, amount float64, branchID uint, occurredOn time.Time) (movementID uint, err error)
 	RecordLoanPaymentCashIn(loanID uint, loanNumber string, amount float64, branchID uint, occurredOn time.Time, paymentType string) (movementID uint, err error)
+
+	// RecordAuctionSaleCashIn books the NET proceeds of an auction (sale price
+	// less auction expenses) into Cash-in-Hand. Previously an auction recorded
+	// no cash movement at all, so money the branch genuinely received never
+	// appeared in the books.
+	RecordAuctionSaleCashIn(loanID uint, loanNumber string, amount float64, branchID uint, occurredOn time.Time) (movementID uint, err error)
+	// RecordAuctionSurplusCashOut books the refund of an auction surplus back
+	// to the customer. Called only for the RefundedToCustomer disposition —
+	// retaining the surplus as income needs no movement, because the full net
+	// proceeds already came in via RecordAuctionSaleCashIn.
+	RecordAuctionSurplusCashOut(loanID uint, loanNumber string, amount float64, branchID uint, occurredOn time.Time) (movementID uint, err error)
 }
 
 var (
@@ -85,12 +105,44 @@ var (
 	ErrLoanNotDefaulted             = errors.New("loan must be Defaulted (overdue by more than 90 days) before it can be marked auction-eligible")
 	ErrAuctionAlreadyStarted        = errors.New("this loan already has an auction case in progress")
 	ErrAuctionWrongStage            = errors.New("action does not match the auction case's current stage")
+
+	ErrInvalidCashTreatment = errors.New("cashTreatment must be either \"CashIn\" or \"RecordOnly\"")
+	ErrPledgeNotFound       = errors.New("bank pledge record not found")
+	ErrPledgeNotActive      = errors.New("only an active bank pledge can be voided — this one is already released or voided")
+	ErrVoidReasonRequired   = errors.New("a reason is required when voiding a bank pledge")
+
+	// ErrAuctionDecisionPending blocks the auction pipeline while a repayment
+	// decision is outstanding. This is the safety guarantee that stops gold
+	// being sold out from under a customer whose payment is still under review.
+	ErrAuctionDecisionPending = errors.New("a repayment decision is pending on this auction — it must be resolved before the auction can proceed")
+
+	ErrAuctionDecisionNotFound       = errors.New("auction decision request not found")
+	ErrAuctionDecisionAlreadyDecided = errors.New("this auction decision has already been made")
+	ErrInvalidAuctionDecision        = errors.New("decision is not valid for this kind of auction request")
+	ErrShortfallAuthorityRequired    = errors.New("only a Branch Manager, Management, or Administrator may decide a post-auction shortfall")
+	ErrAuctionBalanceDueCannotSettle = errors.New("this auction left a balance owing — resolve the shortfall decision instead of settling")
+	ErrNoSurplusToDispose            = errors.New("this auction left no surplus to dispose of")
+	ErrSurplusAlreadyDisposed        = errors.New("this auction's surplus has already been disposed of")
+	ErrInvalidSurplusDisposition     = errors.New("surplus disposition must be either \"RefundedToCustomer\" or \"RecordedAsIncome\"")
+	ErrSettlementRemarksRequired     = errors.New("remarks are required when a customer's auction surplus is retained as income")
+	ErrDecisionRemarksRequired       = errors.New("remarks are required for this decision")
 )
 
 // Service implements loan business rules: ornament valuation, eligible-
 // amount calculation, the fixed 3-step approval chain, and the lightweight
 // payment/bank-pledge audit trail.
 type Service struct {
+	// db is used ONLY to wrap the auction flows that write several tables at
+	// once (sale, decision resolution, and the auction hook inside
+	// RecordPayment) in a transaction. Those are the paths where a failure
+	// part-way could leave gold sold with no record of the proceeds, or a
+	// payment recorded without the auction being frozen.
+	//
+	// The rest of this service keeps the codebase's existing non-transactional,
+	// log-and-continue style — no transaction infrastructure existed here
+	// before, and converting every write path was out of scope.
+	db *gorm.DB
+
 	repo                *Repository
 	ornamentRepo        *OrnamentRepository
 	approvalRepo        *ApprovalRepository
@@ -113,6 +165,7 @@ type Service struct {
 }
 
 func NewService(
+	db *gorm.DB,
 	repo *Repository,
 	ornamentRepo *OrnamentRepository,
 	approvalRepo *ApprovalRepository,
@@ -132,6 +185,7 @@ func NewService(
 	whatsapp platform.SMSSender,
 ) *Service {
 	return &Service{
+		db:                  db,
 		repo:                repo,
 		ornamentRepo:        ornamentRepo,
 		approvalRepo:        approvalRepo,
@@ -915,6 +969,37 @@ func allocatePayment(l *Loan, paymentType string, amount float64) (fee, penal, i
 		}
 		fee, penal, interest, principal = feeOutstanding, penalOutstanding, interestOutstanding, principalOutstanding
 
+	case PaymentTypeAuctionSale:
+		// Auction proceeds pay down exactly like a Partial payment (fee →
+		// penal → interest → principal), but must never be rejected for
+		// overshooting: gold can fetch more than the debt, and the excess is
+		// the customer's surplus, handled by RecordAuctionSale rather than
+		// being an error. So each bucket is simply capped and any remainder is
+		// left for the surplus path.
+		remaining := amount
+		fee = math.Min(remaining, feeOutstanding)
+		remaining -= fee
+		penal = math.Min(remaining, penalOutstanding)
+		remaining -= penal
+		interest = math.Min(remaining, interestOutstanding)
+		remaining -= interest
+		principal = math.Min(remaining, principalOutstanding)
+
+	case PaymentTypeAuctionWriteOff:
+		// Forgiving a post-auction shortfall. Unlike Waiver this DOES reach
+		// principal — once the gold is sold there is no collateral left, so
+		// what management is writing off is the principal itself, not merely
+		// accrued interest. Capped at what is owed so a write-off can never
+		// push a balance negative.
+		remaining := amount
+		fee = math.Min(remaining, feeOutstanding)
+		remaining -= fee
+		penal = math.Min(remaining, penalOutstanding)
+		remaining -= penal
+		interest = math.Min(remaining, interestOutstanding)
+		remaining -= interest
+		principal = math.Min(remaining, principalOutstanding)
+
 	case PaymentTypeAdjustment:
 		// A manual correction to the principal ledger (e.g. fixing a data
 		// entry error) — never overshoots into a negative outstanding
@@ -1029,7 +1114,103 @@ func (s *Service) RecordPayment(loanID uint, in PaymentInput) (*Loan, error) {
 		}
 	}
 
+	// A customer paying while their gold sits in the auction pipeline must
+	// change what happens to that gold — previously the payment landed and the
+	// auction carried on regardless.
+	s.resolveAuctionAfterPayment(l, p)
+
 	return s.Get(l.ID, nil)
+}
+
+// resolveAuctionAfterPayment reacts to a payment on a loan whose gold is still
+// in the auction pipeline:
+//
+//   - Loan now fully closed → the auction is cancelled automatically and
+//     recorded as Settled by Repayment. The customer rescued their gold; no
+//     human action should be needed to notice that.
+//   - Loan still open → a PartialRepayment escalation is raised and the
+//     auction FREEZES (see requireNoPendingDecision). A part-payment is not
+//     the system's call to interpret: somebody with authority decides whether
+//     to keep pursuing the auction or release the gold. Deliberately NOT
+//     auto-withdrawn.
+//
+// A no-op for the overwhelming majority of payments, which have no live
+// auction — the lookup returns nothing and this returns immediately.
+func (s *Service) resolveAuctionAfterPayment(l *Loan, p *LoanPayment) {
+	err := s.db.Transaction(func(tx *gorm.DB) error {
+		// Locked: a concurrent auction action must not read this same state and
+		// overwrite the freeze we are about to apply.
+		rec, err := s.auctionRepo.FindActiveByLoanIDForUpdate(tx, l.ID)
+		if err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return nil // no live auction — nothing to do
+			}
+			return err
+		}
+
+		if l.Status == StatusClosed {
+			rec.Stage = AuctionStageSettled
+			rec.FinalSettlementStatus = AuctionSettlementSettledByRepayment
+			if err := s.auctionRepo.UpdateTx(tx, rec); err != nil {
+				return err
+			}
+			s.recordAuctionEvent(tx, rec.ID, AuctionEventSettledByRepaymentAuto, nil, "",
+				fmt.Sprintf("Loan cleared in full by payment of ₹%.2f — auction cancelled automatically", p.Amount))
+			s.notifyCustomer(l.Customer.Phone, fmt.Sprintf(
+				"Dear %s, we have received your payment of ₹%.2f. Loan %s is now fully settled, the auction has been cancelled, and your pledged gold is safe. — Ambika Gold Finance",
+				l.Customer.Name, p.Amount, l.LoanNumber,
+			))
+			return nil
+		}
+
+		// Refresh the live figures so the decision-maker sees what is actually
+		// still owed at this moment.
+		s.enrich(l)
+		outstanding := platform.RoundMoney(l.TotalOutstandingBalance)
+
+		// One pending request per case: a second part-payment updates the
+		// existing escalation rather than stacking up duplicates.
+		existing, err := s.auctionRepo.FindPendingDecision(tx, rec.ID, AuctionDecisionKindPartialRepayment)
+		if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+			return err
+		}
+		if existing != nil {
+			existing.AmountPaid = platform.RoundMoney(existing.AmountPaid + p.Amount)
+			existing.OutstandingAtRequest = outstanding
+			existing.TriggeredByPaymentID = &p.ID
+			if err := s.auctionRepo.UpdateDecision(tx, existing); err != nil {
+				return err
+			}
+		} else if err := s.auctionRepo.CreateDecision(tx, &AuctionDecisionRequest{
+			AuctionRecordID:      rec.ID,
+			LoanID:               l.ID,
+			Kind:                 AuctionDecisionKindPartialRepayment,
+			TriggeredByPaymentID: &p.ID,
+			AmountPaid:           platform.RoundMoney(p.Amount),
+			OutstandingAtRequest: outstanding,
+			Status:               AuctionDecisionPending,
+		}); err != nil {
+			return err
+		}
+
+		s.recordAuctionEvent(tx, rec.ID, AuctionEventDecisionRequested, nil, "", fmt.Sprintf(
+			"Part-payment of ₹%.2f received (₹%.2f still owed) — auction frozen pending a keep/remove decision", p.Amount, outstanding))
+		return nil
+	})
+	if err != nil {
+		// Logged rather than failing the payment: the money was genuinely
+		// received and must stay recorded. The auction stays where it was, and
+		// the pipeline guards still re-read state on every subsequent action.
+		log.Printf("auction resolution after payment failed for loan %d: %v", l.ID, err)
+		return
+	}
+
+	if l.Status != StatusClosed {
+		s.notifyCustomer(l.Customer.Phone, fmt.Sprintf(
+			"Dear %s, we have received your payment of ₹%.2f towards loan %s. As the loan is not yet fully settled, the auction of your pledged gold is on hold while our management reviews your account. We will inform you of the decision. — Ambika Gold Finance",
+			l.Customer.Name, p.Amount, l.LoanNumber,
+		))
+	}
 }
 
 // BankPledgeInput mirrors the body of POST /loans/:id/bank-pledge. BankID/
@@ -1044,6 +1225,18 @@ type BankPledgeInput struct {
 	BankInterestRate  float64
 	ReferenceNumber   string
 	BankPledgeDueDate *time.Time
+
+	// CashTreatment decides whether the bank's advance is booked into
+	// Cash-in-Hand or recorded with no cash effect at all. Must be one of the
+	// BankPledgeCashTreatment* constants — the handler substitutes RecordOnly
+	// for an omitted value, so cash only moves on an explicit opt-in.
+	CashTreatment string
+
+	// ActorEmployeeID/ActorRole identify the real authenticated staff member
+	// for the audit trail — read from JWT claims via platform.ActorFromContext,
+	// never from the request body.
+	ActorEmployeeID *uint
+	ActorRole       string
 }
 
 func (s *Service) RecordBankPledge(loanID uint, branchID *uint, in BankPledgeInput) (*Loan, error) {
@@ -1063,17 +1256,28 @@ func (s *Service) RecordBankPledge(loanID uint, branchID *uint, in BankPledgeInp
 		grossWeight += o.GrossWeight
 	}
 
+	// An unrecognised treatment is rejected rather than coerced: silently
+	// reading a typo as "no cash" would suppress a real cash entry. The
+	// handler is what turns an OMITTED value into RecordOnly.
+	switch in.CashTreatment {
+	case BankPledgeCashTreatmentCashIn, BankPledgeCashTreatmentRecordOnly:
+	default:
+		return nil, ErrInvalidCashTreatment
+	}
+
 	p := &BankPledgeRecord{
 		LoanID:             loanID,
 		BankID:             in.BankID,
 		BankName:           in.BankName,
-		PledgedAmount:      in.PledgedAmount,
+		PledgedAmount:      platform.RoundMoney(in.PledgedAmount),
 		PledgeDate:         in.PledgeDate,
 		BankInterestRate:   in.BankInterestRate,
 		ReferenceNumber:    in.ReferenceNumber,
 		BankPledgeDueDate:  in.BankPledgeDueDate,
 		PledgedGrossWeight: grossWeight,
 		PledgedNetWeight:   l.TotalNetWeight,
+		CashTreatment:      in.CashTreatment,
+		Status:             BankPledgeStatusRecordActive,
 	}
 	if err := s.pledgeRepo.Create(p); err != nil {
 		return nil, err
@@ -1090,19 +1294,57 @@ func (s *Service) RecordBankPledge(loanID uint, branchID *uint, in BankPledgeInp
 		}
 	}
 
-	if s.cashRecorder != nil {
-		movementID, err := s.cashRecorder.RecordBankPledgeCashIn(loanID, in.BankName, in.PledgedAmount, in.PledgeDate)
+	// Cash is touched ONLY when the operator explicitly chose CashIn. A
+	// RecordOnly pledge is pure book-keeping: no movement, no expense, and
+	// correspondingly no reversal on release (see ReleaseBankPledge).
+	if in.CashTreatment == BankPledgeCashTreatmentCashIn && s.cashRecorder != nil {
+		movementID, err := s.cashRecorder.RecordBankPledgeCashIn(loanID, in.BankName, p.PledgedAmount, in.PledgeDate)
 		if err != nil {
 			log.Printf("cash-in movement (bank pledge) failed for loan %d: %v", loanID, err)
 		} else {
 			p.CashMovementID = &movementID
-			if err := s.pledgeRepo.Update(p); err != nil {
-				log.Printf("saving cash movement link (bank pledge) failed for loan %d: %v", loanID, err)
-			}
+		}
+
+		expenseID, err := s.cashRecorder.RecordBankPledgeExpense(loanID, in.BankName, p.PledgedAmount, in.PledgeDate, l.BranchID)
+		if err != nil {
+			log.Printf("expense entry (bank pledge) failed for loan %d: %v", loanID, err)
+		} else {
+			p.ExpenseID = &expenseID
+		}
+
+		if err := s.pledgeRepo.Update(p); err != nil {
+			log.Printf("saving cash movement/expense links (bank pledge) failed for loan %d: %v", loanID, err)
 		}
 	}
 
+	s.recordPledgeEvent(p, BankPledgeEventPledged, in.ActorEmployeeID, in.ActorRole, pledgeTreatmentRemark(in.CashTreatment))
+
 	return s.Get(l.ID, nil)
+}
+
+// pledgeTreatmentRemark renders the cash decision in plain words, so the audit
+// timeline explains itself without the reader having to know the enum.
+func pledgeTreatmentRemark(treatment string) string {
+	if treatment == BankPledgeCashTreatmentCashIn {
+		return "Pledged amount added to Cash-in-Hand"
+	}
+	return "Recorded as a re-pledge record only — no cash effect"
+}
+
+// recordPledgeEvent appends to a re-pledge record's audit trail. Like
+// notifyCustomer, a failure here is logged rather than propagated: losing an
+// audit line must never roll back the financial operation it describes.
+func (s *Service) recordPledgeEvent(p *BankPledgeRecord, action string, actorID *uint, actorRole, remarks string) {
+	if err := s.pledgeRepo.CreateEvent(&BankPledgeEvent{
+		BankPledgeRecordID: p.ID,
+		Action:             action,
+		ActorEmployeeID:    actorID,
+		ActorRole:          actorRole,
+		Amount:             p.PledgedAmount,
+		Remarks:            remarks,
+	}); err != nil {
+		log.Printf("bank pledge event (%s) failed for pledge %d: %v", action, p.ID, err)
+	}
 }
 
 // --- Auction workflow (7-stage) --------------------------------------------
@@ -1113,12 +1355,66 @@ func (s *Service) RecordBankPledge(loanID uint, branchID *uint, in BankPledgeInp
 // Auctioned -> Settled. Each function below advances exactly one stage and
 // validates the AuctionRecord/Loan is in the correct prior stage first.
 
+// getAuctionRecord returns the loan's LIVE auction case. A loan may carry
+// concluded cases from earlier attempts; those are reached through
+// GetAuctionHistory instead, so "the" auction always means the active one.
 func (s *Service) getAuctionRecord(loanID uint) (*AuctionRecord, error) {
-	rec, err := s.auctionRepo.FindByLoanID(loanID)
+	rec, err := s.auctionRepo.FindActiveByLoanID(loanID)
 	if err != nil {
 		return nil, ErrAuctionNotFound
 	}
 	return rec, nil
+}
+
+// requireNoPendingDecision blocks a pipeline step while any escalation is
+// outstanding against the case. This is the load-bearing safety check of the
+// whole auction rework: once a customer has paid something, their gold must
+// not advance one step closer to being sold until a human has ruled on it.
+func (s *Service) requireNoPendingDecision(recID uint) error {
+	pending, err := s.auctionRepo.HasAnyPendingDecision(recID)
+	if err != nil {
+		return err
+	}
+	if pending {
+		return ErrAuctionDecisionPending
+	}
+	return nil
+}
+
+// recordAuctionEvent appends to a case's staff-action audit trail. Logged
+// rather than propagated on failure, for the same reason as recordPledgeEvent:
+// losing an audit line must not roll back the operation it describes.
+func (s *Service) recordAuctionEvent(tx *gorm.DB, recID uint, action string, actorID *uint, actorRole, remarks string) {
+	if err := s.auctionRepo.CreateEvent(tx, &AuctionEvent{
+		AuctionRecordID: recID,
+		Action:          action,
+		ActorEmployeeID: actorID,
+		ActorRole:       actorRole,
+		Remarks:         remarks,
+	}); err != nil {
+		log.Printf("auction event (%s) failed for auction %d: %v", action, recID, err)
+	}
+}
+
+// GetAuctionHistory returns every auction case ever opened against a loan.
+func (s *Service) GetAuctionHistory(loanID uint, branchID *uint) ([]AuctionRecord, error) {
+	if err := s.checkLoanBranch(loanID, branchID); err != nil {
+		return nil, err
+	}
+	return s.auctionRepo.FindHistoryByLoanID(loanID)
+}
+
+// ListConcludedAuctions returns finished auction cases (Settled or Withdrawn)
+// across all loans, scoped to the caller's branch — backs the Auctions
+// screen's History tab.
+func (s *Service) ListConcludedAuctions(branchID *uint) ([]AuctionRecord, error) {
+	return s.auctionRepo.FindAllConcluded(branchID)
+}
+
+// ListPendingAuctionDecisions returns every outstanding escalation awaiting a
+// human decision, scoped to the caller's branch.
+func (s *Service) ListPendingAuctionDecisions(branchID *uint) ([]AuctionDecisionRequest, error) {
+	return s.auctionRepo.FindPendingDecisions(branchID)
 }
 
 // GetAuctionRecord returns a loan's auction case record (including its
@@ -1133,10 +1429,16 @@ func (s *Service) GetAuctionRecord(loanID uint, branchID *uint) (*AuctionRecord,
 
 // MarkAuctionEligible starts a loan's auction case: requires the loan to
 // currently be Defaulted (IsDefaulted, i.e. overdue by more than 90 days —
-// see accrual.go), creates its AuctionRecord at AuctionEligible, and sets
-// Loan.Status accordingly. A loan can only have one AuctionRecord at a
-// time (LoanID is uniquely indexed).
-func (s *Service) MarkAuctionEligible(loanID uint, branchID *uint) (*AuctionRecord, error) {
+// see accrual.go), creates an AuctionRecord at AuctionEligible, and sets
+// Loan.Status accordingly.
+//
+// Only one case may be ACTIVE per loan, but a loan that had a case withdrawn
+// (customer caught up) and then defaulted again can start a fresh one — the
+// old behavior of "one auction per loan, forever" left such loans permanently
+// unauctionable. The rule is enforced in the database by a partial unique
+// index (see cmd/migrate), so two concurrent requests cannot both open a case;
+// the constraint violation is translated back to ErrAuctionAlreadyStarted.
+func (s *Service) MarkAuctionEligible(loanID uint, branchID *uint, actorID *uint, actorRole string) (*AuctionRecord, error) {
 	l, err := s.repo.FindByID(loanID)
 	if err != nil {
 		return nil, ErrNotFound
@@ -1148,7 +1450,9 @@ func (s *Service) MarkAuctionEligible(loanID uint, branchID *uint) (*AuctionReco
 	if !l.IsDefaulted {
 		return nil, ErrLoanNotDefaulted
 	}
-	if _, err := s.auctionRepo.FindByLoanID(loanID); err == nil {
+	// Checks the ACTIVE case only — a concluded one must not block a new
+	// attempt. The DB index is the real guard against races.
+	if _, err := s.auctionRepo.FindActiveByLoanID(loanID); err == nil {
 		return nil, ErrAuctionAlreadyStarted
 	}
 
@@ -1159,6 +1463,11 @@ func (s *Service) MarkAuctionEligible(loanID uint, branchID *uint) (*AuctionReco
 		FinalSettlementStatus: AuctionSettlementPending,
 	}
 	if err := s.auctionRepo.Create(rec); err != nil {
+		// A unique-violation here means a concurrent request won the race and
+		// already opened the case, which is exactly "already started".
+		if isUniqueViolation(err) {
+			return nil, ErrAuctionAlreadyStarted
+		}
 		return nil, err
 	}
 
@@ -1166,7 +1475,29 @@ func (s *Service) MarkAuctionEligible(loanID uint, branchID *uint) (*AuctionReco
 	if err := s.repo.Update(l); err != nil {
 		return nil, err
 	}
+
+	s.recordAuctionEvent(nil, rec.ID, AuctionEventEligible, actorID, actorRole, "Loan marked auction-eligible")
+	s.notifyCustomer(l.Customer.Phone, fmt.Sprintf(
+		"Dear %s, your gold loan %s is seriously overdue and has now been marked eligible for auction. Outstanding: ₹%.2f. Please contact the branch immediately to settle and retain your pledged items. — Ambika Gold Finance",
+		l.Customer.Name, l.LoanNumber, l.TotalOutstandingBalance,
+	))
+
 	return s.getAuctionRecord(loanID)
+}
+
+// isUniqueViolation reports whether err is a duplicate-key error. Matched on
+// message text rather than a driver-specific error code, because this codebase
+// keeps GORM driver details out of the service layer; the substrings cover
+// Postgres ("duplicate key value violates unique constraint") and SQLite
+// ("UNIQUE constraint failed").
+func isUniqueViolation(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "duplicate key") ||
+		strings.Contains(msg, "unique constraint") ||
+		strings.Contains(msg, "uniqueviolation")
 }
 
 // auctionNoticeChannels are the three channels every auction notice is sent
@@ -1185,7 +1516,7 @@ var auctionNoticeChannels = []string{"SMS", "WhatsApp", "Registered Post"}
 // (best-effort — a delivery failure never blocks logging the notice, same
 // rule as notifyCustomer elsewhere); SMS/Postal have no gateway yet and are
 // recorded as logged only.
-func (s *Service) IssueAuctionNotice(loanID uint, branchID *uint, remarks string) (*AuctionRecord, error) {
+func (s *Service) IssueAuctionNotice(loanID uint, branchID *uint, remarks string, actorID *uint, actorRole string) (*AuctionRecord, error) {
 	if err := s.checkLoanBranch(loanID, branchID); err != nil {
 		return nil, err
 	}
@@ -1195,6 +1526,10 @@ func (s *Service) IssueAuctionNotice(loanID uint, branchID *uint, remarks string
 	}
 	if rec.Stage == AuctionStageAuctioned || rec.Stage == AuctionStageSettled {
 		return nil, ErrAuctionWrongStage
+	}
+	// Do not escalate pressure on a customer whose payment is under review.
+	if err := s.requireNoPendingDecision(rec.ID); err != nil {
+		return nil, err
 	}
 
 	l, err := s.repo.FindByID(loanID)
@@ -1225,13 +1560,14 @@ func (s *Service) IssueAuctionNotice(loanID uint, branchID *uint, remarks string
 			return nil, err
 		}
 	}
+	s.recordAuctionEvent(nil, rec.ID, AuctionEventNoticeIssued, actorID, actorRole, remarks)
 	return s.getAuctionRecord(loanID)
 }
 
 // ScheduleAuction records the actual auction date/reference and advances
 // the case to AuctionScheduled. Requires at least one notice to have been
 // issued first.
-func (s *Service) ScheduleAuction(loanID uint, branchID *uint, date time.Time, referenceNumber string) (*AuctionRecord, error) {
+func (s *Service) ScheduleAuction(loanID uint, branchID *uint, date time.Time, referenceNumber string, actorID *uint, actorRole string) (*AuctionRecord, error) {
 	if err := s.checkLoanBranch(loanID, branchID); err != nil {
 		return nil, err
 	}
@@ -1242,22 +1578,54 @@ func (s *Service) ScheduleAuction(loanID uint, branchID *uint, date time.Time, r
 	if rec.Stage != AuctionStageNotice {
 		return nil, ErrAuctionWrongStage
 	}
+	// Never fix a sale date for gold whose repayment is still being reviewed.
+	if err := s.requireNoPendingDecision(rec.ID); err != nil {
+		return nil, err
+	}
 	rec.AuctionDate = &date
 	rec.AuctionReferenceNumber = referenceNumber
 	rec.Stage = AuctionStageScheduled
 	if err := s.auctionRepo.Update(rec); err != nil {
 		return nil, err
 	}
+
+	s.recordAuctionEvent(nil, rec.ID, AuctionEventScheduled, actorID, actorRole,
+		fmt.Sprintf("Auction scheduled for %s (ref %s)", date.Format("02-Jan-2006"), referenceNumber))
+	if l, err := s.repo.FindByID(loanID); err == nil {
+		s.notifyCustomer(l.Customer.Phone, fmt.Sprintf(
+			"Dear %s, the auction of the gold pledged against loan %s has been scheduled for %s (ref %s). You may still settle the outstanding dues before this date to reclaim your items. — Ambika Gold Finance",
+			l.Customer.Name, l.LoanNumber, date.Format("02-Jan-2006"), referenceNumber,
+		))
+	}
 	return s.getAuctionRecord(loanID)
 }
 
-// RecordAuctionSale records what the gold actually sold for and what it
-// cost to run the auction, computes SurplusShortfall against the loan's
-// current TotalOutstandingBalance, advances the case to Auctioned, and
-// closes the loan out (Status -> Auctioned, OutstandingAmount -> 0 — same
-// end effect as the old one-shot RecordAuction()).
-func (s *Service) RecordAuctionSale(loanID uint, branchID *uint, saleAmount, expenses float64) (*AuctionRecord, error) {
+// RecordAuctionSale records what the gold actually sold for and what it cost
+// to run the auction, then makes that money REAL:
+//
+//  1. The net proceeds are booked as a cash-in movement. Previously the sale
+//     amount was captured and then thrown away — the branch received money
+//     that never appeared anywhere in the books.
+//  2. The proceeds are applied against the debt through the ordinary payment
+//     waterfall (fee → penal → interest → principal) and logged as a ledger
+//     entry, instead of the balance simply being forced to zero.
+//  3. What happens next depends on whether the sale actually covered the debt:
+//     - Covered it: the loan closes, and any excess is recorded as a surplus
+//     payable to the customer, awaiting an explicit disposition decision.
+//     - Did not cover it: the loan does NOT close. It moves to
+//     StatusAuctionedBalanceDue with the real remaining balance intact, and a
+//     Shortfall escalation is raised for Branch Manager/Management to decide
+//     whether to write the balance off or pursue it. The old code closed such
+//     loans anyway, silently erasing money the customer still owed.
+//
+// Runs in a transaction: the cash movement, ledger entry, balance change,
+// case update and escalation must all land together, or a failure part-way
+// could leave gold sold with no record of the proceeds.
+func (s *Service) RecordAuctionSale(loanID uint, branchID *uint, saleAmount, expenses float64, actorID *uint, actorRole string) (*AuctionRecord, error) {
 	if saleAmount <= 0 {
+		return nil, ErrInvalidAmount
+	}
+	if expenses < 0 {
 		return nil, ErrInvalidAmount
 	}
 	rec, err := s.getAuctionRecord(loanID)
@@ -1267,6 +1635,11 @@ func (s *Service) RecordAuctionSale(loanID uint, branchID *uint, saleAmount, exp
 	if rec.Stage != AuctionStageScheduled {
 		return nil, ErrAuctionWrongStage
 	}
+	// The decisive guard: gold must never be sold while a repayment decision
+	// is outstanding.
+	if err := s.requireNoPendingDecision(rec.ID); err != nil {
+		return nil, err
+	}
 	l, err := s.repo.FindByID(loanID)
 	if err != nil {
 		return nil, ErrNotFound
@@ -1274,37 +1647,183 @@ func (s *Service) RecordAuctionSale(loanID uint, branchID *uint, saleAmount, exp
 	if branchID != nil && l.BranchID != *branchID {
 		return nil, ErrNotFound
 	}
+
+	// Bring interest up to date first so the debt being compared against the
+	// proceeds is the real, current figure.
+	s.accrueAndSave(l)
 	s.enrich(l)
 
-	rec.SaleAmount = saleAmount
-	rec.AuctionExpenses = expenses
-	rec.SurplusShortfall = saleAmount - expenses - l.TotalOutstandingBalance
-	rec.Stage = AuctionStageAuctioned
-	if err := s.auctionRepo.Update(rec); err != nil {
-		return nil, err
+	saleAmount = platform.RoundMoney(saleAmount)
+	expenses = platform.RoundMoney(expenses)
+	netProceeds := platform.RoundMoney(saleAmount - expenses)
+	totalDebt := platform.RoundMoney(l.TotalOutstandingBalance)
+	fullyCovered := netProceeds >= totalDebt-0.01
+
+	// Only the portion that can actually settle debt goes through the
+	// waterfall; anything beyond that is the customer's surplus, handled
+	// separately so it is never quietly absorbed as if it paid something.
+	applied := netProceeds
+	if applied > totalDebt {
+		applied = totalDebt
 	}
 
 	auctionDate := time.Now()
-	l.AuctionDate = &auctionDate
-	l.AuctionAmount = &saleAmount
-	l.Status = StatusAuctioned
-	l.OutstandingAmount = 0
-	if err := s.repo.Update(l); err != nil {
-		return nil, err
+	var payment *LoanPayment
+
+	txErr := s.db.Transaction(func(tx *gorm.DB) error {
+		if applied > 0 {
+			fee, penal, interest, principal, err := allocatePayment(l, PaymentTypeAuctionSale, applied)
+			if err != nil {
+				return err
+			}
+			l.OutstandingProcessingFee = platform.RoundMoney(math.Max(0, l.OutstandingProcessingFee-fee))
+			l.PenalInterestPaid = platform.RoundMoney(l.PenalInterestPaid + penal)
+			l.InterestPaid = platform.RoundMoney(l.InterestPaid + interest)
+			l.OutstandingAmount = platform.RoundMoney(math.Max(0, l.OutstandingAmount-principal))
+
+			outstandingInterest := l.AccruedInterest - l.InterestPaid
+			outstandingPenal := l.AccruedPenalInterest - l.PenalInterestPaid
+			payment = &LoanPayment{
+				LoanID:               loanID,
+				Amount:               applied,
+				Type:                 PaymentTypeAuctionSale,
+				PaidOn:               auctionDate,
+				ReceivedByEmployeeID: derefUint(actorID),
+				Method:               "Auction",
+				Reference:            rec.AuctionReferenceNumber,
+				Description:          fmt.Sprintf("Auction proceeds applied (sale ₹%.2f less expenses ₹%.2f)", saleAmount, expenses),
+				ProcessingFeeApplied: fee,
+				PenalInterestApplied: penal,
+				InterestApplied:      interest,
+				PrincipalApplied:     principal,
+				RunningBalance: platform.RoundMoney(l.OutstandingAmount +
+					math.Max(0, outstandingInterest) + math.Max(0, outstandingPenal) + l.OutstandingProcessingFee),
+			}
+			if err := tx.Create(payment).Error; err != nil {
+				return err
+			}
+		}
+
+		rec.SaleAmount = saleAmount
+		rec.AuctionExpenses = expenses
+		// Kept as the informational snapshot it always was: positive = surplus
+		// owed to the customer, negative = shortfall still unrecovered.
+		rec.SurplusShortfall = platform.RoundMoney(netProceeds - totalDebt)
+		rec.SurplusPayableAmount = platform.RoundMoney(math.Max(0, netProceeds-totalDebt))
+		rec.Stage = AuctionStageAuctioned
+		if err := s.auctionRepo.UpdateTx(tx, rec); err != nil {
+			return err
+		}
+
+		l.AuctionDate = &auctionDate
+		l.AuctionAmount = &saleAmount
+		if fullyCovered {
+			l.Status = StatusClosed
+		} else {
+			// Deliberately NOT Closed: real money is still owed. Accrual is
+			// frozen in this state (see StatusAuctionedBalanceDue) so the
+			// manager decides against a stable figure.
+			l.Status = StatusAuctionedBalanceDue
+		}
+		if err := tx.Save(l).Error; err != nil {
+			return err
+		}
+
+		if !fullyCovered {
+			shortfall := platform.RoundMoney(totalDebt - netProceeds)
+			if err := s.auctionRepo.CreateDecision(tx, &AuctionDecisionRequest{
+				AuctionRecordID:      rec.ID,
+				LoanID:               loanID,
+				Kind:                 AuctionDecisionKindShortfall,
+				AmountPaid:           netProceeds,
+				OutstandingAtRequest: shortfall,
+				Status:               AuctionDecisionPending,
+			}); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+	if txErr != nil {
+		return nil, txErr
 	}
+
+	// Cash and notifications sit outside the transaction because both are
+	// external side effects that must not be able to roll back a completed,
+	// already-consistent sale — the same log-and-continue rule the rest of
+	// this service applies to cash and WhatsApp.
+	if s.cashRecorder != nil {
+		if _, err := s.cashRecorder.RecordAuctionSaleCashIn(loanID, l.LoanNumber, netProceeds, l.BranchID, auctionDate); err != nil {
+			log.Printf("cash-in movement (auction sale) failed for loan %d: %v", loanID, err)
+		}
+	}
+
+	s.recordAuctionEvent(nil, rec.ID, AuctionEventSaleRecorded, actorID, actorRole, fmt.Sprintf(
+		"Sold for ₹%.2f, expenses ₹%.2f, net ₹%.2f applied against debt of ₹%.2f", saleAmount, expenses, netProceeds, totalDebt))
+
+	if fullyCovered {
+		surplusNote := ""
+		if rec.SurplusPayableAmount > 0.01 {
+			surplusNote = fmt.Sprintf(" A surplus of ₹%.2f is due back to you — the branch will contact you regarding this.", rec.SurplusPayableAmount)
+		}
+		s.notifyCustomer(l.Customer.Phone, fmt.Sprintf(
+			"Dear %s, the gold pledged against loan %s was auctioned on %s for ₹%.2f. Your loan is now fully settled and closed.%s — Ambika Gold Finance",
+			l.Customer.Name, l.LoanNumber, auctionDate.Format("02-Jan-2006"), saleAmount, surplusNote,
+		))
+	} else {
+		s.recordAuctionEvent(nil, rec.ID, AuctionEventShortfallEscalated, actorID, actorRole, fmt.Sprintf(
+			"Auction proceeds fell short by ₹%.2f — escalated for a write-off/pursue decision", platform.RoundMoney(totalDebt-netProceeds)))
+		s.notifyCustomer(l.Customer.Phone, fmt.Sprintf(
+			"Dear %s, the gold pledged against loan %s was auctioned on %s for ₹%.2f, which did not cover the full amount due. A balance of ₹%.2f remains and is under review by our management. We will inform you of the outcome. — Ambika Gold Finance",
+			l.Customer.Name, l.LoanNumber, auctionDate.Format("02-Jan-2006"), saleAmount, platform.RoundMoney(totalDebt-netProceeds),
+		))
+	}
+
 	return s.getAuctionRecord(loanID)
 }
 
-// SettleAuction records how the sale's surplus/shortfall was resolved and
-// advances the case to its terminal Settled stage.
-func (s *Service) SettleAuction(loanID uint, branchID *uint, settlementStatus string) (*AuctionRecord, error) {
-	switch settlementStatus {
-	case AuctionSettlementSettledToCustomer, AuctionSettlementSettledToLoanCo:
-	default:
-		return nil, ErrInvalidAction
+// derefUint safely unwraps an optional employee ID for fields that require a
+// concrete value; 0 means "system", matching how the rest of the codebase
+// treats an absent actor.
+func derefUint(p *uint) uint {
+	if p == nil {
+		return 0
 	}
-	if err := s.checkLoanBranch(loanID, branchID); err != nil {
-		return nil, err
+	return *p
+}
+
+// SettleAuction disposes of a surplus and closes the case out. It is only
+// reachable when the auction fully covered the debt: a sale that left money
+// owing goes through the Shortfall decision instead (see
+// ResolveAuctionDecision), which is why StatusAuctionedBalanceDue is rejected
+// here rather than being quietly settled.
+//
+// The disposition must be chosen explicitly — the surplus is the customer's
+// money, so where it went is recorded as a decision, not a default:
+//   - RefundedToCustomer books a real cash-out and links the movement.
+//   - RecordedAsIncome books no cash-out, because the full net proceeds
+//     already entered the till at sale time; booking another movement would
+//     count the same rupees twice.
+//
+// A disposition can only be set once, so a surplus can never be paid out
+// twice.
+func (s *Service) SettleAuction(loanID uint, branchID *uint, disposition, remarks string, actorID *uint, actorRole string) (*AuctionRecord, error) {
+	switch disposition {
+	case AuctionSurplusRefundedToCustomer, AuctionSurplusRecordedAsIncome:
+	default:
+		return nil, ErrInvalidSurplusDisposition
+	}
+	if disposition == AuctionSurplusRecordedAsIncome && strings.TrimSpace(remarks) == "" {
+		// Retaining a customer's surplus is the kind of decision that must
+		// carry a stated reason.
+		return nil, ErrSettlementRemarksRequired
+	}
+	l, err := s.repo.FindByID(loanID)
+	if err != nil {
+		return nil, ErrNotFound
+	}
+	if branchID != nil && l.BranchID != *branchID {
+		return nil, ErrNotFound
 	}
 	rec, err := s.getAuctionRecord(loanID)
 	if err != nil {
@@ -1313,12 +1832,280 @@ func (s *Service) SettleAuction(loanID uint, branchID *uint, settlementStatus st
 	if rec.Stage != AuctionStageAuctioned {
 		return nil, ErrAuctionWrongStage
 	}
-	rec.FinalSettlementStatus = settlementStatus
+	if l.Status == StatusAuctionedBalanceDue {
+		return nil, ErrAuctionBalanceDueCannotSettle
+	}
+	if rec.SurplusPayableAmount <= 0.01 {
+		return nil, ErrNoSurplusToDispose
+	}
+	if rec.SurplusDisposition != "" || rec.SurplusPaidOutMovementID != nil {
+		return nil, ErrSurplusAlreadyDisposed
+	}
+
+	now := time.Now()
+	if disposition == AuctionSurplusRefundedToCustomer && s.cashRecorder != nil {
+		movementID, err := s.cashRecorder.RecordAuctionSurplusCashOut(loanID, l.LoanNumber, rec.SurplusPayableAmount, l.BranchID, now)
+		if err != nil {
+			log.Printf("cash-out movement (auction surplus refund) failed for loan %d: %v", loanID, err)
+		} else {
+			rec.SurplusPaidOutMovementID = &movementID
+		}
+	}
+
+	rec.SurplusDisposition = disposition
+	if disposition == AuctionSurplusRefundedToCustomer {
+		rec.FinalSettlementStatus = AuctionSettlementSettledToCustomer
+	} else {
+		rec.FinalSettlementStatus = AuctionSettlementSettledToLoanCo
+	}
 	rec.Stage = AuctionStageSettled
 	if err := s.auctionRepo.Update(rec); err != nil {
 		return nil, err
 	}
+
+	s.recordAuctionEvent(nil, rec.ID, AuctionEventSettled, actorID, actorRole, fmt.Sprintf(
+		"Surplus ₹%.2f — %s. %s", rec.SurplusPayableAmount, disposition, remarks))
+
+	if disposition == AuctionSurplusRefundedToCustomer {
+		s.notifyCustomer(l.Customer.Phone, fmt.Sprintf(
+			"Dear %s, the surplus of ₹%.2f from the auction of loan %s is being refunded to you. Please visit the branch to collect it. — Ambika Gold Finance",
+			l.Customer.Name, rec.SurplusPayableAmount, l.LoanNumber,
+		))
+	} else {
+		s.notifyCustomer(l.Customer.Phone, fmt.Sprintf(
+			"Dear %s, the auction settlement for loan %s is now complete and the loan is closed. — Ambika Gold Finance",
+			l.Customer.Name, l.LoanNumber,
+		))
+	}
+
 	return s.getAuctionRecord(loanID)
+}
+
+// shortfallAuthorityRoles are the only roles that may decide the fate of a
+// post-auction shortfall. Auction Administrator is deliberately absent: it
+// raises the escalation (automatically, on recording the sale) but writing off
+// or pursuing real money owed is a higher-authority call. Enforced here in the
+// service — not merely hidden in the UI — because Auction Administrator does
+// pass the auction route guard.
+var shortfallAuthorityRoles = map[string]bool{
+	"Branch Manager": true,
+	"Management":     true,
+	"Administrator":  true,
+}
+
+// partialRepaymentAuthorityRoles may decide whether a part-paying customer's
+// gold stays in the auction. Either the Auction Administrator or the Branch
+// Manager can act — whoever gets there first — so a customer's gold is never
+// stuck waiting for two signatures.
+var partialRepaymentAuthorityRoles = map[string]bool{
+	"Auction Administrator": true,
+	"Branch Manager":        true,
+	"Management":            true,
+	"Administrator":         true,
+}
+
+// ResolveAuctionDecision records a human decision on an escalation and applies
+// its consequences. Both kinds of escalation share this one entry point, with
+// the legal outcomes validated per kind:
+//
+//	PartialRepayment → KeepInAuction | RemovedFromAuction
+//	Shortfall        → PursueBalance | WriteOff
+//
+// The most consequential branch is Shortfall/PursueBalance: it returns the loan
+// to Overdue, which is what resumes interest accrual through the ordinary path
+// (projectAccrual only accrues for Active/DueSoon/Overdue). While the decision
+// was pending the balance sat frozen at StatusAuctionedBalanceDue, so the
+// decision-maker judged a stable figure rather than a moving one.
+func (s *Service) ResolveAuctionDecision(loanID, requestID uint, branchID *uint, decision, remarks string, actorID *uint, actorRole string) (*AuctionRecord, error) {
+	l, err := s.repo.FindByID(loanID)
+	if err != nil {
+		return nil, ErrNotFound
+	}
+	if branchID != nil && l.BranchID != *branchID {
+		return nil, ErrNotFound
+	}
+
+	var (
+		notifyMsg    string
+		auctionRecID uint
+	)
+
+	txErr := s.db.Transaction(func(tx *gorm.DB) error {
+		req, err := s.auctionRepo.FindDecisionByID(tx, requestID)
+		if err != nil {
+			return ErrAuctionDecisionNotFound
+		}
+		if req.LoanID != loanID {
+			return ErrAuctionDecisionNotFound
+		}
+		if req.Status != AuctionDecisionPending {
+			return ErrAuctionDecisionAlreadyDecided
+		}
+		auctionRecID = req.AuctionRecordID
+
+		rec, err := s.auctionRepo.FindActiveByLoanIDForUpdate(tx, loanID)
+		if err != nil {
+			return ErrAuctionNotFound
+		}
+
+		now := time.Now()
+		req.Status = decision
+		req.DecidedByEmployeeID = actorID
+		req.DecidedByRole = actorRole
+		req.DecisionRemarks = remarks
+		req.DecidedAt = &now
+
+		switch req.Kind {
+		case AuctionDecisionKindPartialRepayment:
+			if !partialRepaymentAuthorityRoles[actorRole] {
+				return ErrShortfallAuthorityRequired
+			}
+			switch decision {
+			case AuctionDecisionKeepInAuction:
+				// Case simply un-freezes and continues from its current stage.
+				s.recordAuctionEvent(tx, rec.ID, AuctionEventDecisionKeep, actorID, actorRole, remarks)
+				notifyMsg = fmt.Sprintf(
+					"Dear %s, following review of your recent payment, loan %s remains scheduled for auction as a balance of ₹%.2f is still outstanding. Please contact the branch urgently. — Ambika Gold Finance",
+					l.Customer.Name, l.LoanNumber, req.OutstandingAtRequest,
+				)
+			case AuctionDecisionRemovedFromAuction:
+				rec.Stage = AuctionStageWithdrawn
+				if err := s.auctionRepo.UpdateTx(tx, rec); err != nil {
+					return err
+				}
+				// Back to a normal collection status. A fresh default later can
+				// open a brand-new auction case (the partial unique index only
+				// restricts ACTIVE cases).
+				l.Status = normalStatusFor(l, now)
+				if err := tx.Save(l).Error; err != nil {
+					return err
+				}
+				s.recordAuctionEvent(tx, rec.ID, AuctionEventDecisionRemove, actorID, actorRole, remarks)
+				notifyMsg = fmt.Sprintf(
+					"Dear %s, following your recent payment, loan %s has been removed from auction and your pledged gold is no longer at risk. A balance of ₹%.2f remains payable. — Ambika Gold Finance",
+					l.Customer.Name, l.LoanNumber, req.OutstandingAtRequest,
+				)
+			default:
+				return ErrInvalidAuctionDecision
+			}
+
+		case AuctionDecisionKindShortfall:
+			if !shortfallAuthorityRoles[actorRole] {
+				return ErrShortfallAuthorityRequired
+			}
+			if strings.TrimSpace(remarks) == "" {
+				return ErrDecisionRemarksRequired
+			}
+			switch decision {
+			case AuctionDecisionPursueBalance:
+				// Overdue is what resumes accrual and normal collection — see
+				// this function's doc comment.
+				l.Status = StatusOverdue
+				if err := tx.Save(l).Error; err != nil {
+					return err
+				}
+				s.recordAuctionEvent(tx, rec.ID, AuctionEventDecisionPursue, actorID, actorRole, remarks)
+				notifyMsg = fmt.Sprintf(
+					"Dear %s, the auction of your pledged gold under loan %s did not clear the full amount due. A balance of ₹%.2f remains payable and will continue to accrue interest. Please contact the branch to arrange settlement. — Ambika Gold Finance",
+					l.Customer.Name, l.LoanNumber, req.OutstandingAtRequest,
+				)
+
+			case AuctionDecisionWriteOff:
+				// Clear the remaining balance through the ordinary allocation
+				// waterfall as a non-cash write-off, so the ledger shows the
+				// forgiveness explicitly instead of the balance being zeroed
+				// behind the scenes.
+				s.enrich(l)
+				owed := platform.RoundMoney(l.TotalOutstandingBalance)
+				if owed > 0 {
+					fee, penal, interest, principal, err := allocatePayment(l, PaymentTypeAuctionWriteOff, owed)
+					if err != nil {
+						return err
+					}
+					l.OutstandingProcessingFee = platform.RoundMoney(math.Max(0, l.OutstandingProcessingFee-fee))
+					l.PenalInterestPaid = platform.RoundMoney(l.PenalInterestPaid + penal)
+					l.InterestPaid = platform.RoundMoney(l.InterestPaid + interest)
+					l.OutstandingAmount = platform.RoundMoney(math.Max(0, l.OutstandingAmount-principal))
+
+					if err := tx.Create(&LoanPayment{
+						LoanID:               loanID,
+						Amount:               owed,
+						Type:                 PaymentTypeAuctionWriteOff,
+						PaidOn:               now,
+						ReceivedByEmployeeID: derefUint(actorID),
+						Method:               "Write-Off",
+						Description:          "Post-auction shortfall written off by management: " + remarks,
+						ProcessingFeeApplied: fee,
+						PenalInterestApplied: penal,
+						InterestApplied:      interest,
+						PrincipalApplied:     principal,
+						RunningBalance:       0,
+					}).Error; err != nil {
+						return err
+					}
+				}
+				l.Status = StatusClosed
+				if err := tx.Save(l).Error; err != nil {
+					return err
+				}
+				rec.Stage = AuctionStageSettled
+				rec.FinalSettlementStatus = AuctionSettlementWrittenOff
+				if err := s.auctionRepo.UpdateTx(tx, rec); err != nil {
+					return err
+				}
+				s.recordAuctionEvent(tx, rec.ID, AuctionEventDecisionWriteOff, actorID, actorRole,
+					fmt.Sprintf("Shortfall of ₹%.2f written off: %s", owed, remarks))
+				notifyMsg = fmt.Sprintf(
+					"Dear %s, the balance remaining on loan %s after auction has been waived and the loan is now closed. No further amount is payable. — Ambika Gold Finance",
+					l.Customer.Name, l.LoanNumber,
+				)
+
+			default:
+				return ErrInvalidAuctionDecision
+			}
+
+		default:
+			return ErrInvalidAuctionDecision
+		}
+
+		return s.auctionRepo.UpdateDecision(tx, req)
+	})
+	if txErr != nil {
+		return nil, txErr
+	}
+
+	if notifyMsg != "" {
+		s.notifyCustomer(l.Customer.Phone, notifyMsg)
+	}
+
+	// The case may now be concluded, in which case there is no active record to
+	// return — fall back to its history entry so callers still see the outcome.
+	if rec, err := s.auctionRepo.FindActiveByLoanID(loanID); err == nil {
+		return rec, nil
+	}
+	if recs, err := s.auctionRepo.FindHistoryByLoanID(loanID); err == nil {
+		for i := range recs {
+			if recs[i].ID == auctionRecID {
+				return &recs[i], nil
+			}
+		}
+	}
+	return nil, ErrAuctionNotFound
+}
+
+// normalStatusFor derives the status an open loan should carry based purely on
+// its due date — used when a loan leaves the auction pipeline and has to rejoin
+// ordinary collection. Mirrors the thresholds enrichStatusFlags applies to its
+// read-time display flags (accrual.go), so a withdrawn loan lands on the same
+// status it would have had if it had never been marked auction-eligible.
+func normalStatusFor(l *Loan, asOf time.Time) string {
+	if asOf.After(l.DueDate) {
+		return StatusOverdue
+	}
+	if int(l.DueDate.Sub(asOf).Hours()/24) <= dueSoonWindowDays {
+		return StatusDueSoon
+	}
+	return StatusActive
 }
 
 // --- Extension & release requests ------------------------------------------
@@ -1667,7 +2454,13 @@ func (s *Service) CompleteRelease(loanID uint, branchID *uint, employeeID uint) 
 	return s.Get(l.ID, nil)
 }
 
-func (s *Service) ReleaseBankPledge(loanID, pledgeID uint, branchID *uint) (*Loan, error) {
+// ReleaseBankPledge reclaims a loan's gold from the bank. Its cash effect
+// MIRRORS whatever was chosen when the pledge was created: a CashIn pledge
+// books the amount back out, while a RecordOnly pledge is a symmetric no-op —
+// nothing was booked in, so nothing is booked out. Without that symmetry a
+// RecordOnly pledge would credit the till on release for money that never
+// arrived.
+func (s *Service) ReleaseBankPledge(loanID, pledgeID uint, branchID *uint, actorID *uint, actorRole string) (*Loan, error) {
 	l, err := s.repo.FindByID(loanID)
 	if err != nil {
 		return nil, ErrNotFound
@@ -1682,6 +2475,7 @@ func (s *Service) ReleaseBankPledge(loanID, pledgeID uint, branchID *uint) (*Loa
 
 	now := time.Now()
 	p.ReleaseDate = &now
+	p.Status = BankPledgeStatusRecordReleased
 	if err := s.pledgeRepo.Update(p); err != nil {
 		return nil, err
 	}
@@ -1697,13 +2491,120 @@ func (s *Service) ReleaseBankPledge(loanID, pledgeID uint, branchID *uint) (*Loa
 		}
 	}
 
-	if s.cashRecorder != nil && p.CashMovementID != nil {
-		if err := s.cashRecorder.DeleteCashMovement(*p.CashMovementID); err != nil {
-			log.Printf("removing cash-in movement (bank release) failed for loan %d: %v", loanID, err)
+	if p.CashTreatment == BankPledgeCashTreatmentCashIn && s.cashRecorder != nil {
+		// The original cash-in movement (and its mirrored expense) from the
+		// pledge stay untouched as permanent history; releasing the gold
+		// books the same amount back out as a fresh cash-out movement plus
+		// a mirrored release expense, so both legs are visible in reports.
+		movementID, err := s.cashRecorder.RecordBankPledgeCashOut(loanID, p.BankName, p.PledgedAmount, now, l.BranchID)
+		if err != nil {
+			log.Printf("cash-out movement (bank release) failed for loan %d: %v", loanID, err)
+		} else {
+			p.ReleaseCashMovementID = &movementID
+		}
+
+		expenseID, err := s.cashRecorder.RecordBankPledgeReleaseExpense(loanID, p.BankName, p.PledgedAmount, now, l.BranchID)
+		if err != nil {
+			log.Printf("release expense entry (bank release) failed for loan %d: %v", loanID, err)
+		} else {
+			p.ReleaseExpenseID = &expenseID
+		}
+
+		if err := s.pledgeRepo.Update(p); err != nil {
+			log.Printf("saving cash-out movement/expense links (bank release) failed for loan %d: %v", loanID, err)
 		}
 	}
 
+	s.recordPledgeEvent(p, BankPledgeEventReleased, actorID, actorRole, pledgeReleaseRemark(p.CashTreatment))
+
 	return s.Get(l.ID, nil)
+}
+
+func pledgeReleaseRemark(treatment string) string {
+	if treatment == BankPledgeCashTreatmentCashIn {
+		return "Pledged amount booked back out of Cash-in-Hand"
+	}
+	return "No cash effect — pledge was recorded only"
+}
+
+// VoidBankPledge cancels a re-pledge recorded in error and is the ONLY way to
+// correct a mis-chosen CashTreatment, which is otherwise immutable. Editing
+// that field in place would retroactively falsify cash history: a pledge that
+// really did put money in the till would start claiming it never had, and its
+// release would then skip the reversal that money needs.
+//
+// Voiding instead leaves the original record fully intact and visible, books a
+// compensating cash-out only if the original actually moved cash, and logs who
+// voided it and why. Staff then create a fresh pledge with the right treatment.
+func (s *Service) VoidBankPledge(loanID, pledgeID uint, branchID *uint, reason string, actorID *uint, actorRole string) (*Loan, error) {
+	l, err := s.repo.FindByID(loanID)
+	if err != nil {
+		return nil, ErrNotFound
+	}
+	if branchID != nil && l.BranchID != *branchID {
+		return nil, ErrNotFound
+	}
+	p, err := s.pledgeRepo.FindByID(pledgeID)
+	if err != nil || p.LoanID != loanID {
+		return nil, ErrPledgeNotFound
+	}
+	if p.Status != BankPledgeStatusRecordActive {
+		return nil, ErrPledgeNotActive
+	}
+	if strings.TrimSpace(reason) == "" {
+		return nil, ErrVoidReasonRequired
+	}
+
+	now := time.Now()
+	p.Status = BankPledgeStatusRecordVoided
+	p.VoidedAt = &now
+	p.VoidReason = reason
+
+	// Only a pledge that actually credited the till needs a reversal. Voiding a
+	// RecordOnly pledge touches no cash, exactly as creating it didn't.
+	if p.CashTreatment == BankPledgeCashTreatmentCashIn && s.cashRecorder != nil {
+		movementID, err := s.cashRecorder.RecordBankPledgeCashOut(loanID, p.BankName, p.PledgedAmount, now, l.BranchID)
+		if err != nil {
+			log.Printf("compensating cash-out (pledge void) failed for loan %d: %v", loanID, err)
+		} else {
+			p.VoidCashMovementID = &movementID
+		}
+	}
+
+	if err := s.pledgeRepo.Update(p); err != nil {
+		return nil, err
+	}
+
+	// The gold was never really with the bank, so the loan goes back to
+	// not-pledged and the packet is moved back accordingly.
+	l.BankPledgeStatus = BankPledgeStatusNotPledged
+	if err := s.repo.Update(l); err != nil {
+		return nil, err
+	}
+	if s.packetMover != nil {
+		if err := s.packetMover.RecordBankReleaseMovement(loanID, "Bank pledge voided: "+reason); err != nil {
+			log.Printf("packet movement (pledge void) failed for loan %d: %v", loanID, err)
+		}
+	}
+
+	s.recordPledgeEvent(p, BankPledgeEventVoided, actorID, actorRole, reason)
+
+	return s.Get(l.ID, nil)
+}
+
+// GetBankPledgeHistory returns every re-pledge ever recorded against a loan,
+// including released and voided ones, each with its audit trail.
+func (s *Service) GetBankPledgeHistory(loanID uint, branchID *uint) ([]BankPledgeRecord, error) {
+	if err := s.checkLoanBranch(loanID, branchID); err != nil {
+		return nil, err
+	}
+	return s.pledgeRepo.FindHistoryByLoanID(loanID)
+}
+
+// ListBankPledgeHistory returns re-pledge records across all loans, scoped to
+// the caller's branch — backs the Bank Re-Pledge screen's History tab.
+func (s *Service) ListBankPledgeHistory(branchID *uint) ([]BankPledgeRecord, error) {
+	return s.pledgeRepo.FindAllHistory(branchID)
 }
 
 // --- Customer 360 -----------------------------------------------------------
@@ -1728,12 +2629,17 @@ type Customer360 struct {
 	ClosedLoanCount  int                       `json:"closedLoanCount"`
 }
 
-func (s *Service) GetCustomer360(customerID uint) (*Customer360, error) {
+// GetCustomer360 aggregates a customer's whole loan relationship. from/to
+// are optional (nil = unbounded) inclusive bounds on each loan's OpenedDate;
+// because every other section of the 360 view (ornaments, payments, bank
+// pledges, auction history) and every total below is derived from the loan
+// set, narrowing the window narrows the entire profile consistently.
+func (s *Service) GetCustomer360(customerID uint, from, to *time.Time) (*Customer360, error) {
 	cust, err := s.customerRepo.FindByID(customerID)
 	if err != nil {
 		return nil, ErrCustomerInvalid
 	}
-	loans, err := s.repo.FindAll(LoanFilter{CustomerID: customerID})
+	loans, err := s.repo.FindAll(LoanFilter{CustomerID: customerID, OpenedFrom: from, OpenedTo: to})
 	if err != nil {
 		return nil, err
 	}
@@ -1747,11 +2653,17 @@ func (s *Service) GetCustomer360(customerID uint) (*Customer360, error) {
 		switch loans[i].Status {
 		case StatusClosed, StatusAuctioned:
 			out.ClosedLoanCount++
-		case StatusActive, StatusDueSoon, StatusOverdue, StatusClosureRequested:
+		case StatusActive, StatusDueSoon, StatusOverdue, StatusClosureRequested,
+			// A post-auction shortfall balance is still owed and still being
+			// collected, so it counts as an open relationship, not a closed one.
+			StatusAuctionedBalanceDue:
 			out.ActiveLoanCount++
 		}
-		if rec, err := s.auctionRepo.FindByLoanID(loans[i].ID); err == nil {
-			out.AuctionHistory = append(out.AuctionHistory, *rec)
+		// A loan can accumulate several auction cases over its life (one
+		// withdrawn after the customer caught up, another after a later
+		// default), so the 360 view shows all of them rather than just one.
+		if recs, err := s.auctionRepo.FindHistoryByLoanID(loans[i].ID); err == nil {
+			out.AuctionHistory = append(out.AuctionHistory, recs...)
 		}
 	}
 	out.Loans = loans

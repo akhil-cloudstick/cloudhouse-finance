@@ -5,6 +5,7 @@ import { useModal } from "@/components/Modal";
 import { useToast } from "@/components/Toast";
 import { Icon } from "@/lib/icons";
 import { BranchModalContent } from "@/components/modals/BranchModal";
+import { ConfirmModalContent } from "@/components/modals/ConfirmModal";
 import { deactivateBranch, listBranches, type BranchView } from "@/lib/branchApi";
 
 /* Centralized branch management — admin-only. Loads real data from the Go
@@ -30,15 +31,20 @@ export function Branches() {
     load();
   }
 
-  async function onDeactivate(b: BranchView) {
-    if (!confirm(`Deactivate branch "${b.name}"? It will no longer be selectable for new records.`)) return;
-    try {
-      await deactivateBranch(b.id);
-      toast(`Branch "${b.name}" deactivated`);
-      load();
-    } catch (e) {
-      toast(e instanceof Error ? e.message : "Failed to deactivate branch.");
-    }
+  function onDeactivate(b: BranchView) {
+    openModal(
+      <ConfirmModalContent
+        title="Deactivate Branch"
+        message={`Deactivate branch "${b.name}"? It will no longer be selectable for new records.`}
+        confirmLabel="Deactivate"
+        busyLabel="Deactivating…"
+        onConfirm={async () => {
+          await deactivateBranch(b.id);
+          toast(`Branch "${b.name}" deactivated`);
+          load();
+        }}
+      />
+    );
   }
 
   return (

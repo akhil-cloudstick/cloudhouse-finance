@@ -37,7 +37,7 @@ type OrnRow = { n: string; p: string; w: number; q: number; img?: string; imgNam
  * endpoints (via SearchableSelect) instead of filtering an in-memory mock
  * list or a localStorage-backed type list. */
 export function NewLoan() {
-  const { role } = useAuth();
+  const { role, isAdmin } = useAuth();
   const { refresh } = useData();
   const { customers } = useCustomers();
   const { schemes } = useSchemes();
@@ -117,14 +117,16 @@ export function NewLoan() {
   const [principalOverride, setPrincipalOverride] = useState("");
   const fileRefs = useRef<(HTMLInputElement | null)[]>([]);
 
-  // NewLoan.tsx has no branch/session context of its own — there's no
-  // auth/session provider anywhere in this codebase yet (see other
-  // components' `listActiveBranches()` + "pick the first one" pattern in
-  // EmployeeModal.tsx/ExpenseModal.tsx/LockerModal.tsx). Mirroring that,
-  // this defaults to the first active branch; a real branch/session
-  // context should replace this once one exists.
+  // Non-admin staff are confined to their own branch — the backend's
+  // GET /branches already scopes the list server-side (platform.GetBranchScope),
+  // so a non-admin only ever gets their own branch back here; the select
+  // below is additionally locked (disabled, single option) for them so the
+  // UI doesn't even look pickable. Administrators see every active branch
+  // and can freely choose.
   const [branches, setBranches] = useState<BranchView[]>([]);
   const [branchId, setBranchId] = useState<number | "">("");
+  const [branchLabel, setBranchLabel] = useState("");
+  const [lockerLabel, setLockerLabel] = useState("");
   const [submitting, setSubmitting] = useState(false);
   // Real Packet.Code, fetched right after loan creation succeeds (the
   // backend auto-creates the loan's tracking packet — see
@@ -136,7 +138,10 @@ export function NewLoan() {
     listActiveBranches()
       .then((list) => {
         setBranches(list);
-        if (list.length) setBranchId((cur) => (cur === "" ? list[0].id : cur));
+        if (list.length) {
+          setBranchId((cur) => (cur === "" ? list[0].id : cur));
+          setBranchLabel((cur) => (cur === "" ? list[0].name : cur));
+        }
       })
       .catch(() => toast("Could not load branches — try again later."));
     listLockers()
@@ -144,6 +149,29 @@ export function NewLoan() {
       .catch(() => toast("Could not load lockers — try again later."));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Branch/locker are short, already-loaded lists (not paginated backend
+  // searches like customers/schemes/ornament types), so these just filter
+  // the in-memory list client-side — but they're plugged into the same
+  // SearchableSelect component so Branch/Locker share its themed dropdown
+  // instead of a native <select>'s unstyled browser popup.
+  async function searchBranchesLocal(q: string, _page: number): Promise<{ items: BranchView[]; hasMore: boolean }> {
+    const query = q.trim().toLowerCase();
+    const items = query ? branches.filter((b) => b.name.toLowerCase().includes(query)) : branches;
+    return { items, hasMore: false };
+  }
+
+  async function searchLockersLocal(q: string, _page: number): Promise<{ items: LockerView[]; hasMore: boolean }> {
+    const query = q.trim().toLowerCase();
+    // Full lockers were previously shown but disabled (unclickable) — since
+    // SearchableSelect rows are always clickable, they're excluded outright
+    // instead, matching the same "can't pick a full locker" behavior.
+    const available = activeLockers.filter((k) => k.occupied < k.capacity);
+    const items = query
+      ? available.filter((k) => `${k.code} ${k.branchName}`.toLowerCase().includes(query))
+      : available;
+    return { items, hasMore: false };
+  }
 
   async function searchVerifiedCustomers(q: string, page: number): Promise<{ items: CustomerView[]; hasMore: boolean }> {
     const result = await searchCustomersPage(q, page);
@@ -559,19 +587,28 @@ export function NewLoan() {
           </div>
           <div className="frow c2">
             <div><label className="f">Branch</label>
-              <select className="inp" value={branchId} onChange={(e) => setBranchId(+e.target.value)}>
-                {branches.length === 0 && <option value="">Loading branches…</option>}
-                {branches.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
-              </select></div>
+              {/* Non-admins are confined to their own branch — the backend
+                  already scopes GET /branches to it, so this is a locked
+                  single-option field for them; admins get the full themed
+                  search like Customer/Scheme above. */}
+              <SearchableSelect<BranchView>
+                value={branchLabel}
+                onChange={(id, item) => { setBranchId(+id); setBranchLabel(item.name); }}
+                fetchFn={searchBranchesLocal}
+                getLabel={(b) => b.name}
+                getId={(b) => String(b.id)}
+                placeholder={branches.length === 0 ? "Loading branches…" : "Search branch…"}
+                disabled={!isAdmin}
+              /></div>
             <div><label className="f">Locker / Storage</label>
-              <select className="inp" value={lockerId} onChange={(e) => setLockerId(e.target.value ? +e.target.value : "")}>
-                <option value="">— Assign later —</option>
-                {activeLockers.map((k) => (
-                  <option key={k.id} value={k.id} disabled={k.occupied >= k.capacity}>
-                    {k.code} — {k.branchName} ({k.occupied}/{k.capacity} packets){k.occupied >= k.capacity ? " · Full" : ""}
-                  </option>
-                ))}
-              </select></div>
+              <SearchableSelect<LockerView>
+                value={lockerLabel}
+                onChange={(id, item) => { setLockerId(+id); setLockerLabel(`${item.code} — ${item.branchName} (${item.occupied}/${item.capacity} packets)`); }}
+                fetchFn={searchLockersLocal}
+                getLabel={(k) => `${k.code} — ${k.branchName} (${k.occupied}/${k.capacity} packets)`}
+                getId={(k) => String(k.id)}
+                placeholder="— Assign later — or search locker…"
+              /></div>
           </div>
           <div className="frow c2">
             <div><label className="f">Loan No (auto)</label><input className="inp" value={provId} disabled /></div>
@@ -606,7 +643,7 @@ export function NewLoan() {
                       onCreate={createOrnamentType}
                     />
                   </td>
-                  <td style={{ minWidth: 150 }}><PurityPicker value={r.p} onChange={(v) => updOrn(i, "p", v)} /></td>
+                  <td style={{ width: 210 }}><PurityPicker value={r.p} onChange={(v) => updOrn(i, "p", v)} /></td>
                   <td className="num"><input className="inp" style={{ padding: "6px 8px", width: 84, textAlign: "right" }} type="number" min={0} value={r.w === 0 ? "" : r.w} onChange={(e) => updOrn(i, "w", e.target.value === "" ? 0 : Math.max(0, +e.target.value || 0))} /></td>
                   <td className="num"><input className="inp" style={{ padding: "6px 8px", width: 64, textAlign: "right" }} type="number" min={0} value={r.q} onChange={(e) => updOrn(i, "q", Math.max(0, +e.target.value || 0))} /></td>
                   <td className="num">{fmt(rowVals[i])}</td>

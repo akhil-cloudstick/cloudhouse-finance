@@ -9,6 +9,10 @@ import { ApiError } from "@/lib/api";
 import { createCashMovement } from "@/lib/cashApi";
 import { searchBanksPage, createBank, type BackendBank } from "@/lib/bankApi";
 import { SearchableSelect } from "@/components/SearchableSelect";
+import { Select } from "@/components/Select";
+import { DatePicker } from "@/components/DatePicker";
+
+const SOURCE_OPTIONS = [{ value: "Savings", label: "Savings" }, { value: "Loan", label: "Loan" }];
 
 /* Ported from legacy/app.js's `openAddCashModal()` / `acSourceChanged()` /
  * `saveAddCash()` — now posts to the real POST /cash-movements endpoint.
@@ -52,11 +56,12 @@ export function AddCashModalContent({ onSaved }: { onSaved?: () => void }) {
       <div className="hd"><h3>Add Cash</h3><button className="x" onClick={closeModal}>×</button></div>
       <div className="bd">
         <div className="frow"><div><label className="f">Source of Cash *</label>
-          <select className="inp" value={source} onChange={(e) => { setSource(e.target.value); if (e.target.value !== "Loan") setBank(""); }}>
-            <option value="">Select source…</option>
-            <option>Savings</option>
-            <option>Loan</option>
-          </select></div></div>
+          <Select
+            options={SOURCE_OPTIONS}
+            value={source}
+            onChange={(v) => { setSource(v); if (v !== "Loan") setBank(""); }}
+            placeholder="Select source…"
+          /></div></div>
         {source === "Loan" && (
           <div className="frow"><div><label className="f">Bank *</label>
             <SearchableSelect<BackendBank>
@@ -72,7 +77,7 @@ export function AddCashModalContent({ onSaved }: { onSaved?: () => void }) {
         )}
         <div className="frow c2">
           <div><label className="f">Cash Amount (₹) *</label><input className="inp" type="number" min={1} value={amt} onChange={(e) => setAmt(e.target.value)} /></div>
-          <div><label className="f">{source === "Loan" ? "Date of Loan *" : "Date *"}</label><input className="inp" type="date" value={date} onChange={(e) => setDate(e.target.value)} /></div>
+          <div><label className="f">{source === "Loan" ? "Date of Loan *" : "Date *"}</label><DatePicker value={date} onChange={setDate} /></div>
         </div>
         <p style={{ color: "var(--red)", fontSize: 12.5, minHeight: 16, marginTop: 8 }}>{err}</p>
       </div>

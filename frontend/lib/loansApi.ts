@@ -99,6 +99,22 @@ export type BackendBankPledgeRecord = {
   bankInterestRate: number;
   referenceNumber: string;
   createdAt: string;
+
+  /* Added with the cash-treatment toggle. Optional here because this same type
+   * is used for pledges embedded in a loan response, where older serialized
+   * payloads may not carry them — see toBankPledgeView for the defaults. */
+  cashTreatment?: BankPledgeCashTreatment;
+  status?: "Active" | "Released" | "Voided";
+  voidedAt?: string | null;
+  voidReason?: string;
+  events?: {
+    id: number;
+    action: "Pledged" | "Released" | "Voided";
+    actorRole?: string;
+    amount: number;
+    remarks?: string;
+    createdAt: string;
+  }[] | null;
 };
 
 /* Minimal shapes of the nested Branch/Customer/Scheme the backend preloads
@@ -198,6 +214,12 @@ export type BankPledgeView = {
   isReleased: boolean;
   bankInterestRate: number;
   referenceNumber: string;
+  /* Whether this pledge put the bank's advance into Cash-in-Hand. Determines
+   * whether releasing it books cash back out, so it is surfaced on the loan's
+   * pledge rows, not just in the history view. */
+  cashTreatment: BankPledgeCashTreatment;
+  status: "Active" | "Released" | "Voided";
+  voidReason: string;
 };
 
 export type LoanView = {
@@ -293,6 +315,13 @@ function toBankPledgeView(p: BackendBankPledgeRecord): BankPledgeView {
     isReleased: !!p.releaseDate,
     bankInterestRate: p.bankInterestRate,
     referenceNumber: p.referenceNumber,
+    // Rows predating the cash-treatment field default to CashIn, which is what
+    // they genuinely did — unconditional cash-in was the only behavior that
+    // existed before. Defaulting to RecordOnly here would misreport history and
+    // suppress the cash-out that releasing such a pledge needs.
+    cashTreatment: p.cashTreatment || "CashIn",
+    status: p.status || (p.releaseDate ? "Released" : "Active"),
+    voidReason: p.voidReason || "",
   };
 }
 
@@ -526,7 +555,17 @@ export type BankPledgeInput = {
   bankInterestRate?: number;
   referenceNumber?: string;
   bankPledgeDueDate?: string;
+
+  /* Whether the bank's advance actually entered the branch till ("CashIn") or
+   * the pledge is pure book-keeping with no cash effect ("RecordOnly").
+   * Omitting it means RecordOnly server-side — cash only moves when the
+   * operator explicitly opts in. Immutable once saved: a wrong choice is
+   * corrected by voiding the record (voidBankPledge) and re-creating it, never
+   * by editing, since rewriting it would falsify booked cash history. */
+  cashTreatment?: BankPledgeCashTreatment;
 };
+
+export type BankPledgeCashTreatment = "CashIn" | "RecordOnly";
 
 export async function recordBankPledge(loanId: number, input: BankPledgeInput): Promise<LoanView> {
   const rec = await apiFetch<BackendLoan>(`/loans/${loanId}/bank-pledge`, {
@@ -543,26 +582,195 @@ export async function releaseBankPledge(loanId: number, pledgeId: number): Promi
   return toView(rec);
 }
 
+/* voidBankPledge cancels a re-pledge recorded in error — the only way to fix a
+ * mis-chosen cashTreatment. Restricted server-side to Branch Manager/
+ * Management/Administrator. Books a compensating cash-out only if the original
+ * actually moved cash; the voided record stays visible in history. */
+export async function voidBankPledge(loanId: number, pledgeId: number, reason: string): Promise<LoanView> {
+  const rec = await apiFetch<BackendLoan>(`/loans/${loanId}/bank-pledge/${pledgeId}/void`, {
+    method: "PUT",
+    body: JSON.stringify({ reason }),
+  });
+  return toView(rec);
+}
+
+/* --- Bank re-pledge history ---------------------------------------------
+ * The Bank Re-Pledge page previously listed only currently-pledged loans, so a
+ * released re-pledge vanished from the UI entirely. These endpoints expose the
+ * full record set with its audit trail. */
+export type BankPledgeEventView = {
+  id: number;
+  action: "Pledged" | "Released" | "Voided";
+  actorRole: string;
+  amount: number;
+  remarks: string;
+  createdAt: string;
+};
+
+export type BankPledgeRecordView = {
+  id: number;
+  loanId: number;
+  bankName: string;
+  pledgedAmount: number;
+  pledgeDate: string;
+  releaseDate: string | null;
+  bankPledgeDueDate: string | null;
+  bankInterestRate: number;
+  referenceNumber: string;
+  cashTreatment: BankPledgeCashTreatment;
+  status: "Active" | "Released" | "Voided";
+  voidedAt: string | null;
+  voidReason: string;
+  events: BankPledgeEventView[];
+};
+
+function toBankPledgeRecordView(r: BackendBankPledgeRecord): BankPledgeRecordView {
+  return {
+    id: r.id,
+    loanId: r.loanId,
+    bankName: r.bankName,
+    pledgedAmount: r.pledgedAmount,
+    pledgeDate: r.pledgeDate ? r.pledgeDate.slice(0, 10) : "",
+    releaseDate: r.releaseDate ? r.releaseDate.slice(0, 10) : null,
+    bankPledgeDueDate: r.bankPledgeDueDate ? r.bankPledgeDueDate.slice(0, 10) : null,
+    bankInterestRate: r.bankInterestRate,
+    referenceNumber: r.referenceNumber,
+    // Rows predating the field default to CashIn server-side, which is what
+    // they genuinely did — mirror that here rather than showing them as blank.
+    cashTreatment: r.cashTreatment || "CashIn",
+    status: r.status || "Active",
+    voidedAt: r.voidedAt ? r.voidedAt.slice(0, 10) : null,
+    voidReason: r.voidReason || "",
+    events: (r.events || []).map((e) => ({
+      id: e.id,
+      action: e.action,
+      actorRole: e.actorRole || "",
+      amount: e.amount,
+      remarks: e.remarks || "",
+      createdAt: e.createdAt ? e.createdAt.slice(0, 10) : "",
+    })),
+  };
+}
+
+export async function getBankPledgeHistory(loanId: number): Promise<BankPledgeRecordView[]> {
+  const recs = await apiFetch<BackendBankPledgeRecord[] | null>(`/loans/${loanId}/bank-pledge/history`);
+  return (recs || []).map(toBankPledgeRecordView);
+}
+
+export async function listBankPledgeHistory(): Promise<BankPledgeRecordView[]> {
+  const recs = await apiFetch<BackendBankPledgeRecord[] | null>(`/loans/bank-pledges/history`);
+  return (recs || []).map(toBankPledgeRecordView);
+}
+
+export const CASH_TREATMENT_LABELS: Record<BankPledgeCashTreatment, string> = {
+  CashIn: "Cash Added",
+  RecordOnly: "Record Only",
+};
+
 /* Auction workflow — full 7-stage rebuild (see
  * backend/internal/loan/model.go's AuctionRecord/AuctionNotice). Overdue/
  * Defaulted are LoanView's isOverdue/isDefaulted flags (section 2); the
  * stages below only exist once a defaulted loan is actually marked
  * auction-eligible. */
+/* AUCTION_STAGES drives the visual stepper, so it lists only the forward path.
+ * "Withdrawn" is a second terminal stage — reached when management pulls a case
+ * out after the customer paid — and is deliberately excluded here because it is
+ * an exit, not a step along the way. */
 export const AUCTION_STAGES = ["AuctionEligible", "NoticeIssued", "AuctionScheduled", "Auctioned", "Settled"] as const;
-export type AuctionStage = (typeof AUCTION_STAGES)[number];
+export type AuctionStage = (typeof AUCTION_STAGES)[number] | "Withdrawn";
 export const AUCTION_STAGE_LABELS: Record<AuctionStage, string> = {
   AuctionEligible: "Auction Eligible",
   NoticeIssued: "Notice Issued",
   AuctionScheduled: "Auction Scheduled",
   Auctioned: "Auctioned",
   Settled: "Settled",
+  Withdrawn: "Withdrawn",
 };
+
+/* A case is concluded once it reaches either terminal stage. Only concluded
+ * cases free a loan to start a fresh auction if it defaults again. */
+export function isAuctionConcluded(stage: AuctionStage): boolean {
+  return stage === "Settled" || stage === "Withdrawn";
+}
+
+export type AuctionSettlementStatus =
+  | "Pending"
+  | "SettledByRepayment"
+  | "WrittenOff"
+  | "SettledToCustomer"
+  | "SettledToLoanCo";
+
+/* Plain-English outcome labels for the History tab — the raw enum values say
+ * little about what actually happened to the customer's gold. */
+export const AUCTION_OUTCOME_LABELS: Record<AuctionSettlementStatus, string> = {
+  Pending: "Awaiting settlement",
+  SettledByRepayment: "Settled by repayment",
+  WrittenOff: "Closed — written off",
+  SettledToCustomer: "Settled — surplus refunded",
+  SettledToLoanCo: "Settled — surplus retained",
+};
+
+export type AuctionSurplusDisposition = "RefundedToCustomer" | "RecordedAsIncome";
 
 export type AuctionNoticeView = {
   id: number;
   issuedAt: string;
   method: string;
   remarks: string;
+};
+
+/* AuctionEventView is the staff-action audit trail. Notices already covered
+ * customer communication; who scheduled, sold, or settled a case previously
+ * left no trace at all. */
+export type AuctionEventView = {
+  id: number;
+  action: string;
+  actorRole: string;
+  remarks: string;
+  createdAt: string;
+};
+
+export const AUCTION_EVENT_LABELS: Record<string, string> = {
+  Eligible: "Marked auction-eligible",
+  NoticeIssued: "Notice issued",
+  Scheduled: "Auction scheduled",
+  SaleRecorded: "Sale recorded",
+  Settled: "Settled",
+  SettledByRepaymentAuto: "Auto-settled by repayment",
+  DecisionRequested: "Decision requested (part-payment)",
+  ShortfallEscalated: "Shortfall escalated",
+  DecisionKeep: "Decision: keep in auction",
+  DecisionRemove: "Decision: removed from auction",
+  DecisionWriteOff: "Decision: balance written off",
+  DecisionPursue: "Decision: pursue balance",
+};
+
+export type AuctionDecisionKind = "PartialRepayment" | "Shortfall";
+export type AuctionDecisionStatus =
+  | "Pending"
+  | "KeepInAuction"
+  | "RemovedFromAuction"
+  | "WriteOff"
+  | "PursueBalance";
+
+/* AuctionDecisionRequestView is an escalation awaiting a human ruling. Raised
+ * by the system, never by staff, so the decision cannot be quietly skipped:
+ *  - PartialRepayment: customer part-paid; the auction is FROZEN until someone
+ *    decides to keep or release the gold.
+ *  - Shortfall: the sale did not cover the debt; only Branch Manager/
+ *    Management/Administrator may write it off or pursue it. */
+export type AuctionDecisionRequestView = {
+  id: number;
+  auctionRecordId: number;
+  loanId: number;
+  kind: AuctionDecisionKind;
+  amountPaid: number;
+  outstandingAtRequest: number;
+  status: AuctionDecisionStatus;
+  decidedByRole: string;
+  decisionRemarks: string;
+  createdAt: string;
+  decidedAt: string | null;
 };
 
 export type AuctionRecordView = {
@@ -575,8 +783,45 @@ export type AuctionRecordView = {
   saleAmount: number;
   auctionExpenses: number;
   surplusShortfall: number;
-  finalSettlementStatus: "Pending" | "SettledToCustomer" | "SettledToLoanCo";
+  /* Money owed BACK to the customer when the gold fetched more than the debt.
+   * Tracked explicitly because the full net proceeds are booked into the till,
+   * so without this the customer's share would silently sit in branch cash. */
+  surplusPayableAmount: number;
+  surplusDisposition: AuctionSurplusDisposition | "";
+  finalSettlementStatus: AuctionSettlementStatus;
   notices: AuctionNoticeView[];
+  events: AuctionEventView[];
+  decisionRequests: AuctionDecisionRequestView[];
+};
+
+/* Convenience accessors used by the Auctions UI to decide what to render. */
+export function pendingDecision(rec: AuctionRecordView | null | undefined): AuctionDecisionRequestView | null {
+  return rec?.decisionRequests.find((d) => d.status === "Pending") ?? null;
+}
+export function hasUndisposedSurplus(rec: AuctionRecordView): boolean {
+  return rec.surplusPayableAmount > 0.01 && !rec.surplusDisposition;
+}
+
+type BackendAuctionEvent = {
+  id: number;
+  action: string;
+  actorRole?: string;
+  remarks?: string;
+  createdAt: string;
+};
+
+type BackendAuctionDecisionRequest = {
+  id: number;
+  auctionRecordId: number;
+  loanId: number;
+  kind: AuctionDecisionKind;
+  amountPaid: number;
+  outstandingAtRequest: number;
+  status: AuctionDecisionStatus;
+  decidedByRole?: string;
+  decisionRemarks?: string;
+  createdAt: string;
+  decidedAt?: string | null;
 };
 
 export type BackendAuctionRecord = {
@@ -589,8 +834,12 @@ export type BackendAuctionRecord = {
   saleAmount: number;
   auctionExpenses: number;
   surplusShortfall: number;
-  finalSettlementStatus: "Pending" | "SettledToCustomer" | "SettledToLoanCo";
+  surplusPayableAmount?: number;
+  surplusDisposition?: AuctionSurplusDisposition | "";
+  finalSettlementStatus: AuctionSettlementStatus;
   notices: { id: number; issuedAt: string; method: string; remarks: string }[] | null;
+  events?: BackendAuctionEvent[] | null;
+  decisionRequests?: BackendAuctionDecisionRequest[] | null;
 };
 
 export function toAuctionRecordView(r: BackendAuctionRecord): AuctionRecordView {
@@ -604,8 +853,30 @@ export function toAuctionRecordView(r: BackendAuctionRecord): AuctionRecordView 
     saleAmount: r.saleAmount,
     auctionExpenses: r.auctionExpenses,
     surplusShortfall: r.surplusShortfall,
+    surplusPayableAmount: r.surplusPayableAmount ?? 0,
+    surplusDisposition: r.surplusDisposition || "",
     finalSettlementStatus: r.finalSettlementStatus,
     notices: (r.notices || []).map((n) => ({ id: n.id, issuedAt: n.issuedAt.slice(0, 10), method: n.method, remarks: n.remarks })),
+    events: (r.events || []).map((e) => ({
+      id: e.id,
+      action: e.action,
+      actorRole: e.actorRole || "",
+      remarks: e.remarks || "",
+      createdAt: e.createdAt ? e.createdAt.slice(0, 10) : "",
+    })),
+    decisionRequests: (r.decisionRequests || []).map((d) => ({
+      id: d.id,
+      auctionRecordId: d.auctionRecordId,
+      loanId: d.loanId,
+      kind: d.kind,
+      amountPaid: d.amountPaid,
+      outstandingAtRequest: d.outstandingAtRequest,
+      status: d.status,
+      decidedByRole: d.decidedByRole || "",
+      decisionRemarks: d.decisionRemarks || "",
+      createdAt: d.createdAt ? d.createdAt.slice(0, 10) : "",
+      decidedAt: d.decidedAt ? d.decidedAt.slice(0, 10) : null,
+    })),
   };
 }
 
@@ -643,9 +914,76 @@ export async function recordAuctionSale(loanId: number, saleAmount: number, auct
   );
 }
 
-export async function settleAuction(loanId: number, settlementStatus: "SettledToCustomer" | "SettledToLoanCo"): Promise<AuctionRecordView> {
+/* settleAuction now disposes of a SURPLUS rather than recording a generic
+ * settlement status. It is only reachable when the sale covered the debt in
+ * full — a sale that left money owing raises a Shortfall decision instead (see
+ * resolveAuctionDecision), and the backend rejects settling such a loan.
+ *
+ * "RefundedToCustomer" books a real cash-out; "RecordedAsIncome" books none
+ * (the proceeds already entered the till at sale time) and requires remarks. */
+export async function settleAuction(
+  loanId: number,
+  disposition: AuctionSurplusDisposition,
+  remarks?: string,
+): Promise<AuctionRecordView> {
   return toAuctionRecordView(
-    await apiFetch<BackendAuctionRecord>(`/loans/${loanId}/auction/settle`, { method: "POST", body: JSON.stringify({ settlementStatus }) })
+    await apiFetch<BackendAuctionRecord>(`/loans/${loanId}/auction/settle`, {
+      method: "POST",
+      body: JSON.stringify({ disposition, remarks }),
+    })
+  );
+}
+
+/* --- Auction history & decisions ----------------------------------------- */
+
+/* getAuctionHistory returns every case ever opened against a loan. A loan can
+ * now accumulate several: one withdrawn after the customer caught up, another
+ * after a later default. */
+export async function getAuctionHistory(loanId: number): Promise<AuctionRecordView[]> {
+  const recs = await apiFetch<BackendAuctionRecord[] | null>(`/loans/${loanId}/auction/history`);
+  return (recs || []).map(toAuctionRecordView);
+}
+
+/* listConcludedAuctions backs the Auctions page's History tab — finished cases
+ * (Settled or Withdrawn) across all loans, which previously disappeared from
+ * view entirely once concluded. */
+export async function listConcludedAuctions(): Promise<AuctionRecordView[]> {
+  const recs = await apiFetch<BackendAuctionRecord[] | null>(`/loans/auctions/concluded`);
+  return (recs || []).map(toAuctionRecordView);
+}
+
+export async function listPendingAuctionDecisions(): Promise<AuctionDecisionRequestView[]> {
+  const reqs = await apiFetch<BackendAuctionDecisionRequest[] | null>(`/loans/auctions/decisions/pending`);
+  return (reqs || []).map((d) => ({
+    id: d.id,
+    auctionRecordId: d.auctionRecordId,
+    loanId: d.loanId,
+    kind: d.kind,
+    amountPaid: d.amountPaid,
+    outstandingAtRequest: d.outstandingAtRequest,
+    status: d.status,
+    decidedByRole: d.decidedByRole || "",
+    decisionRemarks: d.decisionRemarks || "",
+    createdAt: d.createdAt ? d.createdAt.slice(0, 10) : "",
+    decidedAt: d.decidedAt ? d.decidedAt.slice(0, 10) : null,
+  }));
+}
+
+/* resolveAuctionDecision applies a human ruling to an escalation. Valid
+ * decisions depend on the request's kind, and the backend enforces both that
+ * and the role authority — a Shortfall may only be decided by Branch Manager/
+ * Management/Administrator, never by the Auction Administrator who raised it. */
+export async function resolveAuctionDecision(
+  loanId: number,
+  requestId: number,
+  decision: Exclude<AuctionDecisionStatus, "Pending">,
+  remarks?: string,
+): Promise<AuctionRecordView> {
+  return toAuctionRecordView(
+    await apiFetch<BackendAuctionRecord>(`/loans/${loanId}/auction/decision`, {
+      method: "POST",
+      body: JSON.stringify({ requestId, decision, remarks }),
+    })
   );
 }
 

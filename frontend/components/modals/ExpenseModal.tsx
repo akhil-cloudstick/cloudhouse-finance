@@ -8,9 +8,13 @@ import { fmt } from "@/lib/format";
 import { ApiError } from "@/lib/api";
 import { listActiveBranches, type BranchView } from "@/lib/branchApi";
 import { createExpense, uploadReceipt, type ExpenseView } from "@/lib/cashApi";
+import { Select } from "@/components/Select";
+import { DatePicker } from "@/components/DatePicker";
 
 const CATS = ["Rent & Utilities", "Salaries", "Transportation", "Marketing", "Bank Charges", "Maintenance", "Stationery & Office", "Legal & Miscellaneous", "Other"];
 const MODES = ["Cash", "UPI", "Bank"];
+const CAT_OPTIONS = CATS.map((c) => ({ value: c, label: c }));
+const MODE_OPTIONS = MODES.map((m) => ({ value: m, label: m }));
 
 /* Ported from legacy/app.js's `openExpenseModal()` / `saveExpense()`. Now
  * posts to the real POST /expenses endpoint: branch options come from the
@@ -79,23 +83,21 @@ export function ExpenseModalContent({ onSaved }: { onSaved?: () => void }) {
           <input className="inp" placeholder="e.g. Office maintenance" value={desc} onChange={(e) => setDesc(e.target.value)} /></div></div>
         <div className="frow c2">
           <div><label className="f">Amount (₹) *</label><input className="inp" type="number" min={1} value={amt} onChange={(e) => setAmt(e.target.value)} /></div>
-          <div><label className="f">Date *</label><input className="inp" type="date" value={date} onChange={(e) => setDate(e.target.value)} /></div>
+          <div><label className="f">Date *</label><DatePicker value={date} onChange={setDate} /></div>
         </div>
         <div className="frow c2">
           <div><label className="f">Category</label>
-            <select className="inp" value={cat} onChange={(e) => setCat(e.target.value)}>
-              {CATS.map((c) => <option key={c}>{c}</option>)}
-            </select></div>
+            <Select options={CAT_OPTIONS} value={cat} onChange={setCat} /></div>
           <div><label className="f">Payment Mode</label>
-            <select className="inp" value={mode} onChange={(e) => setMode(e.target.value)}>
-              {MODES.map((m) => <option key={m}>{m}</option>)}
-            </select></div>
+            <Select options={MODE_OPTIONS} value={mode} onChange={setMode} /></div>
         </div>
         <div className="frow"><div><label className="f">Branch *</label>
-          <select className="inp" value={branchId} onChange={(e) => setBranchId(e.target.value ? Number(e.target.value) : "")}>
-            <option value="">Select branch…</option>
-            {branches.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
-          </select></div></div>
+          <Select
+            options={branches.map((b) => ({ value: String(b.id), label: b.name }))}
+            value={branchId ? String(branchId) : ""}
+            onChange={(v) => setBranchId(v ? Number(v) : "")}
+            placeholder="Select branch…"
+          /></div></div>
         <div className="frow"><div><label className="f">Receipt / Bill Image</label>
           <input className="inp" type="file" accept="image/*" ref={fileRef} /></div></div>
         <div className="frow"><div><label className="f">Remarks</label>

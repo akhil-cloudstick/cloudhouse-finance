@@ -1,6 +1,7 @@
 package cash
 
 import (
+	"strings"
 	"time"
 
 	"gorm.io/gorm"
@@ -105,6 +106,24 @@ func (r *ExpenseRepository) SumCashByDate(branchID *uint, date time.Time) (float
 	return total, nil
 }
 
+// SumAllByDate sums every non-rejected expense amount (any Mode) for the
+// given day (and branch, if provided) — the all-modes total shown next to
+// SumCashByDate's Cash-only figure so the frontend can display both without
+// having to re-derive one from the unscoped expense list.
+func (r *ExpenseRepository) SumAllByDate(branchID *uint, date time.Time) (float64, error) {
+	q := r.db.Model(&Expense{}).
+		Where("status <> ?", "Rejected").
+		Where("occurred_on >= ? AND occurred_on < ?", startOfDay(date), startOfDay(date).AddDate(0, 0, 1))
+	if branchID != nil {
+		q = q.Where("branch_id = ?", *branchID)
+	}
+	var total float64
+	if err := q.Select("COALESCE(SUM(amount), 0)").Scan(&total).Error; err != nil {
+		return 0, err
+	}
+	return total, nil
+}
+
 func startOfDay(t time.Time) time.Time {
 	y, m, d := t.Date()
 	return time.Date(y, m, d, 0, 0, 0, 0, t.Location())
@@ -132,6 +151,87 @@ func (r *MovementRepository) SumByTypeAndDate(branchID *uint, date time.Time) (i
 			in = r.Sum
 		case "out":
 			out = r.Sum
+		}
+	}
+	return in, out, nil
+}
+
+// CashInBreakdown/CashOutBreakdown split MovementRepository.SumByTypeAndDate's
+// single in/out totals into the sources that actually feed them, so the
+// frontend's KPI subtitles can show real numbers instead of a static label
+// naming (but not measuring) each source.
+type CashInBreakdown struct {
+	Repayments float64 `json:"repayments"` // Source == "Collection" (loan interest/principal repayments)
+	Pledges    float64 `json:"pledges"`    // Source == "Bank" (bank-pledge cash-in)
+	// Auctions is Source == "Auction" — net proceeds realised from auctioning
+	// pledged gold. Bucketed separately rather than falling into TopUps because
+	// it is neither a customer payment nor cash the branch put in itself, and
+	// misfiling it as a manual top-up would overstate how much cash staff added.
+	Auctions float64 `json:"auctions"`
+	TopUps   float64 `json:"topUps"` // Source == "Savings" | "Loan" (manual "Add Cash")
+}
+
+type CashOutBreakdown struct {
+	LoanDisbursements float64 `json:"loanDisbursements"` // Purpose starts with "Loan disbursement — "
+	BankReleases      float64 `json:"bankReleases"`      // Purpose starts with "Bank pledge release — "
+	// AuctionRefunds is Purpose starting with "Auction surplus refunded" —
+	// surplus handed back to a customer after their gold sold for more than
+	// they owed. Kept out of Withdrawals so a refund owed to a customer is not
+	// reported as the branch taking cash out for itself.
+	AuctionRefunds float64 `json:"auctionRefunds"`
+	Withdrawals    float64 `json:"withdrawals"` // everything else (manual "Take Cash Out")
+}
+
+// SumBreakdownByDate buckets every cash movement for the given day (and
+// branch, if provided) by its source/purpose, in Go rather than SQL — the
+// bucketing rules mirror the Purpose prefixes set by
+// MovementService.RecordLoanDisbursementCashOut/RecordBankPledgeCashOut and
+// the Source values set by RecordBankPledgeCashIn/RecordLoanPaymentCashIn,
+// so keeping them together as plain string comparisons here (rather than a
+// harder-to-follow SQL CASE) keeps the two in sync at a glance.
+func (r *MovementRepository) SumBreakdownByDate(branchID *uint, date time.Time) (CashInBreakdown, CashOutBreakdown, error) {
+	type row struct {
+		Type    string
+		Source  string
+		Purpose string
+		Amount  float64
+	}
+	q := r.db.Model(&CashMovement{}).
+		Where("occurred_on >= ? AND occurred_on < ?", startOfDay(date), startOfDay(date).AddDate(0, 0, 1))
+	if branchID != nil {
+		q = q.Where("branch_id = ?", *branchID)
+	}
+	var rows []row
+	if err := q.Select("type, source, purpose, amount").Scan(&rows).Error; err != nil {
+		return CashInBreakdown{}, CashOutBreakdown{}, err
+	}
+
+	var in CashInBreakdown
+	var out CashOutBreakdown
+	for _, rw := range rows {
+		switch rw.Type {
+		case "in":
+			switch rw.Source {
+			case "Collection":
+				in.Repayments += rw.Amount
+			case "Bank":
+				in.Pledges += rw.Amount
+			case "Auction":
+				in.Auctions += rw.Amount
+			default: // "Savings", "Loan"
+				in.TopUps += rw.Amount
+			}
+		case "out":
+			switch {
+			case strings.HasPrefix(rw.Purpose, "Loan disbursement — "):
+				out.LoanDisbursements += rw.Amount
+			case strings.HasPrefix(rw.Purpose, "Bank pledge release — "):
+				out.BankReleases += rw.Amount
+			case strings.HasPrefix(rw.Purpose, "Auction surplus refunded"):
+				out.AuctionRefunds += rw.Amount
+			default:
+				out.Withdrawals += rw.Amount
+			}
 		}
 	}
 	return in, out, nil

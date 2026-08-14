@@ -3,6 +3,8 @@
 import { useEffect, useState } from "react";
 import { useModal } from "@/components/Modal";
 import { useToast } from "@/components/Toast";
+import { Select } from "@/components/Select";
+import { DatePicker } from "@/components/DatePicker";
 import { Icon } from "@/lib/icons";
 import { createCustomer, uploadFile } from "@/lib/customersApi";
 import { listActiveBranches, type BranchView } from "@/lib/branchApi";
@@ -99,12 +101,14 @@ export function RegisterCustomerModalContent({ onSaved }: { onSaved?: () => void
           <div><label className="f">Mobile Number *</label><input className="inp" placeholder="10-digit mobile" maxLength={11} value={phone} onChange={(e) => setPhone(e.target.value)} /></div>
         </div>
         <div className="frow c2">
-          <div><label className="f">Date of Birth</label><input className="inp" type="date" value={dob} onChange={(e) => setDob(e.target.value)} /></div>
+          <div><label className="f">Date of Birth</label><DatePicker value={dob} onChange={setDob} placeholder="Select date of birth…" max={new Date().toISOString().slice(0, 10)} /></div>
           <div><label className="f">Branch *</label>
-            <select className="inp" value={branchId} onChange={(e) => setBranchId(e.target.value ? Number(e.target.value) : "")}>
-              <option value="">Select branch…</option>
-              {branches.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
-            </select>
+            <Select
+              value={branchId === "" ? "" : String(branchId)}
+              onChange={(v) => setBranchId(v ? Number(v) : "")}
+              options={branches.map((b) => ({ value: String(b.id), label: b.name }))}
+              placeholder="Select branch…"
+            />
           </div>
         </div>
         <div className="frow"><div><label className="f">Address</label><input className="inp" placeholder="House / street, town, district" value={addr} onChange={(e) => setAddr(e.target.value)} /></div></div>
@@ -126,7 +130,6 @@ export function RegisterCustomerModalContent({ onSaved }: { onSaved?: () => void
           <div><label className="f">Relation</label><input className="inp" placeholder="e.g. Spouse" value={nomineeRelation} onChange={(e) => setNomineeRelation(e.target.value)} /></div>
         </div>
         <div className="frow"><div><label className="f">Nominee Mobile Number</label><input className="inp" placeholder="10-digit mobile" maxLength={11} value={nomineePhone} onChange={(e) => setNomineePhone(e.target.value)} /></div></div>
-        <div className="notice"><Icon name="shield" /> Stage 1: KYC status is auto-marked &quot;Verified&quot; on registration — no live PAN/Aadhaar verification call happens yet.</div>
         <p style={{ color: "var(--red)", fontSize: 12.5, minHeight: 16, marginTop: 8 }}>{err}</p>
       </div>
       <div className="ft">

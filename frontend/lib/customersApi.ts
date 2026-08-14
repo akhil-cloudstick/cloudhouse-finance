@@ -150,6 +150,60 @@ export async function getCustomer(id: string): Promise<CustomerView> {
   return toView(rec);
 }
 
+/* Result of a live Setu PAN-verify call (POST /customers/:id/verify-pan —
+ * see backend/internal/customer/handler.go's VerifyPAN). `customer` carries
+ * the updated panStatus/kycStatus; `message`/`matchedName` are the raw
+ * values Setu returned, shown as-is so staff see what Setu actually said
+ * rather than just a status chip. */
+export type PanVerificationResult = {
+  customer: CustomerView;
+  message: string;
+  matchedName: string;
+  traceId: string;
+};
+
+export async function verifyCustomerPan(id: string): Promise<PanVerificationResult> {
+  const res = await apiFetch<{ customer: BackendCustomer; message: string; matchedName: string; traceId: string }>(
+    `/customers/${id}/verify-pan`,
+    { method: "POST" }
+  );
+  return { customer: toView(res.customer), message: res.message, matchedName: res.matchedName, traceId: res.traceId };
+}
+
+/* DigiLocker Aadhaar verification is a redirect flow, not a single call —
+ * see backend/internal/customer/handler.go's StartAadhaarVerify/
+ * CheckAadhaarVerify. startAadhaarVerify opens a login URL the CUSTOMER
+ * (not staff) completes on their own device via Aadhaar + OTP; the caller
+ * then polls checkAadhaarVerify until status flips to "authenticated". */
+export type AadhaarVerificationStart = {
+  id: string;
+  url: string;
+  status: string;
+  validUpto: string;
+};
+
+export async function startAadhaarVerify(customerId: string, redirectUrl: string): Promise<AadhaarVerificationStart> {
+  return apiFetch<AadhaarVerificationStart>(`/customers/${customerId}/verify-aadhaar/start`, {
+    method: "POST",
+    body: JSON.stringify({ redirectUrl }),
+  });
+}
+
+export type AadhaarVerificationCheck = {
+  status: string; // "unauthenticated" | "authenticated"
+  customer?: CustomerView;
+  matchedName?: string;
+  dob?: string;
+};
+
+export async function checkAadhaarVerify(customerId: string): Promise<AadhaarVerificationCheck> {
+  const res = await apiFetch<{ status: string; customer?: BackendCustomer; matchedName?: string; dob?: string }>(
+    `/customers/${customerId}/verify-aadhaar/check`,
+    { method: "POST" }
+  );
+  return { status: res.status, customer: res.customer ? toView(res.customer) : undefined, matchedName: res.matchedName, dob: res.dob };
+}
+
 export async function createCustomer(input: CustomerFormInput): Promise<CustomerView> {
   const rec = await apiFetch<BackendCustomer>("/customers", {
     method: "POST",
@@ -200,8 +254,19 @@ type BackendCustomer360 = {
   closedLoanCount: number;
 };
 
-export async function getCustomer360(id: string): Promise<Customer360View> {
-  const rec = await apiFetch<BackendCustomer360>(`/customers/${id}/profile360`);
+/* `range` narrows the profile to loans opened within an inclusive
+ * YYYY-MM-DD window — the filtering is done by the backend (which also
+ * recomputes the totals over the narrowed set), so both bounds are passed
+ * straight through as query params rather than filtered client-side. */
+export async function getCustomer360(
+  id: string,
+  range?: { from?: string; to?: string }
+): Promise<Customer360View> {
+  const qs = new URLSearchParams();
+  if (range?.from) qs.set("from", range.from);
+  if (range?.to) qs.set("to", range.to);
+  const suffix = qs.toString() ? `?${qs}` : "";
+  const rec = await apiFetch<BackendCustomer360>(`/customers/${id}/profile360${suffix}`);
   return {
     customer: toView(rec.customer),
     loans: (rec.loans || []).map(toLoanView),

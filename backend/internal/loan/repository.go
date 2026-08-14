@@ -4,6 +4,7 @@ import (
 	"time"
 
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 // Repository provides GORM-backed persistence for Loan records (plus the
@@ -72,6 +73,19 @@ type LoanFilter struct {
 	// platform.GetBranchScope) — nil for Administrator (no restriction),
 	// else limits results to that one branch regardless of BranchID above.
 	BranchScope *uint
+
+	// OpenedFrom/OpenedTo bound OpenedDate (the date the loan was
+	// disbursed), both optional and inclusive. OpenedTo is compared against
+	// the end of that calendar day so a from==to filter still matches loans
+	// opened during it.
+	OpenedFrom *time.Time
+	OpenedTo   *time.Time
+}
+
+// startOfDay drops the clock time so date-only filters compare whole days
+// regardless of whether the caller sent YYYY-MM-DD or a full timestamp.
+func startOfDay(t time.Time) time.Time {
+	return time.Date(t.Year(), t.Month(), t.Day(), 0, 0, 0, 0, t.Location())
 }
 
 func (r *Repository) FindAll(f LoanFilter) ([]Loan, error) {
@@ -90,6 +104,12 @@ func (r *Repository) FindAll(f LoanFilter) ([]Loan, error) {
 	}
 	if f.BranchScope != nil {
 		q = q.Where("branch_id = ?", *f.BranchScope)
+	}
+	if f.OpenedFrom != nil {
+		q = q.Where("opened_date >= ?", startOfDay(*f.OpenedFrom))
+	}
+	if f.OpenedTo != nil {
+		q = q.Where("opened_date < ?", startOfDay(*f.OpenedTo).AddDate(0, 0, 1))
 	}
 	var loans []Loan
 	err := q.Find(&loans).Error
@@ -242,6 +262,42 @@ func (r *BankPledgeRepository) FindByLoanID(loanID uint) ([]BankPledgeRecord, er
 	return pledges, err
 }
 
+// FindHistoryByLoanID returns every re-pledge ever recorded against a loan —
+// including released and voided ones — with each record's audit trail
+// attached. The plain FindByLoanID above is kept for the existing callers that
+// only want the raw rows.
+func (r *BankPledgeRepository) FindHistoryByLoanID(loanID uint) ([]BankPledgeRecord, error) {
+	var pledges []BankPledgeRecord
+	err := r.db.
+		Preload("Events", func(d *gorm.DB) *gorm.DB { return d.Order("created_at asc, id asc") }).
+		Where("loan_id = ?", loanID).
+		Order("id desc").
+		Find(&pledges).Error
+	return pledges, err
+}
+
+// FindAllHistory lists re-pledge records across all loans, newest first —
+// backs the Bank Re-Pledge screen's History tab, which previously had no way
+// to see anything but currently-pledged gold. branchID scopes to the caller's
+// branch (nil for Administrator), applied via a JOIN on loans the same way
+// LoanRequestRepository.FindAll does it.
+func (r *BankPledgeRepository) FindAllHistory(branchID *uint) ([]BankPledgeRecord, error) {
+	var pledges []BankPledgeRecord
+	q := r.db.Model(&BankPledgeRecord{}).
+		Preload("Events", func(d *gorm.DB) *gorm.DB { return d.Order("created_at asc, id asc") })
+	if branchID != nil {
+		q = q.Joins("JOIN loans ON loans.id = bank_pledge_records.loan_id").
+			Where("loans.branch_id = ?", *branchID)
+	}
+	err := q.Order("bank_pledge_records.id desc").Find(&pledges).Error
+	return pledges, err
+}
+
+// CreateEvent appends one entry to a re-pledge record's audit trail.
+func (r *BankPledgeRepository) CreateEvent(e *BankPledgeEvent) error {
+	return r.db.Create(e).Error
+}
+
 // LoanRequestRepository provides GORM-backed persistence for LoanRequest rows.
 type LoanRequestRepository struct {
 	db *gorm.DB
@@ -347,15 +403,159 @@ func (r *AuctionRepository) Update(a *AuctionRecord) error {
 	return r.db.Save(a).Error
 }
 
-func (r *AuctionRepository) FindByLoanID(loanID uint) (*AuctionRecord, error) {
+// preloadAuctionDetail attaches the child collections an auction case's
+// detail view needs, each ordered oldest-first so the UI renders them as a
+// chronological timeline.
+func preloadAuctionDetail(db *gorm.DB) *gorm.DB {
+	return db.
+		Preload("Notices", func(d *gorm.DB) *gorm.DB { return d.Order("issued_at asc") }).
+		Preload("Events", func(d *gorm.DB) *gorm.DB { return d.Order("created_at asc, id asc") }).
+		Preload("DecisionRequests", func(d *gorm.DB) *gorm.DB { return d.Order("created_at asc, id asc") })
+}
+
+// FindActiveByLoanID returns the loan's auction case that is still live —
+// i.e. not Settled/Withdrawn. A loan may carry several concluded cases from
+// earlier attempts, so "the" auction for a loan is always the active one;
+// concluded ones are reached through FindHistoryByLoanID instead.
+//
+// Returns gorm.ErrRecordNotFound when the loan has no live case, which
+// callers translate to ErrAuctionNotFound (or, for MarkAuctionEligible, treat
+// as "clear to start a new one").
+func (r *AuctionRepository) FindActiveByLoanID(loanID uint) (*AuctionRecord, error) {
 	var a AuctionRecord
-	if err := r.db.Preload("Notices", func(db *gorm.DB) *gorm.DB { return db.Order("issued_at asc") }).
-		Where("loan_id = ?", loanID).First(&a).Error; err != nil {
+	if err := preloadAuctionDetail(r.db).
+		Where("loan_id = ? AND stage NOT IN (?, ?)", loanID, AuctionStageSettled, AuctionStageWithdrawn).
+		Order("created_at desc, id desc").
+		First(&a).Error; err != nil {
 		return nil, err
 	}
 	return &a, nil
 }
 
+// FindActiveByLoanIDForUpdate is FindActiveByLoanID with a row lock, for use
+// inside a transaction that will write the record back. Without the lock, a
+// payment arriving concurrently with an auction action can read the same
+// starting state and clobber the other's write — the dangerous case being a
+// payment's "freeze this auction" update getting lost while a sale is recorded
+// against gold that was just paid for.
+//
+// Child collections are deliberately NOT preloaded: FOR UPDATE must apply to
+// a single-table query, and callers in a transaction only need the record's
+// own columns.
+func (r *AuctionRepository) FindActiveByLoanIDForUpdate(tx *gorm.DB, loanID uint) (*AuctionRecord, error) {
+	var a AuctionRecord
+	if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
+		Where("loan_id = ? AND stage NOT IN (?, ?)", loanID, AuctionStageSettled, AuctionStageWithdrawn).
+		Order("created_at desc, id desc").
+		First(&a).Error; err != nil {
+		return nil, err
+	}
+	return &a, nil
+}
+
+// FindHistoryByLoanID returns every auction case ever opened against a loan,
+// newest first — the per-loan auction history.
+func (r *AuctionRepository) FindHistoryByLoanID(loanID uint) ([]AuctionRecord, error) {
+	var records []AuctionRecord
+	err := preloadAuctionDetail(r.db).
+		Where("loan_id = ?", loanID).
+		Order("created_at desc, id desc").
+		Find(&records).Error
+	return records, err
+}
+
+// FindAllConcluded lists concluded auction cases (Settled or Withdrawn)
+// across all loans — backs the Auctions screen's History tab. branchID is the
+// caller's branch-scoping restriction (nil for Administrator), applied via a
+// JOIN on loans the same way LoanRequestRepository.FindAll does it.
+func (r *AuctionRepository) FindAllConcluded(branchID *uint) ([]AuctionRecord, error) {
+	var records []AuctionRecord
+	q := preloadAuctionDetail(r.db).Model(&AuctionRecord{}).
+		Where("auction_records.stage IN (?, ?)", AuctionStageSettled, AuctionStageWithdrawn)
+	if branchID != nil {
+		q = q.Joins("JOIN loans ON loans.id = auction_records.loan_id").
+			Where("loans.branch_id = ?", *branchID)
+	}
+	err := q.Order("auction_records.updated_at desc, auction_records.id desc").Find(&records).Error
+	return records, err
+}
+
 func (r *AuctionRepository) CreateNotice(n *AuctionNotice) error {
 	return r.db.Create(n).Error
+}
+
+// CreateEvent appends one entry to a case's staff-action audit trail. tx may
+// be nil to write outside a transaction.
+func (r *AuctionRepository) CreateEvent(tx *gorm.DB, e *AuctionEvent) error {
+	return r.dbOr(tx).Create(e).Error
+}
+
+// dbOr returns tx when the caller is inside a transaction, else the
+// repository's own handle — lets every write below participate in a
+// transaction without duplicating each method.
+func (r *AuctionRepository) dbOr(tx *gorm.DB) *gorm.DB {
+	if tx != nil {
+		return tx
+	}
+	return r.db
+}
+
+func (r *AuctionRepository) UpdateTx(tx *gorm.DB, a *AuctionRecord) error {
+	return r.dbOr(tx).Save(a).Error
+}
+
+// FindPendingDecision returns the open escalation of the given kind against a
+// case, if any. At most one can exist per (record, kind) — enforced by a
+// partial unique index (see cmd/migrate).
+func (r *AuctionRepository) FindPendingDecision(tx *gorm.DB, auctionRecordID uint, kind string) (*AuctionDecisionRequest, error) {
+	var req AuctionDecisionRequest
+	err := r.dbOr(tx).
+		Where("auction_record_id = ? AND kind = ? AND status = ?", auctionRecordID, kind, AuctionDecisionPending).
+		First(&req).Error
+	if err != nil {
+		return nil, err
+	}
+	return &req, nil
+}
+
+// HasAnyPendingDecision reports whether a case has ANY open escalation. Used
+// by the pre-sale guard: while a repayment decision is outstanding the gold
+// must not move any further through the pipeline.
+func (r *AuctionRepository) HasAnyPendingDecision(auctionRecordID uint) (bool, error) {
+	var count int64
+	err := r.db.Model(&AuctionDecisionRequest{}).
+		Where("auction_record_id = ? AND status = ?", auctionRecordID, AuctionDecisionPending).
+		Count(&count).Error
+	return count > 0, err
+}
+
+func (r *AuctionRepository) CreateDecision(tx *gorm.DB, req *AuctionDecisionRequest) error {
+	return r.dbOr(tx).Create(req).Error
+}
+
+func (r *AuctionRepository) UpdateDecision(tx *gorm.DB, req *AuctionDecisionRequest) error {
+	return r.dbOr(tx).Save(req).Error
+}
+
+func (r *AuctionRepository) FindDecisionByID(tx *gorm.DB, id uint) (*AuctionDecisionRequest, error) {
+	var req AuctionDecisionRequest
+	if err := r.dbOr(tx).First(&req, id).Error; err != nil {
+		return nil, err
+	}
+	return &req, nil
+}
+
+// FindPendingDecisions lists every open escalation across all loans — backs
+// the pending-decisions queue. branchID scopes to the caller's branch (nil
+// for Administrator).
+func (r *AuctionRepository) FindPendingDecisions(branchID *uint) ([]AuctionDecisionRequest, error) {
+	var reqs []AuctionDecisionRequest
+	q := r.db.Model(&AuctionDecisionRequest{}).
+		Where("auction_decision_requests.status = ?", AuctionDecisionPending)
+	if branchID != nil {
+		q = q.Joins("JOIN loans ON loans.id = auction_decision_requests.loan_id").
+			Where("loans.branch_id = ?", *branchID)
+	}
+	err := q.Order("auction_decision_requests.created_at asc").Find(&reqs).Error
+	return reqs, err
 }

@@ -15,9 +15,15 @@ func (r *Repository) Create(b *Branch) error {
 	return r.db.Create(b).Error
 }
 
-func (r *Repository) FindAll() ([]Branch, error) {
+// FindAll lists branches with a non-empty name, optionally scoped to a
+// single branchID (nil = no scope, i.e. Administrator sees all).
+func (r *Repository) FindAll(branchID *uint) ([]Branch, error) {
 	var branches []Branch
-	err := r.db.Order("name asc").Find(&branches).Error
+	q := r.db.Where("name <> ''").Order("name asc")
+	if branchID != nil {
+		q = q.Where("id = ?", *branchID)
+	}
+	err := q.Find(&branches).Error
 	return branches, err
 }
 

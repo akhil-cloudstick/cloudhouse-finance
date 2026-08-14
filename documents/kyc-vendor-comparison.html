@@ -1,0 +1,207 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>KYC Vendor Comparison</title>
+<style>
+  body {
+    font-family: Arial, Helvetica, sans-serif;
+    color: #111;
+    background: #fff;
+    margin: 24px;
+  }
+  h1 {
+    font-size: 20px;
+    margin: 0 0 4px;
+  }
+  p.meta {
+    font-size: 13px;
+    color: #444;
+    margin: 0 0 16px;
+  }
+  p.note {
+    font-size: 13px;
+    color: #222;
+    margin: 0 0 20px;
+    max-width: 900px;
+  }
+  table {
+    border-collapse: collapse;
+    width: 100%;
+    table-layout: fixed;
+    font-size: 12px;
+  }
+  th, td {
+    border: 1px solid #999;
+    padding: 6px 8px;
+    text-align: left;
+    vertical-align: top;
+    overflow-wrap: break-word;
+    word-break: break-word;
+  }
+  th {
+    background: #eee;
+    font-weight: bold;
+  }
+  tbody th {
+    background: #f5f5f5;
+    white-space: nowrap;
+  }
+  col.c-vendor { width: 8%; }
+  col.c-price { width: 15%; }
+  col.c-ease { width: 17%; }
+  col.c-consent { width: 12%; }
+  col.c-time { width: 14%; }
+  col.c-reliability { width: 16%; }
+  col.c-fit { width: 8%; }
+  col.c-why { width: 10%; }
+
+  .print-btn {
+    margin-bottom: 16px;
+    padding: 8px 14px;
+    font-size: 13px;
+    cursor: pointer;
+  }
+  footer {
+    margin-top: 14px;
+    font-size: 11px;
+    color: #555;
+  }
+
+  @media print {
+    .print-btn { display: none; }
+    body { margin: 0; }
+    table { font-size: 10px; }
+    th, td { padding: 5px 6px; }
+    thead { display: table-header-group; }
+    tr { page-break-inside: avoid; }
+    @page { size: A4 landscape; margin: 10mm; }
+  }
+</style>
+</head>
+<body>
+
+<button class="print-btn" onclick="window.print()">Print / Save as PDF</button>
+
+<h1>KYC Vendor Comparison — PAN &amp; Aadhaar Verification API</h1>
+<p class="meta">Ambika Gold Finance — Loan Operations — 13 Aug 2026</p>
+
+<p class="note">
+<strong>Recommendation: Setu</strong>, for both PAN and Aadhaar. It's the only vendor with real published per-call pricing instead of a sales call, its PAN check is a single-field API call, and it already matches the <code>Customer.PAN</code> / <code>AadhaarEncrypted</code> fields in the codebase. The DigiLocker consent step on Aadhaar is not a Setu-specific limitation — UIDAI retired raw-OTP e-KYC for every private aggregator, so switching vendors does not remove that step.<br/><br/>
+<strong>On pricing:</strong> Setu is the only vendor in this list that publishes real per-call rupee pricing. Everyone else keeps pricing behind a sales call — where a rupee figure could be found at all below, it is a third-party estimate or a price for a different/bundled service, not that vendor's own published rate, and is marked as such.
+</p>
+
+<table>
+  <colgroup>
+    <col class="c-vendor" />
+    <col class="c-price" />
+    <col class="c-ease" />
+    <col class="c-consent" />
+    <col class="c-time" />
+    <col class="c-reliability" />
+    <col class="c-fit" />
+    <col class="c-why" />
+  </colgroup>
+  <thead>
+    <tr>
+      <th scope="col">Vendor</th>
+      <th scope="col">Pricing</th>
+      <th scope="col">Ease of implementation</th>
+      <th scope="col">Aadhaar needs DigiLocker?</th>
+      <th scope="col">Turnaround</th>
+      <th scope="col">Reliability / outages</th>
+      <th scope="col">Fits schema</th>
+      <th scope="col">Why pick it over Setu</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <th scope="row">Setu</th>
+      <td><strong>Published:</strong> ₹1.50/PAN verification, ₹5/Aadhaar verification (both tiers up to 1,000/month); no free tier</td>
+      <td>Single POST with just the PAN number for PAN; Aadhaar needs a redirect URL + DigiLocker OAuth hop</td>
+      <td>Yes — old raw-OTP flow discontinued by UIDAI</td>
+      <td>Not stated for PAN; Aadhaar "in minutes" per Setu's own marketing</td>
+      <td>Public status page exists; no meaningful incident history found</td>
+      <td>Yes — matches fields as-is</td>
+      <td>—</td>
+    </tr>
+    <tr>
+      <th scope="row">Digio</th>
+      <td>Not published. Their separate eSign product runs ₹15–20/sign at low volume (&lt;1,000/mo) — the only rupee figure found anywhere on Digio, and it is not their KYC price</td>
+      <td>One bundled DigiKYC API covers PAN + Aadhaar + OCR + face-match</td>
+      <td>Yes — same UIDAI-wide constraint</td>
+      <td>~3–5 min (single third-party estimate, unverified)</td>
+      <td>No public status page found</td>
+      <td>Yes, same shape</td>
+      <td>Bundles Aadhaar eSign — useful once loan agreements need digital signing</td>
+    </tr>
+    <tr>
+      <th scope="row">Signzy</th>
+      <td>Not published. Pay-as-you-go per-check billing confirmed to exist, but no rupee figure disclosed anywhere; volume discounts kick in past 1M verifications/month</td>
+      <td>Enterprise-grade; built for Video-KYC/face-match pipelines, heavier than a plain check</td>
+      <td>Not confirmed, likely yes</td>
+      <td>~8–15 min (Video KYC flow)</td>
+      <td>Verified: 100% uptime, last 30 days (status.signzy.com)</td>
+      <td>Yes, same shape</td>
+      <td>Best-documented uptime; worth it only if you'll also want Video-KYC</td>
+    </tr>
+    <tr>
+      <th scope="row">HyperVerge</th>
+      <td>Not published. Third-party procurement estimates: ~₹0.50–5/document OCR check, ~₹2–10/face-match+liveness check — unverified, not HyperVerge's own figures</td>
+      <td>Marketed as API-first / quick to integrate, not verified against real docs</td>
+      <td>Not confirmed</td>
+      <td>~2–4 min (single third-party estimate, unverified)</td>
+      <td>No public status page found</td>
+      <td>Yes, same shape</td>
+      <td>Fastest claimed turnaround — worth a pilot before trusting it</td>
+    </tr>
+    <tr>
+      <th scope="row">Karza</th>
+      <td>Not published anywhere found. One unrelated vendor comparison nearby quoted ₹1.20–3/verification, but that was a different provider, not Karza</td>
+      <td>Standard REST APIs, decent docs</td>
+      <td>Not confirmed</td>
+      <td>Not disclosed</td>
+      <td>No public status page found</td>
+      <td>Yes, same shape</td>
+      <td>No differentiator found without a sales quote</td>
+    </tr>
+    <tr>
+      <th scope="row">IDfy</th>
+      <td>Not published for PAN/Aadhaar specifically. Their broader verification packages are quoted from ₹1,000 (simple checks) up to enterprise-scale pricing — that figure covers background-check bundles, not a raw PAN/Aadhaar call</td>
+      <td>Standard REST APIs, decent docs</td>
+      <td>Not confirmed</td>
+      <td>Not disclosed</td>
+      <td>No public status page found</td>
+      <td>Yes, same shape</td>
+      <td>No differentiator found without a sales quote</td>
+    </tr>
+    <tr>
+      <th scope="row">Cashfree</th>
+      <td>Not published. ₹100 in free trial credit is offered for PAN checks; no per-call rate disclosed after that</td>
+      <td>Standard REST APIs; SDKs published on GitHub</td>
+      <td>Not confirmed</td>
+      <td>Not disclosed</td>
+      <td>No public status page found</td>
+      <td>Yes, same shape</td>
+      <td>Only if already using Cashfree for payments/payouts</td>
+    </tr>
+    <tr>
+      <th scope="row">Surepass</th>
+      <td>Not published anywhere found — no rupee figure of any kind, own or third-party</td>
+      <td>Standard REST APIs, docs published</td>
+      <td>Not confirmed</td>
+      <td>Not disclosed</td>
+      <td>No public status page found</td>
+      <td>Yes, same shape</td>
+      <td>No differentiator found without a sales quote</td>
+    </tr>
+  </tbody>
+</table>
+
+<footer>
+  Sources: setu.co/data/kyc, status.setu.co, status.signzy.com, productgrowth.in, befisc.com, cashfree.com, hyperverge.co, yourstory.com. Pricing current as of research date; unverified/estimated figures are marked as such in each cell.
+</footer>
+
+</body>
+</html>

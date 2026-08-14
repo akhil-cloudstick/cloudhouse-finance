@@ -44,9 +44,9 @@ func ParseWhatsAppConfig(raw string) (WhatsAppConfig, error) {
 type WhatsAppConfigLoader func() (WhatsAppConfig, error)
 
 // OpenWASender implements SMSSender against a self-hosted OpenWA instance
-// (see https://github.com/rmyndharis/OpenWA) — same interface as
-// LogSMSSender, so it's a drop-in swap for it wherever an SMSSender is
-// injected (e.g. auth.Service's forgot-password OTP), plus a Send method
+// (see https://github.com/rmyndharis/OpenWA) — the sole SMSSender
+// implementation now that the log-only stub is gone, wherever an SMSSender
+// is injected (e.g. auth.Service's forgot-password OTP), plus a Send method
 // usable directly for anything WhatsApp-only (reminders, auction alerts).
 type OpenWASender struct {
 	loadConfig WhatsAppConfigLoader

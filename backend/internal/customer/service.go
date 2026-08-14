@@ -43,15 +43,30 @@ type CreateInput struct {
 
 type UpdateInput = CreateInput
 
+// ErrPANRequired/ErrSetuNotConfigured are returned by VerifyPAN.
+var (
+	ErrPANRequired       = errors.New("customer has no PAN number on file")
+	ErrSetuNotConfigured = errors.New("PAN verification is not configured")
+)
+
+// ErrDigilockerNotConfigured/ErrNoDigilockerRequest are returned by the
+// DigiLocker Aadhaar-verify flow (StartAadhaarVerify/CheckAadhaarVerify).
+var (
+	ErrDigilockerNotConfigured = errors.New("Aadhaar verification is not configured")
+	ErrNoDigilockerRequest     = errors.New("no Aadhaar verification has been started for this customer")
+)
+
 // Service implements customer business rules on top of the Repository.
 type Service struct {
 	repo          *Repository
 	branchRepo    *branch.Repository
 	aadhaarCipher *platform.Cipher
+	setu          *platform.SetuClient
+	digilocker    *platform.DigilockerClient
 }
 
-func NewService(repo *Repository, branchRepo *branch.Repository, aadhaarCipher *platform.Cipher) *Service {
-	return &Service{repo: repo, branchRepo: branchRepo, aadhaarCipher: aadhaarCipher}
+func NewService(repo *Repository, branchRepo *branch.Repository, aadhaarCipher *platform.Cipher, setu *platform.SetuClient, digilocker *platform.DigilockerClient) *Service {
+	return &Service{repo: repo, branchRepo: branchRepo, aadhaarCipher: aadhaarCipher, setu: setu, digilocker: digilocker}
 }
 
 func validate(in CreateInput) error {
@@ -133,12 +148,12 @@ func (s *Service) Create(in CreateInput) (*Customer, error) {
 		NomineeRelation: in.NomineeRelation,
 		NomineePhone:    in.NomineePhone,
 
-		// Stage-1 stub: no real verification call is made yet. Replace with
-		// a live Setu PAN-verify / DigiLocker Aadhaar call before this
-		// becomes a production status.
-		KYCStatus:     "Verified",
-		PANStatus:     "Verified",
-		AadhaarStatus: "Verified",
+		// No verification call is made at registration — status starts
+		// Pending until a real PAN check (see internal/platform/setu.go)
+		// or Aadhaar/DigiLocker check runs and updates it.
+		KYCStatus:     "Pending",
+		PANStatus:     "Pending",
+		AadhaarStatus: "Pending",
 	}
 	if err := s.repo.Create(rec); err != nil {
 		return nil, err
@@ -214,4 +229,152 @@ func (s *Service) Delete(id uint, branchID *uint) error {
 		return ErrNotFound
 	}
 	return s.repo.Delete(id)
+}
+
+// VerifyPAN calls Setu's PAN verification API (internal/platform/setu.go)
+// for this customer's on-file PAN and persists the outcome. KYCStatus
+// mirrors PANStatus for now since Aadhaar has no live check yet — once a
+// DigiLocker Aadhaar check exists, KYCStatus should require both to be
+// "Verified". Returns the updated customer plus the raw Setu result (so the
+// handler can surface the matched name/message to the UI).
+func (s *Service) VerifyPAN(id uint, branchID *uint) (*Customer, *platform.PANVerificationResult, error) {
+	rec, err := s.repo.FindByID(id)
+	if err != nil {
+		return nil, nil, ErrNotFound
+	}
+	if branchID != nil && rec.BranchID != *branchID {
+		return nil, nil, ErrNotFound
+	}
+	if rec.PAN == "" {
+		return nil, nil, ErrPANRequired
+	}
+	if s.setu == nil {
+		return nil, nil, ErrSetuNotConfigured
+	}
+
+	result, err := s.setu.VerifyPAN(rec.PAN, fmt.Sprintf("Verifying PAN for gold loan customer %s onboarding KYC", rec.Code))
+	if err != nil {
+		return nil, nil, err
+	}
+
+	switch {
+	case result.Verification != "SUCCESS":
+		// PAN itself is invalid/nonexistent per Setu.
+		rec.PANStatus = "Failed"
+		rec.KYCStatus = "Failed"
+	case !s.setu.IsSandbox() && !namesMatch(rec.Name, result.FullName):
+		// PAN is real, but registered to a different person than the name
+		// on this customer's profile — do NOT mark this Verified. This is
+		// the actual fraud check: a valid PAN alone proves nothing about
+		// whose PAN it is. Skipped in sandbox (IsSandbox() above) since
+		// Setu's sandbox always returns the same fixed dummy name for any
+		// test PAN regardless of the real customer name on file — see
+		// SetuClient.IsSandbox's doc comment. Re-enable/verify against
+		// production before relying on this for real fraud detection.
+		rec.PANStatus = "Name Mismatch"
+		rec.KYCStatus = "Name Mismatch"
+	default:
+		rec.PANStatus = "Verified"
+		rec.KYCStatus = "Verified"
+	}
+	if err := s.repo.Update(rec); err != nil {
+		return nil, nil, err
+	}
+
+	updated, err := s.repo.FindByID(rec.ID)
+	if err != nil {
+		return nil, nil, err
+	}
+	return updated, result, nil
+}
+
+// StartAadhaarVerify begins a DigiLocker Aadhaar-verify request (see
+// internal/platform/setu_digilocker.go) for this customer and stores the
+// request id for the follow-up CheckAadhaarVerify call. redirectURL is
+// where DigiLocker sends the customer back to after they complete login on
+// their own device — the frontend supplies this (see handler.go) since it
+// knows its own callback page's URL.
+func (s *Service) StartAadhaarVerify(id uint, branchID *uint, redirectURL string) (*platform.DigilockerRequest, error) {
+	rec, err := s.repo.FindByID(id)
+	if err != nil {
+		return nil, ErrNotFound
+	}
+	if branchID != nil && rec.BranchID != *branchID {
+		return nil, ErrNotFound
+	}
+	if s.digilocker == nil {
+		return nil, ErrDigilockerNotConfigured
+	}
+
+	req, err := s.digilocker.CreateRequest(redirectURL)
+	if err != nil {
+		return nil, err
+	}
+
+	rec.DigilockerRequestID = req.ID
+	if err := s.repo.Update(rec); err != nil {
+		return nil, err
+	}
+	return req, nil
+}
+
+// CheckAadhaarVerify polls the outstanding DigiLocker request started by
+// StartAadhaarVerify. While the customer hasn't finished logging into
+// DigiLocker yet, this returns status "unauthenticated" and leaves
+// AadhaarStatus/KYCStatus untouched — callers should poll again later.
+// Once authenticated, it fetches the e-Aadhaar data, updates AadhaarStatus/
+// KYCStatus (and AadhaarLast4 for display), and returns the fetched data.
+func (s *Service) CheckAadhaarVerify(id uint, branchID *uint) (*Customer, *platform.DigilockerStatus, *platform.AadhaarXML, error) {
+	rec, err := s.repo.FindByID(id)
+	if err != nil {
+		return nil, nil, nil, ErrNotFound
+	}
+	if branchID != nil && rec.BranchID != *branchID {
+		return nil, nil, nil, ErrNotFound
+	}
+	if s.digilocker == nil {
+		return nil, nil, nil, ErrDigilockerNotConfigured
+	}
+	if rec.DigilockerRequestID == "" {
+		return nil, nil, nil, ErrNoDigilockerRequest
+	}
+
+	status, err := s.digilocker.GetStatus(rec.DigilockerRequestID)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	if status.Status != "authenticated" {
+		return rec, status, nil, nil
+	}
+
+	aadhaar, err := s.digilocker.GetAadhaar(rec.DigilockerRequestID)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+
+	// Aadhaar itself being fetchable proves the customer completed a real
+	// DigiLocker login — that IS the verification (unlike PAN, there's no
+	// separate "is this Aadhaar valid" check to fail here). Same name-match
+	// posture as VerifyPAN: skip in sandbox, since sandbox always returns
+	// the same fixed dummy identity regardless of the real customer name.
+	if !s.digilocker.IsSandbox() && !namesMatch(rec.Name, aadhaar.Aadhaar.Name) {
+		rec.AadhaarStatus = "Name Mismatch"
+		rec.KYCStatus = "Name Mismatch"
+	} else {
+		rec.AadhaarStatus = "Verified"
+		rec.KYCStatus = "Verified"
+	}
+	if len(aadhaar.Aadhaar.MaskedNumber) >= 4 {
+		rec.AadhaarLast4 = aadhaar.Aadhaar.MaskedNumber[len(aadhaar.Aadhaar.MaskedNumber)-4:]
+	}
+	rec.DigilockerRequestID = "" // request consumed — a re-verify starts a fresh one
+
+	if err := s.repo.Update(rec); err != nil {
+		return nil, nil, nil, err
+	}
+	updated, err := s.repo.FindByID(rec.ID)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	return updated, status, aadhaar, nil
 }

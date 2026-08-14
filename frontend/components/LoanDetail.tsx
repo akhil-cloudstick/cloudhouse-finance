@@ -25,6 +25,7 @@ import { ApiError } from "@/lib/api";
 import { useLoans } from "@/lib/LoansProvider";
 import { PaymentModalContent } from "@/components/modals/PaymentModal";
 import { RepledgeModalContent } from "@/components/modals/RepledgeModal";
+import { ConfirmModalContent } from "@/components/modals/ConfirmModal";
 import { RequestExtensionModalContent, RequestReleaseModalContent } from "@/components/modals/RequestExtensionModal";
 
 /* Ported from legacy/app.js's `renderLoanDetail(id)`. Now reads/writes the
@@ -186,18 +187,39 @@ export function LoanDetail({ id }: { id?: string }) {
 
   const activePledge = l.bankPledges.find((p) => !p.isReleased);
 
-  async function doReleasePledge() {
+  /* Confirms first: releasing moves cash (for a CashIn pledge) and changes
+   * where the gold physically sits, which is too consequential for a single
+   * unconfirmed click. The wording states the cash effect explicitly, since it
+   * depends on the treatment chosen when the pledge was created. */
+  function doReleasePledge() {
     if (!activePledge) return;
-    setReleasing(true);
-    try {
-      await releaseBankPledge(l.numericId, activePledge.id);
-      toast("Bank pledge released");
-      load();
-    } catch (err) {
-      toast(err instanceof ApiError ? err.message : "Could not release the pledge — try again");
-    } finally {
-      setReleasing(false);
-    }
+    const p = activePledge;
+    openModal(
+      <ConfirmModalContent
+        title="Release Bank Pledge"
+        message={
+          <>
+            Release the gold pledged to <strong>{p.bankName}</strong> for <strong>{fmt(p.pledgedAmount)}</strong>?
+            {p.cashTreatment === "CashIn"
+              ? ` ${fmt(p.pledgedAmount)} will be booked out of Cash-in-Hand.`
+              : " No cash movement will be created — this pledge was recorded only."}
+          </>
+        }
+        confirmLabel="Release"
+        busyLabel="Releasing…"
+        danger={false}
+        onConfirm={async () => {
+          setReleasing(true);
+          try {
+            await releaseBankPledge(l.numericId, p.id);
+            toast("Bank pledge released");
+            load();
+          } finally {
+            setReleasing(false);
+          }
+        }}
+      />
+    );
   }
 
   async function doCompleteRelease() {
@@ -377,6 +399,12 @@ export function LoanDetail({ id }: { id?: string }) {
                     <div className="i"><div className="k">Bank Interest Rate</div><div className="v">{activePledge.bankInterestRate ? `${activePledge.bankInterestRate}% p.a.` : "—"}</div></div>
                     <div className="i"><div className="k">Reference Number</div><div className="v">{activePledge.referenceNumber || "—"}</div></div>
                     <div className="i"><div className="k">Gold Covered</div><div className="v">{fmtW(l.totalNetWeight)}</div></div>
+                    {/* Whether this pledge put money in the till decides whether
+                      * releasing it books cash back out — worth seeing here
+                      * rather than having to guess. */}
+                    <div className="i"><div className="k">Cash Treatment</div><div className="v">
+                      {activePledge.cashTreatment === "CashIn" ? "Added to Cash-in-Hand" : "Record only — no cash effect"}
+                    </div></div>
                     <div className="i"><div className="k">Status</div><div className="v"><StatusChip status="Bank Pledged" /></div></div>
                   </div>
                   <div className="notice" style={{ marginTop: 12 }}><Icon name="shield" /> Closure requires bank release process first.</div>

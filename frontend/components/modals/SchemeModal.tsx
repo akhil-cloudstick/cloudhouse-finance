@@ -7,9 +7,12 @@ import { Icon } from "@/lib/icons";
 import { useAuth } from "@/lib/auth-context";
 import { listActiveBranches, type BranchView } from "@/lib/branchApi";
 import { createScheme, updateScheme, type SchemeView } from "@/lib/schemesApi";
+import { Select } from "@/components/Select";
 
 const DEFAULT_DURATION_MONTHS = 12;
 const METHODS = ["Monthly simple interest", "Flat monthly", "Quarterly simple", "Compound monthly"];
+const METHOD_OPTIONS = METHODS.map((m) => ({ value: m, label: m }));
+const STATUS_OPTIONS = [{ value: "1", label: "Active" }, { value: "0", label: "Inactive" }];
 
 /* Ported from legacy/app.js's `openSchemeModal(id)` / `saveScheme(id)`
  * (legacy/app.js:1154-1219). Now calls the Go backend (`POST`/`PUT
@@ -92,9 +95,7 @@ export function SchemeModalContent({ scheme: s, onSaved }: { scheme?: SchemeView
         </div>
         <div className="frow c2">
           <div><label className="f">Interest Calculation Method</label>
-            <select className="inp" value={method} onChange={(e) => setMethod(e.target.value)}>
-              {METHODS.map((m) => <option key={m}>{m}</option>)}
-            </select></div>
+            <Select options={METHOD_OPTIONS} value={method} onChange={setMethod} /></div>
           <div><label className="f">Penal Charges (% / month) *</label>
             <input className="inp" type="number" step="0.1" min={0} max={10} placeholder="e.g. 2" value={penal} onChange={(e) => setPenal(e.target.value)} /></div>
         </div>
@@ -102,23 +103,25 @@ export function SchemeModalContent({ scheme: s, onSaved }: { scheme?: SchemeView
           <input className="inp" placeholder="e.g. Interest payable monthly; penal 2%/m after due" value={cond} onChange={(e) => setCond(e.target.value)} /></div></div>
         <div className="frow c2">
           <div><label className="f">Status</label>
-            <select className="inp" value={active ? "1" : "0"} onChange={(e) => setActive(e.target.value === "1")}>
-              <option value="1">Active</option>
-              <option value="0">Inactive</option>
-            </select></div>
+            <Select options={STATUS_OPTIONS} value={active ? "1" : "0"} onChange={(v) => setActive(v === "1")} /></div>
           <div><label className="f">Branch *</label>
             {isAdmin ? (
-              <select className="inp" value={branchId} onChange={(e) => setBranchId(e.target.value ? Number(e.target.value) : "")}>
-                <option value="">Select branch…</option>
-                {branches.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
-              </select>
+              <Select
+                options={branches.map((b) => ({ value: String(b.id), label: b.name }))}
+                value={branchId ? String(branchId) : ""}
+                onChange={(v) => setBranchId(v ? Number(v) : "")}
+                placeholder="Select branch…"
+              />
             ) : (
               // Non-admins are confined to their own branch — the backend
               // enforces this regardless, so the field is locked rather
               // than offering a choice they can't actually use.
-              <select className="inp" value={branchId} disabled>
-                <option value={branchId || ""}>{s?.branchName || "Your branch"}</option>
-              </select>
+              <Select
+                options={[{ value: String(branchId || ""), label: s?.branchName || "Your branch" }]}
+                value={String(branchId || "")}
+                onChange={() => {}}
+                disabled
+              />
             )}</div>
         </div>
         <div className="notice"><Icon name="shield" /> Scheme changes are restricted to authorized administrators and recorded in the audit trail.</div>

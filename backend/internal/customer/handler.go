@@ -91,8 +91,11 @@ func statusForErr(err error) int {
 	case errors.Is(err, ErrNotFound):
 		return http.StatusNotFound
 	case errors.Is(err, ErrNameRequired), errors.Is(err, ErrPhoneRequired),
-		errors.Is(err, ErrBranchReq), errors.Is(err, ErrBranchInvalid):
+		errors.Is(err, ErrBranchReq), errors.Is(err, ErrBranchInvalid),
+		errors.Is(err, ErrPANRequired), errors.Is(err, ErrNoDigilockerRequest):
 		return http.StatusBadRequest
+	case errors.Is(err, ErrSetuNotConfigured), errors.Is(err, ErrDigilockerNotConfigured):
+		return http.StatusServiceUnavailable
 	default:
 		return http.StatusInternalServerError
 	}
@@ -189,6 +192,92 @@ func (h *Handler) Update(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, rec.ToResponse())
+}
+
+// VerifyPAN triggers a live Setu PAN-verify call (see
+// internal/platform/setu.go) for this customer's on-file PAN and persists
+// the resulting status. Returns the updated customer plus the raw Setu
+// message/matched name so the UI can show what actually came back, not just
+// the stored status.
+func (h *Handler) VerifyPAN(c *gin.Context) {
+	id, err := idParam(c)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	rec, result, err := h.svc.VerifyPAN(id, platform.GetBranchScope(c))
+	if err != nil {
+		c.JSON(statusForErr(err), gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{
+		"customer":    rec.ToResponse(),
+		"message":     result.Message,
+		"matchedName": result.FullName,
+		"traceId":     result.TraceID,
+	})
+}
+
+// startAadhaarVerifyRequest carries the frontend's own callback page URL —
+// DigiLocker redirects the customer's browser there once they finish
+// logging in, so the frontend (which knows its own origin) supplies it
+// rather than the backend hardcoding one.
+type startAadhaarVerifyRequest struct {
+	RedirectURL string `json:"redirectUrl" binding:"required"`
+}
+
+// StartAadhaarVerify begins a DigiLocker Aadhaar-verify request (see
+// internal/platform/setu_digilocker.go) and returns the login URL the
+// CUSTOMER must open themselves to authenticate with Aadhaar + OTP.
+func (h *Handler) StartAadhaarVerify(c *gin.Context) {
+	id, err := idParam(c)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	var req startAadhaarVerifyRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	digReq, err := h.svc.StartAadhaarVerify(id, platform.GetBranchScope(c), req.RedirectURL)
+	if err != nil {
+		c.JSON(statusForErr(err), gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{
+		"id":        digReq.ID,
+		"url":       digReq.URL,
+		"status":    digReq.Status,
+		"validUpto": digReq.ValidUpto,
+	})
+}
+
+// CheckAadhaarVerify polls the outstanding DigiLocker request (started by
+// StartAadhaarVerify) for this customer. Returns "unauthenticated" while
+// the customer hasn't finished logging in yet (poll again later), or the
+// updated customer plus the fetched Aadhaar name/DOB once "authenticated".
+func (h *Handler) CheckAadhaarVerify(c *gin.Context) {
+	id, err := idParam(c)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	rec, status, aadhaar, err := h.svc.CheckAadhaarVerify(id, platform.GetBranchScope(c))
+	if err != nil {
+		c.JSON(statusForErr(err), gin.H{"error": err.Error()})
+		return
+	}
+	if aadhaar == nil {
+		c.JSON(http.StatusOK, gin.H{"status": status.Status})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{
+		"customer":    rec.ToResponse(),
+		"status":      status.Status,
+		"matchedName": aadhaar.Aadhaar.Name,
+		"dob":         aadhaar.Aadhaar.DateOfBirth,
+	})
 }
 
 func (h *Handler) Delete(c *gin.Context) {

@@ -88,6 +88,12 @@ func main() {
 		log.Fatalf("gold rate legacy column migration failed: %v", err)
 	}
 
+	// Must precede AutoMigrate — see RelaxAuctionLoanUniqueIndex's doc comment
+	// for why GORM cannot do this itself.
+	if err := loan.RelaxAuctionLoanUniqueIndex(db); err != nil {
+		log.Fatalf("auction unique index relaxation failed: %v", err)
+	}
+
 	if err := db.AutoMigrate(
 		&branch.Branch{},
 		&scheme.Scheme{},
@@ -107,8 +113,11 @@ func main() {
 		&loan.RequestApproval{},
 		&loan.LoanPayment{},
 		&loan.BankPledgeRecord{},
+		&loan.BankPledgeEvent{},
 		&loan.AuctionRecord{},
 		&loan.AuctionNotice{},
+		&loan.AuctionEvent{},
+		&loan.AuctionDecisionRequest{},
 		&loan.ApprovalLimit{},
 		&ornamenttype.OrnamentType{},
 		&bank.Bank{},
@@ -124,6 +133,12 @@ func main() {
 
 	if err := scheme.DropLegacyDateColumns(db); err != nil {
 		log.Fatalf("legacy scheme date column cleanup failed: %v", err)
+	}
+
+	// Must follow AutoMigrate — the partial predicates reference columns it
+	// creates.
+	if err := loan.CreateAuctionPartialIndexes(db); err != nil {
+		log.Fatalf("auction partial index creation failed: %v", err)
 	}
 
 	if err := puritystandard.SeedStandards(db); err != nil {
@@ -200,10 +215,10 @@ func main() {
 	employeeHandler := employee.NewHandler(employeeSvc)
 
 	movementRepo := cash.NewMovementRepository(db)
-	movementSvc := cash.NewMovementService(movementRepo, branchRepo)
+	expenseRepo := cash.NewExpenseRepository(db)
+	movementSvc := cash.NewMovementService(movementRepo, expenseRepo, branchRepo)
 	movementHandler := cash.NewMovementHandler(movementSvc)
 
-	expenseRepo := cash.NewExpenseRepository(db)
 	expenseSvc := cash.NewExpenseService(expenseRepo, branchRepo)
 	expenseHandler := cash.NewExpenseHandler(expenseSvc)
 
@@ -236,8 +251,11 @@ func main() {
 	}
 	whatsappSender := platform.NewOpenWASender(whatsappLoader)
 
+	setuClient := platform.NewSetuClient(cfg)
+	digilockerClient := platform.NewDigilockerClient(cfg)
+
 	customerRepo := customer.NewRepository(db)
-	customerSvc := customer.NewService(customerRepo, branchRepo, aadhaarCipher)
+	customerSvc := customer.NewService(customerRepo, branchRepo, aadhaarCipher, setuClient, digilockerClient)
 	customerHandler := customer.NewHandler(customerSvc)
 
 	// locker/packet are wired to each other via narrow interfaces
@@ -267,7 +285,7 @@ func main() {
 	// packet movement on bank-pledge/release) — see internal/loan's
 	// PacketCreator/PacketMover doc comments. movementSvc satisfies
 	// loan.CashRecorder, reflecting bank-pledge amounts into Cash-in-Hand.
-	loanSvc := loan.NewService(loanRepo, loanOrnamentRepo, loanApprovalRepo, loanPaymentRepo, loanPledgeRepo, loanRequestRepo, requestApprovalRepo, loanAuctionRepo, loanApprovalLimitRepo, branchRepo, customerRepo, schemeRepo, goldRateRepo, packetSvc, packetSvc, movementSvc, whatsappSender)
+	loanSvc := loan.NewService(db, loanRepo, loanOrnamentRepo, loanApprovalRepo, loanPaymentRepo, loanPledgeRepo, loanRequestRepo, requestApprovalRepo, loanAuctionRepo, loanApprovalLimitRepo, branchRepo, customerRepo, schemeRepo, goldRateRepo, packetSvc, packetSvc, movementSvc, whatsappSender)
 	loanHandler := loan.NewHandler(loanSvc)
 
 	reminderRepo := reminder.NewRepository(db)

@@ -126,11 +126,13 @@ the **raw** code via `platform.SMSSender`. `ResetPassword` looks the
 employee up again by `phone`, checks the given `otp` against the stored
 hash (constant-time comparison) and that it hasn't expired, bcrypt-hashes
 the new password (cost 14), and clears the reset fields so the OTP can't
-be reused. `platform.SMSSender` is currently `LogSMSSender` — a stub that
-just logs the message server-side (visible in the backend's console
-output) instead of actually sending it; swap in a real gateway
-(MSG91/Twilio/Fast2SMS/etc.) later via the existing `internal/settings`
-"sms" API-key category without changing any caller.
+be reused. `platform.SMSSender`'s sole implementation is `OpenWASender`,
+which sends via a self-hosted OpenWA/WhatsApp instance (the earlier
+`LogSMSSender` console-log stub has been removed now that OpenWA is wired
+up everywhere). The reset-password page also locks its phone field to the
+value carried from the "forgot password" step (read-only, not editable) so
+a code requested for one number can't be resubmitted against a different
+target phone.
 
 **JWT details:** HS256, signed with `JWT_SECRET`. Claims: `employeeId`,
 `role`, `branchId`, plus standard `iat`/`exp`. Expiry is controlled by the
@@ -215,6 +217,28 @@ interest-anniversary calendar events), and Schemes (see below). Banks,
 Gold Rates, Ornament Types, and Settings are global catalogs with no
 `branchId` and are **not** row-scoped.
 
+**Auction routes carry an extra role allowlist on top of CRUD permissions.**
+`platform.RequireAnyRole(roles ...string)` restricts a route to named roles
+independently of the permissions table, and every `/loans/:id/auction*` route
+uses it with `Administrator`, `Management`, `Branch Manager`,
+`Auction Administrator`. Both middlewares apply — the role must be allowlisted
+AND hold the `loans` CRUD permission.
+
+This exists because the permissions table is resource-grained, and `"loans"`
+covers payments, ornaments, approvals and bank pledges as well as auctions
+(see the comment in `internal/loan/routes.go`). A Cashier or Loan Operator
+legitimately needs `loans:update` to take payments — but deciding whether a
+customer permanently loses their pledged gold is a different authority. The
+guard is therefore attached per-route, not to the whole group: a group-level
+one would strip Cashier access to payments.
+
+Where authority differs *within* the auction workflow it is enforced in the
+service layer instead, because a route guard is too coarse: an Auction
+Administrator may resolve a part-payment decision but must NOT decide a
+post-auction shortfall write-off (403 `ErrShortfallAuthorityRequired`), even
+though it passes the route guard. `PUT /:id/bank-pledge/:pledgeId/void` is
+similarly restricted to `Administrator`/`Management`/`Branch Manager`.
+
 **Schemes are now branch-owned** (previously a global catalog usable by
 any branch): `Scheme.branchId` is a required FK, validated the same way as
 Employee's `branchId`. Existing rows were backfilled to branch `1` (see
@@ -236,11 +260,11 @@ elsewhere, auth requires:
 | `JWT_SECRET` | Signs/verifies login JWTs. No safe default — falls back to a fixed, publicly-known dev-only secret (with a loud warning) if unset; set a real value in production. |
 | `JWT_EXPIRY` | Login token lifetime, e.g. `3d` or `168h`. Falls back to `168h` (7 days) if unset/unparseable. |
 
-No SMS-gateway env vars exist yet — `platform.LogSMSSender` (the current
-stub) needs none. When a real gateway is wired in, its credentials should
-go through the existing `internal/settings` "sms" `ApiKeySetting` category
-(encrypted at rest) rather than new env vars, consistent with how other
-provider keys are meant to be configured in this app.
+No SMS-gateway env vars exist — `platform.OpenWASender` (the sole
+`SMSSender` implementation) reads its config (OpenWA base URL, API key,
+sessionId) from the `internal/settings` WhatsApp category via the Settings
+page, encrypted at rest, refetched on every send so an admin editing it
+takes effect with no restart.
 
 The `SMTP_*` env vars (`SMTP_HOST`/`SMTP_PORT`/`SMTP_USER`/`SMTP_PASS`/
 `SMTP_FROM`) and `platform.Mailer` still exist in the codebase but are no
@@ -543,6 +567,32 @@ cash movement is tied to a till yet; when present it must reference an
 existing branch. `occurredOn` accepts `YYYY-MM-DD`; omit to default
 to today.
 
+**System-generated `source` values.** Beyond the two a user can pick, the loan
+workflows set `source` themselves via `loan.CashRecorder`: `"Bank"`
+(bank-pledge cash-in), `"Collection"` (customer repayment), and `"Auction"`
+(net proceeds realised from auctioning pledged gold). `SumBreakdownByDate`
+buckets each of these separately — `auctions` was added as its own bucket rather
+than letting it fall into `topUps`, since auction proceeds are neither a
+customer payment nor cash staff added, and misfiling them would overstate
+manual top-ups. Cash-out purposes are bucketed by prefix the same way, with
+`"Auction surplus refunded…"` kept out of `withdrawals` so money owed back to a
+customer is not reported as the branch taking cash for itself.
+
+> **Known technical debt — money precision.** Every monetary field across
+> `loan`/`cash`/`expense`/`packet` is a Go `float64`, which cannot represent most
+> decimal fractions exactly (`0.1 + 0.2` → `0.30000000000000004`). Left
+> unchecked these artifacts accumulate through the payment-allocation waterfall
+> and leave fractions of a paisa clinging to balances that should read as
+> settled, so a fully-repaid loan can sit permanently a hair short of closed.
+>
+> Current mitigation: `platform.RoundMoney` (2dp, half-away-from-zero) is applied
+> at every write of a computed money value in the auction/re-pledge flows, new
+> money columns are `NUMERIC(16,2)`, and zero-balance tests use a `0.01` epsilon
+> rather than exact equality. The real fix — fixed-point decimals
+> (`shopspring/decimal` over `NUMERIC(16,2)`) across all four packages — is a
+> repo-wide refactor deliberately kept out of that change's blast radius, and
+> remains outstanding.
+
 | Method | Path | Purpose | Body |
 |---|---|---|---|
 | POST | `/api/v1/cash-movements` | Record a cash-in or cash-out movement | `{ "type", "source"?, "purpose"?, "bank"?, "amount", "branchId"?, "occurredOn"? }` |
@@ -828,12 +878,47 @@ from the loan's ornament totals at pledge time (server-computed, not part
 of the request body), so it stays self-contained even if the loan's
 ornaments are edited afterwards. The call sets
 `bankPledgeStatus: "Bank Pledged"`; `PUT /:id/bank-pledge/:pledgeId/release`
-stamps its `releaseDate` and sets `bankPledgeStatus: "Released"`. Both also
-reflect into Cash-in-Hand & Expenses (`internal/cash`) via the
-`loan.CashRecorder` interface: recording a pledge creates a cash-in
-`CashMovement` (`source: "Bank"`, amount = `pledgedAmount`), stored on the
-`BankPledgeRecord` as `cashMovementId`; releasing that pledge deletes the
-linked movement outright rather than reversing it with a cash-out entry.
+stamps its `releaseDate` and sets `bankPledgeStatus: "Released"`.
+
+**Cash treatment is a per-transaction choice** (`cashTreatment`, one of
+`"CashIn"` | `"RecordOnly"`). Not every re-pledge brings the bank's advance
+into the branch till — some are purely book-keeping — so the caller decides:
+- `"CashIn"` books a cash-in `CashMovement` (`source: "Bank"`, amount =
+  `pledgedAmount`, stored as `cashMovementId`) plus a mirrored auto-approved
+  `Expense` (`mode: "Bank"`, so it does not double-count against Expected Cash
+  in Hand), stored as `expenseId`. Releasing such a pledge books the amount
+  back OUT as a fresh cash-out movement plus a release expense — the original
+  cash-in is never deleted, so both legs remain visible as history.
+- `"RecordOnly"` creates NO cash movement and NO expense, and release is a
+  symmetric no-op. Without that symmetry, releasing a record-only pledge would
+  credit the till for money that never arrived.
+
+**An omitted `cashTreatment` defaults to `"RecordOnly"`** — the safe path, so
+cash only moves on an explicit opt-in. Any other non-empty value is rejected
+with 400 `ErrInvalidCashTreatment` rather than being coerced, so a typo cannot
+silently suppress a real cash entry. Rows created before this field existed
+default to `"CashIn"` at the column level, because unconditional cash-in was
+the only behavior that ever existed — that is genuinely what those pledges did,
+and their releases still need the matching cash-out.
+
+**`cashTreatment` is immutable.** There is no edit path: rewriting it would
+retroactively falsify booked cash history. A mis-chosen treatment is corrected
+via `PUT /:id/bank-pledge/:pledgeId/void` — `{ "reason" }`, restricted to
+Administrator / Management / Branch Manager. Voiding marks the record
+`status: "Voided"` (keeping every original figure for audit — voided records are
+never deleted), books a compensating cash-out only if the original actually
+moved cash, resets `bankPledgeStatus` to `"Not Pledged"`, and logs the actor and
+reason. Staff then create a fresh pledge with the correct treatment.
+
+**Re-pledge history & audit trail.** Every pledge carries an append-only
+`events` array (`BankPledgeEvent`: `action` one of `"Pledged"` | `"Released"` |
+`"Voided"`, plus `actorEmployeeId`/`actorRole`, `amount`, `remarks`,
+`createdAt`), and `status` tracks `"Active"` | `"Released"` | `"Voided"`. Two
+read endpoints expose the full set, which previously had no representation at
+all — only currently-pledged loans were reachable, so a released re-pledge
+vanished from the UI:
+- `GET /:id/bank-pledge/history` — every record for one loan, newest first.
+- `GET /bank-pledges/history` — records across all loans, branch-scoped.
 
 **Loan status lifecycle flags** — `isDueSoon`/`isOverdue`/`isDefaulted`/
 `daysOverdue` are computed fresh on every loan read (`enrichStatusFlags` in
@@ -864,20 +949,138 @@ one stage at a time:
 - `POST /:id/auction/schedule` — `{ "auctionDate", "referenceNumber"? }`;
   requires stage `"NoticeIssued"`; advances to `"AuctionScheduled"`.
 - `POST /:id/auction/sale` — `{ "saleAmount", "auctionExpenses"? }`;
-  requires stage `"AuctionScheduled"`; computes and persists
-  `surplusShortfall = saleAmount - auctionExpenses -
-  loan.totalOutstandingBalance`, advances to `"Auctioned"`, and sets
-  `loan.status: "Auctioned"` + zeroes `outstandingAmount` (same end effect
-  as the old one-shot endpoint).
-- `POST /:id/auction/settle` — `{ "settlementStatus": "SettledToCustomer"
-  | "SettledToLoanCo" }`; requires stage `"Auctioned"`; advances to the
-  terminal `"Settled"` stage.
-- `GET /:id/auction` — returns the full `AuctionRecord` (404
-  `ErrAuctionNotFound` if the loan was never marked eligible) including its
-  `notices` array.
+  requires stage `"AuctionScheduled"`; advances to `"Auctioned"`. **The sale
+  amount now moves real money** (previously it was captured and discarded —
+  the balance was forced to zero and no cash entry was created at all, so
+  money the branch received never appeared in the books):
+  - Net proceeds (`saleAmount - auctionExpenses`) are booked as a cash-in
+    `CashMovement` (`source: "Auction"`).
+  - Those proceeds are applied against the debt through the ordinary payment
+    waterfall (fee → penal → interest → principal) and logged as a
+    `LoanPayment` of type `"Auction Sale"`. That type is deliberately excluded
+    from `isCashPaymentType`, since the cash-in is booked directly here —
+    treating it as cash-bearing again would double-count the till.
+  - `surplusShortfall = netProceeds - loan.totalOutstandingBalance` is kept as
+    the informational snapshot it always was.
+  - **Covered the debt** → `loan.status: "Closed"`, and any excess is recorded
+    as `surplusPayableAmount` awaiting an explicit disposition.
+  - **Did NOT cover it** → `loan.status: "Auctioned - Balance Due"` with the
+    real remaining balance intact, and a `"Shortfall"` decision request is
+    raised automatically. The loan is NOT closed; the old behavior closed such
+    loans anyway, silently erasing money the customer still owed.
+  - The whole operation runs in one transaction, so a failure part-way cannot
+    leave gold sold with no record of the proceeds.
+- `POST /:id/auction/settle` — `{ "disposition": "RefundedToCustomer" |
+  "RecordedAsIncome", "remarks"? }`. This is now specifically the **surplus
+  disposition** step, reachable only when the sale cleared the debt in full;
+  `"settlementStatus"` is still accepted as an alias for the field so older
+  clients are not hard-broken. Requires stage `"Auctioned"` and an undisposed
+  `surplusPayableAmount > 0.01`.
+  - `"RefundedToCustomer"` books a cash-out for the surplus and stores
+    `surplusPaidOutMovementId`; sets `finalSettlementStatus:
+    "SettledToCustomer"`.
+  - `"RecordedAsIncome"` books NO cash-out — the full net proceeds already
+    entered the till at sale time, so a second movement would count the same
+    rupees twice — and requires `remarks` (400
+    `ErrSettlementRemarksRequired`). Sets `"SettledToLoanCo"`.
+  - A disposition can only be recorded once (409 `ErrSurplusAlreadyDisposed`),
+    so a surplus can never be paid out twice. 400
+    `ErrAuctionBalanceDueCannotSettle` if the loan is `"Auctioned - Balance
+    Due"` — that case goes through the shortfall decision instead.
+- `GET /:id/auction` — returns the loan's ACTIVE `AuctionRecord` (404
+  `ErrAuctionNotFound` if none is live) including its `notices`, `events` and
+  `decisionRequests` arrays.
+- `GET /:id/auction/history` — every case ever opened against the loan.
+- `GET /auctions/concluded` — concluded cases (`"Settled"`/`"Withdrawn"`)
+  across all loans, branch-scoped. Backs the Auctions page's History tab.
 
 Every stage-advance call mismatched against the case's current stage
 returns 400 `ErrAuctionWrongStage`.
+
+**Auction routes are role-restricted.** All `/:id/auction*` routes carry an
+additional `platform.RequireAnyRole("Administrator", "Management", "Branch
+Manager", "Auction Administrator")` guard ON TOP of the existing `loans` CRUD
+permission. The permissions table is resource-grained and `"loans"` also covers
+payments and ornaments, so a Cashier or Loan Operator legitimately holds
+`loans:update` in order to take payments — but deciding whether a customer
+permanently loses their pledged gold is not the same authority. The guard is
+scoped to these routes specifically; a group-level one would strip Cashier
+access to payments. Blocked roles get 403.
+
+**Multiple auction attempts per loan.** `AuctionRecord.loanId` is no longer
+uniquely indexed. Only one case may be ACTIVE at a time (any stage other than
+`"Settled"`/`"Withdrawn"`), enforced by a PARTIAL unique index created in
+`cmd/migrate` — application-level checks alone are racy, since two concurrent
+requests can both read "no active case" and both insert. The old
+"one case per loan, forever" rule left a loan permanently unauctionable once a
+case had been withdrawn: if the customer later defaulted again, no new case
+could be opened. A unique-violation is translated back to 400
+`ErrAuctionAlreadyStarted` so the API response stays clean.
+
+Migration note: `loan.RelaxAuctionLoanUniqueIndex` must run BEFORE
+`AutoMigrate` (GORM never drops an index it created, so the old constraint
+would otherwise survive and keep rejecting the second insert regardless of the
+struct tag), and `loan.CreateAuctionPartialIndexes` AFTER it (the predicates
+reference columns AutoMigrate creates). Both are wired into `main.go` and
+`cmd/migrate`, and both are idempotent. **No data is dropped** — only an index.
+
+**Repayment during an auction changes its outcome.** `RecordPayment` now checks
+for a live auction case (with a `SELECT ... FOR UPDATE` row lock, so a
+concurrent auction action cannot clobber the write):
+- **Loan cleared in full** → the case is auto-concluded as `stage: "Settled"`,
+  `finalSettlementStatus: "SettledByRepayment"`. The customer rescued their
+  gold; nobody should have to notice that manually.
+- **Part-payment, loan still open** → a `"PartialRepayment"` decision request
+  is raised and the auction **FREEZES**. `notice`, `schedule` and `sale` all
+  return 409 `ErrAuctionDecisionPending` while it is open. This is the central
+  safety guarantee of the auction rework: gold cannot be sold out from under a
+  customer whose payment is still under review. The system deliberately does
+  NOT auto-withdraw — a part-payment is not its call to interpret.
+
+**Auction decision requests** (`AuctionDecisionRequest`) are escalations the
+system raises, never staff, so a decision cannot be quietly skipped. One table
+serves both kinds via a `kind` field, with per-kind validation of which
+outcomes are legal (a shortfall can never be closed as "keep in auction"). At
+most one `"Pending"` request per (case, kind), enforced by a second partial
+unique index; a further part-payment updates the existing one in place.
+- `GET /auctions/decisions/pending` — the open queue, branch-scoped.
+- `POST /:id/auction/decision` — `{ "requestId", "decision", "remarks"? }`.
+  - `kind: "PartialRepayment"` → `"KeepInAuction"` (un-freezes, continues from
+    the current stage) or `"RemovedFromAuction"` (case → `"Withdrawn"`, loan
+    reverts to its normally-derived status). Either Auction Administrator or
+    Branch Manager may decide — whoever acts first, so gold is never stuck
+    awaiting two signatures.
+  - `kind: "Shortfall"` → `"PursueBalance"` (loan → `"Overdue"`, which resumes
+    normal collection AND interest accrual through the existing path) or
+    `"WriteOff"` (balance cleared via a non-cash `"Auction Write-Off"`
+    `LoanPayment` — which unlike `"Waiver"` CAN reach principal, since after
+    the gold is sold what is being forgiven is principal — loan → `"Closed"`,
+    case → `"Settled"` with `finalSettlementStatus: "WrittenOff"`).
+    **Only Branch Manager / Management / Administrator may decide this**; the
+    Auction Administrator raises it but gets 403
+    `ErrShortfallAuthorityRequired`. Enforced in the service layer, not just
+    the UI, because Auction Administrator does pass the route guard. `remarks`
+    are mandatory (400 `ErrDecisionRemarksRequired`).
+
+**`"Auctioned - Balance Due"` deliberately does not accrue interest.**
+`projectAccrual` only accrues for `Active`/`DueSoon`/`Overdue`, so a shortfall
+balance sits frozen at its post-sale figure while the decision is outstanding —
+the manager judges a stable number rather than one moving underneath them.
+Choosing `"PursueBalance"` moves the loan to `"Overdue"`, which resumes accrual
+through the ordinary path with no separate accrual rule.
+
+**Auction audit trail.** Each case carries an append-only `events` array
+(`AuctionEvent`: `action`, `actorEmployeeId` (nil for system-generated),
+`actorRole`, `remarks`, `createdAt`). Notices already covered what the customer
+was told; who marked a case eligible, scheduled it, recorded the sale, or
+settled it previously left no trace at all.
+
+**Customer notifications at every step.** Previously only notice-issuing
+messaged the customer. `MarkAuctionEligible`, `ScheduleAuction`,
+`RecordAuctionSale`, every decision outcome, both surplus dispositions, and the
+auto-settle-by-repayment path all now send a WhatsApp message via
+`notifyCustomer` (log-and-continue — a delivery failure never fails the
+financial operation it describes).
 
 **Extension & release requests** (`LoanRequest`, the "Extensions & Release"
 page — `frontend/components/Requests.tsx`). Staff log these in person on the
@@ -999,14 +1202,21 @@ preloaded objects from their own APIs above):
 | GET | `/api/v1/loans/approval-limits/loan-operator` | Get the current hard-enforced Loan Operator approval limit | — |
 | PUT | `/api/v1/loans/approval-limits/loan-operator` | Set the Loan Operator approval limit (Employees page's "Roles" panel) | `{ "maxAmount" }` |
 | POST | `/api/v1/loans/:id/payments` | Record a payment (receiving employeeId comes from the JWT, not the body). `type` still accepts the full original set server-side (`"Interest"`/`"Principal"`/`"Partial"`/`"Full Settlement"`/`"Adjustment"`/`"Waiver"`), but `PaymentModal.tsx` now always sends `"Partial"` — its own type picker was removed in favor of a single Amount field, always allocated processing fee → penal interest → interest → principal (see `allocatePayment`'s `Partial` case). `processingFee` is an optional new charge — added to `Loan.OutstandingProcessingFee` *before* `amount` is allocated, so this same payment's `amount` clears it first (highest priority in the waterfall); it is **not** extra cash on top of `amount` — `amount` is the total cash received either way | `{ "amount", "type", "processingFee"?, "paidOn" }` |
-| POST | `/api/v1/loans/:id/bank-pledge` | Record a bank pledge | `{ "bankName", "pledgedAmount", "pledgeDate", "bankId"?, "bankInterestRate"?, "referenceNumber"?, "bankPledgeDueDate"? }` |
-| PUT | `/api/v1/loans/:id/bank-pledge/:pledgeId/release` | Release a bank pledge | — |
-| GET | `/api/v1/loans/:id/auction` | Get the loan's auction case (notice history included) | — |
-| POST | `/api/v1/loans/:id/auction/eligible` | Start the auction case — requires `isDefaulted` | — |
+| POST | `/api/v1/loans/:id/bank-pledge` | Record a bank pledge. `cashTreatment` omitted ⇒ `"RecordOnly"` (no cash effect); only an explicit `"CashIn"` books money | `{ "bankName", "pledgedAmount", "pledgeDate", "bankId"?, "bankInterestRate"?, "referenceNumber"?, "bankPledgeDueDate"?, "cashTreatment"?: "CashIn" \| "RecordOnly" }` |
+| PUT | `/api/v1/loans/:id/bank-pledge/:pledgeId/release` | Release a bank pledge. Cash effect mirrors the pledge's `cashTreatment` — a `RecordOnly` pledge releases with no cash movement | — |
+| PUT | `/api/v1/loans/:id/bank-pledge/:pledgeId/void` | Cancel a pledge recorded in error — the only way to correct the immutable `cashTreatment`. Administrator / Management / Branch Manager only | `{ "reason" }` |
+| GET | `/api/v1/loans/:id/bank-pledge/history` | Every re-pledge for one loan, released and voided included, each with its audit trail | — |
+| GET | `/api/v1/loans/bank-pledges/history` | Re-pledge records across all loans, branch-scoped | — |
+| GET | `/api/v1/loans/:id/auction` | Get the loan's ACTIVE auction case (notices, events, decision requests included) | — |
+| GET | `/api/v1/loans/:id/auction/history` | Every auction case ever opened against the loan | — |
+| GET | `/api/v1/loans/auctions/concluded` | Concluded cases (`Settled`/`Withdrawn`) across all loans, branch-scoped | — |
+| GET | `/api/v1/loans/auctions/decisions/pending` | Open decision escalations awaiting a human ruling | — |
+| POST | `/api/v1/loans/:id/auction/eligible` | Start an auction case — requires `isDefaulted` and no other case currently active | — |
 | POST | `/api/v1/loans/:id/auction/notice` | Log a customer notice on all 3 channels (SMS, WhatsApp — sent live, Registered Post), advances to `NoticeIssued` | `{ "remarks"? }` |
 | POST | `/api/v1/loans/:id/auction/schedule` | Record the auction date/reference, advances to `AuctionScheduled` | `{ "auctionDate", "referenceNumber"? }` |
-| POST | `/api/v1/loans/:id/auction/sale` | Record the sale, compute surplus/shortfall, advances to `Auctioned` | `{ "saleAmount", "auctionExpenses"? }` |
-| POST | `/api/v1/loans/:id/auction/settle` | Record final settlement, advances to `Settled` | `{ "settlementStatus": "SettledToCustomer" \| "SettledToLoanCo" }` |
+| POST | `/api/v1/loans/:id/auction/sale` | Record the sale: books net proceeds as cash-in, applies them via the payment waterfall, advances to `Auctioned`. Closes the loan if covered; else `Auctioned - Balance Due` + raises a Shortfall decision | `{ "saleAmount", "auctionExpenses"? }` |
+| POST | `/api/v1/loans/:id/auction/settle` | Dispose of the surplus and close the case. Full-recovery cases only; one-shot | `{ "disposition": "RefundedToCustomer" \| "RecordedAsIncome", "remarks"? }` |
+| POST | `/api/v1/loans/:id/auction/decision` | Resolve an escalation. PartialRepayment ⇒ `KeepInAuction`/`RemovedFromAuction` (Auction Admin or Branch Manager); Shortfall ⇒ `PursueBalance`/`WriteOff` (Branch Manager / Management / Administrator only) | `{ "requestId", "decision", "remarks"? }` |
 | POST | `/api/v1/loans/:id/extension-request` | Log a request to push the loan's due date out | `{ "months", "detail"?, "requestedBy"? }` |
 | POST | `/api/v1/loans/:id/release-request` | Log a request to close the loan / release the gold | `{ "detail"?, "requestedBy"? }` |
 | GET | `/api/v1/loans/requests` | List/filter extension &amp; release requests | query: `status`, `loanId` |
@@ -1014,7 +1224,7 @@ preloaded objects from their own APIs above):
 | PUT | `/api/v1/loans/requests/:requestId/verify` | Update a **Release** request's verification checklist/charges | `{ "paymentVerified"?, "packetVerified"?, "bankPledgeVerified"?, "customerConfirmed"?, "verificationNotes"?, "charges"? }` |
 | POST | `/api/v1/loans/requests/:requestId/approve` | Advance/reject a **Release** request's Manager→Management chain (unchanged 2-step chain — not part of the 4-stage loan sanction rework); acting employeeId comes from the JWT, not the body | `{ "stage": "Manager" \| "Management", "action": "Approved" \| "Rejected", "remarks"? }` |
 | POST | `/api/v1/loans/:id/complete-release` | Hand the gold back — only once settlement is fully paid &amp; bank pledge released (acting employeeId comes from the JWT, not the body) | *(empty)* |
-| GET | `/api/v1/customers/:id/profile360` | Customer 360°: every loan (ornaments/payments/bank pledges) + auction history + running totals for one customer, in one call. Lives on `loanHandler` (see `internal/loan/service.go`'s `GetCustomer360`) to avoid a customer↔loan import cycle, mounted under `/customers` in `main.go` | — |
+| GET | `/api/v1/customers/:id/profile360` | Customer 360°: every loan (ornaments/payments/bank pledges) + auction history + running totals for one customer, in one call. Lives on `loanHandler` (see `internal/loan/service.go`'s `GetCustomer360`) to avoid a customer↔loan import cycle, mounted under `/customers` in `main.go`. Optional `?from=YYYY-MM-DD&to=YYYY-MM-DD` restricts it to loans whose `openedDate` falls in that inclusive window (both bounds optional, `to` must not precede `from`); the loan list, ornaments/payments/bank-pledge/auction sections and all running totals are recomputed over the narrowed set | — |
 
 `RecordBankPledge`/`ReleaseBankPledge` also fire a matching packet movement
 (see the Packets API below) on the loan's active packet — `Bank Pledged`

@@ -78,6 +78,48 @@ func RequirePermission(checker PermissionChecker, resource, action string) gin.H
 	}
 }
 
+// RequireAnyRole restricts a route to an explicit allowlist of roles,
+// independently of the permissions table. Must run after AuthMiddleware,
+// which is what sets "role" on the context.
+//
+// This exists alongside RequirePermission rather than replacing it because
+// the permissions table is resource-grained ("loans", "read"/"update"), and
+// several distinct sub-workflows currently share the "loans" resource key —
+// payments, approvals, bank pledges and auctions all sit under it. Auction
+// actions decide whether a customer permanently loses their pledged gold, so
+// they need a tighter gate than "may update loans", which a Cashier or Loan
+// Operator legitimately holds for taking payments. Attach BOTH: the CRUD
+// permission still applies, and this narrows it further.
+//
+// Sensitive actions must ALSO be checked in the service layer where the
+// distinction is finer than a whole route (e.g. an Auction Administrator may
+// reach the auction routes but must not decide a shortfall write-off).
+func RequireAnyRole(roles ...string) gin.HandlerFunc {
+	allowed := make(map[string]bool, len(roles))
+	for _, r := range roles {
+		allowed[r] = true
+	}
+	return func(c *gin.Context) {
+		roleVal, ok := c.Get("role")
+		if !ok {
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "not authenticated"})
+			return
+		}
+		role, ok := roleVal.(string)
+		if !ok {
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "not authenticated"})
+			return
+		}
+		if !allowed[role] {
+			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{
+				"error": "your role does not have access to auction management",
+			})
+			return
+		}
+		c.Next()
+	}
+}
+
 // CRUDPermissions returns the four RequirePermission middlewares
 // (create/read/update/delete) for a given resource, so each domain
 // package's routes.go can attach the right one to each verb with a minimal,

@@ -61,6 +61,14 @@ func main() {
 		log.Fatalf("gold rate legacy column migration failed: %v", err)
 	}
 
+	// The auction uniqueness rule must be relaxed BEFORE AutoMigrate runs:
+	// GORM never drops an index it once created, so the old "one auction per
+	// loan, ever" constraint would otherwise survive and keep rejecting a
+	// second auction attempt regardless of what the struct tags now say.
+	if err := loan.RelaxAuctionLoanUniqueIndex(db); err != nil {
+		log.Fatalf("auction unique index relaxation failed: %v", err)
+	}
+
 	if err := db.AutoMigrate(
 		&branch.Branch{},
 		&scheme.Scheme{},
@@ -78,6 +86,14 @@ func main() {
 		&loan.LoanApproval{},
 		&loan.LoanPayment{},
 		&loan.BankPledgeRecord{},
+		&loan.BankPledgeEvent{},
+		// The auction tables were previously absent from this list and only
+		// migrated by the API server's own AutoMigrate — added here so
+		// `go run ./cmd/migrate` alone produces a complete schema.
+		&loan.AuctionRecord{},
+		&loan.AuctionNotice{},
+		&loan.AuctionEvent{},
+		&loan.AuctionDecisionRequest{},
 		&loan.LoanRequest{},
 		&loan.RequestApproval{},
 		&loan.ApprovalLimit{},
@@ -106,6 +122,12 @@ func main() {
 
 	if err := loan.SeedLoanOperatorLimit(db); err != nil {
 		log.Fatalf("loan operator approval limit seeding failed: %v", err)
+	}
+
+	// Must run AFTER AutoMigrate: the partial indexes reference the stage/kind
+	// columns, which AutoMigrate is what creates.
+	if err := loan.CreateAuctionPartialIndexes(db); err != nil {
+		log.Fatalf("auction partial index creation failed: %v", err)
 	}
 
 	if err := backfillBranches(db); err != nil {

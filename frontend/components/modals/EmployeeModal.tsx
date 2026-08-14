@@ -8,6 +8,7 @@ import { ApiError } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
 import { listActiveBranches, type BranchView } from "@/lib/branchApi";
 import { createEmployee, updateEmployee, type EmployeeView } from "@/lib/employeeApi";
+import { Select } from "@/components/Select";
 
 /* Canonical role whitelist — MUST stay identical to `ValidRoles` in
  * backend/internal/employee/service.go. There is no shared codegen between
@@ -16,6 +17,7 @@ const ROLES = [
   "Administrator", "Management", "Branch Manager", "Loan Operator", "Cashier",
   "Accountant", "Collection Staff", "Auction Administrator", "Auditor",
 ];
+const ROLE_OPTIONS = ROLES.map((r) => ({ value: r, label: r }));
 
 const NAME_RE = /^[A-Za-z][A-Za-z\s.'-]*$/;
 const PHONE_RE = /^\d{10}$/;
@@ -142,23 +144,25 @@ export function EmployeeModalContent({ employee, onSaved }: { employee?: Employe
         </div>
         <div className="frow c2">
           <div><label className="f">Role *</label>
-            <select className="inp" value={role} onChange={(e) => setRole(e.target.value)}>
-              <option value="">Select role…</option>
-              {ROLES.map((r) => <option key={r}>{r}</option>)}
-            </select></div>
+            <Select options={ROLE_OPTIONS} value={role} onChange={setRole} placeholder="Select role…" /></div>
           <div><label className="f">Branch *</label>
             {isAdmin ? (
-              <select className="inp" value={branchId} onChange={(e) => setBranchId(e.target.value ? Number(e.target.value) : "")}>
-                <option value="">Select branch…</option>
-                {branches.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
-              </select>
+              <Select
+                options={branches.map((b) => ({ value: String(b.id), label: b.name }))}
+                value={branchId ? String(branchId) : ""}
+                onChange={(v) => setBranchId(v ? Number(v) : "")}
+                placeholder="Select branch…"
+              />
             ) : (
               // Non-admins are confined to their own branch — the backend
               // enforces this regardless, so the field is locked rather than
               // offering a choice they can't actually use.
-              <select className="inp" value={branchId} disabled>
-                <option value={branchId || ""}>{employee?.branchName || "Your branch"}</option>
-              </select>
+              <Select
+                options={[{ value: String(branchId || ""), label: employee?.branchName || "Your branch" }]}
+                value={String(branchId || "")}
+                onChange={() => {}}
+                disabled
+              />
             )}</div>
         </div>
         {!employee && (

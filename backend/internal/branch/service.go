@@ -67,8 +67,10 @@ func (s *Service) Create(in CreateInput) (*Branch, error) {
 	return rec, nil
 }
 
-func (s *Service) List() ([]Branch, error) {
-	return s.repo.FindAll()
+// List returns branches, optionally scoped to a single branchID (nil = all,
+// used for Administrator).
+func (s *Service) List(branchID *uint) ([]Branch, error) {
+	return s.repo.FindAll(branchID)
 }
 
 func (s *Service) Get(id uint) (*Branch, error) {

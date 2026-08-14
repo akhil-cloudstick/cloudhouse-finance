@@ -39,8 +39,20 @@ func parseDate(s string) (time.Time, error) {
 func statusForErr(err error) int {
 	switch {
 	case errors.Is(err, ErrNotFound), errors.Is(err, ErrOrnamentNotFound), errors.Is(err, ErrRequestNotFound),
-		errors.Is(err, ErrAuctionNotFound):
+		errors.Is(err, ErrAuctionNotFound), errors.Is(err, ErrPledgeNotFound),
+		errors.Is(err, ErrAuctionDecisionNotFound):
 		return http.StatusNotFound
+	// A role that reached the route but may not perform this specific action —
+	// notably an Auction Administrator attempting a shortfall write-off, which
+	// only Branch Manager/Management/Administrator may decide.
+	case errors.Is(err, ErrShortfallAuthorityRequired):
+		return http.StatusForbidden
+	// The auction is frozen pending a repayment decision. 409 rather than 400:
+	// the request is well-formed, it simply conflicts with the case's current
+	// state, and retrying after the decision is made will succeed.
+	case errors.Is(err, ErrAuctionDecisionPending), errors.Is(err, ErrAuctionDecisionAlreadyDecided),
+		errors.Is(err, ErrSurplusAlreadyDisposed), errors.Is(err, ErrPledgeNotActive):
+		return http.StatusConflict
 	case errors.Is(err, ErrBranchInvalid), errors.Is(err, ErrCustomerInvalid),
 		errors.Is(err, ErrCustomerNotVerified), errors.Is(err, ErrSchemeInvalid),
 		errors.Is(err, ErrNoOrnaments), errors.Is(err, ErrNoGoldRate),
@@ -57,7 +69,11 @@ func statusForErr(err error) int {
 		errors.Is(err, ErrOutstandingBalanceRemains), errors.Is(err, ErrBankPledgeStillActive),
 		errors.Is(err, ErrLoanNotDefaulted), errors.Is(err, ErrAuctionAlreadyStarted),
 		errors.Is(err, ErrAuctionWrongStage), errors.Is(err, ErrExceedsApprovalLimit),
-		errors.Is(err, ErrAwaitingOperatorVerification):
+		errors.Is(err, ErrAwaitingOperatorVerification),
+		errors.Is(err, ErrInvalidCashTreatment), errors.Is(err, ErrVoidReasonRequired),
+		errors.Is(err, ErrInvalidAuctionDecision), errors.Is(err, ErrAuctionBalanceDueCannotSettle),
+		errors.Is(err, ErrNoSurplusToDispose), errors.Is(err, ErrInvalidSurplusDisposition),
+		errors.Is(err, ErrSettlementRemarksRequired), errors.Is(err, ErrDecisionRemarksRequired):
 		return http.StatusBadRequest
 	case errors.Is(err, ErrReleaseNotApproved):
 		return http.StatusNotFound
@@ -334,17 +350,40 @@ func (h *Handler) Approve(c *gin.Context) {
 	c.JSON(http.StatusOK, rec)
 }
 
-// GetCustomer360 handles GET /customers/:id/profile360 — mounted directly
-// on the customers group in main.go (not loan's own route group) since the
-// URL is customer-shaped, even though the aggregation logic lives in
-// internal/loan (see Service.GetCustomer360's doc comment for why).
+// GetCustomer360 handles GET /customers/:id/profile360?from=&to= — mounted
+// directly on the customers group in main.go (not loan's own route group)
+// since the URL is customer-shaped, even though the aggregation logic lives
+// in internal/loan (see Service.GetCustomer360's doc comment for why).
+// from/to are optional inclusive YYYY-MM-DD bounds on each loan's opened
+// date; omitting both returns the customer's full history.
 func (h *Handler) GetCustomer360(c *gin.Context) {
 	customerID, err := idParam(c, "id")
 	if err != nil {
 		fail(c, http.StatusBadRequest, err)
 		return
 	}
-	rec, err := h.svc.GetCustomer360(customerID)
+	var from, to *time.Time
+	if v := c.Query("from"); v != "" {
+		parsed, err := parseDate(v)
+		if err != nil {
+			fail(c, http.StatusBadRequest, errors.New("invalid from: expected YYYY-MM-DD"))
+			return
+		}
+		from = &parsed
+	}
+	if v := c.Query("to"); v != "" {
+		parsed, err := parseDate(v)
+		if err != nil {
+			fail(c, http.StatusBadRequest, errors.New("invalid to: expected YYYY-MM-DD"))
+			return
+		}
+		to = &parsed
+	}
+	if from != nil && to != nil && to.Before(*from) {
+		fail(c, http.StatusBadRequest, errors.New("invalid range: to is before from"))
+		return
+	}
+	rec, err := h.svc.GetCustomer360(customerID, from, to)
 	if err != nil {
 		fail(c, statusForErr(err), err)
 		return
@@ -465,18 +504,97 @@ func (h *Handler) GetAuction(c *gin.Context) {
 	c.JSON(http.StatusOK, rec)
 }
 
+// actorPtr returns the authenticated caller's employee ID as a pointer (nil if
+// absent) alongside their role, for the auction/pledge audit trails. Identity
+// always comes from the JWT, never the request body — see
+// platform.ActorFromContext.
+func actorPtr(c *gin.Context) (*uint, string) {
+	id, role := platform.ActorFromContext(c)
+	if id == 0 {
+		return nil, role
+	}
+	return &id, role
+}
+
 func (h *Handler) MarkAuctionEligible(c *gin.Context) {
 	loanID, err := idParam(c, "id")
 	if err != nil {
 		fail(c, http.StatusBadRequest, err)
 		return
 	}
-	rec, err := h.svc.MarkAuctionEligible(loanID, platform.GetBranchScope(c))
+	actorID, actorRole := actorPtr(c)
+	rec, err := h.svc.MarkAuctionEligible(loanID, platform.GetBranchScope(c), actorID, actorRole)
 	if err != nil {
 		fail(c, statusForErr(err), err)
 		return
 	}
 	c.JSON(http.StatusCreated, rec)
+}
+
+// GetAuctionHistory returns every auction case ever opened against a loan,
+// including concluded ones — previously only the single current case was
+// reachable, so past attempts were invisible.
+func (h *Handler) GetAuctionHistory(c *gin.Context) {
+	loanID, err := idParam(c, "id")
+	if err != nil {
+		fail(c, http.StatusBadRequest, err)
+		return
+	}
+	recs, err := h.svc.GetAuctionHistory(loanID, platform.GetBranchScope(c))
+	if err != nil {
+		fail(c, statusForErr(err), err)
+		return
+	}
+	c.JSON(http.StatusOK, recs)
+}
+
+// ListConcludedAuctions backs the Auctions screen's History tab.
+func (h *Handler) ListConcludedAuctions(c *gin.Context) {
+	recs, err := h.svc.ListConcludedAuctions(platform.GetBranchScope(c))
+	if err != nil {
+		fail(c, statusForErr(err), err)
+		return
+	}
+	c.JSON(http.StatusOK, recs)
+}
+
+// ListPendingAuctionDecisions returns escalations awaiting a human decision.
+func (h *Handler) ListPendingAuctionDecisions(c *gin.Context) {
+	reqs, err := h.svc.ListPendingAuctionDecisions(platform.GetBranchScope(c))
+	if err != nil {
+		fail(c, statusForErr(err), err)
+		return
+	}
+	c.JSON(http.StatusOK, reqs)
+}
+
+type auctionDecisionRequestBody struct {
+	RequestID uint   `json:"requestId" binding:"required"`
+	Decision  string `json:"decision" binding:"required"`
+	Remarks   string `json:"remarks"`
+}
+
+// ResolveAuctionDecision applies a human decision to an escalation — keep/
+// remove for a part-payment, or write-off/pursue for a post-auction shortfall.
+// Role authority is enforced in the service, since it differs per kind.
+func (h *Handler) ResolveAuctionDecision(c *gin.Context) {
+	loanID, err := idParam(c, "id")
+	if err != nil {
+		fail(c, http.StatusBadRequest, err)
+		return
+	}
+	var req auctionDecisionRequestBody
+	if err := c.ShouldBindJSON(&req); err != nil {
+		fail(c, http.StatusBadRequest, err)
+		return
+	}
+	actorID, actorRole := actorPtr(c)
+	rec, err := h.svc.ResolveAuctionDecision(loanID, req.RequestID, platform.GetBranchScope(c), req.Decision, req.Remarks, actorID, actorRole)
+	if err != nil {
+		fail(c, statusForErr(err), err)
+		return
+	}
+	c.JSON(http.StatusOK, rec)
 }
 
 // auctionNoticeRequest no longer takes a method — IssueAuctionNotice always
@@ -497,7 +615,8 @@ func (h *Handler) IssueAuctionNotice(c *gin.Context) {
 		fail(c, http.StatusBadRequest, err)
 		return
 	}
-	rec, err := h.svc.IssueAuctionNotice(loanID, platform.GetBranchScope(c), req.Remarks)
+	actorID, actorRole := actorPtr(c)
+	rec, err := h.svc.IssueAuctionNotice(loanID, platform.GetBranchScope(c), req.Remarks, actorID, actorRole)
 	if err != nil {
 		fail(c, statusForErr(err), err)
 		return
@@ -526,7 +645,8 @@ func (h *Handler) ScheduleAuction(c *gin.Context) {
 		fail(c, http.StatusBadRequest, errors.New("invalid auctionDate: expected YYYY-MM-DD"))
 		return
 	}
-	rec, err := h.svc.ScheduleAuction(loanID, platform.GetBranchScope(c), auctionDate, req.ReferenceNumber)
+	actorID, actorRole := actorPtr(c)
+	rec, err := h.svc.ScheduleAuction(loanID, platform.GetBranchScope(c), auctionDate, req.ReferenceNumber, actorID, actorRole)
 	if err != nil {
 		fail(c, statusForErr(err), err)
 		return
@@ -550,7 +670,8 @@ func (h *Handler) RecordAuctionSale(c *gin.Context) {
 		fail(c, http.StatusBadRequest, err)
 		return
 	}
-	rec, err := h.svc.RecordAuctionSale(loanID, platform.GetBranchScope(c), req.SaleAmount, req.AuctionExpenses)
+	actorID, actorRole := actorPtr(c)
+	rec, err := h.svc.RecordAuctionSale(loanID, platform.GetBranchScope(c), req.SaleAmount, req.AuctionExpenses, actorID, actorRole)
 	if err != nil {
 		fail(c, statusForErr(err), err)
 		return
@@ -558,8 +679,15 @@ func (h *Handler) RecordAuctionSale(c *gin.Context) {
 	c.JSON(http.StatusOK, rec)
 }
 
+// auctionSettleRequest now carries the SURPLUS DISPOSITION rather than a
+// generic settlement status: settlement is only reachable when the sale
+// covered the debt, and the only remaining question is what happens to the
+// money left over, which belongs to the customer. "settlementStatus" is still
+// accepted as an alias so an older client is not hard-broken.
 type auctionSettleRequest struct {
-	SettlementStatus string `json:"settlementStatus" binding:"required"`
+	Disposition      string `json:"disposition"`
+	SettlementStatus string `json:"settlementStatus"`
+	Remarks          string `json:"remarks"`
 }
 
 func (h *Handler) SettleAuction(c *gin.Context) {
@@ -573,7 +701,12 @@ func (h *Handler) SettleAuction(c *gin.Context) {
 		fail(c, http.StatusBadRequest, err)
 		return
 	}
-	rec, err := h.svc.SettleAuction(loanID, platform.GetBranchScope(c), req.SettlementStatus)
+	disposition := req.Disposition
+	if disposition == "" {
+		disposition = req.SettlementStatus
+	}
+	actorID, actorRole := actorPtr(c)
+	rec, err := h.svc.SettleAuction(loanID, platform.GetBranchScope(c), disposition, req.Remarks, actorID, actorRole)
 	if err != nil {
 		fail(c, statusForErr(err), err)
 		return
@@ -591,6 +724,13 @@ type bankPledgeRequest struct {
 	BankInterestRate  float64 `json:"bankInterestRate"`
 	ReferenceNumber   string  `json:"referenceNumber"`
 	BankPledgeDueDate string  `json:"bankPledgeDueDate"`
+
+	// CashTreatment: "CashIn" books the bank's advance into Cash-in-Hand,
+	// "RecordOnly" creates the record with no cash effect. OMITTED means
+	// RecordOnly — the safe default, so cash is only ever touched when the
+	// operator explicitly asks for it. An unrecognised value is rejected rather
+	// than being coerced, so a typo cannot silently suppress a real cash entry.
+	CashTreatment string `json:"cashTreatment"`
 }
 
 func (h *Handler) RecordBankPledge(c *gin.Context) {
@@ -618,6 +758,14 @@ func (h *Handler) RecordBankPledge(c *gin.Context) {
 		}
 		dueDate = &d
 	}
+	// Absent means "no cash effect". Deliberately NOT defaulted to CashIn: a
+	// caller that forgot the field should end up with a harmless book-keeping
+	// record, not an unintended movement of money into the till.
+	cashTreatment := req.CashTreatment
+	if cashTreatment == "" {
+		cashTreatment = BankPledgeCashTreatmentRecordOnly
+	}
+	actorID, actorRole := actorPtr(c)
 	rec, err := h.svc.RecordBankPledge(loanID, platform.GetBranchScope(c), BankPledgeInput{
 		BankID:            req.BankID,
 		BankName:          req.BankName,
@@ -626,6 +774,9 @@ func (h *Handler) RecordBankPledge(c *gin.Context) {
 		BankInterestRate:  req.BankInterestRate,
 		ReferenceNumber:   req.ReferenceNumber,
 		BankPledgeDueDate: dueDate,
+		CashTreatment:     cashTreatment,
+		ActorEmployeeID:   actorID,
+		ActorRole:         actorRole,
 	})
 	if err != nil {
 		fail(c, statusForErr(err), err)
@@ -645,12 +796,72 @@ func (h *Handler) ReleaseBankPledge(c *gin.Context) {
 		fail(c, http.StatusBadRequest, err)
 		return
 	}
-	rec, err := h.svc.ReleaseBankPledge(loanID, pledgeID, platform.GetBranchScope(c))
+	actorID, actorRole := actorPtr(c)
+	rec, err := h.svc.ReleaseBankPledge(loanID, pledgeID, platform.GetBranchScope(c), actorID, actorRole)
 	if err != nil {
 		fail(c, statusForErr(err), err)
 		return
 	}
 	c.JSON(http.StatusOK, rec)
+}
+
+type voidBankPledgeRequest struct {
+	Reason string `json:"reason" binding:"required"`
+}
+
+// VoidBankPledge cancels a re-pledge recorded in error. This is the only way to
+// correct a mis-chosen cash treatment, which is immutable by design — see
+// Service.VoidBankPledge.
+func (h *Handler) VoidBankPledge(c *gin.Context) {
+	loanID, err := idParam(c, "id")
+	if err != nil {
+		fail(c, http.StatusBadRequest, err)
+		return
+	}
+	pledgeID, err := idParam(c, "pledgeId")
+	if err != nil {
+		fail(c, http.StatusBadRequest, err)
+		return
+	}
+	var req voidBankPledgeRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		fail(c, http.StatusBadRequest, err)
+		return
+	}
+	actorID, actorRole := actorPtr(c)
+	rec, err := h.svc.VoidBankPledge(loanID, pledgeID, platform.GetBranchScope(c), req.Reason, actorID, actorRole)
+	if err != nil {
+		fail(c, statusForErr(err), err)
+		return
+	}
+	c.JSON(http.StatusOK, rec)
+}
+
+// GetBankPledgeHistory returns every re-pledge ever recorded against a loan,
+// released and voided ones included, each with its audit trail.
+func (h *Handler) GetBankPledgeHistory(c *gin.Context) {
+	loanID, err := idParam(c, "id")
+	if err != nil {
+		fail(c, http.StatusBadRequest, err)
+		return
+	}
+	recs, err := h.svc.GetBankPledgeHistory(loanID, platform.GetBranchScope(c))
+	if err != nil {
+		fail(c, statusForErr(err), err)
+		return
+	}
+	c.JSON(http.StatusOK, recs)
+}
+
+// ListBankPledgeHistory backs the Bank Re-Pledge screen's History tab, which
+// previously had no way to show anything but currently-pledged gold.
+func (h *Handler) ListBankPledgeHistory(c *gin.Context) {
+	recs, err := h.svc.ListBankPledgeHistory(platform.GetBranchScope(c))
+	if err != nil {
+		fail(c, statusForErr(err), err)
+		return
+	}
+	c.JSON(http.StatusOK, recs)
 }
 
 // --- Extension & release requests ------------------------------------------

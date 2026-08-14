@@ -10,7 +10,16 @@ function ResetPasswordForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
 
-  const [phone, setPhone] = useState(searchParams.get("phone") || "");
+  // The phone number is fixed to whatever "Forgot password" requested a code
+  // for — it must NOT be re-typable here. Previously this field was
+  // pre-filled from the query param but still a free-text input, so anyone
+  // could request a code for one number, then swap in a *different* target
+  // phone number on this page and submit an OTP against that account
+  // instead — turning "forgot my own password" into "reset anyone's
+  // password, given their phone number and a leaked/guessed code". Locking
+  // it read-only means this page can only ever act on the number the user
+  // actually requested a code for.
+  const phone = searchParams.get("phone") || "";
   const [otp, setOtp] = useState("");
   const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
@@ -24,7 +33,7 @@ function ResetPasswordForm() {
     setError(null);
 
     if (!phone.trim()) {
-      setError("Please enter your phone number.");
+      setError("No phone number to reset — go back and request a code first.");
       return;
     }
     if (!otp.trim()) {
@@ -70,6 +79,16 @@ function ResetPasswordForm() {
             </h1>
           </div>
 
+          {!phone.trim() ? (
+            <>
+              <p className="msg show" role="alert" style={{ position: "static", textAlign: "center" }}>
+                No phone number to reset — request a code first.
+              </p>
+              <div className="aux" style={{ justifyContent: "center", marginTop: 18 }}>
+                <a href="/forgot-password">← Request a reset code</a>
+              </div>
+            </>
+          ) : (
           <form noValidate onSubmit={handleSubmit}>
             <div className="field">
               <input
@@ -79,7 +98,9 @@ function ResetPasswordForm() {
                 autoComplete="tel"
                 required
                 value={phone}
-                onChange={(e) => setPhone(e.target.value)}
+                disabled
+                readOnly
+                title="This is the number the code was sent to and can't be changed here — go back to request a code for a different number."
               />
               <label htmlFor="phone">Phone number</label>
               <span className="bar"></span>
@@ -194,6 +215,7 @@ function ResetPasswordForm() {
               <a href="/login">← Back to login</a>
             </div>
           </form>
+          )}
         </main>
       </div>
     </div>

@@ -51,14 +51,18 @@ type RecordExpenseInput struct {
 	ReceiptImage string
 }
 
-// MovementService implements cash-movement business rules.
+// MovementService implements cash-movement business rules. It also carries
+// expenseRepo so it can satisfy loan.CashRecorder's mirrored-expense methods
+// (RecordBankPledgeExpense/RecordBankPledgeReleaseExpense) without loan
+// having to depend on a second cash sub-service.
 type MovementService struct {
-	repo       *MovementRepository
-	branchRepo *branch.Repository
+	repo        *MovementRepository
+	expenseRepo *ExpenseRepository
+	branchRepo  *branch.Repository
 }
 
-func NewMovementService(repo *MovementRepository, branchRepo *branch.Repository) *MovementService {
-	return &MovementService{repo: repo, branchRepo: branchRepo}
+func NewMovementService(repo *MovementRepository, expenseRepo *ExpenseRepository, branchRepo *branch.Repository) *MovementService {
+	return &MovementService{repo: repo, expenseRepo: expenseRepo, branchRepo: branchRepo}
 }
 
 func (s *MovementService) Record(in RecordMovementInput) (*CashMovement, error) {
@@ -208,10 +212,140 @@ func (s *MovementService) RecordLoanPaymentCashIn(loanID uint, loanNumber string
 	return rec.ID, nil
 }
 
-// DeleteCashMovement removes a cash movement outright (loan.CashRecorder,
-// called from loan.Service.ReleaseBankPledge to undo the cash-in recorded
-// when the gold was pledged) — unlike a reversing "out" entry, this keeps
-// Cash Movements showing only money that's still actually in/out.
+// RecordBankPledgeCashOut creates the cash-out movement for a loan's gold
+// being released/returned from a bank (loan.CashRecorder, called from
+// loan.Service.ReleaseBankPledge). It does NOT touch the original cash-in
+// movement recorded at pledge time — that stays as permanent history —
+// this books the release as its own, separately visible transaction.
+func (s *MovementService) RecordBankPledgeCashOut(loanID uint, bankName string, amount float64, occurredOn time.Time, branchID uint) (uint, error) {
+	rec := &CashMovement{
+		Type:     "out",
+		Purpose:  "Bank pledge release — " + bankName,
+		Bank:     bankName,
+		Amount:   amount,
+		BranchID: &branchID,
+	}
+	if occurredOn.IsZero() {
+		rec.OccurredOn = time.Now()
+	} else {
+		rec.OccurredOn = occurredOn
+	}
+	if err := s.repo.Create(rec); err != nil {
+		return 0, err
+	}
+	return rec.ID, nil
+}
+
+// RecordAuctionSaleCashIn creates the cash-in movement for the NET proceeds of
+// an auction — sale price less auction expenses (loan.CashRecorder, called
+// from loan.Service.RecordAuctionSale).
+//
+// Before this existed, an auction recorded no cash movement of any kind: staff
+// entered what the gold sold for, the loan balance was forced to zero, and
+// money the branch genuinely received never appeared in the books at all.
+//
+// Source is "Auction" rather than "Collection" so auction realisations can be
+// told apart from ordinary customer repayments in the Cash Movements table and
+// in reports — they are a fundamentally different event, being the proceeds of
+// selling a customer's asset rather than a payment made by them.
+func (s *MovementService) RecordAuctionSaleCashIn(loanID uint, loanNumber string, amount float64, branchID uint, occurredOn time.Time) (uint, error) {
+	rec := &CashMovement{
+		Type:     "in",
+		Source:   "Auction",
+		Purpose:  "Auction sale proceeds — " + loanNumber,
+		Amount:   amount,
+		BranchID: &branchID,
+	}
+	if occurredOn.IsZero() {
+		rec.OccurredOn = time.Now()
+	} else {
+		rec.OccurredOn = occurredOn
+	}
+	if err := s.repo.Create(rec); err != nil {
+		return 0, err
+	}
+	return rec.ID, nil
+}
+
+// RecordAuctionSurplusCashOut books the refund of an auction surplus back to
+// the customer (loan.CashRecorder, called from loan.Service.SettleAuction for
+// the RefundedToCustomer disposition only).
+//
+// Where gold fetched more than the debt, the excess is the customer's money.
+// The full net proceeds were already booked in by RecordAuctionSaleCashIn, so
+// this cash-out is what actually takes the surplus back out of the till when it
+// is handed over. Retaining the surplus as company income deliberately books
+// NO movement — the money is already in the till, and booking it again would
+// count the same rupees twice.
+func (s *MovementService) RecordAuctionSurplusCashOut(loanID uint, loanNumber string, amount float64, branchID uint, occurredOn time.Time) (uint, error) {
+	rec := &CashMovement{
+		Type:     "out",
+		Purpose:  "Auction surplus refunded to customer — " + loanNumber,
+		Amount:   amount,
+		BranchID: &branchID,
+	}
+	if occurredOn.IsZero() {
+		rec.OccurredOn = time.Now()
+	} else {
+		rec.OccurredOn = occurredOn
+	}
+	if err := s.repo.Create(rec); err != nil {
+		return 0, err
+	}
+	return rec.ID, nil
+}
+
+// RecordBankPledgeExpense mirrors a bank pledge's cash-in as an
+// auto-approved Expense entry (loan.CashRecorder, called from
+// loan.Service.RecordBankPledge) so the amount also shows up in the
+// Expenses register/reports. Mode is "Bank" (not "Cash") so it is excluded
+// from ExpenseRepository.SumCashByDate and doesn't double-count against the
+// Expected Cash in Hand figure, which already reflects the matching cash-in
+// movement.
+func (s *MovementService) RecordBankPledgeExpense(loanID uint, bankName string, amount float64, occurredOn time.Time, branchID uint) (uint, error) {
+	return s.recordSystemExpense("Bank Pledge", bankName, amount, occurredOn, branchID)
+}
+
+// RecordBankPledgeReleaseExpense mirrors a bank pledge's release/cash-out as
+// an auto-approved Expense entry (loan.CashRecorder, called from
+// loan.Service.ReleaseBankPledge), alongside RecordBankPledgeCashOut.
+func (s *MovementService) RecordBankPledgeReleaseExpense(loanID uint, bankName string, amount float64, occurredOn time.Time, branchID uint) (uint, error) {
+	return s.recordSystemExpense("Bank Pledge Release", bankName, amount, occurredOn, branchID)
+}
+
+// recordSystemExpense creates a pre-approved Expense row for a system-driven
+// event (as opposed to a manually entered one, which always starts
+// "Pending" — see ExpenseService.Record) since there's no staff member to
+// approve it and the amount is already validated by the caller.
+func (s *MovementService) recordSystemExpense(category, bankName string, amount float64, occurredOn time.Time, branchID uint) (uint, error) {
+	now := time.Now()
+	rec := &Expense{
+		Category:   category,
+		Amount:     amount,
+		Mode:       "Bank",
+		Payee:      bankName,
+		BranchID:   branchID,
+		Status:     "Approved",
+		Remarks:    "Auto-recorded from bank pledge workflow",
+		ApprovedBy: strPtr("System"),
+		ApprovedAt: &now,
+	}
+	if occurredOn.IsZero() {
+		rec.OccurredOn = now
+	} else {
+		rec.OccurredOn = occurredOn
+	}
+	if err := s.expenseRepo.Create(rec); err != nil {
+		return 0, err
+	}
+	return rec.ID, nil
+}
+
+func strPtr(s string) *string { return &s }
+
+// DeleteCashMovement removes a cash movement outright. No longer called by
+// loan.Service (bank-pledge release now books a reversing cash-out entry
+// instead of deleting history), kept for any other future caller.
 func (s *MovementService) DeleteCashMovement(id uint) error {
 	return s.repo.Delete(id)
 }
@@ -424,7 +558,22 @@ type Summary struct {
 	Collections   float64 `json:"collections"`
 	Disbursements float64 `json:"disbursements"`
 	CashExpenses  float64 `json:"cashExpenses"`
+	// ExpensesToday is every non-rejected expense for the day (any Mode —
+	// Cash, UPI, Bank), unlike CashExpenses which only counts Mode "Cash"
+	// and is the one that actually offsets ExpectedCash below. Exists so
+	// the frontend's "Expenses (today)" KPI can show a true day total
+	// without recomputing it client-side from the (branch-unscoped)
+	// expense list.
+	ExpensesToday float64 `json:"expensesToday"`
 	ExpectedCash  float64 `json:"expectedCash"`
+
+	// CollectionsBreakdown/DisbursementsBreakdown split Collections/
+	// Disbursements above into the sources that actually feed them (see
+	// MovementRepository.SumBreakdownByDate) — real numbers for the
+	// frontend's KPI subtitles instead of a static label naming sources
+	// without measuring them.
+	CollectionsBreakdown   CashInBreakdown  `json:"collectionsBreakdown"`
+	DisbursementsBreakdown CashOutBreakdown `json:"disbursementsBreakdown"`
 }
 
 // SummaryService computes Summary from the movement, expense, and opening
@@ -455,15 +604,26 @@ func (s *SummaryService) GetExpectedCash(branchID *uint, date time.Time) (Summar
 	if err != nil {
 		return Summary{}, err
 	}
+	inBreakdown, outBreakdown, err := s.movementRepo.SumBreakdownByDate(branchID, date)
+	if err != nil {
+		return Summary{}, err
+	}
 	cashExpenses, err := s.expenseRepo.SumCashByDate(branchID, date)
 	if err != nil {
 		return Summary{}, err
 	}
+	expensesToday, err := s.expenseRepo.SumAllByDate(branchID, date)
+	if err != nil {
+		return Summary{}, err
+	}
 	return Summary{
-		OpeningCash:   opening,
-		Collections:   in,
-		Disbursements: out,
-		CashExpenses:  cashExpenses,
-		ExpectedCash:  opening + in - out - cashExpenses,
+		OpeningCash:            opening,
+		Collections:            in,
+		Disbursements:          out,
+		CashExpenses:           cashExpenses,
+		ExpensesToday:          expensesToday,
+		ExpectedCash:           opening + in - out - cashExpenses,
+		CollectionsBreakdown:   inBreakdown,
+		DisbursementsBreakdown: outBreakdown,
 	}, nil
 }
