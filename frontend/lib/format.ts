@@ -2,7 +2,12 @@
 import type { CustomerView } from "./customersApi";
 import type { SchemeView } from "./schemesApi";
 
-export const fmt = (n: number) => "₹" + Math.round(n).toLocaleString("en-IN");
+// Money is shown to 2 decimals everywhere. Rounding each figure to whole
+// rupees used to make component lines disagree with their own total (₹5,487.60
+// principal + ₹1.40 interest rendered as "₹5,488 + ₹1 = ₹5,490"), which reads
+// as a maths error to a cashier and invites over-collection by a rupee or two.
+export const fmt = (n: number) =>
+  "₹" + (n ?? 0).toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 export const fmtW = (n: number) => n.toFixed(1) + " g";
 
 const CUSTOMER_FALLBACK = { name: "—", id: "—" };

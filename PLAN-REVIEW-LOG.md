@@ -1,2 +1,2 @@
-# Plan Review Log: Replace hardcoded 24K/22K/18K purity with a purity_standards lookup + per-ornament karat/fineness entry
+# Plan Review Log: Defaulted flag should require real payment arrears, not just an expired due date
 Act 1 (grill) complete — plan locked with the user. MAX_ROUNDS=5.

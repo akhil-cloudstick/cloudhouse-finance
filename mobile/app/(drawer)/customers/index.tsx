@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { FlatList, RefreshControl } from "react-native";
+import { FlatList, RefreshControl, View } from "react-native";
 import { useQuery } from "@tanstack/react-query";
 import { useRouter } from "expo-router";
 import { Pressable } from "react-native";
@@ -7,6 +7,7 @@ import { ScreenContainer } from "../../../src/components/ScreenContainer";
 import { Card } from "../../../src/components/Card";
 import { ThemedText } from "../../../src/components/ThemedText";
 import { GoldTextInput } from "../../../src/components/GoldTextInput";
+import { GoldButton } from "../../../src/components/GoldButton";
 import { colors } from "../../../src/theme/colors";
 import { listCustomers } from "../../../src/api/customers";
 import { Customer } from "../../../src/types/customer";
@@ -33,6 +34,9 @@ export default function CustomersScreen() {
         onChangeText={setSearch}
         style={{ marginHorizontal: 16 }}
       />
+      <View style={{ marginHorizontal: 16, marginBottom: 12 }}>
+        <GoldButton title="+ Register customer" onPress={() => router.push("/customers/new")} />
+      </View>
       <FlatList<Customer>
         data={data ?? []}
         keyExtractor={(item) => String(item.id)}
@@ -46,7 +50,10 @@ export default function CustomersScreen() {
         renderItem={({ item }) => (
           <Pressable onPress={() => router.push(`/customers/${item.id}`)}>
             <Card>
-              <ThemedText variant="h3">{item.name}</ThemedText>
+              {/* h3 is Bodoni serif at 18px and was getting cropped for long
+                  names (typography.ts:15) — "body" (Jost 15px) fits the
+                  Card width without truncation. */}
+              <ThemedText variant="body">{item.name}</ThemedText>
               <ThemedText variant="small" color={colors.muted}>
                 {item.code} · {item.phone}
               </ThemedText>

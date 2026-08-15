@@ -17,7 +17,11 @@ const CATS = ["All", "Active", "Due Soon", "Overdue", "Defaulted", "Pending Appr
  * (which only matches Loan.Status exactly). */
 const COMPUTED_CATS: Partial<Record<string, (l: LoanView) => boolean>> = {
   "Due Soon": (l) => l.isDueSoon,
-  "Overdue": (l) => l.isOverdue,
+  /* Past term AND actually in arrears. A loan whose interest is paid off is
+   * returned as status "Active" (refreshServicingStatus in loan/accrual.go)
+   * even though isOverdue stays true, and listing it under Overdue would put
+   * a paying customer back in the collections worklist. */
+  "Overdue": (l) => l.isOverdue && l.status !== "Active",
   "Defaulted": (l) => l.isDefaulted,
 };
 

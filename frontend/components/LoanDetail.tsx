@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { toDataURL } from "qrcode";
 import { useModal } from "@/components/Modal";
 import { useToast } from "@/components/Toast";
 import { useAuth } from "@/lib/auth-context";
@@ -20,6 +21,9 @@ import {
   type SanctionStage,
   type LoanView,
 } from "@/lib/loansApi";
+import { getCustomer } from "@/lib/customersApi";
+import { listPackets } from "@/lib/packetApi";
+import { openPrintWindow } from "@/lib/print";
 import { StageTracker } from "@/components/StageTracker";
 import { ApiError } from "@/lib/api";
 import { useLoans } from "@/lib/LoansProvider";
@@ -47,6 +51,8 @@ export function LoanDetail({ id }: { id?: string }) {
   const [approving, setApproving] = useState(false);
   const [releasing, setReleasing] = useState(false);
   const [completing, setCompleting] = useState(false);
+  const [printingLabel, setPrintingLabel] = useState(false);
+  const [printingSlip, setPrintingSlip] = useState(false);
   // The backend lets a Branch Manager/Management/Administrator clear the
   // LoanOperator stage itself once the principal exceeds the operator's
   // hard-enforced limit (Service.Approve's ErrExceedsApprovalLimit escalation
@@ -237,16 +243,126 @@ export function LoanDetail({ id }: { id?: string }) {
     }
   }
 
+  /* Ported from legacy/app.js's `printPledgeSlip()`/`printPacketLabel()`
+   * (legacy/app.js:990-1119) — NewLoan.tsx's versions of these build the
+   * slip/label from an in-progress draft that doesn't exist yet on the
+   * backend, while this page reads the loan's real, already-persisted
+   * data straight from `l`, plus one extra lookup each for details the
+   * loan view alone doesn't carry (customer phone/address, packet code). */
+  async function printPledgeSlip() {
+    setPrintingSlip(true);
+    try {
+      const c = await getCustomer(l.customerId);
+      openPrintWindow("Pledge Slip — " + l.id, `
+        <h1>AMBIKA GOLD FINANCE</h1><h2>Gold Loan Pledge Slip</h2>
+        <table>
+          <tr><th style="width:110px">Loan No</th><td>${l.id}</td><th style="width:110px">Date</th><td>${new Date().toLocaleDateString("en-IN")}</td></tr>
+          <tr><th>Customer</th><td>${c.name} (${c.code || c.id})</td><th>Phone</th><td>${c.phone || "—"}</td></tr>
+          <tr><th>Address</th><td>${c.address || "—"}</td><th>Branch</th><td>${l.branchName || "—"}</td></tr>
+          <tr><th>Scheme</th><td>${l.schemeName} @ ${l.schemeRate}% p.a. (LTV ${l.schemeLtv}%)</td>
+              <th>Opened</th><td>${l.opened}</td></tr>
+        </table>
+        <table>
+          <thead><tr><th>#</th><th>Ornament</th><th>Purity</th><th class="num">Net Wt (g)</th><th class="num">Qty</th><th class="num">Value</th><th>Photo</th></tr></thead>
+          <tbody>
+            ${l.ornaments.map((o, i) => `<tr><td>${i + 1}</td><td>${o.name}</td><td>${o.purity}</td>
+              <td class="num">${o.netWeight.toFixed(1)}</td><td class="num">${o.quantity}</td><td class="num">${fmt(o.goldValue)}</td>
+              <td style="text-align:center">${o.photoUrl ? `<img src="${o.photoUrl}" style="width:56px;height:56px;object-fit:cover">` : "—"}</td></tr>`).join("")}
+            <tr><th colspan="3">Total</th><th class="num">${l.totalNetWeight.toFixed(1)}</th><th></th><th class="num">${fmt(l.totalGoldValue)}</th><th></th></tr>
+          </tbody>
+        </table>
+        <p><b>Principal disbursed: ${fmt(l.principal)}</b> &nbsp;<span class="muted">(eligible amount at pledge time: ${fmt(l.eligibleLoanAmount)})</span></p>
+        <div class="sig"><div><span>Customer Signature</span></div><div><span>Cashier</span></div><div><span>Branch Manager</span></div></div>`,
+        toast);
+    } catch {
+      toast("Could not load customer details — try again");
+    } finally {
+      setPrintingSlip(false);
+    }
+  }
+
+  async function printPacketLabel() {
+    setPrintingLabel(true);
+    try {
+      const [c, packets] = await Promise.all([
+        getCustomer(l.customerId),
+        listPackets({ loanId: l.numericId }).catch(() => []),
+      ]);
+      const packet = packets[0];
+      const packetLabel = packet?.code || "PKT-" + l.numericId;
+      const url = packet
+        ? location.origin + "/app#packet/" + packet.code
+        : location.origin + "/app#loan/" + l.id;
+      let qr: string;
+      try {
+        qr = await toDataURL(url, { width: 256, errorCorrectionLevel: "M" });
+      } catch {
+        toast("Could not generate QR code");
+        return;
+      }
+      const w = window.open("", "_blank");
+      if (!w) { toast("Popup blocked — please allow popups for this site to print"); return; }
+      w.document.write(`<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Packet Label — ${l.id}</title><style>
+        @page{size:50mm 30mm;margin:0}
+        body{margin:0;font-family:Arial,Helvetica,sans-serif;-webkit-print-color-adjust:exact}
+        .label{width:50mm;height:30mm;box-sizing:border-box;padding:1.6mm;display:flex;align-items:center;gap:1.8mm;
+          border:0.3mm dashed #aaa;overflow:hidden;page-break-inside:avoid}
+        .label img{width:25mm;height:25mm;flex:none}
+        .t{font-size:2.5mm;line-height:1.45;min-width:0}
+        .t .brand{font-size:2mm;letter-spacing:0.3mm;color:#7a5c14}
+        .t .id{font-size:3.4mm;font-weight:bold}
+        .t div{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+        .noprint{text-align:center;margin:8mm;font-family:Arial}
+        @media print{.noprint{display:none} .label{border:none}}
+      </style></head><body>
+        <div class="label">
+          <img src="${qr}" alt="QR">
+          <div class="t">
+            <div class="brand">AMBIKA GOLD FINANCE</div>
+            <div class="id">${l.id} · ${packetLabel}</div>
+            <div>${c.name || "—"}</div>
+            <div>${c.code || c.id || "—"} · ${c.phone || ""}</div>
+            <div>${new Date().toLocaleDateString("en-IN")} · ${l.totalNetWeight.toFixed(1)} g · ${l.ornaments.length} item(s)</div>
+          </div>
+        </div>
+        <div class="noprint">
+          <p style="font-size:13px;color:#555">50mm × 30mm packet label — scanning the QR opens ${url}</p>
+          <button onclick="window.print()" style="padding:10px 26px;font-size:14px;cursor:pointer">🖨 Print Label</button>
+        </div>
+      </body></html>`);
+      w.document.close();
+      setTimeout(() => { try { w.focus(); w.print(); } catch { /* ignore */ } }, 400);
+    } catch {
+      toast("Could not load customer details — try again");
+    } finally {
+      setPrintingLabel(false);
+    }
+  }
+
   return (
     <>
       <div className="page-h">
         <div><h1>{l.id} <StatusChip status={l.status} />
           {l.isDefaulted && <StatusChip status="Defaulted" />}
-          {!l.isDefaulted && l.isOverdue && <StatusChip status="Overdue" />}
+          {/* A past-term loan whose interest is paid off comes back from the
+              backend as "Active" (see refreshServicingStatus in
+              loan/accrual.go). isOverdue stays true — the term really has
+              expired — so suppress the duplicate chip here, or a serviced
+              loan would read "Active" and "Overdue" at the same time. */}
+          {!l.isDefaulted && l.isOverdue && l.status !== "Active" && <StatusChip status="Overdue" />}
           {!l.isOverdue && l.isDueSoon && <StatusChip status="Due Soon" />}
           </h1>
           <p><a href={`#customer/${l.customerId}`}>{l.customerName}</a> · {l.schemeName} · opened {l.opened} · due {l.due}{l.isOverdue ? ` · ${l.daysOverdue} days overdue` : ""}</p></div>
         <div className="sp" />
+        {/* Always available regardless of approval stage — staff may need
+         * to (re)print the packet label or pledge slip at any point in the
+         * loan's life, not just before it's sanctioned. */}
+        <button className="btn ghost sm" disabled={printingLabel} onClick={printPacketLabel}>
+          <Icon name="box" /> {printingLabel ? "Preparing…" : "Print Label"}
+        </button>
+        <button className="btn ghost sm" disabled={printingSlip} onClick={printPledgeSlip}>
+          <Icon name="doc" /> {printingSlip ? "Preparing…" : "Print Slip"}
+        </button>
         {l.status === "Closure Requested" && (
           <button className="btn" disabled={completing || l.totalOutstandingBalance > 0.01 || l.bankPledgeStatus === "Bank Pledged"} onClick={doCompleteRelease} title={l.totalOutstandingBalance > 0.01 ? "Final settlement must be fully paid first" : l.bankPledgeStatus === "Bank Pledged" ? "Release the bank pledge first" : undefined}>
             <Icon name="unlock" /> {completing ? "Releasing…" : "Complete Release"}

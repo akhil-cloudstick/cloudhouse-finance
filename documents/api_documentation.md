@@ -147,7 +147,7 @@ hardcoded role list in Go code:
 - `Role` — one of the 9 staff roles (below).
 - `Resource` — a module key: `banks`, `branches`, `cash`, `customers`,
   `employees`, `goldrates`, `loans`, `lockers`, `ornamenttypes`, `packets`,
-  `schemes`, `settings`, `uploads`, `kyc-documents`.
+  `schemes`, `settings`, `uploads`, `kyc-documents`, `reports`.
 - `Action` — CRUD-grain: `create`, `read`, `update`, `delete` (GET→`read`,
   POST→`create`, PUT/PATCH→`update`, DELETE→`delete`).
 - `Allowed` — boolean.
@@ -186,6 +186,18 @@ resource) stays whatever `SeedDefaults` set it to. The frontend hides the
 "New Loan"/"New Gold Loan" nav item and buttons for this role and
 gate-checks `NewLoan.tsx` itself as a catch-all, but the `403` above is the
 real enforcement point.
+
+**`reports` is the other resource seeded restricted, not allow-all**: like
+`branches`, it's locked down via `authz.Repository.RestrictResourceToRoles`
+right after `SeedDefaults` — only `Administrator`, `Management`,
+`Branch Manager`, and `Auditor` get `Allowed=true` on `reports`; every other
+role is `403`. Routes under `/api/v1/reports` are additionally double-gated
+with `platform.RequireAnyRole("Administrator", "Management",
+"Branch Manager", "Auditor")` stacked ahead of `CRUDPermissions(authzRepo,
+"reports").Read` (mirroring the existing auction routes' double-gate
+pattern), so both checks must pass. The frontend hides the "Reports" nav
+item for any other role (`Sidebar.tsx`'s `canViewReports`) rather than
+letting them hit the 403.
 
 ### Branch scoping (row-level, on top of the RBAC table above)
 Independently of the `(role, resource, action)` table above, every
@@ -920,6 +932,68 @@ vanished from the UI:
 - `GET /:id/bank-pledge/history` — every record for one loan, newest first.
 - `GET /bank-pledges/history` — records across all loans, branch-scoped.
 
+**Money storage — `numeric(16,2)`, rounded at every write.** Every rupee
+column across `loans`, `loan_payments`, `bank_pledge_records`,
+`bank_pledge_events`, `loan_requests`, `auction_records`, `cash_movements`,
+`expenses` and `opening_cash_balances` is Postgres `numeric(16,2)`, and each
+balance is passed through `platform.RoundMoney` as it is written. Weights
+(grams) and rates (% p.a.) stay `double precision` — they legitimately want
+more than 2 decimals.
+
+This matters because Go reads those columns back into `float64`. Storing
+exact decimals means two equal rupee amounts parse to the *identical*
+double, so a fully-serviced balance subtracts to exactly `0` instead of a
+residue like `1.4e-14`. Before this, unrounded running totals drifted far
+enough that `outstandingInterest > 0` reported arrears on loans whose
+interest was paid off — which flagged them `isDefaulted` and queued their
+gold for auction. Comparisons against zero still use the codebase's
+`0.01` epsilon (`moneyEpsilon` in `accrual.go`) as a safety net.
+
+Applying this to an existing database is a plain `go run ./cmd/migrate` —
+GORM alters the column types in place and Postgres rounds existing values to
+2 decimals as it casts, which also cleans up historical noise.
+
+**Migrations run ONLY via `go run ./cmd/migrate`.** The API server performs no
+schema work at startup: no `AutoMigrate`, no backfills, no permission
+seeding. Restarting the server — including an unattended restart after a
+crash — can therefore never reshape or rewrite live data as a side effect,
+which is what previously let a schema change apply itself simply because
+someone restarted the process. `cmd/migrate` is the single source of the
+schema and must list every model.
+
+On boot the server calls `requireMigratedSchema` (main.go), a cheap
+table-presence check over a representative sample. If migrations have not
+been run it exits immediately with the missing table names and the command
+to run, instead of failing later as opaque per-request SQL errors. Deploys
+must therefore run `go run ./cmd/migrate` before starting the API.
+
+**Interest accrual model — whole calendar months, never pro-rated by day**
+(`projectAccrual` in `accrual.go`). Interest is charged in complete monthly
+steps measured from the accrual anchor (`lastAccrualDate`, seeded from
+`openedDate`): a loan part-way through a cycle owes **nothing** for that
+cycle, and the month's interest lands in full the instant the month
+completes. Months are real calendar months with month-end clamping (a loan
+opened 31 Jan accrues 28 Feb, not 3 Mar), not 30-day blocks. `"Quarterly
+simple"` steps in 3-month periods; every other method steps monthly.
+
+Each accrual advances `lastAccrualDate` to the **last completed period
+boundary**, not to `now` — the leftover part-month carries into the next
+call. This matters because `GET /loans/:id` and `POST /:id/payments` both
+persist accrual: anchoring on `now` would discard the remainder on every
+read, so a frequently-viewed loan would never complete a month.
+
+Per-method base:
+- `"Monthly simple interest"` (default) — outstanding principal.
+- `"Flat monthly"` — original `principalAmount`, ignoring repayments.
+- `"Quarterly simple"` — outstanding principal, quarterly rate.
+- `"Compound monthly"` — outstanding principal **plus interest still
+  unpaid**, so unpaid interest itself earns interest; settling the interest
+  drops the next month back to principal alone.
+
+Penal interest accrues on top, counted in whole overdue months from
+`dueDate` (not from the anchor) with already-charged months subtracted, so a
+due date falling mid-cycle neither double-charges nor loses a month.
+
 **Loan status lifecycle flags** — `isDueSoon`/`isOverdue`/`isDefaulted`/
 `daysOverdue` are computed fresh on every loan read (`enrichStatusFlags` in
 `accrual.go`), purely from `dueDate` vs the current date — they are
@@ -1409,6 +1483,92 @@ row of their own to edit/delete.
 | PUT | `/api/v1/reminders/:id` | Update a manual reminder | `{ "type", "dueDate", "note"?, "status"? }` |
 | PUT | `/api/v1/reminders/:id/complete` | Mark a manual reminder Done | — |
 | DELETE | `/api/v1/reminders/:id` | Delete a manual reminder | — |
+
+## Reports API (`/api/v1/reports`)
+Implemented in `backend/internal/reports/`. Management-only (see the RBAC
+section above) — 16 server-side aggregation endpoints covering loans,
+gold/packets, bank pledge, auctions, cash, KYC, gold rates, employee
+performance, and WhatsApp communication history, each with a matching
+`.xlsx`/`.pdf` export. Unlike most other packages, `reports` queries the
+database directly by table name (`db.Raw`/`db.Table`) rather than importing
+every domain package's GORM model — it's a pure read-side aggregator over
+tables that already belong to `loan`/`packet`/`cash`/etc.
+
+**Common query params** (every list endpoint below accepts these; export
+endpoints accept the same filters but ignore pagination):
+| Param | Type | Notes |
+|---|---|---|
+| `from` | `YYYY-MM-DD` | Start of date range (optional) |
+| `to` | `YYYY-MM-DD` | End of date range (optional) |
+| `branch_id` | uint | Optional single-branch scope; falls back to `platform.GetBranchScope(c)` (the caller's own branch) when omitted, so a non-`Administrator`'s branch scope is enforced even if the frontend forgets to pass it |
+| `page` | int | 1-based, default `1` (list endpoints only) |
+| `page_size` | int | Default `10` (list endpoints only) |
+
+**Common response envelope** (`reports.Result`):
+```json
+{ "rows": [ /* report-specific row objects */ ], "totals": { /* report-specific summary */ }, "totalCount": 42 }
+```
+`totalCount` is the full filtered row count *before* pagination, matching
+the frontend's fixed page size of 10.
+
+| Method | Path | Extra params | Rows | Totals |
+|---|---|---|---|---|
+| GET | `/api/v1/reports/disbursement` | — | loanId, loanNumber, openedDate, amount, branchName, customerName, schemeName | count, totalAmount |
+| GET | `/api/v1/reports/loans/status` | `status` | loanId, loanNumber, customerName, branchName, status, outstanding, dueDate | active, closed, dueSoon, overdue, defaulted, other, count |
+| GET | `/api/v1/reports/interest-collection` | — | loanId, loanNumber, paidOn, interestApplied, penalApplied, branchName | totalInterest, totalPenal, total |
+| GET | `/api/v1/reports/outstanding-principal` | — | branchName, loanCount, outstanding | totalOutstanding, totalLoans |
+| GET | `/api/v1/reports/payment-collection` | — | paymentId, loanNumber, paidOn, amount, type, branchName, employeeName | totalAmount, count |
+| GET | `/api/v1/reports/gold-weight` | — | ornamentId, loanNumber, customerName, name, purity, grossWeight, netWeight, goldValue | totalGrossWeight, totalNetWeight, totalGoldValue |
+| GET | `/api/v1/reports/packets` | — | packetId, code, loanNumber, status, lockerCode, movementCount | count, inLocker, bankPledged, released |
+| GET | `/api/v1/reports/bank-pledge` | — | recordId, loanNumber, bankName, pledgedAmount, pledgeDate, releaseDate, status | outstandingLiability, count |
+| GET | `/api/v1/reports/loan-extensions` | — | requestId, loanNumber, requestedAt, months, newDueDate, status | count |
+| GET | `/api/v1/reports/gold-release` | — | requestId, loanNumber, customerName, requestedAt, settlementAmount, status | count, totalSettlement |
+| GET | `/api/v1/reports/auctions` | — | recordId, loanNumber, stage, auctionDate, saleAmount, settlementStatus | count, totalSaleAmount |
+| GET | `/api/v1/reports/expense-cashflow` | — | date, branchName, collections, disbursements, cashExpenses | totalCollections, totalDisbursements, totalExpenses, netCashflow |
+| GET | `/api/v1/reports/kyc` | — | customerId, code, name, phone, kycStatus, panStatus, aadhaarStatus | count, verified, pending |
+| GET | `/api/v1/reports/gold-rate-history` | — | date, k24, setBy | count |
+| GET | `/api/v1/reports/employee-performance` | — | employeeId, name, role, branchName, loansProcessed, collectionsAmount, remindersSent, approvals | totalLoansProcessed, totalCollections |
+| GET | `/api/v1/reports/communication-history` | `trigger_type` | id, recipientName, recipientPhone, channel, triggerType, status, sentAt | count, sent, failed |
+
+**Export**: `GET /api/v1/reports/export/:key?format=xlsx|pdf` (plus the same
+`from`/`to`/`branch_id` filters — no pagination, the file always contains
+every matching row). `:key` is a URL-safe report key, listed below (note
+`loans-status` here vs `loans/status` above — the export key and the list
+path segment intentionally differ since gin can't mix a wildcard route
+with static sibling segments at the same level):
+`disbursement`, `loans-status`, `interest-collection`,
+`outstanding-principal`, `payment-collection`, `gold-weight`, `packets`,
+`bank-pledge`, `loan-extensions`, `gold-release`, `auctions`,
+`expense-cashflow`, `kyc`, `gold-rate-history`, `employee-performance`,
+`communication-history`. Response is a binary file
+(`application/vnd.openxmlformats-officedocument.spreadsheetml.sheet` for
+`xlsx`, `application/pdf` for `pdf`) with a `Content-Disposition: attachment`
+header; the export table's columns are derived by reflecting over the same
+row struct the JSON endpoint returns (via each row DTO's `json` tags), so
+there's no separate per-report spreadsheet mapping to maintain.
+
+### `communication_logs` table (new, backs the Communication History report)
+Implemented in `backend/internal/commlog/` (`CommunicationLog` model,
+GORM-migrated via `cmd/migrate`). Populated at every WhatsApp send site
+(`loan.Service.notifyCustomer` — ~12 call sites incl. auction notices,
+`reminder.Service.SendWhatsApp`, `auth.Service`'s OTP send) so the report
+has real data without a dedicated logging endpoint of its own.
+
+| Column | Type | Notes |
+|---|---|---|
+| `id` | uint (PK) | |
+| `recipient_name` | string | |
+| `recipient_phone` | string | |
+| `chat_id` | string | Normalized WhatsApp chat id |
+| `channel` | string | Always `"WhatsApp"` currently — SMS is explicitly out of scope (OpenWA is the only wired-up channel) |
+| `trigger_type` | string | `loan_sanction`, `payment`, `closure`, `auction_notice`, `reminder`, `otp`, … |
+| `message_body` | text | |
+| `related_entity_type` | string | e.g. `loan`, `reminder`, `auction_record`, `employee` |
+| `related_entity_id` | uint | |
+| `status` | string | `sent` \| `failed` |
+| `error_message` | string | Populated when `status = failed` |
+| `triggered_by_employee_id` | uint, nullable | Null for self-triggered sends (e.g. OTP) |
+| `created_at` | timestamp | Send time — this is what the report surfaces as `sentAt` |
 
 ## Uploads API (`/api/v1/uploads`)
 Implemented in `backend/internal/upload/`. A small, shared, storage-only

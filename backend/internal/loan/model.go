@@ -120,17 +120,20 @@ type Loan struct {
 	// TotalNetWeight/TotalGoldValue/EligibleLoanAmount are computed from the
 	// loan's ornaments (see service.go's recalculate) and kept denormalized
 	// here so listing/filtering doesn't need to re-sum ornaments every time.
+	// Weights stay double precision (grams want more than 2 decimals);
+	// every rupee column below is numeric(16,2) so stored balances are exact
+	// decimals — see platform.RoundMoney for why.
 	TotalNetWeight     float64 `json:"totalNetWeight"`
-	TotalGoldValue     float64 `json:"totalGoldValue"`
-	EligibleLoanAmount float64 `json:"eligibleLoanAmount"`
+	TotalGoldValue     float64 `json:"totalGoldValue" gorm:"type:numeric(16,2);default:0"`
+	EligibleLoanAmount float64 `json:"eligibleLoanAmount" gorm:"type:numeric(16,2);default:0"`
 
 	// PrincipalAmount is operator-chosen, capped at EligibleLoanAmount.
 	// OutstandingAmount tracks *principal* only — interest/penal interest
 	// owed are tracked separately below so each can be paid down (or
 	// waived) independently, per the ledger requirements in the interest &
 	// payment management spec.
-	PrincipalAmount   float64 `json:"principalAmount" gorm:"not null"`
-	OutstandingAmount float64 `json:"outstandingAmount" gorm:"not null"`
+	PrincipalAmount   float64 `json:"principalAmount" gorm:"not null;type:numeric(16,2)"`
+	OutstandingAmount float64 `json:"outstandingAmount" gorm:"not null;type:numeric(16,2)"`
 
 	// OutstandingProcessingFee is a running balance of processing fees
 	// charged (via a payment's ProcessingFee) but not yet paid off. Charging
@@ -139,7 +142,7 @@ type Loan struct {
 	// clearing it before penal interest/interest/principal — and it's
 	// folded into TotalOutstandingBalance/SettlementAmount (see enrich)
 	// so "what's owed" always reflects any unpaid fee.
-	OutstandingProcessingFee float64 `json:"outstandingProcessingFee"`
+	OutstandingProcessingFee float64 `json:"outstandingProcessingFee" gorm:"type:numeric(16,2);default:0"`
 
 	// Interest/penal-interest accrual (see service.go's accrueInterest).
 	// AccruedInterest/AccruedPenalInterest are cumulative totals-ever-owed,
@@ -147,10 +150,10 @@ type Loan struct {
 	// against; InterestPaid/PenalInterestPaid are cumulative totals-ever-
 	// paid-or-waived. Outstanding interest/penal interest (accrued − paid)
 	// is a computed, not stored, figure — see Service.enrich.
-	AccruedInterest      float64   `json:"accruedInterest"`
-	InterestPaid         float64   `json:"interestPaid"`
-	AccruedPenalInterest float64   `json:"accruedPenalInterest"`
-	PenalInterestPaid    float64   `json:"penalInterestPaid"`
+	AccruedInterest      float64   `json:"accruedInterest" gorm:"type:numeric(16,2);default:0"`
+	InterestPaid         float64   `json:"interestPaid" gorm:"type:numeric(16,2);default:0"`
+	AccruedPenalInterest float64   `json:"accruedPenalInterest" gorm:"type:numeric(16,2);default:0"`
+	PenalInterestPaid    float64   `json:"penalInterestPaid" gorm:"type:numeric(16,2);default:0"`
 	LastAccrualDate      time.Time `json:"lastAccrualDate"`
 
 	// Computed, request-scoped fields — never persisted (gorm:"-"),
@@ -164,13 +167,18 @@ type Loan struct {
 	SettlementAmount         float64 `json:"settlementAmount" gorm:"-"`
 	TotalPaid                float64 `json:"totalPaid" gorm:"-"`
 
-	// IsDueSoon/IsOverdue/IsDefaulted/DaysOverdue are pure date-vs-DueDate
-	// display flags, recomputed on every read (see enrichStatusFlags in
-	// accrual.go) — they do NOT drive interest/penal-interest accrual
-	// (which already runs off DueDate directly, see projectAccrual) and do
-	// NOT auto-transition the persisted Status field. IsDefaulted (overdue
-	// by more than 90 days) only unlocks the staff-triggered "Mark Auction
-	// Eligible" action — it never fires that transition automatically.
+	// IsDueSoon/IsOverdue/IsDefaulted/DaysOverdue are display flags,
+	// recomputed on every read (see enrichStatusFlags in accrual.go) — they
+	// do NOT drive interest/penal-interest accrual (which already runs off
+	// DueDate directly, see projectAccrual) and do NOT auto-transition the
+	// persisted Status field. IsDueSoon/IsOverdue/DaysOverdue are pure
+	// date-vs-DueDate math; IsDefaulted additionally requires genuine
+	// payment arrears (OutstandingInterest and/or OutstandingPenalInterest
+	// still owed) on top of being overdue by more than 90 days — a loan
+	// kept current on interest/penal interest past its due date is overdue
+	// but not Defaulted. IsDefaulted only unlocks the staff-triggered "Mark
+	// Auction Eligible" action — it never fires that transition
+	// automatically.
 	IsDueSoon   bool `json:"isDueSoon" gorm:"-"`
 	IsOverdue   bool `json:"isOverdue" gorm:"-"`
 	IsDefaulted bool `json:"isDefaulted" gorm:"-"`
@@ -190,7 +198,7 @@ type Loan struct {
 	BankPledgeStatus string `json:"bankPledgeStatus" gorm:"not null;size:20;default:'Not Pledged'"`
 
 	AuctionDate   *time.Time `json:"auctionDate"`
-	AuctionAmount *float64   `json:"auctionAmount"`
+	AuctionAmount *float64   `json:"auctionAmount" gorm:"type:numeric(16,2)"`
 
 	Ornaments []Ornament         `json:"ornaments,omitempty" gorm:"foreignKey:LoanID"`
 	Approvals []LoanApproval     `json:"approvals,omitempty" gorm:"foreignKey:LoanID"`
@@ -220,7 +228,7 @@ type Ornament struct {
 	NetWeight       float64 `json:"netWeight"` // computed = GrossWeight - DeductionWeight
 	Quantity        int     `json:"quantity" gorm:"not null;default:1"`
 
-	GoldValue float64 `json:"goldValue"` // computed = NetWeight × purity-matched gold rate
+	GoldValue float64 `json:"goldValue" gorm:"type:numeric(16,2);default:0"` // computed = NetWeight × purity-matched gold rate
 	Remarks   string  `json:"remarks" gorm:"size:255"`
 
 	PurityTest *OrnamentPurityTest `json:"purityTest,omitempty" gorm:"foreignKey:OrnamentID"`
@@ -318,7 +326,7 @@ type LoanPayment struct {
 	ID     uint `json:"id" gorm:"primaryKey"`
 	LoanID uint `json:"loanId" gorm:"not null;index"`
 
-	Amount               float64   `json:"amount" gorm:"not null"`
+	Amount               float64   `json:"amount" gorm:"not null;type:numeric(16,2)"`
 	Type                 string    `json:"type" gorm:"not null;size:30"` // see PaymentType* constants
 	PaidOn               time.Time `json:"paidOn" gorm:"not null"`
 	ReceivedByEmployeeID uint      `json:"receivedByEmployeeId" gorm:"not null"`
@@ -333,16 +341,16 @@ type LoanPayment struct {
 	// is Amount's portion that paid down Loan.OutstandingProcessingFee —
 	// first priority in allocatePayment's waterfall, ahead of penal
 	// interest/interest/principal.
-	ProcessingFeeApplied float64 `json:"processingFeeApplied"`
-	PenalInterestApplied float64 `json:"penalInterestApplied"`
-	InterestApplied      float64 `json:"interestApplied"`
-	PrincipalApplied     float64 `json:"principalApplied"`
+	ProcessingFeeApplied float64 `json:"processingFeeApplied" gorm:"type:numeric(16,2);default:0"`
+	PenalInterestApplied float64 `json:"penalInterestApplied" gorm:"type:numeric(16,2);default:0"`
+	InterestApplied      float64 `json:"interestApplied" gorm:"type:numeric(16,2);default:0"`
+	PrincipalApplied     float64 `json:"principalApplied" gorm:"type:numeric(16,2);default:0"`
 
 	// RunningBalance is TotalOutstandingBalance immediately after this entry
 	// was applied (principal + outstanding interest + outstanding penal
 	// interest + outstanding processing fee) — the ledger's required
 	// "running balance" column.
-	RunningBalance float64 `json:"runningBalance"`
+	RunningBalance float64 `json:"runningBalance" gorm:"type:numeric(16,2);default:0"`
 
 	// ProcessingFee is an additional charge newly CHARGED alongside this
 	// payment (e.g. a documentation/late fee) — added to
@@ -354,7 +362,7 @@ type LoanPayment struct {
 	// pre-existing) fee balance — the two aren't the same figure whenever
 	// Amount doesn't fully cover it, or covers more than just this entry's
 	// new fee.
-	ProcessingFee float64 `json:"processingFee"`
+	ProcessingFee float64 `json:"processingFee" gorm:"type:numeric(16,2);default:0"`
 
 	CreatedAt time.Time `json:"createdAt"`
 }
@@ -376,7 +384,7 @@ type BankPledgeRecord struct {
 	// new pledges always set it.
 	BankID        *uint      `json:"bankId"`
 	BankName      string     `json:"bankName" gorm:"not null;size:120"`
-	PledgedAmount float64    `json:"pledgedAmount" gorm:"not null"`
+	PledgedAmount float64    `json:"pledgedAmount" gorm:"not null;type:numeric(16,2)"`
 	PledgeDate    time.Time  `json:"pledgeDate" gorm:"not null"`
 	ReleaseDate   *time.Time `json:"releaseDate"`
 
@@ -494,7 +502,7 @@ type BankPledgeEvent struct {
 	ActorRole          string `json:"actorRole,omitempty" gorm:"size:40"`
 	// Amount snapshots the pledged amount at the time of the event, so the
 	// timeline reads correctly on its own without re-joining the parent row.
-	Amount    float64   `json:"amount"`
+	Amount    float64   `json:"amount" gorm:"type:numeric(16,2);default:0"`
 	Remarks   string    `json:"remarks,omitempty" gorm:"size:255"`
 	CreatedAt time.Time `json:"createdAt"`
 }
@@ -552,13 +560,13 @@ type LoanRequest struct {
 
 	// Charges is a single staff-entered override amount (e.g. statutory/
 	// valuation charges), Release only, added into SettlementAmount below.
-	Charges float64 `json:"charges"`
+	Charges float64 `json:"charges" gorm:"type:numeric(16,2);default:0"`
 
 	// SettlementAmount is a snapshot of Loan.TotalOutstandingBalance +
 	// Charges taken the moment the release approval chain reaches its final
 	// "Approved" — the live figure on Loan keeps moving as payments come in,
 	// this freezes what was actually approved for release.
-	SettlementAmount float64 `json:"settlementAmount"`
+	SettlementAmount float64 `json:"settlementAmount" gorm:"type:numeric(16,2);default:0"`
 
 	Remarks             string     `json:"remarks" gorm:"size:255"`
 	RequestedAt         time.Time  `json:"requestedAt" gorm:"not null"`
@@ -659,13 +667,13 @@ type AuctionRecord struct {
 	AuctionDate            *time.Time `json:"auctionDate,omitempty"`
 	AuctionReferenceNumber string     `json:"auctionReferenceNumber" gorm:"size:60"`
 
-	SaleAmount      float64 `json:"saleAmount"`
-	AuctionExpenses float64 `json:"auctionExpenses"`
+	SaleAmount      float64 `json:"saleAmount" gorm:"type:numeric(16,2);default:0"`
+	AuctionExpenses float64 `json:"auctionExpenses" gorm:"type:numeric(16,2);default:0"`
 	// SurplusShortfall is a snapshot taken at sale time: SaleAmount -
 	// AuctionExpenses - the loan's TotalOutstandingBalance at that moment.
 	// Positive = surplus owed back to the customer, negative = shortfall
 	// still recoverable from them.
-	SurplusShortfall float64 `json:"surplusShortfall"`
+	SurplusShortfall float64 `json:"surplusShortfall" gorm:"type:numeric(16,2);default:0"`
 
 	FinalSettlementStatus string `json:"finalSettlementStatus" gorm:"not null;size:24;default:'Pending'"`
 

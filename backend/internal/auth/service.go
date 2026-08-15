@@ -14,6 +14,7 @@ import (
 	"golang.org/x/crypto/bcrypt"
 	"gorm.io/gorm"
 
+	"ambikagold/backend/internal/commlog"
 	"ambikagold/backend/internal/employee"
 	"ambikagold/backend/internal/platform"
 )
@@ -46,17 +47,19 @@ type Service struct {
 	smsSender    platform.SMSSender
 	jwtSecret    string
 	jwtExpiry    time.Duration
+	commlogRepo  *commlog.Repository
 }
 
 // NewService wires the auth service's dependencies: the employee repository
 // (for credential lookup/storage), the SMS sender (for reset codes — see
 // platform.SMSSender), and the JWT signing secret/expiry.
-func NewService(employeeRepo *employee.Repository, smsSender platform.SMSSender, jwtSecret string, jwtExpiry time.Duration) *Service {
+func NewService(employeeRepo *employee.Repository, smsSender platform.SMSSender, jwtSecret string, jwtExpiry time.Duration, commlogRepo *commlog.Repository) *Service {
 	return &Service{
 		employeeRepo: employeeRepo,
 		smsSender:    smsSender,
 		jwtSecret:    jwtSecret,
 		jwtExpiry:    jwtExpiry,
+		commlogRepo:  commlogRepo,
 	}
 }
 
@@ -126,7 +129,28 @@ func (s *Service) ForgotPassword(phone string) error {
 	}
 
 	message := fmt.Sprintf("Your Ambika Gold Finance password reset code is %s. It expires in 10 minutes. Do not share this code with anyone.", otp)
-	return s.smsSender.Send(emp.Phone, message)
+	sendErr := s.smsSender.Send(emp.Phone, message)
+	if s.commlogRepo != nil {
+		logRec := &commlog.CommunicationLog{
+			RecipientName:     emp.Name,
+			RecipientPhone:    emp.Phone,
+			ChatID:            commlog.NormalizeChatID(emp.Phone),
+			Channel:           commlog.ChannelWhatsApp,
+			TriggerType:       commlog.TriggerOTP,
+			MessageBody:       message,
+			RelatedEntityType: "employee",
+			RelatedEntityID:   emp.ID,
+			// TriggeredByEmployeeID is nil — this is self-triggered (the
+			// employee requested their own reset code).
+			Status: commlog.StatusSent,
+		}
+		if sendErr != nil {
+			logRec.Status = commlog.StatusFailed
+			logRec.ErrorMessage = sendErr.Error()
+		}
+		_ = s.commlogRepo.Create(logRec)
+	}
+	return sendErr
 }
 
 // ResetPassword looks up the employee by phone, checks the given OTP

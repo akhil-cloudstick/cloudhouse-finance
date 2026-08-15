@@ -1,5 +1,5 @@
 import React from "react";
-import { Pressable, ActivityIndicator, StyleSheet } from "react-native";
+import { Pressable, ActivityIndicator, StyleSheet, ViewStyle } from "react-native";
 import { colors } from "../theme/colors";
 import { ThemedText } from "./ThemedText";
 
@@ -9,9 +9,10 @@ type Props = {
   disabled?: boolean;
   loading?: boolean;
   variant?: "primary" | "outline";
+  style?: ViewStyle;
 };
 
-export function GoldButton({ title, onPress, disabled, loading, variant = "primary" }: Props) {
+export function GoldButton({ title, onPress, disabled, loading, variant = "primary", style }: Props) {
   const isPrimary = variant === "primary";
   return (
     <Pressable
@@ -22,6 +23,7 @@ export function GoldButton({ title, onPress, disabled, loading, variant = "prima
         isPrimary ? styles.primary : styles.outline,
         (disabled || loading) && styles.disabled,
         pressed && !disabled && !loading && styles.pressed,
+        style,
       ]}
     >
       {loading ? (

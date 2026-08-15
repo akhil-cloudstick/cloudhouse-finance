@@ -20,7 +20,7 @@ type CashMovement struct {
 	Source     string         `json:"source" gorm:"size:20"`        // "Savings" | "Loan" — only for type=in
 	Purpose    string         `json:"purpose" gorm:"size:120"`      // only for type=out
 	Bank       string         `json:"bank" gorm:"size:120"`
-	Amount     float64        `json:"amount" gorm:"not null"`
+	Amount     float64        `json:"amount" gorm:"not null;type:numeric(16,2)"`
 	Status     string         `json:"status" gorm:"size:20"` // "Open" | "Closed" — only for loan-sourced cash-in
 	BranchID   *uint          `json:"branchId"`              // nullable — not every cash movement is tied to a till yet
 	Branch     *branch.Branch `json:"branch,omitempty" gorm:"foreignKey:BranchID"`
@@ -37,7 +37,7 @@ type Expense struct {
 	ID           uint          `json:"id" gorm:"primaryKey"`
 	OccurredOn   time.Time     `json:"occurredOn" gorm:"not null"`
 	Category     string        `json:"category" gorm:"not null;size:80"`
-	Amount       float64       `json:"amount" gorm:"not null"`
+	Amount       float64       `json:"amount" gorm:"not null;type:numeric(16,2)"`
 	Mode         string        `json:"mode" gorm:"not null;size:20"`
 	Payee        string        `json:"payee" gorm:"not null;size:120"`
 	BranchID     uint          `json:"branchId" gorm:"not null"`
@@ -62,7 +62,7 @@ type OpeningCashBalance struct {
 	BranchID    uint          `json:"branchId" gorm:"not null;uniqueIndex:idx_branch_date"`
 	Branch      branch.Branch `json:"branch" gorm:"foreignKey:BranchID"`
 	BalanceDate time.Time     `json:"balanceDate" gorm:"not null;uniqueIndex:idx_branch_date"`
-	Amount      float64       `json:"amount" gorm:"not null"`
+	Amount      float64       `json:"amount" gorm:"not null;type:numeric(16,2)"`
 	CreatedAt   time.Time     `json:"createdAt"`
 }
 

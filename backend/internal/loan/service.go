@@ -11,6 +11,7 @@ import (
 	"gorm.io/gorm"
 
 	"ambikagold/backend/internal/branch"
+	"ambikagold/backend/internal/commlog"
 	"ambikagold/backend/internal/customer"
 	"ambikagold/backend/internal/goldrate"
 	"ambikagold/backend/internal/platform"
@@ -162,6 +163,7 @@ type Service struct {
 	packetMover   PacketMover
 	cashRecorder  CashRecorder
 	whatsapp      platform.SMSSender // reused interface — Send(phone, message) matches SMSSender exactly
+	commlogRepo   *commlog.Repository
 }
 
 func NewService(
@@ -183,6 +185,7 @@ func NewService(
 	packetMover PacketMover,
 	cashRecorder CashRecorder,
 	whatsapp platform.SMSSender,
+	commlogRepo *commlog.Repository,
 ) *Service {
 	return &Service{
 		db:                  db,
@@ -203,20 +206,43 @@ func NewService(
 		cashRecorder:        cashRecorder,
 		goldRateRepo:        goldRateRepo,
 		whatsapp:            whatsapp,
+		commlogRepo:         commlogRepo,
 	}
 }
 
 // notifyCustomer sends a WhatsApp message to a customer about a loan event
-// (submission, sanction, etc.) and only logs on failure — a notification
-// bounce must never fail the loan operation it's attached to, the same
+// (submission, sanction, etc.) and logs the attempt (success or failure) to
+// commlog for the Communication History report — a notification bounce must
+// never fail the loan operation it's attached to, the same
 // enrichment-not-hard-dependency rule Create already applies to packet
-// auto-creation.
-func (s *Service) notifyCustomer(phone, message string) {
+// auto-creation. triggerType/relatedEntityType/relatedEntityID classify the
+// message for that report (see commlog.Trigger* constants).
+func (s *Service) notifyCustomer(phone, message, triggerType, relatedEntityType string, relatedEntityID uint) {
 	if s.whatsapp == nil {
 		return
 	}
-	if err := s.whatsapp.Send(phone, message); err != nil {
-		log.Printf("whatsapp notification failed (phone %s): %v", phone, err)
+	sendErr := s.whatsapp.Send(phone, message)
+	if sendErr != nil {
+		log.Printf("whatsapp notification failed (phone %s): %v", phone, sendErr)
+	}
+	if s.commlogRepo != nil {
+		rec := &commlog.CommunicationLog{
+			RecipientPhone:    phone,
+			ChatID:            commlog.NormalizeChatID(phone),
+			Channel:           commlog.ChannelWhatsApp,
+			TriggerType:       triggerType,
+			MessageBody:       message,
+			RelatedEntityType: relatedEntityType,
+			RelatedEntityID:   relatedEntityID,
+			Status:            commlog.StatusSent,
+		}
+		if sendErr != nil {
+			rec.Status = commlog.StatusFailed
+			rec.ErrorMessage = sendErr.Error()
+		}
+		if err := s.commlogRepo.Create(rec); err != nil {
+			log.Printf("communication log write failed (phone %s): %v", phone, err)
+		}
 	}
 }
 
@@ -398,7 +424,7 @@ func (s *Service) Create(in CreateInput) (*Loan, error) {
 	s.notifyCustomer(created.Customer.Phone, fmt.Sprintf(
 		"Dear %s, your gold loan application %s for ₹%.2f has been submitted and is pending approval. We'll notify you once it's sanctioned. — Ambika Gold Finance",
 		created.Customer.Name, created.LoanNumber, created.PrincipalAmount,
-	))
+	), commlog.TriggerLoanSubmission, "loan", created.ID)
 
 	return created, nil
 }
@@ -415,9 +441,9 @@ func (s *Service) List(f LoanFilter) ([]Loan, error) {
 	now := time.Now()
 	for i := range loans {
 		l := &loans[i]
-		interestDelta, penalDelta := projectAccrual(l, &l.Scheme, now)
-		l.AccruedInterest += interestDelta
-		l.AccruedPenalInterest += penalDelta
+		interestDelta, penalDelta, _ := projectAccrual(l, &l.Scheme, now)
+		l.AccruedInterest = platform.RoundMoney(l.AccruedInterest + interestDelta)
+		l.AccruedPenalInterest = platform.RoundMoney(l.AccruedPenalInterest + penalDelta)
 		s.enrich(l)
 	}
 	return loans, nil
@@ -865,7 +891,7 @@ func (s *Service) Approve(loanID uint, in ApprovalInput) (*Loan, error) {
 		s.notifyCustomer(l.Customer.Phone, fmt.Sprintf(
 			"Dear %s, your gold loan %s has been sanctioned and ₹%.2f has been disbursed. Due date: %s. — Ambika Gold Finance",
 			l.Customer.Name, l.LoanNumber, l.PrincipalAmount, l.DueDate.Format("02-Jan-2006"),
-		))
+		), commlog.TriggerLoanSanction, "loan", l.ID)
 	}
 
 	return s.Get(l.ID, nil)
@@ -1054,7 +1080,7 @@ func (s *Service) RecordPayment(loanID uint, in PaymentInput) (*Loan, error) {
 	// can immediately go toward clearing it — fee has first priority in
 	// allocatePayment's waterfall.
 	if in.ProcessingFee > 0 {
-		l.OutstandingProcessingFee += in.ProcessingFee
+		l.OutstandingProcessingFee = platform.RoundMoney(l.OutstandingProcessingFee + in.ProcessingFee)
 	}
 
 	fee, penal, interest, principal, err := allocatePayment(l, in.Type, in.Amount)
@@ -1062,13 +1088,16 @@ func (s *Service) RecordPayment(loanID uint, in PaymentInput) (*Loan, error) {
 		return nil, err
 	}
 
-	l.OutstandingProcessingFee -= fee
+	// Every balance is rounded as it is written, so stored figures stay exact
+	// rupee amounts and the waterfall's float arithmetic cannot accumulate
+	// drift across payments — see platform.RoundMoney.
+	l.OutstandingProcessingFee = platform.RoundMoney(l.OutstandingProcessingFee - fee)
 	if l.OutstandingProcessingFee < 0 {
 		l.OutstandingProcessingFee = 0
 	}
-	l.PenalInterestPaid += penal
-	l.InterestPaid += interest
-	l.OutstandingAmount -= principal
+	l.PenalInterestPaid = platform.RoundMoney(l.PenalInterestPaid + penal)
+	l.InterestPaid = platform.RoundMoney(l.InterestPaid + interest)
+	l.OutstandingAmount = platform.RoundMoney(l.OutstandingAmount - principal)
 	if l.OutstandingAmount < 0 {
 		l.OutstandingAmount = 0
 	}
@@ -1079,6 +1108,10 @@ func (s *Service) RecordPayment(loanID uint, in PaymentInput) (*Loan, error) {
 		l.OutstandingProcessingFee <= 0.01 &&
 		(l.Status == StatusActive || l.Status == StatusDueSoon || l.Status == StatusOverdue) {
 		l.Status = StatusClosed
+	} else {
+		// Not fully settled, but this payment may have cleared the arrears —
+		// which takes an expired-term loan off Overdue and back to Active.
+		refreshServicingStatus(l, time.Now())
 	}
 	if err := s.repo.Update(l); err != nil {
 		return nil, err
@@ -1159,7 +1192,7 @@ func (s *Service) resolveAuctionAfterPayment(l *Loan, p *LoanPayment) {
 			s.notifyCustomer(l.Customer.Phone, fmt.Sprintf(
 				"Dear %s, we have received your payment of ₹%.2f. Loan %s is now fully settled, the auction has been cancelled, and your pledged gold is safe. — Ambika Gold Finance",
 				l.Customer.Name, p.Amount, l.LoanNumber,
-			))
+			), commlog.TriggerPayment, "loan", l.ID)
 			return nil
 		}
 
@@ -1209,7 +1242,7 @@ func (s *Service) resolveAuctionAfterPayment(l *Loan, p *LoanPayment) {
 		s.notifyCustomer(l.Customer.Phone, fmt.Sprintf(
 			"Dear %s, we have received your payment of ₹%.2f towards loan %s. As the loan is not yet fully settled, the auction of your pledged gold is on hold while our management reviews your account. We will inform you of the decision. — Ambika Gold Finance",
 			l.Customer.Name, p.Amount, l.LoanNumber,
-		))
+		), commlog.TriggerPayment, "loan", l.ID)
 	}
 }
 
@@ -1428,9 +1461,11 @@ func (s *Service) GetAuctionRecord(loanID uint, branchID *uint) (*AuctionRecord,
 }
 
 // MarkAuctionEligible starts a loan's auction case: requires the loan to
-// currently be Defaulted (IsDefaulted, i.e. overdue by more than 90 days —
-// see accrual.go), creates an AuctionRecord at AuctionEligible, and sets
-// Loan.Status accordingly.
+// currently be Defaulted (IsDefaulted — overdue by more than 90 days AND
+// still carrying genuine interest/penal-interest arrears, see accrual.go),
+// creates an AuctionRecord at AuctionEligible, and sets Loan.Status
+// accordingly. A loan that's overdue but has kept its accrued interest and
+// penal interest fully paid down cannot be started into auction here.
 //
 // Only one case may be ACTIVE per loan, but a loan that had a case withdrawn
 // (customer caught up) and then defaulted again can start a fresh one — the
@@ -1480,7 +1515,7 @@ func (s *Service) MarkAuctionEligible(loanID uint, branchID *uint, actorID *uint
 	s.notifyCustomer(l.Customer.Phone, fmt.Sprintf(
 		"Dear %s, your gold loan %s is seriously overdue and has now been marked eligible for auction. Outstanding: ₹%.2f. Please contact the branch immediately to settle and retain your pledged items. — Ambika Gold Finance",
 		l.Customer.Name, l.LoanNumber, l.TotalOutstandingBalance,
-	))
+	), commlog.TriggerAuctionEvent, "auction_record", rec.ID)
 
 	return s.getAuctionRecord(loanID)
 }
@@ -1550,7 +1585,7 @@ func (s *Service) IssueAuctionNotice(loanID uint, branchID *uint, remarks string
 			s.notifyCustomer(l.Customer.Phone, fmt.Sprintf(
 				"Dear %s, your gold loan %s is overdue and has been marked for auction. Please contact the branch immediately to settle dues and avoid losing your pledged items.",
 				l.Customer.Name, l.LoanNumber,
-			))
+			), commlog.TriggerAuctionNotice, "auction_record", rec.ID)
 		}
 	}
 
@@ -1595,7 +1630,7 @@ func (s *Service) ScheduleAuction(loanID uint, branchID *uint, date time.Time, r
 		s.notifyCustomer(l.Customer.Phone, fmt.Sprintf(
 			"Dear %s, the auction of the gold pledged against loan %s has been scheduled for %s (ref %s). You may still settle the outstanding dues before this date to reclaim your items. — Ambika Gold Finance",
 			l.Customer.Name, l.LoanNumber, date.Format("02-Jan-2006"), referenceNumber,
-		))
+		), commlog.TriggerAuctionEvent, "auction_record", rec.ID)
 	}
 	return s.getAuctionRecord(loanID)
 }
@@ -1769,14 +1804,14 @@ func (s *Service) RecordAuctionSale(loanID uint, branchID *uint, saleAmount, exp
 		s.notifyCustomer(l.Customer.Phone, fmt.Sprintf(
 			"Dear %s, the gold pledged against loan %s was auctioned on %s for ₹%.2f. Your loan is now fully settled and closed.%s — Ambika Gold Finance",
 			l.Customer.Name, l.LoanNumber, auctionDate.Format("02-Jan-2006"), saleAmount, surplusNote,
-		))
+		), commlog.TriggerAuctionEvent, "auction_record", rec.ID)
 	} else {
 		s.recordAuctionEvent(nil, rec.ID, AuctionEventShortfallEscalated, actorID, actorRole, fmt.Sprintf(
 			"Auction proceeds fell short by ₹%.2f — escalated for a write-off/pursue decision", platform.RoundMoney(totalDebt-netProceeds)))
 		s.notifyCustomer(l.Customer.Phone, fmt.Sprintf(
 			"Dear %s, the gold pledged against loan %s was auctioned on %s for ₹%.2f, which did not cover the full amount due. A balance of ₹%.2f remains and is under review by our management. We will inform you of the outcome. — Ambika Gold Finance",
 			l.Customer.Name, l.LoanNumber, auctionDate.Format("02-Jan-2006"), saleAmount, platform.RoundMoney(totalDebt-netProceeds),
-		))
+		), commlog.TriggerAuctionEvent, "auction_record", rec.ID)
 	}
 
 	return s.getAuctionRecord(loanID)
@@ -1870,12 +1905,12 @@ func (s *Service) SettleAuction(loanID uint, branchID *uint, disposition, remark
 		s.notifyCustomer(l.Customer.Phone, fmt.Sprintf(
 			"Dear %s, the surplus of ₹%.2f from the auction of loan %s is being refunded to you. Please visit the branch to collect it. — Ambika Gold Finance",
 			l.Customer.Name, rec.SurplusPayableAmount, l.LoanNumber,
-		))
+		), commlog.TriggerAuctionEvent, "auction_record", rec.ID)
 	} else {
 		s.notifyCustomer(l.Customer.Phone, fmt.Sprintf(
 			"Dear %s, the auction settlement for loan %s is now complete and the loan is closed. — Ambika Gold Finance",
 			l.Customer.Name, l.LoanNumber,
-		))
+		), commlog.TriggerAuctionEvent, "auction_record", rec.ID)
 	}
 
 	return s.getAuctionRecord(loanID)
@@ -2075,7 +2110,7 @@ func (s *Service) ResolveAuctionDecision(loanID, requestID uint, branchID *uint,
 	}
 
 	if notifyMsg != "" {
-		s.notifyCustomer(l.Customer.Phone, notifyMsg)
+		s.notifyCustomer(l.Customer.Phone, notifyMsg, commlog.TriggerAuctionEvent, "auction_record", auctionRecID)
 	}
 
 	// The case may now be concluded, in which case there is no active record to
@@ -2647,7 +2682,12 @@ func (s *Service) GetCustomer360(customerID uint, from, to *time.Time) (*Custome
 	out := &Customer360{Customer: cust.ToResponse()}
 	for i := range loans {
 		s.enrich(&loans[i])
-		out.TotalDisbursed += loans[i].PrincipalAmount
+		// Only money that actually left the till. A loan still in the sanction
+		// chain (or rejected) has been disbursed nothing — see Decide's
+		// `disbursing` flag, which is what triggers the cash-out movement.
+		if loans[i].ApprovalStage == ApprovalStageApproved {
+			out.TotalDisbursed += loans[i].PrincipalAmount
+		}
 		out.TotalOutstanding += loans[i].TotalOutstandingBalance
 		out.TotalPaid += loans[i].TotalPaid
 		switch loans[i].Status {

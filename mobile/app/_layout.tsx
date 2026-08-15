@@ -5,6 +5,7 @@ import { useFonts, Jost_400Regular, Jost_500Medium, Jost_600SemiBold } from "@ex
 import { BodoniModaSC_600SemiBold } from "@expo-google-fonts/bodoni-moda-sc";
 import * as SplashScreen from "expo-splash-screen";
 import { View, ActivityIndicator } from "react-native";
+import { StatusBar } from "expo-status-bar";
 
 import { ThemeProvider } from "../src/theme/ThemeProvider";
 import { AuthProvider, useAuth } from "../src/auth/AuthContext";
@@ -32,12 +33,23 @@ function RootNavigation() {
   if (isLoading) {
     return (
       <View style={{ flex: 1, alignItems: "center", justifyContent: "center", backgroundColor: colors.ivory }}>
+        <StatusBar style="dark" />
         <ActivityIndicator color={colors.gold} />
       </View>
     );
   }
 
-  return <Slot />;
+  return (
+    // Android draws edge-to-edge (SDK 57+ enforces this), so the strip
+    // behind the status bar is whatever this outer view's background is —
+    // without it, that strip defaults to white against the app's ivory
+    // theme. `style="dark"` picks dark status-bar icons/text to read
+    // against that light background.
+    <View style={{ flex: 1, backgroundColor: colors.ivory }}>
+      <StatusBar style="dark" />
+      <Slot />
+    </View>
+  );
 }
 
 export default function RootLayout() {

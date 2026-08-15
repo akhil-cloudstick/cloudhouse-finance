@@ -1,10 +1,18 @@
 import React from "react";
-import { TextInput, TextInputProps, View, StyleSheet } from "react-native";
+import { TextInput, TextInputProps, View, StyleSheet, Pressable } from "react-native";
 import { colors } from "../theme/colors";
 import { typeScale } from "../theme/typography";
 import { ThemedText } from "./ThemedText";
 
-export function GoldTextInput({ label, style, ...rest }: TextInputProps & { label?: string }) {
+// `right` renders an accessory (e.g. the show/hide-password eye toggle)
+// inside the input's right edge without every caller reimplementing the
+// positioning — see login.tsx/reset-password.tsx for the password case.
+export function GoldTextInput({
+  label,
+  style,
+  right,
+  ...rest
+}: TextInputProps & { label?: string; right?: React.ReactNode }) {
   return (
     <View style={styles.wrap}>
       {label ? (
@@ -12,18 +20,34 @@ export function GoldTextInput({ label, style, ...rest }: TextInputProps & { labe
           {label}
         </ThemedText>
       ) : null}
-      <TextInput
-        placeholderTextColor={colors.muted}
-        style={[styles.input, style]}
-        {...rest}
-      />
+      <View style={styles.inputRow}>
+        <TextInput
+          placeholderTextColor={colors.muted}
+          style={[styles.input, right ? styles.inputWithRight : null, style]}
+          {...rest}
+        />
+        {right ? <View style={styles.right}>{right}</View> : null}
+      </View>
     </View>
+  );
+}
+
+// Convenience eye toggle for password fields — <GoldTextInput secureTextEntry
+// right={<PasswordToggle visible={show} onToggle={() => setShow(v => !v)} />} .../>
+export function PasswordToggle({ visible, onToggle }: { visible: boolean; onToggle: () => void }) {
+  return (
+    <Pressable onPress={onToggle} hitSlop={10}>
+      <ThemedText variant="label" color={colors.muted}>
+        {visible ? "Hide" : "Show"}
+      </ThemedText>
+    </Pressable>
   );
 }
 
 const styles = StyleSheet.create({
   wrap: { marginBottom: 14 },
   label: { marginBottom: 6 },
+  inputRow: { position: "relative", justifyContent: "center" },
   input: {
     height: 48,
     borderRadius: 10,
@@ -35,4 +59,6 @@ const styles = StyleSheet.create({
     fontSize: typeScale.body.fontSize,
     color: colors.ink,
   },
+  inputWithRight: { paddingRight: 56 },
+  right: { position: "absolute", right: 14 },
 });

@@ -12,6 +12,7 @@ import (
 	"ambikagold/backend/internal/bank"
 	"ambikagold/backend/internal/branch"
 	"ambikagold/backend/internal/cash"
+	"ambikagold/backend/internal/commlog"
 	"ambikagold/backend/internal/customer"
 	"ambikagold/backend/internal/employee"
 	"ambikagold/backend/internal/goldrate"
@@ -21,6 +22,7 @@ import (
 	"ambikagold/backend/internal/packet"
 	"ambikagold/backend/internal/platform"
 	"ambikagold/backend/internal/puritystandard"
+	"ambikagold/backend/internal/reminder"
 	"ambikagold/backend/internal/scheme"
 	"ambikagold/backend/internal/settings"
 )
@@ -33,7 +35,7 @@ import (
 var authResources = []string{
 	"banks", "cash", "customers", "employees", "goldrates",
 	"loans", "lockers", "ornamenttypes", "packets", "puritystandards", "reminders",
-	"schemes", "settings", "uploads", "kyc-documents",
+	"schemes", "settings", "uploads", "kyc-documents", "reports",
 }
 
 var staffRoles = []string{
@@ -55,6 +57,10 @@ func main() {
 
 	if err := scheme.BackfillBranchID(db); err != nil {
 		log.Fatalf("scheme branch_id backfill failed: %v", err)
+	}
+
+	if err := loan.BackfillNullMoney(db); err != nil {
+		log.Fatalf("loan null-money backfill failed: %v", err)
 	}
 
 	if err := goldrate.MigrateLegacyColumns(db); err != nil {
@@ -103,7 +109,12 @@ func main() {
 		&packet.Packet{},
 		&packet.PacketMovement{},
 		&puritystandard.PurityStandard{},
+		// Previously missing here and migrated only by the API server's own
+		// AutoMigrate — now that the server no longer migrates, this file is
+		// the sole source of the schema and must list every model.
+		&reminder.Reminder{},
 		&authz.Permission{},
+		&commlog.CommunicationLog{},
 	); err != nil {
 		log.Fatalf("auto-migrate failed: %v", err)
 	}
@@ -170,6 +181,22 @@ func main() {
 	}
 	if err := authzRepo.SetPermission("Cashier", "loans", "create", false); err != nil {
 		log.Fatalf("cashier loan-create permission restriction failed: %v", err)
+	}
+
+	// Mirrors backend/main.go's reports permission restriction.
+	reportRoles := []string{"Administrator", "Management", "Branch Manager", "Auditor"}
+	reportRolesSet := make(map[string]bool, len(reportRoles))
+	for _, r := range reportRoles {
+		reportRolesSet[r] = true
+	}
+	nonReportRoles := make([]string, 0, len(staffRoles))
+	for _, role := range staffRoles {
+		if !reportRolesSet[role] {
+			nonReportRoles = append(nonReportRoles, role)
+		}
+	}
+	if err := authzRepo.RestrictResourceToRoles("reports", reportRoles, nonReportRoles); err != nil {
+		log.Fatalf("reports permission restriction failed: %v", err)
 	}
 
 	log.Println("migrations applied successfully")

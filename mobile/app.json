@@ -28,8 +28,20 @@
       "expo-secure-store",
       "expo-font",
       "expo-splash-screen",
-      "expo-status-bar"
+      [
+        "expo-status-bar",
+        {
+          "style": "dark",
+          "backgroundColor": "#faf6ec"
+        }
+      ],
+      "expo-sharing"
     ],
+    "androidStatusBar": {
+      "backgroundColor": "#faf6ec",
+      "barStyle": "dark-content",
+      "translucent": false
+    },
     "extra": {
       "eas": {
         "projectId": "2eefa477-9d29-496f-9e91-06261ed62690"

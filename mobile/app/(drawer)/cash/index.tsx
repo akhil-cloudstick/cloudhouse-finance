@@ -1,5 +1,5 @@
 import React from "react";
-import { View } from "react-native";
+import { View, ScrollView } from "react-native";
 import { useQuery } from "@tanstack/react-query";
 import { useRouter } from "expo-router";
 import { ScreenContainer } from "../../../src/components/ScreenContainer";
@@ -10,9 +10,7 @@ import { colors } from "../../../src/theme/colors";
 import { getCashSummary } from "../../../src/api/cash";
 import { useAuth } from "../../../src/auth/AuthContext";
 
-function fmt(n: number) {
-  return `₹${n.toLocaleString("en-IN")}`;
-}
+import { fmt } from "../../../src/lib/format";
 
 export default function CashSummaryScreen() {
   const router = useRouter();
@@ -27,6 +25,10 @@ export default function CashSummaryScreen() {
 
   return (
     <ScreenContainer>
+      {/* No ScrollView here previously — on a short screen the summary
+          Card plus the two nav buttons below could clip, same overflow
+          bug schemes/new.tsx had. */}
+      <ScrollView showsVerticalScrollIndicator={false}>
       <Card>
         <ThemedText variant="h3" style={{ marginBottom: 8 }}>
           Today's cash summary
@@ -54,6 +56,7 @@ export default function CashSummaryScreen() {
         <GoldButton title="Cash Movements" variant="outline" onPress={() => router.push("/cash/movements")} />
         <GoldButton title="Expenses" variant="outline" onPress={() => router.push("/cash/expenses")} />
       </View>
+      </ScrollView>
     </ScreenContainer>
   );
 }

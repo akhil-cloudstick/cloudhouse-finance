@@ -137,6 +137,32 @@ func (r *Repository) RestrictResourceToRole(resource, allowedRole string, otherR
 	return nil
 }
 
+// RestrictResourceToRoles is RestrictResourceToRole generalized to a set of
+// allowed roles rather than exactly one — used for resources like "reports"
+// that several management-tier roles may access, but rank-and-file staff
+// roles may not. Every action (including "read", unlike
+// RestrictResourceToRole) is locked down for otherRoles: a report resource
+// has no "read is fine for everyone" carve-out the way Branches does.
+// Idempotent and safe to run on every startup.
+func (r *Repository) RestrictResourceToRoles(resource string, allowedRoles []string, otherRoles []string) error {
+	for _, role := range allowedRoles {
+		for _, action := range CRUDActions {
+			if err := r.upsertAllowed(role, resource, action, true); err != nil {
+				return err
+			}
+		}
+	}
+	for _, role := range otherRoles {
+		for _, action := range CRUDActions {
+			if err := r.upsertAllowed(role, resource, action, false); err != nil {
+				return err
+			}
+		}
+	}
+	log.Printf("authz: restricted resource %q to roles %v (locked out: %v)", resource, allowedRoles, otherRoles)
+	return nil
+}
+
 // SetPermission overwrites a single (role, resource, action) row to
 // Allowed=allowed — for one-off, narrower restrictions than
 // RestrictResourceToRole's whole-resource lockout (e.g. "Cashier may read

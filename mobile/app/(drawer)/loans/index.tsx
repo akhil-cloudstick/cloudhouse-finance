@@ -53,7 +53,10 @@ export default function LoansScreen() {
           return (
             <Pressable onPress={() => router.push(`/loans/${item.id}`)}>
               <Card>
-                <ThemedText variant="h3">{item.loanNumber}</ThemedText>
+                {/* "body" (Jost) instead of "h3" (Bodoni serif, wider per
+                    glyph) — same fix as customers/index.tsx: h3 could clip
+                    longer loan numbers against the Card's width. */}
+                <ThemedText variant="body">{item.loanNumber}</ThemedText>
                 <ThemedText variant="small" color={colors.muted}>
                   {item.customer?.name ?? `Customer #${item.customerId}`}
                 </ThemedText>

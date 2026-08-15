@@ -116,7 +116,12 @@ export function Dashboard() {
     const d = new Date(now.getFullYear(), now.getMonth() - (5 - i), 1);
     return [d.toLocaleDateString("en-IN", { month: "short" }), 0] as [string, number];
   });
+  // Only loans that cleared final sanction — money leaves the till at that
+  // point and not before (see loan.Service.Decide's `disbursing` flag), so
+  // counting loans still in the approval chain would chart cash that has not
+  // actually gone out.
   loans.forEach((l) => {
+    if (l.approvalStage !== "Approved") return;
     const opened = new Date(l.opened);
     const idx = 5 - (
       (now.getFullYear() - opened.getFullYear()) * 12 + (now.getMonth() - opened.getMonth())

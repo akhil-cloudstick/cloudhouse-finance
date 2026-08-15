@@ -60,12 +60,59 @@ export function PurityPicker({ value, onChange, disabled }: { value: string; onC
 
   return (
     <div style={{ maxWidth: 210 }}>
-      <div style={{ display: "flex", gap: 6, alignItems: "stretch" }}>
-        <div style={{ display: "flex", flexDirection: "column", gap: 2, flex: 1, minWidth: 0 }}>
+      {/* Both this Karat/Fineness% slide toggle and the search field beside
+       * it are pinned to a Net Wt (g) input's rendered height (padding:6px
+       * 8px, font-size:14px, 1px border — see NewLoan.tsx's ornament row)
+       * so the table row doesn't grow taller than it needs to for this cell. */}
+      <div style={{ display: "flex", gap: 10, alignItems: "stretch", height: 31 }}>
+        <div
+          role="tablist"
+          aria-label="Purity unit"
+          style={{
+            position: "relative",
+            display: "flex",
+            flex: 1,
+            minWidth: 0,
+            height: "100%",
+            border: "1px solid var(--line)",
+            borderRadius: 6,
+            background: "#fff",
+            overflow: "hidden",
+          }}
+        >
+          {/* Sliding thumb — animates between the two halves on unit change. */}
+          <div
+            aria-hidden
+            style={{
+              position: "absolute",
+              top: 2,
+              bottom: 2,
+              left: 2,
+              width: "calc(50% - 3px)",
+              borderRadius: 4,
+              background: "linear-gradient(180deg,#f0d382 0%,var(--gold-mid) 45%,#bd8f16 100%)",
+              boxShadow: "inset 0 1px 0 rgba(255,255,255,.5)",
+              transform: unit === "fineness" ? "translateX(calc(100% + 2px))" : "translateX(0)",
+              transition: "transform .18s ease",
+            }}
+          />
           <button
             type="button"
-            className={`btn plain sm${unit === "karat" ? " active" : ""}`}
-            style={{ padding: "2px 6px", fontWeight: unit === "karat" ? 700 : 400, whiteSpace: "nowrap", lineHeight: 1.3, width: "100%", flex: 1, minHeight: 0 }}
+            role="tab"
+            aria-selected={unit === "karat"}
+            style={{
+              position: "relative",
+              flex: 1,
+              minWidth: 0,
+              border: 0,
+              background: "transparent",
+              cursor: "pointer",
+              padding: "0 4px",
+              fontSize: 9.5,
+              fontWeight: unit === "karat" ? 700 : 400,
+              color: unit === "karat" ? "#2b2001" : "var(--muted)",
+              whiteSpace: "nowrap",
+            }}
             disabled={disabled}
             onClick={() => setUnit("karat")}
           >
@@ -73,15 +120,28 @@ export function PurityPicker({ value, onChange, disabled }: { value: string; onC
           </button>
           <button
             type="button"
-            className={`btn plain sm${unit === "fineness" ? " active" : ""}`}
-            style={{ padding: "2px 6px", fontWeight: unit === "fineness" ? 700 : 400, whiteSpace: "nowrap", lineHeight: 1.3, width: "100%", flex: 1, minHeight: 0 }}
+            role="tab"
+            aria-selected={unit === "fineness"}
+            style={{
+              position: "relative",
+              flex: 1,
+              minWidth: 0,
+              border: 0,
+              background: "transparent",
+              cursor: "pointer",
+              padding: "0 4px",
+              fontSize: 9.5,
+              fontWeight: unit === "fineness" ? 700 : 400,
+              color: unit === "fineness" ? "#2b2001" : "var(--muted)",
+              whiteSpace: "nowrap",
+            }}
             disabled={disabled}
             onClick={() => setUnit("fineness")}
           >
             Fineness %
           </button>
         </div>
-        <div style={{ flex: 1, minWidth: 0 }}>
+        <div className="purity-select" style={{ flex: 1, minWidth: 0, height: "100%" }}>
           <SearchableSelect<BackendPurityStandard>
             value={label}
             onChange={pick}

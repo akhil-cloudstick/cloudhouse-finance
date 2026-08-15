@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"time"
 
+	"ambikagold/backend/internal/commlog"
 	"ambikagold/backend/internal/customer"
 	"ambikagold/backend/internal/loan"
 	"ambikagold/backend/internal/platform"
@@ -50,10 +51,11 @@ type Service struct {
 	customerRepo *customer.Repository
 	loanRepo     *loan.Repository
 	whatsapp     platform.SMSSender // reused interface — Send(phone, message) matches SMSSender exactly
+	commlogRepo  *commlog.Repository
 }
 
-func NewService(repo *Repository, customerRepo *customer.Repository, loanRepo *loan.Repository, whatsapp platform.SMSSender) *Service {
-	return &Service{repo: repo, customerRepo: customerRepo, loanRepo: loanRepo, whatsapp: whatsapp}
+func NewService(repo *Repository, customerRepo *customer.Repository, loanRepo *loan.Repository, whatsapp platform.SMSSender, commlogRepo *commlog.Repository) *Service {
+	return &Service{repo: repo, customerRepo: customerRepo, loanRepo: loanRepo, whatsapp: whatsapp, commlogRepo: commlogRepo}
 }
 
 func validate(customerID uint, typ string, dueDate time.Time) error {
@@ -154,8 +156,27 @@ func (s *Service) SendWhatsApp(id uint) (*Reminder, error) {
 	if message == "" {
 		message = fmt.Sprintf("This is a reminder from Ambika Gold Finance regarding your %s.", rec.Type)
 	}
-	if err := s.whatsapp.Send(rec.Customer.Phone, message); err != nil {
-		return nil, fmt.Errorf("sending whatsapp reminder: %w", err)
+	sendErr := s.whatsapp.Send(rec.Customer.Phone, message)
+	if s.commlogRepo != nil {
+		logRec := &commlog.CommunicationLog{
+			RecipientName:     rec.Customer.Name,
+			RecipientPhone:    rec.Customer.Phone,
+			ChatID:            commlog.NormalizeChatID(rec.Customer.Phone),
+			Channel:           commlog.ChannelWhatsApp,
+			TriggerType:       commlog.TriggerReminder,
+			MessageBody:       message,
+			RelatedEntityType: "reminder",
+			RelatedEntityID:   rec.ID,
+			Status:            commlog.StatusSent,
+		}
+		if sendErr != nil {
+			logRec.Status = commlog.StatusFailed
+			logRec.ErrorMessage = sendErr.Error()
+		}
+		_ = s.commlogRepo.Create(logRec)
+	}
+	if sendErr != nil {
+		return nil, fmt.Errorf("sending whatsapp reminder: %w", sendErr)
 	}
 	rec.Status = StatusDone
 	if err := s.repo.Update(rec); err != nil {

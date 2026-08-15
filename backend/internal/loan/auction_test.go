@@ -179,7 +179,7 @@ func TestProjectAccrual_FreezesBalanceDueAndAccruesAfterPursueDecision(t *testin
 		DueDate:           from,
 		Scheme:            sch,
 	}
-	if i, p := projectAccrual(frozen, &sch, asOf); i != 0 || p != 0 {
+	if i, p, _ := projectAccrual(frozen, &sch, asOf); i != 0 || p != 0 {
 		t.Fatalf("a pending shortfall must not accrue, got interest=%.2f penal=%.2f", i, p)
 	}
 
@@ -187,7 +187,7 @@ func TestProjectAccrual_FreezesBalanceDueAndAccruesAfterPursueDecision(t *testin
 	// accrual through the ordinary path — no separate accrual rule needed.
 	pursued := *frozen
 	pursued.Status = StatusOverdue
-	i, p := projectAccrual(&pursued, &sch, asOf)
+	i, p, _ := projectAccrual(&pursued, &sch, asOf)
 	if i <= 0 {
 		t.Fatalf("a pursued balance should accrue interest once Overdue, got %.2f", i)
 	}

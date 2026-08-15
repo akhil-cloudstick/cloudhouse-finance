@@ -11,28 +11,39 @@ import { listLoans } from "../../../src/api/loans";
 import { Loan } from "../../../src/types/loan";
 
 // There's no dedicated "auctions" list endpoint — eligible/defaulted loans
-// come from the Loans module's own status filter (see plan). The actual
-// auction actions (eligible → notice → schedule → sale → settle) live on
-// the loan's own detail screen (/loans/[id]) since every action is
-// per-loan, not a separate resource.
-const STATUSES = ["Auction Eligible", "Defaulted"] as const;
+// come from the Loans module. The actual auction actions (eligible →
+// notice → schedule → sale → settle) live on the loan's own detail screen
+// (/loans/[id]) since every action is per-loan, not a separate resource.
+//
+// "Defaulted" is NOT filterable server-side: it's a read-time derived flag
+// (Loan.isDefaulted, backend/internal/loan/model.go's IsDefaulted —
+// gorm:"-"), never a value the persisted `status` column holds. Asking the
+// backend for status=Defaulted silently returns zero rows every time —
+// that's why this screen used to show no auctions at all. Instead we fetch
+// the loans once and bucket client-side by isDefaulted vs. the real
+// "Auction Eligible" status.
+const FILTERS = ["Auction Eligible", "Defaulted"] as const;
 
 export default function AuctionsScreen() {
   const router = useRouter();
-  const [status, setStatus] = useState<(typeof STATUSES)[number]>("Auction Eligible");
+  const [filter, setFilter] = useState<(typeof FILTERS)[number]>("Auction Eligible");
 
   const { data, isLoading, isError, refetch, isRefetching } = useQuery({
-    queryKey: ["loans", "auction-status", status],
-    queryFn: () => listLoans({ status }),
+    queryKey: ["loans", "auctions"],
+    queryFn: () => listLoans(),
   });
+
+  const filtered = (data ?? []).filter((l) =>
+    filter === "Defaulted" ? !!l.isDefaulted : l.status === "Auction Eligible"
+  );
 
   return (
     <ScreenContainer style={{ paddingHorizontal: 0 }}>
       <View style={{ paddingHorizontal: 16 }}>
-        <ChipSelect options={STATUSES} value={status} onChange={setStatus} label="Filter" />
+        <ChipSelect options={FILTERS} value={filter} onChange={setFilter} label="Filter" />
       </View>
       <FlatList<Loan>
-        data={data ?? []}
+        data={filtered}
         keyExtractor={(item) => String(item.id)}
         contentContainerStyle={{ paddingHorizontal: 16 }}
         refreshControl={<RefreshControl refreshing={isRefetching} onRefresh={refetch} />}
@@ -44,7 +55,7 @@ export default function AuctionsScreen() {
         renderItem={({ item }) => (
           <Pressable onPress={() => router.push(`/loans/${item.id}`)}>
             <Card>
-              <ThemedText variant="h3">{item.loanNumber}</ThemedText>
+              <ThemedText variant="body">{item.loanNumber}</ThemedText>
               <ThemedText variant="small" color={colors.muted}>
                 {item.customer?.name ?? `Customer #${item.customerId}`} · {item.status}
               </ThemedText>

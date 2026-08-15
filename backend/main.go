@@ -1,17 +1,21 @@
 package main
 
 import (
+	"fmt"
 	"log"
 	"net/http"
 	"os"
+	"strings"
 
 	"github.com/gin-gonic/gin"
+	"gorm.io/gorm"
 
 	"ambikagold/backend/internal/auth"
 	"ambikagold/backend/internal/authz"
 	"ambikagold/backend/internal/bank"
 	"ambikagold/backend/internal/branch"
 	"ambikagold/backend/internal/cash"
+	"ambikagold/backend/internal/commlog"
 	"ambikagold/backend/internal/customer"
 	"ambikagold/backend/internal/employee"
 	"ambikagold/backend/internal/goldrate"
@@ -22,34 +26,17 @@ import (
 	"ambikagold/backend/internal/platform"
 	"ambikagold/backend/internal/puritystandard"
 	"ambikagold/backend/internal/reminder"
+	"ambikagold/backend/internal/reports"
 	"ambikagold/backend/internal/scheme"
 	"ambikagold/backend/internal/settings"
 	"ambikagold/backend/internal/upload"
 	"ambikagold/backend/internal/webstatic"
 )
 
-// authResources lists every domain package's permission resource key,
-// seeded with allow-all rows for all 9 roles on startup (see
-// authz.Repository.SeedDefaults). "kyc-documents" has no dedicated routes
-// yet (KYC document URLs currently flow through the generic customer/
-// upload endpoints) but is seeded now per the permissions plan so a future
-// admin screen can restrict it independently without a migration.
-// "branches" is deliberately NOT in this list — Branch management writes
-// are restricted to the Administrator role only (see RestrictResourceToRole
-// below), not allow-all-roles like every other resource. Reads stay open to
-// everyone (every branch selector needs the list).
-var authResources = []string{
-	"banks", "cash", "customers", "employees", "goldrates",
-	"loans", "lockers", "ornamenttypes", "packets", "puritystandards", "reminders",
-	"schemes", "settings", "uploads", "kyc-documents",
-}
-
-// staffRoles is the canonical 9-role list permissions are seeded for. Keep
-// in sync with employee.ValidRoles.
-var staffRoles = []string{
-	"Administrator", "Management", "Branch Manager", "Loan Operator", "Cashier",
-	"Accountant", "Collection Staff", "Auction Administrator", "Auditor",
-}
+// The authResources/staffRoles lists that used to live here have moved to
+// cmd/migrate, which is now the only place permissions are seeded — keeping
+// a second copy in the server would have been dead code that silently drifts
+// out of sync with the list actually applied.
 
 // corsMiddleware allows the Next.js dev server (a different origin/port from
 // this API during local development) to make cross-origin requests. In
@@ -68,6 +55,48 @@ func corsMiddleware(allowedOrigin string) gin.HandlerFunc {
 	}
 }
 
+// requireMigratedSchema fails fast when the database has not had
+// `go run ./cmd/migrate` applied to it. Since the server no longer migrates
+// anything itself, a missing table would otherwise surface as an opaque SQL
+// error on whichever request happened to touch it first.
+//
+// This is a presence check on a representative sample of tables, not a full
+// schema verification — it catches "migrations were never run" and "a new
+// model was added but not migrated", which are the realistic failures. It
+// deliberately does not check columns; keeping it cheap means it can run on
+// every boot without slowing startup.
+func requireMigratedSchema(db *gorm.DB) error {
+	required := []struct {
+		name  string
+		model any
+	}{
+		{"branches", &branch.Branch{}},
+		{"schemes", &scheme.Scheme{}},
+		{"employees", &employee.Employee{}},
+		{"customers", &customer.Customer{}},
+		{"loans", &loan.Loan{}},
+		{"loan_payments", &loan.LoanPayment{}},
+		{"packets", &packet.Packet{}},
+		{"reminders", &reminder.Reminder{}},
+		{"permissions", &authz.Permission{}},
+		{"communication_logs", &commlog.CommunicationLog{}},
+	}
+	var missing []string
+	for _, r := range required {
+		if !db.Migrator().HasTable(r.model) {
+			missing = append(missing, r.name)
+		}
+	}
+	if len(missing) > 0 {
+		return fmt.Errorf(
+			"database schema is not migrated — missing table(s): %s.\n"+
+				"The API server no longer migrates on startup. Run:\n"+
+				"    go run ./cmd/migrate",
+			strings.Join(missing, ", "))
+	}
+	return nil
+}
+
 func main() {
 	cfg := platform.LoadConfig()
 
@@ -76,110 +105,17 @@ func main() {
 		log.Fatalf("database connection failed: %v", err)
 	}
 
-	if err := scheme.BackfillDurationMonths(db); err != nil {
-		log.Fatalf("scheme duration backfill failed: %v", err)
-	}
-
-	if err := scheme.BackfillBranchID(db); err != nil {
-		log.Fatalf("scheme branch_id backfill failed: %v", err)
-	}
-
-	if err := goldrate.MigrateLegacyColumns(db); err != nil {
-		log.Fatalf("gold rate legacy column migration failed: %v", err)
-	}
-
-	// Must precede AutoMigrate — see RelaxAuctionLoanUniqueIndex's doc comment
-	// for why GORM cannot do this itself.
-	if err := loan.RelaxAuctionLoanUniqueIndex(db); err != nil {
-		log.Fatalf("auction unique index relaxation failed: %v", err)
-	}
-
-	if err := db.AutoMigrate(
-		&branch.Branch{},
-		&scheme.Scheme{},
-		&goldrate.GoldRate{},
-		&employee.Employee{},
-		&cash.CashMovement{},
-		&cash.Expense{},
-		&cash.OpeningCashBalance{},
-		&settings.ApiKeySetting{},
-		&customer.Customer{},
-		&loan.Loan{},
-		&loan.Ornament{},
-		&loan.OrnamentPurityTest{},
-		&loan.OrnamentImage{},
-		&loan.LoanApproval{},
-		&loan.LoanRequest{},
-		&loan.RequestApproval{},
-		&loan.LoanPayment{},
-		&loan.BankPledgeRecord{},
-		&loan.BankPledgeEvent{},
-		&loan.AuctionRecord{},
-		&loan.AuctionNotice{},
-		&loan.AuctionEvent{},
-		&loan.AuctionDecisionRequest{},
-		&loan.ApprovalLimit{},
-		&ornamenttype.OrnamentType{},
-		&bank.Bank{},
-		&locker.Locker{},
-		&packet.Packet{},
-		&packet.PacketMovement{},
-		&puritystandard.PurityStandard{},
-		&reminder.Reminder{},
-		&authz.Permission{},
-	); err != nil {
-		log.Fatalf("auto-migrate failed: %v", err)
-	}
-
-	if err := scheme.DropLegacyDateColumns(db); err != nil {
-		log.Fatalf("legacy scheme date column cleanup failed: %v", err)
-	}
-
-	// Must follow AutoMigrate — the partial predicates reference columns it
-	// creates.
-	if err := loan.CreateAuctionPartialIndexes(db); err != nil {
-		log.Fatalf("auction partial index creation failed: %v", err)
-	}
-
-	if err := puritystandard.SeedStandards(db); err != nil {
-		log.Fatalf("purity standard seeding failed: %v", err)
-	}
-
-	if err := loan.NormalizeLegacyPurities(db); err != nil {
-		log.Fatalf("legacy ornament purity normalization failed: %v", err)
-	}
-
-	if err := loan.SeedLoanOperatorLimit(db); err != nil {
-		log.Fatalf("loan operator approval limit seeding failed: %v", err)
-	}
-
-	authzRepo := authz.NewRepository(db)
-	if inserted, skipped, err := authzRepo.SeedDefaults(staffRoles, authResources); err != nil {
-		log.Fatalf("permissions seed failed: %v", err)
-	} else {
-		log.Printf("permissions seed: %d inserted, %d already present", inserted, skipped)
-	}
-
-	// Branch management writes are Administrator-only — every other role is
-	// locked out of create/update/delete on "branches" (read stays open to
-	// all, see authResources' comment above). This also retroactively
-	// corrects any pre-existing allow-all rows from before "branches" was
-	// pulled out of authResources.
-	nonAdminRoles := make([]string, 0, len(staffRoles))
-	for _, role := range staffRoles {
-		if role != platform.AdministratorRole {
-			nonAdminRoles = append(nonAdminRoles, role)
-		}
-	}
-	if err := authzRepo.RestrictResourceToRole("branches", platform.AdministratorRole, nonAdminRoles); err != nil {
-		log.Fatalf("branches permission restriction failed: %v", err)
-	}
-
-	// Cashier is outside the loan creation/approval flow — they may still
-	// read loans (e.g. to record payments) but must not create one. A
-	// narrower, single-action override than RestrictResourceToRole above.
-	if err := authzRepo.SetPermission("Cashier", "loans", "create", false); err != nil {
-		log.Fatalf("cashier loan-create permission restriction failed: %v", err)
+	// The API server deliberately performs NO schema work: no AutoMigrate, no
+	// backfills, no seeding. Migrations are applied only by an explicit
+	// `go run ./cmd/migrate`, so restarting the server — including an
+	// unattended restart after a crash — can never reshape or rewrite live
+	// data as a side effect. cmd/migrate is the single source of the schema.
+	//
+	// The cost of that is a server booting against an un-migrated database,
+	// which would otherwise fail later as confusing per-request SQL errors.
+	// This check turns it into one clear message at startup instead.
+	if err := requireMigratedSchema(db); err != nil {
+		log.Fatalf("%v", err)
 	}
 
 	settingsCipher, err := platform.NewSettingsCipher(cfg.SettingsEncryptionKey)
@@ -285,11 +221,13 @@ func main() {
 	// packet movement on bank-pledge/release) — see internal/loan's
 	// PacketCreator/PacketMover doc comments. movementSvc satisfies
 	// loan.CashRecorder, reflecting bank-pledge amounts into Cash-in-Hand.
-	loanSvc := loan.NewService(db, loanRepo, loanOrnamentRepo, loanApprovalRepo, loanPaymentRepo, loanPledgeRepo, loanRequestRepo, requestApprovalRepo, loanAuctionRepo, loanApprovalLimitRepo, branchRepo, customerRepo, schemeRepo, goldRateRepo, packetSvc, packetSvc, movementSvc, whatsappSender)
+	commlogRepo := commlog.NewRepository(db)
+
+	loanSvc := loan.NewService(db, loanRepo, loanOrnamentRepo, loanApprovalRepo, loanPaymentRepo, loanPledgeRepo, loanRequestRepo, requestApprovalRepo, loanAuctionRepo, loanApprovalLimitRepo, branchRepo, customerRepo, schemeRepo, goldRateRepo, packetSvc, packetSvc, movementSvc, whatsappSender, commlogRepo)
 	loanHandler := loan.NewHandler(loanSvc)
 
 	reminderRepo := reminder.NewRepository(db)
-	reminderSvc := reminder.NewService(reminderRepo, customerRepo, loanRepo, whatsappSender)
+	reminderSvc := reminder.NewService(reminderRepo, customerRepo, loanRepo, whatsappSender, commlogRepo)
 	reminderHandler := reminder.NewHandler(reminderSvc)
 
 	uploadHandler := upload.NewHandler(cfg.UploadsDir)
@@ -302,8 +240,11 @@ func main() {
 	bankSvc := bank.NewService(bankRepo)
 	bankHandler := bank.NewHandler(bankSvc)
 
-	authSvc := auth.NewService(employeeRepo, whatsappSender, cfg.JWTSecret, cfg.JWTExpiry)
+	authSvc := auth.NewService(employeeRepo, whatsappSender, cfg.JWTSecret, cfg.JWTExpiry, commlogRepo)
 	authHandler := auth.NewHandler(authSvc)
+
+	reportsSvc := reports.NewService(db, commlogRepo)
+	reportsHandler := reports.NewHandler(reportsSvc)
 
 	authMiddleware := platform.AuthMiddleware(cfg.JWTSecret)
 
@@ -320,6 +261,10 @@ func main() {
 	// for all 9 roles until an admin screen starts restricting rows.
 	protected := v1.Group("")
 	protected.Use(authMiddleware)
+
+	// Read-only here: the permissions table is seeded and restricted solely by
+	// cmd/migrate now. This repo only reads those rows to authorize requests.
+	authzRepo := authz.NewRepository(db)
 
 	branch.RegisterRoutes(protected.Group("/branches"), branchHandler, platform.CRUDPermissions(authzRepo, "branches"))
 	scheme.RegisterRoutes(protected.Group("/schemes"), schemeHandler, platform.CRUDPermissions(authzRepo, "schemes"))
@@ -342,6 +287,12 @@ func main() {
 	locker.RegisterRoutes(protected.Group("/lockers"), lockerHandler, platform.CRUDPermissions(authzRepo, "lockers"))
 	packet.RegisterRoutes(protected.Group("/packets"), packetHandler, platform.CRUDPermissions(authzRepo, "packets"))
 	reminder.RegisterRoutes(protected.Group("/reminders"), reminderHandler, platform.CRUDPermissions(authzRepo, "reminders"))
+	// Reports are gated by BOTH a role allow-list (Administrator/Management/
+	// Branch Manager/Auditor — mirrors the auction routes' pattern in
+	// internal/loan/routes.go) AND the ordinary "reports" resource permission
+	// check, same double-gate style as auction routes.
+	reportsRoles := platform.RequireAnyRole("Administrator", "Management", "Branch Manager", "Auditor")
+	reports.RegisterRoutes(protected.Group("/reports"), reportsHandler, platform.CRUDPermissions(authzRepo, "reports"), reportsRoles)
 
 	if err := os.MkdirAll(cfg.UploadsDir, 0o755); err != nil {
 		log.Fatalf("failed to prepare uploads directory: %v", err)

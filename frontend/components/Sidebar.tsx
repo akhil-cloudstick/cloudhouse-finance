@@ -44,6 +44,12 @@ export function Sidebar({ route, open }: { route: string; open: boolean }) {
   // already 403s a Cashier's POST /loans, hide the nav entry entirely
   // rather than let them click into a form that can only ever fail.
   const canCreateLoans = role !== "Cashier";
+  // Reports is restricted server-side to Administrator/Management/Branch
+  // Manager/Auditor (backend/main.go's reportsRoles RequireAnyRole gate on
+  // /api/v1/reports) — hide the nav entry for any other role rather than
+  // let them click into a page that can only ever 403.
+  const REPORT_ROLES = ["Administrator", "Management", "Branch Manager", "Auditor"];
+  const canViewReports = !!role && REPORT_ROLES.includes(role);
 
   function handleSignOut(e: React.MouseEvent) {
     e.preventDefault();
@@ -71,6 +77,7 @@ export function Sidebar({ route, open }: { route: string; open: boolean }) {
               // can only ever fail for them.
               .filter(([r]) => r !== "branches" || isAdmin)
               .filter(([r]) => r !== "newloan" || canCreateLoans)
+              .filter(([r]) => r !== "reports" || canViewReports)
               .map(([r, t, ic]) => {
               const isOn =
                 route === r ||

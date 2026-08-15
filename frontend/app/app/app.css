@@ -295,6 +295,11 @@ h1,h2,h3,.serif{font-family:'Bodoni Moda',serif;font-optical-sizing:auto}
   transition:border-color .2s, box-shadow .2s;
 }
 .inp:focus{border-color:var(--gold);box-shadow:0 0 0 3px rgba(201,151,28,.15)}
+/* PurityPicker's Karat/Fineness search field sits beside a stacked
+ * Karat/Fineness% toggle sized to match a Net Wt (g) input's height (see
+ * PurityPicker.tsx) — shrink its padding to fit the same height so the
+ * ornament row doesn't grow taller than the rest of its cells. */
+.purity-select .inp{padding:6px 8px;height:100%}
 /* Native <select> chrome (the dropdown arrow) is drawn by the OS/browser
  * and never matched the gold/ivory theme — swap it for a themed chevron so
  * every select.inp app-wide looks consistent with the rest of the form. */
