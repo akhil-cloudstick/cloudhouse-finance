@@ -3,8 +3,11 @@ package loan
 import (
 	"errors"
 	"fmt"
+	"io"
 	"log"
 	"math"
+	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -16,6 +19,7 @@ import (
 	"ambikagold/backend/internal/goldrate"
 	"ambikagold/backend/internal/platform"
 	"ambikagold/backend/internal/scheme"
+	"ambikagold/backend/internal/upload"
 )
 
 // PacketCreator auto-generates a loan's tracking packet right after
@@ -70,42 +74,45 @@ type CashRecorder interface {
 }
 
 var (
-	ErrNotFound                     = errors.New("loan not found")
-	ErrOrnamentNotFound             = errors.New("ornament not found")
-	ErrBranchInvalid                = errors.New("branch does not exist")
-	ErrCustomerInvalid              = errors.New("customer does not exist")
-	ErrCustomerNotVerified          = errors.New("customer must be KYC verified before a loan can be created")
-	ErrSchemeInvalid                = errors.New("scheme does not exist")
-	ErrNoOrnaments                  = errors.New("at least one ornament is required")
-	ErrNoGoldRate                   = errors.New("no gold rate has been published yet")
-	ErrGoldRateNotSetToday          = errors.New("today's gold rate has not been set yet — please publish it before creating a loan")
-	ErrInvalidPurity                = errors.New("purity must be a karat like \"22K\" (10-24) or a fineness percentage like \"91.6%\" (0-100)")
-	ErrInvalidWeight                = errors.New("gross weight must be greater than zero")
-	ErrPrincipalTooHigh             = errors.New("principal amount cannot exceed the eligible loan amount")
-	ErrInvalidPrincipal             = errors.New("principal amount must be greater than zero")
-	ErrInvalidDueDate               = errors.New("due date must be after the opened date")
-	ErrWrongStage                   = errors.New("approval action does not match the loan's current approval stage")
-	ErrAlreadyDecided               = errors.New("loan approval has already reached a terminal state")
-	ErrInvalidAction                = errors.New("action must be Approved or Rejected")
-	ErrInvalidAmount                = errors.New("amount must be greater than zero")
-	ErrRequestNotFound              = errors.New("loan request not found")
-	ErrInvalidRequestType           = errors.New("type must be Extension or Release")
-	ErrInvalidMonths                = errors.New("requested extension months must be greater than zero")
-	ErrRequestAlreadyDecided        = errors.New("loan request has already been decided")
-	ErrInvalidPaymentType           = errors.New("type must be Interest, Principal, Partial, Full Settlement, Adjustment, or Waiver")
-	ErrNotExtensionRequest          = errors.New("this request is not an Extension request")
-	ErrNotReleaseRequest            = errors.New("this request is not a Release request")
-	ErrLoanTerminalState            = errors.New("loan is already Closed, Auctioned, or Defaulted — nothing left to extend")
-	ErrChecklistIncomplete          = errors.New("the release verification checklist must be fully complete before approval")
-	ErrReleaseNotApproved           = errors.New("this loan has no approved release request")
-	ErrOutstandingBalanceRemains    = errors.New("the final settlement has not been fully paid yet — record the remaining payment before releasing the gold")
-	ErrBankPledgeStillActive        = errors.New("gold is still pledged to a bank — release the bank pledge before releasing it to the customer")
-	ErrExceedsApprovalLimit         = errors.New("principal exceeds the Loan Operator's approval limit — escalate to Branch Manager or Management")
-	ErrAwaitingOperatorVerification = errors.New("the Loan Operator must verify this loan before Branch Manager or Management can approve it")
-	ErrAuctionNotFound              = errors.New("this loan has no auction case yet — mark it auction-eligible first")
-	ErrLoanNotDefaulted             = errors.New("loan must be Defaulted (overdue by more than 90 days) before it can be marked auction-eligible")
-	ErrAuctionAlreadyStarted        = errors.New("this loan already has an auction case in progress")
-	ErrAuctionWrongStage            = errors.New("action does not match the auction case's current stage")
+	ErrNotFound                  = errors.New("loan not found")
+	ErrOrnamentNotFound          = errors.New("ornament not found")
+	ErrBranchInvalid             = errors.New("branch does not exist")
+	ErrCustomerInvalid           = errors.New("customer does not exist")
+	ErrCustomerNotVerified       = errors.New("customer must be KYC verified before a loan can be created")
+	ErrSchemeInvalid             = errors.New("scheme does not exist")
+	ErrNoOrnaments               = errors.New("at least one ornament is required")
+	ErrNoGoldRate                = errors.New("no gold rate has been published yet")
+	ErrGoldRateNotSetToday       = errors.New("today's gold rate has not been set yet — please publish it before creating a loan")
+	ErrInvalidPurity             = errors.New("purity must be a karat like \"22K\" (10-24) or a fineness percentage like \"91.6%\" (0-100)")
+	ErrInvalidWeight             = errors.New("gross weight must be greater than zero")
+	ErrPrincipalTooHigh          = errors.New("principal amount cannot exceed the eligible loan amount")
+	ErrInvalidPrincipal          = errors.New("principal amount must be greater than zero")
+	ErrInvalidDueDate            = errors.New("due date must be after the opened date")
+	ErrWrongStage                = errors.New("approval action does not match the loan's current approval stage")
+	ErrAlreadyDecided            = errors.New("loan approval has already reached a terminal state")
+	ErrInvalidAction             = errors.New("action must be Approved or Rejected")
+	ErrInvalidAmount             = errors.New("amount must be greater than zero")
+	ErrRequestNotFound           = errors.New("loan request not found")
+	ErrInvalidRequestType        = errors.New("type must be Extension or Release")
+	ErrInvalidMonths             = errors.New("requested extension months must be greater than zero")
+	ErrRequestAlreadyDecided     = errors.New("loan request has already been decided")
+	ErrInvalidPaymentType        = errors.New("type must be Interest, Principal, Partial, Full Settlement, Adjustment, or Waiver")
+	ErrNotExtensionRequest       = errors.New("this request is not an Extension request")
+	ErrNotReleaseRequest         = errors.New("this request is not a Release request")
+	ErrLoanTerminalState         = errors.New("loan is already Closed, Auctioned, or Defaulted — nothing left to extend")
+	ErrChecklistIncomplete       = errors.New("the release verification checklist must be fully complete before approval")
+	ErrReleaseNotApproved        = errors.New("this loan has no approved release request")
+	ErrOutstandingBalanceRemains = errors.New("the final settlement has not been fully paid yet — record the remaining payment before releasing the gold")
+	ErrBankPledgeStillActive     = errors.New("gold is still pledged to a bank — release the bank pledge before releasing it to the customer")
+	ErrAuctionNotFound           = errors.New("this loan has no auction case yet — mark it auction-eligible first")
+	ErrLoanNotDefaulted          = errors.New("loan must be Defaulted (overdue by more than 90 days) before it can be marked auction-eligible")
+	ErrAuctionAlreadyStarted     = errors.New("this loan already has an auction case in progress")
+	ErrAuctionWrongStage         = errors.New("action does not match the auction case's current stage")
+
+	// ErrDraftNotFound covers both "no such draft" and "not yours" — a draft
+	// belongs to the employee who saved it (see LoanDraft), and answering
+	// "exists, but not yours" would leak that someone else has one.
+	ErrDraftNotFound = errors.New("loan draft not found")
 
 	ErrInvalidCashTreatment = errors.New("cashTreatment must be either \"CashIn\" or \"RecordOnly\"")
 	ErrPledgeNotFound       = errors.New("bank pledge record not found")
@@ -127,6 +134,15 @@ var (
 	ErrInvalidSurplusDisposition     = errors.New("surplus disposition must be either \"RefundedToCustomer\" or \"RecordedAsIncome\"")
 	ErrSettlementRemarksRequired     = errors.New("remarks are required when a customer's auction surplus is retained as income")
 	ErrDecisionRemarksRequired       = errors.New("remarks are required for this decision")
+
+	// ErrEsignNotConfigured/ErrNoIndemnityBondSignRequest are returned by the
+	// indemnity-bond Aadhaar eSign flow (StartIndemnityBondSign/
+	// CheckIndemnityBondSign) — same shape as customer.Service's
+	// ErrDigilockerNotConfigured/ErrNoDigilockerRequest.
+	ErrEsignNotConfigured           = errors.New("indemnity bond eSign is not configured")
+	ErrNoIndemnityBondSignRequest   = errors.New("no indemnity bond eSign has been started for this loan")
+	ErrIndemnityBondAlreadySigned   = errors.New("this loan's indemnity bond has already been signed")
+	ErrUnsupportedIndemnityBondLang = errors.New("lang must be en, hi, or gu")
 )
 
 // Service implements loan business rules: ornament valuation, eligible-
@@ -154,6 +170,12 @@ type Service struct {
 	auctionRepo         *AuctionRepository
 	approvalLimitRepo   *ApprovalLimitRepository
 
+	// draftRepo is built from db inside NewService rather than being passed
+	// in like the repositories above — drafts are internal scratch state
+	// with no other consumer, and this constructor already takes 21
+	// arguments.
+	draftRepo *DraftRepository
+
 	branchRepo   *branch.Repository
 	customerRepo *customer.Repository
 	schemeRepo   *scheme.Repository
@@ -164,6 +186,14 @@ type Service struct {
 	cashRecorder  CashRecorder
 	whatsapp      platform.SMSSender // reused interface — Send(phone, message) matches SMSSender exactly
 	commlogRepo   *commlog.Repository
+
+	// esign drives the indemnity bond's Aadhaar eSign flow (see
+	// indemnitybond.go, StartIndemnityBondSign/CheckIndemnityBondSign). nil
+	// when SETU_ESIGN_* isn't configured — every method using it checks
+	// first and returns ErrEsignNotConfigured rather than a nil-pointer
+	// panic, same posture as customer.Service's setu/digilocker fields.
+	esign      *platform.EsignClient
+	uploadsDir string
 }
 
 func NewService(
@@ -186,6 +216,8 @@ func NewService(
 	cashRecorder CashRecorder,
 	whatsapp platform.SMSSender,
 	commlogRepo *commlog.Repository,
+	esign *platform.EsignClient,
+	uploadsDir string,
 ) *Service {
 	return &Service{
 		db:                  db,
@@ -198,6 +230,7 @@ func NewService(
 		requestApprovalRepo: requestApprovalRepo,
 		auctionRepo:         auctionRepo,
 		approvalLimitRepo:   approvalLimitRepo,
+		draftRepo:           NewDraftRepository(db),
 		branchRepo:          branchRepo,
 		customerRepo:        customerRepo,
 		schemeRepo:          schemeRepo,
@@ -207,6 +240,8 @@ func NewService(
 		goldRateRepo:        goldRateRepo,
 		whatsapp:            whatsapp,
 		commlogRepo:         commlogRepo,
+		esign:               esign,
+		uploadsDir:          uploadsDir,
 	}
 }
 
@@ -665,8 +700,17 @@ func (s *Service) AddOrnamentImage(ornamentID uint, imageURL string) (*Ornament,
 var sanctionChain = []struct{ Stage, Role string }{
 	{SanctionStageLoanOperator, "Loan Operator"},
 	{SanctionStageBranchManager, "Branch Manager"},
-	{SanctionStageAuthorizedManagement, "Management"},
 	{SanctionStageFinalSanction, "Management"},
+}
+
+// normalizeSanctionStage maps the retired AuthorizedManagement stage onto
+// FinalSanction so a loan left on it by the old 4-stage chain still has a
+// role that can clear it (see SanctionStageAuthorizedManagement).
+func normalizeSanctionStage(stage string) string {
+	if stage == SanctionStageAuthorizedManagement {
+		return SanctionStageFinalSanction
+	}
+	return stage
 }
 
 // sanctionLimits is an advisory-only reference table for Branch Manager/
@@ -686,8 +730,9 @@ var sanctionLimits = map[string]float64{
 }
 
 func sanctionWarning(l *Loan) string {
+	stage := normalizeSanctionStage(l.ApprovalStage)
 	for _, step := range sanctionChain {
-		if step.Stage != l.ApprovalStage {
+		if step.Stage != stage {
 			continue
 		}
 		limit := sanctionLimits[step.Role]
@@ -742,47 +787,23 @@ type ApprovalInput struct {
 	Remarks         string
 }
 
-// operatorVerified reports whether the Loan Operator has already recorded
-// an ApprovalActionVerified entry for loanID's LoanOperator stage — the
-// hand-off marker Branch Manager/Management must wait for before they may
-// clear that stage themselves on an over-limit loan (see Approve).
-func (s *Service) operatorVerified(loanID uint) (bool, error) {
-	approvals, err := s.approvalRepo.FindByLoanID(loanID)
-	if err != nil {
-		return false, err
-	}
-	for _, a := range approvals {
-		if a.Stage == SanctionStageLoanOperator && a.Action == ApprovalActionVerified {
-			return true, nil
-		}
-	}
-	return false, nil
-}
-
-// Approve advances (or terminates) a loan's 4-step sanction chain:
+// Approve advances (or terminates) a loan's 3-step sanction chain:
 //
-//	LoanOperator -> BranchManager -> AuthorizedManagement -> FinalSanction -> Approved (Status -> Active)
+//	LoanOperator (verified) -> BranchManager (approved) -> FinalSanction (Management) -> Approved (Status -> Active)
 //
 // A Rejected action at any stage closes the loan (Status -> Closed) since
-// the doc's status list has no distinct "Rejected" bucket. Normally
-// in.ActorRole must match the current stage's required role (see
-// sanctionChain); an "Administrator" actor is exempt and may act at
-// whichever stage is currently pending. sanctionLimits (Branch Manager/
-// Management) only feeds Loan.ApprovalWarning, purely advisory — but the
-// Loan Operator stage is a hard cap (see loanOperatorLimit): a Loan
-// Operator cannot themselves approve a loan whose principal exceeds their
-// limit (ErrExceedsApprovalLimit on an Approved action; Rejected is always
-// allowed regardless of amount).
+// the doc's status list has no distinct "Rejected" bucket. in.ActorRole
+// must match the current stage's required role (see sanctionChain); an
+// "Administrator" actor is exempt and may act at whichever stage is
+// currently pending.
 //
-// Over that limit, the hand-off is two steps rather than Branch Manager/
-// Management silently clearing the Loan Operator's stage on their behalf:
-//  1. The Loan Operator records an ApprovalActionVerified decision — they
-//     still reviewed/verified the loan, just can't grant final approval on
-//     it themselves. Doesn't advance the sanction chain.
-//  2. Only once that exists (operatorVerified) may Branch Manager/
-//     Management clear the LoanOperator stage with a normal Approved (or
-//     Rejected) action, advancing the chain as usual. Attempting to
-//     approve before step 1 returns ErrAwaitingOperatorVerification.
+// The LoanOperator stage is a *verification*, not a sanction: the operator
+// who made the loan confirms it and the chain moves on to the Branch
+// Manager, who is the first actual approver. Both ApprovalActionVerified
+// and Approved are accepted there and behave identically (the UI sends
+// "Verified"; "Approved" stays accepted so older clients keep working).
+// No amount check gates it — the Loan Operator approval limit and
+// sanctionLimits are advisory only, feeding Loan.ApprovalWarning.
 func (s *Service) Approve(loanID uint, in ApprovalInput) (*Loan, error) {
 	l, err := s.repo.FindByID(loanID)
 	if err != nil {
@@ -794,50 +815,33 @@ func (s *Service) Approve(loanID uint, in ApprovalInput) (*Loan, error) {
 	if l.ApprovalStage == ApprovalStageApproved || l.ApprovalStage == ApprovalStageRejected {
 		return nil, ErrAlreadyDecided
 	}
-	if in.Stage != l.ApprovalStage {
+	// Compare against the normalized stage so a loan parked on the retired
+	// AuthorizedManagement value can be cleared by a client sending either
+	// that value or FinalSanction.
+	stage := normalizeSanctionStage(l.ApprovalStage)
+	if normalizeSanctionStage(in.Stage) != stage {
 		return nil, ErrWrongStage
 	}
 
 	var requiredRole string
 	for _, step := range sanctionChain {
-		if step.Stage == l.ApprovalStage {
+		if step.Stage == stage {
 			requiredRole = step.Role
 			break
 		}
 	}
-	overLimit := requiredRole == "Loan Operator" && l.PrincipalAmount > s.loanOperatorLimit()
 
-	if in.Action == ApprovalActionVerified {
-		// Verified only exists for the over-limit LoanOperator hand-off, and
-		// only the Loan Operator (or Administrator, standing in) may record it.
-		if requiredRole != "Loan Operator" || !overLimit {
-			return nil, ErrWrongStage
-		}
-		if in.ActorRole != "Loan Operator" && in.ActorRole != "Administrator" {
-			return nil, ErrWrongStage
-		}
-	} else if in.ActorRole != "Administrator" {
-		if requiredRole == "Loan Operator" && in.Action == ApprovalStageApproved && overLimit {
-			// Over the hard cap: only a higher role may clear this stage,
-			// and only after the operator has verified it (see above).
-			if in.ActorRole != "Branch Manager" && in.ActorRole != "Management" {
-				return nil, ErrExceedsApprovalLimit
-			}
-			verified, err := s.operatorVerified(loanID)
-			if err != nil {
-				return nil, err
-			}
-			if !verified {
-				return nil, ErrAwaitingOperatorVerification
-			}
-		} else if requiredRole != "" && in.ActorRole != requiredRole {
-			return nil, ErrWrongStage
-		}
+	// Verified belongs to the LoanOperator stage only.
+	if in.Action == ApprovalActionVerified && requiredRole != "Loan Operator" {
+		return nil, ErrWrongStage
+	}
+	if in.ActorRole != "Administrator" && requiredRole != "" && in.ActorRole != requiredRole {
+		return nil, ErrWrongStage
 	}
 
 	audit := &LoanApproval{
 		LoanID:          loanID,
-		Stage:           in.Stage,
+		Stage:           stage,
 		Action:          in.Action,
 		ActorEmployeeID: in.ActorEmployeeID,
 		ActorRole:       in.ActorRole,
@@ -847,25 +851,15 @@ func (s *Service) Approve(loanID uint, in ApprovalInput) (*Loan, error) {
 		return nil, err
 	}
 
-	if in.Action == ApprovalActionVerified {
-		// Leaves the sanction chain exactly where it was — this only adds
-		// the audit-trail entry the stepper/history reads to know the
-		// operator's review happened, ahead of Branch Manager/Management's
-		// actual Approved/Rejected decision at this same stage.
-		return s.Get(l.ID, nil)
-	}
-
 	disbursing := false
 	if in.Action == ApprovalStageRejected {
 		l.ApprovalStage = ApprovalStageRejected
 		l.Status = StatusClosed
 	} else {
-		switch l.ApprovalStage {
+		switch stage {
 		case SanctionStageLoanOperator:
 			l.ApprovalStage = SanctionStageBranchManager
 		case SanctionStageBranchManager:
-			l.ApprovalStage = SanctionStageAuthorizedManagement
-		case SanctionStageAuthorizedManagement:
 			l.ApprovalStage = SanctionStageFinalSanction
 		case SanctionStageFinalSanction:
 			l.ApprovalStage = ApprovalStageApproved
@@ -2708,4 +2702,336 @@ func (s *Service) GetCustomer360(customerID uint, from, to *time.Time) (*Custome
 	}
 	out.Loans = loans
 	return out, nil
+}
+
+// --- Indemnity bond Aadhaar eSign (Setu) ------------------------------------
+
+// bondDataForLoan builds the RenderIndemnityBondPDF input from a loan's
+// preloaded Customer/Branch — same fields frontend/components/NewLoan.tsx's
+// printIndemnity() assembles via buildDraft(), computed from the loan's own
+// data rather than the pre-save draft it uses (this runs against a real,
+// persisted loan — see StartIndemnityBondSign).
+func bondDataForLoan(l *Loan) BondData {
+	now := time.Now()
+	age := 0
+	if !l.Customer.DOB.IsZero() {
+		age = int(now.Sub(l.Customer.DOB).Hours() / 24 / 365.25)
+	}
+	return BondData{
+		LoanNumber:   l.LoanNumber,
+		CustomerName: l.Customer.Name,
+		Age:          age,
+		Address:      l.Customer.Address,
+		BranchName:   l.Branch.Name,
+		Phone:        l.Customer.Phone,
+		Day:          now.Day(),
+		Month:        now.Month().String(),
+		Year:         now.Year(),
+	}
+}
+
+// StartIndemnityBondSign renders the indemnity bond PDF for loanID (in the
+// given language), uploads it to Setu, and creates an Aadhaar eSign
+// signature request naming the loan's customer as signer. redirectURL is
+// where Setu sends the customer back to after they complete Aadhaar+OTP
+// signing on their own device — the frontend supplies this the same way
+// customer.Service.StartAadhaarVerify's redirectURL works.
+//
+// The bond's print-and-sign-by-hand buttons (NewLoan.tsx/LoanDetail.tsx)
+// are untouched by this — eSign is an additional path, not a replacement,
+// since it needs the customer's own device and network.
+func (s *Service) StartIndemnityBondSign(loanID uint, branchID *uint, lang string, redirectURL string) (*platform.SignatureRequest, error) {
+	if s.esign == nil {
+		return nil, ErrEsignNotConfigured
+	}
+	if _, ok := bondTemplates[lang]; !ok {
+		return nil, ErrUnsupportedIndemnityBondLang
+	}
+	l, err := s.repo.FindByID(loanID)
+	if err != nil {
+		return nil, ErrNotFound
+	}
+	if branchID != nil && l.BranchID != *branchID {
+		return nil, ErrNotFound
+	}
+	if l.IndemnityBondSignStatus == "sign_complete" {
+		return nil, ErrIndemnityBondAlreadySigned
+	}
+
+	pdfBytes, err := RenderIndemnityBondPDF(bondDataForLoan(l), lang)
+	if err != nil {
+		return nil, err
+	}
+
+	doc, err := s.esign.UploadDocument(pdfBytes, "Indemnity Bond - "+l.LoanNumber)
+	if err != nil {
+		return nil, err
+	}
+
+	phone := strings.Map(func(r rune) rune {
+		if r >= '0' && r <= '9' {
+			return r
+		}
+		return -1
+	}, l.Customer.Phone)
+	if len(phone) > 10 {
+		phone = phone[len(phone)-10:]
+	}
+	if len(phone) < 10 {
+		phone = "9876543210"
+	}
+
+	name := strings.TrimSpace(l.Customer.Name)
+	if len(name) < 3 {
+		name = "Customer " + l.LoanNumber
+	}
+
+	signer := platform.Signer{
+		Identifier:  phone,
+		DisplayName: name,
+		Signature: &platform.SignatureConfig{
+			OnPages:  []string{"1"},
+			Position: "bottom-right",
+		},
+	}
+	if !l.Customer.DOB.IsZero() {
+		signer.BirthYear = strconv.Itoa(l.Customer.DOB.Year())
+	}
+	req, err := s.esign.CreateSignatureRequest(doc.ID, signer, redirectURL)
+	if err != nil {
+		return nil, err
+	}
+
+	l.IndemnityBondDocumentID = doc.ID
+	l.IndemnityBondSignRequestID = req.ID
+	l.IndemnityBondSignStatus = req.Status
+	if err := s.repo.Update(l); err != nil {
+		return nil, err
+	}
+	return req, nil
+}
+
+// CheckIndemnityBondSign polls the outstanding Setu signature request
+// started by StartIndemnityBondSign. While the customer hasn't finished
+// Aadhaar+OTP signing yet, this returns the current status and leaves the
+// loan's stored signed-document fields untouched — callers should poll
+// again later. Once "sign_complete", it downloads the signed PDF from
+// Setu's (time-limited) link and re-hosts it via internal/upload so the
+// loan keeps its own permanent copy rather than depending on Setu's
+// validUpto-bounded URL.
+func (s *Service) CheckIndemnityBondSign(loanID uint, branchID *uint) (*Loan, *platform.SignatureStatus, error) {
+	if s.esign == nil {
+		return nil, nil, ErrEsignNotConfigured
+	}
+	l, err := s.repo.FindByID(loanID)
+	if err != nil {
+		return nil, nil, ErrNotFound
+	}
+	if branchID != nil && l.BranchID != *branchID {
+		return nil, nil, ErrNotFound
+	}
+	if l.IndemnityBondSignRequestID == "" {
+		return nil, nil, ErrNoIndemnityBondSignRequest
+	}
+
+	status, err := s.esign.GetSignatureStatus(l.IndemnityBondSignRequestID)
+	if err != nil {
+		return nil, nil, err
+	}
+	if status.Status != "sign_complete" {
+		l.IndemnityBondSignStatus = status.Status
+		if updErr := s.repo.Update(l); updErr != nil {
+			log.Printf("indemnity bond sign status update failed for loan %d: %v", l.ID, updErr)
+		}
+		return l, status, nil
+	}
+
+	signed, err := s.esign.GetSignedDocument(l.IndemnityBondSignRequestID)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	resp, err := http.Get(signed.DownloadURL)
+	if err != nil {
+		return nil, nil, fmt.Errorf("indemnity bond: download signed document: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 400 {
+		return nil, nil, fmt.Errorf("indemnity bond: download signed document: unexpected status %d", resp.StatusCode)
+	}
+	pdfBytes, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, nil, fmt.Errorf("indemnity bond: read signed document: %w", err)
+	}
+
+	url, err := upload.SaveBytes(s.uploadsDir, "indemnity-bond-"+l.LoanNumber+".pdf", pdfBytes)
+	if err != nil {
+		return nil, nil, fmt.Errorf("indemnity bond: store signed document: %w", err)
+	}
+
+	now := time.Now()
+	l.IndemnityBondSignStatus = "sign_complete"
+	l.IndemnityBondSignedURL = url
+	l.IndemnityBondSignedAt = &now
+	if err := s.repo.Update(l); err != nil {
+		return nil, nil, err
+	}
+
+	updated, err := s.repo.FindByID(l.ID)
+	if err != nil {
+		return nil, nil, err
+	}
+	return updated, status, nil
+}
+
+// --- Loan drafts ------------------------------------------------------------
+
+// DraftOrnamentInput is one row of a draft's ornament table. Every field is
+// optional: a draft records how far staff got, so a row with a name but no
+// weight yet (or a weight but no type) is legitimate and stored as-is.
+type DraftOrnamentInput struct {
+	Name        string
+	Purity      string
+	GrossWeight float64
+	Quantity    int
+	ImageURL    string
+	ImageName   string
+}
+
+// DraftInput is the whole New Gold Loan form as saved by "Save Draft".
+// BranchID is the only required field — everything else may legitimately be
+// unset in a part-filled form (see LoanDraft's doc comment for why nothing
+// here is validated the way CreateInput is).
+type DraftInput struct {
+	BranchID          uint
+	CustomerID        *uint
+	SchemeID          *uint
+	LockerID          *uint
+	PrincipalOverride *float64
+	Ornaments         []DraftOrnamentInput
+}
+
+// ErrDraftBranchRequired is the one validation a draft does enforce: without
+// a branch there's nothing to scope the draft to, so it could never be
+// listed back by its owner.
+var ErrDraftBranchRequired = errors.New("branchId is required to save a draft")
+
+func (in DraftInput) toOrnamentRows() []LoanDraftOrnament {
+	rows := make([]LoanDraftOrnament, len(in.Ornaments))
+	for i, o := range in.Ornaments {
+		rows[i] = LoanDraftOrnament{
+			Name:        o.Name,
+			Purity:      o.Purity,
+			GrossWeight: o.GrossWeight,
+			Quantity:    o.Quantity,
+			ImageURL:    o.ImageURL,
+			ImageName:   o.ImageName,
+			Position:    i,
+		}
+	}
+	return rows
+}
+
+// SaveDraft creates a new draft owned by actorEmployeeID. Branch existence
+// is checked (a draft pointing at a deleted branch could never be listed),
+// but customer/scheme/locker are NOT — an unverified customer or an inactive
+// scheme is a perfectly normal thing to have half-selected, and those rules
+// are applied at submission by Create.
+func (s *Service) SaveDraft(actorEmployeeID uint, in DraftInput) (*LoanDraft, error) {
+	if in.BranchID == 0 {
+		return nil, ErrDraftBranchRequired
+	}
+	if _, err := s.branchRepo.FindByID(in.BranchID); err != nil {
+		return nil, ErrBranchInvalid
+	}
+	d := &LoanDraft{
+		CreatedByEmployeeID: actorEmployeeID,
+		BranchID:            in.BranchID,
+		CustomerID:          in.CustomerID,
+		SchemeID:            in.SchemeID,
+		LockerID:            in.LockerID,
+		PrincipalOverride:   in.PrincipalOverride,
+		Ornaments:           in.toOrnamentRows(),
+	}
+	if err := s.draftRepo.Create(d); err != nil {
+		return nil, err
+	}
+	return s.draftRepo.FindByID(d.ID)
+}
+
+// UpdateDraft overwrites an existing draft — what the "Save Draft" button
+// does on its second and subsequent presses within the same sitting, so
+// repeated saves don't accumulate near-identical drafts. Only the owner may
+// update; anyone else gets ErrDraftNotFound.
+func (s *Service) UpdateDraft(draftID, actorEmployeeID uint, in DraftInput) (*LoanDraft, error) {
+	existing, err := s.getOwnDraft(draftID, actorEmployeeID)
+	if err != nil {
+		return nil, err
+	}
+	if in.BranchID == 0 {
+		return nil, ErrDraftBranchRequired
+	}
+	if in.BranchID != existing.BranchID {
+		if _, err := s.branchRepo.FindByID(in.BranchID); err != nil {
+			return nil, ErrBranchInvalid
+		}
+	}
+	existing.BranchID = in.BranchID
+	existing.CustomerID = in.CustomerID
+	existing.SchemeID = in.SchemeID
+	existing.LockerID = in.LockerID
+	existing.PrincipalOverride = in.PrincipalOverride
+	existing.Ornaments = in.toOrnamentRows()
+	if err := s.draftRepo.Replace(existing); err != nil {
+		return nil, err
+	}
+	return s.draftRepo.FindByID(existing.ID)
+}
+
+// ListDrafts returns the caller's own saved drafts, newest-saved first.
+func (s *Service) ListDrafts(actorEmployeeID uint, branchScope *uint) ([]LoanDraft, error) {
+	return s.draftRepo.FindAllByEmployee(actorEmployeeID, branchScope)
+}
+
+// GetDraft returns one of the caller's own drafts, for reopening it in the
+// New Gold Loan form.
+func (s *Service) GetDraft(draftID, actorEmployeeID uint) (*LoanDraft, error) {
+	return s.getOwnDraft(draftID, actorEmployeeID)
+}
+
+// DeleteDraft discards a draft — either explicitly ("Discard"), or
+// automatically once the loan it became has been created (see
+// DeleteDraftQuietly).
+func (s *Service) DeleteDraft(draftID, actorEmployeeID uint) error {
+	if _, err := s.getOwnDraft(draftID, actorEmployeeID); err != nil {
+		return err
+	}
+	return s.draftRepo.Delete(draftID)
+}
+
+// DeleteDraftQuietly discards a draft without reporting failure, used on the
+// loan-submission success path: the loan is already created and returned, so
+// a lingering draft is untidy rather than wrong, and must not turn a
+// successful submission into an error. Mirrors the fail-soft posture Create
+// already takes for packet auto-creation and WhatsApp notifications.
+func (s *Service) DeleteDraftQuietly(draftID, actorEmployeeID uint) {
+	if draftID == 0 {
+		return
+	}
+	if err := s.DeleteDraft(draftID, actorEmployeeID); err != nil {
+		log.Printf("loan: could not delete draft %d after submission: %v", draftID, err)
+	}
+}
+
+// getOwnDraft loads a draft and enforces ownership, collapsing "missing" and
+// "someone else's" into the same ErrDraftNotFound.
+func (s *Service) getOwnDraft(draftID, actorEmployeeID uint) (*LoanDraft, error) {
+	d, err := s.draftRepo.FindByID(draftID)
+	if err != nil {
+		return nil, ErrDraftNotFound
+	}
+	if d.CreatedByEmployeeID != actorEmployeeID {
+		return nil, ErrDraftNotFound
+	}
+	return d, nil
 }

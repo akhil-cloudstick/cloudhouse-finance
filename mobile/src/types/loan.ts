@@ -21,7 +21,7 @@ export type Ornament = {
 export type LoanApproval = {
   id: number;
   loanId: number;
-  stage: string; // SanctionStage* — "LoanOperator" | "BranchManager" | "AuthorizedManagement" | "FinalSanction"
+  stage: string; // SanctionStage* — "LoanOperator" | "BranchManager" | "FinalSanction"
   action: string; // "Approved" | "Rejected" | "Verified"
   actorEmployeeId: number;
   actorRole: string;

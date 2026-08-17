@@ -79,7 +79,6 @@ export function BankPledge() {
   function startNewRepledge() {
     openModal(
       <SelectLoanForRepledgeModalContent
-        loans={loans}
         onPicked={(loan) => {
           closeModal();
           openModal(<RepledgeModalContent loan={loan} onSaved={refreshAll} />);

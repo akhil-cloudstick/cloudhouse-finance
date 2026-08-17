@@ -1,5 +1,5 @@
 import React from "react";
-import { TextInput, TextInputProps, View, StyleSheet, Pressable } from "react-native";
+import { TextInput, TextInputProps, View, StyleSheet, Pressable, ViewStyle, StyleProp } from "react-native";
 import { colors } from "../theme/colors";
 import { typeScale } from "../theme/typography";
 import { ThemedText } from "./ThemedText";
@@ -7,14 +7,23 @@ import { ThemedText } from "./ThemedText";
 // `right` renders an accessory (e.g. the show/hide-password eye toggle)
 // inside the input's right edge without every caller reimplementing the
 // positioning — see login.tsx/reset-password.tsx for the password case.
+// `containerStyle` positions the label + input together — use it (never
+// `style`, which only moves the input box) for insets like the
+// `paddingHorizontal: 16` full-bleed list screens apply, otherwise the
+// label stays flush left while the input shifts and they look misaligned.
 export function GoldTextInput({
   label,
   style,
+  containerStyle,
   right,
   ...rest
-}: TextInputProps & { label?: string; right?: React.ReactNode }) {
+}: TextInputProps & {
+  label?: string;
+  right?: React.ReactNode;
+  containerStyle?: StyleProp<ViewStyle>;
+}) {
   return (
-    <View style={styles.wrap}>
+    <View style={[styles.wrap, containerStyle]}>
       {label ? (
         <ThemedText variant="label" color={colors.muted} style={styles.label}>
           {label}

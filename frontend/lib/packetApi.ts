@@ -26,7 +26,17 @@ export const PACKET_STAGES: string[] = [
 
 type NestedBranch = { id: number; name: string; code: string };
 type NestedCustomer = { id: number; name: string; code: string; phone: string };
-type NestedOrnament = { id: number; name: string; netWeight: number; quantity: number };
+type NestedOrnament = {
+  id: number;
+  name: string;
+  purity: string;
+  grossWeight: number;
+  deductionWeight: number;
+  netWeight: number;
+  quantity: number;
+  goldValue: number;
+  remarks?: string;
+};
 
 /* Minimal shape of the joined Loan the backend preloads onto every packet
  * response (see backend/internal/packet/repository.go's preload()) — only
@@ -70,6 +80,23 @@ export type BackendPacketMovement = {
  * display fields (loan number, customer name, ornament count/weight)
  * following loansApi.ts's toView() pattern, so Packets.tsx doesn't need a
  * second round-trip. */
+/* One ornament sealed inside the packet — what PacketDetail's "Contents"
+ * table lists. Comes from the joined loan's preloaded ornaments (see
+ * backend/internal/packet/repository.go's preload), so no extra round-trip.
+ * Ornament photos are NOT part of that preload; the loan detail page shows
+ * those. */
+export type PacketItemView = {
+  id: number;
+  name: string;
+  purity: string;
+  grossWeight: number;
+  deductionWeight: number;
+  netWeight: number;
+  quantity: number;
+  goldValue: number;
+  remarks: string;
+};
+
 export type PacketView = {
   id: number;
   code: string;
@@ -80,6 +107,7 @@ export type PacketView = {
   customerName: string;
   itemCount: number;
   totalWeight: number;
+  items: PacketItemView[];
   status: string;
   currentLockerId: number | null;
 };
@@ -106,6 +134,17 @@ function toView(p: BackendPacket): PacketView {
     customerName: p.loan?.customer?.name || "—",
     itemCount: ornaments.reduce((sum, o) => sum + (o.quantity || 1), 0),
     totalWeight: ornaments.reduce((sum, o) => sum + (o.netWeight || 0), 0),
+    items: ornaments.map((o) => ({
+      id: o.id,
+      name: o.name,
+      purity: o.purity || "—",
+      grossWeight: o.grossWeight || 0,
+      deductionWeight: o.deductionWeight || 0,
+      netWeight: o.netWeight || 0,
+      quantity: o.quantity || 1,
+      goldValue: o.goldValue || 0,
+      remarks: o.remarks || "",
+    })),
     status: p.status,
     currentLockerId: p.currentLockerId,
   };

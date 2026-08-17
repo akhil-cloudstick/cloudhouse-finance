@@ -12,10 +12,10 @@ import { PurityStandard } from "../types/purityStandard";
 import { useDebouncedValue } from "../hooks/useDebouncedValue";
 import { ApiError } from "../api/client";
 
-// Purity Standards, adapted from mobile/app/(drawer)/purity-standards.tsx
-// into a Modal launched from gold-rates.tsx — see mobile/src/components/
-// AppDrawerContent.tsx's GROUPS (the standalone drawer link was removed;
-// this modal is now the only route into add/list purity standards).
+// Purity Standards, adapted from mobile/app/(tabs)/purity-standards.tsx
+// into a Modal launched from gold-rates.tsx. Currently unreferenced: the
+// route is reachable on its own from the More sheet's Administration group
+// (src/components/MoreSheet.tsx), so nothing launches this modal.
 export function PurityStandardsModal({ visible, onClose }: { visible: boolean; onClose: () => void }) {
   const queryClient = useQueryClient();
   const [search, setSearch] = useState("");

@@ -5,11 +5,13 @@ import { useRouter } from "expo-router";
 import { ThemedText } from "./ThemedText";
 import { colors } from "../theme/colors";
 import { useAuth, useIsAdministrator } from "../auth/AuthContext";
+import { useMoreSheet } from "./MoreSheet";
+import { Icon } from "./Icon";
 
-// Single, shared header for every screen in the (drawer) group — replaces
-// the old default headers that stacked (Drawer header + nested Stack
+// Single, shared header for every screen in the (tabs) group — replaces
+// the old default headers that stacked (navigator header + nested Stack
 // header both rendering) into one floating "island" bar. Pass this as the
-// `header` render prop on both the Drawer's screenOptions (for screens
+// `header` render prop on both the Tabs' screenOptions (for screens
 // with no nested Stack) and each nested Stack's screenOptions (for
 // index/detail screens inside customers/loans/etc.) — never both at once
 // for the same screen, or the duplicate-header bug comes back.
@@ -18,23 +20,26 @@ export function FloatingHeader({ title, navigation }: { title: string; navigatio
   const router = useRouter();
   const { employee, signOut } = useAuth();
   const isAdmin = useIsAdministrator();
+  const { open: openMore } = useMoreSheet();
   const [menuOpen, setMenuOpen] = useState(false);
 
-  // Always opens the drawer — deliberately never a back-chevron. The
-  // sidebar is the one way to move between pages, so every screen (however
-  // deep) keeps the same ☰ affordance rather than swapping to "back to
-  // wherever I came from".
+  // Left button is a back chevron on nested Stack detail screens
+  // (loans/[id], customers/new, ...), and the ☰ everywhere else. ☰ no longer
+  // opens a drawer — there isn't one — it raises the same More sheet the
+  // bottom bar's 5th slot does, so the extra pages stay one tap away from any
+  // screen.
+  //
+  // Deliberately NOT navigation.canGoBack(): the header receives whichever
+  // navigator rendered it, and a tab navigator reports canGoBack() === true as
+  // soon as you've switched tabs once (TabRouter keeps a history). That would
+  // put a chevron on every tab except the first and leave no way to reach the
+  // More sheet from the header. Checking for a stack with depth is exact.
+  const navState = navigation?.getState?.();
+  const canGoBack = navState?.type === "stack" && (navState.index ?? 0) > 0;
+
   function handleMenuPress() {
-    if (typeof navigation?.openDrawer === "function") {
-      // Screens with no nested Stack (dashboard, gold-rates, ...) get the
-      // Drawer's own navigation object directly.
-      navigation.openDrawer();
-    } else {
-      // Nested Stack screens (customers, loans, ...) get the Stack's
-      // navigation — walk up to the parent Drawer navigator to open it.
-      const parent = navigation?.getParent?.();
-      if (typeof parent?.openDrawer === "function") parent.openDrawer();
-    }
+    if (canGoBack) navigation.goBack();
+    else openMore();
   }
 
   const initials = (employee?.name ?? "?")
@@ -48,9 +53,7 @@ export function FloatingHeader({ title, navigation }: { title: string; navigatio
     <View style={[styles.wrap, { marginTop: insets.top + 8 }]}>
       <View style={styles.island}>
         <Pressable onPress={handleMenuPress} hitSlop={10} style={styles.iconBtn}>
-          <ThemedText variant="h3" color={colors.ink}>
-            ☰
-          </ThemedText>
+          <Icon name={canGoBack ? "chevronLeft" : "list"} size={22} color={colors.ink} />
         </Pressable>
 
         <ThemedText variant="h3" numberOfLines={1} style={styles.title}>

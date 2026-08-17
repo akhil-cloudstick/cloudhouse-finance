@@ -27,7 +27,7 @@ currently seeded **allow-all** for all 9 roles, so in practice any logged-in
 employee can still call any endpoint today — role-specific restriction is
 expected to be configured later via an admin UI (not yet built) that edits
 the `permissions` table directly, not via a code change. The Loans module's
-4-stage sanction chain has its own separate, more granular role check (an
+3-stage sanction chain has its own separate, more granular role check (an
 employee's `role` must match the stage's required role, except
 `Administrator` which may act at any stage — see below) on top of the
 coarse-grained RBAC above. `Branches`, `Settings`, `Schemes`, and `Customers`
@@ -782,7 +782,7 @@ the same endpoint without checking existence first.
 ## Loans API (`/api/v1/loans`)
 Implemented in `backend/internal/loan/` — the Gold Loan Creation &
 Ornaments Management domain. No authentication/RBAC yet — admin-only by
-convention. The 4-stage approval chain below checks that the acting
+convention. The 3-stage approval chain below checks that the acting
 employee's `role` matches the stage's required role (except
 `"Administrator"`, which may act at any stage) — `LoanApproval` rows
 record every actor/role/stage/timestamp/decision. This API is real end-to-end in the backend and is
@@ -834,41 +834,52 @@ where `durationMonths` now lives as a real field) and must be after
 `openedDate` (400 `ErrInvalidDueDate` otherwise); the backend does not
 itself derive `dueDate` from the scheme.
 
-**Approval chain (fixed, 4 stages for every loan):** `status` starts
+**Approval chain (fixed, 3 stages for every loan):** a loan is *made* by a
+Loan Operator, *verified* by the Loan Operator, *approved* by the Branch
+Manager, then *finally sanctioned* by Management. `status` starts
 `"Pending Approval"` / `approvalStage` starts `"LoanOperator"`.
-`POST /:id/approve` with `{ stage: "LoanOperator", action: "Approved" }`
-advances to `approvalStage: "BranchManager"`, then
-`"AuthorizedManagement"`, then `"FinalSanction"`; approving at
-`"FinalSanction"` sets `approvalStage: "Approved"` and `status: "Active"`
-(disbursing the principal). `action: "Rejected"` at any stage sets
-`approvalStage: "Rejected"` and `status: "Closed"` (the doc's status list
-has no distinct "Rejected" bucket, so "Closed" is reused). The acting
-employee's `role` is **not** a request field — it's read server-side from
-the caller's own JWT (`platform.ActorFromContext`, never trusted from the
-body) and must match the required role for the loan's current stage
-(`Loan Operator` / `Branch Manager` / `Management` / `Management`,
-respectively) — mismatches return 400 `ErrWrongStage` — **except**
-`Administrator`, which is exempt and may act at whichever stage is
-currently pending. The `stage` sent must also match the loan's current
-`approvalStage`; calling again after a terminal state returns 400
-`ErrAlreadyDecided`.
+`POST /:id/approve` with `{ stage: "LoanOperator", action: "Verified" }`
+advances to `approvalStage: "BranchManager"`, then `"FinalSanction"`;
+approving at `"FinalSanction"` sets `approvalStage: "Approved"` and
+`status: "Active"` (disbursing the principal). `action: "Rejected"` at any
+stage sets `approvalStage: "Rejected"` and `status: "Closed"` (the doc's
+status list has no distinct "Rejected" bucket, so "Closed" is reused). The
+acting employee's `role` is **not** a request field — it's read server-side
+from the caller's own JWT (`platform.ActorFromContext`, never trusted from
+the body) and must match the required role for the loan's current stage
+(`Loan Operator` / `Branch Manager` / `Management`, respectively) —
+mismatches return 400 `ErrWrongStage` — **except** `Administrator`, which
+is exempt and may act at whichever stage is currently pending. The `stage`
+sent must also match the loan's current `approvalStage`; calling again
+after a terminal state returns 400 `ErrAlreadyDecided`.
 
-**Loan Operator has a hard-enforced approval limit; Branch Manager/
-Management stay advisory-only.** A hardcoded, advisory-only
-`SanctionLimit` table (`internal/loan/service.go`'s `sanctionLimits`,
-now covering only `"Branch Manager"`/`"Management"`) is consulted purely
-to populate a non-blocking `approvalWarning` string on the loan's JSON
-when the principal exceeds one of those two roles' typical limit — it
-never prevents their approve/reject action. The Loan Operator stage is
-different: its limit is a real, admin-editable, DB-backed
-`internal/loan.ApprovalLimit` row (see the Approval Limits endpoints
-below) and is a **hard** cap — a `"Loan Operator"`-role actor's own
-`{ "action": "Approved" }` on a loan whose `principalAmount` exceeds it
-fails with 400 `ErrExceedsApprovalLimit`; only `Branch Manager`,
-`Management`, or `Administrator` may clear that same stage when the
-principal is over the limit (same "step in and act early" pattern as
-Administrator's existing stage bypass). `Rejected` is never blocked by
-this check, regardless of amount.
+`"Verified"` is the affirmative action at the `"LoanOperator"` stage and is
+rejected with 400 `ErrWrongStage` at any other stage; `"Approved"` is also
+still accepted there and behaves identically, so older clients keep
+working. The stage is a *verification*, not a sanction: no amount check
+gates it, because the Branch Manager and Management sanction every loan
+regardless of size.
+
+*Retired stage:* the chain previously had a 4th checkpoint,
+`"AuthorizedManagement"`, between `"BranchManager"` and `"FinalSanction"`,
+which made Management sign off twice (and, above the Loan Operator's old
+hard cap, the Branch Manager too). `go run ./cmd/migrate` moves any loan
+still parked on it to `"FinalSanction"`
+(`loan.MigrateRetiredSanctionStage`), and the API also accepts/normalizes
+the old value so such a loan is never stuck at a stage no role can clear.
+
+**All approval limits are advisory only.** The hardcoded `sanctionLimits`
+table (`internal/loan/service.go`, covering `"Branch Manager"`/
+`"Management"`) and the admin-editable, DB-backed
+`internal/loan.ApprovalLimit` row for `"Loan Operator"` (see the Approval
+Limits endpoints below) are consulted purely to populate a non-blocking
+`approvalWarning` string on the loan's JSON when the principal exceeds the
+current stage's typical limit. Neither ever prevents an approve, verify, or
+reject action. (The Loan Operator row used to be a **hard** cap that
+returned 400 `ErrExceedsApprovalLimit` and forced a two-step
+verify-then-escalate hand-off; both that error and
+`ErrAwaitingOperatorVerification` are gone, since the operator stage no
+longer grants any sanction of its own.)
 `GET /:id/approvals` returns the full per-decision audit history
 (`stage`/`action`/`actorEmployeeId`/`actorRole`/`remarks`/`createdAt`) for
 the stage tracker UI.
@@ -1262,8 +1273,13 @@ preloaded objects from their own APIs above):
 
 | Method | Path | Purpose | Body |
 |---|---|---|---|
-| POST | `/api/v1/loans` | Create a loan with its ornaments | `{ "branchId", "customerId", "schemeId", "openedDate", "dueDate", "principalAmount", "ornaments": [{ "name", "purity", "grossWeight", "deductionWeight"?, "quantity"?, "remarks"? }] }` |
-| GET | `/api/v1/loans` | List/filter loans | query: `status`, `branchId`, `customerId`, `q` (matches `loanNumber`) |
+| POST | `/api/v1/loans` | Create a loan with its ornaments. `draftId` (optional) is the saved draft this was submitted from — discarded server-side once the loan exists, fail-soft (a draft that won't delete never fails the submission) | `{ "branchId", "customerId", "schemeId", "openedDate", "dueDate", "principalAmount", "ornaments": [{ "name", "purity", "grossWeight", "deductionWeight"?, "quantity"?, "remarks"? }], "lockerId"?, "draftId"? }` |
+| POST | `/api/v1/loans/drafts` | Save the New Gold Loan form as an unsubmitted draft ("Save Draft" on `NewLoan.tsx`). Only `branchId` is required — a draft is deliberately unvalidated (see below) | `{ "branchId", "customerId"?, "schemeId"?, "lockerId"?, "principalOverride"?, "ornaments": [{ "name"?, "purity"?, "grossWeight"?, "quantity"?, "imageUrl"?, "imageName"? }] }` |
+| GET | `/api/v1/loans/drafts` | List the **caller's own** drafts, most recently saved first (branch-scoped as well). Ornaments come back in their saved on-screen order; `customer`/`scheme`/`branch` are preloaded so the form can repopulate its pickers' labels | — |
+| GET | `/api/v1/loans/drafts/:draftId` | Get one of the caller's own drafts | — |
+| PUT | `/api/v1/loans/drafts/:draftId` | Overwrite a draft in place (pressing "Save Draft" again), replacing its ornament rows wholesale | same body as POST `/loans/drafts` |
+| DELETE | `/api/v1/loans/drafts/:draftId` | Discard a draft — hard delete, `204 No Content` | — |
+| GET | `/api/v1/loans` | List/filter loans. Returns a bare array unless `limit` is given, in which case the response is the `{ "items": [...], "hasMore": bool }` envelope (same convention as `GET /customers`) — this backs the paginated `SearchableSelect` loan pickers, 10 rows per page, next page appended on scroll | query: `status`, `branchId`, `customerId`, `q` (matches `loanNumber`), `excludeBankPledged` (`true` drops loans whose gold is currently with a bank — the bank re-pledge picker's eligibility rule), `limit`, `offset` |
 | GET | `/api/v1/loans/:id` | Get one loan with ornaments/approvals/payments/bank-pledge history | — |
 | GET | `/api/v1/loans/by-number/:loanNumber` | Same as above, looked up by the human-readable loan number instead of the numeric id (a single atomic query — used by `LoanDetail.tsx`, mirrors `packet`'s `by-code` lookup) | — |
 | POST | `/api/v1/loans/:id/ornaments` | Pledge an additional ornament, recalculates loan totals | `{ "name", "purity", "grossWeight", "deductionWeight"?, "quantity"?, "remarks"? }` |
@@ -1271,9 +1287,11 @@ preloaded objects from their own APIs above):
 | POST | `/api/v1/loans/ornaments/:ornamentId/purity-test` | Record staff purity re-test (upsert, one per ornament) | `{ "testedPurity", "testedGrossWeight", "testedDeductionWeight"?, "testingRemarks"?, "testedBy", "testedAt" }` |
 | POST | `/api/v1/loans/ornaments/:ornamentId/images` | Attach one photo (upload it first via `/api/v1/uploads`) | `{ "imageUrl" }` |
 | GET | `/api/v1/loans/interest-collected` | Sum interest+penal-interest collected in a date range (Dashboard's "Interest Collected" KPI) — defaults to the current calendar month | query: `from`?, `to`? (`YYYY-MM-DD`) |
-| POST | `/api/v1/loans/:id/approve` | Advance/reject the 4-stage sanction chain — Cashier cannot create loans but may still act here if their role matches a stage (unlikely by design); acting employeeId/role come from the JWT, not the body | `{ "stage": "LoanOperator" \| "BranchManager" \| "AuthorizedManagement" \| "FinalSanction", "action": "Approved" \| "Rejected", "remarks"? }` |
+| POST | `/api/v1/loans/:id/approve` | Advance/reject the 3-stage sanction chain — Cashier cannot create loans but may still act here if their role matches a stage (unlikely by design); acting employeeId/role come from the JWT, not the body | `{ "stage": "LoanOperator" \| "BranchManager" \| "FinalSanction", "action": "Verified" (LoanOperator stage) \| "Approved" \| "Rejected", "remarks"? }` |
 | GET | `/api/v1/loans/:id/approvals` | Full per-decision sanction-chain audit history | — |
-| GET | `/api/v1/loans/approval-limits/loan-operator` | Get the current hard-enforced Loan Operator approval limit | — |
+| POST | `/api/v1/loans/:id/indemnity-bond/esign/start` | Render the loan's indemnity bond server-side (headless Chromium — see `internal/loan/indemnitybond.go`), upload it to Setu, and start an Aadhaar eSign signature request naming the loan's customer as signer. Returns the signing URL the CUSTOMER must open themselves (own device/browser) to complete Aadhaar+OTP signing — same "open URL, then poll status" shape as customer's DigiLocker Aadhaar-verify flow below. Requires `SETU_ESIGN_*` env vars and a Chrome/Chromium binary on the server host (see `backend/README.md`) | `{ "lang": "en" \| "hi" \| "gu", "redirectUrl" }` |
+| GET | `/api/v1/loans/:id/indemnity-bond/esign/status` | Poll the outstanding eSign request started above. While the customer hasn't finished signing, returns the current status only; once `sign_complete`, downloads the signed PDF from Setu and re-hosts it via `/api/v1/uploads`' storage, returning the updated loan (`indemnityBondSignedUrl`) | — |
+| GET | `/api/v1/loans/approval-limits/loan-operator` | Get the current (advisory-only) Loan Operator approval limit | — |
 | PUT | `/api/v1/loans/approval-limits/loan-operator` | Set the Loan Operator approval limit (Employees page's "Roles" panel) | `{ "maxAmount" }` |
 | POST | `/api/v1/loans/:id/payments` | Record a payment (receiving employeeId comes from the JWT, not the body). `type` still accepts the full original set server-side (`"Interest"`/`"Principal"`/`"Partial"`/`"Full Settlement"`/`"Adjustment"`/`"Waiver"`), but `PaymentModal.tsx` now always sends `"Partial"` — its own type picker was removed in favor of a single Amount field, always allocated processing fee → penal interest → interest → principal (see `allocatePayment`'s `Partial` case). `processingFee` is an optional new charge — added to `Loan.OutstandingProcessingFee` *before* `amount` is allocated, so this same payment's `amount` clears it first (highest priority in the waterfall); it is **not** extra cash on top of `amount` — `amount` is the total cash received either way | `{ "amount", "type", "processingFee"?, "paidOn" }` |
 | POST | `/api/v1/loans/:id/bank-pledge` | Record a bank pledge. `cashTreatment` omitted ⇒ `"RecordOnly"` (no cash effect); only an explicit `"CashIn"` books money | `{ "bankName", "pledgedAmount", "pledgeDate", "bankId"?, "bankInterestRate"?, "referenceNumber"?, "bankPledgeDueDate"?, "cashTreatment"?: "CashIn" \| "RecordOnly" }` |
@@ -1296,7 +1314,7 @@ preloaded objects from their own APIs above):
 | GET | `/api/v1/loans/requests` | List/filter extension &amp; release requests | query: `status`, `loanId` |
 | PUT | `/api/v1/loans/requests/:requestId/decide` | Decide a pending **Extension** request — approving pushes `dueDate` out (deciding employeeId comes from the JWT, not the body) | `{ "action": "Approved" \| "Rejected", "remarks"? }` |
 | PUT | `/api/v1/loans/requests/:requestId/verify` | Update a **Release** request's verification checklist/charges | `{ "paymentVerified"?, "packetVerified"?, "bankPledgeVerified"?, "customerConfirmed"?, "verificationNotes"?, "charges"? }` |
-| POST | `/api/v1/loans/requests/:requestId/approve` | Advance/reject a **Release** request's Manager→Management chain (unchanged 2-step chain — not part of the 4-stage loan sanction rework); acting employeeId comes from the JWT, not the body | `{ "stage": "Manager" \| "Management", "action": "Approved" \| "Rejected", "remarks"? }` |
+| POST | `/api/v1/loans/requests/:requestId/approve` | Advance/reject a **Release** request's Manager→Management chain (unchanged 2-step chain — separate from the loan sanction chain); acting employeeId comes from the JWT, not the body | `{ "stage": "Manager" \| "Management", "action": "Approved" \| "Rejected", "remarks"? }` |
 | POST | `/api/v1/loans/:id/complete-release` | Hand the gold back — only once settlement is fully paid &amp; bank pledge released (acting employeeId comes from the JWT, not the body) | *(empty)* |
 | GET | `/api/v1/customers/:id/profile360` | Customer 360°: every loan (ornaments/payments/bank pledges) + auction history + running totals for one customer, in one call. Lives on `loanHandler` (see `internal/loan/service.go`'s `GetCustomer360`) to avoid a customer↔loan import cycle, mounted under `/customers` in `main.go`. Optional `?from=YYYY-MM-DD&to=YYYY-MM-DD` restricts it to loans whose `openedDate` falls in that inclusive window (both bounds optional, `to` must not precede `from`); the loan list, ornaments/payments/bank-pledge/auction sections and all running totals are recomputed over the narrowed set | — |
 
@@ -1308,6 +1326,32 @@ auto-generates the loan's tracking packet (`loan.PacketCreator`,
 implemented by `packet.Service`) right after a loan is created. Both are
 fail-soft: an error logs and the loan-level action still succeeds — packet
 tracking is an enrichment, not a hard lending-flow dependency.
+
+**Loan drafts** (`/loans/drafts`, `loan.LoanDraft` + `loan.LoanDraftOrnament`)
+back the "Save Draft" button on the New Gold Loan page, which until now only
+raised a "Draft saved (demo)" toast and discarded the form. A draft is
+explicitly **not** a loan: no loan number is assigned, nothing enters the
+sanction chain, no packet is created and no gold rate is applied. That is why
+only `branchId` is required and nothing else is validated — the whole point
+is to store the form exactly as far as staff got, including a row with no
+weight yet or a customer not chosen. Every real rule (KYC-verified customer,
+a rate published today, principal within LTV, at least one ornament) is
+applied only when the draft is submitted through `POST /loans`.
+
+Consequences worth knowing:
+- **Ownership.** A draft belongs to the employee who saved it (taken from the
+  JWT, never the body) and listing is additionally branch-scoped. Another
+  employee's draft returns `404` rather than `403`, so the API never reveals
+  that someone else has one.
+- **`principalOverride` is stored, the eligible amount is not.** A draft
+  reopened next week recomputes eligibility from that day's gold rate; only a
+  deliberate manual override is persisted.
+- **Ornament rows are replaced wholesale** on `PUT`, and carry `position` so
+  the on-screen row order survives. Photos are kept as `imageUrl` (already
+  uploaded via `POST /uploads` when staff picked the file, before any loan
+  existed).
+- **Hard deleted, not soft.** Drafts carry no money and are not an audit
+  trail.
 
 ## Lockers API (`/api/v1/lockers`)
 Implemented in `backend/internal/locker/` — real per-branch Locker/Vault

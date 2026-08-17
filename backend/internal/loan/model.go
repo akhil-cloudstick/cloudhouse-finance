@@ -57,15 +57,13 @@ const (
 	ApprovalStageRejected = "Rejected"
 )
 
-// ApprovalActionVerified is a third, non-terminal action value for
-// LoanApproval.Action — valid ONLY for a Loan Operator's own decision at
-// the LoanOperator sanction stage when the principal exceeds their
-// hard-enforced approval limit (see Service.loanOperatorLimit). It records
-// that the operator reviewed the loan without granting them approval
-// authority they don't have: the sanction chain doesn't advance on
-// Verified alone — Branch Manager/Management must still clear the stage
-// with a normal Approved (or Rejected) action afterward. See
-// Service.Approve and Service.operatorVerified.
+// ApprovalActionVerified is the action value for the LoanOperator sanction
+// stage: the operator who made the loan verifies it, which is a
+// verification rather than a sanction (the loan is sanctioned further up
+// the chain by the Branch Manager and Management). It DOES advance the
+// chain — LoanOperator -> BranchManager — exactly like an Approved action
+// at any other stage, and is accepted only at the LoanOperator stage. See
+// Service.Approve.
 const ApprovalActionVerified = "Verified"
 
 // ApprovalStagePendingManager/PendingManagement are the Release-request
@@ -77,20 +75,30 @@ const (
 )
 
 // SanctionStage* values drive the loan sanction chain (Loan.ApprovalStage)
-// — 4 checkpoints per the spec, in order: Loan Operator -> Branch Manager
-// -> Authorized Management -> Final Sanction -> Approved (Status ->
-// Active). Each stage requires an employee with the matching role (see
-// employee.ValidRoles) to act, EXCEPT the "Administrator" role, which may
-// act at any pending stage (see Service.Approve). There is no hard cap
-// enforced on loan amount at any stage — SanctionLimits (in service.go) is
-// consulted only to surface an advisory warning to the reviewer, never to
-// block the decision.
+// — 3 checkpoints, in order: the loan is made by a Loan Operator, verified
+// by the Loan Operator (LoanOperator), approved by the Branch Manager
+// (BranchManager), then finally sanctioned by Management (FinalSanction) ->
+// Approved (Status -> Active). Each stage requires an employee with the
+// matching role (see employee.ValidRoles) to act, EXCEPT the
+// "Administrator" role, which may act at any pending stage (see
+// Service.Approve). There is no hard cap enforced on loan amount at any
+// stage — sanctionLimits/the Loan Operator approval limit are consulted
+// only to surface an advisory warning to the reviewer, never to block the
+// decision.
 const (
-	SanctionStageLoanOperator         = "LoanOperator"
-	SanctionStageBranchManager        = "BranchManager"
-	SanctionStageAuthorizedManagement = "AuthorizedManagement"
-	SanctionStageFinalSanction        = "FinalSanction"
+	SanctionStageLoanOperator  = "LoanOperator"
+	SanctionStageBranchManager = "BranchManager"
+	SanctionStageFinalSanction = "FinalSanction"
 )
+
+// SanctionStageAuthorizedManagement is a RETIRED stage. The chain used to
+// run LoanOperator -> BranchManager -> AuthorizedManagement ->
+// FinalSanction, which made Management sign off twice (and, above the Loan
+// Operator's limit, the Branch Manager too). Rows still parked on this
+// value are migrated to FinalSanction by MigrateRetiredSanctionStage, and
+// normalizeSanctionStage treats any that slip through as FinalSanction so
+// such a loan is never stuck at a stage no role can clear.
+const SanctionStageAuthorizedManagement = "AuthorizedManagement"
 
 // Bank-pledge status values for Loan.BankPledgeStatus.
 const (
@@ -199,6 +207,20 @@ type Loan struct {
 
 	AuctionDate   *time.Time `json:"auctionDate"`
 	AuctionAmount *float64   `json:"auctionAmount" gorm:"type:numeric(16,2)"`
+
+	// Indemnity bond Aadhaar eSign (Setu) — see indemnitybond.go and
+	// Service.StartIndemnityBondSign/CheckIndemnityBondSign. Unlike
+	// IsDueSoon/IsOverdue above, these ARE persisted: they track a real,
+	// stateful external process (a document uploaded to Setu, a signature
+	// request in flight), not a value recomputed fresh on every read.
+	// IndemnityBondSignStatus is "" until a sign is started, then
+	// "sign_initiated" -> "sign_complete" (or "failed"), mirroring Setu's
+	// own SignatureStatus.Status values verbatim rather than remapping them.
+	IndemnityBondDocumentID    string     `json:"indemnityBondDocumentId" gorm:"size:100"`
+	IndemnityBondSignRequestID string     `json:"indemnityBondSignRequestId" gorm:"size:100"`
+	IndemnityBondSignStatus    string     `json:"indemnityBondSignStatus" gorm:"size:20"`
+	IndemnityBondSignedURL     string     `json:"indemnityBondSignedUrl" gorm:"size:255"`
+	IndemnityBondSignedAt      *time.Time `json:"indemnityBondSignedAt"`
 
 	Ornaments []Ornament         `json:"ornaments,omitempty" gorm:"foreignKey:LoanID"`
 	Approvals []LoanApproval     `json:"approvals,omitempty" gorm:"foreignKey:LoanID"`
@@ -595,6 +617,86 @@ type RequestApproval struct {
 }
 
 func (RequestApproval) TableName() string { return "request_approvals" }
+
+// LoanDraft is an unsubmitted New Gold Loan form, saved by the "Save Draft"
+// button on frontend/components/NewLoan.tsx so a half-entered loan survives
+// leaving the page (a customer who has to come back with a document, a
+// shift change, an accidental navigation). It is deliberately NOT a Loan:
+// no loan number is assigned, nothing enters the sanction chain, no packet
+// is created, and no gold rate is applied — a draft is scratch paper.
+//
+// That's why almost every field is nullable and none is validated: the
+// point is to store the form EXACTLY as far as staff got, including
+// contradictory or absent values, and to apply the real rules (verified
+// customer, gold rate published today, principal within LTV, at least one
+// ornament) only when the draft is finally submitted through the normal
+// POST /loans path. Deleting a draft is not an audit event, and drafts
+// carry no money — so unlike every other record here, they are hard
+// deleted (see Service.DeleteDraft and Service.Create's cleanup).
+//
+// A draft belongs to the employee who saved it, not to the branch at
+// large: an in-progress form is one person's unfinished work, so listing
+// is scoped to CreatedByEmployeeID as well as the caller's branch scope.
+type LoanDraft struct {
+	ID uint `json:"id" gorm:"primaryKey"`
+
+	// CreatedByEmployeeID is the owner — set from the JWT, never the body.
+	CreatedByEmployeeID uint `json:"createdByEmployeeId" gorm:"not null;index"`
+
+	// BranchID is required (the form defaults it, and every staff member has
+	// a branch), so branch-scoped listing behaves like it does for loans.
+	BranchID uint          `json:"branchId" gorm:"not null;index"`
+	Branch   branch.Branch `json:"branch" gorm:"foreignKey:BranchID"`
+
+	// Customer/Scheme/Locker are all still-unpicked-at-this-point choices,
+	// hence pointers. Preloaded on read so the frontend can repopulate its
+	// SearchableSelect labels without extra round trips.
+	CustomerID *uint              `json:"customerId,omitempty"`
+	Customer   *customer.Customer `json:"customer,omitempty" gorm:"foreignKey:CustomerID"`
+	SchemeID   *uint              `json:"schemeId,omitempty"`
+	Scheme     *scheme.Scheme     `json:"scheme,omitempty" gorm:"foreignKey:SchemeID"`
+	LockerID   *uint              `json:"lockerId,omitempty"`
+
+	// PrincipalOverride mirrors the form's optional manual loan amount —
+	// nil means "use the scheme-LTV-computed eligible amount", which is
+	// recomputed live from the ornaments and the current gold rate rather
+	// than frozen here (a draft opened next week must not quote last week's
+	// rate as if it were today's).
+	PrincipalOverride *float64 `json:"principalOverride,omitempty" gorm:"type:numeric(16,2)"`
+
+	Ornaments []LoanDraftOrnament `json:"ornaments" gorm:"foreignKey:DraftID"`
+
+	CreatedAt time.Time `json:"createdAt"`
+	UpdatedAt time.Time `json:"updatedAt"`
+}
+
+func (LoanDraft) TableName() string { return "loan_drafts" }
+
+// LoanDraftOrnament is one row of the draft's ornament table. Separate from
+// Ornament because it shares none of its guarantees: name/purity may be
+// blank, weight and quantity may be zero, and no NetWeight/GoldValue is
+// computed (those depend on a gold rate, applied at submission). ImageURL
+// carries an already-uploaded photo (POST /uploads happens as soon as staff
+// pick the file, before any loan exists), so a saved draft keeps its
+// attachments.
+type LoanDraftOrnament struct {
+	ID      uint `json:"id" gorm:"primaryKey"`
+	DraftID uint `json:"draftId" gorm:"not null;index"`
+
+	Name        string  `json:"name" gorm:"size:80"`
+	Purity      string  `json:"purity" gorm:"size:10"`
+	GrossWeight float64 `json:"grossWeight"`
+	Quantity    int     `json:"quantity"`
+	ImageURL    string  `json:"imageUrl" gorm:"size:512"`
+	ImageName   string  `json:"imageName" gorm:"size:255"`
+
+	// Position preserves the on-screen row order, which is meaningful to
+	// staff reading a part-filled form back (id-ascending would reshuffle
+	// rows edited across separate saves).
+	Position int `json:"position" gorm:"not null;default:0"`
+}
+
+func (LoanDraftOrnament) TableName() string { return "loan_draft_ornaments" }
 
 // Auction stage values driving AuctionRecord.Stage — the full 7-step
 // workflow the spec calls for: Overdue -> Defaulted (both handled

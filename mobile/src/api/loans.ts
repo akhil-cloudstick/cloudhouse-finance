@@ -15,20 +15,17 @@ export function getLoan(id: number) {
 // ListApprovals, POST/GET /loans/:id/approve|approvals) ---------------------
 
 // Mirrors backend/internal/loan/model.go's SanctionStage* constants, in
-// chain order.
-export const SANCTION_STAGES = [
-  "LoanOperator",
-  "BranchManager",
-  "AuthorizedManagement",
-  "FinalSanction",
-] as const;
+// chain order: made by a Loan Operator, verified by the Loan Operator,
+// approved by the Branch Manager, finally sanctioned by Management. (The
+// retired 4th stage "AuthorizedManagement" made Management sign off twice;
+// the backend migrates any loan still on it to FinalSanction.)
+export const SANCTION_STAGES = ["LoanOperator", "BranchManager", "FinalSanction"] as const;
 export type SanctionStage = (typeof SANCTION_STAGES)[number];
 
 export const SANCTION_STAGE_LABELS: Record<SanctionStage, string> = {
-  LoanOperator: "Loan Operator",
-  BranchManager: "Branch Manager",
-  AuthorizedManagement: "Authorized Management",
-  FinalSanction: "Final Sanction",
+  LoanOperator: "Verified by Loan Operator",
+  BranchManager: "Approved by Branch Manager",
+  FinalSanction: "Final Sanction (Management)",
 };
 
 // Which employee role must act at each stage — Administrator may always
@@ -36,9 +33,16 @@ export const SANCTION_STAGE_LABELS: Record<SanctionStage, string> = {
 export const SANCTION_STAGE_ROLES: Record<SanctionStage, string> = {
   LoanOperator: "Loan Operator",
   BranchManager: "Branch Manager",
-  AuthorizedManagement: "Management",
   FinalSanction: "Management",
 };
+
+// Maps the retired AuthorizedManagement value onto the stage that replaced
+// it, so a loan fetched before the backend migration ran still resolves to
+// a pending stage instead of none.
+export function normalizeSanctionStage(stage: string): SanctionStage | null {
+  const s = stage === "AuthorizedManagement" ? "FinalSanction" : stage;
+  return (SANCTION_STAGES as readonly string[]).includes(s) ? (s as SanctionStage) : null;
+}
 
 export function approveLoan(
   loanId: number,

@@ -1,5 +1,5 @@
 /* Shared progress-stepper UI for any fixed, ordered stage chain — used by
- * LoanDetail.tsx's 4-stage loan sanction chain and Auctions.tsx's 7-stage
+ * LoanDetail.tsx's 3-stage loan sanction chain and Auctions.tsx's 7-stage
  * auction workflow. Replaces what used to be a per-page, purely-decorative
  * `<div className="track">` (see Auctions.tsx's old STAGES.indexOf(l.status)
  * track) with one component that actually reflects a real current-stage

@@ -64,6 +64,12 @@ type OpeningCashBalance struct {
 	BalanceDate time.Time     `json:"balanceDate" gorm:"not null;uniqueIndex:idx_branch_date"`
 	Amount      float64       `json:"amount" gorm:"not null;type:numeric(16,2)"`
 	CreatedAt   time.Time     `json:"createdAt"`
+
+	// IsSet distinguishes "staff entered an opening balance for this
+	// branch/day" from "no entry yet", which Amount alone cannot: a real
+	// entry of 0 and a missing entry both read as 0 (Get synthesizes a
+	// zero-amount record rather than 404ing). Response-only, never stored.
+	IsSet bool `json:"isSet" gorm:"-"`
 }
 
 func (OpeningCashBalance) TableName() string {

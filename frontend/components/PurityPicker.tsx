@@ -59,7 +59,7 @@ export function PurityPicker({ value, onChange, disabled }: { value: string; onC
         : "";
 
   return (
-    <div style={{ maxWidth: 210 }}>
+    <div style={{ maxWidth: 300 }}>
       {/* Both this Karat/Fineness% slide toggle and the search field beside
        * it are pinned to a Net Wt (g) input's rendered height (padding:6px
        * 8px, font-size:14px, 1px border — see NewLoan.tsx's ornament row)
@@ -71,7 +71,10 @@ export function PurityPicker({ value, onChange, disabled }: { value: string; onC
           style={{
             position: "relative",
             display: "flex",
-            flex: 1,
+            // Wider than the search field beside it (flex 1) — at equal
+            // widths "Karat"/"Fineness" had to shrink to ~9.5px to fit,
+            // which read as fine print next to every other control.
+            flex: "0 0 148px",
             minWidth: 0,
             height: "100%",
             border: "1px solid var(--line)",
@@ -108,7 +111,7 @@ export function PurityPicker({ value, onChange, disabled }: { value: string; onC
               background: "transparent",
               cursor: "pointer",
               padding: "0 4px",
-              fontSize: 9.5,
+              fontSize: 12,
               fontWeight: unit === "karat" ? 700 : 400,
               color: unit === "karat" ? "#2b2001" : "var(--muted)",
               whiteSpace: "nowrap",
@@ -130,7 +133,7 @@ export function PurityPicker({ value, onChange, disabled }: { value: string; onC
               background: "transparent",
               cursor: "pointer",
               padding: "0 4px",
-              fontSize: 9.5,
+              fontSize: 12,
               fontWeight: unit === "fineness" ? 700 : 400,
               color: unit === "fineness" ? "#2b2001" : "var(--muted)",
               whiteSpace: "nowrap",
@@ -138,7 +141,7 @@ export function PurityPicker({ value, onChange, disabled }: { value: string; onC
             disabled={disabled}
             onClick={() => setUnit("fineness")}
           >
-            Fineness %
+            Fineness
           </button>
         </div>
         <div className="purity-select" style={{ flex: 1, minWidth: 0, height: "100%" }}>

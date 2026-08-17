@@ -79,9 +79,10 @@ This scope maps directly onto the domain modules described in
 - **Auction** — workflow for defaulted loans: Overdue → Default → Auction
   Eligible → Notice Issued → Auction Scheduled → Auctioned → Settled, with
   surplus/shortfall calculated and recorded after sale.
-- **Multi-level Loan Approval** — sanction limits configured by role, e.g.
-  Loan Operator → Branch Manager → Authorized Management → Final Sanction;
-  loans above a configured amount cannot be single-employee sanctioned.
+- **Multi-level Loan Approval** — made by a Loan Operator, then verified by
+  the Loan Operator → approved by the Branch Manager → final sanction from
+  Management, so no loan is ever single-employee sanctioned. Per-role
+  sanction limits are advisory (they warn, never block).
 
 ## User roles
 Administrator, Management, Branch Manager, Loan Operator, Cashier,

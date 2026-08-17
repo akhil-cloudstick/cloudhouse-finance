@@ -52,9 +52,13 @@ export function DatePicker({
   disabled?: boolean;
 }) {
   const [open, setOpen] = useState(false);
+  const [mode, setMode] = useState<"days" | "years">("days");
   const selected = parseISO(value);
   const [viewYear, setViewYear] = useState(() => (selected || new Date()).getFullYear());
   const [viewMonth, setViewMonth] = useState(() => (selected || new Date()).getMonth());
+  // Anchors the visible 12-year block in year-picker mode; kept separate from
+  // viewYear so paging through decades doesn't jump the day grid around.
+  const [decadeStart, setDecadeStart] = useState(() => Math.floor(((selected || new Date()).getFullYear()) / 12) * 12);
   const boxRef = useRef<HTMLDivElement>(null);
 
   // Jump the visible month back to the selected (or current) date every time
@@ -64,6 +68,8 @@ export function DatePicker({
     const d = parseISO(value) || new Date();
     setViewYear(d.getFullYear());
     setViewMonth(d.getMonth());
+    setDecadeStart(Math.floor(d.getFullYear() / 12) * 12);
+    setMode("days");
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
 
@@ -120,11 +126,40 @@ export function DatePicker({
         </span>
         <Icon name="cal" className="cal-ic" />
       </button>
-      {open && (
+      {open && mode === "years" && (
+        <div className="dp-panel">
+          <div className="dp-hd">
+            <button type="button" className="dp-nav" onClick={() => setDecadeStart((y) => y - 12)} aria-label="Previous years">‹</button>
+            <b>{decadeStart} – {decadeStart + 11}</b>
+            <button type="button" className="dp-nav" onClick={() => setDecadeStart((y) => y + 12)} aria-label="Next years">›</button>
+          </div>
+          <div className="dp-grid dp-years">
+            {Array.from({ length: 12 }, (_, i) => decadeStart + i).map((y) => {
+              const isSel = y === viewYear;
+              const isThisYear = y === today.getFullYear();
+              const blocked = (minD && y < minD.getFullYear()) || (maxD && y > maxD.getFullYear());
+              return (
+                <button
+                  type="button"
+                  key={y}
+                  className={`dp-year${isSel ? " sel" : ""}${isThisYear && !isSel ? " today" : ""}`}
+                  disabled={!!blocked}
+                  onClick={() => { setViewYear(y); setMode("days"); }}
+                >
+                  {y}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
+      {open && mode === "days" && (
         <div className="dp-panel">
           <div className="dp-hd">
             <button type="button" className="dp-nav" onClick={() => changeMonth(-1)} aria-label="Previous month">‹</button>
-            <b>{MONTHS[viewMonth]} {viewYear}</b>
+            <button type="button" className="dp-title" onClick={() => setMode("years")}>
+              {MONTHS[viewMonth]} {viewYear}
+            </button>
             <button type="button" className="dp-nav" onClick={() => changeMonth(1)} aria-label="Next month">›</button>
           </div>
           <div className="dp-grid dp-dow">

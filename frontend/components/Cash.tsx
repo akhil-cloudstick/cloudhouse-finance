@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useModal } from "@/components/Modal";
 import { useToast } from "@/components/Toast";
 import { Icon } from "@/lib/icons";
@@ -18,12 +18,33 @@ import {
 } from "@/lib/cashApi";
 import { ApiError } from "@/lib/api";
 
-function Kpi({ l, v, s, cls }: { l: string; v: string | number; s?: string; cls?: string }) {
+function Kpi({ l, v, s, parts, cls }: {
+  l: string; v: string | number; s?: string; parts?: [string, number][]; cls?: string;
+}) {
   return (
     <div className={`kpi ${cls || ""}`}>
       <div className="l">{l}</div>
       <div className="v">{v}</div>
       <div className="s">{s || ""}</div>
+      {parts ? <KpiParts parts={parts} /> : null}
+    </div>
+  );
+}
+
+/* Breaks a KPI's single total back out into the sources that fed it. Zero
+ * buckets are dropped so a quiet day shows a short list rather than a wall of
+ * "0"s; if every bucket is zero the whole block collapses to one dash. */
+function KpiParts({ parts }: { parts: [string, number][] }) {
+  const shown = parts.filter(([, amt]) => amt !== 0);
+  return (
+    <div style={{ marginTop: 6, borderTop: "1px solid var(--line)", paddingTop: 6, display: "grid", gap: 2 }}>
+      {shown.length ? shown.map(([label, amt]) => (
+        <div key={label} style={{ display: "flex", fontSize: 11.5, color: "var(--muted)" }}>
+          <span>{label}</span>
+          <div className="sp" style={{ flex: 1 }} />
+          <span className="num" style={{ fontVariantNumeric: "tabular-nums" }}>{fmt(amt)}</span>
+        </div>
+      )) : <div style={{ fontSize: 11.5, color: "var(--muted)" }}>No movements today</div>}
     </div>
   );
 }
@@ -105,14 +126,32 @@ export function Cash() {
   const [expenses, setExpenses] = useState<ExpenseView[]>([]);
   const [summary, setSummary] = useState<CashSummary | null>(null);
   const [openingInput, setOpeningInput] = useState("");
+  // Once today's opening balance exists for the selected branch we show it
+  // read-only instead of an empty-looking input asking for it again — the
+  // figure is entered once per branch per day. "Change" reopens the input.
+  const [editingOpening, setEditingOpening] = useState(false);
+
+  /* Guards against a stale response winning. The first render fires a
+   * summary request before the branch list has loaded (branchId ""), then a
+   * second, branch-scoped one the moment it does. The unscoped one has no
+   * opening balance (it's per-branch), so if it resolved last it overwrote
+   * the real figure with 0 — which is exactly what made a set opening
+   * balance read as ₹0 after a refresh. Only the newest request may write. */
+  const summarySeq = useRef(0);
 
   const refresh = useCallback(() => {
     listCashMovements().then(setMovements).catch(() => setMovements([]));
     listExpenses().then(setExpenses).catch(() => setExpenses([]));
+    const seq = ++summarySeq.current;
     getCashSummary(branchId || undefined, today).then((s) => {
+      if (seq !== summarySeq.current) return;
       setSummary(s);
-      setOpeningInput(String(s.openingCash));
-    }).catch(() => setSummary(null));
+      setOpeningInput(s.openingCashSet ? String(s.openingCash) : "");
+      setEditingOpening(false);
+    }).catch(() => {
+      if (seq !== summarySeq.current) return;
+      setSummary(null);
+    });
   }, [branchId, today]);
 
   useEffect(() => {
@@ -139,6 +178,10 @@ export function Cash() {
 
   useEffect(() => { refresh(); }, [refresh]);
 
+  // Locked = today's figure is already on record for this branch, so the
+  // card reports it rather than asking for it again.
+  const openingLocked = !!branchId && !!summary?.openingCashSet && !editingOpening;
+
   const total = expenses.reduce((s, e) => s + e.amt, 0);
   const cashIn = movements.filter((m) => m.type === "in").reduce((s, m) => s + m.amount, 0);
   const cashOut = movements.filter((m) => m.type === "out").reduce((s, m) => s + m.amount, 0);
@@ -159,7 +202,7 @@ export function Cash() {
   async function saveOpeningBalance() {
     if (!branchId) { toast("Select a branch first."); return; }
     const amount = +openingInput;
-    if (!(amount >= 0)) { toast("Enter a valid opening balance."); return; }
+    if (openingInput.trim() === "" || !(amount >= 0)) { toast("Enter a valid opening balance."); return; }
     try {
       await setOpeningBalance(branchId, amount, today);
       refresh();
@@ -216,22 +259,59 @@ export function Cash() {
               placeholder="Search branch…"
             />
           </div>
-          <input className="inp" style={{ width: 140, marginLeft: 8 }} type="number" min={0} value={openingInput} onChange={(e) => setOpeningInput(e.target.value)} />
-          <button className="btn sm" style={{ marginLeft: 8 }} onClick={saveOpeningBalance} disabled={!branchId}>Set</button>
+          {openingLocked ? (
+            <>
+              <b style={{ marginLeft: 8, fontSize: 16, color: "var(--gold-deep)" }}>{fmt(summary?.openingCash || 0)}</b>
+              <button className="btn ghost sm" style={{ marginLeft: 8 }} onClick={() => { setOpeningInput(String(summary?.openingCash ?? "")); setEditingOpening(true); }}>Change</button>
+            </>
+          ) : (
+            <>
+              <input className="inp" style={{ width: 140, marginLeft: 8 }} type="number" min={0} value={openingInput} onChange={(e) => setOpeningInput(e.target.value)} />
+              <button className="btn sm" style={{ marginLeft: 8 }} onClick={saveOpeningBalance} disabled={!branchId}>Set</button>
+              {editingOpening && (
+                <button className="btn ghost sm" style={{ marginLeft: 8 }} onClick={() => setEditingOpening(false)}>Cancel</button>
+              )}
+            </>
+          )}
         </div>
-        <div className="ft">Enter the opening cash-in-hand for the selected branch at the start of the day — it feeds directly into the KPI below.</div>
+        <div className="ft">
+          {openingLocked
+            ? "Already recorded for this branch today — it feeds directly into the KPI below. Use “Change” only to correct a wrong figure."
+            : "Enter the opening cash-in-hand for the selected branch at the start of the day — it feeds directly into the KPI below."}
+        </div>
       </div>
 
-      <div className="kpis" style={{ marginBottom: 18 }}>
+      <div className="kpis kpis-money" style={{ marginBottom: 18 }}>
         <Kpi l="Opening Cash (today)" v={fmt(summary?.openingCash || 0)} />
         {/* Backend's `collections` is every cash-in movement for the day —
             Savings top-ups, bank pledges and loan repayments alike, not just
-            interest/principal (see cash.SummaryService.GetExpectedCash). */}
-        <Kpi l="Cash In (today)" v={fmt(summary?.collections || 0)} cls="ok" />
+            interest/principal (see cash.SummaryService.GetExpectedCash), so
+            show `collectionsBreakdown` under the total rather than leaving the
+            reader to guess what the one figure is made of. */}
+        <Kpi
+          l="Cash In (today)"
+          v={fmt(summary?.collections || 0)}
+          cls="ok"
+          parts={[
+            ["Loan repayments", summary?.collectionsBreakdown?.repayments || 0],
+            ["Bank pledges", summary?.collectionsBreakdown?.pledges || 0],
+            ["Auction proceeds", summary?.collectionsBreakdown?.auctions || 0],
+            ["Manual top-ups", summary?.collectionsBreakdown?.topUps || 0],
+          ]}
+        />
         {/* Likewise `disbursements` is every cash-out movement for the day —
             loan principal handed out, manual "Take Cash Out" withdrawals,
             and bank-pledge releases all land here. */}
-        <Kpi l="Cash Out (today)" v={fmt(summary?.disbursements || 0)} />
+        <Kpi
+          l="Cash Out (today)"
+          v={fmt(summary?.disbursements || 0)}
+          parts={[
+            ["Loan disbursements", summary?.disbursementsBreakdown?.loanDisbursements || 0],
+            ["Bank releases", summary?.disbursementsBreakdown?.bankReleases || 0],
+            ["Auction refunds", summary?.disbursementsBreakdown?.auctionRefunds || 0],
+            ["Withdrawals", summary?.disbursementsBreakdown?.withdrawals || 0],
+          ]}
+        />
         <Kpi l="Expenses (today)" v={fmt(summary?.expensesToday || 0)} s={fmt(summary?.cashExpenses || 0) + " cash"} />
         <Kpi l="Expected Cash in Hand" v={fmt(summary?.expectedCash || 0)} s="auto-calculated" cls="ok" />
       </div>

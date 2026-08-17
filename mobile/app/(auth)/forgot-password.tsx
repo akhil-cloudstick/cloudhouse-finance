@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { View, StyleSheet, KeyboardAvoidingView, Platform, Pressable, ScrollView } from "react-native";
+import { View, StyleSheet, KeyboardAvoidingView, Pressable, ScrollView } from "react-native";
 import { useRouter } from "expo-router";
 import { colors } from "../../src/theme/colors";
 import { ThemedText } from "../../src/components/ThemedText";
@@ -29,7 +29,7 @@ export default function ForgotPasswordScreen() {
   }
 
   return (
-    <KeyboardAvoidingView style={styles.screen} behavior={Platform.OS === "ios" ? "padding" : undefined}>
+    <KeyboardAvoidingView style={styles.screen} behavior="padding">
       <ScrollView
         contentContainerStyle={styles.scrollContent}
         keyboardShouldPersistTaps="handled"

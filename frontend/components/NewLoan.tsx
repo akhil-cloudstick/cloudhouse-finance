@@ -15,7 +15,16 @@ import { fmt, custOf, schemeOf } from "@/lib/format";
 import { uploadFile, searchCustomersPage, type CustomerView } from "@/lib/customersApi";
 import { searchActiveSchemesPage, type SchemeView } from "@/lib/schemesApi";
 import { searchOrnamentTypesPage, createOrnamentType, type BackendOrnamentType } from "@/lib/ornamentTypesApi";
-import { createLoan, addOrnamentImage } from "@/lib/loansApi";
+import {
+  createLoan,
+  addOrnamentImage,
+  saveDraft,
+  updateDraft,
+  listDrafts,
+  deleteDraft,
+  type BackendLoanDraft,
+  type SaveDraftInput,
+} from "@/lib/loansApi";
 import { listPackets } from "@/lib/packetApi";
 import { publishGoldRate } from "@/lib/goldRateApi";
 import { listActiveBranches, type BranchView } from "@/lib/branchApi";
@@ -128,6 +137,13 @@ export function NewLoan() {
   const [branchLabel, setBranchLabel] = useState("");
   const [lockerLabel, setLockerLabel] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  // "Save Draft" state. draftId is set once this form has been saved (or was
+  // reopened from a saved draft), so subsequent saves overwrite that draft
+  // instead of leaving a trail of near-identical copies; it's also handed to
+  // createLoan() so the backend discards the draft once the real loan exists.
+  const [draftId, setDraftId] = useState<number | null>(null);
+  const [savingDraft, setSavingDraft] = useState(false);
+  const [drafts, setDrafts] = useState<BackendLoanDraft[]>([]);
   // Real Packet.Code, fetched right after loan creation succeeds (the
   // backend auto-creates the loan's tracking packet — see
   // loan.PacketCreator) — printPacketLabel() prefers this over the
@@ -147,6 +163,9 @@ export function NewLoan() {
     listLockers()
       .then(setLockers)
       .catch(() => toast("Could not load lockers — try again later."));
+    // This staff member's own saved drafts, so an interrupted loan can be
+    // picked back up (see the "Saved drafts" card below).
+    void loadDrafts();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -194,7 +213,15 @@ export function NewLoan() {
   // field falls back to showing the new eligible amount as a placeholder
   // rather than silently keeping an amount computed against different gold.
   const roundedEligible = Math.round(eligible);
+  // Set when a saved draft is being applied: that draft's own override
+  // arrived together with its ornaments, so it is not stale and must survive
+  // the reset this effect would otherwise perform. See applyDraft().
+  const skipOverrideResetRef = useRef(false);
   useEffect(() => {
+    if (skipOverrideResetRef.current) {
+      skipOverrideResetRef.current = false;
+      return;
+    }
     setPrincipalOverride("");
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [roundedEligible]);
@@ -243,6 +270,107 @@ export function NewLoan() {
       </>,
       true
     );
+  }
+
+  /* --- "Save Draft" -------------------------------------------------------
+   *
+   * Persists the form as-is to /loans/drafts (backend LoanDraft) so a
+   * half-entered loan survives leaving this page — previously this button
+   * only raised a "Draft saved (demo)" toast and threw the form away.
+   *
+   * Deliberately saves whatever is on screen, with no validation beyond a
+   * branch: the entire point is to keep an incomplete form, including rows
+   * with no weight yet or no customer picked. The real rules still apply at
+   * "Submit for Approval". */
+  function buildDraftInput(): SaveDraftInput {
+    return {
+      branchId: Number(branchId),
+      ...(custId ? { customerId: Number(custId) } : {}),
+      ...(schemeId ? { schemeId: Number(schemeId) } : {}),
+      ...(lockerId !== "" ? { lockerId: Number(lockerId) } : {}),
+      // Only a genuine manual override is stored — an empty field means "use
+      // the eligible amount", which must stay computed rather than frozen
+      // (a draft reopened next week has to use next week's gold rate).
+      ...(principalOverride.trim() ? { principalOverride: +principalOverride } : {}),
+      // Every row is sent, including blank ones, so the form comes back
+      // looking exactly as it was left.
+      ornaments: rows.map((r) => ({
+        name: r.n,
+        purity: r.p,
+        grossWeight: r.w,
+        quantity: r.q,
+        ...(r.img ? { imageUrl: r.img } : {}),
+        ...(r.imgName ? { imageName: r.imgName } : {}),
+      })),
+    };
+  }
+
+  async function loadDrafts() {
+    try {
+      setDrafts(await listDrafts());
+    } catch {
+      // Drafts are a convenience, not part of loan creation — a failure to
+      // list them must not interfere with using this page.
+    }
+  }
+
+  async function saveDraftNow() {
+    if (branchId === "") { toast("Please select a branch before saving a draft"); return; }
+    setSavingDraft(true);
+    try {
+      const input = buildDraftInput();
+      const saved = draftId ? await updateDraft(draftId, input) : await saveDraft(input);
+      setDraftId(saved.id);
+      await loadDrafts();
+      toast(draftId ? "Draft updated" : "Draft saved — reopen it from “Saved drafts” below");
+    } catch (e) {
+      toast(e instanceof ApiError ? e.message : "Could not save draft — try again");
+    } finally {
+      setSavingDraft(false);
+    }
+  }
+
+  // Reopens a saved draft into the form. Labels for the pickers come from the
+  // draft's preloaded customer/scheme/branch (the backend sends them for
+  // exactly this reason); the locker label is resolved from the already-loaded
+  // locker list, which has no equivalent preload.
+  function applyDraft(d: BackendLoanDraft) {
+    setDraftId(d.id);
+    setCustId(d.customerId ? String(d.customerId) : "");
+    setCustLabel(d.customer ? `${d.customer.name} — ${d.customer.code}` : "");
+    setSchemeId(d.schemeId ? String(d.schemeId) : "");
+    setSchemeLabel(d.scheme ? d.scheme.name : "");
+    setBranchId(d.branchId);
+    setBranchLabel(d.branch?.name || "");
+    setLockerId(d.lockerId ?? "");
+    const k = d.lockerId ? lockers.find((x) => x.id === d.lockerId) : undefined;
+    setLockerLabel(k ? `${k.code} — ${k.branchName} (${k.occupied}/${k.capacity} packets)` : "");
+    setRows(d.ornaments.map((o) => ({
+      n: o.name,
+      p: o.purity || "22K",
+      w: o.grossWeight,
+      q: o.quantity,
+      ...(o.imageUrl ? { img: o.imageUrl } : {}),
+      ...(o.imageName ? { imgName: o.imageName } : {}),
+    })));
+    // Restoring rows changes the eligible amount, which normally clears a
+    // stale manual override (see the effect on roundedEligible). Here the
+    // override arrived WITH those rows, so suppress that one reset — without
+    // this, reopening a draft silently drops its saved loan amount.
+    skipOverrideResetRef.current = true;
+    setPrincipalOverride(d.principalOverride != null ? String(d.principalOverride) : "");
+    toast("Draft reopened — review it, then submit for approval");
+  }
+
+  async function discardDraft(id: number) {
+    try {
+      await deleteDraft(id);
+      if (draftId === id) setDraftId(null);
+      await loadDrafts();
+      toast("Draft discarded");
+    } catch (e) {
+      toast(e instanceof ApiError ? e.message : "Could not discard draft — try again");
+    }
   }
 
   // TODO: buildDraft()/print* functions build their own Ornament shape
@@ -477,6 +605,10 @@ export function NewLoan() {
           quantity: r.q,
         })),
         ...(lockerId !== "" ? { lockerId: Number(lockerId) } : {}),
+        // Hands the backend the draft this loan came from, so it's discarded
+        // now that a real loan exists (fail-soft server-side — see
+        // Service.DeleteDraftQuietly).
+        ...(draftId ? { draftId } : {}),
       });
 
       // The backend creates + returns ornaments in the same order they were
@@ -513,6 +645,10 @@ export function NewLoan() {
       } catch {
         // ignore — printPacketLabel() falls back to the provisional id
       }
+
+      // The draft (if any) was consumed server-side by the create call above.
+      setDraftId(null);
+      void loadDrafts();
 
       refresh();
       refreshLoans();
@@ -623,7 +759,7 @@ export function NewLoan() {
               its input via position:absolute. A plain div (no overflow
               rule) avoids both; the page itself scrolls horizontally on
               very narrow viewports instead. */}
-          <div><table className="tbl" style={{ minWidth: 640 }}>
+          <div><table className="tbl" style={{ minWidth: 730 }}>
             <thead><tr><th>Ornament</th><th>Purity</th><th className="num">Net Wt (g)</th><th className="num">Qty</th><th className="num">Value</th><th style={{ textAlign: "center" }}>Photo</th><th></th></tr></thead>
             <tbody>
               {rows.length === 0 && (
@@ -631,7 +767,15 @@ export function NewLoan() {
               )}
               {rows.map((r, i) => (
                 <tr key={i}>
-                  <td style={{ minWidth: 180 }}>
+                  {/* height:31 matches the Purity/Net Wt/Qty cells beside it
+                      (see PurityPicker.tsx's comment on why those are
+                      pinned to 31px) — the ornament-type SearchableSelect
+                      otherwise renders at the taller default .inp height,
+                      making this row uneven. Scoped to this cell only via
+                      .orn-type-td so the same SearchableSelect used
+                      elsewhere (Customer/Scheme/Branch/Locker above) keeps
+                      its normal size. */}
+                  <td className="orn-type-td" style={{ minWidth: 180 }}>
                     <SearchableSelect<BackendOrnamentType>
                       value={r.n}
                       onChange={(_id, item) => updOrn(i, "n", item.name)}
@@ -643,23 +787,23 @@ export function NewLoan() {
                       onCreate={createOrnamentType}
                     />
                   </td>
-                  <td style={{ width: 210 }}><PurityPicker value={r.p} onChange={(v) => updOrn(i, "p", v)} /></td>
-                  <td className="num"><input className="inp" style={{ padding: "6px 8px", width: 84, textAlign: "right" }} type="number" min={0} value={r.w === 0 ? "" : r.w} onChange={(e) => updOrn(i, "w", e.target.value === "" ? 0 : Math.max(0, +e.target.value || 0))} /></td>
-                  <td className="num"><input className="inp" style={{ padding: "6px 8px", width: 64, textAlign: "right" }} type="number" min={0} value={r.q} onChange={(e) => updOrn(i, "q", Math.max(0, +e.target.value || 0))} /></td>
+                  <td style={{ width: 300 }}><PurityPicker value={r.p} onChange={(v) => updOrn(i, "p", v)} /></td>
+                  <td className="num"><input className="inp" style={{ padding: "6px 8px", width: 84, height: 31, textAlign: "right" }} type="number" min={0} value={r.w === 0 ? "" : r.w} onChange={(e) => updOrn(i, "w", e.target.value === "" ? 0 : Math.max(0, +e.target.value || 0))} /></td>
+                  <td className="num"><input className="inp" style={{ padding: "6px 8px", width: 64, height: 31, textAlign: "right" }} type="number" min={0} value={r.q} onChange={(e) => updOrn(i, "q", Math.max(0, +e.target.value || 0))} /></td>
                   <td className="num">{fmt(rowVals[i])}</td>
                   <td style={{ textAlign: "center", whiteSpace: "nowrap" }}>
                     <input type="file" accept="image/*" ref={(el) => { fileRefs.current[i] = el; }} style={{ display: "none" }} onChange={(e) => ornImgPicked(i, e.target)} />
                     {r.img ? (
                       <>
                         <img src={r.img} style={{ width: 34, height: 34, objectFit: "cover", borderRadius: 6, border: "1px solid var(--line)", cursor: "pointer", verticalAlign: "middle" }} title="View photo" onClick={() => viewOrnImg(i)} />
-                        <button className="btn plain sm" style={{ padding: "4px 7px" }} title="Replace photo" onClick={() => fileRefs.current[i]?.click()}>↺</button>
-                        <button className="btn plain sm" style={{ padding: "4px 7px" }} title="Remove photo" onClick={() => delOrnImg(i)}>✕</button>
+                        <button className="btn plain sm" style={{ padding: "0 7px", height: 31 }} title="Replace photo" onClick={() => fileRefs.current[i]?.click()}>↺</button>
+                        <button className="btn plain sm" style={{ padding: "0 7px", height: 31 }} title="Remove photo" onClick={() => delOrnImg(i)}>✕</button>
                       </>
                     ) : (
-                      <button className="btn plain sm" style={{ padding: "4px 9px" }} title="Upload ornament photo" onClick={() => fileRefs.current[i]?.click()}>📷 Upload</button>
+                      <button className="btn plain sm" style={{ padding: "0 9px", height: 31 }} title="Upload ornament photo" onClick={() => fileRefs.current[i]?.click()}>📷 Upload</button>
                     )}
                   </td>
-                  <td style={{ textAlign: "center" }}><button className="btn danger sm" onClick={() => delOrnRow(i)}>✕</button></td>
+                  <td style={{ textAlign: "center" }}><button className="btn danger sm" style={{ height: 31 }} onClick={() => delOrnRow(i)}>✕</button></td>
                 </tr>
               ))}
             </tbody>
@@ -672,7 +816,9 @@ export function NewLoan() {
             <button className="btn ghost" onClick={() => printIndemnity("en")}>🖨 Indemnity Bond</button>
             <button className="btn ghost" onClick={() => printIndemnity("hi")}>🖨 क्षतिपूर्ति बॉन्ड (हिन्दी)</button>
             <button className="btn ghost" onClick={() => printIndemnity("gu")}>🖨 વળતર બોન્ડ (ગુજરાતી)</button>
-            <button className="btn ghost" onClick={() => toast("Draft saved (demo)")}>Save Draft</button>
+            <button className="btn ghost" onClick={saveDraftNow} disabled={savingDraft}>
+              {savingDraft ? "Saving…" : draftId ? "Update Draft" : "Save Draft"}
+            </button>
             <button className="btn" onClick={submitNewLoan} disabled={submitting || !isTodaySet} title={!isTodaySet ? "Today's gold rate must be set before creating a loan." : undefined}>
               <Icon name="check" /> {submitting ? "Submitting…" : "Submit for Approval"}
             </button>
@@ -702,7 +848,43 @@ export function NewLoan() {
               </div>
             </div>
             <div className="ft">Uses today&apos;s published rates (22K {fmt(rates.k22)}/g) — defaults to the eligible amount but can be overridden</div></div>
-          <div className="notice"><Icon name="shield" /> Loans above ₹2,00,000 require Branch Manager + Management sanction (multi-level approval).</div>
+          {/* Saved drafts. Only rendered when there are any — an empty card
+              on every visit would be noise on a page staff use constantly.
+              Drafts are this employee's own (scoped server-side from the
+              JWT), so this is a personal work-in-progress list, not a
+              branch queue. */}
+          {drafts.length > 0 && (
+            <div className="card gtop"><div className="hd"><h3>Saved drafts</h3></div>
+              <div className="bd" style={{ fontSize: 13 }}>
+                {drafts.map((d) => (
+                  <div
+                    key={d.id}
+                    style={{
+                      display: "flex", alignItems: "center", gap: 8, padding: "8px 0",
+                      borderBottom: "1px dashed var(--line)",
+                    }}
+                  >
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontWeight: 600 }}>
+                        {d.customer?.name || "No customer yet"}
+                        {d.id === draftId ? " · editing" : ""}
+                      </div>
+                      <div style={{ color: "var(--muted)", fontSize: 12 }}>
+                        {d.ornaments.length} ornament{d.ornaments.length === 1 ? "" : "s"}
+                        {d.scheme ? ` · ${d.scheme.name}` : ""}
+                        {" · saved "}
+                        {new Date(d.updatedAt).toLocaleString("en-IN")}
+                      </div>
+                    </div>
+                    <button className="btn plain sm" onClick={() => applyDraft(d)}>Open</button>
+                    <button className="btn danger sm" title="Discard draft" onClick={() => discardDraft(d.id)}>✕</button>
+                  </div>
+                ))}
+              </div>
+              <div className="ft">Opening a draft replaces whatever is currently in the form above.</div>
+            </div>
+          )}
+          <div className="notice"><Icon name="shield" /> Every loan is verified by the Loan Operator, approved by the Branch Manager, then finally sanctioned by Management.</div>
         </div>
       </div>
     </>

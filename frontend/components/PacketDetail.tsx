@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { useToast } from "@/components/Toast";
 import { StatusChip } from "@/components/StatusChip";
 import { Icon } from "@/lib/icons";
-import { fmtW } from "@/lib/format";
+import { fmt, fmtW } from "@/lib/format";
 import { ApiError } from "@/lib/api";
 import { listLockers, type LockerView } from "@/lib/lockerApi";
 import {
@@ -110,6 +110,38 @@ export function PacketDetail({ code }: { code?: string }) {
       <Stepper status={p.status} />
 
       <div className="grid cols21">
+        <div className="grid">
+        {/* What is physically sealed inside this packet — the pledged
+            ornaments of the loan it belongs to. Staff opening a locker need
+            to check the packet against this list, so it belongs here and not
+            only on the loan page. */}
+        <div className="card gtop">
+          <div className="hd"><h3>Contents of the Packet — {p.itemCount} item(s) · {fmtW(p.totalWeight)}</h3></div>
+          <div className="tbl-wrap">
+            <table className="tbl">
+              <thead><tr><th>Ornament</th><th>Purity</th><th className="num">Gross (g)</th><th className="num">Net (g)</th><th className="num">Qty</th><th className="num">Gold Value</th><th>Remarks</th></tr></thead>
+              <tbody>
+                {p.items.length === 0 && <tr><td colSpan={7} style={{ color: "var(--muted)" }}>No ornaments recorded on this loan.</td></tr>}
+                {p.items.map((it) => (
+                  <tr key={it.id}>
+                    <td>{it.name}</td>
+                    <td><span className="chip gold">{it.purity}</span></td>
+                    <td className="num">{it.grossWeight.toFixed(1)}</td>
+                    <td className="num">{it.netWeight.toFixed(1)}</td>
+                    <td className="num">{it.quantity}</td>
+                    <td className="num">{fmt(it.goldValue)}</td>
+                    <td>{it.remarks || "—"}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <div className="ft">
+            Sealed contents of packet {p.code}, taken from loan{" "}
+            <a href={`#loan/${p.loanNumber}`}>{p.loanNumber}</a> — ornament photos are on the loan page.
+          </div>
+        </div>
+
         <div className="card">
           <div className="hd"><h3>Movement History</h3></div>
           <div className="tbl-wrap">
@@ -133,6 +165,7 @@ export function PacketDetail({ code }: { code?: string }) {
               </tbody>
             </table>
           </div>
+        </div>
         </div>
 
         <div className="card">

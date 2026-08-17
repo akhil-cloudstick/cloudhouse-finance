@@ -51,7 +51,10 @@ export function RegisterCustomerModalContent({ onSaved }: { onSaved?: () => void
     const n = name.trim();
     const p = phone.trim();
     if (n.length < 3) { setErr("Please enter the customer’s full name."); return; }
-    if (!/^\d[\d ]{8,}$/.test(p)) { setErr("Please enter a valid mobile number."); return; }
+    // Exactly 10 digits — the input is digit-filtered and capped at 10, and
+    // this matches what the mobile register screen enforces. The old
+    // /^\d[\d ]{8,}$/ let 9-digit and space-separated numbers through.
+    if (!/^\d{10}$/.test(p)) { setErr("Please enter a valid 10-digit mobile number."); return; }
     if (!branchId) { setErr("Please select a branch."); return; }
 
     setSaving(true);
@@ -98,7 +101,10 @@ export function RegisterCustomerModalContent({ onSaved }: { onSaved?: () => void
       <div className="bd">
         <div className="frow c2">
           <div><label className="f">Full Name *</label><input className="inp" placeholder="e.g. Anil Varma" value={name} onChange={(e) => setName(e.target.value)} /></div>
-          <div><label className="f">Mobile Number *</label><input className="inp" placeholder="10-digit mobile" maxLength={11} value={phone} onChange={(e) => setPhone(e.target.value)} /></div>
+          {/* Digit-filtered on input like Aadhaar below (and like the mobile
+              app's register screen), so letters/spaces/punctuation can't be
+              typed at all rather than being caught only on save. */}
+          <div><label className="f">Mobile Number *</label><input className="inp" inputMode="numeric" placeholder="10-digit mobile" maxLength={10} value={phone} onChange={(e) => setPhone(e.target.value.replace(/\D/g, ""))} /></div>
         </div>
         <div className="frow c2">
           <div><label className="f">Date of Birth</label><DatePicker value={dob} onChange={setDob} placeholder="Select date of birth…" max={new Date().toISOString().slice(0, 10)} /></div>
@@ -129,7 +135,7 @@ export function RegisterCustomerModalContent({ onSaved }: { onSaved?: () => void
           <div><label className="f">Nominee Name</label><input className="inp" placeholder="e.g. Sunitha Varma" value={nomineeName} onChange={(e) => setNomineeName(e.target.value)} /></div>
           <div><label className="f">Relation</label><input className="inp" placeholder="e.g. Spouse" value={nomineeRelation} onChange={(e) => setNomineeRelation(e.target.value)} /></div>
         </div>
-        <div className="frow"><div><label className="f">Nominee Mobile Number</label><input className="inp" placeholder="10-digit mobile" maxLength={11} value={nomineePhone} onChange={(e) => setNomineePhone(e.target.value)} /></div></div>
+        <div className="frow"><div><label className="f">Nominee Mobile Number</label><input className="inp" placeholder="10-digit mobile" inputMode="numeric" maxLength={10} value={nomineePhone} onChange={(e) => setNomineePhone(e.target.value.replace(/\D/g, ""))} /></div></div>
         <p style={{ color: "var(--red)", fontSize: 12.5, minHeight: 16, marginTop: 8 }}>{err}</p>
       </div>
       <div className="ft">

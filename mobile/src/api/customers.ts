@@ -18,12 +18,11 @@ export function getCustomer(id: number) {
 
 // Mirrors backend/internal/customer/handler.go's customerRequest body shape
 // exactly (name/phone required; dob/address optional; branchId required).
-// Photo/identity-proof/address-proof/kyc-document upload fields are
-// deliberately omitted here — frontend/components/modals/RegisterCustomerModal.tsx
-// collects those inline via <input type="file">, but there's no equivalent
-// document-picker flow on mobile yet, so registration here mirrors only the
-// text fields and defers document upload to a later KYC step (same split
-// the modal itself draws between "register" and "verify").
+//
+// The document fields carry "/uploads/..." URLs, not file bytes: the mobile
+// register screen uploads each pick immediately via src/api/uploads.ts and
+// only sends the resulting URLs here — the same two-step the web modal does
+// in save() (uploadFile ×4, then createCustomer).
 export function createCustomer(input: {
   name: string;
   phone: string;
@@ -35,6 +34,10 @@ export function createCustomer(input: {
   nomineeName?: string;
   nomineeRelation?: string;
   nomineePhone?: string;
+  photoUrl?: string;
+  identityProofUrl?: string;
+  addressProofUrl?: string;
+  kycDocumentUrl?: string;
 }) {
   return apiRequest<Customer>("/customers", { method: "POST", body: input });
 }

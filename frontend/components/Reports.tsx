@@ -335,7 +335,7 @@ export function Reports() {
   return (
     <>
       <div className="page-h">
-        <div><h1>Reports</h1><p>Filterable reports, exportable to PDF / Excel</p></div>
+        <div><p>Filterable reports, exportable to PDF / Excel</p></div>
       </div>
       <hr className="gold-rule" />
       <div className="grid" style={{ gridTemplateColumns: "repeat(auto-fill,minmax(250px,1fr))" }}>

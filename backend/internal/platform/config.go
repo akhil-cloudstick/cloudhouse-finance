@@ -68,6 +68,15 @@ type Config struct {
 	SetuDigilockerClientSecret    string
 	SetuDigilockerProductInstance string
 	SetuDigilockerBaseURL         string
+	// SetuEsign* configure the separate Aadhaar eSign product instance (see
+	// platform/setu_esign.go) — used to digitally sign the loan indemnity
+	// bond. A different Setu product from PAN/DigiLocker above, so its own
+	// client-id/secret/product-instance-id, though the sandbox/production
+	// host pattern is the same.
+	SetuEsignClientID        string
+	SetuEsignClientSecret    string
+	SetuEsignProductInstance string
+	SetuEsignBaseURL         string
 }
 
 // LoadConfig reads a .env file if present (local/dev convenience) and
@@ -114,6 +123,11 @@ func LoadConfig() Config {
 		SetuDigilockerClientSecret:    getEnv("SETU_DIGILOCKER_CLIENT_SECRET", ""),
 		SetuDigilockerProductInstance: getEnv("SETU_DIGILOCKER_PRODUCT_INSTANCE_ID", ""),
 		SetuDigilockerBaseURL:         getEnv("SETU_DIGILOCKER_BASE_URL", "https://dg-sandbox.setu.co"),
+
+		SetuEsignClientID:        getEnv("SETU_ESIGN_CLIENT_ID", ""),
+		SetuEsignClientSecret:    getEnv("SETU_ESIGN_CLIENT_SECRET", ""),
+		SetuEsignProductInstance: getEnv("SETU_ESIGN_PRODUCT_INSTANCE_ID", ""),
+		SetuEsignBaseURL:         getEnv("SETU_ESIGN_BASE_URL", "https://dg-sandbox.setu.co"),
 	}
 }
 

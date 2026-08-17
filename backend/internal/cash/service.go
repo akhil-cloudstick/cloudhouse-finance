@@ -535,11 +535,13 @@ func (s *OpeningBalanceService) Set(branchID uint, date time.Time, amount float6
 	if err := s.repo.Upsert(rec); err != nil {
 		return nil, err
 	}
+	rec.IsSet = true
 	return rec, nil
 }
 
 // Get returns the opening balance for a branch/date, or a zero-amount
-// record if none has been entered yet — the frontend always gets a number.
+// record with IsSet false if none has been entered yet — the frontend
+// always gets a number, plus a way to tell an entered 0 from no entry.
 func (s *OpeningBalanceService) Get(branchID uint, date time.Time) (*OpeningCashBalance, error) {
 	if date.IsZero() {
 		date = time.Now()
@@ -548,16 +550,21 @@ func (s *OpeningBalanceService) Get(branchID uint, date time.Time) (*OpeningCash
 	if err != nil {
 		return &OpeningCashBalance{BranchID: branchID, BalanceDate: date, Amount: 0}, nil
 	}
+	rec.IsSet = true
 	return rec, nil
 }
 
 // Summary is the computed Expected Cash in Hand breakdown:
 // Opening + Collections − Disbursements − Cash Expenses = Expected.
 type Summary struct {
-	OpeningCash   float64 `json:"openingCash"`
-	Collections   float64 `json:"collections"`
-	Disbursements float64 `json:"disbursements"`
-	CashExpenses  float64 `json:"cashExpenses"`
+	OpeningCash float64 `json:"openingCash"`
+	// OpeningCashSet mirrors OpeningCashBalance.IsSet for the requested
+	// branch/day — false when no opening balance has been entered yet (or
+	// when no branch was requested, since the figure is per-branch).
+	OpeningCashSet bool    `json:"openingCashSet"`
+	Collections    float64 `json:"collections"`
+	Disbursements  float64 `json:"disbursements"`
+	CashExpenses   float64 `json:"cashExpenses"`
 	// ExpensesToday is every non-rejected expense for the day (any Mode —
 	// Cash, UPI, Bank), unlike CashExpenses which only counts Mode "Cash"
 	// and is the one that actually offsets ExpectedCash below. Exists so
@@ -593,12 +600,14 @@ func (s *SummaryService) GetExpectedCash(branchID *uint, date time.Time) (Summar
 		date = time.Now()
 	}
 	var opening float64
+	var openingSet bool
 	if branchID != nil {
 		ob, err := s.openingSvc.Get(*branchID, date)
 		if err != nil {
 			return Summary{}, err
 		}
 		opening = ob.Amount
+		openingSet = ob.IsSet
 	}
 	in, out, err := s.movementRepo.SumByTypeAndDate(branchID, date)
 	if err != nil {
@@ -618,6 +627,7 @@ func (s *SummaryService) GetExpectedCash(branchID *uint, date time.Time) (Summar
 	}
 	return Summary{
 		OpeningCash:            opening,
+		OpeningCashSet:         openingSet,
 		Collections:            in,
 		Disbursements:          out,
 		CashExpenses:           cashExpenses,

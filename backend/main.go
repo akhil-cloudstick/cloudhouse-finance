@@ -189,6 +189,7 @@ func main() {
 
 	setuClient := platform.NewSetuClient(cfg)
 	digilockerClient := platform.NewDigilockerClient(cfg)
+	esignClient := platform.NewEsignClient(cfg)
 
 	customerRepo := customer.NewRepository(db)
 	customerSvc := customer.NewService(customerRepo, branchRepo, aadhaarCipher, setuClient, digilockerClient)
@@ -223,7 +224,7 @@ func main() {
 	// loan.CashRecorder, reflecting bank-pledge amounts into Cash-in-Hand.
 	commlogRepo := commlog.NewRepository(db)
 
-	loanSvc := loan.NewService(db, loanRepo, loanOrnamentRepo, loanApprovalRepo, loanPaymentRepo, loanPledgeRepo, loanRequestRepo, requestApprovalRepo, loanAuctionRepo, loanApprovalLimitRepo, branchRepo, customerRepo, schemeRepo, goldRateRepo, packetSvc, packetSvc, movementSvc, whatsappSender, commlogRepo)
+	loanSvc := loan.NewService(db, loanRepo, loanOrnamentRepo, loanApprovalRepo, loanPaymentRepo, loanPledgeRepo, loanRequestRepo, requestApprovalRepo, loanAuctionRepo, loanApprovalLimitRepo, branchRepo, customerRepo, schemeRepo, goldRateRepo, packetSvc, packetSvc, movementSvc, whatsappSender, commlogRepo, esignClient, cfg.UploadsDir)
 	loanHandler := loan.NewHandler(loanSvc)
 
 	reminderRepo := reminder.NewRepository(db)

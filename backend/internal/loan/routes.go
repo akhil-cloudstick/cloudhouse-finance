@@ -14,6 +14,20 @@ import (
 func RegisterRoutes(rg *gin.RouterGroup, h *Handler, perms platform.CRUDMiddlewares) {
 	rg.POST("", perms.Create, h.Create)
 	rg.GET("", perms.Read, h.List)
+
+	// Drafts — unsubmitted New Gold Loan forms (see LoanDraft). Mounted
+	// before "/:id" for readability only; gin matches the static "drafts"
+	// segment ahead of the parameter either way, exactly as it already does
+	// for "/by-number/:loanNumber" and "/requests". Gated by the same "loans"
+	// resource permissions: whoever may create a loan may draft one, and
+	// DELETE is the only route on this group needing perms.Delete. Ownership
+	// (a draft belongs to the employee who saved it) is enforced in the
+	// service, not here.
+	rg.POST("/drafts", perms.Create, h.SaveDraft)
+	rg.GET("/drafts", perms.Read, h.ListDrafts)
+	rg.GET("/drafts/:draftId", perms.Read, h.GetDraft)
+	rg.PUT("/drafts/:draftId", perms.Update, h.UpdateDraft)
+	rg.DELETE("/drafts/:draftId", perms.Delete, h.DeleteDraft)
 	rg.GET("/by-number/:loanNumber", perms.Read, h.GetByLoanNumber)
 	rg.GET("/interest-collected", perms.Read, h.GetInterestCollected)
 	rg.GET("/:id", perms.Read, h.Get)
@@ -25,6 +39,9 @@ func RegisterRoutes(rg *gin.RouterGroup, h *Handler, perms platform.CRUDMiddlewa
 
 	rg.POST("/:id/approve", perms.Update, h.Approve)
 	rg.GET("/:id/approvals", perms.Read, h.ListApprovals)
+
+	rg.POST("/:id/indemnity-bond/esign/start", perms.Update, h.StartIndemnityBondEsign)
+	rg.GET("/:id/indemnity-bond/esign/status", perms.Read, h.CheckIndemnityBondEsign)
 
 	rg.GET("/approval-limits/loan-operator", perms.Read, h.GetLoanOperatorApprovalLimit)
 	rg.PUT("/approval-limits/loan-operator", perms.Update, h.SetLoanOperatorApprovalLimit)

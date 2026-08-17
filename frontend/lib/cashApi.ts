@@ -174,6 +174,10 @@ export type OpeningBalanceView = {
   branchId: number;
   balanceDate: string;
   amount: number;
+  // False when nothing has been entered for that branch/day yet — `amount`
+  // alone can't say, since an entered ₹0 and a missing entry both read as 0
+  // (see cash.OpeningCashBalance.IsSet).
+  isSet: boolean;
 };
 
 export async function getOpeningBalance(branchId: number, date?: string): Promise<OpeningBalanceView> {
@@ -190,20 +194,26 @@ export async function setOpeningBalance(branchId: number, amount: number, date?:
 }
 
 /* Expected Cash in Hand summary — Opening + Collections - Disbursements - Cash Expenses. */
+/* Mirrors cash.CashInBreakdown / cash.CashOutBreakdown — the per-source split
+ * of the day's `collections` / `disbursements` totals (see
+ * cash.MovementRepository.SumBreakdownByDate). */
 export type CashInBreakdown = {
   repayments: number;
   pledges: number;
+  auctions: number;
   topUps: number;
 };
 
 export type CashOutBreakdown = {
   loanDisbursements: number;
   bankReleases: number;
+  auctionRefunds: number;
   withdrawals: number;
 };
 
 export type CashSummary = {
   openingCash: number;
+  openingCashSet: boolean;
   collections: number;
   disbursements: number;
   cashExpenses: number;

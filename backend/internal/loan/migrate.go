@@ -20,6 +20,27 @@ var moneyColumns = []string{
 	"eligible_loan_amount",
 }
 
+// MigrateRetiredSanctionStage moves loans still parked on the retired
+// AuthorizedManagement sanction stage onto FinalSanction (see
+// SanctionStageAuthorizedManagement). One-time and idempotent — once no row
+// holds the old value the UPDATE matches nothing. Without it those loans
+// would sit at a stage the 3-step chain no longer contains, so nothing in
+// the UI could clear them.
+func MigrateRetiredSanctionStage(db *gorm.DB) error {
+	if !db.Migrator().HasTable(&Loan{}) {
+		return nil // fresh install — no legacy rows to move
+	}
+	res := db.Exec(`UPDATE loans SET approval_stage = ? WHERE approval_stage = ?`,
+		SanctionStageFinalSanction, SanctionStageAuthorizedManagement)
+	if res.Error != nil {
+		return res.Error
+	}
+	if res.RowsAffected > 0 {
+		log.Printf("moved %d loan(s) from the retired AuthorizedManagement stage to FinalSanction", res.RowsAffected)
+	}
+	return nil
+}
+
 // BackfillNullMoney is a one-time, idempotent step that replaces NULLs in the
 // loans table's rupee columns with 0. Safe to re-run: once every row is
 // populated the UPDATE matches nothing.

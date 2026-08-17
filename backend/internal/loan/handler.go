@@ -40,7 +40,7 @@ func statusForErr(err error) int {
 	switch {
 	case errors.Is(err, ErrNotFound), errors.Is(err, ErrOrnamentNotFound), errors.Is(err, ErrRequestNotFound),
 		errors.Is(err, ErrAuctionNotFound), errors.Is(err, ErrPledgeNotFound),
-		errors.Is(err, ErrAuctionDecisionNotFound):
+		errors.Is(err, ErrAuctionDecisionNotFound), errors.Is(err, ErrDraftNotFound):
 		return http.StatusNotFound
 	// A role that reached the route but may not perform this specific action —
 	// notably an Auction Administrator attempting a shortfall write-off, which
@@ -68,15 +68,20 @@ func statusForErr(err error) int {
 		errors.Is(err, ErrLoanTerminalState), errors.Is(err, ErrChecklistIncomplete),
 		errors.Is(err, ErrOutstandingBalanceRemains), errors.Is(err, ErrBankPledgeStillActive),
 		errors.Is(err, ErrLoanNotDefaulted), errors.Is(err, ErrAuctionAlreadyStarted),
-		errors.Is(err, ErrAuctionWrongStage), errors.Is(err, ErrExceedsApprovalLimit),
-		errors.Is(err, ErrAwaitingOperatorVerification),
+		errors.Is(err, ErrAuctionWrongStage),
 		errors.Is(err, ErrInvalidCashTreatment), errors.Is(err, ErrVoidReasonRequired),
 		errors.Is(err, ErrInvalidAuctionDecision), errors.Is(err, ErrAuctionBalanceDueCannotSettle),
 		errors.Is(err, ErrNoSurplusToDispose), errors.Is(err, ErrInvalidSurplusDisposition),
-		errors.Is(err, ErrSettlementRemarksRequired), errors.Is(err, ErrDecisionRemarksRequired):
+		errors.Is(err, ErrSettlementRemarksRequired), errors.Is(err, ErrDecisionRemarksRequired),
+		errors.Is(err, ErrUnsupportedIndemnityBondLang), errors.Is(err, ErrNoIndemnityBondSignRequest),
+		errors.Is(err, ErrDraftBranchRequired):
 		return http.StatusBadRequest
 	case errors.Is(err, ErrReleaseNotApproved):
 		return http.StatusNotFound
+	case errors.Is(err, ErrIndemnityBondAlreadySigned):
+		return http.StatusConflict
+	case errors.Is(err, ErrEsignNotConfigured):
+		return http.StatusServiceUnavailable
 	default:
 		return http.StatusInternalServerError
 	}
@@ -117,6 +122,13 @@ type loanRequest struct {
 	PrincipalAmount float64           `json:"principalAmount" binding:"required"`
 	Ornaments       []ornamentRequest `json:"ornaments" binding:"required,min=1"`
 	LockerID        *uint             `json:"lockerId"`
+
+	// DraftID, when the loan was submitted from a saved draft, is that
+	// draft's id — discarded once the real loan exists so the staff member's
+	// draft list doesn't keep offering a form they've already turned into a
+	// loan. Optional, and never load-bearing: the loan is created either way
+	// (see Service.DeleteDraftQuietly).
+	DraftID *uint `json:"draftId"`
 }
 
 func (req loanRequest) toInput() (CreateInput, error) {
@@ -161,11 +173,25 @@ func (h *Handler) Create(c *gin.Context) {
 		fail(c, statusForErr(err), err)
 		return
 	}
+	// The loan is already created, so a draft that refuses to delete must not
+	// turn this into an error response — it's logged and ignored.
+	if req.DraftID != nil {
+		actorEmployeeID, _ := platform.ActorFromContext(c)
+		h.svc.DeleteDraftQuietly(*req.DraftID, actorEmployeeID)
+	}
 	c.JSON(http.StatusCreated, rec)
 }
 
+// List returns a bare array of every matching loan when no `limit` query
+// param is given (the Loans page's behaviour, unchanged). When `limit` is
+// given — the paginated SearchableSelect loan pickers — it fetches one extra
+// row beyond the page to determine `hasMore` without a second COUNT query,
+// and responds with the {items, hasMore} envelope instead. Mirrors
+// internal/customer's List. `excludeBankPledged=true` additionally drops
+// loans already sitting with a bank (see LoanFilter.ExcludeBankPledged).
 func (h *Handler) List(c *gin.Context) {
 	f := LoanFilter{Query: c.Query("q"), Status: c.Query("status")}
+	f.ExcludeBankPledged = c.Query("excludeBankPledged") == "true"
 	if v := c.Query("branchId"); v != "" {
 		if id, err := strconv.ParseUint(v, 10, 64); err == nil {
 			f.BranchID = uint(id)
@@ -177,6 +203,27 @@ func (h *Handler) List(c *gin.Context) {
 		}
 	}
 	f.BranchScope = platform.GetBranchScope(c)
+
+	limit, _ := strconv.Atoi(c.Query("limit"))
+	if limit > 0 {
+		offset, _ := strconv.Atoi(c.Query("offset"))
+		if offset < 0 {
+			offset = 0
+		}
+		f.Limit, f.Offset = limit+1, offset
+		rec, err := h.svc.List(f)
+		if err != nil {
+			fail(c, http.StatusInternalServerError, err)
+			return
+		}
+		hasMore := len(rec) > limit
+		if hasMore {
+			rec = rec[:limit]
+		}
+		c.JSON(http.StatusOK, gin.H{"items": rec, "hasMore": hasMore})
+		return
+	}
+
 	rec, err := h.svc.List(f)
 	if err != nil {
 		fail(c, http.StatusInternalServerError, err)
@@ -1088,4 +1135,196 @@ func (h *Handler) SetLoanOperatorApprovalLimit(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"role": "Loan Operator", "maxAmount": amount})
+}
+
+// --- Indemnity bond Aadhaar eSign (Setu) --------------------------------
+
+// startIndemnityBondEsignRequest carries the frontend's own callback page
+// URL — Setu redirects the customer's browser there once they finish
+// Aadhaar+OTP signing — same shape as customer.Handler's
+// startAadhaarVerifyRequest.
+type startIndemnityBondEsignRequest struct {
+	Lang        string `json:"lang" binding:"required"`
+	RedirectURL string `json:"redirectUrl" binding:"required"`
+}
+
+// StartIndemnityBondEsign renders the loan's indemnity bond (in the
+// requested language), uploads it to Setu, and returns the Aadhaar eSign
+// signing URL the CUSTOMER must open themselves to complete OTP signing.
+func (h *Handler) StartIndemnityBondEsign(c *gin.Context) {
+	loanID, err := idParam(c, "id")
+	if err != nil {
+		fail(c, http.StatusBadRequest, err)
+		return
+	}
+	var req startIndemnityBondEsignRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		fail(c, http.StatusBadRequest, err)
+		return
+	}
+	signReq, err := h.svc.StartIndemnityBondSign(loanID, platform.GetBranchScope(c), req.Lang, req.RedirectURL)
+	if err != nil {
+		fail(c, statusForErr(err), err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{
+		"id":         signReq.ID,
+		"documentId": signReq.DocumentID,
+		"status":     signReq.Status,
+		"url":        signReq.URL,
+	})
+}
+
+// CheckIndemnityBondEsign polls the outstanding Setu signature request
+// (started by StartIndemnityBondEsign) for this loan. Returns the current
+// status while the customer hasn't finished signing yet (poll again
+// later), or the updated loan (carrying the stored signed-document URL)
+// once "sign_complete".
+func (h *Handler) CheckIndemnityBondEsign(c *gin.Context) {
+	loanID, err := idParam(c, "id")
+	if err != nil {
+		fail(c, http.StatusBadRequest, err)
+		return
+	}
+	rec, status, err := h.svc.CheckIndemnityBondSign(loanID, platform.GetBranchScope(c))
+	if err != nil {
+		fail(c, statusForErr(err), err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{
+		"loan":   rec,
+		"status": status.Status,
+	})
+}
+
+// --- Loan drafts ------------------------------------------------------------
+
+type draftOrnamentRequest struct {
+	Name        string  `json:"name"`
+	Purity      string  `json:"purity"`
+	GrossWeight float64 `json:"grossWeight"`
+	Quantity    int     `json:"quantity"`
+	ImageURL    string  `json:"imageUrl"`
+	ImageName   string  `json:"imageName"`
+}
+
+// draftRequest is the New Gold Loan form as sent by "Save Draft". Note the
+// absence of `binding:"required"` on everything except branchId, and the
+// pointer types: unlike loanRequest, a draft is explicitly allowed to be
+// incomplete, and "not chosen yet" (null) must be distinguishable from
+// "chosen as zero".
+type draftRequest struct {
+	BranchID          uint                   `json:"branchId" binding:"required"`
+	CustomerID        *uint                  `json:"customerId"`
+	SchemeID          *uint                  `json:"schemeId"`
+	LockerID          *uint                  `json:"lockerId"`
+	PrincipalOverride *float64               `json:"principalOverride"`
+	Ornaments         []draftOrnamentRequest `json:"ornaments"`
+}
+
+func (req draftRequest) toInput() DraftInput {
+	ornaments := make([]DraftOrnamentInput, len(req.Ornaments))
+	for i, o := range req.Ornaments {
+		ornaments[i] = DraftOrnamentInput{
+			Name:        o.Name,
+			Purity:      o.Purity,
+			GrossWeight: o.GrossWeight,
+			Quantity:    o.Quantity,
+			ImageURL:    o.ImageURL,
+			ImageName:   o.ImageName,
+		}
+	}
+	return DraftInput{
+		BranchID:          req.BranchID,
+		CustomerID:        req.CustomerID,
+		SchemeID:          req.SchemeID,
+		LockerID:          req.LockerID,
+		PrincipalOverride: req.PrincipalOverride,
+		Ornaments:         ornaments,
+	}
+}
+
+// SaveDraft handles POST /loans/drafts — the first press of "Save Draft".
+func (h *Handler) SaveDraft(c *gin.Context) {
+	var req draftRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		fail(c, http.StatusBadRequest, err)
+		return
+	}
+	// Ownership comes from the JWT, never the body — otherwise a caller could
+	// write drafts into (or read them out of) someone else's queue.
+	actorEmployeeID, _ := platform.ActorFromContext(c)
+	rec, err := h.svc.SaveDraft(actorEmployeeID, req.toInput())
+	if err != nil {
+		fail(c, statusForErr(err), err)
+		return
+	}
+	c.JSON(http.StatusCreated, rec)
+}
+
+// UpdateDraft handles PUT /loans/drafts/:draftId — subsequent presses of
+// "Save Draft" on a form already saved once, overwriting rather than piling
+// up near-duplicate drafts.
+func (h *Handler) UpdateDraft(c *gin.Context) {
+	draftID, err := idParam(c, "draftId")
+	if err != nil {
+		fail(c, http.StatusBadRequest, err)
+		return
+	}
+	var req draftRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		fail(c, http.StatusBadRequest, err)
+		return
+	}
+	actorEmployeeID, _ := platform.ActorFromContext(c)
+	rec, err := h.svc.UpdateDraft(draftID, actorEmployeeID, req.toInput())
+	if err != nil {
+		fail(c, statusForErr(err), err)
+		return
+	}
+	c.JSON(http.StatusOK, rec)
+}
+
+// ListDrafts handles GET /loans/drafts — the caller's own saved drafts only.
+func (h *Handler) ListDrafts(c *gin.Context) {
+	actorEmployeeID, _ := platform.ActorFromContext(c)
+	rec, err := h.svc.ListDrafts(actorEmployeeID, platform.GetBranchScope(c))
+	if err != nil {
+		fail(c, http.StatusInternalServerError, err)
+		return
+	}
+	c.JSON(http.StatusOK, rec)
+}
+
+// GetDraft handles GET /loans/drafts/:draftId, used to reopen a draft in the
+// New Gold Loan form.
+func (h *Handler) GetDraft(c *gin.Context) {
+	draftID, err := idParam(c, "draftId")
+	if err != nil {
+		fail(c, http.StatusBadRequest, err)
+		return
+	}
+	actorEmployeeID, _ := platform.ActorFromContext(c)
+	rec, err := h.svc.GetDraft(draftID, actorEmployeeID)
+	if err != nil {
+		fail(c, statusForErr(err), err)
+		return
+	}
+	c.JSON(http.StatusOK, rec)
+}
+
+// DeleteDraft handles DELETE /loans/drafts/:draftId — discarding a draft the
+// staff member no longer needs.
+func (h *Handler) DeleteDraft(c *gin.Context) {
+	draftID, err := idParam(c, "draftId")
+	if err != nil {
+		fail(c, http.StatusBadRequest, err)
+		return
+	}
+	actorEmployeeID, _ := platform.ActorFromContext(c)
+	if err := h.svc.DeleteDraft(draftID, actorEmployeeID); err != nil {
+		fail(c, statusForErr(err), err)
+		return
+	}
+	c.Status(http.StatusNoContent)
 }

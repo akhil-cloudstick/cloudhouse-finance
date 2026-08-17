@@ -254,7 +254,7 @@ export function Dashboard() {
             <div className="hd"><h3>Gold Loan Calculator</h3></div>
             <div className="bd">
               <div className="frow c2">
-                <div><label className="f">Weight (grams)</label><input className="inp" type="number" min={0} value={calcW} onChange={(e) => setCalcW(e.target.value)} /></div>
+                <div><label className="f">Weight (grams)</label><input className="inp" style={{ padding: "6px 8px", height: 31 }} type="number" min={0} value={calcW} onChange={(e) => setCalcW(e.target.value)} /></div>
                 <div><label className="f">Purity</label>
                   <PurityPicker value={calcP} onChange={setCalcP} />
                 </div>

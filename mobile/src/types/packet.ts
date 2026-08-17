@@ -12,11 +12,27 @@ export type PacketMovement = {
   createdAt: string;
 };
 
+// A packet's "contents" are the ornaments of the loan it belongs to — the
+// backend preloads them (packet/repository.go's Preload("Loan.Ornaments")),
+// so they arrive nested under `loan`, not on the packet itself. Mirrors
+// backend/internal/loan/model.go's Ornament.
+export type PacketOrnament = {
+  id: number;
+  name: string;
+  purity: string;
+  grossWeight: number;
+  deductionWeight?: number;
+  netWeight: number;
+  quantity: number;
+  goldValue: number;
+  remarks?: string;
+};
+
 export type Packet = {
   id: number;
   code: string;
   loanId: number;
-  loan?: { id: number; loanNumber: string };
+  loan?: { id: number; loanNumber: string; ornaments?: PacketOrnament[] };
   status: string;
   currentLockerId?: number;
   movements?: PacketMovement[];

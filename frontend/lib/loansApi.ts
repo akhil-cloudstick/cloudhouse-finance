@@ -23,6 +23,9 @@ export type CreateLoanInput = {
   // locker at creation instead of leaving it ungrouped for a later manual
   // check-in (see backend/internal/packet/service.go's Create).
   lockerId?: number;
+  // Optional — the saved draft this loan was submitted from, discarded
+  // server-side once the loan exists (see the backend's loanRequest.DraftID).
+  draftId?: number;
 };
 
 /* Shape returned by the Go backend (backend/internal/loan/model.go's Loan —
@@ -158,6 +161,11 @@ export type BackendLoan = {
   daysOverdue: number;
   auctionDate?: string | null;
   auctionAmount?: number | null;
+  indemnityBondDocumentId?: string;
+  indemnityBondSignRequestId?: string;
+  indemnityBondSignStatus?: string;
+  indemnityBondSignedUrl?: string;
+  indemnityBondSignedAt?: string | null;
   ornaments?: BackendOrnament[];
   approvals?: BackendLoanApproval[];
   payments?: BackendLoanPayment[];
@@ -263,6 +271,14 @@ export type LoanView = {
   approvalWarning: string;
   auctionDate: string | null;
   auctionAmount: number | null;
+  // Indemnity bond Aadhaar eSign (Setu) — indemnityBondSignStatus mirrors
+  // Setu's own SignatureStatus.Status verbatim: "" (never started),
+  // "sign_initiated", "sign_complete", or "failed". See
+  // loansApi.ts's startIndemnityBondEsign/checkIndemnityBondEsign and
+  // LoanDetail.tsx's "Send for Aadhaar eSign" action.
+  indemnityBondSignStatus: string;
+  indemnityBondSignedUrl: string;
+  indemnityBondSignedAt: string | null;
   ornaments: OrnamentView[];
   payments: PaymentView[];
   bankPledges: BankPledgeView[];
@@ -367,6 +383,9 @@ export function toView(l: BackendLoan): LoanView {
     approvalWarning: l.approvalWarning || "",
     auctionDate: l.auctionDate ? l.auctionDate.slice(0, 10) : null,
     auctionAmount: l.auctionAmount ?? null,
+    indemnityBondSignStatus: l.indemnityBondSignStatus || "",
+    indemnityBondSignedUrl: l.indemnityBondSignedUrl || "",
+    indemnityBondSignedAt: l.indemnityBondSignedAt ? l.indemnityBondSignedAt.slice(0, 10) : null,
     ornaments: (l.ornaments || []).map(toOrnamentView),
     payments: (l.payments || []).map(toPaymentView),
     bankPledges: (l.bankPledges || []).map(toBankPledgeView),
@@ -385,12 +404,125 @@ export async function createLoan(input: CreateLoanInput): Promise<BackendLoan> {
   });
 }
 
+/* --- Loan drafts ---------------------------------------------------------
+ *
+ * The "Save Draft" button on the New Gold Loan page (NewLoan.tsx), backed by
+ * /loans/drafts (backend/internal/loan — see the LoanDraft model). A draft is
+ * the form exactly as far as staff got: every field is optional, nothing is
+ * validated, and no loan number/packet/gold rate is involved until it's
+ * submitted through createLoan() in the normal way. Drafts are private to
+ * the employee who saved them, enforced server-side from the JWT. */
+export type DraftOrnamentInput = {
+  name: string;
+  purity: string;
+  grossWeight: number;
+  quantity: number;
+  imageUrl?: string;
+  imageName?: string;
+};
+
+export type SaveDraftInput = {
+  branchId: number;
+  customerId?: number;
+  schemeId?: number;
+  lockerId?: number;
+  principalOverride?: number;
+  ornaments: DraftOrnamentInput[];
+};
+
+export type BackendLoanDraft = {
+  id: number;
+  createdByEmployeeId: number;
+  branchId: number;
+  branch?: { id: number; name: string };
+  customerId?: number;
+  customer?: { id: number; name: string; code: string };
+  schemeId?: number;
+  scheme?: { id: number; name: string };
+  lockerId?: number;
+  principalOverride?: number;
+  ornaments: {
+    id: number;
+    name: string;
+    purity: string;
+    grossWeight: number;
+    quantity: number;
+    imageUrl: string;
+    imageName: string;
+    position: number;
+  }[];
+  createdAt: string;
+  updatedAt: string;
+};
+
+export async function saveDraft(input: SaveDraftInput): Promise<BackendLoanDraft> {
+  return apiFetch<BackendLoanDraft>("/loans/drafts", {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+}
+
+/* Overwrites an existing draft — pressing "Save Draft" again in the same
+ * sitting updates it in place rather than piling up near-duplicates. */
+export async function updateDraft(draftId: number, input: SaveDraftInput): Promise<BackendLoanDraft> {
+  return apiFetch<BackendLoanDraft>(`/loans/drafts/${draftId}`, {
+    method: "PUT",
+    body: JSON.stringify(input),
+  });
+}
+
+/* The caller's own drafts, most recently saved first. */
+export async function listDrafts(): Promise<BackendLoanDraft[]> {
+  const rec = await apiFetch<BackendLoanDraft[]>("/loans/drafts");
+  return rec || [];
+}
+
+export async function getDraft(draftId: number): Promise<BackendLoanDraft> {
+  return apiFetch<BackendLoanDraft>(`/loans/drafts/${draftId}`);
+}
+
+export async function deleteDraft(draftId: number): Promise<void> {
+  await apiFetch<void>(`/loans/drafts/${draftId}`, { method: "DELETE" });
+}
+
 /* Attaches one photo to an already-created ornament. */
 export async function addOrnamentImage(ornamentId: number, imageUrl: string): Promise<unknown> {
   return apiFetch(`/loans/ornaments/${ornamentId}/images`, {
     method: "POST",
     body: JSON.stringify({ imageUrl }),
   });
+}
+
+export type IndemnityBondEsignStart = {
+  id: string;
+  documentId: string;
+  status: string;
+  url: string;
+};
+
+/* Renders the loan's indemnity bond (in `lang`) server-side, uploads it to
+ * Setu, and starts an Aadhaar eSign request — returns the signing URL the
+ * CUSTOMER must open themselves (their own device/browser) to complete
+ * Aadhaar+OTP signing. Mirrors customersApi.ts's startAadhaarVerify shape —
+ * same "open URL, then poll" flow as DigiLocker Aadhaar verification. */
+export async function startIndemnityBondEsign(loanId: number, lang: "en" | "hi" | "gu", redirectUrl: string): Promise<IndemnityBondEsignStart> {
+  return apiFetch<IndemnityBondEsignStart>(`/loans/${loanId}/indemnity-bond/esign/start`, {
+    method: "POST",
+    body: JSON.stringify({ lang, redirectUrl }),
+  });
+}
+
+export type IndemnityBondEsignCheck = {
+  loan: BackendLoan;
+  status: string;
+};
+
+/* Polls the outstanding Setu signature request started by
+ * startIndemnityBondEsign. Returns the current status while the customer
+ * hasn't finished signing yet (poll again later), or the updated loan
+ * (carrying indemnityBondSignedUrl) once "sign_complete". */
+export async function checkIndemnityBondEsign(loanId: number): Promise<IndemnityBondEsignCheck> {
+  return apiFetch<IndemnityBondEsignCheck>(`/loans/${loanId}/indemnity-bond/esign/status`);
 }
 
 export type LoanFilters = { q?: string; status?: string; branchId?: number; customerId?: number };
@@ -404,6 +536,35 @@ export async function listLoans(filters?: LoanFilters): Promise<LoanView[]> {
   const qs = params.toString();
   const rec = await apiFetch<BackendLoan[]>(`/loans${qs ? `?${qs}` : ""}`);
   return (rec || []).map(toView);
+}
+
+/* Page size for the paginated loan pickers. Ten rows per request — enough
+ * that the dropdown fills its visible area on the first fetch, small enough
+ * that scrolling keeps fetching rather than pulling the whole book. */
+const LOAN_PAGE_SIZE = 10;
+
+/* Paginated variant of listLoans — backs SearchableSelect's infinite scroll
+ * (see SearchableSelect.tsx). `page` is 0-based; the backend responds with an
+ * {items, hasMore} envelope whenever `limit` is passed (see
+ * backend/internal/loan/handler.go's List). `q` matches the loan number.
+ *
+ * `excludeBankPledged` asks the server for only loans whose gold isn't
+ * currently with a bank — the eligibility rule the bank re-pledge picker
+ * used to apply client-side over a full loan list, which no longer works
+ * once only one page is in the browser at a time. */
+export async function searchLoansPage(
+  q: string,
+  page: number,
+  opts?: { excludeBankPledged?: boolean }
+): Promise<{ items: LoanView[]; hasMore: boolean }> {
+  const params = new URLSearchParams({
+    q,
+    limit: String(LOAN_PAGE_SIZE),
+    offset: String(page * LOAN_PAGE_SIZE),
+  });
+  if (opts?.excludeBankPledged) params.set("excludeBankPledged", "true");
+  const rec = await apiFetch<{ items: BackendLoan[]; hasMore: boolean }>(`/loans?${params}`);
+  return { items: (rec?.items || []).map(toView), hasMore: !!rec?.hasMore };
 }
 
 export async function getLoan(id: number): Promise<LoanView> {
@@ -453,22 +614,27 @@ export async function recordPurityTest(ornamentId: number, input: PurityTestInpu
   });
 }
 
-/* The 4-stage loan sanction chain (Loan Operator → Branch Manager →
- * Authorized Management → Final Sanction). `role` must match the stage's
- * required role below — except "Administrator", which may act at
- * whichever stage is currently pending. */
-export const SANCTION_STAGES = ["LoanOperator", "BranchManager", "AuthorizedManagement", "FinalSanction"] as const;
+/* The 3-stage loan sanction chain: a loan is made by a Loan Operator,
+ * verified by the Loan Operator, approved by the Branch Manager, then
+ * finally sanctioned by Management. `role` must match the stage's required
+ * role below — except "Administrator", which may act at whichever stage is
+ * currently pending. Mirrors the backend's SanctionStage constants and
+ * sanctionChain.
+ *
+ * The old chain had a fourth "Authorized Management" checkpoint between
+ * Branch Manager and Final Sanction, which made Management sign off twice;
+ * the backend migrates any loan still on it to FinalSanction (see
+ * loan.MigrateRetiredSanctionStage). */
+export const SANCTION_STAGES = ["LoanOperator", "BranchManager", "FinalSanction"] as const;
 export type SanctionStage = (typeof SANCTION_STAGES)[number];
 export const SANCTION_STAGE_LABELS: Record<SanctionStage, string> = {
-  LoanOperator: "Loan Operator",
-  BranchManager: "Branch Manager",
-  AuthorizedManagement: "Authorized Management",
-  FinalSanction: "Final Sanction",
+  LoanOperator: "Verified by Loan Operator",
+  BranchManager: "Approved by Branch Manager",
+  FinalSanction: "Final Sanction (Management)",
 };
 export const SANCTION_STAGE_ROLES: Record<SanctionStage, string> = {
   LoanOperator: "Loan Operator",
   BranchManager: "Branch Manager",
-  AuthorizedManagement: "Management",
   FinalSanction: "Management",
 };
 
@@ -492,11 +658,10 @@ export async function listLoanApprovals(loanId: number): Promise<ApprovalStageRe
 // platform.ActorFromContext), never from the request body. Administrator's
 // "may act at any pending stage" bypass still works, keyed off their real
 // role.
-// "Verified" is only valid for the LoanOperator stage when the principal
-// exceeds the operator's approval limit (see getLoanOperatorApprovalLimit
-// below) — it records the operator's review without advancing the stage;
-// Branch Manager/Management must still clear it with a normal Approved/
-// Rejected action afterward (backend: Service.Approve/operatorVerified).
+// "Verified" is the LoanOperator stage's action — the operator verifies the
+// loan they made, which advances the chain to the Branch Manager exactly
+// like an "Approved" action does at the two stages above it. It is not
+// valid at any other stage (backend: Service.Approve).
 export type ApprovalInput = { stage: SanctionStage; action: "Approved" | "Rejected" | "Verified"; remarks?: string };
 
 export async function approveLoan(loanId: number, input: ApprovalInput): Promise<LoanView> {
@@ -507,12 +672,12 @@ export async function approveLoan(loanId: number, input: ApprovalInput): Promise
   return toView(rec);
 }
 
-/* The Loan Operator's hard-enforced approval limit (see
- * backend/internal/loan/approval_limit.go) — a Loan Operator's own
- * "Approved" action on a loan whose principal exceeds this fails with
- * ErrExceedsApprovalLimit; only Branch Manager/Management/Administrator
- * may clear that stage above the limit. Editable from the Employees
- * page's "Roles" panel. */
+/* The Loan Operator's approval limit (see
+ * backend/internal/loan/approval_limit.go). Now advisory only: the operator
+ * stage is a verification, and the Branch Manager/Management sanction every
+ * loan regardless of amount, so nothing is blocked by this figure — it
+ * feeds the reviewer-facing warning. Editable from the Employees page's
+ * "Roles" panel. */
 export type ApprovalLimitView = { role: string; maxAmount: number };
 
 export async function getLoanOperatorApprovalLimit(): Promise<ApprovalLimitView> {

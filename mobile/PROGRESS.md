@@ -6,10 +6,15 @@ as more screens get wired to the backend.
 
 ## Navigation
 
-Sidebar/drawer nav (`app/(drawer)/_layout.tsx`, `expo-router/drawer`) —
-replaced the earlier bottom-tabs + Dashboard "More grid". One row per module;
-Employees/Settings are hidden from non-Administrators via
-`drawerItemStyle: { display: "none" }`.
+Bottom-bar nav (`app/(tabs)/_layout.tsx`, `expo-router/js-tabs`) — replaced
+the side drawer. Four primary tabs (Dashboard, Loans, Customers, Packets) in
+`src/components/AppTabBar.tsx`; every other module lives in the 5th "More"
+slot, which raises `src/components/MoreSheet.tsx` (the drawer's section
+grouping, over the shared `BottomSheetModal`). The header's ☰ opens the same
+sheet, and becomes a back chevron on nested screens.
+Employees/Settings/Branches are hidden from non-Administrators in the sheet.
+Icons are the web admin UI's own glyphs, ported to `react-native-svg` in
+`src/components/Icon.tsx` from `frontend/lib/icons.tsx`.
 
 ## Done (real, backend-wired)
 

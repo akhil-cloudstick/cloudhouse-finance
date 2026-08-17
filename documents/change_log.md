@@ -4,7 +4,97 @@ All notable changes to this project are documented here. This log reflects
 the actual git history at the time of writing; update it as new commits land.
 
 ## [Unreleased]
+### Added
+- **"Save Draft" on the New Gold Loan page is real.** It used to raise a
+  "Draft saved (demo)" toast and throw the form away. There is now a
+  `loan_drafts` / `loan_draft_ornaments` schema behind it and a
+  `/loans/drafts` CRUD API (`POST` save, `GET` list/get, `PUT` overwrite,
+  `DELETE` discard), plus a "Saved drafts" card on the page to reopen or
+  discard one. Drafts are private to the employee who saved them (owner taken
+  from the JWT, branch-scoped on listing) and deliberately unvalidated —
+  only `branchId` is required, so a part-filled form is storable exactly as
+  left, with the real rules still applied at "Submit for Approval".
+  Re-pressing the button updates the same draft rather than piling up
+  copies, and submitting a loan from a draft discards it server-side
+  (fail-soft: a draft that won't delete never fails the submission).
+  Run `go run ./cmd/migrate` for the two new tables.
+
+### Fixed
+- **Aadhaar eSign: the indemnity bond was uploaded to Setu under the wrong
+  multipart field name** (`files`, where Setu's integration guide specifies
+  `document`), and without an explicit `application/pdf` part content type.
+  Note this alone does **not** make the sandbox accept the call — every eSign
+  endpoint, including a plain signature-status `GET`, currently answers
+  `400 {"message": "Bad request."}` with credentials that work for PAN
+  verify — including calls with no request body to get wrong — which points at
+  the eSign product instance not being provisioned rather than at our
+  requests. Verify with `go run ./cmd/esigntest upload <file.pdf>`.
+- **An in-flight eSign request survives a page reload.** `LoanDetail.tsx`
+  tracked "sent for signing" only in component state, so reloading mid-flow
+  put the header back to "Send Indemnity Bond for eSign" — no way to poll the
+  outstanding request, and an invitation to start a second one against the
+  same bond. The flag is now seeded from the loan's persisted
+  `indemnityBondSignStatus === "sign_initiated"`.
+- **`/esign-callback` exists.** The signing request has always passed that
+  URL to Setu as its post-signing redirect, but no such route was ever
+  built, so a customer who completed Aadhaar eSign landed on a 404. It is now
+  a plain static page (deliberately unauthenticated and API-free — it opens
+  on the customer's own device). Signing outcome is still confirmed by staff
+  via "Check eSign Status", never inferred from the redirect.
+
 ### Changed
+- **The "New Bank Re-Pledge" loan picker is a paginated, searchable
+  dropdown instead of a native `<select>` over every loan.** It now uses the
+  same `SearchableSelect` component as the bank/customer pickers, backed by
+  real API calls: `GET /loans` accepts `limit`/`offset` (returning the
+  `{items, hasMore}` envelope, matching `GET /customers`) plus
+  `excludeBankPledged=true`, and the modal fetches 10 eligible loans per
+  request, appending the next page as the list is scrolled. The eligibility
+  rule ("gold isn't already with a bank") moved from a client-side
+  `.filter()` over the page's loan array to a server-side `WHERE`, so the
+  picker no longer depends on the whole loan book being in the browser.
+- **Loan sanction chain cut from 4 stages to 3, so nobody signs off
+  twice.** The flow is now: *made* by a Loan Operator → *verified* by the
+  Loan Operator (`LoanOperator`, action `"Verified"`) → *approved* by the
+  Branch Manager (`BranchManager`) → *final sanction* from Management
+  (`FinalSanction`) → `Approved` / `Active`. The old
+  `AuthorizedManagement` checkpoint between Branch Manager and Final
+  Sanction is retired: it made Management approve twice, and above the Loan
+  Operator's hard cap the Branch Manager had to act twice as well (once to
+  clear the operator's stage, once at their own).
+  `go run ./cmd/migrate` moves loans still parked on it to `FinalSanction`
+  (`loan.MigrateRetiredSanctionStage`); `Service.Approve` also normalizes
+  the old value, as do the web and mobile clients, so no loan is stranded
+  at a stage no role can clear.
+  Consequences: the Loan Operator stage is a *verification*, so the
+  operator's approval limit is **advisory only** now — `Rejected` aside, no
+  amount check blocks any stage, and `ErrExceedsApprovalLimit` /
+  `ErrAwaitingOperatorVerification` (with the two-step "Verify & Escalate"
+  hand-off they drove) are gone. `"Verified"` now *advances* the chain
+  instead of only annotating it, is valid at the `LoanOperator` stage only,
+  and `"Approved"` stays accepted there for older clients.
+- **Approve/Reject on the loan detail page are `btn sm`,** matching Print
+  Label / Print Slip / Record Payment beside them instead of rendering a
+  size larger than every other button in that header.
+- **A recorded opening cash balance is no longer asked for again that
+  day.** Cash-in-Hand's "Opening Cash Balance — Today" card now shows the
+  figure read-only with a "Change" button once it exists for the selected
+  branch. It also stops reporting a set balance as ₹0 after a refresh: the
+  first summary request fires before the branch list loads (so it's
+  unscoped, and opening cash is per-branch), and if that one resolved last
+  it overwrote the real figure — the card now ignores stale responses. New
+  `isSet` on `GET /cash/opening-balance` and `openingCashSet` on
+  `GET /cash/summary` distinguish an entered ₹0 from no entry, which
+  `amount` alone could not.
+- **Packet detail lists the packet's contents.** `PacketDetail.tsx` gained
+  a "Contents of the Packet" table (ornament, purity, gross/net weight,
+  qty, gold value, remarks) from the joined loan's already-preloaded
+  ornaments — no extra round-trip. Staff opening a locker can now check the
+  packet against its manifest without opening the loan. Ornament photos
+  aren't in that preload and stay on the loan page.
+- **The purity Karat/Fineness toggle is wider** (fixed 148px, 12px labels
+  instead of shrink-to-fit 9.5px), with the ornament row's purity cell
+  widened to match.
 - **Record Payment simplified to a single Amount field, plus an optional
   processing fee that's added to the loan's total owed and deducted first.**
   `PaymentModal.tsx`'s Payment Type dropdown (Interest/Principal/Partial/

@@ -33,7 +33,7 @@ const COMPUTED_CATS: Partial<Record<string, (l: LoanView) => boolean>> = {
  * computed-flag categories above, which filter client-side (see
  * COMPUTED_CATS). */
 export function Loans() {
-  const { loans: allLoans, loading: providerLoading, error: providerError } = useLoans();
+  const { loans: allLoans, loading: providerLoading, error: providerError, refresh: refreshLoans } = useLoans();
   const { role } = useAuth();
   // Cashier is outside the loan creation/approval flow — the backend
   // already 403s a Cashier's POST /loans, so hide the button rather than
@@ -46,6 +46,27 @@ export function Loans() {
   const [searchError, setSearchError] = useState("");
 
   const computedPredicate = COMPUTED_CATS[cat];
+
+  // LoansProvider fetches once when the app shell mounts and is only
+  // re-fetched by pages that explicitly call refresh() (LoanDetail, Requests,
+  // NewLoan). Anything else that moves a loan — an auction sale, a bank
+  // re-pledge, or plain server-side interest accrual — left this page
+  // rendering the app-mount snapshot until a full browser reload. <Loans/> is
+  // remounted on every hash route change (see app/app/page.tsx's View), so
+  // refreshing here gives the list the same on-demand round trip opening a
+  // loan already gets.
+  useEffect(() => { refreshLoans(); }, [refreshLoans]);
+
+  useEffect(() => {
+    // Due Soon/Overdue/Defaulted filter LoansProvider's already-loaded list
+    // client-side (see COMPUTED_CATS above) rather than sending `cat` to the
+    // server — but that meant switching to one of these tabs did nothing
+    // but re-render whatever was fetched on mount, going stale the moment a
+    // loan crosses its due date or clears its arrears while the page sits
+    // open. Re-fetch on tab switch so these tabs get the same on-demand
+    // round trip every other tab does.
+    if (computedPredicate) refreshLoans();
+  }, [cat, computedPredicate, refreshLoans]);
 
   useEffect(() => {
     if (computedPredicate || (cat === "All" && !q.trim())) {
@@ -61,7 +82,16 @@ export function Loans() {
         .finally(() => { if (!cancelled) setSearching(false); });
     }, 300);
     return () => { cancelled = true; clearTimeout(handle); };
-  }, [cat, q, computedPredicate]);
+    // `allLoans` is a dependency for its identity, not its value: this branch
+    // renders `filtered` (a server-side listLoans snapshot) rather than the
+    // provider list, and nothing was re-running this query when a loan
+    // changed. Recording a payment or clearing an approval called
+    // refreshLoans(), which swapped in a fresh provider array but left
+    // `filtered` pinned to the pre-change rows — so with any tab but "All" or
+    // a search term present, the table only caught up on a browser reload.
+    // Keying off the new array identity re-issues the filtered query in step
+    // with every provider refresh.
+  }, [cat, q, computedPredicate, allLoans]);
 
   const loading = filtered === null ? providerLoading : searching;
   const error = searchError || providerError;
@@ -77,7 +107,7 @@ export function Loans() {
   return (
     <>
       <div className="page-h">
-        <div><h1>Loans</h1><p>All customer loans with search and status filters</p></div>
+        {/* <div><h1>Loans</h1><p>All customer loans with search and status filters</p></div> */}
         <div className="sp" />
         <div className="search"><Icon name="search" /><input className="inp" placeholder="Search loan ID or customer…" value={q} onChange={(e) => setQ(e.target.value)} /></div>
         {canCreateLoans && <a className="btn" href="#newloan"><Icon name="plus" /> New Gold Loan</a>}

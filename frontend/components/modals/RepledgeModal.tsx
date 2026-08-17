@@ -5,7 +5,7 @@ import { useModal } from "@/components/Modal";
 import { useToast } from "@/components/Toast";
 import { Icon } from "@/lib/icons";
 import { fmt, fmtW } from "@/lib/format";
-import { recordBankPledge, type BankPledgeCashTreatment, type LoanView } from "@/lib/loansApi";
+import { recordBankPledge, searchLoansPage, type BankPledgeCashTreatment, type LoanView } from "@/lib/loansApi";
 import { searchBanksPage, type BackendBank } from "@/lib/bankApi";
 import { SearchableSelect } from "@/components/SearchableSelect";
 import { ApiError } from "@/lib/api";
@@ -169,26 +169,37 @@ export function RepledgeModalContent({ loan, onSaved }: { loan: LoanView; onSave
  * previously only allowed starting a repledge from a loan's own detail page
  * (LoanDetail.tsx's "Repledge to Bank" button). This lets staff kick off a
  * repledge for any not-yet-bank-pledged loan directly from the Bank
- * Re-Pledge page, then hands off to RepledgeModalContent above. */
-export function SelectLoanForRepledgeModalContent({ loans, onPicked }: { loans: LoanView[]; onPicked: (loan: LoanView) => void }) {
-  const { closeModal } = useModal();
-  const [loanId, setLoanId] = useState("");
+ * Re-Pledge page, then hands off to RepledgeModalContent above.
+ *
+ * The picker is a SearchableSelect (server-side search, 10 rows per request,
+ * next page appended on scroll) rather than a native <select> over the
+ * caller's already-loaded loan array — that array is the Bank Re-Pledge
+ * page's own list, which won't stay complete as loan volume grows. */
+const loanLabel = (l: LoanView) =>
+  `${l.id} — ${l.customerName} (${fmtW(l.totalNetWeight)}, outstanding ${fmt(l.outstanding)})`;
 
-  const eligible = loans.filter((l) => l.bankPledgeStatus !== "Bank Pledged");
-  const selected = eligible.find((l) => l.id === loanId);
+const searchEligibleLoansPage = (q: string, page: number) =>
+  searchLoansPage(q, page, { excludeBankPledged: true });
+
+export function SelectLoanForRepledgeModalContent({ onPicked }: { onPicked: (loan: LoanView) => void }) {
+  const { closeModal } = useModal();
+  const [selected, setSelected] = useState<LoanView | null>(null);
+  const [label, setLabel] = useState("");
 
   return (
     <>
       <div className="hd"><h3>New Bank Re-Pledge</h3><button className="x" onClick={closeModal}>×</button></div>
       <div className="bd">
         <div className="frow"><div><label className="f">Loan *</label>
-          <select className="inp" value={loanId} onChange={(e) => setLoanId(e.target.value)}>
-            <option value="">Select loan…</option>
-            {eligible.map((l) => <option key={l.id} value={l.id}>{l.id} — {l.customerName} ({fmtW(l.totalNetWeight)}, outstanding {fmt(l.outstanding)})</option>)}
-          </select></div></div>
-        {eligible.length === 0 && (
-          <p className="notice"><Icon name="shield" /> No loans are eligible for a new bank re-pledge right now — every loan is either already bank-pledged or has none.</p>
-        )}
+          <SearchableSelect<LoanView>
+            value={label}
+            onChange={(_id, l) => { setSelected(l); setLabel(loanLabel(l)); }}
+            fetchFn={searchEligibleLoansPage}
+            getLabel={loanLabel}
+            getId={(l) => String(l.numericId)}
+            placeholder="Search by loan number…"
+          /></div></div>
+        <p className="notice"><Icon name="shield" /><span>Only loans whose gold isn&apos;t already with a bank are listed. Type a loan number to search, or scroll for more.</span></p>
       </div>
       <div className="ft">
         <button className="btn ghost" onClick={closeModal}>Cancel</button>

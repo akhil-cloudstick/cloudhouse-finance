@@ -63,6 +63,15 @@ const PATHS: Record<string, React.ReactNode> = {
   ),
   home: <path d="m3 11 9-7 9 7v9h-6v-6h-6v6H3z" />,
   list: <path d="M8 6h13M8 12h13M8 18h13M3.5 6h.01M3.5 12h.01M3.5 18h.01" />,
+  // Banknote — the Loans destination. `list` (its old glyph) says "a table
+  // of rows", which every other listing screen is too; this says money lent.
+  note: (
+    <>
+      <rect x="2.5" y="6" width="19" height="12" rx="2" />
+      <circle cx="12" cy="12" r="2.2" />
+      <path d="M6 12h.01M18 12h.01" />
+    </>
+  ),
   chart: <path d="M4 20V4M4 20h16M8 16v-5M13 16V8M18 16v-8" />,
   cal: (
     <>

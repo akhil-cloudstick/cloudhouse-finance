@@ -103,6 +103,9 @@ func main() {
 		&loan.LoanRequest{},
 		&loan.RequestApproval{},
 		&loan.ApprovalLimit{},
+		// Unsubmitted New Gold Loan forms behind the "Save Draft" button.
+		&loan.LoanDraft{},
+		&loan.LoanDraftOrnament{},
 		&ornamenttype.OrnamentType{},
 		&bank.Bank{},
 		&locker.Locker{},
@@ -133,6 +136,10 @@ func main() {
 
 	if err := loan.SeedLoanOperatorLimit(db); err != nil {
 		log.Fatalf("loan operator approval limit seeding failed: %v", err)
+	}
+
+	if err := loan.MigrateRetiredSanctionStage(db); err != nil {
+		log.Fatalf("retired sanction stage migration failed: %v", err)
 	}
 
 	// Must run AFTER AutoMigrate: the partial indexes reference the stage/kind

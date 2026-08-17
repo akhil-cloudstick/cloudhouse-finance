@@ -74,3 +74,33 @@ func (h *Handler) Upload(c *gin.Context) {
 
 	c.JSON(http.StatusCreated, gin.H{"url": "/uploads/" + strings.TrimPrefix(filename, "/")})
 }
+
+// SaveBytes writes data to dir under a random-id-prefixed, sanitized name
+// (same naming convention Upload uses) and returns its "/uploads/..."-style
+// URL. Unlike Upload, this isn't a gin.HandlerFunc — it's a plain function
+// other services (e.g. internal/loan's indemnity-bond eSign flow) call
+// directly to store a file they generated or fetched server-side, without
+// going through an HTTP multipart request.
+func SaveBytes(dir, name string, data []byte) (string, error) {
+	id, err := randomID()
+	if err != nil {
+		return "", fmt.Errorf("failed to generate file id: %w", err)
+	}
+
+	safeName := unsafeNameChars.ReplaceAllString(filepath.Base(name), "_")
+	if safeName == "" || safeName == "." {
+		safeName = "file"
+	}
+	filename := fmt.Sprintf("%s-%s", id, safeName)
+
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return "", fmt.Errorf("failed to prepare uploads directory: %w", err)
+	}
+
+	dest := filepath.Join(dir, filename)
+	if err := os.WriteFile(dest, data, 0o644); err != nil {
+		return "", fmt.Errorf("failed to save file: %w", err)
+	}
+
+	return "/uploads/" + strings.TrimPrefix(filename, "/"), nil
+}

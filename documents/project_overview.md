@@ -132,10 +132,11 @@ flowchart TD
 - **Gold Valuation & LTV** — Gross Gold Value = Gold Weight × Applicable
   Gold Rate (per karat); Eligible Loan Amount = Gross Gold Value × Scheme
   LTV %.
-- **Multi-level Loan Approval** — sanction limits are configured by role
-  (Loan Operator → Branch Manager → Authorized Management → Final
-  Sanction); loans above a configured amount cannot be single-employee
-  sanctioned.
+- **Multi-level Loan Approval** — a loan is made by a Loan Operator, then
+  verified by the Loan Operator → approved by the Branch Manager → finally
+  sanctioned by Management, so no loan is ever single-employee sanctioned.
+  Per-role sanction limits are advisory: they warn the reviewer, never
+  block the decision.
 - **Interest & Penal Interest** — interest accrues per the selected
   scheme's method; configurable penal interest is automatically applied
   to overdue loans.

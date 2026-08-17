@@ -80,6 +80,18 @@ type LoanFilter struct {
 	// opened during it.
 	OpenedFrom *time.Time
 	OpenedTo   *time.Time
+
+	// ExcludeBankPledged drops loans whose gold is currently sitting with a
+	// bank (BankPledgeStatusPledged) — those cannot be re-pledged again, so
+	// the bank re-pledge loan picker asks for the eligible set server-side
+	// rather than fetching every loan and filtering in the browser.
+	ExcludeBankPledged bool
+
+	// Limit/Offset paginate the result set; Limit <= 0 means "no limit"
+	// (the full listing every existing caller relies on). Ordering is by
+	// id desc, so paging is stable for a fixed filter.
+	Limit  int
+	Offset int
 }
 
 // startOfDay drops the clock time so date-only filters compare whole days
@@ -110,6 +122,15 @@ func (r *Repository) FindAll(f LoanFilter) ([]Loan, error) {
 	}
 	if f.OpenedTo != nil {
 		q = q.Where("opened_date < ?", startOfDay(*f.OpenedTo).AddDate(0, 0, 1))
+	}
+	if f.ExcludeBankPledged {
+		q = q.Where("bank_pledge_status <> ?", BankPledgeStatusPledged)
+	}
+	if f.Limit > 0 {
+		q = q.Limit(f.Limit)
+	}
+	if f.Offset > 0 {
+		q = q.Offset(f.Offset)
 	}
 	var loans []Loan
 	err := q.Find(&loans).Error
@@ -558,4 +579,96 @@ func (r *AuctionRepository) FindPendingDecisions(branchID *uint) ([]AuctionDecis
 	}
 	err := q.Order("auction_decision_requests.created_at asc").Find(&reqs).Error
 	return reqs, err
+}
+
+// --- Loan drafts ------------------------------------------------------------
+
+// DraftRepository persists unsubmitted New Gold Loan forms (see LoanDraft).
+type DraftRepository struct {
+	db *gorm.DB
+}
+
+func NewDraftRepository(db *gorm.DB) *DraftRepository {
+	return &DraftRepository{db: db}
+}
+
+// preloadDraft attaches the relations the New Loan form needs to repopulate
+// its pickers — the ornament rows in their saved on-screen order, plus the
+// customer/scheme/branch so their display labels don't need extra lookups.
+func preloadDraft(db *gorm.DB) *gorm.DB {
+	return db.
+		Preload("Branch").
+		Preload("Customer").
+		Preload("Scheme").
+		Preload("Ornaments", func(db *gorm.DB) *gorm.DB {
+			return db.Order("position asc, id asc")
+		})
+}
+
+// Create writes a draft and its ornament rows together — GORM cascades the
+// Ornaments slice because of the DraftID foreign key.
+func (r *DraftRepository) Create(d *LoanDraft) error {
+	return r.db.Create(d).Error
+}
+
+// Replace overwrites an existing draft in place: the header fields are saved
+// and the ornament rows are deleted and re-inserted rather than diffed. Rows
+// have no identity worth preserving (no history hangs off them, and the
+// frontend sends the whole table on every save), so a wholesale replace is
+// both simpler and immune to the stale-row bugs a partial update invites.
+// Wrapped in a transaction so a failed re-insert can't leave a draft with
+// its ornaments deleted.
+func (r *DraftRepository) Replace(d *LoanDraft) error {
+	return r.db.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Where("draft_id = ?", d.ID).Delete(&LoanDraftOrnament{}).Error; err != nil {
+			return err
+		}
+		// Omit the association on Save, or GORM would try to upsert the rows
+		// just deleted; they're re-created explicitly below.
+		if err := tx.Omit("Ornaments", "Branch", "Customer", "Scheme").Save(d).Error; err != nil {
+			return err
+		}
+		for i := range d.Ornaments {
+			d.Ornaments[i].ID = 0
+			d.Ornaments[i].DraftID = d.ID
+			if err := tx.Create(&d.Ornaments[i]).Error; err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+}
+
+func (r *DraftRepository) FindByID(id uint) (*LoanDraft, error) {
+	var d LoanDraft
+	if err := preloadDraft(r.db).First(&d, id).Error; err != nil {
+		return nil, err
+	}
+	return &d, nil
+}
+
+// FindAllByEmployee lists one employee's own drafts, newest-saved first —
+// drafts are private to whoever saved them (see LoanDraft's doc comment).
+// branchScope additionally restricts to the caller's branch when set.
+func (r *DraftRepository) FindAllByEmployee(employeeID uint, branchScope *uint) ([]LoanDraft, error) {
+	q := preloadDraft(r.db).Model(&LoanDraft{}).
+		Where("created_by_employee_id = ?", employeeID).
+		Order("updated_at desc")
+	if branchScope != nil {
+		q = q.Where("branch_id = ?", *branchScope)
+	}
+	var drafts []LoanDraft
+	err := q.Find(&drafts).Error
+	return drafts, err
+}
+
+// Delete hard deletes a draft and its rows — drafts are scratch paper, not
+// an audit trail (see LoanDraft's doc comment).
+func (r *DraftRepository) Delete(id uint) error {
+	return r.db.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Where("draft_id = ?", id).Delete(&LoanDraftOrnament{}).Error; err != nil {
+			return err
+		}
+		return tx.Delete(&LoanDraft{}, id).Error
+	})
 }

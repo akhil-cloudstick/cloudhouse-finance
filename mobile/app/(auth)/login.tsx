@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { View, StyleSheet, KeyboardAvoidingView, Platform, Image, Pressable, ScrollView } from "react-native";
+import { View, StyleSheet, KeyboardAvoidingView, Image, Pressable, ScrollView } from "react-native";
 import { useRouter } from "expo-router";
 import { colors } from "../../src/theme/colors";
 import { ThemedText } from "../../src/components/ThemedText";
@@ -31,10 +31,11 @@ export default function LoginScreen() {
   }
 
   return (
-    <KeyboardAvoidingView
-      style={styles.screen}
-      behavior={Platform.OS === "ios" ? "padding" : undefined}
-    >
+    // behavior "padding" on Android too (was undefined, which left the
+    // inputs pinned under the keyboard): Android draws edge-to-edge here, so
+    // the window is no longer auto-resized for us and the fields have to be
+    // lifted manually.
+    <KeyboardAvoidingView style={styles.screen} behavior="padding">
       {/* Was a plain centered View with no scroll — on shorter screens (or
           with the keyboard open) the card's bottom content, including the
           "Forgot password?" link, could render below the visible viewport
@@ -47,10 +48,10 @@ export default function LoginScreen() {
         showsVerticalScrollIndicator={false}
       >
         <View style={styles.card}>
-          <Image source={require("../../assets/splash-icon.png")} style={styles.logo} resizeMode="contain" />
-          <ThemedText variant="h1" color={colors.goldDeep} style={styles.title}>
-            Ambika Gold Finance
-          </ThemedText>
+          {/* The logo art already reads "Ambika Gold Finance", so the h1
+              wordmark under it was a duplicate — dropped, and the image
+              given the space it freed. */}
+          <Image source={require("../../assets/ambika-gold.png")} style={styles.logo} resizeMode="contain" />
           <ThemedText variant="body" color={colors.muted} style={styles.subtitle}>
             Staff sign in
           </ThemedText>
@@ -103,8 +104,7 @@ const styles = StyleSheet.create({
     borderColor: colors.line,
     padding: 24,
   },
-  logo: { width: 96, height: 96, alignSelf: "center", marginBottom: 12 },
-  title: { marginBottom: 4, textAlign: "center" },
+  logo: { width: "86%", height: 200, alignSelf: "center", marginBottom: 4 },
   subtitle: { marginBottom: 24, textAlign: "center" },
   error: { marginBottom: 12 },
   forgot: { marginTop: 16, alignItems: "center" },
