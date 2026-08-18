@@ -1,7 +1,8 @@
 import React, { useState } from "react";
-import { ScrollView, View, StyleSheet, Pressable, FlatList } from "react-native";
+import { ScrollView, View, StyleSheet, Pressable, FlatList, RefreshControl } from "react-native";
 import { useQuery } from "@tanstack/react-query";
 import * as Print from "expo-print";
+import { useRefetchOnFocus } from "../../src/hooks/useRefetchOnFocus";
 import { ScreenContainer } from "../../src/components/ScreenContainer";
 import { BottomSheetModal } from "../../src/components/BottomSheetModal";
 import { Card } from "../../src/components/Card";
@@ -65,6 +66,34 @@ export default function ReportsScreen() {
   const goldRateHistory = useQuery({ queryKey: ["reports", "gold-rate-history"], queryFn: () => getGoldRateHistory({ pageSize: 50 }) });
   const employeePerformance = useQuery({ queryKey: ["reports", "employee-performance"], queryFn: () => getEmployeePerformance({ pageSize: 50 }) });
   const communicationHistory = useQuery({ queryKey: ["reports", "communication-history"], queryFn: () => getCommunicationHistory({ pageSize: 50 }) });
+
+  const allQueries = [
+    disbursement,
+    loansStatus,
+    interestCollection,
+    outstandingPrincipal,
+    paymentCollection,
+    goldWeight,
+    packets,
+    bankPledge,
+    loanExtensions,
+    goldRelease,
+    auctions,
+    expenseCashflow,
+    kyc,
+    goldRateHistory,
+    employeePerformance,
+    communicationHistory,
+  ];
+
+  useRefetchOnFocus(...allQueries.map((q) => q.refetch));
+
+  const [refreshing, setRefreshing] = useState(false);
+  async function onRefresh() {
+    setRefreshing(true);
+    await Promise.all(allQueries.map((q) => q.refetch()));
+    setRefreshing(false);
+  }
 
   const sections: Section[] = [
     {
@@ -241,7 +270,10 @@ export default function ReportsScreen() {
 
   return (
     <ScreenContainer>
-      <ScrollView showsVerticalScrollIndicator={false}>
+      <ScrollView
+        showsVerticalScrollIndicator={false}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
+      >
         <View style={styles.grid}>
           {sections.map((s) => {
             const totals = (s.query.data as any)?.totals;

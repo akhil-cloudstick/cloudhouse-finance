@@ -15,11 +15,16 @@ func (r *Repository) Create(g *GoldRate) error {
 	return r.db.Create(g).Error
 }
 
-// FindAll returns every published rate, most recent first — this is the
-// "Rate History" table on the frontend.
-func (r *Repository) FindAll() ([]GoldRate, error) {
+// FindAll returns published rates, most recent first — this is the
+// "Rate History" table on the frontend. When limit is 0, every row is
+// returned (backward-compatible with callers that don't paginate).
+func (r *Repository) FindAll(limit, offset int) ([]GoldRate, error) {
 	var rates []GoldRate
-	err := r.db.Order("date desc, id desc").Find(&rates).Error
+	q := r.db.Order("date desc, id desc")
+	if limit > 0 {
+		q = q.Limit(limit).Offset(offset)
+	}
+	err := q.Find(&rates).Error
 	return rates, err
 }
 

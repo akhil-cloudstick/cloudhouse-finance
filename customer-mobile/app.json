@@ -1,0 +1,62 @@
+{
+  "expo": {
+    "name": "ambikacustomer",
+    "slug": "ambikacustomer",
+    "owner": "cloudhouse-team",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/ambika-gold.png",
+    "userInterfaceStyle": "light",
+    "platforms": [
+      "android"
+    ],
+    "android": {
+      "package": "com.ambikagold.customer",
+      "adaptiveIcon": {
+        "backgroundColor": "#ffffff",
+        "foregroundImage": "./assets/ambika-gold-foreground.png",
+        "monochromeImage": "./assets/android-icon-monochrome.png"
+      },
+      "predictiveBackGestureEnabled": false
+    },
+    "scheme": "ambikacustomer",
+    "plugins": [
+      "expo-router",
+      "expo-secure-store",
+      "expo-font",
+      [
+        "expo-splash-screen",
+        {
+          "image": "./assets/ambika-gold.png",
+          "imageWidth": 220,
+          "resizeMode": "contain",
+          "backgroundColor": "#faf6ec"
+        }
+      ],
+      [
+        "expo-status-bar",
+        {
+          "style": "dark",
+          "backgroundColor": "#faf6ec"
+        }
+      ],
+      [
+        "expo-local-authentication",
+        {
+          "faceIDPermission": "Allow Ambika Gold Finance to use Face unlock to sign you in."
+        }
+      ],
+      "expo-web-browser"
+    ],
+    "androidStatusBar": {
+      "backgroundColor": "#faf6ec",
+      "barStyle": "dark-content",
+      "translucent": false
+    },
+    "extra": {
+      "eas": {
+        "projectId": "1fb4bd03-4939-4a9e-9142-c26294cdedbb"
+      }
+    }
+  }
+}

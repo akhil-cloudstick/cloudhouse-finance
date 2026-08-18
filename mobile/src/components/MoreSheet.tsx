@@ -38,6 +38,7 @@ const GROUPS: [string, [string, string, string][]][] = [
   [
     "Gold Custody",
     [
+      ["packets", "Packets", "box"],
       ["lockers", "Lockers", "lock"],
       ["banks", "Bank Pledge", "bank"],
       ["auctions", "Auctions", "gavel"],
@@ -56,9 +57,7 @@ const GROUPS: [string, [string, string, string][]][] = [
       // "purity-standards" is its own destination: the "Purity standards"
       // button that used to launch it as a modal from gold-rates.tsx was
       // removed, so this row is the only way in.
-      // `shield` (certified purity), freeing `scale` for Gold Rates above.
       ["purity-standards", "Purity Standards", "shield"],
-      ["ornament-types", "Ornament Types", "stamp"],
       ["settings", "Settings", "gear"],
       ["branches", "Branches", "bank"],
     ],

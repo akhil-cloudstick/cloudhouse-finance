@@ -1,10 +1,10 @@
 import { useEffect } from "react";
 import { Slot, useRouter, useSegments } from "expo-router";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { QueryClient, QueryClientProvider, focusManager } from "@tanstack/react-query";
 import { useFonts, Jost_400Regular, Jost_500Medium, Jost_600SemiBold } from "@expo-google-fonts/jost";
 import { BodoniModaSC_600SemiBold } from "@expo-google-fonts/bodoni-moda-sc";
 import * as SplashScreen from "expo-splash-screen";
-import { View, ActivityIndicator } from "react-native";
+import { View, ActivityIndicator, AppState, type AppStateStatus } from "react-native";
 import { StatusBar } from "expo-status-bar";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
@@ -16,6 +16,17 @@ import { colors } from "../src/theme/colors";
 SplashScreen.preventAutoHideAsync();
 
 const queryClient = new QueryClient();
+
+// React Query's `refetchOnWindowFocus` (on by default) listens for a
+// browser 'visibilitychange' event, which doesn't exist in React Native.
+// Bridging AppState into focusManager gets the app-foreground half of that
+// behaviour back (every "stale" query refetches when the app is
+// backgrounded then reopened); see src/hooks/useRefetchOnFocus.ts for the
+// other half — refetching when navigating back to an already-mounted
+// screen within the app, which AppState alone doesn't cover.
+AppState.addEventListener("change", (status: AppStateStatus) => {
+  focusManager.setFocused(status === "active");
+});
 
 // The strip behind the Android status bar was grey, not ivory: the app draws
 // edge-to-edge (SDK 57+ enforces it) so that strip shows whatever view sits

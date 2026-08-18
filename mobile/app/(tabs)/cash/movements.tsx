@@ -11,6 +11,7 @@ import { colors, statusColors } from "../../../src/theme/colors";
 import { listCashMovements, createCashMovement } from "../../../src/api/cash";
 import { CashMovement } from "../../../src/types/cash";
 import { ApiError } from "../../../src/api/client";
+import { useRefetchOnFocus } from "../../../src/hooks/useRefetchOnFocus";
 
 const TYPES = ["in", "out"] as const;
 
@@ -27,6 +28,8 @@ export default function CashMovementsScreen() {
     queryKey: ["cash-movements"],
     queryFn: listCashMovements,
   });
+
+  useRefetchOnFocus(refetch);
 
   const create = useMutation({
     mutationFn: () => createCashMovement({ type, source, purpose, amount: Number(amount), bank: undefined }),

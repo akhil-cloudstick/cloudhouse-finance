@@ -56,6 +56,17 @@ export async function listCashMovements(): Promise<CashMovementView[]> {
   return (rec || []).map(movementToView);
 }
 
+export const CASH_MOVEMENTS_PAGE_SIZE = 10;
+
+export async function listCashMovementsPage(page: number): Promise<{ items: CashMovementView[]; hasMore: boolean }> {
+  const params = new URLSearchParams({
+    limit: String(CASH_MOVEMENTS_PAGE_SIZE),
+    offset: String((page - 1) * CASH_MOVEMENTS_PAGE_SIZE),
+  });
+  const rec = await apiFetch<{ items: BackendCashMovement[]; hasMore: boolean }>(`/cash-movements?${params}`);
+  return { items: (rec?.items || []).map(movementToView), hasMore: !!rec?.hasMore };
+}
+
 export async function createCashMovement(input: CashMovementInput): Promise<CashMovementView> {
   const rec = await apiFetch<BackendCashMovement>("/cash-movements", {
     method: "POST",
@@ -134,6 +145,17 @@ export type ExpenseFormInput = {
 export async function listExpenses(): Promise<ExpenseView[]> {
   const rec = await apiFetch<BackendExpense[]>("/expenses");
   return (rec || []).map(expenseToView);
+}
+
+export const EXPENSES_PAGE_SIZE = 10;
+
+export async function listExpensesPage(page: number): Promise<{ items: ExpenseView[]; hasMore: boolean }> {
+  const params = new URLSearchParams({
+    limit: String(EXPENSES_PAGE_SIZE),
+    offset: String((page - 1) * EXPENSES_PAGE_SIZE),
+  });
+  const rec = await apiFetch<{ items: BackendExpense[]; hasMore: boolean }>(`/expenses?${params}`);
+  return { items: (rec?.items || []).map(expenseToView), hasMore: !!rec?.hasMore };
 }
 
 export async function createExpense(input: ExpenseFormInput): Promise<ExpenseView> {

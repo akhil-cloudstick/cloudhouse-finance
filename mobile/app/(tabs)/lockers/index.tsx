@@ -12,6 +12,7 @@ import { listLockers, createLocker } from "../../../src/api/lockers";
 import { Locker } from "../../../src/types/locker";
 import { useAuth } from "../../../src/auth/AuthContext";
 import { ApiError } from "../../../src/api/client";
+import { useRefetchOnFocus } from "../../../src/hooks/useRefetchOnFocus";
 
 export default function LockersScreen() {
   const router = useRouter();
@@ -26,6 +27,8 @@ export default function LockersScreen() {
     queryKey: ["lockers"],
     queryFn: listLockers,
   });
+
+  useRefetchOnFocus(refetch);
 
   const create = useMutation({
     mutationFn: () => createLocker({ code, branchId: employee!.branchId, capacity: Number(capacity) }),
@@ -76,7 +79,7 @@ export default function LockersScreen() {
           </ThemedText>
         }
         renderItem={({ item }) => (
-          <Pressable onPress={() => router.push(`/lockers/${item.id}`)}>
+          <Pressable onPress={() => router.push(`/packets?lockerId=${item.id}`)}>
             <Card>
               <ThemedText variant="h3">{item.code}</ThemedText>
               <ThemedText variant="small" color={colors.muted}>

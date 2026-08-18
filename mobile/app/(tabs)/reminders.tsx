@@ -16,6 +16,7 @@ import { Customer } from "../../src/types/customer";
 import { useDebouncedValue } from "../../src/hooks/useDebouncedValue";
 import { ApiError } from "../../src/api/client";
 import { useAuth } from "../../src/auth/AuthContext";
+import { useRefetchOnFocus } from "../../src/hooks/useRefetchOnFocus";
 
 function toneForType(type: CalendarEvent["type"]): StatusTone {
   if (type === "Overdue") return "red";
@@ -228,6 +229,8 @@ export default function RemindersScreen() {
     queryKey: ["reminders", "calendar", from, to],
     queryFn: () => getCalendarEvents(from, to),
   });
+
+  useRefetchOnFocus(refetch);
 
   const events = data ?? [];
 

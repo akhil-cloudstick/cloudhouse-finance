@@ -112,8 +112,9 @@ export function ReleaseReviewModalContent({ request, onSaved }: { request: Reque
         <div style={{ margin: "14px 0" }}>
           <label className="f">Verification Checklist</label>
           {checklistItems.map(([label, field, hint]) => (
-            <label key={field} style={{ display: "flex", gap: 8, alignItems: "flex-start", padding: "6px 0", cursor: "pointer" }}>
-              <input type="checkbox" checked={req[field]} disabled={saving || req.status !== "Pending"} onChange={(e) => toggle(field, e.target.checked)} style={{ marginTop: 3 }} />
+            <label key={field} className="ccheck" style={{ padding: "6px 0" }}>
+              <input type="checkbox" checked={req[field]} disabled={saving || req.status !== "Pending"} onChange={(e) => toggle(field, e.target.checked)} />
+              <span className="mark" />
               <span>
                 <b>{label}</b>
                 <div style={{ fontSize: 12, color: "var(--muted)" }}>{hint}</div>

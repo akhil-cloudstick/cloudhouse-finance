@@ -7,7 +7,7 @@ import { Icon } from "@/lib/icons";
 import { fmt, initials } from "@/lib/format";
 import { EmployeeModalContent } from "@/components/modals/EmployeeModal";
 import { RolesModalContent } from "@/components/modals/RolesModal";
-import { deleteEmployee, listEmployees, type EmployeeView } from "@/lib/employeeApi";
+import { deleteEmployee, listEmployeesPage, type EmployeeView } from "@/lib/employeeApi";
 
 /* Ported from legacy/app.js's `renderEmployees()`. Loads real data from the
  * Go backend (`GET /api/v1/employees`), following the Branches.tsx pattern. */
@@ -16,17 +16,21 @@ export function Employees() {
   const toast = useToast();
   const [employees, setEmployees] = useState<EmployeeView[] | null>(null);
   const [error, setError] = useState("");
+  const [page, setPage] = useState(1);
+  const [hasMore, setHasMore] = useState(false);
 
   async function load() {
     try {
-      setEmployees(await listEmployees());
+      const res = await listEmployeesPage(page);
+      setEmployees(res.items);
+      setHasMore(res.hasMore);
       setError("");
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to load employees.");
     }
   }
 
-  useEffect(() => { load(); }, []);
+  useEffect(() => { load(); }, [page]);
 
   function onSaved() {
     load();
@@ -42,6 +46,8 @@ export function Employees() {
       toast(err instanceof Error ? err.message : "Failed to delete employee.");
     }
   }
+
+  const totalPages = hasMore ? page + 1 : page;
 
   return (
     <>
@@ -100,6 +106,11 @@ export function Employees() {
             </table>
           </div>
           <div className="ft">Roles: Administrator · Management · Branch Manager · Loan Operator · Cashier · Accountant · Collection Staff · Auction Administrator · Auditor. Sensitive actions (rate changes, waivers, reversals, closures) sit behind approval workflows with a full audit trail.</div>
+          <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 0" }}>
+            <button className="btn plain sm" disabled={page <= 1} onClick={() => setPage((p) => Math.max(1, p - 1))}>‹ Prev</button>
+            <span style={{ fontSize: 12.5 }}>Page {page} of {totalPages}</span>
+            <button className="btn plain sm" disabled={page >= totalPages} onClick={() => setPage((p) => Math.min(totalPages, p + 1))}>Next ›</button>
+          </div>
         </div>
       )}
     </>

@@ -240,12 +240,14 @@ export function SettleAuctionModalContent({ loan, rec, onSaved }: { loan: LoanVi
         <div className="frow"><div>
           <label className="f">Surplus Disposition *</label>
           <div style={{ display: "flex", flexDirection: "column", gap: 6, marginTop: 4 }}>
-            <label style={{ display: "flex", gap: 8, alignItems: "flex-start", fontSize: 13, cursor: "pointer" }}>
-              <input type="radio" name="disposition" checked={disposition === "RefundedToCustomer"} onChange={() => setDisposition("RefundedToCustomer")} style={{ marginTop: 3 }} />
+            <label className="cradio" style={{ fontSize: 13 }}>
+              <input type="radio" name="disposition" checked={disposition === "RefundedToCustomer"} onChange={() => setDisposition("RefundedToCustomer")} />
+              <span className="mark" />
               <span><strong>Refund to customer</strong> — a cash-out of {fmt(surplus)} will be booked and the money handed back to {loan.customerName}.</span>
             </label>
-            <label style={{ display: "flex", gap: 8, alignItems: "flex-start", fontSize: 13, cursor: "pointer" }}>
-              <input type="radio" name="disposition" checked={disposition === "RecordedAsIncome"} onChange={() => setDisposition("RecordedAsIncome")} style={{ marginTop: 3 }} />
+            <label className="cradio" style={{ fontSize: 13 }}>
+              <input type="radio" name="disposition" checked={disposition === "RecordedAsIncome"} onChange={() => setDisposition("RecordedAsIncome")} />
+              <span className="mark" />
               <span><strong>Record as company income</strong> — the money stays in the till. No further cash movement is created, since the full proceeds were already booked in at sale time.</span>
             </label>
           </div>
@@ -344,14 +346,14 @@ export function AuctionDecisionModalContent({
                   ["KeepInAuction", "Keep in auction", "The auction un-freezes and continues from its current stage. The customer is told their gold remains at risk."],
                 ]
             ).map(([value, title, detail]) => (
-              <label key={value} style={{ display: "flex", gap: 8, alignItems: "flex-start", fontSize: 13, cursor: "pointer" }}>
+              <label key={value} className="cradio" style={{ fontSize: 13 }}>
                 <input
                   type="radio"
                   name="decision"
                   checked={decision === value}
                   onChange={() => setDecision(value as Exclude<AuctionDecisionStatus, "Pending">)}
-                  style={{ marginTop: 3 }}
                 />
+                <span className="mark" />
                 <span><strong>{title}</strong> — {detail}</span>
               </label>
             ))}

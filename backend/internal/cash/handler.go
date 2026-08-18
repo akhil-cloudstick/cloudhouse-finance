@@ -97,7 +97,28 @@ func (h *MovementHandler) Record(c *gin.Context) {
 }
 
 func (h *MovementHandler) List(c *gin.Context) {
-	rec, err := h.svc.List(platform.GetBranchScope(c))
+	branchID := platform.GetBranchScope(c)
+
+	limit, _ := strconv.Atoi(c.Query("limit"))
+	if limit > 0 {
+		offset, _ := strconv.Atoi(c.Query("offset"))
+		if offset < 0 {
+			offset = 0
+		}
+		rec, err := h.svc.List(branchID, limit+1, offset)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		hasMore := len(rec) > limit
+		if hasMore {
+			rec = rec[:limit]
+		}
+		c.JSON(http.StatusOK, gin.H{"items": rec, "hasMore": hasMore})
+		return
+	}
+
+	rec, err := h.svc.List(branchID, 0, 0)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -208,7 +229,28 @@ func (h *ExpenseHandler) Record(c *gin.Context) {
 }
 
 func (h *ExpenseHandler) List(c *gin.Context) {
-	rec, err := h.svc.List(platform.GetBranchScope(c))
+	branchID := platform.GetBranchScope(c)
+
+	limit, _ := strconv.Atoi(c.Query("limit"))
+	if limit > 0 {
+		offset, _ := strconv.Atoi(c.Query("offset"))
+		if offset < 0 {
+			offset = 0
+		}
+		rec, err := h.svc.List(branchID, limit+1, offset)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		hasMore := len(rec) > limit
+		if hasMore {
+			rec = rec[:limit]
+		}
+		c.JSON(http.StatusOK, gin.H{"items": rec, "hasMore": hasMore})
+		return
+	}
+
+	rec, err := h.svc.List(branchID, 0, 0)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return

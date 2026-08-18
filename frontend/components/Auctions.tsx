@@ -20,7 +20,7 @@ import {
 import {
   getAuctionRecord,
   markAuctionEligible,
-  listConcludedAuctions,
+  listConcludedAuctionsPage,
   pendingDecision,
   hasUndisposedSurplus,
   AUCTION_STAGES,
@@ -254,48 +254,103 @@ function AuctionCard({ l, onLoanChanged }: { l: LoanView; onLoanChanged: () => v
 export function Auctions() {
   const { loans, loading, error, refresh } = useLoans();
   const [tab, setTab] = useState<"active" | "history">("active");
-  const [history, setHistory] = useState<AuctionRecordView[]>([]);
-  const [historyLoading, setHistoryLoading] = useState(false);
-  const [historyError, setHistoryError] = useState("");
+
+  /* The two History sub-tables ("Auctions Conducted" / "Closed Without
+   * Auction") are now independently paginated, real server queries — each
+   * filtered by hasSale so a sub-table's own page/offset never counts
+   * against the other's rows (see loansApi.listConcludedAuctionsPage). */
+  const [conducted, setConducted] = useState<AuctionRecordView[]>([]);
+  const [conductedPage, setConductedPage] = useState(1);
+  const [conductedHasMore, setConductedHasMore] = useState(false);
+  const [conductedLoading, setConductedLoading] = useState(false);
+  const [conductedError, setConductedError] = useState("");
+
+  const [closedWithoutSale, setClosedWithoutSale] = useState<AuctionRecordView[]>([]);
+  const [closedPage, setClosedPage] = useState(1);
+  const [closedHasMore, setClosedHasMore] = useState(false);
+  const [closedLoading, setClosedLoading] = useState(false);
+  const [closedError, setClosedError] = useState("");
+
+  const conductedTotalPages = conductedHasMore ? conductedPage + 1 : conductedPage;
+  const closedTotalPages = closedHasMore ? closedPage + 1 : closedPage;
+
+  // Active Cases — isDefaulted is a computed read-time flag, not a
+  // persisted column (see loan/accrual.go), so this can't be a server-side
+  // filtered query the way the History tab's sub-tables are. It paginates
+  // client-side over LoansProvider's already-loaded list instead, the same
+  // approach Loans.tsx uses for its own computed-flag tabs (Due Soon/
+  // Overdue/Defaulted).
+  const [activePage, setActivePage] = useState(1);
+  const ACTIVE_PAGE_SIZE = 10;
 
   /* "Auctioned - Balance Due" is included so a loan whose sale fell short stays
    * visible here while its shortfall decision is outstanding — otherwise the
    * case needing the most attention would drop off the page. */
-  const cases = loans.filter((l) =>
+  const allCases = loans.filter((l) =>
     l.isDefaulted ||
     l.status === "Auction Eligible" ||
     l.status === "Auctioned" ||
     l.status === "Auctioned - Balance Due"
   );
+  const activeTotalPages = Math.max(1, Math.ceil(allCases.length / ACTIVE_PAGE_SIZE));
+  const cases = allCases.slice((activePage - 1) * ACTIVE_PAGE_SIZE, activePage * ACTIVE_PAGE_SIZE);
 
   /* Loaded on demand — a concluded-case sweep across every loan is not worth
    * paying for until someone opens the tab. Fetched from the click handler
    * rather than an effect on `tab`: the fetch is a response to a user action,
    * not state React needs to synchronize, and doing it in an effect trips
-   * react-hooks/set-state-in-effect for the cascading render it causes. */
-  const loadHistory = useCallback(async () => {
-    setHistoryLoading(true);
-    setHistoryError("");
+   * react-hooks/set-state-in-effect for the cascading render it causes.
+   *
+   * Each sub-table is its own paginated query (hasSale=true/false) rather
+   * than one fetch split client-side — the backend excludes the other
+   * sub-table's rows from the WHERE clause, so page 2 of "Auctions Conducted"
+   * is genuinely the next 10 sold cases, not offset by however many
+   * closed-without-sale rows happened to land in between. */
+  const loadConducted = useCallback(async (page: number) => {
+    setConductedLoading(true);
+    setConductedError("");
     try {
-      setHistory(await listConcludedAuctions());
+      const { items, hasMore } = await listConcludedAuctionsPage(page, true);
+      setConducted(items);
+      setConductedHasMore(hasMore);
     } catch (e) {
-      setHistoryError(e instanceof ApiError ? e.message : "Could not load auction history.");
+      setConductedError(e instanceof ApiError ? e.message : "Could not load auction history.");
     } finally {
-      setHistoryLoading(false);
+      setConductedLoading(false);
+    }
+  }, []);
+
+  const loadClosed = useCallback(async (page: number) => {
+    setClosedLoading(true);
+    setClosedError("");
+    try {
+      const { items, hasMore } = await listConcludedAuctionsPage(page, false);
+      setClosedWithoutSale(items);
+      setClosedHasMore(hasMore);
+    } catch (e) {
+      setClosedError(e instanceof ApiError ? e.message : "Could not load auction history.");
+    } finally {
+      setClosedLoading(false);
     }
   }, []);
 
   function showHistory() {
     setTab("history");
-    void loadHistory();
+    setConductedPage(1);
+    setClosedPage(1);
+    void loadConducted(1);
+    void loadClosed(1);
   }
 
-  /* Split the concluded set by whether gold was actually sold. A case that ended
-   * because the customer repaid, or because management withdrew it, has no sale
-   * amount, date or surplus — listing it alongside real auctions would produce a
-   * table of dashes and make it harder to read what was genuinely auctioned. */
-  const conducted = history.filter((r) => r.saleAmount > 0);
-  const closedWithoutSale = history.filter((r) => r.saleAmount <= 0);
+  function changeConductedPage(page: number) {
+    setConductedPage(page);
+    void loadConducted(page);
+  }
+
+  function changeClosedPage(page: number) {
+    setClosedPage(page);
+    void loadClosed(page);
+  }
 
   return (
     <>
@@ -314,9 +369,18 @@ export function Auctions() {
       {tab === "active" ? (
         loading ? (
           <div className="empty">Loading auction cases…</div>
-        ) : cases.length === 0 ? (
+        ) : allCases.length === 0 ? (
           <div className="empty">No loans currently in the auction workflow.</div>
-        ) : cases.map((l) => <AuctionCard key={l.id} l={l} onLoanChanged={refresh} />)
+        ) : (
+          <>
+            {cases.map((l) => <AuctionCard key={l.id} l={l} onLoanChanged={refresh} />)}
+            <div className="ft" style={{ display: "flex", alignItems: "center", gap: 10 }}>
+              <button className="btn plain sm" disabled={activePage <= 1} onClick={() => setActivePage((p) => Math.max(1, p - 1))}>‹ Prev</button>
+              <span style={{ fontSize: 12.5 }}>Page {activePage} of {activeTotalPages}</span>
+              <button className="btn plain sm" disabled={activePage >= activeTotalPages} onClick={() => setActivePage((p) => Math.min(activeTotalPages, p + 1))}>Next ›</button>
+            </div>
+          </>
+        )
       ) : (
         <>
           {/* Auctions actually conducted — gold that went under the hammer and
@@ -325,7 +389,7 @@ export function Auctions() {
             * read as a clean set. */}
           <div className="card" style={{ marginBottom: 16 }}>
             <div className="hd"><h3>Auctions Conducted</h3></div>
-            {historyError && <div className="notice" style={{ margin: 14 }}>{historyError}</div>}
+            {conductedError && <div className="notice" style={{ margin: 14 }}>{conductedError}</div>}
             <div className="tbl-wrap">
               <table className="tbl">
                 <thead>
@@ -336,7 +400,7 @@ export function Auctions() {
                   </tr>
                 </thead>
                 <tbody>
-                  {historyLoading ? (
+                  {conductedLoading ? (
                     <tr><td colSpan={7} className="empty">Loading…</td></tr>
                   ) : conducted.length === 0 ? (
                     <tr><td colSpan={7} className="empty">No auctions have been conducted yet.</td></tr>
@@ -356,7 +420,13 @@ export function Auctions() {
                 </tbody>
               </table>
             </div>
-            <div className="ft">Gold that was actually sold at auction, with what it realised and how the surplus or shortfall was resolved.</div>
+            <div className="ft" style={{ display: "flex", alignItems: "center", gap: 10 }}>
+              <button className="btn plain sm" disabled={conductedPage <= 1} onClick={() => changeConductedPage(Math.max(1, conductedPage - 1))}>‹ Prev</button>
+              <span style={{ fontSize: 12.5 }}>Page {conductedPage} of {conductedTotalPages}</span>
+              <button className="btn plain sm" disabled={!conductedHasMore} onClick={() => changeConductedPage(conductedPage + 1)}>Next ›</button>
+              <div className="sp" />
+              <span>Gold that was actually sold at auction, with what it realised and how the surplus or shortfall was resolved.</span>
+            </div>
           </div>
 
           {/* Cases that closed without a sale. Separated because they have no
@@ -364,13 +434,14 @@ export function Auctions() {
             * every money column with dashes. */}
           <div className="card">
             <div className="hd"><h3>Closed Without Auction</h3></div>
+            {closedError && <div className="notice" style={{ margin: 14 }}>{closedError}</div>}
             <div className="tbl-wrap">
               <table className="tbl">
                 <thead>
                   <tr><th>Loan</th><th>Marked Eligible</th><th>Outcome</th></tr>
                 </thead>
                 <tbody>
-                  {historyLoading ? (
+                  {closedLoading ? (
                     <tr><td colSpan={3} className="empty">Loading…</td></tr>
                   ) : closedWithoutSale.length === 0 ? (
                     <tr><td colSpan={3} className="empty">No cases have closed without going to auction.</td></tr>
@@ -390,9 +461,15 @@ export function Auctions() {
                 </tbody>
               </table>
             </div>
-            <div className="ft">
-              Cases the customer resolved before the gold was sold, or that management withdrew. A loan whose case was withdrawn
-              can enter a fresh auction if it defaults again.
+            <div className="ft" style={{ display: "flex", alignItems: "center", gap: 10 }}>
+              <button className="btn plain sm" disabled={closedPage <= 1} onClick={() => changeClosedPage(Math.max(1, closedPage - 1))}>‹ Prev</button>
+              <span style={{ fontSize: 12.5 }}>Page {closedPage} of {closedTotalPages}</span>
+              <button className="btn plain sm" disabled={!closedHasMore} onClick={() => changeClosedPage(closedPage + 1)}>Next ›</button>
+              <div className="sp" />
+              <span>
+                Cases the customer resolved before the gold was sold, or that management withdrew. A loan whose case was withdrawn
+                can enter a fresh auction if it defaults again.
+              </span>
             </div>
           </div>
         </>

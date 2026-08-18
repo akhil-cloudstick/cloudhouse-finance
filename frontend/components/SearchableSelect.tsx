@@ -48,6 +48,14 @@ export function SearchableSelect<T>({
   disabled?: boolean;
 }) {
   const [query, setQuery] = useState(value);
+  // Separate from `query` (the input's displayed text, which starts out as
+  // the already-selected item's label): fetching off `query` directly meant
+  // opening a box that already had a selection filtered the very first
+  // fetch by that leftover label text, so the list flashed "No results"
+  // before the user had typed anything. `searchTerm` resets to "" whenever
+  // the box opens (or the user clears it) and only tracks what's actually
+  // been typed since, so opening always shows the full list first.
+  const [searchTerm, setSearchTerm] = useState("");
   const [items, setItems] = useState<T[]>([]);
   const [page, setPage] = useState(0);
   const [hasMore, setHasMore] = useState(false);
@@ -88,30 +96,31 @@ export function SearchableSelect<T>({
       });
   }
 
-  // Fires the initial/typed-query fetch. An empty query fetches immediately
-  // (it's a listing, not a search); a non-empty query debounces.
+  // Fires the initial/typed-query fetch. An empty search term fetches
+  // immediately (it's a listing, not a search); a non-empty one debounces.
   useEffect(() => {
     if (!open) return;
-    if (loadedForRef.current === query) return; // already loaded this query
-    loadedForRef.current = query;
+    if (loadedForRef.current === searchTerm) return; // already loaded this term
+    loadedForRef.current = searchTerm;
 
     if (debounceRef.current) clearTimeout(debounceRef.current);
     const reqId = ++requestIdRef.current;
-    if (!query.trim()) {
-      loadPage(query, 0, reqId, false);
+    if (!searchTerm.trim()) {
+      loadPage(searchTerm, 0, reqId, false);
       return;
     }
-    debounceRef.current = setTimeout(() => loadPage(query, 0, reqId, false), 300);
+    setLoading(true); // show "Searching…" for the debounce window too, not a "No results" flash
+    debounceRef.current = setTimeout(() => loadPage(searchTerm, 0, reqId, false), 300);
     return () => {
       if (debounceRef.current) clearTimeout(debounceRef.current);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [query, open]);
+  }, [searchTerm, open]);
 
   function loadNextPage() {
     if (!hasMore || loadingMore || loading) return;
     const reqId = ++requestIdRef.current;
-    loadPage(query, page + 1, reqId, true);
+    loadPage(searchTerm, page + 1, reqId, true);
   }
 
   function onResultsScroll() {
@@ -158,8 +167,8 @@ export function SearchableSelect<T>({
         value={query}
         disabled={disabled}
         autoComplete="off"
-        onChange={(e) => { setQuery(e.target.value); setOpen(true); }}
-        onFocus={() => setOpen(true)}
+        onChange={(e) => { setQuery(e.target.value); setSearchTerm(e.target.value); setOpen(true); }}
+        onFocus={() => { setSearchTerm(""); setOpen(true); }}
       />
       {open && (
         <div

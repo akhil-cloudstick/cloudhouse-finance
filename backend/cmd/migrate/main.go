@@ -14,10 +14,12 @@ import (
 	"ambikagold/backend/internal/cash"
 	"ambikagold/backend/internal/commlog"
 	"ambikagold/backend/internal/customer"
+	"ambikagold/backend/internal/customerauth"
 	"ambikagold/backend/internal/employee"
 	"ambikagold/backend/internal/goldrate"
 	"ambikagold/backend/internal/loan"
 	"ambikagold/backend/internal/locker"
+	"ambikagold/backend/internal/notification"
 	"ambikagold/backend/internal/ornamenttype"
 	"ambikagold/backend/internal/packet"
 	"ambikagold/backend/internal/platform"
@@ -118,12 +120,28 @@ func main() {
 		&reminder.Reminder{},
 		&authz.Permission{},
 		&commlog.CommunicationLog{},
+		&customerauth.OTP{},
+		&customerauth.DeviceToken{},
+		// Realtime notifications (WebSocket, ack-and-resend) — the durable
+		// in-app inbox behind the customer app's bell.
+		&notification.Notification{},
 	); err != nil {
 		log.Fatalf("auto-migrate failed: %v", err)
 	}
 
 	if err := scheme.DropLegacyDateColumns(db); err != nil {
 		log.Fatalf("legacy scheme date column cleanup failed: %v", err)
+	}
+
+	// loan_payments.received_by_employee_id became nullable (batch 3:
+	// Razorpay/customer payments — an online payment has no employee
+	// actor). GORM's AutoMigrate above only adds/alters columns to be less
+	// restrictive in some drivers, but does not reliably drop an existing
+	// NOT NULL constraint on Postgres, so this explicit step follows it up.
+	// Idempotent: DROP NOT NULL on an already-nullable column is a no-op,
+	// not an error.
+	if err := db.Exec(`ALTER TABLE loan_payments ALTER COLUMN received_by_employee_id DROP NOT NULL`).Error; err != nil {
+		log.Fatalf("loan_payments.received_by_employee_id nullability migration failed: %v", err)
 	}
 
 	if err := puritystandard.SeedStandards(db); err != nil {

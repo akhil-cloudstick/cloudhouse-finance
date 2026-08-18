@@ -12,6 +12,7 @@ import "time"
 // existing status-value convention) rather than a typed enum.
 const (
 	TriggerLoanSubmission = "loan_submission"
+	TriggerLoanApproval   = "loan_approval" // an intermediate sanction-chain stage decision (approved-not-final, or rejected) — TriggerLoanSanction remains the final-disbursement event
 	TriggerLoanSanction   = "loan_sanction"
 	TriggerPayment        = "payment"
 	TriggerClosure        = "closure"
@@ -19,6 +20,15 @@ const (
 	TriggerAuctionEvent   = "auction_event"
 	TriggerReminder       = "reminder"
 	TriggerOTP            = "otp"
+	// TriggerLoanDueSoon/TriggerLoanOverdue back the new scheduled due/
+	// overdue check (see internal/loan/service.go's CheckDueAndOverdueLoans).
+	TriggerLoanDueSoon = "loan_due_soon"
+	TriggerLoanOverdue = "loan_overdue"
+	// TriggerExtensionRequest/TriggerReleaseRequest cover every stage
+	// decision (approved-not-final, final approved, or rejected) on an
+	// Extension/Release request's approval chain.
+	TriggerExtensionRequest = "extension_request"
+	TriggerReleaseRequest   = "release_request"
 )
 
 // Channel values for CommunicationLog.Channel.

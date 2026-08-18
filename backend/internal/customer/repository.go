@@ -44,6 +44,17 @@ func (r *Repository) FindByID(id uint) (*Customer, error) {
 	return &c, nil
 }
 
+// FindByPhone looks up a customer by exact phone match — used by
+// internal/customerauth to resolve an OTP request/verify to a customer
+// record. Returns gorm.ErrRecordNotFound if no customer has that phone.
+func (r *Repository) FindByPhone(phone string) (*Customer, error) {
+	var c Customer
+	if err := r.db.Preload("Branch").Where("phone = ?", phone).First(&c).Error; err != nil {
+		return nil, err
+	}
+	return &c, nil
+}
+
 func (r *Repository) Update(c *Customer) error {
 	return r.db.Save(c).Error
 }

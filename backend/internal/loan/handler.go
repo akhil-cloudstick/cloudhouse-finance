@@ -74,13 +74,14 @@ func statusForErr(err error) int {
 		errors.Is(err, ErrNoSurplusToDispose), errors.Is(err, ErrInvalidSurplusDisposition),
 		errors.Is(err, ErrSettlementRemarksRequired), errors.Is(err, ErrDecisionRemarksRequired),
 		errors.Is(err, ErrUnsupportedIndemnityBondLang), errors.Is(err, ErrNoIndemnityBondSignRequest),
-		errors.Is(err, ErrDraftBranchRequired):
+		errors.Is(err, ErrDraftBranchRequired), errors.Is(err, ErrUseStagedExtensionApproval),
+			errors.Is(err, ErrRazorpayAmountMismatch), errors.Is(err, ErrRazorpaySignatureInvalid):
 		return http.StatusBadRequest
 	case errors.Is(err, ErrReleaseNotApproved):
 		return http.StatusNotFound
 	case errors.Is(err, ErrIndemnityBondAlreadySigned):
 		return http.StatusConflict
-	case errors.Is(err, ErrEsignNotConfigured):
+	case errors.Is(err, ErrEsignNotConfigured), errors.Is(err, ErrRazorpayNotConfigured):
 		return http.StatusServiceUnavailable
 	default:
 		return http.StatusInternalServerError
@@ -192,6 +193,7 @@ func (h *Handler) Create(c *gin.Context) {
 func (h *Handler) List(c *gin.Context) {
 	f := LoanFilter{Query: c.Query("q"), Status: c.Query("status")}
 	f.ExcludeBankPledged = c.Query("excludeBankPledged") == "true"
+	f.BankPledgeStatus = c.Query("bankPledgeStatus")
 	if v := c.Query("branchId"); v != "" {
 		if id, err := strconv.ParseUint(v, 10, 64); err == nil {
 			f.BranchID = uint(id)
@@ -523,7 +525,7 @@ func (h *Handler) RecordPayment(c *gin.Context) {
 		Type:                 req.Type,
 		ProcessingFee:        req.ProcessingFee,
 		PaidOn:               paidOn,
-		ReceivedByEmployeeID: actorEmployeeID,
+		ReceivedByEmployeeID: &actorEmployeeID,
 		Method:               req.Method,
 		Reference:            req.Reference,
 		Description:          req.Description,
@@ -596,8 +598,39 @@ func (h *Handler) GetAuctionHistory(c *gin.Context) {
 }
 
 // ListConcludedAuctions backs the Auctions screen's History tab.
+//
+// hasSale=true|false narrows to the "Auctions Conducted" vs "Closed Without
+// Auction" sub-tables server-side, so each can be paginated independently
+// without one sub-table's page skipping over the other's rows. limit/offset
+// follow the same convention as Handler.List: when limit is absent the
+// original bare-array response is preserved for any other caller.
 func (h *Handler) ListConcludedAuctions(c *gin.Context) {
-	recs, err := h.svc.ListConcludedAuctions(platform.GetBranchScope(c))
+	var hasSale *bool
+	if v := c.Query("hasSale"); v == "true" || v == "false" {
+		b := v == "true"
+		hasSale = &b
+	}
+
+	limit, _ := strconv.Atoi(c.Query("limit"))
+	if limit > 0 {
+		offset, _ := strconv.Atoi(c.Query("offset"))
+		if offset < 0 {
+			offset = 0
+		}
+		rec, err := h.svc.ListConcludedAuctions(platform.GetBranchScope(c), hasSale, limit+1, offset)
+		if err != nil {
+			fail(c, statusForErr(err), err)
+			return
+		}
+		hasMore := len(rec) > limit
+		if hasMore {
+			rec = rec[:limit]
+		}
+		c.JSON(http.StatusOK, gin.H{"items": rec, "hasMore": hasMore})
+		return
+	}
+
+	recs, err := h.svc.ListConcludedAuctions(platform.GetBranchScope(c), hasSale, 0, 0)
 	if err != nil {
 		fail(c, statusForErr(err), err)
 		return
@@ -903,7 +936,28 @@ func (h *Handler) GetBankPledgeHistory(c *gin.Context) {
 // ListBankPledgeHistory backs the Bank Re-Pledge screen's History tab, which
 // previously had no way to show anything but currently-pledged gold.
 func (h *Handler) ListBankPledgeHistory(c *gin.Context) {
-	recs, err := h.svc.ListBankPledgeHistory(platform.GetBranchScope(c))
+	branchID := platform.GetBranchScope(c)
+
+	limit, _ := strconv.Atoi(c.Query("limit"))
+	if limit > 0 {
+		offset, _ := strconv.Atoi(c.Query("offset"))
+		if offset < 0 {
+			offset = 0
+		}
+		recs, err := h.svc.ListBankPledgeHistory(branchID, limit+1, offset)
+		if err != nil {
+			fail(c, statusForErr(err), err)
+			return
+		}
+		hasMore := len(recs) > limit
+		if hasMore {
+			recs = recs[:limit]
+		}
+		c.JSON(http.StatusOK, gin.H{"items": recs, "hasMore": hasMore})
+		return
+	}
+
+	recs, err := h.svc.ListBankPledgeHistory(branchID, 0, 0)
 	if err != nil {
 		fail(c, statusForErr(err), err)
 		return
@@ -977,6 +1031,27 @@ func (h *Handler) ListRequests(c *gin.Context) {
 		}
 	}
 	f.BranchID = platform.GetBranchScope(c)
+
+	limit, _ := strconv.Atoi(c.Query("limit"))
+	if limit > 0 {
+		offset, _ := strconv.Atoi(c.Query("offset"))
+		if offset < 0 {
+			offset = 0
+		}
+		f.Limit, f.Offset = limit+1, offset
+		rec, err := h.svc.ListRequests(f)
+		if err != nil {
+			fail(c, http.StatusInternalServerError, err)
+			return
+		}
+		hasMore := len(rec) > limit
+		if hasMore {
+			rec = rec[:limit]
+		}
+		c.JSON(http.StatusOK, gin.H{"items": rec, "hasMore": hasMore})
+		return
+	}
+
 	rec, err := h.svc.ListRequests(f)
 	if err != nil {
 		fail(c, http.StatusInternalServerError, err)
@@ -1065,7 +1140,12 @@ type releaseApprovalRequest struct {
 	Remarks string `json:"remarks"`
 }
 
-func (h *Handler) ApproveReleaseRequest(c *gin.Context) {
+// ApproveRequest backs POST /loans/requests/:requestId/approve, dispatching
+// on the request's Type: Extension -> ApproveExtensionRequest, Release ->
+// ApproveReleaseRequest. Both take the same {stage, action, remarks} body
+// shape, so one handler reads the request first to route it rather than
+// requiring the caller to know which type they're deciding.
+func (h *Handler) ApproveRequest(c *gin.Context) {
 	requestID, err := idParam(c, "requestId")
 	if err != nil {
 		fail(c, http.StatusBadRequest, err)
@@ -1076,20 +1156,46 @@ func (h *Handler) ApproveReleaseRequest(c *gin.Context) {
 		fail(c, http.StatusBadRequest, err)
 		return
 	}
-	// Actor identity comes from the authenticated JWT, not the request body
-	// — see platform.ActorFromContext's doc comment.
-	actorEmployeeID, _ := platform.ActorFromContext(c)
-	rec, err := h.svc.ApproveReleaseRequest(requestID, platform.GetBranchScope(c), ReleaseApprovalInput{
-		Stage:           req.Stage,
-		Action:          req.Action,
-		ActorEmployeeID: actorEmployeeID,
-		Remarks:         req.Remarks,
-	})
+
+	lr, err := h.svc.GetRequest(requestID)
 	if err != nil {
 		fail(c, statusForErr(err), err)
 		return
 	}
-	c.JSON(http.StatusOK, rec)
+
+	// Actor identity comes from the authenticated JWT, not the request body
+	// — see platform.ActorFromContext's doc comment.
+	actorEmployeeID, actorRole := platform.ActorFromContext(c)
+
+	switch lr.Type {
+	case RequestTypeExtension:
+		rec, err := h.svc.ApproveExtensionRequest(requestID, platform.GetBranchScope(c), ExtensionApprovalInput{
+			Stage:           req.Stage,
+			Action:          req.Action,
+			ActorEmployeeID: actorEmployeeID,
+			ActorRole:       actorRole,
+			Remarks:         req.Remarks,
+		})
+		if err != nil {
+			fail(c, statusForErr(err), err)
+			return
+		}
+		c.JSON(http.StatusOK, rec)
+	case RequestTypeRelease:
+		rec, err := h.svc.ApproveReleaseRequest(requestID, platform.GetBranchScope(c), ReleaseApprovalInput{
+			Stage:           req.Stage,
+			Action:          req.Action,
+			ActorEmployeeID: actorEmployeeID,
+			Remarks:         req.Remarks,
+		})
+		if err != nil {
+			fail(c, statusForErr(err), err)
+			return
+		}
+		c.JSON(http.StatusOK, rec)
+	default:
+		fail(c, http.StatusBadRequest, ErrInvalidRequestType)
+	}
 }
 
 func (h *Handler) CompleteRelease(c *gin.Context) {

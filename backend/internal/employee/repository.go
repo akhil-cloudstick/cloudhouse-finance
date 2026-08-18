@@ -22,11 +22,19 @@ func (r *Repository) Create(e *Employee) error {
 // FindAll returns employees, optionally scoped to a single branch — pass
 // nil for an Administrator's unfiltered "all branches" view, or a non-nil
 // pointer to confine results to that branch (see platform.GetBranchScope).
-func (r *Repository) FindAll(branchID *uint) ([]Employee, error) {
+// limit/offset paginate the result set; limit <= 0 means "no limit" (the
+// full result set, preserving existing bare-array callers).
+func (r *Repository) FindAll(branchID *uint, limit, offset int) ([]Employee, error) {
 	var employees []Employee
 	q := r.db.Preload("Branch").Order("id asc")
 	if branchID != nil {
 		q = q.Where("branch_id = ?", *branchID)
+	}
+	if limit > 0 {
+		q = q.Limit(limit)
+	}
+	if offset > 0 {
+		q = q.Offset(offset)
 	}
 	err := q.Find(&employees).Error
 	return employees, err

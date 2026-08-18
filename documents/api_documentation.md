@@ -140,6 +140,291 @@ target phone.
 in `.env`; the value accepts either a `<n>d` shorthand or a normal Go
 duration like `168h`, and falls back to 7 days if unset/unparseable).
 
+## Customer App Authentication API (`/api/v1/customer/auth`)
+Implemented in `backend/internal/customerauth/` plus `backend/internal/platform/`
+(`IssueCustomerToken`/`ParseCustomerToken`, `CustomerAuthMiddleware`) —
+sign-in for the customer mobile app (`customer-mobile/`), **completely
+separate from the employee auth system above.** A customer JWT carries
+`"type": "customer"` and is verified only by `CustomerAuthMiddleware`; an
+employee JWT has no such claim and is rejected by it, and vice versa a
+customer JWT is rejected by the employee `AuthMiddleware`. The two token
+kinds are never interchangeable, and there is no shared "logged in" concept
+between the staff web/mobile apps and the customer app.
+
+Two sign-in mechanisms:
+- **OTP over WhatsApp** — `request-otp` / `verify-otp`, always available;
+  the only path for a customer's very first sign-in on any device. Delivered
+  via the same `platform.OpenWASender`/OpenWA integration used for employee
+  password-reset codes and reminders, and logged to `communication_logs`
+  (`commlog.TriggerOTP`, `relatedEntityType: "customer"`) the same way.
+- **Device-bound biometric login** — right after a successful `verify-otp`,
+  the app calls `register-device`, which issues a long-lived, revocable
+  device token (random 32 bytes, only its SHA-256 hash stored server-side).
+  The app stores that raw token in `SecureStore`, releasing it for use only
+  after a local `expo-local-authentication` biometric check succeeds. On a
+  later cold start, a successful biometric check lets the app exchange the
+  device token for a fresh session JWT via `device-login` — the server
+  re-validates the token is real and not revoked, so this is a genuine
+  server-side check, not just a client-side unlock. A device with no usable
+  biometric hardware/enrollment simply never completes `register-device`;
+  the customer is still signed in via the session token from `verify-otp`,
+  and every later app open on that device falls back to the OTP screen.
+
+| Method | Path | Purpose | Body | Auth |
+|---|---|---|---|---|
+| POST | `/api/v1/customer/auth/request-otp` | Send a 6-digit sign-in OTP via WhatsApp | `{ "phone" }` → `{ "message" }` | Public |
+| POST | `/api/v1/customer/auth/verify-otp` | Exchange phone + OTP for a session JWT | `{ "phone", "code" }` → `{ "token", "customer": CustomerResponse }` | Public |
+| POST | `/api/v1/customer/auth/device-login` | Exchange a stored device token (post-biometric) for a fresh session JWT | `{ "deviceToken" }` → `{ "token", "customer": CustomerResponse }` | Public |
+| POST | `/api/v1/customer/auth/register-device` | Issue a new device token for this (customer, device) pair | `{ "deviceId" }` → `{ "deviceToken" }` | Bearer customer token |
+| POST | `/api/v1/customer/auth/refresh` | Extend the current session | — → `{ "token" }` | Bearer customer token |
+
+**Status codes:**
+- `POST request-otp` — `200` on success; `404` with `"This phone number is
+  not registered. Please contact your branch."` if no customer has that
+  phone (deliberately explicit, unlike employee forgot-password — the
+  customer app is a closed system tied to an existing loan-account
+  relationship, so there's no account-existence ambiguity to protect here).
+- `POST verify-otp` — `200` + `{ token, customer }`; `400
+  ErrInvalidOrExpiredOTP` for an unknown phone, wrong code, or an OTP past
+  its 5-minute expiry; `400 ErrTooManyAttempts` after 5 wrong tries against
+  the same OTP (request a new one).
+- `POST register-device` — `200` + `{ deviceToken }`; `400
+  ErrDeviceIDRequired` if `deviceId` is blank; `401` if not authenticated.
+  Any prior live device token for the same `(customerId, deviceId)` pair is
+  revoked first.
+- `POST device-login` — `200` + `{ token, customer }`; `400
+  ErrInvalidDeviceToken` if the token is unknown or revoked.
+- `POST refresh` — `200` + `{ token }`; `401` if the bearer token is
+  missing/invalid/expired.
+
+**Storage:** `customer_otp` (phone, SHA-256 code hash, expiry, attempt
+count — one row per phone, overwritten on each new request) and
+`customer_device_tokens` (customerId, deviceId, SHA-256 token hash,
+createdAt/revokedAt/lastUsedAt), both `backend/internal/customerauth/model.go`,
+migrated via `go run ./cmd/migrate` same as every other table (no
+AutoMigrate on server boot).
+
+**JWT details:** HS256, signed with the same `JWT_SECRET` as employee
+tokens (there's only one configured secret for this server) but a distinct
+claims shape — `customerId`, `type: "customer"`, plus standard `iat`/`exp`.
+Session JWTs are short-lived (24h); the long-lived credential is the device
+token, not the JWT itself.
+
+## Customer App Gold Rate API (`/api/v1/customer/gold-rate`)
+Thin, read-only customer-scoped mount of the existing `internal/goldrate`
+handler (see the "Gold Rates API" section below for the underlying
+model/behavior) — no new gold-rate logic, just a different route group
+gated by `CustomerAuthMiddleware` instead of the employee permission system.
+
+| Method | Path | Purpose | Auth |
+|---|---|---|---|
+| GET | `/api/v1/customer/gold-rate/latest` | Current published 24K rate | Bearer customer token |
+| GET | `/api/v1/customer/gold-rate/history?limit=N` | Most recent `N` rates, newest first, `{ "items": [...], "hasMore": bool }` | Bearer customer token |
+
+## Customer App Loan API (`/api/v1/customer/loans`)
+Thin, ownership-checked customer-scoped mount of the existing
+`internal/loan` service/repository (see the "Loans API" section below for
+the underlying `Loan`/`Ornament`/`LoanRequest` model) — no duplicated
+business logic, just a different route group gated by
+`CustomerAuthMiddleware`, with `customerId` forced from the JWT rather than
+trusted from the client, and **no `branchId` filter** (a customer's loans
+may span branches). Implemented in
+`backend/internal/loan/customer_handler.go`.
+
+| Method | Path | Purpose | Body | Auth |
+|---|---|---|---|---|
+| GET | `/api/v1/customer/loans?status=&limit=&offset=` | List the caller's own loans, optionally filtered by `status`, paginated the same `{ "items": [...], "hasMore": bool }` shape as the staff list | — | Bearer customer token |
+| GET | `/api/v1/customer/loans/:id` | One loan's full detail (ornaments, outstanding figures, etc. — same enriched `Loan` shape as the staff `GET /loans/:id`) | — | Bearer customer token |
+| GET | `/api/v1/customer/loans/:id/requests` | Every Extension/Release request logged against this loan, newest first (not in the original batch plan — added so the Loan Detail screen's Requests card can show an already-pending request's stage on a fresh load, not only right after submitting one this session) | — → `LoanRequest[]` | Bearer customer token |
+| POST | `/api/v1/customer/loans/:id/extension-request` | Ask to push the loan's due date out | `{ "months", "detail" }` → `LoanRequest` | Bearer customer token |
+| POST | `/api/v1/customer/loans/:id/release-request` | Ask to close the loan and release the pledged gold | `{ "detail" }` → `LoanRequest` | Bearer customer token |
+| POST | `/api/v1/customer/loans/:id/pay/create-order` | Opens a Razorpay order for a customer-chosen amount against this loan; validates the amount against the loan's computed outstanding figures for the given `type` (see below) | `{ "amount", "type": "Interest"\|"FullSettlement"\|"Partial" }` → `{ "orderId", "amount", "currency": "INR", "keyId" }` | Bearer customer token |
+| POST | `/api/v1/customer/loans/:id/pay/verify` | Verifies the Razorpay checkout signature and, only on success, records the payment against the loan's existing ledger (`Method: "Online"`, `Reference: <razorpay_payment_id>`, `receivedByEmployeeId: null`) — same fee→penal→interest→principal waterfall a staff-recorded payment goes through | `{ "orderId", "paymentId", "signature", "amount", "type" }` → updated `Loan` (200), or `400` with no `LoanPayment` created on a signature mismatch | Bearer customer token |
+| GET | `/api/v1/customer/loans/:id/payments` | This loan's payment ledger, newest first — backs the Loan Detail screen's payment history | — → `LoanPayment[]` | Bearer customer token |
+| GET | `/api/v1/customer/loans/:id/statement` | Generates and serves (inline, `application/pdf`) a full statement for this loan — a summary header (loan number, customer name, principal, opened/due date, current outstanding) plus a table of every payment ever recorded against it. Added in batch 5 (Documents), reusing the same gofpdf pattern as the payment-receipt PDF (`renderPaymentReceiptPDF`) rather than a new PDF library. A loan with zero payments still returns a valid one-page PDF | — → `application/pdf` | Bearer customer token |
+
+**Ownership check:** every route above first loads the loan and compares
+`loan.customerId` against the JWT's `customerId`; a mismatch (or a
+genuinely nonexistent id) both return a plain `404`, never `403` — the
+response deliberately doesn't distinguish "not yours" from "doesn't exist"
+so a customer can't probe for other customers' loan ids.
+
+**`extension-request`/`release-request`** call the exact same
+`Service.CreateExtensionRequest`/`CreateReleaseRequest` the staff app uses,
+with `requestedBy` forced to `"Customer"` regardless of what the client
+sends. Both requests start life on the staged approval chain described
+below rather than any one-shot decision.
+
+### Customer App Payments API (`/api/v1/customer/payments`)
+Added in batch 3 (Razorpay Setup + Payments), alongside the per-loan
+`pay/create-order`/`pay/verify`/`payments` routes above. Same
+`CustomerAuthMiddleware` gating and `customerId`-forced-from-JWT convention.
+
+| Method | Path | Purpose | Body | Auth |
+|---|---|---|---|---|
+| GET | `/api/v1/customer/payments?limit=&offset=` | Every payment across every loan belonging to the caller, newest first, paginated the same `{ "items": [...], "hasMore": bool }` shape as the loan list — backs the Payments tab's global history | — | Bearer customer token |
+| GET | `/api/v1/customer/payments/:paymentId/receipt` | Generates and serves (inline, `Content-Type: application/pdf`) a one-page PDF receipt for one payment — loan number, customer name, payment date, amount, type, method, reference, running balance after the payment | — → `application/pdf` | Bearer customer token |
+
+**Ownership check on the receipt route:** the payment's parent loan's
+`customerId` is compared against the JWT's `customerId`; a mismatch (or a
+nonexistent payment id) returns `404`, matching every other customer route's
+"don't reveal it exists" convention.
+
+**Razorpay order validation (`pay/create-order`):** the requested `amount`
+must match one of three shapes for the given `type`, computed from the
+loan's enriched fields:
+- `Interest` — amount must exactly equal `outstandingInterest +
+  outstandingPenalInterest`.
+- `FullSettlement` — amount must exactly equal `settlementAmount`.
+- `Partial` (or any other value) — amount must be `> 0` and `<=
+  totalOutstandingBalance`.
+
+A mismatch returns `400`. The `type` sent back into `pay/verify` should be
+the same one used at order-creation time; it is passed straight through to
+`RecordPayment`'s existing allocation waterfall, which decides where the
+money actually goes (fee → penal interest → interest → principal) — the
+Razorpay flow adds no new allocation logic of its own.
+
+## Customer App Notifications API (`/api/v1/customer/notifications`, `/api/v1/customer/ws`)
+Realtime, ack-tracked in-app notifications — backed by a durable
+`notifications` table (`internal/notification`), delivered live over a
+WebSocket while the app is connected (`internal/realtime`'s connection
+registry). **This is not true background push** (no FCM/APNs) — a
+WebSocket only delivers while the socket is open; the database is the
+source of truth and the socket is a live-delivery accelerator on top of it,
+an explicit, agreed tradeoff to avoid a Firebase dependency.
+
+| Method | Path | Purpose | Auth |
+|---|---|---|---|
+| GET | `/api/v1/customer/notifications?limit=&offset=` | Paginated history, newest first, `{ "items": [...], "hasMore": bool }` — the bell list's cold-start backfill | Bearer customer token |
+| POST | `/api/v1/customer/notifications/:id/ack` | REST fallback ack, for a notification the app only ever saw via the list above (not a live push) | Bearer customer token |
+| GET | `/api/v1/customer/ws` | WebSocket upgrade — the live-push channel | Bearer customer token (same `CustomerAuthMiddleware` gate; gin processes the upgrade request as a normal HTTP request right up until the connection is hijacked) |
+
+**Wire messages** — server → client, pushed per notification:
+```json
+{ "type": "notification", "id": 1, "notifType": "LoanSanctioned", "title": "Loan Sanctioned", "body": "...", "relatedEntityType": "loan", "relatedEntityId": 42, "createdAt": "2026-01-01T12:00:00Z" }
+```
+Client → server, the *only* inbound message shape — this is the delivery
+acknowledgement:
+```json
+{ "type": "ack", "notificationId": 1 }
+```
+
+**Delivery/resend semantics**: `Delivered` flips true only once the client
+sends the `ack` above (over the socket, or via the REST fallback) — not
+merely "the server attempted a push." Undelivered notifications are
+retried every 10 minutes, up to 10 attempts (`notification.Service.
+ResendPending`, driven by a `time.Ticker` in `main.go` — the first
+scheduled/background job in this codebase). After 10 attempts the retry
+loop stops, but the row is never deleted — it stays visible via the list
+endpoint. On every new WS connection, any of that customer's undelivered
+notifications are pushed immediately (`PushUndeliveredOnConnect`), without
+waiting for the next tick.
+
+**Event coverage**: loan submission, every sanction-chain stage (approved/
+rejected, not just final), loan sanction (final disbursement), every
+payment recorded, loan due-soon and overdue (a new hourly scheduled check,
+`loan.Service.CheckDueAndOverdueLoans` — the one genuinely new notification
+*trigger*; every other event reuses the existing `notifyCustomer` call
+sites), every Extension/Release request stage decision, and every auction
+stage transition. All of this is wired through `internal/loan/service.go`'s
+existing `notifyCustomer` helper, extended to fire an in-app notification
+independently of whether WhatsApp is configured (previously, an
+unconfigured WhatsApp client silently skipped the WhatsApp send AND the
+commlog write — now the in-app half always fires regardless).
+`loan.CustomerNotifier` is the narrow interface `internal/loan` calls
+through (same cross-package-dependency convention as `PacketCreator`/
+`CashRecorder`), implemented by `notification.Service` and injected from
+`main.go`.
+
+**Bug fix note**: while wiring this, a pre-existing bug in
+`resolveAuctionAfterPayment` was fixed — its "payment received, auction on
+hold" WhatsApp message used to fire on **every non-closing payment on any
+loan**, not just loans with an active auction case, because the guard
+checked `l.Status != StatusClosed` without also checking whether an active
+auction record was actually found. It's now correctly gated on both.
+
+### `LoanPayment.receivedByEmployeeId` is now nullable
+Previously required (`NOT NULL`) and always populated from the acting
+employee's JWT on every staff-recorded payment. As of batch 3 it is a
+nullable `uint` (`*uint` in Go) — a customer-initiated Razorpay payment has
+no employee actor, so it is recorded as `null` rather than a fabricated
+"system" employee id. Every staff-facing payment endpoint is unaffected:
+`POST /api/v1/loans/:id/payments` still always sets it from the
+authenticated employee. Migrated via `cmd/migrate`, which now runs an
+explicit `ALTER TABLE loan_payments ALTER COLUMN received_by_employee_id
+DROP NOT NULL` after `AutoMigrate` (GORM's `AutoMigrate` does not reliably
+relax an existing `NOT NULL` constraint on Postgres on its own).
+
+## Customer App Profile & KYC API (`/api/v1/customer/profile`)
+Added in batch 4. Unlike the loan/payment routes above (a customer owns
+*many* loans, so `:id` needs an ownership check), a customer has exactly
+**one** `Customer` row and its ID *is* `customerId` from the JWT — so none
+of these routes take an `:id` at all. All four wrap the existing staff-side
+`internal/customer.Service` methods unmodified (`Get`/`VerifyPAN`/
+`StartAadhaarVerify`/`CheckAadhaarVerify` — same Setu PAN-verify and
+DigiLocker Aadhaar-verify logic documented in the "Customer Module" section
+below), called with `branchID=nil` instead of a staff actor's branch scope.
+Implemented in `backend/internal/customer/customer_mobile_handler.go`.
+
+| Method | Path | Purpose | Body | Auth |
+|---|---|---|---|---|
+| GET | `/api/v1/customer/profile` | The caller's own full profile (`CustomerResponse` shape — no raw Aadhaar/internal fields) | — → `CustomerResponse` | Bearer customer token |
+| POST | `/api/v1/customer/profile/verify-pan` | Triggers a live Setu PAN-verify for the caller's on-file PAN and persists the result | — → `{ "customer", "message", "matchedName", "traceId" }` | Bearer customer token |
+| POST | `/api/v1/customer/profile/aadhaar/start` | Begins a DigiLocker Aadhaar-verify request; `redirectUrl` is the app's own deep link (e.g. `ambikacustomer://aadhaar-callback`) that DigiLocker redirects back to once the customer finishes logging in | `{ "redirectUrl" }` → `{ "id", "url", "status", "validUpto" }` | Bearer customer token |
+| GET | `/api/v1/customer/profile/aadhaar/status` | Polled after the DigiLocker browser flow returns; `{ "status": "unauthenticated" }` while still pending, or `{ "customer", "status": "authenticated", "matchedName", "dob" }` once done | — | Bearer customer token |
+
+This batch is **fully view-only** otherwise — no endpoint lets a customer
+edit their own name/PAN/Aadhaar/address/nominee/DOB/photo; editing remains
+staff-only via the existing `PUT /api/v1/customers/:id`. The Aadhaar
+**eSign** flow (`internal/platform/setu_esign.go`, used for indemnity
+bonds) is a separate Setu product, not touched by this KYC verification
+flow.
+
+### Extension request approval chain (Loan Officer → Branch Manager → Management)
+Extension requests used to be decided in one step
+(`PUT /loans/requests/:requestId/decide`). They now go through the same
+kind of fixed, audited, role-gated chain Release requests already used —
+`LoanRequest.ApprovalStage` + one `RequestApproval` row per decision — just
+with an extra checkpoint in front:
+
+```
+PendingLoanOfficer → PendingBranchManager → PendingManagement → Approved
+                                    ↘ (Rejected at any stage) → Rejected
+```
+
+- `POST /api/v1/loans/requests/:requestId/approve` (staff-only, existing
+  route — **generalized**, not new) now dispatches on `req.Type`:
+  `Extension` → `Service.ApproveExtensionRequest`, `Release` →
+  `Service.ApproveReleaseRequest` (unchanged). Body:
+  `{ "stage": "LoanOfficer"|"BranchManager"|"Management", "action": "Approved"|"Rejected", "remarks" }`.
+  `stage` must match the request's current `approvalStage`, or `400
+  ErrWrongStage`. The actor's role must match the stage's required role
+  (`Loan Operator`/`Branch Manager`/`Management` — reusing
+  `employee.ValidRoles`' exact role strings, not a separate "Loan Officer"
+  role), except `"Administrator"`, which may act at any pending stage — the
+  same bypass rule the loan sanction chain and Release chain already use.
+  A `Rejected` action at any stage terminates the request (`Status ->
+  "Rejected"`) without touching the loan. The final `Approved` action (the
+  `Management` stage) pushes the loan's `dueDate` out by the originally
+  requested months, exactly like the old `DecideRequest` did — blocked with
+  `400 ErrLoanTerminalState` if the loan is already Closed/Auctioned/Defaulted.
+- `PUT /loans/requests/:requestId/decide` (the old single-step path) now
+  **always returns `400 ErrUseStagedExtensionApproval`** for an Extension
+  request, pointing callers at the staged endpoint above. Release requests
+  already never used this path (`400 ErrNotExtensionRequest`, unchanged).
+- **Staff-side approval UI**: `frontend/components/Requests.tsx`'s "Review"
+  button now opens `ExtensionReviewModal.tsx` (Extension) or
+  `ReleaseReviewModal.tsx` (Release) — both drive their respective chain
+  through the same `POST /loans/requests/:requestId/approve` endpoint
+  (`frontend/lib/loansApi.ts`'s `approveExtensionRequest`/
+  `approveReleaseRequest`). The Extension modal shows the 3-stage
+  `StageTracker` and role-gates the Approve/Reject buttons client-side
+  (`useAuth()`'s `role`, Administrator bypass) to match the server-side role
+  check; Release has no server-side role gate (any actor with `loans:update`
+  can approve any stage), so its modal doesn't role-gate either — a
+  pre-existing asymmetry between the two chains, not something this fixed.
+
 ### Permissions / RBAC model
 Authorization is a `(role, resource, action)` → `allowed` table in
 Postgres (`permissions` table, `internal/authz.Permission`), not a

@@ -33,3 +33,12 @@ export function settleAuction(loanId: number, settlementStatus: string) {
     body: { settlementStatus },
   });
 }
+
+// Backs the Auctions screen's History tab — mirrors
+// frontend/lib/loansApi.ts's listConcludedAuctionsPage. hasSale=true is
+// "Auctions Conducted" (a sale was recorded), hasSale=false is "Closed
+// Without Auction" (Withdrawn before a sale) — two independently paginated
+// tables, same as web.
+export function listConcludedAuctions(params: { hasSale: boolean; limit: number; offset: number }) {
+  return apiRequest<{ items: AuctionRecord[]; hasMore: boolean }>("/loans/auctions/concluded", { params });
+}

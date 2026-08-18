@@ -5,7 +5,7 @@ import { useLoans } from "@/lib/LoansProvider";
 import { LoanRow } from "@/components/LoanRow";
 import { Icon } from "@/lib/icons";
 import { useAuth } from "@/lib/auth-context";
-import { listLoans, type LoanView } from "@/lib/loansApi";
+import { listLoansPage, LOANS_TABLE_PAGE_SIZE, type LoanView } from "@/lib/loansApi";
 
 const CATS = ["All", "Active", "Due Soon", "Overdue", "Defaulted", "Pending Approval", "Auction Eligible", "Closed"];
 
@@ -41,11 +41,17 @@ export function Loans() {
   const canCreateLoans = role !== "Cashier";
   const [cat, setCat] = useState("All");
   const [q, setQ] = useState("");
+  const [page, setPage] = useState(1);
   const [filtered, setFiltered] = useState<LoanView[] | null>(null);
+  const [hasMore, setHasMore] = useState(false);
   const [searching, setSearching] = useState(false);
   const [searchError, setSearchError] = useState("");
 
   const computedPredicate = COMPUTED_CATS[cat];
+
+  // Any filter change resets back to page 1 rather than leaving the user
+  // stranded on a page number the new filter may not have.
+  useEffect(() => { setPage(1); }, [cat, q]);
 
   // LoansProvider fetches once when the app shell mounts and is only
   // re-fetched by pages that explicitly call refresh() (LoanDetail, Requests,
@@ -69,39 +75,52 @@ export function Loans() {
   }, [cat, computedPredicate, refreshLoans]);
 
   useEffect(() => {
-    if (computedPredicate || (cat === "All" && !q.trim())) {
+    // Computed-flag categories (Due Soon/Overdue/Defaulted) have no backing
+    // `status` column to query server-side — they filter LoansProvider's
+    // already-loaded list client-side (see COMPUTED_CATS) and paginate that
+    // filtered array locally instead of hitting the API per page.
+    if (computedPredicate) {
       setFiltered(null);
       return;
     }
     let cancelled = false;
     setSearching(true);
     const handle = setTimeout(() => {
-      listLoans({ status: cat === "All" ? undefined : cat, q: q.trim() || undefined })
-        .then((list) => { if (!cancelled) { setFiltered(list); setSearchError(""); } })
+      listLoansPage({ status: cat === "All" ? undefined : cat, q: q.trim() || undefined, page })
+        .then((res) => { if (!cancelled) { setFiltered(res.items); setHasMore(res.hasMore); setSearchError(""); } })
         .catch((e) => { if (!cancelled) setSearchError(e instanceof Error ? e.message : "Search failed."); })
         .finally(() => { if (!cancelled) setSearching(false); });
     }, 300);
     return () => { cancelled = true; clearTimeout(handle); };
     // `allLoans` is a dependency for its identity, not its value: this branch
-    // renders `filtered` (a server-side listLoans snapshot) rather than the
-    // provider list, and nothing was re-running this query when a loan
+    // renders `filtered` (a server-side listLoansPage snapshot) rather than
+    // the provider list, and nothing was re-running this query when a loan
     // changed. Recording a payment or clearing an approval called
     // refreshLoans(), which swapped in a fresh provider array but left
-    // `filtered` pinned to the pre-change rows — so with any tab but "All" or
-    // a search term present, the table only caught up on a browser reload.
+    // `filtered` pinned to the pre-change rows — so with any tab but a
+    // computed category, the table only caught up on a browser reload.
     // Keying off the new array identity re-issues the filtered query in step
     // with every provider refresh.
-  }, [cat, q, computedPredicate, allLoans]);
+  }, [cat, q, page, computedPredicate, allLoans]);
 
   const loading = filtered === null ? providerLoading : searching;
   const error = searchError || providerError;
-  let rows = filtered ?? allLoans;
+  let rows: LoanView[];
+  let totalPages = 1;
   if (computedPredicate) {
-    rows = rows.filter(computedPredicate);
+    rows = allLoans.filter(computedPredicate);
     if (q.trim()) {
       const needle = q.trim().toLowerCase();
       rows = rows.filter((l) => l.id.toLowerCase().includes(needle) || l.customerName.toLowerCase().includes(needle));
     }
+    totalPages = Math.max(1, Math.ceil(rows.length / LOANS_TABLE_PAGE_SIZE));
+    rows = rows.slice((page - 1) * LOANS_TABLE_PAGE_SIZE, page * LOANS_TABLE_PAGE_SIZE);
+  } else {
+    rows = filtered ?? [];
+    // No total-row count comes back from the {items, hasMore} envelope (see
+    // loansApi.listLoansPage) — only whether another page exists — so the
+    // page indicator can't show "of N" here, just enable/disable Next.
+    totalPages = hasMore ? page + 1 : page;
   }
 
   return (
@@ -128,7 +147,13 @@ export function Loans() {
             <tr><td colSpan={7} className="empty">No loans in this category.</td></tr>
           ) : rows.map((l) => <LoanRow loan={l} key={l.id} />)}
         </tbody>
-      </table></div></div>
+      </table></div>
+      <div className="ft" style={{ display: "flex", alignItems: "center", gap: 10 }}>
+        <button className="btn plain sm" disabled={page <= 1} onClick={() => setPage((p) => Math.max(1, p - 1))}>‹ Prev</button>
+        <span style={{ fontSize: 12.5 }}>Page {page} of {totalPages}</span>
+        <button className="btn plain sm" disabled={page >= totalPages} onClick={() => setPage((p) => Math.min(totalPages, p + 1))}>Next ›</button>
+      </div>
+      </div>
     </>
   );
 }

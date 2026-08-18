@@ -7,6 +7,19 @@ export function listPackets(params?: { loanId?: number; lockerId?: number; statu
   return apiRequest<Packet[]>("/packets", { params });
 }
 
+// Page-scoped variant: passing `limit` flips the backend (packet/handler.go's
+// List) into the {items, hasMore} envelope — used by the paginated mobile
+// Packets list (10/page, one API call per page).
+export function listPacketsPage(params: {
+  loanId?: number;
+  lockerId?: number;
+  status?: string;
+  limit: number;
+  offset: number;
+}) {
+  return apiRequest<{ items: Packet[]; hasMore: boolean }>("/packets", { params });
+}
+
 export function getPacketByCode(code: string) {
   return apiRequest<Packet>(`/packets/by-code/${encodeURIComponent(code)}`);
 }

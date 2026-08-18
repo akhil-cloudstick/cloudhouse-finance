@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useLoans } from "@/lib/LoansProvider";
 import { useModal } from "@/components/Modal";
 import { useToast } from "@/components/Toast";
@@ -10,9 +10,11 @@ import { fmt, fmtW } from "@/lib/format";
 import {
   releaseBankPledge,
   voidBankPledge,
-  listBankPledgeHistory,
+  listBankPledgeHistoryPage,
+  listLoansPage,
   CASH_TREATMENT_LABELS,
   type BankPledgeRecordView,
+  type LoanView,
 } from "@/lib/loansApi";
 import { RepledgeModalContent, SelectLoanForRepledgeModalContent } from "@/components/modals/RepledgeModal";
 import { BankModalContent } from "@/components/modals/BankModal";
@@ -36,7 +38,7 @@ const VOID_ROLES = ["Administrator", "Management", "Branch Manager"];
  * vanish from the UI completely — there was no way to see what had been pledged
  * where, for how much, or who released it. */
 export function BankPledge() {
-  const { loans, loading, error, refresh } = useLoans();
+  const { error, refresh } = useLoans();
   const { openModal, closeModal } = useModal();
   const { role } = useAuth();
   const toast = useToast();
@@ -45,20 +47,56 @@ export function BankPledge() {
   const [history, setHistory] = useState<BankPledgeRecordView[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
   const [historyError, setHistoryError] = useState("");
+  const [historyPage, setHistoryPage] = useState(1);
+  const [historyHasMore, setHistoryHasMore] = useState(false);
 
-  const pledged = loans.filter((l) => l.bankPledgeStatus === "Bank Pledged");
+  // Active tab — paginated straight off the backend (bankPledgeStatus is a
+  // real column, see LoanFilter.BankPledgeStatus) rather than filtering
+  // LoansProvider's full `loans` array, which won't stay complete as loan
+  // volume grows.
+  const [pledged, setPledged] = useState<LoanView[]>([]);
+  const [pledgedLoading, setPledgedLoading] = useState(true);
+  const [pledgedError, setPledgedError] = useState("");
+  const [pledgedPage, setPledgedPage] = useState(1);
+  const [pledgedHasMore, setPledgedHasMore] = useState(false);
+
   const canVoid = !!role && VOID_ROLES.includes(role);
+  // No total-row count comes back from the {items, hasMore} envelope — only
+  // whether another page exists — so this can't show "of N", just enable/
+  // disable Next (mirrors Loans.tsx's totalPages for the same reason).
+  const historyTotalPages = historyHasMore ? historyPage + 1 : historyPage;
+  const pledgedTotalPages = pledgedHasMore ? pledgedPage + 1 : pledgedPage;
+
+  const loadPledged = useCallback(async (page: number) => {
+    setPledgedLoading(true);
+    setPledgedError("");
+    try {
+      const res = await listLoansPage({ bankPledgeStatus: "Bank Pledged", page });
+      setPledged(res.items);
+      setPledgedHasMore(res.hasMore);
+    } catch (e) {
+      setPledgedError(e instanceof ApiError ? e.message : "Could not load re-pledged loans.");
+    } finally {
+      setPledgedLoading(false);
+    }
+  }, []);
+
+  useEffect(() => { void loadPledged(pledgedPage); }, [loadPledged, pledgedPage]);
 
   /* Fetched lazily — the history query spans every loan, so there is no reason
    * to pay for it until someone opens the tab. Triggered from the click handler
    * rather than an effect on `tab`: the fetch responds to a user action rather
    * than synchronizing state, and doing it in an effect trips
-   * react-hooks/set-state-in-effect for the cascading render it causes. */
-  const loadHistory = useCallback(async () => {
+   * react-hooks/set-state-in-effect for the cascading render it causes.
+   * Re-runs (via the effect below) whenever `historyPage` changes while the
+   * tab is open. */
+  const loadHistory = useCallback(async (page: number) => {
     setHistoryLoading(true);
     setHistoryError("");
     try {
-      setHistory(await listBankPledgeHistory());
+      const res = await listBankPledgeHistoryPage(page);
+      setHistory(res.items);
+      setHistoryHasMore(res.hasMore);
     } catch (e) {
       setHistoryError(e instanceof ApiError ? e.message : "Could not load re-pledge history.");
     } finally {
@@ -66,14 +104,23 @@ export function BankPledge() {
     }
   }, []);
 
+  // Page changes while the History tab is open re-fetch that page. Opening
+  // the tab (showHistory) resets historyPage to 1, which also triggers this.
+  useEffect(() => {
+    if (tab === "history") void loadHistory(historyPage);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tab, historyPage]);
+
   function showHistory() {
     setTab("history");
-    void loadHistory();
+    if (historyPage === 1) void loadHistory(1);
+    else setHistoryPage(1);
   }
 
   function refreshAll() {
     refresh();
-    if (tab === "history") void loadHistory();
+    void loadPledged(pledgedPage);
+    if (tab === "history") void loadHistory(historyPage);
   }
 
   function startNewRepledge() {
@@ -143,13 +190,14 @@ export function BankPledge() {
       {tab === "active" ? (
         <div className="card">
           <div className="hd"><h3>Re-Pledged Loans</h3></div>
+          {pledgedError && <div className="notice" style={{ margin: 14 }}>{pledgedError}</div>}
           <div className="tbl-wrap">
             <table className="tbl">
               <thead>
                 <tr><th>Loan</th><th>Customer</th><th>Bank</th><th className="num">Weight</th><th className="num">Pledged Amount</th><th>Cash</th><th>Pledged On</th><th></th></tr>
               </thead>
               <tbody>
-                {loading ? (
+                {pledgedLoading ? (
                   <tr><td colSpan={8} className="empty">Loading…</td></tr>
                 ) : pledged.length === 0 ? (
                   <tr><td colSpan={8} className="empty">No loans currently bank-pledged.</td></tr>
@@ -209,6 +257,11 @@ export function BankPledge() {
               </tbody>
             </table>
           </div>
+          <div className="ft" style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <button className="btn plain sm" disabled={pledgedPage <= 1} onClick={() => setPledgedPage((p) => Math.max(1, p - 1))}>‹ Prev</button>
+            <span style={{ fontSize: 12.5 }}>Page {pledgedPage} of {pledgedTotalPages}</span>
+            <button className="btn plain sm" disabled={!pledgedHasMore} onClick={() => setPledgedPage((p) => p + 1)}>Next ›</button>
+          </div>
           <div className="ft">If a customer requests closure while gold is bank-pledged, the release workflow flags the bank release step first.</div>
         </div>
       ) : (
@@ -245,6 +298,11 @@ export function BankPledge() {
             </table>
           </div>
           <div className="ft">Every re-pledge ever recorded, including released and voided ones. Voided records are kept for audit and never deleted.</div>
+          <div className="ft" style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <button className="btn plain sm" disabled={historyPage <= 1} onClick={() => setHistoryPage((p) => Math.max(1, p - 1))}>‹ Prev</button>
+            <span style={{ fontSize: 12.5 }}>Page {historyPage} of {historyTotalPages}</span>
+            <button className="btn plain sm" disabled={historyPage >= historyTotalPages} onClick={() => setHistoryPage((p) => Math.min(historyTotalPages, p + 1))}>Next ›</button>
+          </div>
         </div>
       )}
     </>

@@ -11,6 +11,7 @@ import { colors, statusColors } from "../../../src/theme/colors";
 import { listSchemes } from "../../../src/api/schemes";
 import { Scheme } from "../../../src/types/scheme";
 import { useDebouncedValue } from "../../../src/hooks/useDebouncedValue";
+import { useRefetchOnFocus } from "../../../src/hooks/useRefetchOnFocus";
 
 export default function SchemesScreen() {
   const router = useRouter();
@@ -21,6 +22,8 @@ export default function SchemesScreen() {
     queryKey: ["schemes", debouncedSearch],
     queryFn: () => listSchemes(debouncedSearch || undefined),
   });
+
+  useRefetchOnFocus(refetch);
 
   return (
     <ScreenContainer style={{ paddingHorizontal: 0 }}>

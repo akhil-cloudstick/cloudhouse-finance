@@ -11,6 +11,7 @@ import { listGoldRates, publishGoldRate } from "../../src/api/goldRates";
 import { GoldRate } from "../../src/types/goldRate";
 import { ApiError } from "../../src/api/client";
 import { useAuth } from "../../src/auth/AuthContext";
+import { useRefetchOnFocus } from "../../src/hooks/useRefetchOnFocus";
 
 // Read-only list — the backend already returns rates newest-first (each
 // publish is append-only, see backend/internal/goldrate/model.go); no
@@ -29,6 +30,8 @@ export default function GoldRatesScreen() {
     queryKey: ["gold-rates"],
     queryFn: listGoldRates,
   });
+
+  useRefetchOnFocus(refetch);
 
   const publish = useMutation({
     mutationFn: () =>

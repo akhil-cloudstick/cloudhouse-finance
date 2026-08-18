@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Icon } from "@/lib/icons";
 import { DatePicker } from "@/components/DatePicker";
 import { SearchableSelect } from "@/components/SearchableSelect";
+import { Select } from "@/components/Select";
 import { useToast } from "@/components/Toast";
 import { ApiError } from "@/lib/api";
 import { listActiveBranches, type BranchView } from "@/lib/branchApi";
@@ -164,10 +165,11 @@ export function ReportView({ config, onBack }: { config: ReportConfig; onBack: (
           {config.extraFilter && (
             <div style={{ width: 180 }}>
               <label style={{ fontSize: 11.5, color: "var(--muted)", display: "block", marginBottom: 4 }}>{config.extraFilter.label}</label>
-              <select className="inp" value={extraValue} onChange={(e) => setExtraValue(e.target.value)}>
-                <option value="">All</option>
-                {config.extraFilter.options.map((o) => <option key={o} value={o}>{o}</option>)}
-              </select>
+              <Select
+                options={[{ value: "", label: "All" }, ...config.extraFilter.options.map((o) => ({ value: o, label: o }))]}
+                value={extraValue}
+                onChange={setExtraValue}
+              />
             </div>
           )}
         </div>
@@ -208,11 +210,11 @@ export function ReportView({ config, onBack }: { config: ReportConfig; onBack: (
           </table>
         </div>
         <div className="ft" style={{ display: "flex", alignItems: "center", gap: 10 }}>
-          <span>{totalCount} row{totalCount === 1 ? "" : "s"} total</span>
-          <div className="sp" />
           <button className="btn plain sm" disabled={page <= 1} onClick={() => setPage((p) => Math.max(1, p - 1))}>‹ Prev</button>
           <span style={{ fontSize: 12.5 }}>Page {page} of {totalPages}</span>
           <button className="btn plain sm" disabled={page >= totalPages} onClick={() => setPage((p) => Math.min(totalPages, p + 1))}>Next ›</button>
+          <div className="sp" />
+          <span>{totalCount} row{totalCount === 1 ? "" : "s"} total</span>
         </div>
       </div>
     </div>

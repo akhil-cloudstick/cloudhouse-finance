@@ -573,6 +573,35 @@ table.tbl{width:100%;border-collapse:collapse;font-size:13.5px;min-width:640px}
   .page{padding:18px 14px 50px}
 }
 
+/* ── custom radio/checkbox (new) ──────────────────────────────────
+   Native <input type="radio"/checkbox"> render as the OS/browser's own
+   control (a plain blue dot on Windows Chrome, unstyleable) no matter what
+   CSS is applied to the input itself — same reason Select/DatePicker exist
+   as themed replacements for <select>/<input type="date">. Wrap the input
+   in a `.cradio`/`.ccheck` label with a `.mark` sibling span; the input is
+   visually hidden (not display:none, so it stays focusable/clickable and
+   keeps native keyboard behavior for a radio group) and the `.mark` is
+   drawn/recolored off its :checked state. */
+.cradio,.ccheck{display:flex;gap:8px;align-items:flex-start;cursor:pointer;position:relative}
+.cradio input,.ccheck input{position:absolute;opacity:0;width:16px;height:16px;margin:0;cursor:pointer}
+.cradio .mark,.ccheck .mark{
+  flex:0 0 auto;width:16px;height:16px;margin-top:1px;
+  border:1.5px solid var(--line);background:var(--card);
+  transition:border-color .15s,background .15s;
+}
+.cradio .mark{border-radius:50%}
+.ccheck .mark{border-radius:4px;display:grid;place-content:center}
+.cradio input:checked + .mark{border-color:var(--gold-deep)}
+.cradio input:checked + .mark::after{
+  content:"";position:absolute;width:8px;height:8px;border-radius:50%;
+  background:var(--gold-deep);margin:4px 0 0 4px;
+}
+.ccheck input:checked + .mark{border-color:var(--gold-deep);background:var(--gold-deep)}
+.ccheck input:checked + .mark::after{content:"";width:9px;height:6px;border-left:2px solid #fff;border-bottom:2px solid #fff;transform:rotate(-45deg) translateY(-1px)}
+.cradio input:disabled + .mark,.ccheck input:disabled + .mark{opacity:.5;cursor:not-allowed}
+.cradio input:disabled,.ccheck input:disabled{cursor:not-allowed}
+.cradio input:focus-visible + .mark,.ccheck input:focus-visible + .mark{outline:2px solid var(--gold-deep);outline-offset:2px}
+
 /* ── additive small-phone / orientation rules (new requirement) ──
    Only tightens things further below the existing 900px breakpoint and
    handles short landscape phone heights; does not alter anything above

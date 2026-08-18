@@ -525,7 +525,7 @@ export async function checkIndemnityBondEsign(loanId: number): Promise<Indemnity
   return apiFetch<IndemnityBondEsignCheck>(`/loans/${loanId}/indemnity-bond/esign/status`);
 }
 
-export type LoanFilters = { q?: string; status?: string; branchId?: number; customerId?: number };
+export type LoanFilters = { q?: string; status?: string; branchId?: number; customerId?: number; bankPledgeStatus?: string };
 
 export async function listLoans(filters?: LoanFilters): Promise<LoanView[]> {
   const params = new URLSearchParams();
@@ -536,6 +536,29 @@ export async function listLoans(filters?: LoanFilters): Promise<LoanView[]> {
   const qs = params.toString();
   const rec = await apiFetch<BackendLoan[]>(`/loans${qs ? `?${qs}` : ""}`);
   return (rec || []).map(toView);
+}
+
+/* Page size for the Loans page's own table (distinct from LOAN_PAGE_SIZE,
+ * which backs the SearchableSelect picker's infinite scroll). */
+export const LOANS_TABLE_PAGE_SIZE = 10;
+
+/* Paginated variant of listLoans for the Loans page table — same {items,
+ * hasMore} envelope as searchLoansPage, but keyed off the page's own filters
+ * (status/q) rather than a picker's free-text query. */
+export async function listLoansPage(
+  filters: LoanFilters & { page: number }
+): Promise<{ items: LoanView[]; hasMore: boolean }> {
+  const params = new URLSearchParams({
+    limit: String(LOANS_TABLE_PAGE_SIZE),
+    offset: String((filters.page - 1) * LOANS_TABLE_PAGE_SIZE),
+  });
+  if (filters.q) params.set("q", filters.q);
+  if (filters.status) params.set("status", filters.status);
+  if (filters.branchId) params.set("branchId", String(filters.branchId));
+  if (filters.customerId) params.set("customerId", String(filters.customerId));
+  if (filters.bankPledgeStatus) params.set("bankPledgeStatus", filters.bankPledgeStatus);
+  const rec = await apiFetch<{ items: BackendLoan[]; hasMore: boolean }>(`/loans?${params}`);
+  return { items: (rec?.items || []).map(toView), hasMore: !!rec?.hasMore };
 }
 
 /* Page size for the paginated loan pickers. Ten rows per request — enough
@@ -825,6 +848,21 @@ export async function getBankPledgeHistory(loanId: number): Promise<BankPledgeRe
 export async function listBankPledgeHistory(): Promise<BankPledgeRecordView[]> {
   const recs = await apiFetch<BackendBankPledgeRecord[] | null>(`/loans/bank-pledges/history`);
   return (recs || []).map(toBankPledgeRecordView);
+}
+
+const BANK_PLEDGE_HISTORY_PAGE_SIZE = 10;
+
+// listBankPledgeHistoryPage backs the Bank Re-Pledge screen's History tab
+// pagination — see Loans.tsx's listLoansPage for the same {items, hasMore}
+// envelope pattern.
+export async function listBankPledgeHistoryPage(
+  page: number
+): Promise<{ items: BankPledgeRecordView[]; hasMore: boolean }> {
+  const offset = (page - 1) * BANK_PLEDGE_HISTORY_PAGE_SIZE;
+  const res = await apiFetch<{ items: BackendBankPledgeRecord[] | null; hasMore: boolean }>(
+    `/loans/bank-pledges/history?limit=${BANK_PLEDGE_HISTORY_PAGE_SIZE}&offset=${offset}`
+  );
+  return { items: (res.items || []).map(toBankPledgeRecordView), hasMore: res.hasMore };
 }
 
 export const CASH_TREATMENT_LABELS: Record<BankPledgeCashTreatment, string> = {
@@ -1117,6 +1155,31 @@ export async function listConcludedAuctions(): Promise<AuctionRecordView[]> {
   return (recs || []).map(toAuctionRecordView);
 }
 
+/* Page size for the two History sub-tables on the Auctions screen. */
+export const AUCTION_HISTORY_PAGE_SIZE = 10;
+
+/* Paginated variant of listConcludedAuctions, filtered server-side by
+ * whether the case actually sold gold (hasSale) — see
+ * backend/internal/loan/repository.go's FindAllConcluded. Each of the two
+ * History sub-tables ("Auctions Conducted" / "Closed Without Auction") calls
+ * this with its own `hasSale` and its own `page` state, so paging one never
+ * affects the other and a given page is never lopsided by the other
+ * sub-table's rows. */
+export async function listConcludedAuctionsPage(
+  page: number,
+  hasSale: boolean
+): Promise<{ items: AuctionRecordView[]; hasMore: boolean }> {
+  const params = new URLSearchParams({
+    limit: String(AUCTION_HISTORY_PAGE_SIZE),
+    offset: String((page - 1) * AUCTION_HISTORY_PAGE_SIZE),
+    hasSale: String(hasSale),
+  });
+  const rec = await apiFetch<{ items: BackendAuctionRecord[]; hasMore: boolean }>(
+    `/loans/auctions/concluded?${params}`
+  );
+  return { items: (rec?.items || []).map(toAuctionRecordView), hasMore: !!rec?.hasMore };
+}
+
 export async function listPendingAuctionDecisions(): Promise<AuctionDecisionRequestView[]> {
   const reqs = await apiFetch<BackendAuctionDecisionRequest[] | null>(`/loans/auctions/decisions/pending`);
   return (reqs || []).map((d) => ({
@@ -1240,6 +1303,25 @@ export async function listLoanRequests(filters?: LoanRequestFilters): Promise<Re
   return (rec || []).map(toRequestView);
 }
 
+/* Page size for the Requests page's table. */
+export const REQUESTS_TABLE_PAGE_SIZE = 10;
+
+/* Paginated variant of listLoanRequests for the Requests page table — same
+ * {items, hasMore} envelope as listLoansPage, keyed off `page` (1-based). */
+export async function listLoanRequestsPage(
+  page: number,
+  filters?: LoanRequestFilters
+): Promise<{ items: RequestView[]; hasMore: boolean }> {
+  const params = new URLSearchParams({
+    limit: String(REQUESTS_TABLE_PAGE_SIZE),
+    offset: String((page - 1) * REQUESTS_TABLE_PAGE_SIZE),
+  });
+  if (filters?.status) params.set("status", filters.status);
+  if (filters?.loanId) params.set("loanId", String(filters.loanId));
+  const rec = await apiFetch<{ items: BackendLoanRequest[]; hasMore: boolean }>(`/loans/requests?${params}`);
+  return { items: (rec?.items || []).map(toRequestView), hasMore: !!rec?.hasMore };
+}
+
 /* Backs Dashboard.tsx's "Interest Collected" KPI — replaces the old
  * always-empty `db.ledger` mock figure. Defaults (server-side) to the
  * current calendar month when `from`/`to` are omitted. */
@@ -1307,6 +1389,25 @@ export async function verifyReleaseChecklist(requestId: number, input: Checklist
 export type ReleaseApprovalInput = { stage: "Manager" | "Management"; action: "Approved" | "Rejected"; remarks?: string };
 
 export async function approveReleaseRequest(requestId: number, input: ReleaseApprovalInput): Promise<RequestView> {
+  const rec = await apiFetch<BackendLoanRequest>(`/loans/requests/${requestId}/approve`, {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+  return toRequestView(rec);
+}
+
+/* --- Extension approval chain --------------------------------------------
+ * Loan Officer -> Branch Manager -> Management, the same generalized
+ * POST /loans/requests/:requestId/approve endpoint as Release (the backend
+ * dispatches by the request's own Type — see
+ * backend/internal/loan/service.go's ApproveExtensionRequest). Unlike
+ * Release, this stage IS server-side role-gated (ActorRole is checked
+ * against each stage's required role, Administrator bypasses); employeeId/
+ * role are still not sent from here — the backend derives both from the
+ * JWT (platform.ActorFromContext). */
+export type ExtensionApprovalInput = { stage: "LoanOfficer" | "BranchManager" | "Management"; action: "Approved" | "Rejected"; remarks?: string };
+
+export async function approveExtensionRequest(requestId: number, input: ExtensionApprovalInput): Promise<RequestView> {
   const rec = await apiFetch<BackendLoanRequest>(`/loans/requests/${requestId}/approve`, {
     method: "POST",
     body: JSON.stringify(input),

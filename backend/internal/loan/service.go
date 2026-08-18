@@ -32,6 +32,18 @@ type PacketCreator interface {
 	CreatePacketForLoan(loanID uint, lockerID *uint) error
 }
 
+// CustomerNotifier delivers a durable, ack-tracked in-app notification to a
+// customer's app (see internal/notification.Service, which implements this
+// exactly) — injected as a narrow interface for the same reason as
+// PacketCreator/CashRecorder: internal/loan must not import internal/
+// notification directly. notifType/relatedEntityType/relatedEntityID mirror
+// commlog's classification fields; title/body are the in-app list's
+// user-facing text (title short, body the full sentence already built for
+// WhatsApp).
+type CustomerNotifier interface {
+	Notify(customerID uint, notifType, title, body, relatedEntityType string, relatedEntityID uint)
+}
+
 // PacketMover records the matching packet movement when a loan's gold is
 // pledged to / returned from a bank via RecordBankPledge/ReleaseBankPledge.
 // Implemented by packet.Service, injected the same way as PacketCreator.
@@ -99,6 +111,11 @@ var (
 	ErrInvalidPaymentType        = errors.New("type must be Interest, Principal, Partial, Full Settlement, Adjustment, or Waiver")
 	ErrNotExtensionRequest       = errors.New("this request is not an Extension request")
 	ErrNotReleaseRequest         = errors.New("this request is not a Release request")
+	// ErrUseStagedExtensionApproval is returned by the old single-step
+	// DecideRequest when called for an Extension request — extension
+	// requests now go through the same 3-stage approval chain as Release
+	// (see Service.ApproveExtensionRequest), never a single decide call.
+	ErrUseStagedExtensionApproval = errors.New("extension requests are now decided through the staged approval chain — use POST /loans/requests/:requestId/approve instead")
 	ErrLoanTerminalState         = errors.New("loan is already Closed, Auctioned, or Defaulted — nothing left to extend")
 	ErrChecklistIncomplete       = errors.New("the release verification checklist must be fully complete before approval")
 	ErrReleaseNotApproved        = errors.New("this loan has no approved release request")
@@ -184,6 +201,7 @@ type Service struct {
 	packetCreator PacketCreator
 	packetMover   PacketMover
 	cashRecorder  CashRecorder
+	notifier      CustomerNotifier // nil-safe — see notifyCustomer
 	whatsapp      platform.SMSSender // reused interface — Send(phone, message) matches SMSSender exactly
 	commlogRepo   *commlog.Repository
 
@@ -194,6 +212,13 @@ type Service struct {
 	// panic, same posture as customer.Service's setu/digilocker fields.
 	esign      *platform.EsignClient
 	uploadsDir string
+
+	// razorpay drives customer-app online loan payments (see
+	// CreateRazorpayOrder/VerifyAndRecordRazorpayPayment in payment.go). nil
+	// when RAZORPAY_KEY_ID/RAZORPAY_KEY_SECRET aren't configured — those
+	// methods check first and return ErrRazorpayNotConfigured rather than a
+	// nil-pointer panic, same posture as esign above.
+	razorpay *platform.RazorpayClient
 }
 
 func NewService(
@@ -214,10 +239,12 @@ func NewService(
 	packetCreator PacketCreator,
 	packetMover PacketMover,
 	cashRecorder CashRecorder,
+	notifier CustomerNotifier,
 	whatsapp platform.SMSSender,
 	commlogRepo *commlog.Repository,
 	esign *platform.EsignClient,
 	uploadsDir string,
+	razorpay *platform.RazorpayClient,
 ) *Service {
 	return &Service{
 		db:                  db,
@@ -237,47 +264,58 @@ func NewService(
 		packetCreator:       packetCreator,
 		packetMover:         packetMover,
 		cashRecorder:        cashRecorder,
+		notifier:            notifier,
 		goldRateRepo:        goldRateRepo,
 		whatsapp:            whatsapp,
 		commlogRepo:         commlogRepo,
 		esign:               esign,
 		uploadsDir:          uploadsDir,
+		razorpay:            razorpay,
 	}
 }
 
 // notifyCustomer sends a WhatsApp message to a customer about a loan event
-// (submission, sanction, etc.) and logs the attempt (success or failure) to
-// commlog for the Communication History report — a notification bounce must
+// (submission, sanction, etc.), logs the attempt (success or failure) to
+// commlog for the Communication History report, AND — independently of
+// whether WhatsApp is configured/succeeds — writes a durable in-app
+// Notification and attempts a live push over the customer's WebSocket (see
+// internal/notification). A notification bounce on either channel must
 // never fail the loan operation it's attached to, the same
 // enrichment-not-hard-dependency rule Create already applies to packet
-// auto-creation. triggerType/relatedEntityType/relatedEntityID classify the
-// message for that report (see commlog.Trigger* constants).
-func (s *Service) notifyCustomer(phone, message, triggerType, relatedEntityType string, relatedEntityID uint) {
-	if s.whatsapp == nil {
-		return
-	}
-	sendErr := s.whatsapp.Send(phone, message)
-	if sendErr != nil {
-		log.Printf("whatsapp notification failed (phone %s): %v", phone, sendErr)
-	}
-	if s.commlogRepo != nil {
-		rec := &commlog.CommunicationLog{
-			RecipientPhone:    phone,
-			ChatID:            commlog.NormalizeChatID(phone),
-			Channel:           commlog.ChannelWhatsApp,
-			TriggerType:       triggerType,
-			MessageBody:       message,
-			RelatedEntityType: relatedEntityType,
-			RelatedEntityID:   relatedEntityID,
-			Status:            commlog.StatusSent,
-		}
+// auto-creation. The two channels are deliberately independent: a customer
+// with no WhatsApp/no phone on file still gets the in-app notification, and
+// vice versa if the realtime notifier isn't wired up. title is a short
+// user-facing label for the in-app notification list (the WhatsApp message
+// stays the existing full-sentence copy); triggerType/relatedEntityType/
+// relatedEntityID classify the event for both commlog and Notification.Type.
+func (s *Service) notifyCustomer(customerID uint, phone, title, message, triggerType, relatedEntityType string, relatedEntityID uint) {
+	if s.whatsapp != nil {
+		sendErr := s.whatsapp.Send(phone, message)
 		if sendErr != nil {
-			rec.Status = commlog.StatusFailed
-			rec.ErrorMessage = sendErr.Error()
+			log.Printf("whatsapp notification failed (phone %s): %v", phone, sendErr)
 		}
-		if err := s.commlogRepo.Create(rec); err != nil {
-			log.Printf("communication log write failed (phone %s): %v", phone, err)
+		if s.commlogRepo != nil {
+			rec := &commlog.CommunicationLog{
+				RecipientPhone:    phone,
+				ChatID:            commlog.NormalizeChatID(phone),
+				Channel:           commlog.ChannelWhatsApp,
+				TriggerType:       triggerType,
+				MessageBody:       message,
+				RelatedEntityType: relatedEntityType,
+				RelatedEntityID:   relatedEntityID,
+				Status:            commlog.StatusSent,
+			}
+			if sendErr != nil {
+				rec.Status = commlog.StatusFailed
+				rec.ErrorMessage = sendErr.Error()
+			}
+			if err := s.commlogRepo.Create(rec); err != nil {
+				log.Printf("communication log write failed (phone %s): %v", phone, err)
+			}
 		}
+	}
+	if s.notifier != nil {
+		s.notifier.Notify(customerID, triggerType, title, message, relatedEntityType, relatedEntityID)
 	}
 }
 
@@ -456,7 +494,7 @@ func (s *Service) Create(in CreateInput) (*Loan, error) {
 
 	s.enrich(created)
 
-	s.notifyCustomer(created.Customer.Phone, fmt.Sprintf(
+	s.notifyCustomer(created.CustomerID, created.Customer.Phone, "Loan Application Submitted", fmt.Sprintf(
 		"Dear %s, your gold loan application %s for ₹%.2f has been submitted and is pending approval. We'll notify you once it's sanctioned. — Ambika Gold Finance",
 		created.Customer.Name, created.LoanNumber, created.PrincipalAmount,
 	), commlog.TriggerLoanSubmission, "loan", created.ID)
@@ -852,15 +890,19 @@ func (s *Service) Approve(loanID uint, in ApprovalInput) (*Loan, error) {
 	}
 
 	disbursing := false
-	if in.Action == ApprovalStageRejected {
+	rejected := in.Action == ApprovalStageRejected
+	var nextStageLabel string
+	if rejected {
 		l.ApprovalStage = ApprovalStageRejected
 		l.Status = StatusClosed
 	} else {
 		switch stage {
 		case SanctionStageLoanOperator:
 			l.ApprovalStage = SanctionStageBranchManager
+			nextStageLabel = "Branch Manager"
 		case SanctionStageBranchManager:
 			l.ApprovalStage = SanctionStageFinalSanction
+			nextStageLabel = "Management"
 		case SanctionStageFinalSanction:
 			l.ApprovalStage = ApprovalStageApproved
 			l.Status = StatusActive
@@ -881,11 +923,22 @@ func (s *Service) Approve(loanID uint, in ApprovalInput) (*Loan, error) {
 		}
 	}
 
-	if disbursing {
-		s.notifyCustomer(l.Customer.Phone, fmt.Sprintf(
+	switch {
+	case disbursing:
+		s.notifyCustomer(l.CustomerID, l.Customer.Phone, "Loan Sanctioned", fmt.Sprintf(
 			"Dear %s, your gold loan %s has been sanctioned and ₹%.2f has been disbursed. Due date: %s. — Ambika Gold Finance",
 			l.Customer.Name, l.LoanNumber, l.PrincipalAmount, l.DueDate.Format("02-Jan-2006"),
 		), commlog.TriggerLoanSanction, "loan", l.ID)
+	case rejected:
+		s.notifyCustomer(l.CustomerID, l.Customer.Phone, "Loan Rejected", fmt.Sprintf(
+			"Dear %s, your gold loan application %s has been rejected during approval. Please contact the branch for details. — Ambika Gold Finance",
+			l.Customer.Name, l.LoanNumber,
+		), commlog.TriggerLoanApproval, "loan", l.ID)
+	case nextStageLabel != "":
+		s.notifyCustomer(l.CustomerID, l.Customer.Phone, "Loan Approved", fmt.Sprintf(
+			"Dear %s, your gold loan application %s has been approved at one stage and is now awaiting %s approval. — Ambika Gold Finance",
+			l.Customer.Name, l.LoanNumber, nextStageLabel,
+		), commlog.TriggerLoanApproval, "loan", l.ID)
 	}
 
 	return s.Get(l.ID, nil)
@@ -912,11 +965,13 @@ func (s *Service) ListApprovals(loanID uint) ([]LoanApproval, error) {
 // is an optional additional charge collected alongside Amount — see
 // LoanPayment.ProcessingFee's doc comment.
 type PaymentInput struct {
-	Amount               float64
-	Type                 string
-	ProcessingFee        float64
-	PaidOn               time.Time
-	ReceivedByEmployeeID uint
+	Amount        float64
+	Type          string
+	ProcessingFee float64
+	PaidOn        time.Time
+	// ReceivedByEmployeeID is nil for a customer-initiated online (Razorpay)
+	// payment — see LoanPayment.ReceivedByEmployeeID's doc comment.
+	ReceivedByEmployeeID *uint
 	Method               string
 	Reference            string
 	Description          string
@@ -1144,7 +1199,18 @@ func (s *Service) RecordPayment(loanID uint, in PaymentInput) (*Loan, error) {
 	// A customer paying while their gold sits in the auction pipeline must
 	// change what happens to that gold — previously the payment landed and the
 	// auction carried on regardless.
-	s.resolveAuctionAfterPayment(l, p)
+	auctionNotified := s.resolveAuctionAfterPayment(l, p)
+
+	// The generic "a payment was recorded" notification — skipped when the
+	// auction path above already sent its own, more specific message for
+	// this exact payment (so the customer never gets two notifications for
+	// one payment).
+	if !auctionNotified {
+		s.notifyCustomer(l.CustomerID, l.Customer.Phone, "Payment Received", fmt.Sprintf(
+			"Dear %s, we have received your payment of ₹%.2f (%s) towards loan %s. — Ambika Gold Finance",
+			l.Customer.Name, in.Amount, in.Type, l.LoanNumber,
+		), commlog.TriggerPayment, "loan", l.ID)
+	}
 
 	return s.Get(l.ID, nil)
 }
@@ -1163,7 +1229,14 @@ func (s *Service) RecordPayment(loanID uint, in PaymentInput) (*Loan, error) {
 //
 // A no-op for the overwhelming majority of payments, which have no live
 // auction — the lookup returns nothing and this returns immediately.
-func (s *Service) resolveAuctionAfterPayment(l *Loan, p *LoanPayment) {
+//
+// Returns true if this payment had an active auction to react to (and thus
+// already sent its own auction-specific notification) — RecordPayment uses
+// this to decide whether it still needs to send its own generic
+// "PaymentRecorded" notification, so a customer never gets two
+// notifications for one payment.
+func (s *Service) resolveAuctionAfterPayment(l *Loan, p *LoanPayment) bool {
+	hadActiveAuction := false
 	err := s.db.Transaction(func(tx *gorm.DB) error {
 		// Locked: a concurrent auction action must not read this same state and
 		// overwrite the freeze we are about to apply.
@@ -1174,6 +1247,7 @@ func (s *Service) resolveAuctionAfterPayment(l *Loan, p *LoanPayment) {
 			}
 			return err
 		}
+		hadActiveAuction = true
 
 		if l.Status == StatusClosed {
 			rec.Stage = AuctionStageSettled
@@ -1183,7 +1257,7 @@ func (s *Service) resolveAuctionAfterPayment(l *Loan, p *LoanPayment) {
 			}
 			s.recordAuctionEvent(tx, rec.ID, AuctionEventSettledByRepaymentAuto, nil, "",
 				fmt.Sprintf("Loan cleared in full by payment of ₹%.2f — auction cancelled automatically", p.Amount))
-			s.notifyCustomer(l.Customer.Phone, fmt.Sprintf(
+			s.notifyCustomer(l.CustomerID, l.Customer.Phone, "Loan Settled", fmt.Sprintf(
 				"Dear %s, we have received your payment of ₹%.2f. Loan %s is now fully settled, the auction has been cancelled, and your pledged gold is safe. — Ambika Gold Finance",
 				l.Customer.Name, p.Amount, l.LoanNumber,
 			), commlog.TriggerPayment, "loan", l.ID)
@@ -1229,15 +1303,20 @@ func (s *Service) resolveAuctionAfterPayment(l *Loan, p *LoanPayment) {
 		// received and must stay recorded. The auction stays where it was, and
 		// the pipeline guards still re-read state on every subsequent action.
 		log.Printf("auction resolution after payment failed for loan %d: %v", l.ID, err)
-		return
+		return hadActiveAuction
 	}
 
-	if l.Status != StatusClosed {
-		s.notifyCustomer(l.Customer.Phone, fmt.Sprintf(
+	// Fixes a pre-existing bug: this used to fire unconditionally for every
+	// non-closing payment on ANY loan (auction or not), because it wasn't
+	// actually gated on an active auction having been found above — now it
+	// only fires for the case it was written for.
+	if hadActiveAuction && l.Status != StatusClosed {
+		s.notifyCustomer(l.CustomerID, l.Customer.Phone, "Payment Received — Auction On Hold", fmt.Sprintf(
 			"Dear %s, we have received your payment of ₹%.2f towards loan %s. As the loan is not yet fully settled, the auction of your pledged gold is on hold while our management reviews your account. We will inform you of the decision. — Ambika Gold Finance",
 			l.Customer.Name, p.Amount, l.LoanNumber,
 		), commlog.TriggerPayment, "loan", l.ID)
 	}
+	return hadActiveAuction
 }
 
 // BankPledgeInput mirrors the body of POST /loans/:id/bank-pledge. BankID/
@@ -1433,9 +1512,10 @@ func (s *Service) GetAuctionHistory(loanID uint, branchID *uint) ([]AuctionRecor
 
 // ListConcludedAuctions returns finished auction cases (Settled or Withdrawn)
 // across all loans, scoped to the caller's branch — backs the Auctions
-// screen's History tab.
-func (s *Service) ListConcludedAuctions(branchID *uint) ([]AuctionRecord, error) {
-	return s.auctionRepo.FindAllConcluded(branchID)
+// screen's History tab. See AuctionRepository.FindAllConcluded for hasSale/
+// limit/offset semantics.
+func (s *Service) ListConcludedAuctions(branchID *uint, hasSale *bool, limit, offset int) ([]AuctionRecord, error) {
+	return s.auctionRepo.FindAllConcluded(branchID, hasSale, limit, offset)
 }
 
 // ListPendingAuctionDecisions returns every outstanding escalation awaiting a
@@ -1506,7 +1586,7 @@ func (s *Service) MarkAuctionEligible(loanID uint, branchID *uint, actorID *uint
 	}
 
 	s.recordAuctionEvent(nil, rec.ID, AuctionEventEligible, actorID, actorRole, "Loan marked auction-eligible")
-	s.notifyCustomer(l.Customer.Phone, fmt.Sprintf(
+	s.notifyCustomer(l.CustomerID, l.Customer.Phone, "Auction Eligible", fmt.Sprintf(
 		"Dear %s, your gold loan %s is seriously overdue and has now been marked eligible for auction. Outstanding: ₹%.2f. Please contact the branch immediately to settle and retain your pledged items. — Ambika Gold Finance",
 		l.Customer.Name, l.LoanNumber, l.TotalOutstandingBalance,
 	), commlog.TriggerAuctionEvent, "auction_record", rec.ID)
@@ -1576,7 +1656,7 @@ func (s *Service) IssueAuctionNotice(loanID uint, branchID *uint, remarks string
 			return nil, err
 		}
 		if method == "WhatsApp" {
-			s.notifyCustomer(l.Customer.Phone, fmt.Sprintf(
+			s.notifyCustomer(l.CustomerID, l.Customer.Phone, "Auction Notice", fmt.Sprintf(
 				"Dear %s, your gold loan %s is overdue and has been marked for auction. Please contact the branch immediately to settle dues and avoid losing your pledged items.",
 				l.Customer.Name, l.LoanNumber,
 			), commlog.TriggerAuctionNotice, "auction_record", rec.ID)
@@ -1621,7 +1701,7 @@ func (s *Service) ScheduleAuction(loanID uint, branchID *uint, date time.Time, r
 	s.recordAuctionEvent(nil, rec.ID, AuctionEventScheduled, actorID, actorRole,
 		fmt.Sprintf("Auction scheduled for %s (ref %s)", date.Format("02-Jan-2006"), referenceNumber))
 	if l, err := s.repo.FindByID(loanID); err == nil {
-		s.notifyCustomer(l.Customer.Phone, fmt.Sprintf(
+		s.notifyCustomer(l.CustomerID, l.Customer.Phone, "Auction Scheduled", fmt.Sprintf(
 			"Dear %s, the auction of the gold pledged against loan %s has been scheduled for %s (ref %s). You may still settle the outstanding dues before this date to reclaim your items. — Ambika Gold Finance",
 			l.Customer.Name, l.LoanNumber, date.Format("02-Jan-2006"), referenceNumber,
 		), commlog.TriggerAuctionEvent, "auction_record", rec.ID)
@@ -1717,7 +1797,7 @@ func (s *Service) RecordAuctionSale(loanID uint, branchID *uint, saleAmount, exp
 				Amount:               applied,
 				Type:                 PaymentTypeAuctionSale,
 				PaidOn:               auctionDate,
-				ReceivedByEmployeeID: derefUint(actorID),
+				ReceivedByEmployeeID: actorID,
 				Method:               "Auction",
 				Reference:            rec.AuctionReferenceNumber,
 				Description:          fmt.Sprintf("Auction proceeds applied (sale ₹%.2f less expenses ₹%.2f)", saleAmount, expenses),
@@ -1795,14 +1875,14 @@ func (s *Service) RecordAuctionSale(loanID uint, branchID *uint, saleAmount, exp
 		if rec.SurplusPayableAmount > 0.01 {
 			surplusNote = fmt.Sprintf(" A surplus of ₹%.2f is due back to you — the branch will contact you regarding this.", rec.SurplusPayableAmount)
 		}
-		s.notifyCustomer(l.Customer.Phone, fmt.Sprintf(
+		s.notifyCustomer(l.CustomerID, l.Customer.Phone, "Auction Settled", fmt.Sprintf(
 			"Dear %s, the gold pledged against loan %s was auctioned on %s for ₹%.2f. Your loan is now fully settled and closed.%s — Ambika Gold Finance",
 			l.Customer.Name, l.LoanNumber, auctionDate.Format("02-Jan-2006"), saleAmount, surplusNote,
 		), commlog.TriggerAuctionEvent, "auction_record", rec.ID)
 	} else {
 		s.recordAuctionEvent(nil, rec.ID, AuctionEventShortfallEscalated, actorID, actorRole, fmt.Sprintf(
 			"Auction proceeds fell short by ₹%.2f — escalated for a write-off/pursue decision", platform.RoundMoney(totalDebt-netProceeds)))
-		s.notifyCustomer(l.Customer.Phone, fmt.Sprintf(
+		s.notifyCustomer(l.CustomerID, l.Customer.Phone, "Auction Shortfall", fmt.Sprintf(
 			"Dear %s, the gold pledged against loan %s was auctioned on %s for ₹%.2f, which did not cover the full amount due. A balance of ₹%.2f remains and is under review by our management. We will inform you of the outcome. — Ambika Gold Finance",
 			l.Customer.Name, l.LoanNumber, auctionDate.Format("02-Jan-2006"), saleAmount, platform.RoundMoney(totalDebt-netProceeds),
 		), commlog.TriggerAuctionEvent, "auction_record", rec.ID)
@@ -1896,12 +1976,12 @@ func (s *Service) SettleAuction(loanID uint, branchID *uint, disposition, remark
 		"Surplus ₹%.2f — %s. %s", rec.SurplusPayableAmount, disposition, remarks))
 
 	if disposition == AuctionSurplusRefundedToCustomer {
-		s.notifyCustomer(l.Customer.Phone, fmt.Sprintf(
+		s.notifyCustomer(l.CustomerID, l.Customer.Phone, "Auction Surplus Refund", fmt.Sprintf(
 			"Dear %s, the surplus of ₹%.2f from the auction of loan %s is being refunded to you. Please visit the branch to collect it. — Ambika Gold Finance",
 			l.Customer.Name, rec.SurplusPayableAmount, l.LoanNumber,
 		), commlog.TriggerAuctionEvent, "auction_record", rec.ID)
 	} else {
-		s.notifyCustomer(l.Customer.Phone, fmt.Sprintf(
+		s.notifyCustomer(l.CustomerID, l.Customer.Phone, "Auction Settled", fmt.Sprintf(
 			"Dear %s, the auction settlement for loan %s is now complete and the loan is closed. — Ambika Gold Finance",
 			l.Customer.Name, l.LoanNumber,
 		), commlog.TriggerAuctionEvent, "auction_record", rec.ID)
@@ -2061,7 +2141,7 @@ func (s *Service) ResolveAuctionDecision(loanID, requestID uint, branchID *uint,
 						Amount:               owed,
 						Type:                 PaymentTypeAuctionWriteOff,
 						PaidOn:               now,
-						ReceivedByEmployeeID: derefUint(actorID),
+						ReceivedByEmployeeID: actorID,
 						Method:               "Write-Off",
 						Description:          "Post-auction shortfall written off by management: " + remarks,
 						ProcessingFeeApplied: fee,
@@ -2104,7 +2184,7 @@ func (s *Service) ResolveAuctionDecision(loanID, requestID uint, branchID *uint,
 	}
 
 	if notifyMsg != "" {
-		s.notifyCustomer(l.Customer.Phone, notifyMsg, commlog.TriggerAuctionEvent, "auction_record", auctionRecID)
+		s.notifyCustomer(l.CustomerID, l.Customer.Phone, "Auction Decision", notifyMsg, commlog.TriggerAuctionEvent, "auction_record", auctionRecID)
 	}
 
 	// The case may now be concluded, in which case there is no active record to
@@ -2168,6 +2248,7 @@ func (s *Service) CreateExtensionRequest(loanID uint, in ExtensionRequestInput) 
 		RequestedBy:              requestedBy,
 		Detail:                   in.Detail,
 		RequestedExtensionMonths: &months,
+		ApprovalStage:            ApprovalStagePendingLoanOfficer,
 		RequestedAt:              time.Now(),
 	}
 	if err := s.requestRepo.Create(req); err != nil {
@@ -2212,15 +2293,24 @@ func (s *Service) ListRequests(f LoanRequestFilter) ([]LoanRequest, error) {
 	return s.requestRepo.FindAll(f)
 }
 
-// DecideRequest approves or rejects a pending Extension request in one
-// step — staff review the loan's outstanding principal/interest/penal
-// interest (already live on the loan via enrich) and the requested
-// extension period, then decide. Release requests go through
-// ApproveReleaseRequest's multi-stage chain instead (ErrNotExtensionRequest
-// here). Approving pushes the loan's DueDate out by the requested months
-// and recalculates status; it's blocked if the loan has already reached a
-// terminal state (nothing left to extend). Rejecting only records the
-// decision — the loan is untouched either way.
+// GetRequest fetches a single LoanRequest by ID — used by the generalized
+// POST /loans/requests/:requestId/approve handler to read req.Type before
+// dispatching to ApproveExtensionRequest or ApproveReleaseRequest.
+func (s *Service) GetRequest(requestID uint) (*LoanRequest, error) {
+	req, err := s.requestRepo.FindByID(requestID)
+	if err != nil {
+		return nil, ErrRequestNotFound
+	}
+	return req, nil
+}
+
+// DecideRequest is the RETIRED single-step decision path — Release requests
+// never used it (ErrNotExtensionRequest), and Extension requests now go
+// through the same staged Loan Officer -> Branch Manager -> Management
+// approval chain as Release (see Service.ApproveExtensionRequest), so this
+// now always returns ErrUseStagedExtensionApproval for Extension too. Kept
+// (rather than deleted) as the clear, explicit error surface for old
+// clients/routes that still call PUT /loans/requests/:requestId/decide.
 func (s *Service) DecideRequest(requestID uint, branchID *uint, approve bool, decidedByEmployeeID uint, remarks string) (*LoanRequest, error) {
 	req, err := s.requestRepo.FindByID(requestID)
 	if err != nil {
@@ -2232,47 +2322,7 @@ func (s *Service) DecideRequest(requestID uint, branchID *uint, approve bool, de
 	if req.Type != RequestTypeExtension {
 		return nil, ErrNotExtensionRequest
 	}
-	if req.Status != RequestStatusPending {
-		return nil, ErrRequestAlreadyDecided
-	}
-
-	now := time.Now()
-	req.DecidedAt = &now
-	req.DecidedByEmployeeID = &decidedByEmployeeID
-	req.Remarks = remarks
-
-	if !approve {
-		req.Status = RequestStatusRejected
-		if err := s.requestRepo.Update(req); err != nil {
-			return nil, err
-		}
-		return s.requestRepo.FindByID(req.ID)
-	}
-
-	l, err := s.repo.FindByID(req.LoanID)
-	if err != nil {
-		return nil, ErrNotFound
-	}
-	if isLoanTerminal(l.Status) {
-		return nil, ErrLoanTerminalState
-	}
-
-	months := 0
-	if req.RequestedExtensionMonths != nil {
-		months = *req.RequestedExtensionMonths
-	}
-	newDue := l.DueDate.AddDate(0, months, 0)
-	l.DueDate = newDue
-	req.NewDueDate = &newDue
-	if _, err := s.recalculateAndSave(l); err != nil {
-		return nil, err
-	}
-
-	req.Status = RequestStatusApproved
-	if err := s.requestRepo.Update(req); err != nil {
-		return nil, err
-	}
-	return s.requestRepo.FindByID(req.ID)
+	return nil, ErrUseStagedExtensionApproval
 }
 
 // isLoanTerminal reports whether a loan has already reached a state with
@@ -2406,6 +2456,11 @@ func (s *Service) ApproveReleaseRequest(requestID uint, branchID *uint, in Relea
 		return nil, err
 	}
 
+	// Loaded once, up front, purely for notifications below — LoanRequest has
+	// no CustomerID of its own (see model.go), only reachable via its parent
+	// Loan.
+	notifyLoan, _ := s.repo.FindByID(req.LoanID)
+
 	if in.Action == ApprovalStageRejected {
 		req.ApprovalStage = ApprovalStageRejected
 		req.Status = RequestStatusRejected
@@ -2416,14 +2471,22 @@ func (s *Service) ApproveReleaseRequest(requestID uint, branchID *uint, in Relea
 		if err := s.requestRepo.Update(req); err != nil {
 			return nil, err
 		}
+		if notifyLoan != nil {
+			s.notifyCustomer(notifyLoan.CustomerID, notifyLoan.Customer.Phone, "Release Rejected", fmt.Sprintf(
+				"Dear %s, your gold release request for loan %s has been rejected. Please contact the branch for details. — Ambika Gold Finance",
+				notifyLoan.Customer.Name, notifyLoan.LoanNumber,
+			), commlog.TriggerReleaseRequest, "loan_request", req.ID)
+		}
 		return s.requestRepo.FindByID(req.ID)
 	}
 
+	finalApproval := false
 	switch stage {
 	case ApprovalStagePendingManager:
 		req.ApprovalStage = ApprovalStagePendingManagement
 	case ApprovalStagePendingManagement:
 		req.ApprovalStage = ApprovalStageApproved
+		finalApproval = true
 
 		l, err := s.Get(req.LoanID, nil)
 		if err != nil {
@@ -2444,6 +2507,187 @@ func (s *Service) ApproveReleaseRequest(requestID uint, branchID *uint, in Relea
 
 	if err := s.requestRepo.Update(req); err != nil {
 		return nil, err
+	}
+	if notifyLoan != nil {
+		if finalApproval {
+			s.notifyCustomer(notifyLoan.CustomerID, notifyLoan.Customer.Phone, "Release Approved", fmt.Sprintf(
+				"Dear %s, your gold release request for loan %s has been fully approved. Closure is now being processed. — Ambika Gold Finance",
+				notifyLoan.Customer.Name, notifyLoan.LoanNumber,
+			), commlog.TriggerReleaseRequest, "loan_request", req.ID)
+		} else {
+			s.notifyCustomer(notifyLoan.CustomerID, notifyLoan.Customer.Phone, "Release Approved", fmt.Sprintf(
+				"Dear %s, your gold release request for loan %s has moved to the next approval stage (Management). — Ambika Gold Finance",
+				notifyLoan.Customer.Name, notifyLoan.LoanNumber,
+			), commlog.TriggerReleaseRequest, "loan_request", req.ID)
+		}
+	}
+	return s.requestRepo.FindByID(req.ID)
+}
+
+// extensionChain is the Extension-request chain's fixed stage order,
+// mirroring sanctionChain above — index i's role must act (or
+// "Administrator", see ApproveExtensionRequest) to advance from
+// extensionChain[i]'s stage to the next one, or to ApprovalStageApproved for
+// the last stage. "Loan Officer" here is the request-approval label for the
+// same "Loan Operator" role used elsewhere (employee.ValidRoles has no
+// separate "Loan Officer" role) — kept as one canonical role string so the
+// role check matches what's actually stored on the employee record.
+var extensionChain = []struct{ ApprovalStage, Stage, Role string }{
+	{ApprovalStagePendingLoanOfficer, "LoanOfficer", "Loan Operator"},
+	{ApprovalStagePendingBranchManager, "BranchManager", "Branch Manager"},
+	{ApprovalStagePendingManagement, "Management", "Management"},
+}
+
+// ExtensionApprovalInput mirrors the body of
+// POST /loans/requests/:requestId/approve for an Extension-type request.
+type ExtensionApprovalInput struct {
+	Stage           string // "LoanOfficer" | "BranchManager" | "Management" — must match the request's current ApprovalStage
+	Action          string // "Approved" | "Rejected"
+	ActorEmployeeID uint
+	ActorRole       string // employee.ValidRoles value; "Administrator" may act at any pending stage
+	Remarks         string
+}
+
+// ApproveExtensionRequest advances (or terminates) an Extension request's
+// fixed 3-step Loan Officer -> Branch Manager -> Management chain — the same
+// pattern as ApproveReleaseRequest/Loan.Approve, reused per the business
+// decision that extension approvals go through a real, audited chain
+// instead of DecideRequest's old single-step decision. A Rejected action at
+// any stage only rejects the request — the loan is untouched. The final
+// Approved action (Management stage) pushes the loan's DueDate out by the
+// requested months, exactly like DecideRequest used to, and is blocked if
+// the loan has already reached a terminal state (nothing left to extend).
+func (s *Service) ApproveExtensionRequest(requestID uint, branchID *uint, in ExtensionApprovalInput) (*LoanRequest, error) {
+	req, err := s.requestRepo.FindByID(requestID)
+	if err != nil {
+		return nil, ErrRequestNotFound
+	}
+	if err := s.checkLoanBranch(req.LoanID, branchID); err != nil {
+		return nil, err
+	}
+	if req.Type != RequestTypeExtension {
+		return nil, ErrNotExtensionRequest
+	}
+	if in.Action != ApprovalStageApproved && in.Action != ApprovalStageRejected {
+		return nil, ErrInvalidAction
+	}
+	if req.ApprovalStage == ApprovalStageApproved || req.ApprovalStage == ApprovalStageRejected {
+		return nil, ErrRequestAlreadyDecided
+	}
+
+	stage := req.ApprovalStage
+	if stage == "" {
+		stage = ApprovalStagePendingLoanOfficer
+	}
+	var expectedStage, requiredRole string
+	for _, step := range extensionChain {
+		if step.ApprovalStage == stage {
+			expectedStage = step.Stage
+			requiredRole = step.Role
+			break
+		}
+	}
+	if in.Stage != expectedStage {
+		return nil, ErrWrongStage
+	}
+	if in.ActorRole != "Administrator" && requiredRole != "" && in.ActorRole != requiredRole {
+		return nil, ErrWrongStage
+	}
+
+	audit := &RequestApproval{
+		RequestID:       requestID,
+		Stage:           in.Stage,
+		Action:          in.Action,
+		ActorEmployeeID: in.ActorEmployeeID,
+		Remarks:         in.Remarks,
+	}
+	if err := s.requestApprovalRepo.Create(audit); err != nil {
+		return nil, err
+	}
+
+	// Loaded once, up front, purely for notifications below — LoanRequest has
+	// no CustomerID of its own (see model.go), only reachable via its parent
+	// Loan.
+	notifyLoan, _ := s.repo.FindByID(req.LoanID)
+
+	if in.Action == ApprovalStageRejected {
+		req.ApprovalStage = ApprovalStageRejected
+		req.Status = RequestStatusRejected
+		now := time.Now()
+		req.DecidedAt = &now
+		req.DecidedByEmployeeID = &in.ActorEmployeeID
+		req.Remarks = in.Remarks
+		if err := s.requestRepo.Update(req); err != nil {
+			return nil, err
+		}
+		if notifyLoan != nil {
+			s.notifyCustomer(notifyLoan.CustomerID, notifyLoan.Customer.Phone, "Extension Rejected", fmt.Sprintf(
+				"Dear %s, your extension request for loan %s has been rejected. Please contact the branch for details. — Ambika Gold Finance",
+				notifyLoan.Customer.Name, notifyLoan.LoanNumber,
+			), commlog.TriggerExtensionRequest, "loan_request", req.ID)
+		}
+		return s.requestRepo.FindByID(req.ID)
+	}
+
+	finalApproval := false
+	var nextStageLabel string
+	switch stage {
+	case ApprovalStagePendingLoanOfficer:
+		req.ApprovalStage = ApprovalStagePendingBranchManager
+		nextStageLabel = "Branch Manager"
+	case ApprovalStagePendingBranchManager:
+		req.ApprovalStage = ApprovalStagePendingManagement
+		nextStageLabel = "Management"
+	case ApprovalStagePendingManagement:
+		l, err := s.repo.FindByID(req.LoanID)
+		if err != nil {
+			return nil, ErrNotFound
+		}
+		if isLoanTerminal(l.Status) {
+			return nil, ErrLoanTerminalState
+		}
+
+		months := 0
+		if req.RequestedExtensionMonths != nil {
+			months = *req.RequestedExtensionMonths
+		}
+		newDue := l.DueDate.AddDate(0, months, 0)
+		l.DueDate = newDue
+		req.NewDueDate = &newDue
+		// The due-soon/overdue check (CheckDueAndOverdueLoans) dedupes on
+		// these two timestamps — a fresh due date means the customer hasn't
+		// been reminded against it yet, so both must reset.
+		l.DueSoonNotifiedAt = nil
+		l.OverdueNotifiedAt = nil
+		if _, err := s.recalculateAndSave(l); err != nil {
+			return nil, err
+		}
+
+		req.ApprovalStage = ApprovalStageApproved
+		req.Status = RequestStatusApproved
+		now := time.Now()
+		req.DecidedAt = &now
+		req.DecidedByEmployeeID = &in.ActorEmployeeID
+		req.Remarks = in.Remarks
+		finalApproval = true
+		notifyLoan = l
+	}
+
+	if err := s.requestRepo.Update(req); err != nil {
+		return nil, err
+	}
+	if notifyLoan != nil {
+		if finalApproval {
+			s.notifyCustomer(notifyLoan.CustomerID, notifyLoan.Customer.Phone, "Extension Approved", fmt.Sprintf(
+				"Dear %s, your extension request for loan %s has been fully approved. New due date: %s. — Ambika Gold Finance",
+				notifyLoan.Customer.Name, notifyLoan.LoanNumber, notifyLoan.DueDate.Format("02-Jan-2006"),
+			), commlog.TriggerExtensionRequest, "loan_request", req.ID)
+		} else if nextStageLabel != "" {
+			s.notifyCustomer(notifyLoan.CustomerID, notifyLoan.Customer.Phone, "Extension Approved", fmt.Sprintf(
+				"Dear %s, your extension request for loan %s has moved to the next approval stage (%s). — Ambika Gold Finance",
+				notifyLoan.Customer.Name, notifyLoan.LoanNumber, nextStageLabel,
+			), commlog.TriggerExtensionRequest, "loan_request", req.ID)
+		}
 	}
 	return s.requestRepo.FindByID(req.ID)
 }
@@ -2632,8 +2876,8 @@ func (s *Service) GetBankPledgeHistory(loanID uint, branchID *uint) ([]BankPledg
 
 // ListBankPledgeHistory returns re-pledge records across all loans, scoped to
 // the caller's branch — backs the Bank Re-Pledge screen's History tab.
-func (s *Service) ListBankPledgeHistory(branchID *uint) ([]BankPledgeRecord, error) {
-	return s.pledgeRepo.FindAllHistory(branchID)
+func (s *Service) ListBankPledgeHistory(branchID *uint, limit, offset int) ([]BankPledgeRecord, error) {
+	return s.pledgeRepo.FindAllHistory(branchID, limit, offset)
 }
 
 // --- Customer 360 -----------------------------------------------------------

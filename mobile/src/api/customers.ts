@@ -12,6 +12,13 @@ export function listCustomers(q?: string) {
   return apiRequest<Customer[]>("/customers", { params: { q } });
 }
 
+// Page-scoped variant: passing `limit` flips the backend (customer/handler.go's
+// List) into the {items, hasMore} envelope — used by the paginated mobile
+// Customers list (10/page, one API call per page).
+export function listCustomersPage(params: { q?: string; limit: number; offset: number }) {
+  return apiRequest<{ items: Customer[]; hasMore: boolean }>("/customers", { params });
+}
+
 export function getCustomer(id: number) {
   return apiRequest<Customer>(`/customers/${id}`);
 }

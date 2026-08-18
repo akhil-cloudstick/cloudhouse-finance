@@ -175,6 +175,25 @@ export async function listPackets(filters?: PacketFilters): Promise<PacketView[]
   return (rec || []).map(toView);
 }
 
+/* Page size for the Packets page's own table. */
+export const PACKETS_TABLE_PAGE_SIZE = 10;
+
+/* Paginated variant of listPackets for the Packets page table — same
+ * {items, hasMore} envelope as loansApi.ts's listLoansPage, fetched fresh
+ * per page rather than sliced client-side. */
+export async function listPacketsPage(page: number, filters?: PacketFilters): Promise<{ items: PacketView[]; hasMore: boolean }> {
+  const params = new URLSearchParams({
+    limit: String(PACKETS_TABLE_PAGE_SIZE),
+    offset: String((page - 1) * PACKETS_TABLE_PAGE_SIZE),
+  });
+  if (filters?.loanId) params.set("loanId", String(filters.loanId));
+  if (filters?.branchId) params.set("branchId", String(filters.branchId));
+  if (filters?.status) params.set("status", filters.status);
+  if (filters?.lockerId) params.set("lockerId", String(filters.lockerId));
+  const rec = await apiFetch<{ items: BackendPacket[]; hasMore: boolean }>(`/packets?${params}`);
+  return { items: (rec?.items || []).map(toView), hasMore: !!rec?.hasMore };
+}
+
 export async function getPacket(id: number): Promise<PacketView> {
   const rec = await apiFetch<BackendPacket>(`/packets/${id}`);
   return toView(rec);

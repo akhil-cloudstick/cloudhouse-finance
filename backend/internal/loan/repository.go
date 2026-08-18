@@ -87,6 +87,12 @@ type LoanFilter struct {
 	// rather than fetching every loan and filtering in the browser.
 	ExcludeBankPledged bool
 
+	// BankPledgeStatus, when set, matches Loan.BankPledgeStatus exactly —
+	// backs the Bank Re-Pledge page's "Active" tab (BankPledgeStatusPledged)
+	// so it can paginate server-side instead of filtering LoansProvider's
+	// full list in the browser.
+	BankPledgeStatus string
+
 	// Limit/Offset paginate the result set; Limit <= 0 means "no limit"
 	// (the full listing every existing caller relies on). Ordering is by
 	// id desc, so paging is stable for a fixed filter.
@@ -125,6 +131,9 @@ func (r *Repository) FindAll(f LoanFilter) ([]Loan, error) {
 	}
 	if f.ExcludeBankPledged {
 		q = q.Where("bank_pledge_status <> ?", BankPledgeStatusPledged)
+	}
+	if f.BankPledgeStatus != "" {
+		q = q.Where("bank_pledge_status = ?", f.BankPledgeStatus)
 	}
 	if f.Limit > 0 {
 		q = q.Limit(f.Limit)
@@ -239,6 +248,36 @@ func (r *PaymentRepository) FindByLoanID(loanID uint) ([]LoanPayment, error) {
 	return payments, err
 }
 
+// FindByID looks up a single payment by its primary key — used by the
+// customer-app payment-receipt endpoint, which then checks the payment's
+// parent loan belongs to the requesting customer before generating anything.
+func (r *PaymentRepository) FindByID(id uint) (*LoanPayment, error) {
+	var p LoanPayment
+	if err := r.db.First(&p, id).Error; err != nil {
+		return nil, err
+	}
+	return &p, nil
+}
+
+// FindByCustomerID returns every payment across every loan belonging to
+// customerID, newest first, joining loan_payments to loans to scope by
+// loans.customer_id — backs GET /customer/payments (the Payments tab's
+// global history), paginated the same way FindAll's list endpoints are
+// (limit/offset, caller decides "hasMore" from an oversized limit).
+func (r *PaymentRepository) FindByCustomerID(customerID uint, limit, offset int) ([]LoanPayment, error) {
+	var payments []LoanPayment
+	q := r.db.Model(&LoanPayment{}).
+		Select("loan_payments.*").
+		Joins("JOIN loans ON loans.id = loan_payments.loan_id").
+		Where("loans.customer_id = ?", customerID).
+		Order("loan_payments.paid_on desc, loan_payments.id desc")
+	if limit > 0 {
+		q = q.Limit(limit).Offset(offset)
+	}
+	err := q.Find(&payments).Error
+	return payments, err
+}
+
 // SumInterestCollected totals the interest + penal-interest portions of
 // every payment recorded with PaidOn within [from, to] (inclusive) —
 // backs the Dashboard's "Interest Collected" KPI (see
@@ -302,7 +341,7 @@ func (r *BankPledgeRepository) FindHistoryByLoanID(loanID uint) ([]BankPledgeRec
 // to see anything but currently-pledged gold. branchID scopes to the caller's
 // branch (nil for Administrator), applied via a JOIN on loans the same way
 // LoanRequestRepository.FindAll does it.
-func (r *BankPledgeRepository) FindAllHistory(branchID *uint) ([]BankPledgeRecord, error) {
+func (r *BankPledgeRepository) FindAllHistory(branchID *uint, limit, offset int) ([]BankPledgeRecord, error) {
 	var pledges []BankPledgeRecord
 	q := r.db.Model(&BankPledgeRecord{}).
 		Preload("Events", func(d *gorm.DB) *gorm.DB { return d.Order("created_at asc, id asc") })
@@ -310,7 +349,11 @@ func (r *BankPledgeRepository) FindAllHistory(branchID *uint) ([]BankPledgeRecor
 		q = q.Joins("JOIN loans ON loans.id = bank_pledge_records.loan_id").
 			Where("loans.branch_id = ?", *branchID)
 	}
-	err := q.Order("bank_pledge_records.id desc").Find(&pledges).Error
+	q = q.Order("bank_pledge_records.id desc")
+	if limit > 0 {
+		q = q.Limit(limit).Offset(offset)
+	}
+	err := q.Find(&pledges).Error
 	return pledges, err
 }
 
@@ -354,6 +397,11 @@ type LoanRequestFilter struct {
 	// else limits results to requests whose underlying loan belongs to that
 	// branch, applied via a JOIN against loans.
 	BranchID *uint
+
+	// Limit/Offset paginate the result set; Limit <= 0 means "no limit"
+	// (matches LoanFilter's convention).
+	Limit  int
+	Offset int
 }
 
 func (r *LoanRequestRepository) FindAll(f LoanRequestFilter) ([]LoanRequest, error) {
@@ -366,6 +414,12 @@ func (r *LoanRequestRepository) FindAll(f LoanRequestFilter) ([]LoanRequest, err
 	}
 	if f.LoanID != 0 {
 		q = q.Where("loan_id = ?", f.LoanID)
+	}
+	if f.Limit > 0 {
+		q = q.Limit(f.Limit)
+	}
+	if f.Offset > 0 {
+		q = q.Offset(f.Offset)
 	}
 	var reqs []LoanRequest
 	err := q.Find(&reqs).Error
@@ -489,7 +543,13 @@ func (r *AuctionRepository) FindHistoryByLoanID(loanID uint) ([]AuctionRecord, e
 // across all loans — backs the Auctions screen's History tab. branchID is the
 // caller's branch-scoping restriction (nil for Administrator), applied via a
 // JOIN on loans the same way LoanRequestRepository.FindAll does it.
-func (r *AuctionRepository) FindAllConcluded(branchID *uint) ([]AuctionRecord, error) {
+//
+// hasSale narrows to cases that did (true) or did not (false) actually sell
+// gold — the History tab's "Auctions Conducted" vs "Closed Without Auction"
+// split, done here so each sub-table's own limit/offset paginates only its
+// own rows instead of counting against a mixed set. nil means no filter.
+// limit/offset apply only when limit > 0, matching LoanFilter's convention.
+func (r *AuctionRepository) FindAllConcluded(branchID *uint, hasSale *bool, limit, offset int) ([]AuctionRecord, error) {
 	var records []AuctionRecord
 	q := preloadAuctionDetail(r.db).Model(&AuctionRecord{}).
 		Where("auction_records.stage IN (?, ?)", AuctionStageSettled, AuctionStageWithdrawn)
@@ -497,7 +557,18 @@ func (r *AuctionRepository) FindAllConcluded(branchID *uint) ([]AuctionRecord, e
 		q = q.Joins("JOIN loans ON loans.id = auction_records.loan_id").
 			Where("loans.branch_id = ?", *branchID)
 	}
-	err := q.Order("auction_records.updated_at desc, auction_records.id desc").Find(&records).Error
+	if hasSale != nil {
+		if *hasSale {
+			q = q.Where("auction_records.sale_amount > 0")
+		} else {
+			q = q.Where("auction_records.sale_amount <= 0")
+		}
+	}
+	q = q.Order("auction_records.updated_at desc, auction_records.id desc")
+	if limit > 0 {
+		q = q.Limit(limit).Offset(offset)
+	}
+	err := q.Find(&records).Error
 	return records, err
 }
 

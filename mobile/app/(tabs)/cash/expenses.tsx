@@ -11,6 +11,7 @@ import { listExpenses, createExpense, approveExpense, rejectExpense } from "../.
 import { Expense } from "../../../src/types/cash";
 import { useAuth } from "../../../src/auth/AuthContext";
 import { ApiError } from "../../../src/api/client";
+import { useRefetchOnFocus } from "../../../src/hooks/useRefetchOnFocus";
 
 function toneForStatus(status: Expense["status"]): StatusTone {
   if (status === "Approved") return "green";
@@ -33,6 +34,8 @@ export default function ExpensesScreen() {
     queryKey: ["expenses"],
     queryFn: listExpenses,
   });
+
+  useRefetchOnFocus(refetch);
 
   const create = useMutation({
     mutationFn: () =>

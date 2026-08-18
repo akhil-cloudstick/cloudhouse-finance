@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { ScrollView, View, Pressable, StyleSheet } from "react-native";
+import { ScrollView, View, Pressable, StyleSheet, RefreshControl } from "react-native";
 import { useQuery } from "@tanstack/react-query";
 import { useRouter } from "expo-router";
 import { ScreenContainer } from "../../src/components/ScreenContainer";
@@ -9,6 +9,7 @@ import { ChipSelect } from "../../src/components/ChipSelect";
 import { GoldTextInput } from "../../src/components/GoldTextInput";
 import { colors, statusColors, StatusTone } from "../../src/theme/colors";
 import { useAuth } from "../../src/auth/AuthContext";
+import { useRefetchOnFocus } from "../../src/hooks/useRefetchOnFocus";
 import { latestGoldRate } from "../../src/api/goldRates";
 import { getCalendarEvents } from "../../src/api/reminders";
 import { listLoans, listLoanRequests } from "../../src/api/loans";
@@ -87,6 +88,33 @@ export default function DashboardScreen() {
     enabled: !!branchId,
   });
 
+  useRefetchOnFocus(
+    goldRate.refetch,
+    events.refetch,
+    loans.refetch,
+    expenses.refetch,
+    requests.refetch,
+    purityStandards.refetch,
+    schemes.refetch,
+    cashSummary.refetch
+  );
+
+  const [refreshing, setRefreshing] = useState(false);
+  async function onRefresh() {
+    setRefreshing(true);
+    await Promise.all([
+      goldRate.refetch(),
+      events.refetch(),
+      loans.refetch(),
+      expenses.refetch(),
+      requests.refetch(),
+      purityStandards.refetch(),
+      schemes.refetch(),
+      cashSummary.refetch(),
+    ]);
+    setRefreshing(false);
+  }
+
   const dueTodayCount =
     events.data?.filter((e) => e.type === "LoanDue" && e.date === today).length ?? 0;
 
@@ -152,7 +180,10 @@ export default function DashboardScreen() {
 
   return (
     <ScreenContainer>
-      <ScrollView showsVerticalScrollIndicator={false}>
+      <ScrollView
+        showsVerticalScrollIndicator={false}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
+      >
         <ThemedText variant="h2" color={colors.goldDeep}>
           Welcome, {employee?.name}
         </ThemedText>

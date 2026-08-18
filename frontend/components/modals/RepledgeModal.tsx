@@ -8,6 +8,7 @@ import { fmt, fmtW } from "@/lib/format";
 import { recordBankPledge, searchLoansPage, type BankPledgeCashTreatment, type LoanView } from "@/lib/loansApi";
 import { searchBanksPage, type BackendBank } from "@/lib/bankApi";
 import { SearchableSelect } from "@/components/SearchableSelect";
+import { DatePicker } from "@/components/DatePicker";
 import { ApiError } from "@/lib/api";
 
 /* Ported from legacy/app.js's `openRepledgeModal()` / `saveRepledge()`. Now
@@ -108,13 +109,13 @@ export function RepledgeModalContent({ loan, onSaved }: { loan: LoanView; onSave
           /></div></div>
         <div className="frow c2">
           <div><label className="f">Pledged Amount (₹) *</label><input className="inp" type="number" min={1} placeholder="amount raised from bank" value={amt} onChange={(e) => setAmt(e.target.value)} /></div>
-          <div><label className="f">Pledge Date *</label><input className="inp" type="date" value={date} onChange={(e) => setDate(e.target.value)} /></div>
+          <div><label className="f">Pledge Date *</label><DatePicker value={date} onChange={setDate} /></div>
         </div>
         <div className="frow c2">
           <div><label className="f">Bank Interest Rate (% p.a.)</label><input className="inp" type="number" min={0} step={0.01} placeholder="rate charged by the bank" value={interestRate} onChange={(e) => setInterestRate(e.target.value)} /></div>
           <div><label className="f">Reference Number</label><input className="inp" placeholder="bank's pledge/document reference" value={referenceNumber} onChange={(e) => setReferenceNumber(e.target.value)} maxLength={60} /></div>
         </div>
-        <div className="frow"><div><label className="f">Bank Pledge Due Date</label><input className="inp" type="date" value={dueDate} onChange={(e) => setDueDate(e.target.value)} /></div></div>
+        <div className="frow"><div><label className="f">Bank Pledge Due Date</label><DatePicker value={dueDate} onChange={setDueDate} min={date} /></div></div>
 
         {/* Cash treatment. Not every re-pledge brings money into the branch
           * till — some are purely book-keeping — so this is an explicit choice
@@ -122,24 +123,24 @@ export function RepledgeModalContent({ loan, onSaved }: { loan: LoanView; onSave
         <div className="frow"><div>
           <label className="f">Cash Treatment *</label>
           <div style={{ display: "flex", flexDirection: "column", gap: 6, marginTop: 4 }}>
-            <label style={{ display: "flex", gap: 8, alignItems: "flex-start", fontSize: 13, cursor: "pointer" }}>
+            <label className="cradio" style={{ fontSize: 13 }}>
               <input
                 type="radio"
                 name="cashTreatment"
                 checked={cashTreatment === "RecordOnly"}
                 onChange={() => setCashTreatment("RecordOnly")}
-                style={{ marginTop: 3 }}
               />
+              <span className="mark" />
               <span><strong>Record Only</strong> — no cash effect. Files the re-pledge record without touching Cash-in-Hand.</span>
             </label>
-            <label style={{ display: "flex", gap: 8, alignItems: "flex-start", fontSize: 13, cursor: "pointer" }}>
+            <label className="cradio" style={{ fontSize: 13 }}>
               <input
                 type="radio"
                 name="cashTreatment"
                 checked={cashTreatment === "CashIn"}
                 onChange={() => setCashTreatment("CashIn")}
-                style={{ marginTop: 3 }}
               />
+              <span className="mark" />
               <span><strong>Add to Cash-in-Hand</strong> — the bank&apos;s advance came into the branch till.</span>
             </label>
           </div>

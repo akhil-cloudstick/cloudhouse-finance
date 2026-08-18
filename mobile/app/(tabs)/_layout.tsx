@@ -9,7 +9,7 @@ import { AppTabBar } from "../../src/components/AppTabBar";
 import { MoreSheetProvider } from "../../src/components/MoreSheet";
 
 // Bottom-bar nav — replaces the old side drawer entirely. Four primary tabs
-// (dashboard, loans, customers, packets) live in AppTabBar; every other
+// (dashboard, loans, customers, new-loan) live in AppTabBar; every other
 // module is reachable from the "More" slot, which raises the MoreSheet
 // (grouped the same way the old sidebar was). Nothing opens a drawer any
 // more — MoreSheetProvider is what both the tab bar and every screen's
@@ -21,7 +21,7 @@ import { MoreSheetProvider } from "../../src/components/MoreSheet";
 // banks, cash, employees, lockers, packets, schemes, settings, branches) set
 // `headerShown: false` here so this navigator doesn't also render a header
 // on top of the Stack's — that duplicate-header stacking was the earlier
-// bug. Screens with no nested Stack (dashboard, gold-rates, ornament-types,
+// bug. Screens with no nested Stack (dashboard, gold-rates, new-loan,
 // purity-standards, reminders, reports) get their header from here via
 // `header` below.
 //
@@ -53,9 +53,10 @@ export default function TabsLayout() {
         <Tabs.Screen name="dashboard" options={{ title: "Dashboard" }} />
         <Tabs.Screen name="loans" options={{ title: "Loans", headerShown: false }} />
         <Tabs.Screen name="customers" options={{ title: "Customers", headerShown: false }} />
-        <Tabs.Screen name="packets" options={{ title: "Packets", headerShown: false }} />
+        <Tabs.Screen name="new-loan" options={{ title: "New Loan" }} />
 
         {/* --- reachable from the More sheet only --- */}
+        <Tabs.Screen name="packets" options={{ title: "Packets", headerShown: false, href: null }} />
         <Tabs.Screen name="reminders" options={{ title: "Reminders", href: null }} />
         <Tabs.Screen name="reports" options={{ title: "Reports", href: null }} />
         <Tabs.Screen name="schemes" options={{ title: "Schemes", headerShown: false, href: null }} />
@@ -66,7 +67,6 @@ export default function TabsLayout() {
         <Tabs.Screen name="cash" options={{ title: "Cash & Expenses", headerShown: false, href: null }} />
         <Tabs.Screen name="employees" options={{ title: "Employees", headerShown: false, href: null }} />
         <Tabs.Screen name="purity-standards" options={{ title: "Purity Standards", href: null }} />
-        <Tabs.Screen name="ornament-types" options={{ title: "Ornament Types", href: null }} />
         <Tabs.Screen name="settings" options={{ title: "Settings", headerShown: false, href: null }} />
         <Tabs.Screen name="branches" options={{ title: "Branches", headerShown: false, href: null }} />
       </Tabs>

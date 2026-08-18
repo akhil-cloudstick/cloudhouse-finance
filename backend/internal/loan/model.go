@@ -74,6 +74,18 @@ const (
 	ApprovalStagePendingManagement = "PendingManagement"
 )
 
+// ApprovalStagePendingLoanOfficer/PendingBranchManager are the Extension-
+// request chain's first two pending stages (LoanRequest.ApprovalStage) —
+// mirrors the Release chain above, but with an extra checkpoint in front:
+// Loan Officer -> Branch Manager -> Management. The final stage reuses
+// ApprovalStagePendingManagement (same value as Release's) since it's the
+// same role gate either way; only Approved/Rejected are truly shared
+// terminals. See Service.ApproveExtensionRequest.
+const (
+	ApprovalStagePendingLoanOfficer   = "PendingLoanOfficer"
+	ApprovalStagePendingBranchManager = "PendingBranchManager"
+)
+
 // SanctionStage* values drive the loan sanction chain (Loan.ApprovalStage)
 // — 3 checkpoints, in order: the loan is made by a Loan Operator, verified
 // by the Loan Operator (LoanOperator), approved by the Branch Manager
@@ -191,6 +203,14 @@ type Loan struct {
 	IsOverdue   bool `json:"isOverdue" gorm:"-"`
 	IsDefaulted bool `json:"isDefaulted" gorm:"-"`
 	DaysOverdue int  `json:"daysOverdue" gorm:"-"`
+
+	// DueSoonNotifiedAt/OverdueNotifiedAt dedupe the scheduled due/overdue
+	// notification check (Service.CheckDueAndOverdueLoans) — each fires at
+	// most once per DueDate value. Reset to nil whenever DueDate changes
+	// (see ApproveExtensionRequest's final-stage branch), so an extended
+	// loan can be reminded again against its new date.
+	DueSoonNotifiedAt *time.Time `json:"-"`
+	OverdueNotifiedAt *time.Time `json:"-"`
 
 	// ApprovalWarning is a non-blocking, advisory note shown to whoever is
 	// reviewing the loan's current pending sanction stage, when the
@@ -348,10 +368,15 @@ type LoanPayment struct {
 	ID     uint `json:"id" gorm:"primaryKey"`
 	LoanID uint `json:"loanId" gorm:"not null;index"`
 
-	Amount               float64   `json:"amount" gorm:"not null;type:numeric(16,2)"`
-	Type                 string    `json:"type" gorm:"not null;size:30"` // see PaymentType* constants
-	PaidOn               time.Time `json:"paidOn" gorm:"not null"`
-	ReceivedByEmployeeID uint      `json:"receivedByEmployeeId" gorm:"not null"`
+	Amount float64   `json:"amount" gorm:"not null;type:numeric(16,2)"`
+	Type   string    `json:"type" gorm:"not null;size:30"` // see PaymentType* constants
+	PaidOn time.Time `json:"paidOn" gorm:"not null"`
+	// ReceivedByEmployeeID is nullable: a staff-recorded payment (cash, UPI,
+	// etc.) always has one, populated from the acting employee's JWT — but a
+	// customer-initiated online (Razorpay) payment has no employee actor at
+	// all, so this is left nil rather than routed through a fabricated
+	// "system" employee row. NULL cleanly means "no staff involved."
+	ReceivedByEmployeeID *uint `json:"receivedByEmployeeId"`
 
 	// Ledger display fields.
 	Description string `json:"description" gorm:"size:255"`
@@ -544,12 +569,15 @@ const (
 	RequestedByStaff    = "Staff"    // logged by a branch employee on the customer's behalf
 )
 
-// LoanRequest is a staff-logged ask — in person, on the customer's behalf —
-// to either extend a loan's due date or release/close it. Extension
-// requests go through a single staff decision (Service.DecideRequest).
-// Release requests go through the same fixed Manager→Management approval
-// chain used for loan sanctioning (ApprovalStage below, decided via
-// Service.ApproveReleaseRequest), gated by the verification checklist.
+// LoanRequest is an ask — logged by staff in person, or submitted directly
+// by a customer through the Android app — to either extend a loan's due
+// date or release/close it. Both request types go through a fixed,
+// role-gated approval chain (ApprovalStage below): Extension runs Loan
+// Officer -> Branch Manager -> Management (Service.ApproveExtensionRequest);
+// Release runs the same Manager->Management chain used for loan sanctioning
+// (Service.ApproveReleaseRequest), gated by the verification checklist.
+// Service.DecideRequest, the old single-step decision path, now only
+// rejects Extension requests with an error pointing at the staged endpoint.
 type LoanRequest struct {
 	ID     uint `json:"id" gorm:"primaryKey"`
 	LoanID uint `json:"loanId" gorm:"not null;index"`
@@ -564,10 +592,12 @@ type LoanRequest struct {
 	RequestedExtensionMonths *int       `json:"requestedExtensionMonths,omitempty"`
 	NewDueDate               *time.Time `json:"newDueDate,omitempty"`
 
-	// ApprovalStage only applies to Type == Release — reuses the same
-	// ApprovalStage* constants as Loan's sanction chain (PendingManager ->
-	// PendingManagement -> Approved/Rejected). Extension requests are
-	// decided in one step and never set this.
+	// ApprovalStage applies to both Type == Release (PendingManager ->
+	// PendingManagement -> Approved/Rejected, decided via
+	// Service.ApproveReleaseRequest) and Type == Extension (PendingLoanOfficer
+	// -> PendingBranchManager -> PendingManagement -> Approved/Rejected,
+	// decided via Service.ApproveExtensionRequest) — both reuse the same
+	// terminal ApprovalStageApproved/ApprovalStageRejected values.
 	ApprovalStage string `json:"approvalStage,omitempty" gorm:"size:30"`
 
 	// Verification checklist, Release only — all four must be true before

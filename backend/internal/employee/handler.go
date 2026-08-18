@@ -106,7 +106,28 @@ func (h *Handler) Create(c *gin.Context) {
 }
 
 func (h *Handler) List(c *gin.Context) {
-	rec, err := h.svc.List(platform.GetBranchScope(c))
+	branchScope := platform.GetBranchScope(c)
+
+	limit, _ := strconv.Atoi(c.Query("limit"))
+	if limit > 0 {
+		offset, _ := strconv.Atoi(c.Query("offset"))
+		if offset < 0 {
+			offset = 0
+		}
+		rec, err := h.svc.List(branchScope, limit+1, offset)
+		if err != nil {
+			respondErr(c, err)
+			return
+		}
+		hasMore := len(rec) > limit
+		if hasMore {
+			rec = rec[:limit]
+		}
+		c.JSON(http.StatusOK, gin.H{"items": rec, "hasMore": hasMore})
+		return
+	}
+
+	rec, err := h.svc.List(branchScope, 0, 0)
 	if err != nil {
 		respondErr(c, err)
 		return

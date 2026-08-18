@@ -47,6 +47,38 @@ func AuthMiddleware(secret string) gin.HandlerFunc {
 	}
 }
 
+// CustomerAuthMiddleware is the customer-app equivalent of AuthMiddleware:
+// every request to a protected /api/v1/customer/* route must carry a valid
+// `Authorization: Bearer <token>` customer JWT (see IssueCustomerToken/
+// ParseCustomerToken). On success it sets customerId (uint) on the
+// gin.Context. Deliberately a separate middleware from AuthMiddleware (not
+// a shared one branching on claim shape) so a customer token can never be
+// accepted on a staff route and vice versa — ParseCustomerToken itself
+// enforces the "type":"customer" claim.
+func CustomerAuthMiddleware(secret string) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		header := c.GetHeader("Authorization")
+		if header == "" {
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "missing Authorization header"})
+			return
+		}
+		parts := strings.SplitN(header, " ", 2)
+		if len(parts) != 2 || !strings.EqualFold(parts[0], "Bearer") || parts[1] == "" {
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "malformed Authorization header"})
+			return
+		}
+
+		claims, err := ParseCustomerToken(parts[1], secret)
+		if err != nil {
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "invalid or expired token"})
+			return
+		}
+
+		c.Set("customerId", claims.CustomerID)
+		c.Next()
+	}
+}
+
 // RequirePermission is "checkpoint 2": given the resource/action this route
 // verb represents, it looks up (role, resource, action) in the permissions
 // table (via checker) and 403s if the role isn't allowed (or the lookup

@@ -1,26 +1,60 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useData } from "@/lib/DataProvider";
 import { useCustomers } from "@/lib/CustomersProvider";
 import { useModal } from "@/components/Modal";
 import { StatusChip } from "@/components/StatusChip";
 import { Icon } from "@/lib/icons";
 import { RegisterCustomerModalContent } from "@/components/modals/RegisterCustomerModal";
+import { listCustomersPage, type CustomerView } from "@/lib/customersApi";
 
 /* Ported from legacy/app.js's `renderCustomers()`. Loads real data from the
  * Go backend (`GET /api/v1/customers`) instead of the localStorage mock
  * store — see the Customer Module stage-1 plan. Loan counts still come
- * from the mock `db.loans` (the Loan module itself is out of scope here). */
+ * from the mock `db.loans` (the Loan module itself is out of scope here).
+ *
+ * The table below is paginated (10/page, one API call per page) via
+ * listCustomersPage — kept separate from CustomersProvider's `customers`,
+ * which other pages (GlobalSearch, New Loan's picker) still rely on as a
+ * single fetch-once-and-refresh full list. `customers.length` from the
+ * provider is only used for the header's overview count. */
 export function Customers() {
   const { db } = useData();
-  const { customers, loading, error, refresh } = useCustomers();
+  const { customers, refresh: refreshAll } = useCustomers();
   const { openModal } = useModal();
   const [q, setQ] = useState("");
+  const [page, setPage] = useState(1);
+  const [rows, setRows] = useState<CustomerView[]>([]);
+  const [hasMore, setHasMore] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
 
-  const rows = customers.filter(
-    (c) => !q || (c.name + c.phone + c.code).toLowerCase().includes(q.toLowerCase())
-  );
+  useEffect(() => { setPage(1); }, [q]);
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    const handle = setTimeout(() => {
+      listCustomersPage(q.trim(), page)
+        .then((res) => { if (!cancelled) { setRows(res.items); setHasMore(res.hasMore); setError(""); } })
+        .catch((e) => { if (!cancelled) setError(e instanceof Error ? e.message : "Failed to load customers."); })
+        .finally(() => { if (!cancelled) setLoading(false); });
+    }, 300);
+    return () => { cancelled = true; clearTimeout(handle); };
+  }, [q, page]);
+
+  function refresh() {
+    refreshAll();
+    // Re-run the current page's query rather than resetting to page 1, so
+    // registering/editing a customer doesn't bounce the viewer's place.
+    setPage((p) => p);
+    listCustomersPage(q.trim(), page)
+      .then((res) => { setRows(res.items); setHasMore(res.hasMore); setError(""); })
+      .catch((e) => setError(e instanceof Error ? e.message : "Failed to load customers."));
+  }
+
+  const totalPages = hasMore ? page + 1 : page;
 
   return (
     <>
@@ -59,7 +93,13 @@ export function Customers() {
             </tr>
           ))}
         </tbody>
-      </table></div></div>
+      </table></div>
+      <div className="ft" style={{ display: "flex", alignItems: "center", gap: 10 }}>
+        <button className="btn plain sm" disabled={page <= 1} onClick={() => setPage((p) => Math.max(1, p - 1))}>‹ Prev</button>
+        <span style={{ fontSize: 12.5 }}>Page {page} of {totalPages}</span>
+        <button className="btn plain sm" disabled={page >= totalPages} onClick={() => setPage((p) => Math.min(totalPages, p + 1))}>Next ›</button>
+      </div>
+      </div>
     </>
   );
 }

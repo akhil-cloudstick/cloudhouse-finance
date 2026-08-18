@@ -11,6 +11,7 @@ import { listPurityStandards, createPurityStandard } from "../../src/api/purityS
 import { PurityStandard } from "../../src/types/purityStandard";
 import { useDebouncedValue } from "../../src/hooks/useDebouncedValue";
 import { ApiError } from "../../src/api/client";
+import { useRefetchOnFocus } from "../../src/hooks/useRefetchOnFocus";
 
 export default function PurityStandardsScreen() {
   const queryClient = useQueryClient();
@@ -25,6 +26,8 @@ export default function PurityStandardsScreen() {
     queryKey: ["purity-standards", debouncedSearch],
     queryFn: () => listPurityStandards(debouncedSearch || undefined),
   });
+
+  useRefetchOnFocus(refetch);
 
   const create = useMutation({
     mutationFn: () =>

@@ -76,6 +76,18 @@ export async function listEmployees(): Promise<EmployeeView[]> {
   return (rec || []).map(toView);
 }
 
+/* Page size for the paginated Employees table (Employees.tsx). */
+export const EMPLOYEES_PAGE_SIZE = 10;
+
+export async function listEmployeesPage(page: number): Promise<{ items: EmployeeView[]; hasMore: boolean }> {
+  const params = new URLSearchParams({
+    limit: String(EMPLOYEES_PAGE_SIZE),
+    offset: String((page - 1) * EMPLOYEES_PAGE_SIZE),
+  });
+  const rec = await apiFetch<{ items: BackendEmployee[]; hasMore: boolean }>(`/employees?${params}`);
+  return { items: (rec?.items || []).map(toView), hasMore: !!rec?.hasMore };
+}
+
 export async function getEmployee(id: number): Promise<EmployeeView> {
   const rec = await apiFetch<BackendEmployee>(`/employees/${id}`);
   return toView(rec);

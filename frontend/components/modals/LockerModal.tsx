@@ -79,8 +79,10 @@ export function LockerModalContent({ locker, onSaved }: { locker?: LockerView; o
         </div></div>
         {locker && (
           <div className="frow">
-            <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13.5 }}>
-              <input type="checkbox" checked={isActive} onChange={(e) => setIsActive(e.target.checked)} /> Active
+            <label className="ccheck" style={{ alignItems: "center", fontSize: 13.5 }}>
+              <input type="checkbox" checked={isActive} onChange={(e) => setIsActive(e.target.checked)} />
+              <span className="mark" />
+              Active
             </label>
           </div>
         )}

@@ -21,7 +21,7 @@ const TABS: [string, string, string][] = [
   ["dashboard", "Dashboard", "home"],
   ["loans", "Loans", "note"],
   ["customers", "Customers", "user"],
-  ["packets", "Packets", "box"],
+  ["new-loan", "New Loan", "plus"],
 ];
 
 export function AppTabBar({ state, navigation, insets }: BottomTabBarProps) {

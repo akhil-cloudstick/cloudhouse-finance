@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
@@ -17,14 +18,17 @@ import (
 	"ambikagold/backend/internal/cash"
 	"ambikagold/backend/internal/commlog"
 	"ambikagold/backend/internal/customer"
+	"ambikagold/backend/internal/customerauth"
 	"ambikagold/backend/internal/employee"
 	"ambikagold/backend/internal/goldrate"
 	"ambikagold/backend/internal/loan"
 	"ambikagold/backend/internal/locker"
+	"ambikagold/backend/internal/notification"
 	"ambikagold/backend/internal/ornamenttype"
 	"ambikagold/backend/internal/packet"
 	"ambikagold/backend/internal/platform"
 	"ambikagold/backend/internal/puritystandard"
+	"ambikagold/backend/internal/realtime"
 	"ambikagold/backend/internal/reminder"
 	"ambikagold/backend/internal/reports"
 	"ambikagold/backend/internal/scheme"
@@ -80,6 +84,8 @@ func requireMigratedSchema(db *gorm.DB) error {
 		{"reminders", &reminder.Reminder{}},
 		{"permissions", &authz.Permission{}},
 		{"communication_logs", &commlog.CommunicationLog{}},
+		{"customer_otp", &customerauth.OTP{}},
+		{"customer_device_tokens", &customerauth.DeviceToken{}},
 	}
 	var missing []string
 	for _, r := range required {
@@ -190,6 +196,7 @@ func main() {
 	setuClient := platform.NewSetuClient(cfg)
 	digilockerClient := platform.NewDigilockerClient(cfg)
 	esignClient := platform.NewEsignClient(cfg)
+	razorpayClient := platform.NewRazorpayClient(cfg)
 
 	customerRepo := customer.NewRepository(db)
 	customerSvc := customer.NewService(customerRepo, branchRepo, aadhaarCipher, setuClient, digilockerClient)
@@ -224,7 +231,17 @@ func main() {
 	// loan.CashRecorder, reflecting bank-pledge amounts into Cash-in-Hand.
 	commlogRepo := commlog.NewRepository(db)
 
-	loanSvc := loan.NewService(db, loanRepo, loanOrnamentRepo, loanApprovalRepo, loanPaymentRepo, loanPledgeRepo, loanRequestRepo, requestApprovalRepo, loanAuctionRepo, loanApprovalLimitRepo, branchRepo, customerRepo, schemeRepo, goldRateRepo, packetSvc, packetSvc, movementSvc, whatsappSender, commlogRepo, esignClient, cfg.UploadsDir)
+	// Realtime notifications (WebSocket, ack-and-resend) — realtimeHub tracks
+	// live connections, notificationSvc is the durable store + resend logic
+	// (see internal/notification, internal/realtime). notificationSvc
+	// implements loan.CustomerNotifier so internal/loan can fire
+	// notifications without importing this package directly.
+	realtimeHub := realtime.NewHub()
+	notificationRepo := notification.NewRepository(db)
+	notificationSvc := notification.NewService(notificationRepo, realtimeHub)
+	notificationHandler := notification.NewHandler(notificationSvc, realtimeHub)
+
+	loanSvc := loan.NewService(db, loanRepo, loanOrnamentRepo, loanApprovalRepo, loanPaymentRepo, loanPledgeRepo, loanRequestRepo, requestApprovalRepo, loanAuctionRepo, loanApprovalLimitRepo, branchRepo, customerRepo, schemeRepo, goldRateRepo, packetSvc, packetSvc, movementSvc, notificationSvc, whatsappSender, commlogRepo, esignClient, cfg.UploadsDir, razorpayClient)
 	loanHandler := loan.NewHandler(loanSvc)
 
 	reminderRepo := reminder.NewRepository(db)
@@ -244,6 +261,15 @@ func main() {
 	authSvc := auth.NewService(employeeRepo, whatsappSender, cfg.JWTSecret, cfg.JWTExpiry, commlogRepo)
 	authHandler := auth.NewHandler(authSvc)
 
+	// Customer mobile app (customer-mobile/) — batch 1: OTP + device/biometric
+	// sign-in, a separate JWT scheme (platform.CustomerClaims,
+	// platform.CustomerAuthMiddleware) from the employee one above, so
+	// customer tokens are never valid on staff routes and vice versa.
+	customerAuthRepo := customerauth.NewRepository(db)
+	customerAuthSvc := customerauth.NewService(customerRepo, customerAuthRepo, whatsappSender, cfg.JWTSecret, commlogRepo)
+	customerAuthHandler := customerauth.NewHandler(customerAuthSvc)
+	customerAuthMiddleware := platform.CustomerAuthMiddleware(cfg.JWTSecret)
+
 	reportsSvc := reports.NewService(db, commlogRepo)
 	reportsHandler := reports.NewHandler(reportsSvc)
 
@@ -255,6 +281,66 @@ func main() {
 	// RegisterRoutes gates with authMiddleware itself — see
 	// internal/auth/routes.go.
 	auth.RegisterRoutes(v1.Group("/auth"), authHandler, authMiddleware)
+
+	// Customer app routes live under their own top-level group, gated by
+	// the customer JWT scheme rather than the employee authMiddleware used
+	// for everything else in this file.
+	customerauth.RegisterRoutes(v1.Group("/customer/auth"), customerAuthHandler, customerAuthMiddleware)
+	customerGoldRate := v1.Group("/customer/gold-rate")
+	customerGoldRate.Use(customerAuthMiddleware)
+	// Reuses the existing staff goldrate handler's read-only methods
+	// verbatim (Latest/List take no employee-specific input) — only the
+	// route mount and auth middleware are customer-specific.
+	customerGoldRate.GET("/latest", goldRateHandler.Latest)
+	customerGoldRate.GET("/history", goldRateHandler.List)
+
+	// Customer app — batch 2: My Loans + Loan Detail. Reuses loanHandler's
+	// customer-scoped methods (internal/loan/customer_handler.go), which
+	// force customerId from the JWT rather than trusting the client.
+	customerLoans := v1.Group("/customer/loans")
+	customerLoans.Use(customerAuthMiddleware)
+	customerLoans.GET("", loanHandler.CustomerListLoans)
+	customerLoans.GET("/:id", loanHandler.CustomerGetLoan)
+	customerLoans.GET("/:id/requests", loanHandler.CustomerListLoanRequests)
+	customerLoans.POST("/:id/extension-request", loanHandler.CustomerCreateExtensionRequest)
+	customerLoans.POST("/:id/release-request", loanHandler.CustomerCreateReleaseRequest)
+
+	// Customer app — batch 3: Razorpay Setup + Payments.
+	customerLoans.POST("/:id/pay/create-order", loanHandler.CustomerCreateRazorpayOrder)
+	customerLoans.POST("/:id/pay/verify", loanHandler.CustomerVerifyRazorpayPayment)
+	customerLoans.GET("/:id/payments", loanHandler.CustomerListLoanPayments)
+
+	// Customer app — batch 5: Documents (per-loan statement PDF).
+	customerLoans.GET("/:id/statement", loanHandler.CustomerLoanStatement)
+
+	customerPayments := v1.Group("/customer/payments")
+	customerPayments.Use(customerAuthMiddleware)
+	customerPayments.GET("", loanHandler.CustomerListPayments)
+	customerPayments.GET("/:paymentId/receipt", loanHandler.CustomerPaymentReceipt)
+
+	// Customer app — batch 4: Profile & KYC. Reuses customerHandler's
+	// customer-scoped methods (internal/customer/customer_mobile_handler.go)
+	// — same VerifyPAN/StartAadhaarVerify/CheckAadhaarVerify Setu/DigiLocker
+	// calls staff use, just customerID forced from the JWT instead of :id +
+	// branch scope.
+	customerProfile := v1.Group("/customer/profile")
+	customerProfile.Use(customerAuthMiddleware)
+	customerProfile.GET("", customerHandler.CustomerGetProfile)
+	customerProfile.POST("/verify-pan", customerHandler.CustomerVerifyPAN)
+	customerProfile.POST("/aadhaar/start", customerHandler.CustomerStartAadhaarVerify)
+	customerProfile.GET("/aadhaar/status", customerHandler.CustomerCheckAadhaarVerify)
+
+	// Realtime notifications — REST history/ack + the WebSocket upgrade.
+	// GET /customer/ws is registered directly on v1 (not customerNotifications)
+	// since it's a single route, not a resource group, but uses the exact
+	// same customerAuthMiddleware gate as every other /customer/* route: gin
+	// processes the request normally (JWT parsed, customerId set on context)
+	// right up until Upgrade() hijacks the connection.
+	customerNotifications := v1.Group("/customer/notifications")
+	customerNotifications.Use(customerAuthMiddleware)
+	customerNotifications.GET("", notificationHandler.List)
+	customerNotifications.POST("/:id/ack", notificationHandler.Ack)
+	v1.GET("/customer/ws", customerAuthMiddleware, notificationHandler.Upgrade)
 
 	// Every other /api/v1 route requires a valid JWT ("checkpoint 1"), then
 	// a per-verb permission check against the permissions table
@@ -301,6 +387,29 @@ func main() {
 	router.Static("/uploads", cfg.UploadsDir)
 
 	webstatic.Register(router, cfg.FrontendDir)
+
+	// Realtime notifications — the first scheduled/background jobs in this
+	// codebase (no cron/scheduler infra existed before). Resend ticker
+	// re-pushes undelivered notifications to any customer with a live
+	// connection every 10 minutes, capped at 10 attempts per notification
+	// (notification.Service.ResendPending). Due/overdue ticker is the one
+	// genuinely new notification *trigger* (see loan.Service.
+	// CheckDueAndOverdueLoans's doc comment) — hourly is cheap since it only
+	// walks the not-yet-closed loan set.
+	go func() {
+		ticker := time.NewTicker(10 * time.Minute)
+		defer ticker.Stop()
+		for range ticker.C {
+			notificationSvc.ResendPending()
+		}
+	}()
+	go func() {
+		ticker := time.NewTicker(1 * time.Hour)
+		defer ticker.Stop()
+		for range ticker.C {
+			loanSvc.CheckDueAndOverdueLoans()
+		}
+	}()
 
 	log.Printf("Ambika Gold API + web app listening on :%s (serving frontend from %s)", cfg.Port, cfg.FrontendDir)
 	if err := router.Run(":" + cfg.Port); err != nil {

@@ -1,7 +1,8 @@
 import React, { useState } from "react";
-import { ScrollView, View } from "react-native";
+import { ScrollView, View, RefreshControl } from "react-native";
 import { useLocalSearchParams } from "expo-router";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useRefetchOnFocus } from "../../../src/hooks/useRefetchOnFocus";
 import { ScreenContainer } from "../../../src/components/ScreenContainer";
 import { Card } from "../../../src/components/Card";
 import { ThemedText } from "../../../src/components/ThemedText";
@@ -47,6 +48,8 @@ export default function PacketDetailScreen() {
     queryFn: () => getPacketMovements(packetId),
     enabled: !!id,
   });
+
+  useRefetchOnFocus(packet.refetch, movements.refetch);
 
   const status = packet.data?.status ?? "";
   const nextStages = NEXT[status] ?? [];
@@ -124,7 +127,19 @@ export default function PacketDetailScreen() {
     <ScreenContainer>
       {/* The stepper makes this screen taller than the viewport — same
           ScrollView wrapper the loan detail screen uses. */}
-      <ScrollView showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
+      <ScrollView
+        showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
+        refreshControl={
+          <RefreshControl
+            refreshing={packet.isRefetching || movements.isRefetching}
+            onRefresh={() => {
+              packet.refetch();
+              movements.refetch();
+            }}
+          />
+        }
+      >
       <Card>
         <ThemedText variant="h2" color={colors.goldDeep}>
           {packet.data.code}

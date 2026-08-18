@@ -10,6 +10,7 @@ import { colors, statusColors } from "../../../src/theme/colors";
 import { listApiKeys, setApiKey } from "../../../src/api/settings";
 import { ApiKeyView, ApiKeyCategory } from "../../../src/types/apiKey";
 import { ApiError } from "../../../src/api/client";
+import { useRefetchOnFocus } from "../../../src/hooks/useRefetchOnFocus";
 
 // Administrator-only, matching web — this whole route is hidden from the
 // More sheet for non-Administrators (src/components/MoreSheet.tsx), and the
@@ -24,6 +25,8 @@ export default function SettingsScreen() {
     queryKey: ["api-keys"],
     queryFn: listApiKeys,
   });
+
+  useRefetchOnFocus(refetch);
 
   const save = useMutation({
     mutationFn: (category: ApiKeyCategory) => setApiKey(category, value),

@@ -1,5 +1,5 @@
 import React from "react";
-import { Pressable } from "react-native";
+import { Pressable, ScrollView, RefreshControl } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useQuery } from "@tanstack/react-query";
 import { ScreenContainer } from "../../../src/components/ScreenContainer";
@@ -9,13 +9,14 @@ import { colors } from "../../../src/theme/colors";
 import { getCustomer } from "../../../src/api/customers";
 import { listLoans } from "../../../src/api/loans";
 import { Loan } from "../../../src/types/loan";
+import { useRefetchOnFocus } from "../../../src/hooks/useRefetchOnFocus";
 
 export default function CustomerDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
   const customerId = Number(id);
 
-  const { data, isLoading, isError } = useQuery({
+  const { data, isLoading, isError, refetch, isRefetching } = useQuery({
     queryKey: ["customer", id],
     queryFn: () => getCustomer(customerId),
     enabled: !!id,
@@ -28,14 +29,30 @@ export default function CustomerDetailScreen() {
     data: loans,
     isLoading: loansLoading,
     isError: loansError,
+    refetch: refetchLoans,
+    isRefetching: isRefetchingLoans,
   } = useQuery({
     queryKey: ["loans", "customer", customerId],
     queryFn: () => listLoans({ customerId }),
     enabled: !!id,
   });
 
+  useRefetchOnFocus(refetch, refetchLoans);
+
   return (
     <ScreenContainer>
+      <ScrollView
+        showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl
+            refreshing={isRefetching || isRefetchingLoans}
+            onRefresh={() => {
+              refetch();
+              refetchLoans();
+            }}
+          />
+        }
+      >
       {isLoading ? (
         <ThemedText color={colors.muted}>Loading…</ThemedText>
       ) : isError || !data ? (
@@ -120,6 +137,7 @@ export default function CustomerDetailScreen() {
           </Card>
         </>
       )}
+      </ScrollView>
     </ScreenContainer>
   );
 }

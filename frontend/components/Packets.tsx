@@ -7,7 +7,7 @@ import { fmtW } from "@/lib/format";
 import { StatusChip } from "@/components/StatusChip";
 import { LockerModalContent } from "@/components/modals/LockerModal";
 import { listLockers, type LockerView } from "@/lib/lockerApi";
-import { listPackets, getPacketByCode, type PacketView } from "@/lib/packetApi";
+import { listPacketsPage, getPacketByCode, type PacketView } from "@/lib/packetApi";
 import { ApiError } from "@/lib/api";
 
 function LockerCard({ l, packets, onChanged }: { l: LockerView; packets: PacketView[]; onChanged: () => void }) {
@@ -55,11 +55,14 @@ export function Packets() {
   const [error, setError] = useState("");
   const [lookup, setLookup] = useState("");
   const [lookupErr, setLookupErr] = useState("");
+  const [page, setPage] = useState(1);
+  const [hasMore, setHasMore] = useState(false);
 
   async function load() {
     try {
-      const [p, l] = await Promise.all([listPackets(), listLockers()]);
-      setPackets(p);
+      const [p, l] = await Promise.all([listPacketsPage(page), listLockers()]);
+      setPackets(p.items);
+      setHasMore(p.hasMore);
       setLockers(l);
       setError("");
     } catch (e) {
@@ -67,7 +70,7 @@ export function Packets() {
     }
   }
 
-  useEffect(() => { load(); }, []);
+  useEffect(() => { load(); }, [page]);
 
   async function onLookup(e: React.KeyboardEvent<HTMLInputElement>) {
     if (e.key !== "Enter") return;
@@ -141,6 +144,16 @@ export function Packets() {
               </tbody>
             </table>
           </div>
+          {(() => {
+            const totalPages = hasMore ? page + 1 : page;
+            return (
+              <div className="ft" style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                <button className="btn plain sm" disabled={page <= 1} onClick={() => setPage((p) => Math.max(1, p - 1))}>‹ Prev</button>
+                <span style={{ fontSize: 12.5 }}>Page {page} of {totalPages}</span>
+                <button className="btn plain sm" disabled={!hasMore} onClick={() => setPage((p) => p + 1)}>Next ›</button>
+              </div>
+            );
+          })()}
         </div>
         <div className="grid">
           {lockers.map((l) => <LockerCard key={l.id} l={l} packets={packets || []} onChanged={load} />)}

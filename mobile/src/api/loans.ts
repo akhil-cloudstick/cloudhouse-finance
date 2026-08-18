@@ -7,8 +7,48 @@ export function listLoans(params?: { q?: string; status?: string; branchId?: num
   return apiRequest<Loan[]>("/loans", { params });
 }
 
+// Page-scoped variant: passing `limit` flips the backend (handler.go's
+// List) into the {items, hasMore} envelope instead of the bare array above —
+// used by the paginated mobile Loans list (10/page, one API call per page).
+export function listLoansPage(params: {
+  q?: string;
+  status?: string;
+  branchId?: number;
+  customerId?: number;
+  limit: number;
+  offset: number;
+}) {
+  return apiRequest<{ items: Loan[]; hasMore: boolean }>("/loans", { params });
+}
+
 export function getLoan(id: number) {
   return apiRequest<Loan>(`/loans/${id}`);
+}
+
+// --- Create loan (backend/internal/loan/handler.go's loanRequest) ----------
+
+export type CreateOrnamentInput = {
+  name: string;
+  purity: string;
+  grossWeight: number;
+  deductionWeight?: number;
+  quantity?: number;
+  remarks?: string;
+};
+
+export type CreateLoanInput = {
+  branchId: number;
+  customerId: number;
+  schemeId: number;
+  openedDate: string; // "YYYY-MM-DD"
+  dueDate: string; // "YYYY-MM-DD"
+  principalAmount: number;
+  ornaments: CreateOrnamentInput[];
+  lockerId?: number;
+};
+
+export function createLoan(input: CreateLoanInput) {
+  return apiRequest<Loan>("/loans", { method: "POST", body: input });
 }
 
 // --- Sanction-chain approvals (backend/internal/loan/handler.go's Approve/

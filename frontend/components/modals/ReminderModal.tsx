@@ -6,8 +6,16 @@ import { useToast } from "@/components/Toast";
 import { useAuth } from "@/lib/auth-context";
 import { Icon } from "@/lib/icons";
 import { SearchableSelect } from "@/components/SearchableSelect";
+import { Select } from "@/components/Select";
+import { DatePicker } from "@/components/DatePicker";
 import { searchCustomersPage, type CustomerView } from "@/lib/customersApi";
 import { createReminder, type ReminderView } from "@/lib/remindersApi";
+
+const TYPE_OPTIONS = [
+  { value: "Follow-Up", label: "Customer Follow-Up" },
+  { value: "Promise-to-Pay", label: "Promise-to-Pay Date" },
+  { value: "Custom", label: "Custom Reminder" },
+];
 
 /* "Add Reminder" modal — logs a Customer Follow-Up / Promise-to-Pay /
  * Custom reminder against a customer (optionally a specific loan), backing
@@ -74,15 +82,15 @@ export function AddReminderModalContent({ initialDate, onSaved }: { initialDate?
         <div className="frow c2">
           <div>
             <label className="f">Type *</label>
-            <select className="inp" value={type} onChange={(e) => setType(e.target.value as typeof type)}>
-              <option value="Follow-Up">Customer Follow-Up</option>
-              <option value="Promise-to-Pay">Promise-to-Pay Date</option>
-              <option value="Custom">Custom Reminder</option>
-            </select>
+            <Select
+              options={TYPE_OPTIONS}
+              value={type}
+              onChange={(v) => setType(v as typeof type)}
+            />
           </div>
           <div>
             <label className="f">Due Date *</label>
-            <input className="inp" type="date" value={dueDate} onChange={(e) => setDueDate(e.target.value)} />
+            <DatePicker value={dueDate} onChange={setDueDate} />
           </div>
         </div>
         <div className="frow">

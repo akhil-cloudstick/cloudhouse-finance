@@ -125,6 +125,20 @@ export async function listCustomers(): Promise<CustomerView[]> {
   return (rec || []).map(toView);
 }
 
+const CUSTOMERS_TABLE_PAGE_SIZE = 10;
+
+/* Paginated variant of listCustomers for the Customers page's own table
+ * (distinct from CUSTOMER_PAGE_SIZE below, which backs the SearchableSelect
+ * picker's infinite scroll) — CustomersProvider still fetches the full,
+ * unpaginated list for consumers that need every customer at once (global
+ * search, New Loan's picker), so this is a separate call rather than a
+ * change to listCustomers/CustomersProvider. */
+export async function listCustomersPage(q: string, page: number): Promise<{ items: CustomerView[]; hasMore: boolean }> {
+  const params = new URLSearchParams({ q, limit: String(CUSTOMERS_TABLE_PAGE_SIZE), offset: String((page - 1) * CUSTOMERS_TABLE_PAGE_SIZE) });
+  const rec = await apiFetch<{ items: BackendCustomer[]; hasMore: boolean }>(`/customers?${params}`);
+  return { items: (rec?.items || []).map(toView), hasMore: !!rec?.hasMore };
+}
+
 /* Server-side search across name/code/phone — backs SearchableSelect
  * pickers (see NewLoan.tsx) instead of filtering the full listCustomers()
  * result client-side. */

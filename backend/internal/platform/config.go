@@ -77,6 +77,12 @@ type Config struct {
 	SetuEsignClientSecret    string
 	SetuEsignProductInstance string
 	SetuEsignBaseURL         string
+	// Razorpay* configure the Razorpay Orders API used for customer-app
+	// online loan payments (see platform/razorpay.go). Plain env vars,
+	// following the same convention as Setu* above, rather than the
+	// encrypted internal/settings table.
+	RazorpayKeyID     string
+	RazorpayKeySecret string
 }
 
 // LoadConfig reads a .env file if present (local/dev convenience) and
@@ -128,6 +134,9 @@ func LoadConfig() Config {
 		SetuEsignClientSecret:    getEnv("SETU_ESIGN_CLIENT_SECRET", ""),
 		SetuEsignProductInstance: getEnv("SETU_ESIGN_PRODUCT_INSTANCE_ID", ""),
 		SetuEsignBaseURL:         getEnv("SETU_ESIGN_BASE_URL", "https://dg-sandbox.setu.co"),
+
+		RazorpayKeyID:     getEnv("RAZORPAY_KEY_ID", ""),
+		RazorpayKeySecret: getEnv("RAZORPAY_KEY_SECRET", ""),
 	}
 }
 

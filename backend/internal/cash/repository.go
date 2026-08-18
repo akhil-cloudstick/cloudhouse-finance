@@ -24,11 +24,17 @@ func (r *MovementRepository) Create(m *CashMovement) error {
 // pass nil for an Administrator's unfiltered "all branches" view, or a
 // non-nil pointer to confine results to that branch (see
 // platform.GetBranchScope).
-func (r *MovementRepository) FindAll(branchID *uint) ([]CashMovement, error) {
+func (r *MovementRepository) FindAll(branchID *uint, limit, offset int) ([]CashMovement, error) {
 	var movements []CashMovement
 	q := r.db.Preload("Branch").Order("occurred_on desc, id desc")
 	if branchID != nil {
 		q = q.Where("branch_id = ?", *branchID)
+	}
+	if limit > 0 {
+		q = q.Limit(limit)
+	}
+	if offset > 0 {
+		q = q.Offset(offset)
 	}
 	err := q.Find(&movements).Error
 	return movements, err
@@ -66,11 +72,17 @@ func (r *ExpenseRepository) Create(e *Expense) error {
 // FindAll returns expenses, optionally scoped to a single branch — pass nil
 // for an Administrator's unfiltered "all branches" view, or a non-nil
 // pointer to confine results to that branch (see platform.GetBranchScope).
-func (r *ExpenseRepository) FindAll(branchID *uint) ([]Expense, error) {
+func (r *ExpenseRepository) FindAll(branchID *uint, limit, offset int) ([]Expense, error) {
 	var expenses []Expense
 	q := r.db.Preload("Branch").Order("occurred_on desc, id desc")
 	if branchID != nil {
 		q = q.Where("branch_id = ?", *branchID)
+	}
+	if limit > 0 {
+		q = q.Limit(limit)
+	}
+	if offset > 0 {
+		q = q.Offset(offset)
 	}
 	err := q.Find(&expenses).Error
 	return expenses, err

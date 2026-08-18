@@ -1,5 +1,5 @@
 import React from "react";
-import { View, ScrollView } from "react-native";
+import { View, ScrollView, RefreshControl } from "react-native";
 import { useQuery } from "@tanstack/react-query";
 import { useRouter } from "expo-router";
 import { ScreenContainer } from "../../../src/components/ScreenContainer";
@@ -9,6 +9,7 @@ import { GoldButton } from "../../../src/components/GoldButton";
 import { colors } from "../../../src/theme/colors";
 import { getCashSummary } from "../../../src/api/cash";
 import { useAuth } from "../../../src/auth/AuthContext";
+import { useRefetchOnFocus } from "../../../src/hooks/useRefetchOnFocus";
 
 import { fmt } from "../../../src/lib/format";
 
@@ -17,18 +18,23 @@ export default function CashSummaryScreen() {
   const { employee } = useAuth();
   const today = new Date().toISOString().slice(0, 10);
 
-  const { data, isLoading, isError } = useQuery({
+  const { data, isLoading, isError, refetch, isRefetching } = useQuery({
     queryKey: ["cash-summary", employee?.branchId, today],
     queryFn: () => getCashSummary(employee!.branchId, today),
     enabled: !!employee,
   });
+
+  useRefetchOnFocus(refetch);
 
   return (
     <ScreenContainer>
       {/* No ScrollView here previously — on a short screen the summary
           Card plus the two nav buttons below could clip, same overflow
           bug schemes/new.tsx had. */}
-      <ScrollView showsVerticalScrollIndicator={false}>
+      <ScrollView
+        showsVerticalScrollIndicator={false}
+        refreshControl={<RefreshControl refreshing={isRefetching} onRefresh={refetch} />}
+      >
       <Card>
         <ThemedText variant="h3" style={{ marginBottom: 8 }}>
           Today's cash summary

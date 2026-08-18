@@ -12,6 +12,7 @@ import { listBanks, createBank } from "../../../src/api/banks";
 import { Bank } from "../../../src/types/bank";
 import { useDebouncedValue } from "../../../src/hooks/useDebouncedValue";
 import { ApiError } from "../../../src/api/client";
+import { useRefetchOnFocus } from "../../../src/hooks/useRefetchOnFocus";
 
 // Re-pledge/bank actions per loan happen from the loan's own detail screen
 // (app/(tabs)/loans/[id].tsx) — this screen manages the bank directory
@@ -31,6 +32,8 @@ export default function BanksScreen() {
     queryKey: ["banks", debouncedSearch],
     queryFn: () => listBanks(debouncedSearch || undefined),
   });
+
+  useRefetchOnFocus(refetch);
 
   function reset() {
     setName("");

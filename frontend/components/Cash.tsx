@@ -12,7 +12,7 @@ import { ExpenseModalContent, ReceiptViewModalContent } from "@/components/modal
 import { listActiveBranches, type BranchView } from "@/lib/branchApi";
 import { SearchableSelect } from "@/components/SearchableSelect";
 import {
-  listCashMovements, listExpenses, getCashSummary, setOpeningBalance,
+  listCashMovementsPage, listExpensesPage, getCashSummary, setOpeningBalance,
   setCashMovementLoanStatus, approveExpense, rejectExpense,
   type CashMovementView, type ExpenseView, type CashSummary,
 } from "@/lib/cashApi";
@@ -124,6 +124,10 @@ export function Cash() {
   const [branchLabel, setBranchLabel] = useState("");
   const [movements, setMovements] = useState<CashMovementView[]>([]);
   const [expenses, setExpenses] = useState<ExpenseView[]>([]);
+  const [movementsPage, setMovementsPage] = useState(1);
+  const [movementsHasMore, setMovementsHasMore] = useState(false);
+  const [expensesPage, setExpensesPage] = useState(1);
+  const [expensesHasMore, setExpensesHasMore] = useState(false);
   const [summary, setSummary] = useState<CashSummary | null>(null);
   const [openingInput, setOpeningInput] = useState("");
   // Once today's opening balance exists for the selected branch we show it
@@ -140,8 +144,14 @@ export function Cash() {
   const summarySeq = useRef(0);
 
   const refresh = useCallback(() => {
-    listCashMovements().then(setMovements).catch(() => setMovements([]));
-    listExpenses().then(setExpenses).catch(() => setExpenses([]));
+    listCashMovementsPage(movementsPage).then(({ items, hasMore }) => {
+      setMovements(items);
+      setMovementsHasMore(hasMore);
+    }).catch(() => { setMovements([]); setMovementsHasMore(false); });
+    listExpensesPage(expensesPage).then(({ items, hasMore }) => {
+      setExpenses(items);
+      setExpensesHasMore(hasMore);
+    }).catch(() => { setExpenses([]); setExpensesHasMore(false); });
     const seq = ++summarySeq.current;
     getCashSummary(branchId || undefined, today).then((s) => {
       if (seq !== summarySeq.current) return;
@@ -152,7 +162,7 @@ export function Cash() {
       if (seq !== summarySeq.current) return;
       setSummary(null);
     });
-  }, [branchId, today]);
+  }, [branchId, today, movementsPage, expensesPage]);
 
   useEffect(() => {
     listActiveBranches().then((list) => {
@@ -330,6 +340,11 @@ export function Cash() {
             </tbody>
           </table>
         </div>
+        <div className="ft" style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <button className="btn plain sm" disabled={movementsPage <= 1} onClick={() => setMovementsPage((p) => Math.max(1, p - 1))}>‹ Prev</button>
+          <span style={{ fontSize: 12.5 }}>Page {movementsPage} of {movementsHasMore ? movementsPage + 1 : movementsPage}</span>
+          <button className="btn plain sm" disabled={!movementsHasMore} onClick={() => setMovementsPage((p) => p + 1)}>Next ›</button>
+        </div>
         <div className="ft">Cash added from a loan stays flagged until the loan is marked closed · all movements adjust Expected Cash in Hand</div>
       </div>
 
@@ -352,6 +367,11 @@ export function Cash() {
                 : <tr><td colSpan={9} className="empty">No expenses recorded yet.</td></tr>}
             </tbody>
           </table>
+        </div>
+        <div className="ft" style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <button className="btn plain sm" disabled={expensesPage <= 1} onClick={() => setExpensesPage((p) => Math.max(1, p - 1))}>‹ Prev</button>
+          <span style={{ fontSize: 12.5 }}>Page {expensesPage} of {expensesHasMore ? expensesPage + 1 : expensesPage}</span>
+          <button className="btn plain sm" disabled={!expensesHasMore} onClick={() => setExpensesPage((p) => p + 1)}>Next ›</button>
         </div>
         <div className="ft">Cash expenses automatically reflect in Cash-in-Hand calculations · receipt images attached to expense records</div>
       </div>

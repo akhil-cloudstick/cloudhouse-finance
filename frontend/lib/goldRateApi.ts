@@ -51,6 +51,24 @@ export async function listGoldRates(): Promise<GoldRateView[]> {
   return (rec || []).map(toView);
 }
 
+/* Page size for the Rate History table on GoldRates.tsx. */
+export const GOLD_RATES_HISTORY_PAGE_SIZE = 10;
+
+/* Paginated variant of listGoldRates — backs GoldRates.tsx's Rate History
+ * table. `page` is 1-based; the backend responds with an {items, hasMore}
+ * envelope whenever `limit` is passed (see backend/internal/goldrate/
+ * handler.go's List), matching loansApi.listLoansPage's pattern. */
+export async function listGoldRatesPage(
+  page: number
+): Promise<{ items: GoldRateView[]; hasMore: boolean }> {
+  const params = new URLSearchParams({
+    limit: String(GOLD_RATES_HISTORY_PAGE_SIZE),
+    offset: String((page - 1) * GOLD_RATES_HISTORY_PAGE_SIZE),
+  });
+  const rec = await apiFetch<{ items: BackendGoldRate[]; hasMore: boolean }>(`/gold-rates?${params}`);
+  return { items: (rec?.items || []).map(toView), hasMore: !!rec?.hasMore };
+}
+
 export async function getLatestGoldRate(): Promise<GoldRateView | null> {
   const rec = await apiFetch<BackendGoldRate>("/gold-rates/latest");
   return rec ? toView(rec) : null;

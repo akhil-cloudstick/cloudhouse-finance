@@ -5,7 +5,6 @@ import { useRouter } from "expo-router";
 import { ThemedText } from "./ThemedText";
 import { colors } from "../theme/colors";
 import { useAuth, useIsAdministrator } from "../auth/AuthContext";
-import { useMoreSheet } from "./MoreSheet";
 import { Icon } from "./Icon";
 
 // Single, shared header for every screen in the (tabs) group — replaces
@@ -20,27 +19,20 @@ export function FloatingHeader({ title, navigation }: { title: string; navigatio
   const router = useRouter();
   const { employee, signOut } = useAuth();
   const isAdmin = useIsAdministrator();
-  const { open: openMore } = useMoreSheet();
   const [menuOpen, setMenuOpen] = useState(false);
 
   // Left button is a back chevron on nested Stack detail screens
-  // (loans/[id], customers/new, ...), and the ☰ everywhere else. ☰ no longer
-  // opens a drawer — there isn't one — it raises the same More sheet the
-  // bottom bar's 5th slot does, so the extra pages stay one tap away from any
-  // screen.
+  // (loans/[id], customers/new, ...); on every other screen there is no
+  // left button at all — the ☰ that used to open the More sheet from here
+  // was removed, since the bottom bar's own "More" slot already covers that.
   //
   // Deliberately NOT navigation.canGoBack(): the header receives whichever
   // navigator rendered it, and a tab navigator reports canGoBack() === true as
   // soon as you've switched tabs once (TabRouter keeps a history). That would
-  // put a chevron on every tab except the first and leave no way to reach the
-  // More sheet from the header. Checking for a stack with depth is exact.
+  // put a chevron on every tab except the first. Checking for a stack with
+  // depth is exact.
   const navState = navigation?.getState?.();
   const canGoBack = navState?.type === "stack" && (navState.index ?? 0) > 0;
-
-  function handleMenuPress() {
-    if (canGoBack) navigation.goBack();
-    else openMore();
-  }
 
   const initials = (employee?.name ?? "?")
     .split(" ")
@@ -52,9 +44,13 @@ export function FloatingHeader({ title, navigation }: { title: string; navigatio
   return (
     <View style={[styles.wrap, { marginTop: insets.top + 8 }]}>
       <View style={styles.island}>
-        <Pressable onPress={handleMenuPress} hitSlop={10} style={styles.iconBtn}>
-          <Icon name={canGoBack ? "chevronLeft" : "list"} size={22} color={colors.ink} />
-        </Pressable>
+        {canGoBack ? (
+          <Pressable onPress={() => navigation.goBack()} hitSlop={10} style={styles.iconBtn}>
+            <Icon name="chevronLeft" size={22} color={colors.ink} />
+          </Pressable>
+        ) : (
+          <View style={styles.iconBtn} />
+        )}
 
         <ThemedText variant="h3" numberOfLines={1} style={styles.title}>
           {title}

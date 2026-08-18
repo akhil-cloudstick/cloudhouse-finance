@@ -9,6 +9,7 @@ import { GoldButton } from "../../../src/components/GoldButton";
 import { colors } from "../../../src/theme/colors";
 import { listEmployees } from "../../../src/api/employees";
 import { Employee } from "../../../src/types/employee";
+import { useRefetchOnFocus } from "../../../src/hooks/useRefetchOnFocus";
 
 // No server-side search on this endpoint today (see src/api/employees.ts) —
 // list is already branch-scoped, small enough not to need one yet.
@@ -18,6 +19,8 @@ export default function EmployeesScreen() {
     queryKey: ["employees"],
     queryFn: listEmployees,
   });
+
+  useRefetchOnFocus(refetch);
 
   return (
     <ScreenContainer style={{ paddingHorizontal: 0 }}>
@@ -37,7 +40,7 @@ export default function EmployeesScreen() {
         renderItem={({ item }) => (
           <Pressable onPress={() => router.push(`/employees/${item.id}`)}>
             <Card>
-              <ThemedText variant="h3">{item.name}</ThemedText>
+              <ThemedText variant="body">{item.name}</ThemedText>
               <ThemedText variant="small" color={colors.muted}>
                 {item.code} · {item.role}
               </ThemedText>

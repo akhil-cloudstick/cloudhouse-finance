@@ -1,15 +1,18 @@
 import React, { useState } from "react";
 import { FlatList, RefreshControl, Pressable } from "react-native";
-import { useQuery } from "@tanstack/react-query";
+import { useInfiniteQuery } from "@tanstack/react-query";
 import { useRouter } from "expo-router";
 import { ScreenContainer } from "../../../src/components/ScreenContainer";
 import { Card } from "../../../src/components/Card";
 import { ThemedText } from "../../../src/components/ThemedText";
 import { GoldTextInput } from "../../../src/components/GoldTextInput";
 import { colors, statusColors } from "../../../src/theme/colors";
-import { listLoans } from "../../../src/api/loans";
+import { listLoansPage } from "../../../src/api/loans";
 import { Loan } from "../../../src/types/loan";
 import { useDebouncedValue } from "../../../src/hooks/useDebouncedValue";
+import { useRefetchOnFocus } from "../../../src/hooks/useRefetchOnFocus";
+
+const PAGE_SIZE = 10;
 
 function toneForStatus(status: string): "green" | "red" | "amber" | "blue" | "muted" {
   const s = status.toLowerCase();
@@ -24,10 +27,28 @@ export default function LoansScreen() {
   const [search, setSearch] = useState("");
   const debouncedSearch = useDebouncedValue(search);
 
-  const { data, isLoading, isError, refetch, isRefetching } = useQuery({
+  const {
+    data,
+    isLoading,
+    isError,
+    refetch,
+    isRefetching,
+    fetchNextPage,
+    hasNextPage,
+    isFetchingNextPage,
+  } = useInfiniteQuery({
     queryKey: ["loans", debouncedSearch],
-    queryFn: () => listLoans({ q: debouncedSearch || undefined }),
+    // Each page is its own API call — offset advances by PAGE_SIZE, never
+    // an in-memory slice of one big fetch.
+    queryFn: ({ pageParam = 0 }) =>
+      listLoansPage({ q: debouncedSearch || undefined, limit: PAGE_SIZE, offset: pageParam }),
+    initialPageParam: 0,
+    getNextPageParam: (lastPage, pages) => (lastPage.hasMore ? pages.length * PAGE_SIZE : undefined),
   });
+
+  useRefetchOnFocus(refetch);
+
+  const loans = data?.pages.flatMap((p) => p.items) ?? [];
 
   return (
     <ScreenContainer style={{ paddingHorizontal: 0 }}>
@@ -39,15 +60,20 @@ export default function LoansScreen() {
         containerStyle={{ marginHorizontal: 16 }}
       />
       <FlatList<Loan>
-        data={data ?? []}
+        data={loans}
         keyExtractor={(item) => String(item.id)}
         contentContainerStyle={{ paddingHorizontal: 16 }}
         refreshControl={<RefreshControl refreshing={isRefetching} onRefresh={refetch} />}
+        onEndReached={() => {
+          if (hasNextPage && !isFetchingNextPage) fetchNextPage();
+        }}
+        onEndReachedThreshold={0.4}
         ListEmptyComponent={
           <ThemedText color={colors.muted}>
             {isLoading ? "Loading…" : isError ? "Could not load loans." : "No loans found."}
           </ThemedText>
         }
+        ListFooterComponent={isFetchingNextPage ? <ThemedText color={colors.muted}>Loading more…</ThemedText> : null}
         renderItem={({ item }) => {
           const tone = statusColors(toneForStatus(item.status));
           return (

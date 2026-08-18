@@ -1,7 +1,8 @@
 import React, { useState } from "react";
-import { ScrollView, View } from "react-native";
+import { ScrollView, View, RefreshControl } from "react-native";
 import { useLocalSearchParams } from "expo-router";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useRefetchOnFocus } from "../../../src/hooks/useRefetchOnFocus";
 import { ScreenContainer } from "../../../src/components/ScreenContainer";
 import { Card } from "../../../src/components/Card";
 import { ThemedText } from "../../../src/components/ThemedText";
@@ -58,6 +59,15 @@ export default function LoanDetailScreen() {
     enabled: !!id,
     retry: false,
   });
+
+  // A status change made elsewhere (e.g. approving this loan on the web
+  // admin) otherwise never shows up here: react-navigation keeps this
+  // screen mounted once visited, and React Query has no browser-focus
+  // event to refetch on in React Native — see useRefetchOnFocus's own
+  // comment for the full explanation. Refetch every time this screen
+  // regains focus, not just on its first mount.
+  useRefetchOnFocus(loan.refetch, auction.refetch);
+
   const [error, setError] = useState<string | null>(null);
 
   // --- Auction form state (unchanged from v1) -------------------------------
@@ -69,6 +79,9 @@ export default function LoanDetailScreen() {
   // --- Payment form state ---------------------------------------------------
   const [paymentType, setPaymentType] = useState<(typeof PAYMENT_TYPES)[number]>("Partial");
   const [paymentAmount, setPaymentAmount] = useState("");
+  // Defaults to today, same as the web PaymentModal, but editable so staff
+  // can backdate a payment instead of it being silently forced to "today".
+  const [paymentDate, setPaymentDate] = useState(new Date().toISOString().slice(0, 10));
   const [paymentMethod, setPaymentMethod] = useState("");
   const [paymentReference, setPaymentReference] = useState("");
   const [paymentDescription, setPaymentDescription] = useState("");
@@ -121,13 +134,14 @@ export default function LoanDetailScreen() {
       recordPayment(loanId, {
         amount: Number(paymentAmount),
         type: paymentType,
-        paidOn: new Date().toISOString().slice(0, 10),
+        paidOn: paymentDate,
         method: paymentMethod || undefined,
         reference: paymentReference || undefined,
         description: paymentDescription || undefined,
       }),
     onSuccess: () => {
       setPaymentAmount("");
+      setPaymentDate(new Date().toISOString().slice(0, 10));
       setPaymentMethod("");
       setPaymentReference("");
       setPaymentDescription("");
@@ -223,7 +237,18 @@ export default function LoanDetailScreen() {
 
   return (
     <ScreenContainer>
-      <ScrollView showsVerticalScrollIndicator={false}>
+      <ScrollView
+        showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl
+            refreshing={loan.isRefetching || auction.isRefetching}
+            onRefresh={() => {
+              loan.refetch();
+              auction.refetch();
+            }}
+          />
+        }
+      >
         <Card>
           <ThemedText variant="h2" color={colors.goldDeep}>
             {l.loanNumber}
@@ -314,6 +339,7 @@ export default function LoanDetailScreen() {
               value={paymentAmount}
               onChangeText={setPaymentAmount}
             />
+            <GoldTextInput label="Payment date (YYYY-MM-DD)" value={paymentDate} onChangeText={setPaymentDate} />
             <GoldTextInput label="Method (e.g. Cash, UPI)" value={paymentMethod} onChangeText={setPaymentMethod} />
             <GoldTextInput label="Reference" value={paymentReference} onChangeText={setPaymentReference} />
             <GoldTextInput label="Description" value={paymentDescription} onChangeText={setPaymentDescription} />
@@ -321,7 +347,7 @@ export default function LoanDetailScreen() {
               title="Record Payment"
               onPress={() => pay.mutate()}
               loading={pay.isPending}
-              disabled={!paymentAmount}
+              disabled={!paymentAmount || !paymentDate}
             />
           </Card>
         ) : null}
@@ -456,11 +482,21 @@ export default function LoanDetailScreen() {
           </ThemedText>
 
           {!auction.data ? (
-            <GoldButton
-              title="Mark auction eligible"
-              onPress={() => eligible.mutate()}
-              loading={eligible.isPending}
-            />
+            // Active/Closed loans aren't overdue or defaulted, so the
+            // "Mark auction eligible" action doesn't apply to them — only
+            // offer it once the loan itself is in a state that could lead
+            // to auction (e.g. Overdue/Defaulted).
+            l.status !== "Active" && l.status !== "Closed" ? (
+              <GoldButton
+                title="Mark auction eligible"
+                onPress={() => eligible.mutate()}
+                loading={eligible.isPending}
+              />
+            ) : (
+              <ThemedText variant="small" color={colors.muted}>
+                Not eligible for auction.
+              </ThemedText>
+            )
           ) : (
             <>
               <ThemedText variant="label" style={{ marginBottom: 8 }}>

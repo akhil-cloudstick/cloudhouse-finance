@@ -56,6 +56,11 @@ type Filter struct {
 	BranchID *uint
 	Status   string
 	LockerID uint
+
+	// Limit/Offset paginate the result set; Limit <= 0 means "no limit"
+	// (matches LoanFilter's convention).
+	Limit  int
+	Offset int
 }
 
 func (r *Repository) FindAll(f Filter) ([]Packet, error) {
@@ -71,6 +76,12 @@ func (r *Repository) FindAll(f Filter) ([]Packet, error) {
 	}
 	if f.BranchID != nil {
 		q = q.Joins("JOIN loans ON loans.id = packets.loan_id").Where("loans.branch_id = ?", *f.BranchID)
+	}
+	if f.Limit > 0 {
+		q = q.Limit(f.Limit)
+	}
+	if f.Offset > 0 {
+		q = q.Offset(f.Offset)
 	}
 	var packets []Packet
 	err := q.Order("packets.id desc").Find(&packets).Error

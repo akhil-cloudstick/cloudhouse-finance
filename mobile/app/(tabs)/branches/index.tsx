@@ -9,6 +9,7 @@ import { GoldButton } from "../../../src/components/GoldButton";
 import { colors } from "../../../src/theme/colors";
 import { listBranches } from "../../../src/api/branches";
 import { Branch } from "../../../src/types/branch";
+import { useRefetchOnFocus } from "../../../src/hooks/useRefetchOnFocus";
 
 // No server-side search on this endpoint today (see src/api/branches.ts) —
 // branch counts are small enough not to need one yet.
@@ -18,6 +19,8 @@ export default function BranchesScreen() {
     queryKey: ["branches"],
     queryFn: listBranches,
   });
+
+  useRefetchOnFocus(refetch);
 
   return (
     <ScreenContainer style={{ paddingHorizontal: 0 }}>
