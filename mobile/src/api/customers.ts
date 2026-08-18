@@ -48,3 +48,32 @@ export function createCustomer(input: {
 }) {
   return apiRequest<Customer>("/customers", { method: "POST", body: input });
 }
+
+// Same shape as createCustomer's body — backend/internal/customer/handler.go's
+// Update does a full-replace PUT with the same customerRequest struct as
+// Create, so the edit screen re-sends every field, not a partial patch.
+// Leaving `aadhaar` empty keeps the on-file Aadhaar untouched (service.go's
+// Update only re-encrypts when non-empty); leaving a document URL as the
+// customer's existing value (rather than "") keeps that document instead of
+// wiping it, since the backend has no notion of "unchanged" vs "cleared".
+export function updateCustomer(
+  id: number,
+  input: {
+    name: string;
+    phone: string;
+    dob?: string;
+    address?: string;
+    branchId: number;
+    pan?: string;
+    aadhaar?: string;
+    nomineeName?: string;
+    nomineeRelation?: string;
+    nomineePhone?: string;
+    photoUrl?: string;
+    identityProofUrl?: string;
+    addressProofUrl?: string;
+    kycDocumentUrl?: string;
+  }
+) {
+  return apiRequest<Customer>(`/customers/${id}`, { method: "PUT", body: input });
+}

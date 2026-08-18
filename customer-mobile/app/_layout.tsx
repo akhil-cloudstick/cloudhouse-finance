@@ -58,23 +58,35 @@ async function bootstrapSession(
           disableDeviceFallback: false,
         });
         if (result.success) {
-          const session = await authApi.deviceLogin(deviceToken);
-          await completeLogin(session);
-          // Refresh in the background for freshness — completeLogin already
-          // has a customer object from the device-login response, so this
-          // isn't load-bearing, just keeps KYC/profile fields current.
-          refreshProfile().catch(() => {});
-          return;
+          try {
+            const session = await authApi.deviceLogin(deviceToken);
+            await completeLogin(session);
+            // Refresh in the background for freshness — completeLogin
+            // already has a customer object from the device-login response,
+            // so this isn't load-bearing, just keeps KYC/profile fields
+            // current.
+            refreshProfile().catch(() => {});
+            return;
+          } catch {
+            // The SERVER rejected this token (revoked/expired) — it's
+            // genuinely dead, so clear it. This is the only case that
+            // clears the token; a cancelled/failed biometric prompt below
+            // leaves it intact so the login screen's "Login with biometric"
+            // button can retry without forcing a full OTP re-verification.
+            await clearDeviceToken();
+            return;
+          }
         }
+        // Biometric prompt was shown but cancelled/failed — the token
+        // itself is still fine, just leave it for the login screen to
+        // offer a retry via its own "Login with biometric" button.
+        return;
       }
     } catch {
-      // Fall through to OTP below — a biometric/device-login failure here
-      // must never strand the user with no way back in.
+      // hasHardwareAsync/isEnrolledAsync itself threw — fall through to
+      // OTP below without touching the token (a transient platform hiccup
+      // shouldn't discard a working credential).
     }
-    // The device token didn't work (biometric failed/cancelled, or the
-    // server rejected it as revoked/expired) — clear it so we don't keep
-    // retrying a dead credential on every cold start, then fall back to OTP.
-    await clearDeviceToken();
   }
 
   const sessionToken = await getToken();

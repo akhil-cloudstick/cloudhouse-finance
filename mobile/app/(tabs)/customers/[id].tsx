@@ -5,6 +5,7 @@ import { useQuery } from "@tanstack/react-query";
 import { ScreenContainer } from "../../../src/components/ScreenContainer";
 import { Card } from "../../../src/components/Card";
 import { ThemedText } from "../../../src/components/ThemedText";
+import { GoldButton } from "../../../src/components/GoldButton";
 import { colors } from "../../../src/theme/colors";
 import { getCustomer } from "../../../src/api/customers";
 import { listLoans } from "../../../src/api/loans";
@@ -92,6 +93,12 @@ export default function CustomerDetailScreen() {
                 Aadhaar ••••{data.aadhaarLast4}
               </ThemedText>
             ) : null}
+            <GoldButton
+              title="Edit Customer"
+              variant="outline"
+              onPress={() => router.push(`/customers/edit/${customerId}`)}
+              style={{ marginTop: 12 }}
+            />
           </Card>
 
           {data.nomineeName ? (

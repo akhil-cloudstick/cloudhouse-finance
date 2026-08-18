@@ -16,6 +16,7 @@ import {
   RequestExtensionModalContent,
   RequestReleaseModalContent,
 } from "@/components/modals/RequestExtensionModal";
+import { EditCustomerModalContent } from "@/components/modals/EditCustomerModal";
 
 function ProofLink({ label, url }: { label: string; url: string }) {
   if (!url) return <div className="i"><div className="k">{label}</div><div className="v" style={{ color: "var(--muted)" }}>Not provided</div></div>;
@@ -139,6 +140,18 @@ export function CustomerDetail({ id }: { id?: string }) {
     }
   }
 
+  function openEditCustomer() {
+    openModal(
+      <EditCustomerModalContent
+        customer={c}
+        onSaved={() => {
+          if (!id) return;
+          getCustomer360(id, { from, to }).then(setProfile).catch(() => {});
+        }}
+      />
+    );
+  }
+
   function openRequestPicker() {
     openModal(
       <SelectLoanForRequestModalContent
@@ -165,6 +178,7 @@ export function CustomerDetail({ id }: { id?: string }) {
         <button className="btn ghost sm" onClick={() => toast("SMS/WhatsApp composer — full build")}>
           <Icon name="chat" /> Message
         </button>
+        <button className="btn ghost sm" onClick={openEditCustomer}><Icon name="edit" /> Edit Customer</button>
         <button className="btn ghost sm" onClick={openRequestPicker}><Icon name="unlock" /> Request Extension / Release</button>
         {canCreateLoans && <a className="btn sm" href="#newloan"><Icon name="plus" /> New Loan</a>}
       </div>

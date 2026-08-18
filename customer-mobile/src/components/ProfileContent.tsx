@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
-import { View, ScrollView, ActivityIndicator, StyleSheet, Alert } from "react-native";
+import { View, ScrollView, ActivityIndicator, StyleSheet, Alert, Image } from "react-native";
 import * as WebBrowser from "expo-web-browser";
 import * as Linking from "expo-linking";
 import { ScreenContainer } from "./ScreenContainer";
@@ -13,6 +13,7 @@ import { useAuth } from "../auth/AuthContext";
 import * as profileApi from "../api/profile";
 import { Customer, KYCStatusValue } from "../types/customer";
 import { ApiError } from "../api/client";
+import { resolveAssetUrl } from "../api/config";
 
 // Batch 4/5: the identity/nominee/KYC-verification body shared by the
 // pushed `/profile` route (app/profile/index.tsx, reachable from
@@ -181,11 +182,15 @@ export function ProfileContent({ footer }: { footer?: React.ReactNode }) {
       <ScreenContainer>
         <ScrollView showsVerticalScrollIndicator={false}>
           <View style={styles.headerBlock}>
-            <View style={styles.avatarLg}>
-              <ThemedText variant="h2" color={colors.card}>
-                {initials || "?"}
-              </ThemedText>
-            </View>
+            {profile.photoUrl ? (
+              <Image source={{ uri: resolveAssetUrl(profile.photoUrl) }} style={styles.avatarLg} />
+            ) : (
+              <View style={styles.avatarLg}>
+                <ThemedText variant="h2" color={colors.card}>
+                  {initials || "?"}
+                </ThemedText>
+              </View>
+            )}
             <ThemedText variant="h3" style={{ marginTop: 10 }}>
               {profile.name}
             </ThemedText>
