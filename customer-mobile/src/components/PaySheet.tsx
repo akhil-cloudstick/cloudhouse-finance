@@ -91,11 +91,14 @@ export function PaySheet({
   // only on success, shows the confirmation and closes the sheet.
   async function verifyAndFinish(orderId: string, paymentId: string, signature: string, paidAmount: number, type: RazorpayPaymentType) {
     await paymentsApi.verifyPayment(loan.id, { orderId, paymentId, signature, amount: paidAmount, type });
-    setMessage({ text: "Payment successful." });
-    setTimeout(() => {
-      onClose();
-      onPaid();
-    }, 900);
+    // Closes immediately rather than showing "Payment successful." for a
+    // beat first (was a 900ms, then a 400ms, artificial delay on top of the
+    // verifyPayment() await above, which is already a real network round
+    // trip) — by the time this line runs the payment is genuinely confirmed
+    // server-side, so there's nothing left to wait on. onPaid() refreshes
+    // the underlying screen, which is where the customer sees the result.
+    onClose();
+    onPaid();
   }
 
   async function submit() {

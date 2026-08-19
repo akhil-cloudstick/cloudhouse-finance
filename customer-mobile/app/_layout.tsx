@@ -1,12 +1,13 @@
 import { useEffect, useState } from "react";
 import { Slot, useRouter, useSegments } from "expo-router";
 import { useFonts, Jost_400Regular, Jost_500Medium, Jost_600SemiBold } from "@expo-google-fonts/jost";
-import { BodoniModaSC_600SemiBold } from "@expo-google-fonts/bodoni-moda-sc";
+import { NunitoSans_800ExtraBold } from "@expo-google-fonts/nunito-sans";
 import * as SplashScreen from "expo-splash-screen";
 import * as LocalAuthentication from "expo-local-authentication";
 import { View, ActivityIndicator } from "react-native";
 import { StatusBar } from "expo-status-bar";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { GestureHandlerRootView } from "react-native-gesture-handler";
 
 import { ThemeProvider } from "../src/theme/ThemeProvider";
 import { SheetHost } from "../src/components/sheetHost";
@@ -161,7 +162,7 @@ export default function RootLayout() {
     Jost_400Regular,
     Jost_500Medium,
     Jost_600SemiBold,
-    BodoniModaSC_600SemiBold,
+    NunitoSans_800ExtraBold,
   });
 
   useEffect(() => {
@@ -171,12 +172,14 @@ export default function RootLayout() {
   if (!fontsLoaded) return null;
 
   return (
-    <ThemeProvider>
-      <AuthProvider>
-        <NotificationsProvider>
-          <RootNavigation />
-        </NotificationsProvider>
-      </AuthProvider>
-    </ThemeProvider>
+    <GestureHandlerRootView style={{ flex: 1 }}>
+      <ThemeProvider>
+        <AuthProvider>
+          <NotificationsProvider>
+            <RootNavigation />
+          </NotificationsProvider>
+        </AuthProvider>
+      </ThemeProvider>
+    </GestureHandlerRootView>
   );
 }

@@ -284,7 +284,7 @@ export default function LoanDetailScreen() {
         </ScrollView>
       </ScreenContainer>
 
-      <BottomSheetModal visible={notifOpen} onClose={() => setNotifOpen(false)} maxHeightPct={60}>
+      <BottomSheetModal visible={notifOpen} onClose={() => setNotifOpen(false)} maxHeightPct={60} dragToClose={false}>
         <NotificationList />
       </BottomSheetModal>
 

@@ -236,7 +236,7 @@ export default function PaymentsScreen() {
         <PaySheet visible={payOpen} onClose={() => setPayOpen(false)} loan={selectedLoan} onPaid={refreshSelectedLoan} />
       ) : null}
 
-      <BottomSheetModal visible={notifOpen} onClose={() => setNotifOpen(false)} maxHeightPct={60}>
+      <BottomSheetModal visible={notifOpen} onClose={() => setNotifOpen(false)} maxHeightPct={60} dragToClose={false}>
         <NotificationList />
       </BottomSheetModal>
     </View>

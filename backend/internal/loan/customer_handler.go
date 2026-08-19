@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -399,44 +400,319 @@ func (h *Handler) CustomerPaymentReceipt(c *gin.Context) {
 	c.Data(http.StatusOK, "application/pdf", buf)
 }
 
-// renderPaymentReceiptPDF renders a one-page receipt for a single
-// LoanPayment: loan number, customer name, payment date, amount, type,
-// method, reference, and the running balance left after it.
-func renderPaymentReceiptPDF(l *Loan, p *LoanPayment) ([]byte, error) {
+
+// --- Customer-facing PDF house style ---------------------------------------
+//
+// Matches the staff web app's print documents (the Gold Loan Pledge Slip and
+// the indemnity bond), whose stylesheet lives in frontend/lib/print.ts:
+// a Times/Georgia serif face, a centred uppercase masthead over a grey
+// subtitle, bordered tables with cream header cells, right-aligned figures,
+// and ruled signature lines. Customer-app documents are built through the
+// helpers below so a receipt printed from a phone is recognisably the same
+// document family as a slip printed at the branch counter.
+//
+// Colours are the print stylesheet's, not the mobile app's theme — these are
+// documents meant to be printed on white paper, where the app's gold-on-ivory
+// palette reads as coloured noise and costs toner for no gain.
+var (
+	pdfInk      = [3]int{0x1a, 0x1a, 0x1a} // body text            (print.ts: #1a1a1a)
+	pdfSubtitle = [3]int{0x55, 0x55, 0x55} // h2 subtitle          (#555)
+	pdfMutedTxt = [3]int{0x66, 0x66, 0x66} // .muted notes         (#666)
+	pdfBorder   = [3]int{0x99, 0x99, 0x99} // th/td borders        (#999)
+	pdfThFill   = [3]int{0xf3, 0xed, 0xe1} // th background        (#f3ede1)
+	pdfSigRule  = [3]int{0x33, 0x33, 0x33} // signature rules      (#333)
+)
+
+const (
+	pdfMarginX  = 15.0
+	pdfPageMaxY = 258.0 // leave room for the footer/signature block
+	pdfRowH     = 8.0
+	// Serif face: gofpdf's built-in "Times" is the closest core-font analogue
+	// to the print stylesheet's Georgia/'Times New Roman' stack.
+	pdfFace = "Times"
+)
+
+// fmtINR formats an amount the Indian way (1,43,350.00) to match the pledge
+// slip's figures. The rupee sign itself is deliberately omitted: gofpdf's
+// core fonts are Latin-1 (cp1252) encoded and have no glyph for U+20B9, so
+// emitting it produces a mojibake byte rather than a symbol — "Rs." is what
+// the existing receipts already used for the same reason.
+func fmtINR(v float64) string {
+	neg := v < 0
+	if neg {
+		v = -v
+	}
+	s := fmt.Sprintf("%.2f", v)
+	intPart, frac, _ := strings.Cut(s, ".")
+
+	// Indian grouping: last three digits, then two at a time.
+	var grouped string
+	if len(intPart) <= 3 {
+		grouped = intPart
+	} else {
+		head, tail := intPart[:len(intPart)-3], intPart[len(intPart)-3:]
+		var parts []string
+		for len(head) > 2 {
+			parts = append([]string{head[len(head)-2:]}, parts...)
+			head = head[:len(head)-2]
+		}
+		if head != "" {
+			parts = append([]string{head}, parts...)
+		}
+		grouped = strings.Join(parts, ",") + "," + tail
+	}
+	out := "Rs. " + grouped + "." + frac
+	if neg {
+		out = "-" + out
+	}
+	return out
+}
+
+// pdfDoc wraps a gofpdf document in the house style above. Both customer
+// documents are built through it rather than each hand-rolling its own fonts
+// and spacing — that divergence is what made them look like they came from
+// different systems.
+type pdfDoc struct {
+	pdf    *gofpdf.Fpdf
+	pageW  float64
+	bodyW  float64
+	title  string
+	failed error
+}
+
+// newPDFDoc starts a document with the centred masthead. `title` is the
+// document's own name ("Payment Receipt"), rendered as the grey subtitle
+// under the company name, exactly as the pledge slip's h1/h2 pair.
+func newPDFDoc(title string) *pdfDoc {
 	pdf := gofpdf.New("P", "mm", "A4", "")
+	d := &pdfDoc{pdf: pdf, title: title}
+	d.pageW, _ = pdf.GetPageSize()
+	d.bodyW = d.pageW - 2*pdfMarginX
+	pdf.SetTitle(title, true)
+	pdf.SetMargins(pdfMarginX, 15, pdfMarginX)
+	pdf.SetAutoPageBreak(false, 15)
+	// Repeated on every page so a long statement's later pages are still
+	// identifiable on their own once printed and separated.
+	pdf.SetHeaderFunc(d.masthead)
 	pdf.AddPage()
+	return d
+}
 
-	pdf.SetFont("Arial", "B", 16)
-	pdf.CellFormat(0, 10, "Ambika Gold Finance", "", 1, "L", false, 0, "")
-	pdf.SetFont("Arial", "", 11)
-	pdf.CellFormat(0, 8, "Payment Receipt", "", 1, "L", false, 0, "")
-	pdf.Ln(4)
+func (d *pdfDoc) masthead() {
+	d.pdf.SetY(15)
+	d.pdf.SetTextColor(pdfInk[0], pdfInk[1], pdfInk[2])
+	d.pdf.SetFont(pdfFace, "B", 17)
+	d.pdf.CellFormat(0, 8, "AMBIKA GOLD FINANCE", "", 1, "C", false, 0, "")
+	d.pdf.SetFont(pdfFace, "", 12)
+	d.pdf.SetTextColor(pdfSubtitle[0], pdfSubtitle[1], pdfSubtitle[2])
+	d.pdf.CellFormat(0, 7, d.title, "", 1, "C", false, 0, "")
+	d.pdf.Ln(5)
+}
 
-	row := func(label, value string) {
-		pdf.SetFont("Arial", "B", 10)
-		pdf.CellFormat(55, 8, label, "0", 0, "L", false, 0, "")
-		pdf.SetFont("Arial", "", 10)
-		pdf.CellFormat(0, 8, value, "0", 1, "L", false, 0, "")
+func (d *pdfDoc) breakIfNeeded(need float64) {
+	if d.pdf.GetY()+need > pdfPageMaxY {
+		d.pdf.AddPage()
+	}
+}
+
+// infoPair is one label/value cell pair in the two-column info grid.
+type infoPair struct{ Label, Value string }
+
+// infoGrid renders the bordered label/value block the pledge slip opens with:
+// two label+value pairs per line, labels on a cream ground. An odd final pair
+// leaves its right half blank rather than stretching, keeping the grid square.
+func (d *pdfDoc) infoGrid(pairs []infoPair) {
+	labelW := 32.0
+	valueW := d.bodyW/2 - labelW
+	for i := 0; i < len(pairs); i += 2 {
+		d.breakIfNeeded(pdfRowH)
+		d.pdf.SetX(pdfMarginX)
+		d.pdf.SetDrawColor(pdfBorder[0], pdfBorder[1], pdfBorder[2])
+		for j := 0; j < 2; j++ {
+			if i+j < len(pairs) {
+				p := pairs[i+j]
+				d.pdf.SetFont(pdfFace, "B", 10)
+				d.pdf.SetTextColor(pdfInk[0], pdfInk[1], pdfInk[2])
+				d.pdf.SetFillColor(pdfThFill[0], pdfThFill[1], pdfThFill[2])
+				d.pdf.CellFormat(labelW, pdfRowH, p.Label, "1", 0, "L", true, 0, "")
+				d.pdf.SetFont(pdfFace, "", 10)
+				d.pdf.CellFormat(valueW, pdfRowH, p.Value, "1", 0, "L", false, 0, "")
+			} else {
+				// Blank filler cells so the outer border stays rectangular.
+				d.pdf.CellFormat(labelW, pdfRowH, "", "1", 0, "L", false, 0, "")
+				d.pdf.CellFormat(valueW, pdfRowH, "", "1", 0, "L", false, 0, "")
+			}
+		}
+		d.pdf.Ln(-1)
+	}
+	d.pdf.Ln(6)
+}
+
+// pdfCol describes one column of a data table. Num right-aligns the cell, the
+// same as the print stylesheet's .num class.
+type pdfCol struct {
+	Title string
+	W     float64
+	Num   bool
+}
+
+// table renders a bordered table with cream header cells. `total`, when
+// non-nil, is rendered as a bold closing row (the pledge slip's Total line);
+// its entries line up with `cols` positionally.
+func (d *pdfDoc) table(cols []pdfCol, rows [][]string, total []string) {
+	header := func() {
+		d.pdf.SetX(pdfMarginX)
+		d.pdf.SetFont(pdfFace, "B", 10)
+		d.pdf.SetTextColor(pdfInk[0], pdfInk[1], pdfInk[2])
+		d.pdf.SetFillColor(pdfThFill[0], pdfThFill[1], pdfThFill[2])
+		d.pdf.SetDrawColor(pdfBorder[0], pdfBorder[1], pdfBorder[2])
+		// Header captions are centred regardless of the column's own
+		// alignment — matching the pledge slip, where numeric columns have
+		// right-aligned figures under a centred caption.
+		for _, c := range cols {
+			d.pdf.CellFormat(c.W, pdfRowH, c.Title, "1", 0, "C", true, 0, "")
+		}
+		d.pdf.Ln(-1)
 	}
 
-	row("Loan Number:", l.LoanNumber)
-	row("Customer Name:", l.Customer.Name)
-	row("Payment Date:", p.PaidOn.Format("02 Jan 2006"))
-	row("Amount:", fmt.Sprintf("Rs. %.2f", p.Amount))
-	row("Type:", p.Type)
-	row("Method:", p.Method)
-	row("Reference:", p.Reference)
-	row("Running Balance:", fmt.Sprintf("Rs. %.2f", p.RunningBalance))
-	pdf.Ln(6)
+	d.breakIfNeeded(pdfRowH * 2)
+	header()
 
-	pdf.SetFont("Arial", "I", 8)
-	pdf.CellFormat(0, 6, "Generated on "+time.Now().Format("02 Jan 2006 15:04"), "", 1, "L", false, 0, "")
+	for _, r := range rows {
+		// A table continuing onto a new page repeats its header, so the
+		// columns stay readable rather than arriving unlabelled.
+		if d.pdf.GetY()+pdfRowH > pdfPageMaxY {
+			d.pdf.AddPage()
+			header()
+		}
+		d.pdf.SetX(pdfMarginX)
+		d.pdf.SetFont(pdfFace, "", 10)
+		d.pdf.SetTextColor(pdfInk[0], pdfInk[1], pdfInk[2])
+		for i, c := range cols {
+			cell := ""
+			if i < len(r) {
+				cell = r[i]
+			}
+			align := "L"
+			if c.Num {
+				align = "R"
+			}
+			d.pdf.CellFormat(c.W, pdfRowH, cell, "1", 0, align, false, 0, "")
+		}
+		d.pdf.Ln(-1)
+	}
+
+	if total != nil {
+		d.breakIfNeeded(pdfRowH)
+		d.pdf.SetX(pdfMarginX)
+		d.pdf.SetFont(pdfFace, "B", 10)
+		d.pdf.SetFillColor(pdfThFill[0], pdfThFill[1], pdfThFill[2])
+		for i, c := range cols {
+			cell := ""
+			if i < len(total) {
+				cell = total[i]
+			}
+			align := "L"
+			if c.Num {
+				align = "R"
+			}
+			d.pdf.CellFormat(c.W, pdfRowH, cell, "1", 0, align, true, 0, "")
+		}
+		d.pdf.Ln(-1)
+	}
+	d.pdf.Ln(6)
+}
+
+// note renders a plain line; `muted` styles it as the stylesheet's .muted
+// grey aside (used for empty states and parenthetical amounts).
+func (d *pdfDoc) note(text string, muted bool) {
+	d.breakIfNeeded(pdfRowH)
+	d.pdf.SetX(pdfMarginX)
+	if muted {
+		d.pdf.SetFont(pdfFace, "I", 10)
+		d.pdf.SetTextColor(pdfMutedTxt[0], pdfMutedTxt[1], pdfMutedTxt[2])
+	} else {
+		d.pdf.SetFont(pdfFace, "B", 11)
+		d.pdf.SetTextColor(pdfInk[0], pdfInk[1], pdfInk[2])
+	}
+	d.pdf.CellFormat(0, 7, text, "", 1, "L", false, 0, "")
+}
+
+// signatures renders the ruled signature row the branch documents close with.
+func (d *pdfDoc) signatures(labels ...string) {
+	need := 32.0
+	d.breakIfNeeded(need)
+	y := d.pdf.GetY() + 24
+	if y > pdfPageMaxY {
+		d.pdf.AddPage()
+		y = d.pdf.GetY() + 24
+	}
+	colW := d.bodyW / float64(len(labels))
+	d.pdf.SetDrawColor(pdfSigRule[0], pdfSigRule[1], pdfSigRule[2])
+	d.pdf.SetFont(pdfFace, "", 10)
+	d.pdf.SetTextColor(pdfInk[0], pdfInk[1], pdfInk[2])
+	for i, label := range labels {
+		x := pdfMarginX + float64(i)*colW
+		// Rule sits above the caption, matching .sig span's border-top.
+		d.pdf.Line(x+6, y, x+colW-6, y)
+		d.pdf.SetXY(x, y+1)
+		d.pdf.CellFormat(colW, 7, label, "", 0, "C", false, 0, "")
+	}
+	d.pdf.SetY(y + 10)
+}
+
+// finish stamps the generated-on line and renders the document.
+func (d *pdfDoc) finish() ([]byte, error) {
+	if d.failed != nil {
+		return nil, d.failed
+	}
+	d.pdf.Ln(4)
+	d.breakIfNeeded(8)
+	d.pdf.SetX(pdfMarginX)
+	d.pdf.SetFont(pdfFace, "I", 9)
+	d.pdf.SetTextColor(pdfMutedTxt[0], pdfMutedTxt[1], pdfMutedTxt[2])
+	d.pdf.CellFormat(0, 6, "Generated on "+time.Now().Format("02 Jan 2006 15:04"), "", 1, "L", false, 0, "")
 
 	var buf bytes.Buffer
-	if err := pdf.Output(&buf); err != nil {
+	if err := d.pdf.Output(&buf); err != nil {
 		return nil, err
 	}
 	return buf.Bytes(), nil
+}
+
+// renderPaymentReceiptPDF renders a one-page receipt for a single
+// LoanPayment, laid out like the branch's Gold Loan Pledge Slip: the shared
+// masthead, a bordered info grid, the payment itself as a small table with
+// the amount picked out, and signature rules.
+func renderPaymentReceiptPDF(l *Loan, p *LoanPayment) ([]byte, error) {
+	d := newPDFDoc("Payment Receipt")
+
+	d.infoGrid([]infoPair{
+		{"Loan No", l.LoanNumber},
+		{"Date", p.PaidOn.Format("02/01/2006")},
+		{"Customer", l.Customer.Name},
+		{"Method", p.Method},
+		{"Type", p.Type},
+		{"Reference", p.Reference},
+	})
+
+	amountW := 45.0
+	d.table(
+		[]pdfCol{
+			{Title: "Description", W: d.bodyW - amountW},
+			{Title: "Amount", W: amountW, Num: true},
+		},
+		[][]string{
+			{"Payment received", fmtINR(p.Amount)},
+		},
+		[]string{"Balance outstanding after this payment", fmtINR(p.RunningBalance)},
+	)
+
+	d.note("Amount received: "+fmtINR(p.Amount), false)
+	d.note("This receipt is valid only for the payment referenced above.", true)
+
+	d.signatures("Customer Signature", "Cashier", "Branch Manager")
+	return d.finish()
 }
 
 // --- Customer mobile app — batch 5: Documents ------------------------------
@@ -478,75 +754,56 @@ func (h *Handler) CustomerLoanStatement(c *gin.Context) {
 	c.Data(http.StatusOK, "application/pdf", buf)
 }
 
-// renderLoanStatementPDF renders a summary header (loan number, customer
-// name, principal, opened/due date, current outstanding — same row() label/
-// value shape as renderPaymentReceiptPDF) followed by a table of every
-// payment (paid date, type, amount, method, reference, running balance). A
-// loan with no payments yet still renders a valid one-page PDF with a plain
+// renderLoanStatementPDF renders the loan's summary as a bordered info grid
+// followed by a table of every payment against it (date, type, amount,
+// method, reference, running balance) with a total row — the same house
+// style as renderPaymentReceiptPDF and the branch's pledge slip. A loan with
+// no payments yet still renders a valid one-page PDF, with a plain
 // "No payments recorded yet" line instead of an empty table.
 func renderLoanStatementPDF(l *Loan, payments []LoanPayment) ([]byte, error) {
-	pdf := gofpdf.New("P", "mm", "A4", "")
-	pdf.AddPage()
+	d := newPDFDoc("Loan Statement")
 
-	pdf.SetFont("Arial", "B", 16)
-	pdf.CellFormat(0, 10, "Ambika Gold Finance", "", 1, "L", false, 0, "")
-	pdf.SetFont("Arial", "", 11)
-	pdf.CellFormat(0, 8, "Loan Statement", "", 1, "L", false, 0, "")
-	pdf.Ln(4)
-
-	row := func(label, value string) {
-		pdf.SetFont("Arial", "B", 10)
-		pdf.CellFormat(55, 8, label, "0", 0, "L", false, 0, "")
-		pdf.SetFont("Arial", "", 10)
-		pdf.CellFormat(0, 8, value, "0", 1, "L", false, 0, "")
-	}
-
-	row("Loan Number:", l.LoanNumber)
-	row("Customer Name:", l.Customer.Name)
-	row("Principal:", fmt.Sprintf("Rs. %.2f", l.PrincipalAmount))
-	row("Opened Date:", l.OpenedDate.Format("02 Jan 2006"))
-	row("Due Date:", l.DueDate.Format("02 Jan 2006"))
-	row("Current Outstanding:", fmt.Sprintf("Rs. %.2f", l.TotalOutstandingBalance))
-	pdf.Ln(6)
-
-	pdf.SetFont("Arial", "B", 11)
-	pdf.CellFormat(0, 8, "Payments", "", 1, "L", false, 0, "")
-	pdf.Ln(1)
+	d.infoGrid([]infoPair{
+		{"Loan No", l.LoanNumber},
+		{"Date", time.Now().Format("02/01/2006")},
+		{"Customer", l.Customer.Name},
+		{"Principal", fmtINR(l.PrincipalAmount)},
+		{"Opened", l.OpenedDate.Format("02 Jan 2006")},
+		{"Due Date", l.DueDate.Format("02 Jan 2006")},
+	})
 
 	if len(payments) == 0 {
-		pdf.SetFont("Arial", "", 10)
-		pdf.CellFormat(0, 8, "No payments recorded yet.", "0", 1, "L", false, 0, "")
+		d.note("No payments recorded yet.", true)
 	} else {
-		colWidths := []float64{25, 28, 25, 22, 35, 30}
-		headers := []string{"Date", "Type", "Amount", "Method", "Reference", "Balance"}
-
-		pdf.SetFont("Arial", "B", 9)
-		for i, h := range headers {
-			pdf.CellFormat(colWidths[i], 8, h, "B", 0, "L", false, 0, "")
+		// Widths total d.bodyW (180mm at A4 with 15mm margins).
+		cols := []pdfCol{
+			{Title: "#", W: 10},
+			{Title: "Date", W: 24},
+			{Title: "Type", W: 28},
+			{Title: "Method", W: 24},
+			{Title: "Reference", W: 44},
+			{Title: "Amount", W: 25, Num: true},
+			{Title: "Balance", W: 25, Num: true},
 		}
-		pdf.Ln(-1)
-
-		pdf.SetFont("Arial", "", 9)
-		for _, p := range payments {
-			if pdf.GetY() > 270 {
-				pdf.AddPage()
-			}
-			pdf.CellFormat(colWidths[0], 7, p.PaidOn.Format("02-Jan-06"), "", 0, "L", false, 0, "")
-			pdf.CellFormat(colWidths[1], 7, p.Type, "", 0, "L", false, 0, "")
-			pdf.CellFormat(colWidths[2], 7, fmt.Sprintf("%.2f", p.Amount), "", 0, "L", false, 0, "")
-			pdf.CellFormat(colWidths[3], 7, p.Method, "", 0, "L", false, 0, "")
-			pdf.CellFormat(colWidths[4], 7, p.Reference, "", 0, "L", false, 0, "")
-			pdf.CellFormat(colWidths[5], 7, fmt.Sprintf("%.2f", p.RunningBalance), "", 1, "L", false, 0, "")
+		rows := make([][]string, 0, len(payments))
+		var totalPaid float64
+		for i, p := range payments {
+			totalPaid += p.Amount
+			rows = append(rows, []string{
+				strconv.Itoa(i + 1),
+				p.PaidOn.Format("02/01/2006"),
+				p.Type,
+				p.Method,
+				p.Reference,
+				fmtINR(p.Amount),
+				fmtINR(p.RunningBalance),
+			})
 		}
+		d.table(cols, rows, []string{"", "Total", "", "", "", fmtINR(totalPaid), ""})
 	}
-	pdf.Ln(6)
 
-	pdf.SetFont("Arial", "I", 8)
-	pdf.CellFormat(0, 6, "Generated on "+time.Now().Format("02 Jan 2006 15:04"), "", 1, "L", false, 0, "")
+	d.note("Current outstanding: "+fmtINR(l.TotalOutstandingBalance), false)
 
-	var buf bytes.Buffer
-	if err := pdf.Output(&buf); err != nil {
-		return nil, err
-	}
-	return buf.Bytes(), nil
+	d.signatures("Customer Signature", "Cashier", "Branch Manager")
+	return d.finish()
 }

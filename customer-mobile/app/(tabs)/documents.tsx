@@ -202,7 +202,7 @@ export default function DocumentsScreen() {
         )}
       </BottomSheetModal>
 
-      <BottomSheetModal visible={notifOpen} onClose={() => setNotifOpen(false)} maxHeightPct={60}>
+      <BottomSheetModal visible={notifOpen} onClose={() => setNotifOpen(false)} maxHeightPct={60} dragToClose={false}>
         <NotificationList />
       </BottomSheetModal>
     </View>

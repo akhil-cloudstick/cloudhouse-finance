@@ -231,11 +231,37 @@ func (s *Service) Delete(id uint, branchID *uint) error {
 	return s.repo.Delete(id)
 }
 
+// deriveKYCStatus computes the overall KYC status from the two individual
+// API verification results. It never promotes a customer to "Verified" on
+// the strength of one check alone: both the Setu PAN check and the
+// DigiLocker Aadhaar check must have actually passed. Precedence is
+// Failed > Name Mismatch > Pending > Verified, so a bad result on one
+// document is never masked by a good result on the other.
+func deriveKYCStatus(panStatus, aadhaarStatus string) string {
+	statuses := []string{panStatus, aadhaarStatus}
+	for _, st := range statuses {
+		if st == "Failed" {
+			return "Failed"
+		}
+	}
+	for _, st := range statuses {
+		if st == "Name Mismatch" {
+			return "Name Mismatch"
+		}
+	}
+	for _, st := range statuses {
+		if st != "Verified" {
+			return "Pending"
+		}
+	}
+	return "Verified"
+}
+
 // VerifyPAN calls Setu's PAN verification API (internal/platform/setu.go)
-// for this customer's on-file PAN and persists the outcome. KYCStatus
-// mirrors PANStatus for now since Aadhaar has no live check yet — once a
-// DigiLocker Aadhaar check exists, KYCStatus should require both to be
-// "Verified". Returns the updated customer plus the raw Setu result (so the
+// for this customer's on-file PAN and persists the outcome. KYCStatus is
+// never set directly here — it is derived from PANStatus + AadhaarStatus by
+// deriveKYCStatus, so a customer only becomes "Verified" once both the PAN
+// check and the DigiLocker Aadhaar check have passed. Returns the updated customer plus the raw Setu result (so the
 // handler can surface the matched name/message to the UI).
 func (s *Service) VerifyPAN(id uint, branchID *uint) (*Customer, *platform.PANVerificationResult, error) {
 	rec, err := s.repo.FindByID(id)
@@ -261,7 +287,6 @@ func (s *Service) VerifyPAN(id uint, branchID *uint) (*Customer, *platform.PANVe
 	case result.Verification != "SUCCESS":
 		// PAN itself is invalid/nonexistent per Setu.
 		rec.PANStatus = "Failed"
-		rec.KYCStatus = "Failed"
 	case !s.setu.IsSandbox() && !namesMatch(rec.Name, result.FullName):
 		// PAN is real, but registered to a different person than the name
 		// on this customer's profile — do NOT mark this Verified. This is
@@ -272,11 +297,11 @@ func (s *Service) VerifyPAN(id uint, branchID *uint) (*Customer, *platform.PANVe
 		// SetuClient.IsSandbox's doc comment. Re-enable/verify against
 		// production before relying on this for real fraud detection.
 		rec.PANStatus = "Name Mismatch"
-		rec.KYCStatus = "Name Mismatch"
 	default:
 		rec.PANStatus = "Verified"
-		rec.KYCStatus = "Verified"
 	}
+	// Overall KYC is derived, never auto-set from this single check.
+	rec.KYCStatus = deriveKYCStatus(rec.PANStatus, rec.AadhaarStatus)
 	if err := s.repo.Update(rec); err != nil {
 		return nil, nil, err
 	}
@@ -359,11 +384,11 @@ func (s *Service) CheckAadhaarVerify(id uint, branchID *uint) (*Customer, *platf
 	// the same fixed dummy identity regardless of the real customer name.
 	if !s.digilocker.IsSandbox() && !namesMatch(rec.Name, aadhaar.Aadhaar.Name) {
 		rec.AadhaarStatus = "Name Mismatch"
-		rec.KYCStatus = "Name Mismatch"
 	} else {
 		rec.AadhaarStatus = "Verified"
-		rec.KYCStatus = "Verified"
 	}
+	// Overall KYC is derived, never auto-set from this single check.
+	rec.KYCStatus = deriveKYCStatus(rec.PANStatus, rec.AadhaarStatus)
 	if len(aadhaar.Aadhaar.MaskedNumber) >= 4 {
 		rec.AadhaarLast4 = aadhaar.Aadhaar.MaskedNumber[len(aadhaar.Aadhaar.MaskedNumber)-4:]
 	}

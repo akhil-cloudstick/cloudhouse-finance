@@ -46,12 +46,14 @@ is still mock (their "Add" modals fetch the branch dropdown from the real
 Branches API), but Customer and Loan records are fully real end-to-end in
 the backend.
 
-**Customer Module — stage 1 caveat:** `kycStatus`/`panStatus`/
-`aadhaarStatus` are hardcoded to `"Verified"` at creation time — **no live
-PAN/Aadhaar verification call happens yet**. This unblocks downstream
-flows (New Loan's customer picker) for testing; replace with a real Setu
-PAN-verify / DigiLocker Aadhaar call before treating this status as
-production-accurate. Aadhaar numbers are AES-256-GCM encrypted at rest
+**Customer Module — verification status:** `kycStatus`/`panStatus`/
+`aadhaarStatus` all start `"Pending"` at creation — no status is ever
+auto-set to `"Verified"`. `panStatus` is set only by the Setu PAN-verify
+call and `aadhaarStatus` only by the DigiLocker Aadhaar check; `kycStatus`
+is **derived** from those two (`deriveKYCStatus` in
+`backend/internal/customer/service.go`) with precedence
+`Failed > Name Mismatch > Pending > Verified`, so a customer becomes
+`"Verified"` only after **both** API checks pass. Aadhaar numbers are AES-256-GCM encrypted at rest
 (never stored in plaintext) and are never returned by any endpoint — only
 the last 4 digits (`aadhaarLast4`) are exposed.
 
@@ -930,11 +932,12 @@ object-storage wiring yet, see the "File Uploads" note in
 Implemented in `backend/internal/customer/`. No authentication/RBAC yet —
 admin-only by convention. The consolidated Customer Module: personal/KYC
 details, PAN/Aadhaar, identity/address/KYC-document uploads, and nominee
-info. **Stage 1 — no live verification**: `kycStatus`/`panStatus`/
-`aadhaarStatus` are hardcoded `"Verified"` at creation (see the
-model-level comment in `backend/internal/customer/model.go`); replace with
-a real Setu PAN-verify / DigiLocker Aadhaar call before relying on this
-status in production. Loan/ornament/payment/auction history for a
+info. **Verification status**: `kycStatus`/`panStatus`/`aadhaarStatus`
+start `"Pending"` at creation (see the model-level comment in
+`backend/internal/customer/model.go`) and are only advanced by the real
+Setu PAN-verify and DigiLocker Aadhaar endpoints; `kycStatus` is derived
+from the other two and reaches `"Verified"` only when both have passed.
+Loan/ornament/payment/auction history for a
 customer is not embedded in this API's response — fetch it separately via
 `GET /api/v1/loans?customerId=` (see Loans API below); `CustomerDetail.tsx`
 on the frontend now reads this from the real `LoansProvider`/`loansApi.ts`

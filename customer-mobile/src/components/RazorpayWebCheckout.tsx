@@ -1,10 +1,11 @@
 import React, { useEffect, useRef } from "react";
-import { Modal, View, StyleSheet, ActivityIndicator, Pressable } from "react-native";
+import { BackHandler, View, StyleSheet, ActivityIndicator, Pressable } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { WebView, WebViewMessageEvent } from "react-native-webview";
 import { ThemedText } from "./ThemedText";
 import { Icon } from "./Icon";
 import { colors } from "../theme/colors";
+import { nextSheetId, sheetStore } from "./sheetHost";
 
 // Solution A (Expo Go compatible) for the react-native-razorpay-in-Expo-Go
 // gap: `react-native-razorpay` needs a native module (RNRazorpayCheckout)
@@ -64,7 +65,21 @@ function buildCheckoutHtml(options: RazorpayWebCheckoutOptions): string {
        the input/keyboard and whatever Razorpay's checkout thinks the
        bottom of the page is. 100% is kept as a fallback for older WebViews
        that don't support dvh. */
-    html, body { margin: 0; padding: 0; height: 100%; height: 100dvh; background: #faf6ec; overflow: hidden; }
+    html, body {
+      margin: 0;
+      padding: 0;
+      width: 100%;
+      height: 100%;
+      height: 100dvh;
+      background: #faf6ec;
+      overflow: hidden;
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      touch-action: none;
+    }
     /* Razorpay's checkout renders itself inside an iframe it injects into
        the page. That iframe is meant to fill the viewport, but its sizing
        is computed from window.innerHeight at creation time and doesn't
@@ -73,7 +88,17 @@ function buildCheckoutHtml(options: RazorpayWebCheckoutOptions): string {
        above/below the checkout content. !important overrides its own
        inline style, which otherwise wins. This is a best-effort fix
        against a third-party widget's internals, not a guaranteed one. */
-    iframe { position: fixed !important; top: 0 !important; left: 0 !important; width: 100% !important; height: 100% !important; height: 100dvh !important; border: none !important; }
+    iframe {
+      position: fixed !important;
+      top: 0 !important;
+      left: 0 !important;
+      width: 100% !important;
+      height: 100% !important;
+      height: 100dvh !important;
+      border: none !important;
+      margin: 0 !important;
+      padding: 0 !important;
+    }
   </style>
 </head>
 <body>
@@ -84,17 +109,29 @@ function buildCheckoutHtml(options: RazorpayWebCheckoutOptions): string {
         window.ReactNativeWebView.postMessage(JSON.stringify(message));
       }
     }
-    // Some Android WebViews don't fire a plain window "resize" event when
-    // the on-screen keyboard opens/closes (only visualViewport does),
-    // which can leave Razorpay's own checkout overlay positioned against
-    // the stale, pre-keyboard viewport height. Re-dispatching "resize"
-    // whenever the visual viewport actually changes nudges any such
-    // internal listeners to recompute.
-    if (window.visualViewport) {
-      window.visualViewport.addEventListener("resize", function () {
-        window.dispatchEvent(new Event("resize"));
-      });
+
+    function lockScroll() {
+      window.scrollTo(0, 0);
+      if (document.body) document.body.scrollTop = 0;
+      if (document.documentElement) document.documentElement.scrollTop = 0;
     }
+
+    window.addEventListener("scroll", lockScroll, { passive: false });
+    document.addEventListener("scroll", lockScroll, { passive: false });
+    window.addEventListener("focusin", function () {
+      setTimeout(lockScroll, 50);
+      setTimeout(lockScroll, 150);
+      setTimeout(lockScroll, 300);
+    });
+
+    if (window.visualViewport) {
+      window.visualViewport.addEventListener("scroll", lockScroll, { passive: false });
+      window.visualViewport.addEventListener("resize", function () {
+        lockScroll();
+        window.dispatchEvent(new Event("resize"));
+      }, { passive: false });
+    }
+
     try {
       var options = ${optionsJson};
       options.handler = function (response) {
@@ -134,6 +171,10 @@ export function RazorpayWebCheckout({
   onError: (message: string) => void;
 }) {
   const insets = useSafeAreaInsets();
+
+  const idRef = useRef<string | undefined>(undefined);
+  if (!idRef.current) idRef.current = nextSheetId();
+  const id = idRef.current;
 
   // settledRef flips true the instant ANY terminal outcome (success/failed/
   // error) is known — used to make a same-or-later "dismiss" a no-op rather
@@ -197,45 +238,86 @@ export function RazorpayWebCheckout({
     }
   }
 
-  // The header's explicit Cancel button (and the hardware back button via
-  // onRequestClose) are real, deliberate user actions — bypass the debounce
-  // entirely and settle immediately.
+  // The header's explicit Cancel button (and the hardware back button below)
+  // are real, deliberate user actions — bypass the debounce entirely and
+  // settle immediately.
   function cancelNow() {
     settle(onCancel);
   }
 
-  return (
-    <Modal visible={!!options} animationType="slide" onRequestClose={cancelNow} presentationStyle="fullScreen">
+  useEffect(() => {
+    if (!options) return;
+    const sub = BackHandler.addEventListener("hardwareBackPress", () => {
+      cancelNow();
+      return true;
+    });
+    return () => sub.remove();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [options]);
+
+  // Published into SheetHost rather than a real react-native <Modal> — same
+  // reason as BottomSheetModal.tsx: an Android <Modal> renders as a
+  // separate Dialog Window, which does NOT inherit the main Activity's
+  // android:windowSoftInputMode (set to "pan" in app.json specifically so
+  // this checkout page's own keyboard handling, below, is the only thing
+  // that reacts when the keyboard opens). Inside a Modal that setting was
+  // silently ignored, so the native window resized on top of the WebView's
+  // own resize, doubling how far the page visibly rose.
+  useEffect(() => {
+    if (!options) {
+      sheetStore.remove(id);
+      return;
+    }
+    sheetStore.set(
+      id,
       <View style={[styles.container, { paddingTop: insets.top }]}>
         <View style={styles.header}>
           <Pressable onPress={cancelNow} hitSlop={10} style={styles.closeBtn}>
             <Icon name="chevronLeft" size={20} color={colors.ink} />
-            <ThemedText variant="body" style={{ marginLeft: 4 }}>
+            {/* Android adds extra vertical padding to text by default
+                (includeFontPadding, for accent/descender room) that the
+                adjacent icon's precise glyph box doesn't have — with
+                alignItems:"center" centering each element's own box rather
+                than its visible ink, that alone was enough to make "Cancel"
+                read as sitting below center next to the icon.
+                includeFontPadding:false trims most of it, and pinning
+                lineHeight to the icon's own size (rather than leaving it to
+                Jost's natural, taller line metrics) makes the two boxes
+                actually match so alignItems:"center" centers them the same
+                way. */}
+            <ThemedText variant="body" style={{ marginLeft: 4, includeFontPadding: false, lineHeight: 20 }}>
               Cancel
             </ThemedText>
           </Pressable>
         </View>
-        {options ? (
-          <WebView
-            key={options.order_id}
-            originWhitelist={["*"]}
-            source={{ html: buildCheckoutHtml(options) }}
-            onMessage={handleMessage}
-            javaScriptEnabled
-            domStorageEnabled
-            mixedContentMode="always"
-            startInLoadingState
-            renderLoading={() => (
-              <View style={styles.loading}>
-                <ActivityIndicator color={colors.gold} />
-              </View>
-            )}
-            onError={() => settle(() => onError("Could not load the payment gateway. Check your connection and try again."))}
-          />
-        ) : null}
+        <WebView
+          key={options.order_id}
+          originWhitelist={["*"]}
+          source={{ html: buildCheckoutHtml(options) }}
+          onMessage={handleMessage}
+          javaScriptEnabled
+          domStorageEnabled
+          mixedContentMode="always"
+          startInLoadingState
+          scrollEnabled={false}
+          overScrollMode="never"
+          showsVerticalScrollIndicator={false}
+          showsHorizontalScrollIndicator={false}
+          renderLoading={() => (
+            <View style={styles.loading}>
+              <ActivityIndicator color={colors.gold} />
+            </View>
+          )}
+          onError={() => settle(() => onError("Could not load the payment gateway. Check your connection and try again."))}
+        />
       </View>
-    </Modal>
-  );
+    );
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [options, insets.top]);
+
+  useEffect(() => () => sheetStore.remove(id), [id]);
+
+  return null;
 }
 
 const styles = StyleSheet.create({
@@ -248,6 +330,11 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: colors.line,
   },
-  closeBtn: { flexDirection: "row", alignItems: "center", alignSelf: "stretch" },
+  closeBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    height: "100%",
+  },
   loading: { ...StyleSheet.absoluteFill, alignItems: "center", justifyContent: "center", backgroundColor: colors.ivory },
 });

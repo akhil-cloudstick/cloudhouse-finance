@@ -1,5 +1,6 @@
-import React, { useEffect, useRef, useState } from "react";
-import { Animated, BackHandler, Keyboard, PanResponder, Pressable, View, StyleSheet } from "react-native";
+import React, { useEffect, useMemo, useRef, useState } from "react";
+import { Animated, BackHandler, Keyboard, Pressable, View, StyleSheet } from "react-native";
+import { Gesture, GestureDetector } from "react-native-gesture-handler";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { colors } from "../theme/colors";
 import { nextSheetId, sheetStore } from "./sheetHost";
@@ -12,11 +13,22 @@ export function BottomSheetModal({
   onClose,
   children,
   maxHeightPct = 88,
+  // Off for NotificationList (see app/(tabs)/index.tsx etc.) — every attempt
+  // to scope the drag-to-close gesture away from a scrollable child
+  // (PanResponder, then a react-native-gesture-handler Gesture.Pan limited
+  // to just the handle bar) still left the FlatList's own scroll dying
+  // after one gesture, which points at the two native gesture systems
+  // fighting over the touch stream rather than at how the pan gesture was
+  // scoped. Removing the competing recognizer entirely for that sheet is
+  // the one thing guaranteed to end the conflict — closing still works via
+  // the backdrop tap and the hardware back button either way.
+  dragToClose = true,
 }: {
   visible: boolean;
   onClose: () => void;
   children: React.ReactNode;
   maxHeightPct?: number;
+  dragToClose?: boolean;
 }) {
   const insets = useSafeAreaInsets();
   const translateY = useRef(new Animated.Value(0)).current;
@@ -27,25 +39,49 @@ export function BottomSheetModal({
   if (!idRef.current) idRef.current = nextSheetId();
   const id = idRef.current;
 
-  const panResponder = useRef(
-    PanResponder.create({
-      onStartShouldSetPanResponder: () => true,
-      onMoveShouldSetPanResponder: (_, g) => Math.abs(g.dy) > 8 && Math.abs(g.dy) > Math.abs(g.dx),
-      onPanResponderMove: (_, g) => {
-        if (g.dy > 0) translateY.setValue(g.dy);
-      },
-      onPanResponderRelease: (_, g) => {
-        if (g.dy > 120 || g.vy > 0.8) {
-          Animated.timing(translateY, { toValue: 800, duration: 180, useNativeDriver: true }).start(() => {
-            translateY.setValue(0);
-            closeRef.current();
-          });
-        } else {
-          Animated.spring(translateY, { toValue: 0, useNativeDriver: true, bounciness: 4 }).start();
-        }
-      },
-    })
-  ).current;
+  // A react-native-gesture-handler Gesture rather than the legacy
+  // PanResponder API — expo-router/React Navigation already installs
+  // gesture-handler's native touch dispatcher app-wide, and a plain
+  // PanResponder mixed into that context is known to misnegotiate against
+  // native-gesture-handler-managed scrollables (it can end up claiming
+  // moves that start well outside the view it's attached to, e.g. inside
+  // NotificationList's FlatList several views away), which is what made
+  // scrolling the list close the sheet instead. Scoped with a
+  // GestureDetector around only the handle bar below, same as the old
+  // PanResponder's intent, but negotiated through the same native system
+  // the FlatList itself uses.
+  const closeSheet = () => {
+    Animated.timing(translateY, { toValue: 800, duration: 180, useNativeDriver: true }).start(() => {
+      translateY.setValue(0);
+      closeRef.current();
+    });
+  };
+
+  // Memoized — a fresh Gesture instance handed to GestureDetector on every
+  // render makes gesture-handler tear down and rebuild the native
+  // recognizer each time. Combined with the sheetStore-publish effect below
+  // previously having no dependency array (so it fired on every render, of
+  // which there are plenty once notifications are streaming in), that
+  // teardown/rebuild cycle could land mid-gesture against the sibling
+  // FlatList's own native scroll responder — the likely cause of scrolling
+  // working once and then going dead.
+  const dragGesture = useMemo(
+    () =>
+      Gesture.Pan()
+        .runOnJS(true)
+        .onUpdate((e) => {
+          if (e.translationY > 0) translateY.setValue(e.translationY);
+        })
+        .onEnd((e) => {
+          if (e.translationY > 120 || e.velocityY > 800) {
+            closeSheet();
+          } else {
+            Animated.spring(translateY, { toValue: 0, useNativeDriver: true, bounciness: 4 }).start();
+          }
+        }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    []
+  );
 
   useEffect(() => {
     if (!visible) return;
@@ -81,7 +117,16 @@ export function BottomSheetModal({
     }
     sheetStore.set(
       id,
-      <Pressable style={styles.overlay} onPress={() => closeRef.current()}>
+      // The backdrop is an absolutely-positioned sibling BEHIND the sheet,
+      // not a Pressable wrapping it. Previously the sheet — and therefore
+      // any scrollable inside `children` — was a descendant of the backdrop
+      // Pressable, so every touch on the list also entered that Pressable's
+      // responder negotiation on its way down. A Pressable ancestor can
+      // claim or cancel the responder mid-gesture, which is exactly the kind
+      // of state that survives badly across a scroll ending at the content
+      // edge. Nothing above the list competes for touches now.
+      <View style={styles.overlay} pointerEvents="box-none">
+        <Pressable style={StyleSheet.absoluteFill} onPress={() => closeRef.current()} />
         <Animated.View
           style={[
             styles.sheet,
@@ -92,14 +137,29 @@ export function BottomSheetModal({
               transform: [{ translateY }],
             },
           ]}
-          {...panResponder.panHandlers}
         >
-          <View style={styles.handle} />
+          {dragToClose ? (
+            <GestureDetector gesture={dragGesture}>
+              <View style={styles.handleWrap}>
+                <View style={styles.handle} />
+              </View>
+            </GestureDetector>
+          ) : (
+            <View style={styles.handleWrap}>
+              <View style={styles.handle} />
+            </View>
+          )}
           {children}
         </Animated.View>
-      </Pressable>
+      </View>
     );
-  });
+    // No dependency array here previously — this ran after every render of
+    // BottomSheetModal, republishing a brand-new element tree (new
+    // Pressable, Animated.View, GestureDetector) each time, which is what
+    // let dragGesture get rebuilt mid-session before it was memoized above.
+    // Scoped now to the values the published node actually depends on.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [visible, maxHeightPct, keyboardHeight, insets.bottom, children, dragGesture, dragToClose]);
 
   useEffect(() => () => sheetStore.remove(id), [id]);
 
@@ -123,12 +183,15 @@ const styles = StyleSheet.create({
     paddingTop: 8,
     paddingHorizontal: 20,
   },
+  handleWrap: {
+    paddingVertical: 8,
+    marginBottom: 4,
+  },
   handle: {
     alignSelf: "center",
     width: 40,
     height: 4,
     borderRadius: 2,
     backgroundColor: colors.line,
-    marginBottom: 12,
   },
 });

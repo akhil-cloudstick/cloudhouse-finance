@@ -3,8 +3,8 @@
   "version": "1.0.0",
   "main": "index.ts",
   "dependencies": {
-    "@expo-google-fonts/bodoni-moda-sc": "^0.4.1",
     "@expo-google-fonts/jost": "^0.4.2",
+    "@expo-google-fonts/nunito-sans": "^0.4.2",
     "expo": "~57.0.13",
     "expo-constants": "~57.0.10",
     "expo-file-system": "~57.0.4",

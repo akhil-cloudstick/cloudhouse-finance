@@ -241,7 +241,7 @@ export default function HomeScreen() {
         </ScrollView>
       </BottomSheetModal>
 
-      <BottomSheetModal visible={notifOpen} onClose={() => setNotifOpen(false)} maxHeightPct={60}>
+      <BottomSheetModal visible={notifOpen} onClose={() => setNotifOpen(false)} maxHeightPct={60} dragToClose={false}>
         <NotificationList />
       </BottomSheetModal>
     </View>
