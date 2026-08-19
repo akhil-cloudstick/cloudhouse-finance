@@ -410,10 +410,10 @@ func (r *LoanRequestRepository) FindAll(f LoanRequestFilter) ([]LoanRequest, err
 		q = q.Joins("JOIN loans ON loans.id = loan_requests.loan_id").Where("loans.branch_id = ?", *f.BranchID)
 	}
 	if f.Status != "" {
-		q = q.Where("status = ?", f.Status)
+		q = q.Where("loan_requests.status = ?", f.Status)
 	}
 	if f.LoanID != 0 {
-		q = q.Where("loan_id = ?", f.LoanID)
+		q = q.Where("loan_requests.loan_id = ?", f.LoanID)
 	}
 	if f.Limit > 0 {
 		q = q.Limit(f.Limit)

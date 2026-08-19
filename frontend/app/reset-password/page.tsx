@@ -3,8 +3,8 @@
 import { Suspense, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import "../login.css";
-import { resetPassword } from "@/lib/authApi";
-import { ApiError } from "@/lib/api";
+import { resetPassword } from "@/common/services/authService";
+import { ApiError } from "@/common/services/httpClient";
 
 function ResetPasswordForm() {
   const router = useRouter();

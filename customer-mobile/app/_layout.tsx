@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Slot, useRouter, useSegments } from "expo-router";
+import { Stack, useRouter, useSegments } from "expo-router";
 import { useFonts, Jost_400Regular, Jost_500Medium, Jost_600SemiBold } from "@expo-google-fonts/jost";
 import { NunitoSans_800ExtraBold } from "@expo-google-fonts/nunito-sans";
 import * as SplashScreen from "expo-splash-screen";
@@ -10,7 +10,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 
 import { ThemeProvider } from "../src/theme/ThemeProvider";
-import { SheetHost } from "../src/components/sheetHost";
+import { SheetHost } from "../src/components/SheetHost";
 import { AuthProvider, useAuth } from "../src/auth/AuthContext";
 import { NotificationsProvider } from "../src/notifications/NotificationsContext";
 import { colors } from "../src/theme/colors";
@@ -150,7 +150,13 @@ function RootNavigation() {
   return (
     <View style={{ flex: 1, backgroundColor: colors.ivory }}>
       <StatusBar style="dark" />
-      <Slot />
+      {/* A real Stack, not <Slot/> — (tabs) needs to stay mounted underneath
+          pushed siblings like /profile and /loan so its tab state (which tab
+          was active) survives the round trip. With a bare Slot, pushing into
+          a sibling top-level route unmounted (tabs) entirely; popping back
+          then remounted it fresh, always landing on the first tab (Home)
+          regardless of which tab the user had open. */}
+      <Stack screenOptions={{ headerShown: false }} />
       <SheetHost />
       <StatusBarBackdrop />
     </View>

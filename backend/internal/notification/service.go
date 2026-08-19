@@ -1,12 +1,11 @@
 package notification
 
 import (
-	"errors"
-
+	"ambikagold/backend/internal/platform/httpx"
 	"ambikagold/backend/internal/realtime"
 )
 
-var ErrNotFound = errors.New("notification not found")
+var ErrNotFound = httpx.NewNotFound("notification not found")
 
 // maxResendAttempts is the cap on live-push resend attempts before the
 // ticker gives up on a notification — it stays queryable via List forever,

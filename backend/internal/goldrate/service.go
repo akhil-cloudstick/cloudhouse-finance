@@ -1,14 +1,15 @@
 package goldrate
 
 import (
-	"errors"
 	"time"
+
+	"ambikagold/backend/internal/platform/httpx"
 )
 
 var (
-	ErrNotFound    = errors.New("gold rate not found")
-	ErrInvalidRate = errors.New("k24 rate must be greater than zero")
-	ErrSetByBlank  = errors.New("setBy is required")
+	ErrNotFound    = httpx.NewNotFound("gold rate not found")
+	ErrInvalidRate = httpx.NewBadRequest("k24 rate must be greater than zero")
+	ErrSetByBlank  = httpx.NewBadRequest("setBy is required")
 )
 
 // PublishInput mirrors the fields an admin supplies via the "Set Today's

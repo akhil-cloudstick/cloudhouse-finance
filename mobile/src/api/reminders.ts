@@ -1,4 +1,4 @@
-import { apiRequest } from "./client";
+import { apiRequestEnveloped as apiRequest } from "./client";
 import { CalendarEvent } from "../types/reminder";
 
 // from/to (YYYY-MM-DD) mirror backend/internal/reminder/handler.go's

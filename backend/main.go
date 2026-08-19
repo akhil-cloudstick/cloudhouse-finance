@@ -1,15 +1,12 @@
 package main
 
 import (
-	"fmt"
 	"log"
 	"net/http"
 	"os"
-	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"gorm.io/gorm"
 
 	"ambikagold/backend/internal/auth"
 	"ambikagold/backend/internal/authz"
@@ -23,6 +20,7 @@ import (
 	"ambikagold/backend/internal/goldrate"
 	"ambikagold/backend/internal/loan"
 	"ambikagold/backend/internal/locker"
+	"ambikagold/backend/internal/migrate"
 	"ambikagold/backend/internal/notification"
 	"ambikagold/backend/internal/ornamenttype"
 	"ambikagold/backend/internal/packet"
@@ -37,10 +35,9 @@ import (
 	"ambikagold/backend/internal/webstatic"
 )
 
-// The authResources/staffRoles lists that used to live here have moved to
-// cmd/migrate, which is now the only place permissions are seeded — keeping
-// a second copy in the server would have been dead code that silently drifts
-// out of sync with the list actually applied.
+// The authResources/staffRoles lists live in internal/migrate now — the
+// single copy both this server and `cmd/migrate` seed from, so there is no
+// second list anywhere to drift out of sync with the one actually applied.
 
 // corsMiddleware allows the Next.js dev server (a different origin/port from
 // this API during local development) to make cross-origin requests. In
@@ -59,50 +56,6 @@ func corsMiddleware(allowedOrigin string) gin.HandlerFunc {
 	}
 }
 
-// requireMigratedSchema fails fast when the database has not had
-// `go run ./cmd/migrate` applied to it. Since the server no longer migrates
-// anything itself, a missing table would otherwise surface as an opaque SQL
-// error on whichever request happened to touch it first.
-//
-// This is a presence check on a representative sample of tables, not a full
-// schema verification — it catches "migrations were never run" and "a new
-// model was added but not migrated", which are the realistic failures. It
-// deliberately does not check columns; keeping it cheap means it can run on
-// every boot without slowing startup.
-func requireMigratedSchema(db *gorm.DB) error {
-	required := []struct {
-		name  string
-		model any
-	}{
-		{"branches", &branch.Branch{}},
-		{"schemes", &scheme.Scheme{}},
-		{"employees", &employee.Employee{}},
-		{"customers", &customer.Customer{}},
-		{"loans", &loan.Loan{}},
-		{"loan_payments", &loan.LoanPayment{}},
-		{"packets", &packet.Packet{}},
-		{"reminders", &reminder.Reminder{}},
-		{"permissions", &authz.Permission{}},
-		{"communication_logs", &commlog.CommunicationLog{}},
-		{"customer_otp", &customerauth.OTP{}},
-		{"customer_device_tokens", &customerauth.DeviceToken{}},
-	}
-	var missing []string
-	for _, r := range required {
-		if !db.Migrator().HasTable(r.model) {
-			missing = append(missing, r.name)
-		}
-	}
-	if len(missing) > 0 {
-		return fmt.Errorf(
-			"database schema is not migrated — missing table(s): %s.\n"+
-				"The API server no longer migrates on startup. Run:\n"+
-				"    go run ./cmd/migrate",
-			strings.Join(missing, ", "))
-	}
-	return nil
-}
-
 func main() {
 	cfg := platform.LoadConfig()
 
@@ -111,17 +64,14 @@ func main() {
 		log.Fatalf("database connection failed: %v", err)
 	}
 
-	// The API server deliberately performs NO schema work: no AutoMigrate, no
-	// backfills, no seeding. Migrations are applied only by an explicit
-	// `go run ./cmd/migrate`, so restarting the server — including an
-	// unattended restart after a crash — can never reshape or rewrite live
-	// data as a side effect. cmd/migrate is the single source of the schema.
-	//
-	// The cost of that is a server booting against an un-migrated database,
-	// which would otherwise fail later as confusing per-request SQL errors.
-	// This check turns it into one clear message at startup instead.
-	if err := requireMigratedSchema(db); err != nil {
-		log.Fatalf("%v", err)
+	// The API server migrates its own schema on every boot: AutoMigrate,
+	// every backfill, and permission seeding, via the same internal/migrate.Run
+	// that `go run ./cmd/migrate` calls standalone. Every step it runs is
+	// either additive, an idempotent WHERE-guarded backfill, or a column drop
+	// that only runs after that column's data has already been copied
+	// forward — see internal/migrate's doc comments for the full accounting.
+	if err := migrate.Run(db); err != nil {
+		log.Fatalf("migration failed: %v", err)
 	}
 
 	settingsCipher, err := platform.NewSettingsCipher(cfg.SettingsEncryptionKey)

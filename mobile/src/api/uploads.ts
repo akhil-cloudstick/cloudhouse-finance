@@ -5,7 +5,9 @@ import { ApiError } from "./client";
 
 // Mirrors frontend/lib/customersApi.ts's uploadFile against the same
 // backend/internal/upload endpoint: multipart POST /uploads with one "file"
-// field, responding {"url": "/uploads/<id>-<name>"}.
+// field, responding {"success": true, "data": {"url": "/uploads/<id>-<name>"}}
+// (backend/internal/platform/httpx envelope) on success, or
+// {"success": false, "error": "..."} on failure.
 export type PickedFile = {
   uri: string;
   name: string;
@@ -46,10 +48,10 @@ export async function uploadFile(file: PickedFile): Promise<string> {
 
     const data = result.body ? JSON.parse(result.body) : undefined;
 
-    if (result.status < 200 || result.status >= 300) {
+    if (result.status < 200 || result.status >= 300 || data?.success === false) {
       throw new ApiError(result.status, (data && (data.error || data.message)) || `Upload failed (${result.status})`, data);
     }
-    return (data as { url: string }).url;
+    return (data as { success: boolean; data: { url: string } }).data.url;
   } finally {
     if (copied) {
       try {

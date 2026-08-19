@@ -1,4 +1,4 @@
-import { apiRequest } from "./client";
+import { apiRequestEnveloped as apiRequest } from "./client";
 import { Locker } from "../types/locker";
 
 // Branch-scoped only, no query params today.

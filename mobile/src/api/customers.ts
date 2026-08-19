@@ -1,4 +1,4 @@
-import { apiRequest } from "./client";
+import { apiRequestEnveloped as apiRequest } from "./client";
 import { Customer } from "../types/customer";
 
 // `q` (server-side search) mirrors backend/internal/customer/handler.go's

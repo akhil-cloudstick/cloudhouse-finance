@@ -1,4 +1,4 @@
-import { apiRequest } from "./client";
+import { apiRequestEnveloped as apiRequest } from "./client";
 import { API_BASE_URL } from "./config";
 import { getToken } from "../auth/tokenStorage";
 import { Loan } from "./loans";

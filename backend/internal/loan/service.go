@@ -18,6 +18,7 @@ import (
 	"ambikagold/backend/internal/customer"
 	"ambikagold/backend/internal/goldrate"
 	"ambikagold/backend/internal/platform"
+	"ambikagold/backend/internal/platform/httpx"
 	"ambikagold/backend/internal/scheme"
 	"ambikagold/backend/internal/upload"
 )
@@ -86,80 +87,92 @@ type CashRecorder interface {
 }
 
 var (
-	ErrNotFound                  = errors.New("loan not found")
-	ErrOrnamentNotFound          = errors.New("ornament not found")
-	ErrBranchInvalid             = errors.New("branch does not exist")
-	ErrCustomerInvalid           = errors.New("customer does not exist")
-	ErrCustomerNotVerified       = errors.New("customer must be KYC verified before a loan can be created")
-	ErrSchemeInvalid             = errors.New("scheme does not exist")
-	ErrNoOrnaments               = errors.New("at least one ornament is required")
-	ErrNoGoldRate                = errors.New("no gold rate has been published yet")
-	ErrGoldRateNotSetToday       = errors.New("today's gold rate has not been set yet — please publish it before creating a loan")
-	ErrInvalidPurity             = errors.New("purity must be a karat like \"22K\" (10-24) or a fineness percentage like \"91.6%\" (0-100)")
-	ErrInvalidWeight             = errors.New("gross weight must be greater than zero")
-	ErrPrincipalTooHigh          = errors.New("principal amount cannot exceed the eligible loan amount")
-	ErrInvalidPrincipal          = errors.New("principal amount must be greater than zero")
-	ErrInvalidDueDate            = errors.New("due date must be after the opened date")
-	ErrWrongStage                = errors.New("approval action does not match the loan's current approval stage")
-	ErrAlreadyDecided            = errors.New("loan approval has already reached a terminal state")
-	ErrInvalidAction             = errors.New("action must be Approved or Rejected")
-	ErrInvalidAmount             = errors.New("amount must be greater than zero")
-	ErrRequestNotFound           = errors.New("loan request not found")
-	ErrInvalidRequestType        = errors.New("type must be Extension or Release")
-	ErrInvalidMonths             = errors.New("requested extension months must be greater than zero")
-	ErrRequestAlreadyDecided     = errors.New("loan request has already been decided")
-	ErrInvalidPaymentType        = errors.New("type must be Interest, Principal, Partial, Full Settlement, Adjustment, or Waiver")
-	ErrNotExtensionRequest       = errors.New("this request is not an Extension request")
-	ErrNotReleaseRequest         = errors.New("this request is not a Release request")
+	ErrNotFound            = httpx.NewNotFound("loan not found")
+	ErrOrnamentNotFound    = httpx.NewNotFound("ornament not found")
+	ErrBranchInvalid       = httpx.NewBadRequest("branch does not exist")
+	ErrCustomerInvalid     = httpx.NewBadRequest("customer does not exist")
+	ErrCustomerNotVerified = httpx.NewBadRequest("customer must be KYC verified before a loan can be created")
+	ErrSchemeInvalid       = httpx.NewBadRequest("scheme does not exist")
+	ErrNoOrnaments         = httpx.NewBadRequest("at least one ornament is required")
+	ErrNoGoldRate          = httpx.NewBadRequest("no gold rate has been published yet")
+	ErrGoldRateNotSetToday = httpx.NewBadRequest("today's gold rate has not been set yet — please publish it before creating a loan")
+	ErrInvalidPurity       = httpx.NewBadRequest("purity must be a karat like \"22K\" (10-24) or a fineness percentage like \"91.6%\" (0-100)")
+	ErrInvalidWeight       = httpx.NewBadRequest("gross weight must be greater than zero")
+	ErrPrincipalTooHigh    = httpx.NewBadRequest("principal amount cannot exceed the eligible loan amount")
+	ErrInvalidPrincipal    = httpx.NewBadRequest("principal amount must be greater than zero")
+	ErrInvalidDueDate      = httpx.NewBadRequest("due date must be after the opened date")
+	ErrWrongStage          = httpx.NewBadRequest("approval action does not match the loan's current approval stage")
+	ErrAlreadyDecided      = httpx.NewBadRequest("loan approval has already reached a terminal state")
+	ErrInvalidAction       = httpx.NewBadRequest("action must be Approved or Rejected")
+	ErrInvalidAmount       = httpx.NewBadRequest("amount must be greater than zero")
+	ErrRequestNotFound     = httpx.NewNotFound("loan request not found")
+	ErrInvalidRequestType  = httpx.NewBadRequest("type must be Extension or Release")
+	ErrInvalidMonths       = httpx.NewBadRequest("requested extension months must be greater than zero")
+	ErrRequestAlreadyDecided = httpx.NewBadRequest("loan request has already been decided")
+	ErrInvalidPaymentType    = httpx.NewBadRequest("type must be Interest, Principal, Partial, Full Settlement, Adjustment, or Waiver")
+	ErrNotExtensionRequest   = httpx.NewBadRequest("this request is not an Extension request")
+	ErrNotReleaseRequest     = httpx.NewBadRequest("this request is not a Release request")
 	// ErrUseStagedExtensionApproval is returned by the old single-step
 	// DecideRequest when called for an Extension request — extension
 	// requests now go through the same 3-stage approval chain as Release
 	// (see Service.ApproveExtensionRequest), never a single decide call.
-	ErrUseStagedExtensionApproval = errors.New("extension requests are now decided through the staged approval chain — use POST /loans/requests/:requestId/approve instead")
-	ErrLoanTerminalState         = errors.New("loan is already Closed, Auctioned, or Defaulted — nothing left to extend")
-	ErrChecklistIncomplete       = errors.New("the release verification checklist must be fully complete before approval")
-	ErrReleaseNotApproved        = errors.New("this loan has no approved release request")
-	ErrOutstandingBalanceRemains = errors.New("the final settlement has not been fully paid yet — record the remaining payment before releasing the gold")
-	ErrBankPledgeStillActive     = errors.New("gold is still pledged to a bank — release the bank pledge before releasing it to the customer")
-	ErrAuctionNotFound           = errors.New("this loan has no auction case yet — mark it auction-eligible first")
-	ErrLoanNotDefaulted          = errors.New("loan must be Defaulted (overdue by more than 90 days) before it can be marked auction-eligible")
-	ErrAuctionAlreadyStarted     = errors.New("this loan already has an auction case in progress")
-	ErrAuctionWrongStage         = errors.New("action does not match the auction case's current stage")
+	ErrUseStagedExtensionApproval = httpx.NewBadRequest("extension requests are now decided through the staged approval chain — use POST /loans/requests/:requestId/approve instead")
+	ErrLoanTerminalState          = httpx.NewBadRequest("loan is already Closed, Auctioned, or Defaulted — nothing left to extend")
+	ErrChecklistIncomplete        = httpx.NewBadRequest("the release verification checklist must be fully complete before approval")
+	// ErrReleaseNotApproved is classified NotFound (not BadRequest) — a
+	// pre-existing choice this migration preserves: "no approved release
+	// request" surfaces the same as a missing resource.
+	ErrReleaseNotApproved        = httpx.NewNotFound("this loan has no approved release request")
+	ErrOutstandingBalanceRemains = httpx.NewBadRequest("the final settlement has not been fully paid yet — record the remaining payment before releasing the gold")
+	ErrBankPledgeStillActive     = httpx.NewBadRequest("gold is still pledged to a bank — release the bank pledge before releasing it to the customer")
+	ErrAuctionNotFound           = httpx.NewNotFound("this loan has no auction case yet — mark it auction-eligible first")
+	ErrLoanNotDefaulted          = httpx.NewBadRequest("loan must be Defaulted (overdue by more than 90 days) before it can be marked auction-eligible")
+	ErrAuctionAlreadyStarted     = httpx.NewBadRequest("this loan already has an auction case in progress")
+	ErrAuctionWrongStage         = httpx.NewBadRequest("action does not match the auction case's current stage")
 
 	// ErrDraftNotFound covers both "no such draft" and "not yours" — a draft
 	// belongs to the employee who saved it (see LoanDraft), and answering
 	// "exists, but not yours" would leak that someone else has one.
-	ErrDraftNotFound = errors.New("loan draft not found")
+	ErrDraftNotFound = httpx.NewNotFound("loan draft not found")
 
-	ErrInvalidCashTreatment = errors.New("cashTreatment must be either \"CashIn\" or \"RecordOnly\"")
-	ErrPledgeNotFound       = errors.New("bank pledge record not found")
-	ErrPledgeNotActive      = errors.New("only an active bank pledge can be voided — this one is already released or voided")
-	ErrVoidReasonRequired   = errors.New("a reason is required when voiding a bank pledge")
+	ErrInvalidCashTreatment = httpx.NewBadRequest("cashTreatment must be either \"CashIn\" or \"RecordOnly\"")
+	ErrPledgeNotFound       = httpx.NewNotFound("bank pledge record not found")
+	// ErrPledgeNotActive is a state conflict (already released/voided), not
+	// a malformed request — Conflict, not BadRequest.
+	ErrPledgeNotActive    = httpx.NewConflict("only an active bank pledge can be voided — this one is already released or voided")
+	ErrVoidReasonRequired = httpx.NewBadRequest("a reason is required when voiding a bank pledge")
 
 	// ErrAuctionDecisionPending blocks the auction pipeline while a repayment
-	// decision is outstanding. This is the safety guarantee that stops gold
-	// being sold out from under a customer whose payment is still under review.
-	ErrAuctionDecisionPending = errors.New("a repayment decision is pending on this auction — it must be resolved before the auction can proceed")
+	// decision is outstanding — a state conflict (409), not malformed input:
+	// the request is well-formed, it simply conflicts with the case's current
+	// state, and retrying after the decision is made will succeed. This is
+	// the safety guarantee that stops gold being sold out from under a
+	// customer whose payment is still under review.
+	ErrAuctionDecisionPending = httpx.NewConflict("a repayment decision is pending on this auction — it must be resolved before the auction can proceed")
 
-	ErrAuctionDecisionNotFound       = errors.New("auction decision request not found")
-	ErrAuctionDecisionAlreadyDecided = errors.New("this auction decision has already been made")
-	ErrInvalidAuctionDecision        = errors.New("decision is not valid for this kind of auction request")
-	ErrShortfallAuthorityRequired    = errors.New("only a Branch Manager, Management, or Administrator may decide a post-auction shortfall")
-	ErrAuctionBalanceDueCannotSettle = errors.New("this auction left a balance owing — resolve the shortfall decision instead of settling")
-	ErrNoSurplusToDispose            = errors.New("this auction left no surplus to dispose of")
-	ErrSurplusAlreadyDisposed        = errors.New("this auction's surplus has already been disposed of")
-	ErrInvalidSurplusDisposition     = errors.New("surplus disposition must be either \"RefundedToCustomer\" or \"RecordedAsIncome\"")
-	ErrSettlementRemarksRequired     = errors.New("remarks are required when a customer's auction surplus is retained as income")
-	ErrDecisionRemarksRequired       = errors.New("remarks are required for this decision")
+	ErrAuctionDecisionNotFound       = httpx.NewNotFound("auction decision request not found")
+	ErrAuctionDecisionAlreadyDecided = httpx.NewConflict("this auction decision has already been made")
+	ErrInvalidAuctionDecision        = httpx.NewBadRequest("decision is not valid for this kind of auction request")
+	// ErrShortfallAuthorityRequired: a role that reached the route but may
+	// not perform this specific action (only Branch Manager/Management/
+	// Administrator may decide a shortfall) — Forbidden, not BadRequest.
+	ErrShortfallAuthorityRequired    = httpx.NewForbidden("only a Branch Manager, Management, or Administrator may decide a post-auction shortfall")
+	ErrAuctionBalanceDueCannotSettle = httpx.NewBadRequest("this auction left a balance owing — resolve the shortfall decision instead of settling")
+	ErrNoSurplusToDispose            = httpx.NewBadRequest("this auction left no surplus to dispose of")
+	ErrSurplusAlreadyDisposed        = httpx.NewConflict("this auction's surplus has already been disposed of")
+	ErrInvalidSurplusDisposition     = httpx.NewBadRequest("surplus disposition must be either \"RefundedToCustomer\" or \"RecordedAsIncome\"")
+	ErrSettlementRemarksRequired     = httpx.NewBadRequest("remarks are required when a customer's auction surplus is retained as income")
+	ErrDecisionRemarksRequired       = httpx.NewBadRequest("remarks are required for this decision")
 
 	// ErrEsignNotConfigured/ErrNoIndemnityBondSignRequest are returned by the
 	// indemnity-bond Aadhaar eSign flow (StartIndemnityBondSign/
 	// CheckIndemnityBondSign) — same shape as customer.Service's
 	// ErrDigilockerNotConfigured/ErrNoDigilockerRequest.
-	ErrEsignNotConfigured           = errors.New("indemnity bond eSign is not configured")
-	ErrNoIndemnityBondSignRequest   = errors.New("no indemnity bond eSign has been started for this loan")
-	ErrIndemnityBondAlreadySigned   = errors.New("this loan's indemnity bond has already been signed")
-	ErrUnsupportedIndemnityBondLang = errors.New("lang must be en, hi, or gu")
+	ErrEsignNotConfigured         = httpx.NewUnavailable("indemnity bond eSign is not configured")
+	ErrNoIndemnityBondSignRequest = httpx.NewBadRequest("no indemnity bond eSign has been started for this loan")
+	// ErrIndemnityBondAlreadySigned is a state conflict — Conflict, not BadRequest.
+	ErrIndemnityBondAlreadySigned   = httpx.NewConflict("this loan's indemnity bond has already been signed")
+	ErrUnsupportedIndemnityBondLang = httpx.NewBadRequest("lang must be en, hi, or gu")
 )
 
 // Service implements loan business rules: ornament valuation, eligible-
@@ -982,7 +995,7 @@ type PaymentInput struct {
 // those buckets (e.g. an "Interest" payment bigger than outstanding
 // interest+penal interest, or a "Full Settlement" smaller than the total
 // owed).
-var ErrExceedsOutstanding = errors.New("amount does not match what is owed for this payment type")
+var ErrExceedsOutstanding = httpx.NewBadRequest("amount does not match what is owed for this payment type")
 
 // allocatePayment splits amount across the processing-fee/penal-interest/
 // interest/principal buckets according to paymentType's waterfall rule,
@@ -3158,7 +3171,7 @@ type DraftInput struct {
 // ErrDraftBranchRequired is the one validation a draft does enforce: without
 // a branch there's nothing to scope the draft to, so it could never be
 // listed back by its owner.
-var ErrDraftBranchRequired = errors.New("branchId is required to save a draft")
+var ErrDraftBranchRequired = httpx.NewBadRequest("branchId is required to save a draft")
 
 func (in DraftInput) toOrnamentRows() []LoanDraftOrnament {
 	rows := make([]LoanDraftOrnament, len(in.Ornaments))

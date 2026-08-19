@@ -1,4 +1,4 @@
-import { apiRequest } from "./client";
+import { apiRequestEnveloped as apiRequest } from "./client";
 import { OrnamentType } from "../types/ornamentType";
 
 export function listOrnamentTypes(q?: string) {

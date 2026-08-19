@@ -1,27 +1,28 @@
 package loan
 
 import (
-	"errors"
 	"fmt"
 	"time"
+
+	"ambikagold/backend/internal/platform/httpx"
 )
 
 // ErrRazorpayNotConfigured mirrors ErrEsignNotConfigured's shape: returned
 // by CreateRazorpayOrder/VerifyAndRecordRazorpayPayment when
 // RAZORPAY_KEY_ID/RAZORPAY_KEY_SECRET aren't set, rather than a
 // nil-pointer panic.
-var ErrRazorpayNotConfigured = errors.New("razorpay is not configured")
+var ErrRazorpayNotConfigured = httpx.NewUnavailable("razorpay is not configured")
 
 // ErrRazorpayAmountMismatch is returned when the amount a customer typed
 // doesn't correspond to any of the three recognized payment shapes for the
 // requested type (Interest/FullSettlement exact-match, or an in-range
 // Partial amount).
-var ErrRazorpayAmountMismatch = errors.New("amount does not match what is owed for this payment type")
+var ErrRazorpayAmountMismatch = httpx.NewBadRequest("amount does not match what is owed for this payment type")
 
 // ErrRazorpaySignatureInvalid is returned by VerifyAndRecordRazorpayPayment
 // when the checkout signature doesn't verify — no LoanPayment is created in
 // this case.
-var ErrRazorpaySignatureInvalid = errors.New("payment signature verification failed")
+var ErrRazorpaySignatureInvalid = httpx.NewBadRequest("payment signature verification failed")
 
 // RazorpayOrderResult is what CreateRazorpayOrder returns to the
 // customer-app handler — everything the RN Razorpay SDK needs to open

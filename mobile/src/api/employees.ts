@@ -1,4 +1,4 @@
-import { apiRequest } from "./client";
+import { apiRequestEnveloped as apiRequest } from "./client";
 import { Employee } from "../types/employee";
 
 // No `q`/search query param on this endpoint today (branch-scoped only) —

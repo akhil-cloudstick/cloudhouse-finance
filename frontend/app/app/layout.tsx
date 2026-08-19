@@ -2,7 +2,7 @@
 
 import { useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { useAuth } from "@/lib/auth-context";
+import { useAuth } from "@/common/auth-context";
 
 /* Single guard point for the whole authenticated app shell (app/app/page.tsx
  * and anything else added under app/app/*). If there's no valid, unexpired

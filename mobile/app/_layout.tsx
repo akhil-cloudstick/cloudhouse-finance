@@ -10,7 +10,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 
 import { ThemeProvider } from "../src/theme/ThemeProvider";
-import { SheetHost } from "../src/components/sheetHost";
+import { SheetHost } from "../src/components/SheetHost";
 import { AuthProvider, useAuth } from "../src/auth/AuthContext";
 import { colors } from "../src/theme/colors";
 
@@ -87,7 +87,7 @@ function RootNavigation() {
       <StatusBar style="dark" />
       <Slot />
       {/* Bottom sheets render here — above every screen, laid out against
-          the real screen bounds. See src/components/sheetHost.tsx. */}
+          the real screen bounds. See src/components/SheetHost.tsx. */}
       <SheetHost />
       <StatusBarBackdrop />
     </View>

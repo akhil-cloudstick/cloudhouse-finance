@@ -1,4 +1,4 @@
-import { apiRequest } from "./client";
+import { apiRequestEnveloped as apiRequest } from "./client";
 
 // Mirrors backend/internal/goldrate/model.go's GoldRate.
 export type GoldRate = {

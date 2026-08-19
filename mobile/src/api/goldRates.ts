@@ -1,4 +1,4 @@
-import { apiRequest } from "./client";
+import { apiRequestEnveloped as apiRequest } from "./client";
 import { GoldRate } from "../types/goldRate";
 
 export function listGoldRates() {

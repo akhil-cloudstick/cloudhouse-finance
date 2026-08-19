@@ -5,9 +5,11 @@ import (
 	"strings"
 
 	"gorm.io/gorm"
+
+	"ambikagold/backend/internal/platform/httpx"
 )
 
-var ErrNameRequired = errors.New("name is required")
+var ErrNameRequired = httpx.NewBadRequest("name is required")
 
 // Service implements ornament-type business rules on top of the Repository.
 type Service struct {

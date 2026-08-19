@@ -8,6 +8,7 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"ambikagold/backend/internal/platform"
+	"ambikagold/backend/internal/platform/httpx"
 )
 
 // Handler wires HTTP requests to Service, binding the common from/to/
@@ -67,18 +68,19 @@ func parseFilter(c *gin.Context) (Filter, error) {
 }
 
 func badRequest(c *gin.Context, err error) {
-	c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+	httpx.Fail(c, http.StatusBadRequest, err.Error())
 }
 
 func serverError(c *gin.Context, err error) {
-	c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+	httpx.FailErr(c, err)
 }
 
 // respond applies pagination (JSON list endpoints only — export endpoints
-// call the service directly and skip this) and writes the common envelope.
+// call the service directly and skip this) and writes the common envelope,
+// itself wrapped in the outer {success, data} envelope.
 func respond[T any](c *gin.Context, rows []T, totals any, f Filter) {
 	page, total := Paginate(rows, f)
-	c.JSON(http.StatusOK, Result{Rows: page, Totals: totals, TotalCount: total})
+	httpx.Success(c, http.StatusOK, Result{Rows: page, Totals: totals, TotalCount: total})
 }
 
 func (h *Handler) Disbursement(c *gin.Context) {

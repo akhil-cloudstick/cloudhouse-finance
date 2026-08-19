@@ -10,34 +10,35 @@ import (
 	"gorm.io/gorm"
 
 	"ambikagold/backend/internal/branch"
+	"ambikagold/backend/internal/platform/httpx"
 )
 
 var (
-	ErrNotFound      = errors.New("employee not found")
-	ErrNameRequired  = errors.New("name is required")
-	ErrRoleRequired  = errors.New("role is required")
-	ErrInvalidRole   = errors.New("role must be one of the predefined roles")
-	ErrBranchReq     = errors.New("branch is required")
-	ErrBranchInvalid = errors.New("branch does not exist")
-	ErrPhoneInvalid  = errors.New("phone must be a 10-digit number")
+	ErrNotFound      = httpx.NewNotFound("employee not found")
+	ErrNameRequired  = httpx.NewBadRequest("name is required")
+	ErrRoleRequired  = httpx.NewBadRequest("role is required")
+	ErrInvalidRole   = httpx.NewBadRequest("role must be one of the predefined roles")
+	ErrBranchReq     = httpx.NewBadRequest("branch is required")
+	ErrBranchInvalid = httpx.NewBadRequest("branch does not exist")
+	ErrPhoneInvalid  = httpx.NewBadRequest("phone must be a 10-digit number")
 	// ErrPhoneTaken is returned when an employee's phone number is already
 	// used by a different employee — phone doubles as a login identifier
 	// (see internal/auth), so it must be unique across employees.
-	ErrPhoneTaken = errors.New("phone number is already in use by another employee")
+	ErrPhoneTaken = httpx.NewConflict("phone number is already in use by another employee")
 	// ErrEmailTaken is returned when updating an employee's email to one
 	// already used by a different employee.
-	ErrEmailTaken = errors.New("email is already in use by another employee")
+	ErrEmailTaken = httpx.NewConflict("email is already in use by another employee")
 	// ErrEmailInvalid guards against obviously malformed email input.
-	ErrEmailInvalid = errors.New("email is invalid")
+	ErrEmailInvalid = httpx.NewBadRequest("email is invalid")
 	// ErrUsernameTaken is returned when setting an employee's username to
 	// one already used by a different employee (see internal/auth for
 	// login, which relies on username uniqueness).
-	ErrUsernameTaken = errors.New("username is already in use by another employee")
+	ErrUsernameTaken = httpx.NewConflict("username is already in use by another employee")
 	// ErrUsernameInvalid guards against blank/too-short/invalid-character
 	// usernames.
-	ErrUsernameInvalid = errors.New("username must be at least 3 characters and contain only letters, numbers, dots, underscores or hyphens")
+	ErrUsernameInvalid = httpx.NewBadRequest("username must be at least 3 characters and contain only letters, numbers, dots, underscores or hyphens")
 	// ErrPasswordTooShort mirrors a minimal password-strength rule.
-	ErrPasswordTooShort = errors.New("password must be at least 8 characters")
+	ErrPasswordTooShort = httpx.NewBadRequest("password must be at least 8 characters")
 )
 
 var usernameRe = regexp.MustCompile(`^[A-Za-z0-9._-]{3,60}$`)

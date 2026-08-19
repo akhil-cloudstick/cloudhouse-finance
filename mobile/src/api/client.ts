@@ -65,3 +65,21 @@ export async function apiRequest<T>(path: string, opts: RequestOptions = {}): Pr
 
   return data as T;
 }
+
+// apiRequestEnveloped is apiRequest's counterpart for backend modules
+// migrated to the house response envelope ({success, data} / {success,
+// error}) — see backend/internal/platform/httpx. Only call this for a
+// module whose Go handlers have actually migrated (branch is the first);
+// every other module still returns the old bare-resource shape and must
+// keep using apiRequest until its own handlers move over. Once every module
+// has migrated, this replaces apiRequest outright and this comment goes away.
+export async function apiRequestEnveloped<T>(path: string, opts: RequestOptions = {}): Promise<T> {
+  const envelope = await apiRequest<{ success: boolean; data?: T; message?: T; error?: string }>(path, opts);
+  if (envelope && envelope.success === false) {
+    throw new ApiError(200, envelope.error || "Request failed", envelope);
+  }
+  // Most success responses carry the resource under `data`; a
+  // delete/action-confirmation response instead carries a plain string
+  // under `message` (see httpx.SuccessMessage) — fall back to that.
+  return (envelope?.data !== undefined ? envelope.data : envelope?.message) as T;
+}

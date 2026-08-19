@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import { Jost, Bodoni_Moda } from "next/font/google";
 import "./globals.css";
 import "./app/app.css";
-import { AuthProvider } from "@/lib/auth-context";
+import { AuthProvider } from "@/common/auth-context";
 
 // Matches the Google Fonts <link> weights used across the legacy index.html
 // and app.html pages (union of both).

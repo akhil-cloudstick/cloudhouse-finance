@@ -1,4 +1,4 @@
-import { apiRequest } from "./client";
+import { apiRequestEnveloped as apiRequest } from "./client";
 import { Bank } from "../types/bank";
 
 export function listBanks(q?: string) {

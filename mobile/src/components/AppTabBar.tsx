@@ -1,5 +1,5 @@
 import React from "react";
-import { View, Pressable, StyleSheet, Platform } from "react-native";
+import { View, Pressable, StyleSheet } from "react-native";
 import type { BottomTabBarProps } from "expo-router/js-tabs";
 import { ThemedText } from "./ThemedText";
 import { Icon } from "./Icon";
@@ -61,7 +61,7 @@ export function AppTabBar({ state, navigation, insets }: BottomTabBarProps) {
     // it reserves its own height and no screen needs extra bottom padding.
     // paddingBottom covers the Android gesture pill / iOS home indicator —
     // the app draws edge-to-edge, which SDK 57+ enforces.
-    <View style={[styles.wrap, { paddingBottom: insets.bottom + 8 }]}>
+    <View style={[styles.wrap, { paddingBottom: 0 }]}>
       <View style={styles.island}>
         {TABS.map(([name, label, icon]) => {
           const isActive = name === activeRouteName;
@@ -71,7 +71,9 @@ export function AppTabBar({ state, navigation, insets }: BottomTabBarProps) {
               onPress={() => onTabPress(name)}
               style={[styles.item, isActive && styles.itemActive]}
             >
-              <Icon name={icon} size={21} color={isActive ? colors.goldDeep : colors.muted} />
+              <View style={styles.iconWrap}>
+                <Icon name={icon} size={21} color={isActive ? colors.goldDeep : colors.muted} />
+              </View>
               <ThemedText variant="label" color={isActive ? colors.goldDeep : colors.muted} numberOfLines={1}>
                 {label}
               </ThemedText>
@@ -81,7 +83,9 @@ export function AppTabBar({ state, navigation, insets }: BottomTabBarProps) {
 
         {/* Not a route — raises the More sheet over whatever screen is on. */}
         <Pressable onPress={open} style={styles.item}>
-          <Icon name="dots" size={21} color={colors.muted} />
+          <View style={styles.iconWrap}>
+            <Icon name="dots" size={21} color={colors.muted} />
+          </View>
           <ThemedText variant="label" color={colors.muted}>
             More
           </ThemedText>
@@ -92,36 +96,29 @@ export function AppTabBar({ state, navigation, insets }: BottomTabBarProps) {
 }
 
 const styles = StyleSheet.create({
-  wrap: { paddingHorizontal: 12, paddingTop: 0, backgroundColor: colors.ivory },
-  // Same floating "island" language as FloatingHeader — card fill, gold-tinted
-  // hairline border, soft lift.
+  wrap: { paddingHorizontal: 0, paddingTop: 0, backgroundColor: colors.card },
+  // Flush full-width footer bar — no floating "island" card, no gap from
+  // the background behind it (wrap and island share the same fill).
   island: {
     flexDirection: "row",
     alignItems: "stretch",
     backgroundColor: colors.card,
-    borderRadius: 20,
-    borderWidth: 1,
-    borderColor: colors.line,
-    paddingVertical: 6,
+    borderTopWidth: 1,
+    borderTopColor: colors.line,
+    paddingVertical: 4,
     paddingHorizontal: 6,
     gap: 2,
-    ...Platform.select({
-      ios: {
-        shadowColor: colors.charcoal,
-        shadowOpacity: 0.12,
-        shadowRadius: 10,
-        shadowOffset: { width: 0, height: -2 },
-      },
-      android: { elevation: 4 },
-    }),
   },
   item: {
     flex: 1,
     alignItems: "center",
     justifyContent: "center",
-    gap: 3,
-    paddingVertical: 7,
+    gap: 1,
+    paddingVertical: 0,
     borderRadius: 14,
+    borderWidth: 1,
+    borderColor: "transparent",
   },
-  itemActive: { backgroundColor: colors.goldPale },
+  itemActive: { backgroundColor: "transparent", borderColor: colors.goldDeep },
+  iconWrap: { width: 34, height: 34, alignItems: "center", justifyContent: "center" },
 });

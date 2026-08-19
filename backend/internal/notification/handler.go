@@ -7,6 +7,8 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"
+
+	"ambikagold/backend/internal/platform/httpx"
 )
 
 // Handler wires HTTP/WebSocket requests to the Service.
@@ -55,7 +57,7 @@ func customerIDFromContext(c *gin.Context) (uint, bool) {
 func (h *Handler) List(c *gin.Context) {
 	customerID, ok := customerIDFromContext(c)
 	if !ok {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "not authenticated"})
+		httpx.Fail(c, http.StatusUnauthorized, "not authenticated")
 		return
 	}
 	limit, _ := strconv.Atoi(c.Query("limit"))
@@ -66,22 +68,22 @@ func (h *Handler) List(c *gin.Context) {
 	if limit > 0 {
 		items, err := h.svc.List(customerID, limit+1, offset)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			httpx.FailErr(c, err)
 			return
 		}
 		hasMore := len(items) > limit
 		if hasMore {
 			items = items[:limit]
 		}
-		c.JSON(http.StatusOK, gin.H{"items": items, "hasMore": hasMore})
+		httpx.Success(c, http.StatusOK, gin.H{"items": items, "hasMore": hasMore})
 		return
 	}
 	items, err := h.svc.List(customerID, 0, 0)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		httpx.FailErr(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, items)
+	httpx.Success(c, http.StatusOK, items)
 }
 
 // Ack backs POST /customer/notifications/:id/ack — the REST fallback for
@@ -90,19 +92,19 @@ func (h *Handler) List(c *gin.Context) {
 func (h *Handler) Ack(c *gin.Context) {
 	customerID, ok := customerIDFromContext(c)
 	if !ok {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "not authenticated"})
+		httpx.Fail(c, http.StatusUnauthorized, "not authenticated")
 		return
 	}
-	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
+	id, err := httpx.IDParam(c, "id")
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
+		httpx.FailErr(c, err)
 		return
 	}
-	if err := h.svc.Ack(uint(id), customerID); err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+	if err := h.svc.Ack(id, customerID); err != nil {
+		httpx.FailErr(c, err)
 		return
 	}
-	c.Status(http.StatusNoContent)
+	httpx.SuccessMessage(c, http.StatusOK, "Notification acknowledged")
 }
 
 // inboundMessage is the only shape a client ever sends up the socket — an
@@ -122,7 +124,7 @@ type inboundMessage struct {
 func (h *Handler) Upgrade(c *gin.Context) {
 	customerID, ok := customerIDFromContext(c)
 	if !ok {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "not authenticated"})
+		httpx.Fail(c, http.StatusUnauthorized, "not authenticated")
 		return
 	}
 	conn, err := h.upgrader.Upgrade(c.Writer, c.Request, nil)

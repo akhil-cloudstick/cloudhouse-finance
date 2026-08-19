@@ -22,8 +22,7 @@ import { MoreSheetProvider } from "../../src/components/MoreSheet";
 // `headerShown: false` here so this navigator doesn't also render a header
 // on top of the Stack's — that duplicate-header stacking was the earlier
 // bug. Screens with no nested Stack (dashboard, gold-rates, new-loan,
-// purity-standards, reminders, reports) get their header from here via
-// `header` below.
+// reminders, reports) get their header from here via `header` below.
 //
 // `href: null` on the non-tab screens is belt-and-braces: AppTabBar only
 // ever renders the four TABS entries, but if the custom bar were ever
@@ -66,7 +65,6 @@ export default function TabsLayout() {
         <Tabs.Screen name="auctions" options={{ title: "Auctions", headerShown: false, href: null }} />
         <Tabs.Screen name="cash" options={{ title: "Cash & Expenses", headerShown: false, href: null }} />
         <Tabs.Screen name="employees" options={{ title: "Employees", headerShown: false, href: null }} />
-        <Tabs.Screen name="purity-standards" options={{ title: "Purity Standards", href: null }} />
         <Tabs.Screen name="settings" options={{ title: "Settings", headerShown: false, href: null }} />
         <Tabs.Screen name="branches" options={{ title: "Branches", headerShown: false, href: null }} />
       </Tabs>

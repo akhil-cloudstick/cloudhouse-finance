@@ -1,4 +1,4 @@
-import { apiRequest } from "./client";
+import { apiRequestEnveloped as apiRequest } from "./client";
 import { AuctionRecord } from "../types/auction";
 
 export function getAuction(loanId: number) {

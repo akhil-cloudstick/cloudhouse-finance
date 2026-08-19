@@ -1,4 +1,4 @@
-import { apiRequest } from "./client";
+import { apiRequestEnveloped as apiRequest } from "./client";
 
 // Mirrors backend/internal/notification.Notification's JSON shape.
 export type Notification = {

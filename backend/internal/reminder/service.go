@@ -1,7 +1,6 @@
 package reminder
 
 import (
-	"errors"
 	"fmt"
 	"time"
 
@@ -9,14 +8,15 @@ import (
 	"ambikagold/backend/internal/customer"
 	"ambikagold/backend/internal/loan"
 	"ambikagold/backend/internal/platform"
+	"ambikagold/backend/internal/platform/httpx"
 )
 
 var (
-	ErrNotFound        = errors.New("reminder not found")
-	ErrCustomerReq     = errors.New("customer is required")
-	ErrCustomerInvalid = errors.New("customer does not exist")
-	ErrTypeInvalid     = errors.New("type must be Follow-Up, Promise-to-Pay, or Custom")
-	ErrDueDateReq      = errors.New("due date is required")
+	ErrNotFound        = httpx.NewNotFound("reminder not found")
+	ErrCustomerReq     = httpx.NewBadRequest("customer is required")
+	ErrCustomerInvalid = httpx.NewBadRequest("customer does not exist")
+	ErrTypeInvalid     = httpx.NewBadRequest("type must be Follow-Up, Promise-to-Pay, or Custom")
+	ErrDueDateReq      = httpx.NewBadRequest("due date is required")
 )
 
 var validTypes = map[string]bool{

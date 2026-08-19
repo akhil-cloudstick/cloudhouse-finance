@@ -1,4 +1,4 @@
-import { apiRequest } from "./client";
+import { apiRequestEnveloped as apiRequest } from "./client";
 import { Scheme } from "../types/scheme";
 
 export function listSchemes(q?: string) {

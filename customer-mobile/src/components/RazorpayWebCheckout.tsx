@@ -5,7 +5,7 @@ import { WebView, WebViewMessageEvent } from "react-native-webview";
 import { ThemedText } from "./ThemedText";
 import { Icon } from "./Icon";
 import { colors } from "../theme/colors";
-import { nextSheetId, sheetStore } from "./sheetHost";
+import { nextSheetId, sheetStore } from "./SheetHost";
 
 // Solution A (Expo Go compatible) for the react-native-razorpay-in-Expo-Go
 // gap: `react-native-razorpay` needs a native module (RNRazorpayCheckout)

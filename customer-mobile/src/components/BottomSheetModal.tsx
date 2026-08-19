@@ -3,7 +3,7 @@ import { Animated, BackHandler, Keyboard, Pressable, View, StyleSheet } from "re
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { colors } from "../theme/colors";
-import { nextSheetId, sheetStore } from "./sheetHost";
+import { nextSheetId, sheetStore } from "./SheetHost";
 
 // Ported from mobile/src/components/BottomSheetModal.tsx — the shared
 // "rises up from the bottom" sheet, publishing into SheetHost rather than

@@ -6,11 +6,12 @@ import (
 	"gorm.io/gorm"
 
 	"ambikagold/backend/internal/platform"
+	"ambikagold/backend/internal/platform/httpx"
 )
 
 var (
-	ErrInvalidCategory = errors.New("unknown settings category")
-	ErrValueRequired   = errors.New("value is required")
+	ErrInvalidCategory = httpx.NewNotFound("unknown settings category")
+	ErrValueRequired   = httpx.NewBadRequest("value is required")
 )
 
 // ApiKeyView is what the API returns per category — the decrypted value is

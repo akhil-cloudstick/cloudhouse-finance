@@ -1,18 +1,22 @@
 package packet
 
 import (
-	"errors"
 	"fmt"
 	"log"
+
+	"ambikagold/backend/internal/platform/httpx"
 )
 
 var (
-	ErrNotFound                = errors.New("packet not found")
-	ErrLoanInvalid             = errors.New("loan does not exist")
-	ErrInvalidPacketTransition = errors.New("invalid packet stage transition")
-	ErrLockerRequired          = errors.New("lockerId is required for this transition")
-	ErrLockerInvalid           = errors.New("locker does not exist or is inactive")
-	ErrLockerFull              = errors.New("locker is at full capacity")
+	ErrNotFound    = httpx.NewNotFound("packet not found")
+	ErrLoanInvalid = httpx.NewBadRequest("loan does not exist")
+	// ErrInvalidPacketTransition/ErrLockerFull are state conflicts (the
+	// packet's current stage, or the locker's current occupancy, rejects the
+	// request) rather than a malformed request — Conflict, not BadRequest.
+	ErrInvalidPacketTransition = httpx.NewConflict("invalid packet stage transition")
+	ErrLockerRequired          = httpx.NewBadRequest("lockerId is required for this transition")
+	ErrLockerInvalid           = httpx.NewBadRequest("locker does not exist or is inactive")
+	ErrLockerFull              = httpx.NewConflict("locker is at full capacity")
 )
 
 // LockerCapacityProvider is a narrow read-only dependency satisfied by

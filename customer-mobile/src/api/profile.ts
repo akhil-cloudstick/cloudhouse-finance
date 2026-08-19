@@ -1,4 +1,4 @@
-import { apiRequest } from "./client";
+import { apiRequestEnveloped as apiRequest } from "./client";
 import { Customer } from "../types/customer";
 
 // GET /customer/profile — the authenticated customer's own full record

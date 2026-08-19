@@ -270,12 +270,12 @@ export default function RemindersScreen() {
         <GoldButton title="+ Add Reminder" onPress={() => setAddVisible(true)} style={{ marginBottom: 16 }} />
 
         <View style={styles.monthNav}>
-          <Pressable onPress={() => goMonth(-1)}>
-            <ThemedText variant="h3" color={colors.goldDeep}>‹</ThemedText>
+          <Pressable onPress={() => goMonth(-1)} hitSlop={10} style={styles.monthNavArrow}>
+            <ThemedText style={styles.monthNavChevron} color={colors.goldDeep}>‹</ThemedText>
           </Pressable>
           <ThemedText variant="h3">{fmtMonthYear(year, month)}</ThemedText>
-          <Pressable onPress={() => goMonth(1)}>
-            <ThemedText variant="h3" color={colors.goldDeep}>›</ThemedText>
+          <Pressable onPress={() => goMonth(1)} hitSlop={8} style={styles.monthNavArrow}>
+            <ThemedText style={styles.monthNavChevron} color={colors.goldDeep}>›</ThemedText>
           </Pressable>
         </View>
 
@@ -360,9 +360,17 @@ const styles = StyleSheet.create({
   },
   monthNav: {
     flexDirection: "row",
-    justifyContent: "space-between",
+    justifyContent: "center",
     alignItems: "center",
+    gap: 16,
     marginBottom: 10,
+  },
+  monthNavArrow: {
+    paddingHorizontal: 4,
+  },
+  monthNavChevron: {
+    fontSize: 28,
+    lineHeight: 32,
   },
   weekRow: {
     flexDirection: "row",

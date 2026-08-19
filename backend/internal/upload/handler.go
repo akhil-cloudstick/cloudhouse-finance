@@ -18,6 +18,8 @@ import (
 	"strings"
 
 	"github.com/gin-gonic/gin"
+
+	"ambikagold/backend/internal/platform/httpx"
 )
 
 // Handler saves uploaded files under Dir and reports back a URL path
@@ -45,13 +47,13 @@ func randomID() (string, error) {
 func (h *Handler) Upload(c *gin.Context) {
 	fileHeader, err := c.FormFile("file")
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "no file provided (expected multipart field \"file\")"})
+		httpx.Fail(c, http.StatusBadRequest, "no file provided (expected multipart field \"file\")")
 		return
 	}
 
 	id, err := randomID()
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to generate file id"})
+		httpx.FailErr(c, err)
 		return
 	}
 
@@ -62,17 +64,17 @@ func (h *Handler) Upload(c *gin.Context) {
 	filename := fmt.Sprintf("%s-%s", id, safeName)
 
 	if err := os.MkdirAll(h.Dir, 0o755); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to prepare uploads directory"})
+		httpx.FailErr(c, err)
 		return
 	}
 
 	dest := filepath.Join(h.Dir, filename)
 	if err := c.SaveUploadedFile(fileHeader, dest); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to save file"})
+		httpx.FailErr(c, err)
 		return
 	}
 
-	c.JSON(http.StatusCreated, gin.H{"url": "/uploads/" + strings.TrimPrefix(filename, "/")})
+	httpx.Success(c, http.StatusCreated, gin.H{"url": "/uploads/" + strings.TrimPrefix(filename, "/")})
 }
 
 // SaveBytes writes data to dir under a random-id-prefixed, sanitized name

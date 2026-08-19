@@ -1,20 +1,20 @@
 package customer
 
 import (
-	"errors"
 	"fmt"
 	"time"
 
 	"ambikagold/backend/internal/branch"
 	"ambikagold/backend/internal/platform"
+	"ambikagold/backend/internal/platform/httpx"
 )
 
 var (
-	ErrNotFound      = errors.New("customer not found")
-	ErrNameRequired  = errors.New("name is required")
-	ErrPhoneRequired = errors.New("phone is required")
-	ErrBranchReq     = errors.New("branch is required")
-	ErrBranchInvalid = errors.New("branch does not exist")
+	ErrNotFound      = httpx.NewNotFound("customer not found")
+	ErrNameRequired  = httpx.NewBadRequest("name is required")
+	ErrPhoneRequired = httpx.NewBadRequest("phone is required")
+	ErrBranchReq     = httpx.NewBadRequest("branch is required")
+	ErrBranchInvalid = httpx.NewBadRequest("branch does not exist")
 )
 
 // CreateInput / UpdateInput mirror the fields collected by
@@ -45,15 +45,15 @@ type UpdateInput = CreateInput
 
 // ErrPANRequired/ErrSetuNotConfigured are returned by VerifyPAN.
 var (
-	ErrPANRequired       = errors.New("customer has no PAN number on file")
-	ErrSetuNotConfigured = errors.New("PAN verification is not configured")
+	ErrPANRequired       = httpx.NewBadRequest("customer has no PAN number on file")
+	ErrSetuNotConfigured = httpx.NewUnavailable("PAN verification is not configured")
 )
 
 // ErrDigilockerNotConfigured/ErrNoDigilockerRequest are returned by the
 // DigiLocker Aadhaar-verify flow (StartAadhaarVerify/CheckAadhaarVerify).
 var (
-	ErrDigilockerNotConfigured = errors.New("Aadhaar verification is not configured")
-	ErrNoDigilockerRequest     = errors.New("no Aadhaar verification has been started for this customer")
+	ErrDigilockerNotConfigured = httpx.NewUnavailable("Aadhaar verification is not configured")
+	ErrNoDigilockerRequest     = httpx.NewBadRequest("no Aadhaar verification has been started for this customer")
 )
 
 // Service implements customer business rules on top of the Repository.

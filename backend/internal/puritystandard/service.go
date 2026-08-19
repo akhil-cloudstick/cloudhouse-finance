@@ -6,6 +6,8 @@ import (
 	"math"
 
 	"gorm.io/gorm"
+
+	"ambikagold/backend/internal/platform/httpx"
 )
 
 // MinKarat/MaxKarat/MinFinenessPercent/MaxFinenessPercent bound every
@@ -23,9 +25,9 @@ const (
 )
 
 var (
-	ErrKaratOutOfRange    = fmt.Errorf("karat must be between %d and %d", MinKarat, MaxKarat)
-	ErrFinenessOutOfRange = fmt.Errorf("fineness%% must be greater than %.0f and at most %.0f", MinFinenessPercent, MaxFinenessPercent)
-	ErrNeitherProvided    = errors.New("either karat or finenessPercent is required")
+	ErrKaratOutOfRange    = httpx.NewBadRequest(fmt.Sprintf("karat must be between %d and %d", MinKarat, MaxKarat))
+	ErrFinenessOutOfRange = httpx.NewBadRequest(fmt.Sprintf("fineness%% must be greater than %.0f and at most %.0f", MinFinenessPercent, MaxFinenessPercent))
+	ErrNeitherProvided    = httpx.NewBadRequest("either karat or finenessPercent is required")
 )
 
 // ValidateKarat rejects any karat outside [MinKarat, MaxKarat].

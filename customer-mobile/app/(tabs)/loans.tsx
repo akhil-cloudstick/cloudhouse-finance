@@ -106,15 +106,13 @@ export default function LoansScreen() {
   return (
     <View style={{ flex: 1, backgroundColor: colors.ivory }}>
       <FloatingHeader title="My Loans" navigation={undefined} onBellPress={() => setNotifOpen(true)} />
-      <ScreenContainer style={{ paddingHorizontal: 0 }}>
-        <View style={{ paddingHorizontal: 16 }}>
-          <ChipSelect options={FILTERS} value={filter} onChange={setFilter} />
-        </View>
+      <ScreenContainer>
+        <ChipSelect options={FILTERS} value={filter} onChange={setFilter} />
 
         <FlatList<Loan>
           data={items}
           keyExtractor={(item) => String(item.id)}
-          contentContainerStyle={{ paddingHorizontal: 16, flexGrow: 1 }}
+          contentContainerStyle={{ flexGrow: 1 }}
           refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
           onEndReached={onEndReached}
           onEndReachedThreshold={0.4}

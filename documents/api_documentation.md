@@ -7,6 +7,58 @@
 > — this document must never describe an endpoint that no longer exists in
 > the system. Do not defer this to a later "docs pass."
 
+## Response envelope migration (complete, 2026-08-19)
+
+The backend has been migrated, module by module, from bare `gin.H`
+responses to a single envelope via `backend/internal/platform/httpx`:
+- Success: `{"success": true, "data": <resource-or-list>}`
+- Delete/action confirmation: `{"success": true, "message": "<text>"}`
+- Error: `{"success": false, "error": "<clean message>"}`, status classified
+  to 400/401/403/404/409 (never 500 — an unclassified failure is logged
+  server-side and answered with a generic 400 message instead).
+
+All three frontends' enveloped request helpers (`apiFetchEnveloped` on web,
+`apiRequestEnveloped` on both mobile apps) prefer `data` and fall back to
+`message` when `data` is absent, so a delete/action-confirmation response's
+plain string still reaches callers that read it.
+
+**Every module has migrated**, including Branches, Banks, Lockers,
+Employees, Ornament Types, Purity Standards, Settings, Gold Rates (incl.
+customer-app routes), Reminders, Packets, Loan Schemes, Cash Movements +
+Expenses, Reports, Authentication, Customer App Notifications, Uploads,
+Customers (incl. customer-app profile/KYC routes), Customer App
+Authentication, and Loans (incl. every `/customer/loans`/`/customer/payments`
+route — see below). The auth/permission middleware
+(`internal/platform/middleware.go`, gates every protected route before any
+handler runs) and the static-file/API 404 fallback
+(`internal/webstatic/handler.go`) were migrated too, so a 401/403/404 raised
+outside any handler carries the same envelope. **The old bare-shape
+response no longer exists anywhere in this API** — every section below
+reflects the new envelope, and this note is kept only as a historical
+record of the migration.
+
+## Frontend restructuring (2026-08-19)
+
+`frontend/` was reorganized from flat `lib/`/`components/` folders into
+per-entity modules under `frontend/modules/<entity>/`, per the Cloudhouse
+frontend standard. **Every path reference to `frontend/lib/*Api.ts`,
+`frontend/lib/*Provider.tsx`, or `frontend/components/<Entity>.tsx` elsewhere
+in this document is now stale** — the mechanical mapping is:
+- `frontend/lib/<entity>Api.ts` → `frontend/modules/<entity>/services/<entity>Service.ts`
+- `frontend/lib/<Entity>Provider.tsx` → `frontend/modules/<entity>/store/<Entity>Provider.tsx`
+- `frontend/components/<Entity>.tsx` (a page, not a shared/modal component) →
+  `frontend/modules/<entity>/components/<Entity>.tsx`
+
+Shared UI (`Modal.tsx`, `Toast.tsx`, `SearchableSelect.tsx`, the `modals/`
+bucket, etc.) and cross-cutting utilities (`lib/api.ts`, `format.ts`,
+`icons.tsx`, `print.ts`, `purity.ts`, `auth-context.tsx`, `DataProvider.tsx`)
+were **not** moved — they stay in `components/`/`lib/` as the shared/common
+layer every module imports from. The pre-Next.js prototype this app was
+ported from also moved, from `frontend/legacy/` to `legacy/` at the repo
+root (see `legacy/README.md`) — nothing in `frontend/` imports it; it's kept
+only as a reference for the "ported from `legacy/app.js`'s `renderX()`" doc
+comments scattered through the moved components.
+
 ## Current state
 A real Go backend now exists under `backend/` (Gin + GORM + PostgreSQL,
 db `ambikagold`). The Go binary (`backend/main.go`, port `8080`) serves both the
@@ -58,6 +110,14 @@ is **derived** from those two (`deriveKYCStatus` in
 the last 4 digits (`aadhaarLast4`) are exposed.
 
 ## Authentication API (`/api/v1/auth`)
+**Migrated to the response envelope** (see "Response envelope migration"
+above) — success responses wrap as `{"success": true, "data": ...}`;
+`/auth/forgot-password` and `/auth/reset-password` now return their
+confirmation as a plain string under `"message"` (`{"success": true,
+"message": "..."}`), not `{"message": "..."}`. Invalid credentials / an
+account with no login set up return **401 Unauthorized** (previously the
+same, unchanged); an invalid/expired reset code stays **400**.
+
 Implemented in `backend/internal/auth/` (login/forgot/reset/me) plus
 `backend/internal/authz/` (the permissions table) and
 `backend/internal/platform/` (JWT issuing/parsing, the `AuthMiddleware`/
@@ -143,6 +203,14 @@ in `.env`; the value accepts either a `<n>d` shorthand or a normal Go
 duration like `168h`, and falls back to 7 days if unset/unparseable).
 
 ## Customer App Authentication API (`/api/v1/customer/auth`)
+**Migrated to the response envelope** (see "Response envelope migration"
+above) — success responses wrap as `{"success": true, "data": ...}`;
+`/auth/request-otp` returns its confirmation as a plain string under
+`"message"`, not `{"message": "..."}`. Status classifications are unchanged
+(invalid/expired OTP, too-many-attempts, invalid device token, missing
+deviceId all stay 400; unregistered phone stays 404) — deliberately not
+reclassified here given this is the login path.
+
 Implemented in `backend/internal/customerauth/` plus `backend/internal/platform/`
 (`IssueCustomerToken`/`ParseCustomerToken`, `CustomerAuthMiddleware`) —
 sign-in for the customer mobile app (`customer-mobile/`), **completely
@@ -288,6 +356,14 @@ money actually goes (fee → penal interest → interest → principal) — the
 Razorpay flow adds no new allocation logic of its own.
 
 ## Customer App Notifications API (`/api/v1/customer/notifications`, `/api/v1/customer/ws`)
+**Migrated to the response envelope** (see "Response envelope migration"
+above) — the REST `List`/`Ack` responses wrap as `{"success": true, "data":
+...}`; `Ack` returns `200` with a confirmation message instead of `204 No
+Content`. **The WebSocket wire format is unaffected** — the JSON pushed down
+the live socket connection (`wireMessage`, documented below) is not an HTTP
+response and carries no envelope; only the pre-upgrade 401 (unauthenticated)
+and the REST endpoints follow the envelope.
+
 Realtime, ack-tracked in-app notifications — backed by a durable
 `notifications` table (`internal/notification`), delivered live over a
 WebSocket while the app is connected (`internal/realtime`'s connection
@@ -571,6 +647,11 @@ longer used by auth (password reset is SMS-only now) — they're dead
 config until some other feature needs outgoing email.
 
 ## Branches API (`/api/v1/branches`)
+**Migrated to the response envelope** (see "Response envelope migration"
+above) — every response below is wrapped as `{"success": true, "data": ...}`
+or `{"success": false, "error": "..."}`; the JSON shapes below describe the
+`data` payload, not the top-level response.
+
 Implemented in `backend/internal/branch/`. Requires a valid JWT
 (`Authorization: Bearer <token>`) plus `RequirePermission("branches", ...)`
 — see the Authentication section above. Unlike every other resource,
@@ -596,8 +677,10 @@ Branch JSON shape:
 `name` and `address` are required and `name` must be unique. `code` is
 optional free text (not server-generated, unlike Scheme/Employee codes).
 `DELETE` does not hard-delete — it sets `isActive: false` (a
-"deactivate"), and is rejected with 400 if the branch still has any
-linked employees, expenses, or cash movements.
+"deactivate"), and is rejected with **409** if the branch still has any
+linked employees, expenses, or cash movements, or if `name` collides with
+an existing branch (both are `Conflict` per the envelope's status
+classification — see `backend/internal/branch/service.go`).
 
 | Method | Path | Purpose | Body |
 |---|---|---|---|
@@ -608,6 +691,11 @@ linked employees, expenses, or cash movements.
 | DELETE | `/api/v1/branches/:id` | Deactivate a branch (soft-disable; 400 if still referenced) | — |
 
 ## Settings — Integration API Keys API (`/api/v1/settings/api-keys`)
+**Migrated to the response envelope** (see "Response envelope migration"
+above) — success responses wrap as `{"success": true, "data": ...}`;
+`DELETE` returns `{"success": true, "message": "Setting cleared successfully"}`
+instead of `204 No Content`. An unknown category returns **404**.
+
 Implemented in `backend/internal/settings/`. No authentication/RBAC yet —
 admin-only by convention, same caveat as Branches. Backs the admin-only
 **Settings** page (`frontend/components/Settings.tsx`), which stores API
@@ -645,6 +733,12 @@ always returns all 6, configured or not.
 | DELETE | `/api/v1/settings/api-keys/:category` | Clear a category's stored key | — |
 
 ## Loan Schemes API (`/api/v1/schemes`)
+**Migrated to the response envelope** (see "Response envelope migration"
+above) — success responses wrap as `{"success": true, "data": ...}` (the
+`/schemes/active` paginated `{items, hasMore}` shape sits under `data`);
+`DELETE` returns `{"success": true, "message": "Scheme deleted successfully"}`
+instead of `204 No Content`.
+
 Implemented in `backend/internal/scheme/`. No authentication/RBAC yet
 (tracked as a follow-up per [architecture.md](architecture.md)).
 
@@ -697,6 +791,14 @@ Backs `NewLoan.tsx`'s scheme `SearchableSelect`, which pages in 5 at a time
 via infinite scroll (`frontend/lib/schemesApi.ts`'s `searchActiveSchemesPage`).
 
 ## Gold Rates API (`/api/v1/gold-rates`)
+**Migrated to the response envelope** (see "Response envelope migration"
+above) — success responses wrap as `{"success": true, "data": ...}` (the
+paginated list's `{items, hasMore}` shape sits under `data`). This is the
+first customer-facing migrated module: `/api/v1/customer/gold-rate/latest`
+and `/history` reuse `goldrate.Handler.Latest`/`List` verbatim, so the
+customer app's `getLatest`/`getHistory` (`customer-mobile/src/api/goldRate.ts`)
+already unwrap the same envelope.
+
 Implemented in `backend/internal/goldrate/`. No authentication/RBAC yet.
 Every publish ("Set Today's Rate") is a new append-only row — there is no
 separate "current rate" record to update; the most recent row (by
@@ -732,6 +834,9 @@ GoldRate JSON shape:
 | GET | `/api/v1/gold-rates/:id` | Get one rate entry by id | — |
 
 ## Purity Standards API (`/api/v1/purity-standards`)
+**Migrated to the response envelope** (see "Response envelope migration"
+above) — success responses wrap as `{"success": true, "data": ...}`.
+
 Implemented in `backend/internal/puritystandard/`. A small suggestion-only
 reference-data resource — like `banks`/`ornamenttypes`, a lookup list with
 a find-or-create endpoint — powering the karat/fineness% typeahead
@@ -756,6 +861,14 @@ least one of the two is required on create.
 | POST | `/api/v1/purity-standards` | Find-or-create by karat or finenessPercent | `{ "karat"? , "finenessPercent"?, "label"? }` |
 
 ## Employees API (`/api/v1/employees`)
+**Migrated to the response envelope** (see "Response envelope migration"
+above) — success responses wrap as `{"success": true, "data": ...}` (the
+paginated list's `{items, hasMore}` shape now sits under `data`); `DELETE`
+returns `{"success": true, "message": "Employee deleted successfully"}`
+instead of `204 No Content`. Phone/username/email conflicts return **409**;
+an unclassified server error returns a generic 400 message (never 500) with
+the real error logged server-side.
+
 Implemented in `backend/internal/employee/`. No authentication/RBAC yet.
 `code` is server-generated (`EMP-01`, `EMP-02`, …), same pattern as
 schemes' `code`. Performance counters (`loansProcessed`/`collections`/
@@ -838,6 +951,12 @@ GlobalSearch.tsx` still reads `db.employees` for its search index — it
 was not migrated as part of this change.
 
 ## Cash Movements + Expenses API (`/api/v1/cash-movements`, `/api/v1/expenses`)
+**Migrated to the response envelope** (see "Response envelope migration"
+above) — success responses wrap as `{"success": true, "data": ...}`. An
+expense already approved/rejected returns **409 Conflict** on a second
+Approve/Reject (previously 400). The `/uploads` receipt-image endpoint this
+page also calls is **not yet migrated** — see the Uploads API section.
+
 Implemented in `backend/internal/cash/` — two related resources on one
 frontend page (Cash & Expenses), one Go package. No authentication/RBAC
 yet.
@@ -929,6 +1048,17 @@ object-storage wiring yet, see the "File Uploads" note in
 | GET | `/api/v1/expenses/:id` | Get one expense by id | — |
 
 ## Customers API (`/api/v1/customers`)
+**Migrated to the response envelope** (see "Response envelope migration"
+above) — success responses wrap as `{"success": true, "data": ...}` (the
+paginated `{items, hasMore}` shape sits under `data`); `DELETE` returns
+`{"success": true, "message": "Customer deleted successfully"}` instead of
+`204 No Content`. PAN/Aadhaar verification's "not configured" errors
+(`ErrSetuNotConfigured`/`ErrDigilockerNotConfigured`) now return **503
+Service Unavailable** (previously the same). This same `Handler`/`Service`
+backs the customer app's `/customer/profile/*` routes
+(`customer_mobile_handler.go`) — those are migrated together with this
+section, and `customer-mobile/src/api/profile.ts` has been updated to match.
+
 Implemented in `backend/internal/customer/`. No authentication/RBAC yet —
 admin-only by convention. The consolidated Customer Module: personal/KYC
 details, PAN/Aadhaar, identity/address/KYC-document uploads, and nominee
@@ -1000,6 +1130,9 @@ for existing callers (e.g. the Customers & KYC list page). Backs
 infinite scroll (`frontend/lib/customersApi.ts`'s `searchCustomersPage`).
 
 ## Banks API (`/api/v1/banks`)
+**Migrated to the response envelope** (see "Response envelope migration"
+above) — success responses wrap as `{"success": true, "data": ...}`.
+
 Implemented in `backend/internal/bank/` — a small reference-data resource
 for the external banks staff can pick from when re-pledging a loan's gold
 (`RepledgeModalContent`'s "Bank" field, opened either from a loan's own
@@ -1042,6 +1175,9 @@ without `allowCreate`.
 | POST | `/api/v1/banks` | Find-or-create a bank by name | `{ "name", "branch"?, "ifsc"?, "accountNo"?, "phone"? }` |
 
 ## Ornament Types API (`/api/v1/ornament-types`)
+**Migrated to the response envelope** (see "Response envelope migration"
+above) — success responses wrap as `{"success": true, "data": ...}`.
+
 Implemented in `backend/internal/ornamenttype/` — a small reference-data
 resource for the ornament type names offered when entering ornaments on a
 loan (`NewLoan.tsx`'s ornament-type picker). No authentication/RBAC yet.
@@ -1068,6 +1204,35 @@ the same endpoint without checking existence first.
 | POST | `/api/v1/ornament-types` | Find-or-create an ornament type by name | `{ "name" }` |
 
 ## Loans API (`/api/v1/loans`)
+**Migrated to the response envelope** (see "Response envelope migration"
+above) — every endpoint in this section, including the customer-app routes
+under `/customer/loans`, `/customer/payments`, and `/customer/loans/:id/
+statement`, wraps success as `{"success": true, "data": ...}` (paginated
+`{items, hasMore}` shapes sit under `data`). `DELETE /loans/drafts/:draftId`
+returns `{"success": true, "message": "Draft deleted successfully"}` instead
+of `204 No Content`. The receipt/statement PDF endpoints
+(`/customer/payments/:paymentId/receipt`, `/customer/loans/:id/statement`)
+are unaffected — they stream raw PDF bytes, never JSON, so there is no
+envelope on the success path; their error responses still follow it.
+
+Two status-code reclassifications from this migration (previously 400,
+now more precise): `ErrPledgeNotActive`, `ErrAuctionDecisionAlreadyDecided`,
+`ErrSurplusAlreadyDisposed`, and `ErrIndemnityBondAlreadySigned` are **409
+Conflict** (state conflicts); `ErrShortfallAuthorityRequired` is **403
+Forbidden** (a real distinguishing rule already present before this
+migration, now formalized via `httpx.NewForbidden`). Everything else keeps
+its exact prior status code — see `internal/loan/service.go`'s sentinel
+error declarations for the full mapping.
+
+The Go file split behind this section also changed: `internal/loan/model.go`
+(957 lines, every entity in one file) is now `model_loan.go`, `model_ornament.go`,
+`model_approval.go`, `model_payment.go`, `model_bank_pledge.go`,
+`model_request.go`, `model_draft.go`, `model_auction.go` — one per entity/
+group, mirroring the handler-side file split (`payment.go`, `purity.go`,
+`indemnitybond.go`, etc.) this package already had. Pure move, no behavior
+change; `internal/loan/handler.go` and `customer_handler.go` still hold
+every handler.
+
 Implemented in `backend/internal/loan/` — the Gold Loan Creation &
 Ornaments Management domain. No authentication/RBAC yet — admin-only by
 convention. The 3-stage approval chain below checks that the acting
@@ -1642,6 +1807,11 @@ Consequences worth knowing:
   trail.
 
 ## Lockers API (`/api/v1/lockers`)
+**Migrated to the response envelope** (see "Response envelope migration"
+above) — success responses wrap as `{"success": true, "data": ...}`;
+`DELETE` returns `{"success": true, "message": "Locker deleted successfully"}`.
+A locker still holding packets, or a duplicate `code`, returns **409**.
+
 Implemented in `backend/internal/locker/` — real per-branch Locker/Vault
 management, replacing `LockerModal.tsx`'s old `localStorage`-backed mock.
 No authentication/RBAC yet.
@@ -1680,6 +1850,11 @@ existing branch (400 `ErrBranchInvalid` otherwise); `capacity` must be > 0.
 | DELETE | `/api/v1/lockers/:id` | Remove a locker (blocked with 400 `ErrInUse` while it still holds packets) | — |
 
 ## Packets API (`/api/v1/packets`)
+**Migrated to the response envelope** (see "Response envelope migration"
+above) — success responses wrap as `{"success": true, "data": ...}`. An
+invalid stage transition or a full locker now returns **409 Conflict**
+(previously 400) — both are state conflicts, not malformed requests.
+
 Implemented in `backend/internal/packet/` — Gold Packet Management /
 Barcode-QR tracking (compliance doc §9–10). Every loan gets exactly one
 active tracking `Packet` (auto-created right after
@@ -1749,6 +1924,11 @@ pass a real employee id.
 | POST | `/api/v1/packets/:id/movements` | Record a stage transition | `{ "toStatus", "lockerId"?, "employeeId", "remarks"? }` |
 
 ## Reminders / Reminder Calendar API (`/api/v1/reminders`)
+**Migrated to the response envelope** (see "Response envelope migration"
+above) — success responses wrap as `{"success": true, "data": ...}`;
+`DELETE` returns `{"success": true, "message": "Reminder deleted successfully"}`
+instead of `204 No Content`.
+
 Implemented in `backend/internal/reminder/`. Backs `frontend/components/
 Calendar.tsx` and Dashboard's "Upcoming Reminders" card. Two distinct
 things live under this one resource:
@@ -1817,6 +1997,13 @@ row of their own to edit/delete.
 | DELETE | `/api/v1/reminders/:id` | Delete a manual reminder | — |
 
 ## Reports API (`/api/v1/reports`)
+**Migrated to the response envelope** (see "Response envelope migration"
+above) — every list endpoint's `{rows, totals, totalCount}` (`reports.Result`,
+documented below) now sits under an outer `{"success": true, "data": {...}}`.
+The `/reports/export/:key` endpoint is unaffected — it streams a binary
+`.xlsx`/`.pdf` file, never JSON, so there is no envelope to apply; its error
+path (invalid key/format) still returns `{"success": false, "error": "..."}`.
+
 Implemented in `backend/internal/reports/`. Management-only (see the RBAC
 section above) — 16 server-side aggregation endpoints covering loans,
 gold/packets, bank pledge, auctions, cash, KYC, gold rates, employee
@@ -1903,6 +2090,12 @@ has real data without a dedicated logging endpoint of its own.
 | `created_at` | timestamp | Send time — this is what the report surfaces as `sentAt` |
 
 ## Uploads API (`/api/v1/uploads`)
+**Migrated to the response envelope** (see "Response envelope migration"
+above) — success now returns `{"success": true, "data": {"url": "..."}}`
+instead of a bare `{"url": "..."}`. Every caller (web's `apiUpload`, the
+staff mobile app's `FileSystem.uploadAsync`-based `uploadFile`) has been
+updated to unwrap the new shape.
+
 Implemented in `backend/internal/upload/`. A small, shared, storage-only
 endpoint — no model/service/repository, just multipart file → local disk.
 Used by Customer's photo/identity-proof/address-proof/KYC-document fields

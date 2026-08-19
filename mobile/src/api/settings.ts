@@ -1,4 +1,4 @@
-import { apiRequest } from "./client";
+import { apiRequestEnveloped as apiRequest } from "./client";
 import { ApiKeyView, ApiKeyCategory } from "../types/apiKey";
 
 export function listApiKeys() {

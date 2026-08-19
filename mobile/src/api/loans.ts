@@ -1,4 +1,4 @@
-import { apiRequest } from "./client";
+import { apiRequestEnveloped as apiRequest } from "./client";
 import { Loan, LoanApproval, LoanRequest } from "../types/loan";
 
 // q/status/branchId/customerId mirror backend/internal/loan/handler.go's

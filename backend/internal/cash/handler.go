@@ -1,7 +1,6 @@
 package cash
 
 import (
-	"errors"
 	"net/http"
 	"strconv"
 	"time"
@@ -9,6 +8,7 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"ambikagold/backend/internal/platform"
+	"ambikagold/backend/internal/platform/httpx"
 )
 
 // MovementHandler wires HTTP requests to the MovementService.
@@ -40,7 +40,7 @@ func parseOptionalDate(s string) (time.Time, error) {
 func (req movementRequest) toInput() (RecordMovementInput, error) {
 	occurred, err := parseOptionalDate(req.OccurredOn)
 	if err != nil {
-		return RecordMovementInput{}, errors.New("invalid occurredOn: expected YYYY-MM-DD")
+		return RecordMovementInput{}, httpx.NewBadRequest("invalid occurredOn: expected YYYY-MM-DD")
 	}
 	return RecordMovementInput{
 		Type: req.Type, Source: req.Source, Purpose: req.Purpose,
@@ -48,37 +48,15 @@ func (req movementRequest) toInput() (RecordMovementInput, error) {
 	}, nil
 }
 
-func idParam(c *gin.Context) (uint, error) {
-	v, err := strconv.ParseUint(c.Param("id"), 10, 64)
-	if err != nil {
-		return 0, errors.New("invalid id")
-	}
-	return uint(v), nil
-}
-
-func movementStatusForErr(err error) int {
-	switch {
-	case errors.Is(err, ErrMovementNotFound):
-		return http.StatusNotFound
-	case errors.Is(err, ErrInvalidAmount), errors.Is(err, ErrInvalidType),
-		errors.Is(err, ErrSourceRequired), errors.Is(err, ErrBankRequired),
-		errors.Is(err, ErrPurposeRequired), errors.Is(err, ErrInvalidStatus),
-		errors.Is(err, ErrBranchInvalid):
-		return http.StatusBadRequest
-	default:
-		return http.StatusInternalServerError
-	}
-}
-
 func (h *MovementHandler) Record(c *gin.Context) {
 	var req movementRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		httpx.Fail(c, http.StatusBadRequest, "Invalid input")
 		return
 	}
 	input, err := req.toInput()
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		httpx.FailErr(c, err)
 		return
 	}
 	// Only enforce/override the branch when the caller actually supplied
@@ -90,10 +68,10 @@ func (h *MovementHandler) Record(c *gin.Context) {
 	}
 	rec, err := h.svc.Record(input)
 	if err != nil {
-		c.JSON(movementStatusForErr(err), gin.H{"error": err.Error()})
+		httpx.FailErr(c, err)
 		return
 	}
-	c.JSON(http.StatusCreated, rec)
+	httpx.Success(c, http.StatusCreated, rec)
 }
 
 func (h *MovementHandler) List(c *gin.Context) {
@@ -107,37 +85,37 @@ func (h *MovementHandler) List(c *gin.Context) {
 		}
 		rec, err := h.svc.List(branchID, limit+1, offset)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			httpx.FailErr(c, err)
 			return
 		}
 		hasMore := len(rec) > limit
 		if hasMore {
 			rec = rec[:limit]
 		}
-		c.JSON(http.StatusOK, gin.H{"items": rec, "hasMore": hasMore})
+		httpx.Success(c, http.StatusOK, gin.H{"items": rec, "hasMore": hasMore})
 		return
 	}
 
 	rec, err := h.svc.List(branchID, 0, 0)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		httpx.FailErr(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, rec)
+	httpx.Success(c, http.StatusOK, rec)
 }
 
 func (h *MovementHandler) Get(c *gin.Context) {
-	id, err := idParam(c)
+	id, err := httpx.IDParam(c, "id")
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		httpx.FailErr(c, err)
 		return
 	}
 	rec, err := h.svc.Get(id, platform.GetBranchScope(c))
 	if err != nil {
-		c.JSON(movementStatusForErr(err), gin.H{"error": err.Error()})
+		httpx.FailErr(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, rec)
+	httpx.Success(c, http.StatusOK, rec)
 }
 
 type setStatusRequest struct {
@@ -145,22 +123,22 @@ type setStatusRequest struct {
 }
 
 func (h *MovementHandler) SetStatus(c *gin.Context) {
-	id, err := idParam(c)
+	id, err := httpx.IDParam(c, "id")
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		httpx.FailErr(c, err)
 		return
 	}
 	var req setStatusRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		httpx.Fail(c, http.StatusBadRequest, "Invalid input")
 		return
 	}
 	rec, err := h.svc.SetLoanStatus(id, req.Status, platform.GetBranchScope(c))
 	if err != nil {
-		c.JSON(movementStatusForErr(err), gin.H{"error": err.Error()})
+		httpx.FailErr(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, rec)
+	httpx.Success(c, http.StatusOK, rec)
 }
 
 // ExpenseHandler wires HTTP requests to the ExpenseService.
@@ -186,7 +164,7 @@ type expenseRequest struct {
 func (req expenseRequest) toInput() (RecordExpenseInput, error) {
 	occurred, err := parseOptionalDate(req.OccurredOn)
 	if err != nil {
-		return RecordExpenseInput{}, errors.New("invalid occurredOn: expected YYYY-MM-DD")
+		return RecordExpenseInput{}, httpx.NewBadRequest("invalid occurredOn: expected YYYY-MM-DD")
 	}
 	return RecordExpenseInput{
 		OccurredOn: occurred, Category: req.Category, Amount: req.Amount,
@@ -195,37 +173,24 @@ func (req expenseRequest) toInput() (RecordExpenseInput, error) {
 	}, nil
 }
 
-func expenseStatusForErr(err error) int {
-	switch {
-	case errors.Is(err, ErrExpenseNotFound):
-		return http.StatusNotFound
-	case errors.Is(err, ErrInvalidAmount), errors.Is(err, ErrCategoryRequired),
-		errors.Is(err, ErrModeRequired), errors.Is(err, ErrPayeeRequired), errors.Is(err, ErrBranchRequired),
-		errors.Is(err, ErrBranchInvalid), errors.Is(err, ErrExpenseNotPending), errors.Is(err, ErrRemarksRequired):
-		return http.StatusBadRequest
-	default:
-		return http.StatusInternalServerError
-	}
-}
-
 func (h *ExpenseHandler) Record(c *gin.Context) {
 	var req expenseRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		httpx.Fail(c, http.StatusBadRequest, "Invalid input")
 		return
 	}
 	input, err := req.toInput()
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		httpx.FailErr(c, err)
 		return
 	}
 	input.BranchID = platform.EnforceBranchOnWrite(c, input.BranchID)
 	rec, err := h.svc.Record(input)
 	if err != nil {
-		c.JSON(expenseStatusForErr(err), gin.H{"error": err.Error()})
+		httpx.FailErr(c, err)
 		return
 	}
-	c.JSON(http.StatusCreated, rec)
+	httpx.Success(c, http.StatusCreated, rec)
 }
 
 func (h *ExpenseHandler) List(c *gin.Context) {
@@ -239,37 +204,37 @@ func (h *ExpenseHandler) List(c *gin.Context) {
 		}
 		rec, err := h.svc.List(branchID, limit+1, offset)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			httpx.FailErr(c, err)
 			return
 		}
 		hasMore := len(rec) > limit
 		if hasMore {
 			rec = rec[:limit]
 		}
-		c.JSON(http.StatusOK, gin.H{"items": rec, "hasMore": hasMore})
+		httpx.Success(c, http.StatusOK, gin.H{"items": rec, "hasMore": hasMore})
 		return
 	}
 
 	rec, err := h.svc.List(branchID, 0, 0)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		httpx.FailErr(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, rec)
+	httpx.Success(c, http.StatusOK, rec)
 }
 
 func (h *ExpenseHandler) Get(c *gin.Context) {
-	id, err := idParam(c)
+	id, err := httpx.IDParam(c, "id")
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		httpx.FailErr(c, err)
 		return
 	}
 	rec, err := h.svc.Get(id, platform.GetBranchScope(c))
 	if err != nil {
-		c.JSON(expenseStatusForErr(err), gin.H{"error": err.Error()})
+		httpx.FailErr(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, rec)
+	httpx.Success(c, http.StatusOK, rec)
 }
 
 type approveExpenseRequest struct {
@@ -277,19 +242,19 @@ type approveExpenseRequest struct {
 }
 
 func (h *ExpenseHandler) Approve(c *gin.Context) {
-	id, err := idParam(c)
+	id, err := httpx.IDParam(c, "id")
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		httpx.FailErr(c, err)
 		return
 	}
 	var req approveExpenseRequest
 	_ = c.ShouldBindJSON(&req) // body is optional
 	rec, err := h.svc.Approve(id, req.ApprovedBy, platform.GetBranchScope(c))
 	if err != nil {
-		c.JSON(expenseStatusForErr(err), gin.H{"error": err.Error()})
+		httpx.FailErr(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, rec)
+	httpx.Success(c, http.StatusOK, rec)
 }
 
 type rejectExpenseRequest struct {
@@ -298,22 +263,22 @@ type rejectExpenseRequest struct {
 }
 
 func (h *ExpenseHandler) Reject(c *gin.Context) {
-	id, err := idParam(c)
+	id, err := httpx.IDParam(c, "id")
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		httpx.FailErr(c, err)
 		return
 	}
 	var req rejectExpenseRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		httpx.Fail(c, http.StatusBadRequest, "Invalid input")
 		return
 	}
 	rec, err := h.svc.Reject(id, req.ApprovedBy, req.Remarks, platform.GetBranchScope(c))
 	if err != nil {
-		c.JSON(expenseStatusForErr(err), gin.H{"error": err.Error()})
+		httpx.FailErr(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, rec)
+	httpx.Success(c, http.StatusOK, rec)
 }
 
 // OpeningBalanceHandler wires HTTP requests to the OpeningBalanceService.
@@ -325,15 +290,6 @@ func NewOpeningBalanceHandler(svc *OpeningBalanceService) *OpeningBalanceHandler
 	return &OpeningBalanceHandler{svc: svc}
 }
 
-func openingBalanceStatusForErr(err error) int {
-	switch {
-	case errors.Is(err, ErrInvalidBalance), errors.Is(err, ErrBranchRequired), errors.Is(err, ErrBranchInvalid):
-		return http.StatusBadRequest
-	default:
-		return http.StatusInternalServerError
-	}
-}
-
 type setOpeningBalanceRequest struct {
 	BranchID uint    `json:"branchId" binding:"required"`
 	Date     string  `json:"date"` // optional, "YYYY-MM-DD" — defaults to today
@@ -343,20 +299,20 @@ type setOpeningBalanceRequest struct {
 func (h *OpeningBalanceHandler) Set(c *gin.Context) {
 	var req setOpeningBalanceRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		httpx.Fail(c, http.StatusBadRequest, "Invalid input")
 		return
 	}
 	date, err := parseOptionalDate(req.Date)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid date: expected YYYY-MM-DD"})
+		httpx.Fail(c, http.StatusBadRequest, "invalid date: expected YYYY-MM-DD")
 		return
 	}
 	rec, err := h.svc.Set(req.BranchID, date, req.Amount)
 	if err != nil {
-		c.JSON(openingBalanceStatusForErr(err), gin.H{"error": err.Error()})
+		httpx.FailErr(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, rec)
+	httpx.Success(c, http.StatusOK, rec)
 }
 
 func parseQueryDate(c *gin.Context) (time.Time, error) {
@@ -366,25 +322,25 @@ func parseQueryDate(c *gin.Context) (time.Time, error) {
 func (h *OpeningBalanceHandler) Get(c *gin.Context) {
 	branchIDStr := c.Query("branchId")
 	if branchIDStr == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "branchId is required"})
+		httpx.Fail(c, http.StatusBadRequest, "branchId is required")
 		return
 	}
 	branchID, err := strconv.ParseUint(branchIDStr, 10, 64)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid branchId"})
+		httpx.Fail(c, http.StatusBadRequest, "invalid branchId")
 		return
 	}
 	date, err := parseQueryDate(c)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid date: expected YYYY-MM-DD"})
+		httpx.Fail(c, http.StatusBadRequest, "invalid date: expected YYYY-MM-DD")
 		return
 	}
 	rec, err := h.svc.Get(uint(branchID), date)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		httpx.FailErr(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, rec)
+	httpx.Success(c, http.StatusOK, rec)
 }
 
 // SummaryHandler wires HTTP requests to the SummaryService.
@@ -401,7 +357,7 @@ func (h *SummaryHandler) Get(c *gin.Context) {
 	if branchIDStr := c.Query("branchId"); branchIDStr != "" {
 		v, err := strconv.ParseUint(branchIDStr, 10, 64)
 		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid branchId"})
+			httpx.Fail(c, http.StatusBadRequest, "invalid branchId")
 			return
 		}
 		id := uint(v)
@@ -409,13 +365,13 @@ func (h *SummaryHandler) Get(c *gin.Context) {
 	}
 	date, err := parseQueryDate(c)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid date: expected YYYY-MM-DD"})
+		httpx.Fail(c, http.StatusBadRequest, "invalid date: expected YYYY-MM-DD")
 		return
 	}
 	summary, err := h.svc.GetExpectedCash(branchID, date)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		httpx.FailErr(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, summary)
+	httpx.Success(c, http.StatusOK, summary)
 }

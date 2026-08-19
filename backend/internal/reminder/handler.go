@@ -1,7 +1,6 @@
 package reminder
 
 import (
-	"errors"
 	"net/http"
 	"strconv"
 	"time"
@@ -9,6 +8,7 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"ambikagold/backend/internal/platform"
+	"ambikagold/backend/internal/platform/httpx"
 )
 
 // Handler wires HTTP requests to the Service.
@@ -37,35 +37,15 @@ func parseDate(s string) (time.Time, error) {
 	return time.Parse("2006-01-02", s)
 }
 
-func idParam(c *gin.Context) (uint, error) {
-	v, err := strconv.ParseUint(c.Param("id"), 10, 64)
-	if err != nil {
-		return 0, errors.New("invalid id")
-	}
-	return uint(v), nil
-}
-
-func statusForErr(err error) int {
-	switch {
-	case errors.Is(err, ErrNotFound):
-		return http.StatusNotFound
-	case errors.Is(err, ErrCustomerReq), errors.Is(err, ErrCustomerInvalid),
-		errors.Is(err, ErrTypeInvalid), errors.Is(err, ErrDueDateReq):
-		return http.StatusBadRequest
-	default:
-		return http.StatusInternalServerError
-	}
-}
-
 func (h *Handler) Create(c *gin.Context) {
 	var req reminderRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		httpx.Fail(c, http.StatusBadRequest, "Invalid input")
 		return
 	}
 	dueDate, err := parseDate(req.DueDate)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid dueDate: expected YYYY-MM-DD"})
+		httpx.Fail(c, http.StatusBadRequest, "invalid dueDate: expected YYYY-MM-DD")
 		return
 	}
 	rec, err := h.svc.Create(CreateInput{
@@ -77,10 +57,10 @@ func (h *Handler) Create(c *gin.Context) {
 		CreatedByEmployeeID: req.EmployeeID,
 	})
 	if err != nil {
-		c.JSON(statusForErr(err), gin.H{"error": err.Error()})
+		httpx.FailErr(c, err)
 		return
 	}
-	c.JSON(http.StatusCreated, rec)
+	httpx.Success(c, http.StatusCreated, rec)
 }
 
 func (h *Handler) List(c *gin.Context) {
@@ -105,40 +85,40 @@ func (h *Handler) List(c *gin.Context) {
 	f.BranchID = platform.GetBranchScope(c)
 	rec, err := h.svc.List(f)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		httpx.FailErr(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, rec)
+	httpx.Success(c, http.StatusOK, rec)
 }
 
 func (h *Handler) Get(c *gin.Context) {
-	id, err := idParam(c)
+	id, err := httpx.IDParam(c, "id")
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		httpx.FailErr(c, err)
 		return
 	}
 	rec, err := h.svc.Get(id, platform.GetBranchScope(c))
 	if err != nil {
-		c.JSON(statusForErr(err), gin.H{"error": err.Error()})
+		httpx.FailErr(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, rec)
+	httpx.Success(c, http.StatusOK, rec)
 }
 
 func (h *Handler) Update(c *gin.Context) {
-	id, err := idParam(c)
+	id, err := httpx.IDParam(c, "id")
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		httpx.FailErr(c, err)
 		return
 	}
 	var req reminderRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		httpx.Fail(c, http.StatusBadRequest, "Invalid input")
 		return
 	}
 	dueDate, err := parseDate(req.DueDate)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid dueDate: expected YYYY-MM-DD"})
+		httpx.Fail(c, http.StatusBadRequest, "invalid dueDate: expected YYYY-MM-DD")
 		return
 	}
 	rec, err := h.svc.Update(id, UpdateInput{
@@ -148,54 +128,54 @@ func (h *Handler) Update(c *gin.Context) {
 		Status:  req.Status,
 	})
 	if err != nil {
-		c.JSON(statusForErr(err), gin.H{"error": err.Error()})
+		httpx.FailErr(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, rec)
+	httpx.Success(c, http.StatusOK, rec)
 }
 
 func (h *Handler) Complete(c *gin.Context) {
-	id, err := idParam(c)
+	id, err := httpx.IDParam(c, "id")
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		httpx.FailErr(c, err)
 		return
 	}
 	rec, err := h.svc.Complete(id)
 	if err != nil {
-		c.JSON(statusForErr(err), gin.H{"error": err.Error()})
+		httpx.FailErr(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, rec)
+	httpx.Success(c, http.StatusOK, rec)
 }
 
 // SendWhatsApp backs PUT /reminders/:id/send-whatsapp — texts the reminder's
 // note to its customer over WhatsApp (via the OpenWA instance configured
 // under Settings > WhatsApp) and marks the reminder Done.
 func (h *Handler) SendWhatsApp(c *gin.Context) {
-	id, err := idParam(c)
+	id, err := httpx.IDParam(c, "id")
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		httpx.FailErr(c, err)
 		return
 	}
 	rec, err := h.svc.SendWhatsApp(id)
 	if err != nil {
-		c.JSON(statusForErr(err), gin.H{"error": err.Error()})
+		httpx.FailErr(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, rec)
+	httpx.Success(c, http.StatusOK, rec)
 }
 
 func (h *Handler) Delete(c *gin.Context) {
-	id, err := idParam(c)
+	id, err := httpx.IDParam(c, "id")
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		httpx.FailErr(c, err)
 		return
 	}
 	if err := h.svc.Delete(id); err != nil {
-		c.JSON(statusForErr(err), gin.H{"error": err.Error()})
+		httpx.FailErr(c, err)
 		return
 	}
-	c.Status(http.StatusNoContent)
+	httpx.SuccessMessage(c, http.StatusOK, "Reminder deleted successfully")
 }
 
 // Calendar backs GET /reminders/calendar?from=YYYY-MM-DD&to=YYYY-MM-DD —
@@ -210,7 +190,7 @@ func (h *Handler) Calendar(c *gin.Context) {
 		if t, err := parseDate(s); err == nil {
 			from = t
 		} else {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid from: expected YYYY-MM-DD"})
+			httpx.Fail(c, http.StatusBadRequest, "invalid from: expected YYYY-MM-DD")
 			return
 		}
 	}
@@ -218,15 +198,15 @@ func (h *Handler) Calendar(c *gin.Context) {
 		if t, err := parseDate(s); err == nil {
 			to = t
 		} else {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid to: expected YYYY-MM-DD"})
+			httpx.Fail(c, http.StatusBadRequest, "invalid to: expected YYYY-MM-DD")
 			return
 		}
 	}
 
 	events, err := h.svc.GetCalendarEvents(from, to, platform.GetBranchScope(c))
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		httpx.FailErr(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, events)
+	httpx.Success(c, http.StatusOK, events)
 }

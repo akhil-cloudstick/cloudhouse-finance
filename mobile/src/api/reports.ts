@@ -1,4 +1,4 @@
-import { apiRequest } from "./client";
+import { apiRequestEnveloped as apiRequest } from "./client";
 
 // Thin wrapper mirroring frontend/lib/reportsApi.ts's endpoints, backed by
 // backend/internal/reports (handler.go/routes.go/model.go). Every JSON list

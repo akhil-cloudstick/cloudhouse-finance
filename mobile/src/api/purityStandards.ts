@@ -1,4 +1,4 @@
-import { apiRequest } from "./client";
+import { apiRequestEnveloped as apiRequest } from "./client";
 import { PurityStandard } from "../types/purityStandard";
 
 export function listPurityStandards(q?: string) {

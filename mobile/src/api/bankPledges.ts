@@ -1,4 +1,4 @@
-import { apiRequest } from "./client";
+import { apiRequestEnveloped as apiRequest } from "./client";
 import { Loan, BankPledgeRecord } from "../types/loan";
 
 // Backs POST /loans/:id/bank-pledge (backend/internal/loan/handler.go's

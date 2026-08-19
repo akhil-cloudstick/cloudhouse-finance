@@ -1,30 +1,32 @@
 package cash
 
 import (
-	"errors"
 	"fmt"
 	"time"
 
 	"ambikagold/backend/internal/branch"
+	"ambikagold/backend/internal/platform/httpx"
 )
 
 var (
-	ErrMovementNotFound  = errors.New("cash movement not found")
-	ErrExpenseNotFound   = errors.New("expense not found")
-	ErrInvalidAmount     = errors.New("amount must be greater than zero")
-	ErrInvalidType       = errors.New("type must be \"in\" or \"out\"")
-	ErrSourceRequired    = errors.New("source is required for cash-in movements")
-	ErrBankRequired      = errors.New("bank is required when source is Loan")
-	ErrPurposeRequired   = errors.New("purpose is required for cash-out movements")
-	ErrInvalidStatus     = errors.New("status must be \"Open\" or \"Closed\"")
-	ErrCategoryRequired  = errors.New("category is required")
-	ErrModeRequired      = errors.New("mode is required")
-	ErrPayeeRequired     = errors.New("payee is required")
-	ErrBranchRequired    = errors.New("branch is required")
-	ErrBranchInvalid     = errors.New("branch does not exist")
-	ErrExpenseNotPending = errors.New("expense has already been approved or rejected")
-	ErrRemarksRequired   = errors.New("remarks are required when rejecting an expense")
-	ErrInvalidBalance    = errors.New("amount must be zero or greater")
+	ErrMovementNotFound = httpx.NewNotFound("cash movement not found")
+	ErrExpenseNotFound  = httpx.NewNotFound("expense not found")
+	ErrInvalidAmount    = httpx.NewBadRequest("amount must be greater than zero")
+	ErrInvalidType      = httpx.NewBadRequest("type must be \"in\" or \"out\"")
+	ErrSourceRequired   = httpx.NewBadRequest("source is required for cash-in movements")
+	ErrBankRequired     = httpx.NewBadRequest("bank is required when source is Loan")
+	ErrPurposeRequired  = httpx.NewBadRequest("purpose is required for cash-out movements")
+	ErrInvalidStatus    = httpx.NewBadRequest("status must be \"Open\" or \"Closed\"")
+	ErrCategoryRequired = httpx.NewBadRequest("category is required")
+	ErrModeRequired     = httpx.NewBadRequest("mode is required")
+	ErrPayeeRequired    = httpx.NewBadRequest("payee is required")
+	ErrBranchRequired   = httpx.NewBadRequest("branch is required")
+	ErrBranchInvalid    = httpx.NewBadRequest("branch does not exist")
+	// ErrExpenseNotPending is a state conflict (the expense was already
+	// decided), not a malformed request.
+	ErrExpenseNotPending = httpx.NewConflict("expense has already been approved or rejected")
+	ErrRemarksRequired   = httpx.NewBadRequest("remarks are required when rejecting an expense")
+	ErrInvalidBalance    = httpx.NewBadRequest("amount must be zero or greater")
 )
 
 // RecordMovementInput mirrors the fields supplied by AddCashModal.tsx /

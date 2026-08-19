@@ -1,4 +1,4 @@
-import { apiRequest } from "./client";
+import { apiRequestEnveloped as apiRequest } from "./client";
 import { Customer } from "../types/customer";
 
 export type SessionResponse = {
@@ -7,8 +7,9 @@ export type SessionResponse = {
 };
 
 // POST /customer/auth/request-otp — sends a 6-digit OTP over WhatsApp to a
-// registered customer's phone.
-export function requestOtp(phone: string): Promise<{ message: string }> {
+// registered customer's phone. Returns the confirmation as a plain string
+// (httpx.SuccessMessage) — no caller reads the value today, only awaits it.
+export function requestOtp(phone: string): Promise<string> {
   return apiRequest("/auth/request-otp", { method: "POST", body: { phone }, skipAuth: true });
 }
 

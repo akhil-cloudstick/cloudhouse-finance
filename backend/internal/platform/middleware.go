@@ -5,6 +5,8 @@ import (
 	"strings"
 
 	"github.com/gin-gonic/gin"
+
+	"ambikagold/backend/internal/platform/httpx"
 )
 
 // PermissionChecker is the minimal surface RequirePermission needs from
@@ -25,18 +27,18 @@ func AuthMiddleware(secret string) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		header := c.GetHeader("Authorization")
 		if header == "" {
-			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "missing Authorization header"})
+			httpx.FailAbort(c, http.StatusUnauthorized, "missing Authorization header")
 			return
 		}
 		parts := strings.SplitN(header, " ", 2)
 		if len(parts) != 2 || !strings.EqualFold(parts[0], "Bearer") || parts[1] == "" {
-			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "malformed Authorization header"})
+			httpx.FailAbort(c, http.StatusUnauthorized, "malformed Authorization header")
 			return
 		}
 
 		claims, err := ParseToken(parts[1], secret)
 		if err != nil {
-			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "invalid or expired token"})
+			httpx.FailAbort(c, http.StatusUnauthorized, "invalid or expired token")
 			return
 		}
 
@@ -59,18 +61,18 @@ func CustomerAuthMiddleware(secret string) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		header := c.GetHeader("Authorization")
 		if header == "" {
-			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "missing Authorization header"})
+			httpx.FailAbort(c, http.StatusUnauthorized, "missing Authorization header")
 			return
 		}
 		parts := strings.SplitN(header, " ", 2)
 		if len(parts) != 2 || !strings.EqualFold(parts[0], "Bearer") || parts[1] == "" {
-			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "malformed Authorization header"})
+			httpx.FailAbort(c, http.StatusUnauthorized, "malformed Authorization header")
 			return
 		}
 
 		claims, err := ParseCustomerToken(parts[1], secret)
 		if err != nil {
-			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "invalid or expired token"})
+			httpx.FailAbort(c, http.StatusUnauthorized, "invalid or expired token")
 			return
 		}
 
@@ -88,22 +90,22 @@ func RequirePermission(checker PermissionChecker, resource, action string) gin.H
 	return func(c *gin.Context) {
 		roleVal, ok := c.Get("role")
 		if !ok {
-			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "not authenticated"})
+			httpx.FailAbort(c, http.StatusUnauthorized, "not authenticated")
 			return
 		}
 		role, ok := roleVal.(string)
 		if !ok {
-			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "not authenticated"})
+			httpx.FailAbort(c, http.StatusUnauthorized, "not authenticated")
 			return
 		}
 
 		allowed, err := checker.IsAllowed(role, resource, action)
 		if err != nil {
-			c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "permission check failed"})
+			httpx.FailAbort(c, http.StatusBadRequest, "permission check failed")
 			return
 		}
 		if !allowed {
-			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "you do not have permission to perform this action"})
+			httpx.FailAbort(c, http.StatusForbidden, "you do not have permission to perform this action")
 			return
 		}
 		c.Next()
@@ -134,18 +136,16 @@ func RequireAnyRole(roles ...string) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		roleVal, ok := c.Get("role")
 		if !ok {
-			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "not authenticated"})
+			httpx.FailAbort(c, http.StatusUnauthorized, "not authenticated")
 			return
 		}
 		role, ok := roleVal.(string)
 		if !ok {
-			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "not authenticated"})
+			httpx.FailAbort(c, http.StatusUnauthorized, "not authenticated")
 			return
 		}
 		if !allowed[role] {
-			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{
-				"error": "your role does not have access to auction management",
-			})
+			httpx.FailAbort(c, http.StatusForbidden, "your role does not have access to auction management")
 			return
 		}
 		c.Next()

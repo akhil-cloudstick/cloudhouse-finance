@@ -6,10 +6,12 @@ import (
 	"strings"
 
 	"gorm.io/gorm"
+
+	"ambikagold/backend/internal/platform/httpx"
 )
 
-var ErrNameRequired = errors.New("name is required")
-var ErrPhoneInvalid = errors.New("phone number must be exactly 10 digits")
+var ErrNameRequired = httpx.NewBadRequest("name is required")
+var ErrPhoneInvalid = httpx.NewBadRequest("phone number must be exactly 10 digits")
 
 var phoneRe = regexp.MustCompile(`^\d{10}$`)
 

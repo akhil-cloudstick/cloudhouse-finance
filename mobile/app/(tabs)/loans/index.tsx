@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { FlatList, RefreshControl, Pressable } from "react-native";
+import { FlatList, RefreshControl, Pressable, View } from "react-native";
 import { useInfiniteQuery } from "@tanstack/react-query";
 import { useRouter } from "expo-router";
 import { ScreenContainer } from "../../../src/components/ScreenContainer";
@@ -26,13 +26,13 @@ export default function LoansScreen() {
   const router = useRouter();
   const [search, setSearch] = useState("");
   const debouncedSearch = useDebouncedValue(search);
+  const [manualRefreshing, setManualRefreshing] = useState(false);
 
   const {
     data,
     isLoading,
     isError,
     refetch,
-    isRefetching,
     fetchNextPage,
     hasNextPage,
     isFetchingNextPage,
@@ -46,24 +46,36 @@ export default function LoansScreen() {
     getNextPageParam: (lastPage, pages) => (lastPage.hasMore ? pages.length * PAGE_SIZE : undefined),
   });
 
+  // Silent — refetching on refocus (e.g. coming back from a loan detail
+  // screen) shouldn't pop the pull-to-refresh spinner back up over a list
+  // that's already showing loaded data. Only an explicit pull does that;
+  // see `onRefresh` below, which is what RefreshControl's `refreshing` is
+  // wired to instead of the query's own `isRefetching`.
   useRefetchOnFocus(refetch);
+
+  async function onRefresh() {
+    setManualRefreshing(true);
+    try {
+      await refetch();
+    } finally {
+      setManualRefreshing(false);
+    }
+  }
 
   const loans = data?.pages.flatMap((p) => p.items) ?? [];
 
   return (
-    <ScreenContainer style={{ paddingHorizontal: 0 }}>
+    <ScreenContainer>
       <GoldTextInput
         label="Search loans"
         placeholder="Loan number or customer…"
         value={search}
         onChangeText={setSearch}
-        containerStyle={{ marginHorizontal: 16 }}
       />
       <FlatList<Loan>
         data={loans}
         keyExtractor={(item) => String(item.id)}
-        contentContainerStyle={{ paddingHorizontal: 16 }}
-        refreshControl={<RefreshControl refreshing={isRefetching} onRefresh={refetch} />}
+        refreshControl={<RefreshControl refreshing={manualRefreshing} onRefresh={onRefresh} />}
         onEndReached={() => {
           if (hasNextPage && !isFetchingNextPage) fetchNextPage();
         }}
@@ -79,26 +91,26 @@ export default function LoansScreen() {
           return (
             <Pressable onPress={() => router.push(`/loans/${item.id}`)}>
               <Card>
-                {/* "body" (Jost) instead of "h3" (Bodoni serif, wider per
-                    glyph) — same fix as customers/index.tsx: h3 could clip
-                    longer loan numbers against the Card's width. */}
-                <ThemedText variant="body">{item.loanNumber}</ThemedText>
+                <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start" }}>
+                  {/* "body" (Jost) instead of "h3" (Bodoni serif, wider per
+                      glyph) — same fix as customers/index.tsx: h3 could clip
+                      longer loan numbers against the Card's width. */}
+                  <ThemedText variant="body">{item.loanNumber}</ThemedText>
+                  <ThemedText
+                    variant="label"
+                    style={{
+                      backgroundColor: tone.bg,
+                      color: tone.fg,
+                      paddingHorizontal: 8,
+                      paddingVertical: 3,
+                      borderRadius: 6,
+                    }}
+                  >
+                    {item.status}
+                  </ThemedText>
+                </View>
                 <ThemedText variant="small" color={colors.muted}>
                   {item.customer?.name ?? `Customer #${item.customerId}`}
-                </ThemedText>
-                <ThemedText
-                  variant="label"
-                  style={{
-                    marginTop: 8,
-                    alignSelf: "flex-start",
-                    backgroundColor: tone.bg,
-                    color: tone.fg,
-                    paddingHorizontal: 8,
-                    paddingVertical: 3,
-                    borderRadius: 6,
-                  }}
-                >
-                  {item.status}
                 </ThemedText>
               </Card>
             </Pressable>

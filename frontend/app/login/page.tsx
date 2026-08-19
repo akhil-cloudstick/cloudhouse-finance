@@ -3,8 +3,8 @@
 import { Suspense, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import "../login.css";
-import { useAuth } from "@/lib/auth-context";
-import { ApiError } from "@/lib/api";
+import { useAuth } from "@/common/auth-context";
+import { ApiError } from "@/common/services/httpClient";
 
 type DustParticle = {
   left: string;

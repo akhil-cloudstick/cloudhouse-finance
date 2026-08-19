@@ -54,10 +54,6 @@ const GROUPS: [string, [string, string, string][]][] = [
   [
     "Administration",
     [
-      // "purity-standards" is its own destination: the "Purity standards"
-      // button that used to launch it as a modal from gold-rates.tsx was
-      // removed, so this row is the only way in.
-      ["purity-standards", "Purity Standards", "shield"],
       ["settings", "Settings", "gear"],
       ["branches", "Branches", "bank"],
     ],

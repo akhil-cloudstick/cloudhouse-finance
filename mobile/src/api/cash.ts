@@ -1,4 +1,4 @@
-import { apiRequest } from "./client";
+import { apiRequestEnveloped as apiRequest } from "./client";
 import { CashMovement, Expense, CashSummary } from "../types/cash";
 
 // Cash movements — branch-scoped, no query params today.

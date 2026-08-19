@@ -8,12 +8,8 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"ambikagold/backend/internal/employee"
+	"ambikagold/backend/internal/platform/httpx"
 )
-
-// genericErr is returned instead of a raw internal error so we never leak
-// SQL/driver/SMTP details to the client. The real error is logged
-// server-side.
-const genericErr = "Something went wrong on our end. Please try again."
 
 // Handler wires HTTP requests to the Service.
 type Handler struct {
@@ -22,29 +18,6 @@ type Handler struct {
 
 func NewHandler(svc *Service) *Handler {
 	return &Handler{svc: svc}
-}
-
-func statusForErr(err error) int {
-	switch {
-	case errors.Is(err, ErrInvalidCredentials), errors.Is(err, ErrAccountNotSetUp):
-		return http.StatusUnauthorized
-	case errors.Is(err, ErrInvalidOrExpiredToken):
-		return http.StatusBadRequest
-	case errors.Is(err, employee.ErrNotFound):
-		return http.StatusNotFound
-	default:
-		return http.StatusInternalServerError
-	}
-}
-
-func respondErr(c *gin.Context, err error) {
-	status := statusForErr(err)
-	if status == http.StatusInternalServerError {
-		log.Printf("auth: internal error: %v", err)
-		c.JSON(status, gin.H{"error": genericErr})
-		return
-	}
-	c.JSON(status, gin.H{"error": err.Error()})
 }
 
 // LoginResponse is the JSON body returned by POST /auth/login.
@@ -56,15 +29,15 @@ type LoginResponse struct {
 func (h *Handler) Login(c *gin.Context) {
 	var in LoginInput
 	if err := c.ShouldBindJSON(&in); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		httpx.Fail(c, http.StatusBadRequest, "Invalid input")
 		return
 	}
 	token, emp, err := h.svc.Login(in.Identifier, in.Password)
 	if err != nil {
-		respondErr(c, err)
+		httpx.FailErr(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, LoginResponse{Token: token, Employee: emp})
+	httpx.Success(c, http.StatusOK, LoginResponse{Token: token, Employee: emp})
 }
 
 // ForgotPassword always responds 200 regardless of whether the phone
@@ -76,26 +49,26 @@ func (h *Handler) Login(c *gin.Context) {
 func (h *Handler) ForgotPassword(c *gin.Context) {
 	var in ForgotPasswordInput
 	if err := c.ShouldBindJSON(&in); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		httpx.Fail(c, http.StatusBadRequest, "Invalid input")
 		return
 	}
 	if err := h.svc.ForgotPassword(in.Phone); err != nil && !errors.Is(err, ErrInvalidCredentials) {
 		log.Printf("auth: forgot-password error for %q: %v", in.Phone, err)
 	}
-	c.JSON(http.StatusOK, gin.H{"message": "If that phone number is registered, a reset code has been sent by SMS."})
+	httpx.SuccessMessage(c, http.StatusOK, "If that phone number is registered, a reset code has been sent by SMS.")
 }
 
 func (h *Handler) ResetPassword(c *gin.Context) {
 	var in ResetPasswordInput
 	if err := c.ShouldBindJSON(&in); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		httpx.Fail(c, http.StatusBadRequest, "Invalid input")
 		return
 	}
 	if err := h.svc.ResetPassword(in.Phone, in.OTP, in.NewPassword); err != nil {
-		respondErr(c, err)
+		httpx.FailErr(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"message": "Password has been reset. You can now log in."})
+	httpx.SuccessMessage(c, http.StatusOK, "Password has been reset. You can now log in.")
 }
 
 // Me returns the calling employee's public fields + role, reading the
@@ -103,18 +76,18 @@ func (h *Handler) ResetPassword(c *gin.Context) {
 func (h *Handler) Me(c *gin.Context) {
 	employeeIDVal, ok := c.Get("employeeId")
 	if !ok {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "not authenticated"})
+		httpx.Fail(c, http.StatusUnauthorized, "not authenticated")
 		return
 	}
 	employeeID, ok := employeeIDVal.(uint)
 	if !ok {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "not authenticated"})
+		httpx.Fail(c, http.StatusUnauthorized, "not authenticated")
 		return
 	}
 	emp, err := h.svc.Me(employeeID)
 	if err != nil {
-		respondErr(c, employee.ErrNotFound)
+		httpx.FailErr(c, employee.ErrNotFound)
 		return
 	}
-	c.JSON(http.StatusOK, emp)
+	httpx.Success(c, http.StatusOK, emp)
 }

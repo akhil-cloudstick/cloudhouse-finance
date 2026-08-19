@@ -65,7 +65,7 @@ export function FloatingHeader({ title, navigation }: { title: string; navigatio
 
       <Modal visible={menuOpen} transparent animationType="fade" onRequestClose={() => setMenuOpen(false)}>
         <Pressable style={styles.backdrop} onPress={() => setMenuOpen(false)}>
-          <View style={[styles.menu, { marginTop: insets.top + 64 }]}>
+          <View style={[styles.menu, { marginTop: insets.top + 52 }]}>
             <ThemedText variant="label" color={colors.muted} style={styles.menuName} numberOfLines={1}>
               {employee?.name}
             </ThemedText>

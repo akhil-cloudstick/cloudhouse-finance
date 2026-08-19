@@ -10,6 +10,8 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/jung-kurt/gofpdf"
+
+	"ambikagold/backend/internal/platform/httpx"
 )
 
 // --- Customer mobile app (customer-mobile/) — batch 2: My Loans + Loan
@@ -42,7 +44,7 @@ func customerIDFromContext(c *gin.Context) (uint, bool) {
 func (h *Handler) CustomerListLoans(c *gin.Context) {
 	customerID, ok := customerIDFromContext(c)
 	if !ok {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "not authenticated"})
+		httpx.Fail(c, http.StatusUnauthorized, "not authenticated")
 		return
 	}
 
@@ -57,23 +59,23 @@ func (h *Handler) CustomerListLoans(c *gin.Context) {
 		f.Limit, f.Offset = limit+1, offset
 		rec, err := h.svc.List(f)
 		if err != nil {
-			fail(c, http.StatusInternalServerError, err)
+			httpx.FailErr(c, err)
 			return
 		}
 		hasMore := len(rec) > limit
 		if hasMore {
 			rec = rec[:limit]
 		}
-		c.JSON(http.StatusOK, gin.H{"items": rec, "hasMore": hasMore})
+		httpx.Success(c, http.StatusOK, gin.H{"items": rec, "hasMore": hasMore})
 		return
 	}
 
 	rec, err := h.svc.List(f)
 	if err != nil {
-		fail(c, http.StatusInternalServerError, err)
+		httpx.FailErr(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, rec)
+	httpx.Success(c, http.StatusOK, rec)
 }
 
 // customerOwnedLoan fetches a loan by id and verifies it belongs to
@@ -94,20 +96,20 @@ func (h *Handler) customerOwnedLoan(c *gin.Context, loanID, customerID uint) (*L
 func (h *Handler) CustomerGetLoan(c *gin.Context) {
 	customerID, ok := customerIDFromContext(c)
 	if !ok {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "not authenticated"})
+		httpx.Fail(c, http.StatusUnauthorized, "not authenticated")
 		return
 	}
-	loanID, err := idParam(c, "id")
+	loanID, err := httpx.IDParam(c, "id")
 	if err != nil {
-		fail(c, http.StatusBadRequest, err)
+		httpx.FailErr(c, err)
 		return
 	}
 	l, err := h.customerOwnedLoan(c, loanID, customerID)
 	if err != nil {
-		fail(c, statusForErr(err), err)
+		httpx.FailErr(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, l)
+	httpx.Success(c, http.StatusOK, l)
 }
 
 // CustomerCreateExtensionRequest backs POST
@@ -117,22 +119,22 @@ func (h *Handler) CustomerGetLoan(c *gin.Context) {
 func (h *Handler) CustomerCreateExtensionRequest(c *gin.Context) {
 	customerID, ok := customerIDFromContext(c)
 	if !ok {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "not authenticated"})
+		httpx.Fail(c, http.StatusUnauthorized, "not authenticated")
 		return
 	}
-	loanID, err := idParam(c, "id")
+	loanID, err := httpx.IDParam(c, "id")
 	if err != nil {
-		fail(c, http.StatusBadRequest, err)
+		httpx.FailErr(c, err)
 		return
 	}
 	if _, err := h.customerOwnedLoan(c, loanID, customerID); err != nil {
-		fail(c, statusForErr(err), err)
+		httpx.FailErr(c, err)
 		return
 	}
 
 	var req extensionRequestRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		fail(c, http.StatusBadRequest, err)
+		httpx.Fail(c, http.StatusBadRequest, "Invalid input")
 		return
 	}
 	rec, err := h.svc.CreateExtensionRequest(loanID, ExtensionRequestInput{
@@ -141,10 +143,10 @@ func (h *Handler) CustomerCreateExtensionRequest(c *gin.Context) {
 		RequestedBy: RequestedByCustomer,
 	})
 	if err != nil {
-		fail(c, statusForErr(err), err)
+		httpx.FailErr(c, err)
 		return
 	}
-	c.JSON(http.StatusCreated, rec)
+	httpx.Success(c, http.StatusCreated, rec)
 }
 
 // CustomerListLoanRequests backs GET /customer/loans/:id/requests — not
@@ -158,24 +160,24 @@ func (h *Handler) CustomerCreateExtensionRequest(c *gin.Context) {
 func (h *Handler) CustomerListLoanRequests(c *gin.Context) {
 	customerID, ok := customerIDFromContext(c)
 	if !ok {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "not authenticated"})
+		httpx.Fail(c, http.StatusUnauthorized, "not authenticated")
 		return
 	}
-	loanID, err := idParam(c, "id")
+	loanID, err := httpx.IDParam(c, "id")
 	if err != nil {
-		fail(c, http.StatusBadRequest, err)
+		httpx.FailErr(c, err)
 		return
 	}
 	if _, err := h.customerOwnedLoan(c, loanID, customerID); err != nil {
-		fail(c, statusForErr(err), err)
+		httpx.FailErr(c, err)
 		return
 	}
 	rec, err := h.svc.ListRequests(LoanRequestFilter{LoanID: loanID})
 	if err != nil {
-		fail(c, http.StatusInternalServerError, err)
+		httpx.FailErr(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, rec)
+	httpx.Success(c, http.StatusOK, rec)
 }
 
 // CustomerCreateReleaseRequest backs POST
@@ -184,22 +186,22 @@ func (h *Handler) CustomerListLoanRequests(c *gin.Context) {
 func (h *Handler) CustomerCreateReleaseRequest(c *gin.Context) {
 	customerID, ok := customerIDFromContext(c)
 	if !ok {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "not authenticated"})
+		httpx.Fail(c, http.StatusUnauthorized, "not authenticated")
 		return
 	}
-	loanID, err := idParam(c, "id")
+	loanID, err := httpx.IDParam(c, "id")
 	if err != nil {
-		fail(c, http.StatusBadRequest, err)
+		httpx.FailErr(c, err)
 		return
 	}
 	if _, err := h.customerOwnedLoan(c, loanID, customerID); err != nil {
-		fail(c, statusForErr(err), err)
+		httpx.FailErr(c, err)
 		return
 	}
 
 	var req releaseRequestRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		fail(c, http.StatusBadRequest, err)
+		httpx.Fail(c, http.StatusBadRequest, "Invalid input")
 		return
 	}
 	rec, err := h.svc.CreateReleaseRequest(loanID, ReleaseRequestInput{
@@ -207,10 +209,10 @@ func (h *Handler) CustomerCreateReleaseRequest(c *gin.Context) {
 		RequestedBy: RequestedByCustomer,
 	})
 	if err != nil {
-		fail(c, statusForErr(err), err)
+		httpx.FailErr(c, err)
 		return
 	}
-	c.JSON(http.StatusCreated, rec)
+	httpx.Success(c, http.StatusCreated, rec)
 }
 
 // --- Customer mobile app — batch 3: Razorpay Setup + Payments -------------
@@ -227,30 +229,30 @@ type razorpayCreateOrderRequest struct {
 func (h *Handler) CustomerCreateRazorpayOrder(c *gin.Context) {
 	customerID, ok := customerIDFromContext(c)
 	if !ok {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "not authenticated"})
+		httpx.Fail(c, http.StatusUnauthorized, "not authenticated")
 		return
 	}
-	loanID, err := idParam(c, "id")
+	loanID, err := httpx.IDParam(c, "id")
 	if err != nil {
-		fail(c, http.StatusBadRequest, err)
+		httpx.FailErr(c, err)
 		return
 	}
 	if _, err := h.customerOwnedLoan(c, loanID, customerID); err != nil {
-		fail(c, statusForErr(err), err)
+		httpx.FailErr(c, err)
 		return
 	}
 
 	var req razorpayCreateOrderRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		fail(c, http.StatusBadRequest, err)
+		httpx.Fail(c, http.StatusBadRequest, "Invalid input")
 		return
 	}
 	result, err := h.svc.CreateRazorpayOrder(loanID, req.Amount, req.Type)
 	if err != nil {
-		fail(c, statusForErr(err), err)
+		httpx.FailErr(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, result)
+	httpx.Success(c, http.StatusOK, result)
 }
 
 type razorpayVerifyRequest struct {
@@ -269,22 +271,22 @@ type razorpayVerifyRequest struct {
 func (h *Handler) CustomerVerifyRazorpayPayment(c *gin.Context) {
 	customerID, ok := customerIDFromContext(c)
 	if !ok {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "not authenticated"})
+		httpx.Fail(c, http.StatusUnauthorized, "not authenticated")
 		return
 	}
-	loanID, err := idParam(c, "id")
+	loanID, err := httpx.IDParam(c, "id")
 	if err != nil {
-		fail(c, http.StatusBadRequest, err)
+		httpx.FailErr(c, err)
 		return
 	}
 	if _, err := h.customerOwnedLoan(c, loanID, customerID); err != nil {
-		fail(c, statusForErr(err), err)
+		httpx.FailErr(c, err)
 		return
 	}
 
 	var req razorpayVerifyRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		fail(c, http.StatusBadRequest, err)
+		httpx.Fail(c, http.StatusBadRequest, "Invalid input")
 		return
 	}
 	l, err := h.svc.VerifyAndRecordRazorpayPayment(loanID, RazorpayVerifyInput{
@@ -295,10 +297,10 @@ func (h *Handler) CustomerVerifyRazorpayPayment(c *gin.Context) {
 		Type:      req.Type,
 	})
 	if err != nil {
-		fail(c, statusForErr(err), err)
+		httpx.FailErr(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, l)
+	httpx.Success(c, http.StatusOK, l)
 }
 
 // CustomerListLoanPayments backs GET /customer/loans/:id/payments —
@@ -307,24 +309,24 @@ func (h *Handler) CustomerVerifyRazorpayPayment(c *gin.Context) {
 func (h *Handler) CustomerListLoanPayments(c *gin.Context) {
 	customerID, ok := customerIDFromContext(c)
 	if !ok {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "not authenticated"})
+		httpx.Fail(c, http.StatusUnauthorized, "not authenticated")
 		return
 	}
-	loanID, err := idParam(c, "id")
+	loanID, err := httpx.IDParam(c, "id")
 	if err != nil {
-		fail(c, http.StatusBadRequest, err)
+		httpx.FailErr(c, err)
 		return
 	}
 	if _, err := h.customerOwnedLoan(c, loanID, customerID); err != nil {
-		fail(c, statusForErr(err), err)
+		httpx.FailErr(c, err)
 		return
 	}
 	rec, err := h.svc.paymentRepo.FindByLoanID(loanID)
 	if err != nil {
-		fail(c, http.StatusInternalServerError, err)
+		httpx.FailErr(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, rec)
+	httpx.Success(c, http.StatusOK, rec)
 }
 
 // CustomerListPayments backs GET /customer/payments — every payment across
@@ -334,7 +336,7 @@ func (h *Handler) CustomerListLoanPayments(c *gin.Context) {
 func (h *Handler) CustomerListPayments(c *gin.Context) {
 	customerID, ok := customerIDFromContext(c)
 	if !ok {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "not authenticated"})
+		httpx.Fail(c, http.StatusUnauthorized, "not authenticated")
 		return
 	}
 	limit, _ := strconv.Atoi(c.Query("limit"))
@@ -345,22 +347,22 @@ func (h *Handler) CustomerListPayments(c *gin.Context) {
 	if limit > 0 {
 		rec, err := h.svc.paymentRepo.FindByCustomerID(customerID, limit+1, offset)
 		if err != nil {
-			fail(c, http.StatusInternalServerError, err)
+			httpx.FailErr(c, err)
 			return
 		}
 		hasMore := len(rec) > limit
 		if hasMore {
 			rec = rec[:limit]
 		}
-		c.JSON(http.StatusOK, gin.H{"items": rec, "hasMore": hasMore})
+		httpx.Success(c, http.StatusOK, gin.H{"items": rec, "hasMore": hasMore})
 		return
 	}
 	rec, err := h.svc.paymentRepo.FindByCustomerID(customerID, 0, 0)
 	if err != nil {
-		fail(c, http.StatusInternalServerError, err)
+		httpx.FailErr(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, rec)
+	httpx.Success(c, http.StatusOK, rec)
 }
 
 // CustomerPaymentReceipt backs GET /customer/payments/:paymentId/receipt —
@@ -372,28 +374,28 @@ func (h *Handler) CustomerListPayments(c *gin.Context) {
 func (h *Handler) CustomerPaymentReceipt(c *gin.Context) {
 	customerID, ok := customerIDFromContext(c)
 	if !ok {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "not authenticated"})
+		httpx.Fail(c, http.StatusUnauthorized, "not authenticated")
 		return
 	}
-	paymentID, err := idParam(c, "paymentId")
+	paymentID, err := httpx.IDParam(c, "paymentId")
 	if err != nil {
-		fail(c, http.StatusBadRequest, err)
+		httpx.FailErr(c, err)
 		return
 	}
 	payment, err := h.svc.paymentRepo.FindByID(paymentID)
 	if err != nil {
-		fail(c, http.StatusNotFound, ErrNotFound)
+		httpx.FailErr(c, ErrNotFound)
 		return
 	}
 	l, err := h.customerOwnedLoan(c, payment.LoanID, customerID)
 	if err != nil {
-		fail(c, statusForErr(err), err)
+		httpx.FailErr(c, err)
 		return
 	}
 
 	buf, err := renderPaymentReceiptPDF(l, payment)
 	if err != nil {
-		fail(c, http.StatusInternalServerError, err)
+		httpx.FailErr(c, err)
 		return
 	}
 	c.Header("Content-Disposition", fmt.Sprintf("inline; filename=\"receipt-%d.pdf\"", payment.ID))
@@ -726,28 +728,28 @@ func renderPaymentReceiptPDF(l *Loan, p *LoanPayment) ([]byte, error) {
 func (h *Handler) CustomerLoanStatement(c *gin.Context) {
 	customerID, ok := customerIDFromContext(c)
 	if !ok {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "not authenticated"})
+		httpx.Fail(c, http.StatusUnauthorized, "not authenticated")
 		return
 	}
-	loanID, err := idParam(c, "id")
+	loanID, err := httpx.IDParam(c, "id")
 	if err != nil {
-		fail(c, http.StatusBadRequest, err)
+		httpx.FailErr(c, err)
 		return
 	}
 	l, err := h.customerOwnedLoan(c, loanID, customerID)
 	if err != nil {
-		fail(c, statusForErr(err), err)
+		httpx.FailErr(c, err)
 		return
 	}
 	payments, err := h.svc.paymentRepo.FindByLoanID(l.ID)
 	if err != nil {
-		fail(c, http.StatusInternalServerError, err)
+		httpx.FailErr(c, err)
 		return
 	}
 
 	buf, err := renderLoanStatementPDF(l, payments)
 	if err != nil {
-		fail(c, http.StatusInternalServerError, err)
+		httpx.FailErr(c, err)
 		return
 	}
 	c.Header("Content-Disposition", fmt.Sprintf("inline; filename=\"statement-%s.pdf\"", l.LoanNumber))

@@ -1,4 +1,4 @@
-import { apiRequest } from "./client";
+import { apiRequestEnveloped as apiRequest } from "./client";
 import { Employee } from "../types/employee";
 
 export type LoginResponse = { token: string; employee: Employee };
@@ -11,8 +11,10 @@ export function login(identifier: string, password: string) {
   });
 }
 
+// Returns a plain confirmation string now (httpx.SuccessMessage), not
+// {message: string} — no caller reads the value today, only awaits it.
 export function forgotPassword(phone: string) {
-  return apiRequest<{ message: string }>("/auth/forgot-password", {
+  return apiRequest<string>("/auth/forgot-password", {
     method: "POST",
     body: { phone },
     skipAuth: true,
@@ -20,7 +22,7 @@ export function forgotPassword(phone: string) {
 }
 
 export function resetPassword(phone: string, otp: string, newPassword: string) {
-  return apiRequest<{ message: string }>("/auth/reset-password", {
+  return apiRequest<string>("/auth/reset-password", {
     method: "POST",
     body: { phone, otp, newPassword },
     skipAuth: true,

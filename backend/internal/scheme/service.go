@@ -1,21 +1,21 @@
 package scheme
 
 import (
-	"errors"
 	"fmt"
 
 	"ambikagold/backend/internal/branch"
+	"ambikagold/backend/internal/platform/httpx"
 )
 
 var (
-	ErrNotFound        = errors.New("scheme not found")
-	ErrInvalidDuration = errors.New("duration must be greater than zero months")
-	ErrInvalidLTV      = errors.New("ltv percent must be between 0 and 100")
-	ErrInvalidRate     = errors.New("interest rate must be non-negative")
-	ErrInvalidWeight   = errors.New("gold weight must be greater than zero")
-	ErrInvalidGoldRt   = errors.New("gold rate must be greater than zero")
-	ErrBranchReq       = errors.New("branch is required")
-	ErrBranchInvalid   = errors.New("branch does not exist")
+	ErrNotFound        = httpx.NewNotFound("scheme not found")
+	ErrInvalidDuration = httpx.NewBadRequest("duration must be greater than zero months")
+	ErrInvalidLTV      = httpx.NewBadRequest("ltv percent must be between 0 and 100")
+	ErrInvalidRate     = httpx.NewBadRequest("interest rate must be non-negative")
+	ErrInvalidWeight   = httpx.NewBadRequest("gold weight must be greater than zero")
+	ErrInvalidGoldRt   = httpx.NewBadRequest("gold rate must be greater than zero")
+	ErrBranchReq       = httpx.NewBadRequest("branch is required")
+	ErrBranchInvalid   = httpx.NewBadRequest("branch does not exist")
 )
 
 // CreateInput / UpdateInput mirror the fields an admin supplies when
@@ -118,8 +118,8 @@ func (s *Service) List(query string, branchID *uint) ([]Scheme, error) {
 	return s.repo.FindAll(query, branchID)
 }
 
-func (s *Service) ListActive(query string, limit, offset int) ([]Scheme, error) {
-	return s.repo.FindActive(query, limit, offset)
+func (s *Service) ListActive(query string, branchID *uint, limit, offset int) ([]Scheme, error) {
+	return s.repo.FindActive(query, branchID, limit, offset)
 }
 
 func (s *Service) ListInactive() ([]Scheme, error) {

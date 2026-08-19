@@ -13,6 +13,8 @@ import (
 	"strings"
 
 	"github.com/gin-gonic/gin"
+
+	"ambikagold/backend/internal/platform/httpx"
 )
 
 var mimeTypes = map[string]string{
@@ -100,11 +102,11 @@ func Register(router *gin.Engine, root string) {
 
 	router.NoRoute(func(c *gin.Context) {
 		if c.Request.Method != http.MethodGet && c.Request.Method != http.MethodHead {
-			c.JSON(http.StatusNotFound, gin.H{"error": "not found"})
+			httpx.Fail(c, http.StatusNotFound, "not found")
 			return
 		}
 		if strings.HasPrefix(c.Request.URL.Path, "/api/") {
-			c.JSON(http.StatusNotFound, gin.H{"error": "not found"})
+			httpx.Fail(c, http.StatusNotFound, "not found")
 			return
 		}
 

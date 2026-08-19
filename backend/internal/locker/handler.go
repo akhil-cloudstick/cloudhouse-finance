@@ -1,13 +1,12 @@
 package locker
 
 import (
-	"errors"
 	"net/http"
-	"strconv"
 
 	"github.com/gin-gonic/gin"
 
 	"ambikagold/backend/internal/platform"
+	"ambikagold/backend/internal/platform/httpx"
 )
 
 // Handler wires HTTP requests to the Service.
@@ -32,74 +31,53 @@ type updateRequest struct {
 	IsActive bool   `json:"isActive"`
 }
 
-func idParam(c *gin.Context) (uint, error) {
-	v, err := strconv.ParseUint(c.Param("id"), 10, 64)
-	if err != nil {
-		return 0, errors.New("invalid id")
-	}
-	return uint(v), nil
-}
-
-func statusForErr(err error) int {
-	switch {
-	case errors.Is(err, ErrNotFound):
-		return http.StatusNotFound
-	case errors.Is(err, ErrCodeRequired), errors.Is(err, ErrDuplicateCode),
-		errors.Is(err, ErrBranchInvalid), errors.Is(err, ErrInvalidCapacity),
-		errors.Is(err, ErrInUse):
-		return http.StatusBadRequest
-	default:
-		return http.StatusInternalServerError
-	}
-}
-
 func (h *Handler) Create(c *gin.Context) {
 	var req createRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		httpx.Fail(c, http.StatusBadRequest, "Invalid input")
 		return
 	}
 	branchID := platform.EnforceBranchOnWrite(c, req.BranchID)
 	rec, err := h.svc.Create(CreateInput{Code: req.Code, BranchID: branchID, Capacity: req.Capacity})
 	if err != nil {
-		c.JSON(statusForErr(err), gin.H{"error": err.Error()})
+		httpx.FailErr(c, err)
 		return
 	}
-	c.JSON(http.StatusCreated, rec)
+	httpx.Success(c, http.StatusCreated, rec)
 }
 
 func (h *Handler) List(c *gin.Context) {
 	rec, err := h.svc.List(platform.GetBranchScope(c))
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		httpx.FailErr(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, rec)
+	httpx.Success(c, http.StatusOK, rec)
 }
 
 func (h *Handler) Get(c *gin.Context) {
-	id, err := idParam(c)
+	id, err := httpx.IDParam(c, "id")
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		httpx.FailErr(c, err)
 		return
 	}
 	rec, err := h.svc.Get(id, platform.GetBranchScope(c))
 	if err != nil {
-		c.JSON(statusForErr(err), gin.H{"error": err.Error()})
+		httpx.FailErr(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, rec)
+	httpx.Success(c, http.StatusOK, rec)
 }
 
 func (h *Handler) Update(c *gin.Context) {
-	id, err := idParam(c)
+	id, err := httpx.IDParam(c, "id")
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		httpx.FailErr(c, err)
 		return
 	}
 	var req updateRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		httpx.Fail(c, http.StatusBadRequest, "Invalid input")
 		return
 	}
 	branchID := platform.EnforceBranchOnWrite(c, req.BranchID)
@@ -107,21 +85,21 @@ func (h *Handler) Update(c *gin.Context) {
 		Code: req.Code, BranchID: branchID, Capacity: req.Capacity, IsActive: req.IsActive,
 	}, platform.GetBranchScope(c))
 	if err != nil {
-		c.JSON(statusForErr(err), gin.H{"error": err.Error()})
+		httpx.FailErr(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, rec)
+	httpx.Success(c, http.StatusOK, rec)
 }
 
 func (h *Handler) Delete(c *gin.Context) {
-	id, err := idParam(c)
+	id, err := httpx.IDParam(c, "id")
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		httpx.FailErr(c, err)
 		return
 	}
 	if err := h.svc.Delete(id, platform.GetBranchScope(c)); err != nil {
-		c.JSON(statusForErr(err), gin.H{"error": err.Error()})
+		httpx.FailErr(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"ok": true})
+	httpx.SuccessMessage(c, http.StatusOK, "Locker deleted successfully")
 }

@@ -1,22 +1,22 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useSchemes } from "@/lib/SchemesProvider";
-import { useCustomers } from "@/lib/CustomersProvider";
-import { useLoans } from "@/lib/LoansProvider";
-import { useGoldRates } from "@/lib/GoldRatesProvider";
-import { useModal } from "@/components/Modal";
-import { useAuth } from "@/lib/auth-context";
-import { fmt } from "@/lib/format";
-import { Icon } from "@/lib/icons";
-import { RateModalContent } from "@/components/modals/RateModal";
-import { RegisterCustomerModalContent } from "@/components/modals/RegisterCustomerModal";
-import { PurityPicker } from "@/components/PurityPicker";
-import { Select } from "@/components/Select";
-import { rateForPurityString } from "@/lib/purity";
-import { listCashMovements, listExpenses, type CashMovementView, type ExpenseView } from "@/lib/cashApi";
-import { getCalendarEvents, type CalendarEvent } from "@/lib/remindersApi";
-import { listLoanRequests, getInterestCollected, type RequestView } from "@/lib/loansApi";
+import { useSchemes } from "@/modules/schemes/store/SchemesProvider";
+import { useCustomers } from "@/modules/customers/store/CustomersProvider";
+import { useLoans } from "@/modules/loans/store/LoansProvider";
+import { useGoldRates } from "@/modules/gold-rates/store/GoldRatesProvider";
+import { useModal } from "@/common/components/Modal";
+import { useAuth } from "@/common/auth-context";
+import { fmt } from "@/common/utils/format";
+import { Icon } from "@/common/components/Icon";
+import { RateModalContent } from "@/common/components/modals/RateModal";
+import { RegisterCustomerModalContent } from "@/common/components/modals/RegisterCustomerModal";
+import { PurityPicker } from "@/common/components/ui/PurityPicker";
+import { Select } from "@/common/components/ui/Select";
+import { rateForPurityString } from "@/common/utils/purity";
+import { listCashMovements, listExpenses, type CashMovementView, type ExpenseView } from "@/modules/cash/services/cashService";
+import { getCalendarEvents, type CalendarEvent } from "@/modules/reminders/services/reminderService";
+import { listLoanRequests, getInterestCollected, type RequestView } from "@/modules/loans/services/loanService";
 
 function Kpi({ l, v, s, cls }: { l: string; v: string | number; s?: string; cls?: string }) {
   return (

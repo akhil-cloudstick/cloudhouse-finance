@@ -4,6 +4,8 @@ import (
 	"net/http"
 
 	"github.com/gin-gonic/gin"
+
+	"ambikagold/backend/internal/platform/httpx"
 )
 
 // --- Customer mobile app (customer-mobile/) — batch 4: Profile & KYC. These
@@ -36,15 +38,15 @@ func customerIDFromContext(c *gin.Context) (uint, bool) {
 func (h *Handler) CustomerGetProfile(c *gin.Context) {
 	customerID, ok := customerIDFromContext(c)
 	if !ok {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "not authenticated"})
+		httpx.Fail(c, http.StatusUnauthorized, "not authenticated")
 		return
 	}
 	rec, err := h.svc.Get(customerID, nil)
 	if err != nil {
-		c.JSON(statusForErr(err), gin.H{"error": err.Error()})
+		httpx.FailErr(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, rec.ToResponse())
+	httpx.Success(c, http.StatusOK, rec.ToResponse())
 }
 
 // CustomerVerifyPAN backs POST /customer/profile/verify-pan — identical
@@ -53,15 +55,15 @@ func (h *Handler) CustomerGetProfile(c *gin.Context) {
 func (h *Handler) CustomerVerifyPAN(c *gin.Context) {
 	customerID, ok := customerIDFromContext(c)
 	if !ok {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "not authenticated"})
+		httpx.Fail(c, http.StatusUnauthorized, "not authenticated")
 		return
 	}
 	rec, result, err := h.svc.VerifyPAN(customerID, nil)
 	if err != nil {
-		c.JSON(statusForErr(err), gin.H{"error": err.Error()})
+		httpx.FailErr(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{
+	httpx.Success(c, http.StatusOK, gin.H{
 		"customer":    rec.ToResponse(),
 		"message":     result.Message,
 		"matchedName": result.FullName,
@@ -77,20 +79,20 @@ func (h *Handler) CustomerVerifyPAN(c *gin.Context) {
 func (h *Handler) CustomerStartAadhaarVerify(c *gin.Context) {
 	customerID, ok := customerIDFromContext(c)
 	if !ok {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "not authenticated"})
+		httpx.Fail(c, http.StatusUnauthorized, "not authenticated")
 		return
 	}
 	var req startAadhaarVerifyRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		httpx.Fail(c, http.StatusBadRequest, "Invalid input")
 		return
 	}
 	digReq, err := h.svc.StartAadhaarVerify(customerID, nil, req.RedirectURL)
 	if err != nil {
-		c.JSON(statusForErr(err), gin.H{"error": err.Error()})
+		httpx.FailErr(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{
+	httpx.Success(c, http.StatusOK, gin.H{
 		"id":        digReq.ID,
 		"url":       digReq.URL,
 		"status":    digReq.Status,
@@ -103,19 +105,19 @@ func (h *Handler) CustomerStartAadhaarVerify(c *gin.Context) {
 func (h *Handler) CustomerCheckAadhaarVerify(c *gin.Context) {
 	customerID, ok := customerIDFromContext(c)
 	if !ok {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "not authenticated"})
+		httpx.Fail(c, http.StatusUnauthorized, "not authenticated")
 		return
 	}
 	rec, status, aadhaar, err := h.svc.CheckAadhaarVerify(customerID, nil)
 	if err != nil {
-		c.JSON(statusForErr(err), gin.H{"error": err.Error()})
+		httpx.FailErr(c, err)
 		return
 	}
 	if aadhaar == nil {
-		c.JSON(http.StatusOK, gin.H{"status": status.Status})
+		httpx.Success(c, http.StatusOK, gin.H{"status": status.Status})
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{
+	httpx.Success(c, http.StatusOK, gin.H{
 		"customer":    rec.ToResponse(),
 		"status":      status.Status,
 		"matchedName": aadhaar.Aadhaar.Name,

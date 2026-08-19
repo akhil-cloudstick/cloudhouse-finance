@@ -1,4 +1,4 @@
-import { apiRequest } from "./client";
+import { apiRequestEnveloped as apiRequest } from "./client";
 import { Loan } from "../types/loan";
 
 // Backs POST /loans/:id/payments (backend/internal/loan/handler.go's

@@ -1,10 +1,11 @@
 package bank
 
 import (
-	"errors"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
+
+	"ambikagold/backend/internal/platform/httpx"
 )
 
 // Handler wires HTTP requests to the Service.
@@ -16,22 +17,13 @@ func NewHandler(svc *Service) *Handler {
 	return &Handler{svc: svc}
 }
 
-func statusForErr(err error) int {
-	switch {
-	case errors.Is(err, ErrNameRequired), errors.Is(err, ErrPhoneInvalid):
-		return http.StatusBadRequest
-	default:
-		return http.StatusInternalServerError
-	}
-}
-
 func (h *Handler) List(c *gin.Context) {
 	rec, err := h.svc.List(c.Query("q"))
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		httpx.FailErr(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, rec)
+	httpx.Success(c, http.StatusOK, rec)
 }
 
 type bankRequest struct {
@@ -45,17 +37,17 @@ type bankRequest struct {
 func (h *Handler) Create(c *gin.Context) {
 	var req bankRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		httpx.Fail(c, http.StatusBadRequest, "Invalid input")
 		return
 	}
 	rec, created, err := h.svc.FindOrCreate(CreateInput{Name: req.Name, Branch: req.Branch, Ifsc: req.Ifsc, AccountNo: req.AccountNo, Phone: req.Phone})
 	if err != nil {
-		c.JSON(statusForErr(err), gin.H{"error": err.Error()})
+		httpx.FailErr(c, err)
 		return
 	}
 	if created {
-		c.JSON(http.StatusCreated, rec)
+		httpx.Success(c, http.StatusCreated, rec)
 		return
 	}
-	c.JSON(http.StatusOK, rec)
+	httpx.Success(c, http.StatusOK, rec)
 }

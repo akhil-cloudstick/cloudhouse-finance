@@ -1,4 +1,4 @@
-import { apiRequest } from "./client";
+import { apiRequestEnveloped as apiRequest } from "./client";
 
 // Mirrors the subset of backend/internal/loan/model.go's Ornament JSON
 // shape the Loan Detail screen needs.

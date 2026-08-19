@@ -1,13 +1,13 @@
 package branch
 
-import "errors"
+import "ambikagold/backend/internal/platform/httpx"
 
 var (
-	ErrNotFound      = errors.New("branch not found")
-	ErrNameRequired  = errors.New("name is required")
-	ErrAddressReq    = errors.New("address is required")
-	ErrDuplicateName = errors.New("a branch with this name already exists")
-	ErrInUse         = errors.New("branch cannot be deactivated while it still has linked employees, expenses, cash movements, or customers")
+	ErrNotFound      = httpx.NewNotFound("branch not found")
+	ErrNameRequired  = httpx.NewBadRequest("name is required")
+	ErrAddressReq    = httpx.NewBadRequest("address is required")
+	ErrDuplicateName = httpx.NewConflict("a branch with this name already exists")
+	ErrInUse         = httpx.NewConflict("branch cannot be deactivated while it still has linked employees, expenses, cash movements, or customers")
 )
 
 // CreateInput / UpdateInput mirror the fields an admin supplies via the

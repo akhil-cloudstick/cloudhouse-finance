@@ -1,151 +1,192 @@
-# Ambika Gold Finance — Customer Mobile App Handoff
+# Handoff — Cloudhouse reorganization of gold-app
 
-Paste this file's contents into a new Claude session to resume work with full context.
+Written 2026-08-19, at the end of a long session applying `/cloudhouse:go-backend`
+and `/cloudhouse:frontend` across the whole stack. Full plan lives at
+`C:\Users\PC7\.claude\plans\read-these-skill-to-peppy-hejlsberg.md` (approved,
+kept up to date with a status block per part) — this file is the shorter,
+narrative version for picking the work back up.
 
-## Goal
+## What was done
 
-Build an Android-only customer-facing mobile app (separate from the existing staff `mobile/` app) so borrowers can self-serve: check loan/gold/outstanding details, pay interest/settle online, request extensions/gold release, view live gold rates, and (eventually) get reminders/notifications/documents/KYC self-service — without going through branch staff for everything.
+### Part A — Go backend (`backend/`) — response envelope migration. COMPLETE.
 
-Full feature brief was decomposed into **batches**, each planned and implemented in its own pass (plan → approve → build → verify) rather than one giant build. The plan file with full wireframes for every batch lives at:
-`.claude/plans/customer-mobile-application-features-cryptic-meadow.md` (may not survive between sessions — this handoff is the durable record).
+Every one of ~25 domain packages, plus the auth/permission middleware and the
+static-file 404 fallback, now responds through `internal/platform/httpx`:
+- Success: `{"success": true, "data": <resource-or-list>}`
+- Delete/action confirmation: `{"success": true, "message": "<text>"}`
+- Error: `{"success": false, "error": "<clean message>"}`, status classified to
+  400/401/403/404/409 — **never 500** (an unclassified error is logged
+  server-side via `log.Printf` and answered with a generic 400 instead).
 
-## Repo layout addition
+Modules touched, in order: `branch` (pilot), `bank`, `locker`, `employee`,
+`ornamenttype`, `puritystandard`, `settings`, `goldrate`, `reminder`, `packet`,
+`scheme`, `cash`, `reports`, `auth`, `notification`, `upload`, `customer` (+ its
+`/customer/profile/*` routes), `customerauth`, `loan` (+ its
+`/customer/loans`/`/customer/payments`/`/customer/loans/:id/statement` routes),
+then the cross-cutting `internal/platform/middleware.go` and
+`internal/webstatic/handler.go`.
 
-```
-gold-app/
-  customer-mobile/        ← NEW Expo (React Native, expo-router) app, Android-only
-    app/
-      _layout.tsx          ← fonts, cold-start bootstrap (device-token+biometric -> session -> OTP)
-      (auth)/login.tsx      ← phone -> OTP two-step login, device registration
-      (tabs)/
-        _layout.tsx         ← Tabs (expo-router/js-tabs) + custom AppTabBar, 5 tabs
-        index.tsx           ← Dashboard: gold rate widget+modal, notif bell, logout button
-        loans.tsx           ← My Loans list: filter chips (server-side), FlatList paginated
-        payments.tsx        ← Payments tab: pay-a-loan picker, payment history + receipts
-        documents.tsx        ← ComingSoon stub (not yet built)
-        more.tsx             ← ComingSoon stub (not yet built)
-      loan/
-        _layout.tsx          ← bare Stack (top-level, NOT nested under tabs)
-        [id].tsx             ← Loan Detail: gold/outstanding/requests/pay, all sections
-    src/
-      theme/{colors,typography}.ts, ThemeProvider.tsx   ← ported from mobile/, identical values
-      components/            ← Card, ThemedText, GoldButton, GoldTextInput, ScreenContainer,
-                                BottomSheetModal+sheetHost, Icon, FloatingHeader, AppTabBar,
-                                ComingSoon, ChipSelect, PaySheet (shared pay UI)
-      api/                    ← client.ts (apiRequest/ApiError), config.ts, auth.ts, goldRate.ts,
-                                loans.ts, payments.ts — one file per backend resource, typed
-      auth/                   ← tokenStorage.ts, deviceToken.ts (both SecureStore), AuthContext.tsx
-      types/                  ← customer.ts
-```
+Also, before touching `loan`'s handlers: `internal/loan/model.go` (957 lines,
+every entity in one file) was split into `model_loan.go`, `model_ornament.go`,
+`model_approval.go`, `model_payment.go`, `model_bank_pledge.go`,
+`model_request.go`, `model_draft.go`, `model_auction.go` — pure move, verified
+with the package's own test suite (`go test ./internal/loan/...`) before any
+logic changed.
 
-Linked to an existing EAS project: slug `ambikacustomer`, owner `cloudhouse-team`, id `1fb4bd03-4939-4a9e-9142-c26294cdedbb`.
+**A.0 — also reverted a prior decision, per your explicit instruction:** the
+server now calls `internal/migrate.Run(db)` on every boot again (AutoMigrate +
+every backfill + permission seeding), instead of the old
+`requireMigratedSchema` check-only gate. Verified against your real local dev
+DB — clean run, 0 rows unexpectedly touched. The `migrations-only-via-cmd-migrate`
+memory file was updated to record the reversal and why (a restart once
+silently changed a `numeric(16,2)` money column — that's the risk you're now
+knowingly accepting back).
 
-## Backend additions (`backend/`)
+**Disclosed status-code changes** (never silent): a handful of sentinel errors
+moved from a blanket 400 to a more accurate code — 409 for state conflicts
+(e.g. `packet.ErrInvalidPacketTransition`, `cash.ErrExpenseNotPending`,
+`loan.ErrPledgeNotActive`), 403 for an authority check
+(`loan.ErrShortfallAuthorityRequired`), 401 for auth failures
+(`auth.ErrInvalidCredentials`). Every one is called out in
+`documents/api_documentation.md`'s per-module section.
 
-All new customer-facing surface lives under `/api/v1/customer/*`, protected by a **new**, fully separate `CustomerAuthMiddleware` (parallel to the staff `AuthMiddleware`) validating a distinct `type: "customer"` JWT — customer tokens can never call staff routes and vice versa.
+**Verification:** `go build ./...`, `go vet ./...`, and the full
+`go test ./...` all pass. Not yet done: an actual manual/curl smoke test of
+live endpoints under real traffic — the automated checks are solid but nobody
+has clicked through the running app since this landed.
 
-- **`internal/customerauth/`** (new package) — OTP request/verify (delivered via WhatsApp/OpenWA only, reusing `internal/platform/whatsapp.go` — no SMS), device registration + biometric device-login, session refresh. New tables: `customer_otp`, `customer_device_tokens`.
-- **`internal/platform/jwt.go`** — added `CustomerClaims`, `IssueCustomerToken`, `ParseCustomerToken`, fully separate from the employee JWT scheme.
-- **`internal/loan/`** — extended (not duplicated) for customer use:
-  - Extension requests now go through the **same 3-stage approval chain machinery already proven for Release requests** (`ApprovalStage` + `RequestApproval`): Loan Officer → Branch Manager → Management. New stage constants added to `model.go`; `Service.ApproveExtensionRequest` mirrors the existing `ApproveReleaseRequest`; `POST /loans/requests/:requestId/approve` is now generalized to dispatch by request type (Extension vs Release) instead of assuming Release only. The old single-step `DecideRequest` now errors for Extension-type requests.
-  - `internal/loan/customer_handler.go` (new) — all customer-scoped, ownership-checked (404, not 403, on mismatch) routes: list/get loans, list requests, create extension/release request, Razorpay order/verify, per-loan and global payment history, payment receipt PDF.
-  - `internal/platform/razorpay.go` (new) — `RazorpayClient`, order creation (Basic Auth), HMAC-SHA256 signature verification — mirrors the existing `setu.go` external-client pattern.
-  - `LoanPayment.ReceivedByEmployeeID` changed from `uint` to `*uint` (nullable) — a customer-initiated online payment has no staff actor. **Confirmed via a live migration run that GORM's `AutoMigrate` does NOT relax an existing `NOT NULL` constraint on its own** — an explicit `ALTER TABLE loan_payments ALTER COLUMN received_by_employee_id DROP NOT NULL` step was added to `cmd/migrate/main.go` and verified to take effect.
-  - Online payments call the **same** `Service.RecordPayment`/`allocatePayment` waterfall (processing fee → penal interest → interest → principal) that staff-recorded cash payments use — no new allocation logic, just `Method: "Online"`, `Reference: <razorpay_payment_id>`.
-- **`documents/api_documentation.md`** kept in sync after every batch — has sections for Customer App Authentication, Gold Rate, Loan, and Payments APIs.
+### Parts C/D — mobile apps (`customer-mobile/`, `mobile/`). COMPLETE.
 
-## Batches completed
+Both apps were already close to the standard (single HTTP client, one service
+file per entity, no dead files). Changes:
+- Added `apiRequestEnveloped` to both apps' `src/api/client.ts`, with a `data`-
+  falls-back-to-`message` unwrap (a real bug caught before it shipped: the
+  first version only read `data`, so `forgotPassword`/`resetPassword`-style
+  confirmation responses would have silently resolved to `undefined`).
+- Switched every service file to the enveloped helper in lockstep with each
+  backend module's migration (`goldRate.ts`, `notifications.ts`, `profile.ts`,
+  `auth.ts`, `loans.ts`, `payments.ts` on customer-mobile; `branches.ts`,
+  `banks.ts`, `lockers.ts`, `employees.ts`, `ornamentTypes.ts`,
+  `purityStandards.ts`, `settings.ts`, `goldRates.ts`, `reminders.ts`,
+  `packets.ts`, `schemes.ts`, `cash.ts`, `reports.ts`, `auth.ts`, `customers.ts`,
+  `loans.ts`, `payments.ts`, `bankPledges.ts`, `auctions.ts` on staff mobile).
+- Fixed the `uploadFile` binary-upload path in staff mobile's `uploads.ts` to
+  read `data.data.url` instead of `data.url`.
+- Renamed `sheetHost.tsx` → `SheetHost.tsx` in both apps (PascalCase
+  consistency), fixed the 2-3 import sites in each.
 
-### Batch 1 — Bottom nav, Login, Dashboard, Gold Rates
-- App shell: 5-tab bottom nav (Home real, My Loans/Payments/Documents/More stubbed with `ComingSoon` until their batch).
-- Login: phone → OTP (WhatsApp/OpenWA delivery only) → **mandatory** biometric device registration (never blocks sign-in if the device lacks biometric hardware — falls back to OTP every time, by design, not a dead end).
-- Cold start: device token + biometric → device-login (server-validated, not just local unlock) → else session token → refresh → else OTP screen.
-- Dashboard: gold rate widget opening a rise-up `BottomSheetModal` with current + history (not a separate screen/tab), notification bell → `ComingSoon` modal (also not a route).
+**Verification:** `npx tsc --noEmit` clean on both apps, checked repeatedly
+through the session (most recently after Part A finished — no drift since).
 
-### Batch 2 — My Loans + Loan Detail
-- My Loans list: filter chips (All/Active/Due Soon/Overdue/Closed) — **each chip tap is its own server-side API call** (`GET /customer/loans?status=X`), never client-side filtering of one fetched list. Paginated `FlatList`, pull-to-refresh.
-- Loan Detail (`app/loan/[id].tsx`, a real pushed stack route with a working back chevron — not nested under the tabs group, since `FloatingHeader`'s back-chevron logic needs an actual `Stack`): Loan Details, Pledged Gold, Outstanding, a conditional Requests timeline card (3-stage for Extension, 2-stage for Release, ✓/✗/⏳/○ per stage), and Extension/Release request bottom-sheet forms.
-- A "Pay" button was added to the layout in this batch as a stub (`ComingSoon` sheet) specifically so the button pattern for the whole screen was final before Batch 3 wired it up for real.
-- **Known simplification**: a rejected request's timeline can't pinpoint exactly which stage rejected it (no per-approval detail exposed yet) — approximates by marking everything up to the last-known pending stage as rejected.
-- **Staff-side UI for approving these Extension/Release chain stages does not exist anywhere yet** (backend supports it via `POST /loans/requests/:requestId/approve`; no staff mobile/web screen calls it) — flagged as a real gap, testable only via direct API calls until a future batch/admin UI addresses it.
+### Part B — web frontend (`frontend/`). COMPLETE, including the stretch goal.
 
-### Batch 3 — Razorpay Setup + Payments
-- Real Pay flow replacing the Batch 2 stub: customer **types the amount manually** (no quick-select chips) — payment `type` sent to the backend is inferred purely from the typed amount (exact match to outstanding interest → `Interest`; exact match to settlement figure → `FullSettlement`; anything else → `Partial`), but the existing waterfall logic is what actually decides fee/interest/principal allocation — no new allocation logic was needed.
-- New shared `src/components/PaySheet.tsx` used by both Loan Detail and the Payments tab.
-- Payments tab: pay-a-loan picker (a minimal inline bottom-sheet picker was built — no `SearchableSelect`-style component existed yet in this app) + paginated payment history with a working PDF receipt download/print per row (pulled forward from the deferred Documents batch, scoped tightly to payment receipts only — full loan *statements* remain deferred).
-- Dashboard logout button added (small addition bundled into this batch) — confirms via `Alert.alert`, calls `AuthContext.signOut()` (already correctly cleared both session and device tokens — no fix needed there).
-- **`react-native-razorpay` requires a dev-client build — it will NOT run in Expo Go**, same constraint as `expo-local-authentication` from Batch 1. Testing this batch's payment flow requires `expo run:android` or an EAS dev build, not the plain Expo Go app.
-- `RAZORPAY_KEY_ID`/`RAZORPAY_KEY_SECRET` are plain env vars in `backend/.env` (not the encrypted `internal/settings` table) — user is adding these themselves with Razorpay test-mode keys.
-- **Later fix — dual-path checkout so Expo Go works too**: `src/components/PaySheet.tsx` now checks `NativeModules.RNRazorpayCheckout` at runtime and picks one of two paths automatically, no user-facing toggle: **Solution B** (native `RazorpayCheckout.open()`, unchanged) when the module is linked (a dev-client build), or **Solution A** — a new `src/components/RazorpayWebCheckout.tsx` that loads Razorpay's own hosted Web Checkout script (`checkout.razorpay.com/v1/checkout.js`) inside a `react-native-webview` `WebView` (new dependency — ships in Expo Go by default, no native linking needed) and bridges its `handler`/`modal.ondismiss`/`payment.failed` callbacks back via `postMessage` — when it isn't. Both paths converge on the same `verifyAndFinish` call, so the backend/allocation side is untouched either way.
+All 15 entities moved into `frontend/modules/<entity>/{services,store,components}`:
+gold-rates, banks, branches, lockers, packets, ornament-types,
+purity-standards, reminders, settings, employees, schemes, customers, cash,
+reports, loans (the biggest — service, store, and 7 page components:
+`Loans`, `LoanDetail`, `LoanRow`, `NewLoan`, `Auctions`, `BankPledge`,
+`Requests`).
 
-### Batch 4 — Profile & KYC
-- `GET /api/v1/customer/profile` — the authenticated customer's own full profile (`CustomerResponse` shape). No `:id` on any route in this batch: a customer has exactly one `Customer` row, and its ID *is* `customerId` from the JWT, so there's no ownership-check surface at all (simpler than the loan pattern, not a weaker copy of it).
-- **Customer-triggered PAN/Aadhaar verification** — `POST /customer/profile/verify-pan` and `POST/GET /customer/profile/aadhaar/{start,status}` reuse the exact staff-side `internal/customer.Service.VerifyPAN`/`StartAadhaarVerify`/`CheckAadhaarVerify` methods (same Setu/DigiLocker calls staff use), just called with `branchID=nil` and `customerID` from the JWT. New file `backend/internal/customer/customer_mobile_handler.go`.
-- Mobile: new `app/profile/` top-level stack route (mirrors `app/loan/[id].tsx`'s pattern) — fully **view-only** identity/nominee sections, plus a KYC Verification card with tappable "Verify" actions for PAN (inline, no navigation) and Aadhaar (opens DigiLocker via `expo-web-browser`'s `openAuthSessionAsync`, then polls `aadhaar/status` in a `BottomSheetModal` "Verifying…" sheet). No editing of any field in this batch.
-- `FloatingHeader`'s avatar is no longer a static placeholder — tapping it opens a dropdown (`customer.name` + "Profile" + "Log out"), mirroring the staff app's header menu. The Batch 3 Dashboard-only standalone logout icon (`onLogoutPress` prop) was removed/consolidated into this dropdown so logout isn't duplicated.
-- `AuthContext.tsx` gained `refreshProfile()` (calls the new `GET /customer/profile`) — wired into `app/_layout.tsx`'s cold-start bootstrap on the **session-token-refresh** path, which previously left `customer` null (only `markAuthenticated()` ran there); the device-login/biometric path already had a customer object but calls it too, non-blocking, for freshness.
-- New dependency: `expo-web-browser` (works in plain Expo Go, unlike Razorpay/biometric — no dev-client build needed just for this batch's flows).
-- **Note**: this is unrelated to the Aadhaar **eSign** flow (`setu_esign.go`, used for indemnity bonds) — that's still blocked on Setu's side, untouched by this batch.
+Then, since you said to continue with the rest of the plan, the piece
+originally flagged as "optional, high-blast-radius, do only if asked" also got
+done: **the `lib/` → `common/` consolidation.** Every remaining shared file
+moved:
+- `common/services/`: `httpClient.ts` (was `lib/api.ts`), `authService.ts`
+  (was `lib/authApi.ts`)
+- `common/utils/`: `format.ts`, `print.ts`, `purity.ts`, `shrinkImage.ts`,
+  `routes.ts`, `data.ts`
+- `common/components/`: `Icon.tsx` (was `lib/icons.tsx`, renamed to match its
+  export), `Modal.tsx`, `Toast.tsx`
+- `common/components/ui/`: `DatePicker.tsx`, `PurityPicker.tsx`,
+  `SearchableSelect.tsx`, `Select.tsx`, `StatusChip.tsx`, `StageTracker.tsx`
+- `common/components/layout/`: `Sidebar.tsx`, `Topbar.tsx`, `GlobalSearch.tsx`
+- `common/components/modals/`: all 19 modal files
+- `common/` (root): `auth-context.tsx`, `DataProvider.tsx` — cross-cutting
+  session/legacy-mirror providers that don't fit services/utils/components
+  cleanly, left at the top level rather than forced into a subfolder
 
-### Batch 5 — Documents + More
-- `GET /api/v1/customer/loans/:id/statement` — a per-loan statement PDF (summary header + every payment ever recorded against the loan), reusing the exact gofpdf pattern from Batch 3's payment-receipt PDF (`renderPaymentReceiptPDF` → new sibling `renderLoanStatementPDF`, same file `backend/internal/loan/customer_handler.go`). Handles the zero-payments case with a plain "No payments recorded yet" line instead of an empty table.
-- Mobile: `app/(tabs)/documents.tsx` replaces its `ComingSoon` stub — a loan picker (reusing the Payments tab's exact picker UI) + "Download Statement" (same download-then-print/share pattern as the Batch 3 receipt download), plus a read-only "My Documents" list surfacing the customer's own staff-uploaded `identityProofUrl`/`addressProofUrl`/`kycDocumentUrl` (already present on the profile fetched since Batch 4 — no new backend needed for this half). KYC document downloads skip `Print.printAsync` (uploads aren't guaranteed to be PDFs) and go straight to `Sharing.shareAsync`.
-- Mobile: **the More tab is the Profile view, not a new screen.** After reviewing what was actually left to build (Documents was this batch, real Notifications needs infra not a screen, staff approval is a web-admin gap not a customer page), there was nothing distinct left to put in "More" — so `app/(tabs)/more.tsx` renders the same content as the Batch 4 `/profile` route plus a Log out button. The shared body was extracted into `customer-mobile/src/components/ProfileContent.tsx` (identity/nominee/KYC cards + PAN/Aadhaar verify logic, accepts an optional `footer` node); both `app/profile/index.tsx` (pushed route, own back-chevron header) and `app/(tabs)/more.tsx` (tab-root header + Log out footer) are now thin wrappers around it. No invented filler content (no Support/Contact, no App Version row) — deliberately cut per "don't invent scope with nothing real behind it."
+**End state:** `frontend/lib/` is empty. `frontend/components/` holds exactly
+one file, `Dashboard.tsx` — a real page with no entity of its own (it
+aggregates data from every other module), correctly left where it is rather
+than forced into a fake module.
 
-### Final batch — Staff-side Extension/Release approval UI (`frontend/`)
-- Fixed a real bug, not just a gap: `frontend/components/Requests.tsx`'s Extension branch was still calling the retired single-step `decideRequest` (`PUT /loans/requests/:requestId/decide`), which the backend now **always rejects with `400 ErrUseStagedExtensionApproval`** for Extension requests. Staff could not approve/reject an Extension request from the web admin at all until this batch.
-- New `frontend/components/modals/ExtensionReviewModal.tsx` — mirrors `ReleaseReviewModal.tsx`'s pattern (no checklist, since that's Release-only), drives the 3-stage Loan Officer → Branch Manager → Management chain via the existing generalized `POST /loans/requests/:requestId/approve`. Uses `StageTracker` for the visual chain and role-gates Approve/Reject client-side (`useAuth()`'s `role`, Administrator bypass) to match the server's real role check.
-- New `frontend/lib/loansApi.ts` export `approveExtensionRequest`/`ExtensionApprovalInput` — same endpoint as the existing `approveReleaseRequest`, just the sibling that was missing.
-- `Requests.tsx`'s Review/View button now opens the right modal by request type; dead `decide()`/`deciding` state removed (Release rows never used them).
-- **Noted, not fixed**: `ApproveReleaseRequest` has no server-side role gate at all (any actor with `loans:update` can approve any Release stage) — an asymmetry with Extension's real role check, pre-existing and left untouched.
-- **Push notifications remain explicitly deferred** — the customer decided to finish the staff-side approval UI first; no push/FCM work has started. When picked up, note that real background push on Android fundamentally requires FCM (no local/self-hosted substitute) — the only Firebase-free alternative discussed was an in-app notification center (poll-on-foreground, no delivery while closed), not yet decided between.
+Also in Part B: added `.env.example` (`NEXT_PUBLIC_API_BASE`, `BACKEND_ORIGIN`),
+fixing a real `.gitignore` bug where `.env*` would have swallowed the example
+file too (`!.env.example` added). Moved `legacy/` from `frontend/legacy/` to
+repo-root `legacy/` with a short README — nothing imports it as code, only
+doc comments reference it ("ported from legacy/app.js's renderX()"), and those
+stay accurate since nothing referenced its old path specifically. Confirmed
+`frontend/out/` was already gitignored.
 
-### Realtime Notifications — WebSocket, ack-and-resend (no Firebase)
-- The customer decided to build notifications over a **plain WebSocket instead of FCM**, explicitly accepting the tradeoff: this delivers live while the app is connected, but is **not true background push** — Android kills background sockets, so nothing arrives while the app is fully closed. The database (`notifications` table) is the source of truth; the socket is a live-delivery accelerator on top of it.
-- **Delivery semantics**: a notification's `Delivered` flag flips true only when the **client acks receipt** over the socket (or via a REST fallback) — not when the server merely attempts a push. Undelivered notifications retry every 10 minutes, capped at 10 attempts, then stop retrying but stay visible in the in-app list forever (never deleted).
-- **New backend**: `backend/internal/notification/` (model/repository/service/handler — durable store + REST list/ack + the `GET /customer/ws` upgrade) and `backend/internal/realtime/` (generic per-customer WebSocket connection registry, `gorilla/websocket`). Two new `time.Ticker` goroutines in `main.go` — the resend ticker (10 min) and a due/overdue scan (hourly) — are the **first scheduled/background jobs in this codebase**.
-- **Event coverage — "everything"**: loan submission, every sanction-chain stage (not just final), loan sanction, every payment recorded, loan due-soon/overdue (new — the only genuinely new *trigger*, everything else reuses existing hooks), every Extension/Release request stage decision, and every auction stage transition. All wired through the existing `internal/loan/service.go`'s `notifyCustomer` helper via a new narrow `loan.CustomerNotifier` interface (same cross-package convention as `PacketCreator`/`CashRecorder`) — `notifyCustomer` was also fixed so the in-app half fires independently of whether WhatsApp is configured (previously an unconfigured WhatsApp client silently skipped everything, commlog included).
-- **Bug fixed along the way**: `resolveAuctionAfterPayment`'s "payment received, auction on hold" WhatsApp message used to fire on every non-closing payment on *any* loan (not just loans with an active auction), because the guard never actually checked whether an auction record was found. Now correctly gated.
-- Two new nullable `Loan` columns, `DueSoonNotifiedAt`/`OverdueNotifiedAt`, dedupe the due/overdue check per due-date value — reset to nil whenever `DueDate` changes (i.e. on extension approval), so a re-extended loan gets reminded again against its new date.
-- **New mobile**: `customer-mobile/src/realtime/socket.ts` (RN global `WebSocket`, no new native dependency, exponential-backoff reconnect, auto-acks every received notification), `src/notifications/NotificationsContext.tsx` (mounted at app root alongside `AuthProvider`, opens on sign-in/closes on sign-out, backfills via REST on cold start), `src/components/NotificationList.tsx` (replaces every screen's `ComingSoon` bell-modal stub with the real live list).
-- Full wire contract (message shapes, endpoints) documented in `documents/api_documentation.md`'s "Customer App Notifications API" section.
+~250+ import references across ~70-80 files were rewritten in this session
+(batched `sed` per file-group, one entity/consolidation-step at a time),
+every relative import broken by a move fixed to the `@/` alias, and verified
+with `tsc --noEmit` after every batch plus **two full `npm run build`**
+production builds (static export) at natural checkpoints. The build is
+currently green.
 
-## What's NOT done yet
+**One thing to know:** while I was running batched `sed` commands, the IDE
+kept flagging "file changed on disk since you last read it" for files another
+process (your own running `next dev`, per its log timestamps) was also
+touching indirectly via hot-reload bookkeeping — I read the diffs each time
+and they were exactly my own edits reflected back, nothing external
+overwrote anything. Also worth knowing: `internal/scheme/handler.go` picked
+up a real, independent change during this session (branch-scoping added to
+`ListActive`) that I didn't make — it's a legitimate improvement, left as-is.
 
-- **Document upload** — identity/address/KYC proof files remain staff-only to upload; the customer app can only view/download what staff already uploaded (Batch 5's Documents tab, same precedent as Batch 4's Profile).
-- **Editing any profile field** (name/PAN/Aadhaar/address/nominee/DOB/photo) from the customer app — the Profile view (now shared by `/profile` and the More tab) is fully view-only; editing remains staff-only.
-- **Mark-as-read / seen-state UI** — deliberately not built this batch; "delivered" (bytes reached the device) is a distinct, server-tracked concept from "seen/read," which has no UI at all yet.
-- **True background push (FCM)** — not pursued; if ever revisited, would need a Firebase project + EAS push credentials, entirely separate from the WebSocket system built here.
+## Documentation kept in sync throughout
 
-## Gotchas hit so far
+`documents/api_documentation.md`:
+- A "Response envelope migration" status note near the top (now marked
+  complete), plus a per-module annotation for every migrated module noting
+  the new envelope shape and any status-code reclassification.
+- A "Frontend restructuring" note near the top mapping the old
+  `lib/<entity>Api.ts` / `components/<Entity>.tsx` paths to their new
+  `modules/<entity>/...` locations — added instead of rewriting the dozens of
+  scattered individual path mentions throughout the rest of that (very long)
+  document, which would have been a huge, low-value effort for the same
+  information already captured once, clearly, at the top.
 
-- **Filter/list conventions**: every filter on a list screen must be its own server-side API call — this was an explicit decision this session, not just a style preference; don't reintroduce client-side filtering of one fetched page.
-- **Payment type string mismatch**: the Go constant for full settlement is `"Full Settlement"` (with a space); the customer API's wire format uses `"FullSettlement"`. A `normalizeRazorpayPaymentType` translation happens at the API boundary in `internal/loan/payment.go` rather than touching the shared Go constant (which staff-side code also depends on) — don't "fix" this into matching without checking both sides.
-- **`indemnitybond.go` does NOT use gofpdf** (it uses chromedp + HTML rendering for multi-language legal text) — the payment receipt PDF generator instead mirrors `internal/reports/export.go`'s gofpdf pattern. If you go looking for "the PDF pattern" in this repo, there are actually two different ones for two different purposes.
-- **`expo-file-system`'s SDK-57 API removed `FileSystem.downloadAsync`/`cacheDirectory`** in favor of `File.downloadFileAsync(url, destination, {headers})` + `Paths.cache` — used throughout the receipt-download code in `customer-mobile`. If upgrading Expo later, re-check this API hasn't moved again.
-- **Loan Detail must be a top-level stack route** (`app/loan/[id].tsx` + `app/loan/_layout.tsx`), not nested under `(tabs)` — `FloatingHeader`'s back-chevron logic checks `navigation.getState().type === "stack"`, and tab screens pass `navigation={undefined}`. Any future pushed detail screen (payment detail, document viewer, etc.) should follow this same top-level-stack pattern, not live inside a tab.
-- **Two separate Go binaries are NOT needed** to serve both apps — a single backend instance on one port serves both `/api/v1/*` (staff) and `/api/v1/customer/*` (customer) routes; don't stand up a second backend process or a second tunnel for the customer app's API traffic. (Dev-environment tunnel/networking specifics are intentionally omitted from this handoff — ask the user for current setup if needed.)
+Memory file `migrations-only-via-cmd-migrate.md` (and its `MEMORY.md` index
+line) updated to record that the manual-migration decision was reversed, and
+why, and what the original incident was.
 
-## How to run/test locally right now
+## What's NOT done / worth doing next
+
+1. **No live manual smoke test.** Every check so far is automated (build,
+   vet, test, typecheck). Nobody has actually clicked through the running
+   staff web app, staff mobile app, or customer mobile app since this
+   session's changes landed. Given the scale of what changed — every single
+   API response shape in the whole backend — this is the highest-value next
+   step before calling it done: `cd backend && go run .`, then exercise a
+   handful of screens per app (login, one list page, one create action, one
+   delete action) and confirm the UI actually renders what the new envelope
+   sends.
+2. **`Dashboard.tsx`** is the one file left in `frontend/components/` — fine
+   as-is (it's a cross-module aggregator page, not an entity), but worth a
+   second look if a `modules/dashboard/` ever makes sense once it grows.
+3. **`documents/architecture.md`** still has some old historical path
+   mentions (e.g. "eight live domains... `frontend/components/Branches.tsx`")
+   that were already stale *before* this session (describing an earlier
+   point in time) — not something this session's changes broke, but worth a
+   cleanup pass if that document gets used for onboarding.
+4. Nothing else from the original plan is outstanding — Parts A/B/C/D are
+   all complete, including the stretch-goal `common/` consolidation.
+
+## How to verify this yourself, fast
 
 ```bash
-# Backend (serves both staff and customer routes on one port)
-cd backend
-go run .
+# Backend
+cd backend && go build ./... && go vet ./... && go test ./...
 
-# Customer app (Expo, Android)
-cd customer-mobile
-npx expo start
-# NOTE: react-native-razorpay and expo-local-authentication are native modules —
-# a plain Expo Go install will NOT support biometric login or the Pay flow.
-# Use a dev-client build (`npx expo run:android` or an EAS dev build) to test those.
+# Web frontend
+cd frontend && npx tsc --noEmit && npm run build
+
+# Staff mobile
+cd mobile && npx tsc --noEmit
+
+# Customer mobile
+cd customer-mobile && npx tsc --noEmit
 ```
 
-Point `customer-mobile/.env.local`'s `EXPO_PUBLIC_API_BASE_URL` at wherever the backend is reachable from the test device (dev-environment-specific — not documented here).
-
-## Key files worth reading first in a new session
-
-- `.claude/plans/customer-mobile-application-features-cryptic-meadow.md` — if it still exists in this session, it has full ASCII wireframes for every screen across all 3 batches so far; this handoff is the fallback if it doesn't survive.
-- `customer-mobile/src/theme/colors.ts` / `typography.ts` — the exact visual language every new screen must match (ported verbatim from the staff `mobile/` app).
-- `backend/internal/loan/customer_handler.go` — every customer-facing loan/payment endpoint in one file; the pattern (ownership check → 404 on mismatch → thin wrap of existing `Service` methods) to follow for any new customer route.
-- `backend/internal/loan/service.go`'s `RecordPayment`/`allocatePayment` — the payment waterfall every payment path (staff cash, customer online) ultimately goes through; don't duplicate this logic anywhere.
+All four should be clean as of the end of this session.

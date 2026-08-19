@@ -1,12 +1,13 @@
 package goldrate
 
 import (
-	"errors"
 	"net/http"
 	"strconv"
 	"time"
 
 	"github.com/gin-gonic/gin"
+
+	"ambikagold/backend/internal/platform/httpx"
 )
 
 // Handler wires HTTP requests to the Service.
@@ -31,49 +32,30 @@ func (req publishRequest) toInput() (PublishInput, error) {
 	if req.Date != "" {
 		parsed, err := time.Parse("2006-01-02", req.Date)
 		if err != nil {
-			return PublishInput{}, errors.New("invalid date: expected YYYY-MM-DD")
+			return PublishInput{}, httpx.NewBadRequest("invalid date: expected YYYY-MM-DD")
 		}
 		date = parsed
 	}
 	return PublishInput{Date: date, K24: req.K24, SetBy: req.SetBy}, nil
 }
 
-func idParam(c *gin.Context) (uint, error) {
-	v, err := strconv.ParseUint(c.Param("id"), 10, 64)
-	if err != nil {
-		return 0, errors.New("invalid id")
-	}
-	return uint(v), nil
-}
-
-func statusForErr(err error) int {
-	switch {
-	case errors.Is(err, ErrNotFound):
-		return http.StatusNotFound
-	case errors.Is(err, ErrInvalidRate), errors.Is(err, ErrSetByBlank):
-		return http.StatusBadRequest
-	default:
-		return http.StatusInternalServerError
-	}
-}
-
 func (h *Handler) Publish(c *gin.Context) {
 	var req publishRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		httpx.Fail(c, http.StatusBadRequest, "Invalid input")
 		return
 	}
 	input, err := req.toInput()
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		httpx.FailErr(c, err)
 		return
 	}
 	rec, err := h.svc.Publish(input)
 	if err != nil {
-		c.JSON(statusForErr(err), gin.H{"error": err.Error()})
+		httpx.FailErr(c, err)
 		return
 	}
-	c.JSON(http.StatusCreated, rec)
+	httpx.Success(c, http.StatusCreated, rec)
 }
 
 func (h *Handler) List(c *gin.Context) {
@@ -85,44 +67,44 @@ func (h *Handler) List(c *gin.Context) {
 		}
 		rec, err := h.svc.List(limit+1, offset)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			httpx.FailErr(c, err)
 			return
 		}
 		hasMore := len(rec) > limit
 		if hasMore {
 			rec = rec[:limit]
 		}
-		c.JSON(http.StatusOK, gin.H{"items": rec, "hasMore": hasMore})
+		httpx.Success(c, http.StatusOK, gin.H{"items": rec, "hasMore": hasMore})
 		return
 	}
 
 	rec, err := h.svc.List(0, 0)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		httpx.FailErr(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, rec)
+	httpx.Success(c, http.StatusOK, rec)
 }
 
 func (h *Handler) Latest(c *gin.Context) {
 	rec, err := h.svc.Latest()
 	if err != nil {
-		c.JSON(statusForErr(err), gin.H{"error": err.Error()})
+		httpx.FailErr(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, rec)
+	httpx.Success(c, http.StatusOK, rec)
 }
 
 func (h *Handler) Get(c *gin.Context) {
-	id, err := idParam(c)
+	id, err := httpx.IDParam(c, "id")
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		httpx.FailErr(c, err)
 		return
 	}
 	rec, err := h.svc.Get(id)
 	if err != nil {
-		c.JSON(statusForErr(err), gin.H{"error": err.Error()})
+		httpx.FailErr(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, rec)
+	httpx.Success(c, http.StatusOK, rec)
 }

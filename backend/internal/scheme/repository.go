@@ -36,12 +36,17 @@ func (r *Repository) FindAll(query string, branchID *uint) ([]Scheme, error) {
 // FindActive mirrors customer.Repository.FindAll's pagination convention:
 // limit == 0 returns every active scheme unpaged (the full Loan Schemes
 // page's behaviour); limit > 0 applies Limit/Offset (the paginated
-// SearchableSelect in NewLoan.tsx).
-func (r *Repository) FindActive(query string, limit, offset int) ([]Scheme, error) {
+// SearchableSelect in NewLoan.tsx). branchID mirrors FindAll's scoping (nil
+// = all branches, Administrator only) so a non-admin's active-scheme picker
+// never offers a scheme that List/FindAll would then hide from them.
+func (r *Repository) FindActive(query string, branchID *uint, limit, offset int) ([]Scheme, error) {
 	var schemes []Scheme
 	q := r.db.Where("is_active = ?", true).Order("id asc")
 	if query != "" {
 		q = q.Where("name ILIKE ?", "%"+query+"%")
+	}
+	if branchID != nil {
+		q = q.Where("branch_id = ?", *branchID)
 	}
 	if limit > 0 {
 		q = q.Limit(limit).Offset(offset)

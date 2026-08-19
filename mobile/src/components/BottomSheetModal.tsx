@@ -2,14 +2,14 @@ import React, { useEffect, useRef, useState } from "react";
 import { Animated, BackHandler, Keyboard, PanResponder, Pressable, View, StyleSheet } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { colors } from "../theme/colors";
-import { nextSheetId, sheetStore } from "./sheetHost";
+import { nextSheetId, sheetStore } from "./SheetHost";
 
 // Shared "rises up from the bottom" sheet used by every modal in the app
 // (Add Reminder, Reports preview, Purity Standards, Add Bank, More menu, ...) —
 // closes on a tap outside the sheet OR a downward swipe on the sheet itself.
 //
 // This renders NOTHING in place. It publishes its overlay into SheetHost
-// (see sheetHost.tsx), which is mounted once as a sibling of <Slot/> in the
+// (see SheetHost.tsx), which is mounted once as a sibling of <Slot/> in the
 // root layout's own full-screen view. A native <Modal> can't be used here:
 // the app draws edge-to-edge and the modal's separate window is laid out
 // inside the system-bar insets, so `bottom: 0` landed above the navigation /

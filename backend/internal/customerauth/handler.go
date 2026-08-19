@@ -8,9 +8,8 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"ambikagold/backend/internal/customer"
+	"ambikagold/backend/internal/platform/httpx"
 )
-
-const genericErr = "Something went wrong on our end. Please try again."
 
 type Handler struct {
 	svc *Service
@@ -18,28 +17,6 @@ type Handler struct {
 
 func NewHandler(svc *Service) *Handler {
 	return &Handler{svc: svc}
-}
-
-func statusForErr(err error) int {
-	switch {
-	case errors.Is(err, ErrInvalidOrExpiredOTP), errors.Is(err, ErrTooManyAttempts),
-		errors.Is(err, ErrInvalidDeviceToken), errors.Is(err, ErrDeviceIDRequired):
-		return http.StatusBadRequest
-	case errors.Is(err, ErrCustomerNotFound):
-		return http.StatusNotFound
-	default:
-		return http.StatusInternalServerError
-	}
-}
-
-func respondErr(c *gin.Context, err error) {
-	status := statusForErr(err)
-	if status == http.StatusInternalServerError {
-		log.Printf("customerauth: internal error: %v", err)
-		c.JSON(status, gin.H{"error": genericErr})
-		return
-	}
-	c.JSON(status, gin.H{"error": err.Error()})
 }
 
 type requestOTPInput struct {
@@ -54,19 +31,19 @@ type requestOTPInput struct {
 func (h *Handler) RequestOTP(c *gin.Context) {
 	var in requestOTPInput
 	if err := c.ShouldBindJSON(&in); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		httpx.Fail(c, http.StatusBadRequest, "Invalid input")
 		return
 	}
 	if err := h.svc.RequestOTP(in.Phone); err != nil {
 		if errors.Is(err, ErrCustomerNotFound) {
-			c.JSON(http.StatusNotFound, gin.H{"error": "This phone number is not registered. Please contact your branch."})
+			httpx.Fail(c, http.StatusNotFound, "This phone number is not registered. Please contact your branch.")
 			return
 		}
 		log.Printf("customerauth: request-otp error for %q: %v", in.Phone, err)
-		respondErr(c, err)
+		httpx.FailErr(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"message": "A sign-in code has been sent via WhatsApp."})
+	httpx.SuccessMessage(c, http.StatusOK, "A sign-in code has been sent via WhatsApp.")
 }
 
 type verifyOTPInput struct {
@@ -82,15 +59,15 @@ type sessionResponse struct {
 func (h *Handler) VerifyOTP(c *gin.Context) {
 	var in verifyOTPInput
 	if err := c.ShouldBindJSON(&in); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		httpx.Fail(c, http.StatusBadRequest, "Invalid input")
 		return
 	}
 	token, cust, err := h.svc.VerifyOTP(in.Phone, in.Code)
 	if err != nil {
-		respondErr(c, err)
+		httpx.FailErr(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, sessionResponse{Token: token, Customer: cust.ToResponse()})
+	httpx.Success(c, http.StatusOK, sessionResponse{Token: token, Customer: cust.ToResponse()})
 }
 
 type registerDeviceInput struct {
@@ -103,20 +80,20 @@ type registerDeviceInput struct {
 func (h *Handler) RegisterDevice(c *gin.Context) {
 	customerID, ok := customerIDFromContext(c)
 	if !ok {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "not authenticated"})
+		httpx.Fail(c, http.StatusUnauthorized, "not authenticated")
 		return
 	}
 	var in registerDeviceInput
 	if err := c.ShouldBindJSON(&in); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		httpx.Fail(c, http.StatusBadRequest, "Invalid input")
 		return
 	}
 	deviceToken, err := h.svc.RegisterDevice(customerID, in.DeviceID)
 	if err != nil {
-		respondErr(c, err)
+		httpx.FailErr(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"deviceToken": deviceToken})
+	httpx.Success(c, http.StatusOK, gin.H{"deviceToken": deviceToken})
 }
 
 type deviceLoginInput struct {
@@ -129,29 +106,29 @@ type deviceLoginInput struct {
 func (h *Handler) DeviceLogin(c *gin.Context) {
 	var in deviceLoginInput
 	if err := c.ShouldBindJSON(&in); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		httpx.Fail(c, http.StatusBadRequest, "Invalid input")
 		return
 	}
 	token, cust, err := h.svc.DeviceLogin(in.DeviceToken)
 	if err != nil {
-		respondErr(c, err)
+		httpx.FailErr(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, sessionResponse{Token: token, Customer: cust.ToResponse()})
+	httpx.Success(c, http.StatusOK, sessionResponse{Token: token, Customer: cust.ToResponse()})
 }
 
 func (h *Handler) Refresh(c *gin.Context) {
 	customerID, ok := customerIDFromContext(c)
 	if !ok {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "not authenticated"})
+		httpx.Fail(c, http.StatusUnauthorized, "not authenticated")
 		return
 	}
 	token, err := h.svc.Refresh(customerID)
 	if err != nil {
-		respondErr(c, err)
+		httpx.FailErr(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"token": token})
+	httpx.Success(c, http.StatusOK, gin.H{"token": token})
 }
 
 func customerIDFromContext(c *gin.Context) (uint, bool) {

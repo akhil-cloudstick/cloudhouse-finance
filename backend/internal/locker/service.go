@@ -1,18 +1,17 @@
 package locker
 
 import (
-	"errors"
-
 	"ambikagold/backend/internal/branch"
+	"ambikagold/backend/internal/platform/httpx"
 )
 
 var (
-	ErrNotFound        = errors.New("locker not found")
-	ErrCodeRequired    = errors.New("code is required")
-	ErrDuplicateCode   = errors.New("a locker with this code already exists")
-	ErrBranchInvalid   = errors.New("branch does not exist")
-	ErrInvalidCapacity = errors.New("capacity must be greater than zero")
-	ErrInUse           = errors.New("locker cannot be removed while it still holds packets")
+	ErrNotFound        = httpx.NewNotFound("locker not found")
+	ErrCodeRequired    = httpx.NewBadRequest("code is required")
+	ErrDuplicateCode   = httpx.NewConflict("a locker with this code already exists")
+	ErrBranchInvalid   = httpx.NewBadRequest("branch does not exist")
+	ErrInvalidCapacity = httpx.NewBadRequest("capacity must be greater than zero")
+	ErrInUse           = httpx.NewConflict("locker cannot be removed while it still holds packets")
 )
 
 // PacketCounter is a narrow interface satisfied by packet.Repository,

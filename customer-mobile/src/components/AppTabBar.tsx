@@ -31,13 +31,15 @@ export function AppTabBar({ state, navigation, insets }: BottomTabBarProps) {
   }
 
   return (
-    <View style={[styles.wrap, { paddingBottom: insets.bottom + 8 }]}>
+    <View style={[styles.wrap, { paddingBottom: 0 }]}>
       <View style={styles.island}>
         {TABS.map(([name, label, icon]) => {
           const isActive = name === activeRouteName;
           return (
             <Pressable key={name} onPress={() => onTabPress(name)} style={[styles.item, isActive && styles.itemActive]}>
-              <Icon name={icon} size={21} color={isActive ? colors.goldDeep : colors.muted} />
+              <View style={styles.iconWrap}>
+                <Icon name={icon} size={21} color={isActive ? colors.goldDeep : colors.muted} />
+              </View>
               <ThemedText variant="label" color={isActive ? colors.goldDeep : colors.muted} numberOfLines={1}>
                 {label}
               </ThemedText>
@@ -50,10 +52,10 @@ export function AppTabBar({ state, navigation, insets }: BottomTabBarProps) {
 }
 
 const styles = StyleSheet.create({
-  wrap: { paddingHorizontal: 12, paddingTop: 0, backgroundColor: colors.ivory },
+  wrap: { paddingHorizontal: 4, paddingTop: 0, backgroundColor: colors.ivory },
   island: {
     flexDirection: "row",
-    alignItems: "stretch",
+    alignItems: "center",
     backgroundColor: colors.card,
     borderRadius: 20,
     borderWidth: 1,
@@ -66,6 +68,16 @@ const styles = StyleSheet.create({
       android: { elevation: 4 },
     }),
   },
-  item: { flex: 1, alignItems: "center", justifyContent: "center", gap: 3, paddingVertical: 7, borderRadius: 14 },
-  itemActive: { backgroundColor: colors.goldPale },
+  item: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 1,
+    paddingVertical: 5,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: "transparent",
+  },
+  itemActive: { backgroundColor: "transparent", borderColor: colors.goldDeep },
+  iconWrap: { width: 34, height: 34, alignItems: "center", justifyContent: "center" },
 });

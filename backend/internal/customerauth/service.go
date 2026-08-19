@@ -16,6 +16,7 @@ import (
 	"ambikagold/backend/internal/commlog"
 	"ambikagold/backend/internal/customer"
 	"ambikagold/backend/internal/platform"
+	"ambikagold/backend/internal/platform/httpx"
 )
 
 var (
@@ -23,11 +24,11 @@ var (
 	// handler turns this into a generic, non-account-existence-leaking
 	// message for request-otp, same convention as internal/auth's
 	// ForgotPassword.
-	ErrCustomerNotFound    = errors.New("no customer account found for this phone number")
-	ErrInvalidOrExpiredOTP = errors.New("invalid or expired OTP")
-	ErrTooManyAttempts     = errors.New("too many incorrect attempts — request a new code")
-	ErrInvalidDeviceToken  = errors.New("device is not signed in — please sign in again")
-	ErrDeviceIDRequired    = errors.New("deviceId is required")
+	ErrCustomerNotFound    = httpx.NewNotFound("no customer account found for this phone number")
+	ErrInvalidOrExpiredOTP = httpx.NewBadRequest("invalid or expired OTP")
+	ErrTooManyAttempts     = httpx.NewBadRequest("too many incorrect attempts — request a new code")
+	ErrInvalidDeviceToken  = httpx.NewBadRequest("device is not signed in — please sign in again")
+	ErrDeviceIDRequired    = httpx.NewBadRequest("deviceId is required")
 )
 
 const (

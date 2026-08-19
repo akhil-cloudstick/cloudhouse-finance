@@ -17,6 +17,7 @@ import (
 	"ambikagold/backend/internal/commlog"
 	"ambikagold/backend/internal/employee"
 	"ambikagold/backend/internal/platform"
+	"ambikagold/backend/internal/platform/httpx"
 )
 
 var (
@@ -24,15 +25,15 @@ var (
 	// username/phone" and "password mismatch" — deliberately not
 	// distinguished to callers so a login attempt never reveals whether an
 	// account exists.
-	ErrInvalidCredentials = errors.New("invalid username/phone or password")
+	ErrInvalidCredentials = httpx.NewUnauthorized("invalid username/phone or password")
 	// ErrInvalidOrExpiredToken covers an OTP that's unknown, mistyped,
 	// already used, or past its 10-minute expiry.
-	ErrInvalidOrExpiredToken = errors.New("invalid or expired reset code")
+	ErrInvalidOrExpiredToken = httpx.NewBadRequest("invalid or expired reset code")
 	// ErrAccountNotSetUp is returned by Login when the employee row exists
 	// but has no password configured yet (needs an Administrator to set
 	// one, along with a username or phone, via the employee update
 	// endpoint first).
-	ErrAccountNotSetUp = errors.New("this account has not been set up for login yet")
+	ErrAccountNotSetUp = httpx.NewUnauthorized("this account has not been set up for login yet")
 )
 
 // resetOTPTTL is how long a texted reset code stays valid — short, since
@@ -158,7 +159,7 @@ func (s *Service) ForgotPassword(phone string) error {
 // new password, and clears the reset fields so the OTP can't be reused.
 func (s *Service) ResetPassword(phone, otp, newPassword string) error {
 	if len(newPassword) < 8 {
-		return errors.New("password must be at least 8 characters")
+		return httpx.NewBadRequest("password must be at least 8 characters")
 	}
 	phone = strings.TrimSpace(phone)
 	emp, err := s.employeeRepo.FindByPhone(phone)
