@@ -1,16 +1,16 @@
 import React, { useCallback, useEffect, useState } from "react";
 import { View, FlatList, RefreshControl, Pressable, ActivityIndicator } from "react-native";
 import { useRouter } from "expo-router";
-import { ScreenContainer } from "../../src/components/ScreenContainer";
-import { Card } from "../../src/components/Card";
-import { ThemedText } from "../../src/components/ThemedText";
-import { FloatingHeader } from "../../src/components/FloatingHeader";
-import { BottomSheetModal } from "../../src/components/BottomSheetModal";
-import { NotificationList } from "../../src/components/NotificationList";
-import { ChipSelect } from "../../src/components/ChipSelect";
-import { colors, statusColors } from "../../src/theme/colors";
-import * as loansApi from "../../src/api/loans";
-import { Loan } from "../../src/api/loans";
+import { ScreenContainer } from "../../../src/components/ScreenContainer";
+import { Card } from "../../../src/components/Card";
+import { ThemedText } from "../../../src/components/ThemedText";
+import { FloatingHeader } from "../../../src/components/FloatingHeader";
+import { BottomSheetModal } from "../../../src/components/BottomSheetModal";
+import { NotificationList } from "../../../src/components/NotificationList";
+import { ChipSelect } from "../../../src/components/ChipSelect";
+import { colors, statusColors } from "../../../src/theme/colors";
+import * as loansApi from "../../../src/api/loans";
+import { Loan } from "../../../src/api/loans";
 
 const PAGE_SIZE = 10;
 
@@ -131,8 +131,8 @@ export default function LoansScreen() {
           renderItem={({ item }) => {
             const tone = statusColors(toneForStatus(item.status));
             return (
-              <Pressable onPress={() => router.push(`/loan/${item.id}`)}>
-                <Card>
+              <Pressable onPress={() => router.push(`/(tabs)/loans/${item.id}`)}>
+                <Card blur>
                   <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start" }}>
                     <ThemedText variant="body">{item.loanNumber}</ThemedText>
                     <ThemedText

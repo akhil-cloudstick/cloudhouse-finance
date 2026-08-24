@@ -114,7 +114,7 @@ export function DatePicker({
   const today = new Date();
 
   return (
-    <div className="dp" ref={boxRef}>
+    <div className="dp dp-date" ref={boxRef}>
       <button
         type="button"
         className="inp dp-trigger"
@@ -126,66 +126,78 @@ export function DatePicker({
         </span>
         <Icon name="cal" className="cal-ic" />
       </button>
-      {open && mode === "years" && (
+      {open && (
         <div className="dp-panel">
-          <div className="dp-hd">
-            <button type="button" className="dp-nav" onClick={() => setDecadeStart((y) => y - 12)} aria-label="Previous years">‹</button>
-            <b>{decadeStart} – {decadeStart + 11}</b>
-            <button type="button" className="dp-nav" onClick={() => setDecadeStart((y) => y + 12)} aria-label="Next years">›</button>
+          {/* Both sub-views stay mounted at all times (hidden via CSS rather
+              than left out of the tree) — switching `mode` used to swap
+              which branch was rendered, which meant the button the user had
+              just clicked (e.g. the month/year title) was removed from the
+              DOM as part of the very click that removed it. React 18 can
+              commit that removal before the native click event finishes
+              bubbling to this component's own "outside click" listener on
+              `document`, so by the time that listener ran, `e.target` was
+              already detached and no longer read as "inside" the picker —
+              every mode switch looked like a click outside and closed the
+              whole popover. Keeping both subtrees permanently mounted means
+              no click can ever remove its own target node. */}
+          <div className={`dp-view${mode === "years" ? " dp-hidden" : ""}`}>
+            <div className="dp-hd">
+              <button type="button" className="dp-nav" onClick={() => changeMonth(-1)} aria-label="Previous month">‹</button>
+              <button type="button" className="dp-title" onClick={() => setMode("years")}>
+                {MONTHS[viewMonth]} {viewYear}
+              </button>
+              <button type="button" className="dp-nav" onClick={() => changeMonth(1)} aria-label="Next month">›</button>
+            </div>
+            <div className="dp-grid dp-dow">
+              {DOW.map((l, i) => <span key={i}>{l}</span>)}
+            </div>
+            <div className="dp-grid">
+              {cells.map((d, i) => {
+                if (!d) return <span key={i} />;
+                const isSel = !!selected && sameDay(d, selected);
+                const isToday = sameDay(d, today);
+                const blocked = !inRange(d);
+                return (
+                  <button
+                    type="button"
+                    key={i}
+                    className={`dp-day${isSel ? " sel" : ""}${isToday && !isSel ? " today" : ""}`}
+                    disabled={blocked}
+                    onClick={() => pick(d)}
+                  >
+                    {d.getDate()}
+                  </button>
+                );
+              })}
+            </div>
+            <div className="dp-ft">
+              <button type="button" className="btn plain sm" onClick={() => pick(new Date())}>Today</button>
+            </div>
           </div>
-          <div className="dp-grid dp-years">
-            {Array.from({ length: 12 }, (_, i) => decadeStart + i).map((y) => {
-              const isSel = y === viewYear;
-              const isThisYear = y === today.getFullYear();
-              const blocked = (minD && y < minD.getFullYear()) || (maxD && y > maxD.getFullYear());
-              return (
-                <button
-                  type="button"
-                  key={y}
-                  className={`dp-year${isSel ? " sel" : ""}${isThisYear && !isSel ? " today" : ""}`}
-                  disabled={!!blocked}
-                  onClick={() => { setViewYear(y); setMode("days"); }}
-                >
-                  {y}
-                </button>
-              );
-            })}
-          </div>
-        </div>
-      )}
-      {open && mode === "days" && (
-        <div className="dp-panel">
-          <div className="dp-hd">
-            <button type="button" className="dp-nav" onClick={() => changeMonth(-1)} aria-label="Previous month">‹</button>
-            <button type="button" className="dp-title" onClick={() => setMode("years")}>
-              {MONTHS[viewMonth]} {viewYear}
-            </button>
-            <button type="button" className="dp-nav" onClick={() => changeMonth(1)} aria-label="Next month">›</button>
-          </div>
-          <div className="dp-grid dp-dow">
-            {DOW.map((l, i) => <span key={i}>{l}</span>)}
-          </div>
-          <div className="dp-grid">
-            {cells.map((d, i) => {
-              if (!d) return <span key={i} />;
-              const isSel = !!selected && sameDay(d, selected);
-              const isToday = sameDay(d, today);
-              const blocked = !inRange(d);
-              return (
-                <button
-                  type="button"
-                  key={i}
-                  className={`dp-day${isSel ? " sel" : ""}${isToday && !isSel ? " today" : ""}`}
-                  disabled={blocked}
-                  onClick={() => pick(d)}
-                >
-                  {d.getDate()}
-                </button>
-              );
-            })}
-          </div>
-          <div className="dp-ft">
-            <button type="button" className="btn plain sm" onClick={() => pick(new Date())}>Today</button>
+          <div className={`dp-view${mode === "days" ? " dp-hidden" : ""}`}>
+            <div className="dp-hd">
+              <button type="button" className="dp-nav" onClick={() => setDecadeStart((y) => y - 12)} aria-label="Previous years">‹</button>
+              <b>{decadeStart} – {decadeStart + 11}</b>
+              <button type="button" className="dp-nav" onClick={() => setDecadeStart((y) => y + 12)} aria-label="Next years">›</button>
+            </div>
+            <div className="dp-grid dp-years">
+              {Array.from({ length: 12 }, (_, i) => decadeStart + i).map((y) => {
+                const isSel = y === viewYear;
+                const isThisYear = y === today.getFullYear();
+                const blocked = (minD && y < minD.getFullYear()) || (maxD && y > maxD.getFullYear());
+                return (
+                  <button
+                    type="button"
+                    key={y}
+                    className={`dp-year${isSel ? " sel" : ""}${isThisYear && !isSel ? " today" : ""}`}
+                    disabled={!!blocked}
+                    onClick={() => { setViewYear(y); setMode("days"); }}
+                  >
+                    {y}
+                  </button>
+                );
+              })}
+            </div>
           </div>
         </div>
       )}

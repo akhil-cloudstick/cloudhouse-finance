@@ -2,6 +2,7 @@ package reminder
 
 import (
 	"fmt"
+	"sort"
 	"time"
 
 	"ambikagold/backend/internal/commlog"
@@ -199,7 +200,17 @@ func (s *Service) Delete(id uint) error {
 // convention since interest here accrues continuously rather than on a
 // real billing schedule, see loan/accrual.go), and every manual Reminder
 // whose DueDate falls in range (FollowUp/PromiseToPay/Custom).
-func (s *Service) GetCalendarEvents(from, to time.Time, branchID *uint) ([]CalendarEvent, error) {
+//
+// The merged list is always sorted Overdue-first-then-ascending-by-date
+// (moved here from the frontend's client-side sort — see
+// frontend/components/Dashboard.tsx) before pagination is applied. page/
+// pageSize are both optional: either <= 0 skips pagination entirely and
+// every event is returned (GET /reminders/calendar's original, still-used
+// shape), matching the "additive query params" backward-compatibility rule
+// — existing callers that never send page/pageSize keep getting the exact
+// response shape they always have. The returned int is always the *full*
+// (pre-slice) event count.
+func (s *Service) GetCalendarEvents(from, to time.Time, branchID *uint, page, pageSize int) ([]CalendarEvent, int, error) {
 	from = truncateDay(from)
 	to = truncateDay(to)
 
@@ -207,7 +218,7 @@ func (s *Service) GetCalendarEvents(from, to time.Time, branchID *uint) ([]Calen
 
 	loans, err := s.loanRepo.FindOpenForCalendar()
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	now := truncateDay(time.Now())
 	for _, l := range loans {
@@ -275,7 +286,7 @@ func (s *Service) GetCalendarEvents(from, to time.Time, branchID *uint) ([]Calen
 	from2, to2 := from, to
 	reminders, err := s.repo.FindAll(Filter{From: &from2, To: &to2, BranchID: branchID})
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	for _, r := range reminders {
 		evType := "Custom"
@@ -300,7 +311,27 @@ func (s *Service) GetCalendarEvents(from, to time.Time, branchID *uint) ([]Calen
 		})
 	}
 
-	return events, nil
+	sort.SliceStable(events, func(i, j int) bool {
+		a, b := events[i], events[j]
+		if (a.Type == "Overdue") != (b.Type == "Overdue") {
+			return a.Type == "Overdue"
+		}
+		return a.Date < b.Date
+	})
+
+	total := len(events)
+	if page <= 0 || pageSize <= 0 {
+		return events, total, nil
+	}
+	start := (page - 1) * pageSize
+	if start > total {
+		start = total
+	}
+	end := start + pageSize
+	if end > total {
+		end = total
+	}
+	return events[start:end], total, nil
 }
 
 func truncateDay(t time.Time) time.Time {

@@ -93,6 +93,32 @@ export async function apiFetchEnveloped<T>(path: string, opts?: RequestInit): Pr
   return (body?.data !== undefined ? body.data : body?.message) as T;
 }
 
+/* apiFetchEnvelope is apiFetchEnveloped's counterpart for the rare endpoint
+ * whose envelope carries more than just {success, data} — e.g.
+ * GET /employees/:id/permissions also returns a top-level `role` field
+ * alongside `data` (see internal/authz.Handler.Matrix). Returns the whole
+ * parsed body so the caller can read whichever extra fields it needs. */
+export async function apiFetchEnvelope<T extends { success: boolean; error?: string }>(
+  path: string,
+  opts?: RequestInit
+): Promise<T> {
+  const res = await fetch(`${API_BASE}${path}`, {
+    headers: { "Content-Type": "application/json", ...authHeader(), ...(opts?.headers || {}) },
+    ...opts,
+  });
+  let body: T | undefined;
+  try {
+    body = await res.json();
+  } catch {
+    /* non-JSON body — handled below via res.ok/res.statusText */
+  }
+  if (!res.ok || body?.success === false) {
+    if (res.status === 401) handleUnauthorized(path);
+    throw new ApiError(body?.error || res.statusText, res.status);
+  }
+  return body as T;
+}
+
 /* Like apiFetch, but for multipart file uploads — deliberately does NOT set
  * a Content-Type header, so the browser can set its own with the correct
  * multipart boundary (apiFetch's default "application/json" would break

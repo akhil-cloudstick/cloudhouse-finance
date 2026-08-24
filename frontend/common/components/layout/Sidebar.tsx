@@ -5,51 +5,49 @@ import { Icon } from "@/common/components/Icon";
 import { useAuth } from "@/common/auth-context";
 
 /* Ported from legacy/app.js's `NAV` array + nav-building/active-link logic
- * in `router()`. */
-export const NAV: [string, [string, string, string][]][] = [
+ * in `router()`. Each item now also carries the permission that gates it
+ * (module, key — the same underscored keys the backend derives, see
+ * common/services/permissionService.ts) so filtering is driven by the
+ * actual permissions table instead of hardcoded role-name checks (see the
+ * house role-permission standard's §12). `module: null` means always
+ * visible — no permission governs it (Dashboard). */
+type NavItem = { route: string; title: string; icon: string; module: string | null; key?: string };
+
+export const NAV: [string, NavItem[]][] = [
   ["Overview", [
-    ["dashboard", "Dashboard", "home"],
-    ["calendar", "Reminder Calendar", "cal"],
-    ["reports", "Reports", "chart"],
+    { route: "dashboard", title: "Dashboard", icon: "home", module: null },
+    { route: "calendar", title: "Reminder Calendar", icon: "cal", module: "Reminder_Management", key: "can_view_reminder" },
+    { route: "reports", title: "Reports", icon: "chart", module: "Report_Management", key: "can_view_report" },
   ]],
   ["Lending", [
-    ["loans", "Loans", "list"],
-    ["newloan", "New Gold Loan", "plus"],
-    ["schemes", "Loan Schemes", "doc"],
-    ["goldrates", "Gold Rates", "coin"],
-    ["requests", "Extensions & Release", "unlock"],
+    { route: "loans", title: "Loans", icon: "list", module: "Loan_Management", key: "can_view_loan" },
+    { route: "newloan", title: "New Gold Loan", icon: "plus", module: "Loan_Management", key: "can_change_loan" },
+    { route: "schemes", title: "Loan Schemes", icon: "doc", module: "Scheme_Management", key: "can_view_scheme" },
+    { route: "goldrates", title: "Gold Rates", icon: "coin", module: "Gold_Rate_Management", key: "can_view_gold_rate" },
+    { route: "requests", title: "Extensions & Release", icon: "unlock", module: "Loan_Management", key: "can_view_loan" },
   ]],
   ["Customers", [
-    ["customers", "Customers & KYC", "user"],
+    { route: "customers", title: "Customers & KYC", icon: "user", module: "Customer_Management", key: "can_view_customer" },
   ]],
   ["Gold Custody", [
-    ["packets", "Packets & Lockers", "box"],
-    ["bankpledge", "Bank Re-Pledge", "bank"],
-    ["auctions", "Auctions", "gavel"],
+    { route: "packets", title: "Packets & Lockers", icon: "box", module: "Packet_Management", key: "can_view_packet" },
+    { route: "bankpledge", title: "Bank Re-Pledge", icon: "bank", module: "Bank_Pledge_Management", key: "can_view_bank_pledge" },
+    { route: "auctions", title: "Auctions", icon: "gavel", module: "Loan_Management", key: "can_view_loan" },
   ]],
   ["Operations", [
-    ["cash", "Cash & Expenses", "coin"],
-    ["employees", "Employees & Roles", "user"],
+    { route: "cash", title: "Cash & Expenses", icon: "coin", module: "Cash_Management", key: "can_view_cash" },
+    { route: "employees", title: "Employees & Roles", icon: "user", module: "Employee_Management", key: "can_view_employee" },
   ]],
   ["Administration", [
-    ["branches", "Branch Management", "bank"],
-    ["settings", "Settings", "gear"],
+    { route: "branches", title: "Branch Management", icon: "bank", module: "Branch_Management", key: "can_view_branch" },
+    { route: "roles-permissions", title: "Roles & Permissions", icon: "shield", module: "Role_Management", key: "can_view_role_and_permission" },
+    { route: "settings", title: "Settings", icon: "gear", module: "Settings_Management", key: "can_view_setting" },
   ]],
 ];
 
 export function Sidebar({ route, open }: { route: string; open: boolean }) {
-  const { logout, isAdmin, role } = useAuth();
+  const { logout, can } = useAuth();
   const router = useRouter();
-  // Cashier is outside the loan creation/approval flow — the backend
-  // already 403s a Cashier's POST /loans, hide the nav entry entirely
-  // rather than let them click into a form that can only ever fail.
-  const canCreateLoans = role !== "Cashier";
-  // Reports is restricted server-side to Administrator/Management/Branch
-  // Manager/Auditor (backend/main.go's reportsRoles RequireAnyRole gate on
-  // /api/v1/reports) — hide the nav entry for any other role rather than
-  // let them click into a page that can only ever 403.
-  const REPORT_ROLES = ["Administrator", "Management", "Branch Manager", "Auditor"];
-  const canViewReports = !!role && REPORT_ROLES.includes(role);
 
   function handleSignOut(e: React.MouseEvent) {
     e.preventDefault();
@@ -67,31 +65,31 @@ export function Sidebar({ route, open }: { route: string; open: boolean }) {
         </div>
       </div>
       <nav className="nav" id="navBox">
-        {NAV.map(([group, items]) => (
-          <div key={group}>
-            <div className="grp">{group}</div>
-            {items
-              // Branch Management is Administrator-only — the backend
-              // already 403s a non-admin's write attempts, hide the nav
-              // entry entirely rather than let them click into a page that
-              // can only ever fail for them.
-              .filter(([r]) => r !== "branches" || isAdmin)
-              .filter(([r]) => r !== "newloan" || canCreateLoans)
-              .filter(([r]) => r !== "reports" || canViewReports)
-              .map(([r, t, ic]) => {
-              const isOn =
-                route === r ||
-                (route === "loan" && r === "loans") ||
-                (route === "customer" && r === "customers");
-              return (
-                <a key={r} href={`#${r}`} className={isOn ? "on" : ""}>
-                  <Icon name={ic} />
-                  {t}
-                </a>
-              );
-            })}
-          </div>
-        ))}
+        {NAV.map(([group, items]) => {
+          // A permission-gated item is filtered OUT of the array (never
+          // rendered disabled) — §12.3. An empty group renders no heading
+          // at all, so a role with nothing in "Gold Custody" doesn't see a
+          // bare, empty section (§12.4).
+          const visible = items.filter((item) => item.module === null || can(item.module, item.key!));
+          if (visible.length === 0) return null;
+          return (
+            <div key={group}>
+              <div className="grp">{group}</div>
+              {visible.map(({ route: r, title: t, icon: ic }) => {
+                const isOn =
+                  route === r ||
+                  (route === "loan" && r === "loans") ||
+                  (route === "customer" && r === "customers");
+                return (
+                  <a key={r} href={`#${r}`} className={isOn ? "on" : ""}>
+                    <Icon name={ic} />
+                    {t}
+                  </a>
+                );
+              })}
+            </div>
+          );
+        })}
       </nav>
       <div className="sfoot">
         Trust · Value · Growth

@@ -73,7 +73,7 @@ export function Customers() {
           <button className="btn plain sm" style={{ marginLeft: 8 }} onClick={refresh}>Retry</button>
         </p>
       )}
-      <div className="card"><div className="tbl-wrap"><table className="tbl">
+      <div className="card"><div className="tbl-wrap tbl-scroll"><table className="tbl tbl-center">
         <thead><tr><th>Customer</th><th>Contact</th><th>Branch</th><th>PAN</th><th>Aadhaar</th><th>KYC Status</th><th className="num">Loans</th><th></th></tr></thead>
         <tbody>
           {loading ? (

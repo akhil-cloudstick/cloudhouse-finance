@@ -9,6 +9,7 @@ import { ApiError } from "@/common/services/httpClient";
 import { createCashMovement } from "@/modules/cash/services/cashService";
 import { searchBanksPage, createBank, type BackendBank } from "@/modules/banks/services/bankService";
 import { SearchableSelect } from "@/common/components/ui/SearchableSelect";
+import { DatePicker } from "@/common/components/ui/DatePicker";
 
 /* Ported from legacy/app.js's `openCashOutModal()` / `saveCashOut()` — now
  * posts to the real POST /cash-movements endpoint. */
@@ -62,7 +63,7 @@ export function CashOutModalContent({ onSaved }: { onSaved?: () => void }) {
           /></div></div>
         <div className="frow c2">
           <div><label className="f">Amount (₹) *</label><input className="inp" type="number" min={1} value={amt} onChange={(e) => setAmt(e.target.value)} /></div>
-          <div><label className="f">Date *</label><input className="inp" type="date" value={date} onChange={(e) => setDate(e.target.value)} /></div>
+          <div><label className="f">Date *</label><DatePicker value={date} onChange={setDate} /></div>
         </div>
         <p style={{ color: "var(--red)", fontSize: 12.5, minHeight: 16, marginTop: 8 }}>{err}</p>
       </div>

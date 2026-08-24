@@ -126,7 +126,7 @@ export function Loans() {
   return (
     <>
       <div className="page-h">
-        {/* <div><h1>Loans</h1><p>All customer loans with search and status filters</p></div> */}
+        <div><h1>Loans</h1><p>All customer loans with search and status filters</p></div>
         <div className="sp" />
         <div className="search"><Icon name="search" /><input className="inp" placeholder="Search loan ID or customer…" value={q} onChange={(e) => setQ(e.target.value)} /></div>
         {canCreateLoans && <a className="btn" href="#newloan"><Icon name="plus" /> New Gold Loan</a>}
@@ -138,7 +138,7 @@ export function Loans() {
         ))}
       </div>
       {error && <div className="notice" style={{ marginBottom: 14 }}>{error}</div>}
-      <div className="card"><div className="tbl-wrap"><table className="tbl">
+      <div className="card"><div className="tbl-wrap tbl-scroll"><table className="tbl tbl-center">
         <thead><tr><th>Loan / Customer</th><th>Scheme</th><th>Opened / Due</th><th className="num">Principal</th><th className="num">Outstanding</th><th>Pledge</th><th>Status</th></tr></thead>
         <tbody>
           {loading ? (

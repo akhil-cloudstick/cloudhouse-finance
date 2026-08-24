@@ -107,6 +107,28 @@ func (h *Handler) Ack(c *gin.Context) {
 	httpx.SuccessMessage(c, http.StatusOK, "Notification acknowledged")
 }
 
+// Read backs POST /customer/notifications/:id/read — called when the
+// customer taps a notification to view its full description (see the
+// customer app's notification detail modal). This is the real "read" signal;
+// Delivered/Ack only ever mean "reached the device."
+func (h *Handler) Read(c *gin.Context) {
+	customerID, ok := customerIDFromContext(c)
+	if !ok {
+		httpx.Fail(c, http.StatusUnauthorized, "not authenticated")
+		return
+	}
+	id, err := httpx.IDParam(c, "id")
+	if err != nil {
+		httpx.FailErr(c, err)
+		return
+	}
+	if err := h.svc.Read(id, customerID); err != nil {
+		httpx.FailErr(c, err)
+		return
+	}
+	httpx.SuccessMessage(c, http.StatusOK, "Notification marked read")
+}
+
 // inboundMessage is the only shape a client ever sends up the socket — an
 // ack for a notification it just received (this IS the "client received"
 // signal the Delivered flag is keyed on, per the locked decision; there is

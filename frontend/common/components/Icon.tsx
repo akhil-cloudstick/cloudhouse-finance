@@ -105,6 +105,13 @@ const PATHS: Record<string, React.ReactNode> = {
     </>
   ),
   edit: <path d="M12 20h9M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z" />,
+  print: (
+    <>
+      <path d="M6 9V3h12v6M6 18h12v3H6z" />
+      <rect x="4" y="9" width="16" height="7" rx="1.5" />
+      <path d="M9 13h6" />
+    </>
+  ),
   gear: (
     <>
       <circle cx="12" cy="12" r="3" />

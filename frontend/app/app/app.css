@@ -124,7 +124,12 @@ h1,h2,h3,.serif{font-family:'Bodoni Moda',serif;font-optical-sizing:auto}
   pointer-events:none;
 }
 .gs-results{
-  display:none;position:absolute;top:calc(100% + 8px);left:0;right:0;
+  /* left:0;right:0 sizes this to the positioned parent's width — without
+   * border-box, this rule's own padding+border were then added ON TOP of
+   * that width (content-box default), rendering the panel a few px wider
+   * than its input on each side and poking past a modal's own padding
+   * (reported as the dropdown "cutting into" the modal edge). */
+  display:none;position:absolute;top:calc(100% + 8px);left:0;right:0;box-sizing:border-box;
   background:var(--card);border:1px solid var(--line);border-radius:10px;
   box-shadow:0 24px 60px -18px rgba(60,45,10,.4);
   max-height:420px;overflow-y:auto;z-index:60;padding:6px;
@@ -139,6 +144,8 @@ h1,h2,h3,.serif{font-family:'Bodoni Moda',serif;font-optical-sizing:auto}
   padding:8px 11px;border-radius:7px;text-decoration:none;color:var(--ink);
 }
 .gs-results a:hover,.gs-results a.sel{background:#f8efd6}
+.gs-results a.disabled{color:var(--muted);opacity:.5;cursor:not-allowed}
+.gs-results a.disabled:hover{background:transparent}
 .gs-results a .ic{
   width:30px;height:30px;border-radius:7px;flex-shrink:0;
   background:#f8eecb;color:var(--gold-deep);display:grid;place-content:center;
@@ -158,8 +165,38 @@ h1,h2,h3,.serif{font-family:'Bodoni Moda',serif;font-optical-sizing:auto}
 .gs-results::-webkit-scrollbar-thumb{background:var(--gold-light);border-radius:6px}
 .gs-results::-webkit-scrollbar-thumb:hover{background:var(--gold)}
 
+/* ── themed file input (components/ui/FileInput.tsx) ───────────────────── */
+.fi{position:relative;width:100%;box-sizing:border-box}
+/* The real input sits on top, fully transparent, so the label below still
+ * gets native click/keyboard/drag-drop behavior — only the OS chrome is
+ * hidden, not the control itself. */
+.fi-native{position:absolute;inset:0;opacity:0;cursor:pointer;z-index:1}
+.fi-native:disabled{cursor:not-allowed}
+.fi-trigger{display:flex;align-items:center;justify-content:space-between;gap:8px;cursor:pointer}
+.fi-trigger.fi-disabled{cursor:not-allowed;opacity:.6}
+/* flex:1 + min-width:0 is required for a flex child to actually shrink
+ * below its content width — without min-width:0 (a flex item's default is
+ * min-width:auto), the overflow rule below never engages and a long
+ * placeholder/filename instead overflows past the icon. No ellipsis: a
+ * plain <input>'s overflowing placeholder (e.g. the Aadhaar field) just
+ * gets hard-clipped at the box edge with no "…", so this matches that
+ * look instead of announcing the truncation. */
+.fi-name{flex:1;min-width:0;overflow:hidden;white-space:nowrap}
+.fi-ic{width:15px;height:15px;color:var(--gold-deep);flex-shrink:0}
+.fi-clear{
+  position:absolute;top:50%;right:34px;transform:translateY(-50%);z-index:2;
+  width:18px;height:18px;line-height:16px;text-align:center;border-radius:50%;
+  border:1px solid var(--line);background:var(--card);color:var(--muted);
+  font-size:14px;cursor:pointer;padding:0;
+}
+.fi-clear:hover{color:var(--red);border-color:var(--red)}
+
 /* ── themed date picker (components/DatePicker.tsx) ───────────────────── */
 .dp{position:relative}
+/* DatePicker (not Select, which shares the same .dp/.dp-trigger/.dp-panel
+ * classes) — every date field app-wide is a fixed 230px regardless of its
+ * grid cell's own width, per the house convention. */
+.dp.dp-date{width:230px;flex:0 0 230px}
 .dp-trigger{display:flex;align-items:center;justify-content:space-between;gap:8px;text-align:left;cursor:pointer}
 /* DatePicker's calendar icon (24x24 viewBox via lib/icons) — sized down to
  * sit inline with the input text. */
@@ -170,10 +207,19 @@ h1,h2,h3,.serif{font-family:'Bodoni Moda',serif;font-optical-sizing:auto}
 .dp-trigger .sel-chevron{width:9px;height:9px;color:var(--gold-deep);flex-shrink:0}
 .dp-trigger:disabled{cursor:not-allowed;opacity:.6}
 .dp-panel{
-  position:absolute;top:calc(100% + 6px);left:0;z-index:60;width:264px;
+  /* Matches `.dp-trigger`'s own width (the `.dp` wrapper is a plain block
+   * div sized by its trigger button) instead of a fixed 264px, so a
+   * Select's popover is never wider than the field it opens from.
+   * min-width keeps the 7-column day grid from ever getting cramped on a
+   * narrower field. */
+  position:absolute;top:calc(100% + 6px);left:0;z-index:60;width:100%;min-width:230px;box-sizing:border-box;
   background:var(--card);border:1px solid var(--line);border-radius:10px;
   box-shadow:0 24px 60px -18px rgba(60,45,10,.4);padding:12px;
 }
+/* The days/years sub-views inside .dp-panel are both always mounted (see
+ * DatePicker.tsx) and switched with this instead of conditional rendering,
+ * so a mode-switch click never removes its own target node from the DOM. */
+.dp-hidden{display:none}
 .dp-hd{display:flex;align-items:center;justify-content:space-between;margin-bottom:8px}
 .dp-hd b{font-size:13px;color:var(--charcoal)}
 .dp-title{border:0;background:transparent;font-size:13px;font-weight:600;color:var(--charcoal);cursor:pointer;border-radius:6px;padding:2px 8px}
@@ -220,7 +266,10 @@ h1,h2,h3,.serif{font-family:'Bodoni Moda',serif;font-optical-sizing:auto}
 .top .logout{color:var(--muted);text-decoration:none;font-size:12px;border:1px solid var(--line);padding:5px 12px;border-radius:6px;background:#fff}
 .top .logout:hover{color:var(--red);border-color:#e4c2ba}
 
-.page{padding:24px 26px 60px;max-width:1460px}
+/* No max-width — the page stretches to the full available width (up to
+ * ~1980px screens) instead of capping at 1460px and leaving empty space
+ * on wide monitors, matching every table/card grid below to fill it. */
+.page{padding:24px 26px 60px}
 .page-h{display:flex;align-items:flex-end;gap:14px;flex-wrap:wrap;margin-bottom:20px}
 .page-h h1{font-size:30px;font-weight:600;letter-spacing:.03em;color:var(--charcoal)}
 .page-h p{font-size:13.5px;color:var(--muted);margin-top:2px}
@@ -241,6 +290,14 @@ h1,h2,h3,.serif{font-family:'Bodoni Moda',serif;font-optical-sizing:auto}
   background:var(--card);border:1px solid var(--line);border-radius:8px;
   box-shadow:0 1px 2px rgba(154,111,15,.06),0 14px 34px -22px rgba(120,86,20,.35);
   position:relative;
+  /* Flex column so `.ft` always settles at the card's bottom edge — even
+   * when a CSS grid row stretches this card taller than its own content
+   * (e.g. Loan Schemes' card grid, where cards with less text would
+   * otherwise leave their footer floating mid-card instead of aligned
+   * with the row's tallest card's footer). No overflow/scroll is set on
+   * `.bd`, so content still grows the card naturally; this only fills
+   * the slack a stretched grid row adds. */
+  display:flex;flex-direction:column;
 }
 .card.gtop::before{
   content:"";position:absolute;left:12px;right:12px;top:0;height:2px;
@@ -252,12 +309,13 @@ h1,h2,h3,.serif{font-family:'Bodoni Moda',serif;font-optical-sizing:auto}
 }
 .card .hd h3{font-size:19px;font-weight:600;letter-spacing:.03em;color:var(--charcoal)}
 .card .hd .sp{flex:1}
-.card .bd{padding:16px 18px}
-.card .ft{padding:10px 18px;border-top:1px solid #f0e7cd;font-size:12.5px;color:var(--muted)}
+.card .bd{padding:16px 18px;flex:1}
+.card .ft{padding:10px;border-top:1px solid #f0e7cd;font-size:12.5px;color:var(--muted)}
 
 /* KPI tiles */
-.kpis{display:grid;grid-template-columns:repeat(auto-fill,minmax(172px,1fr));gap:13px}
+.kpis{display:grid;grid-template-columns:repeat(auto-fill,213px);gap:13px}
 .kpi{
+  width:213px;height:89px;box-sizing:border-box;
   background:var(--card);border:1px solid var(--line);border-radius:8px;
   padding:13px 15px;position:relative;overflow:hidden;
 }
@@ -266,7 +324,7 @@ h1,h2,h3,.serif{font-family:'Bodoni Moda',serif;font-optical-sizing:auto}
   background:linear-gradient(180deg,var(--gold-light),var(--gold-deep));
 }
 .kpi .l{font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--muted)}
-.kpi .v{font-family:'Bodoni Moda',serif;font-size:27px;font-weight:700;color:var(--charcoal);margin-top:3px;line-height:1}
+.kpi .v{font-family:'Bodoni Moda',serif;font-size:21px;font-weight:700;color:var(--charcoal);margin-top:3px;line-height:1}
 .kpi .s{font-size:11.5px;margin-top:5px;color:var(--muted)}
 /* Cash.tsx's KPI row shows full rupee amounts ("₹1,23,456.00") rather than
  * the short counts/rates the 27px default was sized for — at that size a
@@ -344,6 +402,19 @@ label.f{display:block;font-size:11px;letter-spacing:.14em;text-transform:upperca
 
 /* ── tables ─────────────────────────────── */
 .tbl-wrap{overflow-x:auto}
+/* Pages whose table can outgrow the viewport at full page size (Loans,
+ * Gold Rates) — cap the wrapper's height and let it scroll internally
+ * instead of stretching the whole page (and its own outer scrollbar)
+ * taller than the viewport. Sticky header keeps column labels visible
+ * while scrolling through rows. */
+.tbl-scroll{max-height:calc(100vh - 320px);overflow-y:auto}
+.tbl-scroll .tbl th{position:sticky;top:0;z-index:1}
+/* At >=1130px width there's enough vertical room on these pages (Loans,
+ * Gold Rates, Extensions & Release, Customers) that the table should just
+ * grow with its rows instead of scrolling internally. */
+@media (min-width:1130px){
+  .tbl-scroll{max-height:none!important;overflow-y:visible!important}
+}
 table.tbl{width:100%;border-collapse:collapse;font-size:13.5px;min-width:640px}
 .tbl th{
   text-align:left;font-size:10.5px;letter-spacing:.16em;text-transform:uppercase;
@@ -356,6 +427,10 @@ table.tbl{width:100%;border-collapse:collapse;font-size:13.5px;min-width:640px}
 .tbl tbody tr:hover{background:#fdf8ea}
 .tbl tr.click{cursor:pointer}
 .tbl .num{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+/* Loans page only (.tbl.tbl-center) — center every column's content,
+ * including the numeric ones that .tbl .num otherwise right-aligns. */
+.tbl.tbl-center th,.tbl.tbl-center td{text-align:center}
+.tbl.tbl-center .num{text-align:center}
 .tbl .id{font-size:12.5px;color:var(--gold-deep);font-weight:600;letter-spacing:.03em;white-space:nowrap}
 .tbl .sub{display:block;font-size:11.5px;color:var(--muted)}
 
@@ -470,9 +545,9 @@ table.tbl{width:100%;border-collapse:collapse;font-size:13.5px;min-width:640px}
   box-shadow:inset 0 1px 4px rgba(120,86,20,.15);
 }
 .donut .c{position:absolute;inset:20px;display:grid;place-content:center;text-align:center;z-index:1}
-.donut .c b{font-family:'Bodoni Moda',serif;font-size:22px;color:var(--charcoal)}
-.donut .c small{font-size:9px;letter-spacing:.14em;color:var(--muted);text-transform:uppercase}
-.legend{list-style:none;font-size:12.5px;flex:1}
+.donut .c b{font-family:'Bodoni Moda',serif;font-size:14px;color:var(--charcoal)}
+.donut .c small{font-size:8px;letter-spacing:.14em;color:var(--muted);text-transform:uppercase}
+.legend{list-style:none;font-size:11px;flex:1}
 .legend li{display:flex;align-items:center;gap:8px;padding:3px 0;color:var(--ink)}
 .legend i{width:10px;height:10px;border-radius:3px;flex-shrink:0}
 .legend b{margin-left:auto;font-variant-numeric:tabular-nums}
@@ -523,6 +598,13 @@ table.tbl{width:100%;border-collapse:collapse;font-size:13.5px;min-width:640px}
 .kv{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:12px 20px}
 .kv .i .k{font-size:10.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--muted)}
 .kv .i .v{font-size:14px;color:var(--charcoal);margin-top:2px;font-weight:500}
+/* Loan Schemes cards only — a long Method value ("Monthly simple
+ * interest") wraps to 2 lines while its neighbors stay 1 line, which
+ * shifts that one card's dashed divider (the `.cond` paragraph's
+ * border-top) down relative to the other cards in the same grid row.
+ * Reserve 2 lines' height on every value cell so the divider lands at
+ * the same offset in every card regardless of which values wrap. */
+.scheme-kv .i .v{min-height:36px;line-height:18px}
 
 .empty{padding:34px;text-align:center;color:var(--muted);font-size:13.5px}
 .notice{
@@ -582,6 +664,19 @@ table.tbl{width:100%;border-collapse:collapse;font-size:13.5px;min-width:640px}
    visually hidden (not display:none, so it stays focusable/clickable and
    keeps native keyboard behavior for a radio group) and the `.mark` is
    drawn/recolored off its :checked state. */
+/* Roles & Permissions — a flat list of module sections (stacked full-width
+ * rows) instead of a multi-column card grid, per module. Each module's own
+ * permissions are still a list of individually-toggleable rows. */
+.perm-list{display:flex;flex-direction:column;border:1px solid var(--line);border-radius:8px;overflow:hidden}
+.perm-list-mod{border-bottom:1px solid var(--line)}
+.perm-list-mod:last-child{border-bottom:0}
+.perm-list-mod-name{
+  padding:10px 16px;font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;
+  color:var(--gold-deep);background:#fbf6e9;border-bottom:1px solid #f0e7cd;
+}
+.perm-list-rows{display:flex;flex-direction:column}
+.perm-list-row{padding:10px 16px!important;border-bottom:1px solid #f2ead2}
+.perm-list-row:last-child{border-bottom:0}
 .cradio,.ccheck{display:flex;gap:8px;align-items:flex-start;cursor:pointer;position:relative}
 .cradio input,.ccheck input{position:absolute;opacity:0;width:16px;height:16px;margin:0;cursor:pointer}
 .cradio .mark,.ccheck .mark{

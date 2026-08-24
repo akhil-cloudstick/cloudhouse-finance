@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useModal } from "@/common/components/Modal";
 import { useToast } from "@/common/components/Toast";
 import { useAuth } from "@/common/auth-context";
@@ -9,14 +9,87 @@ import { StatusChip } from "@/common/components/ui/StatusChip";
 import { DatePicker } from "@/common/components/ui/DatePicker";
 import { LoanRow } from "@/modules/loans/components/LoanRow";
 import { Icon } from "@/common/components/Icon";
-import { getCustomer360, verifyCustomerPan, startAadhaarVerify, checkAadhaarVerify, type Customer360View } from "@/modules/customers/services/customerService";
-import type { LoanView } from "@/modules/loans/services/loanService";
+import {
+  getCustomer360,
+  verifyCustomerPan,
+  startAadhaarVerify,
+  checkAadhaarVerify,
+  listCustomerLoansPage,
+  listCustomerOrnamentsPage,
+  listCustomerPaymentsPage,
+  listCustomerBankPledgesPage,
+  listCustomerAuctionHistoryPage,
+  type Customer360View,
+} from "@/modules/customers/services/customerService";
+import type {
+  LoanView,
+  CustomerOrnamentRowView,
+  CustomerPaymentRowView,
+  CustomerBankPledgeRowView,
+  CustomerAuctionRowView,
+} from "@/modules/loans/services/loanService";
 import {
   SelectLoanForRequestModalContent,
   RequestExtensionModalContent,
   RequestReleaseModalContent,
 } from "@/common/components/modals/RequestExtensionModal";
 import { EditCustomerModalContent } from "@/common/components/modals/EditCustomerModal";
+
+/* Server-side pager for the 360 view's sub-tables: each of the 5 tables
+ * below fetches its own page (limit 10) from its own
+ * GET /customers/:id/{...} endpoint (see customerService.ts) rather than
+ * slicing rows already pulled in by getCustomer360 — a real network
+ * round-trip per page, following the same limit/offset + {items, hasMore}
+ * convention as Requests.tsx. `range` is the shared from/to opened-date
+ * window; changing it resets the table back to page 1. */
+function useSubTablePage<T>(
+  fetchPage: (page: number, range?: { from?: string; to?: string }) => Promise<{ items: T[]; hasMore: boolean }>,
+  range: { from?: string; to?: string },
+  ready: boolean
+) {
+  const [items, setItems] = useState<T[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [page, setPage] = useState(1);
+  const [hasMore, setHasMore] = useState(false);
+  const from = range.from;
+  const to = range.to;
+
+  const refresh = useCallback(() => {
+    if (!ready) return;
+    setLoading(true);
+    fetchPage(page, { from, to })
+      .then((res) => {
+        setItems(res.items);
+        setHasMore(res.hasMore);
+      })
+      .catch(() => {
+        setItems([]);
+        setHasMore(false);
+      })
+      .finally(() => setLoading(false));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fetchPage, page, from, to, ready]);
+
+  useEffect(() => {
+    refresh();
+  }, [refresh]);
+
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => setPage(1), [from, to]);
+
+  const totalPages = hasMore ? page + 1 : page;
+  return { items, loading, page, setPage, totalPages };
+}
+
+function Pager({ page, totalPages, onChange }: { page: number; totalPages: number; onChange: (p: number) => void }) {
+  return (
+    <div className="ft" style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px" }}>
+      <button className="btn plain sm" style={{ padding: "4px 10px" }} disabled={page <= 1} onClick={() => onChange(Math.max(1, page - 1))}>‹ Prev</button>
+      <span style={{ fontSize: 12.5 }}>Page {page} of {totalPages}</span>
+      <button className="btn plain sm" style={{ padding: "4px 10px" }} disabled={page >= totalPages} onClick={() => onChange(Math.min(totalPages, page + 1))}>Next ›</button>
+    </div>
+  );
+}
 
 function ProofLink({ label, url }: { label: string; url: string }) {
   if (!url) return <div className="i"><div className="k">{label}</div><div className="v" style={{ color: "var(--muted)" }}>Not provided</div></div>;
@@ -46,7 +119,11 @@ export function CustomerDetail({ id }: { id?: string }) {
 
   const [profile, setProfile] = useState<Customer360View | null>(null);
   const [error, setError] = useState("");
-  const [verifying, setVerifying] = useState(false);
+  // Separate loading flags per verification — sharing one flag made the PAN
+  // and Aadhaar buttons both show "Verifying…"/"Starting…" whenever either
+  // one was clicked, even though they're independent calls.
+  const [verifyingPan, setVerifyingPan] = useState(false);
+  const [startingAadhaar, setStartingAadhaar] = useState(false);
   // DigiLocker Aadhaar verify is a redirect flow — "started" means the
   // customer's been sent the DigiLocker login URL and we're waiting for
   // them to complete it on their own device, so a "Check Status" button
@@ -71,17 +148,41 @@ export function CustomerDetail({ id }: { id?: string }) {
       .finally(() => setReloading(false));
   }, [id, from, to]);
 
+  // These must run on every render regardless of whether `profile` has
+  // loaded yet — calling them after the early returns below made their
+  // hook count change between the "loading" render and the loaded one,
+  // which React's rules of hooks forbid (it was throwing "change in the
+  // order of Hooks called by CustomerDetail"). id is only ever set once
+  // known (see the parent route), so a stable "" fallback here doesn't
+  // race actual data loading.
+  const range = { from, to };
+  const listLoans = useCallback((page: number, r?: { from?: string; to?: string }) => listCustomerLoansPage(id || "", page, r), [id]);
+  const listOrnaments = useCallback((page: number, r?: { from?: string; to?: string }) => listCustomerOrnamentsPage(id || "", page, r), [id]);
+  const listPayments = useCallback((page: number, r?: { from?: string; to?: string }) => listCustomerPaymentsPage(id || "", page, r), [id]);
+  const listBankPledges = useCallback((page: number, r?: { from?: string; to?: string }) => listCustomerBankPledgesPage(id || "", page, r), [id]);
+  const listAuctionHistory = useCallback((page: number, r?: { from?: string; to?: string }) => listCustomerAuctionHistoryPage(id || "", page, r), [id]);
+
+  const loanPager = useSubTablePage<LoanView>(listLoans, range, !!id);
+  const ornamentPager = useSubTablePage<CustomerOrnamentRowView>(listOrnaments, range, !!id);
+  const paymentPager = useSubTablePage<CustomerPaymentRowView>(listPayments, range, !!id);
+  const bankPledgePager = useSubTablePage<CustomerBankPledgeRowView>(listBankPledges, range, !!id);
+  const auctionPager = useSubTablePage<CustomerAuctionRowView>(listAuctionHistory, range, !!id);
+
+  // profile.loans still backs the "Request Extension / Release" picker
+  // below — that's a full-set picker, not a paginated table, so it keeps
+  // reading straight off getCustomer360's response.
+  const cLoans = profile?.loans || [];
+
   // A range change keeps the previously loaded profile on screen (dimmed
   // via `reloading`) so the page doesn't blank out between fetches.
   if (error && !profile) return <div className="empty">Customer not found — {error}</div>;
   if (!profile) return <div className="empty">Loading customer…</div>;
 
   const c = profile.customer;
-  const cLoans = profile.loans;
 
   async function verifyPan() {
     if (!id) return;
-    setVerifying(true);
+    setVerifyingPan(true);
     try {
       const result = await verifyCustomerPan(id);
       setProfile((p) => (p ? { ...p, customer: result.customer } : p));
@@ -96,13 +197,13 @@ export function CustomerDetail({ id }: { id?: string }) {
     } catch (e) {
       toast(e instanceof Error ? e.message : "PAN verification failed.");
     } finally {
-      setVerifying(false);
+      setVerifyingPan(false);
     }
   }
 
   async function sendAadhaarVerificationLink() {
     if (!id) return;
-    setVerifying(true);
+    setStartingAadhaar(true);
     try {
       const redirectUrl = `${window.location.origin}/digilocker-callback`;
       const started = await startAadhaarVerify(id, redirectUrl);
@@ -112,7 +213,7 @@ export function CustomerDetail({ id }: { id?: string }) {
     } catch (e) {
       toast(e instanceof Error ? e.message : "Could not start Aadhaar verification.");
     } finally {
-      setVerifying(false);
+      setStartingAadhaar(false);
     }
   }
 
@@ -175,9 +276,6 @@ export function CustomerDetail({ id }: { id?: string }) {
           <div><h1 style={{ fontSize: 26 }}>{c.name}</h1><p>{c.code} · {c.branchName} branch</p></div>
         </div>
         <div className="sp" />
-        <button className="btn ghost sm" onClick={() => toast("SMS/WhatsApp composer — full build")}>
-          <Icon name="chat" /> Message
-        </button>
         <button className="btn ghost sm" onClick={openEditCustomer}><Icon name="edit" /> Edit Customer</button>
         <button className="btn ghost sm" onClick={openRequestPicker}><Icon name="unlock" /> Request Extension / Release</button>
         {canCreateLoans && <a className="btn sm" href="#newloan"><Icon name="plus" /> New Loan</a>}
@@ -208,16 +306,16 @@ export function CustomerDetail({ id }: { id?: string }) {
                 <div className="i"><div className="k">PAN</div><div className="v" style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
                   <span>{c.pan || "—"} · <StatusChip status={c.panStatus} /></span>
                   {c.pan && c.panStatus !== "Verified" && (
-                    <button className="btn ghost sm" style={{ padding: "2px 8px" }} onClick={verifyPan} disabled={verifying}>
-                      {verifying ? "Verifying…" : "Verify PAN"}
+                    <button className="btn ghost sm" style={{ padding: "2px 8px" }} onClick={verifyPan} disabled={verifyingPan}>
+                      {verifyingPan ? "Verifying…" : "Verify PAN"}
                     </button>
                   )}
                 </div></div>
                 <div className="i"><div className="k">Aadhaar</div><div className="v" style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
                   <span>{c.aadhaarLast4 ? "XXXX-XXXX-" + c.aadhaarLast4 : "—"} · <StatusChip status={c.aadhaarStatus} /></span>
                   {c.aadhaarStatus !== "Verified" && !aadhaarStarted && (
-                    <button className="btn ghost sm" style={{ padding: "2px 8px" }} onClick={sendAadhaarVerificationLink} disabled={verifying}>
-                      {verifying ? "Starting…" : "Verify via DigiLocker"}
+                    <button className="btn ghost sm" style={{ padding: "2px 8px" }} onClick={sendAadhaarVerificationLink} disabled={startingAadhaar}>
+                      {startingAadhaar ? "Starting…" : "Verify via DigiLocker"}
                     </button>
                   )}
                   {c.aadhaarStatus !== "Verified" && aadhaarStarted && (
@@ -250,7 +348,7 @@ export function CustomerDetail({ id }: { id?: string }) {
               </div></div>
             </div>
           )}
-          <div className="card"><div className="hd"><h3>Relationship Summary</h3></div>
+          <div className="card"><div className="hd"><h3>Overall Loan Details</h3></div>
             <div className="bd"><div className="kv">
               <div className="i"><div className="k">Total Disbursed</div><div className="v">{fmt(profile.totalDisbursed)}</div></div>
               <div className="i"><div className="k">Outstanding</div><div className="v">{fmt(profile.totalOutstanding)}</div></div>
@@ -262,94 +360,96 @@ export function CustomerDetail({ id }: { id?: string }) {
         </div>
         <div className="grid">
           <div className="card"><div className="hd"><h3>Loan History</h3></div>
-            <div className="tbl-wrap"><table className="tbl">
+            <div className="tbl-wrap"><table className="tbl tbl-center">
               <thead><tr><th>Loan</th><th>Scheme</th><th>Opened / Due</th><th className="num">Principal</th><th className="num">Outstanding</th><th>Pledge</th><th>Status</th></tr></thead>
               <tbody>
-                {cLoans.length === 0 ? (
+                {loanPager.items.length === 0 ? (
                   <tr><td colSpan={7} className="empty">No loans yet.</td></tr>
-                ) : cLoans.map((l) => <LoanRow loan={l} key={l.id} />)}
+                ) : loanPager.items.map((l) => <LoanRow loan={l} key={l.id} />)}
               </tbody>
             </table></div>
+            <Pager page={loanPager.page} totalPages={loanPager.totalPages} onChange={loanPager.setPage} />
           </div>
 
           <div className="card"><div className="hd"><h3>Pledged Ornaments (all loans)</h3></div>
-            <div className="tbl-wrap"><table className="tbl">
+            <div className="tbl-wrap"><table className="tbl tbl-center">
               <thead><tr><th>Loan</th><th>Ornament</th><th>Purity</th><th className="num">Net (g)</th><th className="num">Gold Value</th></tr></thead>
               <tbody>
-                {cLoans.flatMap((l) => l.ornaments.map((o) => ({ l, o }))).length === 0 ? (
+                {ornamentPager.items.length === 0 ? (
                   <tr><td colSpan={5} className="empty">No pledged ornaments yet.</td></tr>
-                ) : cLoans.flatMap((l) => l.ornaments.map((o) => (
-                  <tr key={l.id + "-" + o.id}>
-                    <td><a href={`#loan/${l.id}`}>{l.id}</a></td>
+                ) : ornamentPager.items.map((o) => (
+                  <tr key={o.loanId + "-" + o.id}>
+                    <td><a href={`#loan/${o.loanNumber}`}>{o.loanNumber}</a></td>
                     <td>{o.name}</td>
                     <td><span className="chip gold">{o.purity}</span></td>
                     <td className="num">{fmtW(o.netWeight)}</td>
                     <td className="num">{fmt(o.goldValue)}</td>
                   </tr>
-                )))}
+                ))}
               </tbody>
             </table></div>
+            <Pager page={ornamentPager.page} totalPages={ornamentPager.totalPages} onChange={ornamentPager.setPage} />
           </div>
 
           <div className="card"><div className="hd"><h3>Payment History (all loans)</h3></div>
-            <div className="tbl-wrap"><table className="tbl">
+            <div className="tbl-wrap"><table className="tbl tbl-center">
               <thead><tr><th>Loan</th><th>Date</th><th>Type</th><th className="num">Amount</th><th>Method</th></tr></thead>
               <tbody>
-                {cLoans.flatMap((l) => l.payments.map((p) => ({ l, p }))).length === 0 ? (
+                {paymentPager.items.length === 0 ? (
                   <tr><td colSpan={5} className="empty">No payments recorded yet.</td></tr>
-                ) : cLoans.flatMap((l) => l.payments.map((p) => (
-                  <tr key={l.id + "-" + p.id}>
-                    <td><a href={`#loan/${l.id}`}>{l.id}</a></td>
+                ) : paymentPager.items.map((p) => (
+                  <tr key={p.loanId + "-" + p.id}>
+                    <td><a href={`#loan/${p.loanNumber}`}>{p.loanNumber}</a></td>
                     <td>{p.paidOn}</td>
                     <td>{p.type}</td>
                     <td className="num">{fmt(p.amount)}</td>
                     <td>{p.method || "—"}</td>
                   </tr>
-                )))}
+                ))}
               </tbody>
             </table></div>
+            <Pager page={paymentPager.page} totalPages={paymentPager.totalPages} onChange={paymentPager.setPage} />
           </div>
 
           <div className="card"><div className="hd"><h3>Bank Pledges (all loans)</h3></div>
-            <div className="tbl-wrap"><table className="tbl">
+            <div className="tbl-wrap"><table className="tbl tbl-center">
               <thead><tr><th>Loan</th><th>Bank</th><th className="num">Amount</th><th>Pledged On</th><th>Status</th></tr></thead>
               <tbody>
-                {cLoans.flatMap((l) => l.bankPledges.map((p) => ({ l, p }))).length === 0 ? (
+                {bankPledgePager.items.length === 0 ? (
                   <tr><td colSpan={5} className="empty">No bank pledges yet.</td></tr>
-                ) : cLoans.flatMap((l) => l.bankPledges.map((p) => (
-                  <tr key={l.id + "-" + p.id}>
-                    <td><a href={`#loan/${l.id}`}>{l.id}</a></td>
+                ) : bankPledgePager.items.map((p) => (
+                  <tr key={p.loanId + "-" + p.id}>
+                    <td><a href={`#loan/${p.loanNumber}`}>{p.loanNumber}</a></td>
                     <td>{p.bankName}</td>
                     <td className="num">{fmt(p.pledgedAmount)}</td>
                     <td>{p.pledgeDate}</td>
                     <td><StatusChip status={p.isReleased ? "Released" : "Bank Pledged"} /></td>
                   </tr>
-                )))}
+                ))}
               </tbody>
             </table></div>
+            <Pager page={bankPledgePager.page} totalPages={bankPledgePager.totalPages} onChange={bankPledgePager.setPage} />
           </div>
 
-          {profile.auctionHistory.length > 0 && (
-            <div className="card"><div className="hd"><h3>Auction History</h3></div>
-              <div className="tbl-wrap"><table className="tbl">
-                <thead><tr><th>Loan</th><th>Stage</th><th>Auction Date</th><th className="num">Sale Amount</th><th className="num">Surplus/Shortfall</th></tr></thead>
-                <tbody>
-                  {profile.auctionHistory.map((a) => {
-                    const l = cLoans.find((cl) => cl.numericId === a.loanId);
-                    return (
-                      <tr key={a.id}>
-                        <td>{l ? <a href={`#loan/${l.id}`}>{l.id}</a> : a.loanId}</td>
-                        <td><StatusChip status={a.stage} /></td>
-                        <td>{a.auctionDate || "—"}</td>
-                        <td className="num">{a.saleAmount ? fmt(a.saleAmount) : "—"}</td>
-                        <td className="num" style={{ color: a.surplusShortfall >= 0 ? "var(--green)" : "var(--red)" }}>{a.saleAmount ? fmt(Math.abs(a.surplusShortfall)) : "—"}</td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table></div>
-            </div>
-          )}
+          <div className="card"><div className="hd"><h3>Auction History</h3></div>
+            <div className="tbl-wrap"><table className="tbl tbl-center">
+              <thead><tr><th>Loan</th><th>Stage</th><th>Auction Date</th><th className="num">Sale Amount</th><th className="num">Surplus/Shortfall</th></tr></thead>
+              <tbody>
+                {auctionPager.items.length === 0 ? (
+                  <tr><td colSpan={5} className="empty">No auction records yet.</td></tr>
+                ) : auctionPager.items.map((a) => (
+                  <tr key={a.id}>
+                    <td><a href={`#loan/${a.loanNumber}`}>{a.loanNumber}</a></td>
+                    <td><StatusChip status={a.stage} /></td>
+                    <td>{a.auctionDate || "—"}</td>
+                    <td className="num">{a.saleAmount ? fmt(a.saleAmount) : "—"}</td>
+                    <td className="num" style={{ color: a.surplusShortfall >= 0 ? "var(--green)" : "var(--red)" }}>{a.saleAmount ? fmt(Math.abs(a.surplusShortfall)) : "—"}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table></div>
+            <Pager page={auctionPager.page} totalPages={auctionPager.totalPages} onChange={auctionPager.setPage} />
+          </div>
         </div>
       </div>
     </>

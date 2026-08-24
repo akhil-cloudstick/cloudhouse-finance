@@ -8,12 +8,12 @@ import (
 
 // RegisterRoutes mounts every report's JSON listing endpoint plus the
 // shared :key/export endpoint, under rg (expected to be
-// r.Group("/api/v1/reports")). roleGate is
-// platform.RequireAnyRole("Administrator", "Management", "Branch Manager",
-// "Auditor") — stacked ahead of perms.Read, mirroring the auction routes'
-// double-gate pattern in internal/loan/routes.go.
-func RegisterRoutes(rg *gin.RouterGroup, h *Handler, perms platform.CRUDMiddlewares, roleGate gin.HandlerFunc) {
-	rg.Use(roleGate, perms.Read)
+// r.Group("/api/v1/reports")), gated by "can view report" — reports has no
+// write side, so perms only ever carries a Read gate (see
+// platform.CRUDPermissions, which leaves Create/Update/Delete nil for the
+// "reports" resource).
+func RegisterRoutes(rg *gin.RouterGroup, h *Handler, perms platform.CRUDMiddlewares) {
+	rg.Use(perms.Read)
 
 	rg.GET("/disbursement", h.Disbursement)
 	rg.GET("/loans/status", h.LoansStatus)

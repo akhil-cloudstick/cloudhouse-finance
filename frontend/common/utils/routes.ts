@@ -6,5 +6,6 @@ export const TITLES: Record<string, string> = {
   calendar: "Reminder Calendar", requests: "Extensions & Release", bankpledge: "Bank Re-Pledge",
   auctions: "Auctions", reports: "Reports", employees: "Employees",
   branches: "Branch Management",
+  "roles-permissions": "Roles & Permissions",
   settings: "Settings",
 };

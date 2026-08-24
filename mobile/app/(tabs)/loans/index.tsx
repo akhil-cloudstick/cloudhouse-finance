@@ -71,6 +71,7 @@ export default function LoansScreen() {
         placeholder="Loan number or customer…"
         value={search}
         onChangeText={setSearch}
+        blur
       />
       <FlatList<Loan>
         data={loans}

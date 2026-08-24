@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { useModal } from "@/common/components/Modal";
 import { useToast } from "@/common/components/Toast";
 import { Icon } from "@/common/components/Icon";
@@ -10,6 +10,7 @@ import { listActiveBranches, type BranchView } from "@/modules/branches/services
 import { createExpense, uploadReceipt, type ExpenseView } from "@/modules/cash/services/cashService";
 import { Select } from "@/common/components/ui/Select";
 import { DatePicker } from "@/common/components/ui/DatePicker";
+import { FileInput } from "@/common/components/ui/FileInput";
 
 const CATS = ["Rent & Utilities", "Salaries", "Transportation", "Marketing", "Bank Charges", "Maintenance", "Stationery & Office", "Legal & Miscellaneous", "Other"];
 const MODES = ["Cash", "UPI", "Bank"];
@@ -27,7 +28,7 @@ export function ExpenseModalContent({ onSaved }: { onSaved?: () => void }) {
   const { closeModal } = useModal();
   const toast = useToast();
   const today = new Date().toISOString().slice(0, 10);
-  const fileRef = useRef<HTMLInputElement | null>(null);
+  const [receiptFile, setReceiptFile] = useState<File | null>(null);
 
   const [desc, setDesc] = useState("");
   const [amt, setAmt] = useState("");
@@ -58,8 +59,7 @@ export function ExpenseModalContent({ onSaved }: { onSaved?: () => void }) {
     setSaving(true);
     try {
       let receiptImage: string | undefined;
-      const file = fileRef.current?.files?.[0];
-      if (file) receiptImage = await uploadReceipt(file);
+      if (receiptFile) receiptImage = await uploadReceipt(receiptFile);
 
       await createExpense({
         category: cat, amount, mode, payee, branchId,
@@ -99,7 +99,7 @@ export function ExpenseModalContent({ onSaved }: { onSaved?: () => void }) {
             placeholder="Select branch…"
           /></div></div>
         <div className="frow"><div><label className="f">Receipt / Bill Image</label>
-          <input className="inp" type="file" accept="image/*" ref={fileRef} /></div></div>
+          <FileInput value={receiptFile} onChange={setReceiptFile} accept="image/*" /></div></div>
         <div className="frow"><div><label className="f">Remarks</label>
           <textarea className="inp" rows={2} placeholder="Optional notes for the approver" value={remarks} onChange={(e) => setRemarks(e.target.value)} /></div></div>
         <p style={{ color: "var(--red)", fontSize: 12.5, minHeight: 16, marginTop: 8 }}>{err}</p>

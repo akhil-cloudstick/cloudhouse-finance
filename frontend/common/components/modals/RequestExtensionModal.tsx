@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useModal } from "@/common/components/Modal";
 import { useToast } from "@/common/components/Toast";
 import { Icon } from "@/common/components/Icon";
+import { Select } from "@/common/components/ui/Select";
 import { fmt, fmtW } from "@/common/utils/format";
 import { createExtensionRequest, createReleaseRequest, type LoanView } from "@/modules/loans/services/loanService";
 import { ApiError } from "@/common/services/httpClient";
@@ -124,15 +125,20 @@ export function SelectLoanForRequestModalContent({ loans, onPicked }: { loans: L
       <div className="hd"><h3>Request Extension / Release</h3><button className="x" onClick={closeModal}>×</button></div>
       <div className="bd">
         <div className="frow"><div><label className="f">Loan *</label>
-          <select className="inp" value={loanId} onChange={(e) => setLoanId(e.target.value)}>
-            <option value="">Select loan…</option>
-            {eligible.map((l) => <option key={l.id} value={l.id}>{l.id} — due {l.due} (outstanding ₹{l.outstanding.toLocaleString("en-IN")})</option>)}
-          </select></div></div>
+          <Select
+            options={[
+              { value: "", label: "Select loan…" },
+              ...eligible.map((l) => ({ value: l.id, label: `${l.id} — due ${l.due} (outstanding ₹${l.outstanding.toLocaleString("en-IN")})` })),
+            ]}
+            value={loanId}
+            onChange={setLoanId}
+          /></div></div>
         <div className="frow"><div><label className="f">Request Type *</label>
-          <select className="inp" value={type} onChange={(e) => setType(e.target.value as "Extension" | "Release")}>
-            <option value="Extension">Extension</option>
-            <option value="Release">Release</option>
-          </select></div></div>
+          <Select
+            options={[{ value: "Extension", label: "Extension" }, { value: "Release", label: "Release" }]}
+            value={type}
+            onChange={(v) => setType(v as "Extension" | "Release")}
+          /></div></div>
         {eligible.length === 0 && (
           <p className="notice"><Icon name="shield" /> This customer has no open loans to request an extension or release for.</p>
         )}

@@ -1,6 +1,25 @@
 import { apiFetchEnveloped as apiFetch, apiUploadEnveloped as apiUpload } from "@/common/services/httpClient";
 import type { BranchView } from "@/modules/branches/services/branchService";
-import { toView as toLoanView, toAuctionRecordView, type BackendLoan, type LoanView, type BackendAuctionRecord, type AuctionRecordView } from "@/modules/loans/services/loanService";
+import {
+  toView as toLoanView,
+  toAuctionRecordView,
+  toCustomerOrnamentRowView,
+  toCustomerPaymentRowView,
+  toCustomerBankPledgeRowView,
+  toCustomerAuctionRowView,
+  type BackendLoan,
+  type LoanView,
+  type BackendAuctionRecord,
+  type AuctionRecordView,
+  type BackendCustomerOrnamentRow,
+  type CustomerOrnamentRowView,
+  type BackendCustomerPaymentRow,
+  type CustomerPaymentRowView,
+  type BackendCustomerBankPledgeRow,
+  type CustomerBankPledgeRowView,
+  type BackendCustomerAuctionRow,
+  type CustomerAuctionRowView,
+} from "@/modules/loans/services/loanService";
 
 /* Shape returned by the Go backend (backend/internal/customer/model.go's
  * CustomerResponse — deliberately never the raw DB model, so there is no
@@ -291,6 +310,78 @@ export async function getCustomer360(
     activeLoanCount: rec.activeLoanCount,
     closedLoanCount: rec.closedLoanCount,
   };
+}
+
+/* --- Customer 360 sub-table pagination ------------------------------------
+ * The 5 sub-tables on CustomerDetail.tsx (Loan History, Pledged Ornaments,
+ * Payment History, Bank Pledges, Auction History) used to be sliced
+ * client-side out of getCustomer360's single big payload. They're now
+ * fetched independently, one paginated call per page per table, following
+ * this codebase's limit/offset + {items, hasMore} convention (see
+ * loanService.ts's listLoansPage) — each backed by its own
+ * GET /customers/:id/{loans,ornaments,payments,bank-pledges,
+ * auction-history} endpoint (backend/internal/loan/handler.go). `range`
+ * mirrors getCustomer360's from/to opened-date window. */
+export const CUSTOMER_SUBTABLE_PAGE_SIZE = 10;
+
+function subTableParams(page: number, range?: { from?: string; to?: string }): URLSearchParams {
+  const params = new URLSearchParams({
+    limit: String(CUSTOMER_SUBTABLE_PAGE_SIZE),
+    offset: String((page - 1) * CUSTOMER_SUBTABLE_PAGE_SIZE),
+  });
+  if (range?.from) params.set("from", range.from);
+  if (range?.to) params.set("to", range.to);
+  return params;
+}
+
+export async function listCustomerLoansPage(
+  customerId: string,
+  page: number,
+  range?: { from?: string; to?: string }
+): Promise<{ items: LoanView[]; hasMore: boolean }> {
+  const params = subTableParams(page, range);
+  const rec = await apiFetch<{ items: BackendLoan[]; hasMore: boolean }>(`/customers/${customerId}/loans?${params}`);
+  return { items: (rec?.items || []).map(toLoanView), hasMore: !!rec?.hasMore };
+}
+
+export async function listCustomerOrnamentsPage(
+  customerId: string,
+  page: number,
+  range?: { from?: string; to?: string }
+): Promise<{ items: CustomerOrnamentRowView[]; hasMore: boolean }> {
+  const params = subTableParams(page, range);
+  const rec = await apiFetch<{ items: BackendCustomerOrnamentRow[]; hasMore: boolean }>(`/customers/${customerId}/ornaments?${params}`);
+  return { items: (rec?.items || []).map(toCustomerOrnamentRowView), hasMore: !!rec?.hasMore };
+}
+
+export async function listCustomerPaymentsPage(
+  customerId: string,
+  page: number,
+  range?: { from?: string; to?: string }
+): Promise<{ items: CustomerPaymentRowView[]; hasMore: boolean }> {
+  const params = subTableParams(page, range);
+  const rec = await apiFetch<{ items: BackendCustomerPaymentRow[]; hasMore: boolean }>(`/customers/${customerId}/payments?${params}`);
+  return { items: (rec?.items || []).map(toCustomerPaymentRowView), hasMore: !!rec?.hasMore };
+}
+
+export async function listCustomerBankPledgesPage(
+  customerId: string,
+  page: number,
+  range?: { from?: string; to?: string }
+): Promise<{ items: CustomerBankPledgeRowView[]; hasMore: boolean }> {
+  const params = subTableParams(page, range);
+  const rec = await apiFetch<{ items: BackendCustomerBankPledgeRow[]; hasMore: boolean }>(`/customers/${customerId}/bank-pledges?${params}`);
+  return { items: (rec?.items || []).map(toCustomerBankPledgeRowView), hasMore: !!rec?.hasMore };
+}
+
+export async function listCustomerAuctionHistoryPage(
+  customerId: string,
+  page: number,
+  range?: { from?: string; to?: string }
+): Promise<{ items: CustomerAuctionRowView[]; hasMore: boolean }> {
+  const params = subTableParams(page, range);
+  const rec = await apiFetch<{ items: BackendCustomerAuctionRow[]; hasMore: boolean }>(`/customers/${customerId}/auction-history?${params}`);
+  return { items: (rec?.items || []).map(toCustomerAuctionRowView), hasMore: !!rec?.hasMore };
 }
 
 /* Uploads one file (photo/identity proof/address proof/KYC document) to the

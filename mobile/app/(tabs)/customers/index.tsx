@@ -53,6 +53,7 @@ export default function CustomersScreen() {
         value={search}
         onChangeText={setSearch}
         containerStyle={{ marginHorizontal: 16 }}
+        blur
       />
       <View style={{ marginHorizontal: 16, marginBottom: 12 }}>
         <GoldButton title="+ Register customer" onPress={() => router.push("/customers/new")} />

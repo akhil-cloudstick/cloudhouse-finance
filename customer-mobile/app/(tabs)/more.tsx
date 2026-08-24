@@ -6,13 +6,18 @@ import { GoldButton } from "../../src/components/GoldButton";
 import { colors } from "../../src/theme/colors";
 import { useAuth } from "../../src/auth/AuthContext";
 
-// More tab per the Batch 5 plan: reviewing the full remaining scope (Documents
-// is its own tab, real Notifications is deferred for infra reasons, and
-// staff-side approval is a web-admin gap, not a customer-app page), there is
-// no distinct feature left to hang off "More" — so this tab simply *is* the
-// Profile view (see src/components/ProfileContent.tsx, shared with the
-// pushed `/profile` route) plus a Log out button. No invented filler content
-// (Support/Contact, App Version, etc.) with nothing real behind it.
+// Profile tab per the Batch 5 plan: reviewing the full remaining scope
+// (Documents is its own tab, real Notifications is deferred for infra
+// reasons, and staff-side approval is a web-admin gap, not a customer-app
+// page), there is no distinct feature left to hang off a catch-all "More" —
+// so this tab simply *is* the Profile view (see
+// src/components/ProfileContent.tsx — FloatingHeader's avatar button
+// everywhere else navigates straight here) plus a Log out button. No
+// invented filler content (Support/
+// Contact, App Version, etc.) with nothing real behind it. Route file stays
+// named `more` — renaming it would also mean touching AppTabBar.tsx's route
+// keys and _layout.tsx's Screen name for no functional gain; only the
+// user-visible label/title changed.
 export default function MoreScreen() {
   const { signOut } = useAuth();
 
@@ -25,7 +30,7 @@ export default function MoreScreen() {
 
   return (
     <View style={{ flex: 1, backgroundColor: colors.ivory }}>
-      <FloatingHeader title="More" navigation={undefined} />
+      <FloatingHeader title="Profile" navigation={undefined} />
       <ProfileContent
         footer={
           <GoldButton

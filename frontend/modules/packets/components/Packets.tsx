@@ -90,22 +90,17 @@ export function Packets() {
       <div className="page-h">
         <div><h1>Gold Packets &amp; Lockers</h1><p>Barcode/QR tracked packets · locker allocation &amp; movement</p></div>
         <div className="sp" />
+        <div className="search"><Icon name="search" /><input
+          className="inp"
+          placeholder="Enter or scan packet code (press Enter)"
+          value={lookup}
+          onChange={(e) => { setLookup(e.target.value); setLookupErr(""); }}
+          onKeyDown={onLookup}
+        /></div>
         <button className="btn" onClick={() => openModal(<LockerModalContent key="new" onSaved={load} />)}><Icon name="plus" /> Add Locker</button>
       </div>
+      {lookupErr && <p style={{ color: "var(--red)", fontSize: 12.5, marginTop: -4, marginBottom: 8 }}>{lookupErr}</p>}
       <hr className="gold-rule" />
-      <div className="frow" style={{ marginBottom: 16 }}>
-        <div style={{ maxWidth: 360 }}>
-          <label className="f">Enter or scan packet code</label>
-          <input
-            className="inp"
-            placeholder="PKT-000123 (press Enter)"
-            value={lookup}
-            onChange={(e) => { setLookup(e.target.value); setLookupErr(""); }}
-            onKeyDown={onLookup}
-          />
-          {lookupErr && <p style={{ color: "var(--red)", fontSize: 12.5, marginTop: 6 }}>{lookupErr}</p>}
-        </div>
-      </div>
       {error && (
         <p style={{ color: "var(--red)", fontSize: 13.5 }}>
           Could not reach the server — {error}
@@ -116,7 +111,7 @@ export function Packets() {
         <div className="card">
           <div className="hd"><h3>Packets</h3></div>
           <div className="tbl-wrap">
-            <table className="tbl">
+            <table className="tbl tbl-center">
               <thead>
                 <tr><th>Packet Code</th><th>Loan</th><th>Customer</th><th className="num">Items</th><th className="num">Weight</th><th>Locker</th><th>Status</th></tr>
               </thead>

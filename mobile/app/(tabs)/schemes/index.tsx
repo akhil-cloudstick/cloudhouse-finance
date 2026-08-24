@@ -28,7 +28,7 @@ export default function SchemesScreen() {
   return (
     <ScreenContainer style={{ paddingHorizontal: 0 }}>
       <View style={{ paddingHorizontal: 16 }}>
-        <GoldTextInput label="Search schemes" value={search} onChangeText={setSearch} />
+        <GoldTextInput label="Search schemes" value={search} onChangeText={setSearch} blur />
         <GoldButton title="+ New Scheme" variant="outline" onPress={() => router.push("/schemes/new")} />
       </View>
 

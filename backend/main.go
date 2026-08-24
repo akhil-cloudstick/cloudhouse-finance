@@ -16,6 +16,7 @@ import (
 	"ambikagold/backend/internal/commlog"
 	"ambikagold/backend/internal/customer"
 	"ambikagold/backend/internal/customerauth"
+	"ambikagold/backend/internal/dashboard"
 	"ambikagold/backend/internal/employee"
 	"ambikagold/backend/internal/goldrate"
 	"ambikagold/backend/internal/loan"
@@ -198,6 +199,9 @@ func main() {
 	reminderSvc := reminder.NewService(reminderRepo, customerRepo, loanRepo, whatsappSender, commlogRepo)
 	reminderHandler := reminder.NewHandler(reminderSvc)
 
+	dashboardSvc := dashboard.NewService(loanRepo, loanRequestRepo)
+	dashboardHandler := dashboard.NewHandler(dashboardSvc)
+
 	uploadHandler := upload.NewHandler(cfg.UploadsDir)
 
 	ornamentTypeRepo := ornamenttype.NewRepository(db)
@@ -290,6 +294,7 @@ func main() {
 	customerNotifications.Use(customerAuthMiddleware)
 	customerNotifications.GET("", notificationHandler.List)
 	customerNotifications.POST("/:id/ack", notificationHandler.Ack)
+	customerNotifications.POST("/:id/read", notificationHandler.Read)
 	v1.GET("/customer/ws", customerAuthMiddleware, notificationHandler.Upgrade)
 
 	// Every other /api/v1 route requires a valid JWT ("checkpoint 1"), then
@@ -317,19 +322,33 @@ func main() {
 	// GetCustomer360 doc comment — avoids a customer<->loan import cycle)
 	// but is mounted under /customers to keep the URL customer-shaped.
 	protected.GET("/customers/:id/profile360", platform.CRUDPermissions(authzRepo, "customers").Read, loanHandler.GetCustomer360)
-	loan.RegisterRoutes(protected.Group("/loans"), loanHandler, platform.CRUDPermissions(authzRepo, "loans"))
+	// Server-side-paginated sub-tables for the Customer 360 view — same
+	// rationale/placement as profile360 above (handler lives on loanHandler,
+	// URL stays customer-shaped). Each accepts limit/offset plus the same
+	// from/to opened-date window profile360 does.
+	protected.GET("/customers/:id/loans", platform.CRUDPermissions(authzRepo, "customers").Read, loanHandler.ListLoansForCustomer)
+	protected.GET("/customers/:id/ornaments", platform.CRUDPermissions(authzRepo, "customers").Read, loanHandler.ListOrnamentsForCustomer)
+	protected.GET("/customers/:id/payments", platform.CRUDPermissions(authzRepo, "customers").Read, loanHandler.ListPaymentsForCustomer)
+	protected.GET("/customers/:id/bank-pledges", platform.CRUDPermissions(authzRepo, "customers").Read, loanHandler.ListBankPledgesForCustomer)
+	protected.GET("/customers/:id/auction-history", platform.CRUDPermissions(authzRepo, "customers").Read, loanHandler.ListAuctionHistoryForCustomer)
+	loan.RegisterRoutes(protected.Group("/loans"), loanHandler, platform.CRUDPermissions(authzRepo, "loans"), platform.CRUDPermissions(authzRepo, "bankpledges"))
+	dashboard.RegisterRoutes(protected.Group("/dashboard"), dashboardHandler, platform.CRUDPermissions(authzRepo, "loans"))
 	upload.RegisterRoutes(protected.Group("/uploads"), uploadHandler, platform.CRUDPermissions(authzRepo, "uploads"))
 	ornamenttype.RegisterRoutes(protected.Group("/ornament-types"), ornamentTypeHandler, platform.CRUDPermissions(authzRepo, "ornamenttypes"))
 	bank.RegisterRoutes(protected.Group("/banks"), bankHandler, platform.CRUDPermissions(authzRepo, "banks"))
 	locker.RegisterRoutes(protected.Group("/lockers"), lockerHandler, platform.CRUDPermissions(authzRepo, "lockers"))
 	packet.RegisterRoutes(protected.Group("/packets"), packetHandler, platform.CRUDPermissions(authzRepo, "packets"))
 	reminder.RegisterRoutes(protected.Group("/reminders"), reminderHandler, platform.CRUDPermissions(authzRepo, "reminders"))
-	// Reports are gated by BOTH a role allow-list (Administrator/Management/
-	// Branch Manager/Auditor — mirrors the auction routes' pattern in
-	// internal/loan/routes.go) AND the ordinary "reports" resource permission
-	// check, same double-gate style as auction routes.
-	reportsRoles := platform.RequireAnyRole("Administrator", "Management", "Branch Manager", "Auditor")
-	reports.RegisterRoutes(protected.Group("/reports"), reportsHandler, platform.CRUDPermissions(authzRepo, "reports"), reportsRoles)
+	// Reports are read-only, gated solely by "can view report" — the
+	// Administrator/Management/Branch Manager/Auditor default access is now
+	// applied via internal/authz.Restrictions (a role_permissions grant, not
+	// a hardcoded allowlist), editable from the permissions admin screen.
+	reports.RegisterRoutes(protected.Group("/reports"), reportsHandler, platform.CRUDPermissions(authzRepo, "reports"))
+
+	// Permissions admin API (the standard's 3-endpoint contract) + role
+	// CRUD — see internal/authz/handler.go.
+	authzHandler := authz.NewHandler(authzRepo)
+	authz.RegisterRoutes(protected.Group("/employees"), protected.Group("/roles"), authzHandler, authzRepo)
 
 	if err := os.MkdirAll(cfg.UploadsDir, 0o755); err != nil {
 		log.Fatalf("failed to prepare uploads directory: %v", err)

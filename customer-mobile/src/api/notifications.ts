@@ -13,6 +13,8 @@ export type Notification = {
   deliveredAt?: string;
   attempts: number;
   lastAttemptAt?: string;
+  read: boolean;
+  readAt?: string;
   createdAt: string;
 };
 
@@ -29,4 +31,12 @@ export function listNotifications(params: { limit: number; offset: number }): Pr
 // start, before the socket connects), not a live push.
 export function ackNotification(id: number): Promise<void> {
   return apiRequest(`/notifications/${id}/ack`, { method: "POST" });
+}
+
+// POST /customer/notifications/:id/read — called when the customer actually
+// opens a notification (the detail modal). This is the real "read" signal;
+// the server persists it, so unread state survives app restarts/re-logins
+// without any client-side watermark.
+export function readNotification(id: number): Promise<void> {
+  return apiRequest(`/notifications/${id}/read`, { method: "POST" });
 }

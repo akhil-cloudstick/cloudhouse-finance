@@ -35,6 +35,15 @@ type Notification struct {
 	Attempts      int        `json:"attempts" gorm:"not null;default:0"`
 	LastAttemptAt *time.Time `json:"lastAttemptAt"`
 
+	// Read is the actual "the customer opened this notification" signal —
+	// distinct from Delivered (bytes reached the device) and set only when
+	// the customer taps the row in the app (see Service.Read). This is the
+	// source of truth for unread state; the app no longer derives it from a
+	// client-side timestamp watermark, since that reset to "everything
+	// unread" on every device restart/re-login.
+	Read   bool       `json:"read" gorm:"not null;default:false;index"`
+	ReadAt *time.Time `json:"readAt"`
+
 	CreatedAt time.Time `json:"createdAt" gorm:"index"`
 }
 

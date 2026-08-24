@@ -376,6 +376,7 @@ an explicit, agreed tradeoff to avoid a Firebase dependency.
 |---|---|---|---|
 | GET | `/api/v1/customer/notifications?limit=&offset=` | Paginated history, newest first, `{ "items": [...], "hasMore": bool }` — the bell list's cold-start backfill | Bearer customer token |
 | POST | `/api/v1/customer/notifications/:id/ack` | REST fallback ack, for a notification the app only ever saw via the list above (not a live push) | Bearer customer token |
+| POST | `/api/v1/customer/notifications/:id/read` | Marks a notification read — fired when the customer opens it in the app (the notification detail view); this is the actual unread/read state, distinct from `Ack`/`Delivered` | Bearer customer token |
 | GET | `/api/v1/customer/ws` | WebSocket upgrade — the live-push channel | Bearer customer token (same `CustomerAuthMiddleware` gate; gin processes the upgrade request as a normal HTTP request right up until the connection is hijacked) |
 
 **Wire messages** — server → client, pushed per notification:
@@ -414,6 +415,15 @@ commlog write — now the in-app half always fires regardless).
 through (same cross-package-dependency convention as `PacketCreator`/
 `CashRecorder`), implemented by `notification.Service` and injected from
 `main.go`.
+
+**Read state**: `Notification.read`/`readAt` are the actual unread/read
+signal shown in the customer app (a gold dot on unread rows, cleared by
+tapping into the notification's detail view, which calls `POST .../:id/read`).
+This is server-persisted, ownership-checked the same way as `Ack`, and is
+the sole source of truth — the customer app no longer derives unread state
+from a client-side watermark (that reset to "everything unread" on every
+app restart/re-login, since it lived only in on-device storage with nothing
+to reconstruct it from).
 
 **Bug fix note**: while wiring this, a pre-existing bug in
 `resolveAuctionAfterPayment` was fixed — its "payment received, auction on
@@ -561,6 +571,76 @@ with `platform.RequireAnyRole("Administrator", "Management",
 pattern), so both checks must pass. The frontend hides the "Reports" nav
 item for any other role (`Sidebar.tsx`'s `canViewReports`) rather than
 letting them hit the 403.
+
+### Permission catalogue — create/update/delete split (2026-08)
+> Note: the "Permissions / RBAC model" section above describes an older
+> `(role, resource, action)` design. The permission model actually
+> implemented today is `internal/authz`'s `roles` / `permissions` /
+> `role_permissions` schema (`can view <noun>` / `can change <noun>`-style
+> named permissions, one row per role × permission, seeded and back-filled
+> by `internal/migrate` from `authz.Catalogue`) — see `internal/authz/
+> catalogue.go`, `model.go`, `repository.go` and `platform/middleware.go`'s
+> `CRUDPermissions`. This subsection documents the latest change to that
+> catalogue; treat it, not the stale section above, as current.
+
+Every module's `"can change <noun>"` permission has been split into three
+granular permissions — `"can create <noun>"`, `"can update <noun>"`, and
+`"can delete <noun>"` — for every module **except** Report Management
+(read-only) and Role Management (which already had its own granular
+create/update/delete/permission-change permissions). This is a deliberate,
+explicit deviation from the house role-permission standard's §2.1 default
+of one shared view/change pair per module.
+
+`"can view <noun>"` is **unchanged** for every module — reads still gate on
+the same single view permission they always did.
+
+The old `"can change <noun>"` permission (and every role's
+`role_permissions` row for it) is left in place, deliberately unused by any
+route going forward — removing it is out of scope for this change (see the
+standard's renaming rules: a permission already shipped is never deleted
+in the same change that replaces its callers).
+
+| Module (`module_name`) | Unchanged | New (this change) |
+|---|---|---|
+| Branch Management | `can view branch` | `can create branch`, `can update branch`, `can delete branch` |
+| Scheme Management | `can view scheme` | `can create scheme`, `can update scheme`, `can delete scheme` |
+| Gold Rate Management | `can view gold rate` | `can create gold rate`, `can update gold rate`, `can delete gold rate` |
+| Purity Standard Management | `can view purity standard` | `can create purity standard`, `can update purity standard`, `can delete purity standard` |
+| Employee Management | `can view employee` | `can create employee`, `can update employee`, `can delete employee` |
+| Cash Management | `can view cash` | `can create cash`, `can update cash`, `can delete cash` |
+| Settings Management | `can view setting` | `can create setting`, `can update setting`, `can delete setting` |
+| Customer Management | `can view customer` | `can create customer`, `can update customer`, `can delete customer` |
+| Loan Management | `can view loan` | `can create loan`, `can update loan`, `can delete loan` |
+| Bank Pledge Management | `can view bank pledge` | `can create bank pledge`, `can update bank pledge`, `can delete bank pledge` |
+| Upload Management | `can view upload` | `can create upload`, `can update upload`, `can delete upload` |
+| Ornament Type Management | `can view ornament type` | `can create ornament type`, `can update ornament type`, `can delete ornament type` |
+| Bank Management | `can view bank` | `can create bank`, `can update bank`, `can delete bank` |
+| Locker Management | `can view locker` | `can create locker`, `can update locker`, `can delete locker` |
+| Packet Management | `can view packet` | `can create packet`, `can update packet`, `can delete packet` |
+| Reminder Management | `can view reminder` | `can create reminder`, `can update reminder`, `can delete reminder` |
+| Report Management | `can view report` | *(none — read-only, not split)* |
+
+Frontend keys are the standard's usual space-for-underscore derivation,
+e.g. `permissions["Employee_Management"]["can_create_employee"]`,
+`permissions["Loan_Management"]["can_update_loan"]`.
+
+**Backend wiring** (`platform.CRUDPermissions`): `Read` still gates on
+`"can view <noun>"`; `Create`/`Update`/`Delete` now each gate on their own
+distinct permission instead of all three sharing `"can change <noun>"`.
+Every resource's `routes.go` picks this up automatically since none of them
+call `RequirePermission` directly for plain CRUD verbs — loan's route file
+keeps its other, already-granular named permissions (e.g. the
+auction/bank-pledge sub-routes' own permission pairs) unchanged; those were
+never part of this split.
+
+**Migration/backfill** (`internal/migrate.Run`, via
+`authz.Repository.BackfillCRUDSplitGrants`): for every existing role, each
+new `"can create/update/delete <noun>"` grant is copied from that role's
+existing `"can change <noun>"` grant (`TRUE` if the role currently holds
+`"can change <noun>"`, `FALSE` otherwise) rather than defaulting to `TRUE`
+— idempotent (skips any role+permission pair that already has a
+`role_permissions` row) and runs in one transaction, before the generic
+`BackfillGrants` step so the latter never overwrites the copied value.
 
 ### Branch scoping (row-level, on top of the RBAC table above)
 Independently of the `(role, resource, action)` table above, every
@@ -1770,6 +1850,26 @@ preloaded objects from their own APIs above):
 | POST | `/api/v1/loans/requests/:requestId/approve` | Advance/reject a **Release** request's Manager→Management chain (unchanged 2-step chain — separate from the loan sanction chain); acting employeeId comes from the JWT, not the body | `{ "stage": "Manager" \| "Management", "action": "Approved" \| "Rejected", "remarks"? }` |
 | POST | `/api/v1/loans/:id/complete-release` | Hand the gold back — only once settlement is fully paid &amp; bank pledge released (acting employeeId comes from the JWT, not the body) | *(empty)* |
 | GET | `/api/v1/customers/:id/profile360` | Customer 360°: every loan (ornaments/payments/bank pledges) + auction history + running totals for one customer, in one call. Lives on `loanHandler` (see `internal/loan/service.go`'s `GetCustomer360`) to avoid a customer↔loan import cycle, mounted under `/customers` in `main.go`. Optional `?from=YYYY-MM-DD&to=YYYY-MM-DD` restricts it to loans whose `openedDate` falls in that inclusive window (both bounds optional, `to` must not precede `from`); the loan list, ornaments/payments/bank-pledge/auction sections and all running totals are recomputed over the narrowed set | — |
+| GET | `/api/v1/customers/:id/loans` | Customer 360 view's Loan History sub-table, paginated server-side (`loanHandler.ListLoansForCustomer`, reuses `Repository.FindAll(LoanFilter{CustomerID: ...})` — no bespoke query needed) | query: `limit`, `offset`, `from`, `to` |
+| GET | `/api/v1/customers/:id/ornaments` | Customer 360 view's Pledged Ornaments (all loans) sub-table — every ornament across every loan the customer has, newest loan first; each row carries its parent loan's `loanNumber` so the table can link back to the loan without a second lookup | query: `limit`, `offset`, `from`, `to` |
+| GET | `/api/v1/customers/:id/payments` | Customer 360 view's Payment History (all loans) sub-table — every payment across every loan the customer has, newest first, each row carrying its parent loan's `loanNumber` | query: `limit`, `offset`, `from`, `to` |
+| GET | `/api/v1/customers/:id/bank-pledges` | Customer 360 view's Bank Pledges (all loans) sub-table — every re-pledge record across every loan the customer has, newest first, each row carrying its parent loan's `loanNumber` | query: `limit`, `offset`, `from`, `to` |
+| GET | `/api/v1/customers/:id/auction-history` | Customer 360 view's Auction History sub-table — every auction case ever opened (concluded or not) across every loan the customer has, newest first, each row carrying its parent loan's `loanNumber` | query: `limit`, `offset`, `from`, `to` |
+
+All 5 sub-table endpoints above are mounted the same way `profile360` is
+(handler on `loanHandler`, gated by the `customers` resource's Read
+permission, URL kept customer-shaped) and share its `from`/`to` semantics
+exactly: both are optional inclusive `YYYY-MM-DD` bounds on each row's
+**parent loan's** `openedDate` (not any date field of the row itself), so a
+given window narrows every sub-table — and `profile360`'s running totals —
+consistently. `to` before `from` is a 400. **Pagination:** `limit`/`offset`
+follow this codebase's usual convention — passing `limit` (> 0) requests
+`limit+1` rows and slices off the extra one to compute `hasMore` without a
+second `COUNT` query, responding with `{ "items": [...], "hasMore": bool }`
+under the envelope; there is no bare-array fallback on these 5 routes since
+nothing pre-existing calls them without `limit`. Replaces `CustomerDetail.tsx`'s
+former client-side 10-per-page slicing over `profile360`'s single payload —
+each table now fetches its own page from its own endpoint.
 
 `RecordBankPledge`/`ReleaseBankPledge` also fire a matching packet movement
 (see the Packets API below) on the loan's active packet — `Bank Pledged`
@@ -1986,15 +2086,70 @@ backed by a persisted `Reminder` (`FollowUp`/`PromiseToPay`/`Custom`) — the
 first three types are always computed fresh from `loan.Loan` and have no
 row of their own to edit/delete.
 
+`GET /reminders/calendar` always sorts the merged list Overdue-first, then
+ascending by date, before either shape below is built (moved server-side
+from a client-side sort that used to run in `Dashboard.tsx`). Its response
+shape depends on whether **both** `page` and `pageSize` are sent:
+
+- **Neither, or only one** (the original shape — `Calendar.tsx`'s full-month
+  view): a bare JSON array of `CalendarEvent`, as shown above.
+- **Both** (`Dashboard.tsx`'s "Upcoming Reminders" card, page size 5): the
+  paginated envelope
+  ```json
+  { "events": [ /* CalendarEvent, this page only */ ], "totalCount": 23 }
+  ```
+  — `totalCount` is the full merged-and-sorted event count for `[from, to]`,
+  not just the page returned.
+
 | Method | Path | Purpose | Body / Query |
 |---|---|---|---|
 | POST | `/api/v1/reminders` | Log a manual reminder | `{ "customerId", "loanId"?, "type", "dueDate", "note"?, "employeeId" }` |
 | GET | `/api/v1/reminders` | List manual reminders | query: `customerId`?, `loanId`?, `status`?, `from`?, `to`? (all optional) |
-| GET | `/api/v1/reminders/calendar` | Unified calendar feed | query: `from`, `to` ("YYYY-MM-DD"; defaults to the current calendar month) |
+| GET | `/api/v1/reminders/calendar` | Unified calendar feed, sorted Overdue-first-then-by-date; paginated when `page`+`pageSize` are both given | query: `from`, `to` ("YYYY-MM-DD"; defaults to the current calendar month), `page`?, `pageSize`? |
 | GET | `/api/v1/reminders/:id` | Get one manual reminder | — |
 | PUT | `/api/v1/reminders/:id` | Update a manual reminder | `{ "type", "dueDate", "note"?, "status"? }` |
 | PUT | `/api/v1/reminders/:id/complete` | Mark a manual reminder Done | — |
 | DELETE | `/api/v1/reminders/:id` | Delete a manual reminder | — |
+
+## Dashboard API (`/api/v1/dashboard`)
+Implemented in `backend/internal/dashboard/`. A read-only aggregator with no
+persisted model of its own — every row it returns already belongs to
+`internal/loan`'s own tables; this package only merges, orders and paginates
+them for `frontend/components/Dashboard.tsx`'s "Needs Attention" card.
+Gated by the same "can view loan" permission the underlying loans/requests
+are already gated by everywhere else.
+
+`GET /dashboard/needs-attention` merges, in this fixed order, every loan
+with `status = "Pending Approval"`, every `LoanRequest` with
+`status = "Pending"` (Extension or Release), and every loan with
+`status` in `"Auction Eligible"` / `"Defaulted"` — each fetched from the
+same `loan.Repository`/`loan.LoanRequestRepository` methods
+`loan.Service.List`/`ListRequests` already use, branch-scoped the same way.
+Page size is fixed at 15 (not caller-adjustable).
+
+```json
+// GET /dashboard/needs-attention?page=1 response ({"success":true,"data":...})
+{
+  "items": [
+    { "kind": "approval", "loanId": 12, "loanNumber": "GL-1004", "customerName": "Anil Varma", "principal": 50000, "approvalStage": "BranchManager" },
+    { "kind": "request", "requestId": 7, "loanId": 9, "loanNumber": "GL-1001", "customerName": "Divya Nair", "requestType": "Extension", "detail": "3 more months requested" },
+    { "kind": "auction", "loanId": 3, "loanNumber": "GL-1000", "customerName": "Ravi Kumar", "outstanding": 82000, "status": "Defaulted" }
+  ],
+  "totalCount": 3,
+  "approvalsCount": 1,
+  "requestsCount": 1,
+  "auctionsCount": 1
+}
+```
+
+`kind` is one of `approval` | `request` | `auction`; only the fields
+relevant to that kind are populated (others are omitted). `totalCount`/
+`approvalsCount`/`requestsCount`/`auctionsCount` are always counted across
+the FULL merged set, not just the returned page.
+
+| Method | Path | Purpose | Body / Query |
+|---|---|---|---|
+| GET | `/api/v1/dashboard/needs-attention` | Paginated "Needs Attention" feed (approvals, then requests, then auctions), page size 15 | query: `page`? (1-based, defaults to 1) |
 
 ## Reports API (`/api/v1/reports`)
 **Migrated to the response envelope** (see "Response envelope migration"

@@ -2936,11 +2936,15 @@ func (s *Service) GetCustomer360(customerID uint, from, to *time.Time) (*Custome
 		// Only money that actually left the till. A loan still in the sanction
 		// chain (or rejected) has been disbursed nothing — see Decide's
 		// `disbursing` flag, which is what triggers the cash-out movement.
+		// Outstanding/paid are scoped to the same disbursed set as
+		// TotalDisbursed above — a loan still in the sanction chain (or
+		// rejected) hasn't had any cash move, so it must not contribute to
+		// either total even if it happens to carry a nonzero balance.
 		if loans[i].ApprovalStage == ApprovalStageApproved {
 			out.TotalDisbursed += loans[i].PrincipalAmount
+			out.TotalOutstanding += loans[i].TotalOutstandingBalance
+			out.TotalPaid += loans[i].TotalPaid
 		}
-		out.TotalOutstanding += loans[i].TotalOutstandingBalance
-		out.TotalPaid += loans[i].TotalPaid
 		switch loans[i].Status {
 		case StatusClosed, StatusAuctioned:
 			out.ClosedLoanCount++
@@ -2959,6 +2963,56 @@ func (s *Service) GetCustomer360(customerID uint, from, to *time.Time) (*Custome
 	}
 	out.Loans = loans
 	return out, nil
+}
+
+// ListLoansForCustomer paginates a customer's own loans server-side — backs
+// GET /customers/:id/loans, the Customer 360 view's Loan History sub-table.
+// Reuses the existing List/FindAll path (with enrichment and accrual
+// projection) rather than a bespoke query, since a customer's loan list is
+// already exactly what LoanFilter{CustomerID: ...} produces.
+func (s *Service) ListLoansForCustomer(customerID uint, from, to *time.Time, limit, offset int) ([]Loan, error) {
+	return s.List(LoanFilter{CustomerID: customerID, OpenedFrom: from, OpenedTo: to, Limit: limit, Offset: offset})
+}
+
+// ListOrnamentsForCustomer paginates every ornament pledged across every
+// loan belonging to customerID — backs GET /customers/:id/ornaments, the
+// Customer 360 view's Pledged Ornaments sub-table.
+func (s *Service) ListOrnamentsForCustomer(customerID uint, from, to *time.Time, limit, offset int) ([]CustomerOrnamentRow, error) {
+	if _, err := s.customerRepo.FindByID(customerID); err != nil {
+		return nil, ErrCustomerInvalid
+	}
+	return s.ornamentRepo.FindByCustomerID(customerID, from, to, limit, offset)
+}
+
+// ListPaymentsForCustomer paginates every payment across every loan
+// belonging to customerID — backs GET /customers/:id/payments, the
+// Customer 360 view's Payment History sub-table.
+func (s *Service) ListPaymentsForCustomer(customerID uint, from, to *time.Time, limit, offset int) ([]CustomerPaymentRow, error) {
+	if _, err := s.customerRepo.FindByID(customerID); err != nil {
+		return nil, ErrCustomerInvalid
+	}
+	return s.paymentRepo.FindByCustomerIDForProfile(customerID, from, to, limit, offset)
+}
+
+// ListBankPledgesForCustomer paginates every re-pledge record across every
+// loan belonging to customerID — backs GET /customers/:id/bank-pledges, the
+// Customer 360 view's Bank Pledges sub-table.
+func (s *Service) ListBankPledgesForCustomer(customerID uint, from, to *time.Time, limit, offset int) ([]CustomerBankPledgeRow, error) {
+	if _, err := s.customerRepo.FindByID(customerID); err != nil {
+		return nil, ErrCustomerInvalid
+	}
+	return s.pledgeRepo.FindAllByCustomerID(customerID, from, to, limit, offset)
+}
+
+// ListAuctionHistoryForCustomer paginates every auction case ever opened
+// across every loan belonging to customerID — backs
+// GET /customers/:id/auction-history, the Customer 360 view's Auction
+// History sub-table.
+func (s *Service) ListAuctionHistoryForCustomer(customerID uint, from, to *time.Time, limit, offset int) ([]CustomerAuctionRow, error) {
+	if _, err := s.customerRepo.FindByID(customerID); err != nil {
+		return nil, ErrCustomerInvalid
+	}
+	return s.auctionRepo.FindAllByCustomerID(customerID, from, to, limit, offset)
 }
 
 // --- Indemnity bond Aadhaar eSign (Setu) ------------------------------------

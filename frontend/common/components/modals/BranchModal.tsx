@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useModal } from "@/common/components/Modal";
 import { useToast } from "@/common/components/Toast";
 import { Icon } from "@/common/components/Icon";
+import { Select } from "@/common/components/ui/Select";
 import { createBranch, updateBranch, type BranchView } from "@/modules/branches/services/branchService";
 
 const NAME_RE = /^[A-Za-z][A-Za-z\s.'-]*$/;
@@ -122,10 +123,11 @@ export function BranchModalContent({ branch: b, onSaved }: { branch?: BranchView
               autoComplete="off"
             /></div>
           <div><label className="f">Status</label>
-            <select className="inp" value={isActive ? "1" : "0"} onChange={(e) => setIsActive(e.target.value === "1")}>
-              <option value="1">Active</option>
-              <option value="0">Inactive</option>
-            </select></div>
+            <Select
+              options={[{ value: "1", label: "Active" }, { value: "0", label: "Inactive" }]}
+              value={isActive ? "1" : "0"}
+              onChange={(v) => setIsActive(v === "1")}
+            /></div>
         </div>
         <div className="notice"><Icon name="shield" /> Branches cannot be deactivated while employees, expenses or cash movements still reference them.</div>
         <p style={{ color: "var(--red)", fontSize: 12.5, minHeight: 16, marginTop: 8 }}>{err}</p>

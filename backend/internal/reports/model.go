@@ -2,9 +2,10 @@
 // (frontend/components/Reports.tsx): 15 server-side aggregation endpoints
 // covering loans, gold/packets, bank pledge, auctions, cash, KYC, gold
 // rates, employee performance, and WhatsApp communication history, each
-// with a matching xlsx/pdf export. Access is restricted to Administrator/
-// Management/Branch Manager/Auditor (see backend/main.go's
-// RequireAnyRole("reports") mounting).
+// with a matching xlsx/pdf export. Access is gated by "can view report" —
+// by default granted only to Administrator/Management/Branch Manager/
+// Auditor (see internal/authz.Restrictions), editable per role from the
+// permissions admin screen.
 //
 // Unlike most other packages in this codebase, reports queries the
 // database directly by table name (db.Raw/db.Table) rather than importing

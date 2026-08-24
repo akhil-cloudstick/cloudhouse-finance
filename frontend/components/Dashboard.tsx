@@ -15,8 +15,9 @@ import { PurityPicker } from "@/common/components/ui/PurityPicker";
 import { Select } from "@/common/components/ui/Select";
 import { rateForPurityString } from "@/common/utils/purity";
 import { listCashMovements, listExpenses, type CashMovementView, type ExpenseView } from "@/modules/cash/services/cashService";
-import { getCalendarEvents, type CalendarEvent } from "@/modules/reminders/services/reminderService";
+import { getCalendarEventsPage, type CalendarEvent } from "@/modules/reminders/services/reminderService";
 import { listLoanRequests, getInterestCollected, type RequestView } from "@/modules/loans/services/loanService";
+import { getNeedsAttentionPage, type NeedsAttentionItem } from "@/modules/dashboard/services/dashboardService";
 
 function Kpi({ l, v, s, cls }: { l: string; v: string | number; s?: string; cls?: string }) {
   return (
@@ -69,27 +70,25 @@ export function Dashboard() {
   const { schemes } = useSchemes();
   const { refresh: refreshCustomers } = useCustomers();
   const { loans } = useLoans();
-  const { role } = useAuth();
-  // Cashier is outside the loan creation/approval flow — the backend
-  // already 403s a Cashier's POST /loans, hide the button rather than let
-  // them click into a form that can only ever fail.
-  const canCreateLoans = role !== "Cashier";
+  const { can } = useAuth();
+  // Gated on the real permission (not a hardcoded role check) — the backend
+  // already 403s a POST /loans without "can change loan", hide the button
+  // rather than let a user click into a form that can only ever fail.
+  const canCreateLoans = can("Loan_Management", "can_create_loan");
   const { latest } = useGoldRates();
   const { openModal } = useModal();
 
   const [cashMovements, setCashMovements] = useState<CashMovementView[]>([]);
   const [expenses, setExpenses] = useState<ExpenseView[]>([]);
-  const [upcomingEvents, setUpcomingEvents] = useState<CalendarEvent[]>([]);
   const [pendingReq, setPendingReq] = useState<RequestView[]>([]);
   const [interestCollected, setInterestCollected] = useState(0);
   useEffect(() => {
     listCashMovements().then(setCashMovements).catch(() => setCashMovements([]));
     listExpenses().then(setExpenses).catch(() => setExpenses([]));
-    const from = new Date().toISOString().slice(0, 10);
-    const to = new Date(Date.now() + 14 * 86400000).toISOString().slice(0, 10);
-    getCalendarEvents(from, to).then(setUpcomingEvents).catch(() => setUpcomingEvents([]));
     // Real replacements for the old always-empty db.requests/db.ledger
-    // mock data — see documents/change_log.md.
+    // mock data — see documents/change_log.md. Kept as a full (unpaginated)
+    // fetch: the "Extension Requests"/"Gold Release Requests" KPI tiles
+    // below need the true counts by type, not one page of them.
     listLoanRequests({ status: "Pending" }).then(setPendingReq).catch(() => setPendingReq([]));
     getInterestCollected().then(setInterestCollected).catch(() => setInterestCollected(0));
   }, []);
@@ -129,14 +128,50 @@ export function Dashboard() {
     if (idx >= 0 && idx < 6) monthBuckets[idx][1] += l.principal / 100000;
   });
   const maxBar = Math.max(1, ...monthBuckets.map(([, v]) => v));
+  // KPI tiles below ("Pending Approvals"/"Auction Cases") deliberately keep
+  // deriving from LoansProvider's already-loaded full `loans` list rather
+  // than the new paginated /dashboard/needs-attention endpoint — the
+  // endpoint's own approvalsCount/auctionsCount would report the identical
+  // numbers, but switching these two tiles over gains nothing and would
+  // just make the KPI row depend on one more network round trip. Only the
+  // "Needs Attention" *list* below was ever actually slicing in memory, so
+  // only that widget's data source changes.
   const pendingApprovalLoans = loans.filter((l) => l.status === "Pending Approval");
   const auctionLoans = loans.filter((l) => l.status === "Auction Eligible" || l.status === "Defaulted");
-  // Real upcoming reminders (next 14 days) from the Reminder Calendar — see
-  // backend/internal/reminder's calendar aggregation. Overdue events sort
-  // first regardless of date since they're the most urgent.
-  const pendingReminders = [...upcomingEvents]
-    .sort((a, b) => (a.type === "Overdue" ? -1 : b.type === "Overdue" ? 1 : a.date.localeCompare(b.date)))
-    .slice(0, 8);
+
+  // "Needs Attention" — real server-side pagination (see
+  // modules/dashboard/services/dashboardService.ts): the backend merges
+  // pending-approval loans, pending Extension/Release requests and
+  // auction-eligible/defaulted loans, orders them, and returns only the
+  // requested page plus the true total count.
+  const NEEDS_ATTENTION_PAGE_SIZE = 15;
+  const [needsAttentionPage, setNeedsAttentionPage] = useState(1);
+  const [needsAttentionItems, setNeedsAttentionItems] = useState<NeedsAttentionItem[]>([]);
+  const [needsAttentionTotal, setNeedsAttentionTotal] = useState(0);
+  useEffect(() => {
+    getNeedsAttentionPage(needsAttentionPage)
+      .then((res) => { setNeedsAttentionItems(res.items); setNeedsAttentionTotal(res.totalCount); })
+      .catch(() => { setNeedsAttentionItems([]); setNeedsAttentionTotal(0); });
+  }, [needsAttentionPage]);
+  const needsAttentionPages = Math.max(1, Math.ceil(needsAttentionTotal / NEEDS_ATTENTION_PAGE_SIZE));
+  const needsAttentionPageItems = needsAttentionItems;
+
+  // "Upcoming Reminders" — real server-side pagination over the merged,
+  // already-sorted (Overdue first, then by date — moved into
+  // backend/internal/reminder's GetCalendarEvents) event list for the fixed
+  // 14-day window.
+  const REMINDERS_PAGE_SIZE = 5;
+  const [reminderPage, setReminderPage] = useState(1);
+  const [reminderPageItems, setReminderPageItems] = useState<CalendarEvent[]>([]);
+  const [reminderTotal, setReminderTotal] = useState(0);
+  useEffect(() => {
+    const from = new Date().toISOString().slice(0, 10);
+    const to = new Date(Date.now() + 14 * 86400000).toISOString().slice(0, 10);
+    getCalendarEventsPage(from, to, reminderPage, REMINDERS_PAGE_SIZE)
+      .then((res) => { setReminderPageItems(res.events); setReminderTotal(res.totalCount); })
+      .catch(() => { setReminderPageItems([]); setReminderTotal(0); });
+  }, [reminderPage]);
+  const reminderPages = Math.max(1, Math.ceil(reminderTotal / REMINDERS_PAGE_SIZE));
 
   const [calcW, setCalcW] = useState("10");
   const [calcP, setCalcP] = useState("22K");
@@ -211,29 +246,45 @@ export function Dashboard() {
             <div className="hd"><h3>Needs Attention</h3><div className="sp" /><a href="#requests" style={{ fontSize: 12.5 }}>View all →</a></div>
             <div className="bd" style={{ paddingTop: 6 }}>
               <ul className="mini-list">
-                {pendingApprovalLoans.map((l) => (
-                  <li key={"appr-" + l.id}>
-                    <span className="ic"><Icon name="stamp" /></span>
-                    <span className="tx"><b>Loan approval — {l.id}</b><small>{l.customerName} · {fmt(l.principal)} · at {l.approvalStage} stage</small></span>
-                    <span className="rt"><a className="btn sm" href={`#loan/${l.id}`}>Review</a></span>
-                  </li>
-                ))}
-                {pendingReq.map((r) => (
-                  <li key={"req-" + r.id}>
-                    <span className="ic"><Icon name={r.type === "Extension" ? "clock" : "unlock"} /></span>
-                    <span className="tx"><b>{r.type} request — {r.loanId}</b><small>{r.customerName} · {r.detail}</small></span>
-                    <span className="rt"><a className="btn sm ghost" href="#requests">Open</a></span>
-                  </li>
-                ))}
-                {auctionLoans.map((l) => (
-                  <li key={"auc-" + l.id}>
-                    <span className="ic" style={{ background: "var(--red-bg)", color: "var(--red)" }}><Icon name="gavel" /></span>
-                    <span className="tx"><b>Auction case — {l.id}</b><small>{l.customerName} · {fmt(l.outstanding)} outstanding · {l.status}</small></span>
-                    <span className="rt"><a className="btn sm ghost" href="#auctions">Open</a></span>
-                  </li>
-                ))}
+                {needsAttentionPageItems.length === 0 && (
+                  <li><span className="tx"><small>Nothing needs attention right now.</small></span></li>
+                )}
+                {needsAttentionPageItems.map((item) => {
+                  if (item.kind === "approval") {
+                    return (
+                      <li key={"appr-" + item.loanId}>
+                        <span className="ic"><Icon name="stamp" /></span>
+                        <span className="tx"><b>Loan approval — {item.loanNumber}</b><small>{item.customerName} · {fmt(item.principal)} · at {item.approvalStage} stage</small></span>
+                        <span className="rt"><a className="btn sm" href={`#loan/${item.loanNumber}`}>Review</a></span>
+                      </li>
+                    );
+                  }
+                  if (item.kind === "request") {
+                    return (
+                      <li key={"req-" + item.requestId}>
+                        <span className="ic"><Icon name={item.requestType === "Extension" ? "clock" : "unlock"} /></span>
+                        <span className="tx"><b>{item.requestType} request — {item.loanNumber}</b><small>{item.customerName} · {item.detail}</small></span>
+                        <span className="rt"><a className="btn sm ghost" href="#requests">Open</a></span>
+                      </li>
+                    );
+                  }
+                  return (
+                    <li key={"auc-" + item.loanId}>
+                      <span className="ic" style={{ background: "var(--red-bg)", color: "var(--red)" }}><Icon name="gavel" /></span>
+                      <span className="tx"><b>Auction case — {item.loanNumber}</b><small>{item.customerName} · {fmt(item.outstanding)} outstanding · {item.status}</small></span>
+                      <span className="rt"><a className="btn sm ghost" href="#auctions">Open</a></span>
+                    </li>
+                  );
+                })}
               </ul>
             </div>
+            {needsAttentionPages > 1 && (
+              <div className="ft" style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                <button className="btn plain sm" disabled={needsAttentionPage <= 1} onClick={() => setNeedsAttentionPage((p) => Math.max(1, p - 1))}>‹ Prev</button>
+                <span style={{ fontSize: 12.5 }}>Page {needsAttentionPage} of {needsAttentionPages}</span>
+                <button className="btn plain sm" disabled={needsAttentionPage >= needsAttentionPages} onClick={() => setNeedsAttentionPage((p) => Math.min(needsAttentionPages, p + 1))}>Next ›</button>
+              </div>
+            )}
           </div>
         </div>
 
@@ -278,7 +329,7 @@ export function Dashboard() {
             <div className="hd"><h3>Upcoming Reminders</h3><div className="sp" /><a href="#calendar" style={{ fontSize: 12.5 }}>Calendar →</a></div>
             <div className="bd" style={{ paddingTop: 6 }}>
               <ul className="mini-list">
-                {pendingReminders.length ? pendingReminders.map((e, i) => (
+                {reminderPageItems.length ? reminderPageItems.map((e, i) => (
                   <li key={i}>
                     <span className="ic" style={e.type === "Overdue" ? { background: "var(--red-bg)", color: "var(--red)" } : e.type === "FollowUp" || e.type === "PromiseToPay" ? { background: "var(--blue-bg)", color: "var(--blue)" } : undefined}>
                       <Icon name={e.type === "FollowUp" ? "phone" : e.type === "PromiseToPay" ? "clock" : "bell"} />
@@ -288,6 +339,13 @@ export function Dashboard() {
                 )) : <li><span className="tx"><small>No pending reminders.</small></span></li>}
               </ul>
             </div>
+            {reminderPages > 1 && (
+              <div className="ft" style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                <button className="btn plain sm" disabled={reminderPage <= 1} onClick={() => setReminderPage((p) => Math.max(1, p - 1))}>‹ Prev</button>
+                <span style={{ fontSize: 12.5 }}>Page {reminderPage} of {reminderPages}</span>
+                <button className="btn plain sm" disabled={reminderPage >= reminderPages} onClick={() => setReminderPage((p) => Math.min(reminderPages, p + 1))}>Next ›</button>
+              </div>
+            )}
           </div>
 
           <div className="card">

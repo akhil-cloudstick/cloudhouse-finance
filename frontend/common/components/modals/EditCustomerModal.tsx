@@ -5,6 +5,7 @@ import { useModal } from "@/common/components/Modal";
 import { useToast } from "@/common/components/Toast";
 import { Select } from "@/common/components/ui/Select";
 import { DatePicker } from "@/common/components/ui/DatePicker";
+import { FileInput } from "@/common/components/ui/FileInput";
 import { Icon } from "@/common/components/Icon";
 import { updateCustomer, uploadFile, type CustomerView } from "@/modules/customers/services/customerService";
 import { listActiveBranches, type BranchView } from "@/modules/branches/services/branchService";
@@ -118,12 +119,12 @@ export function EditCustomerModalContent({ customer, onSaved }: { customer: Cust
           <div><label className="f">Aadhaar Number</label><input className="inp" placeholder="Leave blank to keep on-file Aadhaar" maxLength={12} value={aadhaar} onChange={(e) => setAadhaar(e.target.value.replace(/\D/g, ""))} /></div>
         </div>
         <div className="frow c2">
-          <div><label className="f">Customer Photograph {customer.photoUrl && <a href={customer.photoUrl} target="_blank" rel="noreferrer" style={{ fontWeight: 400 }}>(view current)</a>}</label><input className="inp" type="file" accept="image/*" onChange={(e) => setPhotoFile(e.target.files?.[0] || null)} /></div>
-          <div><label className="f">Identity Proof {customer.identityProofUrl && <a href={customer.identityProofUrl} target="_blank" rel="noreferrer" style={{ fontWeight: 400 }}>(view current)</a>}</label><input className="inp" type="file" accept="image/*,.pdf" onChange={(e) => setIdentityProofFile(e.target.files?.[0] || null)} /></div>
+          <div><label className="f">Customer Photograph {customer.photoUrl && <a href={customer.photoUrl} target="_blank" rel="noreferrer" style={{ fontWeight: 400 }}>(view current)</a>}</label><FileInput value={photoFile} onChange={setPhotoFile} accept="image/*" placeholder="Leave blank to keep current photo" /></div>
+          <div><label className="f">Identity Proof {customer.identityProofUrl && <a href={customer.identityProofUrl} target="_blank" rel="noreferrer" style={{ fontWeight: 400 }}>(view current)</a>}</label><FileInput value={identityProofFile} onChange={setIdentityProofFile} accept="image/*,.pdf" placeholder="Leave blank to keep current document" /></div>
         </div>
         <div className="frow c2">
-          <div><label className="f">Address Proof {customer.addressProofUrl && <a href={customer.addressProofUrl} target="_blank" rel="noreferrer" style={{ fontWeight: 400 }}>(view current)</a>}</label><input className="inp" type="file" accept="image/*,.pdf" onChange={(e) => setAddressProofFile(e.target.files?.[0] || null)} /></div>
-          <div><label className="f">Supporting KYC Document {customer.kycDocumentUrl && <a href={customer.kycDocumentUrl} target="_blank" rel="noreferrer" style={{ fontWeight: 400 }}>(view current)</a>}</label><input className="inp" type="file" accept="image/*,.pdf" onChange={(e) => setKycDocFile(e.target.files?.[0] || null)} /></div>
+          <div><label className="f">Address Proof {customer.addressProofUrl && <a href={customer.addressProofUrl} target="_blank" rel="noreferrer" style={{ fontWeight: 400 }}>(view current)</a>}</label><FileInput value={addressProofFile} onChange={setAddressProofFile} accept="image/*,.pdf" placeholder="Leave blank to keep current document" /></div>
+          <div><label className="f">Supporting KYC Document {customer.kycDocumentUrl && <a href={customer.kycDocumentUrl} target="_blank" rel="noreferrer" style={{ fontWeight: 400 }}>(view current)</a>}</label><FileInput value={kycDocFile} onChange={setKycDocFile} accept="image/*,.pdf" placeholder="Leave blank to keep current document" /></div>
         </div>
         <label className="f" style={{ marginTop: 6 }}>Nominee Information (optional)</label>
         <div className="frow c2">

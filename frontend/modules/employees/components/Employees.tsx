@@ -4,9 +4,9 @@ import { useEffect, useState } from "react";
 import { useModal } from "@/common/components/Modal";
 import { useToast } from "@/common/components/Toast";
 import { Icon } from "@/common/components/Icon";
+import { useAuth } from "@/common/auth-context";
 import { fmt, initials } from "@/common/utils/format";
 import { EmployeeModalContent } from "@/common/components/modals/EmployeeModal";
-import { RolesModalContent } from "@/common/components/modals/RolesModal";
 import { deleteEmployee, listEmployeesPage, type EmployeeView } from "@/modules/employees/services/employeeService";
 
 /* Ported from legacy/app.js's `renderEmployees()`. Loads real data from the
@@ -14,6 +14,11 @@ import { deleteEmployee, listEmployeesPage, type EmployeeView } from "@/modules/
 export function Employees() {
   const { openModal } = useModal();
   const toast = useToast();
+  const { can } = useAuth();
+  const canViewRoles = can("Role_Management", "can_view_role_and_permission");
+  const canCreateEmployees = can("Employee_Management", "can_create_employee");
+  const canUpdateEmployees = can("Employee_Management", "can_update_employee");
+  const canDeleteEmployees = can("Employee_Management", "can_delete_employee");
   const [employees, setEmployees] = useState<EmployeeView[] | null>(null);
   const [error, setError] = useState("");
   const [page, setPage] = useState(1);
@@ -54,8 +59,12 @@ export function Employees() {
       <div className="page-h">
         <div><h1>Employees &amp; Roles</h1><p>Role-based access · performance across loans, collections and follow-ups</p></div>
         <div className="sp" />
-        <button className="btn ghost" onClick={() => openModal(<RolesModalContent />)}><Icon name="shield" /> Roles</button>
-        <button className="btn" onClick={() => openModal(<EmployeeModalContent onSaved={onSaved} />)}><Icon name="plus" /> Add Employee</button>
+        {canViewRoles && (
+          <a className="btn ghost" href="#roles-permissions"><Icon name="shield" /> Roles</a>
+        )}
+        {canCreateEmployees && (
+          <button className="btn" onClick={() => openModal(<EmployeeModalContent onSaved={onSaved} />)}><Icon name="plus" /> Add Employee</button>
+        )}
       </div>
       <hr className="gold-rule" />
       {error && (
@@ -75,7 +84,7 @@ export function Employees() {
       {employees !== null && employees.length > 0 && (
         <div className="card">
           <div className="tbl-wrap">
-            <table className="tbl">
+            <table className="tbl tbl-center">
               <thead>
                 <tr><th>Employee</th><th>Role</th><th>Branch</th><th className="num">Loans Processed</th><th className="num">Collections</th><th className="num">Follow-ups</th><th className="num">Pending</th><th></th></tr>
               </thead>
@@ -95,21 +104,26 @@ export function Employees() {
                     <td className="num">{e.followups}</td>
                     <td className="num">{e.pending}</td>
                     <td>
-                      <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-                        <a href="#" onClick={(ev) => { ev.preventDefault(); openModal(<EmployeeModalContent employee={e} onSaved={onSaved} />); }}>Edit</a>
-                        <a href="#" style={{ color: "var(--red)" }} onClick={(ev) => { ev.preventDefault(); onDelete(e); }}>Delete</a>
-                      </div>
+                      {(canUpdateEmployees || canDeleteEmployees) && (
+                        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                          {canUpdateEmployees && (
+                            <a href="#" onClick={(ev) => { ev.preventDefault(); openModal(<EmployeeModalContent employee={e} onSaved={onSaved} />); }}>Edit</a>
+                          )}
+                          {canDeleteEmployees && (
+                            <a href="#" style={{ color: "var(--red)" }} onClick={(ev) => { ev.preventDefault(); onDelete(e); }}>Delete</a>
+                          )}
+                        </div>
+                      )}
                     </td>
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
-          <div className="ft">Roles: Administrator · Management · Branch Manager · Loan Operator · Cashier · Accountant · Collection Staff · Auction Administrator · Auditor. Sensitive actions (rate changes, waivers, reversals, closures) sit behind approval workflows with a full audit trail.</div>
-          <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 0" }}>
-            <button className="btn plain sm" disabled={page <= 1} onClick={() => setPage((p) => Math.max(1, p - 1))}>‹ Prev</button>
+          <div className="ft" style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <button className="btn plain sm" style={{ padding: "4px 10px" }} disabled={page <= 1} onClick={() => setPage((p) => Math.max(1, p - 1))}>‹ Prev</button>
             <span style={{ fontSize: 12.5 }}>Page {page} of {totalPages}</span>
-            <button className="btn plain sm" disabled={page >= totalPages} onClick={() => setPage((p) => Math.min(totalPages, p + 1))}>Next ›</button>
+            <button className="btn plain sm" style={{ padding: "4px 10px" }} disabled={page >= totalPages} onClick={() => setPage((p) => Math.min(totalPages, p + 1))}>Next ›</button>
           </div>
         </div>
       )}

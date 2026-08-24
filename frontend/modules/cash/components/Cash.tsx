@@ -247,7 +247,7 @@ export function Cash() {
   return (
     <>
       <div className="page-h">
-        <div><h1>Cash-in-Hand &amp; Expenses</h1></div>
+        <div><h1>Cash-in-Hand &amp; Expenses</h1><p>Daily cash movements, opening balances and branch expenses — recorded, approved and reconciled</p></div>
         <div className="sp" />
         <button className="btn ghost" onClick={() => openModal(<CashOutModalContent onSaved={refresh} />)}><Icon name="coin" /> Take Cash Out</button>
         <button className="btn ghost" onClick={() => openModal(<AddCashModalContent onSaved={refresh} />)}><Icon name="coin" /> Add Cash</button>
@@ -259,7 +259,7 @@ export function Cash() {
         <div className="hd">
           <h3>Opening Cash Balance — Today</h3>
           <div className="sp" />
-          <div style={{ width: 220 }}>
+          <div style={{ width: 140 }}>
             <SearchableSelect<BranchView>
               value={branchLabel}
               onChange={(id, item) => { setBranchId(item.id === 0 ? "" : item.id); setBranchLabel(item.name); }}
@@ -276,7 +276,7 @@ export function Cash() {
             </>
           ) : (
             <>
-              <input className="inp" style={{ width: 140, marginLeft: 8 }} type="number" min={0} value={openingInput} onChange={(e) => setOpeningInput(e.target.value)} />
+              <input className="inp" style={{ width: 140, marginLeft: 8 }} type="number" min={0} placeholder="e.g. 50000" value={openingInput} onChange={(e) => setOpeningInput(e.target.value)} />
               <button className="btn sm" style={{ marginLeft: 8 }} onClick={saveOpeningBalance} disabled={!branchId}>Set</button>
               {editingOpening && (
                 <button className="btn ghost sm" style={{ marginLeft: 8 }} onClick={() => setEditingOpening(false)}>Cancel</button>
@@ -331,7 +331,7 @@ export function Cash() {
           <span style={{ fontSize: 12.5, color: "var(--muted)" }}>In {fmt(cashIn)} · Out {fmt(cashOut)}</span>
         </div>
         <div className="tbl-wrap">
-          <table className="tbl">
+          <table className="tbl tbl-center">
             <thead><tr><th>Date</th><th>Type</th><th>Source / Purpose</th><th>Bank</th><th className="num">Amount</th><th>Loan Status</th></tr></thead>
             <tbody>
               {movements.length
@@ -351,7 +351,7 @@ export function Cash() {
       <div className="card">
         <div className="hd"><h3>Expense Register</h3><div className="sp" /><span style={{ fontSize: 12.5, color: "var(--muted)" }}>Total {fmt(total)}</span></div>
         <div className="tbl-wrap">
-          <table className="tbl">
+          <table className="tbl tbl-center">
             <thead><tr><th>Date</th><th>Category</th><th className="num">Amount</th><th>Mode</th><th>Description / Payee</th><th>Branch</th><th>Status</th><th style={{ textAlign: "center" }}>Receipt</th><th>Actions</th></tr></thead>
             <tbody>
               {expenses.length

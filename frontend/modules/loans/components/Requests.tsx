@@ -52,7 +52,7 @@ export function Requests() {
       </div>
       <hr className="gold-rule" />
       <div className="card">
-        <div className="tbl-wrap">
+        <div className="tbl-wrap tbl-scroll">
           <table className="tbl">
             <thead>
               <tr><th>Request</th><th>Type</th><th>Loan</th><th>Customer</th><th>Detail</th><th>Date</th><th>Status</th><th></th></tr>

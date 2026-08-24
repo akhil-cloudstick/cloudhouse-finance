@@ -82,7 +82,7 @@ func (s *Service) Login(identifier, password string) (string, *employee.Employee
 		return "", nil, ErrInvalidCredentials
 	}
 
-	token, err := platform.IssueToken(emp.ID, emp.Role, emp.BranchID, s.jwtSecret, s.jwtExpiry)
+	token, err := platform.IssueToken(emp.ID, emp.Role, emp.RoleID, emp.BranchID, s.jwtSecret, s.jwtExpiry)
 	if err != nil {
 		return "", nil, err
 	}

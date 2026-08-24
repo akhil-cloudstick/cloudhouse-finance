@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 
-export type SelectOption = { value: string; label: string };
+export type SelectOption = { value: string; label: string; disabled?: boolean };
 
 /**
  * Themed replacement for a plain `<select className="inp">`. A native
@@ -63,8 +63,14 @@ export function Select({
               <a
                 key={o.value}
                 href="#"
-                className={o.value === value ? "sel" : ""}
-                onClick={(e) => { e.preventDefault(); onChange(o.value); setOpen(false); }}
+                className={`${o.value === value ? "sel" : ""}${o.disabled ? " disabled" : ""}`}
+                aria-disabled={o.disabled}
+                onClick={(e) => {
+                  e.preventDefault();
+                  if (o.disabled) return;
+                  onChange(o.value);
+                  setOpen(false);
+                }}
               >
                 <span className="tx"><b>{o.label}</b></span>
               </a>

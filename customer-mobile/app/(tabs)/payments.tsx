@@ -133,7 +133,7 @@ export default function PaymentsScreen() {
       <FloatingHeader title="Payments" navigation={undefined} onBellPress={() => setNotifOpen(true)} />
       <ScreenContainer style={{ paddingHorizontal: 0 }}>
         <View style={{ paddingHorizontal: 16 }}>
-          <Card>
+          <Card blur>
             <ThemedText variant="h3" style={{ marginBottom: 10 }}>
               Pay a loan
             </ThemedText>
@@ -169,7 +169,7 @@ export default function PaymentsScreen() {
             historyLoading ? (
               <ActivityIndicator color={colors.gold} style={{ marginTop: 24 }} />
             ) : (
-              <Card>
+              <Card blur>
                 <ThemedText color={colors.muted}>No payments yet</ThemedText>
               </Card>
             )
@@ -178,7 +178,7 @@ export default function PaymentsScreen() {
             loadingMore ? <ActivityIndicator color={colors.gold} style={{ marginVertical: 12 }} /> : null
           }
           renderItem={({ item }) => (
-            <Card>
+            <Card blur>
               <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start" }}>
                 <View style={{ flex: 1 }}>
                   <ThemedText variant="body">

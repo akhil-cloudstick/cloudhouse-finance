@@ -14,9 +14,18 @@ import (
 // platform is the shared low-level package other domain packages already
 // depend on.
 type Claims struct {
-	EmployeeID uint   `json:"employeeId"`
-	Role       string `json:"role"`
-	BranchID   uint   `json:"branchId"`
+	EmployeeID uint `json:"employeeId"`
+	// Role is the employee's role NAME, carried only for display/back-compat
+	// with existing handlers/logs and branch-scoping's Administrator check
+	// (see branch_scope.go) — it plays no part in permission resolution.
+	// RoleID is the authorization key: RequirePermission resolves grants
+	// per-request from role_permissions, so revoking a permission takes
+	// effect immediately without waiting for this token to expire (see the
+	// house role-permission standard's §5.1 — the token carries identity,
+	// never the permission list itself).
+	Role     string `json:"role"`
+	RoleID   uint   `json:"roleId"`
+	BranchID uint   `json:"branchId"`
 	jwt.RegisteredClaims
 }
 
@@ -77,11 +86,12 @@ func ParseCustomerToken(tokenStr, secret string) (*CustomerClaims, error) {
 
 // IssueToken mints a signed HS256 JWT for the given employee, valid for
 // expiry from now.
-func IssueToken(employeeID uint, role string, branchID uint, secret string, expiry time.Duration) (string, error) {
+func IssueToken(employeeID uint, role string, roleID uint, branchID uint, secret string, expiry time.Duration) (string, error) {
 	now := time.Now()
 	claims := Claims{
 		EmployeeID: employeeID,
 		Role:       role,
+		RoleID:     roleID,
 		BranchID:   branchID,
 		RegisteredClaims: jwt.RegisteredClaims{
 			IssuedAt:  jwt.NewNumericDate(now),

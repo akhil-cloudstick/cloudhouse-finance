@@ -45,7 +45,7 @@ function inferPaymentType(amount: number, interestDue: number, settlementAmount:
   return "Partial";
 }
 
-// Shared "Pay" bottom sheet used by both Loan Detail (app/loan/[id].tsx) and
+// Shared "Pay" bottom sheet used by both Loan Detail (app/(tabs)/loans/[id].tsx) and
 // the Payments tab (app/(tabs)/payments.tsx) — per the plan's DRY note. The
 // customer always types the amount by hand (no quick-select chips); the
 // outstanding-interest/total-outstanding lines are informational only.

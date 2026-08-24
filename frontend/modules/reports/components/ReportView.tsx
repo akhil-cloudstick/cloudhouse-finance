@@ -142,7 +142,7 @@ export function ReportView({ config, onBack }: { config: ReportConfig; onBack: (
       <hr className="gold-rule" />
 
       <div className="card" style={{ marginBottom: 18 }}>
-        <div className="hd" style={{ flexWrap: "wrap", gap: 10 }}>
+        <div className="hd" style={{ flexWrap: "wrap", justifyContent: "flex-start", gap: 16, padding: "16px 18px" }}>
           <div style={{ width: 160 }}>
             <label style={{ fontSize: 11.5, color: "var(--muted)", display: "block", marginBottom: 4 }}>From</label>
             <DatePicker value={from} onChange={setFrom} max={to} />

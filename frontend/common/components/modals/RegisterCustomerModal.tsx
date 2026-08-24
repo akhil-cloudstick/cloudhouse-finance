@@ -5,6 +5,7 @@ import { useModal } from "@/common/components/Modal";
 import { useToast } from "@/common/components/Toast";
 import { Select } from "@/common/components/ui/Select";
 import { DatePicker } from "@/common/components/ui/DatePicker";
+import { FileInput } from "@/common/components/ui/FileInput";
 import { Icon } from "@/common/components/Icon";
 import { createCustomer, uploadFile } from "@/modules/customers/services/customerService";
 import { listActiveBranches, type BranchView } from "@/modules/branches/services/branchService";
@@ -123,12 +124,12 @@ export function RegisterCustomerModalContent({ onSaved }: { onSaved?: () => void
           <div><label className="f">Aadhaar Number</label><input className="inp" placeholder="12-digit Aadhaar" maxLength={12} value={aadhaar} onChange={(e) => setAadhaar(e.target.value.replace(/\D/g, ""))} /></div>
         </div>
         <div className="frow c2">
-          <div><label className="f">Customer Photograph</label><input className="inp" type="file" accept="image/*" onChange={(e) => setPhotoFile(e.target.files?.[0] || null)} /></div>
-          <div><label className="f">Identity Proof</label><input className="inp" type="file" accept="image/*,.pdf" onChange={(e) => setIdentityProofFile(e.target.files?.[0] || null)} /></div>
+          <div><label className="f">Customer Photograph</label><FileInput value={photoFile} onChange={setPhotoFile} accept="image/*" /></div>
+          <div><label className="f">Identity Proof</label><FileInput value={identityProofFile} onChange={setIdentityProofFile} accept="image/*,.pdf" /></div>
         </div>
         <div className="frow c2">
-          <div><label className="f">Address Proof</label><input className="inp" type="file" accept="image/*,.pdf" onChange={(e) => setAddressProofFile(e.target.files?.[0] || null)} /></div>
-          <div><label className="f">Supporting KYC Document</label><input className="inp" type="file" accept="image/*,.pdf" onChange={(e) => setKycDocFile(e.target.files?.[0] || null)} /></div>
+          <div><label className="f">Address Proof</label><FileInput value={addressProofFile} onChange={setAddressProofFile} accept="image/*,.pdf" /></div>
+          <div><label className="f">Supporting KYC Document</label><FileInput value={kycDocFile} onChange={setKycDocFile} accept="image/*,.pdf" /></div>
         </div>
         <label className="f" style={{ marginTop: 6 }}>Nominee Information (optional)</label>
         <div className="frow c2">

@@ -1,22 +1,22 @@
 import React, { useCallback, useEffect, useState } from "react";
 import { View, ScrollView, ActivityIndicator, StyleSheet } from "react-native";
 import { useLocalSearchParams, useNavigation } from "expo-router";
-import { ScreenContainer } from "../../src/components/ScreenContainer";
-import { Card } from "../../src/components/Card";
-import { ThemedText } from "../../src/components/ThemedText";
-import { FloatingHeader } from "../../src/components/FloatingHeader";
-import { BottomSheetModal } from "../../src/components/BottomSheetModal";
-import { NotificationList } from "../../src/components/NotificationList";
-import { GoldButton } from "../../src/components/GoldButton";
-import { GoldTextInput } from "../../src/components/GoldTextInput";
-import { Icon } from "../../src/components/Icon";
-import { PaySheet } from "../../src/components/PaySheet";
-import { colors, statusColors, StatusTone } from "../../src/theme/colors";
-import * as loansApi from "../../src/api/loans";
-import { Loan, LoanRequest } from "../../src/api/loans";
-import * as paymentsApi from "../../src/api/payments";
-import { LoanPayment } from "../../src/api/payments";
-import { ApiError } from "../../src/api/client";
+import { ScreenContainer } from "../../../src/components/ScreenContainer";
+import { Card } from "../../../src/components/Card";
+import { ThemedText } from "../../../src/components/ThemedText";
+import { FloatingHeader } from "../../../src/components/FloatingHeader";
+import { BottomSheetModal } from "../../../src/components/BottomSheetModal";
+import { NotificationList } from "../../../src/components/NotificationList";
+import { GoldButton } from "../../../src/components/GoldButton";
+import { GoldTextInput } from "../../../src/components/GoldTextInput";
+import { Icon } from "../../../src/components/Icon";
+import { PaySheet } from "../../../src/components/PaySheet";
+import { colors, statusColors, StatusTone } from "../../../src/theme/colors";
+import * as loansApi from "../../../src/api/loans";
+import { Loan, LoanRequest } from "../../../src/api/loans";
+import * as paymentsApi from "../../../src/api/payments";
+import { LoanPayment } from "../../../src/api/payments";
+import { ApiError } from "../../../src/api/client";
 
 function money(n: number | undefined | null): string {
   return `₹${(n ?? 0).toLocaleString("en-IN", { maximumFractionDigits: 0 })}`;
@@ -208,7 +208,7 @@ export default function LoanDetailScreen() {
             <Row label="Total payable" value={money(outstanding)} bold />
           </Card>
 
-          <Card>
+          <Card blur>
             <ThemedText variant="h3" style={{ marginBottom: 10 }}>
               Payment History
             </ThemedText>

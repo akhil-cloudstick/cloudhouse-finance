@@ -129,6 +129,24 @@ func (s *Service) Ack(id, customerID uint) error {
 	return s.repo.MarkDelivered(id)
 }
 
+// Read marks a notification read — called when the customer actually opens
+// it in the app (the modal showing its full description), ownership-checked
+// the same way as Ack. This is the sole source of truth for unread state;
+// unlike Delivered/Ack it is never inferred from a client-side watermark.
+func (s *Service) Read(id, customerID uint) error {
+	n, err := s.repo.FindByID(id)
+	if err != nil {
+		return ErrNotFound
+	}
+	if n.CustomerID != customerID {
+		return ErrNotFound
+	}
+	if n.Read {
+		return nil
+	}
+	return s.repo.MarkRead(id)
+}
+
 // List backs GET /customer/notifications — the bell list's cold-start
 // backfill and general history view.
 func (s *Service) List(customerID uint, limit, offset int) ([]Notification, error) {

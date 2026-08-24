@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { ScrollView, View, Pressable, RefreshControl } from "react-native";
+import { ScrollView, View, Pressable, RefreshControl, StyleSheet, Platform } from "react-native";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useRefetchOnFocus } from "../../src/hooks/useRefetchOnFocus";
 import { useRouter } from "expo-router";
@@ -107,16 +107,26 @@ function OrnamentNameField({ value, onChange }: { value: string; onChange: (v: s
 // helpers, or gold-rate-eligibility calculator, which stay web-only for now.
 export default function NewLoanScreen() {
   const router = useRouter();
-  const { employee } = useAuth();
+  const { employee, can } = useAuth();
+  const canCreateLoan = can("Loan_Management", "can_change_loan");
   const queryClient = useQueryClient();
 
   const [customerQuery, setCustomerQuery] = useState("");
   const debouncedCustomerQuery = useDebouncedValue(customerQuery);
   const [customer, setCustomer] = useState<Customer | null>(null);
+  // Both result queries fetch unconditionally (see their comments below), so
+  // gating the dropdown on "has data" alone showed both floating panels at
+  // once as soon as the screen mounted — neither field had been touched
+  // yet. Only show a dropdown while its own field is actually focused,
+  // same pattern as OrnamentNameField's suggestion list above. The timeout
+  // on blur (not an immediate close) lets a tap on a row register first —
+  // blur fires before the row's onPress otherwise.
+  const [customerFocused, setCustomerFocused] = useState(false);
 
   const [schemeQuery, setSchemeQuery] = useState("");
   const debouncedSchemeQuery = useDebouncedValue(schemeQuery);
   const [scheme, setScheme] = useState<Scheme | null>(null);
+  const [schemeFocused, setSchemeFocused] = useState(false);
 
   const [principal, setPrincipal] = useState("");
   const [rows, setRows] = useState<OrnRow[]>([{ ...emptyRow }]);
@@ -234,6 +244,21 @@ export default function NewLoanScreen() {
     onError: (err) => setError(err instanceof ApiError ? err.message : "Could not create loan."),
   });
 
+  // The backend already 403s a POST /loans without "can change loan" — the
+  // tab bar (AppTabBar.tsx) already hides this tab for a role without it,
+  // this is a defensive second check for direct navigation to the route.
+  if (!canCreateLoan) {
+    return (
+      <ScreenContainer>
+        <Card>
+          <ThemedText variant="body" color={colors.muted}>
+            You don&apos;t have permission to create a loan. Contact a Loan Operator, Branch Manager, or Administrator.
+          </ThemedText>
+        </Card>
+      </ScreenContainer>
+    );
+  }
+
   return (
     <ScreenContainer>
       <ScrollView
@@ -268,35 +293,39 @@ export default function NewLoanScreen() {
               </Pressable>
             </View>
           ) : (
-            <>
+            <View style={{ position: "relative", zIndex: 20 }}>
               <GoldTextInput
                 label="Search customer"
                 placeholder="Name, phone, or code…"
                 value={customerQuery}
                 onChangeText={setCustomerQuery}
+                onFocus={() => setCustomerFocused(true)}
+                onBlur={() => setTimeout(() => setCustomerFocused(false), 150)}
               />
-              {(customerResults.data ?? []).length > 0 ? (
-                // Capped height + its own scroll so a long match list scrolls
-                // within this "dropdown" instead of shoving the rest of the
-                // form down the page. nestedScrollEnabled lets it scroll
+              {customerFocused && (customerResults.data ?? []).length > 0 ? (
+                // A real floating dropdown now — absolutely positioned over
+                // whatever's below (Scheme card, etc.) instead of pushing it
+                // down the page. nestedScrollEnabled lets its own scroll work
                 // independently of the outer form ScrollView on Android.
-                <ScrollView
-                  nestedScrollEnabled
-                  style={{ maxHeight: 220 }}
-                  keyboardShouldPersistTaps="handled"
-                  showsVerticalScrollIndicator
-                >
-                  {(customerResults.data ?? []).map((c) => (
-                    <Pressable key={c.id} onPress={() => setCustomer(c)} style={{ paddingVertical: 8 }}>
-                      <ThemedText variant="body">{c.name}</ThemedText>
-                      <ThemedText variant="small" color={colors.muted}>
-                        {c.code} · {c.phone}
-                      </ThemedText>
-                    </Pressable>
-                  ))}
-                </ScrollView>
+                <View style={styles.dropdown}>
+                  <ScrollView
+                    nestedScrollEnabled
+                    style={{ maxHeight: 220 }}
+                    keyboardShouldPersistTaps="handled"
+                    showsVerticalScrollIndicator
+                  >
+                    {(customerResults.data ?? []).map((c) => (
+                      <Pressable key={c.id} onPress={() => setCustomer(c)} style={styles.dropdownRow}>
+                        <ThemedText variant="body">{c.name}</ThemedText>
+                        <ThemedText variant="small" color={colors.muted}>
+                          {c.code} · {c.phone}
+                        </ThemedText>
+                      </Pressable>
+                    ))}
+                  </ScrollView>
+                </View>
               ) : null}
-            </>
+            </View>
           )}
         </Card>
 
@@ -327,26 +356,34 @@ export default function NewLoanScreen() {
               ) : null}
             </>
           ) : (
-            <>
-              <GoldTextInput label="Search scheme" value={schemeQuery} onChangeText={setSchemeQuery} />
-              {(schemeResults.data ?? []).length > 0 ? (
-                <ScrollView
-                  nestedScrollEnabled
-                  style={{ maxHeight: 220 }}
-                  keyboardShouldPersistTaps="handled"
-                  showsVerticalScrollIndicator
-                >
-                  {(schemeResults.data ?? []).map((s) => (
-                    <Pressable key={s.id} onPress={() => setScheme(s)} style={{ paddingVertical: 8 }}>
-                      <ThemedText variant="body">{s.name}</ThemedText>
-                      <ThemedText variant="small" color={colors.muted}>
-                        {s.interestRate}% · {s.durationMonths} months
-                      </ThemedText>
-                    </Pressable>
-                  ))}
-                </ScrollView>
+            <View style={{ position: "relative", zIndex: 20 }}>
+              <GoldTextInput
+                label="Search scheme"
+                value={schemeQuery}
+                onChangeText={setSchemeQuery}
+                onFocus={() => setSchemeFocused(true)}
+                onBlur={() => setTimeout(() => setSchemeFocused(false), 150)}
+              />
+              {schemeFocused && (schemeResults.data ?? []).length > 0 ? (
+                <View style={styles.dropdown}>
+                  <ScrollView
+                    nestedScrollEnabled
+                    style={{ maxHeight: 220 }}
+                    keyboardShouldPersistTaps="handled"
+                    showsVerticalScrollIndicator
+                  >
+                    {(schemeResults.data ?? []).map((s) => (
+                      <Pressable key={s.id} onPress={() => setScheme(s)} style={styles.dropdownRow}>
+                        <ThemedText variant="body">{s.name}</ThemedText>
+                        <ThemedText variant="small" color={colors.muted}>
+                          {s.interestRate}% · {s.durationMonths} months
+                        </ThemedText>
+                      </Pressable>
+                    ))}
+                  </ScrollView>
+                </View>
               ) : null}
-            </>
+            </View>
           )}
         </Card>
 
@@ -429,3 +466,26 @@ export default function NewLoanScreen() {
     </ScreenContainer>
   );
 }
+
+const styles = StyleSheet.create({
+  // Floats over whatever's below in the form rather than pushing it down —
+  // `top: "100%"` lands it right under the label+input block it's attached
+  // to (see the wrapping `position: "relative"` View above each usage).
+  dropdown: {
+    position: "absolute",
+    top: "100%",
+    left: 0,
+    right: 0,
+    marginTop: -6,
+    backgroundColor: colors.card,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: colors.line,
+    zIndex: 30,
+    ...Platform.select({
+      ios: { shadowColor: colors.charcoal, shadowOpacity: 0.15, shadowRadius: 10, shadowOffset: { width: 0, height: 4 } },
+      android: { elevation: 6 },
+    }),
+  },
+  dropdownRow: { paddingVertical: 10, paddingHorizontal: 12 },
+});

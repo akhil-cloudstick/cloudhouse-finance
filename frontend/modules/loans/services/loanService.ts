@@ -341,6 +341,32 @@ function toBankPledgeView(p: BackendBankPledgeRecord): BankPledgeView {
   };
 }
 
+/* --- Customer 360 sub-table rows -----------------------------------------
+ * The 5 customer-scoped, server-paginated sub-tables (GET
+ * /customers/:id/{loans,ornaments,payments,bank-pledges,auction-history} —
+ * see backend/internal/loan/repository.go's CustomerOrnamentRow/
+ * CustomerPaymentRow/CustomerBankPledgeRow/CustomerAuctionRow) span every
+ * loan a customer has, so each row carries its parent loan's loanNumber
+ * directly rather than requiring a second lookup against a separately
+ * paginated Loan History table. */
+export type BackendCustomerOrnamentRow = BackendOrnament & { loanNumber: string };
+export type CustomerOrnamentRowView = OrnamentView & { loanId: number; loanNumber: string };
+export function toCustomerOrnamentRowView(o: BackendCustomerOrnamentRow): CustomerOrnamentRowView {
+  return { ...toOrnamentView(o), loanId: o.loanId, loanNumber: o.loanNumber };
+}
+
+export type BackendCustomerPaymentRow = BackendLoanPayment & { loanNumber: string };
+export type CustomerPaymentRowView = PaymentView & { loanId: number; loanNumber: string };
+export function toCustomerPaymentRowView(p: BackendCustomerPaymentRow): CustomerPaymentRowView {
+  return { ...toPaymentView(p), loanId: p.loanId, loanNumber: p.loanNumber };
+}
+
+export type BackendCustomerBankPledgeRow = BackendBankPledgeRecord & { loanNumber: string };
+export type CustomerBankPledgeRowView = BankPledgeView & { loanId: number; loanNumber: string };
+export function toCustomerBankPledgeRowView(p: BackendCustomerBankPledgeRow): CustomerBankPledgeRowView {
+  return { ...toBankPledgeView(p), loanId: p.loanId, loanNumber: p.loanNumber };
+}
+
 export function toView(l: BackendLoan): LoanView {
   return {
     id: l.loanNumber,
@@ -1081,6 +1107,12 @@ export function toAuctionRecordView(r: BackendAuctionRecord): AuctionRecordView 
       decidedAt: d.decidedAt ? d.decidedAt.slice(0, 10) : null,
     })),
   };
+}
+
+export type BackendCustomerAuctionRow = BackendAuctionRecord & { loanNumber: string };
+export type CustomerAuctionRowView = AuctionRecordView & { loanNumber: string };
+export function toCustomerAuctionRowView(r: BackendCustomerAuctionRow): CustomerAuctionRowView {
+  return { ...toAuctionRecordView(r), loanNumber: r.loanNumber };
 }
 
 export async function getAuctionRecord(loanId: number): Promise<AuctionRecordView | null> {

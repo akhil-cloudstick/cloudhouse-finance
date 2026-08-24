@@ -13,10 +13,17 @@ import (
 // Employee represents a staff member and their running performance
 // counters (loans processed, collections, follow-ups, pending items).
 type Employee struct {
-	ID       uint          `json:"id" gorm:"primaryKey"`
-	Code     string        `json:"code" gorm:"uniqueIndex;size:20"`
-	Name     string        `json:"name" gorm:"not null;size:120"`
+	ID   uint   `json:"id" gorm:"primaryKey"`
+	Code string `json:"code" gorm:"uniqueIndex;size:20"`
+	Name string `json:"name" gorm:"not null;size:120"`
+	// Role is the free-text role name the app reads/writes — kept for
+	// display and as the single field Create/Update actually set. RoleID is
+	// the authorization key (see internal/authz.Role); internal/migrate
+	// keeps it in sync with Role on every boot (see
+	// migrate.BackfillEmployeeRoleID), so it never needs to be threaded
+	// through employee.Service itself.
 	Role     string        `json:"role" gorm:"not null;size:60"`
+	RoleID   uint          `json:"roleId"`
 	BranchID uint          `json:"branchId" gorm:"not null"`
 	Branch   branch.Branch `json:"branch" gorm:"foreignKey:BranchID"`
 	// Phone doubles as a login identifier (see internal/auth's Login,

@@ -377,6 +377,172 @@ func (h *Handler) GetCustomer360(c *gin.Context) {
 	httpx.Success(c, http.StatusOK, rec)
 }
 
+// parseOpenedRange reads the shared from/to YYYY-MM-DD query params used by
+// GetCustomer360 and the 5 customer-scoped sub-table endpoints below,
+// returning a BadRequest on a malformed date or an inverted range.
+func parseOpenedRange(c *gin.Context) (from, to *time.Time, ok bool) {
+	if v := c.Query("from"); v != "" {
+		parsed, err := parseDate(v)
+		if err != nil {
+			httpx.Fail(c, http.StatusBadRequest, "invalid from: expected YYYY-MM-DD")
+			return nil, nil, false
+		}
+		from = &parsed
+	}
+	if v := c.Query("to"); v != "" {
+		parsed, err := parseDate(v)
+		if err != nil {
+			httpx.Fail(c, http.StatusBadRequest, "invalid to: expected YYYY-MM-DD")
+			return nil, nil, false
+		}
+		to = &parsed
+	}
+	if from != nil && to != nil && to.Before(*from) {
+		httpx.Fail(c, http.StatusBadRequest, "invalid range: to is before from")
+		return nil, nil, false
+	}
+	return from, to, true
+}
+
+// customerSubTableLimitOffset reads the shared limit/offset query params for
+// the 5 customer-scoped sub-table endpoints below, mirroring Handler.List's
+// convention: limit+1 is requested so the extra row can be sliced off to
+// compute hasMore without a second COUNT query.
+func customerSubTableLimitOffset(c *gin.Context) (limit, offset int) {
+	limit, _ = strconv.Atoi(c.Query("limit"))
+	offset, _ = strconv.Atoi(c.Query("offset"))
+	if offset < 0 {
+		offset = 0
+	}
+	return limit, offset
+}
+
+// ListLoansForCustomer backs GET /customers/:id/loans — the Customer 360
+// view's Loan History sub-table, paginated server-side instead of sliced
+// client-side out of GetCustomer360's full loan set.
+func (h *Handler) ListLoansForCustomer(c *gin.Context) {
+	customerID, err := httpx.IDParam(c, "id")
+	if err != nil {
+		httpx.FailErr(c, err)
+		return
+	}
+	from, to, ok := parseOpenedRange(c)
+	if !ok {
+		return
+	}
+	limit, offset := customerSubTableLimitOffset(c)
+	rec, err := h.svc.ListLoansForCustomer(customerID, from, to, limit+1, offset)
+	if err != nil {
+		httpx.FailErr(c, err)
+		return
+	}
+	hasMore := limit > 0 && len(rec) > limit
+	if hasMore {
+		rec = rec[:limit]
+	}
+	httpx.Success(c, http.StatusOK, gin.H{"items": rec, "hasMore": hasMore})
+}
+
+// ListOrnamentsForCustomer backs GET /customers/:id/ornaments — the
+// Customer 360 view's Pledged Ornaments (all loans) sub-table.
+func (h *Handler) ListOrnamentsForCustomer(c *gin.Context) {
+	customerID, err := httpx.IDParam(c, "id")
+	if err != nil {
+		httpx.FailErr(c, err)
+		return
+	}
+	from, to, ok := parseOpenedRange(c)
+	if !ok {
+		return
+	}
+	limit, offset := customerSubTableLimitOffset(c)
+	rec, err := h.svc.ListOrnamentsForCustomer(customerID, from, to, limit+1, offset)
+	if err != nil {
+		httpx.FailErr(c, err)
+		return
+	}
+	hasMore := limit > 0 && len(rec) > limit
+	if hasMore {
+		rec = rec[:limit]
+	}
+	httpx.Success(c, http.StatusOK, gin.H{"items": rec, "hasMore": hasMore})
+}
+
+// ListPaymentsForCustomer backs GET /customers/:id/payments — the
+// Customer 360 view's Payment History (all loans) sub-table.
+func (h *Handler) ListPaymentsForCustomer(c *gin.Context) {
+	customerID, err := httpx.IDParam(c, "id")
+	if err != nil {
+		httpx.FailErr(c, err)
+		return
+	}
+	from, to, ok := parseOpenedRange(c)
+	if !ok {
+		return
+	}
+	limit, offset := customerSubTableLimitOffset(c)
+	rec, err := h.svc.ListPaymentsForCustomer(customerID, from, to, limit+1, offset)
+	if err != nil {
+		httpx.FailErr(c, err)
+		return
+	}
+	hasMore := limit > 0 && len(rec) > limit
+	if hasMore {
+		rec = rec[:limit]
+	}
+	httpx.Success(c, http.StatusOK, gin.H{"items": rec, "hasMore": hasMore})
+}
+
+// ListBankPledgesForCustomer backs GET /customers/:id/bank-pledges — the
+// Customer 360 view's Bank Pledges (all loans) sub-table.
+func (h *Handler) ListBankPledgesForCustomer(c *gin.Context) {
+	customerID, err := httpx.IDParam(c, "id")
+	if err != nil {
+		httpx.FailErr(c, err)
+		return
+	}
+	from, to, ok := parseOpenedRange(c)
+	if !ok {
+		return
+	}
+	limit, offset := customerSubTableLimitOffset(c)
+	rec, err := h.svc.ListBankPledgesForCustomer(customerID, from, to, limit+1, offset)
+	if err != nil {
+		httpx.FailErr(c, err)
+		return
+	}
+	hasMore := limit > 0 && len(rec) > limit
+	if hasMore {
+		rec = rec[:limit]
+	}
+	httpx.Success(c, http.StatusOK, gin.H{"items": rec, "hasMore": hasMore})
+}
+
+// ListAuctionHistoryForCustomer backs GET /customers/:id/auction-history —
+// the Customer 360 view's Auction History sub-table.
+func (h *Handler) ListAuctionHistoryForCustomer(c *gin.Context) {
+	customerID, err := httpx.IDParam(c, "id")
+	if err != nil {
+		httpx.FailErr(c, err)
+		return
+	}
+	from, to, ok := parseOpenedRange(c)
+	if !ok {
+		return
+	}
+	limit, offset := customerSubTableLimitOffset(c)
+	rec, err := h.svc.ListAuctionHistoryForCustomer(customerID, from, to, limit+1, offset)
+	if err != nil {
+		httpx.FailErr(c, err)
+		return
+	}
+	hasMore := limit > 0 && len(rec) > limit
+	if hasMore {
+		rec = rec[:limit]
+	}
+	httpx.Success(c, http.StatusOK, gin.H{"items": rec, "hasMore": hasMore})
+}
+
 // ListApprovals returns the full per-decision audit history for a loan's
 // sanction chain (GET /:id/approvals) — used by the frontend's stage
 // tracker to show who acted at each stage and when.

@@ -1,6 +1,7 @@
-import React, { useEffect, useRef } from "react";
-import { View, FlatList, ActivityIndicator, StyleSheet, useWindowDimensions } from "react-native";
+import React, { useState } from "react";
+import { View, Pressable, FlatList, ActivityIndicator, StyleSheet, useWindowDimensions } from "react-native";
 import { ThemedText } from "./ThemedText";
+import { BottomSheetModal } from "./BottomSheetModal";
 import { colors } from "../theme/colors";
 import { useNotifications } from "../notifications/NotificationsContext";
 import { Notification } from "../api/notifications";
@@ -19,18 +20,13 @@ import { Notification } from "../api/notifications";
 // the first ~4 rows (whatever fit before the eye had to scroll) were ever
 // reachable.
 //
-// Renders a "New" tag on any notification newer than lastViewedAt — a
-// watermark that only advances when this component unmounts (i.e. the
-// BottomSheetModal hosting it closes, since BottomSheetModal.tsx tears its
-// children down entirely when `visible` goes false — see its sheetStore
-// usage). This is deliberately separate from the bell icon's badge count
-// (which clears the instant the bell is opened, in FloatingHeader.tsx): the
-// "New" tag stays visible for the whole time a sheet is open, so items you
-// haven't actually looked at yet stay distinguishable from ones you saw and
-// dismissed in an earlier session, even after the badge itself is gone.
+// Each row shows a gold unread dot for `!n.read` — server-truth state (see
+// NotificationsContext's doc comment), not a client-side watermark. Tapping
+// a row opens NotificationDetailModal (below) with its full title/body and
+// marks it read via markRead(), which optimistically flips the row and fires
+// POST /customer/notifications/:id/read in the background.
 export function NotificationList() {
-  const { items, lastViewedAt, viewedWatermarkReady, markViewed, persistViewedNow, loadMore, hasMore, loadingMore } =
-    useNotifications();
+  const { items, markRead, loadMore, hasMore, loadingMore } = useNotifications();
   // The hosting BottomSheetModal caps itself at maxHeightPct={60} but has no
   // *definite* height (it hugs its content up to that cap), so flex sizing
   // inside it has nothing concrete to shrink against. Computing the list's
@@ -39,71 +35,30 @@ export function NotificationList() {
   // footer line, and the sheet's vertical padding).
   const { height: windowHeight } = useWindowDimensions();
   const listMaxHeight = Math.max(200, windowHeight * 0.6 - 150);
-  // Captured lazily rather than via useRef(lastViewedAt) — that would freeze
-  // at whatever lastViewedAt happened to be on this component's very first
-  // render, which is `null` if the sheet is opened before
-  // NotificationsContext's async SecureStore read resolves (e.g. right
-  // after an app reload). That null looks identical to "never viewed
-  // anything," so every notification rendered as "NEW" every time,
-  // regardless of what was actually persisted last close. Waiting for
-  // viewedWatermarkReady before locking in the cutoff fixes that.
-  const viewedAtOpenRef = useRef<Date | null>(null);
-  const capturedRef = useRef(false);
-  if (viewedWatermarkReady && !capturedRef.current) {
-    viewedAtOpenRef.current = lastViewedAt;
-    capturedRef.current = true;
+
+  const [selected, setSelected] = useState<Notification | null>(null);
+
+  function openNotification(n: Notification) {
+    if (!n.read) markRead(n.id);
+    setSelected(n);
   }
 
-  useEffect(() => {
-    return () => {
-      // The disk write happens right here, synchronously at unmount — so it
-      // survives even if the app is backgrounded/killed a moment later
-      // (e.g. the user closes the sheet and immediately swipes the app
-      // away). Only the React state update is deferred: markViewed()
-      // updates NotificationsContext, which is mounted at the app root —
-      // every consumer of useNotifications() (every screen's FloatingHeader
-      // bell) re-renders when it fires. Doing that synchronously during
-      // this component's unmount collided with the BottomSheetModal's own
-      // slide-down close animation (still playing at this exact moment),
-      // producing a visible flicker right as the sheet closed. Pushing it
-      // a beat past the close transition lets the animation finish
-      // untouched first — and since the write already landed, losing this
-      // deferred call to a backgrounded JS thread just means a slightly
-      // stale badge, not a lost "seen" state.
-      persistViewedNow();
-      setTimeout(markViewed, 300);
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  const cutoff = viewedAtOpenRef.current;
-
   function renderItem({ item: n }: { item: Notification }) {
-    // While the watermark hasn't loaded yet, don't guess — showing nothing
-    // as "NEW" for a beat is better than flashing every row as new and
-    // then having most of them un-flag once the real cutoff lands.
-    const isNew = capturedRef.current && (!cutoff || new Date(n.createdAt) > cutoff);
     return (
-      <View style={styles.row}>
+      <Pressable onPress={() => openNotification(n)} style={styles.row}>
         <View style={styles.titleRow}>
+          {!n.read ? <View style={styles.unreadDot} /> : null}
           <ThemedText variant="body" style={{ flex: 1 }}>
             {n.title}
           </ThemedText>
-          {isNew ? (
-            <View style={styles.newTag}>
-              <ThemedText variant="label" color={colors.card} style={styles.newTagText}>
-                NEW
-              </ThemedText>
-            </View>
-          ) : null}
         </View>
-        <ThemedText variant="small" color={colors.muted} style={{ marginTop: 2 }}>
+        <ThemedText variant="small" color={colors.muted} style={{ marginTop: 2 }} numberOfLines={2}>
           {n.body}
         </ThemedText>
         <ThemedText variant="small" color={colors.muted} style={{ marginTop: 4 }}>
           {new Date(n.createdAt).toLocaleString("en-IN")}
         </ThemedText>
-      </View>
+      </Pressable>
     );
   }
 
@@ -119,13 +74,6 @@ export function NotificationList() {
         // touches to it at all).
         style={{ maxHeight: listMaxHeight }}
         nestedScrollEnabled
-        // Diagnostic hooks for the "scroll dies after reopening" report —
-        // these log the list's real geometry so we can see whether the
-        // viewport/content sizes on the second open differ from the first.
-        onLayout={(e) => console.log("[notif] list viewport h=", e.nativeEvent.layout.height)}
-        onContentSizeChange={(w, h) => console.log("[notif] content h=", h)}
-        onScroll={(e) => console.log("[notif] offsetY=", e.nativeEvent.contentOffset.y)}
-        scrollEventThrottle={100}
         data={items}
         keyExtractor={(n) => String(n.id)}
         renderItem={renderItem}
@@ -154,6 +102,25 @@ export function NotificationList() {
           No more notifications
         </ThemedText>
       ) : null}
+
+      {/* Stacks on top of the list's own BottomSheetModal (see the tab
+          screens' <BottomSheetModal><NotificationList/></BottomSheetModal>)
+          — SheetHost keys sheets by their own generated id, so two open at
+          once is fine. dragToClose is left on (default) since this one has
+          no inner scrollable to fight over touches with. */}
+      <BottomSheetModal visible={!!selected} onClose={() => setSelected(null)} maxHeightPct={50}>
+        {selected ? (
+          <View style={{ paddingBottom: 8 }}>
+            <ThemedText variant="h3" style={{ marginBottom: 8 }}>
+              {selected.title}
+            </ThemedText>
+            <ThemedText variant="small" color={colors.muted} style={{ marginBottom: 12 }}>
+              {new Date(selected.createdAt).toLocaleString("en-IN")}
+            </ThemedText>
+            <ThemedText variant="body">{selected.body}</ThemedText>
+          </View>
+        ) : null}
+      </BottomSheetModal>
     </View>
   );
 }
@@ -165,11 +132,10 @@ const styles = StyleSheet.create({
     borderBottomColor: colors.line,
   },
   titleRow: { flexDirection: "row", alignItems: "center", gap: 8 },
-  newTag: {
+  unreadDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
     backgroundColor: colors.goldDeep,
-    borderRadius: 6,
-    paddingHorizontal: 6,
-    paddingVertical: 2,
   },
-  newTagText: { fontSize: 9, lineHeight: 11 },
 });

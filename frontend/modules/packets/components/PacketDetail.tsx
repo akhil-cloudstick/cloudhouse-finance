@@ -2,11 +2,16 @@
 
 import { useEffect, useState } from "react";
 import { useToast } from "@/common/components/Toast";
+import { useModal } from "@/common/components/Modal";
+import { useAuth } from "@/common/auth-context";
+import { Select } from "@/common/components/ui/Select";
 import { StatusChip } from "@/common/components/ui/StatusChip";
 import { Icon } from "@/common/components/Icon";
 import { fmt, fmtW } from "@/common/utils/format";
 import { ApiError } from "@/common/services/httpClient";
 import { listLockers, type LockerView } from "@/modules/lockers/services/lockerService";
+import { getLoanByNumber } from "@/modules/loans/services/loanService";
+import { RepledgeModalContent } from "@/common/components/modals/RepledgeModal";
 import {
   getPacketByCode, listMovements, recordMovement, PACKET_STAGES, PACKET_STATUS,
   type PacketView, type MovementView,
@@ -49,6 +54,10 @@ function Stepper({ status }: { status: string }) {
  * POST /packets/:id/movements. */
 export function PacketDetail({ code }: { code?: string }) {
   const toast = useToast();
+  const { openModal } = useModal();
+  const { can } = useAuth();
+
+  const canChangeBankPledge = can("Bank_Pledge_Management", "can_create_bank_pledge");
 
   const [p, setP] = useState<PacketView | null>(null);
   const [movements, setMovements] = useState<MovementView[]>([]);
@@ -73,6 +82,25 @@ export function PacketDetail({ code }: { code?: string }) {
   }
 
   useEffect(() => { load(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [code]);
+
+  // Bank-pledging a packet's gold is a real transaction (bank, amount, cash
+  // treatment) — not a bare stepper move. This opens the same RepledgeModal
+  // used from the loan page / Bank Re-Pledge page; recordBankPledge() moves
+  // the packet to "Bank Pledged" itself server-side (see
+  // PacketMover.RecordBankPledgeMovement), so there is no separate doMove
+  // call here.
+  async function openBankPledge() {
+    if (!p) return;
+    setBusy(true);
+    try {
+      const loan = await getLoanByNumber(p.loanNumber);
+      openModal(<RepledgeModalContent loan={loan} onSaved={load} />);
+    } catch (e) {
+      toast(e instanceof ApiError ? e.message : "Could not load the loan — try again.");
+    } finally {
+      setBusy(false);
+    }
+  }
 
   async function doMove(toStatus: string, extraLockerId?: number) {
     if (!p) return;
@@ -186,14 +214,18 @@ export function PacketDetail({ code }: { code?: string }) {
               <div className="frow" style={{ marginBottom: 10 }}>
                 <div style={{ flex: 1 }}>
                   <label className="f">Select locker</label>
-                  <select className="inp" value={lockerId} onChange={(e) => setLockerId(e.target.value ? Number(e.target.value) : "")}>
-                    <option value="">Select locker…</option>
-                    {lockers.filter((l) => l.isActive && l.branchId === p.branchId).map((l) => (
-                      <option key={l.id} value={l.id} disabled={l.occupied >= l.capacity}>
-                        {l.code} ({l.occupied}/{l.capacity}){l.occupied >= l.capacity ? " — full" : ""}
-                      </option>
-                    ))}
-                  </select>
+                  <Select
+                    options={[
+                      { value: "", label: "Select locker…" },
+                      ...lockers.filter((l) => l.isActive && l.branchId === p.branchId).map((l) => ({
+                        value: String(l.id),
+                        label: `${l.code} (${l.occupied}/${l.capacity})${l.occupied >= l.capacity ? " — full" : ""}`,
+                        disabled: l.occupied >= l.capacity,
+                      })),
+                    ]}
+                    value={lockerId === "" ? "" : String(lockerId)}
+                    onChange={(v) => setLockerId(v ? Number(v) : "")}
+                  />
                 </div>
                 <div style={{ display: "flex", gap: 8, alignItems: "flex-end" }}>
                   <button className="btn ghost sm" onClick={() => setPickLocker(false)}>Cancel</button>
@@ -204,7 +236,9 @@ export function PacketDetail({ code }: { code?: string }) {
 
             {p.status === PACKET_STATUS.LOCKER_STORED && (
               <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                <button className="btn ghost" disabled={busy} onClick={() => doMove(PACKET_STATUS.BANK_PLEDGED)}><Icon name="bank" /> Check Out (Bank Pledge)</button>
+                {canChangeBankPledge && (
+                  <button className="btn ghost" disabled={busy} onClick={openBankPledge}><Icon name="bank" /> Repledge to Bank</button>
+                )}
                 <button className="btn ghost" disabled={busy} onClick={() => doMove(PACKET_STATUS.READY_FOR_RELEASE)}>Mark Ready for Release</button>
               </div>
             )}

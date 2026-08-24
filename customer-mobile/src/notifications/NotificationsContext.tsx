@@ -3,42 +3,21 @@ import { useAuth } from "../auth/AuthContext";
 import { connectNotificationSocket, NotificationMessage } from "../realtime/socket";
 import * as notificationsApi from "../api/notifications";
 import { Notification } from "../api/notifications";
-import { loadLastSeenAt, saveLastSeenAt, loadLastViewedAt, saveLastViewedAt, clearWatermarks } from "./notificationWatermark";
 
-// Two separate watermarks — NEITHER is the same thing as the server's
-// `Delivered` flag (that stays exactly as designed: bytes-reached-the-
-// device, unaffected by whether the customer has actually looked at
-// anything). Both are persisted on-device (notificationWatermark.ts) so they
-// survive a cold start or a re-login on the same device — previously they
-// were in-memory-only React state and reset to null on every mount, which
-// made every already-seen notification look unread again after each login/
-// app restart.
-//
-//   - lastSeenAt/markSeen/unseenCount: the bell icon's badge count. Updated
-//     the instant the bell is *opened* — the badge clears right away, same
-//     as most apps' bell affordance.
-//   - lastViewedAt/markViewed/isNew: a second, later watermark that only
-//     advances when the list is *closed* — so while a sheet is open, items
-//     that arrived since the last time it was closed still render with a
-//     "New" tag (distinguishing them from ones already looked at in an
-//     earlier session), even though the badge itself already cleared on
-//     open. A notification that arrives while the sheet is already open
-//     also gets tagged "New", since it's newer than lastViewedAt too.
+// Unread state is server-truth now (Notification.read, flipped by
+// POST /customer/notifications/:id/read the moment the customer opens one —
+// see NotificationDetailModal). Previously this lived entirely in a
+// client-side timestamp watermark (lastSeenAt/lastViewedAt, persisted to
+// SecureStore) that had to be reconstructed on every cold start/re-login; any
+// gap in that reconstruction made every notification look unread again. Now
+// there's nothing to reconstruct — `items[].read` came straight from the
+// server on the last refresh()/live push, and markRead() just flips it
+// (optimistically) and tells the server, the same as any other mutation in
+// this app.
 type NotificationsState = {
   items: Notification[];
   unseenCount: number;
-  markSeen: () => void;
-  lastViewedAt: Date | null;
-  // True once the persisted lastViewedAt has actually been read from disk
-  // (or confirmed absent). lastViewedAt itself starts as null and a freshly
-  // signed-in customer's genuinely-never-viewed null is indistinguishable
-  // from "hasn't loaded yet" without this — see NotificationList.tsx's use
-  // of it.
-  viewedWatermarkReady: boolean;
-  markViewed: () => void;
-  // Persists lastViewedAt to disk immediately, without touching React state
-  // (see markViewed's own comment for why the two are split).
-  persistViewedNow: () => void;
+  markRead: (id: number) => void;
   refresh: () => Promise<void>;
   loadMore: () => Promise<void>;
   hasMore: boolean;
@@ -60,6 +39,7 @@ function fromLiveMessage(msg: NotificationMessage): Notification {
     relatedEntityId: msg.relatedEntityId,
     delivered: true, // the client just acked it in socket.ts — this row already reflects that
     attempts: 1,
+    read: false, // a notification that just arrived live has definitionally not been opened yet
     createdAt: msg.createdAt,
   };
 }
@@ -73,9 +53,6 @@ function fromLiveMessage(msg: NotificationMessage): Notification {
 export function NotificationsProvider({ children }: { children: React.ReactNode }) {
   const { isAuthenticated, isLoading: authLoading } = useAuth();
   const [items, setItems] = useState<Notification[]>([]);
-  const [lastSeenAt, setLastSeenAt] = useState<Date | null>(null);
-  const [lastViewedAt, setLastViewedAt] = useState<Date | null>(null);
-  const [viewedWatermarkReady, setViewedWatermarkReady] = useState(false);
   const [hasMore, setHasMore] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
   const disconnectRef = useRef<(() => void) | null>(null);
@@ -84,33 +61,13 @@ export function NotificationsProvider({ children }: { children: React.ReactNode 
   // `items` without having come from a paginated fetch.
   const offsetRef = useRef(0);
 
-  const markSeen = useCallback(() => {
-    const now = new Date();
-    setLastSeenAt(now);
-    saveLastSeenAt(now).catch(() => {});
-  }, []);
-
-  // The caller (NotificationList.tsx) defers markViewed by 300ms past its
-  // unmount to dodge a close-animation flicker (the state update re-renders
-  // every useNotifications() consumer, including the bell badge, mid-
-  // animation). But if the whole thing — including the disk write — waits
-  // that 300ms, an app backgrounded/killed inside that window (very
-  // plausible right after closing a sheet) loses the write entirely: the
-  // watermark never advances, and every already-viewed notification looks
-  // "NEW" again on next launch, even though it was actually seen. So the
-  // disk write happens immediately via persistViewedNow(), synchronously at
-  // unmount; only the React state update (the part that can flicker) is
-  // deferred through markViewed().
-  const persistedViewedAtRef = useRef<Date | null>(null);
-
-  const persistViewedNow = useCallback(() => {
-    const now = new Date();
-    persistedViewedAtRef.current = now;
-    saveLastViewedAt(now).catch(() => {});
-  }, []);
-
-  const markViewed = useCallback(() => {
-    setLastViewedAt(persistedViewedAtRef.current ?? new Date());
+  // Optimistically flips the row locally (so the modal/list reflect it
+  // instantly) and fires the REST call in the background; a failure here
+  // just means the next refresh() re-syncs from the server, same posture as
+  // every other best-effort mutation in this app.
+  const markRead = useCallback((id: number) => {
+    setItems((prev) => prev.map((n) => (n.id === id ? { ...n, read: true } : n)));
+    notificationsApi.readNotification(id).catch(() => {});
   }, []);
 
   const refresh = useCallback(async () => {
@@ -149,13 +106,10 @@ export function NotificationsProvider({ children }: { children: React.ReactNode 
     // AuthContext's isAuthenticated defaults to false and only flips true
     // once app/_layout.tsx's cold-start bootstrap (device-login/token
     // refresh) resolves — so on every reload this effect used to run first
-    // with isAuthenticated still false, take the branch below, and wipe the
-    // just-written watermarks via clearWatermarks() before they were ever
-    // read back. That's what made the badge/"NEW" tags reset on every
-    // single reload, regardless of anything persisted correctly last
-    // session. authLoading distinguishes "bootstrap hasn't resolved yet"
-    // (do nothing, wait) from "resolved, and the customer really is signed
-    // out" (the only case that should clear anything).
+    // with isAuthenticated still false. authLoading distinguishes "bootstrap
+    // hasn't resolved yet" (do nothing, wait) from "resolved, and the
+    // customer really is signed out" (the only case that should clear
+    // anything).
     if (authLoading) return;
 
     if (!isAuthenticated) {
@@ -164,21 +118,8 @@ export function NotificationsProvider({ children }: { children: React.ReactNode 
       setItems([]);
       setHasMore(false);
       offsetRef.current = 0;
-      setLastSeenAt(null);
-      setLastViewedAt(null);
-      setViewedWatermarkReady(false);
-      clearWatermarks().catch(() => {});
       return;
     }
-
-    // Load the persisted watermarks before the first refresh — otherwise
-    // the "everything looks unread" window (however brief) would still
-    // flash on every mount.
-    loadLastSeenAt().then(setLastSeenAt).catch(() => {});
-    loadLastViewedAt()
-      .then(setLastViewedAt)
-      .catch(() => {})
-      .finally(() => setViewedWatermarkReady(true));
 
     refresh();
     disconnectRef.current = connectNotificationSocket((msg) => {
@@ -193,9 +134,7 @@ export function NotificationsProvider({ children }: { children: React.ReactNode 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isAuthenticated, authLoading]);
 
-  const unseenCount = lastSeenAt
-    ? items.filter((n) => new Date(n.createdAt) > lastSeenAt).length
-    : items.length;
+  const unseenCount = items.filter((n) => !n.read).length;
 
   // Memoized so a re-render of NotificationsProvider that doesn't actually
   // change any of these values (e.g. AuthProvider re-rendering for an
@@ -206,29 +145,13 @@ export function NotificationsProvider({ children }: { children: React.ReactNode 
     () => ({
       items,
       unseenCount,
-      markSeen,
-      lastViewedAt,
-      viewedWatermarkReady,
-      markViewed,
-      persistViewedNow,
+      markRead,
       refresh,
       loadMore,
       hasMore,
       loadingMore,
     }),
-    [
-      items,
-      unseenCount,
-      markSeen,
-      lastViewedAt,
-      viewedWatermarkReady,
-      markViewed,
-      persistViewedNow,
-      refresh,
-      loadMore,
-      hasMore,
-      loadingMore,
-    ]
+    [items, unseenCount, markRead, refresh, loadMore, hasMore, loadingMore]
   );
 
   return <NotificationsContext.Provider value={value}>{children}</NotificationsContext.Provider>;

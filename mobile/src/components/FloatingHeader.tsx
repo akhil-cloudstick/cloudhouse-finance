@@ -4,8 +4,19 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
 import { ThemedText } from "./ThemedText";
 import { colors } from "../theme/colors";
-import { useAuth, useIsAdministrator } from "../auth/AuthContext";
+import { useAuth } from "../auth/AuthContext";
 import { Icon } from "./Icon";
+
+// Android's real blur (`blurMethod="dimezisBlurView"`) needs an explicit
+// `blurTarget` ref onto a `BlurTargetView` wrapping whatever should be
+// sampled — without it, expo-blur silently (and noisily, via a repeated
+// console warning) falls back to no blur at all. This header sits in the
+// navigator's normal document flow, not overlapping the scene beneath it,
+// so there is nothing behind it TO blur on either platform — wiring up
+// blurTarget here would still show nothing changing. Left as a plain
+// translucent-free View until the header actually floats over scrolling
+// content; see the conversation for the tradeoff.
+const IslandSurface = View;
 
 // Single, shared header for every screen in the (tabs) group — replaces
 // the old default headers that stacked (navigator header + nested Stack
@@ -17,8 +28,8 @@ import { Icon } from "./Icon";
 export function FloatingHeader({ title, navigation }: { title: string; navigation: any }) {
   const insets = useSafeAreaInsets();
   const router = useRouter();
-  const { employee, signOut } = useAuth();
-  const isAdmin = useIsAdministrator();
+  const { employee, signOut, can } = useAuth();
+  const canViewSettings = can("Settings_Management", "can_view_setting");
   const [menuOpen, setMenuOpen] = useState(false);
 
   // Left button is a back chevron on nested Stack detail screens
@@ -43,7 +54,7 @@ export function FloatingHeader({ title, navigation }: { title: string; navigatio
 
   return (
     <View style={[styles.wrap, { marginTop: insets.top + 8 }]}>
-      <View style={styles.island}>
+      <IslandSurface style={styles.island}>
         {canGoBack ? (
           <Pressable onPress={() => navigation.goBack()} hitSlop={10} style={styles.iconBtn}>
             <Icon name="chevronLeft" size={22} color={colors.ink} />
@@ -61,7 +72,7 @@ export function FloatingHeader({ title, navigation }: { title: string; navigatio
             {initials}
           </ThemedText>
         </Pressable>
-      </View>
+      </IslandSurface>
 
       <Modal visible={menuOpen} transparent animationType="fade" onRequestClose={() => setMenuOpen(false)}>
         <Pressable style={styles.backdrop} onPress={() => setMenuOpen(false)}>
@@ -69,7 +80,7 @@ export function FloatingHeader({ title, navigation }: { title: string; navigatio
             <ThemedText variant="label" color={colors.muted} style={styles.menuName} numberOfLines={1}>
               {employee?.name}
             </ThemedText>
-            {isAdmin && (
+            {canViewSettings && (
               <Pressable
                 onPress={() => {
                   setMenuOpen(false);

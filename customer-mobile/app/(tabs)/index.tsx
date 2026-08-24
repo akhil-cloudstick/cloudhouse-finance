@@ -170,7 +170,7 @@ export default function HomeScreen() {
           </Pressable>
 
           <Pressable onPress={() => router.push("/(tabs)/loans")}>
-            <Card>
+            <Card blur>
               <ThemedText variant="h3" style={{ marginBottom: 4 }}>
                 Reminders
               </ThemedText>

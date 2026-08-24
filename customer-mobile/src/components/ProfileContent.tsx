@@ -15,13 +15,12 @@ import { Customer, KYCStatusValue } from "../types/customer";
 import { ApiError } from "../api/client";
 import { resolveAssetUrl } from "../api/config";
 
-// Batch 4/5: the identity/nominee/KYC-verification body shared by the
-// pushed `/profile` route (app/profile/index.tsx, reachable from
-// FloatingHeader's avatar dropdown) and the `More` tab (app/(tabs)/more.tsx,
-// Batch 5 — a persistent tab destination, not a pushed screen). Both
-// screens own their own FloatingHeader (different back-chevron behavior);
-// this component owns everything below it, plus an optional `footer` node
-// rendered after the KYC card (the More tab's Log out button).
+// Batch 4/5: the identity/nominee/KYC-verification body for the Profile tab
+// (app/(tabs)/more.tsx — FloatingHeader's avatar button navigates straight
+// into this tab rather than pushing a separate top-level route, so the tab
+// bar stays mounted and there's exactly one Profile screen instance). This
+// component owns everything below the header, plus an optional `footer`
+// node rendered after the KYC card (the tab's Log out button).
 //
 // Fully view-only otherwise — no editing of any field in this batch;
 // customer-triggered PAN/Aadhaar verification reuses the same Setu/

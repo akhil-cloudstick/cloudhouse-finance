@@ -2,14 +2,24 @@
 
 import { useState } from "react";
 import { Icon } from "@/common/components/Icon";
+import { useToast } from "@/common/components/Toast";
+import { ApiError } from "@/common/services/httpClient";
 import { fmt, fmtW } from "@/common/utils/format";
 import { ReportView, type ReportConfig } from "@/modules/reports/components/ReportView";
 import {
   getDisbursement, getLoansStatus, getInterestCollection, getOutstandingPrincipal,
   getPaymentCollection, getGoldWeight, getPackets, getBankPledge, getLoanExtensions,
   getGoldRelease, getAuctions, getExpenseCashflow, getKYC, getGoldRateHistory,
-  getEmployeePerformance, getCommunicationHistory,
+  getEmployeePerformance, getCommunicationHistory, exportReport,
 } from "@/modules/reports/services/reportsService";
+
+function firstOfMonth(): string {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-01`;
+}
+function today(): string {
+  return new Date().toISOString().slice(0, 10);
+}
 
 const dt = (v: string) => v ? new Date(v).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" }) : "—";
 
@@ -325,28 +335,51 @@ const REPORT_CONFIGS: ReportConfig[] = [
  * for that report's ReportView (filter bar + paginated table + totals +
  * export) in place, rather than firing a stub toast. */
 export function Reports() {
+  const toast = useToast();
   const [activeId, setActiveId] = useState<string | null>(null);
+  const [printingId, setPrintingId] = useState<string | null>(null);
   const active = REPORT_CONFIGS.find((r) => r.id === activeId) || null;
 
   if (active) {
     return <ReportView config={active} onBack={() => setActiveId(null)} />;
   }
 
+  async function handlePrint(e: React.MouseEvent, r: ReportConfig) {
+    e.stopPropagation();
+    setPrintingId(r.id);
+    try {
+      await exportReport(r.exportKey, "pdf", { from: firstOfMonth(), to: today() });
+    } catch (err) {
+      toast(err instanceof ApiError ? err.message : "Print failed.");
+    } finally {
+      setPrintingId(null);
+    }
+  }
+
   return (
     <>
       <div className="page-h">
-        <div><p>Filterable reports, exportable to PDF / Excel</p></div>
+        <div><h1>Reports</h1><p>Filterable reports, exportable to PDF / Excel</p></div>
       </div>
       <hr className="gold-rule" />
       <div className="grid" style={{ gridTemplateColumns: "repeat(auto-fill,minmax(250px,1fr))" }}>
         {REPORT_CONFIGS.map((r) => (
-          <div className="card" style={{ cursor: "pointer" }} key={r.id} onClick={() => setActiveId(r.id)}>
-            <div className="bd" style={{ display: "flex", gap: 13, alignItems: "center" }}>
-              <span className="ic" style={{ width: 40, height: 40, borderRadius: 9, background: "#f8eecb", color: "var(--gold-deep)", display: "grid", placeContent: "center" }}><Icon name={r.icon} /></span>
-              <div>
-                <b style={{ fontSize: 14.5, color: "var(--charcoal)" }}>{r.title}</b>
-                <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 2 }}>{r.description}</div>
-              </div>
+          <div className="card" style={{ cursor: "pointer", minHeight: 120, display: "flex", flexDirection: "column", position: "relative" }} key={r.id} onClick={() => setActiveId(r.id)}>
+            <button
+              className="btn ghost sm"
+              style={{ position: "absolute", top: 10, right: 10, width: 30, height: 30, padding: 0, display: "grid", placeContent: "center" }}
+              disabled={printingId === r.id}
+              onClick={(e) => handlePrint(e, r)}
+              title={`Print ${r.title}`}
+              aria-label={`Print ${r.title}`}
+            >
+              <span style={{ display: "grid", placeContent: "center", transform: "translateY(2px)" }}>
+                <Icon name="print" />
+              </span>
+            </button>
+            <div className="bd" style={{ display: "flex", flexDirection: "column", flex: 1 }}>
+              <b style={{ fontSize: 14.5, color: "var(--charcoal)", paddingRight: 40 }}>{r.title}</b>
+              <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 2 }}>{r.description}</div>
             </div>
           </div>
         ))}

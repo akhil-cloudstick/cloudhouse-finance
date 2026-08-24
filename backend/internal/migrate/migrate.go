@@ -25,28 +25,11 @@ import (
 	"ambikagold/backend/internal/notification"
 	"ambikagold/backend/internal/ornamenttype"
 	"ambikagold/backend/internal/packet"
-	"ambikagold/backend/internal/platform"
 	"ambikagold/backend/internal/puritystandard"
 	"ambikagold/backend/internal/reminder"
 	"ambikagold/backend/internal/scheme"
 	"ambikagold/backend/internal/settings"
 )
-
-// authResources/staffRoles seed the permissions table on every run. Kept as
-// the single copy — both the server and `cmd/migrate` call Run, so there is
-// no second list anywhere to drift out of sync with this one. "branches" is
-// deliberately NOT in authResources — see the RestrictResourceToRole call
-// below.
-var authResources = []string{
-	"banks", "cash", "customers", "employees", "goldrates",
-	"loans", "lockers", "ornamenttypes", "packets", "puritystandards", "reminders",
-	"schemes", "settings", "uploads", "kyc-documents", "reports",
-}
-
-var staffRoles = []string{
-	"Administrator", "Management", "Branch Manager", "Loan Operator", "Cashier",
-	"Accountant", "Collection Staff", "Auction Administrator", "Auditor",
-}
 
 // Run applies every backfill, AutoMigrate, post-migrate cleanup and
 // permission seed, in the fixed order each step's own comments document as
@@ -76,6 +59,17 @@ func Run(db *gorm.DB) error {
 	// loan, ever" constraint would otherwise survive and keep rejecting a
 	// second auction attempt regardless of what the struct tags now say.
 	if err := loan.RelaxAuctionLoanUniqueIndex(db); err != nil {
+		return err
+	}
+
+	// The legacy (role, resource, action, allowed) permissions table is being
+	// replaced by the roles/permissions/role_permissions schema — must run
+	// BEFORE AutoMigrate for the same reason as the auction index above:
+	// AutoMigrate only adds columns the new authz.Permission struct declares,
+	// it never drops the old NOT NULL role/resource/action/allowed columns or
+	// their unique index, which would otherwise reject every new-shape
+	// insert.
+	if err := dropLegacyAuthzColumns(db); err != nil {
 		return err
 	}
 
@@ -114,7 +108,9 @@ func Run(db *gorm.DB) error {
 		&packet.PacketMovement{},
 		&puritystandard.PurityStandard{},
 		&reminder.Reminder{},
+		&authz.Role{},
 		&authz.Permission{},
+		&authz.RolePermission{},
 		&commlog.CommunicationLog{},
 		&customerauth.OTP{},
 		&customerauth.DeviceToken{},
@@ -182,42 +178,89 @@ func Run(db *gorm.DB) error {
 		return err
 	}
 
+	// Role/permission catalogue — see internal/authz/catalogue.go for the
+	// single copy of the role list, permission catalogue and restrictions
+	// both this server and `cmd/migrate` seed from.
 	authzRepo := authz.NewRepository(db)
-	inserted, skipped, err := authzRepo.SeedDefaults(staffRoles, authResources)
+	if err := authzRepo.SeedRoles(authz.StaffRoles); err != nil {
+		return err
+	}
+	if err := authzRepo.SeedCatalogue(authz.Catalogue); err != nil {
+		return err
+	}
+	// Must run BEFORE BackfillGrants: it copies each new "can create/update/
+	// delete <noun>" grant from that role's existing "can change <noun>" row,
+	// rather than the generic backfill's default-grant-TRUE, since these are
+	// finer-grained authorities than the blanket "change" permission they
+	// split from (see the CRUDSplitNouns/BackfillCRUDSplitGrants doc comments
+	// for the deliberate deviation from the house standard's view/change
+	// default).
+	splitInserted, err := authzRepo.BackfillCRUDSplitGrants(authz.CRUDSplitNouns)
 	if err != nil {
 		return err
 	}
-	log.Printf("permissions seed: %d inserted, %d already present", inserted, skipped)
-
-	nonAdminRoles := make([]string, 0, len(staffRoles))
-	for _, role := range staffRoles {
-		if role != platform.AdministratorRole {
-			nonAdminRoles = append(nonAdminRoles, role)
-		}
-	}
-	if err := authzRepo.RestrictResourceToRole("branches", platform.AdministratorRole, nonAdminRoles); err != nil {
+	log.Printf("permissions seed: %d create/update/delete role_permissions row(s) back-filled from existing change grants", splitInserted)
+	inserted, err := authzRepo.BackfillGrants()
+	if err != nil {
 		return err
 	}
-	if err := authzRepo.SetPermission("Cashier", "loans", "create", false); err != nil {
+	log.Printf("permissions seed: %d role_permissions row(s) back-filled", inserted)
+	if err := authzRepo.ApplyRestrictions(authz.Restrictions); err != nil {
 		return err
 	}
 
-	reportRoles := []string{"Administrator", "Management", "Branch Manager", "Auditor"}
-	reportRolesSet := make(map[string]bool, len(reportRoles))
-	for _, r := range reportRoles {
-		reportRolesSet[r] = true
-	}
-	nonReportRoles := make([]string, 0, len(staffRoles))
-	for _, role := range staffRoles {
-		if !reportRolesSet[role] {
-			nonReportRoles = append(nonReportRoles, role)
-		}
-	}
-	if err := authzRepo.RestrictResourceToRoles("reports", reportRoles, nonReportRoles); err != nil {
+	if err := backfillEmployeeRoleID(db, authzRepo); err != nil {
 		return err
 	}
 
 	log.Println("migrations applied successfully")
+	return nil
+}
+
+// backfillEmployeeRoleID keeps employees.role_id in sync with the free-text
+// employees.role column on every boot — RoleID is the authorization key
+// (see internal/authz), Role stays the field employee.Service actually
+// reads/writes, so this is the one place the two are reconciled rather than
+// threading a role lookup through employee.Service itself. Idempotent: only
+// rows whose role_id doesn't already match their role name are touched.
+func backfillEmployeeRoleID(db *gorm.DB, authzRepo *authz.Repository) error {
+	for _, name := range authz.StaffRoles {
+		roleID, err := authzRepo.RoleIDByName(name)
+		if err != nil {
+			return err
+		}
+		if err := db.Table("employees").
+			Where("role = ? AND (role_id IS NULL OR role_id <> ?)", name, roleID).
+			Update("role_id", roleID).Error; err != nil {
+			return err
+		}
+		if db.RowsAffected > 0 {
+			log.Printf("backfilled employees: %d row(s) role %q -> role_id %d", db.RowsAffected, name, roleID)
+		}
+	}
+	return nil
+}
+
+// dropLegacyAuthzColumns drops the whole "permissions" table if it still has
+// the old (role, resource, action, allowed) shape from the pre-role-
+// permission-standard authz.Permission. AutoMigrate recreates it fresh in
+// the new (name, description, module_name, is_active) shape immediately
+// after. A plain DropColumn would not work here: the new `name` column is
+// NOT NULL with no default, and Postgres refuses to add a NOT NULL column
+// to a table that still has rows — the old rows carry no meaningful data
+// under the new shape anyway (SeedCatalogue/BackfillGrants below repopulate
+// everything from internal/authz.Catalogue), so dropping and recreating is
+// simpler and safer than trying to migrate them in place. Safe to re-run:
+// HasColumn is false once the table has already been recreated in the new
+// shape.
+func dropLegacyAuthzColumns(db *gorm.DB) error {
+	if !db.Migrator().HasColumn("permissions", "resource") {
+		return nil
+	}
+	if err := db.Migrator().DropTable("permissions"); err != nil {
+		return err
+	}
+	log.Println("dropped legacy permissions table (role/resource/action shape) — recreating in the new roles/permissions/role_permissions shape")
 	return nil
 }
 

@@ -203,9 +203,21 @@ func (h *Handler) Calendar(c *gin.Context) {
 		}
 	}
 
-	events, err := h.svc.GetCalendarEvents(from, to, platform.GetBranchScope(c))
+	// page/pageSize are both optional and additive: when either is missing
+	// or non-positive, the response stays the plain array GET
+	// /reminders/calendar has always returned (Calendar.tsx's full-month
+	// view still calls it that way) — only a caller that sends both gets
+	// the paginated {events, totalCount} envelope (Dashboard.tsx's
+	// "Upcoming Reminders" widget).
+	page, _ := strconv.Atoi(c.Query("page"))
+	pageSize, _ := strconv.Atoi(c.Query("pageSize"))
+	events, total, err := h.svc.GetCalendarEvents(from, to, platform.GetBranchScope(c), page, pageSize)
 	if err != nil {
 		httpx.FailErr(c, err)
+		return
+	}
+	if page > 0 && pageSize > 0 {
+		httpx.Success(c, http.StatusOK, gin.H{"events": events, "totalCount": total})
 		return
 	}
 	httpx.Success(c, http.StatusOK, events)

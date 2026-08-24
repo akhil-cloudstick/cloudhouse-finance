@@ -58,6 +58,16 @@ func (r *Repository) MarkDelivered(id uint) error {
 	}).Error
 }
 
+// MarkRead flips Read once the customer actually opens this notification in
+// the app — see Service.Read.
+func (r *Repository) MarkRead(id uint) error {
+	now := time.Now()
+	return r.db.Model(&Notification{}).Where("id = ?", id).Updates(map[string]any{
+		"read":    true,
+		"read_at": now,
+	}).Error
+}
+
 // IncrementAttempt records one more live-push attempt (delivered or not —
 // Attempts counts pushes made, not just failures, per the "retry every 10
 // minutes for a maximum of 10 times" rule).

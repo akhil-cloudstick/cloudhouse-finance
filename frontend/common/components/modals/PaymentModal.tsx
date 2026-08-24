@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useModal } from "@/common/components/Modal";
 import { useToast } from "@/common/components/Toast";
 import { Icon } from "@/common/components/Icon";
+import { Select } from "@/common/components/ui/Select";
 import { fmt } from "@/common/utils/format";
 import { recordPayment, type LoanView } from "@/modules/loans/services/loanService";
 import { ApiError } from "@/common/services/httpClient";
@@ -93,9 +94,8 @@ export function PaymentModalContent({ loan, onSaved }: { loan: LoanView; onSaved
         </div>
         <div className="frow c2">
           <div><label className="f">Payment Method</label>
-            <select className="inp" value={method} onChange={(e) => setMethod(e.target.value)}>
-              {METHODS.map((m) => <option key={m}>{m}</option>)}
-            </select></div>
+            <Select options={METHODS.map((m) => ({ value: m, label: m }))} value={method} onChange={setMethod} />
+          </div>
           <div><label className="f">Reference No.</label><input className="inp" placeholder="e.g. UPI txn id, cheque no." value={reference} onChange={(e) => setReference(e.target.value)} /></div>
         </div>
         <div className="frow"><div><label className="f">Processing Fee / Additional Charges (₹)</label>

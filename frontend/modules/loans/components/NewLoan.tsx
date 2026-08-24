@@ -46,7 +46,7 @@ type OrnRow = { n: string; p: string; w: number; q: number; img?: string; imgNam
  * endpoints (via SearchableSelect) instead of filtering an in-memory mock
  * list or a localStorage-backed type list. */
 export function NewLoan() {
-  const { role, isAdmin } = useAuth();
+  const { isAdmin, can } = useAuth();
   const { refresh } = useData();
   const { customers } = useCustomers();
   const { schemes } = useSchemes();
@@ -671,12 +671,11 @@ export function NewLoan() {
     }
   }
 
-  // Cashier is outside the loan creation/approval flow — the backend
-  // already 403s a Cashier's POST /loans (see authz's Cashier/loans/create
-  // override). This catches direct navigation to #newloan (e.g. a bookmark
-  // or a stale link) even though every entry-point button/nav-item is
-  // already hidden for this role.
-  if (role === "Cashier") {
+  // The backend already 403s a POST /loans without "can change loan" — the
+  // page-level route guard (app/app/page.tsx's ROUTE_PERMISSIONS) already
+  // blocks direct navigation to #newloan, this is a defensive second check
+  // in case this component is ever rendered another way.
+  if (!can("Loan_Management", "can_change_loan")) {
     return (
       <div className="empty">
         You don&apos;t have permission to create a loan. Contact a Loan Operator, Branch Manager, or Administrator.

@@ -5,6 +5,7 @@ import { ThemedText } from "./ThemedText";
 import { Icon } from "./Icon";
 import { colors } from "../theme/colors";
 import { useMoreSheet } from "./MoreSheet";
+import { useAuth } from "../auth/AuthContext";
 
 // Bottom bar for the (tabs) group — replaces the old side drawer
 // (AppDrawerContent). Four primary destinations plus a "More" slot that
@@ -16,17 +17,21 @@ import { useMoreSheet } from "./MoreSheet";
 // (banknote) rather than the web's `list`, because at tab-bar size a row of
 // lines reads as "a list" rather than "money lent", and `list` is also the
 // ☰ glyph FloatingHeader uses.
-const TABS: [string, string, string][] = [
-  // [route name, label, icon]
-  ["dashboard", "Dashboard", "home"],
-  ["loans", "Loans", "note"],
-  ["customers", "Customers", "user"],
-  ["new-loan", "New Loan", "plus"],
+// module/key: null means always visible (Dashboard) — every other tab is
+// filtered by the real permission, mirroring MoreSheet.tsx and
+// frontend/common/components/layout/Sidebar.tsx's NAV (§12).
+const TABS: { route: string; label: string; icon: string; module: string | null; key?: string }[] = [
+  { route: "dashboard", label: "Dashboard", icon: "home", module: null },
+  { route: "loans", label: "Loans", icon: "note", module: "Loan_Management", key: "can_view_loan" },
+  { route: "customers", label: "Customers", icon: "user", module: "Customer_Management", key: "can_view_customer" },
+  { route: "new-loan", label: "New Loan", icon: "plus", module: "Loan_Management", key: "can_change_loan" },
 ];
 
 export function AppTabBar({ state, navigation, insets }: BottomTabBarProps) {
   const { open } = useMoreSheet();
+  const { can } = useAuth();
   const activeRouteName = state.routes[state.index]?.name;
+  const visibleTabs = TABS.filter((t) => t.module === null || can(t.module, t.key!));
 
   function onTabPress(name: string) {
     const route = state.routes.find((r) => r.name === name);
@@ -60,18 +65,16 @@ export function AppTabBar({ state, navigation, insets }: BottomTabBarProps) {
     // custom tabBar out below the scene (BottomTabView is a flex column), so
     // it reserves its own height and no screen needs extra bottom padding.
     // paddingBottom covers the Android gesture pill / iOS home indicator —
-    // the app draws edge-to-edge, which SDK 57+ enforces.
-    <View style={[styles.wrap, { paddingBottom: 0 }]}>
+    // the app draws edge-to-edge, which SDK 57+ enforces, so without this the
+    // bar sat flush against the very bottom of the screen with nothing
+    // protecting it from the gesture nav / home indicator.
+    <View style={[styles.wrap, { paddingBottom: insets.bottom }]}>
       <View style={styles.island}>
-        {TABS.map(([name, label, icon]) => {
+        {visibleTabs.map(({ route: name, label, icon }) => {
           const isActive = name === activeRouteName;
           return (
-            <Pressable
-              key={name}
-              onPress={() => onTabPress(name)}
-              style={[styles.item, isActive && styles.itemActive]}
-            >
-              <View style={styles.iconWrap}>
+            <Pressable key={name} onPress={() => onTabPress(name)} style={styles.item}>
+              <View style={[styles.iconWrap, isActive && styles.iconWrapActive]}>
                 <Icon name={icon} size={21} color={isActive ? colors.goldDeep : colors.muted} />
               </View>
               <ThemedText variant="label" color={isActive ? colors.goldDeep : colors.muted} numberOfLines={1}>
@@ -113,12 +116,14 @@ const styles = StyleSheet.create({
     flex: 1,
     alignItems: "center",
     justifyContent: "center",
-    gap: 1,
+    gap: 0,
     paddingVertical: 0,
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: "transparent",
   },
-  itemActive: { backgroundColor: "transparent", borderColor: colors.goldDeep },
-  iconWrap: { width: 34, height: 34, alignItems: "center", justifyContent: "center" },
+  // Square box + radius === half the side, and overflow hidden so Android's
+  // default rectangular Pressable ripple can't paint square over it — a
+  // true circle, not a stadium/rounded-rect.
+  iconWrap: { width: 36, height: 36, borderRadius: 18, overflow: "hidden", alignItems: "center", justifyContent: "center" },
+  // WhatsApp-style active state: a filled pill highlight behind just the
+  // icon, not an outline around the whole item.
+  iconWrapActive: { backgroundColor: colors.goldPale },
 });

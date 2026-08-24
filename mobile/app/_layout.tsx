@@ -1,9 +1,10 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { Slot, useRouter, useSegments } from "expo-router";
 import { QueryClient, QueryClientProvider, focusManager } from "@tanstack/react-query";
 import { useFonts, Jost_400Regular, Jost_500Medium, Jost_600SemiBold } from "@expo-google-fonts/jost";
 import { NunitoSans_800ExtraBold } from "@expo-google-fonts/nunito-sans";
 import * as SplashScreen from "expo-splash-screen";
+import { Asset } from "expo-asset";
 import { View, ActivityIndicator, AppState, type AppStateStatus } from "react-native";
 import { StatusBar } from "expo-status-bar";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -101,12 +102,25 @@ export default function RootLayout() {
     Jost_600SemiBold,
     NunitoSans_800ExtraBold,
   });
+  // The login screen's logo <Image> was popping in a frame after its
+  // surrounding card/inputs — fonts were the only thing gating the splash
+  // screen, so it hid as soon as they resolved while the logo asset was
+  // still being read/decoded off-thread. Preloading it here means it's
+  // already in the image cache by the time the login screen mounts, so it
+  // paints in the same frame as everything else.
+  const [assetsLoaded, setAssetsLoaded] = useState(false);
 
   useEffect(() => {
-    if (fontsLoaded) SplashScreen.hideAsync();
-  }, [fontsLoaded]);
+    Asset.loadAsync(require("../assets/ambika-gold.png"))
+      .catch(() => {})
+      .finally(() => setAssetsLoaded(true));
+  }, []);
 
-  if (!fontsLoaded) return null;
+  useEffect(() => {
+    if (fontsLoaded && assetsLoaded) SplashScreen.hideAsync();
+  }, [fontsLoaded, assetsLoaded]);
+
+  if (!fontsLoaded || !assetsLoaded) return null;
 
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>

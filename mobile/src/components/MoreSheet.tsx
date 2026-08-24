@@ -5,7 +5,7 @@ import { ThemedText } from "./ThemedText";
 import { BottomSheetModal } from "./BottomSheetModal";
 import { Icon } from "./Icon";
 import { colors } from "../theme/colors";
-import { useAuth, useIsAdministrator } from "../auth/AuthContext";
+import { useAuth } from "../auth/AuthContext";
 
 // The "More" destination for the bottom bar — every module that isn't one of
 // the four primary tabs. Replaces the old side drawer (AppDrawerContent):
@@ -17,52 +17,54 @@ import { useAuth, useIsAdministrator } from "../auth/AuthContext";
 // Icons are the web admin UI's own glyphs (src/components/Icon.tsx, ported
 // from frontend/lib/icons.tsx) so the two apps name the same page with the
 // same picture.
-const GROUPS: [string, [string, string, string][]][] = [
-  // [section, [route, label, icon]]
+// Each row now also carries the permission that gates it (module, key — the
+// same underscored keys the backend derives, see src/api/permissions.ts) so
+// filtering is driven by the actual permissions table instead of a single
+// hardcoded admin-only set (see the house role-permission standard's §12).
+// Mirrors frontend/common/components/layout/Sidebar.tsx's NAV.
+type MoreItem = { route: string; label: string; icon: string; module: string; key: string };
+
+const GROUPS: [string, MoreItem[]][] = [
   [
     "Overview",
     [
-      ["reminders", "Reminders", "cal"],
-      ["reports", "Reports", "chart"],
+      { route: "reminders", label: "Reminders", icon: "cal", module: "Reminder_Management", key: "can_view_reminder" },
+      { route: "reports", label: "Reports", icon: "chart", module: "Report_Management", key: "can_view_report" },
     ],
   ],
   [
     "Lending",
     [
-      ["schemes", "Schemes", "doc"],
+      { route: "schemes", label: "Schemes", icon: "doc", module: "Scheme_Management", key: "can_view_scheme" },
       // `coin` belongs to Cash & Expenses; Gold Rates gets the balance
       // scale (rate per gram) so the two rows aren't the same glyph.
-      ["gold-rates", "Gold Rates", "scale"],
+      { route: "gold-rates", label: "Gold Rates", icon: "scale", module: "Gold_Rate_Management", key: "can_view_gold_rate" },
     ],
   ],
   [
     "Gold Custody",
     [
-      ["packets", "Packets", "box"],
-      ["lockers", "Lockers", "lock"],
-      ["banks", "Bank Pledge", "bank"],
-      ["auctions", "Auctions", "gavel"],
+      { route: "packets", label: "Packets", icon: "box", module: "Packet_Management", key: "can_view_packet" },
+      { route: "lockers", label: "Lockers", icon: "lock", module: "Locker_Management", key: "can_view_locker" },
+      { route: "banks", label: "Bank Pledge", icon: "bank", module: "Bank_Pledge_Management", key: "can_view_bank_pledge" },
+      { route: "auctions", label: "Auctions", icon: "gavel", module: "Loan_Management", key: "can_view_loan" },
     ],
   ],
   [
     "Operations",
     [
-      ["cash", "Cash & Expenses", "coin"],
-      ["employees", "Employees", "user"],
+      { route: "cash", label: "Cash & Expenses", icon: "coin", module: "Cash_Management", key: "can_view_cash" },
+      { route: "employees", label: "Employees", icon: "user", module: "Employee_Management", key: "can_view_employee" },
     ],
   ],
   [
     "Administration",
     [
-      ["settings", "Settings", "gear"],
-      ["branches", "Branches", "bank"],
+      { route: "settings", label: "Settings", icon: "gear", module: "Settings_Management", key: "can_view_setting" },
+      { route: "branches", label: "Branches", icon: "bank", module: "Branch_Management", key: "can_view_branch" },
     ],
   ],
 ];
-
-// employees/settings/branches are admin-only — the same gate the drawer
-// applied via drawerItemStyle: none.
-const ADMIN_ONLY = new Set(["employees", "settings", "branches"]);
 
 const MoreSheetContext = createContext<{ open: () => void }>({ open: () => {} });
 
@@ -90,15 +92,13 @@ export function MoreSheetProvider({ children }: { children: React.ReactNode }) {
 function MoreSheet({ visible, onClose }: { visible: boolean; onClose: () => void }) {
   const router = useRouter();
   const pathname = usePathname();
-  const { employee, signOut } = useAuth();
-  const isAdmin = useIsAdministrator();
+  const { employee, signOut, can } = useAuth();
 
+  // A permission-gated row is filtered OUT of the array (never rendered
+  // disabled) — §12.3. An empty group is dropped entirely rather than
+  // rendered with a bare heading — §12.4.
   const groups = GROUPS.map(
-    ([group, rows]) =>
-      [group, rows.filter(([route]) => isAdmin || !ADMIN_ONLY.has(route))] as [
-        string,
-        [string, string, string][],
-      ]
+    ([group, rows]) => [group, rows.filter((item) => can(item.module, item.key))] as [string, MoreItem[]]
   ).filter(([, rows]) => rows.length > 0);
 
   function go(route: string) {
@@ -124,7 +124,7 @@ function MoreSheet({ visible, onClose }: { visible: boolean; onClose: () => void
               {group.toUpperCase()}
             </ThemedText>
             <View style={styles.island}>
-              {rows.map(([route, label, icon], i) => {
+              {rows.map(({ route, label, icon }, i) => {
                 // pathname is "/loans", "/loans/12", ... — a route is active
                 // when it's the first segment.
                 const isActive = pathname === `/${route}` || pathname.startsWith(`/${route}/`);

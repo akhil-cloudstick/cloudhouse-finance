@@ -125,3 +125,21 @@ export async function getCalendarEvents(from: string, to: string): Promise<Calen
   const rec = await apiFetch<CalendarEvent[]>(`/reminders/calendar?${params.toString()}`);
   return rec || [];
 }
+
+/* Paginated variant backing Dashboard.tsx's "Upcoming Reminders" card —
+ * sending both `page` and `pageSize` switches GET /reminders/calendar to the
+ * {events, totalCount} envelope (backend/internal/reminder/handler.go's
+ * Calendar); omitting either keeps the plain-array shape getCalendarEvents
+ * above relies on, so Calendar.tsx's full-month view is unaffected. The
+ * backend now does the Overdue-first-then-by-date sort and the page slicing
+ * that used to happen client-side in Dashboard.tsx. */
+export async function getCalendarEventsPage(
+  from: string,
+  to: string,
+  page: number,
+  pageSize: number
+): Promise<{ events: CalendarEvent[]; totalCount: number }> {
+  const params = new URLSearchParams({ from, to, page: String(page), pageSize: String(pageSize) });
+  const rec = await apiFetch<{ events: CalendarEvent[] | null; totalCount: number }>(`/reminders/calendar?${params.toString()}`);
+  return { events: rec.events || [], totalCount: rec.totalCount || 0 };
+}

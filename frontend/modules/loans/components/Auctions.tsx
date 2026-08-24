@@ -359,9 +359,9 @@ export function Auctions() {
       </div>
       <hr className="gold-rule" />
 
-      <div style={{ display: "flex", gap: 8, marginBottom: 14 }}>
-        <button className={`btn ${tab === "active" ? "" : "ghost"} sm`} onClick={() => setTab("active")}>Active Cases</button>
-        <button className={`btn ${tab === "history" ? "" : "ghost"} sm`} onClick={showHistory}>Auction History</button>
+      <div className="tabs" style={{ marginBottom: 14 }}>
+        <button className={tab === "active" ? "on" : ""} onClick={() => setTab("active")}>Active Cases</button>
+        <button className={tab === "history" ? "on" : ""} onClick={showHistory}>Auction History</button>
       </div>
 
       {error && <div className="notice" style={{ marginBottom: 14 }}>{error}</div>}

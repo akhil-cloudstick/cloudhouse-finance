@@ -65,6 +65,7 @@ func (r *Repository) FindByLoanNumber(loanNumber string) (*Loan, error) {
 // LoanFilter narrows FindAll's results; zero-value fields are ignored.
 type LoanFilter struct {
 	Status     string
+	StatusIn   []string // matches any of these statuses; takes priority over Status when non-empty
 	BranchID   uint
 	CustomerID uint
 	Query      string // matches LoanNumber (case-insensitive, partial)
@@ -108,7 +109,9 @@ func startOfDay(t time.Time) time.Time {
 
 func (r *Repository) FindAll(f LoanFilter) ([]Loan, error) {
 	q := preloadAll(r.db).Model(&Loan{}).Order("id desc")
-	if f.Status != "" {
+	if len(f.StatusIn) > 0 {
+		q = q.Where("status IN ?", f.StatusIn)
+	} else if f.Status != "" {
 		q = q.Where("status = ?", f.Status)
 	}
 	if f.BranchID != 0 {
@@ -202,6 +205,41 @@ func (r *OrnamentRepository) FindByLoanID(loanID uint) ([]Ornament, error) {
 	return ornaments, err
 }
 
+// CustomerOrnamentRow is one pledged ornament plus its parent loan's
+// LoanNumber — the customer 360 view's Pledged Ornaments sub-table spans
+// every loan a customer has, so each row needs to carry enough of its
+// parent loan's identity to link back to it without a second lookup.
+type CustomerOrnamentRow struct {
+	Ornament
+	LoanNumber string `json:"loanNumber"`
+}
+
+// FindByCustomerID lists every ornament pledged across every loan belonging
+// to customerID, newest-loan-first — backs the customer 360 view's Pledged
+// Ornaments sub-table (GET /customers/:id/ornaments). from/to bound the
+// PARENT LOAN's OpenedDate (not any date of the ornament's own, which has
+// none) so the result stays consistent with what GetCustomer360 would show
+// for the same window — same semantics as LoanFilter.OpenedFrom/OpenedTo.
+func (r *OrnamentRepository) FindByCustomerID(customerID uint, from, to *time.Time, limit, offset int) ([]CustomerOrnamentRow, error) {
+	var rows []CustomerOrnamentRow
+	q := r.db.Model(&Ornament{}).
+		Select("ornaments.*, loans.loan_number AS loan_number").
+		Joins("JOIN loans ON loans.id = ornaments.loan_id").
+		Where("loans.customer_id = ?", customerID)
+	if from != nil {
+		q = q.Where("loans.opened_date >= ?", startOfDay(*from))
+	}
+	if to != nil {
+		q = q.Where("loans.opened_date < ?", startOfDay(*to).AddDate(0, 0, 1))
+	}
+	q = q.Order("loans.id desc, ornaments.id asc")
+	if limit > 0 {
+		q = q.Limit(limit).Offset(offset)
+	}
+	err := q.Find(&rows).Error
+	return rows, err
+}
+
 func (r *OrnamentRepository) SavePurityTest(t *OrnamentPurityTest) error {
 	return r.db.Save(t).Error
 }
@@ -276,6 +314,39 @@ func (r *PaymentRepository) FindByCustomerID(customerID uint, limit, offset int)
 	}
 	err := q.Find(&payments).Error
 	return payments, err
+}
+
+// CustomerPaymentRow is one LoanPayment plus its parent loan's LoanNumber —
+// same rationale as CustomerOrnamentRow.
+type CustomerPaymentRow struct {
+	LoanPayment
+	LoanNumber string `json:"loanNumber"`
+}
+
+// FindByCustomerIDForProfile lists every payment across every loan belonging
+// to customerID, newest first — backs the customer 360 view's Payment
+// History sub-table (GET /customers/:id/payments). from/to bound the
+// PARENT LOAN's OpenedDate, matching GetCustomer360's window semantics —
+// deliberately distinct from FindByCustomerID above, which the customer
+// mobile app uses with no date filter at all.
+func (r *PaymentRepository) FindByCustomerIDForProfile(customerID uint, from, to *time.Time, limit, offset int) ([]CustomerPaymentRow, error) {
+	var rows []CustomerPaymentRow
+	q := r.db.Model(&LoanPayment{}).
+		Select("loan_payments.*, loans.loan_number AS loan_number").
+		Joins("JOIN loans ON loans.id = loan_payments.loan_id").
+		Where("loans.customer_id = ?", customerID)
+	if from != nil {
+		q = q.Where("loans.opened_date >= ?", startOfDay(*from))
+	}
+	if to != nil {
+		q = q.Where("loans.opened_date < ?", startOfDay(*to).AddDate(0, 0, 1))
+	}
+	q = q.Order("loan_payments.paid_on desc, loan_payments.id desc")
+	if limit > 0 {
+		q = q.Limit(limit).Offset(offset)
+	}
+	err := q.Find(&rows).Error
+	return rows, err
 }
 
 // SumInterestCollected totals the interest + penal-interest portions of
@@ -355,6 +426,37 @@ func (r *BankPledgeRepository) FindAllHistory(branchID *uint, limit, offset int)
 	}
 	err := q.Find(&pledges).Error
 	return pledges, err
+}
+
+// CustomerBankPledgeRow is one BankPledgeRecord plus its parent loan's
+// LoanNumber — same rationale as CustomerOrnamentRow.
+type CustomerBankPledgeRow struct {
+	BankPledgeRecord
+	LoanNumber string `json:"loanNumber"`
+}
+
+// FindAllByCustomerID lists every re-pledge record across every loan
+// belonging to customerID, newest first — backs the customer 360 view's
+// Bank Pledges sub-table (GET /customers/:id/bank-pledges). from/to bound
+// the PARENT LOAN's OpenedDate, matching GetCustomer360's window semantics.
+func (r *BankPledgeRepository) FindAllByCustomerID(customerID uint, from, to *time.Time, limit, offset int) ([]CustomerBankPledgeRow, error) {
+	var rows []CustomerBankPledgeRow
+	q := r.db.Model(&BankPledgeRecord{}).
+		Select("bank_pledge_records.*, loans.loan_number AS loan_number").
+		Joins("JOIN loans ON loans.id = bank_pledge_records.loan_id").
+		Where("loans.customer_id = ?", customerID)
+	if from != nil {
+		q = q.Where("loans.opened_date >= ?", startOfDay(*from))
+	}
+	if to != nil {
+		q = q.Where("loans.opened_date < ?", startOfDay(*to).AddDate(0, 0, 1))
+	}
+	q = q.Order("bank_pledge_records.id desc")
+	if limit > 0 {
+		q = q.Limit(limit).Offset(offset)
+	}
+	err := q.Find(&rows).Error
+	return rows, err
 }
 
 // CreateEvent appends one entry to a re-pledge record's audit trail.
@@ -570,6 +672,40 @@ func (r *AuctionRepository) FindAllConcluded(branchID *uint, hasSale *bool, limi
 	}
 	err := q.Find(&records).Error
 	return records, err
+}
+
+// CustomerAuctionRow is one AuctionRecord plus its parent loan's LoanNumber
+// — same rationale as CustomerOrnamentRow.
+type CustomerAuctionRow struct {
+	AuctionRecord
+	LoanNumber string `json:"loanNumber"`
+}
+
+// FindAllByCustomerID lists every auction case ever opened across every loan
+// belonging to customerID, newest first — backs the customer 360 view's
+// Auction History sub-table (GET /customers/:id/auction-history). Unlike
+// FindAllConcluded this includes cases still in progress, matching
+// GetCustomer360's AuctionHistory (which appends every case from
+// FindHistoryByLoanID, concluded or not). from/to bound the PARENT LOAN's
+// OpenedDate, matching GetCustomer360's window semantics.
+func (r *AuctionRepository) FindAllByCustomerID(customerID uint, from, to *time.Time, limit, offset int) ([]CustomerAuctionRow, error) {
+	var rows []CustomerAuctionRow
+	q := r.db.Model(&AuctionRecord{}).
+		Select("auction_records.*, loans.loan_number AS loan_number").
+		Joins("JOIN loans ON loans.id = auction_records.loan_id").
+		Where("loans.customer_id = ?", customerID)
+	if from != nil {
+		q = q.Where("loans.opened_date >= ?", startOfDay(*from))
+	}
+	if to != nil {
+		q = q.Where("loans.opened_date < ?", startOfDay(*to).AddDate(0, 0, 1))
+	}
+	q = q.Order("auction_records.id desc")
+	if limit > 0 {
+		q = q.Limit(limit).Offset(offset)
+	}
+	err := q.Find(&rows).Error
+	return rows, err
 }
 
 func (r *AuctionRepository) CreateNotice(n *AuctionNotice) error {

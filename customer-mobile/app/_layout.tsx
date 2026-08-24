@@ -3,6 +3,7 @@ import { Stack, useRouter, useSegments } from "expo-router";
 import { useFonts, Jost_400Regular, Jost_500Medium, Jost_600SemiBold } from "@expo-google-fonts/jost";
 import { NunitoSans_800ExtraBold } from "@expo-google-fonts/nunito-sans";
 import * as SplashScreen from "expo-splash-screen";
+import { Asset } from "expo-asset";
 import * as LocalAuthentication from "expo-local-authentication";
 import { View, ActivityIndicator } from "react-native";
 import { StatusBar } from "expo-status-bar";
@@ -151,10 +152,10 @@ function RootNavigation() {
     <View style={{ flex: 1, backgroundColor: colors.ivory }}>
       <StatusBar style="dark" />
       {/* A real Stack, not <Slot/> — (tabs) needs to stay mounted underneath
-          pushed siblings like /profile and /loan so its tab state (which tab
-          was active) survives the round trip. With a bare Slot, pushing into
-          a sibling top-level route unmounted (tabs) entirely; popping back
-          then remounted it fresh, always landing on the first tab (Home)
+          pushed top-level siblings so its tab state (which tab was active)
+          survives the round trip. With a bare Slot, pushing into a sibling
+          top-level route unmounted (tabs) entirely; popping back then
+          remounted it fresh, always landing on the first tab (Home)
           regardless of which tab the user had open. */}
       <Stack screenOptions={{ headerShown: false }} />
       <SheetHost />
@@ -170,12 +171,25 @@ export default function RootLayout() {
     Jost_600SemiBold,
     NunitoSans_800ExtraBold,
   });
+  // The login screen's logo <Image> was popping in a frame after its
+  // surrounding card/inputs — fonts were the only thing gating the splash
+  // screen, so it hid as soon as they resolved while the logo asset was
+  // still being read/decoded off-thread. Preloading it here means it's
+  // already in the image cache by the time the login screen mounts, so it
+  // paints in the same frame as everything else.
+  const [assetsLoaded, setAssetsLoaded] = useState(false);
 
   useEffect(() => {
-    if (fontsLoaded) SplashScreen.hideAsync();
-  }, [fontsLoaded]);
+    Asset.loadAsync(require("../assets/ambika-gold.png"))
+      .catch(() => {})
+      .finally(() => setAssetsLoaded(true));
+  }, []);
 
-  if (!fontsLoaded) return null;
+  useEffect(() => {
+    if (fontsLoaded && assetsLoaded) SplashScreen.hideAsync();
+  }, [fontsLoaded, assetsLoaded]);
+
+  if (!fontsLoaded || !assetsLoaded) return null;
 
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>

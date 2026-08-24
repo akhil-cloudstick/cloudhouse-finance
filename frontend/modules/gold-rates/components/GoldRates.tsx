@@ -73,8 +73,8 @@ export function GoldRates() {
       <div className="card">
         <div className="hd"><h3>Rate History</h3></div>
         {error && <div className="notice" style={{ margin: "0 16px 14px" }}>{error}</div>}
-        <div className="tbl-wrap">
-          <table className="tbl">
+        <div className="tbl-wrap tbl-scroll">
+          <table className="tbl tbl-center">
             <thead>
               <tr><th>Date</th><th className="num">24K ₹/g</th><th className="num">22K ₹/g (comp.)</th><th className="num">18K ₹/g (comp.)</th><th>Published By</th></tr>
             </thead>

@@ -1,6 +1,7 @@
 package platform
 
 import (
+	"errors"
 	"net/http"
 	"strings"
 
@@ -9,20 +10,28 @@ import (
 	"ambikagold/backend/internal/platform/httpx"
 )
 
+// ErrPermissionNotFound is returned by PermissionChecker.IsAllowed when the
+// requested permission name has no role_permissions row for the role at
+// all — distinct from an explicit deny (a real row with Permission=false).
+// Almost always means a typo in a route's permission string, or a missing
+// seed/back-fill, rather than an intentional restriction.
+var ErrPermissionNotFound = errors.New("permission not found")
+
 // PermissionChecker is the minimal surface RequirePermission needs from
 // internal/authz.Repository, kept as a narrow interface here so platform
 // doesn't import the authz package (avoiding a low-level package depending
 // on a higher-level domain package).
 type PermissionChecker interface {
-	IsAllowed(role, resource, action string) (bool, error)
+	IsAllowed(roleID uint, permissionName string) (bool, error)
 }
 
 // AuthMiddleware is "checkpoint 1": every request to a protected route must
 // carry a valid `Authorization: Bearer <token>` header. On success it sets
-// employeeId (uint), role (string), and branchId (uint) on the gin.Context
-// for downstream handlers/middleware (e.g. RequirePermission, auth.Me) to
-// read. Missing/malformed/invalid/expired tokens get a 401 and the request
-// is aborted before reaching any route handler.
+// employeeId (uint), role (string, display-only — see Claims' doc comment),
+// roleId (uint, the authorization key), and branchId (uint) on the
+// gin.Context for downstream handlers/middleware (e.g. RequirePermission,
+// auth.Me) to read. Missing/malformed/invalid/expired tokens get a 401 and
+// the request is aborted before reaching any route handler.
 func AuthMiddleware(secret string) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		header := c.GetHeader("Authorization")
@@ -44,6 +53,7 @@ func AuthMiddleware(secret string) gin.HandlerFunc {
 
 		c.Set("employeeId", claims.EmployeeID)
 		c.Set("role", claims.Role)
+		c.Set("roleId", claims.RoleID)
 		c.Set("branchId", claims.BranchID)
 		c.Next()
 	}
@@ -81,85 +91,51 @@ func CustomerAuthMiddleware(secret string) gin.HandlerFunc {
 	}
 }
 
-// RequirePermission is "checkpoint 2": given the resource/action this route
-// verb represents, it looks up (role, resource, action) in the permissions
-// table (via checker) and 403s if the role isn't allowed (or the lookup
-// itself fails) — otherwise continues. Must run after AuthMiddleware, which
-// is what sets "role" on the context.
-func RequirePermission(checker PermissionChecker, resource, action string) gin.HandlerFunc {
+// RequirePermission is "checkpoint 2": given the permission name this route
+// verb requires, it resolves (roleId, permissionName) against the
+// permissions table (via checker) and 403s if the role isn't allowed (or
+// the permission doesn't exist, or the lookup itself fails) — otherwise
+// continues. Must run after AuthMiddleware, which is what sets "roleId" on
+// the context.
+func RequirePermission(checker PermissionChecker, permissionName string) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		roleVal, ok := c.Get("role")
+		roleIDVal, ok := c.Get("roleId")
 		if !ok {
 			httpx.FailAbort(c, http.StatusUnauthorized, "not authenticated")
 			return
 		}
-		role, ok := roleVal.(string)
+		roleID, ok := roleIDVal.(uint)
 		if !ok {
 			httpx.FailAbort(c, http.StatusUnauthorized, "not authenticated")
 			return
 		}
 
-		allowed, err := checker.IsAllowed(role, resource, action)
+		allowed, err := checker.IsAllowed(roleID, permissionName)
 		if err != nil {
+			if errors.Is(err, ErrPermissionNotFound) {
+				httpx.FailAbort(c, http.StatusForbidden, "Permission not found")
+				return
+			}
 			httpx.FailAbort(c, http.StatusBadRequest, "permission check failed")
 			return
 		}
 		if !allowed {
-			httpx.FailAbort(c, http.StatusForbidden, "you do not have permission to perform this action")
+			httpx.FailAbort(c, http.StatusForbidden, "Access denied")
 			return
 		}
 		c.Next()
 	}
 }
 
-// RequireAnyRole restricts a route to an explicit allowlist of roles,
-// independently of the permissions table. Must run after AuthMiddleware,
-// which is what sets "role" on the context.
-//
-// This exists alongside RequirePermission rather than replacing it because
-// the permissions table is resource-grained ("loans", "read"/"update"), and
-// several distinct sub-workflows currently share the "loans" resource key —
-// payments, approvals, bank pledges and auctions all sit under it. Auction
-// actions decide whether a customer permanently loses their pledged gold, so
-// they need a tighter gate than "may update loans", which a Cashier or Loan
-// Operator legitimately holds for taking payments. Attach BOTH: the CRUD
-// permission still applies, and this narrows it further.
-//
-// Sensitive actions must ALSO be checked in the service layer where the
-// distinction is finer than a whole route (e.g. an Auction Administrator may
-// reach the auction routes but must not decide a shortfall write-off).
-func RequireAnyRole(roles ...string) gin.HandlerFunc {
-	allowed := make(map[string]bool, len(roles))
-	for _, r := range roles {
-		allowed[r] = true
-	}
-	return func(c *gin.Context) {
-		roleVal, ok := c.Get("role")
-		if !ok {
-			httpx.FailAbort(c, http.StatusUnauthorized, "not authenticated")
-			return
-		}
-		role, ok := roleVal.(string)
-		if !ok {
-			httpx.FailAbort(c, http.StatusUnauthorized, "not authenticated")
-			return
-		}
-		if !allowed[role] {
-			httpx.FailAbort(c, http.StatusForbidden, "your role does not have access to auction management")
-			return
-		}
-		c.Next()
-	}
-}
-
-// CRUDPermissions returns the four RequirePermission middlewares
-// (create/read/update/delete) for a given resource, so each domain
-// package's routes.go can attach the right one to each verb with a minimal,
-// mechanical one-line-per-route diff, e.g.:
-//
-//	perms := platform.CRUDPermissions(authzRepo, "banks")
-//	rg.GET("", perms.Read, h.List)
-//	rg.POST("", perms.Create, h.Create)
+// CRUDMiddlewares bundles the four permission gates a resource's routes.go
+// attaches per verb: Read (GET) uses View, Create/Update/Delete each use
+// their own distinct "can create/update/delete <noun>" permission. This is
+// a deliberate, explicit deviation from the house role-permission standard's
+// §2.1 default (one view/change pair per module) — every resource except
+// "reports" (read-only) was split into four granular permissions per an
+// explicit request. Named CRUDMiddlewares (not "ViewCreateUpdateDelete...")
+// so every existing routes.go's perms.Create/perms.Read/perms.Update/
+// perms.Delete call sites keep compiling unchanged.
 type CRUDMiddlewares struct {
 	Create gin.HandlerFunc
 	Read   gin.HandlerFunc
@@ -167,11 +143,63 @@ type CRUDMiddlewares struct {
 	Delete gin.HandlerFunc
 }
 
+// resourceNouns maps a route-group resource key (as used in main.go's
+// RegisterRoutes calls, e.g. "loans") to the singular noun the permission
+// catalogue names are built from (e.g. "loan" -> "can view loan"/"can
+// change loan"). Kept here (not in internal/authz) since CRUDPermissions,
+// the sole caller, already lives in this file.
+var resourceNouns = map[string]string{
+	"branches":        "branch",
+	"schemes":         "scheme",
+	"goldrates":       "gold rate",
+	"puritystandards": "purity standard",
+	"employees":       "employee",
+	"cash":            "cash",
+	"settings":        "setting",
+	"customers":       "customer",
+	"loans":           "loan",
+	"bankpledges":     "bank pledge",
+	"uploads":         "upload",
+	"ornamenttypes":   "ornament type",
+	"banks":           "bank",
+	"lockers":         "locker",
+	"packets":         "packet",
+	"reminders":       "reminder",
+	"reports":         "report",
+}
+
+// ResourceNoun returns the permission-catalogue noun for a resource key,
+// falling back to the key itself if it isn't in the table (so a missing
+// mapping fails loudly as a 403 "Permission not found" rather than silently
+// resolving to the wrong permission).
+func ResourceNoun(resource string) string {
+	if noun, ok := resourceNouns[resource]; ok {
+		return noun
+	}
+	return resource
+}
+
+// CRUDPermissions builds the permissions for resource and wires them into a
+// CRUDMiddlewares. Read always uses "can view <noun>". For every resource
+// except "reports" (read-only — no create/update/delete permissions exist
+// for it), Create/Update/Delete each get their own distinct permission —
+// "can create/update/delete <noun>" — a deliberate, explicit deviation from
+// the house role-permission standard's §2.1 default of one shared
+// view/change pair per module; callers must not call .Create/.Update/
+// .Delete for "reports".
 func CRUDPermissions(checker PermissionChecker, resource string) CRUDMiddlewares {
+	noun := ResourceNoun(resource)
+	view := RequirePermission(checker, "can view "+noun)
+	var create, update, deleteMw gin.HandlerFunc
+	if resource != "reports" {
+		create = RequirePermission(checker, "can create "+noun)
+		update = RequirePermission(checker, "can update "+noun)
+		deleteMw = RequirePermission(checker, "can delete "+noun)
+	}
 	return CRUDMiddlewares{
-		Create: RequirePermission(checker, resource, "create"),
-		Read:   RequirePermission(checker, resource, "read"),
-		Update: RequirePermission(checker, resource, "update"),
-		Delete: RequirePermission(checker, resource, "delete"),
+		Create: create,
+		Read:   view,
+		Update: update,
+		Delete: deleteMw,
 	}
 }
