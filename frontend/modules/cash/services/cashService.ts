@@ -56,7 +56,7 @@ export async function listCashMovements(): Promise<CashMovementView[]> {
   return (rec || []).map(movementToView);
 }
 
-export const CASH_MOVEMENTS_PAGE_SIZE = 10;
+export const CASH_MOVEMENTS_PAGE_SIZE = 7;
 
 export async function listCashMovementsPage(page: number): Promise<{ items: CashMovementView[]; hasMore: boolean }> {
   const params = new URLSearchParams({
@@ -147,7 +147,7 @@ export async function listExpenses(): Promise<ExpenseView[]> {
   return (rec || []).map(expenseToView);
 }
 
-export const EXPENSES_PAGE_SIZE = 10;
+export const EXPENSES_PAGE_SIZE = 7;
 
 export async function listExpensesPage(page: number): Promise<{ items: ExpenseView[]; hasMore: boolean }> {
   const params = new URLSearchParams({

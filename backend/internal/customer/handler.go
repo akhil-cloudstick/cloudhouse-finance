@@ -108,9 +108,15 @@ func (h *Handler) Create(c *gin.Context) {
 func (h *Handler) List(c *gin.Context) {
 	limit, _ := strconv.Atoi(c.Query("limit"))
 	offset, _ := strconv.Atoi(c.Query("offset"))
+	f := CustomerFilter{
+		Query:         c.Query("q"),
+		BranchID:      platform.GetBranchScope(c),
+		PANStatus:     c.Query("panStatus"),
+		AadhaarStatus: c.Query("aadhaarStatus"),
+	}
 
 	if limit <= 0 {
-		rec, err := h.svc.List(c.Query("q"), 0, 0, platform.GetBranchScope(c))
+		rec, err := h.svc.List(f)
 		if err != nil {
 			httpx.FailErr(c, err)
 			return
@@ -119,7 +125,8 @@ func (h *Handler) List(c *gin.Context) {
 		return
 	}
 
-	rec, err := h.svc.List(c.Query("q"), limit+1, offset, platform.GetBranchScope(c))
+	f.Limit, f.Offset = limit+1, offset
+	rec, err := h.svc.List(f)
 	if err != nil {
 		httpx.FailErr(c, err)
 		return

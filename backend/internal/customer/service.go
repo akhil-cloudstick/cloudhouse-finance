@@ -161,8 +161,8 @@ func (s *Service) Create(in CreateInput) (*Customer, error) {
 	return s.repo.FindByID(rec.ID)
 }
 
-func (s *Service) List(query string, limit, offset int, branchID *uint) ([]Customer, error) {
-	return s.repo.FindAll(query, limit, offset, branchID)
+func (s *Service) List(f CustomerFilter) ([]Customer, error) {
+	return s.repo.FindAll(f)
 }
 
 func (s *Service) Get(id uint, branchID *uint) (*Customer, error) {

@@ -84,9 +84,9 @@ export function Employees() {
       {employees !== null && employees.length > 0 && (
         <div className="card">
           <div className="tbl-wrap">
-            <table className="tbl tbl-center">
+            <table className="tbl tbl-center col1-left">
               <thead>
-                <tr><th>Employee</th><th>Role</th><th>Branch</th><th className="num">Loans Processed</th><th className="num">Collections</th><th className="num">Follow-ups</th><th className="num">Pending</th><th></th></tr>
+                <tr><th>Employee</th><th>Role</th><th>Branch</th><th className="num">Loans Processed</th><th className="num">Collections</th><th className="num">Follow-ups</th><th className="num">Pending</th><th>Action</th></tr>
               </thead>
               <tbody>
                 {employees.map((e) => (
@@ -105,7 +105,7 @@ export function Employees() {
                     <td className="num">{e.pending}</td>
                     <td>
                       {(canUpdateEmployees || canDeleteEmployees) && (
-                        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                        <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 12 }}>
                           {canUpdateEmployees && (
                             <a href="#" onClick={(ev) => { ev.preventDefault(); openModal(<EmployeeModalContent employee={e} onSaved={onSaved} />); }}>Edit</a>
                           )}

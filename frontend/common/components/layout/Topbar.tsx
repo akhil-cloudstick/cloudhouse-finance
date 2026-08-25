@@ -42,20 +42,26 @@ export function Topbar({ route, arg, onBurger }: { route: string; arg?: string; 
         Ambika Gold Finance &nbsp;/&nbsp; <b>{crumb}</b>
       </span>
       <GlobalSearch />
-      <span className="rate-chip" id="rateChip" title="22K is computed from the published 24K rate, not separately published">
+      <a
+        className="rate-chip"
+        id="rateChip"
+        href="#goldrates"
+        title="22K is computed from the published 24K rate, not separately published"
+        style={{ textDecoration: "none", color: "inherit" }}
+      >
         <span className="dot"></span> 22K (comp.) <b>{fmt(latest.k22)}/g</b> · 24K <b>{fmt(latest.k24)}/g</b>
         {!isTodaySet && (
           <button
             type="button"
             title="Today's gold rate has not been set"
             aria-label="Today's gold rate has not been set"
-            onClick={() => openModal(<RateModalContent />)}
+            onClick={(e) => { e.preventDefault(); e.stopPropagation(); openModal(<RateModalContent />); }}
             style={{ color: "var(--red)", background: "none", border: "none", cursor: "pointer", display: "inline-flex", alignItems: "center", marginLeft: 6, padding: 0 }}
           >
             <Icon name="warning" />
           </button>
         )}
-      </span>
+      </a>
       <span className="user">
         <span className="av">{employee?.name ? employee.name.charAt(0).toUpperCase() : "—"}</span>
         <span className="nm">

@@ -24,6 +24,9 @@
   --blue-bg:#e8f0f6;
   --sidebar-w:248px;
 }
+/* No scrollbar-gutter here: .shell is height:100vh/overflow:hidden, so the
+ * document itself never scrolls and a reserved gutter would just be a dead
+ * strip of empty space down the right-hand edge. */
 html{scroll-behavior:smooth}
 body{
   font-family:'Jost',sans-serif;color:var(--ink);background:var(--ivory);
@@ -38,7 +41,10 @@ a{color:var(--gold-deep)}
 h1,h2,h3,.serif{font-family:'Bodoni Moda',serif;font-optical-sizing:auto}
 
 /* ── layout ─────────────────────────────── */
-.shell{display:flex;min-height:100vh;position:relative;z-index:1}
+/* Clamped to exactly the viewport with overflow hidden so the document
+ * itself can never scroll — no browser-window scrollbar in either
+ * direction. All scrolling that IS needed happens inside .page (below). */
+.shell{display:flex;height:100vh;overflow:hidden;position:relative;z-index:1}
 .side{
   width:var(--sidebar-w);flex-shrink:0;
   background:linear-gradient(180deg,#262118 0%,#1d1913 100%);
@@ -90,11 +96,24 @@ h1,h2,h3,.serif{font-family:'Bodoni Moda',serif;font-optical-sizing:auto}
 }
 .side .sfoot a{color:#cbb670;text-decoration:none}
 
-.main{width:calc(100% - var(--sidebar-w));margin-left:var(--sidebar-w);min-width:0}
+/* .main is a fixed-height (exactly viewport-tall) flex column: .top sits at
+ * its natural height (flex-shrink:0) and .page takes whatever's left
+ * (flex:1) and is the ONLY thing that scrolls on any page — instead of the
+ * whole document growing past the viewport and scrolling itself, which is
+ * what happened before this (that also made the previous .tbl-scroll
+ * max-height:calc(100vh - Npx) approach unreliable: N had to match each
+ * page's own header height exactly, and pages with taller headers — Gold
+ * Rates' extra rate cards, Cash's KPI row — didn't fit the one guessed
+ * number, so the document overflowed anyway). Sidebar/topbar now never move
+ * regardless of how tall a given page's content is. */
+.main{
+  width:calc(100% - var(--sidebar-w));margin-left:var(--sidebar-w);min-width:0;
+  display:flex;flex-direction:column;height:100%;
+}
 
 /* topbar */
 .top{
-  position:sticky;top:0;z-index:30;
+  flex-shrink:0;
   display:flex;align-items:center;gap:16px;
   padding:13px 26px;background:rgba(250,246,236,.92);backdrop-filter:blur(6px);
   border-bottom:1px solid var(--line);
@@ -269,7 +288,7 @@ h1,h2,h3,.serif{font-family:'Bodoni Moda',serif;font-optical-sizing:auto}
 /* No max-width — the page stretches to the full available width (up to
  * ~1980px screens) instead of capping at 1460px and leaving empty space
  * on wide monitors, matching every table/card grid below to fill it. */
-.page{padding:24px 26px 60px}
+.page{padding:24px 26px 24px 40px;flex:1;min-height:0;overflow-y:auto}
 .page-h{display:flex;align-items:flex-end;gap:14px;flex-wrap:wrap;margin-bottom:20px}
 .page-h h1{font-size:30px;font-weight:600;letter-spacing:.03em;color:var(--charcoal)}
 .page-h p{font-size:13.5px;color:var(--muted);margin-top:2px}
@@ -285,7 +304,10 @@ h1,h2,h3,.serif{font-family:'Bodoni Moda',serif;font-optical-sizing:auto}
 /* ── cards / grid ───────────────────────── */
 .grid{display:grid;gap:16px}
 .grid.cols21{grid-template-columns:minmax(0,2fr) minmax(0,1fr);align-items:start}
-.grid.cols12{grid-template-columns:1fr 2fr;align-items:start}
+/* minmax(0,…) like .cols21 above — a bare `1fr` leaves grid items at
+ * min-width:auto, so the table column could not shrink below the table's
+ * own min-width:640px and pushed the page into horizontal overflow. */
+.grid.cols12{grid-template-columns:minmax(0,1fr) minmax(0,2fr);align-items:start}
 .card{
   background:var(--card);border:1px solid var(--line);border-radius:8px;
   box-shadow:0 1px 2px rgba(154,111,15,.06),0 14px 34px -22px rgba(120,86,20,.35);
@@ -402,19 +424,11 @@ label.f{display:block;font-size:11px;letter-spacing:.14em;text-transform:upperca
 
 /* ── tables ─────────────────────────────── */
 .tbl-wrap{overflow-x:auto}
-/* Pages whose table can outgrow the viewport at full page size (Loans,
- * Gold Rates) — cap the wrapper's height and let it scroll internally
- * instead of stretching the whole page (and its own outer scrollbar)
- * taller than the viewport. Sticky header keeps column labels visible
- * while scrolling through rows. */
-.tbl-scroll{max-height:calc(100vh - 320px);overflow-y:auto}
+/* .page (see .main above) is now the single correctly-sized scroll
+ * container on every page, so tbl-scroll no longer needs its own guessed
+ * max-height — it only keeps the table header stuck in view while .page
+ * scrolls past a long table. */
 .tbl-scroll .tbl th{position:sticky;top:0;z-index:1}
-/* At >=1130px width there's enough vertical room on these pages (Loans,
- * Gold Rates, Extensions & Release, Customers) that the table should just
- * grow with its rows instead of scrolling internally. */
-@media (min-width:1130px){
-  .tbl-scroll{max-height:none!important;overflow-y:visible!important}
-}
 table.tbl{width:100%;border-collapse:collapse;font-size:13.5px;min-width:640px}
 .tbl th{
   text-align:left;font-size:10.5px;letter-spacing:.16em;text-transform:uppercase;
@@ -431,6 +445,7 @@ table.tbl{width:100%;border-collapse:collapse;font-size:13.5px;min-width:640px}
  * including the numeric ones that .tbl .num otherwise right-aligns. */
 .tbl.tbl-center th,.tbl.tbl-center td{text-align:center}
 .tbl.tbl-center .num{text-align:center}
+.tbl.tbl-center.col1-left tr>th:first-child,.tbl.tbl-center.col1-left tr>td:first-child{text-align:left;padding-left:54px}
 .tbl .id{font-size:12.5px;color:var(--gold-deep);font-weight:600;letter-spacing:.03em;white-space:nowrap}
 .tbl .sub{display:block;font-size:11.5px;color:var(--muted)}
 
@@ -476,6 +491,11 @@ table.tbl{width:100%;border-collapse:collapse;font-size:13.5px;min-width:640px}
 }
 .modal.wide{max-width:760px}
 @keyframes pop{from{transform:translateY(14px);opacity:0}to{transform:none;opacity:1}}
+
+/* Slide-up transition between the tabbed sub-tables on customer detail
+   (Loan History / Ornaments / Payments / Bank Pledges / Auctions). */
+.tab-slide-up{animation:tabSlideUp .22s ease}
+@keyframes tabSlideUp{from{transform:translateY(10px);opacity:0}to{transform:none;opacity:1}}
 
 /* Draws attention to the "set today's gold rate" recovery banner (NewLoan.tsx)
    when staff try to submit a loan without a published rate for today. */

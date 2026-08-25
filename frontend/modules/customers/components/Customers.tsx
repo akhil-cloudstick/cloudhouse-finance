@@ -8,6 +8,15 @@ import { StatusChip } from "@/common/components/ui/StatusChip";
 import { Icon } from "@/common/components/Icon";
 import { RegisterCustomerModalContent } from "@/common/components/modals/RegisterCustomerModal";
 import { listCustomersPage, type CustomerView } from "@/modules/customers/services/customerService";
+import { Select } from "@/common/components/ui/Select";
+
+const VERIFICATION_STATUS_OPTIONS = [
+  { value: "", label: "All" },
+  { value: "Verified", label: "Verified" },
+  { value: "Pending", label: "Pending" },
+  { value: "Failed", label: "Failed" },
+  { value: "Name Mismatch", label: "Name Mismatch" },
+];
 
 /* Ported from legacy/app.js's `renderCustomers()`. Loads real data from the
  * Go backend (`GET /api/v1/customers`) instead of the localStorage mock
@@ -24,32 +33,34 @@ export function Customers() {
   const { customers, refresh: refreshAll } = useCustomers();
   const { openModal } = useModal();
   const [q, setQ] = useState("");
+  const [panStatus, setPanStatus] = useState("");
+  const [aadhaarStatus, setAadhaarStatus] = useState("");
   const [page, setPage] = useState(1);
   const [rows, setRows] = useState<CustomerView[]>([]);
   const [hasMore, setHasMore] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
-  useEffect(() => { setPage(1); }, [q]);
+  useEffect(() => { setPage(1); }, [q, panStatus, aadhaarStatus]);
 
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
     const handle = setTimeout(() => {
-      listCustomersPage(q.trim(), page)
+      listCustomersPage(q.trim(), page, { panStatus, aadhaarStatus })
         .then((res) => { if (!cancelled) { setRows(res.items); setHasMore(res.hasMore); setError(""); } })
         .catch((e) => { if (!cancelled) setError(e instanceof Error ? e.message : "Failed to load customers."); })
         .finally(() => { if (!cancelled) setLoading(false); });
     }, 300);
     return () => { cancelled = true; clearTimeout(handle); };
-  }, [q, page]);
+  }, [q, panStatus, aadhaarStatus, page]);
 
   function refresh() {
     refreshAll();
     // Re-run the current page's query rather than resetting to page 1, so
     // registering/editing a customer doesn't bounce the viewer's place.
     setPage((p) => p);
-    listCustomersPage(q.trim(), page)
+    listCustomersPage(q.trim(), page, { panStatus, aadhaarStatus })
       .then((res) => { setRows(res.items); setHasMore(res.hasMore); setError(""); })
       .catch((e) => setError(e instanceof Error ? e.message : "Failed to load customers."));
   }
@@ -67,13 +78,26 @@ export function Customers() {
         </button>
       </div>
       <hr className="gold-rule" />
+      <div style={{ display: "flex", alignItems: "flex-end", justifyContent: "flex-end", gap: 12, flexWrap: "wrap", marginBottom: 16 }}>
+        <div style={{ width: 180 }}>
+          <label style={{ fontSize: 11.5, color: "var(--muted)", display: "block", marginBottom: 4 }}>PAN Verified</label>
+          <Select options={VERIFICATION_STATUS_OPTIONS} value={panStatus} onChange={setPanStatus} />
+        </div>
+        <div style={{ width: 180 }}>
+          <label style={{ fontSize: 11.5, color: "var(--muted)", display: "block", marginBottom: 4 }}>Aadhaar Verified</label>
+          <Select options={VERIFICATION_STATUS_OPTIONS} value={aadhaarStatus} onChange={setAadhaarStatus} />
+        </div>
+        {(panStatus || aadhaarStatus) && (
+          <button className="btn ghost sm" onClick={() => { setPanStatus(""); setAadhaarStatus(""); }}>Clear</button>
+        )}
+      </div>
       {error && (
         <p style={{ color: "var(--red)", fontSize: 13.5 }}>
           Could not reach the server — {error}
           <button className="btn plain sm" style={{ marginLeft: 8 }} onClick={refresh}>Retry</button>
         </p>
       )}
-      <div className="card"><div className="tbl-wrap tbl-scroll"><table className="tbl tbl-center">
+      <div className="card"><div className="tbl-wrap tbl-scroll"><table className="tbl tbl-center col1-left">
         <thead><tr><th>Customer</th><th>Contact</th><th>Branch</th><th>PAN</th><th>Aadhaar</th><th>KYC Status</th><th className="num">Loans</th><th></th></tr></thead>
         <tbody>
           {loading ? (

@@ -134,6 +134,9 @@ export function Cash() {
   // read-only instead of an empty-looking input asking for it again — the
   // figure is entered once per branch per day. "Change" reopens the input.
   const [editingOpening, setEditingOpening] = useState(false);
+  // Switches the card below between the Cash Movements and Expense Register
+  // tables instead of stacking both full tables on the page at once.
+  const [activeCashTab, setActiveCashTab] = useState<"movements" | "expenses">("movements");
 
   /* Guards against a stale response winning. The first render fires a
    * summary request before the branch list has loaded (branchId ""), then a
@@ -255,7 +258,7 @@ export function Cash() {
       </div>
       <hr className="gold-rule" />
 
-      <div className="card" style={{ marginBottom: 18 }}>
+      <div className="card" style={{ marginBottom: 26 }}>
         <div className="hd">
           <h3>Opening Cash Balance — Today</h3>
           <div className="sp" />
@@ -291,90 +294,112 @@ export function Cash() {
         </div>
       </div>
 
-      <div className="kpis kpis-money" style={{ marginBottom: 18 }}>
-        <Kpi l="Opening Cash (today)" v={fmt(summary?.openingCash || 0)} />
-        {/* Backend's `collections` is every cash-in movement for the day —
-            Savings top-ups, bank pledges and loan repayments alike, not just
-            interest/principal (see cash.SummaryService.GetExpectedCash), so
-            show `collectionsBreakdown` under the total rather than leaving the
-            reader to guess what the one figure is made of. */}
-        <Kpi
-          l="Cash In (today)"
-          v={fmt(summary?.collections || 0)}
-          cls="ok"
-          parts={[
-            ["Loan repayments", summary?.collectionsBreakdown?.repayments || 0],
-            ["Bank pledges", summary?.collectionsBreakdown?.pledges || 0],
-            ["Auction proceeds", summary?.collectionsBreakdown?.auctions || 0],
-            ["Manual top-ups", summary?.collectionsBreakdown?.topUps || 0],
-          ]}
-        />
-        {/* Likewise `disbursements` is every cash-out movement for the day —
-            loan principal handed out, manual "Take Cash Out" withdrawals,
-            and bank-pledge releases all land here. */}
-        <Kpi
-          l="Cash Out (today)"
-          v={fmt(summary?.disbursements || 0)}
-          parts={[
-            ["Loan disbursements", summary?.disbursementsBreakdown?.loanDisbursements || 0],
-            ["Bank releases", summary?.disbursementsBreakdown?.bankReleases || 0],
-            ["Auction refunds", summary?.disbursementsBreakdown?.auctionRefunds || 0],
-            ["Withdrawals", summary?.disbursementsBreakdown?.withdrawals || 0],
-          ]}
-        />
-        <Kpi l="Expenses (today)" v={fmt(summary?.expensesToday || 0)} s={fmt(summary?.cashExpenses || 0) + " cash"} />
-        <Kpi l="Expected Cash in Hand" v={fmt(summary?.expectedCash || 0)} s="auto-calculated" cls="ok" />
+      <div style={{ display: "flex", alignItems: "flex-start", gap: 16, marginBottom: 26 }}>
+        <div className="kpis kpis-money" style={{ flex: 1, marginBottom: 0 }}>
+          <Kpi l="Opening Cash (today)" v={fmt(summary?.openingCash || 0)} />
+          {/* Backend's `collections` is every cash-in movement for the day —
+              Savings top-ups, bank pledges and loan repayments alike, not just
+              interest/principal (see cash.SummaryService.GetExpectedCash), so
+              show `collectionsBreakdown` under the total rather than leaving the
+              reader to guess what the one figure is made of. */}
+          <Kpi
+            l="Cash In (today)"
+            v={fmt(summary?.collections || 0)}
+            cls="ok"
+            parts={[
+              ["Loan repayments", summary?.collectionsBreakdown?.repayments || 0],
+              ["Bank pledges", summary?.collectionsBreakdown?.pledges || 0],
+              ["Auction proceeds", summary?.collectionsBreakdown?.auctions || 0],
+              ["Manual top-ups", summary?.collectionsBreakdown?.topUps || 0],
+            ]}
+          />
+          {/* Likewise `disbursements` is every cash-out movement for the day —
+              loan principal handed out, manual "Take Cash Out" withdrawals,
+              and bank-pledge releases all land here. */}
+          <Kpi
+            l="Cash Out (today)"
+            v={fmt(summary?.disbursements || 0)}
+            parts={[
+              ["Loan disbursements", summary?.disbursementsBreakdown?.loanDisbursements || 0],
+              ["Bank releases", summary?.disbursementsBreakdown?.bankReleases || 0],
+              ["Auction refunds", summary?.disbursementsBreakdown?.auctionRefunds || 0],
+              ["Withdrawals", summary?.disbursementsBreakdown?.withdrawals || 0],
+            ]}
+          />
+          <Kpi l="Expenses (today)" v={fmt(summary?.expensesToday || 0)} s={fmt(summary?.cashExpenses || 0) + " cash"} />
+          <Kpi l="Expected Cash in Hand" v={fmt(summary?.expectedCash || 0)} s="auto-calculated" cls="ok" />
+        </div>
+
+        <div style={{ display: "flex", flexDirection: "row", gap: 8, flexShrink: 0, alignSelf: "flex-end" }}>
+          <button
+            type="button"
+            className={`btn sm ${activeCashTab === "movements" ? "" : "ghost"}`}
+            onClick={() => setActiveCashTab("movements")}
+          >
+            Cash Movements
+          </button>
+          <button
+            type="button"
+            className={`btn sm ${activeCashTab === "expenses" ? "" : "ghost"}`}
+            onClick={() => setActiveCashTab("expenses")}
+          >
+            Expense Register
+          </button>
+        </div>
       </div>
 
-      <div className="card" style={{ marginBottom: 18 }}>
-        <div className="hd"><h3>Cash Movements</h3><div className="sp" />
-          <span style={{ fontSize: 12.5, color: "var(--muted)" }}>In {fmt(cashIn)} · Out {fmt(cashOut)}</span>
+      {activeCashTab === "movements" && (
+        <div className="card">
+          <div className="hd"><h3>Cash Movements</h3><div className="sp" />
+            <span style={{ fontSize: 12.5, color: "var(--muted)" }}>In {fmt(cashIn)} · Out {fmt(cashOut)}</span>
+          </div>
+          <div className="tbl-wrap tbl-scroll">
+            <table className="tbl tbl-center">
+              <thead><tr><th>Date</th><th>Type</th><th>Source / Purpose</th><th>Bank</th><th className="num">Amount</th><th>Loan Status</th></tr></thead>
+              <tbody>
+                {movements.length
+                  ? movements.map((m) => <MovementRow key={m.id} m={m} onToggleLoan={toggleCashLoan} />)
+                  : <tr><td colSpan={6} className="empty">No cash movements recorded yet. Use &quot;Add Cash&quot; or &quot;Take Cash Out&quot;.</td></tr>}
+              </tbody>
+            </table>
+          </div>
+          <div className="ft" style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <button className="btn plain sm" disabled={movementsPage <= 1} onClick={() => setMovementsPage((p) => Math.max(1, p - 1))}>‹ Prev</button>
+            <span style={{ fontSize: 12.5 }}>Page {movementsPage} of {movementsHasMore ? movementsPage + 1 : movementsPage}</span>
+            <button className="btn plain sm" disabled={!movementsHasMore} onClick={() => setMovementsPage((p) => p + 1)}>Next ›</button>
+          </div>
         </div>
-        <div className="tbl-wrap">
-          <table className="tbl tbl-center">
-            <thead><tr><th>Date</th><th>Type</th><th>Source / Purpose</th><th>Bank</th><th className="num">Amount</th><th>Loan Status</th></tr></thead>
-            <tbody>
-              {movements.length
-                ? movements.map((m) => <MovementRow key={m.id} m={m} onToggleLoan={toggleCashLoan} />)
-                : <tr><td colSpan={6} className="empty">No cash movements recorded yet. Use &quot;Add Cash&quot; or &quot;Take Cash Out&quot;.</td></tr>}
-            </tbody>
-          </table>
-        </div>
-        <div className="ft" style={{ display: "flex", alignItems: "center", gap: 10 }}>
-          <button className="btn plain sm" disabled={movementsPage <= 1} onClick={() => setMovementsPage((p) => Math.max(1, p - 1))}>‹ Prev</button>
-          <span style={{ fontSize: 12.5 }}>Page {movementsPage} of {movementsHasMore ? movementsPage + 1 : movementsPage}</span>
-          <button className="btn plain sm" disabled={!movementsHasMore} onClick={() => setMovementsPage((p) => p + 1)}>Next ›</button>
-        </div>
-        <div className="ft">Cash added from a loan stays flagged until the loan is marked closed · all movements adjust Expected Cash in Hand</div>
-      </div>
+      )}
 
-      <div className="card">
-        <div className="hd"><h3>Expense Register</h3><div className="sp" /><span style={{ fontSize: 12.5, color: "var(--muted)" }}>Total {fmt(total)}</span></div>
-        <div className="tbl-wrap">
-          <table className="tbl tbl-center">
-            <thead><tr><th>Date</th><th>Category</th><th className="num">Amount</th><th>Mode</th><th>Description / Payee</th><th>Branch</th><th>Status</th><th style={{ textAlign: "center" }}>Receipt</th><th>Actions</th></tr></thead>
-            <tbody>
-              {expenses.length
-                ? expenses.map((e) => (
-                  <ExpenseRow
-                    key={e.id}
-                    e={e}
-                    onViewReceipt={() => openModal(<ReceiptViewModalContent e={e} />, true)}
-                    onApprove={() => handleApprove(e.id)}
-                    onReject={() => handleReject(e.id)}
-                  />
-                ))
-                : <tr><td colSpan={9} className="empty">No expenses recorded yet.</td></tr>}
-            </tbody>
-          </table>
+      {activeCashTab === "expenses" && (
+        <div className="card">
+          <div className="hd"><h3>Expense Register</h3><div className="sp" /><span style={{ fontSize: 12.5, color: "var(--muted)" }}>Total {fmt(total)}</span></div>
+          <div className="tbl-wrap tbl-scroll">
+            <table className="tbl tbl-center">
+              <thead><tr><th>Date</th><th>Category</th><th className="num">Amount</th><th>Mode</th><th>Description / Payee</th><th>Branch</th><th>Status</th><th style={{ textAlign: "center" }}>Receipt</th><th>Actions</th></tr></thead>
+              <tbody>
+                {expenses.length
+                  ? expenses.map((e) => (
+                    <ExpenseRow
+                      key={e.id}
+                      e={e}
+                      onViewReceipt={() => openModal(<ReceiptViewModalContent e={e} />, true)}
+                      onApprove={() => handleApprove(e.id)}
+                      onReject={() => handleReject(e.id)}
+                    />
+                  ))
+                  : <tr><td colSpan={9} className="empty">No expenses recorded yet.</td></tr>}
+              </tbody>
+            </table>
+          </div>
+          <div className="ft" style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <button className="btn plain sm" disabled={expensesPage <= 1} onClick={() => setExpensesPage((p) => Math.max(1, p - 1))}>‹ Prev</button>
+            <span style={{ fontSize: 12.5 }}>Page {expensesPage} of {expensesHasMore ? expensesPage + 1 : expensesPage}</span>
+            <button className="btn plain sm" disabled={!expensesHasMore} onClick={() => setExpensesPage((p) => p + 1)}>Next ›</button>
+          </div>
+          <div className="ft">Cash expenses automatically reflect in Cash-in-Hand calculations · receipt images attached to expense records</div>
         </div>
-        <div className="ft" style={{ display: "flex", alignItems: "center", gap: 10 }}>
-          <button className="btn plain sm" disabled={expensesPage <= 1} onClick={() => setExpensesPage((p) => Math.max(1, p - 1))}>‹ Prev</button>
-          <span style={{ fontSize: 12.5 }}>Page {expensesPage} of {expensesHasMore ? expensesPage + 1 : expensesPage}</span>
-          <button className="btn plain sm" disabled={!expensesHasMore} onClick={() => setExpensesPage((p) => p + 1)}>Next ›</button>
-        </div>
-        <div className="ft">Cash expenses automatically reflect in Cash-in-Hand calculations · receipt images attached to expense records</div>
-      </div>
+      )}
     </>
   );
 }

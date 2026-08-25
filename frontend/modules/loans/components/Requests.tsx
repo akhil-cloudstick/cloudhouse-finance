@@ -3,8 +3,16 @@
 import { useCallback, useEffect, useState } from "react";
 import { useModal } from "@/common/components/Modal";
 import { StatusChip } from "@/common/components/ui/StatusChip";
+import { Select } from "@/common/components/ui/Select";
 import { useLoans } from "@/modules/loans/store/LoansProvider";
 import { listLoanRequestsPage, type RequestView } from "@/modules/loans/services/loanService";
+
+const STATUS_OPTIONS = [
+  { value: "", label: "All" },
+  { value: "Pending", label: "Pending" },
+  { value: "Approved", label: "Approved" },
+  { value: "Rejected", label: "Rejected" },
+];
 import { ReleaseReviewModalContent } from "@/common/components/modals/ReleaseReviewModal";
 import { ExtensionReviewModalContent } from "@/common/components/modals/ExtensionReviewModal";
 
@@ -25,18 +33,20 @@ export function Requests() {
   const [loading, setLoading] = useState(true);
   const [page, setPage] = useState(1);
   const [hasMore, setHasMore] = useState(false);
+  const [status, setStatus] = useState("");
 
   // Re-fetches whatever page is currently on screen — used both by the
   // page-change effect below and after a decision/review-save, so an admin
   // working through page 3 isn't bounced back to page 1 every time.
   const refresh = useCallback(() => {
-    listLoanRequestsPage(page)
+    listLoanRequestsPage(page, { status: status || undefined })
       .then((res) => { setReqs(res.items); setHasMore(res.hasMore); })
       .catch(() => { setReqs([]); setHasMore(false); })
       .finally(() => setLoading(false));
-  }, [page]);
+  }, [page, status]);
 
   useEffect(() => { refresh(); }, [refresh]);
+  useEffect(() => { setPage(1); }, [status]);
 
   function refreshAfterSave() {
     refresh();
@@ -51,11 +61,17 @@ export function Requests() {
         <div><h1>Loan Extensions &amp; Gold Release</h1><p>Extension/release requests submitted by customers (or logged by staff on their behalf) — review and approve/reject through each request's staged approval chain</p></div>
       </div>
       <hr className="gold-rule" />
+      <div style={{ display: "flex", alignItems: "flex-end", justifyContent: "flex-end", gap: 12, flexWrap: "wrap", marginBottom: 16 }}>
+        <div style={{ width: 180 }}>
+          <label style={{ fontSize: 11.5, color: "var(--muted)", display: "block", marginBottom: 4 }}>Status</label>
+          <Select options={STATUS_OPTIONS} value={status} onChange={setStatus} />
+        </div>
+      </div>
       <div className="card">
         <div className="tbl-wrap tbl-scroll">
           <table className="tbl">
             <thead>
-              <tr><th>Request</th><th>Type</th><th>Loan</th><th>Customer</th><th>Detail</th><th>Date</th><th>Status</th><th></th></tr>
+              <tr><th>Request</th><th>Type</th><th>Loan</th><th>Customer</th><th>Detail</th><th>Date</th><th>Status</th><th style={{ textAlign: "center" }}>Actions</th></tr>
             </thead>
             <tbody>
               {loading ? (
@@ -71,7 +87,7 @@ export function Requests() {
                   <td>{r.detail}</td>
                   <td>{r.requestedAt}</td>
                   <td><StatusChip status={r.status} /></td>
-                  <td style={{ whiteSpace: "nowrap", textAlign: "right" }}>
+                  <td style={{ whiteSpace: "nowrap", textAlign: "center" }}>
                     <button
                       className="btn ghost sm"
                       onClick={() => openModal(

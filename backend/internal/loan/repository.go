@@ -83,9 +83,11 @@ type LoanFilter struct {
 	OpenedTo   *time.Time
 
 	// ExcludeBankPledged drops loans whose gold is currently sitting with a
-	// bank (BankPledgeStatusPledged) — those cannot be re-pledged again, so
-	// the bank re-pledge loan picker asks for the eligible set server-side
-	// rather than fetching every loan and filtering in the browser.
+	// bank (BankPledgeStatusPledged) — those cannot be re-pledged again — and
+	// loans still StatusPendingApproval, whose gold isn't disbursed/sanctioned
+	// yet and so isn't in the branch's custody to hand to a bank. Together
+	// this is the bank re-pledge loan picker's eligible set, computed
+	// server-side rather than fetched in full and filtered in the browser.
 	ExcludeBankPledged bool
 
 	// BankPledgeStatus, when set, matches Loan.BankPledgeStatus exactly —
@@ -134,6 +136,7 @@ func (r *Repository) FindAll(f LoanFilter) ([]Loan, error) {
 	}
 	if f.ExcludeBankPledged {
 		q = q.Where("bank_pledge_status <> ?", BankPledgeStatusPledged)
+		q = q.Where("status <> ?", StatusPendingApproval)
 	}
 	if f.BankPledgeStatus != "" {
 		q = q.Where("bank_pledge_status = ?", f.BankPledgeStatus)

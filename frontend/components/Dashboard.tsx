@@ -278,13 +278,11 @@ export function Dashboard() {
                 })}
               </ul>
             </div>
-            {needsAttentionPages > 1 && (
-              <div className="ft" style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                <button className="btn plain sm" disabled={needsAttentionPage <= 1} onClick={() => setNeedsAttentionPage((p) => Math.max(1, p - 1))}>‹ Prev</button>
-                <span style={{ fontSize: 12.5 }}>Page {needsAttentionPage} of {needsAttentionPages}</span>
-                <button className="btn plain sm" disabled={needsAttentionPage >= needsAttentionPages} onClick={() => setNeedsAttentionPage((p) => Math.min(needsAttentionPages, p + 1))}>Next ›</button>
-              </div>
-            )}
+            <div className="ft" style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px" }}>
+              <button className="btn plain sm" style={{ padding: "4px 10px" }} disabled={needsAttentionPage <= 1} onClick={() => setNeedsAttentionPage((p) => Math.max(1, p - 1))}>‹ Prev</button>
+              <span style={{ fontSize: 12.5 }}>Page {needsAttentionPage} of {needsAttentionPages}</span>
+              <button className="btn plain sm" style={{ padding: "4px 10px" }} disabled={needsAttentionPage >= needsAttentionPages} onClick={() => setNeedsAttentionPage((p) => Math.min(needsAttentionPages, p + 1))}>Next ›</button>
+            </div>
           </div>
         </div>
 

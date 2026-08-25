@@ -368,9 +368,12 @@ export function Auctions() {
 
       {tab === "active" ? (
         loading ? (
-          <div className="empty">Loading auction cases…</div>
+          <div className="card"><div className="empty">Loading auction cases…</div></div>
         ) : allCases.length === 0 ? (
-          <div className="empty">No loans currently in the auction workflow.</div>
+          /* Wrapped in a .card so an empty Active Cases tab still reads as a
+           * panel like every other page, rather than a bare line of text
+           * floating on the page background. */
+          <div className="card"><div className="empty">No loans currently in the auction workflow.</div></div>
         ) : (
           <>
             {cases.map((l) => <AuctionCard key={l.id} l={l} onLoanChanged={refresh} />)}

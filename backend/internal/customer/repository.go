@@ -15,22 +15,40 @@ func (r *Repository) Create(c *Customer) error {
 	return r.db.Create(c).Error
 }
 
+// CustomerFilter narrows FindAll's results beyond the plain text query;
+// zero-value fields are ignored. PANStatus/AadhaarStatus back the
+// Customers & KYC page's "PAN Verified"/"Aadhaar Verified" filters.
+type CustomerFilter struct {
+	Query         string
+	BranchID      *uint
+	PANStatus     string
+	AadhaarStatus string
+	Limit         int
+	Offset        int
+}
+
 // FindAll returns customers matching query, ordered by id. When limit > 0
 // it applies Limit/Offset (used by the paginated SearchableSelect-backed
 // search — see Service.List); limit == 0 returns every match, unpaged, for
 // callers like the full Customers & KYC list page.
-func (r *Repository) FindAll(query string, limit, offset int, branchID *uint) ([]Customer, error) {
+func (r *Repository) FindAll(f CustomerFilter) ([]Customer, error) {
 	var customers []Customer
 	q := r.db.Preload("Branch").Order("id asc")
-	if query != "" {
-		like := "%" + query + "%"
+	if f.Query != "" {
+		like := "%" + f.Query + "%"
 		q = q.Where("name ILIKE ? OR code ILIKE ? OR phone ILIKE ?", like, like, like)
 	}
-	if branchID != nil {
-		q = q.Where("branch_id = ?", *branchID)
+	if f.BranchID != nil {
+		q = q.Where("branch_id = ?", *f.BranchID)
 	}
-	if limit > 0 {
-		q = q.Limit(limit).Offset(offset)
+	if f.PANStatus != "" {
+		q = q.Where("pan_status = ?", f.PANStatus)
+	}
+	if f.AadhaarStatus != "" {
+		q = q.Where("aadhaar_status = ?", f.AadhaarStatus)
+	}
+	if f.Limit > 0 {
+		q = q.Limit(f.Limit).Offset(f.Offset)
 	}
 	err := q.Find(&customers).Error
 	return customers, err

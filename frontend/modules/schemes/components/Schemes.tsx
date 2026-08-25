@@ -51,9 +51,9 @@ export function Schemes() {
           No loan schemes yet. Click &quot;New Scheme&quot; to create one.
         </p>
       )}
-      <div className="grid" style={{ gridTemplateColumns: "repeat(auto-fill,minmax(300px,1fr))" }}>
+      <div className="grid" style={{ gridTemplateColumns: "repeat(5,minmax(0,1fr))" }}>
         {(schemes || []).map((s) => (
-          <div className="card gtop" key={s.id}>
+          <div className="card gtop" key={s.id} style={{ minHeight: 300 }}>
             <div className="hd"><h3>{s.name}</h3><div className="sp" />
               {s.active ? <span className="chip green">Active</span> : <span className="chip gray">Inactive</span>}
             </div>
@@ -65,7 +65,7 @@ export function Schemes() {
                 <div className="i"><div className="k">Method</div><div className="v">{s.method || "—"}</div></div>
                 <div className="i"><div className="k">Penal Charges</div><div className="v" style={{ color: "var(--red)", fontWeight: 600 }}>{s.penal}% / month</div></div>
               </div>
-              <p style={{ fontSize: 12.5, color: "var(--muted)", marginTop: 12, borderTop: "1px dashed var(--line)", paddingTop: 10 }}>{s.cond || "—"}</p>
+              <p style={{ fontSize: 12.5, color: "var(--muted)", marginTop: 12, borderTop: "1px dashed var(--line)", paddingTop: 10, height: 60, overflow: "hidden" }}>{s.cond || "—"}</p>
             </div>
             <div className="ft" style={{ display: "flex", gap: 8 }}>
               <span>{s.code}</span><span style={{ flex: 1 }} />

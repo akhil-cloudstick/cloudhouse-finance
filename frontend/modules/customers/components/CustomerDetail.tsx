@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useModal } from "@/common/components/Modal";
 import { useToast } from "@/common/components/Toast";
 import { useAuth } from "@/common/auth-context";
@@ -162,6 +162,21 @@ export function CustomerDetail({ id }: { id?: string }) {
   const listBankPledges = useCallback((page: number, r?: { from?: string; to?: string }) => listCustomerBankPledgesPage(id || "", page, r), [id]);
   const listAuctionHistory = useCallback((page: number, r?: { from?: string; to?: string }) => listCustomerAuctionHistoryPage(id || "", page, r), [id]);
 
+  const [activeTable, setActiveTable] = useState(0);
+  const TABLE_TABS = ["Loan History", "Pledged Ornaments", "Payment History", "Bank Pledges", "Auction History"];
+  // Lets a mouse-wheel scroll over the dot rail / table switch tabs, instead
+  // of only clicking a dot. wheelLock debounces rapid deltaY events from a
+  // single physical scroll gesture into one tab-step at a time.
+  const wheelLock = useRef(false);
+  function onTabWheel(e: React.WheelEvent) {
+    e.preventDefault();
+    if (wheelLock.current) return;
+    const dir = e.deltaY > 0 ? 1 : -1;
+    setActiveTable((t) => Math.min(TABLE_TABS.length - 1, Math.max(0, t + dir)));
+    wheelLock.current = true;
+    setTimeout(() => { wheelLock.current = false; }, 350);
+  }
+
   const loanPager = useSubTablePage<LoanView>(listLoans, range, !!id);
   const ornamentPager = useSubTablePage<CustomerOrnamentRowView>(listOrnaments, range, !!id);
   const paymentPager = useSubTablePage<CustomerPaymentRowView>(listPayments, range, !!id);
@@ -283,7 +298,7 @@ export function CustomerDetail({ id }: { id?: string }) {
       <hr className="gold-rule" />
       {/* Opened-date filter for the whole 360 view — every card below plus
           the relationship totals come from the backend-filtered loan set. */}
-      <div style={{ display: "flex", alignItems: "flex-end", gap: 12, flexWrap: "wrap", marginBottom: 18 }}>
+      <div style={{ display: "flex", alignItems: "flex-end", justifyContent: "flex-end", gap: 12, flexWrap: "wrap", marginBottom: 18 }}>
         <div style={{ minWidth: 190 }}>
           <label className="f">Loans Opened From</label>
           <DatePicker value={from} onChange={setFrom} placeholder="Any start date…" max={to || undefined} />
@@ -298,7 +313,7 @@ export function CustomerDetail({ id }: { id?: string }) {
         {reloading && <span style={{ fontSize: 12.5, color: "var(--muted)" }}>Loading…</span>}
         {error && <span style={{ fontSize: 12.5, color: "var(--red)" }}>{error}</span>}
       </div>
-      <div className="grid cols12" style={reloading ? { opacity: 0.6 } : undefined}>
+      <div className="grid cols12" style={{ alignItems: "stretch", ...(reloading ? { opacity: 0.6 } : {}) }}>
         <div className="grid">
           <div className="card gtop"><div className="hd"><h3>KYC &amp; Verification</h3></div>
             <div className="bd">
@@ -358,98 +373,133 @@ export function CustomerDetail({ id }: { id?: string }) {
             </div></div>
           </div>
         </div>
-        <div className="grid">
-          <div className="card"><div className="hd"><h3>Loan History</h3></div>
-            <div className="tbl-wrap"><table className="tbl tbl-center">
-              <thead><tr><th>Loan</th><th>Scheme</th><th>Opened / Due</th><th className="num">Principal</th><th className="num">Outstanding</th><th>Pledge</th><th>Status</th></tr></thead>
-              <tbody>
-                {loanPager.items.length === 0 ? (
-                  <tr><td colSpan={7} className="empty">No loans yet.</td></tr>
-                ) : loanPager.items.map((l) => <LoanRow loan={l} key={l.id} />)}
-              </tbody>
-            </table></div>
-            <Pager page={loanPager.page} totalPages={loanPager.totalPages} onChange={loanPager.setPage} />
+        <div style={{ display: "flex", gap: 16, alignItems: "stretch", height: "100%" }} onWheel={onTabWheel}>
+        <div style={{ position: "relative", display: "flex", flexDirection: "column", justifyContent: "space-between", flexShrink: 0, width: 12 }}>
+          <div style={{ position: "absolute", left: "50%", top: 6, bottom: 6, width: 2, background: "var(--line)", transform: "translateX(-50%)", zIndex: 0 }} />
+          {TABLE_TABS.map((label, i) => (
+            <button
+              key={label}
+              type="button"
+              title={label}
+              aria-label={label}
+              aria-current={activeTable === i}
+              onClick={() => setActiveTable(i)}
+              style={{
+                position: "relative", zIndex: 1,
+                width: 12, height: 12, borderRadius: "50%", padding: 0, border: "none", cursor: "pointer",
+                background: activeTable === i ? "var(--gold-mid)" : "var(--line)",
+              }}
+            />
+          ))}
+        </div>
+
+        <div className="card" style={{ flex: 1, alignSelf: "flex-start" }}>
+          <div className="hd">
+            <h3>{TABLE_TABS[activeTable]}</h3>
           </div>
 
-          <div className="card"><div className="hd"><h3>Pledged Ornaments (all loans)</h3></div>
-            <div className="tbl-wrap"><table className="tbl tbl-center">
-              <thead><tr><th>Loan</th><th>Ornament</th><th>Purity</th><th className="num">Net (g)</th><th className="num">Gold Value</th></tr></thead>
-              <tbody>
-                {ornamentPager.items.length === 0 ? (
-                  <tr><td colSpan={5} className="empty">No pledged ornaments yet.</td></tr>
-                ) : ornamentPager.items.map((o) => (
-                  <tr key={o.loanId + "-" + o.id}>
-                    <td><a href={`#loan/${o.loanNumber}`}>{o.loanNumber}</a></td>
-                    <td>{o.name}</td>
-                    <td><span className="chip gold">{o.purity}</span></td>
-                    <td className="num">{fmtW(o.netWeight)}</td>
-                    <td className="num">{fmt(o.goldValue)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table></div>
-            <Pager page={ornamentPager.page} totalPages={ornamentPager.totalPages} onChange={ornamentPager.setPage} />
-          </div>
+          {activeTable === 0 && (
+            <div key={activeTable} className="tab-slide-up">
+              <div className="tbl-wrap"><table className="tbl tbl-center">
+                <thead><tr><th>Loan</th><th>Scheme</th><th>Opened / Due</th><th className="num">Principal</th><th className="num">Outstanding</th><th>Pledge</th><th>Status</th></tr></thead>
+                <tbody>
+                  {loanPager.items.length === 0 ? (
+                    <tr><td colSpan={7} className="empty">No loans yet.</td></tr>
+                  ) : loanPager.items.map((l) => <LoanRow loan={l} key={l.id} />)}
+                </tbody>
+              </table></div>
+              <Pager page={loanPager.page} totalPages={loanPager.totalPages} onChange={loanPager.setPage} />
+            </div>
+          )}
 
-          <div className="card"><div className="hd"><h3>Payment History (all loans)</h3></div>
-            <div className="tbl-wrap"><table className="tbl tbl-center">
-              <thead><tr><th>Loan</th><th>Date</th><th>Type</th><th className="num">Amount</th><th>Method</th></tr></thead>
-              <tbody>
-                {paymentPager.items.length === 0 ? (
-                  <tr><td colSpan={5} className="empty">No payments recorded yet.</td></tr>
-                ) : paymentPager.items.map((p) => (
-                  <tr key={p.loanId + "-" + p.id}>
-                    <td><a href={`#loan/${p.loanNumber}`}>{p.loanNumber}</a></td>
-                    <td>{p.paidOn}</td>
-                    <td>{p.type}</td>
-                    <td className="num">{fmt(p.amount)}</td>
-                    <td>{p.method || "—"}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table></div>
-            <Pager page={paymentPager.page} totalPages={paymentPager.totalPages} onChange={paymentPager.setPage} />
-          </div>
+          {activeTable === 1 && (
+            <div key={activeTable} className="tab-slide-up">
+              <div className="tbl-wrap"><table className="tbl tbl-center">
+                <thead><tr><th>Loan</th><th>Ornament</th><th>Purity</th><th className="num">Net (g)</th><th className="num">Gold Value</th></tr></thead>
+                <tbody>
+                  {ornamentPager.items.length === 0 ? (
+                    <tr><td colSpan={5} className="empty">No pledged ornaments yet.</td></tr>
+                  ) : ornamentPager.items.map((o) => (
+                    <tr key={o.loanId + "-" + o.id}>
+                      <td><a href={`#loan/${o.loanNumber}`}>{o.loanNumber}</a></td>
+                      <td>{o.name}</td>
+                      <td><span className="chip gold">{o.purity}</span></td>
+                      <td className="num">{fmtW(o.netWeight)}</td>
+                      <td className="num">{fmt(o.goldValue)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table></div>
+              <Pager page={ornamentPager.page} totalPages={ornamentPager.totalPages} onChange={ornamentPager.setPage} />
+            </div>
+          )}
 
-          <div className="card"><div className="hd"><h3>Bank Pledges (all loans)</h3></div>
-            <div className="tbl-wrap"><table className="tbl tbl-center">
-              <thead><tr><th>Loan</th><th>Bank</th><th className="num">Amount</th><th>Pledged On</th><th>Status</th></tr></thead>
-              <tbody>
-                {bankPledgePager.items.length === 0 ? (
-                  <tr><td colSpan={5} className="empty">No bank pledges yet.</td></tr>
-                ) : bankPledgePager.items.map((p) => (
-                  <tr key={p.loanId + "-" + p.id}>
-                    <td><a href={`#loan/${p.loanNumber}`}>{p.loanNumber}</a></td>
-                    <td>{p.bankName}</td>
-                    <td className="num">{fmt(p.pledgedAmount)}</td>
-                    <td>{p.pledgeDate}</td>
-                    <td><StatusChip status={p.isReleased ? "Released" : "Bank Pledged"} /></td>
-                  </tr>
-                ))}
-              </tbody>
-            </table></div>
-            <Pager page={bankPledgePager.page} totalPages={bankPledgePager.totalPages} onChange={bankPledgePager.setPage} />
-          </div>
+          {activeTable === 2 && (
+            <div key={activeTable} className="tab-slide-up">
+              <div className="tbl-wrap"><table className="tbl tbl-center">
+                <thead><tr><th>Loan</th><th>Date</th><th>Type</th><th className="num">Amount</th><th>Method</th></tr></thead>
+                <tbody>
+                  {paymentPager.items.length === 0 ? (
+                    <tr><td colSpan={5} className="empty">No payments recorded yet.</td></tr>
+                  ) : paymentPager.items.map((p) => (
+                    <tr key={p.loanId + "-" + p.id}>
+                      <td><a href={`#loan/${p.loanNumber}`}>{p.loanNumber}</a></td>
+                      <td>{p.paidOn}</td>
+                      <td>{p.type}</td>
+                      <td className="num">{fmt(p.amount)}</td>
+                      <td>{p.method || "—"}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table></div>
+              <Pager page={paymentPager.page} totalPages={paymentPager.totalPages} onChange={paymentPager.setPage} />
+            </div>
+          )}
 
-          <div className="card"><div className="hd"><h3>Auction History</h3></div>
-            <div className="tbl-wrap"><table className="tbl tbl-center">
-              <thead><tr><th>Loan</th><th>Stage</th><th>Auction Date</th><th className="num">Sale Amount</th><th className="num">Surplus/Shortfall</th></tr></thead>
-              <tbody>
-                {auctionPager.items.length === 0 ? (
-                  <tr><td colSpan={5} className="empty">No auction records yet.</td></tr>
-                ) : auctionPager.items.map((a) => (
-                  <tr key={a.id}>
-                    <td><a href={`#loan/${a.loanNumber}`}>{a.loanNumber}</a></td>
-                    <td><StatusChip status={a.stage} /></td>
-                    <td>{a.auctionDate || "—"}</td>
-                    <td className="num">{a.saleAmount ? fmt(a.saleAmount) : "—"}</td>
-                    <td className="num" style={{ color: a.surplusShortfall >= 0 ? "var(--green)" : "var(--red)" }}>{a.saleAmount ? fmt(Math.abs(a.surplusShortfall)) : "—"}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table></div>
-            <Pager page={auctionPager.page} totalPages={auctionPager.totalPages} onChange={auctionPager.setPage} />
-          </div>
+          {activeTable === 3 && (
+            <div key={activeTable} className="tab-slide-up">
+              <div className="tbl-wrap"><table className="tbl tbl-center">
+                <thead><tr><th>Loan</th><th>Bank</th><th className="num">Amount</th><th>Pledged On</th><th>Status</th></tr></thead>
+                <tbody>
+                  {bankPledgePager.items.length === 0 ? (
+                    <tr><td colSpan={5} className="empty">No bank pledges yet.</td></tr>
+                  ) : bankPledgePager.items.map((p) => (
+                    <tr key={p.loanId + "-" + p.id}>
+                      <td><a href={`#loan/${p.loanNumber}`}>{p.loanNumber}</a></td>
+                      <td>{p.bankName}</td>
+                      <td className="num">{fmt(p.pledgedAmount)}</td>
+                      <td>{p.pledgeDate}</td>
+                      <td><StatusChip status={p.isReleased ? "Released" : "Bank Pledged"} /></td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table></div>
+              <Pager page={bankPledgePager.page} totalPages={bankPledgePager.totalPages} onChange={bankPledgePager.setPage} />
+            </div>
+          )}
+
+          {activeTable === 4 && (
+            <div key={activeTable} className="tab-slide-up">
+              <div className="tbl-wrap"><table className="tbl tbl-center">
+                <thead><tr><th>Loan</th><th>Stage</th><th>Auction Date</th><th className="num">Sale Amount</th><th className="num">Surplus/Shortfall</th></tr></thead>
+                <tbody>
+                  {auctionPager.items.length === 0 ? (
+                    <tr><td colSpan={5} className="empty">No auction records yet.</td></tr>
+                  ) : auctionPager.items.map((a) => (
+                    <tr key={a.id}>
+                      <td><a href={`#loan/${a.loanNumber}`}>{a.loanNumber}</a></td>
+                      <td><StatusChip status={a.stage} /></td>
+                      <td>{a.auctionDate || "—"}</td>
+                      <td className="num">{a.saleAmount ? fmt(a.saleAmount) : "—"}</td>
+                      <td className="num" style={{ color: a.surplusShortfall >= 0 ? "var(--green)" : "var(--red)" }}>{a.saleAmount ? fmt(Math.abs(a.surplusShortfall)) : "—"}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table></div>
+              <Pager page={auctionPager.page} totalPages={auctionPager.totalPages} onChange={auctionPager.setPage} />
+            </div>
+          )}
+        </div>
         </div>
       </div>
     </>

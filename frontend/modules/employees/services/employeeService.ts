@@ -77,7 +77,7 @@ export async function listEmployees(): Promise<EmployeeView[]> {
 }
 
 /* Page size for the paginated Employees table (Employees.tsx). */
-export const EMPLOYEES_PAGE_SIZE = 10;
+export const EMPLOYEES_PAGE_SIZE = 11;
 
 export async function listEmployeesPage(page: number): Promise<{ items: EmployeeView[]; hasMore: boolean }> {
   const params = new URLSearchParams({

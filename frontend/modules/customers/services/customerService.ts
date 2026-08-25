@@ -152,8 +152,14 @@ const CUSTOMERS_TABLE_PAGE_SIZE = 10;
  * unpaginated list for consumers that need every customer at once (global
  * search, New Loan's picker), so this is a separate call rather than a
  * change to listCustomers/CustomersProvider. */
-export async function listCustomersPage(q: string, page: number): Promise<{ items: CustomerView[]; hasMore: boolean }> {
+export async function listCustomersPage(
+  q: string,
+  page: number,
+  filters?: { panStatus?: string; aadhaarStatus?: string }
+): Promise<{ items: CustomerView[]; hasMore: boolean }> {
   const params = new URLSearchParams({ q, limit: String(CUSTOMERS_TABLE_PAGE_SIZE), offset: String((page - 1) * CUSTOMERS_TABLE_PAGE_SIZE) });
+  if (filters?.panStatus) params.set("panStatus", filters.panStatus);
+  if (filters?.aadhaarStatus) params.set("aadhaarStatus", filters.aadhaarStatus);
   const rec = await apiFetch<{ items: BackendCustomer[]; hasMore: boolean }>(`/customers?${params}`);
   return { items: (rec?.items || []).map(toView), hasMore: !!rec?.hasMore };
 }

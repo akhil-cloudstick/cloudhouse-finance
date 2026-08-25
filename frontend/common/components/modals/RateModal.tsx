@@ -55,7 +55,7 @@ export function RateModalContent() {
       <div className="hd"><h3>Set Today&apos;s Gold Rate</h3><button className="x" onClick={closeModal}>×</button></div>
       <div className="bd">
         <div className="notice" style={{ marginBottom: 16 }}>
-          <Icon name="shield" /> Rate changes apply to all new valuations and are recorded in the audit trail.
+          <Icon name="shield" /> The rate shown below is yesterday&apos;s — update it to today&apos;s rate before publishing.
         </div>
         <div className="frow c3">
           <div><label className="f">24K · 999 (₹/g)</label><input className="inp" type="number" value={r24} onChange={(e) => setR24(e.target.value)} /></div>

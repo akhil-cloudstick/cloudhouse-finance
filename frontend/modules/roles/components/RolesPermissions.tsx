@@ -301,28 +301,30 @@ export function RolesPermissions() {
             {Object.entries(effective).length === 0 && (
               <p style={{ color: "var(--muted)", fontSize: 13 }}>No permissions match &quot;{search}&quot;.</p>
             )}
-            <div className="perm-list">
+            <div className="grid" style={{ gridTemplateColumns: "repeat(4,minmax(0,1fr))", gap: 24 }}>
               {Object.entries(effective).map(([mod, rows]) => (
-                <div key={mod} className="perm-list-mod">
-                  <div className="perm-list-mod-name">{mod}</div>
-                  <div className="perm-list-rows">
-                    {rows.map((row) => (
-                      <label key={row.permission_id} className="ccheck perm-list-row">
-                        <input
-                          type="checkbox"
-                          checked={row.permission}
-                          onChange={() => toggle(row)}
-                          disabled={!canChangePermission || role?.isSystem}
-                        />
-                        <span className="mark" />
-                        <span>
-                          <b style={{ fontSize: 13 }}>{row.permissions.name}</b>
-                          {row.permissions.description && (
-                            <span className="sub" style={{ display: "block", fontSize: 11.5 }}>{row.permissions.description}</span>
-                          )}
-                        </span>
-                      </label>
-                    ))}
+                <div key={mod} className="card gtop">
+                  <div className="hd"><h3 style={{ fontSize: 15 }}>{mod}</h3></div>
+                  <div className="bd" style={{ padding: 0 }}>
+                    <div className="perm-list-rows">
+                      {rows.map((row) => (
+                        <label key={row.permission_id} className="ccheck perm-list-row">
+                          <input
+                            type="checkbox"
+                            checked={row.permission}
+                            onChange={() => toggle(row)}
+                            disabled={!canChangePermission || role?.isSystem}
+                          />
+                          <span className="mark" />
+                          <span>
+                            <b style={{ fontSize: 13 }}>{row.permissions.name}</b>
+                            {row.permissions.description && (
+                              <span className="sub" style={{ display: "block", fontSize: 11.5 }}>{row.permissions.description}</span>
+                            )}
+                          </span>
+                        </label>
+                      ))}
+                    </div>
                   </div>
                 </div>
               ))}
