@@ -37,6 +37,7 @@ import { printIndemnityBond, type IndemnityBondLang } from "@/modules/loans/util
 import { ApiError } from "@/common/services/httpClient";
 import type { Ornament } from "@/common/utils/data";
 
+
 // Purity is now a plain unit-suffixed string ("22K" / "91.6%", see
 // lib/purity.ts) rather than a fixed k24/k22/k18 bucket — PURITY_LABEL is
 // gone since the string itself is already the display label.
