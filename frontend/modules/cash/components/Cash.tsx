@@ -1,0 +1,405 @@
+"use client";
+
+import { useCallback, useEffect, useRef, useState } from "react";
+import { useModal } from "@/common/components/Modal";
+import { useToast } from "@/common/components/Toast";
+import { Icon } from "@/common/components/Icon";
+import { fmt } from "@/common/utils/format";
+import { StatusChip } from "@/common/components/ui/StatusChip";
+import { AddCashModalContent } from "@/common/components/modals/AddCashModal";
+import { CashOutModalContent } from "@/common/components/modals/CashOutModal";
+import { ExpenseModalContent, ReceiptViewModalContent } from "@/common/components/modals/ExpenseModal";
+import { listActiveBranches, type BranchView } from "@/modules/branches/services/branchService";
+import { SearchableSelect } from "@/common/components/ui/SearchableSelect";
+import {
+  listCashMovementsPage, listExpensesPage, getCashSummary, setOpeningBalance,
+  setCashMovementLoanStatus, approveExpense, rejectExpense,
+  type CashMovementView, type ExpenseView, type CashSummary,
+} from "@/modules/cash/services/cashService";
+import { ApiError } from "@/common/services/httpClient";
+
+function Kpi({ l, v, s, parts, cls }: {
+  l: string; v: string | number; s?: string; parts?: [string, number][]; cls?: string;
+}) {
+  return (
+    <div className={`kpi ${cls || ""}`}>
+      <div className="l">{l}</div>
+      <div className="v">{v}</div>
+      <div className="s">{s || ""}</div>
+      {parts ? <KpiParts parts={parts} /> : null}
+    </div>
+  );
+}
+
+/* Breaks a KPI's single total back out into the sources that fed it. Zero
+ * buckets are dropped so a quiet day shows a short list rather than a wall of
+ * "0"s; if every bucket is zero the whole block collapses to one dash. */
+function KpiParts({ parts }: { parts: [string, number][] }) {
+  const shown = parts.filter(([, amt]) => amt !== 0);
+  return (
+    <div style={{ marginTop: 6, borderTop: "1px solid var(--line)", paddingTop: 6, display: "grid", gap: 2 }}>
+      {shown.length ? shown.map(([label, amt]) => (
+        <div key={label} style={{ display: "flex", fontSize: 11.5, color: "var(--muted)" }}>
+          <span>{label}</span>
+          <div className="sp" style={{ flex: 1 }} />
+          <span className="num" style={{ fontVariantNumeric: "tabular-nums" }}>{fmt(amt)}</span>
+        </div>
+      )) : <div style={{ fontSize: 11.5, color: "var(--muted)" }}>No movements today</div>}
+    </div>
+  );
+}
+
+function MovementRow({ m, onToggleLoan }: { m: CashMovementView; onToggleLoan: (id: number) => void }) {
+  const isLoan = m.type === "in" && m.source === "Loan";
+  return (
+    <tr>
+      <td>{m.d}</td>
+      <td>{m.type === "in" ? <span className="chip green">Cash In</span> : <span className="chip red">Cash Out</span>}</td>
+      {/* Loan repayments post as source="Collection" with the payment
+          type/loan number in `purpose` (see cash.MovementService.
+          RecordLoanPaymentCashIn) — show both, not just source, so those
+          rows don't all read as a bare "Collection". */}
+      <td>{m.type === "in" ? (m.purpose ? `${m.source} · ${m.purpose}` : m.source) : m.purpose || "—"}</td>
+      <td>{m.bank || "—"}</td>
+      <td className="num" style={{ color: m.type === "in" ? "var(--green)" : "var(--red)" }}>
+        {m.type === "in" ? "+" : "−"}{fmt(m.amount)}
+      </td>
+      <td>
+        {isLoan ? (
+          <>
+            <span className={`chip ${m.status === "Closed" ? "gray" : "amber"}`}>{m.status || "Open"}</span>
+            <button className="btn plain sm" style={{ padding: "3px 8px", marginLeft: 6 }} onClick={() => onToggleLoan(m.id)}>
+              {m.status === "Closed" ? "Reopen" : "Mark Closed"}
+            </button>
+          </>
+        ) : "—"}
+      </td>
+    </tr>
+  );
+}
+
+function ExpenseRow({ e, onViewReceipt, onApprove, onReject }: {
+  e: ExpenseView; onViewReceipt: () => void; onApprove: () => void; onReject: () => void;
+}) {
+  return (
+    <tr>
+      <td>{e.d}</td>
+      <td>{e.cat}</td>
+      <td className="num">{fmt(e.amt)}</td>
+      <td>{e.mode}</td>
+      <td>{e.payee}</td>
+      <td>{e.branch}</td>
+      <td>
+        <StatusChip status={e.status} />
+        {e.remarks ? <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 2 }}>{e.remarks}</div> : null}
+      </td>
+      <td style={{ textAlign: "center" }}>
+        {e.img
+          ? <img src={e.img} style={{ width: 34, height: 34, objectFit: "cover", borderRadius: 6, border: "1px solid var(--line)", cursor: "pointer", verticalAlign: "middle" }} title="View receipt" onClick={onViewReceipt} />
+          : <span style={{ color: "var(--muted)" }}>—</span>}
+      </td>
+      <td>
+        {e.status === "Pending" ? (
+          <div style={{ display: "flex", gap: 4 }}>
+            <button className="btn plain sm" style={{ padding: "3px 8px", color: "var(--green)" }} onClick={onApprove}>Approve</button>
+            <button className="btn plain sm" style={{ padding: "3px 8px", color: "var(--red)" }} onClick={onReject}>Reject</button>
+          </div>
+        ) : "—"}
+      </td>
+    </tr>
+  );
+}
+
+/* Ported from legacy/app.js's `renderCash()` / `toggleCashLoan()`. Fully
+ * backend-backed: cash movements, the expense register, the opening cash
+ * balance, and the Expected Cash in Hand figure all come from the Go API
+ * (backend/internal/cash) instead of localStorage. */
+export function Cash() {
+  const { openModal } = useModal();
+  const toast = useToast();
+  const today = new Date().toISOString().slice(0, 10);
+
+  const [branches, setBranches] = useState<BranchView[]>([]);
+  const [branchId, setBranchId] = useState<number | "">("");
+  const [branchLabel, setBranchLabel] = useState("");
+  const [movements, setMovements] = useState<CashMovementView[]>([]);
+  const [expenses, setExpenses] = useState<ExpenseView[]>([]);
+  const [movementsPage, setMovementsPage] = useState(1);
+  const [movementsHasMore, setMovementsHasMore] = useState(false);
+  const [expensesPage, setExpensesPage] = useState(1);
+  const [expensesHasMore, setExpensesHasMore] = useState(false);
+  const [summary, setSummary] = useState<CashSummary | null>(null);
+  const [openingInput, setOpeningInput] = useState("");
+  // Once today's opening balance exists for the selected branch we show it
+  // read-only instead of an empty-looking input asking for it again — the
+  // figure is entered once per branch per day. "Change" reopens the input.
+  const [editingOpening, setEditingOpening] = useState(false);
+  // Switches the card below between the Cash Movements and Expense Register
+  // tables instead of stacking both full tables on the page at once.
+  const [activeCashTab, setActiveCashTab] = useState<"movements" | "expenses">("movements");
+
+  /* Guards against a stale response winning. The first render fires a
+   * summary request before the branch list has loaded (branchId ""), then a
+   * second, branch-scoped one the moment it does. The unscoped one has no
+   * opening balance (it's per-branch), so if it resolved last it overwrote
+   * the real figure with 0 — which is exactly what made a set opening
+   * balance read as ₹0 after a refresh. Only the newest request may write. */
+  const summarySeq = useRef(0);
+
+  const refresh = useCallback(() => {
+    listCashMovementsPage(movementsPage).then(({ items, hasMore }) => {
+      setMovements(items);
+      setMovementsHasMore(hasMore);
+    }).catch(() => { setMovements([]); setMovementsHasMore(false); });
+    listExpensesPage(expensesPage).then(({ items, hasMore }) => {
+      setExpenses(items);
+      setExpensesHasMore(hasMore);
+    }).catch(() => { setExpenses([]); setExpensesHasMore(false); });
+    const seq = ++summarySeq.current;
+    getCashSummary(branchId || undefined, today).then((s) => {
+      if (seq !== summarySeq.current) return;
+      setSummary(s);
+      setOpeningInput(s.openingCashSet ? String(s.openingCash) : "");
+      setEditingOpening(false);
+    }).catch(() => {
+      if (seq !== summarySeq.current) return;
+      setSummary(null);
+    });
+  }, [branchId, today, movementsPage, expensesPage]);
+
+  useEffect(() => {
+    listActiveBranches().then((list) => {
+      setBranches(list);
+      if (list.length) {
+        setBranchId((cur) => cur || list[0].id);
+        setBranchLabel((cur) => cur || list[0].name);
+      }
+    }).catch(() => {});
+  }, []);
+
+  // "All branches" is a synthetic id-0 row (never a real Branch) prepended
+  // to the local filter list — GET /branches is already scoped server-side
+  // (non-admins only ever get their own branch back), so it's only ever
+  // meaningfully different from the single real row for an Administrator.
+  const ALL_BRANCHES: BranchView = { id: 0, name: "All branches", code: "", address: "", phone: "", isActive: true };
+  async function searchBranchesFilter(q: string, _page: number): Promise<{ items: BranchView[]; hasMore: boolean }> {
+    const query = q.trim().toLowerCase();
+    const all = [ALL_BRANCHES, ...branches];
+    const items = query ? all.filter((b) => b.name.toLowerCase().includes(query)) : all;
+    return { items, hasMore: false };
+  }
+
+  useEffect(() => { refresh(); }, [refresh]);
+
+  // Locked = today's figure is already on record for this branch, so the
+  // card reports it rather than asking for it again.
+  const openingLocked = !!branchId && !!summary?.openingCashSet && !editingOpening;
+
+  const total = expenses.reduce((s, e) => s + e.amt, 0);
+  const cashIn = movements.filter((m) => m.type === "in").reduce((s, m) => s + m.amount, 0);
+  const cashOut = movements.filter((m) => m.type === "out").reduce((s, m) => s + m.amount, 0);
+
+  async function toggleCashLoan(id: number) {
+    const m = movements.find((x) => x.id === id);
+    if (!m) return;
+    const next = m.status === "Closed" ? "Open" : "Closed";
+    try {
+      await setCashMovementLoanStatus(id, next);
+      refresh();
+      toast(`Loan from ${m.bank} marked ${next.toLowerCase()}`);
+    } catch (e) {
+      toast(e instanceof ApiError ? e.message : "Could not update loan status.");
+    }
+  }
+
+  async function saveOpeningBalance() {
+    if (!branchId) { toast("Select a branch first."); return; }
+    const amount = +openingInput;
+    if (openingInput.trim() === "" || !(amount >= 0)) { toast("Enter a valid opening balance."); return; }
+    try {
+      await setOpeningBalance(branchId, amount, today);
+      refresh();
+      toast(`Opening cash set to ${fmt(amount)}`);
+    } catch (e) {
+      toast(e instanceof ApiError ? e.message : "Could not save opening balance.");
+    }
+  }
+
+  async function handleApprove(id: number) {
+    try {
+      await approveExpense(id);
+      refresh();
+      toast("Expense approved");
+    } catch (e) {
+      toast(e instanceof ApiError ? e.message : "Could not approve expense.");
+    }
+  }
+
+  async function handleReject(id: number) {
+    const remarks = window.prompt("Reason for rejecting this expense?");
+    if (!remarks || !remarks.trim()) return;
+    try {
+      await rejectExpense(id, remarks.trim());
+      refresh();
+      toast("Expense rejected");
+    } catch (e) {
+      toast(e instanceof ApiError ? e.message : "Could not reject expense.");
+    }
+  }
+
+  return (
+    <>
+      <div className="page-h">
+        <div><h1>Cash-in-Hand &amp; Expenses</h1><p>Daily cash movements, opening balances and branch expenses — recorded, approved and reconciled</p></div>
+        <div className="sp" />
+        <button className="btn ghost" onClick={() => openModal(<CashOutModalContent onSaved={refresh} />)}><Icon name="coin" /> Take Cash Out</button>
+        <button className="btn ghost" onClick={() => openModal(<AddCashModalContent onSaved={refresh} />)}><Icon name="coin" /> Add Cash</button>
+        <button className="btn" onClick={() => openModal(<ExpenseModalContent onSaved={refresh} />)}><Icon name="plus" /> Record Expense</button>
+      </div>
+      <hr className="gold-rule" />
+
+      <div className="card" style={{ marginBottom: 26 }}>
+        <div className="hd">
+          <h3>Opening Cash Balance — Today</h3>
+          <div className="sp" />
+          <div style={{ width: 140 }}>
+            <SearchableSelect<BranchView>
+              value={branchLabel}
+              onChange={(id, item) => { setBranchId(item.id === 0 ? "" : item.id); setBranchLabel(item.name); }}
+              fetchFn={searchBranchesFilter}
+              getLabel={(b) => b.name}
+              getId={(b) => String(b.id)}
+              placeholder="Search branch…"
+            />
+          </div>
+          {openingLocked ? (
+            <>
+              <b style={{ marginLeft: 8, fontSize: 16, color: "var(--gold-deep)" }}>{fmt(summary?.openingCash || 0)}</b>
+              <button className="btn ghost sm" style={{ marginLeft: 8 }} onClick={() => { setOpeningInput(String(summary?.openingCash ?? "")); setEditingOpening(true); }}>Change</button>
+            </>
+          ) : (
+            <>
+              <input className="inp" style={{ width: 140, marginLeft: 8 }} type="number" min={0} placeholder="e.g. 50000" value={openingInput} onChange={(e) => setOpeningInput(e.target.value)} />
+              <button className="btn sm" style={{ marginLeft: 8 }} onClick={saveOpeningBalance} disabled={!branchId}>Set</button>
+              {editingOpening && (
+                <button className="btn ghost sm" style={{ marginLeft: 8 }} onClick={() => setEditingOpening(false)}>Cancel</button>
+              )}
+            </>
+          )}
+        </div>
+        <div className="ft">
+          {openingLocked
+            ? "Already recorded for this branch today — it feeds directly into the KPI below. Use “Change” only to correct a wrong figure."
+            : "Enter the opening cash-in-hand for the selected branch at the start of the day — it feeds directly into the KPI below."}
+        </div>
+      </div>
+
+      <div style={{ display: "flex", alignItems: "flex-start", gap: 16, marginBottom: 26 }}>
+        <div className="kpis kpis-money" style={{ flex: 1, marginBottom: 0 }}>
+          <Kpi l="Opening Cash (today)" v={fmt(summary?.openingCash || 0)} />
+          {/* Backend's `collections` is every cash-in movement for the day —
+              Savings top-ups, bank pledges and loan repayments alike, not just
+              interest/principal (see cash.SummaryService.GetExpectedCash), so
+              show `collectionsBreakdown` under the total rather than leaving the
+              reader to guess what the one figure is made of. */}
+          <Kpi
+            l="Cash In (today)"
+            v={fmt(summary?.collections || 0)}
+            cls="ok"
+            parts={[
+              ["Loan repayments", summary?.collectionsBreakdown?.repayments || 0],
+              ["Bank pledges", summary?.collectionsBreakdown?.pledges || 0],
+              ["Auction proceeds", summary?.collectionsBreakdown?.auctions || 0],
+              ["Manual top-ups", summary?.collectionsBreakdown?.topUps || 0],
+            ]}
+          />
+          {/* Likewise `disbursements` is every cash-out movement for the day —
+              loan principal handed out, manual "Take Cash Out" withdrawals,
+              and bank-pledge releases all land here. */}
+          <Kpi
+            l="Cash Out (today)"
+            v={fmt(summary?.disbursements || 0)}
+            parts={[
+              ["Loan disbursements", summary?.disbursementsBreakdown?.loanDisbursements || 0],
+              ["Bank releases", summary?.disbursementsBreakdown?.bankReleases || 0],
+              ["Auction refunds", summary?.disbursementsBreakdown?.auctionRefunds || 0],
+              ["Withdrawals", summary?.disbursementsBreakdown?.withdrawals || 0],
+            ]}
+          />
+          <Kpi l="Expenses (today)" v={fmt(summary?.expensesToday || 0)} s={fmt(summary?.cashExpenses || 0) + " cash"} />
+          <Kpi l="Expected Cash in Hand" v={fmt(summary?.expectedCash || 0)} s="auto-calculated" cls="ok" />
+        </div>
+
+        <div style={{ display: "flex", flexDirection: "row", gap: 8, flexShrink: 0, alignSelf: "flex-end" }}>
+          <button
+            type="button"
+            className={`btn sm ${activeCashTab === "movements" ? "" : "ghost"}`}
+            onClick={() => setActiveCashTab("movements")}
+          >
+            Cash Movements
+          </button>
+          <button
+            type="button"
+            className={`btn sm ${activeCashTab === "expenses" ? "" : "ghost"}`}
+            onClick={() => setActiveCashTab("expenses")}
+          >
+            Expense Register
+          </button>
+        </div>
+      </div>
+
+      {activeCashTab === "movements" && (
+        <div className="card">
+          <div className="hd"><h3>Cash Movements</h3><div className="sp" />
+            <span style={{ fontSize: 12.5, color: "var(--muted)" }}>In {fmt(cashIn)} · Out {fmt(cashOut)}</span>
+          </div>
+          <div className="tbl-wrap tbl-scroll">
+            <table className="tbl tbl-center">
+              <thead><tr><th>Date</th><th>Type</th><th>Source / Purpose</th><th>Bank</th><th className="num">Amount</th><th>Loan Status</th></tr></thead>
+              <tbody>
+                {movements.length
+                  ? movements.map((m) => <MovementRow key={m.id} m={m} onToggleLoan={toggleCashLoan} />)
+                  : <tr><td colSpan={6} className="empty">No cash movements recorded yet. Use &quot;Add Cash&quot; or &quot;Take Cash Out&quot;.</td></tr>}
+              </tbody>
+            </table>
+          </div>
+          <div className="ft" style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <button className="btn plain sm" disabled={movementsPage <= 1} onClick={() => setMovementsPage((p) => Math.max(1, p - 1))}>‹ Prev</button>
+            <span style={{ fontSize: 12.5 }}>Page {movementsPage} of {movementsHasMore ? movementsPage + 1 : movementsPage}</span>
+            <button className="btn plain sm" disabled={!movementsHasMore} onClick={() => setMovementsPage((p) => p + 1)}>Next ›</button>
+          </div>
+        </div>
+      )}
+
+      {activeCashTab === "expenses" && (
+        <div className="card">
+          <div className="hd"><h3>Expense Register</h3><div className="sp" /><span style={{ fontSize: 12.5, color: "var(--muted)" }}>Total {fmt(total)}</span></div>
+          <div className="tbl-wrap tbl-scroll">
+            <table className="tbl tbl-center">
+              <thead><tr><th>Date</th><th>Category</th><th className="num">Amount</th><th>Mode</th><th>Description / Payee</th><th>Branch</th><th>Status</th><th style={{ textAlign: "center" }}>Receipt</th><th>Actions</th></tr></thead>
+              <tbody>
+                {expenses.length
+                  ? expenses.map((e) => (
+                    <ExpenseRow
+                      key={e.id}
+                      e={e}
+                      onViewReceipt={() => openModal(<ReceiptViewModalContent e={e} />, true)}
+                      onApprove={() => handleApprove(e.id)}
+                      onReject={() => handleReject(e.id)}
+                    />
+                  ))
+                  : <tr><td colSpan={9} className="empty">No expenses recorded yet.</td></tr>}
+              </tbody>
+            </table>
+          </div>
+          <div className="ft" style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <button className="btn plain sm" disabled={expensesPage <= 1} onClick={() => setExpensesPage((p) => Math.max(1, p - 1))}>‹ Prev</button>
+            <span style={{ fontSize: 12.5 }}>Page {expensesPage} of {expensesHasMore ? expensesPage + 1 : expensesPage}</span>
+            <button className="btn plain sm" disabled={!expensesHasMore} onClick={() => setExpensesPage((p) => p + 1)}>Next ›</button>
+          </div>
+          <div className="ft">Cash expenses automatically reflect in Cash-in-Hand calculations · receipt images attached to expense records</div>
+        </div>
+      )}
+    </>
+  );
+}

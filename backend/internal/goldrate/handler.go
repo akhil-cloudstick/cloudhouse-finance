@@ -1,0 +1,110 @@
+package goldrate
+
+import (
+	"net/http"
+	"strconv"
+	"time"
+
+	"github.com/gin-gonic/gin"
+
+	"ambikagold/backend/internal/platform/httpx"
+)
+
+// Handler wires HTTP requests to the Service.
+type Handler struct {
+	svc *Service
+}
+
+func NewHandler(svc *Service) *Handler {
+	return &Handler{svc: svc}
+}
+
+// publishRequest is the JSON body accepted by POST /gold-rates. Only the
+// 24K benchmark is published — see this package's doc comment.
+type publishRequest struct {
+	Date  string  `json:"date"` // optional, "YYYY-MM-DD" — defaults to today
+	K24   float64 `json:"k24" binding:"required"`
+	SetBy string  `json:"setBy" binding:"required"`
+}
+
+func (req publishRequest) toInput() (PublishInput, error) {
+	var date time.Time
+	if req.Date != "" {
+		parsed, err := time.Parse("2006-01-02", req.Date)
+		if err != nil {
+			return PublishInput{}, httpx.NewBadRequest("invalid date: expected YYYY-MM-DD")
+		}
+		date = parsed
+	}
+	return PublishInput{Date: date, K24: req.K24, SetBy: req.SetBy}, nil
+}
+
+func (h *Handler) Publish(c *gin.Context) {
+	var req publishRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		httpx.Fail(c, http.StatusBadRequest, "Invalid input")
+		return
+	}
+	input, err := req.toInput()
+	if err != nil {
+		httpx.FailErr(c, err)
+		return
+	}
+	rec, err := h.svc.Publish(input)
+	if err != nil {
+		httpx.FailErr(c, err)
+		return
+	}
+	httpx.Success(c, http.StatusCreated, rec)
+}
+
+func (h *Handler) List(c *gin.Context) {
+	limit, _ := strconv.Atoi(c.Query("limit"))
+	if limit > 0 {
+		offset, _ := strconv.Atoi(c.Query("offset"))
+		if offset < 0 {
+			offset = 0
+		}
+		rec, err := h.svc.List(limit+1, offset)
+		if err != nil {
+			httpx.FailErr(c, err)
+			return
+		}
+		hasMore := len(rec) > limit
+		if hasMore {
+			rec = rec[:limit]
+		}
+		httpx.Success(c, http.StatusOK, gin.H{"items": rec, "hasMore": hasMore})
+		return
+	}
+
+	rec, err := h.svc.List(0, 0)
+	if err != nil {
+		httpx.FailErr(c, err)
+		return
+	}
+	httpx.Success(c, http.StatusOK, rec)
+}
+
+func (h *Handler) Latest(c *gin.Context) {
+	rec, err := h.svc.Latest()
+	if err != nil {
+		httpx.FailErr(c, err)
+		return
+	}
+	httpx.Success(c, http.StatusOK, rec)
+}
+
+func (h *Handler) Get(c *gin.Context) {
+	id, err := httpx.IDParam(c, "id")
+	if err != nil {
+		httpx.FailErr(c, err)
+		return
+	}
+	rec, err := h.svc.Get(id)
+	if err != nil {
+		httpx.FailErr(c, err)
+		return
+	}
+	httpx.Success(c, http.StatusOK, rec)
+}

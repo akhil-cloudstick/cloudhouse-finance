@@ -1,0 +1,370 @@
+package reminder
+
+import (
+	"fmt"
+	"sort"
+	"time"
+
+	"ambikagold/backend/internal/commlog"
+	"ambikagold/backend/internal/customer"
+	"ambikagold/backend/internal/loan"
+	"ambikagold/backend/internal/platform"
+	"ambikagold/backend/internal/platform/httpx"
+)
+
+var (
+	ErrNotFound        = httpx.NewNotFound("reminder not found")
+	ErrCustomerReq     = httpx.NewBadRequest("customer is required")
+	ErrCustomerInvalid = httpx.NewBadRequest("customer does not exist")
+	ErrTypeInvalid     = httpx.NewBadRequest("type must be Follow-Up, Promise-to-Pay, or Custom")
+	ErrDueDateReq      = httpx.NewBadRequest("due date is required")
+)
+
+var validTypes = map[string]bool{
+	TypeFollowUp:     true,
+	TypePromiseToPay: true,
+	TypeCustom:       true,
+}
+
+// CreateInput / UpdateInput mirror the fields the "Add Reminder" modal on
+// Calendar.tsx collects.
+type CreateInput struct {
+	CustomerID uint
+	LoanID     *uint
+	Type       string
+	DueDate    time.Time
+	Note       string
+
+	CreatedByEmployeeID uint
+}
+
+type UpdateInput struct {
+	Type    string
+	DueDate time.Time
+	Note    string
+	Status  string
+}
+
+// Service implements reminder business rules on top of Repository, plus the
+// calendar aggregation that also reads from loan.Repository.
+type Service struct {
+	repo         *Repository
+	customerRepo *customer.Repository
+	loanRepo     *loan.Repository
+	whatsapp     platform.SMSSender // reused interface — Send(phone, message) matches SMSSender exactly
+	commlogRepo  *commlog.Repository
+}
+
+func NewService(repo *Repository, customerRepo *customer.Repository, loanRepo *loan.Repository, whatsapp platform.SMSSender, commlogRepo *commlog.Repository) *Service {
+	return &Service{repo: repo, customerRepo: customerRepo, loanRepo: loanRepo, whatsapp: whatsapp, commlogRepo: commlogRepo}
+}
+
+func validate(customerID uint, typ string, dueDate time.Time) error {
+	if customerID == 0 {
+		return ErrCustomerReq
+	}
+	if !validTypes[typ] {
+		return ErrTypeInvalid
+	}
+	if dueDate.IsZero() {
+		return ErrDueDateReq
+	}
+	return nil
+}
+
+func (s *Service) Create(in CreateInput) (*Reminder, error) {
+	if err := validate(in.CustomerID, in.Type, in.DueDate); err != nil {
+		return nil, err
+	}
+	if _, err := s.customerRepo.FindByID(in.CustomerID); err != nil {
+		return nil, ErrCustomerInvalid
+	}
+	rec := &Reminder{
+		CustomerID:          in.CustomerID,
+		LoanID:              in.LoanID,
+		Type:                in.Type,
+		DueDate:             in.DueDate,
+		Note:                in.Note,
+		Status:              StatusPending,
+		CreatedByEmployeeID: in.CreatedByEmployeeID,
+	}
+	if err := s.repo.Create(rec); err != nil {
+		return nil, err
+	}
+	return s.repo.FindByID(rec.ID)
+}
+
+func (s *Service) Get(id uint, branchID *uint) (*Reminder, error) {
+	rec, err := s.repo.FindByID(id)
+	if err != nil {
+		return nil, ErrNotFound
+	}
+	if branchID != nil && rec.Customer.BranchID != *branchID {
+		return nil, ErrNotFound
+	}
+	return rec, nil
+}
+
+func (s *Service) List(f Filter) ([]Reminder, error) {
+	return s.repo.FindAll(f)
+}
+
+func (s *Service) Update(id uint, in UpdateInput) (*Reminder, error) {
+	rec, err := s.repo.FindByID(id)
+	if err != nil {
+		return nil, ErrNotFound
+	}
+	if err := validate(rec.CustomerID, in.Type, in.DueDate); err != nil {
+		return nil, err
+	}
+	rec.Type = in.Type
+	rec.DueDate = in.DueDate
+	rec.Note = in.Note
+	if in.Status != "" {
+		rec.Status = in.Status
+	}
+	if err := s.repo.Update(rec); err != nil {
+		return nil, err
+	}
+	return s.repo.FindByID(rec.ID)
+}
+
+// Complete marks a reminder Done — the one-click action offered on the
+// calendar/dashboard for a manual reminder that's been actioned.
+func (s *Service) Complete(id uint) (*Reminder, error) {
+	rec, err := s.repo.FindByID(id)
+	if err != nil {
+		return nil, ErrNotFound
+	}
+	rec.Status = StatusDone
+	if err := s.repo.Update(rec); err != nil {
+		return nil, err
+	}
+	return s.repo.FindByID(rec.ID)
+}
+
+// SendWhatsApp texts the reminder's note (or a default follow-up line) to
+// its customer's phone via the configured WhatsApp sender (see
+// platform.OpenWASender), then marks the reminder Done — sending IS the
+// action for a manual reminder, the same way Complete is a one-click
+// "actioned" marker.
+func (s *Service) SendWhatsApp(id uint) (*Reminder, error) {
+	rec, err := s.repo.FindByID(id)
+	if err != nil {
+		return nil, ErrNotFound
+	}
+	message := rec.Note
+	if message == "" {
+		message = fmt.Sprintf("This is a reminder from Ambika Gold Finance regarding your %s.", rec.Type)
+	}
+	sendErr := s.whatsapp.Send(rec.Customer.Phone, message)
+	if s.commlogRepo != nil {
+		logRec := &commlog.CommunicationLog{
+			RecipientName:     rec.Customer.Name,
+			RecipientPhone:    rec.Customer.Phone,
+			ChatID:            commlog.NormalizeChatID(rec.Customer.Phone),
+			Channel:           commlog.ChannelWhatsApp,
+			TriggerType:       commlog.TriggerReminder,
+			MessageBody:       message,
+			RelatedEntityType: "reminder",
+			RelatedEntityID:   rec.ID,
+			Status:            commlog.StatusSent,
+		}
+		if sendErr != nil {
+			logRec.Status = commlog.StatusFailed
+			logRec.ErrorMessage = sendErr.Error()
+		}
+		_ = s.commlogRepo.Create(logRec)
+	}
+	if sendErr != nil {
+		return nil, fmt.Errorf("sending whatsapp reminder: %w", sendErr)
+	}
+	rec.Status = StatusDone
+	if err := s.repo.Update(rec); err != nil {
+		return nil, err
+	}
+	return s.repo.FindByID(rec.ID)
+}
+
+func (s *Service) Delete(id uint) error {
+	if _, err := s.repo.FindByID(id); err != nil {
+		return ErrNotFound
+	}
+	return s.repo.Delete(id)
+}
+
+// GetCalendarEvents builds the unified calendar for [from, to] (inclusive,
+// both truncated to whole days): every open loan's Due Date (LoanDue, or
+// Overdue if already past due), a monthly "interest payment" reminder on
+// each open loan's opened-date day-of-month (InterestDue — a practical
+// convention since interest here accrues continuously rather than on a
+// real billing schedule, see loan/accrual.go), and every manual Reminder
+// whose DueDate falls in range (FollowUp/PromiseToPay/Custom).
+//
+// The merged list is always sorted Overdue-first-then-ascending-by-date
+// (moved here from the frontend's client-side sort — see
+// frontend/components/Dashboard.tsx) before pagination is applied. page/
+// pageSize are both optional: either <= 0 skips pagination entirely and
+// every event is returned (GET /reminders/calendar's original, still-used
+// shape), matching the "additive query params" backward-compatibility rule
+// — existing callers that never send page/pageSize keep getting the exact
+// response shape they always have. The returned int is always the *full*
+// (pre-slice) event count.
+func (s *Service) GetCalendarEvents(from, to time.Time, branchID *uint, page, pageSize int) ([]CalendarEvent, int, error) {
+	from = truncateDay(from)
+	to = truncateDay(to)
+
+	var events []CalendarEvent
+
+	loans, err := s.loanRepo.FindOpenForCalendar()
+	if err != nil {
+		return nil, 0, err
+	}
+	now := truncateDay(time.Now())
+	for _, l := range loans {
+		if branchID != nil && l.BranchID != *branchID {
+			continue
+		}
+		due := truncateDay(l.DueDate)
+		custID := l.CustomerID
+		custName := l.Customer.Name
+
+		// Loan Due Date / Overdue — one event, categorized by whether the
+		// due date has already passed as of today (not as of `to`, so an
+		// already-overdue loan still reads as Overdue even when browsing a
+		// past month).
+		if !due.Before(from) && !due.After(to) {
+			evType, title := "LoanDue", "Loan due"
+			if due.Before(now) {
+				evType, title = "Overdue", "Loan overdue"
+			}
+			events = append(events, CalendarEvent{
+				Date:         due.Format("2006-01-02"),
+				Type:         evType,
+				Title:        fmt.Sprintf("%s — %s", title, l.LoanNumber),
+				Detail:       custName,
+				LoanID:       &l.ID,
+				LoanNumber:   l.LoanNumber,
+				CustomerID:   &custID,
+				CustomerName: custName,
+			})
+		}
+		// Also surface a currently-overdue loan even if its DueDate itself
+		// falls outside [from, to] — e.g. browsing a future month while an
+		// old loan is still unpaid — anchored to `now` so it lands on
+		// today's cell, not silently dropped from the calendar.
+		if due.Before(now) && (due.Before(from) || due.After(to)) && !now.Before(from) && !now.After(to) {
+			events = append(events, CalendarEvent{
+				Date:         now.Format("2006-01-02"),
+				Type:         "Overdue",
+				Title:        fmt.Sprintf("Loan overdue — %s", l.LoanNumber),
+				Detail:       custName,
+				LoanID:       &l.ID,
+				LoanNumber:   l.LoanNumber,
+				CustomerID:   &custID,
+				CustomerName: custName,
+			})
+		}
+
+		// Monthly interest-payment reminder on the opened-date anniversary
+		// day, for every month the loan has been (or still is) open,
+		// intersected with [from, to].
+		for _, occ := range monthlyOccurrences(l.OpenedDate, from, to) {
+			events = append(events, CalendarEvent{
+				Date:         occ.Format("2006-01-02"),
+				Type:         "InterestDue",
+				Title:        fmt.Sprintf("Interest payment reminder — %s", l.LoanNumber),
+				Detail:       custName,
+				LoanID:       &l.ID,
+				LoanNumber:   l.LoanNumber,
+				CustomerID:   &custID,
+				CustomerName: custName,
+			})
+		}
+	}
+
+	from2, to2 := from, to
+	reminders, err := s.repo.FindAll(Filter{From: &from2, To: &to2, BranchID: branchID})
+	if err != nil {
+		return nil, 0, err
+	}
+	for _, r := range reminders {
+		evType := "Custom"
+		switch r.Type {
+		case TypeFollowUp:
+			evType = "FollowUp"
+		case TypePromiseToPay:
+			evType = "PromiseToPay"
+		}
+		rID := r.ID
+		custID := r.CustomerID
+		events = append(events, CalendarEvent{
+			Date:         truncateDay(r.DueDate).Format("2006-01-02"),
+			Type:         evType,
+			Title:        fmt.Sprintf("%s — %s", r.Type, r.Customer.Name),
+			Detail:       r.Note,
+			LoanID:       r.LoanID,
+			CustomerID:   &custID,
+			CustomerName: r.Customer.Name,
+			ReminderID:   &rID,
+			Status:       r.Status,
+		})
+	}
+
+	sort.SliceStable(events, func(i, j int) bool {
+		a, b := events[i], events[j]
+		if (a.Type == "Overdue") != (b.Type == "Overdue") {
+			return a.Type == "Overdue"
+		}
+		return a.Date < b.Date
+	})
+
+	total := len(events)
+	if page <= 0 || pageSize <= 0 {
+		return events, total, nil
+	}
+	start := (page - 1) * pageSize
+	if start > total {
+		start = total
+	}
+	end := start + pageSize
+	if end > total {
+		end = total
+	}
+	return events[start:end], total, nil
+}
+
+func truncateDay(t time.Time) time.Time {
+	return time.Date(t.Year(), t.Month(), t.Day(), 0, 0, 0, 0, t.Location())
+}
+
+// monthlyOccurrences returns every date, on openedDate's day-of-month,
+// starting from openedDate's own month and repeating monthly, that falls
+// within [from, to]. time.Date normalizes overflow days itself (e.g. an
+// opened-date of Jan 31 rolls a 30-day February's occurrence to Mar 2/3),
+// matching Go's standard date-arithmetic behavior rather than clamping —
+// an acceptable approximation for a reminder, not a billing statement.
+func monthlyOccurrences(openedDate, from, to time.Time) []time.Time {
+	var out []time.Time
+	if openedDate.IsZero() || to.Before(openedDate) {
+		return out
+	}
+	day := openedDate.Day()
+	// Start at the first monthly anniversary on/after `from` (but never
+	// before openedDate itself).
+	year, month := from.Year(), from.Month()
+	if from.Before(openedDate) {
+		year, month = openedDate.Year(), openedDate.Month()
+	}
+	cursor := time.Date(year, month, day, 0, 0, 0, 0, openedDate.Location())
+	if cursor.Before(openedDate) {
+		cursor = cursor.AddDate(0, 1, 0)
+	}
+	for !cursor.After(to) {
+		if !cursor.Before(from) {
+			out = append(out, cursor)
+		}
+		cursor = cursor.AddDate(0, 1, 0)
+	}
+	return out
+}

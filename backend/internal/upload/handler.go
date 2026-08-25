@@ -1,0 +1,108 @@
+// Package upload implements a small, shared file-upload endpoint used by
+// Customer's photo/KYC-document fields and (going forward) the ornament
+// photo fix in NewLoan.tsx. Files are written to local disk under
+// platform.Config.UploadsDir and served back via a static route registered
+// in main.go — see architecture.md's File Uploads note. This is deliberately
+// storage-only (no model/service/repository): swapping to real object
+// storage (S3/GCS) later only means changing this one file.
+package upload
+
+import (
+	"crypto/rand"
+	"encoding/hex"
+	"fmt"
+	"net/http"
+	"os"
+	"path/filepath"
+	"regexp"
+	"strings"
+
+	"github.com/gin-gonic/gin"
+
+	"ambikagold/backend/internal/platform/httpx"
+)
+
+// Handler saves uploaded files under Dir and reports back a URL path
+// (relative to the server root) they can be fetched from again.
+type Handler struct {
+	Dir string
+}
+
+func NewHandler(dir string) *Handler {
+	return &Handler{Dir: dir}
+}
+
+var unsafeNameChars = regexp.MustCompile(`[^A-Za-z0-9._-]+`)
+
+func randomID() (string, error) {
+	b := make([]byte, 8)
+	if _, err := rand.Read(b); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(b), nil
+}
+
+// Upload accepts one multipart file under the "file" field and returns
+// {"url": "/uploads/<id>-<sanitized-filename>"}.
+func (h *Handler) Upload(c *gin.Context) {
+	fileHeader, err := c.FormFile("file")
+	if err != nil {
+		httpx.Fail(c, http.StatusBadRequest, "no file provided (expected multipart field \"file\")")
+		return
+	}
+
+	id, err := randomID()
+	if err != nil {
+		httpx.FailErr(c, err)
+		return
+	}
+
+	safeName := unsafeNameChars.ReplaceAllString(filepath.Base(fileHeader.Filename), "_")
+	if safeName == "" || safeName == "." {
+		safeName = "file"
+	}
+	filename := fmt.Sprintf("%s-%s", id, safeName)
+
+	if err := os.MkdirAll(h.Dir, 0o755); err != nil {
+		httpx.FailErr(c, err)
+		return
+	}
+
+	dest := filepath.Join(h.Dir, filename)
+	if err := c.SaveUploadedFile(fileHeader, dest); err != nil {
+		httpx.FailErr(c, err)
+		return
+	}
+
+	httpx.Success(c, http.StatusCreated, gin.H{"url": "/uploads/" + strings.TrimPrefix(filename, "/")})
+}
+
+// SaveBytes writes data to dir under a random-id-prefixed, sanitized name
+// (same naming convention Upload uses) and returns its "/uploads/..."-style
+// URL. Unlike Upload, this isn't a gin.HandlerFunc — it's a plain function
+// other services (e.g. internal/loan's indemnity-bond eSign flow) call
+// directly to store a file they generated or fetched server-side, without
+// going through an HTTP multipart request.
+func SaveBytes(dir, name string, data []byte) (string, error) {
+	id, err := randomID()
+	if err != nil {
+		return "", fmt.Errorf("failed to generate file id: %w", err)
+	}
+
+	safeName := unsafeNameChars.ReplaceAllString(filepath.Base(name), "_")
+	if safeName == "" || safeName == "." {
+		safeName = "file"
+	}
+	filename := fmt.Sprintf("%s-%s", id, safeName)
+
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return "", fmt.Errorf("failed to prepare uploads directory: %w", err)
+	}
+
+	dest := filepath.Join(dir, filename)
+	if err := os.WriteFile(dest, data, 0o644); err != nil {
+		return "", fmt.Errorf("failed to save file: %w", err)
+	}
+
+	return "/uploads/" + strings.TrimPrefix(filename, "/"), nil
+}

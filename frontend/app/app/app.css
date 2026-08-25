@@ -1,0 +1,743 @@
+/* Ported verbatim from legacy/app.css — Ambika Gold Finance Admin UI.
+   Do not rename classes or alter existing values/breakpoints; only the
+   additive small-phone/orientation block at the bottom is new. */
+:root{
+  --gold-deep:#9a6f0f;
+  --gold:#c9971c;
+  --gold-mid:#d4af37;
+  --gold-light:#eccd6f;
+  --gold-pale:#f7e9c4;
+  --charcoal:#231f18;
+  --charcoal-2:#2e2921;
+  --ink:#3a3325;
+  --muted:#8a7d5a;
+  --ivory:#faf6ec;
+  --card:#fffdf7;
+  --line:#e8dcba;
+  --green:#4d7c2a;
+  --green-bg:#eef4e2;
+  --red:#a3372a;
+  --red-bg:#fbeae6;
+  --amber:#a06d08;
+  --amber-bg:#faf0d4;
+  --blue:#3b5f7a;
+  --blue-bg:#e8f0f6;
+  --sidebar-w:248px;
+}
+/* No scrollbar-gutter here: .shell is height:100vh/overflow:hidden, so the
+ * document itself never scrolls and a reserved gutter would just be a dead
+ * strip of empty space down the right-hand edge. */
+html{scroll-behavior:smooth}
+body{
+  font-family:'Jost',sans-serif;color:var(--ink);background:var(--ivory);
+  min-height:100vh;
+}
+body::before{
+  content:"";position:fixed;inset:0;z-index:0;
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120' viewBox='0 0 120 120'%3E%3Cg fill='none' stroke='%23c9971c' stroke-width='0.6' opacity='0.06'%3E%3Cpath d='M60 8 L112 60 L60 112 L8 60 Z'/%3E%3Ccircle cx='60' cy='60' r='14'/%3E%3C/g%3E%3C/svg%3E");
+  pointer-events:none;
+}
+a{color:var(--gold-deep)}
+h1,h2,h3,.serif{font-family:'Bodoni Moda',serif;font-optical-sizing:auto}
+
+/* ── layout ─────────────────────────────── */
+/* Clamped to exactly the viewport with overflow hidden so the document
+ * itself can never scroll — no browser-window scrollbar in either
+ * direction. All scrolling that IS needed happens inside .page (below). */
+.shell{display:flex;height:100vh;overflow:hidden;position:relative;z-index:1}
+.side{
+  width:var(--sidebar-w);flex-shrink:0;
+  background:linear-gradient(180deg,#262118 0%,#1d1913 100%);
+  color:#cfc4a4;display:flex;flex-direction:column;
+  position:fixed;top:0;bottom:0;left:0;z-index:40;
+  border-right:1px solid rgba(201,151,28,.28);
+}
+.side .brand{
+  display:flex;align-items:center;gap:12px;padding:18px 18px 16px;
+  border-bottom:1px solid rgba(201,151,28,.22);
+}
+.side .brand img{
+  width:46px;height:46px;border-radius:50%;object-fit:cover;
+  box-shadow:0 0 0 2px rgba(201,151,28,.55);
+}
+.side .brand .t{line-height:1.15}
+.side .brand .t b{
+  font-family:'Bodoni Moda',serif;font-size:19px;letter-spacing:.08em;
+  display:block;color:#f0dc9d;font-weight:600;
+}
+.side .brand .t span{font-size:9.5px;letter-spacing:.32em;text-transform:uppercase;color:#9d9070}
+.nav{flex:1;overflow-y:auto;padding:12px 0 16px}
+.nav::-webkit-scrollbar{width:5px}
+.nav::-webkit-scrollbar-thumb{background:rgba(201,151,28,.3);border-radius:3px}
+.nav .grp{
+  font-size:9.5px;letter-spacing:.3em;text-transform:uppercase;color:#7d7156;
+  padding:16px 20px 7px;
+}
+.nav a{
+  display:flex;align-items:center;gap:11px;
+  padding:9px 18px;margin:1px 10px;border-radius:6px;
+  color:#cfc4a4;text-decoration:none;font-size:14px;letter-spacing:.02em;
+  border:1px solid transparent;transition:background .15s,color .15s;
+}
+.nav a svg{width:17px;height:17px;flex-shrink:0;opacity:.8}
+.nav a:hover{background:rgba(201,151,28,.1);color:#f0dc9d}
+.nav a.on{
+  background:linear-gradient(90deg,rgba(201,151,28,.22),rgba(201,151,28,.08));
+  border-color:rgba(201,151,28,.35);color:#f5e3a4;
+}
+.nav a.on svg{opacity:1}
+.nav a .pill{
+  margin-left:auto;font-size:10.5px;background:rgba(201,151,28,.25);color:#f0dc9d;
+  border-radius:9px;padding:1px 7px;
+}
+.side .sfoot{
+  padding:14px 18px;border-top:1px solid rgba(201,151,28,.22);
+  font-size:11px;color:#8d8163;letter-spacing:.06em;
+}
+.side .sfoot a{color:#cbb670;text-decoration:none}
+
+/* .main is a fixed-height (exactly viewport-tall) flex column: .top sits at
+ * its natural height (flex-shrink:0) and .page takes whatever's left
+ * (flex:1) and is the ONLY thing that scrolls on any page — instead of the
+ * whole document growing past the viewport and scrolling itself, which is
+ * what happened before this (that also made the previous .tbl-scroll
+ * max-height:calc(100vh - Npx) approach unreliable: N had to match each
+ * page's own header height exactly, and pages with taller headers — Gold
+ * Rates' extra rate cards, Cash's KPI row — didn't fit the one guessed
+ * number, so the document overflowed anyway). Sidebar/topbar now never move
+ * regardless of how tall a given page's content is. */
+.main{
+  width:calc(100% - var(--sidebar-w));margin-left:var(--sidebar-w);min-width:0;
+  display:flex;flex-direction:column;height:100%;
+}
+
+/* topbar */
+.top{
+  flex-shrink:0;
+  display:flex;align-items:center;gap:16px;
+  padding:13px 26px;background:rgba(250,246,236,.92);backdrop-filter:blur(6px);
+  border-bottom:1px solid var(--line);
+}
+.top .crumb{font-size:13px;color:var(--muted);letter-spacing:.04em}
+.top .crumb b{color:var(--ink);font-weight:500}
+
+/* global search (header, centered) */
+.gsearch{
+  position:relative;flex:1;max-width:440px;margin:0 auto;min-width:170px;
+}
+.gsearch>svg{
+  position:absolute;left:12px;top:50%;transform:translateY(-50%);
+  width:15px;height:15px;color:var(--muted);pointer-events:none;
+}
+.gsearch input{
+  width:100%;font:inherit;font-size:13.5px;color:var(--charcoal);
+  background:#fff;border:1px solid var(--line);border-radius:20px;
+  padding:8px 38px 8px 34px;outline:0;
+  transition:border-color .2s, box-shadow .2s;
+}
+.gsearch input:focus{border-color:var(--gold);box-shadow:0 0 0 3px rgba(201,151,28,.15)}
+.gsearch kbd{
+  position:absolute;right:11px;top:50%;transform:translateY(-50%);
+  font-family:inherit;font-size:10.5px;color:var(--muted);
+  border:1px solid var(--line);border-radius:4px;padding:1px 6px;background:#fbf6e9;
+  pointer-events:none;
+}
+.gs-results{
+  /* left:0;right:0 sizes this to the positioned parent's width — without
+   * border-box, this rule's own padding+border were then added ON TOP of
+   * that width (content-box default), rendering the panel a few px wider
+   * than its input on each side and poking past a modal's own padding
+   * (reported as the dropdown "cutting into" the modal edge). */
+  display:none;position:absolute;top:calc(100% + 8px);left:0;right:0;box-sizing:border-box;
+  background:var(--card);border:1px solid var(--line);border-radius:10px;
+  box-shadow:0 24px 60px -18px rgba(60,45,10,.4);
+  max-height:420px;overflow-y:auto;z-index:60;padding:6px;
+}
+.gs-results.open{display:block}
+.gs-results .gs-grp{
+  font-size:9.5px;letter-spacing:.24em;text-transform:uppercase;color:var(--muted);
+  padding:9px 12px 4px;
+}
+.gs-results a{
+  display:flex;align-items:center;gap:11px;
+  padding:8px 11px;border-radius:7px;text-decoration:none;color:var(--ink);
+}
+.gs-results a:hover,.gs-results a.sel{background:#f8efd6}
+.gs-results a.disabled{color:var(--muted);opacity:.5;cursor:not-allowed}
+.gs-results a.disabled:hover{background:transparent}
+.gs-results a .ic{
+  width:30px;height:30px;border-radius:7px;flex-shrink:0;
+  background:#f8eecb;color:var(--gold-deep);display:grid;place-content:center;
+}
+.gs-results a .ic svg{width:15px;height:15px}
+.gs-results a .tx{flex:1;min-width:0}
+.gs-results a .tx b{font-size:13.5px;color:var(--charcoal);font-weight:500;display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.gs-results a .tx small{font-size:11.5px;color:var(--muted);display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.gs-results a .chip{margin-left:auto}
+.gs-results .gs-none{padding:18px;text-align:center;color:var(--muted);font-size:13px}
+/* Thin, theme-tinted scrollbar instead of the browser's default fat gray
+ * bar — used by every popover list built on this panel (SearchableSelect,
+ * Select, GlobalSearch, DatePicker). */
+.gs-results{scrollbar-width:thin;scrollbar-color:var(--gold-light) transparent}
+.gs-results::-webkit-scrollbar{width:6px}
+.gs-results::-webkit-scrollbar-track{background:transparent}
+.gs-results::-webkit-scrollbar-thumb{background:var(--gold-light);border-radius:6px}
+.gs-results::-webkit-scrollbar-thumb:hover{background:var(--gold)}
+
+/* ── themed file input (components/ui/FileInput.tsx) ───────────────────── */
+.fi{position:relative;width:100%;box-sizing:border-box}
+/* The real input sits on top, fully transparent, so the label below still
+ * gets native click/keyboard/drag-drop behavior — only the OS chrome is
+ * hidden, not the control itself. */
+.fi-native{position:absolute;inset:0;opacity:0;cursor:pointer;z-index:1}
+.fi-native:disabled{cursor:not-allowed}
+.fi-trigger{display:flex;align-items:center;justify-content:space-between;gap:8px;cursor:pointer}
+.fi-trigger.fi-disabled{cursor:not-allowed;opacity:.6}
+/* flex:1 + min-width:0 is required for a flex child to actually shrink
+ * below its content width — without min-width:0 (a flex item's default is
+ * min-width:auto), the overflow rule below never engages and a long
+ * placeholder/filename instead overflows past the icon. No ellipsis: a
+ * plain <input>'s overflowing placeholder (e.g. the Aadhaar field) just
+ * gets hard-clipped at the box edge with no "…", so this matches that
+ * look instead of announcing the truncation. */
+.fi-name{flex:1;min-width:0;overflow:hidden;white-space:nowrap}
+.fi-ic{width:15px;height:15px;color:var(--gold-deep);flex-shrink:0}
+.fi-clear{
+  position:absolute;top:50%;right:34px;transform:translateY(-50%);z-index:2;
+  width:18px;height:18px;line-height:16px;text-align:center;border-radius:50%;
+  border:1px solid var(--line);background:var(--card);color:var(--muted);
+  font-size:14px;cursor:pointer;padding:0;
+}
+.fi-clear:hover{color:var(--red);border-color:var(--red)}
+
+/* ── themed date picker (components/DatePicker.tsx) ───────────────────── */
+.dp{position:relative}
+/* DatePicker (not Select, which shares the same .dp/.dp-trigger/.dp-panel
+ * classes) — every date field app-wide is a fixed 230px regardless of its
+ * grid cell's own width, per the house convention. */
+.dp.dp-date{width:230px;flex:0 0 230px}
+.dp-trigger{display:flex;align-items:center;justify-content:space-between;gap:8px;text-align:left;cursor:pointer}
+/* DatePicker's calendar icon (24x24 viewBox via lib/icons) — sized down to
+ * sit inline with the input text. */
+.dp-trigger .cal-ic{width:15px;height:15px;color:var(--gold-deep);flex-shrink:0}
+/* Select's own chevron (10x6 viewBox) needs its own, much smaller size —
+ * sharing `.dp-trigger svg` with the calendar icon above was stretching it
+ * up to 15x15 and made it look oversized/blurry. */
+.dp-trigger .sel-chevron{width:9px;height:9px;color:var(--gold-deep);flex-shrink:0}
+.dp-trigger:disabled{cursor:not-allowed;opacity:.6}
+.dp-panel{
+  /* Matches `.dp-trigger`'s own width (the `.dp` wrapper is a plain block
+   * div sized by its trigger button) instead of a fixed 264px, so a
+   * Select's popover is never wider than the field it opens from.
+   * min-width keeps the 7-column day grid from ever getting cramped on a
+   * narrower field. */
+  position:absolute;top:calc(100% + 6px);left:0;z-index:60;width:100%;min-width:230px;box-sizing:border-box;
+  background:var(--card);border:1px solid var(--line);border-radius:10px;
+  box-shadow:0 24px 60px -18px rgba(60,45,10,.4);padding:12px;
+}
+/* The days/years sub-views inside .dp-panel are both always mounted (see
+ * DatePicker.tsx) and switched with this instead of conditional rendering,
+ * so a mode-switch click never removes its own target node from the DOM. */
+.dp-hidden{display:none}
+.dp-hd{display:flex;align-items:center;justify-content:space-between;margin-bottom:8px}
+.dp-hd b{font-size:13px;color:var(--charcoal)}
+.dp-title{border:0;background:transparent;font-size:13px;font-weight:600;color:var(--charcoal);cursor:pointer;border-radius:6px;padding:2px 8px}
+.dp-title:hover{background:#fdf6e2;color:var(--gold-deep)}
+.dp-years{grid-template-columns:repeat(3,1fr);gap:6px}
+.dp-year{height:32px;border:1px solid transparent;background:transparent;border-radius:6px;font-size:12.5px;color:var(--ink);cursor:pointer}
+.dp-year:hover:not(:disabled){background:#f8efd6}
+.dp-year.today{border:1px solid var(--gold)}
+.dp-year.sel{background:var(--gold);color:#fff;font-weight:600}
+.dp-year:disabled{color:var(--muted);opacity:.4;cursor:not-allowed}
+.dp-nav{
+  width:26px;height:26px;border-radius:6px;border:1px solid var(--line);background:#fff;
+  color:var(--gold-deep);font-size:15px;line-height:1;cursor:pointer;display:grid;place-content:center;
+}
+.dp-nav:hover{background:#fdf6e2}
+.dp-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:2px;text-align:center}
+.dp-dow{margin-bottom:4px;font-size:10.5px;letter-spacing:.06em;color:var(--muted)}
+.dp-day{height:30px;border:0;background:transparent;border-radius:6px;font-size:12.5px;color:var(--ink);cursor:pointer}
+.dp-day:hover:not(:disabled){background:#f8efd6}
+.dp-day.today{border:1px solid var(--gold)}
+.dp-day.sel{background:var(--gold);color:#fff;font-weight:600}
+.dp-day:disabled{color:var(--muted);opacity:.4;cursor:not-allowed}
+.dp-ft{display:flex;justify-content:flex-end;margin-top:8px}
+
+.top .rate-chip{
+  margin-left:auto;display:flex;align-items:center;gap:9px;
+  background:linear-gradient(180deg,#fff9e8,#f7ecc9);
+  border:1px solid var(--line);border-radius:20px;padding:5px 14px 5px 9px;
+  font-size:12.5px;color:var(--ink);white-space:nowrap;
+}
+.top .rate-chip .dot{width:7px;height:7px;border-radius:50%;background:var(--green);box-shadow:0 0 0 3px rgba(77,124,42,.18)}
+.top .rate-chip b{color:var(--gold-deep)}
+.top .user{
+  display:flex;align-items:center;gap:9px;font-size:13px;
+}
+.top .user .av{
+  width:32px;height:32px;border-radius:50%;
+  background:linear-gradient(135deg,var(--gold-light),var(--gold-deep));
+  color:#2b2001;display:grid;place-content:center;font-weight:600;font-size:13px;
+  box-shadow:0 0 0 2px #fff,0 0 0 3px rgba(201,151,28,.4);
+}
+.top .user .nm{line-height:1.1}
+.top .user .nm small{display:block;color:var(--muted);font-size:10.5px;letter-spacing:.08em;text-transform:uppercase}
+.top .logout{color:var(--muted);text-decoration:none;font-size:12px;border:1px solid var(--line);padding:5px 12px;border-radius:6px;background:#fff}
+.top .logout:hover{color:var(--red);border-color:#e4c2ba}
+
+/* No max-width — the page stretches to the full available width (up to
+ * ~1980px screens) instead of capping at 1460px and leaving empty space
+ * on wide monitors, matching every table/card grid below to fill it. */
+.page{padding:24px 26px 24px 40px;flex:1;min-height:0;overflow-y:auto}
+.page-h{display:flex;align-items:flex-end;gap:14px;flex-wrap:wrap;margin-bottom:20px}
+.page-h h1{font-size:30px;font-weight:600;letter-spacing:.03em;color:var(--charcoal)}
+.page-h p{font-size:13.5px;color:var(--muted);margin-top:2px}
+.page-h .sp{flex:1}
+
+/* ── ornaments ──────────────────────────── */
+.gold-rule{
+  height:2px;margin:4px 0 18px;border:0;
+  background:linear-gradient(90deg,var(--gold-deep),var(--gold-light) 30%,transparent 75%);
+  opacity:.6;
+}
+
+/* ── cards / grid ───────────────────────── */
+.grid{display:grid;gap:16px}
+.grid.cols21{grid-template-columns:minmax(0,2fr) minmax(0,1fr);align-items:start}
+/* minmax(0,…) like .cols21 above — a bare `1fr` leaves grid items at
+ * min-width:auto, so the table column could not shrink below the table's
+ * own min-width:640px and pushed the page into horizontal overflow. */
+.grid.cols12{grid-template-columns:minmax(0,1fr) minmax(0,2fr);align-items:start}
+.card{
+  background:var(--card);border:1px solid var(--line);border-radius:8px;
+  box-shadow:0 1px 2px rgba(154,111,15,.06),0 14px 34px -22px rgba(120,86,20,.35);
+  position:relative;
+  /* Flex column so `.ft` always settles at the card's bottom edge — even
+   * when a CSS grid row stretches this card taller than its own content
+   * (e.g. Loan Schemes' card grid, where cards with less text would
+   * otherwise leave their footer floating mid-card instead of aligned
+   * with the row's tallest card's footer). No overflow/scroll is set on
+   * `.bd`, so content still grows the card naturally; this only fills
+   * the slack a stretched grid row adds. */
+  display:flex;flex-direction:column;
+}
+.card.gtop::before{
+  content:"";position:absolute;left:12px;right:12px;top:0;height:2px;
+  background:linear-gradient(90deg,transparent,var(--gold-mid),transparent);
+}
+.card .hd{
+  display:flex;align-items:center;gap:10px;
+  padding:14px 18px 12px;border-bottom:1px solid #f0e7cd;
+}
+.card .hd h3{font-size:19px;font-weight:600;letter-spacing:.03em;color:var(--charcoal)}
+.card .hd .sp{flex:1}
+.card .bd{padding:16px 18px;flex:1}
+.card .ft{padding:10px;border-top:1px solid #f0e7cd;font-size:12.5px;color:var(--muted)}
+
+/* KPI tiles */
+.kpis{display:grid;grid-template-columns:repeat(auto-fill,213px);gap:13px}
+.kpi{
+  width:213px;height:89px;box-sizing:border-box;
+  background:var(--card);border:1px solid var(--line);border-radius:8px;
+  padding:13px 15px;position:relative;overflow:hidden;
+}
+.kpi::after{
+  content:"";position:absolute;left:0;top:10px;bottom:10px;width:3px;border-radius:2px;
+  background:linear-gradient(180deg,var(--gold-light),var(--gold-deep));
+}
+.kpi .l{font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--muted)}
+.kpi .v{font-family:'Bodoni Moda',serif;font-size:21px;font-weight:700;color:var(--charcoal);margin-top:3px;line-height:1}
+.kpi .s{font-size:11.5px;margin-top:5px;color:var(--muted)}
+/* Cash.tsx's KPI row shows full rupee amounts ("₹1,23,456.00") rather than
+ * the short counts/rates the 27px default was sized for — at that size a
+ * real balance routinely presses against the 172px tile's edge. Scope the
+ * shrink to these tiles rather than the shared .kpi .v so every other
+ * (shorter-value) KPI row across the app keeps its current size. */
+.kpis-money .kpi .v{font-size:20px}
+.kpi .s.up{color:var(--green)}
+.kpi .s.dn{color:var(--red)}
+.kpi.warn::after{background:linear-gradient(180deg,#e2a34a,#a3372a)}
+.kpi.ok::after{background:linear-gradient(180deg,#9fc36a,#4d7c2a)}
+
+/* ── buttons / inputs ───────────────────── */
+.btn{
+  font-family:'Jost',sans-serif;font-size:12.5px;font-weight:600;
+  letter-spacing:.16em;text-transform:uppercase;
+  color:#2b2001;border:1px solid #a97f10;border-radius:5px;cursor:pointer;
+  background:linear-gradient(180deg,#f0d382 0%,var(--gold-mid) 45%,#bd8f16 100%);
+  padding:9px 18px;
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.5),0 6px 14px -7px rgba(154,111,15,.6);
+  transition:filter .15s,transform .12s;
+  display:inline-flex;align-items:center;gap:8px;text-decoration:none;
+}
+.btn svg{width:15px;height:15px}
+.eye-toggle svg{width:16px;height:16px}
+.btn:hover{filter:brightness(1.06);transform:translateY(-1px)}
+.btn.ghost{
+  background:#fff;color:var(--gold-deep);border-color:var(--gold);box-shadow:none;
+}
+.btn.ghost:hover{background:#fdf6e2}
+.btn.sm{padding:6px 12px;font-size:11px;letter-spacing:.12em}
+.btn.danger{background:#fff;color:var(--red);border-color:#d8a49a;box-shadow:none}
+.btn.danger:hover{background:#fbf0ee}
+.btn.plain{background:#fff;color:var(--ink);border-color:var(--line);box-shadow:none;font-weight:500;text-transform:none;letter-spacing:.02em;font-size:13px}
+
+.inp,select.inp,textarea.inp{
+  font:inherit;font-size:14px;color:var(--charcoal);
+  background:#fff;border:1px solid var(--line);border-radius:6px;
+  padding:9px 12px;outline:0;width:100%;
+  transition:border-color .2s, box-shadow .2s;
+}
+.inp:focus{border-color:var(--gold);box-shadow:0 0 0 3px rgba(201,151,28,.15)}
+/* PurityPicker's Karat/Fineness search field sits beside a stacked
+ * Karat/Fineness% toggle sized to match a Net Wt (g) input's height (see
+ * PurityPicker.tsx) — shrink its padding to fit the same height so the
+ * ornament row doesn't grow taller than the rest of its cells. */
+/* height:100% here doesn't actually resolve — SearchableSelect's own
+ * wrapper div has no explicit height (auto), and percentage heights are
+ * ignored against an auto-height containing block, so this silently fell
+ * back to the padding/font-driven ~34px instead of the toggle's 31px. An
+ * explicit px height is the only way to actually match it. */
+.purity-select .inp{padding:6px 8px;height:31px}
+/* NewLoan.tsx's ornament-type SearchableSelect (unlike the ones above the
+ * table for Customer/Scheme/Branch/Locker, left at the default height)
+ * sits in the same row as the 31px-tall Purity/Net Wt/Qty cells — shrink
+ * just this one to match so the row is an even height. Scoped to
+ * .orn-type-td so every other SearchableSelect keeps its normal size. */
+.orn-type-td .inp{padding:6px 8px;height:31px}
+/* Native <select> chrome (the dropdown arrow) is drawn by the OS/browser
+ * and never matched the gold/ivory theme — swap it for a themed chevron so
+ * every select.inp app-wide looks consistent with the rest of the form. */
+select.inp{
+  appearance:none;-webkit-appearance:none;-moz-appearance:none;
+  background-color:#fff;
+  background-image:url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="10" height="6" viewBox="0 0 10 6"><path d="M1 1l4 4 4-4" stroke="%239a6f0f" stroke-width="1.6" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>');
+  background-repeat:no-repeat;background-position:right 12px center;background-size:10px 6px;
+  padding-right:32px;cursor:pointer;
+}
+select.inp:disabled{background-color:#f7f3e6;cursor:not-allowed}
+label.f{display:block;font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--muted);margin:0 0 5px 1px}
+.frow{display:grid;gap:14px;margin-bottom:14px}
+.frow.c2{grid-template-columns:1fr 1fr}
+.frow.c3{grid-template-columns:1fr 1fr 1fr}
+.frow.c4{grid-template-columns:repeat(4,1fr)}
+
+/* ── tables ─────────────────────────────── */
+.tbl-wrap{overflow-x:auto}
+/* .page (see .main above) is now the single correctly-sized scroll
+ * container on every page, so tbl-scroll no longer needs its own guessed
+ * max-height — it only keeps the table header stuck in view while .page
+ * scrolls past a long table. */
+.tbl-scroll .tbl th{position:sticky;top:0;z-index:1}
+table.tbl{width:100%;border-collapse:collapse;font-size:13.5px;min-width:640px}
+.tbl th{
+  text-align:left;font-size:10.5px;letter-spacing:.16em;text-transform:uppercase;
+  color:var(--muted);font-weight:600;padding:10px 14px;
+  border-bottom:1px solid var(--line);background:#fbf6e9;white-space:nowrap;
+}
+.tbl td{padding:11px 14px;border-bottom:1px solid #f2ead2;vertical-align:middle}
+.tbl tr:last-child td{border-bottom:0}
+.tbl tbody tr{cursor:default;transition:background .12s}
+.tbl tbody tr:hover{background:#fdf8ea}
+.tbl tr.click{cursor:pointer}
+.tbl .num{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+/* Loans page only (.tbl.tbl-center) — center every column's content,
+ * including the numeric ones that .tbl .num otherwise right-aligns. */
+.tbl.tbl-center th,.tbl.tbl-center td{text-align:center}
+.tbl.tbl-center .num{text-align:center}
+.tbl.tbl-center.col1-left tr>th:first-child,.tbl.tbl-center.col1-left tr>td:first-child{text-align:left;padding-left:54px}
+.tbl .id{font-size:12.5px;color:var(--gold-deep);font-weight:600;letter-spacing:.03em;white-space:nowrap}
+.tbl .sub{display:block;font-size:11.5px;color:var(--muted)}
+
+/* chips */
+.chip{
+  display:inline-block;font-size:11px;font-weight:600;letter-spacing:.06em;
+  padding:3px 10px;border-radius:11px;white-space:nowrap;
+}
+.chip.green{background:var(--green-bg);color:var(--green)}
+.chip.red{background:var(--red-bg);color:var(--red)}
+.chip.amber{background:var(--amber-bg);color:var(--amber)}
+.chip.blue{background:var(--blue-bg);color:var(--blue)}
+.chip.gold{background:#f8eecb;color:var(--gold-deep)}
+.chip.gray{background:#efece2;color:#7b7359}
+
+/* tabs / filters */
+.tabs{display:flex;gap:6px;flex-wrap:wrap}
+.tabs button{
+  font:inherit;font-size:12.5px;padding:6px 14px;cursor:pointer;
+  border:1px solid var(--line);background:#fff;border-radius:16px;color:var(--muted);
+  transition:all .15s;
+}
+.tabs button:hover{border-color:var(--gold)}
+.tabs button.on{background:linear-gradient(180deg,#f6e5ae,#eccd6f);border-color:var(--gold);color:#4d3a05;font-weight:600}
+
+/* search */
+.search{position:relative;min-width:230px}
+.search input{padding-left:34px}
+.search svg{position:absolute;left:11px;top:50%;transform:translateY(-50%);width:15px;height:15px;color:var(--muted)}
+
+/* ── modal ──────────────────────────────── */
+.modal-bg{
+  position:fixed;inset:0;background:rgba(35,31,24,.55);backdrop-filter:blur(3px);
+  display:none;align-items:flex-start;justify-content:center;z-index:80;
+  padding:6vh 16px 16px;overflow-y:auto;
+}
+.modal-bg.open{display:flex}
+.modal{
+  background:var(--card);border-radius:10px;border:1px solid var(--line);
+  width:100%;max-width:520px;
+  box-shadow:0 30px 80px -20px rgba(30,24,10,.6);
+  position:relative;animation:pop .22s ease;
+}
+.modal.wide{max-width:760px}
+@keyframes pop{from{transform:translateY(14px);opacity:0}to{transform:none;opacity:1}}
+
+/* Slide-up transition between the tabbed sub-tables on customer detail
+   (Loan History / Ornaments / Payments / Bank Pledges / Auctions). */
+.tab-slide-up{animation:tabSlideUp .22s ease}
+@keyframes tabSlideUp{from{transform:translateY(10px);opacity:0}to{transform:none;opacity:1}}
+
+/* Draws attention to the "set today's gold rate" recovery banner (NewLoan.tsx)
+   when staff try to submit a loan without a published rate for today. */
+@keyframes shake{
+  10%,90%{transform:translateX(-1px)}
+  20%,80%{transform:translateX(2px)}
+  30%,50%,70%{transform:translateX(-4px)}
+  40%,60%{transform:translateX(4px)}
+}
+.shake-attention{animation:shake .5s cubic-bezier(.36,.07,.19,.97) both}
+.modal::before{
+  content:"";position:absolute;left:10px;right:10px;top:0;height:3px;border-radius:0 0 3px 3px;
+  background:linear-gradient(90deg,transparent,var(--gold-mid),transparent);
+}
+.modal .hd{display:flex;align-items:center;padding:18px 22px 12px;border-bottom:1px solid #f0e7cd}
+.modal .hd h3{font-size:22px;font-weight:600;color:var(--charcoal)}
+.modal .hd .x{
+  margin-left:auto;border:0;background:none;font-size:22px;cursor:pointer;color:var(--muted);line-height:1;
+}
+.modal .hd .x:hover{color:var(--red)}
+.modal .bd{padding:18px 22px}
+.modal .ft{padding:14px 22px;border-top:1px solid #f0e7cd;display:flex;gap:10px;justify-content:flex-end}
+
+/* ── misc widgets ───────────────────────── */
+.rates3{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}
+.rate-tile{
+  border:1px solid var(--line);border-radius:8px;padding:13px 14px;text-align:center;
+  background:linear-gradient(180deg,#fffdf5,#fbf3dd);
+}
+.rate-tile .k{font-size:11px;letter-spacing:.22em;color:var(--muted);text-transform:uppercase}
+.rate-tile .r{font-family:'Bodoni Moda',serif;font-size:26px;font-weight:700;color:var(--gold-deep);margin-top:4px}
+.rate-tile .u{font-size:11px;color:var(--muted)}
+
+.mini-list{list-style:none}
+.mini-list li{
+  display:flex;align-items:center;gap:11px;padding:10px 2px;
+  border-bottom:1px solid #f2ead2;font-size:13.5px;
+}
+.mini-list li:last-child{border-bottom:0}
+.mini-list .ic{
+  width:33px;height:33px;border-radius:8px;display:grid;place-content:center;flex-shrink:0;
+  background:#f8eecb;color:var(--gold-deep);
+}
+.mini-list .ic svg{width:16px;height:16px}
+.mini-list .tx{flex:1;min-width:0}
+.mini-list .tx b{font-weight:600;font-size:13.5px;color:var(--charcoal)}
+.mini-list .tx small{display:block;color:var(--muted);font-size:11.5px}
+.mini-list .rt{text-align:right;font-size:12px;color:var(--muted);white-space:nowrap}
+.mini-list .rt b{display:block;font-size:13px;color:var(--charcoal)}
+
+/* bar chart (pure css) */
+.bars{display:flex;align-items:flex-end;gap:10px;height:130px;padding-top:8px}
+.bars .b{flex:1;display:flex;flex-direction:column;align-items:center;gap:6px;height:100%;justify-content:flex-end}
+.bars .b i{
+  width:100%;max-width:38px;border-radius:4px 4px 0 0;
+  background:linear-gradient(180deg,var(--gold-light),var(--gold-deep));
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.4);
+}
+.bars .b span{font-size:10.5px;color:var(--muted);letter-spacing:.04em}
+.bars .b em{font-style:normal;font-size:10.5px;color:var(--gold-deep);font-weight:600}
+
+/* donut */
+.donut-wrap{display:flex;align-items:center;gap:18px}
+.donut{width:120px;height:120px;border-radius:50%;flex-shrink:0;position:relative}
+.donut::after{
+  content:"";position:absolute;inset:20px;border-radius:50%;background:var(--card);
+  box-shadow:inset 0 1px 4px rgba(120,86,20,.15);
+}
+.donut .c{position:absolute;inset:20px;display:grid;place-content:center;text-align:center;z-index:1}
+.donut .c b{font-family:'Bodoni Moda',serif;font-size:14px;color:var(--charcoal)}
+.donut .c small{font-size:8px;letter-spacing:.14em;color:var(--muted);text-transform:uppercase}
+.legend{list-style:none;font-size:11px;flex:1}
+.legend li{display:flex;align-items:center;gap:8px;padding:3px 0;color:var(--ink)}
+.legend i{width:10px;height:10px;border-radius:3px;flex-shrink:0}
+.legend b{margin-left:auto;font-variant-numeric:tabular-nums}
+
+/* calendar */
+.cal{width:100%;min-width:0;max-width:100%;border-collapse:collapse;table-layout:fixed}
+.cal th{font-size:10px;letter-spacing:.2em;color:var(--muted);padding:6px 4px;text-transform:uppercase}
+.cal td{
+  border:1px solid #f0e7cd;height:74px;vertical-align:top;padding:4px 6px;font-size:12px;
+}
+.cal td .d{font-size:11.5px;color:var(--muted)}
+.cal td.today{background:#fdf6dd;border-color:var(--gold-light)}
+.cal td.today .d{color:var(--gold-deep);font-weight:700}
+.cal .ev{
+  display:block;font-size:10.5px;border-radius:4px;padding:1px 5px;margin-top:3px;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+}
+.cal .ev.due{background:var(--amber-bg);color:var(--amber)}
+.cal .ev.over{background:var(--red-bg);color:var(--red)}
+.cal .ev.fup{background:var(--blue-bg);color:var(--blue)}
+.cal .ev.pay{background:var(--green-bg);color:var(--green)}
+
+/* timeline / tracker */
+.track{display:flex;gap:0;overflow-x:auto;padding:8px 0 4px}
+.track .st{flex:1;min-width:86px;text-align:center;position:relative;font-size:11px;color:var(--muted)}
+.track .st::before{
+  content:"";display:block;width:13px;height:13px;border-radius:50%;margin:0 auto 6px;
+  background:#e7dfc6;border:2px solid #d8cda6;position:relative;z-index:1;
+}
+.track .st::after{
+  content:"";position:absolute;top:6px;left:-50%;width:100%;height:2px;background:#e7dfc6;
+}
+.track .st:first-child::after{display:none}
+.track .st.done::before{background:var(--gold-mid);border-color:var(--gold-deep)}
+.track .st.done::after{background:var(--gold-mid)}
+.track .st.done{color:var(--gold-deep);font-weight:600}
+.track .st.on{color:var(--ink);font-weight:600}
+.track .st.on::before{border-color:var(--gold-deep)}
+
+/* detail head */
+.dhead{display:flex;gap:16px;align-items:center;flex-wrap:wrap}
+.dhead .big-av{
+  width:58px;height:58px;border-radius:50%;
+  background:linear-gradient(135deg,var(--gold-light),var(--gold-deep));
+  color:#2b2001;display:grid;place-content:center;font-weight:600;font-size:21px;
+  box-shadow:0 0 0 3px #fff,0 0 0 4px rgba(201,151,28,.4);flex-shrink:0;
+}
+.kv{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:12px 20px}
+.kv .i .k{font-size:10.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--muted)}
+.kv .i .v{font-size:14px;color:var(--charcoal);margin-top:2px;font-weight:500}
+/* Loan Schemes cards only — a long Method value ("Monthly simple
+ * interest") wraps to 2 lines while its neighbors stay 1 line, which
+ * shifts that one card's dashed divider (the `.cond` paragraph's
+ * border-top) down relative to the other cards in the same grid row.
+ * Reserve 2 lines' height on every value cell so the divider lands at
+ * the same offset in every card regardless of which values wrap. */
+.scheme-kv .i .v{min-height:36px;line-height:18px}
+
+.empty{padding:34px;text-align:center;color:var(--muted);font-size:13.5px}
+.notice{
+  background:#fdf6dd;border:1px solid var(--gold-light);border-radius:8px;
+  padding:10px 14px;font-size:12.5px;color:#6b5307;display:flex;gap:9px;align-items:center;
+}
+.notice svg{width:15px;height:15px;flex-shrink:0;color:var(--gold-deep)}
+
+/* toast */
+#toast{
+  position:fixed;bottom:22px;left:50%;transform:translateX(-50%) translateY(20px);
+  background:var(--charcoal);color:#f0dc9d;font-size:13.5px;letter-spacing:.03em;
+  padding:11px 22px;border-radius:8px;border:1px solid rgba(201,151,28,.5);
+  opacity:0;pointer-events:none;transition:all .3s;z-index:99;white-space:nowrap;
+  box-shadow:0 14px 40px -10px rgba(0,0,0,.5);
+}
+#toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+
+/* hamburger for mobile */
+.burger{display:none;border:1px solid var(--line);background:#fff;border-radius:6px;padding:6px 9px;cursor:pointer}
+.burger svg{width:18px;height:18px;display:block;color:var(--ink)}
+
+@media(max-width:1060px){
+  .frow.c4{grid-template-columns:1fr 1fr}
+  .grid.cols21,.grid.cols12{grid-template-columns:1fr}
+}
+@media(max-width:900px){
+  .side{transform:translateX(-100%);transition:transform .25s}
+  .side.open{transform:none;box-shadow:20px 0 60px rgba(0,0,0,.4)}
+  .main{margin-left:0;width:100%}
+  .burger{display:block}
+  .rates3{grid-template-columns:1fr}
+  .frow.c2,.frow.c3{grid-template-columns:1fr}
+  .top{padding:11px 14px;gap:10px}
+  .top .rate-chip{display:none}
+  .top .crumb{display:none}
+  .top .user .nm{display:none}
+  .gsearch kbd{display:none}
+  .gsearch input{padding-right:14px}
+  .gsearch{min-width:0}
+  .page-h h1{font-size:23px;font-weight:800;letter-spacing:.015em}
+  .card .hd h3{font-size:17.5px;font-weight:700}
+  .kpi .v{font-weight:800}
+  .page-h p{font-size:12.5px}
+  .modal .bd,.modal .hd,.modal .ft{padding-left:16px;padding-right:16px}
+  .kpis{grid-template-columns:1fr 1fr}
+  .donut-wrap{flex-direction:column;align-items:flex-start}
+  .page{padding:18px 14px 50px}
+}
+
+/* ── custom radio/checkbox (new) ──────────────────────────────────
+   Native <input type="radio"/checkbox"> render as the OS/browser's own
+   control (a plain blue dot on Windows Chrome, unstyleable) no matter what
+   CSS is applied to the input itself — same reason Select/DatePicker exist
+   as themed replacements for <select>/<input type="date">. Wrap the input
+   in a `.cradio`/`.ccheck` label with a `.mark` sibling span; the input is
+   visually hidden (not display:none, so it stays focusable/clickable and
+   keeps native keyboard behavior for a radio group) and the `.mark` is
+   drawn/recolored off its :checked state. */
+/* Roles & Permissions — a flat list of module sections (stacked full-width
+ * rows) instead of a multi-column card grid, per module. Each module's own
+ * permissions are still a list of individually-toggleable rows. */
+.perm-list{display:flex;flex-direction:column;border:1px solid var(--line);border-radius:8px;overflow:hidden}
+.perm-list-mod{border-bottom:1px solid var(--line)}
+.perm-list-mod:last-child{border-bottom:0}
+.perm-list-mod-name{
+  padding:10px 16px;font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;
+  color:var(--gold-deep);background:#fbf6e9;border-bottom:1px solid #f0e7cd;
+}
+.perm-list-rows{display:flex;flex-direction:column}
+.perm-list-row{padding:10px 16px!important;border-bottom:1px solid #f2ead2}
+.perm-list-row:last-child{border-bottom:0}
+.cradio,.ccheck{display:flex;gap:8px;align-items:flex-start;cursor:pointer;position:relative}
+.cradio input,.ccheck input{position:absolute;opacity:0;width:16px;height:16px;margin:0;cursor:pointer}
+.cradio .mark,.ccheck .mark{
+  flex:0 0 auto;width:16px;height:16px;margin-top:1px;
+  border:1.5px solid var(--line);background:var(--card);
+  transition:border-color .15s,background .15s;
+}
+.cradio .mark{border-radius:50%}
+.ccheck .mark{border-radius:4px;display:grid;place-content:center}
+.cradio input:checked + .mark{border-color:var(--gold-deep)}
+.cradio input:checked + .mark::after{
+  content:"";position:absolute;width:8px;height:8px;border-radius:50%;
+  background:var(--gold-deep);margin:4px 0 0 4px;
+}
+.ccheck input:checked + .mark{border-color:var(--gold-deep);background:var(--gold-deep)}
+.ccheck input:checked + .mark::after{content:"";width:9px;height:6px;border-left:2px solid #fff;border-bottom:2px solid #fff;transform:rotate(-45deg) translateY(-1px)}
+.cradio input:disabled + .mark,.ccheck input:disabled + .mark{opacity:.5;cursor:not-allowed}
+.cradio input:disabled,.ccheck input:disabled{cursor:not-allowed}
+.cradio input:focus-visible + .mark,.ccheck input:focus-visible + .mark{outline:2px solid var(--gold-deep);outline-offset:2px}
+
+/* ── additive small-phone / orientation rules (new requirement) ──
+   Only tightens things further below the existing 900px breakpoint and
+   handles short landscape phone heights; does not alter anything above
+   900px or the existing tablet layout. */
+@media (max-width: 480px) {
+  .page{padding:14px 10px 40px}
+  .page-h h1{font-size:20px}
+  .kpis{grid-template-columns:1fr}
+  .frow.c2,.frow.c3,.frow.c4{grid-template-columns:1fr}
+  .top{padding:9px 10px;gap:8px}
+  .gsearch{max-width:none}
+  .modal{max-width:100%;border-radius:8px}
+  .kv{grid-template-columns:1fr 1fr}
+  .dhead{gap:10px}
+  .dhead .big-av{width:46px;height:46px;font-size:17px}
+  .tabs button{padding:5px 11px;font-size:11.5px}
+}
+@media (max-height: 480px) and (orientation: landscape) {
+  .side{width:210px}
+  .main{margin-left:0;width:100%}
+  .top{padding:8px 12px}
+  .page{padding:12px 14px 30px}
+  .modal-bg{padding:3vh 12px 12px}
+}

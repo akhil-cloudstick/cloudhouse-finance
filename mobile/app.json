@@ -1,0 +1,66 @@
+{
+  "expo": {
+    "name": "ambikagold",
+    "slug": "ambikagold",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/ambika-gold.png",
+    "userInterfaceStyle": "light",
+    "ios": {
+      "supportsTablet": true
+    },
+    "android": {
+      "package": "com.ambikagold.app",
+      "adaptiveIcon": {
+        "backgroundColor": "#ffffff",
+        "foregroundImage": "./assets/ambika-gold-foreground.png",
+        "monochromeImage": "./assets/android-icon-monochrome.png"
+      },
+      "predictiveBackGestureEnabled": false
+    },
+    "web": {
+      "favicon": "./assets/favicon.png"
+    },
+    "scheme": "ambikagold",
+    "plugins": [
+      "expo-router",
+      "expo-secure-store",
+      "expo-font",
+      [
+        "expo-splash-screen",
+        {
+          "image": "./assets/ambika-gold.png",
+          "imageWidth": 220,
+          "resizeMode": "contain",
+          "backgroundColor": "#faf6ec"
+        }
+      ],
+      [
+        "expo-status-bar",
+        {
+          "style": "dark",
+          "backgroundColor": "#faf6ec"
+        }
+      ],
+      "expo-sharing",
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Ambika Gold Finance needs access to your photos to attach customer KYC documents.",
+          "cameraPermission": "Ambika Gold Finance needs the camera to photograph customer KYC documents."
+        }
+      ],
+      "expo-document-picker"
+    ],
+    "androidStatusBar": {
+      "backgroundColor": "#faf6ec",
+      "barStyle": "dark-content",
+      "translucent": false
+    },
+    "extra": {
+      "eas": {
+        "projectId": "2eefa477-9d29-496f-9e91-06261ed62690"
+      }
+    }
+  }
+}
