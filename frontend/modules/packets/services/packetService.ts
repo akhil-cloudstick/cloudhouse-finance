@@ -176,7 +176,7 @@ export async function listPackets(filters?: PacketFilters): Promise<PacketView[]
 }
 
 /* Page size for the Packets page's own table. */
-export const PACKETS_TABLE_PAGE_SIZE = 10;
+export const PACKETS_TABLE_PAGE_SIZE = 11;
 
 /* Paginated variant of listPackets for the Packets page table — same
  * {items, hasMore} envelope as loansApi.ts's listLoansPage, fetched fresh

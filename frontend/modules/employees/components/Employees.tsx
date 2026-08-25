@@ -66,7 +66,7 @@ export function Employees() {
           <button className="btn" onClick={() => openModal(<EmployeeModalContent onSaved={onSaved} />)}><Icon name="plus" /> Add Employee</button>
         )}
       </div>
-      <hr className="gold-rule" />
+      <hr className="gold-rule rule-lg" />
       {error && (
         <p style={{ color: "var(--red)", fontSize: 13.5 }}>
           Could not reach the server — {error}
@@ -84,7 +84,7 @@ export function Employees() {
       {employees !== null && employees.length > 0 && (
         <div className="card">
           <div className="tbl-wrap">
-            <table className="tbl tbl-center col1-left">
+            <table className="tbl tbl-center col1-left tbl-tight">
               <thead>
                 <tr><th>Employee</th><th>Role</th><th>Branch</th><th className="num">Loans Processed</th><th className="num">Collections</th><th className="num">Follow-ups</th><th className="num">Pending</th><th>Action</th></tr>
               </thead>
@@ -121,9 +121,9 @@ export function Employees() {
             </table>
           </div>
           <div className="ft" style={{ display: "flex", alignItems: "center", gap: 10 }}>
-            <button className="btn plain sm" style={{ padding: "4px 10px" }} disabled={page <= 1} onClick={() => setPage((p) => Math.max(1, p - 1))}>‹ Prev</button>
+            <button className="btn plain sm" disabled={page <= 1} onClick={() => setPage((p) => Math.max(1, p - 1))}>‹ Prev</button>
             <span style={{ fontSize: 12.5 }}>Page {page} of {totalPages}</span>
-            <button className="btn plain sm" style={{ padding: "4px 10px" }} disabled={page >= totalPages} onClick={() => setPage((p) => Math.min(totalPages, p + 1))}>Next ›</button>
+            <button className="btn plain sm" disabled={page >= totalPages} onClick={() => setPage((p) => Math.min(totalPages, p + 1))}>Next ›</button>
           </div>
         </div>
       )}

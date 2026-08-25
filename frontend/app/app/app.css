@@ -296,18 +296,45 @@ h1,h2,h3,.serif{font-family:'Bodoni Moda',serif;font-optical-sizing:auto}
 
 /* ── ornaments ──────────────────────────── */
 .gold-rule{
-  height:2px;margin:4px 0 18px;border:0;
+  height:2px;margin:4px 0 23px;border:0;
   background:linear-gradient(90deg,var(--gold-deep),var(--gold-light) 30%,transparent 75%);
   opacity:.6;
 }
+/* Per-page tweaks to the title-rule gap, for pages whose first element
+ * needs a little more or less air than the shared 23px. */
+.gold-rule.rule-lg{margin-bottom:26px}
+.gold-rule.rule-sm{margin-bottom:21px}
+.gold-rule.rule-xs{margin-bottom:20px}
 
 /* ── cards / grid ───────────────────────── */
-.grid{display:grid;gap:16px}
+.grid{display:grid;gap:15px}
 .grid.cols21{grid-template-columns:minmax(0,2fr) minmax(0,1fr);align-items:start}
 /* minmax(0,…) like .cols21 above — a bare `1fr` leaves grid items at
  * min-width:auto, so the table column could not shrink below the table's
  * own min-width:640px and pushed the page into horizontal overflow. */
 .grid.cols12{grid-template-columns:minmax(0,1fr) minmax(0,2fr);align-items:start}
+/* customer 360: the left card column keeps one width across every table tab
+ * (a 1fr column re-measures per tab and visibly jumps), and the table on the
+ * right wraps to fit its column rather than scrolling horizontally. */
+.grid.cols12.cust-360{grid-template-columns:430px minmax(0,1fr)}
+/* Roles & Permissions control rows: field + its buttons on one baseline. */
+.role-ctl{display:flex;gap:10px;align-items:flex-end;margin-bottom:12px}
+.role-ctl:last-of-type{margin-bottom:0}
+/* Icon rail that picks the 360 view's table (see CustomerDetail). */
+.tab-rail{position:relative;display:flex;flex-direction:column;justify-content:space-between;flex-shrink:0;width:34px}
+.tab-rail-line{position:absolute;left:50%;top:10px;bottom:10px;width:2px;background:var(--line);transform:translateX(-50%);z-index:0}
+.tab-rail-dot{position:relative;z-index:1;display:grid;place-items:center;width:34px;height:34px;border-radius:50%;padding:0;
+  border:1px solid var(--line);background:var(--card,#fffdf6);color:var(--muted);cursor:pointer;transition:background .15s,color .15s,border-color .15s}
+.tab-rail-dot svg{width:17px;height:17px}
+.tab-rail-dot:hover{border-color:var(--gold-mid);color:var(--gold-deep)}
+.tab-rail-dot.on{background:var(--gold-mid);border-color:var(--gold-mid);color:#fff}
+.cust-360 .tbl-wrap{overflow-x:hidden}
+.cust-360 .tbl{table-layout:fixed;width:100%}
+/* One height for every tab: a header row + the 9 rows a page holds
+ * (CUSTOMER_SUBTABLE_PAGE_SIZE). Tabs with fewer rows leave the rest blank
+ * instead of shrinking the card, so switching tabs doesn't resize it. */
+.cust-360 .tbl-wrap{height:445px;overflow-y:hidden}
+.cust-360 .tbl th,.cust-360 .tbl td{overflow-wrap:anywhere}
 .card{
   background:var(--card);border:1px solid var(--line);border-radius:8px;
   box-shadow:0 1px 2px rgba(154,111,15,.06),0 14px 34px -22px rgba(120,86,20,.35);
@@ -335,7 +362,7 @@ h1,h2,h3,.serif{font-family:'Bodoni Moda',serif;font-optical-sizing:auto}
 .card .ft{padding:10px;border-top:1px solid #f0e7cd;font-size:12.5px;color:var(--muted)}
 
 /* KPI tiles */
-.kpis{display:grid;grid-template-columns:repeat(auto-fill,213px);gap:13px}
+.kpis{display:grid;grid-template-columns:repeat(auto-fill,213px);gap:12px}
 .kpi{
   width:213px;height:89px;box-sizing:border-box;
   background:var(--card);border:1px solid var(--line);border-radius:8px;
@@ -417,13 +444,15 @@ select.inp{
 }
 select.inp:disabled{background-color:#f7f3e6;cursor:not-allowed}
 label.f{display:block;font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--muted);margin:0 0 5px 1px}
-.frow{display:grid;gap:14px;margin-bottom:14px}
+.frow{display:grid;gap:13px;margin-bottom:13px}
 .frow.c2{grid-template-columns:1fr 1fr}
 .frow.c3{grid-template-columns:1fr 1fr 1fr}
 .frow.c4{grid-template-columns:repeat(4,1fr)}
 
 /* ── tables ─────────────────────────────── */
-.tbl-wrap{overflow-x:auto}
+/* still scrollable by wheel/drag, just without a visible scrollbar */
+.tbl-wrap{overflow-x:auto;scrollbar-width:none;-ms-overflow-style:none}
+.tbl-wrap::-webkit-scrollbar{width:0;height:0;display:none}
 /* .page (see .main above) is now the single correctly-sized scroll
  * container on every page, so tbl-scroll no longer needs its own guessed
  * max-height — it only keeps the table header stuck in view while .page
@@ -437,6 +466,16 @@ table.tbl{width:100%;border-collapse:collapse;font-size:13.5px;min-width:640px}
 }
 .tbl td{padding:11px 14px;border-bottom:1px solid #f2ead2;vertical-align:middle}
 .tbl tr:last-child td{border-bottom:0}
+/* Equal breathing room on both edges of every table — without this the
+ * first and last columns inherit only the 14px cell padding and the two
+ * sides read as uneven against the card's own inset. */
+.tbl th:first-child,.tbl td:first-child{padding-left:18px}
+.tbl th:last-child,.tbl td:last-child{padding-right:18px}
+/* Row-density modifiers: .tbl-roomy for tables whose rows carry chips and
+ * two-line cells (Cash Movements / Expense Register), .tbl-tight for dense
+ * summary tables (Employees). */
+.tbl.tbl-roomy td{padding-top:12px;padding-bottom:12px}
+.tbl.tbl-tight td{padding-top:10px;padding-bottom:10px}
 .tbl tbody tr{cursor:default;transition:background .12s}
 .tbl tbody tr:hover{background:#fdf8ea}
 .tbl tr.click{cursor:pointer}
@@ -446,6 +485,11 @@ table.tbl{width:100%;border-collapse:collapse;font-size:13.5px;min-width:640px}
 .tbl.tbl-center th,.tbl.tbl-center td{text-align:center}
 .tbl.tbl-center .num{text-align:center}
 .tbl.tbl-center.col1-left tr>th:first-child,.tbl.tbl-center.col1-left tr>td:first-child{text-align:left;padding-left:54px}
+/* Scrolls, but paints no scrollbar track/thumb — for side panels where a
+ * visible bar would clutter the layout (Packets & Lockers' locker column).
+ * Wheel/trackpad/touch and keyboard scrolling all still work. */
+.scroll-hidden{overflow-y:auto;scrollbar-width:none;-ms-overflow-style:none}
+.scroll-hidden::-webkit-scrollbar{width:0;height:0;display:none}
 .tbl .id{font-size:12.5px;color:var(--gold-deep);font-weight:600;letter-spacing:.03em;white-space:nowrap}
 .tbl .sub{display:block;font-size:11.5px;color:var(--muted)}
 
@@ -649,7 +693,7 @@ table.tbl{width:100%;border-collapse:collapse;font-size:13.5px;min-width:640px}
 
 @media(max-width:1060px){
   .frow.c4{grid-template-columns:1fr 1fr}
-  .grid.cols21,.grid.cols12{grid-template-columns:1fr}
+  .grid.cols21,.grid.cols12,.grid.cols12.cust-360{grid-template-columns:1fr}
 }
 @media(max-width:900px){
   .side{transform:translateX(-100%);transition:transform .25s}

@@ -46,7 +46,6 @@ export function Requests() {
   }, [page, status]);
 
   useEffect(() => { refresh(); }, [refresh]);
-  useEffect(() => { setPage(1); }, [status]);
 
   function refreshAfterSave() {
     refresh();
@@ -64,7 +63,13 @@ export function Requests() {
       <div style={{ display: "flex", alignItems: "flex-end", justifyContent: "flex-end", gap: 12, flexWrap: "wrap", marginBottom: 16 }}>
         <div style={{ width: 180 }}>
           <label style={{ fontSize: 11.5, color: "var(--muted)", display: "block", marginBottom: 4 }}>Status</label>
-          <Select options={STATUS_OPTIONS} value={status} onChange={setStatus} />
+          {/* setPage here rather than in a status-keyed effect, so the two
+              state updates batch into one render and one request. */}
+          <Select
+            options={STATUS_OPTIONS}
+            value={status}
+            onChange={(v) => { setStatus(v); setPage(1); }}
+          />
         </div>
       </div>
       <div className="card">

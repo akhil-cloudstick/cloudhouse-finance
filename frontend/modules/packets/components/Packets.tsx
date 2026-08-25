@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useModal } from "@/common/components/Modal";
 import { Icon } from "@/common/components/Icon";
 import { fmtW } from "@/common/utils/format";
@@ -8,7 +8,19 @@ import { StatusChip } from "@/common/components/ui/StatusChip";
 import { LockerModalContent } from "@/common/components/modals/LockerModal";
 import { listLockers, type LockerView } from "@/modules/lockers/services/lockerService";
 import { listPacketsPage, getPacketByCode, type PacketView } from "@/modules/packets/services/packetService";
+import { Select } from "@/common/components/ui/Select";
 import { ApiError } from "@/common/services/httpClient";
+
+/* Mirrors packet.Status* in backend/internal/packet/model.go. */
+const PACKET_STATUS_OPTIONS = [
+  { value: "", label: "All" },
+  { value: "Packet Generated", label: "Packet Generated" },
+  { value: "Locker Stored", label: "Locker Stored" },
+  { value: "Bank Pledged", label: "Bank Pledged" },
+  { value: "Ready For Release", label: "Ready For Release" },
+  { value: "Released", label: "Released" },
+  { value: "Returned", label: "Returned" },
+];
 
 function LockerCard({ l, packets, onChanged }: { l: LockerView; packets: PacketView[]; onChanged: () => void }) {
   const { openModal } = useModal();
@@ -57,20 +69,33 @@ export function Packets() {
   const [lookupErr, setLookupErr] = useState("");
   const [page, setPage] = useState(1);
   const [hasMore, setHasMore] = useState(false);
+  const [status, setStatus] = useState("");
+
+  /* Guards against an out-of-order response winning: switching status
+   * quickly can leave an earlier, slower request in flight, and without
+   * this its rows would overwrite the newer filter's. Only the newest
+   * request may write. Same pattern as Cash.tsx's summarySeq. */
+  const loadSeq = useRef(0);
 
   async function load() {
+    const seq = ++loadSeq.current;
     try {
-      const [p, l] = await Promise.all([listPacketsPage(page), listLockers()]);
+      const [p, l] = await Promise.all([
+        listPacketsPage(page, { status: status || undefined }),
+        listLockers(),
+      ]);
+      if (seq !== loadSeq.current) return;
       setPackets(p.items);
       setHasMore(p.hasMore);
       setLockers(l);
       setError("");
     } catch (e) {
+      if (seq !== loadSeq.current) return;
       setError(e instanceof Error ? e.message : "Failed to load packets.");
     }
   }
 
-  useEffect(() => { load(); }, [page]);
+  useEffect(() => { load(); }, [page, status]);
 
   async function onLookup(e: React.KeyboardEvent<HTMLInputElement>) {
     if (e.key !== "Enter") return;
@@ -101,13 +126,27 @@ export function Packets() {
       </div>
       {lookupErr && <p style={{ color: "var(--red)", fontSize: 12.5, marginTop: -4, marginBottom: 8 }}>{lookupErr}</p>}
       <hr className="gold-rule" />
+      <div style={{ display: "flex", alignItems: "flex-end", justifyContent: "flex-end", gap: 12, flexWrap: "wrap", marginBottom: 16 }}>
+        <div style={{ width: 200 }}>
+          <label style={{ fontSize: 11.5, color: "var(--muted)", display: "block", marginBottom: 4 }}>Status</label>
+          {/* setPage in the same handler (not a separate effect keyed on
+              status) so React batches both into one render — a status change
+              therefore issues exactly one request, not one for the old page
+              followed by another for page 1. */}
+          <Select
+            options={PACKET_STATUS_OPTIONS}
+            value={status}
+            onChange={(v) => { setStatus(v); setPage(1); }}
+          />
+        </div>
+      </div>
       {error && (
         <p style={{ color: "var(--red)", fontSize: 13.5 }}>
           Could not reach the server — {error}
           <button className="btn plain sm" style={{ marginLeft: 8 }} onClick={load}>Retry</button>
         </p>
       )}
-      <div className="grid cols21">
+      <div className="grid cols21" style={{ alignItems: "stretch" }}>
         <div className="card">
           <div className="hd"><h3>Packets</h3></div>
           <div className="tbl-wrap">
@@ -150,8 +189,15 @@ export function Packets() {
             );
           })()}
         </div>
-        <div className="grid">
-          {lockers.map((l) => <LockerCard key={l.id} l={l} packets={packets || []} onChanged={load} />)}
+        {/* The locker column takes its height from the packets card beside it:
+            the row stretches both columns to the same height, and this wrapper
+            holds that height while the absolutely-positioned list inside
+            scrolls on its own. scroll-hidden keeps that scrollbar invisible, so
+            neither this column nor the page grows past the packets card. */}
+        <div style={{ minHeight: 0, height: "100%", position: "relative" }}>
+          <div className="grid scroll-hidden" style={{ position: "absolute", inset: 0, alignContent: "start" }}>
+            {lockers.map((l) => <LockerCard key={l.id} l={l} packets={packets || []} onChanged={load} />)}
+          </div>
         </div>
       </div>
     </>

@@ -10,7 +10,9 @@ import { ApiError } from "@/common/services/httpClient";
 import { listActiveBranches, type BranchView } from "@/modules/branches/services/branchService";
 import { exportReport, type ReportFilters, type ReportKey, type ReportResult } from "@/modules/reports/services/reportsService";
 
-const PAGE_SIZE = 10;
+/* 9 rows per page on every report — this is the `page_size` sent to the
+ * report endpoint too, so the table shows exactly what was fetched. */
+const PAGE_SIZE = 9;
 
 export type ReportColumn<Row> = {
   key: string;

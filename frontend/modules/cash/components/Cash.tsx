@@ -256,9 +256,9 @@ export function Cash() {
         <button className="btn ghost" onClick={() => openModal(<AddCashModalContent onSaved={refresh} />)}><Icon name="coin" /> Add Cash</button>
         <button className="btn" onClick={() => openModal(<ExpenseModalContent onSaved={refresh} />)}><Icon name="plus" /> Record Expense</button>
       </div>
-      <hr className="gold-rule" />
+      <hr className="gold-rule rule-sm" />
 
-      <div className="card" style={{ marginBottom: 26 }}>
+      <div className="card" style={{ marginBottom: 24 }}>
         <div className="hd">
           <h3>Opening Cash Balance — Today</h3>
           <div className="sp" />
@@ -294,7 +294,7 @@ export function Cash() {
         </div>
       </div>
 
-      <div style={{ display: "flex", alignItems: "flex-start", gap: 16, marginBottom: 26 }}>
+      <div style={{ display: "flex", alignItems: "flex-start", gap: 15, marginBottom: 24 }}>
         <div className="kpis kpis-money" style={{ flex: 1, marginBottom: 0 }}>
           <Kpi l="Opening Cash (today)" v={fmt(summary?.openingCash || 0)} />
           {/* Backend's `collections` is every cash-in movement for the day —
@@ -330,17 +330,15 @@ export function Cash() {
           <Kpi l="Expected Cash in Hand" v={fmt(summary?.expectedCash || 0)} s="auto-calculated" cls="ok" />
         </div>
 
-        <div style={{ display: "flex", flexDirection: "row", gap: 8, flexShrink: 0, alignSelf: "flex-end" }}>
+        <div className="tabs" style={{ flexShrink: 0, alignSelf: "flex-end", marginBottom: 0 }}>
           <button
-            type="button"
-            className={`btn sm ${activeCashTab === "movements" ? "" : "ghost"}`}
+            className={activeCashTab === "movements" ? "on" : ""}
             onClick={() => setActiveCashTab("movements")}
           >
             Cash Movements
           </button>
           <button
-            type="button"
-            className={`btn sm ${activeCashTab === "expenses" ? "" : "ghost"}`}
+            className={activeCashTab === "expenses" ? "on" : ""}
             onClick={() => setActiveCashTab("expenses")}
           >
             Expense Register
@@ -354,7 +352,7 @@ export function Cash() {
             <span style={{ fontSize: 12.5, color: "var(--muted)" }}>In {fmt(cashIn)} · Out {fmt(cashOut)}</span>
           </div>
           <div className="tbl-wrap tbl-scroll">
-            <table className="tbl tbl-center">
+            <table className="tbl tbl-center tbl-roomy">
               <thead><tr><th>Date</th><th>Type</th><th>Source / Purpose</th><th>Bank</th><th className="num">Amount</th><th>Loan Status</th></tr></thead>
               <tbody>
                 {movements.length
@@ -375,7 +373,7 @@ export function Cash() {
         <div className="card">
           <div className="hd"><h3>Expense Register</h3><div className="sp" /><span style={{ fontSize: 12.5, color: "var(--muted)" }}>Total {fmt(total)}</span></div>
           <div className="tbl-wrap tbl-scroll">
-            <table className="tbl tbl-center">
+            <table className="tbl tbl-center tbl-roomy">
               <thead><tr><th>Date</th><th>Category</th><th className="num">Amount</th><th>Mode</th><th>Description / Payee</th><th>Branch</th><th>Status</th><th style={{ textAlign: "center" }}>Receipt</th><th>Actions</th></tr></thead>
               <tbody>
                 {expenses.length

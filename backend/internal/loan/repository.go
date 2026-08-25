@@ -110,7 +110,10 @@ func startOfDay(t time.Time) time.Time {
 }
 
 func (r *Repository) FindAll(f LoanFilter) ([]Loan, error) {
-	q := preloadAll(r.db).Model(&Loan{}).Order("id desc")
+	// Most recently opened loan first. Ordering by id alone pinned whichever
+	// loan was inserted last to the top even when an older-dated loan was
+	// entered afterwards; id only breaks ties within the same day now.
+	q := preloadAll(r.db).Model(&Loan{}).Order("opened_date desc, id desc")
 	if len(f.StatusIn) > 0 {
 		q = q.Where("status IN ?", f.StatusIn)
 	} else if f.Status != "" {
@@ -235,7 +238,9 @@ func (r *OrnamentRepository) FindByCustomerID(customerID uint, from, to *time.Ti
 	if to != nil {
 		q = q.Where("loans.opened_date < ?", startOfDay(*to).AddDate(0, 0, 1))
 	}
-	q = q.Order("loans.id desc, ornaments.id asc")
+	// Same ordering as FindAll — most recently opened loan first, id only as
+	// a same-day tie-break — so both 360 sub-tables agree on "newest".
+	q = q.Order("loans.opened_date desc, loans.id desc, ornaments.id asc")
 	if limit > 0 {
 		q = q.Limit(limit).Offset(offset)
 	}

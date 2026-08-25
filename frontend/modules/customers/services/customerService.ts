@@ -328,7 +328,9 @@ export async function getCustomer360(
  * GET /customers/:id/{loans,ornaments,payments,bank-pledges,
  * auction-history} endpoint (backend/internal/loan/handler.go). `range`
  * mirrors getCustomer360's from/to opened-date window. */
-export const CUSTOMER_SUBTABLE_PAGE_SIZE = 10;
+/* 9 rows — the height the 360 view's table card is sized for, so a full
+ * page fills it exactly without the card growing. */
+export const CUSTOMER_SUBTABLE_PAGE_SIZE = 9;
 
 function subTableParams(page: number, range?: { from?: string; to?: string }): URLSearchParams {
   const params = new URLSearchParams({
