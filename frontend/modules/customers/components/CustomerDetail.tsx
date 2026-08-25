@@ -19,6 +19,7 @@ import {
   listCustomerPaymentsPage,
   listCustomerBankPledgesPage,
   listCustomerAuctionHistoryPage,
+  CUSTOMER_SUBTABLE_PAGE_SIZE,
   type Customer360View,
 } from "@/modules/customers/services/customerService";
 import type {
@@ -83,11 +84,25 @@ function useSubTablePage<T>(
 
 function Pager({ page, totalPages, onChange }: { page: number; totalPages: number; onChange: (p: number) => void }) {
   return (
-    <div className="ft" style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px" }}>
-      <button className="btn plain sm" style={{ padding: "4px 10px" }} disabled={page <= 1} onClick={() => onChange(Math.max(1, page - 1))}>‹ Prev</button>
-      <span style={{ fontSize: 12.5 }}>Page {page} of {totalPages}</span>
-      <button className="btn plain sm" style={{ padding: "4px 10px" }} disabled={page >= totalPages} onClick={() => onChange(Math.min(totalPages, page + 1))}>Next ›</button>
+    <div className="ft" style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 14px" }}>
+      <button className="btn plain" style={{ padding: "9px 18px", fontSize: 13 }} disabled={page <= 1} onClick={() => onChange(Math.max(1, page - 1))}>‹ Prev</button>
+      <span style={{ fontSize: 13 }}>Page {page} of {totalPages}</span>
+      <button className="btn plain" style={{ padding: "9px 18px", fontSize: 13 }} disabled={page >= totalPages} onClick={() => onChange(Math.min(totalPages, page + 1))}>Next ›</button>
     </div>
+  );
+}
+
+/* Pads a short (or empty) page out to CUSTOMER_SUBTABLE_PAGE_SIZE rows so the
+ * card keeps one height across tabs and pages instead of collapsing to fit
+ * whatever content the current page happens to have. */
+function Filler({ count, cols }: { count: number; cols: number }) {
+  if (count <= 0) return null;
+  return (
+    <>
+      {Array.from({ length: count }, (_, i) => (
+        <tr className="filler" key={`filler-${i}`}><td colSpan={cols}>&nbsp;</td></tr>
+      ))}
+    </>
   );
 }
 
@@ -411,8 +426,9 @@ export function CustomerDetail({ id }: { id?: string }) {
                 <thead><tr><th>Loan</th><th>Scheme</th><th>Opened / Due</th><th className="num">Principal</th><th className="num">Outstanding</th><th>Pledge</th><th>Status</th></tr></thead>
                 <tbody>
                   {loanPager.items.length === 0 ? (
-                    <tr><td colSpan={7} className="empty">No loans yet.</td></tr>
+                    <tr><td colSpan={7} className="empty compact">No loans yet.</td></tr>
                   ) : loanPager.items.map((l) => <LoanRow loan={l} key={l.id} />)}
+                  <Filler count={CUSTOMER_SUBTABLE_PAGE_SIZE - Math.max(loanPager.items.length, 1)} cols={7} />
                 </tbody>
               </table></div>
               <Pager page={loanPager.page} totalPages={loanPager.totalPages} onChange={loanPager.setPage} />
@@ -425,7 +441,7 @@ export function CustomerDetail({ id }: { id?: string }) {
                 <thead><tr><th>Loan</th><th>Ornament</th><th>Purity</th><th className="num">Net (g)</th><th className="num">Gold Value</th></tr></thead>
                 <tbody>
                   {ornamentPager.items.length === 0 ? (
-                    <tr><td colSpan={5} className="empty">No pledged ornaments yet.</td></tr>
+                    <tr><td colSpan={5} className="empty compact">No pledged ornaments yet.</td></tr>
                   ) : ornamentPager.items.map((o) => (
                     <tr key={o.loanId + "-" + o.id}>
                       <td><a href={`#loan/${o.loanNumber}`}>{o.loanNumber}</a></td>
@@ -435,6 +451,7 @@ export function CustomerDetail({ id }: { id?: string }) {
                       <td className="num">{fmt(o.goldValue)}</td>
                     </tr>
                   ))}
+                  <Filler count={CUSTOMER_SUBTABLE_PAGE_SIZE - Math.max(ornamentPager.items.length, 1)} cols={5} />
                 </tbody>
               </table></div>
               <Pager page={ornamentPager.page} totalPages={ornamentPager.totalPages} onChange={ornamentPager.setPage} />
@@ -447,7 +464,7 @@ export function CustomerDetail({ id }: { id?: string }) {
                 <thead><tr><th>Loan</th><th>Date</th><th>Type</th><th className="num">Amount</th><th>Method</th></tr></thead>
                 <tbody>
                   {paymentPager.items.length === 0 ? (
-                    <tr><td colSpan={5} className="empty">No payments recorded yet.</td></tr>
+                    <tr><td colSpan={5} className="empty compact">No payments recorded yet.</td></tr>
                   ) : paymentPager.items.map((p) => (
                     <tr key={p.loanId + "-" + p.id}>
                       <td><a href={`#loan/${p.loanNumber}`}>{p.loanNumber}</a></td>
@@ -457,6 +474,7 @@ export function CustomerDetail({ id }: { id?: string }) {
                       <td>{p.method || "—"}</td>
                     </tr>
                   ))}
+                  <Filler count={CUSTOMER_SUBTABLE_PAGE_SIZE - Math.max(paymentPager.items.length, 1)} cols={5} />
                 </tbody>
               </table></div>
               <Pager page={paymentPager.page} totalPages={paymentPager.totalPages} onChange={paymentPager.setPage} />
@@ -469,7 +487,7 @@ export function CustomerDetail({ id }: { id?: string }) {
                 <thead><tr><th>Loan</th><th>Bank</th><th className="num">Amount</th><th>Pledged On</th><th>Status</th></tr></thead>
                 <tbody>
                   {bankPledgePager.items.length === 0 ? (
-                    <tr><td colSpan={5} className="empty">No bank pledges yet.</td></tr>
+                    <tr><td colSpan={5} className="empty compact">No bank pledges yet.</td></tr>
                   ) : bankPledgePager.items.map((p) => (
                     <tr key={p.loanId + "-" + p.id}>
                       <td><a href={`#loan/${p.loanNumber}`}>{p.loanNumber}</a></td>
@@ -479,6 +497,7 @@ export function CustomerDetail({ id }: { id?: string }) {
                       <td><StatusChip status={p.isReleased ? "Released" : "Bank Pledged"} /></td>
                     </tr>
                   ))}
+                  <Filler count={CUSTOMER_SUBTABLE_PAGE_SIZE - Math.max(bankPledgePager.items.length, 1)} cols={5} />
                 </tbody>
               </table></div>
               <Pager page={bankPledgePager.page} totalPages={bankPledgePager.totalPages} onChange={bankPledgePager.setPage} />
@@ -491,7 +510,7 @@ export function CustomerDetail({ id }: { id?: string }) {
                 <thead><tr><th>Loan</th><th>Stage</th><th>Auction Date</th><th className="num">Sale Amount</th><th className="num">Surplus/Shortfall</th></tr></thead>
                 <tbody>
                   {auctionPager.items.length === 0 ? (
-                    <tr><td colSpan={5} className="empty">No auction records yet.</td></tr>
+                    <tr><td colSpan={5} className="empty compact">No auction records yet.</td></tr>
                   ) : auctionPager.items.map((a) => (
                     <tr key={a.id}>
                       <td><a href={`#loan/${a.loanNumber}`}>{a.loanNumber}</a></td>
@@ -501,6 +520,7 @@ export function CustomerDetail({ id }: { id?: string }) {
                       <td className="num" style={{ color: a.surplusShortfall >= 0 ? "var(--green)" : "var(--red)" }}>{a.saleAmount ? fmt(Math.abs(a.surplusShortfall)) : "—"}</td>
                     </tr>
                   ))}
+                  <Filler count={CUSTOMER_SUBTABLE_PAGE_SIZE - Math.max(auctionPager.items.length, 1)} cols={5} />
                 </tbody>
               </table></div>
               <Pager page={auctionPager.page} totalPages={auctionPager.totalPages} onChange={auctionPager.setPage} />

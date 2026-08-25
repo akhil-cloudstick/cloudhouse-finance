@@ -209,6 +209,15 @@ func Run(db *gorm.DB) error {
 		return err
 	}
 
+	// Bootstrap Administrator — create-only, so a fresh database always has
+	// a way in, while an existing admin's password/role is never reverted on
+	// a later boot. Runs BEFORE backfillEmployeeRoleID so the row it creates
+	// gets its role_id filled in on the same pass. `go run ./cmd/seedadmin`
+	// calls the same function with reset=true as the lockout escape hatch.
+	if err := employee.SeedAdmin(db, false); err != nil {
+		return err
+	}
+
 	if err := backfillEmployeeRoleID(db, authzRepo); err != nil {
 		return err
 	}

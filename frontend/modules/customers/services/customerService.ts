@@ -330,7 +330,7 @@ export async function getCustomer360(
  * mirrors getCustomer360's from/to opened-date window. */
 /* 9 rows — the height the 360 view's table card is sized for, so a full
  * page fills it exactly without the card growing. */
-export const CUSTOMER_SUBTABLE_PAGE_SIZE = 9;
+export const CUSTOMER_SUBTABLE_PAGE_SIZE = 8;
 
 function subTableParams(page: number, range?: { from?: string; to?: string }): URLSearchParams {
   const params = new URLSearchParams({
