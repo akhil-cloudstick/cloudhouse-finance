@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useToast } from "@/common/components/Toast";
+import { useModal } from "@/common/components/Modal";
 import { Icon } from "@/common/components/Icon";
 import { useAuth } from "@/common/auth-context";
 import { ApiError } from "@/common/services/httpClient";
@@ -18,6 +19,84 @@ import {
   type Role,
 } from "@/common/services/permissionService";
 
+/* Rename/delete for one role, opened from the Edit button beside the role
+ * picker. Kept in this file since nothing else opens it. */
+function EditRoleModalContent({
+  role, canUpdate, canDelete, onSaved, onDeleted,
+}: {
+  role: Role;
+  canUpdate: boolean;
+  canDelete: boolean;
+  onSaved: (id: number) => void;
+  onDeleted: () => void;
+}) {
+  const { closeModal } = useModal();
+  const toast = useToast();
+  const [name, setName] = useState(role.name);
+  const [desc, setDesc] = useState(role.description || "");
+  const [err, setErr] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  async function onSave() {
+    if (!name.trim()) return;
+    setBusy(true);
+    setErr("");
+    try {
+      await updateRole(role.id, name.trim(), desc.trim(), role.isActive);
+      toast(`Role "${name.trim()}" saved`);
+      onSaved(role.id);
+      closeModal();
+    } catch (e) {
+      setErr(e instanceof ApiError ? e.message : "Could not update role.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function onDelete() {
+    if (!confirm(`Delete role "${role.name}"? This cannot be undone.`)) return;
+    setBusy(true);
+    setErr("");
+    try {
+      await deleteRole(role.id);
+      toast(`Role "${role.name}" deleted`);
+      onDeleted();
+      closeModal();
+    } catch (e) {
+      setErr(e instanceof ApiError ? e.message : "Could not delete role.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <>
+      <div className="hd"><h3>Edit Role — {role.name}</h3><button className="x" onClick={closeModal}>×</button></div>
+      <div className="bd">
+        <div className="frow">
+          <div><label className="f">Name *</label>
+            <input className="inp" value={name} onChange={(e) => setName(e.target.value)} disabled={!canUpdate} maxLength={80} />
+          </div>
+          <div><label className="f">Description</label>
+            <input className="inp" value={desc} onChange={(e) => setDesc(e.target.value)} disabled={!canUpdate} placeholder="What this role is for" />
+          </div>
+        </div>
+        {err && <p style={{ color: "var(--red)", fontSize: 13 }}>{err}</p>}
+      </div>
+      <div className="ft" style={{ display: "flex", alignItems: "center", gap: 8 }}>
+        {canDelete && (
+          <button className="btn ghost" style={{ color: "var(--red)" }} onClick={onDelete} disabled={busy}>Delete role</button>
+        )}
+        <div className="sp" />
+        <button className="btn ghost" onClick={closeModal}>Cancel</button>
+        {canUpdate && (
+          <button className="btn" onClick={onSave} disabled={busy || !name.trim()}><Icon name="check" /> Save</button>
+        )}
+      </div>
+    </>
+  );
+}
+
 /* The permissions admin screen — one toggle per permission, grouped by
  * module, for whichever role is selected, plus role create/rename/delete.
  * Follows the house role-permission standard's §7.2/§7.3/§4. Reachable from
@@ -27,6 +106,7 @@ import {
 export function RolesPermissions() {
   const { employee, can } = useAuth();
   const toast = useToast();
+  const { openModal } = useModal();
 
   const canCreateRole = can("Role_Management", "can_create_role");
   const canUpdateRole = can("Role_Management", "can_update_role");
@@ -46,13 +126,10 @@ export function RolesPermissions() {
   const [saving, setSaving] = useState(false);
   const [pending, setPending] = useState<Record<number, boolean>>({});
 
-  // New/rename-role inline form state.
+  // New-role inline form state (rename lives in the Edit modal above).
   const [showNewRole, setShowNewRole] = useState(false);
   const [newRoleName, setNewRoleName] = useState("");
   const [newRoleDesc, setNewRoleDesc] = useState("");
-  const [renaming, setRenaming] = useState(false);
-  const [renameName, setRenameName] = useState("");
-  const [renameDesc, setRenameDesc] = useState("");
 
   function loadRoles(selectId?: number) {
     fetchRoles()
@@ -79,8 +156,6 @@ export function RolesPermissions() {
       .then((res) => {
         setRole(res.role);
         setMatrix(res.data);
-        setRenameName(res.role.name);
-        setRenameDesc(res.role.description);
         setError("");
       })
       .catch((e) => setError(e instanceof ApiError ? e.message : "Failed to load permissions."));
@@ -157,35 +232,19 @@ export function RolesPermissions() {
     }
   }
 
-  async function onRenameRole() {
-    if (!role || !renameName.trim()) return;
-    setSaving(true);
-    try {
-      await updateRole(role.id, renameName.trim(), renameDesc.trim(), role.isActive);
-      toast(`Role "${renameName.trim()}" saved`);
-      setRenaming(false);
-      loadRoles(role.id);
-    } catch (e) {
-      setError(e instanceof ApiError ? e.message : "Could not update role.");
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  async function onDeleteRole() {
+  // Rename and delete both moved behind the Edit button's modal — the page
+  // itself only needs to refresh the role list once the modal is done.
+  function openEditRole() {
     if (!role) return;
-    if (!confirm(`Delete role "${role.name}"? This cannot be undone.`)) return;
-    setSaving(true);
-    try {
-      await deleteRole(role.id);
-      toast(`Role "${role.name}" deleted`);
-      setRoleId(null);
-      loadRoles();
-    } catch (e) {
-      setError(e instanceof ApiError ? e.message : "Could not delete role.");
-    } finally {
-      setSaving(false);
-    }
+    openModal(
+      <EditRoleModalContent
+        role={role}
+        canUpdate={canUpdateRole}
+        canDelete={canDeleteRole}
+        onSaved={(id) => loadRoles(id)}
+        onDeleted={() => { setRoleId(null); loadRoles(); }}
+      />
+    );
   }
 
   if (!can("Role_Management", "can_view_role_and_permission")) {
@@ -235,8 +294,12 @@ export function RolesPermissions() {
       )}
 
       <div className="card" style={{ padding: 16 }}>
-        <div className="frow" style={{ gap: 10, alignItems: "flex-end" }}>
-          <div style={{ flex: 1 }}>
+        {/* Two control rows: the role picker sits on one line with Edit
+            (rename/delete now live in that modal rather than as their own
+            rows), and the permission search shares the next line with the
+            bulk grant/revoke and Save actions it applies to. */}
+        <div className="role-ctl">
+          <div style={{ flex: 1, minWidth: 0 }}>
             <label className="f">Role</label>
             <Select
               options={(roles ?? []).map((r) => ({ value: String(r.id), label: `${r.name}${r.isSystem ? " (system)" : ""}` }))}
@@ -245,31 +308,25 @@ export function RolesPermissions() {
               disabled={!roles}
             />
           </div>
-          <div style={{ flex: 1 }}>
+          {(canUpdateRole || canDeleteRole) && role && !role.isSystem && (
+            <button className="btn ghost" onClick={openEditRole}><Icon name="edit" /> Edit</button>
+          )}
+        </div>
+        <div className="role-ctl">
+          <div style={{ flex: 1, minWidth: 0 }}>
             <label className="f">Search permissions</label>
             <input className="inp" placeholder="e.g. loan" value={search} onChange={(e) => setSearch(e.target.value)} />
           </div>
-          {canUpdateRole && role && !role.isSystem && (
-            <button className="btn ghost" onClick={() => setRenaming((v) => !v)}>Rename</button>
-          )}
-          {canDeleteRole && role && !role.isSystem && (
-            <button className="btn ghost" style={{ color: "var(--red)" }} onClick={onDeleteRole} disabled={saving}>Delete</button>
+          {canChangePermission && role && !role.isSystem && (
+            <>
+              <button className="btn ghost" onClick={() => setAll(true)} disabled={saving}>Grant all</button>
+              <button className="btn ghost" onClick={() => setAll(false)} disabled={saving}>Revoke all</button>
+              <button className="btn" onClick={save} disabled={saving || Object.keys(pending).length === 0}>
+                <Icon name="check" /> {saving ? "Saving…" : `Save${Object.keys(pending).length ? ` (${Object.keys(pending).length})` : ""}`}
+              </button>
+            </>
           )}
         </div>
-
-        {renaming && role && (
-          <div className="frow" style={{ gap: 10, marginTop: 12 }}>
-            <div style={{ flex: 1 }}>
-              <label className="f">Name</label>
-              <input className="inp" value={renameName} onChange={(e) => setRenameName(e.target.value)} />
-            </div>
-            <div style={{ flex: 2 }}>
-              <label className="f">Description</label>
-              <input className="inp" value={renameDesc} onChange={(e) => setRenameDesc(e.target.value)} />
-            </div>
-            <button className="btn" onClick={onRenameRole} disabled={saving || !renameName.trim()}>Save</button>
-          </div>
-        )}
 
         {role?.isSystem && (
           <p style={{ color: "var(--muted)", fontSize: 12.5, marginTop: 8 }}>
@@ -288,16 +345,6 @@ export function RolesPermissions() {
 
         {effective && (
           <div style={{ marginTop: 16 }}>
-            {canChangePermission && !role?.isSystem && (
-              <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
-                <button className="btn ghost sm" onClick={() => setAll(true)} disabled={saving}>Grant all</button>
-                <button className="btn ghost sm" onClick={() => setAll(false)} disabled={saving}>Revoke all</button>
-                <div className="sp" />
-                <button className="btn" onClick={save} disabled={saving || Object.keys(pending).length === 0}>
-                  <Icon name="check" /> {saving ? "Saving…" : `Save${Object.keys(pending).length ? ` (${Object.keys(pending).length})` : ""}`}
-                </button>
-              </div>
-            )}
             {Object.entries(effective).length === 0 && (
               <p style={{ color: "var(--muted)", fontSize: 13 }}>No permissions match &quot;{search}&quot;.</p>
             )}

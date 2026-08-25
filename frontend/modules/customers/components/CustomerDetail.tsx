@@ -164,6 +164,9 @@ export function CustomerDetail({ id }: { id?: string }) {
 
   const [activeTable, setActiveTable] = useState(0);
   const TABLE_TABS = ["Loan History", "Pledged Ornaments", "Payment History", "Bank Pledges", "Auction History"];
+  // One icon per tab, same order as TABLE_TABS — shown on the rail so each
+  // stop says which table it selects.
+  const TABLE_TAB_ICONS = ["list", "scale", "coin", "bank", "gavel"];
   // Lets a mouse-wheel scroll over the dot rail / table switch tabs, instead
   // of only clicking a dot. wheelLock debounces rapid deltaY events from a
   // single physical scroll gesture into one tab-step at a time.
@@ -295,7 +298,7 @@ export function CustomerDetail({ id }: { id?: string }) {
         <button className="btn ghost sm" onClick={openRequestPicker}><Icon name="unlock" /> Request Extension / Release</button>
         {canCreateLoans && <a className="btn sm" href="#newloan"><Icon name="plus" /> New Loan</a>}
       </div>
-      <hr className="gold-rule" />
+      <hr className="gold-rule rule-xs" />
       {/* Opened-date filter for the whole 360 view — every card below plus
           the relationship totals come from the backend-filtered loan set. */}
       <div style={{ display: "flex", alignItems: "flex-end", justifyContent: "flex-end", gap: 12, flexWrap: "wrap", marginBottom: 18 }}>
@@ -313,7 +316,10 @@ export function CustomerDetail({ id }: { id?: string }) {
         {reloading && <span style={{ fontSize: 12.5, color: "var(--muted)" }}>Loading…</span>}
         {error && <span style={{ fontSize: 12.5, color: "var(--red)" }}>{error}</span>}
       </div>
-      <div className="grid cols12" style={{ alignItems: "stretch", ...(reloading ? { opacity: 0.6 } : {}) }}>
+      {/* cust-360 pins the left card column to a fixed width so it stays put
+          when the tab switches between tables of different column counts, and
+          makes the tables fit their column instead of scrolling sideways. */}
+      <div className="grid cols12 cust-360" style={{ alignItems: "stretch", ...(reloading ? { opacity: 0.6 } : {}) }}>
         <div className="grid">
           <div className="card gtop"><div className="hd"><h3>KYC &amp; Verification</h3></div>
             <div className="bd">
@@ -374,8 +380,11 @@ export function CustomerDetail({ id }: { id?: string }) {
           </div>
         </div>
         <div style={{ display: "flex", gap: 16, alignItems: "stretch", height: "100%" }} onWheel={onTabWheel}>
-        <div style={{ position: "relative", display: "flex", flexDirection: "column", justifyContent: "space-between", flexShrink: 0, width: 12 }}>
-          <div style={{ position: "absolute", left: "50%", top: 6, bottom: 6, width: 2, background: "var(--line)", transform: "translateX(-50%)", zIndex: 0 }} />
+        {/* The rail selects the table below. Each stop carries the icon for
+            its own table (loans / ornaments / payments / bank / auction) so
+            the rail reads without hovering for the tooltip. */}
+        <div className="tab-rail">
+          <div className="tab-rail-line" />
           {TABLE_TABS.map((label, i) => (
             <button
               key={label}
@@ -383,13 +392,11 @@ export function CustomerDetail({ id }: { id?: string }) {
               title={label}
               aria-label={label}
               aria-current={activeTable === i}
+              className={"tab-rail-dot" + (activeTable === i ? " on" : "")}
               onClick={() => setActiveTable(i)}
-              style={{
-                position: "relative", zIndex: 1,
-                width: 12, height: 12, borderRadius: "50%", padding: 0, border: "none", cursor: "pointer",
-                background: activeTable === i ? "var(--gold-mid)" : "var(--line)",
-              }}
-            />
+            >
+              <Icon name={TABLE_TAB_ICONS[i]} />
+            </button>
           ))}
         </div>
 
