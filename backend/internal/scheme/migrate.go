@@ -56,6 +56,14 @@ func BackfillDurationMonths(db *gorm.DB) error {
 // then safely tighten it to NOT NULL. Safe to re-run: once branch_id exists
 // and every row is populated, its UPDATE simply matches nothing.
 func BackfillBranchID(db *gorm.DB) error {
+	// Fresh install: the schemes table itself does not exist yet, so the
+	// HasColumn check below is false for the "table is missing" reason
+	// rather than the "column is missing" one, and the ALTER TABLE would
+	// fail with `relation "schemes" does not exist`. AutoMigrate creates
+	// branch_id correctly on an empty table, so there is nothing to do.
+	if !db.Migrator().HasTable(&Scheme{}) {
+		return nil
+	}
 	if !db.Migrator().HasColumn(&Scheme{}, "branch_id") {
 		if err := db.Exec(`ALTER TABLE schemes ADD COLUMN branch_id bigint`).Error; err != nil {
 			return err

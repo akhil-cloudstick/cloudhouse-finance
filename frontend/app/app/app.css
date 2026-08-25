@@ -185,13 +185,16 @@ h1,h2,h3,.serif{font-family:'Bodoni Moda',serif;font-optical-sizing:auto}
 .gs-results::-webkit-scrollbar-thumb:hover{background:var(--gold)}
 
 /* ── themed file input (components/ui/FileInput.tsx) ───────────────────── */
-.fi{position:relative;width:100%;box-sizing:border-box}
+/* Fixed 230px rather than width:100% / shrink-to-fit: the trigger is a
+ * <label>, so it used to size to its own text and every file field ended up
+ * a different width depending on how long its placeholder was. */
+.fi{position:relative;width:230px;max-width:100%;box-sizing:border-box}
 /* The real input sits on top, fully transparent, so the label below still
  * gets native click/keyboard/drag-drop behavior — only the OS chrome is
  * hidden, not the control itself. */
 .fi-native{position:absolute;inset:0;opacity:0;cursor:pointer;z-index:1}
 .fi-native:disabled{cursor:not-allowed}
-.fi-trigger{display:flex;align-items:center;justify-content:space-between;gap:8px;cursor:pointer}
+.fi-trigger{display:flex;align-items:center;justify-content:space-between;gap:8px;cursor:pointer;width:100%;box-sizing:border-box;overflow:hidden}
 .fi-trigger.fi-disabled{cursor:not-allowed;opacity:.6}
 /* flex:1 + min-width:0 is required for a flex child to actually shrink
  * below its content width — without min-width:0 (a flex item's default is
@@ -199,8 +202,16 @@ h1,h2,h3,.serif{font-family:'Bodoni Moda',serif;font-optical-sizing:auto}
  * placeholder/filename instead overflows past the icon. No ellipsis: a
  * plain <input>'s overflowing placeholder (e.g. the Aadhaar field) just
  * gets hard-clipped at the box edge with no "…", so this matches that
- * look instead of announcing the truncation. */
-.fi-name{flex:1;min-width:0;overflow:hidden;white-space:nowrap}
+ * look instead of announcing the truncation.
+ *
+ * The mask fades the last 34px of the text out to transparent instead of
+ * cutting it off mid-letter, so an over-long placeholder/filename dissolves
+ * as it runs under the trailing icon rather than colliding with it. */
+.fi-name{
+  flex:1;min-width:0;overflow:hidden;white-space:nowrap;
+  -webkit-mask-image:linear-gradient(90deg,#000 calc(100% - 34px),transparent);
+  mask-image:linear-gradient(90deg,#000 calc(100% - 34px),transparent);
+}
 .fi-ic{width:15px;height:15px;color:var(--gold-deep);flex-shrink:0}
 .fi-clear{
   position:absolute;top:50%;right:34px;transform:translateY(-50%);z-index:2;
@@ -671,6 +682,13 @@ table.tbl{width:100%;border-collapse:collapse;font-size:13.5px;min-width:640px}
 .scheme-kv .i .v{min-height:36px;line-height:18px}
 
 .empty{padding:34px;text-align:center;color:var(--muted);font-size:13.5px}
+/* Empty message inside a table that pads itself out with .filler rows — the
+ * usual 34px would push such a table past its normal full-page height. */
+.empty.compact{padding:14px}
+/* Blank rows that hold a short/empty page at its full row count so the card
+ * keeps one height instead of shrinking to fit the content. */
+.tbl tr.filler td{height:43px;color:transparent}
+.tbl tbody tr.filler:hover{background:transparent}
 .notice{
   background:#fdf6dd;border:1px solid var(--gold-light);border-radius:8px;
   padding:10px 14px;font-size:12.5px;color:#6b5307;display:flex;gap:9px;align-items:center;
