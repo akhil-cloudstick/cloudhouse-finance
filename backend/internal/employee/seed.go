@@ -42,24 +42,43 @@ const (
 func SeedAdmin(db *gorm.DB, reset bool) error {
 	repo := NewRepository(db)
 
+	// Look up by username first, then by email. The email fallback matters
+	// for databases seeded by the older cmd/seedadmin, which set Email but
+	// no Username — creating a second row for those would collide with the
+	// partial unique index on email and fail the whole migration.
 	existing, err := repo.FindByUsername(AdminUsername)
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		existing, err = repo.FindByEmail(AdminEmail)
+	}
 	if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
 		return err
 	}
 	if err == nil {
+		// Repair a legacy admin that has no username even when reset is
+		// false: without one it cannot log in at all (auth.Login matches on
+		// username or phone, never email), so filling it in restores access
+		// rather than overwriting anything the user chose.
+		if existing.Username == "" {
+			existing.Username = AdminUsername
+			if err := repo.Update(existing); err != nil {
+				return err
+			}
+			log.Printf("admin employee (id=%d) had no username — set to %q so it can log in", existing.ID, AdminUsername)
+		}
 		if !reset {
-			return nil // already bootstrapped — never clobber a live account
+			return nil // already bootstrapped — never clobber a live password
 		}
 		hash, hErr := hashAdminPassword()
 		if hErr != nil {
 			return hErr
 		}
 		existing.Role = AdminRole
+		existing.Username = AdminUsername
 		existing.PasswordHash = hash
 		if err := repo.Update(existing); err != nil {
 			return err
 		}
-		log.Printf("admin employee already existed (id=%d) — role/password reset", existing.ID)
+		log.Printf("admin employee already existed (id=%d) — username/role/password reset", existing.ID)
 		return nil
 	}
 
