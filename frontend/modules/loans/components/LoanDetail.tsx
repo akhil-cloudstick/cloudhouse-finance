@@ -24,6 +24,7 @@ import {
 import { getCustomer } from "@/modules/customers/services/customerService";
 import { listPackets } from "@/modules/packets/services/packetService";
 import { openPrintWindow } from "@/common/utils/print";
+import { printIndemnityBond, type IndemnityBondLang } from "@/modules/loans/utils/indemnityBond";
 import { StageTracker } from "@/common/components/ui/StageTracker";
 import { ApiError } from "@/common/services/httpClient";
 import { useLoans } from "@/modules/loans/store/LoansProvider";
@@ -31,6 +32,35 @@ import { PaymentModalContent } from "@/common/components/modals/PaymentModal";
 import { RepledgeModalContent } from "@/common/components/modals/RepledgeModal";
 import { ConfirmModalContent } from "@/common/components/modals/ConfirmModal";
 import { RequestExtensionModalContent, RequestReleaseModalContent } from "@/common/components/modals/RequestExtensionModal";
+
+/* Language picker for the printable indemnity bond. The New Loan wizard has
+ * the room to show all three as separate buttons; this page's header does
+ * not, so the choice moves into a one-click modal rather than adding three
+ * more buttons to an already crowded action bar. */
+function BondLanguageModalContent({ onPick }: { onPick: (lang: IndemnityBondLang) => void }) {
+  const { closeModal } = useModal();
+  const pick = (lang: IndemnityBondLang) => {
+    closeModal();
+    onPick(lang);
+  };
+  return (
+    <>
+      <div className="hd"><h3>Print Indemnity Bond</h3><button className="x" onClick={closeModal}>×</button></div>
+      <div className="bd">
+        <p style={{ fontSize: 13, color: "var(--muted)", marginBottom: 12 }}>
+          Choose the language the customer reads. The printed copy is for offline signing by the
+          borrower and two witnesses.
+        </p>
+        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          <button className="btn ghost" onClick={() => pick("en")}>English</button>
+          <button className="btn ghost" onClick={() => pick("hi")}>हिन्दी (Hindi)</button>
+          <button className="btn ghost" onClick={() => pick("gu")}>ગુજરાતી (Gujarati)</button>
+        </div>
+      </div>
+      <div className="ft"><button className="btn ghost" onClick={closeModal}>Cancel</button></div>
+    </>
+  );
+}
 
 /* Ported from legacy/app.js's `renderLoanDetail(id)`. Now reads/writes the
  * real loan API instead of the mock db. `id` is the loan's loanNumber
@@ -53,6 +83,7 @@ export function LoanDetail({ id }: { id?: string }) {
   const [completing, setCompleting] = useState(false);
   const [printingLabel, setPrintingLabel] = useState(false);
   const [printingSlip, setPrintingSlip] = useState(false);
+  const [printingBond, setPrintingBond] = useState(false);
   // Indemnity bond Aadhaar eSign (Setu) — same "started, then poll" shape
   // CustomerDetail.tsx's DigiLocker Aadhaar-verify flow uses: "started"
   // means the customer's been sent the eSign URL and we're waiting for
@@ -223,6 +254,26 @@ export function LoanDetail({ id }: { id?: string }) {
    * backend, while this page reads the loan's real, already-persisted
    * data straight from `l`, plus one extra lookup each for details the
    * loan view alone doesn't carry (customer phone/address, packet code). */
+  /* Paper copy of the same indemnity bond the eSign flow sends, for offline
+   * wet-ink signing — the branch prints it, the customer and two witnesses
+   * sign by hand, and it is filed. Independent of the Aadhaar eSign status:
+   * staff need this whenever eSign is unavailable, declined, or the customer
+   * simply prefers paper. Language is asked for up front since branches hand
+   * over whichever one the customer reads. */
+  function printBond(lang: IndemnityBondLang) {
+    setPrintingBond(true);
+    getCustomer(l.customerId)
+      .then((c) =>
+        printIndemnityBond(
+          { loanNumber: l.id, name: c.name, dob: c.dob, address: c.address, phone: c.phone, branchName: l.branchName },
+          lang,
+          toast
+        )
+      )
+      .catch(() => toast("Could not load customer details for the bond."))
+      .finally(() => setPrintingBond(false));
+  }
+
   async function printPledgeSlip() {
     setPrintingSlip(true);
     try {
@@ -378,6 +429,13 @@ export function LoanDetail({ id }: { id?: string }) {
         <button className="btn ghost sm" disabled={printingSlip} onClick={printPledgeSlip}>
           <Icon name="doc" /> {printingSlip ? "Preparing…" : "Print Slip"}
         </button>
+        <button
+          className="btn ghost sm"
+          disabled={printingBond}
+          onClick={() => openModal(<BondLanguageModalContent onPick={printBond} />)}
+        >
+          <Icon name="doc" /> {printingBond ? "Preparing…" : "Print Bond"}
+        </button>
         {l.indemnityBondSignStatus === "sign_complete" && l.indemnityBondSignedUrl ? (
           <a className="btn ghost sm" href={l.indemnityBondSignedUrl} target="_blank" rel="noopener noreferrer">
             <Icon name="check" /> Signed Bond
@@ -398,7 +456,6 @@ export function LoanDetail({ id }: { id?: string }) {
         )}
         {approvalButtons || (
           <>
-            <button className="btn ghost sm" onClick={() => toast("Receipt/statement PDF — full build")}><Icon name="doc" /> Statement</button>
             {l.status !== "Closed" && !activePledge && (
               <button className="btn ghost sm" onClick={() => openModal(<RepledgeModalContent loan={l} onSaved={load} />)}><Icon name="bank" /> Repledge to Bank</button>
             )}
