@@ -1462,16 +1462,33 @@ custody to hand over: `Closed` (released back to the customer),
 `Closure Requested` (release committed — pledging would deadlock it, since
 `/complete-release` refuses while a pledge is active), `Auctioned` and
 `Auctioned - Balance Due` (sold), and `Pending Approval` (never disbursed).
-**A bank pledge is once per loan, for its lifetime.** `bankPledgeStatus` must
-be exactly `"Not Pledged"`: `"Bank Pledged"` is refused with 400
-`ErrBankPledgeStillActive` (one is already open — a second would overwrite
-`bankPledgeStatus` and orphan the first with no release path), and
-`"Released"` with 400 `ErrBankPledgeAlreadyUsed` (the gold came back from the
-bank and the loan has had its turn).
+**Only an open pledge blocks a new one (2026-08-28).** `"Bank Pledged"` is
+refused with 400 `ErrBankPledgeStillActive`; `"Released"` is ELIGIBLE — it
+means the gold came back FROM the bank, so the loan may be pledged again, and
+can cycle pledge → release → pledge for as long as it stays otherwise
+eligible. This reverses an earlier "one pledge per loan, for its lifetime"
+rule (and removes `ErrBankPledgeAlreadyUsed`): that rule existed only because
+a second pledge would overwrite `bankPledgeStatus` and orphan the first record
+with no release path, which the `HasActive` record check below now prevents
+directly.
 
-The rule is one place — `loan.CanAcceptBankPledge` /
-`bankPledgeIneligibleStatuses` — shared with the `excludeBankPledged` listing
-filter, so the re-pledge picker never offers a loan the save would reject.
+The rule is one place — `loan.bankPledgeRefusal`, over
+`loan.CanAcceptBankPledge` / `bankPledgeIneligibleStatuses` — shared with the
+`excludeBankPledged` listing filter, so the re-pledge picker never offers a
+loan the save would reject. It is a pure function of the loan's two stored
+fields and is covered by a status-matrix table test
+(`internal/loan/bank_pledge_test.go`).
+
+**Neither this endpoint nor `/complete-release` trusts `bankPledgeStatus`
+alone (2026-08-28).** That column is a stored copy of what the
+`bank_pledge_records` rows say, and the two can disagree: before the guard
+above existed a loan could hold two `Active` pledge records, and releasing
+either one overwrote the loan-level string while leaving the other open — so
+`/complete-release`, which read only the string, could close a loan with a
+live pledge against it. Both endpoints now also call
+`BankPledgeRepository.HasActive(loanID)` and refuse with 400
+`ErrBankPledgeStillActive` if any record is still `Active`, whatever the
+string says.
 
 `POST /:id/bank-pledge` records a `BankPledgeRecord` — `bankName`,
 `pledgedAmount`, `pledgeDate` required; `bankId` (the registered `bank.Bank`
@@ -1877,7 +1894,7 @@ preloaded objects from their own APIs above):
 | GET | `/api/v1/loans/drafts/:draftId` | Get one of the caller's own drafts | — |
 | PUT | `/api/v1/loans/drafts/:draftId` | Overwrite a draft in place (pressing "Save Draft" again), replacing its ornament rows wholesale | same body as POST `/loans/drafts` |
 | DELETE | `/api/v1/loans/drafts/:draftId` | Discard a draft — hard delete, `204 No Content` | — |
-| GET | `/api/v1/loans` | List/filter loans. Returns a bare array unless `limit` is given, in which case the response is the `{ "items": [...], "hasMore": bool }` envelope (same convention as `GET /customers`) — this backs the paginated `SearchableSelect` loan pickers, 10 rows per page, next page appended on scroll | query: `status`, `branchId`, `customerId`, `q` (matches `loanNumber`), `excludeBankPledged` (`true` keeps only loans whose `bankPledgeStatus` is `"Not Pledged"` and whose status is not closed/closure-requested/auctioned/pending-approval — the bank re-pledge picker's eligibility rule, matching `loan.CanAcceptBankPledge`; a bank pledge is once per loan), `limit`, `offset` |
+| GET | `/api/v1/loans` | List/filter loans. Returns a bare array unless `limit` is given, in which case the response is the `{ "items": [...], "hasMore": bool }` envelope (same convention as `GET /customers`) — this backs the paginated `SearchableSelect` loan pickers, 10 rows per page, next page appended on scroll | query: `status`, `branchId`, `customerId`, `q` (matches `loanNumber`), `excludeBankPledged` (`true` keeps only loans whose `bankPledgeStatus` is not `"Bank Pledged"` and whose status is not closed/closure-requested/auctioned/pending-approval — the bank re-pledge picker's eligibility rule, matching `loan.bankPledgeRefusal`; `"Released"` loans ARE offered, since their gold is back from the bank), `limit`, `offset` |
 | GET | `/api/v1/loans/:id` | Get one loan with ornaments/approvals/payments/bank-pledge history | — |
 | GET | `/api/v1/loans/by-number/:loanNumber` | Same as above, looked up by the human-readable loan number instead of the numeric id (a single atomic query — used by `LoanDetail.tsx`, mirrors `packet`'s `by-code` lookup) | — |
 | POST | `/api/v1/loans/:id/ornaments` | Pledge an additional ornament, recalculates loan totals | `{ "name", "purity", "grossWeight", "deductionWeight"?, "quantity"?, "remarks"? }` |

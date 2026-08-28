@@ -162,6 +162,39 @@ func CanAcceptBankPledge(status string) bool {
 	return true
 }
 
+// bankPledgeRefusal is the whole "may this loan be pledged?" decision as one
+// pure function of the loan's two stored fields, returning the specific error
+// to refuse with (nil when it may proceed). Service.RecordBankPledge calls
+// exactly this and then one further check against the pledge records, which
+// needs the database and so cannot live here.
+//
+// Only an OPEN pledge blocks a new one. BankPledgeStatusPledged means one is
+// still out with a bank, so a second is refused; BankPledgeStatusReleased
+// means the gold has come back FROM the bank and is in the branch's custody
+// again, so the loan may be pledged afresh — a loan can cycle
+// pledge → release → pledge for as long as it is otherwise active.
+//
+// This deliberately reverses the earlier "one pledge per loan, for its
+// lifetime" rule (see documents/handoff_repledge_guard.md). That rule existed
+// because a second pledge would overwrite BankPledgeStatus and orphan the
+// first record with no release path — a mechanical problem, not a commercial
+// one. Service.RecordBankPledge now checks BankPledgeRepository.HasActive
+// instead, which enforces "one open pledge at a time" against the records
+// themselves and cannot be fooled by the stored string, so repeat pledges are
+// safe in a way they were not then.
+//
+// Kept separate from the service so the status matrix is testable without a
+// database (see bank_pledge_test.go).
+func bankPledgeRefusal(status, bankPledgeStatus string) error {
+	if !CanAcceptBankPledge(status) {
+		return ErrLoanNotPledgeable
+	}
+	if bankPledgeStatus == BankPledgeStatusPledged {
+		return ErrBankPledgeStillActive
+	}
+	return nil
+}
+
 // Loan represents one gold loan: a customer's pledged ornaments, sanctioned
 // under a scheme, tracked from creation through closure/auction.
 type Loan struct {
