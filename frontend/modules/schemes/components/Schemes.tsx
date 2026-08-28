@@ -5,12 +5,18 @@ import { useModal } from "@/common/components/Modal";
 import { Icon } from "@/common/components/Icon";
 import { SchemeModalContent } from "@/common/components/modals/SchemeModal";
 import { listSchemes, type SchemeView } from "@/modules/schemes/services/schemeService";
+import { useAuth } from "@/common/auth-context";
 
 /* Ported from legacy/app.js's `renderSchemes()` (legacy/app.js:1222-1244).
  * Loads real data from the Go backend (`GET /api/v1/schemes`) instead of
  * the localStorage mock store. */
 export function Schemes() {
   const { openModal } = useModal();
+  // Every action here is hidden, not disabled, when the role lacks its
+  // permission — see Customers.tsx.
+  const { can } = useAuth();
+  const canCreateSchemes = can("Scheme_Management", "can_create_scheme");
+  const canUpdateSchemes = can("Scheme_Management", "can_update_scheme");
   const [schemes, setSchemes] = useState<SchemeView[] | null>(null);
   const [error, setError] = useState("");
 
@@ -34,7 +40,7 @@ export function Schemes() {
       <div className="page-h">
         <div><h1>Loan Schemes</h1><p>Interest rates, tenure, LTV and calculation rules per scheme</p></div>
         <div className="sp" />
-        <button className="btn" onClick={() => openModal(<SchemeModalContent onSaved={onSaved} />)}><Icon name="plus" /> New Scheme</button>
+        {canCreateSchemes && <button className="btn" onClick={() => openModal(<SchemeModalContent onSaved={onSaved} />)}><Icon name="plus" /> New Scheme</button>}
       </div>
       <hr className="gold-rule" />
       {error && (
@@ -69,7 +75,7 @@ export function Schemes() {
             </div>
             <div className="ft" style={{ display: "flex", gap: 8 }}>
               <span>{s.code}</span><span style={{ flex: 1 }} />
-              <a href="#" onClick={(e) => { e.preventDefault(); openModal(<SchemeModalContent scheme={s} onSaved={onSaved} />); }}>Edit</a>
+              {canUpdateSchemes && <a href="#" onClick={(e) => { e.preventDefault(); openModal(<SchemeModalContent scheme={s} onSaved={onSaved} />); }}>Edit</a>}
             </div>
           </div>
         ))}

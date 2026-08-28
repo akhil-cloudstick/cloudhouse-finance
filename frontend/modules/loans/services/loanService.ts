@@ -1458,3 +1458,35 @@ export async function completeRelease(loanId: number): Promise<LoanView> {
   });
   return toView(rec);
 }
+
+/* Mirrors backend/internal/loan's bankPledgeIneligibleStatuses /
+ * CanAcceptBankPledge — the loan statuses whose gold is no longer the
+ * branch's to hand to a bank, so no re-pledge entry point should offer them.
+ *
+ * "Closed" is gold already released back to the customer; "Closure
+ * Requested" has the release in flight and committed; the two auctioned
+ * states mean the gold has been sold; "Pending Approval" was never
+ * disbursed.
+ *
+ * Kept in sync by hand: the server enforces the same rule in
+ * Service.RecordBankPledge, so a stale copy here degrades to an error toast
+ * rather than a bad write. */
+const BANK_PLEDGE_INELIGIBLE_STATUSES = [
+  "Closed",
+  "Closure Requested",
+  "Auctioned",
+  "Auctioned - Balance Due",
+  "Pending Approval",
+];
+
+/* A bank pledge is ONCE PER LOAN for its lifetime, so bankPledgeStatus must
+ * be exactly "Not Pledged": "Bank Pledged" means one is already open, and
+ * "Released" means the gold came back from the bank and the loan has had its
+ * turn. Pass both values — a loan needs an eligible status AND an unused
+ * pledge slot. */
+export function canAcceptBankPledge(status: string, bankPledgeStatus: string): boolean {
+  return (
+    !BANK_PLEDGE_INELIGIBLE_STATUSES.includes(status) &&
+    bankPledgeStatus === "Not Pledged"
+  );
+}

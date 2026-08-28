@@ -6,6 +6,7 @@ import { useToast } from "@/common/components/Toast";
 import { Icon } from "@/common/components/Icon";
 import { AddReminderModalContent } from "@/common/components/modals/ReminderModal";
 import { completeReminder, deleteReminder, getCalendarEvents, type CalendarEvent } from "@/modules/reminders/services/reminderService";
+import { useAuth } from "@/common/auth-context";
 
 const DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
@@ -43,6 +44,12 @@ function toISODate(year: number, month: number, day: number): string {
 export function Calendar() {
   const { openModal } = useModal();
   const toast = useToast();
+  // Adding, completing and deleting reminders each need their own grant;
+  // the calendar itself stays readable either way (see Customers.tsx).
+  const { can } = useAuth();
+  const canCreateReminders = can("Reminder_Management", "can_create_reminder");
+  const canUpdateReminders = can("Reminder_Management", "can_update_reminder");
+  const canDeleteReminders = can("Reminder_Management", "can_delete_reminder");
 
   const today = new Date();
   const [year, setYear] = useState(today.getFullYear());
@@ -136,9 +143,11 @@ export function Calendar() {
         <button className="btn ghost" onClick={goToday}>Today</button>
         <button className="btn ghost" onClick={() => goMonth(-1)}>‹ Prev</button>
         <button className="btn ghost" onClick={() => goMonth(1)}>Next ›</button>
-        <button className="btn" onClick={() => openModal(<AddReminderModalContent initialDate={selectedISO} onSaved={load} />)}>
-          <Icon name="plus" /> Add Reminder
-        </button>
+        {canCreateReminders && (
+          <button className="btn" onClick={() => openModal(<AddReminderModalContent initialDate={selectedISO} onSaved={load} />)}>
+            <Icon name="plus" /> Add Reminder
+          </button>
+        )}
       </div>
       <hr className="gold-rule" />
       {err && <p style={{ color: "var(--red)", fontSize: 13 }}>{err}</p>}
@@ -199,10 +208,10 @@ export function Calendar() {
                     </span>
                     {e.reminderId != null && (
                       <span className="rt" style={{ display: "flex", gap: 4 }}>
-                        {e.status !== "Done" && (
+                        {canUpdateReminders && e.status !== "Done" && (
                           <button className="btn sm ghost" onClick={() => onComplete(e.reminderId!)}>Done</button>
                         )}
-                        <button className="btn sm ghost" onClick={() => onDelete(e.reminderId!)}>Delete</button>
+                        {canDeleteReminders && <button className="btn sm ghost" onClick={() => onDelete(e.reminderId!)}>Delete</button>}
                       </span>
                     )}
                     {e.loanNumber && <span className="rt"><a className="btn sm ghost" href={`#loan/${e.loanNumber}`}>Open loan</a></span>}
@@ -210,7 +219,7 @@ export function Calendar() {
                 ))}
               </ul>
             </div>
-            {selectedDay != null && (
+            {selectedDay != null && canCreateReminders && (
               <div className="ft">
                 <button className="btn ghost" onClick={() => openModal(<AddReminderModalContent initialDate={selectedISO} onSaved={load} />)}>
                   <Icon name="plus" /> Add Reminder for this day

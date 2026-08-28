@@ -13,8 +13,10 @@ import (
 // role-and-permission permission).
 func RegisterRoutes(employeeGroup *gin.RouterGroup, roleGroup *gin.RouterGroup, h *Handler, checker platform.PermissionChecker) {
 	view := platform.RequirePermission(checker, "can view role and permission")
-	changePermission := platform.RequirePermission(checker, "can change role permission")
 	createRole := platform.RequirePermission(checker, "can create role")
+	// Grant editing used to have its own "can change role permission"; that
+	// permission is gone with the rest of the "can change ..." set, so editing
+	// a role's grants is now part of updating the role itself.
 	updateRole := platform.RequirePermission(checker, "can update role")
 	deleteRole := platform.RequirePermission(checker, "can delete role")
 
@@ -24,8 +26,8 @@ func RegisterRoutes(employeeGroup *gin.RouterGroup, roleGroup *gin.RouterGroup, 
 	// two different param names appear at the same path segment.
 	employeeGroup.GET("/:id/permissions/by-employee", h.ByEmployee)
 	employeeGroup.GET("/:id/permissions", view, h.Matrix)
-	employeeGroup.PATCH("/:id/permissions/:role_id", changePermission, h.UpdatePermissions)
-	employeeGroup.PATCH("/:id/permissions/:role_id/set-all", changePermission, h.SetAll)
+	employeeGroup.PATCH("/:id/permissions/:role_id", updateRole, h.UpdatePermissions)
+	employeeGroup.PATCH("/:id/permissions/:role_id/set-all", updateRole, h.SetAll)
 
 	roleGroup.GET("", view, h.ListRoles)
 	roleGroup.POST("", createRole, h.CreateRole)

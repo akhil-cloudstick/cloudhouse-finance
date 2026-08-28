@@ -46,7 +46,7 @@ const ROUTE_PERMISSIONS: Record<string, { module: string | null; key?: string }>
   customer: { module: "Customer_Management", key: "can_view_customer" },
   loans: { module: "Loan_Management", key: "can_view_loan" },
   loan: { module: "Loan_Management", key: "can_view_loan" },
-  newloan: { module: "Loan_Management", key: "can_change_loan" },
+  newloan: { module: "Loan_Management", key: "can_create_loan" },
   schemes: { module: "Scheme_Management", key: "can_view_scheme" },
   goldrates: { module: "Gold_Rate_Management", key: "can_view_gold_rate" },
   requests: { module: "Loan_Management", key: "can_view_loan" },

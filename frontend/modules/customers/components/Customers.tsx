@@ -9,6 +9,7 @@ import { Icon } from "@/common/components/Icon";
 import { RegisterCustomerModalContent } from "@/common/components/modals/RegisterCustomerModal";
 import { listCustomersPage, type CustomerView } from "@/modules/customers/services/customerService";
 import { Select } from "@/common/components/ui/Select";
+import { useAuth } from "@/common/auth-context";
 
 const VERIFICATION_STATUS_OPTIONS = [
   { value: "", label: "All" },
@@ -32,6 +33,11 @@ export function Customers() {
   const { db } = useData();
   const { customers, refresh: refreshAll } = useCustomers();
   const { openModal } = useModal();
+  // Action buttons are hidden outright when the role doesn't hold the
+  // permission behind them — a disabled-looking control the user can never
+  // use is worse than no control at all (house standard §12).
+  const { can } = useAuth();
+  const canCreateCustomers = can("Customer_Management", "can_create_customer");
   const [q, setQ] = useState("");
   const [panStatus, setPanStatus] = useState("");
   const [aadhaarStatus, setAadhaarStatus] = useState("");
@@ -73,9 +79,11 @@ export function Customers() {
         <div><h1>Customers &amp; KYC</h1><p>{customers.length} customers · PAN &amp; Aadhaar verification status</p></div>
         <div className="sp" />
         <div className="search"><Icon name="search" /><input className="inp" placeholder="Search name, phone, ID…" value={q} onChange={(e) => setQ(e.target.value)} /></div>
-        <button className="btn" onClick={() => openModal(<RegisterCustomerModalContent onSaved={refresh} />)}>
-          <Icon name="plus" /> Register Customer
-        </button>
+        {canCreateCustomers && (
+          <button className="btn" onClick={() => openModal(<RegisterCustomerModalContent onSaved={refresh} />)}>
+            <Icon name="plus" /> Register Customer
+          </button>
+        )}
       </div>
       <hr className="gold-rule" />
       <div style={{ display: "flex", alignItems: "flex-end", justifyContent: "flex-end", gap: 12, flexWrap: "wrap", marginBottom: 16 }}>

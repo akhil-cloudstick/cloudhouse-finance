@@ -7,6 +7,7 @@ import { Icon } from "@/common/components/Icon";
 import { fmt } from "@/common/utils/format";
 import { getLoan, verifyReleaseChecklist, approveReleaseRequest, type RequestView, type LoanView } from "@/modules/loans/services/loanService";
 import { ApiError } from "@/common/services/httpClient";
+import { useAuth } from "@/common/auth-context";
 
 /* Staff review screen for a pending Release request — shown from
  * Requests.tsx's "Review" button. Shows the loan's live principal/interest/
@@ -19,6 +20,11 @@ import { ApiError } from "@/common/services/httpClient";
 export function ReleaseReviewModalContent({ request, onSaved }: { request: RequestView; onSaved: () => void }) {
   const { closeModal } = useModal();
   const toast = useToast();
+  // Without "can update loan" this modal is a read-only view: the checklist
+  // toggles stay locked and the approve/reject pair never renders (see
+  // Requests.tsx, which labels the row button View in that case).
+  const { can } = useAuth();
+  const canDecide = can("Loan_Management", "can_update_loan");
 
   const [loan, setLoan] = useState<LoanView | null>(null);
   const [req, setReq] = useState(request);
@@ -101,7 +107,7 @@ export function ReleaseReviewModalContent({ request, onSaved }: { request: Reque
         )}
 
         <div className="frow c2">
-          <div><label className="f">Charges (₹)</label><input className="inp" type="number" min={0} value={charges} onChange={(e) => setCharges(e.target.value)} onBlur={saveChargesAndNotes} /></div>
+          <div><label className="f">Charges (₹)</label><input className="inp" type="number" min={0} value={charges} disabled={!canDecide} onChange={(e) => setCharges(e.target.value)} onBlur={saveChargesAndNotes} /></div>
           <div><label className="f">Final Settlement</label>
             <div className="inp" style={{ display: "flex", alignItems: "center", fontWeight: 600, color: "var(--gold-deep)" }}>
               {loan ? fmt(loan.totalOutstandingBalance + (+charges || 0)) : "—"}
@@ -113,7 +119,7 @@ export function ReleaseReviewModalContent({ request, onSaved }: { request: Reque
           <label className="f">Verification Checklist</label>
           {checklistItems.map(([label, field, hint]) => (
             <label key={field} className="ccheck" style={{ padding: "6px 0" }}>
-              <input type="checkbox" checked={req[field]} disabled={saving || req.status !== "Pending"} onChange={(e) => toggle(field, e.target.checked)} />
+              <input type="checkbox" checked={req[field]} disabled={saving || !canDecide || req.status !== "Pending"} onChange={(e) => toggle(field, e.target.checked)} />
               <span className="mark" />
               <span>
                 <b>{label}</b>
@@ -123,7 +129,7 @@ export function ReleaseReviewModalContent({ request, onSaved }: { request: Reque
           ))}
         </div>
 
-        <div className="frow"><div><label className="f">Verification Notes</label><input className="inp" value={notes} onChange={(e) => setNotes(e.target.value)} onBlur={saveChargesAndNotes} placeholder="optional" /></div></div>
+        <div className="frow"><div><label className="f">Verification Notes</label><input className="inp" value={notes} disabled={!canDecide} onChange={(e) => setNotes(e.target.value)} onBlur={saveChargesAndNotes} placeholder="optional" /></div></div>
 
         {!checklistComplete && req.status === "Pending" && (
           <p className="notice" style={{ marginTop: 12 }}><Icon name="shield" /> All four checklist items must be ticked before this can be approved.</p>
@@ -135,7 +141,7 @@ export function ReleaseReviewModalContent({ request, onSaved }: { request: Reque
       </div>
       <div className="ft">
         <button className="btn ghost" onClick={closeModal}>Close</button>
-        {req.status === "Pending" && (
+        {req.status === "Pending" && canDecide && (
           <>
             <button className="btn danger" disabled={saving} onClick={() => decide("Rejected")}>Reject</button>
             <button className="btn" disabled={saving || !checklistComplete} onClick={() => decide("Approved")}>

@@ -17,6 +17,7 @@ import {
   type CashMovementView, type ExpenseView, type CashSummary,
 } from "@/modules/cash/services/cashService";
 import { ApiError } from "@/common/services/httpClient";
+import { useAuth } from "@/common/auth-context";
 
 function Kpi({ l, v, s, parts, cls }: {
   l: string; v: string | number; s?: string; parts?: [string, number][]; cls?: string;
@@ -49,7 +50,7 @@ function KpiParts({ parts }: { parts: [string, number][] }) {
   );
 }
 
-function MovementRow({ m, onToggleLoan }: { m: CashMovementView; onToggleLoan: (id: number) => void }) {
+function MovementRow({ m, canUpdate, onToggleLoan }: { m: CashMovementView; canUpdate: boolean; onToggleLoan: (id: number) => void }) {
   const isLoan = m.type === "in" && m.source === "Loan";
   return (
     <tr>
@@ -68,9 +69,11 @@ function MovementRow({ m, onToggleLoan }: { m: CashMovementView; onToggleLoan: (
         {isLoan ? (
           <>
             <span className={`chip ${m.status === "Closed" ? "gray" : "amber"}`}>{m.status || "Open"}</span>
-            <button className="btn plain sm" style={{ padding: "3px 8px", marginLeft: 6 }} onClick={() => onToggleLoan(m.id)}>
-              {m.status === "Closed" ? "Reopen" : "Mark Closed"}
-            </button>
+            {canUpdate && (
+              <button className="btn plain sm" style={{ padding: "3px 8px", marginLeft: 6 }} onClick={() => onToggleLoan(m.id)}>
+                {m.status === "Closed" ? "Reopen" : "Mark Closed"}
+              </button>
+            )}
           </>
         ) : "—"}
       </td>
@@ -78,8 +81,8 @@ function MovementRow({ m, onToggleLoan }: { m: CashMovementView; onToggleLoan: (
   );
 }
 
-function ExpenseRow({ e, onViewReceipt, onApprove, onReject }: {
-  e: ExpenseView; onViewReceipt: () => void; onApprove: () => void; onReject: () => void;
+function ExpenseRow({ e, canUpdate, onViewReceipt, onApprove, onReject }: {
+  e: ExpenseView; canUpdate: boolean; onViewReceipt: () => void; onApprove: () => void; onReject: () => void;
 }) {
   return (
     <tr>
@@ -99,7 +102,7 @@ function ExpenseRow({ e, onViewReceipt, onApprove, onReject }: {
           : <span style={{ color: "var(--muted)" }}>—</span>}
       </td>
       <td>
-        {e.status === "Pending" ? (
+        {e.status === "Pending" && canUpdate ? (
           <div style={{ display: "flex", gap: 4 }}>
             <button className="btn plain sm" style={{ padding: "3px 8px", color: "var(--green)" }} onClick={onApprove}>Approve</button>
             <button className="btn plain sm" style={{ padding: "3px 8px", color: "var(--red)" }} onClick={onReject}>Reject</button>
@@ -117,6 +120,12 @@ function ExpenseRow({ e, onViewReceipt, onApprove, onReject }: {
 export function Cash() {
   const { openModal } = useModal();
   const toast = useToast();
+  // Recording cash movements and expenses is a create; approving an expense,
+  // closing a loan movement and setting the opening balance are updates.
+  // Whatever the role can't do is hidden outright (see Customers.tsx).
+  const { can } = useAuth();
+  const canCreateCash = can("Cash_Management", "can_create_cash");
+  const canUpdateCash = can("Cash_Management", "can_update_cash");
   const today = new Date().toISOString().slice(0, 10);
 
   const [branches, setBranches] = useState<BranchView[]>([]);
@@ -252,9 +261,13 @@ export function Cash() {
       <div className="page-h">
         <div><h1>Cash-in-Hand &amp; Expenses</h1><p>Daily cash movements, opening balances and branch expenses — recorded, approved and reconciled</p></div>
         <div className="sp" />
-        <button className="btn ghost" onClick={() => openModal(<CashOutModalContent onSaved={refresh} />)}><Icon name="coin" /> Take Cash Out</button>
-        <button className="btn ghost" onClick={() => openModal(<AddCashModalContent onSaved={refresh} />)}><Icon name="coin" /> Add Cash</button>
-        <button className="btn" onClick={() => openModal(<ExpenseModalContent onSaved={refresh} />)}><Icon name="plus" /> Record Expense</button>
+        {canCreateCash && (
+          <>
+            <button className="btn ghost" onClick={() => openModal(<CashOutModalContent onSaved={refresh} />)}><Icon name="coin" /> Take Cash Out</button>
+            <button className="btn ghost" onClick={() => openModal(<AddCashModalContent onSaved={refresh} />)}><Icon name="coin" /> Add Cash</button>
+            <button className="btn" onClick={() => openModal(<ExpenseModalContent onSaved={refresh} />)}><Icon name="plus" /> Record Expense</button>
+          </>
+        )}
       </div>
       <hr className="gold-rule rule-sm" />
 
@@ -272,10 +285,14 @@ export function Cash() {
               placeholder="Search branch…"
             />
           </div>
-          {openingLocked ? (
+          {/* Without "can update cash" the figure is read-only: no Change
+              button, and no input/Set pair to record one with either. */}
+          {openingLocked || !canUpdateCash ? (
             <>
               <b style={{ marginLeft: 8, fontSize: 16, color: "var(--gold-deep)" }}>{fmt(summary?.openingCash || 0)}</b>
-              <button className="btn ghost sm" style={{ marginLeft: 8 }} onClick={() => { setOpeningInput(String(summary?.openingCash ?? "")); setEditingOpening(true); }}>Change</button>
+              {canUpdateCash && (
+                <button className="btn ghost sm" style={{ marginLeft: 8 }} onClick={() => { setOpeningInput(String(summary?.openingCash ?? "")); setEditingOpening(true); }}>Change</button>
+              )}
             </>
           ) : (
             <>
@@ -356,7 +373,7 @@ export function Cash() {
               <thead><tr><th>Date</th><th>Type</th><th>Source / Purpose</th><th>Bank</th><th className="num">Amount</th><th>Loan Status</th></tr></thead>
               <tbody>
                 {movements.length
-                  ? movements.map((m) => <MovementRow key={m.id} m={m} onToggleLoan={toggleCashLoan} />)
+                  ? movements.map((m) => <MovementRow key={m.id} m={m} canUpdate={canUpdateCash} onToggleLoan={toggleCashLoan} />)
                   : <tr><td colSpan={6} className="empty">No cash movements recorded yet. Use &quot;Add Cash&quot; or &quot;Take Cash Out&quot;.</td></tr>}
               </tbody>
             </table>
@@ -381,6 +398,7 @@ export function Cash() {
                     <ExpenseRow
                       key={e.id}
                       e={e}
+                      canUpdate={canUpdateCash}
                       onViewReceipt={() => openModal(<ReceiptViewModalContent e={e} />, true)}
                       onApprove={() => handleApprove(e.id)}
                       onReject={() => handleReject(e.id)}

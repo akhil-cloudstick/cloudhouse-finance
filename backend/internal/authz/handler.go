@@ -95,7 +95,7 @@ func (h *Handler) Matrix(c *gin.Context) {
 
 // UpdatePermissions is PATCH /employees/:id/permissions/:role_id —
 // applies a bare array of {permission_id, permission} in one transaction
-// (§7.3), gated "can change role permission".
+// (§7.3), gated "can update role".
 func (h *Handler) UpdatePermissions(c *gin.Context) {
 	roleID, err := httpx.IDParam(c, "role_id")
 	if err != nil {
@@ -128,7 +128,7 @@ func (h *Handler) UpdatePermissions(c *gin.Context) {
 }
 
 // SetAll is PATCH /employees/:id/permissions/:role_id/set-all?permission=true|false
-// (§7.3), gated "can change role permission".
+// (§7.3), gated "can update role".
 func (h *Handler) SetAll(c *gin.Context) {
 	roleID, err := httpx.IDParam(c, "role_id")
 	if err != nil {

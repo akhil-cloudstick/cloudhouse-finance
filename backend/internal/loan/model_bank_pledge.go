@@ -48,15 +48,18 @@ type BankPledgeRecord struct {
 	// Nil for pledges recorded before this linkage existed.
 	CashMovementID *uint `json:"cashMovementId,omitempty"`
 
-	// ExpenseID links to the auto-approved Expense entry mirroring this
-	// pledge's cash-in, so the amount also shows up in the Expenses/reports
-	// view. Nil for pledges recorded before this linkage existed.
+	// ExpenseID is retired and always nil on new pledges: the bank's advance
+	// is borrowing, not spending, so pledging books cash in only and writes
+	// no expense (see loan.CashRecorder). The column is kept because
+	// internal/migrate.purgeBankPledgeMirrorExpenses nulls the old links
+	// rather than dropping them, and older pledges may predate that run.
 	ExpenseID *uint `json:"expenseId,omitempty"`
 
 	// ReleaseCashMovementID/ReleaseExpenseID link to the cash-out movement
-	// and mirrored expense entry created when the gold is released from the
+	// and the release expense created when the gold is released from the
 	// bank (see loan.CashRecorder.RecordBankPledgeCashOut/
-	// RecordBankPledgeReleaseExpense). Both nil until release.
+	// RecordBankPledgeReleaseExpense) — that release expense is the only one
+	// in the pledge cycle. Both nil until release.
 	ReleaseCashMovementID *uint `json:"releaseCashMovementId,omitempty"`
 	ReleaseExpenseID      *uint `json:"releaseExpenseId,omitempty"`
 

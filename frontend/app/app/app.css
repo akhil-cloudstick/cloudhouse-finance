@@ -759,6 +759,12 @@ table.tbl{width:100%;border-collapse:collapse;font-size:13.5px;min-width:640px}
 .perm-list-rows{display:flex;flex-direction:column}
 .perm-list-row{padding:10px 16px!important;border-bottom:1px solid #f2ead2}
 .perm-list-row:last-child{border-bottom:0}
+/* The row aligns its checkbox to the TOP of a two-line block (name +
+ * description), so the box and the first line have to share a line box or
+ * the box reads as sitting high. Both are 16px tall and start at the same
+ * y, which puts their centres on the same pixel — no nudge constant. */
+.perm-list-row .mark{margin-top:0}
+.perm-list-row b{display:block;line-height:16px}
 .cradio,.ccheck{display:flex;gap:8px;align-items:flex-start;cursor:pointer;position:relative}
 .cradio input,.ccheck input{position:absolute;opacity:0;width:16px;height:16px;margin:0;cursor:pointer}
 .cradio .mark,.ccheck .mark{

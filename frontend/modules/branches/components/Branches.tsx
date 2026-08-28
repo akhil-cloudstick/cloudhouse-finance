@@ -7,12 +7,18 @@ import { Icon } from "@/common/components/Icon";
 import { BranchModalContent } from "@/common/components/modals/BranchModal";
 import { ConfirmModalContent } from "@/common/components/modals/ConfirmModal";
 import { deactivateBranch, listBranches, type BranchView } from "@/modules/branches/services/branchService";
+import { useAuth } from "@/common/auth-context";
 
 /* Centralized branch management — admin-only. Loads real data from the Go
  * backend (`GET /api/v1/branches`), following the Schemes.tsx pattern. */
 export function Branches() {
   const { openModal } = useModal();
   const toast = useToast();
+  // Hidden rather than disabled when the role lacks the grant — see
+  // Customers.tsx. Deactivating a branch counts as an update, not a delete.
+  const { can } = useAuth();
+  const canCreateBranches = can("Branch_Management", "can_create_branch");
+  const canUpdateBranches = can("Branch_Management", "can_update_branch");
   const [branches, setBranches] = useState<BranchView[] | null>(null);
   const [error, setError] = useState("");
 
@@ -52,7 +58,7 @@ export function Branches() {
       <div className="page-h">
         <div><h1>Branch Management</h1><p>Add, edit and manage every branch location — customers, employees, loans and expenses all link back here</p></div>
         <div className="sp" />
-        <button className="btn" onClick={() => openModal(<BranchModalContent onSaved={onSaved} />)}><Icon name="plus" /> Add Branch</button>
+        {canCreateBranches && <button className="btn" onClick={() => openModal(<BranchModalContent onSaved={onSaved} />)}><Icon name="plus" /> Add Branch</button>}
       </div>
       <hr className="gold-rule" />
       {error && (
@@ -86,8 +92,8 @@ export function Branches() {
                     <td>{b.isActive ? <span className="chip green">Active</span> : <span className="chip gray">Inactive</span>}</td>
                     <td>
                       <div style={{ display: "flex", gap: 12 }}>
-                        <a href="#" onClick={(e) => { e.preventDefault(); openModal(<BranchModalContent branch={b} onSaved={onSaved} />); }}>Edit</a>
-                        {b.isActive && (
+                        {canUpdateBranches && <a href="#" onClick={(e) => { e.preventDefault(); openModal(<BranchModalContent branch={b} onSaved={onSaved} />); }}>Edit</a>}
+                        {canUpdateBranches && b.isActive && (
                           <a href="#" style={{ color: "var(--red)" }} onClick={(e) => { e.preventDefault(); onDeactivate(b); }}>Deactivate</a>
                         )}
                       </div>

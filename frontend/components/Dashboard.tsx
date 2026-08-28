@@ -72,9 +72,11 @@ export function Dashboard() {
   const { loans } = useLoans();
   const { can } = useAuth();
   // Gated on the real permission (not a hardcoded role check) — the backend
-  // already 403s a POST /loans without "can change loan", hide the button
+  // already 403s a POST /loans without "can create loan", hide the button
   // rather than let a user click into a form that can only ever fail.
   const canCreateLoans = can("Loan_Management", "can_create_loan");
+  const canCreateRates = can("Gold_Rate_Management", "can_create_gold_rate");
+  const canCreateCustomers = can("Customer_Management", "can_create_customer");
   const { latest } = useGoldRates();
   const { openModal } = useModal();
 
@@ -204,13 +206,17 @@ export function Dashboard() {
       <div className="page-h">
         <div><h1>Business Overview</h1><p>{todayLabel}</p></div>
         <div className="sp" />
-        <button className="btn" onClick={() => openModal(<RateModalContent />)}>
-          <Icon name="coin" /> Set Today&apos;s Gold Rate
-        </button>
+        {canCreateRates && (
+          <button className="btn" onClick={() => openModal(<RateModalContent />)}>
+            <Icon name="coin" /> Set Today&apos;s Gold Rate
+          </button>
+        )}
         {canCreateLoans && <a className="btn ghost" href="#newloan"><Icon name="plus" /> New Loan</a>}
-        <button className="btn ghost" onClick={() => openModal(<RegisterCustomerModalContent onSaved={refreshCustomers} />)}>
-          <Icon name="user" /> Register Customer
-        </button>
+        {canCreateCustomers && (
+          <button className="btn ghost" onClick={() => openModal(<RegisterCustomerModalContent onSaved={refreshCustomers} />)}>
+            <Icon name="user" /> Register Customer
+          </button>
+        )}
       </div>
       <hr className="gold-rule" />
 

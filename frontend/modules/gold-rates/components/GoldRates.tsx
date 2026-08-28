@@ -7,6 +7,7 @@ import { RateModalContent } from "@/common/components/modals/RateModal";
 import { Icon } from "@/common/components/Icon";
 import { fmt } from "@/common/utils/format";
 import { listGoldRatesPage, type GoldRateView } from "@/modules/gold-rates/services/goldRateService";
+import { useAuth } from "@/common/auth-context";
 
 function RateTile({ k, r }: { k: string; r: number }) {
   return (
@@ -24,6 +25,10 @@ function RateTile({ k, r }: { k: string; r: number }) {
 export function GoldRates() {
   const { latest } = useGoldRates();
   const { openModal } = useModal();
+  // Hidden rather than disabled when the role cannot record a rate — see
+  // Customers.tsx.
+  const { can } = useAuth();
+  const canCreateRates = can("Gold_Rate_Management", "can_create_gold_rate");
 
   const [page, setPage] = useState(1);
   const [rows, setRows] = useState<GoldRateView[]>([]);
@@ -56,9 +61,11 @@ export function GoldRates() {
       <div className="page-h">
         <div><h1>Gold Rates</h1><p>Daily published rates by purity · full history maintained for audit</p></div>
         <div className="sp"></div>
-        <button className="btn" onClick={() => openModal(<RateModalContent />)}>
-          <Icon name="coin" /> Set Today&apos;s Rate
-        </button>
+        {canCreateRates && (
+          <button className="btn" onClick={() => openModal(<RateModalContent />)}>
+            <Icon name="coin" /> Set Today&apos;s Rate
+          </button>
+        )}
       </div>
       <hr className="gold-rule" />
       <div className="rates3" style={{ maxWidth: 720, marginBottom: 20 }}>

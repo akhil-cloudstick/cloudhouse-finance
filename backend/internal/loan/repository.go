@@ -82,12 +82,18 @@ type LoanFilter struct {
 	OpenedFrom *time.Time
 	OpenedTo   *time.Time
 
-	// ExcludeBankPledged drops loans whose gold is currently sitting with a
-	// bank (BankPledgeStatusPledged) — those cannot be re-pledged again — and
-	// loans still StatusPendingApproval, whose gold isn't disbursed/sanctioned
-	// yet and so isn't in the branch's custody to hand to a bank. Together
-	// this is the bank re-pledge loan picker's eligible set, computed
-	// server-side rather than fetched in full and filtered in the browser.
+	// ExcludeBankPledged keeps only loans that may still be pledged to a
+	// bank: BankPledgeStatus must be exactly NotPledged (Pledged means one is
+	// already open; Released means the loan has already had its one pledge —
+	// a bank pledge is once per loan, for its lifetime), and the loan's own
+	// status must not be in bankPledgeIneligibleStatuses, whose gold is not
+	// in the branch's custody to hand over (closed/released to the customer,
+	// release in flight, auctioned, or not disbursed yet).
+	//
+	// This is the bank re-pledge loan picker's eligible set, computed
+	// server-side rather than fetched in full and filtered in the browser,
+	// and deliberately the same rule Service.RecordBankPledge enforces so the
+	// picker never offers a loan the save would reject.
 	ExcludeBankPledged bool
 
 	// BankPledgeStatus, when set, matches Loan.BankPledgeStatus exactly —
@@ -138,8 +144,8 @@ func (r *Repository) FindAll(f LoanFilter) ([]Loan, error) {
 		q = q.Where("opened_date < ?", startOfDay(*f.OpenedTo).AddDate(0, 0, 1))
 	}
 	if f.ExcludeBankPledged {
-		q = q.Where("bank_pledge_status <> ?", BankPledgeStatusPledged)
-		q = q.Where("status <> ?", StatusPendingApproval)
+		q = q.Where("bank_pledge_status = ?", BankPledgeStatusNotPledged)
+		q = q.Where("status NOT IN ?", bankPledgeIneligibleStatuses)
 	}
 	if f.BankPledgeStatus != "" {
 		q = q.Where("bank_pledge_status = ?", f.BankPledgeStatus)

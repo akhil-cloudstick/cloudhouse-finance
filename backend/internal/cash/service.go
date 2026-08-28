@@ -54,9 +54,9 @@ type RecordExpenseInput struct {
 }
 
 // MovementService implements cash-movement business rules. It also carries
-// expenseRepo so it can satisfy loan.CashRecorder's mirrored-expense methods
-// (RecordBankPledgeExpense/RecordBankPledgeReleaseExpense) without loan
-// having to depend on a second cash sub-service.
+// expenseRepo so it can satisfy loan.CashRecorder's expense-writing method
+// (RecordBankPledgeReleaseExpense) without loan having to depend on a second
+// cash sub-service.
 type MovementService struct {
 	repo        *MovementRepository
 	expenseRepo *ExpenseRepository
@@ -297,20 +297,15 @@ func (s *MovementService) RecordAuctionSurplusCashOut(loanID uint, loanNumber st
 	return rec.ID, nil
 }
 
-// RecordBankPledgeExpense mirrors a bank pledge's cash-in as an
-// auto-approved Expense entry (loan.CashRecorder, called from
-// loan.Service.RecordBankPledge) so the amount also shows up in the
-// Expenses register/reports. Mode is "Bank" (not "Cash") so it is excluded
-// from ExpenseRepository.SumCashByDate and doesn't double-count against the
-// Expected Cash in Hand figure, which already reflects the matching cash-in
-// movement.
-func (s *MovementService) RecordBankPledgeExpense(loanID uint, bankName string, amount float64, occurredOn time.Time, branchID uint) (uint, error) {
-	return s.recordSystemExpense("Bank Pledge", bankName, amount, occurredOn, branchID)
-}
-
-// RecordBankPledgeReleaseExpense mirrors a bank pledge's release/cash-out as
+// RecordBankPledgeReleaseExpense books a bank pledge's release/cash-out as
 // an auto-approved Expense entry (loan.CashRecorder, called from
-// loan.Service.ReleaseBankPledge), alongside RecordBankPledgeCashOut.
+// loan.Service.ReleaseBankPledge), alongside RecordBankPledgeCashOut. This
+// is the ONLY expense in the pledge cycle — pledging books cash in and
+// nothing else, since the bank's advance is borrowing rather than spending.
+//
+// Mode is "Bank" (not "Cash") so it is excluded from
+// ExpenseRepository.SumCashByDate and doesn't double-count against Expected
+// Cash in Hand, which already reflects the matching cash-out movement.
 func (s *MovementService) RecordBankPledgeReleaseExpense(loanID uint, bankName string, amount float64, occurredOn time.Time, branchID uint) (uint, error) {
 	return s.recordSystemExpense("Bank Pledge Release", bankName, amount, occurredOn, branchID)
 }

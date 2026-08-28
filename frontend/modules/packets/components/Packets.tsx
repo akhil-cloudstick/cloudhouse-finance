@@ -10,6 +10,7 @@ import { listLockers, type LockerView } from "@/modules/lockers/services/lockerS
 import { listPacketsPage, getPacketByCode, type PacketView } from "@/modules/packets/services/packetService";
 import { Select } from "@/common/components/ui/Select";
 import { ApiError } from "@/common/services/httpClient";
+import { useAuth } from "@/common/auth-context";
 
 /* Mirrors packet.Status* in backend/internal/packet/model.go. */
 const PACKET_STATUS_OPTIONS = [
@@ -22,7 +23,7 @@ const PACKET_STATUS_OPTIONS = [
   { value: "Returned", label: "Returned" },
 ];
 
-function LockerCard({ l, packets, onChanged }: { l: LockerView; packets: PacketView[]; onChanged: () => void }) {
+function LockerCard({ l, packets, canUpdate, onChanged }: { l: LockerView; packets: PacketView[]; canUpdate: boolean; onChanged: () => void }) {
   const { openModal } = useModal();
   const inLocker = packets.filter((p) => p.currentLockerId === l.id);
 
@@ -30,7 +31,7 @@ function LockerCard({ l, packets, onChanged }: { l: LockerView; packets: PacketV
     <div className="card gtop">
       <div className="hd"><h3>{l.code}</h3><div className="sp" />
         <span className={`chip ${l.isActive ? "green" : "gray"}`}>{l.isActive ? "Active" : "Inactive"}</span>
-        <button className="btn ghost sm" style={{ marginLeft: 8 }} onClick={() => openModal(<LockerModalContent key={l.id} locker={l} onSaved={onChanged} />)}>Edit</button>
+        {canUpdate && <button className="btn ghost sm" style={{ marginLeft: 8 }} onClick={() => openModal(<LockerModalContent key={l.id} locker={l} onSaved={onChanged} />)}>Edit</button>}
       </div>
       <div className="bd">
         <div className="kv" style={{ gridTemplateColumns: "1fr 1fr" }}>
@@ -61,6 +62,12 @@ function LockerCard({ l, packets, onChanged }: { l: LockerView; packets: PacketV
  * and backend/internal/locker. */
 export function Packets() {
   const { openModal } = useModal();
+  // Lockers are their own module in the permission catalogue, separate from
+  // the packets stored in them — hidden, not disabled, when not granted
+  // (see Customers.tsx).
+  const { can } = useAuth();
+  const canCreateLockers = can("Locker_Management", "can_create_locker");
+  const canUpdateLockers = can("Locker_Management", "can_update_locker");
 
   const [packets, setPackets] = useState<PacketView[] | null>(null);
   const [lockers, setLockers] = useState<LockerView[]>([]);
@@ -122,7 +129,7 @@ export function Packets() {
           onChange={(e) => { setLookup(e.target.value); setLookupErr(""); }}
           onKeyDown={onLookup}
         /></div>
-        <button className="btn" onClick={() => openModal(<LockerModalContent key="new" onSaved={load} />)}><Icon name="plus" /> Add Locker</button>
+        {canCreateLockers && <button className="btn" onClick={() => openModal(<LockerModalContent key="new" onSaved={load} />)}><Icon name="plus" /> Add Locker</button>}
       </div>
       {lookupErr && <p style={{ color: "var(--red)", fontSize: 12.5, marginTop: -4, marginBottom: 8 }}>{lookupErr}</p>}
       <hr className="gold-rule" />
@@ -196,7 +203,7 @@ export function Packets() {
             neither this column nor the page grows past the packets card. */}
         <div style={{ minHeight: 0, height: "100%", position: "relative" }}>
           <div className="grid scroll-hidden" style={{ position: "absolute", inset: 0, alignContent: "start" }}>
-            {lockers.map((l) => <LockerCard key={l.id} l={l} packets={packets || []} onChanged={load} />)}
+            {lockers.map((l) => <LockerCard key={l.id} l={l} packets={packets || []} canUpdate={canUpdateLockers} onChanged={load} />)}
           </div>
         </div>
       </div>
