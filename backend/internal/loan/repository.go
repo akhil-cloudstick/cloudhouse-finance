@@ -83,12 +83,14 @@ type LoanFilter struct {
 	OpenedTo   *time.Time
 
 	// ExcludeBankPledged keeps only loans that may still be pledged to a
-	// bank: BankPledgeStatus must be exactly NotPledged (Pledged means one is
-	// already open; Released means the loan has already had its one pledge —
-	// a bank pledge is once per loan, for its lifetime), and the loan's own
-	// status must not be in bankPledgeIneligibleStatuses, whose gold is not
-	// in the branch's custody to hand over (closed/released to the customer,
-	// release in flight, auctioned, or not disbursed yet).
+	// bank: BankPledgeStatus must not be Pledged (one is already open with a
+	// bank), and the loan's own status must not be in
+	// bankPledgeIneligibleStatuses, whose gold is not in the branch's custody
+	// to hand over (closed/released to the customer, release in flight,
+	// auctioned, or not disbursed yet). Released is deliberately ELIGIBLE —
+	// it means the gold came back from the bank, so the loan may be pledged
+	// again (see bankPledgeRefusal for why the older once-per-lifetime rule
+	// was dropped).
 	//
 	// This is the bank re-pledge loan picker's eligible set, computed
 	// server-side rather than fetched in full and filtered in the browser,
@@ -144,7 +146,7 @@ func (r *Repository) FindAll(f LoanFilter) ([]Loan, error) {
 		q = q.Where("opened_date < ?", startOfDay(*f.OpenedTo).AddDate(0, 0, 1))
 	}
 	if f.ExcludeBankPledged {
-		q = q.Where("bank_pledge_status = ?", BankPledgeStatusNotPledged)
+		q = q.Where("bank_pledge_status <> ?", BankPledgeStatusPledged)
 		q = q.Where("status NOT IN ?", bankPledgeIneligibleStatuses)
 	}
 	if f.BankPledgeStatus != "" {
@@ -399,6 +401,21 @@ func (r *BankPledgeRepository) FindByID(id uint) (*BankPledgeRecord, error) {
 		return nil, err
 	}
 	return &p, nil
+}
+
+// HasActive reports whether the loan has any pledge record still in the
+// Active state. Loan.BankPledgeStatus is a stored *copy* of this fact, and
+// the two can disagree: before RecordBankPledge gained its once-per-loan
+// guard a loan could hold two Active records, and releasing one overwrote
+// the loan-level string while leaving the other open. Every guard that must
+// not be fooled by that drift (CompleteRelease, RecordBankPledge) asks the
+// records through here rather than reading the string.
+func (r *BankPledgeRepository) HasActive(loanID uint) (bool, error) {
+	var count int64
+	err := r.db.Model(&BankPledgeRecord{}).
+		Where("loan_id = ? AND status = ?", loanID, BankPledgeStatusRecordActive).
+		Count(&count).Error
+	return count > 0, err
 }
 
 func (r *BankPledgeRepository) FindByLoanID(loanID uint) ([]BankPledgeRecord, error) {

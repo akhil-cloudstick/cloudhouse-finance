@@ -29,20 +29,39 @@ the actual git history at the time of writing; update it as new commits land.
   committed, and pledging at that point deadlocks it, since `CompleteRelease`
   refuses while a pledge is active.
 
-  **A bank pledge is also now once per loan, for its lifetime.**
-  `bankPledgeStatus` must be exactly `Not Pledged`: `Bank Pledged` is refused
-  with `ErrBankPledgeStillActive` (a second pledge previously overwrote
-  `bankPledgeStatus` and orphaned the first with no release path), and
-  `Released` with `ErrBankPledgeAlreadyUsed` — the gold came back from the
-  bank and that loan has had its turn.
+  **Only an open pledge blocks a new one.** `Bank Pledged` is refused with
+  `ErrBankPledgeStillActive` — a second pledge previously overwrote
+  `bankPledgeStatus` and orphaned the first with no release path. `Released`
+  is eligible: the gold has come back *from* the bank, so the loan may be
+  pledged again and can cycle pledge → release → pledge. (A stricter
+  once-per-loan-lifetime rule shipped first, with an `ErrBankPledgeAlreadyUsed`
+  error; the product owner reversed it, and that error is gone. The
+  orphaning risk it guarded against is now handled directly by the
+  `BankPledgeRepository.HasActive` record check.)
 
-  The rule lives in one place, `loan.CanAcceptBankPledge` /
-  `bankPledgeIneligibleStatuses`, and is applied at all four entry points:
+  The rule lives in one place, `loan.bankPledgeRefusal` over
+  `loan.CanAcceptBankPledge` / `bankPledgeIneligibleStatuses`, and is applied
+  at all four entry points:
   the service (`ErrLoanNotPledgeable`), `LoanFilter.ExcludeBankPledged` so the
   "New Re-Pledge" picker never offers a loan the save would reject,
   `LoanDetail.tsx`'s "Repledge to Bank" button, and `PacketDetail.tsx`'s
   packet-side button — the last checked after the loan loads, since a packet
   sitting in a locker is not on its own proof the loan is still pledgeable.
+
+- **A loan can no longer be closed while a bank pledge is still open against
+  it.** `CompleteRelease` gated only on the loan's `bankPledgeStatus` column,
+  which is a stored copy of what the `bank_pledge_records` rows say. The two
+  can disagree — before the guard above existed a loan could hold two `Active`
+  pledge records, and releasing either one overwrote the loan-level string
+  while leaving the other open — so the release guard passed on a loan that
+  still had a live pledge. That is the likely route by which a `Closed` loan
+  in the dev database has a ₹30,000 pledge open against it. `CompleteRelease`
+  and `RecordBankPledge` now both ask the pledge records via
+  `BankPledgeRepository.HasActive` in addition to reading the string. The
+  status matrix itself moved into pure `loan.bankPledgeRefusal` and now has a
+  table test (`internal/loan/bank_pledge_test.go`), which the original change
+  shipped without. Enforcement only — no migration, and the already-drifted
+  rows are deliberately left for the product owner to decide on.
 
 - **Bank pledges are no longer counted as expenses.** Recording a pledge wrote
   the same amount twice — a cash-in `CashMovement` *and* a mirrored
