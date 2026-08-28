@@ -589,7 +589,7 @@ export function NewLoan() {
   // page-level route guard (app/app/page.tsx's ROUTE_PERMISSIONS) already
   // blocks direct navigation to #newloan, this is a defensive second check
   // in case this component is ever rendered another way.
-  if (!can("Loan_Management", "can_change_loan")) {
+  if (!can("Loan_Management", "can_create_loan")) {
     return (
       <div className="empty">
         You don&apos;t have permission to create a loan. Contact a Loan Operator, Branch Manager, or Administrator.

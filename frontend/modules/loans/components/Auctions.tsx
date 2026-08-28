@@ -88,8 +88,13 @@ export function printAuctionLetter(loan: LoanView, toast: (m: string) => void) {
  * just read `l.status`. */
 function AuctionCard({ l, onLoanChanged }: { l: LoanView; onLoanChanged: () => void }) {
   const { openModal } = useModal();
-  const { role } = useAuth();
+  const { role, can } = useAuth();
   const toast = useToast();
+  // Auctions are a facet of a loan, so every step here (eligible → notice →
+  // schedule → sale → settle) needs "can update loan"; without it the card
+  // shows the pipeline but offers no actions (see Customers.tsx). Printing
+  // the auction letter isn't gated — it only renders what's already shown.
+  const canAct = can("Loan_Management", "can_update_loan");
   const [rec, setRec] = useState<AuctionRecordView | null | undefined>(undefined); // undefined = loading
   const [starting, setStarting] = useState(false);
 
@@ -122,7 +127,7 @@ function AuctionCard({ l, onLoanChanged }: { l: LoanView; onLoanChanged: () => v
   const stageIndex = rec ? (AUCTION_STAGES as readonly string[]).indexOf(rec.stage) : -1;
 
   const decision = pendingDecision(rec);
-  const canDecide = !!role && (decision?.kind === "Shortfall"
+  const canDecide = !!role && canAct && (decision?.kind === "Shortfall"
     ? SHORTFALL_DECISION_ROLES.includes(role)
     : PARTIAL_DECISION_ROLES.includes(role));
   // While an escalation is open the pipeline is frozen server-side; hiding the
@@ -222,20 +227,20 @@ function AuctionCard({ l, onLoanChanged }: { l: LoanView; onLoanChanged: () => v
           </button>
         )}
 
-        {!frozen && (rec === undefined ? null : !rec ? (
+        {!frozen && canAct && (rec === undefined ? null : !rec ? (
           <button className="btn sm" disabled={starting} onClick={doMarkEligible}><Icon name="gavel" /> {starting ? "Starting…" : "Mark Auction Eligible"}</button>
         ) : rec.stage === "AuctionEligible" || rec.stage === "NoticeIssued" ? (
           <button className="btn sm" onClick={() => openModal(<IssueNoticeModalContent loan={l} onSaved={onSaved} />)}><Icon name="doc" /> Issue Notice</button>
         ) : null)}
-        {!frozen && rec && rec.stage === "NoticeIssued" && (
+        {!frozen && canAct && rec && rec.stage === "NoticeIssued" && (
           <button className="btn sm" onClick={() => openModal(<ScheduleAuctionModalContent loan={l} onSaved={onSaved} />)}><Icon name="clock" /> Schedule Auction</button>
         )}
-        {!frozen && rec && rec.stage === "AuctionScheduled" && (
+        {!frozen && canAct && rec && rec.stage === "AuctionScheduled" && (
           <button className="btn sm" onClick={() => openModal(<RecordSaleModalContent loan={l} onSaved={onSaved} />)}><Icon name="gavel" /> Record Sale</button>
         )}
         {/* Settle is the surplus-disposition step, so it only applies when the
           * sale actually left a surplus and the loan is not balance-due. */}
-        {!frozen && rec && rec.stage === "Auctioned" && !balanceDue && hasUndisposedSurplus(rec) && (
+        {!frozen && canAct && rec && rec.stage === "Auctioned" && !balanceDue && hasUndisposedSurplus(rec) && (
           <button className="btn sm" onClick={() => openModal(<SettleAuctionModalContent loan={l} rec={rec} onSaved={onSaved} />)}><Icon name="check" /> Settle Surplus</button>
         )}
         {rec && (rec.stage === "Auctioned" || rec.stage === "Settled") && (

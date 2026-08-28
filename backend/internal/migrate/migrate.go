@@ -178,6 +178,10 @@ func Run(db *gorm.DB) error {
 		return err
 	}
 
+	if err := purgeBankPledgeMirrorExpenses(db); err != nil {
+		return err
+	}
+
 	// Role/permission catalogue — see internal/authz/catalogue.go for the
 	// single copy of the role list, permission catalogue and restrictions
 	// both this server and `cmd/migrate` seed from.
@@ -200,6 +204,16 @@ func Run(db *gorm.DB) error {
 		return err
 	}
 	log.Printf("permissions seed: %d create/update/delete role_permissions row(s) back-filled from existing change grants", splitInserted)
+	// Runs immediately after the copy-forward above and BEFORE BackfillGrants:
+	// the blanket "can change <noun>" permissions are gone from the catalogue,
+	// so their leftover rows are dropped once their grants have been carried
+	// onto create/update/delete (and, for role permissions, onto "can update
+	// role") — see authz.Repository.PurgeLegacyChangePermissions.
+	purged, err := authzRepo.PurgeLegacyChangePermissions()
+	if err != nil {
+		return err
+	}
+	log.Printf("permissions seed: %d legacy \"can change ...\" permission(s) purged", purged)
 	inserted, err := authzRepo.BackfillGrants()
 	if err != nil {
 		return err
@@ -353,6 +367,46 @@ func backfillBankPledgeBankID(db *gorm.DB) error {
 			return err
 		}
 		log.Printf("backfilled bank_pledge_records: %d row(s) -> bank %q (id=%d)", db.RowsAffected, name, b.ID)
+	}
+	return nil
+}
+
+// purgeBankPledgeMirrorExpenses removes the auto-generated "Bank Pledge"
+// expense rows that RecordBankPledge used to write alongside its cash-in
+// movement. The bank's advance against pledged gold is borrowing, not
+// spending, so mirroring it as an expense double-counted a single pledge as
+// both Cash In and Expenses on the same day and inflated the expense
+// register, the expense-cashflow report and the dashboard's expense donut.
+// Pledging now books cash in only; the expense is booked at release
+// (see loan.CashRecorder / cash.MovementService.RecordBankPledgeReleaseExpense).
+//
+// Both predicates matter. Category alone would also match a manually
+// entered expense that staff happened to file under "Bank Pledge"; the
+// Remarks string is written only by cash.recordSystemExpense, so requiring
+// it confines the delete to system-generated rows. "Bank Pledge Release"
+// rows are a different category and are deliberately left alone.
+//
+// Idempotent: once the rows are gone the DELETE matches nothing. The
+// matching bank_pledge_records.expense_id links are nulled first so no
+// pledge is left pointing at a deleted expense.
+func purgeBankPledgeMirrorExpenses(db *gorm.DB) error {
+	const mirrorRemark = "Auto-recorded from bank pledge workflow"
+
+	if err := db.Exec(`
+		UPDATE bank_pledge_records SET expense_id = NULL
+		WHERE expense_id IS NOT NULL AND expense_id IN (
+			SELECT id FROM expenses WHERE category = ? AND remarks = ?
+		)`, "Bank Pledge", mirrorRemark).Error; err != nil {
+		return err
+	}
+
+	res := db.Exec(`DELETE FROM expenses WHERE category = ? AND remarks = ?`,
+		"Bank Pledge", mirrorRemark)
+	if res.Error != nil {
+		return res.Error
+	}
+	if res.RowsAffected > 0 {
+		log.Printf("purged %d mirrored bank-pledge expense row(s) — pledges are cash-in only", res.RowsAffected)
 	}
 	return nil
 }

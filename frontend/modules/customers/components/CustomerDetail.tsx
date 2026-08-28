@@ -126,11 +126,17 @@ function ProofLink({ label, url }: { label: string; url: string }) {
 export function CustomerDetail({ id }: { id?: string }) {
   const { openModal } = useModal();
   const toast = useToast();
-  const { role } = useAuth();
+  const { role, can } = useAuth();
   // Cashier is outside the loan creation/approval flow — the backend
   // already 403s a Cashier's POST /loans, hide the button rather than let
-  // them click into a form that can only ever fail.
-  const canCreateLoans = role !== "Cashier";
+  // them click into a form that can only ever fail. The permission grant
+  // has to hold too.
+  const canCreateLoans = role !== "Cashier" && can("Loan_Management", "can_create_loan");
+  // KYC verification writes back to the customer record, so it's an update;
+  // logging an extension/release request against a loan is a loan update.
+  // Anything not granted is hidden, not disabled (see Customers.tsx).
+  const canUpdateCustomers = can("Customer_Management", "can_update_customer");
+  const canUpdateLoans = can("Loan_Management", "can_update_loan");
 
   const [profile, setProfile] = useState<Customer360View | null>(null);
   const [error, setError] = useState("");
@@ -309,8 +315,8 @@ export function CustomerDetail({ id }: { id?: string }) {
           <div><h1 style={{ fontSize: 26 }}>{c.name}</h1><p>{c.code} · {c.branchName} branch</p></div>
         </div>
         <div className="sp" />
-        <button className="btn ghost sm" onClick={openEditCustomer}><Icon name="edit" /> Edit Customer</button>
-        <button className="btn ghost sm" onClick={openRequestPicker}><Icon name="unlock" /> Request Extension / Release</button>
+        {canUpdateCustomers && <button className="btn ghost sm" onClick={openEditCustomer}><Icon name="edit" /> Edit Customer</button>}
+        {canUpdateLoans && <button className="btn ghost sm" onClick={openRequestPicker}><Icon name="unlock" /> Request Extension / Release</button>}
         {canCreateLoans && <a className="btn sm" href="#newloan"><Icon name="plus" /> New Loan</a>}
       </div>
       <hr className="gold-rule rule-xs" />
@@ -341,7 +347,7 @@ export function CustomerDetail({ id }: { id?: string }) {
               <div className="kv">
                 <div className="i"><div className="k">PAN</div><div className="v" style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
                   <span>{c.pan || "—"} · <StatusChip status={c.panStatus} /></span>
-                  {c.pan && c.panStatus !== "Verified" && (
+                  {canUpdateCustomers && c.pan && c.panStatus !== "Verified" && (
                     <button className="btn ghost sm" style={{ padding: "2px 8px" }} onClick={verifyPan} disabled={verifyingPan}>
                       {verifyingPan ? "Verifying…" : "Verify PAN"}
                     </button>
@@ -349,12 +355,12 @@ export function CustomerDetail({ id }: { id?: string }) {
                 </div></div>
                 <div className="i"><div className="k">Aadhaar</div><div className="v" style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
                   <span>{c.aadhaarLast4 ? "XXXX-XXXX-" + c.aadhaarLast4 : "—"} · <StatusChip status={c.aadhaarStatus} /></span>
-                  {c.aadhaarStatus !== "Verified" && !aadhaarStarted && (
+                  {canUpdateCustomers && c.aadhaarStatus !== "Verified" && !aadhaarStarted && (
                     <button className="btn ghost sm" style={{ padding: "2px 8px" }} onClick={sendAadhaarVerificationLink} disabled={startingAadhaar}>
                       {startingAadhaar ? "Starting…" : "Verify via DigiLocker"}
                     </button>
                   )}
-                  {c.aadhaarStatus !== "Verified" && aadhaarStarted && (
+                  {canUpdateCustomers && c.aadhaarStatus !== "Verified" && aadhaarStarted && (
                     <button className="btn ghost sm" style={{ padding: "2px 8px" }} onClick={checkAadhaarStatus} disabled={checkingAadhaar}>
                       {checkingAadhaar ? "Checking…" : "Check Status"}
                     </button>

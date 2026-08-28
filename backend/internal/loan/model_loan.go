@@ -117,11 +117,50 @@ const (
 const SanctionStageAuthorizedManagement = "AuthorizedManagement"
 
 // Bank-pledge status values for Loan.BankPledgeStatus.
+//
+// BankPledgeStatusReleased means the gold came back FROM the bank, not that
+// it went back to the customer (that is Loan.Status = StatusClosed, see
+// Service.CompleteRelease). Either way the loan is spent as far as bank
+// pledging goes: a bank pledge is ONCE PER LOAN for its lifetime, so only
+// BankPledgeStatusNotPledged may start one (see Service.RecordBankPledge and
+// LoanFilter.ExcludeBankPledged).
 const (
 	BankPledgeStatusNotPledged = "Not Pledged"
 	BankPledgeStatusPledged    = "Bank Pledged"
 	BankPledgeStatusReleased   = "Released"
 )
+
+// bankPledgeIneligibleStatuses lists the loan statuses whose gold is no
+// longer the branch's to hand to a bank, so a re-pledge must be refused:
+//
+//   - StatusClosed — gold has been released back to the customer.
+//   - StatusClosureRequested — release is approved/in flight and the gold is
+//     committed to the customer; pledging it now would deadlock the release
+//     (CompleteRelease refuses while a pledge is active).
+//   - StatusAuctioned / StatusAuctionedBalanceDue — the gold has been sold.
+//   - StatusPendingApproval — not disbursed yet, so never in custody.
+//
+// Enforced in Service.RecordBankPledge and mirrored by
+// LoanFilter.ExcludeBankPledged so the picker never offers what the service
+// would reject.
+var bankPledgeIneligibleStatuses = []string{
+	StatusClosed,
+	StatusClosureRequested,
+	StatusAuctioned,
+	StatusAuctionedBalanceDue,
+	StatusPendingApproval,
+}
+
+// CanAcceptBankPledge reports whether a loan in this status may be
+// re-pledged to a bank (see bankPledgeIneligibleStatuses).
+func CanAcceptBankPledge(status string) bool {
+	for _, s := range bankPledgeIneligibleStatuses {
+		if status == s {
+			return false
+		}
+	}
+	return true
+}
 
 // Loan represents one gold loan: a customer's pledged ornaments, sanctioned
 // under a scheme, tracked from creation through closure/auction.

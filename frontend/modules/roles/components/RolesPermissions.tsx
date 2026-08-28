@@ -111,11 +111,10 @@ export function RolesPermissions() {
   const canCreateRole = can("Role_Management", "can_create_role");
   const canUpdateRole = can("Role_Management", "can_update_role");
   const canDeleteRole = can("Role_Management", "can_delete_role");
-  const canChangePermission = can("Role_Management", "can_change_role_permission");
   // Whether *anything* on this page is editable — drives the shared bits
   // (the "view only" notice, the "system role" caveat) that don't belong to
-  // just one of the four granular actions above.
-  const canChangeAnything = canCreateRole || canUpdateRole || canDeleteRole || canChangePermission;
+  // just one of the three granular actions above.
+  const canChangeAnything = canCreateRole || canUpdateRole || canDeleteRole;
 
   const [roles, setRoles] = useState<Role[] | null>(null);
   const [roleId, setRoleId] = useState<number | null>(null);
@@ -172,7 +171,7 @@ export function RolesPermissions() {
   }, [matrix, pending]);
 
   function toggle(row: PermissionRow) {
-    if (!canChangePermission || role?.isSystem) return;
+    if (!canUpdateRole || role?.isSystem) return;
     setPending((p) => ({ ...p, [row.permission_id]: !(p[row.permission_id] ?? row.permission) }));
   }
 
@@ -199,7 +198,7 @@ export function RolesPermissions() {
   }
 
   async function setAll(allowed: boolean) {
-    if (!employee || !roleId || role?.isSystem || !canChangePermission) return;
+    if (!employee || !roleId || role?.isSystem || !canUpdateRole) return;
     setSaving(true);
     try {
       await setAllRolePermissions(employee.id, roleId, allowed);
@@ -317,7 +316,7 @@ export function RolesPermissions() {
             <label className="f">Search permissions</label>
             <input className="inp" placeholder="e.g. loan" value={search} onChange={(e) => setSearch(e.target.value)} />
           </div>
-          {canChangePermission && role && !role.isSystem && (
+          {canUpdateRole && role && !role.isSystem && (
             <>
               <button className="btn ghost" onClick={() => setAll(true)} disabled={saving}>Grant all</button>
               <button className="btn ghost" onClick={() => setAll(false)} disabled={saving}>Revoke all</button>
@@ -360,7 +359,7 @@ export function RolesPermissions() {
                             type="checkbox"
                             checked={row.permission}
                             onChange={() => toggle(row)}
-                            disabled={!canChangePermission || role?.isSystem}
+                            disabled={!canUpdateRole || role?.isSystem}
                           />
                           <span className="mark" />
                           <span>

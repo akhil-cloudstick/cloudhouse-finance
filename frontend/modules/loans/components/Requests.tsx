@@ -6,6 +6,7 @@ import { StatusChip } from "@/common/components/ui/StatusChip";
 import { Select } from "@/common/components/ui/Select";
 import { useLoans } from "@/modules/loans/store/LoansProvider";
 import { listLoanRequestsPage, type RequestView } from "@/modules/loans/services/loanService";
+import { useAuth } from "@/common/auth-context";
 
 const STATUS_OPTIONS = [
   { value: "", label: "All" },
@@ -28,6 +29,11 @@ import { ExtensionReviewModalContent } from "@/common/components/modals/Extensio
 export function Requests() {
   const { openModal } = useModal();
   const { refresh: refreshLoans } = useLoans();
+  // Without "can update loan" the review modal opens read-only (its
+  // checklist and approve/reject controls hide themselves), so the row
+  // button says View rather than Review.
+  const { can } = useAuth();
+  const canDecide = can("Loan_Management", "can_update_loan");
 
   const [reqs, setReqs] = useState<RequestView[]>([]);
   const [loading, setLoading] = useState(true);
@@ -102,7 +108,7 @@ export function Requests() {
                         true
                       )}
                     >
-                      {r.status === "Pending" ? "Review" : "View"}
+                      {r.status === "Pending" && canDecide ? "Review" : "View"}
                     </button>
                   </td>
                 </tr>

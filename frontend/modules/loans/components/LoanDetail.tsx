@@ -18,6 +18,7 @@ import {
   SANCTION_STAGE_ROLES,
   startIndemnityBondEsign,
   checkIndemnityBondEsign,
+  canAcceptBankPledge,
   type SanctionStage,
   type LoanView,
 } from "@/modules/loans/services/loanService";
@@ -74,7 +75,14 @@ export function LoanDetail({ id }: { id?: string }) {
   // without also refreshing that, those pages kept showing the
   // pre-change status until a full page reload re-fetched everything.
   const { refresh: refreshLoans } = useLoans();
-  const { role: myRole } = useAuth();
+  const { role: myRole, can } = useAuth();
+  // Every action on this page is hidden, not disabled, when the role lacks
+  // the grant behind it (see Customers.tsx). The print/export buttons are
+  // deliberately not gated — they only render what the viewer can already
+  // see. Bank pledging is its own module, so it takes its own grants.
+  const canUpdateLoans = can("Loan_Management", "can_update_loan");
+  const canCreateBankPledges = can("Bank_Pledge_Management", "can_create_bank_pledge");
+  const canUpdateBankPledges = can("Bank_Pledge_Management", "can_update_bank_pledge");
 
   const [loan, setLoan] = useState<LoanView | null>(null);
   const [error, setError] = useState("");
@@ -175,7 +183,10 @@ export function LoanDetail({ id }: { id?: string }) {
   // who is the first real approver (backend: Service.Approve). So the
   // affirmative action at that stage is "Verified", "Approved" above it.
   const isVerifyStage = pendingStage === "LoanOperator";
-  const canActOnStage = !!requiredRole && (myRole === "Administrator" || myRole === requiredRole);
+  // The stage role says whose turn it is; "can update loan" says whether the
+  // viewer may act on loans at all. Both must hold, or they see the
+  // "awaiting …" note instead of clickable buttons.
+  const canActOnStage = !!requiredRole && canUpdateLoans && (myRole === "Administrator" || myRole === requiredRole);
   // `sm` matches the other page-header buttons (Print Label, Print Slip,
   // Record Payment, …) — these used to render at the default, larger size
   // and towered over the row.
@@ -440,7 +451,7 @@ export function LoanDetail({ id }: { id?: string }) {
           <a className="btn ghost sm" href={l.indemnityBondSignedUrl} target="_blank" rel="noopener noreferrer">
             <Icon name="check" /> Signed Bond
           </a>
-        ) : esignStarted ? (
+        ) : !canUpdateLoans ? null : esignStarted ? (
           <button className="btn ghost sm" disabled={checkingEsign} onClick={checkIndemnityEsign}>
             <Icon name="doc" /> {checkingEsign ? "Checking…" : "Check eSign Status"}
           </button>
@@ -449,23 +460,23 @@ export function LoanDetail({ id }: { id?: string }) {
             <Icon name="doc" /> {esigning ? "Preparing…" : "Send Indemnity Bond for eSign"}
           </button>
         )}
-        {l.status === "Closure Requested" && (
+        {l.status === "Closure Requested" && canUpdateLoans && (
           <button className="btn" disabled={completing || l.totalOutstandingBalance > 0.01 || l.bankPledgeStatus === "Bank Pledged"} onClick={doCompleteRelease} title={l.totalOutstandingBalance > 0.01 ? "Final settlement must be fully paid first" : l.bankPledgeStatus === "Bank Pledged" ? "Release the bank pledge first" : undefined}>
             <Icon name="unlock" /> {completing ? "Releasing…" : "Complete Release"}
           </button>
         )}
         {approvalButtons || (
           <>
-            {l.status !== "Closed" && !activePledge && (
+            {canAcceptBankPledge(l.status, l.bankPledgeStatus) && !activePledge && canCreateBankPledges && (
               <button className="btn ghost sm" onClick={() => openModal(<RepledgeModalContent loan={l} onSaved={load} />)}><Icon name="bank" /> Repledge to Bank</button>
             )}
-            {l.status !== "Closed" && (
+            {l.status !== "Closed" && canUpdateLoans && (
               <button className="btn sm" onClick={() => openModal(<PaymentModalContent loan={l} onSaved={load} />)}><Icon name="coin" /> Record Payment</button>
             )}
-            {l.status !== "Closed" && (
+            {l.status !== "Closed" && canUpdateLoans && (
               <button className="btn ghost sm" onClick={() => openModal(<RequestExtensionModalContent loan={l} onSaved={load} />)}><Icon name="clock" /> Request Extension</button>
             )}
-            {l.status !== "Closed" && (
+            {l.status !== "Closed" && canUpdateLoans && (
               <button className="btn ghost sm" onClick={() => openModal(<RequestReleaseModalContent loan={l} onSaved={load} />)}><Icon name="unlock" /> Request Release</button>
             )}
           </>
@@ -601,9 +612,11 @@ export function LoanDetail({ id }: { id?: string }) {
                     <div className="i"><div className="k">Status</div><div className="v"><StatusChip status="Bank Pledged" /></div></div>
                   </div>
                   <div className="notice" style={{ marginTop: 12 }}><Icon name="shield" /> Closure requires bank release process first.</div>
-                  <button className="btn ghost sm" style={{ marginTop: 12 }} disabled={releasing} onClick={doReleasePledge}>
-                    {releasing ? "Releasing…" : "Release from Bank"}
-                  </button>
+                  {canUpdateBankPledges && (
+                    <button className="btn ghost sm" style={{ marginTop: 12 }} disabled={releasing} onClick={doReleasePledge}>
+                      {releasing ? "Releasing…" : "Release from Bank"}
+                    </button>
+                  )}
                 </>
               ) : (
                 <p style={{ fontSize: 13.5, color: "var(--muted)" }}>

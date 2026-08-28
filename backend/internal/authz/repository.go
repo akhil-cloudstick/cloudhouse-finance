@@ -192,6 +192,73 @@ func (r *Repository) BackfillCRUDSplitGrants(nouns []string) (inserted int, err 
 	})
 }
 
+// PurgeLegacyChangePermissions deletes every "can change ..." permission and
+// its role_permissions rows. The blanket change permission was replaced by
+// the create/update/delete trio (see Catalogue's doc comment); leaving the
+// old rows in place only made the admin matrix show a column nothing
+// enforces. Two grants are copied forward first so no access is silently
+// lost on the boot that runs this:
+//
+//   - "can change <noun>" -> create/update/delete <noun>, done by
+//     BackfillCRUDSplitGrants, which MUST have run before this.
+//   - "can change role permission" -> "can update role", done here, since
+//     that permission had no create/update/delete trio to split into and
+//     grant editing now rides on "can update role" (see routes.go).
+//
+// Idempotent: a database that has already been purged has nothing matching
+// left to delete.
+func (r *Repository) PurgeLegacyChangePermissions() (deleted int, err error) {
+	return deleted, r.db.Transaction(func(tx *gorm.DB) error {
+		var legacy []Permission
+		if err := tx.Where("name LIKE ?", "can change %").Find(&legacy).Error; err != nil {
+			return err
+		}
+		if len(legacy) == 0 {
+			return nil
+		}
+
+		// Copy the old grant-editing permission onto "can update role" before
+		// it disappears — only where the role actually held it.
+		for _, perm := range legacy {
+			if perm.Name != "can change role permission" {
+				continue
+			}
+			var updateRole Permission
+			if err := tx.Where("name = ?", "can update role").First(&updateRole).Error; err != nil {
+				if errors.Is(err, gorm.ErrRecordNotFound) {
+					break
+				}
+				return err
+			}
+			var held []RolePermission
+			if err := tx.Where("permission_id = ? AND permission = ?", perm.ID, true).Find(&held).Error; err != nil {
+				return err
+			}
+			for _, rp := range held {
+				if err := tx.Model(&RolePermission{}).
+					Where("role_id = ? AND permission_id = ?", rp.RoleID, updateRole.ID).
+					Update("permission", true).Error; err != nil {
+					return err
+				}
+			}
+		}
+
+		ids := make([]uint, 0, len(legacy))
+		for _, perm := range legacy {
+			ids = append(ids, perm.ID)
+		}
+		if err := tx.Where("permission_id IN ?", ids).Delete(&RolePermission{}).Error; err != nil {
+			return err
+		}
+		if err := tx.Where("id IN ?", ids).Delete(&Permission{}).Error; err != nil {
+			return err
+		}
+		deleted = len(ids)
+		log.Printf("authz: purged %d legacy \"can change ...\" permission(s)", deleted)
+		return nil
+	})
+}
+
 // ApplyRestrictions re-applies every RoleRestriction: AllowedRoles get
 // Permission=true, every other seeded role gets Permission=false. Runs after
 // BackfillGrants on every boot, so it always reflects the current

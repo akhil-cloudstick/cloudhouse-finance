@@ -10,7 +10,7 @@ import { Icon } from "@/common/components/Icon";
 import { fmt, fmtW } from "@/common/utils/format";
 import { ApiError } from "@/common/services/httpClient";
 import { listLockers, type LockerView } from "@/modules/lockers/services/lockerService";
-import { getLoanByNumber } from "@/modules/loans/services/loanService";
+import { getLoanByNumber, canAcceptBankPledge } from "@/modules/loans/services/loanService";
 import { RepledgeModalContent } from "@/common/components/modals/RepledgeModal";
 import {
   getPacketByCode, listMovements, recordMovement, PACKET_STAGES, PACKET_STATUS,
@@ -57,7 +57,11 @@ export function PacketDetail({ code }: { code?: string }) {
   const { openModal } = useModal();
   const { can } = useAuth();
 
-  const canChangeBankPledge = can("Bank_Pledge_Management", "can_create_bank_pledge");
+  const canCreateBankPledge = can("Bank_Pledge_Management", "can_create_bank_pledge");
+  // Every packet movement (check-in, ready-for-release, released) writes to
+  // the packet, so they all need "can update packet" — hidden, not disabled,
+  // without it (see Customers.tsx).
+  const canMovePackets = can("Packet_Management", "can_update_packet");
 
   const [p, setP] = useState<PacketView | null>(null);
   const [movements, setMovements] = useState<MovementView[]>([]);
@@ -94,6 +98,14 @@ export function PacketDetail({ code }: { code?: string }) {
     setBusy(true);
     try {
       const loan = await getLoanByNumber(p.loanNumber);
+      // The packet being in a locker isn't sufficient on its own — the loan
+      // must also still be pledgeable (not closed/released/auctioned, and
+      // its one bank pledge unused). Checked here rather than only on the
+      // button because the loan is not loaded until this click.
+      if (!canAcceptBankPledge(loan.status, loan.bankPledgeStatus)) {
+        toast("This loan can no longer be re-pledged to a bank.");
+        return;
+      }
       openModal(<RepledgeModalContent loan={loan} onSaved={load} />);
     } catch (e) {
       toast(e instanceof ApiError ? e.message : "Could not load the loan — try again.");
@@ -207,7 +219,7 @@ export function PacketDetail({ code }: { code?: string }) {
 
             <hr className="gold-rule" style={{ margin: "16px 0" }} />
 
-            {(p.status === PACKET_STATUS.GENERATED || p.status === PACKET_STATUS.RETURNED) && !pickLocker && (
+            {canMovePackets && (p.status === PACKET_STATUS.GENERATED || p.status === PACKET_STATUS.RETURNED) && !pickLocker && (
               <button className="btn" disabled={busy} onClick={() => setPickLocker(true)}><Icon name="lock" /> Check In to Locker</button>
             )}
             {pickLocker && (
@@ -234,16 +246,16 @@ export function PacketDetail({ code }: { code?: string }) {
               </div>
             )}
 
-            {p.status === PACKET_STATUS.LOCKER_STORED && (
+            {canMovePackets && p.status === PACKET_STATUS.LOCKER_STORED && (
               <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                {canChangeBankPledge && (
+                {canCreateBankPledge && (
                   <button className="btn ghost" disabled={busy} onClick={openBankPledge}><Icon name="bank" /> Repledge to Bank</button>
                 )}
                 <button className="btn ghost" disabled={busy} onClick={() => doMove(PACKET_STATUS.READY_FOR_RELEASE)}>Mark Ready for Release</button>
               </div>
             )}
 
-            {p.status === PACKET_STATUS.READY_FOR_RELEASE && (
+            {canMovePackets && p.status === PACKET_STATUS.READY_FOR_RELEASE && (
               <button className="btn" disabled={busy} onClick={() => doMove(PACKET_STATUS.RELEASED)}><Icon name="check" /> Mark Released</button>
             )}
 

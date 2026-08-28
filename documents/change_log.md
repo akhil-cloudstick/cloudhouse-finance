@@ -20,6 +20,54 @@ the actual git history at the time of writing; update it as new commits land.
   Run `go run ./cmd/migrate` for the two new tables.
 
 ### Fixed
+- **Closed, released and auctioned loans can no longer be re-pledged to a
+  bank.** `Service.RecordBankPledge` had no status check at all, so a loan
+  whose gold had already gone back to the customer (`Closed`), been sold
+  (`Auctioned` / `Auctioned - Balance Due`), or was still awaiting sanction
+  (`Pending Approval`) could be pledged straight back into the Bank Pledge
+  worklist. `Closure Requested` is refused too — the release is already
+  committed, and pledging at that point deadlocks it, since `CompleteRelease`
+  refuses while a pledge is active.
+
+  **A bank pledge is also now once per loan, for its lifetime.**
+  `bankPledgeStatus` must be exactly `Not Pledged`: `Bank Pledged` is refused
+  with `ErrBankPledgeStillActive` (a second pledge previously overwrote
+  `bankPledgeStatus` and orphaned the first with no release path), and
+  `Released` with `ErrBankPledgeAlreadyUsed` — the gold came back from the
+  bank and that loan has had its turn.
+
+  The rule lives in one place, `loan.CanAcceptBankPledge` /
+  `bankPledgeIneligibleStatuses`, and is applied at all four entry points:
+  the service (`ErrLoanNotPledgeable`), `LoanFilter.ExcludeBankPledged` so the
+  "New Re-Pledge" picker never offers a loan the save would reject,
+  `LoanDetail.tsx`'s "Repledge to Bank" button, and `PacketDetail.tsx`'s
+  packet-side button — the last checked after the loan loads, since a packet
+  sitting in a locker is not on its own proof the loan is still pledgeable.
+
+- **Bank pledges are no longer counted as expenses.** Recording a pledge wrote
+  the same amount twice — a cash-in `CashMovement` *and* a mirrored
+  auto-approved `"Bank Pledge"` expense — so one ₹1,00,000 pledge showed as
+  both "Cash In (today)" and "Expenses (today)" on the Cash-in-Hand screen.
+  Expected Cash in Hand was always correct (the mirror was `mode: "Bank"`, and
+  only `mode: "Cash"` expenses are subtracted), but the accounting was not: the
+  bank's advance against pledged gold is borrowing, not spending. A full
+  pledge→release cycle netting zero left ₹2,00,000 sitting in the expense
+  register and in every expense report.
+
+  Pledging now books cash in only; the expense belongs to the release leg,
+  where the money genuinely goes back to the bank. The release expense stays
+  `mode: "Bank"` — a cash-out movement already covers the same amount, so
+  making it `"Cash"` would subtract it from Expected Cash in Hand twice.
+
+  `RecordBankPledgeExpense` is removed from `loan.CashRecorder` and
+  `cash.MovementService`; `BankPledgeRecord.ExpenseID` is retired (kept as a
+  column, always nil on new pledges). Run `go run ./cmd/migrate` — a new
+  idempotent step deletes the historical mirror rows, matching on category
+  **and** the `"Auto-recorded from bank pledge workflow"` remark so a manually
+  entered expense filed under the same category is never touched, and nulls
+  the `bank_pledge_records.expense_id` links that pointed at them.
+  `"Bank Pledge Release"` rows are left alone. Existing expense totals and the
+  expense-cashflow report will drop by the previously mirrored pledge amounts.
 - **Aadhaar eSign: the indemnity bond was uploaded to Setu under the wrong
   multipart field name** (`files`, where Setu's integration guide specifies
   `document`), and without an explicit `application/pdf` part content type.

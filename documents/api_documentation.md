@@ -576,7 +576,7 @@ letting them hit the 403.
 > Note: the "Permissions / RBAC model" section above describes an older
 > `(role, resource, action)` design. The permission model actually
 > implemented today is `internal/authz`'s `roles` / `permissions` /
-> `role_permissions` schema (`can view <noun>` / `can change <noun>`-style
+> `role_permissions` schema (`can view/create/update/delete <noun>`-style
 > named permissions, one row per role × permission, seeded and back-filled
 > by `internal/migrate` from `authz.Catalogue`) — see `internal/authz/
 > catalogue.go`, `model.go`, `repository.go` and `platform/middleware.go`'s
@@ -594,11 +594,26 @@ of one shared view/change pair per module.
 `"can view <noun>"` is **unchanged** for every module — reads still gate on
 the same single view permission they always did.
 
-The old `"can change <noun>"` permission (and every role's
-`role_permissions` row for it) is left in place, deliberately unused by any
-route going forward — removing it is out of scope for this change (see the
-standard's renaming rules: a permission already shipped is never deleted
-in the same change that replaces its callers).
+**Removal of `"can change ..."` (2026-08-28).** The blanket change
+permission is now gone entirely: it is no longer in `authz.Catalogue`, and
+`authz.Repository.PurgeLegacyChangePermissions` (called from
+`internal/migrate.Run`, immediately after `BackfillCRUDSplitGrants` and
+before `BackfillGrants`) deletes every `permissions` row whose name starts
+with `"can change "` along with its `role_permissions` rows. No access is
+lost on the boot that runs it, because the grants are copied forward first:
+
+* `"can change <noun>"` → `create`/`update`/`delete <noun>`, by the
+  back-fill step described below;
+* `"can change role permission"` → `"can update role"`, inside the purge
+  itself — that permission had no CRUD trio to split into, so editing a
+  role's grants (`PATCH /employees/:id/permissions/:role_id` and
+  `.../set-all`) now gates on `"can update role"`.
+
+`authz.Restrictions` correspondingly replaced its single
+`{"can change branch" → Administrator}` row with the same
+Administrator-only rule spelled out for `can create/update/delete branch`.
+The step is idempotent — an already-purged database has nothing left to
+match.
 
 | Module (`module_name`) | Unchanged | New (this change) |
 |---|---|---|
@@ -640,7 +655,27 @@ existing `"can change <noun>"` grant (`TRUE` if the role currently holds
 `"can change <noun>"`, `FALSE` otherwise) rather than defaulting to `TRUE`
 — idempotent (skips any role+permission pair that already has a
 `role_permissions` row) and runs in one transaction, before the generic
-`BackfillGrants` step so the latter never overwrites the copied value.
+`BackfillGrants` step so the latter never overwrites the copied value. It
+still runs even though `"can change <noun>"` has left the catalogue: an
+existing database keeps those rows until the purge step above deletes them,
+and the copy-forward has to happen first.
+
+**Frontend gating (2026-08-28).** Every action control in the admin app is
+now hidden — not disabled — when the signed-in role lacks the permission
+behind it, using the same `can(module, key)` lookup the nav filter and
+route guard already use (`common/auth-context.tsx`). Creates gate on
+`can_create_*`, edits/approvals/status moves on `can_update_*`, deletes on
+`can_delete_*`; read-only controls (search, filters, pagination, print and
+export) are never gated. Where a screen already had a role-based check —
+the loan sanction chain, extension-request stages, bank-pledge void, the
+auction escalation decision — the permission is required *in addition* to
+that role, not instead of it. Notable per-screen mappings: the Requests
+page labels its row button "View" instead of "Review" without
+`can_update_loan` and opens the review modals read-only; bank re-pledging
+uses `Bank_Pledge_Management` (and `Bank_Management` for "Add Bank")
+rather than the loan permissions; lockers use `Locker_Management`, packet
+movements `can_update_packet`; New Gold Loan (nav item and route) gates on
+`can_create_loan`, which replaces the retired `can_change_loan` key.
 
 ### Branch scoping (row-level, on top of the RBAC table above)
 Independently of the `(role, resource, action)` table above, every
@@ -1421,6 +1456,23 @@ the stage tracker UI.
 `POST /:id/payments` records a `LoanPayment` row; non-`"Interest"` types
 (`"Principal"`/`"Partial"`/`"Full Settlement"`) reduce `outstandingAmount`
 and auto-close the loan (`status: "Closed"`) once it reaches `0`.
+**Which loans may be re-pledged.** `POST /:id/bank-pledge` refuses (400
+`ErrLoanNotPledgeable`) any loan whose gold is no longer in the branch's
+custody to hand over: `Closed` (released back to the customer),
+`Closure Requested` (release committed — pledging would deadlock it, since
+`/complete-release` refuses while a pledge is active), `Auctioned` and
+`Auctioned - Balance Due` (sold), and `Pending Approval` (never disbursed).
+**A bank pledge is once per loan, for its lifetime.** `bankPledgeStatus` must
+be exactly `"Not Pledged"`: `"Bank Pledged"` is refused with 400
+`ErrBankPledgeStillActive` (one is already open — a second would overwrite
+`bankPledgeStatus` and orphan the first with no release path), and
+`"Released"` with 400 `ErrBankPledgeAlreadyUsed` (the gold came back from the
+bank and the loan has had its turn).
+
+The rule is one place — `loan.CanAcceptBankPledge` /
+`bankPledgeIneligibleStatuses` — shared with the `excludeBankPledged` listing
+filter, so the re-pledge picker never offers a loan the save would reject.
+
 `POST /:id/bank-pledge` records a `BankPledgeRecord` — `bankName`,
 `pledgedAmount`, `pledgeDate` required; `bankId` (the registered `bank.Bank`
 row the caller picked — stored alongside `bankName`, which stays a
@@ -1440,11 +1492,24 @@ stamps its `releaseDate` and sets `bankPledgeStatus: "Released"`.
 `"CashIn"` | `"RecordOnly"`). Not every re-pledge brings the bank's advance
 into the branch till — some are purely book-keeping — so the caller decides:
 - `"CashIn"` books a cash-in `CashMovement` (`source: "Bank"`, amount =
-  `pledgedAmount`, stored as `cashMovementId`) plus a mirrored auto-approved
-  `Expense` (`mode: "Bank"`, so it does not double-count against Expected Cash
-  in Hand), stored as `expenseId`. Releasing such a pledge books the amount
-  back OUT as a fresh cash-out movement plus a release expense — the original
-  cash-in is never deleted, so both legs remain visible as history.
+  `pledgedAmount`, stored as `cashMovementId`) **and nothing else** — no
+  expense is written at pledge time. Releasing such a pledge books the amount
+  back OUT as a fresh cash-out movement plus an auto-approved release
+  `Expense` (`category: "Bank Pledge Release"`, `mode: "Bank"` so it does not
+  double-count against Expected Cash in Hand), stored as `releaseExpenseId`.
+  The original cash-in is never deleted, so both legs remain visible as
+  history.
+
+  > Changed 2026-08-28: pledging previously also wrote a mirrored
+  > `"Bank Pledge"` expense, stored as `expenseId`. The bank's advance against
+  > pledged gold is borrowing, not spending, so a single pledge appeared as
+  > both Cash In and Expenses on the same day and inflated the expense
+  > register, the expense-cashflow report and the dashboard expense donut. The
+  > expense now belongs to the release leg only. `expenseId` is retired: it is
+  > always `null` on new pledges, and `internal/migrate` deletes the
+  > historical mirror rows (matching on category **and** the
+  > `"Auto-recorded from bank pledge workflow"` remark, so manually entered
+  > expenses are never touched) and nulls the links that pointed at them.
 - `"RecordOnly"` creates NO cash movement and NO expense, and release is a
   symmetric no-op. Without that symmetry, releasing a record-only pledge would
   credit the till for money that never arrived.
@@ -1812,7 +1877,7 @@ preloaded objects from their own APIs above):
 | GET | `/api/v1/loans/drafts/:draftId` | Get one of the caller's own drafts | — |
 | PUT | `/api/v1/loans/drafts/:draftId` | Overwrite a draft in place (pressing "Save Draft" again), replacing its ornament rows wholesale | same body as POST `/loans/drafts` |
 | DELETE | `/api/v1/loans/drafts/:draftId` | Discard a draft — hard delete, `204 No Content` | — |
-| GET | `/api/v1/loans` | List/filter loans. Returns a bare array unless `limit` is given, in which case the response is the `{ "items": [...], "hasMore": bool }` envelope (same convention as `GET /customers`) — this backs the paginated `SearchableSelect` loan pickers, 10 rows per page, next page appended on scroll | query: `status`, `branchId`, `customerId`, `q` (matches `loanNumber`), `excludeBankPledged` (`true` drops loans whose gold is currently with a bank — the bank re-pledge picker's eligibility rule), `limit`, `offset` |
+| GET | `/api/v1/loans` | List/filter loans. Returns a bare array unless `limit` is given, in which case the response is the `{ "items": [...], "hasMore": bool }` envelope (same convention as `GET /customers`) — this backs the paginated `SearchableSelect` loan pickers, 10 rows per page, next page appended on scroll | query: `status`, `branchId`, `customerId`, `q` (matches `loanNumber`), `excludeBankPledged` (`true` keeps only loans whose `bankPledgeStatus` is `"Not Pledged"` and whose status is not closed/closure-requested/auctioned/pending-approval — the bank re-pledge picker's eligibility rule, matching `loan.CanAcceptBankPledge`; a bank pledge is once per loan), `limit`, `offset` |
 | GET | `/api/v1/loans/:id` | Get one loan with ornaments/approvals/payments/bank-pledge history | — |
 | GET | `/api/v1/loans/by-number/:loanNumber` | Same as above, looked up by the human-readable loan number instead of the numeric id (a single atomic query — used by `LoanDetail.tsx`, mirrors `packet`'s `by-code` lookup) | — |
 | POST | `/api/v1/loans/:id/ornaments` | Pledge an additional ornament, recalculates loan totals | `{ "name", "purity", "grossWeight", "deductionWeight"?, "quantity"?, "remarks"? }` |

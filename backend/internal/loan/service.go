@@ -58,17 +58,19 @@ type PacketMover interface {
 
 // CashRecorder reflects a loan's real cash flow into Cash-in-Hand & Expenses
 // (frontend/components/Cash.tsx): pledging gold with a bank brings cash in
-// AND is mirrored as an auto-approved expense entry (so it also shows up in
-// the Expenses register/reports); releasing it books the same amount back
-// out as a cash-out movement plus a mirrored release expense, without
-// touching the original cash-in entry — both stay as permanent history.
+// and NOTHING else — the bank's advance against pledged gold is borrowing,
+// not spending, so it is deliberately not mirrored as an expense (it used to
+// be, which double-counted one pledge as both Cash In and Expenses on the
+// same day and inflated every expense report). Releasing it books the amount
+// back out as a cash-out movement plus a release expense — that release is
+// the only expense in the cycle — without touching the original cash-in
+// entry, so both legs stay as permanent history.
 // Disbursing a loan's principal to the customer is cash out, and every
 // repayment is cash in. Implemented by cash.MovementService, injected the
 // same way as PacketCreator/PacketMover so internal/loan doesn't import
 // internal/cash directly.
 type CashRecorder interface {
 	RecordBankPledgeCashIn(loanID uint, bankName string, amount float64, occurredOn time.Time) (movementID uint, err error)
-	RecordBankPledgeExpense(loanID uint, bankName string, amount float64, occurredOn time.Time, branchID uint) (expenseID uint, err error)
 	RecordBankPledgeCashOut(loanID uint, bankName string, amount float64, occurredOn time.Time, branchID uint) (movementID uint, err error)
 	RecordBankPledgeReleaseExpense(loanID uint, bankName string, amount float64, occurredOn time.Time, branchID uint) (expenseID uint, err error)
 	RecordLoanDisbursementCashOut(loanID uint, loanNumber string, amount float64, branchID uint, occurredOn time.Time) (movementID uint, err error)
@@ -125,6 +127,15 @@ var (
 	ErrReleaseNotApproved        = httpx.NewNotFound("this loan has no approved release request")
 	ErrOutstandingBalanceRemains = httpx.NewBadRequest("the final settlement has not been fully paid yet — record the remaining payment before releasing the gold")
 	ErrBankPledgeStillActive     = httpx.NewBadRequest("gold is still pledged to a bank — release the bank pledge before releasing it to the customer")
+	// ErrLoanNotPledgeable guards the bank re-pledge entry points against
+	// loans whose gold is no longer in the branch's custody to hand over —
+	// see bankPledgeIneligibleStatuses.
+	ErrLoanNotPledgeable         = httpx.NewBadRequest("this loan's gold is no longer held by the branch (closed, released or auctioned), so it cannot be re-pledged to a bank")
+	// ErrBankPledgeAlreadyUsed covers a loan whose pledge has already been
+	// released back from the bank: one bank pledge per loan, for its
+	// lifetime. Distinct from ErrBankPledgeStillActive, which is the
+	// not-yet-released case.
+	ErrBankPledgeAlreadyUsed = httpx.NewBadRequest("this loan's gold has already been pledged to a bank and released once — it cannot be pledged again")
 	ErrAuctionNotFound           = httpx.NewNotFound("this loan has no auction case yet — mark it auction-eligible first")
 	ErrLoanNotDefaulted          = httpx.NewBadRequest("loan must be Defaulted (overdue by more than 90 days) before it can be marked auction-eligible")
 	ErrAuctionAlreadyStarted     = httpx.NewBadRequest("this loan already has an auction case in progress")
@@ -1369,6 +1380,23 @@ func (s *Service) RecordBankPledge(loanID uint, branchID *uint, in BankPledgeInp
 	if in.PledgedAmount <= 0 {
 		return nil, ErrInvalidAmount
 	}
+	// The gold must still be in the branch's custody to hand to a bank. A
+	// closed/released, auctioned or not-yet-disbursed loan has nothing to
+	// pledge — previously this was unchecked, so a Closed loan could be
+	// re-pledged straight back into the Bank Pledge worklist.
+	if !CanAcceptBankPledge(l.Status) {
+		return nil, ErrLoanNotPledgeable
+	}
+	// One bank pledge per loan, for its lifetime: Pledged means one is still
+	// open (a second would overwrite BankPledgeStatus and orphan the first
+	// with no release path), and Released means the loan has already had its
+	// turn. Only BankPledgeStatusNotPledged may proceed.
+	switch l.BankPledgeStatus {
+	case BankPledgeStatusPledged:
+		return nil, ErrBankPledgeStillActive
+	case BankPledgeStatusReleased:
+		return nil, ErrBankPledgeAlreadyUsed
+	}
 
 	var grossWeight float64
 	for _, o := range l.Ornaments {
@@ -1414,8 +1442,13 @@ func (s *Service) RecordBankPledge(loanID uint, branchID *uint, in BankPledgeInp
 	}
 
 	// Cash is touched ONLY when the operator explicitly chose CashIn. A
-	// RecordOnly pledge is pure book-keeping: no movement, no expense, and
+	// RecordOnly pledge is pure book-keeping: no movement at all, and
 	// correspondingly no reversal on release (see ReleaseBankPledge).
+	//
+	// A pledge books cash IN only — the bank's advance is borrowing, not
+	// spending, so no expense is recorded here. The expense is booked at
+	// release (RecordBankPledgeReleaseExpense), when the money actually
+	// goes back to the bank.
 	if in.CashTreatment == BankPledgeCashTreatmentCashIn && s.cashRecorder != nil {
 		movementID, err := s.cashRecorder.RecordBankPledgeCashIn(loanID, in.BankName, p.PledgedAmount, in.PledgeDate)
 		if err != nil {
@@ -1424,15 +1457,8 @@ func (s *Service) RecordBankPledge(loanID uint, branchID *uint, in BankPledgeInp
 			p.CashMovementID = &movementID
 		}
 
-		expenseID, err := s.cashRecorder.RecordBankPledgeExpense(loanID, in.BankName, p.PledgedAmount, in.PledgeDate, l.BranchID)
-		if err != nil {
-			log.Printf("expense entry (bank pledge) failed for loan %d: %v", loanID, err)
-		} else {
-			p.ExpenseID = &expenseID
-		}
-
 		if err := s.pledgeRepo.Update(p); err != nil {
-			log.Printf("saving cash movement/expense links (bank pledge) failed for loan %d: %v", loanID, err)
+			log.Printf("saving cash movement link (bank pledge) failed for loan %d: %v", loanID, err)
 		}
 	}
 
@@ -2778,10 +2804,16 @@ func (s *Service) ReleaseBankPledge(loanID, pledgeID uint, branchID *uint, actor
 	}
 
 	if p.CashTreatment == BankPledgeCashTreatmentCashIn && s.cashRecorder != nil {
-		// The original cash-in movement (and its mirrored expense) from the
-		// pledge stay untouched as permanent history; releasing the gold
-		// books the same amount back out as a fresh cash-out movement plus
-		// a mirrored release expense, so both legs are visible in reports.
+		// The original cash-in movement from the pledge stays untouched as
+		// permanent history; releasing the gold books the same amount back
+		// out as a fresh cash-out movement plus a release expense — the one
+		// and only expense in the pledge cycle, since the pledge itself now
+		// books cash in only (see CashRecorder).
+		//
+		// The release expense is deliberately Mode "Bank", not "Cash": the
+		// cash-out movement above already covers the same amount, so a
+		// "Cash" expense would subtract it twice from Expected Cash in Hand
+		// (see cash.SummaryService.ForDate, which offsets only Mode "Cash").
 		movementID, err := s.cashRecorder.RecordBankPledgeCashOut(loanID, p.BankName, p.PledgedAmount, now, l.BranchID)
 		if err != nil {
 			log.Printf("cash-out movement (bank release) failed for loan %d: %v", loanID, err)

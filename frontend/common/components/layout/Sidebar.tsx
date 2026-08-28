@@ -21,7 +21,7 @@ export const NAV: [string, NavItem[]][] = [
   ]],
   ["Lending", [
     { route: "loans", title: "Loans", icon: "list", module: "Loan_Management", key: "can_view_loan" },
-    { route: "newloan", title: "New Gold Loan", icon: "plus", module: "Loan_Management", key: "can_change_loan" },
+    { route: "newloan", title: "New Gold Loan", icon: "plus", module: "Loan_Management", key: "can_create_loan" },
     { route: "schemes", title: "Loan Schemes", icon: "doc", module: "Scheme_Management", key: "can_view_scheme" },
     { route: "goldrates", title: "Gold Rates", icon: "coin", module: "Gold_Rate_Management", key: "can_view_gold_rate" },
     { route: "requests", title: "Extensions & Release", icon: "unlock", module: "Loan_Management", key: "can_view_loan" },

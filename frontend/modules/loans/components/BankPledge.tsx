@@ -40,8 +40,14 @@ const VOID_ROLES = ["Administrator", "Management", "Branch Manager"];
 export function BankPledge() {
   const { error, refresh } = useLoans();
   const { openModal, closeModal } = useModal();
-  const { role } = useAuth();
+  const { role, can } = useAuth();
   const toast = useToast();
+  // Recording a re-pledge (and adding the bank it goes to) is a create;
+  // releasing or voiding one is an update. Whatever the role can't do is
+  // hidden outright (see Customers.tsx).
+  const canCreatePledges = can("Bank_Pledge_Management", "can_create_bank_pledge");
+  const canUpdatePledges = can("Bank_Pledge_Management", "can_update_bank_pledge");
+  const canCreateBanks = can("Bank_Management", "can_create_bank");
   const [tab, setTab] = useState<"active" | "history">("active");
   const [releasingId, setReleasingId] = useState<number | null>(null);
   const [history, setHistory] = useState<BankPledgeRecordView[]>([]);
@@ -60,7 +66,7 @@ export function BankPledge() {
   const [pledgedPage, setPledgedPage] = useState(1);
   const [pledgedHasMore, setPledgedHasMore] = useState(false);
 
-  const canVoid = !!role && VOID_ROLES.includes(role);
+  const canVoid = !!role && canUpdatePledges && VOID_ROLES.includes(role);
   // No total-row count comes back from the {items, hasMore} envelope — only
   // whether another page exists — so this can't show "of N", just enable/
   // disable Next (mirrors Loans.tsx's totalPages for the same reason).
@@ -175,8 +181,8 @@ export function BankPledge() {
       <div className="page-h">
         <div><h1>Bank &amp; Gold Re-Pledge</h1><p>Customer gold re-pledged with external banks</p></div>
         <div className="sp" />
-        <button className="btn ghost" onClick={() => openModal(<BankModalContent onSaved={() => {}} />)}><Icon name="plus" /> Add Bank</button>
-        <button className="btn" onClick={startNewRepledge}><Icon name="plus" /> New Re-Pledge</button>
+        {canCreateBanks && <button className="btn ghost" onClick={() => openModal(<BankModalContent onSaved={() => {}} />)}><Icon name="plus" /> Add Bank</button>}
+        {canCreatePledges && <button className="btn" onClick={startNewRepledge}><Icon name="plus" /> New Re-Pledge</button>}
       </div>
       <hr className="gold-rule" />
 
@@ -216,13 +222,13 @@ export function BankPledge() {
                       <td style={{ whiteSpace: "nowrap" }}>
                         {active && (
                           <>
-                            <button
+                            {canUpdatePledges && <button
                               className="btn ghost sm"
                               disabled={releasingId === active.id}
                               onClick={() => confirmRelease(l.numericId, active.id, active.bankName, active.pledgedAmount, treatment)}
                             >
                               {releasingId === active.id ? "Releasing…" : "Release"}
-                            </button>
+                            </button>}
                             {canVoid && (
                               <button
                                 className="btn ghost sm"

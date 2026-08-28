@@ -11,6 +11,7 @@ import {
   type ApiKeyCategory,
   type ApiKeyView,
 } from "@/modules/settings/services/settingsService";
+import { useAuth } from "@/common/auth-context";
 
 /* Admin-only Settings page: storage for third-party integration API keys
  * (Notifications, SMS, WhatsApp, KYC/Aadhaar/PAN verification). Values are
@@ -18,6 +19,12 @@ import {
  * only stores them, it doesn't wire them up to any provider yet. */
 export function Settings() {
   const toast = useToast();
+  // Saving a key is an update; clearing one is a delete. Without the grant
+  // the card renders read-only rather than offering a button that 403s
+  // (see Customers.tsx).
+  const { can } = useAuth();
+  const canUpdateSettings = can("Settings_Management", "can_update_setting");
+  const canDeleteSettings = can("Settings_Management", "can_delete_setting");
   const [keys, setKeys] = useState<ApiKeyView[] | null>(null);
   const [error, setError] = useState("");
 
@@ -50,7 +57,7 @@ export function Settings() {
       {keys !== null && (
         <div className="grid" style={{ gridTemplateColumns: "repeat(auto-fill,minmax(340px,1fr))" }}>
           {keys.map((k) => (
-            <ApiKeyCard key={k.category} apiKey={k} onSaved={load} toast={toast} />
+            <ApiKeyCard key={k.category} apiKey={k} canUpdate={canUpdateSettings} canDelete={canDeleteSettings} onSaved={load} toast={toast} />
           ))}
         </div>
       )}
@@ -60,10 +67,14 @@ export function Settings() {
 
 function ApiKeyCard({
   apiKey,
+  canUpdate,
+  canDelete,
   onSaved,
   toast,
 }: {
   apiKey: ApiKeyView;
+  canUpdate: boolean;
+  canDelete: boolean;
   onSaved: () => void;
   toast: (msg: string) => void;
 }) {
@@ -116,6 +127,7 @@ function ApiKeyCard({
             name={`apikey-name-${apiKey.category}`}
             placeholder="e.g. Twilio prod key"
             value={name}
+            disabled={!canUpdate}
             onChange={(e) => setName(e.target.value)}
             autoComplete="off"
             data-1p-ignore
@@ -129,6 +141,7 @@ function ApiKeyCard({
               type={reveal ? "text" : "password"}
               placeholder="Paste the API key/secret"
               value={value}
+              disabled={!canUpdate}
               onChange={(e) => setValue(e.target.value)}
               style={{ flex: 1 }}
               autoComplete="new-password"
@@ -143,9 +156,9 @@ function ApiKeyCard({
         <p style={{ color: "var(--red)", fontSize: 12.5, minHeight: 16, marginTop: 4 }}>{err}</p>
       </div>
       <div className="ft" style={{ display: "flex", gap: 8 }}>
-        {apiKey.isSet && <button className="btn ghost sm" style={{ color: "var(--red)" }} onClick={clear}>Clear</button>}
+        {apiKey.isSet && canDelete && <button className="btn ghost sm" style={{ color: "var(--red)" }} onClick={clear}>Clear</button>}
         <div className="sp" />
-        <button className="btn sm" onClick={save} disabled={saving}><Icon name="check" /> {saving ? "Saving…" : "Save"}</button>
+        {canUpdate && <button className="btn sm" onClick={save} disabled={saving}><Icon name="check" /> {saving ? "Saving…" : "Save"}</button>}
       </div>
     </div>
   );

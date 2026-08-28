@@ -49,7 +49,11 @@ function stageKeyFor(approvalStage: string): ExtensionStage | null {
 export function ExtensionReviewModalContent({ request, onSaved }: { request: RequestView; onSaved: () => void }) {
   const { closeModal } = useModal();
   const toast = useToast();
-  const { role: myRole } = useAuth();
+  const { role: myRole, can } = useAuth();
+  // canActOnStage below decides whose turn it is in the chain; this decides
+  // whether the viewer may act on requests at all — without it the
+  // approve/reject pair never renders (see Requests.tsx).
+  const canDecide = can("Loan_Management", "can_update_loan");
 
   const [req, setReq] = useState(request);
   const [saving, setSaving] = useState(false);
@@ -123,7 +127,7 @@ export function ExtensionReviewModalContent({ request, onSaved }: { request: Req
       </div>
       <div className="ft">
         <button className="btn ghost" onClick={closeModal}>Close</button>
-        {req.status === "Pending" && stageKey && canActOnStage && (
+        {req.status === "Pending" && stageKey && canActOnStage && canDecide && (
           <>
             <button className="btn danger" disabled={saving} onClick={() => decide("Rejected")}>Reject</button>
             <button className="btn" disabled={saving} onClick={() => decide("Approved")}>
