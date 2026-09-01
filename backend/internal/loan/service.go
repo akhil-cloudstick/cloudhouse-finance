@@ -1399,18 +1399,19 @@ func (s *Service) RecordBankPledge(loanID uint, branchID *uint, in BankPledgeInp
 	// closed/released, auctioned or not-yet-disbursed loan has nothing to
 	// pledge — previously this was unchecked, so a Closed loan could be
 	// re-pledged straight back into the Bank Pledge worklist.
-	if !CanAcceptBankPledge(l.Status) {
-		return nil, ErrLoanNotPledgeable
+	if err := bankPledgeRefusal(l.Status, l.BankPledgeStatus); err != nil {
+		return nil, err
 	}
-	// One bank pledge per loan, for its lifetime: Pledged means one is still
-	// open (a second would overwrite BankPledgeStatus and orphan the first
-	// with no release path), and Released means the loan has already had its
-	// turn. Only BankPledgeStatusNotPledged may proceed.
-	switch l.BankPledgeStatus {
-	case BankPledgeStatusPledged:
+	// The check above reads the loan's own stored fields; this one asks the
+	// pledge RECORDS, for the same reason CompleteRelease does — on a loan
+	// whose string has drifted away from an already-open record, the check
+	// above passes and a second live pledge would be created.
+	hasActivePledge, err := s.pledgeRepo.HasActive(loanID)
+	if err != nil {
+		return nil, err
+	}
+	if hasActivePledge {
 		return nil, ErrBankPledgeStillActive
-	case BankPledgeStatusReleased:
-		return nil, ErrBankPledgeAlreadyUsed
 	}
 
 	var grossWeight float64
@@ -2786,7 +2787,20 @@ func (s *Service) CompleteRelease(loanID uint, branchID *uint, employeeID uint) 
 	if l.TotalOutstandingBalance > 0.01 {
 		return nil, ErrOutstandingBalanceRemains
 	}
+	// Asks the pledge RECORDS, not just the loan-level string. The string is
+	// a stored copy that can lie: a loan carrying two Active records (only
+	// possible before RecordBankPledge's once-per-loan guard) has its string
+	// set to "Released" the moment either one is released, which let a loan
+	// be closed with a live ₹30k pledge still open against it. The string is
+	// still checked first — it is the cheap path and covers the normal case.
 	if l.BankPledgeStatus == BankPledgeStatusPledged {
+		return nil, ErrBankPledgeStillActive
+	}
+	hasActivePledge, err := s.pledgeRepo.HasActive(loanID)
+	if err != nil {
+		return nil, err
+	}
+	if hasActivePledge {
 		return nil, ErrBankPledgeStillActive
 	}
 

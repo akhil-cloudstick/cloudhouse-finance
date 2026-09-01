@@ -1496,14 +1496,15 @@ const BANK_PLEDGE_INELIGIBLE_STATUSES = [
   "Pending Approval",
 ];
 
-/* A bank pledge is ONCE PER LOAN for its lifetime, so bankPledgeStatus must
- * be exactly "Not Pledged": "Bank Pledged" means one is already open, and
- * "Released" means the gold came back from the bank and the loan has had its
- * turn. Pass both values — a loan needs an eligible status AND an unused
- * pledge slot. */
+/* Only an OPEN pledge blocks a new one: "Bank Pledged" means one is still out
+ * with a bank, while "Released" means the gold came BACK from the bank and is
+ * in the branch's custody again — that loan may be pledged afresh, as many
+ * times as its life allows. (An earlier rule made a pledge once-per-loan for
+ * its lifetime; it was dropped — see backend bankPledgeRefusal.) Pass both
+ * values: a loan needs an eligible status AND no pledge currently open. */
 export function canAcceptBankPledge(status: string, bankPledgeStatus: string): boolean {
   return (
     !BANK_PLEDGE_INELIGIBLE_STATUSES.includes(status) &&
-    bankPledgeStatus === "Not Pledged"
+    bankPledgeStatus !== "Bank Pledged"
   );
 }
