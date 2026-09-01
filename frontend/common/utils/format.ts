@@ -29,6 +29,8 @@ const STATUS_COLOR: Record<string, string> = {
   Released: "gray", "Notice Issued": "amber", "Not Pledged": "gray", "Auction Scheduled": "red",
   "Packet Generated": "blue", "Ready For Release": "amber", Returned: "gold",
   "Name Mismatch": "red",
+  Renewed: "gray",
+  Defaulted: "red",
 };
 
 export function statusChipColor(status: string): string {

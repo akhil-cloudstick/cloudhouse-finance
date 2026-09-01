@@ -25,6 +25,7 @@ export const NAV: [string, NavItem[]][] = [
     { route: "schemes", title: "Loan Schemes", icon: "doc", module: "Scheme_Management", key: "can_view_scheme" },
     { route: "goldrates", title: "Gold Rates", icon: "coin", module: "Gold_Rate_Management", key: "can_view_gold_rate" },
     { route: "requests", title: "Extensions & Release", icon: "unlock", module: "Loan_Management", key: "can_view_loan" },
+    { route: "personalloans", title: "Personal Loans", icon: "list", module: "Personal_Loan_Management", key: "can_view_personal_loan" },
   ]],
   ["Customers", [
     { route: "customers", title: "Customers & KYC", icon: "user", module: "Customer_Management", key: "can_view_customer" },
@@ -79,7 +80,8 @@ export function Sidebar({ route, open }: { route: string; open: boolean }) {
                 const isOn =
                   route === r ||
                   (route === "loan" && r === "loans") ||
-                  (route === "customer" && r === "customers");
+                  (route === "customer" && r === "customers") ||
+                  (route === "personalloan" && r === "personalloans");
                 return (
                   <a key={r} href={`#${r}`} className={isOn ? "on" : ""}>
                     <Icon name={ic} />

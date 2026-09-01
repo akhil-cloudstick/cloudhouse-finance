@@ -25,6 +25,8 @@ import { Auctions } from "@/modules/loans/components/Auctions";
 import { Packets } from "@/modules/packets/components/Packets";
 import { PacketDetail } from "@/modules/packets/components/PacketDetail";
 import { BankPledge } from "@/modules/loans/components/BankPledge";
+import { PersonalLoans } from "@/modules/personal-loans/components/PersonalLoans";
+import { PersonalLoanDetail } from "@/modules/personal-loans/components/PersonalLoanDetail";
 import { Reports } from "@/modules/reports/components/Reports";
 import { Employees } from "@/modules/employees/components/Employees";
 import { Calendar } from "@/modules/reminders/components/Calendar";
@@ -50,6 +52,8 @@ const ROUTE_PERMISSIONS: Record<string, { module: string | null; key?: string }>
   schemes: { module: "Scheme_Management", key: "can_view_scheme" },
   goldrates: { module: "Gold_Rate_Management", key: "can_view_gold_rate" },
   requests: { module: "Loan_Management", key: "can_view_loan" },
+  personalloans: { module: "Personal_Loan_Management", key: "can_view_personal_loan" },
+  personalloan: { module: "Personal_Loan_Management", key: "can_view_personal_loan" },
   cash: { module: "Cash_Management", key: "can_view_cash" },
   auctions: { module: "Loan_Management", key: "can_view_loan" },
   packets: { module: "Packet_Management", key: "can_view_packet" },
@@ -104,6 +108,10 @@ function View({ route, arg }: { route: string; arg?: string }) {
       return <GoldRates />;
     case "requests":
       return <Requests />;
+    case "personalloans":
+      return <PersonalLoans />;
+    case "personalloan":
+      return <PersonalLoanDetail id={arg} />;
     case "cash":
       return <Cash />;
     case "auctions":

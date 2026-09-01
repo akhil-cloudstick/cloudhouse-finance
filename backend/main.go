@@ -25,6 +25,7 @@ import (
 	"ambikagold/backend/internal/notification"
 	"ambikagold/backend/internal/ornamenttype"
 	"ambikagold/backend/internal/packet"
+	"ambikagold/backend/internal/personalloan"
 	"ambikagold/backend/internal/platform"
 	"ambikagold/backend/internal/puritystandard"
 	"ambikagold/backend/internal/realtime"
@@ -212,6 +213,10 @@ func main() {
 	bankSvc := bank.NewService(bankRepo)
 	bankHandler := bank.NewHandler(bankSvc)
 
+	personalLoanRepo := personalloan.NewRepository(db)
+	personalLoanSvc := personalloan.NewService(personalLoanRepo, customerRepo)
+	personalLoanHandler := personalloan.NewHandler(personalLoanSvc)
+
 	authSvc := auth.NewService(employeeRepo, whatsappSender, cfg.JWTSecret, cfg.JWTExpiry, commlogRepo)
 	authHandler := auth.NewHandler(authSvc)
 
@@ -331,7 +336,9 @@ func main() {
 	protected.GET("/customers/:id/payments", platform.CRUDPermissions(authzRepo, "customers").Read, loanHandler.ListPaymentsForCustomer)
 	protected.GET("/customers/:id/bank-pledges", platform.CRUDPermissions(authzRepo, "customers").Read, loanHandler.ListBankPledgesForCustomer)
 	protected.GET("/customers/:id/auction-history", platform.CRUDPermissions(authzRepo, "customers").Read, loanHandler.ListAuctionHistoryForCustomer)
+	protected.GET("/customers/:id/personal-loans", platform.CRUDPermissions(authzRepo, "personalloans").Read, personalLoanHandler.ListLoansForCustomer)
 	loan.RegisterRoutes(protected.Group("/loans"), loanHandler, platform.CRUDPermissions(authzRepo, "loans"), platform.CRUDPermissions(authzRepo, "bankpledges"))
+	personalloan.RegisterRoutes(protected.Group("/personal-loans"), personalLoanHandler, platform.CRUDPermissions(authzRepo, "personalloans"))
 	dashboard.RegisterRoutes(protected.Group("/dashboard"), dashboardHandler, platform.CRUDPermissions(authzRepo, "loans"))
 	upload.RegisterRoutes(protected.Group("/uploads"), uploadHandler, platform.CRUDPermissions(authzRepo, "uploads"))
 	ornamenttype.RegisterRoutes(protected.Group("/ornament-types"), ornamentTypeHandler, platform.CRUDPermissions(authzRepo, "ornamenttypes"))

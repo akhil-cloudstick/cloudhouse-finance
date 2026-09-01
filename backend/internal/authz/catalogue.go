@@ -70,6 +70,11 @@ var Catalogue = []PermissionDef{
 	{"can update loan", "Update and act on loans, ornaments, approvals, payments, requests and auctions", "Loan Management"},
 	{"can delete loan", "Delete loans, ornaments, drafts, requests and payments", "Loan Management"},
 
+	{"can view personal loan", "View personal loans, schedules and payments", "Personal Loan Management"},
+	{"can create personal loan", "Create personal loans", "Personal Loan Management"},
+	{"can update personal loan", "Record payments, renew and manage personal loans", "Personal Loan Management"},
+	{"can delete personal loan", "Delete personal loans", "Personal Loan Management"},
+
 	{"can view bank pledge", "View bank pledge records", "Bank Pledge Management"},
 	{"can create bank pledge", "Create bank pledges", "Bank Pledge Management"},
 	{"can update bank pledge", "Update, release and void bank pledges", "Bank Pledge Management"},
