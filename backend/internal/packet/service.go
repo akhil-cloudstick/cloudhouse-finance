@@ -17,6 +17,16 @@ var (
 	ErrLockerRequired          = httpx.NewBadRequest("lockerId is required for this transition")
 	ErrLockerInvalid           = httpx.NewBadRequest("locker does not exist or is inactive")
 	ErrLockerFull              = httpx.NewConflict("locker is at full capacity")
+	// ErrLoanNoLongerMovable guards the manual staff-facing movement
+	// endpoint (Handler.RecordMovement) — once a loan's gold has been sold
+	// at auction or already released to the customer, nothing about its
+	// physical custody is staff's to change by hand any more. NOT enforced
+	// inside Service.RecordMovement itself: the automatic internal calls
+	// (RecordGoldReleaseMovement/RecordBankPledgeMovement, called from
+	// loan.Service right after the loan's own status already flips) must
+	// still go through, so this check lives only in the handler, ahead of
+	// the manual call.
+	ErrLoanNoLongerMovable = httpx.NewConflict("this loan's gold has already left custody — no further packet movement is possible")
 )
 
 // LockerCapacityProvider is a narrow read-only dependency satisfied by

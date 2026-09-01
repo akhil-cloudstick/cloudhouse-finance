@@ -1,5 +1,5 @@
 import React from "react";
-import { ScrollView, RefreshControl } from "react-native";
+import { ScrollView, RefreshControl, View } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { ScreenContainer } from "../../../src/components/ScreenContainer";
@@ -33,38 +33,40 @@ export default function EmployeeDetailScreen() {
   });
 
   return (
-    <ScreenContainer>
-      <ScrollView
-        showsVerticalScrollIndicator={false}
-        refreshControl={<RefreshControl refreshing={isRefetching} onRefresh={refetch} />}
-      >
-        {isLoading ? (
-          <ThemedText color={colors.muted}>Loading…</ThemedText>
-        ) : isError || !data ? (
-          <ThemedText color={colors.red}>Could not load this employee.</ThemedText>
-        ) : (
-          <Card>
-            <ThemedText variant="h2" color={colors.goldDeep}>
-              {data.name}
-            </ThemedText>
-            <ThemedText variant="body" style={{ marginTop: 8 }}>
-              {data.code} · {data.role}
-            </ThemedText>
-            <ThemedText variant="small" color={colors.muted} style={{ marginTop: 4 }}>
-              {data.phone ?? "No phone set"}
-            </ThemedText>
-            <ThemedText variant="small" color={colors.muted} style={{ marginTop: 8 }}>
-              Loans processed {data.loansProcessed} · Collections ₹{data.collections.toLocaleString("en-IN")}
-            </ThemedText>
-            <GoldButton
-              title="Remove employee"
-              variant="outline"
-              onPress={() => remove.mutate()}
-              loading={remove.isPending}
-            />
-          </Card>
-        )}
-      </ScrollView>
+    <ScreenContainer style={{ padding: 0 }}>
+      <View style={{ flex: 1, paddingHorizontal: 16, paddingTop: 16 }}>
+        <ScrollView
+          showsVerticalScrollIndicator={false}
+          refreshControl={<RefreshControl refreshing={isRefetching} onRefresh={refetch} />}
+        >
+          {isLoading ? (
+            <ThemedText color={colors.muted}>Loading…</ThemedText>
+          ) : isError || !data ? (
+            <ThemedText color={colors.red}>Could not load this employee.</ThemedText>
+          ) : (
+            <Card>
+              <ThemedText variant="h2" color={colors.goldDeep}>
+                {data.name}
+              </ThemedText>
+              <ThemedText variant="body" style={{ marginTop: 8 }}>
+                {data.code} · {data.role}
+              </ThemedText>
+              <ThemedText variant="small" color={colors.muted} style={{ marginTop: 4 }}>
+                {data.phone ?? "No phone set"}
+              </ThemedText>
+              <ThemedText variant="small" color={colors.muted} style={{ marginTop: 8 }}>
+                Loans processed {data.loansProcessed} · Collections ₹{data.collections.toLocaleString("en-IN")}
+              </ThemedText>
+              <GoldButton
+                title="Remove employee"
+                variant="outline"
+                onPress={() => remove.mutate()}
+                loading={remove.isPending}
+              />
+            </Card>
+          )}
+        </ScrollView>
+      </View>
     </ScreenContainer>
   );
 }

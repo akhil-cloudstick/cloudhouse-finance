@@ -12,7 +12,7 @@ import { useToast } from "@/common/components/Toast";
 import { useAuth } from "@/common/auth-context";
 import { Icon } from "@/common/components/Icon";
 import { fmt, custOf, schemeOf } from "@/common/utils/format";
-import { uploadFile, searchCustomersPage, type CustomerView } from "@/modules/customers/services/customerService";
+import { uploadFile, searchCustomersPage, getCustomerAadhaarFull, type CustomerView } from "@/modules/customers/services/customerService";
 import { searchActiveSchemesPage, type SchemeView } from "@/modules/schemes/services/schemeService";
 import { searchOrnamentTypesPage, createOrnamentType, type BackendOrnamentType } from "@/modules/ornament-types/services/ornamentTypeService";
 import {
@@ -33,7 +33,7 @@ import { SearchableSelect } from "@/common/components/ui/SearchableSelect";
 import { PurityPicker } from "@/common/components/ui/PurityPicker";
 import { rateForPurityString } from "@/common/utils/purity";
 import { openPrintWindow } from "@/common/utils/print";
-import { printIndemnityBond, type IndemnityBondLang } from "@/modules/loans/utils/indemnityBond";
+import { printIndemnityBond } from "@/modules/loans/utils/indemnityBond";
 import { ApiError } from "@/common/services/httpClient";
 import type { Ornament } from "@/common/utils/data";
 
@@ -135,6 +135,9 @@ export function NewLoan() {
   // itself changes so a stale manual figure never silently outlives the
   // ornaments/scheme it was computed against.
   const [principalOverride, setPrincipalOverride] = useState("");
+  // Free text staff may want to record on this loan that no standard field
+  // captures — carried through onto the printed Statement of Account.
+  const [additionalInfo, setAdditionalInfo] = useState("");
   const fileRefs = useRef<(HTMLInputElement | null)[]>([]);
 
   // Non-admin staff are confined to their own branch — the backend's
@@ -429,12 +432,25 @@ export function NewLoan() {
       toast);
   }
 
-  /* Same bond staff re-print from Loan Details later — see
-   * modules/loans/utils/indemnityBond.ts for the templates. */
-  function printIndemnity(lang: IndemnityBondLang) {
+  /* Same pledge agreement staff re-print from Loan Details later — see
+   * modules/loans/utils/indemnityBond.ts for the template. Full Aadhaar is
+   * fetched separately (getCustomerAadhaarFull) since the customer picker's
+   * cached CustomerView only ever carries the last-4. */
+  async function printIndemnity() {
     const d = buildDraft();
-    const c = d.c as { name?: string; dob?: string; address?: string; branchName?: string; phone?: string };
-    printIndemnityBond({ loanNumber: provId, ...c }, lang, toast);
+    const c = d.c as { id?: string; name?: string; dob?: string; address?: string; branchName?: string; phone?: string; pan?: string };
+    const aadhaar = c.id ? await getCustomerAadhaarFull(c.id).catch(() => "") : "";
+    printIndemnityBond(
+      {
+        loanNumber: provId,
+        ...c,
+        aadhaar,
+        principalAmount: roundedEligible,
+        interestRate: d.sch.rate,
+        ornaments: d.orns.map((o) => ({ name: o.n, purity: o.purity, grossWeight: o.gross, netWeight: o.net, value: o.val })),
+      },
+      toast
+    );
   }
 
   async function printPacketLabel() {
@@ -533,6 +549,7 @@ export function NewLoan() {
         // now that a real loan exists (fail-soft server-side — see
         // Service.DeleteDraftQuietly).
         ...(draftId ? { draftId } : {}),
+        ...(additionalInfo.trim() ? { additionalInfo: additionalInfo.trim() } : {}),
       });
 
       // The backend creates + returns ornaments in the same order they were
@@ -681,8 +698,43 @@ export function NewLoan() {
               ornament-type SearchableSelect's dropdown, which pops out of
               its input via position:absolute. A plain div (no overflow
               rule) avoids both; the page itself scrolls horizontally on
-              very narrow viewports instead. */}
-          <div><table className="tbl" style={{ minWidth: 730 }}>
+              very narrow viewports instead.
+
+              table-layout:fixed + percentage <col> widths below (instead of
+              each cell hard-coding its own px width) is what makes every
+              column shrink together, proportionally, as this wrapper's
+              track (`.grid.cols21`'s left column is `minmax(0,2fr)`, so it
+              can go narrower than the row's natural content width — see
+              that rule's comment) narrows on small/medium screens. With
+              per-cell px widths the auto layout algorithm let the flexible
+              PurityPicker search field absorb almost all of the squeeze
+              while fixed-width cells (Net Wt/Qty/Photo) stayed put — so on a
+              narrow screen that one field got crushed to a few px and
+              became untypable. Fixed layout instead divides *any* available
+              width by these ratios up front, so no single column bears the
+              whole squeeze. minWidth:620 is a floor below which columns
+              would be too narrow to use at all; below that the wrapper
+              overflows and .page (whose overflow-y:auto computes overflow-x
+              to auto too) scrolls it horizontally instead. 620 (not the old
+              480) is the smallest width at which the Net Wt/Qty columns
+              (11% each) still give their inputs the full 34px they're
+              floored at (see those <input>s' minWidth below) — any
+              narrower and an input's own floor pushes it wider than its
+              <td>'s shrunk content box, so it overflows the cell and drifts
+              out of alignment with its own header instead of scrolling the
+              table as a whole. */}
+          <div style={{ width: "100%", overflowX: "auto", minWidth: 0, paddingBottom: 6 }}><table className="tbl orn-table" style={{ width: "100%", minWidth: 650, tableLayout: "fixed" }}>
+            <colgroup>
+              {/* Ornament narrowed to 16% to free space for Photo (20%) and Delete (8%) columns,
+                  preventing Upload and Close button overlaps and clipping on small screens. */}
+              <col style={{ width: "16%" }} />
+              <col style={{ width: "27%" }} />
+              <col style={{ width: "10%" }} />
+              <col style={{ width: "8%" }} />
+              <col style={{ width: "11%" }} />
+              <col style={{ width: "20%" }} />
+              <col style={{ width: "8%" }} />
+            </colgroup>
             <thead><tr><th>Ornament</th><th>Purity</th><th className="num">Net Wt (g)</th><th className="num">Qty</th><th className="num">Value</th><th style={{ textAlign: "center" }}>Photo</th><th></th></tr></thead>
             <tbody>
               {rows.length === 0 && (
@@ -690,15 +742,8 @@ export function NewLoan() {
               )}
               {rows.map((r, i) => (
                 <tr key={i}>
-                  {/* height:31 matches the Purity/Net Wt/Qty cells beside it
-                      (see PurityPicker.tsx's comment on why those are
-                      pinned to 31px) — the ornament-type SearchableSelect
-                      otherwise renders at the taller default .inp height,
-                      making this row uneven. Scoped to this cell only via
-                      .orn-type-td so the same SearchableSelect used
-                      elsewhere (Customer/Scheme/Branch/Locker above) keeps
-                      its normal size. */}
-                  <td className="orn-type-td" style={{ minWidth: 180 }}>
+                  {/* height:31 matches the Purity/Net Wt/Qty cells beside it */}
+                  <td className="orn-type-td">
                     <SearchableSelect<BackendOrnamentType>
                       value={r.n}
                       onChange={(_id, item) => updOrn(i, "n", item.name)}
@@ -710,23 +755,25 @@ export function NewLoan() {
                       onCreate={createOrnamentType}
                     />
                   </td>
-                  <td style={{ width: 300 }}><PurityPicker value={r.p} onChange={(v) => updOrn(i, "p", v)} /></td>
-                  <td className="num"><input className="inp" style={{ padding: "6px 8px", width: 84, height: 31, textAlign: "right" }} type="number" min={0} value={r.w === 0 ? "" : r.w} onChange={(e) => updOrn(i, "w", e.target.value === "" ? 0 : Math.max(0, +e.target.value || 0))} /></td>
-                  <td className="num"><input className="inp" style={{ padding: "6px 8px", width: 64, height: 31, textAlign: "right" }} type="number" min={0} value={r.q} onChange={(e) => updOrn(i, "q", Math.max(0, +e.target.value || 0))} /></td>
+                  <td><PurityPicker value={r.p} onChange={(v) => updOrn(i, "p", v)} /></td>
+                  <td className="num"><input className="inp" style={{ padding: "6px 8px", width: "100%", minWidth: 34, height: 31, textAlign: "right", boxSizing: "border-box" }} type="number" min={0} value={r.w === 0 ? "" : r.w} onChange={(e) => updOrn(i, "w", e.target.value === "" ? 0 : Math.max(0, +e.target.value || 0))} /></td>
+                  <td className="num"><input className="inp" style={{ padding: "6px 8px", width: "100%", minWidth: 34, height: 31, textAlign: "right", boxSizing: "border-box" }} type="number" min={0} value={r.q} onChange={(e) => updOrn(i, "q", Math.max(0, +e.target.value || 0))} /></td>
                   <td className="num">{fmt(rowVals[i])}</td>
                   <td style={{ textAlign: "center", whiteSpace: "nowrap" }}>
                     <input type="file" accept="image/*" ref={(el) => { fileRefs.current[i] = el; }} style={{ display: "none" }} onChange={(e) => ornImgPicked(i, e.target)} />
                     {r.img ? (
-                      <>
-                        <img src={r.img} style={{ width: 34, height: 34, objectFit: "cover", borderRadius: 6, border: "1px solid var(--line)", cursor: "pointer", verticalAlign: "middle" }} title="View photo" onClick={() => viewOrnImg(i)} />
+                      <div style={{ display: "inline-flex", gap: 4, alignItems: "center", justifyContent: "center" }}>
+                        <img src={r.img} style={{ width: 34, height: 34, objectFit: "cover", borderRadius: 6, border: "1px solid var(--line)", cursor: "pointer" }} title="View photo" onClick={() => viewOrnImg(i)} />
                         <button className="btn plain sm" style={{ padding: "0 7px", height: 31 }} title="Replace photo" onClick={() => fileRefs.current[i]?.click()}>↺</button>
                         <button className="btn plain sm" style={{ padding: "0 7px", height: 31 }} title="Remove photo" onClick={() => delOrnImg(i)}>✕</button>
-                      </>
+                      </div>
                     ) : (
                       <button className="btn plain sm" style={{ padding: "0 9px", height: 31 }} title="Upload ornament photo" onClick={() => fileRefs.current[i]?.click()}>📷 Upload</button>
                     )}
                   </td>
-                  <td style={{ textAlign: "center" }}><button className="btn danger sm" style={{ height: 31 }} onClick={() => delOrnRow(i)}>✕</button></td>
+                  <td style={{ textAlign: "center" }}>
+                    <button className="btn danger sm" style={{ height: 31, width: 31, padding: 0, display: "inline-flex", alignItems: "center", justifyContent: "center" }} title="Remove ornament" onClick={() => delOrnRow(i)}>✕</button>
+                  </td>
                 </tr>
               ))}
             </tbody>
@@ -736,9 +783,7 @@ export function NewLoan() {
           <div className="ft" style={{ display: "flex", gap: 10, justifyContent: "flex-end", flexWrap: "wrap", padding: "14px 18px" }}>
             <button className="btn ghost" onClick={printPacketLabel}>🏷 Print Label</button>
             <button className="btn ghost" onClick={printPledgeSlip}>🖨 Print Slip</button>
-            <button className="btn ghost" onClick={() => printIndemnity("en")}>🖨 Indemnity Bond</button>
-            <button className="btn ghost" onClick={() => printIndemnity("hi")}>🖨 क्षतिपूर्ति बॉन्ड (हिन्दी)</button>
-            <button className="btn ghost" onClick={() => printIndemnity("gu")}>🖨 વળતર બોન્ડ (ગુજરાતી)</button>
+            <button className="btn ghost" onClick={printIndemnity}>🖨 Pledge Agreement</button>
             <button className="btn ghost" onClick={saveDraftNow} disabled={savingDraft}>
               {savingDraft ? "Saving…" : draftId ? "Update Draft" : "Save Draft"}
             </button>
@@ -767,6 +812,18 @@ export function NewLoan() {
                   value={principalOverride}
                   onChange={(e) => setPrincipalOverride(e.target.value)}
                   style={{ fontWeight: 600, color: "var(--gold-deep)", fontSize: 16 }}
+                />
+              </div>
+              <div style={{ padding: "10px 0 2px" }}>
+                <label className="f" htmlFor="additional-info-input">Additional Information (optional)</label>
+                <textarea
+                  id="additional-info-input"
+                  className="inp"
+                  rows={3}
+                  placeholder="Anything else worth recording on this loan…"
+                  value={additionalInfo}
+                  onChange={(e) => setAdditionalInfo(e.target.value)}
+                  style={{ resize: "vertical", width: "100%" }}
                 />
               </div>
             </div>

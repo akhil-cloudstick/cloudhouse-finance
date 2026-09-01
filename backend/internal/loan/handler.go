@@ -59,6 +59,7 @@ type loanRequest struct {
 	PrincipalAmount float64           `json:"principalAmount" binding:"required"`
 	Ornaments       []ornamentRequest `json:"ornaments" binding:"required,min=1"`
 	LockerID        *uint             `json:"lockerId"`
+	AdditionalInfo  string            `json:"additionalInfo"`
 
 	// DraftID, when the loan was submitted from a saved draft, is that
 	// draft's id — discarded once the real loan exists so the staff member's
@@ -90,6 +91,7 @@ func (req loanRequest) toInput() (CreateInput, error) {
 		PrincipalAmount: req.PrincipalAmount,
 		Ornaments:       ornaments,
 		LockerID:        req.LockerID,
+		AdditionalInfo:  req.AdditionalInfo,
 	}, nil
 }
 
@@ -781,7 +783,7 @@ func (h *Handler) ResolveAuctionDecision(c *gin.Context) {
 }
 
 // auctionNoticeRequest no longer takes a method — IssueAuctionNotice always
-// fires all three channels (SMS, WhatsApp, Registered Post) at once, so
+// fires every channel in auctionNoticeChannels (WhatsApp) at once, so
 // remarks is the only optional field left; an empty/missing body is fine.
 type auctionNoticeRequest struct {
 	Remarks string `json:"remarks"`

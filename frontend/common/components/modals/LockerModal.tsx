@@ -80,13 +80,13 @@ export function LockerModalContent({ locker, onSaved }: { locker?: LockerView; o
           />
         </div></div>
         {locker && (
-          <div className="frow">
-            <label className="ccheck" style={{ alignItems: "center", fontSize: 13.5 }}>
-              <input type="checkbox" checked={isActive} onChange={(e) => setIsActive(e.target.checked)} />
-              <span className="mark" />
-              Active
-            </label>
-          </div>
+          <div className="frow"><div><label className="f">Status</label>
+            <Select
+              options={[{ value: "true", label: "Active" }, { value: "false", label: "Inactive" }]}
+              value={String(isActive)}
+              onChange={(v) => setIsActive(v === "true")}
+            />
+          </div></div>
         )}
         <p style={{ color: "var(--red)", fontSize: 12.5, minHeight: 16, marginTop: 8 }}>{err}</p>
       </div>

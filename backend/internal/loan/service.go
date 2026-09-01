@@ -52,7 +52,10 @@ type PacketMover interface {
 	RecordBankPledgeMovement(loanID uint, remarks string) error
 	RecordBankReleaseMovement(loanID uint, remarks string) error
 	// RecordGoldReleaseMovement moves a loan's packet through to Released —
-	// called by CompleteRelease once every release gate has passed.
+	// called by CompleteRelease once every release gate has passed, and
+	// also by RecordAuctionSale once the gold has actually been sold: an
+	// auctioned loan's packet reads as an ordinary Released packet (the
+	// gold left custody either way), not a separate status.
 	RecordGoldReleaseMovement(loanID uint, remarks string) error
 }
 
@@ -89,27 +92,27 @@ type CashRecorder interface {
 }
 
 var (
-	ErrNotFound            = httpx.NewNotFound("loan not found")
-	ErrOrnamentNotFound    = httpx.NewNotFound("ornament not found")
-	ErrBranchInvalid       = httpx.NewBadRequest("branch does not exist")
-	ErrCustomerInvalid     = httpx.NewBadRequest("customer does not exist")
-	ErrCustomerNotVerified = httpx.NewBadRequest("customer must be KYC verified before a loan can be created")
-	ErrSchemeInvalid       = httpx.NewBadRequest("scheme does not exist")
-	ErrNoOrnaments         = httpx.NewBadRequest("at least one ornament is required")
-	ErrNoGoldRate          = httpx.NewBadRequest("no gold rate has been published yet")
-	ErrGoldRateNotSetToday = httpx.NewBadRequest("today's gold rate has not been set yet — please publish it before creating a loan")
-	ErrInvalidPurity       = httpx.NewBadRequest("purity must be a karat like \"22K\" (10-24) or a fineness percentage like \"91.6%\" (0-100)")
-	ErrInvalidWeight       = httpx.NewBadRequest("gross weight must be greater than zero")
-	ErrPrincipalTooHigh    = httpx.NewBadRequest("principal amount cannot exceed the eligible loan amount")
-	ErrInvalidPrincipal    = httpx.NewBadRequest("principal amount must be greater than zero")
-	ErrInvalidDueDate      = httpx.NewBadRequest("due date must be after the opened date")
-	ErrWrongStage          = httpx.NewBadRequest("approval action does not match the loan's current approval stage")
-	ErrAlreadyDecided      = httpx.NewBadRequest("loan approval has already reached a terminal state")
-	ErrInvalidAction       = httpx.NewBadRequest("action must be Approved or Rejected")
-	ErrInvalidAmount       = httpx.NewBadRequest("amount must be greater than zero")
-	ErrRequestNotFound     = httpx.NewNotFound("loan request not found")
-	ErrInvalidRequestType  = httpx.NewBadRequest("type must be Extension or Release")
-	ErrInvalidMonths       = httpx.NewBadRequest("requested extension months must be greater than zero")
+	ErrNotFound              = httpx.NewNotFound("loan not found")
+	ErrOrnamentNotFound      = httpx.NewNotFound("ornament not found")
+	ErrBranchInvalid         = httpx.NewBadRequest("branch does not exist")
+	ErrCustomerInvalid       = httpx.NewBadRequest("customer does not exist")
+	ErrCustomerNotVerified   = httpx.NewBadRequest("customer must be KYC verified before a loan can be created")
+	ErrSchemeInvalid         = httpx.NewBadRequest("scheme does not exist")
+	ErrNoOrnaments           = httpx.NewBadRequest("at least one ornament is required")
+	ErrNoGoldRate            = httpx.NewBadRequest("no gold rate has been published yet")
+	ErrGoldRateNotSetToday   = httpx.NewBadRequest("today's gold rate has not been set yet — please publish it before creating a loan")
+	ErrInvalidPurity         = httpx.NewBadRequest("purity must be a karat like \"22K\" (10-24) or a fineness percentage like \"91.6%\" (0-100)")
+	ErrInvalidWeight         = httpx.NewBadRequest("gross weight must be greater than zero")
+	ErrPrincipalTooHigh      = httpx.NewBadRequest("principal amount cannot exceed the eligible loan amount")
+	ErrInvalidPrincipal      = httpx.NewBadRequest("principal amount must be greater than zero")
+	ErrInvalidDueDate        = httpx.NewBadRequest("due date must be after the opened date")
+	ErrWrongStage            = httpx.NewBadRequest("approval action does not match the loan's current approval stage")
+	ErrAlreadyDecided        = httpx.NewBadRequest("loan approval has already reached a terminal state")
+	ErrInvalidAction         = httpx.NewBadRequest("action must be Approved or Rejected")
+	ErrInvalidAmount         = httpx.NewBadRequest("amount must be greater than zero")
+	ErrRequestNotFound       = httpx.NewNotFound("loan request not found")
+	ErrInvalidRequestType    = httpx.NewBadRequest("type must be Extension or Release")
+	ErrInvalidMonths         = httpx.NewBadRequest("requested extension months must be greater than zero")
 	ErrRequestAlreadyDecided = httpx.NewBadRequest("loan request has already been decided")
 	ErrInvalidPaymentType    = httpx.NewBadRequest("type must be Interest, Principal, Partial, Full Settlement, Adjustment, or Waiver")
 	ErrNotExtensionRequest   = httpx.NewBadRequest("this request is not an Extension request")
@@ -130,16 +133,16 @@ var (
 	// ErrLoanNotPledgeable guards the bank re-pledge entry points against
 	// loans whose gold is no longer in the branch's custody to hand over —
 	// see bankPledgeIneligibleStatuses.
-	ErrLoanNotPledgeable         = httpx.NewBadRequest("this loan's gold is no longer held by the branch (closed, released or auctioned), so it cannot be re-pledged to a bank")
+	ErrLoanNotPledgeable = httpx.NewBadRequest("this loan's gold is no longer held by the branch (closed, released or auctioned), so it cannot be re-pledged to a bank")
 	// ErrBankPledgeAlreadyUsed covers a loan whose pledge has already been
 	// released back from the bank: one bank pledge per loan, for its
 	// lifetime. Distinct from ErrBankPledgeStillActive, which is the
 	// not-yet-released case.
 	ErrBankPledgeAlreadyUsed = httpx.NewBadRequest("this loan's gold has already been pledged to a bank and released once — it cannot be pledged again")
-	ErrAuctionNotFound           = httpx.NewNotFound("this loan has no auction case yet — mark it auction-eligible first")
-	ErrLoanNotDefaulted          = httpx.NewBadRequest("loan must be Defaulted (overdue by more than 90 days) before it can be marked auction-eligible")
-	ErrAuctionAlreadyStarted     = httpx.NewBadRequest("this loan already has an auction case in progress")
-	ErrAuctionWrongStage         = httpx.NewBadRequest("action does not match the auction case's current stage")
+	ErrAuctionNotFound       = httpx.NewNotFound("this loan has no auction case yet — mark it auction-eligible first")
+	ErrLoanNotDefaulted      = httpx.NewBadRequest("loan must be Defaulted (overdue by more than 90 days) before it can be marked auction-eligible")
+	ErrAuctionAlreadyStarted = httpx.NewBadRequest("this loan already has an auction case in progress")
+	ErrAuctionWrongStage     = httpx.NewBadRequest("action does not match the auction case's current stage")
 
 	// ErrDraftNotFound covers both "no such draft" and "not yours" — a draft
 	// belongs to the employee who saved it (see LoanDraft), and answering
@@ -183,7 +186,7 @@ var (
 	ErrNoIndemnityBondSignRequest = httpx.NewBadRequest("no indemnity bond eSign has been started for this loan")
 	// ErrIndemnityBondAlreadySigned is a state conflict — Conflict, not BadRequest.
 	ErrIndemnityBondAlreadySigned   = httpx.NewConflict("this loan's indemnity bond has already been signed")
-	ErrUnsupportedIndemnityBondLang = httpx.NewBadRequest("lang must be en, hi, or gu")
+	ErrUnsupportedIndemnityBondLang = httpx.NewBadRequest("lang must be en")
 )
 
 // Service implements loan business rules: ornament valuation, eligible-
@@ -225,7 +228,7 @@ type Service struct {
 	packetCreator PacketCreator
 	packetMover   PacketMover
 	cashRecorder  CashRecorder
-	notifier      CustomerNotifier // nil-safe — see notifyCustomer
+	notifier      CustomerNotifier   // nil-safe — see notifyCustomer
 	whatsapp      platform.SMSSender // reused interface — Send(phone, message) matches SMSSender exactly
 	commlogRepo   *commlog.Repository
 
@@ -243,6 +246,12 @@ type Service struct {
 	// methods check first and return ErrRazorpayNotConfigured rather than a
 	// nil-pointer panic, same posture as esign above.
 	razorpay *platform.RazorpayClient
+
+	// aadhaarCipher decrypts a customer's full Aadhaar number (same key/
+	// cipher as customer.Service's aadhaarCipher) so bondDataForLoan can
+	// prefill it on the Aadhaar-eSign PDF, mirroring what the printable
+	// pledge agreement shows via customer.Service.DecryptAadhaar.
+	aadhaarCipher *platform.Cipher
 }
 
 func NewService(
@@ -269,6 +278,7 @@ func NewService(
 	esign *platform.EsignClient,
 	uploadsDir string,
 	razorpay *platform.RazorpayClient,
+	aadhaarCipher *platform.Cipher,
 ) *Service {
 	return &Service{
 		db:                  db,
@@ -295,6 +305,7 @@ func NewService(
 		esign:               esign,
 		uploadsDir:          uploadsDir,
 		razorpay:            razorpay,
+		aadhaarCipher:       aadhaarCipher,
 	}
 }
 
@@ -367,6 +378,9 @@ type CreateInput struct {
 	// into a locker at creation time, instead of requiring a separate
 	// manual "check in to locker" step afterward.
 	LockerID *uint
+	// AdditionalInfo is free text captured at creation time — see Loan's
+	// own field doc.
+	AdditionalInfo string
 }
 
 // rateForPurity lives in purity.go (parses "22K"/"91.6%" and resolves the
@@ -471,6 +485,7 @@ func (s *Service) Create(in CreateInput) (*Loan, error) {
 		SchemeID:         in.SchemeID,
 		OpenedDate:       in.OpenedDate,
 		DueDate:          in.DueDate,
+		AdditionalInfo:   in.AdditionalInfo,
 		Status:           StatusPendingApproval,
 		ApprovalStage:    SanctionStageLoanOperator,
 		BankPledgeStatus: BankPledgeStatusNotPledged,
@@ -1553,7 +1568,7 @@ func (s *Service) GetAuctionHistory(loanID uint, branchID *uint) ([]AuctionRecor
 // across all loans, scoped to the caller's branch — backs the Auctions
 // screen's History tab. See AuctionRepository.FindAllConcluded for hasSale/
 // limit/offset semantics.
-func (s *Service) ListConcludedAuctions(branchID *uint, hasSale *bool, limit, offset int) ([]AuctionRecord, error) {
+func (s *Service) ListConcludedAuctions(branchID *uint, hasSale *bool, limit, offset int) ([]ConcludedAuctionRow, error) {
 	return s.auctionRepo.FindAllConcluded(branchID, hasSale, limit, offset)
 }
 
@@ -1648,22 +1663,21 @@ func isUniqueViolation(err error) bool {
 		strings.Contains(msg, "uniqueviolation")
 }
 
-// auctionNoticeChannels are the three channels every auction notice is sent
-// through — the operator no longer picks a method (Registered Post/SMS/In
-// Person/Email); all three fire together and each is logged as its own
-// AuctionNotice row, mirroring the "customer notice history" the compliance
-// spec expects. WhatsApp is the only one with a live gateway today (see
-// notifyCustomer) — SMS and Postal have no provider wired up yet, so they're
-// logged the same way a not-yet-configured WhatsApp send would be.
-var auctionNoticeChannels = []string{"SMS", "WhatsApp", "Registered Post"}
+// auctionNoticeChannels are the channels every auction notice is sent
+// through. SMS and Registered Post used to be listed alongside WhatsApp,
+// but neither ever had a real provider wired up — they were only ever
+// logged as if sent, which misrepresented to staff (and the customer
+// notice history) that the notice had actually gone out three ways when
+// only one message was ever delivered. Trimmed to the one channel that is
+// real.
+var auctionNoticeChannels = []string{"WhatsApp"}
 
 // IssueAuctionNotice logs a customer notice against the loan's auction case
 // on every channel in auctionNoticeChannels and advances it to NoticeIssued
 // (idempotent re-issue: additional notices can be logged after the stage has
 // already advanced past Eligible). Actually delivers the WhatsApp message
 // (best-effort — a delivery failure never blocks logging the notice, same
-// rule as notifyCustomer elsewhere); SMS/Postal have no gateway yet and are
-// recorded as logged only.
+// rule as notifyCustomer elsewhere).
 func (s *Service) IssueAuctionNotice(loanID uint, branchID *uint, remarks string, actorID *uint, actorRole string) (*AuctionRecord, error) {
 	if err := s.checkLoanBranch(loanID, branchID); err != nil {
 		return nil, err
@@ -1858,7 +1872,20 @@ func (s *Service) RecordAuctionSale(loanID uint, branchID *uint, saleAmount, exp
 		// owed to the customer, negative = shortfall still unrecovered.
 		rec.SurplusShortfall = platform.RoundMoney(netProceeds - totalDebt)
 		rec.SurplusPayableAmount = platform.RoundMoney(math.Max(0, netProceeds-totalDebt))
-		rec.Stage = AuctionStageAuctioned
+		if fullyCovered && rec.SurplusPayableAmount <= 0.01 {
+			// The sale exactly covered the debt — there is no surplus decision
+			// left for a Branch Manager to make (SettleAuction actively refuses
+			// to run with nothing to dispose of, see ErrNoSurplusToDispose), so
+			// staying at "Auctioned" would leave this case with no action ever
+			// available to move it into history. Settle it immediately: nothing
+			// is owed to the customer, and the full proceeds already covered
+			// the loan co's own debt, matching AuctionSurplusRecordedAsIncome's
+			// FinalSettlementStatus for the same "no money changes hands" case.
+			rec.FinalSettlementStatus = AuctionSettlementSettledToLoanCo
+			rec.Stage = AuctionStageSettled
+		} else {
+			rec.Stage = AuctionStageAuctioned
+		}
 		if err := s.auctionRepo.UpdateTx(tx, rec); err != nil {
 			return err
 		}
@@ -1866,7 +1893,12 @@ func (s *Service) RecordAuctionSale(loanID uint, branchID *uint, saleAmount, exp
 		l.AuctionDate = &auctionDate
 		l.AuctionAmount = &saleAmount
 		if fullyCovered {
-			l.Status = StatusClosed
+			// StatusAuctioned, not StatusClosed — the gold was sold, not
+			// released back to the customer, and the rest of the codebase
+			// already treats the two as distinct terminal states (see
+			// bankPledgeIneligibleStatuses and isTerminalStatus's own
+			// separate StatusAuctioned branch).
+			l.Status = StatusAuctioned
 		} else {
 			// Deliberately NOT Closed: real money is still owed. Accrual is
 			// frozen in this state (see StatusAuctionedBalanceDue) so the
@@ -1896,13 +1928,18 @@ func (s *Service) RecordAuctionSale(loanID uint, branchID *uint, saleAmount, exp
 		return nil, txErr
 	}
 
-	// Cash and notifications sit outside the transaction because both are
-	// external side effects that must not be able to roll back a completed,
-	// already-consistent sale — the same log-and-continue rule the rest of
-	// this service applies to cash and WhatsApp.
+	// Cash, packet and notifications sit outside the transaction because all
+	// three are external side effects that must not be able to roll back a
+	// completed, already-consistent sale — the same log-and-continue rule
+	// the rest of this service applies to cash and WhatsApp.
 	if s.cashRecorder != nil {
 		if _, err := s.cashRecorder.RecordAuctionSaleCashIn(loanID, l.LoanNumber, netProceeds, l.BranchID, auctionDate); err != nil {
 			log.Printf("cash-in movement (auction sale) failed for loan %d: %v", loanID, err)
+		}
+	}
+	if s.packetMover != nil {
+		if err := s.packetMover.RecordGoldReleaseMovement(loanID, fmt.Sprintf("Auction sale — sold for ₹%.2f", saleAmount)); err != nil {
+			log.Printf("packet movement (auction sale) failed for loan %d: %v", loanID, err)
 		}
 	}
 
@@ -3054,31 +3091,62 @@ func (s *Service) ListAuctionHistoryForCustomer(customerID uint, from, to *time.
 // printIndemnity() assembles via buildDraft(), computed from the loan's own
 // data rather than the pre-save draft it uses (this runs against a real,
 // persisted loan — see StartIndemnityBondSign).
-func bondDataForLoan(l *Loan) BondData {
+func (s *Service) bondDataForLoan(l *Loan) BondData {
 	now := time.Now()
 	age := 0
 	if !l.Customer.DOB.IsZero() {
 		age = int(now.Sub(l.Customer.DOB).Hours() / 24 / 365.25)
 	}
+	ornaments := make([]BondOrnament, 0, len(l.Ornaments))
+	for _, o := range l.Ornaments {
+		ornaments = append(ornaments, BondOrnament{
+			Name:        o.Name,
+			Purity:      o.Purity,
+			GrossWeight: o.GrossWeight,
+			NetWeight:   o.NetWeight,
+			Value:       o.GoldValue,
+		})
+	}
+	// Decrypted best-effort: a customer with no Aadhaar on file, or a
+	// decrypt failure, just leaves the bond's Aadhaar line blank for staff
+	// to fill by hand rather than blocking the eSign flow entirely.
+	var aadhaar string
+	if l.Customer.AadhaarEncrypted != "" && s.aadhaarCipher != nil {
+		if plain, err := s.aadhaarCipher.Decrypt(l.Customer.AadhaarEncrypted); err == nil {
+			aadhaar = plain
+		} else {
+			log.Printf("pledge agreement: decrypt Aadhaar for customer %d failed: %v", l.Customer.ID, err)
+		}
+	}
+
 	return BondData{
-		LoanNumber:   l.LoanNumber,
-		CustomerName: l.Customer.Name,
-		Age:          age,
-		Address:      l.Customer.Address,
-		BranchName:   l.Branch.Name,
-		Phone:        l.Customer.Phone,
-		Day:          now.Day(),
-		Month:        now.Month().String(),
-		Year:         now.Year(),
+		LoanNumber:      l.LoanNumber,
+		CustomerName:    l.Customer.Name,
+		Age:             age,
+		Address:         l.Customer.Address,
+		BranchName:      l.Branch.Name,
+		Phone:           l.Customer.Phone,
+		PAN:             l.Customer.PAN,
+		Aadhaar:         aadhaar,
+		PrincipalAmount: l.PrincipalAmount,
+		InterestRate:    l.Scheme.InterestRate,
+		Ornaments:       ornaments,
+		Day:             now.Day(),
+		Month:           now.Month().String(),
+		Year:            now.Year(),
 	}
 }
 
-// StartIndemnityBondSign renders the indemnity bond PDF for loanID (in the
-// given language), uploads it to Setu, and creates an Aadhaar eSign
-// signature request naming the loan's customer as signer. redirectURL is
-// where Setu sends the customer back to after they complete Aadhaar+OTP
-// signing on their own device — the frontend supplies this the same way
-// customer.Service.StartAadhaarVerify's redirectURL works.
+// StartIndemnityBondSign renders the pledge agreement PDF for loanID,
+// uploads it to Setu, and creates an Aadhaar eSign signature request naming
+// the loan's customer as signer. redirectURL is where Setu sends the
+// customer back to after they complete Aadhaar+OTP signing on their own
+// device — the frontend supplies this the same way customer.Service.
+// StartAadhaarVerify's redirectURL works.
+//
+// lang is kept for API compatibility with existing callers (they still
+// send "en") but the pledge agreement now has only one, English, version —
+// any other value is rejected.
 //
 // The bond's print-and-sign-by-hand buttons (NewLoan.tsx/LoanDetail.tsx)
 // are untouched by this — eSign is an additional path, not a replacement,
@@ -3087,7 +3155,7 @@ func (s *Service) StartIndemnityBondSign(loanID uint, branchID *uint, lang strin
 	if s.esign == nil {
 		return nil, ErrEsignNotConfigured
 	}
-	if _, ok := bondTemplates[lang]; !ok {
+	if lang != "en" {
 		return nil, ErrUnsupportedIndemnityBondLang
 	}
 	l, err := s.repo.FindByID(loanID)
@@ -3101,12 +3169,12 @@ func (s *Service) StartIndemnityBondSign(loanID uint, branchID *uint, lang strin
 		return nil, ErrIndemnityBondAlreadySigned
 	}
 
-	pdfBytes, err := RenderIndemnityBondPDF(bondDataForLoan(l), lang)
+	pdfBytes, err := RenderIndemnityBondPDF(s.bondDataForLoan(l))
 	if err != nil {
 		return nil, err
 	}
 
-	doc, err := s.esign.UploadDocument(pdfBytes, "Indemnity Bond - "+l.LoanNumber)
+	doc, err := s.esign.UploadDocument(pdfBytes, "Pledge Agreement - "+l.LoanNumber)
 	if err != nil {
 		return nil, err
 	}

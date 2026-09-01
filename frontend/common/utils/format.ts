@@ -29,6 +29,11 @@ const STATUS_COLOR: Record<string, string> = {
   Released: "gray", "Notice Issued": "amber", "Not Pledged": "gray", "Auction Scheduled": "red",
   "Packet Generated": "blue", "Ready For Release": "amber", Returned: "gold",
   "Name Mismatch": "red",
+  // Loan-level only — a packet whose gold was auctioned still shows plain
+  // "Released" (see loan.PacketMover.RecordGoldReleaseMovement), it's the
+  // loan's own status that distinguishes an auction sale from an ordinary
+  // release.
+  Auctioned: "red", "Auctioned - Balance Due": "red",
 };
 
 export function statusChipColor(status: string): string {

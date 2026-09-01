@@ -26,6 +26,9 @@ export type CreateLoanInput = {
   // Optional — the saved draft this loan was submitted from, discarded
   // server-side once the loan exists (see the backend's loanRequest.DraftID).
   draftId?: number;
+  // Optional free text captured at creation — anything the standard fields
+  // don't cover, carried through onto the printed Statement of Account.
+  additionalInfo?: string;
 };
 
 /* Shape returned by the Go backend (backend/internal/loan/model.go's Loan —
@@ -137,6 +140,7 @@ export type BackendLoan = {
   scheme?: NestedScheme;
   openedDate: string;
   dueDate: string;
+  additionalInfo?: string;
   totalNetWeight: number;
   totalGoldValue: number;
   eligibleLoanAmount: number;
@@ -246,6 +250,7 @@ export type LoanView = {
   schemePenal: number;
   opened: string; // "YYYY-MM-DD"
   due: string;
+  additionalInfo: string;
   totalNetWeight: number;
   totalGoldValue: number;
   eligibleLoanAmount: number;
@@ -384,6 +389,7 @@ export function toView(l: BackendLoan): LoanView {
     schemePenal: l.scheme?.penalRate || 0,
     opened: l.openedDate ? l.openedDate.slice(0, 10) : "",
     due: l.dueDate ? l.dueDate.slice(0, 10) : "",
+    additionalInfo: l.additionalInfo || "",
     totalNetWeight: l.totalNetWeight,
     totalGoldValue: l.totalGoldValue,
     eligibleLoanAmount: l.eligibleLoanAmount,
@@ -1115,6 +1121,17 @@ export function toCustomerAuctionRowView(r: BackendCustomerAuctionRow): Customer
   return { ...toAuctionRecordView(r), loanNumber: r.loanNumber };
 }
 
+/* The Auctions screen's History tab (Auctions.tsx's "Auctions Conducted" /
+ * "Closed Without Auction" sub-tables) needs the loan number and customer
+ * name to actually identify a row and link it — the same augmentation
+ * CustomerAuctionRow already needed, mirrored here as its own type since
+ * this one also carries CustomerName. */
+export type BackendConcludedAuctionRow = BackendAuctionRecord & { loanNumber: string; customerName: string };
+export type ConcludedAuctionRowView = AuctionRecordView & { loanNumber: string; customerName: string };
+export function toConcludedAuctionRowView(r: BackendConcludedAuctionRow): ConcludedAuctionRowView {
+  return { ...toAuctionRecordView(r), loanNumber: r.loanNumber, customerName: r.customerName };
+}
+
 export async function getAuctionRecord(loanId: number): Promise<AuctionRecordView | null> {
   try {
     const rec = await apiFetch<BackendAuctionRecord>(`/loans/${loanId}/auction`);
@@ -1128,9 +1145,9 @@ export async function markAuctionEligible(loanId: number): Promise<AuctionRecord
   return toAuctionRecordView(await apiFetch<BackendAuctionRecord>(`/loans/${loanId}/auction/eligible`, { method: "POST" }));
 }
 
-// issueAuctionNotice always fires all three notice channels (SMS, WhatsApp,
-// Registered Post) at once — the backend no longer takes a method, it logs
-// one AuctionNotice per channel and sends the WhatsApp message live.
+// issueAuctionNotice fires every configured notice channel (WhatsApp) at
+// once — the backend no longer takes a method, it logs one AuctionNotice
+// per channel and sends the WhatsApp message live.
 export async function issueAuctionNotice(loanId: number, remarks?: string): Promise<AuctionRecordView> {
   return toAuctionRecordView(
     await apiFetch<BackendAuctionRecord>(`/loans/${loanId}/auction/notice`, { method: "POST", body: JSON.stringify({ remarks }) })
@@ -1200,16 +1217,16 @@ export const AUCTION_HISTORY_PAGE_SIZE = 10;
 export async function listConcludedAuctionsPage(
   page: number,
   hasSale: boolean
-): Promise<{ items: AuctionRecordView[]; hasMore: boolean }> {
+): Promise<{ items: ConcludedAuctionRowView[]; hasMore: boolean }> {
   const params = new URLSearchParams({
     limit: String(AUCTION_HISTORY_PAGE_SIZE),
     offset: String((page - 1) * AUCTION_HISTORY_PAGE_SIZE),
     hasSale: String(hasSale),
   });
-  const rec = await apiFetch<{ items: BackendAuctionRecord[]; hasMore: boolean }>(
+  const rec = await apiFetch<{ items: BackendConcludedAuctionRow[]; hasMore: boolean }>(
     `/loans/auctions/concluded?${params}`
   );
-  return { items: (rec?.items || []).map(toAuctionRecordView), hasMore: !!rec?.hasMore };
+  return { items: (rec?.items || []).map(toConcludedAuctionRowView), hasMore: !!rec?.hasMore };
 }
 
 export async function listPendingAuctionDecisions(): Promise<AuctionDecisionRequestView[]> {

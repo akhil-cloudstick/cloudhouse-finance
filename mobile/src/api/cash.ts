@@ -6,6 +6,13 @@ export function listCashMovements() {
   return apiRequest<CashMovement[]>("/cash-movements");
 }
 
+// Page-scoped variant: passing `limit` flips the backend (cash/handler.go's
+// MovementHandler.List) into the {items, hasMore} envelope — used by the
+// paginated mobile Cash Movements table (10/page, one API call per page).
+export function listCashMovementsPage(params: { limit: number; offset: number }) {
+  return apiRequest<{ items: CashMovement[]; hasMore: boolean }>("/cash-movements", { params });
+}
+
 export function createCashMovement(input: {
   type: "in" | "out";
   source: string;
@@ -25,6 +32,13 @@ export function setCashMovementStatus(id: number, status: string) {
 // Expenses — same "no query params" note.
 export function listExpenses() {
   return apiRequest<Expense[]>("/expenses");
+}
+
+// Page-scoped variant: passing `limit` flips the backend (cash/handler.go's
+// ExpenseHandler.List) into the {items, hasMore} envelope — used by the
+// paginated mobile Expenses table (10/page, one API call per page).
+export function listExpensesPage(params: { limit: number; offset: number }) {
+  return apiRequest<{ items: Expense[]; hasMore: boolean }>("/expenses", { params });
 }
 
 export function createExpense(input: {

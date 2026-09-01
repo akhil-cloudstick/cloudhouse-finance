@@ -152,6 +152,26 @@ func (h *Handler) Get(c *gin.Context) {
 	httpx.Success(c, http.StatusOK, rec.ToResponse())
 }
 
+// GetAadhaarFull returns the customer's full, decrypted Aadhaar number —
+// the one place any API response ever carries more than AadhaarLast4. Used
+// to prefill the full Aadhaar number on the printable pledge agreement
+// (frontend/modules/loans/utils/indemnityBond.ts, mobile/src/utils/
+// loanPrint.ts); gated at the route by perms.Update, same elevated bar as
+// the DigiLocker Aadhaar-verify endpoints.
+func (h *Handler) GetAadhaarFull(c *gin.Context) {
+	id, err := httpx.IDParam(c, "id")
+	if err != nil {
+		httpx.FailErr(c, err)
+		return
+	}
+	aadhaar, err := h.svc.DecryptAadhaar(id, platform.GetBranchScope(c))
+	if err != nil {
+		httpx.FailErr(c, err)
+		return
+	}
+	httpx.Success(c, http.StatusOK, gin.H{"aadhaar": aadhaar})
+}
+
 func (h *Handler) Update(c *gin.Context) {
 	id, err := httpx.IDParam(c, "id")
 	if err != nil {

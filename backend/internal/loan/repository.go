@@ -655,23 +655,37 @@ func (r *AuctionRepository) FindHistoryByLoanID(loanID uint) ([]AuctionRecord, e
 	return records, err
 }
 
+// ConcludedAuctionRow is one AuctionRecord plus its parent loan's
+// LoanNumber and customer's Name — same rationale as CustomerAuctionRow.
+// The History tab's two sub-tables need these to show/link the actual loan
+// rather than a bare numeric loanId.
+type ConcludedAuctionRow struct {
+	AuctionRecord
+	LoanNumber   string `json:"loanNumber"`
+	CustomerName string `json:"customerName"`
+}
+
 // FindAllConcluded lists concluded auction cases (Settled or Withdrawn)
 // across all loans — backs the Auctions screen's History tab. branchID is the
-// caller's branch-scoping restriction (nil for Administrator), applied via a
-// JOIN on loans the same way LoanRequestRepository.FindAll does it.
+// caller's branch-scoping restriction (nil for Administrator). The loans/
+// customers JOINs are unconditional (not just when branchID is set) because
+// LoanNumber/CustomerName are always needed for display, not only for the
+// branch filter.
 //
 // hasSale narrows to cases that did (true) or did not (false) actually sell
 // gold — the History tab's "Auctions Conducted" vs "Closed Without Auction"
 // split, done here so each sub-table's own limit/offset paginates only its
 // own rows instead of counting against a mixed set. nil means no filter.
 // limit/offset apply only when limit > 0, matching LoanFilter's convention.
-func (r *AuctionRepository) FindAllConcluded(branchID *uint, hasSale *bool, limit, offset int) ([]AuctionRecord, error) {
-	var records []AuctionRecord
+func (r *AuctionRepository) FindAllConcluded(branchID *uint, hasSale *bool, limit, offset int) ([]ConcludedAuctionRow, error) {
+	var rows []ConcludedAuctionRow
 	q := preloadAuctionDetail(r.db).Model(&AuctionRecord{}).
+		Select("auction_records.*, loans.loan_number AS loan_number, customers.name AS customer_name").
+		Joins("JOIN loans ON loans.id = auction_records.loan_id").
+		Joins("JOIN customers ON customers.id = loans.customer_id").
 		Where("auction_records.stage IN (?, ?)", AuctionStageSettled, AuctionStageWithdrawn)
 	if branchID != nil {
-		q = q.Joins("JOIN loans ON loans.id = auction_records.loan_id").
-			Where("loans.branch_id = ?", *branchID)
+		q = q.Where("loans.branch_id = ?", *branchID)
 	}
 	if hasSale != nil {
 		if *hasSale {
@@ -684,8 +698,8 @@ func (r *AuctionRepository) FindAllConcluded(branchID *uint, hasSale *bool, limi
 	if limit > 0 {
 		q = q.Limit(limit).Offset(offset)
 	}
-	err := q.Find(&records).Error
-	return records, err
+	err := q.Find(&rows).Error
+	return rows, err
 }
 
 // CustomerAuctionRow is one AuctionRecord plus its parent loan's LoanNumber

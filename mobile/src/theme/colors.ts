@@ -13,7 +13,7 @@ export const colors = {
   ink: "#3a3325",
   muted: "#8a7d5a",
 
-  ivory: "#faf6ec",
+  ivory: "magenta",
   card: "#fffdf7",
   line: "#e8dcba",
 

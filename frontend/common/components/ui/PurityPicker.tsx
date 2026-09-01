@@ -64,18 +64,22 @@ export function PurityPicker({ value, onChange, disabled }: { value: string; onC
        * it are pinned to a Net Wt (g) input's rendered height (padding:6px
        * 8px, font-size:14px, 1px border — see NewLoan.tsx's ornament row)
        * so the table row doesn't grow taller than it needs to for this cell. */}
-      <div style={{ display: "flex", gap: 10, alignItems: "stretch", height: 31 }}>
+      <div style={{ display: "flex", gap: 6, alignItems: "stretch", height: 31 }}>
         <div
           role="tablist"
           aria-label="Purity unit"
           style={{
             position: "relative",
             display: "flex",
-            // Wider than the search field beside it (flex 1) — at equal
-            // widths "Karat"/"Fineness" had to shrink to ~9.5px to fit,
-            // which read as fine print next to every other control.
-            flex: "0 0 148px",
-            minWidth: 0,
+            // Was a fixed "0 0 148px" — at equal widths "Karat"/"Fineness"
+            // had to shrink to ~9.5px to fit, which read as fine print next
+            // to every other control. Now grows/shrinks with the search
+            // field beside it (both flex:1) so this toggle narrows along
+            // with the rest of the row on small screens instead of holding
+            // its full width and crushing the search field down to nothing;
+            // minWidth floors it at a still-tappable size.
+            flex: "1 1 64px",
+            minWidth: 56,
             height: "100%",
             border: "1px solid var(--line)",
             borderRadius: 6,
@@ -144,7 +148,10 @@ export function PurityPicker({ value, onChange, disabled }: { value: string; onC
             Fineness
           </button>
         </div>
-        <div className="purity-select" style={{ flex: 1, minWidth: 0, height: "100%" }}>
+        {/* minWidth:34 is the floor this box should never shrink below
+         * (matches the Net Wt/Qty inputs beside it in NewLoan.tsx, which
+         * share the same 34×31 minimum). */}
+        <div className="purity-select" style={{ flex: 1, minWidth: 34, height: "100%" }}>
           <SearchableSelect<BackendPurityStandard>
             value={label}
             onChange={pick}

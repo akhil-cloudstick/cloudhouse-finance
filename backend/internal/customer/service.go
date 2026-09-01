@@ -176,6 +176,34 @@ func (s *Service) Get(id uint, branchID *uint) (*Customer, error) {
 	return rec, nil
 }
 
+// ErrNoAadhaarOnFile is returned by DecryptAadhaar when the customer has no
+// Aadhaar number stored (AadhaarEncrypted empty — never collected, or the
+// customer predates Aadhaar capture).
+var ErrNoAadhaarOnFile = httpx.NewBadRequest("customer has no Aadhaar number on file")
+
+// DecryptAadhaar returns the customer's full plaintext Aadhaar number,
+// decrypted on demand from AadhaarEncrypted (platform.Cipher, AES-256-GCM)
+// — the only path anywhere that turns the stored ciphertext back into a
+// full number. Used solely to prefill the printable pledge agreement
+// (web/mobile print, and the Aadhaar-eSign PDF via loan.Service's own
+// decrypt using the same key) — every other read of a customer (List/Get/
+// ToResponse) exposes only AadhaarLast4, by construction. Callers must
+// gate this behind an authenticated, permissioned request; it does not
+// audit-log on its own.
+func (s *Service) DecryptAadhaar(id uint, branchID *uint) (string, error) {
+	rec, err := s.repo.FindByID(id)
+	if err != nil {
+		return "", ErrNotFound
+	}
+	if branchID != nil && rec.BranchID != *branchID {
+		return "", ErrNotFound
+	}
+	if rec.AadhaarEncrypted == "" {
+		return "", ErrNoAadhaarOnFile
+	}
+	return s.aadhaarCipher.Decrypt(rec.AadhaarEncrypted)
+}
+
 func (s *Service) Update(id uint, in UpdateInput, branchID *uint) (*Customer, error) {
 	if err := validate(in); err != nil {
 		return nil, err

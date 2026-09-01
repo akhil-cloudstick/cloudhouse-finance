@@ -158,6 +158,16 @@ func Run(db *gorm.DB) error {
 		return err
 	}
 
+	if err := loan.BackfillAuctionedLoanStatus(db); err != nil {
+		return err
+	}
+
+	// Must run AFTER the loan backfill above — it reads loans.status to
+	// decide which packets are stuck.
+	if err := packet.BackfillAuctionedPacketStatus(db); err != nil {
+		return err
+	}
+
 	if err := backfillBranches(db); err != nil {
 		return err
 	}

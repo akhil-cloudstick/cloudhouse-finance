@@ -182,9 +182,37 @@ type SignatureRequest struct {
 	Status string `json:"status"`
 	// URL is the signing page the SIGNER must open (in their own browser/
 	// device) to complete Aadhar+OTP eSign — mirrors
-	// DigilockerRequest.URL's role in that flow. Not confirmed present on
-	// every response shape Setu returns; treat as optional.
+	// DigilockerRequest.URL's role in that flow. Populated from
+	// signatureRequestResponse.resolveURL below: Setu's actual response
+	// carries this per-signer (signers[0].url), not as a bare top-level
+	// field — a request that decoded fine but left this empty (200 OK,
+	// nothing to open) was the tell.
 	URL string `json:"url"`
+}
+
+// signatureRequestResponse is the raw decode target for
+// CreateSignatureRequest — wider than SignatureRequest because Setu nests
+// the actual signing link under each entry of "signers" rather than at the
+// top level.
+type signatureRequestResponse struct {
+	SignatureRequest
+	Signers []struct {
+		URL string `json:"url"`
+	} `json:"signers"`
+}
+
+// resolveURL prefers the top-level url if Setu ever does send one, and
+// otherwise falls back to the first signer's — this integration only ever
+// creates a single signer per request (see CreateSignatureRequest), so
+// there is never an ambiguity about which signer's link to use.
+func (r signatureRequestResponse) resolveURL() string {
+	if r.URL != "" {
+		return r.URL
+	}
+	if len(r.Signers) > 0 {
+		return r.Signers[0].URL
+	}
+	return ""
 }
 
 // CreateSignatureRequest starts a new Aadhaar eSign request against an
@@ -216,11 +244,12 @@ func (c *EsignClient) CreateSignatureRequest(documentID string, signer Signer, r
 	}
 	defer resp.Body.Close()
 
-	var out SignatureRequest
+	var out signatureRequestResponse
 	if err := decodeEsignResponse(resp, &out); err != nil {
 		return nil, err
 	}
-	return &out, nil
+	out.URL = out.resolveURL()
+	return &out.SignatureRequest, nil
 }
 
 // SignatureStatus is the result of polling a signature request's progress

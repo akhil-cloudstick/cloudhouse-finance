@@ -51,6 +51,23 @@ export async function listLockers(): Promise<LockerView[]> {
   return (rec || []).map(toView);
 }
 
+/* Server-side paginated + searched locker listing — backs the packet
+ * Check-In picker's SearchableSelect. Same q/limit/offset/{items,hasMore}
+ * shape as customerService.ts's searchCustomersPage. Page size 5, 0-based
+ * pages, matching SearchableSelect's fetchFn contract. */
+const LOCKER_PAGE_SIZE = 5;
+export async function searchLockersPage(
+  q: string,
+  page: number,
+  opts?: { branchId?: number; activeOnly?: boolean }
+): Promise<{ items: LockerView[]; hasMore: boolean }> {
+  const params = new URLSearchParams({ q, limit: String(LOCKER_PAGE_SIZE), offset: String(page * LOCKER_PAGE_SIZE) });
+  if (opts?.branchId) params.set("branchId", String(opts.branchId));
+  if (opts?.activeOnly) params.set("active", "true");
+  const rec = await apiFetch<{ items: BackendLocker[]; hasMore: boolean }>(`/lockers?${params}`);
+  return { items: (rec?.items || []).map(toView), hasMore: !!rec?.hasMore };
+}
+
 export async function getLocker(id: number): Promise<LockerView> {
   const rec = await apiFetch<BackendLocker>(`/lockers/${id}`);
   return toView(rec);

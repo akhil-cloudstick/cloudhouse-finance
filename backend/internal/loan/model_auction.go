@@ -223,7 +223,7 @@ type AuctionNotice struct {
 	ID              uint      `json:"id" gorm:"primaryKey"`
 	AuctionRecordID uint      `json:"auctionRecordId" gorm:"not null;index"`
 	IssuedAt        time.Time `json:"issuedAt" gorm:"not null"`
-	Method          string    `json:"method" gorm:"size:40"` // e.g. "Registered Post" | "SMS" | "In Person"
+	Method          string    `json:"method" gorm:"size:40"` // "WhatsApp" today — see auctionNoticeChannels in service.go
 	Remarks         string    `json:"remarks" gorm:"size:255"`
 	CreatedAt       time.Time `json:"createdAt"`
 }

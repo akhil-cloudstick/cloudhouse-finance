@@ -27,6 +27,7 @@ import {
   AUCTION_STAGE_LABELS,
   AUCTION_OUTCOME_LABELS,
   type AuctionRecordView,
+  type ConcludedAuctionRowView,
   type LoanView,
 } from "@/modules/loans/services/loanService";
 import { ApiError } from "@/common/services/httpClient";
@@ -121,6 +122,19 @@ function AuctionCard({ l, onLoanChanged }: { l: LoanView; onLoanChanged: () => v
     setRec(updated);
     onLoanChanged();
   }
+
+  // getAuctionRecord only ever returns the loan's ACTIVE case (see
+  // loan.Service.getAuctionRecord) — once a case is Settled/Withdrawn it
+  // comes back null, same as a loan that has never had one at all. For most
+  // statuses that ambiguity is harmless (Overdue/Defaulted/Auction Eligible
+  // genuinely mean "no case yet"), but l.status stays "Auctioned" forever
+  // once gold is sold (deliberately — see backend's RecordAuctionSale),
+  // including after the case concludes. Without this check, a fully
+  // settled auction rendered as if it had never started, offering "Mark
+  // Auction Eligible" on a loan that plainly already went through the
+  // whole pipeline. Concluded cases belong only in the History tab, so
+  // this card renders nothing once its case is done.
+  if (rec === null && l.status === "Auctioned") return null;
 
   // AUCTION_STAGES is a readonly tuple of the forward path only, so a Withdrawn
   // case has no position on the stepper — hence the cast plus the -1 fallback.
@@ -264,13 +278,13 @@ export function Auctions() {
    * Auction") are now independently paginated, real server queries — each
    * filtered by hasSale so a sub-table's own page/offset never counts
    * against the other's rows (see loansApi.listConcludedAuctionsPage). */
-  const [conducted, setConducted] = useState<AuctionRecordView[]>([]);
+  const [conducted, setConducted] = useState<ConcludedAuctionRowView[]>([]);
   const [conductedPage, setConductedPage] = useState(1);
   const [conductedHasMore, setConductedHasMore] = useState(false);
   const [conductedLoading, setConductedLoading] = useState(false);
   const [conductedError, setConductedError] = useState("");
 
-  const [closedWithoutSale, setClosedWithoutSale] = useState<AuctionRecordView[]>([]);
+  const [closedWithoutSale, setClosedWithoutSale] = useState<ConcludedAuctionRowView[]>([]);
   const [closedPage, setClosedPage] = useState(1);
   const [closedHasMore, setClosedHasMore] = useState(false);
   const [closedLoading, setClosedLoading] = useState(false);
@@ -414,7 +428,7 @@ export function Auctions() {
                     <tr><td colSpan={7} className="empty">No auctions have been conducted yet.</td></tr>
                   ) : conducted.map((r) => (
                     <tr key={r.id}>
-                      <td>#{r.loanId}</td>
+                      <td><a href={`#loan/${r.loanNumber}`}>{r.loanNumber}</a><small className="sub" style={{ display: "block" }}>{r.customerName}</small></td>
                       <td>{r.auctionDate || "—"}</td>
                       <td>{r.auctionReferenceNumber || "—"}</td>
                       <td className="num">{fmt(r.saleAmount)}</td>
@@ -455,7 +469,7 @@ export function Auctions() {
                     <tr><td colSpan={3} className="empty">No cases have closed without going to auction.</td></tr>
                   ) : closedWithoutSale.map((r) => (
                     <tr key={r.id}>
-                      <td>#{r.loanId}</td>
+                      <td><a href={`#loan/${r.loanNumber}`}>{r.loanNumber}</a><small className="sub" style={{ display: "block" }}>{r.customerName}</small></td>
                       <td>{r.auctionEligibleDate || "—"}</td>
                       <td>
                         {/* A withdrawn case never reached settlement, so the

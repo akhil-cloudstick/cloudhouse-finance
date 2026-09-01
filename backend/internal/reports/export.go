@@ -224,9 +224,18 @@ func buildXLSX(sheetName string, headers []string, data [][]string) ([]byte, err
 // letterhead design, matching this codebase's other export-lite features.
 func buildPDF(title string, headers []string, data [][]string) ([]byte, error) {
 	pdf := gofpdf.New("L", "mm", "A4", "")
+	// gofpdf's core "Arial" font expects cp1252/WinAnsi bytes, not UTF-8 —
+	// handing it a raw Go string (UTF-8 under the hood) let each multi-byte
+	// character's individual bytes get rendered as if they were separate
+	// cp1252 characters, which is exactly what turned the title's em dash
+	// (—) into "â€”" garbage in the exported PDF. UnicodeTranslatorFromDescriptor
+	// re-encodes any UTF-8 string that IS representable in cp1252 (which
+	// covers everything this report actually emits — em dashes, quotes,
+	// etc.) into the byte sequence the core font actually expects.
+	tr := pdf.UnicodeTranslatorFromDescriptor("")
 	pdf.AddPage()
 	pdf.SetFont("Arial", "B", 14)
-	pdf.CellFormat(0, 10, "Ambika Gold Finance — "+title, "", 1, "L", false, 0, "")
+	pdf.CellFormat(0, 10, tr("Ambika Gold Finance — "+title), "", 1, "L", false, 0, "")
 	pdf.SetFont("Arial", "", 8)
 
 	pageWidth, _ := pdf.GetPageSize()
@@ -240,7 +249,7 @@ func buildPDF(title string, headers []string, data [][]string) ([]byte, error) {
 
 	pdf.SetFont("Arial", "B", 8)
 	for _, hcell := range headers {
-		pdf.CellFormat(colWidth, 7, hcell, "1", 0, "L", false, 0, "")
+		pdf.CellFormat(colWidth, 7, tr(hcell), "1", 0, "L", false, 0, "")
 	}
 	pdf.Ln(-1)
 
@@ -251,7 +260,7 @@ func buildPDF(title string, headers []string, data [][]string) ([]byte, error) {
 			if i < len(row) {
 				val = row[i]
 			}
-			pdf.CellFormat(colWidth, 6, val, "1", 0, "L", false, 0, "")
+			pdf.CellFormat(colWidth, 6, tr(val), "1", 0, "L", false, 0, "")
 		}
 		pdf.Ln(-1)
 		if pdf.GetY() > 190 {

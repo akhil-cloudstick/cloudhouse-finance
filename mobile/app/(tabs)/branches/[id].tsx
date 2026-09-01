@@ -1,5 +1,5 @@
 import React from "react";
-import { ScrollView, RefreshControl } from "react-native";
+import { ScrollView, RefreshControl, View } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { ScreenContainer } from "../../../src/components/ScreenContainer";
@@ -33,7 +33,8 @@ export default function BranchDetailScreen() {
   });
 
   return (
-    <ScreenContainer>
+    <ScreenContainer style={{ padding: 0 }}>
+      <View style={{ flex: 1, paddingHorizontal: 16, paddingTop: 16 }}>
       <ScrollView
         showsVerticalScrollIndicator={false}
         refreshControl={<RefreshControl refreshing={isRefetching} onRefresh={refetch} />}
@@ -71,6 +72,6 @@ export default function BranchDetailScreen() {
           </Card>
         )}
       </ScrollView>
-    </ScreenContainer>
-  );
+      </View>
+    </ScreenContainer>  );
 }

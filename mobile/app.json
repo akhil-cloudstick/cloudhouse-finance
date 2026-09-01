@@ -50,7 +50,13 @@
           "cameraPermission": "Ambika Gold Finance needs the camera to photograph customer KYC documents."
         }
       ],
-      "expo-document-picker"
+      "expo-document-picker",
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Ambika Gold Finance needs the camera to scan packet label QR codes."
+        }
+      ]
     ],
     "androidStatusBar": {
       "backgroundColor": "#faf6ec",

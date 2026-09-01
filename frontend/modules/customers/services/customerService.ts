@@ -209,6 +209,15 @@ export async function verifyCustomerPan(id: string): Promise<PanVerificationResu
   return { customer: toView(res.customer), message: res.message, matchedName: res.matchedName, traceId: res.traceId };
 }
 
+/* Full, decrypted Aadhaar number (GET /customers/:id/aadhaar-full) — the
+ * one endpoint that ever returns more than AadhaarLast4. Used solely to
+ * prefill the printable pledge agreement (modules/loans/utils/
+ * indemnityBond.ts); every other customer read stays last-4-only. */
+export async function getCustomerAadhaarFull(id: string): Promise<string> {
+  const res = await apiFetch<{ aadhaar: string }>(`/customers/${id}/aadhaar-full`);
+  return res.aadhaar;
+}
+
 /* DigiLocker Aadhaar verification is a redirect flow, not a single call —
  * see backend/internal/customer/handler.go's StartAadhaarVerify/
  * CheckAadhaarVerify. startAadhaarVerify opens a login URL the CUSTOMER

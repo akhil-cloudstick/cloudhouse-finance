@@ -127,3 +127,32 @@ func CreateAuctionPartialIndexes(db *gorm.DB) error {
 	}
 	return nil
 }
+
+// BackfillAuctionedLoanStatus corrects loans whose gold was actually sold at
+// auction (a linked auction_records row with sale_amount > 0) but whose
+// Status is still the old bare "Closed" — a bug fixed in
+// Service.RecordAuctionSale (it now writes StatusAuctioned so an auction
+// sale reads distinctly from an ordinary gold release), but only for sales
+// recorded going forward. This one-time backfill applies the same
+// correction retroactively, so a loan auctioned before the fix does not
+// stay mislabeled forever. Idempotent: only rows still at "Closed" are
+// touched, so re-running finds nothing once applied.
+func BackfillAuctionedLoanStatus(db *gorm.DB) error {
+	if !db.Migrator().HasTable(&Loan{}) || !db.Migrator().HasTable(&AuctionRecord{}) {
+		return nil // fresh install
+	}
+	res := db.Exec(`
+		UPDATE loans SET status = ?
+		WHERE status = ?
+		  AND EXISTS (
+		    SELECT 1 FROM auction_records
+		    WHERE auction_records.loan_id = loans.id AND auction_records.sale_amount > 0
+		  )`, StatusAuctioned, StatusClosed)
+	if res.Error != nil {
+		return res.Error
+	}
+	if res.RowsAffected > 0 {
+		log.Printf("backfilled %d loan(s) from Closed to Auctioned status (gold was sold at auction)", res.RowsAffected)
+	}
+	return nil
+}

@@ -13,6 +13,10 @@ func RegisterRoutes(rg *gin.RouterGroup, h *Handler, perms platform.CRUDMiddlewa
 	rg.POST("", perms.Create, h.Create)
 	rg.GET("", perms.Read, h.List)
 	rg.GET("/:id", perms.Read, h.Get)
+	// Full decrypted Aadhaar — only ever returned here, gated at the same
+	// elevated bar as the Aadhaar-verify endpoints below. See handler.go's
+	// GetAadhaarFull.
+	rg.GET("/:id/aadhaar-full", perms.Update, h.GetAadhaarFull)
 	rg.PUT("/:id", perms.Update, h.Update)
 	rg.POST("/:id/verify-pan", perms.Update, h.VerifyPAN)
 	rg.POST("/:id/verify-aadhaar/start", perms.Update, h.StartAadhaarVerify)
