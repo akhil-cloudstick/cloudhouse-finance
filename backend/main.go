@@ -217,7 +217,11 @@ func main() {
 	bankHandler := bank.NewHandler(bankSvc)
 
 	personalLoanRepo := personalloan.NewRepository(db)
-	personalLoanSvc := personalloan.NewService(personalLoanRepo, customerRepo)
+	// movementSvc satisfies personalloan.CashRecorder (the same
+	// cash.MovementService methods internal/loan uses for its own
+	// disbursement/payment cash flow) so a personal loan's disbursement and
+	// collections show up in Cash-in-Hand & Expenses too.
+	personalLoanSvc := personalloan.NewService(personalLoanRepo, customerRepo, movementSvc)
 	personalLoanHandler := personalloan.NewHandler(personalLoanSvc)
 
 	authSvc := auth.NewService(employeeRepo, whatsappSender, cfg.JWTSecret, cfg.JWTExpiry, commlogRepo)

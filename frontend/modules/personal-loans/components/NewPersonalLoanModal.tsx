@@ -97,11 +97,11 @@ export function NewPersonalLoanModalContent({ onSaved }: { onSaved: () => void }
         <div className="frow c2">
           <div><label className="f">Interest Type *</label>
             <div style={{ display: "flex", gap: 14, marginTop: 6 }}>
-              <label className="cradio" style={{ fontSize: 13 }}>
+              <label className="cradio" style={{ fontSize: 13, alignItems: "center" }}>
                 <input type="radio" name="interestType" checked={interestType === "Flat"} onChange={() => setInterestType("Flat")} />
                 <span className="mark" /><span>Flat (₹)</span>
               </label>
-              <label className="cradio" style={{ fontSize: 13 }}>
+              <label className="cradio" style={{ fontSize: 13, alignItems: "center" }}>
                 <input type="radio" name="interestType" checked={interestType === "Percentage"} onChange={() => setInterestType("Percentage")} />
                 <span className="mark" /><span>Percentage (%)</span>
               </label>
@@ -112,7 +112,7 @@ export function NewPersonalLoanModalContent({ onSaved }: { onSaved: () => void }
         <div className="frow"><div><label className="f">Collection Frequency *</label>
           <div style={{ display: "flex", gap: 14, marginTop: 6 }}>
             {(["Daily", "Weekly", "Monthly"] as Frequency[]).map((f) => (
-              <label key={f} className="cradio" style={{ fontSize: 13 }}>
+              <label key={f} className="cradio" style={{ fontSize: 13, alignItems: "center" }}>
                 <input type="radio" name="frequency" checked={frequency === f} onChange={() => setFrequency(f)} />
                 <span className="mark" /><span>{f}</span>
               </label>

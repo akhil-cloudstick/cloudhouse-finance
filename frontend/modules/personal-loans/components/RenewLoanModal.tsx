@@ -78,11 +78,11 @@ export function RenewLoanModalContent({ loan, onSaved }: { loan: BackendPersonal
         <div className="frow c2">
           <div><label className="f">Interest Type *</label>
             <div style={{ display: "flex", gap: 14, marginTop: 6 }}>
-              <label className="cradio" style={{ fontSize: 13 }}>
+              <label className="cradio" style={{ fontSize: 13, alignItems: "center" }}>
                 <input type="radio" name="renewInterestType" checked={interestType === "Flat"} onChange={() => setInterestType("Flat")} />
                 <span className="mark" /><span>Flat (₹)</span>
               </label>
-              <label className="cradio" style={{ fontSize: 13 }}>
+              <label className="cradio" style={{ fontSize: 13, alignItems: "center" }}>
                 <input type="radio" name="renewInterestType" checked={interestType === "Percentage"} onChange={() => setInterestType("Percentage")} />
                 <span className="mark" /><span>Percentage (%)</span>
               </label>
@@ -93,7 +93,7 @@ export function RenewLoanModalContent({ loan, onSaved }: { loan: BackendPersonal
         <div className="frow"><div><label className="f">Collection Frequency *</label>
           <div style={{ display: "flex", gap: 14, marginTop: 6 }}>
             {(["Daily", "Weekly", "Monthly"] as Frequency[]).map((f) => (
-              <label key={f} className="cradio" style={{ fontSize: 13 }}>
+              <label key={f} className="cradio" style={{ fontSize: 13, alignItems: "center" }}>
                 <input type="radio" name="renewFrequency" checked={frequency === f} onChange={() => setFrequency(f)} />
                 <span className="mark" /><span>{f}</span>
               </label>

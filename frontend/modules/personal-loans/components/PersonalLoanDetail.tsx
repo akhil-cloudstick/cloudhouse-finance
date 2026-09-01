@@ -78,15 +78,19 @@ export function PersonalLoanDetail({ id }: { id?: string }) {
       </div>
       <hr className="gold-rule" />
 
-      <div className="card" style={{ marginBottom: 16, display: "flex", gap: 24, flexWrap: "wrap" }}>
-        <div><div className="sub">Principal</div><div><strong>{fmt(loan.principalAmount)}</strong></div></div>
-        <div><div className="sub">Interest</div><div><strong>{fmt(loan.interestAmount)}</strong> ({loan.interestType === "Flat" ? fmt(loan.interestValue) : `${loan.interestValue}%`})</div></div>
-        <div><div className="sub">Disbursed</div><div><strong>{fmt(loan.disbursedAmount)}</strong></div></div>
-        <div><div className="sub">Outstanding</div><div><strong>{fmt(loan.outstandingAmount)}</strong></div></div>
-        <div><div className="sub">Status</div><div><StatusChip status={loan.status} /></div></div>
-        <div><div className="sub">Frequency</div><div>{loan.frequency}</div></div>
-        {loan.renewedFromLoanId && <div><div className="sub">Renewed from</div><div><a href={`#personalloan/${loan.renewedFromLoanId}`}>Loan #{loan.renewedFromLoanId}</a></div></div>}
-        {loan.renewedToLoanId && <div><div className="sub">Renewed to</div><div><a href={`#personalloan/${loan.renewedToLoanId}`}>Loan #{loan.renewedToLoanId}</a></div></div>}
+      <div className="kpis" style={{ marginBottom: 16 }}>
+        <div className="kpi"><div className="l">Principal</div><div className="v">{fmt(loan.principalAmount)}</div></div>
+        <div className="kpi"><div className="l">Interest</div><div className="v">{fmt(loan.interestAmount)}</div><div className="s">{loan.interestType === "Flat" ? "Flat" : `${loan.interestValue}%`}</div></div>
+        <div className="kpi"><div className="l">Disbursed</div><div className="v">{fmt(loan.disbursedAmount)}</div></div>
+        <div className="kpi"><div className="l">Outstanding</div><div className="v">{fmt(loan.outstandingAmount)}</div></div>
+        <div className="kpi"><div className="l">Status</div><div className="v" style={{ fontSize: 15 }}><StatusChip status={loan.status} /></div></div>
+        <div className="kpi"><div className="l">Frequency</div><div className="v" style={{ fontSize: 17 }}>{loan.frequency}</div></div>
+        {loan.renewedFromLoanId && (
+          <div className="kpi"><div className="l">Renewed From</div><div className="v" style={{ fontSize: 17 }}><a href={`#personalloan/${loan.renewedFromLoanId}`}>Loan #{loan.renewedFromLoanId}</a></div></div>
+        )}
+        {loan.renewedToLoanId && (
+          <div className="kpi"><div className="l">Renewed To</div><div className="v" style={{ fontSize: 17 }}><a href={`#personalloan/${loan.renewedToLoanId}`}>Loan #{loan.renewedToLoanId}</a></div></div>
+        )}
       </div>
 
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>

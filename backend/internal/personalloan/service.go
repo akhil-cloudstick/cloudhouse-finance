@@ -3,6 +3,7 @@ package personalloan
 import (
 	"errors"
 	"fmt"
+	"log"
 	"time"
 
 	"gorm.io/gorm"
@@ -28,14 +29,29 @@ var (
 
 const epsilon = 0.01
 
+// CashRecorder reflects a personal loan's real cash flow into Cash-in-Hand &
+// Expenses (frontend's Cash & Expenses page), mirroring internal/loan's
+// CashRecorder pattern so this package doesn't import internal/cash
+// directly. Disbursing a loan hands cash to the customer (cash out);
+// collecting a repayment brings cash in. Only the two methods this package
+// actually needs are declared here — both are already implemented by
+// cash.MovementService (it also backs internal/loan's disbursement/payment
+// cash flow), so no new cash-side code is needed, just this narrower view
+// of the same interface.
+type CashRecorder interface {
+	RecordLoanDisbursementCashOut(loanID uint, loanNumber string, amount float64, branchID uint, occurredOn time.Time) (movementID uint, err error)
+	RecordLoanPaymentCashIn(loanID uint, loanNumber string, amount float64, branchID uint, occurredOn time.Time, paymentType string) (movementID uint, err error)
+}
+
 // Service implements personal-loan business rules on top of the Repository.
 type Service struct {
 	repo         *Repository
 	customerRepo *customer.Repository
+	cashRecorder CashRecorder
 }
 
-func NewService(repo *Repository, customerRepo *customer.Repository) *Service {
-	return &Service{repo: repo, customerRepo: customerRepo}
+func NewService(repo *Repository, customerRepo *customer.Repository, cashRecorder CashRecorder) *Service {
+	return &Service{repo: repo, customerRepo: customerRepo, cashRecorder: cashRecorder}
 }
 
 // CreateInput mirrors the "New Personal Loan" form.
@@ -148,6 +164,16 @@ func (s *Service) CreateLoan(in CreateInput) (*PersonalLoan, error) {
 	if err != nil {
 		return nil, err
 	}
+
+	// The cash actually leaves the till only once the loan (and its
+	// schedule) is durably persisted — best-effort and outside the
+	// transaction, same as internal/loan's disbursement/payment cash
+	// recording: a failure here is logged, not fatal to loan creation.
+	if s.cashRecorder != nil {
+		if _, err := s.cashRecorder.RecordLoanDisbursementCashOut(rec.ID, rec.LoanNumber, rec.DisbursedAmount, rec.BranchID, now); err != nil {
+			log.Printf("cash-out movement (personal loan disbursement) failed for loan %d: %v", rec.ID, err)
+		}
+	}
 	return rec, nil
 }
 
@@ -247,6 +273,8 @@ func (s *Service) RecordPayment(loanID uint, branchID *uint, in PaymentInput) (*
 	}
 
 	var result *PersonalLoan
+	var paidAmount float64
+	var paidOn time.Time
 	err := s.repo.DB().Transaction(func(tx *gorm.DB) error {
 		rec, err := s.repo.LockByID(tx, loanID, branchID)
 		if err != nil {
@@ -268,10 +296,12 @@ func (s *Service) RecordPayment(loanID uint, branchID *uint, in PaymentInput) (*
 			newOutstanding = 0
 		}
 
+		paidAmount = amount
+		paidOn = time.Now()
 		payment := &PersonalLoanPayment{
 			PersonalLoanID:       rec.ID,
 			Amount:               amount,
-			PaidOn:               time.Now(),
+			PaidOn:               paidOn,
 			ReceivedByEmployeeID: in.ReceivedByEmployeeID,
 			Method:               in.Method,
 			Reference:            in.Reference,
@@ -303,6 +333,14 @@ func (s *Service) RecordPayment(loanID uint, branchID *uint, in PaymentInput) (*
 	})
 	if err != nil {
 		return nil, err
+	}
+
+	// Best-effort and outside the transaction, same rationale as CreateLoan's
+	// disbursement recording above.
+	if s.cashRecorder != nil {
+		if _, err := s.cashRecorder.RecordLoanPaymentCashIn(result.ID, result.LoanNumber, paidAmount, result.BranchID, paidOn, "Personal Loan Payment"); err != nil {
+			log.Printf("cash-in movement (personal loan payment) failed for loan %d: %v", result.ID, err)
+		}
 	}
 	return result, nil
 }
@@ -510,6 +548,18 @@ func (s *Service) RenewLoan(loanID uint, branchID *uint, in RenewInput) (*RenewR
 	})
 	if err != nil {
 		return nil, err
+	}
+
+	// Only the new loan's net DisbursedAmount is real cash leaving the till
+	// — the rollover portion is a wash (the old loan's outstanding balance
+	// simply moves onto the new loan's books, see the PersonalLoanPayment
+	// rollover entry above) and must not also be recorded as a cash
+	// movement. Best-effort and outside the transaction, same rationale as
+	// CreateLoan's disbursement recording.
+	if s.cashRecorder != nil && result.NewLoan.DisbursedAmount > epsilon {
+		if _, err := s.cashRecorder.RecordLoanDisbursementCashOut(result.NewLoan.ID, result.NewLoan.LoanNumber, result.NewLoan.DisbursedAmount, result.NewLoan.BranchID, result.NewLoan.DisbursedAt); err != nil {
+			log.Printf("cash-out movement (personal loan renewal disbursement) failed for loan %d: %v", result.NewLoan.ID, err)
+		}
 	}
 	return &result, nil
 }

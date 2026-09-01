@@ -129,6 +129,20 @@ export function SearchableSelect<T>({
     if (el.scrollHeight - el.scrollTop - el.clientHeight < 48) loadNextPage();
   }
 
+  // A page that doesn't fill the dropdown never produces a scrollbar, so
+  // onResultsScroll's "near the bottom" check never fires even though
+  // hasMore is true (e.g. 10 total matches, page size 5 — the first page's
+  // 5 rows fit well within the 260px max-height with room to spare). Top
+  // that up automatically: whenever the list re-renders with more to fetch
+  // but nothing to scroll, load the next page too.
+  useEffect(() => {
+    if (!open || !hasMore || loading || loadingMore) return;
+    const el = resultsRef.current;
+    if (!el) return;
+    if (el.scrollHeight <= el.clientHeight) loadNextPage();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, items, hasMore, loading, loadingMore]);
+
   useEffect(() => {
     function onDocClick(e: MouseEvent) {
       if (boxRef.current && !boxRef.current.contains(e.target as Node)) setOpen(false);
