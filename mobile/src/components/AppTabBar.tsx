@@ -24,7 +24,7 @@ const TABS: { route: string; label: string; icon: string; module: string | null;
   { route: "dashboard", label: "Dashboard", icon: "home", module: null },
   { route: "loans", label: "Loans", icon: "note", module: "Loan_Management", key: "can_view_loan" },
   { route: "customers", label: "Customers", icon: "user", module: "Customer_Management", key: "can_view_customer" },
-  { route: "new-loan", label: "New Loan", icon: "plus", module: "Loan_Management", key: "can_change_loan" },
+  { route: "new-loan", label: "New Loan", icon: "plus", module: "Loan_Management", key: "can_create_loan" },
 ];
 
 export function AppTabBar({ state, navigation, insets }: BottomTabBarProps) {
@@ -73,25 +73,45 @@ export function AppTabBar({ state, navigation, insets }: BottomTabBarProps) {
         {visibleTabs.map(({ route: name, label, icon }) => {
           const isActive = name === activeRouteName;
           return (
-            <Pressable key={name} onPress={() => onTabPress(name)} style={styles.item}>
-              <View style={[styles.iconWrap, isActive && styles.iconWrapActive]}>
-                <Icon name={icon} size={21} color={isActive ? colors.goldDeep : colors.muted} />
-              </View>
-              <ThemedText variant="label" color={isActive ? colors.goldDeep : colors.muted} numberOfLines={1}>
-                {label}
-              </ThemedText>
+            // android_ripple disabled and no background on iconWrap any more
+            // — the highlight on tap (and the persistent "selected" state)
+            // is now the icon/label's own color changing, not a round fill
+            // painted behind it.
+            <Pressable
+              key={name}
+              onPress={() => onTabPress(name)}
+              style={styles.item}
+              android_ripple={{ color: "transparent" }}
+            >
+              {({ pressed }) => {
+                const highlighted = isActive || pressed;
+                return (
+                  <>
+                    <View style={styles.iconWrap}>
+                      <Icon name={icon} size={21} color={highlighted ? colors.goldDeep : colors.muted} />
+                    </View>
+                    <ThemedText variant="label" color={highlighted ? colors.goldDeep : colors.muted} numberOfLines={1}>
+                      {label}
+                    </ThemedText>
+                  </>
+                );
+              }}
             </Pressable>
           );
         })}
 
         {/* Not a route — raises the More sheet over whatever screen is on. */}
-        <Pressable onPress={open} style={styles.item}>
-          <View style={styles.iconWrap}>
-            <Icon name="dots" size={21} color={colors.muted} />
-          </View>
-          <ThemedText variant="label" color={colors.muted}>
-            More
-          </ThemedText>
+        <Pressable onPress={open} style={styles.item} android_ripple={{ color: "transparent" }}>
+          {({ pressed }) => (
+            <>
+              <View style={styles.iconWrap}>
+                <Icon name="dots" size={21} color={pressed ? colors.goldDeep : colors.muted} />
+              </View>
+              <ThemedText variant="label" color={pressed ? colors.goldDeep : colors.muted}>
+                More
+              </ThemedText>
+            </>
+          )}
         </Pressable>
       </View>
     </View>
@@ -99,13 +119,13 @@ export function AppTabBar({ state, navigation, insets }: BottomTabBarProps) {
 }
 
 const styles = StyleSheet.create({
-  wrap: { paddingHorizontal: 0, paddingTop: 0, backgroundColor: colors.card },
+  wrap: { paddingHorizontal: 0, paddingTop: 0, backgroundColor: "red" },
   // Flush full-width footer bar — no floating "island" card, no gap from
   // the background behind it (wrap and island share the same fill).
   island: {
     flexDirection: "row",
     alignItems: "stretch",
-    backgroundColor: colors.card,
+    backgroundColor: "lightblue",
     borderTopWidth: 1,
     borderTopColor: colors.line,
     paddingVertical: 4,
@@ -119,11 +139,5 @@ const styles = StyleSheet.create({
     gap: 0,
     paddingVertical: 0,
   },
-  // Square box + radius === half the side, and overflow hidden so Android's
-  // default rectangular Pressable ripple can't paint square over it — a
-  // true circle, not a stadium/rounded-rect.
-  iconWrap: { width: 36, height: 36, borderRadius: 18, overflow: "hidden", alignItems: "center", justifyContent: "center" },
-  // WhatsApp-style active state: a filled pill highlight behind just the
-  // icon, not an outline around the whole item.
-  iconWrapActive: { backgroundColor: colors.goldPale },
+  iconWrap: { width: 36, height: 36, alignItems: "center", justifyContent: "center" },
 });

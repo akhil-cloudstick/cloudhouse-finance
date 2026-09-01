@@ -92,16 +92,18 @@ export default function PacketDetailScreen() {
 
   if (packet.isLoading)
     return (
-      <ScreenContainer>
-        <ThemedText color={colors.muted}>Loading…</ThemedText>
-      </ScreenContainer>
-    );
+      <ScreenContainer style={{ padding: 0 }}>
+        <View style={{ flex: 1, paddingHorizontal: 16, paddingTop: 16 }}>
+      <ThemedText color={colors.muted}>Loading…</ThemedText>
+        </View>
+      </ScreenContainer>    );
   if (packet.isError || !packet.data)
     return (
-      <ScreenContainer>
-        <ThemedText color={colors.red}>Could not load this packet.</ThemedText>
-      </ScreenContainer>
-    );
+      <ScreenContainer style={{ padding: 0 }}>
+        <View style={{ flex: 1, paddingHorizontal: 16, paddingTop: 16 }}>
+      <ThemedText color={colors.red}>Could not load this packet.</ThemedText>
+        </View>
+      </ScreenContainer>    );
 
   // "Returned" is off-rail, so the packet's progress is measured from the
   // stage it returned to — Bank Pledged is behind it either way.
@@ -124,8 +126,8 @@ export default function PacketDetailScreen() {
   const totalGoldValue = ornaments.reduce((sum, o) => sum + (o.goldValue || 0), 0);
 
   return (
-    <ScreenContainer>
-      {/* The stepper makes this screen taller than the viewport — same
+    <ScreenContainer style={{ padding: 0 }}>
+      <View style={{ flex: 1, paddingHorizontal: 16, paddingTop: 16 }}>      {/* The stepper makes this screen taller than the viewport — same
           ScrollView wrapper the loan detail screen uses. */}
       <ScrollView
         showsVerticalScrollIndicator={false}
@@ -308,6 +310,6 @@ export default function PacketDetailScreen() {
         )}
       </Card>
       </ScrollView>
-    </ScreenContainer>
-  );
+      </View>
+    </ScreenContainer>  );
 }

@@ -92,20 +92,6 @@ function Pager({ page, totalPages, onChange }: { page: number; totalPages: numbe
   );
 }
 
-/* Pads a short (or empty) page out to CUSTOMER_SUBTABLE_PAGE_SIZE rows so the
- * card keeps one height across tabs and pages instead of collapsing to fit
- * whatever content the current page happens to have. */
-function Filler({ count, cols }: { count: number; cols: number }) {
-  if (count <= 0) return null;
-  return (
-    <>
-      {Array.from({ length: count }, (_, i) => (
-        <tr className="filler" key={`filler-${i}`}><td colSpan={cols}>&nbsp;</td></tr>
-      ))}
-    </>
-  );
-}
-
 function ProofLink({ label, url }: { label: string; url: string }) {
   if (!url) return <div className="i"><div className="k">{label}</div><div className="v" style={{ color: "var(--muted)" }}>Not provided</div></div>;
   return (
@@ -342,8 +328,12 @@ export function CustomerDetail({ id }: { id?: string }) {
           makes the tables fit their column instead of scrolling sideways. */}
       <div className="grid cols12 cust-360" style={{ alignItems: "stretch", ...(reloading ? { opacity: 0.6 } : {}) }}>
         <div className="grid">
-          <div className="card gtop"><div className="hd"><h3>KYC &amp; Verification</h3></div>
-            <div className="bd">
+          {/* KYC & Verification, Identity & KYC Documents, Nominee Information and
+              Overall Loan Details were 4 separate cards stacked in this column —
+              merged into one card with a divider + sub-heading per section so the
+              column reads as one profile panel instead of four short ones. */}
+          <div className="card gtop"><div className="hd"><h3>Customer Profile</h3></div>
+            <div className="bd cust-profile">
               <div className="kv">
                 <div className="i"><div className="k">PAN</div><div className="v" style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
                   <span>{c.pan || "—"} · <StatusChip status={c.panStatus} /></span>
@@ -371,33 +361,35 @@ export function CustomerDetail({ id }: { id?: string }) {
                 <div className="i"><div className="k">Phone</div><div className="v">{c.phone}</div></div>
                 <div className="i"><div className="k">Address</div><div className="v">{c.address || "—"}</div></div>
               </div>
+
+              <h4 className="cust-profile-h4">Identity &amp; KYC Documents</h4>
+              <div className="kv">
+                <ProofLink label="Photograph" url={c.photoUrl} />
+                <ProofLink label="Identity Proof" url={c.identityProofUrl} />
+                <ProofLink label="Address Proof" url={c.addressProofUrl} />
+                <ProofLink label="Supporting KYC Document" url={c.kycDocumentUrl} />
+              </div>
+
+              {(c.nomineeName || c.nomineeRelation || c.nomineePhone) && (
+                <>
+                  <h4 className="cust-profile-h4">Nominee Information</h4>
+                  <div className="kv">
+                    <div className="i"><div className="k">Name</div><div className="v">{c.nomineeName || "—"}</div></div>
+                    <div className="i"><div className="k">Relation</div><div className="v">{c.nomineeRelation || "—"}</div></div>
+                    <div className="i"><div className="k">Phone</div><div className="v">{c.nomineePhone || "—"}</div></div>
+                  </div>
+                </>
+              )}
+
+              <h4 className="cust-profile-h4">Overall Loan Details</h4>
+              <div className="kv">
+                <div className="i"><div className="k">Total Disbursed</div><div className="v">{fmt(profile.totalDisbursed)}</div></div>
+                <div className="i"><div className="k">Outstanding</div><div className="v">{fmt(profile.totalOutstanding)}</div></div>
+                <div className="i"><div className="k">Total Paid</div><div className="v">{fmt(profile.totalPaid)}</div></div>
+                <div className="i"><div className="k">Active Loans</div><div className="v">{profile.activeLoanCount}</div></div>
+                <div className="i"><div className="k">Closed Loans</div><div className="v">{profile.closedLoanCount}</div></div>
+              </div>
             </div>
-          </div>
-          <div className="card"><div className="hd"><h3>Identity &amp; KYC Documents</h3></div>
-            <div className="bd"><div className="kv">
-              <ProofLink label="Photograph" url={c.photoUrl} />
-              <ProofLink label="Identity Proof" url={c.identityProofUrl} />
-              <ProofLink label="Address Proof" url={c.addressProofUrl} />
-              <ProofLink label="Supporting KYC Document" url={c.kycDocumentUrl} />
-            </div></div>
-          </div>
-          {(c.nomineeName || c.nomineeRelation || c.nomineePhone) && (
-            <div className="card"><div className="hd"><h3>Nominee Information</h3></div>
-              <div className="bd"><div className="kv">
-                <div className="i"><div className="k">Name</div><div className="v">{c.nomineeName || "—"}</div></div>
-                <div className="i"><div className="k">Relation</div><div className="v">{c.nomineeRelation || "—"}</div></div>
-                <div className="i"><div className="k">Phone</div><div className="v">{c.nomineePhone || "—"}</div></div>
-              </div></div>
-            </div>
-          )}
-          <div className="card"><div className="hd"><h3>Overall Loan Details</h3></div>
-            <div className="bd"><div className="kv">
-              <div className="i"><div className="k">Total Disbursed</div><div className="v">{fmt(profile.totalDisbursed)}</div></div>
-              <div className="i"><div className="k">Outstanding</div><div className="v">{fmt(profile.totalOutstanding)}</div></div>
-              <div className="i"><div className="k">Total Paid</div><div className="v">{fmt(profile.totalPaid)}</div></div>
-              <div className="i"><div className="k">Active Loans</div><div className="v">{profile.activeLoanCount}</div></div>
-              <div className="i"><div className="k">Closed Loans</div><div className="v">{profile.closedLoanCount}</div></div>
-            </div></div>
           </div>
         </div>
         <div style={{ display: "flex", gap: 16, alignItems: "stretch", height: "100%" }} onWheel={onTabWheel}>
@@ -428,13 +420,12 @@ export function CustomerDetail({ id }: { id?: string }) {
 
           {activeTable === 0 && (
             <div key={activeTable} className="tab-slide-up">
-              <div className="tbl-wrap"><table className="tbl tbl-center">
+              <div className="tbl-wrap tbl-wrap-auto"><table className="tbl tbl-center">
                 <thead><tr><th>Loan</th><th>Scheme</th><th>Opened / Due</th><th className="num">Principal</th><th className="num">Outstanding</th><th>Pledge</th><th>Status</th></tr></thead>
                 <tbody>
                   {loanPager.items.length === 0 ? (
                     <tr><td colSpan={7} className="empty compact">No loans yet.</td></tr>
                   ) : loanPager.items.map((l) => <LoanRow loan={l} key={l.id} />)}
-                  <Filler count={CUSTOMER_SUBTABLE_PAGE_SIZE - Math.max(loanPager.items.length, 1)} cols={7} />
                 </tbody>
               </table></div>
               <Pager page={loanPager.page} totalPages={loanPager.totalPages} onChange={loanPager.setPage} />
@@ -443,7 +434,7 @@ export function CustomerDetail({ id }: { id?: string }) {
 
           {activeTable === 1 && (
             <div key={activeTable} className="tab-slide-up">
-              <div className="tbl-wrap"><table className="tbl tbl-center">
+              <div className="tbl-wrap tbl-wrap-auto"><table className="tbl tbl-center">
                 <thead><tr><th>Loan</th><th>Ornament</th><th>Purity</th><th className="num">Net (g)</th><th className="num">Gold Value</th></tr></thead>
                 <tbody>
                   {ornamentPager.items.length === 0 ? (
@@ -457,7 +448,6 @@ export function CustomerDetail({ id }: { id?: string }) {
                       <td className="num">{fmt(o.goldValue)}</td>
                     </tr>
                   ))}
-                  <Filler count={CUSTOMER_SUBTABLE_PAGE_SIZE - Math.max(ornamentPager.items.length, 1)} cols={5} />
                 </tbody>
               </table></div>
               <Pager page={ornamentPager.page} totalPages={ornamentPager.totalPages} onChange={ornamentPager.setPage} />
@@ -466,7 +456,7 @@ export function CustomerDetail({ id }: { id?: string }) {
 
           {activeTable === 2 && (
             <div key={activeTable} className="tab-slide-up">
-              <div className="tbl-wrap"><table className="tbl tbl-center">
+              <div className="tbl-wrap tbl-wrap-auto"><table className="tbl tbl-center">
                 <thead><tr><th>Loan</th><th>Date</th><th>Type</th><th className="num">Amount</th><th>Method</th></tr></thead>
                 <tbody>
                   {paymentPager.items.length === 0 ? (
@@ -480,7 +470,6 @@ export function CustomerDetail({ id }: { id?: string }) {
                       <td>{p.method || "—"}</td>
                     </tr>
                   ))}
-                  <Filler count={CUSTOMER_SUBTABLE_PAGE_SIZE - Math.max(paymentPager.items.length, 1)} cols={5} />
                 </tbody>
               </table></div>
               <Pager page={paymentPager.page} totalPages={paymentPager.totalPages} onChange={paymentPager.setPage} />
@@ -489,7 +478,7 @@ export function CustomerDetail({ id }: { id?: string }) {
 
           {activeTable === 3 && (
             <div key={activeTable} className="tab-slide-up">
-              <div className="tbl-wrap"><table className="tbl tbl-center">
+              <div className="tbl-wrap tbl-wrap-auto"><table className="tbl tbl-center">
                 <thead><tr><th>Loan</th><th>Bank</th><th className="num">Amount</th><th>Pledged On</th><th>Status</th></tr></thead>
                 <tbody>
                   {bankPledgePager.items.length === 0 ? (
@@ -503,7 +492,6 @@ export function CustomerDetail({ id }: { id?: string }) {
                       <td><StatusChip status={p.isReleased ? "Released" : "Bank Pledged"} /></td>
                     </tr>
                   ))}
-                  <Filler count={CUSTOMER_SUBTABLE_PAGE_SIZE - Math.max(bankPledgePager.items.length, 1)} cols={5} />
                 </tbody>
               </table></div>
               <Pager page={bankPledgePager.page} totalPages={bankPledgePager.totalPages} onChange={bankPledgePager.setPage} />
@@ -512,7 +500,7 @@ export function CustomerDetail({ id }: { id?: string }) {
 
           {activeTable === 4 && (
             <div key={activeTable} className="tab-slide-up">
-              <div className="tbl-wrap"><table className="tbl tbl-center">
+              <div className="tbl-wrap tbl-wrap-auto"><table className="tbl tbl-center">
                 <thead><tr><th>Loan</th><th>Stage</th><th>Auction Date</th><th className="num">Sale Amount</th><th className="num">Surplus/Shortfall</th></tr></thead>
                 <tbody>
                   {auctionPager.items.length === 0 ? (
@@ -526,7 +514,6 @@ export function CustomerDetail({ id }: { id?: string }) {
                       <td className="num" style={{ color: a.surplusShortfall >= 0 ? "var(--green)" : "var(--red)" }}>{a.saleAmount ? fmt(Math.abs(a.surplusShortfall)) : "—"}</td>
                     </tr>
                   ))}
-                  <Filler count={CUSTOMER_SUBTABLE_PAGE_SIZE - Math.max(auctionPager.items.length, 1)} cols={5} />
                 </tbody>
               </table></div>
               <Pager page={auctionPager.page} totalPages={auctionPager.totalPages} onChange={auctionPager.setPage} />

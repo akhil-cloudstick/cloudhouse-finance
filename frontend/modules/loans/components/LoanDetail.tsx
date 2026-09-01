@@ -8,6 +8,7 @@ import { useAuth } from "@/common/auth-context";
 import { StatusChip } from "@/common/components/ui/StatusChip";
 import { Icon } from "@/common/components/Icon";
 import { fmt, fmtW } from "@/common/utils/format";
+import { rupeesInWords } from "@/common/utils/numberToWords";
 import {
   getLoanByNumber,
   approveLoan,
@@ -22,10 +23,10 @@ import {
   type SanctionStage,
   type LoanView,
 } from "@/modules/loans/services/loanService";
-import { getCustomer } from "@/modules/customers/services/customerService";
+import { getCustomer, getCustomerAadhaarFull } from "@/modules/customers/services/customerService";
 import { listPackets } from "@/modules/packets/services/packetService";
 import { openPrintWindow } from "@/common/utils/print";
-import { printIndemnityBond, type IndemnityBondLang } from "@/modules/loans/utils/indemnityBond";
+import { printIndemnityBond } from "@/modules/loans/utils/indemnityBond";
 import { StageTracker } from "@/common/components/ui/StageTracker";
 import { ApiError } from "@/common/services/httpClient";
 import { useLoans } from "@/modules/loans/store/LoansProvider";
@@ -33,35 +34,6 @@ import { PaymentModalContent } from "@/common/components/modals/PaymentModal";
 import { RepledgeModalContent } from "@/common/components/modals/RepledgeModal";
 import { ConfirmModalContent } from "@/common/components/modals/ConfirmModal";
 import { RequestExtensionModalContent, RequestReleaseModalContent } from "@/common/components/modals/RequestExtensionModal";
-
-/* Language picker for the printable indemnity bond. The New Loan wizard has
- * the room to show all three as separate buttons; this page's header does
- * not, so the choice moves into a one-click modal rather than adding three
- * more buttons to an already crowded action bar. */
-function BondLanguageModalContent({ onPick }: { onPick: (lang: IndemnityBondLang) => void }) {
-  const { closeModal } = useModal();
-  const pick = (lang: IndemnityBondLang) => {
-    closeModal();
-    onPick(lang);
-  };
-  return (
-    <>
-      <div className="hd"><h3>Print Indemnity Bond</h3><button className="x" onClick={closeModal}>×</button></div>
-      <div className="bd">
-        <p style={{ fontSize: 13, color: "var(--muted)", marginBottom: 12 }}>
-          Choose the language the customer reads. The printed copy is for offline signing by the
-          borrower and two witnesses.
-        </p>
-        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-          <button className="btn ghost" onClick={() => pick("en")}>English</button>
-          <button className="btn ghost" onClick={() => pick("hi")}>हिन्दी (Hindi)</button>
-          <button className="btn ghost" onClick={() => pick("gu")}>ગુજરાતી (Gujarati)</button>
-        </div>
-      </div>
-      <div className="ft"><button className="btn ghost" onClick={closeModal}>Cancel</button></div>
-    </>
-  );
-}
 
 /* Ported from legacy/app.js's `renderLoanDetail(id)`. Now reads/writes the
  * real loan API instead of the mock db. `id` is the loan's loanNumber
@@ -92,6 +64,7 @@ export function LoanDetail({ id }: { id?: string }) {
   const [printingLabel, setPrintingLabel] = useState(false);
   const [printingSlip, setPrintingSlip] = useState(false);
   const [printingBond, setPrintingBond] = useState(false);
+  const [printingStatement, setPrintingStatement] = useState(false);
   // Indemnity bond Aadhaar eSign (Setu) — same "started, then poll" shape
   // CustomerDetail.tsx's DigiLocker Aadhaar-verify flow uses: "started"
   // means the customer's been sent the eSign URL and we're waiting for
@@ -265,19 +238,35 @@ export function LoanDetail({ id }: { id?: string }) {
    * backend, while this page reads the loan's real, already-persisted
    * data straight from `l`, plus one extra lookup each for details the
    * loan view alone doesn't carry (customer phone/address, packet code). */
-  /* Paper copy of the same indemnity bond the eSign flow sends, for offline
-   * wet-ink signing — the branch prints it, the customer and two witnesses
-   * sign by hand, and it is filed. Independent of the Aadhaar eSign status:
-   * staff need this whenever eSign is unavailable, declined, or the customer
-   * simply prefers paper. Language is asked for up front since branches hand
-   * over whichever one the customer reads. */
-  function printBond(lang: IndemnityBondLang) {
+  /* Paper copy of the same pledge agreement the eSign flow sends, for
+   * offline wet-ink signing — the branch prints it, the customer and two
+   * witnesses sign by hand, and it is filed. Independent of the Aadhaar
+   * eSign status: staff need this whenever eSign is unavailable, declined,
+   * or the customer simply prefers paper. */
+  function printBond() {
     setPrintingBond(true);
-    getCustomer(l.customerId)
-      .then((c) =>
+    Promise.all([getCustomer(l.customerId), getCustomerAadhaarFull(l.customerId).catch(() => "")])
+      .then(([c, aadhaar]) =>
         printIndemnityBond(
-          { loanNumber: l.id, name: c.name, dob: c.dob, address: c.address, phone: c.phone, branchName: l.branchName },
-          lang,
+          {
+            loanNumber: l.id,
+            name: c.name,
+            dob: c.dob,
+            address: c.address,
+            phone: c.phone,
+            branchName: l.branchName,
+            pan: c.pan,
+            aadhaar,
+            principalAmount: l.principal,
+            interestRate: l.schemeRate,
+            ornaments: l.ornaments.map((o) => ({
+              name: o.name,
+              purity: o.purity,
+              grossWeight: o.grossWeight,
+              netWeight: o.netWeight,
+              value: o.goldValue,
+            })),
+          },
           toast
         )
       )
@@ -314,6 +303,73 @@ export function LoanDetail({ id }: { id?: string }) {
       toast("Could not load customer details — try again");
     } finally {
       setPrintingSlip(false);
+    }
+  }
+
+  /* Payment statement — a printable copy of the Payment Ledger card below,
+   * plus the same loan/customer header printPledgeSlip uses, restructured
+   * as a formal Statement of Account carrying the statutory particulars a
+   * moneylender's statement must show: (1) a true account of the
+   * transaction with the debtor — the ledger table itself; (2) the loan
+   * amount in words and figures, and its date; (3) the maturity date; (4)
+   * the nature of the security; (5) the interest rate charged; (6) the
+   * debtor's full name and address. l.additionalInfo is whatever staff
+   * added when the loan was created (NewLoan.tsx) — there's no prompt for
+   * it here, it's just carried through. openPrintWindow opens the
+   * document in its own tab first (the "preview" — the browser's own
+   * print dialog only appears after, and can be cancelled from there
+   * without ever producing a file) rather than silently generating a PDF. */
+  async function printStatement() {
+    setPrintingStatement(true);
+    try {
+      const c = await getCustomer(l.customerId);
+      const rows = l.payments.length
+        ? l.payments.map((p) => {
+            const isCash = p.type !== "Adjustment" && p.type !== "Waiver";
+            const breakdown = [
+              p.processingFeeApplied > 0 && `Fee ${fmt(p.processingFeeApplied)}`,
+              p.penalInterestApplied > 0 && `Penal ${fmt(p.penalInterestApplied)}`,
+              p.interestApplied > 0 && `Interest ${fmt(p.interestApplied)}`,
+              p.principalApplied > 0 && `Principal ${fmt(p.principalApplied)}`,
+            ].filter(Boolean).join(" · ");
+            return `<tr>
+              <td>${p.paidOn}</td>
+              <td>${p.type}${p.description ? " — " + p.description : ""}${breakdown ? `<br><span class="muted">${breakdown}</span>` : ""}</td>
+              <td>${isCash ? p.method || "—" : "Non-cash"}</td>
+              <td>${p.reference || "—"}</td>
+              <td class="num">${fmt(p.amount)}</td>
+              <td class="num">${fmt(p.runningBalance)}</td>
+            </tr>`;
+          }).join("")
+        : `<tr><td colspan="6" style="text-align:center;color:#777">No ledger entries yet.</td></tr>`;
+      const security = l.ornaments.length
+        ? l.ornaments.map((o) => `${o.quantity} × ${o.name} (${o.purity}, net ${o.netWeight.toFixed(1)}g)`).join("; ") +
+          ` — total net weight ${fmtW(l.totalNetWeight)}`
+        : "—";
+      openPrintWindow("Statement — " + l.id, `
+        <h1>AMBIKA GOLD FINANCE</h1><h2>Statement of Account</h2>
+        <table>
+          <tr><th style="width:150px">Loan No</th><td>${l.id}</td><th style="width:150px">Statement Date</th><td>${new Date().toLocaleDateString("en-IN")}</td></tr>
+          <tr><th>Debtor Name</th><td colspan="3">${c.name}</td></tr>
+          <tr><th>Debtor Address</th><td colspan="3">${c.address || "—"}</td></tr>
+          <tr><th>Amount of Loan</th><td>${fmt(l.principal)}</td><th>Amount in Words</th><td>${rupeesInWords(l.principal)}</td></tr>
+          <tr><th>Date of Loan</th><td>${l.opened}</td><th>Date of Maturity</th><td>${l.due}</td></tr>
+          <tr><th>Rate of Interest</th><td>${l.schemeRate}% p.a.</td><th>Status</th><td>${l.status}</td></tr>
+          <tr><th>Nature of Security</th><td colspan="3">${security}</td></tr>
+          ${l.additionalInfo ? `<tr><th>Additional Information</th><td colspan="3">${l.additionalInfo}</td></tr>` : ""}
+        </table>
+        <p><b>True account of the transaction with the debtor:</b></p>
+        <table>
+          <thead><tr><th>Date</th><th>Description</th><th>Method</th><th>Reference</th><th class="num">Amount</th><th class="num">Running Balance</th></tr></thead>
+          <tbody>${rows}</tbody>
+          <tfoot><tr><th colspan="4">Outstanding Principal</th><th class="num">${fmt(l.outstanding)}</th><th></th></tr></tfoot>
+        </table>
+        <p class="muted">Running balance = outstanding principal + outstanding interest + outstanding penal interest, immediately after each entry.</p>`,
+        toast);
+    } catch {
+      toast("Could not load customer details — try again");
+    } finally {
+      setPrintingStatement(false);
     }
   }
 
@@ -440,11 +496,10 @@ export function LoanDetail({ id }: { id?: string }) {
         <button className="btn ghost sm" disabled={printingSlip} onClick={printPledgeSlip}>
           <Icon name="doc" /> {printingSlip ? "Preparing…" : "Print Slip"}
         </button>
-        <button
-          className="btn ghost sm"
-          disabled={printingBond}
-          onClick={() => openModal(<BondLanguageModalContent onPick={printBond} />)}
-        >
+        <button className="btn ghost sm" disabled={printingStatement} onClick={printStatement}>
+          <Icon name="doc" /> {printingStatement ? "Preparing…" : "Statement"}
+        </button>
+        <button className="btn ghost sm" disabled={printingBond} onClick={printBond}>
           <Icon name="doc" /> {printingBond ? "Preparing…" : "Print Bond"}
         </button>
         {l.indemnityBondSignStatus === "sign_complete" && l.indemnityBondSignedUrl ? (
@@ -497,7 +552,74 @@ export function LoanDetail({ id }: { id?: string }) {
       )}
       <hr className="gold-rule" />
 
-      <div className="grid cols21">
+      <div className="grid cols12">
+        <div className="grid">
+          <div className="card gtop"><div className="hd"><h3>Financial Summary</h3></div>
+            <div className="bd"><div className="kv" style={{ gridTemplateColumns: "1fr 1fr" }}>
+              <div className="i"><div className="k">Principal</div><div className="v">{fmt(l.principal)}</div></div>
+              <div className="i"><div className="k">Outstanding Principal</div><div className="v" style={{ color: "var(--gold-deep)", fontWeight: 600 }}>{fmt(l.outstanding)}</div></div>
+              <div className="i"><div className="k">Accrued Interest</div><div className="v">{fmt(l.accruedInterest)}</div></div>
+              <div className="i"><div className="k">Interest Paid</div><div className="v">{fmt(l.interestPaid)}</div></div>
+              <div className="i"><div className="k">Outstanding Interest</div><div className="v">{fmt(l.outstandingInterest)}</div></div>
+              {l.accruedPenalInterest > 0 && <>
+                <div className="i"><div className="k">Accrued Penal Interest</div><div className="v" style={{ color: "var(--red)" }}>{fmt(l.accruedPenalInterest)}</div></div>
+                <div className="i"><div className="k">Outstanding Penal Interest</div><div className="v" style={{ color: "var(--red)" }}>{fmt(l.outstandingPenalInterest)}</div></div>
+              </>}
+              {l.outstandingProcessingFee > 0 && (
+                <div className="i"><div className="k">Outstanding Processing Fee</div><div className="v" style={{ color: "var(--red)" }}>{fmt(l.outstandingProcessingFee)}</div></div>
+              )}
+              <div className="i"><div className="k">Total Paid</div><div className="v">{fmt(l.totalPaid)}</div></div>
+              <div className="i"><div className="k">Scheme Rate</div><div className="v">{l.schemeRate}% p.a.</div></div>
+              <div className="i"><div className="k">LTV</div><div className="v">{l.schemeLtv}%</div></div>
+              <div className="i"><div className="k">Interest Method</div><div className="v">{l.schemeMethod}</div></div>
+              <div className="i"><div className="k">Penal Rate</div><div className="v">{l.schemePenal != null ? l.schemePenal + "% p.a." : "—"}</div></div>
+            </div></div></div>
+          <div className="card"><div className="hd"><h3>Bank Pledge</h3></div>
+            <div className="bd">
+              {activePledge ? (
+                <>
+                  <div className="kv" style={{ gridTemplateColumns: "1fr 1fr" }}>
+                    <div className="i"><div className="k">Bank</div><div className="v">{activePledge.bankName}</div></div>
+                    <div className="i"><div className="k">Pledged On</div><div className="v">{activePledge.pledgeDate}</div></div>
+                    <div className="i"><div className="k">Pledged Amount</div><div className="v">{fmt(activePledge.pledgedAmount)}</div></div>
+                    <div className="i"><div className="k">Bank Interest Rate</div><div className="v">{activePledge.bankInterestRate ? `${activePledge.bankInterestRate}% p.a.` : "—"}</div></div>
+                    <div className="i"><div className="k">Reference Number</div><div className="v">{activePledge.referenceNumber || "—"}</div></div>
+                    <div className="i"><div className="k">Gold Covered</div><div className="v">{fmtW(l.totalNetWeight)}</div></div>
+                    {/* Whether this pledge put money in the till decides whether
+                      * releasing it books cash back out — worth seeing here
+                      * rather than having to guess. */}
+                    <div className="i"><div className="k">Cash Treatment</div><div className="v">
+                      {activePledge.cashTreatment === "CashIn" ? "Added to Cash-in-Hand" : "Record only — no cash effect"}
+                    </div></div>
+                    <div className="i"><div className="k">Status</div><div className="v"><StatusChip status="Bank Pledged" /></div></div>
+                  </div>
+                  <div className="notice" style={{ marginTop: 12 }}><Icon name="shield" /> Closure requires bank release process first.</div>
+                  {canUpdateBankPledges && (
+                    <button className="btn ghost sm" style={{ marginTop: 12 }} disabled={releasing} onClick={doReleasePledge}>
+                      {releasing ? "Releasing…" : "Release from Bank"}
+                    </button>
+                  )}
+                </>
+              ) : (
+                <p style={{ fontSize: 13.5, color: "var(--muted)" }}>
+                  Gold is {l.bankPledgeStatus === "Released" ? "released to customer" : "held in-house"} — <StatusChip status={l.bankPledgeStatus} />
+                </p>
+              )}
+            </div></div>
+          <div className="card"><div className="hd"><h3>Settlement Preview</h3></div>
+            <div className="bd" style={{ fontSize: 13.5 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", padding: "4px 0" }}><span>Outstanding principal</span><b>{fmt(l.outstanding)}</b></div>
+              <div style={{ display: "flex", justifyContent: "space-between", padding: "4px 0" }}><span>Outstanding interest</span><b>{fmt(l.outstandingInterest)}</b></div>
+              <div style={{ display: "flex", justifyContent: "space-between", padding: "4px 0" }}><span>Outstanding penal interest</span><b>{fmt(l.outstandingPenalInterest)}</b></div>
+              {l.outstandingProcessingFee > 0 && (
+                <div style={{ display: "flex", justifyContent: "space-between", padding: "4px 0" }}><span>Outstanding processing fee</span><b>{fmt(l.outstandingProcessingFee)}</b></div>
+              )}
+              <div style={{ display: "flex", justifyContent: "space-between", padding: "8px 0 2px", borderTop: "1px dashed var(--line)", marginTop: 6 }}>
+                <span style={{ fontWeight: 600 }}>Final settlement</span><b style={{ color: "var(--gold-deep)" }}>{fmt(l.settlementAmount)}</b></div>
+            </div>
+            <div className="ft">Principal + Interest + Penal Interest + Processing Fee − Payments/Waivers = Final Settlement Amount</div></div>
+        </div>
+
         <div className="grid">
           <div className="card gtop"><div className="hd"><h3>Pledged Ornaments — {fmtW(l.totalNetWeight)} total</h3></div>
             <div className="tbl-wrap"><table className="tbl">
@@ -569,73 +691,6 @@ export function LoanDetail({ id }: { id?: string }) {
               </tbody>
             </table></div>
             <div className="ft">Running balance = outstanding principal + outstanding interest + outstanding penal interest, immediately after this entry</div></div>
-        </div>
-
-        <div className="grid">
-          <div className="card gtop"><div className="hd"><h3>Financial Summary</h3></div>
-            <div className="bd"><div className="kv" style={{ gridTemplateColumns: "1fr 1fr" }}>
-              <div className="i"><div className="k">Principal</div><div className="v">{fmt(l.principal)}</div></div>
-              <div className="i"><div className="k">Outstanding Principal</div><div className="v" style={{ color: "var(--gold-deep)", fontWeight: 600 }}>{fmt(l.outstanding)}</div></div>
-              <div className="i"><div className="k">Accrued Interest</div><div className="v">{fmt(l.accruedInterest)}</div></div>
-              <div className="i"><div className="k">Interest Paid</div><div className="v">{fmt(l.interestPaid)}</div></div>
-              <div className="i"><div className="k">Outstanding Interest</div><div className="v">{fmt(l.outstandingInterest)}</div></div>
-              {l.accruedPenalInterest > 0 && <>
-                <div className="i"><div className="k">Accrued Penal Interest</div><div className="v" style={{ color: "var(--red)" }}>{fmt(l.accruedPenalInterest)}</div></div>
-                <div className="i"><div className="k">Outstanding Penal Interest</div><div className="v" style={{ color: "var(--red)" }}>{fmt(l.outstandingPenalInterest)}</div></div>
-              </>}
-              {l.outstandingProcessingFee > 0 && (
-                <div className="i"><div className="k">Outstanding Processing Fee</div><div className="v" style={{ color: "var(--red)" }}>{fmt(l.outstandingProcessingFee)}</div></div>
-              )}
-              <div className="i"><div className="k">Total Paid</div><div className="v">{fmt(l.totalPaid)}</div></div>
-              <div className="i"><div className="k">Scheme Rate</div><div className="v">{l.schemeRate}% p.a.</div></div>
-              <div className="i"><div className="k">LTV</div><div className="v">{l.schemeLtv}%</div></div>
-              <div className="i"><div className="k">Interest Method</div><div className="v">{l.schemeMethod}</div></div>
-              <div className="i"><div className="k">Penal Rate</div><div className="v">{l.schemePenal != null ? l.schemePenal + "% p.a." : "—"}</div></div>
-            </div></div></div>
-          <div className="card"><div className="hd"><h3>Bank Pledge</h3></div>
-            <div className="bd">
-              {activePledge ? (
-                <>
-                  <div className="kv" style={{ gridTemplateColumns: "1fr 1fr" }}>
-                    <div className="i"><div className="k">Bank</div><div className="v">{activePledge.bankName}</div></div>
-                    <div className="i"><div className="k">Pledged On</div><div className="v">{activePledge.pledgeDate}</div></div>
-                    <div className="i"><div className="k">Pledged Amount</div><div className="v">{fmt(activePledge.pledgedAmount)}</div></div>
-                    <div className="i"><div className="k">Bank Interest Rate</div><div className="v">{activePledge.bankInterestRate ? `${activePledge.bankInterestRate}% p.a.` : "—"}</div></div>
-                    <div className="i"><div className="k">Reference Number</div><div className="v">{activePledge.referenceNumber || "—"}</div></div>
-                    <div className="i"><div className="k">Gold Covered</div><div className="v">{fmtW(l.totalNetWeight)}</div></div>
-                    {/* Whether this pledge put money in the till decides whether
-                      * releasing it books cash back out — worth seeing here
-                      * rather than having to guess. */}
-                    <div className="i"><div className="k">Cash Treatment</div><div className="v">
-                      {activePledge.cashTreatment === "CashIn" ? "Added to Cash-in-Hand" : "Record only — no cash effect"}
-                    </div></div>
-                    <div className="i"><div className="k">Status</div><div className="v"><StatusChip status="Bank Pledged" /></div></div>
-                  </div>
-                  <div className="notice" style={{ marginTop: 12 }}><Icon name="shield" /> Closure requires bank release process first.</div>
-                  {canUpdateBankPledges && (
-                    <button className="btn ghost sm" style={{ marginTop: 12 }} disabled={releasing} onClick={doReleasePledge}>
-                      {releasing ? "Releasing…" : "Release from Bank"}
-                    </button>
-                  )}
-                </>
-              ) : (
-                <p style={{ fontSize: 13.5, color: "var(--muted)" }}>
-                  Gold is {l.bankPledgeStatus === "Released" ? "released to customer" : "held in-house"} — <StatusChip status={l.bankPledgeStatus} />
-                </p>
-              )}
-            </div></div>
-          <div className="card"><div className="hd"><h3>Settlement Preview</h3></div>
-            <div className="bd" style={{ fontSize: 13.5 }}>
-              <div style={{ display: "flex", justifyContent: "space-between", padding: "4px 0" }}><span>Outstanding principal</span><b>{fmt(l.outstanding)}</b></div>
-              <div style={{ display: "flex", justifyContent: "space-between", padding: "4px 0" }}><span>Outstanding interest</span><b>{fmt(l.outstandingInterest)}</b></div>
-              <div style={{ display: "flex", justifyContent: "space-between", padding: "4px 0" }}><span>Outstanding penal interest</span><b>{fmt(l.outstandingPenalInterest)}</b></div>
-              {l.outstandingProcessingFee > 0 && (
-                <div style={{ display: "flex", justifyContent: "space-between", padding: "4px 0" }}><span>Outstanding processing fee</span><b>{fmt(l.outstandingProcessingFee)}</b></div>
-              )}
-              <div style={{ display: "flex", justifyContent: "space-between", padding: "8px 0 2px", borderTop: "1px dashed var(--line)", marginTop: 6 }}>
-                <span style={{ fontWeight: 600 }}>Final settlement</span><b style={{ color: "var(--gold-deep)" }}>{fmt(l.settlementAmount)}</b></div>
-            </div>
-            <div className="ft">Principal + Interest + Penal Interest + Processing Fee − Payments/Waivers = Final Settlement Amount</div></div>
         </div>
       </div>
     </>

@@ -19,14 +19,22 @@ import { getCalendarEventsPage, type CalendarEvent } from "@/modules/reminders/s
 import { listLoanRequests, getInterestCollected, type RequestView } from "@/modules/loans/services/loanService";
 import { getNeedsAttentionPage, type NeedsAttentionItem } from "@/modules/dashboard/services/dashboardService";
 
-function Kpi({ l, v, s, cls }: { l: string; v: string | number; s?: string; cls?: string }) {
-  return (
-    <div className={`kpi ${cls || ""}`}>
+function Kpi({ l, v, s, cls, href }: { l: string; v: string | number; s?: string; cls?: string; href?: string }) {
+  const body = (
+    <>
       <div className="l">{l}</div>
       <div className="v">{v}</div>
       <div className="s">{s || ""}</div>
-    </div>
+    </>
   );
+  if (href) {
+    return (
+      <a className={`kpi kpi-link ${cls || ""}`} href={href}>
+        {body}
+      </a>
+    );
+  }
+  return <div className={`kpi ${cls || ""}`}>{body}</div>;
 }
 
 function RateTile({ k, r }: { k: string; r: number }) {
@@ -223,18 +231,18 @@ export function Dashboard() {
       <div className="grid cols21">
         <div className="grid">
           <div className="kpis">
-            <Kpi l="Cash in Hand" v={fmt(cashInHand)} cls="ok" />
-            <Kpi l="Loans Opened Today" v={openedToday} />
-            <Kpi l="Active Loans" v={active.length} s={fmt(outstanding) + " outstanding"} />
-            <Kpi l="Due Soon" v={dueSoon.length} s="within 14 days" cls={dueSoon.length ? "warn" : ""} />
-            <Kpi l="Overdue Loans" v={overdue.length} s={fmt(overdue.reduce((s, l) => s + l.outstanding, 0)) + " at risk"} cls={overdue.length ? "warn" : ""} />
-            <Kpi l="Pending Approvals" v={pendingApprovalLoans.length} s="awaiting sanction" cls={pendingApprovalLoans.length ? "warn" : ""} />
-            <Kpi l="Extension Requests" v={pendingReq.filter((r) => r.type === "Extension").length} s="from mobile app" />
-            <Kpi l="Gold Release Requests" v={pendingReq.filter((r) => r.type === "Release").length} s="settlement review" />
-            <Kpi l="Bank-Pledged Loans" v={pledged.length} s={fmt(pledged.reduce((s, l) => s + l.principal, 0)) + " re-pledged"} />
-            <Kpi l="Auction Cases" v={auctionLoans.length} s="notice stage" cls={auctionLoans.length ? "warn" : ""} />
-            <Kpi l="Today's Expenses" v={fmt(expToday)} s={expenses.filter((e) => e.status === "Pending").length + " pending approval"} />
-            <Kpi l="Interest Collected" v={fmt(interestCollected)} cls="ok" />
+            <Kpi l="Cash in Hand" v={fmt(cashInHand)} cls="ok" href="#cash" />
+            <Kpi l="Loans Opened Today" v={openedToday} href="#loans" />
+            <Kpi l="Active Loans" v={active.length} s={fmt(outstanding) + " outstanding"} href="#loans/Active" />
+            <Kpi l="Due Soon" v={dueSoon.length} s="within 14 days" cls={dueSoon.length ? "warn" : ""} href={`#loans/${encodeURIComponent("Due Soon")}`} />
+            <Kpi l="Overdue Loans" v={overdue.length} s={fmt(overdue.reduce((s, l) => s + l.outstanding, 0)) + " at risk"} cls={overdue.length ? "warn" : ""} href="#loans/Overdue" />
+            <Kpi l="Pending Approvals" v={pendingApprovalLoans.length} s="awaiting sanction" cls={pendingApprovalLoans.length ? "warn" : ""} href={`#loans/${encodeURIComponent("Pending Approval")}`} />
+            <Kpi l="Extension Requests" v={pendingReq.filter((r) => r.type === "Extension").length} s="from mobile app" href="#requests" />
+            <Kpi l="Gold Release Requests" v={pendingReq.filter((r) => r.type === "Release").length} s="settlement review" href="#requests" />
+            <Kpi l="Bank-Pledged Loans" v={pledged.length} s={fmt(pledged.reduce((s, l) => s + l.principal, 0)) + " re-pledged"} href="#bankpledge" />
+            <Kpi l="Auction Cases" v={auctionLoans.length} s="notice stage" cls={auctionLoans.length ? "warn" : ""} href="#auctions" />
+            <Kpi l="Today's Expenses" v={fmt(expToday)} s={expenses.filter((e) => e.status === "Pending").length + " pending approval"} href="#cash" />
+            <Kpi l="Interest Collected" v={fmt(interestCollected)} cls="ok" href="#reports" />
           </div>
 
           <div className="card gtop">

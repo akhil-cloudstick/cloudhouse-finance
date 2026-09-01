@@ -37,8 +37,42 @@ func parseOptionalDate(s string) (time.Time, error) {
 	return time.Parse("2006-01-02", s)
 }
 
+// parseOccurredOn is parseOptionalDate plus one adjustment for *recording* a
+// movement/expense (not for date-only filters/lookups, which still want
+// plain parseOptionalDate): a date-only "YYYY-MM-DD" that names today gets
+// stamped with the actual current time instead of midnight. Every screen
+// that records one of these (CashOutModal.tsx, CashInModal, the expense
+// form) sends a full date string even for "today", never leaving it blank —
+// so the IsZero()-means-time.Now() fallback in MovementService.Record/
+// ExpenseService.Record never fires for them. Without this, a same-day
+// manual entry stored at midnight sorts *after* every other same-day
+// movement in the "occurred_on desc" list (repository.go's FindAll)
+// regardless of what time it was actually recorded — which is what made
+// outflows (recorded via CashOutModal, always with an explicit date) look
+// like they always landed last. A backdated (non-today) date is left at
+// midnight — there's no time-of-day to preserve for those, and date-level
+// ordering across different days is unaffected by this either way.
+func parseOccurredOn(s string) (time.Time, error) {
+	if s == "" {
+		return time.Time{}, nil
+	}
+	// Parsed in time.Local (matching time.Now() below), not the UTC
+	// parseOptionalDate defaults to — otherwise "is this date today" could
+	// disagree with the server's own clock right around midnight in
+	// whatever zone the server actually runs in.
+	t, err := time.ParseInLocation("2006-01-02", s, time.Local)
+	if err != nil {
+		return time.Time{}, err
+	}
+	now := time.Now()
+	if t.Year() == now.Year() && t.YearDay() == now.YearDay() {
+		return now, nil
+	}
+	return t, nil
+}
+
 func (req movementRequest) toInput() (RecordMovementInput, error) {
-	occurred, err := parseOptionalDate(req.OccurredOn)
+	occurred, err := parseOccurredOn(req.OccurredOn)
 	if err != nil {
 		return RecordMovementInput{}, httpx.NewBadRequest("invalid occurredOn: expected YYYY-MM-DD")
 	}
@@ -162,7 +196,7 @@ type expenseRequest struct {
 }
 
 func (req expenseRequest) toInput() (RecordExpenseInput, error) {
-	occurred, err := parseOptionalDate(req.OccurredOn)
+	occurred, err := parseOccurredOn(req.OccurredOn)
 	if err != nil {
 		return RecordExpenseInput{}, httpx.NewBadRequest("invalid occurredOn: expected YYYY-MM-DD")
 	}

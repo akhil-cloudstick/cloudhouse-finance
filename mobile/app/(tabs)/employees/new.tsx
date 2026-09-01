@@ -1,4 +1,5 @@
 import React, { useState } from "react";
+import { View } from "react-native";
 import { useRouter } from "expo-router";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { ScreenContainer } from "../../../src/components/ScreenContainer";
@@ -33,7 +34,8 @@ export default function NewEmployeeScreen() {
   });
 
   return (
-    <ScreenContainer>
+    <ScreenContainer style={{ padding: 0 }}>
+      <View style={{ flex: 1, paddingHorizontal: 16, paddingTop: 16 }}>
       <Card>
         <GoldTextInput label="Name" value={name} onChangeText={setName} />
         <GoldTextInput label="Phone (login identifier)" value={phone} onChangeText={setPhone} />
@@ -45,6 +47,6 @@ export default function NewEmployeeScreen() {
         ) : null}
         <GoldButton title="Save" onPress={() => create.mutate()} loading={create.isPending} disabled={!name} />
       </Card>
-    </ScreenContainer>
-  );
+      </View>
+    </ScreenContainer>  );
 }

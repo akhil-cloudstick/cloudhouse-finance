@@ -45,10 +45,26 @@ export type CreateLoanInput = {
   principalAmount: number;
   ornaments: CreateOrnamentInput[];
   lockerId?: number;
+  // Optional free text captured at creation — anything the standard fields
+  // don't cover, carried through onto the printed Statement of Account.
+  additionalInfo?: string;
 };
 
 export function createLoan(input: CreateLoanInput) {
   return apiRequest<Loan>("/loans", { method: "POST", body: input });
+}
+
+// Attaches an already-uploaded ("/uploads/..." — see src/api/uploads.ts)
+// image to an ornament. Called after createLoan() returns, once per
+// photographed row — mirrors frontend/modules/loans/services/loanService.ts's
+// addOrnamentImage, same route/body (backend/internal/loan/handler.go's
+// AddOrnamentImage). An ornament can carry more than one image; this call
+// just adds one.
+export function addOrnamentImage(ornamentId: number, imageUrl: string) {
+  return apiRequest<unknown>(`/loans/ornaments/${ornamentId}/images`, {
+    method: "POST",
+    body: { imageUrl },
+  });
 }
 
 // --- Sanction-chain approvals (backend/internal/loan/handler.go's Approve/

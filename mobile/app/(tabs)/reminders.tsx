@@ -262,7 +262,8 @@ export default function RemindersScreen() {
   const dayEvents = selectedDay != null ? eventsByDay.get(selectedDay) ?? [] : [];
 
   return (
-    <ScreenContainer>
+    <ScreenContainer style={{ padding: 0 }}>
+      <View style={{ flex: 1, paddingHorizontal: 16, paddingTop: 16 }}>
       <ScrollView
         showsVerticalScrollIndicator={false}
         refreshControl={<RefreshControl refreshing={isRefetching} onRefresh={refetch} />}
@@ -347,8 +348,8 @@ export default function RemindersScreen() {
         )}
       </ScrollView>
       <AddReminderModal visible={addVisible} onClose={() => setAddVisible(false)} />
-    </ScreenContainer>
-  );
+      </View>
+    </ScreenContainer>  );
 }
 
 const styles = StyleSheet.create({

@@ -54,11 +54,6 @@ const styles = StyleSheet.create({
     fontFamily: typeScale.body.fontFamily,
     fontSize: typeScale.body.fontSize,
     color: colors.ink,
-    // Soft-focus look for typed text — a real blur (offset 0, non-zero
-    // radius) rather than just a muted color, per design direction.
-    textShadowColor: colors.ink,
-    textShadowOffset: { width: 0, height: 0 },
-    textShadowRadius: 2,
   },
   inputWithRight: { paddingRight: 56 },
   right: { position: "absolute", right: 14 },

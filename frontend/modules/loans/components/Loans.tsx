@@ -5,6 +5,7 @@ import { useLoans } from "@/modules/loans/store/LoansProvider";
 import { LoanRow } from "@/modules/loans/components/LoanRow";
 import { Icon } from "@/common/components/Icon";
 import { useAuth } from "@/common/auth-context";
+import { useHashRoute } from "@/hooks/useHashRoute";
 import { listLoansPage, LOANS_TABLE_PAGE_SIZE, type LoanView } from "@/modules/loans/services/loanService";
 
 const CATS = ["All", "Active", "Due Soon", "Overdue", "Defaulted", "Pending Approval", "Auction Eligible", "Closed"];
@@ -39,7 +40,12 @@ export function Loans() {
   // already 403s a Cashier's POST /loans, so hide the button rather than
   // let them click into a form that can only ever fail.
   const canCreateLoans = role !== "Cashier";
-  const [cat, setCat] = useState("All");
+  // Dashboard KPI cards ("Active Loans", "Due Soon", etc.) link here as
+  // `#loans/<category>` so the tab they promise is the tab that's actually
+  // open on arrival, instead of always landing on "All".
+  const { arg: initialCatArg } = useHashRoute();
+  const initialCat = initialCatArg ? decodeURIComponent(initialCatArg) : undefined;
+  const [cat, setCat] = useState(() => (initialCat && CATS.includes(initialCat) ? initialCat : "All"));
   const [q, setQ] = useState("");
   const [page, setPage] = useState(1);
   const [filtered, setFiltered] = useState<LoanView[] | null>(null);

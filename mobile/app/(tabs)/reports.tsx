@@ -1,8 +1,12 @@
 import React, { useState } from "react";
-import { ScrollView, View, StyleSheet, Pressable, FlatList, RefreshControl } from "react-native";
+import { ScrollView, View, StyleSheet, Pressable, FlatList, RefreshControl, Alert } from "react-native";
 import { useQuery } from "@tanstack/react-query";
 import * as Print from "expo-print";
+import * as FileSystem from "expo-file-system/legacy";
+import * as Sharing from "expo-sharing";
 import { useRefetchOnFocus } from "../../src/hooks/useRefetchOnFocus";
+import { API_BASE_URL } from "../../src/api/config";
+import { getToken } from "../../src/auth/tokenStorage";
 import { ScreenContainer } from "../../src/components/ScreenContainer";
 import { BottomSheetModal } from "../../src/components/BottomSheetModal";
 import { Card } from "../../src/components/Card";
@@ -29,6 +33,7 @@ import {
 } from "../../src/api/reports";
 
 import { fmt } from "../../src/lib/format";
+import { tableCardStyle } from "../../src/components/ExpandableTable";
 
 const fmtW = (n: number) => `${(n ?? 0).toFixed(2)}g`;
 const dt = (v?: string | null) => (v ? new Date(v).toDateString() : "—");
@@ -268,8 +273,47 @@ export default function ReportsScreen() {
     }
   }
 
+  // Exports the section whose preview sheet is open as a real .xlsx —
+  // unlike printSection above (which only prints the ~50 rows already
+  // fetched for the on-screen preview), this hits the same
+  // GET /reports/export/:key?format=xlsx the web app's "Export" button
+  // uses (backend/internal/reports/export.go's Handler.Export), which
+  // ignores pagination and builds the full filtered dataset server-side
+  // via excelize — no xlsx-generation logic needed on the mobile side.
+  const [exporting, setExporting] = useState(false);
+
+  async function exportSection(section: Section) {
+    setExporting(true);
+    try {
+      const token = await getToken();
+      const filename = `${section.key}-${Date.now()}.xlsx`;
+      const targetUri = `${FileSystem.cacheDirectory}${filename}`;
+      const result = await FileSystem.downloadAsync(
+        `${API_BASE_URL}/reports/export/${section.key}?format=xlsx`,
+        targetUri,
+        { headers: token ? { Authorization: `Bearer ${token}` } : {} }
+      );
+      if (result.status < 200 || result.status >= 300) {
+        throw new Error(`Export failed (${result.status})`);
+      }
+      if (await Sharing.isAvailableAsync()) {
+        await Sharing.shareAsync(result.uri, {
+          mimeType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+          dialogTitle: `${section.title} export`,
+        });
+      } else {
+        Alert.alert("Saved", `Saved to ${result.uri} — sharing isn't available on this device.`);
+      }
+    } catch (e) {
+      Alert.alert("Export failed", e instanceof Error ? e.message : "Could not export — try again.");
+    } finally {
+      setExporting(false);
+    }
+  }
+
   return (
-    <ScreenContainer>
+    <ScreenContainer style={{ padding: 0 }}>
+      <View style={{ flex: 1, paddingHorizontal: 16, paddingTop: 16 }}>
       <ScrollView
         showsVerticalScrollIndicator={false}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
@@ -304,6 +348,13 @@ export default function ReportsScreen() {
             {preview?.title}
           </ThemedText>
           <GoldButton
+            title={exporting ? "Exporting…" : "Export .xlsx"}
+            variant="outline"
+            onPress={() => preview && exportSection(preview)}
+            disabled={exporting || !preview}
+            style={{ height: 36, paddingHorizontal: 14, marginRight: 8 }}
+          />
+          <GoldButton
             title={printing ? "Printing…" : "Print"}
             variant="outline"
             onPress={() => preview && printSection(preview)}
@@ -316,25 +367,48 @@ export default function ReportsScreen() {
             </ThemedText>
           </Pressable>
         </View>
-        <FlatList
-          data={(preview?.query.data as any)?.rows ?? []}
-          keyExtractor={(_, i) => String(i)}
-          ListEmptyComponent={<ThemedText color={colors.muted}>No records.</ThemedText>}
-          renderItem={({ item }) => {
-            const row = preview!.renderRow(item);
-            return (
-              <Card>
-                <ThemedText variant="body">{row.title}</ThemedText>
-                <ThemedText variant="small" color={colors.muted}>
-                  {row.detail}
-                </ThemedText>
-              </Card>
-            );
-          }}
-        />
+        {/* Each of the 16 reports has its own bespoke row shape (renderRow
+         * returns a plain title/detail pair, not a fixed set of columns
+         * like Loans/Customers), so this stays a title+detail list rather
+         * than forcing 16 one-off column definitions onto the shared
+         * table component — but it picks up the same single-card
+         * shadow/border/divider treatment as everywhere else instead of a
+         * stack of individually-shadowed Cards. */}
+        {(() => {
+          const rows: any[] = (preview?.query.data as any)?.rows ?? [];
+          if (rows.length === 0) {
+            return <ThemedText color={colors.muted}>No records.</ThemedText>;
+          }
+          return (
+            <FlatList
+              data={rows}
+              keyExtractor={(_, i) => String(i)}
+              showsVerticalScrollIndicator={false}
+              contentContainerStyle={tableCardStyle}
+              renderItem={({ item, index }) => {
+                const row = preview!.renderRow(item);
+                return (
+                  <View
+                    style={[
+                      styles.previewRow,
+                      index > 0 && styles.previewRowDivider,
+                      index === 0 && styles.previewRowFirst,
+                      index === rows.length - 1 && styles.previewRowLast,
+                    ]}
+                  >
+                    <ThemedText variant="body">{row.title}</ThemedText>
+                    <ThemedText variant="small" color={colors.muted}>
+                      {row.detail}
+                    </ThemedText>
+                  </View>
+                );
+              }}
+            />
+          );
+        })()}
       </BottomSheetModal>
-    </ScreenContainer>
-  );
+      </View>
+    </ScreenContainer>  );
 }
 
 const styles = StyleSheet.create({
@@ -347,4 +421,8 @@ const styles = StyleSheet.create({
     alignItems: "center",
     marginBottom: 16,
   },
+  previewRow: { paddingVertical: 11, paddingHorizontal: 12, backgroundColor: colors.card },
+  previewRowDivider: { borderTopWidth: 1, borderTopColor: colors.line },
+  previewRowFirst: { borderTopLeftRadius: 14, borderTopRightRadius: 14 },
+  previewRowLast: { borderBottomLeftRadius: 14, borderBottomRightRadius: 14 },
 });

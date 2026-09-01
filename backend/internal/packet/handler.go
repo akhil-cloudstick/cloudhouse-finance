@@ -3,12 +3,25 @@ package packet
 import (
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 
+	"ambikagold/backend/internal/loan"
 	"ambikagold/backend/internal/platform"
 	"ambikagold/backend/internal/platform/httpx"
 )
+
+// loanNoLongerMovableStatuses mirrors loan.bankPledgeIneligibleStatuses'
+// rationale but for packet movement specifically: once a loan lands in one
+// of these, its gold has either been sold (Auctioned/AuctionedBalanceDue)
+// or already handed back to the customer (Closed) — nothing about where
+// it physically sits is staff's to change by hand any more.
+var loanNoLongerMovableStatuses = map[string]bool{
+	loan.StatusAuctioned:           true,
+	loan.StatusAuctionedBalanceDue: true,
+	loan.StatusClosed:              true,
+}
 
 // Handler wires HTTP requests to the Service.
 type Handler struct {
@@ -33,6 +46,7 @@ func (h *Handler) List(c *gin.Context) {
 		}
 	}
 	f.Status = c.Query("status")
+	f.Q = strings.TrimSpace(c.Query("q"))
 
 	limit, _ := strconv.Atoi(c.Query("limit"))
 	if limit > 0 {
@@ -117,8 +131,13 @@ func (h *Handler) RecordMovement(c *gin.Context) {
 		httpx.Fail(c, http.StatusBadRequest, "Invalid input")
 		return
 	}
-	if _, err := h.svc.Get(id, platform.GetBranchScope(c)); err != nil {
+	p, err := h.svc.Get(id, platform.GetBranchScope(c))
+	if err != nil {
 		httpx.FailErr(c, err)
+		return
+	}
+	if loanNoLongerMovableStatuses[p.Loan.Status] {
+		httpx.FailErr(c, ErrLoanNoLongerMovable)
 		return
 	}
 	rec, err := h.svc.RecordMovement(id, req.ToStatus, req.LockerID, req.EmployeeID, req.Remarks)

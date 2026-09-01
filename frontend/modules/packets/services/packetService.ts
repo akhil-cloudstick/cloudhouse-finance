@@ -102,6 +102,11 @@ export type PacketView = {
   code: string;
   loanId: number;
   loanNumber: string;
+  // The loan's own status — Auctioned/AuctionedBalanceDue/Closed all mean
+  // the gold has already left custody (sold or released), so PacketDetail
+  // uses this to hide further movement actions and override the displayed
+  // status rather than trusting the packet's own (possibly stale) stage.
+  loanStatus: string;
   branchId: number;
   branchName: string;
   customerName: string;
@@ -129,6 +134,7 @@ function toView(p: BackendPacket): PacketView {
     code: p.code,
     loanId: p.loanId,
     loanNumber: p.loan?.loanNumber || String(p.loanId),
+    loanStatus: p.loan?.status || "",
     branchId: p.loan?.branchId || 0,
     branchName: p.loan?.branch?.name || "—",
     customerName: p.loan?.customer?.name || "—",
@@ -162,7 +168,7 @@ function toMovementView(m: BackendPacketMovement): MovementView {
   };
 }
 
-export type PacketFilters = { loanId?: number; branchId?: number; status?: string; lockerId?: number };
+export type PacketFilters = { loanId?: number; branchId?: number; status?: string; lockerId?: number; q?: string };
 
 export async function listPackets(filters?: PacketFilters): Promise<PacketView[]> {
   const params = new URLSearchParams();
@@ -170,6 +176,7 @@ export async function listPackets(filters?: PacketFilters): Promise<PacketView[]
   if (filters?.branchId) params.set("branchId", String(filters.branchId));
   if (filters?.status) params.set("status", filters.status);
   if (filters?.lockerId) params.set("lockerId", String(filters.lockerId));
+  if (filters?.q) params.set("q", filters.q);
   const qs = params.toString();
   const rec = await apiFetch<BackendPacket[]>(`/packets${qs ? `?${qs}` : ""}`);
   return (rec || []).map(toView);
@@ -190,6 +197,7 @@ export async function listPacketsPage(page: number, filters?: PacketFilters): Pr
   if (filters?.branchId) params.set("branchId", String(filters.branchId));
   if (filters?.status) params.set("status", filters.status);
   if (filters?.lockerId) params.set("lockerId", String(filters.lockerId));
+  if (filters?.q) params.set("q", filters.q);
   const rec = await apiFetch<{ items: BackendPacket[]; hasMore: boolean }>(`/packets?${params}`);
   return { items: (rec?.items || []).map(toView), hasMore: !!rec?.hasMore };
 }

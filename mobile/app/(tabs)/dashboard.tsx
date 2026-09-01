@@ -3,7 +3,7 @@ import { ScrollView, View, Pressable, StyleSheet, RefreshControl } from "react-n
 import { useQuery } from "@tanstack/react-query";
 import { useRouter } from "expo-router";
 import { ScreenContainer } from "../../src/components/ScreenContainer";
-import { Card } from "../../src/components/Card";
+import { GlassCard } from "../../src/components/GlassCard";
 import { ThemedText } from "../../src/components/ThemedText";
 import { ChipSelect } from "../../src/components/ChipSelect";
 import { GoldTextInput } from "../../src/components/GoldTextInput";
@@ -179,9 +179,10 @@ export default function DashboardScreen() {
   const eligible = selectedScheme ? (gross * selectedScheme.ltvPercent) / 100 : 0;
 
   return (
-    <ScreenContainer>
+    <ScreenContainer style={{ padding: 0 }}>
       <ScrollView
         showsVerticalScrollIndicator={false}
+        contentContainerStyle={{ padding: 16 }}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
       >
         <ThemedText variant="h2" color={colors.goldDeep}>
@@ -192,70 +193,72 @@ export default function DashboardScreen() {
         </ThemedText>
 
         <View style={styles.kpiRow}>
-          <Card style={styles.kpi}>
+          <GlassCard style={styles.kpi}>
             <ThemedText variant="label" color={colors.muted}>
-              24K Gold Rate
+              Loans Opened Today
             </ThemedText>
-            <ThemedText variant="h3" color={colors.goldDeep}>
-              {goldRate.isLoading ? "…" : goldRate.data ? `₹${goldRate.data.k24.toLocaleString("en-IN")}` : "—"}
-            </ThemedText>
-          </Card>
-          <Card style={styles.kpi}>
+            <ThemedText variant="h3">{loans.isLoading ? "…" : openedTodayCount}</ThemedText>
+          </GlassCard>
+          <GlassCard style={styles.kpi}>
             <ThemedText variant="label" color={colors.muted}>
               Overdue
             </ThemedText>
             <ThemedText variant="h3" color={colors.red}>
               {loans.isLoading ? "…" : overdueCount}
             </ThemedText>
-          </Card>
-          <Card style={styles.kpi}>
+          </GlassCard>
+          <GlassCard style={styles.kpi}>
             <ThemedText variant="label" color={colors.muted}>
               Due Today
             </ThemedText>
             <ThemedText variant="h3" color={colors.amber}>
               {events.isLoading ? "…" : dueTodayCount}
             </ThemedText>
-          </Card>
+          </GlassCard>
         </View>
 
+        {/* Gold Rate moved out of the top KPI row into its own 2-up row
+            with Cash in Hand — Loans Opened Today (above) took its old seat. */}
         <View style={styles.grid}>
-          <Card style={styles.tile}>
+          <GlassCard style={styles.tile}>
+            <ThemedText variant="label" color={colors.muted}>
+              24K Gold Rate
+            </ThemedText>
+            <ThemedText variant="h3" color={colors.goldDeep}>
+              {goldRate.isLoading ? "…" : goldRate.data ? `₹${goldRate.data.k24.toLocaleString("en-IN")}` : "—"}
+            </ThemedText>
+          </GlassCard>
+          <GlassCard style={styles.tile}>
             <ThemedText variant="label" color={colors.muted}>
               Cash in Hand
             </ThemedText>
             <ThemedText variant="h3" color={colors.green}>
               {cashSummary.isLoading ? "…" : cashSummary.data ? fmt(cashSummary.data.expectedCash) : "—"}
             </ThemedText>
-          </Card>
-          <Card style={styles.tile}>
-            <ThemedText variant="label" color={colors.muted}>
-              Loans Opened Today
-            </ThemedText>
-            <ThemedText variant="h3">{loans.isLoading ? "…" : openedTodayCount}</ThemedText>
-          </Card>
-          <Card style={styles.tile}>
+          </GlassCard>
+          <GlassCard style={styles.tile}>
             <ThemedText variant="label" color={colors.muted}>
               Active Loans
             </ThemedText>
             <ThemedText variant="h3">{loans.isLoading ? "…" : activeCount}</ThemedText>
-          </Card>
-          <Card style={styles.tile}>
+          </GlassCard>
+          <GlassCard style={styles.tile}>
             <ThemedText variant="label" color={colors.muted}>
               Due Soon
             </ThemedText>
             <ThemedText variant="h3" color={dueSoonCount ? colors.amber : colors.ink}>
               {loans.isLoading ? "…" : dueSoonCount}
             </ThemedText>
-          </Card>
-          <Card style={styles.tile}>
+          </GlassCard>
+          <GlassCard style={styles.tile}>
             <ThemedText variant="label" color={colors.muted}>
               Pending Approvals
             </ThemedText>
             <ThemedText variant="h3" color={pendingApprovalLoans.length ? colors.amber : colors.ink}>
               {loans.isLoading ? "…" : pendingApprovalLoans.length}
             </ThemedText>
-          </Card>
-          <Card style={styles.tile}>
+          </GlassCard>
+          <GlassCard style={styles.tile}>
             <ThemedText variant="label" color={colors.muted}>
               Extension Requests
             </ThemedText>
@@ -263,8 +266,8 @@ export default function DashboardScreen() {
             <ThemedText variant="small" color={colors.muted}>
               from mobile app
             </ThemedText>
-          </Card>
-          <Card style={styles.tile}>
+          </GlassCard>
+          <GlassCard style={styles.tile}>
             <ThemedText variant="label" color={colors.muted}>
               Gold Release Requests
             </ThemedText>
@@ -272,8 +275,8 @@ export default function DashboardScreen() {
             <ThemedText variant="small" color={colors.muted}>
               settlement review
             </ThemedText>
-          </Card>
-          <Card style={styles.tile}>
+          </GlassCard>
+          <GlassCard style={styles.tile}>
             <ThemedText variant="label" color={colors.muted}>
               Bank-Pledged Loans
             </ThemedText>
@@ -281,16 +284,16 @@ export default function DashboardScreen() {
             <ThemedText variant="small" color={colors.muted}>
               {fmt(pledgedLoans.reduce((s, l) => s + l.principalAmount, 0))} re-pledged
             </ThemedText>
-          </Card>
-          <Card style={styles.tile}>
+          </GlassCard>
+          <GlassCard style={styles.tile}>
             <ThemedText variant="label" color={colors.muted}>
               Auction Cases
             </ThemedText>
             <ThemedText variant="h3" color={auctionLoans.length ? colors.red : colors.ink}>
               {loans.isLoading ? "…" : auctionLoans.length}
             </ThemedText>
-          </Card>
-          <Card style={styles.tile}>
+          </GlassCard>
+          <GlassCard style={styles.tile}>
             <ThemedText variant="label" color={colors.muted}>
               Today&apos;s Expenses
             </ThemedText>
@@ -298,10 +301,10 @@ export default function DashboardScreen() {
             <ThemedText variant="small" color={colors.muted}>
               {expPendingCount} pending approval
             </ThemedText>
-          </Card>
+          </GlassCard>
         </View>
 
-        <Card style={{ marginTop: 4 }}>
+        <GlassCard style={{ marginTop: 4 }}>
           <ThemedText variant="h3" style={{ marginBottom: 12 }}>
             Loan Portfolio — Disbursement (last 6 months)
           </ThemedText>
@@ -320,9 +323,9 @@ export default function DashboardScreen() {
               </View>
             ))}
           </View>
-        </Card>
+        </GlassCard>
 
-        <Card>
+        <GlassCard>
           <ThemedText variant="h3" style={{ marginBottom: 8 }}>
             Needs Attention
           </ThemedText>
@@ -379,9 +382,9 @@ export default function DashboardScreen() {
               ))}
             </>
           )}
-        </Card>
+        </GlassCard>
 
-        <Card>
+        <GlassCard>
           <ThemedText variant="h3" style={{ marginBottom: 4 }}>
             Gold Loan Calculator
           </ThemedText>
@@ -425,9 +428,9 @@ export default function DashboardScreen() {
           <ThemedText variant="small" color={colors.muted} style={{ marginTop: 6 }}>
             Weight × Rate = Gross Value · Gross × LTV = Eligible
           </ThemedText>
-        </Card>
+        </GlassCard>
 
-        <Card>
+        <GlassCard>
           <ThemedText variant="h3" style={{ marginBottom: 8 }}>
             Upcoming Reminders
           </ThemedText>
@@ -451,9 +454,9 @@ export default function DashboardScreen() {
               {events.isLoading ? "Loading…" : "No pending reminders."}
             </ThemedText>
           )}
-        </Card>
+        </GlassCard>
 
-        <Card>
+        <GlassCard>
           <ThemedText variant="h3" style={{ marginBottom: 8 }}>
             Expense Summary
           </ThemedText>
@@ -487,7 +490,7 @@ export default function DashboardScreen() {
               No expenses recorded yet.
             </ThemedText>
           )}
-        </Card>
+        </GlassCard>
       </ScrollView>
     </ScreenContainer>
   );
@@ -497,12 +500,11 @@ const styles = StyleSheet.create({
   kpiRow: { flexDirection: "row", gap: 8, marginBottom: 8 },
   kpi: { flex: 1, alignItems: "center" },
   grid: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginBottom: 12 },
+  // Background/border/radius deliberately omitted — GlassCard's own base
+  // style supplies those (the frosted fill, soft border, rounded corners);
+  // setting them here would paint over the glass effect and defeat it.
   tile: {
     minWidth: "47%",
-    backgroundColor: colors.card,
-    borderWidth: 1,
-    borderColor: colors.line,
-    borderRadius: 12,
     paddingVertical: 16,
     paddingHorizontal: 12,
   },

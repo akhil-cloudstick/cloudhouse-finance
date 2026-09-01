@@ -90,15 +90,57 @@ export type LoanRequest = {
   createdAt: string;
 };
 
+// backend/internal/loan/model_auction.go's AuctionRecord (66+) — only the
+// fields the customer-profile Auction History table renders; add more if a
+// future mobile Auctions screen needs them.
+export type AuctionRecord = {
+  id: number;
+  loanId: number;
+  stage: string;
+  auctionEligibleDate?: string | null;
+  auctionDate?: string | null;
+  auctionReferenceNumber?: string;
+  saleAmount?: number;
+  auctionExpenses?: number;
+  surplusShortfall?: number;
+  finalSettlementStatus?: string;
+  surplusPayableAmount?: number;
+  surplusDisposition?: string;
+};
+
+// The customer-scoped sub-table endpoints (GET /customers/:id/ornaments|
+// payments|bank-pledges|auction-history, backend/internal/loan/handler.go's
+// ListOrnamentsForCustomer etc.) return each base row plus a flattened
+// `loanNumber` — mirrors frontend/modules/customers/services/
+// customerService.ts's BackendCustomer*Row types exactly.
+export type CustomerOrnamentRow = Ornament & { loanNumber: string };
+export type CustomerPaymentRow = LoanPayment & { loanNumber: string };
+export type CustomerBankPledgeRow = BankPledgeRecord & { loanNumber: string };
+export type CustomerAuctionRow = AuctionRecord & { loanNumber: string };
+
 export type Loan = {
   id: number;
   loanNumber: string;
   branchId: number;
+  branch?: { id: number; name: string };
   customerId: number;
-  customer?: { id: number; name: string; phone: string };
+  // The backend actually embeds the full customer.Customer row here (see
+  // backend/internal/loan/model_loan.go's Customer field) — this was only
+  // ever declared with the 3 fields the list/detail screens used so far;
+  // extended with what the print flows below need (address, code, dob for
+  // the pledge agreement's age calc, pan for its KYC field — the full
+  // Aadhaar is fetched separately via getCustomerAadhaarFull, never
+  // carried on the loan payload itself).
+  customer?: { id: number; name: string; phone: string; code?: string; address?: string; dob?: string; pan?: string };
+  schemeId: number;
+  scheme?: { id: number; name: string; interestRate: number; ltvPercent: number };
   status: string;
   openedDate: string;
   dueDate: string;
+  // Free text captured at creation (mobile/app/(tabs)/new-loan.tsx) —
+  // anything the standard fields don't cover, carried through onto the
+  // printed Statement of Account.
+  additionalInfo?: string;
   principalAmount: number;
   outstandingAmount: number;
   outstandingProcessingFee?: number;

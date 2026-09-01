@@ -10,7 +10,7 @@ export function openPrintWindow(title: string, body: string, onBlocked: (msg: st
     return;
   }
   w.document.write(`<!DOCTYPE html><html><head><meta charset="UTF-8"><title>${title}</title><style>
-    body{font-family:Georgia,'Times New Roman',serif;color:#1a1a1a;margin:40px auto;max-width:760px;line-height:1.55;font-size:14px;padding:0 20px}
+    body{font-family:'Mona Sans','Segoe UI',ui-sans-serif,system-ui,-apple-system,Helvetica,Arial,sans-serif;color:#1a1a1a;margin:40px auto;max-width:760px;line-height:1.55;font-size:14px;padding:0 20px}
     h1{font-size:20px;text-align:center;margin:0 0 2px;letter-spacing:1px}
     h2{font-size:15px;text-align:center;margin:0 0 18px;font-weight:normal;color:#555}
     table{width:100%;border-collapse:collapse;margin:14px 0}

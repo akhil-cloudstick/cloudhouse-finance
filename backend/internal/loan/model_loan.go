@@ -213,6 +213,13 @@ type Loan struct {
 	OpenedDate time.Time `json:"openedDate" gorm:"not null"`
 	DueDate    time.Time `json:"dueDate" gorm:"not null"`
 
+	// AdditionalInfo is free text staff enter at loan creation for anything
+	// the standard fields don't capture — carried through onto the printed
+	// Statement of Account (see loan/indemnitybond.go's sibling, the
+	// Statement-of-Account block in the frontend/mobile print flows).
+	// Optional; empty by default.
+	AdditionalInfo string `json:"additionalInfo" gorm:"size:2000"`
+
 	// TotalNetWeight/TotalGoldValue/EligibleLoanAmount are computed from the
 	// loan's ornaments (see service.go's recalculate) and kept denormalized
 	// here so listing/filtering doesn't need to re-sum ornaments every time.

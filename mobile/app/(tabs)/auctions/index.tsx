@@ -1,18 +1,19 @@
-import React, { useState } from "react";
-import { FlatList, RefreshControl, Pressable, View } from "react-native";
-import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
+import React, { useEffect, useState } from "react";
+import { ScrollView, RefreshControl, View } from "react-native";
+import { useQuery } from "@tanstack/react-query";
 import { useRouter } from "expo-router";
 import { ScreenContainer } from "../../../src/components/ScreenContainer";
-import { Card } from "../../../src/components/Card";
 import { ThemedText } from "../../../src/components/ThemedText";
 import { ChipSelect } from "../../../src/components/ChipSelect";
-import { colors } from "../../../src/theme/colors";
-import { listLoans } from "../../../src/api/loans";
+import { Pager } from "../../../src/components/Pager";
+import { colors, statusColors, StatusTone } from "../../../src/theme/colors";
+import { listLoansPage } from "../../../src/api/loans";
 import { listConcludedAuctions } from "../../../src/api/auctions";
 import { Loan } from "../../../src/types/loan";
-import { AuctionRecord } from "../../../src/types/auction";
+import { AUCTION_OUTCOME_LABELS, ConcludedAuctionRow } from "../../../src/types/auction";
 import { fmt } from "../../../src/lib/format";
 import { useRefetchOnFocus } from "../../../src/hooks/useRefetchOnFocus";
+import { ExpandableTable, type TableColumn } from "../../../src/components/ExpandableTable";
 
 const PAGE_SIZE = 10;
 
@@ -29,7 +30,15 @@ const PAGE_SIZE = 10;
 // that's why this screen used to show no auctions at all. Instead we fetch
 // the loans once and bucket client-side by isDefaulted vs. the real
 // "Auction Eligible" status.
-const FILTERS = ["Auction Eligible", "Defaulted"] as const;
+// "Auctioned - Balance Due" surfaces loans whose sale left a shortfall
+// still frozen on a management decision (see [id].tsx's escalation banner)
+// — previously invisible on this screen entirely; staff could only reach
+// one by already knowing its loan number. A loan merely awaiting its
+// surplus to be settled (plain "Auctioned", sale fully covered the debt)
+// still isn't listed here — telling "surplus still open" apart from
+// "already settled" needs each loan's own auction record, which this list
+// doesn't fetch (see [id].tsx, which does and gets it right per-loan).
+const FILTERS = ["Auction Eligible", "Defaulted", "Auctioned - Balance Due"] as const;
 
 // Mirrors frontend/components/Auctions.tsx's Active Cases / Auction History
 // split — the mobile screen used to be Active-only. History reuses the same
@@ -51,20 +60,67 @@ export default function AuctionsScreen() {
   );
 }
 
+function LoanStatusPill({ status }: { status: string }) {
+  const s = status.toLowerCase();
+  const tone: StatusTone = s.includes("default") ? "red" : s.includes("balance due") ? "amber" : "blue";
+  const t = statusColors(tone);
+  return (
+    <ThemedText
+      variant="label"
+      numberOfLines={1}
+      style={{ backgroundColor: t.bg, color: t.fg, paddingHorizontal: 7, paddingVertical: 2, borderRadius: 6, alignSelf: "flex-start", fontSize: 11.5 }}
+    >
+      {status}
+    </ThemedText>
+  );
+}
+
+// 4 columns + 2 detail-only fields (Gold weight/Days overdue) = 6 total —
+// right at the defaultVisibleCount threshold (which trims only past 6), so
+// all 4 stay visible here.
+const ACTIVE_COLUMNS: TableColumn<Loan>[] = [
+  { key: "loanNumber", label: "Loan No", render: (l) => l.loanNumber, weight: 1.1 },
+  { key: "customer", label: "Customer", render: (l) => l.customer?.name ?? `#${l.customerId}`, weight: 1.3 },
+  { key: "status", label: "Status", render: (l) => <LoanStatusPill status={l.status} /> },
+  { key: "outstanding", label: "Outstanding", render: (l) => fmt(l.totalOutstandingBalance ?? l.outstandingAmount) },
+];
+function activeExtraFields(l: Loan) {
+  return [
+    { label: "Gold Weight", value: l.totalNetWeight != null ? `${l.totalNetWeight.toFixed(2)} g` : "—" },
+    { label: "Days Overdue", value: l.daysOverdue ? String(l.daysOverdue) : "—" },
+  ];
+}
+
 function ActiveCases() {
   const router = useRouter();
   const [filter, setFilter] = useState<(typeof FILTERS)[number]>("Auction Eligible");
+  const [page, setPage] = useState(1);
+  // "Auction Eligible"/"Auctioned - Balance Due" are real stored status
+  // values, so the backend can filter+paginate them directly. "Defaulted"
+  // has no such column (see the top-of-file comment) — for that one this
+  // still fetches a real, separate 10-row page per Next tap, just filtered
+  // client-side after it arrives, so a page can come back holding fewer
+  // than 10 matching rows even though a full page was actually fetched.
+  const isDefaultedFilter = filter === "Defaulted";
 
-  const { data, isLoading, isError, refetch, isRefetching } = useQuery({
-    queryKey: ["loans", "auctions"],
-    queryFn: () => listLoans(),
+  useEffect(() => {
+    setPage(1);
+  }, [filter]);
+
+  const { data, isLoading, isError, isFetching, refetch } = useQuery({
+    queryKey: ["loans", "auctions", filter, page],
+    queryFn: () =>
+      listLoansPage({
+        status: isDefaultedFilter ? undefined : filter,
+        limit: PAGE_SIZE,
+        offset: (page - 1) * PAGE_SIZE,
+      }),
   });
 
   useRefetchOnFocus(refetch);
 
-  const filtered = (data ?? []).filter((l) =>
-    filter === "Defaulted" ? !!l.isDefaulted : l.status === "Auction Eligible"
-  );
+  const allLoans = data?.items ?? [];
+  const filtered = isDefaultedFilter ? allLoans.filter((l) => !!l.isDefaulted) : allLoans;
 
   // Pushing straight to `/loans/[id]` from outside the Loans tab leaves that
   // tab's Stack with the detail screen as its ONLY entry — see the matching
@@ -80,126 +136,99 @@ function ActiveCases() {
       <View style={{ paddingHorizontal: 16 }}>
         <ChipSelect options={FILTERS} value={filter} onChange={setFilter} label="Filter" />
       </View>
-      <FlatList<Loan>
-        data={filtered}
-        keyExtractor={(item) => String(item.id)}
+      <ScrollView
+        showsVerticalScrollIndicator={false}
         contentContainerStyle={{ paddingHorizontal: 16 }}
-        refreshControl={<RefreshControl refreshing={isRefetching} onRefresh={refetch} />}
-        ListEmptyComponent={
-          <ThemedText color={colors.muted}>
-            {isLoading ? "Loading…" : isError ? "Could not load loans." : "No loans found for this filter."}
-          </ThemedText>
-        }
-        renderItem={({ item }) => (
-          <Pressable onPress={() => openLoan(item.id)}>
-            <Card>
-              <ThemedText variant="body">{item.loanNumber}</ThemedText>
-              <ThemedText variant="small" color={colors.muted}>
-                {item.customer?.name ?? `Customer #${item.customerId}`} · {item.status}
-              </ThemedText>
-              <View style={{ flexDirection: "row", gap: 12, marginTop: 6 }}>
-                <ThemedText variant="small" color={colors.muted}>
-                  Gold {item.totalNetWeight?.toFixed(2) ?? "—"} g
-                </ThemedText>
-                <ThemedText variant="small" color={colors.muted}>
-                  Outstanding ₹{fmt(item.totalOutstandingBalance ?? item.outstandingAmount)}
-                </ThemedText>
-                {item.daysOverdue ? (
-                  <ThemedText variant="small" color={colors.red}>
-                    {item.daysOverdue}d overdue
-                  </ThemedText>
-                ) : null}
-              </View>
-            </Card>
-          </Pressable>
-        )}
-      />
+        refreshControl={<RefreshControl refreshing={isFetching && !isLoading} onRefresh={refetch} />}
+      >
+        <ExpandableTable<Loan>
+          columns={ACTIVE_COLUMNS}
+          visibleCount={ACTIVE_COLUMNS.length}
+          data={filtered}
+          keyExtractor={(l) => String(l.id)}
+          extraFields={activeExtraFields}
+          onViewDescription={(l) => openLoan(l.id)}
+          emptyText={isLoading ? "Loading…" : isError ? "Could not load loans." : "No loans found for this filter."}
+        />
+        <Pager page={page} hasMore={!!data?.hasMore} onChange={setPage} loading={isFetching} />
+      </ScrollView>
     </>
   );
 }
 
+const HISTORY_COLUMNS: TableColumn<ConcludedAuctionRow>[] = [
+  { key: "loan", label: "Loan", render: (r) => r.loanNumber },
+  { key: "outcome", label: "Outcome", render: (r) => (r.stage === "Withdrawn" ? "Withdrawn" : AUCTION_OUTCOME_LABELS[r.finalSettlementStatus ?? "Pending"]), weight: 1.3 },
+  { key: "sale", label: "Sale", render: (r) => (r.saleAmount ? fmt(r.saleAmount) : "—") },
+  {
+    key: "surplus",
+    label: "Surplus/Short",
+    render: (r) =>
+      r.saleAmount ? (
+        <ThemedText variant="small" color={(r.surplusShortfall ?? 0) < 0 ? colors.red : colors.green}>
+          {fmt(r.surplusShortfall ?? 0)}
+        </ThemedText>
+      ) : (
+        "—"
+      ),
+  },
+];
+function historyExtraFields(r: ConcludedAuctionRow) {
+  return [
+    { label: "Customer", value: r.customerName },
+    { label: "Stage", value: r.stage },
+  ];
+}
+
 function AuctionHistory() {
+  const router = useRouter();
   const [table, setTable] = useState<(typeof HISTORY_TABLES)[number]>("Auctions Conducted");
   const hasSale = table === "Auctions Conducted";
+  const [page, setPage] = useState(1);
 
-  const {
-    data,
-    isLoading,
-    isError,
-    refetch,
-    isRefetching,
-    fetchNextPage,
-    hasNextPage,
-    isFetchingNextPage,
-  } = useInfiniteQuery({
-    queryKey: ["auctionHistory", hasSale],
-    queryFn: ({ pageParam = 0 }) => listConcludedAuctions({ hasSale, limit: PAGE_SIZE, offset: pageParam }),
-    initialPageParam: 0,
-    getNextPageParam: (lastPage, pages) => (lastPage.hasMore ? pages.length * PAGE_SIZE : undefined),
+  useEffect(() => {
+    setPage(1);
+  }, [hasSale]);
+
+  // Same rationale as ActiveCases' openLoan below — [id].tsx's route param
+  // is the loan's numeric id (it calls getLoan(Number(id))), not its
+  // human-readable loanNumber, so this pushes `item.loanId`, not
+  // `item.loanNumber` (which is only for display).
+  function openLoan(loanId: number) {
+    router.push("/loans");
+    router.push(`/loans/${loanId}`);
+  }
+
+  const { data, isLoading, isError, isFetching, refetch } = useQuery({
+    queryKey: ["auctionHistory", hasSale, page],
+    queryFn: () => listConcludedAuctions({ hasSale, limit: PAGE_SIZE, offset: (page - 1) * PAGE_SIZE }),
   });
 
   useRefetchOnFocus(refetch);
 
-  const records = data?.pages.flatMap((p) => p.items) ?? [];
+  const records = data?.items ?? [];
 
   return (
     <>
       <View style={{ paddingHorizontal: 16 }}>
         <ChipSelect options={HISTORY_TABLES} value={table} onChange={setTable} label="Table" />
       </View>
-      {/* Column headers — a lightweight stand-in for the web app's real
-          <table>; RN has no table primitive, so each row below repeats
-          these same four fields in the same order. */}
-      <View style={{ flexDirection: "row", paddingHorizontal: 16, marginBottom: 4 }}>
-        <ThemedText variant="label" color={colors.muted} style={{ flex: 1 }}>
-          LOAN
-        </ThemedText>
-        <ThemedText variant="label" color={colors.muted} style={{ flex: 1 }}>
-          STAGE
-        </ThemedText>
-        <ThemedText variant="label" color={colors.muted} style={{ flex: 1, textAlign: "right" }}>
-          SALE
-        </ThemedText>
-        <ThemedText variant="label" color={colors.muted} style={{ flex: 1, textAlign: "right" }}>
-          SURPLUS/SHORT
-        </ThemedText>
-      </View>
-      <FlatList<AuctionRecord>
-        data={records}
-        keyExtractor={(item) => String(item.id)}
+      <ScrollView
+        showsVerticalScrollIndicator={false}
         contentContainerStyle={{ paddingHorizontal: 16 }}
-        refreshControl={<RefreshControl refreshing={isRefetching} onRefresh={refetch} />}
-        onEndReached={() => {
-          if (hasNextPage && !isFetchingNextPage) fetchNextPage();
-        }}
-        onEndReachedThreshold={0.4}
-        ListEmptyComponent={
-          <ThemedText color={colors.muted}>
-            {isLoading ? "Loading…" : isError ? "Could not load auction history." : "No concluded auctions."}
-          </ThemedText>
-        }
-        ListFooterComponent={isFetchingNextPage ? <ThemedText color={colors.muted}>Loading more…</ThemedText> : null}
-        renderItem={({ item }) => (
-          <Card style={{ flexDirection: "row" }}>
-            <ThemedText variant="small" style={{ flex: 1 }}>
-              Loan #{item.loanId}
-            </ThemedText>
-            <ThemedText variant="small" color={colors.muted} style={{ flex: 1 }}>
-              {item.stage}
-            </ThemedText>
-            <ThemedText variant="small" style={{ flex: 1, textAlign: "right" }}>
-              {item.saleAmount ? `₹${fmt(item.saleAmount)}` : "—"}
-            </ThemedText>
-            <ThemedText
-              variant="small"
-              color={item.surplusShortfall && item.surplusShortfall < 0 ? colors.red : colors.muted}
-              style={{ flex: 1, textAlign: "right" }}
-            >
-              {item.surplusShortfall ? `₹${fmt(item.surplusShortfall)}` : "—"}
-            </ThemedText>
-          </Card>
-        )}
-      />
+        refreshControl={<RefreshControl refreshing={isFetching && !isLoading} onRefresh={refetch} />}
+      >
+        <ExpandableTable<ConcludedAuctionRow>
+          columns={HISTORY_COLUMNS}
+          visibleCount={HISTORY_COLUMNS.length}
+          data={records}
+          keyExtractor={(r) => String(r.id)}
+          extraFields={historyExtraFields}
+          onViewDescription={(r) => openLoan(r.loanId)}
+          emptyText={isLoading ? "Loading…" : isError ? "Could not load auction history." : "No concluded auctions."}
+        />
+        <Pager page={page} hasMore={!!data?.hasMore} onChange={setPage} loading={isFetching} />
+      </ScrollView>
     </>
   );
 }

@@ -20,7 +20,10 @@ func (r *Repository) Create(s *Scheme) error {
 // FindAll returns schemes, optionally scoped to a single branch — pass nil
 // for an Administrator's unfiltered "all branches" view, or a non-nil
 // pointer to confine results to that branch (see platform.GetBranchScope).
-func (r *Repository) FindAll(query string, branchID *uint) ([]Scheme, error) {
+// limit == 0 returns every matching scheme unpaged (the web Schemes page's
+// behaviour); limit > 0 applies Limit/Offset (the mobile app's paginated
+// list) — same convention as FindActive below.
+func (r *Repository) FindAll(query string, branchID *uint, limit, offset int) ([]Scheme, error) {
 	var schemes []Scheme
 	q := r.db.Preload("Branch").Order("id asc")
 	if query != "" {
@@ -28,6 +31,9 @@ func (r *Repository) FindAll(query string, branchID *uint) ([]Scheme, error) {
 	}
 	if branchID != nil {
 		q = q.Where("branch_id = ?", *branchID)
+	}
+	if limit > 0 {
+		q = q.Limit(limit).Offset(offset)
 	}
 	err := q.Find(&schemes).Error
 	return schemes, err

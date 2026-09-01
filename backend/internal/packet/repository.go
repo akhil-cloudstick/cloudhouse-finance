@@ -50,12 +50,17 @@ func (r *Repository) FindActiveByLoanID(loanID uint) (*Packet, error) {
 }
 
 // Filter narrows GET /packets by loanId/branchId (via the joined loan)/
-// status/lockerId.
+// status/lockerId/q.
 type Filter struct {
 	LoanID   uint
 	BranchID *uint
 	Status   string
 	LockerID uint
+	// Q searches the packet's own code, its loan's LoanNumber, and its
+	// loan's customer's name — the same fields the Packets screen's search
+	// box promises ("packet code, loan number, or customer name"). Case-
+	// insensitive substring match.
+	Q string
 
 	// Limit/Offset paginate the result set; Limit <= 0 means "no limit"
 	// (matches LoanFilter's convention).
@@ -74,8 +79,19 @@ func (r *Repository) FindAll(f Filter) ([]Packet, error) {
 	if f.LockerID != 0 {
 		q = q.Where("packets.current_locker_id = ?", f.LockerID)
 	}
+	// Q needs the same loans/customers join branch-scoping uses — joined
+	// unconditionally (not only when BranchID is set) since either filter
+	// may need it on its own.
+	if f.BranchID != nil || f.Q != "" {
+		q = q.Joins("JOIN loans ON loans.id = packets.loan_id").
+			Joins("JOIN customers ON customers.id = loans.customer_id")
+	}
 	if f.BranchID != nil {
-		q = q.Joins("JOIN loans ON loans.id = packets.loan_id").Where("loans.branch_id = ?", *f.BranchID)
+		q = q.Where("loans.branch_id = ?", *f.BranchID)
+	}
+	if f.Q != "" {
+		needle := "%" + f.Q + "%"
+		q = q.Where("packets.code ILIKE ? OR loans.loan_number ILIKE ? OR customers.name ILIKE ?", needle, needle, needle)
 	}
 	if f.Limit > 0 {
 		q = q.Limit(f.Limit)

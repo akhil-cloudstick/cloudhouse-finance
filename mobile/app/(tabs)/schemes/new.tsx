@@ -58,8 +58,20 @@ export default function NewSchemeScreen() {
   });
 
   return (
-    <ScreenContainer>
-      <ScrollView showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
+    <ScreenContainer style={{ padding: 0 }}>
+      <View style={{ flex: 1, paddingHorizontal: 16, paddingTop: 16 }}>      {/* style={{flex:1}} matters here specifically: without it this
+       * ScrollView sizes itself to its own (tall — 8 fields) content height
+       * instead of the space ScreenContainer's KeyboardAvoidingView actually
+       * has once the keyboard opens and shrinks that space, so it never
+       * establishes a bounded scrollable viewport — the keyboard just
+       * covers whatever's near the bottom (Conditions, Status, the Create
+       * button) with no way to scroll it into view. */}
+      <ScrollView
+        style={{ flex: 1 }}
+        contentContainerStyle={{ paddingBottom: 24 }}
+        showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
+      >
       <Card>
         <GoldTextInput label="Name" value={name} onChangeText={setName} placeholder="e.g. Swarna Premium" />
         <GoldTextInput
@@ -114,6 +126,6 @@ export default function NewSchemeScreen() {
         </View>
       </Card>
       </ScrollView>
-    </ScreenContainer>
-  );
+      </View>
+    </ScreenContainer>  );
 }

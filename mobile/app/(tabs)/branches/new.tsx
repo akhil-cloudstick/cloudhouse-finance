@@ -1,4 +1,5 @@
 import React, { useState } from "react";
+import { View } from "react-native";
 import { useRouter } from "expo-router";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { ScreenContainer } from "../../../src/components/ScreenContainer";
@@ -30,7 +31,8 @@ export default function NewBranchScreen() {
   });
 
   return (
-    <ScreenContainer>
+    <ScreenContainer style={{ padding: 0 }}>
+      <View style={{ flex: 1, paddingHorizontal: 16, paddingTop: 16 }}>
       <Card>
         <GoldTextInput label="Name" value={name} onChangeText={setName} />
         <GoldTextInput label="Code" value={code} onChangeText={setCode} />
@@ -48,6 +50,6 @@ export default function NewBranchScreen() {
           disabled={!name || !address}
         />
       </Card>
-    </ScreenContainer>
-  );
+      </View>
+    </ScreenContainer>  );
 }
