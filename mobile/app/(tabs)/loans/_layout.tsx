@@ -26,7 +26,7 @@ export default function LoansLayout() {
   const onDetail = pathname !== "/loans";
 
   return (
-    <View style={{ flex: 1, backgroundColor: "orange" }}>
+    <View style={{ flex: 1 }}>
       <FloatingHeader
         title={onDetail ? "Loan" : "Loans"}
         // FloatingHeader only reads goBack()/getState() off `navigation` (for
@@ -42,7 +42,7 @@ export default function LoansLayout() {
           // The scene's own background: without it the Stack paints white,
           // which showed through the transparent FloatingHeader as a pale
           // band across the top of every nested screen.
-          contentStyle: { backgroundColor: "orange" },
+          contentStyle: { backgroundColor: colors.ivory },
         }}
       >
         <Stack.Screen name="index" options={{ title: "Loans" }} />

@@ -48,7 +48,7 @@ function StatusBarBackdrop() {
         left: 0,
         right: 0,
         height: insets.top,
-        backgroundColor: "cyan",
+        backgroundColor: colors.ivory,
       }}
     />
   );
@@ -71,7 +71,7 @@ function RootNavigation() {
 
   if (isLoading) {
     return (
-      <View style={{ flex: 1, alignItems: "center", justifyContent: "center", backgroundColor: "magenta" }}>
+      <View style={{ flex: 1, alignItems: "center", justifyContent: "center", backgroundColor: colors.ivory }}>
         <StatusBar style="dark" />
         <ActivityIndicator color={colors.gold} />
       </View>
@@ -84,7 +84,7 @@ function RootNavigation() {
     // without it, that strip defaults to white against the app's ivory
     // theme. `style="dark"` picks dark status-bar icons/text to read
     // against that light background.
-    <View style={{ flex: 1, backgroundColor: "magenta" }}>
+    <View style={{ flex: 1, backgroundColor: colors.ivory }}>
       <StatusBar style="dark" />
       <Slot />
       {/* Bottom sheets render here — above every screen, laid out against

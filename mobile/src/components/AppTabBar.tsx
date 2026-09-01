@@ -119,13 +119,13 @@ export function AppTabBar({ state, navigation, insets }: BottomTabBarProps) {
 }
 
 const styles = StyleSheet.create({
-  wrap: { paddingHorizontal: 0, paddingTop: 0, backgroundColor: "red" },
+  wrap: { paddingHorizontal: 0, paddingTop: 0, backgroundColor: colors.card },
   // Flush full-width footer bar — no floating "island" card, no gap from
   // the background behind it (wrap and island share the same fill).
   island: {
     flexDirection: "row",
     alignItems: "stretch",
-    backgroundColor: "lightblue",
+    backgroundColor: colors.card,
     borderTopWidth: 1,
     borderTopColor: colors.line,
     paddingVertical: 4,

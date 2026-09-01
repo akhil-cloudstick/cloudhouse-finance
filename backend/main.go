@@ -128,11 +128,12 @@ func main() {
 	settingsHandler := settings.NewHandler(settingsSvc)
 
 	// whatsappSender delivers messages (OTPs, reminders, and anything else
-	// that wants WhatsApp delivery) via a self-hosted OpenWA instance,
-	// configured live through Settings > WhatsApp (settingsSvc, category
-	// "whatsapp") rather than an env var — see platform.OpenWASender. Until
-	// that setting is configured, Send returns a clear "not configured"
-	// error rather than silently doing nothing.
+	// that wants WhatsApp delivery) via the official WhatsApp Business Cloud
+	// API (Meta), configured live through Settings > WhatsApp (settingsSvc,
+	// category "whatsapp") rather than an env var — see
+	// platform.MetaCloudSender. Until that setting is configured, Send
+	// returns a clear "not configured" error rather than silently doing
+	// nothing.
 	whatsappLoader := func() (platform.WhatsAppConfig, error) {
 		view, err := settingsSvc.Get(settings.CategoryWhatsApp)
 		if err != nil {
@@ -143,7 +144,7 @@ func main() {
 		}
 		return platform.ParseWhatsAppConfig(view.Value)
 	}
-	whatsappSender := platform.NewOpenWASender(whatsappLoader)
+	whatsappSender := platform.NewMetaCloudSender(whatsappLoader)
 
 	setuClient := platform.NewSetuClient(cfg)
 	digilockerClient := platform.NewDigilockerClient(cfg)

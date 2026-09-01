@@ -51,7 +51,7 @@ type CommunicationLog struct {
 	RecipientName  string `json:"recipientName" gorm:"size:120"`
 	RecipientPhone string `json:"recipientPhone" gorm:"size:20;index"`
 	// ChatID is the normalized phone/identifier actually used by the
-	// transport (see platform.OpenWASender) — kept alongside
+	// transport (see platform.MetaCloudSender) — kept alongside
 	// RecipientPhone in case the two ever diverge (e.g. country-code
 	// normalization).
 	ChatID string `json:"chatId" gorm:"size:32"`
