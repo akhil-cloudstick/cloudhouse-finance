@@ -112,12 +112,12 @@ export function FloatingHeader({ title, navigation }: { title: string; navigatio
 const styles = StyleSheet.create({
   wrap: {
     paddingHorizontal: 12,
-    backgroundColor: "purple",
+    backgroundColor: "transparent",
   },
   island: {
     flexDirection: "row",
     alignItems: "center",
-    backgroundColor: "lime",
+    backgroundColor: colors.card,
     borderRadius: 20,
     borderWidth: 1,
     borderColor: colors.line,

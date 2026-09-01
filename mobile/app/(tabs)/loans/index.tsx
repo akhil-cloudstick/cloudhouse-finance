@@ -103,7 +103,7 @@ export default function LoansScreen() {
 
   return (
     <ScreenContainer style={{ padding: 0 }}>
-      <View style={{ flex: 1, paddingHorizontal: 16, paddingTop: 16, backgroundColor: "teal" }}>
+      <View style={{ flex: 1, paddingHorizontal: 16, paddingTop: 0 }}>
       {canCreateLoan ? (
         <View style={{ marginBottom: 12 }}>
           <GoldButton title="+ New Loan" onPress={() => router.push("/new-loan")} />
@@ -157,7 +157,7 @@ export default function LoansScreen() {
         // and got cut off on every side but the bottom. A few px of
         // contentContainerStyle padding gives the blur room without moving
         // or resizing the card itself.
-        contentContainerStyle={{ padding: 6, backgroundColor: "violet" }}
+        contentContainerStyle={{ padding: 6 }}
         refreshControl={<RefreshControl refreshing={isFetching && !isLoading} onRefresh={refetch} />}
       >
         <ExpandableTable<Loan>

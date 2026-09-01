@@ -39,7 +39,7 @@ export default function TabsLayout() {
           ),
           // Without this the scene falls back to the navigation theme's
           // background, which used to be grey behind the status-bar strip.
-          sceneStyle: { backgroundColor: "yellow" },
+          sceneStyle: { backgroundColor: "transparent" },
           // Leaving a tab resets its nested stack to that module's root, so
           // a tab never "remembers" a detail screen or a half-finished form
           // you'd already navigated away from. Without this, opening a loan
