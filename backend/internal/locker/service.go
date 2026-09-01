@@ -110,7 +110,14 @@ func (s *Service) Create(in CreateInput) (*View, error) {
 // List returns lockers, optionally scoped to branchID (nil = all branches —
 // Administrator only, see platform.GetBranchScope).
 func (s *Service) List(branchID *uint) ([]View, error) {
-	lockers, err := s.repo.FindAll(branchID)
+	return s.Find(LockerFilter{BranchID: branchID})
+}
+
+// Find is List's filtered/paginated superset — backs the packet Check-In
+// picker's search box (SearchableSelect), same q/limit/offset shape as
+// packet.Filter/loan.LoanFilter.
+func (s *Service) Find(f LockerFilter) ([]View, error) {
+	lockers, err := s.repo.Find(f)
 	if err != nil {
 		return nil, err
 	}

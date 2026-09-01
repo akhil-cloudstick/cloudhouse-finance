@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useModal } from "@/common/components/Modal";
 import { useToast } from "@/common/components/Toast";
 import { Icon } from "@/common/components/Icon";
@@ -26,10 +26,14 @@ import type { LoanView } from "@/modules/loans/services/loanService";
  * that recorded a date+sale-amount in one step and jumped straight to
  * "Auctioned" — the real workflow now has 4 separate staff actions. */
 
-// Notice method is no longer picked by staff — every notice goes out on all
-// three channels at once (SMS, WhatsApp, Registered Post), each logged as
-// its own entry in the notice history; see loan.Service.IssueAuctionNotice.
-const NOTICE_CHANNELS = ["SMS", "WhatsApp", "Registered Post"];
+// Notice method is no longer picked by staff — every notice goes out on
+// every channel in this list at once, each logged as its own entry in the
+// notice history; see loan.Service.IssueAuctionNotice. SMS and Registered
+// Post used to be listed here too, but neither ever had a real provider
+// wired up — they were only ever logged as if sent, misrepresenting to
+// staff that the notice went out three ways when only WhatsApp actually
+// delivered anything.
+const NOTICE_CHANNELS = ["WhatsApp"];
 
 export function IssueNoticeModalContent({ loan, onSaved }: { loan: LoanView; onSaved: (rec: AuctionRecordView) => void }) {
   const { closeModal } = useModal();
@@ -44,7 +48,7 @@ export function IssueNoticeModalContent({ loan, onSaved }: { loan: LoanView; onS
       const rec = await issueAuctionNotice(loan.numericId, remarks.trim() || undefined);
       onSaved(rec);
       closeModal();
-      toast(`Notice sent for ${loan.id} via SMS, WhatsApp & Registered Post`);
+      toast(`Notice sent for ${loan.id} via WhatsApp`);
     } catch (e) {
       setErr(e instanceof ApiError ? e.message : "Could not log the notice — try again.");
     } finally {
@@ -202,8 +206,16 @@ export function SettleAuctionModalContent({ loan, rec, onSaved }: { loan: LoanVi
   const [saving, setSaving] = useState(false);
 
   const surplus = rec.surplusPayableAmount;
+  // Guards a double-click/double-Enter that fires both calls before React
+  // has re-rendered the disabled button — `saving` state alone isn't
+  // enough since both calls can read it as still-false in the same tick.
+  // Without this, the first call could settle the case and the second
+  // then fails against the now-concluded case with a confusing "no active
+  // auction" error, even though the settle itself succeeded.
+  const submittingRef = useRef(false);
 
   async function save() {
+    if (submittingRef.current) return;
     if (!disposition) { setErr("Please choose what happens to the surplus."); return; }
     // Retaining a customer's money needs a stated reason — enforced server-side
     // too, so this is a courtesy check rather than the control.
@@ -211,6 +223,7 @@ export function SettleAuctionModalContent({ loan, rec, onSaved }: { loan: LoanVi
       setErr("Please state why the surplus is being retained.");
       return;
     }
+    submittingRef.current = true;
     setSaving(true);
     try {
       const updated = await settleAuction(loan.numericId, disposition, remarks.trim() || undefined);
@@ -221,6 +234,7 @@ export function SettleAuctionModalContent({ loan, rec, onSaved }: { loan: LoanVi
         : `Auction settled for ${loan.id} — surplus retained as income`);
     } catch (e) {
       setErr(e instanceof ApiError ? e.message : "Could not settle the auction — try again.");
+      submittingRef.current = false;
     } finally {
       setSaving(false);
     }

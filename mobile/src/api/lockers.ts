@@ -6,6 +6,13 @@ export function listLockers() {
   return apiRequest<Locker[]>("/lockers");
 }
 
+// Page-scoped variant: passing `limit` flips the backend (locker/
+// handler.go's List) into the {items, hasMore} envelope — used by the
+// paginated mobile Lockers list (10/page, one API call per page).
+export function listLockersPage(params: { limit: number; offset: number }) {
+  return apiRequest<{ items: Locker[]; hasMore: boolean }>("/lockers", { params });
+}
+
 export function getLocker(id: number) {
   return apiRequest<Locker>(`/lockers/${id}`);
 }

@@ -62,13 +62,34 @@ func (h *Handler) Create(c *gin.Context) {
 	httpx.Success(c, http.StatusCreated, rec)
 }
 
+// List mirrors ListActive's pagination convention: plain array when `limit`
+// is absent (unchanged for existing callers, e.g. the web Schemes page),
+// {items, hasMore} envelope when present (the mobile app's paginated list).
 func (h *Handler) List(c *gin.Context) {
-	rec, err := h.svc.List(c.Query("q"), platform.GetBranchScope(c))
+	limit, _ := strconv.Atoi(c.Query("limit"))
+	offset, _ := strconv.Atoi(c.Query("offset"))
+	branchID := platform.GetBranchScope(c)
+
+	if limit <= 0 {
+		rec, err := h.svc.List(c.Query("q"), branchID, 0, 0)
+		if err != nil {
+			httpx.FailErr(c, err)
+			return
+		}
+		httpx.Success(c, http.StatusOK, rec)
+		return
+	}
+
+	rec, err := h.svc.List(c.Query("q"), branchID, limit+1, offset)
 	if err != nil {
 		httpx.FailErr(c, err)
 		return
 	}
-	httpx.Success(c, http.StatusOK, rec)
+	hasMore := len(rec) > limit
+	if hasMore {
+		rec = rec[:limit]
+	}
+	httpx.Success(c, http.StatusOK, gin.H{"items": rec, "hasMore": hasMore})
 }
 
 // ListActive mirrors customer.Handler.List's pagination convention: plain

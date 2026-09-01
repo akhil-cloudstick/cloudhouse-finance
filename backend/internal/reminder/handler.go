@@ -149,8 +149,8 @@ func (h *Handler) Complete(c *gin.Context) {
 }
 
 // SendWhatsApp backs PUT /reminders/:id/send-whatsapp — texts the reminder's
-// note to its customer over WhatsApp (via the OpenWA instance configured
-// under Settings > WhatsApp) and marks the reminder Done.
+// note to its customer over WhatsApp (via the Meta Cloud API account
+// configured under Settings > WhatsApp) and marks the reminder Done.
 func (h *Handler) SendWhatsApp(c *gin.Context) {
 	id, err := httpx.IDParam(c, "id")
 	if err != nil {

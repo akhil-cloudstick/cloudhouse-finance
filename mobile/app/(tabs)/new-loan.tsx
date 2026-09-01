@@ -13,7 +13,8 @@ import { useAuth } from "../../src/auth/AuthContext";
 import { useDebouncedValue } from "../../src/hooks/useDebouncedValue";
 import { listCustomers } from "../../src/api/customers";
 import { listSchemes } from "../../src/api/schemes";
-import { createLoan, CreateOrnamentInput } from "../../src/api/loans";
+import { createLoan, addOrnamentImage, CreateOrnamentInput } from "../../src/api/loans";
+import { DocumentField } from "../../src/components/DocumentField";
 import { latestGoldRate } from "../../src/api/goldRates";
 import { listOrnamentTypes, createOrnamentType } from "../../src/api/ornamentTypes";
 import { formatPurity, isKaratInRange, isFinenessInRange, rateForPurityString, PurityUnit } from "../../src/lib/purity";
@@ -27,9 +28,13 @@ import { ApiError } from "../../src/api/client";
 // Karat/Fineness% toggle — combined into the canonical "22K"/"91.6%" string
 // (rowPurity() below) right before it's used, same as the web picker's
 // `value`.
-type OrnRow = { name: string; purityUnit: PurityUnit; purityValue: string; grossWeight: string; quantity: string };
+// img holds the uploaded "/uploads/..." URL for this ornament's photo (see
+// DocumentField), same shape as frontend/modules/loans/components/NewLoan.tsx's
+// OrnRow — uploaded immediately on pick, then linked to the ornament after
+// createLoan() returns (see submit's onSuccess below).
+type OrnRow = { name: string; purityUnit: PurityUnit; purityValue: string; grossWeight: string; quantity: string; img: string };
 
-const emptyRow: OrnRow = { name: "", purityUnit: "karat", purityValue: "", grossWeight: "", quantity: "1" };
+const emptyRow: OrnRow = { name: "", purityUnit: "karat", purityValue: "", grossWeight: "", quantity: "1", img: "" };
 
 // Search-or-create against the shared ornament_types catalog — mirrors the
 // SearchableSelect(allowCreate) frontend/components/NewLoan.tsx wires to the
@@ -108,7 +113,7 @@ function OrnamentNameField({ value, onChange }: { value: string; onChange: (v: s
 export default function NewLoanScreen() {
   const router = useRouter();
   const { employee, can } = useAuth();
-  const canCreateLoan = can("Loan_Management", "can_change_loan");
+  const canCreateLoan = can("Loan_Management", "can_create_loan");
   const queryClient = useQueryClient();
 
   const [customerQuery, setCustomerQuery] = useState("");
@@ -129,6 +134,9 @@ export default function NewLoanScreen() {
   const [schemeFocused, setSchemeFocused] = useState(false);
 
   const [principal, setPrincipal] = useState("");
+  // Free text staff may want to record on this loan that no standard field
+  // captures — carried through onto the printed Statement of Account.
+  const [additionalInfo, setAdditionalInfo] = useState("");
   const [rows, setRows] = useState<OrnRow[]>([{ ...emptyRow }]);
   const [error, setError] = useState<string | null>(null);
 
@@ -230,13 +238,31 @@ export default function NewLoanScreen() {
         dueDate: due.toISOString().slice(0, 10),
         principalAmount: Number(principal),
         ornaments,
+        ...(additionalInfo.trim() ? { additionalInfo: additionalInfo.trim() } : {}),
       });
     },
-    onSuccess: (loan) => {
+    onSuccess: async (loan) => {
+      // Link each photographed row to the ornament the backend just created
+      // for it. The backend returns ornaments in submission order (see
+      // frontend/modules/loans/components/NewLoan.tsx's matching comment on
+      // OrnamentRepository.FindByLoanID ordering by id asc) — safe to zip
+      // validRows against loan.ornaments by index. Best-effort: the loan
+      // itself is already created at this point, so an image-link failure
+      // here shouldn't block navigating to it (staff can retry from the loan
+      // detail screen if that grows an "add photo" affordance later).
+      const createdOrnaments = loan.ornaments ?? [];
+      await Promise.all(
+        validRows.map((r, i) => {
+          const created = createdOrnaments[i];
+          if (r.img && created) return addOrnamentImage(created.id, r.img).catch(() => undefined);
+          return Promise.resolve();
+        })
+      );
       queryClient.invalidateQueries({ queryKey: ["loans"] });
       setCustomer(null);
       setScheme(null);
       setPrincipal("");
+      setAdditionalInfo("");
       setRows([{ ...emptyRow }]);
       setError(null);
       router.push(`/loans/${loan.id}`);
@@ -249,18 +275,20 @@ export default function NewLoanScreen() {
   // this is a defensive second check for direct navigation to the route.
   if (!canCreateLoan) {
     return (
-      <ScreenContainer>
-        <Card>
+      <ScreenContainer style={{ padding: 0 }}>
+        <View style={{ flex: 1, paddingHorizontal: 16, paddingTop: 16 }}>
+      <Card>
           <ThemedText variant="body" color={colors.muted}>
             You don&apos;t have permission to create a loan. Contact a Loan Operator, Branch Manager, or Administrator.
           </ThemedText>
         </Card>
-      </ScreenContainer>
-    );
+        </View>
+      </ScreenContainer>    );
   }
 
   return (
-    <ScreenContainer>
+    <ScreenContainer style={{ padding: 0 }}>
+      <View style={{ flex: 1, paddingHorizontal: 16, paddingTop: 16 }}>
       <ScrollView
         showsVerticalScrollIndicator={false}
         refreshControl={<RefreshControl refreshing={goldRate.isRefetching} onRefresh={() => goldRate.refetch()} />}
@@ -274,7 +302,16 @@ export default function NewLoanScreen() {
           </Card>
         ) : null}
 
-        <Card>
+        {/* zIndex here (not just on the inner dropdown wrapper below) is
+         * what actually makes the dropdown float over the Scheme card —
+         * RN only respects zIndex among siblings sharing the same direct
+         * parent, and this Card and the Scheme Card below are both direct
+         * children of this ScrollView. Without it, the Scheme Card (a
+         * later sibling) painted over this dropdown instead of the other
+         * way around, since sibling paint order otherwise just follows
+         * document order — that's the "dropdown looks shredded by the
+         * next card" bug. */}
+        <Card style={{ zIndex: customerFocused ? 20 : 1 }}>
           <ThemedText variant="h3" style={{ marginBottom: 8 }}>
             Customer
           </ThemedText>
@@ -329,7 +366,7 @@ export default function NewLoanScreen() {
           )}
         </Card>
 
-        <Card>
+        <Card style={{ zIndex: schemeFocused ? 20 : 1 }}>
           <ThemedText variant="h3" style={{ marginBottom: 8 }}>
             Scheme
           </ThemedText>
@@ -413,6 +450,13 @@ export default function NewLoanScreen() {
                 onChangeText={(v) => updateRow(i, { grossWeight: v })}
               />
               <GoldTextInput label="Quantity" keyboardType="numeric" value={row.quantity} onChangeText={(v) => updateRow(i, { quantity: v })} />
+              <DocumentField
+                label="Ornament photo"
+                hint="Photograph the ornament being pledged"
+                value={row.img}
+                onChange={(url) => updateRow(i, { img: url })}
+                allowPdf={false}
+              />
               {row.name.trim() && row.purityValue.trim() && Number(row.grossWeight) > 0 ? (
                 <ThemedText variant="small" color={colors.muted} style={{ marginBottom: 8 }}>
                   {rowPurity(row) != null
@@ -445,6 +489,13 @@ export default function NewLoanScreen() {
             value={principal}
             onChangeText={setPrincipal}
           />
+          <GoldTextInput
+            label="Additional Information (optional)"
+            placeholder="Anything else worth recording on this loan…"
+            value={additionalInfo}
+            onChangeText={setAdditionalInfo}
+            multiline
+          />
           {!isTodaySet ? (
             <ThemedText variant="small" color={colors.red} style={{ marginBottom: 8 }}>
               Can&apos;t create a loan until today&apos;s gold rate is published.
@@ -463,8 +514,8 @@ export default function NewLoanScreen() {
           />
         </Card>
       </ScrollView>
-    </ScreenContainer>
-  );
+      </View>
+    </ScreenContainer>  );
 }
 
 const styles = StyleSheet.create({

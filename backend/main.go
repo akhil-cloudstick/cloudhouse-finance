@@ -28,6 +28,7 @@ import (
 	"ambikagold/backend/internal/personalloan"
 	"ambikagold/backend/internal/platform"
 	"ambikagold/backend/internal/puritystandard"
+	"ambikagold/backend/internal/qr"
 	"ambikagold/backend/internal/realtime"
 	"ambikagold/backend/internal/reminder"
 	"ambikagold/backend/internal/reports"
@@ -128,11 +129,12 @@ func main() {
 	settingsHandler := settings.NewHandler(settingsSvc)
 
 	// whatsappSender delivers messages (OTPs, reminders, and anything else
-	// that wants WhatsApp delivery) via a self-hosted OpenWA instance,
-	// configured live through Settings > WhatsApp (settingsSvc, category
-	// "whatsapp") rather than an env var — see platform.OpenWASender. Until
-	// that setting is configured, Send returns a clear "not configured"
-	// error rather than silently doing nothing.
+	// that wants WhatsApp delivery) via the official WhatsApp Business Cloud
+	// API (Meta), configured live through Settings > WhatsApp (settingsSvc,
+	// category "whatsapp") rather than an env var — see
+	// platform.MetaCloudSender. Until that setting is configured, Send
+	// returns a clear "not configured" error rather than silently doing
+	// nothing.
 	whatsappLoader := func() (platform.WhatsAppConfig, error) {
 		view, err := settingsSvc.Get(settings.CategoryWhatsApp)
 		if err != nil {
@@ -143,7 +145,7 @@ func main() {
 		}
 		return platform.ParseWhatsAppConfig(view.Value)
 	}
-	whatsappSender := platform.NewOpenWASender(whatsappLoader)
+	whatsappSender := platform.NewMetaCloudSender(whatsappLoader)
 
 	setuClient := platform.NewSetuClient(cfg)
 	digilockerClient := platform.NewDigilockerClient(cfg)
@@ -193,7 +195,7 @@ func main() {
 	notificationSvc := notification.NewService(notificationRepo, realtimeHub)
 	notificationHandler := notification.NewHandler(notificationSvc, realtimeHub)
 
-	loanSvc := loan.NewService(db, loanRepo, loanOrnamentRepo, loanApprovalRepo, loanPaymentRepo, loanPledgeRepo, loanRequestRepo, requestApprovalRepo, loanAuctionRepo, loanApprovalLimitRepo, branchRepo, customerRepo, schemeRepo, goldRateRepo, packetSvc, packetSvc, movementSvc, notificationSvc, whatsappSender, commlogRepo, esignClient, cfg.UploadsDir, razorpayClient)
+	loanSvc := loan.NewService(db, loanRepo, loanOrnamentRepo, loanApprovalRepo, loanPaymentRepo, loanPledgeRepo, loanRequestRepo, requestApprovalRepo, loanAuctionRepo, loanApprovalLimitRepo, branchRepo, customerRepo, schemeRepo, goldRateRepo, packetSvc, packetSvc, movementSvc, notificationSvc, whatsappSender, commlogRepo, esignClient, cfg.UploadsDir, razorpayClient, aadhaarCipher)
 	loanHandler := loan.NewHandler(loanSvc)
 
 	reminderRepo := reminder.NewRepository(db)
@@ -204,6 +206,7 @@ func main() {
 	dashboardHandler := dashboard.NewHandler(dashboardSvc)
 
 	uploadHandler := upload.NewHandler(cfg.UploadsDir)
+	qrHandler := qr.NewHandler()
 
 	ornamentTypeRepo := ornamenttype.NewRepository(db)
 	ornamentTypeSvc := ornamenttype.NewService(ornamentTypeRepo)
@@ -341,6 +344,9 @@ func main() {
 	personalloan.RegisterRoutes(protected.Group("/personal-loans"), personalLoanHandler, platform.CRUDPermissions(authzRepo, "personalloans"))
 	dashboard.RegisterRoutes(protected.Group("/dashboard"), dashboardHandler, platform.CRUDPermissions(authzRepo, "loans"))
 	upload.RegisterRoutes(protected.Group("/uploads"), uploadHandler, platform.CRUDPermissions(authzRepo, "uploads"))
+	// Stateless utility, not a CRUD resource — any authenticated staff
+	// member can request a QR PNG, no separate permission gate.
+	protected.GET("/qr", qrHandler.Generate)
 	ornamenttype.RegisterRoutes(protected.Group("/ornament-types"), ornamentTypeHandler, platform.CRUDPermissions(authzRepo, "ornamenttypes"))
 	bank.RegisterRoutes(protected.Group("/banks"), bankHandler, platform.CRUDPermissions(authzRepo, "banks"))
 	locker.RegisterRoutes(protected.Group("/lockers"), lockerHandler, platform.CRUDPermissions(authzRepo, "lockers"))

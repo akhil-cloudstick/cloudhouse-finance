@@ -5,6 +5,13 @@ export function listSchemes(q?: string) {
   return apiRequest<Scheme[]>("/schemes", { params: { q } });
 }
 
+// Page-scoped variant: passing `limit` flips the backend (scheme/handler.go's
+// List) into the {items, hasMore} envelope — used by the paginated mobile
+// Schemes list (10/page, one API call per page).
+export function listSchemesPage(params: { q?: string; limit: number; offset: number }) {
+  return apiRequest<{ items: Scheme[]; hasMore: boolean }>("/schemes", { params });
+}
+
 export function getScheme(id: number) {
   return apiRequest<Scheme>(`/schemes/${id}`);
 }

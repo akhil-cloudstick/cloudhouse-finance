@@ -1,17 +1,43 @@
 import React, { useState } from "react";
-import { FlatList, RefreshControl, View, StyleSheet } from "react-native";
+import { ScrollView, RefreshControl, View } from "react-native";
 import { useQuery, useQueryClient, useMutation } from "@tanstack/react-query";
 import { ScreenContainer } from "../../src/components/ScreenContainer";
 import { Card } from "../../src/components/Card";
 import { ThemedText } from "../../src/components/ThemedText";
 import { GoldTextInput } from "../../src/components/GoldTextInput";
 import { GoldButton } from "../../src/components/GoldButton";
+import { Pager } from "../../src/components/Pager";
 import { colors } from "../../src/theme/colors";
-import { listGoldRates, publishGoldRate } from "../../src/api/goldRates";
+import { listGoldRatesPage, publishGoldRate } from "../../src/api/goldRates";
 import { GoldRate } from "../../src/types/goldRate";
 import { ApiError } from "../../src/api/client";
 import { useAuth } from "../../src/auth/AuthContext";
 import { useRefetchOnFocus } from "../../src/hooks/useRefetchOnFocus";
+import { rateForPurityString } from "../../src/lib/purity";
+import { fmt } from "../../src/lib/format";
+import { ExpandableTable, type TableColumn } from "../../src/components/ExpandableTable";
+
+const PAGE_SIZE = 10;
+
+const RATE_COLUMNS: TableColumn<GoldRate>[] = [
+  { key: "date", label: "Date", render: (r) => new Date(r.date).toLocaleDateString("en-IN") },
+  { key: "k24", label: "24K Rate", render: (r) => fmt(r.k24) },
+  { key: "setBy", label: "Set By", render: (r) => r.setBy },
+];
+
+// Every other purity's rate is derived, not stored — showing what 22K/18K/
+// 91.6% actually price out to (same math NewLoan.tsx's ornament rows use)
+// is more useful in the expand strip than repeating the raw fields above.
+function rateExtraFields(r: GoldRate) {
+  const k22 = rateForPurityString(r.k24, "22K");
+  const k18 = rateForPurityString(r.k24, "18K");
+  const fineness = rateForPurityString(r.k24, "91.6%");
+  return [
+    { label: "22K", value: k22 != null ? fmt(k22) : "—" },
+    { label: "18K", value: k18 != null ? fmt(k18) : "—" },
+    { label: "91.6%", value: fineness != null ? fmt(fineness) : "—" },
+  ];
+}
 
 // Read-only list — the backend already returns rates newest-first (each
 // publish is append-only, see backend/internal/goldrate/model.go); no
@@ -25,13 +51,16 @@ export default function GoldRatesScreen() {
   const [formVisible, setFormVisible] = useState(false);
   const [k24, setK24] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [page, setPage] = useState(1);
 
-  const { data, isLoading, isError, refetch, isRefetching } = useQuery({
-    queryKey: ["gold-rates"],
-    queryFn: listGoldRates,
+  const { data, isLoading, isError, isFetching, refetch } = useQuery({
+    queryKey: ["gold-rates", page],
+    queryFn: () => listGoldRatesPage({ limit: PAGE_SIZE, offset: (page - 1) * PAGE_SIZE }),
   });
 
   useRefetchOnFocus(refetch);
+
+  const rates = data?.items ?? [];
 
   const publish = useMutation({
     mutationFn: () =>
@@ -40,6 +69,7 @@ export default function GoldRatesScreen() {
       setK24("");
       setError(null);
       setFormVisible(false);
+      setPage(1);
       queryClient.invalidateQueries({ queryKey: ["gold-rates"] });
       queryClient.invalidateQueries({ queryKey: ["gold-rates", "latest"] });
     },
@@ -81,28 +111,21 @@ export default function GoldRatesScreen() {
         </Card>
       ) : null}
 
-      <FlatList<GoldRate>
-        data={data ?? []}
-        keyExtractor={(item) => String(item.id)}
+      <ScrollView
+        showsVerticalScrollIndicator={false}
         contentContainerStyle={{ padding: 16 }}
-        refreshControl={<RefreshControl refreshing={isRefetching} onRefresh={refetch} />}
-        ListEmptyComponent={
-          <ThemedText color={colors.muted}>
-            {isLoading ? "Loading…" : isError ? "Could not load gold rates." : "No rates published yet."}
-          </ThemedText>
-        }
-        renderItem={({ item }) => (
-          <Card>
-            <ThemedText variant="h3" color={colors.goldDeep}>
-              ₹{item.k24.toLocaleString("en-IN")} / g (24K)
-            </ThemedText>
-            <ThemedText variant="small" color={colors.muted}>
-              {new Date(item.date).toDateString()} · set by {item.setBy}
-            </ThemedText>
-          </Card>
-        )}
-      />
-
+        refreshControl={<RefreshControl refreshing={isFetching && !isLoading} onRefresh={refetch} />}
+      >
+        <ExpandableTable<GoldRate>
+          columns={RATE_COLUMNS}
+          visibleCount={RATE_COLUMNS.length}
+          data={rates}
+          keyExtractor={(r) => String(r.id)}
+          extraFields={rateExtraFields}
+          emptyText={isLoading ? "Loading…" : isError ? "Could not load gold rates." : "No rates published yet."}
+        />
+        <Pager page={page} hasMore={!!data?.hasMore} onChange={setPage} loading={isFetching} />
+      </ScrollView>
     </ScreenContainer>
   );
 }

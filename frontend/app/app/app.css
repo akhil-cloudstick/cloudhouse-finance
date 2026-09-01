@@ -341,14 +341,17 @@ h1,h2,h3,.serif{font-family:'Bodoni Moda',serif;font-optical-sizing:auto}
 .tab-rail-dot.on{background:var(--gold-mid);border-color:var(--gold-mid);color:#fff}
 .cust-360 .tbl-wrap{overflow-x:hidden}
 .cust-360 .tbl{table-layout:fixed;width:100%}
-/* One height for every tab: a header row + the 9 rows a page holds
- * (CUSTOMER_SUBTABLE_PAGE_SIZE). Tabs with fewer rows leave the rest blank
- * instead of shrinking the card, so switching tabs doesn't resize it. */
-.cust-360 .tbl-wrap{height:445px;overflow-y:hidden}
+/* Each tab's table sizes to its own row count (no fixed height/blank filler
+ * rows) — a tab with 2 loans shows 2 rows, not 2 rows plus 7 blank ones. */
+.cust-360 .tbl-wrap.tbl-wrap-auto{height:auto;overflow-y:visible}
 .cust-360 .tbl th,.cust-360 .tbl td{overflow-wrap:anywhere}
 .card{
-  background:var(--card);border:1px solid var(--line);border-radius:8px;
-  box-shadow:0 1px 2px rgba(154,111,15,.06),0 14px 34px -22px rgba(120,86,20,.35);
+  background:rgba(255,253,247,.68);
+  backdrop-filter:blur(16px) saturate(170%);
+  -webkit-backdrop-filter:blur(16px) saturate(170%);
+  border:1px solid rgba(201,151,28,.25);
+  border-radius:12px;
+  box-shadow:0 8px 30px -10px rgba(120,86,20,.12),0 1.5px 3px rgba(0,0,0,.02),inset 0 1px 1px rgba(255,255,255,.88);
   position:relative;
   /* Flex column so `.ft` always settles at the card's bottom edge — even
    * when a CSS grid row stretches this card taller than its own content
@@ -358,6 +361,7 @@ h1,h2,h3,.serif{font-family:'Bodoni Moda',serif;font-optical-sizing:auto}
    * `.bd`, so content still grows the card naturally; this only fills
    * the slack a stretched grid row adds. */
   display:flex;flex-direction:column;
+  transition:all .2s ease;
 }
 .card.gtop::before{
   content:"";position:absolute;left:12px;right:12px;top:0;height:2px;
@@ -365,19 +369,29 @@ h1,h2,h3,.serif{font-family:'Bodoni Moda',serif;font-optical-sizing:auto}
 }
 .card .hd{
   display:flex;align-items:center;gap:10px;
-  padding:14px 18px 12px;border-bottom:1px solid #f0e7cd;
+  padding:14px 18px 12px;border-bottom:1px solid rgba(201,151,28,.15);
+  background:rgba(255,255,255,.25);border-radius:12px 12px 0 0;
 }
 .card .hd h3{font-size:19px;font-weight:600;letter-spacing:.03em;color:var(--charcoal)}
 .card .hd .sp{flex:1}
 .card .bd{padding:16px 18px;flex:1}
-.card .ft{padding:10px;border-top:1px solid #f0e7cd;font-size:12.5px;color:var(--muted)}
+.card .ft{
+  padding:10px 18px;border-top:1px solid rgba(201,151,28,.15);
+  font-size:12.5px;color:var(--muted);
+  background:rgba(255,255,255,.2);border-radius:0 0 12px 12px;
+}
 
 /* KPI tiles */
 .kpis{display:grid;grid-template-columns:repeat(auto-fill,213px);gap:12px}
 .kpi{
   width:213px;height:89px;box-sizing:border-box;
-  background:var(--card);border:1px solid var(--line);border-radius:8px;
+  background:rgba(255,253,247,.72);
+  backdrop-filter:blur(14px) saturate(160%);
+  -webkit-backdrop-filter:blur(14px) saturate(160%);
+  border:1px solid rgba(201,151,28,.25);border-radius:12px;
   padding:13px 15px;position:relative;overflow:hidden;
+  box-shadow:0 6px 20px -6px rgba(120,86,20,.1),inset 0 1px 1px rgba(255,255,255,.9);
+  transition:all .15s ease;
 }
 .kpi::after{
   content:"";position:absolute;left:0;top:10px;bottom:10px;width:3px;border-radius:2px;
@@ -395,6 +409,13 @@ h1,h2,h3,.serif{font-family:'Bodoni Moda',serif;font-optical-sizing:auto}
 .kpi .s.up{color:var(--green)}
 .kpi .s.dn{color:var(--red)}
 .kpi.warn::after{background:linear-gradient(180deg,#e2a34a,#a3372a)}
+/* Dashboard's KPI tiles link out to the page that explains them (Loans
+ * filtered to the matching status, Requests, Cash, etc.) — .kpi stays a
+ * plain div everywhere else (e.g. Cash.tsx's KPI row), so the hover/focus
+ * affordance is scoped to this modifier rather than the base class. */
+.kpi-link{display:block;text-decoration:none;color:inherit;cursor:pointer;transition:transform .12s ease,box-shadow .12s ease}
+.kpi-link:hover{transform:translateY(-2px);box-shadow:0 4px 14px rgba(0,0,0,.08);border-color:var(--gold-light)}
+.kpi-link:focus-visible{outline:2px solid var(--gold-deep);outline-offset:2px}
 .kpi.ok::after{background:linear-gradient(180deg,#9fc36a,#4d7c2a)}
 
 /* ── buttons / inputs ───────────────────── */
@@ -443,6 +464,9 @@ h1,h2,h3,.serif{font-family:'Bodoni Moda',serif;font-optical-sizing:auto}
  * just this one to match so the row is an even height. Scoped to
  * .orn-type-td so every other SearchableSelect keeps its normal size. */
 .orn-type-td .inp{padding:6px 8px;height:31px}
+.orn-table th,.orn-table td{padding:8px 6px}
+.orn-table th:first-child,.orn-table td:first-child{padding-left:12px}
+.orn-table th:last-child,.orn-table td:last-child{padding-right:12px}
 /* Native <select> chrome (the dropdown arrow) is drawn by the OS/browser
  * and never matched the gold/ivory theme — swap it for a themed chevron so
  * every select.inp app-wide looks consistent with the rest of the form. */
@@ -462,20 +486,32 @@ label.f{display:block;font-size:11px;letter-spacing:.14em;text-transform:upperca
 
 /* ── tables ─────────────────────────────── */
 /* still scrollable by wheel/drag, just without a visible scrollbar */
-.tbl-wrap{overflow-x:auto;scrollbar-width:none;-ms-overflow-style:none}
+/* ── tables ─────────────────────────────── */
+/* still scrollable by wheel/drag, just without a visible scrollbar */
+.tbl-wrap{
+  overflow-x:auto;scrollbar-width:none;-ms-overflow-style:none;
+  background:rgba(255,253,247,.4);
+  backdrop-filter:blur(12px) saturate(150%);
+  -webkit-backdrop-filter:blur(12px) saturate(150%);
+  border-radius:10px;
+}
 .tbl-wrap::-webkit-scrollbar{width:0;height:0;display:none}
 /* .page (see .main above) is now the single correctly-sized scroll
  * container on every page, so tbl-scroll no longer needs its own guessed
  * max-height — it only keeps the table header stuck in view while .page
  * scrolls past a long table. */
 .tbl-scroll .tbl th{position:sticky;top:0;z-index:1}
-table.tbl{width:100%;border-collapse:collapse;font-size:13.5px;min-width:640px}
+table.tbl{width:100%;border-collapse:separate;border-spacing:0;font-size:13.5px;min-width:640px}
 .tbl th{
   text-align:left;font-size:10.5px;letter-spacing:.16em;text-transform:uppercase;
-  color:var(--muted);font-weight:600;padding:10px 14px;
-  border-bottom:1px solid var(--line);background:#fbf6e9;white-space:nowrap;
+  color:var(--muted);font-weight:600;padding:11px 14px;
+  border-bottom:1px solid rgba(201,151,28,.2);
+  background:rgba(251,246,233,.85);
+  backdrop-filter:blur(10px);
+  -webkit-backdrop-filter:blur(10px);
+  white-space:nowrap;
 }
-.tbl td{padding:11px 14px;border-bottom:1px solid #f2ead2;vertical-align:middle}
+.tbl td{padding:11px 14px;border-bottom:1px solid rgba(232,220,186,.45);vertical-align:middle;background:rgba(255,255,255,.15)}
 .tbl tr:last-child td{border-bottom:0}
 /* Equal breathing room on both edges of every table — without this the
  * first and last columns inherit only the 14px cell padding and the two
@@ -487,8 +523,8 @@ table.tbl{width:100%;border-collapse:collapse;font-size:13.5px;min-width:640px}
  * summary tables (Employees). */
 .tbl.tbl-roomy td{padding-top:12px;padding-bottom:12px}
 .tbl.tbl-tight td{padding-top:10px;padding-bottom:10px}
-.tbl tbody tr{cursor:default;transition:background .12s}
-.tbl tbody tr:hover{background:#fdf8ea}
+.tbl tbody tr{cursor:default;transition:background .15s ease}
+.tbl tbody tr:hover{background:rgba(253,248,234,.7)}
 .tbl tr.click{cursor:pointer}
 .tbl .num{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
 /* Loans page only (.tbl.tbl-center) — center every column's content,
@@ -517,14 +553,36 @@ table.tbl{width:100%;border-collapse:collapse;font-size:13.5px;min-width:640px}
 .chip.gray{background:#efece2;color:#7b7359}
 
 /* tabs / filters */
-.tabs{display:flex;gap:6px;flex-wrap:wrap}
+.tabs{
+  display:flex;gap:8px;align-items:center;
+  overflow-x:auto;flex-wrap:nowrap;
+  -webkit-overflow-scrolling:touch;
+  scroll-behavior:smooth;
+  padding:4px 4px 10px 4px;
+  margin-bottom:14px;
+  scrollbar-width:none;-ms-overflow-style:none;
+}
+.tabs::-webkit-scrollbar{display:none}
 .tabs button{
-  font:inherit;font-size:12.5px;padding:6px 14px;cursor:pointer;
-  border:1px solid var(--line);background:#fff;border-radius:16px;color:var(--muted);
+  font:inherit;font-size:12.5px;padding:7px 16px;cursor:pointer;
+  border:1px solid rgba(201,151,28,.3);
+  background:rgba(255,253,247,.8);
+  backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);
+  border-radius:18px;color:var(--muted);
+  white-space:nowrap;flex-shrink:0;
+  box-shadow:0 2px 6px rgba(0,0,0,.03),inset 0 1px 0 rgba(255,255,255,.9);
   transition:all .15s;
 }
-.tabs button:hover{border-color:var(--gold)}
-.tabs button.on{background:linear-gradient(180deg,#f6e5ae,#eccd6f);border-color:var(--gold);color:#4d3a05;font-weight:600}
+.tabs button:hover{
+  border-color:var(--gold);color:var(--ink);
+  background:rgba(255,255,255,.95);transform:translateY(-1px);
+}
+.tabs button.on{
+  background:linear-gradient(180deg,#eccd6f 0%,#9a6f0f 100%);
+  color:#fff;border-color:var(--gold-deep);
+  box-shadow:0 4px 14px rgba(154,111,15,.35),inset 0 1px 0 rgba(255,255,255,.4);
+  font-weight:600;
+}
 
 /* search */
 .search{position:relative;min-width:230px}
@@ -671,6 +729,13 @@ table.tbl{width:100%;border-collapse:collapse;font-size:13.5px;min-width:640px}
   box-shadow:0 0 0 3px #fff,0 0 0 4px rgba(201,151,28,.4);flex-shrink:0;
 }
 .kv{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:12px 20px}
+/* CustomerDetail.tsx's merged "Customer Profile" card packs 4 former
+ * cards' worth of rows into one — tighter than the default .kv/h4 spacing
+ * elsewhere, which read as too airy once everything sits in one card.
+ * Scoped to this card only (via .cust-profile) so no other .kv usage is
+ * affected. */
+.cust-profile .kv{gap:8px 20px}
+.cust-profile-h4{margin:14px 0 8px;font-size:13px;letter-spacing:.04em}
 .kv .i .k{font-size:10.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--muted)}
 .kv .i .v{font-size:14px;color:var(--charcoal);margin-top:2px;font-weight:500}
 /* Loan Schemes cards only — a long Method value ("Monthly simple
@@ -735,6 +800,28 @@ table.tbl{width:100%;border-collapse:collapse;font-size:13.5px;min-width:640px}
   .kpis{grid-template-columns:1fr 1fr}
   .donut-wrap{flex-direction:column;align-items:flex-start}
   .page{padding:18px 14px 50px}
+  .tabs{
+    margin:0 -14px 14px -14px;
+    padding:6px 14px 10px 14px;
+  }
+  .card{
+    background:rgba(255,253,247,.75);
+    backdrop-filter:blur(18px) saturate(180%);
+    -webkit-backdrop-filter:blur(18px) saturate(180%);
+    box-shadow:0 10px 32px -8px rgba(120,86,20,.16),inset 0 1px 1px rgba(255,255,255,.95);
+  }
+  .kpi{
+    background:rgba(255,253,247,.78);
+    backdrop-filter:blur(16px) saturate(180%);
+    -webkit-backdrop-filter:blur(16px) saturate(180%);
+    box-shadow:0 8px 24px -6px rgba(120,86,20,.14),inset 0 1px 1px rgba(255,255,255,.95);
+  }
+  .tbl-wrap{
+    background:rgba(255,253,247,.6);
+    backdrop-filter:blur(16px) saturate(160%);
+    -webkit-backdrop-filter:blur(16px) saturate(160%);
+    border:1px solid rgba(201,151,28,.28);
+  }
 }
 
 /* ── custom radio/checkbox (new) ──────────────────────────────────
@@ -781,6 +868,17 @@ table.tbl{width:100%;border-collapse:collapse;font-size:13.5px;min-width:640px}
 }
 .ccheck input:checked + .mark{border-color:var(--gold-deep);background:var(--gold-deep)}
 .ccheck input:checked + .mark::after{content:"";width:9px;height:6px;border-left:2px solid #fff;border-bottom:2px solid #fff;transform:rotate(-45deg) translateY(-1px)}
+/* The mark aligns to the TOP of the label text (align-items:flex-start,
+ * above) so a wrapped multi-line label doesn't drag it down to the
+ * vertical middle of the whole block — but with no explicit line-height on
+ * the text, the browser's own default (which varies by font/zoom) could
+ * land shorter or taller than the mark's fixed 16px box, throwing the two
+ * out of alignment against just that FIRST line, which read as "off
+ * center" (e.g. AuctionModal.tsx's Settle-surplus radios). Pinning the
+ * text's own line-height to the mark's box height (plus the same 1px
+ * margin-top the mark already uses) guarantees their first lines share one
+ * center regardless of surrounding font-size overrides. */
+.cradio>span:last-child,.ccheck>span:last-child{display:inline-block;line-height:18px}
 .cradio input:disabled + .mark,.ccheck input:disabled + .mark{opacity:.5;cursor:not-allowed}
 .cradio input:disabled,.ccheck input:disabled{cursor:not-allowed}
 .cradio input:focus-visible + .mark,.ccheck input:focus-visible + .mark{outline:2px solid var(--gold-deep);outline-offset:2px}
@@ -800,7 +898,11 @@ table.tbl{width:100%;border-collapse:collapse;font-size:13.5px;min-width:640px}
   .kv{grid-template-columns:1fr 1fr}
   .dhead{gap:10px}
   .dhead .big-av{width:46px;height:46px;font-size:17px}
-  .tabs button{padding:5px 11px;font-size:11.5px}
+  .tabs{
+    margin:0 -10px 14px -10px;
+    padding:6px 10px 10px 10px;
+  }
+  .tabs button{padding:6px 13px;font-size:11.5px}
 }
 @media (max-height: 480px) and (orientation: landscape) {
   .side{width:210px}

@@ -2,6 +2,8 @@ package locker
 
 import (
 	"net/http"
+	"strconv"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 
@@ -47,7 +49,39 @@ func (h *Handler) Create(c *gin.Context) {
 }
 
 func (h *Handler) List(c *gin.Context) {
-	rec, err := h.svc.List(platform.GetBranchScope(c))
+	f := LockerFilter{BranchID: platform.GetBranchScope(c)}
+	if v := c.Query("branchId"); v != "" {
+		if n, err := strconv.ParseUint(v, 10, 64); err == nil {
+			b := uint(n)
+			f.FilterBranchID = &b
+		}
+	}
+	f.Q = strings.TrimSpace(c.Query("q"))
+	if v := c.Query("active"); v == "true" {
+		f.ActiveOnly = true
+	}
+
+	limit, _ := strconv.Atoi(c.Query("limit"))
+	if limit > 0 {
+		offset, _ := strconv.Atoi(c.Query("offset"))
+		if offset < 0 {
+			offset = 0
+		}
+		f.Limit, f.Offset = limit+1, offset
+		rec, err := h.svc.Find(f)
+		if err != nil {
+			httpx.FailErr(c, err)
+			return
+		}
+		hasMore := len(rec) > limit
+		if hasMore {
+			rec = rec[:limit]
+		}
+		httpx.Success(c, http.StatusOK, gin.H{"items": rec, "hasMore": hasMore})
+		return
+	}
+
+	rec, err := h.svc.Find(f)
 	if err != nil {
 		httpx.FailErr(c, err)
 		return

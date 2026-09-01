@@ -9,7 +9,6 @@ import { LockerModalContent } from "@/common/components/modals/LockerModal";
 import { listLockers, type LockerView } from "@/modules/lockers/services/lockerService";
 import { listPacketsPage, getPacketByCode, type PacketView } from "@/modules/packets/services/packetService";
 import { Select } from "@/common/components/ui/Select";
-import { ApiError } from "@/common/services/httpClient";
 import { useAuth } from "@/common/auth-context";
 
 /* Mirrors packet.Status* in backend/internal/packet/model.go. */
@@ -84,11 +83,22 @@ export function Packets() {
    * request may write. Same pattern as Cash.tsx's summarySeq. */
   const loadSeq = useRef(0);
 
+  // Debounced from the same search box `lookup` feeds — typing filters the
+  // table (packet code, loan number, OR customer name, see backend's
+  // packet.Filter.Q) the same way Loans.tsx's search box does, while Enter
+  // still jumps straight to a packet if `lookup` is its exact code (the
+  // barcode-scanner flow below).
+  const [q, setQ] = useState("");
+  useEffect(() => {
+    const handle = setTimeout(() => setQ(lookup.trim()), 300);
+    return () => clearTimeout(handle);
+  }, [lookup]);
+
   async function load() {
     const seq = ++loadSeq.current;
     try {
       const [p, l] = await Promise.all([
-        listPacketsPage(page, { status: status || undefined }),
+        listPacketsPage(page, { status: status || undefined, q: q || undefined }),
         listLockers(),
       ]);
       if (seq !== loadSeq.current) return;
@@ -102,7 +112,10 @@ export function Packets() {
     }
   }
 
-  useEffect(() => { load(); }, [page, status]);
+  useEffect(() => { load(); }, [page, status, q]);
+  // A new search term always starts back at page 1 — otherwise a filter
+  // typed while sitting on page 3 can land on an empty page.
+  useEffect(() => { setPage(1); }, [q]);
 
   async function onLookup(e: React.KeyboardEvent<HTMLInputElement>) {
     if (e.key !== "Enter") return;
@@ -112,8 +125,13 @@ export function Packets() {
     try {
       const p = await getPacketByCode(code);
       location.hash = `packet/${p.code}`;
-    } catch (e) {
-      setLookupErr(e instanceof ApiError ? e.message : `Packet "${code}" not found.`);
+    } catch {
+      // Not an exact packet code — that's fine, the live `q` filter above
+      // already narrowed the table to whatever matched; only complain when
+      // it found nothing there either.
+      if ((packets || []).length === 0) {
+        setLookupErr(`No packets match "${lookup.trim()}".`);
+      }
     }
   }
 
@@ -124,7 +142,7 @@ export function Packets() {
         <div className="sp" />
         <div className="search"><Icon name="search" /><input
           className="inp"
-          placeholder="Enter or scan packet code (press Enter)"
+          placeholder="Search packet code, loan number, or customer — or scan a code (Enter)"
           value={lookup}
           onChange={(e) => { setLookup(e.target.value); setLookupErr(""); }}
           onKeyDown={onLookup}
@@ -170,15 +188,19 @@ export function Packets() {
                 )}
                 {(packets || []).map((p) => {
                   const locker = lockers.find((l) => l.id === p.currentLockerId);
+                  // The loan's own outcome overrides the packet's own
+                  // (possibly stale) workflow stage once the gold has been
+                  // sold — same override PacketDetail.tsx applies.
+                  const displayStatus = p.loanStatus === "Auctioned" || p.loanStatus === "Auctioned - Balance Due" ? "Auctioned" : p.status;
                   return (
-                    <tr key={p.id}>
-                      <td><a href={`#packet/${p.code}`} className="id">{p.code}</a></td>
-                      <td><a href={`#loan/${p.loanNumber}`}>{p.loanNumber}</a></td>
+                    <tr key={p.id} className="click" onClick={() => { location.hash = `packet/${p.code}`; }}>
+                      <td><a href={`#packet/${p.code}`} className="id" onClick={(e) => e.stopPropagation()}>{p.code}</a></td>
+                      <td><a href={`#loan/${p.loanNumber}`} onClick={(e) => e.stopPropagation()}>{p.loanNumber}</a></td>
                       <td>{p.customerName}</td>
                       <td className="num">{p.itemCount}</td>
                       <td className="num">{fmtW(p.totalWeight)}</td>
                       <td>{locker ? locker.code : "—"}</td>
-                      <td><StatusChip status={p.status} /></td>
+                      <td><StatusChip status={displayStatus} /></td>
                     </tr>
                   );
                 })}

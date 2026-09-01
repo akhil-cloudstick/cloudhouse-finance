@@ -67,8 +67,8 @@ export default function NewCustomerScreen() {
   });
 
   return (
-    <ScreenContainer>
-      {/* Without this the keyboard covers the lower half of the form — the
+    <ScreenContainer style={{ padding: 0 }}>
+      <View style={{ flex: 1, paddingHorizontal: 16, paddingTop: 16 }}>      {/* Without this the keyboard covers the lower half of the form — the
           fields below it (Aadhaar, the whole nominee block, and the Register
           button) can't be reached or even seen while typing. `padding`
           behaves correctly on both platforms here because the app draws
@@ -174,6 +174,6 @@ export default function NewCustomerScreen() {
           </Card>
         </ScrollView>
       </KeyboardAvoidingView>
-    </ScreenContainer>
-  );
+      </View>
+    </ScreenContainer>  );
 }

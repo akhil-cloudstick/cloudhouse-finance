@@ -4,12 +4,12 @@ import { useEffect, useState } from "react";
 import { useToast } from "@/common/components/Toast";
 import { useModal } from "@/common/components/Modal";
 import { useAuth } from "@/common/auth-context";
-import { Select } from "@/common/components/ui/Select";
+import { SearchableSelect } from "@/common/components/ui/SearchableSelect";
 import { StatusChip } from "@/common/components/ui/StatusChip";
 import { Icon } from "@/common/components/Icon";
 import { fmt, fmtW } from "@/common/utils/format";
 import { ApiError } from "@/common/services/httpClient";
-import { listLockers, type LockerView } from "@/modules/lockers/services/lockerService";
+import { listLockers, searchLockersPage, type LockerView } from "@/modules/lockers/services/lockerService";
 import { getLoanByNumber, canAcceptBankPledge } from "@/modules/loans/services/loanService";
 import { RepledgeModalContent } from "@/common/components/modals/RepledgeModal";
 import {
@@ -138,16 +138,35 @@ export function PacketDetail({ code }: { code?: string }) {
   }
 
   const currentLocker = lockers.find((l) => l.id === p.currentLockerId);
+  // Once the loan is Auctioned/AuctionedBalanceDue/Closed, the gold has
+  // already left custody (sold or released) — no further packet movement
+  // is possible (the backend rejects it too, see packet.
+  // loanNoLongerMovableStatuses), and the packet's own workflow stage
+  // (e.g. still "Locker Stored" from before the sale) is no longer the
+  // meaningful status to show: the loan's own outcome overrides it.
+  const isAuctioned = p.loanStatus === "Auctioned" || p.loanStatus === "Auctioned - Balance Due";
+  const movementLocked = isAuctioned || p.loanStatus === "Closed";
+  const displayStatus = isAuctioned ? "Auctioned" : p.status;
 
   return (
     <>
       <div className="page-h">
         <div><h1>Packet {p.code}</h1><p>Loan {p.loanNumber} · {p.customerName}</p></div>
         <div className="sp" />
-        <StatusChip status={p.status} />
+        <StatusChip status={displayStatus} />
       </div>
       <hr className="gold-rule" />
-      <Stepper status={p.status} />
+      {/* "Auctioned" isn't one of PACKET_STAGES — the packet's workflow is
+        * moot once the gold has been sold, so the stepper (which would
+        * otherwise render every stage as not-yet-reached) is skipped in
+        * favor of a plain explanatory line. */}
+      {isAuctioned ? (
+        <p style={{ color: "var(--muted)", fontSize: 13.5, margin: "12px 0 20px" }}>
+          This loan&apos;s gold was sold at auction — the packet&apos;s locker workflow no longer applies.
+        </p>
+      ) : (
+        <Stepper status={displayStatus} />
+      )}
 
       <div className="grid cols21">
         <div className="grid">
@@ -219,24 +238,36 @@ export function PacketDetail({ code }: { code?: string }) {
 
             <hr className="gold-rule" style={{ margin: "16px 0" }} />
 
-            {canMovePackets && (p.status === PACKET_STATUS.GENERATED || p.status === PACKET_STATUS.RETURNED) && !pickLocker && (
+            {!movementLocked && canMovePackets && (p.status === PACKET_STATUS.GENERATED || p.status === PACKET_STATUS.RETURNED) && !pickLocker && (
               <button className="btn" disabled={busy} onClick={() => setPickLocker(true)}><Icon name="lock" /> Check In to Locker</button>
             )}
-            {pickLocker && (
+            {!movementLocked && pickLocker && (
               <div className="frow" style={{ marginBottom: 10 }}>
                 <div style={{ flex: 1 }}>
                   <label className="f">Select locker</label>
-                  <Select
-                    options={[
-                      { value: "", label: "Select locker…" },
-                      ...lockers.filter((l) => l.isActive && l.branchId === p.branchId).map((l) => ({
-                        value: String(l.id),
-                        label: `${l.code} (${l.occupied}/${l.capacity})${l.occupied >= l.capacity ? " — full" : ""}`,
-                        disabled: l.occupied >= l.capacity,
-                      })),
-                    ]}
-                    value={lockerId === "" ? "" : String(lockerId)}
-                    onChange={(v) => setLockerId(v ? Number(v) : "")}
+                  {/* Server-side paginated + searched (5 per page, loads more
+                    * as you scroll near the bottom) instead of a plain
+                    * <select> over every locker at once — see
+                    * lockerService.ts's searchLockersPage. Full lockers are
+                    * filtered out of each page rather than shown disabled.
+                    * Deliberately NOT scoped to the packet's own branch (the
+                    * old plain <select> was) — a branch with no locker of
+                    * its own would otherwise leave staff with nothing to
+                    * pick; showing every active locker lets them check gold
+                    * into whichever one is actually available. The branch
+                    * mismatch is visible in the label below. */}
+                  <SearchableSelect<LockerView>
+                    value=""
+                    placeholder="Search locker code…"
+                    fetchFn={(q, page) =>
+                      searchLockersPage(q, page, { activeOnly: true }).then((res) => ({
+                        items: res.items.filter((l) => l.occupied < l.capacity),
+                        hasMore: res.hasMore,
+                      }))
+                    }
+                    getId={(l) => String(l.id)}
+                    getLabel={(l) => `${l.code} (${l.occupied}/${l.capacity})${l.branchId !== p.branchId ? ` · ${l.branchName}` : ""}`}
+                    onChange={(id) => setLockerId(id ? Number(id) : "")}
                   />
                 </div>
                 <div style={{ display: "flex", gap: 8, alignItems: "flex-end" }}>
@@ -246,7 +277,7 @@ export function PacketDetail({ code }: { code?: string }) {
               </div>
             )}
 
-            {canMovePackets && p.status === PACKET_STATUS.LOCKER_STORED && (
+            {!movementLocked && canMovePackets && p.status === PACKET_STATUS.LOCKER_STORED && (
               <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
                 {canCreateBankPledge && (
                   <button className="btn ghost" disabled={busy} onClick={openBankPledge}><Icon name="bank" /> Repledge to Bank</button>
@@ -255,17 +286,17 @@ export function PacketDetail({ code }: { code?: string }) {
               </div>
             )}
 
-            {canMovePackets && p.status === PACKET_STATUS.READY_FOR_RELEASE && (
+            {!movementLocked && canMovePackets && p.status === PACKET_STATUS.READY_FOR_RELEASE && (
               <button className="btn" disabled={busy} onClick={() => doMove(PACKET_STATUS.RELEASED)}><Icon name="check" /> Mark Released</button>
             )}
 
-            {p.status === PACKET_STATUS.BANK_PLEDGED && (
+            {!isAuctioned && p.status === PACKET_STATUS.BANK_PLEDGED && (
               <p style={{ color: "var(--muted)", fontSize: 12.5 }}>
                 Gold is currently pledged with a bank — use the loan&apos;s Bank Pledge release action to bring it back (that automatically moves this packet to &quot;Returned&quot;).
               </p>
             )}
 
-            {p.status === PACKET_STATUS.RELEASED && (
+            {!isAuctioned && p.status === PACKET_STATUS.RELEASED && (
               <p style={{ color: "var(--muted)", fontSize: 12.5 }}>This packet has been released to the customer — no further actions.</p>
             )}
           </div>

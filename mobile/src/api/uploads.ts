@@ -1,4 +1,3 @@
-import * as FileSystem from "expo-file-system/legacy";
 import { API_BASE_URL } from "./config";
 import { getToken } from "../auth/tokenStorage";
 import { ApiError } from "./client";
@@ -19,44 +18,36 @@ export async function uploadFile(file: PickedFile): Promise<string> {
   const token = await getToken();
   if (token) headers.Authorization = `Bearer ${token}`;
 
-  // Copy the picked URI into the root of FileSystem.cacheDirectory before uploading.
-  // On Android/Expo Go, URIs in picker subdirectories (e.g. cache/DocumentPicker/...)
-  // can trigger `java.io.IOException: Location ... isn't readable` in
-  // ExponentFileSystem.uploadAsync if passed directly.
-  const sanitizedName = (file.name || "upload.tmp").replace(/[^a-zA-Z0-9_.-]/g, "_");
-  const tempTargetUri = `${FileSystem.cacheDirectory}upload_${Date.now()}_${sanitizedName}`;
+  // fetch()+FormData, not expo-file-system's uploadAsync: uploadAsync reads
+  // the file itself through the native ExponentFileSystem module, which on
+  // Android chokes on URIs it didn't create — a `file:///.../DocumentPicker/
+  // <uuid>.jpg` from expo-document-picker (used for the PDF-or-file source,
+  // see DocumentField.tsx's fromFiles) throws "java.io.IOException:
+  // Location ... isn't readable" even straight out of the picker, and a
+  // pre-copy into our own cache dir hit the exact same error, so that
+  // workaround is gone too. fetch's FormData instead hands the URI to RN's
+  // own networking bridge, which resolves file:// and content:// URIs (the
+  // camera/gallery pickers' own scheme) through Android's ContentResolver —
+  // the same path used for outgoing HTTP file uploads. Confirmed working
+  // for camera, gallery, and document-picker sources; expo-file-system is no
+  // longer imported here.
+  const form = new FormData();
+  // React Native's FormData accepts this shape (uri/name/type) even though
+  // it doesn't match the DOM Blob type FormData.append expects on paper.
+  form.append("file", { uri: file.uri, name: file.name || "upload.tmp", type: file.mimeType || "application/octet-stream" } as unknown as Blob);
 
-  let targetUri = file.uri;
-  let copied = false;
+  const res = await fetch(`${API_BASE_URL}/uploads`, {
+    method: "POST",
+    // No Content-Type here — fetch sets multipart/form-data with the right
+    // boundary itself from the FormData body; setting it manually drops the
+    // boundary and the backend can't parse the multipart request at all.
+    headers,
+    body: form,
+  });
 
-  try {
-    await FileSystem.copyAsync({ from: file.uri, to: tempTargetUri });
-    targetUri = tempTargetUri;
-    copied = true;
-  } catch (err) {
-    console.warn("copyAsync fallback to original uri:", err);
+  const data = await res.json().catch(() => undefined);
+  if (!res.ok || data?.success === false) {
+    throw new ApiError(res.status, (data && (data.error || data.message)) || `Upload failed (${res.status})`, data);
   }
-
-  try {
-    const result = await FileSystem.uploadAsync(`${API_BASE_URL}/uploads`, targetUri, {
-      httpMethod: "POST",
-      headers,
-      uploadType: FileSystem.FileSystemUploadType.MULTIPART,
-      fieldName: "file",
-      mimeType: file.mimeType || "application/octet-stream",
-    });
-
-    const data = result.body ? JSON.parse(result.body) : undefined;
-
-    if (result.status < 200 || result.status >= 300 || data?.success === false) {
-      throw new ApiError(result.status, (data && (data.error || data.message)) || `Upload failed (${result.status})`, data);
-    }
-    return (data as { success: boolean; data: { url: string } }).data.url;
-  } finally {
-    if (copied) {
-      try {
-        await FileSystem.deleteAsync(tempTargetUri, { idempotent: true });
-      } catch (_) {}
-    }
-  }
+  return (data as { success: boolean; data: { url: string } }).data.url;
 }

@@ -2,6 +2,7 @@ package bank
 
 import (
 	"net/http"
+	"strconv"
 
 	"github.com/gin-gonic/gin"
 
@@ -17,13 +18,34 @@ func NewHandler(svc *Service) *Handler {
 	return &Handler{svc: svc}
 }
 
+// List mirrors customer/loan/scheme's pagination convention: plain array
+// when `limit` is absent (unchanged for existing callers, e.g. the web
+// bank directory and NewLoan.tsx's SearchableSelect), {items, hasMore}
+// envelope when present (the mobile app's paginated list).
 func (h *Handler) List(c *gin.Context) {
-	rec, err := h.svc.List(c.Query("q"))
+	limit, _ := strconv.Atoi(c.Query("limit"))
+	offset, _ := strconv.Atoi(c.Query("offset"))
+
+	if limit <= 0 {
+		rec, err := h.svc.List(c.Query("q"), 0, 0)
+		if err != nil {
+			httpx.FailErr(c, err)
+			return
+		}
+		httpx.Success(c, http.StatusOK, rec)
+		return
+	}
+
+	rec, err := h.svc.List(c.Query("q"), limit+1, offset)
 	if err != nil {
 		httpx.FailErr(c, err)
 		return
 	}
-	httpx.Success(c, http.StatusOK, rec)
+	hasMore := len(rec) > limit
+	if hasMore {
+		rec = rec[:limit]
+	}
+	httpx.Success(c, http.StatusOK, gin.H{"items": rec, "hasMore": hasMore})
 }
 
 type bankRequest struct {

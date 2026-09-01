@@ -7,10 +7,11 @@ import { ScreenContainer } from "../../../src/components/ScreenContainer";
 import { Card } from "../../../src/components/Card";
 import { ThemedText } from "../../../src/components/ThemedText";
 import { GoldTextInput } from "../../../src/components/GoldTextInput";
+import { GoldDatePicker } from "../../../src/components/GoldDatePicker";
 import { GoldButton } from "../../../src/components/GoldButton";
 import { ChipSelect } from "../../../src/components/ChipSelect";
 import { colors } from "../../../src/theme/colors";
-import { useRole } from "../../../src/auth/AuthContext";
+import { useRole, useAuth } from "../../../src/auth/AuthContext";
 import {
   getLoan,
   approveLoan,
@@ -32,13 +33,33 @@ import {
   scheduleAuction,
   recordAuctionSale,
   settleAuction,
+  resolveAuctionDecision,
 } from "../../../src/api/auctions";
+import {
+  pendingDecision,
+  hasUndisposedSurplus,
+  AUCTION_OUTCOME_LABELS,
+  type AuctionDecisionStatus,
+  type AuctionSurplusDisposition,
+} from "../../../src/types/auction";
 import { ApiError } from "../../../src/api/client";
+import { statusColors } from "../../../src/theme/colors";
+import { printPledgeSlip, printStatement, printIndemnityBond, printPacketLabel } from "../../../src/utils/loanPrint";
+
+// Mirrors frontend/modules/loans/components/Auctions.tsx's role gating —
+// who may decide each kind of escalation.
+const PARTIAL_DECISION_ROLES = ["Administrator", "Management", "Branch Manager", "Auction Administrator"];
+const SHORTFALL_DECISION_ROLES = ["Administrator", "Management", "Branch Manager"];
 
 // Payment types accepted by backend/internal/loan/model.go's PaymentType*
 // constants — Auction Sale/Write-Off are system-generated only, never
 // staff-entered here (mirrors frontend/components/modals/PaymentModal.tsx).
 const PAYMENT_TYPES = ["Interest", "Principal", "Partial", "Full Settlement", "Adjustment", "Waiver"] as const;
+
+// Mirrors frontend/common/components/modals/PaymentModal.tsx's METHODS —
+// same fixed choices, kept as a dropdown/chip picker rather than free text
+// so a staff-entered method can't drift from what the web app records.
+const PAYMENT_METHODS = ["Cash", "UPI", "Bank Transfer", "Cheque"] as const;
 
 // v2: adds Payments, Extension/Release requests, Bank Pledge, and the
 // sanction-chain Approval workflow alongside the existing auction section —
@@ -51,6 +72,15 @@ export default function LoanDetailScreen() {
   const loanId = Number(id);
   const queryClient = useQueryClient();
   const myRole = useRole();
+  // Every auction action button below (mark eligible, issue notice,
+  // schedule, record sale, settle, and the shortfall/partial-payment
+  // decisions) was rendered with no permission check at all — any signed-in
+  // role saw them as active/clickable, unlike the sanction-chain approval
+  // buttons above (canActOnStage) or the web app's equivalent (`canAct` in
+  // frontend/modules/loans/components/Auctions.tsx:98). Gates the same way
+  // web does from here down.
+  const { can } = useAuth();
+  const canActOnAuction = can("Loan_Management", "can_update_loan");
 
   const loan = useQuery({ queryKey: ["loan", id], queryFn: () => getLoan(loanId), enabled: !!id });
   const auction = useQuery({
@@ -70,11 +100,22 @@ export default function LoanDetailScreen() {
 
   const [error, setError] = useState<string | null>(null);
 
+  // --- Print / documents state ----------------------------------------------
+  const [printingLabel, setPrintingLabel] = useState(false);
+  const [printingSlip, setPrintingSlip] = useState(false);
+  const [printingStatement, setPrintingStatement] = useState(false);
+  const [printingBond, setPrintingBond] = useState(false);
+
   // --- Auction form state (unchanged from v1) -------------------------------
   const [auctionDate, setAuctionDate] = useState("");
   const [referenceNumber, setReferenceNumber] = useState("");
   const [saleAmount, setSaleAmount] = useState("");
   const [auctionExpenses, setAuctionExpenses] = useState("");
+  // --- Surplus disposition (Settle) and escalation-decision form state -----
+  const [disposition, setDisposition] = useState<AuctionSurplusDisposition | "">("");
+  const [dispositionRemarks, setDispositionRemarks] = useState("");
+  const [decision, setDecision] = useState<Exclude<AuctionDecisionStatus, "Pending"> | "">("");
+  const [decisionRemarks, setDecisionRemarks] = useState("");
 
   // --- Payment form state ---------------------------------------------------
   const [paymentType, setPaymentType] = useState<(typeof PAYMENT_TYPES)[number]>("Partial");
@@ -82,7 +123,10 @@ export default function LoanDetailScreen() {
   // Defaults to today, same as the web PaymentModal, but editable so staff
   // can backdate a payment instead of it being silently forced to "today".
   const [paymentDate, setPaymentDate] = useState(new Date().toISOString().slice(0, 10));
-  const [paymentMethod, setPaymentMethod] = useState("");
+  // Defaults to the first option ("Cash"), matching the web modal's
+  // `useState(METHODS[0])` — a fixed-choice field reads oddly with nothing
+  // selected, and cash is the common case.
+  const [paymentMethod, setPaymentMethod] = useState<(typeof PAYMENT_METHODS)[number]>(PAYMENT_METHODS[0]);
   const [paymentReference, setPaymentReference] = useState("");
   const [paymentDescription, setPaymentDescription] = useState("");
 
@@ -124,8 +168,22 @@ export default function LoanDetailScreen() {
     onError,
   });
   const settle = useMutation({
-    mutationFn: (status: string) => settleAuction(loanId, status),
-    onSuccess: onOk,
+    mutationFn: () => settleAuction(loanId, disposition as AuctionSurplusDisposition, dispositionRemarks.trim() || undefined),
+    onSuccess: () => {
+      setDisposition("");
+      setDispositionRemarks("");
+      onOk();
+    },
+    onError,
+  });
+  const decideMutation = useMutation({
+    mutationFn: (requestId: number) =>
+      resolveAuctionDecision(loanId, requestId, decision as Exclude<AuctionDecisionStatus, "Pending">, decisionRemarks.trim() || undefined),
+    onSuccess: () => {
+      setDecision("");
+      setDecisionRemarks("");
+      onOk();
+    },
     onError,
   });
 
@@ -142,7 +200,7 @@ export default function LoanDetailScreen() {
     onSuccess: () => {
       setPaymentAmount("");
       setPaymentDate(new Date().toISOString().slice(0, 10));
-      setPaymentMethod("");
+      setPaymentMethod(PAYMENT_METHODS[0]);
       setPaymentReference("");
       setPaymentDescription("");
       onOk();
@@ -210,17 +268,19 @@ export default function LoanDetailScreen() {
 
   if (loan.isLoading) {
     return (
-      <ScreenContainer>
-        <ThemedText color={colors.muted}>Loading…</ThemedText>
-      </ScreenContainer>
-    );
+      <ScreenContainer style={{ padding: 0 }}>
+        <View style={{ flex: 1, paddingHorizontal: 16, paddingTop: 16 }}>
+      <ThemedText color={colors.muted}>Loading…</ThemedText>
+        </View>
+      </ScreenContainer>    );
   }
   if (loan.isError || !loan.data) {
     return (
-      <ScreenContainer>
-        <ThemedText color={colors.red}>Could not load this loan.</ThemedText>
-      </ScreenContainer>
-    );
+      <ScreenContainer style={{ padding: 0 }}>
+        <View style={{ flex: 1, paddingHorizontal: 16, paddingTop: 16 }}>
+      <ThemedText color={colors.red}>Could not load this loan.</ThemedText>
+        </View>
+      </ScreenContainer>    );
   }
 
   const l = loan.data;
@@ -236,7 +296,8 @@ export default function LoanDetailScreen() {
   const canActOnStage = !!requiredRole && (myRole === "Administrator" || myRole === requiredRole);
 
   return (
-    <ScreenContainer>
+    <ScreenContainer style={{ padding: 0 }}>
+      <View style={{ flex: 1, paddingHorizontal: 16, paddingTop: 16 }}>
       <ScrollView
         showsVerticalScrollIndicator={false}
         refreshControl={
@@ -279,6 +340,57 @@ export default function LoanDetailScreen() {
           <ThemedText variant="small" color={colors.muted} style={{ marginTop: 8 }}>
             Due {new Date(l.dueDate).toDateString()}
           </ThemedText>
+        </Card>
+
+        {/* --- Print / documents ------------------------------------------- */}
+        <Card>
+          <ThemedText variant="h3" style={{ marginBottom: 8 }}>
+            Print
+          </ThemedText>
+          <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
+            <GoldButton
+              title={printingLabel ? "Preparing…" : "Print Label"}
+              variant="outline"
+              onPress={() => {
+                setPrintingLabel(true);
+                printPacketLabel(l)
+                  .catch(() => setError("Could not print the packet label — try again."))
+                  .finally(() => setPrintingLabel(false));
+              }}
+              disabled={printingLabel}
+              style={{ height: 36, paddingHorizontal: 12 }}
+            />
+            <GoldButton
+              title={printingSlip ? "Preparing…" : "Print Slip"}
+              variant="outline"
+              onPress={() => {
+                setPrintingSlip(true);
+                printPledgeSlip(l).finally(() => setPrintingSlip(false));
+              }}
+              disabled={printingSlip}
+              style={{ height: 36, paddingHorizontal: 12 }}
+            />
+            <GoldButton
+              title={printingStatement ? "Preparing…" : "Print Statement"}
+              variant="outline"
+              onPress={() => {
+                setPrintingStatement(true);
+                printStatement(l).finally(() => setPrintingStatement(false));
+              }}
+              disabled={printingStatement}
+              style={{ height: 36, paddingHorizontal: 12 }}
+            />
+            <GoldButton
+              title={printingBond ? "Preparing…" : "Print Pledge Agreement"}
+              variant="outline"
+              onPress={() => {
+                setPrintingBond(true);
+                printIndemnityBond(l).finally(() => setPrintingBond(false));
+              }}
+              disabled={printingBond}
+              style={{ height: 36, paddingHorizontal: 12 }}
+            />
+          </View>
         </Card>
 
         {error ? (
@@ -339,8 +451,13 @@ export default function LoanDetailScreen() {
               value={paymentAmount}
               onChangeText={setPaymentAmount}
             />
-            <GoldTextInput label="Payment date (YYYY-MM-DD)" value={paymentDate} onChangeText={setPaymentDate} />
-            <GoldTextInput label="Method (e.g. Cash, UPI)" value={paymentMethod} onChangeText={setPaymentMethod} />
+            <GoldDatePicker
+              label="Payment date"
+              value={paymentDate}
+              onChange={setPaymentDate}
+              max={new Date().toISOString().slice(0, 10)}
+            />
+            <ChipSelect options={PAYMENT_METHODS} value={paymentMethod} onChange={setPaymentMethod} label="Method" />
             <GoldTextInput label="Reference" value={paymentReference} onChangeText={setPaymentReference} />
             <GoldTextInput label="Description" value={paymentDescription} onChangeText={setPaymentDescription} />
             <GoldButton
@@ -475,111 +592,231 @@ export default function LoanDetailScreen() {
           )}
         </Card>
 
-        {/* --- Auction (7-stage workflow, unchanged from v1) ----------------------- */}
-        <Card>
-          <ThemedText variant="h3" style={{ marginBottom: 8 }}>
-            Auction
-          </ThemedText>
+        {/* --- Auction (7-stage workflow) ------------------------------------------ */}
+        {(() => {
+          const rec = auction.data;
+          const decisionReq = pendingDecision(rec);
+          // While an escalation is open the pipeline is frozen server-side —
+          // hiding the advance buttons keeps this honest instead of
+          // offering actions that would just 409.
+          const frozen = !!decisionReq;
+          const canDecideThis =
+            canActOnAuction &&
+            !!myRole &&
+            (decisionReq?.kind === "Shortfall"
+              ? SHORTFALL_DECISION_ROLES.includes(myRole)
+              : PARTIAL_DECISION_ROLES.includes(myRole));
+          const balanceDue = l.status === "Auctioned - Balance Due";
+          // getAuction only ever returns the loan's ACTIVE case (see
+          // backend's loan.Service.getAuctionRecord) — once a case is
+          // Settled/Withdrawn it comes back null, same as a loan that
+          // never had one. l.status stays "Auctioned"/"Auctioned - Balance
+          // Due" forever once gold is sold, including after the case
+          // concludes, so treat a null `rec` alongside either of those
+          // statuses as "already went through the pipeline", not "never
+          // started" — mirrors the same fix in
+          // frontend/modules/loans/components/Auctions.tsx.
+          const alreadyAuctioned = l.status === "Auctioned" || l.status === "Auctioned - Balance Due";
 
-          {!auction.data ? (
-            // Active/Closed loans aren't overdue or defaulted, so the
-            // "Mark auction eligible" action doesn't apply to them — only
-            // offer it once the loan itself is in a state that could lead
-            // to auction (e.g. Overdue/Defaulted).
-            l.status !== "Active" && l.status !== "Closed" ? (
-              <GoldButton
-                title="Mark auction eligible"
-                onPress={() => eligible.mutate()}
-                loading={eligible.isPending}
-              />
-            ) : (
-              <ThemedText variant="small" color={colors.muted}>
-                Not eligible for auction.
+          return (
+            <Card>
+              <ThemedText variant="h3" style={{ marginBottom: 8 }}>
+                Auction
               </ThemedText>
-            )
-          ) : (
-            <>
-              <ThemedText variant="label" style={{ marginBottom: 8 }}>
-                Stage: {auction.data.stage}
-              </ThemedText>
 
-              {auction.data.stage === "AuctionEligible" ? (
-                <GoldButton title="Issue notice" onPress={() => notice.mutate()} loading={notice.isPending} />
-              ) : null}
-
-              {auction.data.stage === "NoticeIssued" ? (
-                <>
-                  <GoldTextInput
-                    label="Auction date (YYYY-MM-DD)"
-                    value={auctionDate}
-                    onChangeText={setAuctionDate}
-                  />
-                  <GoldTextInput
-                    label="Reference number"
-                    value={referenceNumber}
-                    onChangeText={setReferenceNumber}
-                  />
-                  <GoldButton
-                    title="Schedule auction"
-                    onPress={() => schedule.mutate()}
-                    loading={schedule.isPending}
-                    disabled={!auctionDate}
-                  />
-                </>
-              ) : null}
-
-              {auction.data.stage === "AuctionScheduled" ? (
-                <>
-                  <GoldTextInput
-                    label="Sale amount"
-                    keyboardType="numeric"
-                    value={saleAmount}
-                    onChangeText={setSaleAmount}
-                  />
-                  <GoldTextInput
-                    label="Auction expenses"
-                    keyboardType="numeric"
-                    value={auctionExpenses}
-                    onChangeText={setAuctionExpenses}
-                  />
-                  <GoldButton
-                    title="Record sale"
-                    onPress={() => sale.mutate()}
-                    loading={sale.isPending}
-                    disabled={!saleAmount}
-                  />
-                </>
-              ) : null}
-
-              {auction.data.stage === "Auctioned" ? (
-                <>
-                  <ThemedText variant="body" style={{ marginBottom: 8 }}>
-                    Sale ₹{auction.data.saleAmount?.toLocaleString("en-IN")} · Surplus/Shortfall{" "}
-                    ₹{auction.data.surplusShortfall?.toLocaleString("en-IN")}
+              {!rec ? (
+                alreadyAuctioned ? (
+                  <ThemedText variant="small" color={colors.muted}>
+                    This loan&apos;s gold was already sold at auction — see Auction History for the outcome.
                   </ThemedText>
-                  <GoldButton
-                    title="Settle to customer"
-                    onPress={() => settle.mutate("SettledToCustomer")}
-                    loading={settle.isPending}
-                  />
-                  <GoldButton
-                    title="Settle to loan company"
-                    variant="outline"
-                    onPress={() => settle.mutate("SettledToLoanCo")}
-                    loading={settle.isPending}
-                  />
-                </>
-              ) : null}
+                ) : l.status !== "Active" && l.status !== "Closed" ? (
+                  canActOnAuction ? (
+                    <GoldButton
+                      title="Mark auction eligible"
+                      onPress={() => eligible.mutate()}
+                      loading={eligible.isPending}
+                    />
+                  ) : (
+                    <ThemedText variant="small" color={colors.muted}>
+                      Eligible for auction — your role can&apos;t mark it, though.
+                    </ThemedText>
+                  )
+                ) : (
+                  <ThemedText variant="small" color={colors.muted}>
+                    Not eligible for auction.
+                  </ThemedText>
+                )
+              ) : (
+                <>
+                  <ThemedText variant="label" style={{ marginBottom: 8 }}>
+                    Stage: {rec.stage}
+                  </ThemedText>
 
-              {auction.data.stage === "Settled" ? (
-                <ThemedText variant="body" color={colors.green}>
-                  Settled — {auction.data.finalSettlementStatus}
-                </ThemedText>
-              ) : null}
-            </>
-          )}
-        </Card>
+                  {/* Frozen-pipeline escalation banner + decision — the
+                      same guarantee as the web app: a paying customer's
+                      gold is never sold while their payment is under
+                      review, and a shortfall never resumes/writes off
+                      itself without a human ruling. */}
+                  {decisionReq ? (
+                    <View
+                      style={{
+                        backgroundColor: statusColors("red").bg,
+                        borderColor: statusColors("red").fg,
+                        borderWidth: 1,
+                        borderRadius: 8,
+                        padding: 10,
+                        marginBottom: 12,
+                      }}
+                    >
+                      <ThemedText variant="small" color={statusColors("red").fg} style={{ marginBottom: 8 }}>
+                        {decisionReq.kind === "Shortfall"
+                          ? `Shortfall — awaiting authority. The sale realised ₹${fmt(decisionReq.amountPaid)} and left ₹${fmt(decisionReq.outstandingAtRequest)} owing.`
+                          : `Decision pending. ₹${fmt(decisionReq.amountPaid)} was paid, leaving ₹${fmt(decisionReq.outstandingAtRequest)} owing. No notice, schedule, or sale can proceed until this is resolved.`}
+                        {!canDecideThis ? " Your role can view this but not decide it." : ""}
+                      </ThemedText>
+                      {canDecideThis ? (
+                        <>
+                          <ChipSelect
+                            label="Decision"
+                            options={
+                              decisionReq.kind === "Shortfall"
+                                ? (["PursueBalance", "WriteOff"] as const)
+                                : (["RemovedFromAuction", "KeepInAuction"] as const)
+                            }
+                            value={decision || undefined}
+                            onChange={setDecision}
+                          />
+                          <GoldTextInput
+                            label={`Remarks${decisionReq.kind === "Shortfall" ? " *" : ""}`}
+                            value={decisionRemarks}
+                            onChangeText={setDecisionRemarks}
+                            placeholder="reason for this decision"
+                          />
+                          <GoldButton
+                            title="Record decision"
+                            onPress={() => decideMutation.mutate(decisionReq.id)}
+                            loading={decideMutation.isPending}
+                            disabled={!decision || (decisionReq.kind === "Shortfall" && !decisionRemarks.trim())}
+                          />
+                        </>
+                      ) : null}
+                    </View>
+                  ) : null}
+
+                  {balanceDue && !decisionReq ? (
+                    <ThemedText variant="small" color={colors.amber} style={{ marginBottom: 12 }}>
+                      Balance due after auction — this loan has returned to normal collection. Record payments
+                      against it as usual; the auction will close itself once the balance is cleared.
+                    </ThemedText>
+                  ) : null}
+
+                  {!frozen && canActOnAuction && rec.stage === "AuctionEligible" ? (
+                    <GoldButton title="Issue notice" onPress={() => notice.mutate()} loading={notice.isPending} />
+                  ) : null}
+
+                  {!frozen && canActOnAuction && rec.stage === "NoticeIssued" ? (
+                    <>
+                      <GoldTextInput
+                        label="Auction date (YYYY-MM-DD)"
+                        value={auctionDate}
+                        onChangeText={setAuctionDate}
+                      />
+                      <GoldTextInput
+                        label="Reference number"
+                        value={referenceNumber}
+                        onChangeText={setReferenceNumber}
+                      />
+                      <GoldButton
+                        title="Schedule auction"
+                        onPress={() => schedule.mutate()}
+                        loading={schedule.isPending}
+                        disabled={!auctionDate}
+                      />
+                    </>
+                  ) : null}
+
+                  {!frozen && canActOnAuction && rec.stage === "AuctionScheduled" ? (
+                    <>
+                      <GoldTextInput
+                        label="Sale amount"
+                        keyboardType="numeric"
+                        value={saleAmount}
+                        onChangeText={setSaleAmount}
+                      />
+                      <GoldTextInput
+                        label="Auction expenses"
+                        keyboardType="numeric"
+                        value={auctionExpenses}
+                        onChangeText={setAuctionExpenses}
+                      />
+                      <GoldButton
+                        title="Record sale"
+                        onPress={() => sale.mutate()}
+                        loading={sale.isPending}
+                        disabled={!saleAmount}
+                      />
+                    </>
+                  ) : null}
+
+                  {rec.stage === "Auctioned" ? (
+                    <>
+                      <ThemedText variant="body" style={{ marginBottom: 8 }}>
+                        Sale ₹{fmt(rec.saleAmount)} · {(rec.surplusShortfall ?? 0) >= 0 ? "Surplus" : "Shortfall"} ₹
+                        {fmt(Math.abs(rec.surplusShortfall ?? 0))}
+                      </ThemedText>
+                      {/* Settle is the surplus-DISPOSITION step, so it only
+                          applies once the sale actually left a surplus and
+                          the loan isn't balance-due — mirrors
+                          AuctionModal.tsx's SettleAuctionModalContent
+                          exactly (RefundedToCustomer books a real cash-out;
+                          RecordedAsIncome books none and needs a stated
+                          reason). */}
+                      {!frozen && canActOnAuction && !balanceDue && hasUndisposedSurplus(rec) ? (
+                        <>
+                          <ThemedText variant="small" color={colors.muted} style={{ marginBottom: 8 }}>
+                            ₹{fmt(rec.surplusPayableAmount)} surplus is payable back to{" "}
+                            {l.customer?.name ?? "the customer"} and has not been disposed of yet.
+                          </ThemedText>
+                          <ChipSelect
+                            label="Surplus disposition"
+                            options={["RefundedToCustomer", "RecordedAsIncome"] as const}
+                            value={disposition || undefined}
+                            onChange={setDisposition}
+                          />
+                          <GoldTextInput
+                            label={`Remarks${disposition === "RecordedAsIncome" ? " *" : ""}`}
+                            value={dispositionRemarks}
+                            onChangeText={setDispositionRemarks}
+                            placeholder="reason / reference"
+                          />
+                          <GoldButton
+                            title="Settle"
+                            onPress={() => settle.mutate()}
+                            loading={settle.isPending}
+                            disabled={!disposition || (disposition === "RecordedAsIncome" && !dispositionRemarks.trim())}
+                          />
+                        </>
+                      ) : !balanceDue && !frozen ? (
+                        <ThemedText variant="small" color={colors.muted}>
+                          The sale exactly covered the debt — nothing left to settle.
+                        </ThemedText>
+                      ) : null}
+                    </>
+                  ) : null}
+
+                  {rec.stage === "Settled" || rec.stage === "Withdrawn" ? (
+                    <ThemedText variant="body" color={rec.stage === "Settled" ? colors.green : colors.muted}>
+                      {rec.stage === "Settled"
+                        ? AUCTION_OUTCOME_LABELS[rec.finalSettlementStatus ?? "Pending"]
+                        : "Withdrawn — removed from auction"}
+                    </ThemedText>
+                  ) : null}
+                </>
+              )}
+            </Card>
+          );
+        })()}
       </ScrollView>
-    </ScreenContainer>
-  );
+      </View>
+    </ScreenContainer>  );
 }

@@ -1,5 +1,6 @@
 import { apiRequestEnveloped as apiRequest } from "./client";
 import { Customer } from "../types/customer";
+import { CustomerOrnamentRow, CustomerPaymentRow, CustomerBankPledgeRow, CustomerAuctionRow } from "../types/loan";
 
 // `q` (server-side search) mirrors backend/internal/customer/handler.go's
 // List — never fetch all customers and filter with .includes() on-device.
@@ -21,6 +22,40 @@ export function listCustomersPage(params: { q?: string; limit: number; offset: n
 
 export function getCustomer(id: number) {
   return apiRequest<Customer>(`/customers/${id}`);
+}
+
+// Full, decrypted Aadhaar number (GET /customers/:id/aadhaar-full) — the
+// one endpoint that ever returns more than AadhaarLast4. Used solely to
+// prefill the printable pledge agreement — see src/utils/loanPrint.ts.
+export function getCustomerAadhaarFull(id: number) {
+  return apiRequest<{ aadhaar: string }>(`/customers/${id}/aadhaar-full`);
+}
+
+// --- Customer-profile sub-tabs (backend/internal/loan/handler.go's
+// ListOrnamentsForCustomer/ListPaymentsForCustomer/ListBankPledgesForCustomer/
+// ListAuctionHistoryForCustomer) — mirrors frontend/modules/customers/
+// services/customerService.ts's listCustomer*Page functions, but in this
+// app's {items,hasMore}+limit/offset convention (useInfiniteQuery, see
+// loans/index.tsx) rather than the web's 1-based page-number pager. Loan
+// History itself isn't here — it's already covered by
+// src/api/loans.ts's listLoansPage({customerId}).
+function customerSubTable<T>(path: string, customerId: number, limit: number, offset: number) {
+  return apiRequest<{ items: T[]; hasMore: boolean }>(`/customers/${customerId}/${path}`, {
+    params: { limit, offset },
+  });
+}
+
+export function listCustomerOrnamentsPage(customerId: number, limit: number, offset: number) {
+  return customerSubTable<CustomerOrnamentRow>("ornaments", customerId, limit, offset);
+}
+export function listCustomerPaymentsPage(customerId: number, limit: number, offset: number) {
+  return customerSubTable<CustomerPaymentRow>("payments", customerId, limit, offset);
+}
+export function listCustomerBankPledgesPage(customerId: number, limit: number, offset: number) {
+  return customerSubTable<CustomerBankPledgeRow>("bank-pledges", customerId, limit, offset);
+}
+export function listCustomerAuctionHistoryPage(customerId: number, limit: number, offset: number) {
+  return customerSubTable<CustomerAuctionRow>("auction-history", customerId, limit, offset);
 }
 
 // Mirrors backend/internal/customer/handler.go's customerRequest body shape
