@@ -183,6 +183,12 @@ h1,h2,h3,.serif{font-family:'Bodoni Moda',serif;font-optical-sizing:auto}
 .gs-results::-webkit-scrollbar-track{background:transparent}
 .gs-results::-webkit-scrollbar-thumb{background:var(--gold-light);border-radius:6px}
 .gs-results::-webkit-scrollbar-thumb:hover{background:var(--gold)}
+/* SearchableSelect's fixed-height (~5 rows), scroll-for-more popover — the
+ * scrolling itself still works (wheel/trackpad/touch/keyboard), only its
+ * own visible bar is suppressed, so revealing the next rows doesn't need a
+ * bar drawn over content as narrow as PurityPicker's search half. */
+.gs-results.no-scrollbar{scrollbar-width:none}
+.gs-results.no-scrollbar::-webkit-scrollbar{display:none}
 
 /* ── themed file input (components/ui/FileInput.tsx) ───────────────────── */
 /* Fixed 230px rather than width:100% / shrink-to-fit: the trigger is a
@@ -467,6 +473,29 @@ h1,h2,h3,.serif{font-family:'Bodoni Moda',serif;font-optical-sizing:auto}
 .orn-table th,.orn-table td{padding:8px 6px}
 .orn-table th:first-child,.orn-table td:first-child{padding-left:12px}
 .orn-table th:last-child,.orn-table td:last-child{padding-right:12px}
+/* Ornament entry has two renderings of the same rows (NewLoan.tsx) — a
+ * table for wide viewports, and a stack of cards below 1350px. That's its
+ * own dedicated breakpoint (NOT the app's usual 900px one, e.g. .side/
+ * .burger/.frow) because this table doesn't get the viewport's full width
+ * the way a page-width table would: NewLoan's form column sits beside a
+ * fixed Valuation sidebar, so even in the roughly 1000-1350px viewport
+ * range — well above where anything else in the app switches to a mobile
+ * layout — this table's own column is already narrow enough for its fixed
+ * columns to crop their inputs. See the @media(max-width:1350px) block
+ * below (kept separate from the 900px one so this doesn't drag any other
+ * rule's threshold along with it). */
+.orn-cards-view{display:none}
+.orn-card{
+  display:flex;flex-direction:column;gap:10px;
+  border:1px solid var(--line);border-radius:10px;padding:12px;
+  background:rgba(255,255,255,.5);margin-bottom:10px;
+}
+.orn-card:last-child{margin-bottom:0}
+.orn-card-row{display:flex;gap:10px}
+@media(max-width:1350px){
+  .orn-table-view{display:none}
+  .orn-cards-view{display:block}
+}
 /* Native <select> chrome (the dropdown arrow) is drawn by the OS/browser
  * and never matched the gold/ivory theme — swap it for a themed chevron so
  * every select.inp app-wide looks consistent with the rest of the form. */
@@ -496,6 +525,27 @@ label.f{display:block;font-size:11px;letter-spacing:.14em;text-transform:upperca
   border-radius:10px;
 }
 .tbl-wrap::-webkit-scrollbar{width:0;height:0;display:none}
+/* Every .tbl-wrap table site-wide (Loans, Customers, Employees, Branches,
+ * Cash, Auctions, Bank Pledge, Loan Detail, Requests, Packets, Packet
+ * Detail, Gold Rates, Reports, Customer Detail) sits beside the app's fixed
+ * sidebar, so at tablet/laptop widths (iPad landscape, a MacBook's actual
+ * window width, which is rarely the full 1512-1728px screen) its content
+ * column is often narrower than table.tbl's own 640px min-width — the table
+ * scrolls (overflow-x:auto above), but with NO visible scrollbar (by
+ * design, for the normal desktop case where nothing overflows) there was no
+ * affordance telling anyone that content, not just a hard edge. This ONLY
+ * restores a thin themed scrollbar inside that width range — a full desktop
+ * viewport has no overflow to begin with, so nothing changes there; below
+ * the app's existing 900px "mobile" breakpoint the scrollbar again stays
+ * hidden, matching the touch-first, swipe-to-scroll pattern already used on
+ * phones instead of a diminutive scrollbar thumb. */
+@media(max-width:1600px) and (min-width:901px){
+  .tbl-wrap{scrollbar-width:thin;scrollbar-color:var(--gold-light) transparent}
+  .tbl-wrap::-webkit-scrollbar{width:auto;height:8px;display:block}
+  .tbl-wrap::-webkit-scrollbar-track{background:transparent}
+  .tbl-wrap::-webkit-scrollbar-thumb{background:var(--gold-light);border-radius:6px}
+  .tbl-wrap::-webkit-scrollbar-thumb:hover{background:var(--gold)}
+}
 /* .page (see .main above) is now the single correctly-sized scroll
  * container on every page, so tbl-scroll no longer needs its own guessed
  * max-height — it only keeps the table header stuck in view while .page
