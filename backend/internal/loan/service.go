@@ -1195,7 +1195,13 @@ func (s *Service) RecordPayment(loanID uint, in PaymentInput) (*Loan, error) {
 	if l.OutstandingAmount <= 0 && outstandingInterest <= 0.01 && outstandingPenal <= 0.01 &&
 		l.OutstandingProcessingFee <= 0.01 &&
 		(l.Status == StatusActive || l.Status == StatusDueSoon || l.Status == StatusOverdue) {
-		l.Status = StatusClosed
+		// Not StatusClosed: the balance clearing to zero here doesn't mean the
+		// gold has actually been handed back — it's the same "fully paid, gold
+		// still with us" state the manual release-request checklist path
+		// already models as ClosureRequested. CompleteRelease (below) is the
+		// one place that ever sets StatusClosed, once a staff member actually
+		// releases the packet.
+		l.Status = StatusClosureRequested
 	} else {
 		// Not fully settled, but this payment may have cleared the arrears —
 		// which takes an expired-term loan off Overdue and back to Active.
@@ -2770,19 +2776,29 @@ func (s *Service) ApproveExtensionRequest(requestID uint, branchID *uint, in Ext
 }
 
 // CompleteRelease is the actual "hand the gold back" step — separate from
-// approving the release request. It requires: an Approved Release request
-// for this loan; the settlement fully paid (TotalOutstandingBalance <= 0 —
-// every repayment recorded via RecordPayment has already reduced this
-// automatically); and the bank pledge already released, if there was one.
-// Only then does it move the loan's packet to Released and close the loan.
+// approving the release request. It requires: the settlement fully paid
+// (TotalOutstandingBalance <= 0 — every repayment recorded via RecordPayment
+// has already reduced this automatically); and the bank pledge already
+// released, if there was one. Only then does it move the loan's packet to
+// Released and close the loan.
+//
+// An Approved Release request is only required when the balance ISN'T
+// already fully cleared — that request (checklist + Manager/Management
+// sign-off) is how the early/manual release path authorizes handing gold
+// back before repayment is complete. Once RecordPayment has already brought
+// the balance to zero, the payment itself is the authorization; requiring a
+// separate formal request on top of that would gate the ordinary
+// pay-then-release flow behind a step nobody would otherwise need to take.
 func (s *Service) CompleteRelease(loanID uint, branchID *uint, employeeID uint) (*Loan, error) {
-	if _, err := s.requestRepo.FindApprovedReleaseByLoanID(loanID); err != nil {
-		return nil, ErrReleaseNotApproved
-	}
-
 	l, err := s.Get(loanID, branchID)
 	if err != nil {
 		return nil, err
+	}
+	paidInFull := l.TotalOutstandingBalance <= 0.01
+	if !paidInFull {
+		if _, err := s.requestRepo.FindApprovedReleaseByLoanID(loanID); err != nil {
+			return nil, ErrReleaseNotApproved
+		}
 	}
 	if l.TotalOutstandingBalance > 0.01 {
 		return nil, ErrOutstandingBalanceRemains

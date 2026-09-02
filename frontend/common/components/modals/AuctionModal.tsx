@@ -35,7 +35,7 @@ import type { LoanView } from "@/modules/loans/services/loanService";
 // delivered anything.
 const NOTICE_CHANNELS = ["WhatsApp"];
 
-export function IssueNoticeModalContent({ loan, onSaved }: { loan: LoanView; onSaved: (rec: AuctionRecordView) => void }) {
+export function IssueNoticeModalContent({ loan, onSaved, onError }: { loan: LoanView; onSaved: (rec: AuctionRecordView) => void; onError?: () => void }) {
   const { closeModal } = useModal();
   const toast = useToast();
   const [remarks, setRemarks] = useState("");
@@ -51,6 +51,15 @@ export function IssueNoticeModalContent({ loan, onSaved }: { loan: LoanView; onS
       toast(`Notice sent for ${loan.id} via WhatsApp`);
     } catch (e) {
       setErr(e instanceof ApiError ? e.message : "Could not log the notice — try again.");
+      // The card behind this modal loaded its auction stage on mount — if
+      // this failed because that stage has since moved on (another staff
+      // member acted, or the record was withdrawn/concluded in the
+      // meantime), the card's own state is now stale and would otherwise
+      // keep offering this exact same action, which would keep failing the
+      // same way. Re-syncing it with the real backend state here corrects
+      // the button shown (and the stage tracker) without the user needing
+      // to reload the page to discover why the action won't go through.
+      onError?.();
     } finally {
       setSaving(false);
     }
@@ -73,7 +82,7 @@ export function IssueNoticeModalContent({ loan, onSaved }: { loan: LoanView; onS
   );
 }
 
-export function ScheduleAuctionModalContent({ loan, onSaved }: { loan: LoanView; onSaved: (rec: AuctionRecordView) => void }) {
+export function ScheduleAuctionModalContent({ loan, onSaved, onError }: { loan: LoanView; onSaved: (rec: AuctionRecordView) => void; onError?: () => void }) {
   const { closeModal } = useModal();
   const toast = useToast();
   const today = new Date().toISOString().slice(0, 10);
@@ -92,6 +101,7 @@ export function ScheduleAuctionModalContent({ loan, onSaved }: { loan: LoanView;
       toast(`Auction scheduled for ${loan.id}`);
     } catch (e) {
       setErr(e instanceof ApiError ? e.message : "Could not schedule the auction — try again.");
+      onError?.(); // see IssueNoticeModalContent's onError comment above
     } finally {
       setSaving(false);
     }
@@ -115,7 +125,7 @@ export function ScheduleAuctionModalContent({ loan, onSaved }: { loan: LoanView;
   );
 }
 
-export function RecordSaleModalContent({ loan, onSaved }: { loan: LoanView; onSaved: (rec: AuctionRecordView) => void }) {
+export function RecordSaleModalContent({ loan, onSaved, onError }: { loan: LoanView; onSaved: (rec: AuctionRecordView) => void; onError?: () => void }) {
   const { closeModal } = useModal();
   const toast = useToast();
   const [amount, setAmount] = useState("");
@@ -137,6 +147,7 @@ export function RecordSaleModalContent({ loan, onSaved }: { loan: LoanView; onSa
       toast(`Auction sale recorded for ${loan.id}`);
     } catch (e) {
       setErr(e instanceof ApiError ? e.message : "Could not record the sale — try again.");
+      onError?.(); // see IssueNoticeModalContent's onError comment above
     } finally {
       setSaving(false);
     }
@@ -197,7 +208,7 @@ export function RecordSaleModalContent({ loan, onSaved }: { loan: LoanView; onSa
  * explicit decision with no pre-selected default: previously the dropdown
  * defaulted based on the sign of the surplus, which meant the common path was to
  * accept whatever was already highlighted without really choosing. */
-export function SettleAuctionModalContent({ loan, rec, onSaved }: { loan: LoanView; rec: AuctionRecordView; onSaved: (rec: AuctionRecordView) => void }) {
+export function SettleAuctionModalContent({ loan, rec, onSaved, onError }: { loan: LoanView; rec: AuctionRecordView; onSaved: (rec: AuctionRecordView) => void; onError?: () => void }) {
   const { closeModal } = useModal();
   const toast = useToast();
   const [disposition, setDisposition] = useState<AuctionSurplusDisposition | "">("");
@@ -234,6 +245,7 @@ export function SettleAuctionModalContent({ loan, rec, onSaved }: { loan: LoanVi
         : `Auction settled for ${loan.id} — surplus retained as income`);
     } catch (e) {
       setErr(e instanceof ApiError ? e.message : "Could not settle the auction — try again.");
+      onError?.(); // see IssueNoticeModalContent's onError comment above
       submittingRef.current = false;
     } finally {
       setSaving(false);
@@ -296,10 +308,12 @@ export function AuctionDecisionModalContent({
   loan,
   request,
   onSaved,
+  onError,
 }: {
   loan: LoanView;
   request: AuctionDecisionRequestView;
   onSaved: (rec: AuctionRecordView) => void;
+  onError?: () => void;
 }) {
   const { closeModal } = useModal();
   const toast = useToast();
@@ -320,6 +334,7 @@ export function AuctionDecisionModalContent({
       toast(DECISION_TOASTS[decision](loan.id));
     } catch (e) {
       setErr(e instanceof ApiError ? e.message : "Could not record the decision — try again.");
+      onError?.(); // see IssueNoticeModalContent's onError comment above
     } finally {
       setSaving(false);
     }

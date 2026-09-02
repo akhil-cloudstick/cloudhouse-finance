@@ -235,7 +235,7 @@ function AuctionCard({ l, onLoanChanged }: { l: LoanView; onLoanChanged: () => v
         {decision && canDecide && (
           <button
             className="btn sm"
-            onClick={() => openModal(<AuctionDecisionModalContent loan={l} request={decision} onSaved={onSaved} />)}
+            onClick={() => openModal(<AuctionDecisionModalContent loan={l} request={decision} onSaved={onSaved} onError={load} />)}
           >
             <Icon name="shield" /> {decision.kind === "Shortfall" ? "Decide Shortfall" : "Decide (Keep / Remove)"}
           </button>
@@ -244,18 +244,18 @@ function AuctionCard({ l, onLoanChanged }: { l: LoanView; onLoanChanged: () => v
         {!frozen && canAct && (rec === undefined ? null : !rec ? (
           <button className="btn sm" disabled={starting} onClick={doMarkEligible}><Icon name="gavel" /> {starting ? "Starting…" : "Mark Auction Eligible"}</button>
         ) : rec.stage === "AuctionEligible" || rec.stage === "NoticeIssued" ? (
-          <button className="btn sm" onClick={() => openModal(<IssueNoticeModalContent loan={l} onSaved={onSaved} />)}><Icon name="doc" /> Issue Notice</button>
+          <button className="btn sm" onClick={() => openModal(<IssueNoticeModalContent loan={l} onSaved={onSaved} onError={load} />)}><Icon name="doc" /> Issue Notice</button>
         ) : null)}
         {!frozen && canAct && rec && rec.stage === "NoticeIssued" && (
-          <button className="btn sm" onClick={() => openModal(<ScheduleAuctionModalContent loan={l} onSaved={onSaved} />)}><Icon name="clock" /> Schedule Auction</button>
+          <button className="btn sm" onClick={() => openModal(<ScheduleAuctionModalContent loan={l} onSaved={onSaved} onError={load} />)}><Icon name="clock" /> Schedule Auction</button>
         )}
         {!frozen && canAct && rec && rec.stage === "AuctionScheduled" && (
-          <button className="btn sm" onClick={() => openModal(<RecordSaleModalContent loan={l} onSaved={onSaved} />)}><Icon name="gavel" /> Record Sale</button>
+          <button className="btn sm" onClick={() => openModal(<RecordSaleModalContent loan={l} onSaved={onSaved} onError={load} />)}><Icon name="gavel" /> Record Sale</button>
         )}
         {/* Settle is the surplus-disposition step, so it only applies when the
           * sale actually left a surplus and the loan is not balance-due. */}
         {!frozen && canAct && rec && rec.stage === "Auctioned" && !balanceDue && hasUndisposedSurplus(rec) && (
-          <button className="btn sm" onClick={() => openModal(<SettleAuctionModalContent loan={l} rec={rec} onSaved={onSaved} />)}><Icon name="check" /> Settle Surplus</button>
+          <button className="btn sm" onClick={() => openModal(<SettleAuctionModalContent loan={l} rec={rec} onSaved={onSaved} onError={load} />)}><Icon name="check" /> Settle Surplus</button>
         )}
         {rec && (rec.stage === "Auctioned" || rec.stage === "Settled") && (
           <button className="btn sm ghost" onClick={() => printAuctionLetter(l, toast)}><Icon name="doc" /> Print Auction Letter</button>
