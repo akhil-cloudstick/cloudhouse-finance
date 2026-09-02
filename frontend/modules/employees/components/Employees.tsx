@@ -52,8 +52,6 @@ export function Employees() {
     }
   }
 
-  const totalPages = hasMore ? page + 1 : page;
-
   return (
     <>
       <div className="page-h">
@@ -122,8 +120,8 @@ export function Employees() {
           </div>
           <div className="ft" style={{ display: "flex", alignItems: "center", gap: 10 }}>
             <button className="btn plain sm" disabled={page <= 1} onClick={() => setPage((p) => Math.max(1, p - 1))}>‹ Prev</button>
-            <span style={{ fontSize: 12.5 }}>Page {page} of {totalPages}</span>
-            <button className="btn plain sm" disabled={page >= totalPages} onClick={() => setPage((p) => Math.min(totalPages, p + 1))}>Next ›</button>
+            <span style={{ fontSize: 12.5 }}>Page {page}</span>
+            <button className="btn plain sm" disabled={!hasMore} onClick={() => setPage((p) => p + 1)}>Next ›</button>
           </div>
         </div>
       )}

@@ -207,16 +207,16 @@ export function Packets() {
               </tbody>
             </table>
           </div>
-          {(() => {
-            const totalPages = hasMore ? page + 1 : page;
-            return (
-              <div className="ft" style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                <button className="btn plain sm" disabled={page <= 1} onClick={() => setPage((p) => Math.max(1, p - 1))}>‹ Prev</button>
-                <span style={{ fontSize: 12.5 }}>Page {page} of {totalPages}</span>
-                <button className="btn plain sm" disabled={!hasMore} onClick={() => setPage((p) => p + 1)}>Next ›</button>
-              </div>
-            );
-          })()}
+          {/* No total-row count comes back from the {items, hasMore} envelope
+            * — only whether another page exists — so this shows just the
+            * current page rather than a fabricated "of N" (the old
+            * `hasMore ? page + 1 : page` always read as exactly one more
+            * than wherever you already were). */}
+          <div className="ft" style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <button className="btn plain sm" disabled={page <= 1} onClick={() => setPage((p) => Math.max(1, p - 1))}>‹ Prev</button>
+            <span style={{ fontSize: 12.5 }}>Page {page}</span>
+            <button className="btn plain sm" disabled={!hasMore} onClick={() => setPage((p) => p + 1)}>Next ›</button>
+          </div>
         </div>
         {/* The locker column takes its height from the packets card beside it:
             the row stretches both columns to the same height, and this wrapper

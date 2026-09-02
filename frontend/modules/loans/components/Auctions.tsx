@@ -290,8 +290,11 @@ export function Auctions() {
   const [closedLoading, setClosedLoading] = useState(false);
   const [closedError, setClosedError] = useState("");
 
-  const conductedTotalPages = conductedHasMore ? conductedPage + 1 : conductedPage;
-  const closedTotalPages = closedHasMore ? closedPage + 1 : closedPage;
+  // History's two tables are server-paginated {items, hasMore} — no total-
+  // row count comes back, only whether another page exists — so their page
+  // indicators below show just the current page rather than a fabricated
+  // "of N". Active Cases (activeTotalPages, below) is different: it loads
+  // its whole filtered set client-side, so it has a real count to show.
 
   // Active Cases — isDefaulted is a computed read-time flag, not a
   // persisted column (see loan/accrual.go), so this can't be a server-side
@@ -444,7 +447,7 @@ export function Auctions() {
             </div>
             <div className="ft" style={{ display: "flex", alignItems: "center", gap: 10 }}>
               <button className="btn plain sm" disabled={conductedPage <= 1} onClick={() => changeConductedPage(Math.max(1, conductedPage - 1))}>‹ Prev</button>
-              <span style={{ fontSize: 12.5 }}>Page {conductedPage} of {conductedTotalPages}</span>
+              <span style={{ fontSize: 12.5 }}>Page {conductedPage}</span>
               <button className="btn plain sm" disabled={!conductedHasMore} onClick={() => changeConductedPage(conductedPage + 1)}>Next ›</button>
               <div className="sp" />
               <span>Gold that was actually sold at auction, with what it realised and how the surplus or shortfall was resolved.</span>
@@ -485,7 +488,7 @@ export function Auctions() {
             </div>
             <div className="ft" style={{ display: "flex", alignItems: "center", gap: 10 }}>
               <button className="btn plain sm" disabled={closedPage <= 1} onClick={() => changeClosedPage(Math.max(1, closedPage - 1))}>‹ Prev</button>
-              <span style={{ fontSize: 12.5 }}>Page {closedPage} of {closedTotalPages}</span>
+              <span style={{ fontSize: 12.5 }}>Page {closedPage}</span>
               <button className="btn plain sm" disabled={!closedHasMore} onClick={() => changeClosedPage(closedPage + 1)}>Next ›</button>
               <div className="sp" />
               <span>

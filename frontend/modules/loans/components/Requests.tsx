@@ -58,7 +58,10 @@ export function Requests() {
     refreshLoans();
   }
 
-  const totalPages = hasMore ? page + 1 : page;
+  // No total-row count comes back from the {items, hasMore} envelope — only
+  // whether another page exists — so the indicator shows just the current
+  // page rather than a fabricated "of N" (the old `hasMore ? page + 1 :
+  // page` always read as exactly one more than wherever you already were).
 
   return (
     <>
@@ -118,8 +121,8 @@ export function Requests() {
         </div>
         <div className="ft" style={{ display: "flex", alignItems: "center", gap: 10 }}>
           <button className="btn plain sm" disabled={page <= 1} onClick={() => setPage((p) => Math.max(1, p - 1))}>‹ Prev</button>
-          <span style={{ fontSize: 12.5 }}>Page {page} of {totalPages}</span>
-          <button className="btn plain sm" disabled={page >= totalPages} onClick={() => setPage((p) => Math.min(totalPages, p + 1))}>Next ›</button>
+          <span style={{ fontSize: 12.5 }}>Page {page}</span>
+          <button className="btn plain sm" disabled={!hasMore} onClick={() => setPage((p) => p + 1)}>Next ›</button>
         </div>
         {/* <div className="ft">Release settlement = Principal + Interest + Penal + Charges − Payments/Waivers · verified against packet location &amp; bank pledge status</div> */}
       </div>

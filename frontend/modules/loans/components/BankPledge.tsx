@@ -67,12 +67,6 @@ export function BankPledge() {
   const [pledgedHasMore, setPledgedHasMore] = useState(false);
 
   const canVoid = !!role && canUpdatePledges && VOID_ROLES.includes(role);
-  // No total-row count comes back from the {items, hasMore} envelope — only
-  // whether another page exists — so this can't show "of N", just enable/
-  // disable Next (mirrors Loans.tsx's totalPages for the same reason).
-  const historyTotalPages = historyHasMore ? historyPage + 1 : historyPage;
-  const pledgedTotalPages = pledgedHasMore ? pledgedPage + 1 : pledgedPage;
-
   const loadPledged = useCallback(async (page: number) => {
     setPledgedLoading(true);
     setPledgedError("");
@@ -265,7 +259,10 @@ export function BankPledge() {
           </div>
           <div className="ft" style={{ display: "flex", alignItems: "center", gap: 10 }}>
             <button className="btn plain sm" disabled={pledgedPage <= 1} onClick={() => setPledgedPage((p) => Math.max(1, p - 1))}>‹ Prev</button>
-            <span style={{ fontSize: 12.5 }}>Page {pledgedPage} of {pledgedTotalPages}</span>
+            {/* No total-row count comes back from the {items, hasMore}
+              * envelope — only whether another page exists — so this shows
+              * just the current page rather than a fabricated "of N". */}
+            <span style={{ fontSize: 12.5 }}>Page {pledgedPage}</span>
             <button className="btn plain sm" disabled={!pledgedHasMore} onClick={() => setPledgedPage((p) => p + 1)}>Next ›</button>
           </div>
           <div className="ft">If a customer requests closure while gold is bank-pledged, the release workflow flags the bank release step first.</div>
@@ -306,8 +303,8 @@ export function BankPledge() {
           <div className="ft">Every re-pledge ever recorded, including released and voided ones. Voided records are kept for audit and never deleted.</div>
           <div className="ft" style={{ display: "flex", alignItems: "center", gap: 10 }}>
             <button className="btn plain sm" disabled={historyPage <= 1} onClick={() => setHistoryPage((p) => Math.max(1, p - 1))}>‹ Prev</button>
-            <span style={{ fontSize: 12.5 }}>Page {historyPage} of {historyTotalPages}</span>
-            <button className="btn plain sm" disabled={historyPage >= historyTotalPages} onClick={() => setHistoryPage((p) => Math.min(historyTotalPages, p + 1))}>Next ›</button>
+            <span style={{ fontSize: 12.5 }}>Page {historyPage}</span>
+            <button className="btn plain sm" disabled={!historyHasMore} onClick={() => setHistoryPage((p) => p + 1)}>Next ›</button>
           </div>
         </div>
       )}

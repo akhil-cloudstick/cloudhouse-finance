@@ -380,7 +380,10 @@ export function Cash() {
           </div>
           <div className="ft" style={{ display: "flex", alignItems: "center", gap: 10 }}>
             <button className="btn plain sm" disabled={movementsPage <= 1} onClick={() => setMovementsPage((p) => Math.max(1, p - 1))}>‹ Prev</button>
-            <span style={{ fontSize: 12.5 }}>Page {movementsPage} of {movementsHasMore ? movementsPage + 1 : movementsPage}</span>
+            {/* No total-row count comes back from the {items, hasMore}
+              * envelope — only whether another page exists — so this shows
+              * just the current page rather than a fabricated "of N". */}
+            <span style={{ fontSize: 12.5 }}>Page {movementsPage}</span>
             <button className="btn plain sm" disabled={!movementsHasMore} onClick={() => setMovementsPage((p) => p + 1)}>Next ›</button>
           </div>
         </div>
@@ -410,7 +413,7 @@ export function Cash() {
           </div>
           <div className="ft" style={{ display: "flex", alignItems: "center", gap: 10 }}>
             <button className="btn plain sm" disabled={expensesPage <= 1} onClick={() => setExpensesPage((p) => Math.max(1, p - 1))}>‹ Prev</button>
-            <span style={{ fontSize: 12.5 }}>Page {expensesPage} of {expensesHasMore ? expensesPage + 1 : expensesPage}</span>
+            <span style={{ fontSize: 12.5 }}>Page {expensesPage}</span>
             <button className="btn plain sm" disabled={!expensesHasMore} onClick={() => setExpensesPage((p) => p + 1)}>Next ›</button>
           </div>
           <div className="ft">Cash expenses automatically reflect in Cash-in-Hand calculations · receipt images attached to expense records</div>

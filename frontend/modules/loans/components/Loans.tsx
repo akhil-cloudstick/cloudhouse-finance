@@ -123,11 +123,20 @@ export function Loans() {
     rows = rows.slice((page - 1) * LOANS_TABLE_PAGE_SIZE, page * LOANS_TABLE_PAGE_SIZE);
   } else {
     rows = filtered ?? [];
-    // No total-row count comes back from the {items, hasMore} envelope (see
-    // loansApi.listLoansPage) — only whether another page exists — so the
-    // page indicator can't show "of N" here, just enable/disable Next.
-    totalPages = hasMore ? page + 1 : page;
   }
+  // No total-row count comes back from the {items, hasMore} envelope (see
+  // loansApi.listLoansPage) in the server-paginated branch above — only
+  // whether another page exists. `totalPages = hasMore ? page + 1 : page`
+  // used to stand in for the real total, which read as "Page 1 of 2" on
+  // page one even when there were actually 5 pages of results — it's always
+  // exactly one more than wherever you already are, never the real count,
+  // so it only ever looked "corrected" by coincidence once you'd paged deep
+  // enough that hasMore happened to just turn false. Showing no total at
+  // all here is honest about what's actually known; the client-filtered
+  // branch above still has a real row count, so its own totalPages/"of N"
+  // stays as-is.
+  const knownTotal = !!computedPredicate;
+  const nextDisabled = knownTotal ? page >= totalPages : !hasMore;
 
   return (
     <>
@@ -156,8 +165,8 @@ export function Loans() {
       </table></div>
       <div className="ft" style={{ display: "flex", alignItems: "center", gap: 10 }}>
         <button className="btn plain sm" disabled={page <= 1} onClick={() => setPage((p) => Math.max(1, p - 1))}>‹ Prev</button>
-        <span style={{ fontSize: 12.5 }}>Page {page} of {totalPages}</span>
-        <button className="btn plain sm" disabled={page >= totalPages} onClick={() => setPage((p) => Math.min(totalPages, p + 1))}>Next ›</button>
+        <span style={{ fontSize: 12.5 }}>Page {page}{knownTotal ? ` of ${totalPages}` : ""}</span>
+        <button className="btn plain sm" disabled={nextDisabled} onClick={() => setPage((p) => (knownTotal ? Math.min(totalPages, p + 1) : p + 1))}>Next ›</button>
       </div>
       </div>
     </>

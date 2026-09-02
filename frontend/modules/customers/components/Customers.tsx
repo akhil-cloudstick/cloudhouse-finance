@@ -71,8 +71,6 @@ export function Customers() {
       .catch((e) => setError(e instanceof Error ? e.message : "Failed to load customers."));
   }
 
-  const totalPages = hasMore ? page + 1 : page;
-
   return (
     <>
       <div className="page-h">
@@ -128,8 +126,14 @@ export function Customers() {
       </table></div>
       <div className="ft" style={{ display: "flex", alignItems: "center", gap: 10 }}>
         <button className="btn plain sm" disabled={page <= 1} onClick={() => setPage((p) => Math.max(1, p - 1))}>‹ Prev</button>
-        <span style={{ fontSize: 12.5 }}>Page {page} of {totalPages}</span>
-        <button className="btn plain sm" disabled={page >= totalPages} onClick={() => setPage((p) => Math.min(totalPages, p + 1))}>Next ›</button>
+        {/* No total-row count comes back from the {items, hasMore} envelope
+          * (see customersApi.listCustomersPage) — only whether another page
+          * exists, so this can't show a true "of N" without lying about it
+          * (the old `hasMore ? page + 1 : page` guess always read as "one
+          * more than wherever you already are", e.g. "Page 1 of 2" even
+          * with 5 real pages of results). */}
+        <span style={{ fontSize: 12.5 }}>Page {page}</span>
+        <button className="btn plain sm" disabled={!hasMore} onClick={() => setPage((p) => p + 1)}>Next ›</button>
       </div>
       </div>
     </>
