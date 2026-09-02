@@ -18,7 +18,20 @@ import { formatPurity, parsePurity, isKaratInRange, isFinenessInRange, MIN_KARAT
  * recompute `value` into the other unit — it just changes which list
  * staff are searching/creating against, per the user's explicit choice
  * that whichever unit they pick is the one used in the formula. */
-export function PurityPicker({ value, onChange, disabled }: { value: string; onChange: (value: string) => void; disabled?: boolean }) {
+export function PurityPicker({
+  value,
+  onChange,
+  disabled,
+  dropdownMinWidth = 60,
+}: {
+  value: string;
+  onChange: (value: string) => void;
+  disabled?: boolean;
+  // Forwarded to SearchableSelect's compactMinWidth — Dashboard's Gold Loan
+  // Calculator and NewLoan's ornament rows pass 70; every other caller (the
+  // purity re-test flow's RateModal) keeps the default 60.
+  dropdownMinWidth?: number;
+}) {
   const parsed = parsePurity(value);
   const [unit, setUnit] = useState<PurityUnit>(parsed?.unit ?? "karat");
 
@@ -63,29 +76,19 @@ export function PurityPicker({ value, onChange, disabled }: { value: string; onC
       {/* Both this Karat/Fineness% slide toggle and the search field beside
        * it are pinned to a Net Wt (g) input's rendered height (padding:6px
        * 8px, font-size:14px, 1px border — see NewLoan.tsx's ornament row)
-       * so the table row doesn't grow taller than it needs to for this cell. */}
-      <div style={{ display: "flex", gap: 6, alignItems: "stretch", height: 31 }}>
+       * so the table row doesn't grow taller than it needs to for this cell.
+       * `.pur-row`/`.pur-toggle` (app.css) carry that shared row layout as
+       * real classes rather than inline styles specifically so the
+       * `max-width:480px` media query there can stack them onto two lines
+       * (toggle above, search field below) — at phone widths the two side
+       * by side left "Fineness" clipped to "Finenes" and the search box
+       * squeezed to a sliver even though the field as a whole had its own
+       * full card width to work with. */}
+      <div className="pur-row">
         <div
           role="tablist"
           aria-label="Purity unit"
-          style={{
-            position: "relative",
-            display: "flex",
-            // Was a fixed "0 0 148px" — at equal widths "Karat"/"Fineness"
-            // had to shrink to ~9.5px to fit, which read as fine print next
-            // to every other control. Now grows/shrinks with the search
-            // field beside it (both flex:1) so this toggle narrows along
-            // with the rest of the row on small screens instead of holding
-            // its full width and crushing the search field down to nothing;
-            // minWidth floors it at a still-tappable size.
-            flex: "1 1 64px",
-            minWidth: 56,
-            height: "100%",
-            border: "1px solid var(--line)",
-            borderRadius: 6,
-            background: "#fff",
-            overflow: "hidden",
-          }}
+          className="pur-toggle"
         >
           {/* Sliding thumb — animates between the two halves on unit change. */}
           <div
@@ -151,7 +154,7 @@ export function PurityPicker({ value, onChange, disabled }: { value: string; onC
         {/* minWidth:34 is the floor this box should never shrink below
          * (matches the Net Wt/Qty inputs beside it in NewLoan.tsx, which
          * share the same 34×31 minimum). */}
-        <div className="purity-select" style={{ flex: 1, minWidth: 34, height: "100%" }}>
+        <div className="purity-select pur-search">
           <SearchableSelect<BackendPurityStandard>
             value={label}
             onChange={pick}
@@ -163,6 +166,7 @@ export function PurityPicker({ value, onChange, disabled }: { value: string; onC
             onCreate={onCreate}
             disabled={disabled}
             compact
+            compactMinWidth={dropdownMinWidth}
           />
         </div>
       </div>

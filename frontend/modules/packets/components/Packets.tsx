@@ -7,7 +7,7 @@ import { fmtW } from "@/common/utils/format";
 import { StatusChip } from "@/common/components/ui/StatusChip";
 import { LockerModalContent } from "@/common/components/modals/LockerModal";
 import { listLockers, type LockerView } from "@/modules/lockers/services/lockerService";
-import { listPacketsPage, getPacketByCode, type PacketView } from "@/modules/packets/services/packetService";
+import { listPacketsPage, getPacketByCode, PACKETS_TABLE_PAGE_SIZE, type PacketView } from "@/modules/packets/services/packetService";
 import { Select } from "@/common/components/ui/Select";
 import { useAuth } from "@/common/auth-context";
 
@@ -74,8 +74,9 @@ export function Packets() {
   const [lookup, setLookup] = useState("");
   const [lookupErr, setLookupErr] = useState("");
   const [page, setPage] = useState(1);
-  const [hasMore, setHasMore] = useState(false);
+  const [total, setTotal] = useState(0);
   const [status, setStatus] = useState("");
+  const totalPages = Math.max(1, Math.ceil(total / PACKETS_TABLE_PAGE_SIZE));
 
   /* Guards against an out-of-order response winning: switching status
    * quickly can leave an earlier, slower request in flight, and without
@@ -103,7 +104,7 @@ export function Packets() {
       ]);
       if (seq !== loadSeq.current) return;
       setPackets(p.items);
-      setHasMore(p.hasMore);
+      setTotal(p.total);
       setLockers(l);
       setError("");
     } catch (e) {
@@ -207,15 +208,10 @@ export function Packets() {
               </tbody>
             </table>
           </div>
-          {/* No total-row count comes back from the {items, hasMore} envelope
-            * — only whether another page exists — so this shows just the
-            * current page rather than a fabricated "of N" (the old
-            * `hasMore ? page + 1 : page` always read as exactly one more
-            * than wherever you already were). */}
           <div className="ft" style={{ display: "flex", alignItems: "center", gap: 10 }}>
             <button className="btn plain sm" disabled={page <= 1} onClick={() => setPage((p) => Math.max(1, p - 1))}>‹ Prev</button>
-            <span style={{ fontSize: 12.5 }}>Page {page}</span>
-            <button className="btn plain sm" disabled={!hasMore} onClick={() => setPage((p) => p + 1)}>Next ›</button>
+            <span style={{ fontSize: 12.5 }}>Page {page} of {totalPages}</span>
+            <button className="btn plain sm" disabled={page >= totalPages} onClick={() => setPage((p) => Math.min(totalPages, p + 1))}>Next ›</button>
           </div>
         </div>
         {/* The locker column takes its height from the packets card beside it:

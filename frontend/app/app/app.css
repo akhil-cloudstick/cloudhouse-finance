@@ -190,6 +190,35 @@ h1,h2,h3,.serif{font-family:'Bodoni Moda',serif;font-optical-sizing:auto}
 .gs-results.no-scrollbar{scrollbar-width:none}
 .gs-results.no-scrollbar::-webkit-scrollbar{display:none}
 
+/* ── "Documents" dropdown (modules/loans/components/LoanDetail.tsx) ─────
+ * Collapses Print Label/Slip/Statement/Bond + the eSign action — 5
+ * separate header buttons that outgrew the space next to the loan title —
+ * into one themed popover, same visual language as .gs-results. */
+.docs-dd{position:relative}
+.docs-dd-chev{width:12px;height:12px;margin-left:2px}
+.docs-dd-menu{
+  position:absolute;top:calc(100% + 6px);right:0;width:169px;box-sizing:border-box;
+  background:var(--card);border:1px solid var(--line);border-radius:10px;
+  box-shadow:0 24px 60px -18px rgba(60,45,10,.4);z-index:60;padding:6px;
+}
+.docs-dd-menu a{
+  display:flex;align-items:center;gap:9px;
+  padding:8px 10px;border-radius:7px;text-decoration:none;color:var(--ink);
+  font-size:13px;
+}
+.docs-dd-menu a:hover{background:#f8efd6}
+.docs-dd-menu a.disabled{color:var(--muted);opacity:.5;cursor:not-allowed;pointer-events:none}
+.docs-dd-menu a svg{width:15px;height:15px;flex-shrink:0}
+/* A label that overflows the 169px-wide menu (e.g. "Send Indemnity Bond
+ * for eSign") fades out at its own right edge — via a mask, not
+ * text-overflow:ellipsis's "…" — rather than wrapping to a second line or
+ * silently clipping mid-letter. */
+.docs-dd-menu a .tx{
+  flex:1;min-width:0;white-space:nowrap;overflow:hidden;
+  -webkit-mask-image:linear-gradient(to right,#000 85%,transparent 100%);
+  mask-image:linear-gradient(to right,#000 85%,transparent 100%);
+}
+
 /* ── themed file input (components/ui/FileInput.tsx) ───────────────────── */
 /* Fixed 230px rather than width:100% / shrink-to-fit: the trigger is a
  * <label>, so it used to size to its own text and every file field ended up
@@ -464,6 +493,25 @@ h1,h2,h3,.serif{font-family:'Bodoni Moda',serif;font-optical-sizing:auto}
  * back to the padding/font-driven ~34px instead of the toggle's 31px. An
  * explicit px height is the only way to actually match it. */
 .purity-select .inp{padding:6px 8px;height:31px}
+/* PurityPicker's Karat/Fineness toggle + search field row (common/
+ * components/ui/PurityPicker.tsx) — real classes rather than inline styles
+ * specifically so the max-width:480px override below can stack them. */
+.pur-row{display:flex;gap:6px;align-items:stretch;height:31px}
+.pur-toggle{
+  position:relative;display:flex;
+  /* Was a fixed "0 0 148px" — at equal widths "Karat"/"Fineness" had to
+   * shrink to ~9.5px to fit, which read as fine print next to every other
+   * control. Grows/shrinks with the search field beside it (both flex:1)
+   * so this toggle narrows along with the rest of the row on small screens
+   * instead of holding its full width and crushing the search field down
+   * to nothing; min-width floors it at a still-tappable size. */
+  flex:1 1 64px;min-width:56px;height:100%;
+  border:1px solid var(--line);border-radius:6px;background:#fff;overflow:hidden;
+}
+/* minWidth:34 is the floor this box should never shrink below (matches the
+ * Net Wt/Qty inputs beside it in NewLoan.tsx, which share the same 34×31
+ * minimum). */
+.pur-search{flex:1;min-width:34px;height:100%}
 /* NewLoan.tsx's ornament-type SearchableSelect (unlike the ones above the
  * table for Customer/Scheme/Branch/Locker, left at the default height)
  * sits in the same row as the 31px-tall Purity/Net Wt/Qty cells — shrink
@@ -942,6 +990,13 @@ table.tbl{width:100%;border-collapse:separate;border-spacing:0;font-size:13.5px;
   .page-h h1{font-size:20px}
   .kpis{grid-template-columns:1fr}
   .frow.c2,.frow.c3,.frow.c4{grid-template-columns:1fr}
+  /* PurityPicker's Karat/Fineness toggle and its search/value field —
+   * side by side, they crushed "Fineness" down to a clipped "Finenes" and
+   * left the value box a sliver even at the field's own full card width.
+   * Two lines instead: the toggle spans the width on its own line, the
+   * search field spans it on the next. */
+  .pur-row{flex-direction:column;height:auto;gap:6px}
+  .pur-toggle,.pur-search{flex:none;width:100%;height:31px}
   .top{padding:9px 10px;gap:8px}
   .gsearch{max-width:none}
   .modal{max-width:100%;border-radius:8px}

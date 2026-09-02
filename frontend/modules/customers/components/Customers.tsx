@@ -7,7 +7,7 @@ import { useModal } from "@/common/components/Modal";
 import { StatusChip } from "@/common/components/ui/StatusChip";
 import { Icon } from "@/common/components/Icon";
 import { RegisterCustomerModalContent } from "@/common/components/modals/RegisterCustomerModal";
-import { listCustomersPage, type CustomerView } from "@/modules/customers/services/customerService";
+import { listCustomersPage, CUSTOMERS_TABLE_PAGE_SIZE, type CustomerView } from "@/modules/customers/services/customerService";
 import { Select } from "@/common/components/ui/Select";
 import { useAuth } from "@/common/auth-context";
 
@@ -44,8 +44,10 @@ export function Customers() {
   const [page, setPage] = useState(1);
   const [rows, setRows] = useState<CustomerView[]>([]);
   const [hasMore, setHasMore] = useState(false);
+  const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const totalPages = Math.max(1, Math.ceil(total / CUSTOMERS_TABLE_PAGE_SIZE));
 
   useEffect(() => { setPage(1); }, [q, panStatus, aadhaarStatus]);
 
@@ -54,7 +56,7 @@ export function Customers() {
     setLoading(true);
     const handle = setTimeout(() => {
       listCustomersPage(q.trim(), page, { panStatus, aadhaarStatus })
-        .then((res) => { if (!cancelled) { setRows(res.items); setHasMore(res.hasMore); setError(""); } })
+        .then((res) => { if (!cancelled) { setRows(res.items); setHasMore(res.hasMore); setTotal(res.total); setError(""); } })
         .catch((e) => { if (!cancelled) setError(e instanceof Error ? e.message : "Failed to load customers."); })
         .finally(() => { if (!cancelled) setLoading(false); });
     }, 300);
@@ -67,7 +69,7 @@ export function Customers() {
     // registering/editing a customer doesn't bounce the viewer's place.
     setPage((p) => p);
     listCustomersPage(q.trim(), page, { panStatus, aadhaarStatus })
-      .then((res) => { setRows(res.items); setHasMore(res.hasMore); setError(""); })
+      .then((res) => { setRows(res.items); setHasMore(res.hasMore); setTotal(res.total); setError(""); })
       .catch((e) => setError(e instanceof Error ? e.message : "Failed to load customers."));
   }
 
@@ -126,14 +128,8 @@ export function Customers() {
       </table></div>
       <div className="ft" style={{ display: "flex", alignItems: "center", gap: 10 }}>
         <button className="btn plain sm" disabled={page <= 1} onClick={() => setPage((p) => Math.max(1, p - 1))}>‹ Prev</button>
-        {/* No total-row count comes back from the {items, hasMore} envelope
-          * (see customersApi.listCustomersPage) — only whether another page
-          * exists, so this can't show a true "of N" without lying about it
-          * (the old `hasMore ? page + 1 : page` guess always read as "one
-          * more than wherever you already are", e.g. "Page 1 of 2" even
-          * with 5 real pages of results). */}
-        <span style={{ fontSize: 12.5 }}>Page {page}</span>
-        <button className="btn plain sm" disabled={!hasMore} onClick={() => setPage((p) => p + 1)}>Next ›</button>
+        <span style={{ fontSize: 12.5 }}>Page {page} of {totalPages}</span>
+        <button className="btn plain sm" disabled={page >= totalPages} onClick={() => setPage((p) => Math.min(totalPages, p + 1))}>Next ›</button>
       </div>
       </div>
     </>

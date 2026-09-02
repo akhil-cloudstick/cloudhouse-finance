@@ -9,14 +9,10 @@ import (
 
 var nonDigits = regexp.MustCompile(`\D`)
 
-// NormalizeChatID mirrors platform.MetaCloudSender's own (unexported) phone
-// -> E.164-digits normalization, duplicated here in miniature so commlog
-// doesn't need to import internal/platform just for this. Only used for
-// display/audit purposes — the actual send always goes through the real
-// sender. The "ChatID" name and this file predate the Meta Cloud API
-// migration (it used to be an OpenWA "<digits>@c.us" chat id) — kept as-is
-// rather than renamed, since it's a stored/serialized field name
-// (commlog.CommunicationLog.ChatID) across existing rows.
+// NormalizeChatID mirrors platform.OpenWASender's own (unexported) phone ->
+// chat-id normalization, duplicated here in miniature so commlog doesn't
+// need to import internal/platform just for this. Only used for display/
+// audit purposes — the actual send always goes through the real sender.
 func NormalizeChatID(phone string) string {
 	digits := nonDigits.ReplaceAllString(phone, "")
 	if len(digits) == 11 && digits[0] == '0' {
@@ -25,7 +21,7 @@ func NormalizeChatID(phone string) string {
 	if len(digits) == 10 {
 		digits = "91" + digits
 	}
-	return digits
+	return digits + "@c.us"
 }
 
 // Repository provides GORM-backed persistence for CommunicationLog records.

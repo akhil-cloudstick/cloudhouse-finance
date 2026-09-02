@@ -18,13 +18,22 @@ const STAGE_LABELS: Record<ExtensionStage, string> = {
   Management: "Management",
 };
 
-// The role string actually checked server-side (backend/internal/loan/
-// service.go's extensionChain) — "Loan Officer" is only ever a display
-// label, the real role is "Loan Operator" (see employee.ValidRoles).
+// Display-only now — whose "turn" this label names in the "Awaiting <role>
+// approval" text below. Who can actually ACT is a real permission grant
+// (STAGE_PERMISSIONS below), not a role-name match; an admin can grant a
+// stage's permission to any role, not just the one this label names.
 const STAGE_ROLES: Record<ExtensionStage, string> = {
   LoanOfficer: "Loan Operator",
   BranchManager: "Branch Manager",
   Management: "Management",
+};
+
+// The "Loan Extension Approval" permission actually checked server-side (backend/
+// internal/loan/service.go's extensionChain/checkStagePermission).
+const STAGE_PERMISSIONS: Record<ExtensionStage, string> = {
+  LoanOfficer: "can_verify_the_loan_extension",
+  BranchManager: "can_approve_extension_branch_manager_stage",
+  Management: "can_approve_extension_management_stage",
 };
 
 function stageKeyFor(approvalStage: string): ExtensionStage | null {
@@ -44,12 +53,13 @@ function stageKeyFor(approvalStage: string): ExtensionStage | null {
  * Requests.tsx's "Review" button, mirroring ReleaseReviewModal's pattern.
  * Unlike Release, there's no verification checklist here — just the
  * 3-stage Loan Officer -> Branch Manager -> Management chain (see
- * backend/internal/loan/service.go's ApproveExtensionRequest), which IS
- * server-side role-gated (Administrator bypasses at any stage). */
+ * backend/internal/loan/service.go's ApproveExtensionRequest), gated by the
+ * "Loan Extension Approval" permissions (see internal/authz.Catalogue) rather
+ * than a hardcoded role-name match. */
 export function ExtensionReviewModalContent({ request, onSaved }: { request: RequestView; onSaved: () => void }) {
   const { closeModal } = useModal();
   const toast = useToast();
-  const { role: myRole, can } = useAuth();
+  const { can } = useAuth();
   // canActOnStage below decides whose turn it is in the chain; this decides
   // whether the viewer may act on requests at all — without it the
   // approve/reject pair never renders (see Requests.tsx).
@@ -62,7 +72,7 @@ export function ExtensionReviewModalContent({ request, onSaved }: { request: Req
   const stageKey = stageKeyFor(req.approvalStage);
   const stageIndex = stageKey ? EXTENSION_STAGES.indexOf(stageKey) : EXTENSION_STAGES.length;
   const requiredRole = stageKey ? STAGE_ROLES[stageKey] : null;
-  const canActOnStage = !!requiredRole && (myRole === "Administrator" || myRole === requiredRole);
+  const canActOnStage = !!stageKey && can("Loan_Extension_Approval", STAGE_PERMISSIONS[stageKey]);
 
   async function decide(action: "Approved" | "Rejected") {
     if (!stageKey) return;

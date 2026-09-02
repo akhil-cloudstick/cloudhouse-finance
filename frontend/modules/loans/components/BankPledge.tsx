@@ -13,6 +13,8 @@ import {
   listBankPledgeHistoryPage,
   listLoansPage,
   CASH_TREATMENT_LABELS,
+  BANK_PLEDGE_HISTORY_PAGE_SIZE,
+  LOANS_TABLE_PAGE_SIZE,
   type BankPledgeRecordView,
   type LoanView,
 } from "@/modules/loans/services/loanService";
@@ -55,6 +57,8 @@ export function BankPledge() {
   const [historyError, setHistoryError] = useState("");
   const [historyPage, setHistoryPage] = useState(1);
   const [historyHasMore, setHistoryHasMore] = useState(false);
+  const [historyTotal, setHistoryTotal] = useState(0);
+  const historyTotalPages = Math.max(1, Math.ceil(historyTotal / BANK_PLEDGE_HISTORY_PAGE_SIZE));
 
   // Active tab — paginated straight off the backend (bankPledgeStatus is a
   // real column, see LoanFilter.BankPledgeStatus) rather than filtering
@@ -65,6 +69,8 @@ export function BankPledge() {
   const [pledgedError, setPledgedError] = useState("");
   const [pledgedPage, setPledgedPage] = useState(1);
   const [pledgedHasMore, setPledgedHasMore] = useState(false);
+  const [pledgedTotal, setPledgedTotal] = useState(0);
+  const pledgedTotalPages = Math.max(1, Math.ceil(pledgedTotal / LOANS_TABLE_PAGE_SIZE));
 
   const canVoid = !!role && canUpdatePledges && VOID_ROLES.includes(role);
   const loadPledged = useCallback(async (page: number) => {
@@ -74,6 +80,7 @@ export function BankPledge() {
       const res = await listLoansPage({ bankPledgeStatus: "Bank Pledged", page });
       setPledged(res.items);
       setPledgedHasMore(res.hasMore);
+      setPledgedTotal(res.total);
     } catch (e) {
       setPledgedError(e instanceof ApiError ? e.message : "Could not load re-pledged loans.");
     } finally {
@@ -97,6 +104,7 @@ export function BankPledge() {
       const res = await listBankPledgeHistoryPage(page);
       setHistory(res.items);
       setHistoryHasMore(res.hasMore);
+      setHistoryTotal(res.total);
     } catch (e) {
       setHistoryError(e instanceof ApiError ? e.message : "Could not load re-pledge history.");
     } finally {
@@ -259,11 +267,8 @@ export function BankPledge() {
           </div>
           <div className="ft" style={{ display: "flex", alignItems: "center", gap: 10 }}>
             <button className="btn plain sm" disabled={pledgedPage <= 1} onClick={() => setPledgedPage((p) => Math.max(1, p - 1))}>‹ Prev</button>
-            {/* No total-row count comes back from the {items, hasMore}
-              * envelope — only whether another page exists — so this shows
-              * just the current page rather than a fabricated "of N". */}
-            <span style={{ fontSize: 12.5 }}>Page {pledgedPage}</span>
-            <button className="btn plain sm" disabled={!pledgedHasMore} onClick={() => setPledgedPage((p) => p + 1)}>Next ›</button>
+            <span style={{ fontSize: 12.5 }}>Page {pledgedPage} of {pledgedTotalPages}</span>
+            <button className="btn plain sm" disabled={pledgedPage >= pledgedTotalPages} onClick={() => setPledgedPage((p) => Math.min(pledgedTotalPages, p + 1))}>Next ›</button>
           </div>
           <div className="ft">If a customer requests closure while gold is bank-pledged, the release workflow flags the bank release step first.</div>
         </div>
@@ -303,8 +308,8 @@ export function BankPledge() {
           <div className="ft">Every re-pledge ever recorded, including released and voided ones. Voided records are kept for audit and never deleted.</div>
           <div className="ft" style={{ display: "flex", alignItems: "center", gap: 10 }}>
             <button className="btn plain sm" disabled={historyPage <= 1} onClick={() => setHistoryPage((p) => Math.max(1, p - 1))}>‹ Prev</button>
-            <span style={{ fontSize: 12.5 }}>Page {historyPage}</span>
-            <button className="btn plain sm" disabled={!historyHasMore} onClick={() => setHistoryPage((p) => p + 1)}>Next ›</button>
+            <span style={{ fontSize: 12.5 }}>Page {historyPage} of {historyTotalPages}</span>
+            <button className="btn plain sm" disabled={historyPage >= historyTotalPages} onClick={() => setHistoryPage((p) => Math.min(historyTotalPages, p + 1))}>Next ›</button>
           </div>
         </div>
       )}

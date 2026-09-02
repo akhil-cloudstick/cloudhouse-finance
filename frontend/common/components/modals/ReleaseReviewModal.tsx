@@ -25,6 +25,13 @@ export function ReleaseReviewModalContent({ request, onSaved }: { request: Reque
   // Requests.tsx, which labels the row button View in that case).
   const { can } = useAuth();
   const canDecide = can("Loan_Management", "can_update_loan");
+  // Checklist verification and the two Manager/Management approval stages
+  // each need their own "Release Approval" permission on top of the
+  // general canDecide gate — previously ungated entirely (any signed-in
+  // staff member with "can update loan" could tick the checklist or
+  // approve either stage); see internal/authz.Catalogue and backend/
+  // internal/loan/service.go's VerifyReleaseChecklist/ApproveReleaseRequest.
+  const canVerifyChecklist = can("Release_Approval", "can_verify_release_checklist");
 
   const [loan, setLoan] = useState<LoanView | null>(null);
   const [req, setReq] = useState(request);
@@ -39,6 +46,7 @@ export function ReleaseReviewModalContent({ request, onSaved }: { request: Reque
 
   const checklistComplete = req.paymentVerified && req.packetVerified && req.bankPledgeVerified && req.customerConfirmed;
   const stage = req.approvalStage === "PendingManagement" ? "Management" : "Manager";
+  const canActOnStage = can("Release_Approval", stage === "Management" ? "can_approve_release_management_stage" : "can_approve_release_manager_stage");
 
   async function toggle(field: "paymentVerified" | "packetVerified" | "bankPledgeVerified" | "customerConfirmed", value: boolean) {
     setSaving(true);
@@ -119,7 +127,7 @@ export function ReleaseReviewModalContent({ request, onSaved }: { request: Reque
           <label className="f">Verification Checklist</label>
           {checklistItems.map(([label, field, hint]) => (
             <label key={field} className="ccheck" style={{ padding: "6px 0" }}>
-              <input type="checkbox" checked={req[field]} disabled={saving || !canDecide || req.status !== "Pending"} onChange={(e) => toggle(field, e.target.checked)} />
+              <input type="checkbox" checked={req[field]} disabled={saving || !canDecide || !canVerifyChecklist || req.status !== "Pending"} onChange={(e) => toggle(field, e.target.checked)} />
               <span className="mark" />
               <span>
                 <b>{label}</b>
@@ -141,7 +149,7 @@ export function ReleaseReviewModalContent({ request, onSaved }: { request: Reque
       </div>
       <div className="ft">
         <button className="btn ghost" onClick={closeModal}>Close</button>
-        {req.status === "Pending" && canDecide && (
+        {req.status === "Pending" && canDecide && canActOnStage && (
           <>
             <button className="btn danger" disabled={saving} onClick={() => decide("Rejected")}>Reject</button>
             <button className="btn" disabled={saving || !checklistComplete} onClick={() => decide("Approved")}>

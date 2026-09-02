@@ -117,7 +117,11 @@ func startOfDay(t time.Time) time.Time {
 	return time.Date(t.Year(), t.Month(), t.Day(), 0, 0, 0, 0, t.Location())
 }
 
-func (r *Repository) FindAll(f LoanFilter) ([]Loan, error) {
+// FindAll returns the matching loans (Limit/Offset applied) plus the TOTAL
+// row count for f's filters (Limit/Offset ignored for that count) — 0 when
+// f.Limit <= 0, since the non-paginated bare-array callers have no page
+// indicator to show a total on and the extra COUNT(*) would be wasted work.
+func (r *Repository) FindAll(f LoanFilter) ([]Loan, int64, error) {
 	// Most recently opened loan first. Ordering by id alone pinned whichever
 	// loan was inserted last to the top even when an older-dated loan was
 	// entered afterwards; id only breaks ties within the same day now.
@@ -152,7 +156,11 @@ func (r *Repository) FindAll(f LoanFilter) ([]Loan, error) {
 	if f.BankPledgeStatus != "" {
 		q = q.Where("bank_pledge_status = ?", f.BankPledgeStatus)
 	}
+	var total int64
 	if f.Limit > 0 {
+		if err := q.Session(&gorm.Session{}).Count(&total).Error; err != nil {
+			return nil, 0, err
+		}
 		q = q.Limit(f.Limit)
 	}
 	if f.Offset > 0 {
@@ -160,7 +168,7 @@ func (r *Repository) FindAll(f LoanFilter) ([]Loan, error) {
 	}
 	var loans []Loan
 	err := q.Find(&loans).Error
-	return loans, err
+	return loans, total, err
 }
 
 // CountAll returns the total number of loans ever created, used to
@@ -234,7 +242,9 @@ type CustomerOrnamentRow struct {
 // PARENT LOAN's OpenedDate (not any date of the ornament's own, which has
 // none) so the result stays consistent with what GetCustomer360 would show
 // for the same window — same semantics as LoanFilter.OpenedFrom/OpenedTo.
-func (r *OrnamentRepository) FindByCustomerID(customerID uint, from, to *time.Time, limit, offset int) ([]CustomerOrnamentRow, error) {
+// FindByCustomerID returns matching rows plus the TOTAL row count (Limit/
+// Offset ignored, 0 when limit <= 0).
+func (r *OrnamentRepository) FindByCustomerID(customerID uint, from, to *time.Time, limit, offset int) ([]CustomerOrnamentRow, int64, error) {
 	var rows []CustomerOrnamentRow
 	q := r.db.Model(&Ornament{}).
 		Select("ornaments.*, loans.loan_number AS loan_number").
@@ -249,11 +259,15 @@ func (r *OrnamentRepository) FindByCustomerID(customerID uint, from, to *time.Ti
 	// Same ordering as FindAll — most recently opened loan first, id only as
 	// a same-day tie-break — so both 360 sub-tables agree on "newest".
 	q = q.Order("loans.opened_date desc, loans.id desc, ornaments.id asc")
+	var total int64
 	if limit > 0 {
+		if err := q.Session(&gorm.Session{}).Count(&total).Error; err != nil {
+			return nil, 0, err
+		}
 		q = q.Limit(limit).Offset(offset)
 	}
 	err := q.Find(&rows).Error
-	return rows, err
+	return rows, total, err
 }
 
 func (r *OrnamentRepository) SavePurityTest(t *OrnamentPurityTest) error {
@@ -345,7 +359,9 @@ type CustomerPaymentRow struct {
 // PARENT LOAN's OpenedDate, matching GetCustomer360's window semantics —
 // deliberately distinct from FindByCustomerID above, which the customer
 // mobile app uses with no date filter at all.
-func (r *PaymentRepository) FindByCustomerIDForProfile(customerID uint, from, to *time.Time, limit, offset int) ([]CustomerPaymentRow, error) {
+// FindByCustomerIDForProfile returns matching rows plus the TOTAL row count
+// (Limit/Offset ignored, 0 when limit <= 0).
+func (r *PaymentRepository) FindByCustomerIDForProfile(customerID uint, from, to *time.Time, limit, offset int) ([]CustomerPaymentRow, int64, error) {
 	var rows []CustomerPaymentRow
 	q := r.db.Model(&LoanPayment{}).
 		Select("loan_payments.*, loans.loan_number AS loan_number").
@@ -358,11 +374,15 @@ func (r *PaymentRepository) FindByCustomerIDForProfile(customerID uint, from, to
 		q = q.Where("loans.opened_date < ?", startOfDay(*to).AddDate(0, 0, 1))
 	}
 	q = q.Order("loan_payments.paid_on desc, loan_payments.id desc")
+	var total int64
 	if limit > 0 {
+		if err := q.Session(&gorm.Session{}).Count(&total).Error; err != nil {
+			return nil, 0, err
+		}
 		q = q.Limit(limit).Offset(offset)
 	}
 	err := q.Find(&rows).Error
-	return rows, err
+	return rows, total, err
 }
 
 // SumInterestCollected totals the interest + penal-interest portions of
@@ -443,7 +463,9 @@ func (r *BankPledgeRepository) FindHistoryByLoanID(loanID uint) ([]BankPledgeRec
 // to see anything but currently-pledged gold. branchID scopes to the caller's
 // branch (nil for Administrator), applied via a JOIN on loans the same way
 // LoanRequestRepository.FindAll does it.
-func (r *BankPledgeRepository) FindAllHistory(branchID *uint, limit, offset int) ([]BankPledgeRecord, error) {
+// FindAllHistory returns matching pledges plus the TOTAL row count (Limit/
+// Offset ignored, 0 when limit <= 0).
+func (r *BankPledgeRepository) FindAllHistory(branchID *uint, limit, offset int) ([]BankPledgeRecord, int64, error) {
 	var pledges []BankPledgeRecord
 	q := r.db.Model(&BankPledgeRecord{}).
 		Preload("Events", func(d *gorm.DB) *gorm.DB { return d.Order("created_at asc, id asc") })
@@ -452,11 +474,15 @@ func (r *BankPledgeRepository) FindAllHistory(branchID *uint, limit, offset int)
 			Where("loans.branch_id = ?", *branchID)
 	}
 	q = q.Order("bank_pledge_records.id desc")
+	var total int64
 	if limit > 0 {
+		if err := q.Session(&gorm.Session{}).Count(&total).Error; err != nil {
+			return nil, 0, err
+		}
 		q = q.Limit(limit).Offset(offset)
 	}
 	err := q.Find(&pledges).Error
-	return pledges, err
+	return pledges, total, err
 }
 
 // CustomerBankPledgeRow is one BankPledgeRecord plus its parent loan's
@@ -470,7 +496,9 @@ type CustomerBankPledgeRow struct {
 // belonging to customerID, newest first — backs the customer 360 view's
 // Bank Pledges sub-table (GET /customers/:id/bank-pledges). from/to bound
 // the PARENT LOAN's OpenedDate, matching GetCustomer360's window semantics.
-func (r *BankPledgeRepository) FindAllByCustomerID(customerID uint, from, to *time.Time, limit, offset int) ([]CustomerBankPledgeRow, error) {
+// FindAllByCustomerID returns matching rows plus the TOTAL row count (Limit/
+// Offset ignored, 0 when limit <= 0).
+func (r *BankPledgeRepository) FindAllByCustomerID(customerID uint, from, to *time.Time, limit, offset int) ([]CustomerBankPledgeRow, int64, error) {
 	var rows []CustomerBankPledgeRow
 	q := r.db.Model(&BankPledgeRecord{}).
 		Select("bank_pledge_records.*, loans.loan_number AS loan_number").
@@ -483,11 +511,15 @@ func (r *BankPledgeRepository) FindAllByCustomerID(customerID uint, from, to *ti
 		q = q.Where("loans.opened_date < ?", startOfDay(*to).AddDate(0, 0, 1))
 	}
 	q = q.Order("bank_pledge_records.id desc")
+	var total int64
 	if limit > 0 {
+		if err := q.Session(&gorm.Session{}).Count(&total).Error; err != nil {
+			return nil, 0, err
+		}
 		q = q.Limit(limit).Offset(offset)
 	}
 	err := q.Find(&rows).Error
-	return rows, err
+	return rows, total, err
 }
 
 // CreateEvent appends one entry to a re-pledge record's audit trail.
@@ -537,7 +569,9 @@ type LoanRequestFilter struct {
 	Offset int
 }
 
-func (r *LoanRequestRepository) FindAll(f LoanRequestFilter) ([]LoanRequest, error) {
+// FindAll returns matching requests plus the TOTAL row count for f's
+// filters (Limit/Offset ignored, 0 when f.Limit <= 0).
+func (r *LoanRequestRepository) FindAll(f LoanRequestFilter) ([]LoanRequest, int64, error) {
 	q := r.db.Preload("Loan.Customer").Model(&LoanRequest{}).Order("id desc")
 	if f.BranchID != nil {
 		q = q.Joins("JOIN loans ON loans.id = loan_requests.loan_id").Where("loans.branch_id = ?", *f.BranchID)
@@ -548,7 +582,11 @@ func (r *LoanRequestRepository) FindAll(f LoanRequestFilter) ([]LoanRequest, err
 	if f.LoanID != 0 {
 		q = q.Where("loan_requests.loan_id = ?", f.LoanID)
 	}
+	var total int64
 	if f.Limit > 0 {
+		if err := q.Session(&gorm.Session{}).Count(&total).Error; err != nil {
+			return nil, 0, err
+		}
 		q = q.Limit(f.Limit)
 	}
 	if f.Offset > 0 {
@@ -556,7 +594,7 @@ func (r *LoanRequestRepository) FindAll(f LoanRequestFilter) ([]LoanRequest, err
 	}
 	var reqs []LoanRequest
 	err := q.Find(&reqs).Error
-	return reqs, err
+	return reqs, total, err
 }
 
 // FindApprovedReleaseByLoanID finds the (most recent) Approved Release
@@ -694,7 +732,9 @@ type ConcludedAuctionRow struct {
 // split, done here so each sub-table's own limit/offset paginates only its
 // own rows instead of counting against a mixed set. nil means no filter.
 // limit/offset apply only when limit > 0, matching LoanFilter's convention.
-func (r *AuctionRepository) FindAllConcluded(branchID *uint, hasSale *bool, limit, offset int) ([]ConcludedAuctionRow, error) {
+// FindAllConcluded returns matching rows plus the TOTAL row count (Limit/
+// Offset ignored, 0 when limit <= 0).
+func (r *AuctionRepository) FindAllConcluded(branchID *uint, hasSale *bool, limit, offset int) ([]ConcludedAuctionRow, int64, error) {
 	var rows []ConcludedAuctionRow
 	q := preloadAuctionDetail(r.db).Model(&AuctionRecord{}).
 		Select("auction_records.*, loans.loan_number AS loan_number, customers.name AS customer_name").
@@ -712,11 +752,15 @@ func (r *AuctionRepository) FindAllConcluded(branchID *uint, hasSale *bool, limi
 		}
 	}
 	q = q.Order("auction_records.updated_at desc, auction_records.id desc")
+	var total int64
 	if limit > 0 {
+		if err := q.Session(&gorm.Session{}).Count(&total).Error; err != nil {
+			return nil, 0, err
+		}
 		q = q.Limit(limit).Offset(offset)
 	}
 	err := q.Find(&rows).Error
-	return rows, err
+	return rows, total, err
 }
 
 // CustomerAuctionRow is one AuctionRecord plus its parent loan's LoanNumber
@@ -733,7 +777,9 @@ type CustomerAuctionRow struct {
 // GetCustomer360's AuctionHistory (which appends every case from
 // FindHistoryByLoanID, concluded or not). from/to bound the PARENT LOAN's
 // OpenedDate, matching GetCustomer360's window semantics.
-func (r *AuctionRepository) FindAllByCustomerID(customerID uint, from, to *time.Time, limit, offset int) ([]CustomerAuctionRow, error) {
+// FindAllByCustomerID returns matching rows plus the TOTAL row count (Limit/
+// Offset ignored, 0 when limit <= 0).
+func (r *AuctionRepository) FindAllByCustomerID(customerID uint, from, to *time.Time, limit, offset int) ([]CustomerAuctionRow, int64, error) {
 	var rows []CustomerAuctionRow
 	q := r.db.Model(&AuctionRecord{}).
 		Select("auction_records.*, loans.loan_number AS loan_number").
@@ -746,11 +792,15 @@ func (r *AuctionRepository) FindAllByCustomerID(customerID uint, from, to *time.
 		q = q.Where("loans.opened_date < ?", startOfDay(*to).AddDate(0, 0, 1))
 	}
 	q = q.Order("auction_records.id desc")
+	var total int64
 	if limit > 0 {
+		if err := q.Session(&gorm.Session{}).Count(&total).Error; err != nil {
+			return nil, 0, err
+		}
 		q = q.Limit(limit).Offset(offset)
 	}
 	err := q.Find(&rows).Error
-	return rows, err
+	return rows, total, err
 }
 
 func (r *AuctionRepository) CreateNotice(n *AuctionNotice) error {

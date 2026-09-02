@@ -58,13 +58,13 @@ export async function listCashMovements(): Promise<CashMovementView[]> {
 
 export const CASH_MOVEMENTS_PAGE_SIZE = 7;
 
-export async function listCashMovementsPage(page: number): Promise<{ items: CashMovementView[]; hasMore: boolean }> {
+export async function listCashMovementsPage(page: number): Promise<{ items: CashMovementView[]; hasMore: boolean; total: number }> {
   const params = new URLSearchParams({
     limit: String(CASH_MOVEMENTS_PAGE_SIZE),
     offset: String((page - 1) * CASH_MOVEMENTS_PAGE_SIZE),
   });
-  const rec = await apiFetch<{ items: BackendCashMovement[]; hasMore: boolean }>(`/cash-movements?${params}`);
-  return { items: (rec?.items || []).map(movementToView), hasMore: !!rec?.hasMore };
+  const rec = await apiFetch<{ items: BackendCashMovement[]; hasMore: boolean; total?: number }>(`/cash-movements?${params}`);
+  return { items: (rec?.items || []).map(movementToView), hasMore: !!rec?.hasMore, total: rec?.total ?? 0 };
 }
 
 export async function createCashMovement(input: CashMovementInput): Promise<CashMovementView> {
@@ -149,13 +149,13 @@ export async function listExpenses(): Promise<ExpenseView[]> {
 
 export const EXPENSES_PAGE_SIZE = 7;
 
-export async function listExpensesPage(page: number): Promise<{ items: ExpenseView[]; hasMore: boolean }> {
+export async function listExpensesPage(page: number): Promise<{ items: ExpenseView[]; hasMore: boolean; total: number }> {
   const params = new URLSearchParams({
     limit: String(EXPENSES_PAGE_SIZE),
     offset: String((page - 1) * EXPENSES_PAGE_SIZE),
   });
-  const rec = await apiFetch<{ items: BackendExpense[]; hasMore: boolean }>(`/expenses?${params}`);
-  return { items: (rec?.items || []).map(expenseToView), hasMore: !!rec?.hasMore };
+  const rec = await apiFetch<{ items: BackendExpense[]; hasMore: boolean; total?: number }>(`/expenses?${params}`);
+  return { items: (rec?.items || []).map(expenseToView), hasMore: !!rec?.hasMore, total: rec?.total ?? 0 };
 }
 
 export async function createExpense(input: ExpenseFormInput): Promise<ExpenseView> {

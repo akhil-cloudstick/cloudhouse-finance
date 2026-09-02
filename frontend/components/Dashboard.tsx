@@ -319,7 +319,7 @@ export function Dashboard() {
               <div className="frow c2">
                 <div><label className="f">Weight (grams)</label><input className="inp" style={{ padding: "6px 8px", height: 31 }} type="number" min={0} value={calcW} onChange={(e) => setCalcW(e.target.value)} /></div>
                 <div><label className="f">Purity</label>
-                  <PurityPicker value={calcP} onChange={setCalcP} />
+                  <PurityPicker value={calcP} onChange={setCalcP} dropdownMinWidth={70} />
                 </div>
               </div>
               <div className="frow"><div><label className="f">Scheme</label>

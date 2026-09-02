@@ -60,12 +60,12 @@ export async function searchLockersPage(
   q: string,
   page: number,
   opts?: { branchId?: number; activeOnly?: boolean }
-): Promise<{ items: LockerView[]; hasMore: boolean }> {
+): Promise<{ items: LockerView[]; hasMore: boolean; total: number }> {
   const params = new URLSearchParams({ q, limit: String(LOCKER_PAGE_SIZE), offset: String(page * LOCKER_PAGE_SIZE) });
   if (opts?.branchId) params.set("branchId", String(opts.branchId));
   if (opts?.activeOnly) params.set("active", "true");
-  const rec = await apiFetch<{ items: BackendLocker[]; hasMore: boolean }>(`/lockers?${params}`);
-  return { items: (rec?.items || []).map(toView), hasMore: !!rec?.hasMore };
+  const rec = await apiFetch<{ items: BackendLocker[]; hasMore: boolean; total?: number }>(`/lockers?${params}`);
+  return { items: (rec?.items || []).map(toView), hasMore: !!rec?.hasMore, total: rec?.total ?? 0 };
 }
 
 export async function getLocker(id: number): Promise<LockerView> {

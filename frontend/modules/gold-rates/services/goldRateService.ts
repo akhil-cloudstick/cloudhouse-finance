@@ -60,13 +60,13 @@ export const GOLD_RATES_HISTORY_PAGE_SIZE = 10;
  * handler.go's List), matching loansApi.listLoansPage's pattern. */
 export async function listGoldRatesPage(
   page: number
-): Promise<{ items: GoldRateView[]; hasMore: boolean }> {
+): Promise<{ items: GoldRateView[]; hasMore: boolean; total: number }> {
   const params = new URLSearchParams({
     limit: String(GOLD_RATES_HISTORY_PAGE_SIZE),
     offset: String((page - 1) * GOLD_RATES_HISTORY_PAGE_SIZE),
   });
-  const rec = await apiFetch<{ items: BackendGoldRate[]; hasMore: boolean }>(`/gold-rates?${params}`);
-  return { items: (rec?.items || []).map(toView), hasMore: !!rec?.hasMore };
+  const rec = await apiFetch<{ items: BackendGoldRate[]; hasMore: boolean; total?: number }>(`/gold-rates?${params}`);
+  return { items: (rec?.items || []).map(toView), hasMore: !!rec?.hasMore, total: rec?.total ?? 0 };
 }
 
 export async function getLatestGoldRate(): Promise<GoldRateView | null> {

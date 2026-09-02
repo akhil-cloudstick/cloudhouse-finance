@@ -128,12 +128,12 @@ func main() {
 	settingsHandler := settings.NewHandler(settingsSvc)
 
 	// whatsappSender delivers messages (OTPs, reminders, and anything else
-	// that wants WhatsApp delivery) via the official WhatsApp Business Cloud
-	// API (Meta), configured live through Settings > WhatsApp (settingsSvc,
-	// category "whatsapp") rather than an env var — see
-	// platform.MetaCloudSender. Until that setting is configured, Send
-	// returns a clear "not configured" error rather than silently doing
-	// nothing.
+	// that wants WhatsApp delivery) via a self-hosted OpenWA instance
+	// (https://github.com/rmyndharis/OpenWA), configured live through
+	// Settings > WhatsApp (settingsSvc, category "whatsapp") rather than an
+	// env var — see platform.OpenWASender. Until that setting is
+	// configured, Send returns a clear "not configured" error rather than
+	// silently doing nothing.
 	whatsappLoader := func() (platform.WhatsAppConfig, error) {
 		view, err := settingsSvc.Get(settings.CategoryWhatsApp)
 		if err != nil {
@@ -144,7 +144,7 @@ func main() {
 		}
 		return platform.ParseWhatsAppConfig(view.Value)
 	}
-	whatsappSender := platform.NewMetaCloudSender(whatsappLoader)
+	whatsappSender := platform.NewOpenWASender(whatsappLoader)
 
 	setuClient := platform.NewSetuClient(cfg)
 	digilockerClient := platform.NewDigilockerClient(cfg)
@@ -194,7 +194,15 @@ func main() {
 	notificationSvc := notification.NewService(notificationRepo, realtimeHub)
 	notificationHandler := notification.NewHandler(notificationSvc, realtimeHub)
 
-	loanSvc := loan.NewService(db, loanRepo, loanOrnamentRepo, loanApprovalRepo, loanPaymentRepo, loanPledgeRepo, loanRequestRepo, requestApprovalRepo, loanAuctionRepo, loanApprovalLimitRepo, branchRepo, customerRepo, schemeRepo, goldRateRepo, packetSvc, packetSvc, movementSvc, notificationSvc, whatsappSender, commlogRepo, esignClient, cfg.UploadsDir, razorpayClient, aadhaarCipher)
+	// authzPermChecker gates every stage of the loan sanction/extension/
+	// release approval chains and each auction decision/process step (see
+	// loan.Service.checkStagePermission) against the "Approval Workflow"
+	// permissions — the same authz.Repository the RequirePermission
+	// middleware elsewhere already checks ordinary CRUD permissions
+	// against, just satisfying loan's own narrower platform.PermissionChecker
+	// interface structurally (no import of internal/authz from internal/loan).
+	authzPermChecker := authz.NewRepository(db)
+	loanSvc := loan.NewService(db, loanRepo, loanOrnamentRepo, loanApprovalRepo, loanPaymentRepo, loanPledgeRepo, loanRequestRepo, requestApprovalRepo, loanAuctionRepo, loanApprovalLimitRepo, branchRepo, customerRepo, schemeRepo, goldRateRepo, packetSvc, packetSvc, movementSvc, notificationSvc, whatsappSender, commlogRepo, esignClient, cfg.UploadsDir, razorpayClient, aadhaarCipher, authzPermChecker)
 	loanHandler := loan.NewHandler(loanSvc)
 
 	reminderRepo := reminder.NewRepository(db)

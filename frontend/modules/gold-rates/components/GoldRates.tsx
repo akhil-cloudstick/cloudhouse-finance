@@ -6,7 +6,7 @@ import { useModal } from "@/common/components/Modal";
 import { RateModalContent } from "@/common/components/modals/RateModal";
 import { Icon } from "@/common/components/Icon";
 import { fmt } from "@/common/utils/format";
-import { listGoldRatesPage, type GoldRateView } from "@/modules/gold-rates/services/goldRateService";
+import { listGoldRatesPage, GOLD_RATES_HISTORY_PAGE_SIZE, type GoldRateView } from "@/modules/gold-rates/services/goldRateService";
 import { useAuth } from "@/common/auth-context";
 
 function RateTile({ k, r }: { k: string; r: number }) {
@@ -32,9 +32,10 @@ export function GoldRates() {
 
   const [page, setPage] = useState(1);
   const [rows, setRows] = useState<GoldRateView[]>([]);
-  const [hasMore, setHasMore] = useState(false);
+  const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const totalPages = Math.max(1, Math.ceil(total / GOLD_RATES_HISTORY_PAGE_SIZE));
 
   useEffect(() => {
     let cancelled = false;
@@ -43,18 +44,13 @@ export function GoldRates() {
       .then((res) => {
         if (cancelled) return;
         setRows(res.items);
-        setHasMore(res.hasMore);
+        setTotal(res.total);
         setError("");
       })
       .catch((e) => { if (!cancelled) setError(e instanceof Error ? e.message : "Failed to load rate history."); })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
   }, [page]);
-
-  // No total-row count comes back from the {items, hasMore} envelope — only
-  // whether another page exists — so the indicator shows just the current
-  // page rather than a fabricated "of N" (the old `hasMore ? page + 1 :
-  // page` always read as exactly one more than wherever you already were).
 
   return (
     <>
@@ -104,8 +100,8 @@ export function GoldRates() {
         </div>
         <div className="ft" style={{ display: "flex", alignItems: "center", gap: 10 }}>
           <button className="btn plain sm" disabled={page <= 1} onClick={() => setPage((p) => Math.max(1, p - 1))}>‹ Prev</button>
-          <span style={{ fontSize: 12.5 }}>Page {page}</span>
-          <button className="btn plain sm" disabled={!hasMore} onClick={() => setPage((p) => p + 1)}>Next ›</button>
+          <span style={{ fontSize: 12.5 }}>Page {page} of {totalPages}</span>
+          <button className="btn plain sm" disabled={page >= totalPages} onClick={() => setPage((p) => Math.min(totalPages, p + 1))}>Next ›</button>
         </div>
       </div>
     </>

@@ -44,7 +44,7 @@ import { EditCustomerModalContent } from "@/common/components/modals/EditCustome
  * convention as Requests.tsx. `range` is the shared from/to opened-date
  * window; changing it resets the table back to page 1. */
 function useSubTablePage<T>(
-  fetchPage: (page: number, range?: { from?: string; to?: string }) => Promise<{ items: T[]; hasMore: boolean }>,
+  fetchPage: (page: number, range?: { from?: string; to?: string }) => Promise<{ items: T[]; hasMore: boolean; total: number }>,
   range: { from?: string; to?: string },
   ready: boolean
 ) {
@@ -52,6 +52,7 @@ function useSubTablePage<T>(
   const [loading, setLoading] = useState(true);
   const [page, setPage] = useState(1);
   const [hasMore, setHasMore] = useState(false);
+  const [total, setTotal] = useState(0);
   const from = range.from;
   const to = range.to;
 
@@ -62,10 +63,12 @@ function useSubTablePage<T>(
       .then((res) => {
         setItems(res.items);
         setHasMore(res.hasMore);
+        setTotal(res.total);
       })
       .catch(() => {
         setItems([]);
         setHasMore(false);
+        setTotal(0);
       })
       .finally(() => setLoading(false));
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -78,21 +81,16 @@ function useSubTablePage<T>(
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => setPage(1), [from, to]);
 
-  return { items, loading, page, setPage, hasMore };
+  return { items, loading, page, setPage, hasMore, total };
 }
 
-// No total-row count comes back from any of these {items, hasMore} sub-tab
-// endpoints — only whether another page exists — so this shows just the
-// current page rather than a fabricated "of N" (`hasMore ? page + 1 : page`
-// used to stand in for the total, which always read as exactly one more
-// than wherever you already were, e.g. "Page 1 of 2" even with 5 real pages
-// of results, not a real count).
-function Pager({ page, hasMore, onChange }: { page: number; hasMore: boolean; onChange: (p: number) => void }) {
+function Pager({ page, total, pageSize, onChange }: { page: number; total: number; pageSize: number; onChange: (p: number) => void }) {
+  const totalPages = Math.max(1, Math.ceil(total / pageSize));
   return (
     <div className="ft" style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 14px" }}>
       <button className="btn plain" style={{ padding: "9px 18px", fontSize: 13 }} disabled={page <= 1} onClick={() => onChange(Math.max(1, page - 1))}>‹ Prev</button>
-      <span style={{ fontSize: 13 }}>Page {page}</span>
-      <button className="btn plain" style={{ padding: "9px 18px", fontSize: 13 }} disabled={!hasMore} onClick={() => onChange(page + 1)}>Next ›</button>
+      <span style={{ fontSize: 13 }}>Page {page} of {totalPages}</span>
+      <button className="btn plain" style={{ padding: "9px 18px", fontSize: 13 }} disabled={page >= totalPages} onClick={() => onChange(Math.min(totalPages, page + 1))}>Next ›</button>
     </div>
   );
 }
@@ -274,6 +272,7 @@ export function CustomerDetail({ id }: { id?: string }) {
   function openEditCustomer() {
     openModal(
       <EditCustomerModalContent
+        key={c.id}
         customer={c}
         onSaved={() => {
           if (!id) return;
@@ -433,7 +432,7 @@ export function CustomerDetail({ id }: { id?: string }) {
                   ) : loanPager.items.map((l) => <LoanRow loan={l} key={l.id} />)}
                 </tbody>
               </table></div>
-              <Pager page={loanPager.page} hasMore={loanPager.hasMore} onChange={loanPager.setPage} />
+              <Pager page={loanPager.page} total={loanPager.total} pageSize={CUSTOMER_SUBTABLE_PAGE_SIZE} onChange={loanPager.setPage} />
             </div>
           )}
 
@@ -455,7 +454,7 @@ export function CustomerDetail({ id }: { id?: string }) {
                   ))}
                 </tbody>
               </table></div>
-              <Pager page={ornamentPager.page} hasMore={ornamentPager.hasMore} onChange={ornamentPager.setPage} />
+              <Pager page={ornamentPager.page} total={ornamentPager.total} pageSize={CUSTOMER_SUBTABLE_PAGE_SIZE} onChange={ornamentPager.setPage} />
             </div>
           )}
 
@@ -477,7 +476,7 @@ export function CustomerDetail({ id }: { id?: string }) {
                   ))}
                 </tbody>
               </table></div>
-              <Pager page={paymentPager.page} hasMore={paymentPager.hasMore} onChange={paymentPager.setPage} />
+              <Pager page={paymentPager.page} total={paymentPager.total} pageSize={CUSTOMER_SUBTABLE_PAGE_SIZE} onChange={paymentPager.setPage} />
             </div>
           )}
 
@@ -499,7 +498,7 @@ export function CustomerDetail({ id }: { id?: string }) {
                   ))}
                 </tbody>
               </table></div>
-              <Pager page={bankPledgePager.page} hasMore={bankPledgePager.hasMore} onChange={bankPledgePager.setPage} />
+              <Pager page={bankPledgePager.page} total={bankPledgePager.total} pageSize={CUSTOMER_SUBTABLE_PAGE_SIZE} onChange={bankPledgePager.setPage} />
             </div>
           )}
 
@@ -521,7 +520,7 @@ export function CustomerDetail({ id }: { id?: string }) {
                   ))}
                 </tbody>
               </table></div>
-              <Pager page={auctionPager.page} hasMore={auctionPager.hasMore} onChange={auctionPager.setPage} />
+              <Pager page={auctionPager.page} total={auctionPager.total} pageSize={CUSTOMER_SUBTABLE_PAGE_SIZE} onChange={auctionPager.setPage} />
             </div>
           )}
         </div>

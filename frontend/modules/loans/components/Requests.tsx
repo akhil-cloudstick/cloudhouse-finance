@@ -5,7 +5,7 @@ import { useModal } from "@/common/components/Modal";
 import { StatusChip } from "@/common/components/ui/StatusChip";
 import { Select } from "@/common/components/ui/Select";
 import { useLoans } from "@/modules/loans/store/LoansProvider";
-import { listLoanRequestsPage, type RequestView } from "@/modules/loans/services/loanService";
+import { listLoanRequestsPage, REQUESTS_TABLE_PAGE_SIZE, type RequestView } from "@/modules/loans/services/loanService";
 import { useAuth } from "@/common/auth-context";
 
 const STATUS_OPTIONS = [
@@ -38,16 +38,17 @@ export function Requests() {
   const [reqs, setReqs] = useState<RequestView[]>([]);
   const [loading, setLoading] = useState(true);
   const [page, setPage] = useState(1);
-  const [hasMore, setHasMore] = useState(false);
+  const [total, setTotal] = useState(0);
   const [status, setStatus] = useState("");
+  const totalPages = Math.max(1, Math.ceil(total / REQUESTS_TABLE_PAGE_SIZE));
 
   // Re-fetches whatever page is currently on screen — used both by the
   // page-change effect below and after a decision/review-save, so an admin
   // working through page 3 isn't bounced back to page 1 every time.
   const refresh = useCallback(() => {
     listLoanRequestsPage(page, { status: status || undefined })
-      .then((res) => { setReqs(res.items); setHasMore(res.hasMore); })
-      .catch(() => { setReqs([]); setHasMore(false); })
+      .then((res) => { setReqs(res.items); setTotal(res.total); })
+      .catch(() => { setReqs([]); setTotal(0); })
       .finally(() => setLoading(false));
   }, [page, status]);
 
@@ -57,11 +58,6 @@ export function Requests() {
     refresh();
     refreshLoans();
   }
-
-  // No total-row count comes back from the {items, hasMore} envelope — only
-  // whether another page exists — so the indicator shows just the current
-  // page rather than a fabricated "of N" (the old `hasMore ? page + 1 :
-  // page` always read as exactly one more than wherever you already were).
 
   return (
     <>
@@ -121,8 +117,8 @@ export function Requests() {
         </div>
         <div className="ft" style={{ display: "flex", alignItems: "center", gap: 10 }}>
           <button className="btn plain sm" disabled={page <= 1} onClick={() => setPage((p) => Math.max(1, p - 1))}>‹ Prev</button>
-          <span style={{ fontSize: 12.5 }}>Page {page}</span>
-          <button className="btn plain sm" disabled={!hasMore} onClick={() => setPage((p) => p + 1)}>Next ›</button>
+          <span style={{ fontSize: 12.5 }}>Page {page} of {totalPages}</span>
+          <button className="btn plain sm" disabled={page >= totalPages} onClick={() => setPage((p) => Math.min(totalPages, p + 1))}>Next ›</button>
         </div>
         {/* <div className="ft">Release settlement = Principal + Interest + Penal + Charges − Payments/Waivers · verified against packet location &amp; bank pledge status</div> */}
       </div>

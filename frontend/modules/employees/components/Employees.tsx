@@ -7,7 +7,7 @@ import { Icon } from "@/common/components/Icon";
 import { useAuth } from "@/common/auth-context";
 import { fmt, initials } from "@/common/utils/format";
 import { EmployeeModalContent } from "@/common/components/modals/EmployeeModal";
-import { deleteEmployee, listEmployeesPage, type EmployeeView } from "@/modules/employees/services/employeeService";
+import { deleteEmployee, listEmployeesPage, EMPLOYEES_PAGE_SIZE, type EmployeeView } from "@/modules/employees/services/employeeService";
 
 /* Ported from legacy/app.js's `renderEmployees()`. Loads real data from the
  * Go backend (`GET /api/v1/employees`), following the Branches.tsx pattern. */
@@ -22,13 +22,14 @@ export function Employees() {
   const [employees, setEmployees] = useState<EmployeeView[] | null>(null);
   const [error, setError] = useState("");
   const [page, setPage] = useState(1);
-  const [hasMore, setHasMore] = useState(false);
+  const [total, setTotal] = useState(0);
+  const totalPages = Math.max(1, Math.ceil(total / EMPLOYEES_PAGE_SIZE));
 
   async function load() {
     try {
       const res = await listEmployeesPage(page);
       setEmployees(res.items);
-      setHasMore(res.hasMore);
+      setTotal(res.total);
       setError("");
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to load employees.");
@@ -91,7 +92,13 @@ export function Employees() {
                   <tr key={e.id}>
                     <td>
                       <span style={{ display: "inline-flex", alignItems: "center", gap: 10 }}>
-                        <span className="av" style={{ width: 30, height: 30, borderRadius: "50%", background: "linear-gradient(135deg,var(--gold-light),var(--gold-deep))", color: "#2b2001", display: "grid", placeContent: "center", fontWeight: 600, fontSize: 11.5 }}>{initials(e.name)}</span>
+                        {/* flexShrink:0 — the parent span is display:inline-flex,
+                          * and a flex item's default flex-shrink:1 applies even
+                          * with an explicit width/height set, so a long employee
+                          * name pushing this row's content past its column's
+                          * available width was squeezing the circle down instead
+                          * of just wrapping/truncating the name text beside it. */}
+                        <span className="av" style={{ width: 30, height: 30, flexShrink: 0, borderRadius: "50%", background: "linear-gradient(135deg,var(--gold-light),var(--gold-deep))", color: "#2b2001", display: "grid", placeContent: "center", fontWeight: 600, fontSize: 11.5 }}>{initials(e.name)}</span>
                         <span><b>{e.name}</b><span className="sub">{e.code}</span></span>
                       </span>
                     </td>
@@ -120,8 +127,8 @@ export function Employees() {
           </div>
           <div className="ft" style={{ display: "flex", alignItems: "center", gap: 10 }}>
             <button className="btn plain sm" disabled={page <= 1} onClick={() => setPage((p) => Math.max(1, p - 1))}>‹ Prev</button>
-            <span style={{ fontSize: 12.5 }}>Page {page}</span>
-            <button className="btn plain sm" disabled={!hasMore} onClick={() => setPage((p) => p + 1)}>Next ›</button>
+            <span style={{ fontSize: 12.5 }}>Page {page} of {totalPages}</span>
+            <button className="btn plain sm" disabled={page >= totalPages} onClick={() => setPage((p) => Math.min(totalPages, p + 1))}>Next ›</button>
           </div>
         </div>
       )}

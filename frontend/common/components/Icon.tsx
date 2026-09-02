@@ -112,6 +112,7 @@ const PATHS: Record<string, React.ReactNode> = {
       <path d="M9 13h6" />
     </>
   ),
+  chevronDown: <path d="m6 9 6 6 6-6" />,
   gear: (
     <>
       <circle cx="12" cy="12" r="3" />

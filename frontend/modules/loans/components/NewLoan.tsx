@@ -769,7 +769,7 @@ export function NewLoan() {
                       onCreate={createOrnamentType}
                     />
                   </td>
-                  <td><PurityPicker value={r.p} onChange={(v) => updOrn(i, "p", v)} /></td>
+                  <td><PurityPicker value={r.p} onChange={(v) => updOrn(i, "p", v)} dropdownMinWidth={70} /></td>
                   <td className="num"><input className="inp" style={{ padding: "6px 8px", width: "100%", minWidth: 34, height: 31, textAlign: "right", boxSizing: "border-box" }} type="number" min={0} value={r.w === 0 ? "" : r.w} onChange={(e) => updOrn(i, "w", e.target.value === "" ? 0 : Math.max(0, +e.target.value || 0))} /></td>
                   <td className="num"><input className="inp" style={{ padding: "6px 8px", width: "100%", minWidth: 34, height: 31, textAlign: "right", boxSizing: "border-box" }} type="number" min={0} value={r.q} onChange={(e) => updOrn(i, "q", Math.max(0, +e.target.value || 0))} /></td>
                   <td className="num">{fmt(rowVals[i])}</td>
@@ -817,7 +817,7 @@ export function NewLoan() {
                 </div>
                 <div>
                   <label className="f">Purity</label>
-                  <PurityPicker value={r.p} onChange={(v) => updOrn(i, "p", v)} />
+                  <PurityPicker value={r.p} onChange={(v) => updOrn(i, "p", v)} dropdownMinWidth={70} />
                 </div>
                 <div className="orn-card-row">
                   <div style={{ flex: 1 }}>

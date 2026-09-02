@@ -50,6 +50,7 @@ export function Loans() {
   const [page, setPage] = useState(1);
   const [filtered, setFiltered] = useState<LoanView[] | null>(null);
   const [hasMore, setHasMore] = useState(false);
+  const [serverTotal, setServerTotal] = useState(0);
   const [searching, setSearching] = useState(false);
   const [searchError, setSearchError] = useState("");
 
@@ -93,7 +94,7 @@ export function Loans() {
     setSearching(true);
     const handle = setTimeout(() => {
       listLoansPage({ status: cat === "All" ? undefined : cat, q: q.trim() || undefined, page })
-        .then((res) => { if (!cancelled) { setFiltered(res.items); setHasMore(res.hasMore); setSearchError(""); } })
+        .then((res) => { if (!cancelled) { setFiltered(res.items); setHasMore(res.hasMore); setServerTotal(res.total); setSearchError(""); } })
         .catch((e) => { if (!cancelled) setSearchError(e instanceof Error ? e.message : "Search failed."); })
         .finally(() => { if (!cancelled) setSearching(false); });
     }, 300);
@@ -123,19 +124,9 @@ export function Loans() {
     rows = rows.slice((page - 1) * LOANS_TABLE_PAGE_SIZE, page * LOANS_TABLE_PAGE_SIZE);
   } else {
     rows = filtered ?? [];
+    totalPages = Math.max(1, Math.ceil(serverTotal / LOANS_TABLE_PAGE_SIZE));
   }
-  // No total-row count comes back from the {items, hasMore} envelope (see
-  // loansApi.listLoansPage) in the server-paginated branch above — only
-  // whether another page exists. `totalPages = hasMore ? page + 1 : page`
-  // used to stand in for the real total, which read as "Page 1 of 2" on
-  // page one even when there were actually 5 pages of results — it's always
-  // exactly one more than wherever you already are, never the real count,
-  // so it only ever looked "corrected" by coincidence once you'd paged deep
-  // enough that hasMore happened to just turn false. Showing no total at
-  // all here is honest about what's actually known; the client-filtered
-  // branch above still has a real row count, so its own totalPages/"of N"
-  // stays as-is.
-  const knownTotal = !!computedPredicate;
+  const knownTotal = !!computedPredicate || serverTotal > 0;
   const nextDisabled = knownTotal ? page >= totalPages : !hasMore;
 
   return (

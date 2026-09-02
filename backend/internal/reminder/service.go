@@ -145,7 +145,7 @@ func (s *Service) Complete(id uint) (*Reminder, error) {
 
 // SendWhatsApp texts the reminder's note (or a default follow-up line) to
 // its customer's phone via the configured WhatsApp sender (see
-// platform.MetaCloudSender), then marks the reminder Done — sending IS the
+// platform.OpenWASender), then marks the reminder Done — sending IS the
 // action for a manual reminder, the same way Complete is a one-click
 // "actioned" marker.
 func (s *Service) SendWhatsApp(id uint) (*Reminder, error) {

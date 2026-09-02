@@ -68,7 +68,9 @@ type Filter struct {
 	Offset int
 }
 
-func (r *Repository) FindAll(f Filter) ([]Packet, error) {
+// FindAll returns matching packets plus the TOTAL row count for f's filters
+// (Limit/Offset ignored, 0 when f.Limit <= 0).
+func (r *Repository) FindAll(f Filter) ([]Packet, int64, error) {
 	q := preload(r.db).Model(&Packet{})
 	if f.LoanID != 0 {
 		q = q.Where("packets.loan_id = ?", f.LoanID)
@@ -93,7 +95,11 @@ func (r *Repository) FindAll(f Filter) ([]Packet, error) {
 		needle := "%" + f.Q + "%"
 		q = q.Where("packets.code ILIKE ? OR loans.loan_number ILIKE ? OR customers.name ILIKE ?", needle, needle, needle)
 	}
+	var total int64
 	if f.Limit > 0 {
+		if err := q.Session(&gorm.Session{}).Count(&total).Error; err != nil {
+			return nil, 0, err
+		}
 		q = q.Limit(f.Limit)
 	}
 	if f.Offset > 0 {
@@ -101,7 +107,7 @@ func (r *Repository) FindAll(f Filter) ([]Packet, error) {
 	}
 	var packets []Packet
 	err := q.Order("packets.id desc").Find(&packets).Error
-	return packets, err
+	return packets, total, err
 }
 
 func (r *Repository) Update(p *Packet) error {

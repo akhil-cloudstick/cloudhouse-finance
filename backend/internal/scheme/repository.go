@@ -23,7 +23,7 @@ func (r *Repository) Create(s *Scheme) error {
 // limit == 0 returns every matching scheme unpaged (the web Schemes page's
 // behaviour); limit > 0 applies Limit/Offset (the mobile app's paginated
 // list) — same convention as FindActive below.
-func (r *Repository) FindAll(query string, branchID *uint, limit, offset int) ([]Scheme, error) {
+func (r *Repository) FindAll(query string, branchID *uint, limit, offset int) ([]Scheme, int64, error) {
 	var schemes []Scheme
 	q := r.db.Preload("Branch").Order("id asc")
 	if query != "" {
@@ -32,11 +32,15 @@ func (r *Repository) FindAll(query string, branchID *uint, limit, offset int) ([
 	if branchID != nil {
 		q = q.Where("branch_id = ?", *branchID)
 	}
+	var total int64
 	if limit > 0 {
+		if err := q.Session(&gorm.Session{}).Model(&Scheme{}).Count(&total).Error; err != nil {
+			return nil, 0, err
+		}
 		q = q.Limit(limit).Offset(offset)
 	}
 	err := q.Find(&schemes).Error
-	return schemes, err
+	return schemes, total, err
 }
 
 // FindActive mirrors customer.Repository.FindAll's pagination convention:
@@ -45,7 +49,7 @@ func (r *Repository) FindAll(query string, branchID *uint, limit, offset int) ([
 // SearchableSelect in NewLoan.tsx). branchID mirrors FindAll's scoping (nil
 // = all branches, Administrator only) so a non-admin's active-scheme picker
 // never offers a scheme that List/FindAll would then hide from them.
-func (r *Repository) FindActive(query string, branchID *uint, limit, offset int) ([]Scheme, error) {
+func (r *Repository) FindActive(query string, branchID *uint, limit, offset int) ([]Scheme, int64, error) {
 	var schemes []Scheme
 	q := r.db.Where("is_active = ?", true).Order("id asc")
 	if query != "" {
@@ -54,11 +58,15 @@ func (r *Repository) FindActive(query string, branchID *uint, limit, offset int)
 	if branchID != nil {
 		q = q.Where("branch_id = ?", *branchID)
 	}
+	var total int64
 	if limit > 0 {
+		if err := q.Session(&gorm.Session{}).Model(&Scheme{}).Count(&total).Error; err != nil {
+			return nil, 0, err
+		}
 		q = q.Limit(limit).Offset(offset)
 	}
 	err := q.Find(&schemes).Error
-	return schemes, err
+	return schemes, total, err
 }
 
 func (r *Repository) FindInactive() ([]Scheme, error) {

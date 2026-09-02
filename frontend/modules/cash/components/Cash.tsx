@@ -14,6 +14,7 @@ import { SearchableSelect } from "@/common/components/ui/SearchableSelect";
 import {
   listCashMovementsPage, listExpensesPage, getCashSummary, setOpeningBalance,
   setCashMovementLoanStatus, approveExpense, rejectExpense,
+  CASH_MOVEMENTS_PAGE_SIZE, EXPENSES_PAGE_SIZE,
   type CashMovementView, type ExpenseView, type CashSummary,
 } from "@/modules/cash/services/cashService";
 import { ApiError } from "@/common/services/httpClient";
@@ -135,8 +136,12 @@ export function Cash() {
   const [expenses, setExpenses] = useState<ExpenseView[]>([]);
   const [movementsPage, setMovementsPage] = useState(1);
   const [movementsHasMore, setMovementsHasMore] = useState(false);
+  const [movementsTotal, setMovementsTotal] = useState(0);
   const [expensesPage, setExpensesPage] = useState(1);
   const [expensesHasMore, setExpensesHasMore] = useState(false);
+  const [expensesTotal, setExpensesTotal] = useState(0);
+  const movementsTotalPages = Math.max(1, Math.ceil(movementsTotal / CASH_MOVEMENTS_PAGE_SIZE));
+  const expensesTotalPages = Math.max(1, Math.ceil(expensesTotal / EXPENSES_PAGE_SIZE));
   const [summary, setSummary] = useState<CashSummary | null>(null);
   const [openingInput, setOpeningInput] = useState("");
   // Once today's opening balance exists for the selected branch we show it
@@ -156,14 +161,16 @@ export function Cash() {
   const summarySeq = useRef(0);
 
   const refresh = useCallback(() => {
-    listCashMovementsPage(movementsPage).then(({ items, hasMore }) => {
+    listCashMovementsPage(movementsPage).then(({ items, hasMore, total }) => {
       setMovements(items);
       setMovementsHasMore(hasMore);
-    }).catch(() => { setMovements([]); setMovementsHasMore(false); });
-    listExpensesPage(expensesPage).then(({ items, hasMore }) => {
+      setMovementsTotal(total);
+    }).catch(() => { setMovements([]); setMovementsHasMore(false); setMovementsTotal(0); });
+    listExpensesPage(expensesPage).then(({ items, hasMore, total }) => {
       setExpenses(items);
       setExpensesHasMore(hasMore);
-    }).catch(() => { setExpenses([]); setExpensesHasMore(false); });
+      setExpensesTotal(total);
+    }).catch(() => { setExpenses([]); setExpensesHasMore(false); setExpensesTotal(0); });
     const seq = ++summarySeq.current;
     getCashSummary(branchId || undefined, today).then((s) => {
       if (seq !== summarySeq.current) return;
@@ -383,8 +390,8 @@ export function Cash() {
             {/* No total-row count comes back from the {items, hasMore}
               * envelope — only whether another page exists — so this shows
               * just the current page rather than a fabricated "of N". */}
-            <span style={{ fontSize: 12.5 }}>Page {movementsPage}</span>
-            <button className="btn plain sm" disabled={!movementsHasMore} onClick={() => setMovementsPage((p) => p + 1)}>Next ›</button>
+            <span style={{ fontSize: 12.5 }}>Page {movementsPage} of {movementsTotalPages}</span>
+            <button className="btn plain sm" disabled={movementsPage >= movementsTotalPages} onClick={() => setMovementsPage((p) => Math.min(movementsTotalPages, p + 1))}>Next ›</button>
           </div>
         </div>
       )}
@@ -413,8 +420,8 @@ export function Cash() {
           </div>
           <div className="ft" style={{ display: "flex", alignItems: "center", gap: 10 }}>
             <button className="btn plain sm" disabled={expensesPage <= 1} onClick={() => setExpensesPage((p) => Math.max(1, p - 1))}>‹ Prev</button>
-            <span style={{ fontSize: 12.5 }}>Page {expensesPage}</span>
-            <button className="btn plain sm" disabled={!expensesHasMore} onClick={() => setExpensesPage((p) => p + 1)}>Next ›</button>
+            <span style={{ fontSize: 12.5 }}>Page {expensesPage} of {expensesTotalPages}</span>
+            <button className="btn plain sm" disabled={expensesPage >= expensesTotalPages} onClick={() => setExpensesPage((p) => Math.min(expensesTotalPages, p + 1))}>Next ›</button>
           </div>
           <div className="ft">Cash expenses automatically reflect in Cash-in-Hand calculations · receipt images attached to expense records</div>
         </div>

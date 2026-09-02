@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { toDataURL } from "qrcode";
 import { useModal } from "@/common/components/Modal";
 import { useToast } from "@/common/components/Toast";
@@ -47,7 +47,7 @@ export function LoanDetail({ id }: { id?: string }) {
   // without also refreshing that, those pages kept showing the
   // pre-change status until a full page reload re-fetched everything.
   const { refresh: refreshLoans } = useLoans();
-  const { role: myRole, can } = useAuth();
+  const { can } = useAuth();
   // Every action on this page is hidden, not disabled, when the role lacks
   // the grant behind it (see Customers.tsx). The print/export buttons are
   // deliberately not gated — they only render what the viewer can already
@@ -73,6 +73,20 @@ export function LoanDetail({ id }: { id?: string }) {
   const [esigning, setEsigning] = useState(false);
   const [esignStarted, setEsignStarted] = useState(false);
   const [checkingEsign, setCheckingEsign] = useState(false);
+  // Print Label/Slip/Statement/Bond + the eSign action used to be 5 separate
+  // header buttons — collapsed into one "Documents" dropdown (see the doc
+  // menu below) so the header doesn't outgrow the space next to the loan
+  // title on anything but a very wide screen.
+  const [docsMenuOpen, setDocsMenuOpen] = useState(false);
+  const docsMenuRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!docsMenuOpen) return;
+    function onDocClick(e: MouseEvent) {
+      if (!docsMenuRef.current?.contains(e.target as Node)) setDocsMenuOpen(false);
+    }
+    document.addEventListener("click", onDocClick);
+    return () => document.removeEventListener("click", onDocClick);
+  }, [docsMenuOpen]);
   // An outstanding request must survive a page reload: the loan itself
   // records the Setu status (indemnityBondSignStatus === "sign_initiated"),
   // so seed the local flag from it. Without this, reloading mid-signing put
@@ -145,21 +159,31 @@ export function LoanDetail({ id }: { id?: string }) {
   const currentStage = (l.approvalStage === "AuthorizedManagement" ? "FinalSanction" : l.approvalStage) as SanctionStage;
   const pendingStageIndex = SANCTION_STAGES.indexOf(currentStage);
   const pendingStage = pendingStageIndex >= 0 ? SANCTION_STAGES[pendingStageIndex] : null;
-  // Only the role required by the current pending stage (or Administrator,
-  // who may act at any stage) can act — mirrors the backend's real check
-  // (Service.Approve) so someone outside the flow doesn't see clickable
-  // Approve/Reject buttons that would just 403. This is a UX nicety only;
-  // the server enforces it regardless of what the client shows.
+  // Whether the viewer may act at the CURRENT pending stage is now a real
+  // "Loan Sanction" permission grant (see internal/authz.Catalogue),
+  // not a role-name match — an admin can grant e.g. "can approve branch
+  // manager stage" to any role, not just one literally named "Branch
+  // Manager". This mirrors the backend's real check (Service.Approve,
+  // checkStagePermission) so someone outside the flow doesn't see
+  // clickable Approve/Reject buttons that would just 403; it's a UX
+  // nicety only — the server enforces it regardless of what the client
+  // shows. requiredRole is kept purely for the "Awaiting <role>
+  // approval" display text below.
   const requiredRole = pendingStage ? SANCTION_STAGE_ROLES[pendingStage] : null;
   // The LoanOperator stage is a verification, not a sanction — the operator
   // who made the loan confirms it and it moves on to the Branch Manager,
   // who is the first real approver (backend: Service.Approve). So the
   // affirmative action at that stage is "Verified", "Approved" above it.
   const isVerifyStage = pendingStage === "LoanOperator";
-  // The stage role says whose turn it is; "can update loan" says whether the
-  // viewer may act on loans at all. Both must hold, or they see the
-  // "awaiting …" note instead of clickable buttons.
-  const canActOnStage = !!requiredRole && canUpdateLoans && (myRole === "Administrator" || myRole === requiredRole);
+  const STAGE_PERMISSIONS: Record<SanctionStage, string> = {
+    LoanOperator: "can_verify_loan",
+    BranchManager: "can_approve_branch_manager_stage",
+    FinalSanction: "can_sanction_loan",
+  };
+  // The stage permission says whose turn it is; "can update loan" says
+  // whether the viewer may act on loans at all. Both must hold, or they
+  // see the "awaiting …" note instead of clickable buttons.
+  const canActOnStage = !!pendingStage && canUpdateLoans && can("Loan_Sanction", STAGE_PERMISSIONS[pendingStage]);
   // `sm` matches the other page-header buttons (Print Label, Print Slip,
   // Record Payment, …) — these used to render at the default, larger size
   // and towered over the row.
@@ -487,34 +511,47 @@ export function LoanDetail({ id }: { id?: string }) {
           </h1>
           <p><a href={`#customer/${l.customerId}`}>{l.customerName}</a> · {l.schemeName} · opened {l.opened} · due {l.due}{l.isOverdue ? ` · ${l.daysOverdue} days overdue` : ""}</p></div>
         <div className="sp" />
-        {/* Always available regardless of approval stage — staff may need
-         * to (re)print the packet label or pledge slip at any point in the
-         * loan's life, not just before it's sanctioned. */}
-        <button className="btn ghost sm" disabled={printingLabel} onClick={printPacketLabel}>
-          <Icon name="box" /> {printingLabel ? "Preparing…" : "Print Label"}
-        </button>
-        <button className="btn ghost sm" disabled={printingSlip} onClick={printPledgeSlip}>
-          <Icon name="doc" /> {printingSlip ? "Preparing…" : "Print Slip"}
-        </button>
-        <button className="btn ghost sm" disabled={printingStatement} onClick={printStatement}>
-          <Icon name="doc" /> {printingStatement ? "Preparing…" : "Statement"}
-        </button>
-        <button className="btn ghost sm" disabled={printingBond} onClick={printBond}>
-          <Icon name="doc" /> {printingBond ? "Preparing…" : "Print Bond"}
-        </button>
-        {l.indemnityBondSignStatus === "sign_complete" && l.indemnityBondSignedUrl ? (
-          <a className="btn ghost sm" href={l.indemnityBondSignedUrl} target="_blank" rel="noopener noreferrer">
-            <Icon name="check" /> Signed Bond
-          </a>
-        ) : !canUpdateLoans ? null : esignStarted ? (
-          <button className="btn ghost sm" disabled={checkingEsign} onClick={checkIndemnityEsign}>
-            <Icon name="doc" /> {checkingEsign ? "Checking…" : "Check eSign Status"}
+        {/* Print Label/Slip/Statement/Bond + the eSign action — always
+         * available regardless of approval stage (staff may need to
+         * (re)print the packet label or pledge slip at any point in the
+         * loan's life, not just before it's sanctioned) — collapsed into
+         * one "Documents" dropdown rather than 5 separate header buttons,
+         * which outgrew the space next to the loan title on anything but a
+         * very wide screen. */}
+        <div className="docs-dd" ref={docsMenuRef}>
+          <button className="btn ghost sm" onClick={() => setDocsMenuOpen((v) => !v)}>
+            <Icon name="doc" /> Documents <Icon name="chevronDown" className="docs-dd-chev" />
           </button>
-        ) : (
-          <button className="btn ghost sm" disabled={esigning} onClick={startIndemnityEsign}>
-            <Icon name="doc" /> {esigning ? "Preparing…" : "Send Indemnity Bond for eSign"}
-          </button>
-        )}
+          {docsMenuOpen && (
+            <div className="docs-dd-menu">
+              <a href="#" className={printingLabel ? "disabled" : ""} onClick={(e) => { e.preventDefault(); if (printingLabel) return; setDocsMenuOpen(false); printPacketLabel(); }}>
+                <Icon name="box" /><span className="tx">{printingLabel ? "Preparing…" : "Print Label"}</span>
+              </a>
+              <a href="#" className={printingSlip ? "disabled" : ""} onClick={(e) => { e.preventDefault(); if (printingSlip) return; setDocsMenuOpen(false); printPledgeSlip(); }}>
+                <Icon name="doc" /><span className="tx">{printingSlip ? "Preparing…" : "Print Slip"}</span>
+              </a>
+              <a href="#" className={printingStatement ? "disabled" : ""} onClick={(e) => { e.preventDefault(); if (printingStatement) return; setDocsMenuOpen(false); printStatement(); }}>
+                <Icon name="doc" /><span className="tx">{printingStatement ? "Preparing…" : "Statement"}</span>
+              </a>
+              <a href="#" className={printingBond ? "disabled" : ""} onClick={(e) => { e.preventDefault(); if (printingBond) return; setDocsMenuOpen(false); printBond(); }}>
+                <Icon name="doc" /><span className="tx">{printingBond ? "Preparing…" : "Print Bond"}</span>
+              </a>
+              {l.indemnityBondSignStatus === "sign_complete" && l.indemnityBondSignedUrl ? (
+                <a href={l.indemnityBondSignedUrl} target="_blank" rel="noopener noreferrer" onClick={() => setDocsMenuOpen(false)}>
+                  <Icon name="check" /><span className="tx">Signed Bond</span>
+                </a>
+              ) : !canUpdateLoans ? null : esignStarted ? (
+                <a href="#" className={checkingEsign ? "disabled" : ""} onClick={(e) => { e.preventDefault(); if (checkingEsign) return; setDocsMenuOpen(false); checkIndemnityEsign(); }}>
+                  <Icon name="doc" /><span className="tx">{checkingEsign ? "Checking…" : "Check eSign Status"}</span>
+                </a>
+              ) : (
+                <a href="#" className={esigning ? "disabled" : ""} onClick={(e) => { e.preventDefault(); if (esigning) return; setDocsMenuOpen(false); startIndemnityEsign(); }}>
+                  <Icon name="doc" /><span className="tx">{esigning ? "Preparing…" : "Send Indemnity Bond for eSign"}</span>
+                </a>
+              )}
+            </div>
+          )}
+        </div>
         {l.status === "Closure Requested" && canUpdateLoans && (
           <button className="btn" style={{ height: 30 }} disabled={completing || l.totalOutstandingBalance > 0.01 || l.bankPledgeStatus === "Bank Pledged"} onClick={doCompleteRelease} title={l.totalOutstandingBalance > 0.01 ? "Final settlement must be fully paid first" : l.bankPledgeStatus === "Bank Pledged" ? "Release the bank pledge first" : undefined}>
             <Icon name="unlock" /> {completing ? "Releasing…" : "Complete Release"}

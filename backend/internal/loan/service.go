@@ -143,6 +143,12 @@ var (
 	ErrLoanNotDefaulted      = httpx.NewBadRequest("loan must be Defaulted (overdue by more than 90 days) before it can be marked auction-eligible")
 	ErrAuctionAlreadyStarted = httpx.NewBadRequest("this loan already has an auction case in progress")
 	ErrAuctionWrongStage     = httpx.NewBadRequest("action does not match the auction case's current stage")
+	// ErrAuctionStepNotPermitted: the acting employee's role isn't granted
+	// the specific "Approval Workflow" permission this auction step requires
+	// (see internal/authz.Catalogue) — previously these five steps (mark
+	// eligible, issue notice, schedule, record sale, settle) were only
+	// gated by the general "can update loan" permission.
+	ErrAuctionStepNotPermitted = httpx.NewForbidden("your role does not have permission to perform this auction step")
 
 	// ErrDraftNotFound covers both "no such draft" and "not yours" — a draft
 	// belongs to the employee who saved it (see LoanDraft), and answering
@@ -252,6 +258,17 @@ type Service struct {
 	// prefill it on the Aadhaar-eSign PDF, mirroring what the printable
 	// pledge agreement shows via customer.Service.DecryptAadhaar.
 	aadhaarCipher *platform.Cipher
+
+	// permChecker gates every stage of the loan sanction/extension/release
+	// approval chains, plus each auction decision/process step, against the
+	// "Approval Workflow" permissions (see internal/authz.Catalogue) instead
+	// of the hardcoded role-name comparisons these used before — see
+	// checkStagePermission's doc comment. Reuses platform.PermissionChecker
+	// (the same interface RequirePermission's middleware already checks
+	// ordinary CRUD permissions against) rather than importing internal/authz
+	// directly, structurally satisfied by *authz.Repository — see main.go's
+	// wiring.
+	permChecker platform.PermissionChecker
 }
 
 func NewService(
@@ -279,6 +296,7 @@ func NewService(
 	uploadsDir string,
 	razorpay *platform.RazorpayClient,
 	aadhaarCipher *platform.Cipher,
+	permChecker platform.PermissionChecker,
 ) *Service {
 	return &Service{
 		db:                  db,
@@ -306,7 +324,26 @@ func NewService(
 		uploadsDir:          uploadsDir,
 		razorpay:            razorpay,
 		aadhaarCipher:       aadhaarCipher,
+		permChecker:         permChecker,
 	}
+}
+
+// checkStagePermission is the one place every approval-stage/auction-step
+// gate below calls through — replaces what used to be a direct
+// `actorRole != "<literal>"` string comparison per call site. A permission
+// lookup failure (permChecker nil, e.g. in a test that doesn't wire one, or
+// the DB query itself erroring) fails CLOSED (denies), the same as
+// platform.RequirePermission's own middleware does for the equivalent CRUD
+// checks — a broken permission lookup must never silently grant access.
+func (s *Service) checkStagePermission(roleID uint, permissionName string) bool {
+	if s.permChecker == nil {
+		return false
+	}
+	allowed, err := s.permChecker.IsAllowed(roleID, permissionName)
+	if err != nil {
+		return false
+	}
+	return allowed
 }
 
 // notifyCustomer sends a WhatsApp message to a customer about a loan event
@@ -323,31 +360,44 @@ func NewService(
 // user-facing label for the in-app notification list (the WhatsApp message
 // stays the existing full-sentence copy); triggerType/relatedEntityType/
 // relatedEntityID classify the event for both commlog and Notification.Type.
+//
+// The WhatsApp send (an outbound HTTP call to OpenWA, up to its client's own
+// 15s timeout) runs in its own goroutine rather than inline: this used to
+// block the calling request — a loan sanction, an extension/release
+// approval, an auction step — on OpenWA actually confirming delivery before
+// the HTTP response could return, so a slow or unreachable WhatsApp gateway
+// made every one of those actions feel hung even though the underlying loan
+// state change had already committed. The commlog write moves along with it
+// (it needs the send's own success/failure to record), so the audit trail
+// still reflects the real outcome — just written a moment after the request
+// that triggered it has already returned.
 func (s *Service) notifyCustomer(customerID uint, phone, title, message, triggerType, relatedEntityType string, relatedEntityID uint) {
 	if s.whatsapp != nil {
-		sendErr := s.whatsapp.Send(phone, message)
-		if sendErr != nil {
-			log.Printf("whatsapp notification failed (phone %s): %v", phone, sendErr)
-		}
-		if s.commlogRepo != nil {
-			rec := &commlog.CommunicationLog{
-				RecipientPhone:    phone,
-				ChatID:            commlog.NormalizeChatID(phone),
-				Channel:           commlog.ChannelWhatsApp,
-				TriggerType:       triggerType,
-				MessageBody:       message,
-				RelatedEntityType: relatedEntityType,
-				RelatedEntityID:   relatedEntityID,
-				Status:            commlog.StatusSent,
-			}
+		go func() {
+			sendErr := s.whatsapp.Send(phone, message)
 			if sendErr != nil {
-				rec.Status = commlog.StatusFailed
-				rec.ErrorMessage = sendErr.Error()
+				log.Printf("whatsapp notification failed (phone %s): %v", phone, sendErr)
 			}
-			if err := s.commlogRepo.Create(rec); err != nil {
-				log.Printf("communication log write failed (phone %s): %v", phone, err)
+			if s.commlogRepo != nil {
+				rec := &commlog.CommunicationLog{
+					RecipientPhone:    phone,
+					ChatID:            commlog.NormalizeChatID(phone),
+					Channel:           commlog.ChannelWhatsApp,
+					TriggerType:       triggerType,
+					MessageBody:       message,
+					RelatedEntityType: relatedEntityType,
+					RelatedEntityID:   relatedEntityID,
+					Status:            commlog.StatusSent,
+				}
+				if sendErr != nil {
+					rec.Status = commlog.StatusFailed
+					rec.ErrorMessage = sendErr.Error()
+				}
+				if err := s.commlogRepo.Create(rec); err != nil {
+					log.Printf("communication log write failed (phone %s): %v", phone, err)
+				}
 			}
-		}
+		}()
 	}
 	if s.notifier != nil {
 		s.notifier.Notify(customerID, triggerType, title, message, relatedEntityType, relatedEntityID)
@@ -541,10 +591,12 @@ func (s *Service) Create(in CreateInput) (*Loan, error) {
 	return created, nil
 }
 
-func (s *Service) List(f LoanFilter) ([]Loan, error) {
-	loans, err := s.repo.FindAll(f)
+// List returns matching loans plus the total row count for f's filters
+// (ignoring Limit/Offset) — 0 when f.Limit <= 0 (see Repository.FindAll).
+func (s *Service) List(f LoanFilter) ([]Loan, int64, error) {
+	loans, total, err := s.repo.FindAll(f)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	// Listing is read-only and can return many rows, so accrual here is
 	// projected into the in-memory copy for display only (never saved) —
@@ -558,7 +610,7 @@ func (s *Service) List(f LoanFilter) ([]Loan, error) {
 		l.AccruedPenalInterest = platform.RoundMoney(l.AccruedPenalInterest + penalDelta)
 		s.enrich(l)
 	}
-	return loans, nil
+	return loans, total, nil
 }
 
 func (s *Service) Get(id uint, branchID *uint) (*Loan, error) {
@@ -771,13 +823,17 @@ func (s *Service) AddOrnamentImage(ornamentID uint, imageURL string) (*Ornament,
 }
 
 // sanctionChain is the loan sanction chain's fixed stage order — index i's
-// role must act (or "Administrator", see Approve) to advance from
-// SanctionStage[i] to SanctionStage[i+1] (or to ApprovalStageApproved, for
-// the last stage).
-var sanctionChain = []struct{ Stage, Role string }{
-	{SanctionStageLoanOperator, "Loan Operator"},
-	{SanctionStageBranchManager, "Branch Manager"},
-	{SanctionStageFinalSanction, "Management"},
+// Permission must be held by the acting employee's role (see Approve and
+// checkStagePermission) to advance from SanctionStage[i] to
+// SanctionStage[i+1] (or to ApprovalStageApproved, for the last stage).
+// Role is kept only as a human-readable label for sanctionWarning's advisory
+// message text below — it plays no part in the actual authorization check
+// any more (see the "Approval Workflow" permissions in internal/authz.Catalogue,
+// which default-grant these to the same roles this used to hardcode).
+var sanctionChain = []struct{ Stage, Role, Permission string }{
+	{SanctionStageLoanOperator, "Loan Operator", "can verify loan"},
+	{SanctionStageBranchManager, "Branch Manager", "can approve branch manager stage"},
+	{SanctionStageFinalSanction, "Management", "can sanction loan"},
 }
 
 // normalizeSanctionStage maps the retired AuthorizedManagement stage onto
@@ -860,7 +916,8 @@ type ApprovalInput struct {
 	Stage           string // one of SanctionStage* — must match the loan's current ApprovalStage
 	Action          string // "Approved" | "Rejected"
 	ActorEmployeeID uint
-	ActorRole       string // employee.ValidRoles value; "Administrator" may act at any pending stage
+	ActorRole       string // employee.ValidRoles value — audit-trail display only, not used for authorization any more (see checkStagePermission)
+	ActorRoleID     uint   // authz.Role.ID — checked against sanctionChain's required "Approval Workflow" permission
 	Remarks         string
 }
 
@@ -900,10 +957,11 @@ func (s *Service) Approve(loanID uint, in ApprovalInput) (*Loan, error) {
 		return nil, ErrWrongStage
 	}
 
-	var requiredRole string
+	var requiredRole, requiredPermission string
 	for _, step := range sanctionChain {
 		if step.Stage == stage {
 			requiredRole = step.Role
+			requiredPermission = step.Permission
 			break
 		}
 	}
@@ -912,7 +970,10 @@ func (s *Service) Approve(loanID uint, in ApprovalInput) (*Loan, error) {
 	if in.Action == ApprovalActionVerified && requiredRole != "Loan Operator" {
 		return nil, ErrWrongStage
 	}
-	if in.ActorRole != "Administrator" && requiredRole != "" && in.ActorRole != requiredRole {
+	// Permission-gated (see checkStagePermission's doc comment) — "Administrator"
+	// is no longer special-cased here: its role's grants can't be revoked
+	// (see authz.Repository), so it always holds requiredPermission already.
+	if requiredPermission != "" && !s.checkStagePermission(in.ActorRoleID, requiredPermission) {
 		return nil, ErrWrongStage
 	}
 
@@ -1575,7 +1636,7 @@ func (s *Service) GetAuctionHistory(loanID uint, branchID *uint) ([]AuctionRecor
 // across all loans, scoped to the caller's branch — backs the Auctions
 // screen's History tab. See AuctionRepository.FindAllConcluded for hasSale/
 // limit/offset semantics.
-func (s *Service) ListConcludedAuctions(branchID *uint, hasSale *bool, limit, offset int) ([]ConcludedAuctionRow, error) {
+func (s *Service) ListConcludedAuctions(branchID *uint, hasSale *bool, limit, offset int) ([]ConcludedAuctionRow, int64, error) {
 	return s.auctionRepo.FindAllConcluded(branchID, hasSale, limit, offset)
 }
 
@@ -1608,7 +1669,10 @@ func (s *Service) GetAuctionRecord(loanID uint, branchID *uint) (*AuctionRecord,
 // unauctionable. The rule is enforced in the database by a partial unique
 // index (see cmd/migrate), so two concurrent requests cannot both open a case;
 // the constraint violation is translated back to ErrAuctionAlreadyStarted.
-func (s *Service) MarkAuctionEligible(loanID uint, branchID *uint, actorID *uint, actorRole string) (*AuctionRecord, error) {
+func (s *Service) MarkAuctionEligible(loanID uint, branchID *uint, actorID *uint, actorRole string, actorRoleID uint) (*AuctionRecord, error) {
+	if !s.checkStagePermission(actorRoleID, "can mark loan auction eligible") {
+		return nil, ErrAuctionStepNotPermitted
+	}
 	l, err := s.repo.FindByID(loanID)
 	if err != nil {
 		return nil, ErrNotFound
@@ -1685,7 +1749,10 @@ var auctionNoticeChannels = []string{"WhatsApp"}
 // already advanced past Eligible). Actually delivers the WhatsApp message
 // (best-effort — a delivery failure never blocks logging the notice, same
 // rule as notifyCustomer elsewhere).
-func (s *Service) IssueAuctionNotice(loanID uint, branchID *uint, remarks string, actorID *uint, actorRole string) (*AuctionRecord, error) {
+func (s *Service) IssueAuctionNotice(loanID uint, branchID *uint, remarks string, actorID *uint, actorRole string, actorRoleID uint) (*AuctionRecord, error) {
+	if !s.checkStagePermission(actorRoleID, "can issue auction notice") {
+		return nil, ErrAuctionStepNotPermitted
+	}
 	if err := s.checkLoanBranch(loanID, branchID); err != nil {
 		return nil, err
 	}
@@ -1736,7 +1803,10 @@ func (s *Service) IssueAuctionNotice(loanID uint, branchID *uint, remarks string
 // ScheduleAuction records the actual auction date/reference and advances
 // the case to AuctionScheduled. Requires at least one notice to have been
 // issued first.
-func (s *Service) ScheduleAuction(loanID uint, branchID *uint, date time.Time, referenceNumber string, actorID *uint, actorRole string) (*AuctionRecord, error) {
+func (s *Service) ScheduleAuction(loanID uint, branchID *uint, date time.Time, referenceNumber string, actorID *uint, actorRole string, actorRoleID uint) (*AuctionRecord, error) {
+	if !s.checkStagePermission(actorRoleID, "can schedule auction") {
+		return nil, ErrAuctionStepNotPermitted
+	}
 	if err := s.checkLoanBranch(loanID, branchID); err != nil {
 		return nil, err
 	}
@@ -1790,7 +1860,10 @@ func (s *Service) ScheduleAuction(loanID uint, branchID *uint, date time.Time, r
 // Runs in a transaction: the cash movement, ledger entry, balance change,
 // case update and escalation must all land together, or a failure part-way
 // could leave gold sold with no record of the proceeds.
-func (s *Service) RecordAuctionSale(loanID uint, branchID *uint, saleAmount, expenses float64, actorID *uint, actorRole string) (*AuctionRecord, error) {
+func (s *Service) RecordAuctionSale(loanID uint, branchID *uint, saleAmount, expenses float64, actorID *uint, actorRole string, actorRoleID uint) (*AuctionRecord, error) {
+	if !s.checkStagePermission(actorRoleID, "can record auction sale") {
+		return nil, ErrAuctionStepNotPermitted
+	}
 	if saleAmount <= 0 {
 		return nil, ErrInvalidAmount
 	}
@@ -1999,7 +2072,10 @@ func derefUint(p *uint) uint {
 //
 // A disposition can only be set once, so a surplus can never be paid out
 // twice.
-func (s *Service) SettleAuction(loanID uint, branchID *uint, disposition, remarks string, actorID *uint, actorRole string) (*AuctionRecord, error) {
+func (s *Service) SettleAuction(loanID uint, branchID *uint, disposition, remarks string, actorID *uint, actorRole string, actorRoleID uint) (*AuctionRecord, error) {
+	if !s.checkStagePermission(actorRoleID, "can settle auction") {
+		return nil, ErrAuctionStepNotPermitted
+	}
 	switch disposition {
 	case AuctionSurplusRefundedToCustomer, AuctionSurplusRecordedAsIncome:
 	default:
@@ -2073,29 +2149,6 @@ func (s *Service) SettleAuction(loanID uint, branchID *uint, disposition, remark
 	return s.getAuctionRecord(loanID)
 }
 
-// shortfallAuthorityRoles are the only roles that may decide the fate of a
-// post-auction shortfall. Auction Administrator is deliberately absent: it
-// raises the escalation (automatically, on recording the sale) but writing off
-// or pursuing real money owed is a higher-authority call. Enforced here in the
-// service — not merely hidden in the UI — because Auction Administrator does
-// pass the auction route guard.
-var shortfallAuthorityRoles = map[string]bool{
-	"Branch Manager": true,
-	"Management":     true,
-	"Administrator":  true,
-}
-
-// partialRepaymentAuthorityRoles may decide whether a part-paying customer's
-// gold stays in the auction. Either the Auction Administrator or the Branch
-// Manager can act — whoever gets there first — so a customer's gold is never
-// stuck waiting for two signatures.
-var partialRepaymentAuthorityRoles = map[string]bool{
-	"Auction Administrator": true,
-	"Branch Manager":        true,
-	"Management":            true,
-	"Administrator":         true,
-}
-
 // ResolveAuctionDecision records a human decision on an escalation and applies
 // its consequences. Both kinds of escalation share this one entry point, with
 // the legal outcomes validated per kind:
@@ -2108,7 +2161,7 @@ var partialRepaymentAuthorityRoles = map[string]bool{
 // (projectAccrual only accrues for Active/DueSoon/Overdue). While the decision
 // was pending the balance sat frozen at StatusAuctionedBalanceDue, so the
 // decision-maker judged a stable figure rather than a moving one.
-func (s *Service) ResolveAuctionDecision(loanID, requestID uint, branchID *uint, decision, remarks string, actorID *uint, actorRole string) (*AuctionRecord, error) {
+func (s *Service) ResolveAuctionDecision(loanID, requestID uint, branchID *uint, decision, remarks string, actorID *uint, actorRole string, actorRoleID uint) (*AuctionRecord, error) {
 	l, err := s.repo.FindByID(loanID)
 	if err != nil {
 		return nil, ErrNotFound
@@ -2149,7 +2202,7 @@ func (s *Service) ResolveAuctionDecision(loanID, requestID uint, branchID *uint,
 
 		switch req.Kind {
 		case AuctionDecisionKindPartialRepayment:
-			if !partialRepaymentAuthorityRoles[actorRole] {
+			if !s.checkStagePermission(actorRoleID, "can decide auction partial repayment") {
 				return ErrShortfallAuthorityRequired
 			}
 			switch decision {
@@ -2182,7 +2235,7 @@ func (s *Service) ResolveAuctionDecision(loanID, requestID uint, branchID *uint,
 			}
 
 		case AuctionDecisionKindShortfall:
-			if !shortfallAuthorityRoles[actorRole] {
+			if !s.checkStagePermission(actorRoleID, "can decide auction shortfall") {
 				return ErrShortfallAuthorityRequired
 			}
 			if strings.TrimSpace(remarks) == "" {
@@ -2372,7 +2425,7 @@ func (s *Service) CreateReleaseRequest(loanID uint, in ReleaseRequestInput) (*Lo
 	return s.requestRepo.FindByID(req.ID)
 }
 
-func (s *Service) ListRequests(f LoanRequestFilter) ([]LoanRequest, error) {
+func (s *Service) ListRequests(f LoanRequestFilter) ([]LoanRequest, int64, error) {
 	return s.requestRepo.FindAll(f)
 }
 
@@ -2424,13 +2477,16 @@ type ChecklistInput struct {
 	CustomerConfirmed  *bool
 	VerificationNotes  *string
 	Charges            *float64
+	ActorRoleID        uint // authz.Role.ID — must hold "can verify release checklist"
 }
 
 // VerifyReleaseChecklist updates one or more of a pending Release request's
 // verification-checklist items. Callable repeatedly as staff confirm each
 // item in person (payment settled, packet location, bank pledge status,
 // customer confirmation) — ApproveReleaseRequest refuses the first approval
-// stage until all four are true.
+// stage until all four are true. Previously had no role gate at all — any
+// authenticated caller could verify a release checklist; now requires "can
+// verify release checklist" (see internal/authz.Catalogue).
 func (s *Service) VerifyReleaseChecklist(requestID uint, branchID *uint, in ChecklistInput) (*LoanRequest, error) {
 	req, err := s.requestRepo.FindByID(requestID)
 	if err != nil {
@@ -2444,6 +2500,9 @@ func (s *Service) VerifyReleaseChecklist(requestID uint, branchID *uint, in Chec
 	}
 	if req.Status != RequestStatusPending {
 		return nil, ErrRequestAlreadyDecided
+	}
+	if !s.checkStagePermission(in.ActorRoleID, "can verify release checklist") {
+		return nil, ErrWrongStage
 	}
 
 	if in.PaymentVerified != nil {
@@ -2479,6 +2538,7 @@ type ReleaseApprovalInput struct {
 	Stage           string // "Manager" | "Management" — must match the request's current ApprovalStage
 	Action          string // "Approved" | "Rejected"
 	ActorEmployeeID uint
+	ActorRoleID     uint // authz.Role.ID — must hold "can approve release manager/management stage" for the current stage
 	Remarks         string
 }
 
@@ -2517,14 +2577,22 @@ func (s *Service) ApproveReleaseRequest(requestID uint, branchID *uint, in Relea
 	if stage == "" {
 		stage = ApprovalStagePendingManager
 	}
-	var expectedStage string
+	var expectedStage, requiredPermission string
 	switch stage {
 	case ApprovalStagePendingManager:
 		expectedStage = "Manager"
+		requiredPermission = "can approve release manager stage"
 	case ApprovalStagePendingManagement:
 		expectedStage = "Management"
+		requiredPermission = "can approve release management stage"
 	}
 	if in.Stage != expectedStage {
+		return nil, ErrWrongStage
+	}
+	// Previously had no role gate at all — any authenticated caller could
+	// approve either release stage; now requires the matching "Approval
+	// Workflow" permission (see internal/authz.Catalogue).
+	if requiredPermission != "" && !s.checkStagePermission(in.ActorRoleID, requiredPermission) {
 		return nil, ErrWrongStage
 	}
 
@@ -2608,17 +2676,15 @@ func (s *Service) ApproveReleaseRequest(requestID uint, branchID *uint, in Relea
 }
 
 // extensionChain is the Extension-request chain's fixed stage order,
-// mirroring sanctionChain above — index i's role must act (or
-// "Administrator", see ApproveExtensionRequest) to advance from
-// extensionChain[i]'s stage to the next one, or to ApprovalStageApproved for
-// the last stage. "Loan Officer" here is the request-approval label for the
-// same "Loan Operator" role used elsewhere (employee.ValidRoles has no
-// separate "Loan Officer" role) — kept as one canonical role string so the
-// role check matches what's actually stored on the employee record.
-var extensionChain = []struct{ ApprovalStage, Stage, Role string }{
-	{ApprovalStagePendingLoanOfficer, "LoanOfficer", "Loan Operator"},
-	{ApprovalStagePendingBranchManager, "BranchManager", "Branch Manager"},
-	{ApprovalStagePendingManagement, "Management", "Management"},
+// mirroring sanctionChain above — index i's Permission must be held by the
+// acting employee's role (see ApproveExtensionRequest and
+// checkStagePermission) to advance from extensionChain[i]'s stage to the
+// next one, or to ApprovalStageApproved for the last stage. Role is kept
+// only as a display label — no longer used for authorization.
+var extensionChain = []struct{ ApprovalStage, Stage, Role, Permission string }{
+	{ApprovalStagePendingLoanOfficer, "LoanOfficer", "Loan Operator", "can verify the loan extension"},
+	{ApprovalStagePendingBranchManager, "BranchManager", "Branch Manager", "can approve extension branch manager stage"},
+	{ApprovalStagePendingManagement, "Management", "Management", "can approve extension management stage"},
 }
 
 // ExtensionApprovalInput mirrors the body of
@@ -2627,7 +2693,8 @@ type ExtensionApprovalInput struct {
 	Stage           string // "LoanOfficer" | "BranchManager" | "Management" — must match the request's current ApprovalStage
 	Action          string // "Approved" | "Rejected"
 	ActorEmployeeID uint
-	ActorRole       string // employee.ValidRoles value; "Administrator" may act at any pending stage
+	ActorRole       string // employee.ValidRoles value — audit-trail display only, not used for authorization any more
+	ActorRoleID     uint   // authz.Role.ID — checked against extensionChain's required "Approval Workflow" permission
 	Remarks         string
 }
 
@@ -2662,18 +2729,18 @@ func (s *Service) ApproveExtensionRequest(requestID uint, branchID *uint, in Ext
 	if stage == "" {
 		stage = ApprovalStagePendingLoanOfficer
 	}
-	var expectedStage, requiredRole string
+	var expectedStage, requiredPermission string
 	for _, step := range extensionChain {
 		if step.ApprovalStage == stage {
 			expectedStage = step.Stage
-			requiredRole = step.Role
+			requiredPermission = step.Permission
 			break
 		}
 	}
 	if in.Stage != expectedStage {
 		return nil, ErrWrongStage
 	}
-	if in.ActorRole != "Administrator" && requiredRole != "" && in.ActorRole != requiredRole {
+	if requiredPermission != "" && !s.checkStagePermission(in.ActorRoleID, requiredPermission) {
 		return nil, ErrWrongStage
 	}
 
@@ -2988,7 +3055,7 @@ func (s *Service) GetBankPledgeHistory(loanID uint, branchID *uint) ([]BankPledg
 
 // ListBankPledgeHistory returns re-pledge records across all loans, scoped to
 // the caller's branch — backs the Bank Re-Pledge screen's History tab.
-func (s *Service) ListBankPledgeHistory(branchID *uint, limit, offset int) ([]BankPledgeRecord, error) {
+func (s *Service) ListBankPledgeHistory(branchID *uint, limit, offset int) ([]BankPledgeRecord, int64, error) {
 	return s.pledgeRepo.FindAllHistory(branchID, limit, offset)
 }
 
@@ -3024,7 +3091,7 @@ func (s *Service) GetCustomer360(customerID uint, from, to *time.Time) (*Custome
 	if err != nil {
 		return nil, ErrCustomerInvalid
 	}
-	loans, err := s.repo.FindAll(LoanFilter{CustomerID: customerID, OpenedFrom: from, OpenedTo: to})
+	loans, _, err := s.repo.FindAll(LoanFilter{CustomerID: customerID, OpenedFrom: from, OpenedTo: to})
 	if err != nil {
 		return nil, err
 	}
@@ -3069,16 +3136,16 @@ func (s *Service) GetCustomer360(customerID uint, from, to *time.Time) (*Custome
 // Reuses the existing List/FindAll path (with enrichment and accrual
 // projection) rather than a bespoke query, since a customer's loan list is
 // already exactly what LoanFilter{CustomerID: ...} produces.
-func (s *Service) ListLoansForCustomer(customerID uint, from, to *time.Time, limit, offset int) ([]Loan, error) {
+func (s *Service) ListLoansForCustomer(customerID uint, from, to *time.Time, limit, offset int) ([]Loan, int64, error) {
 	return s.List(LoanFilter{CustomerID: customerID, OpenedFrom: from, OpenedTo: to, Limit: limit, Offset: offset})
 }
 
 // ListOrnamentsForCustomer paginates every ornament pledged across every
 // loan belonging to customerID — backs GET /customers/:id/ornaments, the
 // Customer 360 view's Pledged Ornaments sub-table.
-func (s *Service) ListOrnamentsForCustomer(customerID uint, from, to *time.Time, limit, offset int) ([]CustomerOrnamentRow, error) {
+func (s *Service) ListOrnamentsForCustomer(customerID uint, from, to *time.Time, limit, offset int) ([]CustomerOrnamentRow, int64, error) {
 	if _, err := s.customerRepo.FindByID(customerID); err != nil {
-		return nil, ErrCustomerInvalid
+		return nil, 0, ErrCustomerInvalid
 	}
 	return s.ornamentRepo.FindByCustomerID(customerID, from, to, limit, offset)
 }
@@ -3086,9 +3153,9 @@ func (s *Service) ListOrnamentsForCustomer(customerID uint, from, to *time.Time,
 // ListPaymentsForCustomer paginates every payment across every loan
 // belonging to customerID — backs GET /customers/:id/payments, the
 // Customer 360 view's Payment History sub-table.
-func (s *Service) ListPaymentsForCustomer(customerID uint, from, to *time.Time, limit, offset int) ([]CustomerPaymentRow, error) {
+func (s *Service) ListPaymentsForCustomer(customerID uint, from, to *time.Time, limit, offset int) ([]CustomerPaymentRow, int64, error) {
 	if _, err := s.customerRepo.FindByID(customerID); err != nil {
-		return nil, ErrCustomerInvalid
+		return nil, 0, ErrCustomerInvalid
 	}
 	return s.paymentRepo.FindByCustomerIDForProfile(customerID, from, to, limit, offset)
 }
@@ -3096,9 +3163,9 @@ func (s *Service) ListPaymentsForCustomer(customerID uint, from, to *time.Time, 
 // ListBankPledgesForCustomer paginates every re-pledge record across every
 // loan belonging to customerID — backs GET /customers/:id/bank-pledges, the
 // Customer 360 view's Bank Pledges sub-table.
-func (s *Service) ListBankPledgesForCustomer(customerID uint, from, to *time.Time, limit, offset int) ([]CustomerBankPledgeRow, error) {
+func (s *Service) ListBankPledgesForCustomer(customerID uint, from, to *time.Time, limit, offset int) ([]CustomerBankPledgeRow, int64, error) {
 	if _, err := s.customerRepo.FindByID(customerID); err != nil {
-		return nil, ErrCustomerInvalid
+		return nil, 0, ErrCustomerInvalid
 	}
 	return s.pledgeRepo.FindAllByCustomerID(customerID, from, to, limit, offset)
 }
@@ -3107,9 +3174,9 @@ func (s *Service) ListBankPledgesForCustomer(customerID uint, from, to *time.Tim
 // across every loan belonging to customerID — backs
 // GET /customers/:id/auction-history, the Customer 360 view's Auction
 // History sub-table.
-func (s *Service) ListAuctionHistoryForCustomer(customerID uint, from, to *time.Time, limit, offset int) ([]CustomerAuctionRow, error) {
+func (s *Service) ListAuctionHistoryForCustomer(customerID uint, from, to *time.Time, limit, offset int) ([]CustomerAuctionRow, int64, error) {
 	if _, err := s.customerRepo.FindByID(customerID); err != nil {
-		return nil, ErrCustomerInvalid
+		return nil, 0, ErrCustomerInvalid
 	}
 	return s.auctionRepo.FindAllByCustomerID(customerID, from, to, limit, offset)
 }

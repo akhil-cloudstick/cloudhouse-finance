@@ -579,7 +579,7 @@ export const LOANS_TABLE_PAGE_SIZE = 10;
  * (status/q) rather than a picker's free-text query. */
 export async function listLoansPage(
   filters: LoanFilters & { page: number }
-): Promise<{ items: LoanView[]; hasMore: boolean }> {
+): Promise<{ items: LoanView[]; hasMore: boolean; total: number }> {
   const params = new URLSearchParams({
     limit: String(LOANS_TABLE_PAGE_SIZE),
     offset: String((filters.page - 1) * LOANS_TABLE_PAGE_SIZE),
@@ -589,8 +589,8 @@ export async function listLoansPage(
   if (filters.branchId) params.set("branchId", String(filters.branchId));
   if (filters.customerId) params.set("customerId", String(filters.customerId));
   if (filters.bankPledgeStatus) params.set("bankPledgeStatus", filters.bankPledgeStatus);
-  const rec = await apiFetch<{ items: BackendLoan[]; hasMore: boolean }>(`/loans?${params}`);
-  return { items: (rec?.items || []).map(toView), hasMore: !!rec?.hasMore };
+  const rec = await apiFetch<{ items: BackendLoan[]; hasMore: boolean; total?: number }>(`/loans?${params}`);
+  return { items: (rec?.items || []).map(toView), hasMore: !!rec?.hasMore, total: rec?.total ?? 0 };
 }
 
 /* Page size for the paginated loan pickers. Ten rows per request — enough
@@ -882,19 +882,19 @@ export async function listBankPledgeHistory(): Promise<BankPledgeRecordView[]> {
   return (recs || []).map(toBankPledgeRecordView);
 }
 
-const BANK_PLEDGE_HISTORY_PAGE_SIZE = 10;
+export const BANK_PLEDGE_HISTORY_PAGE_SIZE = 10;
 
 // listBankPledgeHistoryPage backs the Bank Re-Pledge screen's History tab
 // pagination — see Loans.tsx's listLoansPage for the same {items, hasMore}
 // envelope pattern.
 export async function listBankPledgeHistoryPage(
   page: number
-): Promise<{ items: BankPledgeRecordView[]; hasMore: boolean }> {
+): Promise<{ items: BankPledgeRecordView[]; hasMore: boolean; total: number }> {
   const offset = (page - 1) * BANK_PLEDGE_HISTORY_PAGE_SIZE;
-  const res = await apiFetch<{ items: BackendBankPledgeRecord[] | null; hasMore: boolean }>(
+  const res = await apiFetch<{ items: BackendBankPledgeRecord[] | null; hasMore: boolean; total?: number }>(
     `/loans/bank-pledges/history?limit=${BANK_PLEDGE_HISTORY_PAGE_SIZE}&offset=${offset}`
   );
-  return { items: (res.items || []).map(toBankPledgeRecordView), hasMore: res.hasMore };
+  return { items: (res.items || []).map(toBankPledgeRecordView), hasMore: res.hasMore, total: res.total ?? 0 };
 }
 
 export const CASH_TREATMENT_LABELS: Record<BankPledgeCashTreatment, string> = {
@@ -1217,16 +1217,16 @@ export const AUCTION_HISTORY_PAGE_SIZE = 10;
 export async function listConcludedAuctionsPage(
   page: number,
   hasSale: boolean
-): Promise<{ items: ConcludedAuctionRowView[]; hasMore: boolean }> {
+): Promise<{ items: ConcludedAuctionRowView[]; hasMore: boolean; total: number }> {
   const params = new URLSearchParams({
     limit: String(AUCTION_HISTORY_PAGE_SIZE),
     offset: String((page - 1) * AUCTION_HISTORY_PAGE_SIZE),
     hasSale: String(hasSale),
   });
-  const rec = await apiFetch<{ items: BackendConcludedAuctionRow[]; hasMore: boolean }>(
+  const rec = await apiFetch<{ items: BackendConcludedAuctionRow[]; hasMore: boolean; total?: number }>(
     `/loans/auctions/concluded?${params}`
   );
-  return { items: (rec?.items || []).map(toConcludedAuctionRowView), hasMore: !!rec?.hasMore };
+  return { items: (rec?.items || []).map(toConcludedAuctionRowView), hasMore: !!rec?.hasMore, total: rec?.total ?? 0 };
 }
 
 export async function listPendingAuctionDecisions(): Promise<AuctionDecisionRequestView[]> {
@@ -1360,15 +1360,15 @@ export const REQUESTS_TABLE_PAGE_SIZE = 10;
 export async function listLoanRequestsPage(
   page: number,
   filters?: LoanRequestFilters
-): Promise<{ items: RequestView[]; hasMore: boolean }> {
+): Promise<{ items: RequestView[]; hasMore: boolean; total: number }> {
   const params = new URLSearchParams({
     limit: String(REQUESTS_TABLE_PAGE_SIZE),
     offset: String((page - 1) * REQUESTS_TABLE_PAGE_SIZE),
   });
   if (filters?.status) params.set("status", filters.status);
   if (filters?.loanId) params.set("loanId", String(filters.loanId));
-  const rec = await apiFetch<{ items: BackendLoanRequest[]; hasMore: boolean }>(`/loans/requests?${params}`);
-  return { items: (rec?.items || []).map(toRequestView), hasMore: !!rec?.hasMore };
+  const rec = await apiFetch<{ items: BackendLoanRequest[]; hasMore: boolean; total?: number }>(`/loans/requests?${params}`);
+  return { items: (rec?.items || []).map(toRequestView), hasMore: !!rec?.hasMore, total: rec?.total ?? 0 };
 }
 
 /* Backs Dashboard.tsx's "Interest Collected" KPI — replaces the old

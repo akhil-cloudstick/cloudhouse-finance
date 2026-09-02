@@ -144,7 +144,7 @@ export async function listCustomers(): Promise<CustomerView[]> {
   return (rec || []).map(toView);
 }
 
-const CUSTOMERS_TABLE_PAGE_SIZE = 10;
+export const CUSTOMERS_TABLE_PAGE_SIZE = 10;
 
 /* Paginated variant of listCustomers for the Customers page's own table
  * (distinct from CUSTOMER_PAGE_SIZE below, which backs the SearchableSelect
@@ -156,12 +156,12 @@ export async function listCustomersPage(
   q: string,
   page: number,
   filters?: { panStatus?: string; aadhaarStatus?: string }
-): Promise<{ items: CustomerView[]; hasMore: boolean }> {
+): Promise<{ items: CustomerView[]; hasMore: boolean; total: number }> {
   const params = new URLSearchParams({ q, limit: String(CUSTOMERS_TABLE_PAGE_SIZE), offset: String((page - 1) * CUSTOMERS_TABLE_PAGE_SIZE) });
   if (filters?.panStatus) params.set("panStatus", filters.panStatus);
   if (filters?.aadhaarStatus) params.set("aadhaarStatus", filters.aadhaarStatus);
-  const rec = await apiFetch<{ items: BackendCustomer[]; hasMore: boolean }>(`/customers?${params}`);
-  return { items: (rec?.items || []).map(toView), hasMore: !!rec?.hasMore };
+  const rec = await apiFetch<{ items: BackendCustomer[]; hasMore: boolean; total?: number }>(`/customers?${params}`);
+  return { items: (rec?.items || []).map(toView), hasMore: !!rec?.hasMore, total: rec?.total ?? 0 };
 }
 
 /* Server-side search across name/code/phone — backs SearchableSelect
@@ -355,50 +355,50 @@ export async function listCustomerLoansPage(
   customerId: string,
   page: number,
   range?: { from?: string; to?: string }
-): Promise<{ items: LoanView[]; hasMore: boolean }> {
+): Promise<{ items: LoanView[]; hasMore: boolean; total: number }> {
   const params = subTableParams(page, range);
-  const rec = await apiFetch<{ items: BackendLoan[]; hasMore: boolean }>(`/customers/${customerId}/loans?${params}`);
-  return { items: (rec?.items || []).map(toLoanView), hasMore: !!rec?.hasMore };
+  const rec = await apiFetch<{ items: BackendLoan[]; hasMore: boolean; total?: number }>(`/customers/${customerId}/loans?${params}`);
+  return { items: (rec?.items || []).map(toLoanView), hasMore: !!rec?.hasMore, total: rec?.total ?? 0 };
 }
 
 export async function listCustomerOrnamentsPage(
   customerId: string,
   page: number,
   range?: { from?: string; to?: string }
-): Promise<{ items: CustomerOrnamentRowView[]; hasMore: boolean }> {
+): Promise<{ items: CustomerOrnamentRowView[]; hasMore: boolean; total: number }> {
   const params = subTableParams(page, range);
-  const rec = await apiFetch<{ items: BackendCustomerOrnamentRow[]; hasMore: boolean }>(`/customers/${customerId}/ornaments?${params}`);
-  return { items: (rec?.items || []).map(toCustomerOrnamentRowView), hasMore: !!rec?.hasMore };
+  const rec = await apiFetch<{ items: BackendCustomerOrnamentRow[]; hasMore: boolean; total?: number }>(`/customers/${customerId}/ornaments?${params}`);
+  return { items: (rec?.items || []).map(toCustomerOrnamentRowView), hasMore: !!rec?.hasMore, total: rec?.total ?? 0 };
 }
 
 export async function listCustomerPaymentsPage(
   customerId: string,
   page: number,
   range?: { from?: string; to?: string }
-): Promise<{ items: CustomerPaymentRowView[]; hasMore: boolean }> {
+): Promise<{ items: CustomerPaymentRowView[]; hasMore: boolean; total: number }> {
   const params = subTableParams(page, range);
-  const rec = await apiFetch<{ items: BackendCustomerPaymentRow[]; hasMore: boolean }>(`/customers/${customerId}/payments?${params}`);
-  return { items: (rec?.items || []).map(toCustomerPaymentRowView), hasMore: !!rec?.hasMore };
+  const rec = await apiFetch<{ items: BackendCustomerPaymentRow[]; hasMore: boolean; total?: number }>(`/customers/${customerId}/payments?${params}`);
+  return { items: (rec?.items || []).map(toCustomerPaymentRowView), hasMore: !!rec?.hasMore, total: rec?.total ?? 0 };
 }
 
 export async function listCustomerBankPledgesPage(
   customerId: string,
   page: number,
   range?: { from?: string; to?: string }
-): Promise<{ items: CustomerBankPledgeRowView[]; hasMore: boolean }> {
+): Promise<{ items: CustomerBankPledgeRowView[]; hasMore: boolean; total: number }> {
   const params = subTableParams(page, range);
-  const rec = await apiFetch<{ items: BackendCustomerBankPledgeRow[]; hasMore: boolean }>(`/customers/${customerId}/bank-pledges?${params}`);
-  return { items: (rec?.items || []).map(toCustomerBankPledgeRowView), hasMore: !!rec?.hasMore };
+  const rec = await apiFetch<{ items: BackendCustomerBankPledgeRow[]; hasMore: boolean; total?: number }>(`/customers/${customerId}/bank-pledges?${params}`);
+  return { items: (rec?.items || []).map(toCustomerBankPledgeRowView), hasMore: !!rec?.hasMore, total: rec?.total ?? 0 };
 }
 
 export async function listCustomerAuctionHistoryPage(
   customerId: string,
   page: number,
   range?: { from?: string; to?: string }
-): Promise<{ items: CustomerAuctionRowView[]; hasMore: boolean }> {
+): Promise<{ items: CustomerAuctionRowView[]; hasMore: boolean; total: number }> {
   const params = subTableParams(page, range);
-  const rec = await apiFetch<{ items: BackendCustomerAuctionRow[]; hasMore: boolean }>(`/customers/${customerId}/auction-history?${params}`);
-  return { items: (rec?.items || []).map(toCustomerAuctionRowView), hasMore: !!rec?.hasMore };
+  const rec = await apiFetch<{ items: BackendCustomerAuctionRow[]; hasMore: boolean; total?: number }>(`/customers/${customerId}/auction-history?${params}`);
+  return { items: (rec?.items || []).map(toCustomerAuctionRowView), hasMore: !!rec?.hasMore, total: rec?.total ?? 0 };
 }
 
 /* Uploads one file (photo/identity proof/address proof/KYC document) to the

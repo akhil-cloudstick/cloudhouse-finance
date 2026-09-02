@@ -168,7 +168,7 @@ func (s *Service) GetByCode(code string) (*Packet, error) {
 	return rec, nil
 }
 
-func (s *Service) List(f Filter) ([]Packet, error) {
+func (s *Service) List(f Filter) ([]Packet, int64, error) {
 	return s.repo.FindAll(f)
 }
 

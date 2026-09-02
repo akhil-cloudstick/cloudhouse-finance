@@ -31,15 +31,15 @@ func NewService(loanRepo *loan.Repository, requestRepo *loan.LoanRequestReposito
 // aggregations. The counts returned alongside Items are taken from these
 // same full fetches, so they are always exact.
 func (s *Service) GetNeedsAttention(page int, branchScope *uint) (*NeedsAttentionResult, error) {
-	approvals, err := s.loanRepo.FindAll(loan.LoanFilter{Status: loan.StatusPendingApproval, BranchScope: branchScope})
+	approvals, _, err := s.loanRepo.FindAll(loan.LoanFilter{Status: loan.StatusPendingApproval, BranchScope: branchScope})
 	if err != nil {
 		return nil, err
 	}
-	requests, err := s.requestRepo.FindAll(loan.LoanRequestFilter{Status: loan.RequestStatusPending, BranchID: branchScope})
+	requests, _, err := s.requestRepo.FindAll(loan.LoanRequestFilter{Status: loan.RequestStatusPending, BranchID: branchScope})
 	if err != nil {
 		return nil, err
 	}
-	auctions, err := s.loanRepo.FindAll(loan.LoanFilter{
+	auctions, _, err := s.loanRepo.FindAll(loan.LoanFilter{
 		StatusIn:    []string{loan.StatusAuctionEligible, loan.StatusDefaulted},
 		BranchScope: branchScope,
 	})

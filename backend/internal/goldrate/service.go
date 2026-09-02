@@ -62,7 +62,7 @@ func (s *Service) Publish(in PublishInput) (*GoldRate, error) {
 	return rec, nil
 }
 
-func (s *Service) List(limit, offset int) ([]GoldRate, error) {
+func (s *Service) List(limit, offset int) ([]GoldRate, int64, error) {
 	return s.repo.FindAll(limit, offset)
 }
 
