@@ -25,7 +25,7 @@ export const NAV: [string, NavItem[]][] = [
     { route: "schemes", title: "Loan Schemes", icon: "doc", module: "Scheme_Management", key: "can_view_scheme" },
     { route: "goldrates", title: "Gold Rates", icon: "coin", module: "Gold_Rate_Management", key: "can_view_gold_rate" },
     { route: "requests", title: "Extensions & Release", icon: "unlock", module: "Loan_Management", key: "can_view_loan" },
-    { route: "personalloans", title: "Personal Loans", icon: "list", module: "Personal_Loan_Management", key: "can_view_personal_loan" },
+    { route: "personalloans", title: "Personal Loans", icon: "note", module: "Personal_Loan_Management", key: "can_view_personal_loan" },
   ]],
   ["Customers", [
     { route: "customers", title: "Customers & KYC", icon: "user", module: "Customer_Management", key: "can_view_customer" },

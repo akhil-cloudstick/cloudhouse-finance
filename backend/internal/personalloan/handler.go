@@ -56,7 +56,10 @@ func (h *Handler) Create(c *gin.Context) {
 	httpx.Success(c, http.StatusCreated, rec)
 }
 
-// List returns loans, branch-scoped, optionally filtered by customerId/status.
+// List returns one page of loans as the {items, hasMore} envelope,
+// branch-scoped, optionally filtered by customerId/status/frequency and
+// searched by loan number or customer name (q) — limit/offset query params,
+// page size defaults to 10 (see Service.List).
 func (h *Handler) List(c *gin.Context) {
 	branchID := platform.GetBranchScope(c)
 	var customerID *uint
@@ -66,12 +69,22 @@ func (h *Handler) List(c *gin.Context) {
 			customerID = &cid
 		}
 	}
-	recs, err := h.svc.List(branchID, customerID, c.Query("status"))
+	limit, _ := strconv.Atoi(c.Query("limit"))
+	offset, _ := strconv.Atoi(c.Query("offset"))
+	recs, hasMore, err := h.svc.List(ListInput{
+		BranchID:   branchID,
+		CustomerID: customerID,
+		Status:     c.Query("status"),
+		Frequency:  c.Query("frequency"),
+		Query:      c.Query("q"),
+		Limit:      limit,
+		Offset:     offset,
+	})
 	if err != nil {
 		httpx.FailErr(c, err)
 		return
 	}
-	httpx.Success(c, http.StatusOK, recs)
+	httpx.Success(c, http.StatusOK, gin.H{"items": recs, "hasMore": hasMore})
 }
 
 // Get returns one loan.
@@ -89,34 +102,42 @@ func (h *Handler) Get(c *gin.Context) {
 	httpx.Success(c, http.StatusOK, rec)
 }
 
-// Schedule returns a loan's installment schedule.
+// Schedule returns one page of a loan's installment schedule as the
+// {items, hasMore} envelope (limit/offset query params, page size defaults
+// to 10 — see Service.GetSchedule).
 func (h *Handler) Schedule(c *gin.Context) {
 	id, err := httpx.IDParam(c, "id")
 	if err != nil {
 		httpx.FailErr(c, err)
 		return
 	}
-	recs, err := h.svc.GetSchedule(id, platform.GetBranchScope(c))
+	limit, _ := strconv.Atoi(c.Query("limit"))
+	offset, _ := strconv.Atoi(c.Query("offset"))
+	recs, hasMore, err := h.svc.GetSchedule(id, platform.GetBranchScope(c), limit, offset)
 	if err != nil {
 		httpx.FailErr(c, err)
 		return
 	}
-	httpx.Success(c, http.StatusOK, recs)
+	httpx.Success(c, http.StatusOK, gin.H{"items": recs, "hasMore": hasMore})
 }
 
-// Payments returns a loan's payment ledger.
+// Payments returns one page of a loan's payment ledger as the
+// {items, hasMore} envelope (limit/offset query params, page size defaults
+// to 10 — see Service.ListPayments).
 func (h *Handler) Payments(c *gin.Context) {
 	id, err := httpx.IDParam(c, "id")
 	if err != nil {
 		httpx.FailErr(c, err)
 		return
 	}
-	recs, err := h.svc.ListPayments(id, platform.GetBranchScope(c))
+	limit, _ := strconv.Atoi(c.Query("limit"))
+	offset, _ := strconv.Atoi(c.Query("offset"))
+	recs, hasMore, err := h.svc.ListPayments(id, platform.GetBranchScope(c), limit, offset)
 	if err != nil {
 		httpx.FailErr(c, err)
 		return
 	}
-	httpx.Success(c, http.StatusOK, recs)
+	httpx.Success(c, http.StatusOK, gin.H{"items": recs, "hasMore": hasMore})
 }
 
 type paymentRequest struct {
@@ -217,13 +238,15 @@ func (h *Handler) Renew(c *gin.Context) {
 
 // ListLoansForCustomer returns a customer's personal loans — mounted under
 // /customers/:id/personal-loans (see internal/loan's equivalent placement).
+// Unpaginated: a single customer's own personal loans are few enough to
+// show in full, unlike the branch-wide list page.
 func (h *Handler) ListLoansForCustomer(c *gin.Context) {
 	id, err := httpx.IDParam(c, "id")
 	if err != nil {
 		httpx.FailErr(c, err)
 		return
 	}
-	recs, err := h.svc.List(platform.GetBranchScope(c), &id, "")
+	recs, _, err := h.svc.List(ListInput{BranchID: platform.GetBranchScope(c), CustomerID: &id, Limit: 1000})
 	if err != nil {
 		httpx.FailErr(c, err)
 		return

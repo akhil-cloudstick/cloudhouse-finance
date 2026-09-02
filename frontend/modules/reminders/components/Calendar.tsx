@@ -17,7 +17,9 @@ const DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 function evClass(type: CalendarEvent["type"]): string {
   switch (type) {
     case "Overdue": return "over";
+    case "PersonalLoanOverdue": return "over";
     case "LoanDue": return "due";
+    case "PersonalLoanDue": return "due";
     case "InterestDue": return "pay";
     case "PromiseToPay": return "fup";
     case "FollowUp": return "fup";
@@ -199,7 +201,7 @@ export function Calendar() {
                   <li><span className="tx"><small>No events on this day.</small></span></li>
                 ) : dayEvents.map((e, i) => (
                   <li key={i}>
-                    <span className="ic" style={e.type === "Overdue" ? { background: "var(--red-bg)", color: "var(--red)" } : undefined}>
+                    <span className="ic" style={(e.type === "Overdue" || e.type === "PersonalLoanOverdue") ? { background: "var(--red-bg)", color: "var(--red)" } : undefined}>
                       <Icon name={e.type === "FollowUp" ? "phone" : e.type === "PromiseToPay" ? "clock" : "bell"} />
                     </span>
                     <span className="tx">
@@ -214,7 +216,11 @@ export function Calendar() {
                         {canDeleteReminders && <button className="btn sm ghost" onClick={() => onDelete(e.reminderId!)}>Delete</button>}
                       </span>
                     )}
-                    {e.loanNumber && <span className="rt"><a className="btn sm ghost" href={`#loan/${e.loanNumber}`}>Open loan</a></span>}
+                    {e.personalLoanId != null ? (
+                      <span className="rt"><a className="btn sm ghost" href={`#personalloan/${e.personalLoanId}`}>Open loan</a></span>
+                    ) : e.loanNumber ? (
+                      <span className="rt"><a className="btn sm ghost" href={`#loan/${e.loanNumber}`}>Open loan</a></span>
+                    ) : null}
                   </li>
                 ))}
               </ul>

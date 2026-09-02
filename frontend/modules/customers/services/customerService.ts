@@ -144,7 +144,7 @@ export async function listCustomers(): Promise<CustomerView[]> {
   return (rec || []).map(toView);
 }
 
-const CUSTOMERS_TABLE_PAGE_SIZE = 10;
+const CUSTOMERS_TABLE_PAGE_SIZE = 9;
 
 /* Paginated variant of listCustomers for the Customers page's own table
  * (distinct from CUSTOMER_PAGE_SIZE below, which backs the SearchableSelect

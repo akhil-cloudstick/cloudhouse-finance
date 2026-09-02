@@ -230,25 +230,93 @@ func (s *Service) Get(id uint, branchID *uint) (*PersonalLoan, error) {
 	return rec, nil
 }
 
-// List returns loans, branch/customer/status filtered.
-func (s *Service) List(branchID *uint, customerID *uint, status string) ([]PersonalLoan, error) {
-	return s.repo.FindAll(branchID, customerID, status)
+// ListPendingInstallmentsForCalendar returns every unpaid installment of an
+// Active loan, optionally branch-scoped — feeds the reminder calendar's
+// personal-loan due/overdue events (see reminder.Service.GetCalendarEvents).
+func (s *Service) ListPendingInstallmentsForCalendar(branchID *uint) ([]CalendarInstallment, error) {
+	return s.repo.FindPendingInstallmentsForCalendar(branchID)
 }
 
-// GetSchedule returns a loan's installment schedule, ordered.
-func (s *Service) GetSchedule(loanID uint, branchID *uint) ([]PersonalLoanInstallment, error) {
-	if _, err := s.Get(loanID, branchID); err != nil {
-		return nil, err
-	}
-	return s.repo.FindInstallments(loanID)
+// ListInput mirrors the list page's filters/search/pagination.
+type ListInput struct {
+	BranchID   *uint
+	CustomerID *uint
+	Status     string
+	Frequency  string
+	Query      string
+	Limit      int
+	Offset     int
 }
 
-// ListPayments returns a loan's payment ledger, ordered oldest first.
-func (s *Service) ListPayments(loanID uint, branchID *uint) ([]PersonalLoanPayment, error) {
-	if _, err := s.Get(loanID, branchID); err != nil {
-		return nil, err
+// List returns one page of loans matching in (limit/offset, page size
+// defaults to defaultPageSize when Limit <= 0), plus whether another page
+// exists.
+func (s *Service) List(in ListInput) ([]PersonalLoan, bool, error) {
+	limit := in.Limit
+	if limit <= 0 {
+		limit = defaultPageSize
 	}
-	return s.repo.FindPayments(loanID)
+	recs, err := s.repo.FindAll(ListFilter{
+		BranchID:   in.BranchID,
+		CustomerID: in.CustomerID,
+		Status:     in.Status,
+		Frequency:  in.Frequency,
+		Query:      in.Query,
+		Limit:      limit,
+		Offset:     in.Offset,
+	})
+	if err != nil {
+		return nil, false, err
+	}
+	hasMore := len(recs) > limit
+	if hasMore {
+		recs = recs[:limit]
+	}
+	return recs, hasMore, nil
+}
+
+const defaultPageSize = 10
+
+// GetSchedule returns one page of a loan's installment schedule
+// (limit/offset, page size defaults to defaultPageSize when limit <= 0),
+// plus whether another page exists.
+func (s *Service) GetSchedule(loanID uint, branchID *uint, limit, offset int) ([]PersonalLoanInstallment, bool, error) {
+	if _, err := s.Get(loanID, branchID); err != nil {
+		return nil, false, err
+	}
+	if limit <= 0 {
+		limit = defaultPageSize
+	}
+	recs, err := s.repo.FindInstallments(loanID, limit, offset)
+	if err != nil {
+		return nil, false, err
+	}
+	hasMore := len(recs) > limit
+	if hasMore {
+		recs = recs[:limit]
+	}
+	return recs, hasMore, nil
+}
+
+// ListPayments returns one page of a loan's payment ledger (limit/offset,
+// page size defaults to defaultPageSize when limit <= 0), newest first,
+// plus whether another page exists.
+func (s *Service) ListPayments(loanID uint, branchID *uint, limit, offset int) ([]PersonalLoanPayment, bool, error) {
+	if _, err := s.Get(loanID, branchID); err != nil {
+		return nil, false, err
+	}
+	if limit <= 0 {
+		limit = defaultPageSize
+	}
+	recs, err := s.repo.FindPayments(loanID, limit, offset)
+	if err != nil {
+		return nil, false, err
+	}
+	hasMore := len(recs) > limit
+	if hasMore {
+		recs = recs[:limit]
+	}
+	return recs, hasMore, nil
 }
 
 // PaymentInput mirrors the "Collect Payment" form.
@@ -377,6 +445,27 @@ func (s *Service) allocatePaymentToInstallments(tx *gorm.DB, loanID uint, amount
 			inst.Status = InstallmentStatusPartiallyPaid
 		}
 		remaining = platform.RoundMoney(remaining - credit)
+		if err := s.repo.UpdateInstallment(tx, inst); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// markAllInstallmentsPaid marks every not-yet-Paid installment of a loan as
+// fully Paid — used by RenewLoan, where the rollover ledger entry settles
+// the whole loan at once rather than crediting specific installments the
+// way a real collection does (see allocatePaymentToInstallments).
+func (s *Service) markAllInstallmentsPaid(tx *gorm.DB, loanID uint) error {
+	var installments []PersonalLoanInstallment
+	if err := tx.Where("personal_loan_id = ? AND status <> ?", loanID, InstallmentStatusPaid).
+		Find(&installments).Error; err != nil {
+		return err
+	}
+	for i := range installments {
+		inst := &installments[i]
+		inst.PaidAmount = inst.Amount
+		inst.Status = InstallmentStatusPaid
 		if err := s.repo.UpdateInstallment(tx, inst); err != nil {
 			return err
 		}
@@ -533,6 +622,17 @@ func (s *Service) RenewLoan(loanID uint, branchID *uint, in RenewInput) (*RenewR
 			if err := s.repo.CreatePayment(tx, payment); err != nil {
 				return err
 			}
+		}
+
+		// The rollover settles the old loan in full — its schedule should
+		// read as fully paid, not leave every remaining installment sitting
+		// at "Pending" once the loan is Closed/Renewed (RecordPayment's
+		// allocatePaymentToInstallments only ever credits a real cash
+		// collection against specific installments; a renewal never calls
+		// it, so without this every not-yet-due row would otherwise stay
+		// Pending forever on a loan that's actually settled).
+		if err := s.markAllInstallmentsPaid(tx, old.ID); err != nil {
+			return err
 		}
 		old.OutstandingAmount = 0
 		old.TotalPaid = platform.RoundMoney(old.TotalPaid + rollover)

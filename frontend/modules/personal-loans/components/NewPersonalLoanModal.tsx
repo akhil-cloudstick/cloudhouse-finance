@@ -132,7 +132,7 @@ export function NewPersonalLoanModalContent({ onSaved }: { onSaved: () => void }
         {err && <div className="notice" style={{ marginTop: 10 }}>{err}</div>}
       </div>
       <div className="ft">
-        <button className="btn plain" onClick={closeModal}>Cancel</button>
+        <button className="btn plain" style={{ fontSize: 12.5, fontWeight: 600, letterSpacing: ".16em", textTransform: "uppercase" }} onClick={closeModal}>Cancel</button>
         <button className="btn" disabled={saving} onClick={save}>{saving ? "Creating…" : "Create & Disburse"}</button>
       </div>
     </>

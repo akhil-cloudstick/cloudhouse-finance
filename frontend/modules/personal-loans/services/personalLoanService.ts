@@ -74,24 +74,48 @@ export function createPersonalLoan(input: CreatePersonalLoanInput): Promise<Back
   return apiFetch<BackendPersonalLoan>("/personal-loans", { method: "POST", body: JSON.stringify(input) });
 }
 
-export function listPersonalLoans(params?: { customerId?: number; status?: string }): Promise<BackendPersonalLoan[]> {
-  const q = new URLSearchParams();
-  if (params?.customerId) q.set("customerId", String(params.customerId));
-  if (params?.status) q.set("status", params.status);
-  const qs = q.toString();
-  return apiFetch<BackendPersonalLoan[]>(`/personal-loans${qs ? `?${qs}` : ""}`);
+export const PERSONAL_LOANS_TABLE_PAGE_SIZE = 10;
+
+/* Paginated, searched, filtered list — backs the Personal Loans list page.
+ * `page` is 1-based (matching Loans.tsx's convention); the backend responds
+ * with an {items, hasMore} envelope (see
+ * backend/internal/personalloan/handler.go's List). */
+export function listPersonalLoansPage(params: {
+  page: number;
+  q?: string;
+  frequency?: Frequency;
+  customerId?: number;
+  status?: string;
+}): Promise<{ items: BackendPersonalLoan[]; hasMore: boolean }> {
+  const query = new URLSearchParams({
+    limit: String(PERSONAL_LOANS_TABLE_PAGE_SIZE),
+    offset: String((params.page - 1) * PERSONAL_LOANS_TABLE_PAGE_SIZE),
+  });
+  if (params.q) query.set("q", params.q);
+  if (params.frequency) query.set("frequency", params.frequency);
+  if (params.customerId) query.set("customerId", String(params.customerId));
+  if (params.status) query.set("status", params.status);
+  return apiFetch<{ items: BackendPersonalLoan[]; hasMore: boolean }>(`/personal-loans?${query}`);
 }
 
 export function getPersonalLoan(id: number): Promise<BackendPersonalLoan> {
   return apiFetch<BackendPersonalLoan>(`/personal-loans/${id}`);
 }
 
-export function getPersonalLoanSchedule(id: number): Promise<BackendPersonalLoanInstallment[]> {
-  return apiFetch<BackendPersonalLoanInstallment[]>(`/personal-loans/${id}/schedule`);
+export const PERSONAL_LOAN_PAGE_SIZE = 10;
+
+/* Paginated schedule/payments — backs PersonalLoanDetail's infinite-scroll
+ * panels. `page` is 0-based; the backend responds with an
+ * {items, hasMore} envelope (see backend/internal/personalloan/handler.go's
+ * Schedule/Payments). */
+export function getPersonalLoanSchedulePage(id: number, page: number): Promise<{ items: BackendPersonalLoanInstallment[]; hasMore: boolean }> {
+  const params = new URLSearchParams({ limit: String(PERSONAL_LOAN_PAGE_SIZE), offset: String(page * PERSONAL_LOAN_PAGE_SIZE) });
+  return apiFetch<{ items: BackendPersonalLoanInstallment[]; hasMore: boolean }>(`/personal-loans/${id}/schedule?${params}`);
 }
 
-export function listPersonalLoanPayments(id: number): Promise<BackendPersonalLoanPayment[]> {
-  return apiFetch<BackendPersonalLoanPayment[]>(`/personal-loans/${id}/payments`);
+export function listPersonalLoanPaymentsPage(id: number, page: number): Promise<{ items: BackendPersonalLoanPayment[]; hasMore: boolean }> {
+  const params = new URLSearchParams({ limit: String(PERSONAL_LOAN_PAGE_SIZE), offset: String(page * PERSONAL_LOAN_PAGE_SIZE) });
+  return apiFetch<{ items: BackendPersonalLoanPayment[]; hasMore: boolean }>(`/personal-loans/${id}/payments?${params}`);
 }
 
 export function recordPersonalLoanPayment(

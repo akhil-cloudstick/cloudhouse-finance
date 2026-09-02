@@ -4,7 +4,7 @@ import { useRouter } from "next/navigation";
 import { useCustomers } from "@/modules/customers/store/CustomersProvider";
 import { useGoldRates } from "@/modules/gold-rates/store/GoldRatesProvider";
 import { fmt } from "@/common/utils/format";
-import { TITLES } from "@/common/utils/routes";
+import { TITLES, PARENT_ROUTE } from "@/common/utils/routes";
 import { useModal } from "@/common/components/Modal";
 import { RateModalContent } from "@/common/components/modals/RateModal";
 import { Icon } from "@/common/components/Icon";
@@ -30,6 +30,10 @@ export function Topbar({ route, arg, onBurger }: { route: string; arg?: string; 
     route === "customer"
       ? customers.find((c) => c.id === arg)?.name || TITLES.customer
       : TITLES[route] || "Dashboard";
+  // The crumb links back to the section it drills down from (e.g. a
+  // personal loan's detail page links to the Personal Loans list) — routes
+  // with no parent (top-level sections) just re-link to themselves.
+  const crumbHref = "#" + (PARENT_ROUTE[route] || route || "dashboard");
 
   return (
     <header className="top">
@@ -39,7 +43,9 @@ export function Topbar({ route, arg, onBurger }: { route: string; arg?: string; 
         </svg>
       </button>
       <span className="crumb" id="crumb">
-        Ambika Gold Finance &nbsp;/&nbsp; <b>{crumb}</b>
+        <a href="#dashboard" style={{ color: "inherit", textDecoration: "none" }}>Ambika Gold Finance</a>
+        &nbsp;/&nbsp;
+        <a href={crumbHref} style={{ color: "inherit", textDecoration: "none" }}><b>{crumb}</b></a>
       </span>
       <GlobalSearch />
       <a

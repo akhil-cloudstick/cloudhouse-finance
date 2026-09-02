@@ -156,6 +156,10 @@ func Run(db *gorm.DB) error {
 		return err
 	}
 
+	if err := personalloan.BackfillRenewedLoanInstallments(db); err != nil {
+		return err
+	}
+
 	// Must run AFTER AutoMigrate: the partial indexes reference the stage/kind
 	// columns, which AutoMigrate is what creates.
 	if err := loan.CreateAuctionPartialIndexes(db); err != nil {

@@ -198,8 +198,19 @@ func main() {
 	loanSvc := loan.NewService(db, loanRepo, loanOrnamentRepo, loanApprovalRepo, loanPaymentRepo, loanPledgeRepo, loanRequestRepo, requestApprovalRepo, loanAuctionRepo, loanApprovalLimitRepo, branchRepo, customerRepo, schemeRepo, goldRateRepo, packetSvc, packetSvc, movementSvc, notificationSvc, whatsappSender, commlogRepo, esignClient, cfg.UploadsDir, razorpayClient, aadhaarCipher)
 	loanHandler := loan.NewHandler(loanSvc)
 
+	personalLoanRepo := personalloan.NewRepository(db)
+	// movementSvc satisfies personalloan.CashRecorder (the same
+	// cash.MovementService methods internal/loan uses for its own
+	// disbursement/payment cash flow) so a personal loan's disbursement and
+	// collections show up in Cash-in-Hand & Expenses too.
+	personalLoanSvc := personalloan.NewService(personalLoanRepo, customerRepo, movementSvc)
+	personalLoanHandler := personalloan.NewHandler(personalLoanSvc)
+
 	reminderRepo := reminder.NewRepository(db)
-	reminderSvc := reminder.NewService(reminderRepo, customerRepo, loanRepo, whatsappSender, commlogRepo)
+	// personalLoanSvc lets the reminder calendar surface personal-loan
+	// installment due dates alongside gold-loan due dates — see
+	// reminder.Service.GetCalendarEvents.
+	reminderSvc := reminder.NewService(reminderRepo, customerRepo, loanRepo, personalLoanSvc, whatsappSender, commlogRepo)
 	reminderHandler := reminder.NewHandler(reminderSvc)
 
 	dashboardSvc := dashboard.NewService(loanRepo, loanRequestRepo)
@@ -215,14 +226,6 @@ func main() {
 	bankRepo := bank.NewRepository(db)
 	bankSvc := bank.NewService(bankRepo)
 	bankHandler := bank.NewHandler(bankSvc)
-
-	personalLoanRepo := personalloan.NewRepository(db)
-	// movementSvc satisfies personalloan.CashRecorder (the same
-	// cash.MovementService methods internal/loan uses for its own
-	// disbursement/payment cash flow) so a personal loan's disbursement and
-	// collections show up in Cash-in-Hand & Expenses too.
-	personalLoanSvc := personalloan.NewService(personalLoanRepo, customerRepo, movementSvc)
-	personalLoanHandler := personalloan.NewHandler(personalLoanSvc)
 
 	authSvc := auth.NewService(employeeRepo, whatsappSender, cfg.JWTSecret, cfg.JWTExpiry, commlogRepo)
 	authHandler := auth.NewHandler(authSvc)

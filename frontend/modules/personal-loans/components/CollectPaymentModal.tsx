@@ -6,12 +6,25 @@ import { useToast } from "@/common/components/Toast";
 import { ApiError } from "@/common/services/httpClient";
 import { fmt } from "@/common/utils/format";
 import { recordPersonalLoanPayment, type BackendPersonalLoan } from "@/modules/personal-loans/services/personalLoanService";
+import { Select } from "@/common/components/ui/Select";
+
+const METHOD_OPTIONS = [
+  { value: "Cash", label: "Cash" },
+  { value: "UPI", label: "UPI" },
+  { value: "Bank Transfer", label: "Bank Transfer" },
+];
 
 export function CollectPaymentModalContent({ loan, onSaved }: { loan: BackendPersonalLoan; onSaved: () => void }) {
   const { closeModal } = useModal();
   const toast = useToast();
 
-  const [amount, setAmount] = useState("");
+  // Defaults to the loan's standard installment amount (capped at whatever
+  // is actually still owed, for a loan nearing its final, smaller
+  // installment) — the common case is collecting exactly one installment,
+  // so the field starts pre-filled with that rather than empty; staff can
+  // still edit it for a partial/extra payment.
+  const defaultAmount = Math.min(loan.installmentAmount, loan.outstandingAmount);
+  const [amount, setAmount] = useState(defaultAmount > 0 ? String(defaultAmount) : "");
   const [method, setMethod] = useState("Cash");
   const [reference, setReference] = useState("");
   const [description, setDescription] = useState("");
@@ -41,13 +54,9 @@ export function CollectPaymentModalContent({ loan, onSaved }: { loan: BackendPer
       <div className="bd">
         <div className="notice" style={{ marginBottom: 16 }}>Outstanding balance: <strong>{fmt(loan.outstandingAmount)}</strong></div>
         <div className="frow c2">
-          <div><label className="f">Amount (₹) *</label><input className="inp" type="number" min={1} max={loan.outstandingAmount} value={amount} onChange={(e) => setAmount(e.target.value)} /></div>
+          <div><label className="f">Amount (₹) *</label><input className="inp" type="number" min={1} max={loan.outstandingAmount} placeholder={`e.g. ${defaultAmount}`} value={amount} onChange={(e) => setAmount(e.target.value)} /></div>
           <div><label className="f">Method</label>
-            <select className="inp" value={method} onChange={(e) => setMethod(e.target.value)}>
-              <option>Cash</option>
-              <option>UPI</option>
-              <option>Bank Transfer</option>
-            </select>
+            <Select options={METHOD_OPTIONS} value={method} onChange={setMethod} />
           </div>
         </div>
         <div className="frow c2">
@@ -57,7 +66,7 @@ export function CollectPaymentModalContent({ loan, onSaved }: { loan: BackendPer
         {err && <div className="notice" style={{ marginTop: 10 }}>{err}</div>}
       </div>
       <div className="ft">
-        <button className="btn plain" onClick={closeModal}>Cancel</button>
+        <button className="btn plain" style={{ fontSize: 12.5, fontWeight: 600, letterSpacing: ".16em", textTransform: "uppercase" }} onClick={closeModal}>Cancel</button>
         <button className="btn" disabled={saving} onClick={save}>{saving ? "Collecting…" : "Collect"}</button>
       </div>
     </>

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { toDataURL } from "qrcode";
 import { useModal } from "@/common/components/Modal";
 import { useToast } from "@/common/components/Toast";
@@ -34,6 +34,74 @@ import { PaymentModalContent } from "@/common/components/modals/PaymentModal";
 import { RepledgeModalContent } from "@/common/components/modals/RepledgeModal";
 import { ConfirmModalContent } from "@/common/components/modals/ConfirmModal";
 import { RequestExtensionModalContent, RequestReleaseModalContent } from "@/common/components/modals/RequestExtensionModal";
+
+/* One row of the "Documents" dropdown below — either a click action
+ * (onClick, e.g. printing something in-browser) or a plain link (href,
+ * e.g. an already-signed bond opened in a new tab). */
+type DocMenuItem = {
+  icon: string;
+  label: string;
+  onClick?: () => void;
+  href?: string;
+  disabled?: boolean;
+};
+
+/* Groups the print/eSign actions that used to be five separate
+ * same-width-but-still-crowded buttons in the page header (Print Label,
+ * Print Slip, Statement, Print Bond, Signed Bond/eSign) into a single
+ * "Documents ▾" trigger — same popover shell as SearchableSelect/
+ * GlobalSearch (`.gs-results`), just with click actions instead of a
+ * selectable value. */
+function DocumentsMenu({ items }: { items: DocMenuItem[] }) {
+  const [open, setOpen] = useState(false);
+  const boxRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    function onDocClick(e: MouseEvent) {
+      if (boxRef.current && !boxRef.current.contains(e.target as Node)) setOpen(false);
+    }
+    document.addEventListener("click", onDocClick);
+    return () => document.removeEventListener("click", onDocClick);
+  }, []);
+
+  return (
+    <div className="dp" ref={boxRef} style={{ position: "relative", width: 165, flex: "0 0 auto" }}>
+      <button type="button" className="btn ghost sm" style={{ width: 165, overflow: "hidden" }} onClick={() => setOpen((o) => !o)}>
+        <Icon name="doc" /> <span className="doc-action-tx">Documents</span>
+        <svg className="sel-chevron" viewBox="0 0 10 6" fill="none" style={{ width: 12, height: 12, flexShrink: 0, marginLeft: 4 }}>
+          <path d="M1 1l4 4 4-4" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
+      </button>
+      {open && (
+        <div className="gs-results open" style={{ position: "absolute", top: "calc(100% + 6px)", left: 0, right: 0, width: 165, zIndex: 60 }}>
+          {items.map((item, i) =>
+            item.href ? (
+              <a key={i} href={item.href} target="_blank" rel="noopener noreferrer" onClick={() => setOpen(false)}>
+                <span className="ic"><Icon name={item.icon} /></span>
+                <span className="tx"><b className="doc-menu-tx">{item.label}</b></span>
+              </a>
+            ) : (
+              <a
+                key={i}
+                href="#"
+                className={item.disabled ? "disabled" : ""}
+                onClick={(e) => {
+                  e.preventDefault();
+                  if (item.disabled) return;
+                  item.onClick?.();
+                  setOpen(false);
+                }}
+              >
+                <span className="ic"><Icon name={item.icon} /></span>
+                <span className="tx"><b className="doc-menu-tx">{item.label}</b></span>
+              </a>
+            )
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
 
 /* Ported from legacy/app.js's `renderLoanDetail(id)`. Now reads/writes the
  * real loan API instead of the mock db. `id` is the loan's loanNumber
@@ -489,32 +557,24 @@ export function LoanDetail({ id }: { id?: string }) {
         <div className="sp" />
         {/* Always available regardless of approval stage — staff may need
          * to (re)print the packet label or pledge slip at any point in the
-         * loan's life, not just before it's sanctioned. */}
-        <button className="btn ghost sm" disabled={printingLabel} onClick={printPacketLabel}>
-          <Icon name="box" /> {printingLabel ? "Preparing…" : "Print Label"}
-        </button>
-        <button className="btn ghost sm" disabled={printingSlip} onClick={printPledgeSlip}>
-          <Icon name="doc" /> {printingSlip ? "Preparing…" : "Print Slip"}
-        </button>
-        <button className="btn ghost sm" disabled={printingStatement} onClick={printStatement}>
-          <Icon name="doc" /> {printingStatement ? "Preparing…" : "Statement"}
-        </button>
-        <button className="btn ghost sm" disabled={printingBond} onClick={printBond}>
-          <Icon name="doc" /> {printingBond ? "Preparing…" : "Print Bond"}
-        </button>
-        {l.indemnityBondSignStatus === "sign_complete" && l.indemnityBondSignedUrl ? (
-          <a className="btn ghost sm" href={l.indemnityBondSignedUrl} target="_blank" rel="noopener noreferrer">
-            <Icon name="check" /> Signed Bond
-          </a>
-        ) : !canUpdateLoans ? null : esignStarted ? (
-          <button className="btn ghost sm" disabled={checkingEsign} onClick={checkIndemnityEsign}>
-            <Icon name="doc" /> {checkingEsign ? "Checking…" : "Check eSign Status"}
-          </button>
-        ) : (
-          <button className="btn ghost sm" disabled={esigning} onClick={startIndemnityEsign}>
-            <Icon name="doc" /> {esigning ? "Preparing…" : "Send Indemnity Bond for eSign"}
-          </button>
-        )}
+         * loan's life, not just before it's sanctioned. Grouped into one
+         * "Documents" dropdown (see DocumentsMenu above) rather than five
+         * separate buttons crowding the header. */}
+        <DocumentsMenu
+          items={[
+            { icon: "box", label: printingLabel ? "Preparing…" : "Print Label", onClick: printPacketLabel, disabled: printingLabel },
+            { icon: "doc", label: printingSlip ? "Preparing…" : "Print Slip", onClick: printPledgeSlip, disabled: printingSlip },
+            { icon: "doc", label: printingStatement ? "Preparing…" : "Statement", onClick: printStatement, disabled: printingStatement },
+            { icon: "doc", label: printingBond ? "Preparing…" : "Print Bond", onClick: printBond, disabled: printingBond },
+            ...(l.indemnityBondSignStatus === "sign_complete" && l.indemnityBondSignedUrl
+              ? [{ icon: "check", label: "Signed Bond", href: l.indemnityBondSignedUrl }]
+              : !canUpdateLoans
+              ? []
+              : esignStarted
+              ? [{ icon: "doc", label: checkingEsign ? "Checking…" : "Check eSign Status", onClick: checkIndemnityEsign, disabled: checkingEsign }]
+              : [{ icon: "doc", label: esigning ? "Preparing…" : "Send Indemnity Bond for eSign", onClick: startIndemnityEsign, disabled: esigning }]),
+          ]}
+        />
         {l.status === "Closure Requested" && canUpdateLoans && (
           <button className="btn" disabled={completing || l.totalOutstandingBalance > 0.01 || l.bankPledgeStatus === "Bank Pledged"} onClick={doCompleteRelease} title={l.totalOutstandingBalance > 0.01 ? "Final settlement must be fully paid first" : l.bankPledgeStatus === "Bank Pledged" ? "Release the bank pledge first" : undefined}>
             <Icon name="unlock" /> {completing ? "Releasing…" : "Complete Release"}

@@ -8,6 +8,7 @@ import (
 	"ambikagold/backend/internal/commlog"
 	"ambikagold/backend/internal/customer"
 	"ambikagold/backend/internal/loan"
+	"ambikagold/backend/internal/personalloan"
 	"ambikagold/backend/internal/platform"
 	"ambikagold/backend/internal/platform/httpx"
 )
@@ -46,17 +47,21 @@ type UpdateInput struct {
 }
 
 // Service implements reminder business rules on top of Repository, plus the
-// calendar aggregation that also reads from loan.Repository.
+// calendar aggregation that also reads from loan.Repository and
+// personalloan.Service (personal loans have no import back to this
+// package, so a direct dependency here — same as loan.Repository — needs
+// no interface indirection).
 type Service struct {
-	repo         *Repository
-	customerRepo *customer.Repository
-	loanRepo     *loan.Repository
-	whatsapp     platform.SMSSender // reused interface — Send(phone, message) matches SMSSender exactly
-	commlogRepo  *commlog.Repository
+	repo            *Repository
+	customerRepo    *customer.Repository
+	loanRepo        *loan.Repository
+	personalLoanSvc *personalloan.Service
+	whatsapp        platform.SMSSender // reused interface — Send(phone, message) matches SMSSender exactly
+	commlogRepo     *commlog.Repository
 }
 
-func NewService(repo *Repository, customerRepo *customer.Repository, loanRepo *loan.Repository, whatsapp platform.SMSSender, commlogRepo *commlog.Repository) *Service {
-	return &Service{repo: repo, customerRepo: customerRepo, loanRepo: loanRepo, whatsapp: whatsapp, commlogRepo: commlogRepo}
+func NewService(repo *Repository, customerRepo *customer.Repository, loanRepo *loan.Repository, personalLoanSvc *personalloan.Service, whatsapp platform.SMSSender, commlogRepo *commlog.Repository) *Service {
+	return &Service{repo: repo, customerRepo: customerRepo, loanRepo: loanRepo, personalLoanSvc: personalLoanSvc, whatsapp: whatsapp, commlogRepo: commlogRepo}
 }
 
 func validate(customerID uint, typ string, dueDate time.Time) error {
@@ -283,6 +288,54 @@ func (s *Service) GetCalendarEvents(from, to time.Time, branchID *uint, page, pa
 		}
 	}
 
+	// Personal-loan installment due dates — one event per unpaid
+	// installment, same Due/Overdue-anchored-to-today treatment as gold
+	// loans above. personalLoanSvc is nil-checked so this package still
+	// works in any test/wiring that doesn't construct one.
+	if s.personalLoanSvc != nil {
+		installments, err := s.personalLoanSvc.ListPendingInstallmentsForCalendar(branchID)
+		if err != nil {
+			return nil, 0, err
+		}
+		for _, inst := range installments {
+			due := truncateDay(inst.DueDate)
+			loanID := inst.LoanID
+
+			if !due.Before(from) && !due.After(to) {
+				evType, title := "PersonalLoanDue", "Installment due"
+				if due.Before(now) {
+					evType, title = "PersonalLoanOverdue", "Installment overdue"
+				}
+				events = append(events, CalendarEvent{
+					Date:           due.Format("2006-01-02"),
+					Type:           evType,
+					Title:          fmt.Sprintf("%s — %s", title, inst.LoanNumber),
+					Detail:         inst.CustomerName,
+					PersonalLoanID: &loanID,
+					LoanNumber:     inst.LoanNumber,
+					CustomerID:     &inst.CustomerID,
+					CustomerName:   inst.CustomerName,
+				})
+			}
+			// Same "still overdue but outside the browsed range" anchor the
+			// gold-loan loop above uses, so an old unpaid installment never
+			// silently disappears from the calendar while browsing a later
+			// month.
+			if due.Before(now) && (due.Before(from) || due.After(to)) && !now.Before(from) && !now.After(to) {
+				events = append(events, CalendarEvent{
+					Date:           now.Format("2006-01-02"),
+					Type:           "PersonalLoanOverdue",
+					Title:          fmt.Sprintf("Installment overdue — %s", inst.LoanNumber),
+					Detail:         inst.CustomerName,
+					PersonalLoanID: &loanID,
+					LoanNumber:     inst.LoanNumber,
+					CustomerID:     &inst.CustomerID,
+					CustomerName:   inst.CustomerName,
+				})
+			}
+		}
+	}
+
 	from2, to2 := from, to
 	reminders, err := s.repo.FindAll(Filter{From: &from2, To: &to2, BranchID: branchID})
 	if err != nil {
@@ -311,10 +364,11 @@ func (s *Service) GetCalendarEvents(from, to time.Time, branchID *uint, page, pa
 		})
 	}
 
+	isOverdue := func(e CalendarEvent) bool { return e.Type == "Overdue" || e.Type == "PersonalLoanOverdue" }
 	sort.SliceStable(events, func(i, j int) bool {
 		a, b := events[i], events[j]
-		if (a.Type == "Overdue") != (b.Type == "Overdue") {
-			return a.Type == "Overdue"
+		if isOverdue(a) != isOverdue(b) {
+			return isOverdue(a)
 		}
 		return a.Date < b.Date
 	})
@@ -334,8 +388,22 @@ func (s *Service) GetCalendarEvents(from, to time.Time, branchID *uint, page, pa
 	return events[start:end], total, nil
 }
 
+// truncateDay zeroes out the time-of-day, always in UTC — regardless of
+// what Location t happens to carry — so it lines up with from/to, which
+// GetCalendarEvents' caller parses via time.Parse("2006-01-02", s) (always
+// UTC per the time package's own doc). Truncating in t's own Location
+// instead (the previous behavior) broke for personal-loan installment due
+// dates: they inherit the real time-of-day AND server-local Location (IST)
+// from PersonalLoan.OpenedDate = time.Now() at loan creation, so e.g.
+// "2026-10-01 21:03 IST" truncated in IST became "2026-10-01 00:00 IST" —
+// an instant equal to "2026-09-30 18:30 UTC", which compared as *before* a
+// UTC `from` of "2026-10-01", silently dropping the event from every month
+// it should have appeared in. Gold-loan due dates happened not to hit this
+// (their time-of-day is already near-zero), but converting to UTC first
+// here is the general fix, not a personal-loan-specific patch.
 func truncateDay(t time.Time) time.Time {
-	return time.Date(t.Year(), t.Month(), t.Day(), 0, 0, 0, 0, t.Location())
+	u := t.UTC()
+	return time.Date(u.Year(), u.Month(), u.Day(), 0, 0, 0, 0, time.UTC)
 }
 
 // monthlyOccurrences returns every date, on openedDate's day-of-month,

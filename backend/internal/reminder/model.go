@@ -61,17 +61,25 @@ func (Reminder) TableName() string { return "reminders" }
 
 // CalendarEvent is the unified, read-only shape returned by GET
 // /reminders/calendar — one row per event on the calendar, whether it comes
-// from a persisted Reminder or is computed live from loan.Loan. Type
-// distinguishes the six categories called for by the Reminder Calendar
-// spec: InterestDue, LoanDue, Overdue, FollowUp, PromiseToPay, Custom.
+// from a persisted Reminder or is computed live from loan.Loan or
+// personalloan.PersonalLoan. Type distinguishes the eight categories:
+// InterestDue, LoanDue, Overdue (gold loan), PersonalLoanDue,
+// PersonalLoanOverdue (personal loan installment), FollowUp, PromiseToPay,
+// Custom.
 type CalendarEvent struct {
 	Date   string `json:"date"` // "YYYY-MM-DD"
-	Type   string `json:"type"` // InterestDue | LoanDue | Overdue | FollowUp | PromiseToPay | Custom
+	Type   string `json:"type"` // InterestDue | LoanDue | Overdue | PersonalLoanDue | PersonalLoanOverdue | FollowUp | PromiseToPay | Custom
 	Title  string `json:"title"`
 	Detail string `json:"detail"`
 
 	LoanID     *uint  `json:"loanId,omitempty"`
 	LoanNumber string `json:"loanNumber,omitempty"`
+
+	// PersonalLoanID is set instead of LoanID for PersonalLoanDue/
+	// PersonalLoanOverdue events — kept separate (not reusing LoanID) so the
+	// frontend never mistakes a personal loan's numeric ID for a gold loan's
+	// and links `#loan/...` when it means `#personalloan/...`.
+	PersonalLoanID *uint `json:"personalLoanId,omitempty"`
 
 	CustomerID   *uint  `json:"customerId,omitempty"`
 	CustomerName string `json:"customerName,omitempty"`

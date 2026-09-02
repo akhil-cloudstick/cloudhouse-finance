@@ -440,6 +440,27 @@ h1,h2,h3,.serif{font-family:'Bodoni Moda',serif;font-optical-sizing:auto}
 .btn.danger{background:#fff;color:var(--red);border-color:#d8a49a;box-shadow:none}
 .btn.danger:hover{background:#fbf0ee}
 .btn.plain{background:#fff;color:var(--ink);border-color:var(--line);box-shadow:none;font-weight:500;text-transform:none;letter-spacing:.02em;font-size:13px}
+/* LoanDetail.tsx's document/eSign action row (Print Label/Slip/Statement/
+ * Bond, Signed Bond, eSign) — labels range from "Statement" to "Send
+ * Indemnity Bond for eSign", which at a shared width would otherwise force
+ * every button to the widest label's size. Fixing the width and eliding the
+ * overflowing text keeps the whole row visually uniform instead. Width is
+ * on the button itself (not flex-basis) so it holds firm inside the
+ * page-h's flex row; the icon sits outside doc-action-tx so it is never
+ * clipped, only the label text is. */
+.btn.doc-action{width:132px;flex:0 0 auto;overflow:hidden}
+.doc-action-tx{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;display:inline-block;min-width:0}
+/* DocumentsMenu's dropdown rows (LoanDetail.tsx) — a label too long for the
+ * 165px-wide panel fades out at its right edge instead of ending in "…",
+ * so e.g. "Send Indemnity Bond for eSign" reads as trailing off rather than
+ * being cut off mid-word. text-overflow is explicitly `clip` (not the
+ * `.gs-results a .tx b` default of `ellipsis`) so the two effects don't
+ * both apply at once. */
+.doc-menu-tx{
+  text-overflow:clip;
+  -webkit-mask-image:linear-gradient(to right, #000 80%, transparent 100%);
+  mask-image:linear-gradient(to right, #000 80%, transparent 100%);
+}
 
 .inp,select.inp,textarea.inp{
   font:inherit;font-size:14px;color:var(--charcoal);
@@ -858,13 +879,20 @@ table.tbl{width:100%;border-collapse:separate;border-spacing:0;font-size:13.5px;
   flex:0 0 auto;width:16px;height:16px;margin-top:1px;
   border:1.5px solid var(--line);background:var(--card);
   transition:border-color .15s,background .15s;
+  box-sizing:border-box;
 }
-.cradio .mark{border-radius:50%}
+.cradio .mark{border-radius:50%;display:inline-flex;align-items:center;justify-content:center;position:relative}
 .ccheck .mark{border-radius:4px;display:grid;place-content:center}
 .cradio input:checked + .mark{border-color:var(--gold-deep)}
 .cradio input:checked + .mark::after{
-  content:"";position:absolute;width:8px;height:8px;border-radius:50%;
-  background:var(--gold-deep);margin:4px 0 0 4px;
+  content:"";width:8px;height:8px;border-radius:50%;
+  background:var(--gold-deep);
+}
+.cradio[style*="align-items: center"] .mark,
+.cradio[style*="align-items:center"] .mark,
+.cradio[style*="alignItems: center"] .mark,
+.cradio[style*="alignItems:center"] .mark {
+  margin-top:0;
 }
 .ccheck input:checked + .mark{border-color:var(--gold-deep);background:var(--gold-deep)}
 .ccheck input:checked + .mark::after{content:"";width:9px;height:6px;border-left:2px solid #fff;border-bottom:2px solid #fff;transform:rotate(-45deg) translateY(-1px)}
