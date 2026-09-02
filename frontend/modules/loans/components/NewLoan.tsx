@@ -723,7 +723,21 @@ export function NewLoan() {
               <td>'s shrunk content box, so it overflows the cell and drifts
               out of alignment with its own header instead of scrolling the
               table as a whole. */}
-          <div style={{ width: "100%", overflowX: "auto", minWidth: 0, paddingBottom: 6 }}><table className="tbl orn-table" style={{ width: "100%", minWidth: 650, tableLayout: "fixed" }}>
+          {/* Two renderings of the same `rows` state, toggled by a
+              dedicated 1350px breakpoint (app.css) via CSS display only —
+              not a JS resize listener, matching how `.side`/`.burger`
+              already switch layouts in this app (those use the app's usual
+              900px breakpoint; this table needed its own wider one — see
+              app.css's comment above `.orn-cards-view`). `.orn-table-view`
+              is hidden below 1350px, `.orn-cards-view` shown instead. The
+              table's own hidden file `<input>`/ref stays the single source
+              of truth for
+              a row's photo picker either way (see the card's Upload/Replace
+              buttons below, which reuse `fileRefs.current[i]` rather than
+              mounting a second file input for the same row — two <input
+              type="file"> elements sharing one ref array index would race
+              on which one `fileRefs.current[i]` actually points to). */}
+          <div className="orn-table-view" style={{ width: "100%", minWidth: 0, paddingBottom: 6 }}><table className="tbl orn-table" style={{ width: "100%", tableLayout: "fixed" }}>
             <colgroup>
               {/* Ornament narrowed to 16% to free space for Photo (20%) and Delete (8%) columns,
                   preventing Upload and Close button overlaps and clipping on small screens. */}
@@ -778,6 +792,64 @@ export function NewLoan() {
               ))}
             </tbody>
           </table></div>
+
+          <div className="orn-cards-view">
+            {rows.length === 0 && (
+              <div className="empty" style={{ padding: "14px 4px" }}>No ornaments added yet — click &quot;Add Ornament&quot; below.</div>
+            )}
+            {rows.map((r, i) => (
+              <div className="orn-card" key={i}>
+                <div className="orn-card-row">
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <label className="f">Ornament</label>
+                    <SearchableSelect<BackendOrnamentType>
+                      value={r.n}
+                      onChange={(_id, item) => updOrn(i, "n", item.name)}
+                      fetchFn={searchOrnamentTypesPage}
+                      getLabel={(t) => t.name}
+                      getId={(t) => String(t.id)}
+                      placeholder="Ornament type…"
+                      allowCreate
+                      onCreate={createOrnamentType}
+                    />
+                  </div>
+                  <button className="btn danger sm" style={{ height: 31, width: 31, padding: 0, marginTop: 20, flexShrink: 0, display: "inline-flex", alignItems: "center", justifyContent: "center" }} title="Remove ornament" onClick={() => delOrnRow(i)}>✕</button>
+                </div>
+                <div>
+                  <label className="f">Purity</label>
+                  <PurityPicker value={r.p} onChange={(v) => updOrn(i, "p", v)} />
+                </div>
+                <div className="orn-card-row">
+                  <div style={{ flex: 1 }}>
+                    <label className="f">Net Wt (g)</label>
+                    <input className="inp" style={{ padding: "6px 8px", width: "100%", height: 31, boxSizing: "border-box" }} type="number" min={0} value={r.w === 0 ? "" : r.w} onChange={(e) => updOrn(i, "w", e.target.value === "" ? 0 : Math.max(0, +e.target.value || 0))} />
+                  </div>
+                  <div style={{ flex: 1 }}>
+                    <label className="f">Qty</label>
+                    <input className="inp" style={{ padding: "6px 8px", width: "100%", height: 31, boxSizing: "border-box" }} type="number" min={0} value={r.q} onChange={(e) => updOrn(i, "q", Math.max(0, +e.target.value || 0))} />
+                  </div>
+                </div>
+                <div className="orn-card-row" style={{ justifyContent: "space-between", alignItems: "center" }}>
+                  <span style={{ fontSize: 11, letterSpacing: ".14em", textTransform: "uppercase", color: "var(--muted)" }}>Value</span>
+                  <b>{fmt(rowVals[i])}</b>
+                </div>
+                <div className="orn-card-row" style={{ justifyContent: "space-between", alignItems: "center" }}>
+                  <span style={{ fontSize: 11, letterSpacing: ".14em", textTransform: "uppercase", color: "var(--muted)" }}>Photo</span>
+                  {/* Reuses the table view's own hidden file <input>/ref for
+                      this row — see the comment above the table wrapper. */}
+                  {r.img ? (
+                    <div style={{ display: "inline-flex", gap: 4, alignItems: "center" }}>
+                      <img src={r.img} style={{ width: 34, height: 34, objectFit: "cover", borderRadius: 6, border: "1px solid var(--line)", cursor: "pointer" }} title="View photo" onClick={() => viewOrnImg(i)} />
+                      <button className="btn plain sm" style={{ padding: "0 7px", height: 31 }} title="Replace photo" onClick={() => fileRefs.current[i]?.click()}>↺</button>
+                      <button className="btn plain sm" style={{ padding: "0 7px", height: 31 }} title="Remove photo" onClick={() => delOrnImg(i)}>✕</button>
+                    </div>
+                  ) : (
+                    <button className="btn plain sm" style={{ padding: "0 9px", height: 31 }} title="Upload ornament photo" onClick={() => fileRefs.current[i]?.click()}>📷 Upload</button>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
           <button className="btn plain sm" style={{ marginTop: 10 }} onClick={() => addOrnRow()}><Icon name="plus" /> Add Ornament</button>
         </div>
           <div className="ft" style={{ display: "flex", gap: 10, justifyContent: "flex-end", flexWrap: "wrap", padding: "14px 18px" }}>

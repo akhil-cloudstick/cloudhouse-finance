@@ -1,8 +1,17 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 
 export type SearchPage<T> = { items: T[]; hasMore: boolean };
+
+// One `.gs-results a` row (app.css): 8px+8px padding plus a ~14px line for
+// the label ≈ 37px. 5 rows plus the list's own 6px+6px padding (app.css's
+// `.gs-results{padding:6px}`) is the box height that shows exactly 5 items
+// before the list has to scroll for the rest.
+const ROW_HEIGHT = 37;
+const VISIBLE_ROWS = 5;
+const ROWS_BOX_HEIGHT = ROW_HEIGHT * VISIBLE_ROWS + 12;
 
 /**
  * A text-input + dropdown combobox backed by a server-side, paginated
@@ -25,6 +34,18 @@ export type SearchPage<T> = { items: T[]; hasMore: boolean };
  * - In `allowCreate` mode, if the query doesn't exactly match (case
  *   insensitive) any loaded item, a "+ Create '<query>'" row is shown;
  *   picking it calls `onCreate` and then selects the result.
+ * - `compact`: PurityPicker's own search half only, which can render as
+ *   narrow as ~34px wide inside NewLoan.tsx's ornament table — every other
+ *   caller (ornament type, customer/scheme/bank search, …) keeps this
+ *   component's original inline dropdown (absolute-positioned under the
+ *   input, natural width, a themed scrollbar past ~7 items) unchanged.
+ *   Compact instead portals the list to `document.body` and positions it
+ *   with `position:fixed` off the input's own viewport rect — this is what
+ *   stops an `overflow` ancestor (like that same table's wrapping div) from
+ *   clipping it — pins its width between 60 and 160px regardless of how
+ *   squeezed the trigger itself is, opens only downward (never flips above
+ *   the input) with height capped to at most 5 rows, and hides its own
+ *   scrollbar while staying fully scrollable for the rest.
  */
 export function SearchableSelect<T>({
   value,
@@ -36,6 +57,7 @@ export function SearchableSelect<T>({
   allowCreate = false,
   onCreate,
   disabled,
+  compact = false,
 }: {
   value: string;
   onChange: (id: string, item: T) => void;
@@ -46,6 +68,7 @@ export function SearchableSelect<T>({
   allowCreate?: boolean;
   onCreate?: (query: string) => Promise<T>;
   disabled?: boolean;
+  compact?: boolean;
 }) {
   const [query, setQuery] = useState(value);
   // Separate from `query` (the input's displayed text, which starts out as
@@ -65,6 +88,8 @@ export function SearchableSelect<T>({
   const [creating, setCreating] = useState(false);
   const boxRef = useRef<HTMLDivElement>(null);
   const resultsRef = useRef<HTMLDivElement>(null);
+  // Only used in `compact` mode — see that prop's doc comment above.
+  const [coords, setCoords] = useState<{ top: number; left: number; width: number; maxHeight: number } | null>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const requestIdRef = useRef(0);
   // Tracks the query the currently-open dropdown was first opened/typed
@@ -123,6 +148,10 @@ export function SearchableSelect<T>({
     loadPage(searchTerm, page + 1, reqId, true);
   }
 
+  // Scrolling the open list near the bottom of what's currently loaded
+  // fetches and appends the next page (both modes: the plain inline
+  // dropdown scrolls past ~7 items via its own themed scrollbar; `compact`
+  // caps at 5 rows with its scrollbar hidden — see that prop's doc comment).
   function onResultsScroll() {
     const el = resultsRef.current;
     if (!el) return;
@@ -145,11 +174,65 @@ export function SearchableSelect<T>({
 
   useEffect(() => {
     function onDocClick(e: MouseEvent) {
-      if (boxRef.current && !boxRef.current.contains(e.target as Node)) setOpen(false);
+      const target = e.target as Node;
+      // resultsRef now lives in a document.body portal (see the `open &&`
+      // render below), so it's no longer a DOM descendant of boxRef — a
+      // click on a result would otherwise register as "outside" and close
+      // the dropdown before its own onClick handler ever ran.
+      if (boxRef.current?.contains(target)) return;
+      if (resultsRef.current?.contains(target)) return;
+      setOpen(false);
     }
     document.addEventListener("click", onDocClick);
     return () => document.removeEventListener("click", onDocClick);
   }, []);
+
+  // compact-only: recompute the portal's fixed position whenever it opens,
+  // and keep it pinned to the input while the box stays open — the
+  // ancestor doing the scrolling is unknown from here (could be the whole
+  // page or some inner `overflow` container like NewLoan.tsx's table
+  // wrapper), so this listens on window scroll with `capture:true`, which
+  // also catches scroll events bubbling up from any nested scrollable
+  // ancestor.
+  //
+  // Always opens downward, never flips above the input: an "open upward"
+  // heuristic sounds nice in principle, but for a trigger sitting near the
+  // bottom of a scrollable panel (a common case in this app's cards) it put
+  // the box's growth direction entirely at the mercy of how much space
+  // happened to be above — for a long, unpaginated-looking list that meant
+  // the dropdown shooting up past the top of the viewport, looking
+  // disconnected from the field it belongs to ("the dropdown is rising
+  // up"). Opening downward with a hard maxHeight capped to the real
+  // remaining space below is predictable in every case instead: it never
+  // grows past what's actually still on screen, so it's obviously still
+  // "the dropdown for that field" no matter where the field sits.
+  useLayoutEffect(() => {
+    // Stale `coords` left over from the last time this was open is
+    // harmless: the render below gates on `open && coords`, and `open` is
+    // already false here, so there's nothing to clear.
+    if (!compact || !open) return;
+    function reposition() {
+      const el = boxRef.current;
+      if (!el) return;
+      const rect = el.getBoundingClientRect();
+      const spaceBelow = window.innerHeight - rect.bottom;
+      // Caps at exactly ROWS_BOX_HEIGHT (~5 rows) even when there's plenty
+      // of room below — the list scrolls internally for anything past that
+      // (onResultsScroll above), it doesn't keep growing taller. Only
+      // shrinks below that when the field itself is close enough to the
+      // bottom of the viewport that 5 full rows wouldn't fit; 120 is the
+      // floor for that squeeze so it's never so short it's useless.
+      const maxHeight = Math.min(ROWS_BOX_HEIGHT, Math.max(120, spaceBelow - 8));
+      setCoords({ top: rect.bottom, left: rect.left, width: rect.width, maxHeight });
+    }
+    reposition();
+    window.addEventListener("resize", reposition);
+    window.addEventListener("scroll", reposition, true);
+    return () => {
+      window.removeEventListener("resize", reposition);
+      window.removeEventListener("scroll", reposition, true);
+    };
+  }, [compact, open]);
 
   function pick(item: T) {
     onChange(getId(item), item);
@@ -173,6 +256,33 @@ export function SearchableSelect<T>({
   const exactMatch = items.some((it) => getLabel(it).toLowerCase() === query.trim().toLowerCase());
   const showCreateRow = allowCreate && query.trim().length > 0 && !exactMatch && !loading;
 
+  const resultsBody = loading ? (
+    <div className="gs-none">Searching…</div>
+  ) : items.length === 0 && !showCreateRow ? (
+    <div className="gs-none">No results</div>
+  ) : (
+    <>
+      {items.map((item) => (
+        <a
+          key={getId(item)}
+          href="#"
+          onClick={(e) => { e.preventDefault(); pick(item); }}
+        >
+          <span className="tx"><b>{getLabel(item)}</b></span>
+        </a>
+      ))}
+      {loadingMore && <div className="gs-none">Loading more…</div>}
+      {showCreateRow && (
+        <a
+          href="#"
+          onClick={(e) => { e.preventDefault(); pickCreate(); }}
+        >
+          <span className="tx"><b>{creating ? "Creating…" : `+ Create "${query.trim()}"`}</b></span>
+        </a>
+      )}
+    </>
+  );
+
   return (
     <div className="ss" ref={boxRef} style={{ position: "relative" }}>
       <input
@@ -184,40 +294,70 @@ export function SearchableSelect<T>({
         onChange={(e) => { setQuery(e.target.value); setSearchTerm(e.target.value); setOpen(true); }}
         onFocus={() => { setSearchTerm(""); setOpen(true); }}
       />
-      {open && (
+      {/* Every other caller: the original inline dropdown — absolute inside
+       * `.ss`, natural width, app.css's own max-height:420px + themed
+       * scrollbar past ~7 items. Unchanged from before `compact` existed. */}
+      {!compact && open && (
         <div
           ref={resultsRef}
           className="gs-results open"
-          style={{ position: "absolute", top: "calc(100% + 4px)", left: 0, right: 0, zIndex: 50, maxHeight: 260, overflowY: "auto" }}
           onScroll={onResultsScroll}
         >
-          {loading ? (
-            <div className="gs-none">Searching…</div>
-          ) : items.length === 0 && !showCreateRow ? (
-            <div className="gs-none">No results</div>
-          ) : (
-            <>
-              {items.map((item) => (
-                <a
-                  key={getId(item)}
-                  href="#"
-                  onClick={(e) => { e.preventDefault(); pick(item); }}
-                >
-                  <span className="tx"><b>{getLabel(item)}</b></span>
-                </a>
-              ))}
-              {loadingMore && <div className="gs-none">Loading more…</div>}
-              {showCreateRow && (
-                <a
-                  href="#"
-                  onClick={(e) => { e.preventDefault(); pickCreate(); }}
-                >
-                  <span className="tx"><b>{creating ? "Creating…" : `+ Create "${query.trim()}"`}</b></span>
-                </a>
-              )}
-            </>
-          )}
+          {resultsBody}
         </div>
+      )}
+      {/* PurityPicker's search half only — see the `compact` prop's doc
+       * comment for why this needs the portal/fixed-position/capped-size
+       * treatment that every other dropdown deliberately does NOT get. */}
+      {compact && open && coords && createPortal(
+        <div
+          ref={resultsRef}
+          className="gs-results open no-scrollbar"
+          onScroll={onResultsScroll}
+          // Every property below is given an explicit value, including the
+          // "off" ones ("auto") — the shared .gs-results class (app.css)
+          // sets position:absolute, top:calc(100% + 8px), right:0 and
+          // max-height:420px, and a React inline style only overrides a
+          // class rule for properties it actually sets: leaving one at
+          // `undefined` drops it from the style attribute entirely and lets
+          // the class value win — which for `top` under position:fixed
+          // resolves against the viewport, not this box's own offset, and
+          // would fling the dropdown to the wrong place.
+          style={{
+            position: "fixed",
+            top: coords.top,
+            left: coords.left,
+            right: "auto",
+            // Clamped, not just floored: below 60px an item's own label
+            // ("24", "Gold Chain", …) starts wrapping or clipping, and
+            // above ~160px (roughly PurityPicker's search half at its own
+            // un-squeezed width — see PurityPicker.tsx's `flex:1` split)
+            // the dropdown would visibly outgrow the field it belongs to
+            // for a plain 2-3-digit purity value.
+            width: Math.min(Math.max(coords.width, 60), 160),
+            marginTop: 4,
+            // Always exactly ROWS_BOX_HEIGHT (~5 rows) unless the field
+            // sits too close to the bottom of the viewport for that to fit
+            // (see the useLayoutEffect above) — scrolling within this box
+            // reveals the rest (onResultsScroll fetches + appends the next
+            // page near the bottom, same infinite-scroll pattern as the
+            // plain dropdown above), rather than the box growing to fit
+            // every item.
+            maxHeight: coords.maxHeight,
+            // The scroll itself stays fully functional (mouse wheel,
+            // trackpad, touch, arrow keys) — only its own visible bar is
+            // hidden (.no-scrollbar, app.css) per "the scroll bar is not
+            // required in this dropdown". overflowY must still be
+            // scroll-capable, just not auto (which can omit the scrollbar
+            // in Firefox's `thin` mode when content only just fits, but
+            // that's incidental — the visual hiding is the CSS class).
+            overflowY: "auto",
+            zIndex: 1000,
+          }}
+        >
+          {resultsBody}
+        </div>,
+        document.body
       )}
     </div>
   );

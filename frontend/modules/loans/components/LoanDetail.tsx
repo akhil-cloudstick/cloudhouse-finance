@@ -576,7 +576,7 @@ export function LoanDetail({ id }: { id?: string }) {
           ]}
         />
         {l.status === "Closure Requested" && canUpdateLoans && (
-          <button className="btn" disabled={completing || l.totalOutstandingBalance > 0.01 || l.bankPledgeStatus === "Bank Pledged"} onClick={doCompleteRelease} title={l.totalOutstandingBalance > 0.01 ? "Final settlement must be fully paid first" : l.bankPledgeStatus === "Bank Pledged" ? "Release the bank pledge first" : undefined}>
+          <button className="btn" style={{ height: 30 }} disabled={completing || l.totalOutstandingBalance > 0.01 || l.bankPledgeStatus === "Bank Pledged"} onClick={doCompleteRelease} title={l.totalOutstandingBalance > 0.01 ? "Final settlement must be fully paid first" : l.bankPledgeStatus === "Bank Pledged" ? "Release the bank pledge first" : undefined}>
             <Icon name="unlock" /> {completing ? "Releasing…" : "Complete Release"}
           </button>
         )}

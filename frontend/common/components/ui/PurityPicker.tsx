@@ -162,6 +162,7 @@ export function PurityPicker({ value, onChange, disabled }: { value: string; onC
             allowCreate
             onCreate={onCreate}
             disabled={disabled}
+            compact
           />
         </div>
       </div>
