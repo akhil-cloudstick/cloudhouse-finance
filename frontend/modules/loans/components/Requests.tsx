@@ -5,8 +5,9 @@ import { useModal } from "@/common/components/Modal";
 import { StatusChip } from "@/common/components/ui/StatusChip";
 import { Select } from "@/common/components/ui/Select";
 import { useLoans } from "@/modules/loans/store/LoansProvider";
-import { listLoanRequestsPage, REQUESTS_TABLE_PAGE_SIZE, type RequestView } from "@/modules/loans/services/loanService";
+import { listLoanRequestsPage, type RequestView } from "@/modules/loans/services/loanService";
 import { useAuth } from "@/common/auth-context";
+import { useResponsivePageSize } from "@/common/utils/responsive";
 
 const STATUS_OPTIONS = [
   { value: "", label: "All" },
@@ -35,22 +36,23 @@ export function Requests() {
   const { can } = useAuth();
   const canDecide = can("Loan_Management", "can_update_loan");
 
+  const pageSize = useResponsivePageSize(10, 7);
   const [reqs, setReqs] = useState<RequestView[]>([]);
   const [loading, setLoading] = useState(true);
   const [page, setPage] = useState(1);
   const [total, setTotal] = useState(0);
   const [status, setStatus] = useState("");
-  const totalPages = Math.max(1, Math.ceil(total / REQUESTS_TABLE_PAGE_SIZE));
+  const totalPages = Math.max(1, Math.ceil(total / pageSize));
 
   // Re-fetches whatever page is currently on screen — used both by the
   // page-change effect below and after a decision/review-save, so an admin
   // working through page 3 isn't bounced back to page 1 every time.
   const refresh = useCallback(() => {
-    listLoanRequestsPage(page, { status: status || undefined })
+    listLoanRequestsPage(page, { status: status || undefined }, pageSize)
       .then((res) => { setReqs(res.items); setTotal(res.total); })
       .catch(() => { setReqs([]); setTotal(0); })
       .finally(() => setLoading(false));
-  }, [page, status]);
+  }, [page, status, pageSize]);
 
   useEffect(() => { refresh(); }, [refresh]);
 

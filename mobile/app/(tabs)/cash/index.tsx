@@ -1,12 +1,11 @@
 import React, { useState } from "react";
-import { View, ScrollView, RefreshControl, Pressable, StyleSheet } from "react-native";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { View, RefreshControl, Pressable, StyleSheet } from "react-native";
+import { useQuery, useInfiniteQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { ScreenContainer } from "../../../src/components/ScreenContainer";
 import { Card } from "../../../src/components/Card";
 import { ThemedText } from "../../../src/components/ThemedText";
 import { GoldTextInput } from "../../../src/components/GoldTextInput";
 import { GoldButton } from "../../../src/components/GoldButton";
-import { Pager } from "../../../src/components/Pager";
 import { ChipSelect } from "../../../src/components/ChipSelect";
 import { colors, statusColors, StatusTone } from "../../../src/theme/colors";
 import { getCashSummary, listCashMovementsPage, createCashMovement, listExpensesPage, createExpense, approveExpense, rejectExpense } from "../../../src/api/cash";
@@ -66,8 +65,6 @@ export default function CashScreen() {
 
   const [tab, setTab] = useState<"movements" | "expenses">("movements");
   const [showForm, setShowForm] = useState(false);
-  const [movementsPage, setMovementsPage] = useState(1);
-  const [expensesPage, setExpensesPage] = useState(1);
 
   // Movement form state
   const [mType, setMType] = useState<(typeof MOVEMENT_TYPES)[number]>("in");
@@ -86,27 +83,30 @@ export default function CashScreen() {
     queryFn: () => getCashSummary(employee!.branchId, today),
     enabled: !!employee,
   });
-  const movements = useQuery({
-    queryKey: ["cash-movements", movementsPage],
-    queryFn: () => listCashMovementsPage({ limit: PAGE_SIZE, offset: (movementsPage - 1) * PAGE_SIZE }),
+  const movements = useInfiniteQuery({
+    queryKey: ["cash-movements"],
+    queryFn: ({ pageParam = 0 }) => listCashMovementsPage({ limit: PAGE_SIZE, offset: pageParam }),
+    initialPageParam: 0,
+    getNextPageParam: (lastPage, allPages) => (lastPage.hasMore ? allPages.length * PAGE_SIZE : undefined),
     enabled: tab === "movements",
   });
-  const expenses = useQuery({
-    queryKey: ["expenses", expensesPage],
-    queryFn: () => listExpensesPage({ limit: PAGE_SIZE, offset: (expensesPage - 1) * PAGE_SIZE }),
+  const expenses = useInfiniteQuery({
+    queryKey: ["expenses"],
+    queryFn: ({ pageParam = 0 }) => listExpensesPage({ limit: PAGE_SIZE, offset: pageParam }),
+    initialPageParam: 0,
+    getNextPageParam: (lastPage, allPages) => (lastPage.hasMore ? allPages.length * PAGE_SIZE : undefined),
     enabled: tab === "expenses",
   });
 
   useRefetchOnFocus(summary.refetch, movements.refetch, expenses.refetch);
 
-  const movementItems = movements.data?.items ?? [];
-  const expenseItems = expenses.data?.items ?? [];
+  const movementItems = movements.data?.pages.flatMap((p) => p.items) ?? [];
+  const expenseItems = expenses.data?.pages.flatMap((p) => p.items) ?? [];
 
   const createMovement = useMutation({
     mutationFn: () => createCashMovement({ type: mType, source: mSource, purpose: mPurpose, amount: Number(mAmount), bank: undefined }),
     onSuccess: () => {
       setMSource(""); setMPurpose(""); setMAmount(""); setShowForm(false); setFormError(null);
-      setMovementsPage(1);
       queryClient.invalidateQueries({ queryKey: ["cash-movements"] });
       queryClient.invalidateQueries({ queryKey: ["cash-summary"] });
     },
@@ -116,7 +116,6 @@ export default function CashScreen() {
     mutationFn: () => createExpense({ category: eCategory, amount: Number(eAmount), mode: eMode, payee: ePayee, branchId: employee!.branchId }),
     onSuccess: () => {
       setECategory(""); setEAmount(""); setEMode(""); setEPayee(""); setShowForm(false); setFormError(null);
-      setExpensesPage(1);
       queryClient.invalidateQueries({ queryKey: ["expenses"] });
       queryClient.invalidateQueries({ queryKey: ["cash-summary"] });
     },
@@ -167,11 +166,12 @@ export default function CashScreen() {
 
   return (
     <ScreenContainer style={{ padding: 0 }}>
-      <View style={{ flex: 1, paddingHorizontal: 16, paddingTop: 16 }}>
-      <ScrollView
-        showsVerticalScrollIndicator={false}
-        refreshControl={<RefreshControl refreshing={summary.isRefetching} onRefresh={summary.refetch} />}
-      >
+      {/* Summary, tab switch, and the Add form are fixed — only the table
+       * below scrolls (its column-label row and count footer both sticky,
+       * more rows loading in via infinite scroll). See ExpandableTable.tsx's
+       * own comment on why it needs its own flex:1 slot rather than a
+       * shared ScrollView. */}
+      <View style={{ paddingHorizontal: 16, paddingTop: 20 }}>
         <Card>
           <ThemedText variant="h3" style={{ marginBottom: 8 }}>
             Today's cash summary
@@ -245,9 +245,11 @@ export default function CashScreen() {
             )}
           </Card>
         ) : null}
+      </View>
 
-        {tab === "movements" ? (
-          <>
+      {tab === "movements" ? (
+        <>
+          <View style={{ flex: 1, paddingHorizontal: 16 }}>
             <ExpandableTable<CashMovement>
               columns={MOVEMENT_COLUMNS}
               visibleCount={MOVEMENT_VISIBLE}
@@ -255,11 +257,22 @@ export default function CashScreen() {
               keyExtractor={(m) => String(m.id)}
               extraFields={movementExtraFields}
               emptyText={movements.isLoading ? "Loading…" : movements.isError ? "Could not load cash movements." : "No movements yet."}
+              refreshControl={
+                <RefreshControl
+                  refreshing={summary.isRefetching || (movements.isRefetching && !movements.isFetchingNextPage)}
+                  onRefresh={() => { summary.refetch(); movements.refetch(); }}
+                />
+              }
+              onEndReached={() => {
+                if (movements.hasNextPage && !movements.isFetchingNextPage) movements.fetchNextPage();
+              }}
+              isFetchingNextPage={movements.isFetchingNextPage}
             />
-            <Pager page={movementsPage} hasMore={!!movements.data?.hasMore} onChange={setMovementsPage} loading={movements.isFetching} />
-          </>
-        ) : (
-          <>
+          </View>
+        </>
+      ) : (
+        <>
+          <View style={{ flex: 1, paddingHorizontal: 16 }}>
             <ExpandableTable<Expense>
               columns={EXPENSE_COLUMNS}
               visibleCount={EXPENSE_VISIBLE}
@@ -267,13 +280,22 @@ export default function CashScreen() {
               keyExtractor={(e) => String(e.id)}
               extraFields={expenseExtraFields}
               emptyText={expenses.isLoading ? "Loading…" : expenses.isError ? "Could not load expenses." : "No expenses yet."}
+              refreshControl={
+                <RefreshControl
+                  refreshing={summary.isRefetching || (expenses.isRefetching && !expenses.isFetchingNextPage)}
+                  onRefresh={() => { summary.refetch(); expenses.refetch(); }}
+                />
+              }
+              onEndReached={() => {
+                if (expenses.hasNextPage && !expenses.isFetchingNextPage) expenses.fetchNextPage();
+              }}
+              isFetchingNextPage={expenses.isFetchingNextPage}
             />
-            <Pager page={expensesPage} hasMore={!!expenses.data?.hasMore} onChange={setExpensesPage} loading={expenses.isFetching} />
-          </>
-        )}
-      </ScrollView>
-      </View>
-    </ScreenContainer>  );
+          </View>
+        </>
+      )}
+    </ScreenContainer>
+  );
 }
 
 const styles = StyleSheet.create({

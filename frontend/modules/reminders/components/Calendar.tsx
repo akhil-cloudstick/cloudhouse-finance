@@ -137,19 +137,37 @@ export function Calendar() {
   return (
     <>
       <div className="page-h">
-        <div><h1>EMI / Interest Reminder Calendar</h1><p>{fmtMonthYear(year, month)} · due dates, overdue loans, follow-ups &amp; promise-to-pay</p></div>
-        <div className="sp" />
-        <span className="chip amber">Due</span> <span className="chip red">Overdue</span> <span className="chip blue">Follow-up</span> <span className="chip green">Payment</span>
-        <button className="btn ghost" onClick={goToday}>Today</button>
-        <button className="btn ghost" onClick={() => goMonth(-1)}>‹ Prev</button>
-        <button className="btn ghost" onClick={() => goMonth(1)}>Next ›</button>
-        {canCreateReminders && (
-          <button className="btn" onClick={() => openModal(<AddReminderModalContent initialDate={selectedISO} onSaved={load} />)}>
-            <Icon name="plus" /> Add Reminder
-          </button>
-        )}
+        {/* .page-h-title (flex:1;min-width:0) lets this block shrink and
+         * wrap its subtitle instead of holding its full natural width and
+         * forcing .page-h-actions below it — the same pattern LoanDetail
+         * uses, for the same reason: the title + nav/Add Reminder buttons
+         * were landing right at the wrap threshold, dropping the whole
+         * button cluster (Add Reminder especially) to its own line at
+         * anything but a very wide window even though there was still
+         * visibly room for it. */}
+        <div className="page-h-title"><h1>EMI / Interest Reminder Calendar</h1><p>{fmtMonthYear(year, month)} · due dates, overdue loans, follow-ups &amp; promise-to-pay</p></div>
+        <div className="page-h-actions">
+          <button className="btn ghost" onClick={goToday}>Today</button>
+          <button className="btn ghost" onClick={() => goMonth(-1)}>‹ Prev</button>
+          <button className="btn ghost" onClick={() => goMonth(1)}>Next ›</button>
+          {canCreateReminders && (
+            <button className="btn" onClick={() => openModal(<AddReminderModalContent initialDate={selectedISO} onSaved={load} />)}>
+              <Icon name="plus" /> Add Reminder
+            </button>
+          )}
+        </div>
       </div>
       <hr className="gold-rule" />
+      {/* The Due/Overdue/Follow-up/Payment legend now sits below the rule,
+       * left-aligned, rather than crammed onto the title row's right side
+       * (moved once already) or between the title and the rule — reading
+       * as a legend for the calendar grid directly beneath it. */}
+      <div style={{ display: "flex", gap: 8, marginBottom: 14 }}>
+        <span className="chip amber">Due</span>
+        <span className="chip red">Overdue</span>
+        <span className="chip blue">Follow-up</span>
+        <span className="chip green">Payment</span>
+      </div>
       {err && <p style={{ color: "var(--red)", fontSize: 13 }}>{err}</p>}
       <div className="grid cols21">
         <div className="card">

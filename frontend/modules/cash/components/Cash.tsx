@@ -14,11 +14,11 @@ import { SearchableSelect } from "@/common/components/ui/SearchableSelect";
 import {
   listCashMovementsPage, listExpensesPage, getCashSummary, setOpeningBalance,
   setCashMovementLoanStatus, approveExpense, rejectExpense,
-  CASH_MOVEMENTS_PAGE_SIZE, EXPENSES_PAGE_SIZE,
   type CashMovementView, type ExpenseView, type CashSummary,
 } from "@/modules/cash/services/cashService";
 import { ApiError } from "@/common/services/httpClient";
 import { useAuth } from "@/common/auth-context";
+import { useResponsivePageSize } from "@/common/utils/responsive";
 
 function Kpi({ l, v, s, parts, cls }: {
   l: string; v: string | number; s?: string; parts?: [string, number][]; cls?: string;
@@ -137,11 +137,12 @@ export function Cash() {
   const [movementsPage, setMovementsPage] = useState(1);
   const [movementsHasMore, setMovementsHasMore] = useState(false);
   const [movementsTotal, setMovementsTotal] = useState(0);
+  const cashPageSize = useResponsivePageSize(8, 7);
   const [expensesPage, setExpensesPage] = useState(1);
   const [expensesHasMore, setExpensesHasMore] = useState(false);
   const [expensesTotal, setExpensesTotal] = useState(0);
-  const movementsTotalPages = Math.max(1, Math.ceil(movementsTotal / CASH_MOVEMENTS_PAGE_SIZE));
-  const expensesTotalPages = Math.max(1, Math.ceil(expensesTotal / EXPENSES_PAGE_SIZE));
+  const movementsTotalPages = Math.max(1, Math.ceil(movementsTotal / cashPageSize));
+  const expensesTotalPages = Math.max(1, Math.ceil(expensesTotal / cashPageSize));
   const [summary, setSummary] = useState<CashSummary | null>(null);
   const [openingInput, setOpeningInput] = useState("");
   // Once today's opening balance exists for the selected branch we show it
@@ -161,12 +162,12 @@ export function Cash() {
   const summarySeq = useRef(0);
 
   const refresh = useCallback(() => {
-    listCashMovementsPage(movementsPage).then(({ items, hasMore, total }) => {
+    listCashMovementsPage(movementsPage, cashPageSize).then(({ items, hasMore, total }) => {
       setMovements(items);
       setMovementsHasMore(hasMore);
       setMovementsTotal(total);
     }).catch(() => { setMovements([]); setMovementsHasMore(false); setMovementsTotal(0); });
-    listExpensesPage(expensesPage).then(({ items, hasMore, total }) => {
+    listExpensesPage(expensesPage, cashPageSize).then(({ items, hasMore, total }) => {
       setExpenses(items);
       setExpensesHasMore(hasMore);
       setExpensesTotal(total);
@@ -181,7 +182,7 @@ export function Cash() {
       if (seq !== summarySeq.current) return;
       setSummary(null);
     });
-  }, [branchId, today, movementsPage, expensesPage]);
+  }, [branchId, today, movementsPage, expensesPage, cashPageSize]);
 
   useEffect(() => {
     listActiveBranches().then((list) => {
@@ -268,12 +269,19 @@ export function Cash() {
       <div className="page-h">
         <div><h1>Cash-in-Hand &amp; Expenses</h1><p>Daily cash movements, opening balances and branch expenses — recorded, approved and reconciled</p></div>
         <div className="sp" />
+        {/* .page-h-actions (app.css) rather than flat siblings of `.page-h`
+         * — its own margin-left:auto/justify-content:flex-end keeps all 3
+         * buttons right-aligned as a group even once they wrap to their
+         * own line, instead of a plain sibling wrap starting flush at
+         * `.page-h`'s left edge (which stranded "Record Expense" on its
+         * own line at the far left, disconnected from Take Cash Out/Add
+         * Cash beside the title). */}
         {canCreateCash && (
-          <>
+          <div className="page-h-actions">
             <button className="btn ghost" onClick={() => openModal(<CashOutModalContent onSaved={refresh} />)}><Icon name="coin" /> Take Cash Out</button>
             <button className="btn ghost" onClick={() => openModal(<AddCashModalContent onSaved={refresh} />)}><Icon name="coin" /> Add Cash</button>
             <button className="btn" onClick={() => openModal(<ExpenseModalContent onSaved={refresh} />)}><Icon name="plus" /> Record Expense</button>
-          </>
+          </div>
         )}
       </div>
       <hr className="gold-rule rule-sm" />

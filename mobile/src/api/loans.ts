@@ -21,6 +21,18 @@ export function listLoansPage(params: {
   return apiRequest<{ items: Loan[]; hasMore: boolean }>("/loans", { params });
 }
 
+// Mirrors frontend/modules/loans/services/loanService.ts's getInterestCollected
+// — GET /loans/interest-collected (backend/internal/loan/handler.go's
+// GetInterestCollected), sums LoanPayment.interest_applied +
+// penal_interest_applied over [from,to]. NOT branch-scoped (same as web);
+// from/to default server-side to [first-of-current-month, today] when
+// omitted, matching web Dashboard's own no-args call.
+export function getInterestCollected(from?: string, to?: string) {
+  return apiRequest<{ interestCollected: number; from: string; to: string }>("/loans/interest-collected", {
+    params: { from, to },
+  });
+}
+
 export function getLoan(id: number) {
   return apiRequest<Loan>(`/loans/${id}`);
 }

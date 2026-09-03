@@ -72,18 +72,21 @@ export function PurityPicker({
         : "";
 
   return (
-    <div style={{ maxWidth: 300 }}>
+    <div className="pur-wrap">
       {/* Both this Karat/Fineness% slide toggle and the search field beside
        * it are pinned to a Net Wt (g) input's rendered height (padding:6px
        * 8px, font-size:14px, 1px border — see NewLoan.tsx's ornament row)
        * so the table row doesn't grow taller than it needs to for this cell.
        * `.pur-row`/`.pur-toggle` (app.css) carry that shared row layout as
-       * real classes rather than inline styles specifically so the
-       * `max-width:480px` media query there can stack them onto two lines
-       * (toggle above, search field below) — at phone widths the two side
-       * by side left "Fineness" clipped to "Finenes" and the search box
-       * squeezed to a sliver even though the field as a whole had its own
-       * full card width to work with. */}
+       * real classes rather than inline styles specifically so the two
+       * responsive overrides there can stack them onto two lines (toggle
+       * above, search field below): a plain max-width:480px window-width
+       * rule for a genuinely narrow browser window, and a container query
+       * scoped to Dashboard.tsx's `.calc-card` for a caller whose own
+       * rendered width is narrow independent of the window (that card sits
+       * in the dashboard's sidebar column) — see app.css for both. Side by
+       * side (the default here) left "Fineness" clipped to "Finenes" and
+       * the search box squeezed to a sliver whenever either condition hit. */}
       <div className="pur-row">
         <div
           role="tablist"

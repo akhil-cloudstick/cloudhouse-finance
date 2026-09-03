@@ -1,4 +1,5 @@
 import { apiFetchEnveloped as apiFetch } from "@/common/services/httpClient";
+import { isSmallScreen } from "@/common/utils/responsive";
 
 /* Packet stage values — mirror backend/internal/packet/model.go's Status
  * constants exactly (string literals, not enums, per this codebase's
@@ -183,15 +184,20 @@ export async function listPackets(filters?: PacketFilters): Promise<PacketView[]
 }
 
 /* Page size for the Packets page's own table. */
-export const PACKETS_TABLE_PAGE_SIZE = 11;
+export const PACKETS_TABLE_PAGE_SIZE = 12;
 
 /* Paginated variant of listPackets for the Packets page table — same
  * {items, hasMore} envelope as loansApi.ts's listLoansPage, fetched fresh
  * per page rather than sliced client-side. */
-export async function listPacketsPage(page: number, filters?: PacketFilters): Promise<{ items: PacketView[]; hasMore: boolean; total: number }> {
+export async function listPacketsPage(
+  page: number,
+  filters?: PacketFilters,
+  limit?: number
+): Promise<{ items: PacketView[]; hasMore: boolean; total: number }> {
+  const pageSize = limit ?? (isSmallScreen() ? 7 : 11);
   const params = new URLSearchParams({
-    limit: String(PACKETS_TABLE_PAGE_SIZE),
-    offset: String((page - 1) * PACKETS_TABLE_PAGE_SIZE),
+    limit: String(pageSize),
+    offset: String((page - 1) * pageSize),
   });
   if (filters?.loanId) params.set("loanId", String(filters.loanId));
   if (filters?.branchId) params.set("branchId", String(filters.branchId));

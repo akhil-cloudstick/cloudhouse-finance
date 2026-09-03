@@ -230,7 +230,14 @@ export function Dashboard() {
 
       <div className="grid cols21">
         <div className="grid">
-          <div className="kpis">
+          {/* dashboard-kpis scopes the 1280px-ish 3-column override
+           * (app.css) to just this Business Overview row — plain `.kpis`
+           * would otherwise hit every KPI row app-wide at that width,
+           * including Reports' totals, whose two cards would then lose
+           * their fixed 213px size and auto-size to their own text
+           * instead ("Total Amount"'s longer value rendering visibly
+           * wider than "Loans"' short one). */}
+          <div className="kpis dashboard-kpis">
             <Kpi l="Cash in Hand" v={fmt(cashInHand)} cls="ok" href="#cash" />
             <Kpi l="Loans Opened Today" v={openedToday} href="#loans" />
             <Kpi l="Active Loans" v={active.length} s={fmt(outstanding) + " outstanding"} href="#loans/Active" />
@@ -313,11 +320,23 @@ export function Dashboard() {
             <div className="ft">Set by {latest.setBy} · applies to all valuations today</div>
           </div>
 
-          <div className="card">
+          {/* .calc-card opts this card into a container query (app.css) that
+           * collapses Weight/Purity to one column, and stacks the Purity
+           * field's own Karat/Fineness toggle above its value box, once the
+           * card's own rendered width gets narrow — which happens here even
+           * at a normal window size, since this card sits in the
+           * dashboard's sidebar column rather than the main content well.
+           * At a normal resolution, once that column is wide enough (or the
+           * dashboard grid drops to a single column and this card gets the
+           * full page width), both stay their usual side by side selves. */}
+          <div className="card calc-card">
             <div className="hd"><h3>Gold Loan Calculator</h3></div>
             <div className="bd">
               <div className="frow c2">
-                <div><label className="f">Weight (grams)</label><input className="inp" style={{ padding: "6px 8px", height: 31 }} type="number" min={0} value={calcW} onChange={(e) => setCalcW(e.target.value)} /></div>
+                {/* No inline height/padding override — matches Select's
+                 * own default 40px height (app.css's .calc-card rules)
+                 * rather than the other way around. */}
+                <div><label className="f">Weight (grams)</label><input className="inp" type="number" min={0} value={calcW} onChange={(e) => setCalcW(e.target.value)} /></div>
                 <div><label className="f">Purity</label>
                   <PurityPicker value={calcP} onChange={setCalcP} dropdownMinWidth={70} />
                 </div>

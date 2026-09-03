@@ -64,7 +64,7 @@ export default function ExpensesScreen() {
 
   return (
     <ScreenContainer style={{ paddingHorizontal: 0 }}>
-      <View style={{ paddingHorizontal: 16 }}>
+      <View style={{ paddingHorizontal: 8, paddingTop: 20 }}>
         <GoldButton
           title={showForm ? "Cancel" : "Add expense"}
           variant="outline"
@@ -72,7 +72,7 @@ export default function ExpensesScreen() {
         />
       </View>
       {showForm ? (
-        <Card style={{ marginHorizontal: 16, marginTop: 12 }}>
+        <Card style={{ marginHorizontal: 8, marginTop: 12 }}>
           <GoldTextInput label="Category" value={category} onChangeText={setCategory} />
           <GoldTextInput label="Amount" keyboardType="numeric" value={amount} onChangeText={setAmount} />
           <GoldTextInput label="Mode (Cash/UPI/...)" value={mode} onChangeText={setMode} />
@@ -93,7 +93,7 @@ export default function ExpensesScreen() {
       <FlatList<Expense>
         data={data ?? []}
         keyExtractor={(item) => String(item.id)}
-        contentContainerStyle={{ padding: 16 }}
+        contentContainerStyle={{ paddingHorizontal: 8, paddingTop: 16, paddingBottom: 16 }}
         refreshControl={<RefreshControl refreshing={isRefetching} onRefresh={refetch} />}
         ListEmptyComponent={
           <ThemedText color={colors.muted}>

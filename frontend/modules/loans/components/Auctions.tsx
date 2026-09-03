@@ -21,7 +21,6 @@ import {
   getAuctionRecord,
   markAuctionEligible,
   listConcludedAuctionsPage,
-  AUCTION_HISTORY_PAGE_SIZE,
   pendingDecision,
   hasUndisposedSurplus,
   AUCTION_STAGES,
@@ -32,6 +31,7 @@ import {
   type LoanView,
 } from "@/modules/loans/services/loanService";
 import { ApiError } from "@/common/services/httpClient";
+import { useResponsivePageSize } from "@/common/utils/responsive";
 
 /* Who may decide each kind of escalation, and who may run each auction
  * process step, is now driven by the "Auction Workflow" permissions (see
@@ -68,8 +68,8 @@ export function printAuctionLetter(loan: LoanView, toast: (m: string) => void) {
     <table>
       <tr><th>Ornament</th><th>Purity</th><th class="num">Gross (g)</th><th class="num">Net (g)</th><th class="num">Qty</th></tr>
       ${loan.ornaments.length
-        ? loan.ornaments.map((o) => `<tr><td>${o.name}</td><td>${o.purity}</td><td class="num">${o.grossWeight.toFixed(1)}</td><td class="num">${o.netWeight.toFixed(1)}</td><td class="num">${o.quantity}</td></tr>`).join("")
-        : `<tr><td colspan="5">Pledged gold — ${loan.totalNetWeight.toFixed(1)} g total</td></tr>`}
+      ? loan.ornaments.map((o) => `<tr><td>${o.name}</td><td>${o.purity}</td><td class="num">${o.grossWeight.toFixed(1)}</td><td class="num">${o.netWeight.toFixed(1)}</td><td class="num">${o.quantity}</td></tr>`).join("")
+      : `<tr><td colspan="5">Pledged gold — ${loan.totalNetWeight.toFixed(1)} g total</td></tr>`}
     </table>
     <ol start="4">
       <li>Any surplus from the auction sale after adjusting the principal, interest, penal charges and auction
@@ -279,13 +279,14 @@ export function Auctions() {
    * Auction") are now independently paginated, real server queries — each
    * filtered by hasSale so a sub-table's own page/offset never counts
    * against the other's rows (see loansApi.listConcludedAuctionsPage). */
+  const pageSize = useResponsivePageSize(10, 7);
   const [conducted, setConducted] = useState<ConcludedAuctionRowView[]>([]);
   const [conductedPage, setConductedPage] = useState(1);
   const [conductedHasMore, setConductedHasMore] = useState(false);
   const [conductedTotal, setConductedTotal] = useState(0);
   const [conductedLoading, setConductedLoading] = useState(false);
   const [conductedError, setConductedError] = useState("");
-  const conductedTotalPages = Math.max(1, Math.ceil(conductedTotal / AUCTION_HISTORY_PAGE_SIZE));
+  const conductedTotalPages = Math.max(1, Math.ceil(conductedTotal / pageSize));
 
   const [closedWithoutSale, setClosedWithoutSale] = useState<ConcludedAuctionRowView[]>([]);
   const [closedPage, setClosedPage] = useState(1);
@@ -293,7 +294,7 @@ export function Auctions() {
   const [closedTotal, setClosedTotal] = useState(0);
   const [closedLoading, setClosedLoading] = useState(false);
   const [closedError, setClosedError] = useState("");
-  const closedTotalPages = Math.max(1, Math.ceil(closedTotal / AUCTION_HISTORY_PAGE_SIZE));
+  const closedTotalPages = Math.max(1, Math.ceil(closedTotal / pageSize));
 
   // Active Cases — isDefaulted is a computed read-time flag, not a
   // persisted column (see loan/accrual.go), so this can't be a server-side
@@ -302,7 +303,6 @@ export function Auctions() {
   // approach Loans.tsx uses for its own computed-flag tabs (Due Soon/
   // Overdue/Defaulted).
   const [activePage, setActivePage] = useState(1);
-  const ACTIVE_PAGE_SIZE = 10;
 
   /* "Auctioned - Balance Due" is included so a loan whose sale fell short stays
    * visible here while its shortfall decision is outstanding — otherwise the
@@ -313,8 +313,8 @@ export function Auctions() {
     l.status === "Auctioned" ||
     l.status === "Auctioned - Balance Due"
   );
-  const activeTotalPages = Math.max(1, Math.ceil(allCases.length / ACTIVE_PAGE_SIZE));
-  const cases = allCases.slice((activePage - 1) * ACTIVE_PAGE_SIZE, activePage * ACTIVE_PAGE_SIZE);
+  const activeTotalPages = Math.max(1, Math.ceil(allCases.length / pageSize));
+  const cases = allCases.slice((activePage - 1) * pageSize, activePage * pageSize);
 
   /* Loaded on demand — a concluded-case sweep across every loan is not worth
    * paying for until someone opens the tab. Fetched from the click handler
@@ -331,7 +331,7 @@ export function Auctions() {
     setConductedLoading(true);
     setConductedError("");
     try {
-      const { items, hasMore, total } = await listConcludedAuctionsPage(page, true);
+      const { items, hasMore, total } = await listConcludedAuctionsPage(page, true, pageSize);
       setConducted(items);
       setConductedHasMore(hasMore);
       setConductedTotal(total);
@@ -340,13 +340,13 @@ export function Auctions() {
     } finally {
       setConductedLoading(false);
     }
-  }, []);
+  }, [pageSize]);
 
   const loadClosed = useCallback(async (page: number) => {
     setClosedLoading(true);
     setClosedError("");
     try {
-      const { items, hasMore, total } = await listConcludedAuctionsPage(page, false);
+      const { items, hasMore, total } = await listConcludedAuctionsPage(page, false, pageSize);
       setClosedWithoutSale(items);
       setClosedHasMore(hasMore);
       setClosedTotal(total);
@@ -355,7 +355,7 @@ export function Auctions() {
     } finally {
       setClosedLoading(false);
     }
-  }, []);
+  }, [pageSize]);
 
   function showHistory() {
     setTab("history");
@@ -491,11 +491,6 @@ export function Auctions() {
               <button className="btn plain sm" disabled={closedPage <= 1} onClick={() => changeClosedPage(Math.max(1, closedPage - 1))}>‹ Prev</button>
               <span style={{ fontSize: 12.5 }}>Page {closedPage} of {closedTotalPages}</span>
               <button className="btn plain sm" disabled={closedPage >= closedTotalPages} onClick={() => changeClosedPage(Math.min(closedTotalPages, closedPage + 1))}>Next ›</button>
-              <div className="sp" />
-              <span>
-                Cases the customer resolved before the gold was sold, or that management withdrew. A loan whose case was withdrawn
-                can enter a fresh auction if it defaults again.
-              </span>
             </div>
           </div>
         </>

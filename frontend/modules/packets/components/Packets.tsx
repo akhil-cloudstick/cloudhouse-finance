@@ -7,9 +7,10 @@ import { fmtW } from "@/common/utils/format";
 import { StatusChip } from "@/common/components/ui/StatusChip";
 import { LockerModalContent } from "@/common/components/modals/LockerModal";
 import { listLockers, type LockerView } from "@/modules/lockers/services/lockerService";
-import { listPacketsPage, getPacketByCode, PACKETS_TABLE_PAGE_SIZE, type PacketView } from "@/modules/packets/services/packetService";
+import { listPacketsPage, getPacketByCode, type PacketView } from "@/modules/packets/services/packetService";
 import { Select } from "@/common/components/ui/Select";
 import { useAuth } from "@/common/auth-context";
+import { useResponsivePageSize } from "@/common/utils/responsive";
 
 /* Mirrors packet.Status* in backend/internal/packet/model.go. */
 const PACKET_STATUS_OPTIONS = [
@@ -68,6 +69,7 @@ export function Packets() {
   const canCreateLockers = can("Locker_Management", "can_create_locker");
   const canUpdateLockers = can("Locker_Management", "can_update_locker");
 
+  const pageSize = useResponsivePageSize(11, 7);
   const [packets, setPackets] = useState<PacketView[] | null>(null);
   const [lockers, setLockers] = useState<LockerView[]>([]);
   const [error, setError] = useState("");
@@ -76,7 +78,7 @@ export function Packets() {
   const [page, setPage] = useState(1);
   const [total, setTotal] = useState(0);
   const [status, setStatus] = useState("");
-  const totalPages = Math.max(1, Math.ceil(total / PACKETS_TABLE_PAGE_SIZE));
+  const totalPages = Math.max(1, Math.ceil(total / pageSize));
 
   /* Guards against an out-of-order response winning: switching status
    * quickly can leave an earlier, slower request in flight, and without
@@ -99,7 +101,7 @@ export function Packets() {
     const seq = ++loadSeq.current;
     try {
       const [p, l] = await Promise.all([
-        listPacketsPage(page, { status: status || undefined, q: q || undefined }),
+        listPacketsPage(page, { status: status || undefined, q: q || undefined }, pageSize),
         listLockers(),
       ]);
       if (seq !== loadSeq.current) return;
@@ -113,7 +115,7 @@ export function Packets() {
     }
   }
 
-  useEffect(() => { load(); }, [page, status, q]);
+  useEffect(() => { load(); }, [page, status, q, pageSize]);
   // A new search term always starts back at page 1 — otherwise a filter
   // typed while sitting on page 3 can land on an empty page.
   useEffect(() => { setPage(1); }, [q]);

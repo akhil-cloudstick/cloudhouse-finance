@@ -347,7 +347,13 @@ export function RolesPermissions() {
             {Object.entries(effective).length === 0 && (
               <p style={{ color: "var(--muted)", fontSize: 13 }}>No permissions match &quot;{search}&quot;.</p>
             )}
-            <div className="grid" style={{ gridTemplateColumns: "repeat(4,minmax(0,1fr))", gap: 24 }}>
+            {/* Fixed 300px columns via auto-fill (not the previous
+             * repeat(4,minmax(0,1fr))) — matches Schemes.tsx's own card
+             * grid so both pages' cards stay exactly the same size at any
+             * screen width: 4 fixed 1fr columns never reflowed, so cards
+             * kept shrinking narrower on anything less than a very wide
+             * desktop instead of dropping extra modules onto the next row. */}
+            <div className="grid" style={{ gridTemplateColumns: "repeat(auto-fill,minmax(300px,1fr))", gap: 24 }}>
               {Object.entries(effective).map(([mod, rows]) => (
                 <div key={mod} className="card gtop">
                   <div className="hd"><h3 style={{ fontSize: 15 }}>{mod}</h3></div>

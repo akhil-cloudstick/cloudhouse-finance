@@ -1,4 +1,5 @@
 import { apiFetchEnveloped as apiFetch, apiUploadEnveloped as apiUpload } from "@/common/services/httpClient";
+import { isSmallScreen } from "@/common/utils/responsive";
 import type { BranchView } from "@/modules/branches/services/branchService";
 import {
   toView as toLoanView,
@@ -155,9 +156,11 @@ export const CUSTOMERS_TABLE_PAGE_SIZE = 10;
 export async function listCustomersPage(
   q: string,
   page: number,
-  filters?: { panStatus?: string; aadhaarStatus?: string }
+  filters?: { panStatus?: string; aadhaarStatus?: string },
+  limit?: number
 ): Promise<{ items: CustomerView[]; hasMore: boolean; total: number }> {
-  const params = new URLSearchParams({ q, limit: String(CUSTOMERS_TABLE_PAGE_SIZE), offset: String((page - 1) * CUSTOMERS_TABLE_PAGE_SIZE) });
+  const pageSize = limit ?? (isSmallScreen() ? 7 : 9);
+  const params = new URLSearchParams({ q, limit: String(pageSize), offset: String((page - 1) * pageSize) });
   if (filters?.panStatus) params.set("panStatus", filters.panStatus);
   if (filters?.aadhaarStatus) params.set("aadhaarStatus", filters.aadhaarStatus);
   const rec = await apiFetch<{ items: BackendCustomer[]; hasMore: boolean; total?: number }>(`/customers?${params}`);
@@ -339,12 +342,13 @@ export async function getCustomer360(
  * mirrors getCustomer360's from/to opened-date window. */
 /* 9 rows — the height the 360 view's table card is sized for, so a full
  * page fills it exactly without the card growing. */
-export const CUSTOMER_SUBTABLE_PAGE_SIZE = 8;
+export const CUSTOMER_SUBTABLE_PAGE_SIZE = 10;
 
-function subTableParams(page: number, range?: { from?: string; to?: string }): URLSearchParams {
+function subTableParams(page: number, range?: { from?: string; to?: string }, limit?: number): URLSearchParams {
+  const pageSize = limit ?? (isSmallScreen() ? 7 : 10);
   const params = new URLSearchParams({
-    limit: String(CUSTOMER_SUBTABLE_PAGE_SIZE),
-    offset: String((page - 1) * CUSTOMER_SUBTABLE_PAGE_SIZE),
+    limit: String(pageSize),
+    offset: String((page - 1) * pageSize),
   });
   if (range?.from) params.set("from", range.from);
   if (range?.to) params.set("to", range.to);
@@ -354,9 +358,10 @@ function subTableParams(page: number, range?: { from?: string; to?: string }): U
 export async function listCustomerLoansPage(
   customerId: string,
   page: number,
-  range?: { from?: string; to?: string }
+  range?: { from?: string; to?: string },
+  limit?: number
 ): Promise<{ items: LoanView[]; hasMore: boolean; total: number }> {
-  const params = subTableParams(page, range);
+  const params = subTableParams(page, range, limit);
   const rec = await apiFetch<{ items: BackendLoan[]; hasMore: boolean; total?: number }>(`/customers/${customerId}/loans?${params}`);
   return { items: (rec?.items || []).map(toLoanView), hasMore: !!rec?.hasMore, total: rec?.total ?? 0 };
 }
@@ -364,9 +369,10 @@ export async function listCustomerLoansPage(
 export async function listCustomerOrnamentsPage(
   customerId: string,
   page: number,
-  range?: { from?: string; to?: string }
+  range?: { from?: string; to?: string },
+  limit?: number
 ): Promise<{ items: CustomerOrnamentRowView[]; hasMore: boolean; total: number }> {
-  const params = subTableParams(page, range);
+  const params = subTableParams(page, range, limit);
   const rec = await apiFetch<{ items: BackendCustomerOrnamentRow[]; hasMore: boolean; total?: number }>(`/customers/${customerId}/ornaments?${params}`);
   return { items: (rec?.items || []).map(toCustomerOrnamentRowView), hasMore: !!rec?.hasMore, total: rec?.total ?? 0 };
 }
@@ -374,9 +380,10 @@ export async function listCustomerOrnamentsPage(
 export async function listCustomerPaymentsPage(
   customerId: string,
   page: number,
-  range?: { from?: string; to?: string }
+  range?: { from?: string; to?: string },
+  limit?: number
 ): Promise<{ items: CustomerPaymentRowView[]; hasMore: boolean; total: number }> {
-  const params = subTableParams(page, range);
+  const params = subTableParams(page, range, limit);
   const rec = await apiFetch<{ items: BackendCustomerPaymentRow[]; hasMore: boolean; total?: number }>(`/customers/${customerId}/payments?${params}`);
   return { items: (rec?.items || []).map(toCustomerPaymentRowView), hasMore: !!rec?.hasMore, total: rec?.total ?? 0 };
 }
@@ -384,9 +391,10 @@ export async function listCustomerPaymentsPage(
 export async function listCustomerBankPledgesPage(
   customerId: string,
   page: number,
-  range?: { from?: string; to?: string }
+  range?: { from?: string; to?: string },
+  limit?: number
 ): Promise<{ items: CustomerBankPledgeRowView[]; hasMore: boolean; total: number }> {
-  const params = subTableParams(page, range);
+  const params = subTableParams(page, range, limit);
   const rec = await apiFetch<{ items: BackendCustomerBankPledgeRow[]; hasMore: boolean; total?: number }>(`/customers/${customerId}/bank-pledges?${params}`);
   return { items: (rec?.items || []).map(toCustomerBankPledgeRowView), hasMore: !!rec?.hasMore, total: rec?.total ?? 0 };
 }
@@ -394,9 +402,10 @@ export async function listCustomerBankPledgesPage(
 export async function listCustomerAuctionHistoryPage(
   customerId: string,
   page: number,
-  range?: { from?: string; to?: string }
+  range?: { from?: string; to?: string },
+  limit?: number
 ): Promise<{ items: CustomerAuctionRowView[]; hasMore: boolean; total: number }> {
-  const params = subTableParams(page, range);
+  const params = subTableParams(page, range, limit);
   const rec = await apiFetch<{ items: BackendCustomerAuctionRow[]; hasMore: boolean; total?: number }>(`/customers/${customerId}/auction-history?${params}`);
   return { items: (rec?.items || []).map(toCustomerAuctionRowView), hasMore: !!rec?.hasMore, total: rec?.total ?? 0 };
 }

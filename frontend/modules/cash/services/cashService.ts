@@ -56,12 +56,13 @@ export async function listCashMovements(): Promise<CashMovementView[]> {
   return (rec || []).map(movementToView);
 }
 
-export const CASH_MOVEMENTS_PAGE_SIZE = 7;
+export const CASH_MOVEMENTS_PAGE_SIZE = 8;
 
-export async function listCashMovementsPage(page: number): Promise<{ items: CashMovementView[]; hasMore: boolean; total: number }> {
+export async function listCashMovementsPage(page: number, limit?: number): Promise<{ items: CashMovementView[]; hasMore: boolean; total: number }> {
+  const pageSize = limit ?? (typeof window !== "undefined" && (window.innerWidth < 1600 || window.innerHeight < 950) ? 7 : 8);
   const params = new URLSearchParams({
-    limit: String(CASH_MOVEMENTS_PAGE_SIZE),
-    offset: String((page - 1) * CASH_MOVEMENTS_PAGE_SIZE),
+    limit: String(pageSize),
+    offset: String((page - 1) * pageSize),
   });
   const rec = await apiFetch<{ items: BackendCashMovement[]; hasMore: boolean; total?: number }>(`/cash-movements?${params}`);
   return { items: (rec?.items || []).map(movementToView), hasMore: !!rec?.hasMore, total: rec?.total ?? 0 };
@@ -147,12 +148,13 @@ export async function listExpenses(): Promise<ExpenseView[]> {
   return (rec || []).map(expenseToView);
 }
 
-export const EXPENSES_PAGE_SIZE = 7;
+export const EXPENSES_PAGE_SIZE = 8;
 
-export async function listExpensesPage(page: number): Promise<{ items: ExpenseView[]; hasMore: boolean; total: number }> {
+export async function listExpensesPage(page: number, limit?: number): Promise<{ items: ExpenseView[]; hasMore: boolean; total: number }> {
+  const pageSize = limit ?? (typeof window !== "undefined" && (window.innerWidth < 1600 || window.innerHeight < 950) ? 7 : 8);
   const params = new URLSearchParams({
-    limit: String(EXPENSES_PAGE_SIZE),
-    offset: String((page - 1) * EXPENSES_PAGE_SIZE),
+    limit: String(pageSize),
+    offset: String((page - 1) * pageSize),
   });
   const rec = await apiFetch<{ items: BackendExpense[]; hasMore: boolean; total?: number }>(`/expenses?${params}`);
   return { items: (rec?.items || []).map(expenseToView), hasMore: !!rec?.hasMore, total: rec?.total ?? 0 };

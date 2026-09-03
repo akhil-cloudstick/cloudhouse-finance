@@ -87,6 +87,23 @@ export function LoanDetail({ id }: { id?: string }) {
     document.addEventListener("click", onDocClick);
     return () => document.removeEventListener("click", onDocClick);
   }, [docsMenuOpen]);
+  // Repledge to Bank / Request Extension / Request Release used to be 3
+  // more separate header buttons alongside Record Payment — collapsed into
+  // one "Loan Actions" dropdown the same way Documents was, for the same
+  // reason (outgrew the header on anything but a very wide screen). Record
+  // Payment stays its own visible button — it's the primary action here
+  // (styled `btn`, not `btn ghost`, unlike the other three), not something
+  // to bury a click deeper for.
+  const [loanActionsMenuOpen, setLoanActionsMenuOpen] = useState(false);
+  const loanActionsMenuRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!loanActionsMenuOpen) return;
+    function onDocClick(e: MouseEvent) {
+      if (!loanActionsMenuRef.current?.contains(e.target as Node)) setLoanActionsMenuOpen(false);
+    }
+    document.addEventListener("click", onDocClick);
+    return () => document.removeEventListener("click", onDocClick);
+  }, [loanActionsMenuOpen]);
   // An outstanding request must survive a page reload: the loan itself
   // records the Setu status (indemnityBondSignStatus === "sign_initiated"),
   // so seed the local flag from it. Without this, reloading mid-signing put
@@ -117,6 +134,23 @@ export function LoanDetail({ id }: { id?: string }) {
     setLoan(null);
     setError("");
     load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [id]);
+
+  // The viewer who clicks Approve/Reject/Verify sees their own change
+  // immediately (doApprove below calls setLoan(updated) directly) — this
+  // poll is for everyone else who might have this same loan open: the next
+  // approver in the chain, say, sitting on this page waiting for their
+  // turn. Without it, that stage only "came online" for them after a
+  // manual reload, since there's no live-push channel for staff pages
+  // (only customer-mobile has one, over internal/notification's
+  // WebSocket). 20s is frequent enough that a stage change shows up
+  // quickly without a real-time channel, without hammering the loan
+  // endpoint on every open tab.
+  useEffect(() => {
+    if (!id) return;
+    const timer = setInterval(load, 20000);
+    return () => clearInterval(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
 
@@ -499,7 +533,15 @@ export function LoanDetail({ id }: { id?: string }) {
   return (
     <>
       <div className="page-h">
-        <div><h1>{l.id} <StatusChip status={l.status} />
+        {/* flex:1;min-width:0 (app.css's .page-h-title) lets this block
+         * shrink and truncate its subtitle line instead of holding its
+         * full natural width and forcing `.page-h-actions` below it — the
+         * combined width of a long customer name/scheme/date line plus
+         * Documents/Record Payment/Loan Actions was landing right at
+         * `.page-h`'s own wrap threshold, dropping the whole button
+         * cluster to its own line on anything but a very wide window even
+         * though there was visibly still room for it beside the title. */}
+        <div className="page-h-title"><h1>{l.id} <StatusChip status={l.status} />
           {l.isDefaulted && <StatusChip status="Defaulted" />}
           {/* A past-term loan whose interest is paid off comes back from the
               backend as "Active" (see refreshServicingStatus in
@@ -510,7 +552,57 @@ export function LoanDetail({ id }: { id?: string }) {
           {!l.isOverdue && l.isDueSoon && <StatusChip status="Due Soon" />}
           </h1>
           <p><a href={`#customer/${l.customerId}`}>{l.customerName}</a> · {l.schemeName} · opened {l.opened} · due {l.due}{l.isOverdue ? ` · ${l.daysOverdue} days overdue` : ""}</p></div>
-        <div className="sp" />
+        {/* Everything from here down is one right-aligned group rather than
+         * flat siblings of `.page-h` itself — `.page-h`'s own flex-wrap
+         * only right-aligns this whole cluster while it fits on the title's
+         * line; once it wraps to its own line(s) (a narrow window, or the
+         * approval stage growing the button count), a plain sibling wrap
+         * starts flush at the container's LEFT edge instead, so a lone
+         * wrapped button (e.g. "Loan Actions") stranded left of empty space
+         * read as misplaced. `.page-h-actions` wraps internally with its
+         * own `justify-content:flex-end` (app.css), so every wrapped line
+         * — including a single leftover button — stays right-aligned. */}
+        {/* Order: Record Payment, Complete Release, Loan Actions, Documents
+         * (left to right) — Documents sits last since it's read-only
+         * paperwork (print/eSign), while the other three all change the
+         * loan's own state and read more naturally leading. */}
+        <div className="page-h-actions">
+        {approvalButtons ? approvalButtons : (
+          l.status !== "Closed" && canUpdateLoans && (
+            <button className="btn sm" onClick={() => openModal(<PaymentModalContent loan={l} onSaved={load} />)}><Icon name="coin" /> Record Payment</button>
+          )
+        )}
+        {l.status === "Closure Requested" && canUpdateLoans && (
+          <button className="btn" style={{ height: 30 }} disabled={completing || l.totalOutstandingBalance > 0.01 || l.bankPledgeStatus === "Bank Pledged"} onClick={doCompleteRelease} title={l.totalOutstandingBalance > 0.01 ? "Final settlement must be fully paid first" : l.bankPledgeStatus === "Bank Pledged" ? "Release the bank pledge first" : undefined}>
+            <Icon name="unlock" /> {completing ? "Releasing…" : "Complete Release"}
+          </button>
+        )}
+        {!approvalButtons && ((canAcceptBankPledge(l.status, l.bankPledgeStatus) && !activePledge && canCreateBankPledges) || (l.status !== "Closed" && canUpdateLoans)) && (
+          <div className="docs-dd" ref={loanActionsMenuRef}>
+            <button className="btn ghost sm" onClick={() => setLoanActionsMenuOpen((v) => !v)}>
+              <Icon name="gear" /> Loan Actions <Icon name="chevronDown" className="docs-dd-chev" />
+            </button>
+            {loanActionsMenuOpen && (
+              <div className="docs-dd-menu">
+                {canAcceptBankPledge(l.status, l.bankPledgeStatus) && !activePledge && canCreateBankPledges && (
+                  <a href="#" title="Repledge to Bank" onClick={(e) => { e.preventDefault(); setLoanActionsMenuOpen(false); openModal(<RepledgeModalContent loan={l} onSaved={load} />); }}>
+                    <Icon name="bank" /><span className="tx">Repledge to Bank</span>
+                  </a>
+                )}
+                {l.status !== "Closed" && canUpdateLoans && (
+                  <a href="#" title="Request Extension" onClick={(e) => { e.preventDefault(); setLoanActionsMenuOpen(false); openModal(<RequestExtensionModalContent loan={l} onSaved={load} />); }}>
+                    <Icon name="clock" /><span className="tx">Request Extension</span>
+                  </a>
+                )}
+                {l.status !== "Closed" && canUpdateLoans && (
+                  <a href="#" title="Request Release" onClick={(e) => { e.preventDefault(); setLoanActionsMenuOpen(false); openModal(<RequestReleaseModalContent loan={l} onSaved={load} />); }}>
+                    <Icon name="unlock" /><span className="tx">Request Release</span>
+                  </a>
+                )}
+              </div>
+            )}
+          </div>
+        )}
         {/* Print Label/Slip/Statement/Bond + the eSign action — always
          * available regardless of approval stage (staff may need to
          * (re)print the packet label or pledge slip at any point in the
@@ -524,55 +616,35 @@ export function LoanDetail({ id }: { id?: string }) {
           </button>
           {docsMenuOpen && (
             <div className="docs-dd-menu">
-              <a href="#" className={printingLabel ? "disabled" : ""} onClick={(e) => { e.preventDefault(); if (printingLabel) return; setDocsMenuOpen(false); printPacketLabel(); }}>
+              <a href="#" title="Print Label" className={printingLabel ? "disabled" : ""} onClick={(e) => { e.preventDefault(); if (printingLabel) return; setDocsMenuOpen(false); printPacketLabel(); }}>
                 <Icon name="box" /><span className="tx">{printingLabel ? "Preparing…" : "Print Label"}</span>
               </a>
-              <a href="#" className={printingSlip ? "disabled" : ""} onClick={(e) => { e.preventDefault(); if (printingSlip) return; setDocsMenuOpen(false); printPledgeSlip(); }}>
+              <a href="#" title="Print Slip" className={printingSlip ? "disabled" : ""} onClick={(e) => { e.preventDefault(); if (printingSlip) return; setDocsMenuOpen(false); printPledgeSlip(); }}>
                 <Icon name="doc" /><span className="tx">{printingSlip ? "Preparing…" : "Print Slip"}</span>
               </a>
-              <a href="#" className={printingStatement ? "disabled" : ""} onClick={(e) => { e.preventDefault(); if (printingStatement) return; setDocsMenuOpen(false); printStatement(); }}>
+              <a href="#" title="Statement" className={printingStatement ? "disabled" : ""} onClick={(e) => { e.preventDefault(); if (printingStatement) return; setDocsMenuOpen(false); printStatement(); }}>
                 <Icon name="doc" /><span className="tx">{printingStatement ? "Preparing…" : "Statement"}</span>
               </a>
-              <a href="#" className={printingBond ? "disabled" : ""} onClick={(e) => { e.preventDefault(); if (printingBond) return; setDocsMenuOpen(false); printBond(); }}>
+              <a href="#" title="Print Bond" className={printingBond ? "disabled" : ""} onClick={(e) => { e.preventDefault(); if (printingBond) return; setDocsMenuOpen(false); printBond(); }}>
                 <Icon name="doc" /><span className="tx">{printingBond ? "Preparing…" : "Print Bond"}</span>
               </a>
               {l.indemnityBondSignStatus === "sign_complete" && l.indemnityBondSignedUrl ? (
-                <a href={l.indemnityBondSignedUrl} target="_blank" rel="noopener noreferrer" onClick={() => setDocsMenuOpen(false)}>
+                <a href={l.indemnityBondSignedUrl} title="Signed Bond" target="_blank" rel="noopener noreferrer" onClick={() => setDocsMenuOpen(false)}>
                   <Icon name="check" /><span className="tx">Signed Bond</span>
                 </a>
               ) : !canUpdateLoans ? null : esignStarted ? (
-                <a href="#" className={checkingEsign ? "disabled" : ""} onClick={(e) => { e.preventDefault(); if (checkingEsign) return; setDocsMenuOpen(false); checkIndemnityEsign(); }}>
+                <a href="#" title="Check eSign Status" className={checkingEsign ? "disabled" : ""} onClick={(e) => { e.preventDefault(); if (checkingEsign) return; setDocsMenuOpen(false); checkIndemnityEsign(); }}>
                   <Icon name="doc" /><span className="tx">{checkingEsign ? "Checking…" : "Check eSign Status"}</span>
                 </a>
               ) : (
-                <a href="#" className={esigning ? "disabled" : ""} onClick={(e) => { e.preventDefault(); if (esigning) return; setDocsMenuOpen(false); startIndemnityEsign(); }}>
+                <a href="#" title="Send Indemnity Bond for eSign" className={esigning ? "disabled" : ""} onClick={(e) => { e.preventDefault(); if (esigning) return; setDocsMenuOpen(false); startIndemnityEsign(); }}>
                   <Icon name="doc" /><span className="tx">{esigning ? "Preparing…" : "Send Indemnity Bond for eSign"}</span>
                 </a>
               )}
             </div>
           )}
         </div>
-        {l.status === "Closure Requested" && canUpdateLoans && (
-          <button className="btn" style={{ height: 30 }} disabled={completing || l.totalOutstandingBalance > 0.01 || l.bankPledgeStatus === "Bank Pledged"} onClick={doCompleteRelease} title={l.totalOutstandingBalance > 0.01 ? "Final settlement must be fully paid first" : l.bankPledgeStatus === "Bank Pledged" ? "Release the bank pledge first" : undefined}>
-            <Icon name="unlock" /> {completing ? "Releasing…" : "Complete Release"}
-          </button>
-        )}
-        {approvalButtons || (
-          <>
-            {canAcceptBankPledge(l.status, l.bankPledgeStatus) && !activePledge && canCreateBankPledges && (
-              <button className="btn ghost sm" onClick={() => openModal(<RepledgeModalContent loan={l} onSaved={load} />)}><Icon name="bank" /> Repledge to Bank</button>
-            )}
-            {l.status !== "Closed" && canUpdateLoans && (
-              <button className="btn sm" onClick={() => openModal(<PaymentModalContent loan={l} onSaved={load} />)}><Icon name="coin" /> Record Payment</button>
-            )}
-            {l.status !== "Closed" && canUpdateLoans && (
-              <button className="btn ghost sm" onClick={() => openModal(<RequestExtensionModalContent loan={l} onSaved={load} />)}><Icon name="clock" /> Request Extension</button>
-            )}
-            {l.status !== "Closed" && canUpdateLoans && (
-              <button className="btn ghost sm" onClick={() => openModal(<RequestReleaseModalContent loan={l} onSaved={load} />)}><Icon name="unlock" /> Request Release</button>
-            )}
-          </>
-        )}
+        </div>
       </div>
       {pendingStage && (
         <div className="card" style={{ marginBottom: 14 }}>

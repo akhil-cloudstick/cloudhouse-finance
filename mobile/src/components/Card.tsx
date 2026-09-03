@@ -9,19 +9,21 @@ export function Card({ children, style }: { children: React.ReactNode; style?: V
 const styles = StyleSheet.create({
   card: {
     backgroundColor: colors.card,
-    borderRadius: 16,
+    borderRadius: 18,
     borderWidth: 1,
     borderColor: colors.line,
     padding: 16,
-    marginBottom: 14,
+    marginBottom: 12,
+    // Flatter, quieter shadow than before — a hint of lift rather than a
+    // heavy drop, matching the approved modern/minimal mockups.
     ...Platform.select({
       ios: {
         shadowColor: colors.charcoal,
-        shadowOpacity: 0.08,
-        shadowRadius: 10,
-        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.05,
+        shadowRadius: 12,
+        shadowOffset: { width: 0, height: 3 },
       },
-      android: { elevation: 3 },
+      android: { elevation: 2 },
     }),
   },
 });

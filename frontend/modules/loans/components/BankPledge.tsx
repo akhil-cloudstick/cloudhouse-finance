@@ -13,8 +13,6 @@ import {
   listBankPledgeHistoryPage,
   listLoansPage,
   CASH_TREATMENT_LABELS,
-  BANK_PLEDGE_HISTORY_PAGE_SIZE,
-  LOANS_TABLE_PAGE_SIZE,
   type BankPledgeRecordView,
   type LoanView,
 } from "@/modules/loans/services/loanService";
@@ -22,6 +20,7 @@ import { RepledgeModalContent, SelectLoanForRepledgeModalContent } from "@/commo
 import { BankModalContent } from "@/common/components/modals/BankModal";
 import { ConfirmModalContent } from "@/common/components/modals/ConfirmModal";
 import { ApiError } from "@/common/services/httpClient";
+import { useResponsivePageSize } from "@/common/utils/responsive";
 
 /* Roles permitted to void a re-pledge. Mirrors the server-side guard on
  * PUT /loans/:id/bank-pledge/:pledgeId/void — voiding rewrites booked cash
@@ -50,6 +49,7 @@ export function BankPledge() {
   const canCreatePledges = can("Bank_Pledge_Management", "can_create_bank_pledge");
   const canUpdatePledges = can("Bank_Pledge_Management", "can_update_bank_pledge");
   const canCreateBanks = can("Bank_Management", "can_create_bank");
+  const pageSize = useResponsivePageSize(10, 7);
   const [tab, setTab] = useState<"active" | "history">("active");
   const [releasingId, setReleasingId] = useState<number | null>(null);
   const [history, setHistory] = useState<BankPledgeRecordView[]>([]);
@@ -58,7 +58,7 @@ export function BankPledge() {
   const [historyPage, setHistoryPage] = useState(1);
   const [historyHasMore, setHistoryHasMore] = useState(false);
   const [historyTotal, setHistoryTotal] = useState(0);
-  const historyTotalPages = Math.max(1, Math.ceil(historyTotal / BANK_PLEDGE_HISTORY_PAGE_SIZE));
+  const historyTotalPages = Math.max(1, Math.ceil(historyTotal / pageSize));
 
   // Active tab — paginated straight off the backend (bankPledgeStatus is a
   // real column, see LoanFilter.BankPledgeStatus) rather than filtering
@@ -70,14 +70,14 @@ export function BankPledge() {
   const [pledgedPage, setPledgedPage] = useState(1);
   const [pledgedHasMore, setPledgedHasMore] = useState(false);
   const [pledgedTotal, setPledgedTotal] = useState(0);
-  const pledgedTotalPages = Math.max(1, Math.ceil(pledgedTotal / LOANS_TABLE_PAGE_SIZE));
+  const pledgedTotalPages = Math.max(1, Math.ceil(pledgedTotal / pageSize));
 
   const canVoid = !!role && canUpdatePledges && VOID_ROLES.includes(role);
   const loadPledged = useCallback(async (page: number) => {
     setPledgedLoading(true);
     setPledgedError("");
     try {
-      const res = await listLoansPage({ bankPledgeStatus: "Bank Pledged", page });
+      const res = await listLoansPage({ bankPledgeStatus: "Bank Pledged", page, limit: pageSize });
       setPledged(res.items);
       setPledgedHasMore(res.hasMore);
       setPledgedTotal(res.total);
@@ -86,7 +86,7 @@ export function BankPledge() {
     } finally {
       setPledgedLoading(false);
     }
-  }, []);
+  }, [pageSize]);
 
   useEffect(() => { void loadPledged(pledgedPage); }, [loadPledged, pledgedPage]);
 
@@ -101,7 +101,7 @@ export function BankPledge() {
     setHistoryLoading(true);
     setHistoryError("");
     try {
-      const res = await listBankPledgeHistoryPage(page);
+      const res = await listBankPledgeHistoryPage(page, pageSize);
       setHistory(res.items);
       setHistoryHasMore(res.hasMore);
       setHistoryTotal(res.total);
@@ -110,7 +110,7 @@ export function BankPledge() {
     } finally {
       setHistoryLoading(false);
     }
-  }, []);
+  }, [pageSize]);
 
   // Page changes while the History tab is open re-fetch that page. Opening
   // the tab (showHistory) resets historyPage to 1, which also triggers this.

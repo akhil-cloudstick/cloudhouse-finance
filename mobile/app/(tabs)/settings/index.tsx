@@ -44,7 +44,7 @@ export default function SettingsScreen() {
       <FlatList<ApiKeyView>
         data={data ?? []}
         keyExtractor={(item) => item.category}
-        contentContainerStyle={{ padding: 16 }}
+        contentContainerStyle={{ paddingHorizontal: 8, paddingTop: 20, paddingBottom: 16 }}
         refreshControl={<RefreshControl refreshing={isRefetching} onRefresh={refetch} />}
         ListEmptyComponent={
           <ThemedText color={colors.muted}>

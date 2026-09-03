@@ -7,7 +7,8 @@ import { Icon } from "@/common/components/Icon";
 import { useAuth } from "@/common/auth-context";
 import { fmt, initials } from "@/common/utils/format";
 import { EmployeeModalContent } from "@/common/components/modals/EmployeeModal";
-import { deleteEmployee, listEmployeesPage, EMPLOYEES_PAGE_SIZE, type EmployeeView } from "@/modules/employees/services/employeeService";
+import { deleteEmployee, listEmployeesPage, type EmployeeView } from "@/modules/employees/services/employeeService";
+import { useResponsivePageSize } from "@/common/utils/responsive";
 
 /* Ported from legacy/app.js's `renderEmployees()`. Loads real data from the
  * Go backend (`GET /api/v1/employees`), following the Branches.tsx pattern. */
@@ -15,6 +16,7 @@ export function Employees() {
   const { openModal } = useModal();
   const toast = useToast();
   const { can } = useAuth();
+  const pageSize = useResponsivePageSize(12, 8);
   const canViewRoles = can("Role_Management", "can_view_role_and_permission");
   const canCreateEmployees = can("Employee_Management", "can_create_employee");
   const canUpdateEmployees = can("Employee_Management", "can_update_employee");
@@ -23,11 +25,11 @@ export function Employees() {
   const [error, setError] = useState("");
   const [page, setPage] = useState(1);
   const [total, setTotal] = useState(0);
-  const totalPages = Math.max(1, Math.ceil(total / EMPLOYEES_PAGE_SIZE));
+  const totalPages = Math.max(1, Math.ceil(total / pageSize));
 
   async function load() {
     try {
-      const res = await listEmployeesPage(page);
+      const res = await listEmployeesPage(page, pageSize);
       setEmployees(res.items);
       setTotal(res.total);
       setError("");
@@ -36,7 +38,7 @@ export function Employees() {
     }
   }
 
-  useEffect(() => { load(); }, [page]);
+  useEffect(() => { load(); }, [page, pageSize]);
 
   function onSaved() {
     load();

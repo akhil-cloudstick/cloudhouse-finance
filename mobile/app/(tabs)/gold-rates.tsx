@@ -1,12 +1,11 @@
 import React, { useState } from "react";
-import { ScrollView, RefreshControl, View } from "react-native";
-import { useQuery, useQueryClient, useMutation } from "@tanstack/react-query";
+import { RefreshControl, View } from "react-native";
+import { useInfiniteQuery, useQueryClient, useMutation } from "@tanstack/react-query";
 import { ScreenContainer } from "../../src/components/ScreenContainer";
 import { Card } from "../../src/components/Card";
 import { ThemedText } from "../../src/components/ThemedText";
 import { GoldTextInput } from "../../src/components/GoldTextInput";
 import { GoldButton } from "../../src/components/GoldButton";
-import { Pager } from "../../src/components/Pager";
 import { colors } from "../../src/theme/colors";
 import { listGoldRatesPage, publishGoldRate } from "../../src/api/goldRates";
 import { GoldRate } from "../../src/types/goldRate";
@@ -51,16 +50,17 @@ export default function GoldRatesScreen() {
   const [formVisible, setFormVisible] = useState(false);
   const [k24, setK24] = useState("");
   const [error, setError] = useState<string | null>(null);
-  const [page, setPage] = useState(1);
 
-  const { data, isLoading, isError, isFetching, refetch } = useQuery({
-    queryKey: ["gold-rates", page],
-    queryFn: () => listGoldRatesPage({ limit: PAGE_SIZE, offset: (page - 1) * PAGE_SIZE }),
+  const { data, isLoading, isError, isFetching, isFetchingNextPage, fetchNextPage, hasNextPage, refetch } = useInfiniteQuery({
+    queryKey: ["gold-rates"],
+    queryFn: ({ pageParam = 0 }) => listGoldRatesPage({ limit: PAGE_SIZE, offset: pageParam }),
+    initialPageParam: 0,
+    getNextPageParam: (lastPage, allPages) => (lastPage.hasMore ? allPages.length * PAGE_SIZE : undefined),
   });
 
   useRefetchOnFocus(refetch);
 
-  const rates = data?.items ?? [];
+  const rates = data?.pages.flatMap((p) => p.items) ?? [];
 
   const publish = useMutation({
     mutationFn: () =>
@@ -69,7 +69,6 @@ export default function GoldRatesScreen() {
       setK24("");
       setError(null);
       setFormVisible(false);
-      setPage(1);
       queryClient.invalidateQueries({ queryKey: ["gold-rates"] });
       queryClient.invalidateQueries({ queryKey: ["gold-rates", "latest"] });
     },
@@ -78,7 +77,7 @@ export default function GoldRatesScreen() {
 
   return (
     <ScreenContainer style={{ paddingHorizontal: 0 }}>
-      <View style={{ paddingHorizontal: 16, marginBottom: 8 }}>
+      <View style={{ paddingHorizontal: 16, paddingTop: 20, marginBottom: 8 }}>
         <GoldButton
           title={formVisible ? "Cancel" : "+ Set today's rate"}
           variant={formVisible ? "outline" : "primary"}
@@ -111,11 +110,7 @@ export default function GoldRatesScreen() {
         </Card>
       ) : null}
 
-      <ScrollView
-        showsVerticalScrollIndicator={false}
-        contentContainerStyle={{ padding: 16 }}
-        refreshControl={<RefreshControl refreshing={isFetching && !isLoading} onRefresh={refetch} />}
-      >
+      <View style={{ flex: 1, paddingHorizontal: 16, paddingTop: 16 }}>
         <ExpandableTable<GoldRate>
           columns={RATE_COLUMNS}
           visibleCount={RATE_COLUMNS.length}
@@ -123,9 +118,13 @@ export default function GoldRatesScreen() {
           keyExtractor={(r) => String(r.id)}
           extraFields={rateExtraFields}
           emptyText={isLoading ? "Loading…" : isError ? "Could not load gold rates." : "No rates published yet."}
+          refreshControl={<RefreshControl refreshing={isFetching && !isFetchingNextPage && !isLoading} onRefresh={refetch} />}
+          onEndReached={() => {
+            if (hasNextPage && !isFetchingNextPage) fetchNextPage();
+          }}
+          isFetchingNextPage={isFetchingNextPage}
         />
-        <Pager page={page} hasMore={!!data?.hasMore} onChange={setPage} loading={isFetching} />
-      </ScrollView>
+      </View>
     </ScreenContainer>
   );
 }

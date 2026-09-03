@@ -640,7 +640,19 @@ export function NewLoan() {
         </div>
       )}
       <div className="grid cols21">
-        <div className="card gtop"><div className="bd">
+        {/* orn-form-card opts this card into a container query (app.css)
+         * that switches the ornament table to the card view based on this
+         * card's own rendered width, not the browser window's — the table
+         * needs ~880px+padding to lay out without overlap (see its own
+         * minWidth comment below), but this card sits beside a fixed-width
+         * Valuation sidebar, so at plenty of ordinary desktop window widths
+         * (1366px, ~1700px — both narrower than the old flat 1350px
+         * *window*-width breakpoint's threshold in the direction that
+         * matters) its own actual column was still narrower than that,
+         * overflowing the Photo/Upload column out past the card's edge and
+         * over the sidebar instead of ever falling back to the card view
+         * meant to handle exactly this. */}
+        <div className="card gtop orn-form-card"><div className="bd">
           <div className="frow c2">
             <div><label className="f">Customer (verified only)</label>
               <SearchableSelect<CustomerView>
@@ -712,17 +724,15 @@ export function NewLoan() {
               narrow screen that one field got crushed to a few px and
               became untypable. Fixed layout instead divides *any* available
               width by these ratios up front, so no single column bears the
-              whole squeeze. minWidth:620 is a floor below which columns
-              would be too narrow to use at all; below that the wrapper
-              overflows and .page (whose overflow-y:auto computes overflow-x
-              to auto too) scrolls it horizontally instead. 620 (not the old
-              480) is the smallest width at which the Net Wt/Qty columns
-              (11% each) still give their inputs the full 34px they're
-              floored at (see those <input>s' minWidth below) — any
-              narrower and an input's own floor pushes it wider than its
-              <td>'s shrunk content box, so it overflows the cell and drifts
-              out of alignment with its own header instead of scrolling the
-              table as a whole. */}
+              whole squeeze. Net Wt/Qty's own inputs are floored at 70px
+              (see those <input>s' minWidth below) — narrower than the
+              column's own % share and the whole table's rendered width
+              simply grows past 100% to give them that floor (the same
+              mechanism a plain min-width on any descendant uses to push an
+              ancestor wider), and .page (whose overflow-y:auto computes
+              overflow-x to auto too) scrolls it horizontally instead of
+              anything clipping or drifting out of alignment with its own
+              header. */}
           {/* Two renderings of the same `rows` state, toggled by a
               dedicated 1350px breakpoint (app.css) via CSS display only —
               not a JS resize listener, matching how `.side`/`.burger`
@@ -737,14 +747,30 @@ export function NewLoan() {
               mounting a second file input for the same row — two <input
               type="file"> elements sharing one ref array index would race
               on which one `fileRefs.current[i]` actually points to). */}
-          <div className="orn-table-view" style={{ width: "100%", minWidth: 0, paddingBottom: 6 }}><table className="tbl orn-table" style={{ width: "100%", tableLayout: "fixed" }}>
+          {/* minWidth:880 is a real, computed floor — not an organic
+              "however wide the content happens to need" guess. Purity's
+              own column (21%) is the binding constraint: its content needs
+              at least ~176px (the toggle's own 130px floor + 6px row gap +
+              the search field's 34px floor + ~6px cell padding), and
+              21% of 176/0.21 ≈ 838px, more than any other column's share
+              demands — plus a bit of headroom for rounding, since
+              table-layout:fixed does NOT reallocate a tight column's
+              shortfall from another column's slack. Below this width
+              Purity's content no longer fits its own <td> and spills into
+              the column beside it instead of the table falling back to
+              .page's horizontal scroll the way it's meant to. */}
+          <div className="orn-table-view" style={{ width: "100%", minWidth: 880, paddingBottom: 6 }}><table className="tbl orn-table" style={{ width: "100%", tableLayout: "fixed" }}>
             <colgroup>
-              {/* Ornament narrowed to 16% to free space for Photo (20%) and Delete (8%) columns,
-                  preventing Upload and Close button overlaps and clipping on small screens. */}
-              <col style={{ width: "16%" }} />
-              <col style={{ width: "27%" }} />
-              <col style={{ width: "10%" }} />
-              <col style={{ width: "8%" }} />
+              {/* Ornament narrowed to 14% and Purity to 21% (from 16%/27%)
+                  to give Net Wt/Qty (13% each, up from 10%/8%) enough share
+                  to actually reach their own 70px input floor at a normal
+                  table width, rather than that floor being the thing that
+                  forces the table wider than 100% at every width. Photo
+                  stays at 20% to keep preventing Upload/Close overlap. */}
+              <col style={{ width: "14%" }} />
+              <col style={{ width: "21%" }} />
+              <col style={{ width: "13%" }} />
+              <col style={{ width: "13%" }} />
               <col style={{ width: "11%" }} />
               <col style={{ width: "20%" }} />
               <col style={{ width: "8%" }} />
@@ -770,8 +796,8 @@ export function NewLoan() {
                     />
                   </td>
                   <td><PurityPicker value={r.p} onChange={(v) => updOrn(i, "p", v)} dropdownMinWidth={70} /></td>
-                  <td className="num"><input className="inp" style={{ padding: "6px 8px", width: "100%", minWidth: 34, height: 31, textAlign: "right", boxSizing: "border-box" }} type="number" min={0} value={r.w === 0 ? "" : r.w} onChange={(e) => updOrn(i, "w", e.target.value === "" ? 0 : Math.max(0, +e.target.value || 0))} /></td>
-                  <td className="num"><input className="inp" style={{ padding: "6px 8px", width: "100%", minWidth: 34, height: 31, textAlign: "right", boxSizing: "border-box" }} type="number" min={0} value={r.q} onChange={(e) => updOrn(i, "q", Math.max(0, +e.target.value || 0))} /></td>
+                  <td className="num"><input className="inp" style={{ padding: "6px 8px", width: "100%", minWidth: 70, height: 31, textAlign: "right", boxSizing: "border-box" }} type="number" min={0} value={r.w === 0 ? "" : r.w} onChange={(e) => updOrn(i, "w", e.target.value === "" ? 0 : Math.max(0, +e.target.value || 0))} /></td>
+                  <td className="num"><input className="inp" style={{ padding: "6px 8px", width: "100%", minWidth: 70, height: 31, textAlign: "right", boxSizing: "border-box" }} type="number" min={0} value={r.q} onChange={(e) => updOrn(i, "q", Math.max(0, +e.target.value || 0))} /></td>
                   <td className="num">{fmt(rowVals[i])}</td>
                   <td style={{ textAlign: "center", whiteSpace: "nowrap" }}>
                     <input type="file" accept="image/*" ref={(el) => { fileRefs.current[i] = el; }} style={{ display: "none" }} onChange={(e) => ornImgPicked(i, e.target)} />
@@ -800,7 +826,14 @@ export function NewLoan() {
             {rows.map((r, i) => (
               <div className="orn-card" key={i}>
                 <div className="orn-card-row">
-                  <div style={{ flex: 1, minWidth: 0 }}>
+                  {/* orn-type-td (app.css) shrinks this field's own input to
+                      31px tall — the same height every other field in this
+                      card (Net Wt/Qty/Purity below, and the ✕ button beside
+                      it) already uses — instead of the SearchableSelect's
+                      default 40px, which made the ✕ button read as an odd
+                      size next to it despite being the exact 31×31 every
+                      other row/card control is pinned to. */}
+                  <div className="orn-type-td" style={{ flex: 1, minWidth: 0 }}>
                     <label className="f">Ornament</label>
                     <SearchableSelect<BackendOrnamentType>
                       value={r.n}

@@ -93,14 +93,14 @@ export default function PacketDetailScreen() {
   if (packet.isLoading)
     return (
       <ScreenContainer style={{ padding: 0 }}>
-        <View style={{ flex: 1, paddingHorizontal: 16, paddingTop: 16 }}>
+        <View style={{ flex: 1, paddingHorizontal: 8, paddingTop: 20 }}>
       <ThemedText color={colors.muted}>Loading…</ThemedText>
         </View>
       </ScreenContainer>    );
   if (packet.isError || !packet.data)
     return (
       <ScreenContainer style={{ padding: 0 }}>
-        <View style={{ flex: 1, paddingHorizontal: 16, paddingTop: 16 }}>
+        <View style={{ flex: 1, paddingHorizontal: 8, paddingTop: 20 }}>
       <ThemedText color={colors.red}>Could not load this packet.</ThemedText>
         </View>
       </ScreenContainer>    );
@@ -127,7 +127,7 @@ export default function PacketDetailScreen() {
 
   return (
     <ScreenContainer style={{ padding: 0 }}>
-      <View style={{ flex: 1, paddingHorizontal: 16, paddingTop: 16 }}>      {/* The stepper makes this screen taller than the viewport — same
+      <View style={{ flex: 1, paddingHorizontal: 8, paddingTop: 20 }}>      {/* The stepper makes this screen taller than the viewport — same
           ScrollView wrapper the loan detail screen uses. */}
       <ScrollView
         showsVerticalScrollIndicator={false}

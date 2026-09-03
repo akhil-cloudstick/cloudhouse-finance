@@ -18,6 +18,7 @@ import (
 	"ambikagold/backend/internal/commlog"
 	"ambikagold/backend/internal/customer"
 	"ambikagold/backend/internal/customerauth"
+	"ambikagold/backend/internal/dashboard"
 	"ambikagold/backend/internal/employee"
 	"ambikagold/backend/internal/goldrate"
 	"ambikagold/backend/internal/loan"
@@ -117,6 +118,9 @@ func Run(db *gorm.DB) error {
 		// Realtime notifications (WebSocket, ack-and-resend) — the durable
 		// in-app inbox behind the customer app's bell.
 		&notification.Notification{},
+		// Nightly KPI-count snapshots powering the mobile dashboard's trend
+		// indicators (see dashboard.Snapshot's doc comment).
+		&dashboard.Snapshot{},
 	); err != nil {
 		return err
 	}

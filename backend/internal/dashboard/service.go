@@ -1,6 +1,13 @@
 package dashboard
 
-import "ambikagold/backend/internal/loan"
+import (
+	"errors"
+	"time"
+
+	"gorm.io/gorm"
+
+	"ambikagold/backend/internal/loan"
+)
 
 // NeedsAttentionPageSize is fixed (not caller-adjustable) — matches the
 // widget's fixed page size on frontend/components/Dashboard.tsx.
@@ -11,12 +18,13 @@ const NeedsAttentionPageSize = 15
 // and loan.Service.ListRequests already delegate to — so none of loan's
 // filtering/status logic is duplicated here.
 type Service struct {
-	loanRepo    *loan.Repository
-	requestRepo *loan.LoanRequestRepository
+	loanRepo     *loan.Repository
+	requestRepo  *loan.LoanRequestRepository
+	snapshotRepo *SnapshotRepository
 }
 
-func NewService(loanRepo *loan.Repository, requestRepo *loan.LoanRequestRepository) *Service {
-	return &Service{loanRepo: loanRepo, requestRepo: requestRepo}
+func NewService(loanRepo *loan.Repository, requestRepo *loan.LoanRequestRepository, snapshotRepo *SnapshotRepository) *Service {
+	return &Service{loanRepo: loanRepo, requestRepo: requestRepo, snapshotRepo: snapshotRepo}
 }
 
 // GetNeedsAttention merges pending-approval loans, pending Extension/Release
@@ -100,4 +108,83 @@ func (s *Service) GetNeedsAttention(page int, branchScope *uint) (*NeedsAttentio
 		RequestsCount:  len(requests),
 		AuctionsCount:  len(auctions),
 	}, nil
+}
+
+// CaptureDailySnapshot computes today's KPI counts (unscoped — every branch,
+// matching what an Administrator's mobile dashboard shows) and writes one
+// Snapshot row, unless today's row already exists. Called once/day by the
+// background ticker in main.go; the FindByDate guard is what makes "once
+// per day" actually hold, since the ticker itself has no fixed-wall-clock-
+// time scheduling to lean on.
+func (s *Service) CaptureDailySnapshot() error {
+	now := time.Now()
+	if _, err := s.snapshotRepo.FindByDate(now); err == nil {
+		return nil // already captured today
+	}
+
+	active, _, err := s.loanRepo.FindAll(loan.LoanFilter{Status: loan.StatusActive})
+	if err != nil {
+		return err
+	}
+	overdue, _, err := s.loanRepo.FindAll(loan.LoanFilter{Status: loan.StatusOverdue})
+	if err != nil {
+		return err
+	}
+	pending, _, err := s.loanRepo.FindAll(loan.LoanFilter{Status: loan.StatusPendingApproval})
+	if err != nil {
+		return err
+	}
+	openedFrom := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
+	openedTo := openedFrom
+	openedToday, _, err := s.loanRepo.FindAll(loan.LoanFilter{OpenedFrom: &openedFrom, OpenedTo: &openedTo})
+	if err != nil {
+		return err
+	}
+
+	// Due today: every not-yet-closed loan (same set reminder events derive
+	// LoanDue from) whose DueDate falls on today.
+	open, err := s.loanRepo.FindOpenForCalendar()
+	if err != nil {
+		return err
+	}
+	dueToday := 0
+	for _, l := range open {
+		if sameDay(l.DueDate, now) {
+			dueToday++
+		}
+	}
+
+	return s.snapshotRepo.Create(&Snapshot{
+		Date:                 openedFrom,
+		ActiveCount:          len(active),
+		OverdueCount:         len(overdue),
+		PendingApprovalCount: len(pending),
+		OpenedTodayCount:     len(openedToday),
+		DueTodayCount:        dueToday,
+	})
+}
+
+func sameDay(a, b time.Time) bool {
+	return a.Year() == b.Year() && a.Month() == b.Month() && a.Day() == b.Day()
+}
+
+// LatestSnapshot returns the most recently captured snapshot (typically
+// "yesterday", since capture runs nightly), or nil if none has been
+// captured yet — e.g. the first day after this feature ships, before the
+// first nightly job has run.
+func (s *Service) LatestSnapshot() (*Snapshot, error) {
+	rec, err := s.snapshotRepo.FindLatest()
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return rec, nil
+}
+
+// ListSnapshots returns captured snapshots history, paginated the same way
+// goldrate.Service.List is.
+func (s *Service) ListSnapshots(limit, offset int) ([]Snapshot, int64, error) {
+	return s.snapshotRepo.FindAll(limit, offset)
 }

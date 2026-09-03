@@ -209,7 +209,8 @@ func main() {
 	reminderSvc := reminder.NewService(reminderRepo, customerRepo, loanRepo, whatsappSender, commlogRepo)
 	reminderHandler := reminder.NewHandler(reminderSvc)
 
-	dashboardSvc := dashboard.NewService(loanRepo, loanRequestRepo)
+	dashboardSnapshotRepo := dashboard.NewSnapshotRepository(db)
+	dashboardSvc := dashboard.NewService(loanRepo, loanRequestRepo, dashboardSnapshotRepo)
 	dashboardHandler := dashboard.NewHandler(dashboardSvc)
 
 	uploadHandler := upload.NewHandler(cfg.UploadsDir)
@@ -391,6 +392,22 @@ func main() {
 		defer ticker.Stop()
 		for range ticker.C {
 			loanSvc.CheckDueAndOverdueLoans()
+		}
+	}()
+	// Dashboard KPI snapshot — captures today's counts once/day for the
+	// mobile dashboard's trend indicators (see dashboard.Service.
+	// CaptureDailySnapshot's doc comment). No fixed-wall-clock-time
+	// scheduling exists in this codebase, so this ticks hourly like the
+	// due/overdue check above; CaptureDailySnapshot's own FindByDate guard
+	// is what keeps it to one row per day regardless of tick cadence. Runs
+	// once immediately on boot too, so a fresh deploy doesn't wait up to an
+	// hour for its first snapshot.
+	go func() {
+		dashboardSvc.CaptureDailySnapshot()
+		ticker := time.NewTicker(1 * time.Hour)
+		defer ticker.Stop()
+		for range ticker.C {
+			dashboardSvc.CaptureDailySnapshot()
 		}
 	}()
 

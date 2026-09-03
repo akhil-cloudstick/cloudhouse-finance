@@ -35,7 +35,7 @@ export default function NewEmployeeScreen() {
 
   return (
     <ScreenContainer style={{ padding: 0 }}>
-      <View style={{ flex: 1, paddingHorizontal: 16, paddingTop: 16 }}>
+      <View style={{ flex: 1, paddingHorizontal: 8, paddingTop: 20 }}>
       <Card>
         <GoldTextInput label="Name" value={name} onChangeText={setName} />
         <GoldTextInput label="Phone (login identifier)" value={phone} onChangeText={setPhone} />

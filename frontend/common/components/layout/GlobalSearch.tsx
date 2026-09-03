@@ -14,7 +14,13 @@ type ResultGroup = [string, ResultRow[]];
 
 /* Ported from legacy/app.js's global-search IIFE (`searchAll`, `draw`,
  * keyboard nav, `/` shortcut, click-outside-to-close). */
-export default function GlobalSearch() {
+export default function GlobalSearch({
+  isOpen,
+  onToggle,
+}: {
+  isOpen?: boolean;
+  onToggle?: (open: boolean) => void;
+} = {}) {
   const { db } = useData();
   const { customers } = useCustomers();
   const { schemes } = useSchemes();
@@ -22,6 +28,9 @@ export default function GlobalSearch() {
   const [query, setQuery] = useState("");
   const [open, setOpen] = useState(false);
   const [sel, setSel] = useState(-1);
+  const [internalOpen, setInternalOpen] = useState(false);
+  const isExpanded = isOpen !== undefined ? isOpen : internalOpen;
+  const setExpanded = onToggle || setInternalOpen;
   const inputRef = useRef<HTMLInputElement>(null);
   const boxRef = useRef<HTMLDivElement>(null);
 
@@ -117,24 +126,30 @@ export default function GlobalSearch() {
         window.location.hash = target.href;
         setQuery("");
         closeResults();
+        setExpanded(false);
         inputRef.current?.blur();
       }
     } else if (e.key === "Escape") {
       setQuery("");
       closeResults();
+      setExpanded(false);
       inputRef.current?.blur();
     }
   }
 
   useEffect(() => {
     function onDocClick(e: MouseEvent) {
-      if (!(e.target as HTMLElement).closest(".gsearch")) closeResults();
+      if (!(e.target as HTMLElement).closest(".gsearch")) {
+        closeResults();
+        setExpanded(false);
+      }
     }
     function onDocKeyDown(e: KeyboardEvent) {
       const tag = (document.activeElement?.tagName || "").toUpperCase();
       if (e.key === "/" && !/^(INPUT|TEXTAREA|SELECT)$/.test(tag)) {
         e.preventDefault();
-        inputRef.current?.focus();
+        setExpanded(true);
+        setTimeout(() => inputRef.current?.focus(), 50);
       }
     }
     document.addEventListener("click", onDocClick);
@@ -143,23 +158,49 @@ export default function GlobalSearch() {
       document.removeEventListener("click", onDocClick);
       document.removeEventListener("keydown", onDocKeyDown);
     };
-  }, []);
+  }, [setExpanded]);
 
   return (
-    <div className="gsearch" id="gsearch">
-      <Icon name="search" />
-      <input
-        ref={inputRef}
-        id="gsInput"
-        type="text"
-        placeholder="Search loans, customers, schemes, packets…"
-        autoComplete="off"
-        value={query}
-        onChange={(e) => handleChange(e.target.value)}
-        onFocus={() => { if (query.trim().length >= 2) setOpen(true); }}
-        onKeyDown={handleKeyDown}
-      />
-      <kbd>/</kbd>
+    <div className={`gsearch${isExpanded ? " gsearch-expanded" : ""}`} id="gsearch">
+      <button
+        type="button"
+        className="gsearch-trigger"
+        aria-label="Open search"
+        title="Search ( / )"
+        onClick={() => {
+          setExpanded(true);
+          setTimeout(() => inputRef.current?.focus(), 50);
+        }}
+      >
+        <Icon name="search" />
+      </button>
+      <div className="gsearch-bar">
+        <Icon name="search" />
+        <input
+          ref={inputRef}
+          id="gsInput"
+          type="text"
+          placeholder="Search loans, customers, schemes, packets…"
+          autoComplete="off"
+          value={query}
+          onChange={(e) => handleChange(e.target.value)}
+          onFocus={() => { if (query.trim().length >= 2) setOpen(true); }}
+          onKeyDown={handleKeyDown}
+        />
+        <kbd>/</kbd>
+        <button
+          type="button"
+          className="gsearch-close"
+          aria-label="Close search"
+          onClick={() => {
+            setQuery("");
+            closeResults();
+            setExpanded(false);
+          }}
+        >
+          ×
+        </button>
+      </div>
       <div className={`gs-results${open ? " open" : ""}`} id="gsResults" ref={boxRef}>
         {groups.length ? (
           groups.map(([g, items]) => (
@@ -172,7 +213,7 @@ export default function GlobalSearch() {
                     key={r.href + r.t}
                     href={r.href}
                     className={flatIndex === sel ? "sel" : ""}
-                    onClick={() => { setQuery(""); closeResults(); }}
+                    onClick={() => { setQuery(""); closeResults(); setExpanded(false); }}
                   >
                     <span className="ic"><Icon name={r.ic} /></span>
                     <span className="tx">

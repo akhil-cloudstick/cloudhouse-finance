@@ -4,6 +4,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
 import { ThemedText } from "./ThemedText";
 import { colors } from "../theme/colors";
+import { fonts } from "../theme/typography";
 import { useAuth } from "../auth/AuthContext";
 import { Icon } from "./Icon";
 
@@ -63,8 +64,8 @@ export function FloatingHeader({ title, navigation }: { title: string; navigatio
           <View style={styles.iconBtn} />
         )}
 
-        <ThemedText variant="h3" numberOfLines={1} style={styles.title}>
-          {title}
+        <ThemedText variant="label" numberOfLines={1} style={styles.title}>
+          {title.toUpperCase()}
         </ThemedText>
 
         <Pressable onPress={() => setMenuOpen(true)} hitSlop={8} style={styles.avatar}>
@@ -77,7 +78,7 @@ export function FloatingHeader({ title, navigation }: { title: string; navigatio
       <Modal visible={menuOpen} transparent animationType="fade" onRequestClose={() => setMenuOpen(false)}>
         <Pressable style={styles.backdrop} onPress={() => setMenuOpen(false)}>
           <View style={[styles.menu, { marginTop: insets.top + 52 }]}>
-            <ThemedText variant="label" color={colors.muted} style={styles.menuName} numberOfLines={1}>
+            <ThemedText variant="body" color={colors.goldDeep} style={[styles.menuName, { fontFamily: fonts.serif, fontWeight: "700" as const }]} numberOfLines={1}>
               {employee?.name}
             </ThemedText>
             {canViewSettings && (
@@ -135,7 +136,17 @@ const styles = StyleSheet.create({
     }),
   },
   iconBtn: { width: 30, alignItems: "center", justifyContent: "center" },
-  title: { flex: 1, textAlign: "center" },
+  // Deliberately a small tracked-uppercase label, not an h3 — reads as nav
+  // chrome rather than a content heading, so it doesn't compete with each
+  // screen's own serif headings (Dashboard's "Welcome, …", a Card's h3, …).
+  title: {
+    flex: 1,
+    textAlign: "center",
+    letterSpacing: 0.6,
+    fontSize: 17,
+    fontFamily: fonts.serif,
+    fontWeight: "700" as const,
+  },
   avatar: {
     width: 30,
     height: 30,

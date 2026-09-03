@@ -6,8 +6,9 @@ import { useModal } from "@/common/components/Modal";
 import { RateModalContent } from "@/common/components/modals/RateModal";
 import { Icon } from "@/common/components/Icon";
 import { fmt } from "@/common/utils/format";
-import { listGoldRatesPage, GOLD_RATES_HISTORY_PAGE_SIZE, type GoldRateView } from "@/modules/gold-rates/services/goldRateService";
+import { listGoldRatesPage, type GoldRateView } from "@/modules/gold-rates/services/goldRateService";
 import { useAuth } from "@/common/auth-context";
+import { useResponsivePageSize } from "@/common/utils/responsive";
 
 function RateTile({ k, r }: { k: string; r: number }) {
   return (
@@ -25,6 +26,7 @@ function RateTile({ k, r }: { k: string; r: number }) {
 export function GoldRates() {
   const { latest } = useGoldRates();
   const { openModal } = useModal();
+  const pageSize = useResponsivePageSize(10, 6);
   // Hidden rather than disabled when the role cannot record a rate — see
   // Customers.tsx.
   const { can } = useAuth();
@@ -35,12 +37,12 @@ export function GoldRates() {
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
-  const totalPages = Math.max(1, Math.ceil(total / GOLD_RATES_HISTORY_PAGE_SIZE));
+  const totalPages = Math.max(1, Math.ceil(total / pageSize));
 
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
-    listGoldRatesPage(page)
+    listGoldRatesPage(page, pageSize)
       .then((res) => {
         if (cancelled) return;
         setRows(res.items);
@@ -50,7 +52,7 @@ export function GoldRates() {
       .catch((e) => { if (!cancelled) setError(e instanceof Error ? e.message : "Failed to load rate history."); })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
-  }, [page]);
+  }, [page, pageSize]);
 
   return (
     <>

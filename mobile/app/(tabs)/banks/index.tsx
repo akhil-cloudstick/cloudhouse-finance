@@ -1,11 +1,10 @@
-import React, { useEffect, useState } from "react";
-import { RefreshControl, View, ScrollView } from "react-native";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import React, { useState } from "react";
+import { RefreshControl, View, ScrollView, Pressable } from "react-native";
+import { useInfiniteQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { ScreenContainer } from "../../../src/components/ScreenContainer";
 import { ThemedText } from "../../../src/components/ThemedText";
 import { GoldTextInput } from "../../../src/components/GoldTextInput";
 import { GoldButton } from "../../../src/components/GoldButton";
-import { Pager } from "../../../src/components/Pager";
 import { BottomSheetModal } from "../../../src/components/BottomSheetModal";
 import { colors } from "../../../src/theme/colors";
 import { listBanksPage, createBank } from "../../../src/api/banks";
@@ -43,20 +42,17 @@ export default function BanksScreen() {
   const [accountNo, setAccountNo] = useState("");
   const [phone, setPhone] = useState("");
   const [error, setError] = useState<string | null>(null);
-  const [page, setPage] = useState(1);
 
-  useEffect(() => {
-    setPage(1);
-  }, [debouncedSearch]);
-
-  const { data, isLoading, isError, isFetching, refetch } = useQuery({
-    queryKey: ["banks", debouncedSearch, page],
-    queryFn: () => listBanksPage({ q: debouncedSearch || undefined, limit: PAGE_SIZE, offset: (page - 1) * PAGE_SIZE }),
+  const { data, isLoading, isError, isFetching, isFetchingNextPage, fetchNextPage, hasNextPage, refetch } = useInfiniteQuery({
+    queryKey: ["banks", debouncedSearch],
+    queryFn: ({ pageParam = 0 }) => listBanksPage({ q: debouncedSearch || undefined, limit: PAGE_SIZE, offset: pageParam }),
+    initialPageParam: 0,
+    getNextPageParam: (lastPage, allPages) => (lastPage.hasMore ? allPages.length * PAGE_SIZE : undefined),
   });
 
   useRefetchOnFocus(refetch);
 
-  const banks = data?.items ?? [];
+  const banks = data?.pages.flatMap((p) => p.items) ?? [];
 
   function reset() {
     setName("");
@@ -77,7 +73,6 @@ export default function BanksScreen() {
     onSuccess: () => {
       reset();
       setAddVisible(false);
-      setPage(1);
       queryClient.invalidateQueries({ queryKey: ["banks"] });
     },
     onError: (err) => setError(err instanceof ApiError ? err.message : "Could not save."),
@@ -85,7 +80,7 @@ export default function BanksScreen() {
 
   return (
     <ScreenContainer style={{ paddingHorizontal: 0 }}>
-      <View style={{ paddingHorizontal: 16, flexDirection: "row", gap: 8 }}>
+      <View style={{ paddingHorizontal: 16, paddingTop: 20, flexDirection: "row", gap: 8 }}>
         <View style={{ flex: 1 }}>
           <GoldTextInput label="Search banks" value={search} onChangeText={setSearch} />
         </View>
@@ -94,11 +89,7 @@ export default function BanksScreen() {
         <GoldButton title="+ Add bank" variant="outline" onPress={() => setAddVisible(true)} />
       </View>
 
-      <ScrollView
-        showsVerticalScrollIndicator={false}
-        contentContainerStyle={{ paddingHorizontal: 16 }}
-        refreshControl={<RefreshControl refreshing={isFetching && !isLoading} onRefresh={refetch} />}
-      >
+      <View style={{ flex: 1, paddingHorizontal: 16 }}>
         <ExpandableTable<Bank>
           columns={BANK_COLUMNS}
           visibleCount={BANK_COLUMNS.length}
@@ -106,15 +97,26 @@ export default function BanksScreen() {
           keyExtractor={(b) => String(b.id)}
           extraFields={bankExtraFields}
           emptyText={isLoading ? "Loading…" : isError ? "Could not load banks." : "No banks found."}
+          refreshControl={<RefreshControl refreshing={isFetching && !isFetchingNextPage && !isLoading} onRefresh={refetch} />}
+          onEndReached={() => {
+            if (hasNextPage && !isFetchingNextPage) fetchNextPage();
+          }}
+          isFetchingNextPage={isFetchingNextPage}
         />
-        <Pager page={page} hasMore={!!data?.hasMore} onChange={setPage} loading={isFetching} />
-      </ScrollView>
+      </View>
 
       <BottomSheetModal visible={addVisible} onClose={() => { reset(); setAddVisible(false); }}>
-        <ScrollView showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
-          <ThemedText variant="h3" style={{ marginBottom: 8 }}>
-            Add bank
+        <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+          <ThemedText variant="h3" color={colors.goldDeep}>
+            Add Bank
           </ThemedText>
+          <Pressable onPress={() => { reset(); setAddVisible(false); }} hitSlop={10}>
+            <ThemedText variant="h3" color={colors.muted}>
+              ×
+            </ThemedText>
+          </Pressable>
+        </View>
+        <ScrollView showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
           <GoldTextInput label="Name" value={name} onChangeText={setName} />
           <GoldTextInput label="IFSC" value={ifsc} onChangeText={setIfsc} />
           <GoldTextInput label="Account no." value={accountNo} onChangeText={setAccountNo} />

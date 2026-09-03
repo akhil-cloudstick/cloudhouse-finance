@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Jost, Bodoni_Moda } from "next/font/google";
 import "./globals.css";
 import "./app/app.css";
@@ -27,6 +27,15 @@ export const metadata: Metadata = {
   icons: {
     icon: "/ambika-gold.jpeg",
   },
+};
+
+// Without this, mobile browsers render at a default ~980px desktop-width
+// viewport and shrink the whole page to fit the screen instead of actually
+// laying it out at the device's real width — so none of app.css's
+// max-width:900px/480px mobile media queries ever match on a phone.
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {

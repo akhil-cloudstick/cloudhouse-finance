@@ -6,7 +6,8 @@ import { LoanRow } from "@/modules/loans/components/LoanRow";
 import { Icon } from "@/common/components/Icon";
 import { useAuth } from "@/common/auth-context";
 import { useHashRoute } from "@/hooks/useHashRoute";
-import { listLoansPage, LOANS_TABLE_PAGE_SIZE, type LoanView } from "@/modules/loans/services/loanService";
+import { listLoansPage, type LoanView } from "@/modules/loans/services/loanService";
+import { useResponsivePageSize, useIsSmallScreen } from "@/common/utils/responsive";
 
 const CATS = ["All", "Active", "Due Soon", "Overdue", "Defaulted", "Pending Approval", "Auction Eligible", "Closed"];
 
@@ -36,6 +37,8 @@ const COMPUTED_CATS: Partial<Record<string, (l: LoanView) => boolean>> = {
 export function Loans() {
   const { loans: allLoans, loading: providerLoading, error: providerError, refresh: refreshLoans } = useLoans();
   const { role } = useAuth();
+  const pageSize = useResponsivePageSize(10, 7);
+  const smallScreen = useIsSmallScreen();
   // Cashier is outside the loan creation/approval flow — the backend
   // already 403s a Cashier's POST /loans, so hide the button rather than
   // let them click into a form that can only ever fail.
@@ -58,7 +61,7 @@ export function Loans() {
 
   // Any filter change resets back to page 1 rather than leaving the user
   // stranded on a page number the new filter may not have.
-  useEffect(() => { setPage(1); }, [cat, q]);
+  useEffect(() => { setPage(1); }, [cat, q, pageSize]);
 
   // LoansProvider fetches once when the app shell mounts and is only
   // re-fetched by pages that explicitly call refresh() (LoanDetail, Requests,
@@ -93,7 +96,7 @@ export function Loans() {
     let cancelled = false;
     setSearching(true);
     const handle = setTimeout(() => {
-      listLoansPage({ status: cat === "All" ? undefined : cat, q: q.trim() || undefined, page })
+      listLoansPage({ status: cat === "All" ? undefined : cat, q: q.trim() || undefined, page, limit: pageSize })
         .then((res) => { if (!cancelled) { setFiltered(res.items); setHasMore(res.hasMore); setServerTotal(res.total); setSearchError(""); } })
         .catch((e) => { if (!cancelled) setSearchError(e instanceof Error ? e.message : "Search failed."); })
         .finally(() => { if (!cancelled) setSearching(false); });
@@ -108,7 +111,7 @@ export function Loans() {
     // computed category, the table only caught up on a browser reload.
     // Keying off the new array identity re-issues the filtered query in step
     // with every provider refresh.
-  }, [cat, q, page, computedPredicate, allLoans]);
+  }, [cat, q, page, computedPredicate, allLoans, pageSize]);
 
   const loading = filtered === null ? providerLoading : searching;
   const error = searchError || providerError;
@@ -120,24 +123,24 @@ export function Loans() {
       const needle = q.trim().toLowerCase();
       rows = rows.filter((l) => l.id.toLowerCase().includes(needle) || l.customerName.toLowerCase().includes(needle));
     }
-    totalPages = Math.max(1, Math.ceil(rows.length / LOANS_TABLE_PAGE_SIZE));
-    rows = rows.slice((page - 1) * LOANS_TABLE_PAGE_SIZE, page * LOANS_TABLE_PAGE_SIZE);
+    totalPages = Math.max(1, Math.ceil(rows.length / pageSize));
+    rows = rows.slice((page - 1) * pageSize, page * pageSize);
   } else {
     rows = filtered ?? [];
-    totalPages = Math.max(1, Math.ceil(serverTotal / LOANS_TABLE_PAGE_SIZE));
+    totalPages = Math.max(1, Math.ceil(serverTotal / pageSize));
   }
   const knownTotal = !!computedPredicate || serverTotal > 0;
   const nextDisabled = knownTotal ? page >= totalPages : !hasMore;
 
   return (
     <>
-      <div className="page-h">
-        <div><h1>Loans</h1><p>All customer loans with search and status filters</p></div>
+      <div className="page-h" style={smallScreen ? { gap: 9, marginBottom: 10 } : { marginBottom: 12 }}>
+        <div><h1>Loans</h1><p style={{ marginTop: 6 }}>All customer loans with search and status filters</p></div>
         <div className="sp" />
         <div className="search"><Icon name="search" /><input className="inp" placeholder="Search loan ID or customer…" value={q} onChange={(e) => setQ(e.target.value)} /></div>
         {canCreateLoans && <a className="btn" href="#newloan"><Icon name="plus" /> New Gold Loan</a>}
       </div>
-      <hr className="gold-rule" />
+      <hr className="gold-rule" style={{ margin: "4px 0 14px" }} />
       <div style={{ marginBottom: 14 }} className="tabs">
         {CATS.map((c) => (
           <button key={c} className={c === cat ? "on" : ""} onClick={() => setCat(c)}>{c}</button>
