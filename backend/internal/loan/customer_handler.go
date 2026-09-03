@@ -57,7 +57,7 @@ func (h *Handler) CustomerListLoans(c *gin.Context) {
 			offset = 0
 		}
 		f.Limit, f.Offset = limit+1, offset
-		rec, err := h.svc.List(f)
+		rec, total, err := h.svc.List(f)
 		if err != nil {
 			httpx.FailErr(c, err)
 			return
@@ -66,11 +66,11 @@ func (h *Handler) CustomerListLoans(c *gin.Context) {
 		if hasMore {
 			rec = rec[:limit]
 		}
-		httpx.Success(c, http.StatusOK, gin.H{"items": rec, "hasMore": hasMore})
+		httpx.Success(c, http.StatusOK, gin.H{"items": rec, "hasMore": hasMore, "total": total})
 		return
 	}
 
-	rec, err := h.svc.List(f)
+	rec, _, err := h.svc.List(f)
 	if err != nil {
 		httpx.FailErr(c, err)
 		return
@@ -172,7 +172,7 @@ func (h *Handler) CustomerListLoanRequests(c *gin.Context) {
 		httpx.FailErr(c, err)
 		return
 	}
-	rec, err := h.svc.ListRequests(LoanRequestFilter{LoanID: loanID})
+	rec, _, err := h.svc.ListRequests(LoanRequestFilter{LoanID: loanID})
 	if err != nil {
 		httpx.FailErr(c, err)
 		return

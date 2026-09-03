@@ -115,11 +115,11 @@ func (s *Service) Create(in CreateInput) (*Scheme, error) {
 // List returns schemes, optionally scoped to branchID (nil = all branches —
 // Administrator only, see platform.GetBranchScope). limit/offset mirror
 // FindAll's pagination convention (0 = unpaged).
-func (s *Service) List(query string, branchID *uint, limit, offset int) ([]Scheme, error) {
+func (s *Service) List(query string, branchID *uint, limit, offset int) ([]Scheme, int64, error) {
 	return s.repo.FindAll(query, branchID, limit, offset)
 }
 
-func (s *Service) ListActive(query string, branchID *uint, limit, offset int) ([]Scheme, error) {
+func (s *Service) ListActive(query string, branchID *uint, limit, offset int) ([]Scheme, int64, error) {
 	return s.repo.FindActive(query, branchID, limit, offset)
 }
 

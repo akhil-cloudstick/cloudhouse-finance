@@ -10,12 +10,13 @@ import { GoldTextInput } from "../../src/components/GoldTextInput";
 import { colors, statusColors, StatusTone } from "../../src/theme/colors";
 import { useAuth } from "../../src/auth/AuthContext";
 import { useRefetchOnFocus } from "../../src/hooks/useRefetchOnFocus";
-import { latestGoldRate } from "../../src/api/goldRates";
+import { latestGoldRate, listGoldRatesPage } from "../../src/api/goldRates";
 import { getCalendarEvents } from "../../src/api/reminders";
-import { listLoans, listLoanRequests } from "../../src/api/loans";
-import { getCashSummary, listExpenses } from "../../src/api/cash";
+import { listLoans, listLoanRequests, getInterestCollected } from "../../src/api/loans";
+import { listCashMovements, listExpenses } from "../../src/api/cash";
 import { listPurityStandards } from "../../src/api/purityStandards";
 import { listSchemes } from "../../src/api/schemes";
+import { latestDashboardSnapshot } from "../../src/api/dashboard";
 import { CalendarEvent } from "../../src/types/reminder";
 
 import { fmt } from "../../src/lib/format";
@@ -39,6 +40,31 @@ function rateForPurityString(k24: number, purity: string): number | null {
 
 const EXPENSE_COLORS = [colors.goldDeep, colors.goldMid, colors.blue, colors.green, colors.red, colors.amber];
 
+// Small "▲12% / ▼5%" badge comparing a live count/value against a real
+// previous-period baseline (yesterday's captured snapshot, or the prior
+// published gold rate) — never a fabricated trend. `goodDirection` picks
+// which arrow direction reads as green vs red: "up" for metrics where more
+// is good (e.g. Gold Rate), "down" for metrics where fewer is good (e.g.
+// Overdue). Renders nothing when there's no baseline yet (first day after
+// this feature ships, before any snapshot has been captured) or the value
+// is unchanged.
+function Trend({ current, previous, goodDirection = "up" }: { current: number; previous: number | null | undefined; goodDirection?: "up" | "down" }) {
+  if (previous == null || current === previous) return null;
+  const up = current > previous;
+  const pct = previous !== 0 ? Math.abs(((current - previous) / previous) * 100) : 100;
+  const good = up === (goodDirection === "up");
+  return (
+    <View style={styles.trendRow}>
+      <ThemedText variant="small" color={good ? colors.green : colors.red} style={styles.trendText}>
+        {up ? "▲" : "▼"} {pct >= 10 ? Math.round(pct) : pct.toFixed(1)}%
+      </ThemedText>
+      <ThemedText variant="small" color={colors.muted} style={styles.trendText}>
+        vs yesterday
+      </ThemedText>
+    </View>
+  );
+}
+
 function toneForType(type: CalendarEvent["type"]): StatusTone {
   if (type === "Overdue") return "red";
   if (type === "LoanDue" || type === "InterestDue") return "amber";
@@ -51,10 +77,7 @@ function toneForType(type: CalendarEvent["type"]): StatusTone {
 // this screen only shows KPIs/summaries, not a link grid. Ported from
 // frontend/components/Dashboard.tsx's "Business Overview" — see that file
 // for the reference layout (KPI row, disbursement bars, Needs Attention,
-// gold-loan calculator, upcoming reminders, expense summary). Interest
-// Collected is skipped: mobile has no getInterestCollected()-equivalent API
-// yet (frontend/lib/loansApi.ts's getInterestCollected has no mobile
-// counterpart in mobile/src/api/*.ts).
+// gold-loan calculator, upcoming reminders, expense summary).
 export default function DashboardScreen() {
   const router = useRouter();
   const { employee } = useAuth();
@@ -82,11 +105,27 @@ export default function DashboardScreen() {
   });
   const purityStandards = useQuery({ queryKey: ["purity-standards", "all"], queryFn: () => listPurityStandards() });
   const schemes = useQuery({ queryKey: ["schemes", "all"], queryFn: () => listSchemes() });
-  const cashSummary = useQuery({
-    queryKey: ["cash", "summary", branchId, today],
-    queryFn: () => getCashSummary(branchId!, today),
-    enabled: !!branchId,
+  // Cash in Hand — mirrors frontend/components/Dashboard.tsx's own KPI
+  // exactly: all-time net(cash-in movements − cash-out movements), branch-
+  // scoped server-side from the logged-in employee's own branch (backend/
+  // internal/cash/handler.go's platform.GetBranchScope), NOT `/cash/summary`
+  // .expectedCash — that's a different, date-scoped reconciliation figure
+  // from the Cash module's own page (see cash/index.tsx), which requires an
+  // opening balance to have been entered for today or silently reads low.
+  const cashMovements = useQuery({ queryKey: ["cash", "movements", "all"], queryFn: listCashMovements });
+  // Mirrors web Dashboard's own no-args call — server defaults the range to
+  // [first-of-current-month, today] (backend/internal/loan/handler.go).
+  const interestCollected = useQuery({ queryKey: ["loans", "interest-collected"], queryFn: () => getInterestCollected() });
+  // Real vs-yesterday baselines for the trend badges below — a captured
+  // KPI-count snapshot (see backend/internal/dashboard/snapshot_model.go)
+  // and the previously published gold rate (limit:2 returns [current, prior]
+  // when both exist).
+  const snapshot = useQuery({ queryKey: ["dashboard", "snapshot", "latest"], queryFn: latestDashboardSnapshot });
+  const goldRateHistory = useQuery({
+    queryKey: ["gold-rates", "recent", 2],
+    queryFn: () => listGoldRatesPage({ limit: 2, offset: 0 }),
   });
+  const previousK24 = goldRateHistory.data?.items?.[1]?.k24;
 
   useRefetchOnFocus(
     goldRate.refetch,
@@ -96,7 +135,10 @@ export default function DashboardScreen() {
     requests.refetch,
     purityStandards.refetch,
     schemes.refetch,
-    cashSummary.refetch
+    cashMovements.refetch,
+    interestCollected.refetch,
+    snapshot.refetch,
+    goldRateHistory.refetch
   );
 
   const [refreshing, setRefreshing] = useState(false);
@@ -110,7 +152,10 @@ export default function DashboardScreen() {
       requests.refetch(),
       purityStandards.refetch(),
       schemes.refetch(),
-      cashSummary.refetch(),
+      cashMovements.refetch(),
+      interestCollected.refetch(),
+      snapshot.refetch(),
+      goldRateHistory.refetch(),
     ]);
     setRefreshing(false);
   }
@@ -121,7 +166,6 @@ export default function DashboardScreen() {
   const loanList = loans.data ?? [];
   const activeCount = loanList.filter((l) => ["Active", "Due Soon", "Overdue"].includes(l.status)).length;
   const overdueCount = loanList.filter((l) => l.status === "Overdue").length;
-  const dueSoonCount = loanList.filter((l) => l.status === "Due Soon").length;
   const pendingApprovalLoans = loanList.filter((l) => l.status === "Pending Approval");
   const auctionLoans = loanList.filter((l) => l.status === "Auction Eligible" || l.status === "Defaulted");
   const openedTodayCount = loanList.filter((l) => l.openedDate === today).length;
@@ -130,6 +174,15 @@ export default function DashboardScreen() {
   const requestList = requests.data ?? [];
   const extensionCount = requestList.filter((r) => r.type === "Extension").length;
   const releaseCount = requestList.filter((r) => r.type === "Release").length;
+
+  // Mirrors frontend/components/Dashboard.tsx's own "Cash in Hand" KPI —
+  // all-time net(cash-in − cash-out) movements, branch-scoped server-side.
+  // See cashMovements query's own comment above for why this is NOT
+  // `/cash/summary`.expectedCash.
+  const movementList = cashMovements.data ?? [];
+  const cashInHand =
+    movementList.filter((m) => m.type === "in").reduce((s, m) => s + m.amount, 0) -
+    movementList.filter((m) => m.type === "out").reduce((s, m) => s + m.amount, 0);
 
   const expToday = (expenses.data ?? [])
     .filter((e) => e.occurredOn === today)
@@ -182,7 +235,7 @@ export default function DashboardScreen() {
     <ScreenContainer style={{ padding: 0 }}>
       <ScrollView
         showsVerticalScrollIndicator={false}
-        contentContainerStyle={{ padding: 16 }}
+        contentContainerStyle={{ paddingHorizontal: 8, paddingTop: 20, paddingBottom: 16 }}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
       >
         <ThemedText variant="h2" color={colors.goldDeep}>
@@ -192,34 +245,35 @@ export default function DashboardScreen() {
           {employee?.role} · {employee?.branch?.name ?? `Branch #${employee?.branchId}`}
         </ThemedText>
 
-        <View style={styles.kpiRow}>
-          <GlassCard style={styles.kpi}>
+        {/* One continuous 2-up grid, top KPIs included — used to be a
+            separate 3-across row above this grid, but that broke the
+            strict 2-column layout everything else follows. */}
+        <View style={styles.grid}>
+          <GlassCard style={styles.tile}>
             <ThemedText variant="label" color={colors.muted}>
               Loans Opened Today
             </ThemedText>
             <ThemedText variant="h3">{loans.isLoading ? "…" : openedTodayCount}</ThemedText>
+            <Trend current={openedTodayCount} previous={snapshot.data?.openedTodayCount} goodDirection="up" />
           </GlassCard>
-          <GlassCard style={styles.kpi}>
+          <GlassCard style={styles.tile}>
             <ThemedText variant="label" color={colors.muted}>
               Overdue
             </ThemedText>
             <ThemedText variant="h3" color={colors.red}>
               {loans.isLoading ? "…" : overdueCount}
             </ThemedText>
+            <Trend current={overdueCount} previous={snapshot.data?.overdueCount} goodDirection="down" />
           </GlassCard>
-          <GlassCard style={styles.kpi}>
+          <GlassCard style={styles.tile}>
             <ThemedText variant="label" color={colors.muted}>
               Due Today
             </ThemedText>
             <ThemedText variant="h3" color={colors.amber}>
               {events.isLoading ? "…" : dueTodayCount}
             </ThemedText>
+            <Trend current={dueTodayCount} previous={snapshot.data?.dueTodayCount} goodDirection="down" />
           </GlassCard>
-        </View>
-
-        {/* Gold Rate moved out of the top KPI row into its own 2-up row
-            with Cash in Hand — Loans Opened Today (above) took its old seat. */}
-        <View style={styles.grid}>
           <GlassCard style={styles.tile}>
             <ThemedText variant="label" color={colors.muted}>
               24K Gold Rate
@@ -227,13 +281,28 @@ export default function DashboardScreen() {
             <ThemedText variant="h3" color={colors.goldDeep}>
               {goldRate.isLoading ? "…" : goldRate.data ? `₹${goldRate.data.k24.toLocaleString("en-IN")}` : "—"}
             </ThemedText>
+            {goldRate.data ? <Trend current={goldRate.data.k24} previous={previousK24} goodDirection="up" /> : null}
           </GlassCard>
           <GlassCard style={styles.tile}>
             <ThemedText variant="label" color={colors.muted}>
               Cash in Hand
             </ThemedText>
             <ThemedText variant="h3" color={colors.green}>
-              {cashSummary.isLoading ? "…" : cashSummary.data ? fmt(cashSummary.data.expectedCash) : "—"}
+              {cashMovements.isLoading ? "…" : fmt(cashInHand)}
+            </ThemedText>
+            <ThemedText variant="small" color={colors.muted}>
+              across {movementList.length} movements
+            </ThemedText>
+          </GlassCard>
+          <GlassCard style={styles.tile}>
+            <ThemedText variant="label" color={colors.muted}>
+              Interest Collected
+            </ThemedText>
+            <ThemedText variant="h3" color={colors.green}>
+              {interestCollected.isLoading ? "…" : interestCollected.data ? fmt(interestCollected.data.interestCollected) : "—"}
+            </ThemedText>
+            <ThemedText variant="small" color={colors.muted}>
+              this month
             </ThemedText>
           </GlassCard>
           <GlassCard style={styles.tile}>
@@ -241,14 +310,14 @@ export default function DashboardScreen() {
               Active Loans
             </ThemedText>
             <ThemedText variant="h3">{loans.isLoading ? "…" : activeCount}</ThemedText>
+            <Trend current={activeCount} previous={snapshot.data?.activeCount} goodDirection="up" />
           </GlassCard>
           <GlassCard style={styles.tile}>
             <ThemedText variant="label" color={colors.muted}>
-              Due Soon
+              Loan Opened Today
             </ThemedText>
-            <ThemedText variant="h3" color={dueSoonCount ? colors.amber : colors.ink}>
-              {loans.isLoading ? "…" : dueSoonCount}
-            </ThemedText>
+            <ThemedText variant="h3">{loans.isLoading ? "…" : openedTodayCount}</ThemedText>
+            <Trend current={openedTodayCount} previous={snapshot.data?.openedTodayCount} goodDirection="up" />
           </GlassCard>
           <GlassCard style={styles.tile}>
             <ThemedText variant="label" color={colors.muted}>
@@ -257,6 +326,7 @@ export default function DashboardScreen() {
             <ThemedText variant="h3" color={pendingApprovalLoans.length ? colors.amber : colors.ink}>
               {loans.isLoading ? "…" : pendingApprovalLoans.length}
             </ThemedText>
+            <Trend current={pendingApprovalLoans.length} previous={snapshot.data?.pendingApprovalCount} goodDirection="down" />
           </GlassCard>
           <GlassCard style={styles.tile}>
             <ThemedText variant="label" color={colors.muted}>
@@ -291,6 +361,9 @@ export default function DashboardScreen() {
             </ThemedText>
             <ThemedText variant="h3" color={auctionLoans.length ? colors.red : colors.ink}>
               {loans.isLoading ? "…" : auctionLoans.length}
+            </ThemedText>
+            <ThemedText variant="small" color={colors.muted}>
+              {fmt(auctionLoans.reduce((s, l) => s + l.outstandingAmount, 0))} outstanding
             </ThemedText>
           </GlassCard>
           <GlassCard style={styles.tile}>
@@ -497,14 +570,18 @@ export default function DashboardScreen() {
 }
 
 const styles = StyleSheet.create({
-  kpiRow: { flexDirection: "row", gap: 8, marginBottom: 8 },
-  kpi: { flex: 1, alignItems: "center" },
+  trendRow: { flexDirection: "row", gap: 4, marginTop: 2 },
+  trendText: { fontSize: 11 },
   grid: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginBottom: 12 },
   // Background/border/radius deliberately omitted — GlassCard's own base
   // style supplies those (the frosted fill, soft border, rounded corners);
   // setting them here would paint over the glass effect and defeat it.
+  // width (not minWidth) pins this to a strict 2-up grid — every tile takes
+  // exactly half the row regardless of its own content length, so an odd
+  // tile count still lines up instead of one long label pushing a 3rd
+  // column onto some rows and 2 onto others.
   tile: {
-    minWidth: "47%",
+    width: "48%",
     paddingVertical: 16,
     paddingHorizontal: 12,
   },

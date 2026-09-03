@@ -9,10 +9,7 @@ import { useToast } from "@/common/components/Toast";
 import { ApiError } from "@/common/services/httpClient";
 import { listActiveBranches, type BranchView } from "@/modules/branches/services/branchService";
 import { exportReport, type ReportFilters, type ReportKey, type ReportResult } from "@/modules/reports/services/reportsService";
-
-/* 9 rows per page on every report — this is the `page_size` sent to the
- * report endpoint too, so the table shows exactly what was fetched. */
-const PAGE_SIZE = 9;
+import { useResponsivePageSize } from "@/common/utils/responsive";
 
 export type ReportColumn<Row> = {
   key: string;
@@ -57,6 +54,7 @@ function today(): string {
 }
 
 export function ReportView({ config, onBack }: { config: ReportConfig; onBack: () => void }) {
+  const pageSize = useResponsivePageSize(12, 7);
   const toast = useToast();
   const [branches, setBranches] = useState<BranchView[]>([]);
   const [branchId, setBranchId] = useState<number>(0);
@@ -72,11 +70,11 @@ export function ReportView({ config, onBack }: { config: ReportConfig; onBack: (
   const [exporting, setExporting] = useState<"xlsx" | "pdf" | null>(null);
 
   useEffect(() => {
-    listActiveBranches().then(setBranches).catch(() => {});
+    listActiveBranches().then(setBranches).catch(() => { });
   }, []);
 
   const filters: ReportFilters = useMemo(() => {
-    const f: ReportFilters = { from, to, page, pageSize: PAGE_SIZE };
+    const f: ReportFilters = { from, to, page, pageSize };
     if (branchId) f.branchId = branchId;
     if (config.extraFilter && extraValue) {
       if (config.extraFilter.field === "status") f.status = extraValue;
@@ -84,10 +82,10 @@ export function ReportView({ config, onBack }: { config: ReportConfig; onBack: (
     }
     return f;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [from, to, branchId, extraValue, page, config.id]);
+  }, [from, to, branchId, extraValue, page, pageSize, config.id]);
 
   // Reset to page 1 whenever a filter (other than page itself) changes.
-  useEffect(() => { setPage(1); }, [from, to, branchId, extraValue, config.id]);
+  useEffect(() => { setPage(1); }, [from, to, branchId, extraValue, pageSize, config.id]);
 
   useEffect(() => {
     let cancelled = false;
@@ -120,7 +118,7 @@ export function ReportView({ config, onBack }: { config: ReportConfig; onBack: (
 
   const rows = result?.rows ?? [];
   const totalCount = result?.totalCount ?? 0;
-  const totalPages = Math.max(1, Math.ceil(totalCount / PAGE_SIZE));
+  const totalPages = Math.max(1, Math.ceil(totalCount / pageSize));
   const totalsItems = result ? config.totals(result.totals) : [];
 
   return (
@@ -143,17 +141,56 @@ export function ReportView({ config, onBack }: { config: ReportConfig; onBack: (
       </div>
       <hr className="gold-rule" />
 
-      <div className="card" style={{ marginBottom: 18 }}>
-        <div className="hd" style={{ flexWrap: "wrap", justifyContent: "flex-end", gap: 80, padding: "16px 18px" }}>
-          <div style={{ width: 160 }}>
+      {/* No wrapping .card here — the KPI totals and the filter row sit
+       * directly on the page, on one line below the title: totals on the
+       * left, filter fields on the right (justify-content:space-between
+       * pins each group to its own edge rather than leaving them flush
+       * together in the middle), instead of each getting its own full-
+       * width block stacked one above the other. */}
+      <div style={{ display: "flex", flexWrap: "wrap", alignItems: "flex-end", justifyContent: "space-between", gap: 24, marginBottom: 18 }}>
+        {/* Plain flex, not `.kpis` (display:grid; repeat(auto-fill,213px))
+         * — a grid with auto-fill track repetition has no well-defined
+         * intrinsic size, so nested as a flex item here (every other
+         * `.kpis` usage sits on its own full-width line instead) it
+         * collapsed to a single column, stacking the two cards vertically
+         * instead of grouping them side by side on the left. `.kpi` itself
+         * (each card's own fixed 213×89px box, flex-shrink:0 so it never
+         * shrinks below that regardless of context) is unaffected either
+         * way. maxWidth:"100%" is what actually lets flexWrap do its job
+         * once there isn't room for every card on one line — flex-wrap
+         * only wraps a container's children once the container itself is
+         * width-constrained; flexShrink:0 alone (refusing to shrink below
+         * its natural, fully-unwrapped width) left this free to just grow
+         * past the viewport with nothing to wrap against instead. */}
+        {totalsItems.length > 0 && (
+          <div style={{ display: "flex", flexWrap: "wrap", flexShrink: 0, maxWidth: "100%", gap: 12 }}>
+            {totalsItems.map((t) => (
+              <div className="kpi" key={t.label}>
+                <div className="l">{t.label}</div>
+                <div className="v">{t.value}</div>
+              </div>
+            ))}
+          </div>
+        )}
+        {/* .report-filter-row scopes the DatePicker width override below —
+         * DatePicker.tsx's own root carries a global `.dp-date{width:230px;
+         * flex:0 0 230px}` that ignores whatever width this wrapper <div>
+         * asks for, so reducing just the wrapper's width (Branch/extraFilter
+         * below, plain SearchableSelect/Select, have no such override and
+         * shrink correctly) left From/To exactly the same size. Every field
+         * here is the same 150px now, and `gap` (a single value, so it's
+         * necessarily identical between every adjacent pair) keeps them
+         * evenly spaced regardless of how many are showing. */}
+        <div className="report-filter-row" style={{ display: "flex", flexWrap: "wrap", gap: 20 }}>
+          <div style={{ width: 150 }}>
             <label style={{ fontSize: 11.5, color: "var(--muted)", display: "block", marginBottom: 4 }}>From</label>
             <DatePicker value={from} onChange={setFrom} max={to} />
           </div>
-          <div style={{ width: 160 }}>
+          <div style={{ width: 150 }}>
             <label style={{ fontSize: 11.5, color: "var(--muted)", display: "block", marginBottom: 4 }}>To</label>
             <DatePicker value={to} onChange={setTo} min={from} />
           </div>
-          <div style={{ width: 200 }}>
+          <div style={{ width: 150 }}>
             <label style={{ fontSize: 11.5, color: "var(--muted)", display: "block", marginBottom: 4 }}>Branch</label>
             <SearchableSelect<BranchView>
               value={branchLabel}
@@ -165,7 +202,7 @@ export function ReportView({ config, onBack }: { config: ReportConfig; onBack: (
             />
           </div>
           {config.extraFilter && (
-            <div style={{ width: 180 }}>
+            <div style={{ width: 150 }}>
               <label style={{ fontSize: 11.5, color: "var(--muted)", display: "block", marginBottom: 4 }}>{config.extraFilter.label}</label>
               <Select
                 options={[{ value: "", label: "All" }, ...config.extraFilter.options.map((o) => ({ value: o, label: o }))]}
@@ -176,17 +213,6 @@ export function ReportView({ config, onBack }: { config: ReportConfig; onBack: (
           )}
         </div>
       </div>
-
-      {totalsItems.length > 0 && (
-        <div className="kpis" style={{ marginBottom: 18 }}>
-          {totalsItems.map((t) => (
-            <div className="kpi" key={t.label}>
-              <div className="l">{t.label}</div>
-              <div className="v">{t.value}</div>
-            </div>
-          ))}
-        </div>
-      )}
 
       {error && <div className="notice" style={{ marginBottom: 14 }}>{error}</div>}
 
@@ -215,8 +241,6 @@ export function ReportView({ config, onBack }: { config: ReportConfig; onBack: (
           <button className="btn plain sm" disabled={page <= 1} onClick={() => setPage((p) => Math.max(1, p - 1))}>‹ Prev</button>
           <span style={{ fontSize: 12.5 }}>Page {page} of {totalPages}</span>
           <button className="btn plain sm" disabled={page >= totalPages} onClick={() => setPage((p) => Math.min(totalPages, p + 1))}>Next ›</button>
-          <div className="sp" />
-          <span>{totalCount} row{totalCount === 1 ? "" : "s"} total</span>
         </div>
       </div>
     </div>

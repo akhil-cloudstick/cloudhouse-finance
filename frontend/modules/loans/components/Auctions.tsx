@@ -31,15 +31,15 @@ import {
   type LoanView,
 } from "@/modules/loans/services/loanService";
 import { ApiError } from "@/common/services/httpClient";
+import { useResponsivePageSize } from "@/common/utils/responsive";
 
-/* Roles allowed to decide each kind of escalation — mirrors the service-layer
- * checks in loan.Service.ResolveAuctionDecision. Hiding the button is a
- * convenience; the backend is the actual control and rejects the call either
- * way. The Auction Administrator is deliberately absent from the shortfall
- * list: it raises that escalation but must not decide whether to write off or
- * pursue real money owed. */
-const PARTIAL_DECISION_ROLES = ["Administrator", "Management", "Branch Manager", "Auction Administrator"];
-const SHORTFALL_DECISION_ROLES = ["Administrator", "Management", "Branch Manager"];
+/* Who may decide each kind of escalation, and who may run each auction
+ * process step, is now driven by the "Auction Workflow" permissions (see
+ * internal/authz.Catalogue) instead of a hardcoded role-name list — an admin
+ * grants/revokes these per-role from the Roles & Permissions screen, the
+ * same way every other can(...) check in this app works. Hiding a button
+ * here is a convenience; the backend (loan.Service.checkStagePermission) is
+ * the actual control and rejects the call either way. */
 
 /* Ported from legacy/app.js's `printAuctionLetter()`. The mock version read
  * a separate `db.auctions` list (always empty in this codebase — no
@@ -68,8 +68,8 @@ export function printAuctionLetter(loan: LoanView, toast: (m: string) => void) {
     <table>
       <tr><th>Ornament</th><th>Purity</th><th class="num">Gross (g)</th><th class="num">Net (g)</th><th class="num">Qty</th></tr>
       ${loan.ornaments.length
-        ? loan.ornaments.map((o) => `<tr><td>${o.name}</td><td>${o.purity}</td><td class="num">${o.grossWeight.toFixed(1)}</td><td class="num">${o.netWeight.toFixed(1)}</td><td class="num">${o.quantity}</td></tr>`).join("")
-        : `<tr><td colspan="5">Pledged gold — ${loan.totalNetWeight.toFixed(1)} g total</td></tr>`}
+      ? loan.ornaments.map((o) => `<tr><td>${o.name}</td><td>${o.purity}</td><td class="num">${o.grossWeight.toFixed(1)}</td><td class="num">${o.netWeight.toFixed(1)}</td><td class="num">${o.quantity}</td></tr>`).join("")
+      : `<tr><td colspan="5">Pledged gold — ${loan.totalNetWeight.toFixed(1)} g total</td></tr>`}
     </table>
     <ol start="4">
       <li>Any surplus from the auction sale after adjusting the principal, interest, penal charges and auction
@@ -89,7 +89,7 @@ export function printAuctionLetter(loan: LoanView, toast: (m: string) => void) {
  * just read `l.status`. */
 function AuctionCard({ l, onLoanChanged }: { l: LoanView; onLoanChanged: () => void }) {
   const { openModal } = useModal();
-  const { role, can } = useAuth();
+  const { can } = useAuth();
   const toast = useToast();
   // Auctions are a facet of a loan, so every step here (eligible → notice →
   // schedule → sale → settle) needs "can update loan"; without it the card
@@ -141,9 +141,9 @@ function AuctionCard({ l, onLoanChanged }: { l: LoanView; onLoanChanged: () => v
   const stageIndex = rec ? (AUCTION_STAGES as readonly string[]).indexOf(rec.stage) : -1;
 
   const decision = pendingDecision(rec);
-  const canDecide = !!role && canAct && (decision?.kind === "Shortfall"
-    ? SHORTFALL_DECISION_ROLES.includes(role)
-    : PARTIAL_DECISION_ROLES.includes(role));
+  const canDecide = canAct && (decision?.kind === "Shortfall"
+    ? can("Auction_Workflow", "can_decide_auction_shortfall")
+    : can("Auction_Workflow", "can_decide_auction_partial_repayment"));
   // While an escalation is open the pipeline is frozen server-side; hiding the
   // advance buttons keeps the UI honest instead of offering actions that 409.
   const frozen = !!decision;
@@ -241,20 +241,21 @@ function AuctionCard({ l, onLoanChanged }: { l: LoanView; onLoanChanged: () => v
           </button>
         )}
 
-        {!frozen && canAct && (rec === undefined ? null : !rec ? (
+        {!frozen && canAct && can("Auction_Workflow", "can_mark_loan_auction_eligible") && (rec === undefined ? null : !rec ? (
           <button className="btn sm" disabled={starting} onClick={doMarkEligible}><Icon name="gavel" /> {starting ? "Starting…" : "Mark Auction Eligible"}</button>
-        ) : rec.stage === "AuctionEligible" || rec.stage === "NoticeIssued" ? (
-          <button className="btn sm" onClick={() => openModal(<IssueNoticeModalContent loan={l} onSaved={onSaved} onError={load} />)}><Icon name="doc" /> Issue Notice</button>
         ) : null)}
-        {!frozen && canAct && rec && rec.stage === "NoticeIssued" && (
+        {!frozen && canAct && can("Auction_Workflow", "can_issue_auction_notice") && rec && (rec.stage === "AuctionEligible" || rec.stage === "NoticeIssued") && (
+          <button className="btn sm" onClick={() => openModal(<IssueNoticeModalContent loan={l} onSaved={onSaved} onError={load} />)}><Icon name="doc" /> Issue Notice</button>
+        )}
+        {!frozen && canAct && can("Auction_Workflow", "can_schedule_auction") && rec && rec.stage === "NoticeIssued" && (
           <button className="btn sm" onClick={() => openModal(<ScheduleAuctionModalContent loan={l} onSaved={onSaved} onError={load} />)}><Icon name="clock" /> Schedule Auction</button>
         )}
-        {!frozen && canAct && rec && rec.stage === "AuctionScheduled" && (
+        {!frozen && canAct && can("Auction_Workflow", "can_record_auction_sale") && rec && rec.stage === "AuctionScheduled" && (
           <button className="btn sm" onClick={() => openModal(<RecordSaleModalContent loan={l} onSaved={onSaved} onError={load} />)}><Icon name="gavel" /> Record Sale</button>
         )}
         {/* Settle is the surplus-disposition step, so it only applies when the
           * sale actually left a surplus and the loan is not balance-due. */}
-        {!frozen && canAct && rec && rec.stage === "Auctioned" && !balanceDue && hasUndisposedSurplus(rec) && (
+        {!frozen && canAct && can("Auction_Workflow", "can_settle_auction") && rec && rec.stage === "Auctioned" && !balanceDue && hasUndisposedSurplus(rec) && (
           <button className="btn sm" onClick={() => openModal(<SettleAuctionModalContent loan={l} rec={rec} onSaved={onSaved} onError={load} />)}><Icon name="check" /> Settle Surplus</button>
         )}
         {rec && (rec.stage === "Auctioned" || rec.stage === "Settled") && (
@@ -278,20 +279,22 @@ export function Auctions() {
    * Auction") are now independently paginated, real server queries — each
    * filtered by hasSale so a sub-table's own page/offset never counts
    * against the other's rows (see loansApi.listConcludedAuctionsPage). */
+  const pageSize = useResponsivePageSize(10, 7);
   const [conducted, setConducted] = useState<ConcludedAuctionRowView[]>([]);
   const [conductedPage, setConductedPage] = useState(1);
   const [conductedHasMore, setConductedHasMore] = useState(false);
+  const [conductedTotal, setConductedTotal] = useState(0);
   const [conductedLoading, setConductedLoading] = useState(false);
   const [conductedError, setConductedError] = useState("");
+  const conductedTotalPages = Math.max(1, Math.ceil(conductedTotal / pageSize));
 
   const [closedWithoutSale, setClosedWithoutSale] = useState<ConcludedAuctionRowView[]>([]);
   const [closedPage, setClosedPage] = useState(1);
   const [closedHasMore, setClosedHasMore] = useState(false);
+  const [closedTotal, setClosedTotal] = useState(0);
   const [closedLoading, setClosedLoading] = useState(false);
   const [closedError, setClosedError] = useState("");
-
-  const conductedTotalPages = conductedHasMore ? conductedPage + 1 : conductedPage;
-  const closedTotalPages = closedHasMore ? closedPage + 1 : closedPage;
+  const closedTotalPages = Math.max(1, Math.ceil(closedTotal / pageSize));
 
   // Active Cases — isDefaulted is a computed read-time flag, not a
   // persisted column (see loan/accrual.go), so this can't be a server-side
@@ -300,7 +303,6 @@ export function Auctions() {
   // approach Loans.tsx uses for its own computed-flag tabs (Due Soon/
   // Overdue/Defaulted).
   const [activePage, setActivePage] = useState(1);
-  const ACTIVE_PAGE_SIZE = 10;
 
   /* "Auctioned - Balance Due" is included so a loan whose sale fell short stays
    * visible here while its shortfall decision is outstanding — otherwise the
@@ -311,8 +313,8 @@ export function Auctions() {
     l.status === "Auctioned" ||
     l.status === "Auctioned - Balance Due"
   );
-  const activeTotalPages = Math.max(1, Math.ceil(allCases.length / ACTIVE_PAGE_SIZE));
-  const cases = allCases.slice((activePage - 1) * ACTIVE_PAGE_SIZE, activePage * ACTIVE_PAGE_SIZE);
+  const activeTotalPages = Math.max(1, Math.ceil(allCases.length / pageSize));
+  const cases = allCases.slice((activePage - 1) * pageSize, activePage * pageSize);
 
   /* Loaded on demand — a concluded-case sweep across every loan is not worth
    * paying for until someone opens the tab. Fetched from the click handler
@@ -329,29 +331,31 @@ export function Auctions() {
     setConductedLoading(true);
     setConductedError("");
     try {
-      const { items, hasMore } = await listConcludedAuctionsPage(page, true);
+      const { items, hasMore, total } = await listConcludedAuctionsPage(page, true, pageSize);
       setConducted(items);
       setConductedHasMore(hasMore);
+      setConductedTotal(total);
     } catch (e) {
       setConductedError(e instanceof ApiError ? e.message : "Could not load auction history.");
     } finally {
       setConductedLoading(false);
     }
-  }, []);
+  }, [pageSize]);
 
   const loadClosed = useCallback(async (page: number) => {
     setClosedLoading(true);
     setClosedError("");
     try {
-      const { items, hasMore } = await listConcludedAuctionsPage(page, false);
+      const { items, hasMore, total } = await listConcludedAuctionsPage(page, false, pageSize);
       setClosedWithoutSale(items);
       setClosedHasMore(hasMore);
+      setClosedTotal(total);
     } catch (e) {
       setClosedError(e instanceof ApiError ? e.message : "Could not load auction history.");
     } finally {
       setClosedLoading(false);
     }
-  }, []);
+  }, [pageSize]);
 
   function showHistory() {
     setTab("history");
@@ -445,7 +449,7 @@ export function Auctions() {
             <div className="ft" style={{ display: "flex", alignItems: "center", gap: 10 }}>
               <button className="btn plain sm" disabled={conductedPage <= 1} onClick={() => changeConductedPage(Math.max(1, conductedPage - 1))}>‹ Prev</button>
               <span style={{ fontSize: 12.5 }}>Page {conductedPage} of {conductedTotalPages}</span>
-              <button className="btn plain sm" disabled={!conductedHasMore} onClick={() => changeConductedPage(conductedPage + 1)}>Next ›</button>
+              <button className="btn plain sm" disabled={conductedPage >= conductedTotalPages} onClick={() => changeConductedPage(Math.min(conductedTotalPages, conductedPage + 1))}>Next ›</button>
               <div className="sp" />
               <span>Gold that was actually sold at auction, with what it realised and how the surplus or shortfall was resolved.</span>
             </div>
@@ -486,12 +490,7 @@ export function Auctions() {
             <div className="ft" style={{ display: "flex", alignItems: "center", gap: 10 }}>
               <button className="btn plain sm" disabled={closedPage <= 1} onClick={() => changeClosedPage(Math.max(1, closedPage - 1))}>‹ Prev</button>
               <span style={{ fontSize: 12.5 }}>Page {closedPage} of {closedTotalPages}</span>
-              <button className="btn plain sm" disabled={!closedHasMore} onClick={() => changeClosedPage(closedPage + 1)}>Next ›</button>
-              <div className="sp" />
-              <span>
-                Cases the customer resolved before the gold was sold, or that management withdrew. A loan whose case was withdrawn
-                can enter a fresh auction if it defaults again.
-              </span>
+              <button className="btn plain sm" disabled={closedPage >= closedTotalPages} onClick={() => changeClosedPage(Math.min(closedTotalPages, closedPage + 1))}>Next ›</button>
             </div>
           </div>
         </>

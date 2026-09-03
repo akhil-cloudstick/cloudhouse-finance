@@ -1,100 +1,209 @@
 /* Ported verbatim from legacy/app.css — Ambika Gold Finance Admin UI.
    Do not rename classes or alter existing values/breakpoints; only the
    additive small-phone/orientation block at the bottom is new. */
-:root{
-  --gold-deep:#9a6f0f;
-  --gold:#c9971c;
-  --gold-mid:#d4af37;
-  --gold-light:#eccd6f;
-  --gold-pale:#f7e9c4;
-  --charcoal:#231f18;
-  --charcoal-2:#2e2921;
-  --ink:#3a3325;
-  --muted:#8a7d5a;
-  --ivory:#faf6ec;
-  --card:#fffdf7;
-  --line:#e8dcba;
-  --green:#4d7c2a;
-  --green-bg:#eef4e2;
-  --red:#a3372a;
-  --red-bg:#fbeae6;
-  --amber:#a06d08;
-  --amber-bg:#faf0d4;
-  --blue:#3b5f7a;
-  --blue-bg:#e8f0f6;
-  --sidebar-w:248px;
+:root {
+  --gold-deep: #9a6f0f;
+  --gold: #c9971c;
+  --gold-mid: #d4af37;
+  --gold-light: #eccd6f;
+  --gold-pale: #f7e9c4;
+  --charcoal: #231f18;
+  --charcoal-2: #2e2921;
+  --ink: #3a3325;
+  --muted: #8a7d5a;
+  --ivory: #faf6ec;
+  --card: #fffdf7;
+  --line: #e8dcba;
+  --green: #4d7c2a;
+  --green-bg: #eef4e2;
+  --red: #a3372a;
+  --red-bg: #fbeae6;
+  --amber: #a06d08;
+  --amber-bg: #faf0d4;
+  --blue: #3b5f7a;
+  --blue-bg: #e8f0f6;
+  --sidebar-w: 248px;
 }
+
 /* No scrollbar-gutter here: .shell is height:100vh/overflow:hidden, so the
  * document itself never scrolls and a reserved gutter would just be a dead
  * strip of empty space down the right-hand edge. */
-html{scroll-behavior:smooth}
-body{
-  font-family:'Jost',sans-serif;color:var(--ink);background:var(--ivory);
-  min-height:100vh;
+html {
+  scroll-behavior: smooth
 }
-body::before{
-  content:"";position:fixed;inset:0;z-index:0;
-  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120' viewBox='0 0 120 120'%3E%3Cg fill='none' stroke='%23c9971c' stroke-width='0.6' opacity='0.06'%3E%3Cpath d='M60 8 L112 60 L60 112 L8 60 Z'/%3E%3Ccircle cx='60' cy='60' r='14'/%3E%3C/g%3E%3C/svg%3E");
-  pointer-events:none;
+
+body {
+  font-family: 'Jost', sans-serif;
+  color: var(--ink);
+  background: var(--ivory);
+  min-height: 100vh;
 }
-a{color:var(--gold-deep)}
-h1,h2,h3,.serif{font-family:'Bodoni Moda',serif;font-optical-sizing:auto}
+
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120' viewBox='0 0 120 120'%3E%3Cg fill='none' stroke='%23c9971c' stroke-width='0.6' opacity='0.06'%3E%3Cpath d='M60 8 L112 60 L60 112 L8 60 Z'/%3E%3Ccircle cx='60' cy='60' r='14'/%3E%3C/g%3E%3C/svg%3E");
+  pointer-events: none;
+}
+
+a {
+  color: var(--gold-deep)
+}
+
+h1,
+h2,
+h3,
+.serif {
+  font-family: 'Bodoni Moda', serif;
+  font-optical-sizing: auto
+}
 
 /* ── layout ─────────────────────────────── */
 /* Clamped to exactly the viewport with overflow hidden so the document
  * itself can never scroll — no browser-window scrollbar in either
  * direction. All scrolling that IS needed happens inside .page (below). */
-.shell{display:flex;height:100vh;overflow:hidden;position:relative;z-index:1}
-.side{
-  width:var(--sidebar-w);flex-shrink:0;
-  background:linear-gradient(180deg,#262118 0%,#1d1913 100%);
-  color:#cfc4a4;display:flex;flex-direction:column;
-  position:fixed;top:0;bottom:0;left:0;z-index:40;
-  border-right:1px solid rgba(201,151,28,.28);
+.shell {
+  display: flex;
+  height: 100vh;
+  overflow: hidden;
+  position: relative;
+  z-index: 1
 }
-.side .brand{
-  display:flex;align-items:center;gap:12px;padding:18px 18px 16px;
-  border-bottom:1px solid rgba(201,151,28,.22);
+
+.side {
+  width: var(--sidebar-w);
+  flex-shrink: 0;
+  background: linear-gradient(180deg, #262118 0%, #1d1913 100%);
+  color: #cfc4a4;
+  display: flex;
+  flex-direction: column;
+  position: fixed;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  z-index: 40;
+  border-right: 1px solid rgba(201, 151, 28, .28);
 }
-.side .brand img{
-  width:46px;height:46px;border-radius:50%;object-fit:cover;
-  box-shadow:0 0 0 2px rgba(201,151,28,.55);
+
+.side .brand {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 18px 18px 16px;
+  border-bottom: 1px solid rgba(201, 151, 28, .22);
 }
-.side .brand .t{line-height:1.15}
-.side .brand .t b{
-  font-family:'Bodoni Moda',serif;font-size:19px;letter-spacing:.08em;
-  display:block;color:#f0dc9d;font-weight:600;
+
+.side .brand img {
+  width: 46px;
+  height: 46px;
+  border-radius: 50%;
+  object-fit: cover;
+  box-shadow: 0 0 0 2px rgba(201, 151, 28, .55);
 }
-.side .brand .t span{font-size:9.5px;letter-spacing:.32em;text-transform:uppercase;color:#9d9070}
-.nav{flex:1;overflow-y:auto;padding:12px 0 16px}
-.nav::-webkit-scrollbar{width:5px}
-.nav::-webkit-scrollbar-thumb{background:rgba(201,151,28,.3);border-radius:3px}
-.nav .grp{
-  font-size:9.5px;letter-spacing:.3em;text-transform:uppercase;color:#7d7156;
-  padding:16px 20px 7px;
+
+.side .brand .t {
+  line-height: 1.15
 }
-.nav a{
-  display:flex;align-items:center;gap:11px;
-  padding:9px 18px;margin:1px 10px;border-radius:6px;
-  color:#cfc4a4;text-decoration:none;font-size:14px;letter-spacing:.02em;
-  border:1px solid transparent;transition:background .15s,color .15s;
+
+.side .brand .t b {
+  font-family: 'Bodoni Moda', serif;
+  font-size: 19px;
+  letter-spacing: .08em;
+  display: block;
+  color: #f0dc9d;
+  font-weight: 600;
 }
-.nav a svg{width:17px;height:17px;flex-shrink:0;opacity:.8}
-.nav a:hover{background:rgba(201,151,28,.1);color:#f0dc9d}
-.nav a.on{
-  background:linear-gradient(90deg,rgba(201,151,28,.22),rgba(201,151,28,.08));
-  border-color:rgba(201,151,28,.35);color:#f5e3a4;
+
+.side .brand .t span {
+  font-size: 9.5px;
+  letter-spacing: .32em;
+  text-transform: uppercase;
+  color: #9d9070
 }
-.nav a.on svg{opacity:1}
-.nav a .pill{
-  margin-left:auto;font-size:10.5px;background:rgba(201,151,28,.25);color:#f0dc9d;
-  border-radius:9px;padding:1px 7px;
+
+.nav {
+  flex: 1;
+  overflow-y: auto;
+  padding: 12px 0 16px
 }
-.side .sfoot{
-  padding:14px 18px;border-top:1px solid rgba(201,151,28,.22);
-  font-size:11px;color:#8d8163;letter-spacing:.06em;
+
+.nav::-webkit-scrollbar {
+  width: 5px
 }
-.side .sfoot a{color:#cbb670;text-decoration:none}
+
+.nav::-webkit-scrollbar-thumb {
+  background: rgba(201, 151, 28, .3);
+  border-radius: 3px
+}
+
+.nav .grp {
+  font-size: 9.5px;
+  letter-spacing: .3em;
+  text-transform: uppercase;
+  color: #7d7156;
+  padding: 16px 20px 7px;
+}
+
+.nav a {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  padding: 9px 18px;
+  margin: 1px 10px;
+  border-radius: 6px;
+  color: #cfc4a4;
+  text-decoration: none;
+  font-size: 14px;
+  letter-spacing: .02em;
+  border: 1px solid transparent;
+  transition: background .15s, color .15s;
+}
+
+.nav a svg {
+  width: 17px;
+  height: 17px;
+  flex-shrink: 0;
+  opacity: .8
+}
+
+.nav a:hover {
+  background: rgba(201, 151, 28, .1);
+  color: #f0dc9d
+}
+
+.nav a.on {
+  background: linear-gradient(90deg, rgba(201, 151, 28, .22), rgba(201, 151, 28, .08));
+  border-color: rgba(201, 151, 28, .35);
+  color: #f5e3a4;
+}
+
+.nav a.on svg {
+  opacity: 1
+}
+
+.nav a .pill {
+  margin-left: auto;
+  font-size: 10.5px;
+  background: rgba(201, 151, 28, .25);
+  color: #f0dc9d;
+  border-radius: 9px;
+  padding: 1px 7px;
+}
+
+.side .sfoot {
+  padding: 14px 18px;
+  border-top: 1px solid rgba(201, 151, 28, .22);
+  font-size: 11px;
+  color: #8d8163;
+  letter-spacing: .06em;
+}
+
+.side .sfoot a {
+  color: #cbb670;
+  text-decoration: none
+}
 
 /* .main is a fixed-height (exactly viewport-tall) flex column: .top sits at
  * its natural height (flex-shrink:0) and .page takes whatever's left
@@ -106,102 +215,415 @@ h1,h2,h3,.serif{font-family:'Bodoni Moda',serif;font-optical-sizing:auto}
  * Rates' extra rate cards, Cash's KPI row — didn't fit the one guessed
  * number, so the document overflowed anyway). Sidebar/topbar now never move
  * regardless of how tall a given page's content is. */
-.main{
-  width:calc(100% - var(--sidebar-w));margin-left:var(--sidebar-w);min-width:0;
-  display:flex;flex-direction:column;height:100%;
+.main {
+  width: calc(100% - var(--sidebar-w));
+  margin-left: var(--sidebar-w);
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
 }
 
 /* topbar */
-.top{
-  flex-shrink:0;
-  display:flex;align-items:center;gap:16px;
-  padding:13px 26px;background:rgba(250,246,236,.92);backdrop-filter:blur(6px);
-  border-bottom:1px solid var(--line);
+.top {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 13px 26px;
+  background: rgba(250, 246, 236, .92);
+  backdrop-filter: blur(6px);
+  border-bottom: 1px solid var(--line);
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
+  overflow: hidden;
 }
-.top .crumb{font-size:13px;color:var(--muted);letter-spacing:.04em}
-.top .crumb b{color:var(--ink);font-weight:500}
 
-/* global search (header, centered) */
-.gsearch{
-  position:relative;flex:1;max-width:440px;margin:0 auto;min-width:170px;
+.top .crumb {
+  font-size: 13px;
+  color: var(--muted);
+  letter-spacing: .04em;
+  /* Never shrink all the way to 0 — the bold page name inside is what
+   * actually orients the reader, and flex-shrink:1 with no floor let the
+   * search bar's flex:1 claim every last pixel from this on a narrower
+   * window, vanishing the crumb (and the page name with it) entirely. */
+  min-width: 60px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  flex-shrink: 1;
 }
-.gsearch>svg{
-  position:absolute;left:12px;top:50%;transform:translateY(-50%);
-  width:15px;height:15px;color:var(--muted);pointer-events:none;
+
+.top .crumb b {
+  color: var(--ink);
+  font-weight: 500
 }
-.gsearch input{
-  width:100%;font:inherit;font-size:13.5px;color:var(--charcoal);
-  background:#fff;border:1px solid var(--line);border-radius:20px;
-  padding:8px 38px 8px 34px;outline:0;
-  transition:border-color .2s, box-shadow .2s;
+
+/* global search (header, starts 200px to the right) */
+.gsearch {
+  position: relative;
+  flex: 1;
+  max-width: 440px;
+  margin-left: 200px;
+  margin-right: auto;
+  min-width: 170px;
 }
-.gsearch input:focus{border-color:var(--gold);box-shadow:0 0 0 3px rgba(201,151,28,.15)}
-.gsearch kbd{
-  position:absolute;right:11px;top:50%;transform:translateY(-50%);
-  font-family:inherit;font-size:10.5px;color:var(--muted);
-  border:1px solid var(--line);border-radius:4px;padding:1px 6px;background:#fbf6e9;
-  pointer-events:none;
+
+.gsearch-bar {
+  position: relative;
+  width: 100%;
+  display: flex;
+  align-items: center;
 }
-.gs-results{
+
+.gsearch-bar>svg,
+.gsearch>svg {
+  position: absolute;
+  left: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 15px;
+  height: 15px;
+  color: var(--muted);
+  pointer-events: none;
+}
+
+.gsearch input {
+  width: 100%;
+  font: inherit;
+  font-size: 13.5px;
+  color: var(--charcoal);
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 20px;
+  padding: 8px 38px 8px 34px;
+  outline: 0;
+  transition: border-color .2s, box-shadow .2s;
+}
+
+.gsearch input:focus {
+  border-color: var(--gold);
+  box-shadow: 0 0 0 3px rgba(201, 151, 28, .15)
+}
+
+.gsearch kbd {
+  position: absolute;
+  right: 11px;
+  top: 50%;
+  transform: translateY(-50%);
+  font-family: inherit;
+  font-size: 10.5px;
+  color: var(--muted);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  padding: 1px 6px;
+  background: #fbf6e9;
+  pointer-events: none;
+}
+
+.gsearch-trigger {
+  display: none;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  border: 1px solid var(--line);
+  background: #fff;
+  color: var(--muted);
+  cursor: pointer;
+  transition: border-color .2s, color .2s, background .2s;
+}
+
+.gsearch-trigger:hover {
+  border-color: var(--gold);
+  color: var(--gold-deep);
+  background: #fdf9ed;
+}
+
+.gsearch-trigger svg {
+  width: 16px;
+  height: 16px;
+}
+
+.gsearch-close {
+  display: none;
+  border: 0;
+  background: none;
+  font-size: 20px;
+  line-height: 1;
+  color: var(--muted);
+  cursor: pointer;
+  padding: 0 8px;
+}
+
+.gsearch-close:hover {
+  color: var(--red);
+}
+
+.rate-compact {
+  display: none;
+}
+
+.gs-results {
   /* left:0;right:0 sizes this to the positioned parent's width — without
    * border-box, this rule's own padding+border were then added ON TOP of
    * that width (content-box default), rendering the panel a few px wider
    * than its input on each side and poking past a modal's own padding
    * (reported as the dropdown "cutting into" the modal edge). */
-  display:none;position:absolute;top:calc(100% + 8px);left:0;right:0;box-sizing:border-box;
-  background:var(--card);border:1px solid var(--line);border-radius:10px;
-  box-shadow:0 24px 60px -18px rgba(60,45,10,.4);
-  max-height:420px;overflow-y:auto;z-index:60;padding:6px;
+  display: none;
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 0;
+  right: 0;
+  box-sizing: border-box;
+  background: var(--ivory);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  box-shadow: 0 24px 60px -18px rgba(60, 45, 10, .4);
+  max-height: 420px;
+  overflow-y: auto;
+  z-index: 60;
+  padding: 6px;
 }
-.gs-results.open{display:block}
-.gs-results .gs-grp{
-  font-size:9.5px;letter-spacing:.24em;text-transform:uppercase;color:var(--muted);
-  padding:9px 12px 4px;
+
+.gs-results.open {
+  display: block
 }
-.gs-results a{
-  display:flex;align-items:center;gap:11px;
-  padding:8px 11px;border-radius:7px;text-decoration:none;color:var(--ink);
+
+.gs-results .gs-grp {
+  font-size: 9.5px;
+  letter-spacing: .24em;
+  text-transform: uppercase;
+  color: var(--muted);
+  padding: 9px 12px 4px;
 }
-.gs-results a:hover,.gs-results a.sel{background:#f8efd6}
-.gs-results a.disabled{color:var(--muted);opacity:.5;cursor:not-allowed}
-.gs-results a.disabled:hover{background:transparent}
-.gs-results a .ic{
-  width:30px;height:30px;border-radius:7px;flex-shrink:0;
-  background:#f8eecb;color:var(--gold-deep);display:grid;place-content:center;
+
+.gs-results a {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  padding: 8px 11px;
+  border-radius: 7px;
+  text-decoration: none;
+  color: var(--ink);
 }
-.gs-results a .ic svg{width:15px;height:15px}
-.gs-results a .tx{flex:1;min-width:0}
-.gs-results a .tx b{font-size:13.5px;color:var(--charcoal);font-weight:500;display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.gs-results a .tx small{font-size:11.5px;color:var(--muted);display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.gs-results a .chip{margin-left:auto}
-.gs-results .gs-none{padding:18px;text-align:center;color:var(--muted);font-size:13px}
+
+.gs-results a:hover,
+.gs-results a.sel {
+  background: #f8efd6
+}
+
+.gs-results a.disabled {
+  color: var(--muted);
+  opacity: .5;
+  cursor: not-allowed
+}
+
+.gs-results a.disabled:hover {
+  background: transparent
+}
+
+.gs-results a .ic {
+  width: 30px;
+  height: 30px;
+  border-radius: 7px;
+  flex-shrink: 0;
+  background: #f8eecb;
+  color: var(--gold-deep);
+  display: grid;
+  place-content: center;
+}
+
+.gs-results a .ic svg {
+  width: 15px;
+  height: 15px
+}
+
+.gs-results a .tx {
+  flex: 1;
+  min-width: 0
+}
+
+.gs-results a .tx b {
+  font-size: 13.5px;
+  color: var(--charcoal);
+  font-weight: 500;
+  display: block;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis
+}
+
+.gs-results a .tx small {
+  font-size: 11.5px;
+  color: var(--muted);
+  display: block;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis
+}
+
+.gs-results a .chip {
+  margin-left: auto
+}
+
+.gs-results .gs-none {
+  padding: 18px;
+  text-align: center;
+  color: var(--muted);
+  font-size: 13px
+}
+
 /* Thin, theme-tinted scrollbar instead of the browser's default fat gray
  * bar — used by every popover list built on this panel (SearchableSelect,
  * Select, GlobalSearch, DatePicker). */
-.gs-results{scrollbar-width:thin;scrollbar-color:var(--gold-light) transparent}
-.gs-results::-webkit-scrollbar{width:6px}
-.gs-results::-webkit-scrollbar-track{background:transparent}
-.gs-results::-webkit-scrollbar-thumb{background:var(--gold-light);border-radius:6px}
-.gs-results::-webkit-scrollbar-thumb:hover{background:var(--gold)}
+.gs-results {
+  scrollbar-width: thin;
+  scrollbar-color: var(--gold-light) transparent
+}
+
+.gs-results::-webkit-scrollbar {
+  width: 6px
+}
+
+.gs-results::-webkit-scrollbar-track {
+  background: transparent
+}
+
+.gs-results::-webkit-scrollbar-thumb {
+  background: var(--gold-light);
+  border-radius: 6px
+}
+
+.gs-results::-webkit-scrollbar-thumb:hover {
+  background: var(--gold)
+}
+
 /* SearchableSelect's fixed-height (~5 rows), scroll-for-more popover — the
  * scrolling itself still works (wheel/trackpad/touch/keyboard), only its
  * own visible bar is suppressed, so revealing the next rows doesn't need a
  * bar drawn over content as narrow as PurityPicker's search half. */
-.gs-results.no-scrollbar{scrollbar-width:none}
-.gs-results.no-scrollbar::-webkit-scrollbar{display:none}
+.gs-results.no-scrollbar {
+  scrollbar-width: none
+}
+
+.gs-results.no-scrollbar::-webkit-scrollbar {
+  display: none
+}
+
+/* ── "Documents" dropdown (modules/loans/components/LoanDetail.tsx) ─────
+ * Collapses Print Label/Slip/Statement/Bond + the eSign action — 5
+ * separate header buttons that outgrew the space next to the loan title —
+ * into one themed popover, same visual language as .gs-results. */
+.docs-dd {
+  position: relative
+}
+
+.docs-dd-chev {
+  width: 12px;
+  height: 12px;
+  margin-left: 2px
+}
+
+.docs-dd-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  width: 169px;
+  box-sizing: border-box;
+  background: var(--ivory);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  box-shadow: 0 24px 60px -18px rgba(60, 45, 10, .4);
+  z-index: 60;
+  padding: 6px;
+}
+
+.docs-dd-menu a {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 8px 10px;
+  border-radius: 7px;
+  text-decoration: none;
+  color: var(--ink);
+  font-size: 13px;
+}
+
+.docs-dd-menu a:hover {
+  background: #f8efd6
+}
+
+.docs-dd-menu a.disabled {
+  color: var(--muted);
+  opacity: .5;
+  cursor: not-allowed;
+  pointer-events: none
+}
+
+.docs-dd-menu a svg {
+  width: 15px;
+  height: 15px;
+  flex-shrink: 0
+}
+
+/* A label that overflows the 169px-wide menu (e.g. "Send Indemnity Bond
+ * for eSign") fades out at its own right edge — via a mask, not
+ * text-overflow:ellipsis's "…" — rather than wrapping to a second line or
+ * silently clipping mid-letter. */
+.docs-dd-menu a .tx {
+  flex: 1;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  -webkit-mask-image: linear-gradient(to right, #000 85%, transparent 100%);
+  mask-image: linear-gradient(to right, #000 85%, transparent 100%);
+}
 
 /* ── themed file input (components/ui/FileInput.tsx) ───────────────────── */
 /* Fixed 230px rather than width:100% / shrink-to-fit: the trigger is a
  * <label>, so it used to size to its own text and every file field ended up
  * a different width depending on how long its placeholder was. */
-.fi{position:relative;width:230px;max-width:100%;box-sizing:border-box}
+.fi {
+  position: relative;
+  width: 230px;
+  max-width: 100%;
+  box-sizing: border-box
+}
+
 /* The real input sits on top, fully transparent, so the label below still
  * gets native click/keyboard/drag-drop behavior — only the OS chrome is
  * hidden, not the control itself. */
-.fi-native{position:absolute;inset:0;opacity:0;cursor:pointer;z-index:1}
-.fi-native:disabled{cursor:not-allowed}
-.fi-trigger{display:flex;align-items:center;justify-content:space-between;gap:8px;cursor:pointer;width:100%;box-sizing:border-box;overflow:hidden}
-.fi-trigger.fi-disabled{cursor:not-allowed;opacity:.6}
+.fi-native {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  cursor: pointer;
+  z-index: 1
+}
+
+.fi-native:disabled {
+  cursor: not-allowed
+}
+
+.fi-trigger {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  cursor: pointer;
+  width: 100%;
+  box-sizing: border-box;
+  overflow: hidden
+}
+
+.fi-trigger.fi-disabled {
+  cursor: not-allowed;
+  opacity: .6
+}
+
 /* flex:1 + min-width:0 is required for a flex child to actually shrink
  * below its content width — without min-width:0 (a flex item's default is
  * min-width:auto), the overflow rule below never engages and a long
@@ -213,152 +635,630 @@ h1,h2,h3,.serif{font-family:'Bodoni Moda',serif;font-optical-sizing:auto}
  * The mask fades the last 34px of the text out to transparent instead of
  * cutting it off mid-letter, so an over-long placeholder/filename dissolves
  * as it runs under the trailing icon rather than colliding with it. */
-.fi-name{
-  flex:1;min-width:0;overflow:hidden;white-space:nowrap;
-  -webkit-mask-image:linear-gradient(90deg,#000 calc(100% - 34px),transparent);
-  mask-image:linear-gradient(90deg,#000 calc(100% - 34px),transparent);
+.fi-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  -webkit-mask-image: linear-gradient(90deg, #000 calc(100% - 34px), transparent);
+  mask-image: linear-gradient(90deg, #000 calc(100% - 34px), transparent);
 }
-.fi-ic{width:15px;height:15px;color:var(--gold-deep);flex-shrink:0}
-.fi-clear{
-  position:absolute;top:50%;right:34px;transform:translateY(-50%);z-index:2;
-  width:18px;height:18px;line-height:16px;text-align:center;border-radius:50%;
-  border:1px solid var(--line);background:var(--card);color:var(--muted);
-  font-size:14px;cursor:pointer;padding:0;
+
+.fi-ic {
+  width: 15px;
+  height: 15px;
+  color: var(--gold-deep);
+  flex-shrink: 0
 }
-.fi-clear:hover{color:var(--red);border-color:var(--red)}
+
+.fi-clear {
+  position: absolute;
+  top: 50%;
+  right: 34px;
+  transform: translateY(-50%);
+  z-index: 2;
+  width: 18px;
+  height: 18px;
+  line-height: 16px;
+  text-align: center;
+  border-radius: 50%;
+  border: 1px solid var(--line);
+  background: var(--card);
+  color: var(--muted);
+  font-size: 14px;
+  cursor: pointer;
+  padding: 0;
+}
+
+.fi-clear:hover {
+  color: var(--red);
+  border-color: var(--red)
+}
 
 /* ── themed date picker (components/DatePicker.tsx) ───────────────────── */
-.dp{position:relative}
+.dp {
+  position: relative
+}
+
 /* DatePicker (not Select, which shares the same .dp/.dp-trigger/.dp-panel
  * classes) — every date field app-wide is a fixed 230px regardless of its
  * grid cell's own width, per the house convention. */
-.dp.dp-date{width:230px;flex:0 0 230px}
-.dp-trigger{display:flex;align-items:center;justify-content:space-between;gap:8px;text-align:left;cursor:pointer}
+.dp.dp-date {
+  width: 230px;
+  flex: 0 0 230px
+}
+
+/* ReportView.tsx's From/To fields are the one deliberate exception to the
+ * 230px house convention above — the report filter bar's own From/To
+ * wrapper <div>s ask for 150px (matching every other field on that row),
+ * but this fixed-width/flex-basis rule ignored that entirely, since a
+ * `.dp-date` never actually reads its container's width. Scoped to
+ * `.report-filter-row` so every other DatePicker app-wide keeps its normal
+ * 230px size. */
+.report-filter-row .dp.dp-date {
+  width: 150px;
+  flex: 0 0 150px
+}
+
+.dp-trigger {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  text-align: left;
+  cursor: pointer
+}
+
 /* DatePicker's calendar icon (24x24 viewBox via lib/icons) — sized down to
  * sit inline with the input text. */
-.dp-trigger .cal-ic{width:15px;height:15px;color:var(--gold-deep);flex-shrink:0}
+.dp-trigger .cal-ic {
+  width: 15px;
+  height: 15px;
+  color: var(--gold-deep);
+  flex-shrink: 0
+}
+
 /* Select's own chevron (10x6 viewBox) needs its own, much smaller size —
  * sharing `.dp-trigger svg` with the calendar icon above was stretching it
  * up to 15x15 and made it look oversized/blurry. */
-.dp-trigger .sel-chevron{width:9px;height:9px;color:var(--gold-deep);flex-shrink:0}
-.dp-trigger:disabled{cursor:not-allowed;opacity:.6}
-.dp-panel{
+.dp-trigger .sel-chevron {
+  width: 9px;
+  height: 9px;
+  color: var(--gold-deep);
+  flex-shrink: 0
+}
+
+.dp-trigger:disabled {
+  cursor: not-allowed;
+  opacity: .6
+}
+
+.dp-panel {
   /* Matches `.dp-trigger`'s own width (the `.dp` wrapper is a plain block
    * div sized by its trigger button) instead of a fixed 264px, so a
    * Select's popover is never wider than the field it opens from.
    * min-width keeps the 7-column day grid from ever getting cramped on a
    * narrower field. */
-  position:absolute;top:calc(100% + 6px);left:0;z-index:60;width:100%;min-width:230px;box-sizing:border-box;
-  background:var(--card);border:1px solid var(--line);border-radius:10px;
-  box-shadow:0 24px 60px -18px rgba(60,45,10,.4);padding:12px;
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  z-index: 60;
+  width: 100%;
+  min-width: 230px;
+  box-sizing: border-box;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  box-shadow: 0 24px 60px -18px rgba(60, 45, 10, .4);
+  padding: 12px;
 }
+
 /* The days/years sub-views inside .dp-panel are both always mounted (see
  * DatePicker.tsx) and switched with this instead of conditional rendering,
  * so a mode-switch click never removes its own target node from the DOM. */
-.dp-hidden{display:none}
-.dp-hd{display:flex;align-items:center;justify-content:space-between;margin-bottom:8px}
-.dp-hd b{font-size:13px;color:var(--charcoal)}
-.dp-title{border:0;background:transparent;font-size:13px;font-weight:600;color:var(--charcoal);cursor:pointer;border-radius:6px;padding:2px 8px}
-.dp-title:hover{background:#fdf6e2;color:var(--gold-deep)}
-.dp-years{grid-template-columns:repeat(3,1fr);gap:6px}
-.dp-year{height:32px;border:1px solid transparent;background:transparent;border-radius:6px;font-size:12.5px;color:var(--ink);cursor:pointer}
-.dp-year:hover:not(:disabled){background:#f8efd6}
-.dp-year.today{border:1px solid var(--gold)}
-.dp-year.sel{background:var(--gold);color:#fff;font-weight:600}
-.dp-year:disabled{color:var(--muted);opacity:.4;cursor:not-allowed}
-.dp-nav{
-  width:26px;height:26px;border-radius:6px;border:1px solid var(--line);background:#fff;
-  color:var(--gold-deep);font-size:15px;line-height:1;cursor:pointer;display:grid;place-content:center;
+.dp-hidden {
+  display: none
 }
-.dp-nav:hover{background:#fdf6e2}
-.dp-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:2px;text-align:center}
-.dp-dow{margin-bottom:4px;font-size:10.5px;letter-spacing:.06em;color:var(--muted)}
-.dp-day{height:30px;border:0;background:transparent;border-radius:6px;font-size:12.5px;color:var(--ink);cursor:pointer}
-.dp-day:hover:not(:disabled){background:#f8efd6}
-.dp-day.today{border:1px solid var(--gold)}
-.dp-day.sel{background:var(--gold);color:#fff;font-weight:600}
-.dp-day:disabled{color:var(--muted);opacity:.4;cursor:not-allowed}
-.dp-ft{display:flex;justify-content:flex-end;margin-top:8px}
 
-.top .rate-chip{
-  margin-left:auto;display:flex;align-items:center;gap:9px;
-  background:linear-gradient(180deg,#fff9e8,#f7ecc9);
-  border:1px solid var(--line);border-radius:20px;padding:5px 14px 5px 9px;
-  font-size:12.5px;color:var(--ink);white-space:nowrap;
+.dp-hd {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px
 }
-.top .rate-chip .dot{width:7px;height:7px;border-radius:50%;background:var(--green);box-shadow:0 0 0 3px rgba(77,124,42,.18)}
-.top .rate-chip b{color:var(--gold-deep)}
-.top .user{
-  display:flex;align-items:center;gap:9px;font-size:13px;
+
+.dp-hd b {
+  font-size: 13px;
+  color: var(--charcoal)
 }
-.top .user .av{
-  width:32px;height:32px;border-radius:50%;
-  background:linear-gradient(135deg,var(--gold-light),var(--gold-deep));
-  color:#2b2001;display:grid;place-content:center;font-weight:600;font-size:13px;
-  box-shadow:0 0 0 2px #fff,0 0 0 3px rgba(201,151,28,.4);
+
+.dp-title {
+  border: 0;
+  background: transparent;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--charcoal);
+  cursor: pointer;
+  border-radius: 6px;
+  padding: 2px 8px
 }
-.top .user .nm{line-height:1.1}
-.top .user .nm small{display:block;color:var(--muted);font-size:10.5px;letter-spacing:.08em;text-transform:uppercase}
-.top .logout{color:var(--muted);text-decoration:none;font-size:12px;border:1px solid var(--line);padding:5px 12px;border-radius:6px;background:#fff}
-.top .logout:hover{color:var(--red);border-color:#e4c2ba}
+
+.dp-title:hover {
+  background: #fdf6e2;
+  color: var(--gold-deep)
+}
+
+.dp-years {
+  grid-template-columns: repeat(3, 1fr);
+  gap: 6px
+}
+
+.dp-year {
+  height: 32px;
+  border: 1px solid transparent;
+  background: transparent;
+  border-radius: 6px;
+  font-size: 12.5px;
+  color: var(--ink);
+  cursor: pointer
+}
+
+.dp-year:hover:not(:disabled) {
+  background: #f8efd6
+}
+
+.dp-year.today {
+  border: 1px solid var(--gold)
+}
+
+.dp-year.sel {
+  background: var(--gold);
+  color: #fff;
+  font-weight: 600
+}
+
+.dp-year:disabled {
+  color: var(--muted);
+  opacity: .4;
+  cursor: not-allowed
+}
+
+.dp-nav {
+  width: 26px;
+  height: 26px;
+  border-radius: 6px;
+  border: 1px solid var(--line);
+  background: #fff;
+  color: var(--gold-deep);
+  font-size: 15px;
+  line-height: 1;
+  cursor: pointer;
+  display: grid;
+  place-content: center;
+}
+
+.dp-nav:hover {
+  background: #fdf6e2
+}
+
+.dp-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 2px;
+  text-align: center
+}
+
+.dp-dow {
+  margin-bottom: 4px;
+  font-size: 10.5px;
+  letter-spacing: .06em;
+  color: var(--muted)
+}
+
+.dp-day {
+  height: 30px;
+  border: 0;
+  background: transparent;
+  border-radius: 6px;
+  font-size: 12.5px;
+  color: var(--ink);
+  cursor: pointer
+}
+
+.dp-day:hover:not(:disabled) {
+  background: #f8efd6
+}
+
+.dp-day.today {
+  border: 1px solid var(--gold)
+}
+
+.dp-day.sel {
+  background: var(--gold);
+  color: #fff;
+  font-weight: 600
+}
+
+.dp-day:disabled {
+  color: var(--muted);
+  opacity: .4;
+  cursor: not-allowed
+}
+
+.dp-ft {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 8px
+}
+
+.top .rate-chip {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  background: linear-gradient(180deg, #fff9e8, #f7ecc9);
+  border: 1px solid var(--line);
+  border-radius: 20px;
+  padding: 5px 14px 5px 9px;
+  font-size: 12.5px;
+  color: var(--ink);
+  white-space: nowrap;
+}
+
+.top .rate-chip .dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--green);
+  box-shadow: 0 0 0 3px rgba(77, 124, 42, .18)
+}
+
+.top .rate-chip b {
+  color: var(--gold-deep)
+}
+
+.top .user {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  font-size: 13px;
+}
+
+.top .user .av {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, var(--gold-light), var(--gold-deep));
+  color: #2b2001;
+  display: grid;
+  place-content: center;
+  font-weight: 600;
+  font-size: 13px;
+  box-shadow: 0 0 0 2px #fff, 0 0 0 3px rgba(201, 151, 28, .4);
+}
+
+.top .user .nm {
+  line-height: 1.1
+}
+
+.top .user .nm small {
+  display: block;
+  color: var(--muted);
+  font-size: 10.5px;
+  letter-spacing: .08em;
+  text-transform: uppercase
+}
+
+.top .logout {
+  color: var(--muted);
+  text-decoration: none;
+  font-size: 12px;
+  border: 1px solid var(--line);
+  padding: 5px 12px;
+  border-radius: 6px;
+  background: #fff
+}
+
+.top .logout:hover {
+  color: var(--red);
+  border-color: #e4c2ba
+}
 
 /* No max-width — the page stretches to the full available width (up to
  * ~1980px screens) instead of capping at 1460px and leaving empty space
  * on wide monitors, matching every table/card grid below to fill it. */
-.page{padding:24px 26px 24px 40px;flex:1;min-height:0;overflow-y:auto}
-.page-h{display:flex;align-items:flex-end;gap:14px;flex-wrap:wrap;margin-bottom:20px}
-.page-h h1{font-size:30px;font-weight:600;letter-spacing:.03em;color:var(--charcoal)}
-.page-h p{font-size:13.5px;color:var(--muted);margin-top:2px}
-.page-h .sp{flex:1}
+.page {
+  padding: 24px 26px 24px 40px;
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto
+}
+
+.page-h {
+  display: flex;
+  align-items: flex-end;
+  gap: 14px;
+  flex-wrap: wrap;
+  margin-bottom: 20px
+}
+
+.page-h h1 {
+  font-size: 30px;
+  font-weight: 600;
+  letter-spacing: .03em;
+  color: var(--charcoal)
+}
+
+.page-h p {
+  font-size: 13.5px;
+  color: var(--muted);
+  margin-top: 2px
+}
+
+.page-h .sp {
+  flex: 1
+}
+
+/* LoanDetail.tsx's header action-button cluster (Documents/Loan Actions/
+ * Record Payment/etc.) — wrapped in its own flex group, gapped and
+ * right-aligned internally, rather than left as flat siblings of
+ * `.page-h`. `.page-h`'s own flex-wrap only right-aligns this whole
+ * cluster while it fits on the title's line; once it wraps to its own
+ * line(s) (a narrow window, or the approval stage adding buttons), a plain
+ * sibling wrap starts flush at `.page-h`'s LEFT edge instead, stranding a
+ * lone wrapped button (e.g. "Loan Actions") left of empty space. Wrapping
+ * internally with its own justify-content:flex-end keeps every wrapped
+ * line — including just one leftover button — right-aligned instead. */
+/* align-self:flex-start overrides `.page-h`'s own align-items:flex-end
+ * (shared by every other page's header, which bottom-aligns a single-line
+ * button row against the title+subtitle block on purpose) just for this
+ * group — LoanDetail's title sits on one line and its subtitle on another,
+ * so bottom-aligning put these buttons level with the subtitle line
+ * instead of the title, reading as pinned to the wrong corner. */
+/* margin-left:auto is what actually keeps this pinned to the right at any
+ * width, including once it's narrow enough to drop to its own line below
+ * the title: `justify-content:flex-end` above only right-aligns the
+ * buttons *within* this box, but when `.page-h`'s own flex-wrap moves this
+ * whole box to a new line, that line starts flush at `.page-h`'s LEFT
+ * edge by default — an auto left margin is what claims all the leftover
+ * space on that line, pushing the box itself (not just its contents) over
+ * to the right regardless of which line it lands on. */
+/* max-width:100% caps this at whatever line it's on (shared with the
+ * title, or its own line below once the title can't shrink any further)
+ * — flex-shrink:0 alone stops it being squished while sharing the title's
+ * row, but once genuinely too narrow to fit even alongside a fully-
+ * shrunk title (`.page-h` then drops it to its own line), nothing capped
+ * ITS OWN width either, so the 3 buttons together overflowed straight past
+ * the container edge instead of wrapping onto a second internal line the
+ * way `flex-wrap:wrap` above was meant to let them. */
+.page-h-actions {
+  display: flex;
+  align-items: center;
+  align-self: flex-start;
+  gap: 14px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  flex-shrink: 0;
+  max-width: 100%;
+  margin-left: auto
+}
+
+/* flex:1;min-width:0 lets this block actually shrink below its content's
+ * natural width — a flex item's default min-width is `auto` (its content
+ * size), which silently ignores flex-shrink and keeps demanding its full
+ * width regardless. Without this, a long customer name/scheme/date
+ * subtitle line held `.page-h` open just enough to tip `.page-h-actions`
+ * (flex-shrink:0 above, so it never gives ground itself) over the wrap
+ * threshold onto its own line — even on a window with visibly enough
+ * width for both, since the title block's "natural" width didn't need to
+ * shrink to make room. The subtitle wraps onto a second line as this
+ * block narrows (rather than truncating with an ellipsis, an earlier
+ * attempt here) — a loan's own due date is real information a reader
+ * needs, not filler safe to hide behind "…". */
+.page-h-title {
+  flex: 1;
+  min-width: 0
+}
 
 /* ── ornaments ──────────────────────────── */
-.gold-rule{
-  height:2px;margin:4px 0 23px;border:0;
-  background:linear-gradient(90deg,var(--gold-deep),var(--gold-light) 30%,transparent 75%);
-  opacity:.6;
+.gold-rule {
+  height: 2px;
+  margin: 4px 0 23px;
+  border: 0;
+  background: linear-gradient(90deg, var(--gold-deep), var(--gold-light) 30%, transparent 75%);
+  opacity: .6;
 }
+
 /* Per-page tweaks to the title-rule gap, for pages whose first element
  * needs a little more or less air than the shared 23px. */
-.gold-rule.rule-lg{margin-bottom:26px}
-.gold-rule.rule-sm{margin-bottom:21px}
-.gold-rule.rule-xs{margin-bottom:20px}
+.gold-rule.rule-lg {
+  margin-bottom: 26px
+}
+
+.gold-rule.rule-sm {
+  margin-bottom: 21px
+}
+
+.gold-rule.rule-xs {
+  margin-bottom: 20px
+}
 
 /* ── cards / grid ───────────────────────── */
-.grid{display:grid;gap:15px}
-.grid.cols21{grid-template-columns:minmax(0,2fr) minmax(0,1fr);align-items:start}
+.grid {
+  display: grid;
+  gap: 15px
+}
+
+.grid.cols21 {
+  grid-template-columns: minmax(0, 2fr) minmax(0, 1fr);
+  align-items: start
+}
+
 /* minmax(0,…) like .cols21 above — a bare `1fr` leaves grid items at
  * min-width:auto, so the table column could not shrink below the table's
  * own min-width:640px and pushed the page into horizontal overflow. */
-.grid.cols12{grid-template-columns:minmax(0,1fr) minmax(0,2fr);align-items:start}
+.grid.cols12 {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 2fr);
+  align-items: start
+}
+
 /* customer 360: the left card column keeps one width across every table tab
  * (a 1fr column re-measures per tab and visibly jumps), and the table on the
  * right wraps to fit its column rather than scrolling horizontally. */
-.grid.cols12.cust-360{grid-template-columns:430px minmax(0,1fr)}
+.grid.cols12.cust-360 {
+  grid-template-columns: 430px minmax(0, 1fr)
+}
+
+/* At an ordinary laptop window (1280-1400px-ish), the fixed 430px left
+ * card plus the sidebar leaves the Loan History table's own column only
+ * ~530-650px for 7+ columns — narrower than they can comfortably fit even
+ * wrapped. Trimming the left card down to 230px here gives the table real
+ * breathing room back, rather than relying solely on the scrollbar
+ * fallback above. */
+@media (min-width:901px) and (max-width:1450px) {
+  .grid.cols12.cust-360 {
+    grid-template-columns: 230px minmax(0, 1fr)
+  }
+
+  .cust-360 .th-opened-due,
+  .cust-360 .th-surplus-shortfall {
+    white-space: normal;
+    line-height: 1.25
+  }
+
+  .cust-360 .th-opened-due .th-due-part,
+  .cust-360 .th-surplus-shortfall .th-shortfall-part {
+    display: block
+  }
+}
+
 /* Roles & Permissions control rows: field + its buttons on one baseline. */
-.role-ctl{display:flex;gap:10px;align-items:flex-end;margin-bottom:12px}
-.role-ctl:last-of-type{margin-bottom:0}
+.role-ctl {
+  display: flex;
+  gap: 10px;
+  align-items: flex-end;
+  margin-bottom: 12px
+}
+
+.role-ctl:last-of-type {
+  margin-bottom: 0
+}
+
 /* Icon rail that picks the 360 view's table (see CustomerDetail). */
-.tab-rail{position:relative;display:flex;flex-direction:column;justify-content:space-between;flex-shrink:0;width:34px}
-.tab-rail-line{position:absolute;left:50%;top:10px;bottom:10px;width:2px;background:var(--line);transform:translateX(-50%);z-index:0}
-.tab-rail-dot{position:relative;z-index:1;display:grid;place-items:center;width:34px;height:34px;border-radius:50%;padding:0;
-  border:1px solid var(--line);background:var(--card,#fffdf6);color:var(--muted);cursor:pointer;transition:background .15s,color .15s,border-color .15s}
-.tab-rail-dot svg{width:17px;height:17px}
-.tab-rail-dot:hover{border-color:var(--gold-mid);color:var(--gold-deep)}
-.tab-rail-dot.on{background:var(--gold-mid);border-color:var(--gold-mid);color:#fff}
-.cust-360 .tbl-wrap{overflow-x:hidden}
-.cust-360 .tbl{table-layout:fixed;width:100%}
-/* Each tab's table sizes to its own row count (no fixed height/blank filler
- * rows) — a tab with 2 loans shows 2 rows, not 2 rows plus 7 blank ones. */
-.cust-360 .tbl-wrap.tbl-wrap-auto{height:auto;overflow-y:visible}
-.cust-360 .tbl th,.cust-360 .tbl td{overflow-wrap:anywhere}
-.card{
-  background:rgba(255,253,247,.68);
-  backdrop-filter:blur(16px) saturate(170%);
-  -webkit-backdrop-filter:blur(16px) saturate(170%);
-  border:1px solid rgba(201,151,28,.25);
-  border-radius:12px;
-  box-shadow:0 8px 30px -10px rgba(120,86,20,.12),0 1.5px 3px rgba(0,0,0,.02),inset 0 1px 1px rgba(255,255,255,.88);
-  position:relative;
+/* width:56px (was 34px, exactly the dots' own diameter) — scoping the
+ * wheel-to-switch-tabs handler to just this rail (so scrolling over the
+ * table beside it scrolls the page instead) meant landing a scroll gesture
+ * on a 34px-wide strip precisely enough to trigger it at all, which read
+ * as "the scroll switch stopped working". The dots stay the same 34px,
+ * centered; the extra width is purely a bigger, more forgiving hover/wheel
+ * target around them. */
+.tab-rail {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: space-between;
+  flex-shrink: 0;
+  width: 56px
+}
+
+.tab-rail-line {
+  position: absolute;
+  left: 50%;
+  top: 10px;
+  bottom: 10px;
+  width: 2px;
+  background: var(--line);
+  transform: translateX(-50%);
+  z-index: 0
+}
+
+.tab-rail-dot {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  padding: 0;
+  border: 1px solid var(--line);
+  background: var(--card, #fffdf6);
+  color: var(--muted);
+  cursor: pointer;
+  transition: background .15s, color .15s, border-color .15s
+}
+
+.tab-rail-dot svg {
+  width: 17px;
+  height: 17px
+}
+
+.tab-rail-dot:hover {
+  border-color: var(--gold-mid);
+  color: var(--gold-deep)
+}
+
+.tab-rail-dot.on {
+  background: var(--gold-mid);
+  border-color: var(--gold-mid);
+  color: #fff
+}
+
+/* auto, not hidden — table-layout:fixed + overflow-wrap:anywhere below
+ * normally keeps this table within its column without ever needing to
+ * scroll, but a genuinely narrow right column (a fixed 430px left card
+ * eating most of the row at ordinary laptop widths — see .cust-360's own
+ * grid-template-columns) can still leave more columns than any wrap can
+ * shrink to fit. `hidden` silently cropped that overflow — Status/Pledge
+ * simply vanished off the right edge with no way to reach them — instead
+ * of falling back to a scrollbar, which `auto` only ever shows when it's
+ * actually needed. */
+.cust-360 .tbl-wrap,
+.cust-360 .tbl-wrap.tbl-wrap-auto {
+  height: auto;
+  max-height: 56vh;
+  min-height: 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+
+.cust-360 .tbl {
+  table-layout: fixed;
+  width: 100%
+}
+
+.cust-360 .tbl th,
+.cust-360 .tbl td {
+  overflow-wrap: anywhere
+}
+
+/* .chip's own white-space:nowrap (app.css above) is fine for every short,
+ * single-word status elsewhere, but "Closure Requested" is long enough
+ * that nowrap forced the whole Status column — and with it the table's
+ * own width — wider than its share of a narrow right column, needing a
+ * horizontal scrollbar to reach it. Scoped to this table only, so no
+ * other chip app-wide changes shape. overflow-wrap:normal resets the
+ * `td{overflow-wrap:anywhere}` rule right above — that property inherits,
+ * so without resetting it here "Closure Requested" broke at arbitrary
+ * character positions ("Closur e Reque sted") instead of the actual word
+ * boundary, reading as garbled/overlapping rather than a clean two-line
+ * wrap. */
+.cust-360 .tbl .chip {
+  white-space: normal;
+  text-align: center;
+  overflow-wrap: normal;
+  word-break: normal
+}
+
+.card {
+  background: rgba(255, 253, 247, .68);
+  backdrop-filter: blur(16px) saturate(170%);
+  -webkit-backdrop-filter: blur(16px) saturate(170%);
+  border: 1px solid rgba(201, 151, 28, .25);
+  border-radius: 12px;
+  box-shadow: 0 8px 30px -10px rgba(120, 86, 20, .12), 0 1.5px 3px rgba(0, 0, 0, .02), inset 0 1px 1px rgba(255, 255, 255, .88);
+  position: relative;
   /* Flex column so `.ft` always settles at the card's bottom edge — even
    * when a CSS grid row stretches this card taller than its own content
    * (e.g. Loan Schemes' card grid, where cards with less text would
@@ -366,94 +1266,282 @@ h1,h2,h3,.serif{font-family:'Bodoni Moda',serif;font-optical-sizing:auto}
    * with the row's tallest card's footer). No overflow/scroll is set on
    * `.bd`, so content still grows the card naturally; this only fills
    * the slack a stretched grid row adds. */
-  display:flex;flex-direction:column;
-  transition:all .2s ease;
+  display: flex;
+  flex-direction: column;
+  transition: all .2s ease;
 }
-.card.gtop::before{
-  content:"";position:absolute;left:12px;right:12px;top:0;height:2px;
-  background:linear-gradient(90deg,transparent,var(--gold-mid),transparent);
+
+.card.gtop::before {
+  content: "";
+  position: absolute;
+  left: 12px;
+  right: 12px;
+  top: 0;
+  height: 2px;
+  background: linear-gradient(90deg, transparent, var(--gold-mid), transparent);
 }
-.card .hd{
-  display:flex;align-items:center;gap:10px;
-  padding:14px 18px 12px;border-bottom:1px solid rgba(201,151,28,.15);
-  background:rgba(255,255,255,.25);border-radius:12px 12px 0 0;
+
+.card .hd {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 18px 12px;
+  border-bottom: 1px solid rgba(201, 151, 28, .15);
+  background: rgba(255, 255, 255, .25);
+  border-radius: 12px 12px 0 0;
 }
-.card .hd h3{font-size:19px;font-weight:600;letter-spacing:.03em;color:var(--charcoal)}
-.card .hd .sp{flex:1}
-.card .bd{padding:16px 18px;flex:1}
-.card .ft{
-  padding:10px 18px;border-top:1px solid rgba(201,151,28,.15);
-  font-size:12.5px;color:var(--muted);
-  background:rgba(255,255,255,.2);border-radius:0 0 12px 12px;
+
+.card .hd h3 {
+  font-size: 19px;
+  font-weight: 600;
+  letter-spacing: .03em;
+  color: var(--charcoal)
+}
+
+.card .hd .sp {
+  flex: 1
+}
+
+.card .bd {
+  padding: 16px 18px;
+  flex: 1
+}
+
+.card .ft {
+  padding: 10px 18px;
+  border-top: 1px solid rgba(201, 151, 28, .15);
+  font-size: 12.5px;
+  color: var(--muted);
+  background: rgba(255, 255, 255, .2);
+  border-radius: 0 0 12px 12px;
 }
 
 /* KPI tiles */
-.kpis{display:grid;grid-template-columns:repeat(auto-fill,213px);gap:12px}
-.kpi{
-  width:213px;height:89px;box-sizing:border-box;
-  background:rgba(255,253,247,.72);
-  backdrop-filter:blur(14px) saturate(160%);
-  -webkit-backdrop-filter:blur(14px) saturate(160%);
-  border:1px solid rgba(201,151,28,.25);border-radius:12px;
-  padding:13px 15px;position:relative;overflow:hidden;
-  box-shadow:0 6px 20px -6px rgba(120,86,20,.1),inset 0 1px 1px rgba(255,255,255,.9);
-  transition:all .15s ease;
+.kpis {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, 213px);
+  gap: 12px
 }
-.kpi::after{
-  content:"";position:absolute;left:0;top:10px;bottom:10px;width:3px;border-radius:2px;
-  background:linear-gradient(180deg,var(--gold-light),var(--gold-deep));
+
+.kpi {
+  width: 213px;
+  height: 89px;
+  flex-shrink: 0;
+  box-sizing: border-box;
+  background: rgba(255, 253, 247, .72);
+  backdrop-filter: blur(14px) saturate(160%);
+  -webkit-backdrop-filter: blur(14px) saturate(160%);
+  border: 1px solid rgba(201, 151, 28, .25);
+  border-radius: 12px;
+  padding: 13px 15px;
+  position: relative;
+  overflow: hidden;
+  box-shadow: 0 6px 20px -6px rgba(120, 86, 20, .1), inset 0 1px 1px rgba(255, 255, 255, .9);
+  transition: all .15s ease;
 }
-.kpi .l{font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--muted)}
-.kpi .v{font-family:'Bodoni Moda',serif;font-size:21px;font-weight:700;color:var(--charcoal);margin-top:3px;line-height:1}
-.kpi .s{font-size:11.5px;margin-top:5px;color:var(--muted)}
+
+.kpi::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 10px;
+  bottom: 10px;
+  width: 3px;
+  border-radius: 2px;
+  background: linear-gradient(180deg, var(--gold-light), var(--gold-deep));
+}
+
+.kpi .l {
+  font-size: 11px;
+  letter-spacing: .14em;
+  text-transform: uppercase;
+  color: var(--muted)
+}
+
+.kpi .v {
+  font-family: 'Bodoni Moda', serif;
+  font-size: 21px;
+  font-weight: 700;
+  color: var(--charcoal);
+  margin-top: 3px;
+  line-height: 1
+}
+
+.kpi .s {
+  font-size: 11.5px;
+  margin-top: 5px;
+  color: var(--muted)
+}
+
 /* Cash.tsx's KPI row shows full rupee amounts ("₹1,23,456.00") rather than
  * the short counts/rates the 27px default was sized for — at that size a
  * real balance routinely presses against the 172px tile's edge. Scope the
  * shrink to these tiles rather than the shared .kpi .v so every other
  * (shorter-value) KPI row across the app keeps its current size. */
-.kpis-money .kpi .v{font-size:20px}
-.kpi .s.up{color:var(--green)}
-.kpi .s.dn{color:var(--red)}
-.kpi.warn::after{background:linear-gradient(180deg,#e2a34a,#a3372a)}
+.kpis-money .kpi .v {
+  font-size: 20px
+}
+
+/* At a 1280px-ish window, Dashboard.tsx's main content column (sidebar +
+ * page padding taken out) is wide enough for 3 of the fixed 213px KPI
+ * tiles plus their gaps, but not a 4th — yet the fixed width above never
+ * adapts, so it fell back to auto-fill's own default of packing only as
+ * many whole 213px columns as fit (2 here), leaving a visibly empty third
+ * column's worth of space unused. Shrinking the tiles into an explicit
+ * 3-column split for this band uses that space instead — a narrower
+ * window than this already reflows to `.kpis{grid-template-columns:1fr 1fr}`
+ * below (≤900px), and a wider one has room for 213px tiles at their
+ * normal size, so this only needs to cover the gap between the two.
+ * Scoped to `.dashboard-kpis` (not plain `.kpis`) — every other `.kpis`
+ * row app-wide (Reports' totals, Cash.tsx's KPI strip) needs to keep its
+ * cards a fixed, equal size regardless of each one's own text length;
+ * `.kpi{width:auto}` here previously applied to all of them, so Reports'
+ * two totals cards (short "10" vs. a much longer rupee amount) rendered
+ * visibly different widths instead of matching. */
+@media (min-width:901px) and (max-width:1400px) {
+  .dashboard-kpis {
+    grid-template-columns: repeat(3, 1fr)
+  }
+
+  .dashboard-kpis .kpi {
+    width: auto
+  }
+}
+
+.kpi .s.up {
+  color: var(--green)
+}
+
+.kpi .s.dn {
+  color: var(--red)
+}
+
+.kpi.warn::after {
+  background: linear-gradient(180deg, #e2a34a, #a3372a)
+}
+
 /* Dashboard's KPI tiles link out to the page that explains them (Loans
  * filtered to the matching status, Requests, Cash, etc.) — .kpi stays a
  * plain div everywhere else (e.g. Cash.tsx's KPI row), so the hover/focus
  * affordance is scoped to this modifier rather than the base class. */
-.kpi-link{display:block;text-decoration:none;color:inherit;cursor:pointer;transition:transform .12s ease,box-shadow .12s ease}
-.kpi-link:hover{transform:translateY(-2px);box-shadow:0 4px 14px rgba(0,0,0,.08);border-color:var(--gold-light)}
-.kpi-link:focus-visible{outline:2px solid var(--gold-deep);outline-offset:2px}
-.kpi.ok::after{background:linear-gradient(180deg,#9fc36a,#4d7c2a)}
+.kpi-link {
+  display: block;
+  text-decoration: none;
+  color: inherit;
+  cursor: pointer;
+  transition: transform .12s ease, box-shadow .12s ease
+}
+
+.kpi-link:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, .08);
+  border-color: var(--gold-light)
+}
+
+.kpi-link:focus-visible {
+  outline: 2px solid var(--gold-deep);
+  outline-offset: 2px
+}
+
+.kpi.ok::after {
+  background: linear-gradient(180deg, #9fc36a, #4d7c2a)
+}
 
 /* ── buttons / inputs ───────────────────── */
-.btn{
-  font-family:'Jost',sans-serif;font-size:12.5px;font-weight:600;
-  letter-spacing:.16em;text-transform:uppercase;
-  color:#2b2001;border:1px solid #a97f10;border-radius:5px;cursor:pointer;
-  background:linear-gradient(180deg,#f0d382 0%,var(--gold-mid) 45%,#bd8f16 100%);
-  padding:9px 18px;
-  box-shadow:inset 0 1px 0 rgba(255,255,255,.5),0 6px 14px -7px rgba(154,111,15,.6);
-  transition:filter .15s,transform .12s;
-  display:inline-flex;align-items:center;gap:8px;text-decoration:none;
+.btn {
+  font-family: 'Jost', sans-serif;
+  font-size: 12.5px;
+  font-weight: 600;
+  letter-spacing: .16em;
+  text-transform: uppercase;
+  color: #2b2001;
+  border: 1px solid #a97f10;
+  border-radius: 5px;
+  cursor: pointer;
+  background: linear-gradient(180deg, #f0d382 0%, var(--gold-mid) 45%, #bd8f16 100%);
+  padding: 9px 18px;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .5), 0 6px 14px -7px rgba(154, 111, 15, .6);
+  transition: filter .15s, transform .12s;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  text-decoration: none;
 }
-.btn svg{width:15px;height:15px}
-.eye-toggle svg{width:16px;height:16px}
-.btn:hover{filter:brightness(1.06);transform:translateY(-1px)}
-.btn.ghost{
-  background:#fff;color:var(--gold-deep);border-color:var(--gold);box-shadow:none;
-}
-.btn.ghost:hover{background:#fdf6e2}
-.btn.sm{padding:6px 12px;font-size:11px;letter-spacing:.12em}
-.btn.danger{background:#fff;color:var(--red);border-color:#d8a49a;box-shadow:none}
-.btn.danger:hover{background:#fbf0ee}
-.btn.plain{background:#fff;color:var(--ink);border-color:var(--line);box-shadow:none;font-weight:500;text-transform:none;letter-spacing:.02em;font-size:13px}
 
-.inp,select.inp,textarea.inp{
-  font:inherit;font-size:14px;color:var(--charcoal);
-  background:#fff;border:1px solid var(--line);border-radius:6px;
-  padding:9px 12px;outline:0;width:100%;
-  transition:border-color .2s, box-shadow .2s;
+.btn svg {
+  width: 15px;
+  height: 15px
 }
-.inp:focus{border-color:var(--gold);box-shadow:0 0 0 3px rgba(201,151,28,.15)}
+
+.eye-toggle svg {
+  width: 16px;
+  height: 16px
+}
+
+.btn:hover {
+  filter: brightness(1.06);
+  transform: translateY(-1px)
+}
+
+.btn.ghost {
+  background: #fff;
+  color: var(--gold-deep);
+  border-color: var(--gold);
+  box-shadow: none;
+}
+
+.btn.ghost:hover {
+  background: #fdf6e2
+}
+
+.btn.sm {
+  padding: 6px 12px;
+  font-size: 11px;
+  letter-spacing: .12em
+}
+
+.btn.danger {
+  background: #fff;
+  color: var(--red);
+  border-color: #d8a49a;
+  box-shadow: none
+}
+
+.btn.danger:hover {
+  background: #fbf0ee
+}
+
+.btn.plain {
+  background: #fff;
+  color: var(--ink);
+  border-color: var(--line);
+  box-shadow: none;
+  font-weight: 500;
+  text-transform: none;
+  letter-spacing: .02em;
+  font-size: 13px
+}
+
+.inp,
+select.inp,
+textarea.inp {
+  font: inherit;
+  font-size: 14px;
+  color: var(--charcoal);
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 9px 12px;
+  outline: 0;
+  width: 100%;
+  transition: border-color .2s, box-shadow .2s;
+}
+
+.inp:focus {
+  border-color: var(--gold);
+  box-shadow: 0 0 0 3px rgba(201, 151, 28, .15)
+}
+
 /* PurityPicker's Karat/Fineness search field sits beside a stacked
  * Karat/Fineness% toggle sized to match a Net Wt (g) input's height (see
  * PurityPicker.tsx) — shrink its padding to fit the same height so the
@@ -463,68 +1551,346 @@ h1,h2,h3,.serif{font-family:'Bodoni Moda',serif;font-optical-sizing:auto}
  * ignored against an auto-height containing block, so this silently fell
  * back to the padding/font-driven ~34px instead of the toggle's 31px. An
  * explicit px height is the only way to actually match it. */
-.purity-select .inp{padding:6px 8px;height:31px}
+.purity-select .inp {
+  padding: 6px 8px;
+  height: 31px
+}
+
+/* PurityPicker's own root — a class rather than an inline style so
+ * `.calc-card` (Dashboard.tsx's Gold Loan Calculator) can override it: see
+ * that rule for why it needs to. 300px matches NewLoan.tsx's ornament
+ * table cell, the default context this sizes for. */
+.pur-wrap {
+  max-width: 300px
+}
+
+/* PurityPicker's Karat/Fineness toggle + search field row (common/
+ * components/ui/PurityPicker.tsx) — real classes rather than inline styles
+ * specifically so the max-width:480px override below can stack them. */
+.pur-row {
+  display: flex;
+  gap: 6px;
+  align-items: stretch;
+  height: 31px
+}
+
+.pur-toggle {
+  position: relative;
+  display: flex;
+  /* Was a fixed "0 0 148px" — at equal widths "Karat"/"Fineness" had to
+   * shrink to ~9.5px to fit, which read as fine print next to every other
+   * control. Grows/shrinks with the search field beside it so this toggle
+   * narrows along with the rest of the row on small screens instead of
+   * holding its full width and crushing the search field down to nothing;
+   * min-width floors it at a still-tappable size. Plain `flex:1` (not
+   * "1 1 64px") — matching `.pur-search`'s own plain `flex:1` exactly —
+   * is what actually makes the two grow equally: same grow factor with a
+   * *different* flex-basis (64px here vs 0% there) still ends up unequal,
+   * since growth is distributed on top of each one's own starting basis;
+   * the toggle rendered visibly wider than the search field next to it
+   * (179px vs 115px in a 317px row) even though both said "flex:1".
+   * min-width:130px (was 56px) — this floor is for the WHOLE toggle, both
+   * "Karat" and "Fineness" buttons together, not per-button — 56px split
+   * two ways left barely 28px each, and "Fineness" alone needs ~53px of
+   * that at this font-size. NewLoan.tsx's ornament table squeezes this
+   * into a ~27%-wide column shared with the search field beside it, so
+   * this floor is what actually got hit there (clipping "Fineness" down to
+   * "Finen…"), not Dashboard's roomy calculator card (measured ~148px
+   * unconstrained, well above this floor, so the equal-width behavior with
+   * `.pur-search` above is unaffected there). The search field keeps
+   * shrinking past this down to its own 34px floor below, since it only
+   * ever needs to show a short 2-3 digit purity number. */
+  flex: 1;
+  min-width: 130px;
+  height: 100%;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: #fff;
+  overflow: hidden;
+}
+
+/* minWidth:34 is the floor this box should never shrink below (matches the
+ * Net Wt/Qty inputs beside it in NewLoan.tsx, which share the same 34×31
+ * minimum). */
+.pur-search {
+  flex: 1;
+  min-width: 34px;
+  height: 100%
+}
+
+/* Dashboard.tsx's Gold Loan Calculator card (.calc-card below) sits in the
+ * dashboard's narrow sidebar column, not the main content well, so it
+ * stays cramped there even on a wide desktop screen — the plain
+ * max-width:480px window-width stack further down never catches that,
+ * since the *window* isn't actually narrow, only this card's own slot is.
+ * A container query keyed to the card's own rendered width (not the
+ * window's) catches both cases correctly: still side by side at a normal
+ * resolution once the dashboard's 2-column grid collapses and this card
+ * gets the full page width, but stacked whenever the card itself is
+ * actually narrow — including the everyday case of sitting in that
+ * sidebar column on an otherwise wide screen. */
+.calc-card {
+  container-type: inline-size;
+  container-name: calc-card
+}
+
+/* Unconditional resets, scoped to `.calc-card` so they only ever apply
+ * here — necessary because the plain window-width media queries further
+ * down (`.frow.c2` at ≤900px/≤480px, `.pur-row` at ≤480px) fire purely off
+ * the *window*'s width and know nothing about this card's own container
+ * query. Without these, a window narrow enough to trip one of those (like
+ * DevTools eating half the screen) forced this card's fields to stack even
+ * while the card itself — the actual thing that should decide this — had
+ * plenty of room. `.calc-card <selector>` outweighs the plain
+ * `<selector>` those media queries use (one extra class), so these two
+ * lines win regardless of window width; the @container block below them
+ * then re-collapses back to stacked only when the card's own rendered
+ * width earns it (same specificity, later in the cascade, so it takes
+ * over once its condition is true). */
+.calc-card .frow.c2 {
+  grid-template-columns: 1fr 1fr
+}
+
+/* PurityPicker's own root (`.pur-wrap`, app.css below) caps itself at
+ * 300px by default — sized for NewLoan.tsx's ornament table cell, where
+ * it needs to stay compact regardless of how wide its <td> happens to be.
+ * That cap doesn't belong here: it left the Purity toggle/search rows
+ * visibly narrower than the Weight input and Scheme dropdown beside/below
+ * them (neither of which carries any such cap), once this card's own
+ * width earns the stacked layout above. */
+.calc-card .pur-wrap {
+  max-width: none
+}
+
+/* The Scheme dropdown (Select.tsx) keeps its own original default height
+ * (`.inp`'s default padding, 40px tall) — rather than shrinking it to
+ * match the Weight input/Purity row's pinned 31px (an earlier attempt),
+ * the Weight input and Purity row are the ones raised to 40px here, to
+ * match Select's real height instead. `.dp{width:100%}` is a belt-and-
+ * suspenders guarantee that the trigger spans its `.frow` row exactly the
+ * way the Weight/Purity row's own grid columns span theirs — both sit
+ * under the same `.bd` padding, so they already should line up, but a
+ * plain block element's "fills its container" default is easy to
+ * accidentally lose to a flex/grid quirk elsewhere, and explicit here
+ * costs nothing. */
+.calc-card .dp {
+  width: 100%
+}
+
+.calc-card input.inp {
+  height: 40px
+}
+
+.calc-card .pur-row {
+  flex-direction: row;
+  height: 40px
+}
+
+.calc-card .pur-toggle,
+.calc-card .pur-search {
+  height: 40px
+}
+
+.calc-card .pur-search .inp {
+  height: 40px
+}
+
+/* 450px (was 360px) — the sidebar-column slot this card actually sits in
+ * measured ~423px at a 1599×975 window, still comfortably above the old
+ * 360px floor, so it stayed side by side there when it should have
+ * stacked. 450px covers that (and other everyday desktop widths in the
+ * sidebar) with a little room to spare, while staying well below the
+ * ~700px+ this card gets once the dashboard's own 2-column grid collapses
+ * to one column and it takes the full page width instead. */
+@container calc-card (max-width: 450px) {
+  .calc-card .frow.c2 {
+    grid-template-columns: 1fr
+  }
+
+  .calc-card .pur-row {
+    flex-direction: column;
+    height: auto;
+    gap: 6px
+  }
+
+  .calc-card .pur-row .pur-toggle,
+  .calc-card .pur-row .pur-search {
+    flex: none;
+    width: 100%;
+    height: 40px
+  }
+}
+
 /* NewLoan.tsx's ornament-type SearchableSelect (unlike the ones above the
  * table for Customer/Scheme/Branch/Locker, left at the default height)
  * sits in the same row as the 31px-tall Purity/Net Wt/Qty cells — shrink
  * just this one to match so the row is an even height. Scoped to
  * .orn-type-td so every other SearchableSelect keeps its normal size. */
-.orn-type-td .inp{padding:6px 8px;height:31px}
-.orn-table th,.orn-table td{padding:8px 6px}
-.orn-table th:first-child,.orn-table td:first-child{padding-left:12px}
-.orn-table th:last-child,.orn-table td:last-child{padding-right:12px}
+.orn-type-td .inp {
+  padding: 6px 8px;
+  height: 31px
+}
+
+.orn-table th,
+.orn-table td {
+  padding: 8px 6px
+}
+
+.orn-table th:first-child,
+.orn-table td:first-child {
+  padding-left: 12px
+}
+
+.orn-table th:last-child,
+.orn-table td:last-child {
+  padding-right: 12px
+}
+
+/* Tighter horizontal padding once this table's own column starts getting
+ * cramped (the same 1350-1600px range the comment below explains — still
+ * above the 1350px cutoff that switches to the card view, so still this
+ * table, just a narrow one) — every column effectively gains a little
+ * width back without touching the 70px input floors below. */
+@media(max-width:1600px) {
+
+  .orn-table th,
+  .orn-table td {
+    padding: 8px 3px
+  }
+
+  .orn-table th:first-child,
+  .orn-table td:first-child {
+    padding-left: 8px
+  }
+
+  .orn-table th:last-child,
+  .orn-table td:last-child {
+    padding-right: 8px
+  }
+}
+
 /* Ornament entry has two renderings of the same rows (NewLoan.tsx) — a
- * table for wide viewports, and a stack of cards below 1350px. That's its
- * own dedicated breakpoint (NOT the app's usual 900px one, e.g. .side/
- * .burger/.frow) because this table doesn't get the viewport's full width
- * the way a page-width table would: NewLoan's form column sits beside a
- * fixed Valuation sidebar, so even in the roughly 1000-1350px viewport
- * range — well above where anything else in the app switches to a mobile
- * layout — this table's own column is already narrow enough for its fixed
- * columns to crop their inputs. See the @media(max-width:1350px) block
- * below (kept separate from the 900px one so this doesn't drag any other
- * rule's threshold along with it). */
-.orn-cards-view{display:none}
-.orn-card{
-  display:flex;flex-direction:column;gap:10px;
-  border:1px solid var(--line);border-radius:10px;padding:12px;
-  background:rgba(255,255,255,.5);margin-bottom:10px;
+ * table when there's room, and a stack of cards when there isn't. This
+ * used to be a flat @media(max-width:1350px) window-width breakpoint, but
+ * NewLoan's form column (`.orn-form-card`) sits beside a fixed-width
+ * Valuation sidebar, so its own actual rendered width is nowhere near the
+ * window's — plenty of ordinary desktop window widths above 1350px still
+ * left this card's own column narrower than the table's real ~914px
+ * requirement (880px table + the card's own padding), overflowing the
+ * Photo/Upload column out past the card's edge and over the sidebar
+ * instead of ever falling back to the card view meant to handle exactly
+ * this. A container query keyed to `.orn-form-card`'s own width (not the
+ * window's) catches that correctly. */
+.orn-cards-view {
+  display: none
 }
-.orn-card:last-child{margin-bottom:0}
-.orn-card-row{display:flex;gap:10px}
-@media(max-width:1350px){
-  .orn-table-view{display:none}
-  .orn-cards-view{display:block}
+
+.orn-card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 12px;
+  background: rgba(255, 255, 255, .5);
+  margin-bottom: 10px;
 }
+
+.orn-card:last-child {
+  margin-bottom: 0
+}
+
+.orn-card-row {
+  display: flex;
+  gap: 10px
+}
+
+.orn-form-card {
+  container-type: inline-size;
+  container-name: orn-form-card
+}
+
+@container orn-form-card (max-width: 950px) {
+  .orn-table-view {
+    display: none
+  }
+
+  .orn-cards-view {
+    display: block
+  }
+}
+
 /* Native <select> chrome (the dropdown arrow) is drawn by the OS/browser
  * and never matched the gold/ivory theme — swap it for a themed chevron so
  * every select.inp app-wide looks consistent with the rest of the form. */
-select.inp{
-  appearance:none;-webkit-appearance:none;-moz-appearance:none;
-  background-color:#fff;
-  background-image:url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="10" height="6" viewBox="0 0 10 6"><path d="M1 1l4 4 4-4" stroke="%239a6f0f" stroke-width="1.6" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>');
-  background-repeat:no-repeat;background-position:right 12px center;background-size:10px 6px;
-  padding-right:32px;cursor:pointer;
+select.inp {
+  appearance: none;
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  background-color: #fff;
+  background-image: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="10" height="6" viewBox="0 0 10 6"><path d="M1 1l4 4 4-4" stroke="%239a6f0f" stroke-width="1.6" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>');
+  background-repeat: no-repeat;
+  background-position: right 12px center;
+  background-size: 10px 6px;
+  padding-right: 32px;
+  cursor: pointer;
 }
-select.inp:disabled{background-color:#f7f3e6;cursor:not-allowed}
-label.f{display:block;font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--muted);margin:0 0 5px 1px}
-.frow{display:grid;gap:13px;margin-bottom:13px}
-.frow.c2{grid-template-columns:1fr 1fr}
-.frow.c3{grid-template-columns:1fr 1fr 1fr}
-.frow.c4{grid-template-columns:repeat(4,1fr)}
+
+select.inp:disabled {
+  background-color: #f7f3e6;
+  cursor: not-allowed
+}
+
+label.f {
+  display: block;
+  font-size: 11px;
+  letter-spacing: .14em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin: 0 0 5px 1px
+}
+
+.frow {
+  display: grid;
+  gap: 13px;
+  margin-bottom: 13px
+}
+
+.frow.c2 {
+  grid-template-columns: 1fr 1fr
+}
+
+.frow.c3 {
+  grid-template-columns: 1fr 1fr 1fr
+}
+
+.frow.c4 {
+  grid-template-columns: repeat(4, 1fr)
+}
 
 /* ── tables ─────────────────────────────── */
 /* still scrollable by wheel/drag, just without a visible scrollbar */
 /* ── tables ─────────────────────────────── */
 /* still scrollable by wheel/drag, just without a visible scrollbar */
-.tbl-wrap{
-  overflow-x:auto;scrollbar-width:none;-ms-overflow-style:none;
-  background:rgba(255,253,247,.4);
-  backdrop-filter:blur(12px) saturate(150%);
-  -webkit-backdrop-filter:blur(12px) saturate(150%);
-  border-radius:10px;
+.tbl-wrap {
+  height: auto;
+  min-height: 0;
+  overflow-x: auto;
+  overflow-y: visible;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+  background: rgba(255, 253, 247, .4);
+  backdrop-filter: blur(12px) saturate(150%);
+  -webkit-backdrop-filter: blur(12px) saturate(150%);
+  border-radius: 10px;
 }
-.tbl-wrap::-webkit-scrollbar{width:0;height:0;display:none}
+
+.tbl-wrap::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+  display: none
+}
+
 /* Every .tbl-wrap table site-wide (Loans, Customers, Employees, Branches,
  * Cash, Auctions, Bank Pledge, Loan Detail, Requests, Packets, Packet
  * Detail, Gold Rates, Reports, Customer Detail) sits beside the app's fixed
@@ -539,338 +1905,1176 @@ label.f{display:block;font-size:11px;letter-spacing:.14em;text-transform:upperca
  * the app's existing 900px "mobile" breakpoint the scrollbar again stays
  * hidden, matching the touch-first, swipe-to-scroll pattern already used on
  * phones instead of a diminutive scrollbar thumb. */
-@media(max-width:1600px) and (min-width:901px){
-  .tbl-wrap{scrollbar-width:thin;scrollbar-color:var(--gold-light) transparent}
-  .tbl-wrap::-webkit-scrollbar{width:auto;height:8px;display:block}
-  .tbl-wrap::-webkit-scrollbar-track{background:transparent}
-  .tbl-wrap::-webkit-scrollbar-thumb{background:var(--gold-light);border-radius:6px}
-  .tbl-wrap::-webkit-scrollbar-thumb:hover{background:var(--gold)}
+@media(max-width:1600px) and (min-width:901px) {
+  .tbl-wrap {
+    scrollbar-width: thin;
+    scrollbar-color: var(--gold-light) transparent
+  }
+
+  .tbl-wrap::-webkit-scrollbar {
+    width: auto;
+    height: 8px;
+    display: block
+  }
+
+  .tbl-wrap::-webkit-scrollbar-track {
+    background: transparent
+  }
+
+  .tbl-wrap::-webkit-scrollbar-thumb {
+    background: var(--gold-light);
+    border-radius: 6px
+  }
+
+  .tbl-wrap::-webkit-scrollbar-thumb:hover {
+    background: var(--gold)
+  }
 }
+
 /* .page (see .main above) is now the single correctly-sized scroll
  * container on every page, so tbl-scroll no longer needs its own guessed
  * max-height — it only keeps the table header stuck in view while .page
  * scrolls past a long table. */
-.tbl-scroll .tbl th{position:sticky;top:0;z-index:1}
-table.tbl{width:100%;border-collapse:separate;border-spacing:0;font-size:13.5px;min-width:640px}
-.tbl th{
-  text-align:left;font-size:10.5px;letter-spacing:.16em;text-transform:uppercase;
-  color:var(--muted);font-weight:600;padding:11px 14px;
-  border-bottom:1px solid rgba(201,151,28,.2);
-  background:rgba(251,246,233,.85);
-  backdrop-filter:blur(10px);
-  -webkit-backdrop-filter:blur(10px);
-  white-space:nowrap;
+.tbl-scroll .tbl th {
+  position: sticky;
+  top: 0;
+  z-index: 1
 }
-.tbl td{padding:11px 14px;border-bottom:1px solid rgba(232,220,186,.45);vertical-align:middle;background:rgba(255,255,255,.15)}
-.tbl tr:last-child td{border-bottom:0}
+
+table.tbl {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  font-size: 13.5px;
+  min-width: 640px
+}
+
+.tbl th {
+  text-align: left;
+  font-size: 10.5px;
+  letter-spacing: .16em;
+  text-transform: uppercase;
+  color: var(--muted);
+  font-weight: 600;
+  padding: 11px 14px;
+  border-bottom: 1px solid rgba(201, 151, 28, .2);
+  background: rgba(251, 246, 233, .85);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  white-space: nowrap;
+}
+
+.tbl td {
+  padding: 11px 14px;
+  border-bottom: 1px solid rgba(232, 220, 186, .45);
+  vertical-align: middle;
+  background: rgba(255, 255, 255, .15)
+}
+
+.tbl tr:last-child td {
+  border-bottom: 0
+}
+
 /* Equal breathing room on both edges of every table — without this the
  * first and last columns inherit only the 14px cell padding and the two
  * sides read as uneven against the card's own inset. */
-.tbl th:first-child,.tbl td:first-child{padding-left:18px}
-.tbl th:last-child,.tbl td:last-child{padding-right:18px}
+.tbl th:first-child,
+.tbl td:first-child {
+  padding-left: 18px
+}
+
+.tbl th:last-child,
+.tbl td:last-child {
+  padding-right: 18px
+}
+
 /* Row-density modifiers: .tbl-roomy for tables whose rows carry chips and
  * two-line cells (Cash Movements / Expense Register), .tbl-tight for dense
  * summary tables (Employees). */
-.tbl.tbl-roomy td{padding-top:12px;padding-bottom:12px}
-.tbl.tbl-tight td{padding-top:10px;padding-bottom:10px}
-.tbl tbody tr{cursor:default;transition:background .15s ease}
-.tbl tbody tr:hover{background:rgba(253,248,234,.7)}
-.tbl tr.click{cursor:pointer}
-.tbl .num{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+.tbl.tbl-roomy td {
+  padding-top: 12px;
+  padding-bottom: 12px
+}
+
+.tbl.tbl-tight td {
+  padding-top: 10px;
+  padding-bottom: 10px
+}
+
+.tbl tbody tr {
+  cursor: default;
+  transition: background .15s ease
+}
+
+.tbl tbody tr:hover {
+  background: rgba(253, 248, 234, .7)
+}
+
+.tbl tr.click {
+  cursor: pointer
+}
+
+.tbl .num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap
+}
+
 /* Loans page only (.tbl.tbl-center) — center every column's content,
  * including the numeric ones that .tbl .num otherwise right-aligns. */
-.tbl.tbl-center th,.tbl.tbl-center td{text-align:center}
-.tbl.tbl-center .num{text-align:center}
-.tbl.tbl-center.col1-left tr>th:first-child,.tbl.tbl-center.col1-left tr>td:first-child{text-align:left;padding-left:54px}
+.tbl.tbl-center th,
+.tbl.tbl-center td {
+  text-align: center
+}
+
+.tbl.tbl-center .num {
+  text-align: center
+}
+
+.tbl.tbl-center.col1-left tr>th:first-child,
+.tbl.tbl-center.col1-left tr>td:first-child {
+  text-align: left;
+  padding-left: 54px
+}
+
 /* Scrolls, but paints no scrollbar track/thumb — for side panels where a
  * visible bar would clutter the layout (Packets & Lockers' locker column).
  * Wheel/trackpad/touch and keyboard scrolling all still work. */
-.scroll-hidden{overflow-y:auto;scrollbar-width:none;-ms-overflow-style:none}
-.scroll-hidden::-webkit-scrollbar{width:0;height:0;display:none}
-.tbl .id{font-size:12.5px;color:var(--gold-deep);font-weight:600;letter-spacing:.03em;white-space:nowrap}
-.tbl .sub{display:block;font-size:11.5px;color:var(--muted)}
+.scroll-hidden {
+  overflow-y: auto;
+  scrollbar-width: none;
+  -ms-overflow-style: none
+}
+
+.scroll-hidden::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+  display: none
+}
+
+.tbl .id {
+  font-size: 12.5px;
+  color: var(--gold-deep);
+  font-weight: 600;
+  letter-spacing: .03em;
+  white-space: nowrap
+}
+
+.tbl .sub {
+  display: block;
+  font-size: 11.5px;
+  color: var(--muted)
+}
 
 /* chips */
-.chip{
-  display:inline-block;font-size:11px;font-weight:600;letter-spacing:.06em;
-  padding:3px 10px;border-radius:11px;white-space:nowrap;
+.chip {
+  display: inline-block;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: .06em;
+  padding: 3px 10px;
+  border-radius: 11px;
+  white-space: nowrap;
 }
-.chip.green{background:var(--green-bg);color:var(--green)}
-.chip.red{background:var(--red-bg);color:var(--red)}
-.chip.amber{background:var(--amber-bg);color:var(--amber)}
-.chip.blue{background:var(--blue-bg);color:var(--blue)}
-.chip.gold{background:#f8eecb;color:var(--gold-deep)}
-.chip.gray{background:#efece2;color:#7b7359}
+
+.chip.green {
+  background: var(--green-bg);
+  color: var(--green)
+}
+
+.chip.red {
+  background: var(--red-bg);
+  color: var(--red)
+}
+
+.chip.amber {
+  background: var(--amber-bg);
+  color: var(--amber)
+}
+
+.chip.blue {
+  background: var(--blue-bg);
+  color: var(--blue)
+}
+
+.chip.gold {
+  background: #f8eecb;
+  color: var(--gold-deep)
+}
+
+.chip.gray {
+  background: #efece2;
+  color: #7b7359
+}
 
 /* tabs / filters */
-.tabs{
-  display:flex;gap:8px;align-items:center;
-  overflow-x:auto;flex-wrap:nowrap;
-  -webkit-overflow-scrolling:touch;
-  scroll-behavior:smooth;
-  padding:4px 4px 10px 4px;
-  margin-bottom:14px;
-  scrollbar-width:none;-ms-overflow-style:none;
+.tabs {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  overflow-x: auto;
+  flex-wrap: nowrap;
+  -webkit-overflow-scrolling: touch;
+  scroll-behavior: smooth;
+  padding: 4px 4px 10px 4px;
+  margin-bottom: 14px;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
 }
-.tabs::-webkit-scrollbar{display:none}
-.tabs button{
-  font:inherit;font-size:12.5px;padding:7px 16px;cursor:pointer;
-  border:1px solid rgba(201,151,28,.3);
-  background:rgba(255,253,247,.8);
-  backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);
-  border-radius:18px;color:var(--muted);
-  white-space:nowrap;flex-shrink:0;
-  box-shadow:0 2px 6px rgba(0,0,0,.03),inset 0 1px 0 rgba(255,255,255,.9);
-  transition:all .15s;
+
+.tabs::-webkit-scrollbar {
+  display: none
 }
-.tabs button:hover{
-  border-color:var(--gold);color:var(--ink);
-  background:rgba(255,255,255,.95);transform:translateY(-1px);
+
+.tabs button {
+  font: inherit;
+  font-size: 12.5px;
+  padding: 7px 16px;
+  cursor: pointer;
+  border: 1px solid rgba(201, 151, 28, .3);
+  background: rgba(255, 253, 247, .8);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border-radius: 18px;
+  color: var(--muted);
+  white-space: nowrap;
+  flex-shrink: 0;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, .03), inset 0 1px 0 rgba(255, 255, 255, .9);
+  transition: all .15s;
 }
-.tabs button.on{
-  background:linear-gradient(180deg,#eccd6f 0%,#9a6f0f 100%);
-  color:#fff;border-color:var(--gold-deep);
-  box-shadow:0 4px 14px rgba(154,111,15,.35),inset 0 1px 0 rgba(255,255,255,.4);
-  font-weight:600;
+
+.tabs button:hover {
+  border-color: var(--gold);
+  color: var(--ink);
+  background: rgba(255, 255, 255, .95);
+  transform: translateY(-1px);
+}
+
+.tabs button.on {
+  background: linear-gradient(180deg, #eccd6f 0%, #9a6f0f 100%);
+  color: #fff;
+  border-color: var(--gold-deep);
+  box-shadow: 0 4px 14px rgba(154, 111, 15, .35), inset 0 1px 0 rgba(255, 255, 255, .4);
+  font-weight: 600;
 }
 
 /* search */
-.search{position:relative;min-width:230px}
-.search input{padding-left:34px}
-.search svg{position:absolute;left:11px;top:50%;transform:translateY(-50%);width:15px;height:15px;color:var(--muted)}
+.search {
+  position: relative;
+  min-width: 230px
+}
+
+.search input {
+  padding-left: 34px
+}
+
+.search svg {
+  position: absolute;
+  left: 11px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 15px;
+  height: 15px;
+  color: var(--muted)
+}
 
 /* ── modal ──────────────────────────────── */
-.modal-bg{
-  position:fixed;inset:0;background:rgba(35,31,24,.55);backdrop-filter:blur(3px);
-  display:none;align-items:flex-start;justify-content:center;z-index:80;
-  padding:6vh 16px 16px;overflow-y:auto;
+.modal-bg {
+  position: fixed;
+  inset: 0;
+  background: rgba(35, 31, 24, .55);
+  backdrop-filter: blur(3px);
+  display: none;
+  align-items: flex-start;
+  justify-content: center;
+  z-index: 80;
+  padding: 6vh 16px 16px;
+  overflow-y: auto;
 }
-.modal-bg.open{display:flex}
-.modal{
-  background:var(--card);border-radius:10px;border:1px solid var(--line);
-  width:100%;max-width:520px;
-  box-shadow:0 30px 80px -20px rgba(30,24,10,.6);
-  position:relative;animation:pop .22s ease;
+
+.modal-bg.open {
+  display: flex
 }
-.modal.wide{max-width:760px}
-@keyframes pop{from{transform:translateY(14px);opacity:0}to{transform:none;opacity:1}}
+
+.modal {
+  background: var(--card);
+  border-radius: 10px;
+  border: 1px solid var(--line);
+  width: 100%;
+  max-width: 520px;
+  box-shadow: 0 30px 80px -20px rgba(30, 24, 10, .6);
+  position: relative;
+  animation: pop .22s ease;
+}
+
+.modal.wide {
+  max-width: 760px
+}
+
+@keyframes pop {
+  from {
+    transform: translateY(14px);
+    opacity: 0
+  }
+
+  to {
+    transform: none;
+    opacity: 1
+  }
+}
 
 /* Slide-up transition between the tabbed sub-tables on customer detail
    (Loan History / Ornaments / Payments / Bank Pledges / Auctions). */
-.tab-slide-up{animation:tabSlideUp .22s ease}
-@keyframes tabSlideUp{from{transform:translateY(10px);opacity:0}to{transform:none;opacity:1}}
+.tab-slide-up {
+  animation: tabSlideUp .22s ease
+}
+
+@keyframes tabSlideUp {
+  from {
+    transform: translateY(10px);
+    opacity: 0
+  }
+
+  to {
+    transform: none;
+    opacity: 1
+  }
+}
 
 /* Draws attention to the "set today's gold rate" recovery banner (NewLoan.tsx)
    when staff try to submit a loan without a published rate for today. */
-@keyframes shake{
-  10%,90%{transform:translateX(-1px)}
-  20%,80%{transform:translateX(2px)}
-  30%,50%,70%{transform:translateX(-4px)}
-  40%,60%{transform:translateX(4px)}
+@keyframes shake {
+
+  10%,
+  90% {
+    transform: translateX(-1px)
+  }
+
+  20%,
+  80% {
+    transform: translateX(2px)
+  }
+
+  30%,
+  50%,
+  70% {
+    transform: translateX(-4px)
+  }
+
+  40%,
+  60% {
+    transform: translateX(4px)
+  }
 }
-.shake-attention{animation:shake .5s cubic-bezier(.36,.07,.19,.97) both}
-.modal::before{
-  content:"";position:absolute;left:10px;right:10px;top:0;height:3px;border-radius:0 0 3px 3px;
-  background:linear-gradient(90deg,transparent,var(--gold-mid),transparent);
+
+.shake-attention {
+  animation: shake .5s cubic-bezier(.36, .07, .19, .97) both
 }
-.modal .hd{display:flex;align-items:center;padding:18px 22px 12px;border-bottom:1px solid #f0e7cd}
-.modal .hd h3{font-size:22px;font-weight:600;color:var(--charcoal)}
-.modal .hd .x{
-  margin-left:auto;border:0;background:none;font-size:22px;cursor:pointer;color:var(--muted);line-height:1;
+
+.modal::before {
+  content: "";
+  position: absolute;
+  left: 10px;
+  right: 10px;
+  top: 0;
+  height: 3px;
+  border-radius: 0 0 3px 3px;
+  background: linear-gradient(90deg, transparent, var(--gold-mid), transparent);
 }
-.modal .hd .x:hover{color:var(--red)}
-.modal .bd{padding:18px 22px}
-.modal .ft{padding:14px 22px;border-top:1px solid #f0e7cd;display:flex;gap:10px;justify-content:flex-end}
+
+.modal .hd {
+  display: flex;
+  align-items: center;
+  padding: 18px 22px 12px;
+  border-bottom: 1px solid #f0e7cd
+}
+
+.modal .hd h3 {
+  font-size: 22px;
+  font-weight: 600;
+  color: var(--charcoal)
+}
+
+.modal .hd .x {
+  margin-left: auto;
+  border: 0;
+  background: none;
+  font-size: 22px;
+  cursor: pointer;
+  color: var(--muted);
+  line-height: 1;
+}
+
+.modal .hd .x:hover {
+  color: var(--red)
+}
+
+.modal .bd {
+  padding: 18px 22px
+}
+
+.modal .ft {
+  padding: 14px 22px;
+  border-top: 1px solid #f0e7cd;
+  display: flex;
+  gap: 10px;
+  justify-content: flex-end
+}
 
 /* ── misc widgets ───────────────────────── */
-.rates3{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}
-.rate-tile{
-  border:1px solid var(--line);border-radius:8px;padding:13px 14px;text-align:center;
-  background:linear-gradient(180deg,#fffdf5,#fbf3dd);
+.rates3 {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px
 }
-.rate-tile .k{font-size:11px;letter-spacing:.22em;color:var(--muted);text-transform:uppercase}
-.rate-tile .r{font-family:'Bodoni Moda',serif;font-size:26px;font-weight:700;color:var(--gold-deep);margin-top:4px}
-.rate-tile .u{font-size:11px;color:var(--muted)}
 
-.mini-list{list-style:none}
-.mini-list li{
-  display:flex;align-items:center;gap:11px;padding:10px 2px;
-  border-bottom:1px solid #f2ead2;font-size:13.5px;
+.rate-tile {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 13px 14px;
+  text-align: center;
+  background: linear-gradient(180deg, #fffdf5, #fbf3dd);
 }
-.mini-list li:last-child{border-bottom:0}
-.mini-list .ic{
-  width:33px;height:33px;border-radius:8px;display:grid;place-content:center;flex-shrink:0;
-  background:#f8eecb;color:var(--gold-deep);
+
+.rate-tile .k {
+  font-size: 11px;
+  letter-spacing: .22em;
+  color: var(--muted);
+  text-transform: uppercase
 }
-.mini-list .ic svg{width:16px;height:16px}
-.mini-list .tx{flex:1;min-width:0}
-.mini-list .tx b{font-weight:600;font-size:13.5px;color:var(--charcoal)}
-.mini-list .tx small{display:block;color:var(--muted);font-size:11.5px}
-.mini-list .rt{text-align:right;font-size:12px;color:var(--muted);white-space:nowrap}
-.mini-list .rt b{display:block;font-size:13px;color:var(--charcoal)}
+
+.rate-tile .r {
+  font-family: 'Bodoni Moda', serif;
+  font-size: 26px;
+  font-weight: 700;
+  color: var(--gold-deep);
+  margin-top: 4px
+}
+
+.rate-tile .u {
+  font-size: 11px;
+  color: var(--muted)
+}
+
+.mini-list {
+  list-style: none
+}
+
+.mini-list li {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  padding: 10px 2px;
+  border-bottom: 1px solid #f2ead2;
+  font-size: 13.5px;
+}
+
+.mini-list li:last-child {
+  border-bottom: 0
+}
+
+.mini-list .ic {
+  width: 33px;
+  height: 33px;
+  border-radius: 8px;
+  display: grid;
+  place-content: center;
+  flex-shrink: 0;
+  background: #f8eecb;
+  color: var(--gold-deep);
+}
+
+.mini-list .ic svg {
+  width: 16px;
+  height: 16px
+}
+
+.mini-list .tx {
+  flex: 1;
+  min-width: 0
+}
+
+.mini-list .tx b {
+  font-weight: 600;
+  font-size: 13.5px;
+  color: var(--charcoal)
+}
+
+.mini-list .tx small {
+  display: block;
+  color: var(--muted);
+  font-size: 11.5px
+}
+
+.mini-list .rt {
+  text-align: right;
+  font-size: 12px;
+  color: var(--muted);
+  white-space: nowrap
+}
+
+.mini-list .rt b {
+  display: block;
+  font-size: 13px;
+  color: var(--charcoal)
+}
 
 /* bar chart (pure css) */
-.bars{display:flex;align-items:flex-end;gap:10px;height:130px;padding-top:8px}
-.bars .b{flex:1;display:flex;flex-direction:column;align-items:center;gap:6px;height:100%;justify-content:flex-end}
-.bars .b i{
-  width:100%;max-width:38px;border-radius:4px 4px 0 0;
-  background:linear-gradient(180deg,var(--gold-light),var(--gold-deep));
-  box-shadow:inset 0 1px 0 rgba(255,255,255,.4);
+.bars {
+  display: flex;
+  align-items: flex-end;
+  gap: 10px;
+  height: 130px;
+  padding-top: 8px
 }
-.bars .b span{font-size:10.5px;color:var(--muted);letter-spacing:.04em}
-.bars .b em{font-style:normal;font-size:10.5px;color:var(--gold-deep);font-weight:600}
+
+.bars .b {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  height: 100%;
+  justify-content: flex-end
+}
+
+.bars .b i {
+  width: 100%;
+  max-width: 38px;
+  border-radius: 4px 4px 0 0;
+  background: linear-gradient(180deg, var(--gold-light), var(--gold-deep));
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .4);
+}
+
+.bars .b span {
+  font-size: 10.5px;
+  color: var(--muted);
+  letter-spacing: .04em
+}
+
+.bars .b em {
+  font-style: normal;
+  font-size: 10.5px;
+  color: var(--gold-deep);
+  font-weight: 600
+}
 
 /* donut */
-.donut-wrap{display:flex;align-items:center;gap:18px}
-.donut{width:120px;height:120px;border-radius:50%;flex-shrink:0;position:relative}
-.donut::after{
-  content:"";position:absolute;inset:20px;border-radius:50%;background:var(--card);
-  box-shadow:inset 0 1px 4px rgba(120,86,20,.15);
+.donut-wrap {
+  display: flex;
+  align-items: center;
+  gap: 18px
 }
-.donut .c{position:absolute;inset:20px;display:grid;place-content:center;text-align:center;z-index:1}
-.donut .c b{font-family:'Bodoni Moda',serif;font-size:14px;color:var(--charcoal)}
-.donut .c small{font-size:8px;letter-spacing:.14em;color:var(--muted);text-transform:uppercase}
-.legend{list-style:none;font-size:11px;flex:1}
-.legend li{display:flex;align-items:center;gap:8px;padding:3px 0;color:var(--ink)}
-.legend i{width:10px;height:10px;border-radius:3px;flex-shrink:0}
-.legend b{margin-left:auto;font-variant-numeric:tabular-nums}
+
+.donut {
+  width: 120px;
+  height: 120px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  position: relative
+}
+
+.donut::after {
+  content: "";
+  position: absolute;
+  inset: 20px;
+  border-radius: 50%;
+  background: var(--card);
+  box-shadow: inset 0 1px 4px rgba(120, 86, 20, .15);
+}
+
+.donut .c {
+  position: absolute;
+  inset: 20px;
+  display: grid;
+  place-content: center;
+  text-align: center;
+  z-index: 1
+}
+
+.donut .c b {
+  font-family: 'Bodoni Moda', serif;
+  font-size: 14px;
+  color: var(--charcoal)
+}
+
+.donut .c small {
+  font-size: 8px;
+  letter-spacing: .14em;
+  color: var(--muted);
+  text-transform: uppercase
+}
+
+.legend {
+  list-style: none;
+  font-size: 11px;
+  flex: 1
+}
+
+.legend li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 3px 0;
+  color: var(--ink)
+}
+
+.legend i {
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
+  flex-shrink: 0
+}
+
+.legend b {
+  margin-left: auto;
+  font-variant-numeric: tabular-nums
+}
 
 /* calendar */
-.cal{width:100%;min-width:0;max-width:100%;border-collapse:collapse;table-layout:fixed}
-.cal th{font-size:10px;letter-spacing:.2em;color:var(--muted);padding:6px 4px;text-transform:uppercase}
-.cal td{
-  border:1px solid #f0e7cd;height:74px;vertical-align:top;padding:4px 6px;font-size:12px;
+.cal {
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed
 }
-.cal td .d{font-size:11.5px;color:var(--muted)}
-.cal td.today{background:#fdf6dd;border-color:var(--gold-light)}
-.cal td.today .d{color:var(--gold-deep);font-weight:700}
-.cal .ev{
-  display:block;font-size:10.5px;border-radius:4px;padding:1px 5px;margin-top:3px;
-  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+
+.cal th {
+  font-size: 10px;
+  letter-spacing: .2em;
+  color: var(--muted);
+  padding: 6px 4px;
+  text-transform: uppercase
 }
-.cal .ev.due{background:var(--amber-bg);color:var(--amber)}
-.cal .ev.over{background:var(--red-bg);color:var(--red)}
-.cal .ev.fup{background:var(--blue-bg);color:var(--blue)}
-.cal .ev.pay{background:var(--green-bg);color:var(--green)}
+
+.cal td {
+  border: 1px solid #f0e7cd;
+  height: 74px;
+  vertical-align: top;
+  padding: 4px 6px;
+  font-size: 12px;
+}
+
+.cal td .d {
+  font-size: 11.5px;
+  color: var(--muted)
+}
+
+.cal td.today {
+  background: #fdf6dd;
+  border-color: var(--gold-light)
+}
+
+.cal td.today .d {
+  color: var(--gold-deep);
+  font-weight: 700
+}
+
+.cal .ev {
+  display: block;
+  font-size: 10.5px;
+  border-radius: 4px;
+  padding: 1px 5px;
+  margin-top: 3px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.cal .ev.due {
+  background: var(--amber-bg);
+  color: var(--amber)
+}
+
+.cal .ev.over {
+  background: var(--red-bg);
+  color: var(--red)
+}
+
+.cal .ev.fup {
+  background: var(--blue-bg);
+  color: var(--blue)
+}
+
+.cal .ev.pay {
+  background: var(--green-bg);
+  color: var(--green)
+}
 
 /* timeline / tracker */
-.track{display:flex;gap:0;overflow-x:auto;padding:8px 0 4px}
-.track .st{flex:1;min-width:86px;text-align:center;position:relative;font-size:11px;color:var(--muted)}
-.track .st::before{
-  content:"";display:block;width:13px;height:13px;border-radius:50%;margin:0 auto 6px;
-  background:#e7dfc6;border:2px solid #d8cda6;position:relative;z-index:1;
+.track {
+  display: flex;
+  gap: 0;
+  overflow-x: auto;
+  padding: 8px 0 4px
 }
-.track .st::after{
-  content:"";position:absolute;top:6px;left:-50%;width:100%;height:2px;background:#e7dfc6;
+
+.track .st {
+  flex: 1;
+  min-width: 86px;
+  text-align: center;
+  position: relative;
+  font-size: 11px;
+  color: var(--muted)
 }
-.track .st:first-child::after{display:none}
-.track .st.done::before{background:var(--gold-mid);border-color:var(--gold-deep)}
-.track .st.done::after{background:var(--gold-mid)}
-.track .st.done{color:var(--gold-deep);font-weight:600}
-.track .st.on{color:var(--ink);font-weight:600}
-.track .st.on::before{border-color:var(--gold-deep)}
+
+.track .st::before {
+  content: "";
+  display: block;
+  width: 13px;
+  height: 13px;
+  border-radius: 50%;
+  margin: 0 auto 6px;
+  background: #e7dfc6;
+  border: 2px solid #d8cda6;
+  position: relative;
+  z-index: 1;
+}
+
+.track .st::after {
+  content: "";
+  position: absolute;
+  top: 6px;
+  left: -50%;
+  width: 100%;
+  height: 2px;
+  background: #e7dfc6;
+}
+
+.track .st:first-child::after {
+  display: none
+}
+
+.track .st.done::before {
+  background: var(--gold-mid);
+  border-color: var(--gold-deep)
+}
+
+.track .st.done::after {
+  background: var(--gold-mid)
+}
+
+.track .st.done {
+  color: var(--gold-deep);
+  font-weight: 600
+}
+
+.track .st.on {
+  color: var(--ink);
+  font-weight: 600
+}
+
+.track .st.on::before {
+  border-color: var(--gold-deep)
+}
 
 /* detail head */
-.dhead{display:flex;gap:16px;align-items:center;flex-wrap:wrap}
-.dhead .big-av{
-  width:58px;height:58px;border-radius:50%;
-  background:linear-gradient(135deg,var(--gold-light),var(--gold-deep));
-  color:#2b2001;display:grid;place-content:center;font-weight:600;font-size:21px;
-  box-shadow:0 0 0 3px #fff,0 0 0 4px rgba(201,151,28,.4);flex-shrink:0;
+.dhead {
+  display: flex;
+  gap: 16px;
+  align-items: center;
+  flex-wrap: wrap
 }
-.kv{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:12px 20px}
+
+.dhead .big-av {
+  width: 58px;
+  height: 58px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, var(--gold-light), var(--gold-deep));
+  color: #2b2001;
+  display: grid;
+  place-content: center;
+  font-weight: 600;
+  font-size: 21px;
+  box-shadow: 0 0 0 3px #fff, 0 0 0 4px rgba(201, 151, 28, .4);
+  flex-shrink: 0;
+}
+
+.kv {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 12px 20px
+}
+
 /* CustomerDetail.tsx's merged "Customer Profile" card packs 4 former
  * cards' worth of rows into one — tighter than the default .kv/h4 spacing
  * elsewhere, which read as too airy once everything sits in one card.
  * Scoped to this card only (via .cust-profile) so no other .kv usage is
  * affected. */
-.cust-profile .kv{gap:8px 20px}
-.cust-profile-h4{margin:14px 0 8px;font-size:13px;letter-spacing:.04em}
-.kv .i .k{font-size:10.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--muted)}
-.kv .i .v{font-size:14px;color:var(--charcoal);margin-top:2px;font-weight:500}
+.cust-profile .kv {
+  gap: 8px 20px
+}
+
+.cust-profile-h4 {
+  margin: 14px 0 8px;
+  font-size: 13px;
+  letter-spacing: .04em
+}
+
+.kv .i .k {
+  font-size: 10.5px;
+  letter-spacing: .14em;
+  text-transform: uppercase;
+  color: var(--muted)
+}
+
+.kv .i .v {
+  font-size: 14px;
+  color: var(--charcoal);
+  margin-top: 2px;
+  font-weight: 500
+}
+
 /* Loan Schemes cards only — a long Method value ("Monthly simple
  * interest") wraps to 2 lines while its neighbors stay 1 line, which
  * shifts that one card's dashed divider (the `.cond` paragraph's
  * border-top) down relative to the other cards in the same grid row.
  * Reserve 2 lines' height on every value cell so the divider lands at
  * the same offset in every card regardless of which values wrap. */
-.scheme-kv .i .v{min-height:36px;line-height:18px}
+.scheme-kv .i .v {
+  min-height: 36px;
+  line-height: 18px
+}
 
-.empty{padding:34px;text-align:center;color:var(--muted);font-size:13.5px}
+.empty {
+  padding: 34px;
+  text-align: center;
+  color: var(--muted);
+  font-size: 13.5px
+}
+
 /* Empty message inside a table that pads itself out with .filler rows — the
  * usual 34px would push such a table past its normal full-page height. */
-.empty.compact{padding:14px}
+.empty.compact {
+  padding: 14px
+}
+
 /* Blank rows that hold a short/empty page at its full row count so the card
  * keeps one height instead of shrinking to fit the content. */
-.tbl tr.filler td{height:43px;color:transparent}
-.tbl tbody tr.filler:hover{background:transparent}
-.notice{
-  background:#fdf6dd;border:1px solid var(--gold-light);border-radius:8px;
-  padding:10px 14px;font-size:12.5px;color:#6b5307;display:flex;gap:9px;align-items:center;
+.tbl tr.filler td {
+  height: 43px;
+  color: transparent
 }
-.notice svg{width:15px;height:15px;flex-shrink:0;color:var(--gold-deep)}
+
+.tbl tbody tr.filler:hover {
+  background: transparent
+}
+
+.notice {
+  background: #fdf6dd;
+  border: 1px solid var(--gold-light);
+  border-radius: 8px;
+  padding: 10px 14px;
+  font-size: 12.5px;
+  color: #6b5307;
+  display: flex;
+  gap: 9px;
+  align-items: center;
+}
+
+.notice svg {
+  width: 15px;
+  height: 15px;
+  flex-shrink: 0;
+  color: var(--gold-deep)
+}
 
 /* toast */
-#toast{
-  position:fixed;bottom:22px;left:50%;transform:translateX(-50%) translateY(20px);
-  background:var(--charcoal);color:#f0dc9d;font-size:13.5px;letter-spacing:.03em;
-  padding:11px 22px;border-radius:8px;border:1px solid rgba(201,151,28,.5);
-  opacity:0;pointer-events:none;transition:all .3s;z-index:99;white-space:nowrap;
-  box-shadow:0 14px 40px -10px rgba(0,0,0,.5);
+#toast {
+  position: fixed;
+  bottom: 22px;
+  left: 50%;
+  transform: translateX(-50%) translateY(20px);
+  background: var(--charcoal);
+  color: #f0dc9d;
+  font-size: 13.5px;
+  letter-spacing: .03em;
+  padding: 11px 22px;
+  border-radius: 8px;
+  border: 1px solid rgba(201, 151, 28, .5);
+  opacity: 0;
+  pointer-events: none;
+  transition: all .3s;
+  z-index: 99;
+  white-space: nowrap;
+  box-shadow: 0 14px 40px -10px rgba(0, 0, 0, .5);
 }
-#toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+
+#toast.show {
+  opacity: 1;
+  transform: translateX(-50%) translateY(0)
+}
 
 /* hamburger for mobile */
-.burger{display:none;border:1px solid var(--line);background:#fff;border-radius:6px;padding:6px 9px;cursor:pointer}
-.burger svg{width:18px;height:18px;display:block;color:var(--ink)}
-
-@media(max-width:1060px){
-  .frow.c4{grid-template-columns:1fr 1fr}
-  .grid.cols21,.grid.cols12,.grid.cols12.cust-360{grid-template-columns:1fr}
+.burger {
+  display: none;
+  border: 1px solid var(--line);
+  background: #fff;
+  border-radius: 6px;
+  padding: 6px 9px;
+  cursor: pointer
 }
-@media(max-width:900px){
-  .side{transform:translateX(-100%);transition:transform .25s}
-  .side.open{transform:none;box-shadow:20px 0 60px rgba(0,0,0,.4)}
-  .main{margin-left:0;width:100%}
-  .burger{display:block}
-  .rates3{grid-template-columns:1fr}
-  .frow.c2,.frow.c3{grid-template-columns:1fr}
-  .top{padding:11px 14px;gap:10px}
-  .top .rate-chip{display:none}
-  .top .crumb{display:none}
-  .top .user .nm{display:none}
-  .gsearch kbd{display:none}
-  .gsearch input{padding-right:14px}
-  .gsearch{min-width:0}
-  .page-h h1{font-size:23px;font-weight:800;letter-spacing:.015em}
-  .card .hd h3{font-size:17.5px;font-weight:700}
-  .kpi .v{font-weight:800}
-  .page-h p{font-size:12.5px}
-  .modal .bd,.modal .hd,.modal .ft{padding-left:16px;padding-right:16px}
-  .kpis{grid-template-columns:1fr 1fr}
-  .donut-wrap{flex-direction:column;align-items:flex-start}
-  .page{padding:18px 14px 50px}
-  .tabs{
-    margin:0 -14px 14px -14px;
-    padding:6px 14px 10px 14px;
+
+.burger svg {
+  width: 18px;
+  height: 18px;
+  display: block;
+  color: var(--ink)
+}
+
+@media(max-width:1060px) {
+  .frow.c4 {
+    grid-template-columns: 1fr 1fr
   }
-  .card{
-    background:rgba(255,253,247,.75);
-    backdrop-filter:blur(18px) saturate(180%);
-    -webkit-backdrop-filter:blur(18px) saturate(180%);
-    box-shadow:0 10px 32px -8px rgba(120,86,20,.16),inset 0 1px 1px rgba(255,255,255,.95);
+
+  .grid.cols21,
+  .grid.cols12,
+  .grid.cols12.cust-360 {
+    grid-template-columns: 1fr
   }
-  .kpi{
-    background:rgba(255,253,247,.78);
-    backdrop-filter:blur(16px) saturate(180%);
-    -webkit-backdrop-filter:blur(16px) saturate(180%);
-    box-shadow:0 8px 24px -6px rgba(120,86,20,.14),inset 0 1px 1px rgba(255,255,255,.95);
+}
+
+@keyframes expandSearchRight {
+  from {
+    opacity: 0.3;
+    transform: scaleX(0.2);
   }
-  .tbl-wrap{
-    background:rgba(255,253,247,.6);
-    backdrop-filter:blur(16px) saturate(160%);
-    -webkit-backdrop-filter:blur(16px) saturate(160%);
-    border:1px solid rgba(201,151,28,.28);
+  to {
+    opacity: 1;
+    transform: scaleX(1);
+  }
+}
+
+/* ── screens 1559px and below: collapsible search & responsive gold rate ── */
+@media (max-width: 1559px) {
+  /* Default: search is closed and starts 200px to the right */
+  .gsearch {
+    flex: 0 0 auto;
+    max-width: none;
+    min-width: 0;
+    margin-left: 200px;
+    margin-right: 0;
+  }
+  .gsearch:not(.gsearch-expanded) .gsearch-trigger {
+    display: flex;
+  }
+  .gsearch:not(.gsearch-expanded) .gsearch-bar {
+    display: none;
+  }
+
+  /* When opened: becomes a normal search bar, expanding to the right */
+  .gsearch.gsearch-expanded {
+    flex: 1;
+    max-width: 320px;
+    min-width: 0;
+    margin-left: 200px;
+    margin-right: 4px;
+    transform-origin: left center;
+  }
+  .gsearch.gsearch-expanded .gsearch-trigger {
+    display: none;
+  }
+  .gsearch.gsearch-expanded .gsearch-bar {
+    display: flex;
+    width: 100%;
+    min-width: 0;
+    transform-origin: left center;
+    animation: expandSearchRight .22s cubic-bezier(.16, 1, .3, 1) forwards;
+  }
+  .gsearch.gsearch-expanded input {
+    width: 100%;
+    min-width: 0;
+    padding-right: 32px;
+  }
+  .gsearch.gsearch-expanded kbd {
+    display: none;
+  }
+  .gsearch.gsearch-expanded .gsearch-close {
+    display: block;
+    position: absolute;
+    right: 8px;
+    top: 50%;
+    transform: translateY(-50%);
+  }
+
+  /* Below 1560px the org name is dropped even with search collapsed to its
+   * icon — this width is narrow enough that "Ambika Gold Finance /" is
+   * clutter, and the page name alone ("Loans") is what actually orients
+   * the reader. Search open or not, only the page name shows here. */
+  .top .crumb-org {
+    display: none;
+  }
+  .top .crumb {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    flex-shrink: 1;
+  }
+  /* Once search is actually expanded it competes hard for space, so cap
+   * the page name itself to keep the search bar's room to grow. */
+  .top.search-open .crumb {
+    max-width: 110px;
+    min-width: 60px;
+    display: block;
+  }
+  .top.search-open {
+    gap: 8px;
+    max-width: 100%;
+    overflow: hidden;
+  }
+
+  /* Side gold rate: expanded when search closed, shrinks when search open */
+  .top .rate-chip {
+    display: flex;
+    transition: all .2s ease;
+    flex-shrink: 0;
+  }
+  .top.search-open .rate-chip,
+  .top .rate-chip.rate-chip-shrunk {
+    padding: 5px 10px;
+    gap: 6px;
+    font-size: 11.5px;
+  }
+  .top.search-open .rate-chip .rate-full,
+  .top .rate-chip.rate-chip-shrunk .rate-full {
+    display: none;
+  }
+  .top.search-open .rate-chip .rate-compact,
+  .top .rate-chip.rate-chip-shrunk .rate-compact {
+    display: inline;
+  }
+}
+
+@media(max-width:900px) {
+  .side {
+    transform: translateX(-100%);
+    transition: transform .25s
+  }
+
+  .side.open {
+    transform: none;
+    box-shadow: 20px 0 60px rgba(0, 0, 0, .4)
+  }
+
+  .main {
+    margin-left: 0;
+    width: 100%
+  }
+
+  .burger {
+    display: block
+  }
+
+  .rates3 {
+    grid-template-columns: 1fr
+  }
+
+  .frow.c2,
+  .frow.c3 {
+    grid-template-columns: 1fr
+  }
+
+  .top {
+    padding: 11px 14px;
+    gap: 10px
+  }
+
+  .top .crumb {
+    display: none
+  }
+
+  .top .user .nm {
+    display: none
+  }
+
+  .top.search-open .gsearch.gsearch-expanded {
+    flex: 1;
+    max-width: none;
+    min-width: 0;
+    margin: 0 4px;
+  }
+
+  .gsearch kbd {
+    display: none
+  }
+
+  .gsearch input {
+    padding-right: 14px
+  }
+
+  .gsearch {
+    min-width: 0
+  }
+
+  .page-h h1 {
+    font-size: 23px;
+    font-weight: 800;
+    letter-spacing: .015em
+  }
+
+  .card .hd h3 {
+    font-size: 17.5px;
+    font-weight: 700
+  }
+
+  .kpi .v {
+    font-weight: 800
+  }
+
+  .page-h p {
+    font-size: 12.5px
+  }
+
+  .modal .bd,
+  .modal .hd,
+  .modal .ft {
+    padding-left: 16px;
+    padding-right: 16px
+  }
+
+  .kpis {
+    grid-template-columns: 1fr 1fr
+  }
+
+  .donut-wrap {
+    flex-direction: column;
+    align-items: flex-start
+  }
+
+  .page {
+    padding: 28px 6px 50px
+  }
+
+  .page-h {
+    gap: 14px 14px;
+    row-gap: 16px
+  }
+
+  .tabs {
+    margin: 0 -6px 14px -6px;
+    padding: 6px 6px 10px 6px;
+  }
+
+  .card {
+    background: rgba(255, 253, 247, .75);
+    backdrop-filter: blur(18px) saturate(180%);
+    -webkit-backdrop-filter: blur(18px) saturate(180%);
+    box-shadow: 0 10px 32px -8px rgba(120, 86, 20, .16), inset 0 1px 1px rgba(255, 255, 255, .95);
+  }
+
+  .kpi {
+    background: rgba(255, 253, 247, .78);
+    backdrop-filter: blur(16px) saturate(180%);
+    -webkit-backdrop-filter: blur(16px) saturate(180%);
+    box-shadow: 0 8px 24px -6px rgba(120, 86, 20, .14), inset 0 1px 1px rgba(255, 255, 255, .95);
+  }
+
+  .tbl-wrap {
+    background: rgba(255, 253, 247, .6);
+    backdrop-filter: blur(16px) saturate(160%);
+    -webkit-backdrop-filter: blur(16px) saturate(160%);
+    border: 1px solid rgba(201, 151, 28, .28);
   }
 }
 
@@ -886,38 +3090,128 @@ table.tbl{width:100%;border-collapse:separate;border-spacing:0;font-size:13.5px;
 /* Roles & Permissions — a flat list of module sections (stacked full-width
  * rows) instead of a multi-column card grid, per module. Each module's own
  * permissions are still a list of individually-toggleable rows. */
-.perm-list{display:flex;flex-direction:column;border:1px solid var(--line);border-radius:8px;overflow:hidden}
-.perm-list-mod{border-bottom:1px solid var(--line)}
-.perm-list-mod:last-child{border-bottom:0}
-.perm-list-mod-name{
-  padding:10px 16px;font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;
-  color:var(--gold-deep);background:#fbf6e9;border-bottom:1px solid #f0e7cd;
+.perm-list {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  overflow: hidden
 }
-.perm-list-rows{display:flex;flex-direction:column}
-.perm-list-row{padding:10px 16px!important;border-bottom:1px solid #f2ead2}
-.perm-list-row:last-child{border-bottom:0}
+
+.perm-list-mod {
+  border-bottom: 1px solid var(--line)
+}
+
+.perm-list-mod:last-child {
+  border-bottom: 0
+}
+
+.perm-list-mod-name {
+  padding: 10px 16px;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  color: var(--gold-deep);
+  background: #fbf6e9;
+  border-bottom: 1px solid #f0e7cd;
+}
+
+.perm-list-rows {
+  display: flex;
+  flex-direction: column
+}
+
+.perm-list-row {
+  padding: 10px 16px !important;
+  border-bottom: 1px solid #f2ead2
+}
+
+.perm-list-row:last-child {
+  border-bottom: 0
+}
+
 /* The row aligns its checkbox to the TOP of a two-line block (name +
  * description), so the box and the first line have to share a line box or
  * the box reads as sitting high. Both are 16px tall and start at the same
  * y, which puts their centres on the same pixel — no nudge constant. */
-.perm-list-row .mark{margin-top:0}
-.perm-list-row b{display:block;line-height:16px}
-.cradio,.ccheck{display:flex;gap:8px;align-items:flex-start;cursor:pointer;position:relative}
-.cradio input,.ccheck input{position:absolute;opacity:0;width:16px;height:16px;margin:0;cursor:pointer}
-.cradio .mark,.ccheck .mark{
-  flex:0 0 auto;width:16px;height:16px;margin-top:1px;
-  border:1.5px solid var(--line);background:var(--card);
-  transition:border-color .15s,background .15s;
+.perm-list-row .mark {
+  margin-top: 0
 }
-.cradio .mark{border-radius:50%}
-.ccheck .mark{border-radius:4px;display:grid;place-content:center}
-.cradio input:checked + .mark{border-color:var(--gold-deep)}
-.cradio input:checked + .mark::after{
-  content:"";position:absolute;width:8px;height:8px;border-radius:50%;
-  background:var(--gold-deep);margin:4px 0 0 4px;
+
+.perm-list-row b {
+  display: block;
+  line-height: 16px
 }
-.ccheck input:checked + .mark{border-color:var(--gold-deep);background:var(--gold-deep)}
-.ccheck input:checked + .mark::after{content:"";width:9px;height:6px;border-left:2px solid #fff;border-bottom:2px solid #fff;transform:rotate(-45deg) translateY(-1px)}
+
+.cradio,
+.ccheck {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  cursor: pointer;
+  position: relative
+}
+
+.cradio input,
+.ccheck input {
+  position: absolute;
+  opacity: 0;
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  cursor: pointer
+}
+
+.cradio .mark,
+.ccheck .mark {
+  flex: 0 0 auto;
+  width: 16px;
+  height: 16px;
+  margin-top: 1px;
+  border: 1.5px solid var(--line);
+  background: var(--card);
+  transition: border-color .15s, background .15s;
+}
+
+.cradio .mark {
+  border-radius: 50%
+}
+
+.ccheck .mark {
+  border-radius: 4px;
+  display: grid;
+  place-content: center
+}
+
+.cradio input:checked+.mark {
+  border-color: var(--gold-deep)
+}
+
+.cradio input:checked+.mark::after {
+  content: "";
+  position: absolute;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--gold-deep);
+  margin: 4px 0 0 4px;
+}
+
+.ccheck input:checked+.mark {
+  border-color: var(--gold-deep);
+  background: var(--gold-deep)
+}
+
+.ccheck input:checked+.mark::after {
+  content: "";
+  width: 9px;
+  height: 6px;
+  border-left: 2px solid #fff;
+  border-bottom: 2px solid #fff;
+  transform: rotate(-45deg) translateY(-1px)
+}
+
 /* The mark aligns to the TOP of the label text (align-items:flex-start,
  * above) so a wrapped multi-line label doesn't drag it down to the
  * vertical middle of the whole block — but with no explicit line-height on
@@ -928,36 +3222,175 @@ table.tbl{width:100%;border-collapse:separate;border-spacing:0;font-size:13.5px;
  * text's own line-height to the mark's box height (plus the same 1px
  * margin-top the mark already uses) guarantees their first lines share one
  * center regardless of surrounding font-size overrides. */
-.cradio>span:last-child,.ccheck>span:last-child{display:inline-block;line-height:18px}
-.cradio input:disabled + .mark,.ccheck input:disabled + .mark{opacity:.5;cursor:not-allowed}
-.cradio input:disabled,.ccheck input:disabled{cursor:not-allowed}
-.cradio input:focus-visible + .mark,.ccheck input:focus-visible + .mark{outline:2px solid var(--gold-deep);outline-offset:2px}
+.cradio>span:last-child,
+.ccheck>span:last-child {
+  display: inline-block;
+  line-height: 18px
+}
+
+.cradio input:disabled+.mark,
+.ccheck input:disabled+.mark {
+  opacity: .5;
+  cursor: not-allowed
+}
+
+.cradio input:disabled,
+.ccheck input:disabled {
+  cursor: not-allowed
+}
+
+.cradio input:focus-visible+.mark,
+.ccheck input:focus-visible+.mark {
+  outline: 2px solid var(--gold-deep);
+  outline-offset: 2px
+}
 
 /* ── additive small-phone / orientation rules (new requirement) ──
    Only tightens things further below the existing 900px breakpoint and
    handles short landscape phone heights; does not alter anything above
    900px or the existing tablet layout. */
 @media (max-width: 480px) {
-  .page{padding:14px 10px 40px}
-  .page-h h1{font-size:20px}
-  .kpis{grid-template-columns:1fr}
-  .frow.c2,.frow.c3,.frow.c4{grid-template-columns:1fr}
-  .top{padding:9px 10px;gap:8px}
-  .gsearch{max-width:none}
-  .modal{max-width:100%;border-radius:8px}
-  .kv{grid-template-columns:1fr 1fr}
-  .dhead{gap:10px}
-  .dhead .big-av{width:46px;height:46px;font-size:17px}
-  .tabs{
-    margin:0 -10px 14px -10px;
-    padding:6px 10px 10px 10px;
+  .page {
+    padding: 22px 6px 40px
   }
-  .tabs button{padding:6px 13px;font-size:11.5px}
+
+  .page-h h1 {
+    font-size: 20px
+  }
+
+  .kpis {
+    grid-template-columns: 1fr
+  }
+
+  .frow.c2,
+  .frow.c3,
+  .frow.c4 {
+    grid-template-columns: 1fr
+  }
+
+  /* PurityPicker's Karat/Fineness toggle and its search/value field —
+   * side by side, they crushed "Fineness" down to a clipped "Finenes" and
+   * left the value box a sliver even at the field's own full card width.
+   * Two lines instead: the toggle spans the width on its own line, the
+   * search field spans it on the next. */
+  .pur-row {
+    flex-direction: column;
+    height: auto;
+    gap: 6px
+  }
+
+  .pur-toggle,
+  .pur-search {
+    flex: none;
+    width: 100%;
+    height: 31px
+  }
+
+  .top {
+    padding: 9px 10px;
+    gap: 8px
+  }
+
+  .gsearch {
+    max-width: none
+  }
+
+  .modal {
+    max-width: 100%;
+    border-radius: 8px
+  }
+
+  .kv {
+    grid-template-columns: 1fr 1fr
+  }
+
+  .dhead {
+    gap: 10px
+  }
+
+  .dhead .big-av {
+    width: 46px;
+    height: 46px;
+    font-size: 17px
+  }
+
+  .tabs {
+    margin: 0 -6px 14px -6px;
+    padding: 6px 6px 10px 6px;
+  }
+
+  .tabs button {
+    padding: 6px 13px;
+    font-size: 11.5px
+  }
 }
+
 @media (max-height: 480px) and (orientation: landscape) {
-  .side{width:210px}
-  .main{margin-left:0;width:100%}
-  .top{padding:8px 12px}
-  .page{padding:12px 14px 30px}
-  .modal-bg{padding:3vh 12px 12px}
+  .side {
+    width: 210px
+  }
+
+  .main {
+    margin-left: 0;
+    width: 100%
+  }
+
+  .top {
+    padding: 8px 12px
+  }
+
+  .page {
+    padding: 12px 6px 30px
+  }
+
+  .modal-bg {
+    padding: 3vh 12px 12px
+  }
+}
+
+/* ── compact modals on 832px and 728px screen heights (stop scrolling via reduced line spacing) ── */
+@media (max-height: 850px) {
+  .modal-bg {
+    padding: 8px 12px;
+  }
+  .modal {
+    max-height: calc(100vh - 16px);
+  }
+  .modal .hd {
+    padding: 8px 16px;
+  }
+  .modal .hd h3 {
+    font-size: 15px;
+  }
+  .modal .bd {
+    padding: 8px 16px;
+    gap: 4px;
+    overflow-y: hidden; /* Stops scrolling on 832px screen heights */
+  }
+  .modal .ft {
+    padding: 7px 16px;
+  }
+  .modal .frow {
+    margin: 4px 0;
+    gap: 8px;
+  }
+  .modal .f {
+    margin: 0 0 2px;
+    font-size: 10.5px;
+  }
+  .modal .inp,
+  .modal input,
+  .modal select {
+    height: 28px;
+    padding: 3px 8px;
+    font-size: 12px;
+  }
+  .modal .fi {
+    height: 28px;
+    padding: 0 8px;
+    font-size: 11px;
+  }
+  .modal textarea {
+    min-height: 44px;
+  }
 }

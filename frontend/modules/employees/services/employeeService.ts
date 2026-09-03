@@ -1,4 +1,5 @@
 import { apiFetchEnveloped as apiFetch } from "@/common/services/httpClient";
+import { isSmallScreen } from "@/common/utils/responsive";
 
 /* Shape returned by the Go backend (backend/internal/employee/model.go). */
 export type BackendEmployee = {
@@ -77,15 +78,19 @@ export async function listEmployees(): Promise<EmployeeView[]> {
 }
 
 /* Page size for the paginated Employees table (Employees.tsx). */
-export const EMPLOYEES_PAGE_SIZE = 11;
+export const EMPLOYEES_PAGE_SIZE = 12;
 
-export async function listEmployeesPage(page: number): Promise<{ items: EmployeeView[]; hasMore: boolean }> {
+export async function listEmployeesPage(
+  page: number,
+  limit?: number
+): Promise<{ items: EmployeeView[]; hasMore: boolean; total: number }> {
+  const pageSize = limit ?? (isSmallScreen() ? 8 : 12);
   const params = new URLSearchParams({
-    limit: String(EMPLOYEES_PAGE_SIZE),
-    offset: String((page - 1) * EMPLOYEES_PAGE_SIZE),
+    limit: String(pageSize),
+    offset: String((page - 1) * pageSize),
   });
-  const rec = await apiFetch<{ items: BackendEmployee[]; hasMore: boolean }>(`/employees?${params}`);
-  return { items: (rec?.items || []).map(toView), hasMore: !!rec?.hasMore };
+  const rec = await apiFetch<{ items: BackendEmployee[]; hasMore: boolean; total?: number }>(`/employees?${params}`);
+  return { items: (rec?.items || []).map(toView), hasMore: !!rec?.hasMore, total: rec?.total ?? 0 };
 }
 
 export async function getEmployee(id: number): Promise<EmployeeView> {

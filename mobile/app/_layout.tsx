@@ -1,11 +1,11 @@
 import { useEffect, useState } from "react";
 import { Slot, useRouter, useSegments } from "expo-router";
 import { QueryClient, QueryClientProvider, focusManager } from "@tanstack/react-query";
-import { useFonts, Jost_400Regular, Jost_500Medium, Jost_600SemiBold } from "@expo-google-fonts/jost";
+import { useFonts, Jost_400Regular, Jost_500Medium, Jost_600SemiBold, Jost_700Bold } from "@expo-google-fonts/jost";
 import { NunitoSans_800ExtraBold } from "@expo-google-fonts/nunito-sans";
 import * as SplashScreen from "expo-splash-screen";
 import { Asset } from "expo-asset";
-import { View, ActivityIndicator, AppState, type AppStateStatus } from "react-native";
+import { View, ActivityIndicator, AppState, type AppStateStatus, StatusBar as RNStatusBar, Platform } from "react-native";
 import { StatusBar } from "expo-status-bar";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
@@ -37,6 +37,22 @@ AppState.addEventListener("change", (status: AppStateStatus) => {
 // the inset area explicitly, on top of every navigator, so it always matches
 // the theme. (`expo-status-bar`'s backgroundColor can't do this job any
 // more — it's a no-op under edge-to-edge.)
+// expo-status-bar's <StatusBar> dropped `backgroundColor`/`translucent`
+// props in this SDK (they're a no-op under enforced edge-to-edge anyway —
+// see StatusBarBackdrop's comment below), so on Android 14 and older (and
+// in Expo Go, where app.json's native androidStatusBar config never
+// applies) the OS still reserves an opaque, black-by-default system-bar
+// area unless told otherwise imperatively. This runs once, setting the
+// same translucent+transparent state app.json's `androidStatusBar` bakes
+// into the native build, so both paths agree everywhere.
+function useAndroidStatusBarTranslucency() {
+  useEffect(() => {
+    if (Platform.OS !== "android") return;
+    RNStatusBar.setTranslucent(true);
+    RNStatusBar.setBackgroundColor("transparent");
+  }, []);
+}
+
 function StatusBarBackdrop() {
   const insets = useSafeAreaInsets();
   return (
@@ -58,6 +74,7 @@ function RootNavigation() {
   const { employee, isLoading } = useAuth();
   const segments = useSegments();
   const router = useRouter();
+  useAndroidStatusBarTranslucency();
 
   useEffect(() => {
     if (isLoading) return;
@@ -79,11 +96,14 @@ function RootNavigation() {
   }
 
   return (
-    // Android draws edge-to-edge (SDK 57+ enforces this), so the strip
+    // Android draws edge-to-edge on SDK 57+/Android 15+, so the strip
     // behind the status bar is whatever this outer view's background is —
     // without it, that strip defaults to white against the app's ivory
     // theme. `style="dark"` picks dark status-bar icons/text to read
-    // against that light background.
+    // against that light background. `translucent`/`backgroundColor` are
+    // no-ops under enforced edge-to-edge, but they matter on Android 14 and
+    // older (and in Expo Go), where the OS otherwise reserves an opaque
+    // system-bar area and paints it black instead of drawing behind it.
     <View style={{ flex: 1, backgroundColor: colors.ivory }}>
       <StatusBar style="dark" />
       <Slot />
@@ -100,6 +120,7 @@ export default function RootLayout() {
     Jost_400Regular,
     Jost_500Medium,
     Jost_600SemiBold,
+    Jost_700Bold,
     NunitoSans_800ExtraBold,
   });
   // The login screen's logo <Image> was popping in a frame after its

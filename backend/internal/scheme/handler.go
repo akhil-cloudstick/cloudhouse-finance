@@ -71,7 +71,7 @@ func (h *Handler) List(c *gin.Context) {
 	branchID := platform.GetBranchScope(c)
 
 	if limit <= 0 {
-		rec, err := h.svc.List(c.Query("q"), branchID, 0, 0)
+		rec, _, err := h.svc.List(c.Query("q"), branchID, 0, 0)
 		if err != nil {
 			httpx.FailErr(c, err)
 			return
@@ -80,7 +80,7 @@ func (h *Handler) List(c *gin.Context) {
 		return
 	}
 
-	rec, err := h.svc.List(c.Query("q"), branchID, limit+1, offset)
+	rec, total, err := h.svc.List(c.Query("q"), branchID, limit+1, offset)
 	if err != nil {
 		httpx.FailErr(c, err)
 		return
@@ -89,7 +89,7 @@ func (h *Handler) List(c *gin.Context) {
 	if hasMore {
 		rec = rec[:limit]
 	}
-	httpx.Success(c, http.StatusOK, gin.H{"items": rec, "hasMore": hasMore})
+	httpx.Success(c, http.StatusOK, gin.H{"items": rec, "hasMore": hasMore, "total": total})
 }
 
 // ListActive mirrors customer.Handler.List's pagination convention: plain
@@ -103,7 +103,7 @@ func (h *Handler) ListActive(c *gin.Context) {
 	branchID := platform.GetBranchScope(c)
 
 	if limit <= 0 {
-		rec, err := h.svc.ListActive(c.Query("q"), branchID, 0, 0)
+		rec, _, err := h.svc.ListActive(c.Query("q"), branchID, 0, 0)
 		if err != nil {
 			httpx.FailErr(c, err)
 			return
@@ -112,7 +112,7 @@ func (h *Handler) ListActive(c *gin.Context) {
 		return
 	}
 
-	rec, err := h.svc.ListActive(c.Query("q"), branchID, limit+1, offset)
+	rec, total, err := h.svc.ListActive(c.Query("q"), branchID, limit+1, offset)
 	if err != nil {
 		httpx.FailErr(c, err)
 		return
@@ -121,7 +121,7 @@ func (h *Handler) ListActive(c *gin.Context) {
 	if hasMore {
 		rec = rec[:limit]
 	}
-	httpx.Success(c, http.StatusOK, gin.H{"items": rec, "hasMore": hasMore})
+	httpx.Success(c, http.StatusOK, gin.H{"items": rec, "hasMore": hasMore, "total": total})
 }
 
 func (h *Handler) ListInactive(c *gin.Context) {

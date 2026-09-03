@@ -13,4 +13,6 @@ import (
 // caller could otherwise already read loan-by-loan/request-by-request.
 func RegisterRoutes(rg *gin.RouterGroup, h *Handler, perms platform.CRUDMiddlewares) {
 	rg.GET("/needs-attention", perms.Read, h.NeedsAttention)
+	rg.GET("/snapshots", perms.Read, h.ListSnapshots)
+	rg.GET("/snapshots/latest", perms.Read, h.LatestSnapshot)
 }

@@ -18,6 +18,7 @@ import (
 	"ambikagold/backend/internal/commlog"
 	"ambikagold/backend/internal/customer"
 	"ambikagold/backend/internal/customerauth"
+	"ambikagold/backend/internal/dashboard"
 	"ambikagold/backend/internal/employee"
 	"ambikagold/backend/internal/goldrate"
 	"ambikagold/backend/internal/loan"
@@ -117,6 +118,9 @@ func Run(db *gorm.DB) error {
 		// Realtime notifications (WebSocket, ack-and-resend) — the durable
 		// in-app inbox behind the customer app's bell.
 		&notification.Notification{},
+		// Nightly KPI-count snapshots powering the mobile dashboard's trend
+		// indicators (see dashboard.Snapshot's doc comment).
+		&dashboard.Snapshot{},
 	); err != nil {
 		return err
 	}
@@ -201,6 +205,31 @@ func Run(db *gorm.DB) error {
 	}
 	if err := authzRepo.SeedCatalogue(authz.Catalogue); err != nil {
 		return err
+	}
+	// Resyncs the approval-stage permissions' ModuleName back onto the four
+	// split-out modules (Loan Sanction / Loan Extension Approval / Release
+	// Approval / Auction Workflow) — SeedCatalogue above never touches an
+	// already-seeded permission row, so an install that seeded these under
+	// the original lumped "Approval Workflow" module would otherwise stay
+	// stuck there forever even after this file's own grouping changed. See
+	// authz.ApprovalModuleNames' doc comment for why this is safe to do
+	// unconditionally (unlike SeedCatalogue's general policy) for exactly
+	// these permissions.
+	var approvalDefs []authz.PermissionDef
+	for _, def := range authz.Catalogue {
+		for _, m := range authz.ApprovalModuleNames {
+			if def.ModuleName == m {
+				approvalDefs = append(approvalDefs, def)
+				break
+			}
+		}
+	}
+	regrouped, err := authzRepo.RegroupModules(approvalDefs)
+	if err != nil {
+		return err
+	}
+	if regrouped > 0 {
+		log.Printf("permissions seed: %d approval permission(s) regrouped onto their split modules", regrouped)
 	}
 	// Must run BEFORE BackfillGrants: it copies each new "can create/update/
 	// delete <noun>" grant from that role's existing "can change <noun>" row,

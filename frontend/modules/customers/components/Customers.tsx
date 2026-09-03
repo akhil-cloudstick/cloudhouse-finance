@@ -10,6 +10,7 @@ import { RegisterCustomerModalContent } from "@/common/components/modals/Registe
 import { listCustomersPage, type CustomerView } from "@/modules/customers/services/customerService";
 import { Select } from "@/common/components/ui/Select";
 import { useAuth } from "@/common/auth-context";
+import { useResponsivePageSize } from "@/common/utils/responsive";
 
 const VERIFICATION_STATUS_OPTIONS = [
   { value: "", label: "All" },
@@ -33,6 +34,7 @@ export function Customers() {
   const { db } = useData();
   const { customers, refresh: refreshAll } = useCustomers();
   const { openModal } = useModal();
+  const pageSize = useResponsivePageSize(9, 6);
   // Action buttons are hidden outright when the role doesn't hold the
   // permission behind them — a disabled-looking control the user can never
   // use is worse than no control at all (house standard §12).
@@ -44,22 +46,24 @@ export function Customers() {
   const [page, setPage] = useState(1);
   const [rows, setRows] = useState<CustomerView[]>([]);
   const [hasMore, setHasMore] = useState(false);
+  const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const totalPages = Math.max(1, Math.ceil(total / pageSize));
 
-  useEffect(() => { setPage(1); }, [q, panStatus, aadhaarStatus]);
+  useEffect(() => { setPage(1); }, [q, panStatus, aadhaarStatus, pageSize]);
 
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
     const handle = setTimeout(() => {
-      listCustomersPage(q.trim(), page, { panStatus, aadhaarStatus })
-        .then((res) => { if (!cancelled) { setRows(res.items); setHasMore(res.hasMore); setError(""); } })
+      listCustomersPage(q.trim(), page, { panStatus, aadhaarStatus }, pageSize)
+        .then((res) => { if (!cancelled) { setRows(res.items); setHasMore(res.hasMore); setTotal(res.total); setError(""); } })
         .catch((e) => { if (!cancelled) setError(e instanceof Error ? e.message : "Failed to load customers."); })
         .finally(() => { if (!cancelled) setLoading(false); });
     }, 300);
     return () => { cancelled = true; clearTimeout(handle); };
-  }, [q, panStatus, aadhaarStatus, page]);
+  }, [q, panStatus, aadhaarStatus, page, pageSize]);
 
   function refresh() {
     refreshAll();
@@ -67,11 +71,9 @@ export function Customers() {
     // registering/editing a customer doesn't bounce the viewer's place.
     setPage((p) => p);
     listCustomersPage(q.trim(), page, { panStatus, aadhaarStatus })
-      .then((res) => { setRows(res.items); setHasMore(res.hasMore); setError(""); })
+      .then((res) => { setRows(res.items); setHasMore(res.hasMore); setTotal(res.total); setError(""); })
       .catch((e) => setError(e instanceof Error ? e.message : "Failed to load customers."));
   }
-
-  const totalPages = hasMore ? page + 1 : page;
 
   return (
     <>
@@ -85,7 +87,7 @@ export function Customers() {
           </button>
         )}
       </div>
-      <hr className="gold-rule" />
+      <hr className="gold-rule" style={{ margin: "4px 0 18px" }} />
       <div style={{ display: "flex", alignItems: "flex-end", justifyContent: "flex-end", gap: 12, flexWrap: "wrap", marginBottom: 16 }}>
         <div style={{ width: 180 }}>
           <label style={{ fontSize: 11.5, color: "var(--muted)", display: "block", marginBottom: 4 }}>PAN Verified</label>

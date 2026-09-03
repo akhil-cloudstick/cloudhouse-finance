@@ -33,7 +33,7 @@ func NewService(repo *Repository) *Service {
 	return &Service{repo: repo}
 }
 
-func (s *Service) List(query string, limit, offset int) ([]Bank, error) {
+func (s *Service) List(query string, limit, offset int) ([]Bank, int64, error) {
 	return s.repo.FindAll(query, limit, offset)
 }
 

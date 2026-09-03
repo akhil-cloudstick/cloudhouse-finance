@@ -80,7 +80,7 @@ const styles = StyleSheet.create({
   // transparent — a BlurView can't be the input's own backgroundColor.
   inputBox: {
     height: 48,
-    borderRadius: 10,
+    borderRadius: 12,
     borderWidth: 1,
     borderColor: colors.line,
     backgroundColor: colors.card,

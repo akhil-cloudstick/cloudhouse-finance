@@ -1,13 +1,12 @@
 import React, { useState } from "react";
-import { ScrollView, RefreshControl, View } from "react-native";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { RefreshControl, View } from "react-native";
+import { useInfiniteQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "expo-router";
 import { ScreenContainer } from "../../../src/components/ScreenContainer";
 import { Card } from "../../../src/components/Card";
 import { ThemedText } from "../../../src/components/ThemedText";
 import { GoldTextInput } from "../../../src/components/GoldTextInput";
 import { GoldButton } from "../../../src/components/GoldButton";
-import { Pager } from "../../../src/components/Pager";
 import { colors, statusColors } from "../../../src/theme/colors";
 import { listLockersPage, createLocker } from "../../../src/api/lockers";
 import { getPacketByCode } from "../../../src/api/packets";
@@ -49,16 +48,17 @@ export default function LockersScreen() {
   const [error, setError] = useState<string | null>(null);
   const [scannerOpen, setScannerOpen] = useState(false);
   const [scanError, setScanError] = useState<string | null>(null);
-  const [page, setPage] = useState(1);
 
-  const { data, isLoading, isError, isFetching, refetch } = useQuery({
-    queryKey: ["lockers", page],
-    queryFn: () => listLockersPage({ limit: PAGE_SIZE, offset: (page - 1) * PAGE_SIZE }),
+  const { data, isLoading, isError, isFetching, isFetchingNextPage, fetchNextPage, hasNextPage, refetch } = useInfiniteQuery({
+    queryKey: ["lockers"],
+    queryFn: ({ pageParam = 0 }) => listLockersPage({ limit: PAGE_SIZE, offset: pageParam }),
+    initialPageParam: 0,
+    getNextPageParam: (lastPage, allPages) => (lastPage.hasMore ? allPages.length * PAGE_SIZE : undefined),
   });
 
   useRefetchOnFocus(refetch);
 
-  const lockers = data?.items ?? [];
+  const lockers = data?.pages.flatMap((p) => p.items) ?? [];
 
   const create = useMutation({
     mutationFn: () => createLocker({ code, branchId: employee!.branchId, capacity: Number(capacity) }),
@@ -66,7 +66,6 @@ export default function LockersScreen() {
       setCode("");
       setCapacity("");
       setShowForm(false);
-      setPage(1);
       queryClient.invalidateQueries({ queryKey: ["lockers"] });
     },
     onError: (err) => setError(err instanceof ApiError ? err.message : "Could not save."),
@@ -95,7 +94,7 @@ export default function LockersScreen() {
 
   return (
     <ScreenContainer style={{ paddingHorizontal: 0 }}>
-      <View style={{ paddingHorizontal: 16 }}>
+      <View style={{ paddingHorizontal: 16, paddingTop: 20 }}>
         <View style={{ flexDirection: "row", gap: 8 }}>
           <View style={{ flex: 1 }}>
             <GoldButton
@@ -132,11 +131,7 @@ export default function LockersScreen() {
           />
         </Card>
       ) : null}
-      <ScrollView
-        showsVerticalScrollIndicator={false}
-        contentContainerStyle={{ padding: 16 }}
-        refreshControl={<RefreshControl refreshing={isFetching && !isLoading} onRefresh={refetch} />}
-      >
+      <View style={{ flex: 1, paddingHorizontal: 16, paddingTop: 16 }}>
         <ExpandableTable<Locker>
           columns={LOCKER_COLUMNS}
           visibleCount={LOCKER_COLUMNS.length}
@@ -144,9 +139,13 @@ export default function LockersScreen() {
           keyExtractor={(l) => String(l.id)}
           onViewDescription={(l) => router.push(`/packets?lockerId=${l.id}`)}
           emptyText={isLoading ? "Loading…" : isError ? "Could not load lockers." : "No lockers found."}
+          refreshControl={<RefreshControl refreshing={isFetching && !isFetchingNextPage && !isLoading} onRefresh={refetch} />}
+          onEndReached={() => {
+            if (hasNextPage && !isFetchingNextPage) fetchNextPage();
+          }}
+          isFetchingNextPage={isFetchingNextPage}
         />
-        <Pager page={page} hasMore={!!data?.hasMore} onChange={setPage} loading={isFetching} />
-      </ScrollView>
+      </View>
     </ScreenContainer>
   );
 }

@@ -18,14 +18,18 @@ func (r *Repository) Create(g *GoldRate) error {
 // FindAll returns published rates, most recent first — this is the
 // "Rate History" table on the frontend. When limit is 0, every row is
 // returned (backward-compatible with callers that don't paginate).
-func (r *Repository) FindAll(limit, offset int) ([]GoldRate, error) {
+func (r *Repository) FindAll(limit, offset int) ([]GoldRate, int64, error) {
 	var rates []GoldRate
 	q := r.db.Order("date desc, id desc")
+	var total int64
 	if limit > 0 {
+		if err := q.Session(&gorm.Session{}).Model(&GoldRate{}).Count(&total).Error; err != nil {
+			return nil, 0, err
+		}
 		q = q.Limit(limit).Offset(offset)
 	}
 	err := q.Find(&rates).Error
-	return rates, err
+	return rates, total, err
 }
 
 // FindLatest returns the most recently published rate, or gorm.ErrRecordNotFound

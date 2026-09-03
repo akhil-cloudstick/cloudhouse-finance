@@ -1,12 +1,11 @@
-import React, { useEffect, useState } from "react";
-import { ScrollView, RefreshControl, View } from "react-native";
-import { useQuery } from "@tanstack/react-query";
+import React, { useState } from "react";
+import { RefreshControl, View } from "react-native";
+import { useInfiniteQuery } from "@tanstack/react-query";
 import { useRouter, useLocalSearchParams } from "expo-router";
 import { ScreenContainer } from "../../../src/components/ScreenContainer";
 import { ThemedText } from "../../../src/components/ThemedText";
 import { GoldTextInput } from "../../../src/components/GoldTextInput";
 import { GoldButton } from "../../../src/components/GoldButton";
-import { Pager } from "../../../src/components/Pager";
 import { colors, statusColors, StatusTone } from "../../../src/theme/colors";
 import { listPacketsPage, getPacketByCode } from "../../../src/api/packets";
 import { Packet } from "../../../src/types/packet";
@@ -65,20 +64,17 @@ export default function PacketsScreen() {
   const [code, setCode] = useState("");
   const [lookupError, setLookupError] = useState<string | null>(null);
   const [scannerOpen, setScannerOpen] = useState(false);
-  const [page, setPage] = useState(1);
 
-  useEffect(() => {
-    setPage(1);
-  }, [status, lockerId]);
-
-  const { data, isLoading, isError, isFetching, refetch } = useQuery({
-    queryKey: ["packets", status, lockerId, page],
-    queryFn: () => listPacketsPage({ status, lockerId, limit: PAGE_SIZE, offset: (page - 1) * PAGE_SIZE }),
+  const { data, isLoading, isError, isFetching, isFetchingNextPage, fetchNextPage, hasNextPage, refetch } = useInfiniteQuery({
+    queryKey: ["packets", status, lockerId],
+    queryFn: ({ pageParam = 0 }) => listPacketsPage({ status, lockerId, limit: PAGE_SIZE, offset: pageParam }),
+    initialPageParam: 0,
+    getNextPageParam: (lastPage, allPages) => (lastPage.hasMore ? allPages.length * PAGE_SIZE : undefined),
   });
 
   useRefetchOnFocus(refetch);
 
-  const packets = data?.items ?? [];
+  const packets = data?.pages.flatMap((p) => p.items) ?? [];
 
   async function lookupByCode(rawCode?: string) {
     const target = (rawCode ?? code).trim();
@@ -104,7 +100,7 @@ export default function PacketsScreen() {
 
   return (
     <ScreenContainer style={{ paddingHorizontal: 0 }}>
-      <View style={{ paddingHorizontal: 16 }}>
+      <View style={{ paddingHorizontal: 16, paddingTop: 20 }}>
         <GoldTextInput label="Find by barcode/QR code" value={code} onChangeText={setCode} />
         {lookupError ? (
           <ThemedText variant="small" color={colors.red} style={{ marginBottom: 8 }}>
@@ -121,11 +117,7 @@ export default function PacketsScreen() {
         </View>
       </View>
       <QrScanner visible={scannerOpen} onClose={() => setScannerOpen(false)} onScanned={onScanned} title="Scan Packet Label" />
-      <ScrollView
-        showsVerticalScrollIndicator={false}
-        contentContainerStyle={{ padding: 16 }}
-        refreshControl={<RefreshControl refreshing={isFetching && !isLoading} onRefresh={refetch} />}
-      >
+      <View style={{ flex: 1, paddingHorizontal: 16, paddingTop: 16 }}>
         <ExpandableTable<Packet>
           columns={PACKET_COLUMNS}
           visibleCount={PACKET_COLUMNS.length}
@@ -134,9 +126,13 @@ export default function PacketsScreen() {
           extraFields={packetExtraFields}
           onViewDescription={(p) => router.push(`/packets/${p.id}`)}
           emptyText={isLoading ? "Loading…" : isError ? "Could not load packets." : "No packets found."}
+          refreshControl={<RefreshControl refreshing={isFetching && !isFetchingNextPage && !isLoading} onRefresh={refetch} />}
+          onEndReached={() => {
+            if (hasNextPage && !isFetchingNextPage) fetchNextPage();
+          }}
+          isFetchingNextPage={isFetchingNextPage}
         />
-        <Pager page={page} hasMore={!!data?.hasMore} onChange={setPage} loading={isFetching} />
-      </ScrollView>
+      </View>
     </ScreenContainer>
   );
 }

@@ -269,7 +269,7 @@ export default function LoanDetailScreen() {
   if (loan.isLoading) {
     return (
       <ScreenContainer style={{ padding: 0 }}>
-        <View style={{ flex: 1, paddingHorizontal: 16, paddingTop: 16 }}>
+        <View style={{ flex: 1, paddingHorizontal: 8, paddingTop: 20 }}>
       <ThemedText color={colors.muted}>Loading…</ThemedText>
         </View>
       </ScreenContainer>    );
@@ -277,7 +277,7 @@ export default function LoanDetailScreen() {
   if (loan.isError || !loan.data) {
     return (
       <ScreenContainer style={{ padding: 0 }}>
-        <View style={{ flex: 1, paddingHorizontal: 16, paddingTop: 16 }}>
+        <View style={{ flex: 1, paddingHorizontal: 8, paddingTop: 20 }}>
       <ThemedText color={colors.red}>Could not load this loan.</ThemedText>
         </View>
       </ScreenContainer>    );
@@ -297,7 +297,7 @@ export default function LoanDetailScreen() {
 
   return (
     <ScreenContainer style={{ padding: 0 }}>
-      <View style={{ flex: 1, paddingHorizontal: 16, paddingTop: 16 }}>
+      <View style={{ flex: 1, paddingHorizontal: 8, paddingTop: 20 }}>
       <ScrollView
         showsVerticalScrollIndicator={false}
         refreshControl={

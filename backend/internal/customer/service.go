@@ -161,7 +161,7 @@ func (s *Service) Create(in CreateInput) (*Customer, error) {
 	return s.repo.FindByID(rec.ID)
 }
 
-func (s *Service) List(f CustomerFilter) ([]Customer, error) {
+func (s *Service) List(f CustomerFilter) ([]Customer, int64, error) {
 	return s.repo.FindAll(f)
 }
 

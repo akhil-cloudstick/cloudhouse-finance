@@ -1,11 +1,10 @@
-import React, { useEffect, useState } from "react";
-import { ScrollView, RefreshControl, View } from "react-native";
-import { useQuery } from "@tanstack/react-query";
+import React, { useState } from "react";
+import { RefreshControl, View } from "react-native";
+import { useInfiniteQuery } from "@tanstack/react-query";
 import { useRouter } from "expo-router";
 import { ScreenContainer } from "../../../src/components/ScreenContainer";
 import { ThemedText } from "../../../src/components/ThemedText";
 import { ChipSelect } from "../../../src/components/ChipSelect";
-import { Pager } from "../../../src/components/Pager";
 import { colors, statusColors, StatusTone } from "../../../src/theme/colors";
 import { listLoansPage } from "../../../src/api/loans";
 import { listConcludedAuctions } from "../../../src/api/auctions";
@@ -52,7 +51,7 @@ export default function AuctionsScreen() {
 
   return (
     <ScreenContainer style={{ paddingHorizontal: 0 }}>
-      <View style={{ paddingHorizontal: 16 }}>
+      <View style={{ paddingHorizontal: 16, paddingTop: 20 }}>
         <ChipSelect options={TOP_TABS} value={topTab} onChange={setTopTab} />
       </View>
       {topTab === "Active Cases" ? <ActiveCases /> : <AuctionHistory />}
@@ -94,7 +93,6 @@ function activeExtraFields(l: Loan) {
 function ActiveCases() {
   const router = useRouter();
   const [filter, setFilter] = useState<(typeof FILTERS)[number]>("Auction Eligible");
-  const [page, setPage] = useState(1);
   // "Auction Eligible"/"Auctioned - Balance Due" are real stored status
   // values, so the backend can filter+paginate them directly. "Defaulted"
   // has no such column (see the top-of-file comment) — for that one this
@@ -103,23 +101,21 @@ function ActiveCases() {
   // than 10 matching rows even though a full page was actually fetched.
   const isDefaultedFilter = filter === "Defaulted";
 
-  useEffect(() => {
-    setPage(1);
-  }, [filter]);
-
-  const { data, isLoading, isError, isFetching, refetch } = useQuery({
-    queryKey: ["loans", "auctions", filter, page],
-    queryFn: () =>
+  const { data, isLoading, isError, isFetching, isFetchingNextPage, fetchNextPage, hasNextPage, refetch } = useInfiniteQuery({
+    queryKey: ["loans", "auctions", filter],
+    queryFn: ({ pageParam = 0 }) =>
       listLoansPage({
         status: isDefaultedFilter ? undefined : filter,
         limit: PAGE_SIZE,
-        offset: (page - 1) * PAGE_SIZE,
+        offset: pageParam,
       }),
+    initialPageParam: 0,
+    getNextPageParam: (lastPage, allPages) => (lastPage.hasMore ? allPages.length * PAGE_SIZE : undefined),
   });
 
   useRefetchOnFocus(refetch);
 
-  const allLoans = data?.items ?? [];
+  const allLoans = data?.pages.flatMap((p) => p.items) ?? [];
   const filtered = isDefaultedFilter ? allLoans.filter((l) => !!l.isDefaulted) : allLoans;
 
   // Pushing straight to `/loans/[id]` from outside the Loans tab leaves that
@@ -136,11 +132,7 @@ function ActiveCases() {
       <View style={{ paddingHorizontal: 16 }}>
         <ChipSelect options={FILTERS} value={filter} onChange={setFilter} label="Filter" />
       </View>
-      <ScrollView
-        showsVerticalScrollIndicator={false}
-        contentContainerStyle={{ paddingHorizontal: 16 }}
-        refreshControl={<RefreshControl refreshing={isFetching && !isLoading} onRefresh={refetch} />}
-      >
+      <View style={{ flex: 1, paddingHorizontal: 16 }}>
         <ExpandableTable<Loan>
           columns={ACTIVE_COLUMNS}
           visibleCount={ACTIVE_COLUMNS.length}
@@ -149,9 +141,13 @@ function ActiveCases() {
           extraFields={activeExtraFields}
           onViewDescription={(l) => openLoan(l.id)}
           emptyText={isLoading ? "Loading…" : isError ? "Could not load loans." : "No loans found for this filter."}
+          refreshControl={<RefreshControl refreshing={isFetching && !isFetchingNextPage && !isLoading} onRefresh={refetch} />}
+          onEndReached={() => {
+            if (hasNextPage && !isFetchingNextPage) fetchNextPage();
+          }}
+          isFetchingNextPage={isFetchingNextPage}
         />
-        <Pager page={page} hasMore={!!data?.hasMore} onChange={setPage} loading={isFetching} />
-      </ScrollView>
+      </View>
     </>
   );
 }
@@ -184,11 +180,6 @@ function AuctionHistory() {
   const router = useRouter();
   const [table, setTable] = useState<(typeof HISTORY_TABLES)[number]>("Auctions Conducted");
   const hasSale = table === "Auctions Conducted";
-  const [page, setPage] = useState(1);
-
-  useEffect(() => {
-    setPage(1);
-  }, [hasSale]);
 
   // Same rationale as ActiveCases' openLoan below — [id].tsx's route param
   // is the loan's numeric id (it calls getLoan(Number(id))), not its
@@ -199,25 +190,23 @@ function AuctionHistory() {
     router.push(`/loans/${loanId}`);
   }
 
-  const { data, isLoading, isError, isFetching, refetch } = useQuery({
-    queryKey: ["auctionHistory", hasSale, page],
-    queryFn: () => listConcludedAuctions({ hasSale, limit: PAGE_SIZE, offset: (page - 1) * PAGE_SIZE }),
+  const { data, isLoading, isError, isFetching, isFetchingNextPage, fetchNextPage, hasNextPage, refetch } = useInfiniteQuery({
+    queryKey: ["auctionHistory", hasSale],
+    queryFn: ({ pageParam = 0 }) => listConcludedAuctions({ hasSale, limit: PAGE_SIZE, offset: pageParam }),
+    initialPageParam: 0,
+    getNextPageParam: (lastPage, allPages) => (lastPage.hasMore ? allPages.length * PAGE_SIZE : undefined),
   });
 
   useRefetchOnFocus(refetch);
 
-  const records = data?.items ?? [];
+  const records = data?.pages.flatMap((p) => p.items) ?? [];
 
   return (
     <>
       <View style={{ paddingHorizontal: 16 }}>
         <ChipSelect options={HISTORY_TABLES} value={table} onChange={setTable} label="Table" />
       </View>
-      <ScrollView
-        showsVerticalScrollIndicator={false}
-        contentContainerStyle={{ paddingHorizontal: 16 }}
-        refreshControl={<RefreshControl refreshing={isFetching && !isLoading} onRefresh={refetch} />}
-      >
+      <View style={{ flex: 1, paddingHorizontal: 16 }}>
         <ExpandableTable<ConcludedAuctionRow>
           columns={HISTORY_COLUMNS}
           visibleCount={HISTORY_COLUMNS.length}
@@ -226,9 +215,13 @@ function AuctionHistory() {
           extraFields={historyExtraFields}
           onViewDescription={(r) => openLoan(r.loanId)}
           emptyText={isLoading ? "Loading…" : isError ? "Could not load auction history." : "No concluded auctions."}
+          refreshControl={<RefreshControl refreshing={isFetching && !isFetchingNextPage && !isLoading} onRefresh={refetch} />}
+          onEndReached={() => {
+            if (hasNextPage && !isFetchingNextPage) fetchNextPage();
+          }}
+          isFetchingNextPage={isFetchingNextPage}
         />
-        <Pager page={page} hasMore={!!data?.hasMore} onChange={setPage} loading={isFetching} />
-      </ScrollView>
+      </View>
     </>
   );
 }

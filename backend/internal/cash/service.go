@@ -123,7 +123,7 @@ func (s *MovementService) Record(in RecordMovementInput) (*CashMovement, error) 
 
 // List returns cash movements, optionally scoped to branchID (nil = all
 // branches — Administrator only, see platform.GetBranchScope).
-func (s *MovementService) List(branchID *uint, limit, offset int) ([]CashMovement, error) {
+func (s *MovementService) List(branchID *uint, limit, offset int) ([]CashMovement, int64, error) {
 	return s.repo.FindAll(branchID, limit, offset)
 }
 
@@ -425,7 +425,7 @@ func (s *ExpenseService) Record(in RecordExpenseInput) (*Expense, error) {
 
 // List returns expenses, optionally scoped to branchID (nil = all branches
 // — Administrator only, see platform.GetBranchScope).
-func (s *ExpenseService) List(branchID *uint, limit, offset int) ([]Expense, error) {
+func (s *ExpenseService) List(branchID *uint, limit, offset int) ([]Expense, int64, error) {
 	return s.repo.FindAll(branchID, limit, offset)
 }
 

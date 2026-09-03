@@ -1,12 +1,11 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { useRef, useState } from "react";
 import { RefreshControl, Pressable, View, ScrollView, StyleSheet } from "react-native";
-import { useQuery } from "@tanstack/react-query";
+import { useInfiniteQuery } from "@tanstack/react-query";
 import { useRouter } from "expo-router";
 import { ScreenContainer } from "../../../src/components/ScreenContainer";
 import { ThemedText } from "../../../src/components/ThemedText";
 import { GoldTextInput } from "../../../src/components/GoldTextInput";
 import { GoldButton } from "../../../src/components/GoldButton";
-import { Pager } from "../../../src/components/Pager";
 import { colors, statusColors } from "../../../src/theme/colors";
 import { listLoansPage } from "../../../src/api/loans";
 import { Loan } from "../../../src/types/loan";
@@ -75,53 +74,54 @@ export default function LoansScreen() {
   const [search, setSearch] = useState("");
   const debouncedSearch = useDebouncedValue(search);
   const [statusFilter, setStatusFilter] = useState<(typeof STATUS_FILTERS)[number]>("All");
-  const [page, setPage] = useState(1); // 1-based, matches Pager
   const filterScrollRef = useRef<ScrollView>(null);
 
-  // A new search/filter always starts back at page 1 — otherwise you could
-  // land on "page 3" of a filter that only has one page of results.
-  useEffect(() => {
-    setPage(1);
-  }, [debouncedSearch, statusFilter]);
-
-  const { data, isLoading, isError, isFetching, refetch } = useQuery({
-    queryKey: ["loans", debouncedSearch, statusFilter, page],
-    // Each page is its own, separate API call — Prev/Next just changes
-    // `offset`, never slices an already-fetched larger list.
-    queryFn: () =>
+  // Each page is its own, separate API call keyed by offset — a new
+  // search/filter changes the queryKey, so react-query starts a fresh
+  // page-1 fetch instead of reusing a stale accumulated list.
+  const { data, isLoading, isError, isFetching, isFetchingNextPage, fetchNextPage, hasNextPage, refetch } = useInfiniteQuery({
+    queryKey: ["loans", debouncedSearch, statusFilter],
+    queryFn: ({ pageParam = 0 }) =>
       listLoansPage({
         q: debouncedSearch || undefined,
         status: statusFilter === "All" ? undefined : statusFilter,
         limit: PAGE_SIZE,
-        offset: (page - 1) * PAGE_SIZE,
+        offset: pageParam,
       }),
+    initialPageParam: 0,
+    getNextPageParam: (lastPage, allPages) => (lastPage.hasMore ? allPages.length * PAGE_SIZE : undefined),
   });
 
   useRefetchOnFocus(refetch);
 
-  const loans = data?.items ?? [];
+  const loans = data?.pages.flatMap((p) => p.items) ?? [];
 
   return (
-    <ScreenContainer style={{ padding: 0 }}>
-      <View style={{ flex: 1, paddingHorizontal: 16, paddingTop: 0 }}>
-      {canCreateLoan ? (
-        <View style={{ marginBottom: 12 }}>
-          <GoldButton title="+ New Loan" onPress={() => router.push("/new-loan")} />
-        </View>
-      ) : null}
+    <ScreenContainer style={{ paddingHorizontal: 0 }}>
+      {/* Fixed top: search, +New Loan, status filters — none of this scrolls
+       * with the table (see ExpandableTable.tsx's own comment on why the
+       * table needs its own flex:1 slot rather than sitting inside a shared
+       * ScrollView). Same containerStyle/margins as Customers' own search
+       * field + button, for an identical look between the two list screens. */}
       <GoldTextInput
         label="Search loans"
         placeholder="Loan number or customer…"
         value={search}
         onChangeText={setSearch}
+        containerStyle={{ marginHorizontal: 16, marginTop: 28 }}
         blur
       />
+      {canCreateLoan ? (
+        <View style={{ marginHorizontal: 16, marginBottom: 12 }}>
+          <GoldButton title="+ New Loan" onPress={() => router.push("/new-loan")} />
+        </View>
+      ) : null}
       <ScrollView
         ref={filterScrollRef}
         horizontal
         showsHorizontalScrollIndicator={false}
         style={styles.filterRow}
-        contentContainerStyle={styles.filterRowContent}
+        contentContainerStyle={[styles.filterRowContent, { paddingHorizontal: 16 }]}
       >
         {STATUS_FILTERS.map((s) => {
           const active = s === statusFilter;
@@ -149,17 +149,10 @@ export default function LoansScreen() {
           );
         })}
       </ScrollView>
-      <ScrollView
-        showsVerticalScrollIndicator={false}
-        // The table card sat flush against this ScrollView's own edges —
-        // ScrollView always clips its content to its own bounds (that's how
-        // scrolling works), so the card's shadow blur had nowhere to render
-        // and got cut off on every side but the bottom. A few px of
-        // contentContainerStyle padding gives the blur room without moving
-        // or resizing the card itself.
-        contentContainerStyle={{ padding: 6 }}
-        refreshControl={<RefreshControl refreshing={isFetching && !isLoading} onRefresh={refetch} />}
-      >
+
+      {/* Only this scrolls — column-label row (sticky, inside
+       * ExpandableTable) stays put; reaching the bottom loads the next page. */}
+      <View style={{ flex: 1, paddingHorizontal: 16 }}>
         <ExpandableTable<Loan>
           columns={LOAN_COLUMNS}
           visibleCount={LOAN_VISIBLE_COUNT}
@@ -168,9 +161,12 @@ export default function LoansScreen() {
           extraFields={loanExtraFields}
           onViewDescription={(l) => router.push(`/loans/${l.id}`)}
           emptyText={isLoading ? "Loading…" : isError ? "Could not load loans." : "No loans found."}
+          refreshControl={<RefreshControl refreshing={isFetching && !isFetchingNextPage && !isLoading} onRefresh={refetch} />}
+          onEndReached={() => {
+            if (hasNextPage && !isFetchingNextPage) fetchNextPage();
+          }}
+          isFetchingNextPage={isFetchingNextPage}
         />
-        <Pager page={page} hasMore={!!data?.hasMore} onChange={setPage} loading={isFetching} />
-      </ScrollView>
       </View>
     </ScreenContainer>
   );

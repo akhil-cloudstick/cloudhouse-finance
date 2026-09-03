@@ -43,26 +43,26 @@ export function GlassCard({ children, style }: { children: React.ReactNode; styl
 
 const styles = StyleSheet.create({
   glass: {
-    borderRadius: 16,
+    borderRadius: 18,
     borderWidth: 1,
     padding: 16,
     marginBottom: 12,
-    // "Undershadow": a larger, softer shadow than Card's flat border-only
-    // look, so the card reads as sitting just above the page rather than
-    // flat on it.
+    // Softer, quieter "undershadow" than before — reads as a light lift
+    // rather than a heavy drop, matching the approved modern/minimal
+    // mockups (dashboard-mockup artifact).
     shadowColor: colors.charcoal,
-    shadowOpacity: 0.18,
-    shadowRadius: 16,
-    shadowOffset: { width: 0, height: 10 },
-    elevation: 6,
+    shadowOpacity: 0.08,
+    shadowRadius: 14,
+    shadowOffset: { width: 0, height: 5 },
+    elevation: 3,
   },
   iosTranslucent: {
     borderColor: "rgba(255,255,255,0.6)",
-    backgroundColor: "rgba(255,253,247,0.38)",
+    backgroundColor: "rgba(255,253,247,0.5)",
   },
   iosClip: { overflow: "hidden" },
   androidOpaque: {
-    borderColor: colors.goldLight,
+    borderColor: colors.line,
     backgroundColor: colors.card,
   },
 });

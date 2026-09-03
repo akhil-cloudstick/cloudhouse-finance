@@ -240,7 +240,7 @@ func (s *Service) Create(in CreateInput) (*Employee, error) {
 
 // List returns employees, optionally scoped to branchID (nil = all
 // branches — Administrator only, see platform.GetBranchScope).
-func (s *Service) List(branchID *uint, limit, offset int) ([]Employee, error) {
+func (s *Service) List(branchID *uint, limit, offset int) ([]Employee, int64, error) {
 	return s.repo.FindAll(branchID, limit, offset)
 }
 

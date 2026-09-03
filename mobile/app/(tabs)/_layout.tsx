@@ -67,6 +67,7 @@ export default function TabsLayout() {
         <Tabs.Screen name="employees" options={{ title: "Employees", headerShown: false, href: null }} />
         <Tabs.Screen name="settings" options={{ title: "Settings", headerShown: false, href: null }} />
         <Tabs.Screen name="branches" options={{ title: "Branches", headerShown: false, href: null }} />
+        <Tabs.Screen name="roles" options={{ title: "Roles & Permissions", href: null }} />
       </Tabs>
     </MoreSheetProvider>
   );

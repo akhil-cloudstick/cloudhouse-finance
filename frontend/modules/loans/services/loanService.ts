@@ -1,4 +1,5 @@
 import { apiFetchEnveloped as apiFetch } from "@/common/services/httpClient";
+import { isSmallScreen } from "@/common/utils/responsive";
 
 /* Mirrors backend/internal/loan/handler.go's ornamentRequest exactly. */
 export type OrnamentRequestInput = {
@@ -573,24 +574,28 @@ export async function listLoans(filters?: LoanFilters): Promise<LoanView[]> {
 /* Page size for the Loans page's own table (distinct from LOAN_PAGE_SIZE,
  * which backs the SearchableSelect picker's infinite scroll). */
 export const LOANS_TABLE_PAGE_SIZE = 10;
+export function getLoansPageSize() {
+  return isSmallScreen() ? 7 : 10;
+}
 
 /* Paginated variant of listLoans for the Loans page table — same {items,
  * hasMore} envelope as searchLoansPage, but keyed off the page's own filters
  * (status/q) rather than a picker's free-text query. */
 export async function listLoansPage(
-  filters: LoanFilters & { page: number }
-): Promise<{ items: LoanView[]; hasMore: boolean }> {
+  filters: LoanFilters & { page: number; limit?: number }
+): Promise<{ items: LoanView[]; hasMore: boolean; total: number }> {
+  const pageSize = filters.limit ?? getLoansPageSize();
   const params = new URLSearchParams({
-    limit: String(LOANS_TABLE_PAGE_SIZE),
-    offset: String((filters.page - 1) * LOANS_TABLE_PAGE_SIZE),
+    limit: String(pageSize),
+    offset: String((filters.page - 1) * pageSize),
   });
   if (filters.q) params.set("q", filters.q);
   if (filters.status) params.set("status", filters.status);
   if (filters.branchId) params.set("branchId", String(filters.branchId));
   if (filters.customerId) params.set("customerId", String(filters.customerId));
   if (filters.bankPledgeStatus) params.set("bankPledgeStatus", filters.bankPledgeStatus);
-  const rec = await apiFetch<{ items: BackendLoan[]; hasMore: boolean }>(`/loans?${params}`);
-  return { items: (rec?.items || []).map(toView), hasMore: !!rec?.hasMore };
+  const rec = await apiFetch<{ items: BackendLoan[]; hasMore: boolean; total?: number }>(`/loans?${params}`);
+  return { items: (rec?.items || []).map(toView), hasMore: !!rec?.hasMore, total: rec?.total ?? 0 };
 }
 
 /* Page size for the paginated loan pickers. Ten rows per request — enough
@@ -882,19 +887,21 @@ export async function listBankPledgeHistory(): Promise<BankPledgeRecordView[]> {
   return (recs || []).map(toBankPledgeRecordView);
 }
 
-const BANK_PLEDGE_HISTORY_PAGE_SIZE = 10;
+export const BANK_PLEDGE_HISTORY_PAGE_SIZE = 10;
 
 // listBankPledgeHistoryPage backs the Bank Re-Pledge screen's History tab
 // pagination — see Loans.tsx's listLoansPage for the same {items, hasMore}
 // envelope pattern.
 export async function listBankPledgeHistoryPage(
-  page: number
-): Promise<{ items: BankPledgeRecordView[]; hasMore: boolean }> {
-  const offset = (page - 1) * BANK_PLEDGE_HISTORY_PAGE_SIZE;
-  const res = await apiFetch<{ items: BackendBankPledgeRecord[] | null; hasMore: boolean }>(
-    `/loans/bank-pledges/history?limit=${BANK_PLEDGE_HISTORY_PAGE_SIZE}&offset=${offset}`
+  page: number,
+  limit?: number
+): Promise<{ items: BankPledgeRecordView[]; hasMore: boolean; total: number }> {
+  const pageSize = limit ?? (isSmallScreen() ? 7 : 10);
+  const offset = (page - 1) * pageSize;
+  const res = await apiFetch<{ items: BackendBankPledgeRecord[] | null; hasMore: boolean; total?: number }>(
+    `/loans/bank-pledges/history?limit=${pageSize}&offset=${offset}`
   );
-  return { items: (res.items || []).map(toBankPledgeRecordView), hasMore: res.hasMore };
+  return { items: (res.items || []).map(toBankPledgeRecordView), hasMore: res.hasMore, total: res.total ?? 0 };
 }
 
 export const CASH_TREATMENT_LABELS: Record<BankPledgeCashTreatment, string> = {
@@ -1216,17 +1223,19 @@ export const AUCTION_HISTORY_PAGE_SIZE = 10;
  * sub-table's rows. */
 export async function listConcludedAuctionsPage(
   page: number,
-  hasSale: boolean
-): Promise<{ items: ConcludedAuctionRowView[]; hasMore: boolean }> {
+  hasSale: boolean,
+  limit?: number
+): Promise<{ items: ConcludedAuctionRowView[]; hasMore: boolean; total: number }> {
+  const pageSize = limit ?? (isSmallScreen() ? 7 : 10);
   const params = new URLSearchParams({
-    limit: String(AUCTION_HISTORY_PAGE_SIZE),
-    offset: String((page - 1) * AUCTION_HISTORY_PAGE_SIZE),
+    limit: String(pageSize),
+    offset: String((page - 1) * pageSize),
     hasSale: String(hasSale),
   });
-  const rec = await apiFetch<{ items: BackendConcludedAuctionRow[]; hasMore: boolean }>(
+  const rec = await apiFetch<{ items: BackendConcludedAuctionRow[]; hasMore: boolean; total?: number }>(
     `/loans/auctions/concluded?${params}`
   );
-  return { items: (rec?.items || []).map(toConcludedAuctionRowView), hasMore: !!rec?.hasMore };
+  return { items: (rec?.items || []).map(toConcludedAuctionRowView), hasMore: !!rec?.hasMore, total: rec?.total ?? 0 };
 }
 
 export async function listPendingAuctionDecisions(): Promise<AuctionDecisionRequestView[]> {
@@ -1352,23 +1361,24 @@ export async function listLoanRequests(filters?: LoanRequestFilters): Promise<Re
   return (rec || []).map(toRequestView);
 }
 
-/* Page size for the Requests page's table. */
 export const REQUESTS_TABLE_PAGE_SIZE = 10;
 
 /* Paginated variant of listLoanRequests for the Requests page table — same
  * {items, hasMore} envelope as listLoansPage, keyed off `page` (1-based). */
 export async function listLoanRequestsPage(
   page: number,
-  filters?: LoanRequestFilters
-): Promise<{ items: RequestView[]; hasMore: boolean }> {
+  filters?: LoanRequestFilters,
+  limit?: number
+): Promise<{ items: RequestView[]; hasMore: boolean; total: number }> {
+  const pageSize = limit ?? (isSmallScreen() ? 7 : 10);
   const params = new URLSearchParams({
-    limit: String(REQUESTS_TABLE_PAGE_SIZE),
-    offset: String((page - 1) * REQUESTS_TABLE_PAGE_SIZE),
+    limit: String(pageSize),
+    offset: String((page - 1) * pageSize),
   });
   if (filters?.status) params.set("status", filters.status);
   if (filters?.loanId) params.set("loanId", String(filters.loanId));
-  const rec = await apiFetch<{ items: BackendLoanRequest[]; hasMore: boolean }>(`/loans/requests?${params}`);
-  return { items: (rec?.items || []).map(toRequestView), hasMore: !!rec?.hasMore };
+  const rec = await apiFetch<{ items: BackendLoanRequest[]; hasMore: boolean; total?: number }>(`/loans/requests?${params}`);
+  return { items: (rec?.items || []).map(toRequestView), hasMore: !!rec?.hasMore, total: rec?.total ?? 0 };
 }
 
 /* Backs Dashboard.tsx's "Interest Collected" KPI — replaces the old

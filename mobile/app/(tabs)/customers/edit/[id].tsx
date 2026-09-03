@@ -94,7 +94,7 @@ export default function EditCustomerScreen() {
   if (isLoading || !data) {
     return (
       <ScreenContainer style={{ padding: 0 }}>
-        <View style={{ flex: 1, paddingHorizontal: 16, paddingTop: 16 }}>
+        <View style={{ flex: 1, paddingHorizontal: 8, paddingTop: 20 }}>
       <ThemedText color={colors.muted}>{isError ? "Could not load this customer." : "Loading…"}</ThemedText>
         </View>
       </ScreenContainer>    );
@@ -102,7 +102,7 @@ export default function EditCustomerScreen() {
 
   return (
     <ScreenContainer style={{ padding: 0 }}>
-      <View style={{ flex: 1, paddingHorizontal: 16, paddingTop: 16 }}>
+      <View style={{ flex: 1, paddingHorizontal: 8, paddingTop: 20 }}>
       <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === "ios" ? "padding" : "height"}>
         <ScrollView
           showsVerticalScrollIndicator={false}
