@@ -33,7 +33,6 @@ import {
 } from "../../src/api/reports";
 
 import { fmt } from "../../src/lib/format";
-import { tableCardStyle } from "../../src/components/ExpandableTable";
 
 const fmtW = (n: number) => `${(n ?? 0).toFixed(2)}g`;
 const dt = (v?: string | null) => (v ? new Date(v).toDateString() : "—");
@@ -385,22 +384,22 @@ export default function ReportsScreen() {
               keyExtractor={(_, i) => String(i)}
               showsVerticalScrollIndicator={true}
               style={{ flexShrink: 1 }}
-              contentContainerStyle={tableCardStyle}
-              renderItem={({ item, index }) => {
+              renderItem={({ item }) => {
                 const row = preview!.renderRow(item);
+                // Same "each row its own separated, shadowed card" treatment
+                // as every other table in the app now uses (see
+                // ExpandableTable.tsx's cardRows) — this preview list is its
+                // own bespoke title/detail layout rather than TableRow (16
+                // reports, 16 different row shapes), so it re-implements the
+                // card look directly instead of sharing that component.
                 return (
-                  <View
-                    style={[
-                      styles.previewRow,
-                      index > 0 && styles.previewRowDivider,
-                      index === 0 && styles.previewRowFirst,
-                      index === rows.length - 1 && styles.previewRowLast,
-                    ]}
-                  >
-                    <ThemedText variant="body">{row.title}</ThemedText>
-                    <ThemedText variant="small" color={colors.muted}>
-                      {row.detail}
-                    </ThemedText>
+                  <View style={styles.previewCardOuter}>
+                    <View style={styles.previewCardInner}>
+                      <ThemedText variant="body">{row.title}</ThemedText>
+                      <ThemedText variant="small" color={colors.muted}>
+                        {row.detail}
+                      </ThemedText>
+                    </View>
                   </View>
                 );
               }}
@@ -422,8 +421,25 @@ const styles = StyleSheet.create({
     alignItems: "center",
     marginBottom: 16,
   },
-  previewRow: { paddingVertical: 11, paddingHorizontal: 12, backgroundColor: colors.card },
-  previewRowDivider: { borderTopWidth: 1, borderTopColor: colors.line },
-  previewRowFirst: { borderTopLeftRadius: 14, borderTopRightRadius: 14 },
-  previewRowLast: { borderBottomLeftRadius: 14, borderBottomRightRadius: 14 },
+  // Mirrors ExpandableTable.tsx's cardOuter/cardInner split — the shadow
+  // and the rounded/clipped border live on two nested Views rather than
+  // one, since a View can't clip its children via overflow:hidden while
+  // still painting a shadow that extends past its own bounds on iOS.
+  previewCardOuter: {
+    marginBottom: 10,
+    shadowColor: colors.charcoal,
+    shadowOpacity: 0.08,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 2,
+  },
+  previewCardInner: {
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: colors.line,
+    overflow: "hidden",
+    backgroundColor: colors.card,
+    paddingVertical: 11,
+    paddingHorizontal: 12,
+  },
 });

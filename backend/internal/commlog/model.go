@@ -29,6 +29,10 @@ const (
 	// Extension/Release request's approval chain.
 	TriggerExtensionRequest = "extension_request"
 	TriggerReleaseRequest   = "release_request"
+	// TriggerIndemnityBondEsign covers the pledge-agreement Aadhaar eSign
+	// link, when sent via WhatsApp instead of opened on the staff device —
+	// see loan.Service.StartIndemnityBondSign's deliverBy parameter.
+	TriggerIndemnityBondEsign = "indemnity_bond_esign"
 )
 
 // Channel values for CommunicationLog.Channel.

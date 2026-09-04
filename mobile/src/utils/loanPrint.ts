@@ -207,7 +207,7 @@ export async function printIndemnityBond(l: Loan) {
       Pan Card No. ${B}<br>
       Residing at :- ${B}
     </p>
-    <p>(Hereinafter called "the lander") of the other part.</p>
+    <p>(Hereinafter called "the lender") of the other part.</p>
     <p>The lender carrying on business of money-lending under certificate of registration number <b>${LENDER_REG_NO}</b> of the other part.</p>
     <p>The Money lender and borrower are collectively referred to as the "Parties".</p>
     <p><b>WHEREBY IT IS AGREED AS FOLLOWS</b></p>
@@ -220,7 +220,7 @@ export async function printIndemnityBond(l: Loan) {
           <li><b>Other Costs</b> — All other costs, charges and expenses (if any) which the lender may be entitled by law to add to his security.</li>
         </ol>
       </li>
-      <li><b>Lender's Liability for Losses</b><br>The Lander shall not liable to the borrower for any involuntary losses which may occur during his custody of the said articles (goods) or by reason of the sale thereof.</li>
+      <li><b>Lender's Liability for Losses</b><br>The Lender shall not be liable to the borrower for any involuntary losses which may occur during his custody of the said articles (goods) or by reason of the sale thereof.</li>
       <li><b>Right of Lender</b><br>The Borrower further covenants with the lender that in case any interest payable hereunder is not paid within 30 days after the due date, the whole sum hereby secured shall become payable at once, and in case of default in the payment of the principal money hereby secured with interest thereon on the aforesaid or in the performance of any of the covenants by the borrower hereinbefore contained the lender may enforce all or any of the remedies of a Pawnee provided by law provided that in case of sale of any part of the pledged property, a previous notice of two months shall be given to the borrower.</li>
       <li><b>Power of Sale</b>
         <ol type="a">
@@ -241,7 +241,7 @@ export async function printIndemnityBond(l: Loan) {
     <p>Date :- ${dd} / ${monthName} / ${yyyy}</p>
     <div class="sig">
       <div>The Borrower<span>Name: ${name}</span></div>
-      <div>The Lander<span>${LENDER_NAME}</span></div>
+      <div>The Lender<span>${LENDER_NAME}</span></div>
     </div>
     <p style="margin-top:20px"><b>IN WITNESS WHEREOF Etc.</b></p>
     <div class="sig">

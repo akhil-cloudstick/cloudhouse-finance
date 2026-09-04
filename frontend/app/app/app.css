@@ -2158,6 +2158,201 @@ table.tbl {
   font-weight: 600;
 }
 
+/* Bond language toggle — NewLoan.tsx's "Pledge Agreement" print button and
+ * LoanDetail.tsx's eSign modal both pick between English/Gujarati with this
+ * same compact segmented control rather than a full dropdown, since there
+ * are only ever the two options. */
+.bond-lang-toggle {
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  overflow: hidden;
+  background: #fff;
+}
+
+.bond-lang-toggle button {
+  font: inherit;
+  font-size: 13px;
+  padding: 9px 14px;
+  border: none;
+  background: none;
+  color: var(--muted);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.bond-lang-toggle button + button {
+  border-left: 1px solid var(--line);
+}
+
+.bond-lang-toggle button.on {
+  background: var(--gold-pale, #f7e9c4);
+  color: var(--gold-deep);
+  font-weight: 600;
+}
+
+/* EsignLanguageModal.tsx's bond-language picker — a 2-up card grid,
+ * stacking to one column below 380px so it still reads cleanly inside the
+ * modal on a phone-width viewport. */
+.esign-lang-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+@media (max-width: 380px) {
+  .esign-lang-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.esign-lang-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  text-align: left;
+  font: inherit;
+  padding: 13px 14px 11px;
+  border: 1.5px solid var(--line);
+  border-radius: 10px;
+  background: #fff;
+  cursor: pointer;
+}
+
+.esign-lang-card .name {
+  font-weight: 600;
+  font-size: 13.5px;
+  color: var(--charcoal);
+}
+
+.esign-lang-card .native {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.esign-lang-card .check {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  border: 1.5px solid var(--line);
+  display: grid;
+  place-content: center;
+  font-size: 10px;
+  font-weight: 700;
+  color: #2b2001;
+}
+
+.esign-lang-card.sel {
+  border-color: var(--gold);
+  background: var(--gold-pale);
+}
+
+.esign-lang-card.sel .check {
+  background: var(--gold);
+  border-color: var(--gold);
+}
+
+.esign-deliver-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.esign-deliver-card {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 11px 14px;
+  border: 1.5px solid var(--line);
+  border-radius: 10px;
+  background: #fff;
+  cursor: pointer;
+  text-align: left;
+  font: inherit;
+  transition: all .15s ease;
+}
+
+.esign-deliver-card:hover {
+  background: #fdfbf5;
+}
+
+.esign-deliver-card.sel {
+  border-color: var(--gold);
+  background: var(--gold-pale);
+}
+
+.esign-deliver-card .icon-box {
+  width: 36px;
+  height: 36px;
+  border-radius: 9px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  transition: all .15s ease;
+}
+
+.esign-deliver-card .icon-box.whatsapp {
+  background: #e8f5e9;
+  color: #128c7e;
+}
+
+.esign-deliver-card .icon-box.mobile {
+  background: #fdf3db;
+  color: #9a6f0f;
+}
+
+.esign-deliver-card .icon-box.tab {
+  background: #e3f2fd;
+  color: #1565c0;
+}
+
+.esign-deliver-card .icon-box svg {
+  width: 20px;
+  height: 20px;
+}
+
+.esign-deliver-card .meta {
+  flex: 1;
+}
+
+.esign-deliver-card .title {
+  font-weight: 600;
+  font-size: 13.5px;
+  color: var(--charcoal);
+  display: block;
+}
+
+.esign-deliver-card .sub {
+  font-size: 12px;
+  color: var(--muted);
+  display: block;
+  margin-top: 1px;
+}
+
+.esign-deliver-card .radio-dot {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  border: 1.5px solid var(--line);
+  display: grid;
+  place-content: center;
+  font-size: 10px;
+  font-weight: 700;
+  color: #fff;
+}
+
+.esign-deliver-card.sel .radio-dot {
+  border-color: var(--gold);
+  background: var(--gold);
+}
+
 /* search */
 .search {
   position: relative;

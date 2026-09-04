@@ -5,6 +5,7 @@ import { useRouter } from "expo-router";
 import { ScreenContainer } from "../../../src/components/ScreenContainer";
 import { ThemedText } from "../../../src/components/ThemedText";
 import { ChipSelect } from "../../../src/components/ChipSelect";
+import { FilterSheetButton } from "../../../src/components/FilterSheetButton";
 import { colors, statusColors, StatusTone } from "../../../src/theme/colors";
 import { listLoansPage } from "../../../src/api/loans";
 import { listConcludedAuctions } from "../../../src/api/auctions";
@@ -129,8 +130,8 @@ function ActiveCases() {
 
   return (
     <>
-      <View style={{ paddingHorizontal: 16 }}>
-        <ChipSelect options={FILTERS} value={filter} onChange={setFilter} label="Filter" />
+      <View style={{ paddingHorizontal: 16, marginBottom: 12 }}>
+        <FilterSheetButton options={FILTERS} value={filter} onChange={setFilter} label="Filter" />
       </View>
       <View style={{ flex: 1, paddingHorizontal: 16 }}>
         <ExpandableTable<Loan>

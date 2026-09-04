@@ -1365,11 +1365,17 @@ func (h *Handler) SetLoanOperatorApprovalLimit(c *gin.Context) {
 type startIndemnityBondEsignRequest struct {
 	Lang        string `json:"lang" binding:"required"`
 	RedirectURL string `json:"redirectUrl" binding:"required"`
+	// DeliverBy chooses how the signing URL reaches the customer —
+	// "open" (default), "whatsapp", or "dashboard"; see
+	// Service.StartIndemnityBondSign's deliverBy doc comment.
+	DeliverBy string `json:"deliverBy"`
 }
 
 // StartIndemnityBondEsign renders the loan's indemnity bond (in the
 // requested language), uploads it to Setu, and returns the Aadhaar eSign
-// signing URL the CUSTOMER must open themselves to complete OTP signing.
+// signing URL the CUSTOMER must open themselves to complete OTP signing —
+// in addition to delivering it via WhatsApp or the customer's dashboard
+// when req.DeliverBy asks for that.
 func (h *Handler) StartIndemnityBondEsign(c *gin.Context) {
 	loanID, err := httpx.IDParam(c, "id")
 	if err != nil {
@@ -1381,7 +1387,7 @@ func (h *Handler) StartIndemnityBondEsign(c *gin.Context) {
 		httpx.Fail(c, http.StatusBadRequest, "Invalid input")
 		return
 	}
-	signReq, err := h.svc.StartIndemnityBondSign(loanID, platform.GetBranchScope(c), req.Lang, req.RedirectURL)
+	signReq, err := h.svc.StartIndemnityBondSign(loanID, platform.GetBranchScope(c), req.Lang, req.RedirectURL, req.DeliverBy)
 	if err != nil {
 		httpx.FailErr(c, err)
 		return
