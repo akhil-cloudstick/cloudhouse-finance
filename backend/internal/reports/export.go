@@ -75,6 +75,15 @@ func (h *Handler) Export(c *gin.Context) {
 		return
 	}
 
+	// Form G is a fixed-layout statutory statement, not a repeated-row
+	// listing — it can't go through toTable's reflection-based generic
+	// table builder below, so it's special-cased here with its own
+	// dedicated buildFormGXLSX/buildFormGPDF (see formg.go).
+	if key == "form-g" {
+		h.exportFormG(c, f, format)
+		return
+	}
+
 	rows, _, err := h.reportRows(key, f)
 	if err != nil {
 		badRequest(c, err)

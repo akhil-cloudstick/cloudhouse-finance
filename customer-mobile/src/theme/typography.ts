@@ -11,7 +11,7 @@ export const fonts = {
   body: "Jost_400Regular",
   bodyMedium: "Jost_500Medium",
   bodySemiBold: "Jost_600SemiBold",
-  serif: "NunitoSans_800ExtraBold",
+  serif: "Jost_700Bold",
 } as const;
 
 export const typeScale = {
@@ -19,9 +19,9 @@ export const typeScale = {
   // letterforms read visually smaller than Bodoni's small caps at the same
   // point size, so matching the old sizes would have made headings feel like
   // they shrank.
-  h1: { fontFamily: fonts.serif, fontSize: 32 },
-  h2: { fontFamily: fonts.serif, fontSize: 26 },
-  h3: { fontFamily: fonts.serif, fontSize: 21 },
+  h1: { fontFamily: fonts.serif, fontSize: 32, fontWeight: "700" as const },
+  h2: { fontFamily: fonts.serif, fontSize: 26, fontWeight: "700" as const },
+  h3: { fontFamily: fonts.serif, fontSize: 21, fontWeight: "700" as const },
   body: { fontFamily: fonts.body, fontSize: 15 },
   label: { fontFamily: fonts.bodyMedium, fontSize: 13 },
   small: { fontFamily: fonts.body, fontSize: 12 },

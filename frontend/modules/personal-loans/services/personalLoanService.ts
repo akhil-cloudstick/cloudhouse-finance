@@ -1,4 +1,4 @@
-import { apiFetchEnveloped as apiFetch } from "@/common/services/httpClient";
+import { apiFetchEnveloped as apiFetch, API_BASE, AUTH_TOKEN_KEY, ApiError } from "@/common/services/httpClient";
 
 export type InterestType = "Flat" | "Percentage";
 export type Frequency = "Daily" | "Weekly" | "Monthly";
@@ -152,4 +152,39 @@ export function renewPersonalLoan(id: number, input: RenewInput): Promise<RenewR
 
 export function listPersonalLoansForCustomer(customerId: number): Promise<BackendPersonalLoan[]> {
   return apiFetch<BackendPersonalLoan[]>(`/customers/${customerId}/personal-loans`);
+}
+
+/* Downloads GET /personal-loans/:id/bond (the borrower-only bond PDF, see
+ * backend/internal/personalloan/bond.go) as a blob and triggers a browser
+ * save — same fetch → blob → temporary <a download> pattern as
+ * frontend/modules/reports/services/reportsService.ts's exportReport(). */
+export async function downloadPersonalLoanBond(loanId: number): Promise<void> {
+  const token = typeof window !== "undefined" ? window.localStorage.getItem(AUTH_TOKEN_KEY) : null;
+  const res = await fetch(`${API_BASE}/personal-loans/${loanId}/bond`, {
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  });
+  if (!res.ok) {
+    let message = res.statusText;
+    try {
+      const body = await res.json();
+      if (body?.error) message = body.error;
+    } catch {
+      /* non-JSON error body — fall back to statusText */
+    }
+    throw new ApiError(message, res.status);
+  }
+
+  const blob = await res.blob();
+  const disposition = res.headers.get("Content-Disposition") || "";
+  const match = disposition.match(/filename="([^"]+)"/);
+  const filename = match ? match[1] : `bond-${loanId}.pdf`;
+
+  const url = window.URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  window.URL.revokeObjectURL(url);
 }

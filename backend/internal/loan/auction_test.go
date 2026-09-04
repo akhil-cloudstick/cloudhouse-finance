@@ -4,6 +4,7 @@ import (
 	"testing"
 	"time"
 
+	"ambikagold/backend/internal/authz"
 	"ambikagold/backend/internal/platform"
 	"ambikagold/backend/internal/scheme"
 )
@@ -218,29 +219,62 @@ func TestRoundMoney(t *testing.T) {
 }
 
 // A part-payment escalation may only be resolved keep/remove, and a shortfall
-// only write-off/pursue. Without per-kind validation a shortfall could be
-// closed as "keep in auction", leaving real money owed with no decision made.
+// only write-off/pursue. Without per-kind default authority a shortfall could
+// be closed as "keep in auction", leaving real money owed with no decision
+// made.
+//
+// Authority for these two decisions used to be two hardcoded Go maps
+// (shortfallAuthorityRoles/partialRepaymentAuthorityRoles) checked directly
+// against the acting employee's role string. It's now a real, admin-editable
+// permission (authz.Repository.IsAllowed — see
+// Service.ResolveAuctionDecision/checkStagePermission), so what this test
+// can still meaningfully assert is the DEFAULT grant baked into
+// authz.Restrictions — an admin is free to rebalance who holds these
+// permissions from the Roles & Permissions screen from here on, but the
+// out-of-the-box behavior on a fresh install should still match the
+// invariants this test always checked.
 func TestDecisionAuthority_ShortfallExcludesAuctionAdministrator(t *testing.T) {
-	if shortfallAuthorityRoles["Auction Administrator"] {
-		t.Error("Auction Administrator raises a shortfall escalation but must not decide it")
+	shortfallRoles := restrictionRoles(t, "can decide auction shortfall")
+	if shortfallRoles["Auction Administrator"] {
+		t.Error("Auction Administrator raises a shortfall escalation but must not decide it by default")
 	}
 	for _, role := range []string{"Branch Manager", "Management", "Administrator"} {
-		if !shortfallAuthorityRoles[role] {
-			t.Errorf("%q must be able to decide a shortfall", role)
+		if !shortfallRoles[role] {
+			t.Errorf("%q must be able to decide a shortfall by default", role)
 		}
 	}
 	// Either the Auction Administrator or the Branch Manager may settle a
 	// part-payment question, so gold is never stuck awaiting two signatures.
+	partialRoles := restrictionRoles(t, "can decide auction partial repayment")
 	for _, role := range []string{"Auction Administrator", "Branch Manager"} {
-		if !partialRepaymentAuthorityRoles[role] {
-			t.Errorf("%q must be able to decide a part-payment question", role)
+		if !partialRoles[role] {
+			t.Errorf("%q must be able to decide a part-payment question by default", role)
 		}
 	}
 	for _, role := range []string{"Cashier", "Loan Operator", "Auditor", "Collection Staff", "Accountant"} {
-		if partialRepaymentAuthorityRoles[role] || shortfallAuthorityRoles[role] {
-			t.Errorf("%q must not be able to decide an auction escalation", role)
+		if partialRoles[role] || shortfallRoles[role] {
+			t.Errorf("%q must not be able to decide an auction escalation by default", role)
 		}
 	}
+}
+
+// restrictionRoles looks up permissionName's default-allowed role set from
+// authz.Restrictions (the same table internal/migrate seeds role_permissions
+// from on boot), failing the test outright if the catalogue entry was
+// renamed/removed rather than silently passing on an empty set.
+func restrictionRoles(t *testing.T, permissionName string) map[string]bool {
+	t.Helper()
+	for _, r := range authz.Restrictions {
+		if r.PermissionName == permissionName {
+			allowed := make(map[string]bool, len(r.AllowedRoles))
+			for _, role := range r.AllowedRoles {
+				allowed[role] = true
+			}
+			return allowed
+		}
+	}
+	t.Fatalf("no authz.Restrictions entry for %q", permissionName)
+	return nil
 }
 
 // isUniqueViolation is what turns a database race into a clean

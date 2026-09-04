@@ -1,6 +1,7 @@
 package personalloan
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"log"
@@ -48,10 +49,18 @@ type Service struct {
 	repo         *Repository
 	customerRepo *customer.Repository
 	cashRecorder CashRecorder
+
+	// aadhaarCipher decrypts a customer's full Aadhaar number (same
+	// key/cipher as customer.Service's own aadhaarCipher) so
+	// GenerateBond can prefill it on the printable borrower-only bond,
+	// mirroring internal/loan.Service's identical field/rationale for its
+	// pledge agreement. Optional: nil (e.g. not configured) just leaves
+	// the bond's Aadhaar line blank rather than failing the download.
+	aadhaarCipher *platform.Cipher
 }
 
-func NewService(repo *Repository, customerRepo *customer.Repository, cashRecorder CashRecorder) *Service {
-	return &Service{repo: repo, customerRepo: customerRepo, cashRecorder: cashRecorder}
+func NewService(repo *Repository, customerRepo *customer.Repository, cashRecorder CashRecorder, aadhaarCipher *platform.Cipher) *Service {
+	return &Service{repo: repo, customerRepo: customerRepo, cashRecorder: cashRecorder, aadhaarCipher: aadhaarCipher}
 }
 
 // CreateInput mirrors the "New Personal Loan" form.
@@ -662,4 +671,36 @@ func (s *Service) RenewLoan(loanID uint, branchID *uint, in RenewInput) (*RenewR
 		}
 	}
 	return &result, nil
+}
+
+// GenerateBond loads the loan + its customer (branch-scoped, same access
+// check as every other read on this loan), best-effort decrypts the
+// customer's Aadhaar number, and renders the borrower-only bond PDF (see
+// bond.go). Mirrors internal/loan.Service's bondDataForLoan decrypt
+// rationale: a customer with no Aadhaar on file, or a decrypt failure, just
+// leaves the bond's Aadhaar line blank rather than blocking the download.
+func (s *Service) GenerateBond(ctx context.Context, loanID uint, branchID *uint) ([]byte, *PersonalLoan, error) {
+	loan, err := s.Get(loanID, branchID)
+	if err != nil {
+		return nil, nil, err
+	}
+	cust, err := s.customerRepo.FindByID(loan.CustomerID)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	var aadhaar string
+	if cust.AadhaarEncrypted != "" && s.aadhaarCipher != nil {
+		if plain, err := s.aadhaarCipher.Decrypt(cust.AadhaarEncrypted); err == nil {
+			aadhaar = plain
+		} else {
+			log.Printf("personal loan bond: decrypt Aadhaar for customer %d failed: %v", cust.ID, err)
+		}
+	}
+
+	pdf, err := GenerateBondPDF(ctx, loan, cust, aadhaar)
+	if err != nil {
+		return nil, nil, err
+	}
+	return pdf, loan, nil
 }

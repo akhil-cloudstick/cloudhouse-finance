@@ -8,6 +8,7 @@ import { Icon } from "@/common/components/Icon";
 import { fmt } from "@/common/utils/format";
 import { listGoldRatesPage, type GoldRateView } from "@/modules/gold-rates/services/goldRateService";
 import { useAuth } from "@/common/auth-context";
+import { useResponsivePageSize } from "@/common/utils/responsive";
 
 function RateTile({ k, r }: { k: string; r: number }) {
   return (
@@ -25,6 +26,7 @@ function RateTile({ k, r }: { k: string; r: number }) {
 export function GoldRates() {
   const { latest } = useGoldRates();
   const { openModal } = useModal();
+  const pageSize = useResponsivePageSize(10, 6);
   // Hidden rather than disabled when the role cannot record a rate — see
   // Customers.tsx.
   const { can } = useAuth();
@@ -32,29 +34,25 @@ export function GoldRates() {
 
   const [page, setPage] = useState(1);
   const [rows, setRows] = useState<GoldRateView[]>([]);
-  const [hasMore, setHasMore] = useState(false);
+  const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const totalPages = Math.max(1, Math.ceil(total / pageSize));
 
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
-    listGoldRatesPage(page)
+    listGoldRatesPage(page, pageSize)
       .then((res) => {
         if (cancelled) return;
         setRows(res.items);
-        setHasMore(res.hasMore);
+        setTotal(res.total);
         setError("");
       })
       .catch((e) => { if (!cancelled) setError(e instanceof Error ? e.message : "Failed to load rate history."); })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
-  }, [page]);
-
-  // No total-row count comes back from the {items, hasMore} envelope — only
-  // whether another page exists — so the indicator can't show "of N" here,
-  // just enable/disable Next (mirrors Loans.tsx's totalPages logic).
-  const totalPages = hasMore ? page + 1 : page;
+  }, [page, pageSize]);
 
   return (
     <>

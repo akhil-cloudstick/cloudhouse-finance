@@ -1,11 +1,10 @@
-import React, { useState } from "react";
-import { ScrollView, RefreshControl, View } from "react-native";
-import { useQuery } from "@tanstack/react-query";
+import React from "react";
+import { RefreshControl, View } from "react-native";
+import { useInfiniteQuery } from "@tanstack/react-query";
 import { useRouter } from "expo-router";
 import { ScreenContainer } from "../../../src/components/ScreenContainer";
 import { ThemedText } from "../../../src/components/ThemedText";
 import { GoldButton } from "../../../src/components/GoldButton";
-import { Pager } from "../../../src/components/Pager";
 import { colors } from "../../../src/theme/colors";
 import { listEmployeesPage } from "../../../src/api/employees";
 import { Employee } from "../../../src/types/employee";
@@ -39,27 +38,24 @@ function employeeExtraFields(e: Employee) {
 // list is already branch-scoped, paginated 10/page.
 export default function EmployeesScreen() {
   const router = useRouter();
-  const [page, setPage] = useState(1);
 
-  const { data, isLoading, isError, isFetching, refetch } = useQuery({
-    queryKey: ["employees", page],
-    queryFn: () => listEmployeesPage({ limit: PAGE_SIZE, offset: (page - 1) * PAGE_SIZE }),
+  const { data, isLoading, isError, isFetching, isFetchingNextPage, fetchNextPage, hasNextPage, refetch } = useInfiniteQuery({
+    queryKey: ["employees"],
+    queryFn: ({ pageParam = 0 }) => listEmployeesPage({ limit: PAGE_SIZE, offset: pageParam }),
+    initialPageParam: 0,
+    getNextPageParam: (lastPage, allPages) => (lastPage.hasMore ? allPages.length * PAGE_SIZE : undefined),
   });
 
   useRefetchOnFocus(refetch);
 
-  const employees = data?.items ?? [];
+  const employees = data?.pages.flatMap((p) => p.items) ?? [];
 
   return (
     <ScreenContainer style={{ paddingHorizontal: 0 }}>
-      <View style={{ paddingHorizontal: 16 }}>
+      <View style={{ paddingHorizontal: 16, paddingTop: 20 }}>
         <GoldButton title="Add employee" variant="outline" onPress={() => router.push("/employees/new")} />
       </View>
-      <ScrollView
-        showsVerticalScrollIndicator={false}
-        contentContainerStyle={{ padding: 16 }}
-        refreshControl={<RefreshControl refreshing={isFetching && !isLoading} onRefresh={refetch} />}
-      >
+      <View style={{ flex: 1, paddingHorizontal: 16, paddingTop: 16 }}>
         <ExpandableTable<Employee>
           columns={EMPLOYEE_COLUMNS}
           visibleCount={EMPLOYEE_VISIBLE_COUNT}
@@ -68,9 +64,13 @@ export default function EmployeesScreen() {
           extraFields={employeeExtraFields}
           onViewDescription={(e) => router.push(`/employees/${e.id}`)}
           emptyText={isLoading ? "Loading…" : isError ? "Could not load employees." : "No employees found."}
+          refreshControl={<RefreshControl refreshing={isFetching && !isFetchingNextPage && !isLoading} onRefresh={refetch} />}
+          onEndReached={() => {
+            if (hasNextPage && !isFetchingNextPage) fetchNextPage();
+          }}
+          isFetchingNextPage={isFetchingNextPage}
         />
-        <Pager page={page} hasMore={!!data?.hasMore} onChange={setPage} loading={isFetching} />
-      </ScrollView>
+      </View>
     </ScreenContainer>
   );
 }

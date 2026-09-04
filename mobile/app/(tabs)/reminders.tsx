@@ -95,7 +95,7 @@ function AddReminderModal({ visible, onClose }: { visible: boolean; onClose: () 
   return (
     <BottomSheetModal visible={visible} onClose={() => { reset(); onClose(); }} maxHeightPct={88}>
       <View style={styles.sheetHeader}>
-        <ThemedText variant="h3">Add Reminder</ThemedText>
+        <ThemedText variant="h3" color={colors.goldDeep}>Add Reminder</ThemedText>
         <Pressable onPress={() => { reset(); onClose(); }}>
           <ThemedText variant="h3" color={colors.muted}>
             ×
@@ -263,53 +263,55 @@ export default function RemindersScreen() {
 
   return (
     <ScreenContainer style={{ padding: 0 }}>
-      <View style={{ flex: 1, paddingHorizontal: 16, paddingTop: 16 }}>
+      <View style={{ flex: 1, paddingHorizontal: 8, paddingTop: 20 }}>
       <ScrollView
         showsVerticalScrollIndicator={false}
         refreshControl={<RefreshControl refreshing={isRefetching} onRefresh={refetch} />}
       >
         <GoldButton title="+ Add Reminder" onPress={() => setAddVisible(true)} style={{ marginBottom: 16 }} />
 
-        <View style={styles.monthNav}>
-          <Pressable onPress={() => goMonth(-1)} hitSlop={10} style={styles.monthNavArrow}>
-            <ThemedText style={styles.monthNavChevron} color={colors.goldDeep}>‹</ThemedText>
-          </Pressable>
-          <ThemedText variant="h3">{fmtMonthYear(year, month)}</ThemedText>
-          <Pressable onPress={() => goMonth(1)} hitSlop={8} style={styles.monthNavArrow}>
-            <ThemedText style={styles.monthNavChevron} color={colors.goldDeep}>›</ThemedText>
-          </Pressable>
-        </View>
-
-        <View style={styles.weekRow}>
-          {WEEKDAY_LABELS.map((d, i) => (
-            <View key={i} style={styles.weekdayCell}>
-              <ThemedText variant="label" color={colors.muted}>{d}</ThemedText>
-            </View>
-          ))}
-        </View>
-
-        {isLoading ? (
-          <ThemedText color={colors.muted}>Loading…</ThemedText>
-        ) : isError ? (
-          <ThemedText color={colors.red}>Could not load reminders.</ThemedText>
-        ) : (
-          <View style={styles.grid}>
-            {cells.map((day, i) =>
-              day == null ? (
-                <View key={i} style={styles.dayCell} />
-              ) : (
-                <DayCell
-                  key={i}
-                  day={day}
-                  events={eventsByDay.get(day) ?? []}
-                  isToday={isCurrentMonth && day === today.getDate()}
-                  isSelected={selectedDay === day}
-                  onPress={() => setSelectedDay(day)}
-                />
-              )
-            )}
+        <Card>
+          <View style={styles.monthNav}>
+            <Pressable onPress={() => goMonth(-1)} hitSlop={10} style={styles.monthNavArrowCircle}>
+              <ThemedText style={styles.monthNavChevron} color={colors.goldDeep}>‹</ThemedText>
+            </Pressable>
+            <ThemedText variant="h3">{fmtMonthYear(year, month)}</ThemedText>
+            <Pressable onPress={() => goMonth(1)} hitSlop={8} style={styles.monthNavArrowCircle}>
+              <ThemedText style={styles.monthNavChevron} color={colors.goldDeep}>›</ThemedText>
+            </Pressable>
           </View>
-        )}
+
+          <View style={styles.weekRow}>
+            {WEEKDAY_LABELS.map((d, i) => (
+              <View key={i} style={styles.weekdayCell}>
+                <ThemedText variant="label" color={colors.muted}>{d}</ThemedText>
+              </View>
+            ))}
+          </View>
+
+          {isLoading ? (
+            <ThemedText color={colors.muted}>Loading…</ThemedText>
+          ) : isError ? (
+            <ThemedText color={colors.red}>Could not load reminders.</ThemedText>
+          ) : (
+            <View style={styles.grid}>
+              {cells.map((day, i) =>
+                day == null ? (
+                  <View key={i} style={styles.dayCell} />
+                ) : (
+                  <DayCell
+                    key={i}
+                    day={day}
+                    events={eventsByDay.get(day) ?? []}
+                    isToday={isCurrentMonth && day === today.getDate()}
+                    isSelected={selectedDay === day}
+                    onPress={() => setSelectedDay(day)}
+                  />
+                )
+              )}
+            </View>
+          )}
+        </Card>
 
         <ThemedText variant="h3" style={{ marginTop: 20, marginBottom: 8 }}>
           {selectedDay != null ? `${fmtMonthYear(year, month)} ${selectedDay}` : "Select a day"}
@@ -366,12 +368,9 @@ const styles = StyleSheet.create({
     gap: 16,
     marginBottom: 10,
   },
-  monthNavArrow: {
-    paddingHorizontal: 4,
-  },
   monthNavChevron: {
-    fontSize: 28,
-    lineHeight: 32,
+    fontSize: 20,
+    lineHeight: 22,
   },
   weekRow: {
     flexDirection: "row",
@@ -394,11 +393,19 @@ const styles = StyleSheet.create({
     marginBottom: 2,
   },
   dayCellToday: {
-    borderWidth: 1,
+    borderWidth: 1.5,
     borderColor: colors.goldDeep,
   },
   dayCellSelected: {
     backgroundColor: colors.goldDeep,
+  },
+  monthNavArrowCircle: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: colors.goldPale,
   },
   dotsRow: {
     flexDirection: "row",

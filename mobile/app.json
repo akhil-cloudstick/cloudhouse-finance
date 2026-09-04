@@ -39,7 +39,8 @@
         "expo-status-bar",
         {
           "style": "dark",
-          "backgroundColor": "#faf6ec"
+          "backgroundColor": "transparent",
+          "translucent": true
         }
       ],
       "expo-sharing",
@@ -59,9 +60,9 @@
       ]
     ],
     "androidStatusBar": {
-      "backgroundColor": "#faf6ec",
+      "backgroundColor": "transparent",
       "barStyle": "dark-content",
-      "translucent": false
+      "translucent": true
     },
     "extra": {
       "eas": {

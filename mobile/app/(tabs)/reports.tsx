@@ -313,7 +313,7 @@ export default function ReportsScreen() {
 
   return (
     <ScreenContainer style={{ padding: 0 }}>
-      <View style={{ flex: 1, paddingHorizontal: 16, paddingTop: 16 }}>
+      <View style={{ flex: 1, paddingHorizontal: 8, paddingTop: 20 }}>
       <ScrollView
         showsVerticalScrollIndicator={false}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
@@ -342,9 +342,9 @@ export default function ReportsScreen() {
         </View>
       </ScrollView>
 
-      <BottomSheetModal visible={!!preview} onClose={() => setPreview(null)} maxHeightPct={85}>
+      <BottomSheetModal visible={!!preview} onClose={() => setPreview(null)} maxHeightPct={85} dragToClose={false}>
         <View style={styles.sheetHeader}>
-          <ThemedText variant="h3" numberOfLines={1} style={{ flex: 1 }}>
+          <ThemedText variant="h3" color={colors.goldDeep} numberOfLines={1} style={{ flex: 1 }}>
             {preview?.title}
           </ThemedText>
           <GoldButton
@@ -383,7 +383,8 @@ export default function ReportsScreen() {
             <FlatList
               data={rows}
               keyExtractor={(_, i) => String(i)}
-              showsVerticalScrollIndicator={false}
+              showsVerticalScrollIndicator={true}
+              style={{ flexShrink: 1 }}
               contentContainerStyle={tableCardStyle}
               renderItem={({ item, index }) => {
                 const row = preview!.renderRow(item);

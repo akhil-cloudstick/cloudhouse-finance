@@ -276,7 +276,7 @@ export default function NewLoanScreen() {
   if (!canCreateLoan) {
     return (
       <ScreenContainer style={{ padding: 0 }}>
-        <View style={{ flex: 1, paddingHorizontal: 16, paddingTop: 16 }}>
+        <View style={{ flex: 1, paddingHorizontal: 8, paddingTop: 20 }}>
       <Card>
           <ThemedText variant="body" color={colors.muted}>
             You don&apos;t have permission to create a loan. Contact a Loan Operator, Branch Manager, or Administrator.
@@ -288,9 +288,11 @@ export default function NewLoanScreen() {
 
   return (
     <ScreenContainer style={{ padding: 0 }}>
-      <View style={{ flex: 1, paddingHorizontal: 16, paddingTop: 16 }}>
+      <View style={{ flex: 1, paddingHorizontal: 8, paddingTop: 20 }}>
       <ScrollView
         showsVerticalScrollIndicator={false}
+        nestedScrollEnabled={true}
+        keyboardShouldPersistTaps="handled"
         refreshControl={<RefreshControl refreshing={goldRate.isRefetching} onRefresh={() => goldRate.refetch()} />}
       >
         {!isTodaySet ? (
@@ -302,19 +304,17 @@ export default function NewLoanScreen() {
           </Card>
         ) : null}
 
-        {/* zIndex here (not just on the inner dropdown wrapper below) is
-         * what actually makes the dropdown float over the Scheme card —
-         * RN only respects zIndex among siblings sharing the same direct
-         * parent, and this Card and the Scheme Card below are both direct
-         * children of this ScrollView. Without it, the Scheme Card (a
-         * later sibling) painted over this dropdown instead of the other
-         * way around, since sibling paint order otherwise just follows
-         * document order — that's the "dropdown looks shredded by the
-         * next card" bug. */}
-        <Card style={{ zIndex: customerFocused ? 20 : 1 }}>
-          <ThemedText variant="h3" style={{ marginBottom: 8 }}>
-            Customer
-          </ThemedText>
+        <Card>
+          <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+            <ThemedText variant="h3">Customer</ThemedText>
+            {customerFocused && !customer ? (
+              <Pressable onPress={() => setCustomerFocused(false)} hitSlop={8}>
+                <ThemedText variant="small" color={colors.goldDeep}>
+                  Hide list
+                </ThemedText>
+              </Pressable>
+            ) : null}
+          </View>
           {customer ? (
             <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
               <View>
@@ -330,29 +330,34 @@ export default function NewLoanScreen() {
               </Pressable>
             </View>
           ) : (
-            <View style={{ position: "relative", zIndex: 20 }}>
+            <View>
               <GoldTextInput
                 label="Search customer"
                 placeholder="Name, phone, or code…"
                 value={customerQuery}
                 onChangeText={setCustomerQuery}
-                onFocus={() => setCustomerFocused(true)}
-                onBlur={() => setTimeout(() => setCustomerFocused(false), 150)}
+                onFocus={() => {
+                  setCustomerFocused(true);
+                  setSchemeFocused(false);
+                }}
               />
               {customerFocused && (customerResults.data ?? []).length > 0 ? (
-                // A real floating dropdown now — absolutely positioned over
-                // whatever's below (Scheme card, etc.) instead of pushing it
-                // down the page. nestedScrollEnabled lets its own scroll work
-                // independently of the outer form ScrollView on Android.
-                <View style={styles.dropdown}>
+                <View style={styles.dropdownContainer}>
                   <ScrollView
-                    nestedScrollEnabled
+                    nestedScrollEnabled={true}
                     style={{ maxHeight: 220 }}
                     keyboardShouldPersistTaps="handled"
-                    showsVerticalScrollIndicator
+                    showsVerticalScrollIndicator={true}
                   >
-                    {(customerResults.data ?? []).map((c) => (
-                      <Pressable key={c.id} onPress={() => setCustomer(c)} style={styles.dropdownRow}>
+                    {(customerResults.data ?? []).map((c, i) => (
+                      <Pressable
+                        key={c.id}
+                        onPress={() => {
+                          setCustomer(c);
+                          setCustomerFocused(false);
+                        }}
+                        style={[styles.dropdownRow, i > 0 && styles.dropdownDivider]}
+                      >
                         <ThemedText variant="body">{c.name}</ThemedText>
                         <ThemedText variant="small" color={colors.muted}>
                           {c.code} · {c.phone}
@@ -366,10 +371,17 @@ export default function NewLoanScreen() {
           )}
         </Card>
 
-        <Card style={{ zIndex: schemeFocused ? 20 : 1 }}>
-          <ThemedText variant="h3" style={{ marginBottom: 8 }}>
-            Scheme
-          </ThemedText>
+        <Card>
+          <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+            <ThemedText variant="h3">Scheme</ThemedText>
+            {schemeFocused && !scheme ? (
+              <Pressable onPress={() => setSchemeFocused(false)} hitSlop={8}>
+                <ThemedText variant="small" color={colors.goldDeep}>
+                  Hide list
+                </ThemedText>
+              </Pressable>
+            ) : null}
+          </View>
           {scheme ? (
             <>
               <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
@@ -393,24 +405,33 @@ export default function NewLoanScreen() {
               ) : null}
             </>
           ) : (
-            <View style={{ position: "relative", zIndex: 20 }}>
+            <View>
               <GoldTextInput
                 label="Search scheme"
                 value={schemeQuery}
                 onChangeText={setSchemeQuery}
-                onFocus={() => setSchemeFocused(true)}
-                onBlur={() => setTimeout(() => setSchemeFocused(false), 150)}
+                onFocus={() => {
+                  setSchemeFocused(true);
+                  setCustomerFocused(false);
+                }}
               />
               {schemeFocused && (schemeResults.data ?? []).length > 0 ? (
-                <View style={styles.dropdown}>
+                <View style={styles.dropdownContainer}>
                   <ScrollView
-                    nestedScrollEnabled
+                    nestedScrollEnabled={true}
                     style={{ maxHeight: 220 }}
                     keyboardShouldPersistTaps="handled"
-                    showsVerticalScrollIndicator
+                    showsVerticalScrollIndicator={true}
                   >
-                    {(schemeResults.data ?? []).map((s) => (
-                      <Pressable key={s.id} onPress={() => setScheme(s)} style={styles.dropdownRow}>
+                    {(schemeResults.data ?? []).map((s, i) => (
+                      <Pressable
+                        key={s.id}
+                        onPress={() => {
+                          setScheme(s);
+                          setSchemeFocused(false);
+                        }}
+                        style={[styles.dropdownRow, i > 0 && styles.dropdownDivider]}
+                      >
                         <ThemedText variant="body">{s.name}</ThemedText>
                         <ThemedText variant="small" color={colors.muted}>
                           {s.interestRate}% · {s.durationMonths} months
@@ -519,24 +540,14 @@ export default function NewLoanScreen() {
 }
 
 const styles = StyleSheet.create({
-  // Floats over whatever's below in the form rather than pushing it down —
-  // `top: "100%"` lands it right under the label+input block it's attached
-  // to (see the wrapping `position: "relative"` View above each usage).
-  dropdown: {
-    position: "absolute",
-    top: "100%",
-    left: 0,
-    right: 0,
-    marginTop: -6,
-    backgroundColor: colors.card,
-    borderRadius: 10,
+  dropdownContainer: {
+    marginTop: 8,
+    backgroundColor: colors.ivory,
+    borderRadius: 12,
     borderWidth: 1,
     borderColor: colors.line,
-    zIndex: 30,
-    ...Platform.select({
-      ios: { shadowColor: colors.charcoal, shadowOpacity: 0.15, shadowRadius: 10, shadowOffset: { width: 0, height: 4 } },
-      android: { elevation: 6 },
-    }),
+    overflow: "hidden",
   },
   dropdownRow: { paddingVertical: 10, paddingHorizontal: 12 },
+  dropdownDivider: { borderTopWidth: 1, borderTopColor: colors.line },
 });

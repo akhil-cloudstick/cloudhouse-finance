@@ -110,26 +110,28 @@ func (s *Service) Create(in CreateInput) (*View, error) {
 // List returns lockers, optionally scoped to branchID (nil = all branches —
 // Administrator only, see platform.GetBranchScope).
 func (s *Service) List(branchID *uint) ([]View, error) {
-	return s.Find(LockerFilter{BranchID: branchID})
+	views, _, err := s.Find(LockerFilter{BranchID: branchID})
+	return views, err
 }
 
 // Find is List's filtered/paginated superset — backs the packet Check-In
 // picker's search box (SearchableSelect), same q/limit/offset shape as
-// packet.Filter/loan.LoanFilter.
-func (s *Service) Find(f LockerFilter) ([]View, error) {
-	lockers, err := s.repo.Find(f)
+// packet.Filter/loan.LoanFilter. Returns the TOTAL row count for f's
+// filters (0 when f.Limit <= 0).
+func (s *Service) Find(f LockerFilter) ([]View, int64, error) {
+	lockers, total, err := s.repo.Find(f)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	views := make([]View, 0, len(lockers))
 	for _, l := range lockers {
 		v, err := s.toView(l)
 		if err != nil {
-			return nil, err
+			return nil, 0, err
 		}
 		views = append(views, v)
 	}
-	return views, nil
+	return views, total, nil
 }
 
 // Get returns the locker by id, or ErrNotFound if it doesn't exist OR (when

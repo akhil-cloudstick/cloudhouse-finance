@@ -68,7 +68,7 @@ func (h *Handler) List(c *gin.Context) {
 			offset = 0
 		}
 		f.Limit, f.Offset = limit+1, offset
-		rec, err := h.svc.Find(f)
+		rec, total, err := h.svc.Find(f)
 		if err != nil {
 			httpx.FailErr(c, err)
 			return
@@ -77,11 +77,11 @@ func (h *Handler) List(c *gin.Context) {
 		if hasMore {
 			rec = rec[:limit]
 		}
-		httpx.Success(c, http.StatusOK, gin.H{"items": rec, "hasMore": hasMore})
+		httpx.Success(c, http.StatusOK, gin.H{"items": rec, "hasMore": hasMore, "total": total})
 		return
 	}
 
-	rec, err := h.svc.Find(f)
+	rec, _, err := h.svc.Find(f)
 	if err != nil {
 		httpx.FailErr(c, err)
 		return

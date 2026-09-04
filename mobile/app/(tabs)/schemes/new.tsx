@@ -59,7 +59,7 @@ export default function NewSchemeScreen() {
 
   return (
     <ScreenContainer style={{ padding: 0 }}>
-      <View style={{ flex: 1, paddingHorizontal: 16, paddingTop: 16 }}>      {/* style={{flex:1}} matters here specifically: without it this
+      <View style={{ flex: 1, paddingHorizontal: 8, paddingTop: 20 }}>      {/* style={{flex:1}} matters here specifically: without it this
        * ScrollView sizes itself to its own (tall — 8 fields) content height
        * instead of the space ScreenContainer's KeyboardAvoidingView actually
        * has once the keyboard opens and shrinks that space, so it never

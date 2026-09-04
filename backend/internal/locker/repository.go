@@ -42,13 +42,15 @@ type LockerFilter struct {
 // for an Administrator's unfiltered "all branches" view, or a non-nil
 // pointer to confine results to that branch (see platform.GetBranchScope).
 func (r *Repository) FindAll(branchID *uint) ([]Locker, error) {
-	return r.Find(LockerFilter{BranchID: branchID})
+	lockers, _, err := r.Find(LockerFilter{BranchID: branchID})
+	return lockers, err
 }
 
 // Find is FindAll's filtered/paginated superset — kept as a separate method
 // (rather than changing FindAll's signature) so every existing unfiltered
-// caller stays untouched.
-func (r *Repository) Find(f LockerFilter) ([]Locker, error) {
+// caller stays untouched. Returns the TOTAL row count for f's filters
+// (Limit/Offset ignored, 0 when f.Limit <= 0).
+func (r *Repository) Find(f LockerFilter) ([]Locker, int64, error) {
 	var lockers []Locker
 	q := r.db.Preload("Branch").Model(&Locker{}).Order("code asc")
 	if f.BranchID != nil {
@@ -63,14 +65,18 @@ func (r *Repository) Find(f LockerFilter) ([]Locker, error) {
 	if f.ActiveOnly {
 		q = q.Where("is_active = ?", true)
 	}
+	var total int64
 	if f.Limit > 0 {
+		if err := q.Session(&gorm.Session{}).Count(&total).Error; err != nil {
+			return nil, 0, err
+		}
 		q = q.Limit(f.Limit)
 	}
 	if f.Offset > 0 {
 		q = q.Offset(f.Offset)
 	}
 	err := q.Find(&lockers).Error
-	return lockers, err
+	return lockers, total, err
 }
 
 func (r *Repository) FindByID(id uint) (*Locker, error) {

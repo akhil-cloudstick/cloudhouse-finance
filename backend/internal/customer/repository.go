@@ -31,7 +31,9 @@ type CustomerFilter struct {
 // it applies Limit/Offset (used by the paginated SearchableSelect-backed
 // search — see Service.List); limit == 0 returns every match, unpaged, for
 // callers like the full Customers & KYC list page.
-func (r *Repository) FindAll(f CustomerFilter) ([]Customer, error) {
+// FindAll returns matching customers plus the TOTAL row count for f's
+// filters (Limit/Offset ignored for that count) — 0 when f.Limit <= 0.
+func (r *Repository) FindAll(f CustomerFilter) ([]Customer, int64, error) {
 	var customers []Customer
 	q := r.db.Preload("Branch").Order("id asc")
 	if f.Query != "" {
@@ -47,11 +49,15 @@ func (r *Repository) FindAll(f CustomerFilter) ([]Customer, error) {
 	if f.AadhaarStatus != "" {
 		q = q.Where("aadhaar_status = ?", f.AadhaarStatus)
 	}
+	var total int64
 	if f.Limit > 0 {
+		if err := q.Session(&gorm.Session{}).Model(&Customer{}).Count(&total).Error; err != nil {
+			return nil, 0, err
+		}
 		q = q.Limit(f.Limit).Offset(f.Offset)
 	}
 	err := q.Find(&customers).Error
-	return customers, err
+	return customers, total, err
 }
 
 func (r *Repository) FindByID(id uint) (*Customer, error) {

@@ -51,7 +51,6 @@ export async function listGoldRates(): Promise<GoldRateView[]> {
   return (rec || []).map(toView);
 }
 
-/* Page size for the Rate History table on GoldRates.tsx. */
 export const GOLD_RATES_HISTORY_PAGE_SIZE = 10;
 
 /* Paginated variant of listGoldRates — backs GoldRates.tsx's Rate History
@@ -59,14 +58,16 @@ export const GOLD_RATES_HISTORY_PAGE_SIZE = 10;
  * envelope whenever `limit` is passed (see backend/internal/goldrate/
  * handler.go's List), matching loansApi.listLoansPage's pattern. */
 export async function listGoldRatesPage(
-  page: number
-): Promise<{ items: GoldRateView[]; hasMore: boolean }> {
+  page: number,
+  limit?: number
+): Promise<{ items: GoldRateView[]; hasMore: boolean; total: number }> {
+  const pageSize = limit ?? (typeof window !== "undefined" && (window.innerWidth < 1600 || window.innerHeight < 950) ? 6 : 10);
   const params = new URLSearchParams({
-    limit: String(GOLD_RATES_HISTORY_PAGE_SIZE),
-    offset: String((page - 1) * GOLD_RATES_HISTORY_PAGE_SIZE),
+    limit: String(pageSize),
+    offset: String((page - 1) * pageSize),
   });
-  const rec = await apiFetch<{ items: BackendGoldRate[]; hasMore: boolean }>(`/gold-rates?${params}`);
-  return { items: (rec?.items || []).map(toView), hasMore: !!rec?.hasMore };
+  const rec = await apiFetch<{ items: BackendGoldRate[]; hasMore: boolean; total?: number }>(`/gold-rates?${params}`);
+  return { items: (rec?.items || []).map(toView), hasMore: !!rec?.hasMore, total: rec?.total ?? 0 };
 }
 
 export async function getLatestGoldRate(): Promise<GoldRateView | null> {

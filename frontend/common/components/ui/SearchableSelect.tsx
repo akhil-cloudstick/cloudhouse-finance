@@ -38,7 +38,9 @@ const ROWS_BOX_HEIGHT = ROW_HEIGHT * VISIBLE_ROWS + 12;
  *   narrow as ~34px wide inside NewLoan.tsx's ornament table — every other
  *   caller (ornament type, customer/scheme/bank search, …) keeps this
  *   component's original inline dropdown (absolute-positioned under the
- *   input, natural width, a themed scrollbar past ~7 items) unchanged.
+ *   input, natural width, a themed scrollbar past exactly VISIBLE_ROWS (5)
+ *   items — matching the page size so the box overflows, and scrolling
+ *   starts fetching page 2, right as a 6th result exists) unchanged.
  *   Compact instead portals the list to `document.body` and positions it
  *   with `position:fixed` off the input's own viewport rect — this is what
  *   stops an `overflow` ancestor (like that same table's wrapping div) from
@@ -56,8 +58,11 @@ export function SearchableSelect<T>({
   placeholder,
   allowCreate = false,
   onCreate,
+  onCreateNew,
+  createNewLabel = "+ Add new",
   disabled,
   compact = false,
+  compactMinWidth = 60,
 }: {
   value: string;
   onChange: (id: string, item: T) => void;
@@ -67,8 +72,23 @@ export function SearchableSelect<T>({
   placeholder?: string;
   allowCreate?: boolean;
   onCreate?: (query: string) => Promise<T>;
+  // Opt-in, separate mechanism from allowCreate/onCreate above (which
+  // create from the typed text alone — see PurityPicker/ornament-type
+  // usage in NewLoan.tsx). onCreateNew instead renders one persistent row
+  // pinned to the bottom of the results list — used by the Personal Loan
+  // picker's "+ Add new customer" (NewPersonalLoanModal.tsx), which needs
+  // a full modal form, not just the typed query string. Gold Loan's own
+  // customer picker (NewLoan.tsx) simply never passes this, so it is
+  // visually and functionally unchanged.
+  onCreateNew?: () => void;
+  createNewLabel?: string;
   disabled?: boolean;
   compact?: boolean;
+  // `compact` mode's dropdown width floor — per-caller, since some callers
+  // (Dashboard/NewLoan's Gold Loan Calculator) want it wider than the
+  // default 60px, while others (RateModal's own PurityPicker) keep the
+  // original 60px. Ignored unless `compact` is true.
+  compactMinWidth?: number;
 }) {
   const [query, setQuery] = useState(value);
   // Separate from `query` (the input's displayed text, which starts out as
@@ -150,27 +170,34 @@ export function SearchableSelect<T>({
 
   // Scrolling the open list near the bottom of what's currently loaded
   // fetches and appends the next page (both modes: the plain inline
-  // dropdown scrolls past ~7 items via its own themed scrollbar; `compact`
-  // caps at 5 rows with its scrollbar hidden — see that prop's doc comment).
+  // dropdown is capped to exactly VISIBLE_ROWS (5) via ROWS_BOX_HEIGHT
+  // below so it overflows — and becomes scrollable — once a 6th item
+  // loads; `compact` caps at the same 5 rows with its scrollbar hidden —
+  // see that prop's doc comment).
   function onResultsScroll() {
     const el = resultsRef.current;
     if (!el) return;
     if (el.scrollHeight - el.scrollTop - el.clientHeight < 48) loadNextPage();
   }
 
-  // A page that doesn't fill the dropdown never produces a scrollbar, so
-  // onResultsScroll's "near the bottom" check never fires even though
-  // hasMore is true (e.g. 10 total matches, page size 5 — the first page's
-  // 5 rows fit well within the 260px max-height with room to spare). Top
-  // that up automatically: whenever the list re-renders with more to fetch
-  // but nothing to scroll, load the next page too.
+  // A box capped to exactly 5 rows (ROWS_BOX_HEIGHT) and a page size of
+  // exactly 5 items (fetchFn — see this component's doc comment) meant page
+  // 1 alone fills the box exactly to its cap without ever overflowing it:
+  // scrollHeight == clientHeight, so there is nothing to scroll, so
+  // onResultsScroll above never fires, so page 2 never loads, so the box
+  // never overflows — a standing deadlock, not just a slow start. Prefetch
+  // one extra page right after the box renders without yet overflowing, so
+  // there are 10 rows sitting in a 5-row box (a real scrollbar) the moment
+  // it opens; from there, scrolling drives every further page exactly as
+  // before. Naturally stops itself the moment the box actually overflows or
+  // the server runs out of pages, so it never loops.
   useEffect(() => {
     if (!open || !hasMore || loading || loadingMore) return;
     const el = resultsRef.current;
     if (!el) return;
-    if (el.scrollHeight <= el.clientHeight) loadNextPage();
+    if (el.scrollHeight <= el.clientHeight + 1) loadNextPage();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, items, hasMore, loading, loadingMore]);
+  }, [open, items, hasMore, loading, loadingMore, compact, coords]);
 
   useEffect(() => {
     function onDocClick(e: MouseEvent) {
@@ -256,10 +283,28 @@ export function SearchableSelect<T>({
   const exactMatch = items.some((it) => getLabel(it).toLowerCase() === query.trim().toLowerCase());
   const showCreateRow = allowCreate && query.trim().length > 0 && !exactMatch && !loading;
 
+  // Pinned to the bottom of the results list regardless of loading/empty
+  // state — see onCreateNew's doc comment above.
+  const createNewRow = onCreateNew && (
+    <a
+      href="#"
+      className="gs-create-new"
+      onClick={(e) => { e.preventDefault(); setOpen(false); onCreateNew(); }}
+    >
+      <span className="tx"><b>{createNewLabel}</b></span>
+    </a>
+  );
+
   const resultsBody = loading ? (
-    <div className="gs-none">Searching…</div>
+    <>
+      <div className="gs-none">Searching…</div>
+      {createNewRow}
+    </>
   ) : items.length === 0 && !showCreateRow ? (
-    <div className="gs-none">No results</div>
+    <>
+      <div className="gs-none">No results</div>
+      {createNewRow}
+    </>
   ) : (
     <>
       {items.map((item) => (
@@ -280,6 +325,7 @@ export function SearchableSelect<T>({
           <span className="tx"><b>{creating ? "Creating…" : `+ Create "${query.trim()}"`}</b></span>
         </a>
       )}
+      {createNewRow}
     </>
   );
 
@@ -295,12 +341,22 @@ export function SearchableSelect<T>({
         onFocus={() => { setSearchTerm(""); setOpen(true); }}
       />
       {/* Every other caller: the original inline dropdown — absolute inside
-       * `.ss`, natural width, app.css's own max-height:420px + themed
-       * scrollbar past ~7 items. Unchanged from before `compact` existed. */}
+       * `.ss`, natural width, themed scrollbar. Capped to exactly
+       * ROWS_BOX_HEIGHT (~5 rows) rather than app.css's own generic
+       * max-height:420px (~11 rows): each `fetchFn` page here is a fixed 5
+       * items (customersApi/schemesApi/banksApi/lockersApi's page
+       * wrappers), and a box tall enough to fit ~11 rows without a
+       * scrollbar meant one page's worth of results never overflowed it —
+       * onResultsScroll only fires once there's something to scroll past,
+       * so the list was stuck on page 1 forever no matter how many more
+       * results existed server-side. Matching the window to the page size
+       * makes it overflow (and start loading page 2 on scroll) the moment
+       * a 6th result exists. */}
       {!compact && open && (
         <div
           ref={resultsRef}
           className="gs-results open"
+          style={{ maxHeight: ROWS_BOX_HEIGHT }}
           onScroll={onResultsScroll}
         >
           {resultsBody}
@@ -328,13 +384,13 @@ export function SearchableSelect<T>({
             top: coords.top,
             left: coords.left,
             right: "auto",
-            // Clamped, not just floored: below 60px an item's own label
-            // ("24", "Gold Chain", …) starts wrapping or clipping, and
+            // Clamped, not just floored: below compactMinWidth an item's own
+            // label ("24", "Gold Chain", …) starts wrapping or clipping, and
             // above ~160px (roughly PurityPicker's search half at its own
             // un-squeezed width — see PurityPicker.tsx's `flex:1` split)
             // the dropdown would visibly outgrow the field it belongs to
             // for a plain 2-3-digit purity value.
-            width: Math.min(Math.max(coords.width, 60), 160),
+            width: Math.min(Math.max(coords.width, compactMinWidth), 160),
             marginTop: 4,
             // Always exactly ROWS_BOX_HEIGHT (~5 rows) unless the field
             // sits too close to the bottom of the viewport for that to fit

@@ -48,6 +48,6 @@ export function Pager({
 
 const styles = StyleSheet.create({
   row: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingVertical: 12, paddingHorizontal: 4 },
-  btn: { borderWidth: 1, borderColor: colors.line, backgroundColor: colors.card, borderRadius: 8, paddingHorizontal: 14, paddingVertical: 8 },
+  btn: { borderWidth: 1, borderColor: colors.line, backgroundColor: colors.card, borderRadius: 10, paddingHorizontal: 16, paddingVertical: 9 },
   btnDisabled: { opacity: 0.5 },
 });

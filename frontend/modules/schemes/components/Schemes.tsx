@@ -57,7 +57,19 @@ export function Schemes() {
           No loan schemes yet. Click &quot;New Scheme&quot; to create one.
         </p>
       )}
-      <div className="grid" style={{ gridTemplateColumns: "repeat(5,minmax(0,1fr))" }}>
+      {/* Fixed 300px columns (auto-fill, not auto-fill/minmax's usual
+       * "stretch to fill" 1fr) — a hardcoded repeat(5,...) never reflowed
+       * at any width, so on anything narrower than a very wide desktop the
+       * cards just kept shrinking (and their fixed-height/overflow:hidden
+       * content clipping) instead of wrapping to fewer per row. A plain
+       * 1fr fixed that but let each card's own width still stretch/shrink
+       * with the container, changing size across screens instead of
+       * staying constant. A flat 300px column, repeated with auto-fill,
+       * keeps every card exactly the same size everywhere — 300px is
+       * simply as many columns as actually fit, wrapping the rest onto the
+       * next row instead of resizing anything (same pattern used on the
+       * Roles & Permissions grid, so both pages' cards match). */}
+      <div className="grid" style={{ gridTemplateColumns: "repeat(auto-fill,minmax(300px,1fr))" }}>
         {(schemes || []).map((s) => (
           <div className="card gtop" key={s.id} style={{ minHeight: 300 }}>
             <div className="hd"><h3>{s.name}</h3><div className="sp" />

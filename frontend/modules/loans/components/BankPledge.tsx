@@ -20,6 +20,7 @@ import { RepledgeModalContent, SelectLoanForRepledgeModalContent } from "@/commo
 import { BankModalContent } from "@/common/components/modals/BankModal";
 import { ConfirmModalContent } from "@/common/components/modals/ConfirmModal";
 import { ApiError } from "@/common/services/httpClient";
+import { useResponsivePageSize } from "@/common/utils/responsive";
 
 /* Roles permitted to void a re-pledge. Mirrors the server-side guard on
  * PUT /loans/:id/bank-pledge/:pledgeId/void — voiding rewrites booked cash
@@ -48,6 +49,7 @@ export function BankPledge() {
   const canCreatePledges = can("Bank_Pledge_Management", "can_create_bank_pledge");
   const canUpdatePledges = can("Bank_Pledge_Management", "can_update_bank_pledge");
   const canCreateBanks = can("Bank_Management", "can_create_bank");
+  const pageSize = useResponsivePageSize(10, 7);
   const [tab, setTab] = useState<"active" | "history">("active");
   const [releasingId, setReleasingId] = useState<number | null>(null);
   const [history, setHistory] = useState<BankPledgeRecordView[]>([]);
@@ -55,6 +57,8 @@ export function BankPledge() {
   const [historyError, setHistoryError] = useState("");
   const [historyPage, setHistoryPage] = useState(1);
   const [historyHasMore, setHistoryHasMore] = useState(false);
+  const [historyTotal, setHistoryTotal] = useState(0);
+  const historyTotalPages = Math.max(1, Math.ceil(historyTotal / pageSize));
 
   // Active tab — paginated straight off the backend (bankPledgeStatus is a
   // real column, see LoanFilter.BankPledgeStatus) rather than filtering
@@ -65,27 +69,24 @@ export function BankPledge() {
   const [pledgedError, setPledgedError] = useState("");
   const [pledgedPage, setPledgedPage] = useState(1);
   const [pledgedHasMore, setPledgedHasMore] = useState(false);
+  const [pledgedTotal, setPledgedTotal] = useState(0);
+  const pledgedTotalPages = Math.max(1, Math.ceil(pledgedTotal / pageSize));
 
   const canVoid = !!role && canUpdatePledges && VOID_ROLES.includes(role);
-  // No total-row count comes back from the {items, hasMore} envelope — only
-  // whether another page exists — so this can't show "of N", just enable/
-  // disable Next (mirrors Loans.tsx's totalPages for the same reason).
-  const historyTotalPages = historyHasMore ? historyPage + 1 : historyPage;
-  const pledgedTotalPages = pledgedHasMore ? pledgedPage + 1 : pledgedPage;
-
   const loadPledged = useCallback(async (page: number) => {
     setPledgedLoading(true);
     setPledgedError("");
     try {
-      const res = await listLoansPage({ bankPledgeStatus: "Bank Pledged", page });
+      const res = await listLoansPage({ bankPledgeStatus: "Bank Pledged", page, limit: pageSize });
       setPledged(res.items);
       setPledgedHasMore(res.hasMore);
+      setPledgedTotal(res.total);
     } catch (e) {
       setPledgedError(e instanceof ApiError ? e.message : "Could not load re-pledged loans.");
     } finally {
       setPledgedLoading(false);
     }
-  }, []);
+  }, [pageSize]);
 
   useEffect(() => { void loadPledged(pledgedPage); }, [loadPledged, pledgedPage]);
 
@@ -100,15 +101,16 @@ export function BankPledge() {
     setHistoryLoading(true);
     setHistoryError("");
     try {
-      const res = await listBankPledgeHistoryPage(page);
+      const res = await listBankPledgeHistoryPage(page, pageSize);
       setHistory(res.items);
       setHistoryHasMore(res.hasMore);
+      setHistoryTotal(res.total);
     } catch (e) {
       setHistoryError(e instanceof ApiError ? e.message : "Could not load re-pledge history.");
     } finally {
       setHistoryLoading(false);
     }
-  }, []);
+  }, [pageSize]);
 
   // Page changes while the History tab is open re-fetch that page. Opening
   // the tab (showHistory) resets historyPage to 1, which also triggers this.
@@ -266,7 +268,7 @@ export function BankPledge() {
           <div className="ft" style={{ display: "flex", alignItems: "center", gap: 10 }}>
             <button className="btn plain sm" disabled={pledgedPage <= 1} onClick={() => setPledgedPage((p) => Math.max(1, p - 1))}>‹ Prev</button>
             <span style={{ fontSize: 12.5 }}>Page {pledgedPage} of {pledgedTotalPages}</span>
-            <button className="btn plain sm" disabled={!pledgedHasMore} onClick={() => setPledgedPage((p) => p + 1)}>Next ›</button>
+            <button className="btn plain sm" disabled={pledgedPage >= pledgedTotalPages} onClick={() => setPledgedPage((p) => Math.min(pledgedTotalPages, p + 1))}>Next ›</button>
           </div>
           <div className="ft">If a customer requests closure while gold is bank-pledged, the release workflow flags the bank release step first.</div>
         </div>

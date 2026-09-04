@@ -1,12 +1,11 @@
-import React, { useEffect, useState } from "react";
-import { ScrollView, RefreshControl, View } from "react-native";
-import { useQuery } from "@tanstack/react-query";
+import React, { useState } from "react";
+import { RefreshControl, View } from "react-native";
+import { useInfiniteQuery } from "@tanstack/react-query";
 import { useRouter } from "expo-router";
 import { ScreenContainer } from "../../../src/components/ScreenContainer";
 import { ThemedText } from "../../../src/components/ThemedText";
 import { GoldTextInput } from "../../../src/components/GoldTextInput";
 import { GoldButton } from "../../../src/components/GoldButton";
-import { Pager } from "../../../src/components/Pager";
 import { colors, statusColors, StatusTone } from "../../../src/theme/colors";
 import { listCustomersPage } from "../../../src/api/customers";
 import { Customer } from "../../../src/types/customer";
@@ -60,23 +59,20 @@ export default function CustomersScreen() {
   const router = useRouter();
   const [search, setSearch] = useState("");
   const debouncedSearch = useDebouncedValue(search);
-  const [page, setPage] = useState(1);
-
-  useEffect(() => {
-    setPage(1);
-  }, [debouncedSearch]);
 
   // Every keystroke (after debounce) re-queries the backend with `q` —
   // no in-memory filtering of a full customer list. Paginated 10/page, one
-  // separate API call per page, Prev/Next-driven.
-  const { data, isLoading, isError, isFetching, refetch } = useQuery({
-    queryKey: ["customers", debouncedSearch, page],
-    queryFn: () => listCustomersPage({ q: debouncedSearch || undefined, limit: PAGE_SIZE, offset: (page - 1) * PAGE_SIZE }),
+  // separate API call per page, loaded incrementally via infinite scroll.
+  const { data, isLoading, isError, isFetching, isFetchingNextPage, fetchNextPage, hasNextPage, refetch } = useInfiniteQuery({
+    queryKey: ["customers", debouncedSearch],
+    queryFn: ({ pageParam = 0 }) => listCustomersPage({ q: debouncedSearch || undefined, limit: PAGE_SIZE, offset: pageParam }),
+    initialPageParam: 0,
+    getNextPageParam: (lastPage, allPages) => (lastPage.hasMore ? allPages.length * PAGE_SIZE : undefined),
   });
 
   useRefetchOnFocus(refetch);
 
-  const customers = data?.items ?? [];
+  const customers = data?.pages.flatMap((p) => p.items) ?? [];
 
   return (
     <ScreenContainer style={{ paddingHorizontal: 0 }}>
@@ -85,17 +81,16 @@ export default function CustomersScreen() {
         placeholder="Name, phone, or code…"
         value={search}
         onChangeText={setSearch}
-        containerStyle={{ marginHorizontal: 16 }}
+        containerStyle={{ marginHorizontal: 16, marginTop: 28 }}
         blur
       />
       <View style={{ marginHorizontal: 16, marginBottom: 12 }}>
         <GoldButton title="+ Register customer" onPress={() => router.push("/customers/new")} />
       </View>
-      <ScrollView
-        showsVerticalScrollIndicator={false}
-        contentContainerStyle={{ paddingHorizontal: 16 }}
-        refreshControl={<RefreshControl refreshing={isFetching && !isLoading} onRefresh={refetch} />}
-      >
+
+      {/* Only this scrolls — column-label row (sticky, inside
+       * ExpandableTable) stays put; reaching the bottom loads the next page. */}
+      <View style={{ flex: 1, paddingHorizontal: 16 }}>
         <ExpandableTable<Customer>
           columns={CUSTOMER_COLUMNS}
           visibleCount={CUSTOMER_VISIBLE_COUNT}
@@ -104,9 +99,13 @@ export default function CustomersScreen() {
           extraFields={customerExtraFields}
           onViewDescription={(c) => router.push(`/customers/${c.id}`)}
           emptyText={isLoading ? "Loading…" : isError ? "Could not load customers." : "No customers found."}
+          refreshControl={<RefreshControl refreshing={isFetching && !isFetchingNextPage && !isLoading} onRefresh={refetch} />}
+          onEndReached={() => {
+            if (hasNextPage && !isFetchingNextPage) fetchNextPage();
+          }}
+          isFetchingNextPage={isFetchingNextPage}
         />
-        <Pager page={page} hasMore={!!data?.hasMore} onChange={setPage} loading={isFetching} />
-      </ScrollView>
+      </View>
     </ScreenContainer>
   );
 }

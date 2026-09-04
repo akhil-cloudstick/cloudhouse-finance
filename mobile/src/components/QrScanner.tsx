@@ -69,7 +69,7 @@ export function QrScanner({
         )}
 
         <View style={[styles.titleWrap, { top: insets.top + 12 }]} pointerEvents="none">
-          <ThemedText variant="label" color={colors.card}>
+          <ThemedText variant="h3" color={colors.card}>
             {title}
           </ThemedText>
         </View>

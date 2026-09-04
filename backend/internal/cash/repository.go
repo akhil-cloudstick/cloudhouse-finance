@@ -24,20 +24,24 @@ func (r *MovementRepository) Create(m *CashMovement) error {
 // pass nil for an Administrator's unfiltered "all branches" view, or a
 // non-nil pointer to confine results to that branch (see
 // platform.GetBranchScope).
-func (r *MovementRepository) FindAll(branchID *uint, limit, offset int) ([]CashMovement, error) {
+func (r *MovementRepository) FindAll(branchID *uint, limit, offset int) ([]CashMovement, int64, error) {
 	var movements []CashMovement
 	q := r.db.Preload("Branch").Order("occurred_on desc, id desc")
 	if branchID != nil {
 		q = q.Where("branch_id = ?", *branchID)
 	}
+	var total int64
 	if limit > 0 {
+		if err := q.Session(&gorm.Session{}).Model(&CashMovement{}).Count(&total).Error; err != nil {
+			return nil, 0, err
+		}
 		q = q.Limit(limit)
 	}
 	if offset > 0 {
 		q = q.Offset(offset)
 	}
 	err := q.Find(&movements).Error
-	return movements, err
+	return movements, total, err
 }
 
 func (r *MovementRepository) FindByID(id uint) (*CashMovement, error) {
@@ -72,20 +76,24 @@ func (r *ExpenseRepository) Create(e *Expense) error {
 // FindAll returns expenses, optionally scoped to a single branch — pass nil
 // for an Administrator's unfiltered "all branches" view, or a non-nil
 // pointer to confine results to that branch (see platform.GetBranchScope).
-func (r *ExpenseRepository) FindAll(branchID *uint, limit, offset int) ([]Expense, error) {
+func (r *ExpenseRepository) FindAll(branchID *uint, limit, offset int) ([]Expense, int64, error) {
 	var expenses []Expense
 	q := r.db.Preload("Branch").Order("occurred_on desc, id desc")
 	if branchID != nil {
 		q = q.Where("branch_id = ?", *branchID)
 	}
+	var total int64
 	if limit > 0 {
+		if err := q.Session(&gorm.Session{}).Model(&Expense{}).Count(&total).Error; err != nil {
+			return nil, 0, err
+		}
 		q = q.Limit(limit)
 	}
 	if offset > 0 {
 		q = q.Offset(offset)
 	}
 	err := q.Find(&expenses).Error
-	return expenses, err
+	return expenses, total, err
 }
 
 func (r *ExpenseRepository) FindByID(id uint) (*Expense, error) {

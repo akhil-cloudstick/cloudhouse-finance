@@ -62,6 +62,7 @@ const GROUPS: [string, MoreItem[]][] = [
     [
       { route: "settings", label: "Settings", icon: "gear", module: "Settings_Management", key: "can_view_setting" },
       { route: "branches", label: "Branches", icon: "bank", module: "Branch_Management", key: "can_view_branch" },
+      { route: "roles", label: "Roles & Permissions", icon: "shield", module: "Role_Management", key: "can_view_role_and_permission" },
     ],
   ],
 ];

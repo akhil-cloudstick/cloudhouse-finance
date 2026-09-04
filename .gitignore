@@ -1,3 +1,2 @@
-# OpenWA - external open-source WhatsApp gateway, cloned for local testing only.
-# Has its own git history/repo; not part of gold-app's tracked source.
-OpenWA/
+# OpenWA secrets - do not commit
+OpenWA/data/.api-key

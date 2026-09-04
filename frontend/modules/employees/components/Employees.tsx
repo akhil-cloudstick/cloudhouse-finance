@@ -8,6 +8,7 @@ import { useAuth } from "@/common/auth-context";
 import { fmt, initials } from "@/common/utils/format";
 import { EmployeeModalContent } from "@/common/components/modals/EmployeeModal";
 import { deleteEmployee, listEmployeesPage, type EmployeeView } from "@/modules/employees/services/employeeService";
+import { useResponsivePageSize } from "@/common/utils/responsive";
 
 /* Ported from legacy/app.js's `renderEmployees()`. Loads real data from the
  * Go backend (`GET /api/v1/employees`), following the Branches.tsx pattern. */
@@ -15,6 +16,7 @@ export function Employees() {
   const { openModal } = useModal();
   const toast = useToast();
   const { can } = useAuth();
+  const pageSize = useResponsivePageSize(12, 8);
   const canViewRoles = can("Role_Management", "can_view_role_and_permission");
   const canCreateEmployees = can("Employee_Management", "can_create_employee");
   const canUpdateEmployees = can("Employee_Management", "can_update_employee");
@@ -22,20 +24,21 @@ export function Employees() {
   const [employees, setEmployees] = useState<EmployeeView[] | null>(null);
   const [error, setError] = useState("");
   const [page, setPage] = useState(1);
-  const [hasMore, setHasMore] = useState(false);
+  const [total, setTotal] = useState(0);
+  const totalPages = Math.max(1, Math.ceil(total / pageSize));
 
   async function load() {
     try {
-      const res = await listEmployeesPage(page);
+      const res = await listEmployeesPage(page, pageSize);
       setEmployees(res.items);
-      setHasMore(res.hasMore);
+      setTotal(res.total);
       setError("");
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to load employees.");
     }
   }
 
-  useEffect(() => { load(); }, [page]);
+  useEffect(() => { load(); }, [page, pageSize]);
 
   function onSaved() {
     load();
@@ -51,8 +54,6 @@ export function Employees() {
       toast(err instanceof Error ? err.message : "Failed to delete employee.");
     }
   }
-
-  const totalPages = hasMore ? page + 1 : page;
 
   return (
     <>
@@ -93,7 +94,13 @@ export function Employees() {
                   <tr key={e.id}>
                     <td>
                       <span style={{ display: "inline-flex", alignItems: "center", gap: 10 }}>
-                        <span className="av" style={{ width: 30, height: 30, borderRadius: "50%", background: "linear-gradient(135deg,var(--gold-light),var(--gold-deep))", color: "#2b2001", display: "grid", placeContent: "center", fontWeight: 600, fontSize: 11.5 }}>{initials(e.name)}</span>
+                        {/* flexShrink:0 — the parent span is display:inline-flex,
+                          * and a flex item's default flex-shrink:1 applies even
+                          * with an explicit width/height set, so a long employee
+                          * name pushing this row's content past its column's
+                          * available width was squeezing the circle down instead
+                          * of just wrapping/truncating the name text beside it. */}
+                        <span className="av" style={{ width: 30, height: 30, flexShrink: 0, borderRadius: "50%", background: "linear-gradient(135deg,var(--gold-light),var(--gold-deep))", color: "#2b2001", display: "grid", placeContent: "center", fontWeight: 600, fontSize: 11.5 }}>{initials(e.name)}</span>
                         <span><b>{e.name}</b><span className="sub">{e.code}</span></span>
                       </span>
                     </td>

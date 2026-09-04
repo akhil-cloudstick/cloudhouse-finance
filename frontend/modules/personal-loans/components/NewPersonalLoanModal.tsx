@@ -7,6 +7,7 @@ import { ApiError } from "@/common/services/httpClient";
 import { fmt } from "@/common/utils/format";
 import { SearchableSelect } from "@/common/components/ui/SearchableSelect";
 import { searchCustomersPage, type CustomerView } from "@/modules/customers/services/customerService";
+import { CreateCustomerModalContent } from "@/modules/personal-loans/components/CreateCustomerModal";
 import {
   createPersonalLoan,
   type Frequency,
@@ -41,6 +42,12 @@ export function NewPersonalLoanModalContent({ onSaved }: { onSaved: () => void }
   const [tenureCount, setTenureCount] = useState("");
   const [err, setErr] = useState("");
   const [saving, setSaving] = useState(false);
+  // Toggles this same mounted component over to the inline "+ Add new
+  // customer" form (CreateCustomerModal.tsx) instead of swapping the modal
+  // via useModal — swapping would unmount this component and lose every
+  // field already typed (principal, tenure, …). Kept local rather than
+  // lifted, since only this modal ever needs it.
+  const [creatingCustomer, setCreatingCustomer] = useState(false);
 
   const principalNum = +principal || 0;
   const interestValueNum = +interestValue || 0;
@@ -77,6 +84,19 @@ export function NewPersonalLoanModalContent({ onSaved }: { onSaved: () => void }
     }
   }
 
+  if (creatingCustomer) {
+    return (
+      <CreateCustomerModalContent
+        onCreated={(c) => {
+          setCustomerId(+c.id);
+          setCustomerBranchId(c.branchId);
+          setCustomerLabel(`${c.name} (${c.code})`);
+          setCreatingCustomer(false);
+        }}
+      />
+    );
+  }
+
   return (
     <>
       <div className="hd"><h3>New Personal Loan</h3><button className="x" onClick={closeModal}>×</button></div>
@@ -89,6 +109,8 @@ export function NewPersonalLoanModalContent({ onSaved }: { onSaved: () => void }
             getLabel={(c) => `${c.name} (${c.code})`}
             getId={(c) => c.id}
             placeholder="Search for a customer…"
+            onCreateNew={() => setCreatingCustomer(true)}
+            createNewLabel="+ Add new customer"
           /></div></div>
         <div className="frow c2">
           <div><label className="f">Principal Amount (₹) *</label><input className="inp" type="number" min={1} placeholder="e.g. 5000" value={principal} onChange={(e) => setPrincipal(e.target.value)} /></div>

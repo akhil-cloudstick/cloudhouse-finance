@@ -39,6 +39,17 @@ type CreateInput struct {
 	NomineeName     string
 	NomineeRelation string
 	NomineePhone    string
+
+	// Personal-loan specific / optional — see Customer's own field comments
+	// in model.go. Never required by validate(); gold-loan customer creation
+	// (Customers.tsx / RegisterCustomerModal.tsx) never sends these.
+	FatherName string
+	District   string
+	Taluk      string
+	Village    string
+	Place      string
+	PinCode    string
+	Age        *int
 }
 
 type UpdateInput = CreateInput
@@ -148,6 +159,14 @@ func (s *Service) Create(in CreateInput) (*Customer, error) {
 		NomineeRelation: in.NomineeRelation,
 		NomineePhone:    in.NomineePhone,
 
+		FatherName: in.FatherName,
+		District:   in.District,
+		Taluk:      in.Taluk,
+		Village:    in.Village,
+		Place:      in.Place,
+		PinCode:    in.PinCode,
+		Age:        in.Age,
+
 		// No verification call is made at registration — status starts
 		// Pending until a real PAN check (see internal/platform/setu.go)
 		// or Aadhaar/DigiLocker check runs and updates it.
@@ -161,7 +180,7 @@ func (s *Service) Create(in CreateInput) (*Customer, error) {
 	return s.repo.FindByID(rec.ID)
 }
 
-func (s *Service) List(f CustomerFilter) ([]Customer, error) {
+func (s *Service) List(f CustomerFilter) ([]Customer, int64, error) {
 	return s.repo.FindAll(f)
 }
 
@@ -232,6 +251,15 @@ func (s *Service) Update(id uint, in UpdateInput, branchID *uint) (*Customer, er
 	rec.NomineeName = in.NomineeName
 	rec.NomineeRelation = in.NomineeRelation
 	rec.NomineePhone = in.NomineePhone
+	rec.FatherName = in.FatherName
+	rec.District = in.District
+	rec.Taluk = in.Taluk
+	rec.Village = in.Village
+	rec.Place = in.Place
+	rec.PinCode = in.PinCode
+	if in.Age != nil {
+		rec.Age = in.Age
+	}
 
 	if in.Aadhaar != "" {
 		encrypted, err := s.aadhaarCipher.Encrypt(in.Aadhaar)

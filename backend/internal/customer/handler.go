@@ -42,6 +42,18 @@ type customerRequest struct {
 	NomineeName     string `json:"nomineeName"`
 	NomineeRelation string `json:"nomineeRelation"`
 	NomineePhone    string `json:"nomineePhone"`
+
+	// Personal-loan specific / optional — captured only by the inline
+	// "+ Add new customer" flow in the Personal Loan creation picker
+	// (CreateCustomerModal.tsx). Gold-loan customer creation never sends
+	// these, so all are omitempty and none are `binding:"required"`.
+	FatherName string `json:"fatherName"`
+	District   string `json:"district"`
+	Taluk      string `json:"taluk"`
+	Village    string `json:"village"`
+	Place      string `json:"place"`
+	PinCode    string `json:"pinCode"`
+	Age        *int   `json:"age"`
 }
 
 func parseDOB(s string) (time.Time, error) {
@@ -75,6 +87,14 @@ func (req customerRequest) toInput() (CreateInput, error) {
 		NomineeName:     req.NomineeName,
 		NomineeRelation: req.NomineeRelation,
 		NomineePhone:    req.NomineePhone,
+
+		FatherName: req.FatherName,
+		District:   req.District,
+		Taluk:      req.Taluk,
+		Village:    req.Village,
+		Place:      req.Place,
+		PinCode:    req.PinCode,
+		Age:        req.Age,
 	}, nil
 }
 
@@ -116,7 +136,7 @@ func (h *Handler) List(c *gin.Context) {
 	}
 
 	if limit <= 0 {
-		rec, err := h.svc.List(f)
+		rec, _, err := h.svc.List(f)
 		if err != nil {
 			httpx.FailErr(c, err)
 			return
@@ -126,7 +146,7 @@ func (h *Handler) List(c *gin.Context) {
 	}
 
 	f.Limit, f.Offset = limit+1, offset
-	rec, err := h.svc.List(f)
+	rec, total, err := h.svc.List(f)
 	if err != nil {
 		httpx.FailErr(c, err)
 		return
@@ -135,7 +155,7 @@ func (h *Handler) List(c *gin.Context) {
 	if hasMore {
 		rec = rec[:limit]
 	}
-	httpx.Success(c, http.StatusOK, gin.H{"items": ToResponseList(rec), "hasMore": hasMore})
+	httpx.Success(c, http.StatusOK, gin.H{"items": ToResponseList(rec), "hasMore": hasMore, "total": total})
 }
 
 func (h *Handler) Get(c *gin.Context) {

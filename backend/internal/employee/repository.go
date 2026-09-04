@@ -24,20 +24,24 @@ func (r *Repository) Create(e *Employee) error {
 // pointer to confine results to that branch (see platform.GetBranchScope).
 // limit/offset paginate the result set; limit <= 0 means "no limit" (the
 // full result set, preserving existing bare-array callers).
-func (r *Repository) FindAll(branchID *uint, limit, offset int) ([]Employee, error) {
+func (r *Repository) FindAll(branchID *uint, limit, offset int) ([]Employee, int64, error) {
 	var employees []Employee
 	q := r.db.Preload("Branch").Order("id asc")
 	if branchID != nil {
 		q = q.Where("branch_id = ?", *branchID)
 	}
+	var total int64
 	if limit > 0 {
+		if err := q.Session(&gorm.Session{}).Model(&Employee{}).Count(&total).Error; err != nil {
+			return nil, 0, err
+		}
 		q = q.Limit(limit)
 	}
 	if offset > 0 {
 		q = q.Offset(offset)
 	}
 	err := q.Find(&employees).Error
-	return employees, err
+	return employees, total, err
 }
 
 func (r *Repository) FindByID(id uint) (*Employee, error) {

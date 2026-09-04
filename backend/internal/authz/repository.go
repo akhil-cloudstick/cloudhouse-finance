@@ -74,6 +74,33 @@ func (r *Repository) SeedCatalogue(defs []PermissionDef) error {
 	return nil
 }
 
+// RegroupModules resyncs an EXPLICIT, narrow list of permission names'
+// ModuleName/Description columns to whatever internal/authz.Catalogue
+// currently says for them, bypassing SeedCatalogue's normal "never touch an
+// existing row" rule above. That rule protects an admin's own catalogue
+// edits from being silently reverted on the next boot — it deliberately
+// does NOT apply here, because this only ever targets permissions this
+// codebase itself just introduced and regrouped in the same change (e.g.
+// splitting one lumped "Approval Workflow" module into "Loan Sanction" /
+// "Loan Extension Approval" / "Release Approval" / "Auction Workflow" —
+// permissions no admin had a chance to reconfigure yet, since they didn't
+// exist under their old grouping for more than one deploy). Existing
+// role_permissions grants for these permissions are untouched — only which
+// module they're grouped under on the Roles & Permissions screen changes;
+// who holds them is unaffected. No-op (0 rows) once already resynced.
+func (r *Repository) RegroupModules(defs []PermissionDef) (updated int, err error) {
+	for _, def := range defs {
+		res := r.db.Model(&Permission{}).
+			Where("name = ? AND (module_name <> ? OR description <> ?)", def.Name, def.ModuleName, def.Description).
+			Updates(map[string]any{"module_name": def.ModuleName, "description": def.Description})
+		if res.Error != nil {
+			return updated, res.Error
+		}
+		updated += int(res.RowsAffected)
+	}
+	return updated, nil
+}
+
 // BackfillGrants inserts a role_permissions row (Permission=true) for every
 // (role, permission) pair that doesn't already have one — every existing
 // role, every existing permission. New permissions/roles are granted by

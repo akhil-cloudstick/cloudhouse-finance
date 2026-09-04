@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { useCustomers } from "@/modules/customers/store/CustomersProvider";
 import { useGoldRates } from "@/modules/gold-rates/store/GoldRatesProvider";
@@ -19,6 +20,7 @@ export function Topbar({ route, arg, onBurger }: { route: string; arg?: string; 
   const { openModal } = useModal();
   const { employee, logout } = useAuth();
   const router = useRouter();
+  const [searchOpen, setSearchOpen] = useState(false);
 
   function handleLogout(e: React.MouseEvent) {
     e.preventDefault();
@@ -36,7 +38,7 @@ export function Topbar({ route, arg, onBurger }: { route: string; arg?: string; 
   const crumbHref = "#" + (PARENT_ROUTE[route] || route || "dashboard");
 
   return (
-    <header className="top">
+    <header className={`top${searchOpen ? " search-open" : ""}`}>
       <button className="burger" id="burger" aria-label="Menu" onClick={onBurger}>
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
           <path d="M4 7h16M4 12h16M4 17h16" />
@@ -47,15 +49,21 @@ export function Topbar({ route, arg, onBurger }: { route: string; arg?: string; 
         &nbsp;/&nbsp;
         <a href={crumbHref} style={{ color: "inherit", textDecoration: "none" }}><b>{crumb}</b></a>
       </span>
-      <GlobalSearch />
+      <GlobalSearch isOpen={searchOpen} onToggle={setSearchOpen} />
       <a
-        className="rate-chip"
+        className={`rate-chip${searchOpen ? " rate-chip-shrunk" : ""}`}
         id="rateChip"
         href="#goldrates"
         title="22K is computed from the published 24K rate, not separately published"
         style={{ textDecoration: "none", color: "inherit" }}
       >
-        <span className="dot"></span> 22K (comp.) <b>{fmt(latest.k22)}/g</b> · 24K <b>{fmt(latest.k24)}/g</b>
+        <span className="dot"></span>
+        <span className="rate-full">
+          22K (comp.) <b>{fmt(latest.k22)}/g</b> · 24K <b>{fmt(latest.k24)}/g</b>
+        </span>
+        <span className="rate-compact">
+          24K <b>{fmt(latest.k24)}/g</b>
+        </span>
         {!isTodaySet && (
           <button
             type="button"

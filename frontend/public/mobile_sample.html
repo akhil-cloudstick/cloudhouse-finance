@@ -1,0 +1,456 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Ambika Gold - Mobile UI Glassmorphism Prototype</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Bodoni+Moda:ital,opsz,wght@0,6..96,400..900;1,6..96,400..900&family=Jost:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --gold-deep: #9a6f0f;
+      --gold: #c9971c;
+      --gold-mid: #d4af37;
+      --gold-light: #eccd6f;
+      --gold-pale: #f7e9c4;
+      --charcoal: #231f18;
+      --ink: #3a3325;
+      --muted: #8a7d5a;
+      --ivory: #faf6ec;
+      --card-glass: rgba(255, 253, 247, 0.72);
+      --glass-border: rgba(201, 151, 28, 0.28);
+      --glass-shadow: 0 10px 30px -10px rgba(120, 86, 20, 0.12), inset 0 1px 1px rgba(255, 255, 255, 0.9);
+      --green: #4d7c2a;
+      --green-bg: rgba(238, 244, 226, 0.85);
+      --red: #a3372a;
+      --red-bg: rgba(251, 234, 230, 0.85);
+      --amber: #a06d08;
+      --amber-bg: rgba(250, 240, 212, 0.85);
+      --blue: #3b5f7a;
+      --blue-bg: rgba(232, 240, 246, 0.85);
+    }
+
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: 'Jost', sans-serif;
+      color: var(--ink);
+      background: #e5dec9;
+      background-image: radial-gradient(circle at 50% 30%, #f7f1e1 0%, #dcd3b8 100%);
+      min-height: 100vh;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      padding: 20px;
+    }
+
+    /* Mobile Phone Shell Container */
+    .device-frame {
+      width: 100%;
+      max-width: 412px;
+      height: 844px;
+      background: var(--ivory);
+      border-radius: 44px;
+      box-shadow: 0 25px 60px -15px rgba(35, 31, 24, 0.35), 0 0 0 12px #262118, 0 0 0 14px rgba(201, 151, 28, 0.4);
+      position: relative;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+    }
+
+    /* SVG Subtle Pattern Background */
+    .device-frame::before {
+      content: "";
+      position: absolute;
+      inset: 0;
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120' viewBox='0 0 120 120'%3E%3Cg fill='none' stroke='%23c9971c' stroke-width='0.6' opacity='0.08'%3E%3Cpath d='M60 8 L112 60 L60 112 L8 60 Z'/%3E%3Ccircle cx='60' cy='60' r='14'/%3E%3C/g%3E%3C/svg%3E");
+      pointer-events: none;
+      z-index: 0;
+    }
+
+    /* Notch & Status Bar */
+    .status-bar {
+      height: 40px;
+      padding: 10px 24px 0;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--charcoal);
+      z-index: 10;
+    }
+
+    /* Floating Glass Header */
+    .header-wrap {
+      padding: 6px 14px 8px;
+      background: transparent;
+      z-index: 10;
+    }
+    .header-island {
+      background: #fffdf7;
+      border: 1px solid rgba(201, 151, 28, 0.25);
+      border-radius: 24px;
+      padding: 8px 14px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      box-shadow: 0 8px 24px -6px rgba(154, 111, 15, 0.15), inset 0 1px 1px rgba(255, 255, 255, 0.95);
+    }
+    .header-island h1 {
+      font-family: 'Bodoni Moda', serif;
+      font-size: 20px;
+      font-weight: 700;
+      color: var(--charcoal);
+      letter-spacing: 0.02em;
+    }
+    .avatar {
+      width: 32px;
+      height: 32px;
+      border-radius: 50%;
+      background: linear-gradient(135deg, var(--gold-light), var(--gold-deep));
+      color: #2b2001;
+      display: grid;
+      place-content: center;
+      font-weight: 700;
+      font-size: 13px;
+      box-shadow: 0 0 0 2px #fff, 0 0 0 3px rgba(201, 151, 28, 0.4);
+    }
+
+    /* Main Scrollable Screen Content */
+    .screen-body {
+      flex: 1;
+      overflow-y: auto;
+      padding: 0 14px 20px;
+      z-index: 1;
+      scrollbar-width: none;
+    }
+    .screen-body::-webkit-scrollbar { display: none; }
+
+    /* Action & Search Bar */
+    .btn-new-loan {
+      width: 100%;
+      padding: 12px;
+      border-radius: 12px;
+      border: 1px solid #a97f10;
+      background: linear-gradient(180deg, #f0d382 0%, var(--gold-mid) 45%, #bd8f16 100%);
+      color: #2b2001;
+      font-size: 13.5px;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      cursor: pointer;
+      box-shadow: inset 0 1px 0 rgba(255,255,255,0.6), 0 6px 16px -4px rgba(154, 111, 15, 0.4);
+      margin-bottom: 12px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      transition: transform 0.15s ease;
+    }
+    .btn-new-loan:active { transform: scale(0.98); }
+
+    .search-box {
+      margin-bottom: 12px;
+    }
+    .search-box label {
+      font-size: 11px;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: var(--muted);
+      margin-bottom: 4px;
+      display: block;
+    }
+    .search-input {
+      width: 100%;
+      padding: 10px 14px;
+      border-radius: 12px;
+      border: 1px solid var(--glass-border);
+      background: rgba(255, 255, 255, 0.75);
+      backdrop-filter: blur(10px);
+      -webkit-backdrop-filter: blur(10px);
+      font-family: inherit;
+      font-size: 13.5px;
+      color: var(--ink);
+      outline: none;
+      box-shadow: inset 0 1px 2px rgba(0,0,0,0.02);
+    }
+
+    /* Edge-to-Edge Filter Tabs */
+    .tabs-wrap {
+      margin: 0 -14px 14px -14px;
+      padding: 4px 14px 10px 14px;
+      display: flex;
+      gap: 8px;
+      overflow-x: auto;
+      scroll-behavior: smooth;
+      -webkit-overflow-scrolling: touch;
+      scrollbar-width: none;
+    }
+    .tabs-wrap::-webkit-scrollbar { display: none; }
+
+    .tab-pill {
+      font-family: inherit;
+      font-size: 12px;
+      font-weight: 500;
+      padding: 7px 16px;
+      border-radius: 18px;
+      white-space: nowrap;
+      flex-shrink: 0;
+      border: 1px solid var(--glass-border);
+      background: rgba(255, 253, 247, 0.75);
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+      color: var(--muted);
+      cursor: pointer;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.03), inset 0 1px 0 rgba(255,255,255,0.9);
+      transition: all 0.2s ease;
+    }
+    .tab-pill.active {
+      background: linear-gradient(180deg, #eccd6f 0%, #9a6f0f 100%);
+      color: #fff;
+      border-color: var(--gold-deep);
+      font-weight: 600;
+      box-shadow: 0 4px 14px rgba(154, 111, 15, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.4);
+    }
+
+    /* Glass Cards */
+    .glass-card {
+      background: var(--card-glass);
+      backdrop-filter: blur(16px) saturate(170%);
+      -webkit-backdrop-filter: blur(16px) saturate(170%);
+      border: 1px solid var(--glass-border);
+      border-radius: 16px;
+      box-shadow: var(--glass-shadow);
+      margin-bottom: 14px;
+      overflow: hidden;
+    }
+
+    /* Glass Table */
+    .tbl-wrap {
+      overflow-x: auto;
+      scrollbar-width: none;
+    }
+    .tbl-wrap::-webkit-scrollbar { display: none; }
+
+    table.glass-tbl {
+      width: 100%;
+      border-collapse: separate;
+      border-spacing: 0;
+      font-size: 13px;
+    }
+    table.glass-tbl th {
+      background: rgba(251, 246, 233, 0.85);
+      backdrop-filter: blur(10px);
+      -webkit-backdrop-filter: blur(10px);
+      color: var(--muted);
+      font-size: 10.5px;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      font-weight: 600;
+      padding: 10px 12px;
+      border-bottom: 1px solid rgba(201, 151, 28, 0.2);
+      text-align: left;
+      white-space: nowrap;
+    }
+    table.glass-tbl td {
+      padding: 11px 12px;
+      border-bottom: 1px solid rgba(232, 220, 186, 0.4);
+      background: rgba(255, 255, 255, 0.15);
+      white-space: nowrap;
+    }
+    table.glass-tbl tr:last-child td {
+      border-bottom: none;
+    }
+    table.glass-tbl tbody tr:hover {
+      background: rgba(253, 248, 234, 0.6);
+    }
+
+    .status-chip {
+      display: inline-block;
+      font-size: 10.5px;
+      font-weight: 600;
+      padding: 3px 9px;
+      border-radius: 8px;
+    }
+    .status-chip.green { background: var(--green-bg); color: var(--green); }
+    .status-chip.red { background: var(--red-bg); color: var(--red); }
+    .status-chip.amber { background: var(--amber-bg); color: var(--amber); }
+
+    /* Glass Bottom Tab Bar */
+    .bottom-bar-wrap {
+      padding: 4px 10px 14px;
+      background: rgba(255, 253, 247, 0.85);
+      backdrop-filter: blur(20px) saturate(180%);
+      -webkit-backdrop-filter: blur(20px) saturate(180%);
+      border-top: 1px solid var(--glass-border);
+      display: flex;
+      justify-content: space-around;
+      align-items: center;
+      z-index: 10;
+      box-shadow: 0 -4px 20px rgba(120, 86, 20, 0.08);
+    }
+    .bar-item {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 3px;
+      color: var(--muted);
+      font-size: 11px;
+      text-decoration: none;
+      cursor: pointer;
+      padding: 4px 8px;
+    }
+    .bar-item.active {
+      color: var(--gold-deep);
+      font-weight: 600;
+    }
+    .bar-icon {
+      font-size: 18px;
+    }
+
+    .preview-info {
+      position: absolute;
+      top: -45px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: #231f18;
+      color: #f7e9c4;
+      font-size: 12.5px;
+      padding: 6px 16px;
+      border-radius: 20px;
+      white-space: nowrap;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+    }
+  </style>
+</head>
+<body>
+  <div class="device-frame">
+    <div class="preview-info">✨ Mobile Glassmorphism Layout Sample</div>
+
+    <!-- Status Bar -->
+    <div class="status-bar">
+      <span>5:41</span>
+      <span>📶 5G 81%</span>
+    </div>
+
+    <!-- Floating Glass Header -->
+    <div class="header-wrap">
+      <div class="header-island">
+        <h1>Loans</h1>
+        <div class="avatar">A</div>
+      </div>
+    </div>
+
+    <!-- Screen Body Content -->
+    <div class="screen-body">
+      <!-- New Loan Button -->
+      <button class="btn-new-loan">+ New Loan</button>
+
+      <!-- Search Loans -->
+      <div class="search-box">
+        <label>Search loans</label>
+        <input type="text" class="search-input" placeholder="Loan number or customer…" value="">
+      </div>
+
+      <!-- Edge to Edge Filter Tabs -->
+      <div class="tabs-wrap">
+        <button class="tab-pill active">All</button>
+        <button class="tab-pill">Active</button>
+        <button class="tab-pill">Due Soon</button>
+        <button class="tab-pill">Overdue</button>
+        <button class="tab-pill">Pending Approval</button>
+        <button class="tab-pill">Auction Eligible</button>
+        <button class="tab-pill">Closed</button>
+      </div>
+
+      <!-- Glass Table Card -->
+      <div class="glass-card">
+        <div class="tbl-wrap">
+          <table class="glass-tbl">
+            <thead>
+              <tr>
+                <th>LOAN NO</th>
+                <th>CUSTOMER</th>
+                <th>STATUS</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td style="color:var(--gold-deep); font-weight:600;">LN-00001</td>
+                <td>Ramesh Kumar</td>
+                <td><span class="status-chip green">Active</span></td>
+              </tr>
+              <tr>
+                <td style="color:var(--gold-deep); font-weight:600;">LN-00002</td>
+                <td>Suresh Nair</td>
+                <td><span class="status-chip green">Active</span></td>
+              </tr>
+              <tr>
+                <td style="color:var(--gold-deep); font-weight:600;">LN-00003</td>
+                <td>Anjali Menon</td>
+                <td><span class="status-chip green">Active</span></td>
+              </tr>
+              <tr>
+                <td style="color:var(--gold-deep); font-weight:600;">LN-00004</td>
+                <td>Priya Pillai</td>
+                <td><span class="status-chip green">Active</span></td>
+              </tr>
+              <tr>
+                <td style="color:var(--gold-deep); font-weight:600;">LN-00005</td>
+                <td>Vijay Iyer</td>
+                <td><span class="status-chip amber">Pending</span></td>
+              </tr>
+              <tr>
+                <td style="color:var(--gold-deep); font-weight:600;">LN-00013</td>
+                <td>Anjali Menon</td>
+                <td><span class="status-chip red">Overdue</span></td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- Bottom Navigation Bar -->
+    <div class="bottom-bar-wrap">
+      <div class="bar-item">
+        <span class="bar-icon">🏠</span>
+        <span>Dashboard</span>
+      </div>
+      <div class="bar-item active">
+        <span class="bar-icon">💳</span>
+        <span>Loans</span>
+      </div>
+      <div class="bar-item">
+        <span class="bar-icon">👤</span>
+        <span>Customers</span>
+      </div>
+      <div class="bar-item">
+        <span class="bar-icon">➕</span>
+        <span>New Loan</span>
+      </div>
+      <div class="bar-item">
+        <span class="bar-icon">⋯</span>
+        <span>More</span>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // Tab pill selection interactivity demo
+    const pills = document.querySelectorAll('.tab-pill');
+    pills.forEach(pill => {
+      pill.addEventListener('click', () => {
+        pills.forEach(p => p.classList.remove('active'));
+        pill.classList.add('active');
+      });
+    });
+  </script>
+</body>
+</html>

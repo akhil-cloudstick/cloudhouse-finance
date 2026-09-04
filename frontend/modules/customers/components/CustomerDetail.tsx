@@ -22,6 +22,7 @@ import {
   CUSTOMER_SUBTABLE_PAGE_SIZE,
   type Customer360View,
 } from "@/modules/customers/services/customerService";
+import { useResponsivePageSize } from "@/common/utils/responsive";
 import type {
   LoanView,
   CustomerOrnamentRowView,
@@ -44,7 +45,7 @@ import { EditCustomerModalContent } from "@/common/components/modals/EditCustome
  * convention as Requests.tsx. `range` is the shared from/to opened-date
  * window; changing it resets the table back to page 1. */
 function useSubTablePage<T>(
-  fetchPage: (page: number, range?: { from?: string; to?: string }) => Promise<{ items: T[]; hasMore: boolean }>,
+  fetchPage: (page: number, range?: { from?: string; to?: string }) => Promise<{ items: T[]; hasMore: boolean; total: number }>,
   range: { from?: string; to?: string },
   ready: boolean
 ) {
@@ -52,6 +53,7 @@ function useSubTablePage<T>(
   const [loading, setLoading] = useState(true);
   const [page, setPage] = useState(1);
   const [hasMore, setHasMore] = useState(false);
+  const [total, setTotal] = useState(0);
   const from = range.from;
   const to = range.to;
 
@@ -62,10 +64,12 @@ function useSubTablePage<T>(
       .then((res) => {
         setItems(res.items);
         setHasMore(res.hasMore);
+        setTotal(res.total);
       })
       .catch(() => {
         setItems([]);
         setHasMore(false);
+        setTotal(0);
       })
       .finally(() => setLoading(false));
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -78,11 +82,11 @@ function useSubTablePage<T>(
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => setPage(1), [from, to]);
 
-  const totalPages = hasMore ? page + 1 : page;
-  return { items, loading, page, setPage, totalPages };
+  return { items, loading, page, setPage, hasMore, total };
 }
 
-function Pager({ page, totalPages, onChange }: { page: number; totalPages: number; onChange: (p: number) => void }) {
+function Pager({ page, total, pageSize, onChange }: { page: number; total: number; pageSize: number; onChange: (p: number) => void }) {
+  const totalPages = Math.max(1, Math.ceil(total / pageSize));
   return (
     <div className="ft" style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 14px" }}>
       <button className="btn plain" style={{ padding: "9px 18px", fontSize: 13 }} disabled={page <= 1} onClick={() => onChange(Math.max(1, page - 1))}>‹ Prev</button>
@@ -155,37 +159,65 @@ export function CustomerDetail({ id }: { id?: string }) {
       .finally(() => setReloading(false));
   }, [id, from, to]);
 
-  // These must run on every render regardless of whether `profile` has
-  // loaded yet — calling them after the early returns below made their
-  // hook count change between the "loading" render and the loaded one,
-  // which React's rules of hooks forbid (it was throwing "change in the
-  // order of Hooks called by CustomerDetail"). id is only ever set once
-  // known (see the parent route), so a stable "" fallback here doesn't
-  // race actual data loading.
+  const subtablePageSize = useResponsivePageSize(10, 7);
   const range = { from, to };
-  const listLoans = useCallback((page: number, r?: { from?: string; to?: string }) => listCustomerLoansPage(id || "", page, r), [id]);
-  const listOrnaments = useCallback((page: number, r?: { from?: string; to?: string }) => listCustomerOrnamentsPage(id || "", page, r), [id]);
-  const listPayments = useCallback((page: number, r?: { from?: string; to?: string }) => listCustomerPaymentsPage(id || "", page, r), [id]);
-  const listBankPledges = useCallback((page: number, r?: { from?: string; to?: string }) => listCustomerBankPledgesPage(id || "", page, r), [id]);
-  const listAuctionHistory = useCallback((page: number, r?: { from?: string; to?: string }) => listCustomerAuctionHistoryPage(id || "", page, r), [id]);
+  const listLoans = useCallback((page: number, r?: { from?: string; to?: string }) => listCustomerLoansPage(id || "", page, r, subtablePageSize), [id, subtablePageSize]);
+  const listOrnaments = useCallback((page: number, r?: { from?: string; to?: string }) => listCustomerOrnamentsPage(id || "", page, r, subtablePageSize), [id, subtablePageSize]);
+  const listPayments = useCallback((page: number, r?: { from?: string; to?: string }) => listCustomerPaymentsPage(id || "", page, r, subtablePageSize), [id, subtablePageSize]);
+  const listBankPledges = useCallback((page: number, r?: { from?: string; to?: string }) => listCustomerBankPledgesPage(id || "", page, r, subtablePageSize), [id, subtablePageSize]);
+  const listAuctionHistory = useCallback((page: number, r?: { from?: string; to?: string }) => listCustomerAuctionHistoryPage(id || "", page, r, subtablePageSize), [id, subtablePageSize]);
 
   const [activeTable, setActiveTable] = useState(0);
   const TABLE_TABS = ["Loan History", "Pledged Ornaments", "Payment History", "Bank Pledges", "Auction History"];
   // One icon per tab, same order as TABLE_TABS — shown on the rail so each
   // stop says which table it selects.
   const TABLE_TAB_ICONS = ["list", "scale", "coin", "bank", "gavel"];
-  // Lets a mouse-wheel scroll over the dot rail / table switch tabs, instead
-  // of only clicking a dot. wheelLock debounces rapid deltaY events from a
-  // single physical scroll gesture into one tab-step at a time.
+  // Lets a mouse-wheel or trackpad scroll over the tabs section switch tabs.
+  // wheelLock debounces rapid scroll events from a single physical gesture.
   const wheelLock = useRef(false);
-  function onTabWheel(e: React.WheelEvent) {
-    e.preventDefault();
-    if (wheelLock.current) return;
-    const dir = e.deltaY > 0 ? 1 : -1;
-    setActiveTable((t) => Math.min(TABLE_TABS.length - 1, Math.max(0, t + dir)));
-    wheelLock.current = true;
-    setTimeout(() => { wheelLock.current = false; }, 350);
-  }
+  const railRef = useRef<HTMLDivElement>(null);
+  const rowRef = useRef<HTMLDivElement>(null);
+  const activeTableRef = useRef(activeTable);
+  activeTableRef.current = activeTable;
+
+  // A plain React onWheel prop can never actually stop the page from
+  // scrolling here: React attaches its synthetic wheel listener at the root
+  // as passive (for scroll-performance reasons), and a passive listener's
+  // preventDefault() is silently ignored by the browser. A real,
+  // imperatively-attached DOM listener with {passive:false} is used to
+  // prevent default page scrolling while switching tabs and allow normal page
+  // scrolling when hitting the first or last tab boundaries.
+  useEffect(() => {
+    const row = rowRef.current;
+    if (!row) return;
+    function onWheel(e: WheelEvent) {
+      const absY = Math.abs(e.deltaY);
+      const absX = Math.abs(e.deltaX);
+      if (absY < 5 && absX < 5) return;
+
+      const dir = absY >= absX ? (e.deltaY > 0 ? 1 : -1) : (e.deltaX > 0 ? 1 : -1);
+      const currentTab = activeTableRef.current;
+      const nextTab = currentTab + dir;
+
+      // At boundary? (e.g. Tab 0 scrolling up or last tab scrolling down)
+      // Allow natural page scrolling
+      if (nextTab < 0 || nextTab >= TABLE_TABS.length) {
+        return;
+      }
+
+      // Inside tab bounds: prevent page scroll jump and switch tabs
+      e.preventDefault();
+      if (wheelLock.current) return;
+
+      setActiveTable(nextTab);
+      wheelLock.current = true;
+      setTimeout(() => {
+        wheelLock.current = false;
+      }, 250);
+    }
+    row.addEventListener("wheel", onWheel, { passive: false });
+    return () => row.removeEventListener("wheel", onWheel);
+  });
 
   const loanPager = useSubTablePage<LoanView>(listLoans, range, !!id);
   const ornamentPager = useSubTablePage<CustomerOrnamentRowView>(listOrnaments, range, !!id);
@@ -269,10 +301,11 @@ export function CustomerDetail({ id }: { id?: string }) {
   function openEditCustomer() {
     openModal(
       <EditCustomerModalContent
+        key={c.id}
         customer={c}
         onSaved={() => {
           if (!id) return;
-          getCustomer360(id, { from, to }).then(setProfile).catch(() => {});
+          getCustomer360(id, { from, to }).then(setProfile).catch(() => { });
         }}
       />
     );
@@ -284,9 +317,9 @@ export function CustomerDetail({ id }: { id?: string }) {
         loans={cLoans}
         onPicked={(pickedLoan: LoanView, type: "Extension" | "Release") => {
           if (type === "Extension") {
-            openModal(<RequestExtensionModalContent loan={pickedLoan} onSaved={() => {}} />);
+            openModal(<RequestExtensionModalContent loan={pickedLoan} onSaved={() => { }} />);
           } else {
-            openModal(<RequestReleaseModalContent loan={pickedLoan} onSaved={() => {}} />);
+            openModal(<RequestReleaseModalContent loan={pickedLoan} onSaved={() => { }} />);
           }
         }}
       />
@@ -335,30 +368,54 @@ export function CustomerDetail({ id }: { id?: string }) {
           <div className="card gtop"><div className="hd"><h3>Customer Profile</h3></div>
             <div className="bd cust-profile">
               <div className="kv">
-                <div className="i"><div className="k">PAN</div><div className="v" style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-                  <span>{c.pan || "—"} · <StatusChip status={c.panStatus} /></span>
-                  {canUpdateCustomers && c.pan && c.panStatus !== "Verified" && (
-                    <button className="btn ghost sm" style={{ padding: "2px 8px" }} onClick={verifyPan} disabled={verifyingPan}>
-                      {verifyingPan ? "Verifying…" : "Verify PAN"}
-                    </button>
-                  )}
-                </div></div>
-                <div className="i"><div className="k">Aadhaar</div><div className="v" style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-                  <span>{c.aadhaarLast4 ? "XXXX-XXXX-" + c.aadhaarLast4 : "—"} · <StatusChip status={c.aadhaarStatus} /></span>
-                  {canUpdateCustomers && c.aadhaarStatus !== "Verified" && !aadhaarStarted && (
-                    <button className="btn ghost sm" style={{ padding: "2px 8px" }} onClick={sendAadhaarVerificationLink} disabled={startingAadhaar}>
-                      {startingAadhaar ? "Starting…" : "Verify via DigiLocker"}
-                    </button>
-                  )}
-                  {canUpdateCustomers && c.aadhaarStatus !== "Verified" && aadhaarStarted && (
-                    <button className="btn ghost sm" style={{ padding: "2px 8px" }} onClick={checkAadhaarStatus} disabled={checkingAadhaar}>
-                      {checkingAadhaar ? "Checking…" : "Check Status"}
-                    </button>
-                  )}
-                </div></div>
-                <div className="i"><div className="k">Overall KYC</div><div className="v"><StatusChip status={c.kycStatus} /></div></div>
-                <div className="i"><div className="k">Date of Birth</div><div className="v">{c.dob || "—"}</div></div>
-                <div className="i"><div className="k">Phone</div><div className="v">{c.phone}</div></div>
+                {/* Label and chip inline (one line), matching KYC's own
+                 * pattern below — the masked value and any verify action
+                 * move to their own line underneath, rather than all three
+                 * (label / value / chip) competing to fit on one line the
+                 * way this used to render. */}
+                <div className="i">
+                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}><div className="k">PAN</div><StatusChip status={c.panStatus} /></div>
+                  <div className="v" style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                    <span>{c.pan || "—"}</span>
+                    {canUpdateCustomers && c.pan && c.panStatus !== "Verified" && (
+                      <button className="btn ghost sm" style={{ padding: "2px 8px" }} onClick={verifyPan} disabled={verifyingPan}>
+                        {verifyingPan ? "Verifying…" : "Verify PAN"}
+                      </button>
+                    )}
+                  </div>
+                </div>
+                <div className="i">
+                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}><div className="k">Aadhaar</div><StatusChip status={c.aadhaarStatus} /></div>
+                  <div className="v" style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                    <span>{c.aadhaarLast4 ? "XXXX-XXXX-" + c.aadhaarLast4 : "—"}</span>
+                    {canUpdateCustomers && c.aadhaarStatus !== "Verified" && !aadhaarStarted && (
+                      <button className="btn ghost sm" style={{ padding: "2px 8px" }} onClick={sendAadhaarVerificationLink} disabled={startingAadhaar}>
+                        {startingAadhaar ? "Starting…" : "Verify via DigiLocker"}
+                      </button>
+                    )}
+                    {canUpdateCustomers && c.aadhaarStatus !== "Verified" && aadhaarStarted && (
+                      <button className="btn ghost sm" style={{ padding: "2px 8px" }} onClick={checkAadhaarStatus} disabled={checkingAadhaar}>
+                        {checkingAadhaar ? "Checking…" : "Check Status"}
+                      </button>
+                    )}
+                  </div>
+                </div>
+                {/* Label and chip inline (one line) rather than the usual
+                 * stacked .k-above-.v — with no accompanying value text to
+                 * flow beside, KYC's chip alone under its label read as two
+                 * disconnected lines instead of one field. */}
+                <div className="i"><div style={{ display: "flex", alignItems: "center", gap: 8 }}><div className="k">KYC</div><StatusChip status={c.kycStatus} /></div></div>
+                {/* Forced onto one line regardless of the card's own width
+                 * (gridColumn:"1 / -1" takes the whole row instead of
+                 * competing for one of .kv's auto-fill columns) — at a
+                 * narrow card width .kv's own minmax(150px,1fr) columns
+                 * collapse to a single column, so Date of Birth and Phone
+                 * would otherwise stack one per line like everything else
+                 * here. */}
+                <div className="i" style={{ gridColumn: "1 / -1", display: "flex", gap: 24 }}>
+                  <div style={{ flex: 1, minWidth: 0 }}><div className="k">Date of Birth</div><div className="v">{c.dob || "—"}</div></div>
+                  <div style={{ flex: 1, minWidth: 0 }}><div className="k">Phone</div><div className="v">{c.phone}</div></div>
+                </div>
                 <div className="i"><div className="k">Address</div><div className="v">{c.address || "—"}</div></div>
               </div>
 
@@ -367,16 +424,30 @@ export function CustomerDetail({ id }: { id?: string }) {
                 <ProofLink label="Photograph" url={c.photoUrl} />
                 <ProofLink label="Identity Proof" url={c.identityProofUrl} />
                 <ProofLink label="Address Proof" url={c.addressProofUrl} />
-                <ProofLink label="Supporting KYC Document" url={c.kycDocumentUrl} />
+                <ProofLink label="Additional Document" url={c.kycDocumentUrl} />
               </div>
 
               {(c.nomineeName || c.nomineeRelation || c.nomineePhone) && (
                 <>
                   <h4 className="cust-profile-h4">Nominee Information</h4>
                   <div className="kv">
-                    <div className="i"><div className="k">Name</div><div className="v">{c.nomineeName || "—"}</div></div>
-                    <div className="i"><div className="k">Relation</div><div className="v">{c.nomineeRelation || "—"}</div></div>
-                    <div className="i"><div className="k">Phone</div><div className="v">{c.nomineePhone || "—"}</div></div>
+                    {/* Name and Relation share one flex-wrap row, with
+                     * Relation+Phone bundled as a single atomic item within
+                     * it (their own inner flex row) — a short name leaves
+                     * room for Name and Relation to sit on the same line;
+                     * once the name is long enough to fill the row, the
+                     * Relation+Phone pair wraps down together onto the next
+                     * line instead of Relation stranding alone away from
+                     * the Phone it belongs beside. */}
+                    <div className="i" style={{ gridColumn: "1 / -1" }}>
+                      <div style={{ display: "flex", flexWrap: "wrap", gap: 24 }}>
+                        <div style={{ flex: "1 1 auto", minWidth: 100 }}><div className="k">Name</div><div className="v">{c.nomineeName || "—"}</div></div>
+                        <div style={{ display: "flex", gap: 24, flex: "1 1 auto" }}>
+                          <div style={{ flex: 1, minWidth: 0 }}><div className="k">Relation</div><div className="v">{c.nomineeRelation || "—"}</div></div>
+                          <div style={{ flex: 1, minWidth: 0 }}><div className="k">Phone</div><div className="v">{c.nomineePhone || "—"}</div></div>
+                        </div>
+                      </div>
+                    </div>
                   </div>
                 </>
               )}
@@ -384,142 +455,155 @@ export function CustomerDetail({ id }: { id?: string }) {
               <h4 className="cust-profile-h4">Overall Loan Details</h4>
               <div className="kv">
                 <div className="i"><div className="k">Total Disbursed</div><div className="v">{fmt(profile.totalDisbursed)}</div></div>
-                <div className="i"><div className="k">Outstanding</div><div className="v">{fmt(profile.totalOutstanding)}</div></div>
-                <div className="i"><div className="k">Total Paid</div><div className="v">{fmt(profile.totalPaid)}</div></div>
-                <div className="i"><div className="k">Active Loans</div><div className="v">{profile.activeLoanCount}</div></div>
-                <div className="i"><div className="k">Closed Loans</div><div className="v">{profile.closedLoanCount}</div></div>
+                {/* Outstanding and Total Paid read as one pair (what's left
+                 * vs. what's already come in) — kept on one line the same
+                 * way as the others here, rather than splitting across two
+                 * rows at this card's narrow width. */}
+                <div className="i" style={{ gridColumn: "1 / -1", display: "flex", gap: 24 }}>
+                  <div style={{ flex: 1, minWidth: 0 }}><div className="k">Outstanding</div><div className="v">{fmt(profile.totalOutstanding)}</div></div>
+                  <div style={{ flex: 1, minWidth: 0 }}><div className="k">Total Paid</div><div className="v">{fmt(profile.totalPaid)}</div></div>
+                </div>
+                {/* Active/Closed read as one loan-status summary — kept on
+                 * one line the same way as the pairs above, rather than
+                 * splitting across two rows at this card's narrow width. */}
+                <div className="i" style={{ gridColumn: "1 / -1", display: "flex", gap: 24 }}>
+                  <div style={{ flex: 1, minWidth: 0 }}><div className="k">Active Loans</div><div className="v">{profile.activeLoanCount}</div></div>
+                  <div style={{ flex: 1, minWidth: 0 }}><div className="k">Closed Loans</div><div className="v">{profile.closedLoanCount}</div></div>
+                </div>
               </div>
             </div>
           </div>
         </div>
-        <div style={{ display: "flex", gap: 16, alignItems: "stretch", height: "100%" }} onWheel={onTabWheel}>
-        {/* The rail selects the table below. Each stop carries the icon for
+        <div ref={rowRef} style={{ display: "flex", gap: 16, alignItems: "stretch", height: "100%" }}>
+          {/* The rail selects the table below. Each stop carries the icon for
             its own table (loans / ornaments / payments / bank / auction) so
-            the rail reads without hovering for the tooltip. */}
-        <div className="tab-rail">
-          <div className="tab-rail-line" />
-          {TABLE_TABS.map((label, i) => (
-            <button
-              key={label}
-              type="button"
-              title={label}
-              aria-label={label}
-              aria-current={activeTable === i}
-              className={"tab-rail-dot" + (activeTable === i ? " on" : "")}
-              onClick={() => setActiveTable(i)}
-            >
-              <Icon name={TABLE_TAB_ICONS[i]} />
-            </button>
-          ))}
-        </div>
-
-        <div className="card" style={{ flex: 1, alignSelf: "flex-start" }}>
-          <div className="hd">
-            <h3>{TABLE_TABS[activeTable]}</h3>
+            the rail reads without hovering for the tooltip. onWheel lives on
+            this whole flex row (rail + table card) to enable smooth scrolling
+            tab switching. */}
+          <div className="tab-rail" ref={railRef}>
+            <div className="tab-rail-line" />
+            {TABLE_TABS.map((label, i) => (
+              <button
+                key={label}
+                type="button"
+                title={label}
+                aria-label={label}
+                aria-current={activeTable === i}
+                className={"tab-rail-dot" + (activeTable === i ? " on" : "")}
+                onClick={() => setActiveTable(i)}
+              >
+                <Icon name={TABLE_TAB_ICONS[i]} />
+              </button>
+            ))}
           </div>
 
-          {activeTable === 0 && (
-            <div key={activeTable} className="tab-slide-up">
-              <div className="tbl-wrap tbl-wrap-auto"><table className="tbl tbl-center">
-                <thead><tr><th>Loan</th><th>Scheme</th><th>Opened / Due</th><th className="num">Principal</th><th className="num">Outstanding</th><th>Pledge</th><th>Status</th></tr></thead>
-                <tbody>
-                  {loanPager.items.length === 0 ? (
-                    <tr><td colSpan={7} className="empty compact">No loans yet.</td></tr>
-                  ) : loanPager.items.map((l) => <LoanRow loan={l} key={l.id} />)}
-                </tbody>
-              </table></div>
-              <Pager page={loanPager.page} totalPages={loanPager.totalPages} onChange={loanPager.setPage} />
+          <div className="card" style={{ flex: 1, alignSelf: "flex-start" }}>
+            <div className="hd">
+              <h3>{TABLE_TABS[activeTable]}</h3>
             </div>
-          )}
 
-          {activeTable === 1 && (
-            <div key={activeTable} className="tab-slide-up">
-              <div className="tbl-wrap tbl-wrap-auto"><table className="tbl tbl-center">
-                <thead><tr><th>Loan</th><th>Ornament</th><th>Purity</th><th className="num">Net (g)</th><th className="num">Gold Value</th></tr></thead>
-                <tbody>
-                  {ornamentPager.items.length === 0 ? (
-                    <tr><td colSpan={5} className="empty compact">No pledged ornaments yet.</td></tr>
-                  ) : ornamentPager.items.map((o) => (
-                    <tr key={o.loanId + "-" + o.id}>
-                      <td><a href={`#loan/${o.loanNumber}`}>{o.loanNumber}</a></td>
-                      <td>{o.name}</td>
-                      <td><span className="chip gold">{o.purity}</span></td>
-                      <td className="num">{fmtW(o.netWeight)}</td>
-                      <td className="num">{fmt(o.goldValue)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table></div>
-              <Pager page={ornamentPager.page} totalPages={ornamentPager.totalPages} onChange={ornamentPager.setPage} />
-            </div>
-          )}
+            {activeTable === 0 && (
+              <div key={activeTable} className="tab-slide-up">
+                <div className="tbl-wrap tbl-wrap-auto"><table className="tbl tbl-center">
+                  <thead><tr><th>Loan</th><th>Scheme</th><th className="th-opened-due">Opened / <span className="th-due-part">Due</span></th><th className="num">Principal</th><th className="num">Outstanding</th><th>Pledge</th><th>Status</th></tr></thead>
+                  <tbody>
+                    {loanPager.items.length === 0 ? (
+                      <tr><td colSpan={7} className="empty compact">No loans yet.</td></tr>
+                    ) : loanPager.items.map((l) => <LoanRow loan={l} key={l.id} />)}
+                  </tbody>
+                </table></div>
+                <Pager page={loanPager.page} total={loanPager.total} pageSize={subtablePageSize} onChange={loanPager.setPage} />
+              </div>
+            )}
 
-          {activeTable === 2 && (
-            <div key={activeTable} className="tab-slide-up">
-              <div className="tbl-wrap tbl-wrap-auto"><table className="tbl tbl-center">
-                <thead><tr><th>Loan</th><th>Date</th><th>Type</th><th className="num">Amount</th><th>Method</th></tr></thead>
-                <tbody>
-                  {paymentPager.items.length === 0 ? (
-                    <tr><td colSpan={5} className="empty compact">No payments recorded yet.</td></tr>
-                  ) : paymentPager.items.map((p) => (
-                    <tr key={p.loanId + "-" + p.id}>
-                      <td><a href={`#loan/${p.loanNumber}`}>{p.loanNumber}</a></td>
-                      <td>{p.paidOn}</td>
-                      <td>{p.type}</td>
-                      <td className="num">{fmt(p.amount)}</td>
-                      <td>{p.method || "—"}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table></div>
-              <Pager page={paymentPager.page} totalPages={paymentPager.totalPages} onChange={paymentPager.setPage} />
-            </div>
-          )}
+            {activeTable === 1 && (
+              <div key={activeTable} className="tab-slide-up">
+                <div className="tbl-wrap tbl-wrap-auto"><table className="tbl tbl-center">
+                  <thead><tr><th>Loan</th><th>Ornament</th><th>Purity</th><th className="num">Net (g)</th><th className="num">Gold Value</th></tr></thead>
+                  <tbody>
+                    {ornamentPager.items.length === 0 ? (
+                      <tr><td colSpan={5} className="empty compact">No pledged ornaments yet.</td></tr>
+                    ) : ornamentPager.items.map((o) => (
+                      <tr key={o.loanId + "-" + o.id}>
+                        <td><a href={`#loan/${o.loanNumber}`}>{o.loanNumber}</a></td>
+                        <td>{o.name}</td>
+                        <td><span className="chip gold">{o.purity}</span></td>
+                        <td className="num">{fmtW(o.netWeight)}</td>
+                        <td className="num">{fmt(o.goldValue)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table></div>
+                <Pager page={ornamentPager.page} total={ornamentPager.total} pageSize={subtablePageSize} onChange={ornamentPager.setPage} />
+              </div>
+            )}
 
-          {activeTable === 3 && (
-            <div key={activeTable} className="tab-slide-up">
-              <div className="tbl-wrap tbl-wrap-auto"><table className="tbl tbl-center">
-                <thead><tr><th>Loan</th><th>Bank</th><th className="num">Amount</th><th>Pledged On</th><th>Status</th></tr></thead>
-                <tbody>
-                  {bankPledgePager.items.length === 0 ? (
-                    <tr><td colSpan={5} className="empty compact">No bank pledges yet.</td></tr>
-                  ) : bankPledgePager.items.map((p) => (
-                    <tr key={p.loanId + "-" + p.id}>
-                      <td><a href={`#loan/${p.loanNumber}`}>{p.loanNumber}</a></td>
-                      <td>{p.bankName}</td>
-                      <td className="num">{fmt(p.pledgedAmount)}</td>
-                      <td>{p.pledgeDate}</td>
-                      <td><StatusChip status={p.isReleased ? "Released" : "Bank Pledged"} /></td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table></div>
-              <Pager page={bankPledgePager.page} totalPages={bankPledgePager.totalPages} onChange={bankPledgePager.setPage} />
-            </div>
-          )}
+            {activeTable === 2 && (
+              <div key={activeTable} className="tab-slide-up">
+                <div className="tbl-wrap tbl-wrap-auto"><table className="tbl tbl-center">
+                  <thead><tr><th>Loan</th><th>Date</th><th>Type</th><th className="num">Amount</th><th>Method</th></tr></thead>
+                  <tbody>
+                    {paymentPager.items.length === 0 ? (
+                      <tr><td colSpan={5} className="empty compact">No payments recorded yet.</td></tr>
+                    ) : paymentPager.items.map((p) => (
+                      <tr key={p.loanId + "-" + p.id}>
+                        <td><a href={`#loan/${p.loanNumber}`}>{p.loanNumber}</a></td>
+                        <td>{p.paidOn}</td>
+                        <td>{p.type}</td>
+                        <td className="num">{fmt(p.amount)}</td>
+                        <td>{p.method || "—"}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table></div>
+                <Pager page={paymentPager.page} total={paymentPager.total} pageSize={subtablePageSize} onChange={paymentPager.setPage} />
+              </div>
+            )}
 
-          {activeTable === 4 && (
-            <div key={activeTable} className="tab-slide-up">
-              <div className="tbl-wrap tbl-wrap-auto"><table className="tbl tbl-center">
-                <thead><tr><th>Loan</th><th>Stage</th><th>Auction Date</th><th className="num">Sale Amount</th><th className="num">Surplus/Shortfall</th></tr></thead>
-                <tbody>
-                  {auctionPager.items.length === 0 ? (
-                    <tr><td colSpan={5} className="empty compact">No auction records yet.</td></tr>
-                  ) : auctionPager.items.map((a) => (
-                    <tr key={a.id}>
-                      <td><a href={`#loan/${a.loanNumber}`}>{a.loanNumber}</a></td>
-                      <td><StatusChip status={a.stage} /></td>
-                      <td>{a.auctionDate || "—"}</td>
-                      <td className="num">{a.saleAmount ? fmt(a.saleAmount) : "—"}</td>
-                      <td className="num" style={{ color: a.surplusShortfall >= 0 ? "var(--green)" : "var(--red)" }}>{a.saleAmount ? fmt(Math.abs(a.surplusShortfall)) : "—"}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table></div>
-              <Pager page={auctionPager.page} totalPages={auctionPager.totalPages} onChange={auctionPager.setPage} />
-            </div>
-          )}
-        </div>
+            {activeTable === 3 && (
+              <div key={activeTable} className="tab-slide-up">
+                <div className="tbl-wrap tbl-wrap-auto"><table className="tbl tbl-center">
+                  <thead><tr><th>Loan</th><th>Bank</th><th className="num">Amount</th><th>Pledged On</th><th>Status</th></tr></thead>
+                  <tbody>
+                    {bankPledgePager.items.length === 0 ? (
+                      <tr><td colSpan={5} className="empty compact">No bank pledges yet.</td></tr>
+                    ) : bankPledgePager.items.map((p) => (
+                      <tr key={p.loanId + "-" + p.id}>
+                        <td><a href={`#loan/${p.loanNumber}`}>{p.loanNumber}</a></td>
+                        <td>{p.bankName}</td>
+                        <td className="num">{fmt(p.pledgedAmount)}</td>
+                        <td>{p.pledgeDate}</td>
+                        <td><StatusChip status={p.isReleased ? "Released" : "Bank Pledged"} /></td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table></div>
+                <Pager page={bankPledgePager.page} total={bankPledgePager.total} pageSize={subtablePageSize} onChange={bankPledgePager.setPage} />
+              </div>
+            )}
+
+            {activeTable === 4 && (
+              <div key={activeTable} className="tab-slide-up">
+                <div className="tbl-wrap tbl-wrap-auto"><table className="tbl tbl-center">
+                  <thead><tr><th>Loan</th><th>Stage</th><th>Auction Date</th><th className="num">Sale Amount</th><th className="num th-surplus-shortfall">Surplus / <span className="th-shortfall-part">Shortfall</span></th></tr></thead>
+                  <tbody>
+                    {auctionPager.items.length === 0 ? (
+                      <tr><td colSpan={5} className="empty compact">No auction records yet.</td></tr>
+                    ) : auctionPager.items.map((a) => (
+                      <tr key={a.id}>
+                        <td><a href={`#loan/${a.loanNumber}`}>{a.loanNumber}</a></td>
+                        <td><StatusChip status={a.stage} /></td>
+                        <td>{a.auctionDate || "—"}</td>
+                        <td className="num">{a.saleAmount ? fmt(a.saleAmount) : "—"}</td>
+                        <td className="num" style={{ color: a.surplusShortfall >= 0 ? "var(--green)" : "var(--red)" }}>{a.saleAmount ? fmt(Math.abs(a.surplusShortfall)) : "—"}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table></div>
+                <Pager page={auctionPager.page} total={auctionPager.total} pageSize={subtablePageSize} onChange={auctionPager.setPage} />
+              </div>
+            )}
+          </div>
         </div>
       </div>
     </>

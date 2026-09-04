@@ -1,6 +1,7 @@
 package personalloan
 
 import (
+	"fmt"
 	"net/http"
 	"strconv"
 
@@ -36,7 +37,7 @@ func (h *Handler) Create(c *gin.Context) {
 		httpx.Fail(c, http.StatusBadRequest, "Invalid input")
 		return
 	}
-	employeeID, _ := platform.ActorFromContext(c)
+	employeeID, _, _ := platform.ActorFromContext(c)
 	branchID := platform.EnforceBranchOnWrite(c, req.BranchID)
 
 	rec, err := h.svc.CreateLoan(CreateInput{
@@ -159,7 +160,7 @@ func (h *Handler) RecordPayment(c *gin.Context) {
 		httpx.Fail(c, http.StatusBadRequest, "Invalid input")
 		return
 	}
-	employeeID, _ := platform.ActorFromContext(c)
+	employeeID, _, _ := platform.ActorFromContext(c)
 	rec, err := h.svc.RecordPayment(id, platform.GetBranchScope(c), PaymentInput{
 		Amount:               req.Amount,
 		Method:               req.Method,
@@ -220,7 +221,7 @@ func (h *Handler) Renew(c *gin.Context) {
 		httpx.Fail(c, http.StatusBadRequest, "Invalid input")
 		return
 	}
-	employeeID, _ := platform.ActorFromContext(c)
+	employeeID, _, _ := platform.ActorFromContext(c)
 	result, err := h.svc.RenewLoan(id, platform.GetBranchScope(c), RenewInput{
 		PrincipalAmount:     req.PrincipalAmount,
 		InterestType:        req.InterestType,
@@ -234,6 +235,25 @@ func (h *Handler) Renew(c *gin.Context) {
 		return
 	}
 	httpx.Success(c, http.StatusOK, result)
+}
+
+// DownloadBond streams the borrower-only bond PDF for a loan (see bond.go's
+// GenerateBond) as an attachment, filename "bond-<loanNumber>.pdf" — matches
+// internal/reports' export.go Content-Disposition pattern.
+func (h *Handler) DownloadBond(c *gin.Context) {
+	id, err := httpx.IDParam(c, "id")
+	if err != nil {
+		httpx.FailErr(c, err)
+		return
+	}
+	pdf, loan, err := h.svc.GenerateBond(c.Request.Context(), id, platform.GetBranchScope(c))
+	if err != nil {
+		httpx.FailErr(c, err)
+		return
+	}
+	filename := fmt.Sprintf("bond-%s.pdf", loan.LoanNumber)
+	c.Header("Content-Disposition", "attachment; filename=\""+filename+"\"")
+	c.Data(http.StatusOK, "application/pdf", pdf)
 }
 
 // ListLoansForCustomer returns a customer's personal loans — mounted under

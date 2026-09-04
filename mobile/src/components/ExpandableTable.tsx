@@ -1,8 +1,19 @@
-import React, { useState } from "react";
-import { View, Pressable, StyleSheet, ViewStyle } from "react-native";
+import React, { useState, ReactElement } from "react";
+import { View, Pressable, StyleSheet, ViewStyle, FlatList, RefreshControlProps, ScrollView, ActivityIndicator } from "react-native";
 import { ThemedText } from "./ThemedText";
 import { Icon } from "./Icon";
 import { colors } from "../theme/colors";
+
+// `.Context` exists at runtime — VirtualizedList.js reads it via
+// `ScrollView.Context.Consumer` to decide whether to fire "VirtualizedLists
+// should never be nested inside plain ScrollViews" — but it isn't in RN's
+// public types, hence the cast. Resetting it to null around our own FlatList
+// (below) tells that check this FlatList is its own independent scroller,
+// regardless of whatever ScrollView-like ancestor might sit above it on a
+// given screen — every caller already gives this table a dedicated flex:1
+// slot (see ExpandableTable's own doc comment) rather than nesting it inside
+// another scroller, so the warning doesn't apply here.
+const ScrollViewContextReset = (ScrollView as unknown as { Context: React.Context<unknown> }).Context.Provider;
 
 // React Native has no <table> — this recreates one with flex rows instead:
 // a header row of column labels, body rows matching the same flex weights
@@ -56,7 +67,7 @@ export function defaultVisibleCount(totalFieldCount: number): number {
   return totalFieldCount > 6 ? 3 : 4;
 }
 
-const RADIUS = 14;
+const RADIUS = 16;
 
 // Apply to a FlatList's `contentContainerStyle` (or wrap ExpandableTable's
 // static case) — the border/shadow/rounded-corner card every table sits in.
@@ -69,16 +80,23 @@ const RADIUS = 14;
 // header (styles.headRow) and whichever row/detail-strip ends up visually
 // last (`isLast` below) carry their own top/bottom corner radius instead —
 // nothing here needs clipping once the pieces already have the right shape.
+// Bottom corners/border deliberately omitted — the card is left open at the
+// bottom (no bottom border, no bottom rounding) so the last row just ends
+// flush rather than closing into a rounded box.
 export const tableCardStyle: ViewStyle = {
   borderWidth: 1,
+  borderBottomWidth: 0,
   borderColor: colors.line,
-  borderRadius: RADIUS,
+  borderTopLeftRadius: RADIUS,
+  borderTopRightRadius: RADIUS,
   backgroundColor: colors.card,
+  // Flatter, quieter shadow — matches Card/GlassCard's own toned-down lift
+  // from the approved modern/minimal mockups.
   shadowColor: colors.charcoal,
-  shadowOpacity: 0.14,
+  shadowOpacity: 0.06,
   shadowRadius: 12,
-  shadowOffset: { width: 0, height: 6 },
-  elevation: 4,
+  shadowOffset: { width: 0, height: 4 },
+  elevation: 2,
 };
 
 /** Column-label row — pass as a FlatList's `ListHeaderComponent`. */
@@ -185,7 +203,16 @@ export function TableRow<T>({
 }
 
 /** Convenience wrapper for a screen whose whole list is already loaded (no
- * FlatList/infinite-scroll needed) — e.g. a short, non-paginated list. */
+ * infinite-scroll needed) — e.g. a short, non-paginated list.
+ *
+ * The column-label row is a plain sibling ABOVE the `FlatList`, not a
+ * `stickyHeaderIndices` header inside it — we want it permanently fixed
+ * (never even briefly scrolling before it "sticks"), and `stickyHeaderIndices`
+ * implements stickiness via ScrollView's own internal machinery, which can
+ * itself trip RN's "VirtualizedLists should never be nested inside plain
+ * ScrollViews" warning. A plain sibling avoids that entirely. Every list
+ * screen wraps this in a `flex: 1` region with its search/filter controls
+ * and `Pager` OUTSIDE that region, so only the rows scroll. */
 export function ExpandableTable<T>({
   columns,
   visibleCount,
@@ -194,6 +221,10 @@ export function ExpandableTable<T>({
   extraFields,
   onViewDescription,
   emptyText = "No records found.",
+  refreshControl,
+  style,
+  onEndReached,
+  isFetchingNextPage,
 }: {
   columns: TableColumn<T>[];
   visibleCount: number;
@@ -202,36 +233,73 @@ export function ExpandableTable<T>({
   extraFields?: (row: T) => ExtraField[];
   onViewDescription?: (row: T) => void;
   emptyText?: string;
+  refreshControl?: ReactElement<RefreshControlProps>;
+  style?: ViewStyle;
+  /** Infinite-scroll hook — pass useInfiniteQuery's fetchNextPage (guarded by
+   * hasNextPage), called once the list gets within a screen's height of the
+   * bottom. Omit for an already-fully-loaded, non-paginated list. */
+  onEndReached?: () => void;
+  /** Shows the trailing spinner row while the next page is in flight. */
+  isFetchingNextPage?: boolean;
 }) {
-  if (data.length === 0) {
-    return (
-      <View style={tableCardStyle}>
-        <ThemedText color={colors.muted} style={{ padding: 16 }}>
-          {emptyText}
-        </ThemedText>
-      </View>
-    );
-  }
   return (
-    <View style={tableCardStyle}>
+    <View style={[tableCardStyle, styles.flatList, style]}>
       <TableHeader columns={columns} visibleCount={visibleCount} />
-      {data.map((row, i) => (
-        <TableRow
-          key={keyExtractor(row)}
-          row={row}
-          columns={columns}
-          visibleCount={visibleCount}
-          extraFields={extraFields}
-          onViewDescription={onViewDescription}
-          isFirst={i === 0}
-          isLast={i === data.length - 1}
+      {/* Resets ScrollView.Context to null around this FlatList — RN's
+       * "VirtualizedLists should never be nested inside plain ScrollViews"
+       * check reads that context and fires whenever ANY ancestor ScrollView
+       * exists, vertical-oriented, anywhere above this point in the tree
+       * (a screen's own top-level KeyboardAvoidingView, some other library's
+       * wrapper, etc.) — regardless of whether that ancestor actually
+       * competes for the same scroll gesture. This table is always meant to
+       * be its own independent scroller (every caller gives it a dedicated
+       * flex:1 slot — see this component's own doc comment above), so that
+       * warning doesn't apply here; resetting the context is the
+       * RN-sanctioned way to say so without disabling the check globally. */}
+      <ScrollViewContextReset value={null}>
+        <FlatList
+          data={data}
+          keyExtractor={keyExtractor}
+          style={styles.rowsList}
+          showsVerticalScrollIndicator={false}
+          ListEmptyComponent={
+            <ThemedText color={colors.muted} style={{ padding: 16 }}>
+              {emptyText}
+            </ThemedText>
+          }
+          renderItem={({ item, index }) => (
+            <TableRow
+              row={item}
+              columns={columns}
+              visibleCount={visibleCount}
+              extraFields={extraFields}
+              onViewDescription={onViewDescription}
+              isFirst={index === 0}
+            />
+          )}
+          refreshControl={refreshControl}
+          onEndReached={onEndReached}
+          onEndReachedThreshold={0.5}
+          ListFooterComponent={
+            isFetchingNextPage ? (
+              <View style={styles.footerLoader}>
+                <ActivityIndicator color={colors.gold} />
+              </View>
+            ) : null
+          }
         />
-      ))}
+      </ScrollViewContextReset>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
+  // flex: 1 (not intrinsic height) — this fills whatever flex:1 slot the
+  // caller wraps it in, so it's the region that actually scrolls, not the
+  // whole screen. rowsList needs its own flex:1 too, since it's the actual
+  // FlatList sitting below the fixed TableHeader inside this card.
+  flatList: { flex: 1 },
+  rowsList: { flex: 1 },
   headRow: {
     flexDirection: "row",
     alignItems: "center",
@@ -265,8 +333,9 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     gap: 6,
     backgroundColor: colors.goldDeep,
-    borderRadius: 9,
-    paddingVertical: 10,
+    borderRadius: 10,
+    paddingVertical: 11,
     marginTop: 2,
   },
+  footerLoader: { paddingVertical: 16, alignItems: "center" },
 });

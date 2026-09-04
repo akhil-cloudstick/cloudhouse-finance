@@ -5,6 +5,7 @@ import { Icon } from "@/common/components/Icon";
 import { useToast } from "@/common/components/Toast";
 import { ApiError } from "@/common/services/httpClient";
 import { fmt, fmtW } from "@/common/utils/format";
+import { FormGReportView } from "@/modules/reports/components/FormGReportView";
 import { ReportView, type ReportConfig } from "@/modules/reports/components/ReportView";
 import {
   getDisbursement, getLoansStatus, getInterestCollection, getOutstandingPrincipal,
@@ -19,6 +20,11 @@ function firstOfMonth(): string {
 }
 function today(): string {
   return new Date().toISOString().slice(0, 10);
+}
+function subMonths(dateStr: string, months: number): string {
+  const d = new Date(dateStr + "T00:00:00");
+  d.setMonth(d.getMonth() - months);
+  return d.toISOString().slice(0, 10);
 }
 
 const dt = (v: string) => v ? new Date(v).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" }) : "—";
@@ -330,6 +336,19 @@ const REPORT_CONFIGS: ReportConfig[] = [
   },
 ];
 
+/* Form G's tile — kept out of REPORT_CONFIGS above because it doesn't fit
+ * ReportConfig's Row/Totals-table shape (fetchFn/columns/totals/rowKey):
+ * it's a fixed-layout statement, rendered by its own FormGReportView (see
+ * that file's top comment) rather than the generic ReportView every other
+ * report above shares. Only title/description/icon are needed for the tile
+ * grid itself. */
+const FORM_G_TILE = {
+  id: "form-g",
+  title: "Form G — Statement of Accounts",
+  description: "Kerala Money-Lenders Rules 1964, Rule 15(3) — quarterly/yearly statement",
+  icon: "doc",
+};
+
 /* Ported from legacy/app.js's `renderReports()` tile grid, now wired to
  * real backend/internal/reports endpoints. Clicking a tile swaps the grid
  * for that report's ReportView (filter bar + paginated table + totals +
@@ -340,15 +359,26 @@ export function Reports() {
   const [printingId, setPrintingId] = useState<string | null>(null);
   const active = REPORT_CONFIGS.find((r) => r.id === activeId) || null;
 
+  if (activeId === "form-g") {
+    return <FormGReportView onBack={() => setActiveId(null)} />;
+  }
   if (active) {
     return <ReportView config={active} onBack={() => setActiveId(null)} />;
   }
 
-  async function handlePrint(e: React.MouseEvent, r: ReportConfig) {
+  async function handlePrint(e: React.MouseEvent, r: ReportConfig | typeof FORM_G_TILE) {
     e.stopPropagation();
     setPrintingId(r.id);
     try {
-      await exportReport(r.exportKey, "pdf", { from: firstOfMonth(), to: today() });
+      // Form G defaults to the last 3 months everywhere else in this view
+      // (see FormGReportView); the quick-print button uses the same
+      // generic exportReport as every other tile (its export-key dispatch
+      // in backend/internal/reports/export.go special-cases "form-g"
+      // regardless of caller, so no separate handling is needed here beyond
+      // the date range), just with that 3-month default instead of
+      // firstOfMonth().
+      const range = r.id === "form-g" ? { from: subMonths(today(), 3), to: today() } : { from: firstOfMonth(), to: today() };
+      await exportReport(r.id === "form-g" ? "form-g" : (r as ReportConfig).exportKey, "pdf", range);
     } catch (err) {
       toast(err instanceof ApiError ? err.message : "Print failed.");
     } finally {
@@ -363,7 +393,7 @@ export function Reports() {
       </div>
       <hr className="gold-rule" />
       <div className="grid" style={{ gridTemplateColumns: "repeat(auto-fill,minmax(250px,1fr))" }}>
-        {REPORT_CONFIGS.map((r) => (
+        {[...REPORT_CONFIGS, FORM_G_TILE].map((r) => (
           <div className="card" style={{ cursor: "pointer", minHeight: 120, display: "flex", flexDirection: "column", position: "relative" }} key={r.id} onClick={() => setActiveId(r.id)}>
             <button
               className="btn ghost sm"

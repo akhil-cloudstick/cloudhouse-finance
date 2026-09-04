@@ -10,6 +10,7 @@ import { listLockers, type LockerView } from "@/modules/lockers/services/lockerS
 import { listPacketsPage, getPacketByCode, type PacketView } from "@/modules/packets/services/packetService";
 import { Select } from "@/common/components/ui/Select";
 import { useAuth } from "@/common/auth-context";
+import { useResponsivePageSize } from "@/common/utils/responsive";
 
 /* Mirrors packet.Status* in backend/internal/packet/model.go. */
 const PACKET_STATUS_OPTIONS = [
@@ -68,14 +69,16 @@ export function Packets() {
   const canCreateLockers = can("Locker_Management", "can_create_locker");
   const canUpdateLockers = can("Locker_Management", "can_update_locker");
 
+  const pageSize = useResponsivePageSize(11, 7);
   const [packets, setPackets] = useState<PacketView[] | null>(null);
   const [lockers, setLockers] = useState<LockerView[]>([]);
   const [error, setError] = useState("");
   const [lookup, setLookup] = useState("");
   const [lookupErr, setLookupErr] = useState("");
   const [page, setPage] = useState(1);
-  const [hasMore, setHasMore] = useState(false);
+  const [total, setTotal] = useState(0);
   const [status, setStatus] = useState("");
+  const totalPages = Math.max(1, Math.ceil(total / pageSize));
 
   /* Guards against an out-of-order response winning: switching status
    * quickly can leave an earlier, slower request in flight, and without
@@ -98,12 +101,12 @@ export function Packets() {
     const seq = ++loadSeq.current;
     try {
       const [p, l] = await Promise.all([
-        listPacketsPage(page, { status: status || undefined, q: q || undefined }),
+        listPacketsPage(page, { status: status || undefined, q: q || undefined }, pageSize),
         listLockers(),
       ]);
       if (seq !== loadSeq.current) return;
       setPackets(p.items);
-      setHasMore(p.hasMore);
+      setTotal(p.total);
       setLockers(l);
       setError("");
     } catch (e) {
@@ -112,7 +115,7 @@ export function Packets() {
     }
   }
 
-  useEffect(() => { load(); }, [page, status, q]);
+  useEffect(() => { load(); }, [page, status, q, pageSize]);
   // A new search term always starts back at page 1 — otherwise a filter
   // typed while sitting on page 3 can land on an empty page.
   useEffect(() => { setPage(1); }, [q]);
@@ -207,16 +210,11 @@ export function Packets() {
               </tbody>
             </table>
           </div>
-          {(() => {
-            const totalPages = hasMore ? page + 1 : page;
-            return (
-              <div className="ft" style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                <button className="btn plain sm" disabled={page <= 1} onClick={() => setPage((p) => Math.max(1, p - 1))}>‹ Prev</button>
-                <span style={{ fontSize: 12.5 }}>Page {page} of {totalPages}</span>
-                <button className="btn plain sm" disabled={!hasMore} onClick={() => setPage((p) => p + 1)}>Next ›</button>
-              </div>
-            );
-          })()}
+          <div className="ft" style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <button className="btn plain sm" disabled={page <= 1} onClick={() => setPage((p) => Math.max(1, p - 1))}>‹ Prev</button>
+            <span style={{ fontSize: 12.5 }}>Page {page} of {totalPages}</span>
+            <button className="btn plain sm" disabled={page >= totalPages} onClick={() => setPage((p) => Math.min(totalPages, p + 1))}>Next ›</button>
+          </div>
         </div>
         {/* The locker column takes its height from the packets card beside it:
             the row stretches both columns to the same height, and this wrapper

@@ -129,12 +129,12 @@ func main() {
 	settingsHandler := settings.NewHandler(settingsSvc)
 
 	// whatsappSender delivers messages (OTPs, reminders, and anything else
-	// that wants WhatsApp delivery) via the official WhatsApp Business Cloud
-	// API (Meta), configured live through Settings > WhatsApp (settingsSvc,
-	// category "whatsapp") rather than an env var — see
-	// platform.MetaCloudSender. Until that setting is configured, Send
-	// returns a clear "not configured" error rather than silently doing
-	// nothing.
+	// that wants WhatsApp delivery) via a self-hosted OpenWA instance
+	// (https://github.com/rmyndharis/OpenWA), configured live through
+	// Settings > WhatsApp (settingsSvc, category "whatsapp") rather than an
+	// env var — see platform.OpenWASender. Until that setting is
+	// configured, Send returns a clear "not configured" error rather than
+	// silently doing nothing.
 	whatsappLoader := func() (platform.WhatsAppConfig, error) {
 		view, err := settingsSvc.Get(settings.CategoryWhatsApp)
 		if err != nil {
@@ -145,7 +145,7 @@ func main() {
 		}
 		return platform.ParseWhatsAppConfig(view.Value)
 	}
-	whatsappSender := platform.NewMetaCloudSender(whatsappLoader)
+	whatsappSender := platform.NewOpenWASender(whatsappLoader)
 
 	setuClient := platform.NewSetuClient(cfg)
 	digilockerClient := platform.NewDigilockerClient(cfg)
@@ -195,7 +195,15 @@ func main() {
 	notificationSvc := notification.NewService(notificationRepo, realtimeHub)
 	notificationHandler := notification.NewHandler(notificationSvc, realtimeHub)
 
-	loanSvc := loan.NewService(db, loanRepo, loanOrnamentRepo, loanApprovalRepo, loanPaymentRepo, loanPledgeRepo, loanRequestRepo, requestApprovalRepo, loanAuctionRepo, loanApprovalLimitRepo, branchRepo, customerRepo, schemeRepo, goldRateRepo, packetSvc, packetSvc, movementSvc, notificationSvc, whatsappSender, commlogRepo, esignClient, cfg.UploadsDir, razorpayClient, aadhaarCipher)
+	// authzPermChecker gates every stage of the loan sanction/extension/
+	// release approval chains and each auction decision/process step (see
+	// loan.Service.checkStagePermission) against the "Approval Workflow"
+	// permissions — the same authz.Repository the RequirePermission
+	// middleware elsewhere already checks ordinary CRUD permissions
+	// against, just satisfying loan's own narrower platform.PermissionChecker
+	// interface structurally (no import of internal/authz from internal/loan).
+	authzPermChecker := authz.NewRepository(db)
+	loanSvc := loan.NewService(db, loanRepo, loanOrnamentRepo, loanApprovalRepo, loanPaymentRepo, loanPledgeRepo, loanRequestRepo, requestApprovalRepo, loanAuctionRepo, loanApprovalLimitRepo, branchRepo, customerRepo, schemeRepo, goldRateRepo, packetSvc, packetSvc, movementSvc, notificationSvc, whatsappSender, commlogRepo, esignClient, cfg.UploadsDir, razorpayClient, aadhaarCipher, authzPermChecker)
 	loanHandler := loan.NewHandler(loanSvc)
 
 	personalLoanRepo := personalloan.NewRepository(db)
@@ -203,7 +211,7 @@ func main() {
 	// cash.MovementService methods internal/loan uses for its own
 	// disbursement/payment cash flow) so a personal loan's disbursement and
 	// collections show up in Cash-in-Hand & Expenses too.
-	personalLoanSvc := personalloan.NewService(personalLoanRepo, customerRepo, movementSvc)
+	personalLoanSvc := personalloan.NewService(personalLoanRepo, customerRepo, movementSvc, aadhaarCipher)
 	personalLoanHandler := personalloan.NewHandler(personalLoanSvc)
 
 	reminderRepo := reminder.NewRepository(db)
@@ -213,7 +221,8 @@ func main() {
 	reminderSvc := reminder.NewService(reminderRepo, customerRepo, loanRepo, personalLoanSvc, whatsappSender, commlogRepo)
 	reminderHandler := reminder.NewHandler(reminderSvc)
 
-	dashboardSvc := dashboard.NewService(loanRepo, loanRequestRepo)
+	dashboardSnapshotRepo := dashboard.NewSnapshotRepository(db)
+	dashboardSvc := dashboard.NewService(loanRepo, loanRequestRepo, dashboardSnapshotRepo)
 	dashboardHandler := dashboard.NewHandler(dashboardSvc)
 
 	uploadHandler := upload.NewHandler(cfg.UploadsDir)
@@ -397,6 +406,22 @@ func main() {
 		defer ticker.Stop()
 		for range ticker.C {
 			loanSvc.CheckDueAndOverdueLoans()
+		}
+	}()
+	// Dashboard KPI snapshot — captures today's counts once/day for the
+	// mobile dashboard's trend indicators (see dashboard.Service.
+	// CaptureDailySnapshot's doc comment). No fixed-wall-clock-time
+	// scheduling exists in this codebase, so this ticks hourly like the
+	// due/overdue check above; CaptureDailySnapshot's own FindByDate guard
+	// is what keeps it to one row per day regardless of tick cadence. Runs
+	// once immediately on boot too, so a fresh deploy doesn't wait up to an
+	// hour for its first snapshot.
+	go func() {
+		dashboardSvc.CaptureDailySnapshot()
+		ticker := time.NewTicker(1 * time.Hour)
+		defer ticker.Stop()
+		for range ticker.C {
+			dashboardSvc.CaptureDailySnapshot()
 		}
 	}()
 

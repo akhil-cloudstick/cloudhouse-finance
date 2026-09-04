@@ -10,6 +10,7 @@ import {
   getPersonalLoan,
   getPersonalLoanSchedulePage,
   listPersonalLoanPaymentsPage,
+  downloadPersonalLoanBond,
   type BackendPersonalLoan,
   type BackendPersonalLoanInstallment,
   type BackendPersonalLoanPayment,
@@ -70,6 +71,7 @@ export function PersonalLoanDetail({ id }: { id?: string }) {
   const [loan, setLoan] = useState<BackendPersonalLoan | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [downloadingBond, setDownloadingBond] = useState(false);
 
   const numericId = Number(id);
 
@@ -109,6 +111,18 @@ export function PersonalLoanDetail({ id }: { id?: string }) {
     openModal(<RenewLoanModalContent loan={loan} onSaved={() => { closeModal(); location.hash = "personalloans"; }} />);
   }
 
+  async function handleDownloadBond() {
+    if (!loan || downloadingBond) return;
+    setDownloadingBond(true);
+    try {
+      await downloadPersonalLoanBond(loan.id);
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : "Could not download the bond.");
+    } finally {
+      setDownloadingBond(false);
+    }
+  }
+
   const customerName = loan.customer?.name || loan.customer?.code || "";
 
   return (
@@ -119,6 +133,9 @@ export function PersonalLoanDetail({ id }: { id?: string }) {
           <h1>Loan {loan.loanNumber}{customerName ? ` · ${customerName}` : ""}</h1>
         </div>
         <div className="sp" />
+        <button className="btn doc-action" disabled={downloadingBond} onClick={handleDownloadBond}>
+          <span className="doc-action-tx">{downloadingBond ? "Preparing…" : "Download Bond"}</span>
+        </button>
         {canUpdate && loan.status === "Active" && (
           <button className="btn" onClick={openRenew}>Renew Loan</button>
         )}

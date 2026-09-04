@@ -117,7 +117,7 @@ func (h *MovementHandler) List(c *gin.Context) {
 		if offset < 0 {
 			offset = 0
 		}
-		rec, err := h.svc.List(branchID, limit+1, offset)
+		rec, total, err := h.svc.List(branchID, limit+1, offset)
 		if err != nil {
 			httpx.FailErr(c, err)
 			return
@@ -126,11 +126,11 @@ func (h *MovementHandler) List(c *gin.Context) {
 		if hasMore {
 			rec = rec[:limit]
 		}
-		httpx.Success(c, http.StatusOK, gin.H{"items": rec, "hasMore": hasMore})
+		httpx.Success(c, http.StatusOK, gin.H{"items": rec, "hasMore": hasMore, "total": total})
 		return
 	}
 
-	rec, err := h.svc.List(branchID, 0, 0)
+	rec, _, err := h.svc.List(branchID, 0, 0)
 	if err != nil {
 		httpx.FailErr(c, err)
 		return
@@ -236,7 +236,7 @@ func (h *ExpenseHandler) List(c *gin.Context) {
 		if offset < 0 {
 			offset = 0
 		}
-		rec, err := h.svc.List(branchID, limit+1, offset)
+		rec, total, err := h.svc.List(branchID, limit+1, offset)
 		if err != nil {
 			httpx.FailErr(c, err)
 			return
@@ -245,11 +245,11 @@ func (h *ExpenseHandler) List(c *gin.Context) {
 		if hasMore {
 			rec = rec[:limit]
 		}
-		httpx.Success(c, http.StatusOK, gin.H{"items": rec, "hasMore": hasMore})
+		httpx.Success(c, http.StatusOK, gin.H{"items": rec, "hasMore": hasMore, "total": total})
 		return
 	}
 
-	rec, err := h.svc.List(branchID, 0, 0)
+	rec, _, err := h.svc.List(branchID, 0, 0)
 	if err != nil {
 		httpx.FailErr(c, err)
 		return

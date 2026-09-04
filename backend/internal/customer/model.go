@@ -54,6 +54,24 @@ type Customer struct {
 	NomineeRelation string `json:"nomineeRelation" gorm:"size:60"`
 	NomineePhone    string `json:"nomineePhone" gorm:"size:20"`
 
+	// The fields below are personal-loan specific / optional — collected
+	// only by the inline "+ Add new customer" flow in the Personal Loan
+	// creation picker (frontend/modules/personal-loans/components/
+	// CreateCustomerModal.tsx). Gold-loan customer creation (Customers.tsx /
+	// RegisterCustomerModal.tsx) never sends them, so they must stay
+	// nullable/blank-default and never required by validate() in service.go.
+	FatherName string `json:"fatherName,omitempty" gorm:"size:120"`
+	District   string `json:"district,omitempty" gorm:"size:80"`
+	Taluk      string `json:"taluk,omitempty" gorm:"size:80"`
+	Village    string `json:"village,omitempty" gorm:"size:80"`
+	Place      string `json:"place,omitempty" gorm:"size:80"`
+	PinCode    string `json:"pinCode,omitempty" gorm:"size:10"`
+	// Nullable (rather than plain int) so an omitted Age renders as SQL NULL,
+	// not a misleading stored 0 — and so reflection-based table builders
+	// (internal/reports/export.go) that walk this struct print blank instead
+	// of "0" for every pre-existing gold-loan customer.
+	Age *int `json:"age,omitempty" gorm:"type:int"`
+
 	// KYCStatus/PANStatus/AadhaarStatus start "Pending" at creation in
 	// service.Create — no real verification call happens until a live Setu
 	// PAN-verify (internal/platform/setu.go) / DigiLocker Aadhaar call runs
@@ -109,6 +127,17 @@ type CustomerResponse struct {
 	PANStatus     string `json:"panStatus"`
 	AadhaarStatus string `json:"aadhaarStatus"`
 
+	// Personal-loan specific / optional — see Customer's own field comments.
+	// omitempty so a gold-loan customer with none of these set doesn't carry
+	// a wall of blank fields in the API response.
+	FatherName string `json:"fatherName,omitempty"`
+	District   string `json:"district,omitempty"`
+	Taluk      string `json:"taluk,omitempty"`
+	Village    string `json:"village,omitempty"`
+	Place      string `json:"place,omitempty"`
+	PinCode    string `json:"pinCode,omitempty"`
+	Age        *int   `json:"age,omitempty"`
+
 	CreatedAt time.Time `json:"createdAt"`
 	UpdatedAt time.Time `json:"updatedAt"`
 }
@@ -142,6 +171,14 @@ func (c *Customer) ToResponse() CustomerResponse {
 		KYCStatus:     c.KYCStatus,
 		PANStatus:     c.PANStatus,
 		AadhaarStatus: c.AadhaarStatus,
+
+		FatherName: c.FatherName,
+		District:   c.District,
+		Taluk:      c.Taluk,
+		Village:    c.Village,
+		Place:      c.Place,
+		PinCode:    c.PinCode,
+		Age:        c.Age,
 
 		CreatedAt: c.CreatedAt,
 		UpdatedAt: c.UpdatedAt,

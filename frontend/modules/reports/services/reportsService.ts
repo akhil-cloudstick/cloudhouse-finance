@@ -127,6 +127,117 @@ export type CommunicationHistoryRow = {
 };
 export type CommunicationHistoryTotals = { count: number; sent: number; failed: number };
 
+/* ---- Form G (Kerala Money-Lenders Rules 1964, Rule 15(3)) ----
+ * Not a repeated-row report — a single fixed-layout statement — so it does
+ * not use ReportResult<Row,Totals>/fetchReport like every report above; see
+ * backend/internal/reports/formg.go for the full field-by-field rationale. */
+
+export type FormGBranch = { name: string; address: string };
+
+export type FormGLoanCategory = { label: string; persons: number; amount: number; remarks: string };
+
+export type FormGDeposits = {
+  openingCount: number; openingAmount: number;
+  duringCount: number; duringAmount: number;
+  repaidCount: number; repaidAmount: number;
+  closingCount: number; closingAmount: number;
+};
+
+export type FormGFinancialPosition = {
+  maxOutstanding: number;
+  maxOutstandingDate?: string | null;
+  assetsValue: number;
+  liabilitiesValue: number;
+  excessAssetsOverLiabilities: number;
+  excessLiabilitiesOverAssets: number;
+};
+
+export type FormGStatement = {
+  periodLabel: string;
+  lenderName: string;
+  lenderAddress: string;
+  branches: FormGBranch[];
+  section1Advanced: FormGLoanCategory[];
+  section2Redeemed: FormGLoanCategory[];
+  section3Deposits: FormGDeposits;
+  section4FinancialPosition: FormGFinancialPosition;
+};
+
+/* Manual overrides for the figures this system has no ledger for (public
+ * deposits, balance-sheet assets/liabilities) — sent ONLY on export, never
+ * persisted; see backend/internal/reports/formg.go's FormGOverrides
+ * doc comment for the full mechanism this mirrors. */
+export type FormGOverrides = {
+  depositOpeningCount?: number; depositOpeningAmount?: number;
+  depositDuringCount?: number; depositDuringAmount?: number;
+  depositRepaidCount?: number; depositRepaidAmount?: number;
+  depositClosingCount?: number; depositClosingAmount?: number;
+  assetsValue?: number;
+  liabilitiesValue?: number;
+};
+
+export const getFormG = (f: ReportFilters): Promise<FormGStatement> => {
+  const qs = buildQuery(f);
+  return apiFetch<FormGStatement>(`/reports/form-g${qs ? `?${qs}` : ""}`);
+};
+
+function buildFormGOverridesQuery(o: FormGOverrides): URLSearchParams {
+  const qs = new URLSearchParams();
+  const set = (key: string, v?: number) => { if (v !== undefined && v !== null && v !== 0) qs.set(key, String(v)); };
+  set("deposit_opening_count", o.depositOpeningCount);
+  set("deposit_opening_amount", o.depositOpeningAmount);
+  set("deposit_during_count", o.depositDuringCount);
+  set("deposit_during_amount", o.depositDuringAmount);
+  set("deposit_repaid_count", o.depositRepaidCount);
+  set("deposit_repaid_amount", o.depositRepaidAmount);
+  set("deposit_closing_count", o.depositClosingCount);
+  set("deposit_closing_amount", o.depositClosingAmount);
+  set("assets_value", o.assetsValue);
+  set("liabilities_value", o.liabilitiesValue);
+  return qs;
+}
+
+/* Downloads GET /reports/export/form-g?format=xlsx|pdf, folding the manual
+ * overrides in as extra query params — mirrors exportReport below but
+ * form-g needs the extra overrides on top of the shared filters. */
+export async function exportFormG(format: "xlsx" | "pdf", filters: ReportFilters, overrides: FormGOverrides): Promise<void> {
+  const { page: _page, pageSize: _pageSize, ...rest } = filters;
+  const qs = buildQuery(rest);
+  const params = new URLSearchParams(qs);
+  params.set("format", format);
+  const overrideParams = buildFormGOverridesQuery(overrides);
+  overrideParams.forEach((v, k) => params.set(k, v));
+
+  const token = typeof window !== "undefined" ? window.localStorage.getItem(AUTH_TOKEN_KEY) : null;
+  const res = await fetch(`${API_BASE}/reports/export/form-g?${params.toString()}`, {
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  });
+  if (!res.ok) {
+    let message = res.statusText;
+    try {
+      const body = await res.json();
+      if (body?.error) message = body.error;
+    } catch {
+      /* non-JSON error body — fall back to statusText */
+    }
+    throw new ApiError(message, res.status);
+  }
+
+  const blob = await res.blob();
+  const disposition = res.headers.get("Content-Disposition") || "";
+  const match = disposition.match(/filename="([^"]+)"/);
+  const filename = match ? match[1] : `form-g.${format}`;
+
+  const url = window.URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  window.URL.revokeObjectURL(url);
+}
+
 /* ---- One function per report endpoint (path segments per routes.go). ---- */
 
 export const getDisbursement = (f: ReportFilters) =>
@@ -185,7 +296,7 @@ export type ReportKey =
   | "disbursement" | "loans-status" | "interest-collection" | "outstanding-principal"
   | "payment-collection" | "gold-weight" | "packets" | "bank-pledge" | "loan-extensions"
   | "gold-release" | "auctions" | "expense-cashflow" | "kyc" | "gold-rate-history"
-  | "employee-performance" | "communication-history";
+  | "employee-performance" | "communication-history" | "form-g";
 
 /* Downloads GET /reports/export/:key?format=xlsx|pdf as a blob and triggers
  * a browser save, matching the object-URL + anchor-click pattern used for
