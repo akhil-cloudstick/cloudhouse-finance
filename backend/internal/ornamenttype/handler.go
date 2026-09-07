@@ -5,6 +5,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	"ambikagold/backend/internal/platform"
 	"ambikagold/backend/internal/platform/httpx"
 )
 
@@ -18,7 +19,8 @@ func NewHandler(svc *Service) *Handler {
 }
 
 func (h *Handler) List(c *gin.Context) {
-	rec, err := h.svc.List(c.Query("q"))
+	ctx := platform.RequestContext(c)
+	rec, err := h.svc.List(ctx, c.Query("q"))
 	if err != nil {
 		httpx.FailErr(c, err)
 		return
@@ -31,12 +33,13 @@ type ornamentTypeRequest struct {
 }
 
 func (h *Handler) Create(c *gin.Context) {
+	ctx := platform.RequestContext(c)
 	var req ornamentTypeRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		httpx.Fail(c, http.StatusBadRequest, "Invalid input")
 		return
 	}
-	rec, created, err := h.svc.FindOrCreate(req.Name)
+	rec, created, err := h.svc.FindOrCreate(ctx, req.Name)
 	if err != nil {
 		httpx.FailErr(c, err)
 		return

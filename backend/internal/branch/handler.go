@@ -36,12 +36,14 @@ type updateRequest struct {
 }
 
 func (h *Handler) Create(c *gin.Context) {
+	ctx := platform.RequestContext(c)
 	var req createRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		httpx.Fail(c, http.StatusBadRequest, "Invalid input")
 		return
 	}
-	rec, err := h.svc.Create(CreateInput{Name: req.Name, Code: req.Code, Address: req.Address, Phone: req.Phone})
+	empID, role, _ := platform.ActorFromContext(c)
+	rec, err := h.svc.Create(ctx, CreateInput{Name: req.Name, Code: req.Code, Address: req.Address, Phone: req.Phone}, actor{empID, role})
 	if err != nil {
 		httpx.FailErr(c, err)
 		return
@@ -50,7 +52,8 @@ func (h *Handler) Create(c *gin.Context) {
 }
 
 func (h *Handler) List(c *gin.Context) {
-	rec, err := h.svc.List(platform.GetBranchScope(c))
+	ctx := platform.RequestContext(c)
+	rec, err := h.svc.List(ctx, platform.GetBranchScope(c))
 	if err != nil {
 		httpx.FailErr(c, err)
 		return
@@ -59,12 +62,13 @@ func (h *Handler) List(c *gin.Context) {
 }
 
 func (h *Handler) Get(c *gin.Context) {
+	ctx := platform.RequestContext(c)
 	id, err := httpx.IDParam(c, "id")
 	if err != nil {
 		httpx.FailErr(c, err)
 		return
 	}
-	rec, err := h.svc.Get(id)
+	rec, err := h.svc.Get(ctx, id)
 	if err != nil {
 		httpx.FailErr(c, err)
 		return
@@ -73,6 +77,7 @@ func (h *Handler) Get(c *gin.Context) {
 }
 
 func (h *Handler) Update(c *gin.Context) {
+	ctx := platform.RequestContext(c)
 	id, err := httpx.IDParam(c, "id")
 	if err != nil {
 		httpx.FailErr(c, err)
@@ -83,9 +88,10 @@ func (h *Handler) Update(c *gin.Context) {
 		httpx.Fail(c, http.StatusBadRequest, "Invalid input")
 		return
 	}
-	rec, err := h.svc.Update(id, UpdateInput{
+	empID, role, _ := platform.ActorFromContext(c)
+	rec, err := h.svc.Update(ctx, id, UpdateInput{
 		Name: req.Name, Code: req.Code, Address: req.Address, Phone: req.Phone, IsActive: req.IsActive,
-	})
+	}, actor{empID, role})
 	if err != nil {
 		httpx.FailErr(c, err)
 		return
@@ -96,15 +102,41 @@ func (h *Handler) Update(c *gin.Context) {
 // Delete deactivates (soft-disables) a branch rather than hard-deleting it,
 // so historical records keep a valid BranchID reference.
 func (h *Handler) Delete(c *gin.Context) {
+	ctx := platform.RequestContext(c)
 	id, err := httpx.IDParam(c, "id")
 	if err != nil {
 		httpx.FailErr(c, err)
 		return
 	}
-	rec, err := h.svc.Deactivate(id)
+	empID, role, _ := platform.ActorFromContext(c)
+	rec, err := h.svc.Deactivate(ctx, id, actor{empID, role})
 	if err != nil {
 		httpx.FailErr(c, err)
 		return
 	}
 	httpx.Success(c, http.StatusOK, rec)
+}
+
+// Switchable backs the branch switcher — GET /branches/switchable.
+//
+// Deliberately NOT gated on platform.GetBranchScope: it answers "which
+// branches may I switch between", which a scoped list cannot answer once a
+// selection is active. See Service.ListSwitchable.
+func (h *Handler) Switchable(c *gin.Context) {
+	ctx := platform.RequestContext(c)
+	crossBranch := platform.IsCrossBranchRole(c)
+
+	// A confined role's own branch, read from the same claims the scope
+	// itself is built from — never from the request.
+	var own uint
+	if scope := platform.GetBranchScope(c); scope != nil {
+		own = *scope
+	}
+
+	rec, err := h.svc.ListSwitchable(ctx, crossBranch, own)
+	if err != nil {
+		httpx.FailErr(c, err)
+		return
+	}
+	httpx.Success(c, http.StatusOK, gin.H{"branches": rec, "canSwitch": crossBranch})
 }

@@ -20,6 +20,7 @@ import (
 
 	"ambikagold/backend/internal/branch"
 	"ambikagold/backend/internal/customer"
+	"ambikagold/backend/internal/platform"
 	"ambikagold/backend/internal/scheme"
 )
 
@@ -198,8 +199,9 @@ func bankPledgeRefusal(status, bankPledgeStatus string) error {
 // Loan represents one gold loan: a customer's pledged ornaments, sanctioned
 // under a scheme, tracked from creation through closure/auction.
 type Loan struct {
+	platform.TenantScoped
 	ID         uint   `json:"id" gorm:"primaryKey"`
-	LoanNumber string `json:"loanNumber" gorm:"uniqueIndex;size:20"`
+	LoanNumber string `json:"loanNumber" gorm:"index;size:20"`
 
 	BranchID uint          `json:"branchId" gorm:"not null"`
 	Branch   branch.Branch `json:"branch" gorm:"foreignKey:BranchID"`

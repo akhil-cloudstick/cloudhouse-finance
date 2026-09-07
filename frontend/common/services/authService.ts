@@ -11,30 +11,49 @@ export type LoginResponse = {
   employee: AuthEmployee;
 };
 
-/* Login identifies an employee by Username OR Phone (never email) — see
+/* Every endpoint here runs BEFORE a session exists, so none of them can take
+ * the business from a token — each carries a `businessCode` instead.
+ *
+ * The code is optional and empty is a valid value: with one business the
+ * backend resolves it on its own, and with several it answers "please use
+ * your organisation's sign-in link, or enter your business code". A wrong
+ * code returns the SAME error as a wrong password, deliberately, so the login
+ * page cannot be used to enumerate which businesses exist — which is also why
+ * nothing here reports "no such business" separately.
+ *
+ * Login identifies an employee by Username OR Phone (never email) — see
  * backend/internal/auth/model.go's LoginInput. */
-export function login(identifier: string, password: string): Promise<LoginResponse> {
+export function login(identifier: string, password: string, businessCode = ""): Promise<LoginResponse> {
   return apiFetch<LoginResponse>("/auth/login", {
     method: "POST",
-    body: JSON.stringify({ identifier, password }),
+    body: JSON.stringify({ identifier, password, businessCode }),
   });
 }
 
 /* Forgotten passwords are reset via a 6-digit OTP texted to the employee's
  * Phone (platform.SMSSender), not an emailed link. Both endpoints now return
  * the confirmation as a plain string (httpx.SuccessMessage), not
- * {message: string} — no caller reads the value today, only awaits it. */
-export function forgotPassword(phone: string): Promise<string> {
+ * {message: string} — no caller reads the value today, only awaits it.
+ *
+ * Both carry the business for a concrete reason: a phone number is unique
+ * only WITHIN a business now, so without it the backend cannot tell which
+ * employee is asking. */
+export function forgotPassword(phone: string, businessCode = ""): Promise<string> {
   return apiFetch<string>("/auth/forgot-password", {
     method: "POST",
-    body: JSON.stringify({ phone }),
+    body: JSON.stringify({ phone, businessCode }),
   });
 }
 
-export function resetPassword(phone: string, otp: string, newPassword: string): Promise<string> {
+export function resetPassword(
+  phone: string,
+  otp: string,
+  newPassword: string,
+  businessCode = ""
+): Promise<string> {
   return apiFetch<string>("/auth/reset-password", {
     method: "POST",
-    body: JSON.stringify({ phone, otp, newPassword }),
+    body: JSON.stringify({ phone, otp, newPassword, businessCode }),
   });
 }
 

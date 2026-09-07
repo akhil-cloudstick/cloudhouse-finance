@@ -1,6 +1,7 @@
 package employee
 
 import (
+	"context"
 	"errors"
 	"log"
 
@@ -8,6 +9,7 @@ import (
 	"gorm.io/gorm"
 
 	"ambikagold/backend/internal/branch"
+	"ambikagold/backend/internal/platform"
 )
 
 // Bootstrap Administrator credentials. Hardcoded rather than read from
@@ -40,15 +42,18 @@ const (
 // Idempotent either way. Requires the employees/branches tables to exist,
 // so it must run after AutoMigrate.
 func SeedAdmin(db *gorm.DB, reset bool) error {
+	// Boot-time seeding runs outside any request, so it has no tenant.
+	// Marked cross-tenant deliberately — see platform.AllowCrossTenant.
+	ctx := platform.AllowCrossTenant(context.Background())
 	repo := NewRepository(db)
 
 	// Look up by username first, then by email. The email fallback matters
 	// for databases seeded by the older cmd/seedadmin, which set Email but
 	// no Username — creating a second row for those would collide with the
 	// partial unique index on email and fail the whole migration.
-	existing, err := repo.FindByUsername(AdminUsername)
+	existing, err := repo.FindByUsername(ctx, AdminUsername)
 	if errors.Is(err, gorm.ErrRecordNotFound) {
-		existing, err = repo.FindByEmail(AdminEmail)
+		existing, err = repo.FindByEmail(ctx, AdminEmail)
 	}
 	if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
 		return err
@@ -60,7 +65,7 @@ func SeedAdmin(db *gorm.DB, reset bool) error {
 		// rather than overwriting anything the user chose.
 		if existing.Username == "" {
 			existing.Username = AdminUsername
-			if err := repo.Update(existing); err != nil {
+			if err := repo.Update(ctx, existing); err != nil {
 				return err
 			}
 			log.Printf("admin employee (id=%d) had no username — set to %q so it can log in", existing.ID, AdminUsername)
@@ -75,7 +80,7 @@ func SeedAdmin(db *gorm.DB, reset bool) error {
 		existing.Role = AdminRole
 		existing.Username = AdminUsername
 		existing.PasswordHash = hash
-		if err := repo.Update(existing); err != nil {
+		if err := repo.Update(ctx, existing); err != nil {
 			return err
 		}
 		log.Printf("admin employee already existed (id=%d) — username/role/password reset", existing.ID)
@@ -84,7 +89,7 @@ func SeedAdmin(db *gorm.DB, reset bool) error {
 
 	// employees.branch_id is NOT NULL — attach the admin to some branch
 	// rather than requiring one to already exist and be picked by ID.
-	b, err := branch.NewRepository(db).FirstOrCreateByName("Head Office")
+	b, err := branch.NewRepository(db).FirstOrCreateByName(ctx, "Head Office")
 	if err != nil {
 		return err
 	}
@@ -101,7 +106,7 @@ func SeedAdmin(db *gorm.DB, reset bool) error {
 		Email:        AdminEmail,
 		PasswordHash: hash,
 	}
-	if err := repo.Create(emp); err != nil {
+	if err := repo.Create(ctx, emp); err != nil {
 		return err
 	}
 	log.Printf("seeded admin login (id=%d): %s / %s", emp.ID, AdminUsername, AdminPassword)

@@ -1,12 +1,16 @@
 package loan
 
-import "time"
+import (
+	"ambikagold/backend/internal/platform"
+	"time"
+)
 
 // Ornament represents one pledged gold item declared at intake time
 // (name/type, purity, weights, deductions, computed value). Purity-test
 // results captured later by staff live separately in OrnamentPurityTest —
 // this row is never overwritten by a later test.
 type Ornament struct {
+	platform.TenantScoped
 	ID     uint `json:"id" gorm:"primaryKey"`
 	LoanID uint `json:"loanId" gorm:"not null;index"`
 
@@ -33,6 +37,7 @@ func (Ornament) TableName() string { return "ornaments" }
 // OrnamentPurityTest records the staff-verified re-test of an ornament,
 // entered manually sometime after pledge. One-to-one with Ornament.
 type OrnamentPurityTest struct {
+	platform.TenantScoped
 	ID         uint `json:"id" gorm:"primaryKey"`
 	OrnamentID uint `json:"ornamentId" gorm:"uniqueIndex;not null"`
 
@@ -53,6 +58,7 @@ func (OrnamentPurityTest) TableName() string { return "ornament_purity_tests" }
 // any number of these. ImageURL points at the shared upload endpoint
 // (internal/upload) — files are stored on disk, not base64-in-DB.
 type OrnamentImage struct {
+	platform.TenantScoped
 	ID         uint      `json:"id" gorm:"primaryKey"`
 	OrnamentID uint      `json:"ornamentId" gorm:"not null;index"`
 	ImageURL   string    `json:"imageUrl" gorm:"not null;size:255"`

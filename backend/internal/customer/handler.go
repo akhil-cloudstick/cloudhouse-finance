@@ -99,6 +99,7 @@ func (req customerRequest) toInput() (CreateInput, error) {
 }
 
 func (h *Handler) Create(c *gin.Context) {
+	ctx := platform.RequestContext(c)
 	var req customerRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		httpx.Fail(c, http.StatusBadRequest, "Invalid input")
@@ -111,7 +112,7 @@ func (h *Handler) Create(c *gin.Context) {
 	}
 	branchID := platform.EnforceBranchOnWrite(c, input.BranchID)
 	input.BranchID = branchID
-	rec, err := h.svc.Create(input)
+	rec, err := h.svc.Create(ctx, input)
 	if err != nil {
 		httpx.FailErr(c, err)
 		return
@@ -126,6 +127,7 @@ func (h *Handler) Create(c *gin.Context) {
 // separate COUNT query, and responds with the {items, hasMore} shape
 // (itself now sitting under the outer {success, data} envelope).
 func (h *Handler) List(c *gin.Context) {
+	ctx := platform.RequestContext(c)
 	limit, _ := strconv.Atoi(c.Query("limit"))
 	offset, _ := strconv.Atoi(c.Query("offset"))
 	f := CustomerFilter{
@@ -136,7 +138,7 @@ func (h *Handler) List(c *gin.Context) {
 	}
 
 	if limit <= 0 {
-		rec, _, err := h.svc.List(f)
+		rec, _, err := h.svc.List(ctx, f)
 		if err != nil {
 			httpx.FailErr(c, err)
 			return
@@ -146,7 +148,7 @@ func (h *Handler) List(c *gin.Context) {
 	}
 
 	f.Limit, f.Offset = limit+1, offset
-	rec, total, err := h.svc.List(f)
+	rec, total, err := h.svc.List(ctx, f)
 	if err != nil {
 		httpx.FailErr(c, err)
 		return
@@ -159,12 +161,13 @@ func (h *Handler) List(c *gin.Context) {
 }
 
 func (h *Handler) Get(c *gin.Context) {
+	ctx := platform.RequestContext(c)
 	id, err := httpx.IDParam(c, "id")
 	if err != nil {
 		httpx.FailErr(c, err)
 		return
 	}
-	rec, err := h.svc.Get(id, platform.GetBranchScope(c))
+	rec, err := h.svc.Get(ctx, id, platform.GetBranchScope(c))
 	if err != nil {
 		httpx.FailErr(c, err)
 		return
@@ -179,12 +182,13 @@ func (h *Handler) Get(c *gin.Context) {
 // loanPrint.ts); gated at the route by perms.Update, same elevated bar as
 // the DigiLocker Aadhaar-verify endpoints.
 func (h *Handler) GetAadhaarFull(c *gin.Context) {
+	ctx := platform.RequestContext(c)
 	id, err := httpx.IDParam(c, "id")
 	if err != nil {
 		httpx.FailErr(c, err)
 		return
 	}
-	aadhaar, err := h.svc.DecryptAadhaar(id, platform.GetBranchScope(c))
+	aadhaar, err := h.svc.DecryptAadhaar(ctx, id, platform.GetBranchScope(c))
 	if err != nil {
 		httpx.FailErr(c, err)
 		return
@@ -193,6 +197,7 @@ func (h *Handler) GetAadhaarFull(c *gin.Context) {
 }
 
 func (h *Handler) Update(c *gin.Context) {
+	ctx := platform.RequestContext(c)
 	id, err := httpx.IDParam(c, "id")
 	if err != nil {
 		httpx.FailErr(c, err)
@@ -210,7 +215,7 @@ func (h *Handler) Update(c *gin.Context) {
 	}
 	branchID := platform.EnforceBranchOnWrite(c, input.BranchID)
 	input.BranchID = branchID
-	rec, err := h.svc.Update(id, input, platform.GetBranchScope(c))
+	rec, err := h.svc.Update(ctx, id, input, platform.GetBranchScope(c))
 	if err != nil {
 		httpx.FailErr(c, err)
 		return
@@ -224,12 +229,13 @@ func (h *Handler) Update(c *gin.Context) {
 // message/matched name so the UI can show what actually came back, not just
 // the stored status.
 func (h *Handler) VerifyPAN(c *gin.Context) {
+	ctx := platform.RequestContext(c)
 	id, err := httpx.IDParam(c, "id")
 	if err != nil {
 		httpx.FailErr(c, err)
 		return
 	}
-	rec, result, err := h.svc.VerifyPAN(id, platform.GetBranchScope(c))
+	rec, result, err := h.svc.VerifyPAN(ctx, id, platform.GetBranchScope(c))
 	if err != nil {
 		httpx.FailErr(c, err)
 		return
@@ -254,6 +260,7 @@ type startAadhaarVerifyRequest struct {
 // internal/platform/setu_digilocker.go) and returns the login URL the
 // CUSTOMER must open themselves to authenticate with Aadhaar + OTP.
 func (h *Handler) StartAadhaarVerify(c *gin.Context) {
+	ctx := platform.RequestContext(c)
 	id, err := httpx.IDParam(c, "id")
 	if err != nil {
 		httpx.FailErr(c, err)
@@ -264,7 +271,7 @@ func (h *Handler) StartAadhaarVerify(c *gin.Context) {
 		httpx.Fail(c, http.StatusBadRequest, "Invalid input")
 		return
 	}
-	digReq, err := h.svc.StartAadhaarVerify(id, platform.GetBranchScope(c), req.RedirectURL)
+	digReq, err := h.svc.StartAadhaarVerify(ctx, id, platform.GetBranchScope(c), req.RedirectURL)
 	if err != nil {
 		httpx.FailErr(c, err)
 		return
@@ -282,12 +289,13 @@ func (h *Handler) StartAadhaarVerify(c *gin.Context) {
 // the customer hasn't finished logging in yet (poll again later), or the
 // updated customer plus the fetched Aadhaar name/DOB once "authenticated".
 func (h *Handler) CheckAadhaarVerify(c *gin.Context) {
+	ctx := platform.RequestContext(c)
 	id, err := httpx.IDParam(c, "id")
 	if err != nil {
 		httpx.FailErr(c, err)
 		return
 	}
-	rec, status, aadhaar, err := h.svc.CheckAadhaarVerify(id, platform.GetBranchScope(c))
+	rec, status, aadhaar, err := h.svc.CheckAadhaarVerify(ctx, id, platform.GetBranchScope(c))
 	if err != nil {
 		httpx.FailErr(c, err)
 		return
@@ -305,12 +313,13 @@ func (h *Handler) CheckAadhaarVerify(c *gin.Context) {
 }
 
 func (h *Handler) Delete(c *gin.Context) {
+	ctx := platform.RequestContext(c)
 	id, err := httpx.IDParam(c, "id")
 	if err != nil {
 		httpx.FailErr(c, err)
 		return
 	}
-	if err := h.svc.Delete(id, platform.GetBranchScope(c)); err != nil {
+	if err := h.svc.Delete(ctx, id, platform.GetBranchScope(c)); err != nil {
 		httpx.FailErr(c, err)
 		return
 	}

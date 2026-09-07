@@ -11,6 +11,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/jung-kurt/gofpdf"
 
+	"ambikagold/backend/internal/platform"
 	"ambikagold/backend/internal/platform/httpx"
 )
 
@@ -42,6 +43,7 @@ func customerIDFromContext(c *gin.Context) (uint, bool) {
 // branchId filter: a customer sees every one of their loans regardless of
 // which branch opened it.
 func (h *Handler) CustomerListLoans(c *gin.Context) {
+	ctx := platform.RequestContext(c)
 	customerID, ok := customerIDFromContext(c)
 	if !ok {
 		httpx.Fail(c, http.StatusUnauthorized, "not authenticated")
@@ -57,7 +59,7 @@ func (h *Handler) CustomerListLoans(c *gin.Context) {
 			offset = 0
 		}
 		f.Limit, f.Offset = limit+1, offset
-		rec, total, err := h.svc.List(f)
+		rec, total, err := h.svc.List(ctx, f)
 		if err != nil {
 			httpx.FailErr(c, err)
 			return
@@ -70,7 +72,7 @@ func (h *Handler) CustomerListLoans(c *gin.Context) {
 		return
 	}
 
-	rec, _, err := h.svc.List(f)
+	rec, _, err := h.svc.List(ctx, f)
 	if err != nil {
 		httpx.FailErr(c, err)
 		return
@@ -82,7 +84,8 @@ func (h *Handler) CustomerListLoans(c *gin.Context) {
 // customerID, returning ErrNotFound (not a 403) on any mismatch so a
 // customer probing another customer's loan id can't even learn it exists.
 func (h *Handler) customerOwnedLoan(c *gin.Context, loanID, customerID uint) (*Loan, error) {
-	l, err := h.svc.Get(loanID, nil)
+	ctx := platform.RequestContext(c)
+	l, err := h.svc.Get(ctx, loanID, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -117,6 +120,7 @@ func (h *Handler) CustomerGetLoan(c *gin.Context) {
 // CustomerGetLoan, then calls CreateExtensionRequest with
 // RequestedBy: "Customer".
 func (h *Handler) CustomerCreateExtensionRequest(c *gin.Context) {
+	ctx := platform.RequestContext(c)
 	customerID, ok := customerIDFromContext(c)
 	if !ok {
 		httpx.Fail(c, http.StatusUnauthorized, "not authenticated")
@@ -137,7 +141,7 @@ func (h *Handler) CustomerCreateExtensionRequest(c *gin.Context) {
 		httpx.Fail(c, http.StatusBadRequest, "Invalid input")
 		return
 	}
-	rec, err := h.svc.CreateExtensionRequest(loanID, ExtensionRequestInput{
+	rec, err := h.svc.CreateExtensionRequest(ctx, loanID, ExtensionRequestInput{
 		Months:      req.Months,
 		Detail:      req.Detail,
 		RequestedBy: RequestedByCustomer,
@@ -158,6 +162,7 @@ func (h *Handler) CustomerCreateExtensionRequest(c *gin.Context) {
 // customer-scoped loan routes; no branch scoping (a customer's loans may
 // span branches).
 func (h *Handler) CustomerListLoanRequests(c *gin.Context) {
+	ctx := platform.RequestContext(c)
 	customerID, ok := customerIDFromContext(c)
 	if !ok {
 		httpx.Fail(c, http.StatusUnauthorized, "not authenticated")
@@ -172,7 +177,7 @@ func (h *Handler) CustomerListLoanRequests(c *gin.Context) {
 		httpx.FailErr(c, err)
 		return
 	}
-	rec, _, err := h.svc.ListRequests(LoanRequestFilter{LoanID: loanID})
+	rec, _, err := h.svc.ListRequests(ctx, LoanRequestFilter{LoanID: loanID})
 	if err != nil {
 		httpx.FailErr(c, err)
 		return
@@ -184,6 +189,7 @@ func (h *Handler) CustomerListLoanRequests(c *gin.Context) {
 // /customer/loans/:id/release-request — same pattern as
 // CustomerCreateExtensionRequest.
 func (h *Handler) CustomerCreateReleaseRequest(c *gin.Context) {
+	ctx := platform.RequestContext(c)
 	customerID, ok := customerIDFromContext(c)
 	if !ok {
 		httpx.Fail(c, http.StatusUnauthorized, "not authenticated")
@@ -204,7 +210,7 @@ func (h *Handler) CustomerCreateReleaseRequest(c *gin.Context) {
 		httpx.Fail(c, http.StatusBadRequest, "Invalid input")
 		return
 	}
-	rec, err := h.svc.CreateReleaseRequest(loanID, ReleaseRequestInput{
+	rec, err := h.svc.CreateReleaseRequest(ctx, loanID, ReleaseRequestInput{
 		Detail:      req.Detail,
 		RequestedBy: RequestedByCustomer,
 	})
@@ -227,6 +233,7 @@ type razorpayCreateOrderRequest struct {
 // customer-scoped loan route, then delegates the amount validation +
 // Razorpay order creation to Service.CreateRazorpayOrder.
 func (h *Handler) CustomerCreateRazorpayOrder(c *gin.Context) {
+	ctx := platform.RequestContext(c)
 	customerID, ok := customerIDFromContext(c)
 	if !ok {
 		httpx.Fail(c, http.StatusUnauthorized, "not authenticated")
@@ -247,7 +254,7 @@ func (h *Handler) CustomerCreateRazorpayOrder(c *gin.Context) {
 		httpx.Fail(c, http.StatusBadRequest, "Invalid input")
 		return
 	}
-	result, err := h.svc.CreateRazorpayOrder(loanID, req.Amount, req.Type)
+	result, err := h.svc.CreateRazorpayOrder(ctx, loanID, req.Amount, req.Type)
 	if err != nil {
 		httpx.FailErr(c, err)
 		return
@@ -269,6 +276,7 @@ type razorpayVerifyRequest struct {
 // Loan on success, 400 on a signature mismatch (no LoanPayment is created
 // in that case).
 func (h *Handler) CustomerVerifyRazorpayPayment(c *gin.Context) {
+	ctx := platform.RequestContext(c)
 	customerID, ok := customerIDFromContext(c)
 	if !ok {
 		httpx.Fail(c, http.StatusUnauthorized, "not authenticated")
@@ -289,7 +297,7 @@ func (h *Handler) CustomerVerifyRazorpayPayment(c *gin.Context) {
 		httpx.Fail(c, http.StatusBadRequest, "Invalid input")
 		return
 	}
-	l, err := h.svc.VerifyAndRecordRazorpayPayment(loanID, RazorpayVerifyInput{
+	l, err := h.svc.VerifyAndRecordRazorpayPayment(ctx, loanID, RazorpayVerifyInput{
 		OrderID:   req.OrderID,
 		PaymentID: req.PaymentID,
 		Signature: req.Signature,
@@ -307,6 +315,7 @@ func (h *Handler) CustomerVerifyRazorpayPayment(c *gin.Context) {
 // ownership-checked, thin wrap of the loan's payment ledger, for the Loan
 // Detail screen's payment history section.
 func (h *Handler) CustomerListLoanPayments(c *gin.Context) {
+	ctx := platform.RequestContext(c)
 	customerID, ok := customerIDFromContext(c)
 	if !ok {
 		httpx.Fail(c, http.StatusUnauthorized, "not authenticated")
@@ -321,7 +330,7 @@ func (h *Handler) CustomerListLoanPayments(c *gin.Context) {
 		httpx.FailErr(c, err)
 		return
 	}
-	rec, err := h.svc.paymentRepo.FindByLoanID(loanID)
+	rec, err := h.svc.paymentRepo.FindByLoanID(ctx, loanID)
 	if err != nil {
 		httpx.FailErr(c, err)
 		return
@@ -334,6 +343,7 @@ func (h *Handler) CustomerListLoanPayments(c *gin.Context) {
 // paginated via limit/offset, backing the Payments tab's global history
 // list. No branch scoping — a customer's loans may span branches.
 func (h *Handler) CustomerListPayments(c *gin.Context) {
+	ctx := platform.RequestContext(c)
 	customerID, ok := customerIDFromContext(c)
 	if !ok {
 		httpx.Fail(c, http.StatusUnauthorized, "not authenticated")
@@ -345,7 +355,7 @@ func (h *Handler) CustomerListPayments(c *gin.Context) {
 		offset = 0
 	}
 	if limit > 0 {
-		rec, err := h.svc.paymentRepo.FindByCustomerID(customerID, limit+1, offset)
+		rec, err := h.svc.paymentRepo.FindByCustomerID(ctx, customerID, limit+1, offset)
 		if err != nil {
 			httpx.FailErr(c, err)
 			return
@@ -357,7 +367,7 @@ func (h *Handler) CustomerListPayments(c *gin.Context) {
 		httpx.Success(c, http.StatusOK, gin.H{"items": rec, "hasMore": hasMore})
 		return
 	}
-	rec, err := h.svc.paymentRepo.FindByCustomerID(customerID, 0, 0)
+	rec, err := h.svc.paymentRepo.FindByCustomerID(ctx, customerID, 0, 0)
 	if err != nil {
 		httpx.FailErr(c, err)
 		return
@@ -372,6 +382,7 @@ func (h *Handler) CustomerListPayments(c *gin.Context) {
 // gofpdf usage (buildPDF) rather than indemnitybond.go's chromedp-based
 // renderer, since a receipt needs no multi-language HTML/CSS layout.
 func (h *Handler) CustomerPaymentReceipt(c *gin.Context) {
+	ctx := platform.RequestContext(c)
 	customerID, ok := customerIDFromContext(c)
 	if !ok {
 		httpx.Fail(c, http.StatusUnauthorized, "not authenticated")
@@ -382,7 +393,7 @@ func (h *Handler) CustomerPaymentReceipt(c *gin.Context) {
 		httpx.FailErr(c, err)
 		return
 	}
-	payment, err := h.svc.paymentRepo.FindByID(paymentID)
+	payment, err := h.svc.paymentRepo.FindByID(ctx, paymentID)
 	if err != nil {
 		httpx.FailErr(c, ErrNotFound)
 		return
@@ -401,7 +412,6 @@ func (h *Handler) CustomerPaymentReceipt(c *gin.Context) {
 	c.Header("Content-Disposition", fmt.Sprintf("inline; filename=\"receipt-%d.pdf\"", payment.ID))
 	c.Data(http.StatusOK, "application/pdf", buf)
 }
-
 
 // --- Customer-facing PDF house style ---------------------------------------
 //
@@ -726,6 +736,7 @@ func renderPaymentReceiptPDF(l *Loan, p *LoanPayment) ([]byte, error) {
 // mirroring renderPaymentReceiptPDF's label/value row() helper for the
 // header and a simple looped-row table for the payments.
 func (h *Handler) CustomerLoanStatement(c *gin.Context) {
+	ctx := platform.RequestContext(c)
 	customerID, ok := customerIDFromContext(c)
 	if !ok {
 		httpx.Fail(c, http.StatusUnauthorized, "not authenticated")
@@ -741,7 +752,7 @@ func (h *Handler) CustomerLoanStatement(c *gin.Context) {
 		httpx.FailErr(c, err)
 		return
 	}
-	payments, err := h.svc.paymentRepo.FindByLoanID(l.ID)
+	payments, err := h.svc.paymentRepo.FindByLoanID(ctx, l.ID)
 	if err != nil {
 		httpx.FailErr(c, err)
 		return

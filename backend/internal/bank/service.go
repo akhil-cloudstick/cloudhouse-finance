@@ -1,6 +1,7 @@
 package bank
 
 import (
+	"context"
 	"errors"
 	"regexp"
 	"strings"
@@ -33,8 +34,8 @@ func NewService(repo *Repository) *Service {
 	return &Service{repo: repo}
 }
 
-func (s *Service) List(query string, limit, offset int) ([]Bank, int64, error) {
-	return s.repo.FindAll(query, limit, offset)
+func (s *Service) List(ctx context.Context, query string, limit, offset int) ([]Bank, int64, error) {
+	return s.repo.FindAll(ctx, query, limit, offset)
 }
 
 // FindOrCreate trims the given name, rejects it if empty, and returns the
@@ -44,7 +45,7 @@ func (s *Service) List(query string, limit, offset int) ([]Bank, int64, error) {
 // The bool result reports whether a new row was created (true) or an
 // existing one was reused (false), so the handler can pick the right HTTP
 // status.
-func (s *Service) FindOrCreate(in CreateInput) (*Bank, bool, error) {
+func (s *Service) FindOrCreate(ctx context.Context, in CreateInput) (*Bank, bool, error) {
 	trimmed := strings.TrimSpace(in.Name)
 	if trimmed == "" {
 		return nil, false, ErrNameRequired
@@ -54,7 +55,7 @@ func (s *Service) FindOrCreate(in CreateInput) (*Bank, bool, error) {
 		return nil, false, ErrPhoneInvalid
 	}
 
-	existing, err := s.repo.FindByName(trimmed)
+	existing, err := s.repo.FindByName(ctx, trimmed)
 	if err == nil {
 		return existing, false, nil
 	}
@@ -63,7 +64,7 @@ func (s *Service) FindOrCreate(in CreateInput) (*Bank, bool, error) {
 	}
 
 	rec := &Bank{Name: trimmed, Branch: strings.TrimSpace(in.Branch), Ifsc: strings.TrimSpace(in.Ifsc), AccountNo: strings.TrimSpace(in.AccountNo), Phone: phone}
-	if err := s.repo.Create(rec); err != nil {
+	if err := s.repo.Create(ctx, rec); err != nil {
 		return nil, false, err
 	}
 	return rec, true, nil

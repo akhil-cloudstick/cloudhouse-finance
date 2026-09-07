@@ -1,12 +1,14 @@
 package puritystandard
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"math"
 
 	"gorm.io/gorm"
 
+	"ambikagold/backend/internal/platform"
 	"ambikagold/backend/internal/platform/httpx"
 )
 
@@ -72,15 +74,15 @@ func NewService(repo *Repository) *Service {
 	return &Service{repo: repo}
 }
 
-func (s *Service) List(query string) ([]PurityStandard, error) {
-	return s.repo.FindAll(query)
+func (s *Service) List(ctx context.Context, query string) ([]PurityStandard, error) {
+	return s.repo.FindAll(ctx, query)
 }
 
 // FindOrCreate validates the given karat/fineness%, returns an existing
 // matching row if one exists, or creates a new one. Mirrors
 // bank.Service.FindOrCreate's shape: the bool result reports whether a new
 // row was created (true) or an existing one was reused (false).
-func (s *Service) FindOrCreate(in CreateInput) (*PurityStandard, bool, error) {
+func (s *Service) FindOrCreate(ctx context.Context, in CreateInput) (*PurityStandard, bool, error) {
 	if in.Karat == nil && in.FinenessPercent == nil {
 		return nil, false, ErrNeitherProvided
 	}
@@ -88,7 +90,7 @@ func (s *Service) FindOrCreate(in CreateInput) (*PurityStandard, bool, error) {
 		if err := ValidateKarat(*in.Karat); err != nil {
 			return nil, false, err
 		}
-		existing, err := s.repo.FindByKarat(*in.Karat)
+		existing, err := s.repo.FindByKarat(ctx, *in.Karat)
 		if err == nil {
 			return existing, false, nil
 		}
@@ -101,7 +103,7 @@ func (s *Service) FindOrCreate(in CreateInput) (*PurityStandard, bool, error) {
 			return nil, false, err
 		}
 		if in.Karat == nil {
-			existing, err := s.repo.FindByFineness(*in.FinenessPercent)
+			existing, err := s.repo.FindByFineness(ctx, *in.FinenessPercent)
 			if err == nil {
 				return existing, false, nil
 			}
@@ -124,7 +126,7 @@ func (s *Service) FindOrCreate(in CreateInput) (*PurityStandard, bool, error) {
 	}
 
 	rec := &PurityStandard{Karat: in.Karat, FinenessPercent: in.FinenessPercent, Label: label, IsActive: true}
-	if err := s.repo.Create(rec); err != nil {
+	if err := s.repo.Create(ctx, rec); err != nil {
 		return nil, false, err
 	}
 	return rec, true, nil
@@ -135,17 +137,20 @@ func (s *Service) FindOrCreate(in CreateInput) (*PurityStandard, bool, error) {
 // FinenessForKarat — called once from cmd/migrate/main.go's startup
 // sequence, safe to re-run (skips any karat that already has a row).
 func SeedStandards(db *gorm.DB) error {
+	// Boot-time seeding runs outside any request, so it has no tenant.
+	// Marked cross-tenant deliberately — see platform.AllowCrossTenant.
+	ctx := platform.AllowCrossTenant(context.Background())
 	repo := NewRepository(db)
 	svc := NewService(repo)
 	for karat := MaxKarat; karat >= MinKarat; karat-- {
-		if _, err := repo.FindByKarat(karat); err == nil {
+		if _, err := repo.FindByKarat(ctx, karat); err == nil {
 			continue // already seeded
 		} else if !errors.Is(err, gorm.ErrRecordNotFound) {
 			return err
 		}
 		k := karat
 		fineness := FinenessForKarat(k)
-		if _, _, err := svc.FindOrCreate(CreateInput{
+		if _, _, err := svc.FindOrCreate(ctx, CreateInput{
 			Karat:           &k,
 			FinenessPercent: &fineness,
 			Label:           fmt.Sprintf("%dK (%.1f%%)", k, fineness),

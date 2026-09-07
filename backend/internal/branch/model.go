@@ -5,6 +5,7 @@
 package branch
 
 import (
+	"ambikagold/backend/internal/platform"
 	"time"
 
 	"gorm.io/gorm"
@@ -12,9 +13,10 @@ import (
 
 // Branch represents one physical branch location.
 type Branch struct {
+	platform.TenantScoped
 	ID        uint           `json:"id" gorm:"primaryKey"`
-	Name      string         `json:"name" gorm:"uniqueIndex;not null;size:120"`
-	Code      string         `json:"code" gorm:"uniqueIndex;size:20"`
+	Name      string         `json:"name" gorm:"index;not null;size:120"`
+	Code      string         `json:"code" gorm:"index;size:20"`
 	Address   string         `json:"address" gorm:"not null;size:255"`
 	Phone     string         `json:"phone" gorm:"size:20"`
 	IsActive  bool           `json:"isActive" gorm:"not null;default:true"`

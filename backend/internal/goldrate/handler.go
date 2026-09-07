@@ -7,6 +7,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	"ambikagold/backend/internal/platform"
 	"ambikagold/backend/internal/platform/httpx"
 )
 
@@ -40,6 +41,7 @@ func (req publishRequest) toInput() (PublishInput, error) {
 }
 
 func (h *Handler) Publish(c *gin.Context) {
+	ctx := platform.RequestContext(c)
 	var req publishRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		httpx.Fail(c, http.StatusBadRequest, "Invalid input")
@@ -50,7 +52,7 @@ func (h *Handler) Publish(c *gin.Context) {
 		httpx.FailErr(c, err)
 		return
 	}
-	rec, err := h.svc.Publish(input)
+	rec, err := h.svc.Publish(ctx, input)
 	if err != nil {
 		httpx.FailErr(c, err)
 		return
@@ -59,13 +61,14 @@ func (h *Handler) Publish(c *gin.Context) {
 }
 
 func (h *Handler) List(c *gin.Context) {
+	ctx := platform.RequestContext(c)
 	limit, _ := strconv.Atoi(c.Query("limit"))
 	if limit > 0 {
 		offset, _ := strconv.Atoi(c.Query("offset"))
 		if offset < 0 {
 			offset = 0
 		}
-		rec, total, err := h.svc.List(limit+1, offset)
+		rec, total, err := h.svc.List(ctx, limit+1, offset)
 		if err != nil {
 			httpx.FailErr(c, err)
 			return
@@ -78,7 +81,7 @@ func (h *Handler) List(c *gin.Context) {
 		return
 	}
 
-	rec, _, err := h.svc.List(0, 0)
+	rec, _, err := h.svc.List(ctx, 0, 0)
 	if err != nil {
 		httpx.FailErr(c, err)
 		return
@@ -87,7 +90,8 @@ func (h *Handler) List(c *gin.Context) {
 }
 
 func (h *Handler) Latest(c *gin.Context) {
-	rec, err := h.svc.Latest()
+	ctx := platform.RequestContext(c)
+	rec, err := h.svc.Latest(ctx)
 	if err != nil {
 		httpx.FailErr(c, err)
 		return
@@ -96,12 +100,13 @@ func (h *Handler) Latest(c *gin.Context) {
 }
 
 func (h *Handler) Get(c *gin.Context) {
+	ctx := platform.RequestContext(c)
 	id, err := httpx.IDParam(c, "id")
 	if err != nil {
 		httpx.FailErr(c, err)
 		return
 	}
-	rec, err := h.svc.Get(id)
+	rec, err := h.svc.Get(ctx, id)
 	if err != nil {
 		httpx.FailErr(c, err)
 		return

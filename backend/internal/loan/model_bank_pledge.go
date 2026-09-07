@@ -1,10 +1,14 @@
 package loan
 
-import "time"
+import (
+	"ambikagold/backend/internal/platform"
+	"time"
+)
 
 // BankPledgeRecord is a lightweight audit record of a loan (or batch of
 // loans, tracked one row per loan) being pledged to / released from a bank.
 type BankPledgeRecord struct {
+	platform.TenantScoped
 	ID     uint `json:"id" gorm:"primaryKey"`
 	LoanID uint `json:"loanId" gorm:"not null;index"`
 
@@ -131,6 +135,7 @@ const (
 // nullable so system-generated entries can be distinguished from staff
 // actions.
 type BankPledgeEvent struct {
+	platform.TenantScoped
 	ID                 uint   `json:"id" gorm:"primaryKey"`
 	BankPledgeRecordID uint   `json:"bankPledgeRecordId" gorm:"not null;index"`
 	Action             string `json:"action" gorm:"not null;size:20"`

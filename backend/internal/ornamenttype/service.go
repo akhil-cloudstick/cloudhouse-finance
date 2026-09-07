@@ -1,6 +1,7 @@
 package ornamenttype
 
 import (
+	"context"
 	"errors"
 	"strings"
 
@@ -20,8 +21,8 @@ func NewService(repo *Repository) *Service {
 	return &Service{repo: repo}
 }
 
-func (s *Service) List(query string) ([]OrnamentType, error) {
-	return s.repo.FindAll(query)
+func (s *Service) List(ctx context.Context, query string) ([]OrnamentType, error) {
+	return s.repo.FindAll(ctx, query)
 }
 
 // FindOrCreate trims the given name, rejects it if empty, and returns the
@@ -29,13 +30,13 @@ func (s *Service) List(query string) ([]OrnamentType, error) {
 // otherwise it creates and returns a new row. The bool result reports
 // whether a new row was created (true) or an existing one was reused
 // (false), so the handler can pick the right HTTP status.
-func (s *Service) FindOrCreate(name string) (*OrnamentType, bool, error) {
+func (s *Service) FindOrCreate(ctx context.Context, name string) (*OrnamentType, bool, error) {
 	trimmed := strings.TrimSpace(name)
 	if trimmed == "" {
 		return nil, false, ErrNameRequired
 	}
 
-	existing, err := s.repo.FindByName(trimmed)
+	existing, err := s.repo.FindByName(ctx, trimmed)
 	if err == nil {
 		return existing, false, nil
 	}
@@ -44,7 +45,7 @@ func (s *Service) FindOrCreate(name string) (*OrnamentType, bool, error) {
 	}
 
 	rec := &OrnamentType{Name: trimmed}
-	if err := s.repo.Create(rec); err != nil {
+	if err := s.repo.Create(ctx, rec); err != nil {
 		return nil, false, err
 	}
 	return rec, true, nil

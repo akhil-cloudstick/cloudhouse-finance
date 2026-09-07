@@ -17,6 +17,22 @@ const nextConfig: NextConfig = {
     return [
       { source: "/api/v1/:path*", destination: `${BACKEND_ORIGIN}/api/v1/:path*` },
       { source: "/uploads/:path*", destination: `${BACKEND_ORIGIN}/uploads/:path*` },
+      // Per-business links: /login/<slug> and /app/<slug> serve the same
+      // login and app pages, which read the slug from their own URL.
+      //
+      // They are NOT Next dynamic routes ([slug]) because this project builds
+      // with output: "export": a dynamic route needs every parameter known at
+      // build time via generateStaticParams, and tenant slugs are created at
+      // runtime by the vendor, so there is no list to generate. Rewriting to
+      // one static page is what makes a slugged URL work at all.
+      //
+      // Rewrites are dev-only here (output: "export" does not support them),
+      // so production needs the same fallback server-side — see
+      // backend/internal/webstatic's slugged-path handling. Keep the two in
+      // step: a path that works in dev and 404s in production is worse than
+      // one that never worked.
+      { source: "/login/:slug", destination: "/login" },
+      { source: "/app/:slug", destination: "/app" },
     ];
   },
 };

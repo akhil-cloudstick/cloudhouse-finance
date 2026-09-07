@@ -21,6 +21,7 @@ import (
 
 	"ambikagold/backend/internal/branch"
 	"ambikagold/backend/internal/customer"
+	"ambikagold/backend/internal/platform"
 )
 
 // Status values for PersonalLoan.Status. There is no "Pending" stage:
@@ -49,6 +50,7 @@ const (
 
 // PersonalLoan is one unsecured personal loan against an existing customer.
 type PersonalLoan struct {
+	platform.TenantScoped
 	ID         uint   `json:"id" gorm:"primaryKey"`
 	LoanNumber string `json:"loanNumber" gorm:"uniqueIndex;size:20"`
 

@@ -7,6 +7,16 @@
 Status: 0a complete · 0b complete · 0c complete. Login mechanism decided.
 Two open questions remain (see the end) — neither blocks Step 1.
 
+**Step 1 is implemented** (schema only, no behaviour change): tenant/tier
+tables, `platform.TenantScoped` on all 37 models, all 16 constraints below
+moved to per-business, and per-business code sequences. Verified against a
+clone of the live database. See `documents/change_log.md`.
+
+Still outstanding from 0a: the five code generators listed under *The
+generated-code problem* still count rows. The sequence allocator that replaces
+them exists and is seeded, but wiring it up needs a tenant in request context,
+which arrives with Step 2.
+
 ---
 
 ## 0a. Unique-constraint audit

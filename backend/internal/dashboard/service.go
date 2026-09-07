@@ -1,6 +1,7 @@
 package dashboard
 
 import (
+	"context"
 	"errors"
 	"time"
 
@@ -38,16 +39,16 @@ func NewService(loanRepo *loan.Repository, requestRepo *loan.LoanRequestReposito
 // internal/reports.Paginate already uses for its own cross-table
 // aggregations. The counts returned alongside Items are taken from these
 // same full fetches, so they are always exact.
-func (s *Service) GetNeedsAttention(page int, branchScope *uint) (*NeedsAttentionResult, error) {
-	approvals, _, err := s.loanRepo.FindAll(loan.LoanFilter{Status: loan.StatusPendingApproval, BranchScope: branchScope})
+func (s *Service) GetNeedsAttention(ctx context.Context, page int, branchScope *uint) (*NeedsAttentionResult, error) {
+	approvals, _, err := s.loanRepo.FindAll(ctx, loan.LoanFilter{Status: loan.StatusPendingApproval, BranchScope: branchScope})
 	if err != nil {
 		return nil, err
 	}
-	requests, _, err := s.requestRepo.FindAll(loan.LoanRequestFilter{Status: loan.RequestStatusPending, BranchID: branchScope})
+	requests, _, err := s.requestRepo.FindAll(ctx, loan.LoanRequestFilter{Status: loan.RequestStatusPending, BranchID: branchScope})
 	if err != nil {
 		return nil, err
 	}
-	auctions, _, err := s.loanRepo.FindAll(loan.LoanFilter{
+	auctions, _, err := s.loanRepo.FindAll(ctx, loan.LoanFilter{
 		StatusIn:    []string{loan.StatusAuctionEligible, loan.StatusDefaulted},
 		BranchScope: branchScope,
 	})
@@ -116,34 +117,34 @@ func (s *Service) GetNeedsAttention(page int, branchScope *uint) (*NeedsAttentio
 // background ticker in main.go; the FindByDate guard is what makes "once
 // per day" actually hold, since the ticker itself has no fixed-wall-clock-
 // time scheduling to lean on.
-func (s *Service) CaptureDailySnapshot() error {
+func (s *Service) CaptureDailySnapshot(ctx context.Context) error {
 	now := time.Now()
 	if _, err := s.snapshotRepo.FindByDate(now); err == nil {
 		return nil // already captured today
 	}
 
-	active, _, err := s.loanRepo.FindAll(loan.LoanFilter{Status: loan.StatusActive})
+	active, _, err := s.loanRepo.FindAll(ctx, loan.LoanFilter{Status: loan.StatusActive})
 	if err != nil {
 		return err
 	}
-	overdue, _, err := s.loanRepo.FindAll(loan.LoanFilter{Status: loan.StatusOverdue})
+	overdue, _, err := s.loanRepo.FindAll(ctx, loan.LoanFilter{Status: loan.StatusOverdue})
 	if err != nil {
 		return err
 	}
-	pending, _, err := s.loanRepo.FindAll(loan.LoanFilter{Status: loan.StatusPendingApproval})
+	pending, _, err := s.loanRepo.FindAll(ctx, loan.LoanFilter{Status: loan.StatusPendingApproval})
 	if err != nil {
 		return err
 	}
 	openedFrom := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
 	openedTo := openedFrom
-	openedToday, _, err := s.loanRepo.FindAll(loan.LoanFilter{OpenedFrom: &openedFrom, OpenedTo: &openedTo})
+	openedToday, _, err := s.loanRepo.FindAll(ctx, loan.LoanFilter{OpenedFrom: &openedFrom, OpenedTo: &openedTo})
 	if err != nil {
 		return err
 	}
 
 	// Due today: every not-yet-closed loan (same set reminder events derive
 	// LoanDue from) whose DueDate falls on today.
-	open, err := s.loanRepo.FindOpenForCalendar()
+	open, err := s.loanRepo.FindOpenForCalendar(ctx)
 	if err != nil {
 		return err
 	}

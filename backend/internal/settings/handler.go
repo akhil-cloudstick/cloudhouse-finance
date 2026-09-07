@@ -5,6 +5,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	"ambikagold/backend/internal/platform"
 	"ambikagold/backend/internal/platform/httpx"
 )
 
@@ -24,7 +25,8 @@ type setRequest struct {
 
 // List returns every known category (configured or not) — GET /settings/api-keys.
 func (h *Handler) List(c *gin.Context) {
-	views, err := h.svc.List()
+	ctx := platform.RequestContext(c)
+	views, err := h.svc.List(ctx)
 	if err != nil {
 		httpx.FailErr(c, err)
 		return
@@ -34,8 +36,9 @@ func (h *Handler) List(c *gin.Context) {
 
 // Get returns one category — GET /settings/api-keys/:category.
 func (h *Handler) Get(c *gin.Context) {
+	ctx := platform.RequestContext(c)
 	category := Category(c.Param("category"))
-	view, err := h.svc.Get(category)
+	view, err := h.svc.Get(ctx, category)
 	if err != nil {
 		httpx.FailErr(c, err)
 		return
@@ -45,13 +48,14 @@ func (h *Handler) Get(c *gin.Context) {
 
 // Set creates/updates a category's key — PUT /settings/api-keys/:category.
 func (h *Handler) Set(c *gin.Context) {
+	ctx := platform.RequestContext(c)
 	category := Category(c.Param("category"))
 	var req setRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		httpx.Fail(c, http.StatusBadRequest, "Invalid input")
 		return
 	}
-	view, err := h.svc.Set(category, SetInput{Name: req.Name, Value: req.Value})
+	view, err := h.svc.Set(ctx, category, SetInput{Name: req.Name, Value: req.Value})
 	if err != nil {
 		httpx.FailErr(c, err)
 		return
@@ -61,8 +65,9 @@ func (h *Handler) Set(c *gin.Context) {
 
 // Delete clears a category's stored key — DELETE /settings/api-keys/:category.
 func (h *Handler) Delete(c *gin.Context) {
+	ctx := platform.RequestContext(c)
 	category := Category(c.Param("category"))
-	if err := h.svc.Delete(category); err != nil {
+	if err := h.svc.Delete(ctx, category); err != nil {
 		httpx.FailErr(c, err)
 		return
 	}

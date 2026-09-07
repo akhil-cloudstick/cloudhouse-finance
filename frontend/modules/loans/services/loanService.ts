@@ -1,4 +1,5 @@
-import { apiFetchEnveloped as apiFetch } from "@/common/services/httpClient";
+import { apiFetchEnveloped as apiFetch, API_BASE, getAuthToken, ApiError } from "@/common/services/httpClient";
+import { branchHeader } from "@/common/services/branchSelection";
 import { isSmallScreen } from "@/common/utils/responsive";
 
 /* Mirrors backend/internal/loan/handler.go's ornamentRequest exactly. */
@@ -583,7 +584,7 @@ export function getLoansPageSize() {
  * (status/q) rather than a picker's free-text query. */
 export async function listLoansPage(
   filters: LoanFilters & { page: number; limit?: number }
-): Promise<{ items: LoanView[]; hasMore: boolean; total: number }> {
+): Promise<{ items: LoanView[]; hasMore: boolean; total: number; total: number }> {
   const pageSize = filters.limit ?? getLoansPageSize();
   const params = new URLSearchParams({
     limit: String(pageSize),
@@ -756,7 +757,10 @@ export async function setLoanOperatorApprovalLimit(maxAmount: number): Promise<A
 // platform.ActorFromContext).
 export type PaymentInput = {
   amount: number;
-  type: string; // "Interest" | "Principal" | "Partial" | "Full Settlement" | "Adjustment" | "Waiver"
+  // What the amount may pay off. The API accepts only these five (see the
+  // handler's staffSelectablePaymentTypes); Adjustment/Waiver and the auction
+  // types are raised by their own flows, never posted from here.
+  type: "Interest" | "Penal Interest" | "Principal" | "Partial" | "Full Settlement" | string;
   processingFee?: number; // extra charge collected alongside amount — never applied to penal/interest/principal
   paidOn: string;
   method?: string;
@@ -1152,9 +1156,9 @@ export async function markAuctionEligible(loanId: number): Promise<AuctionRecord
   return toAuctionRecordView(await apiFetch<BackendAuctionRecord>(`/loans/${loanId}/auction/eligible`, { method: "POST" }));
 }
 
-// issueAuctionNotice fires every configured notice channel (WhatsApp) at
-// once — the backend no longer takes a method, it logs one AuctionNotice
-// per channel and sends the WhatsApp message live.
+// issueAuctionNotice always fires all three notice channels (SMS, WhatsApp,
+// Registered Post) at once — the backend no longer takes a method, it logs
+// one AuctionNotice per channel and sends the WhatsApp message live.
 export async function issueAuctionNotice(loanId: number, remarks?: string): Promise<AuctionRecordView> {
   return toAuctionRecordView(
     await apiFetch<BackendAuctionRecord>(`/loans/${loanId}/auction/notice`, { method: "POST", body: JSON.stringify({ remarks }) })
@@ -1517,4 +1521,44 @@ export function canAcceptBankPledge(status: string, bankPledgeStatus: string): b
     !BANK_PLEDGE_INELIGIBLE_STATUSES.includes(status) &&
     bankPledgeStatus !== "Bank Pledged"
   );
+}
+
+/* Downloads the customer-facing account statement PDF for one loan.
+ *
+ * Uses a raw fetch rather than apiFetch because the response is a PDF, not
+ * the JSON envelope apiFetch parses — the same reason reportsService's
+ * exportReport does, and this deliberately mirrors that helper so there is
+ * one recognisable shape for "authenticated binary download" in the app.
+ *
+ * The filename comes from the server's Content-Disposition, so the loan
+ * number in it always matches the document's contents. */
+export async function downloadLoanStatement(loanId: number): Promise<void> {
+  const token = getAuthToken();
+  const res = await fetch(`${API_BASE}/loans/${loanId}/statement`, {
+    headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}), ...branchHeader() },
+  });
+  if (!res.ok) {
+    let message = res.statusText;
+    try {
+      const body = await res.json();
+      if (body?.error) message = body.error;
+    } catch {
+      /* non-JSON error body (the PDF path) — fall back to statusText */
+    }
+    throw new ApiError(message, res.status);
+  }
+
+  const blob = await res.blob();
+  const disposition = res.headers.get("Content-Disposition") || "";
+  const match = disposition.match(/filename="([^"]+)"/);
+  const filename = match ? match[1] : `statement-${loanId}.pdf`;
+
+  const url = window.URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  window.URL.revokeObjectURL(url);
 }

@@ -2,13 +2,14 @@ import React, { createContext, useContext, useEffect, useState, useCallback, use
 import { Employee } from "../types/employee";
 import * as authApi from "../api/auth";
 import { saveToken, getToken, clearToken } from "./tokenStorage";
+import { normalizeBusinessCode, saveBusinessCode } from "./businessCode";
 import { ApiError } from "../api/client";
 import { fetchMyPermissions, type PermissionMap } from "../api/permissions";
 
 type AuthState = {
   employee: Employee | null;
   isLoading: boolean;
-  signIn: (identifier: string, password: string) => Promise<void>;
+  signIn: (identifier: string, password: string, businessCode?: string) => Promise<void>;
   signOut: () => Promise<void>;
   // Permission map — see the house role-permission standard's §9. Fetched
   // on sign-in AND on every app cold-start (the rehydrate effect below), not
@@ -72,8 +73,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [loadPermissions]);
 
   const signIn = useCallback(
-    async (identifier: string, password: string) => {
-      const { token, employee: emp } = await authApi.login(identifier, password);
+    async (identifier: string, password: string, businessCode = "") => {
+      const code = normalizeBusinessCode(businessCode);
+      const { token, employee: emp } = await authApi.login(identifier, password, code);
+      // Remembered only after login actually worked, so a mistyped code is
+      // never persisted and offered back on the next sign-in.
+      await saveBusinessCode(code);
       await saveToken(token);
       setEmployee(emp);
       setPermissionsLoaded(false);

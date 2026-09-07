@@ -7,7 +7,7 @@ import (
 )
 
 // RegisterRoutes mounts the loan endpoints under the given group (expected
-// to be something like r.Group("/api/v1/loans")). perms gates every route by
+// to be something like r.Group(ctx, "/api/v1/loans")). perms gates every route by
 // the "can view/create/update/delete loan" set — ornaments, approvals, payments,
 // requests and auctions are all facets of a loan record and share that
 // permission group. bankPledgePerms gates only the bank-pledge sub-routes
@@ -34,6 +34,9 @@ func RegisterRoutes(rg *gin.RouterGroup, h *Handler, perms platform.CRUDMiddlewa
 	rg.GET("/by-number/:loanNumber", perms.Read, h.GetByLoanNumber)
 	rg.GET("/interest-collected", perms.Read, h.GetInterestCollected)
 	rg.GET("/:id", perms.Read, h.Get)
+	// Customer-facing account statement PDF. Read-gated: it shows nothing
+	// the loan detail screen does not already show.
+	rg.GET("/:id/statement", perms.Read, h.Statement)
 
 	rg.POST("/:id/ornaments", perms.Update, h.AddOrnament)
 	rg.PUT("/ornaments/:ornamentId", perms.Update, h.UpdateOrnament)

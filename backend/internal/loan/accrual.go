@@ -1,6 +1,7 @@
 package loan
 
 import (
+	"context"
 	"time"
 
 	"ambikagold/backend/internal/platform"
@@ -149,14 +150,14 @@ func projectAccrual(l *Loan, sch *scheme.Scheme, asOf time.Time) (interestDelta,
 // accrueAndSave advances l's AccruedInterest/AccruedPenalInterest up to now
 // and persists the change, returning whether anything actually changed
 // (callers use this to decide whether to re-fetch the saved row).
-func (s *Service) accrueAndSave(l *Loan) bool {
+func (s *Service) accrueAndSave(ctx context.Context, l *Loan) bool {
 	now := time.Now()
 	interestDelta, penalDelta, anchor := projectAccrual(l, &l.Scheme, now)
 	if interestDelta <= 0 && penalDelta <= 0 {
 		// No accrual, but the loan may still have crossed its due date since
 		// the last read — that alone flips a serviced loan back to Overdue.
 		if refreshServicingStatus(l, now) {
-			return s.repo.Update(l) == nil
+			return s.repo.Update(ctx, l) == nil
 		}
 		return false
 	}
@@ -171,7 +172,7 @@ func (s *Service) accrueAndSave(l *Loan) bool {
 	l.LastAccrualDate = anchor
 	// Freshly accrued interest puts a serviced loan back into arrears.
 	refreshServicingStatus(l, now)
-	if err := s.repo.Update(l); err != nil {
+	if err := s.repo.Update(ctx, l); err != nil {
 		return false
 	}
 	return true
@@ -182,7 +183,7 @@ func (s *Service) accrueAndSave(l *Loan) bool {
 // Every read path that returns a Loan (Create/Get/List/Approve/
 // RecordPayment/...) calls this so API responses always carry a consistent
 // "what's owed today" view without duplicating this math per-handler.
-func (s *Service) enrich(l *Loan) {
+func (s *Service) enrich(ctx context.Context, l *Loan) {
 	l.OutstandingInterest = clampMoney(l.AccruedInterest - l.InterestPaid)
 	l.OutstandingPenalInterest = clampMoney(l.AccruedPenalInterest - l.PenalInterestPaid)
 	l.TotalOutstandingBalance = l.OutstandingAmount + l.OutstandingInterest + l.OutstandingPenalInterest + l.OutstandingProcessingFee

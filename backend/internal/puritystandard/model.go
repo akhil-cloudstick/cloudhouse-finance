@@ -13,7 +13,10 @@
 // ornament's already-computed GoldValue.
 package puritystandard
 
-import "time"
+import (
+	"ambikagold/backend/internal/platform"
+	"time"
+)
 
 // PurityStandard is one known gold purity, describable by karat and/or
 // fineness percentage. Karat/FinenessPercent are pointers because a
@@ -22,6 +25,7 @@ import "time"
 // computed from the exact karat/24 ratio so the table is internally
 // consistent.
 type PurityStandard struct {
+	platform.TenantScoped
 	ID              uint     `json:"id" gorm:"primaryKey"`
 	Karat           *int     `json:"karat"`
 	FinenessPercent *float64 `json:"finenessPercent"`

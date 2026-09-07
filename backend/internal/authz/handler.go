@@ -8,6 +8,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 
+	"ambikagold/backend/internal/platform"
 	"ambikagold/backend/internal/platform/httpx"
 )
 
@@ -45,6 +46,7 @@ func actingIdentity(c *gin.Context) (employeeID uint, roleID uint, ok bool) {
 // caller's own id (mirrors the standard's §6.2 step 3) — this endpoint never
 // returns another employee's grants.
 func (h *Handler) ByEmployee(c *gin.Context) {
+	ctx := platform.RequestContext(c)
 	employeeID, roleID, ok := actingIdentity(c)
 	if !ok {
 		httpx.Fail(c, http.StatusUnauthorized, "not authenticated")
@@ -59,7 +61,7 @@ func (h *Handler) ByEmployee(c *gin.Context) {
 		httpx.Fail(c, http.StatusUnauthorized, "Invalid user")
 		return
 	}
-	data, err := h.repo.BootstrapPermissions(roleID)
+	data, err := h.repo.BootstrapPermissions(ctx, roleID)
 	if err != nil {
 		httpx.FailErr(c, err)
 		return
@@ -70,18 +72,19 @@ func (h *Handler) ByEmployee(c *gin.Context) {
 // Matrix is GET /employees/:id/permissions?role_id=&search= — the
 // admin matrix (§7.2), gated "can view role and permission".
 func (h *Handler) Matrix(c *gin.Context) {
+	ctx := platform.RequestContext(c)
 	roleID64, err := strconv.ParseUint(c.Query("role_id"), 10, 64)
 	if err != nil {
 		httpx.Fail(c, http.StatusBadRequest, "role_id query parameter is required")
 		return
 	}
 	roleID := uint(roleID64)
-	role, err := h.repo.GetRole(roleID)
+	role, err := h.repo.GetRole(ctx, roleID)
 	if err != nil {
 		httpx.FailErr(c, ErrRoleNotFound)
 		return
 	}
-	data, err := h.repo.AdminMatrix(roleID, c.Query("search"))
+	data, err := h.repo.AdminMatrix(ctx, roleID, c.Query("search"))
 	if err != nil {
 		httpx.FailErr(c, err)
 		return
@@ -97,12 +100,13 @@ func (h *Handler) Matrix(c *gin.Context) {
 // applies a bare array of {permission_id, permission} in one transaction
 // (§7.3), gated "can update role".
 func (h *Handler) UpdatePermissions(c *gin.Context) {
+	ctx := platform.RequestContext(c)
 	roleID, err := httpx.IDParam(c, "role_id")
 	if err != nil {
 		httpx.FailErr(c, err)
 		return
 	}
-	role, err := h.repo.GetRole(roleID)
+	role, err := h.repo.GetRole(ctx, roleID)
 	if err != nil {
 		httpx.FailErr(c, ErrRoleNotFound)
 		return
@@ -116,7 +120,7 @@ func (h *Handler) UpdatePermissions(c *gin.Context) {
 		httpx.Fail(c, http.StatusBadRequest, "Provide an array of {permission_id, permission}")
 		return
 	}
-	if err := h.repo.UpdateRolePermissions(roleID, updates); err != nil {
+	if err := h.repo.UpdateRolePermissions(ctx, roleID, updates); err != nil {
 		if IsPermissionNotFoundInCatalogue(err) {
 			httpx.Fail(c, http.StatusBadRequest, "permission not found")
 			return
@@ -130,12 +134,13 @@ func (h *Handler) UpdatePermissions(c *gin.Context) {
 // SetAll is PATCH /employees/:id/permissions/:role_id/set-all?permission=true|false
 // (§7.3), gated "can update role".
 func (h *Handler) SetAll(c *gin.Context) {
+	ctx := platform.RequestContext(c)
 	roleID, err := httpx.IDParam(c, "role_id")
 	if err != nil {
 		httpx.FailErr(c, err)
 		return
 	}
-	role, err := h.repo.GetRole(roleID)
+	role, err := h.repo.GetRole(ctx, roleID)
 	if err != nil {
 		httpx.FailErr(c, ErrRoleNotFound)
 		return
@@ -145,7 +150,7 @@ func (h *Handler) SetAll(c *gin.Context) {
 		return
 	}
 	allowed := c.Query("permission") == "true"
-	if err := h.repo.SetAllForRole(roleID, allowed); err != nil {
+	if err := h.repo.SetAllForRole(ctx, roleID, allowed); err != nil {
 		httpx.FailErr(c, err)
 		return
 	}
@@ -161,7 +166,8 @@ type roleRequest struct {
 }
 
 func (h *Handler) ListRoles(c *gin.Context) {
-	roles, err := h.repo.ListRoles()
+	ctx := platform.RequestContext(c)
+	roles, err := h.repo.ListRoles(ctx)
 	if err != nil {
 		httpx.FailErr(c, err)
 		return
@@ -170,12 +176,13 @@ func (h *Handler) ListRoles(c *gin.Context) {
 }
 
 func (h *Handler) CreateRole(c *gin.Context) {
+	ctx := platform.RequestContext(c)
 	var req roleRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		httpx.Fail(c, http.StatusBadRequest, "Invalid input")
 		return
 	}
-	role, err := h.repo.CreateRole(req.Name, req.Description)
+	role, err := h.repo.CreateRole(ctx, req.Name, req.Description)
 	if err != nil {
 		httpx.FailErr(c, err)
 		return
@@ -184,6 +191,7 @@ func (h *Handler) CreateRole(c *gin.Context) {
 }
 
 func (h *Handler) UpdateRole(c *gin.Context) {
+	ctx := platform.RequestContext(c)
 	id, err := httpx.IDParam(c, "id")
 	if err != nil {
 		httpx.FailErr(c, err)
@@ -198,7 +206,7 @@ func (h *Handler) UpdateRole(c *gin.Context) {
 	if req.IsActive != nil {
 		isActive = *req.IsActive
 	}
-	role, err := h.repo.UpdateRole(id, req.Name, req.Description, isActive)
+	role, err := h.repo.UpdateRole(ctx, id, req.Name, req.Description, isActive)
 	if err != nil {
 		if errors.Is(err, ErrSystemRole) {
 			httpx.Fail(c, http.StatusForbidden, "System roles cannot be modified")
@@ -215,12 +223,13 @@ func (h *Handler) UpdateRole(c *gin.Context) {
 }
 
 func (h *Handler) DeleteRole(c *gin.Context) {
+	ctx := platform.RequestContext(c)
 	id, err := httpx.IDParam(c, "id")
 	if err != nil {
 		httpx.FailErr(c, err)
 		return
 	}
-	if err := h.repo.DeleteRole(id); err != nil {
+	if err := h.repo.DeleteRole(ctx, id); err != nil {
 		switch {
 		case errors.Is(err, ErrSystemRole):
 			httpx.Fail(c, http.StatusForbidden, "System roles cannot be modified")

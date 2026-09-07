@@ -3,6 +3,7 @@
 import { useRouter } from "next/navigation";
 import { Icon } from "@/common/components/Icon";
 import { useAuth } from "@/common/auth-context";
+import { loginPath } from "@/common/services/tenantSession";
 
 /* Ported from legacy/app.js's `NAV` array + nav-building/active-link logic
  * in `router()`. Each item now also carries the permission that gates it
@@ -42,6 +43,7 @@ export const NAV: [string, NavItem[]][] = [
   ["Administration", [
     { route: "branches", title: "Branch Management", icon: "bank", module: "Branch_Management", key: "can_view_branch" },
     { route: "roles-permissions", title: "Roles & Permissions", icon: "shield", module: "Role_Management", key: "can_view_role_and_permission" },
+    { route: "billing", title: "Billing", icon: "coin", module: "Billing", key: "can_manage_billing" },
     { route: "settings", title: "Settings", icon: "gear", module: "Settings_Management", key: "can_view_setting" },
   ]],
 ];
@@ -52,8 +54,12 @@ export function Sidebar({ route, open }: { route: string; open: boolean }) {
 
   function handleSignOut(e: React.MouseEvent) {
     e.preventDefault();
+    // Resolve the link before logout: it clears the remembered business, and
+    // a signed-out user should land back on their own organisation.s sign-in
+    // page rather than a bare form asking for a business code.
+    const back = loginPath();
     logout();
-    router.replace("/login");
+    router.replace(back);
   }
 
   return (
@@ -96,7 +102,7 @@ export function Sidebar({ route, open }: { route: string; open: boolean }) {
       <div className="sfoot">
         Trust · Value · Growth
         <br />
-        <a href="/login" onClick={handleSignOut}>← Sign out</a>
+        <a href={loginPath()} onClick={handleSignOut}>← Sign out</a>
       </div>
     </aside>
   );

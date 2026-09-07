@@ -15,6 +15,7 @@ import (
 	"gorm.io/gorm"
 
 	"ambikagold/backend/internal/customer"
+	"ambikagold/backend/internal/platform"
 )
 
 // Reminder type values.
@@ -36,6 +37,7 @@ const (
 // specific loan (e.g. "follow up on GL-1004's overdue balance"), but always
 // tied to a customer.
 type Reminder struct {
+	platform.TenantScoped
 	ID uint `json:"id" gorm:"primaryKey"`
 
 	CustomerID uint              `json:"customerId" gorm:"not null;index"`

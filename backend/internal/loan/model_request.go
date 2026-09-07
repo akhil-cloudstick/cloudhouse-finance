@@ -1,6 +1,9 @@
 package loan
 
-import "time"
+import (
+	"ambikagold/backend/internal/platform"
+	"time"
+)
 
 // Loan-request type/status values for LoanRequest.
 const (
@@ -25,6 +28,7 @@ const (
 // Service.DecideRequest, the old single-step decision path, now only
 // rejects Extension requests with an error pointing at the staged endpoint.
 type LoanRequest struct {
+	platform.TenantScoped
 	ID     uint `json:"id" gorm:"primaryKey"`
 	LoanID uint `json:"loanId" gorm:"not null;index"`
 	Loan   Loan `json:"loan" gorm:"foreignKey:LoanID"`
@@ -81,6 +85,7 @@ func (LoanRequest) TableName() string { return "loan_requests" }
 // Manager→Management approval chain — mirrors LoanApproval exactly, kept as
 // a separate table since the subject is a request, not a loan.
 type RequestApproval struct {
+	platform.TenantScoped
 	ID        uint `json:"id" gorm:"primaryKey"`
 	RequestID uint `json:"requestId" gorm:"not null;index"`
 

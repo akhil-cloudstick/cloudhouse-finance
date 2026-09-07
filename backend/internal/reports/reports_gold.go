@@ -1,13 +1,15 @@
 package reports
 
+import "context"
+
 // Gold-weight, packet-tracking, and gold-rate-history reports.
 
 // GoldWeight lists pledged ornaments for loans opened in [from, to] — GET
 // /reports/gold-weight.
-func (s *Service) GoldWeight(f Filter) ([]GoldWeightRow, GoldWeightTotals, error) {
+func (s *Service) GoldWeight(ctx context.Context, f Filter) ([]GoldWeightRow, GoldWeightTotals, error) {
 	from, to := dateRange(f)
 	var rows []GoldWeightRow
-	q := s.db.Table("ornaments o").
+	q := s.db.WithContext(ctx).Table("ornaments o").
 		Select(`o.id as ornament_id, l.loan_number, c.name as customer_name, o.name,
 			o.purity, o.gross_weight, o.net_weight, o.gold_value`).
 		Joins("LEFT JOIN loans l ON l.id = o.loan_id").
@@ -35,9 +37,9 @@ func (s *Service) GoldWeight(f Filter) ([]GoldWeightRow, GoldWeightTotals, error
 // tracking/locker occupancy is a current-state view, mirroring
 // OutstandingPrincipal's reasoning), but f.BranchID (via the packet's loan)
 // still applies.
-func (s *Service) Packets(f Filter) ([]PacketRow, PacketTotals, error) {
+func (s *Service) Packets(ctx context.Context, f Filter) ([]PacketRow, PacketTotals, error) {
 	var rows []PacketRow
-	q := s.db.Table("packets p").
+	q := s.db.WithContext(ctx).Table("packets p").
 		Select(`p.id as packet_id, p.code, l.loan_number, p.status, lk.code as locker_code,
 			(SELECT count(*) FROM packet_movements pm WHERE pm.packet_id = p.id) as movement_count`).
 		Joins("LEFT JOIN loans l ON l.id = p.loan_id").
@@ -66,10 +68,10 @@ func (s *Service) Packets(f Filter) ([]PacketRow, PacketTotals, error) {
 // GoldRateHistory is a plain date-ranged listing of published gold rates —
 // GET /reports/gold-rate-history. Not branch-scoped — gold rates aren't a
 // per-branch concept.
-func (s *Service) GoldRateHistory(f Filter) ([]GoldRateHistoryRow, GoldRateHistoryTotals, error) {
+func (s *Service) GoldRateHistory(ctx context.Context, f Filter) ([]GoldRateHistoryRow, GoldRateHistoryTotals, error) {
 	from, to := dateRange(f)
 	var rows []GoldRateHistoryRow
-	if err := s.db.Table("gold_rates").
+	if err := s.db.WithContext(ctx).Table("gold_rates").
 		Select("date, k24, set_by").
 		Where("date >= ? AND date < ?", from, to).
 		Order("date desc").

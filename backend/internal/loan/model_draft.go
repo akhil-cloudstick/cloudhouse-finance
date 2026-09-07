@@ -5,6 +5,7 @@ import (
 
 	"ambikagold/backend/internal/branch"
 	"ambikagold/backend/internal/customer"
+	"ambikagold/backend/internal/platform"
 	"ambikagold/backend/internal/scheme"
 )
 
@@ -28,6 +29,7 @@ import (
 // large: an in-progress form is one person's unfinished work, so listing
 // is scoped to CreatedByEmployeeID as well as the caller's branch scope.
 type LoanDraft struct {
+	platform.TenantScoped
 	ID uint `json:"id" gorm:"primaryKey"`
 
 	// CreatedByEmployeeID is the owner — set from the JWT, never the body.
@@ -70,6 +72,7 @@ func (LoanDraft) TableName() string { return "loan_drafts" }
 // pick the file, before any loan exists), so a saved draft keeps its
 // attachments.
 type LoanDraftOrnament struct {
+	platform.TenantScoped
 	ID      uint `json:"id" gorm:"primaryKey"`
 	DraftID uint `json:"draftId" gorm:"not null;index"`
 

@@ -1,7 +1,9 @@
 package reports
 
 import (
+	"ambikagold/backend/internal/platform"
 	"bytes"
+	"context"
 	"fmt"
 	"net/http"
 	"reflect"
@@ -17,40 +19,40 @@ import (
 // row, not just the current page), un-typed row slice + totals. Kept as one
 // table so the export handler stays generic instead of a 15-way switch
 // duplicated across JSON/xlsx/pdf.
-func (h *Handler) reportRows(key string, f Filter) (rows any, totals any, err error) {
+func (h *Handler) reportRows(ctx context.Context, key string, f Filter) (rows any, totals any, err error) {
 	switch key {
 	case "disbursement":
-		return call2(h.svc.Disbursement(f))
+		return call2(h.svc.Disbursement(ctx, f))
 	case "loans-status":
-		return call2(h.svc.LoanStatus(f, ""))
+		return call2(h.svc.LoanStatus(ctx, f, ""))
 	case "interest-collection":
-		return call2(h.svc.InterestCollection(f))
+		return call2(h.svc.InterestCollection(ctx, f))
 	case "outstanding-principal":
-		return call2(h.svc.OutstandingPrincipal(f))
+		return call2(h.svc.OutstandingPrincipal(ctx, f))
 	case "payment-collection":
-		return call2(h.svc.PaymentCollection(f))
+		return call2(h.svc.PaymentCollection(ctx, f))
 	case "gold-weight":
-		return call2(h.svc.GoldWeight(f))
+		return call2(h.svc.GoldWeight(ctx, f))
 	case "packets":
-		return call2(h.svc.Packets(f))
+		return call2(h.svc.Packets(ctx, f))
 	case "bank-pledge":
-		return call2(h.svc.BankPledge(f))
+		return call2(h.svc.BankPledge(ctx, f))
 	case "loan-extensions":
-		return call2(h.svc.LoanExtensions(f))
+		return call2(h.svc.LoanExtensions(ctx, f))
 	case "gold-release":
-		return call2(h.svc.GoldRelease(f))
+		return call2(h.svc.GoldRelease(ctx, f))
 	case "auctions":
-		return call2(h.svc.Auctions(f))
+		return call2(h.svc.Auctions(ctx, f))
 	case "expense-cashflow":
-		return call2(h.svc.ExpenseCashflow(f))
+		return call2(h.svc.ExpenseCashflow(ctx, f))
 	case "kyc":
-		return call2(h.svc.KYC(f))
+		return call2(h.svc.KYC(ctx, f))
 	case "gold-rate-history":
-		return call2(h.svc.GoldRateHistory(f))
+		return call2(h.svc.GoldRateHistory(ctx, f))
 	case "employee-performance":
-		return call2(h.svc.EmployeePerformance(f))
+		return call2(h.svc.EmployeePerformance(ctx, f))
 	case "communication-history":
-		return call2(h.svc.CommunicationHistory(f, ""))
+		return call2(h.svc.CommunicationHistory(ctx, f, ""))
 	default:
 		return nil, nil, fmt.Errorf("unknown report key %q", key)
 	}
@@ -67,6 +69,7 @@ func call2[T any, U any](rows []T, totals U, err error) (any, any, error) {
 // pagination (Page/PageSize) — the file must contain every row matching the
 // filters, not just the on-screen page.
 func (h *Handler) Export(c *gin.Context) {
+	ctx := platform.RequestContext(c)
 	key := c.Param("key")
 	format := c.DefaultQuery("format", "xlsx")
 	f, err := parseFilter(c)
@@ -84,7 +87,16 @@ func (h *Handler) Export(c *gin.Context) {
 		return
 	}
 
-	rows, _, err := h.reportRows(key, f)
+	// Form G is a fixed-layout statutory statement, not a repeated-row
+	// listing — it can't go through toTable's reflection-based generic
+	// table builder below, so it's special-cased here with its own
+	// dedicated buildFormGXLSX/buildFormGPDF (see formg.go).
+	if key == "form-g" {
+		h.exportFormG(c, f, format)
+		return
+	}
+
+	rows, _, err := h.reportRows(ctx, key, f)
 	if err != nil {
 		badRequest(c, err)
 		return
@@ -103,7 +115,7 @@ func (h *Handler) Export(c *gin.Context) {
 		c.Header("Content-Disposition", "attachment; filename=\""+filename+"\"")
 		c.Data(http.StatusOK, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", buf)
 	case "pdf":
-		buf, err := buildPDF(key, headers, data)
+		buf, err := buildPDF(h.svc.BusinessName(ctx), key, headers, data)
 		if err != nil {
 			serverError(c, err)
 			return
@@ -231,7 +243,7 @@ func buildXLSX(sheetName string, headers []string, data [][]string) ([]byte, err
 // buildPDF renders headers/data as a simple tabular PDF (letterhead-style
 // title + table) — a plain, functional layout rather than a polished
 // letterhead design, matching this codebase's other export-lite features.
-func buildPDF(title string, headers []string, data [][]string) ([]byte, error) {
+func buildPDF(businessName, title string, headers []string, data [][]string) ([]byte, error) {
 	pdf := gofpdf.New("L", "mm", "A4", "")
 	// gofpdf's core "Arial" font expects cp1252/WinAnsi bytes, not UTF-8 —
 	// handing it a raw Go string (UTF-8 under the hood) let each multi-byte
@@ -244,7 +256,7 @@ func buildPDF(title string, headers []string, data [][]string) ([]byte, error) {
 	tr := pdf.UnicodeTranslatorFromDescriptor("")
 	pdf.AddPage()
 	pdf.SetFont("Arial", "B", 14)
-	pdf.CellFormat(0, 10, tr("Ambika Gold Finance — "+title), "", 1, "L", false, 0, "")
+	pdf.CellFormat(0, 10, businessName+" — "+title, "", 1, "L", false, 0, "")
 	pdf.SetFont("Arial", "", 8)
 
 	pageWidth, _ := pdf.GetPageSize()

@@ -1730,12 +1730,21 @@ concurrent auction action cannot clobber the write):
 - **Loan cleared in full** → the case is auto-concluded as `stage: "Settled"`,
   `finalSettlementStatus: "SettledByRepayment"`. The customer rescued their
   gold; nobody should have to notice that manually.
-- **Part-payment, loan still open** → a `"PartialRepayment"` decision request
-  is raised and the auction **FREEZES**. `notice`, `schedule` and `sale` all
-  return 409 `ErrAuctionDecisionPending` while it is open. This is the central
-  safety guarantee of the auction rework: gold cannot be sold out from under a
-  customer whose payment is still under review. The system deliberately does
-  NOT auto-withdraw — a part-payment is not its call to interpret.
+- **Part-payment that clears every arrear** (interest *and* penal interest at
+  zero, principal still owed) → the case is auto-withdrawn as
+  `stage: "Withdrawn"`, any pending `"PartialRepayment"` escalation is
+  resolved as `"RemovedFromAuction"`, and the loan returns to `"Active"`
+  (out of Overdue — the same rule `refreshServicingStatus` applies to loans
+  that never entered the pipeline). Added 2026-08-28: the customer has caught
+  up on everything that fell due, which is exactly what the auction was
+  pursuing, so there is nothing left for a manager to weigh — principal not
+  yet due is not grounds to sell someone's gold.
+- **Part-payment that leaves any arrears standing** → a `"PartialRepayment"`
+  decision request is raised and the auction **FREEZES**. `notice`, `schedule`
+  and `sale` all return 409 `ErrAuctionDecisionPending` while it is open. This
+  is the central safety guarantee of the auction rework: gold cannot be sold
+  out from under a customer whose payment is still under review, and a token
+  payment cannot pull a scheduled auction without a manager.
 
 **Auction decision requests** (`AuctionDecisionRequest`) are escalations the
 system raises, never staff, so a decision cannot be quietly skipped. One table
@@ -1896,6 +1905,7 @@ preloaded objects from their own APIs above):
 | DELETE | `/api/v1/loans/drafts/:draftId` | Discard a draft — hard delete, `204 No Content` | — |
 | GET | `/api/v1/loans` | List/filter loans. Returns a bare array unless `limit` is given, in which case the response is the `{ "items": [...], "hasMore": bool }` envelope (same convention as `GET /customers`) — this backs the paginated `SearchableSelect` loan pickers, 10 rows per page, next page appended on scroll | query: `status`, `branchId`, `customerId`, `q` (matches `loanNumber`), `excludeBankPledged` (`true` keeps only loans whose `bankPledgeStatus` is not `"Bank Pledged"` and whose status is not closed/closure-requested/auctioned/pending-approval — the bank re-pledge picker's eligibility rule, matching `loan.bankPledgeRefusal`; `"Released"` loans ARE offered, since their gold is back from the bank), `limit`, `offset` |
 | GET | `/api/v1/loans/:id` | Get one loan with ornaments/approvals/payments/bank-pledge history | — |
+| GET | `/api/v1/loans/:id/statement` | Customer-facing account statement as a **PDF** (`Content-Type: application/pdf`, `Content-Disposition: attachment; filename="statement-<loanNumber>.pdf"`). Not the JSON envelope. Gated by `can view loan` — it shows nothing the loan detail screen does not. Branch- and tenant-scoped: another branch's or business's loan is a plain 404 | — |
 | GET | `/api/v1/loans/by-number/:loanNumber` | Same as above, looked up by the human-readable loan number instead of the numeric id (a single atomic query — used by `LoanDetail.tsx`, mirrors `packet`'s `by-code` lookup) | — |
 | POST | `/api/v1/loans/:id/ornaments` | Pledge an additional ornament, recalculates loan totals | `{ "name", "purity", "grossWeight", "deductionWeight"?, "quantity"?, "remarks"? }` |
 | PUT | `/api/v1/loans/ornaments/:ornamentId` | Edit a pledged ornament, recalculates its loan's totals | same body as above |
@@ -1908,7 +1918,7 @@ preloaded objects from their own APIs above):
 | GET | `/api/v1/loans/:id/indemnity-bond/esign/status` | Poll the outstanding eSign request started above. While the customer hasn't finished signing, returns the current status only; once `sign_complete`, downloads the signed PDF from Setu and re-hosts it via `/api/v1/uploads`' storage, returning the updated loan (`indemnityBondSignedUrl`) | — |
 | GET | `/api/v1/loans/approval-limits/loan-operator` | Get the current (advisory-only) Loan Operator approval limit | — |
 | PUT | `/api/v1/loans/approval-limits/loan-operator` | Set the Loan Operator approval limit (Employees page's "Roles" panel) | `{ "maxAmount" }` |
-| POST | `/api/v1/loans/:id/payments` | Record a payment (receiving employeeId comes from the JWT, not the body). `type` still accepts the full original set server-side (`"Interest"`/`"Principal"`/`"Partial"`/`"Full Settlement"`/`"Adjustment"`/`"Waiver"`), but `PaymentModal.tsx` now always sends `"Partial"` — its own type picker was removed in favor of a single Amount field, always allocated processing fee → penal interest → interest → principal (see `allocatePayment`'s `Partial` case). `processingFee` is an optional new charge — added to `Loan.OutstandingProcessingFee` *before* `amount` is allocated, so this same payment's `amount` clears it first (highest priority in the waterfall); it is **not** extra cash on top of `amount` — `amount` is the total cash received either way | `{ "amount", "type", "processingFee"?, "paidOn" }` |
+| POST | `/api/v1/loans/:id/payments` | Record a payment (receiving employeeId comes from the JWT, not the body). `type` selects where the amount lands and accepts exactly five values — `"Partial"` (fee → penal → interest → principal, the default and what `PaymentModal.tsx`'s "Apply Payment To" picker calls **Both**), `"Interest"` (fee → penal → interest, never principal), `"Penal Interest"` (fee → penal only), `"Principal"` (fee → principal, skipping interest) and `"Full Settlement"` (must cover everything owed; clears every bucket and closes the loan). Anything else is a 400: `"Adjustment"`, `"Waiver"`, `"Auction Sale"` and `"Auction Write-Off"` exist in `allocatePayment` but are raised by the ledger-correction/auction flows themselves and are refused on this endpoint (see the handler's `staffSelectablePaymentTypes`). An amount overshooting the buckets its type may touch is rejected with `ErrExceedsOutstanding`. `processingFee` is an optional new charge — added to `Loan.OutstandingProcessingFee` *before* `amount` is allocated, so this same payment's `amount` clears it first (highest priority in the waterfall); it is **not** extra cash on top of `amount` — `amount` is the total cash received either way | `{ "amount", "type", "processingFee"?, "paidOn" }` |
 | POST | `/api/v1/loans/:id/bank-pledge` | Record a bank pledge. `cashTreatment` omitted ⇒ `"RecordOnly"` (no cash effect); only an explicit `"CashIn"` books money | `{ "bankName", "pledgedAmount", "pledgeDate", "bankId"?, "bankInterestRate"?, "referenceNumber"?, "bankPledgeDueDate"?, "cashTreatment"?: "CashIn" \| "RecordOnly" }` |
 | PUT | `/api/v1/loans/:id/bank-pledge/:pledgeId/release` | Release a bank pledge. Cash effect mirrors the pledge's `cashTreatment` — a `RecordOnly` pledge releases with no cash movement | — |
 | PUT | `/api/v1/loans/:id/bank-pledge/:pledgeId/void` | Cancel a pledge recorded in error — the only way to correct the immutable `cashTreatment`. Administrator / Management / Branch Manager only | `{ "reason" }` |

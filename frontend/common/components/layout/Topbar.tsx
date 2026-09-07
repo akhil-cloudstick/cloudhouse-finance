@@ -10,7 +10,9 @@ import { useModal } from "@/common/components/Modal";
 import { RateModalContent } from "@/common/components/modals/RateModal";
 import { Icon } from "@/common/components/Icon";
 import { useAuth } from "@/common/auth-context";
+import { loginPath } from "@/common/services/tenantSession";
 import GlobalSearch from "./GlobalSearch";
+import { BranchSwitcher } from "./BranchSwitcher";
 
 /* Ported from legacy/app.html's <header class="top"> + app.js's
  * `refreshRateChip()` / breadcrumb logic in `router()`. */
@@ -24,8 +26,12 @@ export function Topbar({ route, arg, onBurger }: { route: string; arg?: string; 
 
   function handleLogout(e: React.MouseEvent) {
     e.preventDefault();
+    // Resolve the link before logout: it clears the remembered business, and
+    // a signed-out user should land back on their own organisation.s sign-in
+    // page rather than a bare form asking for a business code.
+    const back = loginPath();
     logout();
-    router.replace("/login");
+    router.replace(back);
   }
 
   const crumb =
@@ -83,7 +89,7 @@ export function Topbar({ route, arg, onBurger }: { route: string; arg?: string; 
           <small>{employee?.role || "No user session"}</small>
         </span>
       </span>
-      <a className="logout" href="/login" onClick={handleLogout}>Sign out</a>
+      <a className="logout" href={loginPath()} onClick={handleLogout}>Sign out</a>
     </header>
   );
 }

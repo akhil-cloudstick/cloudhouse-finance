@@ -1,6 +1,7 @@
 package personalloan
 
 import (
+	"context"
 	"time"
 
 	"gorm.io/gorm"
@@ -21,12 +22,12 @@ func NewRepository(db *gorm.DB) *Repository {
 // (create loan + schedule, renewal) inside one db.Transaction.
 func (r *Repository) DB() *gorm.DB { return r.db }
 
-func (r *Repository) Create(tx *gorm.DB, rec *PersonalLoan) error {
-	return dbOrDefault(tx, r.db).Create(rec).Error
+func (r *Repository) Create(ctx context.Context, tx *gorm.DB, rec *PersonalLoan) error {
+	return dbOrDefault(ctx, tx, r.db).Create(rec).Error
 }
 
-func (r *Repository) Update(tx *gorm.DB, rec *PersonalLoan) error {
-	return dbOrDefault(tx, r.db).Save(rec).Error
+func (r *Repository) Update(ctx context.Context, tx *gorm.DB, rec *PersonalLoan) error {
+	return dbOrDefault(ctx, tx, r.db).Save(rec).Error
 }
 
 // FindByID loads a loan, optionally scoped to a branch (nil = no scope, i.e.
@@ -35,9 +36,9 @@ func (r *Repository) Update(tx *gorm.DB, rec *PersonalLoan) error {
 // Customer/Branch since every caller (Get, used by the detail page and by
 // GetSchedule/ListPayments's ownership check) needs the customer's name —
 // GORM never loads an association unless asked.
-func (r *Repository) FindByID(id uint, branchID *uint) (*PersonalLoan, error) {
+func (r *Repository) FindByID(ctx context.Context, id uint, branchID *uint) (*PersonalLoan, error) {
 	var rec PersonalLoan
-	q := r.db.Preload("Customer").Preload("Branch").Where("id = ?", id)
+	q := r.db.WithContext(ctx).Preload("Customer").Preload("Branch").Where("id = ?", id)
 	if branchID != nil {
 		q = q.Where("branch_id = ?", *branchID)
 	}
@@ -50,9 +51,9 @@ func (r *Repository) FindByID(id uint, branchID *uint) (*PersonalLoan, error) {
 // LockByID is FindByID's row-locking counterpart, used by RecordPayment and
 // RenewLoan to serialize concurrent writers against the same loan. Must be
 // called within tx (a db.Transaction).
-func (r *Repository) LockByID(tx *gorm.DB, id uint, branchID *uint) (*PersonalLoan, error) {
+func (r *Repository) LockByID(ctx context.Context, tx *gorm.DB, id uint, branchID *uint) (*PersonalLoan, error) {
 	var rec PersonalLoan
-	q := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("id = ?", id)
+	q := tx.WithContext(ctx).Clauses(clause.Locking{Strength: "UPDATE"}).Where("id = ?", id)
 	if branchID != nil {
 		q = q.Where("branch_id = ?", *branchID)
 	}
@@ -81,9 +82,9 @@ type ListFilter struct {
 // the customer's name. When f.Limit > 0, fetches Limit+1 rows so the
 // service can cheaply report hasMore without a separate COUNT query (same
 // trick as FindInstallments/FindPayments).
-func (r *Repository) FindAll(f ListFilter) ([]PersonalLoan, error) {
+func (r *Repository) FindAll(ctx context.Context, f ListFilter) ([]PersonalLoan, error) {
 	var recs []PersonalLoan
-	q := r.db.Preload("Customer").Model(&PersonalLoan{}).Order("personal_loans.id desc")
+	q := r.db.WithContext(ctx).Preload("Customer").Model(&PersonalLoan{}).Order("personal_loans.id desc")
 	if f.BranchID != nil {
 		q = q.Where("branch_id = ?", *f.BranchID)
 	}
@@ -109,44 +110,44 @@ func (r *Repository) FindAll(f ListFilter) ([]PersonalLoan, error) {
 }
 
 // CountAll is used to generate the next sequential LoanNumber.
-func (r *Repository) CountAll() (int64, error) {
+func (r *Repository) CountAll(ctx context.Context) (int64, error) {
 	var count int64
-	err := r.db.Unscoped().Model(&PersonalLoan{}).Count(&count).Error
+	err := r.db.WithContext(ctx).Unscoped().Model(&PersonalLoan{}).Count(&count).Error
 	return count, err
 }
 
-func (r *Repository) CreateInstallments(tx *gorm.DB, recs []PersonalLoanInstallment) error {
+func (r *Repository) CreateInstallments(ctx context.Context, tx *gorm.DB, recs []PersonalLoanInstallment) error {
 	if len(recs) == 0 {
 		return nil
 	}
-	return dbOrDefault(tx, r.db).Create(&recs).Error
+	return dbOrDefault(ctx, tx, r.db).Create(&recs).Error
 }
 
 // FindInstallments returns one page of a loan's schedule, ordered by
 // SequenceNo. Fetches limit+1 rows so the service can cheaply report
 // hasMore without a separate COUNT query (see customer.Handler.List's same
 // trick).
-func (r *Repository) FindInstallments(loanID uint, limit, offset int) ([]PersonalLoanInstallment, error) {
+func (r *Repository) FindInstallments(ctx context.Context, loanID uint, limit, offset int) ([]PersonalLoanInstallment, error) {
 	var recs []PersonalLoanInstallment
-	err := r.db.Where("personal_loan_id = ?", loanID).Order("sequence_no asc").
+	err := r.db.WithContext(ctx).Where("personal_loan_id = ?", loanID).Order("sequence_no asc").
 		Limit(limit + 1).Offset(offset).Find(&recs).Error
 	return recs, err
 }
 
-func (r *Repository) UpdateInstallment(tx *gorm.DB, rec *PersonalLoanInstallment) error {
-	return dbOrDefault(tx, r.db).Save(rec).Error
+func (r *Repository) UpdateInstallment(ctx context.Context, tx *gorm.DB, rec *PersonalLoanInstallment) error {
+	return dbOrDefault(ctx, tx, r.db).Save(rec).Error
 }
 
-func (r *Repository) CreatePayment(tx *gorm.DB, rec *PersonalLoanPayment) error {
-	return dbOrDefault(tx, r.db).Create(rec).Error
+func (r *Repository) CreatePayment(ctx context.Context, tx *gorm.DB, rec *PersonalLoanPayment) error {
+	return dbOrDefault(ctx, tx, r.db).Create(rec).Error
 }
 
 // FindPayments returns one page of a loan's payment ledger, newest first
 // (most recently collected payment on top, matching what staff want to see
 // first) — limit+1 rows for the same cheap hasMore trick as FindInstallments.
-func (r *Repository) FindPayments(loanID uint, limit, offset int) ([]PersonalLoanPayment, error) {
+func (r *Repository) FindPayments(ctx context.Context, loanID uint, limit, offset int) ([]PersonalLoanPayment, error) {
 	var recs []PersonalLoanPayment
-	err := r.db.Where("personal_loan_id = ?", loanID).Order("id desc").
+	err := r.db.WithContext(ctx).Where("personal_loan_id = ?", loanID).Order("id desc").
 		Limit(limit + 1).Offset(offset).Find(&recs).Error
 	return recs, err
 }
@@ -171,9 +172,9 @@ type CalendarInstallment struct {
 // calendar's personal-loan due/overdue events. Unlike FindInstallments this
 // is not paginated: the calendar needs every open due date at once to
 // bucket them by day.
-func (r *Repository) FindPendingInstallmentsForCalendar(branchID *uint) ([]CalendarInstallment, error) {
+func (r *Repository) FindPendingInstallmentsForCalendar(ctx context.Context, branchID *uint) ([]CalendarInstallment, error) {
 	var rows []CalendarInstallment
-	q := r.db.Table("personal_loan_installments").
+	q := r.db.WithContext(ctx).Table("personal_loan_installments").
 		Select("personal_loan_installments.due_date AS due_date, personal_loan_installments.amount AS amount, "+
 			"personal_loans.id AS loan_id, personal_loans.loan_number AS loan_number, "+
 			"personal_loans.customer_id AS customer_id, customers.name AS customer_name, "+
@@ -191,10 +192,10 @@ func (r *Repository) FindPendingInstallmentsForCalendar(branchID *uint) ([]Calen
 
 // dbOrDefault returns tx if the caller supplied one (a write that must
 // participate in an ongoing transaction), otherwise falls back to the
-// repository's own db handle.
-func dbOrDefault(tx *gorm.DB, fallback *gorm.DB) *gorm.DB {
+// repository's own db handle scoped to ctx.
+func dbOrDefault(ctx context.Context, tx *gorm.DB, fallback *gorm.DB) *gorm.DB {
 	if tx != nil {
-		return tx
+		return tx.WithContext(ctx)
 	}
-	return fallback
+	return fallback.WithContext(ctx)
 }

@@ -1,6 +1,7 @@
 package loan
 
 import (
+	"context"
 	"time"
 
 	"gorm.io/gorm"
@@ -32,17 +33,17 @@ func preloadAll(db *gorm.DB) *gorm.DB {
 		Preload("Pledges")
 }
 
-func (r *Repository) Create(l *Loan) error {
-	return r.db.Create(l).Error
+func (r *Repository) Create(ctx context.Context, l *Loan) error {
+	return r.db.WithContext(ctx).Create(l).Error
 }
 
-func (r *Repository) Update(l *Loan) error {
-	return r.db.Save(l).Error
+func (r *Repository) Update(ctx context.Context, l *Loan) error {
+	return r.db.WithContext(ctx).Save(l).Error
 }
 
-func (r *Repository) FindByID(id uint) (*Loan, error) {
+func (r *Repository) FindByID(ctx context.Context, id uint) (*Loan, error) {
 	var l Loan
-	if err := preloadAll(r.db).First(&l, id).Error; err != nil {
+	if err := preloadAll(r.db.WithContext(ctx)).First(&l, id).Error; err != nil {
 		return nil, err
 	}
 	return &l, nil
@@ -54,9 +55,9 @@ func (r *Repository) FindByID(id uint) (*Loan, error) {
 // needed two round trips and could race against other in-flight list
 // requests. Used by GET /loans/by-number/:loanNumber, mirroring
 // packet.Repository.FindByCode's pattern.
-func (r *Repository) FindByLoanNumber(loanNumber string) (*Loan, error) {
+func (r *Repository) FindByLoanNumber(ctx context.Context, loanNumber string) (*Loan, error) {
 	var l Loan
-	if err := preloadAll(r.db).Where("loan_number = ?", loanNumber).First(&l).Error; err != nil {
+	if err := preloadAll(r.db.WithContext(ctx)).Where("loan_number = ?", loanNumber).First(&l).Error; err != nil {
 		return nil, err
 	}
 	return &l, nil
@@ -117,15 +118,9 @@ func startOfDay(t time.Time) time.Time {
 	return time.Date(t.Year(), t.Month(), t.Day(), 0, 0, 0, 0, t.Location())
 }
 
-// FindAll returns the matching loans (Limit/Offset applied) plus the TOTAL
-// row count for f's filters (Limit/Offset ignored for that count) — 0 when
-// f.Limit <= 0, since the non-paginated bare-array callers have no page
-// indicator to show a total on and the extra COUNT(*) would be wasted work.
-func (r *Repository) FindAll(f LoanFilter) ([]Loan, int64, error) {
-	// Most recently opened loan first. Ordering by id alone pinned whichever
-	// loan was inserted last to the top even when an older-dated loan was
-	// entered afterwards; id only breaks ties within the same day now.
-	q := preloadAll(r.db).Model(&Loan{}).Order("opened_date desc, id desc")
+// applyFilters applies f's WHERE clauses to q — shared by FindAll (which
+// also applies Limit/Offset) and CountFiltered (which never does).
+func applyFilters(q *gorm.DB, f LoanFilter) *gorm.DB {
 	if len(f.StatusIn) > 0 {
 		q = q.Where("status IN ?", f.StatusIn)
 	} else if f.Status != "" {
@@ -156,6 +151,18 @@ func (r *Repository) FindAll(f LoanFilter) ([]Loan, int64, error) {
 	if f.BankPledgeStatus != "" {
 		q = q.Where("bank_pledge_status = ?", f.BankPledgeStatus)
 	}
+	return q
+}
+
+// FindAll returns the matching loans (Limit/Offset applied) plus the TOTAL
+// row count for f's filters (Limit/Offset ignored for that count) — 0 when
+// f.Limit <= 0, since the non-paginated bare-array callers have no page
+// indicator to show a total on and the extra COUNT(*) would be wasted work.
+func (r *Repository) FindAll(ctx context.Context, f LoanFilter) ([]Loan, int64, error) {
+	// Most recently opened loan first. Ordering by id alone pinned whichever
+	// loan was inserted last to the top even when an older-dated loan was
+	// entered afterwards; id only breaks ties within the same day now.
+	q := applyFilters(preloadAll(r.db.WithContext(ctx)).Model(&Loan{}).Order("opened_date desc, id desc"), f)
 	var total int64
 	if f.Limit > 0 {
 		if err := q.Session(&gorm.Session{}).Count(&total).Error; err != nil {
@@ -171,11 +178,20 @@ func (r *Repository) FindAll(f LoanFilter) ([]Loan, int64, error) {
 	return loans, total, err
 }
 
+// CountFiltered returns how many loans match f, ignoring Limit/Offset — the
+// total the paginated list endpoint needs so the UI can render a stable
+// "Page X of N" instead of inferring it from a has-more probe.
+func (r *Repository) CountFiltered(ctx context.Context, f LoanFilter) (int64, error) {
+	var count int64
+	err := applyFilters(r.db.WithContext(ctx).Model(&Loan{}), f).Count(&count).Error
+	return count, err
+}
+
 // CountAll returns the total number of loans ever created, used to
 // generate sequential LoanNumber values.
-func (r *Repository) CountAll() (int64, error) {
+func (r *Repository) CountAll(ctx context.Context) (int64, error) {
 	var count int64
-	err := r.db.Model(&Loan{}).Count(&count).Error
+	err := r.db.WithContext(ctx).Model(&Loan{}).Count(&count).Error
 	return count, err
 }
 
@@ -184,9 +200,9 @@ func (r *Repository) CountAll() (int64, error) {
 // internal/reminder's calendar aggregation to derive Loan Due/Overdue/
 // interest-anniversary events without paying for the full preloadAll graph
 // (ornaments, images, payments, etc.) that a real loan detail view needs.
-func (r *Repository) FindOpenForCalendar() ([]Loan, error) {
+func (r *Repository) FindOpenForCalendar(ctx context.Context) ([]Loan, error) {
 	var loans []Loan
-	err := r.db.
+	err := r.db.WithContext(ctx).
 		Select("id", "loan_number", "customer_id", "branch_id", "opened_date", "due_date", "status").
 		Preload("Customer", func(db *gorm.DB) *gorm.DB {
 			return db.Select("id", "name", "code")
@@ -205,25 +221,25 @@ func NewOrnamentRepository(db *gorm.DB) *OrnamentRepository {
 	return &OrnamentRepository{db: db}
 }
 
-func (r *OrnamentRepository) Create(o *Ornament) error {
-	return r.db.Create(o).Error
+func (r *OrnamentRepository) Create(ctx context.Context, o *Ornament) error {
+	return r.db.WithContext(ctx).Create(o).Error
 }
 
-func (r *OrnamentRepository) Update(o *Ornament) error {
-	return r.db.Save(o).Error
+func (r *OrnamentRepository) Update(ctx context.Context, o *Ornament) error {
+	return r.db.WithContext(ctx).Save(o).Error
 }
 
-func (r *OrnamentRepository) FindByID(id uint) (*Ornament, error) {
+func (r *OrnamentRepository) FindByID(ctx context.Context, id uint) (*Ornament, error) {
 	var o Ornament
-	if err := r.db.Preload("PurityTest").Preload("Images").First(&o, id).Error; err != nil {
+	if err := r.db.WithContext(ctx).Preload("PurityTest").Preload("Images").First(&o, id).Error; err != nil {
 		return nil, err
 	}
 	return &o, nil
 }
 
-func (r *OrnamentRepository) FindByLoanID(loanID uint) ([]Ornament, error) {
+func (r *OrnamentRepository) FindByLoanID(ctx context.Context, loanID uint) ([]Ornament, error) {
 	var ornaments []Ornament
-	err := r.db.Preload("PurityTest").Preload("Images").Where("loan_id = ?", loanID).Order("id asc").Find(&ornaments).Error
+	err := r.db.WithContext(ctx).Preload("PurityTest").Preload("Images").Where("loan_id = ?", loanID).Order("id asc").Find(&ornaments).Error
 	return ornaments, err
 }
 
@@ -244,9 +260,9 @@ type CustomerOrnamentRow struct {
 // for the same window — same semantics as LoanFilter.OpenedFrom/OpenedTo.
 // FindByCustomerID returns matching rows plus the TOTAL row count (Limit/
 // Offset ignored, 0 when limit <= 0).
-func (r *OrnamentRepository) FindByCustomerID(customerID uint, from, to *time.Time, limit, offset int) ([]CustomerOrnamentRow, int64, error) {
+func (r *OrnamentRepository) FindByCustomerID(ctx context.Context, customerID uint, from, to *time.Time, limit, offset int) ([]CustomerOrnamentRow, int64, error) {
 	var rows []CustomerOrnamentRow
-	q := r.db.Model(&Ornament{}).
+	q := r.db.WithContext(ctx).Model(&Ornament{}).
 		Select("ornaments.*, loans.loan_number AS loan_number").
 		Joins("JOIN loans ON loans.id = ornaments.loan_id").
 		Where("loans.customer_id = ?", customerID)
@@ -270,12 +286,12 @@ func (r *OrnamentRepository) FindByCustomerID(customerID uint, from, to *time.Ti
 	return rows, total, err
 }
 
-func (r *OrnamentRepository) SavePurityTest(t *OrnamentPurityTest) error {
-	return r.db.Save(t).Error
+func (r *OrnamentRepository) SavePurityTest(ctx context.Context, t *OrnamentPurityTest) error {
+	return r.db.WithContext(ctx).Save(t).Error
 }
 
-func (r *OrnamentRepository) AddImage(img *OrnamentImage) error {
-	return r.db.Create(img).Error
+func (r *OrnamentRepository) AddImage(ctx context.Context, img *OrnamentImage) error {
+	return r.db.WithContext(ctx).Create(img).Error
 }
 
 // ApprovalRepository provides GORM-backed persistence for LoanApproval audit rows.
@@ -287,13 +303,13 @@ func NewApprovalRepository(db *gorm.DB) *ApprovalRepository {
 	return &ApprovalRepository{db: db}
 }
 
-func (r *ApprovalRepository) Create(a *LoanApproval) error {
-	return r.db.Create(a).Error
+func (r *ApprovalRepository) Create(ctx context.Context, a *LoanApproval) error {
+	return r.db.WithContext(ctx).Create(a).Error
 }
 
-func (r *ApprovalRepository) FindByLoanID(loanID uint) ([]LoanApproval, error) {
+func (r *ApprovalRepository) FindByLoanID(ctx context.Context, loanID uint) ([]LoanApproval, error) {
 	var approvals []LoanApproval
-	err := r.db.Where("loan_id = ?", loanID).Order("id asc").Find(&approvals).Error
+	err := r.db.WithContext(ctx).Where("loan_id = ?", loanID).Order("id asc").Find(&approvals).Error
 	return approvals, err
 }
 
@@ -306,22 +322,22 @@ func NewPaymentRepository(db *gorm.DB) *PaymentRepository {
 	return &PaymentRepository{db: db}
 }
 
-func (r *PaymentRepository) Create(p *LoanPayment) error {
-	return r.db.Create(p).Error
+func (r *PaymentRepository) Create(ctx context.Context, p *LoanPayment) error {
+	return r.db.WithContext(ctx).Create(p).Error
 }
 
-func (r *PaymentRepository) FindByLoanID(loanID uint) ([]LoanPayment, error) {
+func (r *PaymentRepository) FindByLoanID(ctx context.Context, loanID uint) ([]LoanPayment, error) {
 	var payments []LoanPayment
-	err := r.db.Where("loan_id = ?", loanID).Order("paid_on desc, id desc").Find(&payments).Error
+	err := r.db.WithContext(ctx).Where("loan_id = ?", loanID).Order("paid_on desc, id desc").Find(&payments).Error
 	return payments, err
 }
 
 // FindByID looks up a single payment by its primary key — used by the
 // customer-app payment-receipt endpoint, which then checks the payment's
 // parent loan belongs to the requesting customer before generating anything.
-func (r *PaymentRepository) FindByID(id uint) (*LoanPayment, error) {
+func (r *PaymentRepository) FindByID(ctx context.Context, id uint) (*LoanPayment, error) {
 	var p LoanPayment
-	if err := r.db.First(&p, id).Error; err != nil {
+	if err := r.db.WithContext(ctx).First(&p, id).Error; err != nil {
 		return nil, err
 	}
 	return &p, nil
@@ -332,9 +348,9 @@ func (r *PaymentRepository) FindByID(id uint) (*LoanPayment, error) {
 // loans.customer_id — backs GET /customer/payments (the Payments tab's
 // global history), paginated the same way FindAll's list endpoints are
 // (limit/offset, caller decides "hasMore" from an oversized limit).
-func (r *PaymentRepository) FindByCustomerID(customerID uint, limit, offset int) ([]LoanPayment, error) {
+func (r *PaymentRepository) FindByCustomerID(ctx context.Context, customerID uint, limit, offset int) ([]LoanPayment, error) {
 	var payments []LoanPayment
-	q := r.db.Model(&LoanPayment{}).
+	q := r.db.WithContext(ctx).Model(&LoanPayment{}).
 		Select("loan_payments.*").
 		Joins("JOIN loans ON loans.id = loan_payments.loan_id").
 		Where("loans.customer_id = ?", customerID).
@@ -361,9 +377,9 @@ type CustomerPaymentRow struct {
 // mobile app uses with no date filter at all.
 // FindByCustomerIDForProfile returns matching rows plus the TOTAL row count
 // (Limit/Offset ignored, 0 when limit <= 0).
-func (r *PaymentRepository) FindByCustomerIDForProfile(customerID uint, from, to *time.Time, limit, offset int) ([]CustomerPaymentRow, int64, error) {
+func (r *PaymentRepository) FindByCustomerIDForProfile(ctx context.Context, customerID uint, from, to *time.Time, limit, offset int) ([]CustomerPaymentRow, int64, error) {
 	var rows []CustomerPaymentRow
-	q := r.db.Model(&LoanPayment{}).
+	q := r.db.WithContext(ctx).Model(&LoanPayment{}).
 		Select("loan_payments.*, loans.loan_number AS loan_number").
 		Joins("JOIN loans ON loans.id = loan_payments.loan_id").
 		Where("loans.customer_id = ?", customerID)
@@ -389,9 +405,9 @@ func (r *PaymentRepository) FindByCustomerIDForProfile(customerID uint, from, to
 // every payment recorded with PaidOn within [from, to] (inclusive) —
 // backs the Dashboard's "Interest Collected" KPI (see
 // Service.GetInterestCollected).
-func (r *PaymentRepository) SumInterestCollected(from, to time.Time) (float64, error) {
+func (r *PaymentRepository) SumInterestCollected(ctx context.Context, from, to time.Time) (float64, error) {
 	var total float64
-	err := r.db.Model(&LoanPayment{}).
+	err := r.db.WithContext(ctx).Model(&LoanPayment{}).
 		Where("paid_on >= ? AND paid_on <= ?", from, to).
 		Select("COALESCE(SUM(interest_applied + penal_interest_applied), 0)").
 		Row().Scan(&total)
@@ -407,17 +423,17 @@ func NewBankPledgeRepository(db *gorm.DB) *BankPledgeRepository {
 	return &BankPledgeRepository{db: db}
 }
 
-func (r *BankPledgeRepository) Create(p *BankPledgeRecord) error {
-	return r.db.Create(p).Error
+func (r *BankPledgeRepository) Create(ctx context.Context, p *BankPledgeRecord) error {
+	return r.db.WithContext(ctx).Create(p).Error
 }
 
-func (r *BankPledgeRepository) Update(p *BankPledgeRecord) error {
-	return r.db.Save(p).Error
+func (r *BankPledgeRepository) Update(ctx context.Context, p *BankPledgeRecord) error {
+	return r.db.WithContext(ctx).Save(p).Error
 }
 
-func (r *BankPledgeRepository) FindByID(id uint) (*BankPledgeRecord, error) {
+func (r *BankPledgeRepository) FindByID(ctx context.Context, id uint) (*BankPledgeRecord, error) {
 	var p BankPledgeRecord
-	if err := r.db.First(&p, id).Error; err != nil {
+	if err := r.db.WithContext(ctx).First(&p, id).Error; err != nil {
 		return nil, err
 	}
 	return &p, nil
@@ -430,17 +446,17 @@ func (r *BankPledgeRepository) FindByID(id uint) (*BankPledgeRecord, error) {
 // the loan-level string while leaving the other open. Every guard that must
 // not be fooled by that drift (CompleteRelease, RecordBankPledge) asks the
 // records through here rather than reading the string.
-func (r *BankPledgeRepository) HasActive(loanID uint) (bool, error) {
+func (r *BankPledgeRepository) HasActive(ctx context.Context, loanID uint) (bool, error) {
 	var count int64
-	err := r.db.Model(&BankPledgeRecord{}).
+	err := r.db.WithContext(ctx).Model(&BankPledgeRecord{}).
 		Where("loan_id = ? AND status = ?", loanID, BankPledgeStatusRecordActive).
 		Count(&count).Error
 	return count > 0, err
 }
 
-func (r *BankPledgeRepository) FindByLoanID(loanID uint) ([]BankPledgeRecord, error) {
+func (r *BankPledgeRepository) FindByLoanID(ctx context.Context, loanID uint) ([]BankPledgeRecord, error) {
 	var pledges []BankPledgeRecord
-	err := r.db.Where("loan_id = ?", loanID).Order("id desc").Find(&pledges).Error
+	err := r.db.WithContext(ctx).Where("loan_id = ?", loanID).Order("id desc").Find(&pledges).Error
 	return pledges, err
 }
 
@@ -448,9 +464,9 @@ func (r *BankPledgeRepository) FindByLoanID(loanID uint) ([]BankPledgeRecord, er
 // including released and voided ones — with each record's audit trail
 // attached. The plain FindByLoanID above is kept for the existing callers that
 // only want the raw rows.
-func (r *BankPledgeRepository) FindHistoryByLoanID(loanID uint) ([]BankPledgeRecord, error) {
+func (r *BankPledgeRepository) FindHistoryByLoanID(ctx context.Context, loanID uint) ([]BankPledgeRecord, error) {
 	var pledges []BankPledgeRecord
-	err := r.db.
+	err := r.db.WithContext(ctx).
 		Preload("Events", func(d *gorm.DB) *gorm.DB { return d.Order("created_at asc, id asc") }).
 		Where("loan_id = ?", loanID).
 		Order("id desc").
@@ -465,9 +481,9 @@ func (r *BankPledgeRepository) FindHistoryByLoanID(loanID uint) ([]BankPledgeRec
 // LoanRequestRepository.FindAll does it.
 // FindAllHistory returns matching pledges plus the TOTAL row count (Limit/
 // Offset ignored, 0 when limit <= 0).
-func (r *BankPledgeRepository) FindAllHistory(branchID *uint, limit, offset int) ([]BankPledgeRecord, int64, error) {
+func (r *BankPledgeRepository) FindAllHistory(ctx context.Context, branchID *uint, limit, offset int) ([]BankPledgeRecord, int64, error) {
 	var pledges []BankPledgeRecord
-	q := r.db.Model(&BankPledgeRecord{}).
+	q := r.db.WithContext(ctx).Model(&BankPledgeRecord{}).
 		Preload("Events", func(d *gorm.DB) *gorm.DB { return d.Order("created_at asc, id asc") })
 	if branchID != nil {
 		q = q.Joins("JOIN loans ON loans.id = bank_pledge_records.loan_id").
@@ -498,9 +514,9 @@ type CustomerBankPledgeRow struct {
 // the PARENT LOAN's OpenedDate, matching GetCustomer360's window semantics.
 // FindAllByCustomerID returns matching rows plus the TOTAL row count (Limit/
 // Offset ignored, 0 when limit <= 0).
-func (r *BankPledgeRepository) FindAllByCustomerID(customerID uint, from, to *time.Time, limit, offset int) ([]CustomerBankPledgeRow, int64, error) {
+func (r *BankPledgeRepository) FindAllByCustomerID(ctx context.Context, customerID uint, from, to *time.Time, limit, offset int) ([]CustomerBankPledgeRow, int64, error) {
 	var rows []CustomerBankPledgeRow
-	q := r.db.Model(&BankPledgeRecord{}).
+	q := r.db.WithContext(ctx).Model(&BankPledgeRecord{}).
 		Select("bank_pledge_records.*, loans.loan_number AS loan_number").
 		Joins("JOIN loans ON loans.id = bank_pledge_records.loan_id").
 		Where("loans.customer_id = ?", customerID)
@@ -523,8 +539,8 @@ func (r *BankPledgeRepository) FindAllByCustomerID(customerID uint, from, to *ti
 }
 
 // CreateEvent appends one entry to a re-pledge record's audit trail.
-func (r *BankPledgeRepository) CreateEvent(e *BankPledgeEvent) error {
-	return r.db.Create(e).Error
+func (r *BankPledgeRepository) CreateEvent(ctx context.Context, e *BankPledgeEvent) error {
+	return r.db.WithContext(ctx).Create(e).Error
 }
 
 // LoanRequestRepository provides GORM-backed persistence for LoanRequest rows.
@@ -536,17 +552,17 @@ func NewLoanRequestRepository(db *gorm.DB) *LoanRequestRepository {
 	return &LoanRequestRepository{db: db}
 }
 
-func (r *LoanRequestRepository) Create(req *LoanRequest) error {
-	return r.db.Create(req).Error
+func (r *LoanRequestRepository) Create(ctx context.Context, req *LoanRequest) error {
+	return r.db.WithContext(ctx).Create(req).Error
 }
 
-func (r *LoanRequestRepository) Update(req *LoanRequest) error {
-	return r.db.Save(req).Error
+func (r *LoanRequestRepository) Update(ctx context.Context, req *LoanRequest) error {
+	return r.db.WithContext(ctx).Save(req).Error
 }
 
-func (r *LoanRequestRepository) FindByID(id uint) (*LoanRequest, error) {
+func (r *LoanRequestRepository) FindByID(ctx context.Context, id uint) (*LoanRequest, error) {
 	var req LoanRequest
-	if err := r.db.Preload("Loan.Customer").First(&req, id).Error; err != nil {
+	if err := r.db.WithContext(ctx).Preload("Loan.Customer").First(&req, id).Error; err != nil {
 		return nil, err
 	}
 	return &req, nil
@@ -571,8 +587,8 @@ type LoanRequestFilter struct {
 
 // FindAll returns matching requests plus the TOTAL row count for f's
 // filters (Limit/Offset ignored, 0 when f.Limit <= 0).
-func (r *LoanRequestRepository) FindAll(f LoanRequestFilter) ([]LoanRequest, int64, error) {
-	q := r.db.Preload("Loan.Customer").Model(&LoanRequest{}).Order("id desc")
+func (r *LoanRequestRepository) FindAll(ctx context.Context, f LoanRequestFilter) ([]LoanRequest, int64, error) {
+	q := r.db.WithContext(ctx).Preload("Loan.Customer").Model(&LoanRequest{}).Order("id desc")
 	if f.BranchID != nil {
 		q = q.Joins("JOIN loans ON loans.id = loan_requests.loan_id").Where("loans.branch_id = ?", *f.BranchID)
 	}
@@ -600,9 +616,9 @@ func (r *LoanRequestRepository) FindAll(f LoanRequestFilter) ([]LoanRequest, int
 // FindApprovedReleaseByLoanID finds the (most recent) Approved Release
 // request for a loan — CompleteRelease uses this to confirm a release was
 // actually approved before letting the gold go out.
-func (r *LoanRequestRepository) FindApprovedReleaseByLoanID(loanID uint) (*LoanRequest, error) {
+func (r *LoanRequestRepository) FindApprovedReleaseByLoanID(ctx context.Context, loanID uint) (*LoanRequest, error) {
 	var req LoanRequest
-	err := r.db.Preload("Loan.Customer").
+	err := r.db.WithContext(ctx).Preload("Loan.Customer").
 		Where("loan_id = ? AND type = ? AND status = ?", loanID, RequestTypeRelease, RequestStatusApproved).
 		Order("id desc").First(&req).Error
 	if err != nil {
@@ -621,13 +637,13 @@ func NewRequestApprovalRepository(db *gorm.DB) *RequestApprovalRepository {
 	return &RequestApprovalRepository{db: db}
 }
 
-func (r *RequestApprovalRepository) Create(a *RequestApproval) error {
-	return r.db.Create(a).Error
+func (r *RequestApprovalRepository) Create(ctx context.Context, a *RequestApproval) error {
+	return r.db.WithContext(ctx).Create(a).Error
 }
 
-func (r *RequestApprovalRepository) FindByRequestID(requestID uint) ([]RequestApproval, error) {
+func (r *RequestApprovalRepository) FindByRequestID(ctx context.Context, requestID uint) ([]RequestApproval, error) {
 	var approvals []RequestApproval
-	err := r.db.Where("request_id = ?", requestID).Order("id asc").Find(&approvals).Error
+	err := r.db.WithContext(ctx).Where("request_id = ?", requestID).Order("id asc").Find(&approvals).Error
 	return approvals, err
 }
 
@@ -641,12 +657,12 @@ func NewAuctionRepository(db *gorm.DB) *AuctionRepository {
 	return &AuctionRepository{db: db}
 }
 
-func (r *AuctionRepository) Create(a *AuctionRecord) error {
-	return r.db.Create(a).Error
+func (r *AuctionRepository) Create(ctx context.Context, a *AuctionRecord) error {
+	return r.db.WithContext(ctx).Create(a).Error
 }
 
-func (r *AuctionRepository) Update(a *AuctionRecord) error {
-	return r.db.Save(a).Error
+func (r *AuctionRepository) Update(ctx context.Context, a *AuctionRecord) error {
+	return r.db.WithContext(ctx).Save(a).Error
 }
 
 // preloadAuctionDetail attaches the child collections an auction case's
@@ -667,9 +683,9 @@ func preloadAuctionDetail(db *gorm.DB) *gorm.DB {
 // Returns gorm.ErrRecordNotFound when the loan has no live case, which
 // callers translate to ErrAuctionNotFound (or, for MarkAuctionEligible, treat
 // as "clear to start a new one").
-func (r *AuctionRepository) FindActiveByLoanID(loanID uint) (*AuctionRecord, error) {
+func (r *AuctionRepository) FindActiveByLoanID(ctx context.Context, loanID uint) (*AuctionRecord, error) {
 	var a AuctionRecord
-	if err := preloadAuctionDetail(r.db).
+	if err := preloadAuctionDetail(r.db.WithContext(ctx)).
 		Where("loan_id = ? AND stage NOT IN (?, ?)", loanID, AuctionStageSettled, AuctionStageWithdrawn).
 		Order("created_at desc, id desc").
 		First(&a).Error; err != nil {
@@ -688,7 +704,7 @@ func (r *AuctionRepository) FindActiveByLoanID(loanID uint) (*AuctionRecord, err
 // Child collections are deliberately NOT preloaded: FOR UPDATE must apply to
 // a single-table query, and callers in a transaction only need the record's
 // own columns.
-func (r *AuctionRepository) FindActiveByLoanIDForUpdate(tx *gorm.DB, loanID uint) (*AuctionRecord, error) {
+func (r *AuctionRepository) FindActiveByLoanIDForUpdate(ctx context.Context, tx *gorm.DB, loanID uint) (*AuctionRecord, error) {
 	var a AuctionRecord
 	if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
 		Where("loan_id = ? AND stage NOT IN (?, ?)", loanID, AuctionStageSettled, AuctionStageWithdrawn).
@@ -701,9 +717,9 @@ func (r *AuctionRepository) FindActiveByLoanIDForUpdate(tx *gorm.DB, loanID uint
 
 // FindHistoryByLoanID returns every auction case ever opened against a loan,
 // newest first — the per-loan auction history.
-func (r *AuctionRepository) FindHistoryByLoanID(loanID uint) ([]AuctionRecord, error) {
+func (r *AuctionRepository) FindHistoryByLoanID(ctx context.Context, loanID uint) ([]AuctionRecord, error) {
 	var records []AuctionRecord
-	err := preloadAuctionDetail(r.db).
+	err := preloadAuctionDetail(r.db.WithContext(ctx)).
 		Where("loan_id = ?", loanID).
 		Order("created_at desc, id desc").
 		Find(&records).Error
@@ -734,9 +750,9 @@ type ConcludedAuctionRow struct {
 // limit/offset apply only when limit > 0, matching LoanFilter's convention.
 // FindAllConcluded returns matching rows plus the TOTAL row count (Limit/
 // Offset ignored, 0 when limit <= 0).
-func (r *AuctionRepository) FindAllConcluded(branchID *uint, hasSale *bool, limit, offset int) ([]ConcludedAuctionRow, int64, error) {
+func (r *AuctionRepository) FindAllConcluded(ctx context.Context, branchID *uint, hasSale *bool, limit, offset int) ([]ConcludedAuctionRow, int64, error) {
 	var rows []ConcludedAuctionRow
-	q := preloadAuctionDetail(r.db).Model(&AuctionRecord{}).
+	q := preloadAuctionDetail(r.db.WithContext(ctx)).Model(&AuctionRecord{}).
 		Select("auction_records.*, loans.loan_number AS loan_number, customers.name AS customer_name").
 		Joins("JOIN loans ON loans.id = auction_records.loan_id").
 		Joins("JOIN customers ON customers.id = loans.customer_id").
@@ -779,9 +795,9 @@ type CustomerAuctionRow struct {
 // OpenedDate, matching GetCustomer360's window semantics.
 // FindAllByCustomerID returns matching rows plus the TOTAL row count (Limit/
 // Offset ignored, 0 when limit <= 0).
-func (r *AuctionRepository) FindAllByCustomerID(customerID uint, from, to *time.Time, limit, offset int) ([]CustomerAuctionRow, int64, error) {
+func (r *AuctionRepository) FindAllByCustomerID(ctx context.Context, customerID uint, from, to *time.Time, limit, offset int) ([]CustomerAuctionRow, int64, error) {
 	var rows []CustomerAuctionRow
-	q := r.db.Model(&AuctionRecord{}).
+	q := r.db.WithContext(ctx).Model(&AuctionRecord{}).
 		Select("auction_records.*, loans.loan_number AS loan_number").
 		Joins("JOIN loans ON loans.id = auction_records.loan_id").
 		Where("loans.customer_id = ?", customerID)
@@ -803,36 +819,36 @@ func (r *AuctionRepository) FindAllByCustomerID(customerID uint, from, to *time.
 	return rows, total, err
 }
 
-func (r *AuctionRepository) CreateNotice(n *AuctionNotice) error {
-	return r.db.Create(n).Error
+func (r *AuctionRepository) CreateNotice(ctx context.Context, n *AuctionNotice) error {
+	return r.db.WithContext(ctx).Create(n).Error
 }
 
 // CreateEvent appends one entry to a case's staff-action audit trail. tx may
 // be nil to write outside a transaction.
-func (r *AuctionRepository) CreateEvent(tx *gorm.DB, e *AuctionEvent) error {
-	return r.dbOr(tx).Create(e).Error
+func (r *AuctionRepository) CreateEvent(ctx context.Context, tx *gorm.DB, e *AuctionEvent) error {
+	return r.dbOr(ctx, tx).Create(e).Error
 }
 
 // dbOr returns tx when the caller is inside a transaction, else the
 // repository's own handle — lets every write below participate in a
 // transaction without duplicating each method.
-func (r *AuctionRepository) dbOr(tx *gorm.DB) *gorm.DB {
+func (r *AuctionRepository) dbOr(ctx context.Context, tx *gorm.DB) *gorm.DB {
 	if tx != nil {
 		return tx
 	}
-	return r.db
+	return r.db.WithContext(ctx)
 }
 
-func (r *AuctionRepository) UpdateTx(tx *gorm.DB, a *AuctionRecord) error {
-	return r.dbOr(tx).Save(a).Error
+func (r *AuctionRepository) UpdateTx(ctx context.Context, tx *gorm.DB, a *AuctionRecord) error {
+	return r.dbOr(ctx, tx).Save(a).Error
 }
 
 // FindPendingDecision returns the open escalation of the given kind against a
 // case, if any. At most one can exist per (record, kind) — enforced by a
 // partial unique index (see cmd/migrate).
-func (r *AuctionRepository) FindPendingDecision(tx *gorm.DB, auctionRecordID uint, kind string) (*AuctionDecisionRequest, error) {
+func (r *AuctionRepository) FindPendingDecision(ctx context.Context, tx *gorm.DB, auctionRecordID uint, kind string) (*AuctionDecisionRequest, error) {
 	var req AuctionDecisionRequest
-	err := r.dbOr(tx).
+	err := r.dbOr(ctx, tx).
 		Where("auction_record_id = ? AND kind = ? AND status = ?", auctionRecordID, kind, AuctionDecisionPending).
 		First(&req).Error
 	if err != nil {
@@ -844,25 +860,25 @@ func (r *AuctionRepository) FindPendingDecision(tx *gorm.DB, auctionRecordID uin
 // HasAnyPendingDecision reports whether a case has ANY open escalation. Used
 // by the pre-sale guard: while a repayment decision is outstanding the gold
 // must not move any further through the pipeline.
-func (r *AuctionRepository) HasAnyPendingDecision(auctionRecordID uint) (bool, error) {
+func (r *AuctionRepository) HasAnyPendingDecision(ctx context.Context, auctionRecordID uint) (bool, error) {
 	var count int64
-	err := r.db.Model(&AuctionDecisionRequest{}).
+	err := r.db.WithContext(ctx).Model(&AuctionDecisionRequest{}).
 		Where("auction_record_id = ? AND status = ?", auctionRecordID, AuctionDecisionPending).
 		Count(&count).Error
 	return count > 0, err
 }
 
-func (r *AuctionRepository) CreateDecision(tx *gorm.DB, req *AuctionDecisionRequest) error {
-	return r.dbOr(tx).Create(req).Error
+func (r *AuctionRepository) CreateDecision(ctx context.Context, tx *gorm.DB, req *AuctionDecisionRequest) error {
+	return r.dbOr(ctx, tx).Create(req).Error
 }
 
-func (r *AuctionRepository) UpdateDecision(tx *gorm.DB, req *AuctionDecisionRequest) error {
-	return r.dbOr(tx).Save(req).Error
+func (r *AuctionRepository) UpdateDecision(ctx context.Context, tx *gorm.DB, req *AuctionDecisionRequest) error {
+	return r.dbOr(ctx, tx).Save(req).Error
 }
 
-func (r *AuctionRepository) FindDecisionByID(tx *gorm.DB, id uint) (*AuctionDecisionRequest, error) {
+func (r *AuctionRepository) FindDecisionByID(ctx context.Context, tx *gorm.DB, id uint) (*AuctionDecisionRequest, error) {
 	var req AuctionDecisionRequest
-	if err := r.dbOr(tx).First(&req, id).Error; err != nil {
+	if err := r.dbOr(ctx, tx).First(&req, id).Error; err != nil {
 		return nil, err
 	}
 	return &req, nil
@@ -871,9 +887,9 @@ func (r *AuctionRepository) FindDecisionByID(tx *gorm.DB, id uint) (*AuctionDeci
 // FindPendingDecisions lists every open escalation across all loans — backs
 // the pending-decisions queue. branchID scopes to the caller's branch (nil
 // for Administrator).
-func (r *AuctionRepository) FindPendingDecisions(branchID *uint) ([]AuctionDecisionRequest, error) {
+func (r *AuctionRepository) FindPendingDecisions(ctx context.Context, branchID *uint) ([]AuctionDecisionRequest, error) {
 	var reqs []AuctionDecisionRequest
-	q := r.db.Model(&AuctionDecisionRequest{}).
+	q := r.db.WithContext(ctx).Model(&AuctionDecisionRequest{}).
 		Where("auction_decision_requests.status = ?", AuctionDecisionPending)
 	if branchID != nil {
 		q = q.Joins("JOIN loans ON loans.id = auction_decision_requests.loan_id").
@@ -909,8 +925,8 @@ func preloadDraft(db *gorm.DB) *gorm.DB {
 
 // Create writes a draft and its ornament rows together — GORM cascades the
 // Ornaments slice because of the DraftID foreign key.
-func (r *DraftRepository) Create(d *LoanDraft) error {
-	return r.db.Create(d).Error
+func (r *DraftRepository) Create(ctx context.Context, d *LoanDraft) error {
+	return r.db.WithContext(ctx).Create(d).Error
 }
 
 // Replace overwrites an existing draft in place: the header fields are saved
@@ -920,8 +936,8 @@ func (r *DraftRepository) Create(d *LoanDraft) error {
 // both simpler and immune to the stale-row bugs a partial update invites.
 // Wrapped in a transaction so a failed re-insert can't leave a draft with
 // its ornaments deleted.
-func (r *DraftRepository) Replace(d *LoanDraft) error {
-	return r.db.Transaction(func(tx *gorm.DB) error {
+func (r *DraftRepository) Replace(ctx context.Context, d *LoanDraft) error {
+	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		if err := tx.Where("draft_id = ?", d.ID).Delete(&LoanDraftOrnament{}).Error; err != nil {
 			return err
 		}
@@ -941,9 +957,9 @@ func (r *DraftRepository) Replace(d *LoanDraft) error {
 	})
 }
 
-func (r *DraftRepository) FindByID(id uint) (*LoanDraft, error) {
+func (r *DraftRepository) FindByID(ctx context.Context, id uint) (*LoanDraft, error) {
 	var d LoanDraft
-	if err := preloadDraft(r.db).First(&d, id).Error; err != nil {
+	if err := preloadDraft(r.db.WithContext(ctx)).First(&d, id).Error; err != nil {
 		return nil, err
 	}
 	return &d, nil
@@ -952,8 +968,8 @@ func (r *DraftRepository) FindByID(id uint) (*LoanDraft, error) {
 // FindAllByEmployee lists one employee's own drafts, newest-saved first —
 // drafts are private to whoever saved them (see LoanDraft's doc comment).
 // branchScope additionally restricts to the caller's branch when set.
-func (r *DraftRepository) FindAllByEmployee(employeeID uint, branchScope *uint) ([]LoanDraft, error) {
-	q := preloadDraft(r.db).Model(&LoanDraft{}).
+func (r *DraftRepository) FindAllByEmployee(ctx context.Context, employeeID uint, branchScope *uint) ([]LoanDraft, error) {
+	q := preloadDraft(r.db.WithContext(ctx)).Model(&LoanDraft{}).
 		Where("created_by_employee_id = ?", employeeID).
 		Order("updated_at desc")
 	if branchScope != nil {
@@ -966,8 +982,8 @@ func (r *DraftRepository) FindAllByEmployee(employeeID uint, branchScope *uint) 
 
 // Delete hard deletes a draft and its rows — drafts are scratch paper, not
 // an audit trail (see LoanDraft's doc comment).
-func (r *DraftRepository) Delete(id uint) error {
-	return r.db.Transaction(func(tx *gorm.DB) error {
+func (r *DraftRepository) Delete(ctx context.Context, id uint) error {
+	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		if err := tx.Where("draft_id = ?", id).Delete(&LoanDraftOrnament{}).Error; err != nil {
 			return err
 		}

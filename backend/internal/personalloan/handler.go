@@ -32,6 +32,7 @@ type createRequest struct {
 
 // Create validates + persists a new loan, disbursing it in the same step.
 func (h *Handler) Create(c *gin.Context) {
+	ctx := platform.RequestContext(c)
 	var req createRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		httpx.Fail(c, http.StatusBadRequest, "Invalid input")
@@ -40,7 +41,7 @@ func (h *Handler) Create(c *gin.Context) {
 	employeeID, _, _ := platform.ActorFromContext(c)
 	branchID := platform.EnforceBranchOnWrite(c, req.BranchID)
 
-	rec, err := h.svc.CreateLoan(CreateInput{
+	rec, err := h.svc.CreateLoan(ctx, CreateInput{
 		BranchID:            branchID,
 		CustomerID:          req.CustomerID,
 		PrincipalAmount:     req.PrincipalAmount,
@@ -62,6 +63,7 @@ func (h *Handler) Create(c *gin.Context) {
 // searched by loan number or customer name (q) — limit/offset query params,
 // page size defaults to 10 (see Service.List).
 func (h *Handler) List(c *gin.Context) {
+	ctx := platform.RequestContext(c)
 	branchID := platform.GetBranchScope(c)
 	var customerID *uint
 	if v := c.Query("customerId"); v != "" {
@@ -72,7 +74,7 @@ func (h *Handler) List(c *gin.Context) {
 	}
 	limit, _ := strconv.Atoi(c.Query("limit"))
 	offset, _ := strconv.Atoi(c.Query("offset"))
-	recs, hasMore, err := h.svc.List(ListInput{
+	recs, hasMore, err := h.svc.List(ctx, ListInput{
 		BranchID:   branchID,
 		CustomerID: customerID,
 		Status:     c.Query("status"),
@@ -90,12 +92,13 @@ func (h *Handler) List(c *gin.Context) {
 
 // Get returns one loan.
 func (h *Handler) Get(c *gin.Context) {
+	ctx := platform.RequestContext(c)
 	id, err := httpx.IDParam(c, "id")
 	if err != nil {
 		httpx.FailErr(c, err)
 		return
 	}
-	rec, err := h.svc.Get(id, platform.GetBranchScope(c))
+	rec, err := h.svc.Get(ctx, id, platform.GetBranchScope(c))
 	if err != nil {
 		httpx.FailErr(c, err)
 		return
@@ -107,6 +110,7 @@ func (h *Handler) Get(c *gin.Context) {
 // {items, hasMore} envelope (limit/offset query params, page size defaults
 // to 10 — see Service.GetSchedule).
 func (h *Handler) Schedule(c *gin.Context) {
+	ctx := platform.RequestContext(c)
 	id, err := httpx.IDParam(c, "id")
 	if err != nil {
 		httpx.FailErr(c, err)
@@ -114,7 +118,7 @@ func (h *Handler) Schedule(c *gin.Context) {
 	}
 	limit, _ := strconv.Atoi(c.Query("limit"))
 	offset, _ := strconv.Atoi(c.Query("offset"))
-	recs, hasMore, err := h.svc.GetSchedule(id, platform.GetBranchScope(c), limit, offset)
+	recs, hasMore, err := h.svc.GetSchedule(ctx, id, platform.GetBranchScope(c), limit, offset)
 	if err != nil {
 		httpx.FailErr(c, err)
 		return
@@ -126,6 +130,7 @@ func (h *Handler) Schedule(c *gin.Context) {
 // {items, hasMore} envelope (limit/offset query params, page size defaults
 // to 10 — see Service.ListPayments).
 func (h *Handler) Payments(c *gin.Context) {
+	ctx := platform.RequestContext(c)
 	id, err := httpx.IDParam(c, "id")
 	if err != nil {
 		httpx.FailErr(c, err)
@@ -133,7 +138,7 @@ func (h *Handler) Payments(c *gin.Context) {
 	}
 	limit, _ := strconv.Atoi(c.Query("limit"))
 	offset, _ := strconv.Atoi(c.Query("offset"))
-	recs, hasMore, err := h.svc.ListPayments(id, platform.GetBranchScope(c), limit, offset)
+	recs, hasMore, err := h.svc.ListPayments(ctx, id, platform.GetBranchScope(c), limit, offset)
 	if err != nil {
 		httpx.FailErr(c, err)
 		return
@@ -150,6 +155,7 @@ type paymentRequest struct {
 
 // RecordPayment collects a payment against a loan.
 func (h *Handler) RecordPayment(c *gin.Context) {
+	ctx := platform.RequestContext(c)
 	id, err := httpx.IDParam(c, "id")
 	if err != nil {
 		httpx.FailErr(c, err)
@@ -161,7 +167,7 @@ func (h *Handler) RecordPayment(c *gin.Context) {
 		return
 	}
 	employeeID, _, _ := platform.ActorFromContext(c)
-	rec, err := h.svc.RecordPayment(id, platform.GetBranchScope(c), PaymentInput{
+	rec, err := h.svc.RecordPayment(ctx, id, platform.GetBranchScope(c), PaymentInput{
 		Amount:               req.Amount,
 		Method:               req.Method,
 		Reference:            req.Reference,
@@ -185,6 +191,7 @@ type renewRequest struct {
 
 // RenewalPreview returns the dry-run renewal calculation.
 func (h *Handler) RenewalPreview(c *gin.Context) {
+	ctx := platform.RequestContext(c)
 	id, err := httpx.IDParam(c, "id")
 	if err != nil {
 		httpx.FailErr(c, err)
@@ -195,7 +202,7 @@ func (h *Handler) RenewalPreview(c *gin.Context) {
 		httpx.Fail(c, http.StatusBadRequest, "Invalid input")
 		return
 	}
-	preview, err := h.svc.PreviewRenewal(id, platform.GetBranchScope(c), RenewInput{
+	preview, err := h.svc.PreviewRenewal(ctx, id, platform.GetBranchScope(c), RenewInput{
 		PrincipalAmount: req.PrincipalAmount,
 		InterestType:    req.InterestType,
 		InterestValue:   req.InterestValue,
@@ -211,6 +218,7 @@ func (h *Handler) RenewalPreview(c *gin.Context) {
 
 // Renew closes the loan and opens a new one in its place.
 func (h *Handler) Renew(c *gin.Context) {
+	ctx := platform.RequestContext(c)
 	id, err := httpx.IDParam(c, "id")
 	if err != nil {
 		httpx.FailErr(c, err)
@@ -222,7 +230,7 @@ func (h *Handler) Renew(c *gin.Context) {
 		return
 	}
 	employeeID, _, _ := platform.ActorFromContext(c)
-	result, err := h.svc.RenewLoan(id, platform.GetBranchScope(c), RenewInput{
+	result, err := h.svc.RenewLoan(ctx, id, platform.GetBranchScope(c), RenewInput{
 		PrincipalAmount:     req.PrincipalAmount,
 		InterestType:        req.InterestType,
 		InterestValue:       req.InterestValue,
@@ -261,12 +269,13 @@ func (h *Handler) DownloadBond(c *gin.Context) {
 // Unpaginated: a single customer's own personal loans are few enough to
 // show in full, unlike the branch-wide list page.
 func (h *Handler) ListLoansForCustomer(c *gin.Context) {
+	ctx := platform.RequestContext(c)
 	id, err := httpx.IDParam(c, "id")
 	if err != nil {
 		httpx.FailErr(c, err)
 		return
 	}
-	recs, _, err := h.svc.List(ListInput{BranchID: platform.GetBranchScope(c), CustomerID: &id, Limit: 1000})
+	recs, _, err := h.svc.List(ctx, ListInput{BranchID: platform.GetBranchScope(c), CustomerID: &id, Limit: 1000})
 	if err != nil {
 		httpx.FailErr(c, err)
 		return

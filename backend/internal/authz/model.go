@@ -6,14 +6,18 @@
 // what.
 package authz
 
-import "time"
+import (
+	"ambikagold/backend/internal/platform"
+	"time"
+)
 
 // Role is a staff role (Administrator, Cashier, ...). IsSystem marks a role
 // that must never be renamed, deactivated, deleted or have its grants
 // changed (Administrator — see repository.go's guards).
 type Role struct {
+	platform.TenantScoped
 	ID          uint      `json:"id" gorm:"primaryKey"`
-	Name        string    `json:"name" gorm:"uniqueIndex;not null;size:60"`
+	Name        string    `json:"name" gorm:"index;not null;size:60"`
 	Description string    `json:"description"`
 	IsActive    bool      `json:"isActive" gorm:"not null;default:true"`
 	IsSystem    bool      `json:"isSystem" gorm:"not null;default:false"`
@@ -43,6 +47,7 @@ func (Permission) TableName() string { return "permissions" }
 // SeedCatalogue/BackfillGrants) — revoking sets Permission=false, it never
 // deletes the row (see the standard's §4.2).
 type RolePermission struct {
+	platform.TenantScoped
 	ID           uint `json:"id" gorm:"primaryKey"`
 	RoleID       uint `json:"roleId" gorm:"not null;index;uniqueIndex:idx_role_permission"`
 	PermissionID uint `json:"permissionId" gorm:"not null;index;uniqueIndex:idx_role_permission"`

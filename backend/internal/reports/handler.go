@@ -84,12 +84,13 @@ func respond[T any](c *gin.Context, rows []T, totals any, f Filter) {
 }
 
 func (h *Handler) Disbursement(c *gin.Context) {
+	ctx := platform.RequestContext(c)
 	f, err := parseFilter(c)
 	if err != nil {
 		badRequest(c, err)
 		return
 	}
-	rows, totals, err := h.svc.Disbursement(f)
+	rows, totals, err := h.svc.Disbursement(ctx, f)
 	if err != nil {
 		serverError(c, err)
 		return
@@ -98,12 +99,13 @@ func (h *Handler) Disbursement(c *gin.Context) {
 }
 
 func (h *Handler) LoansStatus(c *gin.Context) {
+	ctx := platform.RequestContext(c)
 	f, err := parseFilter(c)
 	if err != nil {
 		badRequest(c, err)
 		return
 	}
-	rows, totals, err := h.svc.LoanStatus(f, c.Query("status"))
+	rows, totals, err := h.svc.LoanStatus(ctx, f, c.Query("status"))
 	if err != nil {
 		serverError(c, err)
 		return
@@ -112,12 +114,13 @@ func (h *Handler) LoansStatus(c *gin.Context) {
 }
 
 func (h *Handler) InterestCollection(c *gin.Context) {
+	ctx := platform.RequestContext(c)
 	f, err := parseFilter(c)
 	if err != nil {
 		badRequest(c, err)
 		return
 	}
-	rows, totals, err := h.svc.InterestCollection(f)
+	rows, totals, err := h.svc.InterestCollection(ctx, f)
 	if err != nil {
 		serverError(c, err)
 		return
@@ -126,12 +129,13 @@ func (h *Handler) InterestCollection(c *gin.Context) {
 }
 
 func (h *Handler) OutstandingPrincipal(c *gin.Context) {
+	ctx := platform.RequestContext(c)
 	f, err := parseFilter(c)
 	if err != nil {
 		badRequest(c, err)
 		return
 	}
-	rows, totals, err := h.svc.OutstandingPrincipal(f)
+	rows, totals, err := h.svc.OutstandingPrincipal(ctx, f)
 	if err != nil {
 		serverError(c, err)
 		return
@@ -140,12 +144,13 @@ func (h *Handler) OutstandingPrincipal(c *gin.Context) {
 }
 
 func (h *Handler) PaymentCollection(c *gin.Context) {
+	ctx := platform.RequestContext(c)
 	f, err := parseFilter(c)
 	if err != nil {
 		badRequest(c, err)
 		return
 	}
-	rows, totals, err := h.svc.PaymentCollection(f)
+	rows, totals, err := h.svc.PaymentCollection(ctx, f)
 	if err != nil {
 		serverError(c, err)
 		return
@@ -154,12 +159,13 @@ func (h *Handler) PaymentCollection(c *gin.Context) {
 }
 
 func (h *Handler) GoldWeight(c *gin.Context) {
+	ctx := platform.RequestContext(c)
 	f, err := parseFilter(c)
 	if err != nil {
 		badRequest(c, err)
 		return
 	}
-	rows, totals, err := h.svc.GoldWeight(f)
+	rows, totals, err := h.svc.GoldWeight(ctx, f)
 	if err != nil {
 		serverError(c, err)
 		return
@@ -168,12 +174,13 @@ func (h *Handler) GoldWeight(c *gin.Context) {
 }
 
 func (h *Handler) Packets(c *gin.Context) {
+	ctx := platform.RequestContext(c)
 	f, err := parseFilter(c)
 	if err != nil {
 		badRequest(c, err)
 		return
 	}
-	rows, totals, err := h.svc.Packets(f)
+	rows, totals, err := h.svc.Packets(ctx, f)
 	if err != nil {
 		serverError(c, err)
 		return
@@ -182,12 +189,13 @@ func (h *Handler) Packets(c *gin.Context) {
 }
 
 func (h *Handler) BankPledge(c *gin.Context) {
+	ctx := platform.RequestContext(c)
 	f, err := parseFilter(c)
 	if err != nil {
 		badRequest(c, err)
 		return
 	}
-	rows, totals, err := h.svc.BankPledge(f)
+	rows, totals, err := h.svc.BankPledge(ctx, f)
 	if err != nil {
 		serverError(c, err)
 		return
@@ -196,12 +204,13 @@ func (h *Handler) BankPledge(c *gin.Context) {
 }
 
 func (h *Handler) LoanExtensions(c *gin.Context) {
+	ctx := platform.RequestContext(c)
 	f, err := parseFilter(c)
 	if err != nil {
 		badRequest(c, err)
 		return
 	}
-	rows, totals, err := h.svc.LoanExtensions(f)
+	rows, totals, err := h.svc.LoanExtensions(ctx, f)
 	if err != nil {
 		serverError(c, err)
 		return
@@ -210,12 +219,13 @@ func (h *Handler) LoanExtensions(c *gin.Context) {
 }
 
 func (h *Handler) GoldRelease(c *gin.Context) {
+	ctx := platform.RequestContext(c)
 	f, err := parseFilter(c)
 	if err != nil {
 		badRequest(c, err)
 		return
 	}
-	rows, totals, err := h.svc.GoldRelease(f)
+	rows, totals, err := h.svc.GoldRelease(ctx, f)
 	if err != nil {
 		serverError(c, err)
 		return
@@ -224,12 +234,13 @@ func (h *Handler) GoldRelease(c *gin.Context) {
 }
 
 func (h *Handler) Auctions(c *gin.Context) {
+	ctx := platform.RequestContext(c)
 	f, err := parseFilter(c)
 	if err != nil {
 		badRequest(c, err)
 		return
 	}
-	rows, totals, err := h.svc.Auctions(f)
+	rows, totals, err := h.svc.Auctions(ctx, f)
 	if err != nil {
 		serverError(c, err)
 		return
@@ -238,12 +249,13 @@ func (h *Handler) Auctions(c *gin.Context) {
 }
 
 func (h *Handler) ExpenseCashflow(c *gin.Context) {
+	ctx := platform.RequestContext(c)
 	f, err := parseFilter(c)
 	if err != nil {
 		badRequest(c, err)
 		return
 	}
-	rows, totals, err := h.svc.ExpenseCashflow(f)
+	rows, totals, err := h.svc.ExpenseCashflow(ctx, f)
 	if err != nil {
 		serverError(c, err)
 		return
@@ -252,12 +264,13 @@ func (h *Handler) ExpenseCashflow(c *gin.Context) {
 }
 
 func (h *Handler) KYC(c *gin.Context) {
+	ctx := platform.RequestContext(c)
 	f, err := parseFilter(c)
 	if err != nil {
 		badRequest(c, err)
 		return
 	}
-	rows, totals, err := h.svc.KYC(f)
+	rows, totals, err := h.svc.KYC(ctx, f)
 	if err != nil {
 		serverError(c, err)
 		return
@@ -266,12 +279,13 @@ func (h *Handler) KYC(c *gin.Context) {
 }
 
 func (h *Handler) GoldRateHistory(c *gin.Context) {
+	ctx := platform.RequestContext(c)
 	f, err := parseFilter(c)
 	if err != nil {
 		badRequest(c, err)
 		return
 	}
-	rows, totals, err := h.svc.GoldRateHistory(f)
+	rows, totals, err := h.svc.GoldRateHistory(ctx, f)
 	if err != nil {
 		serverError(c, err)
 		return
@@ -280,12 +294,13 @@ func (h *Handler) GoldRateHistory(c *gin.Context) {
 }
 
 func (h *Handler) EmployeePerformance(c *gin.Context) {
+	ctx := platform.RequestContext(c)
 	f, err := parseFilter(c)
 	if err != nil {
 		badRequest(c, err)
 		return
 	}
-	rows, totals, err := h.svc.EmployeePerformance(f)
+	rows, totals, err := h.svc.EmployeePerformance(ctx, f)
 	if err != nil {
 		serverError(c, err)
 		return
@@ -294,12 +309,13 @@ func (h *Handler) EmployeePerformance(c *gin.Context) {
 }
 
 func (h *Handler) CommunicationHistory(c *gin.Context) {
+	ctx := platform.RequestContext(c)
 	f, err := parseFilter(c)
 	if err != nil {
 		badRequest(c, err)
 		return
 	}
-	rows, totals, err := h.svc.CommunicationHistory(f, c.Query("trigger_type"))
+	rows, totals, err := h.svc.CommunicationHistory(ctx, f, c.Query("trigger_type"))
 	if err != nil {
 		serverError(c, err)
 		return

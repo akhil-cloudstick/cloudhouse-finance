@@ -33,6 +33,7 @@ func NewHandler(svc *Service) *Handler {
 }
 
 func (h *Handler) List(c *gin.Context) {
+	ctx := platform.RequestContext(c)
 	var f Filter
 	if v := c.Query("loanId"); v != "" {
 		if n, err := strconv.ParseUint(v, 10, 64); err == nil {
@@ -55,7 +56,7 @@ func (h *Handler) List(c *gin.Context) {
 			offset = 0
 		}
 		f.Limit, f.Offset = limit+1, offset
-		rec, total, err := h.svc.List(f)
+		rec, total, err := h.svc.List(ctx, f)
 		if err != nil {
 			httpx.FailErr(c, err)
 			return
@@ -68,7 +69,7 @@ func (h *Handler) List(c *gin.Context) {
 		return
 	}
 
-	recs, _, err := h.svc.List(f)
+	recs, _, err := h.svc.List(ctx, f)
 	if err != nil {
 		httpx.FailErr(c, err)
 		return
@@ -77,12 +78,13 @@ func (h *Handler) List(c *gin.Context) {
 }
 
 func (h *Handler) Get(c *gin.Context) {
+	ctx := platform.RequestContext(c)
 	id, err := httpx.IDParam(c, "id")
 	if err != nil {
 		httpx.FailErr(c, err)
 		return
 	}
-	rec, err := h.svc.Get(id, platform.GetBranchScope(c))
+	rec, err := h.svc.Get(ctx, id, platform.GetBranchScope(c))
 	if err != nil {
 		httpx.FailErr(c, err)
 		return
@@ -91,7 +93,8 @@ func (h *Handler) Get(c *gin.Context) {
 }
 
 func (h *Handler) GetByCode(c *gin.Context) {
-	rec, err := h.svc.GetByCode(c.Param("code"))
+	ctx := platform.RequestContext(c)
+	rec, err := h.svc.GetByCode(ctx, c.Param("code"))
 	if err != nil {
 		httpx.FailErr(c, err)
 		return
@@ -100,12 +103,13 @@ func (h *Handler) GetByCode(c *gin.Context) {
 }
 
 func (h *Handler) ListMovements(c *gin.Context) {
+	ctx := platform.RequestContext(c)
 	id, err := httpx.IDParam(c, "id")
 	if err != nil {
 		httpx.FailErr(c, err)
 		return
 	}
-	recs, err := h.svc.ListMovements(id)
+	recs, err := h.svc.ListMovements(ctx, id)
 	if err != nil {
 		httpx.FailErr(c, err)
 		return
@@ -121,6 +125,7 @@ type movementRequest struct {
 }
 
 func (h *Handler) RecordMovement(c *gin.Context) {
+	ctx := platform.RequestContext(c)
 	id, err := httpx.IDParam(c, "id")
 	if err != nil {
 		httpx.FailErr(c, err)
@@ -131,7 +136,7 @@ func (h *Handler) RecordMovement(c *gin.Context) {
 		httpx.Fail(c, http.StatusBadRequest, "Invalid input")
 		return
 	}
-	p, err := h.svc.Get(id, platform.GetBranchScope(c))
+	p, err := h.svc.Get(ctx, id, platform.GetBranchScope(c))
 	if err != nil {
 		httpx.FailErr(c, err)
 		return
@@ -140,7 +145,7 @@ func (h *Handler) RecordMovement(c *gin.Context) {
 		httpx.FailErr(c, ErrLoanNoLongerMovable)
 		return
 	}
-	rec, err := h.svc.RecordMovement(id, req.ToStatus, req.LockerID, req.EmployeeID, req.Remarks)
+	rec, err := h.svc.RecordMovement(ctx, id, req.ToStatus, req.LockerID, req.EmployeeID, req.Remarks)
 	if err != nil {
 		httpx.FailErr(c, err)
 		return

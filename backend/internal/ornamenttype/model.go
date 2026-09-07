@@ -3,14 +3,18 @@
 // entering ornaments on a loan. It mirrors internal/scheme's layering.
 package ornamenttype
 
-import "time"
+import (
+	"ambikagold/backend/internal/platform"
+	"time"
+)
 
 // OrnamentType is a named ornament category. Name is unique
 // (case-sensitively at the DB level; case-insensitive matching is handled
 // in the service layer for the "find or create" flow).
 type OrnamentType struct {
+	platform.TenantScoped
 	ID        uint      `json:"id" gorm:"primaryKey"`
-	Name      string    `json:"name" gorm:"uniqueIndex;not null"`
+	Name      string    `json:"name" gorm:"index;not null"`
 	CreatedAt time.Time `json:"createdAt"`
 	UpdatedAt time.Time `json:"updatedAt"`
 }

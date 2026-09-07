@@ -1,6 +1,9 @@
 package loan
 
-import "time"
+import (
+	"ambikagold/backend/internal/platform"
+	"time"
+)
 
 // Auction stage values driving AuctionRecord.Stage — the full 7-step
 // workflow the spec calls for: Overdue -> Defaulted (both handled
@@ -64,6 +67,7 @@ const (
 // cmd/migrate, since GORM struct tags cannot express partial indexes. A plain
 // non-unique index is declared here for lookup performance.
 type AuctionRecord struct {
+	platform.TenantScoped
 	ID     uint `json:"id" gorm:"primaryKey"`
 	LoanID uint `json:"loanId" gorm:"not null;index"`
 
@@ -138,6 +142,7 @@ const (
 // has no general audit-log facility. ActorEmployeeID is nil for entries the
 // system generates on its own (e.g. an auction auto-settled by a repayment).
 type AuctionEvent struct {
+	platform.TenantScoped
 	ID              uint      `json:"id" gorm:"primaryKey"`
 	AuctionRecordID uint      `json:"auctionRecordId" gorm:"not null;index"`
 	Action          string    `json:"action" gorm:"not null;size:30"`
@@ -188,6 +193,7 @@ const (
 // while one is already pending updates it in place rather than piling up
 // duplicates.
 type AuctionDecisionRequest struct {
+	platform.TenantScoped
 	ID              uint   `json:"id" gorm:"primaryKey"`
 	AuctionRecordID uint   `json:"auctionRecordId" gorm:"not null;index"`
 	LoanID          uint   `json:"loanId" gorm:"not null;index"`
@@ -220,6 +226,7 @@ func (AuctionDecisionRequest) TableName() string { return "auction_decision_requ
 // AuctionNotice is one customer notice logged against an AuctionRecord —
 // multiple can be issued over time (the spec's "customer notice history").
 type AuctionNotice struct {
+	platform.TenantScoped
 	ID              uint      `json:"id" gorm:"primaryKey"`
 	AuctionRecordID uint      `json:"auctionRecordId" gorm:"not null;index"`
 	IssuedAt        time.Time `json:"issuedAt" gorm:"not null"`

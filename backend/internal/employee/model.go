@@ -8,13 +8,15 @@ import (
 	"gorm.io/gorm"
 
 	"ambikagold/backend/internal/branch"
+	"ambikagold/backend/internal/platform"
 )
 
 // Employee represents a staff member and their running performance
 // counters (loans processed, collections, follow-ups, pending items).
 type Employee struct {
+	platform.TenantScoped
 	ID   uint   `json:"id" gorm:"primaryKey"`
-	Code string `json:"code" gorm:"uniqueIndex;size:20"`
+	Code string `json:"code" gorm:"index;size:20"`
 	Name string `json:"name" gorm:"not null;size:120"`
 	// Role is the free-text role name the app reads/writes — kept for
 	// display and as the single field Create/Update actually set. RoleID is
@@ -31,7 +33,7 @@ type Employee struct {
 	// (WHERE phone <> '') mirrors Email's/Username's convention below, so
 	// any number of employees without a phone set can coexist, but a
 	// non-blank phone must be unique across employees.
-	Phone          string  `json:"phone" gorm:"uniqueIndex:idx_employees_phone,where:phone <> '';size:20"`
+	Phone          string  `json:"phone" gorm:"index;size:20"`
 	LoansProcessed int     `json:"loansProcessed"`
 	Collections    float64 `json:"collections"`
 	Followups      int     `json:"followups"`
@@ -43,8 +45,8 @@ type Employee struct {
 	// (WHERE ... <> '') so any number of employees without one set (empty
 	// string, the zero value — Postgres does NOT treat repeated '' as
 	// NULL) can coexist; only non-blank values are required to be unique.
-	Username     string `json:"username,omitempty" gorm:"uniqueIndex:idx_employees_username,where:username <> '';size:60"`
-	Email        string `json:"email,omitempty" gorm:"uniqueIndex:idx_employees_email,where:email <> '';size:120"`
+	Username     string `json:"username,omitempty" gorm:"index;size:60"`
+	Email        string `json:"email,omitempty" gorm:"index;size:120"`
 	PasswordHash string `json:"-" gorm:"size:255"`
 	// PasswordResetTokenHash/PasswordResetExpiresAt now store the SHA-256
 	// hash of a 6-digit SMS OTP (10-minute TTL) rather than a 32-byte

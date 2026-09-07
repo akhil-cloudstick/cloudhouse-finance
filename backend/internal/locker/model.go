@@ -17,12 +17,14 @@ import (
 	"gorm.io/gorm"
 
 	"ambikagold/backend/internal/branch"
+	"ambikagold/backend/internal/platform"
 )
 
 // Locker represents one physical storage unit (locker/vault) at a branch.
 type Locker struct {
+	platform.TenantScoped
 	ID       uint          `json:"id" gorm:"primaryKey"`
-	Code     string        `json:"code" gorm:"uniqueIndex;size:20"`
+	Code     string        `json:"code" gorm:"index;size:20"`
 	BranchID uint          `json:"branchId" gorm:"not null"`
 	Branch   branch.Branch `json:"branch" gorm:"foreignKey:BranchID"`
 	Capacity int           `json:"capacity" gorm:"not null"`

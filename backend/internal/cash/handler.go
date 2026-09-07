@@ -83,6 +83,7 @@ func (req movementRequest) toInput() (RecordMovementInput, error) {
 }
 
 func (h *MovementHandler) Record(c *gin.Context) {
+	ctx := platform.RequestContext(c)
 	var req movementRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		httpx.Fail(c, http.StatusBadRequest, "Invalid input")
@@ -100,7 +101,7 @@ func (h *MovementHandler) Record(c *gin.Context) {
 		branchID := platform.EnforceBranchOnWrite(c, *input.BranchID)
 		input.BranchID = &branchID
 	}
-	rec, err := h.svc.Record(input)
+	rec, err := h.svc.Record(ctx, input)
 	if err != nil {
 		httpx.FailErr(c, err)
 		return
@@ -109,6 +110,7 @@ func (h *MovementHandler) Record(c *gin.Context) {
 }
 
 func (h *MovementHandler) List(c *gin.Context) {
+	ctx := platform.RequestContext(c)
 	branchID := platform.GetBranchScope(c)
 
 	limit, _ := strconv.Atoi(c.Query("limit"))
@@ -117,7 +119,7 @@ func (h *MovementHandler) List(c *gin.Context) {
 		if offset < 0 {
 			offset = 0
 		}
-		rec, total, err := h.svc.List(branchID, limit+1, offset)
+		rec, total, err := h.svc.List(ctx, branchID, limit+1, offset)
 		if err != nil {
 			httpx.FailErr(c, err)
 			return
@@ -130,7 +132,7 @@ func (h *MovementHandler) List(c *gin.Context) {
 		return
 	}
 
-	rec, _, err := h.svc.List(branchID, 0, 0)
+	rec, _, err := h.svc.List(ctx, branchID, 0, 0)
 	if err != nil {
 		httpx.FailErr(c, err)
 		return
@@ -139,12 +141,13 @@ func (h *MovementHandler) List(c *gin.Context) {
 }
 
 func (h *MovementHandler) Get(c *gin.Context) {
+	ctx := platform.RequestContext(c)
 	id, err := httpx.IDParam(c, "id")
 	if err != nil {
 		httpx.FailErr(c, err)
 		return
 	}
-	rec, err := h.svc.Get(id, platform.GetBranchScope(c))
+	rec, err := h.svc.Get(ctx, id, platform.GetBranchScope(c))
 	if err != nil {
 		httpx.FailErr(c, err)
 		return
@@ -157,6 +160,7 @@ type setStatusRequest struct {
 }
 
 func (h *MovementHandler) SetStatus(c *gin.Context) {
+	ctx := platform.RequestContext(c)
 	id, err := httpx.IDParam(c, "id")
 	if err != nil {
 		httpx.FailErr(c, err)
@@ -167,7 +171,7 @@ func (h *MovementHandler) SetStatus(c *gin.Context) {
 		httpx.Fail(c, http.StatusBadRequest, "Invalid input")
 		return
 	}
-	rec, err := h.svc.SetLoanStatus(id, req.Status, platform.GetBranchScope(c))
+	rec, err := h.svc.SetLoanStatus(ctx, id, req.Status, platform.GetBranchScope(c))
 	if err != nil {
 		httpx.FailErr(c, err)
 		return
@@ -208,6 +212,7 @@ func (req expenseRequest) toInput() (RecordExpenseInput, error) {
 }
 
 func (h *ExpenseHandler) Record(c *gin.Context) {
+	ctx := platform.RequestContext(c)
 	var req expenseRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		httpx.Fail(c, http.StatusBadRequest, "Invalid input")
@@ -219,7 +224,7 @@ func (h *ExpenseHandler) Record(c *gin.Context) {
 		return
 	}
 	input.BranchID = platform.EnforceBranchOnWrite(c, input.BranchID)
-	rec, err := h.svc.Record(input)
+	rec, err := h.svc.Record(ctx, input)
 	if err != nil {
 		httpx.FailErr(c, err)
 		return
@@ -228,6 +233,7 @@ func (h *ExpenseHandler) Record(c *gin.Context) {
 }
 
 func (h *ExpenseHandler) List(c *gin.Context) {
+	ctx := platform.RequestContext(c)
 	branchID := platform.GetBranchScope(c)
 
 	limit, _ := strconv.Atoi(c.Query("limit"))
@@ -236,7 +242,7 @@ func (h *ExpenseHandler) List(c *gin.Context) {
 		if offset < 0 {
 			offset = 0
 		}
-		rec, total, err := h.svc.List(branchID, limit+1, offset)
+		rec, total, err := h.svc.List(ctx, branchID, limit+1, offset)
 		if err != nil {
 			httpx.FailErr(c, err)
 			return
@@ -249,7 +255,7 @@ func (h *ExpenseHandler) List(c *gin.Context) {
 		return
 	}
 
-	rec, _, err := h.svc.List(branchID, 0, 0)
+	rec, _, err := h.svc.List(ctx, branchID, 0, 0)
 	if err != nil {
 		httpx.FailErr(c, err)
 		return
@@ -258,12 +264,13 @@ func (h *ExpenseHandler) List(c *gin.Context) {
 }
 
 func (h *ExpenseHandler) Get(c *gin.Context) {
+	ctx := platform.RequestContext(c)
 	id, err := httpx.IDParam(c, "id")
 	if err != nil {
 		httpx.FailErr(c, err)
 		return
 	}
-	rec, err := h.svc.Get(id, platform.GetBranchScope(c))
+	rec, err := h.svc.Get(ctx, id, platform.GetBranchScope(c))
 	if err != nil {
 		httpx.FailErr(c, err)
 		return
@@ -276,6 +283,7 @@ type approveExpenseRequest struct {
 }
 
 func (h *ExpenseHandler) Approve(c *gin.Context) {
+	ctx := platform.RequestContext(c)
 	id, err := httpx.IDParam(c, "id")
 	if err != nil {
 		httpx.FailErr(c, err)
@@ -283,7 +291,7 @@ func (h *ExpenseHandler) Approve(c *gin.Context) {
 	}
 	var req approveExpenseRequest
 	_ = c.ShouldBindJSON(&req) // body is optional
-	rec, err := h.svc.Approve(id, req.ApprovedBy, platform.GetBranchScope(c))
+	rec, err := h.svc.Approve(ctx, id, req.ApprovedBy, platform.GetBranchScope(c))
 	if err != nil {
 		httpx.FailErr(c, err)
 		return
@@ -297,6 +305,7 @@ type rejectExpenseRequest struct {
 }
 
 func (h *ExpenseHandler) Reject(c *gin.Context) {
+	ctx := platform.RequestContext(c)
 	id, err := httpx.IDParam(c, "id")
 	if err != nil {
 		httpx.FailErr(c, err)
@@ -307,7 +316,7 @@ func (h *ExpenseHandler) Reject(c *gin.Context) {
 		httpx.Fail(c, http.StatusBadRequest, "Invalid input")
 		return
 	}
-	rec, err := h.svc.Reject(id, req.ApprovedBy, req.Remarks, platform.GetBranchScope(c))
+	rec, err := h.svc.Reject(ctx, id, req.ApprovedBy, req.Remarks, platform.GetBranchScope(c))
 	if err != nil {
 		httpx.FailErr(c, err)
 		return
@@ -331,6 +340,7 @@ type setOpeningBalanceRequest struct {
 }
 
 func (h *OpeningBalanceHandler) Set(c *gin.Context) {
+	ctx := platform.RequestContext(c)
 	var req setOpeningBalanceRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		httpx.Fail(c, http.StatusBadRequest, "Invalid input")
@@ -341,7 +351,7 @@ func (h *OpeningBalanceHandler) Set(c *gin.Context) {
 		httpx.Fail(c, http.StatusBadRequest, "invalid date: expected YYYY-MM-DD")
 		return
 	}
-	rec, err := h.svc.Set(req.BranchID, date, req.Amount)
+	rec, err := h.svc.Set(ctx, req.BranchID, date, req.Amount)
 	if err != nil {
 		httpx.FailErr(c, err)
 		return
@@ -354,6 +364,7 @@ func parseQueryDate(c *gin.Context) (time.Time, error) {
 }
 
 func (h *OpeningBalanceHandler) Get(c *gin.Context) {
+	ctx := platform.RequestContext(c)
 	branchIDStr := c.Query("branchId")
 	if branchIDStr == "" {
 		httpx.Fail(c, http.StatusBadRequest, "branchId is required")
@@ -369,7 +380,7 @@ func (h *OpeningBalanceHandler) Get(c *gin.Context) {
 		httpx.Fail(c, http.StatusBadRequest, "invalid date: expected YYYY-MM-DD")
 		return
 	}
-	rec, err := h.svc.Get(uint(branchID), date)
+	rec, err := h.svc.Get(ctx, uint(branchID), date)
 	if err != nil {
 		httpx.FailErr(c, err)
 		return
@@ -387,6 +398,7 @@ func NewSummaryHandler(svc *SummaryService) *SummaryHandler {
 }
 
 func (h *SummaryHandler) Get(c *gin.Context) {
+	ctx := platform.RequestContext(c)
 	var branchID *uint
 	if branchIDStr := c.Query("branchId"); branchIDStr != "" {
 		v, err := strconv.ParseUint(branchIDStr, 10, 64)
@@ -402,7 +414,7 @@ func (h *SummaryHandler) Get(c *gin.Context) {
 		httpx.Fail(c, http.StatusBadRequest, "invalid date: expected YYYY-MM-DD")
 		return
 	}
-	summary, err := h.svc.GetExpectedCash(branchID, date)
+	summary, err := h.svc.GetExpectedCash(ctx, branchID, date)
 	if err != nil {
 		httpx.FailErr(c, err)
 		return

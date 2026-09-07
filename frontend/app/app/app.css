@@ -903,6 +903,13 @@ h3,
   margin-top: 8px
 }
 
+.branch-switcher select{
+  border:1px solid var(--line);border-radius:8px;padding:5px 10px;
+  font-size:12.5px;color:var(--ink);background:#fff;cursor:pointer;
+  max-width:160px;
+}
+.branch-switcher select:focus{outline:2px solid var(--gold);outline-offset:1px}
+
 .top .rate-chip {
   margin-left: auto;
   display: flex;
@@ -3206,29 +3213,12 @@ table.tbl {
   background: var(--card);
   transition: border-color .15s, background .15s;
 }
-
-.cradio .mark {
-  border-radius: 50%
-}
-
-.ccheck .mark {
-  border-radius: 4px;
-  display: grid;
-  place-content: center
-}
-
-.cradio input:checked+.mark {
-  border-color: var(--gold-deep)
-}
-
-.cradio input:checked+.mark::after {
-  content: "";
-  position: absolute;
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: var(--gold-deep);
-  margin: 4px 0 0 4px;
+.cradio .mark{border-radius:50%;position:relative}
+.ccheck .mark{border-radius:4px;display:grid;place-content:center}
+.cradio input:checked + .mark{border-color:var(--gold-deep)}
+.cradio input:checked + .mark::after{
+  content:"";position:absolute;top:50%;left:50%;width:8px;height:8px;border-radius:50%;
+  background:var(--gold-deep);transform:translate(-50%,-50%);
 }
 
 .ccheck input:checked+.mark {

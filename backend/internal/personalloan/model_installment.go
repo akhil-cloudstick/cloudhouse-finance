@@ -1,6 +1,10 @@
 package personalloan
 
-import "time"
+import (
+	"time"
+
+	"ambikagold/backend/internal/platform"
+)
 
 // Installment status values — display/tracking only. Payments are not
 // strictly constrained to the schedule (a partial or extra payment just
@@ -19,6 +23,7 @@ const (
 // capped to whatever principal remains so the schedule sums to exactly
 // PrincipalAmount.
 type PersonalLoanInstallment struct {
+	platform.TenantScoped
 	ID             uint `json:"id" gorm:"primaryKey"`
 	PersonalLoanID uint `json:"personalLoanId" gorm:"not null;index"`
 

@@ -1,6 +1,9 @@
 package loan
 
-import "time"
+import (
+	"ambikagold/backend/internal/platform"
+	"time"
+)
 
 // Payment type values for LoanPayment.Type. Interest/Principal/Partial/Full
 // Settlement all represent cash actually received; Adjustment/Waiver do not
@@ -8,7 +11,13 @@ import "time"
 // interest/penal interest) — see Service.allocatePayment and
 // isCashPaymentType.
 const (
-	PaymentTypeInterest       = "Interest"
+	PaymentTypeInterest = "Interest"
+	// PaymentTypePenalInterest stops one bucket earlier than
+	// PaymentTypeInterest: processing fee, then penal interest, and nothing
+	// else. Interest already pays penal FIRST (penal is interest too), so
+	// this exists only for staff who need to clear the late-payment charge
+	// on its own and leave the regular interest standing.
+	PaymentTypePenalInterest  = "Penal Interest"
 	PaymentTypePrincipal      = "Principal"
 	PaymentTypePartial        = "Partial"
 	PaymentTypeFullSettlement = "Full Settlement"
@@ -34,6 +43,7 @@ const (
 // free-text details (method/reference/description) the spec's ledger
 // calls for.
 type LoanPayment struct {
+	platform.TenantScoped
 	ID     uint `json:"id" gorm:"primaryKey"`
 	LoanID uint `json:"loanId" gorm:"not null;index"`
 

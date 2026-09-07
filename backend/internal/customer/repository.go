@@ -1,6 +1,10 @@
 package customer
 
-import "gorm.io/gorm"
+import (
+	"context"
+
+	"gorm.io/gorm"
+)
 
 // Repository provides GORM-backed persistence for Customer records.
 type Repository struct {
@@ -11,8 +15,8 @@ func NewRepository(db *gorm.DB) *Repository {
 	return &Repository{db: db}
 }
 
-func (r *Repository) Create(c *Customer) error {
-	return r.db.Create(c).Error
+func (r *Repository) Create(ctx context.Context, c *Customer) error {
+	return r.db.WithContext(ctx).Create(c).Error
 }
 
 // CustomerFilter narrows FindAll's results beyond the plain text query;
@@ -33,9 +37,9 @@ type CustomerFilter struct {
 // callers like the full Customers & KYC list page.
 // FindAll returns matching customers plus the TOTAL row count for f's
 // filters (Limit/Offset ignored for that count) — 0 when f.Limit <= 0.
-func (r *Repository) FindAll(f CustomerFilter) ([]Customer, int64, error) {
+func (r *Repository) FindAll(ctx context.Context, f CustomerFilter) ([]Customer, int64, error) {
 	var customers []Customer
-	q := r.db.Preload("Branch").Order("id asc")
+	q := r.db.WithContext(ctx).Preload("Branch").Order("id asc")
 	if f.Query != "" {
 		like := "%" + f.Query + "%"
 		q = q.Where("name ILIKE ? OR code ILIKE ? OR phone ILIKE ?", like, like, like)
@@ -60,9 +64,9 @@ func (r *Repository) FindAll(f CustomerFilter) ([]Customer, int64, error) {
 	return customers, total, err
 }
 
-func (r *Repository) FindByID(id uint) (*Customer, error) {
+func (r *Repository) FindByID(ctx context.Context, id uint) (*Customer, error) {
 	var c Customer
-	if err := r.db.Preload("Branch").First(&c, id).Error; err != nil {
+	if err := r.db.WithContext(ctx).Preload("Branch").First(&c, id).Error; err != nil {
 		return nil, err
 	}
 	return &c, nil
@@ -71,26 +75,26 @@ func (r *Repository) FindByID(id uint) (*Customer, error) {
 // FindByPhone looks up a customer by exact phone match — used by
 // internal/customerauth to resolve an OTP request/verify to a customer
 // record. Returns gorm.ErrRecordNotFound if no customer has that phone.
-func (r *Repository) FindByPhone(phone string) (*Customer, error) {
+func (r *Repository) FindByPhone(ctx context.Context, phone string) (*Customer, error) {
 	var c Customer
-	if err := r.db.Preload("Branch").Where("phone = ?", phone).First(&c).Error; err != nil {
+	if err := r.db.WithContext(ctx).Preload("Branch").Where("phone = ?", phone).First(&c).Error; err != nil {
 		return nil, err
 	}
 	return &c, nil
 }
 
-func (r *Repository) Update(c *Customer) error {
-	return r.db.Save(c).Error
+func (r *Repository) Update(ctx context.Context, c *Customer) error {
+	return r.db.WithContext(ctx).Save(c).Error
 }
 
-func (r *Repository) Delete(id uint) error {
-	return r.db.Delete(&Customer{}, id).Error
+func (r *Repository) Delete(ctx context.Context, id uint) error {
+	return r.db.WithContext(ctx).Delete(&Customer{}, id).Error
 }
 
 // CountAll returns the total number of customers ever created (including
 // soft-deleted ones), used to generate sequential Code values.
-func (r *Repository) CountAll() (int64, error) {
+func (r *Repository) CountAll(ctx context.Context) (int64, error) {
 	var count int64
-	err := r.db.Unscoped().Model(&Customer{}).Count(&count).Error
+	err := r.db.WithContext(ctx).Unscoped().Model(&Customer{}).Count(&count).Error
 	return count, err
 }

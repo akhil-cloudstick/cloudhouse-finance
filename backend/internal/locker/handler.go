@@ -34,13 +34,14 @@ type updateRequest struct {
 }
 
 func (h *Handler) Create(c *gin.Context) {
+	ctx := platform.RequestContext(c)
 	var req createRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		httpx.Fail(c, http.StatusBadRequest, "Invalid input")
 		return
 	}
 	branchID := platform.EnforceBranchOnWrite(c, req.BranchID)
-	rec, err := h.svc.Create(CreateInput{Code: req.Code, BranchID: branchID, Capacity: req.Capacity})
+	rec, err := h.svc.Create(ctx, CreateInput{Code: req.Code, BranchID: branchID, Capacity: req.Capacity})
 	if err != nil {
 		httpx.FailErr(c, err)
 		return
@@ -49,6 +50,7 @@ func (h *Handler) Create(c *gin.Context) {
 }
 
 func (h *Handler) List(c *gin.Context) {
+	ctx := platform.RequestContext(c)
 	f := LockerFilter{BranchID: platform.GetBranchScope(c)}
 	if v := c.Query("branchId"); v != "" {
 		if n, err := strconv.ParseUint(v, 10, 64); err == nil {
@@ -68,7 +70,7 @@ func (h *Handler) List(c *gin.Context) {
 			offset = 0
 		}
 		f.Limit, f.Offset = limit+1, offset
-		rec, total, err := h.svc.Find(f)
+		rec, total, err := h.svc.Find(ctx, f)
 		if err != nil {
 			httpx.FailErr(c, err)
 			return
@@ -80,8 +82,7 @@ func (h *Handler) List(c *gin.Context) {
 		httpx.Success(c, http.StatusOK, gin.H{"items": rec, "hasMore": hasMore, "total": total})
 		return
 	}
-
-	rec, _, err := h.svc.Find(f)
+	rec, err := h.svc.List(ctx, platform.GetBranchScope(c))
 	if err != nil {
 		httpx.FailErr(c, err)
 		return
@@ -90,12 +91,13 @@ func (h *Handler) List(c *gin.Context) {
 }
 
 func (h *Handler) Get(c *gin.Context) {
+	ctx := platform.RequestContext(c)
 	id, err := httpx.IDParam(c, "id")
 	if err != nil {
 		httpx.FailErr(c, err)
 		return
 	}
-	rec, err := h.svc.Get(id, platform.GetBranchScope(c))
+	rec, err := h.svc.Get(ctx, id, platform.GetBranchScope(c))
 	if err != nil {
 		httpx.FailErr(c, err)
 		return
@@ -104,6 +106,7 @@ func (h *Handler) Get(c *gin.Context) {
 }
 
 func (h *Handler) Update(c *gin.Context) {
+	ctx := platform.RequestContext(c)
 	id, err := httpx.IDParam(c, "id")
 	if err != nil {
 		httpx.FailErr(c, err)
@@ -115,7 +118,7 @@ func (h *Handler) Update(c *gin.Context) {
 		return
 	}
 	branchID := platform.EnforceBranchOnWrite(c, req.BranchID)
-	rec, err := h.svc.Update(id, UpdateInput{
+	rec, err := h.svc.Update(ctx, id, UpdateInput{
 		Code: req.Code, BranchID: branchID, Capacity: req.Capacity, IsActive: req.IsActive,
 	}, platform.GetBranchScope(c))
 	if err != nil {
@@ -126,12 +129,13 @@ func (h *Handler) Update(c *gin.Context) {
 }
 
 func (h *Handler) Delete(c *gin.Context) {
+	ctx := platform.RequestContext(c)
 	id, err := httpx.IDParam(c, "id")
 	if err != nil {
 		httpx.FailErr(c, err)
 		return
 	}
-	if err := h.svc.Delete(id, platform.GetBranchScope(c)); err != nil {
+	if err := h.svc.Delete(ctx, id, platform.GetBranchScope(c)); err != nil {
 		httpx.FailErr(c, err)
 		return
 	}

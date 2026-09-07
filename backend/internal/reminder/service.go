@@ -1,6 +1,7 @@
 package reminder
 
 import (
+	"context"
 	"fmt"
 	"sort"
 	"time"
@@ -11,6 +12,7 @@ import (
 	"ambikagold/backend/internal/personalloan"
 	"ambikagold/backend/internal/platform"
 	"ambikagold/backend/internal/platform/httpx"
+	"ambikagold/backend/internal/tenant"
 )
 
 var (
@@ -58,10 +60,26 @@ type Service struct {
 	personalLoanSvc *personalloan.Service
 	whatsapp        platform.SMSSender // reused interface — Send(phone, message) matches SMSSender exactly
 	commlogRepo     *commlog.Repository
+	tenantRepo   *tenant.Repository
 }
 
-func NewService(repo *Repository, customerRepo *customer.Repository, loanRepo *loan.Repository, personalLoanSvc *personalloan.Service, whatsapp platform.SMSSender, commlogRepo *commlog.Repository) *Service {
-	return &Service{repo: repo, customerRepo: customerRepo, loanRepo: loanRepo, personalLoanSvc: personalLoanSvc, whatsapp: whatsapp, commlogRepo: commlogRepo}
+func NewService(repo *Repository, customerRepo *customer.Repository, loanRepo *loan.Repository, personalLoanSvc *personalloan.Service, whatsapp platform.SMSSender, commlogRepo *commlog.Repository, tenantRepo *tenant.Repository) *Service {
+	return &Service{repo: repo, customerRepo: customerRepo, loanRepo: loanRepo, personalLoanSvc: personalLoanSvc, whatsapp: whatsapp, commlogRepo: commlogRepo, tenantRepo: tenantRepo}
+}
+
+// businessName resolves the tenant's own display name (multi-tenancy plan,
+// Step 9) — falls back to a neutral label rather than another business's
+// name if the lookup fails for any reason.
+func (s *Service) businessName(ctx context.Context) string {
+	id, ok := platform.TenantFromContext(ctx)
+	if !ok {
+		return "your lender"
+	}
+	t, err := s.tenantRepo.FindByID(ctx, id)
+	if err != nil || t.Name == "" {
+		return "your lender"
+	}
+	return t.Name
 }
 
 func validate(customerID uint, typ string, dueDate time.Time) error {
@@ -77,11 +95,11 @@ func validate(customerID uint, typ string, dueDate time.Time) error {
 	return nil
 }
 
-func (s *Service) Create(in CreateInput) (*Reminder, error) {
+func (s *Service) Create(ctx context.Context, in CreateInput) (*Reminder, error) {
 	if err := validate(in.CustomerID, in.Type, in.DueDate); err != nil {
 		return nil, err
 	}
-	if _, err := s.customerRepo.FindByID(in.CustomerID); err != nil {
+	if _, err := s.customerRepo.FindByID(ctx, in.CustomerID); err != nil {
 		return nil, ErrCustomerInvalid
 	}
 	rec := &Reminder{
@@ -93,14 +111,14 @@ func (s *Service) Create(in CreateInput) (*Reminder, error) {
 		Status:              StatusPending,
 		CreatedByEmployeeID: in.CreatedByEmployeeID,
 	}
-	if err := s.repo.Create(rec); err != nil {
+	if err := s.repo.Create(ctx, rec); err != nil {
 		return nil, err
 	}
-	return s.repo.FindByID(rec.ID)
+	return s.repo.FindByID(ctx, rec.ID)
 }
 
-func (s *Service) Get(id uint, branchID *uint) (*Reminder, error) {
-	rec, err := s.repo.FindByID(id)
+func (s *Service) Get(ctx context.Context, id uint, branchID *uint) (*Reminder, error) {
+	rec, err := s.repo.FindByID(ctx, id)
 	if err != nil {
 		return nil, ErrNotFound
 	}
@@ -110,12 +128,12 @@ func (s *Service) Get(id uint, branchID *uint) (*Reminder, error) {
 	return rec, nil
 }
 
-func (s *Service) List(f Filter) ([]Reminder, error) {
-	return s.repo.FindAll(f)
+func (s *Service) List(ctx context.Context, f Filter) ([]Reminder, error) {
+	return s.repo.FindAll(ctx, f)
 }
 
-func (s *Service) Update(id uint, in UpdateInput) (*Reminder, error) {
-	rec, err := s.repo.FindByID(id)
+func (s *Service) Update(ctx context.Context, id uint, in UpdateInput) (*Reminder, error) {
+	rec, err := s.repo.FindByID(ctx, id)
 	if err != nil {
 		return nil, ErrNotFound
 	}
@@ -128,24 +146,24 @@ func (s *Service) Update(id uint, in UpdateInput) (*Reminder, error) {
 	if in.Status != "" {
 		rec.Status = in.Status
 	}
-	if err := s.repo.Update(rec); err != nil {
+	if err := s.repo.Update(ctx, rec); err != nil {
 		return nil, err
 	}
-	return s.repo.FindByID(rec.ID)
+	return s.repo.FindByID(ctx, rec.ID)
 }
 
 // Complete marks a reminder Done — the one-click action offered on the
 // calendar/dashboard for a manual reminder that's been actioned.
-func (s *Service) Complete(id uint) (*Reminder, error) {
-	rec, err := s.repo.FindByID(id)
+func (s *Service) Complete(ctx context.Context, id uint) (*Reminder, error) {
+	rec, err := s.repo.FindByID(ctx, id)
 	if err != nil {
 		return nil, ErrNotFound
 	}
 	rec.Status = StatusDone
-	if err := s.repo.Update(rec); err != nil {
+	if err := s.repo.Update(ctx, rec); err != nil {
 		return nil, err
 	}
-	return s.repo.FindByID(rec.ID)
+	return s.repo.FindByID(ctx, rec.ID)
 }
 
 // SendWhatsApp texts the reminder's note (or a default follow-up line) to
@@ -153,14 +171,14 @@ func (s *Service) Complete(id uint) (*Reminder, error) {
 // platform.OpenWASender), then marks the reminder Done — sending IS the
 // action for a manual reminder, the same way Complete is a one-click
 // "actioned" marker.
-func (s *Service) SendWhatsApp(id uint) (*Reminder, error) {
-	rec, err := s.repo.FindByID(id)
+func (s *Service) SendWhatsApp(ctx context.Context, id uint) (*Reminder, error) {
+	rec, err := s.repo.FindByID(ctx, id)
 	if err != nil {
 		return nil, ErrNotFound
 	}
 	message := rec.Note
 	if message == "" {
-		message = fmt.Sprintf("This is a reminder from Ambika Gold Finance regarding your %s.", rec.Type)
+		message = fmt.Sprintf("This is a reminder from %s regarding your %s.", s.businessName(ctx), rec.Type)
 	}
 	sendErr := s.whatsapp.Send(rec.Customer.Phone, message)
 	if s.commlogRepo != nil {
@@ -179,23 +197,23 @@ func (s *Service) SendWhatsApp(id uint) (*Reminder, error) {
 			logRec.Status = commlog.StatusFailed
 			logRec.ErrorMessage = sendErr.Error()
 		}
-		_ = s.commlogRepo.Create(logRec)
+		_ = s.commlogRepo.Create(ctx, logRec)
 	}
 	if sendErr != nil {
 		return nil, fmt.Errorf("sending whatsapp reminder: %w", sendErr)
 	}
 	rec.Status = StatusDone
-	if err := s.repo.Update(rec); err != nil {
+	if err := s.repo.Update(ctx, rec); err != nil {
 		return nil, err
 	}
-	return s.repo.FindByID(rec.ID)
+	return s.repo.FindByID(ctx, rec.ID)
 }
 
-func (s *Service) Delete(id uint) error {
-	if _, err := s.repo.FindByID(id); err != nil {
+func (s *Service) Delete(ctx context.Context, id uint) error {
+	if _, err := s.repo.FindByID(ctx, id); err != nil {
 		return ErrNotFound
 	}
-	return s.repo.Delete(id)
+	return s.repo.Delete(ctx, id)
 }
 
 // GetCalendarEvents builds the unified calendar for [from, to] (inclusive,
@@ -215,13 +233,13 @@ func (s *Service) Delete(id uint) error {
 // — existing callers that never send page/pageSize keep getting the exact
 // response shape they always have. The returned int is always the *full*
 // (pre-slice) event count.
-func (s *Service) GetCalendarEvents(from, to time.Time, branchID *uint, page, pageSize int) ([]CalendarEvent, int, error) {
+func (s *Service) GetCalendarEvents(ctx context.Context, from, to time.Time, branchID *uint, page, pageSize int) ([]CalendarEvent, int, error) {
 	from = truncateDay(from)
 	to = truncateDay(to)
 
 	var events []CalendarEvent
 
-	loans, err := s.loanRepo.FindOpenForCalendar()
+	loans, err := s.loanRepo.FindOpenForCalendar(ctx)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -293,7 +311,7 @@ func (s *Service) GetCalendarEvents(from, to time.Time, branchID *uint, page, pa
 	// loans above. personalLoanSvc is nil-checked so this package still
 	// works in any test/wiring that doesn't construct one.
 	if s.personalLoanSvc != nil {
-		installments, err := s.personalLoanSvc.ListPendingInstallmentsForCalendar(branchID)
+		installments, err := s.personalLoanSvc.ListPendingInstallmentsForCalendar(ctx, branchID)
 		if err != nil {
 			return nil, 0, err
 		}
@@ -337,7 +355,7 @@ func (s *Service) GetCalendarEvents(from, to time.Time, branchID *uint, page, pa
 	}
 
 	from2, to2 := from, to
-	reminders, err := s.repo.FindAll(Filter{From: &from2, To: &to2, BranchID: branchID})
+	reminders, err := s.repo.FindAll(ctx, Filter{From: &from2, To: &to2, BranchID: branchID})
 	if err != nil {
 		return nil, 0, err
 	}

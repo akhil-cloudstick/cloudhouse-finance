@@ -1,4 +1,4 @@
-import { apiFetchEnveloped as apiFetch, API_BASE, AUTH_TOKEN_KEY, ApiError } from "@/common/services/httpClient";
+import { apiFetchEnveloped as apiFetch, API_BASE, getAuthToken, ApiError } from "@/common/services/httpClient";
 
 export type InterestType = "Flat" | "Percentage";
 export type Frequency = "Daily" | "Weekly" | "Monthly";
@@ -159,7 +159,7 @@ export function listPersonalLoansForCustomer(customerId: number): Promise<Backen
  * save — same fetch → blob → temporary <a download> pattern as
  * frontend/modules/reports/services/reportsService.ts's exportReport(). */
 export async function downloadPersonalLoanBond(loanId: number): Promise<void> {
-  const token = typeof window !== "undefined" ? window.localStorage.getItem(AUTH_TOKEN_KEY) : null;
+  const token = typeof window !== "undefined" ? getAuthToken() : null;
   const res = await fetch(`${API_BASE}/personal-loans/${loanId}/bond`, {
     headers: token ? { Authorization: `Bearer ${token}` } : {},
   });

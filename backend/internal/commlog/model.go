@@ -5,7 +5,10 @@
 // loan/reminder/auth at each send site, and read by internal/reports.
 package commlog
 
-import "time"
+import (
+	"ambikagold/backend/internal/platform"
+	"time"
+)
 
 // Trigger-type values for CommunicationLog.TriggerType — what prompted the
 // message to be sent. Kept as plain strings (matching this codebase's
@@ -29,6 +32,9 @@ const (
 	// Extension/Release request's approval chain.
 	TriggerExtensionRequest = "extension_request"
 	TriggerReleaseRequest   = "release_request"
+	// TriggerBillingReminder backs the subscription expiry reminder sent to
+	// a business's own Administrator(s) — see internal/billing.
+	TriggerBillingReminder = "billing_reminder"
 )
 
 // Channel values for CommunicationLog.Channel.
@@ -46,6 +52,7 @@ const (
 // succeeded or failed, so the Communication History report can show
 // delivery failures too, not just successes.
 type CommunicationLog struct {
+	platform.TenantScoped
 	ID uint `json:"id" gorm:"primaryKey"`
 
 	RecipientName  string `json:"recipientName" gorm:"size:120"`

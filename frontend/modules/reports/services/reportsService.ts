@@ -1,4 +1,5 @@
-import { apiFetchEnveloped as apiFetch, API_BASE, AUTH_TOKEN_KEY, ApiError } from "@/common/services/httpClient";
+import { apiFetchEnveloped as apiFetch, API_BASE, getAuthToken, ApiError } from "@/common/services/httpClient";
+import { branchHeader } from "@/common/services/branchSelection";
 
 /* Frontend service for backend/internal/reports (see handler.go/routes.go/
  * export.go). Every JSON list endpoint shares the same request/response
@@ -309,9 +310,9 @@ export async function exportReport(key: ReportKey, format: "xlsx" | "pdf", filte
   const params = new URLSearchParams(qs);
   params.set("format", format);
 
-  const token = typeof window !== "undefined" ? window.localStorage.getItem(AUTH_TOKEN_KEY) : null;
+  const token = getAuthToken();
   const res = await fetch(`${API_BASE}/reports/export/${key}?${params.toString()}`, {
-    headers: token ? { Authorization: `Bearer ${token}` } : {},
+    headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}), ...branchHeader() },
   });
   if (!res.ok) {
     let message = res.statusText;

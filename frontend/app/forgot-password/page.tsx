@@ -1,16 +1,29 @@
 "use client";
 
-import { useState } from "react";
-import { useRouter } from "next/navigation";
+import { Suspense, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import "../login.css";
 import { forgotPassword } from "@/common/services/authService";
+import { businessCodeForRequest, isValidBusinessSlug, loginPath } from "@/common/services/tenantSession";
 
-export default function ForgotPasswordPage() {
+function ForgotPasswordInner() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [phone, setPhone] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [sent, setSent] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  /* The business comes from ?b=<slug> on the link the login page built,
+   * falling back to the last business used on this browser.
+   *
+   * It has to be carried: a phone number is unique only WITHIN a business
+   * now, so without it the backend cannot tell which employee is asking —
+   * and with several businesses it cannot pick one without guessing. A query
+   * parameter rather than a path segment because this is a step in a flow,
+   * not a bookmarkable business identity. */
+  const linkedCode = searchParams.get("b")?.trim().toLowerCase() ?? "";
+  const businessCode = isValidBusinessSlug(linkedCode) ? linkedCode : businessCodeForRequest();
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -24,11 +37,19 @@ export default function ForgotPasswordPage() {
     try {
       // Ignore the actual outcome — the backend never reveals whether a
       // phone number is registered, and we don't want to either.
-      await forgotPassword(trimmed).catch(() => {});
+      await forgotPassword(trimmed, businessCode).catch(() => {});
     } finally {
       setSubmitting(false);
       setSent(true);
     }
+  }
+
+  /* Both onward links keep the business, or the reset step would have to ask
+   * for a code the employee was never given. */
+  function resetHref() {
+    const params = new URLSearchParams({ phone: phone.trim() });
+    if (businessCode) params.set("b", businessCode);
+    return `/reset-password?${params.toString()}`;
   }
 
   return (
@@ -57,14 +78,14 @@ export default function ForgotPasswordPage() {
                   href="#"
                   onClick={(e) => {
                     e.preventDefault();
-                    router.push(`/reset-password?phone=${encodeURIComponent(phone.trim())}`);
+                    router.push(resetHref());
                   }}
                 >
                   Enter the code →
                 </a>
               </div>
               <div className="aux" style={{ justifyContent: "center", marginTop: 8 }}>
-                <a href="/login">← Back to login</a>
+                <a href={loginPath(businessCode || null)}>← Back to login</a>
               </div>
             </>
           ) : (
@@ -98,12 +119,20 @@ export default function ForgotPasswordPage() {
               </p>
 
               <div className="aux" style={{ justifyContent: "center" }}>
-                <a href="/login">← Back to login</a>
+                <a href={loginPath(businessCode || null)}>← Back to login</a>
               </div>
             </form>
           )}
         </main>
       </div>
     </div>
+  );
+}
+
+export default function ForgotPasswordPage() {
+  return (
+    <Suspense fallback={null}>
+      <ForgotPasswordInner />
+    </Suspense>
   );
 }

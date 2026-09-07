@@ -38,6 +38,7 @@ func parseDate(s string) (time.Time, error) {
 }
 
 func (h *Handler) Create(c *gin.Context) {
+	ctx := platform.RequestContext(c)
 	var req reminderRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		httpx.Fail(c, http.StatusBadRequest, "Invalid input")
@@ -48,7 +49,7 @@ func (h *Handler) Create(c *gin.Context) {
 		httpx.Fail(c, http.StatusBadRequest, "invalid dueDate: expected YYYY-MM-DD")
 		return
 	}
-	rec, err := h.svc.Create(CreateInput{
+	rec, err := h.svc.Create(ctx, CreateInput{
 		CustomerID:          req.CustomerID,
 		LoanID:              req.LoanID,
 		Type:                req.Type,
@@ -64,6 +65,7 @@ func (h *Handler) Create(c *gin.Context) {
 }
 
 func (h *Handler) List(c *gin.Context) {
+	ctx := platform.RequestContext(c)
 	var f Filter
 	if v, _ := strconv.ParseUint(c.Query("customerId"), 10, 64); v != 0 {
 		f.CustomerID = uint(v)
@@ -83,7 +85,7 @@ func (h *Handler) List(c *gin.Context) {
 		}
 	}
 	f.BranchID = platform.GetBranchScope(c)
-	rec, err := h.svc.List(f)
+	rec, err := h.svc.List(ctx, f)
 	if err != nil {
 		httpx.FailErr(c, err)
 		return
@@ -92,12 +94,13 @@ func (h *Handler) List(c *gin.Context) {
 }
 
 func (h *Handler) Get(c *gin.Context) {
+	ctx := platform.RequestContext(c)
 	id, err := httpx.IDParam(c, "id")
 	if err != nil {
 		httpx.FailErr(c, err)
 		return
 	}
-	rec, err := h.svc.Get(id, platform.GetBranchScope(c))
+	rec, err := h.svc.Get(ctx, id, platform.GetBranchScope(c))
 	if err != nil {
 		httpx.FailErr(c, err)
 		return
@@ -106,6 +109,7 @@ func (h *Handler) Get(c *gin.Context) {
 }
 
 func (h *Handler) Update(c *gin.Context) {
+	ctx := platform.RequestContext(c)
 	id, err := httpx.IDParam(c, "id")
 	if err != nil {
 		httpx.FailErr(c, err)
@@ -121,7 +125,7 @@ func (h *Handler) Update(c *gin.Context) {
 		httpx.Fail(c, http.StatusBadRequest, "invalid dueDate: expected YYYY-MM-DD")
 		return
 	}
-	rec, err := h.svc.Update(id, UpdateInput{
+	rec, err := h.svc.Update(ctx, id, UpdateInput{
 		Type:    req.Type,
 		DueDate: dueDate,
 		Note:    req.Note,
@@ -135,12 +139,13 @@ func (h *Handler) Update(c *gin.Context) {
 }
 
 func (h *Handler) Complete(c *gin.Context) {
+	ctx := platform.RequestContext(c)
 	id, err := httpx.IDParam(c, "id")
 	if err != nil {
 		httpx.FailErr(c, err)
 		return
 	}
-	rec, err := h.svc.Complete(id)
+	rec, err := h.svc.Complete(ctx, id)
 	if err != nil {
 		httpx.FailErr(c, err)
 		return
@@ -152,12 +157,13 @@ func (h *Handler) Complete(c *gin.Context) {
 // note to its customer over WhatsApp (via the Meta Cloud API account
 // configured under Settings > WhatsApp) and marks the reminder Done.
 func (h *Handler) SendWhatsApp(c *gin.Context) {
+	ctx := platform.RequestContext(c)
 	id, err := httpx.IDParam(c, "id")
 	if err != nil {
 		httpx.FailErr(c, err)
 		return
 	}
-	rec, err := h.svc.SendWhatsApp(id)
+	rec, err := h.svc.SendWhatsApp(ctx, id)
 	if err != nil {
 		httpx.FailErr(c, err)
 		return
@@ -166,12 +172,13 @@ func (h *Handler) SendWhatsApp(c *gin.Context) {
 }
 
 func (h *Handler) Delete(c *gin.Context) {
+	ctx := platform.RequestContext(c)
 	id, err := httpx.IDParam(c, "id")
 	if err != nil {
 		httpx.FailErr(c, err)
 		return
 	}
-	if err := h.svc.Delete(id); err != nil {
+	if err := h.svc.Delete(ctx, id); err != nil {
 		httpx.FailErr(c, err)
 		return
 	}
@@ -182,6 +189,7 @@ func (h *Handler) Delete(c *gin.Context) {
 // defaults to the current calendar month when either bound is omitted, so
 // the frontend's initial load (no query params yet) just works.
 func (h *Handler) Calendar(c *gin.Context) {
+	ctx := platform.RequestContext(c)
 	now := time.Now()
 	from := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, now.Location())
 	to := from.AddDate(0, 1, -1)
@@ -211,7 +219,7 @@ func (h *Handler) Calendar(c *gin.Context) {
 	// "Upcoming Reminders" widget).
 	page, _ := strconv.Atoi(c.Query("page"))
 	pageSize, _ := strconv.Atoi(c.Query("pageSize"))
-	events, total, err := h.svc.GetCalendarEvents(from, to, platform.GetBranchScope(c), page, pageSize)
+	events, total, err := h.svc.GetCalendarEvents(ctx, from, to, platform.GetBranchScope(c), page, pageSize)
 	if err != nil {
 		httpx.FailErr(c, err)
 		return

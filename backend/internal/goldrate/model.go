@@ -13,10 +13,14 @@
 // since their real historical values aren't reconstructable from K24 alone.
 package goldrate
 
-import "time"
+import (
+	"ambikagold/backend/internal/platform"
+	"time"
+)
 
 // GoldRate represents one published daily 24K benchmark rate.
 type GoldRate struct {
+	platform.TenantScoped
 	ID        uint      `json:"id" gorm:"primaryKey"`
 	Date      time.Time `json:"date" gorm:"not null;index"`
 	K24       float64   `json:"k24" gorm:"not null"`

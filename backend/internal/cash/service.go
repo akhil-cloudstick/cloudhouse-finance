@@ -1,6 +1,7 @@
 package cash
 
 import (
+	"context"
 	"fmt"
 	"time"
 
@@ -67,7 +68,7 @@ func NewMovementService(repo *MovementRepository, expenseRepo *ExpenseRepository
 	return &MovementService{repo: repo, expenseRepo: expenseRepo, branchRepo: branchRepo}
 }
 
-func (s *MovementService) Record(in RecordMovementInput) (*CashMovement, error) {
+func (s *MovementService) Record(ctx context.Context, in RecordMovementInput) (*CashMovement, error) {
 	if in.Amount <= 0 {
 		return nil, ErrInvalidAmount
 	}
@@ -76,7 +77,7 @@ func (s *MovementService) Record(in RecordMovementInput) (*CashMovement, error) 
 	}
 
 	if in.BranchID != nil {
-		ok, err := s.branchRepo.Exists(*in.BranchID)
+		ok, err := s.branchRepo.Exists(ctx, *in.BranchID)
 		if err != nil {
 			return nil, err
 		}
@@ -115,24 +116,24 @@ func (s *MovementService) Record(in RecordMovementInput) (*CashMovement, error) 
 		rec.Purpose = in.Purpose
 	}
 
-	if err := s.repo.Create(rec); err != nil {
+	if err := s.repo.Create(ctx, rec); err != nil {
 		return nil, err
 	}
-	return s.repo.FindByID(rec.ID)
+	return s.repo.FindByID(ctx, rec.ID)
 }
 
 // List returns cash movements, optionally scoped to branchID (nil = all
 // branches — Administrator only, see platform.GetBranchScope).
-func (s *MovementService) List(branchID *uint, limit, offset int) ([]CashMovement, int64, error) {
-	return s.repo.FindAll(branchID, limit, offset)
+func (s *MovementService) List(ctx context.Context, branchID *uint, limit, offset int) ([]CashMovement, int64, error) {
+	return s.repo.FindAll(ctx, branchID, limit, offset)
 }
 
 // Get returns the movement by id, or ErrMovementNotFound if it doesn't
 // exist OR (when branchID is non-nil) belongs to a different branch (or has
 // no branch at all) — a non-admin gets the same "not found" for another
 // branch's movement as for a genuinely missing id.
-func (s *MovementService) Get(id uint, branchID *uint) (*CashMovement, error) {
-	rec, err := s.repo.FindByID(id)
+func (s *MovementService) Get(ctx context.Context, id uint, branchID *uint) (*CashMovement, error) {
+	rec, err := s.repo.FindByID(ctx, id)
 	if err != nil {
 		return nil, ErrMovementNotFound
 	}
@@ -148,7 +149,7 @@ func (s *MovementService) Get(id uint, branchID *uint) (*CashMovement, error) {
 // "Savings"/"Loan" sources so it renders in the same Cash Movements table
 // without special-casing on the frontend. Returns the new movement's ID so
 // the caller can store it on the pledge record and reverse it later.
-func (s *MovementService) RecordBankPledgeCashIn(loanID uint, bankName string, amount float64, occurredOn time.Time) (uint, error) {
+func (s *MovementService) RecordBankPledgeCashIn(ctx context.Context, loanID uint, bankName string, amount float64, occurredOn time.Time) (uint, error) {
 	rec := &CashMovement{
 		Type:   "in",
 		Source: "Bank",
@@ -160,7 +161,7 @@ func (s *MovementService) RecordBankPledgeCashIn(loanID uint, bankName string, a
 	} else {
 		rec.OccurredOn = occurredOn
 	}
-	if err := s.repo.Create(rec); err != nil {
+	if err := s.repo.Create(ctx, rec); err != nil {
 		return 0, err
 	}
 	return rec.ID, nil
@@ -171,7 +172,7 @@ func (s *MovementService) RecordBankPledgeCashIn(loanID uint, bankName string, a
 // loan.Service.Approve once a loan clears its final approval stage).
 // Purpose carries the loan number so it reads sensibly in the Cash
 // Movements table without a dedicated column.
-func (s *MovementService) RecordLoanDisbursementCashOut(loanID uint, loanNumber string, amount float64, branchID uint, occurredOn time.Time) (uint, error) {
+func (s *MovementService) RecordLoanDisbursementCashOut(ctx context.Context, loanID uint, loanNumber string, amount float64, branchID uint, occurredOn time.Time) (uint, error) {
 	rec := &CashMovement{
 		Type:     "out",
 		Purpose:  "Loan disbursement — " + loanNumber,
@@ -183,7 +184,7 @@ func (s *MovementService) RecordLoanDisbursementCashOut(loanID uint, loanNumber 
 	} else {
 		rec.OccurredOn = occurredOn
 	}
-	if err := s.repo.Create(rec); err != nil {
+	if err := s.repo.Create(ctx, rec); err != nil {
 		return 0, err
 	}
 	return rec.ID, nil
@@ -195,7 +196,7 @@ func (s *MovementService) RecordLoanDisbursementCashOut(loanID uint, loanNumber 
 // AddCashModal.tsx offers for manually topping up the till (that "Loan"
 // source means the branch itself borrowed cash from a bank, unrelated to a
 // customer repaying their gold loan).
-func (s *MovementService) RecordLoanPaymentCashIn(loanID uint, loanNumber string, amount float64, branchID uint, occurredOn time.Time, paymentType string) (uint, error) {
+func (s *MovementService) RecordLoanPaymentCashIn(ctx context.Context, loanID uint, loanNumber string, amount float64, branchID uint, occurredOn time.Time, paymentType string) (uint, error) {
 	rec := &CashMovement{
 		Type:     "in",
 		Source:   "Collection",
@@ -208,7 +209,7 @@ func (s *MovementService) RecordLoanPaymentCashIn(loanID uint, loanNumber string
 	} else {
 		rec.OccurredOn = occurredOn
 	}
-	if err := s.repo.Create(rec); err != nil {
+	if err := s.repo.Create(ctx, rec); err != nil {
 		return 0, err
 	}
 	return rec.ID, nil
@@ -219,7 +220,7 @@ func (s *MovementService) RecordLoanPaymentCashIn(loanID uint, loanNumber string
 // loan.Service.ReleaseBankPledge). It does NOT touch the original cash-in
 // movement recorded at pledge time — that stays as permanent history —
 // this books the release as its own, separately visible transaction.
-func (s *MovementService) RecordBankPledgeCashOut(loanID uint, bankName string, amount float64, occurredOn time.Time, branchID uint) (uint, error) {
+func (s *MovementService) RecordBankPledgeCashOut(ctx context.Context, loanID uint, bankName string, amount float64, occurredOn time.Time, branchID uint) (uint, error) {
 	rec := &CashMovement{
 		Type:     "out",
 		Purpose:  "Bank pledge release — " + bankName,
@@ -232,7 +233,7 @@ func (s *MovementService) RecordBankPledgeCashOut(loanID uint, bankName string, 
 	} else {
 		rec.OccurredOn = occurredOn
 	}
-	if err := s.repo.Create(rec); err != nil {
+	if err := s.repo.Create(ctx, rec); err != nil {
 		return 0, err
 	}
 	return rec.ID, nil
@@ -250,7 +251,7 @@ func (s *MovementService) RecordBankPledgeCashOut(loanID uint, bankName string, 
 // told apart from ordinary customer repayments in the Cash Movements table and
 // in reports — they are a fundamentally different event, being the proceeds of
 // selling a customer's asset rather than a payment made by them.
-func (s *MovementService) RecordAuctionSaleCashIn(loanID uint, loanNumber string, amount float64, branchID uint, occurredOn time.Time) (uint, error) {
+func (s *MovementService) RecordAuctionSaleCashIn(ctx context.Context, loanID uint, loanNumber string, amount float64, branchID uint, occurredOn time.Time) (uint, error) {
 	rec := &CashMovement{
 		Type:     "in",
 		Source:   "Auction",
@@ -263,7 +264,7 @@ func (s *MovementService) RecordAuctionSaleCashIn(loanID uint, loanNumber string
 	} else {
 		rec.OccurredOn = occurredOn
 	}
-	if err := s.repo.Create(rec); err != nil {
+	if err := s.repo.Create(ctx, rec); err != nil {
 		return 0, err
 	}
 	return rec.ID, nil
@@ -279,7 +280,7 @@ func (s *MovementService) RecordAuctionSaleCashIn(loanID uint, loanNumber string
 // is handed over. Retaining the surplus as company income deliberately books
 // NO movement — the money is already in the till, and booking it again would
 // count the same rupees twice.
-func (s *MovementService) RecordAuctionSurplusCashOut(loanID uint, loanNumber string, amount float64, branchID uint, occurredOn time.Time) (uint, error) {
+func (s *MovementService) RecordAuctionSurplusCashOut(ctx context.Context, loanID uint, loanNumber string, amount float64, branchID uint, occurredOn time.Time) (uint, error) {
 	rec := &CashMovement{
 		Type:     "out",
 		Purpose:  "Auction surplus refunded to customer — " + loanNumber,
@@ -291,7 +292,7 @@ func (s *MovementService) RecordAuctionSurplusCashOut(loanID uint, loanNumber st
 	} else {
 		rec.OccurredOn = occurredOn
 	}
-	if err := s.repo.Create(rec); err != nil {
+	if err := s.repo.Create(ctx, rec); err != nil {
 		return 0, err
 	}
 	return rec.ID, nil
@@ -306,15 +307,15 @@ func (s *MovementService) RecordAuctionSurplusCashOut(loanID uint, loanNumber st
 // Mode is "Bank" (not "Cash") so it is excluded from
 // ExpenseRepository.SumCashByDate and doesn't double-count against Expected
 // Cash in Hand, which already reflects the matching cash-out movement.
-func (s *MovementService) RecordBankPledgeReleaseExpense(loanID uint, bankName string, amount float64, occurredOn time.Time, branchID uint) (uint, error) {
-	return s.recordSystemExpense("Bank Pledge Release", bankName, amount, occurredOn, branchID)
+func (s *MovementService) RecordBankPledgeReleaseExpense(ctx context.Context, loanID uint, bankName string, amount float64, occurredOn time.Time, branchID uint) (uint, error) {
+	return s.recordSystemExpense(ctx, "Bank Pledge Release", bankName, amount, occurredOn, branchID)
 }
 
 // recordSystemExpense creates a pre-approved Expense row for a system-driven
 // event (as opposed to a manually entered one, which always starts
 // "Pending" — see ExpenseService.Record) since there's no staff member to
 // approve it and the amount is already validated by the caller.
-func (s *MovementService) recordSystemExpense(category, bankName string, amount float64, occurredOn time.Time, branchID uint) (uint, error) {
+func (s *MovementService) recordSystemExpense(ctx context.Context, category, bankName string, amount float64, occurredOn time.Time, branchID uint) (uint, error) {
 	now := time.Now()
 	rec := &Expense{
 		Category:   category,
@@ -332,7 +333,7 @@ func (s *MovementService) recordSystemExpense(category, bankName string, amount 
 	} else {
 		rec.OccurredOn = occurredOn
 	}
-	if err := s.expenseRepo.Create(rec); err != nil {
+	if err := s.expenseRepo.Create(ctx, rec); err != nil {
 		return 0, err
 	}
 	return rec.ID, nil
@@ -343,8 +344,8 @@ func strPtr(s string) *string { return &s }
 // DeleteCashMovement removes a cash movement outright. No longer called by
 // loan.Service (bank-pledge release now books a reversing cash-out entry
 // instead of deleting history), kept for any other future caller.
-func (s *MovementService) DeleteCashMovement(id uint) error {
-	return s.repo.Delete(id)
+func (s *MovementService) DeleteCashMovement(ctx context.Context, id uint) error {
+	return s.repo.Delete(ctx, id)
 }
 
 // SetLoanStatus updates the Open/Closed status of a loan-sourced cash-in
@@ -352,11 +353,11 @@ func (s *MovementService) DeleteCashMovement(id uint) error {
 // (nil for Administrator) must match the movement's branch or
 // ErrMovementNotFound is returned before any other validation runs, same
 // not-found-on-mismatch guard as Get.
-func (s *MovementService) SetLoanStatus(id uint, status string, branchID *uint) (*CashMovement, error) {
+func (s *MovementService) SetLoanStatus(ctx context.Context, id uint, status string, branchID *uint) (*CashMovement, error) {
 	if status != "Open" && status != "Closed" {
 		return nil, ErrInvalidStatus
 	}
-	rec, err := s.repo.FindByID(id)
+	rec, err := s.repo.FindByID(ctx, id)
 	if err != nil {
 		return nil, ErrMovementNotFound
 	}
@@ -364,7 +365,7 @@ func (s *MovementService) SetLoanStatus(id uint, status string, branchID *uint) 
 		return nil, ErrMovementNotFound
 	}
 	rec.Status = status
-	if err := s.repo.Update(rec); err != nil {
+	if err := s.repo.Update(ctx, rec); err != nil {
 		return nil, err
 	}
 	return rec, nil
@@ -380,7 +381,7 @@ func NewExpenseService(repo *ExpenseRepository, branchRepo *branch.Repository) *
 	return &ExpenseService{repo: repo, branchRepo: branchRepo}
 }
 
-func (s *ExpenseService) Record(in RecordExpenseInput) (*Expense, error) {
+func (s *ExpenseService) Record(ctx context.Context, in RecordExpenseInput) (*Expense, error) {
 	if in.Amount <= 0 {
 		return nil, ErrInvalidAmount
 	}
@@ -396,7 +397,7 @@ func (s *ExpenseService) Record(in RecordExpenseInput) (*Expense, error) {
 	if in.BranchID == 0 {
 		return nil, ErrBranchRequired
 	}
-	if ok, err := s.branchRepo.Exists(in.BranchID); err != nil {
+	if ok, err := s.branchRepo.Exists(ctx, in.BranchID); err != nil {
 		return nil, err
 	} else if !ok {
 		return nil, ErrBranchInvalid
@@ -417,24 +418,24 @@ func (s *ExpenseService) Record(in RecordExpenseInput) (*Expense, error) {
 		Remarks:      in.Remarks,
 		ReceiptImage: in.ReceiptImage,
 	}
-	if err := s.repo.Create(rec); err != nil {
+	if err := s.repo.Create(ctx, rec); err != nil {
 		return nil, err
 	}
-	return s.repo.FindByID(rec.ID)
+	return s.repo.FindByID(ctx, rec.ID)
 }
 
 // List returns expenses, optionally scoped to branchID (nil = all branches
 // — Administrator only, see platform.GetBranchScope).
-func (s *ExpenseService) List(branchID *uint, limit, offset int) ([]Expense, int64, error) {
-	return s.repo.FindAll(branchID, limit, offset)
+func (s *ExpenseService) List(ctx context.Context, branchID *uint, limit, offset int) ([]Expense, int64, error) {
+	return s.repo.FindAll(ctx, branchID, limit, offset)
 }
 
 // Get returns the expense by id, or ErrExpenseNotFound if it doesn't exist
 // OR (when branchID is non-nil) belongs to a different branch — a
 // non-admin gets the same "not found" for another branch's expense as for
 // a genuinely missing id.
-func (s *ExpenseService) Get(id uint, branchID *uint) (*Expense, error) {
-	rec, err := s.repo.FindByID(id)
+func (s *ExpenseService) Get(ctx context.Context, id uint, branchID *uint) (*Expense, error) {
+	rec, err := s.repo.FindByID(ctx, id)
 	if err != nil {
 		return nil, ErrExpenseNotFound
 	}
@@ -448,8 +449,8 @@ func (s *ExpenseService) Get(id uint, branchID *uint) (*Expense, error) {
 // approved — an already-decided expense must be re-recorded, not amended.
 // branchID (nil for Administrator) must match the expense's branch or
 // ErrExpenseNotFound is returned, same not-found-on-mismatch guard as Get.
-func (s *ExpenseService) Approve(id uint, approvedBy string, branchID *uint) (*Expense, error) {
-	rec, err := s.repo.FindByID(id)
+func (s *ExpenseService) Approve(ctx context.Context, id uint, approvedBy string, branchID *uint) (*Expense, error) {
+	rec, err := s.repo.FindByID(ctx, id)
 	if err != nil {
 		return nil, ErrExpenseNotFound
 	}
@@ -465,7 +466,7 @@ func (s *ExpenseService) Approve(id uint, approvedBy string, branchID *uint) (*E
 		rec.ApprovedBy = &approvedBy
 	}
 	rec.ApprovedAt = &now
-	if err := s.repo.Update(rec); err != nil {
+	if err := s.repo.Update(ctx, rec); err != nil {
 		return nil, err
 	}
 	return rec, nil
@@ -475,11 +476,11 @@ func (s *ExpenseService) Approve(id uint, approvedBy string, branchID *uint) (*E
 // rejection always carries a reason. branchID (nil for Administrator) must
 // match the expense's branch or ErrExpenseNotFound is returned, same
 // not-found-on-mismatch guard as Get.
-func (s *ExpenseService) Reject(id uint, approvedBy, remarks string, branchID *uint) (*Expense, error) {
+func (s *ExpenseService) Reject(ctx context.Context, id uint, approvedBy, remarks string, branchID *uint) (*Expense, error) {
 	if remarks == "" {
 		return nil, ErrRemarksRequired
 	}
-	rec, err := s.repo.FindByID(id)
+	rec, err := s.repo.FindByID(ctx, id)
 	if err != nil {
 		return nil, ErrExpenseNotFound
 	}
@@ -496,7 +497,7 @@ func (s *ExpenseService) Reject(id uint, approvedBy, remarks string, branchID *u
 		rec.ApprovedBy = &approvedBy
 	}
 	rec.ApprovedAt = &now
-	if err := s.repo.Update(rec); err != nil {
+	if err := s.repo.Update(ctx, rec); err != nil {
 		return nil, err
 	}
 	return rec, nil
@@ -513,14 +514,14 @@ func NewOpeningBalanceService(repo *OpeningBalanceRepository, branchRepo *branch
 	return &OpeningBalanceService{repo: repo, branchRepo: branchRepo}
 }
 
-func (s *OpeningBalanceService) Set(branchID uint, date time.Time, amount float64) (*OpeningCashBalance, error) {
+func (s *OpeningBalanceService) Set(ctx context.Context, branchID uint, date time.Time, amount float64) (*OpeningCashBalance, error) {
 	if amount < 0 {
 		return nil, ErrInvalidBalance
 	}
 	if branchID == 0 {
 		return nil, ErrBranchRequired
 	}
-	if ok, err := s.branchRepo.Exists(branchID); err != nil {
+	if ok, err := s.branchRepo.Exists(ctx, branchID); err != nil {
 		return nil, err
 	} else if !ok {
 		return nil, ErrBranchInvalid
@@ -529,7 +530,7 @@ func (s *OpeningBalanceService) Set(branchID uint, date time.Time, amount float6
 		date = time.Now()
 	}
 	rec := &OpeningCashBalance{BranchID: branchID, BalanceDate: date, Amount: amount}
-	if err := s.repo.Upsert(rec); err != nil {
+	if err := s.repo.Upsert(ctx, rec); err != nil {
 		return nil, err
 	}
 	rec.IsSet = true
@@ -539,11 +540,11 @@ func (s *OpeningBalanceService) Set(branchID uint, date time.Time, amount float6
 // Get returns the opening balance for a branch/date, or a zero-amount
 // record with IsSet false if none has been entered yet — the frontend
 // always gets a number, plus a way to tell an entered 0 from no entry.
-func (s *OpeningBalanceService) Get(branchID uint, date time.Time) (*OpeningCashBalance, error) {
+func (s *OpeningBalanceService) Get(ctx context.Context, branchID uint, date time.Time) (*OpeningCashBalance, error) {
 	if date.IsZero() {
 		date = time.Now()
 	}
-	rec, err := s.repo.FindByBranchAndDate(branchID, date)
+	rec, err := s.repo.FindByBranchAndDate(ctx, branchID, date)
 	if err != nil {
 		return &OpeningCashBalance{BranchID: branchID, BalanceDate: date, Amount: 0}, nil
 	}
@@ -592,33 +593,33 @@ func NewSummaryService(movementRepo *MovementRepository, expenseRepo *ExpenseRep
 	return &SummaryService{movementRepo: movementRepo, expenseRepo: expenseRepo, openingSvc: openingSvc}
 }
 
-func (s *SummaryService) GetExpectedCash(branchID *uint, date time.Time) (Summary, error) {
+func (s *SummaryService) GetExpectedCash(ctx context.Context, branchID *uint, date time.Time) (Summary, error) {
 	if date.IsZero() {
 		date = time.Now()
 	}
 	var opening float64
 	var openingSet bool
 	if branchID != nil {
-		ob, err := s.openingSvc.Get(*branchID, date)
+		ob, err := s.openingSvc.Get(ctx, *branchID, date)
 		if err != nil {
 			return Summary{}, err
 		}
 		opening = ob.Amount
 		openingSet = ob.IsSet
 	}
-	in, out, err := s.movementRepo.SumByTypeAndDate(branchID, date)
+	in, out, err := s.movementRepo.SumByTypeAndDate(ctx, branchID, date)
 	if err != nil {
 		return Summary{}, err
 	}
-	inBreakdown, outBreakdown, err := s.movementRepo.SumBreakdownByDate(branchID, date)
+	inBreakdown, outBreakdown, err := s.movementRepo.SumBreakdownByDate(ctx, branchID, date)
 	if err != nil {
 		return Summary{}, err
 	}
-	cashExpenses, err := s.expenseRepo.SumCashByDate(branchID, date)
+	cashExpenses, err := s.expenseRepo.SumCashByDate(ctx, branchID, date)
 	if err != nil {
 		return Summary{}, err
 	}
-	expensesToday, err := s.expenseRepo.SumAllByDate(branchID, date)
+	expensesToday, err := s.expenseRepo.SumAllByDate(ctx, branchID, date)
 	if err != nil {
 		return Summary{}, err
 	}

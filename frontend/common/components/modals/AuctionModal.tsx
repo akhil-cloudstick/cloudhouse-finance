@@ -26,13 +26,12 @@ import type { LoanView } from "@/modules/loans/services/loanService";
  * that recorded a date+sale-amount in one step and jumped straight to
  * "Auctioned" — the real workflow now has 4 separate staff actions. */
 
-// Notice method is no longer picked by staff — every notice goes out on
-// every channel in this list at once, each logged as its own entry in the
-// notice history; see loan.Service.IssueAuctionNotice. SMS and Registered
-// Post used to be listed here too, but neither ever had a real provider
-// wired up — they were only ever logged as if sent, misrepresenting to
-// staff that the notice went out three ways when only WhatsApp actually
-// delivered anything.
+// Notice method is not picked by staff. Only WhatsApp is listed because it
+// is the only channel with a live gateway — SMS and Registered Post have no
+// provider wired up (see loan.Service's auctionNoticeChannels), so naming
+// them here promised the customer messages nobody actually sends. The
+// backend still writes an AuctionNotice row per channel for the compliance
+// notice history; this is only what staff are told goes out.
 const NOTICE_CHANNELS = ["WhatsApp"];
 
 export function IssueNoticeModalContent({ loan, onSaved, onError }: { loan: LoanView; onSaved: (rec: AuctionRecordView) => void; onError?: () => void }) {
@@ -69,7 +68,7 @@ export function IssueNoticeModalContent({ loan, onSaved, onError }: { loan: Loan
     <>
       <div className="hd"><h3>Issue Auction Notice — {loan.id}</h3><button className="x" onClick={closeModal}>×</button></div>
       <div className="bd">
-        <div className="frow"><div><label className="f">Channels</label>
+        <div className="frow"><div><label className="f">Channel</label>
           <p style={{ fontSize: 13.5, margin: "4px 0 0" }}>{NOTICE_CHANNELS.join(" · ")} — sent automatically</p></div></div>
         <div className="frow"><div><label className="f">Remarks</label><input className="inp" value={remarks} onChange={(e) => setRemarks(e.target.value)} /></div></div>
         <p style={{ color: "var(--red)", fontSize: 12.5, minHeight: 16, marginTop: 8 }}>{err}</p>

@@ -1,6 +1,7 @@
 package goldrate
 
 import (
+	"context"
 	"time"
 
 	"ambikagold/backend/internal/platform/httpx"
@@ -43,7 +44,7 @@ func validate(in PublishInput) error {
 // Publish records a new rate entry. Publishing never overwrites a prior
 // entry — every publish is a new history row, and the newest one becomes
 // "current" (see Latest).
-func (s *Service) Publish(in PublishInput) (*GoldRate, error) {
+func (s *Service) Publish(ctx context.Context, in PublishInput) (*GoldRate, error) {
 	if err := validate(in); err != nil {
 		return nil, err
 	}
@@ -56,26 +57,26 @@ func (s *Service) Publish(in PublishInput) (*GoldRate, error) {
 		K24:   in.K24,
 		SetBy: in.SetBy,
 	}
-	if err := s.repo.Create(rec); err != nil {
+	if err := s.repo.Create(ctx, rec); err != nil {
 		return nil, err
 	}
 	return rec, nil
 }
 
-func (s *Service) List(limit, offset int) ([]GoldRate, int64, error) {
-	return s.repo.FindAll(limit, offset)
+func (s *Service) List(ctx context.Context, limit, offset int) ([]GoldRate, int64, error) {
+	return s.repo.FindAll(ctx, limit, offset)
 }
 
-func (s *Service) Latest() (*GoldRate, error) {
-	rec, err := s.repo.FindLatest()
+func (s *Service) Latest(ctx context.Context) (*GoldRate, error) {
+	rec, err := s.repo.FindLatest(ctx)
 	if err != nil {
 		return nil, ErrNotFound
 	}
 	return rec, nil
 }
 
-func (s *Service) Get(id uint) (*GoldRate, error) {
-	rec, err := s.repo.FindByID(id)
+func (s *Service) Get(ctx context.Context, id uint) (*GoldRate, error) {
+	rec, err := s.repo.FindByID(ctx, id)
 	if err != nil {
 		return nil, ErrNotFound
 	}

@@ -1,6 +1,10 @@
 package branch
 
-import "gorm.io/gorm"
+import (
+	"context"
+
+	"gorm.io/gorm"
+)
 
 // Repository provides GORM-backed persistence for Branch records.
 type Repository struct {
@@ -11,15 +15,31 @@ func NewRepository(db *gorm.DB) *Repository {
 	return &Repository{db: db}
 }
 
-func (r *Repository) Create(b *Branch) error {
-	return r.db.Create(b).Error
+func (r *Repository) Create(ctx context.Context, b *Branch) error {
+	return r.db.WithContext(ctx).Create(b).Error
+}
+
+// CreateTx is Create against an explicit transaction handle rather than this
+// repository's own db — for the one caller (Service.Create) that must run
+// the insert inside the SAME transaction as the tenant's branch-quota check,
+// so a passing check and the row it approved can never be split by a
+// concurrent request. See tenant.Repository.ReserveBranchSlot.
+func (r *Repository) CreateTx(tx *gorm.DB, b *Branch) error {
+	return tx.Create(b).Error
+}
+
+// UpdateTx is Update's counterpart for the same reason — Service.Update uses
+// it only when a branch is being REACTIVATED (IsActive false -> true), the
+// other path back over the tenant's quota.
+func (r *Repository) UpdateTx(tx *gorm.DB, b *Branch) error {
+	return tx.Save(b).Error
 }
 
 // FindAll lists branches with a non-empty name, optionally scoped to a
 // single branchID (nil = no scope, i.e. Administrator sees all).
-func (r *Repository) FindAll(branchID *uint) ([]Branch, error) {
+func (r *Repository) FindAll(ctx context.Context, branchID *uint) ([]Branch, error) {
 	var branches []Branch
-	q := r.db.Where("name <> ''").Order("name asc")
+	q := r.db.WithContext(ctx).Where("name <> ''").Order("name asc")
 	if branchID != nil {
 		q = q.Where("id = ?", *branchID)
 	}
@@ -27,37 +47,56 @@ func (r *Repository) FindAll(branchID *uint) ([]Branch, error) {
 	return branches, err
 }
 
-func (r *Repository) FindByID(id uint) (*Branch, error) {
+func (r *Repository) FindByID(ctx context.Context, id uint) (*Branch, error) {
 	var b Branch
-	if err := r.db.First(&b, id).Error; err != nil {
+	if err := r.db.WithContext(ctx).First(&b, id).Error; err != nil {
 		return nil, err
 	}
 	return &b, nil
 }
 
-func (r *Repository) FindByName(name string) (*Branch, error) {
+func (r *Repository) FindByName(ctx context.Context, name string) (*Branch, error) {
 	var b Branch
-	if err := r.db.Where("name = ?", name).First(&b).Error; err != nil {
+	if err := r.db.WithContext(ctx).Where("name = ?", name).First(&b).Error; err != nil {
 		return nil, err
 	}
 	return &b, nil
 }
 
-func (r *Repository) Update(b *Branch) error {
-	return r.db.Save(b).Error
+func (r *Repository) Update(ctx context.Context, b *Branch) error {
+	return r.db.WithContext(ctx).Save(b).Error
 }
 
-func (r *Repository) Exists(id uint) (bool, error) {
+func (r *Repository) Exists(ctx context.Context, id uint) (bool, error) {
 	var count int64
-	err := r.db.Model(&Branch{}).Where("id = ?", id).Count(&count).Error
+	err := r.db.WithContext(ctx).Model(&Branch{}).Where("id = ?", id).Count(&count).Error
 	return count > 0, err
 }
 
-// FirstOrCreateByName is used by the one-time backfill (cmd/migrate) to turn
-// legacy free-text branch names into real Branch rows idempotently.
-func (r *Repository) FirstOrCreateByName(name string) (*Branch, error) {
+// FirstOrCreateByName finds a branch with this exact name, or creates one.
+// Used by the one-time backfill (cmd/migrate) to turn legacy free-text branch
+// names into real Branch rows idempotently, and by employee.SeedAdmin and
+// superadmin.Service.CreateBusiness to seed a first "Head Office" branch.
+//
+// Name is repeated inside Attrs() even though the Where() clause already
+// names it — that repetition is load-bearing, not redundant. GORM's
+// FirstOrCreate populates a new record's fields from the WHERE condition
+// only when that condition is a struct or map; a raw SQL string condition
+// (`"name = ?", name`, used here so callers pass a plain string) gives GORM
+// nothing it can read a column value back out of. Attrs() alone (as this
+// used to be written) then leaves Name unset on the freshly created row —
+// every fresh install's first branch was created with an EMPTY name and
+// silently vanished from every list, because branch.FindAll filters
+// `WHERE name <> ”`. Found the hard way via the superadmin console
+// (multi-tenancy plan, Step 7): a business created through the superadmin API
+// got a "Head Office" branch its own new Administrator could not see at
+// all. Name is included here explicitly so the bug cannot recur regardless
+// of which condition style is used.
+func (r *Repository) FirstOrCreateByName(ctx context.Context, name string) (*Branch, error) {
 	var b Branch
-	err := r.db.Where("name = ?", name).Attrs(Branch{Address: "Unknown", IsActive: true}).FirstOrCreate(&b).Error
+	err := r.db.WithContext(ctx).Where("name = ?", name).
+		Attrs(Branch{Name: name, Address: "Unknown", IsActive: true}).
+		FirstOrCreate(&b).Error
 	if err != nil {
 		return nil, err
 	}
@@ -69,11 +108,11 @@ func (r *Repository) FirstOrCreateByName(name string) (*Branch, error) {
 // cash_movements tables directly by name (rather than importing those
 // packages) to avoid an import cycle — branch is a low-level domain other
 // packages depend on, not the other way around.
-func (r *Repository) CountReferences(branchID uint) (int64, error) {
+func (r *Repository) CountReferences(ctx context.Context, branchID uint) (int64, error) {
 	var count int64
 	for _, table := range []string{"employees", "expenses", "cash_movements", "customers"} {
 		var c int64
-		if err := r.db.Table(table).Where("branch_id = ?", branchID).Count(&c).Error; err != nil {
+		if err := r.db.WithContext(ctx).Table(table).Where("branch_id = ?", branchID).Count(&c).Error; err != nil {
 			return 0, err
 		}
 		count += c

@@ -5,6 +5,686 @@ the actual git history at the time of writing; update it as new commits land.
 
 ## [Unreleased]
 ### Added
+- **Multi-tenancy, Steps 8b/9/11/12 — token invalidation, branding, tenant
+  audit logging, migration safety.**
+  - **Step 8b, token invalidation.** `AuthMiddleware` now revalidates every
+    request against the employee's LIVE row (`platform.EmployeeSessionChecker`,
+    implemented by `employee.Repository.CurrentSession`) instead of trusting
+    the JWT's own role/branch for its whole lifetime. A deleted employee's
+    token stops working on the very next request; a role change takes effect
+    immediately instead of at next login. Found and fixed a second bug while
+    proving this: `employee.Service.Create`/`Update` never set `RoleID` at
+    all, only the free-text `Role` name — so a role assignment never actually
+    took effect until the next `migrate.Run` backfill happened to run. The
+    `/uploads` cookie path got the same revalidation. New tests:
+    `TestDeletedEmployeeSessionStopsImmediately`,
+    `TestRoleChangeTakesEffectImmediately`.
+  - **Step 9, branding.** All 31 hardcoded "Ambika Gold Finance" strings
+    across 7 files replaced via a new `loan.Service.brandedMessage` helper —
+    build the message normally, then `strings.ReplaceAll` the literal name
+    with the caller's own tenant's. `auth`/`customerauth`/`reminder`/`reports`
+    each gained a `businessName(ctx)`; the indemnity bond template (all 3
+    languages) and `bondDataForLoan` were updated too.
+  - **Step 11, tenant audit logging.** New `internal/auditlog` (tenant-scoped,
+    unlike `internal/superadmin`'s cross-business one), wired into employee
+    and branch create/update/delete, a new `"can view audit log"` permission,
+    read-only `GET /audit-log`. Caught its own "forgotten table" bug
+    immediately via `TestEveryTenantScopedModelIsFiltered` — added to
+    `tenantScopedTables` and fixed before it ever shipped unfiltered.
+  - **Step 12, migration safety.** `migrate.Run` no longer executes on server
+    boot. New `schema_migrations` stamp, written as `Run`'s deliberately last
+    step; `main.go` now calls `migrate.CheckSchemaVersion` and refuses to
+    start with an exact instruction if it doesn't match. `cmd/migrate` is now
+    the only place `Run` executes.
+  - All four verified against a real running server, not only the test
+    suite, and the full backend test suite passes on a fresh database
+    throughout.
+- **Multi-tenancy, Step 13 — per-business usage caps.** New
+  `platform.UsageCounter`/`CheckAndRecordUsage`, a per-tenant daily cap on
+  each shared credential channel (`whatsapp`, `sms`, `setu_pan`,
+  `setu_aadhaar`, `setu_esign`) so one business cannot exhaust or dominate
+  the shared vendor quota/bill. Atomic
+  `INSERT ... ON CONFLICT DO UPDATE ... RETURNING count`, mirroring
+  `platform.Sequence`'s shape and exempt from the automatic tenant filter the
+  same way. Wired into `auth.Service.ForgotPassword` (SMS OTP) and
+  `customerauth.Service.RequestOTP` (WhatsApp OTP); the Setu KYC call sites
+  are not wired yet (those integrations are separately blocked per the Setu
+  sandbox notes already on file). `ErrUsageCapExceeded` typed via
+  `httpx.NewConflict` so it surfaces as a specific 409, not a generic 400.
+  New tests: `TestCheckAndRecordUsageEnforcesTheCap`,
+  `TestCheckAndRecordUsageRequiresATenant`. Verified with `go vet`, a fresh
+  migrate cycle, and the full test suite green.
+- **Multi-tenancy, Step 15 — backups, retention, incident plan
+  (documentation only).** Added a concrete runbook to
+  `documents/multitenancy_plan.md`: paired database + uploads backup/restore
+  procedure for this project's Postgres + local-disk-uploads setup, a
+  per-business export approach (using the existing `tenant_id` columns —
+  `tenantScopedTables` — rather than a new export feature), a retention
+  default for cancelled businesses (kept indefinitely, excluded from
+  outbound messaging, deleted only by explicit manual action pending a
+  confirmed retention policy), and an incident procedure for a suspected
+  cross-tenant leak that reuses the Step 14 isolation harness to reproduce
+  and confirm before touching anything live. No code changes — actual backup
+  scheduling/automation is deployment infrastructure outside this repo.
+
+### Fixed
+- **SEVERE: every server restart silently corrupted every business's
+  employees to another tenant's role, making all permission checks fail for
+  everyone but the first tenant.** Found while investigating Step 8's token
+  invalidation ("changing a role only takes effect at token expiry"), not by
+  any test — the real bug was worse: changing a role never took effect for
+  any tenant but the first, and it got actively worse on every restart.
+  - `internal/migrate.backfillEmployeeRoleID` keeps `employees.role_id` — the
+    field `RequirePermission` actually authorizes against — in sync with the
+    free-text `Role` name (`employee.Service.Update` only ever sets the
+    name, never `RoleID`). The old implementation resolved each role NAME's
+    id with **one unscoped lookup** (`authzRepo.RoleIDByName` under
+    `AllowCrossTenant`, returning whichever tenant's row Postgres happened to
+    return first — in practice tenant 1's), then applied that single id in a
+    raw `UPDATE` against **every employee in the entire table** whose `Role`
+    name matched, regardless of business. It ran with zero tenant filtering
+    at all, by construction — `migrate.Run` always executes before
+    `RegisterTenantScope` in both `main.go` and `cmd/migrate` — and its own
+    logic was not tenant-safe on top of that.
+  - Confirmed by direct inspection: two businesses seeded with real
+    per-tenant Administrator role ids (10, 19) both had their employees'
+    `role_id` silently rewritten to `1` after one re-run of this function.
+    Since `RequirePermission` resolves permissions by (the caller's own
+    tenant, this roleId), the corrupted id then points at a *different*
+    tenant's `role_permissions` set, so every check returns "Permission not
+    found" — for every employee of every tenant but one, starting with their
+    very next login after any restart or `cmd/migrate` run.
+  - Undetected by the isolation harness only because it mints test tokens
+    with the correct `roleId` baked in directly, bypassing this column
+    entirely; undetected by the one real end-to-end login test in this
+    session only because no restart happened in between.
+  - Fixed with one set-based statement — `UPDATE employees e SET role_id =
+    r.id FROM roles r WHERE r.tenant_id = e.tenant_id AND r.name = e.role
+    AND ...` — correct by construction, since the join is keyed on
+    `tenant_id`. New `internal/migrate/backfill_role_id_test.go`
+    (`TestBackfillEmployeeRoleIDIsPerTenant`) seeds two tenants with
+    different role ids, corrupts both to a third value, and asserts each
+    lands back on its own tenant's role. Verified three ways: the unit test,
+    a manual corrupt-then-fix cycle, and a full create-business → restart
+    (`cmd/migrate` re-run) → reboot → login cycle against a real running
+    server — the same `roleId` (265) survived the restart that would have
+    collapsed it to `1` under the old code.
+- **Every fresh install's own "Head Office" branch had an empty name and was
+  invisible in the branch list.** Found while proving Step 7's business
+  creation end-to-end, not specific to it: `branch.Repository
+  .FirstOrCreateByName`'s `Where("name = ?", name)` is a raw SQL string
+  condition, and GORM's `FirstOrCreate` only back-fills a struct field from a
+  WHERE clause that is a struct or map — a raw string gives it nothing to
+  read a value from. `Attrs()` didn't repeat `Name`, so this method's created
+  row always got an empty name, and `branch.FindAll`'s `WHERE name <> ''`
+  hid it. Confirmed on the scratch database's tenant 1 — the very first
+  tenant this codebase ever created. Fixed by repeating `Name` inside
+  `Attrs()`; a new migration step (`backfillEmptyBranchNames`) repairs
+  existing empty-named rows (`UPDATE branches SET name = 'Head Office' WHERE
+  name = ''` — safe, since that literal is the only name this method has
+  ever been called with). Verified: a fresh migrate reports "repaired 2
+  branch(es) with an empty name" including tenant 1's own.
+- **The employee JWT had no scheme discriminator**, unlike the customer one.
+  Found while adding the vendor scheme as a third token type: a customer
+  token shares the `tenantId` JSON key with the employee `Claims` struct, so
+  it decoded structurally into `Claims` with a non-zero `TenantID` and passed
+  `AuthMiddleware`'s only check — nothing in the codebase exploited this
+  (permission lookups fail closed on the resulting zero `RoleID`), but it was
+  live and untested. Fixed: `Claims` now carries `Type string` stamped
+  `"employee"`; `ParseToken` accepts a blank `Type` (every token issued
+  before this change, so nobody is forced to re-login) but rejects any
+  *other* scheme's explicit marker.
+
+### Added
+- **Multi-tenancy, Step 8a: the vendor console is renamed to "superadmin",
+  and "Administrator" is hidden from the employee-creation form.** Two
+  changes, both from the same conversation with the product owner:
+  clarifying that "Administrator" was a single-login testing convenience
+  from before multi-tenancy existed (the role itself, and every tenant's own
+  Administrator, is unchanged — `authz.Role.IsSystem` still protects it),
+  and confirming that the console built in Step 7 below IS the separate
+  cross-tenant "superadmin" login being asked for, just needing its name to
+  match.
+  - **Renamed throughout, mechanically, no behavior change**: package
+    `internal/vendor` → `internal/superadmin`; table `vendor_users` →
+    `superadmin_users`, `vendor_audit_logs` → `superadmin_audit_logs`;
+    `platform.VendorClaims`/`IssueVendorToken`/`ParseVendorToken`/
+    `VendorAuthMiddleware` → their `SuperAdmin*` equivalents; routes
+    `/api/v1/vendor/*` → `/api/v1/superadmin/*`; env vars `VENDOR_USERNAME`/
+    `VENDOR_PASSWORD`/`VENDOR_NAME` → `SUPERADMIN_USERNAME`/
+    `SUPERADMIN_PASSWORD`/`SUPERADMIN_NAME`; every isolation-harness test,
+    manifest entry and fixture updated to match (`classVendor` →
+    `classSuperAdmin`, `TestVendorRoutesRejectStaffAndBorrowerTokens` →
+    `TestSuperAdminRoutesRejectStaffAndBorrowerTokens`, etc.). Generic prose
+    uses of "the vendor" meaning "us, the company selling this software"
+    (e.g. `tenant.Tier`'s "a plan the vendor sells") were deliberately left
+    alone — only the console's own identifiers moved. Verified against the
+    real running server: the old `/api/v1/vendor/login` now 404s, the new
+    `/api/v1/superadmin/login` returns a token carrying `"type":"superadmin"`.
+  - **`frontend/common/components/modals/EmployeeModal.tsx`**: a new
+    `roleOptionsFor()` filters "Administrator" out of the Add/Edit Employee
+    role picker, with one exception — an employee who already holds it still
+    shows correctly when being edited, rather than the field silently going
+    blank. The canonical `ROLES` whitelist (mirrored from the backend's
+    `ValidRoles`) is untouched, so validation and existing-employee display
+    are unaffected; only the picker's options are narrowed.
+- **Multi-tenancy, Step 7 (backend): vendor console, business creation, and
+  branch quota enforcement.** The last of the three original blockers to a
+  second business — until now a tenant could only be created by hand-written
+  SQL. Built against three decisions locked in beforehand: `vendor_users` +
+  its own JWT scheme (not env-only credentials, not a separate deployment),
+  branch-quota-only metering (no concurrent-login seats), and a first pass
+  scoped to Businesses + Tiers + quota + Audit (Sessions/force-logout and
+  Billing/GST deferred to their own steps). **Only the backend — no frontend
+  console UI yet.**
+  - **New `internal/vendor` package.** `vendor_users` (no `tenant_id` — a
+    vendor belongs to no business), `platform.VendorClaims` /
+    `IssueVendorToken` / `ParseVendorToken` / `VendorAuthMiddleware`. Mounted
+    at `/api/v1/vendor/*`, a SIBLING of the employee-authenticated group in
+    `internal/app/app.go`, never nested inside it, gated solely by
+    `VendorAuthMiddleware` — never `platform.CRUDPermissions` — so a tenant's
+    role grants can have no bearing on who reaches these routes.
+  - **`vendor.Service.CreateBusiness`** replaces the handoff's five
+    hand-written INSERTs with one transaction: tenant row → `authz.SeedRoles`
+    → full grant to Administrator only (new `authz.Repository
+    .GrantAllToRole`, a loop of single-row upserts rather than a batch
+    insert — GORM's tenant-stamp callback only reliably stamps one element of
+    a slice create, and this path had never been exercised under an explicit
+    tenant context before) → first branch → the admin employee. Every write
+    after the tenant row runs under `platform.WithTenant(ctx, newTenant.ID)`
+    through repositories built fresh against the transaction handle, so a
+    vendor-created business is stamped through the exact same path a real
+    session's queries use. The other 8 roles start with zero grants — a new
+    business is locked down except for its own admin, same as an on-prem
+    customer.
+  - **`tenant.Repository.ReserveBranchSlot`** closes the race
+    `CountActiveBranches`'s own doc comment had already flagged: locks the
+    tenant row, counts active branches, and runs the insert/save inside the
+    SAME transaction. Wired into `branch.Service.Create` and into `Update`
+    only on the `false -> true` IsActive transition (reactivation is "the
+    other door people forget"); new `branch.Repository.CreateTx`/`UpdateTx`
+    run against the transaction handle instead of the repo's own bound db.
+  - **Isolation harness additions**: a new `classVendor` manifest class (mounted
+    under `/vendor`, legitimately cross-tenant by design — the ordinary
+    "another business's data is a leak" probe does not apply);
+    `TestVendorRoutesRejectStaffAndBorrowerTokens` (all four directions
+    between the three JWT schemes, plus that a genuine vendor token actually
+    works); `TestVendorCreatedBusinessIsFullyIsolated` (create a business
+    through the real HTTP API, its own admin logs in via the ordinary
+    `/auth/login`, sees only its own seeded branch, neither existing fixture
+    business can see it or it them); `TestBranchQuotaIsEnforced` (a real
+    Starter/quota-1 business: second branch refused 409, replacement after
+    freeing the slot succeeds, reactivating the original while at quota is
+    refused again).
+  - Verified against the real running server, not only the harness: vendor
+    login → list tiers → create a business (201) → its own admin logs in
+    with `businessCode` → JWT shows `"type":"employee"`, correct
+    `tenantId`/`branchId`, a correctly-named "Head Office" branch → the audit
+    log shows the `create_business` entry with actor, reason and detail.
+  - `internal/migrate.Run` now takes `platform.Config`, needed to seed the
+    first vendor login (`VENDOR_USERNAME`/`VENDOR_PASSWORD`/`VENDOR_NAME`,
+    create-only, same shape as `employee.SeedAdmin` but with no safe fixed
+    password to bake in for a console that can create and suspend every
+    business on the deployment). All three call sites (`main.go`,
+    `cmd/migrate`, the isolation harness) updated.
+  - **Deliberately not done here:** the frontend console UI; Sessions/
+    force-logout and Billing & GST (their own steps); moving
+    `api_key_settings` ownership to the vendor (the Step 14 finding that any
+    tenant's Administrator can overwrite the shared provider credentials for
+    every other business is unchanged).
+- **Multi-tenancy, Step 6: Management sees every branch, with a switcher.**
+  `platform.AdministratorRole` was previously the sole role that bypassed
+  branch scoping — Management was confined to its own branch exactly like a
+  Cashier, though the plan's own status table had recorded the opposite as
+  already true.
+  - `crossBranchRoles` (Administrator, Management) replaces the single-role
+    check in `GetBranchScope`/`EnforceBranchOnWrite`.
+  - The switcher is a request header, `X-Branch-Id`. That is a client-supplied
+    value in a design whose whole premise is that the business never comes
+    from one — the difference is that this header can only **narrow** what
+    the session already permits, never widen it: ignored outright for a
+    non-cross-branch role, and for a cross-branch role it still runs inside
+    that session's tenant predicate, so a branch id belonging to another
+    business matches nothing.
+  - New `GET /branches/switchable`, deliberately not scoped by
+    `GetBranchScope`: the ordinary branch list is itself branch-scoped, so
+    once a selection is active it would return just the one selected branch
+    — a switcher built on it could show a single option and no way back to
+    the others.
+  - `internal/platform/branch_scope_test.go`: table-driven, no database. Two
+    properties pinned explicitly — a cross-branch role can narrow, a confined
+    role can never widen no matter what it sends, and an unknown role fails
+    closed rather than open.
+  - Isolation harness additions: `TestBranchSelectionCannotCrossBusinesses`
+    (every role, 8 routes including two reports, switcher pointed at another
+    business's real branch id — no leak) and
+    `TestSwitchableBranchesNeverCrossBusinesses`.
+  - Frontend: `common/services/branchSelection.ts` (session-scoped, keyed per
+    business slug like the JWT), `BranchSwitcher.tsx` (renders nothing for a
+    non-cross-branch role or a one-branch business), and `auth-context.tsx`
+    exposing `isCrossBranch`/`selectedBranchId`/`setSelectedBranch`, cleared on
+    both login and logout.
+- **Multi-tenancy, Step 5: the borrower app audited, and given a lender
+  code.** The audit found the existing ownership checks hold —
+  `customerOwnedLoan` plus each handler's own `CustomerID` comparison — but
+  turned up the same lockout the staff frontend had: `customer-mobile`'s
+  `requestOtp`/`verifyOtp` sent no `businessCode`, so a second lender would
+  lock every borrower out with "please open your lender's app link" and no way
+  to answer it.
+  - New isolation-harness test,
+    `TestBorrowerCannotReachAnotherBorrowerAtTheSameBusiness`: two borrowers
+    at the SAME business, one asking for the other's loan, payment and
+    notification. This is the axis the cross-business probes cannot cover —
+    both rows pass the tenant filter equally, so only each handler's own
+    ownership check stands between them. 9 probes, all refused.
+  - `businessCode` added to both OTP endpoints; `src/auth/businessCode.ts`
+    remembers the lender in SecureStore after a successful sign-in only, so a
+    mistyped code is never persisted and offered back; the login screen
+    gained an optional, pre-filled "Lender code" field.
+  - Reconfirmed rather than assumed: a borrower with loans at two businesses
+    still signs in to each separately (`customerauth.Service.resolveTenant`
+    is per-request, keyed on the supplied code, exactly like the staff side).
+- **Per-business sign-in links — the frontend is tenant-aware.** Until now
+  `businessCode` and `tenantId` appeared nowhere in `frontend/`, and
+  `authService.login()` sent only an identifier and password. The backend
+  requires a business code as soon as a second business exists, so **the day
+  one was created every UI user would have been locked out.** Demonstrated
+  with two businesses that both have a user called `admin`: login with no code
+  returns "please use your organisation's sign-in link, or enter your business
+  code", while `businessCode: default` and `businessCode: acme` each return a
+  token for their own tenant. A wrong code and a wrong password still return
+  the identical error, so the page cannot be used to enumerate businesses.
+  - **`frontend/common/services/tenantSession.ts`** is the single module that
+    knows about slugs and session storage: it parses the slug from the path,
+    builds `/login/<slug>` and `/app/<slug>`, and owns the storage keys. No
+    other module knows a key any more — which is what stops the next one being
+    missed.
+  - **Sessions are keyed by business** (`ambikagold_token::<slug>`), fixing the
+    bug the plan had recorded as deferred: every business shares one browser
+    origin, so a single key meant two businesses open in two tabs silently
+    clobbered each other's sign-in. Signing out of one now deliberately leaves
+    the other alone. `migrateLegacySession()` carries an existing single-key
+    session into the keyed layout so the deploy does not sign everyone out.
+  - **`businessCode` travels with all three pre-session endpoints** — login,
+    forgot-password and reset-password. The last two are not an afterthought:
+    a phone number is unique only WITHIN a business now, so without it the
+    backend cannot tell which employee is asking. The reset flow passes it as
+    `?b=<slug>` (a step in a flow, not a bookmarkable identity).
+  - **A bare `/login` shows a business-code field**, so a truncated or
+    hand-typed URL is not a dead end — otherwise "the link stopped working"
+    becomes the commonest support call. Arriving through a slugged link hides
+    the field, because that business is already named. The field stays
+    optional: with one business the backend still resolves it alone.
+  - **Every redirect keeps the slug**: the 401 bounce in `httpClient`, the app
+    shell's auth guard, the root traffic director, both sign-out buttons, and
+    the packet/loan QR labels — those last printed a bare `/app` URL, so a
+    scanned label opened an app that had forgotten which business the reader
+    belongs to.
+  - **How a slugged URL resolves at all.** `/login/<slug>` cannot be a Next
+    dynamic route: the frontend builds with `output: "export"`, where every
+    route parameter must be known at build time via `generateStaticParams`,
+    and tenant slugs are created at runtime by the vendor. So one static page
+    serves every slugged path and reads the slug from its own URL — a rewrite
+    under `next dev`, and a fallback in `internal/webstatic` in production.
+    The two must stay in step: a path that works in dev and 404s in production
+    fails on the sign-in link, the worst possible place to discover it. New
+    `internal/webstatic/handler_test.go` pins the production half — including
+    that a real file always wins over the fallback (a slug colliding with a
+    genuine asset path must not shadow it) and that a slug cannot escape the
+    web root. Verified against the running server with the built frontend:
+    `/login`, `/login/acme`, `/app/acme` all 200 with byte-identical HTML;
+    `/login/BAD_SLUG`, `/app/acme/extra`, `/nonsense/acme` and
+    `/login/..%2f..%2fmain.go` all 404.
+  - The slug **selects, it never grants** — after login the business comes from
+    the token and is never re-read from the URL, which the isolation harness
+    already asserts (`TestSessionsWithoutABusinessAreRejected` checks that a
+    business hint in the query string or an `X-Tenant-ID`/`X-Business-Code`
+    header changes nothing).
+  - Not done here: the **borrower app** (`customer-mobile/`) is a separate
+    client and still needs the same treatment. Its `/customer/auth/*`
+    endpoints already accept `businessCode`, so it is client work — tracked
+    under Step 5.
+
+### Fixed
+- **Every one of the 16 report endpoints was returning every business's rows.**
+  The third cross-tenant leak in this codebase, the largest, and silent like
+  the two before it.
+  - `.Scan()`, `.Pluck()`, `.Row()` and `.Rows()` do **not** go through GORM's
+    Query callback chain — they go through **Row**, a separate chain.
+    `RegisterTenantScope` hooked Query, Update, Delete and Create, which reads
+    as exhaustive and is not. So every `.Scan()` ran with **no tenant
+    predicate and no `ErrNoTenantInContext`**: the callback that raises the
+    error never fired, so the query neither filtered nor complained. All 16
+    reports are built with `.Scan()`; 23 call sites across 8 files were
+    affected.
+  - The existing SQL-shape tests could not catch it — they assert on
+    `.Count()`, which is a Query. The generated SQL, before the fix:
+    `Count(&n)` produced `WHERE "l"."tenant_id" = 7`, while the identical
+    query ending in `Scan(&rows)` produced no predicate at all.
+  - Fixed by registering the same callback on the `Row` chain. Guarded now by
+    `TestTenantScopeCoversEveryExecutionPath` and
+    `TestUnscopedContextFailsOnEveryExecutionPath`, which assert **per
+    execution path** (Count, Find, Scan, Scan-with-joins, Pluck) rather than
+    per query shape — so the coverage is checkable rather than assumed. That
+    framing is the actual lesson: a filter defending four of GORM's five
+    execution paths looks complete.
+- **`checkLoanBranch` skipped its ownership check for the widest roles.** It
+  returned `nil` immediately when `branchID == nil` — which is exactly
+  Administrator and Management, the roles with no branch restriction — so the
+  loan's existence was never verified for them. `GET /loans/:id/auction/history`
+  and `GET /loans/:id/bank-pledge/history` answered 200 with an empty list for
+  any loan id at all, including another business's. 9 call sites relied on it.
+  No rows escaped, because the follow-up queries are tenant-filtered and the
+  defence in depth held — but "no branch restriction" is not the same
+  statement as "no check". The loan is now resolved unconditionally; only the
+  branch comparison is conditional.
+- **`GET /customers/:id/loans` answered 200 for another business's customer.**
+  `ListLoansForCustomer` was the only one of the five Customer 360 sub-table
+  methods missing the `customerRepo.FindByID` guard the other four all have,
+  so it returned an empty list where its siblings returned 404.
+
+### Added
+- **Multi-tenancy, Step 14: the automated isolation harness.** The three fixes
+  above are its first run's output.
+  - `main.go`'s wiring moved into **`internal/app`** (`app.Build`), so the
+    harness exercises the **real** router — same middleware chain, same
+    permission gates, same route table. A harness built on a miniature
+    stand-in would have proved nothing about the server that ships: one of the
+    earlier leaks was visible only in the generated SQL of a fully wired
+    query. `main()` is now ~60 lines. Background jobs are deliberately not
+    started by `Build` — the due/overdue sweep messages real borrowers.
+  - **`internal/app/isolation_manifest_test.go`** classifies all **179**
+    mounted routes by how isolation is proven: probe, collection, public,
+    self, external, global — with a reason recorded for every non-probe.
+    `TestEveryRouteIsClassified` fails when a route is mounted that the
+    manifest does not list, and when an entry no longer matches a route. It
+    needs **no database**, so it runs in plain `go test ./...`. This is the
+    load-bearing piece: neither shipped leak was a mistake in reasoning, both
+    were an endpoint no list mentioned, so the defence is a list that cannot
+    be left incomplete.
+  - **`TestCrossTenantAccessIsRefused`** runs **666 probes** — every
+    id-addressed route against all 9 roles, requesting another business's
+    record. Roles get every permission granted, deliberately: that removes the
+    permission layer from the experiment, so what comes back is the isolation
+    boundary's own doing, and a leak the default grants happen to hide today
+    would surface the moment an admin widened a role. The assertion is "not
+    2xx" rather than a specific status, so the harness needs no valid request
+    body for ~90 mutating endpoints — bodies whose drift would quietly turn
+    probes into no-ops.
+  - **Positive controls**, because a 404 proves nothing alone: a typo, a
+    fixture that never inserted, or a route that 404s for everyone all look
+    like airtight isolation. Every GET probe also runs as the owning business
+    and must succeed — **28 of 29 do**, and the one that cannot
+    (`esign/status`, which needs a real eSign transaction) is reported out
+    loud rather than counted as passed.
+  - **`TestCollectionsDoNotLeak`** checks 63 list, report and **export**
+    responses for another business's marker string — including every one of
+    the 16 export keys, since a report can be correct on screen and leaking in
+    the file. Fixtures carry a per-tenant marker, so a leak is B's own string
+    in A's response rather than a row count to be interpreted. This is the
+    test that caught the reports leak.
+  - **`TestBorrowerCannotReachOtherBorrowers`** covers the Step 5 surface —
+    payment history, notifications and receipts, the routes that do not go
+    through `customerOwnedLoan` — plus that a staff token is refused on
+    borrower routes and vice versa.
+  - **`TestSessionsWithoutABusinessAreRejected`**: no token, expired token,
+    token signed with the wrong secret, crossed JWT schemes, and a business
+    hint smuggled in via query string or `X-Tenant-ID`/`X-Business-Code`
+    headers being ignored — the last one asserting the design's central claim,
+    that the business comes from the token and nowhere else.
+  - **Fixtures are introspective**: NOT NULL columns come from
+    `information_schema` and foreign keys resolve to real parent rows, so a
+    new column or constraint needs no fixture edit. Hand-written fixtures
+    would drift from the schema, and the drift would show up as a probe that
+    silently stopped running — the exact failure this harness exists to
+    prevent. Rows are minimal and not business-valid on purpose: a probe asks
+    whether A can reach B's row, and existence is all that requires.
+  - **`TestExternalRoutesAreProbedByHand`** pins the 10 routes excluded from
+    probing because they call live KYC/eSign/Razorpay/WhatsApp accounts. The
+    class is a debt, not a clearance, and the pinned count makes adding one a
+    visible diff rather than a quiet opt-out.
+  - **`TestProviderCredentialsAreDeliberatelyShared`** pins the
+    shared-credentials decision (`api_key_settings` has no `tenant_id` and one
+    global row per category) and fails with instructions if the table ever
+    gains one. **Found and not fixed, because it is a product decision:** those
+    routes are mounted for every tenant's Administrator, so any customer's
+    admin can not only read the shared provider credentials but **overwrite
+    them for every other business**. Ownership belongs in the vendor console
+    (Step 7).
+  - Reclassified `GET /employees/:id/permissions/by-employee` from probe to
+    self after the harness showed the owning business could not call it
+    either: the handler requires the path id to equal the authenticated
+    employee's, so no cross-tenant request is expressible and a probe there
+    would have been theatre.
+- **`documents/multitenancy_plan.md` — the multi-tenancy plan, Steps 0–15.**
+  The numbered plan this log and the handoff both refer to existed only as a
+  row of one-line labels in a handoff table, so "Step 9" or "Step 14" could
+  not be acted on without reconstructing what they meant. Each step is now
+  written out with its intent, the constraints already known to apply, and the
+  traps to avoid, plus the order of work — which is deliberately **not**
+  numeric: the isolation harness (14) comes before any further feature,
+  because two cross-tenant leaks have already shipped silently with every test
+  green. (Step 14 has since been built, and found a third — see above.)
+  - The document says plainly which steps are specified and which are still
+    only a label (6, 8, 10, 11, 13, 15), rather than dressing intent up as
+    design.
+  - Figures were re-verified against the code rather than copied: `Quota`
+    appears **0 times** in `internal/branch/` (the tier quota is still
+    unenforced); `businessCode`/`tenantId` appear **0 times** in `frontend/`;
+    the hardcoded business name occurs **31 times across 7 files**; and there
+    are **13 non-test `AllowCrossTenant` call sites in 9 files**, not the 12
+    in 8 the handoff records — that count predates
+    `internal/tenant/iterate.go:36`.
+- **The loan "Statement" button is real.** It previously raised a
+  "Receipt/statement PDF — full build" toast and did nothing; it was removed
+  in `dc83f5a` and is now restored, wired end to end.
+  - `GET /api/v1/loans/:id/statement` renders a customer-facing PDF:
+    loan and customer details, the pledged ornaments with weight and value
+    totals, full payment history broken down into interest / penal /
+    principal with running balance, and a balance summary ending in the
+    total outstanding and the settlement amount payable today.
+  - Every figure comes from `Service.Get`, the same enriched loan the detail
+    screen renders — which accrues interest up to the moment of the
+    request — so the printed statement can never disagree with the screen it
+    was printed from. Verified against a live loan: principal ₹74,250,
+    outstanding ₹33,258.86, five payments totalling ₹41,000, all matching
+    the API exactly.
+  - The header carries **the tenant's own business name**, not a hardcoded
+    one. A statement handed to a customer under another business's name is
+    the most visible possible version of a tenancy mistake, and this is the
+    first document to get it right — the other 30 hardcoded
+    "Ambika Gold Finance" strings still need the Step 9 branding work.
+  - Penal interest and processing-fee lines appear only when non-zero: a
+    line reading "0.00" against a penalty invites a question at the counter
+    that has no answer.
+  - Gated by `can view loan`, branch- and tenant-scoped through `Service.Get`.
+    Verified: unknown loan 404, no token 401, malformed id 400, loan with no
+    payments 200.
+  - Frontend `downloadLoanStatement()` mirrors `reportsService.exportReport`
+    so there is one recognisable shape for authenticated binary downloads.
+    The button disables while the request runs — it accrues interest
+    server-side before rendering, so a double-click would otherwise produce
+    two documents whose figures differ by a few seconds of interest.
+- **Multi-tenancy, Step 4: uploaded files are no longer world-readable.**
+  `router.Static("/uploads", ...)` served every file to anyone who asked — no
+  login, no ownership check — and those files include **customer photos and
+  KYC documents**. That was a privacy problem on a single installation and a
+  cross-business one the moment there are two.
+  - New `uploaded_files` table: the authorization record behind every file.
+    Without a row saying who owns a file there is nothing to check a request
+    against, so the record is what makes a decision possible at all.
+  - `/uploads/:key` is now a handler. It authenticates, resolves the key
+    through the database under the caller's business, and only then reads
+    from disk. **The path is never used to locate the file** — the URL
+    segment is matched as an exact `storage_key` and the disk path is built
+    from the row — so traversal is unreachable rather than defended against.
+    A file belonging to another business returns 404, not 403: a 403 would
+    confirm the file is real and someone else's.
+  - Authentication is a **path-scoped HttpOnly cookie** (`/uploads` only),
+    set at login for both staff and borrowers. An `<img>` tag cannot send an
+    Authorization header, so a header-only scheme would have meant rewriting
+    every image in the app to fetch bytes through JavaScript. A query-string
+    token was rejected: URLs leak into server logs, browser history and
+    Referer headers.
+  - **Uploads are validated by sniffing the bytes**, never the extension or
+    the declared Content-Type — both are supplied by the caller. 10 MB cap,
+    and files are validated before anything touches disk. **SVG is refused
+    outright**: an SVG is a document that can carry `<script>`, so serving
+    one from this origin means running attacker-supplied script with the
+    viewer's session. There is no safe way to serve arbitrary SVG same-origin,
+    so it is rejected rather than sanitised.
+  - Server-generated files (the signed indemnity bond) go through
+    `SaveBytesRecorded`, or they would be written, linked from the loan, and
+    404 on every attempt to open them.
+  - Migration backfills a record for every file already referenced by
+    existing data, inheriting the referencing row's business. Files nothing
+    references are deliberately **not** adopted — an orphan has no owner to
+    infer, and guessing one would be inventing an authorization answer.
+
+  **A bug this step introduced and then caught.** `uploaded_files` was added
+  to the schema but not to `tenantScopedTables`, so the filter skipped it
+  entirely: one business could read another's files, with every test green.
+  The pinned-count test could not catch it — the count still matched.
+  `TestEveryTenantScopedModelIsFiltered` now compares the filter's table set
+  against `information_schema`, so any table with a `tenant_id` column that
+  is missing from the set fails the build. Verified end to end: logged out
+  404, own file 200, other business's file 404, traversal 404.
+- **Multi-tenancy, Step 3: the surfaces the query filter cannot reach.**
+  - **The borrower app was broken by Step 2 and is fixed.**
+    `CustomerAuthMiddleware` set `customerId` but no business, so every
+    borrower endpoint would have failed with "no tenant in context".
+    `CustomerClaims` now carries `TenantID`, set at OTP verification from the
+    customer's own record; `request-otp` and `verify-otp` take an optional
+    `businessCode` on the same terms as staff login. A borrower with loans at
+    two businesses signs in to each separately — merging them would tell each
+    business the person also borrows elsewhere.
+  - **Background jobs now iterate businesses instead of seeing all of them.**
+    `tenant.ForEachActive` runs a job once per active business with a context
+    scoped to it. The due/overdue sweep **sends messages to real borrowers**,
+    so a single cross-tenant pass would have texted every business's
+    customers in one undifferentiated batch. Suspended and cancelled
+    businesses are skipped — outbound messaging runs on shared provider
+    credentials, so continuing to send for a business that stopped paying
+    spends the vendor's money and contacts borrowers in that business's name.
+    A failure in one business never stops the rest.
+  - **No Razorpay webhook exists yet** — payment verification is
+    client-initiated under customer auth, so the webhook concern belongs to
+    Step 10 (billing), not here. Recorded so it is not assumed handled.
+  - **The realtime hub needs no change**: it is in-memory and keyed by
+    customer id, which is globally unique, so it has no query to filter. Its
+    only database-backed feeder (`ResendPending`) is now per-business.
+  - Tests: `TestForEachActive` asserts one pass per active business, each
+    correctly scoped, suspended ones skipped, and that one failure does not
+    halt the others.
+
+  **Found, not fixed:** 30 outbound strings across 7 files hardcode
+  "Ambika Gold Finance" — SMS and WhatsApp bodies, the indemnity bond, and
+  PDF exports. Every business's borrowers would be messaged under the first
+  business's name. Not a data leak, but a branding one, and it needs the
+  per-business branding from Step 9.
+- **Multi-tenancy, Step 2: tenant isolation is live.** Every read, update and
+  delete on the 38 tenant-owned tables now carries a `tenant_id` predicate
+  from the authenticated session, and every insert is stamped with it.
+  Verified over HTTP with two businesses sharing one database: each sees only
+  its own banks, branches and employees, and **both have a user called
+  `admin`** — impossible before the composite constraints.
+  - Request context is threaded handler → service → repository across ~530
+    methods, following the `branchID *uint` precedent already in the
+    codebase. Driven by the compiler, so no call site could be missed.
+  - **Login now resolves the business first.** `POST /auth/login` accepts an
+    optional `businessCode`; it is the one query that legitimately precedes a
+    tenant, so it is explicitly cross-tenant, and everything after it is
+    scoped. The code is optional while exactly one business exists — a
+    single-business installation is unaffected — and required once there are
+    two, since a username is only unique within a business. A wrong business
+    code returns the same error as a wrong password, so the login page cannot
+    be used to enumerate which businesses exist. `forgot-password` and
+    `reset-password` take it too, for the same reason.
+  - **Migration ordering corrected.** The tenancy backfill originally ran
+    mid-sequence, so everything seeded after it — 9 roles, ~620 permission
+    grants, the admin employee, the Head Office branch — was created with
+    `tenant_id = 0`. That satisfies NOT NULL, so nothing complained; the
+    symptom was a fresh install whose admin could not log in. The backfill is
+    now the last step in `migrate.Run`, which is also the only point at which
+    "every row has a tenant" is true.
+  - `AllowCrossTenant` opt-outs total **16, in 6 files** — migrations, the
+    two seed paths, and the two background jobs. `grep -rn AllowCrossTenant`
+    is the audit.
+  - `Claims.TenantID` is now in the session token, set at login from the
+    employee record. It is the only source of a request's tenant: never a
+    header, query string, body or URL segment. Tokens minted before this
+    change carry no tenant and are rejected with a 401 asking the user to
+    sign in again — defaulting them to a business would be precisely the
+    guess this field exists to prevent. **Everyone currently logged in gets
+    one 401 and a fresh login.**
+  - `platform.RegisterTenantScope` installs GORM callbacks that append
+    `tenant_id = ?` to every read, update and delete on the 38 tenant-owned
+    tables, and stamp it on insert (so a tenant cannot be forged through a
+    request body). A query with no tenant in context is a hard error, not an
+    unfiltered query.
+  - `AllowCrossTenant(ctx)` is the deliberate, greppable opt-out for
+    migrations, the vendor console, and jobs that iterate businesses
+    explicitly.
+  - **A silent-leak bug found and fixed during this work.** For
+    `db.Table("loans l")` — the shape all 16 report queries use — GORM parses
+    the alias out and sets `Statement.Table` to `"l"`, keeping the raw string
+    in `Statement.TableExpr`. A filter reading `Statement.Table` alone looks
+    up a table called `l`, finds it is not tenant-owned, and returns **every
+    business's rows with no filter and no error**. Caught by inspecting
+    generated SQL, not by row counts. `resolveTable` now consults both, and
+    `TestTenantScopeSQLShapes` asserts the predicate on all four query shapes
+    so it cannot regress. A subquery as the primary table is refused loudly
+    rather than skipped.
+  - Tests: pure-logic coverage runs always; SQL-shape regressions need a
+    scratch database and skip cleanly without one
+    (`MT_TEST_DB=<db> go test ./internal/platform/`).
+
+  **Correction to the plan.** It claimed the callback meant existing
+  repository methods needed no edits. That was wrong: the filter reads the
+  tenant from the query's context, and repositories were built with a
+  long-lived `*gorm.DB` at boot that carries no request. Roughly 530 methods
+  had to take a context. The callback removes the need to *write a `WHERE`
+  clause per query* — it does not remove the need to pass a context.
+
+  The background jobs were left cross-tenant by this step and are corrected
+  in Step 3 above.
+- **Multi-tenancy, Step 1: the tenant foundation.** Schema only — no
+  behaviour changes yet, and the app still runs as a single business. See
+  `documents/multitenancy_step0.md` for the audit this implements.
+  - New `internal/tenant` package: `tiers` (Starter 1 / Growth 3 /
+    Enterprise 10 branches) and `tenants` (name, immutable URL `code`, tier,
+    status). Deliberately **no HTTP routes** — tenants are vendor-administered
+    and vendor authentication does not exist yet; mounting them now would
+    leave the most powerful operations in the system reachable by any
+    authenticated employee.
+  - `platform.TenantScoped` embedded in **all 37** persisted models. Not just
+    the branch-owning ones: the query filter that lands in Step 2 can only add
+    a condition to a table it can see, so a direct `payments/:id` lookup has no
+    loan in it to reach through. Inheritance via foreign keys would silently
+    reintroduce the error the filter exists to remove. The two exceptions are
+    `permissions` (global catalogue) and `api_key_settings` (shared
+    credentials, by product decision).
+  - **16 unique constraints moved from global to per-business** — loan number,
+    customer/employee/packet/scheme/branch/locker codes, bank and ornament-type
+    and role names, approval limits, and the four login identifiers. Each of
+    these previously meant "only one of your paying customers may ever use this
+    value"; the second business's first loan is `LN-00001` and was rejected
+    outright. Partial predicates on the employee identifiers are carried over
+    verbatim so blank usernames/phones/emails stay exempt.
+  - **Per-business code sequences** (`platform.NextSequence`), replacing
+    "count every row that ever existed, add 1". Besides colliding, a global
+    count leaked commercial information — one business's next customer code
+    revealed roughly how many customers the others had. It was also already
+    racy: two concurrent creates read the same count and the second died on the
+    unique index as a 500. Allocation is now a single atomic upsert. The five
+    call sites still count; they are rewired in Step 2, when a tenant is
+    available in request context.
+  - Migration follows add-nullable → backfill → constrain, the order
+    `scheme.BackfillBranchID` already established here. Verified against a
+    clone of the live database: 39 columns backfilled and set NOT NULL,
+    sequences seeded past existing codes (loan → 21), a second run changing
+    nothing, and a second business successfully created with the same branch
+    code, bank name and role name as the first.
 - **"Save Draft" on the New Gold Loan page is real.** It used to raise a
   "Draft saved (demo)" toast and throw the form away. There is now a
   `loan_drafts` / `loan_draft_ornaments` schema behind it and a
@@ -19,7 +699,52 @@ the actual git history at the time of writing; update it as new commits land.
   (fail-soft: a draft that won't delete never fails the submission).
   Run `go run ./cmd/migrate` for the two new tables.
 
+- **"Apply Payment To" picker on Record Payment.** The modal posted every
+  payment as `Partial` (the full fee → penal → interest → principal
+  waterfall). Staff now choose where the amount lands: **Both** (the
+  waterfall, still the default), **Interest only**, **Penal interest only**,
+  **Principal only**, or **Full settlement**. Every mode still clears an
+  outstanding processing fee first — a fee is a real charge, not something
+  that can be deferred — and the backend rejects an amount that overshoots
+  the buckets the chosen mode may touch.
+
+  `Penal Interest` is a new payment type: it stops one bucket earlier than
+  `Interest`, which pays penal FIRST (penal interest is interest too) and
+  then regular interest. `POST /loans/:id/payments` now accepts only these
+  five types — `Adjustment`, `Waiver`, `Auction Sale` and `Auction Write-Off`
+  are raised by their own flows and were never meant to be postable by a
+  client (an Auction Sale would have moved gold proceeds through the till
+  twice). Covered by `internal/loan/payment_alloc_test.go`.
+
+- **A payment that clears all arrears withdraws the loan from auction
+  automatically.** Previously *any* part-payment on a loan in the auction
+  pipeline froze the case and raised a keep/remove escalation for a manager,
+  even when the customer had caught up on every rupee of interest and penal
+  interest owed. There is nothing left to weigh in that case — principal not
+  yet due is not grounds to sell someone's gold — so the case is now
+  withdrawn on the spot, any pending escalation is resolved as
+  `RemovedFromAuction`, and the loan returns to `Active` (out of Overdue, the
+  same rule `refreshServicingStatus` applies to loans that never entered the
+  pipeline). A payment that leaves ANY arrears standing still raises the
+  escalation, so a token ₹100 cannot pull a scheduled auction without a
+  manager.
+
 ### Fixed
+- **Customer WhatsApp messages are sent in the background.**
+  `loan.Service.notifyCustomer` called the WhatsApp gateway inline, so every
+  action that notifies a customer held its HTTP request open for that
+  external round-trip — "Issue Auction Notice" sat on "Sending…" until the
+  gateway answered, and sanction/release/payment actions paid the same cost.
+  Nothing was gained by waiting: the send result is only written to commlog
+  and the server log, never returned to the caller and never able to fail the
+  operation. The send and its commlog write now run on a detached goroutine
+  (`context.WithoutCancel`, so tenant scope survives but the request's
+  cancellation doesn't abort the log write), with a `recover` so a gateway
+  failure can't take the process down. The in-app notification stays
+  synchronous — it's a local DB write and should exist before the response
+  returns. Delivery outcomes are read from the Communication History report,
+  as before.
+
 - **Closed, released and auctioned loans can no longer be re-pledged to a
   bank.** `Service.RecordBankPledge` had no status check at all, so a loan
   whose gold had already gone back to the customer (`Closed`), been sold

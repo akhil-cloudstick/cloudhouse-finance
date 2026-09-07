@@ -1,15 +1,29 @@
 "use client";
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
-import { AUTH_EMPLOYEE_KEY, AUTH_TOKEN_KEY } from "@/common/services/httpClient";
 import { login as loginRequest, type AuthEmployee } from "@/common/services/authService";
 import { fetchMyPermissions, type PermissionMap } from "@/common/services/permissionService";
+import {
+  activeBusinessSlug,
+  businessCodeForRequest,
+  clearSession,
+  migrateLegacySession,
+  readEmployeeRaw,
+  readPermissionsRaw,
+  readToken,
+  writePermissionsRaw,
+  writeSession,
+} from "@/common/services/tenantSession";
+import { clearSelectedBranch, getSelectedBranchId, setSelectedBranchId } from "@/common/services/branchSelection";
 
-/* sessionStorage mirror of the permission map — dies with the tab, cleared
- * explicitly on logout, never persisted long-term (see the house
- * role-permission standard's §9.3). Lets a refresh rehydrate instantly
- * instead of flashing a loading state. */
-const PERMISSIONS_SESSION_KEY = "ambikagold_permissions";
+/* The session (token, employee, and the sessionStorage mirror of the
+ * permission map) is stored per business by tenantSession, not under one
+ * global key. Two businesses open in two tabs would otherwise overwrite each
+ * other's sign-in.
+ *
+ * The permission mirror still dies with the tab, is still cleared on logout,
+ * and is still never an authority — see the role-permission standard's §9.3.
+ * It is only keyed now. */
 
 type JwtPayload = {
   employeeId?: number;
@@ -47,11 +61,20 @@ function isTokenValid(token: string | null): boolean {
   return payload.exp * 1000 > Date.now();
 }
 
-// ADMIN_ROLE mirrors the backend's sole branch-scoping bypass role
-// (platform.AdministratorRole, "Administrator") — every other role is
-// confined to its own branch server-side; this only drives client-side UI
-// (auto-locking/hiding branch selectors), never enforcement.
+// ADMIN_ROLE mirrors the backend's Administrator role — the one true
+// "manages everything, including staff and settings" role. Kept separate
+// from CROSS_BRANCH_ROLES below, which is a narrower question: which roles
+// see every branch's data, not which role has full administrative rights.
 const ADMIN_ROLE = "Administrator";
+
+// CROSS_BRANCH_ROLES mirrors the backend's crossBranchRoles
+// (platform.branch_scope.go) — Administrator and Management both see every
+// branch of their own business and can switch which one they are viewing.
+// Every other role is confined to its own branch server-side; this only
+// drives client-side UI (showing/hiding the branch switcher), never
+// enforcement — the backend ignores the switcher header entirely for a role
+// not in this set.
+const CROSS_BRANCH_ROLES = new Set(["Administrator", "Management"]);
 
 type AuthContextValue = {
   token: string | null;
@@ -62,8 +85,16 @@ type AuthContextValue = {
   // this. null while loading/logged out.
   branchId: number | null;
   isAdmin: boolean;
+  // isCrossBranch: this role sees every branch of the business and can use
+  // the branch switcher (Administrator, Management) — see CROSS_BRANCH_ROLES.
+  isCrossBranch: boolean;
+  // selectedBranchId: the branch the switcher currently narrows the view to,
+  // or null for "all branches". Meaningless (and ignored server-side) for a
+  // role that isn't isCrossBranch.
+  selectedBranchId: number | null;
+  setSelectedBranch: (branchId: number | null) => void;
   loading: boolean;
-  login: (identifier: string, password: string) => Promise<AuthEmployee>;
+  login: (identifier: string, password: string, businessCode?: string) => Promise<AuthEmployee>;
   logout: () => void;
   // Permission map — see the house role-permission standard's §9. Fetched on
   // login and on every app mount (fetchPermissions below), never derived
@@ -85,6 +116,15 @@ const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [token, setToken] = useState<string | null>(null);
   const [employee, setEmployee] = useState<AuthEmployee | null>(null);
+
+  // The branch switcher's current selection, read from sessionStorage via a
+  // lazy initializer — session-scoped by design (see branchSelection.ts's
+  // header comment) — rather than a mount effect, so there is no render with
+  // a briefly-wrong value to reconcile.
+  //
+  // Declared here (ahead of login/logout below, which both reset it) purely
+  // so those callbacks can reference the setter without a forward reference.
+  const [selectedBranchId, setSelectedBranchIdState] = useState<number | null>(() => getSelectedBranchId());
   const [loading, setLoading] = useState(true);
 
   const [permissions, setPermissions] = useState<PermissionMap>({});
@@ -101,7 +141,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const data = await fetchMyPermissions(emp.id);
       setPermissions(data);
       setPermissionsFailed(false);
-      window.sessionStorage.setItem(PERMISSIONS_SESSION_KEY, JSON.stringify(data));
+      writePermissionsRaw(activeBusinessSlug(), JSON.stringify(data));
     } catch {
       setPermissions({});
       setPermissionsFailed(true);
@@ -113,15 +153,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   // Restore session from localStorage on first mount, discarding it if the
   // token has already expired.
   useEffect(() => {
-    const storedToken = window.localStorage.getItem(AUTH_TOKEN_KEY);
-    const storedEmployee = window.localStorage.getItem(AUTH_EMPLOYEE_KEY);
+    // Carry a pre-multi-tenancy session into the per-business layout, so the
+    // deploy that introduces keyed storage does not sign everyone out.
+    migrateLegacySession();
+
+    const storedToken = readToken();
+    const storedEmployee = readEmployeeRaw();
     if (storedToken && isTokenValid(storedToken)) {
       setToken(storedToken);
       if (storedEmployee) {
         try {
           const emp = JSON.parse(storedEmployee) as AuthEmployee;
           setEmployee(emp);
-          const cached = window.sessionStorage.getItem(PERMISSIONS_SESSION_KEY);
+          const cached = readPermissionsRaw();
           if (cached) {
             try {
               setPermissions(JSON.parse(cached) as PermissionMap);
@@ -136,19 +180,26 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         }
       }
     } else {
-      window.localStorage.removeItem(AUTH_TOKEN_KEY);
-      window.localStorage.removeItem(AUTH_EMPLOYEE_KEY);
-      window.sessionStorage.removeItem(PERMISSIONS_SESSION_KEY);
+      clearSession();
     }
     setLoading(false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  /* businessCode is optional: the per-business login link supplies it from
+   * the URL slug, the bare /login form from its business-code field, and a
+   * single-business installation not at all (the backend resolves it). It is
+   * also the slug the resulting session is stored under, so signing into a
+   * second business in another tab cannot overwrite the first. */
   const login = useCallback(
-    async (identifier: string, password: string) => {
-      const res = await loginRequest(identifier, password);
-      window.localStorage.setItem(AUTH_TOKEN_KEY, res.token);
-      window.localStorage.setItem(AUTH_EMPLOYEE_KEY, JSON.stringify(res.employee));
+    async (identifier: string, password: string, businessCode?: string) => {
+      const code = businessCode?.trim() || businessCodeForRequest();
+      const res = await loginRequest(identifier, password, code);
+      writeSession(code || null, res.token, JSON.stringify(res.employee));
+      // A fresh sign-in starts at "all branches" rather than reopening
+      // whatever a previous session under this business chose.
+      clearSelectedBranch(code || null);
+      setSelectedBranchIdState(null);
       setToken(res.token);
       setEmployee(res.employee);
       setPermissionsLoaded(false);
@@ -158,10 +209,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     [loadPermissions]
   );
 
+  /* Signs out of THIS business only. Another business signed in in another
+   * tab keeps its session, which is the point of keying by slug — logging out
+   * of one customer's books must not log you out of another's. */
   const logout = useCallback(() => {
-    window.localStorage.removeItem(AUTH_TOKEN_KEY);
-    window.localStorage.removeItem(AUTH_EMPLOYEE_KEY);
-    window.sessionStorage.removeItem(PERMISSIONS_SESSION_KEY);
+    clearSession();
+    // A branch selection is a lens on THIS sign-in — the next person to log
+    // in on this machine (or this person, on a different business) should
+    // start at "all branches", not silently inherit whatever was selected.
+    clearSelectedBranch(activeBusinessSlug());
+    setSelectedBranchIdState(null);
     setToken(null);
     setEmployee(null);
     setPermissions({});
@@ -188,6 +245,23 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [employee, token]);
 
   const isAdmin = role === ADMIN_ROLE;
+  const isCrossBranch = !!role && CROSS_BRANCH_ROLES.has(role);
+
+  // effectiveSelectedBranchId is null for a role that isn't cross-branch,
+  // regardless of what sessionStorage holds.
+  //
+  // Derived at render rather than reset in an effect: the only way a
+  // signed-in session's role can change at all is a fresh login, and login
+  // already clears the stored selection (see the login callback above) — so
+  // there is no transition to catch here, only a value to compute. A role
+  // that is not cross-branch simply never sees a selection, whatever is
+  // sitting in storage from a previous session under the same slug.
+  const effectiveSelectedBranchId = isCrossBranch ? selectedBranchId : null;
+
+  const setSelectedBranch = useCallback((branchId: number | null) => {
+    setSelectedBranchId(branchId);
+    setSelectedBranchIdState(branchId);
+  }, []);
 
   const value = useMemo(
     () => ({
@@ -196,6 +270,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       role,
       branchId,
       isAdmin,
+      isCrossBranch,
+      selectedBranchId: effectiveSelectedBranchId,
+      setSelectedBranch,
       loading,
       login,
       logout,
@@ -211,6 +288,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       role,
       branchId,
       isAdmin,
+      isCrossBranch,
+      effectiveSelectedBranchId,
+      setSelectedBranch,
       loading,
       login,
       logout,

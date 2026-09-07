@@ -1,14 +1,16 @@
 package reports
 
+import "context"
+
 // Bank-pledge, loan-extension, gold-release, and auction reports.
 
 // BankPledge lists bank pledge records pledged in [from, to], with the
 // outstanding (Active) liability summed per the whole matched set — GET
 // /reports/bank-pledge.
-func (s *Service) BankPledge(f Filter) ([]BankPledgeRow, BankPledgeTotals, error) {
+func (s *Service) BankPledge(ctx context.Context, f Filter) ([]BankPledgeRow, BankPledgeTotals, error) {
 	from, to := dateRange(f)
 	var rows []BankPledgeRow
-	q := s.db.Table("bank_pledge_records r").
+	q := s.db.WithContext(ctx).Table("bank_pledge_records r").
 		Select(`r.id as record_id, l.loan_number, r.bank_name, r.pledged_amount,
 			r.pledge_date, r.release_date, r.status`).
 		Joins("LEFT JOIN loans l ON l.id = r.loan_id").
@@ -31,10 +33,10 @@ func (s *Service) BankPledge(f Filter) ([]BankPledgeRow, BankPledgeTotals, error
 
 // LoanExtensions lists Extension-type loan requests raised in [from, to] —
 // GET /reports/loan-extensions.
-func (s *Service) LoanExtensions(f Filter) ([]LoanExtensionRow, LoanExtensionTotals, error) {
+func (s *Service) LoanExtensions(ctx context.Context, f Filter) ([]LoanExtensionRow, LoanExtensionTotals, error) {
 	from, to := dateRange(f)
 	var rows []LoanExtensionRow
-	q := s.db.Table("loan_requests req").
+	q := s.db.WithContext(ctx).Table("loan_requests req").
 		Select(`req.id as request_id, l.loan_number, req.requested_at,
 			req.requested_extension_months as months, req.new_due_date, req.status`).
 		Joins("LEFT JOIN loans l ON l.id = req.loan_id").
@@ -52,10 +54,10 @@ func (s *Service) LoanExtensions(f Filter) ([]LoanExtensionRow, LoanExtensionTot
 
 // GoldRelease lists Release-type loan requests raised in [from, to] — GET
 // /reports/gold-release.
-func (s *Service) GoldRelease(f Filter) ([]GoldReleaseRow, GoldReleaseTotals, error) {
+func (s *Service) GoldRelease(ctx context.Context, f Filter) ([]GoldReleaseRow, GoldReleaseTotals, error) {
 	from, to := dateRange(f)
 	var rows []GoldReleaseRow
-	q := s.db.Table("loan_requests req").
+	q := s.db.WithContext(ctx).Table("loan_requests req").
 		Select(`req.id as request_id, l.loan_number, c.name as customer_name,
 			req.requested_at, req.settlement_amount, req.status`).
 		Joins("LEFT JOIN loans l ON l.id = req.loan_id").
@@ -78,10 +80,10 @@ func (s *Service) GoldRelease(f Filter) ([]GoldReleaseRow, GoldReleaseTotals, er
 
 // Auctions lists auction cases whose eligible-date fell in [from, to] — GET
 // /reports/auctions.
-func (s *Service) Auctions(f Filter) ([]AuctionRow, AuctionTotals, error) {
+func (s *Service) Auctions(ctx context.Context, f Filter) ([]AuctionRow, AuctionTotals, error) {
 	from, to := dateRange(f)
 	var rows []AuctionRow
-	q := s.db.Table("auction_records r").
+	q := s.db.WithContext(ctx).Table("auction_records r").
 		Select(`r.id as record_id, l.loan_number, r.stage, r.auction_date, r.sale_amount,
 			r.final_settlement_status as settlement_status`).
 		Joins("LEFT JOIN loans l ON l.id = r.loan_id").

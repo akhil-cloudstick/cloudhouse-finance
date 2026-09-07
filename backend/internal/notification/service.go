@@ -3,6 +3,7 @@ package notification
 import (
 	"ambikagold/backend/internal/platform/httpx"
 	"ambikagold/backend/internal/realtime"
+	"context"
 )
 
 var ErrNotFound = httpx.NewNotFound("notification not found")
@@ -56,7 +57,7 @@ func toWireMessage(n *Notification) wireMessage {
 // if the customer has a connection open right now. A push failure (or the
 // customer simply being offline) is not an error — ResendPending's ticker
 // covers it from here. Matches the loan.CustomerNotifier interface exactly.
-func (s *Service) Notify(customerID uint, notifType, title, body, relatedEntityType string, relatedEntityID uint) {
+func (s *Service) Notify(ctx context.Context, customerID uint, notifType, title, body, relatedEntityType string, relatedEntityID uint) {
 	n := &Notification{
 		CustomerID:        customerID,
 		Type:              notifType,
@@ -65,19 +66,19 @@ func (s *Service) Notify(customerID uint, notifType, title, body, relatedEntityT
 		RelatedEntityType: relatedEntityType,
 		RelatedEntityID:   relatedEntityID,
 	}
-	if err := s.repo.Create(n); err != nil {
+	if err := s.repo.Create(ctx, n); err != nil {
 		return // logged by the caller's own log-and-continue posture (notifyCustomer never hard-fails the operation it's attached to)
 	}
 	if s.hub.Push(customerID, toWireMessage(n)) {
-		_ = s.repo.IncrementAttempt(n.ID)
+		_ = s.repo.IncrementAttempt(ctx, n.ID)
 	}
 }
 
 // PushUndeliveredOnConnect is called by the WS upgrade handler right after
 // a customer's connection is registered — covers "was offline, reconnected"
 // without waiting for the next resend tick.
-func (s *Service) PushUndeliveredOnConnect(customerID uint) {
-	items, err := s.repo.FindPendingResend(maxResendAttempts)
+func (s *Service) PushUndeliveredOnConnect(ctx context.Context, customerID uint) {
+	items, err := s.repo.FindPendingResend(ctx, maxResendAttempts)
 	if err != nil {
 		return
 	}
@@ -87,7 +88,7 @@ func (s *Service) PushUndeliveredOnConnect(customerID uint) {
 			continue
 		}
 		if s.hub.Push(customerID, toWireMessage(&n)) {
-			_ = s.repo.IncrementAttempt(n.ID)
+			_ = s.repo.IncrementAttempt(ctx, n.ID)
 		}
 	}
 }
@@ -98,8 +99,8 @@ func (s *Service) PushUndeliveredOnConnect(customerID uint) {
 // (no point attempting, and Attempts must only count real push attempts,
 // not idle ticks) — they'll get PushUndeliveredOnConnect's backfill the
 // next time they do connect, and the row stays queryable via List either way.
-func (s *Service) ResendPending() {
-	items, err := s.repo.FindPendingResend(maxResendAttempts)
+func (s *Service) ResendPending(ctx context.Context) {
+	items, err := s.repo.FindPendingResend(ctx, maxResendAttempts)
 	if err != nil {
 		return
 	}
@@ -109,7 +110,7 @@ func (s *Service) ResendPending() {
 			continue
 		}
 		if s.hub.Push(n.CustomerID, toWireMessage(&n)) {
-			_ = s.repo.IncrementAttempt(n.ID)
+			_ = s.repo.IncrementAttempt(ctx, n.ID)
 		}
 	}
 }
@@ -118,23 +119,23 @@ func (s *Service) ResendPending() {
 // same convention as every other customer-scoped route in this codebase),
 // callable either from the socket's inbound {"type":"ack",...} message or
 // the REST fallback endpoint.
-func (s *Service) Ack(id, customerID uint) error {
-	n, err := s.repo.FindByID(id)
+func (s *Service) Ack(ctx context.Context, id, customerID uint) error {
+	n, err := s.repo.FindByID(ctx, id)
 	if err != nil {
 		return ErrNotFound
 	}
 	if n.CustomerID != customerID {
 		return ErrNotFound
 	}
-	return s.repo.MarkDelivered(id)
+	return s.repo.MarkDelivered(ctx, id)
 }
 
 // Read marks a notification read — called when the customer actually opens
 // it in the app (the modal showing its full description), ownership-checked
 // the same way as Ack. This is the sole source of truth for unread state;
 // unlike Delivered/Ack it is never inferred from a client-side watermark.
-func (s *Service) Read(id, customerID uint) error {
-	n, err := s.repo.FindByID(id)
+func (s *Service) Read(ctx context.Context, id, customerID uint) error {
+	n, err := s.repo.FindByID(ctx, id)
 	if err != nil {
 		return ErrNotFound
 	}
@@ -144,11 +145,11 @@ func (s *Service) Read(id, customerID uint) error {
 	if n.Read {
 		return nil
 	}
-	return s.repo.MarkRead(id)
+	return s.repo.MarkRead(ctx, id)
 }
 
 // List backs GET /customer/notifications — the bell list's cold-start
 // backfill and general history view.
-func (s *Service) List(customerID uint, limit, offset int) ([]Notification, error) {
-	return s.repo.FindByCustomerID(customerID, limit, offset)
+func (s *Service) List(ctx context.Context, customerID uint, limit, offset int) ([]Notification, error) {
+	return s.repo.FindByCustomerID(ctx, customerID, limit, offset)
 }

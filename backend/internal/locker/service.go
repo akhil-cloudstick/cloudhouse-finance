@@ -3,6 +3,7 @@ package locker
 import (
 	"ambikagold/backend/internal/branch"
 	"ambikagold/backend/internal/platform/httpx"
+	"context"
 )
 
 var (
@@ -19,7 +20,7 @@ var (
 // exists) so internal/locker never imports internal/packet directly — see
 // this package's doc comment for the full cycle-avoidance rationale.
 type PacketCounter interface {
-	CountActivePackets(lockerID uint) (int, error)
+	CountActivePackets(ctx context.Context, lockerID uint) (int, error)
 }
 
 // CreateInput / UpdateInput mirror the fields an admin supplies via the
@@ -55,14 +56,14 @@ func NewService(repo *Repository, branchRepo *branch.Repository, packetCounter P
 	return &Service{repo: repo, branchRepo: branchRepo, packetCounter: packetCounter}
 }
 
-func (s *Service) validate(code string, branchID uint, capacity int) error {
+func (s *Service) validate(ctx context.Context, code string, branchID uint, capacity int) error {
 	if code == "" {
 		return ErrCodeRequired
 	}
 	if capacity <= 0 {
 		return ErrInvalidCapacity
 	}
-	ok, err := s.branchRepo.Exists(branchID)
+	ok, err := s.branchRepo.Exists(ctx, branchID)
 	if err != nil {
 		return err
 	}
@@ -72,19 +73,19 @@ func (s *Service) validate(code string, branchID uint, capacity int) error {
 	return nil
 }
 
-func (s *Service) toView(l Locker) (View, error) {
-	occupied, err := s.packetCounter.CountActivePackets(l.ID)
+func (s *Service) toView(ctx context.Context, l Locker) (View, error) {
+	occupied, err := s.packetCounter.CountActivePackets(ctx, l.ID)
 	if err != nil {
 		return View{}, err
 	}
 	return View{Locker: l, Occupied: occupied}, nil
 }
 
-func (s *Service) Create(in CreateInput) (*View, error) {
-	if err := s.validate(in.Code, in.BranchID, in.Capacity); err != nil {
+func (s *Service) Create(ctx context.Context, in CreateInput) (*View, error) {
+	if err := s.validate(ctx, in.Code, in.BranchID, in.Capacity); err != nil {
 		return nil, err
 	}
-	if existing, _ := s.repo.FindByCode(in.Code); existing != nil {
+	if existing, _ := s.repo.FindByCode(ctx, in.Code); existing != nil {
 		return nil, ErrDuplicateCode
 	}
 	rec := &Locker{
@@ -93,14 +94,14 @@ func (s *Service) Create(in CreateInput) (*View, error) {
 		Capacity: in.Capacity,
 		IsActive: true,
 	}
-	if err := s.repo.Create(rec); err != nil {
+	if err := s.repo.Create(ctx, rec); err != nil {
 		return nil, err
 	}
-	full, err := s.repo.FindByID(rec.ID)
+	full, err := s.repo.FindByID(ctx, rec.ID)
 	if err != nil {
 		return nil, err
 	}
-	v, err := s.toView(*full)
+	v, err := s.toView(ctx, *full)
 	if err != nil {
 		return nil, err
 	}
@@ -109,8 +110,8 @@ func (s *Service) Create(in CreateInput) (*View, error) {
 
 // List returns lockers, optionally scoped to branchID (nil = all branches —
 // Administrator only, see platform.GetBranchScope).
-func (s *Service) List(branchID *uint) ([]View, error) {
-	views, _, err := s.Find(LockerFilter{BranchID: branchID})
+func (s *Service) List(ctx context.Context, branchID *uint) ([]View, error) {
+	views, _, err := s.Find(ctx, LockerFilter{BranchID: branchID})
 	return views, err
 }
 
@@ -118,14 +119,14 @@ func (s *Service) List(branchID *uint) ([]View, error) {
 // picker's search box (SearchableSelect), same q/limit/offset shape as
 // packet.Filter/loan.LoanFilter. Returns the TOTAL row count for f's
 // filters (0 when f.Limit <= 0).
-func (s *Service) Find(f LockerFilter) ([]View, int64, error) {
-	lockers, total, err := s.repo.Find(f)
+func (s *Service) Find(ctx context.Context, f LockerFilter) ([]View, int64, error) {
+	lockers, total, err := s.repo.Find(ctx, f)
 	if err != nil {
 		return nil, 0, err
 	}
 	views := make([]View, 0, len(lockers))
 	for _, l := range lockers {
-		v, err := s.toView(l)
+		v, err := s.toView(ctx, l)
 		if err != nil {
 			return nil, 0, err
 		}
@@ -138,15 +139,15 @@ func (s *Service) Find(f LockerFilter) ([]View, int64, error) {
 // branchID is non-nil) belongs to a different branch — a non-admin gets the
 // same "not found" for another branch's locker as for a genuinely missing
 // id, so branch existence is never leaked.
-func (s *Service) Get(id uint, branchID *uint) (*View, error) {
-	rec, err := s.repo.FindByID(id)
+func (s *Service) Get(ctx context.Context, id uint, branchID *uint) (*View, error) {
+	rec, err := s.repo.FindByID(ctx, id)
 	if err != nil {
 		return nil, ErrNotFound
 	}
 	if branchID != nil && rec.BranchID != *branchID {
 		return nil, ErrNotFound
 	}
-	v, err := s.toView(*rec)
+	v, err := s.toView(ctx, *rec)
 	if err != nil {
 		return nil, err
 	}
@@ -157,18 +158,18 @@ func (s *Service) Get(id uint, branchID *uint) (*View, error) {
 // Administrator) must match the locker's current branch or ErrNotFound is
 // returned before any other validation runs, same not-found-on-mismatch
 // guard as Get.
-func (s *Service) Update(id uint, in UpdateInput, branchID *uint) (*View, error) {
-	if err := s.validate(in.Code, in.BranchID, in.Capacity); err != nil {
+func (s *Service) Update(ctx context.Context, id uint, in UpdateInput, branchID *uint) (*View, error) {
+	if err := s.validate(ctx, in.Code, in.BranchID, in.Capacity); err != nil {
 		return nil, err
 	}
-	rec, err := s.repo.FindByID(id)
+	rec, err := s.repo.FindByID(ctx, id)
 	if err != nil {
 		return nil, ErrNotFound
 	}
 	if branchID != nil && rec.BranchID != *branchID {
 		return nil, ErrNotFound
 	}
-	if existing, _ := s.repo.FindByCode(in.Code); existing != nil && existing.ID != id {
+	if existing, _ := s.repo.FindByCode(ctx, in.Code); existing != nil && existing.ID != id {
 		return nil, ErrDuplicateCode
 	}
 
@@ -177,14 +178,14 @@ func (s *Service) Update(id uint, in UpdateInput, branchID *uint) (*View, error)
 	rec.Capacity = in.Capacity
 	rec.IsActive = in.IsActive
 
-	if err := s.repo.Update(rec); err != nil {
+	if err := s.repo.Update(ctx, rec); err != nil {
 		return nil, err
 	}
-	full, err := s.repo.FindByID(id)
+	full, err := s.repo.FindByID(ctx, id)
 	if err != nil {
 		return nil, err
 	}
-	v, err := s.toView(*full)
+	v, err := s.toView(ctx, *full)
 	if err != nil {
 		return nil, err
 	}
@@ -193,20 +194,20 @@ func (s *Service) Update(id uint, in UpdateInput, branchID *uint) (*View, error)
 
 // Delete removes a locker outright, guarded against removing one that
 // still physically holds packets.
-func (s *Service) Delete(id uint, branchID *uint) error {
-	rec, err := s.repo.FindByID(id)
+func (s *Service) Delete(ctx context.Context, id uint, branchID *uint) error {
+	rec, err := s.repo.FindByID(ctx, id)
 	if err != nil {
 		return ErrNotFound
 	}
 	if branchID != nil && rec.BranchID != *branchID {
 		return ErrNotFound
 	}
-	occupied, err := s.packetCounter.CountActivePackets(rec.ID)
+	occupied, err := s.packetCounter.CountActivePackets(ctx, rec.ID)
 	if err != nil {
 		return err
 	}
 	if occupied > 0 {
 		return ErrInUse
 	}
-	return s.repo.Delete(id)
+	return s.repo.Delete(ctx, id)
 }

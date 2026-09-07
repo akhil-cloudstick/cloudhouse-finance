@@ -1,6 +1,9 @@
 package loan
 
-import "time"
+import (
+	"ambikagold/backend/internal/platform"
+	"time"
+)
 
 // LoanApproval is the audit trail for the loan's 4-step sanction chain —
 // one row per decision (approve/reject) taken at a stage. ActorEmployeeID/
@@ -8,6 +11,7 @@ import "time"
 // yet); ActorRole records which role actually acted (relevant now that
 // "Administrator" may act on behalf of any pending stage).
 type LoanApproval struct {
+	platform.TenantScoped
 	ID     uint `json:"id" gorm:"primaryKey"`
 	LoanID uint `json:"loanId" gorm:"not null;index"`
 

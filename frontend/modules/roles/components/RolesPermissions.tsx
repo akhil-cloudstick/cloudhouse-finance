@@ -97,6 +97,19 @@ function EditRoleModalContent({
   );
 }
 
+// Hidden the same way, and for the same reason, as EmployeeModal's role
+// picker: Administrator stays a real role with its own permissions and
+// IsSystem protections, every business still has and needs one — it's just
+// not something a tenant should be casually re-permissioning from a
+// dropdown. Never hidden if it's already the selected role, so a deep link
+// or an already-open view doesn't silently disappear.
+const HIDDEN_ROLES = new Set(["Administrator"]);
+
+function visibleRoles(roles: Role[] | null, currentId: number | null) {
+  if (!roles) return roles;
+  return roles.filter((r) => !HIDDEN_ROLES.has(r.name) || r.id === currentId);
+}
+
 /* The permissions admin screen — one toggle per permission, grouped by
  * module, for whichever role is selected, plus role create/rename/delete.
  * Follows the house role-permission standard's §7.2/§7.3/§4. Reachable from
@@ -137,7 +150,11 @@ export function RolesPermissions() {
         if (selectId && list.some((r) => r.id === selectId)) {
           setRoleId(selectId);
         } else if (!roleId && list.length > 0) {
-          setRoleId(list[0].id);
+          // Default to the first non-hidden role rather than whatever
+          // happens to sort first — Administrator is usually alphabetically
+          // early and would otherwise land on screen by default.
+          const firstVisible = list.find((r) => !HIDDEN_ROLES.has(r.name)) ?? list[0];
+          setRoleId(firstVisible.id);
         }
       })
       .catch((e) => setError(e instanceof Error ? e.message : "Failed to load roles."));
@@ -301,7 +318,7 @@ export function RolesPermissions() {
           <div style={{ flex: 1, minWidth: 0 }}>
             <label className="f">Role</label>
             <Select
-              options={(roles ?? []).map((r) => ({ value: String(r.id), label: `${r.name}${r.isSystem ? " (system)" : ""}` }))}
+              options={(visibleRoles(roles, roleId) ?? []).map((r) => ({ value: String(r.id), label: `${r.name}${r.isSystem ? " (system)" : ""}` }))}
               value={roleId != null ? String(roleId) : ""}
               onChange={(v) => setRoleId(Number(v))}
               disabled={!roles}

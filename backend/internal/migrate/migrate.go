@@ -7,10 +7,13 @@
 package migrate
 
 import (
+	"context"
+	"fmt"
 	"log"
 
 	"gorm.io/gorm"
 
+	"ambikagold/backend/internal/auditlog"
 	"ambikagold/backend/internal/authz"
 	"ambikagold/backend/internal/bank"
 	"ambikagold/backend/internal/branch"
@@ -27,10 +30,14 @@ import (
 	"ambikagold/backend/internal/ornamenttype"
 	"ambikagold/backend/internal/packet"
 	"ambikagold/backend/internal/personalloan"
+	"ambikagold/backend/internal/platform"
 	"ambikagold/backend/internal/puritystandard"
 	"ambikagold/backend/internal/reminder"
 	"ambikagold/backend/internal/scheme"
 	"ambikagold/backend/internal/settings"
+	"ambikagold/backend/internal/superadmin"
+	"ambikagold/backend/internal/tenant"
+	"ambikagold/backend/internal/upload"
 )
 
 // Run applies every backfill, AutoMigrate, post-migrate cleanup and
@@ -39,7 +46,16 @@ import (
 // additive, an idempotent backfill guarded by a WHERE ... IS NULL clause, or
 // a column drop that only runs after that column's data has already been
 // copied forward (see the individual step doc comments for specifics).
-func Run(db *gorm.DB) error {
+//
+// cfg supplies the one thing this step needs from the environment rather
+// than the database: SuperAdminBootstrapUsername/Password/Name, for seeding the
+// very first superadmin console login (see superadmin.SeedBootstrapUser). Everything
+// else Run does is fully self-contained.
+func Run(db *gorm.DB, cfg platform.Config) error {
+	// Migrations run outside any request and legitimately span every
+	// business. This is the single largest deliberate exemption from tenant
+	// filtering in the codebase; see platform.AllowCrossTenant.
+	ctx := platform.AllowCrossTenant(context.Background())
 	if err := scheme.BackfillDurationMonths(db); err != nil {
 		return err
 	}
@@ -76,6 +92,15 @@ func Run(db *gorm.DB) error {
 	}
 
 	if err := db.AutoMigrate(
+		// Tenancy first: tiers before tenants (tenants reference a tier),
+		// and both before every tenant-owned table below.
+		&tenant.Tier{},
+		&tenant.Tenant{},
+		&platform.Sequence{},
+		// Per-business daily usage counters (Step 13) — allocation
+		// bookkeeping like Sequence above, not business data, so it is
+		// exempt from the automatic tenant filter the same way.
+		&platform.UsageCounter{},
 		&branch.Branch{},
 		&scheme.Scheme{},
 		&goldrate.GoldRate{},
@@ -122,6 +147,22 @@ func Run(db *gorm.DB) error {
 		// Realtime notifications (WebSocket, ack-and-resend) — the durable
 		// in-app inbox behind the customer app's bell.
 		&notification.Notification{},
+		// Nightly KPI-count snapshots powering the mobile dashboard's trend
+		// indicators (see dashboard.Snapshot's doc comment).
+		&dashboard.Snapshot{},
+		// The authorization record behind every uploaded file. Before it,
+		// /uploads was served with no login check at all.
+		&upload.File{},
+		// The superadmin console's own tables (Step 7) — deliberately NOT
+		// tenant-scoped (no TenantScoped embed): a superadmin user belongs to
+		// no business, and the audit log's TenantID column points AT a
+		// business without being scoped BY one, so a superadmin can list every
+		// entry across every tenant.
+		&superadmin.SuperAdminUser{},
+		&superadmin.AuditLog{},
+		// This business's own audit log (Step 11) — tenant-scoped, unlike
+		// superadmin.AuditLog above.
+		&auditlog.Entry{},
 		// Nightly KPI-count snapshots powering the mobile dashboard's trend
 		// indicators (see dashboard.Snapshot's doc comment).
 		&dashboard.Snapshot{},
@@ -208,13 +249,14 @@ func Run(db *gorm.DB) error {
 	// single copy of the role list, permission catalogue and restrictions
 	// both this server and `cmd/migrate` seed from.
 	authzRepo := authz.NewRepository(db)
-	if err := authzRepo.SeedRoles(authz.StaffRoles); err != nil {
+	if err := authzRepo.SeedRoles(ctx, authz.StaffRoles); err != nil {
 		return err
 	}
-	if err := authzRepo.SeedCatalogue(authz.Catalogue); err != nil {
+
+	if err := authzRepo.SeedCatalogue(ctx, authz.Catalogue); err != nil {
 		return err
 	}
-	// Resyncs the approval-stage permissions' ModuleName back onto the four
+	// Resyncs the approval -stage permissions' ModuleName back onto the four
 	// split-out modules (Loan Sanction / Loan Extension Approval / Release
 	// Approval / Auction Workflow) — SeedCatalogue above never touches an
 	// already-seeded permission row, so an install that seeded these under
@@ -246,7 +288,7 @@ func Run(db *gorm.DB) error {
 	// split from (see the CRUDSplitNouns/BackfillCRUDSplitGrants doc comments
 	// for the deliberate deviation from the house standard's view/change
 	// default).
-	splitInserted, err := authzRepo.BackfillCRUDSplitGrants(authz.CRUDSplitNouns)
+	splitInserted, err := authzRepo.BackfillCRUDSplitGrants(ctx, authz.CRUDSplitNouns)
 	if err != nil {
 		return err
 	}
@@ -256,17 +298,17 @@ func Run(db *gorm.DB) error {
 	// so their leftover rows are dropped once their grants have been carried
 	// onto create/update/delete (and, for role permissions, onto "can update
 	// role") — see authz.Repository.PurgeLegacyChangePermissions.
-	purged, err := authzRepo.PurgeLegacyChangePermissions()
+	purged, err := authzRepo.PurgeLegacyChangePermissions(ctx)
 	if err != nil {
 		return err
 	}
 	log.Printf("permissions seed: %d legacy \"can change ...\" permission(s) purged", purged)
-	inserted, err := authzRepo.BackfillGrants()
+	inserted, err := authzRepo.BackfillGrants(ctx)
 	if err != nil {
 		return err
 	}
 	log.Printf("permissions seed: %d role_permissions row(s) back-filled", inserted)
-	if err := authzRepo.ApplyRestrictions(authz.Restrictions); err != nil {
+	if err := authzRepo.ApplyRestrictions(ctx, authz.Restrictions); err != nil {
 		return err
 	}
 
@@ -279,11 +321,88 @@ func Run(db *gorm.DB) error {
 		return err
 	}
 
-	if err := backfillEmployeeRoleID(db, authzRepo); err != nil {
+	// Bootstrap the first superadmin console login — same create-only shape as
+	// SeedAdmin above, but from env vars rather than a hardcoded password;
+	// see superadmin.SeedBootstrapUser's doc comment for why. superadmin_users is
+	// NOT tenant-scoped, so this has no ordering dependency on the tenancy
+	// backfill below and could in principle run anywhere in this function —
+	// kept next to SeedAdmin because both answer the same question
+	// ("how does anyone get in on a fresh database") for their own domain.
+	if err := superadmin.SeedBootstrapUser(db, cfg.SuperAdminBootstrapUsername, cfg.SuperAdminBootstrapPassword, cfg.SuperAdminBootstrapName); err != nil {
+		return err
+	}
+
+	if err := backfillEmployeeRoleID(db); err != nil {
+		return err
+	}
+
+	// Tenancy is applied LAST, and the ordering is load-bearing.
+	//
+	// Every seeding step above creates rows: authz seeds 9 roles and ~620
+	// grants, SeedAdmin creates an employee and a "Head Office" branch,
+	// puritystandard seeds 15 rows. Run the backfill before them and all of
+	// those arrive with tenant_id = 0 — which satisfies NOT NULL, so nothing
+	// complains, and the result is a fresh install whose admin cannot log in
+	// and whose roles belong to no business. That is exactly what happened
+	// when this ran earlier in the sequence.
+	//
+	// Being last also means it is the single point where "every row has a
+	// tenant" becomes true, so the NOT NULL and the composite unique indexes
+	// can both be applied with confidence.
+	if err := backfillTenancy(db); err != nil {
+		return err
+	}
+
+	if err := createTenantCompositeUniques(db); err != nil {
+		return err
+	}
+
+	// Must run AFTER backfillTenancy: every record it creates inherits the
+	// tenant of the row that references the file, so those rows need their
+	// own tenant_id populated first.
+	if err := backfillUploadedFiles(db); err != nil {
+		return err
+	}
+
+	if err := backfillEmptyBranchNames(db); err != nil {
+		return err
+	}
+
+	// Deliberately LAST: stamping the version is how the API server (which
+	// no longer runs Run itself — see CheckSchemaVersion, Step 12) knows
+	// migrations actually completed. If any step above this one starts
+	// failing, the version must not be stamped, so the server keeps
+	// refusing to start against a half-migrated database instead of
+	// guessing it's fine.
+	if err := stampSchemaVersion(db); err != nil {
 		return err
 	}
 
 	log.Println("migrations applied successfully")
+	return nil
+}
+
+// backfillEmptyBranchNames repairs the specific, previously-documented bug
+// in branch.Repository.FirstOrCreateByName: a raw string Where("name = ?", …)
+// condition gives GORM's FirstOrCreate nothing it can read a column value
+// back out of, so every branch it ever created — including the very first
+// "Head Office" this app seeds for a brand new installation — was inserted
+// with an EMPTY name, and branch.FindAll's `WHERE name <> ”` then made it
+// invisible in the branch list forever. Confirmed to have hit the CURRENT
+// default tenant's own Head Office, not just a theoretical case.
+//
+// One name only, "Head Office", because that is the one and only literal
+// FirstOrCreateByName has ever been called with (employee.SeedAdmin,
+// superadmin.Service.CreateBusiness) — there is no other empty-named branch this
+// backfill could be guessing wrong.
+func backfillEmptyBranchNames(db *gorm.DB) error {
+	res := db.Exec(`UPDATE branches SET name = 'Head Office' WHERE name = ''`)
+	if res.Error != nil {
+		return res.Error
+	}
+	if res.RowsAffected > 0 {
+		log.Printf("tenancy: repaired %d branch(es) with an empty name (see branch.Repository.FirstOrCreateByName's fix)", res.RowsAffected)
+	}
 	return nil
 }
 
@@ -293,20 +412,55 @@ func Run(db *gorm.DB) error {
 // reads/writes, so this is the one place the two are reconciled rather than
 // threading a role lookup through employee.Service itself. Idempotent: only
 // rows whose role_id doesn't already match their role name are touched.
-func backfillEmployeeRoleID(db *gorm.DB, authzRepo *authz.Repository) error {
-	for _, name := range authz.StaffRoles {
-		roleID, err := authzRepo.RoleIDByName(name)
-		if err != nil {
-			return err
-		}
-		if err := db.Table("employees").
-			Where("role = ? AND (role_id IS NULL OR role_id <> ?)", name, roleID).
-			Update("role_id", roleID).Error; err != nil {
-			return err
-		}
-		if db.RowsAffected > 0 {
-			log.Printf("backfilled employees: %d row(s) role %q -> role_id %d", db.RowsAffected, name, roleID)
-		}
+// backfillEmployeeRoleID keeps employees.role_id in sync with the free-text
+// Role name every create/update actually writes (employee.Service.Update
+// never touches RoleID itself — see its doc comment) — this backfill is the
+// only thing that makes RoleID, the field RequirePermission actually checks
+// permissions against, agree with it.
+//
+// FIXED 2026-08-29 — this used to be a SEVERE, silently-corrupting
+// cross-tenant bug, found while investigating Step 8's token invalidation,
+// not by any test: for each role NAME, it resolved role.ID with a SINGLE
+// unscoped lookup (authzRepo.RoleIDByName under AllowCrossTenant, which
+// returns whichever tenant's row Postgres happens to return first — in
+// practice tenant 1's) and then applied THAT ONE ID in a raw, equally
+// unscoped UPDATE against every employee in the ENTIRE employees table whose
+// Role name matched, regardless of which business they belonged to.
+//
+// Confirmed by direct inspection, not merely reasoned about: after two
+// businesses' Administrator roles were seeded with real per-tenant ids (10
+// and 19), a single re-run of this function silently rewrote BOTH
+// employees' role_id back down to 1 — tenant 1's Administrator role.
+// Because RequirePermission resolves permissions by (the caller's own
+// tenant, this roleId), the corrupted id belongs to a role_permissions set
+// scoped to a DIFFERENT tenant, so the join finds nothing and every
+// permission check for that employee starts returning "Permission not
+// found" — for EVERY employee of EVERY tenant but one, on the very next
+// login after ANY server restart or `cmd/migrate` run (this function runs
+// on every migrate.Run call). It was undetected by the isolation harness
+// only because the harness mints its test tokens with the correct roleId
+// baked in directly, bypassing this column entirely, and by the one real
+// end-to-end login test in this session only because no restart happened
+// between creating that business and testing it.
+//
+// The fix is one set-based, per-tenant-correct statement: join employees to
+// roles ON tenant_id, so a row can only ever be matched to a role belonging
+// to its OWN business — there is no longer a step where one tenant's id is
+// resolved and then applied elsewhere.
+func backfillEmployeeRoleID(db *gorm.DB) error {
+	ctx := platform.AllowCrossTenant(context.Background())
+	res := db.WithContext(ctx).Exec(`
+		UPDATE employees e
+		SET role_id = r.id
+		FROM roles r
+		WHERE r.tenant_id = e.tenant_id
+		  AND r.name = e.role
+		  AND (e.role_id IS NULL OR e.role_id <> r.id)`)
+	if res.Error != nil {
+		return res.Error
+	}
+	if res.RowsAffected > 0 {
+		log.Printf("backfilled employees: %d row(s) role_id corrected to match their own tenant's role", res.RowsAffected)
 	}
 	return nil
 }
@@ -393,6 +547,7 @@ func backfillCashMovementBranch(db *gorm.DB) error {
 // and points bank_id at it. Safe to re-run: once every row has bank_id
 // populated, the WHERE clause matches nothing.
 func backfillBankPledgeBankID(db *gorm.DB) error {
+	ctx := platform.AllowCrossTenant(context.Background())
 	bankRepo := bank.NewRepository(db)
 	bankSvc := bank.NewService(bankRepo)
 
@@ -404,7 +559,7 @@ func backfillBankPledgeBankID(db *gorm.DB) error {
 	}
 
 	for _, name := range names {
-		b, _, err := bankSvc.FindOrCreate(bank.CreateInput{Name: name})
+		b, _, err := bankSvc.FindOrCreate(ctx, bank.CreateInput{Name: name})
 		if err != nil {
 			return err
 		}
@@ -458,6 +613,271 @@ func purgeBankPledgeMirrorExpenses(db *gorm.DB) error {
 	return nil
 }
 
+// tenantScopedTables lists every table carrying a tenant_id, i.e. every
+// model embedding platform.TenantScoped. Kept here as plain strings rather
+// than reflected off the models so the backfill cannot silently skip a table
+// because of an import ordering accident — if a model gains the marker and
+// is not added here, the NOT NULL step below fails loudly on the next boot.
+//
+// The two deliberate omissions are `permissions` (the global catalogue) and
+// `api_key_settings` (shared credentials, by product decision) — see
+// platform.TenantScoped's doc comment.
+var tenantScopedTables = []string{
+	"branches", "schemes", "gold_rates", "employees",
+	"cash_movements", "expenses", "opening_cash_balances",
+	"customers", "loans", "ornaments", "ornament_purity_tests",
+	"ornament_images", "loan_approvals", "loan_payments",
+	"bank_pledge_records", "bank_pledge_events",
+	"auction_records", "auction_notices", "auction_events",
+	"auction_decision_requests", "loan_requests", "request_approvals",
+	"approval_limits", "loan_drafts", "loan_draft_ornaments",
+	"personal_loans", "personal_loan_installments", "personal_loan_payments",
+	"ornament_types", "banks", "lockers", "packets", "packet_movements",
+	"purity_standards", "reminders", "roles", "role_permissions",
+	"communication_logs", "customer_otp", "customer_device_tokens",
+	"notifications",
+	"uploaded_files",
+}
+
+// backfillTenancy seeds the tier catalogue and the single tenant that all
+// pre-multi-tenancy data belongs to, points every existing row at it, and
+// only THEN makes tenant_id mandatory.
+//
+// That order is the whole point and must not be rearranged: AutoMigrate adds
+// tenant_id as nullable (platform.TenantScoped deliberately carries no
+// `not null` tag), because adding a NOT NULL column to a table that already
+// has rows fails outright. Same shape as scheme.BackfillBranchID, which
+// established this pattern in the codebase.
+//
+// Idempotent: the UPDATE matches only rows still lacking a tenant, and the
+// ALTER is a no-op once applied. Runs on every boot, like everything else in
+// this file, so it must stay cheap when there is nothing to do.
+func backfillTenancy(db *gorm.DB) error {
+	if err := tenant.Seed(db); err != nil {
+		return fmt.Errorf("seeding tiers: %w", err)
+	}
+	def, err := tenant.EnsureDefault(db)
+	if err != nil {
+		return fmt.Errorf("ensuring default tenant: %w", err)
+	}
+
+	for _, table := range tenantScopedTables {
+		res := db.Exec(fmt.Sprintf(
+			`UPDATE %s SET tenant_id = ? WHERE tenant_id IS NULL OR tenant_id = 0`, table), def.ID)
+		if res.Error != nil {
+			return fmt.Errorf("backfilling tenant_id on %s: %w", table, res.Error)
+		}
+		if res.RowsAffected > 0 {
+			log.Printf("tenancy: backfilled %d row(s) in %s -> tenant %d", res.RowsAffected, table, def.ID)
+		}
+	}
+
+	// Now that no row can be missing one, make it mandatory. A row created
+	// without a tenant from here on is a bug we want to hear about as a
+	// constraint violation, not discover later as data nobody can see.
+	for _, table := range tenantScopedTables {
+		if err := db.Exec(fmt.Sprintf(
+			`ALTER TABLE %s ALTER COLUMN tenant_id SET NOT NULL`, table)).Error; err != nil {
+			return fmt.Errorf("enforcing tenant_id NOT NULL on %s: %w", table, err)
+		}
+	}
+
+	return seedTenantSequences(db, def.ID)
+}
+
+// seedTenantSequences points each per-tenant code sequence past the codes
+// that already exist, so the first loan created after this migration is
+// LN-00022 and not a collision with LN-00001.
+//
+// The highest existing code is read from the code column itself rather than
+// from a row count: rows can be deleted, and a count would then re-issue a
+// number already printed on a customer's document.
+func seedTenantSequences(db *gorm.DB, tenantID uint) error {
+	for _, s := range []struct {
+		kind   string
+		table  string
+		column string
+		prefix string
+	}{
+		{platform.SeqLoan, "loans", "loan_number", "LN-"},
+		{platform.SeqCustomer, "customers", "code", "CUST-"},
+		{platform.SeqEmployee, "employees", "code", "EMP-"},
+		{platform.SeqPacket, "packets", "code", "PKT-"},
+		{platform.SeqScheme, "schemes", "code", "SCH-"},
+	} {
+		var highest uint64
+		// Strips the prefix and takes the numeric maximum. Codes that don't
+		// match the expected shape (hand-entered, or from an older format)
+		// are ignored rather than crashing the boot — worst case the
+		// sequence starts lower and the unique index catches a collision.
+		q := fmt.Sprintf(`
+			SELECT COALESCE(MAX(NULLIF(regexp_replace(%s, '^%s', ''), '')::bigint), 0)
+			FROM %s
+			WHERE tenant_id = ? AND %s ~ ('^%s[0-9]+$')`,
+			s.column, s.prefix, s.table, s.column, s.prefix)
+		if err := db.Raw(q, tenantID).Scan(&highest).Error; err != nil {
+			return fmt.Errorf("reading highest %s code: %w", s.kind, err)
+		}
+		if err := platform.SeedSequenceFrom(db, tenantID, s.kind, highest); err != nil {
+			return fmt.Errorf("seeding %s sequence: %w", s.kind, err)
+		}
+		if highest > 0 {
+			log.Printf("tenancy: %s sequence for tenant %d starts after %d", s.kind, tenantID, highest)
+		}
+	}
+	return nil
+}
+
+// tenantUniqueIndex describes one constraint moving from "unique across the
+// whole system" to "unique within one business".
+type tenantUniqueIndex struct {
+	Table     string
+	OldIndex  string // the single-column unique GORM created; dropped if still unique
+	NewIndex  string
+	Columns   string // the columns AFTER tenant_id
+	Predicate string // optional WHERE, preserving an existing partial index
+}
+
+// tenantUniqueIndexes is the constraint audit from
+// documents/multitenancy_step0.md, in executable form.
+//
+// Every one of these currently means "only ONE of your paying customers may
+// ever use this value" — the second business's first loan is LN-00001 and is
+// rejected outright. This is the change that actually makes a second tenant
+// possible; without it the rest of the tenancy work is inert.
+//
+// Deliberately NOT here, and each for a reason:
+//   - permissions.name, api_key_settings.category, customer_device_tokens
+//     .token_hash — genuinely global (catalogue, shared credentials, and a
+//     random token whose collision must be rejected whoever owns it).
+//   - role_permissions(role_id, permission_id), opening_cash_balances
+//     (branch_id, balance_date), ornament_purity_tests.ornament_id, and the
+//     partial auction indexes — already scoped by a foreign key whose parent
+//     belongs to exactly one tenant, so they need no change.
+var tenantUniqueIndexes = []tenantUniqueIndex{
+	{"loans", "idx_loans_loan_number", "uq_loans_tenant_loan_number", "loan_number", ""},
+	{"customers", "idx_customers_code", "uq_customers_tenant_code", "code", ""},
+	{"employees", "idx_employees_code", "uq_employees_tenant_code", "code", ""},
+	{"packets", "idx_packets_code", "uq_packets_tenant_code", "code", ""},
+	{"schemes", "idx_schemes_code", "uq_schemes_tenant_code", "code", ""},
+	{"branches", "idx_branches_code", "uq_branches_tenant_code", "code", ""},
+	{"branches", "idx_branches_name", "uq_branches_tenant_name", "name", ""},
+	{"lockers", "idx_lockers_code", "uq_lockers_tenant_code", "code", ""},
+	{"banks", "idx_banks_name", "uq_banks_tenant_name", "name", ""},
+	{"ornament_types", "idx_ornament_types_name", "uq_ornament_types_tenant_name", "name", ""},
+	{"roles", "idx_roles_name", "uq_roles_tenant_name", "name", ""},
+	{"approval_limits", "idx_approval_limits_role", "uq_approval_limits_tenant_role", "role", ""},
+
+	// Login identifiers. Per-business by decision: two businesses may each
+	// employ a "ravi", and one person may genuinely work for two of them.
+	// The partial predicates are carried over verbatim from the indexes they
+	// replace — blank usernames/phones/emails must stay exempt, or every
+	// employee without one collides with every other.
+	{"employees", "idx_employees_username", "uq_employees_tenant_username", "username", "username <> ''"},
+	{"employees", "idx_employees_phone", "uq_employees_tenant_phone", "phone", "phone <> ''"},
+	{"employees", "idx_employees_email", "uq_employees_tenant_email", "email", "email <> ''"},
+
+	// A borrower may borrow from two businesses; each issues its own OTP.
+	{"customer_otp", "idx_customer_otp_phone", "uq_customer_otp_tenant_phone", "phone", ""},
+}
+
+// createTenantCompositeUniques rewrites each audited constraint to include
+// the tenant.
+//
+// Must run AFTER backfillTenancy: the new indexes lead with tenant_id, which
+// has to be populated and NOT NULL first.
+//
+// Idempotent in both directions, which matters because this runs on every
+// boot. The old index is dropped only while it is still UNIQUE — once the
+// struct tags were relaxed to a plain `index`, AutoMigrate recreates a
+// non-unique index under the same name on the next boot, and dropping that
+// every time would be pointless index churn on a live database.
+func createTenantCompositeUniques(db *gorm.DB) error {
+	for _, ix := range tenantUniqueIndexes {
+		var isUnique bool
+		err := db.Raw(`
+			SELECT ix.indisunique FROM pg_index ix
+			JOIN pg_class i ON i.oid = ix.indexrelid
+			WHERE i.relname = ?`, ix.OldIndex).Scan(&isUnique).Error
+		if err != nil {
+			return fmt.Errorf("inspecting index %s: %w", ix.OldIndex, err)
+		}
+		if isUnique {
+			if err := db.Exec(fmt.Sprintf(`DROP INDEX IF EXISTS %s`, ix.OldIndex)).Error; err != nil {
+				return fmt.Errorf("dropping global unique index %s: %w", ix.OldIndex, err)
+			}
+			log.Printf("tenancy: dropped global unique index %s — %s.%s is now unique per tenant",
+				ix.OldIndex, ix.Table, ix.Columns)
+		}
+
+		stmt := fmt.Sprintf(`CREATE UNIQUE INDEX IF NOT EXISTS %s ON %s (tenant_id, %s)`,
+			ix.NewIndex, ix.Table, ix.Columns)
+		if ix.Predicate != "" {
+			stmt += " WHERE " + ix.Predicate
+		}
+		if err := db.Exec(stmt).Error; err != nil {
+			return fmt.Errorf("creating %s: %w", ix.NewIndex, err)
+		}
+	}
+	return nil
+}
+
+// uploadRefColumns lists every column holding a "/uploads/<key>" path.
+//
+// Files predate the uploaded_files table, so their ownership has to be
+// recovered from whatever row points at them — that row's tenant is the
+// file's tenant. Miss a column here and those files become unreachable
+// (no record, so the serve handler 404s them), which is the safe direction
+// to fail, but it means this list is worth keeping complete.
+var uploadRefColumns = []struct{ Table, Column string }{
+	{"customers", "photo_url"},
+	{"customers", "kyc_document_url"},
+	{"ornament_images", "image_url"},
+	{"loan_draft_ornaments", "image_url"},
+	{"expenses", "receipt_image"},
+	{"loans", "indemnity_bond_signed_url"},
+}
+
+// backfillUploadedFiles creates an uploaded_files record for every file
+// already referenced by existing data, attributing each to the business that
+// owns the referencing row.
+//
+// Idempotent: records already present are skipped, so re-running adds
+// nothing. Files on disk that nothing references are deliberately NOT
+// adopted — an unreferenced file has no owner to infer, and guessing one
+// would be inventing an authorization answer. Those become unreachable,
+// which for orphaned data is the correct outcome.
+//
+// Content type is left blank for backfilled rows rather than guessed from
+// the extension: the serve handler sends what is recorded, and asserting a
+// type nobody verified is how a mislabelled file gets served as something
+// the browser will execute. A blank type is served as a download instead.
+func backfillUploadedFiles(db *gorm.DB) error {
+	var inserted int64
+	for _, ref := range uploadRefColumns {
+		res := db.Exec(fmt.Sprintf(`
+			INSERT INTO uploaded_files (tenant_id, storage_key, original_name, content_type, size_bytes, created_at)
+			SELECT DISTINCT t.tenant_id,
+			       regexp_replace(t.%s, '^/uploads/', ''),
+			       regexp_replace(t.%s, '^/uploads/', ''),
+			       '', 0, now()
+			FROM %s t
+			WHERE t.%s LIKE '/uploads/%%'
+			  AND NOT EXISTS (
+			      SELECT 1 FROM uploaded_files f
+			      WHERE f.storage_key = regexp_replace(t.%s, '^/uploads/', '')
+			  )`, ref.Column, ref.Column, ref.Table, ref.Column, ref.Column))
+		if res.Error != nil {
+			return fmt.Errorf("backfilling uploaded_files from %s.%s: %w", ref.Table, ref.Column, res.Error)
+		}
+		inserted += res.RowsAffected
+	}
+	if inserted > 0 {
+		log.Printf("uploads: recorded %d pre-existing file(s) — /uploads now requires a session and matching business", inserted)
+	}
+	return nil
+}
+
 // backfillBranches is a one-time, idempotent step for existing databases
 // that still have the legacy free-text `branch` column on employees/
 // expenses (pre-dating the branches table). It turns each distinct branch
@@ -469,6 +889,7 @@ func purgeBankPledgeMirrorExpenses(db *gorm.DB) error {
 // it's still there for this to read from; dropping it is handled by
 // dropLegacyBranchColumn right after this runs (see database_architecture.md).
 func backfillBranches(db *gorm.DB) error {
+	ctx := platform.AllowCrossTenant(context.Background())
 	branchRepo := branch.NewRepository(db)
 
 	for _, table := range []string{"employees", "expenses"} {
@@ -484,7 +905,7 @@ func backfillBranches(db *gorm.DB) error {
 		}
 
 		for _, name := range names {
-			b, err := branchRepo.FirstOrCreateByName(name)
+			b, err := branchRepo.FirstOrCreateByName(ctx, name)
 			if err != nil {
 				return err
 			}

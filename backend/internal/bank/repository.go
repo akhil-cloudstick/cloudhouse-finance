@@ -1,6 +1,10 @@
 package bank
 
-import "gorm.io/gorm"
+import (
+	"context"
+
+	"gorm.io/gorm"
+)
 
 // Repository provides GORM-backed persistence for Bank records.
 type Repository struct {
@@ -11,8 +15,8 @@ func NewRepository(db *gorm.DB) *Repository {
 	return &Repository{db: db}
 }
 
-func (r *Repository) Create(b *Bank) error {
-	return r.db.Create(b).Error
+func (r *Repository) Create(ctx context.Context, b *Bank) error {
+	return r.db.WithContext(ctx).Create(b).Error
 }
 
 // FindAll returns banks matching query, plus the TOTAL row count for that
@@ -20,9 +24,9 @@ func (r *Repository) Create(b *Bank) error {
 // match unpaged (the web bank directory's behaviour); limit > 0 applies
 // Limit/Offset (the mobile app's paginated list) — same convention as
 // customer/loan/scheme's FindAll.
-func (r *Repository) FindAll(query string, limit, offset int) ([]Bank, int64, error) {
+func (r *Repository) FindAll(ctx context.Context, query string, limit, offset int) ([]Bank, int64, error) {
 	var banks []Bank
-	q := r.db.Order("name asc")
+	q := r.db.WithContext(ctx).Order("name asc")
 	if query != "" {
 		q = q.Where("name ILIKE ?", "%"+query+"%")
 	}
@@ -39,9 +43,9 @@ func (r *Repository) FindAll(query string, limit, offset int) ([]Bank, int64, er
 
 // FindByName looks up a bank by a case-insensitive exact match on Name.
 // Returns gorm.ErrRecordNotFound (via err) when no row matches.
-func (r *Repository) FindByName(name string) (*Bank, error) {
+func (r *Repository) FindByName(ctx context.Context, name string) (*Bank, error) {
 	var b Bank
-	if err := r.db.Where("name ILIKE ?", name).First(&b).Error; err != nil {
+	if err := r.db.WithContext(ctx).Where("name ILIKE ?", name).First(&b).Error; err != nil {
 		return nil, err
 	}
 	return &b, nil

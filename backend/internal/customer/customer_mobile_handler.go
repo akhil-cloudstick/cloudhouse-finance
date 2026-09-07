@@ -5,6 +5,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	"ambikagold/backend/internal/platform"
 	"ambikagold/backend/internal/platform/httpx"
 )
 
@@ -36,12 +37,13 @@ func customerIDFromContext(c *gin.Context) (uint, bool) {
 // customer's own record, reusing the same CustomerResponse shape the staff
 // endpoints return (never the raw model).
 func (h *Handler) CustomerGetProfile(c *gin.Context) {
+	ctx := platform.RequestContext(c)
 	customerID, ok := customerIDFromContext(c)
 	if !ok {
 		httpx.Fail(c, http.StatusUnauthorized, "not authenticated")
 		return
 	}
-	rec, err := h.svc.Get(customerID, nil)
+	rec, err := h.svc.Get(ctx, customerID, nil)
 	if err != nil {
 		httpx.FailErr(c, err)
 		return
@@ -53,12 +55,13 @@ func (h *Handler) CustomerGetProfile(c *gin.Context) {
 // wrapping of Service.VerifyPAN to the staff Handler.VerifyPAN, just
 // customerID sourced from the JWT instead of :id + branch scope.
 func (h *Handler) CustomerVerifyPAN(c *gin.Context) {
+	ctx := platform.RequestContext(c)
 	customerID, ok := customerIDFromContext(c)
 	if !ok {
 		httpx.Fail(c, http.StatusUnauthorized, "not authenticated")
 		return
 	}
-	rec, result, err := h.svc.VerifyPAN(customerID, nil)
+	rec, result, err := h.svc.VerifyPAN(ctx, customerID, nil)
 	if err != nil {
 		httpx.FailErr(c, err)
 		return
@@ -77,6 +80,7 @@ func (h *Handler) CustomerVerifyPAN(c *gin.Context) {
 // its own deep-link URL (e.g. ambikacustomer://aadhaar-callback via
 // expo-linking), not a web page.
 func (h *Handler) CustomerStartAadhaarVerify(c *gin.Context) {
+	ctx := platform.RequestContext(c)
 	customerID, ok := customerIDFromContext(c)
 	if !ok {
 		httpx.Fail(c, http.StatusUnauthorized, "not authenticated")
@@ -87,7 +91,7 @@ func (h *Handler) CustomerStartAadhaarVerify(c *gin.Context) {
 		httpx.Fail(c, http.StatusBadRequest, "Invalid input")
 		return
 	}
-	digReq, err := h.svc.StartAadhaarVerify(customerID, nil, req.RedirectURL)
+	digReq, err := h.svc.StartAadhaarVerify(ctx, customerID, nil, req.RedirectURL)
 	if err != nil {
 		httpx.FailErr(c, err)
 		return
@@ -103,12 +107,13 @@ func (h *Handler) CustomerStartAadhaarVerify(c *gin.Context) {
 // CustomerCheckAadhaarVerify backs GET /customer/profile/aadhaar/status —
 // polled by the mobile app after the DigiLocker browser flow returns.
 func (h *Handler) CustomerCheckAadhaarVerify(c *gin.Context) {
+	ctx := platform.RequestContext(c)
 	customerID, ok := customerIDFromContext(c)
 	if !ok {
 		httpx.Fail(c, http.StatusUnauthorized, "not authenticated")
 		return
 	}
-	rec, status, aadhaar, err := h.svc.CheckAadhaarVerify(customerID, nil)
+	rec, status, aadhaar, err := h.svc.CheckAadhaarVerify(ctx, customerID, nil)
 	if err != nil {
 		httpx.FailErr(c, err)
 		return

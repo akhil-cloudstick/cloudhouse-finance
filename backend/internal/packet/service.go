@@ -1,6 +1,7 @@
 package packet
 
 import (
+	"context"
 	"fmt"
 	"log"
 
@@ -34,7 +35,7 @@ var (
 // internal/locker directly (only capacity/existence for one lockerId is
 // needed here, not the full Locker type), keeping the dependency one-way.
 type LockerCapacityProvider interface {
-	Capacity(lockerID uint) (capacity int, isActive bool, ok bool, err error)
+	Capacity(ctx context.Context, lockerID uint) (capacity int, isActive bool, ok bool, err error)
 }
 
 // allowedTransitions is the packet stage graph enforced by RecordMovement:
@@ -87,8 +88,8 @@ func NewService(repo *Repository, lockerCapacity LockerCapacityProvider) *Servic
 // packet is actually created, that's logged and the packet falls back to
 // PacketGenerated (ungrouped) rather than failing loan creation over it —
 // staff can still check it in manually later from the Packets page.
-func (s *Service) Create(loanID uint, lockerID *uint) (*Packet, error) {
-	count, err := s.repo.CountAll()
+func (s *Service) Create(ctx context.Context, loanID uint, lockerID *uint) (*Packet, error) {
+	count, err := s.repo.CountAll(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -100,7 +101,7 @@ func (s *Service) Create(loanID uint, lockerID *uint) (*Packet, error) {
 
 	remarks := ""
 	if lockerID != nil && *lockerID != 0 {
-		if err := s.checkLockerCapacity(*lockerID); err != nil {
+		if err := s.checkLockerCapacity(ctx, *lockerID); err != nil {
 			log.Printf("packet: requested locker %d unavailable at creation for loan %d: %v — packet left ungrouped", *lockerID, loanID, err)
 		} else {
 			p.Status = StatusLockerStored
@@ -109,37 +110,37 @@ func (s *Service) Create(loanID uint, lockerID *uint) (*Packet, error) {
 		}
 	}
 
-	if err := s.repo.Create(p); err != nil {
+	if err := s.repo.Create(ctx, p); err != nil {
 		return nil, err
 	}
 	mv := &PacketMovement{PacketID: p.ID, FromStatus: "", ToStatus: p.Status, LockerID: p.CurrentLockerID, Remarks: remarks}
-	if err := s.repo.CreateMovement(mv); err != nil {
+	if err := s.repo.CreateMovement(ctx, mv); err != nil {
 		return nil, err
 	}
-	return s.repo.FindByID(p.ID)
+	return s.repo.FindByID(ctx, p.ID)
 }
 
 // CreatePacketForLoan implements loan.PacketCreator — a thin adapter over
 // Create that discards the created packet, since loan.Service only cares
 // whether packet-auto-creation succeeded (fail-soft: it logs and continues
 // on error rather than importing internal/packet's types).
-func (s *Service) CreatePacketForLoan(loanID uint, lockerID *uint) error {
-	_, err := s.Create(loanID, lockerID)
+func (s *Service) CreatePacketForLoan(ctx context.Context, loanID uint, lockerID *uint) error {
+	_, err := s.Create(ctx, loanID, lockerID)
 	return err
 }
 
 // checkLockerCapacity is shared by Create (locker-at-creation) and
 // RecordMovement (manual check-in) so both enforce the exact same
 // active/exists/capacity rules.
-func (s *Service) checkLockerCapacity(lockerID uint) error {
-	capacity, isActive, ok, err := s.lockerCapacity.Capacity(lockerID)
+func (s *Service) checkLockerCapacity(ctx context.Context, lockerID uint) error {
+	capacity, isActive, ok, err := s.lockerCapacity.Capacity(ctx, lockerID)
 	if err != nil {
 		return err
 	}
 	if !ok || !isActive {
 		return ErrLockerInvalid
 	}
-	occupied, err := s.repo.CountActivePackets(lockerID)
+	occupied, err := s.repo.CountActivePackets(ctx, lockerID)
 	if err != nil {
 		return err
 	}
@@ -149,8 +150,8 @@ func (s *Service) checkLockerCapacity(lockerID uint) error {
 	return nil
 }
 
-func (s *Service) Get(id uint, branchID *uint) (*Packet, error) {
-	rec, err := s.repo.FindByID(id)
+func (s *Service) Get(ctx context.Context, id uint, branchID *uint) (*Packet, error) {
+	rec, err := s.repo.FindByID(ctx, id)
 	if err != nil {
 		return nil, ErrNotFound
 	}
@@ -160,31 +161,31 @@ func (s *Service) Get(id uint, branchID *uint) (*Packet, error) {
 	return rec, nil
 }
 
-func (s *Service) GetByCode(code string) (*Packet, error) {
-	rec, err := s.repo.FindByCode(code)
+func (s *Service) GetByCode(ctx context.Context, code string) (*Packet, error) {
+	rec, err := s.repo.FindByCode(ctx, code)
 	if err != nil {
 		return nil, ErrNotFound
 	}
 	return rec, nil
 }
 
-func (s *Service) List(f Filter) ([]Packet, int64, error) {
-	return s.repo.FindAll(f)
+func (s *Service) List(ctx context.Context, f Filter) ([]Packet, int64, error) {
+	return s.repo.FindAll(ctx, f)
 }
 
-func (s *Service) ListMovements(packetID uint) ([]PacketMovement, error) {
-	if _, err := s.repo.FindByID(packetID); err != nil {
+func (s *Service) ListMovements(ctx context.Context, packetID uint) ([]PacketMovement, error) {
+	if _, err := s.repo.FindByID(ctx, packetID); err != nil {
 		return nil, ErrNotFound
 	}
-	return s.repo.FindMovements(packetID)
+	return s.repo.FindMovements(ctx, packetID)
 }
 
 // RecordMovement is the single mutating entry point for every stage
 // transition: validates the transition graph, enforces locker capacity on
 // check-in, updates Packet.Status/CurrentLockerID, and appends the
 // PacketMovement audit row.
-func (s *Service) RecordMovement(packetID uint, toStatus string, lockerID *uint, employeeID uint, remarks string) (*Packet, error) {
-	p, err := s.repo.FindByID(packetID)
+func (s *Service) RecordMovement(ctx context.Context, packetID uint, toStatus string, lockerID *uint, employeeID uint, remarks string) (*Packet, error) {
+	p, err := s.repo.FindByID(ctx, packetID)
 	if err != nil {
 		return nil, ErrNotFound
 	}
@@ -196,7 +197,7 @@ func (s *Service) RecordMovement(packetID uint, toStatus string, lockerID *uint,
 		if lockerID == nil || *lockerID == 0 {
 			return nil, ErrLockerRequired
 		}
-		if err := s.checkLockerCapacity(*lockerID); err != nil {
+		if err := s.checkLockerCapacity(ctx, *lockerID); err != nil {
 			return nil, err
 		}
 	}
@@ -208,7 +209,7 @@ func (s *Service) RecordMovement(packetID uint, toStatus string, lockerID *uint,
 	} else {
 		p.CurrentLockerID = nil
 	}
-	if err := s.repo.Update(p); err != nil {
+	if err := s.repo.Update(ctx, p); err != nil {
 		return nil, err
 	}
 
@@ -220,11 +221,11 @@ func (s *Service) RecordMovement(packetID uint, toStatus string, lockerID *uint,
 		ActorEmployeeID: employeeID,
 		Remarks:         remarks,
 	}
-	if err := s.repo.CreateMovement(mv); err != nil {
+	if err := s.repo.CreateMovement(ctx, mv); err != nil {
 		return nil, err
 	}
 
-	return s.repo.FindByID(p.ID)
+	return s.repo.FindByID(ctx, p.ID)
 }
 
 // RecordBankPledgeMovement / RecordBankReleaseMovement implement
@@ -232,27 +233,27 @@ func (s *Service) RecordMovement(packetID uint, toStatus string, lockerID *uint,
 // ReleaseBankPledge right after their own loan-level state change
 // succeeds. loan.Service logs and continues on any error these return
 // (packet tracking is an enrichment, not a hard lending-flow dependency).
-func (s *Service) RecordBankPledgeMovement(loanID uint, remarks string) error {
-	p, err := s.repo.FindActiveByLoanID(loanID)
+func (s *Service) RecordBankPledgeMovement(ctx context.Context, loanID uint, remarks string) error {
+	p, err := s.repo.FindActiveByLoanID(ctx, loanID)
 	if err != nil {
 		return err
 	}
 	if !isAllowed(p.Status, StatusBankPledged) {
 		return ErrInvalidPacketTransition
 	}
-	_, err = s.RecordMovement(p.ID, StatusBankPledged, nil, 0, remarks)
+	_, err = s.RecordMovement(ctx, p.ID, StatusBankPledged, nil, 0, remarks)
 	return err
 }
 
-func (s *Service) RecordBankReleaseMovement(loanID uint, remarks string) error {
-	p, err := s.repo.FindActiveByLoanID(loanID)
+func (s *Service) RecordBankReleaseMovement(ctx context.Context, loanID uint, remarks string) error {
+	p, err := s.repo.FindActiveByLoanID(ctx, loanID)
 	if err != nil {
 		return err
 	}
 	if !isAllowed(p.Status, StatusReturned) {
 		return ErrInvalidPacketTransition
 	}
-	_, err = s.RecordMovement(p.ID, StatusReturned, nil, 0, remarks)
+	_, err = s.RecordMovement(ctx, p.ID, StatusReturned, nil, 0, remarks)
 	return err
 }
 
@@ -262,8 +263,8 @@ func (s *Service) RecordBankReleaseMovement(loanID uint, remarks string) error {
 // packet through ReadyForRelease first if it isn't already there (both
 // LockerStored and Returned allow that edge), then to the terminal
 // Released state.
-func (s *Service) RecordGoldReleaseMovement(loanID uint, remarks string) error {
-	p, err := s.repo.FindActiveByLoanID(loanID)
+func (s *Service) RecordGoldReleaseMovement(ctx context.Context, loanID uint, remarks string) error {
+	p, err := s.repo.FindActiveByLoanID(ctx, loanID)
 	if err != nil {
 		return err
 	}
@@ -271,14 +272,14 @@ func (s *Service) RecordGoldReleaseMovement(loanID uint, remarks string) error {
 		if !isAllowed(p.Status, StatusReadyForRelease) {
 			return ErrInvalidPacketTransition
 		}
-		if _, err := s.RecordMovement(p.ID, StatusReadyForRelease, nil, 0, remarks); err != nil {
+		if _, err := s.RecordMovement(ctx, p.ID, StatusReadyForRelease, nil, 0, remarks); err != nil {
 			return err
 		}
-		p, err = s.repo.FindByID(p.ID)
+		p, err = s.repo.FindByID(ctx, p.ID)
 		if err != nil {
 			return err
 		}
 	}
-	_, err = s.RecordMovement(p.ID, StatusReleased, nil, 0, remarks)
+	_, err = s.RecordMovement(ctx, p.ID, StatusReleased, nil, 0, remarks)
 	return err
 }

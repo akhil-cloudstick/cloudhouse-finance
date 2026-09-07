@@ -83,6 +83,24 @@ type Config struct {
 	// encrypted internal/settings table.
 	RazorpayKeyID     string
 	RazorpayKeySecret string
+	// RazorpayWebhookSecret is the separate secret configured on Razorpay's
+	// dashboard for signing webhook payloads (Subscriptions events — plan
+	// Step 10) — NOT the same value as RazorpayKeySecret. Left empty,
+	// billing.Service's webhook handler refuses every event rather than
+	// trusting an unverifiable payload.
+	RazorpayWebhookSecret string
+
+	// SuperAdmin* bootstrap the FIRST superadmin console login on a fresh database
+	// (see internal/superadmin.SeedBootstrapUser) — create-only, and only used
+	// when no superadmin user exists yet. Left empty, a fresh install simply has
+	// no way into the superadmin console until one is created directly; the
+	// tenant-facing product is unaffected either way. Env vars rather than a
+	// hardcoded constant (unlike employee.SeedAdmin's fixed "admin@123")
+	// because there is no safe fixed password to ship for the console that
+	// can create and suspend every business on the deployment.
+	SuperAdminBootstrapUsername string
+	SuperAdminBootstrapPassword string
+	SuperAdminBootstrapName     string
 }
 
 // LoadConfig reads a .env file if present (local/dev convenience) and
@@ -135,8 +153,13 @@ func LoadConfig() Config {
 		SetuEsignProductInstance: getEnv("SETU_ESIGN_PRODUCT_INSTANCE_ID", ""),
 		SetuEsignBaseURL:         getEnv("SETU_ESIGN_BASE_URL", "https://dg-sandbox.setu.co"),
 
-		RazorpayKeyID:     getEnv("RAZORPAY_KEY_ID", ""),
-		RazorpayKeySecret: getEnv("RAZORPAY_KEY_SECRET", ""),
+		RazorpayKeyID:         getEnv("RAZORPAY_KEY_ID", ""),
+		RazorpayKeySecret:     getEnv("RAZORPAY_KEY_SECRET", ""),
+		RazorpayWebhookSecret: getEnv("RAZORPAY_WEBHOOK_SECRET", ""),
+
+		SuperAdminBootstrapUsername: getEnv("SUPERADMIN_USERNAME", ""),
+		SuperAdminBootstrapPassword: getEnv("SUPERADMIN_PASSWORD", ""),
+		SuperAdminBootstrapName:     getEnv("SUPERADMIN_NAME", ""),
 	}
 }
 

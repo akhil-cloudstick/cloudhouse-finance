@@ -1,6 +1,7 @@
 package commlog
 
 import (
+	"context"
 	"regexp"
 	"time"
 
@@ -33,8 +34,8 @@ func NewRepository(db *gorm.DB) *Repository {
 	return &Repository{db: db}
 }
 
-func (r *Repository) Create(rec *CommunicationLog) error {
-	return r.db.Create(rec).Error
+func (r *Repository) Create(ctx context.Context, rec *CommunicationLog) error {
+	return r.db.WithContext(ctx).Create(rec).Error
 }
 
 // Filter mirrors the query params the Communication History report accepts
@@ -49,9 +50,9 @@ type Filter struct {
 }
 
 // List returns matching communication log rows, newest first.
-func (r *Repository) List(f Filter) ([]CommunicationLog, error) {
+func (r *Repository) List(ctx context.Context, f Filter) ([]CommunicationLog, error) {
 	var rows []CommunicationLog
-	q := r.db.Model(&CommunicationLog{}).Order("created_at desc, id desc")
+	q := r.db.WithContext(ctx).Model(&CommunicationLog{}).Order("created_at desc, id desc")
 	q = applyFilter(q, f)
 	err := q.Find(&rows).Error
 	return rows, err
@@ -59,9 +60,9 @@ func (r *Repository) List(f Filter) ([]CommunicationLog, error) {
 
 // Count returns how many rows match f — used by the reports handler to
 // report total_count alongside a paginated slice.
-func (r *Repository) Count(f Filter) (int64, error) {
+func (r *Repository) Count(ctx context.Context, f Filter) (int64, error) {
 	var count int64
-	q := r.db.Model(&CommunicationLog{})
+	q := r.db.WithContext(ctx).Model(&CommunicationLog{})
 	q = applyFilter(q, f)
 	err := q.Count(&count).Error
 	return count, err

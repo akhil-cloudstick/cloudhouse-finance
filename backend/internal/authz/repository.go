@@ -1,6 +1,7 @@
 package authz
 
 import (
+	"context"
 	"errors"
 	"log"
 	"strings"
@@ -27,11 +28,11 @@ func NewRepository(db *gorm.DB) *Repository {
 // already exist by name, marking SystemRoleName IsSystem=true. Never
 // overwrites an existing row (so an administrator's edits to description/
 // isActive survive repeated migrate runs).
-func (r *Repository) SeedRoles(names []string) error {
+func (r *Repository) SeedRoles(ctx context.Context, names []string) error {
 	// Silence the "record not found" log line GORM emits for the (expected,
 	// frequent) not-found lookups below — they're not errors here, just the
 	// idempotency check.
-	quietDB := r.db.Session(&gorm.Session{Logger: r.db.Logger.LogMode(logger.Silent)})
+	quietDB := r.db.WithContext(ctx).Session(&gorm.Session{Logger: r.db.WithContext(ctx).Logger.LogMode(logger.Silent)})
 	for _, name := range names {
 		var existing Role
 		err := quietDB.Where("name = ?", name).First(&existing).Error
@@ -42,7 +43,7 @@ func (r *Repository) SeedRoles(names []string) error {
 			return err
 		}
 		role := Role{Name: name, IsActive: true, IsSystem: name == SystemRoleName}
-		if err := r.db.Create(&role).Error; err != nil {
+		if err := r.db.WithContext(ctx).Create(&role).Error; err != nil {
 			return err
 		}
 		log.Printf("authz: seeded role %q (isSystem=%v)", name, role.IsSystem)
@@ -55,8 +56,8 @@ func (r *Repository) SeedRoles(names []string) error {
 // description/module, only the description text may change in a later
 // catalogue edit — see the standard's renaming rules (a name is never
 // reused for a different permission).
-func (r *Repository) SeedCatalogue(defs []PermissionDef) error {
-	quietDB := r.db.Session(&gorm.Session{Logger: r.db.Logger.LogMode(logger.Silent)})
+func (r *Repository) SeedCatalogue(ctx context.Context, defs []PermissionDef) error {
+	quietDB := r.db.WithContext(ctx).Session(&gorm.Session{Logger: r.db.WithContext(ctx).Logger.LogMode(logger.Silent)})
 	for _, def := range defs {
 		var existing Permission
 		err := quietDB.Where("name = ?", def.Name).First(&existing).Error
@@ -67,7 +68,7 @@ func (r *Repository) SeedCatalogue(defs []PermissionDef) error {
 			return err
 		}
 		p := Permission{Name: def.Name, Description: def.Description, ModuleName: def.ModuleName, IsActive: true}
-		if err := r.db.Create(&p).Error; err != nil {
+		if err := r.db.WithContext(ctx).Create(&p).Error; err != nil {
 			return err
 		}
 	}
@@ -107,18 +108,18 @@ func (r *Repository) RegroupModules(defs []PermissionDef) (updated int, err erro
 // default; an administrator curates by revoking, not by hunting for what to
 // grant (see the standard's §3.3/§4.1). Never touches a row that already
 // exists, so explicit revocations from a prior run/ApplyRestrictions survive.
-func (r *Repository) BackfillGrants() (inserted int, err error) {
+func (r *Repository) BackfillGrants(ctx context.Context) (inserted int, err error) {
 	var roles []Role
-	if err := r.db.Find(&roles).Error; err != nil {
+	if err := r.db.WithContext(ctx).Find(&roles).Error; err != nil {
 		return 0, err
 	}
 	var perms []Permission
-	if err := r.db.Find(&perms).Error; err != nil {
+	if err := r.db.WithContext(ctx).Find(&perms).Error; err != nil {
 		return 0, err
 	}
 
 	var existing []RolePermission
-	if err := r.db.Find(&existing).Error; err != nil {
+	if err := r.db.WithContext(ctx).Find(&existing).Error; err != nil {
 		return 0, err
 	}
 	have := make(map[[2]uint]bool, len(existing))
@@ -139,7 +140,7 @@ func (r *Repository) BackfillGrants() (inserted int, err error) {
 	if len(toCreate) == 0 {
 		return 0, nil
 	}
-	if err := r.db.Create(&toCreate).Error; err != nil {
+	if err := r.db.WithContext(ctx).Create(&toCreate).Error; err != nil {
 		return 0, err
 	}
 	log.Printf("authz: back-filled %d role_permissions row(s)", len(toCreate))
@@ -160,13 +161,13 @@ func (r *Repository) BackfillGrants() (inserted int, err error) {
 // edit. Must run AFTER SeedCatalogue (the new permissions must already
 // exist) and BEFORE BackfillGrants (which would otherwise default-grant
 // TRUE to any pair still missing a row).
-func (r *Repository) BackfillCRUDSplitGrants(nouns []string) (inserted int, err error) {
+func (r *Repository) BackfillCRUDSplitGrants(ctx context.Context, nouns []string) (inserted int, err error) {
 	var roles []Role
-	if err := r.db.Find(&roles).Error; err != nil {
+	if err := r.db.WithContext(ctx).Find(&roles).Error; err != nil {
 		return 0, err
 	}
 	var allPerms []Permission
-	if err := r.db.Find(&allPerms).Error; err != nil {
+	if err := r.db.WithContext(ctx).Find(&allPerms).Error; err != nil {
 		return 0, err
 	}
 	permByName := make(map[string]Permission, len(allPerms))
@@ -175,7 +176,7 @@ func (r *Repository) BackfillCRUDSplitGrants(nouns []string) (inserted int, err 
 	}
 
 	var existing []RolePermission
-	if err := r.db.Find(&existing).Error; err != nil {
+	if err := r.db.WithContext(ctx).Find(&existing).Error; err != nil {
 		return 0, err
 	}
 	have := make(map[[2]uint]bool, len(existing))
@@ -186,7 +187,7 @@ func (r *Repository) BackfillCRUDSplitGrants(nouns []string) (inserted int, err 
 		grant[key] = rp.Permission
 	}
 
-	return inserted, r.db.Transaction(func(tx *gorm.DB) error {
+	return inserted, r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		var toCreate []RolePermission
 		for _, noun := range nouns {
 			changePerm, ok := permByName["can change "+noun]
@@ -234,8 +235,8 @@ func (r *Repository) BackfillCRUDSplitGrants(nouns []string) (inserted int, err 
 //
 // Idempotent: a database that has already been purged has nothing matching
 // left to delete.
-func (r *Repository) PurgeLegacyChangePermissions() (deleted int, err error) {
-	return deleted, r.db.Transaction(func(tx *gorm.DB) error {
+func (r *Repository) PurgeLegacyChangePermissions(ctx context.Context) (deleted int, err error) {
+	return deleted, r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		var legacy []Permission
 		if err := tx.Where("name LIKE ?", "can change %").Find(&legacy).Error; err != nil {
 			return err
@@ -293,14 +294,14 @@ func (r *Repository) PurgeLegacyChangePermissions() (deleted int, err error) {
 // it (this is the one place authz still enforces a hardcoded default — every
 // other role change goes through UpdateRolePermissions and is never
 // re-applied at startup).
-func (r *Repository) ApplyRestrictions(restrictions []RoleRestriction) error {
+func (r *Repository) ApplyRestrictions(ctx context.Context, restrictions []RoleRestriction) error {
 	var roles []Role
-	if err := r.db.Find(&roles).Error; err != nil {
+	if err := r.db.WithContext(ctx).Find(&roles).Error; err != nil {
 		return err
 	}
 	for _, restriction := range restrictions {
 		var perm Permission
-		if err := r.db.Where("name = ?", restriction.PermissionName).First(&perm).Error; err != nil {
+		if err := r.db.WithContext(ctx).Where("name = ?", restriction.PermissionName).First(&perm).Error; err != nil {
 			return err
 		}
 		allowed := make(map[string]bool, len(restriction.AllowedRoles))
@@ -308,7 +309,7 @@ func (r *Repository) ApplyRestrictions(restrictions []RoleRestriction) error {
 			allowed[name] = true
 		}
 		for _, role := range roles {
-			if err := r.upsertGrant(role.ID, perm.ID, allowed[role.Name]); err != nil {
+			if err := r.upsertGrant(ctx, role.ID, perm.ID, allowed[role.Name]); err != nil {
 				return err
 			}
 		}
@@ -316,20 +317,20 @@ func (r *Repository) ApplyRestrictions(restrictions []RoleRestriction) error {
 	return nil
 }
 
-func (r *Repository) upsertGrant(roleID, permissionID uint, allowed bool) error {
+func (r *Repository) upsertGrant(ctx context.Context, roleID, permissionID uint, allowed bool) error {
 	var existing RolePermission
-	err := r.db.Where("role_id = ? AND permission_id = ?", roleID, permissionID).First(&existing).Error
+	err := r.db.WithContext(ctx).Where("role_id = ? AND permission_id = ?", roleID, permissionID).First(&existing).Error
 	if err == nil {
 		if existing.Permission == allowed {
 			return nil
 		}
 		existing.Permission = allowed
-		return r.db.Save(&existing).Error
+		return r.db.WithContext(ctx).Save(&existing).Error
 	}
 	if !errors.Is(err, gorm.ErrRecordNotFound) {
 		return err
 	}
-	return r.db.Create(&RolePermission{RoleID: roleID, PermissionID: permissionID, Permission: allowed}).Error
+	return r.db.WithContext(ctx).Create(&RolePermission{RoleID: roleID, PermissionID: permissionID, Permission: allowed}).Error
 }
 
 // --- runtime checks (RequirePermission calls this) -----------------------
@@ -339,11 +340,11 @@ func (r *Repository) upsertGrant(roleID, permissionID uint, allowed bool) error 
 // Returns platform.ErrPermissionNotFound if no row exists at all — almost
 // always a typo in a route's permission string, or a missing seed — distinct
 // from an explicit deny (a real row with Permission=false).
-func (r *Repository) IsAllowed(roleID uint, permissionName string) (bool, error) {
+func (r *Repository) IsAllowed(ctx context.Context, roleID uint, permissionName string) (bool, error) {
 	var row struct {
 		Permission bool
 	}
-	err := r.db.Table("role_permissions AS rp").
+	err := r.db.WithContext(ctx).Table("role_permissions AS rp").
 		Select("rp.permission").
 		Joins("JOIN permissions p ON p.id = rp.permission_id").
 		Where("rp.role_id = ? AND p.name = ?", roleID, permissionName).
@@ -360,9 +361,9 @@ func (r *Repository) IsAllowed(roleID uint, permissionName string) (bool, error)
 // RoleIDByName looks up a role's id by its exact name — used by
 // internal/migrate to backfill employee.RoleID from the legacy free-text
 // Role column.
-func (r *Repository) RoleIDByName(name string) (uint, error) {
+func (r *Repository) RoleIDByName(ctx context.Context, name string) (uint, error) {
 	var role Role
-	if err := r.db.Where("name = ?", name).First(&role).Error; err != nil {
+	if err := r.db.WithContext(ctx).Where("name = ?", name).First(&role).Error; err != nil {
 		return 0, err
 	}
 	return role.ID, nil
@@ -372,13 +373,13 @@ func (r *Repository) RoleIDByName(name string) (uint, error) {
 
 // BootstrapPermissions returns roleID's grants as the standard's derived
 // Module_Name -> can_x boolean map (see the standard's §2.2/§7.1).
-func (r *Repository) BootstrapPermissions(roleID uint) (map[string]map[string]bool, error) {
+func (r *Repository) BootstrapPermissions(ctx context.Context, roleID uint) (map[string]map[string]bool, error) {
 	var rows []struct {
 		ModuleName     string
 		PermissionName string
 		Permission     bool
 	}
-	if err := r.db.Table("role_permissions AS rp").
+	if err := r.db.WithContext(ctx).Table("role_permissions AS rp").
 		Select("p.module_name, p.name AS permission_name, rp.permission").
 		Joins("JOIN permissions p ON p.id = rp.permission_id").
 		Where("rp.role_id = ? AND p.is_active = true", roleID).
@@ -418,8 +419,8 @@ type RolePermissionRow struct {
 // AdminMatrix returns every permission grouped by module for roleID, in the
 // display shape the standard's §7.2 specifies, optionally filtered by a
 // case-insensitive substring match against the permission name.
-func (r *Repository) AdminMatrix(roleID uint, search string) (map[string][]RolePermissionRow, error) {
-	q := r.db.Table("role_permissions AS rp").
+func (r *Repository) AdminMatrix(ctx context.Context, roleID uint, search string) (map[string][]RolePermissionRow, error) {
+	q := r.db.WithContext(ctx).Table("role_permissions AS rp").
 		Select("rp.id, rp.role_id, rp.permission_id, rp.permission, p.id AS p_id, p.name AS p_name, p.description AS p_description, p.module_name AS p_module_name, p.is_active AS p_is_active").
 		Joins("JOIN permissions p ON p.id = rp.permission_id").
 		Where("rp.role_id = ?", roleID)
@@ -462,8 +463,8 @@ type RolePermissionUpdate struct {
 // UpdateRolePermissions applies every update in one transaction — either all
 // apply or none do (§7.3). Creates the role_permissions row on demand if a
 // role predates a permission and has no row for it yet (§4.2).
-func (r *Repository) UpdateRolePermissions(roleID uint, updates []RolePermissionUpdate) error {
-	return r.db.Transaction(func(tx *gorm.DB) error {
+func (r *Repository) UpdateRolePermissions(ctx context.Context, roleID uint, updates []RolePermissionUpdate) error {
+	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		for _, u := range updates {
 			var perm Permission
 			if err := tx.First(&perm, u.PermissionID).Error; err != nil {
@@ -502,8 +503,8 @@ func IsPermissionNotFoundInCatalogue(err error) bool {
 
 // SetAllForRole sets every permission for roleID to allowed, in one
 // transaction (§7.3's set-all endpoint).
-func (r *Repository) SetAllForRole(roleID uint, allowed bool) error {
-	return r.db.Model(&RolePermission{}).Where("role_id = ?", roleID).Update("permission", allowed).Error
+func (r *Repository) SetAllForRole(ctx context.Context, roleID uint, allowed bool) error {
+	return r.db.WithContext(ctx).Model(&RolePermission{}).Where("role_id = ?", roleID).Update("permission", allowed).Error
 }
 
 // --- role lifecycle --------------------------------------------------------
@@ -515,15 +516,15 @@ var ErrSystemRole = errors.New("system roles cannot be modified")
 // ErrRoleInUse is returned by DeleteRole when employees still hold the role.
 var ErrRoleInUse = errors.New("role is still assigned to one or more employees")
 
-func (r *Repository) ListRoles() ([]Role, error) {
+func (r *Repository) ListRoles(ctx context.Context) ([]Role, error) {
 	var roles []Role
-	err := r.db.Order("name asc").Find(&roles).Error
+	err := r.db.WithContext(ctx).Order("name asc").Find(&roles).Error
 	return roles, err
 }
 
-func (r *Repository) GetRole(id uint) (*Role, error) {
+func (r *Repository) GetRole(ctx context.Context, id uint) (*Role, error) {
 	var role Role
-	if err := r.db.First(&role, id).Error; err != nil {
+	if err := r.db.WithContext(ctx).First(&role, id).Error; err != nil {
 		return nil, err
 	}
 	return &role, nil
@@ -532,9 +533,9 @@ func (r *Repository) GetRole(id uint) (*Role, error) {
 // CreateRole inserts the role and, in the same transaction, grants it every
 // permission in the catalogue (Permission=true) — the standard's §4.1: a new
 // role starts with everything, the administrator curates by revoking.
-func (r *Repository) CreateRole(name, description string) (*Role, error) {
+func (r *Repository) CreateRole(ctx context.Context, name, description string) (*Role, error) {
 	role := &Role{Name: name, Description: description, IsActive: true}
-	err := r.db.Transaction(func(tx *gorm.DB) error {
+	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		if err := tx.Create(role).Error; err != nil {
 			return err
 		}
@@ -561,8 +562,8 @@ func (r *Repository) CreateRole(name, description string) (*Role, error) {
 
 // UpdateRole renames/redescribes/(de)activates a role. Refuses on
 // IsSystem (§4.3).
-func (r *Repository) UpdateRole(id uint, name, description string, isActive bool) (*Role, error) {
-	role, err := r.GetRole(id)
+func (r *Repository) UpdateRole(ctx context.Context, id uint, name, description string, isActive bool) (*Role, error) {
+	role, err := r.GetRole(ctx, id)
 	if err != nil {
 		return nil, err
 	}
@@ -572,7 +573,7 @@ func (r *Repository) UpdateRole(id uint, name, description string, isActive bool
 	role.Name = name
 	role.Description = description
 	role.IsActive = isActive
-	if err := r.db.Save(role).Error; err != nil {
+	if err := r.db.WithContext(ctx).Save(role).Error; err != nil {
 		return nil, err
 	}
 	return role, nil
@@ -581,22 +582,22 @@ func (r *Repository) UpdateRole(id uint, name, description string, isActive bool
 // DeleteRole refuses on IsSystem (§4.3) or if any employee still holds the
 // role (§4.4) — role_permissions rows cascade via the DB foreign key once
 // the role itself is allowed to be deleted.
-func (r *Repository) DeleteRole(id uint) error {
-	role, err := r.GetRole(id)
+func (r *Repository) DeleteRole(ctx context.Context, id uint) error {
+	role, err := r.GetRole(ctx, id)
 	if err != nil {
 		return err
 	}
 	if role.IsSystem {
 		return ErrSystemRole
 	}
-	count, err := r.CountEmployeesWithRole(id)
+	count, err := r.CountEmployeesWithRole(ctx, id)
 	if err != nil {
 		return err
 	}
 	if count > 0 {
 		return ErrRoleInUse
 	}
-	return r.db.Transaction(func(tx *gorm.DB) error {
+	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		if err := tx.Where("role_id = ?", id).Delete(&RolePermission{}).Error; err != nil {
 			return err
 		}
@@ -607,8 +608,36 @@ func (r *Repository) DeleteRole(id uint) error {
 // CountEmployeesWithRole queries the employees table directly (not via
 // internal/employee, to avoid this low-level package depending on a
 // higher-level domain package) for how many employees currently hold roleID.
-func (r *Repository) CountEmployeesWithRole(roleID uint) (int64, error) {
+func (r *Repository) CountEmployeesWithRole(ctx context.Context, roleID uint) (int64, error) {
 	var count int64
-	err := r.db.Table("employees").Where("role_id = ? AND deleted_at IS NULL", roleID).Count(&count).Error
+	err := r.db.WithContext(ctx).Table("employees").Where("role_id = ? AND deleted_at IS NULL", roleID).Count(&count).Error
 	return count, err
+}
+
+// GrantAllToRole grants every permission in the catalogue to roleID,
+// Permission=true, skipping any that already have a row.
+//
+// Used to seed a BRAND NEW tenant's Administrator role with full access on
+// day one (see internal/superadmin.Service.CreateBusiness). Deliberately a loop
+// of single-row upserts rather than a batch insert: this runs under an
+// explicit per-tenant context (platform.WithTenant, not AllowCrossTenant),
+// which means the tenant-stamp callback (platform.stampCallback) must fire
+// once per row created. GORM's callback stamps a batch/slice create's tenant
+// column onto exactly one element of the slice, not all of them — a single-
+// struct Create, which upsertGrant already uses, is unambiguously correct
+// instead. Not the fast path, but this runs once per business created, never
+// in a request hot path.
+func (r *Repository) GrantAllToRole(ctx context.Context, roleID uint) (int, error) {
+	var perms []Permission
+	if err := r.db.WithContext(ctx).Find(&perms).Error; err != nil {
+		return 0, err
+	}
+	n := 0
+	for _, p := range perms {
+		if err := r.upsertGrant(ctx, roleID, p.ID, true); err != nil {
+			return n, err
+		}
+		n++
+	}
+	return n, nil
 }

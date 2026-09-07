@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"ambikagold/backend/internal/loan"
+	"ambikagold/backend/internal/platform"
 )
 
 // Packet stage values. "Loan Created" is not a Packet row state — it's the
@@ -33,8 +34,9 @@ const (
 // packet always represents *all* of its loan's ornaments — there is no
 // ornament-level split/subset logic.
 type Packet struct {
+	platform.TenantScoped
 	ID     uint      `json:"id" gorm:"primaryKey"`
-	Code   string    `json:"code" gorm:"uniqueIndex;not null;size:30"`
+	Code   string    `json:"code" gorm:"index;not null;size:30"`
 	LoanID uint      `json:"loanId" gorm:"not null;index"`
 	Loan   loan.Loan `json:"loan" gorm:"foreignKey:LoanID"`
 
@@ -54,6 +56,7 @@ func (Packet) TableName() string { return "packets" }
 
 // PacketMovement is one audit row in a packet's stage history.
 type PacketMovement struct {
+	platform.TenantScoped
 	ID       uint `json:"id" gorm:"primaryKey"`
 	PacketID uint `json:"packetId" gorm:"not null;index"`
 

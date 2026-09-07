@@ -1,7 +1,7 @@
 package loan
 
 import (
-	"fmt"
+	"context"
 	"log"
 	"time"
 
@@ -19,15 +19,15 @@ import (
 // FindOpenForCalendar already returns exactly the not-yet-closed loan set
 // this needs). Reuses the exact dueSoonWindowDays threshold enrichStatusFlags
 // already defines — not reinvented here.
-func (s *Service) CheckDueAndOverdueLoans() {
-	loans, err := s.repo.FindOpenForCalendar()
+func (s *Service) CheckDueAndOverdueLoans(ctx context.Context) {
+	loans, err := s.repo.FindOpenForCalendar(ctx)
 	if err != nil {
 		log.Printf("due/overdue notification check: failed to list open loans: %v", err)
 		return
 	}
 
 	for i := range loans {
-		l, err := s.accrueAndEnrich(&loans[i])
+		l, err := s.accrueAndEnrich(ctx, &loans[i])
 		if err != nil {
 			log.Printf("due/overdue notification check: failed to enrich loan %d: %v", loans[i].ID, err)
 			continue
@@ -38,7 +38,7 @@ func (s *Service) CheckDueAndOverdueLoans() {
 			now := time.Now()
 			l.DueSoonNotifiedAt = &now
 			dirty = true
-			s.notifyCustomer(l.CustomerID, l.Customer.Phone, "Loan Due Soon", fmt.Sprintf(
+			s.notifyCustomer(ctx, l.CustomerID, l.Customer.Phone, "Loan Due Soon", s.brandedMessage(ctx,
 				"Dear %s, your gold loan %s is due on %s. Please arrange payment to avoid overdue charges. — Ambika Gold Finance",
 				l.Customer.Name, l.LoanNumber, l.DueDate.Format("02-Jan-2006"),
 			), commlog.TriggerLoanDueSoon, "loan", l.ID)
@@ -47,13 +47,13 @@ func (s *Service) CheckDueAndOverdueLoans() {
 			now := time.Now()
 			l.OverdueNotifiedAt = &now
 			dirty = true
-			s.notifyCustomer(l.CustomerID, l.Customer.Phone, "Loan Overdue", fmt.Sprintf(
+			s.notifyCustomer(ctx, l.CustomerID, l.Customer.Phone, "Loan Overdue", s.brandedMessage(ctx,
 				"Dear %s, your gold loan %s is now overdue (due date %s). Please settle the outstanding amount at the earliest to avoid further action. — Ambika Gold Finance",
 				l.Customer.Name, l.LoanNumber, l.DueDate.Format("02-Jan-2006"),
 			), commlog.TriggerLoanOverdue, "loan", l.ID)
 		}
 		if dirty {
-			if err := s.repo.Update(l); err != nil {
+			if err := s.repo.Update(ctx, l); err != nil {
 				log.Printf("due/overdue notification check: failed to persist notified-at for loan %d: %v", l.ID, err)
 			}
 		}

@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import "../login.css";
 import { resetPassword } from "@/common/services/authService";
 import { ApiError } from "@/common/services/httpClient";
+import { businessCodeForRequest, isValidBusinessSlug, loginPath } from "@/common/services/tenantSession";
 
 function ResetPasswordForm() {
   const router = useRouter();
@@ -20,6 +21,11 @@ function ResetPasswordForm() {
   // it read-only means this page can only ever act on the number the user
   // actually requested a code for.
   const phone = searchParams.get("phone") || "";
+
+  /* The business is carried through the whole reset flow, because a phone
+   * number is unique only WITHIN a business — see the forgot-password page. */
+  const linkedCode = searchParams.get("b")?.trim().toLowerCase() ?? "";
+  const businessCode = isValidBusinessSlug(linkedCode) ? linkedCode : businessCodeForRequest();
   const [otp, setOtp] = useState("");
   const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
@@ -51,8 +57,8 @@ function ResetPasswordForm() {
 
     setSubmitting(true);
     try {
-      await resetPassword(phone.trim(), otp.trim(), password);
-      router.push("/login?reset=success");
+      await resetPassword(phone.trim(), otp.trim(), password, businessCode);
+      router.push(`${loginPath(businessCode || null)}?reset=success`);
     } catch (err) {
       const text =
         err instanceof ApiError
@@ -85,7 +91,7 @@ function ResetPasswordForm() {
                 No phone number to reset — request a code first.
               </p>
               <div className="aux" style={{ justifyContent: "center", marginTop: 18 }}>
-                <a href="/forgot-password">← Request a reset code</a>
+                <a href={businessCode ? `/forgot-password?b=${encodeURIComponent(businessCode)}` : "/forgot-password"}>← Request a reset code</a>
               </div>
             </>
           ) : (
@@ -212,7 +218,7 @@ function ResetPasswordForm() {
             </p>
 
             <div className="aux" style={{ justifyContent: "center" }}>
-              <a href="/login">← Back to login</a>
+              <a href={loginPath(businessCode || null)}>← Back to login</a>
             </div>
           </form>
           )}

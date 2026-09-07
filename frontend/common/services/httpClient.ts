@@ -3,14 +3,19 @@
  * can go to a relative `/api/v1` path. In dev (`next dev` on its own port)
  * point NEXT_PUBLIC_API_BASE at the backend, e.g. http://localhost:8080/api/v1.
  */
+import { activeBusinessSlug, clearSession, loginPath, readToken } from "@/common/services/tenantSession";
+import { branchHeader } from "@/common/services/branchSelection";
+
 export const API_BASE = process.env.NEXT_PUBLIC_API_BASE || "/api/v1";
 
-/* localStorage keys for the JWT session — shared with common/auth-context.tsx,
- * which is the only other module that reads/writes them (keeps the token
- * source-of-truth in one place while letting this fetch wrapper attach the
- * header without importing React). */
-export const AUTH_TOKEN_KEY = "ambikagold_token";
-export const AUTH_EMPLOYEE_KEY = "ambikagold_employee";
+/* The JWT session lives in common/services/tenantSession.ts, keyed by
+ * business slug.
+ *
+ * It used to be a single "ambikagold_token" key read directly here. Every
+ * business shares one browser origin, so that one key meant two businesses
+ * open in two tabs silently clobbered each other's session. Keys are per-slug
+ * now, and this wrapper asks tenantSession which business the current tab is
+ * operating as rather than knowing any key itself. */
 
 export class ApiError extends Error {
   status: number;
@@ -20,27 +25,41 @@ export class ApiError extends Error {
   }
 }
 
-function getToken(): string | null {
-  if (typeof window === "undefined") return null;
-  return window.localStorage.getItem(AUTH_TOKEN_KEY);
+/* getAuthToken is exported for the two endpoints that stream binary bodies
+ * (loan statements, report exports) and therefore build their own fetch
+ * instead of going through the wrappers below. They previously read the
+ * localStorage key directly, which is exactly how a per-business session gets
+ * missed — the key is no longer theirs to know. */
+export function getAuthToken(): string | null {
+  return readToken();
 }
 
+/* branchHeader() rides along on every authenticated request. It is a view
+ * control, not a credential: the backend narrows a cross-branch role's own
+ * data to one branch and ignores it entirely for every other role — it can
+ * never widen access or cross a business (see platform.GetBranchScope). */
 function authHeader(): Record<string, string> {
-  const token = getToken();
-  return token ? { Authorization: `Bearer ${token}` } : {};
+  const token = readToken();
+  return { ...(token ? { Authorization: `Bearer ${token}` } : {}), ...branchHeader() };
 }
 
 /* Called whenever the backend rejects a request with 401 — clears the
- * stored session and bounces to /login. Skipped for the /auth/* endpoints
- * themselves: a wrong password on /auth/login is an expected 401 that the
- * login form needs to show inline, not a reason to force-navigate away. */
+ * stored session and bounces to the login page. Skipped for the /auth/*
+ * endpoints themselves: a wrong password on /auth/login is an expected 401
+ * that the login form needs to show inline, not a reason to force-navigate
+ * away.
+ *
+ * The bounce keeps the business slug. Sending a signed-out user to a bare
+ * /login would drop the one piece of information that lets them get back in
+ * without being asked for a business code they may never have been told. */
 function handleUnauthorized(path: string) {
   if (typeof window === "undefined") return;
   if (path.startsWith("/auth/")) return;
-  window.localStorage.removeItem(AUTH_TOKEN_KEY);
-  window.localStorage.removeItem(AUTH_EMPLOYEE_KEY);
-  if (window.location.pathname !== "/login") {
-    window.location.href = "/login";
+  const slug = activeBusinessSlug();
+  clearSession(slug);
+  const target = loginPath(slug);
+  if (window.location.pathname !== target) {
+    window.location.href = target;
   }
 }
 

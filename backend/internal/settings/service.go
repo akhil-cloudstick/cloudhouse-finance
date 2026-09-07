@@ -1,6 +1,7 @@
 package settings
 
 import (
+	"context"
 	"errors"
 
 	"gorm.io/gorm"
@@ -45,8 +46,8 @@ func NewService(repo *Repository, cipher *platform.Cipher) *Service {
 
 // List returns a view for every known category, whether or not it has been
 // configured yet, so the Settings page can render all 6 integrations.
-func (s *Service) List() ([]ApiKeyView, error) {
-	rows, err := s.repo.FindAll()
+func (s *Service) List(ctx context.Context) ([]ApiKeyView, error) {
+	rows, err := s.repo.FindAll(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -77,11 +78,11 @@ func (s *Service) List() ([]ApiKeyView, error) {
 	return views, nil
 }
 
-func (s *Service) Get(category Category) (*ApiKeyView, error) {
+func (s *Service) Get(ctx context.Context, category Category) (*ApiKeyView, error) {
 	if !category.Valid() {
 		return nil, ErrInvalidCategory
 	}
-	row, err := s.repo.FindByCategory(category)
+	row, err := s.repo.FindByCategory(ctx, category)
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return &ApiKeyView{Category: category, IsSet: false}, nil
 	}
@@ -101,7 +102,7 @@ func (s *Service) Get(category Category) (*ApiKeyView, error) {
 	}, nil
 }
 
-func (s *Service) Set(category Category, in SetInput) (*ApiKeyView, error) {
+func (s *Service) Set(ctx context.Context, category Category, in SetInput) (*ApiKeyView, error) {
 	if !category.Valid() {
 		return nil, ErrInvalidCategory
 	}
@@ -117,15 +118,15 @@ func (s *Service) Set(category Category, in SetInput) (*ApiKeyView, error) {
 		Name:           in.Name,
 		EncryptedValue: encrypted,
 	}
-	if err := s.repo.Upsert(row); err != nil {
+	if err := s.repo.Upsert(ctx, row); err != nil {
 		return nil, err
 	}
-	return s.Get(category)
+	return s.Get(ctx, category)
 }
 
-func (s *Service) Delete(category Category) error {
+func (s *Service) Delete(ctx context.Context, category Category) error {
 	if !category.Valid() {
 		return ErrInvalidCategory
 	}
-	return s.repo.DeleteByCategory(category)
+	return s.repo.DeleteByCategory(ctx, category)
 }

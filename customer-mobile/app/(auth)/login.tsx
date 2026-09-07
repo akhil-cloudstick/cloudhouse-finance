@@ -9,6 +9,7 @@ import { useAuth } from "../../src/auth/AuthContext";
 import { ApiError } from "../../src/api/client";
 import * as authApi from "../../src/api/auth";
 import { saveDeviceToken, getOrCreateDeviceId, getDeviceToken, clearDeviceToken } from "../../src/auth/deviceToken";
+import { getBusinessCode, isValidBusinessCode, normalizeBusinessCode, saveBusinessCode } from "../../src/auth/businessCode";
 
 type Step = "phone" | "otp";
 
@@ -37,8 +38,14 @@ export default function LoginScreen() {
   const [biometricLoading, setBiometricLoading] = useState(false);
   const [hasDeviceToken, setHasDeviceToken] = useState(false);
 
+  // The lender this app last signed in to, so a returning borrower does not
+  // retype it. Empty on a fresh install, which is correct: a single-lender
+  // backend resolves the lender itself.
+  const [businessCode, setBusinessCode] = useState("");
+
   useEffect(() => {
     getDeviceToken().then((t) => setHasDeviceToken(!!t));
+    getBusinessCode().then(setBusinessCode);
   }, []);
 
   async function handleBiometricLogin() {
@@ -77,9 +84,14 @@ export default function LoginScreen() {
 
   async function handleRequestOtp() {
     setError(null);
+    const lender = normalizeBusinessCode(businessCode);
+    if (lender && !isValidBusinessCode(lender)) {
+      setError("That lender code doesn't look right — letters, numbers and dashes only.");
+      return;
+    }
     setLoading(true);
     try {
-      await authApi.requestOtp(phone.trim());
+      await authApi.requestOtp(phone.trim(), lender);
       setStep("otp");
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Could not reach the server. Check your connection and try again.");
@@ -118,7 +130,11 @@ export default function LoginScreen() {
     setError(null);
     setLoading(true);
     try {
-      const session = await authApi.verifyOtp(phone.trim(), code.trim());
+      const lender = normalizeBusinessCode(businessCode);
+      const session = await authApi.verifyOtp(phone.trim(), code.trim(), lender);
+      // Remembered only after the code has actually worked, so a mistyped one
+      // is never persisted and offered back on the next sign-in.
+      await saveBusinessCode(lender);
       await completeLogin(session);
       await enrollDeviceBiometric();
     } catch (err) {
@@ -145,6 +161,19 @@ export default function LoginScreen() {
                 autoCapitalize="none"
                 value={phone}
                 onChangeText={setPhone}
+              />
+              {/* The lender's code. A borrower's phone number is unique only
+                * WITHIN a lender, so with more than one running on the backend
+                * the phone alone is ambiguous. Optional and remembered after
+                * the first successful sign-in, so a returning borrower never
+                * types it twice — and invisible in practice on a
+                * single-lender backend, which resolves it itself. */}
+              <GoldTextInput
+                label="Lender code (if your lender gave you one)"
+                autoCapitalize="none"
+                autoCorrect={false}
+                value={businessCode}
+                onChangeText={setBusinessCode}
               />
               {error ? (
                 <ThemedText variant="small" color={colors.red} style={styles.error}>

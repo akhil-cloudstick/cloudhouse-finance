@@ -40,8 +40,8 @@ const epsilon = 0.01
 // cash flow), so no new cash-side code is needed, just this narrower view
 // of the same interface.
 type CashRecorder interface {
-	RecordLoanDisbursementCashOut(loanID uint, loanNumber string, amount float64, branchID uint, occurredOn time.Time) (movementID uint, err error)
-	RecordLoanPaymentCashIn(loanID uint, loanNumber string, amount float64, branchID uint, occurredOn time.Time, paymentType string) (movementID uint, err error)
+	RecordLoanDisbursementCashOut(ctx context.Context, loanID uint, loanNumber string, amount float64, branchID uint, occurredOn time.Time) (movementID uint, err error)
+	RecordLoanPaymentCashIn(ctx context.Context, loanID uint, loanNumber string, amount float64, branchID uint, occurredOn time.Time, paymentType string) (movementID uint, err error)
 }
 
 // Service implements personal-loan business rules on top of the Repository.
@@ -105,7 +105,7 @@ func computeInterest(principal float64, interestType string, interestValue float
 // the full repayment schedule, and persists the loan — a single step that
 // leaves the loan Active and disbursed (no separate approval stage; see
 // package doc comment).
-func (s *Service) CreateLoan(in CreateInput) (*PersonalLoan, error) {
+func (s *Service) CreateLoan(ctx context.Context, in CreateInput) (*PersonalLoan, error) {
 	if in.PrincipalAmount <= 0 {
 		return nil, ErrInvalidPrincipal
 	}
@@ -121,7 +121,7 @@ func (s *Service) CreateLoan(in CreateInput) (*PersonalLoan, error) {
 	if in.InterestValue < 0 {
 		return nil, ErrInvalidInterestValue
 	}
-	if _, err := s.customerRepo.FindByID(in.CustomerID); err != nil {
+	if _, err := s.customerRepo.FindByID(ctx, in.CustomerID); err != nil {
 		return nil, err
 	}
 
@@ -153,19 +153,19 @@ func (s *Service) CreateLoan(in CreateInput) (*PersonalLoan, error) {
 		DisbursedAt:         now,
 	}
 
-	err := s.repo.DB().Transaction(func(tx *gorm.DB) error {
-		count, err := s.repo.CountAll()
+	err := s.repo.DB().WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		count, err := s.repo.CountAll(ctx)
 		if err != nil {
 			return err
 		}
 		rec.LoanNumber = fmt.Sprintf("PL-%05d", count+1)
 
-		if err := s.repo.Create(tx, rec); err != nil {
+		if err := s.repo.Create(ctx, tx, rec); err != nil {
 			return err
 		}
 
 		installments := generateSchedule(rec)
-		if err := s.repo.CreateInstallments(tx, installments); err != nil {
+		if err := s.repo.CreateInstallments(ctx, tx, installments); err != nil {
 			return err
 		}
 		return nil
@@ -179,7 +179,7 @@ func (s *Service) CreateLoan(in CreateInput) (*PersonalLoan, error) {
 	// transaction, same as internal/loan's disbursement/payment cash
 	// recording: a failure here is logged, not fatal to loan creation.
 	if s.cashRecorder != nil {
-		if _, err := s.cashRecorder.RecordLoanDisbursementCashOut(rec.ID, rec.LoanNumber, rec.DisbursedAmount, rec.BranchID, now); err != nil {
+		if _, err := s.cashRecorder.RecordLoanDisbursementCashOut(ctx, rec.ID, rec.LoanNumber, rec.DisbursedAmount, rec.BranchID, now); err != nil {
 			log.Printf("cash-out movement (personal loan disbursement) failed for loan %d: %v", rec.ID, err)
 		}
 	}
@@ -228,8 +228,8 @@ func stepDueDate(from time.Time, frequency string) time.Time {
 }
 
 // Get returns a single loan, branch-scoped.
-func (s *Service) Get(id uint, branchID *uint) (*PersonalLoan, error) {
-	rec, err := s.repo.FindByID(id, branchID)
+func (s *Service) Get(ctx context.Context, id uint, branchID *uint) (*PersonalLoan, error) {
+	rec, err := s.repo.FindByID(ctx, id, branchID)
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, ErrLoanNotFound
@@ -242,8 +242,8 @@ func (s *Service) Get(id uint, branchID *uint) (*PersonalLoan, error) {
 // ListPendingInstallmentsForCalendar returns every unpaid installment of an
 // Active loan, optionally branch-scoped — feeds the reminder calendar's
 // personal-loan due/overdue events (see reminder.Service.GetCalendarEvents).
-func (s *Service) ListPendingInstallmentsForCalendar(branchID *uint) ([]CalendarInstallment, error) {
-	return s.repo.FindPendingInstallmentsForCalendar(branchID)
+func (s *Service) ListPendingInstallmentsForCalendar(ctx context.Context, branchID *uint) ([]CalendarInstallment, error) {
+	return s.repo.FindPendingInstallmentsForCalendar(ctx, branchID)
 }
 
 // ListInput mirrors the list page's filters/search/pagination.
@@ -260,12 +260,12 @@ type ListInput struct {
 // List returns one page of loans matching in (limit/offset, page size
 // defaults to defaultPageSize when Limit <= 0), plus whether another page
 // exists.
-func (s *Service) List(in ListInput) ([]PersonalLoan, bool, error) {
+func (s *Service) List(ctx context.Context, in ListInput) ([]PersonalLoan, bool, error) {
 	limit := in.Limit
 	if limit <= 0 {
 		limit = defaultPageSize
 	}
-	recs, err := s.repo.FindAll(ListFilter{
+	recs, err := s.repo.FindAll(ctx, ListFilter{
 		BranchID:   in.BranchID,
 		CustomerID: in.CustomerID,
 		Status:     in.Status,
@@ -289,14 +289,14 @@ const defaultPageSize = 10
 // GetSchedule returns one page of a loan's installment schedule
 // (limit/offset, page size defaults to defaultPageSize when limit <= 0),
 // plus whether another page exists.
-func (s *Service) GetSchedule(loanID uint, branchID *uint, limit, offset int) ([]PersonalLoanInstallment, bool, error) {
-	if _, err := s.Get(loanID, branchID); err != nil {
+func (s *Service) GetSchedule(ctx context.Context, loanID uint, branchID *uint, limit, offset int) ([]PersonalLoanInstallment, bool, error) {
+	if _, err := s.Get(ctx, loanID, branchID); err != nil {
 		return nil, false, err
 	}
 	if limit <= 0 {
 		limit = defaultPageSize
 	}
-	recs, err := s.repo.FindInstallments(loanID, limit, offset)
+	recs, err := s.repo.FindInstallments(ctx, loanID, limit, offset)
 	if err != nil {
 		return nil, false, err
 	}
@@ -310,14 +310,14 @@ func (s *Service) GetSchedule(loanID uint, branchID *uint, limit, offset int) ([
 // ListPayments returns one page of a loan's payment ledger (limit/offset,
 // page size defaults to defaultPageSize when limit <= 0), newest first,
 // plus whether another page exists.
-func (s *Service) ListPayments(loanID uint, branchID *uint, limit, offset int) ([]PersonalLoanPayment, bool, error) {
-	if _, err := s.Get(loanID, branchID); err != nil {
+func (s *Service) ListPayments(ctx context.Context, loanID uint, branchID *uint, limit, offset int) ([]PersonalLoanPayment, bool, error) {
+	if _, err := s.Get(ctx, loanID, branchID); err != nil {
 		return nil, false, err
 	}
 	if limit <= 0 {
 		limit = defaultPageSize
 	}
-	recs, err := s.repo.FindPayments(loanID, limit, offset)
+	recs, err := s.repo.FindPayments(ctx, loanID, limit, offset)
 	if err != nil {
 		return nil, false, err
 	}
@@ -344,7 +344,7 @@ type PaymentInput struct {
 // payment across pending installments for display. Runs inside a
 // transaction with a row lock on the loan to serialize concurrent
 // collections against the same loan.
-func (s *Service) RecordPayment(loanID uint, branchID *uint, in PaymentInput) (*PersonalLoan, error) {
+func (s *Service) RecordPayment(ctx context.Context, loanID uint, branchID *uint, in PaymentInput) (*PersonalLoan, error) {
 	if in.Amount <= 0 {
 		return nil, ErrInvalidPaymentAmount
 	}
@@ -352,8 +352,8 @@ func (s *Service) RecordPayment(loanID uint, branchID *uint, in PaymentInput) (*
 	var result *PersonalLoan
 	var paidAmount float64
 	var paidOn time.Time
-	err := s.repo.DB().Transaction(func(tx *gorm.DB) error {
-		rec, err := s.repo.LockByID(tx, loanID, branchID)
+	err := s.repo.DB().WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		rec, err := s.repo.LockByID(ctx, tx, loanID, branchID)
 		if err != nil {
 			if errors.Is(err, gorm.ErrRecordNotFound) {
 				return ErrLoanNotFound
@@ -385,7 +385,7 @@ func (s *Service) RecordPayment(loanID uint, branchID *uint, in PaymentInput) (*
 			Description:          in.Description,
 			RunningBalance:       newOutstanding,
 		}
-		if err := s.repo.CreatePayment(tx, payment); err != nil {
+		if err := s.repo.CreatePayment(ctx, tx, payment); err != nil {
 			return err
 		}
 
@@ -397,11 +397,11 @@ func (s *Service) RecordPayment(loanID uint, branchID *uint, in PaymentInput) (*
 			now := time.Now()
 			rec.ClosedAt = &now
 		}
-		if err := s.repo.Update(tx, rec); err != nil {
+		if err := s.repo.Update(ctx, tx, rec); err != nil {
 			return err
 		}
 
-		if err := s.allocatePaymentToInstallments(tx, rec.ID, amount); err != nil {
+		if err := s.allocatePaymentToInstallments(ctx, tx, rec.ID, amount); err != nil {
 			return err
 		}
 
@@ -415,7 +415,7 @@ func (s *Service) RecordPayment(loanID uint, branchID *uint, in PaymentInput) (*
 	// Best-effort and outside the transaction, same rationale as CreateLoan's
 	// disbursement recording above.
 	if s.cashRecorder != nil {
-		if _, err := s.cashRecorder.RecordLoanPaymentCashIn(result.ID, result.LoanNumber, paidAmount, result.BranchID, paidOn, "Personal Loan Payment"); err != nil {
+		if _, err := s.cashRecorder.RecordLoanPaymentCashIn(ctx, result.ID, result.LoanNumber, paidAmount, result.BranchID, paidOn, "Personal Loan Payment"); err != nil {
 			log.Printf("cash-in movement (personal loan payment) failed for loan %d: %v", result.ID, err)
 		}
 	}
@@ -427,7 +427,7 @@ func (s *Service) RecordPayment(loanID uint, branchID *uint, in PaymentInput) (*
 // PaidAmount up to each row's Amount until the payment is exhausted. It
 // never blocks or constrains the payment itself — see package doc comment
 // on installment status being non-authoritative.
-func (s *Service) allocatePaymentToInstallments(tx *gorm.DB, loanID uint, amount float64) error {
+func (s *Service) allocatePaymentToInstallments(ctx context.Context, tx *gorm.DB, loanID uint, amount float64) error {
 	var installments []PersonalLoanInstallment
 	if err := tx.Where("personal_loan_id = ? AND status <> ?", loanID, InstallmentStatusPaid).
 		Order("sequence_no asc").Find(&installments).Error; err != nil {
@@ -454,7 +454,7 @@ func (s *Service) allocatePaymentToInstallments(tx *gorm.DB, loanID uint, amount
 			inst.Status = InstallmentStatusPartiallyPaid
 		}
 		remaining = platform.RoundMoney(remaining - credit)
-		if err := s.repo.UpdateInstallment(tx, inst); err != nil {
+		if err := s.repo.UpdateInstallment(ctx, tx, inst); err != nil {
 			return err
 		}
 	}
@@ -465,7 +465,7 @@ func (s *Service) allocatePaymentToInstallments(tx *gorm.DB, loanID uint, amount
 // fully Paid — used by RenewLoan, where the rollover ledger entry settles
 // the whole loan at once rather than crediting specific installments the
 // way a real collection does (see allocatePaymentToInstallments).
-func (s *Service) markAllInstallmentsPaid(tx *gorm.DB, loanID uint) error {
+func (s *Service) markAllInstallmentsPaid(ctx context.Context, tx *gorm.DB, loanID uint) error {
 	var installments []PersonalLoanInstallment
 	if err := tx.Where("personal_loan_id = ? AND status <> ?", loanID, InstallmentStatusPaid).
 		Find(&installments).Error; err != nil {
@@ -475,7 +475,7 @@ func (s *Service) markAllInstallmentsPaid(tx *gorm.DB, loanID uint) error {
 		inst := &installments[i]
 		inst.PaidAmount = inst.Amount
 		inst.Status = InstallmentStatusPaid
-		if err := s.repo.UpdateInstallment(tx, inst); err != nil {
+		if err := s.repo.UpdateInstallment(ctx, tx, inst); err != nil {
 			return err
 		}
 	}
@@ -509,8 +509,8 @@ type RenewalPreview struct {
 	Shortfall       bool    `json:"shortfall"`
 }
 
-func (s *Service) PreviewRenewal(loanID uint, branchID *uint, in RenewInput) (*RenewalPreview, error) {
-	old, err := s.Get(loanID, branchID)
+func (s *Service) PreviewRenewal(ctx context.Context, loanID uint, branchID *uint, in RenewInput) (*RenewalPreview, error) {
+	old, err := s.Get(ctx, loanID, branchID)
 	if err != nil {
 		return nil, err
 	}
@@ -544,7 +544,7 @@ func (s *Service) PreviewRenewal(loanID uint, branchID *uint, in RenewInput) (*R
 // reduced by the rollover). Both loans are linked via
 // RenewedFromLoanID/RenewedToLoanID. Runs inside one transaction with a row
 // lock on the old loan.
-func (s *Service) RenewLoan(loanID uint, branchID *uint, in RenewInput) (*RenewResult, error) {
+func (s *Service) RenewLoan(ctx context.Context, loanID uint, branchID *uint, in RenewInput) (*RenewResult, error) {
 	if in.PrincipalAmount <= 0 {
 		return nil, ErrInvalidPrincipal
 	}
@@ -562,8 +562,8 @@ func (s *Service) RenewLoan(loanID uint, branchID *uint, in RenewInput) (*RenewR
 	}
 
 	var result RenewResult
-	err := s.repo.DB().Transaction(func(tx *gorm.DB) error {
-		old, err := s.repo.LockByID(tx, loanID, branchID)
+	err := s.repo.DB().WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		old, err := s.repo.LockByID(ctx, tx, loanID, branchID)
 		if err != nil {
 			if errors.Is(err, gorm.ErrRecordNotFound) {
 				return ErrLoanNotFound
@@ -604,16 +604,16 @@ func (s *Service) RenewLoan(loanID uint, branchID *uint, in RenewInput) (*RenewR
 			DisbursedAt:         now,
 			RenewedFromLoanID:   &old.ID,
 		}
-		count, err := s.repo.CountAll()
+		count, err := s.repo.CountAll(ctx)
 		if err != nil {
 			return err
 		}
 		newLoan.LoanNumber = fmt.Sprintf("PL-%05d", count+1)
-		if err := s.repo.Create(tx, newLoan); err != nil {
+		if err := s.repo.Create(ctx, tx, newLoan); err != nil {
 			return err
 		}
 		installments := generateSchedule(newLoan)
-		if err := s.repo.CreateInstallments(tx, installments); err != nil {
+		if err := s.repo.CreateInstallments(ctx, tx, installments); err != nil {
 			return err
 		}
 
@@ -628,7 +628,7 @@ func (s *Service) RenewLoan(loanID uint, branchID *uint, in RenewInput) (*RenewR
 				Description:    fmt.Sprintf("Settled via renewal into loan %s", newLoan.LoanNumber),
 				RunningBalance: 0,
 			}
-			if err := s.repo.CreatePayment(tx, payment); err != nil {
+			if err := s.repo.CreatePayment(ctx, tx, payment); err != nil {
 				return err
 			}
 		}
@@ -640,7 +640,7 @@ func (s *Service) RenewLoan(loanID uint, branchID *uint, in RenewInput) (*RenewR
 		// collection against specific installments; a renewal never calls
 		// it, so without this every not-yet-due row would otherwise stay
 		// Pending forever on a loan that's actually settled).
-		if err := s.markAllInstallmentsPaid(tx, old.ID); err != nil {
+		if err := s.markAllInstallmentsPaid(ctx, tx, old.ID); err != nil {
 			return err
 		}
 		old.OutstandingAmount = 0
@@ -648,7 +648,7 @@ func (s *Service) RenewLoan(loanID uint, branchID *uint, in RenewInput) (*RenewR
 		old.Status = StatusRenewed
 		old.ClosedAt = &now
 		old.RenewedToLoanID = &newLoan.ID
-		if err := s.repo.Update(tx, old); err != nil {
+		if err := s.repo.Update(ctx, tx, old); err != nil {
 			return err
 		}
 
@@ -666,7 +666,7 @@ func (s *Service) RenewLoan(loanID uint, branchID *uint, in RenewInput) (*RenewR
 	// movement. Best-effort and outside the transaction, same rationale as
 	// CreateLoan's disbursement recording.
 	if s.cashRecorder != nil && result.NewLoan.DisbursedAmount > epsilon {
-		if _, err := s.cashRecorder.RecordLoanDisbursementCashOut(result.NewLoan.ID, result.NewLoan.LoanNumber, result.NewLoan.DisbursedAmount, result.NewLoan.BranchID, result.NewLoan.DisbursedAt); err != nil {
+		if _, err := s.cashRecorder.RecordLoanDisbursementCashOut(ctx, result.NewLoan.ID, result.NewLoan.LoanNumber, result.NewLoan.DisbursedAmount, result.NewLoan.BranchID, result.NewLoan.DisbursedAt); err != nil {
 			log.Printf("cash-out movement (personal loan renewal disbursement) failed for loan %d: %v", result.NewLoan.ID, err)
 		}
 	}
@@ -680,11 +680,11 @@ func (s *Service) RenewLoan(loanID uint, branchID *uint, in RenewInput) (*RenewR
 // rationale: a customer with no Aadhaar on file, or a decrypt failure, just
 // leaves the bond's Aadhaar line blank rather than blocking the download.
 func (s *Service) GenerateBond(ctx context.Context, loanID uint, branchID *uint) ([]byte, *PersonalLoan, error) {
-	loan, err := s.Get(loanID, branchID)
+	loan, err := s.Get(ctx, loanID, branchID)
 	if err != nil {
 		return nil, nil, err
 	}
-	cust, err := s.customerRepo.FindByID(loan.CustomerID)
+	cust, err := s.customerRepo.FindByID(ctx, loan.CustomerID)
 	if err != nil {
 		return nil, nil, err
 	}

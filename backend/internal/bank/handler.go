@@ -6,6 +6,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	"ambikagold/backend/internal/platform"
 	"ambikagold/backend/internal/platform/httpx"
 )
 
@@ -23,11 +24,12 @@ func NewHandler(svc *Service) *Handler {
 // bank directory and NewLoan.tsx's SearchableSelect), {items, hasMore}
 // envelope when present (the mobile app's paginated list).
 func (h *Handler) List(c *gin.Context) {
+	ctx := platform.RequestContext(c)
 	limit, _ := strconv.Atoi(c.Query("limit"))
 	offset, _ := strconv.Atoi(c.Query("offset"))
 
 	if limit <= 0 {
-		rec, _, err := h.svc.List(c.Query("q"), 0, 0)
+		rec, _, err := h.svc.List(ctx, c.Query("q"), 0, 0)
 		if err != nil {
 			httpx.FailErr(c, err)
 			return
@@ -36,7 +38,7 @@ func (h *Handler) List(c *gin.Context) {
 		return
 	}
 
-	rec, total, err := h.svc.List(c.Query("q"), limit+1, offset)
+	rec, total, err := h.svc.List(ctx, c.Query("q"), limit+1, offset)
 	if err != nil {
 		httpx.FailErr(c, err)
 		return
@@ -57,12 +59,13 @@ type bankRequest struct {
 }
 
 func (h *Handler) Create(c *gin.Context) {
+	ctx := platform.RequestContext(c)
 	var req bankRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		httpx.Fail(c, http.StatusBadRequest, "Invalid input")
 		return
 	}
-	rec, created, err := h.svc.FindOrCreate(CreateInput{Name: req.Name, Branch: req.Branch, Ifsc: req.Ifsc, AccountNo: req.AccountNo, Phone: req.Phone})
+	rec, created, err := h.svc.FindOrCreate(ctx, CreateInput{Name: req.Name, Branch: req.Branch, Ifsc: req.Ifsc, AccountNo: req.AccountNo, Phone: req.Phone})
 	if err != nil {
 		httpx.FailErr(c, err)
 		return

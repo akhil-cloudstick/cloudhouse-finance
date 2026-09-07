@@ -1,6 +1,7 @@
 package loan
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -20,6 +21,7 @@ import (
 	"ambikagold/backend/internal/platform"
 	"ambikagold/backend/internal/platform/httpx"
 	"ambikagold/backend/internal/scheme"
+	"ambikagold/backend/internal/tenant"
 	"ambikagold/backend/internal/upload"
 )
 
@@ -30,7 +32,7 @@ import (
 // directly (packet already depends on loan for its joined display fields,
 // so the dependency must stay one-directional).
 type PacketCreator interface {
-	CreatePacketForLoan(loanID uint, lockerID *uint) error
+	CreatePacketForLoan(ctx context.Context, loanID uint, lockerID *uint) error
 }
 
 // CustomerNotifier delivers a durable, ack-tracked in-app notification to a
@@ -42,21 +44,21 @@ type PacketCreator interface {
 // user-facing text (title short, body the full sentence already built for
 // WhatsApp).
 type CustomerNotifier interface {
-	Notify(customerID uint, notifType, title, body, relatedEntityType string, relatedEntityID uint)
+	Notify(ctx context.Context, customerID uint, notifType, title, body, relatedEntityType string, relatedEntityID uint)
 }
 
 // PacketMover records the matching packet movement when a loan's gold is
 // pledged to / returned from a bank via RecordBankPledge/ReleaseBankPledge.
 // Implemented by packet.Service, injected the same way as PacketCreator.
 type PacketMover interface {
-	RecordBankPledgeMovement(loanID uint, remarks string) error
-	RecordBankReleaseMovement(loanID uint, remarks string) error
+	RecordBankPledgeMovement(ctx context.Context, loanID uint, remarks string) error
+	RecordBankReleaseMovement(ctx context.Context, loanID uint, remarks string) error
 	// RecordGoldReleaseMovement moves a loan's packet through to Released —
 	// called by CompleteRelease once every release gate has passed, and
 	// also by RecordAuctionSale once the gold has actually been sold: an
 	// auctioned loan's packet reads as an ordinary Released packet (the
 	// gold left custody either way), not a separate status.
-	RecordGoldReleaseMovement(loanID uint, remarks string) error
+	RecordGoldReleaseMovement(ctx context.Context, loanID uint, remarks string) error
 }
 
 // CashRecorder reflects a loan's real cash flow into Cash-in-Hand & Expenses
@@ -73,46 +75,46 @@ type PacketMover interface {
 // same way as PacketCreator/PacketMover so internal/loan doesn't import
 // internal/cash directly.
 type CashRecorder interface {
-	RecordBankPledgeCashIn(loanID uint, bankName string, amount float64, occurredOn time.Time) (movementID uint, err error)
-	RecordBankPledgeCashOut(loanID uint, bankName string, amount float64, occurredOn time.Time, branchID uint) (movementID uint, err error)
-	RecordBankPledgeReleaseExpense(loanID uint, bankName string, amount float64, occurredOn time.Time, branchID uint) (expenseID uint, err error)
-	RecordLoanDisbursementCashOut(loanID uint, loanNumber string, amount float64, branchID uint, occurredOn time.Time) (movementID uint, err error)
-	RecordLoanPaymentCashIn(loanID uint, loanNumber string, amount float64, branchID uint, occurredOn time.Time, paymentType string) (movementID uint, err error)
+	RecordBankPledgeCashIn(ctx context.Context, loanID uint, bankName string, amount float64, occurredOn time.Time) (movementID uint, err error)
+	RecordBankPledgeCashOut(ctx context.Context, loanID uint, bankName string, amount float64, occurredOn time.Time, branchID uint) (movementID uint, err error)
+	RecordBankPledgeReleaseExpense(ctx context.Context, loanID uint, bankName string, amount float64, occurredOn time.Time, branchID uint) (expenseID uint, err error)
+	RecordLoanDisbursementCashOut(ctx context.Context, loanID uint, loanNumber string, amount float64, branchID uint, occurredOn time.Time) (movementID uint, err error)
+	RecordLoanPaymentCashIn(ctx context.Context, loanID uint, loanNumber string, amount float64, branchID uint, occurredOn time.Time, paymentType string) (movementID uint, err error)
 
 	// RecordAuctionSaleCashIn books the NET proceeds of an auction (sale price
 	// less auction expenses) into Cash-in-Hand. Previously an auction recorded
 	// no cash movement at all, so money the branch genuinely received never
 	// appeared in the books.
-	RecordAuctionSaleCashIn(loanID uint, loanNumber string, amount float64, branchID uint, occurredOn time.Time) (movementID uint, err error)
+	RecordAuctionSaleCashIn(ctx context.Context, loanID uint, loanNumber string, amount float64, branchID uint, occurredOn time.Time) (movementID uint, err error)
 	// RecordAuctionSurplusCashOut books the refund of an auction surplus back
 	// to the customer. Called only for the RefundedToCustomer disposition —
 	// retaining the surplus as income needs no movement, because the full net
 	// proceeds already came in via RecordAuctionSaleCashIn.
-	RecordAuctionSurplusCashOut(loanID uint, loanNumber string, amount float64, branchID uint, occurredOn time.Time) (movementID uint, err error)
+	RecordAuctionSurplusCashOut(ctx context.Context, loanID uint, loanNumber string, amount float64, branchID uint, occurredOn time.Time) (movementID uint, err error)
 }
 
 var (
-	ErrNotFound              = httpx.NewNotFound("loan not found")
-	ErrOrnamentNotFound      = httpx.NewNotFound("ornament not found")
-	ErrBranchInvalid         = httpx.NewBadRequest("branch does not exist")
-	ErrCustomerInvalid       = httpx.NewBadRequest("customer does not exist")
-	ErrCustomerNotVerified   = httpx.NewBadRequest("customer must be KYC verified before a loan can be created")
-	ErrSchemeInvalid         = httpx.NewBadRequest("scheme does not exist")
-	ErrNoOrnaments           = httpx.NewBadRequest("at least one ornament is required")
-	ErrNoGoldRate            = httpx.NewBadRequest("no gold rate has been published yet")
-	ErrGoldRateNotSetToday   = httpx.NewBadRequest("today's gold rate has not been set yet — please publish it before creating a loan")
-	ErrInvalidPurity         = httpx.NewBadRequest("purity must be a karat like \"22K\" (10-24) or a fineness percentage like \"91.6%\" (0-100)")
-	ErrInvalidWeight         = httpx.NewBadRequest("gross weight must be greater than zero")
-	ErrPrincipalTooHigh      = httpx.NewBadRequest("principal amount cannot exceed the eligible loan amount")
-	ErrInvalidPrincipal      = httpx.NewBadRequest("principal amount must be greater than zero")
-	ErrInvalidDueDate        = httpx.NewBadRequest("due date must be after the opened date")
-	ErrWrongStage            = httpx.NewBadRequest("approval action does not match the loan's current approval stage")
-	ErrAlreadyDecided        = httpx.NewBadRequest("loan approval has already reached a terminal state")
-	ErrInvalidAction         = httpx.NewBadRequest("action must be Approved or Rejected")
-	ErrInvalidAmount         = httpx.NewBadRequest("amount must be greater than zero")
-	ErrRequestNotFound       = httpx.NewNotFound("loan request not found")
-	ErrInvalidRequestType    = httpx.NewBadRequest("type must be Extension or Release")
-	ErrInvalidMonths         = httpx.NewBadRequest("requested extension months must be greater than zero")
+	ErrNotFound                = httpx.NewNotFound("loan not found")
+	ErrOrnamentNotFound        = httpx.NewNotFound("ornament not found")
+	ErrBranchInvalid           = httpx.NewBadRequest("branch does not exist")
+	ErrCustomerInvalid         = httpx.NewBadRequest("customer does not exist")
+	ErrCustomerNotVerified     = httpx.NewBadRequest("customer must be KYC verified before a loan can be created")
+	ErrSchemeInvalid           = httpx.NewBadRequest("scheme does not exist")
+	ErrNoOrnaments             = httpx.NewBadRequest("at least one ornament is required")
+	ErrNoGoldRate              = httpx.NewBadRequest("no gold rate has been published yet")
+	ErrGoldRateNotSetToday     = httpx.NewBadRequest("today's gold rate has not been set yet — please publish it before creating a loan")
+	ErrInvalidPurity           = httpx.NewBadRequest("purity must be a karat like \"22K\" (10-24) or a fineness percentage like \"91.6%\" (0-100)")
+	ErrInvalidWeight           = httpx.NewBadRequest("gross weight must be greater than zero")
+	ErrPrincipalTooHigh        = httpx.NewBadRequest("principal amount cannot exceed the eligible loan amount")
+	ErrInvalidPrincipal        = httpx.NewBadRequest("principal amount must be greater than zero")
+	ErrInvalidDueDate          = httpx.NewBadRequest("due date must be after the opened date")
+	ErrWrongStage              = httpx.NewBadRequest("approval action does not match the loan's current approval stage")
+	ErrAlreadyDecided          = httpx.NewBadRequest("loan approval has already reached a terminal state")
+	ErrInvalidAction           = httpx.NewBadRequest("action must be Approved or Rejected")
+	ErrInvalidAmount           = httpx.NewBadRequest("amount must be greater than zero")
+	ErrRequestNotFound         = httpx.NewNotFound("loan request not found")
+	ErrInvalidRequestType      = httpx.NewBadRequest("type must be Extension or Release")
+	ErrInvalidMonths           = httpx.NewBadRequest("requested extension months must be greater than zero")
 	ErrRequestAlreadyDecided = httpx.NewBadRequest("loan request has already been decided")
 	ErrInvalidPaymentType    = httpx.NewBadRequest("type must be Interest, Principal, Partial, Full Settlement, Adjustment, or Waiver")
 	ErrNotExtensionRequest   = httpx.NewBadRequest("this request is not an Extension request")
@@ -245,6 +247,14 @@ type Service struct {
 	// panic, same posture as customer.Service's setu/digilocker fields.
 	esign      *platform.EsignClient
 	uploadsDir string
+	// uploadRepo records server-generated files (the signed indemnity bond)
+	// so they resolve through the authenticated file handler like any other
+	// upload. Without the record the PDF is written but unreachable.
+	uploadRepo *upload.Repository
+	// tenantRepo supplies the business name printed on a customer-facing
+	// statement. A statement handed to a customer under another business's
+	// name is the most visible possible version of a tenancy mistake.
+	tenantRepo *tenant.Repository
 
 	// razorpay drives customer-app online loan payments (see
 	// CreateRazorpayOrder/VerifyAndRecordRazorpayPayment in payment.go). nil
@@ -294,6 +304,8 @@ func NewService(
 	commlogRepo *commlog.Repository,
 	esign *platform.EsignClient,
 	uploadsDir string,
+	uploadRepo *upload.Repository,
+	tenantRepo *tenant.Repository,
 	razorpay *platform.RazorpayClient,
 	aadhaarCipher *platform.Cipher,
 	permChecker platform.PermissionChecker,
@@ -322,6 +334,8 @@ func NewService(
 		commlogRepo:         commlogRepo,
 		esign:               esign,
 		uploadsDir:          uploadsDir,
+		uploadRepo:          uploadRepo,
+		tenantRepo:          tenantRepo,
 		razorpay:            razorpay,
 		aadhaarCipher:       aadhaarCipher,
 		permChecker:         permChecker,
@@ -335,11 +349,11 @@ func NewService(
 // the DB query itself erroring) fails CLOSED (denies), the same as
 // platform.RequirePermission's own middleware does for the equivalent CRUD
 // checks — a broken permission lookup must never silently grant access.
-func (s *Service) checkStagePermission(roleID uint, permissionName string) bool {
+func (s *Service) checkStagePermission(ctx context.Context, roleID uint, permissionName string) bool {
 	if s.permChecker == nil {
 		return false
 	}
-	allowed, err := s.permChecker.IsAllowed(roleID, permissionName)
+	allowed, err := s.permChecker.IsAllowed(ctx, roleID, permissionName)
 	if err != nil {
 		return false
 	}
@@ -371,36 +385,61 @@ func (s *Service) checkStagePermission(roleID uint, permissionName string) bool 
 // (it needs the send's own success/failure to record), so the audit trail
 // still reflects the real outcome — just written a moment after the request
 // that triggered it has already returned.
-func (s *Service) notifyCustomer(customerID uint, phone, title, message, triggerType, relatedEntityType string, relatedEntityID uint) {
+//
+// The WhatsApp leg runs in the BACKGROUND. It is an HTTP round-trip to an
+// external gateway, and holding the request open for it made every button
+// that triggers a customer message (Issue Auction Notice, sanction, release,
+// …) sit spinning for as long as the gateway took to answer. Nothing was
+// gained by waiting: the send result is only ever written to commlog and
+// logged — it is never returned to the caller and never fails the operation
+// (see this function's contract above), so the staff member learns nothing
+// from the wait. Delivery outcomes are read from the Communication History
+// report, which is where they belonged all along.
+func (s *Service) notifyCustomer(ctx context.Context, customerID uint, phone, title, message, triggerType, relatedEntityType string, relatedEntityID uint) {
 	if s.whatsapp != nil {
+		// WithoutCancel, not Background: the goroutine outlives the request
+		// (whose ctx is cancelled the moment the handler returns, which would
+		// abort the commlog write) but must keep every value on it — tenant
+		// scope above all, since the commlog row is tenant-owned (see
+		// platform.TenantScoped).
+		bg := context.WithoutCancel(ctx)
 		go func() {
+			// A panic in a detached goroutine takes the whole process with
+			// it; a failed courtesy message must never do that.
+			defer func() {
+				if r := recover(); r != nil {
+					log.Printf("whatsapp notification panicked (phone %s): %v", phone, r)
+				}
+			}()
+			go func() {
 			sendErr := s.whatsapp.Send(phone, message)
-			if sendErr != nil {
-				log.Printf("whatsapp notification failed (phone %s): %v", phone, sendErr)
-			}
-			if s.commlogRepo != nil {
-				rec := &commlog.CommunicationLog{
-					RecipientPhone:    phone,
-					ChatID:            commlog.NormalizeChatID(phone),
-					Channel:           commlog.ChannelWhatsApp,
-					TriggerType:       triggerType,
-					MessageBody:       message,
-					RelatedEntityType: relatedEntityType,
-					RelatedEntityID:   relatedEntityID,
-					Status:            commlog.StatusSent,
-				}
 				if sendErr != nil {
-					rec.Status = commlog.StatusFailed
-					rec.ErrorMessage = sendErr.Error()
+					log.Printf("whatsapp notification failed (phone %s): %v", phone, sendErr)
 				}
-				if err := s.commlogRepo.Create(rec); err != nil {
-					log.Printf("communication log write failed (phone %s): %v", phone, err)
+				if s.commlogRepo != nil {
+					rec := &commlog.CommunicationLog{
+						RecipientPhone:    phone,
+						ChatID:            commlog.NormalizeChatID(phone),
+						Channel:           commlog.ChannelWhatsApp,
+						TriggerType:       triggerType,
+						MessageBody:       message,
+						RelatedEntityType: relatedEntityType,
+						RelatedEntityID:   relatedEntityID,
+						Status:            commlog.StatusSent,
+					}
+					if sendErr != nil {
+						rec.Status = commlog.StatusFailed
+						rec.ErrorMessage = sendErr.Error()
+					}
+					if err := s.commlogRepo.Create(bg, rec); err != nil {
+						log.Printf("communication log write failed (phone %s): %v", phone, err)
+					}
 				}
-			}
+		}()
 		}()
 	}
 	if s.notifier != nil {
-		s.notifier.Notify(customerID, triggerType, title, message, relatedEntityType, relatedEntityID)
+		s.notifier.Notify(ctx, customerID, triggerType, title, message, relatedEntityType, relatedEntityID)
 	}
 }
 
@@ -469,7 +508,7 @@ func recalculateTotals(l *Loan, ornaments []Ornament, sch *scheme.Scheme) {
 	l.EligibleLoanAmount = totalValue * (sch.LTVPercent / 100)
 }
 
-func (s *Service) Create(in CreateInput) (*Loan, error) {
+func (s *Service) Create(ctx context.Context, in CreateInput) (*Loan, error) {
 	if len(in.Ornaments) == 0 {
 		return nil, ErrNoOrnaments
 	}
@@ -480,7 +519,7 @@ func (s *Service) Create(in CreateInput) (*Loan, error) {
 		return nil, ErrInvalidDueDate
 	}
 
-	branchOK, err := s.branchRepo.Exists(in.BranchID)
+	branchOK, err := s.branchRepo.Exists(ctx, in.BranchID)
 	if err != nil {
 		return nil, err
 	}
@@ -488,7 +527,7 @@ func (s *Service) Create(in CreateInput) (*Loan, error) {
 		return nil, ErrBranchInvalid
 	}
 
-	cust, err := s.customerRepo.FindByID(in.CustomerID)
+	cust, err := s.customerRepo.FindByID(ctx, in.CustomerID)
 	if err != nil {
 		return nil, ErrCustomerInvalid
 	}
@@ -496,12 +535,12 @@ func (s *Service) Create(in CreateInput) (*Loan, error) {
 		return nil, ErrCustomerNotVerified
 	}
 
-	sch, err := s.schemeRepo.FindByID(in.SchemeID)
+	sch, err := s.schemeRepo.FindByID(ctx, in.SchemeID)
 	if err != nil {
 		return nil, ErrSchemeInvalid
 	}
 
-	rate, err := s.goldRateRepo.FindLatest()
+	rate, err := s.goldRateRepo.FindLatest(ctx)
 	if err != nil {
 		return nil, ErrNoGoldRate
 	}
@@ -551,23 +590,23 @@ func (s *Service) Create(in CreateInput) (*Loan, error) {
 	rec.PrincipalAmount = in.PrincipalAmount
 	rec.OutstandingAmount = in.PrincipalAmount
 
-	count, err := s.repo.CountAll()
+	count, err := s.repo.CountAll(ctx)
 	if err != nil {
 		return nil, err
 	}
 	rec.LoanNumber = fmt.Sprintf("LN-%05d", count+1)
 
-	if err := s.repo.Create(rec); err != nil {
+	if err := s.repo.Create(ctx, rec); err != nil {
 		return nil, err
 	}
 	for i := range ornaments {
 		ornaments[i].LoanID = rec.ID
-		if err := s.ornamentRepo.Create(&ornaments[i]); err != nil {
+		if err := s.ornamentRepo.Create(ctx, &ornaments[i]); err != nil {
 			return nil, err
 		}
 	}
 
-	created, err := s.repo.FindByID(rec.ID)
+	created, err := s.repo.FindByID(ctx, rec.ID)
 	if err != nil {
 		return nil, err
 	}
@@ -576,14 +615,14 @@ func (s *Service) Create(in CreateInput) (*Loan, error) {
 	// core lending flow — log and continue on failure rather than failing
 	// loan creation.
 	if s.packetCreator != nil {
-		if err := s.packetCreator.CreatePacketForLoan(created.ID, in.LockerID); err != nil {
+		if err := s.packetCreator.CreatePacketForLoan(ctx, created.ID, in.LockerID); err != nil {
 			log.Printf("packet auto-creation failed for loan %d: %v", created.ID, err)
 		}
 	}
 
-	s.enrich(created)
+	s.enrich(ctx, created)
 
-	s.notifyCustomer(created.CustomerID, created.Customer.Phone, "Loan Application Submitted", fmt.Sprintf(
+	s.notifyCustomer(ctx, created.CustomerID, created.Customer.Phone, "Loan Application Submitted", s.brandedMessage(ctx,
 		"Dear %s, your gold loan application %s for ₹%.2f has been submitted and is pending approval. We'll notify you once it's sanctioned. — Ambika Gold Finance",
 		created.Customer.Name, created.LoanNumber, created.PrincipalAmount,
 	), commlog.TriggerLoanSubmission, "loan", created.ID)
@@ -593,8 +632,8 @@ func (s *Service) Create(in CreateInput) (*Loan, error) {
 
 // List returns matching loans plus the total row count for f's filters
 // (ignoring Limit/Offset) — 0 when f.Limit <= 0 (see Repository.FindAll).
-func (s *Service) List(f LoanFilter) ([]Loan, int64, error) {
-	loans, total, err := s.repo.FindAll(f)
+func (s *Service) List(ctx context.Context, f LoanFilter) ([]Loan, int64, error) {
+	loans, total, err := s.repo.FindAll(ctx, f)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -608,35 +647,58 @@ func (s *Service) List(f LoanFilter) ([]Loan, int64, error) {
 		interestDelta, penalDelta, _ := projectAccrual(l, &l.Scheme, now)
 		l.AccruedInterest = platform.RoundMoney(l.AccruedInterest + interestDelta)
 		l.AccruedPenalInterest = platform.RoundMoney(l.AccruedPenalInterest + penalDelta)
-		s.enrich(l)
+		s.enrich(ctx, l)
 	}
 	return loans, total, nil
 }
 
-func (s *Service) Get(id uint, branchID *uint) (*Loan, error) {
-	rec, err := s.repo.FindByID(id)
+// CountList returns how many loans match f overall, ignoring its
+// Limit/Offset — the total the paginated list endpoint reports so the
+// Loans table can show a real "Page X of N".
+func (s *Service) CountList(ctx context.Context, f LoanFilter) (int64, error) {
+	return s.repo.CountFiltered(ctx, f)
+}
+
+
+func (s *Service) Get(ctx context.Context, id uint, branchID *uint) (*Loan, error) {
+	rec, err := s.repo.FindByID(ctx, id)
 	if err != nil {
 		return nil, ErrNotFound
 	}
 	if branchID != nil && rec.BranchID != *branchID {
 		return nil, ErrNotFound
 	}
-	return s.accrueAndEnrich(rec)
+	return s.accrueAndEnrich(ctx, rec)
 }
 
 // checkLoanBranch guards a loan-scoped action against branch scoping — nil
 // branchID (Administrator) always passes; otherwise the loan must belong to
 // that branch, or ErrNotFound is returned (same as a direct not-found, so a
 // non-admin can't probe for another branch's loans/requests/auction cases).
-func (s *Service) checkLoanBranch(loanID uint, branchID *uint) error {
-	if branchID == nil {
-		return nil
-	}
-	l, err := s.repo.FindByID(loanID)
+func (s *Service) checkLoanBranch(ctx context.Context, loanID uint, branchID *uint) error {
+	// The loan is resolved FIRST, and unconditionally.
+	//
+	// This used to return nil immediately when branchID was nil, which meant
+	// the loan's existence was never checked at all for exactly the roles
+	// with the widest access — Administrator and Management, the ones with no
+	// branch restriction. Every caller then ran its follow-up query against
+	// an id nobody had verified, and endpoints like
+	// GET /loans/:id/auction/history answered 200 with an empty list for any
+	// id at all, including another business's loan. The isolation harness
+	// caught it (internal/app/isolation_test.go).
+	//
+	// No rows escaped, because the follow-up queries are tenant-filtered too
+	// — the defence in depth held. But "no branch restriction" is not the
+	// same statement as "no check", and reading it as the latter left the
+	// whole family of per-loan endpoints resting on one layer instead of two.
+	//
+	// FindByID runs under the caller's tenant, so a loan belonging to another
+	// business is not found here and never reaches the branch comparison.
+	l, err := s.repo.FindByID(ctx, loanID)
 	if err != nil {
 		return ErrNotFound
 	}
-	if l.BranchID != *branchID {
+	if branchID != nil && l.BranchID != *branchID {
 		return ErrNotFound
 	}
 	return nil
@@ -646,12 +708,12 @@ func (s *Service) checkLoanBranch(loanID uint, branchID *uint) error {
 // query (see Repository.FindByLoanNumber) — backs GET
 // /loans/by-number/:loanNumber, used by LoanDetail.tsx instead of the
 // previous list-then-find-then-get approach.
-func (s *Service) GetByLoanNumber(loanNumber string) (*Loan, error) {
-	rec, err := s.repo.FindByLoanNumber(loanNumber)
+func (s *Service) GetByLoanNumber(ctx context.Context, loanNumber string) (*Loan, error) {
+	rec, err := s.repo.FindByLoanNumber(ctx, loanNumber)
 	if err != nil {
 		return nil, ErrNotFound
 	}
-	return s.accrueAndEnrich(rec)
+	return s.accrueAndEnrich(ctx, rec)
 }
 
 // accrueAndEnrich persists any newly-accrued interest (this is always a
@@ -659,15 +721,15 @@ func (s *Service) GetByLoanNumber(loanNumber string) (*Loan, error) {
 // payment, decide a settlement — so "what's owed" should be nailed down,
 // not just projected like List's read-only accrual) and populates the
 // computed OutstandingInterest/TotalOutstandingBalance/etc. fields.
-func (s *Service) accrueAndEnrich(rec *Loan) (*Loan, error) {
-	if s.accrueAndSave(rec) {
-		saved, err := s.repo.FindByID(rec.ID)
+func (s *Service) accrueAndEnrich(ctx context.Context, rec *Loan) (*Loan, error) {
+	if s.accrueAndSave(ctx, rec) {
+		saved, err := s.repo.FindByID(ctx, rec.ID)
 		if err != nil {
 			return nil, err
 		}
 		rec = saved
 	}
-	s.enrich(rec)
+	s.enrich(ctx, rec)
 	return rec, nil
 }
 
@@ -677,13 +739,13 @@ type AddOrnamentInput = OrnamentInput
 
 // AddOrnament pledges an additional ornament onto an existing loan and
 // recalculates the loan's totals/eligible amount.
-func (s *Service) AddOrnament(loanID uint, in AddOrnamentInput) (*Loan, error) {
-	l, err := s.repo.FindByID(loanID)
+func (s *Service) AddOrnament(ctx context.Context, loanID uint, in AddOrnamentInput) (*Loan, error) {
+	l, err := s.repo.FindByID(ctx, loanID)
 	if err != nil {
 		return nil, ErrNotFound
 	}
 
-	rate, err := s.goldRateRepo.FindLatest()
+	rate, err := s.goldRateRepo.FindLatest(ctx)
 	if err != nil {
 		return nil, ErrNoGoldRate
 	}
@@ -703,11 +765,11 @@ func (s *Service) AddOrnament(loanID uint, in AddOrnamentInput) (*Loan, error) {
 	if err := valueOrnament(&o, rate); err != nil {
 		return nil, err
 	}
-	if err := s.ornamentRepo.Create(&o); err != nil {
+	if err := s.ornamentRepo.Create(ctx, &o); err != nil {
 		return nil, err
 	}
 
-	return s.recalculateAndSave(l)
+	return s.recalculateAndSave(ctx, l)
 }
 
 // UpdateOrnamentInput mirrors OrnamentInput for editing a pledged ornament.
@@ -715,13 +777,13 @@ type UpdateOrnamentInput = OrnamentInput
 
 // UpdateOrnament edits a pledged ornament's declared values and
 // recalculates its owning loan's totals/eligible amount.
-func (s *Service) UpdateOrnament(ornamentID uint, in UpdateOrnamentInput) (*Loan, error) {
-	o, err := s.ornamentRepo.FindByID(ornamentID)
+func (s *Service) UpdateOrnament(ctx context.Context, ornamentID uint, in UpdateOrnamentInput) (*Loan, error) {
+	o, err := s.ornamentRepo.FindByID(ctx, ornamentID)
 	if err != nil {
 		return nil, ErrOrnamentNotFound
 	}
 
-	rate, err := s.goldRateRepo.FindLatest()
+	rate, err := s.goldRateRepo.FindLatest(ctx)
 	if err != nil {
 		return nil, ErrNoGoldRate
 	}
@@ -738,31 +800,31 @@ func (s *Service) UpdateOrnament(ornamentID uint, in UpdateOrnamentInput) (*Loan
 	if err := valueOrnament(o, rate); err != nil {
 		return nil, err
 	}
-	if err := s.ornamentRepo.Update(o); err != nil {
+	if err := s.ornamentRepo.Update(ctx, o); err != nil {
 		return nil, err
 	}
 
-	l, err := s.repo.FindByID(o.LoanID)
+	l, err := s.repo.FindByID(ctx, o.LoanID)
 	if err != nil {
 		return nil, ErrNotFound
 	}
-	return s.recalculateAndSave(l)
+	return s.recalculateAndSave(ctx, l)
 }
 
-func (s *Service) recalculateAndSave(l *Loan) (*Loan, error) {
-	sch, err := s.schemeRepo.FindByID(l.SchemeID)
+func (s *Service) recalculateAndSave(ctx context.Context, l *Loan) (*Loan, error) {
+	sch, err := s.schemeRepo.FindByID(ctx, l.SchemeID)
 	if err != nil {
 		return nil, ErrSchemeInvalid
 	}
-	ornaments, err := s.ornamentRepo.FindByLoanID(l.ID)
+	ornaments, err := s.ornamentRepo.FindByLoanID(ctx, l.ID)
 	if err != nil {
 		return nil, err
 	}
 	recalculateTotals(l, ornaments, sch)
-	if err := s.repo.Update(l); err != nil {
+	if err := s.repo.Update(ctx, l); err != nil {
 		return nil, err
 	}
-	return s.Get(l.ID, nil)
+	return s.Get(ctx, l.ID, nil)
 }
 
 // PurityTestInput mirrors the fields staff enter when manually re-testing
@@ -776,8 +838,8 @@ type PurityTestInput struct {
 	TestedAt              time.Time
 }
 
-func (s *Service) RecordPurityTest(ornamentID uint, in PurityTestInput) (*Ornament, error) {
-	o, err := s.ornamentRepo.FindByID(ornamentID)
+func (s *Service) RecordPurityTest(ctx context.Context, ornamentID uint, in PurityTestInput) (*Ornament, error) {
+	o, err := s.ornamentRepo.FindByID(ctx, ornamentID)
 	if err != nil {
 		return nil, ErrOrnamentNotFound
 	}
@@ -803,23 +865,23 @@ func (s *Service) RecordPurityTest(ornamentID uint, in PurityTestInput) (*Orname
 	t.TestedBy = in.TestedBy
 	t.TestedAt = in.TestedAt
 
-	if err := s.ornamentRepo.SavePurityTest(t); err != nil {
+	if err := s.ornamentRepo.SavePurityTest(ctx, t); err != nil {
 		return nil, err
 	}
-	return s.ornamentRepo.FindByID(ornamentID)
+	return s.ornamentRepo.FindByID(ctx, ornamentID)
 }
 
 // AddOrnamentImage attaches one more photo (already uploaded via
 // internal/upload) to an ornament.
-func (s *Service) AddOrnamentImage(ornamentID uint, imageURL string) (*Ornament, error) {
-	if _, err := s.ornamentRepo.FindByID(ornamentID); err != nil {
+func (s *Service) AddOrnamentImage(ctx context.Context, ornamentID uint, imageURL string) (*Ornament, error) {
+	if _, err := s.ornamentRepo.FindByID(ctx, ornamentID); err != nil {
 		return nil, ErrOrnamentNotFound
 	}
 	img := &OrnamentImage{OrnamentID: ornamentID, ImageURL: imageURL}
-	if err := s.ornamentRepo.AddImage(img); err != nil {
+	if err := s.ornamentRepo.AddImage(ctx, img); err != nil {
 		return nil, err
 	}
-	return s.ornamentRepo.FindByID(ornamentID)
+	return s.ornamentRepo.FindByID(ctx, ornamentID)
 }
 
 // sanctionChain is the loan sanction chain's fixed stage order — index i's
@@ -882,8 +944,8 @@ func sanctionWarning(l *Loan) string {
 // no row exists yet (shouldn't happen past first migration — see
 // SeedLoanOperatorLimit — but a missing row should never silently disable
 // enforcement).
-func (s *Service) loanOperatorLimit() float64 {
-	rec, err := s.approvalLimitRepo.FindByRole("Loan Operator")
+func (s *Service) loanOperatorLimit(ctx context.Context) float64 {
+	rec, err := s.approvalLimitRepo.FindByRole(ctx, "Loan Operator")
 	if err != nil {
 		return DefaultLoanOperatorApprovalLimit
 	}
@@ -891,8 +953,8 @@ func (s *Service) loanOperatorLimit() float64 {
 }
 
 // GetLoanOperatorLimit exposes the current limit for GET /loans/approval-limits/loan-operator.
-func (s *Service) GetLoanOperatorLimit() float64 {
-	return s.loanOperatorLimit()
+func (s *Service) GetLoanOperatorLimit(ctx context.Context) float64 {
+	return s.loanOperatorLimit(ctx)
 }
 
 // SetLoanOperatorLimit updates the Loan Operator's hard-enforced approval
@@ -900,11 +962,11 @@ func (s *Service) GetLoanOperatorLimit() float64 {
 // a Loan Operator having literally no approval authority isn't a state
 // this endpoint models; remove the role from the sanction chain instead if
 // that's ever needed.
-func (s *Service) SetLoanOperatorLimit(amount float64) (float64, error) {
+func (s *Service) SetLoanOperatorLimit(ctx context.Context, amount float64) (float64, error) {
 	if amount <= 0 {
 		return 0, ErrInvalidAmount
 	}
-	rec, err := s.approvalLimitRepo.Upsert("Loan Operator", amount)
+	rec, err := s.approvalLimitRepo.Upsert(ctx, "Loan Operator", amount)
 	if err != nil {
 		return 0, err
 	}
@@ -938,8 +1000,8 @@ type ApprovalInput struct {
 // "Verified"; "Approved" stays accepted so older clients keep working).
 // No amount check gates it — the Loan Operator approval limit and
 // sanctionLimits are advisory only, feeding Loan.ApprovalWarning.
-func (s *Service) Approve(loanID uint, in ApprovalInput) (*Loan, error) {
-	l, err := s.repo.FindByID(loanID)
+func (s *Service) Approve(ctx context.Context, loanID uint, in ApprovalInput) (*Loan, error) {
+	l, err := s.repo.FindByID(ctx, loanID)
 	if err != nil {
 		return nil, ErrNotFound
 	}
@@ -973,7 +1035,7 @@ func (s *Service) Approve(loanID uint, in ApprovalInput) (*Loan, error) {
 	// Permission-gated (see checkStagePermission's doc comment) — "Administrator"
 	// is no longer special-cased here: its role's grants can't be revoked
 	// (see authz.Repository), so it always holds requiredPermission already.
-	if requiredPermission != "" && !s.checkStagePermission(in.ActorRoleID, requiredPermission) {
+	if requiredPermission != "" && !s.checkStagePermission(ctx, in.ActorRoleID, requiredPermission) {
 		return nil, ErrWrongStage
 	}
 
@@ -985,7 +1047,7 @@ func (s *Service) Approve(loanID uint, in ApprovalInput) (*Loan, error) {
 		ActorRole:       in.ActorRole,
 		Remarks:         in.Remarks,
 	}
-	if err := s.approvalRepo.Create(audit); err != nil {
+	if err := s.approvalRepo.Create(ctx, audit); err != nil {
 		return nil, err
 	}
 
@@ -1010,7 +1072,7 @@ func (s *Service) Approve(loanID uint, in ApprovalInput) (*Loan, error) {
 		}
 	}
 
-	if err := s.repo.Update(l); err != nil {
+	if err := s.repo.Update(ctx, l); err != nil {
 		return nil, err
 	}
 
@@ -1018,47 +1080,47 @@ func (s *Service) Approve(loanID uint, in ApprovalInput) (*Loan, error) {
 	// final approval stage — logging it earlier (e.g. at Create) would show
 	// cash going out for a loan that might still be rejected.
 	if disbursing && s.cashRecorder != nil {
-		if _, err := s.cashRecorder.RecordLoanDisbursementCashOut(l.ID, l.LoanNumber, l.PrincipalAmount, l.BranchID, time.Now()); err != nil {
+		if _, err := s.cashRecorder.RecordLoanDisbursementCashOut(ctx, l.ID, l.LoanNumber, l.PrincipalAmount, l.BranchID, time.Now()); err != nil {
 			log.Printf("cash-out movement (disbursement) failed for loan %d: %v", l.ID, err)
 		}
 	}
 
 	switch {
 	case disbursing:
-		s.notifyCustomer(l.CustomerID, l.Customer.Phone, "Loan Sanctioned", fmt.Sprintf(
+		s.notifyCustomer(ctx, l.CustomerID, l.Customer.Phone, "Loan Sanctioned", s.brandedMessage(ctx,
 			"Dear %s, your gold loan %s has been sanctioned and ₹%.2f has been disbursed. Due date: %s. — Ambika Gold Finance",
 			l.Customer.Name, l.LoanNumber, l.PrincipalAmount, l.DueDate.Format("02-Jan-2006"),
 		), commlog.TriggerLoanSanction, "loan", l.ID)
 	case rejected:
-		s.notifyCustomer(l.CustomerID, l.Customer.Phone, "Loan Rejected", fmt.Sprintf(
+		s.notifyCustomer(ctx, l.CustomerID, l.Customer.Phone, "Loan Rejected", s.brandedMessage(ctx,
 			"Dear %s, your gold loan application %s has been rejected during approval. Please contact the branch for details. — Ambika Gold Finance",
 			l.Customer.Name, l.LoanNumber,
 		), commlog.TriggerLoanApproval, "loan", l.ID)
 	case nextStageLabel != "":
-		s.notifyCustomer(l.CustomerID, l.Customer.Phone, "Loan Approved", fmt.Sprintf(
+		s.notifyCustomer(ctx, l.CustomerID, l.Customer.Phone, "Loan Approved", s.brandedMessage(ctx,
 			"Dear %s, your gold loan application %s has been approved at one stage and is now awaiting %s approval. — Ambika Gold Finance",
 			l.Customer.Name, l.LoanNumber, nextStageLabel,
 		), commlog.TriggerLoanApproval, "loan", l.ID)
 	}
 
-	return s.Get(l.ID, nil)
+	return s.Get(ctx, l.ID, nil)
 }
 
 // GetInterestCollected sums the interest + penal-interest portions of
 // payments recorded within [from, to] — backs Dashboard.tsx's "Interest
 // Collected" KPI (GET /loans/interest-collected), replacing the old
 // mock-only db.ledger figure that never had a real backend equivalent.
-func (s *Service) GetInterestCollected(from, to time.Time) (float64, error) {
-	return s.paymentRepo.SumInterestCollected(from, to)
+func (s *Service) GetInterestCollected(ctx context.Context, from, to time.Time) (float64, error) {
+	return s.paymentRepo.SumInterestCollected(ctx, from, to)
 }
 
 // ListApprovals returns the loan's full sanction-chain decision history, in
 // the order decisions were made.
-func (s *Service) ListApprovals(loanID uint) ([]LoanApproval, error) {
-	if _, err := s.repo.FindByID(loanID); err != nil {
+func (s *Service) ListApprovals(ctx context.Context, loanID uint) ([]LoanApproval, error) {
+	if _, err := s.repo.FindByID(ctx, loanID); err != nil {
 		return nil, ErrNotFound
 	}
-	return s.approvalRepo.FindByLoanID(loanID)
+	return s.approvalRepo.FindByLoanID(ctx, loanID)
 }
 
 // PaymentInput mirrors the body of POST /loans/:id/payments. ProcessingFee
@@ -1119,6 +1181,18 @@ func allocatePayment(l *Loan, paymentType string, amount float64) (fee, penal, i
 		remaining -= penal
 		interest = math.Min(remaining, interestOutstanding)
 		remaining -= interest
+		if remaining > epsilon {
+			return 0, 0, 0, 0, ErrExceedsOutstanding
+		}
+
+	case PaymentTypePenalInterest:
+		// Stops one bucket short of PaymentTypeInterest — the regular
+		// interest is left owing on purpose.
+		remaining := amount
+		fee = math.Min(remaining, feeOutstanding)
+		remaining -= fee
+		penal = math.Min(remaining, penalOutstanding)
+		remaining -= penal
 		if remaining > epsilon {
 			return 0, 0, 0, 0, ErrExceedsOutstanding
 		}
@@ -1211,8 +1285,8 @@ func allocatePayment(l *Loan, paymentType string, amount float64) (fee, penal, i
 // (including the fee). Only cash-bearing types (see isCashPaymentType) are
 // reflected in Cash-in-Hand — Adjustment/Waiver correct the ledger without
 // any cash actually moving.
-func (s *Service) RecordPayment(loanID uint, in PaymentInput) (*Loan, error) {
-	l, err := s.repo.FindByID(loanID)
+func (s *Service) RecordPayment(ctx context.Context, loanID uint, in PaymentInput) (*Loan, error) {
+	l, err := s.repo.FindByID(ctx, loanID)
 	if err != nil {
 		return nil, ErrNotFound
 	}
@@ -1223,7 +1297,7 @@ func (s *Service) RecordPayment(loanID uint, in PaymentInput) (*Loan, error) {
 		return nil, ErrInvalidAmount
 	}
 
-	s.accrueAndSave(l)
+	s.accrueAndSave(ctx, l)
 
 	// Charging the fee before allocating means this same payment's Amount
 	// can immediately go toward clearing it — fee has first priority in
@@ -1268,7 +1342,7 @@ func (s *Service) RecordPayment(loanID uint, in PaymentInput) (*Loan, error) {
 		// which takes an expired-term loan off Overdue and back to Active.
 		refreshServicingStatus(l, time.Now())
 	}
-	if err := s.repo.Update(l); err != nil {
+	if err := s.repo.Update(ctx, l); err != nil {
 		return nil, err
 	}
 
@@ -1289,7 +1363,7 @@ func (s *Service) RecordPayment(loanID uint, in PaymentInput) (*Loan, error) {
 		PrincipalApplied:     principal,
 		RunningBalance:       runningBalance,
 	}
-	if err := s.paymentRepo.Create(p); err != nil {
+	if err := s.paymentRepo.Create(ctx, p); err != nil {
 		return nil, err
 	}
 
@@ -1297,7 +1371,7 @@ func (s *Service) RecordPayment(loanID uint, in PaymentInput) (*Loan, error) {
 	// of this same amount, not collected on top of it (see allocatePayment's
 	// fee-first priority), so the cash-in movement is just Amount.
 	if isCashPaymentType(in.Type) && s.cashRecorder != nil {
-		if _, err := s.cashRecorder.RecordLoanPaymentCashIn(l.ID, l.LoanNumber, in.Amount, l.BranchID, in.PaidOn, in.Type); err != nil {
+		if _, err := s.cashRecorder.RecordLoanPaymentCashIn(ctx, l.ID, l.LoanNumber, in.Amount, l.BranchID, in.PaidOn, in.Type); err != nil {
 			log.Printf("cash-in movement (payment) failed for loan %d: %v", l.ID, err)
 		}
 	}
@@ -1305,20 +1379,20 @@ func (s *Service) RecordPayment(loanID uint, in PaymentInput) (*Loan, error) {
 	// A customer paying while their gold sits in the auction pipeline must
 	// change what happens to that gold — previously the payment landed and the
 	// auction carried on regardless.
-	auctionNotified := s.resolveAuctionAfterPayment(l, p)
+	auctionNotified := s.resolveAuctionAfterPayment(ctx, l, p)
 
 	// The generic "a payment was recorded" notification — skipped when the
 	// auction path above already sent its own, more specific message for
 	// this exact payment (so the customer never gets two notifications for
 	// one payment).
 	if !auctionNotified {
-		s.notifyCustomer(l.CustomerID, l.Customer.Phone, "Payment Received", fmt.Sprintf(
+		s.notifyCustomer(ctx, l.CustomerID, l.Customer.Phone, "Payment Received", s.brandedMessage(ctx,
 			"Dear %s, we have received your payment of ₹%.2f (%s) towards loan %s. — Ambika Gold Finance",
 			l.Customer.Name, in.Amount, in.Type, l.LoanNumber,
 		), commlog.TriggerPayment, "loan", l.ID)
 	}
 
-	return s.Get(l.ID, nil)
+	return s.Get(ctx, l.ID, nil)
 }
 
 // resolveAuctionAfterPayment reacts to a payment on a loan whose gold is still
@@ -1341,12 +1415,12 @@ func (s *Service) RecordPayment(loanID uint, in PaymentInput) (*Loan, error) {
 // this to decide whether it still needs to send its own generic
 // "PaymentRecorded" notification, so a customer never gets two
 // notifications for one payment.
-func (s *Service) resolveAuctionAfterPayment(l *Loan, p *LoanPayment) bool {
+func (s *Service) resolveAuctionAfterPayment(ctx context.Context, l *Loan, p *LoanPayment) bool {
 	hadActiveAuction := false
-	err := s.db.Transaction(func(tx *gorm.DB) error {
+	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		// Locked: a concurrent auction action must not read this same state and
 		// overwrite the freeze we are about to apply.
-		rec, err := s.auctionRepo.FindActiveByLoanIDForUpdate(tx, l.ID)
+		rec, err := s.auctionRepo.FindActiveByLoanIDForUpdate(ctx, tx, l.ID)
 		if err != nil {
 			if errors.Is(err, gorm.ErrRecordNotFound) {
 				return nil // no live auction — nothing to do
@@ -1358,12 +1432,12 @@ func (s *Service) resolveAuctionAfterPayment(l *Loan, p *LoanPayment) bool {
 		if l.Status == StatusClosed {
 			rec.Stage = AuctionStageSettled
 			rec.FinalSettlementStatus = AuctionSettlementSettledByRepayment
-			if err := s.auctionRepo.UpdateTx(tx, rec); err != nil {
+			if err := s.auctionRepo.UpdateTx(ctx, tx, rec); err != nil {
 				return err
 			}
-			s.recordAuctionEvent(tx, rec.ID, AuctionEventSettledByRepaymentAuto, nil, "",
+			s.recordAuctionEvent(ctx, tx, rec.ID, AuctionEventSettledByRepaymentAuto, nil, "",
 				fmt.Sprintf("Loan cleared in full by payment of ₹%.2f — auction cancelled automatically", p.Amount))
-			s.notifyCustomer(l.CustomerID, l.Customer.Phone, "Loan Settled", fmt.Sprintf(
+			s.notifyCustomer(ctx, l.CustomerID, l.Customer.Phone, "Loan Settled", s.brandedMessage(ctx,
 				"Dear %s, we have received your payment of ₹%.2f. Loan %s is now fully settled, the auction has been cancelled, and your pledged gold is safe. — Ambika Gold Finance",
 				l.Customer.Name, p.Amount, l.LoanNumber,
 			), commlog.TriggerPayment, "loan", l.ID)
@@ -1372,12 +1446,54 @@ func (s *Service) resolveAuctionAfterPayment(l *Loan, p *LoanPayment) bool {
 
 		// Refresh the live figures so the decision-maker sees what is actually
 		// still owed at this moment.
-		s.enrich(l)
+		s.enrich(ctx, l)
 		outstanding := platform.RoundMoney(l.TotalOutstandingBalance)
+
+		// Arrears cleared — interest AND penal interest fully paid, even
+		// though principal is still owed. The customer has caught up on
+		// everything that fell due, which is precisely what the auction was
+		// pursuing, so the case is withdrawn automatically rather than
+		// escalated: there is nothing left for a manager to weigh. Principal
+		// not yet due is not grounds to sell someone's gold.
+		//
+		// A payment that leaves ANY arrears standing still raises the
+		// keep/remove escalation below — otherwise a token ₹100 could pull a
+		// scheduled auction with no manager involved.
+		if l.OutstandingInterest < moneyEpsilon && l.OutstandingPenalInterest < moneyEpsilon {
+			rec.Stage = AuctionStageWithdrawn
+			if err := s.auctionRepo.UpdateTx(ctx, tx, rec); err != nil {
+				return err
+			}
+			// Any escalation raised by an earlier part-payment is now moot.
+			if pending, err := s.auctionRepo.FindPendingDecision(ctx, tx, rec.ID, AuctionDecisionKindPartialRepayment); err == nil && pending != nil {
+				pending.Status = AuctionDecisionRemovedFromAuction
+				pending.OutstandingAtRequest = outstanding
+				if err := s.auctionRepo.UpdateDecision(ctx, tx, pending); err != nil {
+					return err
+				}
+			} else if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+				return err
+			}
+			// Back to an ordinary collection status. Not in arrears, so
+			// Active — the same rule refreshServicingStatus applies to loans
+			// that never entered the auction pipeline (an expired term alone
+			// does not read as Overdue for a customer who is servicing).
+			l.Status = StatusActive
+			if err := tx.Save(l).Error; err != nil {
+				return err
+			}
+			s.recordAuctionEvent(ctx, tx, rec.ID, AuctionEventDecisionRemove, nil, "", fmt.Sprintf(
+				"Payment of ₹%.2f cleared all interest and penal interest — auction withdrawn automatically (₹%.2f principal still payable)", p.Amount, outstanding))
+			s.notifyCustomer(ctx, l.CustomerID, l.Customer.Phone, "Removed From Auction", s.brandedMessage(ctx,
+				"Dear %s, we have received your payment of ₹%.2f. Loan %s is no longer overdue and has been removed from auction — your pledged gold is no longer at risk. A balance of ₹%.2f remains payable. — Ambika Gold Finance",
+				l.Customer.Name, p.Amount, l.LoanNumber, outstanding,
+			), commlog.TriggerPayment, "loan", l.ID)
+			return nil
+		}
 
 		// One pending request per case: a second part-payment updates the
 		// existing escalation rather than stacking up duplicates.
-		existing, err := s.auctionRepo.FindPendingDecision(tx, rec.ID, AuctionDecisionKindPartialRepayment)
+		existing, err := s.auctionRepo.FindPendingDecision(ctx, tx, rec.ID, AuctionDecisionKindPartialRepayment)
 		if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
 			return err
 		}
@@ -1385,10 +1501,10 @@ func (s *Service) resolveAuctionAfterPayment(l *Loan, p *LoanPayment) bool {
 			existing.AmountPaid = platform.RoundMoney(existing.AmountPaid + p.Amount)
 			existing.OutstandingAtRequest = outstanding
 			existing.TriggeredByPaymentID = &p.ID
-			if err := s.auctionRepo.UpdateDecision(tx, existing); err != nil {
+			if err := s.auctionRepo.UpdateDecision(ctx, tx, existing); err != nil {
 				return err
 			}
-		} else if err := s.auctionRepo.CreateDecision(tx, &AuctionDecisionRequest{
+		} else if err := s.auctionRepo.CreateDecision(ctx, tx, &AuctionDecisionRequest{
 			AuctionRecordID:      rec.ID,
 			LoanID:               l.ID,
 			Kind:                 AuctionDecisionKindPartialRepayment,
@@ -1400,7 +1516,7 @@ func (s *Service) resolveAuctionAfterPayment(l *Loan, p *LoanPayment) bool {
 			return err
 		}
 
-		s.recordAuctionEvent(tx, rec.ID, AuctionEventDecisionRequested, nil, "", fmt.Sprintf(
+		s.recordAuctionEvent(ctx, tx, rec.ID, AuctionEventDecisionRequested, nil, "", fmt.Sprintf(
 			"Part-payment of ₹%.2f received (₹%.2f still owed) — auction frozen pending a keep/remove decision", p.Amount, outstanding))
 		return nil
 	})
@@ -1417,7 +1533,7 @@ func (s *Service) resolveAuctionAfterPayment(l *Loan, p *LoanPayment) bool {
 	// actually gated on an active auction having been found above — now it
 	// only fires for the case it was written for.
 	if hadActiveAuction && l.Status != StatusClosed {
-		s.notifyCustomer(l.CustomerID, l.Customer.Phone, "Payment Received — Auction On Hold", fmt.Sprintf(
+		s.notifyCustomer(ctx, l.CustomerID, l.Customer.Phone, "Payment Received — Auction On Hold", s.brandedMessage(ctx,
 			"Dear %s, we have received your payment of ₹%.2f towards loan %s. As the loan is not yet fully settled, the auction of your pledged gold is on hold while our management reviews your account. We will inform you of the decision. — Ambika Gold Finance",
 			l.Customer.Name, p.Amount, l.LoanNumber,
 		), commlog.TriggerPayment, "loan", l.ID)
@@ -1451,8 +1567,8 @@ type BankPledgeInput struct {
 	ActorRole       string
 }
 
-func (s *Service) RecordBankPledge(loanID uint, branchID *uint, in BankPledgeInput) (*Loan, error) {
-	l, err := s.repo.FindByID(loanID)
+func (s *Service) RecordBankPledge(ctx context.Context, loanID uint, branchID *uint, in BankPledgeInput) (*Loan, error) {
+	l, err := s.repo.FindByID(ctx, loanID)
 	if err != nil {
 		return nil, ErrNotFound
 	}
@@ -1473,7 +1589,7 @@ func (s *Service) RecordBankPledge(loanID uint, branchID *uint, in BankPledgeInp
 	// pledge RECORDS, for the same reason CompleteRelease does — on a loan
 	// whose string has drifted away from an already-open record, the check
 	// above passes and a second live pledge would be created.
-	hasActivePledge, err := s.pledgeRepo.HasActive(loanID)
+	hasActivePledge, err := s.pledgeRepo.HasActive(ctx, loanID)
 	if err != nil {
 		return nil, err
 	}
@@ -1509,17 +1625,17 @@ func (s *Service) RecordBankPledge(loanID uint, branchID *uint, in BankPledgeInp
 		CashTreatment:      in.CashTreatment,
 		Status:             BankPledgeStatusRecordActive,
 	}
-	if err := s.pledgeRepo.Create(p); err != nil {
+	if err := s.pledgeRepo.Create(ctx, p); err != nil {
 		return nil, err
 	}
 
 	l.BankPledgeStatus = BankPledgeStatusPledged
-	if err := s.repo.Update(l); err != nil {
+	if err := s.repo.Update(ctx, l); err != nil {
 		return nil, err
 	}
 
 	if s.packetMover != nil {
-		if err := s.packetMover.RecordBankPledgeMovement(loanID, "Bank pledge: "+in.BankName); err != nil {
+		if err := s.packetMover.RecordBankPledgeMovement(ctx, loanID, "Bank pledge: "+in.BankName); err != nil {
 			log.Printf("packet movement (bank pledge) failed for loan %d: %v", loanID, err)
 		}
 	}
@@ -1533,21 +1649,21 @@ func (s *Service) RecordBankPledge(loanID uint, branchID *uint, in BankPledgeInp
 	// release (RecordBankPledgeReleaseExpense), when the money actually
 	// goes back to the bank.
 	if in.CashTreatment == BankPledgeCashTreatmentCashIn && s.cashRecorder != nil {
-		movementID, err := s.cashRecorder.RecordBankPledgeCashIn(loanID, in.BankName, p.PledgedAmount, in.PledgeDate)
+		movementID, err := s.cashRecorder.RecordBankPledgeCashIn(ctx, loanID, in.BankName, p.PledgedAmount, in.PledgeDate)
 		if err != nil {
 			log.Printf("cash-in movement (bank pledge) failed for loan %d: %v", loanID, err)
 		} else {
 			p.CashMovementID = &movementID
 		}
 
-		if err := s.pledgeRepo.Update(p); err != nil {
+		if err := s.pledgeRepo.Update(ctx, p); err != nil {
 			log.Printf("saving cash movement link (bank pledge) failed for loan %d: %v", loanID, err)
 		}
 	}
 
-	s.recordPledgeEvent(p, BankPledgeEventPledged, in.ActorEmployeeID, in.ActorRole, pledgeTreatmentRemark(in.CashTreatment))
+	s.recordPledgeEvent(ctx, p, BankPledgeEventPledged, in.ActorEmployeeID, in.ActorRole, pledgeTreatmentRemark(in.CashTreatment))
 
-	return s.Get(l.ID, nil)
+	return s.Get(ctx, l.ID, nil)
 }
 
 // pledgeTreatmentRemark renders the cash decision in plain words, so the audit
@@ -1562,8 +1678,8 @@ func pledgeTreatmentRemark(treatment string) string {
 // recordPledgeEvent appends to a re-pledge record's audit trail. Like
 // notifyCustomer, a failure here is logged rather than propagated: losing an
 // audit line must never roll back the financial operation it describes.
-func (s *Service) recordPledgeEvent(p *BankPledgeRecord, action string, actorID *uint, actorRole, remarks string) {
-	if err := s.pledgeRepo.CreateEvent(&BankPledgeEvent{
+func (s *Service) recordPledgeEvent(ctx context.Context, p *BankPledgeRecord, action string, actorID *uint, actorRole, remarks string) {
+	if err := s.pledgeRepo.CreateEvent(ctx, &BankPledgeEvent{
 		BankPledgeRecordID: p.ID,
 		Action:             action,
 		ActorEmployeeID:    actorID,
@@ -1586,8 +1702,8 @@ func (s *Service) recordPledgeEvent(p *BankPledgeRecord, action string, actorID 
 // getAuctionRecord returns the loan's LIVE auction case. A loan may carry
 // concluded cases from earlier attempts; those are reached through
 // GetAuctionHistory instead, so "the" auction always means the active one.
-func (s *Service) getAuctionRecord(loanID uint) (*AuctionRecord, error) {
-	rec, err := s.auctionRepo.FindActiveByLoanID(loanID)
+func (s *Service) getAuctionRecord(ctx context.Context, loanID uint) (*AuctionRecord, error) {
+	rec, err := s.auctionRepo.FindActiveByLoanID(ctx, loanID)
 	if err != nil {
 		return nil, ErrAuctionNotFound
 	}
@@ -1598,8 +1714,8 @@ func (s *Service) getAuctionRecord(loanID uint) (*AuctionRecord, error) {
 // outstanding against the case. This is the load-bearing safety check of the
 // whole auction rework: once a customer has paid something, their gold must
 // not advance one step closer to being sold until a human has ruled on it.
-func (s *Service) requireNoPendingDecision(recID uint) error {
-	pending, err := s.auctionRepo.HasAnyPendingDecision(recID)
+func (s *Service) requireNoPendingDecision(ctx context.Context, recID uint) error {
+	pending, err := s.auctionRepo.HasAnyPendingDecision(ctx, recID)
 	if err != nil {
 		return err
 	}
@@ -1612,8 +1728,8 @@ func (s *Service) requireNoPendingDecision(recID uint) error {
 // recordAuctionEvent appends to a case's staff-action audit trail. Logged
 // rather than propagated on failure, for the same reason as recordPledgeEvent:
 // losing an audit line must not roll back the operation it describes.
-func (s *Service) recordAuctionEvent(tx *gorm.DB, recID uint, action string, actorID *uint, actorRole, remarks string) {
-	if err := s.auctionRepo.CreateEvent(tx, &AuctionEvent{
+func (s *Service) recordAuctionEvent(ctx context.Context, tx *gorm.DB, recID uint, action string, actorID *uint, actorRole, remarks string) {
+	if err := s.auctionRepo.CreateEvent(ctx, tx, &AuctionEvent{
 		AuctionRecordID: recID,
 		Action:          action,
 		ActorEmployeeID: actorID,
@@ -1625,35 +1741,35 @@ func (s *Service) recordAuctionEvent(tx *gorm.DB, recID uint, action string, act
 }
 
 // GetAuctionHistory returns every auction case ever opened against a loan.
-func (s *Service) GetAuctionHistory(loanID uint, branchID *uint) ([]AuctionRecord, error) {
-	if err := s.checkLoanBranch(loanID, branchID); err != nil {
+func (s *Service) GetAuctionHistory(ctx context.Context, loanID uint, branchID *uint) ([]AuctionRecord, error) {
+	if err := s.checkLoanBranch(ctx, loanID, branchID); err != nil {
 		return nil, err
 	}
-	return s.auctionRepo.FindHistoryByLoanID(loanID)
+	return s.auctionRepo.FindHistoryByLoanID(ctx, loanID)
 }
 
 // ListConcludedAuctions returns finished auction cases (Settled or Withdrawn)
 // across all loans, scoped to the caller's branch — backs the Auctions
 // screen's History tab. See AuctionRepository.FindAllConcluded for hasSale/
 // limit/offset semantics.
-func (s *Service) ListConcludedAuctions(branchID *uint, hasSale *bool, limit, offset int) ([]ConcludedAuctionRow, int64, error) {
-	return s.auctionRepo.FindAllConcluded(branchID, hasSale, limit, offset)
+func (s *Service) ListConcludedAuctions(ctx context.Context, branchID *uint, hasSale *bool, limit, offset int) ([]ConcludedAuctionRow, int64, error) {
+	return s.auctionRepo.FindAllConcluded(ctx, branchID, hasSale, limit, offset)
 }
 
 // ListPendingAuctionDecisions returns every outstanding escalation awaiting a
 // human decision, scoped to the caller's branch.
-func (s *Service) ListPendingAuctionDecisions(branchID *uint) ([]AuctionDecisionRequest, error) {
-	return s.auctionRepo.FindPendingDecisions(branchID)
+func (s *Service) ListPendingAuctionDecisions(ctx context.Context, branchID *uint) ([]AuctionDecisionRequest, error) {
+	return s.auctionRepo.FindPendingDecisions(ctx, branchID)
 }
 
 // GetAuctionRecord returns a loan's auction case record (including its
 // notice history), or ErrAuctionNotFound if the loan was never marked
 // auction-eligible.
-func (s *Service) GetAuctionRecord(loanID uint, branchID *uint) (*AuctionRecord, error) {
-	if err := s.checkLoanBranch(loanID, branchID); err != nil {
+func (s *Service) GetAuctionRecord(ctx context.Context, loanID uint, branchID *uint) (*AuctionRecord, error) {
+	if err := s.checkLoanBranch(ctx, loanID, branchID); err != nil {
 		return nil, err
 	}
-	return s.getAuctionRecord(loanID)
+	return s.getAuctionRecord(ctx, loanID)
 }
 
 // MarkAuctionEligible starts a loan's auction case: requires the loan to
@@ -1669,24 +1785,24 @@ func (s *Service) GetAuctionRecord(loanID uint, branchID *uint) (*AuctionRecord,
 // unauctionable. The rule is enforced in the database by a partial unique
 // index (see cmd/migrate), so two concurrent requests cannot both open a case;
 // the constraint violation is translated back to ErrAuctionAlreadyStarted.
-func (s *Service) MarkAuctionEligible(loanID uint, branchID *uint, actorID *uint, actorRole string, actorRoleID uint) (*AuctionRecord, error) {
-	if !s.checkStagePermission(actorRoleID, "can mark loan auction eligible") {
+func (s *Service) MarkAuctionEligible(ctx context.Context, loanID uint, branchID *uint, actorID *uint, actorRole string, actorRoleID uint) (*AuctionRecord, error) {
+	if !s.checkStagePermission(ctx, actorRoleID, "can mark loan auction eligible") {
 		return nil, ErrAuctionStepNotPermitted
 	}
-	l, err := s.repo.FindByID(loanID)
+	l, err := s.repo.FindByID(ctx, loanID)
 	if err != nil {
 		return nil, ErrNotFound
 	}
 	if branchID != nil && l.BranchID != *branchID {
 		return nil, ErrNotFound
 	}
-	s.enrich(l)
+	s.enrich(ctx, l)
 	if !l.IsDefaulted {
 		return nil, ErrLoanNotDefaulted
 	}
 	// Checks the ACTIVE case only — a concluded one must not block a new
 	// attempt. The DB index is the real guard against races.
-	if _, err := s.auctionRepo.FindActiveByLoanID(loanID); err == nil {
+	if _, err := s.auctionRepo.FindActiveByLoanID(ctx, loanID); err == nil {
 		return nil, ErrAuctionAlreadyStarted
 	}
 
@@ -1696,7 +1812,7 @@ func (s *Service) MarkAuctionEligible(loanID uint, branchID *uint, actorID *uint
 		AuctionEligibleDate:   time.Now(),
 		FinalSettlementStatus: AuctionSettlementPending,
 	}
-	if err := s.auctionRepo.Create(rec); err != nil {
+	if err := s.auctionRepo.Create(ctx, rec); err != nil {
 		// A unique-violation here means a concurrent request won the race and
 		// already opened the case, which is exactly "already started".
 		if isUniqueViolation(err) {
@@ -1706,17 +1822,17 @@ func (s *Service) MarkAuctionEligible(loanID uint, branchID *uint, actorID *uint
 	}
 
 	l.Status = StatusAuctionEligible
-	if err := s.repo.Update(l); err != nil {
+	if err := s.repo.Update(ctx, l); err != nil {
 		return nil, err
 	}
 
-	s.recordAuctionEvent(nil, rec.ID, AuctionEventEligible, actorID, actorRole, "Loan marked auction-eligible")
-	s.notifyCustomer(l.CustomerID, l.Customer.Phone, "Auction Eligible", fmt.Sprintf(
+	s.recordAuctionEvent(ctx, nil, rec.ID, AuctionEventEligible, actorID, actorRole, "Loan marked auction-eligible")
+	s.notifyCustomer(ctx, l.CustomerID, l.Customer.Phone, "Auction Eligible", s.brandedMessage(ctx,
 		"Dear %s, your gold loan %s is seriously overdue and has now been marked eligible for auction. Outstanding: ₹%.2f. Please contact the branch immediately to settle and retain your pledged items. — Ambika Gold Finance",
 		l.Customer.Name, l.LoanNumber, l.TotalOutstandingBalance,
 	), commlog.TriggerAuctionEvent, "auction_record", rec.ID)
 
-	return s.getAuctionRecord(loanID)
+	return s.getAuctionRecord(ctx, loanID)
 }
 
 // isUniqueViolation reports whether err is a duplicate-key error. Matched on
@@ -1749,14 +1865,14 @@ var auctionNoticeChannels = []string{"WhatsApp"}
 // already advanced past Eligible). Actually delivers the WhatsApp message
 // (best-effort — a delivery failure never blocks logging the notice, same
 // rule as notifyCustomer elsewhere).
-func (s *Service) IssueAuctionNotice(loanID uint, branchID *uint, remarks string, actorID *uint, actorRole string, actorRoleID uint) (*AuctionRecord, error) {
-	if !s.checkStagePermission(actorRoleID, "can issue auction notice") {
+func (s *Service) IssueAuctionNotice(ctx context.Context, loanID uint, branchID *uint, remarks string, actorID *uint, actorRole string, actorRoleID uint) (*AuctionRecord, error) {
+	if !s.checkStagePermission(ctx, actorRoleID, "can issue auction notice") {
 		return nil, ErrAuctionStepNotPermitted
 	}
-	if err := s.checkLoanBranch(loanID, branchID); err != nil {
+	if err := s.checkLoanBranch(ctx, loanID, branchID); err != nil {
 		return nil, err
 	}
-	rec, err := s.getAuctionRecord(loanID)
+	rec, err := s.getAuctionRecord(ctx, loanID)
 	if err != nil {
 		return nil, err
 	}
@@ -1764,17 +1880,17 @@ func (s *Service) IssueAuctionNotice(loanID uint, branchID *uint, remarks string
 		return nil, ErrAuctionWrongStage
 	}
 	// Do not escalate pressure on a customer whose payment is under review.
-	if err := s.requireNoPendingDecision(rec.ID); err != nil {
+	if err := s.requireNoPendingDecision(ctx, rec.ID); err != nil {
 		return nil, err
 	}
 
-	l, err := s.repo.FindByID(loanID)
+	l, err := s.repo.FindByID(ctx, loanID)
 	if err != nil {
 		return nil, ErrNotFound
 	}
 
 	for _, method := range auctionNoticeChannels {
-		if err := s.auctionRepo.CreateNotice(&AuctionNotice{
+		if err := s.auctionRepo.CreateNotice(ctx, &AuctionNotice{
 			AuctionRecordID: rec.ID,
 			IssuedAt:        time.Now(),
 			Method:          method,
@@ -1783,7 +1899,7 @@ func (s *Service) IssueAuctionNotice(loanID uint, branchID *uint, remarks string
 			return nil, err
 		}
 		if method == "WhatsApp" {
-			s.notifyCustomer(l.CustomerID, l.Customer.Phone, "Auction Notice", fmt.Sprintf(
+			s.notifyCustomer(ctx, l.CustomerID, l.Customer.Phone, "Auction Notice", fmt.Sprintf(
 				"Dear %s, your gold loan %s is overdue and has been marked for auction. Please contact the branch immediately to settle dues and avoid losing your pledged items.",
 				l.Customer.Name, l.LoanNumber,
 			), commlog.TriggerAuctionNotice, "auction_record", rec.ID)
@@ -1792,25 +1908,25 @@ func (s *Service) IssueAuctionNotice(loanID uint, branchID *uint, remarks string
 
 	if rec.Stage == AuctionStageEligible {
 		rec.Stage = AuctionStageNotice
-		if err := s.auctionRepo.Update(rec); err != nil {
+		if err := s.auctionRepo.Update(ctx, rec); err != nil {
 			return nil, err
 		}
 	}
-	s.recordAuctionEvent(nil, rec.ID, AuctionEventNoticeIssued, actorID, actorRole, remarks)
-	return s.getAuctionRecord(loanID)
+	s.recordAuctionEvent(ctx, nil, rec.ID, AuctionEventNoticeIssued, actorID, actorRole, remarks)
+	return s.getAuctionRecord(ctx, loanID)
 }
 
 // ScheduleAuction records the actual auction date/reference and advances
 // the case to AuctionScheduled. Requires at least one notice to have been
 // issued first.
-func (s *Service) ScheduleAuction(loanID uint, branchID *uint, date time.Time, referenceNumber string, actorID *uint, actorRole string, actorRoleID uint) (*AuctionRecord, error) {
-	if !s.checkStagePermission(actorRoleID, "can schedule auction") {
+func (s *Service) ScheduleAuction(ctx context.Context, loanID uint, branchID *uint, date time.Time, referenceNumber string, actorID *uint, actorRole string, actorRoleID uint) (*AuctionRecord, error) {
+	if !s.checkStagePermission(ctx, actorRoleID, "can schedule auction") {
 		return nil, ErrAuctionStepNotPermitted
 	}
-	if err := s.checkLoanBranch(loanID, branchID); err != nil {
+	if err := s.checkLoanBranch(ctx, loanID, branchID); err != nil {
 		return nil, err
 	}
-	rec, err := s.getAuctionRecord(loanID)
+	rec, err := s.getAuctionRecord(ctx, loanID)
 	if err != nil {
 		return nil, err
 	}
@@ -1818,25 +1934,25 @@ func (s *Service) ScheduleAuction(loanID uint, branchID *uint, date time.Time, r
 		return nil, ErrAuctionWrongStage
 	}
 	// Never fix a sale date for gold whose repayment is still being reviewed.
-	if err := s.requireNoPendingDecision(rec.ID); err != nil {
+	if err := s.requireNoPendingDecision(ctx, rec.ID); err != nil {
 		return nil, err
 	}
 	rec.AuctionDate = &date
 	rec.AuctionReferenceNumber = referenceNumber
 	rec.Stage = AuctionStageScheduled
-	if err := s.auctionRepo.Update(rec); err != nil {
+	if err := s.auctionRepo.Update(ctx, rec); err != nil {
 		return nil, err
 	}
 
-	s.recordAuctionEvent(nil, rec.ID, AuctionEventScheduled, actorID, actorRole,
+	s.recordAuctionEvent(ctx, nil, rec.ID, AuctionEventScheduled, actorID, actorRole,
 		fmt.Sprintf("Auction scheduled for %s (ref %s)", date.Format("02-Jan-2006"), referenceNumber))
-	if l, err := s.repo.FindByID(loanID); err == nil {
-		s.notifyCustomer(l.CustomerID, l.Customer.Phone, "Auction Scheduled", fmt.Sprintf(
+	if l, err := s.repo.FindByID(ctx, loanID); err == nil {
+		s.notifyCustomer(ctx, l.CustomerID, l.Customer.Phone, "Auction Scheduled", s.brandedMessage(ctx,
 			"Dear %s, the auction of the gold pledged against loan %s has been scheduled for %s (ref %s). You may still settle the outstanding dues before this date to reclaim your items. — Ambika Gold Finance",
 			l.Customer.Name, l.LoanNumber, date.Format("02-Jan-2006"), referenceNumber,
 		), commlog.TriggerAuctionEvent, "auction_record", rec.ID)
 	}
-	return s.getAuctionRecord(loanID)
+	return s.getAuctionRecord(ctx, loanID)
 }
 
 // RecordAuctionSale records what the gold actually sold for and what it cost
@@ -1860,8 +1976,8 @@ func (s *Service) ScheduleAuction(loanID uint, branchID *uint, date time.Time, r
 // Runs in a transaction: the cash movement, ledger entry, balance change,
 // case update and escalation must all land together, or a failure part-way
 // could leave gold sold with no record of the proceeds.
-func (s *Service) RecordAuctionSale(loanID uint, branchID *uint, saleAmount, expenses float64, actorID *uint, actorRole string, actorRoleID uint) (*AuctionRecord, error) {
-	if !s.checkStagePermission(actorRoleID, "can record auction sale") {
+func (s *Service) RecordAuctionSale(ctx context.Context, loanID uint, branchID *uint, saleAmount, expenses float64, actorID *uint, actorRole string, actorRoleID uint) (*AuctionRecord, error) {
+	if !s.checkStagePermission(ctx, actorRoleID, "can record auction sale") {
 		return nil, ErrAuctionStepNotPermitted
 	}
 	if saleAmount <= 0 {
@@ -1870,7 +1986,7 @@ func (s *Service) RecordAuctionSale(loanID uint, branchID *uint, saleAmount, exp
 	if expenses < 0 {
 		return nil, ErrInvalidAmount
 	}
-	rec, err := s.getAuctionRecord(loanID)
+	rec, err := s.getAuctionRecord(ctx, loanID)
 	if err != nil {
 		return nil, err
 	}
@@ -1879,10 +1995,10 @@ func (s *Service) RecordAuctionSale(loanID uint, branchID *uint, saleAmount, exp
 	}
 	// The decisive guard: gold must never be sold while a repayment decision
 	// is outstanding.
-	if err := s.requireNoPendingDecision(rec.ID); err != nil {
+	if err := s.requireNoPendingDecision(ctx, rec.ID); err != nil {
 		return nil, err
 	}
-	l, err := s.repo.FindByID(loanID)
+	l, err := s.repo.FindByID(ctx, loanID)
 	if err != nil {
 		return nil, ErrNotFound
 	}
@@ -1892,8 +2008,8 @@ func (s *Service) RecordAuctionSale(loanID uint, branchID *uint, saleAmount, exp
 
 	// Bring interest up to date first so the debt being compared against the
 	// proceeds is the real, current figure.
-	s.accrueAndSave(l)
-	s.enrich(l)
+	s.accrueAndSave(ctx, l)
+	s.enrich(ctx, l)
 
 	saleAmount = platform.RoundMoney(saleAmount)
 	expenses = platform.RoundMoney(expenses)
@@ -1912,7 +2028,7 @@ func (s *Service) RecordAuctionSale(loanID uint, branchID *uint, saleAmount, exp
 	auctionDate := time.Now()
 	var payment *LoanPayment
 
-	txErr := s.db.Transaction(func(tx *gorm.DB) error {
+	txErr := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		if applied > 0 {
 			fee, penal, interest, principal, err := allocatePayment(l, PaymentTypeAuctionSale, applied)
 			if err != nil {
@@ -1966,7 +2082,7 @@ func (s *Service) RecordAuctionSale(loanID uint, branchID *uint, saleAmount, exp
 		} else {
 			rec.Stage = AuctionStageAuctioned
 		}
-		if err := s.auctionRepo.UpdateTx(tx, rec); err != nil {
+		if err := s.auctionRepo.UpdateTx(ctx, tx, rec); err != nil {
 			return err
 		}
 
@@ -1991,7 +2107,7 @@ func (s *Service) RecordAuctionSale(loanID uint, branchID *uint, saleAmount, exp
 
 		if !fullyCovered {
 			shortfall := platform.RoundMoney(totalDebt - netProceeds)
-			if err := s.auctionRepo.CreateDecision(tx, &AuctionDecisionRequest{
+			if err := s.auctionRepo.CreateDecision(ctx, tx, &AuctionDecisionRequest{
 				AuctionRecordID:      rec.ID,
 				LoanID:               loanID,
 				Kind:                 AuctionDecisionKindShortfall,
@@ -2013,17 +2129,17 @@ func (s *Service) RecordAuctionSale(loanID uint, branchID *uint, saleAmount, exp
 	// completed, already-consistent sale — the same log-and-continue rule
 	// the rest of this service applies to cash and WhatsApp.
 	if s.cashRecorder != nil {
-		if _, err := s.cashRecorder.RecordAuctionSaleCashIn(loanID, l.LoanNumber, netProceeds, l.BranchID, auctionDate); err != nil {
+		if _, err := s.cashRecorder.RecordAuctionSaleCashIn(ctx, loanID, l.LoanNumber, netProceeds, l.BranchID, auctionDate); err != nil {
 			log.Printf("cash-in movement (auction sale) failed for loan %d: %v", loanID, err)
 		}
 	}
 	if s.packetMover != nil {
-		if err := s.packetMover.RecordGoldReleaseMovement(loanID, fmt.Sprintf("Auction sale — sold for ₹%.2f", saleAmount)); err != nil {
+		if err := s.packetMover.RecordGoldReleaseMovement(ctx, loanID, fmt.Sprintf("Auction sale — sold for ₹%.2f", saleAmount)); err != nil {
 			log.Printf("packet movement (auction sale) failed for loan %d: %v", loanID, err)
 		}
 	}
 
-	s.recordAuctionEvent(nil, rec.ID, AuctionEventSaleRecorded, actorID, actorRole, fmt.Sprintf(
+	s.recordAuctionEvent(ctx, nil, rec.ID, AuctionEventSaleRecorded, actorID, actorRole, fmt.Sprintf(
 		"Sold for ₹%.2f, expenses ₹%.2f, net ₹%.2f applied against debt of ₹%.2f", saleAmount, expenses, netProceeds, totalDebt))
 
 	if fullyCovered {
@@ -2031,20 +2147,20 @@ func (s *Service) RecordAuctionSale(loanID uint, branchID *uint, saleAmount, exp
 		if rec.SurplusPayableAmount > 0.01 {
 			surplusNote = fmt.Sprintf(" A surplus of ₹%.2f is due back to you — the branch will contact you regarding this.", rec.SurplusPayableAmount)
 		}
-		s.notifyCustomer(l.CustomerID, l.Customer.Phone, "Auction Settled", fmt.Sprintf(
+		s.notifyCustomer(ctx, l.CustomerID, l.Customer.Phone, "Auction Settled", s.brandedMessage(ctx,
 			"Dear %s, the gold pledged against loan %s was auctioned on %s for ₹%.2f. Your loan is now fully settled and closed.%s — Ambika Gold Finance",
 			l.Customer.Name, l.LoanNumber, auctionDate.Format("02-Jan-2006"), saleAmount, surplusNote,
 		), commlog.TriggerAuctionEvent, "auction_record", rec.ID)
 	} else {
-		s.recordAuctionEvent(nil, rec.ID, AuctionEventShortfallEscalated, actorID, actorRole, fmt.Sprintf(
+		s.recordAuctionEvent(ctx, nil, rec.ID, AuctionEventShortfallEscalated, actorID, actorRole, fmt.Sprintf(
 			"Auction proceeds fell short by ₹%.2f — escalated for a write-off/pursue decision", platform.RoundMoney(totalDebt-netProceeds)))
-		s.notifyCustomer(l.CustomerID, l.Customer.Phone, "Auction Shortfall", fmt.Sprintf(
+		s.notifyCustomer(ctx, l.CustomerID, l.Customer.Phone, "Auction Shortfall", s.brandedMessage(ctx,
 			"Dear %s, the gold pledged against loan %s was auctioned on %s for ₹%.2f, which did not cover the full amount due. A balance of ₹%.2f remains and is under review by our management. We will inform you of the outcome. — Ambika Gold Finance",
 			l.Customer.Name, l.LoanNumber, auctionDate.Format("02-Jan-2006"), saleAmount, platform.RoundMoney(totalDebt-netProceeds),
 		), commlog.TriggerAuctionEvent, "auction_record", rec.ID)
 	}
 
-	return s.getAuctionRecord(loanID)
+	return s.getAuctionRecord(ctx, loanID)
 }
 
 // derefUint safely unwraps an optional employee ID for fields that require a
@@ -2072,8 +2188,8 @@ func derefUint(p *uint) uint {
 //
 // A disposition can only be set once, so a surplus can never be paid out
 // twice.
-func (s *Service) SettleAuction(loanID uint, branchID *uint, disposition, remarks string, actorID *uint, actorRole string, actorRoleID uint) (*AuctionRecord, error) {
-	if !s.checkStagePermission(actorRoleID, "can settle auction") {
+func (s *Service) SettleAuction(ctx context.Context, loanID uint, branchID *uint, disposition, remarks string, actorID *uint, actorRole string, actorRoleID uint) (*AuctionRecord, error) {
+	if !s.checkStagePermission(ctx, actorRoleID, "can settle auction") {
 		return nil, ErrAuctionStepNotPermitted
 	}
 	switch disposition {
@@ -2086,14 +2202,14 @@ func (s *Service) SettleAuction(loanID uint, branchID *uint, disposition, remark
 		// carry a stated reason.
 		return nil, ErrSettlementRemarksRequired
 	}
-	l, err := s.repo.FindByID(loanID)
+	l, err := s.repo.FindByID(ctx, loanID)
 	if err != nil {
 		return nil, ErrNotFound
 	}
 	if branchID != nil && l.BranchID != *branchID {
 		return nil, ErrNotFound
 	}
-	rec, err := s.getAuctionRecord(loanID)
+	rec, err := s.getAuctionRecord(ctx, loanID)
 	if err != nil {
 		return nil, err
 	}
@@ -2112,7 +2228,7 @@ func (s *Service) SettleAuction(loanID uint, branchID *uint, disposition, remark
 
 	now := time.Now()
 	if disposition == AuctionSurplusRefundedToCustomer && s.cashRecorder != nil {
-		movementID, err := s.cashRecorder.RecordAuctionSurplusCashOut(loanID, l.LoanNumber, rec.SurplusPayableAmount, l.BranchID, now)
+		movementID, err := s.cashRecorder.RecordAuctionSurplusCashOut(ctx, loanID, l.LoanNumber, rec.SurplusPayableAmount, l.BranchID, now)
 		if err != nil {
 			log.Printf("cash-out movement (auction surplus refund) failed for loan %d: %v", loanID, err)
 		} else {
@@ -2127,26 +2243,26 @@ func (s *Service) SettleAuction(loanID uint, branchID *uint, disposition, remark
 		rec.FinalSettlementStatus = AuctionSettlementSettledToLoanCo
 	}
 	rec.Stage = AuctionStageSettled
-	if err := s.auctionRepo.Update(rec); err != nil {
+	if err := s.auctionRepo.Update(ctx, rec); err != nil {
 		return nil, err
 	}
 
-	s.recordAuctionEvent(nil, rec.ID, AuctionEventSettled, actorID, actorRole, fmt.Sprintf(
+	s.recordAuctionEvent(ctx, nil, rec.ID, AuctionEventSettled, actorID, actorRole, fmt.Sprintf(
 		"Surplus ₹%.2f — %s. %s", rec.SurplusPayableAmount, disposition, remarks))
 
 	if disposition == AuctionSurplusRefundedToCustomer {
-		s.notifyCustomer(l.CustomerID, l.Customer.Phone, "Auction Surplus Refund", fmt.Sprintf(
+		s.notifyCustomer(ctx, l.CustomerID, l.Customer.Phone, "Auction Surplus Refund", s.brandedMessage(ctx,
 			"Dear %s, the surplus of ₹%.2f from the auction of loan %s is being refunded to you. Please visit the branch to collect it. — Ambika Gold Finance",
 			l.Customer.Name, rec.SurplusPayableAmount, l.LoanNumber,
 		), commlog.TriggerAuctionEvent, "auction_record", rec.ID)
 	} else {
-		s.notifyCustomer(l.CustomerID, l.Customer.Phone, "Auction Settled", fmt.Sprintf(
+		s.notifyCustomer(ctx, l.CustomerID, l.Customer.Phone, "Auction Settled", s.brandedMessage(ctx,
 			"Dear %s, the auction settlement for loan %s is now complete and the loan is closed. — Ambika Gold Finance",
 			l.Customer.Name, l.LoanNumber,
 		), commlog.TriggerAuctionEvent, "auction_record", rec.ID)
 	}
 
-	return s.getAuctionRecord(loanID)
+	return s.getAuctionRecord(ctx, loanID)
 }
 
 // ResolveAuctionDecision records a human decision on an escalation and applies
@@ -2161,8 +2277,8 @@ func (s *Service) SettleAuction(loanID uint, branchID *uint, disposition, remark
 // (projectAccrual only accrues for Active/DueSoon/Overdue). While the decision
 // was pending the balance sat frozen at StatusAuctionedBalanceDue, so the
 // decision-maker judged a stable figure rather than a moving one.
-func (s *Service) ResolveAuctionDecision(loanID, requestID uint, branchID *uint, decision, remarks string, actorID *uint, actorRole string, actorRoleID uint) (*AuctionRecord, error) {
-	l, err := s.repo.FindByID(loanID)
+func (s *Service) ResolveAuctionDecision(ctx context.Context, loanID, requestID uint, branchID *uint, decision, remarks string, actorID *uint, actorRole string, actorRoleID uint) (*AuctionRecord, error) {
+	l, err := s.repo.FindByID(ctx, loanID)
 	if err != nil {
 		return nil, ErrNotFound
 	}
@@ -2175,10 +2291,16 @@ func (s *Service) ResolveAuctionDecision(loanID, requestID uint, branchID *uint,
 		auctionRecID uint
 	)
 
-	txErr := s.db.Transaction(func(tx *gorm.DB) error {
-		req, err := s.auctionRepo.FindDecisionByID(tx, requestID)
+	txErr := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		req, err := s.auctionRepo.FindDecisionByID(ctx, tx, requestID)
 		if err != nil {
-			return ErrAuctionDecisionNotFound
+			// Only a genuinely missing row reads as "not found". Translating
+			// every error hid a real fault (a tenant-scope failure) behind a
+			// message that sent staff looking for a vanished request.
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return ErrAuctionDecisionNotFound
+			}
+			return err
 		}
 		if req.LoanID != loanID {
 			return ErrAuctionDecisionNotFound
@@ -2188,9 +2310,12 @@ func (s *Service) ResolveAuctionDecision(loanID, requestID uint, branchID *uint,
 		}
 		auctionRecID = req.AuctionRecordID
 
-		rec, err := s.auctionRepo.FindActiveByLoanIDForUpdate(tx, loanID)
+		rec, err := s.auctionRepo.FindActiveByLoanIDForUpdate(ctx, tx, loanID)
 		if err != nil {
-			return ErrAuctionNotFound
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return ErrAuctionNotFound
+			}
+			return err
 		}
 
 		now := time.Now()
@@ -2202,20 +2327,20 @@ func (s *Service) ResolveAuctionDecision(loanID, requestID uint, branchID *uint,
 
 		switch req.Kind {
 		case AuctionDecisionKindPartialRepayment:
-			if !s.checkStagePermission(actorRoleID, "can decide auction partial repayment") {
+			if !s.checkStagePermission(ctx, actorRoleID, "can decide auction partial repayment") {
 				return ErrShortfallAuthorityRequired
 			}
 			switch decision {
 			case AuctionDecisionKeepInAuction:
 				// Case simply un-freezes and continues from its current stage.
-				s.recordAuctionEvent(tx, rec.ID, AuctionEventDecisionKeep, actorID, actorRole, remarks)
-				notifyMsg = fmt.Sprintf(
+				s.recordAuctionEvent(ctx, tx, rec.ID, AuctionEventDecisionKeep, actorID, actorRole, remarks)
+				notifyMsg = s.brandedMessage(ctx,
 					"Dear %s, following review of your recent payment, loan %s remains scheduled for auction as a balance of ₹%.2f is still outstanding. Please contact the branch urgently. — Ambika Gold Finance",
 					l.Customer.Name, l.LoanNumber, req.OutstandingAtRequest,
 				)
 			case AuctionDecisionRemovedFromAuction:
 				rec.Stage = AuctionStageWithdrawn
-				if err := s.auctionRepo.UpdateTx(tx, rec); err != nil {
+				if err := s.auctionRepo.UpdateTx(ctx, tx, rec); err != nil {
 					return err
 				}
 				// Back to a normal collection status. A fresh default later can
@@ -2225,8 +2350,8 @@ func (s *Service) ResolveAuctionDecision(loanID, requestID uint, branchID *uint,
 				if err := tx.Save(l).Error; err != nil {
 					return err
 				}
-				s.recordAuctionEvent(tx, rec.ID, AuctionEventDecisionRemove, actorID, actorRole, remarks)
-				notifyMsg = fmt.Sprintf(
+				s.recordAuctionEvent(ctx, tx, rec.ID, AuctionEventDecisionRemove, actorID, actorRole, remarks)
+				notifyMsg = s.brandedMessage(ctx,
 					"Dear %s, following your recent payment, loan %s has been removed from auction and your pledged gold is no longer at risk. A balance of ₹%.2f remains payable. — Ambika Gold Finance",
 					l.Customer.Name, l.LoanNumber, req.OutstandingAtRequest,
 				)
@@ -2235,7 +2360,7 @@ func (s *Service) ResolveAuctionDecision(loanID, requestID uint, branchID *uint,
 			}
 
 		case AuctionDecisionKindShortfall:
-			if !s.checkStagePermission(actorRoleID, "can decide auction shortfall") {
+			if !s.checkStagePermission(ctx, actorRoleID, "can decide auction shortfall") {
 				return ErrShortfallAuthorityRequired
 			}
 			if strings.TrimSpace(remarks) == "" {
@@ -2249,8 +2374,8 @@ func (s *Service) ResolveAuctionDecision(loanID, requestID uint, branchID *uint,
 				if err := tx.Save(l).Error; err != nil {
 					return err
 				}
-				s.recordAuctionEvent(tx, rec.ID, AuctionEventDecisionPursue, actorID, actorRole, remarks)
-				notifyMsg = fmt.Sprintf(
+				s.recordAuctionEvent(ctx, tx, rec.ID, AuctionEventDecisionPursue, actorID, actorRole, remarks)
+				notifyMsg = s.brandedMessage(ctx,
 					"Dear %s, the auction of your pledged gold under loan %s did not clear the full amount due. A balance of ₹%.2f remains payable and will continue to accrue interest. Please contact the branch to arrange settlement. — Ambika Gold Finance",
 					l.Customer.Name, l.LoanNumber, req.OutstandingAtRequest,
 				)
@@ -2260,7 +2385,7 @@ func (s *Service) ResolveAuctionDecision(loanID, requestID uint, branchID *uint,
 				// waterfall as a non-cash write-off, so the ledger shows the
 				// forgiveness explicitly instead of the balance being zeroed
 				// behind the scenes.
-				s.enrich(l)
+				s.enrich(ctx, l)
 				owed := platform.RoundMoney(l.TotalOutstandingBalance)
 				if owed > 0 {
 					fee, penal, interest, principal, err := allocatePayment(l, PaymentTypeAuctionWriteOff, owed)
@@ -2295,12 +2420,12 @@ func (s *Service) ResolveAuctionDecision(loanID, requestID uint, branchID *uint,
 				}
 				rec.Stage = AuctionStageSettled
 				rec.FinalSettlementStatus = AuctionSettlementWrittenOff
-				if err := s.auctionRepo.UpdateTx(tx, rec); err != nil {
+				if err := s.auctionRepo.UpdateTx(ctx, tx, rec); err != nil {
 					return err
 				}
-				s.recordAuctionEvent(tx, rec.ID, AuctionEventDecisionWriteOff, actorID, actorRole,
+				s.recordAuctionEvent(ctx, tx, rec.ID, AuctionEventDecisionWriteOff, actorID, actorRole,
 					fmt.Sprintf("Shortfall of ₹%.2f written off: %s", owed, remarks))
-				notifyMsg = fmt.Sprintf(
+				notifyMsg = s.brandedMessage(ctx,
 					"Dear %s, the balance remaining on loan %s after auction has been waived and the loan is now closed. No further amount is payable. — Ambika Gold Finance",
 					l.Customer.Name, l.LoanNumber,
 				)
@@ -2313,22 +2438,22 @@ func (s *Service) ResolveAuctionDecision(loanID, requestID uint, branchID *uint,
 			return ErrInvalidAuctionDecision
 		}
 
-		return s.auctionRepo.UpdateDecision(tx, req)
+		return s.auctionRepo.UpdateDecision(ctx, tx, req)
 	})
 	if txErr != nil {
 		return nil, txErr
 	}
 
 	if notifyMsg != "" {
-		s.notifyCustomer(l.CustomerID, l.Customer.Phone, "Auction Decision", notifyMsg, commlog.TriggerAuctionEvent, "auction_record", auctionRecID)
+		s.notifyCustomer(ctx, l.CustomerID, l.Customer.Phone, "Auction Decision", notifyMsg, commlog.TriggerAuctionEvent, "auction_record", auctionRecID)
 	}
 
 	// The case may now be concluded, in which case there is no active record to
 	// return — fall back to its history entry so callers still see the outcome.
-	if rec, err := s.auctionRepo.FindActiveByLoanID(loanID); err == nil {
+	if rec, err := s.auctionRepo.FindActiveByLoanID(ctx, loanID); err == nil {
 		return rec, nil
 	}
-	if recs, err := s.auctionRepo.FindHistoryByLoanID(loanID); err == nil {
+	if recs, err := s.auctionRepo.FindHistoryByLoanID(ctx, loanID); err == nil {
 		for i := range recs {
 			if recs[i].ID == auctionRecID {
 				return &recs[i], nil
@@ -2365,8 +2490,8 @@ type ExtensionRequestInput struct {
 // CreateExtensionRequest logs a customer's ask to push a loan's due date
 // out by Months. It does not itself change the loan — staff must Approve it
 // via DecideRequest for the new due date to take effect.
-func (s *Service) CreateExtensionRequest(loanID uint, in ExtensionRequestInput) (*LoanRequest, error) {
-	if _, err := s.repo.FindByID(loanID); err != nil {
+func (s *Service) CreateExtensionRequest(ctx context.Context, loanID uint, in ExtensionRequestInput) (*LoanRequest, error) {
+	if _, err := s.repo.FindByID(ctx, loanID); err != nil {
 		return nil, ErrNotFound
 	}
 	if in.Months <= 0 {
@@ -2387,10 +2512,10 @@ func (s *Service) CreateExtensionRequest(loanID uint, in ExtensionRequestInput) 
 		ApprovalStage:            ApprovalStagePendingLoanOfficer,
 		RequestedAt:              time.Now(),
 	}
-	if err := s.requestRepo.Create(req); err != nil {
+	if err := s.requestRepo.Create(ctx, req); err != nil {
 		return nil, err
 	}
-	return s.requestRepo.FindByID(req.ID)
+	return s.requestRepo.FindByID(ctx, req.ID)
 }
 
 // ReleaseRequestInput mirrors the body of POST /loans/:id/release-request.
@@ -2403,8 +2528,8 @@ type ReleaseRequestInput struct {
 // pledged gold back. It does not itself close the loan — staff must Approve
 // it via DecideRequest, which moves the loan to Closure Requested; actual
 // closure still happens through the existing full-settlement payment flow.
-func (s *Service) CreateReleaseRequest(loanID uint, in ReleaseRequestInput) (*LoanRequest, error) {
-	if _, err := s.repo.FindByID(loanID); err != nil {
+func (s *Service) CreateReleaseRequest(ctx context.Context, loanID uint, in ReleaseRequestInput) (*LoanRequest, error) {
+	if _, err := s.repo.FindByID(ctx, loanID); err != nil {
 		return nil, ErrNotFound
 	}
 	requestedBy := in.RequestedBy
@@ -2419,21 +2544,21 @@ func (s *Service) CreateReleaseRequest(loanID uint, in ReleaseRequestInput) (*Lo
 		Detail:      in.Detail,
 		RequestedAt: time.Now(),
 	}
-	if err := s.requestRepo.Create(req); err != nil {
+	if err := s.requestRepo.Create(ctx, req); err != nil {
 		return nil, err
 	}
-	return s.requestRepo.FindByID(req.ID)
+	return s.requestRepo.FindByID(ctx, req.ID)
 }
 
-func (s *Service) ListRequests(f LoanRequestFilter) ([]LoanRequest, int64, error) {
-	return s.requestRepo.FindAll(f)
+func (s *Service) ListRequests(ctx context.Context, f LoanRequestFilter) ([]LoanRequest, int64, error) {
+	return s.requestRepo.FindAll(ctx, f)
 }
 
 // GetRequest fetches a single LoanRequest by ID — used by the generalized
 // POST /loans/requests/:requestId/approve handler to read req.Type before
 // dispatching to ApproveExtensionRequest or ApproveReleaseRequest.
-func (s *Service) GetRequest(requestID uint) (*LoanRequest, error) {
-	req, err := s.requestRepo.FindByID(requestID)
+func (s *Service) GetRequest(ctx context.Context, requestID uint) (*LoanRequest, error) {
+	req, err := s.requestRepo.FindByID(ctx, requestID)
 	if err != nil {
 		return nil, ErrRequestNotFound
 	}
@@ -2447,12 +2572,12 @@ func (s *Service) GetRequest(requestID uint) (*LoanRequest, error) {
 // now always returns ErrUseStagedExtensionApproval for Extension too. Kept
 // (rather than deleted) as the clear, explicit error surface for old
 // clients/routes that still call PUT /loans/requests/:requestId/decide.
-func (s *Service) DecideRequest(requestID uint, branchID *uint, approve bool, decidedByEmployeeID uint, remarks string) (*LoanRequest, error) {
-	req, err := s.requestRepo.FindByID(requestID)
+func (s *Service) DecideRequest(ctx context.Context, requestID uint, branchID *uint, approve bool, decidedByEmployeeID uint, remarks string) (*LoanRequest, error) {
+	req, err := s.requestRepo.FindByID(ctx, requestID)
 	if err != nil {
 		return nil, ErrRequestNotFound
 	}
-	if err := s.checkLoanBranch(req.LoanID, branchID); err != nil {
+	if err := s.checkLoanBranch(ctx, req.LoanID, branchID); err != nil {
 		return nil, err
 	}
 	if req.Type != RequestTypeExtension {
@@ -2487,12 +2612,12 @@ type ChecklistInput struct {
 // stage until all four are true. Previously had no role gate at all — any
 // authenticated caller could verify a release checklist; now requires "can
 // verify release checklist" (see internal/authz.Catalogue).
-func (s *Service) VerifyReleaseChecklist(requestID uint, branchID *uint, in ChecklistInput) (*LoanRequest, error) {
-	req, err := s.requestRepo.FindByID(requestID)
+func (s *Service) VerifyReleaseChecklist(ctx context.Context, requestID uint, branchID *uint, in ChecklistInput) (*LoanRequest, error) {
+	req, err := s.requestRepo.FindByID(ctx, requestID)
 	if err != nil {
 		return nil, ErrRequestNotFound
 	}
-	if err := s.checkLoanBranch(req.LoanID, branchID); err != nil {
+	if err := s.checkLoanBranch(ctx, req.LoanID, branchID); err != nil {
 		return nil, err
 	}
 	if req.Type != RequestTypeRelease {
@@ -2501,7 +2626,7 @@ func (s *Service) VerifyReleaseChecklist(requestID uint, branchID *uint, in Chec
 	if req.Status != RequestStatusPending {
 		return nil, ErrRequestAlreadyDecided
 	}
-	if !s.checkStagePermission(in.ActorRoleID, "can verify release checklist") {
+	if !s.checkStagePermission(ctx, in.ActorRoleID, "can verify release checklist") {
 		return nil, ErrWrongStage
 	}
 
@@ -2527,10 +2652,10 @@ func (s *Service) VerifyReleaseChecklist(requestID uint, branchID *uint, in Chec
 		req.ApprovalStage = ApprovalStagePendingManager
 	}
 
-	if err := s.requestRepo.Update(req); err != nil {
+	if err := s.requestRepo.Update(ctx, req); err != nil {
 		return nil, err
 	}
-	return s.requestRepo.FindByID(req.ID)
+	return s.requestRepo.FindByID(ctx, req.ID)
 }
 
 // ReleaseApprovalInput mirrors the body of POST /loans/requests/:requestId/approve.
@@ -2552,12 +2677,12 @@ type ReleaseApprovalInput struct {
 // SettlementAmount = Loan.TotalOutstandingBalance + Charges and moves the
 // loan to StatusClosureRequested; CompleteRelease (below) does the actual
 // hand-back once the settlement is fully paid.
-func (s *Service) ApproveReleaseRequest(requestID uint, branchID *uint, in ReleaseApprovalInput) (*LoanRequest, error) {
-	req, err := s.requestRepo.FindByID(requestID)
+func (s *Service) ApproveReleaseRequest(ctx context.Context, requestID uint, branchID *uint, in ReleaseApprovalInput) (*LoanRequest, error) {
+	req, err := s.requestRepo.FindByID(ctx, requestID)
 	if err != nil {
 		return nil, ErrRequestNotFound
 	}
-	if err := s.checkLoanBranch(req.LoanID, branchID); err != nil {
+	if err := s.checkLoanBranch(ctx, req.LoanID, branchID); err != nil {
 		return nil, err
 	}
 	if req.Type != RequestTypeRelease {
@@ -2592,7 +2717,7 @@ func (s *Service) ApproveReleaseRequest(requestID uint, branchID *uint, in Relea
 	// Previously had no role gate at all — any authenticated caller could
 	// approve either release stage; now requires the matching "Approval
 	// Workflow" permission (see internal/authz.Catalogue).
-	if requiredPermission != "" && !s.checkStagePermission(in.ActorRoleID, requiredPermission) {
+	if requiredPermission != "" && !s.checkStagePermission(ctx, in.ActorRoleID, requiredPermission) {
 		return nil, ErrWrongStage
 	}
 
@@ -2603,14 +2728,14 @@ func (s *Service) ApproveReleaseRequest(requestID uint, branchID *uint, in Relea
 		ActorEmployeeID: in.ActorEmployeeID,
 		Remarks:         in.Remarks,
 	}
-	if err := s.requestApprovalRepo.Create(audit); err != nil {
+	if err := s.requestApprovalRepo.Create(ctx, audit); err != nil {
 		return nil, err
 	}
 
 	// Loaded once, up front, purely for notifications below — LoanRequest has
 	// no CustomerID of its own (see model.go), only reachable via its parent
 	// Loan.
-	notifyLoan, _ := s.repo.FindByID(req.LoanID)
+	notifyLoan, _ := s.repo.FindByID(ctx, req.LoanID)
 
 	if in.Action == ApprovalStageRejected {
 		req.ApprovalStage = ApprovalStageRejected
@@ -2619,16 +2744,16 @@ func (s *Service) ApproveReleaseRequest(requestID uint, branchID *uint, in Relea
 		req.DecidedAt = &now
 		req.DecidedByEmployeeID = &in.ActorEmployeeID
 		req.Remarks = in.Remarks
-		if err := s.requestRepo.Update(req); err != nil {
+		if err := s.requestRepo.Update(ctx, req); err != nil {
 			return nil, err
 		}
 		if notifyLoan != nil {
-			s.notifyCustomer(notifyLoan.CustomerID, notifyLoan.Customer.Phone, "Release Rejected", fmt.Sprintf(
+			s.notifyCustomer(ctx, notifyLoan.CustomerID, notifyLoan.Customer.Phone, "Release Rejected", s.brandedMessage(ctx,
 				"Dear %s, your gold release request for loan %s has been rejected. Please contact the branch for details. — Ambika Gold Finance",
 				notifyLoan.Customer.Name, notifyLoan.LoanNumber,
 			), commlog.TriggerReleaseRequest, "loan_request", req.ID)
 		}
-		return s.requestRepo.FindByID(req.ID)
+		return s.requestRepo.FindByID(ctx, req.ID)
 	}
 
 	finalApproval := false
@@ -2639,13 +2764,13 @@ func (s *Service) ApproveReleaseRequest(requestID uint, branchID *uint, in Relea
 		req.ApprovalStage = ApprovalStageApproved
 		finalApproval = true
 
-		l, err := s.Get(req.LoanID, nil)
+		l, err := s.Get(ctx, req.LoanID, nil)
 		if err != nil {
 			return nil, err
 		}
 		req.SettlementAmount = l.TotalOutstandingBalance + req.Charges
 		l.Status = StatusClosureRequested
-		if err := s.repo.Update(l); err != nil {
+		if err := s.repo.Update(ctx, l); err != nil {
 			return nil, err
 		}
 
@@ -2656,23 +2781,23 @@ func (s *Service) ApproveReleaseRequest(requestID uint, branchID *uint, in Relea
 		req.Remarks = in.Remarks
 	}
 
-	if err := s.requestRepo.Update(req); err != nil {
+	if err := s.requestRepo.Update(ctx, req); err != nil {
 		return nil, err
 	}
 	if notifyLoan != nil {
 		if finalApproval {
-			s.notifyCustomer(notifyLoan.CustomerID, notifyLoan.Customer.Phone, "Release Approved", fmt.Sprintf(
+			s.notifyCustomer(ctx, notifyLoan.CustomerID, notifyLoan.Customer.Phone, "Release Approved", s.brandedMessage(ctx,
 				"Dear %s, your gold release request for loan %s has been fully approved. Closure is now being processed. — Ambika Gold Finance",
 				notifyLoan.Customer.Name, notifyLoan.LoanNumber,
 			), commlog.TriggerReleaseRequest, "loan_request", req.ID)
 		} else {
-			s.notifyCustomer(notifyLoan.CustomerID, notifyLoan.Customer.Phone, "Release Approved", fmt.Sprintf(
+			s.notifyCustomer(ctx, notifyLoan.CustomerID, notifyLoan.Customer.Phone, "Release Approved", s.brandedMessage(ctx,
 				"Dear %s, your gold release request for loan %s has moved to the next approval stage (Management). — Ambika Gold Finance",
 				notifyLoan.Customer.Name, notifyLoan.LoanNumber,
 			), commlog.TriggerReleaseRequest, "loan_request", req.ID)
 		}
 	}
-	return s.requestRepo.FindByID(req.ID)
+	return s.requestRepo.FindByID(ctx, req.ID)
 }
 
 // extensionChain is the Extension-request chain's fixed stage order,
@@ -2707,12 +2832,12 @@ type ExtensionApprovalInput struct {
 // Approved action (Management stage) pushes the loan's DueDate out by the
 // requested months, exactly like DecideRequest used to, and is blocked if
 // the loan has already reached a terminal state (nothing left to extend).
-func (s *Service) ApproveExtensionRequest(requestID uint, branchID *uint, in ExtensionApprovalInput) (*LoanRequest, error) {
-	req, err := s.requestRepo.FindByID(requestID)
+func (s *Service) ApproveExtensionRequest(ctx context.Context, requestID uint, branchID *uint, in ExtensionApprovalInput) (*LoanRequest, error) {
+	req, err := s.requestRepo.FindByID(ctx, requestID)
 	if err != nil {
 		return nil, ErrRequestNotFound
 	}
-	if err := s.checkLoanBranch(req.LoanID, branchID); err != nil {
+	if err := s.checkLoanBranch(ctx, req.LoanID, branchID); err != nil {
 		return nil, err
 	}
 	if req.Type != RequestTypeExtension {
@@ -2740,7 +2865,7 @@ func (s *Service) ApproveExtensionRequest(requestID uint, branchID *uint, in Ext
 	if in.Stage != expectedStage {
 		return nil, ErrWrongStage
 	}
-	if requiredPermission != "" && !s.checkStagePermission(in.ActorRoleID, requiredPermission) {
+	if requiredPermission != "" && !s.checkStagePermission(ctx, in.ActorRoleID, requiredPermission) {
 		return nil, ErrWrongStage
 	}
 
@@ -2751,14 +2876,14 @@ func (s *Service) ApproveExtensionRequest(requestID uint, branchID *uint, in Ext
 		ActorEmployeeID: in.ActorEmployeeID,
 		Remarks:         in.Remarks,
 	}
-	if err := s.requestApprovalRepo.Create(audit); err != nil {
+	if err := s.requestApprovalRepo.Create(ctx, audit); err != nil {
 		return nil, err
 	}
 
 	// Loaded once, up front, purely for notifications below — LoanRequest has
 	// no CustomerID of its own (see model.go), only reachable via its parent
 	// Loan.
-	notifyLoan, _ := s.repo.FindByID(req.LoanID)
+	notifyLoan, _ := s.repo.FindByID(ctx, req.LoanID)
 
 	if in.Action == ApprovalStageRejected {
 		req.ApprovalStage = ApprovalStageRejected
@@ -2767,16 +2892,16 @@ func (s *Service) ApproveExtensionRequest(requestID uint, branchID *uint, in Ext
 		req.DecidedAt = &now
 		req.DecidedByEmployeeID = &in.ActorEmployeeID
 		req.Remarks = in.Remarks
-		if err := s.requestRepo.Update(req); err != nil {
+		if err := s.requestRepo.Update(ctx, req); err != nil {
 			return nil, err
 		}
 		if notifyLoan != nil {
-			s.notifyCustomer(notifyLoan.CustomerID, notifyLoan.Customer.Phone, "Extension Rejected", fmt.Sprintf(
+			s.notifyCustomer(ctx, notifyLoan.CustomerID, notifyLoan.Customer.Phone, "Extension Rejected", s.brandedMessage(ctx,
 				"Dear %s, your extension request for loan %s has been rejected. Please contact the branch for details. — Ambika Gold Finance",
 				notifyLoan.Customer.Name, notifyLoan.LoanNumber,
 			), commlog.TriggerExtensionRequest, "loan_request", req.ID)
 		}
-		return s.requestRepo.FindByID(req.ID)
+		return s.requestRepo.FindByID(ctx, req.ID)
 	}
 
 	finalApproval := false
@@ -2789,7 +2914,7 @@ func (s *Service) ApproveExtensionRequest(requestID uint, branchID *uint, in Ext
 		req.ApprovalStage = ApprovalStagePendingManagement
 		nextStageLabel = "Management"
 	case ApprovalStagePendingManagement:
-		l, err := s.repo.FindByID(req.LoanID)
+		l, err := s.repo.FindByID(ctx, req.LoanID)
 		if err != nil {
 			return nil, ErrNotFound
 		}
@@ -2809,7 +2934,7 @@ func (s *Service) ApproveExtensionRequest(requestID uint, branchID *uint, in Ext
 		// been reminded against it yet, so both must reset.
 		l.DueSoonNotifiedAt = nil
 		l.OverdueNotifiedAt = nil
-		if _, err := s.recalculateAndSave(l); err != nil {
+		if _, err := s.recalculateAndSave(ctx, l); err != nil {
 			return nil, err
 		}
 
@@ -2823,47 +2948,43 @@ func (s *Service) ApproveExtensionRequest(requestID uint, branchID *uint, in Ext
 		notifyLoan = l
 	}
 
-	if err := s.requestRepo.Update(req); err != nil {
+	if err := s.requestRepo.Update(ctx, req); err != nil {
 		return nil, err
 	}
 	if notifyLoan != nil {
 		if finalApproval {
-			s.notifyCustomer(notifyLoan.CustomerID, notifyLoan.Customer.Phone, "Extension Approved", fmt.Sprintf(
+			s.notifyCustomer(ctx, notifyLoan.CustomerID, notifyLoan.Customer.Phone, "Extension Approved", s.brandedMessage(ctx,
 				"Dear %s, your extension request for loan %s has been fully approved. New due date: %s. — Ambika Gold Finance",
 				notifyLoan.Customer.Name, notifyLoan.LoanNumber, notifyLoan.DueDate.Format("02-Jan-2006"),
 			), commlog.TriggerExtensionRequest, "loan_request", req.ID)
 		} else if nextStageLabel != "" {
-			s.notifyCustomer(notifyLoan.CustomerID, notifyLoan.Customer.Phone, "Extension Approved", fmt.Sprintf(
+			s.notifyCustomer(ctx, notifyLoan.CustomerID, notifyLoan.Customer.Phone, "Extension Approved", s.brandedMessage(ctx,
 				"Dear %s, your extension request for loan %s has moved to the next approval stage (%s). — Ambika Gold Finance",
 				notifyLoan.Customer.Name, notifyLoan.LoanNumber, nextStageLabel,
 			), commlog.TriggerExtensionRequest, "loan_request", req.ID)
 		}
 	}
-	return s.requestRepo.FindByID(req.ID)
+	return s.requestRepo.FindByID(ctx, req.ID)
 }
 
 // CompleteRelease is the actual "hand the gold back" step — separate from
-// approving the release request. It requires: the settlement fully paid
-// (TotalOutstandingBalance <= 0 — every repayment recorded via RecordPayment
-// has already reduced this automatically); and the bank pledge already
-// released, if there was one. Only then does it move the loan's packet to
-// Released and close the loan.
-//
-// An Approved Release request is only required when the balance ISN'T
-// already fully cleared — that request (checklist + Manager/Management
-// sign-off) is how the early/manual release path authorizes handing gold
-// back before repayment is complete. Once RecordPayment has already brought
-// the balance to zero, the payment itself is the authorization; requiring a
-// separate formal request on top of that would gate the ordinary
-// pay-then-release flow behind a step nobody would otherwise need to take.
-func (s *Service) CompleteRelease(loanID uint, branchID *uint, employeeID uint) (*Loan, error) {
-	l, err := s.Get(loanID, branchID)
+// approving the release request. It requires: an Approved Release request
+// for this loan; the settlement fully paid (TotalOutstandingBalance <= 0 —
+// every repayment recorded via RecordPayment has already reduced this
+// automatically); and the bank pledge already released, if there was one.
+// Only then does it move the loan's packet to Released and close the loan.
+func (s *Service) CompleteRelease(ctx context.Context, loanID uint, branchID *uint, employeeID uint) (*Loan, error) {
+	if _, err := s.requestRepo.FindApprovedReleaseByLoanID(ctx, loanID); err != nil {
+		return nil, ErrReleaseNotApproved
+	}
+
+	l, err := s.Get(ctx, loanID, branchID)
 	if err != nil {
 		return nil, err
 	}
 	paidInFull := l.TotalOutstandingBalance <= 0.01
 	if !paidInFull {
-		if _, err := s.requestRepo.FindApprovedReleaseByLoanID(loanID); err != nil {
+		if _, err := s.requestRepo.FindApprovedReleaseByLoanID(ctx, loanID); err != nil {
 			return nil, ErrReleaseNotApproved
 		}
 	}
@@ -2879,7 +3000,7 @@ func (s *Service) CompleteRelease(loanID uint, branchID *uint, employeeID uint) 
 	if l.BankPledgeStatus == BankPledgeStatusPledged {
 		return nil, ErrBankPledgeStillActive
 	}
-	hasActivePledge, err := s.pledgeRepo.HasActive(loanID)
+	hasActivePledge, err := s.pledgeRepo.HasActive(ctx, loanID)
 	if err != nil {
 		return nil, err
 	}
@@ -2888,16 +3009,16 @@ func (s *Service) CompleteRelease(loanID uint, branchID *uint, employeeID uint) 
 	}
 
 	if s.packetMover != nil {
-		if err := s.packetMover.RecordGoldReleaseMovement(loanID, "Gold released to customer"); err != nil {
+		if err := s.packetMover.RecordGoldReleaseMovement(ctx, loanID, "Gold released to customer"); err != nil {
 			log.Printf("packet gold-release movement failed for loan %d: %v", loanID, err)
 		}
 	}
 
 	l.Status = StatusClosed
-	if err := s.repo.Update(l); err != nil {
+	if err := s.repo.Update(ctx, l); err != nil {
 		return nil, err
 	}
-	return s.Get(l.ID, nil)
+	return s.Get(ctx, l.ID, nil)
 }
 
 // ReleaseBankPledge reclaims a loan's gold from the bank. Its cash effect
@@ -2906,15 +3027,15 @@ func (s *Service) CompleteRelease(loanID uint, branchID *uint, employeeID uint) 
 // nothing was booked in, so nothing is booked out. Without that symmetry a
 // RecordOnly pledge would credit the till on release for money that never
 // arrived.
-func (s *Service) ReleaseBankPledge(loanID, pledgeID uint, branchID *uint, actorID *uint, actorRole string) (*Loan, error) {
-	l, err := s.repo.FindByID(loanID)
+func (s *Service) ReleaseBankPledge(ctx context.Context, loanID, pledgeID uint, branchID *uint, actorID *uint, actorRole string) (*Loan, error) {
+	l, err := s.repo.FindByID(ctx, loanID)
 	if err != nil {
 		return nil, ErrNotFound
 	}
 	if branchID != nil && l.BranchID != *branchID {
 		return nil, ErrNotFound
 	}
-	p, err := s.pledgeRepo.FindByID(pledgeID)
+	p, err := s.pledgeRepo.FindByID(ctx, pledgeID)
 	if err != nil || p.LoanID != loanID {
 		return nil, ErrNotFound
 	}
@@ -2922,17 +3043,17 @@ func (s *Service) ReleaseBankPledge(loanID, pledgeID uint, branchID *uint, actor
 	now := time.Now()
 	p.ReleaseDate = &now
 	p.Status = BankPledgeStatusRecordReleased
-	if err := s.pledgeRepo.Update(p); err != nil {
+	if err := s.pledgeRepo.Update(ctx, p); err != nil {
 		return nil, err
 	}
 
 	l.BankPledgeStatus = BankPledgeStatusReleased
-	if err := s.repo.Update(l); err != nil {
+	if err := s.repo.Update(ctx, l); err != nil {
 		return nil, err
 	}
 
 	if s.packetMover != nil {
-		if err := s.packetMover.RecordBankReleaseMovement(loanID, "Gold returned from bank: "+p.BankName); err != nil {
+		if err := s.packetMover.RecordBankReleaseMovement(ctx, loanID, "Gold returned from bank: "+p.BankName); err != nil {
 			log.Printf("packet bank-release movement failed for loan %d: %v", loanID, err)
 		}
 	}
@@ -2948,28 +3069,28 @@ func (s *Service) ReleaseBankPledge(loanID, pledgeID uint, branchID *uint, actor
 		// cash-out movement above already covers the same amount, so a
 		// "Cash" expense would subtract it twice from Expected Cash in Hand
 		// (see cash.SummaryService.ForDate, which offsets only Mode "Cash").
-		movementID, err := s.cashRecorder.RecordBankPledgeCashOut(loanID, p.BankName, p.PledgedAmount, now, l.BranchID)
+		movementID, err := s.cashRecorder.RecordBankPledgeCashOut(ctx, loanID, p.BankName, p.PledgedAmount, now, l.BranchID)
 		if err != nil {
 			log.Printf("cash-out movement (bank release) failed for loan %d: %v", loanID, err)
 		} else {
 			p.ReleaseCashMovementID = &movementID
 		}
 
-		expenseID, err := s.cashRecorder.RecordBankPledgeReleaseExpense(loanID, p.BankName, p.PledgedAmount, now, l.BranchID)
+		expenseID, err := s.cashRecorder.RecordBankPledgeReleaseExpense(ctx, loanID, p.BankName, p.PledgedAmount, now, l.BranchID)
 		if err != nil {
 			log.Printf("release expense entry (bank release) failed for loan %d: %v", loanID, err)
 		} else {
 			p.ReleaseExpenseID = &expenseID
 		}
 
-		if err := s.pledgeRepo.Update(p); err != nil {
+		if err := s.pledgeRepo.Update(ctx, p); err != nil {
 			log.Printf("saving cash-out movement/expense links (bank release) failed for loan %d: %v", loanID, err)
 		}
 	}
 
-	s.recordPledgeEvent(p, BankPledgeEventReleased, actorID, actorRole, pledgeReleaseRemark(p.CashTreatment))
+	s.recordPledgeEvent(ctx, p, BankPledgeEventReleased, actorID, actorRole, pledgeReleaseRemark(p.CashTreatment))
 
-	return s.Get(l.ID, nil)
+	return s.Get(ctx, l.ID, nil)
 }
 
 func pledgeReleaseRemark(treatment string) string {
@@ -2988,15 +3109,15 @@ func pledgeReleaseRemark(treatment string) string {
 // Voiding instead leaves the original record fully intact and visible, books a
 // compensating cash-out only if the original actually moved cash, and logs who
 // voided it and why. Staff then create a fresh pledge with the right treatment.
-func (s *Service) VoidBankPledge(loanID, pledgeID uint, branchID *uint, reason string, actorID *uint, actorRole string) (*Loan, error) {
-	l, err := s.repo.FindByID(loanID)
+func (s *Service) VoidBankPledge(ctx context.Context, loanID, pledgeID uint, branchID *uint, reason string, actorID *uint, actorRole string) (*Loan, error) {
+	l, err := s.repo.FindByID(ctx, loanID)
 	if err != nil {
 		return nil, ErrNotFound
 	}
 	if branchID != nil && l.BranchID != *branchID {
 		return nil, ErrNotFound
 	}
-	p, err := s.pledgeRepo.FindByID(pledgeID)
+	p, err := s.pledgeRepo.FindByID(ctx, pledgeID)
 	if err != nil || p.LoanID != loanID {
 		return nil, ErrPledgeNotFound
 	}
@@ -3015,7 +3136,7 @@ func (s *Service) VoidBankPledge(loanID, pledgeID uint, branchID *uint, reason s
 	// Only a pledge that actually credited the till needs a reversal. Voiding a
 	// RecordOnly pledge touches no cash, exactly as creating it didn't.
 	if p.CashTreatment == BankPledgeCashTreatmentCashIn && s.cashRecorder != nil {
-		movementID, err := s.cashRecorder.RecordBankPledgeCashOut(loanID, p.BankName, p.PledgedAmount, now, l.BranchID)
+		movementID, err := s.cashRecorder.RecordBankPledgeCashOut(ctx, loanID, p.BankName, p.PledgedAmount, now, l.BranchID)
 		if err != nil {
 			log.Printf("compensating cash-out (pledge void) failed for loan %d: %v", loanID, err)
 		} else {
@@ -3023,40 +3144,40 @@ func (s *Service) VoidBankPledge(loanID, pledgeID uint, branchID *uint, reason s
 		}
 	}
 
-	if err := s.pledgeRepo.Update(p); err != nil {
+	if err := s.pledgeRepo.Update(ctx, p); err != nil {
 		return nil, err
 	}
 
 	// The gold was never really with the bank, so the loan goes back to
 	// not-pledged and the packet is moved back accordingly.
 	l.BankPledgeStatus = BankPledgeStatusNotPledged
-	if err := s.repo.Update(l); err != nil {
+	if err := s.repo.Update(ctx, l); err != nil {
 		return nil, err
 	}
 	if s.packetMover != nil {
-		if err := s.packetMover.RecordBankReleaseMovement(loanID, "Bank pledge voided: "+reason); err != nil {
+		if err := s.packetMover.RecordBankReleaseMovement(ctx, loanID, "Bank pledge voided: "+reason); err != nil {
 			log.Printf("packet movement (pledge void) failed for loan %d: %v", loanID, err)
 		}
 	}
 
-	s.recordPledgeEvent(p, BankPledgeEventVoided, actorID, actorRole, reason)
+	s.recordPledgeEvent(ctx, p, BankPledgeEventVoided, actorID, actorRole, reason)
 
-	return s.Get(l.ID, nil)
+	return s.Get(ctx, l.ID, nil)
 }
 
 // GetBankPledgeHistory returns every re-pledge ever recorded against a loan,
 // including released and voided ones, each with its audit trail.
-func (s *Service) GetBankPledgeHistory(loanID uint, branchID *uint) ([]BankPledgeRecord, error) {
-	if err := s.checkLoanBranch(loanID, branchID); err != nil {
+func (s *Service) GetBankPledgeHistory(ctx context.Context, loanID uint, branchID *uint) ([]BankPledgeRecord, error) {
+	if err := s.checkLoanBranch(ctx, loanID, branchID); err != nil {
 		return nil, err
 	}
-	return s.pledgeRepo.FindHistoryByLoanID(loanID)
+	return s.pledgeRepo.FindHistoryByLoanID(ctx, loanID)
 }
 
 // ListBankPledgeHistory returns re-pledge records across all loans, scoped to
 // the caller's branch — backs the Bank Re-Pledge screen's History tab.
-func (s *Service) ListBankPledgeHistory(branchID *uint, limit, offset int) ([]BankPledgeRecord, int64, error) {
-	return s.pledgeRepo.FindAllHistory(branchID, limit, offset)
+func (s *Service) ListBankPledgeHistory(ctx context.Context, branchID *uint, limit, offset int) ([]BankPledgeRecord, int64, error) {
+	return s.pledgeRepo.FindAllHistory(ctx, branchID, limit, offset)
 }
 
 // --- Customer 360 -----------------------------------------------------------
@@ -3086,19 +3207,19 @@ type Customer360 struct {
 // because every other section of the 360 view (ornaments, payments, bank
 // pledges, auction history) and every total below is derived from the loan
 // set, narrowing the window narrows the entire profile consistently.
-func (s *Service) GetCustomer360(customerID uint, from, to *time.Time) (*Customer360, error) {
-	cust, err := s.customerRepo.FindByID(customerID)
+func (s *Service) GetCustomer360(ctx context.Context, customerID uint, from, to *time.Time) (*Customer360, error) {
+	cust, err := s.customerRepo.FindByID(ctx, customerID)
 	if err != nil {
 		return nil, ErrCustomerInvalid
 	}
-	loans, _, err := s.repo.FindAll(LoanFilter{CustomerID: customerID, OpenedFrom: from, OpenedTo: to})
+	loans, _, err := s.repo.FindAll(ctx, LoanFilter{CustomerID: customerID, OpenedFrom: from, OpenedTo: to})
 	if err != nil {
 		return nil, err
 	}
 
 	out := &Customer360{Customer: cust.ToResponse()}
 	for i := range loans {
-		s.enrich(&loans[i])
+		s.enrich(ctx, &loans[i])
 		// Only money that actually left the till. A loan still in the sanction
 		// chain (or rejected) has been disbursed nothing — see Decide's
 		// `disbursing` flag, which is what triggers the cash-out movement.
@@ -3123,7 +3244,7 @@ func (s *Service) GetCustomer360(customerID uint, from, to *time.Time) (*Custome
 		// A loan can accumulate several auction cases over its life (one
 		// withdrawn after the customer caught up, another after a later
 		// default), so the 360 view shows all of them rather than just one.
-		if recs, err := s.auctionRepo.FindHistoryByLoanID(loans[i].ID); err == nil {
+		if recs, err := s.auctionRepo.FindHistoryByLoanID(ctx, loans[i].ID); err == nil {
 			out.AuctionHistory = append(out.AuctionHistory, recs...)
 		}
 	}
@@ -3136,49 +3257,58 @@ func (s *Service) GetCustomer360(customerID uint, from, to *time.Time) (*Custome
 // Reuses the existing List/FindAll path (with enrichment and accrual
 // projection) rather than a bespoke query, since a customer's loan list is
 // already exactly what LoanFilter{CustomerID: ...} produces.
-func (s *Service) ListLoansForCustomer(customerID uint, from, to *time.Time, limit, offset int) ([]Loan, int64, error) {
-	return s.List(LoanFilter{CustomerID: customerID, OpenedFrom: from, OpenedTo: to, Limit: limit, Offset: offset})
+func (s *Service) ListLoansForCustomer(ctx context.Context, customerID uint, from, to *time.Time, limit, offset int) ([]Loan, int64, error) {
+	// The customer is resolved first, exactly as the four sibling sub-table
+	// methods below do. This was the one of the five that omitted it, so it
+	// answered 200 with an empty list for a customer belonging to another
+	// business while the others answered 404 — found by the isolation
+	// harness. The customer lookup runs under the caller's tenant, so
+	// another business's customer is simply not found.
+	if _, err := s.customerRepo.FindByID(ctx, customerID); err != nil {
+		return nil, 0, ErrCustomerInvalid
+	}
+	return s.List(ctx, LoanFilter{CustomerID: customerID, OpenedFrom: from, OpenedTo: to, Limit: limit, Offset: offset})
 }
 
 // ListOrnamentsForCustomer paginates every ornament pledged across every
 // loan belonging to customerID — backs GET /customers/:id/ornaments, the
 // Customer 360 view's Pledged Ornaments sub-table.
-func (s *Service) ListOrnamentsForCustomer(customerID uint, from, to *time.Time, limit, offset int) ([]CustomerOrnamentRow, int64, error) {
-	if _, err := s.customerRepo.FindByID(customerID); err != nil {
+func (s *Service) ListOrnamentsForCustomer(ctx context.Context, customerID uint, from, to *time.Time, limit, offset int) ([]CustomerOrnamentRow, int64, error) {
+	if _, err := s.customerRepo.FindByID(ctx, customerID); err != nil {
 		return nil, 0, ErrCustomerInvalid
 	}
-	return s.ornamentRepo.FindByCustomerID(customerID, from, to, limit, offset)
+	return s.ornamentRepo.FindByCustomerID(ctx, customerID, from, to, limit, offset)
 }
 
 // ListPaymentsForCustomer paginates every payment across every loan
 // belonging to customerID — backs GET /customers/:id/payments, the
 // Customer 360 view's Payment History sub-table.
-func (s *Service) ListPaymentsForCustomer(customerID uint, from, to *time.Time, limit, offset int) ([]CustomerPaymentRow, int64, error) {
-	if _, err := s.customerRepo.FindByID(customerID); err != nil {
+func (s *Service) ListPaymentsForCustomer(ctx context.Context, customerID uint, from, to *time.Time, limit, offset int) ([]CustomerPaymentRow, int64, error) {
+	if _, err := s.customerRepo.FindByID(ctx, customerID); err != nil {
 		return nil, 0, ErrCustomerInvalid
 	}
-	return s.paymentRepo.FindByCustomerIDForProfile(customerID, from, to, limit, offset)
+	return s.paymentRepo.FindByCustomerIDForProfile(ctx, customerID, from, to, limit, offset)
 }
 
 // ListBankPledgesForCustomer paginates every re-pledge record across every
 // loan belonging to customerID — backs GET /customers/:id/bank-pledges, the
 // Customer 360 view's Bank Pledges sub-table.
-func (s *Service) ListBankPledgesForCustomer(customerID uint, from, to *time.Time, limit, offset int) ([]CustomerBankPledgeRow, int64, error) {
-	if _, err := s.customerRepo.FindByID(customerID); err != nil {
+func (s *Service) ListBankPledgesForCustomer(ctx context.Context, customerID uint, from, to *time.Time, limit, offset int) ([]CustomerBankPledgeRow, int64, error) {
+	if _, err := s.customerRepo.FindByID(ctx, customerID); err != nil {
 		return nil, 0, ErrCustomerInvalid
 	}
-	return s.pledgeRepo.FindAllByCustomerID(customerID, from, to, limit, offset)
+	return s.pledgeRepo.FindAllByCustomerID(ctx, customerID, from, to, limit, offset)
 }
 
 // ListAuctionHistoryForCustomer paginates every auction case ever opened
 // across every loan belonging to customerID — backs
 // GET /customers/:id/auction-history, the Customer 360 view's Auction
 // History sub-table.
-func (s *Service) ListAuctionHistoryForCustomer(customerID uint, from, to *time.Time, limit, offset int) ([]CustomerAuctionRow, int64, error) {
-	if _, err := s.customerRepo.FindByID(customerID); err != nil {
+func (s *Service) ListAuctionHistoryForCustomer(ctx context.Context, customerID uint, from, to *time.Time, limit, offset int) ([]CustomerAuctionRow, int64, error) {
+	if _, err := s.customerRepo.FindByID(ctx, customerID); err != nil {
 		return nil, 0, ErrCustomerInvalid
 	}
-	return s.auctionRepo.FindAllByCustomerID(customerID, from, to, limit, offset)
+	return s.auctionRepo.FindAllByCustomerID(ctx, customerID, from, to, limit, offset)
 }
 
 // --- Indemnity bond Aadhaar eSign (Setu) ------------------------------------
@@ -3188,7 +3318,7 @@ func (s *Service) ListAuctionHistoryForCustomer(customerID uint, from, to *time.
 // printIndemnity() assembles via buildDraft(), computed from the loan's own
 // data rather than the pre-save draft it uses (this runs against a real,
 // persisted loan — see StartIndemnityBondSign).
-func (s *Service) bondDataForLoan(l *Loan) BondData {
+func (s *Service) bondDataForLoan(ctx context.Context, l *Loan) BondData {
 	now := time.Now()
 	age := 0
 	if !l.Customer.DOB.IsZero() {
@@ -3231,6 +3361,7 @@ func (s *Service) bondDataForLoan(l *Loan) BondData {
 		Day:             now.Day(),
 		Month:           now.Month().String(),
 		Year:            now.Year(),
+		BusinessName: s.businessName(ctx),
 	}
 }
 
@@ -3248,14 +3379,14 @@ func (s *Service) bondDataForLoan(l *Loan) BondData {
 // The bond's print-and-sign-by-hand buttons (NewLoan.tsx/LoanDetail.tsx)
 // are untouched by this — eSign is an additional path, not a replacement,
 // since it needs the customer's own device and network.
-func (s *Service) StartIndemnityBondSign(loanID uint, branchID *uint, lang string, redirectURL string) (*platform.SignatureRequest, error) {
+func (s *Service) StartIndemnityBondSign(ctx context.Context, loanID uint, branchID *uint, lang string, redirectURL string) (*platform.SignatureRequest, error) {
 	if s.esign == nil {
 		return nil, ErrEsignNotConfigured
 	}
 	if lang != "en" {
 		return nil, ErrUnsupportedIndemnityBondLang
 	}
-	l, err := s.repo.FindByID(loanID)
+	l, err := s.repo.FindByID(ctx, loanID)
 	if err != nil {
 		return nil, ErrNotFound
 	}
@@ -3266,7 +3397,13 @@ func (s *Service) StartIndemnityBondSign(loanID uint, branchID *uint, lang strin
 		return nil, ErrIndemnityBondAlreadySigned
 	}
 
-	pdfBytes, err := RenderIndemnityBondPDF(s.bondDataForLoan(l))
+	if tenantID, ok := platform.TenantFromContext(ctx); ok {
+		if err := platform.CheckAndRecordUsage(s.db, tenantID, platform.UsageSetuEsign); err != nil {
+			return nil, err
+		}
+	}
+
+	pdfBytes, err := RenderIndemnityBondPDF(s.bondDataForLoan(ctx, l))
 	if err != nil {
 		return nil, err
 	}
@@ -3313,7 +3450,7 @@ func (s *Service) StartIndemnityBondSign(loanID uint, branchID *uint, lang strin
 	l.IndemnityBondDocumentID = doc.ID
 	l.IndemnityBondSignRequestID = req.ID
 	l.IndemnityBondSignStatus = req.Status
-	if err := s.repo.Update(l); err != nil {
+	if err := s.repo.Update(ctx, l); err != nil {
 		return nil, err
 	}
 	return req, nil
@@ -3327,11 +3464,11 @@ func (s *Service) StartIndemnityBondSign(loanID uint, branchID *uint, lang strin
 // Setu's (time-limited) link and re-hosts it via internal/upload so the
 // loan keeps its own permanent copy rather than depending on Setu's
 // validUpto-bounded URL.
-func (s *Service) CheckIndemnityBondSign(loanID uint, branchID *uint) (*Loan, *platform.SignatureStatus, error) {
+func (s *Service) CheckIndemnityBondSign(ctx context.Context, loanID uint, branchID *uint) (*Loan, *platform.SignatureStatus, error) {
 	if s.esign == nil {
 		return nil, nil, ErrEsignNotConfigured
 	}
-	l, err := s.repo.FindByID(loanID)
+	l, err := s.repo.FindByID(ctx, loanID)
 	if err != nil {
 		return nil, nil, ErrNotFound
 	}
@@ -3348,7 +3485,7 @@ func (s *Service) CheckIndemnityBondSign(loanID uint, branchID *uint) (*Loan, *p
 	}
 	if status.Status != "sign_complete" {
 		l.IndemnityBondSignStatus = status.Status
-		if updErr := s.repo.Update(l); updErr != nil {
+		if updErr := s.repo.Update(ctx, l); updErr != nil {
 			log.Printf("indemnity bond sign status update failed for loan %d: %v", l.ID, updErr)
 		}
 		return l, status, nil
@@ -3372,7 +3509,7 @@ func (s *Service) CheckIndemnityBondSign(loanID uint, branchID *uint) (*Loan, *p
 		return nil, nil, fmt.Errorf("indemnity bond: read signed document: %w", err)
 	}
 
-	url, err := upload.SaveBytes(s.uploadsDir, "indemnity-bond-"+l.LoanNumber+".pdf", pdfBytes)
+	url, err := upload.SaveBytesRecorded(ctx, s.uploadRepo, s.uploadsDir, "indemnity-bond-"+l.LoanNumber+".pdf", pdfBytes)
 	if err != nil {
 		return nil, nil, fmt.Errorf("indemnity bond: store signed document: %w", err)
 	}
@@ -3381,11 +3518,11 @@ func (s *Service) CheckIndemnityBondSign(loanID uint, branchID *uint) (*Loan, *p
 	l.IndemnityBondSignStatus = "sign_complete"
 	l.IndemnityBondSignedURL = url
 	l.IndemnityBondSignedAt = &now
-	if err := s.repo.Update(l); err != nil {
+	if err := s.repo.Update(ctx, l); err != nil {
 		return nil, nil, err
 	}
 
-	updated, err := s.repo.FindByID(l.ID)
+	updated, err := s.repo.FindByID(ctx, l.ID)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -3445,11 +3582,11 @@ func (in DraftInput) toOrnamentRows() []LoanDraftOrnament {
 // but customer/scheme/locker are NOT — an unverified customer or an inactive
 // scheme is a perfectly normal thing to have half-selected, and those rules
 // are applied at submission by Create.
-func (s *Service) SaveDraft(actorEmployeeID uint, in DraftInput) (*LoanDraft, error) {
+func (s *Service) SaveDraft(ctx context.Context, actorEmployeeID uint, in DraftInput) (*LoanDraft, error) {
 	if in.BranchID == 0 {
 		return nil, ErrDraftBranchRequired
 	}
-	if _, err := s.branchRepo.FindByID(in.BranchID); err != nil {
+	if _, err := s.branchRepo.FindByID(ctx, in.BranchID); err != nil {
 		return nil, ErrBranchInvalid
 	}
 	d := &LoanDraft{
@@ -3461,18 +3598,18 @@ func (s *Service) SaveDraft(actorEmployeeID uint, in DraftInput) (*LoanDraft, er
 		PrincipalOverride:   in.PrincipalOverride,
 		Ornaments:           in.toOrnamentRows(),
 	}
-	if err := s.draftRepo.Create(d); err != nil {
+	if err := s.draftRepo.Create(ctx, d); err != nil {
 		return nil, err
 	}
-	return s.draftRepo.FindByID(d.ID)
+	return s.draftRepo.FindByID(ctx, d.ID)
 }
 
 // UpdateDraft overwrites an existing draft — what the "Save Draft" button
 // does on its second and subsequent presses within the same sitting, so
 // repeated saves don't accumulate near-identical drafts. Only the owner may
 // update; anyone else gets ErrDraftNotFound.
-func (s *Service) UpdateDraft(draftID, actorEmployeeID uint, in DraftInput) (*LoanDraft, error) {
-	existing, err := s.getOwnDraft(draftID, actorEmployeeID)
+func (s *Service) UpdateDraft(ctx context.Context, draftID, actorEmployeeID uint, in DraftInput) (*LoanDraft, error) {
+	existing, err := s.getOwnDraft(ctx, draftID, actorEmployeeID)
 	if err != nil {
 		return nil, err
 	}
@@ -3480,7 +3617,7 @@ func (s *Service) UpdateDraft(draftID, actorEmployeeID uint, in DraftInput) (*Lo
 		return nil, ErrDraftBranchRequired
 	}
 	if in.BranchID != existing.BranchID {
-		if _, err := s.branchRepo.FindByID(in.BranchID); err != nil {
+		if _, err := s.branchRepo.FindByID(ctx, in.BranchID); err != nil {
 			return nil, ErrBranchInvalid
 		}
 	}
@@ -3490,31 +3627,31 @@ func (s *Service) UpdateDraft(draftID, actorEmployeeID uint, in DraftInput) (*Lo
 	existing.LockerID = in.LockerID
 	existing.PrincipalOverride = in.PrincipalOverride
 	existing.Ornaments = in.toOrnamentRows()
-	if err := s.draftRepo.Replace(existing); err != nil {
+	if err := s.draftRepo.Replace(ctx, existing); err != nil {
 		return nil, err
 	}
-	return s.draftRepo.FindByID(existing.ID)
+	return s.draftRepo.FindByID(ctx, existing.ID)
 }
 
 // ListDrafts returns the caller's own saved drafts, newest-saved first.
-func (s *Service) ListDrafts(actorEmployeeID uint, branchScope *uint) ([]LoanDraft, error) {
-	return s.draftRepo.FindAllByEmployee(actorEmployeeID, branchScope)
+func (s *Service) ListDrafts(ctx context.Context, actorEmployeeID uint, branchScope *uint) ([]LoanDraft, error) {
+	return s.draftRepo.FindAllByEmployee(ctx, actorEmployeeID, branchScope)
 }
 
 // GetDraft returns one of the caller's own drafts, for reopening it in the
 // New Gold Loan form.
-func (s *Service) GetDraft(draftID, actorEmployeeID uint) (*LoanDraft, error) {
-	return s.getOwnDraft(draftID, actorEmployeeID)
+func (s *Service) GetDraft(ctx context.Context, draftID, actorEmployeeID uint) (*LoanDraft, error) {
+	return s.getOwnDraft(ctx, draftID, actorEmployeeID)
 }
 
 // DeleteDraft discards a draft — either explicitly ("Discard"), or
 // automatically once the loan it became has been created (see
 // DeleteDraftQuietly).
-func (s *Service) DeleteDraft(draftID, actorEmployeeID uint) error {
-	if _, err := s.getOwnDraft(draftID, actorEmployeeID); err != nil {
+func (s *Service) DeleteDraft(ctx context.Context, draftID, actorEmployeeID uint) error {
+	if _, err := s.getOwnDraft(ctx, draftID, actorEmployeeID); err != nil {
 		return err
 	}
-	return s.draftRepo.Delete(draftID)
+	return s.draftRepo.Delete(ctx, draftID)
 }
 
 // DeleteDraftQuietly discards a draft without reporting failure, used on the
@@ -3522,19 +3659,19 @@ func (s *Service) DeleteDraft(draftID, actorEmployeeID uint) error {
 // a lingering draft is untidy rather than wrong, and must not turn a
 // successful submission into an error. Mirrors the fail-soft posture Create
 // already takes for packet auto-creation and WhatsApp notifications.
-func (s *Service) DeleteDraftQuietly(draftID, actorEmployeeID uint) {
+func (s *Service) DeleteDraftQuietly(ctx context.Context, draftID, actorEmployeeID uint) {
 	if draftID == 0 {
 		return
 	}
-	if err := s.DeleteDraft(draftID, actorEmployeeID); err != nil {
+	if err := s.DeleteDraft(ctx, draftID, actorEmployeeID); err != nil {
 		log.Printf("loan: could not delete draft %d after submission: %v", draftID, err)
 	}
 }
 
 // getOwnDraft loads a draft and enforces ownership, collapsing "missing" and
 // "someone else's" into the same ErrDraftNotFound.
-func (s *Service) getOwnDraft(draftID, actorEmployeeID uint) (*LoanDraft, error) {
-	d, err := s.draftRepo.FindByID(draftID)
+func (s *Service) getOwnDraft(ctx context.Context, draftID, actorEmployeeID uint) (*LoanDraft, error) {
+	d, err := s.draftRepo.FindByID(ctx, draftID)
 	if err != nil {
 		return nil, ErrDraftNotFound
 	}

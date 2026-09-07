@@ -1,0 +1,259 @@
+/* Superadmin console — deliberately plain and visually distinct from the
+ * tenant app (app/app/app.css) and the tenant login (app/login.css). Our own
+ * team's tool, not a customer-facing surface. */
+
+.sa-login {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #14161c;
+  font-family: system-ui, -apple-system, sans-serif;
+}
+.sa-login-card {
+  background: #1e2129;
+  border: 1px solid #2b2f3a;
+  border-radius: 10px;
+  padding: 32px;
+  width: 320px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.sa-login-card h1 {
+  color: #f2f3f5;
+  font-size: 20px;
+  margin: 0;
+}
+.sa-muted {
+  color: #8b909c;
+  font-size: 13px;
+  margin: -8px 0 4px;
+}
+.sa-login-card label {
+  color: #c6c9d0;
+  font-size: 13px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.sa-login-card input {
+  background: #14161c;
+  border: 1px solid #2b2f3a;
+  border-radius: 6px;
+  padding: 9px 10px;
+  color: #f2f3f5;
+  font-size: 14px;
+}
+.sa-login-card input:focus {
+  outline: 2px solid #5b8def;
+  outline-offset: 1px;
+}
+.sa-login-card button {
+  background: #5b8def;
+  color: #fff;
+  border: none;
+  border-radius: 6px;
+  padding: 10px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  margin-top: 6px;
+}
+.sa-login-card button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+.sa-error {
+  color: #ef5b5b;
+  font-size: 13px;
+  margin: 0;
+}
+
+/* --- Dashboard shell --- */
+.sa-shell {
+  min-height: 100vh;
+  background: #f4f5f7;
+  font-family: system-ui, -apple-system, sans-serif;
+  color: #22252b;
+}
+.sa-topbar {
+  background: #14161c;
+  color: #f2f3f5;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 24px;
+}
+.sa-topbar h1 {
+  font-size: 16px;
+  margin: 0;
+}
+.sa-topbar button {
+  background: none;
+  border: 1px solid #3a3f4d;
+  color: #c6c9d0;
+  border-radius: 6px;
+  padding: 6px 12px;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.sa-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 12px;
+  padding: 20px 24px 0;
+}
+.sa-card {
+  background: #fff;
+  border: 1px solid #e2e4ea;
+  border-radius: 8px;
+  padding: 14px 16px;
+}
+.sa-card .sa-card-label {
+  font-size: 12px;
+  color: #6b7080;
+}
+.sa-card .sa-card-value {
+  font-size: 22px;
+  font-weight: 700;
+  margin-top: 4px;
+}
+
+.sa-tabs {
+  display: flex;
+  gap: 4px;
+  padding: 20px 24px 0;
+  border-bottom: 1px solid #e2e4ea;
+}
+.sa-tab {
+  background: none;
+  border: none;
+  padding: 10px 16px;
+  font-size: 13px;
+  color: #6b7080;
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+}
+.sa-tab.active {
+  color: #22252b;
+  border-bottom-color: #5b8def;
+  font-weight: 600;
+}
+
+.sa-content {
+  padding: 20px 24px 40px;
+}
+
+.sa-table {
+  width: 100%;
+  border-collapse: collapse;
+  background: #fff;
+  border: 1px solid #e2e4ea;
+  border-radius: 8px;
+  overflow: hidden;
+  font-size: 13px;
+}
+.sa-table th {
+  text-align: left;
+  background: #f9fafb;
+  padding: 10px 12px;
+  font-size: 12px;
+  color: #6b7080;
+  border-bottom: 1px solid #e2e4ea;
+}
+.sa-table td {
+  padding: 10px 12px;
+  border-bottom: 1px solid #eef0f3;
+  vertical-align: top;
+}
+.sa-table tr:last-child td {
+  border-bottom: none;
+}
+
+.sa-chip {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-size: 11px;
+  font-weight: 600;
+}
+.sa-chip.active { background: #e6f4ea; color: #227a3e; }
+.sa-chip.suspended { background: #fdecec; color: #c0392b; }
+.sa-chip.trial, .sa-chip.grace, .sa-chip.past_due, .sa-chip.over_quota { background: #fff4e0; color: #a06a12; }
+.sa-chip.cancelled { background: #eceef1; color: #6b7080; }
+
+.sa-actions { display: flex; gap: 6px; flex-wrap: wrap; }
+.sa-btn {
+  background: #fff;
+  border: 1px solid #d5d8de;
+  border-radius: 6px;
+  padding: 5px 10px;
+  font-size: 12px;
+  cursor: pointer;
+}
+.sa-btn:hover { background: #f4f5f7; }
+.sa-btn.primary { background: #5b8def; border-color: #5b8def; color: #fff; }
+.sa-btn.danger { background: #fff; border-color: #ef5b5b; color: #c0392b; }
+.sa-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.sa-toolbar {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 12px;
+}
+
+/* --- Modal --- */
+.sa-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(20, 22, 28, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 50;
+  padding: 16px;
+}
+.sa-modal {
+  background: #fff;
+  border-radius: 10px;
+  padding: 24px;
+  width: 100%;
+  max-width: 420px;
+  max-height: 90vh;
+  overflow-y: auto;
+}
+.sa-modal h2 {
+  font-size: 16px;
+  margin: 0 0 16px;
+}
+.sa-field {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  margin-bottom: 12px;
+  font-size: 13px;
+  color: #4a4f5a;
+}
+.sa-field input,
+.sa-field select,
+.sa-field textarea {
+  border: 1px solid #d5d8de;
+  border-radius: 6px;
+  padding: 8px 10px;
+  font-size: 13px;
+  font-family: inherit;
+}
+.sa-modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 18px;
+}
+.sa-empty {
+  padding: 24px;
+  text-align: center;
+  color: #8b909c;
+  font-size: 13px;
+}

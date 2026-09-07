@@ -8,7 +8,9 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"ambikagold/backend/internal/customer"
+	"ambikagold/backend/internal/platform"
 	"ambikagold/backend/internal/platform/httpx"
+	"ambikagold/backend/internal/upload"
 )
 
 type Handler struct {
@@ -20,7 +22,10 @@ func NewHandler(svc *Service) *Handler {
 }
 
 type requestOTPInput struct {
-	Phone string `json:"phone" binding:"required"`
+	// BusinessCode identifies the lender whose app link the borrower
+	// opened. Optional while only one business exists.
+	BusinessCode string `json:"businessCode"`
+	Phone        string `json:"phone" binding:"required"`
 }
 
 // RequestOTP always responds 200 regardless of whether the phone is
@@ -29,12 +34,13 @@ type requestOTPInput struct {
 // customer app is a closed system tied to an existing loan-account
 // relationship, so there's no ambiguity to protect by staying silent here.
 func (h *Handler) RequestOTP(c *gin.Context) {
+	ctx := platform.RequestContext(c)
 	var in requestOTPInput
 	if err := c.ShouldBindJSON(&in); err != nil {
 		httpx.Fail(c, http.StatusBadRequest, "Invalid input")
 		return
 	}
-	if err := h.svc.RequestOTP(in.Phone); err != nil {
+	if err := h.svc.RequestOTP(ctx, in.BusinessCode, in.Phone); err != nil {
 		if errors.Is(err, ErrCustomerNotFound) {
 			httpx.Fail(c, http.StatusNotFound, "This phone number is not registered. Please contact your branch.")
 			return
@@ -47,8 +53,11 @@ func (h *Handler) RequestOTP(c *gin.Context) {
 }
 
 type verifyOTPInput struct {
-	Phone string `json:"phone" binding:"required"`
-	Code  string `json:"code" binding:"required"`
+	// BusinessCode identifies the lender whose app link the borrower
+	// opened. Optional while only one business exists.
+	BusinessCode string `json:"businessCode"`
+	Phone        string `json:"phone" binding:"required"`
+	Code         string `json:"code" binding:"required"`
 }
 
 type sessionResponse struct {
@@ -57,16 +66,21 @@ type sessionResponse struct {
 }
 
 func (h *Handler) VerifyOTP(c *gin.Context) {
+	ctx := platform.RequestContext(c)
 	var in verifyOTPInput
 	if err := c.ShouldBindJSON(&in); err != nil {
 		httpx.Fail(c, http.StatusBadRequest, "Invalid input")
 		return
 	}
-	token, cust, err := h.svc.VerifyOTP(in.Phone, in.Code)
+	token, cust, err := h.svc.VerifyOTP(ctx, in.BusinessCode, in.Phone, in.Code)
 	if err != nil {
 		httpx.FailErr(c, err)
 		return
 	}
+	// Borrowers view their own loan paperwork as images/PDFs, so their
+	// session needs the same path-scoped file cookie staff get.
+	upload.SetAuthCookie(c, token, int(sessionTokenTTL.Seconds()))
+
 	httpx.Success(c, http.StatusOK, sessionResponse{Token: token, Customer: cust.ToResponse()})
 }
 
@@ -78,6 +92,7 @@ type registerDeviceInput struct {
 // runs first) — it's called right after verify-otp succeeds, while the app
 // still holds a fresh session token.
 func (h *Handler) RegisterDevice(c *gin.Context) {
+	ctx := platform.RequestContext(c)
 	customerID, ok := customerIDFromContext(c)
 	if !ok {
 		httpx.Fail(c, http.StatusUnauthorized, "not authenticated")
@@ -88,7 +103,7 @@ func (h *Handler) RegisterDevice(c *gin.Context) {
 		httpx.Fail(c, http.StatusBadRequest, "Invalid input")
 		return
 	}
-	deviceToken, err := h.svc.RegisterDevice(customerID, in.DeviceID)
+	deviceToken, err := h.svc.RegisterDevice(ctx, customerID, in.DeviceID)
 	if err != nil {
 		httpx.FailErr(c, err)
 		return
@@ -104,26 +119,32 @@ type deviceLoginInput struct {
 // new session JWT is obtained) but requires the device token itself, which
 // only a device that previously completed register-device holds.
 func (h *Handler) DeviceLogin(c *gin.Context) {
+	ctx := platform.RequestContext(c)
 	var in deviceLoginInput
 	if err := c.ShouldBindJSON(&in); err != nil {
 		httpx.Fail(c, http.StatusBadRequest, "Invalid input")
 		return
 	}
-	token, cust, err := h.svc.DeviceLogin(in.DeviceToken)
+	token, cust, err := h.svc.DeviceLogin(ctx, in.DeviceToken)
 	if err != nil {
 		httpx.FailErr(c, err)
 		return
 	}
+	// Borrowers view their own loan paperwork as images/PDFs, so their
+	// session needs the same path-scoped file cookie staff get.
+	upload.SetAuthCookie(c, token, int(sessionTokenTTL.Seconds()))
+
 	httpx.Success(c, http.StatusOK, sessionResponse{Token: token, Customer: cust.ToResponse()})
 }
 
 func (h *Handler) Refresh(c *gin.Context) {
+	ctx := platform.RequestContext(c)
 	customerID, ok := customerIDFromContext(c)
 	if !ok {
 		httpx.Fail(c, http.StatusUnauthorized, "not authenticated")
 		return
 	}
-	token, err := h.svc.Refresh(customerID)
+	token, err := h.svc.Refresh(ctx, customerID)
 	if err != nil {
 		httpx.FailErr(c, err)
 		return

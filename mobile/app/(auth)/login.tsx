@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { View, StyleSheet, KeyboardAvoidingView, Image, Pressable, ScrollView } from "react-native";
 import { useRouter } from "expo-router";
 import { colors } from "../../src/theme/colors";
@@ -7,6 +7,7 @@ import { GoldTextInput, PasswordToggle } from "../../src/components/GoldTextInpu
 import { GoldButton } from "../../src/components/GoldButton";
 import { useAuth } from "../../src/auth/AuthContext";
 import { ApiError } from "../../src/api/client";
+import { getBusinessCode, isValidBusinessCode, normalizeBusinessCode } from "../../src/auth/businessCode";
 
 export default function LoginScreen() {
   const router = useRouter();
@@ -17,11 +18,26 @@ export default function LoginScreen() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // The business this device last signed in to, so a returning staff member
+  // does not retype it. Empty on a fresh install, which is correct: a
+  // single-business backend resolves it itself. Mirrors customer-mobile's
+  // "Lender code" field (src/auth/businessCode.ts).
+  const [businessCode, setBusinessCode] = useState("");
+
+  useEffect(() => {
+    getBusinessCode().then(setBusinessCode);
+  }, []);
+
   async function handleSubmit() {
     setError(null);
+    const code = normalizeBusinessCode(businessCode);
+    if (code && !isValidBusinessCode(code)) {
+      setError("That business code doesn't look right — letters, numbers and dashes only.");
+      return;
+    }
     setLoading(true);
     try {
-      await signIn(identifier.trim(), password);
+      await signIn(identifier.trim(), password, code);
     } catch (err) {
       if (err instanceof ApiError) setError(err.message);
       else setError("Could not reach the server. Check your connection and try again.");
@@ -61,6 +77,19 @@ export default function LoginScreen() {
             autoCapitalize="none"
             value={identifier}
             onChangeText={setIdentifier}
+          />
+          {/* The business's code. A staff username/phone is unique only
+            * WITHIN a business, so with more than one running on the backend
+            * the identifier alone is ambiguous. Optional and remembered after
+            * the first successful sign-in, so a returning staff member never
+            * types it twice — and invisible in practice on a single-business
+            * backend, which resolves it itself. */}
+          <GoldTextInput
+            label="Business code (if your business gave you one)"
+            autoCapitalize="none"
+            autoCorrect={false}
+            value={businessCode}
+            onChangeText={setBusinessCode}
           />
           <GoldTextInput
             label="Password"

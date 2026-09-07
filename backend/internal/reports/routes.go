@@ -8,7 +8,7 @@ import (
 
 // RegisterRoutes mounts every report's JSON listing endpoint plus the
 // shared :key/export endpoint, under rg (expected to be
-// r.Group("/api/v1/reports")), gated by "can view report" — reports has no
+// r.Group(ctx, "/api/v1/reports")), gated by "can view report" — reports has no
 // write side, so perms only ever carries a Read gate (see
 // platform.CRUDPermissions, which leaves Create/Update/Delete nil for the
 // "reports" resource).

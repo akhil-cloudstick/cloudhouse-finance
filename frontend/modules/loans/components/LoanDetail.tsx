@@ -8,6 +8,7 @@ import { useAuth } from "@/common/auth-context";
 import { StatusChip } from "@/common/components/ui/StatusChip";
 import { Icon } from "@/common/components/Icon";
 import { fmt, fmtW } from "@/common/utils/format";
+import { appPath } from "@/common/services/tenantSession";
 import { rupeesInWords } from "@/common/utils/numberToWords";
 import {
   getLoanByNumber,
@@ -20,6 +21,7 @@ import {
   startIndemnityBondEsign,
   checkIndemnityBondEsign,
   canAcceptBankPledge,
+  downloadLoanStatement,
   type SanctionStage,
   type LoanView,
 } from "@/modules/loans/services/loanService";
@@ -129,6 +131,7 @@ export function LoanDetail({ id }: { id?: string }) {
   const [approving, setApproving] = useState(false);
   const [releasing, setReleasing] = useState(false);
   const [completing, setCompleting] = useState(false);
+  const [statementBusy, setStatementBusy] = useState(false);
   const [printingLabel, setPrintingLabel] = useState(false);
   const [printingSlip, setPrintingSlip] = useState(false);
   const [printingBond, setPrintingBond] = useState(false);
@@ -343,6 +346,22 @@ export function LoanDetail({ id }: { id?: string }) {
     );
   }
 
+  /* Downloads the account statement PDF. The button is disabled while this
+   * runs: the request accrues interest server-side before rendering, so a
+   * double-click would otherwise hand the customer two documents whose
+   * figures differ by a few seconds of interest. */
+  async function doStatement() {
+    if (!l) return;
+    setStatementBusy(true);
+    try {
+      await downloadLoanStatement(l.numericId);
+    } catch (e) {
+      toast(e instanceof ApiError ? e.message : "Could not prepare the statement — try again.");
+    } finally {
+      setStatementBusy(false);
+    }
+  }
+
   async function doCompleteRelease() {
     setCompleting(true);
     try {
@@ -508,9 +527,12 @@ export function LoanDetail({ id }: { id?: string }) {
       ]);
       const packet = packets[0];
       const packetLabel = packet?.code || "PKT-" + l.numericId;
+      // appPath keeps the business slug, so a scanned label opens the right
+      // organisation's app rather than a bare /app that has forgotten which
+      // business the reader belongs to.
       const url = packet
-        ? location.origin + "/app#packet/" + packet.code
-        : location.origin + "/app#loan/" + l.id;
+        ? location.origin + appPath(undefined, "#packet/" + packet.code)
+        : location.origin + appPath(undefined, "#loan/" + l.id);
       let qr: string;
       try {
         qr = await toDataURL(url, { width: 256, errorCorrectionLevel: "M" });
@@ -714,6 +736,17 @@ export function LoanDetail({ id }: { id?: string }) {
         </div>
         </div>
       </div>
+      {/* A loan sits in Closure Requested from the moment the release is
+        * approved, but the gold can only be handed back once the final
+        * settlement is actually paid — Complete Release stays disabled until
+        * then. Without this banner the disabled button gave no on-screen
+        * reason (only a hover title), which read as "the loan is closed but
+        * stuck". */}
+      {l.status === "Closure Requested" && l.totalOutstandingBalance > 0.01 && (
+        <div className="notice" style={{ marginBottom: 14, color: "var(--amber)" }}>
+          <Icon name="shield" /> Final settlement of {fmt(l.totalOutstandingBalance)} has not been recorded yet — record the payment before completing the release. The loan stays in Closure Requested until then.
+        </div>
+      )}
       {pendingStage && (
         <div className="card" style={{ marginBottom: 14 }}>
           <div className="bd">

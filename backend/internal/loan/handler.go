@@ -96,6 +96,7 @@ func (req loanRequest) toInput() (CreateInput, error) {
 }
 
 func (h *Handler) Create(c *gin.Context) {
+	ctx := platform.RequestContext(c)
 	var req loanRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		httpx.Fail(c, http.StatusBadRequest, "Invalid input")
@@ -107,7 +108,7 @@ func (h *Handler) Create(c *gin.Context) {
 		return
 	}
 	input.BranchID = platform.EnforceBranchOnWrite(c, input.BranchID)
-	rec, err := h.svc.Create(input)
+	rec, err := h.svc.Create(ctx, input)
 	if err != nil {
 		httpx.FailErr(c, err)
 		return
@@ -116,7 +117,7 @@ func (h *Handler) Create(c *gin.Context) {
 	// turn this into an error response — it's logged and ignored.
 	if req.DraftID != nil {
 		actorEmployeeID, _, _ := platform.ActorFromContext(c)
-		h.svc.DeleteDraftQuietly(*req.DraftID, actorEmployeeID)
+		h.svc.DeleteDraftQuietly(ctx, *req.DraftID, actorEmployeeID)
 	}
 	httpx.Success(c, http.StatusCreated, rec)
 }
@@ -132,6 +133,7 @@ func (h *Handler) Create(c *gin.Context) {
 // internal/customer's List. `excludeBankPledged=true` additionally drops
 // loans already sitting with a bank (see LoanFilter.ExcludeBankPledged).
 func (h *Handler) List(c *gin.Context) {
+	ctx := platform.RequestContext(c)
 	f := LoanFilter{Query: c.Query("q"), Status: c.Query("status")}
 	f.ExcludeBankPledged = c.Query("excludeBankPledged") == "true"
 	f.BankPledgeStatus = c.Query("bankPledgeStatus")
@@ -154,7 +156,7 @@ func (h *Handler) List(c *gin.Context) {
 			offset = 0
 		}
 		f.Limit, f.Offset = limit+1, offset
-		rec, total, err := h.svc.List(f)
+		rec, total, err := h.svc.List(ctx, f)
 		if err != nil {
 			httpx.FailErr(c, err)
 			return
@@ -163,11 +165,15 @@ func (h *Handler) List(c *gin.Context) {
 		if hasMore {
 			rec = rec[:limit]
 		}
+		// `total` (from h.svc.List) is a real COUNT over the same filter, so
+		// the table can render "Page X of N" up front instead of growing N by
+		// one every time the user pages forward (all `hasMore` alone can
+		// support).
 		httpx.Success(c, http.StatusOK, gin.H{"items": rec, "hasMore": hasMore, "total": total})
 		return
 	}
 
-	rec, _, err := h.svc.List(f)
+	rec, _, err := h.svc.List(ctx, f)
 	if err != nil {
 		httpx.FailErr(c, err)
 		return
@@ -176,12 +182,13 @@ func (h *Handler) List(c *gin.Context) {
 }
 
 func (h *Handler) Get(c *gin.Context) {
+	ctx := platform.RequestContext(c)
 	id, err := httpx.IDParam(c, "id")
 	if err != nil {
 		httpx.FailErr(c, err)
 		return
 	}
-	rec, err := h.svc.Get(id, platform.GetBranchScope(c))
+	rec, err := h.svc.Get(ctx, id, platform.GetBranchScope(c))
 	if err != nil {
 		httpx.FailErr(c, err)
 		return
@@ -192,7 +199,8 @@ func (h *Handler) Get(c *gin.Context) {
 // GetByLoanNumber backs GET /loans/by-number/:loanNumber — a direct, atomic
 // lookup by the human-readable loan number (mirrors packet.Handler.GetByCode).
 func (h *Handler) GetByLoanNumber(c *gin.Context) {
-	rec, err := h.svc.GetByLoanNumber(c.Param("loanNumber"))
+	ctx := platform.RequestContext(c)
+	rec, err := h.svc.GetByLoanNumber(ctx, c.Param("loanNumber"))
 	if err != nil {
 		httpx.FailErr(c, err)
 		return
@@ -203,6 +211,7 @@ func (h *Handler) GetByLoanNumber(c *gin.Context) {
 // --- Ornaments -------------------------------------------------------------
 
 func (h *Handler) AddOrnament(c *gin.Context) {
+	ctx := platform.RequestContext(c)
 	loanID, err := httpx.IDParam(c, "id")
 	if err != nil {
 		httpx.FailErr(c, err)
@@ -213,7 +222,7 @@ func (h *Handler) AddOrnament(c *gin.Context) {
 		httpx.Fail(c, http.StatusBadRequest, "Invalid input")
 		return
 	}
-	rec, err := h.svc.AddOrnament(loanID, req.toInput())
+	rec, err := h.svc.AddOrnament(ctx, loanID, req.toInput())
 	if err != nil {
 		httpx.FailErr(c, err)
 		return
@@ -222,6 +231,7 @@ func (h *Handler) AddOrnament(c *gin.Context) {
 }
 
 func (h *Handler) UpdateOrnament(c *gin.Context) {
+	ctx := platform.RequestContext(c)
 	ornamentID, err := httpx.IDParam(c, "ornamentId")
 	if err != nil {
 		httpx.FailErr(c, err)
@@ -232,7 +242,7 @@ func (h *Handler) UpdateOrnament(c *gin.Context) {
 		httpx.Fail(c, http.StatusBadRequest, "Invalid input")
 		return
 	}
-	rec, err := h.svc.UpdateOrnament(ornamentID, req.toInput())
+	rec, err := h.svc.UpdateOrnament(ctx, ornamentID, req.toInput())
 	if err != nil {
 		httpx.FailErr(c, err)
 		return
@@ -250,6 +260,7 @@ type purityTestRequest struct {
 }
 
 func (h *Handler) RecordPurityTest(c *gin.Context) {
+	ctx := platform.RequestContext(c)
 	ornamentID, err := httpx.IDParam(c, "ornamentId")
 	if err != nil {
 		httpx.FailErr(c, err)
@@ -265,7 +276,7 @@ func (h *Handler) RecordPurityTest(c *gin.Context) {
 		httpx.Fail(c, http.StatusBadRequest, "invalid testedAt: expected YYYY-MM-DD")
 		return
 	}
-	rec, err := h.svc.RecordPurityTest(ornamentID, PurityTestInput{
+	rec, err := h.svc.RecordPurityTest(ctx, ornamentID, PurityTestInput{
 		TestedPurity:          req.TestedPurity,
 		TestedGrossWeight:     req.TestedGrossWeight,
 		TestedDeductionWeight: req.TestedDeductionWeight,
@@ -285,6 +296,7 @@ type ornamentImageRequest struct {
 }
 
 func (h *Handler) AddOrnamentImage(c *gin.Context) {
+	ctx := platform.RequestContext(c)
 	ornamentID, err := httpx.IDParam(c, "ornamentId")
 	if err != nil {
 		httpx.FailErr(c, err)
@@ -295,7 +307,7 @@ func (h *Handler) AddOrnamentImage(c *gin.Context) {
 		httpx.Fail(c, http.StatusBadRequest, "Invalid input")
 		return
 	}
-	rec, err := h.svc.AddOrnamentImage(ornamentID, req.ImageURL)
+	rec, err := h.svc.AddOrnamentImage(ctx, ornamentID, req.ImageURL)
 	if err != nil {
 		httpx.FailErr(c, err)
 		return
@@ -312,6 +324,7 @@ type approvalRequest struct {
 }
 
 func (h *Handler) Approve(c *gin.Context) {
+	ctx := platform.RequestContext(c)
 	loanID, err := httpx.IDParam(c, "id")
 	if err != nil {
 		httpx.FailErr(c, err)
@@ -326,7 +339,7 @@ func (h *Handler) Approve(c *gin.Context) {
 	// body — otherwise any caller could submit {"role":"Administrator"} and
 	// self-approve any stage regardless of who they actually are.
 	actorEmployeeID, actorRole, actorRoleID := platform.ActorFromContext(c)
-	rec, err := h.svc.Approve(loanID, ApprovalInput{
+	rec, err := h.svc.Approve(ctx, loanID, ApprovalInput{
 		Stage:           req.Stage,
 		Action:          req.Action,
 		ActorEmployeeID: actorEmployeeID,
@@ -348,6 +361,7 @@ func (h *Handler) Approve(c *gin.Context) {
 // from/to are optional inclusive YYYY-MM-DD bounds on each loan's opened
 // date; omitting both returns the customer's full history.
 func (h *Handler) GetCustomer360(c *gin.Context) {
+	ctx := platform.RequestContext(c)
 	customerID, err := httpx.IDParam(c, "id")
 	if err != nil {
 		httpx.FailErr(c, err)
@@ -374,7 +388,7 @@ func (h *Handler) GetCustomer360(c *gin.Context) {
 		httpx.Fail(c, http.StatusBadRequest, "invalid range: to is before from")
 		return
 	}
-	rec, err := h.svc.GetCustomer360(customerID, from, to)
+	rec, err := h.svc.GetCustomer360(ctx, customerID, from, to)
 	if err != nil {
 		httpx.FailErr(c, err)
 		return
@@ -426,6 +440,7 @@ func customerSubTableLimitOffset(c *gin.Context) (limit, offset int) {
 // view's Loan History sub-table, paginated server-side instead of sliced
 // client-side out of GetCustomer360's full loan set.
 func (h *Handler) ListLoansForCustomer(c *gin.Context) {
+	ctx := platform.RequestContext(c)
 	customerID, err := httpx.IDParam(c, "id")
 	if err != nil {
 		httpx.FailErr(c, err)
@@ -436,7 +451,7 @@ func (h *Handler) ListLoansForCustomer(c *gin.Context) {
 		return
 	}
 	limit, offset := customerSubTableLimitOffset(c)
-	rec, total, err := h.svc.ListLoansForCustomer(customerID, from, to, limit+1, offset)
+	rec, total, err := h.svc.ListLoansForCustomer(ctx, customerID, from, to, limit+1, offset)
 	if err != nil {
 		httpx.FailErr(c, err)
 		return
@@ -451,6 +466,7 @@ func (h *Handler) ListLoansForCustomer(c *gin.Context) {
 // ListOrnamentsForCustomer backs GET /customers/:id/ornaments — the
 // Customer 360 view's Pledged Ornaments (all loans) sub-table.
 func (h *Handler) ListOrnamentsForCustomer(c *gin.Context) {
+	ctx := platform.RequestContext(c)
 	customerID, err := httpx.IDParam(c, "id")
 	if err != nil {
 		httpx.FailErr(c, err)
@@ -461,7 +477,7 @@ func (h *Handler) ListOrnamentsForCustomer(c *gin.Context) {
 		return
 	}
 	limit, offset := customerSubTableLimitOffset(c)
-	rec, total, err := h.svc.ListOrnamentsForCustomer(customerID, from, to, limit+1, offset)
+	rec, total, err := h.svc.ListOrnamentsForCustomer(ctx, customerID, from, to, limit+1, offset)
 	if err != nil {
 		httpx.FailErr(c, err)
 		return
@@ -476,6 +492,7 @@ func (h *Handler) ListOrnamentsForCustomer(c *gin.Context) {
 // ListPaymentsForCustomer backs GET /customers/:id/payments — the
 // Customer 360 view's Payment History (all loans) sub-table.
 func (h *Handler) ListPaymentsForCustomer(c *gin.Context) {
+	ctx := platform.RequestContext(c)
 	customerID, err := httpx.IDParam(c, "id")
 	if err != nil {
 		httpx.FailErr(c, err)
@@ -486,7 +503,7 @@ func (h *Handler) ListPaymentsForCustomer(c *gin.Context) {
 		return
 	}
 	limit, offset := customerSubTableLimitOffset(c)
-	rec, total, err := h.svc.ListPaymentsForCustomer(customerID, from, to, limit+1, offset)
+	rec, total, err := h.svc.ListPaymentsForCustomer(ctx, customerID, from, to, limit+1, offset)
 	if err != nil {
 		httpx.FailErr(c, err)
 		return
@@ -501,6 +518,7 @@ func (h *Handler) ListPaymentsForCustomer(c *gin.Context) {
 // ListBankPledgesForCustomer backs GET /customers/:id/bank-pledges — the
 // Customer 360 view's Bank Pledges (all loans) sub-table.
 func (h *Handler) ListBankPledgesForCustomer(c *gin.Context) {
+	ctx := platform.RequestContext(c)
 	customerID, err := httpx.IDParam(c, "id")
 	if err != nil {
 		httpx.FailErr(c, err)
@@ -511,7 +529,7 @@ func (h *Handler) ListBankPledgesForCustomer(c *gin.Context) {
 		return
 	}
 	limit, offset := customerSubTableLimitOffset(c)
-	rec, total, err := h.svc.ListBankPledgesForCustomer(customerID, from, to, limit+1, offset)
+	rec, total, err := h.svc.ListBankPledgesForCustomer(ctx, customerID, from, to, limit+1, offset)
 	if err != nil {
 		httpx.FailErr(c, err)
 		return
@@ -526,6 +544,7 @@ func (h *Handler) ListBankPledgesForCustomer(c *gin.Context) {
 // ListAuctionHistoryForCustomer backs GET /customers/:id/auction-history —
 // the Customer 360 view's Auction History sub-table.
 func (h *Handler) ListAuctionHistoryForCustomer(c *gin.Context) {
+	ctx := platform.RequestContext(c)
 	customerID, err := httpx.IDParam(c, "id")
 	if err != nil {
 		httpx.FailErr(c, err)
@@ -536,7 +555,7 @@ func (h *Handler) ListAuctionHistoryForCustomer(c *gin.Context) {
 		return
 	}
 	limit, offset := customerSubTableLimitOffset(c)
-	rec, total, err := h.svc.ListAuctionHistoryForCustomer(customerID, from, to, limit+1, offset)
+	rec, total, err := h.svc.ListAuctionHistoryForCustomer(ctx, customerID, from, to, limit+1, offset)
 	if err != nil {
 		httpx.FailErr(c, err)
 		return
@@ -552,12 +571,13 @@ func (h *Handler) ListAuctionHistoryForCustomer(c *gin.Context) {
 // sanction chain (GET /:id/approvals) — used by the frontend's stage
 // tracker to show who acted at each stage and when.
 func (h *Handler) ListApprovals(c *gin.Context) {
+	ctx := platform.RequestContext(c)
 	loanID, err := httpx.IDParam(c, "id")
 	if err != nil {
 		httpx.FailErr(c, err)
 		return
 	}
-	rec, err := h.svc.ListApprovals(loanID)
+	rec, err := h.svc.ListApprovals(ctx, loanID)
 	if err != nil {
 		httpx.FailErr(c, err)
 		return
@@ -570,6 +590,7 @@ func (h *Handler) ListApprovals(c *gin.Context) {
 // through today) when omitted, matching Dashboard.tsx's default KPI
 // window.
 func (h *Handler) GetInterestCollected(c *gin.Context) {
+	ctx := platform.RequestContext(c)
 	now := time.Now()
 	from := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, now.Location())
 	to := now
@@ -589,7 +610,7 @@ func (h *Handler) GetInterestCollected(c *gin.Context) {
 		}
 		to = parsed
 	}
-	total, err := h.svc.GetInterestCollected(from, to)
+	total, err := h.svc.GetInterestCollected(ctx, from, to)
 	if err != nil {
 		httpx.FailErr(c, err)
 		return
@@ -609,7 +630,22 @@ type paymentRequest struct {
 	Description   string  `json:"description"`
 }
 
+// staffSelectablePaymentTypes are the only Types this endpoint accepts — the
+// five modes the Record Payment dropdown offers. allocatePayment knows other
+// types (Auction Sale, Auction Write-Off, Adjustment, Waiver), but those are
+// raised by the auction/ledger-correction flows themselves, never posted by a
+// client: an Auction Sale here would move gold proceeds through the till
+// twice, and a Waiver would forgive real money with no approval behind it.
+var staffSelectablePaymentTypes = map[string]bool{
+	PaymentTypeInterest:       true,
+	PaymentTypePenalInterest:  true,
+	PaymentTypePrincipal:      true,
+	PaymentTypePartial:        true,
+	PaymentTypeFullSettlement: true,
+}
+
 func (h *Handler) RecordPayment(c *gin.Context) {
+	ctx := platform.RequestContext(c)
 	loanID, err := httpx.IDParam(c, "id")
 	if err != nil {
 		httpx.FailErr(c, err)
@@ -620,6 +656,10 @@ func (h *Handler) RecordPayment(c *gin.Context) {
 		httpx.Fail(c, http.StatusBadRequest, "Invalid input")
 		return
 	}
+	if !staffSelectablePaymentTypes[req.Type] {
+		httpx.Fail(c, http.StatusBadRequest, "type must be one of: Interest, Penal Interest, Principal, Partial, Full Settlement")
+		return
+	}
 	paidOn, err := parseDate(req.PaidOn)
 	if err != nil {
 		httpx.Fail(c, http.StatusBadRequest, "invalid paidOn: expected YYYY-MM-DD")
@@ -628,7 +668,7 @@ func (h *Handler) RecordPayment(c *gin.Context) {
 	// Actor identity comes from the authenticated JWT, not the request body
 	// — see platform.ActorFromContext's doc comment.
 	actorEmployeeID, _, _ := platform.ActorFromContext(c)
-	rec, err := h.svc.RecordPayment(loanID, PaymentInput{
+	rec, err := h.svc.RecordPayment(ctx, loanID, PaymentInput{
 		Amount:               req.Amount,
 		Type:                 req.Type,
 		ProcessingFee:        req.ProcessingFee,
@@ -648,12 +688,13 @@ func (h *Handler) RecordPayment(c *gin.Context) {
 // --- Auction (7-stage workflow) ---------------------------------------------
 
 func (h *Handler) GetAuction(c *gin.Context) {
+	ctx := platform.RequestContext(c)
 	loanID, err := httpx.IDParam(c, "id")
 	if err != nil {
 		httpx.FailErr(c, err)
 		return
 	}
-	rec, err := h.svc.GetAuctionRecord(loanID, platform.GetBranchScope(c))
+	rec, err := h.svc.GetAuctionRecord(ctx, loanID, platform.GetBranchScope(c))
 	if err != nil {
 		httpx.FailErr(c, err)
 		return
@@ -675,13 +716,14 @@ func actorPtr(c *gin.Context) (*uint, string, uint) {
 }
 
 func (h *Handler) MarkAuctionEligible(c *gin.Context) {
+	ctx := platform.RequestContext(c)
 	loanID, err := httpx.IDParam(c, "id")
 	if err != nil {
 		httpx.FailErr(c, err)
 		return
 	}
 	actorID, actorRole, actorRoleID := actorPtr(c)
-	rec, err := h.svc.MarkAuctionEligible(loanID, platform.GetBranchScope(c), actorID, actorRole, actorRoleID)
+	rec, err := h.svc.MarkAuctionEligible(ctx, loanID, platform.GetBranchScope(c), actorID, actorRole, actorRoleID)
 	if err != nil {
 		httpx.FailErr(c, err)
 		return
@@ -693,12 +735,13 @@ func (h *Handler) MarkAuctionEligible(c *gin.Context) {
 // including concluded ones — previously only the single current case was
 // reachable, so past attempts were invisible.
 func (h *Handler) GetAuctionHistory(c *gin.Context) {
+	ctx := platform.RequestContext(c)
 	loanID, err := httpx.IDParam(c, "id")
 	if err != nil {
 		httpx.FailErr(c, err)
 		return
 	}
-	recs, err := h.svc.GetAuctionHistory(loanID, platform.GetBranchScope(c))
+	recs, err := h.svc.GetAuctionHistory(ctx, loanID, platform.GetBranchScope(c))
 	if err != nil {
 		httpx.FailErr(c, err)
 		return
@@ -714,6 +757,7 @@ func (h *Handler) GetAuctionHistory(c *gin.Context) {
 // follow the same convention as Handler.List: when limit is absent the
 // original bare-array response is preserved for any other caller.
 func (h *Handler) ListConcludedAuctions(c *gin.Context) {
+	ctx := platform.RequestContext(c)
 	var hasSale *bool
 	if v := c.Query("hasSale"); v == "true" || v == "false" {
 		b := v == "true"
@@ -726,7 +770,7 @@ func (h *Handler) ListConcludedAuctions(c *gin.Context) {
 		if offset < 0 {
 			offset = 0
 		}
-		rec, total, err := h.svc.ListConcludedAuctions(platform.GetBranchScope(c), hasSale, limit+1, offset)
+		rec, total, err := h.svc.ListConcludedAuctions(ctx, platform.GetBranchScope(c), hasSale, limit+1, offset)
 		if err != nil {
 			httpx.FailErr(c, err)
 			return
@@ -739,7 +783,7 @@ func (h *Handler) ListConcludedAuctions(c *gin.Context) {
 		return
 	}
 
-	recs, _, err := h.svc.ListConcludedAuctions(platform.GetBranchScope(c), hasSale, 0, 0)
+	recs, _, err := h.svc.ListConcludedAuctions(ctx, platform.GetBranchScope(c), hasSale, 0, 0)
 	if err != nil {
 		httpx.FailErr(c, err)
 		return
@@ -749,7 +793,8 @@ func (h *Handler) ListConcludedAuctions(c *gin.Context) {
 
 // ListPendingAuctionDecisions returns escalations awaiting a human decision.
 func (h *Handler) ListPendingAuctionDecisions(c *gin.Context) {
-	reqs, err := h.svc.ListPendingAuctionDecisions(platform.GetBranchScope(c))
+	ctx := platform.RequestContext(c)
+	reqs, err := h.svc.ListPendingAuctionDecisions(ctx, platform.GetBranchScope(c))
 	if err != nil {
 		httpx.FailErr(c, err)
 		return
@@ -767,6 +812,7 @@ type auctionDecisionRequestBody struct {
 // remove for a part-payment, or write-off/pursue for a post-auction shortfall.
 // Role authority is enforced in the service, since it differs per kind.
 func (h *Handler) ResolveAuctionDecision(c *gin.Context) {
+	ctx := platform.RequestContext(c)
 	loanID, err := httpx.IDParam(c, "id")
 	if err != nil {
 		httpx.FailErr(c, err)
@@ -778,7 +824,7 @@ func (h *Handler) ResolveAuctionDecision(c *gin.Context) {
 		return
 	}
 	actorID, actorRole, actorRoleID := actorPtr(c)
-	rec, err := h.svc.ResolveAuctionDecision(loanID, req.RequestID, platform.GetBranchScope(c), req.Decision, req.Remarks, actorID, actorRole, actorRoleID)
+	rec, err := h.svc.ResolveAuctionDecision(ctx, loanID, req.RequestID, platform.GetBranchScope(c), req.Decision, req.Remarks, actorID, actorRole, actorRoleID)
 	if err != nil {
 		httpx.FailErr(c, err)
 		return
@@ -794,6 +840,7 @@ type auctionNoticeRequest struct {
 }
 
 func (h *Handler) IssueAuctionNotice(c *gin.Context) {
+	ctx := platform.RequestContext(c)
 	loanID, err := httpx.IDParam(c, "id")
 	if err != nil {
 		httpx.FailErr(c, err)
@@ -805,7 +852,7 @@ func (h *Handler) IssueAuctionNotice(c *gin.Context) {
 		return
 	}
 	actorID, actorRole, actorRoleID := actorPtr(c)
-	rec, err := h.svc.IssueAuctionNotice(loanID, platform.GetBranchScope(c), req.Remarks, actorID, actorRole, actorRoleID)
+	rec, err := h.svc.IssueAuctionNotice(ctx, loanID, platform.GetBranchScope(c), req.Remarks, actorID, actorRole, actorRoleID)
 	if err != nil {
 		httpx.FailErr(c, err)
 		return
@@ -819,6 +866,7 @@ type auctionScheduleRequest struct {
 }
 
 func (h *Handler) ScheduleAuction(c *gin.Context) {
+	ctx := platform.RequestContext(c)
 	loanID, err := httpx.IDParam(c, "id")
 	if err != nil {
 		httpx.FailErr(c, err)
@@ -835,7 +883,7 @@ func (h *Handler) ScheduleAuction(c *gin.Context) {
 		return
 	}
 	actorID, actorRole, actorRoleID := actorPtr(c)
-	rec, err := h.svc.ScheduleAuction(loanID, platform.GetBranchScope(c), auctionDate, req.ReferenceNumber, actorID, actorRole, actorRoleID)
+	rec, err := h.svc.ScheduleAuction(ctx, loanID, platform.GetBranchScope(c), auctionDate, req.ReferenceNumber, actorID, actorRole, actorRoleID)
 	if err != nil {
 		httpx.FailErr(c, err)
 		return
@@ -849,6 +897,7 @@ type auctionSaleRequest struct {
 }
 
 func (h *Handler) RecordAuctionSale(c *gin.Context) {
+	ctx := platform.RequestContext(c)
 	loanID, err := httpx.IDParam(c, "id")
 	if err != nil {
 		httpx.FailErr(c, err)
@@ -860,7 +909,7 @@ func (h *Handler) RecordAuctionSale(c *gin.Context) {
 		return
 	}
 	actorID, actorRole, actorRoleID := actorPtr(c)
-	rec, err := h.svc.RecordAuctionSale(loanID, platform.GetBranchScope(c), req.SaleAmount, req.AuctionExpenses, actorID, actorRole, actorRoleID)
+	rec, err := h.svc.RecordAuctionSale(ctx, loanID, platform.GetBranchScope(c), req.SaleAmount, req.AuctionExpenses, actorID, actorRole, actorRoleID)
 	if err != nil {
 		httpx.FailErr(c, err)
 		return
@@ -880,6 +929,7 @@ type auctionSettleRequest struct {
 }
 
 func (h *Handler) SettleAuction(c *gin.Context) {
+	ctx := platform.RequestContext(c)
 	loanID, err := httpx.IDParam(c, "id")
 	if err != nil {
 		httpx.FailErr(c, err)
@@ -895,7 +945,7 @@ func (h *Handler) SettleAuction(c *gin.Context) {
 		disposition = req.SettlementStatus
 	}
 	actorID, actorRole, actorRoleID := actorPtr(c)
-	rec, err := h.svc.SettleAuction(loanID, platform.GetBranchScope(c), disposition, req.Remarks, actorID, actorRole, actorRoleID)
+	rec, err := h.svc.SettleAuction(ctx, loanID, platform.GetBranchScope(c), disposition, req.Remarks, actorID, actorRole, actorRoleID)
 	if err != nil {
 		httpx.FailErr(c, err)
 		return
@@ -923,6 +973,7 @@ type bankPledgeRequest struct {
 }
 
 func (h *Handler) RecordBankPledge(c *gin.Context) {
+	ctx := platform.RequestContext(c)
 	loanID, err := httpx.IDParam(c, "id")
 	if err != nil {
 		httpx.FailErr(c, err)
@@ -955,7 +1006,7 @@ func (h *Handler) RecordBankPledge(c *gin.Context) {
 		cashTreatment = BankPledgeCashTreatmentRecordOnly
 	}
 	actorID, actorRole, _ := actorPtr(c)
-	rec, err := h.svc.RecordBankPledge(loanID, platform.GetBranchScope(c), BankPledgeInput{
+	rec, err := h.svc.RecordBankPledge(ctx, loanID, platform.GetBranchScope(c), BankPledgeInput{
 		BankID:            req.BankID,
 		BankName:          req.BankName,
 		PledgedAmount:     req.PledgedAmount,
@@ -975,6 +1026,7 @@ func (h *Handler) RecordBankPledge(c *gin.Context) {
 }
 
 func (h *Handler) ReleaseBankPledge(c *gin.Context) {
+	ctx := platform.RequestContext(c)
 	loanID, err := httpx.IDParam(c, "id")
 	if err != nil {
 		httpx.FailErr(c, err)
@@ -986,7 +1038,7 @@ func (h *Handler) ReleaseBankPledge(c *gin.Context) {
 		return
 	}
 	actorID, actorRole, _ := actorPtr(c)
-	rec, err := h.svc.ReleaseBankPledge(loanID, pledgeID, platform.GetBranchScope(c), actorID, actorRole)
+	rec, err := h.svc.ReleaseBankPledge(ctx, loanID, pledgeID, platform.GetBranchScope(c), actorID, actorRole)
 	if err != nil {
 		httpx.FailErr(c, err)
 		return
@@ -1002,6 +1054,7 @@ type voidBankPledgeRequest struct {
 // correct a mis-chosen cash treatment, which is immutable by design — see
 // Service.VoidBankPledge.
 func (h *Handler) VoidBankPledge(c *gin.Context) {
+	ctx := platform.RequestContext(c)
 	loanID, err := httpx.IDParam(c, "id")
 	if err != nil {
 		httpx.FailErr(c, err)
@@ -1018,7 +1071,7 @@ func (h *Handler) VoidBankPledge(c *gin.Context) {
 		return
 	}
 	actorID, actorRole, _ := actorPtr(c)
-	rec, err := h.svc.VoidBankPledge(loanID, pledgeID, platform.GetBranchScope(c), req.Reason, actorID, actorRole)
+	rec, err := h.svc.VoidBankPledge(ctx, loanID, pledgeID, platform.GetBranchScope(c), req.Reason, actorID, actorRole)
 	if err != nil {
 		httpx.FailErr(c, err)
 		return
@@ -1029,12 +1082,13 @@ func (h *Handler) VoidBankPledge(c *gin.Context) {
 // GetBankPledgeHistory returns every re-pledge ever recorded against a loan,
 // released and voided ones included, each with its audit trail.
 func (h *Handler) GetBankPledgeHistory(c *gin.Context) {
+	ctx := platform.RequestContext(c)
 	loanID, err := httpx.IDParam(c, "id")
 	if err != nil {
 		httpx.FailErr(c, err)
 		return
 	}
-	recs, err := h.svc.GetBankPledgeHistory(loanID, platform.GetBranchScope(c))
+	recs, err := h.svc.GetBankPledgeHistory(ctx, loanID, platform.GetBranchScope(c))
 	if err != nil {
 		httpx.FailErr(c, err)
 		return
@@ -1045,6 +1099,7 @@ func (h *Handler) GetBankPledgeHistory(c *gin.Context) {
 // ListBankPledgeHistory backs the Bank Re-Pledge screen's History tab, which
 // previously had no way to show anything but currently-pledged gold.
 func (h *Handler) ListBankPledgeHistory(c *gin.Context) {
+	ctx := platform.RequestContext(c)
 	branchID := platform.GetBranchScope(c)
 
 	limit, _ := strconv.Atoi(c.Query("limit"))
@@ -1053,7 +1108,7 @@ func (h *Handler) ListBankPledgeHistory(c *gin.Context) {
 		if offset < 0 {
 			offset = 0
 		}
-		recs, total, err := h.svc.ListBankPledgeHistory(branchID, limit+1, offset)
+		recs, total, err := h.svc.ListBankPledgeHistory(ctx, branchID, limit+1, offset)
 		if err != nil {
 			httpx.FailErr(c, err)
 			return
@@ -1066,7 +1121,7 @@ func (h *Handler) ListBankPledgeHistory(c *gin.Context) {
 		return
 	}
 
-	recs, _, err := h.svc.ListBankPledgeHistory(branchID, 0, 0)
+	recs, _, err := h.svc.ListBankPledgeHistory(ctx, branchID, 0, 0)
 	if err != nil {
 		httpx.FailErr(c, err)
 		return
@@ -1083,6 +1138,7 @@ type extensionRequestRequest struct {
 }
 
 func (h *Handler) CreateExtensionRequest(c *gin.Context) {
+	ctx := platform.RequestContext(c)
 	loanID, err := httpx.IDParam(c, "id")
 	if err != nil {
 		httpx.FailErr(c, err)
@@ -1093,7 +1149,7 @@ func (h *Handler) CreateExtensionRequest(c *gin.Context) {
 		httpx.Fail(c, http.StatusBadRequest, "Invalid input")
 		return
 	}
-	rec, err := h.svc.CreateExtensionRequest(loanID, ExtensionRequestInput{
+	rec, err := h.svc.CreateExtensionRequest(ctx, loanID, ExtensionRequestInput{
 		Months:      req.Months,
 		Detail:      req.Detail,
 		RequestedBy: req.RequestedBy,
@@ -1111,6 +1167,7 @@ type releaseRequestRequest struct {
 }
 
 func (h *Handler) CreateReleaseRequest(c *gin.Context) {
+	ctx := platform.RequestContext(c)
 	loanID, err := httpx.IDParam(c, "id")
 	if err != nil {
 		httpx.FailErr(c, err)
@@ -1121,7 +1178,7 @@ func (h *Handler) CreateReleaseRequest(c *gin.Context) {
 		httpx.Fail(c, http.StatusBadRequest, "Invalid input")
 		return
 	}
-	rec, err := h.svc.CreateReleaseRequest(loanID, ReleaseRequestInput{
+	rec, err := h.svc.CreateReleaseRequest(ctx, loanID, ReleaseRequestInput{
 		Detail:      req.Detail,
 		RequestedBy: req.RequestedBy,
 	})
@@ -1133,6 +1190,7 @@ func (h *Handler) CreateReleaseRequest(c *gin.Context) {
 }
 
 func (h *Handler) ListRequests(c *gin.Context) {
+	ctx := platform.RequestContext(c)
 	f := LoanRequestFilter{Status: c.Query("status")}
 	if v := c.Query("loanId"); v != "" {
 		if id, err := strconv.ParseUint(v, 10, 64); err == nil {
@@ -1148,7 +1206,7 @@ func (h *Handler) ListRequests(c *gin.Context) {
 			offset = 0
 		}
 		f.Limit, f.Offset = limit+1, offset
-		rec, total, err := h.svc.ListRequests(f)
+		rec, total, err := h.svc.ListRequests(ctx, f)
 		if err != nil {
 			httpx.FailErr(c, err)
 			return
@@ -1161,7 +1219,7 @@ func (h *Handler) ListRequests(c *gin.Context) {
 		return
 	}
 
-	rec, _, err := h.svc.ListRequests(f)
+	rec, _, err := h.svc.ListRequests(ctx, f)
 	if err != nil {
 		httpx.FailErr(c, err)
 		return
@@ -1175,6 +1233,7 @@ type decideRequestRequest struct {
 }
 
 func (h *Handler) DecideRequest(c *gin.Context) {
+	ctx := platform.RequestContext(c)
 	requestID, err := httpx.IDParam(c, "requestId")
 	if err != nil {
 		httpx.FailErr(c, err)
@@ -1198,7 +1257,7 @@ func (h *Handler) DecideRequest(c *gin.Context) {
 	// Actor identity comes from the authenticated JWT, not the request body
 	// — see platform.ActorFromContext's doc comment.
 	actorEmployeeID, _, _ := platform.ActorFromContext(c)
-	rec, err := h.svc.DecideRequest(requestID, platform.GetBranchScope(c), approve, actorEmployeeID, req.Remarks)
+	rec, err := h.svc.DecideRequest(ctx, requestID, platform.GetBranchScope(c), approve, actorEmployeeID, req.Remarks)
 	if err != nil {
 		httpx.FailErr(c, err)
 		return
@@ -1218,6 +1277,7 @@ type checklistRequest struct {
 }
 
 func (h *Handler) VerifyReleaseChecklist(c *gin.Context) {
+	ctx := platform.RequestContext(c)
 	requestID, err := httpx.IDParam(c, "requestId")
 	if err != nil {
 		httpx.FailErr(c, err)
@@ -1229,7 +1289,7 @@ func (h *Handler) VerifyReleaseChecklist(c *gin.Context) {
 		return
 	}
 	_, _, actorRoleID := platform.ActorFromContext(c)
-	rec, err := h.svc.VerifyReleaseChecklist(requestID, platform.GetBranchScope(c), ChecklistInput{
+	rec, err := h.svc.VerifyReleaseChecklist(ctx, requestID, platform.GetBranchScope(c), ChecklistInput{
 		PaymentVerified:    req.PaymentVerified,
 		PacketVerified:     req.PacketVerified,
 		BankPledgeVerified: req.BankPledgeVerified,
@@ -1257,6 +1317,7 @@ type releaseApprovalRequest struct {
 // shape, so one handler reads the request first to route it rather than
 // requiring the caller to know which type they're deciding.
 func (h *Handler) ApproveRequest(c *gin.Context) {
+	ctx := platform.RequestContext(c)
 	requestID, err := httpx.IDParam(c, "requestId")
 	if err != nil {
 		httpx.FailErr(c, err)
@@ -1268,7 +1329,7 @@ func (h *Handler) ApproveRequest(c *gin.Context) {
 		return
 	}
 
-	lr, err := h.svc.GetRequest(requestID)
+	lr, err := h.svc.GetRequest(ctx, requestID)
 	if err != nil {
 		httpx.FailErr(c, err)
 		return
@@ -1280,7 +1341,7 @@ func (h *Handler) ApproveRequest(c *gin.Context) {
 
 	switch lr.Type {
 	case RequestTypeExtension:
-		rec, err := h.svc.ApproveExtensionRequest(requestID, platform.GetBranchScope(c), ExtensionApprovalInput{
+		rec, err := h.svc.ApproveExtensionRequest(ctx, requestID, platform.GetBranchScope(c), ExtensionApprovalInput{
 			Stage:           req.Stage,
 			Action:          req.Action,
 			ActorEmployeeID: actorEmployeeID,
@@ -1294,7 +1355,7 @@ func (h *Handler) ApproveRequest(c *gin.Context) {
 		}
 		httpx.Success(c, http.StatusOK, rec)
 	case RequestTypeRelease:
-		rec, err := h.svc.ApproveReleaseRequest(requestID, platform.GetBranchScope(c), ReleaseApprovalInput{
+		rec, err := h.svc.ApproveReleaseRequest(ctx, requestID, platform.GetBranchScope(c), ReleaseApprovalInput{
 			Stage:           req.Stage,
 			Action:          req.Action,
 			ActorEmployeeID: actorEmployeeID,
@@ -1312,6 +1373,7 @@ func (h *Handler) ApproveRequest(c *gin.Context) {
 }
 
 func (h *Handler) CompleteRelease(c *gin.Context) {
+	ctx := platform.RequestContext(c)
 	loanID, err := httpx.IDParam(c, "id")
 	if err != nil {
 		httpx.FailErr(c, err)
@@ -1320,7 +1382,7 @@ func (h *Handler) CompleteRelease(c *gin.Context) {
 	// Actor identity comes from the authenticated JWT — no request body
 	// needed at all now (previously just carried a spoofable employeeId).
 	actorEmployeeID, _, _ := platform.ActorFromContext(c)
-	rec, err := h.svc.CompleteRelease(loanID, platform.GetBranchScope(c), actorEmployeeID)
+	rec, err := h.svc.CompleteRelease(ctx, loanID, platform.GetBranchScope(c), actorEmployeeID)
 	if err != nil {
 		httpx.FailErr(c, err)
 		return
@@ -1334,7 +1396,8 @@ func (h *Handler) CompleteRelease(c *gin.Context) {
 // — the Employees page's "Roles" panel reads this to show the current
 // hard-enforced cap (see Service.Approve's stage-role check).
 func (h *Handler) GetLoanOperatorApprovalLimit(c *gin.Context) {
-	httpx.Success(c, http.StatusOK, gin.H{"role": "Loan Operator", "maxAmount": h.svc.GetLoanOperatorLimit()})
+	ctx := platform.RequestContext(c)
+	httpx.Success(c, http.StatusOK, gin.H{"role": "Loan Operator", "maxAmount": h.svc.GetLoanOperatorLimit(ctx)})
 }
 
 type approvalLimitRequest struct {
@@ -1343,12 +1406,13 @@ type approvalLimitRequest struct {
 
 // SetLoanOperatorApprovalLimit backs PUT /loans/approval-limits/loan-operator.
 func (h *Handler) SetLoanOperatorApprovalLimit(c *gin.Context) {
+	ctx := platform.RequestContext(c)
 	var req approvalLimitRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		httpx.Fail(c, http.StatusBadRequest, "Invalid input")
 		return
 	}
-	amount, err := h.svc.SetLoanOperatorLimit(req.MaxAmount)
+	amount, err := h.svc.SetLoanOperatorLimit(ctx, req.MaxAmount)
 	if err != nil {
 		httpx.FailErr(c, err)
 		return
@@ -1371,6 +1435,7 @@ type startIndemnityBondEsignRequest struct {
 // requested language), uploads it to Setu, and returns the Aadhaar eSign
 // signing URL the CUSTOMER must open themselves to complete OTP signing.
 func (h *Handler) StartIndemnityBondEsign(c *gin.Context) {
+	ctx := platform.RequestContext(c)
 	loanID, err := httpx.IDParam(c, "id")
 	if err != nil {
 		httpx.FailErr(c, err)
@@ -1381,7 +1446,7 @@ func (h *Handler) StartIndemnityBondEsign(c *gin.Context) {
 		httpx.Fail(c, http.StatusBadRequest, "Invalid input")
 		return
 	}
-	signReq, err := h.svc.StartIndemnityBondSign(loanID, platform.GetBranchScope(c), req.Lang, req.RedirectURL)
+	signReq, err := h.svc.StartIndemnityBondSign(ctx, loanID, platform.GetBranchScope(c), req.Lang, req.RedirectURL)
 	if err != nil {
 		httpx.FailErr(c, err)
 		return
@@ -1400,12 +1465,13 @@ func (h *Handler) StartIndemnityBondEsign(c *gin.Context) {
 // later), or the updated loan (carrying the stored signed-document URL)
 // once "sign_complete".
 func (h *Handler) CheckIndemnityBondEsign(c *gin.Context) {
+	ctx := platform.RequestContext(c)
 	loanID, err := httpx.IDParam(c, "id")
 	if err != nil {
 		httpx.FailErr(c, err)
 		return
 	}
-	rec, status, err := h.svc.CheckIndemnityBondSign(loanID, platform.GetBranchScope(c))
+	rec, status, err := h.svc.CheckIndemnityBondSign(ctx, loanID, platform.GetBranchScope(c))
 	if err != nil {
 		httpx.FailErr(c, err)
 		return
@@ -1465,6 +1531,7 @@ func (req draftRequest) toInput() DraftInput {
 
 // SaveDraft handles POST /loans/drafts — the first press of "Save Draft".
 func (h *Handler) SaveDraft(c *gin.Context) {
+	ctx := platform.RequestContext(c)
 	var req draftRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		httpx.Fail(c, http.StatusBadRequest, "Invalid input")
@@ -1473,7 +1540,7 @@ func (h *Handler) SaveDraft(c *gin.Context) {
 	// Ownership comes from the JWT, never the body — otherwise a caller could
 	// write drafts into (or read them out of) someone else's queue.
 	actorEmployeeID, _, _ := platform.ActorFromContext(c)
-	rec, err := h.svc.SaveDraft(actorEmployeeID, req.toInput())
+	rec, err := h.svc.SaveDraft(ctx, actorEmployeeID, req.toInput())
 	if err != nil {
 		httpx.FailErr(c, err)
 		return
@@ -1485,6 +1552,7 @@ func (h *Handler) SaveDraft(c *gin.Context) {
 // "Save Draft" on a form already saved once, overwriting rather than piling
 // up near-duplicate drafts.
 func (h *Handler) UpdateDraft(c *gin.Context) {
+	ctx := platform.RequestContext(c)
 	draftID, err := httpx.IDParam(c, "draftId")
 	if err != nil {
 		httpx.FailErr(c, err)
@@ -1496,7 +1564,7 @@ func (h *Handler) UpdateDraft(c *gin.Context) {
 		return
 	}
 	actorEmployeeID, _, _ := platform.ActorFromContext(c)
-	rec, err := h.svc.UpdateDraft(draftID, actorEmployeeID, req.toInput())
+	rec, err := h.svc.UpdateDraft(ctx, draftID, actorEmployeeID, req.toInput())
 	if err != nil {
 		httpx.FailErr(c, err)
 		return
@@ -1506,8 +1574,9 @@ func (h *Handler) UpdateDraft(c *gin.Context) {
 
 // ListDrafts handles GET /loans/drafts — the caller's own saved drafts only.
 func (h *Handler) ListDrafts(c *gin.Context) {
+	ctx := platform.RequestContext(c)
 	actorEmployeeID, _, _ := platform.ActorFromContext(c)
-	rec, err := h.svc.ListDrafts(actorEmployeeID, platform.GetBranchScope(c))
+	rec, err := h.svc.ListDrafts(ctx, actorEmployeeID, platform.GetBranchScope(c))
 	if err != nil {
 		httpx.FailErr(c, err)
 		return
@@ -1518,13 +1587,14 @@ func (h *Handler) ListDrafts(c *gin.Context) {
 // GetDraft handles GET /loans/drafts/:draftId, used to reopen a draft in the
 // New Gold Loan form.
 func (h *Handler) GetDraft(c *gin.Context) {
+	ctx := platform.RequestContext(c)
 	draftID, err := httpx.IDParam(c, "draftId")
 	if err != nil {
 		httpx.FailErr(c, err)
 		return
 	}
 	actorEmployeeID, _, _ := platform.ActorFromContext(c)
-	rec, err := h.svc.GetDraft(draftID, actorEmployeeID)
+	rec, err := h.svc.GetDraft(ctx, draftID, actorEmployeeID)
 	if err != nil {
 		httpx.FailErr(c, err)
 		return
@@ -1535,15 +1605,44 @@ func (h *Handler) GetDraft(c *gin.Context) {
 // DeleteDraft handles DELETE /loans/drafts/:draftId — discarding a draft the
 // staff member no longer needs.
 func (h *Handler) DeleteDraft(c *gin.Context) {
+	ctx := platform.RequestContext(c)
 	draftID, err := httpx.IDParam(c, "draftId")
 	if err != nil {
 		httpx.FailErr(c, err)
 		return
 	}
 	actorEmployeeID, _, _ := platform.ActorFromContext(c)
-	if err := h.svc.DeleteDraft(draftID, actorEmployeeID); err != nil {
+	if err := h.svc.DeleteDraft(ctx, draftID, actorEmployeeID); err != nil {
 		httpx.FailErr(c, err)
 		return
 	}
 	httpx.SuccessMessage(c, http.StatusOK, "Draft deleted successfully")
+}
+
+// Statement streams a customer-facing PDF account statement for one loan.
+//
+// Gated by "can view loan" (perms.Read) rather than a permission of its own:
+// the statement contains nothing the loan detail screen does not already
+// show, so anyone who may read the loan may print it. Branch scoping and
+// tenant filtering both apply through Service.Statement -> Service.Get, so a
+// loan from another branch or another business is a plain not-found.
+func (h *Handler) Statement(c *gin.Context) {
+	ctx := platform.RequestContext(c)
+
+	loanID, err := httpx.IDParam(c, "id")
+	if err != nil {
+		httpx.FailErr(c, err)
+		return
+	}
+
+	data, filename, err := h.svc.Statement(ctx, loanID, platform.GetBranchScope(c))
+	if err != nil {
+		httpx.FailErr(c, err)
+		return
+	}
+
+	// Attachment, not inline: this is a document the borrower is given, and
+	// naming the file after the loan means it is identifiable once saved.
+	c.Header("Content-Disposition", `attachment; filename="`+filename+`"`)
+	c.Data(http.StatusOK, "application/pdf", data)
 }

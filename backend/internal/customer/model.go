@@ -13,6 +13,7 @@ import (
 	"gorm.io/gorm"
 
 	"ambikagold/backend/internal/branch"
+	"ambikagold/backend/internal/platform"
 )
 
 // Customer is the GORM/DB-only model. It is never returned directly by any
@@ -23,8 +24,9 @@ import (
 // encrypted-at-rest field, and a future field addition should never be able
 // to leak through the API by accident just because it forgot a json tag.
 type Customer struct {
+	platform.TenantScoped
 	ID       uint          `json:"id" gorm:"primaryKey"`
-	Code     string        `json:"code" gorm:"uniqueIndex;size:20"`
+	Code     string        `json:"code" gorm:"index;size:20"`
 	Name     string        `json:"name" gorm:"not null;size:120"`
 	Phone    string        `json:"phone" gorm:"not null;size:20"`
 	DOB      time.Time     `json:"dob"`

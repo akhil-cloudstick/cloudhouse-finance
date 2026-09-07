@@ -3,6 +3,7 @@
 import { useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/common/auth-context";
+import { appPath, loginPath } from "@/common/services/tenantSession";
 
 /* Root route is just a traffic director: signed-in visitors go straight to
  * the app shell's dashboard, everyone else to /login. The real login form
@@ -13,7 +14,7 @@ export default function RootPage() {
 
   useEffect(() => {
     if (loading) return;
-    router.replace(token ? "/app#dashboard" : "/login");
+    router.replace(token ? appPath() : loginPath());
   }, [loading, token, router]);
 
   return null;

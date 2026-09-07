@@ -6,6 +6,7 @@ import { ThemedText } from "../../src/components/ThemedText";
 import { GoldTextInput } from "../../src/components/GoldTextInput";
 import { GoldButton } from "../../src/components/GoldButton";
 import { forgotPassword } from "../../src/api/auth";
+import { getBusinessCode } from "../../src/auth/businessCode";
 
 // Mirrors frontend/app/forgot-password/page.tsx: the backend never reveals
 // whether a phone number is registered (see backend/internal/auth/handler.go's
@@ -21,7 +22,8 @@ export default function ForgotPasswordScreen() {
   async function handleSubmit() {
     setSubmitting(true);
     try {
-      await forgotPassword(phone.trim()).catch(() => {});
+      const code = await getBusinessCode();
+      await forgotPassword(phone.trim(), code).catch(() => {});
     } finally {
       setSubmitting(false);
       setSent(true);

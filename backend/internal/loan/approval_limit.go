@@ -1,6 +1,8 @@
 package loan
 
 import (
+	"ambikagold/backend/internal/platform"
+	"context"
 	"errors"
 	"time"
 
@@ -15,8 +17,9 @@ import (
 // explicit scope decision, not an oversight; extending this table to other
 // roles later just means inserting another row, no schema change.
 type ApprovalLimit struct {
+	platform.TenantScoped
 	ID        uint      `json:"id" gorm:"primaryKey"`
-	Role      string    `json:"role" gorm:"uniqueIndex;not null;size:40"`
+	Role      string    `json:"role" gorm:"index;not null;size:40"`
 	MaxAmount float64   `json:"maxAmount" gorm:"not null"`
 	UpdatedAt time.Time `json:"updatedAt"`
 }
@@ -39,29 +42,29 @@ func NewApprovalLimitRepository(db *gorm.DB) *ApprovalLimitRepository {
 	return &ApprovalLimitRepository{db: db}
 }
 
-func (r *ApprovalLimitRepository) FindByRole(role string) (*ApprovalLimit, error) {
+func (r *ApprovalLimitRepository) FindByRole(ctx context.Context, role string) (*ApprovalLimit, error) {
 	var rec ApprovalLimit
-	if err := r.db.Where("role = ?", role).First(&rec).Error; err != nil {
+	if err := r.db.WithContext(ctx).Where("role = ?", role).First(&rec).Error; err != nil {
 		return nil, err
 	}
 	return &rec, nil
 }
 
 // Upsert creates or updates the single row for role.
-func (r *ApprovalLimitRepository) Upsert(role string, maxAmount float64) (*ApprovalLimit, error) {
-	rec, err := r.FindByRole(role)
+func (r *ApprovalLimitRepository) Upsert(ctx context.Context, role string, maxAmount float64) (*ApprovalLimit, error) {
+	rec, err := r.FindByRole(ctx, role)
 	if err != nil {
 		if !errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, err
 		}
 		rec = &ApprovalLimit{Role: role, MaxAmount: maxAmount}
-		if err := r.db.Create(rec).Error; err != nil {
+		if err := r.db.WithContext(ctx).Create(rec).Error; err != nil {
 			return nil, err
 		}
 		return rec, nil
 	}
 	rec.MaxAmount = maxAmount
-	if err := r.db.Save(rec).Error; err != nil {
+	if err := r.db.WithContext(ctx).Save(rec).Error; err != nil {
 		return nil, err
 	}
 	return rec, nil
@@ -70,12 +73,14 @@ func (r *ApprovalLimitRepository) Upsert(role string, maxAmount float64) (*Appro
 // SeedLoanOperatorLimit is a one-time, idempotent step that inserts the
 // Loan Operator's default limit row if none exists yet — safe to re-run.
 func SeedLoanOperatorLimit(db *gorm.DB) error {
+	// Boot-time seeding: no request, so no tenant. Deliberate opt-out.
+	ctx := platform.AllowCrossTenant(context.Background())
 	repo := NewApprovalLimitRepository(db)
-	if _, err := repo.FindByRole("Loan Operator"); err == nil {
+	if _, err := repo.FindByRole(ctx, "Loan Operator"); err == nil {
 		return nil // already seeded
 	} else if !errors.Is(err, gorm.ErrRecordNotFound) {
 		return err
 	}
-	_, err := repo.Upsert("Loan Operator", DefaultLoanOperatorApprovalLimit)
+	_, err := repo.Upsert(ctx, "Loan Operator", DefaultLoanOperatorApprovalLimit)
 	return err
 }

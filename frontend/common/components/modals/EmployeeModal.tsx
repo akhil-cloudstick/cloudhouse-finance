@@ -17,7 +17,23 @@ const ROLES = [
   "Administrator", "Management", "Branch Manager", "Loan Operator", "Cashier",
   "Accountant", "Collection Staff", "Auction Administrator", "Auditor",
 ];
-const ROLE_OPTIONS = ROLES.map((r) => ({ value: r, label: r }));
+
+/* "Administrator" was useful while every install had exactly one login that
+ * needed to do everything for testing — with real tenants now created
+ * through the superadmin console (each seeded with its own Administrator
+ * already granted full access), a business's own admin minting MORE
+ * Administrators from this ordinary form is a mistake waiting to happen, not
+ * a thing anyone needs. Hidden from the picker rather than removed from
+ * ROLES: the role itself still exists server-side (backend/internal/authz's
+ * IsSystem protection, and every tenant's seeded admin still needs it), and
+ * an employee who already holds it must still show correctly when editing
+ * them — see the ROLE_OPTIONS fallback below. */
+const HIDDEN_ROLES = new Set(["Administrator"]);
+
+function roleOptionsFor(currentRole: string) {
+  const visible = ROLES.filter((r) => !HIDDEN_ROLES.has(r) || r === currentRole);
+  return visible.map((r) => ({ value: r, label: r }));
+}
 
 const NAME_RE = /^[A-Za-z][A-Za-z\s.'-]*$/;
 const PHONE_RE = /^\d{10}$/;
@@ -144,7 +160,7 @@ export function EmployeeModalContent({ employee, onSaved }: { employee?: Employe
         </div>
         <div className="frow c2">
           <div><label className="f">Role *</label>
-            <Select options={ROLE_OPTIONS} value={role} onChange={setRole} placeholder="Select role…" /></div>
+            <Select options={roleOptionsFor(role)} value={role} onChange={setRole} placeholder="Select role…" /></div>
           <div><label className="f">Branch *</label>
             {isAdmin ? (
               <Select

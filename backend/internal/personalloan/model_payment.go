@@ -1,6 +1,10 @@
 package personalloan
 
-import "time"
+import (
+	"time"
+
+	"ambikagold/backend/internal/platform"
+)
 
 // PaymentMethodRenewalRollover marks the synthetic ledger entry RenewLoan
 // writes on the OLD loan for its outstanding balance being rolled into the
@@ -14,6 +18,7 @@ const PaymentMethodRenewalRollover = "Renewal Rollover"
 // balance left after it, and a best-effort link to the installment it was
 // primarily credited against.
 type PersonalLoanPayment struct {
+	platform.TenantScoped
 	ID             uint `json:"id" gorm:"primaryKey"`
 	PersonalLoanID uint `json:"personalLoanId" gorm:"not null;index"`
 

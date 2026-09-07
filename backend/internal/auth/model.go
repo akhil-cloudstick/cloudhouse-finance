@@ -14,17 +14,33 @@ package auth
 type LoginInput struct {
 	Identifier string `json:"identifier" binding:"required"`
 	Password   string `json:"password" binding:"required"`
+
+	// BusinessCode identifies which business to authenticate against
+	// (tenant.Tenant.Code). Usernames are only unique WITHIN a business, so
+	// "ravi" alone is ambiguous once a second business exists.
+	//
+	// Optional while exactly one business exists, so the existing single
+	// installation keeps working unchanged; required as soon as there is
+	// more than one. In normal use it arrives from the per-business login
+	// URL (/login/<code>) rather than being typed.
+	BusinessCode string `json:"businessCode"`
 }
 
 // ForgotPasswordInput is the JSON body accepted by POST /auth/forgot-password.
 type ForgotPasswordInput struct {
-	Phone string `json:"phone" binding:"required"`
+	// BusinessCode — see LoginInput. A phone is only unique within a
+	// business, so a reset must know which one it is for.
+	BusinessCode string `json:"businessCode"`
+	Phone        string `json:"phone" binding:"required"`
 }
 
 // ResetPasswordInput is the JSON body accepted by POST /auth/reset-password.
 // OTP is the 6-digit code texted to Phone by ForgotPassword.
 type ResetPasswordInput struct {
-	Phone       string `json:"phone" binding:"required"`
-	OTP         string `json:"otp" binding:"required"`
-	NewPassword string `json:"newPassword" binding:"required"`
+	// BusinessCode — see LoginInput. A phone is only unique within a
+	// business, so a reset must know which one it is for.
+	BusinessCode string `json:"businessCode"`
+	Phone        string `json:"phone" binding:"required"`
+	OTP          string `json:"otp" binding:"required"`
+	NewPassword  string `json:"newPassword" binding:"required"`
 }

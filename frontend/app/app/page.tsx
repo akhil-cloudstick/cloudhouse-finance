@@ -33,6 +33,7 @@ import { Calendar } from "@/modules/reminders/components/Calendar";
 import { Branches } from "@/modules/branches/components/Branches";
 import { Settings } from "@/modules/settings/components/Settings";
 import { RolesPermissions } from "@/modules/roles/components/RolesPermissions";
+import { Billing } from "@/modules/billing/components/Billing";
 import { useAuth } from "@/common/auth-context";
 
 /* Every route the hash router can reach, mapped to the permission that
@@ -64,6 +65,7 @@ const ROUTE_PERMISSIONS: Record<string, { module: string | null; key?: string }>
   calendar: { module: "Reminder_Management", key: "can_view_reminder" },
   branches: { module: "Branch_Management", key: "can_view_branch" },
   "roles-permissions": { module: "Role_Management", key: "can_view_role_and_permission" },
+  billing: { module: "Billing", key: "can_manage_billing" },
   settings: { module: "Settings_Management", key: "can_view_setting" },
 };
 
@@ -132,6 +134,8 @@ function View({ route, arg }: { route: string; arg?: string }) {
       return <Branches />;
     case "roles-permissions":
       return <RolesPermissions />;
+    case "billing":
+      return <Billing />;
     case "settings":
       return <Settings />;
     case "dashboard":

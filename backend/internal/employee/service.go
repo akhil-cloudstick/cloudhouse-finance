@@ -1,6 +1,7 @@
 package employee
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"regexp"
@@ -9,6 +10,8 @@ import (
 	"golang.org/x/crypto/bcrypt"
 	"gorm.io/gorm"
 
+	"ambikagold/backend/internal/auditlog"
+	"ambikagold/backend/internal/authz"
 	"ambikagold/backend/internal/branch"
 	"ambikagold/backend/internal/platform/httpx"
 )
@@ -125,10 +128,49 @@ type UpdateInput struct {
 type Service struct {
 	repo       *Repository
 	branchRepo *branch.Repository
+	authzRepo  *authz.Repository
+	auditRepo  *auditlog.Repository
 }
 
-func NewService(repo *Repository, branchRepo *branch.Repository) *Service {
-	return &Service{repo: repo, branchRepo: branchRepo}
+func NewService(repo *Repository, branchRepo *branch.Repository, authzRepo *authz.Repository, auditRepo *auditlog.Repository) *Service {
+	return &Service{repo: repo, branchRepo: branchRepo, authzRepo: authzRepo, auditRepo: auditRepo}
+}
+
+// logAudit resolves the acting employee's CURRENT name (not from a claim
+// that might be stale — see platform.EmployeeSessionChecker's reasoning for
+// why current data is worth one extra lookup on a write path) and records
+// the action. actorEmployeeID of 0 means no caller identity was available
+// (a background job, say) and is skipped rather than logged as employee 0.
+func (s *Service) logAudit(ctx context.Context, actorEmployeeID uint, action string, entityID uint, entityName, detail string) {
+	if actorEmployeeID == 0 || s.auditRepo == nil {
+		return
+	}
+	actorName := "unknown"
+	if actor, err := s.repo.FindByID(ctx, actorEmployeeID); err == nil {
+		actorName = actor.Name
+	}
+	s.auditRepo.Log(ctx, actorEmployeeID, actorName, action, "employee", entityID, entityName, detail)
+}
+
+// resolveRoleID looks up the id behind a role NAME, scoped to the caller's
+// own tenant via ctx.
+//
+// FOUND AND FIXED 2026-08-29, while proving Step 8b's role-change
+// invalidation actually works: neither Create nor Update ever set RoleID at
+// all — only the free-text Role name. RoleID is the field RequirePermission
+// actually authorizes against, so an employee's real permissions never
+// reflected their assigned role at all, for either a brand new employee or
+// one whose role was later changed, until the NEXT migrate.Run backfill
+// (internal/migrate.backfillEmployeeRoleID) happened to run and recompute it
+// — i.e. the next server restart, not "eventually" in any bounded sense a
+// user could rely on. Both callers below now set it directly, so a role
+// takes effect on the very same write that assigns it.
+func (s *Service) resolveRoleID(ctx context.Context, roleName string) (uint, error) {
+	id, err := s.authzRepo.RoleIDByName(ctx, roleName)
+	if err != nil {
+		return 0, ErrInvalidRole
+	}
+	return id, nil
 }
 
 func validateCreate(in CreateInput) error {
@@ -156,8 +198,8 @@ func validateCreate(in CreateInput) error {
 	return nil
 }
 
-func (s *Service) checkBranch(id uint) error {
-	ok, err := s.branchRepo.Exists(id)
+func (s *Service) checkBranch(ctx context.Context, id uint) error {
+	ok, err := s.branchRepo.Exists(ctx, id)
 	if err != nil {
 		return err
 	}
@@ -170,11 +212,11 @@ func (s *Service) checkBranch(id uint) error {
 // checkPhoneUnique reports ErrPhoneTaken if phone is non-blank and already
 // used by a different employee (excludeID — 0 when creating). Phone is a
 // login identifier (see internal/auth), so it must stay unique.
-func (s *Service) checkPhoneUnique(phone string, excludeID uint) error {
+func (s *Service) checkPhoneUnique(ctx context.Context, phone string, excludeID uint) error {
 	if phone == "" {
 		return nil
 	}
-	existing, err := s.repo.FindByPhone(phone)
+	existing, err := s.repo.FindByPhone(ctx, phone)
 	if err == nil && existing.ID != excludeID {
 		return ErrPhoneTaken
 	} else if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
@@ -184,11 +226,11 @@ func (s *Service) checkPhoneUnique(phone string, excludeID uint) error {
 }
 
 // checkUsernameUnique mirrors checkPhoneUnique for Username.
-func (s *Service) checkUsernameUnique(username string, excludeID uint) error {
+func (s *Service) checkUsernameUnique(ctx context.Context, username string, excludeID uint) error {
 	if username == "" {
 		return nil
 	}
-	existing, err := s.repo.FindByUsername(username)
+	existing, err := s.repo.FindByUsername(ctx, username)
 	if err == nil && existing.ID != excludeID {
 		return ErrUsernameTaken
 	} else if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
@@ -197,30 +239,36 @@ func (s *Service) checkUsernameUnique(username string, excludeID uint) error {
 	return nil
 }
 
-func (s *Service) Create(in CreateInput) (*Employee, error) {
+func (s *Service) Create(ctx context.Context, in CreateInput, actorEmployeeID uint) (*Employee, error) {
 	if err := validateCreate(in); err != nil {
 		return nil, err
 	}
-	if err := s.checkBranch(in.BranchID); err != nil {
+	if err := s.checkBranch(ctx, in.BranchID); err != nil {
 		return nil, err
 	}
-	if err := s.checkPhoneUnique(in.Phone, 0); err != nil {
+	if err := s.checkPhoneUnique(ctx, in.Phone, 0); err != nil {
 		return nil, err
 	}
-	if err := s.checkUsernameUnique(in.Username, 0); err != nil {
+	if err := s.checkUsernameUnique(ctx, in.Username, 0); err != nil {
 		return nil, err
 	}
 
-	count, err := s.repo.CountAll()
+	count, err := s.repo.CountAll(ctx)
 	if err != nil {
 		return nil, err
 	}
 	code := fmt.Sprintf("EMP-%02d", count+1)
 
+	roleID, err := s.resolveRoleID(ctx, in.Role)
+	if err != nil {
+		return nil, err
+	}
+
 	rec := &Employee{
 		Code:     code,
 		Name:     in.Name,
 		Role:     in.Role,
+		RoleID:   roleID,
 		BranchID: in.BranchID,
 		Phone:    in.Phone,
 		Username: in.Username,
@@ -232,24 +280,25 @@ func (s *Service) Create(in CreateInput) (*Employee, error) {
 		}
 		rec.PasswordHash = string(hash)
 	}
-	if err := s.repo.Create(rec); err != nil {
+	if err := s.repo.Create(ctx, rec); err != nil {
 		return nil, err
 	}
-	return s.repo.FindByID(rec.ID)
+	s.logAudit(ctx, actorEmployeeID, auditlog.ActionEmployeeCreated, rec.ID, rec.Name, "role="+rec.Role)
+	return s.repo.FindByID(ctx, rec.ID)
 }
 
 // List returns employees, optionally scoped to branchID (nil = all
 // branches — Administrator only, see platform.GetBranchScope).
-func (s *Service) List(branchID *uint, limit, offset int) ([]Employee, int64, error) {
-	return s.repo.FindAll(branchID, limit, offset)
+func (s *Service) List(ctx context.Context, branchID *uint, limit, offset int) ([]Employee, int64, error) {
+	return s.repo.FindAll(ctx, branchID, limit, offset)
 }
 
 // Get returns the employee by id, or ErrNotFound if it doesn't exist OR
 // (when branchID is non-nil) belongs to a different branch — a non-admin
 // gets the same "not found" for another branch's employee as for a
 // genuinely missing id, so branch existence is never leaked.
-func (s *Service) Get(id uint, branchID *uint) (*Employee, error) {
-	rec, err := s.repo.FindByID(id)
+func (s *Service) Get(ctx context.Context, id uint, branchID *uint) (*Employee, error) {
+	rec, err := s.repo.FindByID(ctx, id)
 	if err != nil {
 		return nil, ErrNotFound
 	}
@@ -263,7 +312,7 @@ func (s *Service) Get(id uint, branchID *uint) (*Employee, error) {
 // Administrator) must match the employee's current branch or ErrNotFound is
 // returned before any other validation runs, same not-found-on-mismatch
 // guard as Get.
-func (s *Service) Update(id uint, in UpdateInput, branchID *uint) (*Employee, error) {
+func (s *Service) Update(ctx context.Context, id uint, in UpdateInput, branchID *uint, actorEmployeeID uint) (*Employee, error) {
 	if in.Name == "" {
 		return nil, ErrNameRequired
 	}
@@ -279,22 +328,29 @@ func (s *Service) Update(id uint, in UpdateInput, branchID *uint) (*Employee, er
 	if err := validatePhone(in.Phone); err != nil {
 		return nil, err
 	}
-	if err := s.checkBranch(in.BranchID); err != nil {
+	if err := s.checkBranch(ctx, in.BranchID); err != nil {
 		return nil, err
 	}
-	rec, err := s.repo.FindByID(id)
+	rec, err := s.repo.FindByID(ctx, id)
 	if err != nil {
 		return nil, ErrNotFound
 	}
 	if branchID != nil && rec.BranchID != *branchID {
 		return nil, ErrNotFound
 	}
-	if err := s.checkPhoneUnique(in.Phone, rec.ID); err != nil {
+	if err := s.checkPhoneUnique(ctx, in.Phone, rec.ID); err != nil {
 		return nil, err
 	}
 
+	roleID, err := s.resolveRoleID(ctx, in.Role)
+	if err != nil {
+		return nil, err
+	}
+	beforeRole := rec.Role
+
 	rec.Name = in.Name
 	rec.Role = in.Role
+	rec.RoleID = roleID
 	rec.BranchID = in.BranchID
 	rec.Phone = in.Phone
 	rec.LoansProcessed = in.LoansProcessed
@@ -307,7 +363,7 @@ func (s *Service) Update(id uint, in UpdateInput, branchID *uint) (*Employee, er
 		if !usernameRe.MatchString(username) {
 			return nil, ErrUsernameInvalid
 		}
-		if err := s.checkUsernameUnique(username, rec.ID); err != nil {
+		if err := s.checkUsernameUnique(ctx, username, rec.ID); err != nil {
 			return nil, err
 		}
 		rec.Username = username
@@ -318,7 +374,7 @@ func (s *Service) Update(id uint, in UpdateInput, branchID *uint) (*Employee, er
 		if !emailRe.MatchString(email) {
 			return nil, ErrEmailInvalid
 		}
-		existing, err := s.repo.FindByEmail(email)
+		existing, err := s.repo.FindByEmail(ctx, email)
 		if err == nil && existing.ID != rec.ID {
 			return nil, ErrEmailTaken
 		} else if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
@@ -338,22 +394,31 @@ func (s *Service) Update(id uint, in UpdateInput, branchID *uint) (*Employee, er
 		rec.PasswordHash = string(hash)
 	}
 
-	if err := s.repo.Update(rec); err != nil {
+	if err := s.repo.Update(ctx, rec); err != nil {
 		return nil, err
 	}
-	return s.repo.FindByID(rec.ID)
+	detail := "role unchanged: " + rec.Role
+	if beforeRole != rec.Role {
+		detail = fmt.Sprintf("role: %s -> %s", beforeRole, rec.Role)
+	}
+	s.logAudit(ctx, actorEmployeeID, auditlog.ActionEmployeeUpdated, rec.ID, rec.Name, detail)
+	return s.repo.FindByID(ctx, rec.ID)
 }
 
 // Delete removes the employee identified by id. branchID (nil for
 // Administrator) must match the employee's current branch or ErrNotFound is
 // returned, same not-found-on-mismatch guard as Get/Update.
-func (s *Service) Delete(id uint, branchID *uint) error {
-	rec, err := s.repo.FindByID(id)
+func (s *Service) Delete(ctx context.Context, id uint, branchID *uint, actorEmployeeID uint) error {
+	rec, err := s.repo.FindByID(ctx, id)
 	if err != nil {
 		return ErrNotFound
 	}
 	if branchID != nil && rec.BranchID != *branchID {
 		return ErrNotFound
 	}
-	return s.repo.Delete(id)
+	if err := s.repo.Delete(ctx, id); err != nil {
+		return err
+	}
+	s.logAudit(ctx, actorEmployeeID, auditlog.ActionEmployeeDeleted, rec.ID, rec.Name, "role="+rec.Role)
+	return nil
 }

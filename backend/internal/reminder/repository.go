@@ -1,6 +1,7 @@
 package reminder
 
 import (
+	"context"
 	"time"
 
 	"gorm.io/gorm"
@@ -15,21 +16,21 @@ func NewRepository(db *gorm.DB) *Repository {
 	return &Repository{db: db}
 }
 
-func (r *Repository) Create(rem *Reminder) error {
-	return r.db.Create(rem).Error
+func (r *Repository) Create(ctx context.Context, rem *Reminder) error {
+	return r.db.WithContext(ctx).Create(rem).Error
 }
 
-func (r *Repository) Update(rem *Reminder) error {
-	return r.db.Save(rem).Error
+func (r *Repository) Update(ctx context.Context, rem *Reminder) error {
+	return r.db.WithContext(ctx).Save(rem).Error
 }
 
-func (r *Repository) Delete(id uint) error {
-	return r.db.Delete(&Reminder{}, id).Error
+func (r *Repository) Delete(ctx context.Context, id uint) error {
+	return r.db.WithContext(ctx).Delete(&Reminder{}, id).Error
 }
 
-func (r *Repository) FindByID(id uint) (*Reminder, error) {
+func (r *Repository) FindByID(ctx context.Context, id uint) (*Reminder, error) {
 	var rem Reminder
-	if err := r.db.Preload("Customer").First(&rem, id).Error; err != nil {
+	if err := r.db.WithContext(ctx).Preload("Customer").First(&rem, id).Error; err != nil {
 		return nil, err
 	}
 	return &rem, nil
@@ -48,8 +49,8 @@ type Filter struct {
 	BranchID *uint
 }
 
-func (r *Repository) FindAll(f Filter) ([]Reminder, error) {
-	q := r.db.Preload("Customer").Model(&Reminder{}).Order("due_date asc")
+func (r *Repository) FindAll(ctx context.Context, f Filter) ([]Reminder, error) {
+	q := r.db.WithContext(ctx).Preload("Customer").Model(&Reminder{}).Order("due_date asc")
 	if f.BranchID != nil {
 		q = q.Joins("JOIN customers ON customers.id = reminders.customer_id").Where("customers.branch_id = ?", *f.BranchID)
 	}

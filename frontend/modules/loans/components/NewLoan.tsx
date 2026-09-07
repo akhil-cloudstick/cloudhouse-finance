@@ -12,6 +12,7 @@ import { useToast } from "@/common/components/Toast";
 import { useAuth } from "@/common/auth-context";
 import { Icon } from "@/common/components/Icon";
 import { fmt, custOf, schemeOf } from "@/common/utils/format";
+import { appPath } from "@/common/services/tenantSession";
 import { uploadFile, searchCustomersPage, getCustomerAadhaarFull, type CustomerView } from "@/modules/customers/services/customerService";
 import { searchActiveSchemesPage, type SchemeView } from "@/modules/schemes/services/schemeService";
 import { searchOrnamentTypesPage, createOrnamentType, type BackendOrnamentType } from "@/modules/ornament-types/services/ornamentTypeService";
@@ -462,9 +463,10 @@ export function NewLoan() {
     // Before submission, fall back to the provisional loan-id URL used for
     // the pre-submission label preview.
     const packetLabel = createdPacketCode || "PKT-" + provId.slice(3);
+    // appPath keeps the business slug — see LoanDetail's label QR.
     const url = createdPacketCode
-      ? location.origin + "/app#packet/" + createdPacketCode
-      : location.origin + "/app#loan/" + provId;
+      ? location.origin + appPath(undefined, "#packet/" + createdPacketCode)
+      : location.origin + appPath(undefined, "#loan/" + provId);
     let qr: string;
     try {
       qr = await toDataURL(url, { width: 256, errorCorrectionLevel: "M" });

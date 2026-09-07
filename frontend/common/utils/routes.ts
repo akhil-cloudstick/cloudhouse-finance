@@ -22,5 +22,6 @@ export const TITLES: Record<string, string> = {
   auctions: "Auctions", reports: "Reports", employees: "Employees",
   branches: "Branch Management",
   "roles-permissions": "Roles & Permissions",
+  billing: "Billing",
   settings: "Settings",
 };

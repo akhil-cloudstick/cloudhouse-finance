@@ -8,7 +8,10 @@
 // this?").
 package notification
 
-import "time"
+import (
+	"ambikagold/backend/internal/platform"
+	"time"
+)
 
 // Notification is one in-app notification for one customer. Delivered only
 // flips true once the customer's app acknowledges receipt over the
@@ -18,6 +21,7 @@ import "time"
 // after the cap, the row is left Delivered=false permanently but remains
 // visible via List (the REST history endpoint), never deleted.
 type Notification struct {
+	platform.TenantScoped
 	ID         uint   `json:"id" gorm:"primaryKey"`
 	CustomerID uint   `json:"customerId" gorm:"not null;index"`
 	Type       string `json:"type" gorm:"not null;size:40;index"` // e.g. "LoanSanctioned", "PaymentRecorded" — see loan/service.go call sites for the full set

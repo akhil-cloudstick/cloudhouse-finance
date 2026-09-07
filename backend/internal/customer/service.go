@@ -1,8 +1,11 @@
 package customer
 
 import (
+	"context"
 	"fmt"
 	"time"
+
+	"gorm.io/gorm"
 
 	"ambikagold/backend/internal/branch"
 	"ambikagold/backend/internal/platform"
@@ -69,6 +72,7 @@ var (
 
 // Service implements customer business rules on top of the Repository.
 type Service struct {
+	db            *gorm.DB // usage-cap bookkeeping only (platform.CheckAndRecordUsage) — never queried directly here
 	repo          *Repository
 	branchRepo    *branch.Repository
 	aadhaarCipher *platform.Cipher
@@ -76,8 +80,8 @@ type Service struct {
 	digilocker    *platform.DigilockerClient
 }
 
-func NewService(repo *Repository, branchRepo *branch.Repository, aadhaarCipher *platform.Cipher, setu *platform.SetuClient, digilocker *platform.DigilockerClient) *Service {
-	return &Service{repo: repo, branchRepo: branchRepo, aadhaarCipher: aadhaarCipher, setu: setu, digilocker: digilocker}
+func NewService(db *gorm.DB, repo *Repository, branchRepo *branch.Repository, aadhaarCipher *platform.Cipher, setu *platform.SetuClient, digilocker *platform.DigilockerClient) *Service {
+	return &Service{db: db, repo: repo, branchRepo: branchRepo, aadhaarCipher: aadhaarCipher, setu: setu, digilocker: digilocker}
 }
 
 func validate(in CreateInput) error {
@@ -93,8 +97,8 @@ func validate(in CreateInput) error {
 	return nil
 }
 
-func (s *Service) checkBranch(id uint) error {
-	ok, err := s.branchRepo.Exists(id)
+func (s *Service) checkBranch(ctx context.Context, id uint) error {
+	ok, err := s.branchRepo.Exists(ctx, id)
 	if err != nil {
 		return err
 	}
@@ -114,15 +118,15 @@ func aadhaarLast4(aadhaar string) string {
 	return aadhaar[len(aadhaar)-4:]
 }
 
-func (s *Service) Create(in CreateInput) (*Customer, error) {
+func (s *Service) Create(ctx context.Context, in CreateInput) (*Customer, error) {
 	if err := validate(in); err != nil {
 		return nil, err
 	}
-	if err := s.checkBranch(in.BranchID); err != nil {
+	if err := s.checkBranch(ctx, in.BranchID); err != nil {
 		return nil, err
 	}
 
-	count, err := s.repo.CountAll()
+	count, err := s.repo.CountAll(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -174,18 +178,18 @@ func (s *Service) Create(in CreateInput) (*Customer, error) {
 		PANStatus:     "Pending",
 		AadhaarStatus: "Pending",
 	}
-	if err := s.repo.Create(rec); err != nil {
+	if err := s.repo.Create(ctx, rec); err != nil {
 		return nil, err
 	}
-	return s.repo.FindByID(rec.ID)
+	return s.repo.FindByID(ctx, rec.ID)
 }
 
-func (s *Service) List(f CustomerFilter) ([]Customer, int64, error) {
-	return s.repo.FindAll(f)
+func (s *Service) List(ctx context.Context, f CustomerFilter) ([]Customer, int64, error) {
+	return s.repo.FindAll(ctx, f)
 }
 
-func (s *Service) Get(id uint, branchID *uint) (*Customer, error) {
-	rec, err := s.repo.FindByID(id)
+func (s *Service) Get(ctx context.Context, id uint, branchID *uint) (*Customer, error) {
+	rec, err := s.repo.FindByID(ctx, id)
 	if err != nil {
 		return nil, ErrNotFound
 	}
@@ -209,8 +213,8 @@ var ErrNoAadhaarOnFile = httpx.NewBadRequest("customer has no Aadhaar number on 
 // ToResponse) exposes only AadhaarLast4, by construction. Callers must
 // gate this behind an authenticated, permissioned request; it does not
 // audit-log on its own.
-func (s *Service) DecryptAadhaar(id uint, branchID *uint) (string, error) {
-	rec, err := s.repo.FindByID(id)
+func (s *Service) DecryptAadhaar(ctx context.Context, id uint, branchID *uint) (string, error) {
+	rec, err := s.repo.FindByID(ctx, id)
 	if err != nil {
 		return "", ErrNotFound
 	}
@@ -223,14 +227,14 @@ func (s *Service) DecryptAadhaar(id uint, branchID *uint) (string, error) {
 	return s.aadhaarCipher.Decrypt(rec.AadhaarEncrypted)
 }
 
-func (s *Service) Update(id uint, in UpdateInput, branchID *uint) (*Customer, error) {
+func (s *Service) Update(ctx context.Context, id uint, in UpdateInput, branchID *uint) (*Customer, error) {
 	if err := validate(in); err != nil {
 		return nil, err
 	}
-	if err := s.checkBranch(in.BranchID); err != nil {
+	if err := s.checkBranch(ctx, in.BranchID); err != nil {
 		return nil, err
 	}
-	rec, err := s.repo.FindByID(id)
+	rec, err := s.repo.FindByID(ctx, id)
 	if err != nil {
 		return nil, ErrNotFound
 	}
@@ -270,21 +274,21 @@ func (s *Service) Update(id uint, in UpdateInput, branchID *uint) (*Customer, er
 		rec.AadhaarLast4 = aadhaarLast4(in.Aadhaar)
 	}
 
-	if err := s.repo.Update(rec); err != nil {
+	if err := s.repo.Update(ctx, rec); err != nil {
 		return nil, err
 	}
-	return s.repo.FindByID(rec.ID)
+	return s.repo.FindByID(ctx, rec.ID)
 }
 
-func (s *Service) Delete(id uint, branchID *uint) error {
-	rec, err := s.repo.FindByID(id)
+func (s *Service) Delete(ctx context.Context, id uint, branchID *uint) error {
+	rec, err := s.repo.FindByID(ctx, id)
 	if err != nil {
 		return ErrNotFound
 	}
 	if branchID != nil && rec.BranchID != *branchID {
 		return ErrNotFound
 	}
-	return s.repo.Delete(id)
+	return s.repo.Delete(ctx, id)
 }
 
 // deriveKYCStatus computes the overall KYC status from the two individual
@@ -319,8 +323,8 @@ func deriveKYCStatus(panStatus, aadhaarStatus string) string {
 // deriveKYCStatus, so a customer only becomes "Verified" once both the PAN
 // check and the DigiLocker Aadhaar check have passed. Returns the updated customer plus the raw Setu result (so the
 // handler can surface the matched name/message to the UI).
-func (s *Service) VerifyPAN(id uint, branchID *uint) (*Customer, *platform.PANVerificationResult, error) {
-	rec, err := s.repo.FindByID(id)
+func (s *Service) VerifyPAN(ctx context.Context, id uint, branchID *uint) (*Customer, *platform.PANVerificationResult, error) {
+	rec, err := s.repo.FindByID(ctx, id)
 	if err != nil {
 		return nil, nil, ErrNotFound
 	}
@@ -332,6 +336,11 @@ func (s *Service) VerifyPAN(id uint, branchID *uint) (*Customer, *platform.PANVe
 	}
 	if s.setu == nil {
 		return nil, nil, ErrSetuNotConfigured
+	}
+	if tenantID, ok := platform.TenantFromContext(ctx); ok {
+		if err := platform.CheckAndRecordUsage(s.db, tenantID, platform.UsageSetuPAN); err != nil {
+			return nil, nil, err
+		}
 	}
 
 	result, err := s.setu.VerifyPAN(rec.PAN, fmt.Sprintf("Verifying PAN for gold loan customer %s onboarding KYC", rec.Code))
@@ -358,11 +367,11 @@ func (s *Service) VerifyPAN(id uint, branchID *uint) (*Customer, *platform.PANVe
 	}
 	// Overall KYC is derived, never auto-set from this single check.
 	rec.KYCStatus = deriveKYCStatus(rec.PANStatus, rec.AadhaarStatus)
-	if err := s.repo.Update(rec); err != nil {
+	if err := s.repo.Update(ctx, rec); err != nil {
 		return nil, nil, err
 	}
 
-	updated, err := s.repo.FindByID(rec.ID)
+	updated, err := s.repo.FindByID(ctx, rec.ID)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -375,8 +384,8 @@ func (s *Service) VerifyPAN(id uint, branchID *uint) (*Customer, *platform.PANVe
 // where DigiLocker sends the customer back to after they complete login on
 // their own device — the frontend supplies this (see handler.go) since it
 // knows its own callback page's URL.
-func (s *Service) StartAadhaarVerify(id uint, branchID *uint, redirectURL string) (*platform.DigilockerRequest, error) {
-	rec, err := s.repo.FindByID(id)
+func (s *Service) StartAadhaarVerify(ctx context.Context, id uint, branchID *uint, redirectURL string) (*platform.DigilockerRequest, error) {
+	rec, err := s.repo.FindByID(ctx, id)
 	if err != nil {
 		return nil, ErrNotFound
 	}
@@ -386,6 +395,11 @@ func (s *Service) StartAadhaarVerify(id uint, branchID *uint, redirectURL string
 	if s.digilocker == nil {
 		return nil, ErrDigilockerNotConfigured
 	}
+	if tenantID, ok := platform.TenantFromContext(ctx); ok {
+		if err := platform.CheckAndRecordUsage(s.db, tenantID, platform.UsageSetuAadhaar); err != nil {
+			return nil, err
+		}
+	}
 
 	req, err := s.digilocker.CreateRequest(redirectURL)
 	if err != nil {
@@ -393,7 +407,7 @@ func (s *Service) StartAadhaarVerify(id uint, branchID *uint, redirectURL string
 	}
 
 	rec.DigilockerRequestID = req.ID
-	if err := s.repo.Update(rec); err != nil {
+	if err := s.repo.Update(ctx, rec); err != nil {
 		return nil, err
 	}
 	return req, nil
@@ -405,8 +419,8 @@ func (s *Service) StartAadhaarVerify(id uint, branchID *uint, redirectURL string
 // AadhaarStatus/KYCStatus untouched — callers should poll again later.
 // Once authenticated, it fetches the e-Aadhaar data, updates AadhaarStatus/
 // KYCStatus (and AadhaarLast4 for display), and returns the fetched data.
-func (s *Service) CheckAadhaarVerify(id uint, branchID *uint) (*Customer, *platform.DigilockerStatus, *platform.AadhaarXML, error) {
-	rec, err := s.repo.FindByID(id)
+func (s *Service) CheckAadhaarVerify(ctx context.Context, id uint, branchID *uint) (*Customer, *platform.DigilockerStatus, *platform.AadhaarXML, error) {
+	rec, err := s.repo.FindByID(ctx, id)
 	if err != nil {
 		return nil, nil, nil, ErrNotFound
 	}
@@ -450,10 +464,10 @@ func (s *Service) CheckAadhaarVerify(id uint, branchID *uint) (*Customer, *platf
 	}
 	rec.DigilockerRequestID = "" // request consumed — a re-verify starts a fresh one
 
-	if err := s.repo.Update(rec); err != nil {
+	if err := s.repo.Update(ctx, rec); err != nil {
 		return nil, nil, nil, err
 	}
-	updated, err := s.repo.FindByID(rec.ID)
+	updated, err := s.repo.FindByID(ctx, rec.ID)
 	if err != nil {
 		return nil, nil, nil, err
 	}

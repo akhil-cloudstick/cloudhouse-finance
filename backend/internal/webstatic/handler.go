@@ -86,7 +86,71 @@ func (h *Handler) resolve(urlPath string) string {
 			return c
 		}
 	}
+
+	// Per-business links: /login/<slug> and /app/<slug> serve the same login
+	// and app pages, which read the slug from their own URL.
+	//
+	// Nothing matches them on disk, and nothing can: the frontend builds with
+	// Next's output: "export", where a dynamic route needs every parameter
+	// known at build time, and tenant slugs are created at runtime by the
+	// vendor. So the fallback lives here instead. `next dev` does the same
+	// thing with a rewrite (see frontend/next.config.ts) — keep the two in
+	// step, because a path that works in dev and 404s in production is worse
+	// than one that never worked.
+	//
+	// This resolves the PAGE only. The slug grants nothing: the business is
+	// established from the session token, and a signed-in user who edits the
+	// slug in the address bar still sees exactly their own business's data.
+	if page := sluggedPage(clean); page != "" {
+		candidate := filepath.Join(h.root, page)
+		if isFile(candidate) {
+			return candidate
+		}
+	}
 	return ""
+}
+
+// sluggedPage maps /login/<slug> to login.html and /app/<slug> to app.html,
+// and returns "" for anything else — including deeper paths like
+// /app/<slug>/extra, which are not part of the link design and should keep
+// 404ing rather than silently serving the app shell.
+func sluggedPage(clean string) string {
+	parts := strings.Split(strings.TrimPrefix(clean, "/"), "/")
+	if len(parts) != 2 || parts[1] == "" {
+		return ""
+	}
+	if !isBusinessSlug(parts[1]) {
+		return ""
+	}
+	switch parts[0] {
+	case "login":
+		return "login.html"
+	case "app":
+		return "app.html"
+	default:
+		return ""
+	}
+}
+
+// isBusinessSlug mirrors the frontend's slug rule (lowercase alphanumerics
+// and dashes — see frontend/common/services/tenantSession.ts).
+//
+// Validated rather than accepted as-is so a stray path segment is not treated
+// as a business, and so this can never be turned into a way to reach a file:
+// the slug is only ever compared, never joined onto a path.
+func isBusinessSlug(s string) bool {
+	if s == "" || len(s) > 60 {
+		return false
+	}
+	for i, r := range s {
+		switch {
+		case r >= 'a' && r <= 'z', r >= '0' && r <= '9':
+		case r == '-' && i > 0:
+		default:
+			return false
+		}
+	}
+	return true
 }
 
 func isFile(p string) bool {

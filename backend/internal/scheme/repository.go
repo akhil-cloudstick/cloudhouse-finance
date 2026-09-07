@@ -1,6 +1,8 @@
 package scheme
 
 import (
+	"context"
+
 	"gorm.io/gorm"
 )
 
@@ -13,8 +15,8 @@ func NewRepository(db *gorm.DB) *Repository {
 	return &Repository{db: db}
 }
 
-func (r *Repository) Create(s *Scheme) error {
-	return r.db.Create(s).Error
+func (r *Repository) Create(ctx context.Context, s *Scheme) error {
+	return r.db.WithContext(ctx).Create(s).Error
 }
 
 // FindAll returns schemes, optionally scoped to a single branch — pass nil
@@ -23,9 +25,9 @@ func (r *Repository) Create(s *Scheme) error {
 // limit == 0 returns every matching scheme unpaged (the web Schemes page's
 // behaviour); limit > 0 applies Limit/Offset (the mobile app's paginated
 // list) — same convention as FindActive below.
-func (r *Repository) FindAll(query string, branchID *uint, limit, offset int) ([]Scheme, int64, error) {
+func (r *Repository) FindAll(ctx context.Context, query string, branchID *uint, limit, offset int) ([]Scheme, int64, error) {
 	var schemes []Scheme
-	q := r.db.Preload("Branch").Order("id asc")
+	q := r.db.WithContext(ctx).Preload("Branch").Order("id asc")
 	if query != "" {
 		q = q.Where("name ILIKE ?", "%"+query+"%")
 	}
@@ -49,9 +51,9 @@ func (r *Repository) FindAll(query string, branchID *uint, limit, offset int) ([
 // SearchableSelect in NewLoan.tsx). branchID mirrors FindAll's scoping (nil
 // = all branches, Administrator only) so a non-admin's active-scheme picker
 // never offers a scheme that List/FindAll would then hide from them.
-func (r *Repository) FindActive(query string, branchID *uint, limit, offset int) ([]Scheme, int64, error) {
+func (r *Repository) FindActive(ctx context.Context, query string, branchID *uint, limit, offset int) ([]Scheme, int64, error) {
 	var schemes []Scheme
-	q := r.db.Where("is_active = ?", true).Order("id asc")
+	q := r.db.WithContext(ctx).Where("is_active = ?", true).Order("id asc")
 	if query != "" {
 		q = q.Where("name ILIKE ?", "%"+query+"%")
 	}
@@ -69,32 +71,32 @@ func (r *Repository) FindActive(query string, branchID *uint, limit, offset int)
 	return schemes, total, err
 }
 
-func (r *Repository) FindInactive() ([]Scheme, error) {
+func (r *Repository) FindInactive(ctx context.Context) ([]Scheme, error) {
 	var schemes []Scheme
-	err := r.db.Where("is_active = ?", false).Order("id asc").Find(&schemes).Error
+	err := r.db.WithContext(ctx).Where("is_active = ?", false).Order("id asc").Find(&schemes).Error
 	return schemes, err
 }
 
-func (r *Repository) FindByID(id uint) (*Scheme, error) {
+func (r *Repository) FindByID(ctx context.Context, id uint) (*Scheme, error) {
 	var s Scheme
-	if err := r.db.Preload("Branch").First(&s, id).Error; err != nil {
+	if err := r.db.WithContext(ctx).Preload("Branch").First(&s, id).Error; err != nil {
 		return nil, err
 	}
 	return &s, nil
 }
 
-func (r *Repository) Update(s *Scheme) error {
-	return r.db.Save(s).Error
+func (r *Repository) Update(ctx context.Context, s *Scheme) error {
+	return r.db.WithContext(ctx).Save(s).Error
 }
 
-func (r *Repository) Delete(id uint) error {
-	return r.db.Delete(&Scheme{}, id).Error
+func (r *Repository) Delete(ctx context.Context, id uint) error {
+	return r.db.WithContext(ctx).Delete(&Scheme{}, id).Error
 }
 
 // CountAll returns the total number of schemes ever created (including
 // soft-deleted ones), used to generate sequential Code values.
-func (r *Repository) CountAll() (int64, error) {
+func (r *Repository) CountAll(ctx context.Context) (int64, error) {
 	var count int64
-	err := r.db.Unscoped().Model(&Scheme{}).Count(&count).Error
+	err := r.db.WithContext(ctx).Unscoped().Model(&Scheme{}).Count(&count).Error
 	return count, err
 }

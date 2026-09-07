@@ -1,6 +1,7 @@
 package reports
 
 import (
+	"context"
 	"time"
 
 	"ambikagold/backend/internal/commlog"
@@ -13,7 +14,7 @@ import (
 // [from, to] — GET /reports/expense-cashflow. Same underlying figures as
 // cash.SummaryService.GetExpectedCash (collections/disbursements/cash
 // expenses), extended to a date range instead of a single day.
-func (s *Service) ExpenseCashflow(f Filter) ([]ExpenseCashflowRow, ExpenseCashflowTotals, error) {
+func (s *Service) ExpenseCashflow(ctx context.Context, f Filter) ([]ExpenseCashflowRow, ExpenseCashflowTotals, error) {
 	from, to := dateRange(f)
 
 	type movementRow struct {
@@ -23,7 +24,7 @@ func (s *Service) ExpenseCashflow(f Filter) ([]ExpenseCashflowRow, ExpenseCashfl
 		Type       string
 		Amount     float64
 	}
-	mq := s.db.Table("cash_movements m").
+	mq := s.db.WithContext(ctx).Table("cash_movements m").
 		Select(`date(m.occurred_on) as date, b.name as branch_name, m.branch_id, m.type,
 			COALESCE(sum(m.amount), 0) as amount`).
 		Joins("LEFT JOIN branches b ON b.id = m.branch_id").
@@ -43,7 +44,7 @@ func (s *Service) ExpenseCashflow(f Filter) ([]ExpenseCashflowRow, ExpenseCashfl
 		BranchID   uint
 		Amount     float64
 	}
-	eq := s.db.Table("expenses e").
+	eq := s.db.WithContext(ctx).Table("expenses e").
 		Select(`date(e.occurred_on) as date, b.name as branch_name, e.branch_id,
 			COALESCE(sum(e.amount), 0) as amount`).
 		Joins("LEFT JOIN branches b ON b.id = e.branch_id").
@@ -102,8 +103,8 @@ func (s *Service) ExpenseCashflow(f Filter) ([]ExpenseCashflowRow, ExpenseCashfl
 // KYC lists customers with their KYC/PAN/Aadhaar verification status — GET
 // /reports/kyc. Not date-scoped by design — KYC status is a current-state
 // snapshot, not something that "happened" within a range.
-func (s *Service) KYC(f Filter) ([]KYCRow, KYCTotals, error) {
-	q := s.db.Table("customers c").
+func (s *Service) KYC(ctx context.Context, f Filter) ([]KYCRow, KYCTotals, error) {
+	q := s.db.WithContext(ctx).Table("customers c").
 		Select("c.id as customer_id, c.code, c.name, c.phone, c.kyc_status, c.pan_status, c.aadhaar_status").
 		Where("c.deleted_at IS NULL").
 		Order("c.name asc")
@@ -128,7 +129,7 @@ func (s *Service) KYC(f Filter) ([]KYCRow, KYCTotals, error) {
 // EmployeePerformance aggregates, per employee, loans processed (sanction-
 // chain approvals recorded), collections handled, and reminders sent within
 // [from, to] — GET /reports/employee-performance.
-func (s *Service) EmployeePerformance(f Filter) ([]EmployeePerformanceRow, EmployeePerformanceTotals, error) {
+func (s *Service) EmployeePerformance(ctx context.Context, f Filter) ([]EmployeePerformanceRow, EmployeePerformanceTotals, error) {
 	from, to := dateRange(f)
 
 	type empRow struct {
@@ -137,7 +138,7 @@ func (s *Service) EmployeePerformance(f Filter) ([]EmployeePerformanceRow, Emplo
 		Role       string
 		BranchName string
 	}
-	eq := s.db.Table("employees e").
+	eq := s.db.WithContext(ctx).Table("employees e").
 		Select("e.id as employee_id, e.name, e.role, b.name as branch_name").
 		Joins("LEFT JOIN branches b ON b.id = e.branch_id").
 		Where("e.deleted_at IS NULL")
@@ -155,7 +156,7 @@ func (s *Service) EmployeePerformance(f Filter) ([]EmployeePerformanceRow, Emplo
 	}
 	approvalsByEmp := map[uint]int{}
 	var approvals []countRow
-	if err := s.db.Table("loan_approvals a").
+	if err := s.db.WithContext(ctx).Table("loan_approvals a").
 		Select("a.actor_employee_id as employee_id, count(*) as count").
 		Where("a.action = ?", "Approved").
 		Where("a.created_at >= ? AND a.created_at < ?", from, to).
@@ -173,7 +174,7 @@ func (s *Service) EmployeePerformance(f Filter) ([]EmployeePerformanceRow, Emplo
 	}
 	collByEmp := map[uint]float64{}
 	var colls []collRow
-	if err := s.db.Table("loan_payments p").
+	if err := s.db.WithContext(ctx).Table("loan_payments p").
 		Select("p.received_by_employee_id as employee_id, COALESCE(sum(p.amount), 0) as amount").
 		Where("p.paid_on >= ? AND p.paid_on < ?", from, to).
 		Group("p.received_by_employee_id").
@@ -186,7 +187,7 @@ func (s *Service) EmployeePerformance(f Filter) ([]EmployeePerformanceRow, Emplo
 
 	remindersByEmp := map[uint]int{}
 	var reminders []countRow
-	if err := s.db.Table("reminders r").
+	if err := s.db.WithContext(ctx).Table("reminders r").
 		Select("r.created_by_employee_id as employee_id, count(*) as count").
 		Where("r.created_at >= ? AND r.created_at < ?", from, to).
 		Where("r.deleted_at IS NULL").
@@ -221,10 +222,10 @@ func (s *Service) EmployeePerformance(f Filter) ([]EmployeePerformanceRow, Emplo
 // CommunicationHistory lists WhatsApp communication log entries in
 // [from, to], optionally filtered by trigger type — GET
 // /reports/communication-history. Reads from commlog (Part A).
-func (s *Service) CommunicationHistory(f Filter, triggerType string) ([]CommunicationHistoryRow, CommunicationHistoryTotals, error) {
+func (s *Service) CommunicationHistory(ctx context.Context, f Filter, triggerType string) ([]CommunicationHistoryRow, CommunicationHistoryTotals, error) {
 	from, to := dateRange(f)
 	logFilter := commlog.Filter{From: &from, To: &to, TriggerType: triggerType}
-	logs, err := s.commlogRepo.List(logFilter)
+	logs, err := s.commlogRepo.List(ctx, logFilter)
 	if err != nil {
 		return nil, CommunicationHistoryTotals{}, err
 	}

@@ -19,7 +19,10 @@
 // token kinds are not interchangeable.
 package customerauth
 
-import "time"
+import (
+	"ambikagold/backend/internal/platform"
+	"time"
+)
 
 // OTP is one outstanding (or already-consumed) OTP request for a phone
 // number. Only one row is meaningful per phone at a time — RequestOTP
@@ -27,8 +30,9 @@ import "time"
 // accumulating history, mirroring employee.Employee's single
 // PasswordResetTokenHash field.
 type OTP struct {
+	platform.TenantScoped
 	ID        uint      `json:"-" gorm:"primaryKey"`
-	Phone     string    `json:"-" gorm:"not null;size:20;uniqueIndex"`
+	Phone     string    `json:"-" gorm:"not null;size:20;index"`
 	CodeHash  string    `json:"-" gorm:"not null;size:64"`
 	ExpiresAt time.Time `json:"-" gorm:"not null"`
 	// Attempts counts failed verify tries against this OTP — capped by
@@ -46,6 +50,7 @@ func (OTP) TableName() string { return "customer_otp" }
 // "never store the secret" convention as employee.Employee's password-reset
 // OTP hash.
 type DeviceToken struct {
+	platform.TenantScoped
 	ID         uint       `json:"-" gorm:"primaryKey"`
 	CustomerID uint       `json:"-" gorm:"not null;index"`
 	DeviceID   string     `json:"-" gorm:"not null;size:100;index"`

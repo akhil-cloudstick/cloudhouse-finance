@@ -1,6 +1,7 @@
 package loan
 
 import (
+	"context"
 	"math"
 	"testing"
 	"time"
@@ -99,7 +100,7 @@ func TestEnrich_ClearedInterestDoesNotFlagDefault(t *testing.T) {
 		AccruedInterest:   0.1 + 0.2, // 0.30000000000000004
 		InterestPaid:      0.3,
 	}
-	(&Service{}).enrich(l)
+	(&Service{}).enrich(context.Background(), l)
 
 	if l.OutstandingInterest != 0 {
 		t.Fatalf("a cleared interest balance must read as exactly 0, got %g", l.OutstandingInterest)
@@ -115,7 +116,7 @@ func TestEnrich_ClearedInterestDoesNotFlagDefault(t *testing.T) {
 
 	// Real arrears must still be caught.
 	l.AccruedInterest, l.InterestPaid = 500, 0
-	(&Service{}).enrich(l)
+	(&Service{}).enrich(context.Background(), l)
 	if !l.IsDefaulted {
 		t.Fatal("genuine interest arrears past 90 days must still flag Defaulted")
 	}

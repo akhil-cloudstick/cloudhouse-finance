@@ -1,6 +1,7 @@
 package loan
 
 import (
+	"context"
 	"fmt"
 	"time"
 
@@ -55,7 +56,7 @@ func normalizeRazorpayPaymentType(t string) string {
 //   - FullSettlement: amount must exactly match SettlementAmount.
 //   - Partial (or anything else): amount must be > 0 and <=
 //     TotalOutstandingBalance.
-func (s *Service) CreateRazorpayOrder(loanID uint, amount float64, paymentType string) (*RazorpayOrderResult, error) {
+func (s *Service) CreateRazorpayOrder(ctx context.Context, loanID uint, amount float64, paymentType string) (*RazorpayOrderResult, error) {
 	if s.razorpay == nil {
 		return nil, ErrRazorpayNotConfigured
 	}
@@ -63,7 +64,7 @@ func (s *Service) CreateRazorpayOrder(loanID uint, amount float64, paymentType s
 		return nil, ErrInvalidAmount
 	}
 
-	l, err := s.Get(loanID, nil)
+	l, err := s.Get(ctx, loanID, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -116,7 +117,7 @@ type RazorpayVerifyInput struct {
 // waterfall a staff-recorded cash payment goes through, with
 // Method: "Online" and Reference: PaymentID distinguishing it. On a
 // signature mismatch, no LoanPayment row is created.
-func (s *Service) VerifyAndRecordRazorpayPayment(loanID uint, in RazorpayVerifyInput) (*Loan, error) {
+func (s *Service) VerifyAndRecordRazorpayPayment(ctx context.Context, loanID uint, in RazorpayVerifyInput) (*Loan, error) {
 	if s.razorpay == nil {
 		return nil, ErrRazorpayNotConfigured
 	}
@@ -124,7 +125,7 @@ func (s *Service) VerifyAndRecordRazorpayPayment(loanID uint, in RazorpayVerifyI
 		return nil, ErrRazorpaySignatureInvalid
 	}
 
-	return s.RecordPayment(loanID, PaymentInput{
+	return s.RecordPayment(ctx, loanID, PaymentInput{
 		Amount:               in.Amount,
 		Type:                 normalizeRazorpayPaymentType(in.Type),
 		PaidOn:               time.Now(),

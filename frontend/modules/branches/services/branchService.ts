@@ -23,6 +23,24 @@ export async function listBranches(): Promise<BranchView[]> {
   return rec || [];
 }
 
+/* Backs the branch switcher (GET /branches/switchable) — deliberately not
+ * `listBranches` above, which is itself branch-scoped: once a selection is
+ * active it would return just the one selected branch, leaving the switcher
+ * unable to show anything to switch BACK to. See the backend handler's doc
+ * comment (internal/branch/handler.go, Handler.Switchable). */
+export type SwitchableBranches = {
+  branches: BranchView[];
+  // canSwitch mirrors the backend's decision (Administrator/Management),
+  // independent of the frontend's own role check — kept in the response so
+  // the two can never quietly disagree.
+  canSwitch: boolean;
+};
+
+export async function listSwitchableBranches(): Promise<SwitchableBranches> {
+  const rec = await apiFetchEnveloped<SwitchableBranches>("/branches/switchable");
+  return rec || { branches: [], canSwitch: false };
+}
+
 export async function getBranch(id: number): Promise<BranchView> {
   return apiFetchEnveloped<BranchView>(`/branches/${id}`);
 }

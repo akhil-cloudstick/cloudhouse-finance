@@ -5,6 +5,12 @@ import { useRouter, useSearchParams } from "next/navigation";
 import "../login.css";
 import { useAuth } from "@/common/auth-context";
 import { ApiError } from "@/common/services/httpClient";
+import {
+  activeBusinessSlug,
+  appPath,
+  businessSlugFromPath,
+  isValidBusinessSlug,
+} from "@/common/services/tenantSession";
 
 type DustParticle = {
   left: string;
@@ -59,10 +65,28 @@ function LoginPageInner() {
   const [submitting, setSubmitting] = useState(false);
   const [msg, setMsg] = useState<{ text: string; ok: boolean } | null>(null);
 
+  /* linkSlug is the business named by the URL (/login/<slug>), and null on a
+   * bare /login. When it is set, the business is already established and no
+   * field is shown; when it is null the form offers a business-code box,
+   * because a bare /login must not dead-end.
+   *
+   * Read from the pathname rather than a route parameter: the frontend is a
+   * static export, so /login/<slug> cannot be a prerendered dynamic route —
+   * runtime-created tenants have no build-time slug list. One login page is
+   * served for every slugged path instead (a Next rewrite in dev,
+   * internal/webstatic's fallback in production), and it parses its own URL. */
+  const [linkSlug, setLinkSlug] = useState<string | null>(null);
+  const [businessCode, setBusinessCode] = useState("");
+
   useEffect(() => {
     // Generated client-side only, matching the legacy page's DOM-insertion
     // approach (random values must not be computed during SSR/prerender).
     setDust(makeDustParticles());
+    // Read on mount for the same reason: this page is prerendered at build
+    // time, where there is no URL to read a slug from. Computing it during
+    // render would make the prerendered HTML disagree with the first client
+    // render — a hydration mismatch — so it is resolved after mount.
+    setLinkSlug(businessSlugFromPath());
   }, []);
 
   useEffect(() => {
@@ -71,10 +95,11 @@ function LoginPageInner() {
     }
   }, [searchParams]);
 
-  // Already signed in with a valid token — skip the form entirely.
+  // Already signed in with a valid token — skip the form entirely. Keeps the
+  // slug, so the app opens under the business the link named.
   useEffect(() => {
     if (!loading && token) {
-      router.replace("/app#dashboard");
+      router.replace(appPath(businessSlugFromPath() ?? activeBusinessSlug()));
     }
   }, [loading, token, router]);
 
@@ -92,12 +117,21 @@ function LoginPageInner() {
       return;
     }
 
+    /* The slug from the link wins over the typed field: if someone arrived
+     * through their organisation's own link, that is the business they mean. */
+    const typedCode = businessCode.trim().toLowerCase();
+    if (!linkSlug && typedCode && !isValidBusinessSlug(typedCode)) {
+      setMsg({ text: "That business code doesn't look right — letters, numbers and dashes only.", ok: false });
+      return;
+    }
+    const code = linkSlug ?? typedCode;
+
     setSubmitting(true);
     try {
-      await login(trimmedIdentifier, pass);
+      await login(trimmedIdentifier, pass, code);
       setMsg({ text: "Welcome back! Opening your vault…", ok: true });
       setTimeout(() => {
-        router.push("/app#dashboard");
+        router.push(appPath(code || null));
       }, 400);
     } catch (err) {
       const text =
@@ -156,6 +190,38 @@ function LoginPageInner() {
           </div>
 
           <form id="loginForm" noValidate onSubmit={handleSubmit}>
+            {/* Shown only on a bare /login. Someone who arrived through their
+              * organisation's own link has already named their business and
+              * must not be asked again — but a truncated or hand-typed URL
+              * has to have a way through, or "the link stopped working"
+              * becomes the commonest support call.
+              *
+              * Optional even here: with a single business the backend
+              * resolves it on its own, so the field stays out of the way of
+              * the installation that has one. */}
+            {linkSlug === null && (
+              <div className="field">
+                <input
+                  type="text"
+                  id="businessCode"
+                  placeholder=" "
+                  autoComplete="organization"
+                  autoCapitalize="none"
+                  spellCheck={false}
+                  value={businessCode}
+                  onChange={(e) => setBusinessCode(e.target.value)}
+                />
+                <label htmlFor="businessCode">Business code (if you have one)</label>
+                <span className="icon" aria-hidden="true">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6">
+                    <path d="M4 20V9l8-5 8 5v11" />
+                    <path d="M9 20v-6h6v6" />
+                  </svg>
+                </span>
+                <span className="bar"></span>
+              </div>
+            )}
+
             <div className="field">
               <input
                 type="text"
@@ -220,7 +286,12 @@ function LoginPageInner() {
 
             <div className="aux">
               <span></span>
-              <a href="/forgot-password">Forgot password?</a>
+              {/* Carries the business across: a phone number is unique only
+                * within a business now, so the reset flow cannot find the
+                * employee without it. */}
+              <a href={linkSlug ? `/forgot-password?b=${encodeURIComponent(linkSlug)}` : "/forgot-password"}>
+                Forgot password?
+              </a>
             </div>
 
             <button type="submit" className="btn" id="submitBtn" disabled={submitting}>

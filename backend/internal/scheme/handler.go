@@ -47,6 +47,7 @@ func (req schemeRequest) toInput() CreateInput {
 }
 
 func (h *Handler) Create(c *gin.Context) {
+	ctx := platform.RequestContext(c)
 	var req schemeRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		httpx.Fail(c, http.StatusBadRequest, "Invalid input")
@@ -54,7 +55,7 @@ func (h *Handler) Create(c *gin.Context) {
 	}
 	input := req.toInput()
 	input.BranchID = platform.EnforceBranchOnWrite(c, input.BranchID)
-	rec, err := h.svc.Create(input)
+	rec, err := h.svc.Create(ctx, input)
 	if err != nil {
 		httpx.FailErr(c, err)
 		return
@@ -66,12 +67,13 @@ func (h *Handler) Create(c *gin.Context) {
 // is absent (unchanged for existing callers, e.g. the web Schemes page),
 // {items, hasMore} envelope when present (the mobile app's paginated list).
 func (h *Handler) List(c *gin.Context) {
+	ctx := platform.RequestContext(c)
 	limit, _ := strconv.Atoi(c.Query("limit"))
 	offset, _ := strconv.Atoi(c.Query("offset"))
 	branchID := platform.GetBranchScope(c)
 
 	if limit <= 0 {
-		rec, _, err := h.svc.List(c.Query("q"), branchID, 0, 0)
+		rec, _, err := h.svc.List(ctx, c.Query("q"), branchID, 0, 0)
 		if err != nil {
 			httpx.FailErr(c, err)
 			return
@@ -80,7 +82,7 @@ func (h *Handler) List(c *gin.Context) {
 		return
 	}
 
-	rec, total, err := h.svc.List(c.Query("q"), branchID, limit+1, offset)
+	rec, total, err := h.svc.List(ctx, c.Query("q"), branchID, limit+1, offset)
 	if err != nil {
 		httpx.FailErr(c, err)
 		return
@@ -97,13 +99,14 @@ func (h *Handler) List(c *gin.Context) {
 // hasMore} envelope when present (the paginated SearchableSelect in
 // NewLoan.tsx) — both now sit under the outer {success, data} envelope.
 func (h *Handler) ListActive(c *gin.Context) {
+	ctx := platform.RequestContext(c)
 	limit, _ := strconv.Atoi(c.Query("limit"))
 	offset, _ := strconv.Atoi(c.Query("offset"))
 
 	branchID := platform.GetBranchScope(c)
 
 	if limit <= 0 {
-		rec, _, err := h.svc.ListActive(c.Query("q"), branchID, 0, 0)
+		rec, _, err := h.svc.ListActive(ctx, c.Query("q"), branchID, 0, 0)
 		if err != nil {
 			httpx.FailErr(c, err)
 			return
@@ -112,7 +115,7 @@ func (h *Handler) ListActive(c *gin.Context) {
 		return
 	}
 
-	rec, total, err := h.svc.ListActive(c.Query("q"), branchID, limit+1, offset)
+	rec, total, err := h.svc.ListActive(ctx, c.Query("q"), branchID, limit+1, offset)
 	if err != nil {
 		httpx.FailErr(c, err)
 		return
@@ -125,7 +128,8 @@ func (h *Handler) ListActive(c *gin.Context) {
 }
 
 func (h *Handler) ListInactive(c *gin.Context) {
-	rec, err := h.svc.ListInactive()
+	ctx := platform.RequestContext(c)
+	rec, err := h.svc.ListInactive(ctx)
 	if err != nil {
 		httpx.FailErr(c, err)
 		return
@@ -134,12 +138,13 @@ func (h *Handler) ListInactive(c *gin.Context) {
 }
 
 func (h *Handler) Get(c *gin.Context) {
+	ctx := platform.RequestContext(c)
 	id, err := httpx.IDParam(c, "id")
 	if err != nil {
 		httpx.FailErr(c, err)
 		return
 	}
-	rec, err := h.svc.Get(id, platform.GetBranchScope(c))
+	rec, err := h.svc.Get(ctx, id, platform.GetBranchScope(c))
 	if err != nil {
 		httpx.FailErr(c, err)
 		return
@@ -148,6 +153,7 @@ func (h *Handler) Get(c *gin.Context) {
 }
 
 func (h *Handler) Update(c *gin.Context) {
+	ctx := platform.RequestContext(c)
 	id, err := httpx.IDParam(c, "id")
 	if err != nil {
 		httpx.FailErr(c, err)
@@ -160,7 +166,7 @@ func (h *Handler) Update(c *gin.Context) {
 	}
 	input := req.toInput()
 	input.BranchID = platform.EnforceBranchOnWrite(c, input.BranchID)
-	rec, err := h.svc.Update(id, input, platform.GetBranchScope(c))
+	rec, err := h.svc.Update(ctx, id, input, platform.GetBranchScope(c))
 	if err != nil {
 		httpx.FailErr(c, err)
 		return
@@ -169,12 +175,13 @@ func (h *Handler) Update(c *gin.Context) {
 }
 
 func (h *Handler) Delete(c *gin.Context) {
+	ctx := platform.RequestContext(c)
 	id, err := httpx.IDParam(c, "id")
 	if err != nil {
 		httpx.FailErr(c, err)
 		return
 	}
-	if err := h.svc.Delete(id, platform.GetBranchScope(c)); err != nil {
+	if err := h.svc.Delete(ctx, id, platform.GetBranchScope(c)); err != nil {
 		httpx.FailErr(c, err)
 		return
 	}
@@ -182,12 +189,13 @@ func (h *Handler) Delete(c *gin.Context) {
 }
 
 func (h *Handler) ToggleActive(c *gin.Context) {
+	ctx := platform.RequestContext(c)
 	id, err := httpx.IDParam(c, "id")
 	if err != nil {
 		httpx.FailErr(c, err)
 		return
 	}
-	rec, err := h.svc.ToggleActive(id)
+	rec, err := h.svc.ToggleActive(ctx, id)
 	if err != nil {
 		httpx.FailErr(c, err)
 		return
@@ -201,6 +209,7 @@ type calculateRequest struct {
 }
 
 func (h *Handler) Calculate(c *gin.Context) {
+	ctx := platform.RequestContext(c)
 	id, err := httpx.IDParam(c, "id")
 	if err != nil {
 		httpx.FailErr(c, err)
@@ -211,7 +220,7 @@ func (h *Handler) Calculate(c *gin.Context) {
 		httpx.Fail(c, http.StatusBadRequest, "Invalid input")
 		return
 	}
-	result, err := h.svc.Calculate(id, req.GoldWeight, req.GoldRate)
+	result, err := h.svc.Calculate(ctx, id, req.GoldWeight, req.GoldRate)
 	if err != nil {
 		httpx.FailErr(c, err)
 		return

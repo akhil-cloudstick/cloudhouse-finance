@@ -8,6 +8,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"
 
+	"ambikagold/backend/internal/platform"
 	"ambikagold/backend/internal/platform/httpx"
 )
 
@@ -55,6 +56,7 @@ func customerIDFromContext(c *gin.Context) (uint, bool) {
 // List backs GET /customer/notifications — paginated the same
 // {items, hasMore} envelope as every other customer-scoped list route.
 func (h *Handler) List(c *gin.Context) {
+	ctx := platform.RequestContext(c)
 	customerID, ok := customerIDFromContext(c)
 	if !ok {
 		httpx.Fail(c, http.StatusUnauthorized, "not authenticated")
@@ -66,7 +68,7 @@ func (h *Handler) List(c *gin.Context) {
 		offset = 0
 	}
 	if limit > 0 {
-		items, err := h.svc.List(customerID, limit+1, offset)
+		items, err := h.svc.List(ctx, customerID, limit+1, offset)
 		if err != nil {
 			httpx.FailErr(c, err)
 			return
@@ -78,7 +80,7 @@ func (h *Handler) List(c *gin.Context) {
 		httpx.Success(c, http.StatusOK, gin.H{"items": items, "hasMore": hasMore})
 		return
 	}
-	items, err := h.svc.List(customerID, 0, 0)
+	items, err := h.svc.List(ctx, customerID, 0, 0)
 	if err != nil {
 		httpx.FailErr(c, err)
 		return
@@ -90,6 +92,7 @@ func (h *Handler) List(c *gin.Context) {
 // when the app fetched via List rather than receiving a live push (e.g.
 // cold start, before the socket connects).
 func (h *Handler) Ack(c *gin.Context) {
+	ctx := platform.RequestContext(c)
 	customerID, ok := customerIDFromContext(c)
 	if !ok {
 		httpx.Fail(c, http.StatusUnauthorized, "not authenticated")
@@ -100,7 +103,7 @@ func (h *Handler) Ack(c *gin.Context) {
 		httpx.FailErr(c, err)
 		return
 	}
-	if err := h.svc.Ack(id, customerID); err != nil {
+	if err := h.svc.Ack(ctx, id, customerID); err != nil {
 		httpx.FailErr(c, err)
 		return
 	}
@@ -112,6 +115,7 @@ func (h *Handler) Ack(c *gin.Context) {
 // customer app's notification detail modal). This is the real "read" signal;
 // Delivered/Ack only ever mean "reached the device."
 func (h *Handler) Read(c *gin.Context) {
+	ctx := platform.RequestContext(c)
 	customerID, ok := customerIDFromContext(c)
 	if !ok {
 		httpx.Fail(c, http.StatusUnauthorized, "not authenticated")
@@ -122,7 +126,7 @@ func (h *Handler) Read(c *gin.Context) {
 		httpx.FailErr(c, err)
 		return
 	}
-	if err := h.svc.Read(id, customerID); err != nil {
+	if err := h.svc.Read(ctx, id, customerID); err != nil {
 		httpx.FailErr(c, err)
 		return
 	}
@@ -144,6 +148,7 @@ type inboundMessage struct {
 // by the time this handler runs; gin processes the upgrade request as a
 // normal HTTP request right up until Upgrade() hijacks the connection.
 func (h *Handler) Upgrade(c *gin.Context) {
+	ctx := platform.RequestContext(c)
 	customerID, ok := customerIDFromContext(c)
 	if !ok {
 		httpx.Fail(c, http.StatusUnauthorized, "not authenticated")
@@ -161,7 +166,7 @@ func (h *Handler) Upgrade(c *gin.Context) {
 
 	// Covers "was offline, just reconnected" immediately rather than
 	// waiting for the next 10-minute resend tick.
-	h.svc.PushUndeliveredOnConnect(customerID)
+	h.svc.PushUndeliveredOnConnect(ctx, customerID)
 
 	for {
 		var msg inboundMessage
@@ -172,7 +177,7 @@ func (h *Handler) Upgrade(c *gin.Context) {
 			return
 		}
 		if msg.Type == "ack" && msg.NotificationID != 0 {
-			if err := h.svc.Ack(msg.NotificationID, customerID); err != nil {
+			if err := h.svc.Ack(ctx, msg.NotificationID, customerID); err != nil {
 				log.Printf("notification ack failed (customer %d, notification %d): %v", customerID, msg.NotificationID, err)
 			}
 		}

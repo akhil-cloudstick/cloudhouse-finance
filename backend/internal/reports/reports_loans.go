@@ -1,6 +1,10 @@
 package reports
 
-import "gorm.io/gorm"
+import (
+	"context"
+
+	"gorm.io/gorm"
+)
 
 // Disbursement, loan-status, interest-collection, outstanding-principal, and
 // payment-collection reports — all read primarily off `loans`/`loan_payments`.
@@ -15,10 +19,10 @@ import "gorm.io/gorm"
 // one that was rejected — has had no money paid out and must not be reported
 // as disbursed. Without this filter the report counted every loan ever
 // created, inflating disbursement totals by the entire pending pipeline.
-func (s *Service) Disbursement(f Filter) ([]DisbursementRow, DisbursementTotals, error) {
+func (s *Service) Disbursement(ctx context.Context, f Filter) ([]DisbursementRow, DisbursementTotals, error) {
 	from, to := dateRange(f)
 	var rows []DisbursementRow
-	q := s.db.Table("loans l").
+	q := s.db.WithContext(ctx).Table("loans l").
 		Select(`l.id as loan_id, l.loan_number, l.opened_date, l.principal_amount as amount,
 			b.name as branch_name, c.name as customer_name, sc.name as scheme_name`).
 		Joins("LEFT JOIN branches b ON b.id = l.branch_id").
@@ -44,10 +48,10 @@ func (s *Service) Disbursement(f Filter) ([]DisbursementRow, DisbursementTotals,
 // LoanStatus returns loans, optionally filtered to a single status (param
 // "status" — one of loan.Status* values), plus a status-count breakdown
 // over the SAME date-scoped set (by OpenedDate) — GET /reports/loans/status.
-func (s *Service) LoanStatus(f Filter, status string) ([]LoanStatusRow, LoanStatusTotals, error) {
+func (s *Service) LoanStatus(ctx context.Context, f Filter, status string) ([]LoanStatusRow, LoanStatusTotals, error) {
 	from, to := dateRange(f)
 	newBase := func() *gorm.DB {
-		q := s.db.Table("loans l").
+		q := s.db.WithContext(ctx).Table("loans l").
 			Joins("LEFT JOIN branches b ON b.id = l.branch_id").
 			Joins("LEFT JOIN customers c ON c.id = l.customer_id").
 			Where("l.opened_date >= ? AND l.opened_date < ?", from, to).
@@ -103,10 +107,10 @@ func (s *Service) LoanStatus(f Filter, status string) ([]LoanStatusRow, LoanStat
 // underlying figure as loan.Service.GetInterestCollected (sum of
 // loan_payments.interest_applied + penal_interest_applied), but per-row
 // rather than a single aggregate, since the report needs a listing.
-func (s *Service) InterestCollection(f Filter) ([]InterestCollectionRow, InterestCollectionTotals, error) {
+func (s *Service) InterestCollection(ctx context.Context, f Filter) ([]InterestCollectionRow, InterestCollectionTotals, error) {
 	from, to := dateRange(f)
 	var rows []InterestCollectionRow
-	q := s.db.Table("loan_payments p").
+	q := s.db.WithContext(ctx).Table("loan_payments p").
 		Select(`p.loan_id, l.loan_number, p.paid_on, p.interest_applied, p.penal_interest_applied as penal_applied, b.name as branch_name`).
 		Joins("LEFT JOIN loans l ON l.id = p.loan_id").
 		Joins("LEFT JOIN branches b ON b.id = l.branch_id").
@@ -134,9 +138,9 @@ func (s *Service) InterestCollection(f Filter) ([]InterestCollectionRow, Interes
 // date-scoped by OpenedDate (an outstanding balance is a point-in-time
 // snapshot of currently open loans, not something that happened "in a
 // range"); f.BranchID still applies.
-func (s *Service) OutstandingPrincipal(f Filter) ([]OutstandingPrincipalRow, OutstandingPrincipalTotals, error) {
+func (s *Service) OutstandingPrincipal(ctx context.Context, f Filter) ([]OutstandingPrincipalRow, OutstandingPrincipalTotals, error) {
 	openStatuses := []string{"Active", "Due Soon", "Overdue", "Defaulted", "Auction Eligible", "Auctioned - Balance Due"}
-	q := s.db.Table("loans l").
+	q := s.db.WithContext(ctx).Table("loans l").
 		Select(`b.name as branch_name, count(*) as loan_count, COALESCE(sum(l.outstanding_amount), 0) as outstanding`).
 		Joins("LEFT JOIN branches b ON b.id = l.branch_id").
 		Where("l.status IN ?", openStatuses).
@@ -160,10 +164,10 @@ func (s *Service) OutstandingPrincipal(f Filter) ([]OutstandingPrincipalRow, Out
 // PaymentCollection lists loan_payments in [from, to], grouped implicitly by
 // date/branch/employee (each row already carries all three for the
 // frontend to group/sort as needed) — GET /reports/payment-collection.
-func (s *Service) PaymentCollection(f Filter) ([]PaymentCollectionRow, PaymentCollectionTotals, error) {
+func (s *Service) PaymentCollection(ctx context.Context, f Filter) ([]PaymentCollectionRow, PaymentCollectionTotals, error) {
 	from, to := dateRange(f)
 	var rows []PaymentCollectionRow
-	q := s.db.Table("loan_payments p").
+	q := s.db.WithContext(ctx).Table("loan_payments p").
 		Select(`p.id as payment_id, l.loan_number, p.paid_on, p.amount, p.type,
 			b.name as branch_name, e.name as employee_name`).
 		Joins("LEFT JOIN loans l ON l.id = p.loan_id").

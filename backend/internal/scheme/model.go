@@ -6,6 +6,7 @@ import (
 	"gorm.io/gorm"
 
 	"ambikagold/backend/internal/branch"
+	"ambikagold/backend/internal/platform"
 )
 
 // Scheme represents a loan scheme/plan that administrators define. Each
@@ -15,10 +16,11 @@ import (
 // months from its own OpenedDate; there is no scheme-level date window
 // anymore (a scheme is a reusable plan, not a time-boxed offer).
 type Scheme struct {
+	platform.TenantScoped
 	ID             uint           `json:"id" gorm:"primaryKey"`
 	BranchID       uint           `json:"branchId" gorm:"not null"`
 	Branch         branch.Branch  `json:"branch" gorm:"foreignKey:BranchID"`
-	Code           string         `json:"code" gorm:"uniqueIndex;size:20"`
+	Code           string         `json:"code" gorm:"index;size:20"`
 	Name           string         `json:"name" gorm:"not null;size:120"`
 	InterestRate   float64        `json:"interestRate" gorm:"not null"`
 	DurationMonths int            `json:"durationMonths" gorm:"not null"`

@@ -6,6 +6,7 @@ import { ThemedText } from "../../src/components/ThemedText";
 import { GoldTextInput, PasswordToggle } from "../../src/components/GoldTextInput";
 import { GoldButton } from "../../src/components/GoldButton";
 import { resetPassword } from "../../src/api/auth";
+import { getBusinessCode } from "../../src/auth/businessCode";
 import { ApiError } from "../../src/api/client";
 
 // Mirrors frontend/app/reset-password/page.tsx. The phone number is fixed to
@@ -44,7 +45,8 @@ export default function ResetPasswordScreen() {
     }
     setSubmitting(true);
     try {
-      await resetPassword(phone, otp.trim(), password);
+      const code = await getBusinessCode();
+      await resetPassword(phone, otp.trim(), password, code);
       router.replace("/login");
     } catch (err) {
       setError(err instanceof ApiError ? err.message || "This code is invalid or has expired." : "This code is invalid or has expired.");

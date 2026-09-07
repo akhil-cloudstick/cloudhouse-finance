@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"ambikagold/backend/internal/branch"
+	"ambikagold/backend/internal/platform"
 )
 
 // CashMovement represents one cash-in or cash-out entry. For a cash-in
@@ -15,6 +16,7 @@ import (
 // loan has since been marked closed (mirrors legacy's
 // setCashLoanStatus/toggleCashLoan).
 type CashMovement struct {
+	platform.TenantScoped
 	ID         uint           `json:"id" gorm:"primaryKey"`
 	Type       string         `json:"type" gorm:"not null;size:10"` // "in" | "out"
 	Source     string         `json:"source" gorm:"size:20"`        // "Savings" | "Loan" — only for type=in
@@ -34,6 +36,7 @@ func (CashMovement) TableName() string {
 
 // Expense represents one expense-register entry.
 type Expense struct {
+	platform.TenantScoped
 	ID           uint          `json:"id" gorm:"primaryKey"`
 	OccurredOn   time.Time     `json:"occurredOn" gorm:"not null"`
 	Category     string        `json:"category" gorm:"not null;size:80"`
@@ -58,6 +61,7 @@ func (Expense) TableName() string {
 // authorized staff at the start of a day, per branch. One row per
 // (branch, date) — see OpeningBalanceRepository.Upsert.
 type OpeningCashBalance struct {
+	platform.TenantScoped
 	ID          uint          `json:"id" gorm:"primaryKey"`
 	BranchID    uint          `json:"branchId" gorm:"not null;uniqueIndex:idx_branch_date"`
 	Branch      branch.Branch `json:"branch" gorm:"foreignKey:BranchID"`
