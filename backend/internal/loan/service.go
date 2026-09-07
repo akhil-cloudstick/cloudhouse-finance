@@ -151,12 +151,6 @@ var (
 	// eligible, issue notice, schedule, record sale, settle) were only
 	// gated by the general "can update loan" permission.
 	ErrAuctionStepNotPermitted = httpx.NewForbidden("your role does not have permission to perform this auction step")
-	// ErrAuctionStepNotPermitted: the acting employee's role isn't granted
-	// the specific "Approval Workflow" permission this auction step requires
-	// (see internal/authz.Catalogue) — previously these five steps (mark
-	// eligible, issue notice, schedule, record sale, settle) were only
-	// gated by the general "can update loan" permission.
-	ErrAuctionStepNotPermitted = httpx.NewForbidden("your role does not have permission to perform this auction step")
 
 	// ErrDraftNotFound covers both "no such draft" and "not yours" — a draft
 	// belongs to the employee who saved it (see LoanDraft), and answering
@@ -346,7 +340,6 @@ func NewService(
 		razorpay:            razorpay,
 		aadhaarCipher:       aadhaarCipher,
 		permChecker:         permChecker,
-		permChecker:         permChecker,
 	}
 }
 
@@ -419,31 +412,29 @@ func (s *Service) notifyCustomer(ctx context.Context, customerID uint, phone, ti
 					log.Printf("whatsapp notification panicked (phone %s): %v", phone, r)
 				}
 			}()
-			go func() {
 			sendErr := s.whatsapp.Send(phone, message)
+			if sendErr != nil {
+				log.Printf("whatsapp notification failed (phone %s): %v", phone, sendErr)
+			}
+			if s.commlogRepo != nil {
+				rec := &commlog.CommunicationLog{
+					RecipientPhone:    phone,
+					ChatID:            commlog.NormalizeChatID(phone),
+					Channel:           commlog.ChannelWhatsApp,
+					TriggerType:       triggerType,
+					MessageBody:       message,
+					RelatedEntityType: relatedEntityType,
+					RelatedEntityID:   relatedEntityID,
+					Status:            commlog.StatusSent,
+				}
 				if sendErr != nil {
-					log.Printf("whatsapp notification failed (phone %s): %v", phone, sendErr)
+					rec.Status = commlog.StatusFailed
+					rec.ErrorMessage = sendErr.Error()
 				}
-				if s.commlogRepo != nil {
-					rec := &commlog.CommunicationLog{
-						RecipientPhone:    phone,
-						ChatID:            commlog.NormalizeChatID(phone),
-						Channel:           commlog.ChannelWhatsApp,
-						TriggerType:       triggerType,
-						MessageBody:       message,
-						RelatedEntityType: relatedEntityType,
-						RelatedEntityID:   relatedEntityID,
-						Status:            commlog.StatusSent,
-					}
-					if sendErr != nil {
-						rec.Status = commlog.StatusFailed
-						rec.ErrorMessage = sendErr.Error()
-					}
-					if err := s.commlogRepo.Create(bg, rec); err != nil {
-						log.Printf("communication log write failed (phone %s): %v", phone, err)
-					}
+				if err := s.commlogRepo.Create(bg, rec); err != nil {
+					log.Printf("communication log write failed (phone %s): %v", phone, err)
 				}
-		}()
+			}
 		}()
 	}
 	if s.notifier != nil {
@@ -3397,7 +3388,7 @@ func (s *Service) bondDataForLoan(ctx context.Context, l *Loan) BondData {
 // The bond's print-and-sign-by-hand buttons (NewLoan.tsx/LoanDetail.tsx)
 // are untouched by this — eSign is an additional path, not a replacement,
 // since it needs the customer's own device and network.
-func (s *Service) StartIndemnityBondSign(ctx context.Context, loanID uint, branchID *uint, lang string, redirectURL string) (*platform.SignatureRequest, error) {
+func (s *Service) StartIndemnityBondSign(ctx context.Context, loanID uint, branchID *uint, lang string, redirectURL string, deliverBy string) (*platform.SignatureRequest, error) {
 	if s.esign == nil {
 		return nil, ErrEsignNotConfigured
 	}
@@ -3488,7 +3479,7 @@ func (s *Service) StartIndemnityBondSign(ctx context.Context, loanID uint, branc
 	}
 
 	if req.URL != "" {
-		s.deliverEsignLink(l, req.URL, lang, deliverBy, phone)
+		s.deliverEsignLink(ctx, l, req.URL, lang, deliverBy, phone)
 	}
 	return req, nil
 }
@@ -3499,7 +3490,7 @@ func (s *Service) StartIndemnityBondSign(ctx context.Context, loanID uint, branc
 // is a no-op here — the caller opening the URL themselves is the entire
 // delivery. phone is the same 10-digit number already resolved for Setu's
 // signer.Identifier, so both use the identical number.
-func (s *Service) deliverEsignLink(l *Loan, url, lang, deliverBy, phone string) {
+func (s *Service) deliverEsignLink(ctx context.Context, l *Loan, url, lang, deliverBy, phone string) {
 	langLabel := "English"
 	if lang == BondLangGujarati {
 		langLabel = "Gujarati"
@@ -3520,7 +3511,20 @@ func (s *Service) deliverEsignLink(l *Loan, url, lang, deliverBy, phone string) 
 		// notifyCustomer — an OpenWA send can take up to its own client
 		// timeout, and this must not hold up the eSign response the
 		// caller is waiting on to open its own confirmation screen.
+		// WithoutCancel, not Background: the goroutine outlives the request
+		// (whose ctx is cancelled the moment the handler returns, which would
+		// abort the commlog write) but must keep every value on it — tenant
+		// scope above all, since the commlog row is tenant-owned (see
+		// platform.TenantScoped).
+		bg := context.WithoutCancel(ctx)
 		go func() {
+			// A panic in a detached goroutine takes the whole process with
+			// it; a failed courtesy message must never do that.
+			defer func() {
+				if r := recover(); r != nil {
+					log.Printf("indemnity bond eSign WhatsApp notification panicked (loan %d): %v", l.ID, r)
+				}
+			}()
 			sendErr := s.whatsapp.Send(phone, body)
 			if sendErr != nil {
 				log.Printf("indemnity bond eSign WhatsApp send failed (loan %d, phone %s): %v", l.ID, phone, sendErr)
@@ -3540,7 +3544,7 @@ func (s *Service) deliverEsignLink(l *Loan, url, lang, deliverBy, phone string) 
 					rec.Status = commlog.StatusFailed
 					rec.ErrorMessage = sendErr.Error()
 				}
-				if err := s.commlogRepo.Create(rec); err != nil {
+				if err := s.commlogRepo.Create(bg, rec); err != nil {
 					log.Printf("indemnity bond eSign: communication log write failed (loan %d): %v", l.ID, err)
 				}
 			}
@@ -3550,7 +3554,7 @@ func (s *Service) deliverEsignLink(l *Loan, url, lang, deliverBy, phone string) 
 			log.Printf("indemnity bond: dashboard delivery requested for loan %d but no notifier is configured", l.ID)
 			return
 		}
-		s.notifier.Notify(l.CustomerID, "IndemnityBondEsignReady", title, body, "loan", l.ID)
+		s.notifier.Notify(ctx, l.CustomerID, "IndemnityBondEsignReady", title, body, "loan", l.ID)
 	}
 }
 

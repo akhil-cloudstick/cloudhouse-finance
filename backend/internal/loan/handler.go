@@ -1452,7 +1452,7 @@ func (h *Handler) StartIndemnityBondEsign(c *gin.Context) {
 		httpx.Fail(c, http.StatusBadRequest, "Invalid input")
 		return
 	}
-	signReq, err := h.svc.StartIndemnityBondSign(ctx, loanID, platform.GetBranchScope(c), req.Lang, req.RedirectURL)
+	signReq, err := h.svc.StartIndemnityBondSign(ctx, loanID, platform.GetBranchScope(c), req.Lang, req.RedirectURL, req.DeliverBy)
 	if err != nil {
 		httpx.FailErr(c, err)
 		return

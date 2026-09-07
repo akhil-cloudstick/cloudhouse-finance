@@ -1,7 +1,6 @@
 "use client";
 
 import { useState } from "react";
-import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { useCustomers } from "@/modules/customers/store/CustomersProvider";
 import { useGoldRates } from "@/modules/gold-rates/store/GoldRatesProvider";

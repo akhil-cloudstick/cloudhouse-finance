@@ -23,28 +23,6 @@
   --blue: #3b5f7a;
   --blue-bg: #e8f0f6;
   --sidebar-w: 248px;
-:root {
-  --gold-deep: #9a6f0f;
-  --gold: #c9971c;
-  --gold-mid: #d4af37;
-  --gold-light: #eccd6f;
-  --gold-pale: #f7e9c4;
-  --charcoal: #231f18;
-  --charcoal-2: #2e2921;
-  --ink: #3a3325;
-  --muted: #8a7d5a;
-  --ivory: #faf6ec;
-  --card: #fffdf7;
-  --line: #e8dcba;
-  --green: #4d7c2a;
-  --green-bg: #eef4e2;
-  --red: #a3372a;
-  --red-bg: #fbeae6;
-  --amber: #a06d08;
-  --amber-bg: #faf0d4;
-  --blue: #3b5f7a;
-  --blue-bg: #e8f0f6;
-  --sidebar-w: 248px;
 }
 
 /* No scrollbar-gutter here: .shell is height:100vh/overflow:hidden, so the

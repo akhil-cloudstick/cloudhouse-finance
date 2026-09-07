@@ -362,7 +362,8 @@ func (h *Handler) CustomerCheckIndemnityBondEsign(c *gin.Context) {
 		httpx.FailErr(c, err)
 		return
 	}
-	rec, status, err := h.svc.CheckIndemnityBondSign(loanID, nil)
+	ctx := platform.RequestContext(c)
+	rec, status, err := h.svc.CheckIndemnityBondSign(ctx, loanID, nil)
 	if err != nil {
 		httpx.FailErr(c, err)
 		return

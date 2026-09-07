@@ -22,7 +22,6 @@ import (
 	"ambikagold/backend/internal/customer"
 	"ambikagold/backend/internal/customerauth"
 	"ambikagold/backend/internal/dashboard"
-	"ambikagold/backend/internal/dashboard"
 	"ambikagold/backend/internal/employee"
 	"ambikagold/backend/internal/goldrate"
 	"ambikagold/backend/internal/loan"
@@ -258,28 +257,6 @@ func Run(db *gorm.DB, cfg platform.Config) error {
 		return err
 	}
 	// Resyncs the approval -stage permissions' ModuleName back onto the four
-	// split-out modules (Loan Sanction / Loan Extension Approval / Release
-	// Approval / Auction Workflow) — SeedCatalogue above never touches an
-	// already-seeded permission row, so an install that seeded these under
-	// the original lumped "Approval Workflow" module would otherwise stay
-	// stuck there forever even after this file's own grouping changed. See
-	// authz.ApprovalModuleNames' doc comment for why this is safe to do
-	// unconditionally (unlike SeedCatalogue's general policy) for exactly
-	// these permissions.
-	var approvalDefs []authz.PermissionDef
-	for _, def := range authz.Catalogue {
-		for _, m := range authz.ApprovalModuleNames {
-			if def.ModuleName == m {
-				approvalDefs = append(approvalDefs, def)
-				break
-			}
-		}
-	}
-	regrouped, err := authzRepo.RegroupModules(approvalDefs)
-	if err != nil {
-		return err
-	}
-	// Resyncs the approval-stage permissions' ModuleName back onto the four
 	// split-out modules (Loan Sanction / Loan Extension Approval / Release
 	// Approval / Auction Workflow) — SeedCatalogue above never touches an
 	// already-seeded permission row, so an install that seeded these under

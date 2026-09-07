@@ -208,48 +208,6 @@ Residing at :- {{.Blank}}
 <p>मोबाइल नं.: <b>{{.Phone}}</b></p>
 </body></html>`
 
-const bondHTMLGujarati = `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>વળતર બોન્ડ — {{.LoanNumber}}</title><style>{{.Style}}</style></head><body>
-<h1>વળતર બોન્ડ (INDEMNITY BOND)</h1>
-<p>તારીખ: {{printf "%02d" .Day}} / {{.MonthNum}} / {{.Year}}</p>
-<p>પ્રતિ,<br>શાખા વ્યવસ્થાપકશ્રી,<br>{{.BusinessName}} (NBFC)<br>{{.BranchName}} શાખા</p>
-<p><b>વિષય: ગોલ્ડ લોન એકાઉન્ટ નં. {{.LoanNumber}} અંગે વળતર બોન્ડ</b></p>
-<p>હું/અમે, શ્રી/શ્રીમતી <b>{{.CustomerName}}</b>, ઉંમર <b>{{.Age}}</b> વર્ષ, રહેવાસી <b>{{.Address}}</b>, આથી સોગંદપૂર્વક જાહેર કરું/કરીએ છું/છીએ અને બાંહેધરી આપું/આપીએ છીએ કે:</p>
-<ol>
-<li>હું/અમે ઉપરોક્ત ગોલ્ડ લોન એકાઉન્ટના કાયદેસર લોનધારક (Borrower) છીએ.</li>
-<li>ઉપરોક્ત ગોલ્ડ લોનની સુરક્ષા (Security) તરીકે મેં/અમે બેંક/NBFC પાસે સોનાના દાગીના/વસ્તુઓ ગીરવે મૂકેલ છે.</li>
-<li>હું/અમે આથી જાહેર કરું/કરીએ છીએ કે બેંક/NBFC પાસે ગીરવે મૂકવામાં આવેલ તમામ સોનાના દાગીના/વસ્તુઓ મારા/અમારા કાયદેસરના અને સંપૂર્ણ માલિકીના છે. આ સોના પર અન્ય કોઈપણ વ્યક્તિનો માલિકી હક, હિત, દાવો, ગીરો, અધિકાર અથવા અન્ય કોઈ પ્રકારનો હક નથી.</li>
-<li>હું/અમે વધુમાં જાહેર કરું/કરીએ છીએ કે ગીરવે મૂકવામાં આવેલ સોનું કાયદેસર રીતે પ્રાપ્ત કરાયેલ છે અને તે કોઈપણ ગેરકાયદેસર પ્રવૃત્તિ, ચોરી, છેતરપિંડી, ગુનાહિત કૃત્ય, મની લોન્ડરિંગ અથવા અન્ય કોઈ ગેરકાયદેસર સ્ત્રોતમાંથી પ્રાપ્ત થયેલ નથી.</li>
-<li>ઉપરોક્ત સોનાની માલિકી, સ્ત્રોત, ગીરો અથવા તેની મુક્તિ સંબંધિત કોઈપણ પ્રકારના દાવા, વિવાદ, નુકસાન, જવાબદારી, ખર્ચ, કાનૂની કાર્યવાહી અથવા અન્ય પરિણામો માટે હું/અમે સંપૂર્ણપણે જવાબદાર રહીશ/રહીશું અને બેંક/NBFC તથા તેના અધિકારીઓ, કર્મચારીઓ અને પ્રતિનિધિઓને આવા તમામ નુકસાન, ખર્ચ અને જવાબદારીઓ સામે સંપૂર્ણ વળતર (Indemnity) આપવા તથા તેમને નિર્દોષ રાખવા સંમત છીએ.</li>
-<li>જો ભવિષ્યમાં કોઈપણ વ્યક્તિ અથવા સંસ્થા ઉપરોક્ત સોનાની માલિકી, કબજો અથવા તેના સ્ત્રોત અંગે કોઈ દાવો, વાંધો અથવા કાનૂની કાર્યવાહી કરે, તો તે અંગેનો સંપૂર્ણ ખર્ચ, જવાબદારી અને તેનો નિકાલ હું/અમે મારી/અમારી જવાબદારી પર કરીશ/કરીશું અને તેનાથી બેંક/NBFCને થનારા તમામ નુકસાન, ખર્ચ અથવા જવાબદારીઓ માટે હું/અમે સંપૂર્ણ વળતર આપીશ/આપીશું.</li>
-<li>હું/અમે જાહેર કરું/કરીએ છીએ કે આ બોન્ડમાં દર્શાવેલ તમામ વિગતો મારી/અમારી જાણ અને માન્યતા મુજબ સાચી, સંપૂર્ણ અને યથાર્થ છે. બેંક/NBFC આ ઘોષણા પર વિશ્વાસ રાખીને ગોલ્ડ લોન મંજૂર કરે છે અથવા ચાલુ રાખે છે તે બાબત મને/અમને સંપૂર્ણ જાણ છે.</li>
-<li>આ વળતર બોન્ડ મારા/અમારા તેમજ મારા/અમારા કાનૂની વારસદારો, પ્રતિનિધિઓ, વહીવટદારો અને ઉત્તરાધિકારીઓ પર બંધનકર્તા રહેશે અને આ બોન્ડ હેઠળની તમામ જવાબદારીઓ પૂર્ણ ન થાય ત્યાં સુધી અમલમાં રહેશે.</li>
-</ol>
-<p><b>The Schedule herein referred to</b></p>
-<table>
-<thead><tr><th>Sr. no</th><th>Description of the Article</th><th>Carat</th><th class="num">Gross Weight</th><th class="num">Net Weight</th><th class="num">Estimated Value</th></tr></thead>
-<tbody>
-{{range $i, $o := .Ornaments}}<tr><td>{{inc $i}}</td><td>{{$o.Name}}</td><td>{{$o.Purity}}</td><td class="num">{{printf "%.1f" $o.GrossWeight}}</td><td class="num">{{printf "%.1f" $o.NetWeight}}</td><td class="num">{{printf "%.0f" $o.Value}}</td></tr>
-{{else}}<tr><td colspan="6" style="text-align:center;color:#777">{{.Blank}}</td></tr>
-{{end}}
-</tbody>
-</table>
-<p><b>Total Estimated Value :- Rs. {{.TotalValue}}/-</b></p>
-<p><b>Total Loan Advanced :- Rs. {{.PrincipalAmount}}/-</b></p>
-<p>Place :- {{.BranchName}}</p>
-<p>Date :- {{printf "%02d" .Day}} / {{.Month}} / {{.Year}}</p>
-<div class="sig-page">
-<div class="sig">
-<div>The Borrower<span>Name: {{.CustomerName}}</span></div>
-<div>The Lender<span>{{.LenderName}}</span></div>
-</div>
-<p style="margin-top:20px"><b>IN WITNESS WHEREOF Etc.</b></p>
-<div class="sig">
-<div><span>Name: {{.Blank}}<br>Residing at</span></div>
-<div><span>Name: {{.Blank}}<br>Residing at</span></div>
-</div>
-</div>
-</body></html>`
-
 // bondHTMLGujarati is the Gujarati "ચલ મિલકતનો આડગીરો કરાર" pledge deed —
 // same clause structure/order as bondHTMLEnglish (covenant to pay, pledge
 // clause with its three sub-clauses, lender's liability, right of lender,
