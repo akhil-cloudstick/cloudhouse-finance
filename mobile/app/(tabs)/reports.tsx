@@ -34,6 +34,7 @@ import {
 
 import { fmt } from "../../src/lib/format";
 import { tableCardStyle } from "../../src/components/ExpandableTable";
+import { BRAND } from "../../src/config/brand";
 
 const fmtW = (n: number) => `${(n ?? 0).toFixed(2)}g`;
 const dt = (v?: string | null) => (v ? new Date(v).toDateString() : "—");
@@ -249,20 +250,20 @@ export default function ReportsScreen() {
         ? rows
             .map((r) => {
               const row = section.renderRow(r);
-              return `<tr><td style="padding:6px 10px;border-bottom:1px solid #e8dcba;">${row.title}</td>
-                <td style="padding:6px 10px;border-bottom:1px solid #e8dcba;color:#8a7d5a;">${row.detail}</td></tr>`;
+              return `<tr><td style="padding:6px 10px;border-bottom:1px solid #e1e7f2;">${row.title}</td>
+                <td style="padding:6px 10px;border-bottom:1px solid #e1e7f2;color:#64748b;">${row.detail}</td></tr>`;
             })
             .join("")
-        : `<tr><td colspan="2" style="padding:10px;color:#8a7d5a;">No records.</td></tr>`;
+        : `<tr><td colspan="2" style="padding:10px;color:#64748b;">No records.</td></tr>`;
       const html = `
         <html>
-          <body style="font-family: -apple-system, sans-serif; padding: 24px; color: #3a3325;">
-            <h1 style="color:#9a6f0f;margin:0 0 4px;">Ambika Gold Finance</h1>
+          <body style="font-family: -apple-system, sans-serif; padding: 24px; color: #16233d;">
+            <h1 style="color:#0e2050;margin:0 0 4px;">${BRAND.legalName}</h1>
             <h2 style="margin:0 0 4px;">${section.title}</h2>
             <p style="margin:0 0 4px;"><b>${section.headline(totals)}</b>${
               section.sub ? ` — ${section.sub(totals)}` : ""
             }</p>
-            <p style="margin:0 0 16px;color:#8a7d5a;font-size:12px;">Generated ${new Date().toLocaleString()} · ${rows.length} rows</p>
+            <p style="margin:0 0 16px;color:#64748b;font-size:12px;">Generated ${new Date().toLocaleString()} · ${rows.length} rows</p>
             <table style="width:100%;border-collapse:collapse;font-size:13px;">${rowsHtml}</table>
           </body>
         </html>
@@ -344,7 +345,7 @@ export default function ReportsScreen() {
 
       <BottomSheetModal visible={!!preview} onClose={() => setPreview(null)} maxHeightPct={85} dragToClose={false}>
         <View style={styles.sheetHeader}>
-          <ThemedText variant="h3" color={colors.goldDeep} numberOfLines={1} style={{ flex: 1 }}>
+          <ThemedText variant="h3" color={colors.brandDeep} numberOfLines={1} style={{ flex: 1 }}>
             {preview?.title}
           </ThemedText>
           <GoldButton

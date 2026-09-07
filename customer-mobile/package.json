@@ -3,7 +3,9 @@
   "version": "1.0.0",
   "main": "index.ts",
   "dependencies": {
+    "@expo-google-fonts/inter": "^0.4.2",
     "@expo-google-fonts/jost": "^0.4.2",
+    "@expo-google-fonts/montserrat": "^0.4.2",
     "@expo-google-fonts/nunito-sans": "^0.4.2",
     "expo": "~57.0.13",
     "expo-blur": "~57.0.2",

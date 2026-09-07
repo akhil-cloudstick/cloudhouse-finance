@@ -47,7 +47,7 @@ export function Select({
         disabled={disabled}
         onClick={() => setOpen((o) => !o)}
       >
-        <span style={{ color: selected ? "var(--charcoal)" : "var(--muted)" }}>
+        <span style={{ color: selected ? "var(--nav)" : "var(--muted)" }}>
           {selected ? selected.label : placeholder}
         </span>
         <svg className="sel-chevron" viewBox="0 0 10 6" fill="none">

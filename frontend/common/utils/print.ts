@@ -1,8 +1,39 @@
 /* Ported from legacy/app.js's `printDoc(title, body)` (legacy/app.js:48-70) —
  * opens a print-friendly popup window with the given document body and
- * triggers the browser print dialog. Same styles, same behavior, same
- * popup-blocked handling (now reported via a `toast` callback instead of
- * a global `toast()` function). */
+ * triggers the browser print dialog. Same behavior, same popup-blocked
+ * handling (reported via a `toast` callback instead of a global `toast()`).
+ *
+ * The styles are NOT the same: they were re-themed to the CTFI identity along
+ * with the rest of the UI. Note that this window is written with
+ * document.write into a fresh document, so none of the app's CSS custom
+ * properties exist inside it — every colour here has to be a literal, which
+ * is why they come from PRINT_COLORS rather than var(). */
+import { BRAND, BRAND_PHONES, PRINT_COLORS as C } from "@/common/config/brand";
+
+/** Escapes text interpolated into the print HTML strings. */
+const esc = (s: string) =>
+  s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+
+/**
+ * The masthead every printed document opens with: the legal name, the
+ * descriptor, the KML registration number and the contact numbers.
+ *
+ * This exists because the brand used to be written inline as
+ * `<h1>AMBIKA GOLD FINANCE</h1>` in five separate templates across three
+ * files, two of which were copy-pasted duplicates of each other — so the
+ * pledge slip and the statement could and did drift apart. Pass the document
+ * title (e.g. "Gold Loan Pledge Slip") and it renders beneath the brand.
+ */
+export function brandHeader(docTitle?: string): string {
+  return `<header class="brandhead">
+    <div class="bh-name">${esc(BRAND.legalName.toUpperCase())}</div>
+    <div class="bh-desc">${esc(BRAND.descriptor)}</div>
+    <div class="bh-meta">${esc(BRAND.kmlRegLabel)} &nbsp;·&nbsp; ${esc(BRAND_PHONES)}</div>
+    <div class="bh-rule"></div>
+    ${docTitle ? `<h2>${esc(docTitle)}</h2>` : ""}
+  </header>`;
+}
+
 export function openPrintWindow(title: string, body: string, onBlocked: (msg: string) => void) {
   const w = window.open("", "_blank");
   if (!w) {
@@ -10,17 +41,28 @@ export function openPrintWindow(title: string, body: string, onBlocked: (msg: st
     return;
   }
   w.document.write(`<!DOCTYPE html><html><head><meta charset="UTF-8"><title>${title}</title><style>
-    body{font-family:'Mona Sans','Segoe UI',ui-sans-serif,system-ui,-apple-system,Helvetica,Arial,sans-serif;color:#1a1a1a;margin:40px auto;max-width:760px;line-height:1.55;font-size:14px;padding:0 20px}
+    /* Print documents cannot rely on next/font, which only injects its faces
+       into the app document — so these name the families and fall back to
+       system stacks rather than fetching webfonts into a popup. */
+    body{font-family:'Inter','Segoe UI',ui-sans-serif,system-ui,-apple-system,Helvetica,Arial,sans-serif;color:${C.ink};margin:40px auto;max-width:760px;line-height:1.55;font-size:14px;padding:0 20px}
     h1{font-size:20px;text-align:center;margin:0 0 2px;letter-spacing:1px}
-    h2{font-size:15px;text-align:center;margin:0 0 18px;font-weight:normal;color:#555}
+    h2{font-size:15px;text-align:center;margin:0 0 18px;font-weight:normal;color:${C.muted}}
+    .brandhead{text-align:center;margin:0 0 20px}
+    .brandhead .bh-name{font-family:'Montserrat','Segoe UI',sans-serif;font-size:17px;font-weight:800;letter-spacing:.06em;color:${C.brandDeep}}
+    .brandhead .bh-desc{font-size:10.5px;font-weight:600;letter-spacing:.28em;text-transform:uppercase;color:${C.brand};margin-top:3px}
+    .brandhead .bh-meta{font-size:10.5px;color:${C.muted};margin-top:5px}
+    /* The one gold element on the page, matching the badge in the wordmark. */
+    .brandhead .bh-rule{height:2px;background:${C.accent};width:96px;margin:12px auto 14px}
+    .brandhead h2{margin:0}
     table{width:100%;border-collapse:collapse;margin:14px 0}
-    th,td{border:1px solid #999;padding:6px 8px;font-size:13px;text-align:left;vertical-align:middle}
-    th{background:#f3ede1} .num{text-align:right}
+    th,td{border:1px solid ${C.line};padding:6px 8px;font-size:13px;text-align:left;vertical-align:middle}
+    th{background:${C.tint};color:${C.brandDeep};font-weight:600}
+    .num{text-align:right;font-variant-numeric:tabular-nums}
     ol li{margin-bottom:10px;text-align:justify}
     .sig{display:flex;justify-content:space-between;gap:20px;margin-top:60px}
     .sig div{flex:1;text-align:center}
-    .sig span{display:block;border-top:1px solid #333;padding-top:6px;margin-top:44px;font-size:12.5px}
-    .muted{color:#666;font-size:12.5px}
+    .sig span{display:block;border-top:1px solid ${C.ink};padding-top:6px;margin-top:44px;font-size:12.5px}
+    .muted{color:${C.muted};font-size:12.5px}
     @media print{.noprint{display:none}}
   </style></head><body>${body}
   <div class="noprint" style="text-align:center;margin-top:30px">

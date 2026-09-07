@@ -32,7 +32,7 @@ export function ChipSelect<T extends string>({
               onPress={() => onChange(opt)}
               style={[styles.chip, active && styles.chipActive]}
             >
-              <ThemedText variant="small" color={active ? colors.ivory : colors.ink}>
+              <ThemedText variant="small" color={active ? colors.bg : colors.ink}>
                 {opt}
               </ThemedText>
             </Pressable>
@@ -53,5 +53,5 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     paddingVertical: 6,
   },
-  chipActive: { backgroundColor: colors.goldDeep, borderColor: colors.goldDeep },
+  chipActive: { backgroundColor: colors.brandDeep, borderColor: colors.brandDeep },
 });

@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from "react";
+import { BRAND } from "../config/brand";
 import { View, StyleSheet, NativeModules } from "react-native";
 import RazorpayCheckout from "react-native-razorpay";
 import { BottomSheetModal } from "./BottomSheetModal";
@@ -119,7 +120,7 @@ export function PaySheet({
           order_id: order.orderId,
           amount: order.amount,
           currency: order.currency,
-          name: "Ambika Gold Finance",
+          name: BRAND.legalName,
           description: `Loan ${loan.loanNumber}`,
         });
         return;
@@ -131,7 +132,7 @@ export function PaySheet({
         order_id: order.orderId,
         amount: order.amount,
         currency: order.currency,
-        name: "Ambika Gold Finance",
+        name: BRAND.legalName,
         description: `Loan ${loan.loanNumber}`,
       });
       await verifyAndFinish(order.orderId, result.razorpay_payment_id, result.razorpay_signature, parsedAmount, type);

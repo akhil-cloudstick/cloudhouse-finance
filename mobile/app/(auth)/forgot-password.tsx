@@ -38,7 +38,7 @@ export default function ForgotPasswordScreen() {
         showsVerticalScrollIndicator={false}
       >
       <View style={styles.card}>
-        <ThemedText variant="h2" color={colors.goldDeep} style={styles.title}>
+        <ThemedText variant="h2" color={colors.brandDeep} style={styles.title}>
           Reset your password
         </ThemedText>
 
@@ -89,7 +89,7 @@ export default function ForgotPasswordScreen() {
 }
 
 const styles = StyleSheet.create({
-  screen: { flex: 1, backgroundColor: colors.ivory },
+  screen: { flex: 1, backgroundColor: colors.bg },
   scrollContent: { flexGrow: 1, justifyContent: "center", padding: 24 },
   card: {
     backgroundColor: colors.card,

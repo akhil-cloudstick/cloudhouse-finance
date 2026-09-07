@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react";
+import { BRAND } from "../src/config/brand";
 import { Stack, useRouter, useSegments } from "expo-router";
-import { useFonts, Jost_400Regular, Jost_500Medium, Jost_600SemiBold, Jost_700Bold } from "@expo-google-fonts/jost";
+import { useFonts, Inter_400Regular, Inter_500Medium, Inter_600SemiBold } from "@expo-google-fonts/inter";
+import { Montserrat_700Bold } from "@expo-google-fonts/montserrat";
 import { NunitoSans_800ExtraBold } from "@expo-google-fonts/nunito-sans";
 import * as SplashScreen from "expo-splash-screen";
 import { Asset } from "expo-asset";
@@ -29,7 +31,7 @@ function StatusBarBackdrop() {
   return (
     <View
       pointerEvents="none"
-      style={{ position: "absolute", top: 0, left: 0, right: 0, height: insets.top, backgroundColor: colors.ivory }}
+      style={{ position: "absolute", top: 0, left: 0, right: 0, height: insets.top, backgroundColor: colors.bg }}
     />
   );
 }
@@ -56,7 +58,7 @@ async function bootstrapSession(
       const isEnrolled = hasHardware && (await LocalAuthentication.isEnrolledAsync());
       if (isEnrolled) {
         const result = await LocalAuthentication.authenticateAsync({
-          promptMessage: "Sign in to Ambika Gold Finance",
+          promptMessage: `Sign in to ${BRAND.legalName}`,
           disableDeviceFallback: false,
         });
         if (result.success) {
@@ -141,15 +143,15 @@ function RootNavigation() {
 
   if (isLoading || !bootstrapped) {
     return (
-      <View style={{ flex: 1, alignItems: "center", justifyContent: "center", backgroundColor: colors.ivory }}>
+      <View style={{ flex: 1, alignItems: "center", justifyContent: "center", backgroundColor: colors.bg }}>
         <StatusBar style="dark" />
-        <ActivityIndicator color={colors.gold} />
+        <ActivityIndicator color={colors.brand} />
       </View>
     );
   }
 
   return (
-    <View style={{ flex: 1, backgroundColor: colors.ivory }}>
+    <View style={{ flex: 1, backgroundColor: colors.bg }}>
       <StatusBar style="dark" />
       {/* A real Stack, not <Slot/> — (tabs) needs to stay mounted underneath
           pushed top-level siblings so its tab state (which tab was active)
@@ -166,10 +168,10 @@ function RootNavigation() {
 
 export default function RootLayout() {
   const [fontsLoaded] = useFonts({
-    Jost_400Regular,
-    Jost_500Medium,
-    Jost_600SemiBold,
-    Jost_700Bold,
+    Inter_400Regular,
+    Inter_500Medium,
+    Inter_600SemiBold,
+    Montserrat_700Bold,
     NunitoSans_800ExtraBold,
   });
   // The login screen's logo <Image> was popping in a frame after its
@@ -181,7 +183,7 @@ export default function RootLayout() {
   const [assetsLoaded, setAssetsLoaded] = useState(false);
 
   useEffect(() => {
-    Asset.loadAsync(require("../assets/ambika-gold.png"))
+    Asset.loadAsync(require("../assets/ctfi.png"))
       .catch(() => {})
       .finally(() => setAssetsLoaded(true));
   }, []);

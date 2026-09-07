@@ -38,7 +38,7 @@ export function FileInput({
         onChange={(e) => onChange(e.target.files?.[0] || null)}
       />
       <label htmlFor={inputId} className={`inp fi-trigger${disabled ? " fi-disabled" : ""}`}>
-        <span className="fi-name" style={{ color: value ? "var(--charcoal)" : "var(--muted)" }}>
+        <span className="fi-name" style={{ color: value ? "var(--nav)" : "var(--muted)" }}>
           {value ? value.name : placeholder}
         </span>
         <Icon name="doc" className="fi-ic" />

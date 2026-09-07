@@ -50,7 +50,7 @@ const styles = StyleSheet.create({
     // Softer, quieter "undershadow" than before — reads as a light lift
     // rather than a heavy drop, matching the approved modern/minimal
     // mockups (dashboard-mockup artifact).
-    shadowColor: colors.charcoal,
+    shadowColor: colors.nav,
     shadowOpacity: 0.08,
     shadowRadius: 14,
     shadowOffset: { width: 0, height: 5 },

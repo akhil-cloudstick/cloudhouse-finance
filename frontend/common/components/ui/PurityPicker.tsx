@@ -103,8 +103,7 @@ export function PurityPicker({
               left: 2,
               width: "calc(50% - 3px)",
               borderRadius: 4,
-              background: "linear-gradient(180deg,#f0d382 0%,var(--gold-mid) 45%,#bd8f16 100%)",
-              boxShadow: "inset 0 1px 0 rgba(255,255,255,.5)",
+              background: "var(--brand)",
               transform: unit === "fineness" ? "translateX(calc(100% + 2px))" : "translateX(0)",
               transition: "transform .18s ease",
             }}
@@ -123,7 +122,7 @@ export function PurityPicker({
               padding: "0 4px",
               fontSize: 12,
               fontWeight: unit === "karat" ? 700 : 400,
-              color: unit === "karat" ? "#2b2001" : "var(--muted)",
+              color: unit === "karat" ? "#fff" : "var(--muted)",
               whiteSpace: "nowrap",
             }}
             disabled={disabled}
@@ -145,7 +144,7 @@ export function PurityPicker({
               padding: "0 4px",
               fontSize: 12,
               fontWeight: unit === "fineness" ? 700 : 400,
-              color: unit === "fineness" ? "#2b2001" : "var(--muted)",
+              color: unit === "fineness" ? "#fff" : "var(--muted)",
               whiteSpace: "nowrap",
             }}
             disabled={disabled}

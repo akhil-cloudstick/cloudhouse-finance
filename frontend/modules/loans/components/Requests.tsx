@@ -93,7 +93,7 @@ export function Requests() {
               ) : reqs.map((r) => (
                 <tr key={r.id}>
                   <td><span className="id">#{r.id}</span></td>
-                  <td><span className={`chip ${r.type === "Extension" ? "blue" : "gold"}`}>{r.type}</span></td>
+                  <td><span className={`chip ${r.type === "Extension" ? "info" : "brand"}`}>{r.type}</span></td>
                   <td><a href={`#loan/${r.loanNumber}`}>{r.loanNumber}</a></td>
                   <td>{r.customerName}</td>
                   <td>{r.detail}</td>

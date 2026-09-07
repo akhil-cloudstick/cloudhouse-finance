@@ -117,7 +117,7 @@ export function ReleaseReviewModalContent({ request, onSaved }: { request: Reque
         <div className="frow c2">
           <div><label className="f">Charges (₹)</label><input className="inp" type="number" min={0} value={charges} disabled={!canDecide} onChange={(e) => setCharges(e.target.value)} onBlur={saveChargesAndNotes} /></div>
           <div><label className="f">Final Settlement</label>
-            <div className="inp" style={{ display: "flex", alignItems: "center", fontWeight: 600, color: "var(--gold-deep)" }}>
+            <div className="inp" style={{ display: "flex", alignItems: "center", fontWeight: 600, color: "var(--brand-deep)" }}>
               {loan ? fmt(loan.totalOutstandingBalance + (+charges || 0)) : "—"}
             </div>
           </div>

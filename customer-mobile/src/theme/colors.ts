@@ -1,32 +1,49 @@
-// Ported verbatim from mobile/src/theme/colors.ts — keep the two files in
-// sync; do not invent new colors in screens/components, import from here.
+// Ported from frontend/app/app/app.css ":root" — the Chittilapilly Thommana
+// Financiers & Investments (CTFI) theme. Keep these values in sync with that
+// file and with mobile/src/theme/colors.ts; do not invent new colors in
+// screens/components, import from here instead.
+//
+// The key names below are the ROLE each colour plays, not its hue: they were
+// renamed from goldDeep/gold/goldMid/charcoal/ivory when the apps were
+// re-themed from the previous gold identity to CTFI navy, so that the next
+// re-theme is a values-only change.
 export const colors = {
-  goldDeep: "#9a6f0f",
-  gold: "#c9971c",
-  goldMid: "#d4af37",
-  goldLight: "#eccd6f",
-  goldPale: "#f7e9c4",
+  brandDeep: "#14306e",
+  brand: "#1a3e93",
+  brandMid: "#2450be",
+  brandLight: "#a8beec",
+  brandPale: "#e4ecfb",
+  brandFaint: "#f2f6fd",
 
-  charcoal: "#231f18",
-  charcoal2: "#2e2921",
-  ink: "#3a3325",
-  muted: "#8a7d5a",
+  nav: "#0e2050",
+  nav2: "#14306e",
 
-  ivory: "#faf6ec",
-  card: "#fffdf7",
-  line: "#e8dcba",
+  accent: "#c9a227",
+  accentDeep: "#9a7a12",
+  accentPale: "#fbf3d8",
 
-  green: "#4d7c2a",
-  greenBg: "#eef4e2",
-  red: "#a3372a",
-  redBg: "#fbeae6",
-  amber: "#a06d08",
-  amberBg: "#faf0d4",
-  blue: "#3b5f7a",
-  blueBg: "#e8f0f6",
+  ink: "#16233d",
+  muted: "#64748b",
+
+  bg: "#f5f7fb",
+  card: "#ffffff",
+  line: "#e1e7f2",
+
+  green: "#157f4a",
+  greenBg: "#e6f5ed",
+  red: "#c0392b",
+  redBg: "#fcebe9",
+  amber: "#b57a0a",
+  amberBg: "#fdf3dc",
+  // Teal rather than blue, so an "informational" tone cannot be mistaken for
+  // the brand navy at a glance.
+  info: "#0e7490",
+  infoBg: "#e0f2f7",
 } as const;
 
-export type StatusTone = "green" | "red" | "amber" | "blue" | "muted";
+// "brand"/"info" replace the old "gold"/"blue" tones — they name the role, so
+// they survive a re-theme.
+export type StatusTone = "green" | "red" | "amber" | "info" | "brand" | "muted";
 
 export function statusColors(tone: StatusTone): { fg: string; bg: string } {
   switch (tone) {
@@ -36,9 +53,11 @@ export function statusColors(tone: StatusTone): { fg: string; bg: string } {
       return { fg: colors.red, bg: colors.redBg };
     case "amber":
       return { fg: colors.amber, bg: colors.amberBg };
-    case "blue":
-      return { fg: colors.blue, bg: colors.blueBg };
+    case "info":
+      return { fg: colors.info, bg: colors.infoBg };
+    case "brand":
+      return { fg: colors.brand, bg: colors.brandPale };
     default:
-      return { fg: colors.muted, bg: colors.goldPale };
+      return { fg: colors.muted, bg: colors.brandFaint };
   }
 }

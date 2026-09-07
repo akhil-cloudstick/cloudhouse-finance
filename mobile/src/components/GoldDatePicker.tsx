@@ -145,7 +145,7 @@ export function GoldDatePicker({
           </Pressable>
 
           <Pressable onPress={() => setPickingYear((v) => !v)} hitSlop={8}>
-            <ThemedText variant="h3" color={colors.goldDeep}>
+            <ThemedText variant="h3" color={colors.brandDeep}>
               {MONTHS[cursor.getMonth()]} {cursor.getFullYear()} {pickingYear ? "▴" : "▾"}
             </ThemedText>
           </Pressable>
@@ -176,7 +176,7 @@ export function GoldDatePicker({
                       setPickingYear(false);
                     }}
                   >
-                    <ThemedText variant="body" color={active ? colors.goldDeep : colors.ink}>
+                    <ThemedText variant="body" color={active ? colors.brandDeep : colors.ink}>
                       {y}
                     </ThemedText>
                   </Pressable>
@@ -213,7 +213,7 @@ export function GoldDatePicker({
                     <View style={[styles.day, isSelected && styles.daySelected, !isSelected && isToday && styles.dayToday]}>
                       <ThemedText
                         variant="body"
-                        color={disabled ? colors.line : isSelected ? colors.ivory : colors.ink}
+                        color={disabled ? colors.line : isSelected ? colors.bg : colors.ink}
                       >
                         {d.getDate()}
                       </ThemedText>
@@ -282,8 +282,8 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  daySelected: { backgroundColor: colors.goldDeep },
-  dayToday: { borderWidth: 1, borderColor: colors.gold },
+  daySelected: { backgroundColor: colors.brandDeep },
+  dayToday: { borderWidth: 1, borderColor: colors.brand },
   yearGrid: { flexDirection: "row", flexWrap: "wrap", gap: 8, paddingVertical: 4 },
   year: {
     paddingVertical: 10,
@@ -293,7 +293,7 @@ const styles = StyleSheet.create({
     borderColor: colors.line,
     backgroundColor: colors.card,
   },
-  yearActive: { backgroundColor: colors.goldPale, borderColor: colors.gold },
+  yearActive: { backgroundColor: colors.brandPale, borderColor: colors.brand },
   footer: {
     flexDirection: "row",
     alignItems: "center",

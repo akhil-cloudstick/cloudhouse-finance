@@ -64,10 +64,10 @@ export default function LoginScreen() {
         showsVerticalScrollIndicator={false}
       >
         <View style={styles.card}>
-          {/* The logo art already reads "Ambika Gold Finance", so the h1
+          {/* The logo art already carries the full name, so the h1
               wordmark under it was a duplicate — dropped, and the image
               given the space it freed. */}
-          <Image source={require("../../assets/ambika-gold.png")} style={styles.logo} resizeMode="contain" />
+          <Image source={require("../../assets/ctfi.png")} style={styles.logo} resizeMode="contain" />
           <ThemedText variant="body" color={colors.muted} style={styles.subtitle}>
             Staff sign in
           </ThemedText>
@@ -113,7 +113,7 @@ export default function LoginScreen() {
           />
 
           <Pressable onPress={() => router.push("/forgot-password")} style={styles.forgot}>
-            <ThemedText variant="label" color={colors.goldDeep}>
+            <ThemedText variant="label" color={colors.brandDeep}>
               Forgot password?
             </ThemedText>
           </Pressable>
@@ -124,7 +124,7 @@ export default function LoginScreen() {
 }
 
 const styles = StyleSheet.create({
-  screen: { flex: 1, backgroundColor: colors.ivory },
+  screen: { flex: 1, backgroundColor: colors.bg },
   scrollContent: { flexGrow: 1, justifyContent: "center", padding: 24 },
   card: {
     backgroundColor: colors.card,

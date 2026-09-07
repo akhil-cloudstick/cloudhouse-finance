@@ -71,7 +71,7 @@ function buildCheckoutHtml(options: RazorpayWebCheckoutOptions): string {
       width: 100%;
       height: 100%;
       height: 100dvh;
-      background: #faf6ec;
+      background: #f5f7fb;
       overflow: hidden;
       position: fixed;
       top: 0;
@@ -282,7 +282,7 @@ export function RazorpayWebCheckout({
                 read as sitting below center next to the icon.
                 includeFontPadding:false trims most of it, and pinning
                 lineHeight to the icon's own size (rather than leaving it to
-                Jost's natural, taller line metrics) makes the two boxes
+                the body font's natural, taller line metrics) makes the two boxes
                 actually match so alignItems:"center" centers them the same
                 way. */}
             <ThemedText variant="body" style={{ marginLeft: 4, includeFontPadding: false, lineHeight: 20 }}>
@@ -305,7 +305,7 @@ export function RazorpayWebCheckout({
           showsHorizontalScrollIndicator={false}
           renderLoading={() => (
             <View style={styles.loading}>
-              <ActivityIndicator color={colors.gold} />
+              <ActivityIndicator color={colors.brand} />
             </View>
           )}
           onError={() => settle(() => onError("Could not load the payment gateway. Check your connection and try again."))}
@@ -321,7 +321,7 @@ export function RazorpayWebCheckout({
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: colors.ivory },
+  container: { flex: 1, backgroundColor: colors.bg },
   header: {
     height: 52,
     flexDirection: "row",
@@ -336,5 +336,5 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     height: "100%",
   },
-  loading: { ...StyleSheet.absoluteFill, alignItems: "center", justifyContent: "center", backgroundColor: colors.ivory },
+  loading: { ...StyleSheet.absoluteFill, alignItems: "center", justifyContent: "center", backgroundColor: colors.bg },
 });

@@ -13,7 +13,7 @@ export default function TabsLayout() {
       tabBar={(props) => <AppTabBar {...props} />}
       screenOptions={{
         headerShown: false,
-        sceneStyle: { backgroundColor: colors.ivory },
+        sceneStyle: { backgroundColor: colors.bg },
         popToTopOnBlur: true,
       }}
     >

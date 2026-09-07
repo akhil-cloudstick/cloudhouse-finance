@@ -107,7 +107,7 @@ export default function DocumentsScreen() {
   const availableDocs = kycDocs.filter((d) => !!d.url);
 
   return (
-    <View style={{ flex: 1, backgroundColor: colors.ivory }}>
+    <View style={{ flex: 1, backgroundColor: colors.bg }}>
       <FloatingHeader title="Documents" navigation={undefined} onBellPress={() => setNotifOpen(true)} />
       <ScreenContainer>
         <ScrollView showsVerticalScrollIndicator={false}>
@@ -149,12 +149,12 @@ export default function DocumentsScreen() {
                     disabled={downloadingKey === doc.key}
                     style={styles.docRow}
                   >
-                    <Icon name={doc.icon} size={18} color={colors.goldDeep} />
+                    <Icon name={doc.icon} size={18} color={colors.brandDeep} />
                     <ThemedText variant="body" style={{ flex: 1, marginLeft: 10 }}>
                       {doc.label}
                     </ThemedText>
                     {downloadingKey === doc.key ? (
-                      <ActivityIndicator color={colors.gold} size="small" />
+                      <ActivityIndicator color={colors.brand} size="small" />
                     ) : (
                       <Icon name="doc" size={18} color={colors.muted} />
                     )}
@@ -176,7 +176,7 @@ export default function DocumentsScreen() {
           Select a loan
         </ThemedText>
         {loansLoading ? (
-          <ActivityIndicator color={colors.gold} />
+          <ActivityIndicator color={colors.brand} />
         ) : loans.length ? (
           loans.map((l) => (
             <Pressable

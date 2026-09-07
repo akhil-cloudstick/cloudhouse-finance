@@ -167,7 +167,7 @@ export function Calendar() {
       <div style={{ display: "flex", gap: 8, marginBottom: 14 }}>
         <span className="chip amber">Due</span>
         <span className="chip red">Overdue</span>
-        <span className="chip blue">Follow-up</span>
+        <span className="chip info">Follow-up</span>
         <span className="chip green">Payment</span>
       </div>
       {err && <p style={{ color: "var(--red)", fontSize: 13 }}>{err}</p>}
@@ -183,7 +183,7 @@ export function Calendar() {
                   {cells.map((w, i) => (
                     <tr key={i}>
                       {w.map((d, j) => {
-                        if (!d) return <td key={j} style={{ background: "#faf6ea" }} />;
+                        if (!d) return <td key={j} style={{ background: "var(--bg)" }} />;
                         const evs = eventsByDay.get(d) || [];
                         const isToday = isCurrentMonth && d === today.getDate();
                         return (

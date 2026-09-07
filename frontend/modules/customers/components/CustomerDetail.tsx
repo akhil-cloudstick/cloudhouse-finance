@@ -527,7 +527,7 @@ export function CustomerDetail({ id }: { id?: string }) {
                       <tr key={o.loanId + "-" + o.id}>
                         <td><a href={`#loan/${o.loanNumber}`}>{o.loanNumber}</a></td>
                         <td>{o.name}</td>
-                        <td><span className="chip gold">{o.purity}</span></td>
+                        <td><span className="chip brand">{o.purity}</span></td>
                         <td className="num">{fmtW(o.netWeight)}</td>
                         <td className="num">{fmt(o.goldValue)}</td>
                       </tr>

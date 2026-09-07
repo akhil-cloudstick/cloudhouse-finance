@@ -4,6 +4,8 @@ import { useRouter } from "next/navigation";
 import { Icon } from "@/common/components/Icon";
 import { useAuth } from "@/common/auth-context";
 import { loginPath } from "@/common/services/tenantSession";
+import { BRAND } from "@/common/config/brand";
+import BrandLogo from "@/common/components/BrandLogo";
 
 /* Ported from legacy/app.js's `NAV` array + nav-building/active-link logic
  * in `router()`. Each item now also carries the permission that gates it
@@ -65,10 +67,14 @@ export function Sidebar({ route, open }: { route: string; open: boolean }) {
   return (
     <aside className={`side${open ? " open" : ""}`} id="side">
       <div className="brand">
-        <img src="/ambika-gold.jpeg" alt="Ambika Gold Finance" />
+        {/* One lockup: the logo, then a text column carrying the monogram
+          * with the full name under it. Both text lines share a single left
+          * edge — the previous version put the full name on its own
+          * full-width line, which left CTFI aligned to nothing. */}
+        <BrandLogo size={80} />
         <div className="t">
-          <b>AMBIKA</b>
-          <span>Gold Finance</span>
+          <b>{BRAND.shortName}</b>
+          <span className="brand-full">{BRAND.name}</span>
         </div>
       </div>
       <nav className="nav" id="navBox">
@@ -102,7 +108,6 @@ export function Sidebar({ route, open }: { route: string; open: boolean }) {
       <div className="sfoot">
         Trust · Value · Growth
         <br />
-        <a href={loginPath()} onClick={handleSignOut}>← Sign out</a>
       </div>
     </aside>
   );

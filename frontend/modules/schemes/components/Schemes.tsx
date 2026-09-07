@@ -77,7 +77,7 @@ export function Schemes() {
             </div>
             <div className="bd">
               <div className="kv scheme-kv" style={{ gridTemplateColumns: "1fr 1fr" }}>
-                <div className="i"><div className="k">Interest</div><div className="v" style={{ color: "var(--gold-deep)", fontWeight: 600 }}>{s.rate}% p.a.</div></div>
+                <div className="i"><div className="k">Interest</div><div className="v" style={{ color: "var(--brand-deep)", fontWeight: 600 }}>{s.rate}% p.a.</div></div>
                 <div className="i"><div className="k">Duration</div><div className="v">{s.durationMonths} months</div></div>
                 <div className="i"><div className="k">LTV</div><div className="v">{s.ltv}%</div></div>
                 <div className="i"><div className="k">Method</div><div className="v">{s.method || "—"}</div></div>

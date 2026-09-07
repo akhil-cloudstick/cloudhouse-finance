@@ -188,7 +188,7 @@ export default function CashScreen() {
               </ThemedText>
               <ThemedText variant="body">Cash out: {fmt(summary.data.disbursements)}</ThemedText>
               <ThemedText variant="body">Expenses (cash): {fmt(summary.data.cashExpenses)}</ThemedText>
-              <ThemedText variant="h3" color={colors.goldDeep} style={{ marginTop: 8 }}>
+              <ThemedText variant="h3" color={colors.brandDeep} style={{ marginTop: 8 }}>
                 Expected cash in hand: {fmt(summary.data.expectedCash)}
               </ThemedText>
             </>
@@ -309,7 +309,7 @@ const styles = StyleSheet.create({
     borderColor: colors.line,
     backgroundColor: colors.card,
   },
-  tableTabOn: { backgroundColor: colors.goldDeep, borderColor: colors.goldDeep },
+  tableTabOn: { backgroundColor: colors.brandDeep, borderColor: colors.brandDeep },
   smallApprove: { backgroundColor: colors.green, borderRadius: 7, paddingHorizontal: 10, paddingVertical: 6 },
   smallReject: { borderWidth: 1, borderColor: colors.red, borderRadius: 7, paddingHorizontal: 10, paddingVertical: 6 },
 });

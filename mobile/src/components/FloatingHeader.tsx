@@ -78,7 +78,7 @@ export function FloatingHeader({ title, navigation }: { title: string; navigatio
       <Modal visible={menuOpen} transparent animationType="fade" onRequestClose={() => setMenuOpen(false)}>
         <Pressable style={styles.backdrop} onPress={() => setMenuOpen(false)}>
           <View style={[styles.menu, { marginTop: insets.top + 52 }]}>
-            <ThemedText variant="body" color={colors.goldDeep} style={[styles.menuName, { fontFamily: fonts.serif, fontWeight: "700" as const }]} numberOfLines={1}>
+            <ThemedText variant="body" color={colors.brandDeep} style={[styles.menuName, { fontFamily: fonts.serif, fontWeight: "700" as const }]} numberOfLines={1}>
               {employee?.name}
             </ThemedText>
             {canViewSettings && (
@@ -127,7 +127,7 @@ const styles = StyleSheet.create({
     gap: 8,
     ...Platform.select({
       ios: {
-        shadowColor: colors.charcoal,
+        shadowColor: colors.nav,
         shadowOpacity: 0.12,
         shadowRadius: 10,
         shadowOffset: { width: 0, height: 4 },
@@ -151,7 +151,7 @@ const styles = StyleSheet.create({
     width: 30,
     height: 30,
     borderRadius: 15,
-    backgroundColor: colors.goldDeep,
+    backgroundColor: colors.brandDeep,
     alignItems: "center",
     justifyContent: "center",
   },
@@ -166,7 +166,7 @@ const styles = StyleSheet.create({
     paddingVertical: 6,
     ...Platform.select({
       ios: {
-        shadowColor: colors.charcoal,
+        shadowColor: colors.nav,
         shadowOpacity: 0.15,
         shadowRadius: 12,
         shadowOffset: { width: 0, height: 6 },

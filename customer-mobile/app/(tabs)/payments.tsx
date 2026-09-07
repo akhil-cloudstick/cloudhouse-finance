@@ -129,7 +129,7 @@ export default function PaymentsScreen() {
   }
 
   return (
-    <View style={{ flex: 1, backgroundColor: colors.ivory }}>
+    <View style={{ flex: 1, backgroundColor: colors.bg }}>
       <FloatingHeader title="Payments" navigation={undefined} onBellPress={() => setNotifOpen(true)} />
       <ScreenContainer style={{ paddingHorizontal: 0 }}>
         <View style={{ paddingHorizontal: 16 }}>
@@ -167,7 +167,7 @@ export default function PaymentsScreen() {
           onEndReachedThreshold={0.4}
           ListEmptyComponent={
             historyLoading ? (
-              <ActivityIndicator color={colors.gold} style={{ marginTop: 24 }} />
+              <ActivityIndicator color={colors.brand} style={{ marginTop: 24 }} />
             ) : (
               <Card blur>
                 <ThemedText color={colors.muted}>No payments yet</ThemedText>
@@ -175,7 +175,7 @@ export default function PaymentsScreen() {
             )
           }
           ListFooterComponent={
-            loadingMore ? <ActivityIndicator color={colors.gold} style={{ marginVertical: 12 }} /> : null
+            loadingMore ? <ActivityIndicator color={colors.brand} style={{ marginVertical: 12 }} /> : null
           }
           renderItem={({ item }) => (
             <Card blur>
@@ -190,9 +190,9 @@ export default function PaymentsScreen() {
                 </View>
                 <Pressable onPress={() => downloadReceipt(item)} hitSlop={10} disabled={downloadingId === item.id}>
                   {downloadingId === item.id ? (
-                    <ActivityIndicator color={colors.gold} size="small" />
+                    <ActivityIndicator color={colors.brand} size="small" />
                   ) : (
-                    <Icon name="doc" size={20} color={colors.goldDeep} />
+                    <Icon name="doc" size={20} color={colors.brandDeep} />
                   )}
                 </Pressable>
               </View>
@@ -206,7 +206,7 @@ export default function PaymentsScreen() {
           Select a loan
         </ThemedText>
         {loansLoading ? (
-          <ActivityIndicator color={colors.gold} />
+          <ActivityIndicator color={colors.brand} />
         ) : loans.length ? (
           loans.map((l) => (
             <Pressable

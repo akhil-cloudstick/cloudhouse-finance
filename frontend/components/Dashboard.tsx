@@ -70,7 +70,15 @@ function Donut({ parts }: { parts: [string, number, string][] }) {
   );
 }
 
-const EXPENSE_COLORS = ["#9a6f0f", "#d4af37", "#3b5f7a", "#b3a980", "#7a3b5f", "#5f7a3b"];
+/* Categorical palette for the expense breakdown — identity, not magnitude,
+ * so the hues are assigned in this fixed order and never re-sorted by value.
+ * Checked against a light surface for the lightness band, chroma floor,
+ * adjacent-pair separation under deuteranopia/tritanopia, and 3:1 contrast.
+ * The ORDER is part of that result, since those checks run on adjacent pairs
+ * — re-run the check before reordering or adding a hue. Deliberately avoids
+ * --green/--red/--amber, which are reserved for status and must not double
+ * as "series 4". */
+const EXPENSE_COLORS = ["#3060d4", "#c2185b", "#0f9d8f", "#9c7a14", "#7b3fe4", "#5b8c12"];
 
 /* Ported from legacy/app.js's `renderDashboard()`. All figures are now
  * derived from live DB state instead of hardcoded demo values. */
@@ -308,6 +316,32 @@ export function Dashboard() {
         </div>
 
         <div className="grid">
+           <div className="card calc-card">
+            <div className="hd"><h3>Gold Loan Calculator</h3></div>
+            <div className="bd">
+              <div className="frow c2">
+                {/* No inline height/padding override — matches Select's
+                 * own default 40px height (app.css's .calc-card rules)
+                 * rather than the other way around. */}
+                <div><label className="f">Weight (grams)</label><input className="inp" type="number" min={0} value={calcW} onChange={(e) => setCalcW(e.target.value)} /></div>
+                <div><label className="f">Purity</label>
+                  <PurityPicker value={calcP} onChange={setCalcP} dropdownMinWidth={70} />
+                </div>
+              </div>
+              <div className="frow"><div><label className="f">Scheme</label>
+                <Select
+                  options={activeSchemes.map((s) => ({ value: s.id, label: `${s.name} — ${s.ltv}% LTV @ ${s.rate}%` }))}
+                  value={calcS}
+                  onChange={setCalcS}
+                />
+              </div></div>
+              <div style={{ background: "var(--brand-faint)", border: "1px solid var(--brand-pale)", borderRadius: 8, padding: "12px 14px" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13, marginBottom: 4 }}><span>Gross Gold Value</span><b>{fmt(gross)}</b></div>
+                <div style={{ display: "flex", justifyContent: "space-between", fontSize: 15 }}><span style={{ fontWeight: 600 }}>Eligible Loan Amount</span><b style={{ color: "var(--brand-deep)", fontSize: 17 }}>{fmt(elig)}</b></div>
+              </div>
+            </div>
+            <div className="ft">Weight × Rate = Gross Value · Gross × LTV = Eligible</div>
+          </div>
           <div className="card gtop">
             <div className="hd"><h3>Today&apos;s Gold Rate</h3><div className="sp" /><span style={{ fontSize: 11.5, color: "var(--muted)" }}>{latest.date}</span></div>
             <div className="bd">
@@ -329,32 +363,7 @@ export function Dashboard() {
            * At a normal resolution, once that column is wide enough (or the
            * dashboard grid drops to a single column and this card gets the
            * full page width), both stay their usual side by side selves. */}
-          <div className="card calc-card">
-            <div className="hd"><h3>Gold Loan Calculator</h3></div>
-            <div className="bd">
-              <div className="frow c2">
-                {/* No inline height/padding override — matches Select's
-                 * own default 40px height (app.css's .calc-card rules)
-                 * rather than the other way around. */}
-                <div><label className="f">Weight (grams)</label><input className="inp" type="number" min={0} value={calcW} onChange={(e) => setCalcW(e.target.value)} /></div>
-                <div><label className="f">Purity</label>
-                  <PurityPicker value={calcP} onChange={setCalcP} dropdownMinWidth={70} />
-                </div>
-              </div>
-              <div className="frow"><div><label className="f">Scheme</label>
-                <Select
-                  options={activeSchemes.map((s) => ({ value: s.id, label: `${s.name} — ${s.ltv}% LTV @ ${s.rate}%` }))}
-                  value={calcS}
-                  onChange={setCalcS}
-                />
-              </div></div>
-              <div style={{ background: "#fdf6dd", border: "1px solid var(--gold-light)", borderRadius: 8, padding: "12px 14px" }}>
-                <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13, marginBottom: 4 }}><span>Gross Gold Value</span><b>{fmt(gross)}</b></div>
-                <div style={{ display: "flex", justifyContent: "space-between", fontSize: 15 }}><span style={{ fontWeight: 600 }}>Eligible Loan Amount</span><b style={{ color: "var(--gold-deep)", fontSize: 17 }}>{fmt(elig)}</b></div>
-              </div>
-            </div>
-            <div className="ft">Weight × Rate = Gross Value · Gross × LTV = Eligible</div>
-          </div>
+         
 
           <div className="card">
             <div className="hd"><h3>Upcoming Reminders</h3><div className="sp" /><a href="#calendar" style={{ fontSize: 12.5 }}>Calendar →</a></div>
@@ -362,7 +371,7 @@ export function Dashboard() {
               <ul className="mini-list">
                 {reminderPageItems.length ? reminderPageItems.map((e, i) => (
                   <li key={i}>
-                    <span className="ic" style={e.type === "Overdue" ? { background: "var(--red-bg)", color: "var(--red)" } : e.type === "FollowUp" || e.type === "PromiseToPay" ? { background: "var(--blue-bg)", color: "var(--blue)" } : undefined}>
+                    <span className="ic" style={e.type === "Overdue" ? { background: "var(--red-bg)", color: "var(--red)" } : e.type === "FollowUp" || e.type === "PromiseToPay" ? { background: "var(--info-bg)", color: "var(--info)" } : undefined}>
                       <Icon name={e.type === "FollowUp" ? "phone" : e.type === "PromiseToPay" ? "clock" : "bell"} />
                     </span>
                     <span className="tx"><b>{e.title}</b><small>{e.detail}{e.loanNumber ? ` · ${e.loanNumber}` : ""} · {e.date}</small></span>

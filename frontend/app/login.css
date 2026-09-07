@@ -1,31 +1,22 @@
-/* Ported verbatim from legacy/index.html's inline <style> block.
-   Do not rename classes or alter values — this preserves the exact
-   look of the original login page. Font stacks reference the same
-   'Jost'/'Bodoni Moda' families now loaded via next/font in layout.tsx.
-   Selectors have been prefixed with .login-page to scope them and prevent
-   style leakages (such as .card max-width constraints) into the main app shell. */
-.login-page {
-  --gold-deep: #9a6f0f;
-  --gold: #c9971c;
-  --gold-mid: #d4af37;
-  --gold-light: #eccd6f;
-  --gold-pale: #f7e9c4;
-  --charcoal: #231f18;
-  --ink: #3a3325;
-  --ivory: #fdfaf2;
-  --ivory-2: #f7f1e2;
-  --line: #e4d5ac;
-}
+/* Sign-in surface — shared by /login, /forgot-password, /reset-password and
+   the DigiLocker/eSign callbacks, all of which render inside .login-page.
+
+   Rebuilt for the CTFI navy identity. The page this replaces was ported
+   verbatim from legacy/index.html and was heavily jewellery-themed: floating
+   gold-dust particles, four corner filigree ornaments, gilt corner studs on
+   the card, and a "Trust / Value / Growth" motto. None of that survives — a
+   financier's sign-in wants to look like a bank, not a showroom.
+
+   It also used to redeclare the whole palette locally, with an --ivory and a
+   --line that differed from app.css's by a few points for no stated reason.
+   That block is gone: app.css is loaded globally from the root layout, so the
+   tokens are simply inherited and there is now one palette, not two. */
 
 .login-page {
-  font-family: 'Jost', sans-serif;
+  font-family: var(--font-sans), 'Inter', sans-serif;
   color: var(--ink);
   min-height: 100vh;
-  background:
-    radial-gradient(1200px 600px at 50% -10%, #fffdf6 0%, transparent 60%),
-    radial-gradient(900px 500px at 85% 110%, #f3e8c9 0%, transparent 55%),
-    radial-gradient(900px 500px at 10% 100%, #f5ecd4 0%, transparent 55%),
-    var(--ivory);
+  background: var(--bg);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -34,273 +25,432 @@
   overflow-x: hidden;
 }
 
-/* ── faint jewellery-lattice watermark ─────────────────────── */
+/* One soft navy wash off the top-left, standing in for the old page's three
+   stacked warm radials. Fixed rather than scrolled so short and tall
+   viewports get the same framing. */
 .login-page::before {
   content: "";
   position: fixed;
   inset: 0;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120' viewBox='0 0 120 120'%3E%3Cg fill='none' stroke='%23c9971c' stroke-width='0.6' opacity='0.10'%3E%3Cpath d='M60 8 L112 60 L60 112 L8 60 Z'/%3E%3Ccircle cx='60' cy='60' r='14'/%3E%3Cpath d='M60 46 L64 56 L74 60 L64 64 L60 74 L56 64 L46 60 L56 56 Z'/%3E%3C/g%3E%3C/svg%3E");
   pointer-events: none;
+  background:
+    radial-gradient(1100px 620px at 12% -8%, rgba(26, 62, 147, .07) 0%, transparent 62%),
+    radial-gradient(820px 520px at 92% 108%, rgba(26, 62, 147, .05) 0%, transparent 58%);
 }
 
-/* ── floating gold dust ────────────────────────────────────── */
-.login-page .dust { position: fixed; inset: 0; pointer-events: none; overflow: hidden; }
-.login-page .dust span {
-  position: absolute; bottom: -12px;
-  width: 5px; height: 5px; border-radius: 50%;
-  background: radial-gradient(circle at 35% 35%, #ffe9a8, var(--gold-mid) 60%, rgba(201,151,28,0));
-  opacity: 0;
-  animation: rise linear infinite;
-}
-@keyframes rise {
-  0% { transform: translateY(0) translateX(0) scale(.6); opacity: 0; }
-  12% { opacity: .75; }
-  85% { opacity: .35; }
-  100% { transform: translateY(-105vh) translateX(var(--sway, 24px)) scale(1.1); opacity: 0; }
-}
-
-/* ── ornamental page corners ───────────────────────────────── */
-.login-page .corner { position: fixed; width: 150px; height: 150px; pointer-events: none; opacity: .9; }
-.login-page .corner svg { width: 100%; height: 100%; }
-.login-page .corner.tl { top: 14px; left: 14px; }
-.login-page .corner.tr { top: 14px; right: 14px; transform: scaleX(-1); }
-.login-page .corner.bl { bottom: 14px; left: 14px; transform: scaleY(-1); }
-.login-page .corner.br { bottom: 14px; right: 14px; transform: scale(-1,-1); }
-@media (max-width: 720px) { .login-page .corner { width: 84px; height: 84px; } }
-
-/* ── card ──────────────────────────────────────────────────── */
-.login-page .card {
+/* Grid, not flex: the two panels sit side by side on row 1 while the two
+   footer lines span the full width beneath them, without needing a wrapper
+   element around the panels. */
+.login-page .wrap {
   position: relative;
-  width: 100%; max-width: 460px;
-  background: linear-gradient(180deg,#fffdf7 0%,#fdf8ec 100%);
-  border: 1px solid var(--line);
-  border-radius: 6px;
-  box-shadow:
-    0 1px 2px rgba(154,111,15,.08),
-    0 24px 60px -18px rgba(120,86,20,.28);
-  padding: 44px 46px 38px;
   z-index: 1;
+  width: 100%;
+  max-width: 940px;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  align-items: stretch;
 }
-/* double gold frame */
-.login-page .card::before {
-  content: "";
-  position: absolute; inset: 9px;
-  border: 1px solid rgba(201,151,28,.55);
-  border-radius: 3px;
-  pointer-events: none;
+
+/* ── identity panel ─────────────────────────────────────────── */
+.login-page .brand-panel {
+  background: linear-gradient(160deg, var(--nav-2) 0%, var(--nav) 100%);
+  color: #fff;
+  border-radius: 14px 0 0 14px;
+  padding: 48px 40px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: flex-start;
+  position: relative;
+  overflow: hidden;
+  box-shadow:
+    0 1px 2px rgba(14, 32, 80, .06),
+    0 24px 60px -28px rgba(14, 32, 80, .34);
 }
-/* gold cap along the top edge */
-.login-page .card::after {
+
+/* Oversized, mostly-cropped seal as a watermark. Low enough not to compete
+   with the name set on top of it. */
+.login-page .brand-panel::after {
   content: "";
-  position: absolute; left: 9px; right: 9px; top: 9px; height: 3px;
-  background: linear-gradient(90deg,transparent,var(--gold-light) 18%,var(--gold-deep) 50%,var(--gold-light) 82%,transparent);
+  position: absolute;
+  right: -78px;
+  bottom: -78px;
+  width: 260px;
+  height: 260px;
+  border-radius: 50%;
+  border: 26px solid rgba(255, 255, 255, .04);
   pointer-events: none;
 }
 
-/* corner studs on the inner frame */
-.login-page .stud {
-  position: absolute; width: 9px; height: 9px;
-  background: linear-gradient(135deg,var(--gold-light),var(--gold-deep));
-  transform: rotate(45deg);
-  box-shadow: 0 0 0 1px #fffdf7, 0 0 0 2px rgba(201,151,28,.5);
+/* Spacing only. The mark itself is rendered untouched — no disc, no crop,
+   no outline. */
+.login-page .bp-mark {
+  margin-bottom: 22px;
+  color: #fff;
 }
-.login-page .stud.tl { top: 5px; left: 5px; } .login-page .stud.tr { top: 5px; right: 5px; }
-.login-page .stud.bl { bottom: 5px; left: 5px; } .login-page .stud.br { bottom: 5px; right: 5px; }
 
-/* ── brand block ───────────────────────────────────────────── */
-.login-page .brand { text-align: center; margin-bottom: 6px; }
+.login-page .bp-name {
+  font-family: var(--font-display), 'Montserrat', sans-serif;
+  font-size: 27px;
+  font-weight: 800;
+  line-height: 1.1;
+  letter-spacing: .01em;
+  margin: 0;
+}
+.login-page .bp-name span {
+  display: block;
+  font-weight: 600;
+  font-size: 22px;
+  letter-spacing: .16em;
+  text-transform: uppercase;
+  color: var(--brand-light);
+  margin-top: 4px;
+}
+
+.login-page .bp-desc {
+  margin: 12px 0 0;
+  font-size: 12.5px;
+  font-weight: 500;
+  letter-spacing: .26em;
+  text-transform: uppercase;
+  color: #c6d4f2;
+}
+
+/* The one piece of gold on the page — matching the single gold badge in the
+   wordmark. Structure everywhere else stays navy. */
+.login-page .bp-rule {
+  display: block;
+  width: 54px;
+  height: 3px;
+  border-radius: 2px;
+  background: var(--accent);
+  margin: 26px 0 20px;
+}
+
+.login-page .bp-reg,
+.login-page .bp-phone {
+  margin: 0;
+  font-size: 12.5px;
+  color: #a9bde2;
+  letter-spacing: .02em;
+}
+.login-page .bp-phone {
+  margin-top: 7px;
+  font-variant-numeric: tabular-nums;
+  color: #fff;
+  font-weight: 500;
+}
+
+/* ── form card ──────────────────────────────────────────────── */
+.login-page .card {
+  background: var(--card);
+  border-radius: 0 14px 14px 0;
+  padding: 48px 40px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  box-shadow:
+    0 1px 2px rgba(14, 32, 80, .06),
+    0 24px 60px -28px rgba(14, 32, 80, .34);
+}
+
+.login-page .brand {
+  margin-bottom: 26px;
+}
+.login-page .brand h2 {
+  font-family: var(--font-display), 'Montserrat', sans-serif;
+  font-size: 25px;
+  font-weight: 700;
+  color: var(--nav);
+  margin: 0;
+  letter-spacing: -.01em;
+}
+.login-page .brand p {
+  margin: 7px 0 0;
+  font-size: 13.5px;
+  color: var(--muted);
+}
+/* The auth pages that share this stylesheet still lead with the seal, since
+   they have no navy panel of their own to carry it. */
 .login-page .brand img {
-  width: 132px; height: 132px; object-fit: cover; border-radius: 50%;
-  border: 1px solid var(--line);
-  box-shadow: 0 0 0 5px #fffdf7,0 0 0 6px rgba(201,151,28,.45),0 10px 24px -10px rgba(154,111,15,.5);
-  background: #fff;
+  display: block;
+  margin-bottom: 16px;
 }
-.login-page h1 {
-  font-family: 'Bodoni Moda', serif;
-  font-weight: 600; font-size: 30px; letter-spacing: .06em;
-  margin-top: 18px; color: var(--charcoal);
+.login-page .brand h1 {
+  font-family: var(--font-display), 'Montserrat', sans-serif;
+  font-size: 23px;
+  font-weight: 700;
+  color: var(--nav);
+  margin: 0;
 }
-.login-page h1 .gilt {
-  background: linear-gradient(105deg,var(--gold-deep) 0%,var(--gold-mid) 35%,#f3dd9a 50%,var(--gold-mid) 65%,var(--gold-deep) 100%);
-  background-size: 200% auto;
-  -webkit-background-clip: text; background-clip: text;
-  -webkit-text-fill-color: transparent; color: transparent;
-  animation: gleam 6s ease-in-out infinite;
-}
-@keyframes gleam { 0%,100% { background-position: 0% center; } 50% { background-position: 100% center; } }
 
-.login-page .motto {
-  display: flex; align-items: center; gap: 12px;
-  margin: 14px 0 26px; color: var(--gold-deep);
-  font-size: 10.5px; letter-spacing: .42em; font-weight: 500; text-transform: uppercase;
-  justify-content: center; white-space: nowrap;
+/* ── fields ─────────────────────────────────────────────────── */
+.login-page .field {
+  position: relative;
+  margin-bottom: 20px;
 }
-.login-page .motto::before, .login-page .motto::after {
-  content: ""; flex: 1; height: 1px; max-width: 70px;
-  background: linear-gradient(90deg,transparent,var(--gold-mid));
-}
-.login-page .motto::after { background: linear-gradient(90deg,var(--gold-mid),transparent); }
-.login-page .motto b { font-weight: 500; }
-.login-page .motto .dot { color: var(--gold-mid); letter-spacing: 0; }
-
-/* ── form ──────────────────────────────────────────────────── */
-.login-page .field { position: relative; margin-bottom: 26px; }
 .login-page .field input {
   width: 100%;
-  font: inherit; font-size: 15.5px; color: var(--charcoal);
-  background: transparent; border: 0; outline: 0;
-  border-bottom: 1px solid var(--line);
-  padding: 20px 34px 9px 2px;
-  transition: border-color .25s;
+  font-family: inherit;
+  font-size: 14.5px;
+  color: var(--ink);
+  background: var(--brand-faint);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 21px 42px 9px 40px;
+  outline: none;
+  transition: border-color .15s, background .15s, box-shadow .15s;
 }
+.login-page .field input:focus {
+  background: #fff;
+  border-color: var(--brand);
+  box-shadow: 0 0 0 3px rgba(26, 62, 147, .12);
+}
+
 .login-page .field label {
-  position: absolute; left: 2px; top: 22px;
-  font-size: 15px; color: #a2946e; letter-spacing: .02em;
+  position: absolute;
+  left: 40px;
+  top: 15px;
+  font-size: 14px;
+  color: var(--muted);
   pointer-events: none;
-  transition: all .22s ease;
+  transition: all .15s;
 }
+/* Float the label once the field has focus or content. :autofill is given its
+   own rule below because one unsupported selector invalidates a whole group,
+   and browser support for the two spellings still differs. */
 .login-page .field input:focus + label,
 .login-page .field input:not(:placeholder-shown) + label,
-.login-page .field input:-webkit-autofill + label,
+.login-page .field input:-webkit-autofill + label {
+  top: 7px;
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: .1em;
+  text-transform: uppercase;
+  color: var(--brand);
+}
 .login-page .field input:autofill + label {
-  top: 0; font-size: 11px; letter-spacing: .18em; text-transform: uppercase;
-  color: var(--gold-deep); font-weight: 500;
+  top: 7px;
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: .1em;
+  text-transform: uppercase;
+  color: var(--brand);
 }
-.login-page .field .bar {
-  position: absolute; left: 0; right: 0; bottom: 0; height: 2px;
-  background: linear-gradient(90deg,var(--gold-deep),var(--gold-light),var(--gold-deep));
-  transform: scaleX(0); transform-origin: center;
-  transition: transform .35s ease;
-}
-.login-page .field input:focus ~ .bar { transform: scaleX(1); }
-.login-page .field .icon {
-  position: absolute; right: 2px; top: 20px; width: 20px; height: 20px;
-  color: #bfa254;
-}
-.login-page .field .icon svg { width: 100%; height: 100%; display: block; }
-.login-page button.eye {
-  position: absolute; right: 0; top: 16px;
-  background: none; border: 0; cursor: pointer; padding: 4px;
-  color: #bfa254;
-}
-.login-page button.eye:hover { color: var(--gold-deep); }
-.login-page button.eye svg { width: 20px; height: 20px; display: block; }
 
+.login-page .field .icon {
+  position: absolute;
+  left: 13px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--muted);
+  pointer-events: none;
+}
+.login-page .field .icon svg {
+  width: 17px;
+  height: 17px;
+  display: block;
+}
+
+/* The animated underline the ported design used to mark focus. The bordered
+   input above now carries that job, so the element is kept only because the
+   markup still emits it. */
+.login-page .field .bar {
+  display: none;
+}
+
+.login-page button.eye {
+  position: absolute;
+  right: 8px;
+  top: 50%;
+  transform: translateY(-50%);
+  background: none;
+  border: 0;
+  padding: 7px;
+  cursor: pointer;
+  color: var(--muted);
+  border-radius: 6px;
+  line-height: 0;
+}
+.login-page button.eye:hover {
+  color: var(--brand);
+  background: var(--brand-pale);
+}
+.login-page button.eye svg {
+  width: 18px;
+  height: 18px;
+}
+
+/* ── aux row, button, message ───────────────────────────────── */
 .login-page .aux {
-  display: flex; justify-content: space-between; align-items: center;
-  margin: -8px 0 24px; font-size: 13px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: -4px 0 22px;
+  font-size: 13px;
 }
-.login-page .aux label { display: flex; align-items: center; gap: 8px; cursor: pointer; color: #7c6f4e; }
+.login-page .aux a {
+  color: var(--brand);
+  font-weight: 500;
+  text-decoration: none;
+}
+.login-page .aux a:hover {
+  text-decoration: underline;
+}
+.login-page .aux label {
+  color: var(--muted);
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  cursor: pointer;
+}
 .login-page .aux input {
-  appearance: none; width: 15px; height: 15px; cursor: pointer;
-  border: 1px solid var(--gold); border-radius: 2px; background: #fff;
-  display: grid; place-content: center; transition: background .2s;
+  accent-color: var(--brand);
 }
-.login-page .aux input::before {
-  content: ""; width: 8px; height: 8px; transform: scale(0) rotate(45deg);
-  background: linear-gradient(135deg,var(--gold-light),var(--gold-deep));
-  transition: transform .15s;
-}
-.login-page .aux input:checked::before { transform: scale(1) rotate(45deg); }
-.login-page .aux a { color: var(--gold-deep); text-decoration: none; letter-spacing: .02em; }
-.login-page .aux a:hover { text-decoration: underline; }
 
 .login-page .btn {
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  position: relative; width: 100%;
-  font-family: 'Jost', sans-serif; font-size: 14px; font-weight: 600;
-  letter-spacing: .34em; text-transform: uppercase; text-align: center;
-  color: #2b2001;
-  background: linear-gradient(180deg,#f0d382 0%,var(--gold-mid) 45%,#b98a14 100%);
-  border: 1px solid #a97f10; border-radius: 3px;
-  /* extra left padding balances the trailing letter-spacing gap after the
-     last character, which text-align: center alone doesn't account for —
-     that invisible trailing gap otherwise pulls the visible label left of
-     true center */
-  padding: 15px 10px 14px calc(10px + .34em); cursor: pointer;
-  box-shadow: inset 0 1px 0 rgba(255,255,255,.55),0 10px 22px -10px rgba(154,111,15,.65);
-  overflow: hidden;
-  transition: transform .15s ease, box-shadow .2s ease, filter .2s;
+  width: 100%;
+  font-family: var(--font-sans), 'Inter', sans-serif;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: .12em;
+  text-transform: uppercase;
+  color: #fff;
+  background: var(--brand);
+  border: 1px solid var(--brand);
+  border-radius: 8px;
+  padding: 13px 18px;
+  cursor: pointer;
+  transition: background .15s, transform .12s;
 }
 .login-page .btn:hover {
-  filter: brightness(1.05); transform: translateY(-1px);
-  box-shadow: inset 0 1px 0 rgba(255,255,255,.55),0 14px 26px -10px rgba(154,111,15,.75);
+  background: var(--brand-mid);
+  border-color: var(--brand-mid);
 }
-.login-page .btn:active { transform: translateY(0); }
-.login-page .btn .shine {
-  position: absolute; top: 0; bottom: 0; width: 55%; left: -70%;
-  background: linear-gradient(105deg,transparent,rgba(255,255,255,.65),transparent);
-  transform: skewX(-20deg);
-  animation: sweep 3.6s ease-in-out infinite;
+.login-page .btn:active {
+  transform: translateY(1px);
 }
-@keyframes sweep { 0%,55% { left: -70%; } 90%,100% { left: 130%; } }
-.login-page .btn:disabled { cursor: default; filter: saturate(.6) brightness(.97); }
+.login-page .btn:disabled {
+  opacity: .6;
+  cursor: not-allowed;
+  transform: none;
+}
 
 .login-page .msg {
-  min-height: 20px; margin-top: 14px; text-align: center;
-  font-size: 13.5px; letter-spacing: .03em;
-  color: #9c2f22; opacity: 0; transition: opacity .25s;
+  margin: 14px 0 0;
+  font-size: 13px;
+  text-align: center;
+  color: var(--red);
+  /* Laid out but invisible until it has something to say, so the card does
+     not jump in height when an error appears. */
+  min-height: 18px;
+  opacity: 0;
+  transition: opacity .2s;
 }
-.login-page .msg.show { opacity: 1; }
-.login-page .msg.ok { color: #6d7c25; }
-
-.login-page .foot {
-  margin-top: 26px; padding-top: 18px; text-align: center;
-  border-top: 1px solid var(--line);
-  font-size: 12px; color: #8a7d5a; letter-spacing: .05em;
+.login-page .msg.show {
+  opacity: 1;
 }
-.login-page .foot .lock { display: inline-flex; align-items: center; gap: 7px; color: #7c6f4e; }
-.login-page .foot svg { width: 13px; height: 13px; color: var(--gold-deep); }
-
-.login-page .copy {
-  position: relative; z-index: 1; text-align: center; margin-top: 20px;
-  font-size: 11.5px; letter-spacing: .14em; color: #a09367; text-transform: uppercase;
+.login-page .msg.ok {
+  color: var(--green);
 }
 
+/* ── footer lines, spanning both panels ─────────────────────── */
+.login-page .copy,
 .login-page .powered {
-  position: relative; z-index: 1; text-align: center; margin-top: 8px;
-  font-size: 12px; letter-spacing: .06em; color: #a09367;
+  grid-column: 1 / -1;
+  text-align: center;
+  font-size: 12px;
+  color: var(--muted);
+  margin: 0;
+}
+.login-page .copy {
+  padding-top: 22px;
+}
+.login-page .powered {
+  padding-top: 5px;
 }
 .login-page .powered a {
-  text-decoration: none; font-weight: 600; letter-spacing: .04em;
-  background: linear-gradient(90deg, rgb(139, 92, 246), rgb(236, 72, 153));
-  -webkit-background-clip: text; background-clip: text;
-  -webkit-text-fill-color: transparent; color: transparent;
+  color: var(--brand);
+  text-decoration: none;
 }
-.login-page .powered a:hover { filter: brightness(1.15); }
-
-.login-page .wrap { width: 100%; max-width: 460px; }
-
-@media (max-width: 520px) {
-  .login-page .card { padding: 36px 26px 30px; }
-  .login-page .brand img { width: 108px; height: 108px; }
-  .login-page h1 { font-size: 26px; }
-  .login-page .motto { letter-spacing: .3em; font-size: 9.5px; }
-}
-@media (prefers-reduced-motion: reduce) {
-  .login-page .dust span, .login-page .btn .shine, .login-page h1 .gilt { animation: none; }
+.login-page .powered a:hover {
+  text-decoration: underline;
 }
 
-/* ── additive small-phone / orientation rules (new requirement) ──
-   Only tightens spacing further below the existing 520px breakpoint and
-   handles short landscape phone heights; does not alter anything above
-   520px or the existing portrait layout. */
-@media (max-width: 380px) {
-  .login-page .card { padding: 28px 18px 24px; }
-  .login-page .brand img { width: 88px; height: 88px; }
-  .login-page h1 { font-size: 22px; }
-  .login-page .motto { letter-spacing: .22em; font-size: 8.5px; gap: 8px; }
-  .login-page .aux { font-size: 12px; }
+/* ── single-column pages ────────────────────────────────────── */
+/* /forgot-password, /reset-password and the OAuth callbacks render a lone
+   .card with no .brand-panel beside it. Without this the grid would still
+   reserve two equal columns and strand the card in the right-hand one. */
+.login-page .wrap:not(:has(.brand-panel)) {
+  grid-template-columns: 1fr;
+  max-width: 460px;
 }
-@media (max-height: 480px) and (orientation: landscape) {
-  .login-page { padding: 16px; align-items: flex-start; }
-  .login-page .card { padding: 22px 28px 18px; }
-  .login-page .brand { margin-bottom: 2px; }
-  .login-page .brand img { width: 64px; height: 64px; }
-  .login-page h1 { font-size: 20px; margin-top: 8px; }
-  .login-page .motto { margin: 8px 0 14px; }
-  .login-page .field { margin-bottom: 16px; }
-  .login-page .foot { margin-top: 14px; padding-top: 10px; }
+.login-page .wrap:not(:has(.brand-panel)) .card {
+  border-radius: 14px;
+  text-align: center;
+}
+.login-page .wrap:not(:has(.brand-panel)) .brand img {
+  margin-left: auto;
+  margin-right: auto;
+}
+.login-page .wrap:not(:has(.brand-panel)) .field,
+.login-page .wrap:not(:has(.brand-panel)) .aux {
+  text-align: left;
+}
+
+/* ── stacked layout ─────────────────────────────────────────── */
+@media (max-width: 900px) {
+  .login-page {
+    padding: 20px 14px;
+  }
+  .login-page .wrap {
+    grid-template-columns: 1fr;
+    max-width: 460px;
+  }
+  .login-page .brand-panel {
+    border-radius: 14px 14px 0 0;
+    padding: 30px 28px;
+    /* Horizontal on a phone: the mark beside the name costs a third of the
+       vertical space the stacked version does, and the form is what the
+       user came for. */
+    display: grid;
+    grid-template-columns: auto 1fr;
+    column-gap: 16px;
+    align-items: center;
+    box-shadow: none;
+  }
+  .login-page .bp-mark {
+    margin-bottom: 0;
+    grid-row: span 2;
+  }
+  .login-page .bp-name {
+    font-size: 19px;
+  }
+  .login-page .bp-name span {
+    font-size: 15px;
+  }
+  .login-page .bp-desc {
+    font-size: 10px;
+    letter-spacing: .18em;
+    margin-top: 5px;
+  }
+  /* Reference detail, not worth a third of a phone screen. */
+  .login-page .brand-panel::after,
+  .login-page .bp-rule,
+  .login-page .bp-reg,
+  .login-page .bp-phone {
+    display: none;
+  }
+  .login-page .card {
+    border-radius: 0 0 14px 14px;
+    padding: 32px 26px;
+    box-shadow: none;
+  }
+  .login-page .wrap {
+    box-shadow:
+      0 1px 2px rgba(14, 32, 80, .06),
+      0 20px 50px -26px rgba(14, 32, 80, .34);
+    border-radius: 14px;
+  }
 }

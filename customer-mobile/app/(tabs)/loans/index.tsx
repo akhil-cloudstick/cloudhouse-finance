@@ -25,12 +25,12 @@ function statusParamFor(filter: FilterLabel): string | undefined {
   return filter === "All" ? undefined : filter;
 }
 
-function toneForStatus(status: string): "green" | "red" | "amber" | "blue" | "muted" {
+function toneForStatus(status: string): "green" | "red" | "amber" | "info" | "muted" {
   const s = status.toLowerCase();
   if (s.includes("closed")) return "green";
   if (s.includes("overdue") || s.includes("default")) return "red";
   if (s.includes("due soon")) return "amber";
-  if (s.includes("active")) return "blue";
+  if (s.includes("active")) return "info";
   return "muted";
 }
 
@@ -104,7 +104,7 @@ export default function LoansScreen() {
   }
 
   return (
-    <View style={{ flex: 1, backgroundColor: colors.ivory }}>
+    <View style={{ flex: 1, backgroundColor: colors.bg }}>
       <FloatingHeader title="My Loans" navigation={undefined} onBellPress={() => setNotifOpen(true)} />
       <ScreenContainer>
         <ChipSelect options={FILTERS} value={filter} onChange={setFilter} />
@@ -118,7 +118,7 @@ export default function LoansScreen() {
           onEndReachedThreshold={0.4}
           ListEmptyComponent={
             loading ? (
-              <ActivityIndicator color={colors.gold} style={{ marginTop: 24 }} />
+              <ActivityIndicator color={colors.brand} style={{ marginTop: 24 }} />
             ) : (
               <Card>
                 <ThemedText color={colors.muted}>No loans found</ThemedText>
@@ -126,7 +126,7 @@ export default function LoansScreen() {
             )
           }
           ListFooterComponent={
-            loadingMore ? <ActivityIndicator color={colors.gold} style={{ marginVertical: 12 }} /> : null
+            loadingMore ? <ActivityIndicator color={colors.brand} style={{ marginVertical: 12 }} /> : null
           }
           renderItem={({ item }) => {
             const tone = statusColors(toneForStatus(item.status));
@@ -151,7 +151,7 @@ export default function LoansScreen() {
                   <ThemedText variant="small" color={colors.muted} style={{ marginTop: 4 }}>
                     Opened {new Date(item.openedDate).toLocaleDateString("en-IN")}
                   </ThemedText>
-                  <ThemedText variant="body" color={colors.goldDeep} style={{ marginTop: 6 }}>
+                  <ThemedText variant="body" color={colors.brandDeep} style={{ marginTop: 6 }}>
                     Outstanding ₹{(item.totalOutstandingBalance ?? item.outstandingAmount).toLocaleString("en-IN")}
                   </ThemedText>
                   <ThemedText variant="small" color={colors.muted}>

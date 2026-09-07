@@ -116,14 +116,14 @@ export function Customers() {
             <tr><td colSpan={8} className="empty">{error ? "—" : "No customers match your search."}</td></tr>
           ) : rows.map((c) => (
             <tr className="click" key={c.id} onClick={() => { location.hash = "customer/" + c.id; }}>
-              <td><span className="id">{c.code}</span><span className="sub" style={{ fontSize: 13.5, color: "var(--charcoal)", fontWeight: 500 }}>{c.name}</span></td>
+              <td><span className="id">{c.code}</span><span className="sub" style={{ fontSize: 13.5, color: "var(--nav)", fontWeight: 500 }}>{c.name}</span></td>
               <td>{c.phone}<span className="sub">{c.address}</span></td>
               <td>{c.branchName}</td>
               <td><StatusChip status={c.panStatus} /></td>
               <td><StatusChip status={c.aadhaarStatus} /></td>
               <td><StatusChip status={c.kycStatus} /></td>
               <td className="num">{db.loans.filter((l) => l.cust === c.id).length}</td>
-              <td style={{ textAlign: "right", color: "var(--gold-deep)" }}>›</td>
+              <td style={{ textAlign: "right", color: "var(--brand-deep)" }}>›</td>
             </tr>
           ))}
         </tbody>

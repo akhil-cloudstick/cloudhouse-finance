@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
 import { Slot, useRouter, useSegments } from "expo-router";
 import { QueryClient, QueryClientProvider, focusManager } from "@tanstack/react-query";
-import { useFonts, Jost_400Regular, Jost_500Medium, Jost_600SemiBold, Jost_700Bold } from "@expo-google-fonts/jost";
+import { useFonts, Inter_400Regular, Inter_500Medium, Inter_600SemiBold } from "@expo-google-fonts/inter";
+import { Montserrat_700Bold } from "@expo-google-fonts/montserrat";
 import { NunitoSans_800ExtraBold } from "@expo-google-fonts/nunito-sans";
 import * as SplashScreen from "expo-splash-screen";
 import { Asset } from "expo-asset";
@@ -64,7 +65,7 @@ function StatusBarBackdrop() {
         left: 0,
         right: 0,
         height: insets.top,
-        backgroundColor: colors.ivory,
+        backgroundColor: colors.bg,
       }}
     />
   );
@@ -88,9 +89,9 @@ function RootNavigation() {
 
   if (isLoading) {
     return (
-      <View style={{ flex: 1, alignItems: "center", justifyContent: "center", backgroundColor: colors.ivory }}>
+      <View style={{ flex: 1, alignItems: "center", justifyContent: "center", backgroundColor: colors.bg }}>
         <StatusBar style="dark" />
-        <ActivityIndicator color={colors.gold} />
+        <ActivityIndicator color={colors.brand} />
       </View>
     );
   }
@@ -104,7 +105,7 @@ function RootNavigation() {
     // no-ops under enforced edge-to-edge, but they matter on Android 14 and
     // older (and in Expo Go), where the OS otherwise reserves an opaque
     // system-bar area and paints it black instead of drawing behind it.
-    <View style={{ flex: 1, backgroundColor: colors.ivory }}>
+    <View style={{ flex: 1, backgroundColor: colors.bg }}>
       <StatusBar style="dark" />
       <Slot />
       {/* Bottom sheets render here — above every screen, laid out against
@@ -117,10 +118,10 @@ function RootNavigation() {
 
 export default function RootLayout() {
   const [fontsLoaded] = useFonts({
-    Jost_400Regular,
-    Jost_500Medium,
-    Jost_600SemiBold,
-    Jost_700Bold,
+    Inter_400Regular,
+    Inter_500Medium,
+    Inter_600SemiBold,
+    Montserrat_700Bold,
     NunitoSans_800ExtraBold,
   });
   // The login screen's logo <Image> was popping in a frame after its
@@ -132,7 +133,7 @@ export default function RootLayout() {
   const [assetsLoaded, setAssetsLoaded] = useState(false);
 
   useEffect(() => {
-    Asset.loadAsync(require("../assets/ambika-gold.png"))
+    Asset.loadAsync(require("../assets/ctfi.png"))
       .catch(() => {})
       .finally(() => setAssetsLoaded(true));
   }, []);

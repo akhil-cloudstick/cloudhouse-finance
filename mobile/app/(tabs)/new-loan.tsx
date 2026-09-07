@@ -94,7 +94,7 @@ function OrnamentNameField({ value, onChange }: { value: string; onChange: (v: s
           ))}
           {!exactMatch ? (
             <Pressable onPress={() => create.mutate(trimmed)} style={{ paddingVertical: 8 }}>
-              <ThemedText variant="small" color={colors.goldDeep}>
+              <ThemedText variant="small" color={colors.brandDeep}>
                 + Add &quot;{trimmed}&quot; as a new ornament type
               </ThemedText>
             </Pressable>
@@ -296,7 +296,7 @@ export default function NewLoanScreen() {
         refreshControl={<RefreshControl refreshing={goldRate.isRefetching} onRefresh={() => goldRate.refetch()} />}
       >
         {!isTodaySet ? (
-          <Card style={{ backgroundColor: colors.goldPale, borderColor: colors.goldDeep }}>
+          <Card style={{ backgroundColor: colors.brandPale, borderColor: colors.brandDeep }}>
             <ThemedText variant="small" color={colors.ink}>
               Today&apos;s gold rate hasn&apos;t been published yet — ornament values, the LTV-eligible amount, and
               loan creation are all blocked until it is. Publish it from Gold Rates (More → Gold Rates) first.
@@ -309,7 +309,7 @@ export default function NewLoanScreen() {
             <ThemedText variant="h3">Customer</ThemedText>
             {customerFocused && !customer ? (
               <Pressable onPress={() => setCustomerFocused(false)} hitSlop={8}>
-                <ThemedText variant="small" color={colors.goldDeep}>
+                <ThemedText variant="small" color={colors.brandDeep}>
                   Hide list
                 </ThemedText>
               </Pressable>
@@ -376,7 +376,7 @@ export default function NewLoanScreen() {
             <ThemedText variant="h3">Scheme</ThemedText>
             {schemeFocused && !scheme ? (
               <Pressable onPress={() => setSchemeFocused(false)} hitSlop={8}>
-                <ThemedText variant="small" color={colors.goldDeep}>
+                <ThemedText variant="small" color={colors.brandDeep}>
                   Hide list
                 </ThemedText>
               </Pressable>
@@ -542,7 +542,7 @@ export default function NewLoanScreen() {
 const styles = StyleSheet.create({
   dropdownContainer: {
     marginTop: 8,
-    backgroundColor: colors.ivory,
+    backgroundColor: colors.bg,
     borderRadius: 12,
     borderWidth: 1,
     borderColor: colors.line,

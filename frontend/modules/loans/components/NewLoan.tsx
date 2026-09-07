@@ -33,7 +33,8 @@ import { listLockers, type LockerView } from "@/modules/lockers/services/lockerS
 import { SearchableSelect } from "@/common/components/ui/SearchableSelect";
 import { PurityPicker } from "@/common/components/ui/PurityPicker";
 import { rateForPurityString } from "@/common/utils/purity";
-import { openPrintWindow } from "@/common/utils/print";
+import { openPrintWindow, brandHeader } from "@/common/utils/print";
+import { BRAND, PRINT_COLORS } from "@/common/config/brand";
 import { printIndemnityBond } from "@/modules/loans/utils/indemnityBond";
 import { ApiError } from "@/common/services/httpClient";
 import type { Ornament } from "@/common/utils/data";
@@ -411,7 +412,7 @@ export function NewLoan() {
     const d = buildDraft();
     if (!d.orns.length) { toast("Add at least one ornament with weight and qty first"); return; }
     openPrintWindow("Pledge Slip — " + provId, `
-      <h1>AMBIKA GOLD FINANCE</h1><h2>Gold Loan Pledge Slip</h2>
+      ${brandHeader("Gold Loan Pledge Slip")}
       <table>
         <tr><th style="width:110px">Loan No</th><td>${provId}</td><th style="width:110px">Date</th><td>${new Date().toLocaleDateString("en-IN")}</td></tr>
         <tr><th>Customer</th><td>${d.c.name} (${d.c.id})</td><th>Phone</th><td>${"phone" in d.c ? d.c.phone : "—"}</td></tr>
@@ -483,7 +484,7 @@ export function NewLoan() {
         border:0.3mm dashed #aaa;overflow:hidden;page-break-inside:avoid}
       .label img{width:25mm;height:25mm;flex:none}
       .t{font-size:2.5mm;line-height:1.45;min-width:0}
-      .t .brand{font-size:2mm;letter-spacing:0.3mm;color:#7a5c14}
+      .t .brand{font-size:2mm;letter-spacing:0.3mm;color:${PRINT_COLORS.brand}}
       .t .id{font-size:3.4mm;font-weight:bold}
       .t div{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
       .noprint{text-align:center;margin:8mm;font-family:Arial}
@@ -492,7 +493,7 @@ export function NewLoan() {
       <div class="label">
         <img src="${qr}" alt="QR">
         <div class="t">
-          <div class="brand">AMBIKA GOLD FINANCE</div>
+          <div class="brand">${BRAND.name.toUpperCase()}</div>
           <div class="id">${provId} · ${packetLabel}</div>
           <div>${c.name || "—"}</div>
           <div>${c.id || "—"} · ${c.phone || ""}</div>
@@ -918,7 +919,7 @@ export function NewLoan() {
                   placeholder={String(Math.round(eligible))}
                   value={principalOverride}
                   onChange={(e) => setPrincipalOverride(e.target.value)}
-                  style={{ fontWeight: 600, color: "var(--gold-deep)", fontSize: 16 }}
+                  style={{ fontWeight: 600, color: "var(--brand-deep)", fontSize: 16 }}
                 />
               </div>
               <div style={{ padding: "10px 0 2px" }}>

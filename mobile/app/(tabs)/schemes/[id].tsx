@@ -54,7 +54,7 @@ export default function SchemeDetailScreen() {
         ) : (
           <>
             <Card>
-              <ThemedText variant="h2" color={colors.goldDeep}>
+              <ThemedText variant="h2" color={colors.brandDeep}>
                 {data.name}
               </ThemedText>
               <ThemedText variant="small" color={colors.muted} style={{ marginTop: 4 }}>
@@ -99,7 +99,7 @@ export default function SchemeDetailScreen() {
                 disabled={!goldWeight || !goldRate}
               />
               {eligible !== null ? (
-                <ThemedText variant="h3" color={colors.goldDeep} style={{ marginTop: 8 }}>
+                <ThemedText variant="h3" color={colors.brandDeep} style={{ marginTop: 8 }}>
                   Eligible: ₹{eligible.toLocaleString("en-IN")}
                 </ThemedText>
               ) : null}

@@ -121,7 +121,7 @@ export function DatePicker({
         disabled={disabled}
         onClick={() => setOpen((o) => !o)}
       >
-        <span style={{ color: value ? "var(--charcoal)" : "var(--muted)" }}>
+        <span style={{ color: value ? "var(--nav)" : "var(--muted)" }}>
           {selected ? selected.toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" }) : placeholder}
         </span>
         <Icon name="cal" className="cal-ic" />

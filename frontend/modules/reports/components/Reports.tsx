@@ -408,7 +408,7 @@ export function Reports() {
               </span>
             </button>
             <div className="bd" style={{ display: "flex", flexDirection: "column", flex: 1 }}>
-              <b style={{ fontSize: 14.5, color: "var(--charcoal)", paddingRight: 40 }}>{r.title}</b>
+              <b style={{ fontSize: 14.5, color: "var(--nav)", paddingRight: 40 }}>{r.title}</b>
               <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 2 }}>{r.description}</div>
             </div>
           </div>

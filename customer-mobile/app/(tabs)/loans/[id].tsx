@@ -27,7 +27,7 @@ function toneForStatus(status: string): StatusTone {
   if (s.includes("closed")) return "green";
   if (s.includes("overdue") || s.includes("default")) return "red";
   if (s.includes("due soon")) return "amber";
-  if (s.includes("active")) return "blue";
+  if (s.includes("active")) return "info";
   return "muted";
 }
 
@@ -131,10 +131,10 @@ export default function LoanDetailScreen() {
 
   if (loading && !loan) {
     return (
-      <View style={{ flex: 1, backgroundColor: colors.ivory }}>
+      <View style={{ flex: 1, backgroundColor: colors.bg }}>
         <FloatingHeader title="Loan" navigation={navigation} onBellPress={() => setNotifOpen(true)} />
         <ScreenContainer style={{ alignItems: "center", justifyContent: "center" }}>
-          <ActivityIndicator color={colors.gold} />
+          <ActivityIndicator color={colors.brand} />
         </ScreenContainer>
       </View>
     );
@@ -142,7 +142,7 @@ export default function LoanDetailScreen() {
 
   if (error || !loan) {
     return (
-      <View style={{ flex: 1, backgroundColor: colors.ivory }}>
+      <View style={{ flex: 1, backgroundColor: colors.bg }}>
         <FloatingHeader title="Loan" navigation={navigation} onBellPress={() => setNotifOpen(true)} />
         <ScreenContainer style={{ alignItems: "center", justifyContent: "center" }}>
           <ThemedText color={colors.muted}>{error ?? "Loan not found."}</ThemedText>
@@ -156,7 +156,7 @@ export default function LoanDetailScreen() {
   const showRequests = !!latestRequest;
 
   return (
-    <View style={{ flex: 1, backgroundColor: colors.ivory }}>
+    <View style={{ flex: 1, backgroundColor: colors.bg }}>
       <FloatingHeader title={`Loan ${loan.loanNumber}`} navigation={navigation} onBellPress={() => setNotifOpen(true)} />
       <ScreenContainer>
         <ScrollView showsVerticalScrollIndicator={false}>
@@ -184,7 +184,7 @@ export default function LoanDetailScreen() {
             </ThemedText>
             {(loan.ornaments ?? []).map((o) => (
               <View key={o.id} style={styles.ornamentRow}>
-                <Icon name="ornament" size={18} color={colors.goldDeep} />
+                <Icon name="ornament" size={18} color={colors.brandDeep} />
                 <ThemedText variant="body" style={{ flex: 1, marginLeft: 8 }}>
                   {o.name}
                 </ThemedText>
@@ -314,7 +314,7 @@ function Row({ label, value, children, bold }: { label: string; value?: string; 
         {label}
       </ThemedText>
       {children ?? (
-        <ThemedText variant={bold ? "body" : "body"} color={bold ? colors.goldDeep : colors.ink}>
+        <ThemedText variant={bold ? "body" : "body"} color={bold ? colors.brandDeep : colors.ink}>
           {value}
         </ThemedText>
       )}

@@ -27,7 +27,8 @@ import {
 } from "@/modules/loans/services/loanService";
 import { getCustomer, getCustomerAadhaarFull } from "@/modules/customers/services/customerService";
 import { listPackets } from "@/modules/packets/services/packetService";
-import { openPrintWindow } from "@/common/utils/print";
+import { openPrintWindow, brandHeader } from "@/common/utils/print";
+import { BRAND, PRINT_COLORS } from "@/common/config/brand";
 import { printIndemnityBond } from "@/modules/loans/utils/indemnityBond";
 import { StageTracker } from "@/common/components/ui/StageTracker";
 import { ApiError } from "@/common/services/httpClient";
@@ -424,7 +425,7 @@ export function LoanDetail({ id }: { id?: string }) {
     try {
       const c = await getCustomer(l.customerId);
       openPrintWindow("Pledge Slip — " + l.id, `
-        <h1>AMBIKA GOLD FINANCE</h1><h2>Gold Loan Pledge Slip</h2>
+        ${brandHeader("Gold Loan Pledge Slip")}
         <table>
           <tr><th style="width:110px">Loan No</th><td>${l.id}</td><th style="width:110px">Date</th><td>${new Date().toLocaleDateString("en-IN")}</td></tr>
           <tr><th>Customer</th><td>${c.name} (${c.code || c.id})</td><th>Phone</th><td>${c.phone || "—"}</td></tr>
@@ -492,7 +493,7 @@ export function LoanDetail({ id }: { id?: string }) {
           ` — total net weight ${fmtW(l.totalNetWeight)}`
         : "—";
       openPrintWindow("Statement — " + l.id, `
-        <h1>AMBIKA GOLD FINANCE</h1><h2>Statement of Account</h2>
+        ${brandHeader("Statement of Account")}
         <table>
           <tr><th style="width:150px">Loan No</th><td>${l.id}</td><th style="width:150px">Statement Date</th><td>${new Date().toLocaleDateString("en-IN")}</td></tr>
           <tr><th>Debtor Name</th><td colspan="3">${c.name}</td></tr>
@@ -549,7 +550,7 @@ export function LoanDetail({ id }: { id?: string }) {
           border:0.3mm dashed #aaa;overflow:hidden;page-break-inside:avoid}
         .label img{width:25mm;height:25mm;flex:none}
         .t{font-size:2.5mm;line-height:1.45;min-width:0}
-        .t .brand{font-size:2mm;letter-spacing:0.3mm;color:#7a5c14}
+        .t .brand{font-size:2mm;letter-spacing:0.3mm;color:${PRINT_COLORS.brand}}
         .t .id{font-size:3.4mm;font-weight:bold}
         .t div{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
         .noprint{text-align:center;margin:8mm;font-family:Arial}
@@ -558,7 +559,7 @@ export function LoanDetail({ id }: { id?: string }) {
         <div class="label">
           <img src="${qr}" alt="QR">
           <div class="t">
-            <div class="brand">AMBIKA GOLD FINANCE</div>
+            <div class="brand">${BRAND.name.toUpperCase()}</div>
             <div class="id">${l.id} · ${packetLabel}</div>
             <div>${c.name || "—"}</div>
             <div>${c.code || c.id || "—"} · ${c.phone || ""}</div>
@@ -767,7 +768,7 @@ export function LoanDetail({ id }: { id?: string }) {
           <div className="card gtop"><div className="hd"><h3>Financial Summary</h3></div>
             <div className="bd"><div className="kv" style={{ gridTemplateColumns: "1fr 1fr" }}>
               <div className="i"><div className="k">Principal</div><div className="v">{fmt(l.principal)}</div></div>
-              <div className="i"><div className="k">Outstanding Principal</div><div className="v" style={{ color: "var(--gold-deep)", fontWeight: 600 }}>{fmt(l.outstanding)}</div></div>
+              <div className="i"><div className="k">Outstanding Principal</div><div className="v" style={{ color: "var(--brand-deep)", fontWeight: 600 }}>{fmt(l.outstanding)}</div></div>
               <div className="i"><div className="k">Accrued Interest</div><div className="v">{fmt(l.accruedInterest)}</div></div>
               <div className="i"><div className="k">Interest Paid</div><div className="v">{fmt(l.interestPaid)}</div></div>
               <div className="i"><div className="k">Outstanding Interest</div><div className="v">{fmt(l.outstandingInterest)}</div></div>
@@ -825,7 +826,7 @@ export function LoanDetail({ id }: { id?: string }) {
                 <div style={{ display: "flex", justifyContent: "space-between", padding: "4px 0" }}><span>Outstanding processing fee</span><b>{fmt(l.outstandingProcessingFee)}</b></div>
               )}
               <div style={{ display: "flex", justifyContent: "space-between", padding: "8px 0 2px", borderTop: "1px dashed var(--line)", marginTop: 6 }}>
-                <span style={{ fontWeight: 600 }}>Final settlement</span><b style={{ color: "var(--gold-deep)" }}>{fmt(l.settlementAmount)}</b></div>
+                <span style={{ fontWeight: 600 }}>Final settlement</span><b style={{ color: "var(--brand-deep)" }}>{fmt(l.settlementAmount)}</b></div>
             </div>
             <div className="ft">Principal + Interest + Penal Interest + Processing Fee − Payments/Waivers = Final Settlement Amount</div></div>
         </div>
@@ -837,7 +838,7 @@ export function LoanDetail({ id }: { id?: string }) {
               <tbody>
                 {l.ornaments.map((o) => (
                   <tr key={o.id}>
-                    <td>{o.name}</td><td><span className="chip gold">{o.purity}</span></td>
+                    <td>{o.name}</td><td><span className="chip brand">{o.purity}</span></td>
                     <td className="num">{o.grossWeight.toFixed(1)}</td><td className="num">{o.netWeight.toFixed(1)}</td>
                     <td className="num">{o.quantity}</td><td className="num">{fmt(o.goldValue)}</td>
                     <td style={{ textAlign: "center", whiteSpace: "nowrap" }}>

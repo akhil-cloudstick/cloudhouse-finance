@@ -30,6 +30,6 @@ export function ScreenContainer({ children, style }: { children: React.ReactNode
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: colors.ivory, padding: 16, paddingBottom: 0 },
+  container: { flex: 1, backgroundColor: colors.bg, padding: 16, paddingBottom: 0 },
   flex: { flex: 1 },
 });

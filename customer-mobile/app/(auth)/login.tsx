@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from "react";
+import { BRAND } from "../../src/config/brand";
 import { View, StyleSheet, KeyboardAvoidingView, Image, ScrollView } from "react-native";
 import * as LocalAuthentication from "expo-local-authentication";
 import { colors } from "../../src/theme/colors";
@@ -64,7 +65,7 @@ export default function LoginScreen() {
         return;
       }
       const result = await LocalAuthentication.authenticateAsync({
-        promptMessage: "Sign in to Ambika Gold Finance",
+        promptMessage: `Sign in to ${BRAND.legalName}`,
       });
       if (!result.success) return; // cancelled — token stays valid, stay on this screen
       try {
@@ -148,7 +149,7 @@ export default function LoginScreen() {
     <KeyboardAvoidingView style={styles.screen} behavior="padding">
       <ScrollView contentContainerStyle={styles.scrollContent} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
         <View style={styles.card}>
-          <Image source={require("../../assets/ambika-gold.png")} style={styles.logo} resizeMode="contain" />
+          <Image source={require("../../assets/ctfi.png")} style={styles.logo} resizeMode="contain" />
           <ThemedText variant="body" color={colors.muted} style={styles.subtitle}>
             Customer sign in
           </ThemedText>
@@ -234,7 +235,7 @@ export default function LoginScreen() {
 }
 
 const styles = StyleSheet.create({
-  screen: { flex: 1, backgroundColor: colors.ivory },
+  screen: { flex: 1, backgroundColor: colors.bg },
   scrollContent: { flexGrow: 1, justifyContent: "center", padding: 24 },
   card: {
     backgroundColor: colors.card,

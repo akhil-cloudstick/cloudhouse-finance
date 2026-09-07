@@ -32,15 +32,15 @@ function Stepper({ status }: { status: string }) {
           <div
             style={{
               padding: "5px 11px", borderRadius: 999, fontSize: 12, whiteSpace: "nowrap",
-              background: i <= idx ? "linear-gradient(90deg,var(--gold-light),var(--gold-deep))" : "#efe7cd",
+              background: i <= idx ? "linear-gradient(90deg,var(--brand-mid),var(--brand-deep))" : "var(--brand-pale)",
               color: i <= idx ? "#fff" : "var(--muted)",
               fontWeight: i === idx ? 700 : 500,
-              border: i === idx ? "2px solid var(--gold-deep)" : "none",
+              border: i === idx ? "2px solid var(--brand-deep)" : "none",
             }}
           >
             {stage}
           </div>
-          {i < PACKET_STAGES.length - 1 && <div style={{ width: 18, height: 2, background: i < idx ? "var(--gold-deep)" : "#e6dcb8" }} />}
+          {i < PACKET_STAGES.length - 1 && <div style={{ width: 18, height: 2, background: i < idx ? "var(--brand-deep)" : "var(--line)" }} />}
         </div>
       ))}
     </div>
@@ -184,7 +184,7 @@ export function PacketDetail({ code }: { code?: string }) {
                 {p.items.map((it) => (
                   <tr key={it.id}>
                     <td>{it.name}</td>
-                    <td><span className="chip gold">{it.purity}</span></td>
+                    <td><span className="chip brand">{it.purity}</span></td>
                     <td className="num">{it.grossWeight.toFixed(1)}</td>
                     <td className="num">{it.netWeight.toFixed(1)}</td>
                     <td className="num">{it.quantity}</td>

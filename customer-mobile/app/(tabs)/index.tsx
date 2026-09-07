@@ -95,11 +95,11 @@ export default function HomeScreen() {
   }
 
   return (
-    <View style={{ flex: 1, backgroundColor: colors.ivory }}>
+    <View style={{ flex: 1, backgroundColor: colors.bg }}>
       <FloatingHeader title="Home" navigation={undefined} onBellPress={() => setNotifOpen(true)} />
       <ScreenContainer>
         <ScrollView showsVerticalScrollIndicator={false}>
-          <ThemedText variant="h2" color={colors.goldDeep}>
+          <ThemedText variant="h2" color={colors.brandDeep}>
             Welcome{customer?.name ? `, ${customer.name}` : ""}
           </ThemedText>
           <ThemedText variant="small" color={colors.muted} style={{ marginBottom: 16 }}>
@@ -112,10 +112,10 @@ export default function HomeScreen() {
                 24K Gold Rate
               </ThemedText>
               {latestLoading ? (
-                <ActivityIndicator color={colors.gold} style={{ alignSelf: "flex-start", marginTop: 6 }} />
+                <ActivityIndicator color={colors.brand} style={{ alignSelf: "flex-start", marginTop: 6 }} />
               ) : latest ? (
                 <>
-                  <ThemedText variant="h1" color={colors.goldDeep}>
+                  <ThemedText variant="h1" color={colors.brandDeep}>
                     ₹{latest.k24.toLocaleString("en-IN")}
                   </ThemedText>
                   <ThemedText variant="small" color={colors.muted}>
@@ -136,12 +136,12 @@ export default function HomeScreen() {
                 My Loans
               </ThemedText>
               {loansLoading ? (
-                <ActivityIndicator color={colors.gold} style={{ alignSelf: "flex-start", marginTop: 4 }} />
+                <ActivityIndicator color={colors.brand} style={{ alignSelf: "flex-start", marginTop: 4 }} />
               ) : openLoans.length ? (
                 <>
                   <View style={styles.kpiRow}>
                     <View style={styles.kpiCell}>
-                      <ThemedText variant="h2" color={colors.goldDeep}>
+                      <ThemedText variant="h2" color={colors.brandDeep}>
                         {openLoans.length}
                       </ThemedText>
                       <ThemedText variant="small" color={colors.muted}>
@@ -149,7 +149,7 @@ export default function HomeScreen() {
                       </ThemedText>
                     </View>
                     <View style={styles.kpiCell}>
-                      <ThemedText variant="h2" color={colors.goldDeep}>
+                      <ThemedText variant="h2" color={colors.brandDeep}>
                         {money(totalOutstanding)}
                       </ThemedText>
                       <ThemedText variant="small" color={colors.muted}>
@@ -175,7 +175,7 @@ export default function HomeScreen() {
                 Reminders
               </ThemedText>
               {loansLoading ? (
-                <ActivityIndicator color={colors.gold} style={{ alignSelf: "flex-start", marginTop: 4 }} />
+                <ActivityIndicator color={colors.brand} style={{ alignSelf: "flex-start", marginTop: 4 }} />
               ) : overdueLoans.length || dueSoonLoans.length ? (
                 <>
                   {overdueLoans.length ? (
@@ -213,7 +213,7 @@ export default function HomeScreen() {
             <ThemedText variant="label" color={colors.muted}>
               Current 24K Rate
             </ThemedText>
-            <ThemedText variant="h2" color={colors.goldDeep}>
+            <ThemedText variant="h2" color={colors.brandDeep}>
               ₹{latest.k24.toLocaleString("en-IN")}
             </ThemedText>
           </View>
@@ -223,12 +223,12 @@ export default function HomeScreen() {
         </ThemedText>
         <ScrollView style={{ maxHeight: 320 }}>
           {historyLoading ? (
-            <ActivityIndicator color={colors.gold} />
+            <ActivityIndicator color={colors.brand} />
           ) : history.length ? (
             history.map((r) => (
               <View key={r.id} style={styles.historyRow}>
                 <ThemedText variant="body">{new Date(r.date).toLocaleDateString("en-IN")}</ThemedText>
-                <ThemedText variant="body" color={colors.goldDeep}>
+                <ThemedText variant="body" color={colors.brandDeep}>
                   ₹{r.k24.toLocaleString("en-IN")}
                 </ThemedText>
               </View>
@@ -252,9 +252,9 @@ const styles = StyleSheet.create({
   kpiRow: { flexDirection: "row", gap: 20, marginTop: 4 },
   kpiCell: { flex: 1 },
   currentRateBox: {
-    backgroundColor: colors.goldPale,
+    backgroundColor: colors.brandPale,
     borderWidth: 1,
-    borderColor: colors.goldLight,
+    borderColor: colors.brandLight,
     borderRadius: 10,
     padding: 14,
     marginBottom: 16,

@@ -304,7 +304,7 @@ export function Cash() {
               button, and no input/Set pair to record one with either. */}
           {openingLocked || !canUpdateCash ? (
             <>
-              <b style={{ marginLeft: 8, fontSize: 16, color: "var(--gold-deep)" }}>{fmt(summary?.openingCash || 0)}</b>
+              <b style={{ marginLeft: 8, fontSize: 16, color: "var(--brand-deep)" }}>{fmt(summary?.openingCash || 0)}</b>
               {canUpdateCash && (
                 <button className="btn ghost sm" style={{ marginLeft: 8 }} onClick={() => { setOpeningInput(String(summary?.openingCash ?? "")); setEditingOpening(true); }}>Change</button>
               )}

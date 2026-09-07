@@ -11,6 +11,7 @@ import { RateModalContent } from "@/common/components/modals/RateModal";
 import { Icon } from "@/common/components/Icon";
 import { useAuth } from "@/common/auth-context";
 import { loginPath } from "@/common/services/tenantSession";
+import { BRAND } from "@/common/config/brand";
 import GlobalSearch from "./GlobalSearch";
 import { BranchSwitcher } from "./BranchSwitcher";
 
@@ -51,7 +52,7 @@ export function Topbar({ route, arg, onBurger }: { route: string; arg?: string; 
         </svg>
       </button>
       <span className="crumb" id="crumb">
-        <a href="#dashboard" style={{ color: "inherit", textDecoration: "none" }}>Ambika Gold Finance</a>
+        <a href="#dashboard" style={{ color: "inherit", textDecoration: "none" }}>{BRAND.name}</a>
         &nbsp;/&nbsp;
         <a href={crumbHref} style={{ color: "inherit", textDecoration: "none" }}><b>{crumb}</b></a>
       </span>

@@ -6,6 +6,7 @@ import { BottomSheetModal } from "./BottomSheetModal";
 import { Icon } from "./Icon";
 import { colors } from "../theme/colors";
 import { useAuth } from "../auth/AuthContext";
+import { BRAND } from "../config/brand";
 
 // The "More" destination for the bottom bar — every module that isn't one of
 // the four primary tabs. Replaces the old side drawer (AppDrawerContent):
@@ -110,8 +111,8 @@ function MoreSheet({ visible, onClose }: { visible: boolean; onClose: () => void
   return (
     <BottomSheetModal visible={visible} onClose={onClose}>
       <View style={styles.head}>
-        <ThemedText variant="h3" color={colors.goldDeep}>
-          Ambika Gold Finance
+        <ThemedText variant="h3" color={colors.brandDeep}>
+          {BRAND.name}
         </ThemedText>
         <ThemedText variant="small" color={colors.muted}>
           {employee?.name} · {employee?.role}
@@ -135,10 +136,10 @@ function MoreSheet({ visible, onClose }: { visible: boolean; onClose: () => void
                     onPress={() => go(route)}
                     style={[styles.item, isActive && styles.itemActive, i > 0 && styles.itemDivider]}
                   >
-                    <Icon name={icon} size={20} color={isActive ? colors.goldDeep : colors.muted} />
+                    <Icon name={icon} size={20} color={isActive ? colors.brandDeep : colors.muted} />
                     {/* Same "body" variant/font for every row, active or not —
                         only color and background change on selection. */}
-                    <ThemedText variant="body" color={isActive ? colors.goldDeep : colors.ink}>
+                    <ThemedText variant="body" color={isActive ? colors.brandDeep : colors.ink}>
                       {label}
                     </ThemedText>
                   </Pressable>
@@ -181,6 +182,6 @@ const styles = StyleSheet.create({
   },
   item: { flexDirection: "row", alignItems: "center", gap: 12, paddingHorizontal: 16, paddingVertical: 12 },
   itemDivider: { borderTopWidth: 1, borderTopColor: colors.line },
-  itemActive: { backgroundColor: colors.goldPale },
+  itemActive: { backgroundColor: colors.brandPale },
   signOut: { paddingVertical: 14, paddingHorizontal: 6 },
 });

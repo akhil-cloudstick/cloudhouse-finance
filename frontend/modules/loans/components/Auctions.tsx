@@ -6,7 +6,8 @@ import { useToast } from "@/common/components/Toast";
 import { useLoans } from "@/modules/loans/store/LoansProvider";
 import { Icon } from "@/common/components/Icon";
 import { fmt, fmtW } from "@/common/utils/format";
-import { openPrintWindow } from "@/common/utils/print";
+import { openPrintWindow, brandHeader } from "@/common/utils/print";
+import { BRAND, PRINT_COLORS } from "@/common/config/brand";
 import { StatusChip } from "@/common/components/ui/StatusChip";
 import { StageTracker } from "@/common/components/ui/StageTracker";
 import { useAuth } from "@/common/auth-context";
@@ -48,12 +49,11 @@ import { useResponsivePageSize } from "@/common/utils/responsive";
  * equivalent. Now works directly off a real loan. */
 export function printAuctionLetter(loan: LoanView, toast: (m: string) => void) {
   const today = new Date().toISOString().slice(0, 10);
-  const venue = "Ambika Gold Finance, Koratty Branch";
+  const venue = `${BRAND.legalName}, Koratty Branch`;
 
   openPrintWindow("Auction Letter — " + loan.id, `
-    <h1>AMBIKA GOLD FINANCE</h1>
-    <h2>Koratty, Thrissur, Kerala · Ph: 0480-2730000</h2>
-    <p class="muted">Ref: AGF/AUC/${loan.id.replace("LN-", "")} · Date: ${today}</p>
+    ${brandHeader()}
+    <p class="muted">Ref: CTFI/AUC/${loan.id.replace("LN-", "")} · Date: ${today}</p>
     <p><b>To,</b><br>${loan.customerName}</p>
     <p><b>Subject: Final notice — public auction of gold ornaments pledged against loan ${loan.id}</b></p>
     <p>Dear Sir/Madam,</p>

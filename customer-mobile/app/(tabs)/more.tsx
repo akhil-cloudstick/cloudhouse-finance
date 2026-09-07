@@ -29,7 +29,7 @@ export default function MoreScreen() {
   }
 
   return (
-    <View style={{ flex: 1, backgroundColor: colors.ivory }}>
+    <View style={{ flex: 1, backgroundColor: colors.bg }}>
       <FloatingHeader title="Profile" navigation={undefined} />
       <ProfileContent
         footer={

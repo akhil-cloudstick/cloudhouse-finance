@@ -104,7 +104,7 @@ function RenameDeleteRoleSheet({
   return (
     <BottomSheetModal visible={visible} onClose={onClose}>
       <View style={styles.sheetHeader}>
-        <ThemedText variant="h3" color={colors.goldDeep}>Edit Role — {role.name}</ThemedText>
+        <ThemedText variant="h3" color={colors.brandDeep}>Edit Role — {role.name}</ThemedText>
         <Pressable onPress={onClose} hitSlop={10}>
           <ThemedText variant="h3" color={colors.muted}>
             ×
@@ -306,7 +306,7 @@ export default function RolesPermissionsScreen() {
           </ThemedText>
           {canCreateRole ? (
             <Pressable onPress={() => setShowNewRole((v) => !v)} hitSlop={8}>
-              <ThemedText variant="small" color={colors.goldDeep}>
+              <ThemedText variant="small" color={colors.brandDeep}>
                 {showNewRole ? "Cancel" : "+ New Role"}
               </ThemedText>
             </Pressable>
@@ -318,7 +318,7 @@ export default function RolesPermissionsScreen() {
             const active = r.id === roleId;
             return (
               <Pressable key={r.id} onPress={() => setRoleId(r.id)} style={[styles.roleChip, active && styles.roleChipActive]}>
-                <ThemedText variant="small" numberOfLines={1} color={active ? colors.ivory : colors.ink}>
+                <ThemedText variant="small" numberOfLines={1} color={active ? colors.bg : colors.ink}>
                   {r.name}
                   {r.isSystem ? " (system)" : ""}
                 </ThemedText>
@@ -329,7 +329,7 @@ export default function RolesPermissionsScreen() {
 
         {(canUpdateRole || canDeleteRole) && role && !role.isSystem ? (
           <Pressable onPress={() => setEditVisible(true)} style={{ marginTop: 8, alignSelf: "flex-start" }}>
-            <ThemedText variant="small" color={colors.goldDeep}>
+            <ThemedText variant="small" color={colors.brandDeep}>
               Edit role
             </ThemedText>
           </Pressable>
@@ -422,7 +422,7 @@ export default function RolesPermissionsScreen() {
                   value={row.permission}
                   onValueChange={() => toggle(row)}
                   disabled={!canUpdateRole || role?.isSystem}
-                  trackColor={{ false: colors.line, true: colors.goldDeep }}
+                  trackColor={{ false: colors.line, true: colors.brandDeep }}
                   thumbColor={colors.card}
                 />
               </View>
@@ -462,7 +462,7 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     paddingHorizontal: 14,
   },
-  roleChipActive: { backgroundColor: colors.goldDeep, borderColor: colors.goldDeep },
+  roleChipActive: { backgroundColor: colors.brandDeep, borderColor: colors.brandDeep },
   permRow: { flexDirection: "row", alignItems: "center", paddingVertical: 10 },
   permRowDivider: { borderTopWidth: 1, borderTopColor: colors.line },
 });

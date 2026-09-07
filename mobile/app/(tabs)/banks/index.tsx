@@ -107,7 +107,7 @@ export default function BanksScreen() {
 
       <BottomSheetModal visible={addVisible} onClose={() => { reset(); setAddVisible(false); }}>
         <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
-          <ThemedText variant="h3" color={colors.goldDeep}>
+          <ThemedText variant="h3" color={colors.brandDeep}>
             Add Bank
           </ThemedText>
           <Pressable onPress={() => { reset(); setAddVisible(false); }} hitSlop={10}>

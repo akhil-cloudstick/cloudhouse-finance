@@ -48,7 +48,7 @@ export default function LockerDetailScreen() {
           <ThemedText color={colors.red}>Could not load this locker.</ThemedText>
         ) : (
           <Card>
-            <ThemedText variant="h2" color={colors.goldDeep}>
+            <ThemedText variant="h2" color={colors.brandDeep}>
               {data.code}
             </ThemedText>
             <ThemedText variant="body" style={{ marginTop: 8 }}>

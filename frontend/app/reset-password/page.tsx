@@ -1,6 +1,7 @@
 "use client";
 
 import { Suspense, useState } from "react";
+import BrandLogo from "@/common/components/BrandLogo";
 import { useRouter, useSearchParams } from "next/navigation";
 import "../login.css";
 import { resetPassword } from "@/common/services/authService";
@@ -73,15 +74,11 @@ function ResetPasswordForm() {
     <div className="login-page">
       <div className="wrap">
         <main className="card">
-          <span className="stud tl"></span>
-          <span className="stud tr"></span>
-          <span className="stud bl"></span>
-          <span className="stud br"></span>
 
           <div className="brand">
-            <img src="/ambika-gold.jpeg" alt="Ambika Gold Finance logo" />
+            <BrandLogo size={104} />
             <h1>
-              Set a new <span className="gilt">password</span>
+              Set a new password
             </h1>
           </div>
 
@@ -211,7 +208,6 @@ function ResetPasswordForm() {
 
             <button type="submit" className="btn" disabled={submitting}>
               {submitting ? "Saving…" : "Reset password"}
-              <span className="shine" aria-hidden="true"></span>
             </button>
             <p className={`msg${error ? " show" : ""}`} role="alert">
               {error ?? ""}

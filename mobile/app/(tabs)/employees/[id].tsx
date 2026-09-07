@@ -45,7 +45,7 @@ export default function EmployeeDetailScreen() {
             <ThemedText color={colors.red}>Could not load this employee.</ThemedText>
           ) : (
             <Card>
-              <ThemedText variant="h2" color={colors.goldDeep}>
+              <ThemedText variant="h2" color={colors.brandDeep}>
                 {data.name}
               </ThemedText>
               <ThemedText variant="body" style={{ marginTop: 8 }}>

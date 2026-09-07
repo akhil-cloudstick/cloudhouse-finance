@@ -106,7 +106,7 @@ const styles = StyleSheet.create({
 // Recovers a packet code from a scanned URL shaped like
 // `${API_ORIGIN}/app#packet/<code>` (see loanPrint.ts's printPacketLabel).
 // Returns null for anything else (a loan-only label's `#loan/...`, a
-// non-Ambika QR code, a bare code someone printed by hand, etc.) so callers
+// QR code from another system, a bare code someone printed by hand, etc.) so callers
 // can show "not a packet label" rather than silently mis-navigating.
 export function parsePacketCode(scanned: string): string | null {
   const m = scanned.match(/#packet\/([^/?#]+)/);

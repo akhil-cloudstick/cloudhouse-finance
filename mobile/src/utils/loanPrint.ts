@@ -16,23 +16,42 @@ import { listPackets } from "../api/packets";
 import { getCustomerAadhaarFull } from "../api/customers";
 import { API_BASE_URL, API_ORIGIN } from "../api/config";
 import { getToken } from "../auth/tokenStorage";
+import { BRAND, BRAND_PHONES, PRINT_COLORS as C } from "../config/brand";
 
 // Same CSS as openPrintWindow (frontend/common/utils/print.ts) — kept
 // byte-for-byte so a printed slip/statement/bond looks the same whichever
 // app produced it.
 const DOC_STYLE = `
-  body{font-family:'Mona Sans','Segoe UI',ui-sans-serif,system-ui,-apple-system,Helvetica,Arial,sans-serif;color:#1a1a1a;margin:40px auto;max-width:760px;line-height:1.55;font-size:14px;padding:0 20px}
+  body{font-family:'Inter','Segoe UI',ui-sans-serif,system-ui,-apple-system,Helvetica,Arial,sans-serif;color:${C.ink};margin:40px auto;max-width:760px;line-height:1.55;font-size:14px;padding:0 20px}
   h1{font-size:20px;text-align:center;margin:0 0 2px;letter-spacing:1px}
-  h2{font-size:15px;text-align:center;margin:0 0 18px;font-weight:normal;color:#555}
+  h2{font-size:15px;text-align:center;margin:0 0 18px;font-weight:normal;color:${C.muted}}
+  .brandhead{text-align:center;margin:0 0 20px}
+  .brandhead .bh-name{font-family:'Montserrat','Segoe UI',sans-serif;font-size:17px;font-weight:800;letter-spacing:.06em;color:${C.brandDeep}}
+  .brandhead .bh-desc{font-size:10.5px;font-weight:600;letter-spacing:.28em;text-transform:uppercase;color:${C.brand};margin-top:3px}
+  .brandhead .bh-meta{font-size:10.5px;color:${C.muted};margin-top:5px}
+  .brandhead .bh-rule{height:2px;background:${C.accent};width:96px;margin:12px auto 14px}
+  .brandhead h2{margin:0}
   table{width:100%;border-collapse:collapse;margin:14px 0}
-  th,td{border:1px solid #999;padding:6px 8px;font-size:13px;text-align:left;vertical-align:middle}
-  th{background:#f3ede1} .num{text-align:right}
+  th,td{border:1px solid ${C.line};padding:6px 8px;font-size:13px;text-align:left;vertical-align:middle}
+  th{background:${C.tint};color:${C.brandDeep};font-weight:600}
+  .num{text-align:right;font-variant-numeric:tabular-nums}
   ol li{margin-bottom:10px;text-align:justify}
   .sig{display:flex;justify-content:space-between;gap:20px;margin-top:60px}
   .sig div{flex:1;text-align:center}
-  .sig span{display:block;border-top:1px solid #333;padding-top:6px;margin-top:44px;font-size:12.5px}
-  .muted{color:#666;font-size:12.5px}
+  .sig span{display:block;border-top:1px solid ${C.ink};padding-top:6px;margin-top:44px;font-size:12.5px}
+  .muted{color:${C.muted};font-size:12.5px}
 `;
+
+/** Mirrors brandHeader() in frontend/common/utils/print.ts. */
+function brandHeader(docTitle?: string): string {
+  return `<header class="brandhead">
+    <div class="bh-name">${BRAND.legalName.toUpperCase()}</div>
+    <div class="bh-desc">${BRAND.descriptor}</div>
+    <div class="bh-meta">${BRAND.kmlRegLabel} &nbsp;·&nbsp; ${BRAND_PHONES}</div>
+    <div class="bh-rule"></div>
+    ${docTitle ? `<h2>${docTitle}</h2>` : ""}
+  </header>`;
+}
 
 async function printDoc(title: string, body: string) {
   const html = `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>${title}</title><style>${DOC_STYLE}</style></head><body>${body}</body></html>`;
@@ -50,7 +69,7 @@ export async function printPledgeSlip(l: Loan) {
   const ornaments = l.ornaments ?? [];
   await printDoc(
     `Pledge Slip — ${l.loanNumber}`,
-    `<h1>AMBIKA GOLD FINANCE</h1><h2>Gold Loan Pledge Slip</h2>
+    `${brandHeader("Gold Loan Pledge Slip")}
     <table>
       <tr><th style="width:110px">Loan No</th><td>${l.loanNumber}</td><th style="width:110px">Date</th><td>${fmtDate(new Date().toISOString())}</td></tr>
       <tr><th>Customer</th><td>${c?.name ?? "—"} (${c?.code || c?.id || "—"})</td><th>Phone</th><td>${c?.phone || "—"}</td></tr>
@@ -115,7 +134,7 @@ export async function printStatement(l: Loan) {
     : `<tr><td colspan="6" style="text-align:center;color:#777">No ledger entries yet.</td></tr>`;
   await printDoc(
     `Statement — ${l.loanNumber}`,
-    `<h1>AMBIKA GOLD FINANCE</h1><h2>Statement of Account</h2>
+    `${brandHeader("Statement of Account")}
     <table>
       <tr><th style="width:150px">Loan No</th><td>${l.loanNumber}</td><th style="width:150px">Statement Date</th><td>${fmtDate(new Date().toISOString())}</td></tr>
       <tr><th>Debtor Name</th><td colspan="3">${c?.name ?? "—"}</td></tr>
@@ -294,14 +313,14 @@ export async function printPacketLabel(l: Loan) {
       border:0.3mm dashed #aaa;overflow:hidden;page-break-inside:avoid}
     .label img{width:25mm;height:25mm;flex:none}
     .t{font-size:2.5mm;line-height:1.45;min-width:0}
-    .t .brand{font-size:2mm;letter-spacing:0.3mm;color:#7a5c14}
+    .t .brand{font-size:2mm;letter-spacing:0.3mm;color:${C.brand}}
     .t .id{font-size:3.4mm;font-weight:bold}
     .t div{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   </style></head><body>
     <div class="label">
       <img src="${qr}" alt="QR">
       <div class="t">
-        <div class="brand">AMBIKA GOLD FINANCE</div>
+        <div class="brand">${BRAND.name.toUpperCase()}</div>
         <div class="id">${l.loanNumber} · ${packetLabel}</div>
         <div>${l.customer?.name || "—"}</div>
         <div>${l.customer?.code || l.customer?.id || "—"} · ${l.customer?.phone || ""}</div>

@@ -18,7 +18,7 @@ const styles = StyleSheet.create({
     // heavy drop, matching the approved modern/minimal mockups.
     ...Platform.select({
       ios: {
-        shadowColor: colors.charcoal,
+        shadowColor: colors.nav,
         shadowOpacity: 0.05,
         shadowRadius: 12,
         shadowOffset: { width: 0, height: 3 },

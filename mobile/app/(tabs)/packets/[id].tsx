@@ -143,7 +143,7 @@ export default function PacketDetailScreen() {
         }
       >
       <Card>
-        <ThemedText variant="h2" color={colors.goldDeep}>
+        <ThemedText variant="h2" color={colors.brandDeep}>
           {packet.data.code}
         </ThemedText>
         <ThemedText variant="body" style={{ marginTop: 8 }}>
@@ -195,7 +195,7 @@ export default function PacketDetailScreen() {
                     </ThemedText>
                   ) : null}
                 </View>
-                <ThemedText variant="body" color={colors.goldDeep}>
+                <ThemedText variant="body" color={colors.brandDeep}>
                   {fmt(o.goldValue)}
                 </ThemedText>
               </View>
@@ -213,7 +213,7 @@ export default function PacketDetailScreen() {
               <ThemedText variant="label" color={colors.muted}>
                 {ornaments.length} item{ornaments.length === 1 ? "" : "s"} · {totalNetWeight.toFixed(2)}g net
               </ThemedText>
-              <ThemedText variant="label" color={colors.goldDeep}>
+              <ThemedText variant="label" color={colors.brandDeep}>
                 {fmt(totalGoldValue)}
               </ThemedText>
             </View>

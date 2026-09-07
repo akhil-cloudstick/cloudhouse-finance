@@ -311,7 +311,7 @@ export default function LoanDetailScreen() {
         }
       >
         <Card>
-          <ThemedText variant="h2" color={colors.goldDeep}>
+          <ThemedText variant="h2" color={colors.brandDeep}>
             {l.loanNumber}
           </ThemedText>
           <ThemedText variant="body" style={{ marginTop: 8 }}>
@@ -408,7 +408,7 @@ export default function LoanDetailScreen() {
               Approval — {SANCTION_STAGE_LABELS[pendingStage]}
             </ThemedText>
             {l.approvalWarning ? (
-              <ThemedText variant="small" color={colors.gold} style={{ marginBottom: 8 }}>
+              <ThemedText variant="small" color={colors.brand} style={{ marginBottom: 8 }}>
                 {l.approvalWarning}
               </ThemedText>
             ) : null}

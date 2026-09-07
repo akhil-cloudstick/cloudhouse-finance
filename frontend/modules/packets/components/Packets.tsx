@@ -38,13 +38,13 @@ function LockerCard({ l, packets, canUpdate, onChanged }: { l: LockerView; packe
           <div className="i"><div className="k">Branch</div><div className="v">{l.branchName}</div></div>
           <div className="i"><div className="k">Packets</div><div className="v">{l.occupied} / {l.capacity}</div></div>
         </div>
-        <div style={{ height: 7, background: "#efe7cd", borderRadius: 4, marginTop: 12, overflow: "hidden" }}>
-          <div style={{ height: "100%", width: `${Math.max(4, (l.occupied / Math.max(1, l.capacity)) * 100)}%`, background: "linear-gradient(90deg,var(--gold-light),var(--gold-deep))" }} />
+        <div style={{ height: 7, background: "var(--brand-pale)", borderRadius: 4, marginTop: 12, overflow: "hidden" }}>
+          <div style={{ height: "100%", width: `${Math.max(4, (l.occupied / Math.max(1, l.capacity)) * 100)}%`, background: "linear-gradient(90deg,var(--brand-mid),var(--brand-deep))" }} />
         </div>
         {inLocker.length > 0 && (
           <ul style={{ margin: "10px 0 0", padding: 0, listStyle: "none", fontSize: 12.5 }}>
             {inLocker.map((p) => (
-              <li key={p.id} style={{ padding: "3px 0", borderTop: "1px dashed #e6dcb8" }}>
+              <li key={p.id} style={{ padding: "3px 0", borderTop: "1px dashed var(--line)" }}>
                 <a href={`#packet/${p.code}`}>{p.code}</a> — {p.loanNumber} · {p.customerName}
               </li>
             ))}

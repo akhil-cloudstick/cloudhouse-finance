@@ -43,9 +43,9 @@ export function AppTabBar({ state, navigation, insets }: BottomTabBarProps) {
           return (
             <Pressable key={name} onPress={() => onTabPress(name)} style={styles.item}>
               <View style={[styles.iconWrap, isActive && styles.iconWrapActive]}>
-                <Icon name={icon} size={21} color={isActive ? colors.goldDeep : colors.muted} />
+                <Icon name={icon} size={21} color={isActive ? colors.brandDeep : colors.muted} />
               </View>
-              <ThemedText variant="label" color={isActive ? colors.goldDeep : colors.muted} numberOfLines={1}>
+              <ThemedText variant="label" color={isActive ? colors.brandDeep : colors.muted} numberOfLines={1}>
                 {label}
               </ThemedText>
             </Pressable>
@@ -84,5 +84,5 @@ const styles = StyleSheet.create({
   iconWrap: { width: 52, height: 30, borderRadius: 8, overflow: "hidden", alignItems: "center", justifyContent: "center" },
   // WhatsApp-style active state: a filled pill highlight behind just the
   // icon, not an outline around the whole item.
-  iconWrapActive: { backgroundColor: colors.goldPale },
+  iconWrapActive: { backgroundColor: colors.brandPale },
 });

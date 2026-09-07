@@ -62,7 +62,7 @@ export default function ResetPasswordScreen() {
         showsVerticalScrollIndicator={false}
       >
       <View style={styles.card}>
-        <ThemedText variant="h2" color={colors.goldDeep} style={styles.title}>
+        <ThemedText variant="h2" color={colors.brandDeep} style={styles.title}>
           Set a new password
         </ThemedText>
 
@@ -127,7 +127,7 @@ export default function ResetPasswordScreen() {
 }
 
 const styles = StyleSheet.create({
-  screen: { flex: 1, backgroundColor: colors.ivory },
+  screen: { flex: 1, backgroundColor: colors.bg },
   scrollContent: { flexGrow: 1, justifyContent: "center", padding: 24 },
   card: {
     backgroundColor: colors.card,

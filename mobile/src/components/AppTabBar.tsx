@@ -88,9 +88,9 @@ export function AppTabBar({ state, navigation, insets }: BottomTabBarProps) {
                 return (
                   <>
                     <View style={styles.iconWrap}>
-                      <Icon name={icon} size={21} color={highlighted ? colors.goldDeep : colors.muted} />
+                      <Icon name={icon} size={21} color={highlighted ? colors.brandDeep : colors.muted} />
                     </View>
-                    <ThemedText variant="label" color={highlighted ? colors.goldDeep : colors.muted} numberOfLines={1}>
+                    <ThemedText variant="label" color={highlighted ? colors.brandDeep : colors.muted} numberOfLines={1}>
                       {label}
                     </ThemedText>
                   </>
@@ -105,9 +105,9 @@ export function AppTabBar({ state, navigation, insets }: BottomTabBarProps) {
           {({ pressed }) => (
             <>
               <View style={styles.iconWrap}>
-                <Icon name="dots" size={21} color={pressed ? colors.goldDeep : colors.muted} />
+                <Icon name="dots" size={21} color={pressed ? colors.brandDeep : colors.muted} />
               </View>
-              <ThemedText variant="label" color={pressed ? colors.goldDeep : colors.muted}>
+              <ThemedText variant="label" color={pressed ? colors.brandDeep : colors.muted}>
                 More
               </ThemedText>
             </>

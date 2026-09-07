@@ -9,7 +9,7 @@ import { colors } from "../theme/colors";
 export function ComingSoon({ title }: { title: string }) {
   return (
     <ScreenContainer style={{ alignItems: "center", justifyContent: "center" }}>
-      <ThemedText variant="h2" color={colors.goldDeep} style={{ marginBottom: 8 }}>
+      <ThemedText variant="h2" color={colors.brandDeep} style={{ marginBottom: 8 }}>
         {title}
       </ThemedText>
       <ThemedText variant="body" color={colors.muted} style={{ textAlign: "center" }}>

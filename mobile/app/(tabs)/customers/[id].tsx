@@ -30,15 +30,15 @@ const fmtW = (n?: number | null) => `${(n ?? 0).toFixed(2)}g`;
 // new (see src/api/customers.ts's listCustomer*Page additions).
 const TABS = ["Loans", "Ornaments", "Payments", "Bank Pledges", "Auctions"] as const;
 
-function toneForLoanStatus(status: string): "green" | "red" | "amber" | "blue" | "muted" {
+function toneForLoanStatus(status: string): "green" | "red" | "amber" | "info" | "muted" {
   const s = status.toLowerCase();
   if (s.includes("approved") || s.includes("closed")) return "green";
   if (s.includes("reject") || s.includes("default")) return "red";
   if (s.includes("pending")) return "amber";
-  return "blue";
+  return "info";
 }
 
-function Pill({ label, tone }: { label: string; tone: "green" | "red" | "amber" | "blue" | "muted" }) {
+function Pill({ label, tone }: { label: string; tone: "green" | "red" | "amber" | "info" | "muted" }) {
   const t = statusColors(tone);
   return (
     <ThemedText
@@ -222,7 +222,7 @@ export default function CustomerDetailScreen() {
        * slot rather than a shared ScrollView. */}
       <View style={{ paddingHorizontal: 16, paddingTop: 20 }}>
         <Card>
-          <ThemedText variant="h2" color={colors.goldDeep}>
+          <ThemedText variant="h2" color={colors.brandDeep}>
             {data.name}
           </ThemedText>
           <ThemedText variant="body" style={{ marginTop: 8 }}>
@@ -279,7 +279,7 @@ export default function CustomerDetailScreen() {
             const active = i === tab;
             return (
               <Pressable key={t} onPress={() => changeTab(i)} style={[styles.tabChip, active && styles.tabChipActive]}>
-                <ThemedText variant="small" color={active ? colors.ivory : colors.ink}>
+                <ThemedText variant="small" color={active ? colors.bg : colors.ink}>
                   {t}
                 </ThemedText>
               </Pressable>
@@ -323,5 +323,5 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     paddingVertical: 6,
   },
-  tabChipActive: { backgroundColor: colors.goldDeep, borderColor: colors.goldDeep },
+  tabChipActive: { backgroundColor: colors.brandDeep, borderColor: colors.brandDeep },
 });

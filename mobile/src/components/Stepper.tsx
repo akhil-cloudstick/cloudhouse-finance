@@ -44,7 +44,7 @@ export function Stepper({ steps }: { steps: Step[] }) {
             <View style={[styles.body, isLast && styles.bodyLast]}>
               <ThemedText
                 variant={current ? "label" : "body"}
-                color={current ? colors.goldDeep : done ? colors.ink : colors.muted}
+                color={current ? colors.brandDeep : done ? colors.ink : colors.muted}
               >
                 {step.label}
               </ThemedText>
@@ -76,10 +76,10 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  dotDone: { backgroundColor: colors.gold, borderColor: colors.gold },
-  dotCurrent: { backgroundColor: colors.goldDeep, borderColor: colors.goldDeep },
+  dotDone: { backgroundColor: colors.brand, borderColor: colors.brand },
+  dotCurrent: { backgroundColor: colors.brandDeep, borderColor: colors.brandDeep },
   line: { flex: 1, width: 2, backgroundColor: colors.line, marginVertical: 2 },
-  lineDone: { backgroundColor: colors.gold },
+  lineDone: { backgroundColor: colors.brand },
   body: { flex: 1, paddingBottom: 18, paddingTop: 2 },
   bodyLast: { paddingBottom: 0 },
 });

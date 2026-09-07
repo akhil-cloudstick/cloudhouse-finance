@@ -105,7 +105,7 @@ export function DocumentField({
             <Image source={{ uri: `${API_ORIGIN}${value}` }} style={styles.thumb} />
           ) : (
             <View style={[styles.thumb, styles.thumbDoc]}>
-              <Icon name="doc" size={20} color={colors.goldDeep} />
+              <Icon name="doc" size={20} color={colors.brandDeep} />
             </View>
           )}
           <View style={{ flex: 1 }}>
@@ -117,7 +117,7 @@ export function DocumentField({
             </ThemedText>
           </View>
           <Pressable onPress={() => setChoosing(true)} hitSlop={8} style={styles.action}>
-            <ThemedText variant="label" color={colors.goldDeep}>
+            <ThemedText variant="label" color={colors.brandDeep}>
               Replace
             </ThemedText>
           </Pressable>
@@ -137,11 +137,11 @@ export function DocumentField({
       ) : (
         <Pressable style={styles.dropzone} onPress={() => setChoosing(true)} disabled={busy}>
           {busy ? (
-            <ActivityIndicator color={colors.gold} />
+            <ActivityIndicator color={colors.brand} />
           ) : (
             <>
-              <Icon name="plus" size={18} color={colors.goldDeep} />
-              <ThemedText variant="body" color={colors.goldDeep}>
+              <Icon name="plus" size={18} color={colors.brandDeep} />
+              <ThemedText variant="body" color={colors.brandDeep}>
                 Attach
               </ThemedText>
             </>
@@ -161,7 +161,7 @@ export function DocumentField({
       ) : null}
 
       <BottomSheetModal visible={choosing} onClose={() => setChoosing(false)}>
-        <ThemedText variant="h3" color={colors.goldDeep} style={{ marginBottom: 2 }}>
+        <ThemedText variant="h3" color={colors.brandDeep} style={{ marginBottom: 2 }}>
           {label}
         </ThemedText>
         <ThemedText variant="small" color={colors.muted} style={{ marginBottom: 14 }}>
@@ -194,7 +194,7 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     borderWidth: 1,
     borderStyle: "dashed",
-    borderColor: colors.gold,
+    borderColor: colors.brand,
     backgroundColor: colors.card,
     flexDirection: "row",
     alignItems: "center",
@@ -211,7 +211,7 @@ const styles = StyleSheet.create({
     borderColor: colors.line,
     backgroundColor: colors.card,
   },
-  thumb: { width: 38, height: 38, borderRadius: 8, backgroundColor: colors.goldPale },
+  thumb: { width: 38, height: 38, borderRadius: 8, backgroundColor: colors.brandPale },
   thumbDoc: { alignItems: "center", justifyContent: "center" },
   action: { paddingHorizontal: 4 },
   island: {

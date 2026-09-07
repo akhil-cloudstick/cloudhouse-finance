@@ -38,9 +38,9 @@ export function GoldButton({ title, onPress, disabled, loading, variant = "prima
       ]}
     >
       {loading ? (
-        <ActivityIndicator color={isPrimary ? colors.ivory : colors.goldDeep} />
+        <ActivityIndicator color={isPrimary ? colors.bg : colors.brandDeep} />
       ) : (
-        <ThemedText variant="label" color={isPrimary ? colors.ivory : colors.goldDeep}>
+        <ThemedText variant="label" color={isPrimary ? colors.bg : colors.brandDeep}>
           {title}
         </ThemedText>
       )}
@@ -63,8 +63,8 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     alignSelf: "stretch",
   },
-  primary: { backgroundColor: colors.goldDeep },
-  outline: { backgroundColor: "transparent", borderWidth: 1, borderColor: colors.goldDeep },
+  primary: { backgroundColor: colors.brandDeep },
+  outline: { backgroundColor: "transparent", borderWidth: 1, borderColor: colors.brandDeep },
   disabled: { opacity: 0.5 },
   pressed: { opacity: 0.85 },
 });

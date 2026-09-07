@@ -5,6 +5,8 @@ import { useRouter, useSearchParams } from "next/navigation";
 import "../login.css";
 import { useAuth } from "@/common/auth-context";
 import { ApiError } from "@/common/services/httpClient";
+import { BRAND, BRAND_PHONES } from "@/common/config/brand";
+import BrandLogo from "@/common/components/BrandLogo";
 import {
   activeBusinessSlug,
   appPath,
@@ -12,53 +14,10 @@ import {
   isValidBusinessSlug,
 } from "@/common/services/tenantSession";
 
-type DustParticle = {
-  left: string;
-  sway: string;
-  size: string;
-  duration: string;
-  delay: string;
-};
-
-// Ported from the inline <script> in legacy/index.html — generates 18 dust
-// particles with the same randomized left/sway/size/timing distribution.
-function makeDustParticles(): DustParticle[] {
-  return Array.from({ length: 18 }, () => {
-    const sc = 0.5 + Math.random();
-    return {
-      left: `${Math.random() * 100}vw`,
-      sway: `${Math.random() * 70 - 35}px`,
-      size: `${4 * sc}px`,
-      duration: `${9 + Math.random() * 10}s`,
-      delay: `${-Math.random() * 16}s`,
-    };
-  });
-}
-
-function CornerOrnament({ className }: { className: string }) {
-  return (
-    <div className={className} aria-hidden="true">
-      <svg viewBox="0 0 150 150" fill="none" stroke="#c9971c" strokeWidth="1.4">
-        <path d="M4 146 V30 Q4 4 30 4 H146" opacity=".8" />
-        <path d="M14 146 V38 Q14 14 38 14 H146" opacity=".45" />
-        <path d="M4 60 q14 6 14 22 M60 4 q6 14 22 14" opacity=".7" />
-        <circle cx="30" cy="30" r="5" fill="#c9971c" stroke="none" opacity=".85" />
-        <path
-          d="M30 18 l3.5 8.5 L42 30 l-8.5 3.5 L30 42 l-3.5-8.5 L18 30 l8.5-3.5 Z"
-          fill="#e7c257"
-          stroke="none"
-          opacity=".65"
-        />
-      </svg>
-    </div>
-  );
-}
-
 function LoginPageInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { login, token, loading } = useAuth();
-  const [dust, setDust] = useState<DustParticle[]>([]);
   const [passVisible, setPassVisible] = useState(false);
   const [identifier, setIdentifier] = useState("");
   const [pass, setPass] = useState("");
@@ -79,10 +38,7 @@ function LoginPageInner() {
   const [businessCode, setBusinessCode] = useState("");
 
   useEffect(() => {
-    // Generated client-side only, matching the legacy page's DOM-insertion
-    // approach (random values must not be computed during SSR/prerender).
-    setDust(makeDustParticles());
-    // Read on mount for the same reason: this page is prerendered at build
+    // Read on mount: this page is prerendered at build
     // time, where there is no URL to read a slug from. Computing it during
     // render would make the prerendered HTML disagree with the first client
     // render — a hydration mismatch — so it is resolved after mount.
@@ -129,7 +85,7 @@ function LoginPageInner() {
     setSubmitting(true);
     try {
       await login(trimmedIdentifier, pass, code);
-      setMsg({ text: "Welcome back! Opening your vault…", ok: true });
+      setMsg({ text: "Signed in. Taking you through…", ok: true });
       setTimeout(() => {
         router.push(appPath(code || null));
       }, 400);
@@ -145,48 +101,27 @@ function LoginPageInner() {
 
   return (
     <div className="login-page">
-      <CornerOrnament className="corner tl" />
-      <CornerOrnament className="corner tr" />
-      <CornerOrnament className="corner bl" />
-      <CornerOrnament className="corner br" />
-
-      <div className="dust" aria-hidden="true">
-        {dust.map((d, i) => (
-          <span
-            key={i}
-            style={{
-              left: d.left,
-              // eslint-disable-next-line @typescript-eslint/no-explicit-any
-              ["--sway" as any]: d.sway,
-              width: d.size,
-              height: d.size,
-              animationDuration: d.duration,
-              animationDelay: d.delay,
-            }}
-          />
-        ))}
-      </div>
-
       <div className="wrap">
+        {/* Identity panel. Sits beside the form on a desktop and stacks
+          * above it under 900px, where it collapses to the mark plus the
+          * name — the registration number and phone numbers are reference
+          * detail, not worth a third of a phone screen. */}
+        <aside className="brand-panel">
+          <BrandLogo size={168} className="bp-mark" />
+          <h1 className="bp-name">
+            {BRAND.nameTop}
+            <span>{BRAND.nameBottom}</span>
+          </h1>
+          <p className="bp-desc">{BRAND.descriptor}</p>
+          <span className="bp-rule" aria-hidden="true"></span>
+          <p className="bp-reg">{BRAND.kmlRegLabel}</p>
+          <p className="bp-phone">{BRAND_PHONES}</p>
+        </aside>
+
         <main className="card">
-          <span className="stud tl"></span>
-          <span className="stud tr"></span>
-          <span className="stud bl"></span>
-          <span className="stud br"></span>
-
           <div className="brand">
-            <img src="/ambika-gold.jpeg" alt="Ambika Gold Finance logo" />
-            <h1>
-              Welcome to <span className="gilt">Ambika</span>
-            </h1>
-          </div>
-
-          <div className="motto">
-            <b>Trust</b>
-            <span className="dot">◆</span>
-            <b>Value</b>
-            <span className="dot">◆</span>
-            <b>Growth</b>
+            <h2>Sign in</h2>
+            <p>Staff access to the {BRAND.shortName} lending console.</p>
           </div>
 
           <form id="loginForm" noValidate onSubmit={handleSubmit}>
@@ -295,8 +230,7 @@ function LoginPageInner() {
             </div>
 
             <button type="submit" className="btn" id="submitBtn" disabled={submitting}>
-              {submitting ? "Verifying…" : "Unlock My Vault"}
-              <span className="shine" aria-hidden="true"></span>
+              {submitting ? "Verifying…" : "Sign In"}
             </button>
             <p className={`msg${msg ? " show" : ""}${msg?.ok ? " ok" : ""}`} id="msg" role="alert">
               {msg?.text ?? ""}
@@ -305,7 +239,7 @@ function LoginPageInner() {
 
         </main>
 
-        <p className="copy">© 2026 Ambika Gold Finance · Trust · Value · Growth</p>
+        <p className="copy">© 2026 {BRAND.legalName}</p>
         <p className="powered">
           Powered by{" "}
           <a href="https://cloudhousetechnologies.com" target="_blank" rel="noopener">

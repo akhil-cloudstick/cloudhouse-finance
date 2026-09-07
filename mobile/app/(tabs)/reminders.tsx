@@ -21,7 +21,7 @@ import { useRefetchOnFocus } from "../../src/hooks/useRefetchOnFocus";
 function toneForType(type: CalendarEvent["type"]): StatusTone {
   if (type === "Overdue") return "red";
   if (type === "LoanDue" || type === "InterestDue") return "amber";
-  if (type === "PromiseToPay") return "blue";
+  if (type === "PromiseToPay") return "info";
   return "muted";
 }
 
@@ -95,7 +95,7 @@ function AddReminderModal({ visible, onClose }: { visible: boolean; onClose: () 
   return (
     <BottomSheetModal visible={visible} onClose={() => { reset(); onClose(); }} maxHeightPct={88}>
       <View style={styles.sheetHeader}>
-        <ThemedText variant="h3" color={colors.goldDeep}>Add Reminder</ThemedText>
+        <ThemedText variant="h3" color={colors.brandDeep}>Add Reminder</ThemedText>
         <Pressable onPress={() => { reset(); onClose(); }}>
           <ThemedText variant="h3" color={colors.muted}>
             ×
@@ -108,7 +108,7 @@ function AddReminderModal({ visible, onClose }: { visible: boolean; onClose: () 
             <Card>
               <ThemedText variant="body">{customer.name} — {customer.code}</ThemedText>
               <Pressable onPress={() => setCustomer(null)}>
-                <ThemedText variant="small" color={colors.goldDeep}>
+                <ThemedText variant="small" color={colors.brandDeep}>
                   Change customer
                 </ThemedText>
               </Pressable>
@@ -193,7 +193,7 @@ function DayCell({
     >
       <ThemedText
         variant="small"
-        color={isSelected ? colors.ivory : isToday ? colors.goldDeep : colors.ink}
+        color={isSelected ? colors.bg : isToday ? colors.brandDeep : colors.ink}
       >
         {day}
       </ThemedText>
@@ -273,11 +273,11 @@ export default function RemindersScreen() {
         <Card>
           <View style={styles.monthNav}>
             <Pressable onPress={() => goMonth(-1)} hitSlop={10} style={styles.monthNavArrowCircle}>
-              <ThemedText style={styles.monthNavChevron} color={colors.goldDeep}>‹</ThemedText>
+              <ThemedText style={styles.monthNavChevron} color={colors.brandDeep}>‹</ThemedText>
             </Pressable>
             <ThemedText variant="h3">{fmtMonthYear(year, month)}</ThemedText>
             <Pressable onPress={() => goMonth(1)} hitSlop={8} style={styles.monthNavArrowCircle}>
-              <ThemedText style={styles.monthNavChevron} color={colors.goldDeep}>›</ThemedText>
+              <ThemedText style={styles.monthNavChevron} color={colors.brandDeep}>›</ThemedText>
             </Pressable>
           </View>
 
@@ -394,10 +394,10 @@ const styles = StyleSheet.create({
   },
   dayCellToday: {
     borderWidth: 1.5,
-    borderColor: colors.goldDeep,
+    borderColor: colors.brandDeep,
   },
   dayCellSelected: {
-    backgroundColor: colors.goldDeep,
+    backgroundColor: colors.brandDeep,
   },
   monthNavArrowCircle: {
     width: 30,
@@ -405,7 +405,7 @@ const styles = StyleSheet.create({
     borderRadius: 15,
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: colors.goldPale,
+    backgroundColor: colors.brandPale,
   },
   dotsRow: {
     flexDirection: "row",

@@ -17,7 +17,7 @@ const PAGE_SIZE = 10;
 
 function toneForStatus(status: string): StatusTone {
   if (status === "Released") return "green";
-  if (status === "Bank Pledged") return "blue";
+  if (status === "Bank Pledged") return "info";
   if (status === "Ready For Release" || status === "Returned") return "amber";
   return "muted";
 }

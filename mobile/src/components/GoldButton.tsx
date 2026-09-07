@@ -27,11 +27,11 @@ export function GoldButton({ title, onPress, disabled, loading, variant = "prima
       ]}
     >
       {loading ? (
-        <ActivityIndicator color={isPrimary ? colors.ivory : colors.goldDeep} />
+        <ActivityIndicator color={isPrimary ? colors.bg : colors.brandDeep} />
       ) : (
         // One step up from typeScale.label (13) — buttons read a little
         // more confident at this size without jumping all the way to body.
-        <ThemedText variant="label" color={isPrimary ? colors.ivory : colors.goldDeep} style={styles.title}>
+        <ThemedText variant="label" color={isPrimary ? colors.bg : colors.brandDeep} style={styles.title}>
           {title}
         </ThemedText>
       )}
@@ -49,12 +49,12 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
   },
   primary: {
-    backgroundColor: colors.goldDeep,
+    backgroundColor: colors.brandDeep,
     // A soft gold-tinted lift under the primary button only — the outline
     // variant stays flat, matching the approved modern/minimal mockups.
     ...Platform.select({
       ios: {
-        shadowColor: colors.goldDeep,
+        shadowColor: colors.brandDeep,
         shadowOpacity: 0.3,
         shadowRadius: 10,
         shadowOffset: { width: 0, height: 5 },
@@ -62,7 +62,7 @@ const styles = StyleSheet.create({
       android: { elevation: 3 },
     }),
   },
-  outline: { backgroundColor: "transparent", borderWidth: 1.5, borderColor: colors.goldDeep },
+  outline: { backgroundColor: "transparent", borderWidth: 1.5, borderColor: colors.brandDeep },
   disabled: { opacity: 0.5 },
   pressed: { opacity: 0.85 },
 });

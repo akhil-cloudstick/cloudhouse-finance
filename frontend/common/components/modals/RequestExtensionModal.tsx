@@ -92,7 +92,7 @@ export function RequestReleaseModalContent({ loan, onSaved }: { loan: LoanView; 
           <div className="i"><div className="k">Outstanding Principal</div><div className="v">{fmt(loan.outstanding)}</div></div>
           <div className="i"><div className="k">Outstanding Interest</div><div className="v">{fmt(loan.outstandingInterest)}</div></div>
           <div className="i"><div className="k">Outstanding Penal Interest</div><div className="v" style={{ color: loan.outstandingPenalInterest > 0 ? "var(--red)" : undefined }}>{fmt(loan.outstandingPenalInterest)}</div></div>
-          <div className="i"><div className="k">Settlement (as of today)</div><div className="v" style={{ fontWeight: 600, color: "var(--gold-deep)" }}>{fmt(loan.settlementAmount)}</div></div>
+          <div className="i"><div className="k">Settlement (as of today)</div><div className="v" style={{ fontWeight: 600, color: "var(--brand-deep)" }}>{fmt(loan.settlementAmount)}</div></div>
         </div>
         <div className="notice" style={{ marginBottom: 16 }}>
           <Icon name="unlock" /> {fmtW(loan.totalNetWeight)} gold pledged — staff will verify payment, packet location, bank pledge status, and customer confirmation before release

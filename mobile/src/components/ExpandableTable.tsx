@@ -92,7 +92,7 @@ export const tableCardStyle: ViewStyle = {
   backgroundColor: colors.card,
   // Flatter, quieter shadow — matches Card/GlassCard's own toned-down lift
   // from the approved modern/minimal mockups.
-  shadowColor: colors.charcoal,
+  shadowColor: colors.nav,
   shadowOpacity: 0.06,
   shadowRadius: 12,
   shadowOffset: { width: 0, height: 4 },
@@ -283,7 +283,7 @@ export function ExpandableTable<T>({
           ListFooterComponent={
             isFetchingNextPage ? (
               <View style={styles.footerLoader}>
-                <ActivityIndicator color={colors.gold} />
+                <ActivityIndicator color={colors.brand} />
               </View>
             ) : null
           }
@@ -303,7 +303,7 @@ const styles = StyleSheet.create({
   headRow: {
     flexDirection: "row",
     alignItems: "center",
-    backgroundColor: colors.goldPale,
+    backgroundColor: colors.brandPale,
     paddingVertical: 9,
     paddingHorizontal: 10,
   },
@@ -316,7 +316,7 @@ const styles = StyleSheet.create({
   firstCell: { fontWeight: "600" as const },
   chevCol: { width: 24, alignItems: "center", justifyContent: "center" },
   detailWrap: {
-    backgroundColor: colors.ivory,
+    backgroundColor: colors.bg,
     borderTopWidth: 1,
     borderTopColor: colors.line,
     borderStyle: "dashed",
@@ -332,7 +332,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     gap: 6,
-    backgroundColor: colors.goldDeep,
+    backgroundColor: colors.brandDeep,
     borderRadius: 10,
     paddingVertical: 11,
     marginTop: 2,

@@ -1,10 +1,10 @@
 {
   "expo": {
-    "name": "ambikagold",
+    "name": "CTFI Staff",
     "slug": "ambikagold",
     "version": "1.0.0",
     "orientation": "portrait",
-    "icon": "./assets/ambika-gold.png",
+    "icon": "./assets/ctfi.png",
     "userInterfaceStyle": "light",
     "ios": {
       "supportsTablet": true
@@ -13,7 +13,7 @@
       "package": "com.ambikagold.app",
       "adaptiveIcon": {
         "backgroundColor": "#ffffff",
-        "foregroundImage": "./assets/ambika-gold-foreground.png",
+        "foregroundImage": "./assets/ctfi-foreground.png",
         "monochromeImage": "./assets/android-icon-monochrome.png"
       },
       "predictiveBackGestureEnabled": false
@@ -29,10 +29,10 @@
       [
         "expo-splash-screen",
         {
-          "image": "./assets/ambika-gold.png",
+          "image": "./assets/ctfi.png",
           "imageWidth": 220,
           "resizeMode": "contain",
-          "backgroundColor": "#faf6ec"
+          "backgroundColor": "#ffffff"
         }
       ],
       [
@@ -47,15 +47,15 @@
       [
         "expo-image-picker",
         {
-          "photosPermission": "Ambika Gold Finance needs access to your photos to attach customer KYC documents.",
-          "cameraPermission": "Ambika Gold Finance needs the camera to photograph customer KYC documents."
+          "photosPermission": "Chittilapilly Thommana Financiers & Investments needs access to your photos to attach customer KYC documents.",
+          "cameraPermission": "Chittilapilly Thommana Financiers & Investments needs the camera to photograph customer KYC documents."
         }
       ],
       "expo-document-picker",
       [
         "expo-camera",
         {
-          "cameraPermission": "Ambika Gold Finance needs the camera to scan packet label QR codes."
+          "cameraPermission": "Chittilapilly Thommana Financiers & Investments needs the camera to scan packet label QR codes."
         }
       ]
     ],

@@ -16,7 +16,7 @@ export default function CustomersLayout() {
         // The scene's own background: without it the Stack paints white,
         // which showed through the transparent FloatingHeader as a pale band
         // across the top of every nested screen.
-        contentStyle: { backgroundColor: colors.ivory },
+        contentStyle: { backgroundColor: colors.bg },
       }}
     >
       <Stack.Screen name="index" options={{ title: "Customers" }} />

@@ -135,7 +135,7 @@ const styles = StyleSheet.create({
     width: 30,
     height: 30,
     borderRadius: 15,
-    backgroundColor: colors.goldDeep,
+    backgroundColor: colors.brandDeep,
     alignItems: "center",
     justifyContent: "center",
   },

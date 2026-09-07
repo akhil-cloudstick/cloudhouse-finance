@@ -38,7 +38,7 @@ function rateForPurityString(k24: number, purity: string): number | null {
   return null;
 }
 
-const EXPENSE_COLORS = [colors.goldDeep, colors.goldMid, colors.blue, colors.green, colors.red, colors.amber];
+const EXPENSE_COLORS = [colors.brandDeep, colors.brandMid, colors.info, colors.green, colors.red, colors.amber];
 
 // Small "▲12% / ▼5%" badge comparing a live count/value against a real
 // previous-period baseline (yesterday's captured snapshot, or the prior
@@ -68,7 +68,7 @@ function Trend({ current, previous, goodDirection = "up" }: { current: number; p
 function toneForType(type: CalendarEvent["type"]): StatusTone {
   if (type === "Overdue") return "red";
   if (type === "LoanDue" || type === "InterestDue") return "amber";
-  if (type === "PromiseToPay") return "blue";
+  if (type === "PromiseToPay") return "info";
   return "muted";
 }
 
@@ -238,7 +238,7 @@ export default function DashboardScreen() {
         contentContainerStyle={{ paddingHorizontal: 8, paddingTop: 20, paddingBottom: 16 }}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
       >
-        <ThemedText variant="h2" color={colors.goldDeep}>
+        <ThemedText variant="h2" color={colors.brandDeep}>
           Welcome, {employee?.name}
         </ThemedText>
         <ThemedText variant="small" color={colors.muted} style={{ marginBottom: 16 }}>
@@ -278,7 +278,7 @@ export default function DashboardScreen() {
             <ThemedText variant="label" color={colors.muted}>
               24K Gold Rate
             </ThemedText>
-            <ThemedText variant="h3" color={colors.goldDeep}>
+            <ThemedText variant="h3" color={colors.brandDeep}>
               {goldRate.isLoading ? "…" : goldRate.data ? `₹${goldRate.data.k24.toLocaleString("en-IN")}` : "—"}
             </ThemedText>
             {goldRate.data ? <Trend current={goldRate.data.k24} previous={previousK24} goodDirection="up" /> : null}
@@ -418,7 +418,7 @@ export default function DashboardScreen() {
                         {l.customer?.name ?? "Customer"} · {fmt(l.principalAmount)} · at {l.approvalStage} stage
                       </ThemedText>
                     </View>
-                    <ThemedText variant="small" color={colors.goldDeep}>
+                    <ThemedText variant="small" color={colors.brandDeep}>
                       Review
                     </ThemedText>
                   </View>
@@ -426,7 +426,7 @@ export default function DashboardScreen() {
               ))}
               {requestList.map((r) => (
                 <View key={`req-${r.id}`} style={styles.attnRow}>
-                  <View style={[styles.attnDot, { backgroundColor: colors.blue }]} />
+                  <View style={[styles.attnDot, { backgroundColor: colors.info }]} />
                   <View style={{ flex: 1 }}>
                     <ThemedText variant="body">
                       {r.type} request — loan #{r.loanId}
@@ -447,7 +447,7 @@ export default function DashboardScreen() {
                         {l.customer?.name ?? "Customer"} · {fmt(l.outstandingAmount)} outstanding · {l.status}
                       </ThemedText>
                     </View>
-                    <ThemedText variant="small" color={colors.goldDeep}>
+                    <ThemedText variant="small" color={colors.brandDeep}>
                       Open
                     </ThemedText>
                   </View>
@@ -493,7 +493,7 @@ export default function DashboardScreen() {
               <ThemedText variant="body" style={{ fontWeight: "600" }}>
                 Eligible Loan Amount
               </ThemedText>
-              <ThemedText variant="h3" color={colors.goldDeep}>
+              <ThemedText variant="h3" color={colors.brandDeep}>
                 {fmt(eligible)}
               </ThemedText>
             </View>
@@ -595,7 +595,7 @@ const styles = StyleSheet.create({
   },
   barFill: {
     width: "100%",
-    backgroundColor: colors.goldMid,
+    backgroundColor: colors.brandMid,
     borderRadius: 4,
     minHeight: 2,
   },
@@ -609,9 +609,9 @@ const styles = StyleSheet.create({
   },
   attnDot: { width: 8, height: 8, borderRadius: 4 },
   calcResult: {
-    backgroundColor: colors.goldPale,
+    backgroundColor: colors.brandPale,
     borderWidth: 1,
-    borderColor: colors.goldLight,
+    borderColor: colors.brandLight,
     borderRadius: 8,
     padding: 12,
     gap: 6,

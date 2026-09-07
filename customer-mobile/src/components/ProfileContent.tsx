@@ -154,7 +154,7 @@ export function ProfileContent({ footer }: { footer?: React.ReactNode }) {
   if (loading && !profile) {
     return (
       <ScreenContainer style={{ alignItems: "center", justifyContent: "center" }}>
-        <ActivityIndicator color={colors.gold} />
+        <ActivityIndicator color={colors.brand} />
       </ScreenContainer>
     );
   }
@@ -235,7 +235,7 @@ export function ProfileContent({ footer }: { footer?: React.ReactNode }) {
             <View style={styles.divider} />
 
             <View style={styles.kycRow}>
-              <Icon name="doc" size={18} color={colors.goldDeep} />
+              <Icon name="doc" size={18} color={colors.brandDeep} />
               <View style={{ flex: 1, marginLeft: 10 }}>
                 <ThemedText variant="body">PAN</ThemedText>
                 {profile.pan ? (
@@ -262,7 +262,7 @@ export function ProfileContent({ footer }: { footer?: React.ReactNode }) {
             <View style={styles.divider} />
 
             <View style={styles.kycRow}>
-              <Icon name="shield" size={18} color={colors.goldDeep} />
+              <Icon name="shield" size={18} color={colors.brandDeep} />
               <View style={{ flex: 1, marginLeft: 10 }}>
                 <ThemedText variant="body">Aadhaar</ThemedText>
                 {profile.aadhaarLast4 ? (
@@ -292,7 +292,7 @@ export function ProfileContent({ footer }: { footer?: React.ReactNode }) {
         <ThemedText variant="h3" style={{ marginBottom: 12, textAlign: "center" }}>
           Verifying Aadhaar…
         </ThemedText>
-        <ActivityIndicator color={colors.gold} style={{ marginBottom: 16 }} />
+        <ActivityIndicator color={colors.brand} style={{ marginBottom: 16 }} />
         <ThemedText variant="small" color={colors.muted} style={{ textAlign: "center", marginBottom: 20 }}>
           Complete the DigiLocker login in the browser, then return here — this may take a moment.
         </ThemedText>
@@ -323,7 +323,7 @@ const styles = StyleSheet.create({
     width: 72,
     height: 72,
     borderRadius: 36,
-    backgroundColor: colors.goldDeep,
+    backgroundColor: colors.brandDeep,
     alignItems: "center",
     justifyContent: "center",
   },

@@ -1,11 +1,11 @@
 {
   "expo": {
-    "name": "ambikacustomer",
+    "name": "CTFI",
     "slug": "ambikacustomer",
     "owner": "cloudhouse-team",
     "version": "1.0.0",
     "orientation": "portrait",
-    "icon": "./assets/ambika-gold.png",
+    "icon": "./assets/ctfi.png",
     "userInterfaceStyle": "light",
     "platforms": [
       "android"
@@ -14,7 +14,7 @@
       "package": "com.ambikagold.customer",
       "adaptiveIcon": {
         "backgroundColor": "#ffffff",
-        "foregroundImage": "./assets/ambika-gold-foreground.png",
+        "foregroundImage": "./assets/ctfi-foreground.png",
         "monochromeImage": "./assets/android-icon-monochrome.png"
       },
       "predictiveBackGestureEnabled": false,
@@ -28,29 +28,29 @@
       [
         "expo-splash-screen",
         {
-          "image": "./assets/ambika-gold.png",
+          "image": "./assets/ctfi.png",
           "imageWidth": 220,
           "resizeMode": "contain",
-          "backgroundColor": "#faf6ec"
+          "backgroundColor": "#ffffff"
         }
       ],
       [
         "expo-status-bar",
         {
           "style": "dark",
-          "backgroundColor": "#faf6ec"
+          "backgroundColor": "#f5f7fb"
         }
       ],
       [
         "expo-local-authentication",
         {
-          "faceIDPermission": "Allow Ambika Gold Finance to use Face unlock to sign you in."
+          "faceIDPermission": "Allow Chittilapilly Thommana Financiers & Investments to use Face unlock to sign you in."
         }
       ],
       "expo-web-browser"
     ],
     "androidStatusBar": {
-      "backgroundColor": "#faf6ec",
+      "backgroundColor": "#f5f7fb",
       "barStyle": "dark-content",
       "translucent": false
     },

@@ -24,12 +24,12 @@ const PAGE_SIZE = 10;
 // doesn't have that distinction). "All" sends no status param at all.
 const STATUS_FILTERS = ["All", "Active", "Due Soon", "Overdue", "Pending Approval", "Auction Eligible", "Closed"] as const;
 
-function toneForStatus(status: string): "green" | "red" | "amber" | "blue" | "muted" {
+function toneForStatus(status: string): "green" | "red" | "amber" | "info" | "muted" {
   const s = status.toLowerCase();
   if (s.includes("approved") || s.includes("closed")) return "green";
   if (s.includes("reject") || s.includes("default")) return "red";
   if (s.includes("pending")) return "amber";
-  return "blue";
+  return "info";
 }
 
 function StatusPill({ status }: { status: string }) {
@@ -142,7 +142,7 @@ export default function LoansScreen() {
               }}
               style={[styles.filterChip, active && styles.filterChipActive]}
             >
-              <ThemedText variant="small" numberOfLines={1} color={active ? colors.ivory : colors.ink}>
+              <ThemedText variant="small" numberOfLines={1} color={active ? colors.bg : colors.ink}>
                 {s}
               </ThemedText>
             </Pressable>
@@ -203,5 +203,5 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     paddingHorizontal: 12,
   },
-  filterChipActive: { backgroundColor: colors.goldDeep, borderColor: colors.goldDeep },
+  filterChipActive: { backgroundColor: colors.brandDeep, borderColor: colors.brandDeep },
 });

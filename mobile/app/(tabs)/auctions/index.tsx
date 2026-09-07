@@ -61,7 +61,7 @@ export default function AuctionsScreen() {
 
 function LoanStatusPill({ status }: { status: string }) {
   const s = status.toLowerCase();
-  const tone: StatusTone = s.includes("default") ? "red" : s.includes("balance due") ? "amber" : "blue";
+  const tone: StatusTone = s.includes("default") ? "red" : s.includes("balance due") ? "amber" : "info";
   const t = statusColors(tone);
   return (
     <ThemedText

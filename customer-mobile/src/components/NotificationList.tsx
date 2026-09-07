@@ -90,7 +90,7 @@ export function NotificationList() {
         // rows), so there's no meaningful perf cost to losing the
         // off-screen-view-recycling optimization it provides.
         removeClippedSubviews={false}
-        ListFooterComponent={loadingMore ? <ActivityIndicator color={colors.goldDeep} style={{ marginVertical: 12 }} /> : null}
+        ListFooterComponent={loadingMore ? <ActivityIndicator color={colors.brandDeep} style={{ marginVertical: 12 }} /> : null}
         ListEmptyComponent={
           <ThemedText variant="small" color={colors.muted}>
             No notifications yet.
@@ -136,6 +136,6 @@ const styles = StyleSheet.create({
     width: 8,
     height: 8,
     borderRadius: 4,
-    backgroundColor: colors.goldDeep,
+    backgroundColor: colors.brandDeep,
   },
 });

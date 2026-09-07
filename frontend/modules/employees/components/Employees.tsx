@@ -100,11 +100,11 @@ export function Employees() {
                           * name pushing this row's content past its column's
                           * available width was squeezing the circle down instead
                           * of just wrapping/truncating the name text beside it. */}
-                        <span className="av" style={{ width: 30, height: 30, flexShrink: 0, borderRadius: "50%", background: "linear-gradient(135deg,var(--gold-light),var(--gold-deep))", color: "#2b2001", display: "grid", placeContent: "center", fontWeight: 600, fontSize: 11.5 }}>{initials(e.name)}</span>
+                        <span className="av" style={{ width: 30, height: 30, flexShrink: 0, borderRadius: "50%", background: "linear-gradient(135deg,var(--brand-mid),var(--brand-deep))", color: "#fff", display: "grid", placeContent: "center", fontWeight: 600, fontSize: 11.5 }}>{initials(e.name)}</span>
                         <span><b>{e.name}</b><span className="sub">{e.code}</span></span>
                       </span>
                     </td>
-                    <td><span className={`chip ${e.role === "Administrator" ? "gold" : e.role === "Branch Manager" ? "blue" : "gray"}`}>{e.role}</span></td>
+                    <td><span className={`chip ${e.role === "Administrator" ? "brand" : e.role === "Branch Manager" ? "info" : "gray"}`}>{e.role}</span></td>
                     <td>{e.branchName}</td>
                     <td className="num">{e.loansProcessed || "—"}</td>
                     <td className="num">{fmt(e.collections)}</td>

@@ -1,6 +1,7 @@
 "use client";
 
 import { Suspense } from "react";
+import BrandLogo from "@/common/components/BrandLogo";
 import { useSearchParams } from "next/navigation";
 import "../login.css";
 
@@ -22,23 +23,19 @@ function DigilockerCallbackContent() {
     <div className="login-page">
       <div className="wrap">
         <main className="card">
-          <span className="stud tl"></span>
-          <span className="stud tr"></span>
-          <span className="stud bl"></span>
-          <span className="stud br"></span>
 
           <div className="brand">
-            <img src="/ambika-gold.jpeg" alt="Ambika Gold Finance logo" />
+            <BrandLogo size={104} />
             <h1>
               {success ? (
-                <>DigiLocker <span className="gilt">login complete</span></>
+                <>DigiLocker login complete</>
               ) : (
-                <>DigiLocker login <span className="gilt">didn't complete</span></>
+                <>DigiLocker login didn't complete</>
               )}
             </h1>
           </div>
 
-          <p style={{ textAlign: "center", color: "var(--muted, #7a7264)", lineHeight: 1.6 }}>
+          <p style={{ textAlign: "center", color: "var(--muted, #64748b)", lineHeight: 1.6 }}>
             {success
               ? "You can close this tab now. Ask the staff member helping you to check the verification status back on their screen."
               : "The DigiLocker login was cancelled or didn't finish. You can close this tab and ask the staff member to send a new verification link."}
