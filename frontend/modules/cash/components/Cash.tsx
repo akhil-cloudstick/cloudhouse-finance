@@ -41,10 +41,14 @@ function KpiParts({ parts }: { parts: [string, number][] }) {
   return (
     <div style={{ marginTop: 6, borderTop: "1px solid var(--line)", paddingTop: 6, display: "grid", gap: 2 }}>
       {shown.length ? shown.map(([label, amt]) => (
-        <div key={label} style={{ display: "flex", fontSize: 11.5, color: "var(--muted)" }}>
-          <span>{label}</span>
-          <div className="sp" style={{ flex: 1 }} />
-          <span className="num" style={{ fontVariantNumeric: "tabular-nums" }}>{fmt(amt)}</span>
+        <div key={label} style={{ display: "flex", fontSize: 11.5, color: "var(--muted)", gap: 6 }}>
+          {/* min-width:0 lets the label actually shrink/ellipsize inside a
+           * flex row instead of forcing the row (and the fixed-width card)
+           * wider than it has room for — without it the amount span was
+           * the one getting pushed past the card's edge and clipped by
+           * .kpi's overflow:hidden. The amount itself never truncates. */}
+          <span style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{label}</span>
+          <span className="num" style={{ flexShrink: 0, marginLeft: "auto", fontVariantNumeric: "tabular-nums" }}>{fmt(amt)}</span>
         </div>
       )) : <div style={{ fontSize: 11.5, color: "var(--muted)" }}>No movements today</div>}
     </div>
@@ -62,6 +66,7 @@ function MovementRow({ m, canUpdate, onToggleLoan }: { m: CashMovementView; canU
           RecordLoanPaymentCashIn) — show both, not just source, so those
           rows don't all read as a bare "Collection". */}
       <td>{m.type === "in" ? (m.purpose ? `${m.source} · ${m.purpose}` : m.source) : m.purpose || "—"}</td>
+      <td>{m.mode || "—"}</td>
       <td>{m.bank || "—"}</td>
       <td className="num" style={{ color: m.type === "in" ? "var(--green)" : "var(--red)" }}>
         {m.type === "in" ? "+" : "−"}{fmt(m.amount)}
@@ -385,11 +390,11 @@ export function Cash() {
           </div>
           <div className="tbl-wrap tbl-scroll">
             <table className="tbl tbl-center tbl-roomy">
-              <thead><tr><th>Date</th><th>Type</th><th>Source / Purpose</th><th>Bank</th><th className="num">Amount</th><th>Loan Status</th></tr></thead>
+              <thead><tr><th>Date</th><th>Type</th><th>Source / Purpose</th><th>Mode</th><th>Bank</th><th className="num">Amount</th><th>Loan Status</th></tr></thead>
               <tbody>
                 {movements.length
                   ? movements.map((m) => <MovementRow key={m.id} m={m} canUpdate={canUpdateCash} onToggleLoan={toggleCashLoan} />)
-                  : <tr><td colSpan={6} className="empty">No cash movements recorded yet. Use &quot;Add Cash&quot; or &quot;Take Cash Out&quot;.</td></tr>}
+                  : <tr><td colSpan={7} className="empty">No cash movements recorded yet. Use &quot;Add Cash&quot; or &quot;Take Cash Out&quot;.</td></tr>}
               </tbody>
             </table>
           </div>

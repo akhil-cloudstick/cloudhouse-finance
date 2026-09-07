@@ -27,14 +27,31 @@ var (
 	ErrExpenseNotPending = httpx.NewConflict("expense has already been approved or rejected")
 	ErrRemarksRequired   = httpx.NewBadRequest("remarks are required when rejecting an expense")
 	ErrInvalidBalance    = httpx.NewBadRequest("amount must be zero or greater")
+	// ErrModeOfCashRequired/ErrBankRequiredForMode back the Mode/Bank
+	// fields added to AddCashModal.tsx — distinct from ErrModeRequired/
+	// ErrBankRequired above, which are Expense's/Loan-source's own errors.
+	ErrModeOfCashRequired  = httpx.NewBadRequest("mode of cash is required for cash-in movements")
+	ErrBankRequiredForMode = httpx.NewBadRequest("bank is required when mode is UPI or Bank Transfer")
+)
+
+// Cash-in Mode values for RecordMovementInput.Mode/CashMovement.Mode — free
+// text like Expense.Mode, but these three are what AddCashModal.tsx's own
+// dropdown offers.
+const (
+	CashModeCash         = "Cash"
+	CashModeUPI          = "UPI"
+	CashModeBankTransfer = "Bank Transfer"
 )
 
 // RecordMovementInput mirrors the fields supplied by AddCashModal.tsx /
 // CashOutModal.tsx.
 type RecordMovementInput struct {
-	Type       string // "in" | "out"
-	Source     string // "Savings" | "Loan" — required when Type == "in"
-	Purpose    string // required when Type == "out"
+	Type    string // "in" | "out"
+	Source  string // "Savings" | "Loan" — required when Type == "in"
+	Purpose string // required when Type == "out"
+	// Mode is required when Type == "in" — "Cash" | "UPI" | "Bank Transfer"
+	// (see the CashMode* constants above).
+	Mode       string
 	Bank       string
 	Amount     float64
 	BranchID   *uint // optional — not every cash movement is tied to a till yet
@@ -88,6 +105,7 @@ func (s *MovementService) Record(in RecordMovementInput) (*CashMovement, error) 
 	rec := &CashMovement{
 		Type:     in.Type,
 		Amount:   in.Amount,
+		Mode:     in.Mode,
 		Bank:     in.Bank,
 		BranchID: in.BranchID,
 	}
@@ -101,8 +119,14 @@ func (s *MovementService) Record(in RecordMovementInput) (*CashMovement, error) 
 		if in.Source == "" {
 			return nil, ErrSourceRequired
 		}
+		if in.Mode == "" {
+			return nil, ErrModeOfCashRequired
+		}
 		if in.Source == "Loan" && in.Bank == "" {
 			return nil, ErrBankRequired
+		}
+		if (in.Mode == CashModeUPI || in.Mode == CashModeBankTransfer) && in.Bank == "" {
+			return nil, ErrBankRequiredForMode
 		}
 		rec.Source = in.Source
 		if in.Source == "Loan" {

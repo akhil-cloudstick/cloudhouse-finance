@@ -51,12 +51,13 @@ type Service struct {
 	repo         *Repository
 	customerRepo *customer.Repository
 	loanRepo     *loan.Repository
+	auctionRepo  *loan.AuctionRepository
 	whatsapp     platform.SMSSender // reused interface — Send(phone, message) matches SMSSender exactly
 	commlogRepo  *commlog.Repository
 }
 
-func NewService(repo *Repository, customerRepo *customer.Repository, loanRepo *loan.Repository, whatsapp platform.SMSSender, commlogRepo *commlog.Repository) *Service {
-	return &Service{repo: repo, customerRepo: customerRepo, loanRepo: loanRepo, whatsapp: whatsapp, commlogRepo: commlogRepo}
+func NewService(repo *Repository, customerRepo *customer.Repository, loanRepo *loan.Repository, auctionRepo *loan.AuctionRepository, whatsapp platform.SMSSender, commlogRepo *commlog.Repository) *Service {
+	return &Service{repo: repo, customerRepo: customerRepo, loanRepo: loanRepo, auctionRepo: auctionRepo, whatsapp: whatsapp, commlogRepo: commlogRepo}
 }
 
 func validate(customerID uint, typ string, dueDate time.Time) error {
@@ -198,8 +199,10 @@ func (s *Service) Delete(id uint) error {
 // Overdue if already past due), a monthly "interest payment" reminder on
 // each open loan's opened-date day-of-month (InterestDue — a practical
 // convention since interest here accrues continuously rather than on a
-// real billing schedule, see loan/accrual.go), and every manual Reminder
-// whose DueDate falls in range (FollowUp/PromiseToPay/Custom).
+// real billing schedule, see loan/accrual.go), every loan currently
+// scheduled for auction (AuctionScheduled, on its AuctionDate), and every
+// manual Reminder whose DueDate falls in range (FollowUp/PromiseToPay/
+// Custom).
 //
 // The merged list is always sorted Overdue-first-then-ascending-by-date
 // (moved here from the frontend's client-side sort — see
@@ -281,6 +284,32 @@ func (s *Service) GetCalendarEvents(from, to time.Time, branchID *uint, page, pa
 				CustomerName: custName,
 			})
 		}
+	}
+
+	scheduledAuctions, err := s.auctionRepo.FindScheduledForCalendar()
+	if err != nil {
+		return nil, 0, err
+	}
+	for _, a := range scheduledAuctions {
+		if branchID != nil && a.BranchID != *branchID {
+			continue
+		}
+		date := truncateDay(a.AuctionDate)
+		if date.Before(from) || date.After(to) {
+			continue
+		}
+		loanID := a.LoanID
+		custID := a.CustomerID
+		events = append(events, CalendarEvent{
+			Date:         date.Format("2006-01-02"),
+			Type:         "AuctionScheduled",
+			Title:        fmt.Sprintf("Auction scheduled — %s", a.LoanNumber),
+			Detail:       a.CustomerName,
+			LoanID:       &loanID,
+			LoanNumber:   a.LoanNumber,
+			CustomerID:   &custID,
+			CustomerName: a.CustomerName,
+		})
 	}
 
 	from2, to2 := from, to

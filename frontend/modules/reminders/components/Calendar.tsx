@@ -10,7 +10,7 @@ import { useAuth } from "@/common/auth-context";
 
 const DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
-/* Maps each of the six calendar-event categories to one of the app's four
+/* Maps each of the seven calendar-event categories to one of the app's four
  * existing event-chip colors (app.css's .ev.due/.over/.fup/.pay) — there's
  * no dedicated color per category, but the title text always spells out
  * which one it is. */
@@ -18,6 +18,7 @@ function evClass(type: CalendarEvent["type"]): string {
   switch (type) {
     case "Overdue": return "over";
     case "LoanDue": return "due";
+    case "AuctionScheduled": return "due";
     case "InterestDue": return "pay";
     case "PromiseToPay": return "fup";
     case "FollowUp": return "fup";
@@ -37,10 +38,11 @@ function toISODate(year: number, month: number, day: number): string {
 
 /* Real, backend-backed Reminder Calendar (replaces the previous static
  * July-2026 mock render). Fetches the merged event set — loan due dates,
- * overdue loans, monthly interest-payment reminders, and manual Customer
- * Follow-Up/Promise-to-Pay/Custom reminders — for the visible month from
- * GET /reminders/calendar (see backend/internal/reminder), with month
- * navigation and a click-to-inspect day panel. */
+ * overdue loans, monthly interest-payment reminders, scheduled auction
+ * dates, and manual Customer Follow-Up/Promise-to-Pay/Custom reminders —
+ * for the visible month from GET /reminders/calendar (see
+ * backend/internal/reminder), with month navigation and a click-to-inspect
+ * day panel. */
 export function Calendar() {
   const { openModal } = useModal();
   const toast = useToast();
@@ -218,7 +220,7 @@ export function Calendar() {
                 ) : dayEvents.map((e, i) => (
                   <li key={i}>
                     <span className="ic" style={e.type === "Overdue" ? { background: "var(--red-bg)", color: "var(--red)" } : undefined}>
-                      <Icon name={e.type === "FollowUp" ? "phone" : e.type === "PromiseToPay" ? "clock" : "bell"} />
+                      <Icon name={e.type === "FollowUp" ? "phone" : e.type === "PromiseToPay" ? "clock" : e.type === "AuctionScheduled" ? "gavel" : "bell"} />
                     </span>
                     <span className="tx">
                       <b>{e.title}</b>
@@ -253,6 +255,7 @@ export function Calendar() {
                 <li><span className="tx"><b>Loan due dates</b><small>{events.filter((e) => e.type === "LoanDue").length} loans due this month</small></span></li>
                 <li><span className="tx"><b>Overdue loans</b><small>{events.filter((e) => e.type === "Overdue").length} loans overdue</small></span></li>
                 <li><span className="tx"><b>Interest reminders</b><small>{events.filter((e) => e.type === "InterestDue").length} scheduled</small></span></li>
+                <li><span className="tx"><b>Scheduled auctions</b><small>{events.filter((e) => e.type === "AuctionScheduled").length} loans scheduled for auction</small></span></li>
                 <li><span className="tx"><b>Customer follow-ups</b><small>{events.filter((e) => e.type === "FollowUp").length} logged</small></span></li>
                 <li><span className="tx"><b>Promise-to-pay dates</b><small>{events.filter((e) => e.type === "PromiseToPay").length} logged</small></span></li>
               </ul>

@@ -1382,6 +1382,18 @@ h3,
   font-size: 20px
 }
 
+/* Cash.tsx's cards optionally grow a breakdown list below the total (see
+ * KpiParts) — one row per non-zero source, e.g. "Loan disbursements
+ * ₹10,00,000.00". The shared .kpi is a fixed 89px with overflow:hidden
+ * (fine for every other KPI tile, which never has more content than that),
+ * so a two-or-more-row breakdown was silently clipped at the card's bottom
+ * edge instead of the card growing to fit it. Scoped to .kpis-money only —
+ * every other .kpi tile app-wide keeps its fixed height. */
+.kpis-money .kpi {
+  height: auto;
+  min-height: 89px;
+}
+
 /* At a 1280px-ish window, Dashboard.tsx's main content column (sidebar +
  * page padding taken out) is wide enough for 3 of the fixed 213px KPI
  * tiles plus their gaps, but not a 4th — yet the fixed width above never
@@ -3560,7 +3572,17 @@ table.tbl {
   .modal .bd {
     padding: 8px 16px;
     gap: 4px;
-    overflow-y: hidden; /* Stops scrolling on 832px screen heights */
+    /* visible, not hidden: hidden stopped .bd's own scrollbar on short
+     * screens as intended, but it also clipped every open Select/
+     * SearchableSelect dropdown against the modal footer the instant the
+     * viewport got this short — reported as dropdowns "getting clipped by
+     * the footer". visible carries no scrollbar either (only auto/scroll
+     * do), so it still stops that scroll while letting a dropdown's
+     * absolutely-positioned popover spill past .bd instead of being cropped
+     * — the outer .modal-bg (overflow-y:auto) is what actually scrolls a
+     * too-tall modal into view, same as at normal screen heights.
+     */
+    overflow-y: visible;
   }
   .modal .ft {
     padding: 7px 16px;

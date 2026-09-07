@@ -98,7 +98,14 @@ export function Requests() {
                   <td>{r.customerName}</td>
                   <td>{r.detail}</td>
                   <td>{r.requestedAt}</td>
-                  <td><StatusChip status={r.status} /></td>
+                  <td>
+                    <StatusChip status={r.status} />
+                    {/* Set by RecordReleasePayment when a Manager-stage discount+payment
+                        fell short of the final settlement — see ReleaseReviewModal.tsx. */}
+                    {r.paymentDueDate && r.status === "Pending" && !r.paymentVerified && new Date(r.paymentDueDate) < new Date() && (
+                      <span className="chip" style={{ marginLeft: 6, color: "var(--red)", borderColor: "var(--red)" }}>Payment Overdue</span>
+                    )}
+                  </td>
                   <td style={{ whiteSpace: "nowrap", textAlign: "center" }}>
                     <button
                       className="btn ghost sm"

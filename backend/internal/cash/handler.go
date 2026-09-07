@@ -24,6 +24,7 @@ type movementRequest struct {
 	Type       string  `json:"type" binding:"required"`
 	Source     string  `json:"source"`
 	Purpose    string  `json:"purpose"`
+	Mode       string  `json:"mode"`
 	Bank       string  `json:"bank"`
 	Amount     float64 `json:"amount" binding:"required"`
 	BranchID   *uint   `json:"branchId"`   // optional — not every cash movement is tied to a till yet
@@ -77,7 +78,7 @@ func (req movementRequest) toInput() (RecordMovementInput, error) {
 		return RecordMovementInput{}, httpx.NewBadRequest("invalid occurredOn: expected YYYY-MM-DD")
 	}
 	return RecordMovementInput{
-		Type: req.Type, Source: req.Source, Purpose: req.Purpose,
+		Type: req.Type, Source: req.Source, Purpose: req.Purpose, Mode: req.Mode,
 		Bank: req.Bank, Amount: req.Amount, BranchID: req.BranchID, OccurredOn: occurred,
 	}, nil
 }

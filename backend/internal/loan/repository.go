@@ -68,6 +68,8 @@ type LoanFilter struct {
 	StatusIn   []string // matches any of these statuses; takes priority over Status when non-empty
 	BranchID   uint
 	CustomerID uint
+	SchemeID   uint
+	LoanIDs    []uint // when non-empty, narrows to exactly these loans (e.g. a scheme statement's loan picker)
 	Query      string // matches LoanNumber (case-insensitive, partial)
 
 	// BranchScope is the caller's branch-scoping restriction (see
@@ -136,6 +138,12 @@ func (r *Repository) FindAll(f LoanFilter) ([]Loan, int64, error) {
 	}
 	if f.CustomerID != 0 {
 		q = q.Where("customer_id = ?", f.CustomerID)
+	}
+	if f.SchemeID != 0 {
+		q = q.Where("scheme_id = ?", f.SchemeID)
+	}
+	if len(f.LoanIDs) > 0 {
+		q = q.Where("id IN ?", f.LoanIDs)
 	}
 	if f.Query != "" {
 		q = q.Where("loan_number ILIKE ?", "%"+f.Query+"%")
@@ -761,6 +769,38 @@ func (r *AuctionRepository) FindAllConcluded(branchID *uint, hasSale *bool, limi
 	}
 	err := q.Find(&rows).Error
 	return rows, total, err
+}
+
+// ScheduledAuctionCalendarRow is the shape internal/reminder's calendar
+// aggregation needs for a scheduled-auction event — same "just enough
+// columns, joined here rather than making the caller do it" rationale as
+// ConcludedAuctionRow. Deliberately not persisted anywhere (see
+// reminder/model.go's package comment): computed fresh from the live
+// AuctionRecord, same as loan due-date events are computed fresh from Loan.
+type ScheduledAuctionCalendarRow struct {
+	LoanID       uint
+	LoanNumber   string
+	BranchID     uint
+	CustomerID   uint
+	CustomerName string
+	AuctionDate  time.Time
+}
+
+// FindScheduledForCalendar returns every loan currently sitting in
+// AuctionStageScheduled with an AuctionDate set — backs the Reminder
+// Calendar's AuctionScheduled events (see reminder.Service.GetCalendarEvents).
+// Unfiltered by date range: the caller has few enough of these (at most one
+// active auction case per loan) that filtering in Go alongside the other
+// live-derived event types is simpler than adding another WHERE branch here.
+func (r *AuctionRepository) FindScheduledForCalendar() ([]ScheduledAuctionCalendarRow, error) {
+	var rows []ScheduledAuctionCalendarRow
+	err := r.db.Model(&AuctionRecord{}).
+		Select("auction_records.loan_id AS loan_id, loans.loan_number AS loan_number, loans.branch_id AS branch_id, loans.customer_id AS customer_id, customers.name AS customer_name, auction_records.auction_date AS auction_date").
+		Joins("JOIN loans ON loans.id = auction_records.loan_id").
+		Joins("JOIN customers ON customers.id = loans.customer_id").
+		Where("auction_records.stage = ? AND auction_records.auction_date IS NOT NULL", AuctionStageScheduled).
+		Find(&rows).Error
+	return rows, err
 }
 
 // CustomerAuctionRow is one AuctionRecord plus its parent loan's LoanNumber

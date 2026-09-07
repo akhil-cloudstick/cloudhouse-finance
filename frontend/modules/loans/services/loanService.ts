@@ -565,7 +565,16 @@ export async function checkIndemnityBondEsign(loanId: number): Promise<Indemnity
   return apiFetch<IndemnityBondEsignCheck>(`/loans/${loanId}/indemnity-bond/esign/status`);
 }
 
-export type LoanFilters = { q?: string; status?: string; branchId?: number; customerId?: number; bankPledgeStatus?: string };
+export type LoanFilters = {
+  q?: string;
+  status?: string;
+  branchId?: number;
+  customerId?: number;
+  bankPledgeStatus?: string;
+  schemeId?: number;
+  from?: string; // YYYY-MM-DD, bounds openedDate (inclusive)
+  to?: string; // YYYY-MM-DD, bounds openedDate (inclusive)
+};
 
 export async function listLoans(filters?: LoanFilters): Promise<LoanView[]> {
   const params = new URLSearchParams();
@@ -573,6 +582,9 @@ export async function listLoans(filters?: LoanFilters): Promise<LoanView[]> {
   if (filters?.status) params.set("status", filters.status);
   if (filters?.branchId) params.set("branchId", String(filters.branchId));
   if (filters?.customerId) params.set("customerId", String(filters.customerId));
+  if (filters?.schemeId) params.set("schemeId", String(filters.schemeId));
+  if (filters?.from) params.set("from", filters.from);
+  if (filters?.to) params.set("to", filters.to);
   const qs = params.toString();
   const rec = await apiFetch<BackendLoan[]>(`/loans${qs ? `?${qs}` : ""}`);
   return (rec || []).map(toView);
@@ -601,6 +613,9 @@ export async function listLoansPage(
   if (filters.branchId) params.set("branchId", String(filters.branchId));
   if (filters.customerId) params.set("customerId", String(filters.customerId));
   if (filters.bankPledgeStatus) params.set("bankPledgeStatus", filters.bankPledgeStatus);
+  if (filters.schemeId) params.set("schemeId", String(filters.schemeId));
+  if (filters.from) params.set("from", filters.from);
+  if (filters.to) params.set("to", filters.to);
   const rec = await apiFetch<{ items: BackendLoan[]; hasMore: boolean; total?: number }>(`/loans?${params}`);
   return { items: (rec?.items || []).map(toView), hasMore: !!rec?.hasMore, total: rec?.total ?? 0 };
 }
@@ -1304,6 +1319,11 @@ export type BackendLoanRequest = {
   verificationNotes: string;
   charges: number;
   settlementAmount: number;
+  // "Record Payment" step on the Manager-stage release review screen — see
+  // backend/internal/loan/service.go's RecordReleasePayment.
+  recordedDiscount: number;
+  recordedPayment: number;
+  paymentDueDate?: string | null;
   remarks: string;
   requestedAt: string;
   decidedAt?: string | null;
@@ -1331,6 +1351,9 @@ export type RequestView = {
   verificationNotes: string;
   charges: number;
   settlementAmount: number;
+  recordedDiscount: number;
+  recordedPayment: number;
+  paymentDueDate: string | null; // "YYYY-MM-DD", null if not set
 };
 
 function toRequestView(r: BackendLoanRequest): RequestView {
@@ -1354,6 +1377,9 @@ function toRequestView(r: BackendLoanRequest): RequestView {
     verificationNotes: r.verificationNotes,
     charges: r.charges,
     settlementAmount: r.settlementAmount,
+    recordedDiscount: r.recordedDiscount ?? 0,
+    recordedPayment: r.recordedPayment ?? 0,
+    paymentDueDate: r.paymentDueDate ? r.paymentDueDate.slice(0, 10) : null,
   };
 }
 
@@ -1446,6 +1472,25 @@ export type ChecklistInput = {
 export async function verifyReleaseChecklist(requestId: number, input: ChecklistInput): Promise<RequestView> {
   const rec = await apiFetch<BackendLoanRequest>(`/loans/requests/${requestId}/verify`, {
     method: "PUT",
+    body: JSON.stringify(input),
+  });
+  return toRequestView(rec);
+}
+
+/* "Record Payment" step on the Manager-stage release review screen —
+ * records a Discount and/or a Payment straight against the loan and, if
+ * together they cover the final settlement, ticks the paymentVerified
+ * checklist item — nothing more (see backend/internal/loan/service.go's
+ * RecordReleasePayment). The request always stays Pending afterward and
+ * still needs the Manager→Management approval chain, which completes the
+ * release automatically at the final stage. Falls short → dueDate is
+ * required for the remaining balance. employeeId/role are NOT sent —
+ * derived server-side from the JWT, same as everywhere else in this file. */
+export type ReleasePaymentInput = { discount: number; payment: number; dueDate?: string };
+
+export async function recordReleasePayment(requestId: number, input: ReleasePaymentInput): Promise<RequestView> {
+  const rec = await apiFetch<BackendLoanRequest>(`/loans/requests/${requestId}/release-payment`, {
+    method: "POST",
     body: JSON.stringify(input),
   });
   return toRequestView(rec);
