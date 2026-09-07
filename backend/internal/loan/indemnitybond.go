@@ -58,6 +58,11 @@ const blank = "________________"
 // not driven by loan data.
 const lenderName = "Rinkesh Lalitbhai Soni"
 const lenderRegNo = "GMLVAL2627000029"
+const lenderAge = "22"
+const lenderBusiness = "Rinkesh Lalitbhai Soni"
+const lenderAadhaar = "415534095954"
+const lenderPAN = "KQMPS7359E"
+const lenderAddress = "At post Khattalwada, Main Bazar, Tal. Umargam, Dist. Valsad, State Gujarat, PIN code 396120"
 
 func orBlank(s string) string {
 	if strings.TrimSpace(s) == "" {
@@ -178,10 +183,10 @@ Residing at :- <b>{{.Address}}</b>
 <p>AND</p>
 <p>
 <b>{{.LenderName}}</b><br>
-Age :- {{.Blank}}, business :- {{.Blank}}<br>
-Aadhar Card No. {{.Blank}}<br>
-Pan Card No. {{.Blank}}<br>
-Residing at :- {{.Blank}}
+Age :- <b>{{.LenderAge}}</b>, business :- <b>{{.LenderBusiness}}</b><br>
+Aadhar Card No. <b>{{.LenderAadhaar}}</b><br>
+Pan Card No. <b>{{.LenderPAN}}</b><br>
+Residing at :- <b>{{.LenderAddress}}</b>
 </p>
 <p>(Hereinafter called &quot;the lender&quot;) of the other part.</p>
 <p>The lender carrying on business of money-lending under certificate of registration number <b>{{.LenderRegNo}}</b> of the other part.</p>
@@ -228,10 +233,10 @@ const bondHTMLGujarati = `<!DOCTYPE html><html lang="gu"><head><meta charset="UT
 <p>અને</p>
 <p>
 <b>{{.LenderName}}</b><br>
-ઉ.આ.વ. :- {{.Blank}}, ધંધો:- {{.Blank}}<br>
-આધાર કાર્ડ નંબર :- {{.Blank}}<br>
-પાનકાર્ડ નંબર :- {{.Blank}}<br>
-રહે. :- {{.Blank}}
+ઉ.આ.વ. :- <b>{{.LenderAge}}</b>, ધંધો:- <b>{{.LenderBusiness}}</b><br>
+આધાર કાર્ડ નંબર :- <b>{{.LenderAadhaar}}</b><br>
+પાનકાર્ડ નંબર :- <b>{{.LenderPAN}}</b><br>
+રહે. :- <b>{{.LenderAddress}}</b>
 </p>
 <p>( હવેથી આ કરારમાં બીજા પક્ષને &quot;આડગીરો લેનાર&quot;, &quot;નાણાં ધીરનાર&quot;, &quot;આડમાં લેનાર&quot; જેવી સંજ્ઞાઓથી સંબોધવામાં આવશે. )</p>
 <p>&quot;આડગીરો મૂકનાર&quot; અને &quot;આડગીરો લેનાર&quot; સંયુક્ત રીતે &quot;પક્ષકારો&quot; તરીકે સંબોધવામાં આવશે.</p>
@@ -290,6 +295,11 @@ type bondTemplateData struct {
 	Blank           string
 	LenderName      string
 	LenderRegNo     string
+	LenderAge       string
+	LenderBusiness  string
+	LenderAadhaar   string
+	LenderPAN       string
+	LenderAddress   string
 	Age             string
 	Aadhaar         string
 	PAN             string
@@ -353,6 +363,11 @@ func renderBondHTML(data BondData, lang string) (string, error) {
 		Blank:           blank,
 		LenderName:      lenderName,
 		LenderRegNo:     lenderRegNo,
+		LenderAge:       lenderAge,
+		LenderBusiness:  lenderBusiness,
+		LenderAadhaar:   lenderAadhaar,
+		LenderPAN:       lenderPAN,
+		LenderAddress:   lenderAddress,
 		Age:             ageOrBlank(data.Age),
 		Aadhaar:         aadhaarOrBlank(data.Aadhaar),
 		PAN:             orBlank(data.PAN),

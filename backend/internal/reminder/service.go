@@ -58,13 +58,14 @@ type Service struct {
 	customerRepo    *customer.Repository
 	loanRepo        *loan.Repository
 	personalLoanSvc *personalloan.Service
+	auctionRepo  *loan.AuctionRepository
 	whatsapp        platform.SMSSender // reused interface — Send(phone, message) matches SMSSender exactly
 	commlogRepo     *commlog.Repository
 	tenantRepo   *tenant.Repository
 }
 
-func NewService(repo *Repository, customerRepo *customer.Repository, loanRepo *loan.Repository, personalLoanSvc *personalloan.Service, whatsapp platform.SMSSender, commlogRepo *commlog.Repository, tenantRepo *tenant.Repository) *Service {
-	return &Service{repo: repo, customerRepo: customerRepo, loanRepo: loanRepo, personalLoanSvc: personalLoanSvc, whatsapp: whatsapp, commlogRepo: commlogRepo, tenantRepo: tenantRepo}
+func NewService(repo *Repository, customerRepo *customer.Repository, loanRepo *loan.Repository, personalLoanSvc *personalloan.Service, auctionRepo *loan.AuctionRepository, whatsapp platform.SMSSender, commlogRepo *commlog.Repository, tenantRepo *tenant.Repository) *Service {
+	return &Service{repo: repo, customerRepo: customerRepo, loanRepo: loanRepo, personalLoanSvc: personalLoanSvc, auctionRepo: auctionRepo, whatsapp: whatsapp, commlogRepo: commlogRepo, tenantRepo: tenantRepo}
 }
 
 // businessName resolves the tenant's own display name (multi-tenancy plan,
@@ -221,8 +222,10 @@ func (s *Service) Delete(ctx context.Context, id uint) error {
 // Overdue if already past due), a monthly "interest payment" reminder on
 // each open loan's opened-date day-of-month (InterestDue — a practical
 // convention since interest here accrues continuously rather than on a
-// real billing schedule, see loan/accrual.go), and every manual Reminder
-// whose DueDate falls in range (FollowUp/PromiseToPay/Custom).
+// real billing schedule, see loan/accrual.go), every loan currently
+// scheduled for auction (AuctionScheduled, on its AuctionDate), and every
+// manual Reminder whose DueDate falls in range (FollowUp/PromiseToPay/
+// Custom).
 //
 // The merged list is always sorted Overdue-first-then-ascending-by-date
 // (moved here from the frontend's client-side sort — see
@@ -352,6 +355,32 @@ func (s *Service) GetCalendarEvents(ctx context.Context, from, to time.Time, bra
 				})
 			}
 		}
+	}
+
+	scheduledAuctions, err := s.auctionRepo.FindScheduledForCalendar()
+	if err != nil {
+		return nil, 0, err
+	}
+	for _, a := range scheduledAuctions {
+		if branchID != nil && a.BranchID != *branchID {
+			continue
+		}
+		date := truncateDay(a.AuctionDate)
+		if date.Before(from) || date.After(to) {
+			continue
+		}
+		loanID := a.LoanID
+		custID := a.CustomerID
+		events = append(events, CalendarEvent{
+			Date:         date.Format("2006-01-02"),
+			Type:         "AuctionScheduled",
+			Title:        fmt.Sprintf("Auction scheduled — %s", a.LoanNumber),
+			Detail:       a.CustomerName,
+			LoanID:       &loanID,
+			LoanNumber:   a.LoanNumber,
+			CustomerID:   &custID,
+			CustomerName: a.CustomerName,
+		})
 	}
 
 	from2, to2 := from, to

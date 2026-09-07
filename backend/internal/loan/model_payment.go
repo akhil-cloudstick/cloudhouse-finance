@@ -24,6 +24,15 @@ const (
 	PaymentTypeAdjustment     = "Adjustment"
 	PaymentTypeWaiver         = "Waiver"
 
+	// PaymentTypeDiscount is a negotiated reduction of a Release request's
+	// final settlement, entered alongside (or instead of) a real Payment on
+	// the Manager-stage release review screen — see
+	// Service.RecordReleasePayment. Unlike PaymentTypeWaiver (interest/penal
+	// only), a release discount can reach principal too: it represents the
+	// branch agreeing to let the customer settle for less overall, not just
+	// forgiving interest. Like Waiver, it moves no cash.
+	PaymentTypeDiscount = "Discount"
+
 	// PaymentTypeAuctionSale records auction proceeds being applied against
 	// the loan, so the customer's ledger shows where the money came from
 	// instead of the balance silently dropping. It is deliberately EXCLUDED
