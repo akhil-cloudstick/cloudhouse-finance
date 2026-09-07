@@ -56,6 +56,19 @@ type LoanRequest struct {
 	CustomerConfirmed  bool   `json:"customerConfirmed"`
 	VerificationNotes  string `json:"verificationNotes" gorm:"size:255"`
 
+	// RecordedDiscount/RecordedPayment/PaymentDueDate back the "Record
+	// Payment" step on the Manager-stage release review screen (see
+	// Service.RecordReleasePayment) — separate from the plain
+	// PaymentVerified attestation above. Discount/Payment amounts entered
+	// there are posted as real LoanPayment ledger entries (Discount/Partial)
+	// and accumulate here just so the review screen can show what has been
+	// recorded so far; PaymentDueDate is set only when they fall short of
+	// the final settlement, and is what flags an overdue release red on the
+	// Requests list once it passes with the balance still outstanding.
+	RecordedDiscount float64    `json:"recordedDiscount" gorm:"type:numeric(16,2);default:0"`
+	RecordedPayment  float64    `json:"recordedPayment" gorm:"type:numeric(16,2);default:0"`
+	PaymentDueDate   *time.Time `json:"paymentDueDate,omitempty"`
+
 	// Charges is a single staff-entered override amount (e.g. statutory/
 	// valuation charges), Release only, added into SettlementAmount below.
 	Charges float64 `json:"charges" gorm:"type:numeric(16,2);default:0"`

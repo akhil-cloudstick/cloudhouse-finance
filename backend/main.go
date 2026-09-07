@@ -206,7 +206,7 @@ func main() {
 	loanHandler := loan.NewHandler(loanSvc)
 
 	reminderRepo := reminder.NewRepository(db)
-	reminderSvc := reminder.NewService(reminderRepo, customerRepo, loanRepo, whatsappSender, commlogRepo)
+	reminderSvc := reminder.NewService(reminderRepo, customerRepo, loanRepo, loanAuctionRepo, whatsappSender, commlogRepo)
 	reminderHandler := reminder.NewHandler(reminderSvc)
 
 	dashboardSnapshotRepo := dashboard.NewSnapshotRepository(db)
@@ -328,7 +328,12 @@ func main() {
 	authzRepo := authz.NewRepository(db)
 
 	branch.RegisterRoutes(protected.Group("/branches"), branchHandler, platform.CRUDPermissions(authzRepo, "branches"))
-	scheme.RegisterRoutes(protected.Group("/schemes"), schemeHandler, platform.CRUDPermissions(authzRepo, "schemes"))
+	schemePerms := platform.CRUDPermissions(authzRepo, "schemes")
+	scheme.RegisterRoutes(protected.Group("/schemes"), schemeHandler, schemePerms)
+	// Lives on loanHandler, not scheme.Handler: a scheme statement is a
+	// projection of loan+payment data, and loan.Service already imports
+	// scheme (a Loan embeds its Scheme) — the reverse import would cycle.
+	protected.GET("/schemes/:id/statement", schemePerms.Read, loanHandler.SchemeStatement)
 	goldrate.RegisterRoutes(protected.Group("/gold-rates"), goldRateHandler, platform.CRUDPermissions(authzRepo, "goldrates"))
 	puritystandard.RegisterRoutes(protected.Group("/purity-standards"), purityStandardHandler, platform.CRUDPermissions(authzRepo, "puritystandards"))
 	employee.RegisterRoutes(protected.Group("/employees"), employeeHandler, platform.CRUDPermissions(authzRepo, "employees"))

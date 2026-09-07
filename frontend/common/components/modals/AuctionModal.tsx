@@ -4,6 +4,7 @@ import { useRef, useState } from "react";
 import { useModal } from "@/common/components/Modal";
 import { useToast } from "@/common/components/Toast";
 import { Icon } from "@/common/components/Icon";
+import { DatePicker } from "@/common/components/ui/DatePicker";
 import { fmt } from "@/common/utils/format";
 import {
   issueAuctionNotice,
@@ -112,7 +113,7 @@ export function ScheduleAuctionModalContent({ loan, onSaved, onError }: { loan: 
       <div className="hd"><h3>Schedule Auction — {loan.id}</h3><button className="x" onClick={closeModal}>×</button></div>
       <div className="bd">
         <div className="frow c2">
-          <div><label className="f">Auction Date *</label><input className="inp" type="date" value={date} onChange={(e) => setDate(e.target.value)} /></div>
+          <div><label className="f">Auction Date *</label><DatePicker value={date} onChange={setDate} /></div>
           <div><label className="f">Reference Number</label><input className="inp" value={ref} onChange={(e) => setRef(e.target.value)} /></div>
         </div>
         <p style={{ color: "var(--red)", fontSize: 12.5, minHeight: 16, marginTop: 8 }}>{err}</p>

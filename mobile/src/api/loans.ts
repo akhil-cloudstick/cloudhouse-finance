@@ -15,6 +15,9 @@ export function listLoansPage(params: {
   status?: string;
   branchId?: number;
   customerId?: number;
+  schemeId?: number;
+  from?: string; // "YYYY-MM-DD", bounds openedDate (inclusive)
+  to?: string; // "YYYY-MM-DD", bounds openedDate (inclusive)
   limit: number;
   offset: number;
 }) {

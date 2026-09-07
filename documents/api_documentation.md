@@ -1364,12 +1364,11 @@ this codebase, so `employeeId` on approve/payment calls is currently
 hardcoded to `1` on the frontend — a placeholder until a real session
 exists.
 
-**Customer must be KYC-verified.** `POST /loans` requires
-`customer.kycStatus == "Verified"` (400 `ErrCustomerNotVerified`
-otherwise). Since the Customer Module currently hardcodes every customer
-to `"Verified"` at creation (see Customers API above), this check always
-passes today — it starts enforcing automatically once real PAN/Aadhaar
-verification replaces that stub, with no change needed on the loan side.
+**KYC verification is not required.** `POST /loans` accepts any customer
+regardless of `kycStatus`/`panStatus`/`aadhaarStatus` — Unverified and
+Part Verified customers can get a loan same as Verified ones. The
+frontend's new-loan customer picker surfaces the status (Verified /
+Part Verified / Unverified) in each option instead of filtering by it.
 
 **Today's gold rate must be set.** `POST /loans` requires the latest
 published gold rate (`GET /api/v1/gold-rates/latest`) to exist (400
@@ -1969,9 +1968,9 @@ explicitly **not** a loan: no loan number is assigned, nothing enters the
 sanction chain, no packet is created and no gold rate is applied. That is why
 only `branchId` is required and nothing else is validated — the whole point
 is to store the form exactly as far as staff got, including a row with no
-weight yet or a customer not chosen. Every real rule (KYC-verified customer,
-a rate published today, principal within LTV, at least one ornament) is
-applied only when the draft is submitted through `POST /loans`.
+weight yet or a customer not chosen. Every real rule (a rate published
+today, principal within LTV, at least one ornament) is applied only when
+the draft is submitted through `POST /loans`.
 
 Consequences worth knowing:
 - **Ownership.** A draft belongs to the employee who saved it (taken from the

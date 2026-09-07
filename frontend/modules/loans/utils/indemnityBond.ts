@@ -56,6 +56,11 @@ export type IndemnityBondParty = {
 const B = "________________";
 const LENDER_NAME = "Rinkesh Lalitbhai Soni";
 const LENDER_REG_NO = "GMLVAL2627000029";
+const LENDER_AGE = "22";
+const LENDER_BUSINESS = "Rinkesh Lalitbhai Soni";
+const LENDER_AADHAAR = "415534095954";
+const LENDER_PAN = "KQMPS7359E";
+const LENDER_ADDRESS = "At post Khattalwada, Main Bazar, Tal. Umargam, Dist. Valsad, State Gujarat, PIN code 396120";
 
 function fmtINR(n?: number) {
   return n != null ? n.toLocaleString("en-IN") : "";
@@ -103,10 +108,10 @@ export function printIndemnityBond(p: IndemnityBondParty, onBlocked: (msg: strin
       <p>અને</p>
       <p>
         <b>${LENDER_NAME}</b><br>
-        ઉ.આ.વ. :- ${B}, ધંધો:- ${B}<br>
-        આધાર કાર્ડ નંબર :- ${B}<br>
-        પાનકાર્ડ નંબર :- ${B}<br>
-        રહે. :- ${B}
+        ઉ.આ.વ. :- <b>${LENDER_AGE}</b>, ધંધો:- <b>${LENDER_BUSINESS}</b><br>
+        આધાર કાર્ડ નંબર :- <b>${LENDER_AADHAAR}</b><br>
+        પાનકાર્ડ નંબર :- <b>${LENDER_PAN}</b><br>
+        રહે. :- <b>${LENDER_ADDRESS}</b>
       </p>
       <p>( હવેથી આ કરારમાં બીજા પક્ષને "આડગીરો લેનાર", "નાણાં ધીરનાર", "આડમાં લેનાર" જેવી સંજ્ઞાઓથી સંબોધવામાં આવશે. )</p>
       <p>"આડગીરો મૂકનાર" અને "આડગીરો લેનાર" સંયુક્ત રીતે "પક્ષકારો" તરીકે સંબોધવામાં આવશે.</p>
@@ -186,10 +191,10 @@ export function printIndemnityBond(p: IndemnityBondParty, onBlocked: (msg: strin
     <p>AND</p>
     <p>
       <b>${LENDER_NAME}</b><br>
-      Age :- ${B}, business :- ${B}<br>
-      Aadhar Card No. ${B}<br>
-      Pan Card No. ${B}<br>
-      Residing at :- ${B}
+      Age :- <b>${LENDER_AGE}</b>, business :- <b>${LENDER_BUSINESS}</b><br>
+      Aadhar Card No. <b>${LENDER_AADHAAR}</b><br>
+      Pan Card No. <b>${LENDER_PAN}</b><br>
+      Residing at :- <b>${LENDER_ADDRESS}</b>
     </p>
     <p>(Hereinafter called "the lender") of the other part.</p>
     <p>The lender carrying on business of money-lending under certificate of registration number <b>${LENDER_REG_NO}</b> of the other part.</p>

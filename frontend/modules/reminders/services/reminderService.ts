@@ -101,7 +101,7 @@ export async function listReminders(filters?: ReminderFilters): Promise<Reminder
  * backend/internal/reminder/service.go's GetCalendarEvents). This is the
  * single source of truth the Calendar page and Dashboard's "Upcoming
  * Reminders" card both read from. */
-export type CalendarEventType = "InterestDue" | "LoanDue" | "Overdue" | "FollowUp" | "PromiseToPay" | "Custom";
+export type CalendarEventType = "InterestDue" | "LoanDue" | "Overdue" | "AuctionScheduled" | "FollowUp" | "PromiseToPay" | "Custom";
 
 export type CalendarEvent = {
   date: string; // "YYYY-MM-DD"

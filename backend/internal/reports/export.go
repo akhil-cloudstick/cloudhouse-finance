@@ -86,7 +86,7 @@ func (h *Handler) Export(c *gin.Context) {
 
 	switch format {
 	case "xlsx":
-		buf, err := buildXLSX(key, headers, data)
+		buf, err := BuildXLSX(key, headers, data)
 		if err != nil {
 			serverError(c, err)
 			return
@@ -94,7 +94,7 @@ func (h *Handler) Export(c *gin.Context) {
 		c.Header("Content-Disposition", "attachment; filename=\""+filename+"\"")
 		c.Data(http.StatusOK, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", buf)
 	case "pdf":
-		buf, err := buildPDF(key, headers, data)
+		buf, err := BuildPDF(key, headers, data)
 		if err != nil {
 			serverError(c, err)
 			return
@@ -194,9 +194,9 @@ func formatCell(v reflect.Value) string {
 	}
 }
 
-// buildXLSX renders headers/data as a single-sheet workbook with a bold
+// BuildXLSX renders headers/data as a single-sheet workbook with a bold
 // header row.
-func buildXLSX(sheetName string, headers []string, data [][]string) ([]byte, error) {
+func BuildXLSX(sheetName string, headers []string, data [][]string) ([]byte, error) {
 	f := excelize.NewFile()
 	sheet := "Report"
 	f.SetSheetName(f.GetSheetName(0), sheet)
@@ -219,10 +219,10 @@ func buildXLSX(sheetName string, headers []string, data [][]string) ([]byte, err
 	return buf.Bytes(), nil
 }
 
-// buildPDF renders headers/data as a simple tabular PDF (letterhead-style
+// BuildPDF renders headers/data as a simple tabular PDF (letterhead-style
 // title + table) — a plain, functional layout rather than a polished
 // letterhead design, matching this codebase's other export-lite features.
-func buildPDF(title string, headers []string, data [][]string) ([]byte, error) {
+func BuildPDF(title string, headers []string, data [][]string) ([]byte, error) {
 	pdf := gofpdf.New("L", "mm", "A4", "")
 	// gofpdf's core "Arial" font expects cp1252/WinAnsi bytes, not UTF-8 —
 	// handing it a raw Go string (UTF-8 under the hood) let each multi-byte

@@ -1,5 +1,5 @@
-import React, { useState } from "react";
-import { ScrollView, RefreshControl, View } from "react-native";
+import React, { useMemo, useState } from "react";
+import { ScrollView, RefreshControl, View, Pressable, Alert } from "react-native";
 import { useLocalSearchParams } from "expo-router";
 import { useQuery, useQueryClient, useMutation } from "@tanstack/react-query";
 import { ScreenContainer } from "../../../src/components/ScreenContainer";
@@ -7,9 +7,21 @@ import { Card } from "../../../src/components/Card";
 import { ThemedText } from "../../../src/components/ThemedText";
 import { GoldTextInput } from "../../../src/components/GoldTextInput";
 import { GoldButton } from "../../../src/components/GoldButton";
+import { GoldDatePicker } from "../../../src/components/GoldDatePicker";
+import { BottomSheetModal } from "../../../src/components/BottomSheetModal";
 import { colors } from "../../../src/theme/colors";
 import { getScheme, toggleSchemeActive, calculateSchemeEligibility } from "../../../src/api/schemes";
+import { listLoansPage } from "../../../src/api/loans";
+import { downloadSchemeStatement } from "../../../src/utils/schemeStatement";
 import { useRefetchOnFocus } from "../../../src/hooks/useRefetchOnFocus";
+
+function firstOfMonth(): string {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-01`;
+}
+function today(): string {
+  return new Date().toISOString().slice(0, 10);
+}
 
 export default function SchemeDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -31,6 +43,51 @@ export default function SchemeDetailScreen() {
       queryClient.invalidateQueries({ queryKey: ["schemes"] });
     },
   });
+
+  // Download Statement — a bottom sheet with the same date-range + loan
+  // filters as the web Schemes page's SchemeStatementModal, downloading
+  // from the same GET /schemes/:id/statement endpoint (see
+  // src/utils/schemeStatement.ts) rather than re-building PDF/xlsx on-device.
+  const [statementOpen, setStatementOpen] = useState(false);
+  const [stmtFrom, setStmtFrom] = useState(firstOfMonth());
+  const [stmtTo, setStmtTo] = useState(today());
+  const [selectedLoanIds, setSelectedLoanIds] = useState<Set<number>>(new Set());
+  const [downloading, setDownloading] = useState<"pdf" | "xlsx" | null>(null);
+
+  const loansQuery = useQuery({
+    queryKey: ["scheme-loans", schemeId, stmtFrom, stmtTo],
+    queryFn: () => listLoansPage({ schemeId, from: stmtFrom, to: stmtTo, limit: 50, offset: 0 }),
+    enabled: statementOpen,
+  });
+  const loans = loansQuery.data?.items ?? [];
+  const totalCollected = useMemo(
+    () => loans.reduce((sum, l) => sum + (l.payments ?? []).reduce((s, p) => s + p.amount, 0), 0),
+    [loans]
+  );
+
+  function toggleLoan(id: number) {
+    setSelectedLoanIds((cur) => {
+      const next = new Set(cur);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  async function handleDownload(format: "pdf" | "xlsx") {
+    setDownloading(format);
+    try {
+      await downloadSchemeStatement(schemeId, format, {
+        from: stmtFrom,
+        to: stmtTo,
+        loanIds: selectedLoanIds.size ? Array.from(selectedLoanIds) : undefined,
+      });
+    } catch (e) {
+      Alert.alert("Download failed", e instanceof Error ? e.message : "Could not download statement.");
+    } finally {
+      setDownloading(null);
+    }
+  }
 
   const [goldWeight, setGoldWeight] = useState("");
   const [goldRate, setGoldRate] = useState("");
@@ -74,6 +131,12 @@ export default function SchemeDetailScreen() {
                 onPress={() => toggle.mutate()}
                 loading={toggle.isPending}
               />
+              <GoldButton
+                title="Download Statement"
+                variant="outline"
+                onPress={() => setStatementOpen(true)}
+                style={{ marginTop: 8 }}
+              />
             </Card>
 
             <Card>
@@ -108,5 +171,84 @@ export default function SchemeDetailScreen() {
         )}
       </ScrollView>
       </View>
+
+      <BottomSheetModal visible={statementOpen} onClose={() => setStatementOpen(false)}>
+        <ThemedText variant="h3" style={{ marginBottom: 12 }}>
+          Download Statement
+        </ThemedText>
+        <View style={{ flexDirection: "row", gap: 12 }}>
+          <View style={{ flex: 1 }}>
+            <GoldDatePicker label="From" value={stmtFrom} onChange={setStmtFrom} max={stmtTo} />
+          </View>
+          <View style={{ flex: 1 }}>
+            <GoldDatePicker label="To" value={stmtTo} onChange={setStmtTo} min={stmtFrom} max={today()} />
+          </View>
+        </View>
+
+        <ThemedText variant="small" color={colors.muted} style={{ marginTop: 8, marginBottom: 4 }}>
+          Loans {selectedLoanIds.size > 0 ? `(${selectedLoanIds.size} selected)` : "(all loans in range)"}
+        </ThemedText>
+        {loansQuery.isLoading ? (
+          <ThemedText color={colors.muted}>Loading loans…</ThemedText>
+        ) : loans.length === 0 ? (
+          <ThemedText color={colors.muted}>No loans opened under this scheme in that range.</ThemedText>
+        ) : (
+          <ScrollView style={{ maxHeight: 220 }}>
+            {loans.map((l) => (
+              <Pressable
+                key={l.id}
+                onPress={() => toggleLoan(l.id)}
+                style={{
+                  flexDirection: "row",
+                  alignItems: "center",
+                  paddingVertical: 8,
+                  borderBottomWidth: 1,
+                  borderBottomColor: colors.line,
+                }}
+              >
+                <View
+                  style={{
+                    width: 18,
+                    height: 18,
+                    borderRadius: 4,
+                    borderWidth: 1.5,
+                    borderColor: colors.goldDeep,
+                    marginRight: 10,
+                    backgroundColor: selectedLoanIds.has(l.id) ? colors.goldDeep : "transparent",
+                  }}
+                />
+                <ThemedText style={{ flex: 1 }}>
+                  {l.loanNumber} — {l.customer?.name ?? "—"}
+                </ThemedText>
+                <ThemedText color={colors.muted}>₹{l.principalAmount.toLocaleString("en-IN")}</ThemedText>
+              </Pressable>
+            ))}
+          </ScrollView>
+        )}
+
+        {loans.length > 0 ? (
+          <ThemedText variant="small" color={colors.muted} style={{ marginTop: 10 }}>
+            {loans.length} loan{loans.length === 1 ? "" : "s"} · ₹{totalCollected.toLocaleString("en-IN")} collected in range
+          </ThemedText>
+        ) : null}
+
+        <View style={{ flexDirection: "row", gap: 12, marginTop: 16 }}>
+          <View style={{ flex: 1 }}>
+            <GoldButton
+              title={downloading === "xlsx" ? "Preparing…" : "Excel"}
+              variant="outline"
+              onPress={() => handleDownload("xlsx")}
+              disabled={downloading !== null}
+            />
+          </View>
+          <View style={{ flex: 1 }}>
+            <GoldButton
+              title={downloading === "pdf" ? "Preparing…" : "PDF"}
+              onPress={() => handleDownload("pdf")}
+              disabled={downloading !== null}
+            />
+          </View>
+        </View>
+      </BottomSheetModal>
     </ScreenContainer>  );
 }

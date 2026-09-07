@@ -121,6 +121,20 @@ function toView(c: BackendCustomer): CustomerView {
   };
 }
 
+/* Three-way verification label for display (e.g. the new-loan customer
+ * picker) — deliberately checks panStatus/aadhaarStatus directly rather
+ * than the derived kycStatus, since kycStatus collapses "one of two
+ * passed" and "neither passed" into the same "Pending" value (see
+ * backend/internal/customer/service.go's deriveKYCStatus), but the UI
+ * needs to tell those two apart. */
+export function verificationLabel(c: { panStatus: string; aadhaarStatus: string }): "Verified" | "Part Verified" | "Unverified" {
+  const panOK = c.panStatus === "Verified";
+  const aadhaarOK = c.aadhaarStatus === "Verified";
+  if (panOK && aadhaarOK) return "Verified";
+  if (panOK || aadhaarOK) return "Part Verified";
+  return "Unverified";
+}
+
 function toRequestBody(input: CustomerFormInput) {
   return {
     name: input.name,

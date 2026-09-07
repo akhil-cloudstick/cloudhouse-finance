@@ -19,6 +19,15 @@ type CashMovement struct {
 	Type       string         `json:"type" gorm:"not null;size:10"` // "in" | "out"
 	Source     string         `json:"source" gorm:"size:20"`        // "Savings" | "Loan" — only for type=in
 	Purpose    string         `json:"purpose" gorm:"size:120"`      // only for type=out
+	// Mode is how the cash physically arrived — "Cash" | "UPI" | "Bank
+	// Transfer" (same free-text convention as Expense.Mode) — required for
+	// type=in via AddCashModal.tsx; left blank for cash-out and any other
+	// movement that doesn't record one.
+	Mode       string         `json:"mode" gorm:"size:20"`
+	// Bank names which bank the cash came from — required when Source is
+	// "Loan" (regardless of Mode) or when Mode is "UPI"/"Bank Transfer"
+	// (regardless of Source): both cases mean the cash didn't just appear as
+	// physical notes, so there's a bank of record behind it.
 	Bank       string         `json:"bank" gorm:"size:120"`
 	Amount     float64        `json:"amount" gorm:"not null;type:numeric(16,2)"`
 	Status     string         `json:"status" gorm:"size:20"` // "Open" | "Closed" — only for loan-sourced cash-in

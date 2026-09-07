@@ -12,7 +12,7 @@ import { useToast } from "@/common/components/Toast";
 import { useAuth } from "@/common/auth-context";
 import { Icon } from "@/common/components/Icon";
 import { fmt, custOf, schemeOf } from "@/common/utils/format";
-import { uploadFile, searchCustomersPage, getCustomerAadhaarFull, type CustomerView } from "@/modules/customers/services/customerService";
+import { uploadFile, searchCustomersPage, getCustomerAadhaarFull, verificationLabel, type CustomerView } from "@/modules/customers/services/customerService";
 import { searchActiveSchemesPage, type SchemeView } from "@/modules/schemes/services/schemeService";
 import { searchOrnamentTypesPage, createOrnamentType, type BackendOrnamentType } from "@/modules/ornament-types/services/ornamentTypeService";
 import {
@@ -215,14 +215,6 @@ export function NewLoan() {
       ? available.filter((k) => `${k.code} ${k.branchName}`.toLowerCase().includes(query))
       : available;
     return { items, hasMore: false };
-  }
-
-  async function searchVerifiedCustomers(q: string, page: number): Promise<{ items: CustomerView[]; hasMore: boolean }> {
-    const result = await searchCustomersPage(q, page);
-    // Filtering verified-only client-side after the page loads means a
-    // page can legitimately come back short (or empty) even when hasMore
-    // is true — that's fine, the next scroll-triggered page keeps going.
-    return { items: result.items.filter((c) => c.panStatus === "Verified" && c.aadhaarStatus === "Verified"), hasMore: result.hasMore };
   }
 
   const sch = (schemeObj && schemeObj.id === schemeId) ? schemeObj : schemes.find((s) => s.id === schemeId);
@@ -666,14 +658,14 @@ export function NewLoan() {
          * meant to handle exactly this. */}
         <div className="card gtop orn-form-card"><div className="bd">
           <div className="frow c2">
-            <div><label className="f">Customer (verified only)</label>
+            <div><label className="f">Customer</label>
               <SearchableSelect<CustomerView>
                 value={custLabel}
-                onChange={(id, item) => { setCustId(id); setCustLabel(`${item.name} — ${item.id}`); }}
-                fetchFn={searchVerifiedCustomers}
-                getLabel={(c) => `${c.name} — ${c.id}`}
+                onChange={(id, item) => { setCustId(id); setCustLabel(`${item.name} — ${item.id} (${verificationLabel(item)})`); }}
+                fetchFn={searchCustomersPage}
+                getLabel={(c) => `${c.name} — ${c.id} (${verificationLabel(c)})`}
                 getId={(c) => c.id}
-                placeholder="Search verified customers…"
+                placeholder="Search customers…"
               /></div>
             <div><label className="f">Scheme</label>
               <SearchableSelect<SchemeView>
