@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useModal } from "@/common/components/Modal";
 import { Icon } from "@/common/components/Icon";
 import { SchemeModalContent } from "@/common/components/modals/SchemeModal";
+import { SchemeStatementModalContent } from "@/common/components/modals/SchemeStatementModal";
 import { listSchemes, type SchemeView } from "@/modules/schemes/services/schemeService";
 import { useAuth } from "@/common/auth-context";
 
@@ -72,7 +73,12 @@ export function Schemes() {
       <div className="grid" style={{ gridTemplateColumns: "repeat(auto-fill,minmax(300px,1fr))" }}>
         {(schemes || []).map((s) => (
           <div className="card gtop" key={s.id} style={{ minHeight: 300 }}>
-            <div className="hd"><h3>{s.name}</h3><div className="sp" />
+            <div className="hd">
+              <div>
+                <h3>{s.name}</h3>
+                <span style={{ fontSize: 11.5, color: "var(--muted)" }}>{s.code}</span>
+              </div>
+              <div className="sp" />
               {s.active ? <span className="chip green">Active</span> : <span className="chip gray">Inactive</span>}
             </div>
             <div className="bd">
@@ -86,7 +92,8 @@ export function Schemes() {
               <p style={{ fontSize: 12.5, color: "var(--muted)", marginTop: 12, borderTop: "1px dashed var(--line)", paddingTop: 10, height: 60, overflow: "hidden" }}>{s.cond || "—"}</p>
             </div>
             <div className="ft" style={{ display: "flex", gap: 8 }}>
-              <span>{s.code}</span><span style={{ flex: 1 }} />
+              <a href="#" onClick={(e) => { e.preventDefault(); openModal(<SchemeStatementModalContent scheme={s} />, true); }}>Download Statement</a>
+              <span style={{ flex: 1 }} />
               {canUpdateSchemes && <a href="#" onClick={(e) => { e.preventDefault(); openModal(<SchemeModalContent scheme={s} onSaved={onSaved} />); }}>Edit</a>}
             </div>
           </div>

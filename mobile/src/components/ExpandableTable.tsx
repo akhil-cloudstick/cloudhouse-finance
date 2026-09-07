@@ -99,13 +99,33 @@ export const tableCardStyle: ViewStyle = {
   elevation: 2,
 };
 
-/** Column-label row — pass as a FlatList's `ListHeaderComponent`. */
-export function TableHeader<T>({ columns, visibleCount }: { columns: TableColumn<T>[]; visibleCount: number }) {
+/** Column-label row — pass as a FlatList's `ListHeaderComponent`.
+ *
+ * `cardRows` switches to the "each row is its own floating card" layout
+ * (see the mobile-table-preview artifact's "rows as cards" revision) — the
+ * header no longer caps a single shared card, so it drops the filled
+ * gold-pale bar/rounded-top corners for a plain label row sitting above the
+ * separated cards, matching TableRow's own `cardRows` branch below. */
+export function TableHeader<T>({
+  columns,
+  visibleCount,
+  cardRows,
+}: {
+  columns: TableColumn<T>[];
+  visibleCount: number;
+  cardRows?: boolean;
+}) {
   const visibleCols = columns.slice(0, visibleCount);
   return (
-    <View style={[styles.headRow, styles.firstRowRadius]}>
+    <View style={cardRows ? styles.headRowPlain : [styles.headRow, styles.firstRowRadius]}>
       {visibleCols.map((c) => (
-        <ThemedText key={c.key} variant="small" color={colors.muted} style={[styles.headCell, { flex: c.weight ?? 1 }]} numberOfLines={1}>
+        <ThemedText
+          key={c.key}
+          variant="small"
+          color={colors.muted}
+          style={[cardRows ? styles.headCellPlain : styles.headCell, { flex: c.weight ?? 1 }]}
+          numberOfLines={1}
+        >
           {c.label.toUpperCase()}
         </ThemedText>
       ))}
@@ -122,6 +142,7 @@ export function TableRow<T>({
   onViewDescription,
   isFirst,
   isLast,
+  cardRows,
 }: {
   row: T;
   columns: TableColumn<T>[];
@@ -133,17 +154,25 @@ export function TableRow<T>({
   onViewDescription?: (row: T) => void;
   isFirst?: boolean;
   /** Rounds this row's bottom corners to match tableCardStyle's — see that
-   * style's comment on why the card doesn't just clip its children instead. */
+   * style's comment on why the card doesn't just clip its children instead.
+   * Ignored when `cardRows` is set — every row is already fully rounded. */
   isLast?: boolean;
+  /** Renders this row as its own separated, shadowed card (margin below it,
+   * rounded on all 4 corners) instead of a divider-separated strip inside
+   * one shared card — see ExpandableTable's own `cardRows` doc comment. */
+  cardRows?: boolean;
 }) {
   const [expanded, setExpanded] = useState(false);
   const visibleCols = columns.slice(0, visibleCount);
   const hiddenCols = columns.slice(visibleCount);
   const extra: ExtraField[] = [...hiddenCols.map((c) => ({ label: c.label, value: c.render(row) })), ...(extraFields?.(row) ?? [])];
 
-  return (
-    <View style={!isFirst && styles.rowDivider}>
-      <Pressable onPress={() => setExpanded((v) => !v)} style={[styles.dataRow, isLast && !expanded && styles.lastRowRadius]}>
+  const body = (
+    <>
+      <Pressable
+        onPress={() => setExpanded((v) => !v)}
+        style={[styles.dataRow, !cardRows && isLast && !expanded && styles.lastRowRadius]}
+      >
         {visibleCols.map((c, i) => {
           const content = c.render(row);
           return (
@@ -169,7 +198,7 @@ export function TableRow<T>({
       </Pressable>
 
       {expanded ? (
-        <View style={[styles.detailWrap, isLast && styles.lastRowRadius]}>
+        <View style={[styles.detailWrap, !cardRows && isLast && styles.lastRowRadius, cardRows && styles.detailWrapCard]}>
           <View style={styles.detailGrid}>
             {extra.map((f, i) => (
               <View key={i} style={styles.detailField}>
@@ -198,8 +227,24 @@ export function TableRow<T>({
           ) : null}
         </View>
       ) : null}
-    </View>
+    </>
   );
+
+  if (cardRows) {
+    // Two nested Views rather than one: shadowColor/shadowOpacity on a View
+    // that ALSO clips via overflow:hidden loses the shadow on iOS (the
+    // shadow is computed outside the box overflow:hidden is cutting at —
+    // same reasoning as tableCardStyle's own doc comment above). The outer
+    // View carries the shadow + spacing between cards, the inner one
+    // carries the rounded border and clips the row/detail strip to it.
+    return (
+      <View style={styles.cardOuter}>
+        <View style={styles.cardInner}>{body}</View>
+      </View>
+    );
+  }
+
+  return <View style={!isFirst && styles.rowDivider}>{body}</View>;
 }
 
 /** Convenience wrapper for a screen whose whole list is already loaded (no
@@ -225,6 +270,12 @@ export function ExpandableTable<T>({
   style,
   onEndReached,
   isFetchingNextPage,
+  // Default on — every table in the app now renders rows as their own
+  // separated, shadowed cards (see TableRow's own `cardRows` doc comment)
+  // rather than one shared bordered list. Pass `cardRows={false}` to opt a
+  // screen back into the original single-card-with-dividers look.
+  cardRows = true,
+  headerContent,
 }: {
   columns: TableColumn<T>[];
   visibleCount: number;
@@ -241,10 +292,26 @@ export function ExpandableTable<T>({
   onEndReached?: () => void;
   /** Shows the trailing spinner row while the next page is in flight. */
   isFetchingNextPage?: boolean;
+  /** Renders every row as its own separated, shadowed card instead of one
+   * shared bordered card with divider lines between rows — see TableRow's
+   * own `cardRows` doc comment. Defaults on for every table in the app;
+   * pass `false` to opt a screen back into the original shared-card look. */
+  cardRows?: boolean;
+  /** Extra content (info cards, etc.) to scroll away WITH the table instead
+   * of sitting in a fixed block above it — see CustomerDetailScreen's own
+   * fix comment for why this exists: a screen that puts its own tall fixed
+   * content above this table (a customer's profile card + nominee card, on
+   * a small screen or with every optional field filled in) was squeezing
+   * the table into a near-zero-height flex slot, which read as "scrolling
+   * doesn't work" even though the FlatList itself was fine. When set, this
+   * renders inside the FlatList as part of `ListHeaderComponent` — ABOVE
+   * TableHeader, which moves in here too so both scroll together — instead
+   * of TableHeader's normal fixed-sibling placement below. */
+  headerContent?: React.ReactNode;
 }) {
   return (
-    <View style={[tableCardStyle, styles.flatList, style]}>
-      <TableHeader columns={columns} visibleCount={visibleCount} />
+    <View style={[!cardRows && tableCardStyle, styles.flatList, style]}>
+      {headerContent ? null : <TableHeader columns={columns} visibleCount={visibleCount} cardRows={cardRows} />}
       {/* Resets ScrollView.Context to null around this FlatList — RN's
        * "VirtualizedLists should never be nested inside plain ScrollViews"
        * check reads that context and fires whenever ANY ancestor ScrollView
@@ -262,6 +329,14 @@ export function ExpandableTable<T>({
           keyExtractor={keyExtractor}
           style={styles.rowsList}
           showsVerticalScrollIndicator={false}
+          ListHeaderComponent={
+            headerContent ? (
+              <>
+                {headerContent}
+                <TableHeader columns={columns} visibleCount={visibleCount} cardRows={cardRows} />
+              </>
+            ) : undefined
+          }
           ListEmptyComponent={
             <ThemedText color={colors.muted} style={{ padding: 16 }}>
               {emptyText}
@@ -275,6 +350,7 @@ export function ExpandableTable<T>({
               extraFields={extraFields}
               onViewDescription={onViewDescription}
               isFirst={index === 0}
+              cardRows={cardRows}
             />
           )}
           refreshControl={refreshControl}
@@ -306,12 +382,29 @@ const styles = StyleSheet.create({
     backgroundColor: colors.brandPale,
     paddingVertical: 9,
     paddingHorizontal: 10,
+    gap: 10,
   },
-  headCell: { fontSize: 11, letterSpacing: 0.6, paddingRight: 6 },
+  headCell: { fontSize: 11, letterSpacing: 0.6 },
+  // cardRows variant — a plain label row above the separated cards, no
+  // filled bar/rounded corners of its own (there's no longer one shared
+  // card for it to cap).
+  headRowPlain: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 4,
+    paddingBottom: 8,
+    gap: 10,
+  },
+  headCellPlain: { fontSize: 10.5, letterSpacing: 0.6 },
   firstRowRadius: { borderTopLeftRadius: RADIUS, borderTopRightRadius: RADIUS },
   lastRowRadius: { borderBottomLeftRadius: RADIUS, borderBottomRightRadius: RADIUS },
   rowDivider: { borderTopWidth: 1, borderTopColor: colors.line },
-  dataRow: { flexDirection: "row", alignItems: "center", paddingVertical: 11, paddingHorizontal: 10, backgroundColor: colors.card },
+  // gap: 10 — data cells previously sat flush against each other with no
+  // spacing at all (only the header row's cells had a paddingRight, which
+  // this replaces): on rows with several short columns (e.g. Customers'
+  // Phone next to its KYC status pill) that read as two unrelated values
+  // crowded together instead of two separate columns.
+  dataRow: { flexDirection: "row", alignItems: "center", paddingVertical: 11, paddingHorizontal: 10, backgroundColor: colors.card, gap: 10 },
   cellText: { fontSize: 14.5 },
   firstCell: { fontWeight: "600" as const },
   chevCol: { width: 24, alignItems: "center", justifyContent: "center" },
@@ -323,6 +416,27 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
     paddingTop: 10,
     paddingBottom: 12,
+  },
+  // cardRows variant of detailWrap — same content, just card-tinted rather
+  // than ivory, since the surrounding card is already visually separated
+  // from the page background (ivory existed to read as "inset" against the
+  // single shared card's own colors.card fill).
+  detailWrapCard: { backgroundColor: colors.card },
+  // cardRows variant of a table row — see TableRow's own `cardRows` branch.
+  cardOuter: {
+    marginBottom: 10,
+    shadowColor: colors.charcoal,
+    shadowOpacity: 0.08,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 2,
+  },
+  cardInner: {
+    borderRadius: RADIUS - 2,
+    borderWidth: 1,
+    borderColor: colors.line,
+    overflow: "hidden",
+    backgroundColor: colors.card,
   },
   detailGrid: { flexDirection: "row", flexWrap: "wrap" },
   detailField: { width: "50%", paddingRight: 10, marginBottom: 9 },

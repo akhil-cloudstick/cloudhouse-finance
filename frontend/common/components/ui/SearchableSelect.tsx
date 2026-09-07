@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 
 export type SearchPage<T> = { items: T[]; hasMore: boolean };
@@ -54,6 +54,7 @@ export function SearchableSelect<T>({
   onChange,
   fetchFn,
   getLabel,
+  renderLabel,
   getId,
   placeholder,
   allowCreate = false,
@@ -68,6 +69,15 @@ export function SearchableSelect<T>({
   onChange: (id: string, item: T) => void;
   fetchFn: (query: string, page: number) => Promise<SearchPage<T>>;
   getLabel: (item: T) => string;
+  // Optional richer rendering for a *result row* only. getLabel stays the
+  // single source of truth for the input's own displayed text (it's a plain
+  // text input — it cannot hold markup) and for allowCreate's exact-match
+  // check; renderLabel just lets a row show more than that flat string —
+  // e.g. the customer pickers' name plus a "Verified" badge
+  // (VerifiedBadge.tsx, used by NewLoan.tsx and NewPersonalLoanModal.tsx).
+  // Every other caller omits it and keeps rendering plain bold getLabel
+  // text, unchanged.
+  renderLabel?: (item: T) => ReactNode;
   getId: (item: T) => string;
   placeholder?: string;
   allowCreate?: boolean;
@@ -313,7 +323,7 @@ export function SearchableSelect<T>({
           href="#"
           onClick={(e) => { e.preventDefault(); pick(item); }}
         >
-          <span className="tx"><b>{getLabel(item)}</b></span>
+          <span className="tx">{renderLabel ? renderLabel(item) : <b>{getLabel(item)}</b>}</span>
         </a>
       ))}
       {loadingMore && <div className="gs-none">Loading more…</div>}

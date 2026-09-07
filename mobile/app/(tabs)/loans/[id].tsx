@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { ScrollView, View, RefreshControl } from "react-native";
+import { ScrollView, View, RefreshControl, Linking, Alert } from "react-native";
 import { useLocalSearchParams } from "expo-router";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useRefetchOnFocus } from "../../../src/hooks/useRefetchOnFocus";
@@ -10,6 +10,7 @@ import { GoldTextInput } from "../../../src/components/GoldTextInput";
 import { GoldDatePicker } from "../../../src/components/GoldDatePicker";
 import { GoldButton } from "../../../src/components/GoldButton";
 import { ChipSelect } from "../../../src/components/ChipSelect";
+import { BottomSheetModal } from "../../../src/components/BottomSheetModal";
 import { colors } from "../../../src/theme/colors";
 import { useRole, useAuth } from "../../../src/auth/AuthContext";
 import {
@@ -21,10 +22,15 @@ import {
   normalizeSanctionStage,
   SANCTION_STAGE_LABELS,
   SANCTION_STAGE_ROLES,
+  startIndemnityBondEsign,
+  checkIndemnityBondEsign,
   type SanctionStage,
+  type BondLang,
+  type BondDeliverBy,
 } from "../../../src/api/loans";
 import { recordPayment } from "../../../src/api/payments";
-import { recordBankPledge, releaseBankPledge } from "../../../src/api/bankPledges";
+import { recordBankPledge, releaseBankPledge, voidBankPledge, getBankPledgeHistory } from "../../../src/api/bankPledges";
+import { listBanks } from "../../../src/api/banks";
 import { fmt } from "../../../src/lib/format";
 import {
   getAuction,
@@ -136,11 +142,27 @@ export default function LoanDetailScreen() {
   const [releaseDetail, setReleaseDetail] = useState("");
 
   // --- Bank pledge form state -------------------------------------------------
+  // bankId links the pledge to a real Bank record (frontend/backend already
+  // require this — recordBankPledge accepts it, it just went unused here);
+  // pledgeBankName still carries the display label the picker sheet fills in.
+  const [pledgeBankId, setPledgeBankId] = useState<number | undefined>(undefined);
   const [pledgeBankName, setPledgeBankName] = useState("");
   const [pledgeAmount, setPledgeAmount] = useState("");
   const [pledgeDate, setPledgeDate] = useState("");
+  const [pledgeInterestRate, setPledgeInterestRate] = useState("");
+  const [pledgeDueDate, setPledgeDueDate] = useState("");
   const [pledgeReference, setPledgeReference] = useState("");
   const [pledgeCashTreatment, setPledgeCashTreatment] = useState<"CashIn" | "RecordOnly">("RecordOnly");
+  const [bankPickerVisible, setBankPickerVisible] = useState(false);
+  const [voidSheetVisible, setVoidSheetVisible] = useState(false);
+  const [voidReason, setVoidReason] = useState("");
+  const [historyVisible, setHistoryVisible] = useState(false);
+  const [confirmReleaseVisible, setConfirmReleaseVisible] = useState(false);
+
+  // --- eSign form/status state -------------------------------------------------
+  const [esignSheetVisible, setEsignSheetVisible] = useState(false);
+  const [esignLang, setEsignLang] = useState<BondLang>("en");
+  const [esignNotice, setEsignNotice] = useState<string | null>(null);
 
   function invalidate() {
     queryClient.invalidateQueries({ queryKey: ["auction", id] });
@@ -244,16 +266,22 @@ export default function LoanDetailScreen() {
   const doRecordPledge = useMutation({
     mutationFn: () =>
       recordBankPledge(loanId, {
+        bankId: pledgeBankId,
         bankName: pledgeBankName,
         pledgedAmount: Number(pledgeAmount),
         pledgeDate: pledgeDate || new Date().toISOString().slice(0, 10),
+        bankInterestRate: pledgeInterestRate ? Number(pledgeInterestRate) : undefined,
         referenceNumber: pledgeReference || undefined,
+        bankPledgeDueDate: pledgeDueDate || undefined,
         cashTreatment: pledgeCashTreatment,
       }),
     onSuccess: () => {
+      setPledgeBankId(undefined);
       setPledgeBankName("");
       setPledgeAmount("");
       setPledgeDate("");
+      setPledgeInterestRate("");
+      setPledgeDueDate("");
       setPledgeReference("");
       onOk();
     },
@@ -262,7 +290,75 @@ export default function LoanDetailScreen() {
 
   const doReleasePledge = useMutation({
     mutationFn: (pledgeId: number) => releaseBankPledge(loanId, pledgeId),
-    onSuccess: onOk,
+    onSuccess: () => {
+      setConfirmReleaseVisible(false);
+      onOk();
+    },
+    onError,
+  });
+
+  // banksQuery backs the bank picker sheet — fetched once per screen visit
+  // rather than per-keystroke search, since a branch's bank list is short.
+  const banksQuery = useQuery({ queryKey: ["banks-all"], queryFn: () => listBanks(), enabled: bankPickerVisible });
+
+  // historyQuery backs the History sheet — getBankPledgeHistory was already
+  // implemented in the API client and called from nowhere (see
+  // src/api/bankPledges.ts); this is its first caller.
+  const historyQuery = useQuery({
+    queryKey: ["bankPledgeHistory", id],
+    queryFn: () => getBankPledgeHistory(loanId),
+    enabled: historyVisible,
+  });
+
+  const doVoidPledge = useMutation({
+    mutationFn: (pledgeId: number) => voidBankPledge(loanId, pledgeId, voidReason.trim()),
+    onSuccess: () => {
+      setVoidSheetVisible(false);
+      setVoidReason("");
+      queryClient.invalidateQueries({ queryKey: ["bankPledgeHistory", id] });
+      onOk();
+    },
+    onError,
+  });
+
+  // --- Aadhaar eSign ------------------------------------------------------
+  // Mirrors frontend/modules/loans/components/LoanDetail.tsx's
+  // startIndemnityEsign/checkIndemnityEsign, with one addition: deliverBy
+  // lets staff send the signing link straight to the customer's WhatsApp or
+  // dashboard instead of only opening it on this device.
+  const doStartEsign = useMutation({
+    mutationFn: (deliverBy: BondDeliverBy) =>
+      startIndemnityBondEsign(loanId, esignLang, "ambikagold://esign-callback", deliverBy),
+    onSuccess: (started, deliverBy) => {
+      setEsignSheetVisible(false);
+      if (deliverBy === "open" && started.url) {
+        Linking.openURL(started.url).catch(() => setError("Could not open the Aadhaar eSign link."));
+        setEsignNotice(null);
+      } else if (deliverBy === "whatsapp") {
+        setEsignNotice("Sent via WhatsApp to the customer's phone on file.");
+      } else {
+        setEsignNotice("Sent to the customer's dashboard — they'll see it next time they open the app.");
+      }
+      onOk();
+    },
+    onError: (err) => {
+      setEsignSheetVisible(false);
+      onError(err);
+    },
+  });
+
+  const doCheckEsign = useMutation({
+    mutationFn: () => checkIndemnityBondEsign(loanId),
+    onSuccess: (result) => {
+      if (result.status === "sign_complete") {
+        setEsignNotice("Signed successfully.");
+      } else if (result.status === "failed") {
+        setEsignNotice("Aadhaar eSign failed — send it again.");
+      } else {
+        setEsignNotice("Still waiting on the customer to complete Aadhaar eSign.");
+      }
+      onOk();
+    },
     onError,
   });
 
@@ -392,6 +488,100 @@ export default function LoanDetailScreen() {
             />
           </View>
         </Card>
+
+        {/* --- Aadhaar eSign --------------------------------------------------
+         * Additional to the print-and-sign-by-hand buttons above — needs the
+         * customer's own device/network, so the wet-signature route above
+         * stays available regardless. Mirrors frontend/modules/loans/
+         * components/LoanDetail.tsx's eSign section. */}
+        {l.status !== "Closed" ? (
+          <Card>
+            <ThemedText variant="h3" style={{ marginBottom: 8 }}>
+              Aadhaar eSign
+            </ThemedText>
+            {l.indemnityBondSignStatus === "sign_complete" && l.indemnityBondSignedUrl ? (
+              <ThemedText variant="small" color={colors.green}>
+                Signed — {l.indemnityBondSignedUrl}
+              </ThemedText>
+            ) : (
+              <>
+                <ThemedText variant="small" color={colors.muted} style={{ marginBottom: 10 }}>
+                  {l.indemnityBondSignStatus === "sign_initiated"
+                    ? "Awaiting the customer's Aadhaar + OTP signature."
+                    : "Not yet sent for eSign."}
+                </ThemedText>
+                {esignNotice ? (
+                  <ThemedText variant="small" color={colors.blue} style={{ marginBottom: 10 }}>
+                    {esignNotice}
+                  </ThemedText>
+                ) : null}
+                <View style={{ flexDirection: "row", gap: 8 }}>
+                  <View style={{ flex: 1 }}>
+                    <GoldButton
+                      title="Send for eSign"
+                      onPress={() => {
+                        setEsignNotice(null);
+                        setEsignSheetVisible(true);
+                      }}
+                    />
+                  </View>
+                  {l.indemnityBondSignStatus === "sign_initiated" ? (
+                    <View style={{ flex: 1 }}>
+                      <GoldButton
+                        title="Check eSign Status"
+                        variant="outline"
+                        onPress={() => doCheckEsign.mutate()}
+                        loading={doCheckEsign.isPending}
+                      />
+                    </View>
+                  ) : null}
+                </View>
+              </>
+            )}
+          </Card>
+        ) : null}
+
+        <BottomSheetModal visible={esignSheetVisible} onClose={() => setEsignSheetVisible(false)}>
+          <ThemedText variant="h3" style={{ marginBottom: 4 }}>
+            Choose eSign Document
+          </ThemedText>
+          <ThemedText variant="small" color={colors.muted} style={{ marginBottom: 14 }}>
+            {l.loanNumber} · {l.customer?.name ?? `Customer #${l.customerId}`}
+            {l.customer?.phone ? ` · ${l.customer.phone}` : ""}
+          </ThemedText>
+          <ChipSelect
+            label="Bond language"
+            options={["en", "gu"] as const}
+            value={esignLang}
+            onChange={setEsignLang}
+          />
+          <ThemedText variant="label" color={colors.muted} style={{ marginTop: 4, marginBottom: 8 }}>
+            Deliver via
+          </ThemedText>
+          <View style={{ flexDirection: "row", gap: 8, marginBottom: 10 }}>
+            <View style={{ flex: 1 }}>
+              <GoldButton
+                title="Open Here"
+                variant="outline"
+                onPress={() => doStartEsign.mutate("open")}
+                loading={doStartEsign.isPending}
+              />
+            </View>
+            <View style={{ flex: 1 }}>
+              <GoldButton
+                title="WhatsApp"
+                onPress={() => doStartEsign.mutate("whatsapp")}
+                loading={doStartEsign.isPending}
+              />
+            </View>
+          </View>
+          <GoldButton
+            title="Send to Customer Dashboard"
+            variant="outline"
+            onPress={() => doStartEsign.mutate("dashboard")}
+            loading={doStartEsign.isPending}
+          />
+        </BottomSheetModal>
 
         {error ? (
           <Card>
@@ -532,11 +722,26 @@ export default function LoanDetailScreen() {
           </Card>
         ) : null}
 
-        {/* --- Bank Pledge ------------------------------------------------------ */}
+        {/* --- Bank Pledge ------------------------------------------------------
+         * Brought to parity with frontend/modules/loans/components/
+         * BankPledge.tsx: a real bank picker (bankId, not just a typed
+         * name), interest rate + due date (recordBankPledge already
+         * accepted both — this form just never sent them), a Void action
+         * for a mis-recorded pledge, and a History view — all three
+         * already implemented in src/api/bankPledges.ts and unused until
+         * now. */}
         <Card>
-          <ThemedText variant="h3" style={{ marginBottom: 8 }}>
-            Bank Pledge
-          </ThemedText>
+          <View style={{ flexDirection: "row", alignItems: "center", marginBottom: 8 }}>
+            <ThemedText variant="h3" style={{ flex: 1 }}>
+              Bank Pledge
+            </ThemedText>
+            <GoldButton
+              title="History"
+              variant="outline"
+              onPress={() => setHistoryVisible(true)}
+              style={{ height: 32, paddingHorizontal: 12 }}
+            />
+          </View>
           {activePledge ? (
             <>
               <ThemedText variant="body">{activePledge.bankName}</ThemedText>
@@ -544,32 +749,67 @@ export default function LoanDetailScreen() {
                 Pledged ₹{activePledge.pledgedAmount.toLocaleString("en-IN")} on {activePledge.pledgeDate}
                 {activePledge.referenceNumber ? ` · Ref ${activePledge.referenceNumber}` : ""}
               </ThemedText>
+              {activePledge.bankInterestRate != null || activePledge.bankPledgeDueDate ? (
+                <ThemedText variant="small" color={colors.muted}>
+                  {activePledge.bankInterestRate != null ? `${activePledge.bankInterestRate}% p.a.` : ""}
+                  {activePledge.bankInterestRate != null && activePledge.bankPledgeDueDate ? " · " : ""}
+                  {activePledge.bankPledgeDueDate ? `due ${activePledge.bankPledgeDueDate}` : ""}
+                </ThemedText>
+              ) : null}
               <ThemedText variant="small" color={colors.muted} style={{ marginBottom: 8 }}>
                 {activePledge.cashTreatment === "CashIn"
                   ? "Added to Cash-in-Hand"
                   : "Record only — no cash effect"}
               </ThemedText>
-              <GoldButton
-                title="Release from Bank"
-                variant="outline"
-                onPress={() => doReleasePledge.mutate(activePledge.id)}
-                loading={doReleasePledge.isPending}
-              />
+              <View style={{ flexDirection: "row", gap: 8 }}>
+                <View style={{ flex: 1 }}>
+                  <GoldButton
+                    title="Release from Bank"
+                    variant="outline"
+                    onPress={() => setConfirmReleaseVisible(true)}
+                  />
+                </View>
+                <GoldButton
+                  title="Void"
+                  variant="outline"
+                  onPress={() => setVoidSheetVisible(true)}
+                  style={{ height: 44, paddingHorizontal: 16, borderColor: colors.red }}
+                />
+              </View>
             </>
           ) : l.status !== "Closed" ? (
             <>
-              <GoldTextInput label="Bank Name" value={pledgeBankName} onChangeText={setPledgeBankName} />
+              <GoldTextInput
+                label="Bank"
+                value={pledgeBankName}
+                onChangeText={setPledgeBankName}
+                onFocus={() => setBankPickerVisible(true)}
+                placeholder="Tap to choose a bank"
+              />
               <GoldTextInput
                 label="Pledged Amount"
                 keyboardType="numeric"
                 value={pledgeAmount}
                 onChangeText={setPledgeAmount}
               />
-              <GoldTextInput
-                label="Pledge Date (YYYY-MM-DD)"
-                value={pledgeDate}
-                onChangeText={setPledgeDate}
-              />
+              <View style={{ flexDirection: "row", gap: 8 }}>
+                <View style={{ flex: 1 }}>
+                  <GoldTextInput
+                    label="Pledge Date (YYYY-MM-DD)"
+                    value={pledgeDate}
+                    onChangeText={setPledgeDate}
+                  />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <GoldTextInput
+                    label="Interest Rate %"
+                    keyboardType="numeric"
+                    value={pledgeInterestRate}
+                    onChangeText={setPledgeInterestRate}
+                  />
+                </View>
+              </View>
+              <GoldDatePicker label="Due Date" value={pledgeDueDate} onChange={setPledgeDueDate} />
               <GoldTextInput label="Reference Number" value={pledgeReference} onChangeText={setPledgeReference} />
               <ChipSelect
                 options={["RecordOnly", "CashIn"] as const}
@@ -591,6 +831,121 @@ export default function LoanDetailScreen() {
             </ThemedText>
           )}
         </Card>
+
+        <BottomSheetModal visible={bankPickerVisible} onClose={() => setBankPickerVisible(false)}>
+          <ThemedText variant="h3" style={{ marginBottom: 10 }}>
+            Choose Bank
+          </ThemedText>
+          {banksQuery.isLoading ? (
+            <ThemedText variant="small" color={colors.muted}>
+              Loading banks…
+            </ThemedText>
+          ) : (
+            <ScrollView style={{ maxHeight: 320 }}>
+              {(banksQuery.data ?? []).map((b) => (
+                <GoldButton
+                  key={b.id}
+                  title={b.name}
+                  variant="outline"
+                  style={{ marginBottom: 8 }}
+                  onPress={() => {
+                    setPledgeBankId(b.id);
+                    setPledgeBankName(b.name);
+                    setBankPickerVisible(false);
+                  }}
+                />
+              ))}
+            </ScrollView>
+          )}
+        </BottomSheetModal>
+
+        <BottomSheetModal visible={confirmReleaseVisible} onClose={() => setConfirmReleaseVisible(false)}>
+          <ThemedText variant="h3" style={{ marginBottom: 8 }}>
+            Release from Bank?
+          </ThemedText>
+          <ThemedText variant="small" color={colors.muted} style={{ marginBottom: 14 }}>
+            {activePledge?.cashTreatment === "CashIn"
+              ? `This books ₹${activePledge?.pledgedAmount.toLocaleString("en-IN")} back OUT of Cash-in-Hand — the amount this pledge originally brought in.`
+              : "This pledge never moved cash, so releasing it has no cash effect."}
+          </ThemedText>
+          <View style={{ flexDirection: "row", gap: 8 }}>
+            <View style={{ flex: 1 }}>
+              <GoldButton title="Cancel" variant="outline" onPress={() => setConfirmReleaseVisible(false)} />
+            </View>
+            <View style={{ flex: 1 }}>
+              <GoldButton
+                title="Release"
+                onPress={() => activePledge && doReleasePledge.mutate(activePledge.id)}
+                loading={doReleasePledge.isPending}
+              />
+            </View>
+          </View>
+        </BottomSheetModal>
+
+        <BottomSheetModal visible={voidSheetVisible} onClose={() => setVoidSheetVisible(false)}>
+          <ThemedText variant="h3" style={{ marginBottom: 4 }}>
+            Void This Pledge
+          </ThemedText>
+          <ThemedText variant="small" color={colors.muted} style={{ marginBottom: 12 }}>
+            For a pledge recorded in error — the only way to fix a wrong cash treatment (it can&apos;t be
+            edited). Books a compensating cash-out if it originally moved cash.
+          </ThemedText>
+          <GoldTextInput
+            label="Reason *"
+            value={voidReason}
+            onChangeText={setVoidReason}
+            placeholder="e.g. wrong cash treatment entered"
+          />
+          <GoldButton
+            title="Void Pledge"
+            onPress={() => activePledge && doVoidPledge.mutate(activePledge.id)}
+            loading={doVoidPledge.isPending}
+            disabled={!voidReason.trim()}
+          />
+        </BottomSheetModal>
+
+        <BottomSheetModal visible={historyVisible} onClose={() => setHistoryVisible(false)}>
+          <ThemedText variant="h3" style={{ marginBottom: 10 }}>
+            Bank Pledge History
+          </ThemedText>
+          {historyQuery.isLoading ? (
+            <ThemedText variant="small" color={colors.muted}>
+              Loading history…
+            </ThemedText>
+          ) : (historyQuery.data ?? []).length === 0 ? (
+            <ThemedText variant="small" color={colors.muted}>
+              No bank pledge history for this loan yet.
+            </ThemedText>
+          ) : (
+            <ScrollView style={{ maxHeight: 400 }}>
+              {(historyQuery.data ?? []).map((p) => (
+                <View
+                  key={p.id}
+                  style={{ paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: colors.line }}
+                >
+                  <View style={{ flexDirection: "row", justifyContent: "space-between" }}>
+                    <ThemedText variant="body">{p.bankName}</ThemedText>
+                    <ThemedText
+                      variant="small"
+                      color={p.status === "Active" ? colors.green : p.status === "Voided" ? colors.red : colors.muted}
+                    >
+                      {p.status}
+                    </ThemedText>
+                  </View>
+                  <ThemedText variant="small" color={colors.muted}>
+                    ₹{p.pledgedAmount.toLocaleString("en-IN")} · pledged {p.pledgeDate}
+                    {p.referenceNumber ? ` · ${p.referenceNumber}` : ""}
+                  </ThemedText>
+                  {p.status === "Voided" && p.voidReason ? (
+                    <ThemedText variant="small" color={colors.red}>
+                      {p.voidReason}
+                    </ThemedText>
+                  ) : null}
+                </View>
+              ))}
+            </ScrollView>
+          )}
+        </BottomSheetModal>
 
         {/* --- Auction (7-stage workflow) ------------------------------------------ */}
         {(() => {

@@ -39,6 +39,7 @@ import (
 	"ambikagold/backend/internal/notification"
 	"ambikagold/backend/internal/ornamenttype"
 	"ambikagold/backend/internal/packet"
+	"ambikagold/backend/internal/investment"
 	"ambikagold/backend/internal/personalloan"
 	"ambikagold/backend/internal/platform"
 	"ambikagold/backend/internal/puritystandard"
@@ -82,6 +83,7 @@ type App struct {
 	loanSvc         *loan.Service
 	billingSvc      *billing.Service
 	dashboardSvc    *dashboard.Service
+	investmentSvc   *investment.Service
 }
 
 // Build wires the entire application against an already-migrated database
@@ -236,6 +238,10 @@ func Build(db *gorm.DB, cfg platform.Config) (*App, error) {
 	personalLoanSvc := personalloan.NewService(personalLoanRepo, customerRepo, movementSvc, aadhaarCipher)
 	personalLoanHandler := personalloan.NewHandler(personalLoanSvc)
 
+	investmentRepo := investment.NewRepository(db)
+	investmentSvc := investment.NewService(investmentRepo, customerRepo, movementSvc, investmentCommsAdapter{notificationSvc: notificationSvc})
+	investmentHandler := investment.NewHandler(investmentSvc)
+
 	reminderRepo := reminder.NewRepository(db)
 	reminderSvc := reminder.NewService(reminderRepo, customerRepo, loanRepo, personalLoanSvc, whatsappSender, commlogRepo, tenantRepo)
 	reminderHandler := reminder.NewHandler(reminderSvc)
@@ -388,6 +394,9 @@ func Build(db *gorm.DB, cfg platform.Config) (*App, error) {
 	packet.RegisterRoutes(protected.Group("/packets"), packetHandler, platform.CRUDPermissions(authzRepo, "packets"))
 	reminder.RegisterRoutes(protected.Group("/reminders"), reminderHandler, platform.CRUDPermissions(authzRepo, "reminders"))
 	personalloan.RegisterRoutes(protected.Group("/personal-loans"), personalLoanHandler, platform.CRUDPermissions(authzRepo, "personalloans"))
+	protected.GET("/customers/:id/investments", platform.CRUDPermissions(authzRepo, "investments").Read, investmentHandler.ListInvestmentsForCustomer)
+	investment.RegisterRoutes(protected.Group("/investments"), investmentHandler, platform.CRUDPermissions(authzRepo, "investments"))
+	investment.RegisterPlanRoutes(protected.Group("/investment-plans"), investmentHandler, platform.CRUDPermissions(authzRepo, "investments"))
 	// Reports are read-only, gated solely by "can view report" — the
 	// Administrator/Management/Branch Manager/Auditor default access is now
 	// applied via internal/authz.Restrictions (a role_permissions grant, not
@@ -451,7 +460,35 @@ func Build(db *gorm.DB, cfg platform.Config) (*App, error) {
 		loanSvc:         loanSvc,
 		billingSvc:      billingSvc,
 		dashboardSvc:    dashboardSvc,
+		investmentSvc:   investmentSvc,
 	}, nil
+}
+
+// investmentCommsAdapter satisfies investment.CommsRecorder using the
+// in-app notification.Service, without investment importing that package
+// directly — mirrors how loan.CustomerNotifier is satisfied by the same
+// *notification.Service (see notification.Service.Notify's doc comment).
+// WhatsApp/commlog delivery for these two triggers (commlog.
+// TriggerInterestPayout / TriggerInvestmentMatured) is not yet wired here —
+// only the in-app notification fires today.
+type investmentCommsAdapter struct {
+	notificationSvc *notification.Service
+}
+
+func (a investmentCommsAdapter) NotifyInterestPayout(ctx context.Context, customerID uint, investmentNumber string, amount float64) error {
+	a.notificationSvc.Notify(ctx, customerID, "investment_interest_payout",
+		"Interest payout received",
+		fmt.Sprintf("Your interest payout of %.2f for investment %s has been paid.", amount, investmentNumber),
+		"Investment", 0)
+	return nil
+}
+
+func (a investmentCommsAdapter) NotifyInvestmentMatured(ctx context.Context, customerID uint, investmentNumber string) error {
+	a.notificationSvc.Notify(ctx, customerID, "investment_matured",
+		"Investment matured",
+		fmt.Sprintf("Your investment %s has matured. Please contact us to close or renew it.", investmentNumber),
+		"Investment", 0)
+	return nil
 }
 
 // StartBackgroundJobs launches the tickers the server runs. Kept separate
@@ -485,6 +522,15 @@ func (a *App) StartBackgroundJobs(ctx context.Context) {
 			tenant.ForEachActive(ctx, a.tenantRepo, "due/overdue sweep", func(ctx context.Context, t tenant.Tenant) error {
 				a.loanSvc.CheckDueAndOverdueLoans(ctx)
 				return nil
+			})
+		}
+	}()
+	go func() {
+		ticker := time.NewTicker(1 * time.Hour)
+		defer ticker.Stop()
+		for range ticker.C {
+			tenant.ForEachActive(ctx, a.tenantRepo, "investment maturity sweep", func(ctx context.Context, t tenant.Tenant) error {
+				return a.investmentSvc.SweepMaturities(ctx)
 			})
 		}
 	}()

@@ -258,6 +258,7 @@ var resourceNouns = map[string]string{
 	"customers":       "customer",
 	"loans":           "loan",
 	"personalloans":   "personal loan",
+	"investments":     "investment",
 	"bankpledges":     "bank pledge",
 	"uploads":         "upload",
 	"ornamenttypes":   "ornament type",

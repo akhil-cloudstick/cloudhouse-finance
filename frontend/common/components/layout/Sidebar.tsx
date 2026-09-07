@@ -1,9 +1,7 @@
 "use client";
 
-import { useRouter } from "next/navigation";
 import { Icon } from "@/common/components/Icon";
 import { useAuth } from "@/common/auth-context";
-import { loginPath } from "@/common/services/tenantSession";
 import { BRAND } from "@/common/config/brand";
 import BrandLogo from "@/common/components/BrandLogo";
 
@@ -51,18 +49,7 @@ export const NAV: [string, NavItem[]][] = [
 ];
 
 export function Sidebar({ route, open }: { route: string; open: boolean }) {
-  const { logout, can } = useAuth();
-  const router = useRouter();
-
-  function handleSignOut(e: React.MouseEvent) {
-    e.preventDefault();
-    // Resolve the link before logout: it clears the remembered business, and
-    // a signed-out user should land back on their own organisation.s sign-in
-    // page rather than a bare form asking for a business code.
-    const back = loginPath();
-    logout();
-    router.replace(back);
-  }
+  const { can } = useAuth();
 
   return (
     <aside className={`side${open ? " open" : ""}`} id="side">
@@ -105,10 +92,6 @@ export function Sidebar({ route, open }: { route: string; open: boolean }) {
           );
         })}
       </nav>
-      <div className="sfoot">
-        Trust · Value · Growth
-        <br />
-      </div>
     </aside>
   );
 }

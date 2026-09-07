@@ -91,6 +91,7 @@ func RegisterRoutes(rg *gin.RouterGroup, h *Handler, perms platform.CRUDMiddlewa
 	rg.GET("/requests", perms.Read, h.ListRequests)
 	rg.PUT("/requests/:requestId/decide", perms.Update, h.DecideRequest)
 	rg.PUT("/requests/:requestId/verify", perms.Update, h.VerifyReleaseChecklist)
+	rg.POST("/requests/:requestId/release-payment", perms.Update, h.RecordReleasePayment)
 	rg.POST("/requests/:requestId/approve", perms.Update, h.ApproveRequest)
 	rg.POST("/:id/complete-release", perms.Update, h.CompleteRelease)
 }

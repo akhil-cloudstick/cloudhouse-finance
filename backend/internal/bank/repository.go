@@ -22,6 +22,9 @@ func (r *Repository) Create(ctx context.Context, b *Bank) error {
 // FindAll returns banks matching query, plus the TOTAL row count for that
 // query (Limit/Offset ignored, 0 when limit <= 0). limit == 0 returns every
 // match unpaged (the web bank directory's behaviour); limit > 0 applies
+// FindAll returns banks matching query, plus the TOTAL row count for that
+// query (Limit/Offset ignored, 0 when limit <= 0). limit == 0 returns every
+// match unpaged (the web bank directory's behaviour); limit > 0 applies
 // Limit/Offset (the mobile app's paginated list) — same convention as
 // customer/loan/scheme's FindAll.
 func (r *Repository) FindAll(ctx context.Context, query string, limit, offset int) ([]Bank, int64, error) {

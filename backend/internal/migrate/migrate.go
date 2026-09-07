@@ -29,6 +29,7 @@ import (
 	"ambikagold/backend/internal/notification"
 	"ambikagold/backend/internal/ornamenttype"
 	"ambikagold/backend/internal/packet"
+	"ambikagold/backend/internal/investment"
 	"ambikagold/backend/internal/personalloan"
 	"ambikagold/backend/internal/platform"
 	"ambikagold/backend/internal/puritystandard"
@@ -138,6 +139,9 @@ func Run(db *gorm.DB, cfg platform.Config) error {
 		&personalloan.PersonalLoan{},
 		&personalloan.PersonalLoanInstallment{},
 		&personalloan.PersonalLoanPayment{},
+		&investment.InvestmentPlan{},
+		&investment.Investment{},
+		&investment.InvestmentPayout{},
 		&authz.Role{},
 		&authz.Permission{},
 		&authz.RolePermission{},

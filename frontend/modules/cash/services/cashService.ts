@@ -6,6 +6,10 @@ export type BackendCashMovement = {
   type: "in" | "out";
   source?: string;
   purpose?: string;
+  // Mode of cash — "Cash" | "UPI" | "Bank Transfer" — required for type=in
+  // via AddCashModal.tsx; blank for cash-out and every other movement that
+  // doesn't record one (loan repayments, bank-pledge cash-in, …).
+  mode?: string;
   bank?: string;
   amount: number;
   status?: string;
@@ -21,6 +25,7 @@ export type CashMovementView = {
   type: "in" | "out";
   source?: string;
   purpose?: string;
+  mode?: string;
   bank?: string;
   amount: number;
   status?: string;
@@ -34,6 +39,7 @@ function movementToView(m: BackendCashMovement): CashMovementView {
     type: m.type,
     source: m.source,
     purpose: m.purpose,
+    mode: m.mode,
     bank: m.bank,
     amount: m.amount,
     status: m.status,
@@ -45,6 +51,7 @@ export type CashMovementInput = {
   type: "in" | "out";
   source?: string;
   purpose?: string;
+  mode?: string;
   bank?: string;
   amount: number;
   branchId?: number;

@@ -209,7 +209,7 @@ export async function exportFormG(format: "xlsx" | "pdf", filters: ReportFilters
   const overrideParams = buildFormGOverridesQuery(overrides);
   overrideParams.forEach((v, k) => params.set(k, v));
 
-  const token = typeof window !== "undefined" ? window.localStorage.getItem(AUTH_TOKEN_KEY) : null;
+  const token = getAuthToken();
   const res = await fetch(`${API_BASE}/reports/export/form-g?${params.toString()}`, {
     headers: token ? { Authorization: `Bearer ${token}` } : {},
   });

@@ -2,11 +2,12 @@
 // (frontend/components/Calendar.tsx, Dashboard.tsx's "Upcoming Reminders"):
 // a manually-logged Customer Follow-Up / Promise-to-Pay / Custom reminder,
 // plus a read-only aggregation endpoint that merges those manual rows with
-// events derived live from loan.Loan (loan due dates, overdue loans, and a
-// monthly "interest payment" reminder on each open loan's opened-date
-// anniversary — see service.go's GetCalendarEvents). Only the manual rows
-// are persisted here; due-date/overdue/interest events are computed fresh
-// on every request from internal/loan, never duplicated into this table.
+// events derived live from loan.Loan/loan.AuctionRecord (loan due dates,
+// overdue loans, a scheduled auction date, and a monthly "interest payment"
+// reminder on each open loan's opened-date anniversary — see service.go's
+// GetCalendarEvents). Only the manual rows are persisted here; due-date/
+// overdue/interest/auction events are computed fresh on every request from
+// internal/loan, never duplicated into this table.
 package reminder
 
 import (
@@ -63,14 +64,12 @@ func (Reminder) TableName() string { return "reminders" }
 
 // CalendarEvent is the unified, read-only shape returned by GET
 // /reminders/calendar — one row per event on the calendar, whether it comes
-// from a persisted Reminder or is computed live from loan.Loan or
-// personalloan.PersonalLoan. Type distinguishes the eight categories:
-// InterestDue, LoanDue, Overdue (gold loan), PersonalLoanDue,
-// PersonalLoanOverdue (personal loan installment), FollowUp, PromiseToPay,
-// Custom.
+// from a persisted Reminder or is computed live from loan.Loan/
+// loan.AuctionRecord. Type distinguishes the seven categories: InterestDue,
+// LoanDue, Overdue, AuctionScheduled, FollowUp, PromiseToPay, Custom.
 type CalendarEvent struct {
 	Date   string `json:"date"` // "YYYY-MM-DD"
-	Type   string `json:"type"` // InterestDue | LoanDue | Overdue | PersonalLoanDue | PersonalLoanOverdue | FollowUp | PromiseToPay | Custom
+	Type   string `json:"type"` // InterestDue | LoanDue | Overdue | PersonalLoanDue | PersonalLoanOverdue | AuctionScheduled | FollowUp | PromiseToPay | Custom
 	Title  string `json:"title"`
 	Detail string `json:"detail"`
 

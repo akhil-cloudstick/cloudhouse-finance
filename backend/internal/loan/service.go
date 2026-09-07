@@ -94,29 +94,28 @@ type CashRecorder interface {
 }
 
 var (
-	ErrNotFound                = httpx.NewNotFound("loan not found")
-	ErrOrnamentNotFound        = httpx.NewNotFound("ornament not found")
-	ErrBranchInvalid           = httpx.NewBadRequest("branch does not exist")
-	ErrCustomerInvalid         = httpx.NewBadRequest("customer does not exist")
-	ErrCustomerNotVerified     = httpx.NewBadRequest("customer must be KYC verified before a loan can be created")
-	ErrSchemeInvalid           = httpx.NewBadRequest("scheme does not exist")
-	ErrNoOrnaments             = httpx.NewBadRequest("at least one ornament is required")
-	ErrNoGoldRate              = httpx.NewBadRequest("no gold rate has been published yet")
-	ErrGoldRateNotSetToday     = httpx.NewBadRequest("today's gold rate has not been set yet — please publish it before creating a loan")
-	ErrInvalidPurity           = httpx.NewBadRequest("purity must be a karat like \"22K\" (10-24) or a fineness percentage like \"91.6%\" (0-100)")
-	ErrInvalidWeight           = httpx.NewBadRequest("gross weight must be greater than zero")
-	ErrPrincipalTooHigh        = httpx.NewBadRequest("principal amount cannot exceed the eligible loan amount")
-	ErrInvalidPrincipal        = httpx.NewBadRequest("principal amount must be greater than zero")
-	ErrInvalidDueDate          = httpx.NewBadRequest("due date must be after the opened date")
-	ErrWrongStage              = httpx.NewBadRequest("approval action does not match the loan's current approval stage")
-	ErrAlreadyDecided          = httpx.NewBadRequest("loan approval has already reached a terminal state")
-	ErrInvalidAction           = httpx.NewBadRequest("action must be Approved or Rejected")
-	ErrInvalidAmount           = httpx.NewBadRequest("amount must be greater than zero")
-	ErrRequestNotFound         = httpx.NewNotFound("loan request not found")
-	ErrInvalidRequestType      = httpx.NewBadRequest("type must be Extension or Release")
-	ErrInvalidMonths           = httpx.NewBadRequest("requested extension months must be greater than zero")
+	ErrNotFound              = httpx.NewNotFound("loan not found")
+	ErrOrnamentNotFound      = httpx.NewNotFound("ornament not found")
+	ErrBranchInvalid         = httpx.NewBadRequest("branch does not exist")
+	ErrCustomerInvalid       = httpx.NewBadRequest("customer does not exist")
+	ErrSchemeInvalid         = httpx.NewBadRequest("scheme does not exist")
+	ErrNoOrnaments           = httpx.NewBadRequest("at least one ornament is required")
+	ErrNoGoldRate            = httpx.NewBadRequest("no gold rate has been published yet")
+	ErrGoldRateNotSetToday   = httpx.NewBadRequest("today's gold rate has not been set yet — please publish it before creating a loan")
+	ErrInvalidPurity         = httpx.NewBadRequest("purity must be a karat like \"22K\" (10-24) or a fineness percentage like \"91.6%\" (0-100)")
+	ErrInvalidWeight         = httpx.NewBadRequest("gross weight must be greater than zero")
+	ErrPrincipalTooHigh      = httpx.NewBadRequest("principal amount cannot exceed the eligible loan amount")
+	ErrInvalidPrincipal      = httpx.NewBadRequest("principal amount must be greater than zero")
+	ErrInvalidDueDate        = httpx.NewBadRequest("due date must be after the opened date")
+	ErrWrongStage            = httpx.NewBadRequest("approval action does not match the loan's current approval stage")
+	ErrAlreadyDecided        = httpx.NewBadRequest("loan approval has already reached a terminal state")
+	ErrInvalidAction         = httpx.NewBadRequest("action must be Approved or Rejected")
+	ErrInvalidAmount         = httpx.NewBadRequest("amount must be greater than zero")
+	ErrRequestNotFound       = httpx.NewNotFound("loan request not found")
+	ErrInvalidRequestType    = httpx.NewBadRequest("type must be Extension or Release")
+	ErrInvalidMonths         = httpx.NewBadRequest("requested extension months must be greater than zero")
 	ErrRequestAlreadyDecided = httpx.NewBadRequest("loan request has already been decided")
-	ErrInvalidPaymentType    = httpx.NewBadRequest("type must be Interest, Principal, Partial, Full Settlement, Adjustment, or Waiver")
+	ErrInvalidPaymentType    = httpx.NewBadRequest("type must be Interest, Principal, Partial, Full Settlement, Adjustment, Waiver, or Discount")
 	ErrNotExtensionRequest   = httpx.NewBadRequest("this request is not an Extension request")
 	ErrNotReleaseRequest     = httpx.NewBadRequest("this request is not a Release request")
 	// ErrUseStagedExtensionApproval is returned by the old single-step
@@ -126,6 +125,23 @@ var (
 	ErrUseStagedExtensionApproval = httpx.NewBadRequest("extension requests are now decided through the staged approval chain — use POST /loans/requests/:requestId/approve instead")
 	ErrLoanTerminalState          = httpx.NewBadRequest("loan is already Closed, Auctioned, or Defaulted — nothing left to extend")
 	ErrChecklistIncomplete        = httpx.NewBadRequest("the release verification checklist must be fully complete before approval")
+	// ErrNotManagerStage guards RecordReleasePayment: recording a payment/
+	// discount from the release review screen is only allowed while the
+	// request is still at the first (Manager) stage — once it has moved to
+	// Management the normal ApproveReleaseRequest/CompleteRelease path takes
+	// over, unchanged by this feature.
+	ErrNotManagerStage = httpx.NewBadRequest("payment can only be recorded while the release request is at the Manager review stage")
+	// ErrDueDateRequired is returned by RecordReleasePayment when the
+	// discount+payment entered don't cover the final settlement and no due
+	// date was supplied for the remaining balance.
+	ErrDueDateRequired = httpx.NewBadRequest("a due date is required when the recorded amount doesn't cover the full settlement")
+	// ErrPaymentNotCleared guards VerifyReleaseChecklist: staff may tick the
+	// Record Payment checklist item by hand (e.g. the balance was paid off
+	// through the loan's ordinary Record Payment screen rather than this
+	// release review's own Discount/Payment fields), but only once the
+	// loan's outstanding balance has actually reached zero — ticking it
+	// is an attestation, not the thing that makes it true.
+	ErrPaymentNotCleared = httpx.NewBadRequest("the loan's outstanding balance is not yet fully paid — cannot mark payment verified")
 	// ErrReleaseNotApproved is classified NotFound (not BadRequest) — a
 	// pre-existing choice this migration preserves: "no approved release
 	// request" surfaces the same as a missing resource.
@@ -193,8 +209,9 @@ var (
 	ErrEsignNotConfigured         = httpx.NewUnavailable("indemnity bond eSign is not configured")
 	ErrNoIndemnityBondSignRequest = httpx.NewBadRequest("no indemnity bond eSign has been started for this loan")
 	// ErrIndemnityBondAlreadySigned is a state conflict — Conflict, not BadRequest.
-	ErrIndemnityBondAlreadySigned   = httpx.NewConflict("this loan's indemnity bond has already been signed")
-	ErrUnsupportedIndemnityBondLang = httpx.NewBadRequest("lang must be en")
+	ErrIndemnityBondAlreadySigned      = httpx.NewConflict("this loan's indemnity bond has already been signed")
+	ErrUnsupportedIndemnityBondLang    = httpx.NewBadRequest("lang must be \"en\" or \"gu\"")
+	ErrUnsupportedIndemnityBondDeliver = httpx.NewBadRequest("deliverBy must be \"open\", \"whatsapp\" or \"dashboard\"")
 )
 
 // Service implements loan business rules: ornament valuation, eligible-
@@ -411,31 +428,29 @@ func (s *Service) notifyCustomer(ctx context.Context, customerID uint, phone, ti
 					log.Printf("whatsapp notification panicked (phone %s): %v", phone, r)
 				}
 			}()
-			go func() {
 			sendErr := s.whatsapp.Send(phone, message)
+			if sendErr != nil {
+				log.Printf("whatsapp notification failed (phone %s): %v", phone, sendErr)
+			}
+			if s.commlogRepo != nil {
+				rec := &commlog.CommunicationLog{
+					RecipientPhone:    phone,
+					ChatID:            commlog.NormalizeChatID(phone),
+					Channel:           commlog.ChannelWhatsApp,
+					TriggerType:       triggerType,
+					MessageBody:       message,
+					RelatedEntityType: relatedEntityType,
+					RelatedEntityID:   relatedEntityID,
+					Status:            commlog.StatusSent,
+				}
 				if sendErr != nil {
-					log.Printf("whatsapp notification failed (phone %s): %v", phone, sendErr)
+					rec.Status = commlog.StatusFailed
+					rec.ErrorMessage = sendErr.Error()
 				}
-				if s.commlogRepo != nil {
-					rec := &commlog.CommunicationLog{
-						RecipientPhone:    phone,
-						ChatID:            commlog.NormalizeChatID(phone),
-						Channel:           commlog.ChannelWhatsApp,
-						TriggerType:       triggerType,
-						MessageBody:       message,
-						RelatedEntityType: relatedEntityType,
-						RelatedEntityID:   relatedEntityID,
-						Status:            commlog.StatusSent,
-					}
-					if sendErr != nil {
-						rec.Status = commlog.StatusFailed
-						rec.ErrorMessage = sendErr.Error()
-					}
-					if err := s.commlogRepo.Create(bg, rec); err != nil {
-						log.Printf("communication log write failed (phone %s): %v", phone, err)
-					}
+				if err := s.commlogRepo.Create(bg, rec); err != nil {
+					log.Printf("communication log write failed (phone %s): %v", phone, err)
 				}
-		}()
+			}
 		}()
 	}
 	if s.notifier != nil {
@@ -530,9 +545,6 @@ func (s *Service) Create(ctx context.Context, in CreateInput) (*Loan, error) {
 	cust, err := s.customerRepo.FindByID(ctx, in.CustomerID)
 	if err != nil {
 		return nil, ErrCustomerInvalid
-	}
-	if cust.KYCStatus != "Verified" {
-		return nil, ErrCustomerNotVerified
 	}
 
 	sch, err := s.schemeRepo.FindByID(ctx, in.SchemeID)
@@ -1268,6 +1280,19 @@ func allocatePayment(l *Loan, paymentType string, amount float64) (fee, penal, i
 		if remaining > epsilon {
 			return 0, 0, 0, 0, ErrExceedsOutstanding
 		}
+
+	case PaymentTypeDiscount:
+		// A negotiated reduction of the release settlement — reaches
+		// principal (unlike Waiver above), capped at what is owed rather
+		// than erroring on overshoot, same as PaymentTypeAuctionWriteOff:
+		// staff may round a discount up past the exact remaining balance
+		// without the call failing.
+		remaining := amount
+		penal = math.Min(remaining, penalOutstanding)
+		remaining -= penal
+		interest = math.Min(remaining, interestOutstanding)
+		remaining -= interest
+		principal = math.Min(remaining, principalOutstanding)
 
 	default:
 		return 0, 0, 0, 0, ErrInvalidPaymentType
@@ -2369,7 +2394,18 @@ func (s *Service) ResolveAuctionDecision(ctx context.Context, loanID, requestID 
 			switch decision {
 			case AuctionDecisionPursueBalance:
 				// Overdue is what resumes accrual and normal collection — see
-				// this function's doc comment.
+				// this function's doc comment. The case itself is done with
+				// the auction pipeline (same as AuctionDecisionRemovedFromAuction
+				// above) — leaving rec.Stage at Auctioned forever made this
+				// record permanently invisible to FindAllConcluded's
+				// Stage IN (Settled, Withdrawn) filter, so it never showed up
+				// in the Auction History tab even though the case was fully
+				// decided. FinalSettlementStatus stays Pending: the balance is
+				// still owed, not settled or written off.
+				rec.Stage = AuctionStageWithdrawn
+				if err := s.auctionRepo.UpdateTx(tx, rec); err != nil {
+					return err
+				}
 				l.Status = StatusOverdue
 				if err := tx.Save(l).Error; err != nil {
 					return err
@@ -2551,7 +2587,14 @@ func (s *Service) CreateReleaseRequest(ctx context.Context, loanID uint, in Rele
 }
 
 func (s *Service) ListRequests(ctx context.Context, f LoanRequestFilter) ([]LoanRequest, int64, error) {
-	return s.requestRepo.FindAll(ctx, f)
+	reqs, total, err := s.requestRepo.FindAll(ctx, f)
+	if err != nil {
+		return nil, 0, err
+	}
+	for i := range reqs {
+		s.syncPaymentVerified(&reqs[i])
+	}
+	return reqs, total, nil
 }
 
 // GetRequest fetches a single LoanRequest by ID — used by the generalized
@@ -2562,7 +2605,34 @@ func (s *Service) GetRequest(ctx context.Context, requestID uint) (*LoanRequest,
 	if err != nil {
 		return nil, ErrRequestNotFound
 	}
+	s.syncPaymentVerified(req)
 	return req, nil
+}
+
+// syncPaymentVerified keeps a pending Release request's PaymentVerified
+// checklist item honest against the loan's LIVE balance, so the Record
+// Payment checkbox reflects reality regardless of how the balance actually
+// got cleared — RecordReleasePayment's own increments (which already tick
+// it directly), or the loan's ordinary Record Payment screen used instead,
+// which this package otherwise has no visibility into. Cheap in the common
+// case (already true, or not a pending Release request) — the one real
+// Get(loanID) call, with its accrual/enrich cost, only happens for a
+// pending Release request still waiting on this one checklist item.
+// Errors are swallowed: this is a best-effort read-time refresh, not
+// something that should fail whatever endpoint called it.
+func (s *Service) syncPaymentVerified(req *LoanRequest) {
+	if req.Type != RequestTypeRelease || req.Status != RequestStatusPending || req.PaymentVerified {
+		return
+	}
+	l, err := s.Get(req.LoanID, nil)
+	if err != nil {
+		return
+	}
+	if l.TotalOutstandingBalance <= 0.01 {
+		req.PaymentVerified = true
+		req.PaymentDueDate = nil
+		_ = s.requestRepo.Update(req)
+	}
 }
 
 // DecideRequest is the RETIRED single-step decision path — Release requests
@@ -2631,6 +2701,23 @@ func (s *Service) VerifyReleaseChecklist(ctx context.Context, requestID uint, br
 	}
 
 	if in.PaymentVerified != nil {
+		if *in.PaymentVerified {
+			// Balance can clear through paths this package never sees the
+			// increments of (e.g. the loan's own ordinary Record Payment
+			// screen, used directly instead of this review screen's
+			// Discount/Payment fields) — RecordReleasePayment isn't the
+			// only way PaymentVerified should ever become true, but ticking
+			// it must still mean the balance is genuinely settled, not just
+			// staff's say-so.
+			l, err := s.Get(req.LoanID, nil)
+			if err != nil {
+				return nil, err
+			}
+			if l.TotalOutstandingBalance > 0.01 {
+				return nil, ErrPaymentNotCleared
+			}
+			req.PaymentDueDate = nil
+		}
 		req.PaymentVerified = *in.PaymentVerified
 	}
 	if in.PacketVerified != nil {
@@ -2656,6 +2743,226 @@ func (s *Service) VerifyReleaseChecklist(ctx context.Context, requestID uint, br
 		return nil, err
 	}
 	return s.requestRepo.FindByID(ctx, req.ID)
+}
+
+// ReleasePaymentInput mirrors the body of
+// POST /loans/requests/:requestId/release-payment.
+type ReleasePaymentInput struct {
+	Discount float64
+	Payment  float64
+	// DueDate is required only when Discount+Payment don't cover the final
+	// settlement (see RecordReleasePayment).
+	DueDate         *time.Time
+	ActorEmployeeID uint
+	ActorRoleID     uint // authz.Role.ID — must hold "can verify release checklist"
+}
+
+// RecordReleasePayment is the "Record Payment" step on the Manager-stage
+// release review screen: staff enter a Discount (a negotiated reduction,
+// posted as a no-cash PaymentTypeDiscount ledger entry) and/or a Payment
+// (real cash, posted as PaymentTypePartial) directly against the loan.
+//
+// This used to also close the loan out immediately and force the request to
+// Approved the moment the balance hit zero — completely bypassing
+// ApproveReleaseRequest's Manager→Management sign-off chain, so a single
+// "can verify release checklist" actor could hand gold back on their own.
+// It no longer does either: recording a payment only ever records the
+// payment. If the two together clear the balance, that only flips the
+// checklist's PaymentVerified flag (one of the four checkboxes
+// ApproveReleaseRequest requires complete before its chain will even start —
+// see ErrChecklistIncomplete) and clears any stored PaymentDueDate; the
+// request stays Pending and must still go through the ordinary Manager then
+// Management approval, and CompleteRelease (the actual hand-the-gold-back
+// step), like any other release. If they fall short, the shortfall stays
+// outstanding and DueDate is stored so the Requests list/review screen can
+// flag it red once that date passes unpaid.
+//
+// Only callable while the request is still at (or before) the Manager
+// stage — see ErrNotManagerStage.
+func (s *Service) RecordReleasePayment(requestID uint, branchID *uint, in ReleasePaymentInput) (*LoanRequest, error) {
+	req, err := s.requestRepo.FindByID(requestID)
+	if err != nil {
+		return nil, ErrRequestNotFound
+	}
+	if err := s.checkLoanBranch(req.LoanID, branchID); err != nil {
+		return nil, err
+	}
+	if req.Type != RequestTypeRelease {
+		return nil, ErrNotReleaseRequest
+	}
+	if req.Status != RequestStatusPending {
+		return nil, ErrRequestAlreadyDecided
+	}
+	if req.ApprovalStage != "" && req.ApprovalStage != ApprovalStagePendingManager {
+		return nil, ErrNotManagerStage
+	}
+	if !s.checkStagePermission(in.ActorRoleID, "can verify release checklist") {
+		return nil, ErrWrongStage
+	}
+	if in.Discount < 0 || in.Payment < 0 {
+		return nil, ErrInvalidAmount
+	}
+
+	if in.Discount > 0 {
+		if _, err := s.RecordPayment(req.LoanID, PaymentInput{
+			Amount:               in.Discount,
+			Type:                 PaymentTypeDiscount,
+			PaidOn:               time.Now(),
+			ReceivedByEmployeeID: &in.ActorEmployeeID,
+			Description:          "Release discount",
+		}); err != nil {
+			return nil, err
+		}
+	}
+	if in.Payment > 0 {
+		if _, err := s.RecordPayment(req.LoanID, PaymentInput{
+			Amount:               in.Payment,
+			Type:                 PaymentTypePartial,
+			PaidOn:               time.Now(),
+			ReceivedByEmployeeID: &in.ActorEmployeeID,
+			Description:          "Release payment",
+		}); err != nil {
+			return nil, err
+		}
+	}
+
+	l, err := s.Get(req.LoanID, branchID)
+	if err != nil {
+		return nil, err
+	}
+
+	req.RecordedDiscount = platform.RoundMoney(req.RecordedDiscount + in.Discount)
+	req.RecordedPayment = platform.RoundMoney(req.RecordedPayment + in.Payment)
+
+	if l.TotalOutstandingBalance <= 0.01 {
+		// Balance cleared — that satisfies the PaymentVerified checklist item,
+		// nothing more. The request stays Pending: ApproveReleaseRequest's own
+		// Manager→Management chain (gated on the full checklist, including
+		// this flag) is still required before the gold can actually be
+		// released via CompleteRelease.
+		req.PaymentVerified = true
+		req.PaymentDueDate = nil
+	} else {
+		if in.DueDate == nil {
+			return nil, ErrDueDateRequired
+		}
+		req.PaymentDueDate = in.DueDate
+	}
+
+	if err := s.requestRepo.Update(ctx, req); err != nil {
+		return nil, err
+	}
+	return s.requestRepo.FindByID(ctx, req.ID)
+}
+
+// ReleasePaymentInput mirrors the body of
+// POST /loans/requests/:requestId/release-payment.
+type ReleasePaymentInput struct {
+	Discount float64
+	Payment  float64
+	// DueDate is required only when Discount+Payment don't cover the final
+	// settlement (see RecordReleasePayment).
+	DueDate         *time.Time
+	ActorEmployeeID uint
+	ActorRoleID     uint // authz.Role.ID — must hold "can verify release checklist"
+}
+
+// RecordReleasePayment is the "Record Payment" step on the Manager-stage
+// release review screen: staff enter a Discount (a negotiated reduction,
+// posted as a no-cash PaymentTypeDiscount ledger entry) and/or a Payment
+// (real cash, posted as PaymentTypePartial) directly against the loan.
+//
+// This used to also close the loan out immediately and force the request to
+// Approved the moment the balance hit zero — completely bypassing
+// ApproveReleaseRequest's Manager→Management sign-off chain, so a single
+// "can verify release checklist" actor could hand gold back on their own.
+// It no longer does either: recording a payment only ever records the
+// payment. If the two together clear the balance, that only flips the
+// checklist's PaymentVerified flag (one of the four checkboxes
+// ApproveReleaseRequest requires complete before its chain will even start —
+// see ErrChecklistIncomplete) and clears any stored PaymentDueDate; the
+// request stays Pending and must still go through the ordinary Manager then
+// Management approval, and CompleteRelease (the actual hand-the-gold-back
+// step), like any other release. If they fall short, the shortfall stays
+// outstanding and DueDate is stored so the Requests list/review screen can
+// flag it red once that date passes unpaid.
+//
+// Only callable while the request is still at (or before) the Manager
+// stage — see ErrNotManagerStage.
+func (s *Service) RecordReleasePayment(requestID uint, branchID *uint, in ReleasePaymentInput) (*LoanRequest, error) {
+	req, err := s.requestRepo.FindByID(requestID)
+	if err != nil {
+		return nil, ErrRequestNotFound
+	}
+	if err := s.checkLoanBranch(req.LoanID, branchID); err != nil {
+		return nil, err
+	}
+	if req.Type != RequestTypeRelease {
+		return nil, ErrNotReleaseRequest
+	}
+	if req.Status != RequestStatusPending {
+		return nil, ErrRequestAlreadyDecided
+	}
+	if req.ApprovalStage != "" && req.ApprovalStage != ApprovalStagePendingManager {
+		return nil, ErrNotManagerStage
+	}
+	if !s.checkStagePermission(in.ActorRoleID, "can verify release checklist") {
+		return nil, ErrWrongStage
+	}
+	if in.Discount < 0 || in.Payment < 0 {
+		return nil, ErrInvalidAmount
+	}
+
+	if in.Discount > 0 {
+		if _, err := s.RecordPayment(req.LoanID, PaymentInput{
+			Amount:               in.Discount,
+			Type:                 PaymentTypeDiscount,
+			PaidOn:               time.Now(),
+			ReceivedByEmployeeID: &in.ActorEmployeeID,
+			Description:          "Release discount",
+		}); err != nil {
+			return nil, err
+		}
+	}
+	if in.Payment > 0 {
+		if _, err := s.RecordPayment(req.LoanID, PaymentInput{
+			Amount:               in.Payment,
+			Type:                 PaymentTypePartial,
+			PaidOn:               time.Now(),
+			ReceivedByEmployeeID: &in.ActorEmployeeID,
+			Description:          "Release payment",
+		}); err != nil {
+			return nil, err
+		}
+	}
+
+	l, err := s.Get(req.LoanID, branchID)
+	if err != nil {
+		return nil, err
+	}
+
+	req.RecordedDiscount = platform.RoundMoney(req.RecordedDiscount + in.Discount)
+	req.RecordedPayment = platform.RoundMoney(req.RecordedPayment + in.Payment)
+
+	if l.TotalOutstandingBalance <= 0.01 {
+		// Balance cleared — that satisfies the PaymentVerified checklist item,
+		// nothing more. The request stays Pending: ApproveReleaseRequest's own
+		// Manager→Management chain (gated on the full checklist, including
+		// this flag) is still required before the gold can actually be
+		// released via CompleteRelease.
+		req.PaymentVerified = true
+		req.PaymentDueDate = nil
+	} else {
+		if in.DueDate == nil {
+			return nil, ErrDueDateRequired
+		}
+		req.PaymentDueDate = in.DueDate
+	}
+
+	if err := s.requestRepo.Update(req); err != nil {
+		return nil, err
+	}
+	return s.requestRepo.FindByID(req.ID)
 }
 
 // ReleaseApprovalInput mirrors the body of POST /loans/requests/:requestId/approve.
@@ -2694,6 +3001,11 @@ func (s *Service) ApproveReleaseRequest(ctx context.Context, requestID uint, bra
 	if req.ApprovalStage == ApprovalStageApproved || req.ApprovalStage == ApprovalStageRejected {
 		return nil, ErrRequestAlreadyDecided
 	}
+	// Refresh PaymentVerified against the loan's live balance first — the
+	// balance may have cleared through the loan's ordinary Record Payment
+	// screen rather than this package's own RecordReleasePayment, which is
+	// the only path that otherwise ever sets this flag directly.
+	s.syncPaymentVerified(req)
 	if !req.PaymentVerified || !req.PacketVerified || !req.BankPledgeVerified || !req.CustomerConfirmed {
 		return nil, ErrChecklistIncomplete
 	}
@@ -2779,6 +3091,24 @@ func (s *Service) ApproveReleaseRequest(ctx context.Context, requestID uint, bra
 		req.DecidedAt = &now
 		req.DecidedByEmployeeID = &in.ActorEmployeeID
 		req.Remarks = in.Remarks
+
+		// Persist the Approved state before CompleteRelease runs: when the
+		// balance isn't already fully cleared (an early release, paid off
+		// afterward per the settlement schedule), CompleteRelease's own
+		// guard looks up an Approved release request for this loan — it
+		// must already be saved as Approved for that lookup to succeed.
+		if err := s.requestRepo.Update(req); err != nil {
+			return nil, err
+		}
+		//  Finish the release right here rather than leaving staff to find
+		// and click a separate "Complete Release" action afterward —
+		// Management approval was the last real decision point; once it's
+		// given there is nothing left to authorize; see CompleteRelease's
+		// own doc comment for what it still checks (bank pledge cleared,
+		// balance settled) before it will actually hand the gold back.
+		if _, err := s.CompleteRelease(req.LoanID, nil, in.ActorEmployeeID); err != nil {
+			return nil, err
+		}
 	}
 
 	if err := s.requestRepo.Update(ctx, req); err != nil {
@@ -3372,19 +3702,35 @@ func (s *Service) bondDataForLoan(ctx context.Context, l *Loan) BondData {
 // device — the frontend supplies this the same way customer.Service.
 // StartAadhaarVerify's redirectURL works.
 //
-// lang is kept for API compatibility with existing callers (they still
-// send "en") but the pledge agreement now has only one, English, version —
-// any other value is rejected.
+// lang selects which pledge-agreement template is rendered and sent to
+// Setu — BondLangEnglish or BondLangGujarati; any other value is rejected.
+// The signed copy remembers which one was actually sent (see
+// l.IndemnityBondSignRequestID below), so re-checking status later doesn't
+// need lang passed again.
+//
+// deliverBy selects how the signing URL reaches the customer — one of
+// BondDeliverOpen/WhatsApp/Dashboard (empty defaults to Open, matching the
+// original behavior before this parameter existed: the URL is just
+// returned to the caller). Whatever's chosen, the URL is always returned
+// too — Open's caller opens it directly, WhatsApp/Dashboard's callers use
+// it only to show a confirmation, since the actual delivery already
+// happened server-side.
 //
 // The bond's print-and-sign-by-hand buttons (NewLoan.tsx/LoanDetail.tsx)
 // are untouched by this — eSign is an additional path, not a replacement,
 // since it needs the customer's own device and network.
-func (s *Service) StartIndemnityBondSign(ctx context.Context, loanID uint, branchID *uint, lang string, redirectURL string) (*platform.SignatureRequest, error) {
+func (s *Service) StartIndemnityBondSign(ctx context.Context, loanID uint, branchID *uint, lang string, redirectURL string, deliverBy string) (*platform.SignatureRequest, error) {
 	if s.esign == nil {
 		return nil, ErrEsignNotConfigured
 	}
-	if lang != "en" {
+	if lang != BondLangEnglish && lang != BondLangGujarati {
 		return nil, ErrUnsupportedIndemnityBondLang
+	}
+	if deliverBy == "" {
+		deliverBy = BondDeliverOpen
+	}
+	if deliverBy != BondDeliverOpen && deliverBy != BondDeliverWhatsApp && deliverBy != BondDeliverDashboard {
+		return nil, ErrUnsupportedIndemnityBondDeliver
 	}
 	l, err := s.repo.FindByID(ctx, loanID)
 	if err != nil {
@@ -3403,12 +3749,16 @@ func (s *Service) StartIndemnityBondSign(ctx context.Context, loanID uint, branc
 		}
 	}
 
-	pdfBytes, err := RenderIndemnityBondPDF(s.bondDataForLoan(ctx, l))
+	pdfBytes, err := RenderIndemnityBondPDF(s.bondDataForLoan(ctx, l), lang)
 	if err != nil {
 		return nil, err
 	}
 
-	doc, err := s.esign.UploadDocument(pdfBytes, "Pledge Agreement - "+l.LoanNumber)
+	docTitle := "Pledge Agreement - " + l.LoanNumber
+	if lang == BondLangGujarati {
+		docTitle = "Pledge Agreement (Gujarati) - " + l.LoanNumber
+	}
+	doc, err := s.esign.UploadDocument(pdfBytes, docTitle)
 	if err != nil {
 		return nil, err
 	}
@@ -3431,11 +3781,16 @@ func (s *Service) StartIndemnityBondSign(ctx context.Context, loanID uint, branc
 		name = "Customer " + l.LoanNumber
 	}
 
+	lastPage := strconv.Itoa(CountPDFPages(pdfBytes))
+	if lastPage == "" || lastPage == "0" {
+		lastPage = "1"
+	}
+
 	signer := platform.Signer{
 		Identifier:  phone,
 		DisplayName: name,
 		Signature: &platform.SignatureConfig{
-			OnPages:  []string{"1"},
+			OnPages:  []string{lastPage},
 			Position: "bottom-right",
 		},
 	}
@@ -3453,7 +3808,85 @@ func (s *Service) StartIndemnityBondSign(ctx context.Context, loanID uint, branc
 	if err := s.repo.Update(ctx, l); err != nil {
 		return nil, err
 	}
+
+	if req.URL != "" {
+		s.deliverEsignLink(ctx, l, req.URL, lang, deliverBy, phone)
+	}
 	return req, nil
+}
+
+// deliverEsignLink sends the just-created signing URL to the customer by
+// whichever channel staff picked, in addition to always returning it to the
+// caller (see StartIndemnityBondSign's deliverBy doc comment). BondDeliverOpen
+// is a no-op here — the caller opening the URL themselves is the entire
+// delivery. phone is the same 10-digit number already resolved for Setu's
+// signer.Identifier, so both use the identical number.
+func (s *Service) deliverEsignLink(ctx context.Context, l *Loan, url, lang, deliverBy, phone string) {
+	langLabel := "English"
+	if lang == BondLangGujarati {
+		langLabel = "Gujarati"
+	}
+	title := "Sign Your Pledge Agreement"
+	body := fmt.Sprintf(
+		"Ambika Gold Finance: your %s pledge agreement for loan %s is ready to sign with Aadhaar. Open this link on your own phone to complete it: %s",
+		langLabel, l.LoanNumber, url,
+	)
+
+	switch deliverBy {
+	case BondDeliverWhatsApp:
+		if s.whatsapp == nil {
+			log.Printf("indemnity bond: WhatsApp delivery requested for loan %d but no WhatsApp sender is configured", l.ID)
+			return
+		}
+		// Same fire-and-forget-in-a-goroutine + commlog pattern as
+		// notifyCustomer — an OpenWA send can take up to its own client
+		// timeout, and this must not hold up the eSign response the
+		// caller is waiting on to open its own confirmation screen.
+		// WithoutCancel, not Background: the goroutine outlives the request
+		// (whose ctx is cancelled the moment the handler returns, which would
+		// abort the commlog write) but must keep every value on it — tenant
+		// scope above all, since the commlog row is tenant-owned (see
+		// platform.TenantScoped).
+		bg := context.WithoutCancel(ctx)
+		go func() {
+			// A panic in a detached goroutine takes the whole process with
+			// it; a failed courtesy message must never do that.
+			defer func() {
+				if r := recover(); r != nil {
+					log.Printf("indemnity bond eSign WhatsApp notification panicked (loan %d): %v", l.ID, r)
+				}
+			}()
+			sendErr := s.whatsapp.Send(phone, body)
+			if sendErr != nil {
+				log.Printf("indemnity bond eSign WhatsApp send failed (loan %d, phone %s): %v", l.ID, phone, sendErr)
+			}
+			if s.commlogRepo != nil {
+				rec := &commlog.CommunicationLog{
+					RecipientPhone:    phone,
+					ChatID:            commlog.NormalizeChatID(phone),
+					Channel:           commlog.ChannelWhatsApp,
+					TriggerType:       commlog.TriggerIndemnityBondEsign,
+					MessageBody:       body,
+					RelatedEntityType: "loan",
+					RelatedEntityID:   l.ID,
+					Status:            commlog.StatusSent,
+				}
+				if sendErr != nil {
+					rec.Status = commlog.StatusFailed
+					rec.ErrorMessage = sendErr.Error()
+				}
+				if err := s.commlogRepo.Create(bg, rec); err != nil {
+					log.Printf("indemnity bond eSign: communication log write failed (loan %d): %v", l.ID, err)
+				}
+			}
+		}()
+	case BondDeliverDashboard:
+		if s.notifier == nil {
+			log.Printf("indemnity bond: dashboard delivery requested for loan %d but no notifier is configured", l.ID)
+			return
+		}
+		s.notifier.Notify(ctx, l.CustomerID, "IndemnityBondEsignReady", title, body, "loan", l.ID)
+	}
 }
 
 // CheckIndemnityBondSign polls the outstanding Setu signature request

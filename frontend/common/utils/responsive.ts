@@ -62,7 +62,7 @@ export function getEmployeesPageSize(): number {
 }
 
 export function getCashPageSize(): number {
-  return isSmallScreen() ? 7 : 8;
+  return 7;
 }
 
 export function getPacketsPageSize(): number {

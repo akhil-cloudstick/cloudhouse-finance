@@ -7,6 +7,7 @@ import { ApiError } from "@/common/services/httpClient";
 import { fmt } from "@/common/utils/format";
 import { SearchableSelect } from "@/common/components/ui/SearchableSelect";
 import { searchCustomersPage, type CustomerView } from "@/modules/customers/services/customerService";
+import { VerifiedBadge } from "@/modules/customers/components/VerifiedBadge";
 import { CreateCustomerModalContent } from "@/modules/personal-loans/components/CreateCustomerModal";
 import {
   createPersonalLoan,
@@ -107,6 +108,15 @@ export function NewPersonalLoanModalContent({ onSaved }: { onSaved: () => void }
             onChange={(id, item) => { setCustomerId(+id); setCustomerBranchId(item.branchId); setCustomerLabel(`${item.name} (${item.code})`); }}
             fetchFn={searchCustomersPage}
             getLabel={(c) => `${c.name} (${c.code})`}
+            /* Same treatment as the gold-loan picker (NewLoan.tsx): name
+             * plus a "Verified" badge when fully verified, and no negative
+             * text otherwise. */
+            renderLabel={(c) => (
+              <span className="ss-name">
+                <b>{c.name} ({c.code})</b>
+                <VerifiedBadge customer={c} />
+              </span>
+            )}
             getId={(c) => c.id}
             placeholder="Search for a customer…"
             onCreateNew={() => setCreatingCustomer(true)}

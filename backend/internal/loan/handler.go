@@ -147,6 +147,16 @@ func (h *Handler) List(c *gin.Context) {
 			f.CustomerID = uint(id)
 		}
 	}
+	if v := c.Query("schemeId"); v != "" {
+		if id, err := strconv.ParseUint(v, 10, 64); err == nil {
+			f.SchemeID = uint(id)
+		}
+	}
+	from, to, ok := parseOpenedRange(c)
+	if !ok {
+		return
+	}
+	f.OpenedFrom, f.OpenedTo = from, to
 	f.BranchScope = platform.GetBranchScope(c)
 
 	limit, _ := strconv.Atoi(c.Query("limit"))
@@ -1305,6 +1315,56 @@ func (h *Handler) VerifyReleaseChecklist(c *gin.Context) {
 	httpx.Success(c, http.StatusOK, rec)
 }
 
+type releasePaymentRequest struct {
+	Discount float64 `json:"discount"`
+	Payment  float64 `json:"payment"`
+	// DueDate is a plain "YYYY-MM-DD" string (matching every other date
+	// field in this package — see parseDate/auctionScheduleRequest), NOT a
+	// bare *time.Time: Go's default time.Time JSON unmarshalling only
+	// accepts RFC3339, so the frontend's DatePicker value ("2026-09-16")
+	// failed ShouldBindJSON outright and surfaced as an opaque "Invalid
+	// input" on Save Payment whenever a due date was required.
+	DueDate string `json:"dueDate"`
+}
+
+// RecordReleasePayment backs POST /loans/requests/:requestId/release-payment
+// — the "Record Payment" step on the Manager-stage release review screen
+// (see Service.RecordReleasePayment's doc comment).
+func (h *Handler) RecordReleasePayment(c *gin.Context) {
+	requestID, err := httpx.IDParam(c, "requestId")
+	if err != nil {
+		httpx.FailErr(c, err)
+		return
+	}
+	var req releasePaymentRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		httpx.Fail(c, http.StatusBadRequest, "Invalid input")
+		return
+	}
+	var dueDate *time.Time
+	if req.DueDate != "" {
+		d, err := parseDate(req.DueDate)
+		if err != nil {
+			httpx.Fail(c, http.StatusBadRequest, "invalid dueDate: expected YYYY-MM-DD")
+			return
+		}
+		dueDate = &d
+	}
+	actorEmployeeID, _, actorRoleID := platform.ActorFromContext(c)
+	rec, err := h.svc.RecordReleasePayment(requestID, platform.GetBranchScope(c), ReleasePaymentInput{
+		Discount:        req.Discount,
+		Payment:         req.Payment,
+		DueDate:         dueDate,
+		ActorEmployeeID: actorEmployeeID,
+		ActorRoleID:     actorRoleID,
+	})
+	if err != nil {
+		httpx.FailErr(c, err)
+		return
+	}
+	httpx.Success(c, http.StatusOK, rec)
+}
+
 type releaseApprovalRequest struct {
 	Stage   string `json:"stage" binding:"required"`
 	Action  string `json:"action" binding:"required"`
@@ -1429,11 +1489,17 @@ func (h *Handler) SetLoanOperatorApprovalLimit(c *gin.Context) {
 type startIndemnityBondEsignRequest struct {
 	Lang        string `json:"lang" binding:"required"`
 	RedirectURL string `json:"redirectUrl" binding:"required"`
+	// DeliverBy chooses how the signing URL reaches the customer —
+	// "open" (default), "whatsapp", or "dashboard"; see
+	// Service.StartIndemnityBondSign's deliverBy doc comment.
+	DeliverBy string `json:"deliverBy"`
 }
 
 // StartIndemnityBondEsign renders the loan's indemnity bond (in the
 // requested language), uploads it to Setu, and returns the Aadhaar eSign
-// signing URL the CUSTOMER must open themselves to complete OTP signing.
+// signing URL the CUSTOMER must open themselves to complete OTP signing —
+// in addition to delivering it via WhatsApp or the customer's dashboard
+// when req.DeliverBy asks for that.
 func (h *Handler) StartIndemnityBondEsign(c *gin.Context) {
 	ctx := platform.RequestContext(c)
 	loanID, err := httpx.IDParam(c, "id")
@@ -1446,7 +1512,7 @@ func (h *Handler) StartIndemnityBondEsign(c *gin.Context) {
 		httpx.Fail(c, http.StatusBadRequest, "Invalid input")
 		return
 	}
-	signReq, err := h.svc.StartIndemnityBondSign(ctx, loanID, platform.GetBranchScope(c), req.Lang, req.RedirectURL)
+	signReq, err := h.svc.StartIndemnityBondSign(ctx, loanID, platform.GetBranchScope(c), req.Lang, req.RedirectURL, req.DeliverBy)
 	if err != nil {
 		httpx.FailErr(c, err)
 		return

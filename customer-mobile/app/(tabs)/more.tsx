@@ -31,16 +31,15 @@ export default function MoreScreen() {
   return (
     <View style={{ flex: 1, backgroundColor: colors.bg }}>
       <FloatingHeader title="Profile" navigation={undefined} />
-      <ProfileContent
-        footer={
-          <GoldButton
-            title="Log out"
-            variant="outline"
-            onPress={confirmLogout}
-            style={{ marginTop: 8, marginBottom: 24 }}
-          />
-        }
-      />
+      {/* Sign out used to only live at the very bottom of ProfileContent's
+       * scroll, past Identity/Nominee/KYC — reaching it meant scrolling
+       * through the whole profile every time. Pinned right under the
+       * header instead, so it's one tap away regardless of scroll
+       * position. */}
+      <View style={{ paddingHorizontal: 16, marginTop: 4, marginBottom: 4 }}>
+        <GoldButton title="Log out" variant="outline" onPress={confirmLogout} />
+      </View>
+      <ProfileContent />
     </View>
   );
 }

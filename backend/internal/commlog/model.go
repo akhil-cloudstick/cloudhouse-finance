@@ -35,6 +35,15 @@ const (
 	// TriggerBillingReminder backs the subscription expiry reminder sent to
 	// a business's own Administrator(s) — see internal/billing.
 	TriggerBillingReminder = "billing_reminder"
+	// TriggerIndemnityBondEsign covers the pledge-agreement Aadhaar eSign
+	// link, when sent via WhatsApp instead of opened on the staff device —
+	// see loan.Service.StartIndemnityBondSign's deliverBy parameter.
+	TriggerIndemnityBondEsign = "indemnity_bond_esign"
+	// TriggerInterestPayout/TriggerInvestmentMatured back
+	// internal/investment's payout and maturity events — see
+	// investment.Service.MarkPayoutPaid / SweepMaturities.
+	TriggerInterestPayout    = "interest_payout"
+	TriggerInvestmentMatured = "investment_matured"
 )
 
 // Channel values for CommunicationLog.Channel.

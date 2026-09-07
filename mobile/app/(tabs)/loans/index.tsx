@@ -6,6 +6,7 @@ import { ScreenContainer } from "../../../src/components/ScreenContainer";
 import { ThemedText } from "../../../src/components/ThemedText";
 import { GoldTextInput } from "../../../src/components/GoldTextInput";
 import { GoldButton } from "../../../src/components/GoldButton";
+import { FilterSheetButton } from "../../../src/components/FilterSheetButton";
 import { colors, statusColors } from "../../../src/theme/colors";
 import { listLoansPage } from "../../../src/api/loans";
 import { Loan } from "../../../src/types/loan";
@@ -74,7 +75,6 @@ export default function LoansScreen() {
   const [search, setSearch] = useState("");
   const debouncedSearch = useDebouncedValue(search);
   const [statusFilter, setStatusFilter] = useState<(typeof STATUS_FILTERS)[number]>("All");
-  const filterScrollRef = useRef<ScrollView>(null);
 
   // Each page is its own, separate API call keyed by offset — a new
   // search/filter changes the queryKey, so react-query starts a fresh
