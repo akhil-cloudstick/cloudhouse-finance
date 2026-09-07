@@ -7,6 +7,7 @@ import { ThemedText } from "../../src/components/ThemedText";
 import { FloatingHeader } from "../../src/components/FloatingHeader";
 import { BottomSheetModal } from "../../src/components/BottomSheetModal";
 import { NotificationList } from "../../src/components/NotificationList";
+import { EsignActionCard } from "../../src/components/EsignActionCard";
 import { colors } from "../../src/theme/colors";
 import { useAuth } from "../../src/auth/AuthContext";
 import * as goldRateApi from "../../src/api/goldRate";
@@ -105,6 +106,8 @@ export default function HomeScreen() {
           <ThemedText variant="small" color={colors.muted} style={{ marginBottom: 16 }}>
             Here's a quick look at your account.
           </ThemedText>
+
+          <EsignActionCard />
 
           <Pressable onPress={openRates}>
             <Card>

@@ -538,10 +538,17 @@ export type IndemnityBondEsignStart = {
  * CUSTOMER must open themselves (their own device/browser) to complete
  * Aadhaar+OTP signing. Mirrors customersApi.ts's startAadhaarVerify shape —
  * same "open URL, then poll" flow as DigiLocker Aadhaar verification. */
-export async function startIndemnityBondEsign(loanId: number, lang: "en" | "hi" | "gu", redirectUrl: string): Promise<IndemnityBondEsignStart> {
+export type IndemnityBondDeliverBy = "open" | "whatsapp" | "dashboard";
+
+export async function startIndemnityBondEsign(
+  loanId: number,
+  lang: "en" | "hi" | "gu",
+  redirectUrl: string,
+  deliverBy: IndemnityBondDeliverBy = "open"
+): Promise<IndemnityBondEsignStart> {
   return apiFetch<IndemnityBondEsignStart>(`/loans/${loanId}/indemnity-bond/esign/start`, {
     method: "POST",
-    body: JSON.stringify({ lang, redirectUrl }),
+    body: JSON.stringify({ lang, redirectUrl, deliverBy }),
   });
 }
 

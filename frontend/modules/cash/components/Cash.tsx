@@ -137,7 +137,7 @@ export function Cash() {
   const [movementsPage, setMovementsPage] = useState(1);
   const [movementsHasMore, setMovementsHasMore] = useState(false);
   const [movementsTotal, setMovementsTotal] = useState(0);
-  const cashPageSize = useResponsivePageSize(8, 7);
+  const cashPageSize = useResponsivePageSize(7, 7);
   const [expensesPage, setExpensesPage] = useState(1);
   const [expensesHasMore, setExpensesHasMore] = useState(false);
   const [expensesTotal, setExpensesTotal] = useState(0);

@@ -26,13 +26,14 @@ import {
 import { getCustomer, getCustomerAadhaarFull } from "@/modules/customers/services/customerService";
 import { listPackets } from "@/modules/packets/services/packetService";
 import { openPrintWindow } from "@/common/utils/print";
-import { printIndemnityBond } from "@/modules/loans/utils/indemnityBond";
+import { printIndemnityBond, type BondLang } from "@/modules/loans/utils/indemnityBond";
 import { StageTracker } from "@/common/components/ui/StageTracker";
 import { ApiError } from "@/common/services/httpClient";
 import { useLoans } from "@/modules/loans/store/LoansProvider";
 import { PaymentModalContent } from "@/common/components/modals/PaymentModal";
 import { RepledgeModalContent } from "@/common/components/modals/RepledgeModal";
 import { ConfirmModalContent } from "@/common/components/modals/ConfirmModal";
+import { EsignLanguageModalContent, type EsignDeliverBy } from "@/common/components/modals/EsignLanguageModal";
 import { RequestExtensionModalContent, RequestReleaseModalContent } from "@/common/components/modals/RequestExtensionModal";
 
 /* Ported from legacy/app.js's `renderLoanDetail(id)`. Now reads/writes the
@@ -301,7 +302,7 @@ export function LoanDetail({ id }: { id?: string }) {
    * witnesses sign by hand, and it is filed. Independent of the Aadhaar
    * eSign status: staff need this whenever eSign is unavailable, declined,
    * or the customer simply prefers paper. */
-  function printBond() {
+  function printBond(lang: BondLang = "en") {
     setPrintingBond(true);
     Promise.all([getCustomer(l.customerId), getCustomerAadhaarFull(l.customerId).catch(() => "")])
       .then(([c, aadhaar]) =>
@@ -325,7 +326,8 @@ export function LoanDetail({ id }: { id?: string }) {
               value: o.goldValue,
             })),
           },
-          toast
+          toast,
+          lang
         )
       )
       .catch(() => toast("Could not load customer details for the bond."))
@@ -489,24 +491,69 @@ export function LoanDetail({ id }: { id?: string }) {
     }
   }
 
-  // Renders the bond server-side (English — see documents/api_documentation.md
-  // for how to pass "hi"/"gu" instead) and starts the Aadhaar eSign request.
-  // This is an ADDITIONAL path alongside NewLoan.tsx's print-and-sign-by-hand
-  // buttons, not a replacement — eSign needs the customer's own device and
-  // network, so the wet-signature route stays available regardless.
-  async function startIndemnityEsign() {
+  // Renders the bond server-side in the requested language (see
+  // BondLang/BOND_LANG_OPTIONS in indemnityBond.ts — "en" or "gu", chosen
+  // by the officer in EsignLanguageModal below) and starts the Aadhaar
+  // eSign request. This is an ADDITIONAL path alongside NewLoan.tsx's
+  // print-and-sign-by-hand buttons, not a replacement — eSign needs the
+  // customer's own device and network, so the wet-signature route stays
+  // available regardless.
+  async function startIndemnityEsign(lang: BondLang, deliverBy: EsignDeliverBy = "whatsapp") {
     setEsigning(true);
     try {
       const redirectUrl = `${window.location.origin}/esign-callback`;
-      const started = await startIndemnityBondEsign(l.numericId, "en", redirectUrl);
-      if (started.url) window.open(started.url, "_blank", "noopener,noreferrer");
+      const started = await startIndemnityBondEsign(l.numericId, lang, redirectUrl, deliverBy);
+      if (deliverBy === "open" && started.url) {
+        window.open(started.url, "_blank", "noopener,noreferrer");
+      }
       setEsignStarted(true);
-      toast("Aadhaar eSign opened in a new tab — ask the customer to complete Aadhaar + OTP signing there, then click \"Check Status\" here.");
+      if (deliverBy === "whatsapp") {
+        toast("Pledge agreement eSign link sent to customer via WhatsApp. Click \"Check Status\" once signed.");
+      } else if (deliverBy === "dashboard") {
+        toast("Pledge agreement eSign link sent to customer mobile app. Click \"Check Status\" once signed.");
+      } else {
+        toast("Aadhaar eSign opened in a new tab — ask the customer to complete Aadhaar + OTP signing there, then click \"Check Status\" here.");
+      }
     } catch (e) {
       toast(e instanceof ApiError ? e.message : "Could not start indemnity bond eSign.");
     } finally {
       setEsigning(false);
     }
+  }
+
+  // Opens EsignLanguageModalContent so the officer picks English/Gujarati before
+  // printing the bond.
+  function openPrintBondLanguagePicker() {
+    openModal(
+      <EsignLanguageModalContent
+        loanNumber={l.id}
+        customerName={l.customerName}
+        title="Print Pledge Agreement"
+        confirmLabel="🖨 Print Bond"
+        onConfirm={(lang) => printBond(lang)}
+      />
+    );
+  }
+
+  // Opens EsignLanguageModal so the officer picks English/Gujarati and delivery
+  // channel (WhatsApp, customer mobile app, or browser tab) before starting the request.
+  async function openEsignLanguagePicker() {
+    let phone: string | undefined;
+    try {
+      const c = await getCustomer(l.customerId);
+      phone = c.phone;
+    } catch {
+      // ignore
+    }
+    openModal(
+      <EsignLanguageModalContent
+        loanNumber={l.id}
+        customerName={l.customerName}
+        customerPhone={phone}
+        showDelivery={true}
+        onConfirm={(lang, deliverBy) => startIndemnityEsign(lang, deliverBy)}
+      />
+    );
   }
 
   async function checkIndemnityEsign() {
@@ -625,7 +672,7 @@ export function LoanDetail({ id }: { id?: string }) {
               <a href="#" title="Statement" className={printingStatement ? "disabled" : ""} onClick={(e) => { e.preventDefault(); if (printingStatement) return; setDocsMenuOpen(false); printStatement(); }}>
                 <Icon name="doc" /><span className="tx">{printingStatement ? "Preparing…" : "Statement"}</span>
               </a>
-              <a href="#" title="Print Bond" className={printingBond ? "disabled" : ""} onClick={(e) => { e.preventDefault(); if (printingBond) return; setDocsMenuOpen(false); printBond(); }}>
+              <a href="#" title="Print Bond" className={printingBond ? "disabled" : ""} onClick={(e) => { e.preventDefault(); if (printingBond) return; setDocsMenuOpen(false); openPrintBondLanguagePicker(); }}>
                 <Icon name="doc" /><span className="tx">{printingBond ? "Preparing…" : "Print Bond"}</span>
               </a>
               {l.indemnityBondSignStatus === "sign_complete" && l.indemnityBondSignedUrl ? (
@@ -637,7 +684,7 @@ export function LoanDetail({ id }: { id?: string }) {
                   <Icon name="doc" /><span className="tx">{checkingEsign ? "Checking…" : "Check eSign Status"}</span>
                 </a>
               ) : (
-                <a href="#" title="Send Indemnity Bond for eSign" className={esigning ? "disabled" : ""} onClick={(e) => { e.preventDefault(); if (esigning) return; setDocsMenuOpen(false); startIndemnityEsign(); }}>
+                <a href="#" title="Send Indemnity Bond for eSign" className={esigning ? "disabled" : ""} onClick={(e) => { e.preventDefault(); if (esigning) return; setDocsMenuOpen(false); openEsignLanguagePicker(); }}>
                   <Icon name="doc" /><span className="tx">{esigning ? "Preparing…" : "Send Indemnity Bond for eSign"}</span>
                 </a>
               )}

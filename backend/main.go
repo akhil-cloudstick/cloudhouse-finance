@@ -279,6 +279,13 @@ func main() {
 	// Customer app — batch 5: Documents (per-loan statement PDF).
 	customerLoans.GET("/:id/statement", loanHandler.CustomerLoanStatement)
 
+	// Customer app — indemnity bond Aadhaar eSign status. The signing URL
+	// itself only ever reaches the customer via a staff-started
+	// deliverBy=dashboard/whatsapp send (see loan.Service.
+	// StartIndemnityBondSign) — there is deliberately no customer-facing
+	// "start" endpoint, only this poll of whatever's already in flight.
+	customerLoans.GET("/:id/indemnity-bond/esign/status", loanHandler.CustomerCheckIndemnityBondEsign)
+
 	customerPayments := v1.Group("/customer/payments")
 	customerPayments.Use(customerAuthMiddleware)
 	customerPayments.GET("", loanHandler.CustomerListPayments)
