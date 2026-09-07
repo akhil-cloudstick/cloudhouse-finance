@@ -135,6 +135,7 @@ func (h *Handler) List(c *gin.Context) {
 		BranchID:      platform.GetBranchScope(c),
 		PANStatus:     c.Query("panStatus"),
 		AadhaarStatus: c.Query("aadhaarStatus"),
+		CustomerType:  c.Query("customerType"),
 	}
 
 	if limit <= 0 {

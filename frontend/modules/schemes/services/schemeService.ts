@@ -1,4 +1,4 @@
-import { apiFetchEnveloped as apiFetch, API_BASE, AUTH_TOKEN_KEY, ApiError } from "@/common/services/httpClient";
+import { apiFetchEnveloped as apiFetch, API_BASE, getAuthToken, ApiError } from "@/common/services/httpClient";
 
 /* Shape returned by the Go backend (backend/internal/scheme/model.go). A
  * scheme's tenure is a real field now — no more start/end date window. */
@@ -141,7 +141,7 @@ export async function downloadSchemeStatement(
   if (filters.to) params.set("to", filters.to);
   if (filters.loanIds?.length) params.set("loanIds", filters.loanIds.join(","));
 
-  const token = typeof window !== "undefined" ? window.localStorage.getItem(AUTH_TOKEN_KEY) : null;
+  const token = typeof window !== "undefined" ? getAuthToken() : null;
   const res = await fetch(`${API_BASE}/schemes/${id}/statement?${params.toString()}`, {
     headers: token ? { Authorization: `Bearer ${token}` } : {},
   });

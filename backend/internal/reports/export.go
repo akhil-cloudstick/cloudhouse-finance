@@ -121,7 +121,7 @@ func (h *Handler) Export(c *gin.Context) {
 		c.Header("Content-Disposition", "attachment; filename=\""+filename+"\"")
 		c.Data(http.StatusOK, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", buf)
 	case "pdf":
-		buf, err := buildPDF(h.svc.BusinessName(ctx), key, headers, data)
+		buf, err := BuildPDF(h.svc.BusinessName(ctx), key, headers, data)
 		if err != nil {
 			serverError(c, err)
 			return
@@ -249,7 +249,10 @@ func BuildXLSX(sheetName string, headers []string, data [][]string) ([]byte, err
 // BuildPDF renders headers/data as a simple tabular PDF (letterhead-style
 // title + table) — a plain, functional layout rather than a polished
 // letterhead design, matching this codebase's other export-lite features.
-func buildPDF(businessName, title string, headers []string, data [][]string) ([]byte, error) {
+// Exported (not just used by Handler.Export) so other packages that build
+// their own ad-hoc statement/export PDFs — e.g. loan.Handler.SchemeStatement
+// — can reuse the same rendering instead of duplicating gofpdf setup.
+func BuildPDF(businessName, title string, headers []string, data [][]string) ([]byte, error) {
 	pdf := gofpdf.New("L", "mm", "A4", "")
 	// gofpdf's core "Arial" font expects cp1252/WinAnsi bytes, not UTF-8 —
 	// handing it a raw Go string (UTF-8 under the hood) let each multi-byte

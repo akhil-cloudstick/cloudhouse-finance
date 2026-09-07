@@ -1331,6 +1331,7 @@ type releasePaymentRequest struct {
 // — the "Record Payment" step on the Manager-stage release review screen
 // (see Service.RecordReleasePayment's doc comment).
 func (h *Handler) RecordReleasePayment(c *gin.Context) {
+	ctx := platform.RequestContext(c)
 	requestID, err := httpx.IDParam(c, "requestId")
 	if err != nil {
 		httpx.FailErr(c, err)
@@ -1351,7 +1352,7 @@ func (h *Handler) RecordReleasePayment(c *gin.Context) {
 		dueDate = &d
 	}
 	actorEmployeeID, _, actorRoleID := platform.ActorFromContext(c)
-	rec, err := h.svc.RecordReleasePayment(requestID, platform.GetBranchScope(c), ReleasePaymentInput{
+	rec, err := h.svc.RecordReleasePayment(ctx, requestID, platform.GetBranchScope(c), ReleasePaymentInput{
 		Discount:        req.Discount,
 		Payment:         req.Payment,
 		DueDate:         dueDate,

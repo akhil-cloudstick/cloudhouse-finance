@@ -27,6 +27,7 @@ export const NAV: [string, NavItem[]][] = [
     { route: "goldrates", title: "Gold Rates", icon: "coin", module: "Gold_Rate_Management", key: "can_view_gold_rate" },
     { route: "requests", title: "Extensions & Release", icon: "unlock", module: "Loan_Management", key: "can_view_loan" },
     { route: "personalloans", title: "Personal Loans", icon: "note", module: "Personal_Loan_Management", key: "can_view_personal_loan" },
+    { route: "investments", title: "Investments", icon: "coin", module: "Investment_Management", key: "can_view_investment" },
   ]],
   ["Customers", [
     { route: "customers", title: "Customers & KYC", icon: "user", module: "Customer_Management", key: "can_view_customer" },
@@ -87,7 +88,8 @@ export function Sidebar({ route, open }: { route: string; open: boolean }) {
                   route === r ||
                   (route === "loan" && r === "loans") ||
                   (route === "customer" && r === "customers") ||
-                  (route === "personalloan" && r === "personalloans");
+                  (route === "personalloan" && r === "personalloans") ||
+                  (route === "investment" && r === "investments");
                 return (
                   <a key={r} href={`#${r}`} className={isOn ? "on" : ""}>
                     <Icon name={ic} />

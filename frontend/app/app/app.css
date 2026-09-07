@@ -470,18 +470,20 @@ h3,
 }
 
 .gs-results .gs-none {
-  padding: 18px;
+  padding: 10px 12px;
   text-align: center;
   color: var(--muted);
   font-size: 13px
 }
 
 /* SearchableSelect's onCreateNew row (e.g. "+ Add new customer" in the
- * Personal Loan picker) — pinned to the bottom of the results list, set
- * apart from the plain result rows above it with a divider and the gold
- * accent color. */
+ * Personal Loan picker, "+ Add new investor" in the Investment picker) —
+ * pinned to the TOP of the results list as a standing action, set apart
+ * from the plain result rows below it with a divider and the gold accent
+ * color. */
 .gs-results a.gs-create-new {
-  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+  margin-bottom: 4px;
 }
 
 .gs-results a.gs-create-new .tx b {

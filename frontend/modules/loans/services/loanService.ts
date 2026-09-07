@@ -603,7 +603,7 @@ export function getLoansPageSize() {
  * (status/q) rather than a picker's free-text query. */
 export async function listLoansPage(
   filters: LoanFilters & { page: number; limit?: number }
-): Promise<{ items: LoanView[]; hasMore: boolean; total: number; total: number }> {
+): Promise<{ items: LoanView[]; hasMore: boolean; total: number }> {
   const pageSize = filters.limit ?? getLoansPageSize();
   const params = new URLSearchParams({
     limit: String(pageSize),

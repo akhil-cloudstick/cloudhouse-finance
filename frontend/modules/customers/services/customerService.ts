@@ -57,6 +57,13 @@ export type BackendCustomer = {
   place?: string;
   pinCode?: string;
   age?: number;
+  // Investor-only / optional (backend/internal/customer/model.go) — set
+  // only for customerType "Investor" (internal/investment). Absent/blank
+  // for every ordinary Borrower customer.
+  customerType?: "Borrower" | "Investor";
+  bankAccountName?: string;
+  bankAccountNumber?: string;
+  bankIfsc?: string;
   createdAt: string;
   updatedAt: string;
 };
@@ -93,6 +100,10 @@ export type CustomerView = {
   place?: string;
   pinCode?: string;
   age?: number;
+  customerType?: "Borrower" | "Investor";
+  bankAccountName?: string;
+  bankAccountNumber?: string;
+  bankIfsc?: string;
 };
 
 /* What RegisterCustomerModal.tsx collects. `aadhaar` is the plaintext
@@ -122,6 +133,12 @@ export type CustomerFormInput = {
   place?: string;
   pinCode?: string;
   age?: number;
+  // Investor-only / optional — collected only by CreateInvestorModal.tsx
+  // (frontend/modules/investments/components).
+  customerType?: "Borrower" | "Investor";
+  bankAccountName?: string;
+  bankAccountNumber?: string;
+  bankIfsc?: string;
 };
 
 function toView(c: BackendCustomer): CustomerView {
@@ -153,6 +170,10 @@ function toView(c: BackendCustomer): CustomerView {
     place: c.place,
     pinCode: c.pinCode,
     age: c.age,
+    customerType: c.customerType,
+    bankAccountName: c.bankAccountName,
+    bankAccountNumber: c.bankAccountNumber,
+    bankIfsc: c.bankIfsc,
   };
 }
 
@@ -193,6 +214,10 @@ function toRequestBody(input: CustomerFormInput) {
     place: input.place || undefined,
     pinCode: input.pinCode || undefined,
     age: input.age,
+    customerType: input.customerType || undefined,
+    bankAccountName: input.bankAccountName || undefined,
+    bankAccountNumber: input.bankAccountNumber || undefined,
+    bankIfsc: input.bankIfsc || undefined,
   };
 }
 
@@ -239,6 +264,15 @@ const CUSTOMER_PAGE_SIZE = 5;
  * (see backend/internal/customer/handler.go's List). */
 export async function searchCustomersPage(q: string, page: number): Promise<{ items: CustomerView[]; hasMore: boolean }> {
   const params = new URLSearchParams({ q, limit: String(CUSTOMER_PAGE_SIZE), offset: String(page * CUSTOMER_PAGE_SIZE) });
+  const rec = await apiFetch<{ items: BackendCustomer[]; hasMore: boolean }>(`/customers?${params}`);
+  return { items: (rec?.items || []).map(toView), hasMore: !!rec?.hasMore };
+}
+
+/* Same as searchCustomersPage, narrowed to Investor customers only — backs
+ * the investor picker in the New Investment flow
+ * (frontend/modules/investments/components/NewInvestmentModal.tsx). */
+export async function searchInvestorsPage(q: string, page: number): Promise<{ items: CustomerView[]; hasMore: boolean }> {
+  const params = new URLSearchParams({ q, limit: String(CUSTOMER_PAGE_SIZE), offset: String(page * CUSTOMER_PAGE_SIZE), customerType: "Investor" });
   const rec = await apiFetch<{ items: BackendCustomer[]; hasMore: boolean }>(`/customers?${params}`);
   return { items: (rec?.items || []).map(toView), hasMore: !!rec?.hasMore };
 }
