@@ -2,6 +2,7 @@ import React, { useState } from "react";
 import { Pressable, RefreshControl, ScrollView, View, StyleSheet } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useQuery, useInfiniteQuery } from "@tanstack/react-query";
+import { useQuery, useInfiniteQuery } from "@tanstack/react-query";
 import { ScreenContainer } from "../../../src/components/ScreenContainer";
 import { Card } from "../../../src/components/Card";
 import { ThemedText } from "../../../src/components/ThemedText";
@@ -134,7 +135,7 @@ export default function CustomerDetailScreen() {
     setTab(i);
   }
 
-  const { data, isLoading, isError, refetch, isRefetching } = useQuery({
+  const { data, isLoading, isError, refetch } = useQuery({
     queryKey: ["customer", id],
     queryFn: () => getCustomer(customerId),
     enabled: !!id,
@@ -145,12 +146,24 @@ export default function CustomerDetailScreen() {
   // one currently showing (and any already-visited tab, since React Query
   // caches by queryKey and `enabled` merely pauses future fetches, not the
   // cache itself).
+  //
+  // staleTime: with the default 0, react-query treats a query as stale the
+  // instant it settles — so re-enabling it (tab A -> tab B -> back to tab
+  // A) triggered a brand new network refetch EVERY time, each one flashing
+  // the RefreshControl spinner even though the data was already sitting in
+  // cache from moments ago. useRefetchOnFocus below already covers the
+  // real "this went stale, get it again" case (leaving/re-entering the
+  // whole screen); a tab switch within one visit shouldn't re-hit the
+  // network at all. 30s is generous enough that a quick back-and-forth
+  // between tabs never refetches, short enough that genuinely reopening
+  // this screen later still gets fresh data.
   const loansQ = useInfiniteQuery({
     queryKey: ["loans", "customer", customerId],
     queryFn: ({ pageParam = 0 }) => listLoansPage({ customerId, limit: PAGE_SIZE, offset: pageParam }),
     initialPageParam: 0,
     getNextPageParam: (lastPage, allPages) => (lastPage.hasMore ? allPages.length * PAGE_SIZE : undefined),
     enabled: !!id && tab === 0,
+    staleTime: 30_000,
   });
   const ornamentsQ = useInfiniteQuery({
     queryKey: ["customerOrnaments", customerId],
@@ -158,6 +171,7 @@ export default function CustomerDetailScreen() {
     initialPageParam: 0,
     getNextPageParam: (lastPage, allPages) => (lastPage.hasMore ? allPages.length * PAGE_SIZE : undefined),
     enabled: !!id && tab === 1,
+    staleTime: 30_000,
   });
   const paymentsQ = useInfiniteQuery({
     queryKey: ["customerPayments", customerId],
@@ -165,6 +179,7 @@ export default function CustomerDetailScreen() {
     initialPageParam: 0,
     getNextPageParam: (lastPage, allPages) => (lastPage.hasMore ? allPages.length * PAGE_SIZE : undefined),
     enabled: !!id && tab === 2,
+    staleTime: 30_000,
   });
   const bankPledgesQ = useInfiniteQuery({
     queryKey: ["customerBankPledges", customerId],
@@ -172,6 +187,7 @@ export default function CustomerDetailScreen() {
     initialPageParam: 0,
     getNextPageParam: (lastPage, allPages) => (lastPage.hasMore ? allPages.length * PAGE_SIZE : undefined),
     enabled: !!id && tab === 3,
+    staleTime: 30_000,
   });
   const auctionsQ = useInfiniteQuery({
     queryKey: ["customerAuctions", customerId],
@@ -179,10 +195,27 @@ export default function CustomerDetailScreen() {
     initialPageParam: 0,
     getNextPageParam: (lastPage, allPages) => (lastPage.hasMore ? allPages.length * PAGE_SIZE : undefined),
     enabled: !!id && tab === 4,
+    staleTime: 30_000,
   });
 
   const queries = [loansQ, ornamentsQ, paymentsQ, bankPledgesQ, auctionsQ];
   const activeQuery = queries[tab];
+
+  // Same fix as Customers list's onPullToRefresh: useRefetchOnFocus below
+  // calls the SAME refetch functions a pull gesture does, on every focus —
+  // not just re-entering this screen but every tab switch back to it, if
+  // it stays mounted. Tying the spinner to react-query's own
+  // isFetching/isRefetching made it flash on that background refetch too.
+  // Track an actual pull separately so the spinner only shows for one.
+  const [manualRefreshing, setManualRefreshing] = useState(false);
+  async function onPullToRefresh() {
+    setManualRefreshing(true);
+    try {
+      await Promise.all([refetch(), activeQuery.refetch()]);
+    } finally {
+      setManualRefreshing(false);
+    }
+  }
 
   useRefetchOnFocus(refetch, () => activeQuery.refetch());
 
@@ -215,65 +248,18 @@ export default function CustomerDetailScreen() {
 
   return (
     <ScreenContainer style={{ padding: 0 }}>
-      {/* Customer info + nominee + tab chips are fixed, not scrollable — only
-       * the table below scrolls (its column-label row and count footer both
-       * sticky, more rows loading in via infinite scroll). See
-       * ExpandableTable.tsx's own comment on why it needs its own flex:1
-       * slot rather than a shared ScrollView. */}
-      <View style={{ paddingHorizontal: 16, paddingTop: 20 }}>
-        <Card>
-          <ThemedText variant="h2" color={colors.goldDeep}>
-            {data.name}
-          </ThemedText>
-          <ThemedText variant="body" style={{ marginTop: 8 }}>
-            {data.code} · {data.phone}
-          </ThemedText>
-          {data.dob ? (
-            <ThemedText variant="small" style={{ marginTop: 4 }} color={colors.muted}>
-              DOB {new Date(data.dob).toLocaleDateString("en-IN")}
-            </ThemedText>
-          ) : null}
-          <ThemedText variant="body" style={{ marginTop: 4 }} color={colors.muted}>
-            {data.address}
-          </ThemedText>
-          {data.branch?.name ? (
-            <ThemedText variant="small" style={{ marginTop: 4 }} color={colors.muted}>
-              Branch: {data.branch.name}
-            </ThemedText>
-          ) : null}
-          <ThemedText variant="label" style={{ marginTop: 12 }}>
-            KYC {data.kycStatus} · PAN {data.panStatus} · Aadhaar {data.aadhaarStatus}
-          </ThemedText>
-          {data.pan ? (
-            <ThemedText variant="small" style={{ marginTop: 4 }} color={colors.muted}>
-              PAN {data.pan}
-            </ThemedText>
-          ) : null}
-          {data.aadhaarLast4 ? (
-            <ThemedText variant="small" style={{ marginTop: 4 }} color={colors.muted}>
-              Aadhaar ••••{data.aadhaarLast4}
-            </ThemedText>
-          ) : null}
-          <GoldButton
-            title="Edit Customer"
-            variant="outline"
-            onPress={() => router.push(`/customers/edit/${customerId}`)}
-            style={{ marginTop: 12 }}
-          />
-        </Card>
-
-        {data.nomineeName ? (
-          <Card>
-            <ThemedText variant="h3" style={{ marginBottom: 8 }}>
-              Nominee
-            </ThemedText>
-            <ThemedText variant="body">{data.nomineeName}</ThemedText>
-            <ThemedText variant="small" color={colors.muted} style={{ marginTop: 4 }}>
-              {data.nomineeRelation} · {data.nomineePhone}
-            </ThemedText>
-          </Card>
-        ) : null}
-
+      {/* Only the tab chips are a fixed, non-scrolling block now — the
+       * customer info + nominee cards moved into ExpandableTable's
+       * `headerContent` (below), scrolling away WITH the table instead of
+       * sitting above it in fixed space. They used to live in their own
+       * fixed View here, which on a fully-filled-in customer (nominee, DOB,
+       * PAN, Aadhaar, branch, Edit button) could take up most of a small
+       * screen, squeezing the paginated table into a near-zero-height
+       * flex:1 slot — the table's own scroll worked fine, there just
+       * wasn't room left to see it scroll. See ExpandableTable.tsx's own
+       * comment on why it otherwise needs a dedicated flex:1 slot rather
+       * than a shared ScrollView. */}
+      <View style={{ paddingHorizontal: 10, paddingTop: 20 }}>
         <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.tabRow} contentContainerStyle={{ gap: 8 }}>
           {TABS.map((t, i) => {
             const active = i === tab;
@@ -288,7 +274,7 @@ export default function CustomerDetailScreen() {
         </ScrollView>
       </View>
 
-      <View style={{ flex: 1, paddingHorizontal: 16, paddingTop: 8 }}>
+      <View style={{ flex: 1, paddingHorizontal: 10, paddingTop: 8 }}>
         <ExpandableTable<any>
           columns={activeColumns}
           visibleCount={3}
@@ -297,16 +283,67 @@ export default function CustomerDetailScreen() {
           extraFields={activeExtra}
           onViewDescription={(r: any) => router.push(`/loans/${r.loanId ?? r.id}`)}
           emptyText={activeQuery.isLoading ? "Loading…" : activeQuery.isError ? "Could not load." : `No ${TABS[tab].toLowerCase()} found.`}
-          refreshControl={
-            <RefreshControl
-              refreshing={(isRefetching || (activeQuery.isFetching && !activeIsFetchingNextPage && !activeQuery.isLoading))}
-              onRefresh={() => { refetch(); activeQuery.refetch(); }}
-            />
-          }
+          refreshControl={<RefreshControl refreshing={manualRefreshing} onRefresh={onPullToRefresh} />}
           onEndReached={() => {
             if (activeHasNextPage && !activeIsFetchingNextPage) activeFetchNextPage();
           }}
           isFetchingNextPage={activeIsFetchingNextPage}
+          headerContent={
+            <View style={{ marginBottom: 4 }}>
+              <Card>
+                <ThemedText variant="h2" color={colors.goldDeep}>
+                  {data.name}
+                </ThemedText>
+                <ThemedText variant="body" style={{ marginTop: 8 }}>
+                  {data.code} · {data.phone}
+                </ThemedText>
+                {data.dob ? (
+                  <ThemedText variant="small" style={{ marginTop: 4 }} color={colors.muted}>
+                    DOB {new Date(data.dob).toLocaleDateString("en-IN")}
+                  </ThemedText>
+                ) : null}
+                <ThemedText variant="body" style={{ marginTop: 4 }} color={colors.muted}>
+                  {data.address}
+                </ThemedText>
+                {data.branch?.name ? (
+                  <ThemedText variant="small" style={{ marginTop: 4 }} color={colors.muted}>
+                    Branch: {data.branch.name}
+                  </ThemedText>
+                ) : null}
+                <ThemedText variant="label" style={{ marginTop: 12 }}>
+                  KYC {data.kycStatus} · PAN {data.panStatus} · Aadhaar {data.aadhaarStatus}
+                </ThemedText>
+                {data.pan ? (
+                  <ThemedText variant="small" style={{ marginTop: 4 }} color={colors.muted}>
+                    PAN {data.pan}
+                  </ThemedText>
+                ) : null}
+                {data.aadhaarLast4 ? (
+                  <ThemedText variant="small" style={{ marginTop: 4 }} color={colors.muted}>
+                    Aadhaar ••••{data.aadhaarLast4}
+                  </ThemedText>
+                ) : null}
+                <GoldButton
+                  title="Edit Customer"
+                  variant="outline"
+                  onPress={() => router.push(`/customers/edit/${customerId}`)}
+                  style={{ marginTop: 12 }}
+                />
+              </Card>
+
+              {data.nomineeName ? (
+                <Card>
+                  <ThemedText variant="h3" style={{ marginBottom: 8 }}>
+                    Nominee
+                  </ThemedText>
+                  <ThemedText variant="body">{data.nomineeName}</ThemedText>
+                  <ThemedText variant="small" color={colors.muted} style={{ marginTop: 4 }}>
+                    {data.nomineeRelation} · {data.nomineePhone}
+                  </ThemedText>
+                </Card>
+              ) : null}
+            </View>
+          }
         />
       </View>
     </ScreenContainer>

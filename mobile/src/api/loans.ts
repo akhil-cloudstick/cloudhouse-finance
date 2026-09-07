@@ -188,3 +188,46 @@ export function approveReleaseRequest(
 export function completeRelease(loanId: number) {
   return apiRequest<Loan>(`/loans/${loanId}/complete-release`, { method: "POST" });
 }
+
+// --- Indemnity bond Aadhaar eSign (Setu) ------------------------------------
+// Mirrors frontend/modules/loans/services/loanService.ts's
+// startIndemnityBondEsign/checkIndemnityBondEsign exactly — same backend
+// endpoints (backend/internal/loan/handler.go's StartIndemnityBondEsign/
+// CheckIndemnityBondEsign).
+
+export type BondLang = "en" | "gu";
+// How the signing URL reaches the customer, in addition to always being
+// returned to the caller (see backend/internal/loan/service.go's
+// StartIndemnityBondSign doc comment):
+//   - "open": no extra delivery — this screen opens the URL itself.
+//   - "whatsapp": also sent to the customer's own WhatsApp.
+//   - "dashboard": also pushed as an action card on customer-mobile.
+export type BondDeliverBy = "open" | "whatsapp" | "dashboard";
+
+export type IndemnityBondEsignStart = {
+  id: string;
+  documentId: string;
+  status: string;
+  url: string;
+};
+
+export function startIndemnityBondEsign(
+  loanId: number,
+  lang: BondLang,
+  redirectUrl: string,
+  deliverBy: BondDeliverBy = "open"
+) {
+  return apiRequest<IndemnityBondEsignStart>(`/loans/${loanId}/indemnity-bond/esign/start`, {
+    method: "POST",
+    body: { lang, redirectUrl, deliverBy },
+  });
+}
+
+export type IndemnityBondEsignCheck = {
+  loan: Loan;
+  status: string;
+};
+
+export function checkIndemnityBondEsign(loanId: number) {
+  return apiRequest<IndemnityBondEsignCheck>(`/loans/${loanId}/indemnity-bond/esign/status`);
+}

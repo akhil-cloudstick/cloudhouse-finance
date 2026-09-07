@@ -34,7 +34,7 @@ import { SearchableSelect } from "@/common/components/ui/SearchableSelect";
 import { PurityPicker } from "@/common/components/ui/PurityPicker";
 import { rateForPurityString } from "@/common/utils/purity";
 import { openPrintWindow } from "@/common/utils/print";
-import { printIndemnityBond } from "@/modules/loans/utils/indemnityBond";
+import { printIndemnityBond, BOND_LANG_OPTIONS, type BondLang } from "@/modules/loans/utils/indemnityBond";
 import { ApiError } from "@/common/services/httpClient";
 import type { Ornament } from "@/common/utils/data";
 
@@ -164,6 +164,17 @@ export function NewLoan() {
   // loan.PacketCreator) — printPacketLabel() prefers this over the
   // provisional provId-based URL once it's known.
   const [createdPacketCode, setCreatedPacketCode] = useState<string | null>(null);
+  const [bondLang, setBondLang] = useState<BondLang>("en");
+  const [bondMenuOpen, setBondMenuOpen] = useState(false);
+  const bondMenuRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!bondMenuOpen) return;
+    function onDocClick(e: MouseEvent) {
+      if (!bondMenuRef.current?.contains(e.target as Node)) setBondMenuOpen(false);
+    }
+    document.addEventListener("click", onDocClick);
+    return () => document.removeEventListener("click", onDocClick);
+  }, [bondMenuOpen]);
 
   useEffect(() => {
     listActiveBranches()
@@ -437,7 +448,7 @@ export function NewLoan() {
    * modules/loans/utils/indemnityBond.ts for the template. Full Aadhaar is
    * fetched separately (getCustomerAadhaarFull) since the customer picker's
    * cached CustomerView only ever carries the last-4. */
-  async function printIndemnity() {
+  async function printIndemnity(lang: BondLang = bondLang) {
     const d = buildDraft();
     const c = d.c as { id?: string; name?: string; dob?: string; address?: string; branchName?: string; phone?: string; pan?: string };
     const aadhaar = c.id ? await getCustomerAadhaarFull(c.id).catch(() => "") : "";
@@ -450,7 +461,8 @@ export function NewLoan() {
         interestRate: d.sch.rate,
         ornaments: d.orns.map((o) => ({ name: o.n, purity: o.purity, grossWeight: o.gross, netWeight: o.net, value: o.val })),
       },
-      toast
+      toast,
+      lang
     );
   }
 
@@ -890,7 +902,54 @@ export function NewLoan() {
           <div className="ft" style={{ display: "flex", gap: 10, justifyContent: "flex-end", flexWrap: "wrap", padding: "14px 18px" }}>
             <button className="btn ghost" onClick={printPacketLabel}>🏷 Print Label</button>
             <button className="btn ghost" onClick={printPledgeSlip}>🖨 Print Slip</button>
-            <button className="btn ghost" onClick={printIndemnity}>🖨 Pledge Agreement</button>
+            {/* Pledge agreement print dropdown — replaces the old 2-button
+              * toggle + print button with a single dropdown matching
+              * LoanDetail.tsx's Documents menu, picking between English and
+              * Gujarati on the fly. */}
+            <div className="docs-dd" ref={bondMenuRef}>
+              <button
+                type="button"
+                className="btn ghost"
+                onClick={() => setBondMenuOpen((v) => !v)}
+                title="Print pledge agreement in English or Gujarati"
+              >
+                🖨 Pledge Agreement <Icon name="chevronDown" className="docs-dd-chev" />
+              </button>
+              {bondMenuOpen && (
+                <div className="docs-dd-menu" style={{ minWidth: 230, right: 0 }}>
+                  <a
+                    href="#"
+                    onClick={(e) => {
+                      e.preventDefault();
+                      setBondMenuOpen(false);
+                      setBondLang("en");
+                      printIndemnity("en");
+                    }}
+                  >
+                    <Icon name="doc" />
+                    <span className="tx">
+                      English
+                      <span style={{ display: "block", fontSize: 11, color: "var(--muted)" }}>Indemnity Bond</span>
+                    </span>
+                  </a>
+                  <a
+                    href="#"
+                    onClick={(e) => {
+                      e.preventDefault();
+                      setBondMenuOpen(false);
+                      setBondLang("gu");
+                      printIndemnity("gu");
+                    }}
+                  >
+                    <Icon name="doc" />
+                    <span className="tx">
+                      Gujarati
+                      <span style={{ display: "block", fontSize: 11, color: "var(--muted)" }}>ચલ મિલકતનો આડગીરો કરાર</span>
+                    </span>
+                  </a>
+                </div>
+              )}
+            </div>
             <button className="btn ghost" onClick={saveDraftNow} disabled={savingDraft}>
               {savingDraft ? "Saving…" : draftId ? "Update Draft" : "Save Draft"}
             </button>

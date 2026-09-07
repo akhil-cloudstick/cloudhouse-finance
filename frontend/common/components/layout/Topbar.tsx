@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { useCustomers } from "@/modules/customers/store/CustomersProvider";
 import { useGoldRates } from "@/modules/gold-rates/store/GoldRatesProvider";
@@ -51,9 +52,8 @@ export function Topbar({ route, arg, onBurger }: { route: string; arg?: string; 
         </svg>
       </button>
       <span className="crumb" id="crumb">
-        <a href="#dashboard" style={{ color: "inherit", textDecoration: "none" }}>Ambika Gold Finance</a>
-        &nbsp;/&nbsp;
-        <a href={crumbHref} style={{ color: "inherit", textDecoration: "none" }}><b>{crumb}</b></a>
+        <span className="crumb-org">Ambika Gold Finance &nbsp;/&nbsp; </span>
+        <b>{crumb}</b>
       </span>
       <GlobalSearch isOpen={searchOpen} onToggle={setSearchOpen} />
       <a

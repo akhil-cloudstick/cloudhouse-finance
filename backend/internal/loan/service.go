@@ -151,6 +151,12 @@ var (
 	// eligible, issue notice, schedule, record sale, settle) were only
 	// gated by the general "can update loan" permission.
 	ErrAuctionStepNotPermitted = httpx.NewForbidden("your role does not have permission to perform this auction step")
+	// ErrAuctionStepNotPermitted: the acting employee's role isn't granted
+	// the specific "Approval Workflow" permission this auction step requires
+	// (see internal/authz.Catalogue) — previously these five steps (mark
+	// eligible, issue notice, schedule, record sale, settle) were only
+	// gated by the general "can update loan" permission.
+	ErrAuctionStepNotPermitted = httpx.NewForbidden("your role does not have permission to perform this auction step")
 
 	// ErrDraftNotFound covers both "no such draft" and "not yours" — a draft
 	// belongs to the employee who saved it (see LoanDraft), and answering
@@ -193,8 +199,9 @@ var (
 	ErrEsignNotConfigured         = httpx.NewUnavailable("indemnity bond eSign is not configured")
 	ErrNoIndemnityBondSignRequest = httpx.NewBadRequest("no indemnity bond eSign has been started for this loan")
 	// ErrIndemnityBondAlreadySigned is a state conflict — Conflict, not BadRequest.
-	ErrIndemnityBondAlreadySigned   = httpx.NewConflict("this loan's indemnity bond has already been signed")
-	ErrUnsupportedIndemnityBondLang = httpx.NewBadRequest("lang must be en")
+	ErrIndemnityBondAlreadySigned      = httpx.NewConflict("this loan's indemnity bond has already been signed")
+	ErrUnsupportedIndemnityBondLang    = httpx.NewBadRequest("lang must be \"en\" or \"gu\"")
+	ErrUnsupportedIndemnityBondDeliver = httpx.NewBadRequest("deliverBy must be \"open\", \"whatsapp\" or \"dashboard\"")
 )
 
 // Service implements loan business rules: ornament valuation, eligible-
@@ -338,6 +345,7 @@ func NewService(
 		tenantRepo:          tenantRepo,
 		razorpay:            razorpay,
 		aadhaarCipher:       aadhaarCipher,
+		permChecker:         permChecker,
 		permChecker:         permChecker,
 	}
 }
@@ -3372,9 +3380,19 @@ func (s *Service) bondDataForLoan(ctx context.Context, l *Loan) BondData {
 // device — the frontend supplies this the same way customer.Service.
 // StartAadhaarVerify's redirectURL works.
 //
-// lang is kept for API compatibility with existing callers (they still
-// send "en") but the pledge agreement now has only one, English, version —
-// any other value is rejected.
+// lang selects which pledge-agreement template is rendered and sent to
+// Setu — BondLangEnglish or BondLangGujarati; any other value is rejected.
+// The signed copy remembers which one was actually sent (see
+// l.IndemnityBondSignRequestID below), so re-checking status later doesn't
+// need lang passed again.
+//
+// deliverBy selects how the signing URL reaches the customer — one of
+// BondDeliverOpen/WhatsApp/Dashboard (empty defaults to Open, matching the
+// original behavior before this parameter existed: the URL is just
+// returned to the caller). Whatever's chosen, the URL is always returned
+// too — Open's caller opens it directly, WhatsApp/Dashboard's callers use
+// it only to show a confirmation, since the actual delivery already
+// happened server-side.
 //
 // The bond's print-and-sign-by-hand buttons (NewLoan.tsx/LoanDetail.tsx)
 // are untouched by this — eSign is an additional path, not a replacement,
@@ -3383,8 +3401,14 @@ func (s *Service) StartIndemnityBondSign(ctx context.Context, loanID uint, branc
 	if s.esign == nil {
 		return nil, ErrEsignNotConfigured
 	}
-	if lang != "en" {
+	if lang != BondLangEnglish && lang != BondLangGujarati {
 		return nil, ErrUnsupportedIndemnityBondLang
+	}
+	if deliverBy == "" {
+		deliverBy = BondDeliverOpen
+	}
+	if deliverBy != BondDeliverOpen && deliverBy != BondDeliverWhatsApp && deliverBy != BondDeliverDashboard {
+		return nil, ErrUnsupportedIndemnityBondDeliver
 	}
 	l, err := s.repo.FindByID(ctx, loanID)
 	if err != nil {
@@ -3403,12 +3427,16 @@ func (s *Service) StartIndemnityBondSign(ctx context.Context, loanID uint, branc
 		}
 	}
 
-	pdfBytes, err := RenderIndemnityBondPDF(s.bondDataForLoan(ctx, l))
+	pdfBytes, err := RenderIndemnityBondPDF(s.bondDataForLoan(ctx, l), lang)
 	if err != nil {
 		return nil, err
 	}
 
-	doc, err := s.esign.UploadDocument(pdfBytes, "Pledge Agreement - "+l.LoanNumber)
+	docTitle := "Pledge Agreement - " + l.LoanNumber
+	if lang == BondLangGujarati {
+		docTitle = "Pledge Agreement (Gujarati) - " + l.LoanNumber
+	}
+	doc, err := s.esign.UploadDocument(pdfBytes, docTitle)
 	if err != nil {
 		return nil, err
 	}
@@ -3431,11 +3459,16 @@ func (s *Service) StartIndemnityBondSign(ctx context.Context, loanID uint, branc
 		name = "Customer " + l.LoanNumber
 	}
 
+	lastPage := strconv.Itoa(CountPDFPages(pdfBytes))
+	if lastPage == "" || lastPage == "0" {
+		lastPage = "1"
+	}
+
 	signer := platform.Signer{
 		Identifier:  phone,
 		DisplayName: name,
 		Signature: &platform.SignatureConfig{
-			OnPages:  []string{"1"},
+			OnPages:  []string{lastPage},
 			Position: "bottom-right",
 		},
 	}
@@ -3453,7 +3486,72 @@ func (s *Service) StartIndemnityBondSign(ctx context.Context, loanID uint, branc
 	if err := s.repo.Update(ctx, l); err != nil {
 		return nil, err
 	}
+
+	if req.URL != "" {
+		s.deliverEsignLink(l, req.URL, lang, deliverBy, phone)
+	}
 	return req, nil
+}
+
+// deliverEsignLink sends the just-created signing URL to the customer by
+// whichever channel staff picked, in addition to always returning it to the
+// caller (see StartIndemnityBondSign's deliverBy doc comment). BondDeliverOpen
+// is a no-op here — the caller opening the URL themselves is the entire
+// delivery. phone is the same 10-digit number already resolved for Setu's
+// signer.Identifier, so both use the identical number.
+func (s *Service) deliverEsignLink(l *Loan, url, lang, deliverBy, phone string) {
+	langLabel := "English"
+	if lang == BondLangGujarati {
+		langLabel = "Gujarati"
+	}
+	title := "Sign Your Pledge Agreement"
+	body := fmt.Sprintf(
+		"Ambika Gold Finance: your %s pledge agreement for loan %s is ready to sign with Aadhaar. Open this link on your own phone to complete it: %s",
+		langLabel, l.LoanNumber, url,
+	)
+
+	switch deliverBy {
+	case BondDeliverWhatsApp:
+		if s.whatsapp == nil {
+			log.Printf("indemnity bond: WhatsApp delivery requested for loan %d but no WhatsApp sender is configured", l.ID)
+			return
+		}
+		// Same fire-and-forget-in-a-goroutine + commlog pattern as
+		// notifyCustomer — an OpenWA send can take up to its own client
+		// timeout, and this must not hold up the eSign response the
+		// caller is waiting on to open its own confirmation screen.
+		go func() {
+			sendErr := s.whatsapp.Send(phone, body)
+			if sendErr != nil {
+				log.Printf("indemnity bond eSign WhatsApp send failed (loan %d, phone %s): %v", l.ID, phone, sendErr)
+			}
+			if s.commlogRepo != nil {
+				rec := &commlog.CommunicationLog{
+					RecipientPhone:    phone,
+					ChatID:            commlog.NormalizeChatID(phone),
+					Channel:           commlog.ChannelWhatsApp,
+					TriggerType:       commlog.TriggerIndemnityBondEsign,
+					MessageBody:       body,
+					RelatedEntityType: "loan",
+					RelatedEntityID:   l.ID,
+					Status:            commlog.StatusSent,
+				}
+				if sendErr != nil {
+					rec.Status = commlog.StatusFailed
+					rec.ErrorMessage = sendErr.Error()
+				}
+				if err := s.commlogRepo.Create(rec); err != nil {
+					log.Printf("indemnity bond eSign: communication log write failed (loan %d): %v", l.ID, err)
+				}
+			}
+		}()
+	case BondDeliverDashboard:
+		if s.notifier == nil {
+			log.Printf("indemnity bond: dashboard delivery requested for loan %d but no notifier is configured", l.ID)
+			return
+		}
+		s.notifier.Notify(l.CustomerID, "IndemnityBondEsignReady", title, body, "loan", l.ID)
+	}
 }
 
 // CheckIndemnityBondSign polls the outstanding Setu signature request

@@ -30,9 +30,13 @@ func (r *Repository) FindAll(ctx context.Context, limit, offset int) ([]GoldRate
 		if err := q.Session(&gorm.Session{}).Model(&GoldRate{}).Count(&total).Error; err != nil {
 			return nil, 0, err
 		}
+		if err := q.Session(&gorm.Session{}).Model(&GoldRate{}).Count(&total).Error; err != nil {
+			return nil, 0, err
+		}
 		q = q.Limit(limit).Offset(offset)
 	}
 	err := q.Find(&rates).Error
+	return rates, total, err
 	return rates, total, err
 }
 

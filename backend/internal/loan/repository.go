@@ -118,9 +118,15 @@ func startOfDay(t time.Time) time.Time {
 	return time.Date(t.Year(), t.Month(), t.Day(), 0, 0, 0, 0, t.Location())
 }
 
-// applyFilters applies f's WHERE clauses to q — shared by FindAll (which
-// also applies Limit/Offset) and CountFiltered (which never does).
-func applyFilters(q *gorm.DB, f LoanFilter) *gorm.DB {
+// FindAll returns the matching loans (Limit/Offset applied) plus the TOTAL
+// row count for f's filters (Limit/Offset ignored for that count) — 0 when
+// f.Limit <= 0, since the non-paginated bare-array callers have no page
+// indicator to show a total on and the extra COUNT(*) would be wasted work.
+func (r *Repository) FindAll(f LoanFilter) ([]Loan, int64, error) {
+	// Most recently opened loan first. Ordering by id alone pinned whichever
+	// loan was inserted last to the top even when an older-dated loan was
+	// entered afterwards; id only breaks ties within the same day now.
+	q := preloadAll(r.db).Model(&Loan{}).Order("opened_date desc, id desc")
 	if len(f.StatusIn) > 0 {
 		q = q.Where("status IN ?", f.StatusIn)
 	} else if f.Status != "" {
@@ -151,6 +157,7 @@ func applyFilters(q *gorm.DB, f LoanFilter) *gorm.DB {
 	if f.BankPledgeStatus != "" {
 		q = q.Where("bank_pledge_status = ?", f.BankPledgeStatus)
 	}
+	var total int64
 	return q
 }
 
@@ -165,9 +172,6 @@ func (r *Repository) FindAll(ctx context.Context, f LoanFilter) ([]Loan, int64, 
 	q := applyFilters(preloadAll(r.db.WithContext(ctx)).Model(&Loan{}).Order("opened_date desc, id desc"), f)
 	var total int64
 	if f.Limit > 0 {
-		if err := q.Session(&gorm.Session{}).Count(&total).Error; err != nil {
-			return nil, 0, err
-		}
 		q = q.Limit(f.Limit)
 	}
 	if f.Offset > 0 {

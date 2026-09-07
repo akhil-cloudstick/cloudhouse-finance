@@ -123,6 +123,7 @@ func (s *Service) Find(ctx context.Context, f LockerFilter) ([]View, int64, erro
 	lockers, total, err := s.repo.Find(ctx, f)
 	if err != nil {
 		return nil, 0, err
+		return nil, 0, err
 	}
 	views := make([]View, 0, len(lockers))
 	for _, l := range lockers {

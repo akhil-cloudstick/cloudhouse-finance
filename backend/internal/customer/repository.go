@@ -54,13 +54,18 @@ func (r *Repository) FindAll(ctx context.Context, f CustomerFilter) ([]Customer,
 		q = q.Where("aadhaar_status = ?", f.AadhaarStatus)
 	}
 	var total int64
+	var total int64
 	if f.Limit > 0 {
+		if err := q.Session(&gorm.Session{}).Model(&Customer{}).Count(&total).Error; err != nil {
+			return nil, 0, err
+		}
 		if err := q.Session(&gorm.Session{}).Model(&Customer{}).Count(&total).Error; err != nil {
 			return nil, 0, err
 		}
 		q = q.Limit(f.Limit).Offset(f.Offset)
 	}
 	err := q.Find(&customers).Error
+	return customers, total, err
 	return customers, total, err
 }
 

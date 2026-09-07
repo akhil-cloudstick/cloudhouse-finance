@@ -86,6 +86,7 @@ func (h *Handler) List(c *gin.Context) {
 			rec = rec[:limit]
 		}
 		httpx.Success(c, http.StatusOK, gin.H{"items": rec, "hasMore": hasMore, "total": total})
+		httpx.Success(c, http.StatusOK, gin.H{"items": rec, "hasMore": hasMore, "total": total})
 		return
 	}
 

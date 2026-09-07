@@ -9,6 +9,14 @@ import (
 
 	"ambikagold/backend/internal/loan"
 )
+import (
+	"errors"
+	"time"
+
+	"gorm.io/gorm"
+
+	"ambikagold/backend/internal/loan"
+)
 
 // NeedsAttentionPageSize is fixed (not caller-adjustable) — matches the
 // widget's fixed page size on frontend/components/Dashboard.tsx.

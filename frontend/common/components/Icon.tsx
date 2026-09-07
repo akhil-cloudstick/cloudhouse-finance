@@ -45,6 +45,25 @@ const PATHS: Record<string, React.ReactNode> = {
     </>
   ),
   chat: <path d="M4 5h16v11H8l-4 4z" />,
+  whatsapp: (
+    <path
+      d="M17.47 14.38c-.3-.15-1.78-.88-2.06-.98-.27-.1-.47-.15-.67.15-.2.3-.78.98-.95 1.18-.18.2-.35.23-.65.08-.3-.15-1.27-.47-2.42-1.5-.9-.8-1.5-1.78-1.68-2.08-.18-.3-.02-.47.13-.62.14-.13.3-.35.45-.53.15-.17.2-.3.3-.5.1-.2.05-.38-.02-.53-.08-.15-.68-1.63-.93-2.23-.25-.6-.5-.51-.68-.52l-.58-.01c-.2 0-.53.07-.8.37-.28.3-1.06 1.03-1.06 2.51s1.08 2.91 1.23 3.11c.15.2 2.12 3.24 5.14 4.54.72.31 1.28.5 1.72.64.72.23 1.37.2 1.89.12.58-.09 1.78-.73 2.03-1.43.25-.7.25-1.3.18-1.43-.08-.13-.28-.2-.58-.35ZM12.04 2C6.54 2 2.07 6.46 2.07 11.97c0 1.76.46 3.47 1.33 4.98L2 22l5.2-1.33c1.47.8 3.12 1.27 4.84 1.27 5.5 0 9.97-4.47 9.97-9.97A9.97 9.97 0 0 0 12.04 2Z"
+      fill="currentColor"
+      stroke="none"
+    />
+  ),
+  smartphone: (
+    <>
+      <rect x="6" y="2" width="12" height="20" rx="3" />
+      <path d="M12 18h.01" />
+    </>
+  ),
+  externalLink: (
+    <>
+      <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
+      <path d="M15 3h6v6M10 14 21 3" />
+    </>
+  ),
   phone: <path d="M5 4h4l1.5 4.5L8 10a12 12 0 0 0 6 6l1.5-2.5L20 15v4a1.5 1.5 0 0 1-1.7 1.5C10 19.7 4.3 14 3.5 5.7A1.5 1.5 0 0 1 5 4Z" />,
   scan: <path d="M4 8V4h4M16 4h4v4M20 16v4h-4M8 20H4v-4M4 12h16" />,
   lock: (
@@ -121,7 +140,7 @@ const PATHS: Record<string, React.ReactNode> = {
   ),
 };
 
-export function Icon({ name, className }: { name: string; className?: string }) {
+export function Icon({ name, className, style }: { name: string; className?: string; style?: React.CSSProperties }) {
   return (
     <svg
       viewBox="0 0 24 24"
@@ -131,6 +150,7 @@ export function Icon({ name, className }: { name: string; className?: string }) 
       strokeLinecap="round"
       strokeLinejoin="round"
       className={className}
+      style={style}
     >
       {PATHS[name] || PATHS.doc}
     </svg>
