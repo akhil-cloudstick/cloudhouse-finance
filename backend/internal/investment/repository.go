@@ -1,0 +1,247 @@
+package investment
+
+import (
+	"context"
+	"time"
+
+	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
+)
+
+// Repository provides GORM-backed persistence for InvestmentPlan,
+// Investment and InvestmentPayout.
+type Repository struct {
+	db *gorm.DB
+}
+
+func NewRepository(db *gorm.DB) *Repository {
+	return &Repository{db: db}
+}
+
+// DB exposes the underlying *gorm.DB so Service can run multi-step writes
+// (create investment + schedule, maturity decisions) inside one
+// db.Transaction — mirrors personalloan.Repository.DB.
+func (r *Repository) DB() *gorm.DB { return r.db }
+
+// --- Plans ---
+
+func (r *Repository) CreatePlan(ctx context.Context, rec *InvestmentPlan) error {
+	return r.db.WithContext(ctx).Create(rec).Error
+}
+
+func (r *Repository) UpdatePlan(ctx context.Context, rec *InvestmentPlan) error {
+	return r.db.WithContext(ctx).Save(rec).Error
+}
+
+func (r *Repository) FindPlanByID(ctx context.Context, id uint) (*InvestmentPlan, error) {
+	var rec InvestmentPlan
+	if err := r.db.WithContext(ctx).First(&rec, id).Error; err != nil {
+		return nil, err
+	}
+	return &rec, nil
+}
+
+// FindAllPlans lists plans, newest first; activeOnly restricts to
+// IsActive plans (used when populating the "pick a plan" list for a new
+// investment — a retired plan must still be readable by ID for existing
+// investments, just not offered for new ones).
+func (r *Repository) FindAllPlans(ctx context.Context, activeOnly bool) ([]InvestmentPlan, error) {
+	var recs []InvestmentPlan
+	q := r.db.WithContext(ctx).Order("id desc")
+	if activeOnly {
+		q = q.Where("is_active = ?", true)
+	}
+	err := q.Find(&recs).Error
+	return recs, err
+}
+
+// --- Investments ---
+
+func (r *Repository) Create(ctx context.Context, tx *gorm.DB, rec *Investment) error {
+	return dbOrDefault(ctx, tx, r.db).Create(rec).Error
+}
+
+func (r *Repository) Update(ctx context.Context, tx *gorm.DB, rec *Investment) error {
+	return dbOrDefault(ctx, tx, r.db).Save(rec).Error
+}
+
+// FindByID loads an investment, optionally scoped to a branch (nil = no
+// scope, i.e. Administrator) — mirrors personalloan.Repository.FindByID's
+// not-found-on-mismatch behavior. Preloads Customer/Branch/Plan since every
+// caller needs the investor's name and plan terms.
+func (r *Repository) FindByID(ctx context.Context, id uint, branchID *uint) (*Investment, error) {
+	var rec Investment
+	q := r.db.WithContext(ctx).Preload("Customer").Preload("Branch").Preload("Plan").Where("id = ?", id)
+	if branchID != nil {
+		q = q.Where("branch_id = ?", *branchID)
+	}
+	if err := q.First(&rec).Error; err != nil {
+		return nil, err
+	}
+	return &rec, nil
+}
+
+// LockByID is FindByID's row-locking counterpart, used by MarkPayoutPaid
+// and MatureInvestment to serialize concurrent writers — mirrors
+// personalloan.Repository.LockByID. Must be called within tx.
+func (r *Repository) LockByID(ctx context.Context, tx *gorm.DB, id uint, branchID *uint) (*Investment, error) {
+	var rec Investment
+	q := tx.WithContext(ctx).Clauses(clause.Locking{Strength: "UPDATE"}).Where("id = ?", id)
+	if branchID != nil {
+		q = q.Where("branch_id = ?", *branchID)
+	}
+	if err := q.First(&rec).Error; err != nil {
+		return nil, err
+	}
+	return &rec, nil
+}
+
+// ListFilter narrows FindAll's results; zero-value fields are ignored.
+type ListFilter struct {
+	BranchID   *uint
+	CustomerID *uint
+	Status     string
+	Query      string // matches InvestmentNumber or the customer's Name
+	Limit      int
+	Offset     int
+}
+
+// FindAll lists investments, newest first, filtered per f — mirrors
+// personalloan.Repository.FindAll, including its Limit+1/hasMore trick.
+func (r *Repository) FindAll(ctx context.Context, f ListFilter) ([]Investment, error) {
+	var recs []Investment
+	q := r.db.WithContext(ctx).Preload("Customer").Preload("Plan").Model(&Investment{}).Order("investments.id desc")
+	if f.BranchID != nil {
+		q = q.Where("branch_id = ?", *f.BranchID)
+	}
+	if f.CustomerID != nil {
+		q = q.Where("customer_id = ?", *f.CustomerID)
+	}
+	if f.Status != "" {
+		q = q.Where("status = ?", f.Status)
+	}
+	if f.Query != "" {
+		like := "%" + f.Query + "%"
+		q = q.Joins("JOIN customers ON customers.id = investments.customer_id").
+			Where("investments.investment_number ILIKE ? OR customers.name ILIKE ?", like, like)
+	}
+	if f.Limit > 0 {
+		q = q.Limit(f.Limit + 1).Offset(f.Offset)
+	}
+	err := q.Find(&recs).Error
+	return recs, err
+}
+
+// CountAll is used to generate the next sequential InvestmentNumber.
+func (r *Repository) CountAll(ctx context.Context) (int64, error) {
+	var count int64
+	err := r.db.WithContext(ctx).Unscoped().Model(&Investment{}).Count(&count).Error
+	return count, err
+}
+
+// FindDueForMaturitySweep returns every Active investment whose
+// MaturityDate has passed — the background job's input for flagging
+// Matured (see Service.SweepMaturities). Never returns anything already
+// Matured/Closed/Renewed, so the sweep is naturally idempotent.
+func (r *Repository) FindDueForMaturitySweep(ctx context.Context, asOf time.Time) ([]Investment, error) {
+	var recs []Investment
+	err := r.db.WithContext(ctx).Where("status = ? AND maturity_date <= ?", StatusActive, asOf).Find(&recs).Error
+	return recs, err
+}
+
+// --- Payouts ---
+
+func (r *Repository) CreatePayouts(ctx context.Context, tx *gorm.DB, recs []InvestmentPayout) error {
+	if len(recs) == 0 {
+		return nil
+	}
+	return dbOrDefault(ctx, tx, r.db).Create(&recs).Error
+}
+
+// FindPayouts returns one page of an investment's payout schedule, ordered
+// by SequenceNo — mirrors personalloan.Repository.FindInstallments.
+func (r *Repository) FindPayouts(ctx context.Context, investmentID uint, limit, offset int) ([]InvestmentPayout, error) {
+	var recs []InvestmentPayout
+	err := r.db.WithContext(ctx).Where("investment_id = ?", investmentID).Order("sequence_no asc").
+		Limit(limit + 1).Offset(offset).Find(&recs).Error
+	return recs, err
+}
+
+// FindPayoutByID loads a single payout row (no branch scoping of its
+// own — callers first load/lock the parent Investment, which IS
+// branch-scoped, then use this to fetch the specific row).
+func (r *Repository) FindPayoutByID(ctx context.Context, id uint) (*InvestmentPayout, error) {
+	var rec InvestmentPayout
+	if err := r.db.WithContext(ctx).First(&rec, id).Error; err != nil {
+		return nil, err
+	}
+	return &rec, nil
+}
+
+// LockPayoutByID is FindPayoutByID's row-locking counterpart, used by
+// MarkPayoutPaid within the same transaction as the parent investment's
+// lock.
+func (r *Repository) LockPayoutByID(ctx context.Context, tx *gorm.DB, id uint) (*InvestmentPayout, error) {
+	var rec InvestmentPayout
+	if err := tx.WithContext(ctx).Clauses(clause.Locking{Strength: "UPDATE"}).First(&rec, id).Error; err != nil {
+		return nil, err
+	}
+	return &rec, nil
+}
+
+func (r *Repository) UpdatePayout(ctx context.Context, tx *gorm.DB, rec *InvestmentPayout) error {
+	return dbOrDefault(ctx, tx, r.db).Save(rec).Error
+}
+
+// AppendPayout adds one extra payout row inside tx — used by
+// MatureInvestment's Close path to append the final principal-return row.
+func (r *Repository) AppendPayout(ctx context.Context, tx *gorm.DB, rec *InvestmentPayout) error {
+	return dbOrDefault(ctx, tx, r.db).Create(rec).Error
+}
+
+// CalendarPayout is one pending payout joined with its investment and
+// investor — just enough for the reminder calendar to show "who is owed
+// what, when" (mirrors personalloan.Repository.CalendarInstallment /
+// FindPendingInstallmentsForCalendar).
+type CalendarPayout struct {
+	InvestmentID     uint
+	InvestmentNumber string
+	CustomerID       uint
+	CustomerName     string
+	BranchID         uint
+	DueDate          time.Time
+	Amount           float64
+}
+
+// FindPendingPayoutsForCalendar returns every not-yet-paid payout belonging
+// to an Active or Matured investment (a Matured investment can still have
+// a pending final payout awaiting the admin's Close decision), optionally
+// branch-scoped.
+func (r *Repository) FindPendingPayoutsForCalendar(ctx context.Context, branchID *uint) ([]CalendarPayout, error) {
+	var rows []CalendarPayout
+	q := r.db.WithContext(ctx).Table("investment_payouts").
+		Select("investment_payouts.due_date AS due_date, investment_payouts.amount AS amount, "+
+			"investments.id AS investment_id, investments.investment_number AS investment_number, "+
+			"investments.customer_id AS customer_id, customers.name AS customer_name, "+
+			"investments.branch_id AS branch_id").
+		Joins("JOIN investments ON investments.id = investment_payouts.investment_id").
+		Joins("JOIN customers ON customers.id = investments.customer_id").
+		Where("investment_payouts.status = ?", PayoutStatusPending).
+		Where("investments.status IN ?", []string{StatusActive, StatusMatured})
+	if branchID != nil {
+		q = q.Where("investments.branch_id = ?", *branchID)
+	}
+	err := q.Scan(&rows).Error
+	return rows, err
+}
+
+// dbOrDefault returns tx if the caller supplied one (a write that must
+// participate in an ongoing transaction), otherwise falls back to the
+// repository's own db handle scoped to ctx — mirrors
+// personalloan.Repository's identical helper.
+func dbOrDefault(ctx context.Context, tx *gorm.DB, fallback *gorm.DB) *gorm.DB {
+	if tx != nil {
+		return tx.WithContext(ctx)
+	}
+	return fallback.WithContext(ctx)
+}

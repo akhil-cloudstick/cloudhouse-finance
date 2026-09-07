@@ -98,6 +98,68 @@ func (h *Handler) Disbursement(c *gin.Context) {
 	respond(c, rows, totals, f)
 }
 
+func (h *Handler) DepositRegister(c *gin.Context) {
+	ctx := platform.RequestContext(c)
+	f, err := parseFilter(c)
+	if err != nil {
+		badRequest(c, err)
+		return
+	}
+	rows, totals, err := h.svc.DepositRegister(ctx, f)
+	if err != nil {
+		serverError(c, err)
+		return
+	}
+	respond(c, rows, totals, f)
+}
+
+func (h *Handler) InterestPayoutRegister(c *gin.Context) {
+	ctx := platform.RequestContext(c)
+	f, err := parseFilter(c)
+	if err != nil {
+		badRequest(c, err)
+		return
+	}
+	rows, totals, err := h.svc.InterestPayoutRegister(ctx, f)
+	if err != nil {
+		serverError(c, err)
+		return
+	}
+	respond(c, rows, totals, f)
+}
+
+func (h *Handler) MaturityRegister(c *gin.Context) {
+	ctx := platform.RequestContext(c)
+	f, err := parseFilter(c)
+	if err != nil {
+		badRequest(c, err)
+		return
+	}
+	rows, totals, err := h.svc.MaturityRegister(ctx, f)
+	if err != nil {
+		serverError(c, err)
+		return
+	}
+	respond(c, rows, totals, f)
+}
+
+// InvestorLedger returns one investor's full statement — requires a
+// customer_id query param (a detail view, not a date-scoped register).
+func (h *Handler) InvestorLedger(c *gin.Context) {
+	ctx := platform.RequestContext(c)
+	customerID, err := strconv.ParseUint(c.Query("customer_id"), 10, 64)
+	if err != nil {
+		badRequest(c, err)
+		return
+	}
+	rows, totals, err := h.svc.InvestorLedger(ctx, uint(customerID))
+	if err != nil {
+		serverError(c, err)
+		return
+	}
+	httpx.Success(c, http.StatusOK, Result{Rows: rows, Totals: totals, TotalCount: len(rows)})
+}
+
 func (h *Handler) LoansStatus(c *gin.Context) {
 	ctx := platform.RequestContext(c)
 	f, err := parseFilter(c)

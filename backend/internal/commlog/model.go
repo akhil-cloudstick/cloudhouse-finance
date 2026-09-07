@@ -39,6 +39,11 @@ const (
 	// link, when sent via WhatsApp instead of opened on the staff device —
 	// see loan.Service.StartIndemnityBondSign's deliverBy parameter.
 	TriggerIndemnityBondEsign = "indemnity_bond_esign"
+	// TriggerInterestPayout/TriggerInvestmentMatured back
+	// internal/investment's payout and maturity events — see
+	// investment.Service.MarkPayoutPaid / SweepMaturities.
+	TriggerInterestPayout    = "interest_payout"
+	TriggerInvestmentMatured = "investment_matured"
 )
 
 // Channel values for CommunicationLog.Channel.

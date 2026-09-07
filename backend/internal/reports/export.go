@@ -53,6 +53,12 @@ func (h *Handler) reportRows(ctx context.Context, key string, f Filter) (rows an
 		return call2(h.svc.EmployeePerformance(ctx, f))
 	case "communication-history":
 		return call2(h.svc.CommunicationHistory(ctx, f, ""))
+	case "investments-deposit-register":
+		return call2(h.svc.DepositRegister(ctx, f))
+	case "investments-interest-payout-register":
+		return call2(h.svc.InterestPayoutRegister(ctx, f))
+	case "investments-maturity-register":
+		return call2(h.svc.MaturityRegister(ctx, f))
 	default:
 		return nil, nil, fmt.Errorf("unknown report key %q", key)
 	}

@@ -74,6 +74,23 @@ type Customer struct {
 	// of "0" for every pre-existing gold-loan customer.
 	Age *int `json:"age,omitempty" gorm:"type:int"`
 
+	// CustomerType distinguishes an ordinary borrowing customer from an
+	// investor (internal/investment) — a customer who deposits money into
+	// the system rather than borrowing from it. Defaults to Borrower so
+	// every pre-existing row (and every gold-loan/personal-loan customer
+	// created going forward) keeps its current behavior untouched.
+	CustomerType string `json:"customerType" gorm:"size:20;not null;default:'Borrower'"`
+
+	// The fields below are investor-only / optional — collected only when
+	// CustomerType is Investor, needed to pay interest/principal back to
+	// them (internal/investment.Service's CashRecorder). Gold-loan/
+	// personal-loan customer creation never sends them, so they must stay
+	// nullable/blank-default and never required by validate() in
+	// service.go unless CustomerType == CustomerTypeInvestor.
+	BankAccountName   string `json:"bankAccountName,omitempty" gorm:"size:120"`
+	BankAccountNumber string `json:"bankAccountNumber,omitempty" gorm:"size:30"`
+	BankIFSC          string `json:"bankIfsc,omitempty" gorm:"size:15"`
+
 	// KYCStatus/PANStatus/AadhaarStatus start "Pending" at creation in
 	// service.Create — no real verification call happens until a live Setu
 	// PAN-verify (internal/platform/setu.go) / DigiLocker Aadhaar call runs
@@ -98,6 +115,12 @@ type Customer struct {
 func (Customer) TableName() string {
 	return "customers"
 }
+
+// CustomerType values for Customer.CustomerType / CustomerResponse.CustomerType.
+const (
+	CustomerTypeBorrower = "Borrower"
+	CustomerTypeInvestor = "Investor"
+)
 
 // CustomerResponse is the only shape ever sent back over the API. It is a
 // structurally separate type from Customer (not just json tags on the same
@@ -140,6 +163,13 @@ type CustomerResponse struct {
 	PinCode    string `json:"pinCode,omitempty"`
 	Age        *int   `json:"age,omitempty"`
 
+	CustomerType string `json:"customerType"`
+
+	// Investor-only / optional — see Customer's own field comments.
+	BankAccountName   string `json:"bankAccountName,omitempty"`
+	BankAccountNumber string `json:"bankAccountNumber,omitempty"`
+	BankIFSC          string `json:"bankIfsc,omitempty"`
+
 	CreatedAt time.Time `json:"createdAt"`
 	UpdatedAt time.Time `json:"updatedAt"`
 }
@@ -181,6 +211,12 @@ func (c *Customer) ToResponse() CustomerResponse {
 		Place:      c.Place,
 		PinCode:    c.PinCode,
 		Age:        c.Age,
+
+		CustomerType: c.CustomerType,
+
+		BankAccountName:   c.BankAccountName,
+		BankAccountNumber: c.BankAccountNumber,
+		BankIFSC:          c.BankIFSC,
 
 		CreatedAt: c.CreatedAt,
 		UpdatedAt: c.UpdatedAt,
