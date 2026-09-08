@@ -9,7 +9,6 @@ export const PARENT_ROUTE: Record<string, string> = {
   loan: "loans",
   newloan: "loans",
   personalloan: "personalloans",
-  investment: "investments",
   packet: "packets",
 };
 
@@ -18,7 +17,6 @@ export const TITLES: Record<string, string> = {
   dashboard: "Dashboard", customers: "Customers & KYC", customer: "Customer 360°",
   loans: "Loans", loan: "Loan Details", newloan: "New Gold Loan", schemes: "Loan Schemes",
   personalloans: "Personal Loans", personalloan: "Personal Loan Details",
-  investments: "Investments", investment: "Investment Details",
   goldrates: "Gold Rates", packets: "Packets & Lockers", packet: "Packet Detail", cash: "Cash & Expenses",
   calendar: "Reminder Calendar", requests: "Extensions & Release", bankpledge: "Bank Re-Pledge",
   auctions: "Auctions", reports: "Reports", employees: "Employees",
