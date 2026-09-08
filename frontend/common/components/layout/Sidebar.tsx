@@ -102,7 +102,7 @@ export function Sidebar({ route, open }: { route: string; open: boolean }) {
       <div className="sfoot">
         Trust · Value · Growth
         <br />
-        <a href={loginPath()} onClick={handleSignOut}>← Sign out</a>
+        {/* <a href={loginPath()} onClick={handleSignOut}>← Sign out</a> */}
       </div>
     </aside>
   );
