@@ -89,11 +89,20 @@ export function ReleaseReviewModalContent({ request, onSaved }: { request: Reque
   // ErrNotManagerStage. Gating it here too just keeps the inputs from
   // appearing for a request already at/through Management review.
   const canRecordPayment = req.approvalStage === "" || req.approvalStage === "PendingManager";
-  const finalSettlement = loan ? loan.totalOutstandingBalance + (+charges || 0) : undefined;
+  // Discount+Payment together need to cover the loan's outstanding balance
+  // PLUS whatever part of Charges hasn't been collected yet — Payment gets
+  // that still-unapplied charge folded directly into it server-side (see
+  // Service.RecordReleasePayment), so Payment must be big enough for both
+  // its own share of the balance and Charges, same as the on-screen "Final
+  // Settlement" figure below. Using `charges - req.chargesApplied` (not the
+  // raw Charges figure) means a Charges amount already collected by an
+  // earlier Save Payment click isn't asked for a second time here.
+  const unappliedCharges = Math.max(0, (+charges || 0) - req.chargesApplied);
+  const settlementTarget = loan ? loan.totalOutstandingBalance + unappliedCharges : undefined;
   // alreadyRecorded is what previous Save Payment click(s) already applied
   // — the new discount/payment inputs are on top of that, not instead of it.
   const alreadyRecorded = req.recordedDiscount + req.recordedPayment;
-  const remaining = finalSettlement != null ? finalSettlement - alreadyRecorded - (+discount || 0) - (+payment || 0) : undefined;
+  const remaining = settlementTarget != null ? settlementTarget - alreadyRecorded - (+discount || 0) - (+payment || 0) : undefined;
   const needsDueDate = remaining != null && remaining > 0.01;
   const isOverdue = !!req.paymentDueDate && !req.paymentVerified && new Date(req.paymentDueDate) < new Date();
 
@@ -212,7 +221,12 @@ export function ReleaseReviewModalContent({ request, onSaved }: { request: Reque
           <div><label className="f">Charges (₹)</label><input className="inp" type="number" min={0} value={charges} disabled={!canDecide} onChange={(e) => setCharges(e.target.value)} onBlur={saveChargesAndNotes} /></div>
           <div><label className="f">Final Settlement</label>
             <div className="inp" style={{ display: "flex", alignItems: "center", fontWeight: 600, color: "var(--brand-deep)" }}>
-              {loan ? fmt(loan.totalOutstandingBalance + (+charges || 0)) : "—"}
+              {/* Net of whatever Charges a previous Save Payment click already
+                  collected (settlementTarget = outstanding + unappliedCharges)
+                  — otherwise this would keep showing the full Charges amount
+                  forever after it was actually paid, looking like Charges
+                  never got collected. */}
+              {settlementTarget != null ? fmt(settlementTarget) : "—"}
             </div>
           </div>
         </div>
@@ -244,37 +258,46 @@ export function ReleaseReviewModalContent({ request, onSaved }: { request: Reque
           {recordPaymentMode && (
             <div style={{ padding: "4px 0 10px 28px" }}>
               {alreadyRecorded > 0 && (
-                <div style={{ fontSize: 12, color: "var(--muted)", marginBottom: 6 }}>
+                <div style={{ fontSize: 12, color: "var(--muted)", marginBottom: canRecordPayment ? 6 : 0 }}>
                   Already recorded: {fmt(req.recordedDiscount)} discount + {fmt(req.recordedPayment)} payment.
-                  The fields below are for an ADDITIONAL amount, on top of that.
+                  {canRecordPayment ? " The fields below are for an ADDITIONAL amount, on top of that." : ""}
                 </div>
               )}
-              <div className={`frow ${needsDueDate ? "c3" : "c2"}`}>
-                <div><label className="f">Discount (₹)</label><input className="inp" type="number" min={0} disabled={saving || !canDecide || req.status !== "Pending"} value={discount} onChange={(e) => {
-                  const nextDiscount = e.target.value;
-                  setDiscount(nextDiscount);
-                  // Payment re-prefills with whatever's left of the final
-                  // settlement (minus anything already recorded before)
-                  // after this discount, each time Discount changes —
-                  // staff can still edit Payment by hand afterward, this
-                  // only recomputes the starting point.
-                  if (finalSettlement != null) {
-                    setPayment(String(Math.max(0, +(finalSettlement - alreadyRecorded - (+nextDiscount || 0)).toFixed(2))));
-                  }
-                }} /></div>
-                <div><label className="f">Payment (₹)</label><input className="inp" type="number" min={0} disabled={saving || !canDecide || req.status !== "Pending"} value={payment} onChange={(e) => setPayment(e.target.value)} /></div>
-                {needsDueDate && (
-                  <div>
-                    <label className="f">Due Date</label>
-                    <DatePicker value={dueDate} onChange={setDueDate} min={today} disabled={saving || !canDecide || req.status !== "Pending"} />
-                    <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 4 }}>Remaining balance: {fmt(remaining ?? 0)}</div>
+              {/* Past the Manager stage, RecordReleasePayment itself is
+                  refused server-side (see canRecordPayment's own comment
+                  above) — the Discount/Payment/Due-Date inputs and Save
+                  button would just be dead weight here, not a form staff can
+                  actually still submit, so they're skipped entirely instead
+                  of rendering disabled and empty. */}
+              {canRecordPayment && (
+                <>
+                  <div className={`frow ${needsDueDate ? "c3" : "c2"}`}>
+                    <div><label className="f">Discount (₹)</label><input className="inp" type="number" min={0} disabled={saving || !canDecide || req.status !== "Pending"} value={discount} onChange={(e) => {
+                      const nextDiscount = e.target.value;
+                      setDiscount(nextDiscount);
+                      // Payment re-prefills with whatever's left of the final
+                      // settlement (minus anything already recorded before)
+                      // after this discount, each time Discount changes —
+                      // staff can still edit Payment by hand afterward, this
+                      // only recomputes the starting point.
+                      if (settlementTarget != null) {
+                        setPayment(String(Math.max(0, +(settlementTarget - alreadyRecorded - (+nextDiscount || 0)).toFixed(2))));
+                      }
+                    }} /></div>
+                    <div><label className="f">Payment (₹)</label><input className="inp" type="number" min={0} disabled={saving || !canDecide || req.status !== "Pending"} value={payment} onChange={(e) => setPayment(e.target.value)} /></div>
+                    {needsDueDate && (
+                      <div>
+                        <label className="f">Due Date</label>
+                        <DatePicker value={dueDate} onChange={setDueDate} min={today} disabled={saving || !canDecide || req.status !== "Pending"} />
+                      </div>
+                    )}
                   </div>
-                )}
-              </div>
-              {req.status === "Pending" && canDecide && canRecordPayment && (
-                <button className="btn sm" style={{ marginTop: 8 }} disabled={saving} onClick={savePayment}>
-                  Save Payment
-                </button>
+                  {req.status === "Pending" && canDecide && (
+                    <button className="btn sm" style={{ marginTop: 8 }} disabled={saving} onClick={savePayment}>
+                      Save Payment
+                    </button>
+                  )}
+                </>
               )}
               {isOverdue && (
                 <p className="notice" style={{ color: "var(--red)", marginTop: 8 }}>

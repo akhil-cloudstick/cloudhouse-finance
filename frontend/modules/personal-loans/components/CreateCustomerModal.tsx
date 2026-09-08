@@ -6,6 +6,7 @@ import { Select } from "@/common/components/ui/Select";
 import { DatePicker } from "@/common/components/ui/DatePicker";
 import { createCustomer, type CustomerView } from "@/modules/customers/services/customerService";
 import { listActiveBranches, type BranchView } from "@/modules/branches/services/branchService";
+import { getSelectedBranchId } from "@/common/services/branchSelection";
 
 /* Inline "+ Add new customer" flow reached from the Personal Loan creation
  * picker (NewPersonalLoanModal.tsx's SearchableSelect, via its onCreateNew
@@ -44,7 +45,19 @@ export function CreateCustomerModalContent({ onCreated }: { onCreated: (customer
 
   useEffect(() => {
     listActiveBranches()
-      .then((list) => { setBranches(list); if (list.length) setBranchId((cur) => cur || list[0].id); })
+      .then((list) => {
+        setBranches(list);
+        if (!list.length) return;
+        // Default to the branch switcher's current selection (see
+        // investments/components/CreateInvestorModal.tsx's identical fix)
+        // rather than always the list's first branch — otherwise a
+        // customer created here can land in a different branch than the
+        // one the picker's later searches are scoped to, and silently
+        // stop turning up in them.
+        const selected = getSelectedBranchId();
+        const fallback = selected && list.some((b) => b.id === selected) ? selected : list[0].id;
+        setBranchId((cur) => cur || fallback);
+      })
       .catch(() => setErr("Could not load branches — try again later."));
   }, []);
 

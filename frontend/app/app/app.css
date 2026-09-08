@@ -529,18 +529,20 @@ h3,
 }
 
 .gs-results .gs-none {
-  padding: 18px;
+  padding: 10px 12px;
   text-align: center;
   color: var(--muted);
   font-size: 13px
 }
 
 /* SearchableSelect's onCreateNew row (e.g. "+ Add new customer" in the
- * Personal Loan picker) — pinned to the bottom of the results list, set
- * apart from the plain result rows above it with a divider and the gold
- * accent color. */
+ * Personal Loan picker, "+ Add new investor" in the Investment picker) —
+ * pinned to the TOP of the results list as a standing action, set apart
+ * from the plain result rows below it with a divider and the gold accent
+ * color. */
 .gs-results a.gs-create-new {
-  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+  margin-bottom: 4px;
 }
 
 .gs-results a.gs-create-new .tx b {
@@ -824,6 +826,17 @@ h3,
   padding: 12px;
 }
 
+/* Positioned `fixed` (viewport coords supplied inline from DatePicker.tsx's
+ * own trigger measurement) instead of the `.dp-panel` default `absolute`,
+ * so opening the calendar inside a scrollable `.modal-bg` can no longer add
+ * to that ancestor's scrollable overflow and visibly grow/scroll the modal —
+ * see the comment on `panelPos` in DatePicker.tsx. */
+.dp-panel-fixed {
+  position: fixed;
+  top: auto;
+  left: auto
+}
+
 /* The days/years sub-views inside .dp-panel are both always mounted (see
  * DatePicker.tsx) and switched with this instead of conditional rendering,
  * so a mode-switch click never removes its own target node from the DOM. */
@@ -859,7 +872,14 @@ h3,
   color: var(--brand-deep)
 }
 
-.dp-years {
+/* `.dp-grid.dp-years` (not plain `.dp-years`) so this beats `.dp-grid`'s own
+ * grid-template-columns purely on specificity — `.dp-grid` is declared
+ * later in this file, and two equal-specificity class selectors resolve by
+ * source order, which let its 7-column day grid silently win over this
+ * 3-column year grid. That squeezed 12 years into 7-per-row instead of
+ * 3-per-row, so the grid's real (taller, narrower) box no longer matched
+ * `.dp-panel`'s own sizing and the last row rendered outside its border. */
+.dp-grid.dp-years {
   grid-template-columns: repeat(3, 1fr);
   gap: 6px
 }
@@ -1630,8 +1650,18 @@ h3,
  * on the button itself (not flex-basis) so it holds firm inside the
  * page-h's flex row; the icon sits outside doc-action-tx so it is never
  * clipped, only the label text is. */
+/* PersonalLoanDetail.tsx's Schedule/Payment History pair (InvestmentDetail
+ * only ever has one card here, so it never needed this) — equal columns
+ * at desk width, stacked below 1060px alongside every other .grid.cols*
+ * breakpoint (see @media(max-width:1060px) further down this file). */
+.pl-detail-grid{display:grid;grid-template-columns:1fr 1fr;gap:15px;align-items:start}
 .btn.doc-action{width:132px;flex:0 0 auto;overflow:hidden}
 .doc-action-tx{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;display:inline-block;min-width:0}
+/* PersonalLoanDetail.tsx's Download Bond button is the row's only action
+ * (no shared-width constraint from sibling doc buttons like LoanDetail.tsx
+ * has), so it should size to its own label instead of sitting at the fixed
+ * 132px width above. */
+.btn.doc-action.pl-download-bond{width:auto;flex:0 0 auto}
 /* DocumentsMenu's dropdown rows (LoanDetail.tsx) — a label too long for the
  * 165px-wide panel fades out at its right edge instead of ending in "…",
  * so e.g. "Send Indemnity Bond for eSign" reads as trailing off rather than
@@ -3184,6 +3214,22 @@ table.tbl {
   }
 }
 
+/* PersonalLoanDetail.tsx's Schedule/Payment History pair, unlike
+ * .grid.cols12 above, needs its own much wider stacking threshold: each
+ * card holds a `.tbl`, which carries a hard min-width:640px (see that
+ * class's own comment further up this file), so two side by side need
+ * ~1300px+ just for the tables themselves, before the sidebar and page
+ * padding are even taken out. That overflowed horizontally at exactly the
+ * "laptop" widths (1280-1559px) common.utils/responsive.ts's
+ * isSmallScreen() already treats as small everywhere else in the app, so
+ * this mirrors that same boundary (width<1560px OR a short window) rather
+ * than the narrower 1060px other two-column grids use. */
+@media (max-width: 1560px), (max-height: 850px) {
+  .pl-detail-grid {
+    grid-template-columns: 1fr
+  }
+}
+
 @keyframes expandSearchRight {
   from {
     opacity: 0.3;
@@ -3521,6 +3567,13 @@ table.tbl {
   border: 1.5px solid var(--line);
   background: var(--card);
   transition: border-color .15s, background .15s;
+  /* :checked+.mark::after below is positioned absolute — without this, it
+   * anchors against .cradio (the whole label, the nearest ancestor that IS
+   * positioned) instead of this box, so the inner dot's fixed 4px/4px
+   * offset is only right by coincidence when .mark happens to sit flush at
+   * the label's own top-left. Anchoring it to .mark itself makes the dot
+   * correctly centered in the ring regardless of label height/padding. */
+  position: relative;
 }
 
 .cradio .mark {
@@ -3567,14 +3620,33 @@ table.tbl {
  * the text, the browser's own default (which varies by font/zoom) could
  * land shorter or taller than the mark's fixed 16px box, throwing the two
  * out of alignment against just that FIRST line, which read as "off
- * center" (e.g. AuctionModal.tsx's Settle-surplus radios). Pinning the
- * text's own line-height to the mark's box height (plus the same 1px
- * margin-top the mark already uses) guarantees their first lines share one
- * center regardless of surrounding font-size overrides. */
+ * center" (e.g. AuctionModal.tsx's Settle-surplus/Shortfall-decision
+ * radios). Pinning the text's own line-height to the mark's box height
+ * (plus the same 1px margin-top the mark already uses) guarantees their
+ * first lines share one center regardless of surrounding font-size
+ * overrides. */
 .cradio>span:last-child,
 .ccheck>span:last-child {
   display: inline-block;
   line-height: 18px
+}
+
+/* Title-line + detail-paragraph split for a radio option whose description
+ * is long enough to wrap (AuctionModal.tsx's Settle-surplus and Shortfall/
+ * Repayment-decision radios) — belt-and-suspenders alongside the
+ * line-height pin above: the mark only ever has to line up with a single,
+ * un-wrapped title line (this rule), never with wherever an arbitrarily
+ * long flowing "title — detail" paragraph's first line happened to break,
+ * which is what actually threw it off before. */
+.cradio-title {
+  display: block;
+  line-height: 18px;
+}
+
+.cradio-detail {
+  display: block;
+  color: var(--muted);
+  margin-top: 2px;
 }
 
 .cradio input:disabled+.mark,

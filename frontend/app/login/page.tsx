@@ -125,37 +125,13 @@ function LoginPageInner() {
           </div>
 
           <form id="loginForm" noValidate onSubmit={handleSubmit}>
-            {/* Shown only on a bare /login. Someone who arrived through their
-              * organisation's own link has already named their business and
-              * must not be asked again — but a truncated or hand-typed URL
-              * has to have a way through, or "the link stopped working"
-              * becomes the commonest support call.
-              *
-              * Optional even here: with a single business the backend
-              * resolves it on its own, so the field stays out of the way of
-              * the installation that has one. */}
-            {linkSlug === null && (
-              <div className="field">
-                <input
-                  type="text"
-                  id="businessCode"
-                  placeholder=" "
-                  autoComplete="organization"
-                  autoCapitalize="none"
-                  spellCheck={false}
-                  value={businessCode}
-                  onChange={(e) => setBusinessCode(e.target.value)}
-                />
-                <label htmlFor="businessCode">Business code (if you have one)</label>
-                <span className="icon" aria-hidden="true">
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6">
-                    <path d="M4 20V9l8-5 8 5v11" />
-                    <path d="M9 20v-6h6v6" />
-                  </svg>
-                </span>
-                <span className="bar"></span>
-              </div>
-            )}
+            {/* The "Business code" box that used to sit here is hidden: this
+              * deployment only ever has one business, and the backend
+              * already resolves that single tenant on its own when no code
+              * is given (see handleSubmit's `code` — an empty typedCode is
+              * still a valid, if under-specified, login). The multi-tenant
+              * slug plumbing (linkSlug, businessCode state, /login/<slug>
+              * URLs) is left in place; only the input is no longer shown. */}
 
             <div className="field">
               <input

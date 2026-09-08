@@ -57,6 +57,46 @@ export type LoanStatusTotals = {
   active: number; closed: number; dueSoon: number; overdue: number; defaulted: number; other: number; count: number;
 };
 
+/* ---- Investment reports (internal/investment) ---- */
+
+export type DepositRegisterRow = {
+  investmentId: number; investmentNumber: string; customerName: string; planName: string;
+  principalAmount: number; interestRate: number; startDate: string; maturityDate: string;
+  branchName: string; status: string;
+};
+export type DepositRegisterTotals = { count: number; totalPrincipal: number };
+
+export type InterestPayoutRegisterRow = {
+  investmentId: number; investmentNumber: string; customerName: string; sequenceNo: number;
+  dueDate: string; amount: number; status: string; paidAt: string | null;
+};
+export type InterestPayoutRegisterTotals = { count: number; totalDue: number; totalPaid: number; totalPending: number };
+
+export type MaturityRegisterRow = {
+  investmentId: number; investmentNumber: string; customerName: string; branchName: string;
+  principalAmount: number; maturityDate: string; status: string;
+};
+export type MaturityRegisterTotals = { active: number; matured: number; closed: number; renewed: number; count: number };
+
+/* InvestorLedgerRow/Totals mirror backend/internal/reports/model.go's
+ * InvestorLedgerRow/InvestorLedgerTotals — a single-investor statement
+ * (every investment for one customer), not a date-scoped register, so it
+ * doesn't go through fetchReport/ReportFilters like the three registers
+ * above. See getInvestorLedger below. */
+export type InvestorLedgerRow = {
+  investmentId: number; investmentNumber: string; planName: string; principalAmount: number;
+  totalInterestPaid: number; startDate: string; maturityDate: string; status: string;
+};
+export type InvestorLedgerTotals = { count: number; totalPrincipal: number; totalInterestPaid: number };
+
+/* GET /reports/investments/investor-ledger?customer_id=X — every investment
+ * belonging to one investor, for the "View Statement" action on
+ * InvestmentDetail.tsx (frontend/modules/investments). Bypasses fetchReport
+ * since it's keyed by customer, not a date range. */
+export function getInvestorLedger(customerId: number): Promise<ReportResult<InvestorLedgerRow, InvestorLedgerTotals>> {
+  return apiFetch<ReportResult<InvestorLedgerRow, InvestorLedgerTotals>>(`/reports/investments/investor-ledger?customer_id=${customerId}`);
+}
+
 export type InterestCollectionRow = {
   loanId: number; loanNumber: string; paidOn: string; interestApplied: number; penalApplied: number; branchName: string;
 };
@@ -209,7 +249,7 @@ export async function exportFormG(format: "xlsx" | "pdf", filters: ReportFilters
   const overrideParams = buildFormGOverridesQuery(overrides);
   overrideParams.forEach((v, k) => params.set(k, v));
 
-  const token = getAuthToken();
+  const token = typeof window !== "undefined" ? getAuthToken() : null;
   const res = await fetch(`${API_BASE}/reports/export/form-g?${params.toString()}`, {
     headers: token ? { Authorization: `Bearer ${token}` } : {},
   });
@@ -289,6 +329,15 @@ export const getEmployeePerformance = (f: ReportFilters) =>
 export const getCommunicationHistory = (f: ReportFilters) =>
   fetchReport<CommunicationHistoryRow, CommunicationHistoryTotals>("communication-history", f);
 
+export const getDepositRegister = (f: ReportFilters) =>
+  fetchReport<DepositRegisterRow, DepositRegisterTotals>("investments/deposit-register", f);
+
+export const getInterestPayoutRegister = (f: ReportFilters) =>
+  fetchReport<InterestPayoutRegisterRow, InterestPayoutRegisterTotals>("investments/interest-payout-register", f);
+
+export const getMaturityRegister = (f: ReportFilters) =>
+  fetchReport<MaturityRegisterRow, MaturityRegisterTotals>("investments/maturity-register", f);
+
 /* Report export keys, matching backend/internal/reports/export.go's
  * reportRows switch exactly (note "loans/status" list path vs
  * "loans-status" export key — the export key list is a *different* set of
@@ -297,7 +346,8 @@ export type ReportKey =
   | "disbursement" | "loans-status" | "interest-collection" | "outstanding-principal"
   | "payment-collection" | "gold-weight" | "packets" | "bank-pledge" | "loan-extensions"
   | "gold-release" | "auctions" | "expense-cashflow" | "kyc" | "gold-rate-history"
-  | "employee-performance" | "communication-history" | "form-g";
+  | "employee-performance" | "communication-history" | "form-g"
+  | "investments-deposit-register" | "investments-interest-payout-register" | "investments-maturity-register";
 
 /* Downloads GET /reports/export/:key?format=xlsx|pdf as a blob and triggers
  * a browser save, matching the object-URL + anchor-click pattern used for

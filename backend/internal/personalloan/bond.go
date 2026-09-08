@@ -245,23 +245,26 @@ func renderBondHTML(data BondData) (string, error) {
 		Age:                  bondAgeOrBlank(data.Age),
 		Aadhaar:              bondAadhaarOrBlank(data.AadhaarNumber),
 		Address:              bondOrBlank(data.Address),
-		// Village/Taluk/Place/FatherName/BorrowerName are stored as plain
-		// English text (see customer.Customer) but this document is printed
-		// in Malayalam, so run them through ToMalayalam — see that
-		// function's doc comment for what it can and can't get right.
-		// Address/PinCode/Aadhaar/Mobile are left as-is: Address is often
-		// already a mix of scripts/free text, and the others are numeric.
-		District:        bondOrBlank(ToMalayalam(data.District)),
-		Village:         bondOrBlank(ToMalayalam(data.Village)),
-		Taluk:           bondOrBlank(ToMalayalam(data.Taluk)),
-		Place:           bondOrBlank(ToMalayalam(data.Place)),
+		// Village/Taluk/Place/FatherName/BorrowerName are printed as plain
+		// English text as entered (see customer.Customer) — NOT run through
+		// ToMalayalam. That transliterator is only ever a phonetic best
+		// guess (see its own doc comment), and for a name/place the borrower
+		// will actually check against their own ID, a garbled guess reads as
+		// a real error, not just a stylistic mismatch, on an otherwise
+		// Malayalam-worded document. Address/PinCode/Aadhaar/Mobile were
+		// already left as-is for the same reason (or, for the numeric ones,
+		// because ToMalayalam has nothing to transliterate).
+		District:        bondOrBlank(data.District),
+		Village:         bondOrBlank(data.Village),
+		Taluk:           bondOrBlank(data.Taluk),
+		Place:           bondOrBlank(data.Place),
 		PinCode:         bondOrBlank(data.PinCode),
-		FatherName:      bondOrBlank(ToMalayalam(data.FatherName)),
+		FatherName:      bondOrBlank(data.FatherName),
 		Mobile:          bondOrBlank(data.MobileNumber),
 		PrincipalAmount: bondInrOrBlank(data.PrincipalAmount),
 		InterestRate:    bondRateOrBlank(data.InterestRatePercent),
 	}
-	td.BorrowerName = bondOrBlank(ToMalayalam(data.BorrowerName))
+	td.BorrowerName = bondOrBlank(data.BorrowerName)
 
 	var sb strings.Builder
 	if err := bondTemplate.Execute(&sb, td); err != nil {

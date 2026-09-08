@@ -259,6 +259,18 @@ func (s *Service) CreateInvestment(ctx context.Context, in CreateInput) (*Invest
 		}
 
 		payouts := generatePayoutSchedule(rec)
+		// GORM's tenant-stamp Create hook (platform.stampCallback) reliably
+		// sets TenantID for a single-struct create — which is how `rec`
+		// above just got stamped — but does not propagate to every element
+		// of a []InvestmentPayout batch insert (see
+		// personalloan.Service.CreateLoan's identical fix/comment). Left
+		// unstamped, most payout rows persist with TenantID 0: not
+		// rejected, just invisible afterwards to any normally tenant-scoped
+		// query, so the payout schedule tab would show only a handful of
+		// rows for a long-tenure investment.
+		for i := range payouts {
+			payouts[i].TenantID = rec.TenantID
+		}
 		if err := s.repo.CreatePayouts(ctx, tx, payouts); err != nil {
 			return err
 		}
@@ -344,14 +356,15 @@ type ListInput struct {
 	Offset     int
 }
 
-// List returns one page of investments plus a hasMore flag — mirrors
-// personalloan.Service.List's Limit+1 trick.
-func (s *Service) List(ctx context.Context, in ListInput) ([]Investment, bool, error) {
+// List returns one page of investments plus a hasMore flag and the TOTAL
+// row count matching in's filters (0 when Limit <= 0) — mirrors
+// personalloan.Service.List's Limit+1 trick and total-count addition.
+func (s *Service) List(ctx context.Context, in ListInput) ([]Investment, bool, int64, error) {
 	limit := in.Limit
 	if limit <= 0 {
 		limit = 10
 	}
-	recs, err := s.repo.FindAll(ctx, ListFilter{
+	recs, total, err := s.repo.FindAll(ctx, ListFilter{
 		BranchID:   in.BranchID,
 		CustomerID: in.CustomerID,
 		Status:     in.Status,
@@ -360,13 +373,13 @@ func (s *Service) List(ctx context.Context, in ListInput) ([]Investment, bool, e
 		Offset:     in.Offset,
 	})
 	if err != nil {
-		return nil, false, err
+		return nil, false, 0, err
 	}
 	hasMore := len(recs) > limit
 	if hasMore {
 		recs = recs[:limit]
 	}
-	return recs, hasMore, nil
+	return recs, hasMore, total, nil
 }
 
 // GetSchedule returns one page of an investment's payout schedule — mirrors

@@ -269,12 +269,18 @@ export function SettleAuctionModalContent({ loan, rec, onSaved, onError }: { loa
             <label className="cradio" style={{ fontSize: 13 }}>
               <input type="radio" name="disposition" checked={disposition === "RefundedToCustomer"} onChange={() => setDisposition("RefundedToCustomer")} />
               <span className="mark" />
-              <span><strong>Refund to customer</strong> — a cash-out of {fmt(surplus)} will be booked and the money handed back to {loan.customerName}.</span>
+              <span>
+                <strong className="cradio-title">Refund to customer</strong>
+                <span className="cradio-detail">a cash-out of {fmt(surplus)} will be booked and the money handed back to {loan.customerName}.</span>
+              </span>
             </label>
             <label className="cradio" style={{ fontSize: 13 }}>
               <input type="radio" name="disposition" checked={disposition === "RecordedAsIncome"} onChange={() => setDisposition("RecordedAsIncome")} />
               <span className="mark" />
-              <span><strong>Record as company income</strong> — the money stays in the till. No further cash movement is created, since the full proceeds were already booked in at sale time.</span>
+              <span>
+                <strong className="cradio-title">Record as company income</strong>
+                <span className="cradio-detail">the money stays in the till. No further cash movement is created, since the full proceeds were already booked in at sale time.</span>
+              </span>
             </label>
           </div>
         </div></div>
@@ -383,7 +389,10 @@ export function AuctionDecisionModalContent({
                   onChange={() => setDecision(value as Exclude<AuctionDecisionStatus, "Pending">)}
                 />
                 <span className="mark" />
-                <span><strong>{title}</strong> — {detail}</span>
+                <span>
+                  <strong className="cradio-title">{title}</strong>
+                  <span className="cradio-detail">{detail}</span>
+                </span>
               </label>
             ))}
           </div>

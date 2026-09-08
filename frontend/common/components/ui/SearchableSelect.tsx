@@ -62,6 +62,7 @@ export function SearchableSelect<T>({
   onCreateNew,
   createNewLabel = "+ Add new",
   disabled,
+  renderOption,
   compact = false,
   compactMinWidth = 60,
 }: {
@@ -93,6 +94,13 @@ export function SearchableSelect<T>({
   onCreateNew?: () => void;
   createNewLabel?: string;
   disabled?: boolean;
+  /** Custom content for a dropdown row, in place of the plain bold
+   * `getLabel(item)` text — e.g. a name plus a StatusChip instead of a
+   * parenthetical status baked into the label string. `getLabel` still
+   * drives the input's own displayed text once picked (a plain `<input>`
+   * can't render a chip) and the exact-match/allowCreate check, so it
+   * should stay a full plain-text description even when this is set. */
+  renderOption?: (item: T) => ReactNode;
   compact?: boolean;
   // `compact` mode's dropdown width floor — per-caller, since some callers
   // (Dashboard/NewLoan's Gold Loan Calculator) want it wider than the
@@ -293,8 +301,11 @@ export function SearchableSelect<T>({
   const exactMatch = items.some((it) => getLabel(it).toLowerCase() === query.trim().toLowerCase());
   const showCreateRow = allowCreate && query.trim().length > 0 && !exactMatch && !loading;
 
-  // Pinned to the bottom of the results list regardless of loading/empty
-  // state — see onCreateNew's doc comment above.
+  // Pinned to the TOP of the results list, ahead of every loaded item —
+  // it's a standing action ("add one that doesn't exist yet"), not one more
+  // search result, so it reads better as the first thing offered than
+  // buried below a list (or a "No results" message) the user has to scroll
+  // past first.
   const createNewRow = onCreateNew && (
     <a
       href="#"
@@ -307,23 +318,24 @@ export function SearchableSelect<T>({
 
   const resultsBody = loading ? (
     <>
-      <div className="gs-none">Searching…</div>
       {createNewRow}
+      <div className="gs-none">Searching…</div>
     </>
   ) : items.length === 0 && !showCreateRow ? (
     <>
-      <div className="gs-none">No results</div>
       {createNewRow}
+      <div className="gs-none">No results</div>
     </>
   ) : (
     <>
+      {createNewRow}
       {items.map((item) => (
         <a
           key={getId(item)}
           href="#"
           onClick={(e) => { e.preventDefault(); pick(item); }}
         >
-          <span className="tx">{renderLabel ? renderLabel(item) : <b>{getLabel(item)}</b>}</span>
+          {renderOption ? renderOption(item) : <span className="tx">{renderLabel ? renderLabel(item) : <b>{getLabel(item)}</b>}</span>}
         </a>
       ))}
       {loadingMore && <div className="gs-none">Loading more…</div>}
@@ -335,7 +347,6 @@ export function SearchableSelect<T>({
           <span className="tx"><b>{creating ? "Creating…" : `+ Create "${query.trim()}"`}</b></span>
         </a>
       )}
-      {createNewRow}
     </>
   );
 

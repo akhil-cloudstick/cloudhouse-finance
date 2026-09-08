@@ -365,6 +365,21 @@ export function LoanDetail({ id }: { id?: string }) {
   }
 
   async function doCompleteRelease() {
+    // Checked client-side first, with the exact wording staff need to act
+    // on, rather than leaving the button plain `disabled` — a disabled
+    // button fires no click at all, so a person who hadn't noticed why (the
+    // reason was only ever a hover title) got no feedback whatsoever when
+    // they pressed it. The backend still enforces both regardless (see
+    // ErrOutstandingBalanceRemains/ErrBankPledgeStillActive) — this is only
+    // a clearer, more direct front for the same two rules.
+    if (l.totalOutstandingBalance > 0.01) {
+      toast("Final settlement must be fully paid before this loan can be released.");
+      return;
+    }
+    if (l.bankPledgeStatus === "Bank Pledged") {
+      toast("This loan's ornament is still pledged to a bank — release the ornament from the bank pledge before completing the release.");
+      return;
+    }
     setCompleting(true);
     try {
       // The acting employee is derived server-side from the logged-in
@@ -711,7 +726,13 @@ export function LoanDetail({ id }: { id?: string }) {
           )
         )}
         {l.status === "Closure Requested" && canUpdateLoans && (
-          <button className="btn" style={{ height: 30 }} disabled={completing || l.totalOutstandingBalance > 0.01 || l.bankPledgeStatus === "Bank Pledged"} onClick={doCompleteRelease} title={l.totalOutstandingBalance > 0.01 ? "Final settlement must be fully paid first" : l.bankPledgeStatus === "Bank Pledged" ? "Release the bank pledge first" : undefined}>
+          // Only actually disabled while the request is in flight — the
+          // settlement/pledge gates below are enforced (and explained) by
+          // doCompleteRelease itself via a toast, since a plain `disabled`
+          // button never fires a click at all, leaving a hover-only title
+          // as the sole explanation. The title stays as a bonus hint for
+          // anyone who hovers before clicking.
+          <button className="btn" style={{ height: 30 }} disabled={completing} onClick={doCompleteRelease} title={l.totalOutstandingBalance > 0.01 ? "Final settlement must be fully paid first" : l.bankPledgeStatus === "Bank Pledged" ? "Release the bank pledge first" : undefined}>
             <Icon name="unlock" /> {completing ? "Releasing…" : "Complete Release"}
           </button>
         )}

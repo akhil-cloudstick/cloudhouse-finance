@@ -21,6 +21,7 @@ var (
 
 	ErrInvalidCustomerType = httpx.NewBadRequest("customer type must be Borrower or Investor")
 	ErrBankDetailsRequired = httpx.NewBadRequest("bank account name, number and IFSC are required for an investor")
+	ErrInvestorKYCRequired = httpx.NewBadRequest("PAN and Aadhaar are required for an investor")
 )
 
 // CreateInput / UpdateInput mirror the fields collected by
@@ -112,6 +113,9 @@ func validate(in CreateInput) error {
 	case CustomerTypeInvestor:
 		if in.BankAccountName == "" || in.BankAccountNumber == "" || in.BankIFSC == "" {
 			return ErrBankDetailsRequired
+		}
+		if in.PAN == "" || in.Aadhaar == "" {
+			return ErrInvestorKYCRequired
 		}
 	default:
 		return ErrInvalidCustomerType

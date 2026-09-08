@@ -28,6 +28,7 @@ var statementHeaders = []string{
 // already depends on the scheme package (a Loan embeds its Scheme) — the
 // reverse import would cycle.
 func (h *Handler) SchemeStatement(c *gin.Context) {
+	ctx := platform.RequestContext(c)
 	schemeID, err := httpx.IDParam(c, "id")
 	if err != nil {
 		httpx.FailErr(c, err)
@@ -55,7 +56,7 @@ func (h *Handler) SchemeStatement(c *gin.Context) {
 		}
 	}
 
-	loans, _, err := h.svc.List(c.Request.Context(), f)
+	loans, _, err := h.svc.List(ctx, f)
 	if err != nil {
 		httpx.FailErr(c, err)
 		return
@@ -78,7 +79,7 @@ func (h *Handler) SchemeStatement(c *gin.Context) {
 		c.Header("Content-Disposition", "attachment; filename=\""+filename+"\"")
 		c.Data(http.StatusOK, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", buf)
 	case "pdf":
-		buf, err := reports.BuildPDF(h.svc.businessName(c.Request.Context()), "Scheme Statement", statementHeaders, data)
+		buf, err := reports.BuildPDF(h.svc.businessName(ctx), "Scheme Statement", statementHeaders, data)
 		if err != nil {
 			httpx.Fail(c, http.StatusInternalServerError, "could not build statement")
 			return

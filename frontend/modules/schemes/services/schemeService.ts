@@ -141,7 +141,7 @@ export async function downloadSchemeStatement(
   if (filters.to) params.set("to", filters.to);
   if (filters.loanIds?.length) params.set("loanIds", filters.loanIds.join(","));
 
-  const token = getAuthToken();
+  const token = typeof window !== "undefined" ? getAuthToken() : null;
   const res = await fetch(`${API_BASE}/schemes/${id}/statement?${params.toString()}`, {
     headers: token ? { Authorization: `Bearer ${token}` } : {},
   });

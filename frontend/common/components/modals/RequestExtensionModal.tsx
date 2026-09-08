@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useModal } from "@/common/components/Modal";
 import { useToast } from "@/common/components/Toast";
 import { Icon } from "@/common/components/Icon";
@@ -20,10 +20,20 @@ export function RequestExtensionModalContent({ loan, onSaved }: { loan: LoanView
   const [detail, setDetail] = useState("");
   const [err, setErr] = useState("");
   const [saving, setSaving] = useState(false);
+  // Belt-and-braces alongside disabled={saving} on the button below: a fast
+  // real (or synthetic double-tap) click can fire both handlers before
+  // React re-renders with the disabled attribute applied, since setSaving
+  // only takes effect on the NEXT render — a plain ref flips synchronously,
+  // before either click's async work starts, so the second click's own call
+  // sees it already set and bails out instead of logging a second, duplicate
+  // request.
+  const submittingRef = useRef(false);
 
   async function save() {
     const m = +months;
     if (!m || m <= 0) { setErr("Please enter how many months to extend by."); return; }
+    if (submittingRef.current) return;
+    submittingRef.current = true;
     setSaving(true);
     try {
       await createExtensionRequest(loan.numericId, m, detail.trim() || `+${m} month${m === 1 ? "" : "s"}`);
@@ -33,6 +43,7 @@ export function RequestExtensionModalContent({ loan, onSaved }: { loan: LoanView
     } catch (e) {
       setErr(e instanceof ApiError ? e.message : "Could not log the request — try again.");
     } finally {
+      submittingRef.current = false;
       setSaving(false);
     }
   }
@@ -69,8 +80,14 @@ export function RequestReleaseModalContent({ loan, onSaved }: { loan: LoanView; 
   const [detail, setDetail] = useState("");
   const [err, setErr] = useState("");
   const [saving, setSaving] = useState(false);
+  // See RequestExtensionModalContent's own submittingRef above for why this
+  // is needed alongside disabled={saving} — a fast double-click was creating
+  // two duplicate Release requests for the same loan.
+  const submittingRef = useRef(false);
 
   async function save() {
+    if (submittingRef.current) return;
+    submittingRef.current = true;
     setSaving(true);
     try {
       await createReleaseRequest(loan.numericId, detail.trim() || "Full settlement requested");
@@ -80,6 +97,7 @@ export function RequestReleaseModalContent({ loan, onSaved }: { loan: LoanView; 
     } catch (e) {
       setErr(e instanceof ApiError ? e.message : "Could not log the request — try again.");
     } finally {
+      submittingRef.current = false;
       setSaving(false);
     }
   }

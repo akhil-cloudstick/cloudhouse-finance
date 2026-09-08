@@ -106,9 +106,11 @@ type ListFilter struct {
 	Offset     int
 }
 
-// FindAll lists investments, newest first, filtered per f — mirrors
-// personalloan.Repository.FindAll, including its Limit+1/hasMore trick.
-func (r *Repository) FindAll(ctx context.Context, f ListFilter) ([]Investment, error) {
+// FindAll lists investments, newest first, filtered per f, plus the TOTAL
+// row count for f's filters (Limit/Offset ignored for that count) — 0 when
+// f.Limit <= 0 — mirrors personalloan.Repository.FindAll, including its
+// Limit+1/hasMore trick.
+func (r *Repository) FindAll(ctx context.Context, f ListFilter) ([]Investment, int64, error) {
 	var recs []Investment
 	q := r.db.WithContext(ctx).Preload("Customer").Preload("Plan").Model(&Investment{}).Order("investments.id desc")
 	if f.BranchID != nil {
@@ -125,11 +127,15 @@ func (r *Repository) FindAll(ctx context.Context, f ListFilter) ([]Investment, e
 		q = q.Joins("JOIN customers ON customers.id = investments.customer_id").
 			Where("investments.investment_number ILIKE ? OR customers.name ILIKE ?", like, like)
 	}
+	var total int64
 	if f.Limit > 0 {
+		if err := q.Session(&gorm.Session{}).Model(&Investment{}).Count(&total).Error; err != nil {
+			return nil, 0, err
+		}
 		q = q.Limit(f.Limit + 1).Offset(f.Offset)
 	}
 	err := q.Find(&recs).Error
-	return recs, err
+	return recs, total, err
 }
 
 // CountAll is used to generate the next sequential InvestmentNumber.

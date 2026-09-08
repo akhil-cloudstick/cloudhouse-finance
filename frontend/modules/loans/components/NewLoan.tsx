@@ -32,6 +32,7 @@ import { publishGoldRate } from "@/modules/gold-rates/services/goldRateService";
 import { listActiveBranches, type BranchView } from "@/modules/branches/services/branchService";
 import { listLockers, type LockerView } from "@/modules/lockers/services/lockerService";
 import { SearchableSelect } from "@/common/components/ui/SearchableSelect";
+import { StatusChip } from "@/common/components/ui/StatusChip";
 import { PurityPicker } from "@/common/components/ui/PurityPicker";
 import { rateForPurityString } from "@/common/utils/purity";
 import { openPrintWindow, brandHeader } from "@/common/utils/print";

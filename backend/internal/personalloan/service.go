@@ -165,6 +165,20 @@ func (s *Service) CreateLoan(ctx context.Context, in CreateInput) (*PersonalLoan
 		}
 
 		installments := generateSchedule(rec)
+		// GORM's tenant-stamp Create hook (platform.stampCallback) reliably
+		// sets TenantID when the create target is a single struct — which is
+		// how `rec` above just got stamped — but does NOT propagate to every
+		// element of a []PersonalLoanInstallment batch insert, only some of
+		// them. The rest silently persist with TenantID 0: not rejected (no
+		// NOT NULL constraint), just invisible forever afterwards to any
+		// normally tenant-scoped query, which is why a loan created with a
+		// 20-installment schedule could show only 1 row back on the Schedule
+		// tab. Stamping explicitly here — copying the already-correct
+		// rec.TenantID onto every row before insert — sidesteps the hook
+		// entirely instead of depending on it for a slice.
+		for i := range installments {
+			installments[i].TenantID = rec.TenantID
+		}
 		if err := s.repo.CreateInstallments(ctx, tx, installments); err != nil {
 			return err
 		}
@@ -259,13 +273,15 @@ type ListInput struct {
 
 // List returns one page of loans matching in (limit/offset, page size
 // defaults to defaultPageSize when Limit <= 0), plus whether another page
-// exists.
-func (s *Service) List(ctx context.Context, in ListInput) ([]PersonalLoan, bool, error) {
+// exists and the TOTAL row count matching in's filters (0 when Limit <= 0)
+// — the total is what lets the list page show a real "Page N of M" instead
+// of just enabling/disabling Next.
+func (s *Service) List(ctx context.Context, in ListInput) ([]PersonalLoan, bool, int64, error) {
 	limit := in.Limit
 	if limit <= 0 {
 		limit = defaultPageSize
 	}
-	recs, err := s.repo.FindAll(ctx, ListFilter{
+	recs, total, err := s.repo.FindAll(ctx, ListFilter{
 		BranchID:   in.BranchID,
 		CustomerID: in.CustomerID,
 		Status:     in.Status,
@@ -275,13 +291,13 @@ func (s *Service) List(ctx context.Context, in ListInput) ([]PersonalLoan, bool,
 		Offset:     in.Offset,
 	})
 	if err != nil {
-		return nil, false, err
+		return nil, false, 0, err
 	}
 	hasMore := len(recs) > limit
 	if hasMore {
 		recs = recs[:limit]
 	}
-	return recs, hasMore, nil
+	return recs, hasMore, total, nil
 }
 
 const defaultPageSize = 10
@@ -613,6 +629,12 @@ func (s *Service) RenewLoan(ctx context.Context, loanID uint, branchID *uint, in
 			return err
 		}
 		installments := generateSchedule(newLoan)
+		// See CreateLoan's identical stamping loop for why this is needed —
+		// the batch-insert tenant stamp otherwise silently drops every
+		// installment but a handful, invisible-but-present with TenantID 0.
+		for i := range installments {
+			installments[i].TenantID = newLoan.TenantID
+		}
 		if err := s.repo.CreateInstallments(ctx, tx, installments); err != nil {
 			return err
 		}

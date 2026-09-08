@@ -151,9 +151,10 @@ func (h *Handler) Create(c *gin.Context) {
 	httpx.Success(c, http.StatusCreated, rec)
 }
 
-// List returns one page of investments as the {items, hasMore} envelope,
-// branch-scoped, optionally filtered by customerId/status and searched by
-// investment number or customer name (q) — mirrors personalloan.Handler.List.
+// List returns one page of investments as the {items, hasMore, total}
+// envelope, branch-scoped, optionally filtered by customerId/status and
+// searched by investment number or customer name (q) — mirrors
+// personalloan.Handler.List.
 func (h *Handler) List(c *gin.Context) {
 	ctx := platform.RequestContext(c)
 	branchID := platform.GetBranchScope(c)
@@ -166,7 +167,7 @@ func (h *Handler) List(c *gin.Context) {
 	}
 	limit, _ := strconv.Atoi(c.Query("limit"))
 	offset, _ := strconv.Atoi(c.Query("offset"))
-	recs, hasMore, err := h.svc.List(ctx, ListInput{
+	recs, hasMore, total, err := h.svc.List(ctx, ListInput{
 		BranchID:   branchID,
 		CustomerID: customerID,
 		Status:     c.Query("status"),
@@ -178,7 +179,7 @@ func (h *Handler) List(c *gin.Context) {
 		httpx.FailErr(c, err)
 		return
 	}
-	httpx.Success(c, http.StatusOK, gin.H{"items": recs, "hasMore": hasMore})
+	httpx.Success(c, http.StatusOK, gin.H{"items": recs, "hasMore": hasMore, "total": total})
 }
 
 func (h *Handler) Get(c *gin.Context) {
@@ -282,7 +283,7 @@ func (h *Handler) ListInvestmentsForCustomer(c *gin.Context) {
 		httpx.FailErr(c, err)
 		return
 	}
-	recs, _, err := h.svc.List(ctx, ListInput{BranchID: platform.GetBranchScope(c), CustomerID: &id, Limit: 1000})
+	recs, _, _, err := h.svc.List(ctx, ListInput{BranchID: platform.GetBranchScope(c), CustomerID: &id, Limit: 1000})
 	if err != nil {
 		httpx.FailErr(c, err)
 		return

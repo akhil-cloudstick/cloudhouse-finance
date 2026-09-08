@@ -29,6 +29,11 @@ const STATUS_COLOR: Record<string, string> = {
   Released: "gray", "Notice Issued": "amber", "Not Pledged": "gray", "Auction Scheduled": "red",
   "Packet Generated": "info", "Ready For Release": "amber", Returned: "brand",
   "Name Mismatch": "red",
+  // Investment (internal/investment) status/payout chips.
+  Matured: "amber", Renewed: "blue", Paid: "green",
+  // verificationLabel()'s 3-value summary (customerService.ts) — shown as a
+  // chip in the New Loan customer picker's dropdown rows.
+  "Part Verified": "amber", Unverified: "red",
   // Loan-level only — a packet whose gold was auctioned still shows plain
   // "Released" (see loan.PacketMover.RecordGoldReleaseMovement), it's the
   // loan's own status that distinguishes an auction sale from an ordinary

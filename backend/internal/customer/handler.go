@@ -54,6 +54,17 @@ type customerRequest struct {
 	Place      string `json:"place"`
 	PinCode    string `json:"pinCode"`
 	Age        *int   `json:"age"`
+
+	// Investor-specific — captured only by the "+ Add new investor" flow
+	// (investments/components/CreateInvestorModal.tsx). Left blank (and
+	// unvalidated) for an ordinary Borrower, same as FatherName/District/…
+	// above. Was previously missing from this struct entirely, so every
+	// investor created through that form silently fell back to the
+	// default CustomerType ("Borrower") no matter what the frontend sent.
+	CustomerType      string `json:"customerType"`
+	BankAccountName   string `json:"bankAccountName"`
+	BankAccountNumber string `json:"bankAccountNumber"`
+	BankIFSC          string `json:"bankIfsc"`
 }
 
 func parseDOB(s string) (time.Time, error) {
@@ -95,6 +106,11 @@ func (req customerRequest) toInput() (CreateInput, error) {
 		Place:      req.Place,
 		PinCode:    req.PinCode,
 		Age:        req.Age,
+
+		CustomerType:      req.CustomerType,
+		BankAccountName:   req.BankAccountName,
+		BankAccountNumber: req.BankAccountNumber,
+		BankIFSC:          req.BankIFSC,
 	}, nil
 }
 
@@ -135,6 +151,7 @@ func (h *Handler) List(c *gin.Context) {
 		BranchID:      platform.GetBranchScope(c),
 		PANStatus:     c.Query("panStatus"),
 		AadhaarStatus: c.Query("aadhaarStatus"),
+		CustomerType:  c.Query("customerType"),
 	}
 
 	if limit <= 0 {

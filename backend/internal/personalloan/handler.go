@@ -74,7 +74,7 @@ func (h *Handler) List(c *gin.Context) {
 	}
 	limit, _ := strconv.Atoi(c.Query("limit"))
 	offset, _ := strconv.Atoi(c.Query("offset"))
-	recs, hasMore, err := h.svc.List(ctx, ListInput{
+	recs, hasMore, total, err := h.svc.List(ctx, ListInput{
 		BranchID:   branchID,
 		CustomerID: customerID,
 		Status:     c.Query("status"),
@@ -87,7 +87,7 @@ func (h *Handler) List(c *gin.Context) {
 		httpx.FailErr(c, err)
 		return
 	}
-	httpx.Success(c, http.StatusOK, gin.H{"items": recs, "hasMore": hasMore})
+	httpx.Success(c, http.StatusOK, gin.H{"items": recs, "hasMore": hasMore, "total": total})
 }
 
 // Get returns one loan.
@@ -254,7 +254,7 @@ func (h *Handler) DownloadBond(c *gin.Context) {
 		httpx.FailErr(c, err)
 		return
 	}
-	pdf, loan, err := h.svc.GenerateBond(c.Request.Context(), id, platform.GetBranchScope(c))
+	pdf, loan, err := h.svc.GenerateBond(platform.RequestContext(c), id, platform.GetBranchScope(c))
 	if err != nil {
 		httpx.FailErr(c, err)
 		return
@@ -275,7 +275,7 @@ func (h *Handler) ListLoansForCustomer(c *gin.Context) {
 		httpx.FailErr(c, err)
 		return
 	}
-	recs, _, err := h.svc.List(ctx, ListInput{BranchID: platform.GetBranchScope(c), CustomerID: &id, Limit: 1000})
+	recs, _, _, err := h.svc.List(ctx, ListInput{BranchID: platform.GetBranchScope(c), CustomerID: &id, Limit: 1000})
 	if err != nil {
 		httpx.FailErr(c, err)
 		return
