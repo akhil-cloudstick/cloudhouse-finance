@@ -102,6 +102,82 @@ type LoanStatusTotals struct {
 	Count     int `json:"count"`
 }
 
+// ---- Investment reports (internal/investment) ----
+
+type DepositRegisterRow struct {
+	InvestmentID     uint      `json:"investmentId"`
+	InvestmentNumber string    `json:"investmentNumber"`
+	CustomerName     string    `json:"customerName"`
+	PlanName         string    `json:"planName"`
+	PrincipalAmount  float64   `json:"principalAmount"`
+	InterestRate     float64   `json:"interestRate"`
+	StartDate        time.Time `json:"startDate"`
+	MaturityDate     time.Time `json:"maturityDate"`
+	BranchName       string    `json:"branchName"`
+	Status           string    `json:"status"`
+}
+
+type DepositRegisterTotals struct {
+	Count          int     `json:"count"`
+	TotalPrincipal float64 `json:"totalPrincipal"`
+}
+
+type InterestPayoutRegisterRow struct {
+	InvestmentID     uint       `json:"investmentId"`
+	InvestmentNumber string     `json:"investmentNumber"`
+	CustomerName     string     `json:"customerName"`
+	SequenceNo       int        `json:"sequenceNo"`
+	DueDate          time.Time  `json:"dueDate"`
+	Amount           float64    `json:"amount"`
+	Status           string     `json:"status"`
+	PaidAt           *time.Time `json:"paidAt"`
+}
+
+type InterestPayoutRegisterTotals struct {
+	Count        int     `json:"count"`
+	TotalDue     float64 `json:"totalDue"`
+	TotalPaid    float64 `json:"totalPaid"`
+	TotalPending float64 `json:"totalPending"`
+}
+
+type MaturityRegisterRow struct {
+	InvestmentID     uint      `json:"investmentId"`
+	InvestmentNumber string    `json:"investmentNumber"`
+	CustomerName     string    `json:"customerName"`
+	BranchName       string    `json:"branchName"`
+	PrincipalAmount  float64   `json:"principalAmount"`
+	MaturityDate     time.Time `json:"maturityDate"`
+	Status           string    `json:"status"`
+}
+
+type MaturityRegisterTotals struct {
+	Active  int `json:"active"`
+	Matured int `json:"matured"`
+	Closed  int `json:"closed"`
+	Renewed int `json:"renewed"`
+	Count   int `json:"count"`
+}
+
+// InvestorLedgerRow is one investment in a single investor's statement —
+// InvestorLedger returns every investment for the requested customer, not
+// a date-scoped listing, since it's a detail view rather than a register.
+type InvestorLedgerRow struct {
+	InvestmentID      uint      `json:"investmentId"`
+	InvestmentNumber  string    `json:"investmentNumber"`
+	PlanName          string    `json:"planName"`
+	PrincipalAmount   float64   `json:"principalAmount"`
+	TotalInterestPaid float64   `json:"totalInterestPaid"`
+	StartDate         time.Time `json:"startDate"`
+	MaturityDate      time.Time `json:"maturityDate"`
+	Status            string    `json:"status"`
+}
+
+type InvestorLedgerTotals struct {
+	Count             int     `json:"count"`
+	TotalPrincipal    float64 `json:"totalPrincipal"`
+	TotalInterestPaid float64 `json:"totalInterestPaid"`
+}
+
 type InterestCollectionRow struct {
 	LoanID          uint      `json:"loanId"`
 	LoanNumber      string    `json:"loanNumber"`

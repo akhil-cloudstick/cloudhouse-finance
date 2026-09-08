@@ -18,6 +18,10 @@ var (
 	ErrPhoneRequired = httpx.NewBadRequest("phone is required")
 	ErrBranchReq     = httpx.NewBadRequest("branch is required")
 	ErrBranchInvalid = httpx.NewBadRequest("branch does not exist")
+
+	ErrInvalidCustomerType = httpx.NewBadRequest("customer type must be Borrower or Investor")
+	ErrBankDetailsRequired = httpx.NewBadRequest("bank account name, number and IFSC are required for an investor")
+	ErrInvestorKYCRequired = httpx.NewBadRequest("PAN and Aadhaar are required for an investor")
 )
 
 // CreateInput / UpdateInput mirror the fields collected by
@@ -53,6 +57,15 @@ type CreateInput struct {
 	Place      string
 	PinCode    string
 	Age        *int
+
+	// CustomerType selects Borrower (default, when left blank) vs Investor.
+	// BankAccountName/BankAccountNumber/BankIFSC are investor-only /
+	// optional — see Customer's own field comments in model.go — required
+	// only when CustomerType is Investor (see validate).
+	CustomerType      string
+	BankAccountName   string
+	BankAccountNumber string
+	BankIFSC          string
 }
 
 type UpdateInput = CreateInput
@@ -94,6 +107,19 @@ func validate(in CreateInput) error {
 	if in.BranchID == 0 {
 		return ErrBranchReq
 	}
+	switch in.CustomerType {
+	case "", CustomerTypeBorrower:
+		// default / explicit Borrower — no extra requirements.
+	case CustomerTypeInvestor:
+		if in.BankAccountName == "" || in.BankAccountNumber == "" || in.BankIFSC == "" {
+			return ErrBankDetailsRequired
+		}
+		if in.PAN == "" || in.Aadhaar == "" {
+			return ErrInvestorKYCRequired
+		}
+	default:
+		return ErrInvalidCustomerType
+	}
 	return nil
 }
 
@@ -131,6 +157,11 @@ func (s *Service) Create(ctx context.Context, in CreateInput) (*Customer, error)
 		return nil, err
 	}
 	code := fmt.Sprintf("CUST-%02d", count+1)
+
+	customerType := in.CustomerType
+	if customerType == "" {
+		customerType = CustomerTypeBorrower
+	}
 
 	var encryptedAadhaar, last4 string
 	if in.Aadhaar != "" {
@@ -170,6 +201,11 @@ func (s *Service) Create(ctx context.Context, in CreateInput) (*Customer, error)
 		Place:      in.Place,
 		PinCode:    in.PinCode,
 		Age:        in.Age,
+
+		CustomerType:      customerType,
+		BankAccountName:   in.BankAccountName,
+		BankAccountNumber: in.BankAccountNumber,
+		BankIFSC:          in.BankIFSC,
 
 		// No verification call is made at registration — status starts
 		// Pending until a real PAN check (see internal/platform/setu.go)
@@ -264,6 +300,12 @@ func (s *Service) Update(ctx context.Context, id uint, in UpdateInput, branchID 
 	if in.Age != nil {
 		rec.Age = in.Age
 	}
+	if in.CustomerType != "" {
+		rec.CustomerType = in.CustomerType
+	}
+	rec.BankAccountName = in.BankAccountName
+	rec.BankAccountNumber = in.BankAccountNumber
+	rec.BankIFSC = in.BankIFSC
 
 	if in.Aadhaar != "" {
 		encrypted, err := s.aadhaarCipher.Encrypt(in.Aadhaar)

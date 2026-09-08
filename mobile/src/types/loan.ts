@@ -63,6 +63,10 @@ export type BankPledgeRecord = {
   referenceNumber?: string;
   cashTreatment?: string; // "CashIn" | "RecordOnly"
   status: string; // "Active" | "Released" | "Voided" — see BankPledgeStatusRecord* constants
+  // Only ever set once status is "Voided" — the reason staff gave when
+  // voidBankPledge() cancelled a mis-recorded pledge (see api/bankPledges.ts).
+  voidReason?: string;
+  voidedAt?: string | null;
 };
 
 // backend/internal/loan/model.go's LoanRequest (523+) — Extension or Release.
@@ -172,4 +176,10 @@ export type Loan = {
   approvals?: LoanApproval[];
   payments?: LoanPayment[];
   bankPledges?: BankPledgeRecord[];
+  // Aadhaar eSign state (backend/internal/loan's indemnity-bond eSign flow —
+  // see api/loans.ts's startIndemnityBondEsign/checkIndemnityBondEsign).
+  // Mirrors Setu's own SignatureStatus.Status verbatim: "" (never started),
+  // "sign_initiated", "sign_complete", or "failed".
+  indemnityBondSignStatus?: string;
+  indemnityBondSignedUrl?: string;
 };

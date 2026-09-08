@@ -1,4 +1,4 @@
-import { apiFetchEnveloped as apiFetch } from "@/common/services/httpClient";
+import { apiFetchEnveloped as apiFetch, API_BASE, getAuthToken, ApiError } from "@/common/services/httpClient";
 
 /* Shape returned by the Go backend (backend/internal/scheme/model.go). A
  * scheme's tenure is a real field now — no more start/end date window. */
@@ -119,4 +119,54 @@ export async function updateScheme(id: string, input: SchemeFormInput): Promise<
 
 export async function deleteScheme(id: string): Promise<void> {
   await apiFetch<void>(`/schemes/${id}`, { method: "DELETE" });
+}
+
+export type SchemeStatementFilters = {
+  from?: string; // YYYY-MM-DD
+  to?: string; // YYYY-MM-DD
+  loanIds?: number[]; // narrows to specific loans; omitted/empty = every loan in range
+};
+
+/* Downloads GET /schemes/:id/statement?...&format=pdf|xlsx as a blob and
+ * triggers a browser save — same object-URL + anchor-click pattern as
+ * reportsService.ts's exportReport, since it needs the raw fetch Response
+ * for blob handling rather than apiFetch's JSON envelope. */
+export async function downloadSchemeStatement(
+  id: string,
+  format: "pdf" | "xlsx",
+  filters: SchemeStatementFilters
+): Promise<void> {
+  const params = new URLSearchParams({ format });
+  if (filters.from) params.set("from", filters.from);
+  if (filters.to) params.set("to", filters.to);
+  if (filters.loanIds?.length) params.set("loanIds", filters.loanIds.join(","));
+
+  const token = typeof window !== "undefined" ? getAuthToken() : null;
+  const res = await fetch(`${API_BASE}/schemes/${id}/statement?${params.toString()}`, {
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  });
+  if (!res.ok) {
+    let message = res.statusText;
+    try {
+      const body = await res.json();
+      if (body?.error) message = body.error;
+    } catch {
+      /* non-JSON error body — fall back to statusText */
+    }
+    throw new ApiError(message, res.status);
+  }
+
+  const blob = await res.blob();
+  const disposition = res.headers.get("Content-Disposition") || "";
+  const match = disposition.match(/filename="([^"]+)"/);
+  const filename = match ? match[1] : `scheme-${id}-statement.${format}`;
+
+  const url = window.URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  window.URL.revokeObjectURL(url);
 }

@@ -56,18 +56,12 @@ func main() {
 
 	application, err := app.Build(db, cfg)
 	if err != nil {
-		log.Fatalf("application setup failed: %v", err)
+		log.Fatalf("aadhaar encryption setup failed: %v", err)
 	}
 
-	// Realtime notifications, the due/overdue sweep, the billing reminder and
-	// the dashboard snapshot — every scheduled/background job this server
-	// runs. Deliberately NOT started by app.Build, so the isolation harness
-	// can build the real router without any of them texting anybody. See
-	// App.StartBackgroundJobs's doc comment for why each walks tenants
-	// itself rather than running once, unscoped.
 	application.StartBackgroundJobs(context.Background())
 
-	log.Printf("Ambika Gold API + web app listening on :%s", cfg.Port)
+	log.Printf("Ambika Gold API + web app listening on :%s (serving frontend from %s)", cfg.Port, cfg.FrontendDir)
 	if err := application.Router.Run(":" + cfg.Port); err != nil {
 		log.Fatalf("server error: %v", err)
 	}

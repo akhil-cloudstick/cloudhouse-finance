@@ -87,7 +87,7 @@ export function AppTabBar({ state, navigation, insets }: BottomTabBarProps) {
                 const highlighted = isActive || pressed;
                 return (
                   <>
-                    <View style={styles.iconWrap}>
+                    <View style={[styles.iconWrap, highlighted && styles.iconWrapActive]}>
                       <Icon name={icon} size={21} color={highlighted ? colors.goldDeep : colors.muted} />
                     </View>
                     <ThemedText variant="label" color={highlighted ? colors.goldDeep : colors.muted} numberOfLines={1}>
@@ -104,7 +104,7 @@ export function AppTabBar({ state, navigation, insets }: BottomTabBarProps) {
         <Pressable onPress={open} style={styles.item} android_ripple={{ color: "transparent" }}>
           {({ pressed }) => (
             <>
-              <View style={styles.iconWrap}>
+              <View style={[styles.iconWrap, pressed && styles.iconWrapActive]}>
                 <Icon name="dots" size={21} color={pressed ? colors.goldDeep : colors.muted} />
               </View>
               <ThemedText variant="label" color={pressed ? colors.goldDeep : colors.muted}>
@@ -139,5 +139,14 @@ const styles = StyleSheet.create({
     gap: 0,
     paddingVertical: 0,
   },
-  iconWrap: { width: 36, height: 36, alignItems: "center", justifyContent: "center" },
+  // Matches customer-mobile/src/components/AppTabBar.tsx's sizing exactly —
+  // a rectangular chip (wider than tall, softly rounded corners) behind
+  // just the icon, not a circle. overflow hidden keeps Android's default
+  // rectangular Pressable ripple from spilling past the corners.
+  iconWrap: { width: 52, height: 30, borderRadius: 8, overflow: "hidden", alignItems: "center", justifyContent: "center" },
+  // WhatsApp-style active state: a filled pill highlight behind just the
+  // icon, not an outline around the whole item — same as the customer app,
+  // toggled on both the persistent "selected" tab and the momentary
+  // pressed state (this bar never painted a background at all before).
+  iconWrapActive: { backgroundColor: colors.goldPale },
 });

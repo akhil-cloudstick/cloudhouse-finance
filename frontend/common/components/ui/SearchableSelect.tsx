@@ -283,8 +283,11 @@ export function SearchableSelect<T>({
   const exactMatch = items.some((it) => getLabel(it).toLowerCase() === query.trim().toLowerCase());
   const showCreateRow = allowCreate && query.trim().length > 0 && !exactMatch && !loading;
 
-  // Pinned to the bottom of the results list regardless of loading/empty
-  // state — see onCreateNew's doc comment above.
+  // Pinned to the TOP of the results list, ahead of every loaded item —
+  // it's a standing action ("add one that doesn't exist yet"), not one more
+  // search result, so it reads better as the first thing offered than
+  // buried below a list (or a "No results" message) the user has to scroll
+  // past first.
   const createNewRow = onCreateNew && (
     <a
       href="#"
@@ -297,16 +300,17 @@ export function SearchableSelect<T>({
 
   const resultsBody = loading ? (
     <>
-      <div className="gs-none">Searching…</div>
       {createNewRow}
+      <div className="gs-none">Searching…</div>
     </>
   ) : items.length === 0 && !showCreateRow ? (
     <>
-      <div className="gs-none">No results</div>
       {createNewRow}
+      <div className="gs-none">No results</div>
     </>
   ) : (
     <>
+      {createNewRow}
       {items.map((item) => (
         <a
           key={getId(item)}
@@ -325,7 +329,6 @@ export function SearchableSelect<T>({
           <span className="tx"><b>{creating ? "Creating…" : `+ Create "${query.trim()}"`}</b></span>
         </a>
       )}
-      {createNewRow}
     </>
   );
 

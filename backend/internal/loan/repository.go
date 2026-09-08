@@ -69,6 +69,8 @@ type LoanFilter struct {
 	StatusIn   []string // matches any of these statuses; takes priority over Status when non-empty
 	BranchID   uint
 	CustomerID uint
+	SchemeID   uint
+	LoanIDs    []uint // when non-empty, narrows to exactly these loans (e.g. a scheme statement's loan picker)
 	Query      string // matches LoanNumber (case-insensitive, partial)
 
 	// BranchScope is the caller's branch-scoping restriction (see
@@ -118,8 +120,9 @@ func startOfDay(t time.Time) time.Time {
 	return time.Date(t.Year(), t.Month(), t.Day(), 0, 0, 0, 0, t.Location())
 }
 
-// applyFilters applies f's WHERE clauses to q — shared by FindAll (which
-// also applies Limit/Offset) and CountFiltered (which never does).
+// applyFilters narrows q by every set field on f — the shared filter-building
+// logic behind FindAll and CountFiltered so the two can never drift out of
+// sync on what counts as a match.
 func applyFilters(q *gorm.DB, f LoanFilter) *gorm.DB {
 	if len(f.StatusIn) > 0 {
 		q = q.Where("status IN ?", f.StatusIn)
@@ -131,6 +134,12 @@ func applyFilters(q *gorm.DB, f LoanFilter) *gorm.DB {
 	}
 	if f.CustomerID != 0 {
 		q = q.Where("customer_id = ?", f.CustomerID)
+	}
+	if f.SchemeID != 0 {
+		q = q.Where("scheme_id = ?", f.SchemeID)
+	}
+	if len(f.LoanIDs) > 0 {
+		q = q.Where("id IN ?", f.LoanIDs)
 	}
 	if f.Query != "" {
 		q = q.Where("loan_number ILIKE ?", "%"+f.Query+"%")
@@ -165,9 +174,6 @@ func (r *Repository) FindAll(ctx context.Context, f LoanFilter) ([]Loan, int64, 
 	q := applyFilters(preloadAll(r.db.WithContext(ctx)).Model(&Loan{}).Order("opened_date desc, id desc"), f)
 	var total int64
 	if f.Limit > 0 {
-		if err := q.Session(&gorm.Session{}).Count(&total).Error; err != nil {
-			return nil, 0, err
-		}
 		q = q.Limit(f.Limit)
 	}
 	if f.Offset > 0 {
@@ -777,6 +783,38 @@ func (r *AuctionRepository) FindAllConcluded(ctx context.Context, branchID *uint
 	}
 	err := q.Find(&rows).Error
 	return rows, total, err
+}
+
+// ScheduledAuctionCalendarRow is the shape internal/reminder's calendar
+// aggregation needs for a scheduled-auction event — same "just enough
+// columns, joined here rather than making the caller do it" rationale as
+// ConcludedAuctionRow. Deliberately not persisted anywhere (see
+// reminder/model.go's package comment): computed fresh from the live
+// AuctionRecord, same as loan due-date events are computed fresh from Loan.
+type ScheduledAuctionCalendarRow struct {
+	LoanID       uint
+	LoanNumber   string
+	BranchID     uint
+	CustomerID   uint
+	CustomerName string
+	AuctionDate  time.Time
+}
+
+// FindScheduledForCalendar returns every loan currently sitting in
+// AuctionStageScheduled with an AuctionDate set — backs the Reminder
+// Calendar's AuctionScheduled events (see reminder.Service.GetCalendarEvents).
+// Unfiltered by date range: the caller has few enough of these (at most one
+// active auction case per loan) that filtering in Go alongside the other
+// live-derived event types is simpler than adding another WHERE branch here.
+func (r *AuctionRepository) FindScheduledForCalendar() ([]ScheduledAuctionCalendarRow, error) {
+	var rows []ScheduledAuctionCalendarRow
+	err := r.db.Model(&AuctionRecord{}).
+		Select("auction_records.loan_id AS loan_id, loans.loan_number AS loan_number, loans.branch_id AS branch_id, loans.customer_id AS customer_id, customers.name AS customer_name, auction_records.auction_date AS auction_date").
+		Joins("JOIN loans ON loans.id = auction_records.loan_id").
+		Joins("JOIN customers ON customers.id = loans.customer_id").
+		Where("auction_records.stage = ? AND auction_records.auction_date IS NOT NULL", AuctionStageScheduled).
+		Find(&rows).Error
+	return rows, err
 }
 
 // CustomerAuctionRow is one AuctionRecord plus its parent loan's LoanNumber

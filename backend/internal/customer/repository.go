@@ -27,8 +27,12 @@ type CustomerFilter struct {
 	BranchID      *uint
 	PANStatus     string
 	AadhaarStatus string
-	Limit         int
-	Offset        int
+	// CustomerType narrows to Borrower or Investor (see model.go's
+	// CustomerType field) — backs the investor-only SearchableSelect picker
+	// in the New Investment flow (frontend/modules/investments).
+	CustomerType string
+	Limit        int
+	Offset       int
 }
 
 // FindAll returns customers matching query, ordered by id. When limit > 0
@@ -52,6 +56,9 @@ func (r *Repository) FindAll(ctx context.Context, f CustomerFilter) ([]Customer,
 	}
 	if f.AadhaarStatus != "" {
 		q = q.Where("aadhaar_status = ?", f.AadhaarStatus)
+	}
+	if f.CustomerType != "" {
+		q = q.Where("customer_type = ?", f.CustomerType)
 	}
 	var total int64
 	if f.Limit > 0 {

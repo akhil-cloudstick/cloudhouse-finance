@@ -338,6 +338,42 @@ func (h *Handler) CustomerListLoanPayments(c *gin.Context) {
 	httpx.Success(c, http.StatusOK, rec)
 }
 
+// CustomerCheckIndemnityBondEsign backs GET
+// /customer/loans/:id/indemnity-bond/esign/status — ownership-checked poll
+// of the eSign request a staff member already started for this loan (see
+// Service.StartIndemnityBondSign's deliverBy=BondDeliverDashboard path,
+// which is what actually gets the signing URL to the customer in the first
+// place — this endpoint only reports status, it never starts a new
+// request). Same underlying Service.CheckIndemnityBondSign the staff
+// handler (StartIndemnityBondEsign's sibling) calls, just reachable from
+// the customer's own JWT instead of an employee's.
+func (h *Handler) CustomerCheckIndemnityBondEsign(c *gin.Context) {
+	customerID, ok := customerIDFromContext(c)
+	if !ok {
+		httpx.Fail(c, http.StatusUnauthorized, "not authenticated")
+		return
+	}
+	loanID, err := httpx.IDParam(c, "id")
+	if err != nil {
+		httpx.FailErr(c, err)
+		return
+	}
+	if _, err := h.customerOwnedLoan(c, loanID, customerID); err != nil {
+		httpx.FailErr(c, err)
+		return
+	}
+	ctx := platform.RequestContext(c)
+	rec, status, err := h.svc.CheckIndemnityBondSign(ctx, loanID, nil)
+	if err != nil {
+		httpx.FailErr(c, err)
+		return
+	}
+	httpx.Success(c, http.StatusOK, gin.H{
+		"loan":   rec,
+		"status": status.Status,
+	})
+}
+
 // CustomerListPayments backs GET /customer/payments — every payment across
 // every loan belonging to the authenticated customer, newest first,
 // paginated via limit/offset, backing the Payments tab's global history

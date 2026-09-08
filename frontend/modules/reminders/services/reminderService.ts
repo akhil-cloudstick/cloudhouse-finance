@@ -104,7 +104,7 @@ export async function listReminders(filters?: ReminderFilters): Promise<Reminder
 export type CalendarEventType =
   | "InterestDue" | "LoanDue" | "Overdue"
   | "PersonalLoanDue" | "PersonalLoanOverdue"
-  | "FollowUp" | "PromiseToPay" | "Custom";
+  | "AuctionScheduled" | "FollowUp" | "PromiseToPay" | "Custom";
 
 export type CalendarEvent = {
   date: string; // "YYYY-MM-DD"

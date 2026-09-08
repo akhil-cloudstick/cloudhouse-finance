@@ -28,7 +28,12 @@ function StatusPill({ status }: { status: string }) {
     <ThemedText
       variant="label"
       numberOfLines={1}
-      style={{ backgroundColor: tone.bg, color: tone.fg, paddingHorizontal: 7, paddingVertical: 2, borderRadius: 6, alignSelf: "flex-start", fontSize: 11.5 }}
+      // marginLeft (on top of the row's own 10px inter-column gap) —
+      // Phone's own digits run right up to this column's edge, and the
+      // shared 10px alone still read as the two values crowding together;
+      // this is the extra 20px asked for, scoped to just this column
+      // rather than widening every column's gap in ExpandableTable.tsx.
+      style={{ backgroundColor: tone.bg, color: tone.fg, paddingHorizontal: 7, paddingVertical: 2, borderRadius: 6, alignSelf: "flex-start", fontSize: 11.5, marginLeft: 20 }}
     >
       {status}
     </ThemedText>
@@ -70,6 +75,26 @@ export default function CustomersScreen() {
     getNextPageParam: (lastPage, allPages) => (lastPage.hasMore ? allPages.length * PAGE_SIZE : undefined),
   });
 
+  // useRefetchOnFocus calls the SAME `refetch` a pull-to-refresh gesture
+  // does, and fires on every focus — not just navigating back from a
+  // customer's detail screen, but every time this tab is switched back to
+  // from Dashboard/Loans/etc, which happens far more often. Tying
+  // RefreshControl's spinner to react-query's own `isFetching` made it
+  // flash on every one of those background refetches too, reading as "the
+  // loading buffer is always showing" even though nothing the person did
+  // asked for it. Track pull-to-refresh separately so the spinner only
+  // shows for an actual pull gesture; the focus refetch still runs and
+  // updates the list, just silently.
+  const [manualRefreshing, setManualRefreshing] = useState(false);
+  async function onPullToRefresh() {
+    setManualRefreshing(true);
+    try {
+      await refetch();
+    } finally {
+      setManualRefreshing(false);
+    }
+  }
+
   useRefetchOnFocus(refetch);
 
   const customers = data?.pages.flatMap((p) => p.items) ?? [];
@@ -99,7 +124,7 @@ export default function CustomersScreen() {
           extraFields={customerExtraFields}
           onViewDescription={(c) => router.push(`/customers/${c.id}`)}
           emptyText={isLoading ? "Loading…" : isError ? "Could not load customers." : "No customers found."}
-          refreshControl={<RefreshControl refreshing={isFetching && !isFetchingNextPage && !isLoading} onRefresh={refetch} />}
+          refreshControl={<RefreshControl refreshing={manualRefreshing} onRefresh={onPullToRefresh} />}
           onEndReached={() => {
             if (hasNextPage && !isFetchingNextPage) fetchNextPage();
           }}
