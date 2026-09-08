@@ -72,6 +72,7 @@ export function PersonalLoanDetail({ id }: { id?: string }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [downloadingBond, setDownloadingBond] = useState(false);
+  const [downloadError, setDownloadError] = useState("");
 
   const numericId = Number(id);
 
@@ -114,10 +115,11 @@ export function PersonalLoanDetail({ id }: { id?: string }) {
   async function handleDownloadBond() {
     if (!loan || downloadingBond) return;
     setDownloadingBond(true);
+    setDownloadError("");
     try {
       await downloadPersonalLoanBond(loan.id);
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : "Could not download the bond.");
+      setDownloadError(e instanceof ApiError ? e.message : "Could not download the bond.");
     } finally {
       setDownloadingBond(false);
     }
@@ -133,13 +135,14 @@ export function PersonalLoanDetail({ id }: { id?: string }) {
           <h1>Loan {loan.loanNumber}{customerName ? ` · ${customerName}` : ""}</h1>
         </div>
         <div className="sp" />
-        <button className="btn doc-action" disabled={downloadingBond} onClick={handleDownloadBond}>
+        <button className="btn doc-action pl-download-bond" disabled={downloadingBond} onClick={handleDownloadBond}>
           <span className="doc-action-tx">{downloadingBond ? "Preparing…" : "Download Bond"}</span>
         </button>
         {canUpdate && loan.status === "Active" && (
           <button className="btn" onClick={openRenew}>Renew Loan</button>
         )}
       </div>
+      {downloadError && <div className="notice" style={{ marginBottom: 12 }}>{downloadError}</div>}
       <hr className="gold-rule" />
 
       <div className="kpis" style={{ marginBottom: 16 }}>
@@ -157,7 +160,7 @@ export function PersonalLoanDetail({ id }: { id?: string }) {
         )}
       </div>
 
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, alignItems: "start" }}>
+      <div className="pl-detail-grid">
         <div className="card">
           <div className="hd"><h3>Schedule</h3></div>
           {schedule.error && <div className="notice" style={{ margin: 14 }}>{schedule.error}</div>}

@@ -86,10 +86,12 @@ export function listPersonalLoansPage(params: {
   frequency?: Frequency;
   customerId?: number;
   status?: string;
+  pageSize?: number;
 }): Promise<{ items: BackendPersonalLoan[]; hasMore: boolean }> {
+  const pageSize = params.pageSize || PERSONAL_LOANS_TABLE_PAGE_SIZE;
   const query = new URLSearchParams({
-    limit: String(PERSONAL_LOANS_TABLE_PAGE_SIZE),
-    offset: String((params.page - 1) * PERSONAL_LOANS_TABLE_PAGE_SIZE),
+    limit: String(pageSize),
+    offset: String((params.page - 1) * pageSize),
   });
   if (params.q) query.set("q", params.q);
   if (params.frequency) query.set("frequency", params.frequency);

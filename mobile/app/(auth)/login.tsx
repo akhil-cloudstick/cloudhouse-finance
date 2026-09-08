@@ -78,19 +78,12 @@ export default function LoginScreen() {
             value={identifier}
             onChangeText={setIdentifier}
           />
-          {/* The business's code. A staff username/phone is unique only
-            * WITHIN a business, so with more than one running on the backend
-            * the identifier alone is ambiguous. Optional and remembered after
-            * the first successful sign-in, so a returning staff member never
-            * types it twice — and invisible in practice on a single-business
-            * backend, which resolves it itself. */}
-          <GoldTextInput
-            label="Business code (if your business gave you one)"
-            autoCapitalize="none"
-            autoCorrect={false}
-            value={businessCode}
-            onChangeText={setBusinessCode}
-          />
+          {/* The "Business code" input that used to sit here is hidden: this
+            * deployment only ever has one business, and a single-business
+            * backend resolves it itself without the field. The remembered
+            * businessCode state/normalize-and-validate logic in
+            * handleSubmit is left in place so a device that already stored
+            * one (from before this field was hidden) still sends it. */}
           <GoldTextInput
             label="Password"
             secureTextEntry={!showPassword}

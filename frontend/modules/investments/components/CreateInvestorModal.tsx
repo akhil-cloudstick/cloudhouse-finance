@@ -5,6 +5,7 @@ import { useModal } from "@/common/components/Modal";
 import { Select } from "@/common/components/ui/Select";
 import { createCustomer, type CustomerView } from "@/modules/customers/services/customerService";
 import { listActiveBranches, type BranchView } from "@/modules/branches/services/branchService";
+import { getSelectedBranchId } from "@/common/services/branchSelection";
 
 /* Inline "+ Add new investor" flow reached from the New Investment picker
  * (NewInvestmentModal.tsx's SearchableSelect, via its onCreateNew prop) —
@@ -34,7 +35,21 @@ export function CreateInvestorModalContent({ onCreated }: { onCreated: (customer
 
   useEffect(() => {
     listActiveBranches()
-      .then((list) => { setBranches(list); if (list.length) setBranchId((cur) => cur || list[0].id); })
+      .then((list) => {
+        setBranches(list);
+        if (!list.length) return;
+        // Default to whatever branch the switcher currently has selected
+        // (an Administrator/Management session can see every branch, so
+        // there's no other cue) rather than always the list's first
+        // branch — a mismatch here silently orphans the new investor:
+        // it's created under some other branch, so once the picker's
+        // in-memory selection is gone (e.g. after a refresh) any search
+        // scoped to the currently selected branch (GetBranchScope on the
+        // backend) simply never finds it again.
+        const selected = getSelectedBranchId();
+        const fallback = selected && list.some((b) => b.id === selected) ? selected : list[0].id;
+        setBranchId((cur) => cur || fallback);
+      })
       .catch(() => setErr("Could not load branches — try again later."));
   }, []);
 

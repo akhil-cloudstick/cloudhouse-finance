@@ -254,7 +254,7 @@ func (h *Handler) DownloadBond(c *gin.Context) {
 		httpx.FailErr(c, err)
 		return
 	}
-	pdf, loan, err := h.svc.GenerateBond(c.Request.Context(), id, platform.GetBranchScope(c))
+	pdf, loan, err := h.svc.GenerateBond(platform.RequestContext(c), id, platform.GetBranchScope(c))
 	if err != nil {
 		httpx.FailErr(c, err)
 		return

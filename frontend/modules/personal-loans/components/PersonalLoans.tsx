@@ -5,6 +5,7 @@ import { Icon } from "@/common/components/Icon";
 import { useAuth } from "@/common/auth-context";
 import { useModal } from "@/common/components/Modal";
 import { ApiError } from "@/common/services/httpClient";
+import { useIsSmallScreen, useResponsivePageSize } from "@/common/utils/responsive";
 import { listPersonalLoansPage, type BackendPersonalLoan, type Frequency } from "@/modules/personal-loans/services/personalLoanService";
 import { PersonalLoanRow } from "@/modules/personal-loans/components/PersonalLoanRow";
 import { NewPersonalLoanModalContent } from "@/modules/personal-loans/components/NewPersonalLoanModal";
@@ -22,6 +23,8 @@ export function PersonalLoans() {
   const { can } = useAuth();
   const { openModal, closeModal } = useModal();
   const canCreate = can("Personal_Loan_Management", "can_create_personal_loan");
+  const smallScreen = useIsSmallScreen();
+  const pageSize = useResponsivePageSize(10, 7);
 
   const [freq, setFreq] = useState<"All" | Frequency>("All");
   const [q, setQ] = useState("");
@@ -33,13 +36,13 @@ export function PersonalLoans() {
 
   // Any filter change resets back to page 1 rather than leaving the user
   // stranded on a page number the new filter may not have.
-  useEffect(() => { setPage(1); }, [freq, q]);
+  useEffect(() => { setPage(1); }, [freq, q, pageSize]);
 
   const refresh = useCallback(async () => {
     setLoading(true);
     setError("");
     try {
-      const res = await listPersonalLoansPage({ page, q: q.trim() || undefined, frequency: freq === "All" ? undefined : freq });
+      const res = await listPersonalLoansPage({ page, q: q.trim() || undefined, frequency: freq === "All" ? undefined : freq, pageSize });
       setLoans(res?.items || []);
       setHasMore(!!res?.hasMore);
     } catch (e) {
@@ -47,13 +50,13 @@ export function PersonalLoans() {
     } finally {
       setLoading(false);
     }
-  }, [page, q, freq]);
+  }, [page, q, freq, pageSize]);
 
   useEffect(() => {
     const handle = setTimeout(() => void refresh(), q ? 300 : 0);
     return () => clearTimeout(handle);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [page, freq, q]);
+  }, [page, freq, q, pageSize]);
 
   const totalPages = hasMore ? page + 1 : page;
 
@@ -63,13 +66,13 @@ export function PersonalLoans() {
 
   return (
     <>
-      <div className="page-h">
+      <div className="page-h" style={smallScreen ? { gap: 9, marginBottom: 10 } : { marginBottom: 12 }}>
         <div><h1>Personal Loans</h1><p>Small unsecured cash loans, repaid daily/weekly/monthly</p></div>
         <div className="sp" />
         <div className="search"><Icon name="search" /><input className="inp" placeholder="Search loan # or customer…" value={q} onChange={(e) => setQ(e.target.value)} /></div>
         {canCreate && <button className="btn" onClick={openNewLoan}><Icon name="plus" /> New Personal Loan</button>}
       </div>
-      <hr className="gold-rule" />
+      <hr className="gold-rule" style={{ margin: "4px 0 14px" }} />
       <div style={{ marginBottom: 14 }} className="tabs">
         {FREQS.map((f) => (
           <button key={f} className={f === freq ? "on" : ""} onClick={() => setFreq(f)}>{f}</button>

@@ -1562,8 +1562,18 @@ h3,
  * on the button itself (not flex-basis) so it holds firm inside the
  * page-h's flex row; the icon sits outside doc-action-tx so it is never
  * clipped, only the label text is. */
+/* PersonalLoanDetail.tsx's Schedule/Payment History pair (InvestmentDetail
+ * only ever has one card here, so it never needed this) — equal columns
+ * at desk width, stacked below 1060px alongside every other .grid.cols*
+ * breakpoint (see @media(max-width:1060px) further down this file). */
+.pl-detail-grid{display:grid;grid-template-columns:1fr 1fr;gap:15px;align-items:start}
 .btn.doc-action{width:132px;flex:0 0 auto;overflow:hidden}
 .doc-action-tx{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;display:inline-block;min-width:0}
+/* PersonalLoanDetail.tsx's Download Bond button is the row's only action
+ * (no shared-width constraint from sibling doc buttons like LoanDetail.tsx
+ * has), so it should size to its own label instead of sitting at the fixed
+ * 132px width above. */
+.btn.doc-action.pl-download-bond{width:auto;flex:0 0 auto}
 /* DocumentsMenu's dropdown rows (LoanDetail.tsx) — a label too long for the
  * 165px-wide panel fades out at its right edge instead of ending in "…",
  * so e.g. "Send Indemnity Bond for eSign" reads as trailing off rather than
@@ -3080,6 +3090,10 @@ table.tbl {
   .grid.cols21,
   .grid.cols12,
   .grid.cols12.cust-360 {
+    grid-template-columns: 1fr
+  }
+
+  .pl-detail-grid {
     grid-template-columns: 1fr
   }
 }

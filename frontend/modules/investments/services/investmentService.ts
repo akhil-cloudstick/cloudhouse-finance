@@ -106,10 +106,12 @@ export function listInvestmentsPage(params: {
   q?: string;
   status?: InvestmentStatus | "All";
   customerId?: number;
+  pageSize?: number;
 }): Promise<{ items: BackendInvestment[]; hasMore: boolean }> {
+  const pageSize = params.pageSize || INVESTMENTS_TABLE_PAGE_SIZE;
   const query = new URLSearchParams({
-    limit: String(INVESTMENTS_TABLE_PAGE_SIZE),
-    offset: String((params.page - 1) * INVESTMENTS_TABLE_PAGE_SIZE),
+    limit: String(pageSize),
+    offset: String((params.page - 1) * pageSize),
   });
   if (params.q) query.set("q", params.q);
   if (params.status && params.status !== "All") query.set("status", params.status);

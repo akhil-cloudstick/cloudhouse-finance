@@ -5,6 +5,7 @@ import { Icon } from "@/common/components/Icon";
 import { useAuth } from "@/common/auth-context";
 import { useModal } from "@/common/components/Modal";
 import { ApiError } from "@/common/services/httpClient";
+import { useIsSmallScreen, useResponsivePageSize } from "@/common/utils/responsive";
 import { listInvestmentsPage, type BackendInvestment, type InvestmentStatus } from "@/modules/investments/services/investmentService";
 import { InvestmentRow } from "@/modules/investments/components/InvestmentRow";
 import { NewInvestmentModalContent } from "@/modules/investments/components/NewInvestmentModal";
@@ -22,6 +23,8 @@ export function Investments() {
   const { openModal, closeModal } = useModal();
   const canCreate = can("Investment_Management", "can_create_investment");
   const canUpdate = can("Investment_Management", "can_update_investment");
+  const smallScreen = useIsSmallScreen();
+  const pageSize = useResponsivePageSize(10, 7);
 
   const [status, setStatus] = useState<"All" | InvestmentStatus>("All");
   const [q, setQ] = useState("");
@@ -31,13 +34,13 @@ export function Investments() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
-  useEffect(() => { setPage(1); }, [status, q]);
+  useEffect(() => { setPage(1); }, [status, q, pageSize]);
 
   const refresh = useCallback(async () => {
     setLoading(true);
     setError("");
     try {
-      const res = await listInvestmentsPage({ page, q: q.trim() || undefined, status });
+      const res = await listInvestmentsPage({ page, q: q.trim() || undefined, status, pageSize });
       setInvestments(res?.items || []);
       setHasMore(!!res?.hasMore);
     } catch (e) {
@@ -45,13 +48,13 @@ export function Investments() {
     } finally {
       setLoading(false);
     }
-  }, [page, q, status]);
+  }, [page, q, status, pageSize]);
 
   useEffect(() => {
     const handle = setTimeout(() => void refresh(), q ? 300 : 0);
     return () => clearTimeout(handle);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [page, status, q]);
+  }, [page, status, q, pageSize]);
 
   const totalPages = hasMore ? page + 1 : page;
 
@@ -64,14 +67,14 @@ export function Investments() {
 
   return (
     <>
-      <div className="page-h">
+      <div className="page-h" style={smallScreen ? { gap: 9, marginBottom: 10 } : { marginBottom: 12 }}>
         <div><h1>Investments</h1><p>Investor deposits, interest payout schedules and maturity</p></div>
         <div className="sp" />
         <div className="search"><Icon name="search" /><input className="inp" placeholder="Search investment # or investor…" value={q} onChange={(e) => setQ(e.target.value)} /></div>
         {canUpdate && <button className="btn plain" onClick={openPlans}>Manage Plans</button>}
         {canCreate && <button className="btn" onClick={openNewInvestment}><Icon name="plus" /> New Investment</button>}
       </div>
-      <hr className="gold-rule" />
+      <hr className="gold-rule" style={{ margin: "4px 0 14px" }} />
       <div style={{ marginBottom: 14 }} className="tabs">
         {STATUSES.map((s) => (
           <button key={s} className={s === status ? "on" : ""} onClick={() => setStatus(s)}>{s}</button>
