@@ -479,31 +479,46 @@ export function NewLoan() {
     }
     const w = window.open("", "_blank");
     if (!w) { toast("Popup blocked — please allow popups for this site to print"); return; }
+    // Die-cut "flag tag" stock: 81mm total — a 56mm×12mm head (perforated
+    // at the 28mm midpoint) plus a blank 25mm×3mm strap for wrapping
+    // around/through the item and tearing off. See the approved wire
+    // diagram (packet-flag-tag artifact): first 28mm segment holds the QR,
+    // the second (the half that stays with the item once torn) holds the
+    // readable identifiers, the strap stays blank. Replaces the old plain
+    // 50mm×30mm rectangular label this stock physically can't fit.
     w.document.write(`<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Packet Label — ${provId}</title><style>
-      @page{size:50mm 30mm;margin:0}
+      @page{size:81mm 12mm;margin:0}
       body{margin:0;font-family:Arial,Helvetica,sans-serif;-webkit-print-color-adjust:exact}
-      .label{width:50mm;height:30mm;box-sizing:border-box;padding:1.6mm;display:flex;align-items:center;gap:1.8mm;
-        border:0.3mm dashed #aaa;overflow:hidden;page-break-inside:avoid}
-      .label img{width:25mm;height:25mm;flex:none}
-      .t{font-size:2.5mm;line-height:1.45;min-width:0}
-      .t .brand{font-size:2mm;letter-spacing:0.3mm;color:#7a5c14}
-      .t .id{font-size:3.4mm;font-weight:bold}
-      .t div{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+      .tag{position:relative;width:81mm;height:12mm;box-sizing:border-box;display:flex;overflow:hidden;page-break-inside:avoid}
+      .head{width:56mm;height:12mm;display:flex;border:0.3mm dashed #aaa}
+      .qrcell{width:28mm;height:12mm;box-sizing:border-box;padding:1.5mm;display:flex;align-items:center;justify-content:center}
+      .qrcell img{width:9mm;height:9mm}
+      .infocell{width:28mm;height:12mm;box-sizing:border-box;padding:1mm 1.5mm;display:flex;flex-direction:column;justify-content:center;
+        gap:0.4mm;border-left:0.3mm dashed #c9971c;min-width:0}
+      .infocell div{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;line-height:1.25}
+      .infocell .id{font-size:3mm;font-weight:bold}
+      .infocell .name{font-size:2.3mm}
+      .infocell .meta{font-size:1.9mm;color:#5b5342}
+      .infocell .brand{font-size:1.6mm;letter-spacing:0.2mm;color:#9a8f6f}
+      .strap{width:25mm;height:12mm;display:flex;align-items:center}
+      .strap .band{width:25mm;height:3mm;margin:auto 0;border-top:0.3mm solid #ccc;border-bottom:0.3mm solid #ccc}
       .noprint{text-align:center;margin:8mm;font-family:Arial}
-      @media print{.noprint{display:none} .label{border:none}}
+      @media print{.noprint{display:none} .head{border:none} .infocell{border-left:none} .strap .band{border:none}}
     </style></head><body>
-      <div class="label">
-        <img src="${qr}" alt="QR">
-        <div class="t">
-          <div class="brand">AMBIKA GOLD FINANCE</div>
-          <div class="id">${provId} · ${packetLabel}</div>
-          <div>${c.name || "—"}</div>
-          <div>${c.id || "—"} · ${c.phone || ""}</div>
-          <div>${new Date().toLocaleDateString("en-IN")} · ${d.weight.toFixed(1)} g · ${d.orns.length} item(s)</div>
+      <div class="tag">
+        <div class="head">
+          <div class="qrcell"><img src="${qr}" alt="QR"></div>
+          <div class="infocell">
+            <div class="id">${packetLabel}</div>
+            <div class="name">${c.name || "—"}</div>
+            <div class="meta">${provId} · ${d.weight.toFixed(1)}g</div>
+            <div class="brand">AMBIKA GOLD FINANCE</div>
+          </div>
         </div>
+        <div class="strap"><div class="band"></div></div>
       </div>
       <div class="noprint">
-        <p style="font-size:13px;color:#555">50mm × 30mm packet label — scanning the QR opens ${url}</p>
+        <p style="font-size:13px;color:#555">81mm × 12mm flag tag — scanning the QR opens ${url}</p>
         <button onclick="window.print()" style="padding:10px 26px;font-size:14px;cursor:pointer">🖨 Print Label</button>
       </div>
     </body></html>`);
