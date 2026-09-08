@@ -2603,6 +2603,29 @@ func (s *Service) VerifyReleaseChecklist(requestID uint, branchID *uint, in Chec
 		req.PacketVerified = *in.PacketVerified
 	}
 	if in.BankPledgeVerified != nil {
+		if *in.BankPledgeVerified {
+			// Same reasoning as PaymentVerified above: ticking this must mean
+			// there's genuinely no active bank pledge left, not just staff's
+			// say-so — otherwise the checklist could be marked complete and
+			// sail through Manager approval, only for the final Management
+			// stage's own CompleteRelease call to fail with
+			// ErrBankPledgeStillActive, well after staff believed this item
+			// was already confirmed. Checked the same way CompleteRelease
+			// itself does: the loan's own stored status first (cheap, covers
+			// the normal case), then the pledge RECORDS (in case that string
+			// has drifted away from an already-open record).
+			l, err := s.Get(req.LoanID, nil)
+			if err != nil {
+				return nil, err
+			}
+			hasActivePledge, err := s.pledgeRepo.HasActive(req.LoanID)
+			if err != nil {
+				return nil, err
+			}
+			if l.BankPledgeStatus == BankPledgeStatusPledged || hasActivePledge {
+				return nil, ErrBankPledgeStillActive
+			}
+		}
 		req.BankPledgeVerified = *in.BankPledgeVerified
 	}
 	if in.CustomerConfirmed != nil {
@@ -2682,6 +2705,24 @@ func (s *Service) RecordReleasePayment(requestID uint, branchID *uint, in Releas
 		return nil, ErrInvalidAmount
 	}
 
+	// Charges (the staff-entered release charges override) is a real amount
+	// owed on top of the loan's own outstanding balance, but it is never
+	// itself part of that balance — allocatePayment's buckets only ever
+	// track fee/penal/interest/principal. It is folded into the SAME
+	// Payment call below as PaymentInput.ProcessingFee (the "charge it, then
+	// let this same call collect it" mechanism ordinary loan payments
+	// already use), fee being allocatePayment's first-priority bucket — so
+	// Payment must cover Outstanding + Charges − Discount, exactly the
+	// on-screen "Final Settlement" figure, and a Payment that falls short
+	// still fails with ErrExceedsOutstanding ("amount does not match what is
+	// owed"), same as any other shortfall. chargeDelta (not the raw Charges
+	// total) is used so re-recording after Charges was already added in a
+	// previous Save Payment click never re-charges the same rupees twice.
+	chargeDelta := platform.RoundMoney(req.Charges - req.ChargesApplied)
+	if chargeDelta < 0 {
+		chargeDelta = 0
+	}
+
 	if in.Discount > 0 {
 		if _, err := s.RecordPayment(req.LoanID, PaymentInput{
 			Amount:               in.Discount,
@@ -2693,16 +2734,26 @@ func (s *Service) RecordReleasePayment(requestID uint, branchID *uint, in Releas
 			return nil, err
 		}
 	}
-	if in.Payment > 0 {
+	// Payment carries chargeDelta even when in.Payment is 0 — Charges must
+	// still get billed and collected on its own if that's the only thing
+	// left to settle this round (e.g. Discount alone already covered the
+	// rest of the balance).
+	paymentAmount := in.Payment
+	if chargeDelta > 0.01 && paymentAmount <= 0 {
+		paymentAmount = chargeDelta
+	}
+	if paymentAmount > 0 {
 		if _, err := s.RecordPayment(req.LoanID, PaymentInput{
-			Amount:               in.Payment,
+			Amount:               paymentAmount,
 			Type:                 PaymentTypePartial,
+			ProcessingFee:        chargeDelta,
 			PaidOn:               time.Now(),
 			ReceivedByEmployeeID: &in.ActorEmployeeID,
 			Description:          "Release payment",
 		}); err != nil {
 			return nil, err
 		}
+		req.ChargesApplied = platform.RoundMoney(req.ChargesApplied + chargeDelta)
 	}
 
 	l, err := s.Get(req.LoanID, branchID)
@@ -3121,6 +3172,30 @@ func (s *Service) CompleteRelease(loanID uint, branchID *uint, employeeID uint) 
 	if err := s.repo.Update(l); err != nil {
 		return nil, err
 	}
+
+	// A Pending release request left over from before the balance cleared
+	// (see this func's own doc comment on the "already paid in full" path,
+	// which never touches that request's own checklist/approval chain) would
+	// otherwise sit stuck showing Pending forever on a loan that's actually
+	// already released — auto-resolve it here rather than leaving staff to
+	// puzzle over why a Closed loan still lists a request awaiting review.
+	if pending, findErr := s.requestRepo.FindPendingReleaseByLoanID(loanID); findErr == nil {
+		now := time.Now()
+		pending.Status = RequestStatusApproved
+		pending.ApprovalStage = ApprovalStageApproved
+		// Balance is 0 at this point (paidInFull, checked above), so the total
+		// actually settled is just whatever Charges was on record.
+		pending.SettlementAmount = pending.Charges
+		pending.DecidedAt = &now
+		pending.DecidedByEmployeeID = &employeeID
+		if pending.Remarks == "" {
+			pending.Remarks = "Auto-resolved — balance was paid in full and the release completed directly, without this request's own checklist/approval chain."
+		}
+		if err := s.requestRepo.Update(pending); err != nil {
+			log.Printf("could not auto-resolve pending release request %d for loan %d: %v", pending.ID, loanID, err)
+		}
+	}
+
 	return s.Get(l.ID, nil)
 }
 

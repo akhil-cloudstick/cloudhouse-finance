@@ -73,6 +73,17 @@ type LoanRequest struct {
 	// valuation charges), Release only, added into SettlementAmount below.
 	Charges float64 `json:"charges" gorm:"type:numeric(16,2);default:0"`
 
+	// ChargesApplied is how much of Charges has already been posted onto
+	// the loan itself (as a real LoanPayment, folded into
+	// Loan.OutstandingProcessingFee then immediately collected — see
+	// Service.RecordReleasePayment). Charges can be edited any number of
+	// times before the balance clears (staff correcting the figure via the
+	// Charges input's onBlur save); tracking what has already been charged,
+	// separately from RecordedDiscount/RecordedPayment above, lets each
+	// RecordReleasePayment call post only the DELTA since the last one —
+	// never the same charge twice, and never missing a later increase.
+	ChargesApplied float64 `json:"chargesApplied" gorm:"type:numeric(16,2);default:0"`
+
 	// SettlementAmount is a snapshot of Loan.TotalOutstandingBalance +
 	// Charges taken the moment the release approval chain reaches its final
 	// "Approved" — the live figure on Loan keeps moving as payments come in,

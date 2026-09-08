@@ -1318,6 +1318,10 @@ export type BackendLoanRequest = {
   customerConfirmed: boolean;
   verificationNotes: string;
   charges: number;
+  // How much of `charges` has already been posted onto the loan as a real
+  // payment (see backend/internal/loan/service.go's RecordReleasePayment) —
+  // `charges - chargesApplied` is what's still left to collect.
+  chargesApplied: number;
   settlementAmount: number;
   // "Record Payment" step on the Manager-stage release review screen — see
   // backend/internal/loan/service.go's RecordReleasePayment.
@@ -1350,6 +1354,7 @@ export type RequestView = {
   customerConfirmed: boolean;
   verificationNotes: string;
   charges: number;
+  chargesApplied: number;
   settlementAmount: number;
   recordedDiscount: number;
   recordedPayment: number;
@@ -1376,6 +1381,7 @@ function toRequestView(r: BackendLoanRequest): RequestView {
     customerConfirmed: r.customerConfirmed,
     verificationNotes: r.verificationNotes,
     charges: r.charges,
+    chargesApplied: r.chargesApplied ?? 0,
     settlementAmount: r.settlementAmount,
     recordedDiscount: r.recordedDiscount ?? 0,
     recordedPayment: r.recordedPayment ?? 0,

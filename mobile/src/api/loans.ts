@@ -149,6 +149,18 @@ export function listLoanRequests(params?: { status?: string; loanId?: number }) 
   return apiRequest<LoanRequest[]>("/loans/requests", { params });
 }
 
+// Page-scoped variant: passing `limit` flips the backend into the
+// {items, hasMore} envelope instead of the bare array above — mirrors
+// listLoansPage, used by the standalone Requests list screen (10/page).
+export function listLoanRequestsPage(params: {
+  status?: string;
+  loanId?: number;
+  limit: number;
+  offset: number;
+}) {
+  return apiRequest<{ items: LoanRequest[]; hasMore: boolean }>("/loans/requests", { params });
+}
+
 // action: "Approved" | "Rejected" — the single-step decision used for
 // Extension requests (and for a Release request before its checklist/
 // approval-chain steps have started).
@@ -175,6 +187,20 @@ export function verifyReleaseChecklist(
   return apiRequest<LoanRequest>(`/loans/requests/${requestId}/verify`, { method: "PUT", body: input });
 }
 
+// "Record Payment" step on the Manager-stage release review screen —
+// records a Discount and/or a Payment straight against the loan and, if
+// together they cover the final settlement, ticks the paymentVerified
+// checklist item — nothing more (see backend/internal/loan/service.go's
+// RecordReleasePayment). Falls short → dueDate is required for the
+// remaining balance. employeeId/role are NOT sent — derived server-side
+// from the JWT, same as everywhere else in this file.
+export function recordReleasePayment(
+  requestId: number,
+  input: { discount: number; payment: number; dueDate?: string }
+) {
+  return apiRequest<LoanRequest>(`/loans/requests/${requestId}/release-payment`, { method: "POST", body: input });
+}
+
 // Release-request approval chain (PendingManager -> PendingManagement ->
 // Approved/Rejected) — same two-role hand-off shape as the loan sanction
 // chain above, but scoped to the request, not the loan.
@@ -184,6 +210,66 @@ export function approveReleaseRequest(
 ) {
   return apiRequest<LoanRequest>(`/loans/requests/${requestId}/approve`, { method: "POST", body: input });
 }
+
+// Extension-request 3-stage approval chain (PendingLoanOfficer ->
+// PendingBranchManager -> PendingManagement -> Approved/Rejected) — mirrors
+// frontend/modules/loans/services/loanService.ts's approveExtensionRequest
+// and frontend/common/components/modals/ExtensionReviewModal.tsx's stage
+// constants. Reuses the same generalized POST /loans/requests/:requestId/
+// approve route as Release above; the backend dispatches on the request's
+// own Type.
+export const EXTENSION_STAGES = ["LoanOfficer", "BranchManager", "Management"] as const;
+export type ExtensionApprovalStage = (typeof EXTENSION_STAGES)[number];
+
+export const EXTENSION_STAGE_LABELS: Record<ExtensionApprovalStage, string> = {
+  LoanOfficer: "Loan Officer",
+  BranchManager: "Branch Manager",
+  Management: "Management",
+};
+
+// Display-only — whose "turn" this label names in the "Awaiting <role>
+// approval" text. Who can actually ACT is a real permission grant
+// (EXTENSION_STAGE_PERMISSIONS below), not a role-name match.
+export const EXTENSION_STAGE_ROLES: Record<ExtensionApprovalStage, string> = {
+  LoanOfficer: "Loan Operator",
+  BranchManager: "Branch Manager",
+  Management: "Management",
+};
+
+// The "Loan Extension Approval" permission actually checked server-side
+// (backend/internal/loan/service.go's extensionChain/checkStagePermission).
+export const EXTENSION_STAGE_PERMISSIONS: Record<ExtensionApprovalStage, string> = {
+  LoanOfficer: "can_verify_the_loan_extension",
+  BranchManager: "can_approve_extension_branch_manager_stage",
+  Management: "can_approve_extension_management_stage",
+};
+
+export function extensionStageKeyFor(approvalStage: string): ExtensionApprovalStage | null {
+  switch (approvalStage) {
+    case "PendingLoanOfficer":
+      return "LoanOfficer";
+    case "PendingBranchManager":
+      return "BranchManager";
+    case "PendingManagement":
+      return "Management";
+    default:
+      return null;
+  }
+}
+
+export function approveExtensionRequest(
+  requestId: number,
+  input: { stage: ExtensionApprovalStage; action: "Approved" | "Rejected"; remarks?: string }
+) {
+  return apiRequest<LoanRequest>(`/loans/requests/${requestId}/approve`, { method: "POST", body: input });
+}
+
+// Release-request 2-stage approval chain's own permissions (Release_Approval
+// module — backend/internal/authz.Catalogue), mirrors ReleaseReviewModal.tsx.
+export const RELEASE_STAGE_PERMISSIONS: Record<"Manager" | "Management", string> = {
+  Manager: "can_approve_release_manager_stage",
+  Management: "can_approve_release_management_stage",
+};
 
 // Finalizes a fully-approved release request: hands the gold back to the
 // customer and closes the loan. Requires the outstanding balance to be

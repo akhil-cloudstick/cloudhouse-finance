@@ -619,6 +619,24 @@ func (r *LoanRequestRepository) FindApprovedReleaseByLoanID(loanID uint) (*LoanR
 	return &req, nil
 }
 
+// FindPendingReleaseByLoanID finds the (most recent) still-Pending Release
+// request for a loan, if any — CompleteRelease uses this to auto-resolve a
+// request left dangling when the balance was cleared and the release
+// completed through the "already paid in full" path (see its own doc
+// comment) rather than that request's own checklist/approval chain, which
+// otherwise left it stuck showing Pending forever on a loan that was
+// actually already released.
+func (r *LoanRequestRepository) FindPendingReleaseByLoanID(loanID uint) (*LoanRequest, error) {
+	var req LoanRequest
+	err := r.db.Preload("Loan.Customer").
+		Where("loan_id = ? AND type = ? AND status = ?", loanID, RequestTypeRelease, RequestStatusPending).
+		Order("id desc").First(&req).Error
+	if err != nil {
+		return nil, err
+	}
+	return &req, nil
+}
+
 // RequestApprovalRepository provides GORM-backed persistence for
 // RequestApproval audit rows — mirrors ApprovalRepository.
 type RequestApprovalRepository struct {

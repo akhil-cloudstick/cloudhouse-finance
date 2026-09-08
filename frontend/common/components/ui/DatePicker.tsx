@@ -60,6 +60,14 @@ export function DatePicker({
   // viewYear so paging through decades doesn't jump the day grid around.
   const [decadeStart, setDecadeStart] = useState(() => Math.floor(((selected || new Date()).getFullYear()) / 12) * 12);
   const boxRef = useRef<HTMLDivElement>(null);
+  // The panel is positioned `fixed` (viewport-relative) rather than
+  // `absolute` inside `.dp`, because `.dp` usually sits inside a scrollable
+  // `.modal-bg` — an absolutely-positioned descendant that pokes past the
+  // modal's bottom edge still counts toward that ancestor's scrollable
+  // overflow, so the whole modal grew/scrolled taller just from opening the
+  // calendar. `fixed` positioning escapes that containing block entirely, so
+  // it needs its own on-open + scroll/resize coordinates from the trigger.
+  const [panelPos, setPanelPos] = useState<{ top: number; left: number; width: number } | null>(null);
 
   // Jump the visible month back to the selected (or current) date every time
   // the popover is (re)opened, rather than remembering wherever it was left.
@@ -80,6 +88,23 @@ export function DatePicker({
     document.addEventListener("click", onDocClick);
     return () => document.removeEventListener("click", onDocClick);
   }, []);
+
+  useEffect(() => {
+    if (!open) return;
+    function updatePos() {
+      const el = boxRef.current;
+      if (!el) return;
+      const r = el.getBoundingClientRect();
+      setPanelPos({ top: r.bottom + 6, left: r.left, width: r.width });
+    }
+    updatePos();
+    window.addEventListener("scroll", updatePos, true);
+    window.addEventListener("resize", updatePos);
+    return () => {
+      window.removeEventListener("scroll", updatePos, true);
+      window.removeEventListener("resize", updatePos);
+    };
+  }, [open]);
 
   const minD = min ? parseISO(min) : null;
   const maxD = max ? parseISO(max) : null;
@@ -126,8 +151,11 @@ export function DatePicker({
         </span>
         <Icon name="cal" className="cal-ic" />
       </button>
-      {open && (
-        <div className="dp-panel">
+      {open && panelPos && (
+        <div
+          className="dp-panel dp-panel-fixed"
+          style={{ top: panelPos.top, left: panelPos.left, width: panelPos.width }}
+        >
           {/* Both sub-views stay mounted at all times (hidden via CSS rather
               than left out of the tree) — switching `mode` used to swap
               which branch was rendered, which meant the button the user had
