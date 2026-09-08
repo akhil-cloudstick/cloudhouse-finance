@@ -92,6 +92,7 @@ export function Sidebar({ route, open }: { route: string; open: boolean }) {
           );
         })}
       </nav>
+      <div className="sfoot">Trust · Value · Growth</div>
     </aside>
   );
 }

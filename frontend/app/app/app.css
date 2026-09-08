@@ -232,6 +232,20 @@ h3,
   padding: 1px 7px;
 }
 
+/* The sidebar's footer tagline. Sits on the same 20px left edge as
+ * .nav .grp and the brand lockup, with a hairline above it to separate it
+ * from the last nav item. Sized small and letter-spaced like the section
+ * labels — at the inherited body size it read as a nav item, not a footnote. */
+.side .sfoot {
+  flex-shrink: 0;
+  padding: 13px 20px 15px;
+  border-top: 1px solid rgba(255, 255, 255, .08);
+  font-size: 10.5px;
+  letter-spacing: .16em;
+  color: #55637d;
+  white-space: nowrap;
+}
+
 /* .main is a fixed-height (exactly viewport-tall) flex column: .top sits at
  * its natural height (flex-shrink:0) and .page takes whatever's left
  * (flex:1) and is the ONLY thing that scrolls on any page — instead of the
