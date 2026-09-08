@@ -13,6 +13,7 @@ import { Card } from "../../src/components/Card";
 import { ThemedText } from "../../src/components/ThemedText";
 import { GoldButton } from "../../src/components/GoldButton";
 import { colors } from "../../src/theme/colors";
+import { tableCardStyle } from "../../src/components/ExpandableTable";
 import {
   getDisbursement,
   getLoansStatus,

@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useRef, useState } from "react";
 import { ScrollView, View, RefreshControl, Linking, Alert } from "react-native";
 import { useLocalSearchParams } from "expo-router";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
@@ -11,6 +11,9 @@ import { GoldDatePicker } from "../../../src/components/GoldDatePicker";
 import { GoldButton } from "../../../src/components/GoldButton";
 import { ChipSelect } from "../../../src/components/ChipSelect";
 import { BottomSheetModal } from "../../../src/components/BottomSheetModal";
+import { Icon } from "../../../src/components/Icon";
+import { ExtensionReviewPanel } from "../../../src/components/loanRequests/ExtensionReviewPanel";
+import { ReleaseReviewPanel } from "../../../src/components/loanRequests/ReleaseReviewPanel";
 import { colors } from "../../../src/theme/colors";
 import { useRole, useAuth } from "../../../src/auth/AuthContext";
 import {
@@ -19,6 +22,7 @@ import {
   createExtensionRequest,
   createReleaseRequest,
   completeRelease,
+  listLoanRequests,
   normalizeSanctionStage,
   SANCTION_STAGE_LABELS,
   SANCTION_STAGE_ROLES,
@@ -68,11 +72,13 @@ const PAYMENT_TYPES = ["Interest", "Principal", "Partial", "Full Settlement", "A
 const PAYMENT_METHODS = ["Cash", "UPI", "Bank Transfer", "Cheque"] as const;
 
 // v2: adds Payments, Extension/Release requests, Bank Pledge, and the
-// sanction-chain Approval workflow alongside the existing auction section —
-// brings this screen to parity with frontend/components/LoanDetail.tsx
-// (print label/slip and the release verification-checklist/approval-chain
-// UI for staff processing an already-submitted release request are still
-// gaps; see the file's top-level doc comment for what's covered).
+// sanction-chain Approval workflow alongside the existing auction section.
+// v3: brings the Extension/Release sections themselves to parity with
+// frontend/common/components/modals/ExtensionReviewModal.tsx and
+// ReleaseReviewModal.tsx — once a request is Pending, this screen renders
+// the same review UI (stage tracker + approve/reject for Extension;
+// verification checklist + Record Payment + Manager/Management
+// approve/reject for Release) instead of pointing staff at the web app.
 export default function LoanDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const loanId = Number(id);
@@ -86,6 +92,11 @@ export default function LoanDetailScreen() {
   // frontend/modules/loans/components/Auctions.tsx:98). Gates the same way
   // web does from here down.
   const { can } = useAuth();
+  // Also reused below as the Extension/Release review sections' "canDecide"
+  // gate — same "Loan_Management"/"can_update_loan" permission
+  // ExtensionReviewModal.tsx/ReleaseReviewModal.tsx check under that name;
+  // approve/reject there needs canActOnStage/canActOnReleaseStage TOO, same
+  // as here.
   const canActOnAuction = can("Loan_Management", "can_update_loan");
 
   const loan = useQuery({ queryKey: ["loan", id], queryFn: () => getLoan(loanId), enabled: !!id });
@@ -95,6 +106,14 @@ export default function LoanDetailScreen() {
     enabled: !!id,
     retry: false,
   });
+  // Backs the Extension/Release review sections below — a Pending request
+  // of either type (there's at most one of each open at a time per loan)
+  // switches that section from "create a request" to "review this one".
+  const requests = useQuery({
+    queryKey: ["loanRequests", id],
+    queryFn: () => listLoanRequests({ loanId, status: "Pending" }),
+    enabled: !!id,
+  });
 
   // A status change made elsewhere (e.g. approving this loan on the web
   // admin) otherwise never shows up here: react-navigation keeps this
@@ -102,7 +121,7 @@ export default function LoanDetailScreen() {
   // event to refetch on in React Native — see useRefetchOnFocus's own
   // comment for the full explanation. Refetch every time this screen
   // regains focus, not just on its first mount.
-  useRefetchOnFocus(loan.refetch, auction.refetch);
+  useRefetchOnFocus(loan.refetch, auction.refetch, requests.refetch);
 
   const [error, setError] = useState<string | null>(null);
 
@@ -230,31 +249,74 @@ export default function LoanDetailScreen() {
     onError,
   });
 
+  // Guards createExtensionRequest/createReleaseRequest below against a fast
+  // double-tap creating two duplicate requests: GoldButton's own
+  // disabled={requestExtension.isPending}/{requestRelease.isPending} only
+  // takes effect on the NEXT render after the first tap, so a second tap
+  // landing before that render (a real quick double-tap, or touch-bounce)
+  // can fire mutationFn twice. A plain ref set/cleared synchronously around
+  // the request body closes that gap.
+  const requestExtensionSubmittingRef = useRef(false);
+  const requestReleaseSubmittingRef = useRef(false);
+
   const requestExtension = useMutation({
-    mutationFn: () =>
-      createExtensionRequest(loanId, {
-        months: Number(extensionMonths),
-        detail: extensionDetail || undefined,
-        requestedBy: "Staff",
-      }),
+    mutationFn: async () => {
+      if (requestExtensionSubmittingRef.current) throw new Error("__duplicate_submit__");
+      requestExtensionSubmittingRef.current = true;
+      try {
+        return await createExtensionRequest(loanId, {
+          months: Number(extensionMonths),
+          detail: extensionDetail || undefined,
+          requestedBy: "Staff",
+        });
+      } finally {
+        requestExtensionSubmittingRef.current = false;
+      }
+    },
     onSuccess: () => {
       setExtensionMonths("");
       setExtensionDetail("");
       onOk();
     },
-    onError,
+    onError: (err) => {
+      if (err instanceof Error && err.message === "__duplicate_submit__") return;
+      onError(err);
+    },
   });
 
   const requestRelease = useMutation({
-    mutationFn: () => createReleaseRequest(loanId, { detail: releaseDetail || undefined, requestedBy: "Staff" }),
+    mutationFn: async () => {
+      if (requestReleaseSubmittingRef.current) throw new Error("__duplicate_submit__");
+      requestReleaseSubmittingRef.current = true;
+      try {
+        return await createReleaseRequest(loanId, { detail: releaseDetail || undefined, requestedBy: "Staff" });
+      } finally {
+        requestReleaseSubmittingRef.current = false;
+      }
+    },
     onSuccess: () => {
       setReleaseDetail("");
       onOk();
     },
-    onError,
+    onError: (err) => {
+      if (err instanceof Error && err.message === "__duplicate_submit__") return;
+      onError(err);
+    },
   });
 
   const doCompleteRelease = useMutation({ mutationFn: () => completeRelease(loanId), onSuccess: onOk, onError });
+
+  // Extension/Release review itself (checklist, Record Payment, stage
+  // approve/reject) now lives in ExtensionReviewPanel/ReleaseReviewPanel —
+  // shared with the standalone Requests list screen's review sheet — so
+  // this screen only needs to refresh both queries when either panel saves.
+  function invalidateRequests() {
+    queryClient.invalidateQueries({ queryKey: ["loanRequests", id] });
+    invalidate();
+  }
+  function onRequestError(message: string) {
+    setError(message);
+  }
 
   const doApprove = useMutation({
     mutationFn: (vars: { stage: SanctionStage; action: "Approved" | "Rejected" | "Verified" }) =>
@@ -381,6 +443,13 @@ export default function LoanDetailScreen() {
 
   const l = loan.data;
   const activePledge = l.bankPledges?.find((p) => p.status === "Active");
+
+  // The Extension/Release cards below hand off to ExtensionReviewPanel/
+  // ReleaseReviewPanel (shared with the standalone Requests list screen's
+  // review sheet) once a request is Pending — this screen only needs to
+  // know WHICH request that is.
+  const pendingExtension = requests.data?.find((r) => r.type === "Extension" && r.status === "Pending");
+  const pendingRelease = requests.data?.find((r) => r.type === "Release" && r.status === "Pending");
 
   // Mirrors frontend/components/LoanDetail.tsx's role-gating for who may act
   // on the current pending sanction stage — a UX nicety only; the server
@@ -659,29 +728,40 @@ export default function LoanDetailScreen() {
           </Card>
         ) : null}
 
-        {/* --- Extension request ----------------------------------------------- */}
+        {/* --- Extension request / review ---------------------------------------
+         * Once a request is Pending, ExtensionReviewPanel takes over — same
+         * component the standalone Requests list screen's review sheet uses. */}
         {l.status !== "Closed" ? (
           <Card>
             <ThemedText variant="h3" style={{ marginBottom: 8 }}>
-              Request Extension
+              {pendingExtension ? "Review Extension" : "Request Extension"}
             </ThemedText>
-            <GoldTextInput
-              label="Months"
-              keyboardType="numeric"
-              value={extensionMonths}
-              onChangeText={setExtensionMonths}
-            />
-            <GoldTextInput label="Detail" value={extensionDetail} onChangeText={setExtensionDetail} />
-            <GoldButton
-              title="Submit Extension Request"
-              onPress={() => requestExtension.mutate()}
-              loading={requestExtension.isPending}
-              disabled={!extensionMonths}
-            />
+            {pendingExtension ? (
+              <ExtensionReviewPanel request={pendingExtension} onSaved={invalidateRequests} onError={onRequestError} />
+            ) : (
+              <>
+                <GoldTextInput
+                  label="Months"
+                  keyboardType="numeric"
+                  value={extensionMonths}
+                  onChangeText={setExtensionMonths}
+                />
+                <GoldTextInput label="Detail" value={extensionDetail} onChangeText={setExtensionDetail} />
+                <GoldButton
+                  title="Submit Extension Request"
+                  onPress={() => requestExtension.mutate()}
+                  loading={requestExtension.isPending}
+                  disabled={!extensionMonths}
+                />
+              </>
+            )}
           </Card>
         ) : null}
 
-        {/* --- Release request / complete release -------------------------------- */}
+        {/* --- Release request / review / complete release ------------------------
+         * Once a request is Pending, ReleaseReviewPanel takes over — same
+         * component the standalone Requests list screen's review sheet uses.
+         * `loan` comes straight from this screen's own already-loaded `l`. */}
         {l.status !== "Closed" ? (
           <Card>
             <ThemedText variant="h3" style={{ marginBottom: 8 }}>
@@ -698,13 +778,30 @@ export default function LoanDetailScreen() {
                 </ThemedText>
                 <GoldButton
                   title="Complete Release"
-                  onPress={() => doCompleteRelease.mutate()}
+                  // Only actually disabled while the request is in flight —
+                  // the settlement/pledge gates are enforced (and explained)
+                  // here via setError instead of the button staying
+                  // `disabled`, so a press always gives feedback rather than
+                  // silently doing nothing (mirrors the same fix on
+                  // frontend/modules/loans/components/LoanDetail.tsx). The
+                  // backend still enforces both regardless.
+                  onPress={() => {
+                    if ((l.totalOutstandingBalance ?? 0) > 0.01) {
+                      setError("Final settlement must be fully paid before this loan can be released.");
+                      return;
+                    }
+                    if (l.bankPledgeStatus === "Bank Pledged") {
+                      setError("This loan's ornament is still pledged to a bank — release the ornament from the bank pledge before completing the release.");
+                      return;
+                    }
+                    setError(null);
+                    doCompleteRelease.mutate();
+                  }}
                   loading={doCompleteRelease.isPending}
-                  disabled={
-                    (l.totalOutstandingBalance ?? 0) > 0.01 || l.bankPledgeStatus === "Bank Pledged"
-                  }
                 />
               </>
+            ) : pendingRelease ? (
+              <ReleaseReviewPanel request={pendingRelease} loan={l} onSaved={invalidateRequests} onError={onRequestError} />
             ) : (
               <>
                 <GoldTextInput label="Detail" value={releaseDetail} onChangeText={setReleaseDetail} />
@@ -713,10 +810,6 @@ export default function LoanDetailScreen() {
                   onPress={() => requestRelease.mutate()}
                   loading={requestRelease.isPending}
                 />
-                <ThemedText variant="small" color={colors.muted} style={{ marginTop: 8 }}>
-                  Verification-checklist and Manager/Management approval-chain steps for a submitted release
-                  request aren't in this build yet — process those from the web app.
-                </ThemedText>
               </>
             )}
           </Card>

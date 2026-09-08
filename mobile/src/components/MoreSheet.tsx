@@ -43,6 +43,9 @@ const GROUPS: [string, MoreItem[]][] = [
       // for Personal Loans exactly (same route/icon/permission) — an
       // unsecured, no-KYC loan product separate from Gold Loan.
       { route: "personal-loans", label: "Personal Loans", icon: "note", module: "Personal_Loan_Management", key: "can_view_personal_loan" },
+      // Mirrors frontend/common/components/layout/Sidebar.tsx's NAV entry
+      // exactly (same route name, icon, and permission).
+      { route: "requests", label: "Extensions & Release", icon: "unlock", module: "Loan_Management", key: "can_view_loan" },
     ],
   ],
   [

@@ -16,9 +16,10 @@ const FREQS: ("All" | Frequency)[] = ["All", "Daily", "Weekly", "Monthly"];
  * Gold Loan module (see backend/internal/personalloan's package doc).
  * Search (loan # or customer name) and the frequency filter are both
  * server-side (GET /personal-loans?q=&frequency=&limit=&offset=), and the
- * table is paginated 10 rows at a time with Prev/Next — mirrors Loans.tsx's
- * convention exactly (debounced search, {items, hasMore} envelope with no
- * total-row count, so "Page N of M" isn't shown, just enable/disable Next). */
+ * table is paginated 10 (7 on a small screen) rows at a time with Prev/Next
+ * — mirrors Loans.tsx's convention exactly, including using the backend's
+ * real `total` row count for "Page N of M" rather than only ever knowing
+ * whether one more page exists. */
 export function PersonalLoans() {
   const { can } = useAuth();
   const { openModal, closeModal } = useModal();
@@ -31,6 +32,7 @@ export function PersonalLoans() {
   const [page, setPage] = useState(1);
   const [loans, setLoans] = useState<BackendPersonalLoan[]>([]);
   const [hasMore, setHasMore] = useState(false);
+  const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
@@ -45,6 +47,7 @@ export function PersonalLoans() {
       const res = await listPersonalLoansPage({ page, q: q.trim() || undefined, frequency: freq === "All" ? undefined : freq, pageSize });
       setLoans(res?.items || []);
       setHasMore(!!res?.hasMore);
+      setTotal(res?.total || 0);
     } catch (e) {
       setError(e instanceof ApiError ? e.message : "Could not load personal loans.");
     } finally {
@@ -58,7 +61,9 @@ export function PersonalLoans() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [page, freq, q, pageSize]);
 
-  const totalPages = hasMore ? page + 1 : page;
+  const knownTotal = total > 0;
+  const totalPages = knownTotal ? Math.max(1, Math.ceil(total / pageSize)) : (hasMore ? page + 1 : page);
+  const nextDisabled = knownTotal ? page >= totalPages : !hasMore;
 
   function openNewLoan() {
     openModal(<NewPersonalLoanModalContent onSaved={() => { closeModal(); setPage(1); void refresh(); }} />);
@@ -92,7 +97,7 @@ export function PersonalLoans() {
       <div className="ft" style={{ display: "flex", alignItems: "center", gap: 10 }}>
         <button className="btn plain sm" disabled={page <= 1} onClick={() => setPage((p) => Math.max(1, p - 1))}>‹ Prev</button>
         <span style={{ fontSize: 12.5 }}>Page {page} of {totalPages}</span>
-        <button className="btn plain sm" disabled={page >= totalPages} onClick={() => setPage((p) => Math.min(totalPages, p + 1))}>Next ›</button>
+        <button className="btn plain sm" disabled={nextDisabled} onClick={() => setPage((p) => (knownTotal ? Math.min(totalPages, p + 1) : p + 1))}>Next ›</button>
       </div>
       </div>
     </>

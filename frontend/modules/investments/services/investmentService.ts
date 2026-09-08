@@ -98,8 +98,8 @@ export function createInvestment(input: CreateInvestmentInput): Promise<BackendI
 export const INVESTMENTS_TABLE_PAGE_SIZE = 10;
 
 /* Paginated, searched, filtered list — backs the Investments list page.
- * `page` is 1-based; the backend responds with an {items, hasMore} envelope
- * (see backend/internal/investment/handler.go's List) — mirrors
+ * `page` is 1-based; the backend responds with an {items, hasMore, total}
+ * envelope (see backend/internal/investment/handler.go's List) — mirrors
  * personalLoanService.ts's listPersonalLoansPage exactly. */
 export function listInvestmentsPage(params: {
   page: number;
@@ -107,7 +107,7 @@ export function listInvestmentsPage(params: {
   status?: InvestmentStatus | "All";
   customerId?: number;
   pageSize?: number;
-}): Promise<{ items: BackendInvestment[]; hasMore: boolean }> {
+}): Promise<{ items: BackendInvestment[]; hasMore: boolean; total: number }> {
   const pageSize = params.pageSize || INVESTMENTS_TABLE_PAGE_SIZE;
   const query = new URLSearchParams({
     limit: String(pageSize),
@@ -116,7 +116,7 @@ export function listInvestmentsPage(params: {
   if (params.q) query.set("q", params.q);
   if (params.status && params.status !== "All") query.set("status", params.status);
   if (params.customerId) query.set("customerId", String(params.customerId));
-  return apiFetch<{ items: BackendInvestment[]; hasMore: boolean }>(`/investments?${query}`);
+  return apiFetch<{ items: BackendInvestment[]; hasMore: boolean; total: number }>(`/investments?${query}`);
 }
 
 export function getInvestment(id: number): Promise<BackendInvestment> {

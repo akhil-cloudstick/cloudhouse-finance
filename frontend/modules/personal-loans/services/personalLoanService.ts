@@ -78,8 +78,10 @@ export const PERSONAL_LOANS_TABLE_PAGE_SIZE = 10;
 
 /* Paginated, searched, filtered list — backs the Personal Loans list page.
  * `page` is 1-based (matching Loans.tsx's convention); the backend responds
- * with an {items, hasMore} envelope (see
- * backend/internal/personalloan/handler.go's List). */
+ * with an {items, hasMore, total} envelope (see
+ * backend/internal/personalloan/handler.go's List) — `total` is the real
+ * row count across every page, so the list can show "Page N of M" instead
+ * of just enabling/disabling Next. */
 export function listPersonalLoansPage(params: {
   page: number;
   q?: string;
@@ -87,7 +89,7 @@ export function listPersonalLoansPage(params: {
   customerId?: number;
   status?: string;
   pageSize?: number;
-}): Promise<{ items: BackendPersonalLoan[]; hasMore: boolean }> {
+}): Promise<{ items: BackendPersonalLoan[]; hasMore: boolean; total: number }> {
   const pageSize = params.pageSize || PERSONAL_LOANS_TABLE_PAGE_SIZE;
   const query = new URLSearchParams({
     limit: String(pageSize),
@@ -97,7 +99,7 @@ export function listPersonalLoansPage(params: {
   if (params.frequency) query.set("frequency", params.frequency);
   if (params.customerId) query.set("customerId", String(params.customerId));
   if (params.status) query.set("status", params.status);
-  return apiFetch<{ items: BackendPersonalLoan[]; hasMore: boolean }>(`/personal-loans?${query}`);
+  return apiFetch<{ items: BackendPersonalLoan[]; hasMore: boolean; total: number }>(`/personal-loans?${query}`);
 }
 
 export function getPersonalLoan(id: number): Promise<BackendPersonalLoan> {

@@ -16,8 +16,10 @@ const STATUSES: ("All" | InvestmentStatus)[] = ["All", "Active", "Matured", "Clo
 /* Investments list — investor deposits managed separately from borrower
  * loans (see backend/internal/investment's package doc). Search (investment
  * # or investor name) and the status filter are both server-side (GET
- * /investments?q=&status=&limit=&offset=), table paginated 10 rows at a
- * time — mirrors personal-loans/components/PersonalLoans.tsx exactly. */
+ * /investments?q=&status=&limit=&offset=), table paginated 10 (7 on a small
+ * screen) rows at a time, using the backend's real `total` row count for
+ * "Page N of M" — mirrors personal-loans/components/PersonalLoans.tsx
+ * exactly. */
 export function Investments() {
   const { can } = useAuth();
   const { openModal, closeModal } = useModal();
@@ -31,6 +33,7 @@ export function Investments() {
   const [page, setPage] = useState(1);
   const [investments, setInvestments] = useState<BackendInvestment[]>([]);
   const [hasMore, setHasMore] = useState(false);
+  const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
@@ -43,6 +46,7 @@ export function Investments() {
       const res = await listInvestmentsPage({ page, q: q.trim() || undefined, status, pageSize });
       setInvestments(res?.items || []);
       setHasMore(!!res?.hasMore);
+      setTotal(res?.total || 0);
     } catch (e) {
       setError(e instanceof ApiError ? e.message : "Could not load investments.");
     } finally {
@@ -56,7 +60,9 @@ export function Investments() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [page, status, q, pageSize]);
 
-  const totalPages = hasMore ? page + 1 : page;
+  const knownTotal = total > 0;
+  const totalPages = knownTotal ? Math.max(1, Math.ceil(total / pageSize)) : (hasMore ? page + 1 : page);
+  const nextDisabled = knownTotal ? page >= totalPages : !hasMore;
 
   function openNewInvestment() {
     openModal(<NewInvestmentModalContent onSaved={() => { closeModal(); setPage(1); void refresh(); }} />);
@@ -94,7 +100,7 @@ export function Investments() {
       <div className="ft" style={{ display: "flex", alignItems: "center", gap: 10 }}>
         <button className="btn plain sm" disabled={page <= 1} onClick={() => setPage((p) => Math.max(1, p - 1))}>‹ Prev</button>
         <span style={{ fontSize: 12.5 }}>Page {page} of {totalPages}</span>
-        <button className="btn plain sm" disabled={page >= totalPages} onClick={() => setPage((p) => Math.min(totalPages, p + 1))}>Next ›</button>
+        <button className="btn plain sm" disabled={nextDisabled} onClick={() => setPage((p) => (knownTotal ? Math.min(totalPages, p + 1) : p + 1))}>Next ›</button>
       </div>
       </div>
     </>

@@ -2,7 +2,6 @@ import React, { useState } from "react";
 import { Pressable, RefreshControl, ScrollView, View, StyleSheet } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useQuery, useInfiniteQuery } from "@tanstack/react-query";
-import { useQuery, useInfiniteQuery } from "@tanstack/react-query";
 import { ScreenContainer } from "../../../src/components/ScreenContainer";
 import { Card } from "../../../src/components/Card";
 import { ThemedText } from "../../../src/components/ThemedText";

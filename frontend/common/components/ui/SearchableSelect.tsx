@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 
 export type SearchPage<T> = { items: T[]; hasMore: boolean };
@@ -61,6 +61,7 @@ export function SearchableSelect<T>({
   onCreateNew,
   createNewLabel = "+ Add new",
   disabled,
+  renderOption,
   compact = false,
   compactMinWidth = 60,
 }: {
@@ -83,6 +84,13 @@ export function SearchableSelect<T>({
   onCreateNew?: () => void;
   createNewLabel?: string;
   disabled?: boolean;
+  /** Custom content for a dropdown row, in place of the plain bold
+   * `getLabel(item)` text — e.g. a name plus a StatusChip instead of a
+   * parenthetical status baked into the label string. `getLabel` still
+   * drives the input's own displayed text once picked (a plain `<input>`
+   * can't render a chip) and the exact-match/allowCreate check, so it
+   * should stay a full plain-text description even when this is set. */
+  renderOption?: (item: T) => ReactNode;
   compact?: boolean;
   // `compact` mode's dropdown width floor — per-caller, since some callers
   // (Dashboard/NewLoan's Gold Loan Calculator) want it wider than the
@@ -317,7 +325,7 @@ export function SearchableSelect<T>({
           href="#"
           onClick={(e) => { e.preventDefault(); pick(item); }}
         >
-          <span className="tx"><b>{getLabel(item)}</b></span>
+          {renderOption ? renderOption(item) : <span className="tx"><b>{getLabel(item)}</b></span>}
         </a>
       ))}
       {loadingMore && <div className="gs-none">Loading more…</div>}

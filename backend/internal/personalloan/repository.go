@@ -77,12 +77,12 @@ type ListFilter struct {
 	Offset int
 }
 
-// FindAll lists loans, newest first, filtered per f. Preloads Customer for
-// the same reason FindByID does — the list page and row components display
-// the customer's name. When f.Limit > 0, fetches Limit+1 rows so the
-// service can cheaply report hasMore without a separate COUNT query (same
-// trick as FindInstallments/FindPayments).
-func (r *Repository) FindAll(ctx context.Context, f ListFilter) ([]PersonalLoan, error) {
+// FindAll lists loans, newest first, filtered per f, plus the TOTAL row
+// count for f's filters (Limit/Offset ignored for that count) — 0 when
+// f.Limit <= 0, matching customer.Repository.FindAll's shape. Preloads
+// Customer for the same reason FindByID does — the list page and row
+// components display the customer's name.
+func (r *Repository) FindAll(ctx context.Context, f ListFilter) ([]PersonalLoan, int64, error) {
 	var recs []PersonalLoan
 	q := r.db.WithContext(ctx).Preload("Customer").Model(&PersonalLoan{}).Order("personal_loans.id desc")
 	if f.BranchID != nil {
@@ -102,11 +102,15 @@ func (r *Repository) FindAll(ctx context.Context, f ListFilter) ([]PersonalLoan,
 		q = q.Joins("JOIN customers ON customers.id = personal_loans.customer_id").
 			Where("personal_loans.loan_number ILIKE ? OR customers.name ILIKE ?", like, like)
 	}
+	var total int64
 	if f.Limit > 0 {
+		if err := q.Session(&gorm.Session{}).Model(&PersonalLoan{}).Count(&total).Error; err != nil {
+			return nil, 0, err
+		}
 		q = q.Limit(f.Limit + 1).Offset(f.Offset)
 	}
 	err := q.Find(&recs).Error
-	return recs, err
+	return recs, total, err
 }
 
 // CountAll is used to generate the next sequential LoanNumber.

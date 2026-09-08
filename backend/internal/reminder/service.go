@@ -357,7 +357,7 @@ func (s *Service) GetCalendarEvents(ctx context.Context, from, to time.Time, bra
 		}
 	}
 
-	scheduledAuctions, err := s.auctionRepo.FindScheduledForCalendar()
+	scheduledAuctions, err := s.auctionRepo.FindScheduledForCalendar(ctx)
 	if err != nil {
 		return nil, 0, err
 	}
