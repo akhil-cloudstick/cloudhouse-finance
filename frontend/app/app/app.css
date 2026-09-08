@@ -753,6 +753,17 @@ h3,
   padding: 12px;
 }
 
+/* Positioned `fixed` (viewport coords supplied inline from DatePicker.tsx's
+ * own trigger measurement) instead of the `.dp-panel` default `absolute`,
+ * so opening the calendar inside a scrollable `.modal-bg` can no longer add
+ * to that ancestor's scrollable overflow and visibly grow/scroll the modal —
+ * see the comment on `panelPos` in DatePicker.tsx. */
+.dp-panel-fixed {
+  position: fixed;
+  top: auto;
+  left: auto
+}
+
 /* The days/years sub-views inside .dp-panel are both always mounted (see
  * DatePicker.tsx) and switched with this instead of conditional rendering,
  * so a mode-switch click never removes its own target node from the DOM. */
@@ -3379,6 +3390,13 @@ table.tbl {
   border: 1.5px solid var(--line);
   background: var(--card);
   transition: border-color .15s, background .15s;
+  /* :checked+.mark::after below is positioned absolute — without this, it
+   * anchors against .cradio (the whole label, the nearest ancestor that IS
+   * positioned) instead of this box, so the inner dot's fixed 4px/4px
+   * offset is only right by coincidence when .mark happens to sit flush at
+   * the label's own top-left. Anchoring it to .mark itself makes the dot
+   * correctly centered in the ring regardless of label height/padding. */
+  position: relative;
 }
 
 .cradio .mark {
@@ -3425,14 +3443,33 @@ table.tbl {
  * the text, the browser's own default (which varies by font/zoom) could
  * land shorter or taller than the mark's fixed 16px box, throwing the two
  * out of alignment against just that FIRST line, which read as "off
- * center" (e.g. AuctionModal.tsx's Settle-surplus radios). Pinning the
- * text's own line-height to the mark's box height (plus the same 1px
- * margin-top the mark already uses) guarantees their first lines share one
- * center regardless of surrounding font-size overrides. */
+ * center" (e.g. AuctionModal.tsx's Settle-surplus/Shortfall-decision
+ * radios). Pinning the text's own line-height to the mark's box height
+ * (plus the same 1px margin-top the mark already uses) guarantees their
+ * first lines share one center regardless of surrounding font-size
+ * overrides. */
 .cradio>span:last-child,
 .ccheck>span:last-child {
   display: inline-block;
   line-height: 18px
+}
+
+/* Title-line + detail-paragraph split for a radio option whose description
+ * is long enough to wrap (AuctionModal.tsx's Settle-surplus and Shortfall/
+ * Repayment-decision radios) — belt-and-suspenders alongside the
+ * line-height pin above: the mark only ever has to line up with a single,
+ * un-wrapped title line (this rule), never with wherever an arbitrarily
+ * long flowing "title — detail" paragraph's first line happened to break,
+ * which is what actually threw it off before. */
+.cradio-title {
+  display: block;
+  line-height: 18px;
+}
+
+.cradio-detail {
+  display: block;
+  color: var(--muted);
+  margin-top: 2px;
 }
 
 .cradio input:disabled+.mark,

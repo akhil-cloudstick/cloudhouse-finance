@@ -39,6 +39,9 @@ const GROUPS: [string, MoreItem[]][] = [
       // `coin` belongs to Cash & Expenses; Gold Rates gets the balance
       // scale (rate per gram) so the two rows aren't the same glyph.
       { route: "gold-rates", label: "Gold Rates", icon: "scale", module: "Gold_Rate_Management", key: "can_view_gold_rate" },
+      // Mirrors frontend/common/components/layout/Sidebar.tsx's NAV entry
+      // exactly (same route name, icon, and permission).
+      { route: "requests", label: "Extensions & Release", icon: "unlock", module: "Loan_Management", key: "can_view_loan" },
     ],
   ],
   [

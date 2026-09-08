@@ -73,6 +73,11 @@ export type BankPledgeRecord = {
 export type LoanRequest = {
   id: number;
   loanId: number;
+  // Backend preloads Loan.Customer on every list/detail fetch — used by the
+  // standalone Requests list screen to show loan number/customer name
+  // without a separate lookup per row (mirrors frontend/modules/loans/
+  // services/loanService.ts's RequestView flattening).
+  loan?: Loan;
   type: "Extension" | "Release";
   status: "Pending" | "Approved" | "Rejected";
   requestedBy: string;
@@ -86,7 +91,15 @@ export type LoanRequest = {
   customerConfirmed: boolean;
   verificationNotes?: string;
   charges: number;
+  // How much of `charges` has already been posted onto the loan as a real
+  // payment — see backend/internal/loan/service.go's RecordReleasePayment.
+  chargesApplied: number;
   settlementAmount: number;
+  // "Record Payment" step on the Manager-stage release review screen — see
+  // backend/internal/loan/service.go's RecordReleasePayment.
+  recordedDiscount: number;
+  recordedPayment: number;
+  paymentDueDate?: string | null;
   remarks?: string;
   requestedAt: string;
   decidedAt?: string | null;

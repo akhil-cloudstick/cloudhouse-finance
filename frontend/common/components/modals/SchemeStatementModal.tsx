@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { useModal } from "@/common/components/Modal";
 import { useToast } from "@/common/components/Toast";
 import { Icon } from "@/common/components/Icon";
@@ -43,6 +44,15 @@ export function SchemeStatementModalContent({ scheme: s }: { scheme: SchemeView 
   const [pickerOpen, setPickerOpen] = useState(false);
   const [downloading, setDownloading] = useState<"pdf" | "xlsx" | null>(null);
   const pickerRef = useRef<HTMLDivElement>(null);
+  // Portal position for the loan checklist below — see the useLayoutEffect
+  // below for why this can't just be a plain `position:absolute` child of
+  // pickerRef like the app's other dropdowns.
+  const [coords, setCoords] = useState<{ top: number; left: number; width: number; maxHeight: number } | null>(null);
+  // The portalled checklist lives in document.body, outside pickerRef's own
+  // DOM subtree — without also checking this ref, a click on one of its own
+  // checkboxes registers as "outside" and the outside-click handler below
+  // closes the picker before that checkbox's own onChange ever runs.
+  const listRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -56,11 +66,44 @@ export function SchemeStatementModalContent({ scheme: s }: { scheme: SchemeView 
 
   useEffect(() => {
     function onDocClick(e: MouseEvent) {
-      if (pickerRef.current && !pickerRef.current.contains(e.target as Node)) setPickerOpen(false);
+      const target = e.target as Node;
+      if (pickerRef.current?.contains(target)) return;
+      if (listRef.current?.contains(target)) return;
+      setPickerOpen(false);
     }
     document.addEventListener("click", onDocClick);
     return () => document.removeEventListener("click", onDocClick);
   }, []);
+
+  // The checklist used to be a plain `position:absolute` child of the
+  // trigger — this modal (unlike a full page) has no headroom to spare
+  // below the Loans field once From/To/Preview/the footer are all
+  // accounted for, so the open list routinely rendered past the modal's
+  // own rounded bottom edge into the dimmed backdrop behind it, instead of
+  // staying inside the card. Portalled to document.body with a `fixed`
+  // position computed from the trigger's own rect (same approach
+  // SearchableSelect.tsx's `compact` mode already uses for an identical
+  // "an ancestor doesn't have room for this popup" problem) and capped to
+  // whatever space is actually left in the viewport below the trigger, so
+  // it now scrolls within itself rather than spilling past the modal.
+  useLayoutEffect(() => {
+    if (!pickerOpen) return;
+    function reposition() {
+      const el = pickerRef.current;
+      if (!el) return;
+      const rect = el.getBoundingClientRect();
+      const spaceBelow = window.innerHeight - rect.bottom;
+      const maxHeight = Math.min(260, Math.max(120, spaceBelow - 12));
+      setCoords({ top: rect.bottom + 4, left: rect.left, width: rect.width, maxHeight });
+    }
+    reposition();
+    window.addEventListener("resize", reposition);
+    window.addEventListener("scroll", reposition, true);
+    return () => {
+      window.removeEventListener("resize", reposition);
+      window.removeEventListener("scroll", reposition, true);
+    };
+  }, [pickerOpen]);
 
   function toggle(numericId: number) {
     setSelected((cur) => {
@@ -126,25 +169,31 @@ export function SchemeStatementModalContent({ scheme: s }: { scheme: SchemeView 
               disabled={loans === null || loans.length === 0}
             >
               <span style={{ display: "flex", alignItems: "center", gap: 6, overflow: "hidden", whiteSpace: "nowrap", minWidth: 0 }}>
-                {selectedLoans.length === 0 ? (
-                  <span style={{ color: "var(--muted)", overflow: "hidden", textOverflow: "ellipsis" }}>All loans in range</span>
-                ) : (
-                  <>
-                    {selectedLoans.slice(0, 2).map((l) => (
-                      <span key={l.numericId} className="chip gold" style={{ flexShrink: 0 }}>{l.loanNumber}</span>
-                    ))}
-                    {selectedLoans.length > 2 && (
-                      <span style={{ color: "var(--muted)", fontSize: 12.5, flexShrink: 0 }}>+{selectedLoans.length - 2} more</span>
-                    )}
-                  </>
-                )}
+                <span style={{ color: selectedLoans.length === 0 ? "var(--muted)" : "inherit", overflow: "hidden", textOverflow: "ellipsis" }}>
+                  {selectedLoans.length === 0
+                    ? "All loans in range"
+                    : `${selectedLoans.length} loan${selectedLoans.length === 1 ? "" : "s"} selected`}
+                </span>
               </span>
               <svg className="sel-chevron" viewBox="0 0 10 6" fill="none">
                 <path d="M1 1l4 4 4-4" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
               </svg>
             </button>
-            {pickerOpen && loans && loans.length > 0 && (
-              <div className="gs-results open" style={{ maxHeight: 260 }}>
+            {pickerOpen && loans && loans.length > 0 && coords && createPortal(
+              <div
+                ref={listRef}
+                className="gs-results open"
+                style={{
+                  position: "fixed",
+                  top: coords.top,
+                  left: coords.left,
+                  right: "auto",
+                  width: coords.width,
+                  maxHeight: coords.maxHeight,
+                  overflowY: "auto",
+                  zIndex: 1000,
+                }}
+              >
                 <label className="ccheck" style={{ padding: "8px 10px", alignItems: "center", borderBottom: "1px solid var(--line)" }}>
                   <input
                     type="checkbox"
@@ -164,7 +213,8 @@ export function SchemeStatementModalContent({ scheme: s }: { scheme: SchemeView 
                     </span>
                   </label>
                 ))}
-              </div>
+              </div>,
+              document.body
             )}
           </div>
         </div>

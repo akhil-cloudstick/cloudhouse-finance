@@ -30,6 +30,7 @@ import { publishGoldRate } from "@/modules/gold-rates/services/goldRateService";
 import { listActiveBranches, type BranchView } from "@/modules/branches/services/branchService";
 import { listLockers, type LockerView } from "@/modules/lockers/services/lockerService";
 import { SearchableSelect } from "@/common/components/ui/SearchableSelect";
+import { StatusChip } from "@/common/components/ui/StatusChip";
 import { PurityPicker } from "@/common/components/ui/PurityPicker";
 import { rateForPurityString } from "@/common/utils/purity";
 import { openPrintWindow } from "@/common/utils/print";
@@ -661,9 +662,15 @@ export function NewLoan() {
             <div><label className="f">Customer</label>
               <SearchableSelect<CustomerView>
                 value={custLabel}
-                onChange={(id, item) => { setCustId(id); setCustLabel(`${item.name} — ${item.id} (${verificationLabel(item)})`); }}
+                onChange={(id, item) => { setCustId(id); setCustLabel(`${item.name} (${verificationLabel(item)})`); }}
                 fetchFn={searchCustomersPage}
-                getLabel={(c) => `${c.name} — ${c.id} (${verificationLabel(c)})`}
+                getLabel={(c) => `${c.name} (${verificationLabel(c)})`}
+                renderOption={(c) => (
+                  <span className="tx" style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    <b>{c.name}</b>
+                    <StatusChip status={verificationLabel(c)} />
+                  </span>
+                )}
                 getId={(c) => c.id}
                 placeholder="Search customers…"
               /></div>
