@@ -1351,7 +1351,7 @@ func (h *Handler) RecordReleasePayment(c *gin.Context) {
 		dueDate = &d
 	}
 	actorEmployeeID, _, actorRoleID := platform.ActorFromContext(c)
-	rec, err := h.svc.RecordReleasePayment(requestID, platform.GetBranchScope(c), ReleasePaymentInput{
+	rec, err := h.svc.RecordReleasePayment(c.Request.Context(), requestID, platform.GetBranchScope(c), ReleasePaymentInput{
 		Discount:        req.Discount,
 		Payment:         req.Payment,
 		DueDate:         dueDate,

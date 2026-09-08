@@ -92,6 +92,10 @@ export default function LoansScreen() {
     getNextPageParam: (lastPage, allPages) => (lastPage.hasMore ? allPages.length * PAGE_SIZE : undefined),
   });
 
+  // Lets tapping the "All" chip scroll the filter row back to the left —
+  // see the call site below for why only All needs it.
+  const filterScrollRef = useRef<ScrollView>(null);
+
   useRefetchOnFocus(refetch);
 
   const loans = data?.pages.flatMap((p) => p.items) ?? [];

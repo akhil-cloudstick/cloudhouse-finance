@@ -97,9 +97,9 @@ export function EsignActionCard() {
 
   return (
     <>
-      <Card style={{ borderColor: colors.gold, backgroundColor: colors.goldPale }}>
+      <Card style={{ borderColor: colors.brand, backgroundColor: colors.brandPale }}>
         <View style={{ flexDirection: "row", alignItems: "center", marginBottom: 6 }}>
-          <ThemedText variant="h3" color={colors.goldDeep} style={{ flex: 1 }}>
+          <ThemedText variant="h3" color={colors.brandDeep} style={{ flex: 1 }}>
             ✍️ Action Required
           </ThemedText>
         </View>

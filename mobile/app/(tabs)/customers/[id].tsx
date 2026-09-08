@@ -2,7 +2,6 @@ import React, { useState } from "react";
 import { Pressable, RefreshControl, ScrollView, View, StyleSheet } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useQuery, useInfiniteQuery } from "@tanstack/react-query";
-import { useQuery, useInfiniteQuery } from "@tanstack/react-query";
 import { ScreenContainer } from "../../../src/components/ScreenContainer";
 import { Card } from "../../../src/components/Card";
 import { ThemedText } from "../../../src/components/ThemedText";
@@ -265,7 +264,7 @@ export default function CustomerDetailScreen() {
             const active = i === tab;
             return (
               <Pressable key={t} onPress={() => changeTab(i)} style={[styles.tabChip, active && styles.tabChipActive]}>
-                <ThemedText variant="small" color={active ? colors.ivory : colors.ink}>
+                <ThemedText variant="small" color={active ? colors.bg : colors.ink}>
                   {t}
                 </ThemedText>
               </Pressable>
@@ -331,51 +330,19 @@ export default function CustomerDetailScreen() {
                 />
               </Card>
 
-        {data.nomineeName ? (
-          <Card>
-            <ThemedText variant="h3" style={{ marginBottom: 8 }}>
-              Nominee
-            </ThemedText>
-            <ThemedText variant="body">{data.nomineeName}</ThemedText>
-            <ThemedText variant="small" color={colors.muted} style={{ marginTop: 4 }}>
-              {data.nomineeRelation} · {data.nomineePhone}
-            </ThemedText>
-          </Card>
-        ) : null}
-
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.tabRow} contentContainerStyle={{ gap: 8 }}>
-          {TABS.map((t, i) => {
-            const active = i === tab;
-            return (
-              <Pressable key={t} onPress={() => changeTab(i)} style={[styles.tabChip, active && styles.tabChipActive]}>
-                <ThemedText variant="small" color={active ? colors.bg : colors.ink}>
-                  {t}
-                </ThemedText>
-              </Pressable>
-            );
-          })}
-        </ScrollView>
-      </View>
-
-      <View style={{ flex: 1, paddingHorizontal: 16, paddingTop: 8 }}>
-        <ExpandableTable<any>
-          columns={activeColumns}
-          visibleCount={3}
-          data={items}
-          keyExtractor={(item: any) => `${tab}-${item.id}`}
-          extraFields={activeExtra}
-          onViewDescription={(r: any) => router.push(`/loans/${r.loanId ?? r.id}`)}
-          emptyText={activeQuery.isLoading ? "Loading…" : activeQuery.isError ? "Could not load." : `No ${TABS[tab].toLowerCase()} found.`}
-          refreshControl={
-            <RefreshControl
-              refreshing={(isRefetching || (activeQuery.isFetching && !activeIsFetchingNextPage && !activeQuery.isLoading))}
-              onRefresh={() => { refetch(); activeQuery.refetch(); }}
-            />
+              {data.nomineeName ? (
+                <Card>
+                  <ThemedText variant="h3" style={{ marginBottom: 8 }}>
+                    Nominee
+                  </ThemedText>
+                  <ThemedText variant="body">{data.nomineeName}</ThemedText>
+                  <ThemedText variant="small" color={colors.muted} style={{ marginTop: 4 }}>
+                    {data.nomineeRelation} · {data.nomineePhone}
+                  </ThemedText>
+                </Card>
+              ) : null}
+            </View>
           }
-          onEndReached={() => {
-            if (activeHasNextPage && !activeIsFetchingNextPage) activeFetchNextPage();
-          }}
-          isFetchingNextPage={activeIsFetchingNextPage}
         />
       </View>
     </ScreenContainer>

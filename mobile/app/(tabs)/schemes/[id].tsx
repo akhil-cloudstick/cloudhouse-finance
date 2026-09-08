@@ -212,9 +212,9 @@ export default function SchemeDetailScreen() {
                     height: 18,
                     borderRadius: 4,
                     borderWidth: 1.5,
-                    borderColor: colors.goldDeep,
+                    borderColor: colors.brandDeep,
                     marginRight: 10,
-                    backgroundColor: selectedLoanIds.has(l.id) ? colors.goldDeep : "transparent",
+                    backgroundColor: selectedLoanIds.has(l.id) ? colors.brandDeep : "transparent",
                   }}
                 />
                 <ThemedText style={{ flex: 1 }}>

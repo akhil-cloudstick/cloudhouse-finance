@@ -148,5 +148,5 @@ const styles = StyleSheet.create({
   // icon, not an outline around the whole item — same as the customer app,
   // toggled on both the persistent "selected" tab and the momentary
   // pressed state (this bar never painted a background at all before).
-  iconWrapActive: { backgroundColor: colors.goldPale },
+  iconWrapActive: { backgroundColor: colors.brandPale },
 });

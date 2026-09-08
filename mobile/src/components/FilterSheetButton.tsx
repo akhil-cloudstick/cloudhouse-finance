@@ -50,17 +50,17 @@ export function FilterSheetButton<T extends string>({
     <>
       <View style={styles.row}>
         <Pressable onPress={() => setSheetVisible(true)} style={styles.trigger}>
-          <Icon name="list" size={15} color={colors.goldDeep} />
-          <ThemedText variant="label" color={colors.goldDeep}>
+          <Icon name="list" size={15} color={colors.brandDeep} />
+          <ThemedText variant="label" color={colors.brandDeep}>
             {label}
           </ThemedText>
         </Pressable>
         {isFiltered ? (
           <Pressable onPress={() => onChange(noFilter)} style={styles.activePill}>
-            <ThemedText variant="small" numberOfLines={1} color={colors.ivory}>
+            <ThemedText variant="small" numberOfLines={1} color={colors.bg}>
               {value}
             </ThemedText>
-            <ThemedText variant="small" color={colors.ivory} style={{ marginLeft: 6 }}>
+            <ThemedText variant="small" color={colors.bg} style={{ marginLeft: 6 }}>
               ×
             </ThemedText>
           </Pressable>
@@ -83,7 +83,7 @@ export function FilterSheetButton<T extends string>({
                 }}
                 style={[styles.chip, active && styles.chipActive]}
               >
-                <ThemedText variant="small" numberOfLines={1} color={active ? colors.ivory : colors.ink}>
+                <ThemedText variant="small" numberOfLines={1} color={active ? colors.bg : colors.ink}>
                   {opt}
                 </ThemedText>
               </Pressable>
@@ -103,8 +103,8 @@ const styles = StyleSheet.create({
     gap: 6,
     height: 36,
     borderWidth: 1,
-    borderColor: colors.goldDeep,
-    backgroundColor: colors.goldPale,
+    borderColor: colors.brandDeep,
+    backgroundColor: colors.brandPale,
     borderRadius: 18,
     paddingHorizontal: 14,
   },
@@ -114,7 +114,7 @@ const styles = StyleSheet.create({
     height: 36,
     borderRadius: 18,
     paddingHorizontal: 12,
-    backgroundColor: colors.goldDeep,
+    backgroundColor: colors.brandDeep,
   },
   grid: { flexDirection: "row", flexWrap: "wrap", gap: 8, paddingBottom: 8 },
   chip: {
@@ -127,5 +127,5 @@ const styles = StyleSheet.create({
     borderRadius: 18,
     paddingHorizontal: 14,
   },
-  chipActive: { backgroundColor: colors.goldDeep, borderColor: colors.goldDeep },
+  chipActive: { backgroundColor: colors.brandDeep, borderColor: colors.brandDeep },
 });

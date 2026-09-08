@@ -24,6 +24,9 @@ export function toQueryString(params?: Record<string, string | number | boolean 
   return `?${usp.toString()}`;
 }
 
+// Ceiling on any single API call.
+const REQUEST_TIMEOUT_MS = 20000;
+
 type RequestOptions = {
   method?: "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
   body?: unknown;
@@ -49,11 +52,29 @@ export async function apiRequest<T>(path: string, opts: RequestOptions = {}): Pr
     if (token) headers.Authorization = `Bearer ${token}`;
   }
 
-  const res = await fetch(url, {
-    method,
-    headers,
-    body: body !== undefined ? JSON.stringify(body) : undefined,
-  });
+  // A device that cannot reach API_BASE_URL (wrong LAN IP, dead ngrok tunnel,
+  // stale bundle still holding the old default) would otherwise leave fetch
+  // pending for minutes, which every caller renders as a spinner that never
+  // stops. Abort instead so the screen can show its "could not reach the
+  // server" message.
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  let res: Response;
+  try {
+    res = await fetch(url, {
+      method,
+      headers,
+      body: body !== undefined ? JSON.stringify(body) : undefined,
+      signal: controller.signal,
+    });
+  } catch (err) {
+    if (err instanceof Error && err.name === "AbortError") {
+      throw new ApiError(0, `Request timed out after ${REQUEST_TIMEOUT_MS / 1000}s (${API_BASE_URL})`, undefined);
+    }
+    throw err;
+  } finally {
+    clearTimeout(timer);
+  }
 
   const text = await res.text();
   const data = text ? JSON.parse(text) : undefined;

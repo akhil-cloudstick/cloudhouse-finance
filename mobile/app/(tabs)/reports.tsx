@@ -430,7 +430,7 @@ const styles = StyleSheet.create({
   // still painting a shadow that extends past its own bounds on iOS.
   previewCardOuter: {
     marginBottom: 10,
-    shadowColor: colors.charcoal,
+    shadowColor: colors.nav,
     shadowOpacity: 0.08,
     shadowRadius: 10,
     shadowOffset: { width: 0, height: 4 },

@@ -425,7 +425,7 @@ const styles = StyleSheet.create({
   // cardRows variant of a table row — see TableRow's own `cardRows` branch.
   cardOuter: {
     marginBottom: 10,
-    shadowColor: colors.charcoal,
+    shadowColor: colors.nav,
     shadowOpacity: 0.08,
     shadowRadius: 10,
     shadowOffset: { width: 0, height: 4 },

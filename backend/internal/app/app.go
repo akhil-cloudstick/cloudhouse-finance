@@ -243,7 +243,7 @@ func Build(db *gorm.DB, cfg platform.Config) (*App, error) {
 	investmentHandler := investment.NewHandler(investmentSvc)
 
 	reminderRepo := reminder.NewRepository(db)
-	reminderSvc := reminder.NewService(reminderRepo, customerRepo, loanRepo, personalLoanSvc, whatsappSender, commlogRepo, tenantRepo)
+	reminderSvc := reminder.NewService(reminderRepo, customerRepo, loanRepo, personalLoanSvc, loanAuctionRepo, whatsappSender, commlogRepo, tenantRepo)
 	reminderHandler := reminder.NewHandler(reminderSvc)
 
 	dashboardSnapshotRepo := dashboard.NewSnapshotRepository(db)

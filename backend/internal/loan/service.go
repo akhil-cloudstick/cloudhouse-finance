@@ -542,7 +542,6 @@ func (s *Service) Create(ctx context.Context, in CreateInput) (*Loan, error) {
 		return nil, ErrBranchInvalid
 	}
 
-	cust, err := s.customerRepo.FindByID(ctx, in.CustomerID)
 	if err != nil {
 		return nil, ErrCustomerInvalid
 	}
@@ -2403,7 +2402,7 @@ func (s *Service) ResolveAuctionDecision(ctx context.Context, loanID, requestID 
 				// decided. FinalSettlementStatus stays Pending: the balance is
 				// still owed, not settled or written off.
 				rec.Stage = AuctionStageWithdrawn
-				if err := s.auctionRepo.UpdateTx(tx, rec); err != nil {
+				if err := s.auctionRepo.UpdateTx(ctx, tx, rec); err != nil {
 					return err
 				}
 				l.Status = StatusOverdue
@@ -2592,7 +2591,7 @@ func (s *Service) ListRequests(ctx context.Context, f LoanRequestFilter) ([]Loan
 		return nil, 0, err
 	}
 	for i := range reqs {
-		s.syncPaymentVerified(&reqs[i])
+		s.syncPaymentVerified(ctx, &reqs[i])
 	}
 	return reqs, total, nil
 }
@@ -2605,7 +2604,7 @@ func (s *Service) GetRequest(ctx context.Context, requestID uint) (*LoanRequest,
 	if err != nil {
 		return nil, ErrRequestNotFound
 	}
-	s.syncPaymentVerified(req)
+	s.syncPaymentVerified(ctx, req)
 	return req, nil
 }
 
@@ -2620,18 +2619,18 @@ func (s *Service) GetRequest(ctx context.Context, requestID uint) (*LoanRequest,
 // pending Release request still waiting on this one checklist item.
 // Errors are swallowed: this is a best-effort read-time refresh, not
 // something that should fail whatever endpoint called it.
-func (s *Service) syncPaymentVerified(req *LoanRequest) {
+func (s *Service) syncPaymentVerified(ctx context.Context, req *LoanRequest) {
 	if req.Type != RequestTypeRelease || req.Status != RequestStatusPending || req.PaymentVerified {
 		return
 	}
-	l, err := s.Get(req.LoanID, nil)
+	l, err := s.Get(ctx, req.LoanID, nil)
 	if err != nil {
 		return
 	}
 	if l.TotalOutstandingBalance <= 0.01 {
 		req.PaymentVerified = true
 		req.PaymentDueDate = nil
-		_ = s.requestRepo.Update(req)
+		_ = s.requestRepo.Update(ctx, req)
 	}
 }
 
@@ -2709,7 +2708,7 @@ func (s *Service) VerifyReleaseChecklist(ctx context.Context, requestID uint, br
 			// only way PaymentVerified should ever become true, but ticking
 			// it must still mean the balance is genuinely settled, not just
 			// staff's say-so.
-			l, err := s.Get(req.LoanID, nil)
+			l, err := s.Get(ctx, req.LoanID, nil)
 			if err != nil {
 				return nil, err
 			}
@@ -2779,12 +2778,12 @@ type ReleasePaymentInput struct {
 //
 // Only callable while the request is still at (or before) the Manager
 // stage — see ErrNotManagerStage.
-func (s *Service) RecordReleasePayment(requestID uint, branchID *uint, in ReleasePaymentInput) (*LoanRequest, error) {
-	req, err := s.requestRepo.FindByID(requestID)
+func (s *Service) RecordReleasePayment(ctx context.Context, requestID uint, branchID *uint, in ReleasePaymentInput) (*LoanRequest, error) {
+	req, err := s.requestRepo.FindByID(ctx, requestID)
 	if err != nil {
 		return nil, ErrRequestNotFound
 	}
-	if err := s.checkLoanBranch(req.LoanID, branchID); err != nil {
+	if err := s.checkLoanBranch(ctx, req.LoanID, branchID); err != nil {
 		return nil, err
 	}
 	if req.Type != RequestTypeRelease {
@@ -2796,7 +2795,7 @@ func (s *Service) RecordReleasePayment(requestID uint, branchID *uint, in Releas
 	if req.ApprovalStage != "" && req.ApprovalStage != ApprovalStagePendingManager {
 		return nil, ErrNotManagerStage
 	}
-	if !s.checkStagePermission(in.ActorRoleID, "can verify release checklist") {
+	if !s.checkStagePermission(ctx, in.ActorRoleID, "can verify release checklist") {
 		return nil, ErrWrongStage
 	}
 	if in.Discount < 0 || in.Payment < 0 {
@@ -2804,7 +2803,7 @@ func (s *Service) RecordReleasePayment(requestID uint, branchID *uint, in Releas
 	}
 
 	if in.Discount > 0 {
-		if _, err := s.RecordPayment(req.LoanID, PaymentInput{
+		if _, err := s.RecordPayment(ctx, req.LoanID, PaymentInput{
 			Amount:               in.Discount,
 			Type:                 PaymentTypeDiscount,
 			PaidOn:               time.Now(),
@@ -2815,7 +2814,7 @@ func (s *Service) RecordReleasePayment(requestID uint, branchID *uint, in Releas
 		}
 	}
 	if in.Payment > 0 {
-		if _, err := s.RecordPayment(req.LoanID, PaymentInput{
+		if _, err := s.RecordPayment(ctx, req.LoanID, PaymentInput{
 			Amount:               in.Payment,
 			Type:                 PaymentTypePartial,
 			PaidOn:               time.Now(),
@@ -2826,7 +2825,7 @@ func (s *Service) RecordReleasePayment(requestID uint, branchID *uint, in Releas
 		}
 	}
 
-	l, err := s.Get(req.LoanID, branchID)
+	l, err := s.Get(ctx, req.LoanID, branchID)
 	if err != nil {
 		return nil, err
 	}
@@ -2853,116 +2852,6 @@ func (s *Service) RecordReleasePayment(requestID uint, branchID *uint, in Releas
 		return nil, err
 	}
 	return s.requestRepo.FindByID(ctx, req.ID)
-}
-
-// ReleasePaymentInput mirrors the body of
-// POST /loans/requests/:requestId/release-payment.
-type ReleasePaymentInput struct {
-	Discount float64
-	Payment  float64
-	// DueDate is required only when Discount+Payment don't cover the final
-	// settlement (see RecordReleasePayment).
-	DueDate         *time.Time
-	ActorEmployeeID uint
-	ActorRoleID     uint // authz.Role.ID — must hold "can verify release checklist"
-}
-
-// RecordReleasePayment is the "Record Payment" step on the Manager-stage
-// release review screen: staff enter a Discount (a negotiated reduction,
-// posted as a no-cash PaymentTypeDiscount ledger entry) and/or a Payment
-// (real cash, posted as PaymentTypePartial) directly against the loan.
-//
-// This used to also close the loan out immediately and force the request to
-// Approved the moment the balance hit zero — completely bypassing
-// ApproveReleaseRequest's Manager→Management sign-off chain, so a single
-// "can verify release checklist" actor could hand gold back on their own.
-// It no longer does either: recording a payment only ever records the
-// payment. If the two together clear the balance, that only flips the
-// checklist's PaymentVerified flag (one of the four checkboxes
-// ApproveReleaseRequest requires complete before its chain will even start —
-// see ErrChecklistIncomplete) and clears any stored PaymentDueDate; the
-// request stays Pending and must still go through the ordinary Manager then
-// Management approval, and CompleteRelease (the actual hand-the-gold-back
-// step), like any other release. If they fall short, the shortfall stays
-// outstanding and DueDate is stored so the Requests list/review screen can
-// flag it red once that date passes unpaid.
-//
-// Only callable while the request is still at (or before) the Manager
-// stage — see ErrNotManagerStage.
-func (s *Service) RecordReleasePayment(requestID uint, branchID *uint, in ReleasePaymentInput) (*LoanRequest, error) {
-	req, err := s.requestRepo.FindByID(requestID)
-	if err != nil {
-		return nil, ErrRequestNotFound
-	}
-	if err := s.checkLoanBranch(req.LoanID, branchID); err != nil {
-		return nil, err
-	}
-	if req.Type != RequestTypeRelease {
-		return nil, ErrNotReleaseRequest
-	}
-	if req.Status != RequestStatusPending {
-		return nil, ErrRequestAlreadyDecided
-	}
-	if req.ApprovalStage != "" && req.ApprovalStage != ApprovalStagePendingManager {
-		return nil, ErrNotManagerStage
-	}
-	if !s.checkStagePermission(in.ActorRoleID, "can verify release checklist") {
-		return nil, ErrWrongStage
-	}
-	if in.Discount < 0 || in.Payment < 0 {
-		return nil, ErrInvalidAmount
-	}
-
-	if in.Discount > 0 {
-		if _, err := s.RecordPayment(req.LoanID, PaymentInput{
-			Amount:               in.Discount,
-			Type:                 PaymentTypeDiscount,
-			PaidOn:               time.Now(),
-			ReceivedByEmployeeID: &in.ActorEmployeeID,
-			Description:          "Release discount",
-		}); err != nil {
-			return nil, err
-		}
-	}
-	if in.Payment > 0 {
-		if _, err := s.RecordPayment(req.LoanID, PaymentInput{
-			Amount:               in.Payment,
-			Type:                 PaymentTypePartial,
-			PaidOn:               time.Now(),
-			ReceivedByEmployeeID: &in.ActorEmployeeID,
-			Description:          "Release payment",
-		}); err != nil {
-			return nil, err
-		}
-	}
-
-	l, err := s.Get(req.LoanID, branchID)
-	if err != nil {
-		return nil, err
-	}
-
-	req.RecordedDiscount = platform.RoundMoney(req.RecordedDiscount + in.Discount)
-	req.RecordedPayment = platform.RoundMoney(req.RecordedPayment + in.Payment)
-
-	if l.TotalOutstandingBalance <= 0.01 {
-		// Balance cleared — that satisfies the PaymentVerified checklist item,
-		// nothing more. The request stays Pending: ApproveReleaseRequest's own
-		// Manager→Management chain (gated on the full checklist, including
-		// this flag) is still required before the gold can actually be
-		// released via CompleteRelease.
-		req.PaymentVerified = true
-		req.PaymentDueDate = nil
-	} else {
-		if in.DueDate == nil {
-			return nil, ErrDueDateRequired
-		}
-		req.PaymentDueDate = in.DueDate
-	}
-
-	if err := s.requestRepo.Update(req); err != nil {
-		return nil, err
-	}
-	return s.requestRepo.FindByID(req.ID)
 }
 
 // ReleaseApprovalInput mirrors the body of POST /loans/requests/:requestId/approve.
@@ -3005,7 +2894,7 @@ func (s *Service) ApproveReleaseRequest(ctx context.Context, requestID uint, bra
 	// balance may have cleared through the loan's ordinary Record Payment
 	// screen rather than this package's own RecordReleasePayment, which is
 	// the only path that otherwise ever sets this flag directly.
-	s.syncPaymentVerified(req)
+	s.syncPaymentVerified(ctx, req)
 	if !req.PaymentVerified || !req.PacketVerified || !req.BankPledgeVerified || !req.CustomerConfirmed {
 		return nil, ErrChecklistIncomplete
 	}
@@ -3097,7 +2986,7 @@ func (s *Service) ApproveReleaseRequest(ctx context.Context, requestID uint, bra
 		// afterward per the settlement schedule), CompleteRelease's own
 		// guard looks up an Approved release request for this loan — it
 		// must already be saved as Approved for that lookup to succeed.
-		if err := s.requestRepo.Update(req); err != nil {
+		if err := s.requestRepo.Update(ctx, req); err != nil {
 			return nil, err
 		}
 		//  Finish the release right here rather than leaving staff to find
@@ -3106,7 +2995,7 @@ func (s *Service) ApproveReleaseRequest(ctx context.Context, requestID uint, bra
 		// given there is nothing left to authorize; see CompleteRelease's
 		// own doc comment for what it still checks (bank pledge cleared,
 		// balance settled) before it will actually hand the gold back.
-		if _, err := s.CompleteRelease(req.LoanID, nil, in.ActorEmployeeID); err != nil {
+		if _, err := s.CompleteRelease(ctx, req.LoanID, nil, in.ActorEmployeeID); err != nil {
 			return nil, err
 		}
 	}

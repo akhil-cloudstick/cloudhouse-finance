@@ -511,7 +511,7 @@ export default function LoanDetailScreen() {
                     : "Not yet sent for eSign."}
                 </ThemedText>
                 {esignNotice ? (
-                  <ThemedText variant="small" color={colors.blue} style={{ marginBottom: 10 }}>
+                  <ThemedText variant="small" color={colors.info} style={{ marginBottom: 10 }}>
                     {esignNotice}
                   </ThemedText>
                 ) : null}
