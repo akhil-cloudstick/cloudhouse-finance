@@ -1,5 +1,5 @@
-import React, { useState } from "react";
-import { RefreshControl, View } from "react-native";
+import React, { useEffect, useRef, useState } from "react";
+import { Animated, RefreshControl, View } from "react-native";
 import { useInfiniteQuery, useQuery, useQueryClient, useMutation } from "@tanstack/react-query";
 import { ScreenContainer } from "../../src/components/ScreenContainer";
 import { Card } from "../../src/components/Card";
@@ -17,6 +17,27 @@ import { fmt } from "../../src/lib/format";
 import { ExpandableTable, type TableColumn } from "../../src/components/ExpandableTable";
 
 const PAGE_SIZE = 10;
+
+// Small left-right wobble, once, exactly when `trigger` flips from false to
+// true — mirrors the "flag it, don't block it" purity-hierarchy warning:
+// the shake draws the eye without stopping anyone from typing further.
+function useShakeAnim(trigger: boolean) {
+  const x = useRef(new Animated.Value(0)).current;
+  const wasTriggered = useRef(false);
+  useEffect(() => {
+    if (trigger && !wasTriggered.current) {
+      Animated.sequence([
+        Animated.timing(x, { toValue: 6, duration: 45, useNativeDriver: true }),
+        Animated.timing(x, { toValue: -6, duration: 45, useNativeDriver: true }),
+        Animated.timing(x, { toValue: 4, duration: 45, useNativeDriver: true }),
+        Animated.timing(x, { toValue: -4, duration: 45, useNativeDriver: true }),
+        Animated.timing(x, { toValue: 0, duration: 45, useNativeDriver: true }),
+      ]).start();
+    }
+    wasTriggered.current = trigger;
+  }, [trigger, x]);
+  return x;
+}
 
 const RATE_COLUMNS: TableColumn<GoldRate>[] = [
   { key: "date", label: "Date", render: (r) => new Date(r.date).toLocaleDateString("en-IN") },
@@ -78,6 +99,11 @@ export default function GoldRatesScreen() {
   const [rate18, setRate18] = useState("");
   const [fineness18, setFineness18Raw] = useState(String(finenessForKarat(18)));
 
+  // Which karat's rate field staff last actually typed into — the
+  // hierarchy warning below only ever flags THIS one, never whichever
+  // other karat it happens to be compared against.
+  const [lastEdited, setLastEdited] = useState<24 | 22 | 18 | null>(null);
+
   function openForm() {
     setFormVisible(true);
     setRef24(k24Now || 0);
@@ -88,11 +114,13 @@ export default function GoldRatesScreen() {
     setRate24Raw(k24Now ? String(k24Now) : "");
     setRate22(k24Now > 0 ? String(rateForFineness(k24Now, finenessForKarat(22))) : "");
     setRate18(k24Now > 0 ? String(rateForFineness(k24Now, finenessForKarat(18))) : "");
+    setLastEdited(null);
     setError(null);
   }
 
   function bulkSetManual() {
     setMode("manual");
+    setLastEdited(null);
   }
   function bulkSetAuto() {
     setMode("auto");
@@ -102,19 +130,31 @@ export default function GoldRatesScreen() {
     setRate24Raw(ref24 > 0 ? String(ref24) : "");
     setRate22(ref24 > 0 ? String(rateForFineness(ref24, finenessForKarat(22))) : "");
     setRate18(ref24 > 0 ? String(rateForFineness(ref24, finenessForKarat(18))) : "");
+    setLastEdited(null);
   }
 
   function editRate24(v: string) {
     // Unlike 22K/18K, typing 24K's own rate does NOT switch mode —
     // 24K has no separate reference to fall out of sync with.
     setRate24Raw(v);
+    setLastEdited(24);
+    // 22K/18K keep tracking 24K live while still in Auto — only 24K's OWN
+    // fineness field derives off the frozen ref24 instead, to avoid
+    // deriving off itself.
+    const k24 = +v;
+    if (mode === "auto" && k24 > 0) {
+      if (+fineness22 > 0) setRate22(String(rateForFineness(k24, +fineness22)));
+      if (+fineness18 > 0) setRate18(String(rateForFineness(k24, +fineness18)));
+    }
   }
   function editRate22(v: string) {
     setMode("manual"); // any direct 22K/18K rate edit is all-or-nothing
+    setLastEdited(22);
     setRate22(v);
   }
   function editRate18(v: string) {
     setMode("manual");
+    setLastEdited(18);
     setRate18(v);
   }
   // Fineness is a purity percentage — never meaningfully above 100%.
@@ -130,25 +170,29 @@ export default function GoldRatesScreen() {
   function editFineness22(v: string) {
     const c = clampFineness(v);
     setFineness22Raw(c);
-    if (ref24 > 0 && +c > 0) setRate22(String(rateForFineness(ref24, +c)));
+    // Off the LIVE 24K rate, not the frozen ref24 — see editRate24.
+    if (+rate24 > 0 && +c > 0) setRate22(String(rateForFineness(+rate24, +c)));
   }
   function editFineness18(v: string) {
     const c = clampFineness(v);
     setFineness18Raw(c);
-    if (ref24 > 0 && +c > 0) setRate18(String(rateForFineness(ref24, +c)));
+    if (+rate24 > 0 && +c > 0) setRate18(String(rateForFineness(+rate24, +c)));
   }
 
   // Non-blocking sanity check on Manual entries — 22K/18K priced above a
   // purer karat inverts the usual purity hierarchy. Flagged, never
   // prevented.
-  const hierarchyWarning =
-    mode === "manual" && +rate22 > 0 && +rate24 > 0 && +rate22 > +rate24
-      ? "22K is priced higher than 24K."
-      : mode === "manual" && +rate18 > 0 && +rate22 > 0 && +rate18 > +rate22
-        ? "18K is priced higher than 22K."
-        : mode === "manual" && +rate18 > 0 && +rate24 > 0 && +rate18 > +rate24
-          ? "18K is priced higher than 24K."
-          : "";
+  const violation22vs24 = mode === "manual" && +rate22 > 0 && +rate24 > 0 && +rate22 > +rate24;
+  const violation18vs22 = mode === "manual" && +rate18 > 0 && +rate22 > 0 && +rate18 > +rate22;
+  const violation18vs24 = mode === "manual" && +rate18 > 0 && +rate24 > 0 && +rate18 > +rate24;
+  // Only the karat actually being edited gets flagged, never whichever
+  // other one it's compared against.
+  const invalid24 = lastEdited === 24 && (violation22vs24 || violation18vs24);
+  const invalid22 = lastEdited === 22 && violation22vs24;
+  const invalid18 = lastEdited === 18 && (violation18vs22 || violation18vs24);
+  const shakeX24 = useShakeAnim(invalid24);
+  const shakeX22 = useShakeAnim(invalid22);
+  const shakeX18 = useShakeAnim(invalid18);
 
   const { data, isLoading, isError, isFetching, isFetchingNextPage, fetchNextPage, hasNextPage, refetch } = useInfiniteQuery({
     queryKey: ["gold-rates"],
@@ -210,51 +254,60 @@ export default function GoldRatesScreen() {
             <GoldButton title="Manual" variant={mode === "manual" ? "primary" : "outline"} onPress={bulkSetManual} style={{ flex: 1 }} />
           </View>
 
-          <GoldTextInput label="24K · 999 (₹/g)" keyboardType="numeric" value={rate24} onChangeText={editRate24} />
-          <ThemedText variant="small" color={colors.muted} style={{ marginTop: -8, marginBottom: 8 }}>
-            {mode === "manual" ? "set directly" : "adjust directly, or via fineness below"}
-          </ThemedText>
           {mode === "auto" ? (
-            <>
-              <ThemedText variant="label" color={colors.muted}>Fineness (%)</ThemedText>
+            <View style={{ marginBottom: 12 }}>
+              <ThemedText variant="label" color={colors.muted}>Fineness (100%)</ThemedText>
               <GoldTextInput keyboardType="numeric" value={fineness24} onChangeText={editFineness24} />
-              <ThemedText variant="small" color={colors.muted} style={{ marginBottom: 8 }}>standard 100%</ThemedText>
-            </>
+            </View>
           ) : null}
-
-          <GoldTextInput label="22K (₹/g)" keyboardType="numeric" value={rate22} onChangeText={editRate22} />
-          <ThemedText variant="small" color={colors.muted} style={{ marginTop: -8, marginBottom: 8 }}>
-            {mode === "manual" ? "set independently of 24K" : "editing this switches to Manual ↓"}
-          </ThemedText>
-          {mode === "auto" ? (
-            <>
-              <ThemedText variant="label" color={colors.muted}>Fineness (%)</ThemedText>
-              <GoldTextInput keyboardType="numeric" value={fineness22} onChangeText={editFineness22} />
-              <ThemedText variant="small" color={colors.muted} style={{ marginBottom: 8 }}>standard {finenessForKarat(22)}%</ThemedText>
-            </>
-          ) : null}
-
-          <GoldTextInput label="18K (₹/g)" keyboardType="numeric" value={rate18} onChangeText={editRate18} />
-          <ThemedText variant="small" color={colors.muted} style={{ marginTop: -8, marginBottom: 8 }}>
-            {mode === "manual" ? "set independently of 24K" : "editing this switches to Manual ↓"}
-          </ThemedText>
-          {mode === "auto" ? (
-            <>
-              <ThemedText variant="label" color={colors.muted}>Fineness (%)</ThemedText>
-              <GoldTextInput keyboardType="numeric" value={fineness18} onChangeText={editFineness18} />
-              <ThemedText variant="small" color={colors.muted} style={{ marginBottom: 8 }}>standard {finenessForKarat(18)}%</ThemedText>
-            </>
-          ) : null}
-
-          {hierarchyWarning ? (
-            <ThemedText variant="small" color={colors.amber} style={{ marginBottom: 8 }}>
-              ⚠ {hierarchyWarning} You can still publish this if intentional.
+          <Animated.View style={{ transform: [{ translateX: shakeX24 }] }}>
+            <GoldTextInput label="24K · 999 (₹/g)" keyboardType="numeric" value={rate24} onChangeText={editRate24} invalid={invalid24} />
+          </Animated.View>
+          {invalid24 ? (
+            <ThemedText variant="small" color="#ef4444" style={{ marginTop: -8, marginBottom: 8 }}>
+              ⚠ Price hierarchy is wrong.
             </ThemedText>
           ) : null}
-
-          <ThemedText variant="small" color={colors.muted} style={{ marginBottom: 8 }}>
-            Typing 22K/18K&apos;s rate switches the whole form to Manual; 24K&apos;s never does.
+          <ThemedText variant="small" color={colors.muted} style={{ marginTop: -8, marginBottom: 8 }}>
+            {mode === "manual" ? "set directly" : "adjust directly, or via fineness above"}
           </ThemedText>
+
+          {mode === "auto" ? (
+            <View style={{ marginBottom: 12 }}>
+              <ThemedText variant="label" color={colors.muted}>Fineness ({finenessForKarat(22)}%)</ThemedText>
+              <GoldTextInput keyboardType="numeric" value={fineness22} onChangeText={editFineness22} />
+            </View>
+          ) : null}
+          <Animated.View style={{ transform: [{ translateX: shakeX22 }] }}>
+            <GoldTextInput label="22K (₹/g)" keyboardType="numeric" value={rate22} onChangeText={editRate22} invalid={invalid22} />
+          </Animated.View>
+          {invalid22 ? (
+            <ThemedText variant="small" color="#ef4444" style={{ marginTop: -8, marginBottom: 8 }}>
+              ⚠ Price hierarchy is wrong.
+            </ThemedText>
+          ) : null}
+          <ThemedText variant="small" color={colors.muted} style={{ marginTop: -8, marginBottom: 8 }}>
+            {mode === "manual" ? "set independently of 24K" : "editing this switches to Manual"}
+          </ThemedText>
+
+          {mode === "auto" ? (
+            <View style={{ marginBottom: 12 }}>
+              <ThemedText variant="label" color={colors.muted}>Fineness ({finenessForKarat(18)}%)</ThemedText>
+              <GoldTextInput keyboardType="numeric" value={fineness18} onChangeText={editFineness18} />
+            </View>
+          ) : null}
+          <Animated.View style={{ transform: [{ translateX: shakeX18 }] }}>
+            <GoldTextInput label="18K (₹/g)" keyboardType="numeric" value={rate18} onChangeText={editRate18} invalid={invalid18} />
+          </Animated.View>
+          {invalid18 ? (
+            <ThemedText variant="small" color="#ef4444" style={{ marginTop: -8, marginBottom: 8 }}>
+              ⚠ Price hierarchy is wrong.
+            </ThemedText>
+          ) : null}
+          <ThemedText variant="small" color={colors.muted} style={{ marginTop: -8, marginBottom: 8 }}>
+            {mode === "manual" ? "set independently of 24K" : "editing this switches to Manual"}
+          </ThemedText>
+
           {error ? (
             <ThemedText variant="small" color={colors.red} style={{ marginBottom: 8 }}>
               {error}
