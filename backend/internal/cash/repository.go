@@ -23,12 +23,20 @@ func (r *MovementRepository) Create(m *CashMovement) error {
 // FindAll returns cash movements, optionally scoped to a single branch —
 // pass nil for an Administrator's unfiltered "all branches" view, or a
 // non-nil pointer to confine results to that branch (see
-// platform.GetBranchScope).
-func (r *MovementRepository) FindAll(branchID *uint, limit, offset int) ([]CashMovement, int64, error) {
+// platform.GetBranchScope) — and optionally bounded to [fromDate, toDate]
+// on occurred_on; either end left zero-value means "no bound" on that
+// side (the Cash Movements table's default, unfiltered view).
+func (r *MovementRepository) FindAll(branchID *uint, fromDate, toDate time.Time, limit, offset int) ([]CashMovement, int64, error) {
 	var movements []CashMovement
 	q := r.db.Preload("Branch").Order("occurred_on desc, id desc")
 	if branchID != nil {
 		q = q.Where("branch_id = ?", *branchID)
+	}
+	if !fromDate.IsZero() {
+		q = q.Where("occurred_on >= ?", fromDate)
+	}
+	if !toDate.IsZero() {
+		q = q.Where("occurred_on < ?", toDate.AddDate(0, 0, 1))
 	}
 	var total int64
 	if limit > 0 {

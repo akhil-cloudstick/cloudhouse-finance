@@ -146,9 +146,11 @@ func (s *MovementService) Record(in RecordMovementInput) (*CashMovement, error) 
 }
 
 // List returns cash movements, optionally scoped to branchID (nil = all
-// branches — Administrator only, see platform.GetBranchScope).
-func (s *MovementService) List(branchID *uint, limit, offset int) ([]CashMovement, int64, error) {
-	return s.repo.FindAll(branchID, limit, offset)
+// branches — Administrator only, see platform.GetBranchScope) and to
+// [fromDate, toDate] (zero value on either end means "no bound" on that
+// side — the Cash Movements table's default, unfiltered view).
+func (s *MovementService) List(branchID *uint, fromDate, toDate time.Time, limit, offset int) ([]CashMovement, int64, error) {
+	return s.repo.FindAll(branchID, fromDate, toDate, limit, offset)
 }
 
 // Get returns the movement by id, or ErrMovementNotFound if it doesn't

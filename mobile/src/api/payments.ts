@@ -15,6 +15,10 @@ export function recordPayment(
     method?: string;
     reference?: string;
     description?: string;
+    // Overrides the system-calculated interest bucket for this payment
+    // only (see backend's PaymentInput.InterestOverride doc comment) —
+    // omit to use the live-calculated figure.
+    interestOverride?: number;
   }
 ) {
   return apiRequest<Loan>(`/loans/${loanId}/payments`, { method: "POST", body: input });

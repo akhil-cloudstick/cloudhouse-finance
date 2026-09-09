@@ -11,6 +11,7 @@ import { CashOutModalContent } from "@/common/components/modals/CashOutModal";
 import { ExpenseModalContent, ReceiptViewModalContent } from "@/common/components/modals/ExpenseModal";
 import { listActiveBranches, type BranchView } from "@/modules/branches/services/branchService";
 import { SearchableSelect } from "@/common/components/ui/SearchableSelect";
+import { DatePicker } from "@/common/components/ui/DatePicker";
 import {
   listCashMovementsPage, listExpensesPage, getCashSummary, setOpeningBalance,
   setCashMovementLoanStatus, approveExpense, rejectExpense,
@@ -157,6 +158,11 @@ export function Cash() {
   // Switches the card below between the Cash Movements and Expense Register
   // tables instead of stacking both full tables on the page at once.
   const [activeCashTab, setActiveCashTab] = useState<"movements" | "expenses">("movements");
+  // Cash Movements' own date-range filter — empty means "no bound", the
+  // table's default unfiltered view. Only this table is filtered; the KPI
+  // row above and the Expense Register tab are untouched.
+  const [movementsFrom, setMovementsFrom] = useState("");
+  const [movementsTo, setMovementsTo] = useState("");
 
   /* Guards against a stale response winning. The first render fires a
    * summary request before the branch list has loaded (branchId ""), then a
@@ -167,7 +173,7 @@ export function Cash() {
   const summarySeq = useRef(0);
 
   const refresh = useCallback(() => {
-    listCashMovementsPage(movementsPage, cashPageSize).then(({ items, hasMore, total }) => {
+    listCashMovementsPage(movementsPage, cashPageSize, { fromDate: movementsFrom || undefined, toDate: movementsTo || undefined }).then(({ items, hasMore, total }) => {
       setMovements(items);
       setMovementsHasMore(hasMore);
       setMovementsTotal(total);
@@ -187,7 +193,7 @@ export function Cash() {
       if (seq !== summarySeq.current) return;
       setSummary(null);
     });
-  }, [branchId, today, movementsPage, expensesPage, cashPageSize]);
+  }, [branchId, today, movementsPage, expensesPage, cashPageSize, movementsFrom, movementsTo]);
 
   useEffect(() => {
     listActiveBranches().then((list) => {
@@ -364,7 +370,7 @@ export function Cash() {
             ]}
           />
           <Kpi l="Expenses (today)" v={fmt(summary?.expensesToday || 0)} s={fmt(summary?.cashExpenses || 0) + " cash"} />
-          <Kpi l="Expected Cash in Hand" v={fmt(summary?.expectedCash || 0)} s="auto-calculated" cls="ok" />
+          <Kpi l="Balance in Hand" v={fmt(summary?.expectedCash || 0)} s="auto-calculated" cls="ok" />
         </div>
 
         <div className="tabs" style={{ flexShrink: 0, alignSelf: "flex-end", marginBottom: 0 }}>
@@ -385,8 +391,24 @@ export function Cash() {
 
       {activeCashTab === "movements" && (
         <div className="card">
-          <div className="hd"><h3>Cash Movements</h3><div className="sp" />
-            <span style={{ fontSize: 12.5, color: "var(--muted)" }}>In {fmt(cashIn)} · Out {fmt(cashOut)}</span>
+          <div className="hd" style={{ flexWrap: "wrap", rowGap: 10 }}>
+            <h3>Cash Movements</h3>
+            <div className="sp" />
+            {/* From/To/Clear as one tight group, then the In/Out summary
+                further right still — the rightmost thing in the row. The
+                whole cluster wraps as a unit onto its own line below the
+                title on narrow screens (flexWrap above), not each control
+                wrapping individually. */}
+            {/* DatePicker is a fixed 230px app-wide by house convention
+                (app.css's `.dp.dp-date` rule ignores a narrower wrapper),
+                so these sit at their natural width rather than fighting it. */}
+            <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+              <DatePicker value={movementsFrom} onChange={(v) => { setMovementsFrom(v); setMovementsPage(1); }} placeholder="From date…" max={movementsTo || undefined} />
+              <DatePicker value={movementsTo} onChange={(v) => { setMovementsTo(v); setMovementsPage(1); }} placeholder="To date…" min={movementsFrom || undefined} />
+              {(movementsFrom || movementsTo) && (
+                <button className="btn ghost sm" onClick={() => { setMovementsFrom(""); setMovementsTo(""); setMovementsPage(1); }}>Clear</button>
+              )}
+            </div>
           </div>
           <div className="tbl-wrap tbl-scroll">
             <table className="tbl tbl-center tbl-roomy">
@@ -398,13 +420,15 @@ export function Cash() {
               </tbody>
             </table>
           </div>
-          <div className="ft" style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <div className="ft" style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
             <button className="btn plain sm" disabled={movementsPage <= 1} onClick={() => setMovementsPage((p) => Math.max(1, p - 1))}>‹ Prev</button>
             {/* No total-row count comes back from the {items, hasMore}
               * envelope — only whether another page exists — so this shows
               * just the current page rather than a fabricated "of N". */}
             <span style={{ fontSize: 12.5 }}>Page {movementsPage} of {movementsTotalPages}</span>
             <button className="btn plain sm" disabled={movementsPage >= movementsTotalPages} onClick={() => setMovementsPage((p) => Math.min(movementsTotalPages, p + 1))}>Next ›</button>
+            <div className="sp" />
+            <span style={{ fontSize: 12.5, color: "var(--muted)" }}>In {fmt(cashIn)} · Out {fmt(cashOut)}</span>
           </div>
         </div>
       )}

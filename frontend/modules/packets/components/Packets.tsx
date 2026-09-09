@@ -223,7 +223,13 @@ export function Packets() {
             neither this column nor the page grows past the packets card. */}
         <div style={{ minHeight: 0, height: "100%", position: "relative" }}>
           <div className="grid scroll-hidden" style={{ position: "absolute", inset: 0, alignContent: "start" }}>
-            {lockers.map((l) => <LockerCard key={l.id} l={l} packets={packets || []} canUpdate={canUpdateLockers} onChanged={load} />)}
+            {lockers.length === 0 ? (
+              <div className="empty" style={{ padding: "14px 4px" }}>
+                {packets === null && !error ? "Loading lockers…" : "No lockers added yet."}
+              </div>
+            ) : (
+              lockers.map((l) => <LockerCard key={l.id} l={l} packets={packets || []} canUpdate={canUpdateLockers} onChanged={load} />)
+            )}
           </div>
         </div>
       </div>

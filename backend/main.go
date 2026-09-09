@@ -355,7 +355,7 @@ func main() {
 	protected.GET("/customers/:id/payments", platform.CRUDPermissions(authzRepo, "customers").Read, loanHandler.ListPaymentsForCustomer)
 	protected.GET("/customers/:id/bank-pledges", platform.CRUDPermissions(authzRepo, "customers").Read, loanHandler.ListBankPledgesForCustomer)
 	protected.GET("/customers/:id/auction-history", platform.CRUDPermissions(authzRepo, "customers").Read, loanHandler.ListAuctionHistoryForCustomer)
-	loan.RegisterRoutes(protected.Group("/loans"), loanHandler, platform.CRUDPermissions(authzRepo, "loans"), platform.CRUDPermissions(authzRepo, "bankpledges"))
+	loan.RegisterRoutes(protected.Group("/loans"), loanHandler, platform.CRUDPermissions(authzRepo, "loans"), platform.CRUDPermissions(authzRepo, "bankpledges"), platform.RequirePermission(authzRepo, "can hard delete loan"))
 	dashboard.RegisterRoutes(protected.Group("/dashboard"), dashboardHandler, platform.CRUDPermissions(authzRepo, "loans"))
 	upload.RegisterRoutes(protected.Group("/uploads"), uploadHandler, platform.CRUDPermissions(authzRepo, "uploads"))
 	// Stateless utility, not a CRUD resource — any authenticated staff

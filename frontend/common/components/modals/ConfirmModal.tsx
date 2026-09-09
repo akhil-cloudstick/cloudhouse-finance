@@ -45,7 +45,15 @@ export function ConfirmModalContent({
     <>
       <div className="hd"><h3>{title}</h3><button className="x" onClick={closeModal}>×</button></div>
       <div className="bd">
-        <div className="notice"><Icon name="shield" /> {message}</div>
+        {/* {message} is wrapped in its own <span> rather than dropped
+         * directly into this flex row — a caller passing a Fragment with
+         * multiple lines/paragraphs (<br/> pairs, a <strong>, plain text)
+         * would otherwise have each of those children become its OWN flex
+         * item here (Fragments don't render a wrapping element), scattering
+         * a multi-line warning into a broken multi-column layout instead of
+         * stacked lines. One wrapper = one flex item = normal block flow
+         * inside it. */}
+        <div className="notice"><Icon name="shield" /> <span>{message}</span></div>
         {err && <p style={{ color: "var(--red)", fontSize: 12.5, marginTop: 8 }}>{err}</p>}
       </div>
       <div className="ft">

@@ -61,9 +61,34 @@ export function parsePurity(purity: string): { unit: PurityUnit; value: number }
 
 /* Resolves a stored purity string's per-gram rate off K24 — returns null
  * if the string doesn't parse (caller should treat that as "can't value
- * this ornament yet", matching the backend's ErrInvalidPurity). */
+ * this ornament yet", matching the backend's ErrInvalidPurity). Always
+ * derives off K24, even for exactly 22K/18K — see rateForPurityFull below
+ * for the version that reads an independently-published K22/K18 instead,
+ * where that distinction actually matters. */
 export function rateForPurityString(k24: number, purity: string): number | null {
   const parsed = parsePurity(purity);
   if (!parsed) return null;
   return parsed.unit === "karat" ? rateForKarat(k24, parsed.value) : rateForFineness(k24, parsed.value);
+}
+
+/* Same as rateForPurityString, but mirrors backend/internal/loan/purity.go's
+ * rateForPurity exactly: an ornament at precisely 22K or 18K reads that
+ * karat's own independently-published rate (Manual mode may have set it to
+ * something other than K24×ratio) when one has actually been published
+ * (>0), falling back to the K24-derived figure otherwise — 24K and every
+ * other purity (16K, a custom fineness%, etc.) always derives off K24.
+ * Use this wherever a live estimate needs to match what the backend will
+ * actually compute/enforce (e.g. Edit Loan's eligible-amount preview);
+ * rateForPurityString's plain K24-only derivation is intentionally kept
+ * everywhere else (New Loan's own valuation panel) unchanged. */
+export function rateForPurityFull(rates: { k24: number; k22: number; k18: number }, purity: string): number | null {
+  const parsed = parsePurity(purity);
+  if (!parsed) return null;
+  if (parsed.unit === "karat") {
+    if (parsed.value === 24) return Math.round(rates.k24);
+    if (parsed.value === 22 && rates.k22 > 0) return Math.round(rates.k22);
+    if (parsed.value === 18 && rates.k18 > 0) return Math.round(rates.k18);
+    return rateForKarat(rates.k24, parsed.value);
+  }
+  return rateForFineness(rates.k24, parsed.value);
 }

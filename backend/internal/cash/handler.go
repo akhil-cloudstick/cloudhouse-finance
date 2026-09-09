@@ -112,13 +112,24 @@ func (h *MovementHandler) Record(c *gin.Context) {
 func (h *MovementHandler) List(c *gin.Context) {
 	branchID := platform.GetBranchScope(c)
 
+	fromDate, err := parseOptionalDate(c.Query("fromDate"))
+	if err != nil {
+		httpx.Fail(c, http.StatusBadRequest, "invalid fromDate: expected YYYY-MM-DD")
+		return
+	}
+	toDate, err := parseOptionalDate(c.Query("toDate"))
+	if err != nil {
+		httpx.Fail(c, http.StatusBadRequest, "invalid toDate: expected YYYY-MM-DD")
+		return
+	}
+
 	limit, _ := strconv.Atoi(c.Query("limit"))
 	if limit > 0 {
 		offset, _ := strconv.Atoi(c.Query("offset"))
 		if offset < 0 {
 			offset = 0
 		}
-		rec, total, err := h.svc.List(branchID, limit+1, offset)
+		rec, total, err := h.svc.List(branchID, fromDate, toDate, limit+1, offset)
 		if err != nil {
 			httpx.FailErr(c, err)
 			return
@@ -131,7 +142,7 @@ func (h *MovementHandler) List(c *gin.Context) {
 		return
 	}
 
-	rec, _, err := h.svc.List(branchID, 0, 0)
+	rec, _, err := h.svc.List(branchID, fromDate, toDate, 0, 0)
 	if err != nil {
 		httpx.FailErr(c, err)
 		return
