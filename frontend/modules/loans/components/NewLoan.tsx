@@ -33,6 +33,7 @@ import { SearchableSelect } from "@/common/components/ui/SearchableSelect";
 import { StatusChip } from "@/common/components/ui/StatusChip";
 import { PurityPicker } from "@/common/components/ui/PurityPicker";
 import { rateForPurityString } from "@/common/utils/purity";
+import { makeEnterToSubmitHandler } from "@/common/utils/enterToSubmit";
 import { openPrintWindow } from "@/common/utils/print";
 import { printIndemnityBond, BOND_LANG_OPTIONS, type BondLang } from "@/modules/loans/utils/indemnityBond";
 import { ApiError } from "@/common/services/httpClient";
@@ -81,6 +82,13 @@ export function NewLoan() {
   // attempt: re-added on a rAF tick after being cleared, since re-applying
   // the same class name to an element mid-animation doesn't restart it.
   const [shakeRateBanner, setShakeRateBanner] = useState(false);
+  // Enter submits from any plain field on this page — this isn't a modal
+  // (see common/utils/enterToSubmit.ts), so it needs its own handler.
+  // "Submit for Approval" is the only plain (non-ghost/plain-variant/
+  // danger) .btn on the whole page — "Save Draft" is ghost, "Add
+  // Ornament"/photo buttons/"Open" are plain, the draft-discard ✕ is
+  // danger — so this selector can't accidentally match any of those.
+  const onEnterSubmit = useMemo(() => makeEnterToSubmitHandler(".btn:not(.ghost):not(.plain):not(.danger):not(:disabled)"), []);
 
   async function saveTodayRate() {
     const k24 = +rateR24;
@@ -655,7 +663,7 @@ export function NewLoan() {
   }
 
   return (
-    <>
+    <div onKeyDown={onEnterSubmit}>
       <div className="page-h"><div><h1>New Gold Loan</h1><p>Select a verified customer, choose a scheme, and record pledged ornaments</p></div></div>
       <hr className="gold-rule" />
       {!isTodaySet && (
@@ -1075,6 +1083,6 @@ export function NewLoan() {
           <div className="notice"><Icon name="shield" /> Every loan is verified by the Loan Operator, approved by the Branch Manager, then finally sanctioned by Management.</div>
         </div>
       </div>
-    </>
+    </div>
   );
 }

@@ -567,11 +567,15 @@ func (s *Service) Create(in CreateInput) (*Loan, error) {
 	rec.PrincipalAmount = in.PrincipalAmount
 	rec.OutstandingAmount = in.PrincipalAmount
 
-	count, err := s.repo.CountAll()
+	// Derived from the highest suffix ever issued (including hard-deleted
+	// loans), not a live row COUNT — see MaxLoanNumberSuffix's own doc
+	// comment for why COUNT+1 can regenerate a number a surviving loan
+	// already holds once anything's ever been hard-deleted.
+	maxSuffix, err := s.repo.MaxLoanNumberSuffix()
 	if err != nil {
 		return nil, err
 	}
-	rec.LoanNumber = fmt.Sprintf("LN-%05d", count+1)
+	rec.LoanNumber = fmt.Sprintf("LN-%05d", maxSuffix+1)
 
 	if err := s.repo.Create(rec); err != nil {
 		return nil, err

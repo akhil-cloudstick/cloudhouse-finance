@@ -294,7 +294,11 @@ export function SettleAuctionModalContent({ loan, rec, onSaved, onError }: { loa
       </div>
       <div className="ft">
         <button className="btn ghost" onClick={closeModal}>Cancel</button>
-        <button className="btn" onClick={save} disabled={saving || !disposition}><Icon name="check" /> {saving ? "Saving…" : "Settle"}</button>
+        {/* Not blanket-disabled on `!disposition` — that would block save()'s
+         * own "Please choose what happens to the surplus" validation (and
+         * Enter-to-submit, see common/utils/enterToSubmit.ts) from ever
+         * running, silently doing nothing instead of showing the warning. */}
+        <button className="btn" onClick={save} disabled={saving}><Icon name="check" /> {saving ? "Saving…" : "Settle"}</button>
       </div>
     </>
   );
@@ -407,7 +411,9 @@ export function AuctionDecisionModalContent({
       </div>
       <div className="ft">
         <button className="btn ghost" onClick={closeModal}>Cancel</button>
-        <button className="btn" onClick={save} disabled={saving || !decision}><Icon name="check" /> {saving ? "Saving…" : "Record Decision"}</button>
+        {/* Not blanket-disabled on `!decision` — see the Settle button's own
+         * comment above for why. */}
+        <button className="btn" onClick={save} disabled={saving}><Icon name="check" /> {saving ? "Saving…" : "Record Decision"}</button>
       </div>
     </>
   );

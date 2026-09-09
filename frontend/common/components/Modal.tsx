@@ -1,6 +1,7 @@
 "use client";
 
-import { cloneElement, createContext, isValidElement, useCallback, useContext, useRef, useState } from "react";
+import { cloneElement, createContext, isValidElement, useCallback, useContext, useMemo, useRef, useState } from "react";
+import { makeEnterToSubmitHandler } from "@/common/utils/enterToSubmit";
 
 type ModalContextValue = {
   openModal: (content: React.ReactNode, wide?: boolean) => void;
@@ -42,6 +43,17 @@ export function ModalProvider({ children }: { children: React.ReactNode }) {
 
   const closeModal = useCallback(() => setOpen(false), []);
 
+  // Enter submits the modal from any plain field, the same way it would in
+  // a real <form> — none of these modals are actually wrapped in one (they
+  // post via onClick handlers on their own footer buttons), so without
+  // this Enter did nothing at all. Generic rather than per-modal: every
+  // modal here already ends its `.ft` footer with exactly one non-ghost
+  // primary action button (Save/Publish/Confirm/Record Payment/…), so
+  // finding and clicking that is enough to cover all of them without each
+  // one wiring up its own key handler. See enterToSubmit.ts for the same
+  // pattern used OUTSIDE a modal (full-page forms, per-card forms, …).
+  const onModalKeyDown = useMemo(() => makeEnterToSubmitHandler(".ft button.btn:not(.ghost):not(:disabled)"), []);
+
   return (
     <ModalContext.Provider value={{ openModal, closeModal }}>
       {children}
@@ -52,7 +64,7 @@ export function ModalProvider({ children }: { children: React.ReactNode }) {
           if ((e.target as HTMLElement).id === "modalBg") closeModal();
         }}
       >
-        <div id="modalBox" className={`modal${wide ? " wide" : ""}`}>
+        <div id="modalBox" className={`modal${wide ? " wide" : ""}`} onKeyDown={onModalKeyDown}>
           {content}
         </div>
       </div>

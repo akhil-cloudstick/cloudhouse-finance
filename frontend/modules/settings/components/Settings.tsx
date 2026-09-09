@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useToast } from "@/common/components/Toast";
 import { Icon } from "@/common/components/Icon";
+import { makeEnterToSubmitHandler } from "@/common/utils/enterToSubmit";
 import {
   CATEGORY_LABELS,
   deleteApiKey,
@@ -83,6 +84,10 @@ function ApiKeyCard({
   const [reveal, setReveal] = useState(false);
   const [err, setErr] = useState("");
   const [saving, setSaving] = useState(false);
+  // Each card is its own little form with its own Save button — scoped to
+  // this card's own container (not document-wide), so Enter in one card
+  // never triggers another card's Save.
+  const onEnterSubmit = useMemo(() => makeEnterToSubmitHandler(".ft button.btn:not(.ghost):not(:disabled)"), []);
 
   async function save() {
     if (!value.trim()) { setErr("Please enter a key value."); return; }
@@ -113,7 +118,7 @@ function ApiKeyCard({
   }
 
   return (
-    <div className="card gtop">
+    <div className="card gtop" onKeyDown={onEnterSubmit}>
       <div className="hd"><h3>{CATEGORY_LABELS[apiKey.category]}</h3><div className="sp" />
         {apiKey.isSet ? <span className="chip green">Configured</span> : <span className="chip gray">Not set</span>}
       </div>

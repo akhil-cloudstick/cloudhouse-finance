@@ -187,6 +187,24 @@ func (r *Repository) CountAll() (int64, error) {
 	return count, err
 }
 
+// MaxLoanNumberSuffix returns the highest numeric suffix ever used in a
+// "LN-NNNNN" loan number, including loans that have since been hard-deleted
+// (see Service.HardDeleteLoan) — the next number is always one past this,
+// never derived from a live row COUNT. COUNT drops when a loan is
+// hard-deleted, but the numbers already handed out to SURVIVING loans
+// don't shift down to fill the gap; deriving the next number from COUNT+1
+// after a delete regenerates a number a later loan already holds and the
+// unique index rejects the insert outright (SQLSTATE 23505). Reads
+// Unscoped so a soft-deleted row (deleted_at set, not hard-deleted) still
+// counts too — its number is still spoken for.
+func (r *Repository) MaxLoanNumberSuffix() (int, error) {
+	var maxSuffix int
+	err := r.db.Model(&Loan{}).Unscoped().
+		Select("COALESCE(MAX(CAST(SUBSTRING(loan_number FROM 'LN-(\\d+)') AS INTEGER)), 0)").
+		Scan(&maxSuffix).Error
+	return maxSuffix, err
+}
+
 // FindOpenForCalendar returns every not-yet-closed loan (Active/Due
 // Soon/Overdue), preloading only Customer's id/name — used by
 // internal/reminder's calendar aggregation to derive Loan Due/Overdue/
