@@ -57,6 +57,14 @@ export type LoanStatusTotals = {
   active: number; closed: number; dueSoon: number; overdue: number; defaulted: number; other: number; count: number;
 };
 
+export type PersonalLoanRow = {
+  loanId: number; loanNumber: string; openedDate: string; customerName: string; branchName: string;
+  frequency: string; principalAmount: number; disbursedAmount: number; outstandingAmount: number; status: string;
+};
+export type PersonalLoanTotals = {
+  count: number; totalPrincipal: number; totalDisbursed: number; totalOutstanding: number;
+};
+
 /* ---- Investment reports (internal/investment) ---- */
 
 export type DepositRegisterRow = {
@@ -329,6 +337,9 @@ export const getEmployeePerformance = (f: ReportFilters) =>
 export const getCommunicationHistory = (f: ReportFilters) =>
   fetchReport<CommunicationHistoryRow, CommunicationHistoryTotals>("communication-history", f);
 
+export const getPersonalLoans = (f: ReportFilters) =>
+  fetchReport<PersonalLoanRow, PersonalLoanTotals>("personal-loans", f);
+
 export const getDepositRegister = (f: ReportFilters) =>
   fetchReport<DepositRegisterRow, DepositRegisterTotals>("investments/deposit-register", f);
 
@@ -343,7 +354,7 @@ export const getMaturityRegister = (f: ReportFilters) =>
  * "loans-status" export key — the export key list is a *different* set of
  * strings from the list-endpoint path segments). */
 export type ReportKey =
-  | "disbursement" | "loans-status" | "interest-collection" | "outstanding-principal"
+  | "disbursement" | "personal-loans" | "loans-status" | "interest-collection" | "outstanding-principal"
   | "payment-collection" | "gold-weight" | "packets" | "bank-pledge" | "loan-extensions"
   | "gold-release" | "auctions" | "expense-cashflow" | "kyc" | "gold-rate-history"
   | "employee-performance" | "communication-history" | "form-g"

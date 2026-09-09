@@ -16,6 +16,7 @@ import { Customers } from "@/modules/customers/components/Customers";
 import { CustomerDetail } from "@/modules/customers/components/CustomerDetail";
 import { Loans } from "@/modules/loans/components/Loans";
 import { LoanDetail } from "@/modules/loans/components/LoanDetail";
+import { LoanRisk } from "@/modules/loans/components/LoanRisk";
 import { NewLoan } from "@/modules/loans/components/NewLoan";
 import { Schemes } from "@/modules/schemes/components/Schemes";
 import { GoldRates } from "@/modules/gold-rates/components/GoldRates";
@@ -55,6 +56,7 @@ const ROUTE_PERMISSIONS: Record<string, { module: string | null; key?: string }>
   schemes: { module: "Scheme_Management", key: "can_view_scheme" },
   goldrates: { module: "Gold_Rate_Management", key: "can_view_gold_rate" },
   requests: { module: "Loan_Management", key: "can_view_loan" },
+  loanrisk: { module: "Loan_Management", key: "can_view_loan" },
   personalloans: { module: "Personal_Loan_Management", key: "can_view_personal_loan" },
   personalloan: { module: "Personal_Loan_Management", key: "can_view_personal_loan" },
   investments: { module: "Investment_Management", key: "can_view_investment" },
@@ -114,6 +116,8 @@ function View({ route, arg }: { route: string; arg?: string }) {
       return <GoldRates />;
     case "requests":
       return <Requests />;
+    case "loanrisk":
+      return <LoanRisk />;
     case "personalloans":
       return <PersonalLoans />;
     case "personalloan":

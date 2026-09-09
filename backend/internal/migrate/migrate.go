@@ -114,6 +114,7 @@ func Run(db *gorm.DB, cfg platform.Config) error {
 		&cash.CashMovement{},
 		&cash.Expense{},
 		&cash.OpeningCashBalance{},
+		&cash.GoldSale{},
 		&settings.ApiKeySetting{},
 		&customer.Customer{},
 		&loan.Loan{},
@@ -211,6 +212,10 @@ func Run(db *gorm.DB, cfg platform.Config) error {
 	}
 
 	if err := personalloan.BackfillRenewedLoanInstallments(db); err != nil {
+		return err
+	}
+
+	if err := personalloan.BackfillRenewedLoanStatus(db); err != nil {
 		return err
 	}
 

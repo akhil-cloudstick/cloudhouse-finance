@@ -601,11 +601,15 @@ func (s *Service) Create(ctx context.Context, in CreateInput) (*Loan, error) {
 	rec.PrincipalAmount = in.PrincipalAmount
 	rec.OutstandingAmount = in.PrincipalAmount
 
-	count, err := s.repo.CountAll(ctx)
+	// Derived from the highest suffix ever issued (including hard-deleted
+	// loans), not a live row COUNT — see MaxLoanNumberSuffix's own doc
+	// comment for why COUNT+1 can regenerate a number a surviving loan
+	// already holds once anything's ever been hard-deleted.
+	maxSuffix, err := s.repo.MaxLoanNumberSuffix(ctx)
 	if err != nil {
 		return nil, err
 	}
-	rec.LoanNumber = fmt.Sprintf("LN-%05d", count+1)
+	rec.LoanNumber = fmt.Sprintf("LN-%05d", maxSuffix+1)
 
 	if err := s.repo.Create(ctx, rec); err != nil {
 		return nil, err
@@ -643,6 +647,192 @@ func (s *Service) Create(ctx context.Context, in CreateInput) (*Loan, error) {
 
 // List returns matching loans plus the total row count for f's filters
 // (ignoring Limit/Offset) — 0 when f.Limit <= 0 (see Repository.FindAll).
+// --- Gold-value risk assessment ---------------------------------------
+//
+// Compares each open loan's PRINCIPAL against what its pledged gold would
+// fetch if sold TODAY (unlike TotalGoldValue on the Loan itself, which is a
+// snapshot computed at creation/last-recalculation time off THAT day's
+// rate — see model_loan.go's own doc comment on that field). A gold-backed
+// loan's real security is the gold, not the paperwork, so as the gold price
+// moves the safety margin between what's lent and what's actually holding
+// it up can erode — this flags that before it becomes an actual loss.
+
+// RiskLevel classifies a loan's current gold-value-vs-principal safety
+// margin (see ClassifyRisk for the exact thresholds).
+type RiskLevel string
+
+const (
+	RiskGreen  RiskLevel = "Green"  // comfortably covered
+	RiskOrange RiskLevel = "Orange" // covered today, but the margin has eroded under the buffer
+	RiskRed    RiskLevel = "Red"    // gold, sold today, would not cover the principal
+)
+
+// RiskBufferPercent is the safety margin, as a fraction of principal, that
+// separates "Orange / At Risk" from "Green". A loan whose gold would fetch
+// less than principal alone is always Red regardless of this buffer.
+const RiskBufferPercent = 0.10
+
+// ClassifyRisk applies the red/orange/green thresholds documented on
+// RiskLevel's own constants:
+//   - currentGoldValue < principalAmount                        → Red
+//   - currentGoldValue < principalAmount × (1 + RiskBufferPercent) → Orange
+//   - otherwise                                                  → Green
+func ClassifyRisk(currentGoldValue, principalAmount float64) RiskLevel {
+	if currentGoldValue < principalAmount {
+		return RiskRed
+	}
+	if currentGoldValue < principalAmount*(1+RiskBufferPercent) {
+		return RiskOrange
+	}
+	return RiskGreen
+}
+
+// riskEligibleStatuses is every status where the loan still both (a) holds
+// the customer's gold in custody and (b) owes a real principal against it —
+// PendingApproval is excluded (principal chosen but never actually
+// disbursed yet) and Closed/Auctioned/AuctionedBalanceDue are excluded (the
+// gold is no longer what's securing anything, having already been returned
+// or sold).
+var riskEligibleStatuses = []string{
+	StatusActive, StatusDueSoon, StatusOverdue, StatusClosureRequested,
+	StatusDefaulted, StatusAuctionEligible,
+}
+
+// LoanRiskRow is one loan's risk-assessment listing row — see
+// ListLoanRiskAssessment.
+type LoanRiskRow struct {
+	LoanID           uint      `json:"loanId"`
+	LoanNumber       string    `json:"loanNumber"`
+	CustomerID       uint      `json:"customerId"`
+	CustomerName     string    `json:"customerName"`
+	Status           string    `json:"status"`
+	PrincipalAmount  float64   `json:"principalAmount"`
+	TotalNetWeight   float64   `json:"totalNetWeight"`
+	CurrentGoldValue float64   `json:"currentGoldValue"`
+	RiskLevel        RiskLevel `json:"riskLevel"`
+}
+
+// RiskAssessmentFilter narrows ListLoanRiskAssessment's results.
+type RiskAssessmentFilter struct {
+	// Status, when set, must be one of riskEligibleStatuses (checked by the
+	// handler) and narrows to exactly that status. Empty means every
+	// risk-eligible status (the page's default "All" view).
+	Status      string
+	BranchScope *uint
+
+	// OpenedFrom/OpenedTo bound OpenedDate, both optional and inclusive —
+	// same semantics as LoanFilter's own fields.
+	OpenedFrom *time.Time
+	OpenedTo   *time.Time
+
+	// Limit/Offset paginate Items below; Limit <= 0 means "no limit"
+	// (return everything matching, unpaginated). Applied in Go, AFTER
+	// every matching loan has already been fetched and classified — see
+	// RiskAssessmentResult's own doc comment for why.
+	Limit  int
+	Offset int
+}
+
+// RiskAssessmentResult is ListLoanRiskAssessment's return value: one page
+// of Items (per f.Limit/Offset) plus Total/Counts computed across EVERY
+// loan matching f's status/date/branch filters, not just the returned
+// page — so the page's KPI tiles (total open / loss / at-risk / safe) stay
+// correct regardless of which page is currently showing.
+type RiskAssessmentResult struct {
+	Items   []LoanRiskRow
+	Total   int
+	Counts  map[RiskLevel]int
+	HasMore bool
+}
+
+// ListLoanRiskAssessment lists risk-eligible loans matching f (branchScope
+// nil for an Administrator's unfiltered view — see platform.GetBranchScope)
+// with each one's current gold value (today's published rate × each
+// pledged ornament's own purity and net weight — a loan can carry
+// mixed-purity ornaments, so this is NOT just principal vs. a single flat
+// per-gram rate) and the resulting RiskLevel. Refused with ErrNoGoldRate if
+// no rate has ever been published — there is nothing to compare against.
+//
+// RiskLevel is computed per-row against a live rate, not a stored column,
+// so it can't be pushed down into a SQL WHERE/LIMIT/OFFSET the way
+// Service.List's filters can — every status/date/branch-matching loan is
+// fetched and classified first (one query, ordered the same opened_date
+// desc, id desc as Service.List), THEN paginated in Go. Loan counts per
+// branch are small enough (hundreds, not millions) for this to be cheap,
+// and it's what lets Counts/Total below cover every matching loan rather
+// than just whatever page happens to be showing.
+func (s *Service) ListLoanRiskAssessment(ctx context.Context, f RiskAssessmentFilter) (*RiskAssessmentResult, error) {
+	rate, err := s.goldRateRepo.FindLatest(ctx)
+	if err != nil {
+		return nil, ErrNoGoldRate
+	}
+
+	lf := LoanFilter{
+		BranchScope: f.BranchScope,
+		OpenedFrom:  f.OpenedFrom,
+		OpenedTo:    f.OpenedTo,
+	}
+	if f.Status != "" {
+		lf.Status = f.Status
+	} else {
+		lf.StatusIn = riskEligibleStatuses
+	}
+
+	loans, _, err := s.repo.FindAll(ctx, lf)
+	if err != nil {
+		return nil, err
+	}
+
+	rows := make([]LoanRiskRow, 0, len(loans))
+	counts := map[RiskLevel]int{RiskRed: 0, RiskOrange: 0, RiskGreen: 0}
+	for _, l := range loans {
+		var currentValue float64
+		for _, o := range l.Ornaments {
+			r, rErr := rateForPurity(rate, o.Purity)
+			if rErr != nil {
+				// An ornament with an unparseable/legacy purity string
+				// contributes nothing rather than failing the whole
+				// listing — see NormalizeLegacyPurities's own doc comment
+				// on why such a row is flagged for manual review, not
+				// silently coerced.
+				continue
+			}
+			currentValue += o.NetWeight * r
+		}
+		level := ClassifyRisk(currentValue, l.PrincipalAmount)
+		counts[level]++
+		rows = append(rows, LoanRiskRow{
+			LoanID:           l.ID,
+			LoanNumber:       l.LoanNumber,
+			CustomerID:       l.CustomerID,
+			CustomerName:     l.Customer.Name,
+			Status:           l.Status,
+			PrincipalAmount:  l.PrincipalAmount,
+			TotalNetWeight:   l.TotalNetWeight,
+			CurrentGoldValue: currentValue,
+			RiskLevel:        level,
+		})
+	}
+
+	total := len(rows)
+	items := rows
+	hasMore := false
+	if f.Limit > 0 {
+		start := f.Offset
+		if start > total {
+			start = total
+		}
+		end := start + f.Limit
+		if end > total {
+			end = total
+		}
+		items = rows[start:end]
+		hasMore = end < total
+	}
+
+	return &RiskAssessmentResult{Items: items, Total: total, Counts: counts, HasMore: hasMore}, nil
+}
+
 func (s *Service) List(ctx context.Context, f LoanFilter) ([]Loan, int64, error) {
 	loans, total, err := s.repo.FindAll(ctx, f)
 	if err != nil {
@@ -3918,7 +4108,7 @@ func (s *Service) bondDataForLoan(ctx context.Context, l *Loan) BondData {
 // StartAadhaarVerify's redirectURL works.
 //
 // lang selects which pledge-agreement template is rendered and sent to
-// Setu — BondLangEnglish or BondLangGujarati; any other value is rejected.
+// Setu — BondLangEnglish or BondLangMalayalam; any other value is rejected.
 // The signed copy remembers which one was actually sent (see
 // l.IndemnityBondSignRequestID below), so re-checking status later doesn't
 // need lang passed again.
@@ -3938,7 +4128,7 @@ func (s *Service) StartIndemnityBondSign(ctx context.Context, loanID uint, branc
 	if s.esign == nil {
 		return nil, ErrEsignNotConfigured
 	}
-	if lang != BondLangEnglish && lang != BondLangGujarati {
+	if lang != BondLangEnglish && lang != BondLangMalayalam {
 		return nil, ErrUnsupportedIndemnityBondLang
 	}
 	if deliverBy == "" {
@@ -3970,8 +4160,8 @@ func (s *Service) StartIndemnityBondSign(ctx context.Context, loanID uint, branc
 	}
 
 	docTitle := "Pledge Agreement - " + l.LoanNumber
-	if lang == BondLangGujarati {
-		docTitle = "Pledge Agreement (Gujarati) - " + l.LoanNumber
+	if lang == BondLangMalayalam {
+		docTitle = "Pledge Agreement (Malayalam) - " + l.LoanNumber
 	}
 	doc, err := s.esign.UploadDocument(pdfBytes, docTitle)
 	if err != nil {
@@ -4038,8 +4228,8 @@ func (s *Service) StartIndemnityBondSign(ctx context.Context, loanID uint, branc
 // signer.Identifier, so both use the identical number.
 func (s *Service) deliverEsignLink(ctx context.Context, l *Loan, url, lang, deliverBy, phone string) {
 	langLabel := "English"
-	if lang == BondLangGujarati {
-		langLabel = "Gujarati"
+	if lang == BondLangMalayalam {
+		langLabel = "Malayalam"
 	}
 	title := "Sign Your Pledge Agreement"
 	body := fmt.Sprintf(

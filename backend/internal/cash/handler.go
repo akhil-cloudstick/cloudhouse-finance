@@ -433,3 +433,110 @@ func (h *SummaryHandler) Get(c *gin.Context) {
 	}
 	httpx.Success(c, http.StatusOK, summary)
 }
+
+// GoldSaleHandler wires HTTP requests to the GoldSaleService.
+type GoldSaleHandler struct {
+	svc *GoldSaleService
+}
+
+func NewGoldSaleHandler(svc *GoldSaleService) *GoldSaleHandler {
+	return &GoldSaleHandler{svc: svc}
+}
+
+type goldSaleRequest struct {
+	OrnamentType string  `json:"ornamentType" binding:"required"`
+	SoldAmount   float64 `json:"soldAmount" binding:"required"`
+	CostAmount   float64 `json:"costAmount"`
+	SoldOn       string  `json:"soldOn"` // optional, "YYYY-MM-DD" — defaults to today
+	BranchID     uint    `json:"branchId" binding:"required"`
+	Remarks      string  `json:"remarks"`
+}
+
+func (req goldSaleRequest) toInput() (RecordGoldSaleInput, error) {
+	soldOn, err := parseOccurredOn(req.SoldOn)
+	if err != nil {
+		return RecordGoldSaleInput{}, httpx.NewBadRequest("invalid soldOn: expected YYYY-MM-DD")
+	}
+	return RecordGoldSaleInput{
+		OrnamentType: req.OrnamentType, SoldAmount: req.SoldAmount, CostAmount: req.CostAmount,
+		SoldOn: soldOn, BranchID: req.BranchID, Remarks: req.Remarks,
+	}, nil
+}
+
+func (h *GoldSaleHandler) Record(c *gin.Context) {
+	ctx := platform.RequestContext(c)
+	var req goldSaleRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		httpx.Fail(c, http.StatusBadRequest, "Invalid input")
+		return
+	}
+	input, err := req.toInput()
+	if err != nil {
+		httpx.FailErr(c, err)
+		return
+	}
+	input.BranchID = platform.EnforceBranchOnWrite(c, input.BranchID)
+	rec, err := h.svc.Create(ctx, input)
+	if err != nil {
+		httpx.FailErr(c, err)
+		return
+	}
+	httpx.Success(c, http.StatusCreated, rec)
+}
+
+func (h *GoldSaleHandler) List(c *gin.Context) {
+	ctx := platform.RequestContext(c)
+	branchID := platform.GetBranchScope(c)
+
+	fromDate, err := parseOptionalDate(c.Query("fromDate"))
+	if err != nil {
+		httpx.Fail(c, http.StatusBadRequest, "invalid fromDate: expected YYYY-MM-DD")
+		return
+	}
+	toDate, err := parseOptionalDate(c.Query("toDate"))
+	if err != nil {
+		httpx.Fail(c, http.StatusBadRequest, "invalid toDate: expected YYYY-MM-DD")
+		return
+	}
+
+	limit, _ := strconv.Atoi(c.Query("limit"))
+	if limit > 0 {
+		offset, _ := strconv.Atoi(c.Query("offset"))
+		if offset < 0 {
+			offset = 0
+		}
+		rec, total, err := h.svc.List(ctx, branchID, fromDate, toDate, limit+1, offset)
+		if err != nil {
+			httpx.FailErr(c, err)
+			return
+		}
+		hasMore := len(rec) > limit
+		if hasMore {
+			rec = rec[:limit]
+		}
+		httpx.Success(c, http.StatusOK, gin.H{"items": rec, "hasMore": hasMore, "total": total})
+		return
+	}
+
+	rec, _, err := h.svc.List(ctx, branchID, fromDate, toDate, 0, 0)
+	if err != nil {
+		httpx.FailErr(c, err)
+		return
+	}
+	httpx.Success(c, http.StatusOK, rec)
+}
+
+func (h *GoldSaleHandler) Get(c *gin.Context) {
+	ctx := platform.RequestContext(c)
+	id, err := httpx.IDParam(c, "id")
+	if err != nil {
+		httpx.FailErr(c, err)
+		return
+	}
+	rec, err := h.svc.Get(ctx, id, platform.GetBranchScope(c))
+	if err != nil {
+		httpx.FailErr(c, err)
+		return
+	}
+	httpx.Success(c, http.StatusOK, rec)
+}

@@ -331,7 +331,7 @@ export function hardDeleteLoan(loanId: number) {
 // endpoints (backend/internal/loan/handler.go's StartIndemnityBondEsign/
 // CheckIndemnityBondEsign).
 
-export type BondLang = "en" | "gu";
+export type BondLang = "en" | "ml";
 // How the signing URL reaches the customer, in addition to always being
 // returned to the caller (see backend/internal/loan/service.go's
 // StartIndemnityBondSign doc comment):

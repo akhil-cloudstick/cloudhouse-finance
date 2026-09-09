@@ -543,7 +543,7 @@ export type IndemnityBondDeliverBy = "open" | "whatsapp" | "dashboard";
 
 export async function startIndemnityBondEsign(
   loanId: number,
-  lang: "en" | "hi" | "gu",
+  lang: "en" | "ml",
   redirectUrl: string,
   deliverBy: IndemnityBondDeliverBy = "open"
 ): Promise<IndemnityBondEsignStart> {
@@ -1468,6 +1468,55 @@ export async function getInterestCollected(from?: string, to?: string): Promise<
   const qs = params.toString();
   const rec = await apiFetch<{ interestCollected: number }>(`/loans/interest-collected${qs ? `?${qs}` : ""}`);
   return rec.interestCollected;
+}
+
+/* Gold-value risk assessment — mirrors backend/internal/loan/service.go's
+ * LoanRiskRow exactly. Compares each open loan's principal against what its
+ * pledged gold would fetch sold TODAY (today's published rate × each
+ * ornament's own purity/weight — a loan can carry mixed-purity ornaments),
+ * not the value the loan was opened at. */
+export type LoanRiskLevel = "Green" | "Orange" | "Red";
+
+export type LoanRiskRow = {
+  loanId: number;
+  loanNumber: string;
+  customerId: number;
+  customerName: string;
+  status: string;
+  principalAmount: number;
+  totalNetWeight: number;
+  currentGoldValue: number;
+  riskLevel: LoanRiskLevel;
+};
+
+// RISK_STATUSES mirrors backend/internal/loan/service.go's
+// riskEligibleStatuses exactly — the loan statuses where gold is still in
+// custody and a real principal is still owed against it. Backs the risk
+// page's own status filter dropdown.
+export const RISK_STATUSES = ["Active", "Due Soon", "Overdue", "Closure Requested", "Defaulted", "Auction Eligible"] as const;
+
+export const LOAN_RISK_PAGE_SIZE = 8;
+
+// Mirrors backend/internal/loan/handler.go's ListRiskAssessment response
+// envelope — counts/total cover every loan matching the filter, not just
+// the current page, so the KPI tiles stay correct regardless of page.
+export type LoanRiskCounts = { red: number; orange: number; green: number };
+
+export async function listLoanRiskAssessmentPage(
+  page: number,
+  limit?: number,
+  filters?: { status?: string; fromDate?: string; toDate?: string }
+): Promise<{ items: LoanRiskRow[]; hasMore: boolean; total: number; counts: LoanRiskCounts }> {
+  const pageSize = limit ?? LOAN_RISK_PAGE_SIZE;
+  const params = new URLSearchParams({
+    limit: String(pageSize),
+    offset: String((page - 1) * pageSize),
+  });
+  if (filters?.status) params.set("status", filters.status);
+  if (filters?.fromDate) params.set("from", filters.fromDate);
+  if (filters?.toDate) params.set("to", filters.toDate);
+  const rec = await apiFetch<{ items: LoanRiskRow[]; hasMore: boolean; total: number; counts: LoanRiskCounts }>(`/loans/risk-assessment?${params}`);
+  return { items: rec?.items || [], hasMore: !!rec?.hasMore, total: rec?.total ?? 0, counts: rec?.counts ?? { red: 0, orange: 0, green: 0 } };
 }
 
 export async function createExtensionRequest(loanId: number, months: number, detail?: string): Promise<RequestView> {

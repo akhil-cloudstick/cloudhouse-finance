@@ -667,7 +667,13 @@ func (s *Service) RenewLoan(ctx context.Context, loanID uint, branchID *uint, in
 		}
 		old.OutstandingAmount = 0
 		old.TotalPaid = platform.RoundMoney(old.TotalPaid + rollover)
-		old.Status = StatusRenewed
+		// Closed, not the old StatusRenewed — a renewed loan really is
+		// finished (fully settled via the rollover above, gold/repayment
+		// obligation moved to the new loan); RenewedToLoanID already
+		// records that it was closed BY a renewal specifically, so nothing
+		// is lost by not having a separate status for it, and every
+		// "closed loans" list/filter now correctly includes it.
+		old.Status = StatusClosed
 		old.ClosedAt = &now
 		old.RenewedToLoanID = &newLoan.ID
 		if err := s.repo.Update(ctx, tx, old); err != nil {

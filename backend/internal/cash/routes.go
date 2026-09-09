@@ -35,3 +35,13 @@ func RegisterCashRoutes(rg *gin.RouterGroup, ob *OpeningBalanceHandler, summary 
 	rg.GET("/opening-balance", perms.Read, ob.Get)
 	rg.GET("/summary", perms.Read, summary.Get)
 }
+
+// RegisterGoldSaleRoutes mounts the gold-sale endpoints under the given
+// group (expected to be something like r.Group(ctx, "/api/v1/gold-sales")).
+// Shares the "cash" resource permission, same as every other Cash & Expenses
+// endpoint above.
+func RegisterGoldSaleRoutes(rg *gin.RouterGroup, h *GoldSaleHandler, perms platform.CRUDMiddlewares) {
+	rg.POST("", perms.Create, h.Record)
+	rg.GET("", perms.Read, h.List)
+	rg.GET("/:id", perms.Read, h.Get)
+}

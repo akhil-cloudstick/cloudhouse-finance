@@ -8,7 +8,7 @@ import { Select } from "@/common/components/ui/Select";
 import { useLoans } from "@/modules/loans/store/LoansProvider";
 import { listLoanRequestsPage, getLoanByNumber, type RequestView } from "@/modules/loans/services/loanService";
 import { getCustomer } from "@/modules/customers/services/customerService";
-import { printReleaseAgreement } from "@/modules/loans/utils/releaseAgreement";
+import { printReleaseAgreement, type ReleaseAgreementLang } from "@/modules/loans/utils/releaseAgreement";
 import { useToast } from "@/common/components/Toast";
 import { useAuth } from "@/common/auth-context";
 import { useResponsivePageSize } from "@/common/utils/responsive";
@@ -48,11 +48,13 @@ export function Requests() {
   const [total, setTotal] = useState(0);
   const [status, setStatus] = useState("");
   const [downloadingId, setDownloadingId] = useState<number | null>(null);
+  const [downloadMenuId, setDownloadMenuId] = useState<number | null>(null);
 
   // Lets an Approved release row's document be re-downloaded right from
   // this list, without navigating to Loan Detail first — same generator
   // LoanDetail.tsx's own Documents menu uses.
-  async function downloadReleaseAgreement(r: RequestView) {
+  async function downloadReleaseAgreement(r: RequestView, lang: ReleaseAgreementLang) {
+    setDownloadMenuId(null);
     setDownloadingId(r.id);
     try {
       const loan = await getLoanByNumber(r.loanNumber);
@@ -63,18 +65,21 @@ export function Requests() {
           branchName: loan.branchName,
           customerName: customer.name,
           customerAddress: customer.address,
-          customerId: customer.id,
-          aadhaarLast4: customer.aadhaarLast4,
-          pan: customer.pan,
+          borrowedDate: loan.opened,
+          borrowedAmount: loan.principal,
+          returnedAmount: loan.totalPaid,
+          totalInterest: loan.interestPaid + loan.penalInterestPaid,
           ornaments: loan.ornaments.map((o) => ({
             name: o.name,
             purity: o.purity,
             quantity: o.quantity,
             grossWeight: o.grossWeight,
             netWeight: o.netWeight,
+            value: o.goldValue,
           })),
         },
-        toast
+        toast,
+        lang
       );
     } catch {
       toast("Could not load loan/customer details — try again");
@@ -166,16 +171,32 @@ export function Requests() {
                       >
                         {r.status === "Pending" && canDecide ? "Review" : "View"}
                       </button>
-                      <button
-                        className="btn ghost sm"
-                        style={{ padding: "6px 10px", display: "inline-flex", alignItems: "center", visibility: r.type === "Release" && r.status === "Approved" ? "visible" : "hidden" }}
-                        title={downloadingId === r.id ? "Preparing…" : "Download Release Agreement"}
-                        disabled={downloadingId === r.id}
-                        onClick={() => downloadReleaseAgreement(r)}
-                        tabIndex={r.type === "Release" && r.status === "Approved" ? 0 : -1}
+                      <div
+                        className="docs-dd"
+                        style={{ visibility: r.type === "Release" && r.status === "Approved" ? "visible" : "hidden" }}
                       >
-                        <Icon name="download" />
-                      </button>
+                        <button
+                          type="button"
+                          className="btn ghost sm"
+                          style={{ padding: "6px 10px", display: "inline-flex", alignItems: "center" }}
+                          title={downloadingId === r.id ? "Preparing…" : "Download Release Agreement"}
+                          disabled={downloadingId === r.id}
+                          onClick={() => setDownloadMenuId((cur) => (cur === r.id ? null : r.id))}
+                          tabIndex={r.type === "Release" && r.status === "Approved" ? 0 : -1}
+                        >
+                          <Icon name="download" />
+                        </button>
+                        {downloadMenuId === r.id && (
+                          <div className="docs-dd-menu" style={{ minWidth: 170, right: 0 }}>
+                            <a href="#" onClick={(e) => { e.preventDefault(); downloadReleaseAgreement(r, "en"); }}>
+                              <Icon name="doc" /><span className="tx">English</span>
+                            </a>
+                            <a href="#" onClick={(e) => { e.preventDefault(); downloadReleaseAgreement(r, "ml"); }}>
+                              <Icon name="doc" /><span className="tx">Malayalam</span>
+                            </a>
+                          </div>
+                        )}
+                      </div>
                     </div>
                   </td>
                 </tr>

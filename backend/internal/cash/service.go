@@ -374,6 +374,30 @@ func (s *MovementService) RecordAuctionSurplusCashOut(ctx context.Context, loanI
 	return rec.ID, nil
 }
 
+// RecordGoldSaleCashIn creates the cash-in movement for the business selling
+// gold it owns (called from GoldSaleService.Create). Source "GoldSale" is
+// distinct from "Collection"/"Auction"/"Savings"/"Loan" so it is told apart
+// from a customer repayment or an auction realisation in the Cash Movements
+// table, in reports, and in SumBreakdownByDate's GoldSales bucket.
+func (s *MovementService) RecordGoldSaleCashIn(ctx context.Context, ornamentType string, amount float64, branchID uint, occurredOn time.Time) (uint, error) {
+	rec := &CashMovement{
+		Type:     "in",
+		Source:   "GoldSale",
+		Purpose:  "Gold sale — " + ornamentType,
+		Amount:   amount,
+		BranchID: &branchID,
+	}
+	if occurredOn.IsZero() {
+		rec.OccurredOn = time.Now()
+	} else {
+		rec.OccurredOn = occurredOn
+	}
+	if err := s.repo.Create(ctx, rec); err != nil {
+		return 0, err
+	}
+	return rec.ID, nil
+}
+
 // RecordBankPledgeReleaseExpense books a bank pledge's release/cash-out as
 // an auto-approved Expense entry (loan.CashRecorder, called from
 // loan.Service.ReleaseBankPledge), alongside RecordBankPledgeCashOut. This
@@ -710,4 +734,108 @@ func (s *SummaryService) GetExpectedCash(ctx context.Context, branchID *uint, da
 		CollectionsBreakdown:   inBreakdown,
 		DisbursementsBreakdown: outBreakdown,
 	}, nil
+}
+
+// RecordGoldSaleInput mirrors the fields supplied by the "Gold Sale" form on
+// the Cash & Expenses page.
+type RecordGoldSaleInput struct {
+	OrnamentType string
+	SoldAmount   float64
+	// CostAmount is what the business paid to acquire this gold, entered by
+	// staff at sale time — no separate purchase-inventory record exists to
+	// look this up from yet (see GoldSale's own doc comment).
+	CostAmount float64
+	SoldOn     time.Time
+	BranchID   uint
+	Remarks    string
+}
+
+var (
+	ErrOrnamentTypeRequired = httpx.NewBadRequest("ornament type is required")
+	ErrInvalidSoldAmount    = httpx.NewBadRequest("sold amount must be greater than zero")
+	ErrInvalidCostAmount    = httpx.NewBadRequest("cost amount must be zero or greater")
+	ErrGoldSaleNotFound     = httpx.NewNotFound("gold sale not found")
+)
+
+// GoldSaleService implements gold-sale business rules: the business selling
+// gold it owns and booking the proceeds into Cash-in-Hand.
+type GoldSaleService struct {
+	repo        *GoldSaleRepository
+	movementSvc *MovementService
+	branchRepo  *branch.Repository
+}
+
+func NewGoldSaleService(repo *GoldSaleRepository, movementSvc *MovementService, branchRepo *branch.Repository) *GoldSaleService {
+	return &GoldSaleService{repo: repo, movementSvc: movementSvc, branchRepo: branchRepo}
+}
+
+// Create records a gold sale and books its matching cash-in movement in one
+// step — profit is computed here (SoldAmount − CostAmount) rather than left
+// for the frontend to derive, so it can never disagree with what's stored.
+func (s *GoldSaleService) Create(ctx context.Context, in RecordGoldSaleInput) (*GoldSale, error) {
+	if in.OrnamentType == "" {
+		return nil, ErrOrnamentTypeRequired
+	}
+	if in.SoldAmount <= 0 {
+		return nil, ErrInvalidSoldAmount
+	}
+	if in.CostAmount < 0 {
+		return nil, ErrInvalidCostAmount
+	}
+	if in.BranchID == 0 {
+		return nil, ErrBranchRequired
+	}
+	if ok, err := s.branchRepo.Exists(ctx, in.BranchID); err != nil {
+		return nil, err
+	} else if !ok {
+		return nil, ErrBranchInvalid
+	}
+
+	soldOn := in.SoldOn
+	if soldOn.IsZero() {
+		soldOn = time.Now()
+	}
+
+	movementID, err := s.movementSvc.RecordGoldSaleCashIn(ctx, in.OrnamentType, in.SoldAmount, in.BranchID, soldOn)
+	if err != nil {
+		return nil, err
+	}
+
+	rec := &GoldSale{
+		OrnamentType:   in.OrnamentType,
+		SoldAmount:     in.SoldAmount,
+		CostAmount:     in.CostAmount,
+		Profit:         in.SoldAmount - in.CostAmount,
+		SoldOn:         soldOn,
+		BranchID:       in.BranchID,
+		CashMovementID: &movementID,
+		Remarks:        in.Remarks,
+	}
+	if err := s.repo.Create(ctx, rec); err != nil {
+		return nil, err
+	}
+	return s.repo.FindByID(ctx, rec.ID)
+}
+
+// List returns gold sales, optionally scoped to branchID (nil = all
+// branches — Administrator only, see platform.GetBranchScope) and to
+// [fromDate, toDate] (zero value on either end means "no bound" on that
+// side).
+func (s *GoldSaleService) List(ctx context.Context, branchID *uint, fromDate, toDate time.Time, limit, offset int) ([]GoldSale, int64, error) {
+	return s.repo.FindAll(ctx, branchID, fromDate, toDate, limit, offset)
+}
+
+// Get returns the gold sale by id, or ErrGoldSaleNotFound if it doesn't
+// exist OR (when branchID is non-nil) belongs to a different branch — a
+// non-admin gets the same "not found" for another branch's sale as for a
+// genuinely missing id.
+func (s *GoldSaleService) Get(ctx context.Context, id uint, branchID *uint) (*GoldSale, error) {
+	rec, err := s.repo.FindByID(ctx, id)
+	if err != nil {
+		return nil, ErrGoldSaleNotFound
+	}
+	if branchID != nil && rec.BranchID != *branchID {
+		return nil, ErrGoldSaleNotFound
+	}
+	return rec, nil
 }

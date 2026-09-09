@@ -197,7 +197,12 @@ type CashInBreakdown struct {
 	// it is neither a customer payment nor cash the branch put in itself, and
 	// misfiling it as a manual top-up would overstate how much cash staff added.
 	Auctions float64 `json:"auctions"`
-	TopUps   float64 `json:"topUps"` // Source == "Savings" | "Loan" (manual "Add Cash")
+	// GoldSales is Source == "GoldSale" — proceeds from the business selling
+	// gold it owns. Bucketed separately for the same reason Auctions is:
+	// neither a customer payment nor cash staff put in themselves, so
+	// leaving it in TopUps would overstate manual top-ups.
+	GoldSales float64 `json:"goldSales"`
+	TopUps    float64 `json:"topUps"` // Source == "Savings" | "Loan" (manual "Add Cash")
 }
 
 type CashOutBreakdown struct {
@@ -247,6 +252,8 @@ func (r *MovementRepository) SumBreakdownByDate(ctx context.Context, branchID *u
 				in.Pledges += rw.Amount
 			case "Auction":
 				in.Auctions += rw.Amount
+			case "GoldSale":
+				in.GoldSales += rw.Amount
 			default: // "Savings", "Loan"
 				in.TopUps += rw.Amount
 			}
@@ -301,4 +308,56 @@ func (r *OpeningBalanceRepository) Upsert(ctx context.Context, rec *OpeningCashB
 		return err
 	}
 	return r.db.WithContext(ctx).Create(rec).Error
+}
+
+// GoldSaleRepository provides GORM-backed persistence for GoldSale records.
+type GoldSaleRepository struct {
+	db *gorm.DB
+}
+
+func NewGoldSaleRepository(db *gorm.DB) *GoldSaleRepository {
+	return &GoldSaleRepository{db: db}
+}
+
+func (r *GoldSaleRepository) Create(ctx context.Context, rec *GoldSale) error {
+	return r.db.WithContext(ctx).Create(rec).Error
+}
+
+func (r *GoldSaleRepository) FindByID(ctx context.Context, id uint) (*GoldSale, error) {
+	var rec GoldSale
+	if err := r.db.WithContext(ctx).Preload("Branch").First(&rec, id).Error; err != nil {
+		return nil, err
+	}
+	return &rec, nil
+}
+
+// FindAll returns gold sales, optionally scoped to a single branch (nil for
+// an Administrator's unfiltered "all branches" view — see
+// platform.GetBranchScope) and bounded to [fromDate, toDate] on sold_on;
+// either end left zero-value means "no bound" on that side, same convention
+// as MovementRepository.FindAll.
+func (r *GoldSaleRepository) FindAll(ctx context.Context, branchID *uint, fromDate, toDate time.Time, limit, offset int) ([]GoldSale, int64, error) {
+	var sales []GoldSale
+	q := r.db.WithContext(ctx).Preload("Branch").Order("sold_on desc, id desc")
+	if branchID != nil {
+		q = q.Where("branch_id = ?", *branchID)
+	}
+	if !fromDate.IsZero() {
+		q = q.Where("sold_on >= ?", fromDate)
+	}
+	if !toDate.IsZero() {
+		q = q.Where("sold_on < ?", toDate.AddDate(0, 0, 1))
+	}
+	var total int64
+	if limit > 0 {
+		if err := q.Session(&gorm.Session{}).Model(&GoldSale{}).Count(&total).Error; err != nil {
+			return nil, 0, err
+		}
+		q = q.Limit(limit)
+	}
+	if offset > 0 {
+		q = q.Offset(offset)
+	}
+	err := q.Find(&sales).Error
+	return sales, total, err
 }

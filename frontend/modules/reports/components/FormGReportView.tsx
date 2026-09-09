@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Icon } from "@/common/components/Icon";
 import { DatePicker } from "@/common/components/ui/DatePicker";
 import { SearchableSelect } from "@/common/components/ui/SearchableSelect";
+import { Select } from "@/common/components/ui/Select";
 import { useToast } from "@/common/components/Toast";
 import { ApiError } from "@/common/services/httpClient";
 import { listActiveBranches, type BranchView } from "@/modules/branches/services/branchService";
@@ -126,7 +127,45 @@ export function FormGReportView({ onBack }: { onBack: () => void }) {
       </div>
       <hr className="gold-rule" />
 
-      <div style={{ display: "flex", flexWrap: "wrap", gap: 20, marginBottom: 18 }}>
+      {/* report-filter-row is what actually narrows DatePicker down to
+       * 150px — its own root otherwise carries a global `.dp-date{width:
+       * 230px}` that ignores this wrapper's width, same as ReportView.tsx's
+       * own filter row (see that file's comment on the same class). */}
+      <div className="report-filter-row" style={{ display: "flex", flexWrap: "wrap", gap: 50, marginBottom: 18, justifyContent: "flex-end", alignItems: "flex-end" }}>
+        <div style={{ width: 170 }}>
+          <label style={{ fontSize: 11.5, color: "var(--muted)", display: "block", marginBottom: 4 }}>Quick Range</label>
+          {/* Sets From/To below and resets back to the placeholder — this is
+           * a one-shot action, not a persisted filter value of its own, so
+           * the date range it just set (visible in From/To) is what stays
+           * on screen, not this dropdown's own selection. Current Quarter
+           * runs from that calendar quarter's start up to TODAY (not the
+           * quarter's end) since a statement can't show activity that
+           * hasn't happened yet; Next Quarter, being entirely in the
+           * future, uses its own full start-to-end range. */}
+          <Select
+            value=""
+            onChange={(v) => {
+              const now = new Date();
+              if (v === "last3") {
+                setFrom(subMonths(today(), 3));
+                setTo(today());
+              } else if (v === "current") {
+                setFrom(toISO(quarterStart(now)));
+                setTo(today());
+              } else if (v === "next") {
+                const nextStart = new Date(quarterStart(now).getFullYear(), quarterStart(now).getMonth() + 3, 1);
+                setFrom(toISO(nextStart));
+                setTo(toISO(quarterEnd(nextStart)));
+              }
+            }}
+            placeholder="Choose a range…"
+            options={[
+              { value: "last3", label: "Last 3 Months" },
+              { value: "current", label: "Current Quarter" },
+              { value: "next", label: "Next Quarter" },
+            ]}
+          />
+        </div>
         <div style={{ width: 150 }}>
           <label style={{ fontSize: 11.5, color: "var(--muted)", display: "block", marginBottom: 4 }}>From</label>
           <DatePicker value={from} onChange={setFrom} max={to} />
@@ -285,6 +324,13 @@ function OverrideRow({
   );
 }
 
+// Section 3/4's figures are the only editable cells on this whole
+// statement — everything else is a computed, read-only value straight
+// from the ledger. A plain border matching the rest of the table's
+// borders made an editable amount indistinguishable from a static one at
+// a glance; the gold fill/border (the same accent this app already uses
+// for focus/interactive affordances) marks it as "you can type here"
+// without needing a separate legend.
 function NumInput({ value, onChange }: { value?: number; onChange: (v: string) => void }) {
   return (
     <input
@@ -292,7 +338,15 @@ function NumInput({ value, onChange }: { value?: number; onChange: (v: string) =
       value={value ?? ""}
       placeholder="0"
       onChange={(e) => onChange(e.target.value)}
-      style={{ width: 110, textAlign: "right", padding: "4px 6px", border: "1px solid var(--border)", borderRadius: 4 }}
+      style={{
+        width: 110,
+        textAlign: "right",
+        padding: "4px 6px",
+        border: "1.5px solid var(--gold)",
+        borderRadius: 4,
+        background: "var(--gold-pale)",
+        fontWeight: 600,
+      }}
     />
   );
 }
@@ -309,4 +363,20 @@ function subMonths(dateStr: string, months: number): string {
   const d = new Date(dateStr + "T00:00:00");
   d.setMonth(d.getMonth() - months);
   return d.toISOString().slice(0, 10);
+}
+
+function toISO(d: Date): string {
+  return d.toISOString().slice(0, 10);
+}
+
+/* Calendar-quarter boundaries (Jan–Mar / Apr–Jun / Jul–Sep / Oct–Dec),
+ * backing the Quick Range dropdown's "Current Quarter"/"Next Quarter"
+ * presets. quarterStart floors to the quarter containing `d`; quarterEnd is
+ * that quarter's last calendar day (day 0 of the month after it ends). */
+function quarterStart(d: Date): Date {
+  return new Date(d.getFullYear(), Math.floor(d.getMonth() / 3) * 3, 1);
+}
+function quarterEnd(d: Date): Date {
+  const start = quarterStart(d);
+  return new Date(start.getFullYear(), start.getMonth() + 3, 0);
 }

@@ -88,3 +88,45 @@ type OpeningCashBalance struct {
 func (OpeningCashBalance) TableName() string {
 	return "opening_cash_balances"
 }
+
+// GoldSale records the business selling gold it owns (bought stock, NOT a
+// customer's pledged loan collateral — that goes through the Auction
+// module instead). One row per sale: what was sold, what it cost the
+// business to acquire (staff-entered at sale time — no separate purchase-
+// inventory tracking exists yet), what it sold for, and the resulting
+// profit/loss, computed once and stored rather than left to be
+// recalculated (and potentially drift) on every read.
+//
+// Every sale also books a matching CashMovement (Source "GoldSale", Type
+// "in") for SoldAmount — see MovementService.RecordGoldSaleCashIn — so the
+// sale is reflected in Cash-in-Hand/Expected Cash the same way a loan
+// repayment or auction proceeds are, without a special case in the summary
+// math. CashMovementID links back to it for a receipt/audit trail.
+type GoldSale struct {
+	platform.TenantScoped
+	ID uint `json:"id" gorm:"primaryKey"`
+
+	OrnamentType string    `json:"ornamentType" gorm:"not null;size:80"`
+	SoldAmount   float64   `json:"soldAmount" gorm:"not null;type:numeric(16,2)"`
+	CostAmount   float64   `json:"costAmount" gorm:"not null;type:numeric(16,2)"`
+	// Profit is SoldAmount − CostAmount, computed at write time — negative
+	// on a loss-making sale, not clamped to zero.
+	Profit float64   `json:"profit" gorm:"not null;type:numeric(16,2)"`
+	SoldOn time.Time `json:"soldOn" gorm:"not null"`
+
+	BranchID uint          `json:"branchId" gorm:"not null"`
+	Branch   branch.Branch `json:"branch" gorm:"foreignKey:BranchID"`
+
+	// CashMovementID is the matching Cash Movements row this sale booked —
+	// nullable only so a legacy/manually-fixed row is never blocked by a
+	// FK, not because a normal sale can lack one.
+	CashMovementID *uint         `json:"cashMovementId"`
+	CashMovement   *CashMovement `json:"-" gorm:"foreignKey:CashMovementID"`
+
+	Remarks   string    `json:"remarks" gorm:"size:500"`
+	CreatedAt time.Time `json:"createdAt"`
+}
+
+func (GoldSale) TableName() string {
+	return "gold_sales"
+}

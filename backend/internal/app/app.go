@@ -161,6 +161,10 @@ func Build(db *gorm.DB, cfg platform.Config) (*App, error) {
 	summarySvc := cash.NewSummaryService(movementRepo, expenseRepo, openingBalanceSvc)
 	summaryHandler := cash.NewSummaryHandler(summarySvc)
 
+	goldSaleRepo := cash.NewGoldSaleRepository(db)
+	goldSaleSvc := cash.NewGoldSaleService(goldSaleRepo, movementSvc, branchRepo)
+	goldSaleHandler := cash.NewGoldSaleHandler(goldSaleSvc)
+
 	settingsRepo := settings.NewRepository(db)
 	settingsSvc := settings.NewService(settingsRepo, settingsCipher)
 	settingsHandler := settings.NewHandler(settingsSvc)
@@ -369,6 +373,7 @@ func Build(db *gorm.DB, cfg platform.Config) (*App, error) {
 	cash.RegisterMovementRoutes(protected.Group("/cash-movements"), movementHandler, platform.CRUDPermissions(authzRepo, "cash"))
 	cash.RegisterExpenseRoutes(protected.Group("/expenses"), expenseHandler, platform.CRUDPermissions(authzRepo, "cash"))
 	cash.RegisterCashRoutes(protected.Group("/cash"), openingBalanceHandler, summaryHandler, platform.CRUDPermissions(authzRepo, "cash"))
+	cash.RegisterGoldSaleRoutes(protected.Group("/gold-sales"), goldSaleHandler, platform.CRUDPermissions(authzRepo, "cash"))
 	settings.RegisterRoutes(protected.Group("/settings/api-keys"), settingsHandler, platform.CRUDPermissions(authzRepo, "settings"))
 	customer.RegisterRoutes(protected.Group("/customers"), customerHandler, platform.CRUDPermissions(authzRepo, "customers"))
 	// Customer 360 lives on loanHandler (see internal/loan/service.go's

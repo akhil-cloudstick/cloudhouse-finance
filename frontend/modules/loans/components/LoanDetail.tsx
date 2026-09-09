@@ -30,7 +30,7 @@ import { getCustomer, getCustomerAadhaarFull } from "@/modules/customers/service
 import { listPackets } from "@/modules/packets/services/packetService";
 import { openPrintWindow } from "@/common/utils/print";
 import { printIndemnityBond, type BondLang } from "@/modules/loans/utils/indemnityBond";
-import { printReleaseAgreement } from "@/modules/loans/utils/releaseAgreement";
+import { printReleaseAgreement, type ReleaseAgreementLang } from "@/modules/loans/utils/releaseAgreement";
 import { StageTracker } from "@/common/components/ui/StageTracker";
 import { ApiError } from "@/common/services/httpClient";
 import { useLoans } from "@/modules/loans/store/LoansProvider";
@@ -467,7 +467,7 @@ export function LoanDetail({ id }: { id?: string }) {
     try {
       const c = await getCustomer(l.customerId);
       openPrintWindow("Pledge Slip — " + l.id, `
-        <h1>AMBIKA GOLD FINANCE</h1><h2>Gold Loan Pledge Slip</h2>
+        <h1>CHITTILAPILLY THOMMANA FINANCIERS AND INVESTMENTS</h1><h2>Gold Loan Pledge Slip</h2>
         <table>
           <tr><th style="width:110px">Loan No</th><td>${l.id}</td><th style="width:110px">Date</th><td>${new Date().toLocaleDateString("en-IN")}</td></tr>
           <tr><th>Customer</th><td>${c.name} (${c.code || c.id})</td><th>Phone</th><td>${c.phone || "—"}</td></tr>
@@ -498,7 +498,7 @@ export function LoanDetail({ id }: { id?: string }) {
    * (CompleteRelease already ran), same Documents dropdown as the other
    * prints. Customer address isn't carried on LoanView, so this fetches it
    * the same way printPledgeSlip/printStatement already do. */
-  async function printReleaseAgreementDoc() {
+  async function printReleaseAgreementDoc(lang: ReleaseAgreementLang) {
     setPrintingReleaseAgreement(true);
     try {
       const c = await getCustomer(l.customerId);
@@ -508,18 +508,23 @@ export function LoanDetail({ id }: { id?: string }) {
           branchName: l.branchName,
           customerName: c.name,
           customerAddress: c.address,
-          customerId: c.id,
-          aadhaarLast4: c.aadhaarLast4,
-          pan: c.pan,
+          borrowedDate: l.opened,
+          borrowedAmount: l.principal,
+          // No closedAt on LoanView — printReleaseAgreement defaults
+          // returnedDate to today when omitted, same as before.
+          returnedAmount: l.totalPaid,
+          totalInterest: l.interestPaid + l.penalInterestPaid,
           ornaments: l.ornaments.map((o) => ({
             name: o.name,
             purity: o.purity,
             quantity: o.quantity,
             grossWeight: o.grossWeight,
             netWeight: o.netWeight,
+            value: o.goldValue,
           })),
         },
-        toast
+        toast,
+        lang
       );
     } catch {
       toast("Could not load customer details — try again");
@@ -569,7 +574,7 @@ export function LoanDetail({ id }: { id?: string }) {
           ` — total net weight ${fmtW(l.totalNetWeight)}`
         : "—";
       openPrintWindow("Statement — " + l.id, `
-        <h1>AMBIKA GOLD FINANCE</h1><h2>Statement of Account</h2>
+        <h1>CHITTILAPILLY THOMMANA FINANCIERS AND INVESTMENTS</h1><h2>Statement of Account</h2>
         <table>
           <tr><th style="width:150px">Loan No</th><td>${l.id}</td><th style="width:150px">Statement Date</th><td>${new Date().toLocaleDateString("en-IN")}</td></tr>
           <tr><th>Debtor Name</th><td colspan="3">${c.name}</td></tr>
@@ -652,7 +657,7 @@ export function LoanDetail({ id }: { id?: string }) {
               <div class="id">${packetLabel}</div>
               <div class="name">${c.name || "—"}</div>
               <div class="meta">${l.id} · ${l.totalNetWeight.toFixed(1)}g</div>
-              <div class="brand">AMBIKA GOLD FINANCE</div>
+              <div class="brand">CHITTILAPILLY THOMMANA FINANCIERS</div>
             </div>
           </div>
           <div class="strap"><div class="band"></div></div>
@@ -672,7 +677,7 @@ export function LoanDetail({ id }: { id?: string }) {
   }
 
   // Renders the bond server-side in the requested language (see
-  // BondLang/BOND_LANG_OPTIONS in indemnityBond.ts — "en" or "gu", chosen
+  // BondLang/BOND_LANG_OPTIONS in indemnityBond.ts — "en" or "ml", chosen
   // by the officer in EsignLanguageModal below) and starts the Aadhaar
   // eSign request. This is an ADDITIONAL path alongside NewLoan.tsx's
   // print-and-sign-by-hand buttons, not a replacement — eSign needs the
@@ -701,7 +706,7 @@ export function LoanDetail({ id }: { id?: string }) {
     }
   }
 
-  // Opens EsignLanguageModalContent so the officer picks English/Gujarati before
+  // Opens EsignLanguageModalContent so the officer picks English/Malayalam before
   // printing the bond.
   function openPrintBondLanguagePicker() {
     openModal(
@@ -715,7 +720,7 @@ export function LoanDetail({ id }: { id?: string }) {
     );
   }
 
-  // Opens EsignLanguageModal so the officer picks English/Gujarati and delivery
+  // Opens EsignLanguageModal so the officer picks English/Malayalam and delivery
   // channel (WhatsApp, customer mobile app, or browser tab) before starting the request.
   async function openEsignLanguagePicker() {
     let phone: string | undefined;
@@ -908,9 +913,14 @@ export function LoanDetail({ id }: { id?: string }) {
                 <Icon name="doc" /><span className="tx">{printingBond ? "Preparing…" : "Print Bond"}</span>
               </a>
               {l.status === "Closed" && (
-                <a href="#" title="Release Agreement" className={printingReleaseAgreement ? "disabled" : ""} onClick={(e) => { e.preventDefault(); if (printingReleaseAgreement) return; setDocsMenuOpen(false); printReleaseAgreementDoc(); }}>
-                  <Icon name="unlock" /><span className="tx">{printingReleaseAgreement ? "Preparing…" : "Release Agreement"}</span>
-                </a>
+                <>
+                  <a href="#" title="Release Agreement (English)" className={printingReleaseAgreement ? "disabled" : ""} onClick={(e) => { e.preventDefault(); if (printingReleaseAgreement) return; setDocsMenuOpen(false); printReleaseAgreementDoc("en"); }}>
+                    <Icon name="unlock" /><span className="tx">{printingReleaseAgreement ? "Preparing…" : "Release Agreement (English)"}</span>
+                  </a>
+                  <a href="#" title="Release Agreement (Malayalam)" className={printingReleaseAgreement ? "disabled" : ""} onClick={(e) => { e.preventDefault(); if (printingReleaseAgreement) return; setDocsMenuOpen(false); printReleaseAgreementDoc("ml"); }}>
+                    <Icon name="unlock" /><span className="tx">{printingReleaseAgreement ? "Preparing…" : "Release Agreement (Malayalam)"}</span>
+                  </a>
+                </>
               )}
               {l.indemnityBondSignStatus === "sign_complete" && l.indemnityBondSignedUrl ? (
                 <a href={l.indemnityBondSignedUrl} title="Signed Bond" target="_blank" rel="noopener noreferrer" onClick={() => setDocsMenuOpen(false)}>

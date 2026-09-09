@@ -818,7 +818,7 @@ export default function LoanDetailScreen() {
           </ThemedText>
           <ChipSelect
             label="Bond language"
-            options={["en", "gu"] as const}
+            options={["en", "ml"] as const}
             value={esignLang}
             onChange={setEsignLang}
           />

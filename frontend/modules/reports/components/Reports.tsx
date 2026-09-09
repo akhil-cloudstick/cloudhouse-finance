@@ -8,7 +8,7 @@ import { fmt, fmtW } from "@/common/utils/format";
 import { FormGReportView } from "@/modules/reports/components/FormGReportView";
 import { ReportView, type ReportConfig } from "@/modules/reports/components/ReportView";
 import {
-  getDisbursement, getLoansStatus, getInterestCollection, getOutstandingPrincipal,
+  getDisbursement, getPersonalLoans, getLoansStatus, getInterestCollection, getOutstandingPrincipal,
   getPaymentCollection, getGoldWeight, getPackets, getBankPledge, getLoanExtensions,
   getGoldRelease, getAuctions, getExpenseCashflow, getKYC, getGoldRateHistory,
   getEmployeePerformance, getCommunicationHistory, exportReport,
@@ -51,6 +51,32 @@ const REPORT_CONFIGS: ReportConfig[] = [
       { key: "amount", label: "Amount", numeric: true, render: (r) => fmt(r.amount) },
     ],
     totals: (t) => [{ label: "Loans", value: String(t.count) }, { label: "Total Amount", value: fmt(t.totalAmount) }],
+  },
+  {
+    id: "personal-loans",
+    title: "Personal Loans",
+    description: "Personal loans opened per day with amounts",
+    icon: "note",
+    exportKey: "personal-loans",
+    fetchFn: getPersonalLoans,
+    rowKey: (r) => r.loanId,
+    columns: [
+      { key: "loanNumber", label: "Loan #", render: (r) => r.loanNumber },
+      { key: "customerName", label: "Customer", render: (r) => r.customerName },
+      { key: "branchName", label: "Branch", render: (r) => r.branchName },
+      { key: "frequency", label: "Frequency", render: (r) => r.frequency },
+      { key: "openedDate", label: "Opened", render: (r) => dt(r.openedDate) },
+      { key: "principalAmount", label: "Principal", numeric: true, render: (r) => fmt(r.principalAmount) },
+      { key: "disbursedAmount", label: "Disbursed", numeric: true, render: (r) => fmt(r.disbursedAmount) },
+      { key: "outstandingAmount", label: "Outstanding", numeric: true, render: (r) => fmt(r.outstandingAmount) },
+      { key: "status", label: "Status", render: (r) => r.status },
+    ],
+    totals: (t) => [
+      { label: "Loans", value: String(t.count) },
+      { label: "Total Principal", value: fmt(t.totalPrincipal) },
+      { label: "Total Disbursed", value: fmt(t.totalDisbursed) },
+      { label: "Total Outstanding", value: fmt(t.totalOutstanding) },
+    ],
   },
   {
     id: "loans-status",

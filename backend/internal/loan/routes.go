@@ -36,6 +36,10 @@ func RegisterRoutes(rg *gin.RouterGroup, h *Handler, perms platform.CRUDMiddlewa
 	rg.DELETE("/drafts/:draftId", perms.Delete, h.DeleteDraft)
 	rg.GET("/by-number/:loanNumber", perms.Read, h.GetByLoanNumber)
 	rg.GET("/interest-collected", perms.Read, h.GetInterestCollected)
+	// Gold-value risk assessment — see Service.ListLoanRiskAssessment's own
+	// doc comment. Read-gated: it shows nothing derived from data the loan
+	// list screen doesn't already expose, just a different lens on it.
+	rg.GET("/risk-assessment", perms.Read, h.ListRiskAssessment)
 	rg.GET("/:id", perms.Read, h.Get)
 	// Editable even after final sanction — see Service.UpdateLoan's own doc
 	// comment for exactly what this does and doesn't change.

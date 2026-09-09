@@ -34,6 +34,7 @@ import { SearchableSelect } from "@/common/components/ui/SearchableSelect";
 import { StatusChip } from "@/common/components/ui/StatusChip";
 import { PurityPicker } from "@/common/components/ui/PurityPicker";
 import { rateForPurityString } from "@/common/utils/purity";
+import { makeEnterToSubmitHandler } from "@/common/utils/enterToSubmit";
 import { openPrintWindow } from "@/common/utils/print";
 import { printIndemnityBond, BOND_LANG_OPTIONS, type BondLang } from "@/modules/loans/utils/indemnityBond";
 import { ApiError } from "@/common/services/httpClient";
@@ -82,6 +83,13 @@ export function NewLoan() {
   // attempt: re-added on a rAF tick after being cleared, since re-applying
   // the same class name to an element mid-animation doesn't restart it.
   const [shakeRateBanner, setShakeRateBanner] = useState(false);
+  // Enter submits from any plain field on this page — this isn't a modal
+  // (see common/utils/enterToSubmit.ts), so it needs its own handler.
+  // "Submit for Approval" is the only plain (non-ghost/plain-variant/
+  // danger) .btn on the whole page — "Save Draft" is ghost, "Add
+  // Ornament"/photo buttons/"Open" are plain, the draft-discard ✕ is
+  // danger — so this selector can't accidentally match any of those.
+  const onEnterSubmit = useMemo(() => makeEnterToSubmitHandler(".btn:not(.ghost):not(.plain):not(.danger):not(:disabled)"), []);
 
   async function saveTodayRate() {
     const k24 = +rateR24;
@@ -430,7 +438,7 @@ export function NewLoan() {
     const d = buildDraft();
     if (!d.orns.length) { toast("Add at least one ornament with weight and qty first"); return; }
     openPrintWindow("Pledge Slip — " + provId, `
-      <h1>AMBIKA GOLD FINANCE</h1><h2>Gold Loan Pledge Slip</h2>
+      <h1>CHITTILAPILLY THOMMANA FINANCIERS AND INVESTMENTS</h1><h2>Gold Loan Pledge Slip</h2>
       <table>
         <tr><th style="width:110px">Loan No</th><td>${provId}</td><th style="width:110px">Date</th><td>${new Date().toLocaleDateString("en-IN")}</td></tr>
         <tr><th>Customer</th><td>${d.c.name} (${d.c.id})</td><th>Phone</th><td>${"phone" in d.c ? d.c.phone : "—"}</td></tr>
@@ -529,7 +537,7 @@ export function NewLoan() {
             <div class="id">${packetLabel}</div>
             <div class="name">${c.name || "—"}</div>
             <div class="meta">${provId} · ${d.weight.toFixed(1)}g</div>
-            <div class="brand">AMBIKA GOLD FINANCE</div>
+            <div class="brand">CHITTILAPILLY THOMMANA FINANCIERS</div>
           </div>
         </div>
         <div class="strap"><div class="band"></div></div>
@@ -657,7 +665,7 @@ export function NewLoan() {
   }
 
   return (
-    <>
+    <div onKeyDown={onEnterSubmit}>
       <div className="page-h"><div><h1>New Gold Loan</h1><p>Select a verified customer, choose a scheme, and record pledged ornaments</p></div></div>
       <hr className="gold-rule" />
       {!isTodaySet && (
@@ -949,13 +957,13 @@ export function NewLoan() {
             {/* Pledge agreement print dropdown — replaces the old 2-button
               * toggle + print button with a single dropdown matching
               * LoanDetail.tsx's Documents menu, picking between English and
-              * Gujarati on the fly. */}
+              * Malayalam on the fly. */}
             <div className="docs-dd" ref={bondMenuRef}>
               <button
                 type="button"
                 className="btn ghost"
                 onClick={() => setBondMenuOpen((v) => !v)}
-                title="Print pledge agreement in English or Gujarati"
+                title="Print pledge agreement in English or Malayalam"
               >
                 🖨 Pledge Agreement <Icon name="chevronDown" className="docs-dd-chev" />
               </button>
@@ -981,14 +989,14 @@ export function NewLoan() {
                     onClick={(e) => {
                       e.preventDefault();
                       setBondMenuOpen(false);
-                      setBondLang("gu");
-                      printIndemnity("gu");
+                      setBondLang("ml");
+                      printIndemnity("ml");
                     }}
                   >
                     <Icon name="doc" />
                     <span className="tx">
-                      Gujarati
-                      <span style={{ display: "block", fontSize: 11, color: "var(--muted)" }}>ચલ મિલકતનો આડગીરો કરાર</span>
+                      Malayalam
+                      <span style={{ display: "block", fontSize: 11, color: "var(--muted)" }}>ആഭരണ പണയ കരാർ</span>
                     </span>
                   </a>
                 </div>
@@ -1077,6 +1085,6 @@ export function NewLoan() {
           <div className="notice"><Icon name="shield" /> Every loan is verified by the Loan Operator, approved by the Branch Manager, then finally sanctioned by Management.</div>
         </div>
       </div>
-    </>
+    </div>
   );
 }

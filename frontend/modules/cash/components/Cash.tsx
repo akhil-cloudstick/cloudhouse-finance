@@ -9,13 +9,14 @@ import { StatusChip } from "@/common/components/ui/StatusChip";
 import { AddCashModalContent } from "@/common/components/modals/AddCashModal";
 import { CashOutModalContent } from "@/common/components/modals/CashOutModal";
 import { ExpenseModalContent, ReceiptViewModalContent } from "@/common/components/modals/ExpenseModal";
+import { GoldSaleModalContent } from "@/common/components/modals/GoldSaleModal";
 import { listActiveBranches, type BranchView } from "@/modules/branches/services/branchService";
 import { SearchableSelect } from "@/common/components/ui/SearchableSelect";
 import { DatePicker } from "@/common/components/ui/DatePicker";
 import {
-  listCashMovementsPage, listExpensesPage, getCashSummary, setOpeningBalance,
+  listCashMovementsPage, listExpensesPage, listGoldSalesPage, getCashSummary, setOpeningBalance,
   setCashMovementLoanStatus, approveExpense, rejectExpense,
-  type CashMovementView, type ExpenseView, type CashSummary,
+  type CashMovementView, type ExpenseView, type GoldSaleView, type CashSummary,
 } from "@/modules/cash/services/cashService";
 import { ApiError } from "@/common/services/httpClient";
 import { useAuth } from "@/common/auth-context";
@@ -120,6 +121,22 @@ function ExpenseRow({ e, canUpdate, onViewReceipt, onApprove, onReject }: {
   );
 }
 
+function GoldSaleRow({ g }: { g: GoldSaleView }) {
+  return (
+    <tr>
+      <td>{g.d}</td>
+      <td>{g.ornamentType}</td>
+      <td className="num">{fmt(g.soldAmount)}</td>
+      <td className="num">{fmt(g.costAmount)}</td>
+      <td className="num" style={{ color: g.profit >= 0 ? "var(--green)" : "var(--red)" }}>
+        {g.profit >= 0 ? "+" : "−"}{fmt(Math.abs(g.profit))}
+      </td>
+      <td>{g.branch}</td>
+      <td>{g.remarks || "—"}</td>
+    </tr>
+  );
+}
+
 /* Ported from legacy/app.js's `renderCash()` / `toggleCashLoan()`. Fully
  * backend-backed: cash movements, the expense register, the opening cash
  * balance, and the Expected Cash in Hand figure all come from the Go API
@@ -140,6 +157,7 @@ export function Cash() {
   const [branchLabel, setBranchLabel] = useState("");
   const [movements, setMovements] = useState<CashMovementView[]>([]);
   const [expenses, setExpenses] = useState<ExpenseView[]>([]);
+  const [goldSales, setGoldSales] = useState<GoldSaleView[]>([]);
   const [movementsPage, setMovementsPage] = useState(1);
   const [movementsHasMore, setMovementsHasMore] = useState(false);
   const [movementsTotal, setMovementsTotal] = useState(0);
@@ -147,8 +165,12 @@ export function Cash() {
   const [expensesPage, setExpensesPage] = useState(1);
   const [expensesHasMore, setExpensesHasMore] = useState(false);
   const [expensesTotal, setExpensesTotal] = useState(0);
+  const [goldSalesPage, setGoldSalesPage] = useState(1);
+  const [goldSalesHasMore, setGoldSalesHasMore] = useState(false);
+  const [goldSalesTotal, setGoldSalesTotal] = useState(0);
   const movementsTotalPages = Math.max(1, Math.ceil(movementsTotal / cashPageSize));
   const expensesTotalPages = Math.max(1, Math.ceil(expensesTotal / cashPageSize));
+  const goldSalesTotalPages = Math.max(1, Math.ceil(goldSalesTotal / cashPageSize));
   const [summary, setSummary] = useState<CashSummary | null>(null);
   const [openingInput, setOpeningInput] = useState("");
   // Once today's opening balance exists for the selected branch we show it
@@ -157,7 +179,7 @@ export function Cash() {
   const [editingOpening, setEditingOpening] = useState(false);
   // Switches the card below between the Cash Movements and Expense Register
   // tables instead of stacking both full tables on the page at once.
-  const [activeCashTab, setActiveCashTab] = useState<"movements" | "expenses">("movements");
+  const [activeCashTab, setActiveCashTab] = useState<"movements" | "expenses" | "goldSales">("movements");
   // Cash Movements' own date-range filter — empty means "no bound", the
   // table's default unfiltered view. Only this table is filtered; the KPI
   // row above and the Expense Register tab are untouched.
@@ -183,6 +205,11 @@ export function Cash() {
       setExpensesHasMore(hasMore);
       setExpensesTotal(total);
     }).catch(() => { setExpenses([]); setExpensesHasMore(false); setExpensesTotal(0); });
+    listGoldSalesPage(goldSalesPage, cashPageSize).then(({ items, hasMore, total }) => {
+      setGoldSales(items);
+      setGoldSalesHasMore(hasMore);
+      setGoldSalesTotal(total);
+    }).catch(() => { setGoldSales([]); setGoldSalesHasMore(false); setGoldSalesTotal(0); });
     const seq = ++summarySeq.current;
     getCashSummary(branchId || undefined, today).then((s) => {
       if (seq !== summarySeq.current) return;
@@ -193,7 +220,7 @@ export function Cash() {
       if (seq !== summarySeq.current) return;
       setSummary(null);
     });
-  }, [branchId, today, movementsPage, expensesPage, cashPageSize, movementsFrom, movementsTo]);
+  }, [branchId, today, movementsPage, expensesPage, goldSalesPage, cashPageSize, movementsFrom, movementsTo]);
 
   useEffect(() => {
     listActiveBranches().then((list) => {
@@ -291,6 +318,7 @@ export function Cash() {
           <div className="page-h-actions">
             <button className="btn ghost" onClick={() => openModal(<CashOutModalContent onSaved={refresh} />)}><Icon name="coin" /> Take Cash Out</button>
             <button className="btn ghost" onClick={() => openModal(<AddCashModalContent onSaved={refresh} />)}><Icon name="coin" /> Add Cash</button>
+            <button className="btn ghost" onClick={() => openModal(<GoldSaleModalContent onSaved={refresh} />)}><Icon name="coin" /> Gold Sale Amount</button>
             <button className="btn" onClick={() => openModal(<ExpenseModalContent onSaved={refresh} />)}><Icon name="plus" /> Record Expense</button>
           </div>
         )}
@@ -353,6 +381,7 @@ export function Cash() {
               ["Loan repayments", summary?.collectionsBreakdown?.repayments || 0],
               ["Bank pledges", summary?.collectionsBreakdown?.pledges || 0],
               ["Auction proceeds", summary?.collectionsBreakdown?.auctions || 0],
+              ["Gold sales", summary?.collectionsBreakdown?.goldSales || 0],
               ["Manual top-ups", summary?.collectionsBreakdown?.topUps || 0],
             ]}
           />
@@ -385,6 +414,12 @@ export function Cash() {
             onClick={() => setActiveCashTab("expenses")}
           >
             Expense Register
+          </button>
+          <button
+            className={activeCashTab === "goldSales" ? "on" : ""}
+            onClick={() => setActiveCashTab("goldSales")}
+          >
+            Gold Sales
           </button>
         </div>
       </div>
@@ -461,6 +496,34 @@ export function Cash() {
             <button className="btn plain sm" disabled={expensesPage >= expensesTotalPages} onClick={() => setExpensesPage((p) => Math.min(expensesTotalPages, p + 1))}>Next ›</button>
           </div>
           <div className="ft">Cash expenses automatically reflect in Cash-in-Hand calculations · receipt images attached to expense records</div>
+        </div>
+      )}
+
+      {activeCashTab === "goldSales" && (
+        <div className="card">
+          <div className="hd">
+            <h3>Gold Sales</h3>
+            <div className="sp" />
+            <span style={{ fontSize: 12.5, color: "var(--muted)" }}>
+              Total profit {fmt(goldSales.reduce((s, g) => s + g.profit, 0))}
+            </span>
+          </div>
+          <div className="tbl-wrap tbl-scroll">
+            <table className="tbl tbl-center tbl-roomy">
+              <thead><tr><th>Date</th><th>Ornament Type</th><th className="num">Sold For</th><th className="num">Cost</th><th className="num">Profit / Loss</th><th>Branch</th><th>Remarks</th></tr></thead>
+              <tbody>
+                {goldSales.length
+                  ? goldSales.map((g) => <GoldSaleRow key={g.id} g={g} />)
+                  : <tr><td colSpan={7} className="empty">No gold sales recorded yet. Use &quot;Gold Sale Amount&quot;.</td></tr>}
+              </tbody>
+            </table>
+          </div>
+          <div className="ft" style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <button className="btn plain sm" disabled={goldSalesPage <= 1} onClick={() => setGoldSalesPage((p) => Math.max(1, p - 1))}>‹ Prev</button>
+            <span style={{ fontSize: 12.5 }}>Page {goldSalesPage} of {goldSalesTotalPages}</span>
+            <button className="btn plain sm" disabled={goldSalesPage >= goldSalesTotalPages} onClick={() => setGoldSalesPage((p) => Math.min(goldSalesTotalPages, p + 1))}>Next ›</button>
+          </div>
+          <div className="ft">Sold amount automatically books into Cash-in-Hand as a cash-in movement</div>
         </div>
       )}
     </>
