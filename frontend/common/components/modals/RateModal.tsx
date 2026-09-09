@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useGoldRates } from "@/modules/gold-rates/store/GoldRatesProvider";
 import { useModal } from "@/common/components/Modal";
 import { useToast } from "@/common/components/Toast";
@@ -10,6 +10,26 @@ import { finenessForKarat, rateForFineness } from "@/common/utils/purity";
 import { ApiError } from "@/common/services/httpClient";
 
 type Mode = "auto" | "manual";
+
+/* Plays app.css's existing `.shake-attention` animation (see NewLoan.tsx's
+ * gold-rate recovery banner) once, exactly when `invalid` first flips from
+ * false to true — not on every re-render while it stays true, and not
+ * replayed by React reusing the same className string across renders
+ * (CSS doesn't restart an animation just because the element re-renders
+ * with an unchanged class). Cleared again via onAnimationEnd, same
+ * pattern as that banner. */
+function useShake(invalid: boolean) {
+  const [shaking, setShaking] = useState(false);
+  const wasInvalid = useRef(false);
+  useEffect(() => {
+    if (invalid && !wasInvalid.current) {
+      setShaking(false);
+      requestAnimationFrame(() => setShaking(true));
+    }
+    wasInvalid.current = invalid;
+  }, [invalid]);
+  return shaking;
+}
 
 /* Ported from legacy/app.js's `openRateModal()` / `saveRate()`, then
  * redesigned to a single three-tile row (24K/22K/18K side by side,
@@ -63,6 +83,14 @@ export function RateModalContent() {
   const [err, setErr] = useState("");
   const [saving, setSaving] = useState(false);
 
+  // Which karat's rate field staff last actually typed into — the
+  // hierarchy warning below only ever flags THIS one, never whichever
+  // other karat it happens to be compared against, so editing 18K to
+  // something too high never lights up 22K/24K (which nobody touched),
+  // and vice versa.
+  type Karat = 24 | 22 | 18 | null;
+  const [lastEdited, setLastEdited] = useState<Karat>(null);
+
   function setAuto() {
     setMode("auto");
     setFineness24("100");
@@ -71,22 +99,35 @@ export function RateModalContent() {
     setRate24(ref24 > 0 ? String(ref24) : "");
     setRate22(ref24 > 0 ? String(rateForFineness(ref24, finenessForKarat(22))) : "");
     setRate18(ref24 > 0 ? String(rateForFineness(ref24, finenessForKarat(18))) : "");
+    setLastEdited(null);
     setErr("");
   }
   function setManual() {
     setMode("manual");
+    setLastEdited(null);
     setErr("");
   }
 
   function editRate24(v: string) {
     setRate24(v); // never switches mode — see file doc comment
+    setLastEdited(24);
+    // 22K/18K keep tracking 24K live while they're still in Auto — only
+    // 24K's OWN fineness field (below) has to derive off the frozen
+    // ref24 instead of this live value, to avoid deriving off itself.
+    const k24 = +v;
+    if (mode === "auto" && k24 > 0) {
+      if (+fineness22 > 0) setRate22(String(rateForFineness(k24, +fineness22)));
+      if (+fineness18 > 0) setRate18(String(rateForFineness(k24, +fineness18)));
+    }
   }
   function editRate22(v: string) {
     setMode("manual"); // any direct 22K/18K rate edit is all-or-nothing
+    setLastEdited(22);
     setRate22(v);
   }
   function editRate18(v: string) {
     setMode("manual");
+    setLastEdited(18);
     setRate18(v);
   }
   // Fineness is a purity percentage — never meaningfully above 100%
@@ -103,12 +144,15 @@ export function RateModalContent() {
   function editFineness22(v: string) {
     const c = clampFineness(v);
     setFineness22(c);
-    if (ref24 > 0 && +c > 0) setRate22(String(rateForFineness(ref24, +c)));
+    // Off the LIVE 24K rate, not the frozen ref24 — 22K/18K aren't
+    // deriving off themselves, so tracking whatever's currently typed in
+    // the 24K field (not just today's opening reference) is correct here.
+    if (+rate24 > 0 && +c > 0) setRate22(String(rateForFineness(+rate24, +c)));
   }
   function editFineness18(v: string) {
     const c = clampFineness(v);
     setFineness18(c);
-    if (ref24 > 0 && +c > 0) setRate18(String(rateForFineness(ref24, +c)));
+    if (+rate24 > 0 && +c > 0) setRate18(String(rateForFineness(+rate24, +c)));
   }
 
   // Non-blocking sanity check on Manual entries — 22K/18K priced above a
@@ -116,14 +160,24 @@ export function RateModalContent() {
   // never cost more per gram). Flagged, never prevented: a real market
   // anomaly can legitimately happen and staff may need to publish it
   // anyway.
-  const hierarchyWarning =
-    mode === "manual" && +rate22 > 0 && +rate24 > 0 && +rate22 > +rate24
-      ? "22K is priced higher than 24K."
-      : mode === "manual" && +rate18 > 0 && +rate22 > 0 && +rate18 > +rate22
-        ? "18K is priced higher than 22K."
-        : mode === "manual" && +rate18 > 0 && +rate24 > 0 && +rate18 > +rate24
-          ? "18K is priced higher than 24K."
-          : "";
+  const violation22vs24 = mode === "manual" && +rate22 > 0 && +rate24 > 0 && +rate22 > +rate24;
+  const violation18vs22 = mode === "manual" && +rate18 > 0 && +rate22 > 0 && +rate18 > +rate22;
+  const violation18vs24 = mode === "manual" && +rate18 > 0 && +rate24 > 0 && +rate18 > +rate24;
+  // Only the karat actually being edited gets flagged, never whichever
+  // other one it's compared against — typing 18K too high never lights
+  // up 22K/24K, and vice versa.
+  const invalid24 = lastEdited === 24 && (violation22vs24 || violation18vs24);
+  const invalid22 = lastEdited === 22 && violation22vs24;
+  const invalid18 = lastEdited === 18 && (violation18vs22 || violation18vs24);
+  // A brighter, more saturated red than the app's usual --red (#a3372a,
+  // deliberately muted for everyday error text) — this needs to read as
+  // an alarm, not just a validation note.
+  const BRIGHT_RED = "#ef4444";
+  const invalidInputStyle = { borderColor: BRIGHT_RED, boxShadow: `0 0 0 1px ${BRIGHT_RED}` };
+
+  const shaking24 = useShake(invalid24);
+  const shaking22 = useShake(invalid22);
+  const shaking18 = useShake(invalid18);
 
   async function save() {
     const setBy = latest.setBy && latest.setBy !== "—" ? latest.setBy : "Admin";
@@ -172,62 +226,65 @@ export function RateModalContent() {
 
         <div className="frow c3">
           <div>
-            <label className="f">24K · 999 (₹/g)</label>
-            <input className="inp" type="number" value={rate24} onChange={(e) => editRate24(e.target.value)} />
-            <p style={{ fontSize: 11, color: "var(--muted)", margin: "5px 0 0" }}>
-              {mode === "manual" ? "set directly" : "adjust directly, or via fineness below"}
-            </p>
             {mode === "auto" && (
-              <div style={{ marginTop: 8 }}>
-                <label className="f" style={{ marginBottom: 2 }}>Fineness (%)</label>
+              <div style={{ marginTop: 8, marginBottom: 12 }}>
+                <label className="f" style={{ marginBottom: 2 }}>Fineness (100%)</label>
                 <input className="inp" type="number" max={100} value={fineness24} onChange={(e) => editFineness24(e.target.value)} />
-                <span style={{ fontSize: 10.5, color: "var(--muted)", display: "block", marginTop: 4 }}>standard 100%</span>
               </div>
             )}
+            <label className="f">24K · 999 (₹/g)</label>
+            <input
+              className={`inp${shaking24 ? " shake-attention" : ""}`} type="number" value={rate24}
+              onChange={(e) => editRate24(e.target.value)} style={invalid24 ? invalidInputStyle : undefined}
+            />
+            {invalid24 && <p style={{ fontSize: 11, color: BRIGHT_RED, margin: "5px 0 0" }}>⚠ Price hierarchy is wrong.</p>}
+            <p style={{ fontSize: 11, color: "var(--muted)", margin: "5px 0 0" }}>
+              {mode === "manual" ? "set directly" : "adjust directly, or via fineness above"}
+            </p>
+            
           </div>
 
           <div>
-            <label className="f">22K (₹/g)</label>
-            <input className="inp" type="number" value={rate22} onChange={(e) => editRate22(e.target.value)} />
-            <p style={{ fontSize: 11, color: "var(--muted)", margin: "5px 0 0" }}>
-              {mode === "manual" ? "set independently of 24K" : "editing this switches to Manual ↓"}
-            </p>
             {mode === "auto" && (
-              <div style={{ marginTop: 8 }}>
-                <label className="f" style={{ marginBottom: 2 }}>Fineness (%)</label>
+              <div style={{ marginTop: 8, marginBottom: 12 }}>
+                <label className="f" style={{ marginBottom: 2 }}>Fineness (91.7%)</label>
                 <input className="inp" type="number" max={100} value={fineness22} onChange={(e) => editFineness22(e.target.value)} />
-                <span style={{ fontSize: 10.5, color: "var(--muted)", display: "block", marginTop: 4 }}>standard {finenessForKarat(22)}%</span>
               </div>
             )}
+            <label className="f">22K (₹/g)</label>
+            
+            <input
+              className={`inp${shaking22 ? " shake-attention" : ""}`} type="number" value={rate22}
+              onChange={(e) => editRate22(e.target.value)} style={invalid22 ? invalidInputStyle : undefined}
+            />
+            {invalid22 && <p style={{ fontSize: 11, color: BRIGHT_RED, margin: "5px 0 0" }}>⚠ Price hierarchy is wrong.</p>}
+            <p style={{ fontSize: 11, color: "var(--muted)", margin: "5px 0 0" }}>
+              {mode === "manual" ? "set independently of 24K" : "editing this switches to Manual "}
+            </p>
+            
           </div>
 
           <div>
-            <label className="f">18K (₹/g)</label>
-            <input className="inp" type="number" value={rate18} onChange={(e) => editRate18(e.target.value)} />
-            <p style={{ fontSize: 11, color: "var(--muted)", margin: "5px 0 0" }}>
-              {mode === "manual" ? "set independently of 24K" : "editing this switches to Manual ↓"}
-            </p>
             {mode === "auto" && (
-              <div style={{ marginTop: 8 }}>
-                <label className="f" style={{ marginBottom: 2 }}>Fineness (%)</label>
+              <div style={{ marginTop: 8, marginBottom: 12 }}>
+                <label className="f" style={{ marginBottom: 2 }}>Fineness (75%)</label>
                 <input className="inp" type="number" max={100} value={fineness18} onChange={(e) => editFineness18(e.target.value)} />
-                <span style={{ fontSize: 10.5, color: "var(--muted)", display: "block", marginTop: 4 }}>standard {finenessForKarat(18)}%</span>
               </div>
             )}
+            <label className="f">18K (₹/g)</label>
+            
+            <input
+              className={`inp${shaking18 ? " shake-attention" : ""}`} type="number" value={rate18}
+              onChange={(e) => editRate18(e.target.value)} style={invalid18 ? invalidInputStyle : undefined}
+            />
+            {invalid18 && <p style={{ fontSize: 11, color: BRIGHT_RED, margin: "5px 0 0" }}>⚠ Price hierarchy is wrong.</p>}
+            <p style={{ fontSize: 11, color: "var(--muted)", margin: "5px 0 0" }}>
+              {mode === "manual" ? "set independently of 24K" : "editing this switches to Manual "}
+            </p>
+            
           </div>
         </div>
 
-        {hierarchyWarning && (
-          <div className="notice" style={{ marginTop: 14, borderColor: "var(--gold)" }}>
-            <Icon name="warning" />
-            <span>{hierarchyWarning} You can still publish this if intentional.</span>
-          </div>
-        )}
-
-        <div className="notice" style={{ marginTop: 14 }}>
-          <Icon name="shield" />
-          <span>Typing 22K/18K&apos;s rate switches the whole modal to Manual; 24K&apos;s never does. Nothing publishes until you press Publish.</span>
-        </div>
         <div className="frow" style={{ marginTop: 10 }}>
           <div><label className="f">Remarks (optional)</label><input className="inp" placeholder="e.g. MCX morning reference" value={remarks} onChange={(e) => setRemarks(e.target.value)} /></div>
         </div>
