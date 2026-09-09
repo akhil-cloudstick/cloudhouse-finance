@@ -251,6 +251,119 @@ export async function printIndemnityBond(l: Loan) {
   );
 }
 
+// Ported from frontend/modules/loans/utils/releaseAgreement.ts — same
+// "Acknowledgment of Safe Receipt and Release of Pledged Gold" wording,
+// verbatim (Part A/B/C plus the Essential Rules footer). Reachable only
+// once a loan has actually closed (l.status === "Closed"), same as web's
+// Release Agreement document.
+const B = "________________";
+
+function fmtReleaseDate(iso?: string) {
+  if (!iso) return B;
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return B;
+  return `${String(d.getDate()).padStart(2, "0")}/${String(d.getMonth() + 1).padStart(2, "0")}/${d.getFullYear()}`;
+}
+
+export type ReleaseAgreementOrnament = {
+  name: string;
+  purity?: string;
+  quantity: number;
+  grossWeight: number;
+  netWeight: number;
+};
+
+export type ReleaseAgreementParty = {
+  loanNumber: string;
+  branchName?: string;
+  branchCode?: string;
+  customerName?: string;
+  customerAddress?: string;
+  customerId?: string;
+  aadhaarLast4?: string;
+  pan?: string;
+  // Date the loan was actually repaid/settled — the release request's
+  // decidedAt, or today if there was no formal request.
+  closedOn?: string; // "YYYY-MM-DD"
+  ornaments?: ReleaseAgreementOrnament[];
+};
+
+export async function printReleaseAgreement(p: ReleaseAgreementParty) {
+  const today = new Date();
+  const deliveryDate = fmtReleaseDate(today.toISOString());
+  const closureDate = fmtReleaseDate(p.closedOn) || deliveryDate;
+  const ornaments = p.ornaments ?? [];
+
+  const totalQty = ornaments.reduce((s, o) => s + (o.quantity || 0), 0);
+  const totalGross = ornaments.reduce((s, o) => s + (o.grossWeight || 0) * (o.quantity || 1), 0);
+  const totalNet = ornaments.reduce((s, o) => s + (o.netWeight || 0) * (o.quantity || 1), 0);
+
+  const rows = ornaments.length
+    ? ornaments
+        .map(
+          (o, i) =>
+            `<tr><td>${i + 1}</td><td>${o.name}</td><td class="num">${o.quantity}</td>
+            <td class="num">${o.grossWeight.toFixed(2)}</td><td class="num">${o.netWeight.toFixed(2)}</td>
+            <td>${o.purity || "—"}</td><td>Sound / Intact</td></tr>`
+        )
+        .join("")
+    : `<tr><td colspan="7" style="text-align:center;color:#777">${B}</td></tr>`;
+
+  const customerIdLine =
+    [p.customerId, p.aadhaarLast4 ? `Aadhaar •••• ${p.aadhaarLast4}` : "", p.pan].filter(Boolean).join(" · ") || B;
+
+  const html = `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Release Agreement — ${p.loanNumber}</title><style>
+    ${DOC_STYLE}
+    @page{size:A4;margin:30mm 20mm 25mm 20mm}
+  </style></head><body>
+    <h1>ACKNOWLEDGMENT OF SAFE RECEIPT AND RELEASE OF PLEDGED GOLD</h1>
+    <p><b>Loan Account Number:</b> ${p.loanNumber}<br>
+    <b>Branch Name/Code:</b> ${p.branchName || B}${p.branchCode ? " / " + p.branchCode : ""}<br>
+    <b>Lender Name:</b> ${LENDER_NAME} (Reg. No. ${LENDER_REG_NO})<br>
+    <b>Borrower Name:</b> ${p.customerName || B}<br>
+    <b>Customer ID / Aadhaar / PAN:</b> ${customerIdLine}</p>
+
+    <h2 style="text-align:left;font-weight:bold;font-size:15px;margin-top:22px">PART A: LENDER DISCHARGE DECLARATION</h2>
+    <p class="muted">(To be filled by the NBFC)</p>
+    <p>We confirm that Loan Account No. <b>${p.loanNumber}</b> availed by Sri/Smt. <b>${p.customerName || B}</b> has been fully repaid and settled on <b>${closureDate}</b>. The pledged collateral detailed below has been unsealed and delivered to the borrower on <b>${deliveryDate}</b>.</p>
+
+    <p><b>Details of Released Collateral:</b></p>
+    <table>
+      <thead><tr><th>Item No.</th><th>Description of Ornaments</th><th class="num">Quantity</th><th class="num">Gross Wt. (g)</th><th class="num">Net Wt. (g)</th><th>Purity (K)</th><th>Condition</th></tr></thead>
+      <tbody>${rows}</tbody>
+      <tfoot><tr><td colspan="2"><b>Total</b></td><td class="num"><b>${totalQty}</b></td><td class="num"><b>${totalGross.toFixed(2)}</b></td><td class="num"><b>${totalNet.toFixed(2)}</b></td><td></td><td></td></tr></tfoot>
+    </table>
+
+    <h2 style="text-align:left;font-weight:bold;font-size:15px;margin-top:22px">PART B: BORROWER ACKNOWLEDGMENT</h2>
+    <p class="muted">(To be signed by the Borrower)</p>
+    <p>I, <b>${p.customerName || B}</b>, residing at <b>${p.customerAddress || B}</b>, hereby acknowledge and declare that:</p>
+    <ol>
+      <li>I have physically inspected and weighed all the gold items listed above in the presence of the branch official(s).</li>
+      <li>The returned ornaments match the exact item description, weight, and purity specified in my original Pledge Receipt / Valuation Certificate.</li>
+      <li>I have received all items intact and in satisfactory condition, with no damage, loss, or substitution.</li>
+      <li>By signing this document, I confirm full receipt of my pledged collateral and release the Lender from any further custodial liability for this loan account.</li>
+    </ol>
+    <p><b>Date:</b> ${deliveryDate} &nbsp;&nbsp; <b>Place:</b> ${p.branchName || B}</p>
+    <div class="sig">
+      <div><span>(Signature / Thumb Impression of Borrower)</span></div>
+    </div>
+
+    <h2 style="text-align:left;font-weight:bold;font-size:15px;margin-top:22px">PART C: AUTHORIZED SIGNATORY</h2>
+    <p>Delivered in the presence of:</p>
+    <div class="sig">
+      <div><span>Authorized Signatory / Branch Manager<br>(Seal &amp; Branch Stamp)</span></div>
+    </div>
+
+    <h2 style="text-align:left;font-weight:bold;font-size:14px;margin-top:26px">Essential Rules Before Signing</h2>
+    <ol>
+      <li><b>Inspect First, Sign Second:</b> Always weigh and examine the items on the branch scale before signing. Once signed, proving subsequent loss or alteration is legally difficult.</li>
+      <li><b>Cross-Reference:</b> Compare the net weight and item descriptions against your original pledge card or assay certificate.</li>
+      <li><b>No Blanket Signatures:</b> Never sign a blank or partially pre-filled receipt form.</li>
+    </ol>
+  </body></html>`;
+  await Print.printAsync({ html });
+}
+
 // Fetches a QR PNG from the backend's internal/qr package (no QR-generation
 // library on the mobile side — see the "continue" conversation this was
 // built from) and returns it as a data: URI ready to drop straight into an
@@ -274,10 +387,15 @@ async function fetchQrDataUri(data: string, size = 256): Promise<string> {
   return `data:image/png;base64,${base64}`;
 }
 
-// Ported from frontend/modules/loans/components/LoanDetail.tsx's
-// printPacketLabel — same 50mm×30mm label layout, same QR-encoded deep
-// link (the packet's code if this loan has one checked into a locker,
-// otherwise the loan itself), rendered against the same web app origin the
+// Ported from frontend/modules/loans/components/NewLoan.tsx's
+// printPacketLabel — same die-cut "flag tag" stock: 81mm total, a
+// 56mm×12mm head (perforated at the 28mm midpoint) plus a blank 25mm×3mm
+// strap for wrapping around/through the item and tearing off (see the
+// approved wire diagram, the packet-flag-tag artifact). First 28mm segment
+// holds the QR, the second — the half that stays with the item once torn —
+// holds the readable identifiers, the strap stays blank. QR-encoded deep
+// link is the packet's code if this loan has one checked into a locker,
+// otherwise the loan itself, rendered against the same web app origin the
 // QR would open (API_ORIGIN — the Go binary serves both the API and the
 // built frontend from one origin, see backend/internal/platform/config.go).
 export async function printPacketLabel(l: Loan) {
@@ -288,25 +406,32 @@ export async function printPacketLabel(l: Loan) {
   const qr = await fetchQrDataUri(url, 256);
 
   const html = `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Packet Label — ${l.loanNumber}</title><style>
-    @page{size:50mm 30mm;margin:0}
+    @page{size:81mm 12mm;margin:0}
     body{margin:0;font-family:Arial,Helvetica,sans-serif;-webkit-print-color-adjust:exact}
-    .label{width:50mm;height:30mm;box-sizing:border-box;padding:1.6mm;display:flex;align-items:center;gap:1.8mm;
-      border:0.3mm dashed #aaa;overflow:hidden;page-break-inside:avoid}
-    .label img{width:25mm;height:25mm;flex:none}
-    .t{font-size:2.5mm;line-height:1.45;min-width:0}
-    .t .brand{font-size:2mm;letter-spacing:0.3mm;color:#7a5c14}
-    .t .id{font-size:3.4mm;font-weight:bold}
-    .t div{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    .tag{position:relative;width:81mm;height:12mm;box-sizing:border-box;display:flex;overflow:hidden;page-break-inside:avoid}
+    .head{width:56mm;height:12mm;display:flex}
+    .qrcell{width:28mm;height:12mm;box-sizing:border-box;padding:1.5mm;display:flex;align-items:center;justify-content:center}
+    .qrcell img{width:9mm;height:9mm}
+    .infocell{width:28mm;height:12mm;box-sizing:border-box;padding:1mm 1.5mm;display:flex;flex-direction:column;justify-content:center;
+      gap:0.4mm;min-width:0}
+    .infocell div{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;line-height:1.25}
+    .infocell .id{font-size:3mm;font-weight:bold}
+    .infocell .name{font-size:2.3mm}
+    .infocell .meta{font-size:1.9mm;color:#5b5342}
+    .infocell .brand{font-size:1.6mm;letter-spacing:0.2mm;color:#9a8f6f}
+    .strap{width:25mm;height:12mm}
   </style></head><body>
-    <div class="label">
-      <img src="${qr}" alt="QR">
-      <div class="t">
-        <div class="brand">AMBIKA GOLD FINANCE</div>
-        <div class="id">${l.loanNumber} · ${packetLabel}</div>
-        <div>${l.customer?.name || "—"}</div>
-        <div>${l.customer?.code || l.customer?.id || "—"} · ${l.customer?.phone || ""}</div>
-        <div>${new Date().toLocaleDateString("en-IN")} · ${(l.totalNetWeight ?? 0).toFixed(1)} g · ${(l.ornaments ?? []).length} item(s)</div>
+    <div class="tag">
+      <div class="head">
+        <div class="qrcell"><img src="${qr}" alt="QR"></div>
+        <div class="infocell">
+          <div class="id">${packetLabel}</div>
+          <div class="name">${l.customer?.name || "—"}</div>
+          <div class="meta">${l.loanNumber} · ${(l.totalNetWeight ?? 0).toFixed(1)}g</div>
+          <div class="brand">AMBIKA GOLD FINANCE</div>
+        </div>
       </div>
+      <div class="strap"></div>
     </div>
   </body></html>`;
   await Print.printAsync({ html });

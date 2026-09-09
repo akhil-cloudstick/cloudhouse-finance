@@ -1,6 +1,6 @@
 "use client";
 
-import { createContext, useCallback, useContext, useState } from "react";
+import { cloneElement, createContext, isValidElement, useCallback, useContext, useRef, useState } from "react";
 
 type ModalContextValue = {
   openModal: (content: React.ReactNode, wide?: boolean) => void;
@@ -19,9 +19,23 @@ export function ModalProvider({ children }: { children: React.ReactNode }) {
   const [content, setContent] = useState<React.ReactNode>(null);
   const [wide, setWide] = useState(false);
   const [open, setOpen] = useState(false);
+  // Every openModal call gets a fresh key, forced onto the passed element
+  // below — without this, opening the SAME modal component type twice in a
+  // row (e.g. Edit Loan for one loan, close, Edit Loan for a different
+  // loan) has React treat the second call as a prop UPDATE to the first
+  // call's still-alive component instance rather than a new mount, since
+  // they're the same component type at the same position in the tree.
+  // That silently kept every useState(props.whatever) initializer at its
+  // FIRST call's value — the modal visibly reopened with the previous
+  // loan's data, ignoring the new `loan` prop entirely. A fresh key per
+  // open forces React to unmount the old instance and mount a genuinely
+  // new one every time, for every caller, without each one having to
+  // remember to key its own modal content by hand.
+  const keySeq = useRef(0);
 
   const openModal = useCallback((node: React.ReactNode, isWide = false) => {
-    setContent(node);
+    keySeq.current += 1;
+    setContent(isValidElement(node) ? cloneElement(node, { key: keySeq.current }) : node);
     setWide(isWide);
     setOpen(true);
   }, []);

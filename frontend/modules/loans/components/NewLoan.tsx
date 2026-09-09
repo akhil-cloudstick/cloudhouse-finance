@@ -43,7 +43,17 @@ import type { Ornament } from "@/common/utils/data";
 // Purity is now a plain unit-suffixed string ("22K" / "91.6%", see
 // lib/purity.ts) rather than a fixed k24/k22/k18 bucket — PURITY_LABEL is
 // gone since the string itself is already the display label.
-type OrnRow = { n: string; p: string; w: number; q: number; img?: string; imgName?: string };
+//
+// `w` (Gross Wt) and `netW` (Net Wt) are two INDEPENDENT inputs, not one
+// derived from the other — matching how an ornament is actually assessed:
+// gross is a raw scale reading (includes stones/dust/impurity), net is the
+// separately assessed pure-gold weight a jeweler determines. Loan value is
+// calculated off net weight, never gross — see rowVals below. `deductionWeight`
+// sent to the backend (Ornament.DeductionWeight) is derived as `w − netW`
+// at submit time; the backend re-derives NetWeight from that same subtraction,
+// so the two stay in agreement without the frontend needing to send NetWeight
+// directly.
+type OrnRow = { n: string; p: string; w: number; netW: number; q: number; img?: string; imgName?: string };
 
 /* Ported from legacy/app.js's `renderNewLoan()` (legacy/app.js:845-1151).
  * Customer/scheme/ornament-type pickers now hit the real backend search
@@ -82,7 +92,7 @@ export function NewLoan() {
     setRateErr("");
     setRateSaving(true);
     try {
-      await publishGoldRate({ k24, setBy: rates.setBy && rates.setBy !== "—" ? rates.setBy : "Admin" });
+      await publishGoldRate({ karat: 24, rate: k24, setBy: rates.setBy && rates.setBy !== "—" ? rates.setBy : "Admin" });
       refreshGoldRates();
       setRateR24("");
       toast("Gold rate published for today");
@@ -221,8 +231,8 @@ export function NewLoan() {
 
   const sch = (schemeObj && schemeObj.id === schemeId) ? schemeObj : schemes.find((s) => s.id === schemeId);
 
-  const rowVals = rows.map((r) => r.w * r.q * (rateForPurityString(rates.k24, r.p) ?? 0));
-  const totalWeight = rows.reduce((s, r) => s + r.w * r.q, 0);
+  const rowVals = rows.map((r) => r.netW * r.q * (rateForPurityString(rates.k24, r.p) ?? 0));
+  const totalWeight = rows.reduce((s, r) => s + r.netW * r.q, 0);
   const totalGross = rowVals.reduce((s, v) => s + v, 0);
   const eligible = sch ? (totalGross * sch.ltv) / 100 : 0;
   const principal = principalOverride.trim() ? Math.max(0, +principalOverride) : Math.round(eligible);
@@ -248,7 +258,7 @@ export function NewLoan() {
   function addOrnRow(pre?: OrnRow) {
     // Ornament type starts blank — it must be explicitly picked (or created)
     // via the SearchableSelect below, never silently defaulted.
-    setRows((rs) => [...rs, pre || { n: "", p: "22K", w: 0, q: 1 }]);
+    setRows((rs) => [...rs, pre || { n: "", p: "22K", w: 0, netW: 0, q: 1 }]);
   }
   function delOrnRow(i: number) {
     setRows((rs) => rs.filter((_, idx) => idx !== i));
@@ -257,7 +267,7 @@ export function NewLoan() {
     // Weight/qty can never go negative, however the value arrives (native
     // spinner decrement past 0, typed "-", pasted value, etc.) — clamp here
     // centrally rather than trusting each call site.
-    const clamped = (k === "w" || k === "q") && typeof v === "number" ? (Math.max(0, v) as OrnRow[K]) : v;
+    const clamped = (k === "w" || k === "netW" || k === "q") && typeof v === "number" ? (Math.max(0, v) as OrnRow[K]) : v;
     setRows((rs) => rs.map((r, idx) => (idx === i ? { ...r, [k]: clamped } : r)));
   }
 
@@ -369,6 +379,11 @@ export function NewLoan() {
       n: o.name,
       p: o.purity || "22K",
       w: o.grossWeight,
+      // Drafts are unvalidated scratch state and don't persist the Gross/Net
+      // distinction (see SaveDraftInput/BackendLoanDraft — no deductionWeight
+      // field) — reopening one assumes no deduction was recorded yet, same as
+      // this form's own default for a brand-new row.
+      netW: o.grossWeight,
       q: o.quantity,
       ...(o.imageUrl ? { img: o.imageUrl } : {}),
       ...(o.imageName ? { imgName: o.imageName } : {}),
@@ -403,9 +418,9 @@ export function NewLoan() {
     const s = (schemeObj && schemeObj.id === schemeId) ? schemeObj : schemeOf(schemes, schemeId);
     let weight = 0, gross = 0;
     const orns: Ornament[] = rows.filter((r) => r.w > 0 && r.q > 0).map((r) => {
-      const v = r.w * r.q * (rateForPurityString(rates.k24, r.p) ?? 0);
-      weight += r.w * r.q; gross += v;
-      return { n: r.n, purity: r.p, gross: r.w, net: r.w, qty: r.q, val: Math.round(v), img: r.img };
+      const v = r.netW * r.q * (rateForPurityString(rates.k24, r.p) ?? 0);
+      weight += r.netW * r.q; gross += v;
+      return { n: r.n, purity: r.p, gross: r.w, net: r.netW, qty: r.q, val: Math.round(v), img: r.img };
     });
     const locker = lockers.find((k) => k.id === lockerId);
     return { c, sch: s, orns, weight, gross, eligible: Math.round((gross * s.ltv) / 100), locker };
@@ -481,31 +496,46 @@ export function NewLoan() {
     }
     const w = window.open("", "_blank");
     if (!w) { toast("Popup blocked — please allow popups for this site to print"); return; }
+    // Die-cut "flag tag" stock: 81mm total — a 56mm×12mm head (perforated
+    // at the 28mm midpoint) plus a blank 25mm×3mm strap for wrapping
+    // around/through the item and tearing off. See the approved wire
+    // diagram (packet-flag-tag artifact): first 28mm segment holds the QR,
+    // the second (the half that stays with the item once torn) holds the
+    // readable identifiers, the strap stays blank. Replaces the old plain
+    // 50mm×30mm rectangular label this stock physically can't fit.
     w.document.write(`<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Packet Label — ${provId}</title><style>
-      @page{size:50mm 30mm;margin:0}
+      @page{size:81mm 12mm;margin:0}
       body{margin:0;font-family:Arial,Helvetica,sans-serif;-webkit-print-color-adjust:exact}
-      .label{width:50mm;height:30mm;box-sizing:border-box;padding:1.6mm;display:flex;align-items:center;gap:1.8mm;
-        border:0.3mm dashed #aaa;overflow:hidden;page-break-inside:avoid}
-      .label img{width:25mm;height:25mm;flex:none}
-      .t{font-size:2.5mm;line-height:1.45;min-width:0}
-      .t .brand{font-size:2mm;letter-spacing:0.3mm;color:#7a5c14}
-      .t .id{font-size:3.4mm;font-weight:bold}
-      .t div{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+      .tag{position:relative;width:81mm;height:12mm;box-sizing:border-box;display:flex;overflow:hidden;page-break-inside:avoid}
+      .head{width:56mm;height:12mm;display:flex;border:0.3mm dashed #aaa}
+      .qrcell{width:28mm;height:12mm;box-sizing:border-box;padding:1.5mm;display:flex;align-items:center;justify-content:center}
+      .qrcell img{width:9mm;height:9mm}
+      .infocell{width:28mm;height:12mm;box-sizing:border-box;padding:1mm 1.5mm;display:flex;flex-direction:column;justify-content:center;
+        gap:0.4mm;border-left:0.3mm dashed #c9971c;min-width:0}
+      .infocell div{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;line-height:1.25}
+      .infocell .id{font-size:3mm;font-weight:bold}
+      .infocell .name{font-size:2.3mm}
+      .infocell .meta{font-size:1.9mm;color:#5b5342}
+      .infocell .brand{font-size:1.6mm;letter-spacing:0.2mm;color:#9a8f6f}
+      .strap{width:25mm;height:12mm;display:flex;align-items:center}
+      .strap .band{width:25mm;height:3mm;margin:auto 0;border-top:0.3mm solid #ccc;border-bottom:0.3mm solid #ccc}
       .noprint{text-align:center;margin:8mm;font-family:Arial}
-      @media print{.noprint{display:none} .label{border:none}}
+      @media print{.noprint{display:none} .head{border:none} .infocell{border-left:none} .strap .band{border:none}}
     </style></head><body>
-      <div class="label">
-        <img src="${qr}" alt="QR">
-        <div class="t">
-          <div class="brand">AMBIKA GOLD FINANCE</div>
-          <div class="id">${provId} · ${packetLabel}</div>
-          <div>${c.name || "—"}</div>
-          <div>${c.id || "—"} · ${c.phone || ""}</div>
-          <div>${new Date().toLocaleDateString("en-IN")} · ${d.weight.toFixed(1)} g · ${d.orns.length} item(s)</div>
+      <div class="tag">
+        <div class="head">
+          <div class="qrcell"><img src="${qr}" alt="QR"></div>
+          <div class="infocell">
+            <div class="id">${packetLabel}</div>
+            <div class="name">${c.name || "—"}</div>
+            <div class="meta">${provId} · ${d.weight.toFixed(1)}g</div>
+            <div class="brand">AMBIKA GOLD FINANCE</div>
+          </div>
         </div>
+        <div class="strap"><div class="band"></div></div>
       </div>
       <div class="noprint">
-        <p style="font-size:13px;color:#555">50mm × 30mm packet label — scanning the QR opens ${url}</p>
+        <p style="font-size:13px;color:#555">81mm × 12mm flag tag — scanning the QR opens ${url}</p>
         <button onclick="window.print()" style="padding:10px 26px;font-size:14px;cursor:pointer">🖨 Print Label</button>
       </div>
     </body></html>`);
@@ -517,6 +547,7 @@ export function NewLoan() {
     const validRows = rows.filter((r) => r.w > 0 && r.q > 0);
     if (!validRows.length) { toast("Add at least one ornament with weight and qty"); return; }
     if (validRows.some((r) => !r.n.trim())) { toast("Please select an ornament type for every row"); return; }
+    if (validRows.some((r) => r.netW > r.w)) { toast("Net Wt cannot be greater than Gross Wt"); return; }
     const s = (schemeObj && schemeObj.id === schemeId) ? schemeObj : schemes.find((x) => x.id === schemeId);
     if (!s) { toast("Please select a scheme"); return; }
     if (!custId) { toast("Please select a verified customer"); return; }
@@ -548,7 +579,11 @@ export function NewLoan() {
           name: r.n,
           purity: r.p,
           grossWeight: r.w,
-          deductionWeight: 0,
+          // Backend re-derives NetWeight as grossWeight − deductionWeight —
+          // sending it this way (rather than a raw netWeight field) keeps the
+          // two independently-entered figures in agreement without a second
+          // field on the wire.
+          deductionWeight: Math.max(0, r.w - r.netW),
           quantity: r.q,
         })),
         ...(lockerId !== "" ? { lockerId: Number(lockerId) } : {}),
@@ -760,42 +795,42 @@ export function NewLoan() {
               mounting a second file input for the same row — two <input
               type="file"> elements sharing one ref array index would race
               on which one `fileRefs.current[i]` actually points to). */}
-          {/* minWidth:880 is a real, computed floor — not an organic
+          {/* minWidth:900 is a real, computed floor — not an organic
               "however wide the content happens to need" guess. Purity's
-              own column (21%) is the binding constraint: its content needs
+              own column (20%) is the binding constraint: its content needs
               at least ~176px (the toggle's own 130px floor + 6px row gap +
-              the search field's 34px floor + ~6px cell padding), and
-              21% of 176/0.21 ≈ 838px, more than any other column's share
-              demands — plus a bit of headroom for rounding, since
+              the search field's 34px floor + ~6px cell padding), and 20%
+              of 176/0.20 = 880px, plus headroom for rounding — 900px.
               table-layout:fixed does NOT reallocate a tight column's
-              shortfall from another column's slack. Below this width
-              Purity's content no longer fits its own <td> and spills into
-              the column beside it instead of the table falling back to
+              shortfall from another column's slack, so these 9 <col>
+              percentages are kept summing to exactly 100 (not left to
+              silently normalize down) — a sum over 100 shrinks EVERY
+              column's real rendered share, including Purity's, which is
+              exactly what caused it to clip against Gross/Net Wt after
+              those two were last widened. Below this width Purity's
+              content no longer fits its own <td> and spills into the
+              column beside it instead of the table falling back to
               .page's horizontal scroll the way it's meant to. */}
-          <div className="orn-table-view" style={{ width: "100%", minWidth: 880, paddingBottom: 6 }}><table className="tbl orn-table" style={{ width: "100%", tableLayout: "fixed" }}>
+          <div className="orn-table-view" style={{ width: "100%", minWidth: 900, paddingBottom: 6 }}><table className="tbl orn-table" style={{ width: "100%", tableLayout: "fixed" }}>
             <colgroup>
-              {/* Ornament narrowed to 14% and Purity to 21% (from 16%/27%)
-                  to give Net Wt/Qty (13% each, up from 10%/8%) enough share
-                  to actually reach their own 70px input floor at a normal
-                  table width, rather than that floor being the thing that
-                  forces the table wider than 100% at every width. Photo
-                  stays at 20% to keep preventing Upload/Close overlap. */}
-              <col style={{ width: "14%" }} />
-              <col style={{ width: "21%" }} />
-              <col style={{ width: "13%" }} />
-              <col style={{ width: "13%" }} />
               <col style={{ width: "11%" }} />
-              <col style={{ width: "20%" }} />
+              <col style={{ width: "22%" }} />
+              <col style={{ width: "10%" }} />
+              <col style={{ width: "10%" }} />
               <col style={{ width: "8%" }} />
+              <col style={{ width: "8%" }} />
+              <col style={{ width: "11%" }} />
+              <col style={{ width: "13%" }} />
+              <col style={{ width: "7%" }} />
             </colgroup>
-            <thead><tr><th>Ornament</th><th>Purity</th><th className="num">Net Wt (g)</th><th className="num">Qty</th><th className="num">Value</th><th style={{ textAlign: "center" }}>Photo</th><th></th></tr></thead>
+            <thead><tr><th>Ornament</th><th>Purity</th><th className="num">Gross Wt (g)</th><th className="num">Net Wt (g)</th><th className="num">Qty</th><th className="num">Total Wt (g)</th><th className="num">Value</th><th style={{ textAlign: "center" }}>Photo</th><th></th></tr></thead>
             <tbody>
               {rows.length === 0 && (
-                <tr><td colSpan={7} className="empty">No ornaments added yet — click &quot;Add Ornament&quot; below.</td></tr>
+                <tr><td colSpan={9} className="empty">No ornaments added yet — click &quot;Add Ornament&quot; below.</td></tr>
               )}
               {rows.map((r, i) => (
                 <tr key={i}>
-                  {/* height:31 matches the Purity/Net Wt/Qty cells beside it */}
+                  {/* height:31 matches the Purity/weight/Qty cells beside it */}
                   <td className="orn-type-td">
                     <SearchableSelect<BackendOrnamentType>
                       value={r.n}
@@ -810,7 +845,9 @@ export function NewLoan() {
                   </td>
                   <td><PurityPicker value={r.p} onChange={(v) => updOrn(i, "p", v)} dropdownMinWidth={70} /></td>
                   <td className="num"><input className="inp" style={{ padding: "6px 8px", width: "100%", minWidth: 70, height: 31, textAlign: "right", boxSizing: "border-box" }} type="number" min={0} value={r.w === 0 ? "" : r.w} onChange={(e) => updOrn(i, "w", e.target.value === "" ? 0 : Math.max(0, +e.target.value || 0))} /></td>
+                  <td className="num"><input className="inp" style={{ padding: "6px 8px", width: "100%", minWidth: 70, height: 31, textAlign: "right", boxSizing: "border-box" }} type="number" min={0} max={r.w || undefined} value={r.netW === 0 ? "" : r.netW} onChange={(e) => updOrn(i, "netW", e.target.value === "" ? 0 : Math.max(0, +e.target.value || 0))} /></td>
                   <td className="num"><input className="inp" style={{ padding: "6px 8px", width: "100%", minWidth: 70, height: 31, textAlign: "right", boxSizing: "border-box" }} type="number" min={0} value={r.q} onChange={(e) => updOrn(i, "q", Math.max(0, +e.target.value || 0))} /></td>
+                  <td className="num">{(r.netW * r.q).toFixed(2)}</td>
                   <td className="num">{fmt(rowVals[i])}</td>
                   <td style={{ textAlign: "center", whiteSpace: "nowrap" }}>
                     <input type="file" accept="image/*" ref={(el) => { fileRefs.current[i] = el; }} style={{ display: "none" }} onChange={(e) => ornImgPicked(i, e.target)} />
@@ -865,15 +902,23 @@ export function NewLoan() {
                   <label className="f">Purity</label>
                   <PurityPicker value={r.p} onChange={(v) => updOrn(i, "p", v)} dropdownMinWidth={70} />
                 </div>
-                <div className="orn-card-row">
-                  <div style={{ flex: 1 }}>
-                    <label className="f">Net Wt (g)</label>
+                <div className="orn-card-row" style={{ flexWrap: "wrap" }}>
+                  <div style={{ flex: 1, minWidth: 90 }}>
+                    <label className="f">Gross Wt (g)</label>
                     <input className="inp" style={{ padding: "6px 8px", width: "100%", height: 31, boxSizing: "border-box" }} type="number" min={0} value={r.w === 0 ? "" : r.w} onChange={(e) => updOrn(i, "w", e.target.value === "" ? 0 : Math.max(0, +e.target.value || 0))} />
                   </div>
-                  <div style={{ flex: 1 }}>
+                  <div style={{ flex: 1, minWidth: 90 }}>
+                    <label className="f">Net Wt (g)</label>
+                    <input className="inp" style={{ padding: "6px 8px", width: "100%", height: 31, boxSizing: "border-box" }} type="number" min={0} max={r.w || undefined} value={r.netW === 0 ? "" : r.netW} onChange={(e) => updOrn(i, "netW", e.target.value === "" ? 0 : Math.max(0, +e.target.value || 0))} />
+                  </div>
+                  <div style={{ flex: 1, minWidth: 70 }}>
                     <label className="f">Qty</label>
                     <input className="inp" style={{ padding: "6px 8px", width: "100%", height: 31, boxSizing: "border-box" }} type="number" min={0} value={r.q} onChange={(e) => updOrn(i, "q", Math.max(0, +e.target.value || 0))} />
                   </div>
+                </div>
+                <div className="orn-card-row" style={{ justifyContent: "space-between", alignItems: "center" }}>
+                  <span style={{ fontSize: 11, letterSpacing: ".14em", textTransform: "uppercase", color: "var(--muted)" }}>Total Wt (g)</span>
+                  <b>{(r.netW * r.q).toFixed(2)}</b>
                 </div>
                 <div className="orn-card-row" style={{ justifyContent: "space-between", alignItems: "center" }}>
                   <span style={{ fontSize: 11, letterSpacing: ".14em", textTransform: "uppercase", color: "var(--muted)" }}>Value</span>

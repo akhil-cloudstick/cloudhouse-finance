@@ -68,11 +68,12 @@ export function GoldRates() {
       <hr className="gold-rule" />
       <div className="rates3" style={{ maxWidth: 720, marginBottom: 20 }}>
         <RateTile k="24K · 999 · published" r={latest.k24} />
-        <RateTile k="22K · 916 · computed" r={latest.k22} />
-        <RateTile k="18K · 750 · computed" r={latest.k18} />
+        <RateTile k="22K · 916" r={latest.k22} />
+        <RateTile k="18K · 750" r={latest.k18} />
       </div>
       <p style={{ fontSize: 12.5, color: "var(--muted)", marginTop: -12, marginBottom: 20 }}>
-        Only 24K is published daily — 22K/18K above are computed for reference. Any other purity is
+        24K is always published directly. 22K/18K can be published directly too (Manual mode) or derived
+        from 24K at a chosen purity (Auto mode) — see &quot;Set Today&apos;s Rate&quot;. Any other purity is
         resolved per-ornament, at pledge time.
       </p>
       <div className="card">
@@ -81,7 +82,7 @@ export function GoldRates() {
         <div className="tbl-wrap tbl-scroll">
           <table className="tbl tbl-center">
             <thead>
-              <tr><th>Date</th><th className="num">24K ₹/g</th><th className="num">22K ₹/g (comp.)</th><th className="num">18K ₹/g (comp.)</th><th>Published By</th></tr>
+              <tr><th>Date</th><th className="num">24K ₹/g</th><th className="num">22K ₹/g</th><th className="num">18K ₹/g</th><th>Published By</th></tr>
             </thead>
             <tbody>
               {loading ? (

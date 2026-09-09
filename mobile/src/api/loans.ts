@@ -82,6 +82,34 @@ export function addOrnamentImage(ornamentId: number, imageUrl: string) {
   });
 }
 
+// --- Ornament add/update/delete (backend/internal/loan/handler.go's
+// AddOrnament/UpdateOrnament/DeleteOrnament) — callable regardless of the
+// loan's sanction stage, mirrors frontend/modules/loans/services/
+// loanService.ts's addOrnament/updateOrnament/deleteOrnament exactly. Used
+// by the Edit Loan sheet's per-ornament rows.
+export type OrnamentRequestInput = {
+  name: string;
+  purity: string;
+  grossWeight: number;
+  deductionWeight?: number;
+  quantity?: number;
+  remarks?: string;
+};
+
+export function addOrnament(loanId: number, input: OrnamentRequestInput) {
+  return apiRequest<Loan>(`/loans/${loanId}/ornaments`, { method: "POST", body: input });
+}
+
+export function updateOrnament(ornamentId: number, input: OrnamentRequestInput) {
+  return apiRequest<Loan>(`/loans/ornaments/${ornamentId}`, { method: "PUT", body: input });
+}
+
+// Refused server-side if this is the loan's last remaining ornament, or if
+// the loan is already Closed/Auctioned — see backend Service.DeleteOrnament.
+export function deleteOrnament(ornamentId: number) {
+  return apiRequest<Loan>(`/loans/ornaments/${ornamentId}`, { method: "DELETE" });
+}
+
 // --- Sanction-chain approvals (backend/internal/loan/handler.go's Approve/
 // ListApprovals, POST/GET /loans/:id/approve|approvals) ---------------------
 
@@ -276,6 +304,25 @@ export const RELEASE_STAGE_PERMISSIONS: Record<"Manager" | "Management", string>
 // zero and no active bank pledge (enforced server-side).
 export function completeRelease(loanId: number) {
   return apiRequest<Loan>(`/loans/${loanId}/complete-release`, { method: "POST" });
+}
+
+// --- Edit Loan / Hard Delete (backend/internal/loan/handler.go's
+// UpdateLoan/HardDeleteLoan) — mirrors frontend/modules/loans/services/
+// loanService.ts's updateLoan/hardDeleteLoan exactly. Ornaments themselves
+// go through addOrnament/updateOrnament/deleteOrnament above, one at a
+// time, not through this. -------------------------------------------------
+
+export type UpdateLoanInput = { schemeId?: number; principalAmount?: number };
+
+export function updateLoan(loanId: number, input: UpdateLoanInput) {
+  return apiRequest<Loan>(`/loans/${loanId}`, { method: "PATCH", body: input });
+}
+
+// Permanently deletes a loan and every record tied to it — a real DELETE,
+// no undo. Gated server-side by its own "can hard delete loan" permission,
+// independent of the ordinary "can delete loan" grant.
+export function hardDeleteLoan(loanId: number) {
+  return apiRequest<unknown>(`/loans/${loanId}/hard-delete`, { method: "DELETE" });
 }
 
 // --- Indemnity bond Aadhaar eSign (Setu) ------------------------------------

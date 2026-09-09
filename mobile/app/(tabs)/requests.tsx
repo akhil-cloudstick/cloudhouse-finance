@@ -7,12 +7,15 @@ import { BottomSheetModal } from "../../src/components/BottomSheetModal";
 import { FilterSheetButton } from "../../src/components/FilterSheetButton";
 import { colors, statusColors } from "../../src/theme/colors";
 import { listLoanRequestsPage, getLoan } from "../../src/api/loans";
+import { getCustomer } from "../../src/api/customers";
+import { printReleaseAgreement } from "../../src/utils/loanPrint";
 import { LoanRequest } from "../../src/types/loan";
 import { useRefetchOnFocus } from "../../src/hooks/useRefetchOnFocus";
 import { ExpandableTable, defaultVisibleCount, type TableColumn } from "../../src/components/ExpandableTable";
 import { ExtensionReviewPanel } from "../../src/components/loanRequests/ExtensionReviewPanel";
 import { ReleaseReviewPanel } from "../../src/components/loanRequests/ReleaseReviewPanel";
 import { useAuth } from "../../src/auth/AuthContext";
+import { GoldButton } from "../../src/components/GoldButton";
 
 const PAGE_SIZE = 10;
 
@@ -65,11 +68,33 @@ const REQUEST_COLUMNS: TableColumn<LoanRequest>[] = [
 ];
 const REQUEST_VISIBLE_COUNT = defaultVisibleCount(REQUEST_COLUMNS.length + 2);
 
-function requestExtraFields(r: LoanRequest) {
-  return [
+function requestExtraFields(
+  r: LoanRequest,
+  onDownload: (r: LoanRequest) => void,
+  downloadingId: number | null
+) {
+  const fields: { label: string; value: React.ReactNode }[] = [
     { label: "Detail", value: r.detail || "—" },
     { label: "Date", value: r.requestedAt ? r.requestedAt.slice(0, 10) : "—" },
   ];
+  // Lets an Approved release row's document be re-downloaded right from
+  // this list, without navigating to Loan Detail first — mirrors web
+  // frontend/modules/loans/components/Requests.tsx's downloadReleaseAgreement.
+  if (r.type === "Release" && r.status === "Approved") {
+    fields.push({
+      label: "Document",
+      value: (
+        <GoldButton
+          title={downloadingId === r.id ? "Preparing…" : "Download"}
+          variant="outline"
+          onPress={() => onDownload(r)}
+          disabled={downloadingId === r.id}
+          style={{ height: 32, paddingHorizontal: 12, alignSelf: "flex-start" }}
+        />
+      ),
+    });
+  }
+  return fields;
 }
 
 /* Standalone "Loan Extensions & Gold Release" list — mirrors frontend/
@@ -92,6 +117,7 @@ export default function RequestsScreen() {
   // like nothing happened after each step).
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [sheetError, setSheetError] = useState<string | null>(null);
+  const [downloadingId, setDownloadingId] = useState<number | null>(null);
 
   const { data, isLoading, isError, isFetching, isFetchingNextPage, fetchNextPage, hasNextPage, refetch } = useInfiniteQuery({
     queryKey: ["loanRequests", "list", statusFilter],
@@ -119,6 +145,34 @@ export default function RequestsScreen() {
     enabled: !!selected && selected.type === "Release",
   });
 
+  async function downloadReleaseAgreement(r: LoanRequest) {
+    setDownloadingId(r.id);
+    try {
+      const loan = await getLoan(r.loanId);
+      const customer = await getCustomer(loan.customerId);
+      await printReleaseAgreement({
+        loanNumber: loan.loanNumber,
+        branchName: loan.branch?.name,
+        customerName: customer.name,
+        customerAddress: customer.address,
+        customerId: String(customer.id),
+        aadhaarLast4: customer.aadhaarLast4,
+        pan: customer.pan,
+        ornaments: (loan.ornaments ?? []).map((o) => ({
+          name: o.name,
+          purity: o.purity,
+          quantity: o.quantity,
+          grossWeight: o.grossWeight,
+          netWeight: o.netWeight,
+        })),
+      });
+    } catch {
+      setSheetError("Could not load customer details — try again");
+    } finally {
+      setDownloadingId(null);
+    }
+  }
+
   function refreshAfterSave() {
     // Both this list's own pages and the loan detail screen's per-loan
     // ["loanRequests", loanId] query share the "loanRequests" prefix —
@@ -141,7 +195,7 @@ export default function RequestsScreen() {
           visibleCount={REQUEST_VISIBLE_COUNT}
           data={requests}
           keyExtractor={(r) => String(r.id)}
-          extraFields={requestExtraFields}
+          extraFields={(r) => requestExtraFields(r, downloadReleaseAgreement, downloadingId)}
           onViewDescription={(r) => setSelectedId(r.id)}
           emptyText={isLoading ? "Loading…" : isError ? "Could not load requests." : "No extension or release requests yet."}
           refreshControl={<RefreshControl refreshing={isFetching && !isFetchingNextPage && !isLoading} onRefresh={refetch} />}

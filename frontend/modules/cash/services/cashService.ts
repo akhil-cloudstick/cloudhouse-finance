@@ -65,12 +65,18 @@ export async function listCashMovements(): Promise<CashMovementView[]> {
 
 export const CASH_MOVEMENTS_PAGE_SIZE = 8;
 
-export async function listCashMovementsPage(page: number, limit?: number): Promise<{ items: CashMovementView[]; hasMore: boolean; total: number }> {
+export async function listCashMovementsPage(
+  page: number,
+  limit?: number,
+  filters?: { fromDate?: string; toDate?: string } // "YYYY-MM-DD", both optional
+): Promise<{ items: CashMovementView[]; hasMore: boolean; total: number }> {
   const pageSize = limit ?? (typeof window !== "undefined" && (window.innerWidth < 1600 || window.innerHeight < 950) ? 7 : 8);
   const params = new URLSearchParams({
     limit: String(pageSize),
     offset: String((page - 1) * pageSize),
   });
+  if (filters?.fromDate) params.set("fromDate", filters.fromDate);
+  if (filters?.toDate) params.set("toDate", filters.toDate);
   const rec = await apiFetch<{ items: BackendCashMovement[]; hasMore: boolean; total?: number }>(`/cash-movements?${params}`);
   return { items: (rec?.items || []).map(movementToView), hasMore: !!rec?.hasMore, total: rec?.total ?? 0 };
 }

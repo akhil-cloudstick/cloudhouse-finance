@@ -3,9 +3,13 @@
 import { useCallback, useEffect, useState } from "react";
 import { useModal } from "@/common/components/Modal";
 import { StatusChip } from "@/common/components/ui/StatusChip";
+import { Icon } from "@/common/components/Icon";
 import { Select } from "@/common/components/ui/Select";
 import { useLoans } from "@/modules/loans/store/LoansProvider";
-import { listLoanRequestsPage, type RequestView } from "@/modules/loans/services/loanService";
+import { listLoanRequestsPage, getLoanByNumber, type RequestView } from "@/modules/loans/services/loanService";
+import { getCustomer } from "@/modules/customers/services/customerService";
+import { printReleaseAgreement } from "@/modules/loans/utils/releaseAgreement";
+import { useToast } from "@/common/components/Toast";
 import { useAuth } from "@/common/auth-context";
 import { useResponsivePageSize } from "@/common/utils/responsive";
 
@@ -35,6 +39,7 @@ export function Requests() {
   // button says View rather than Review.
   const { can } = useAuth();
   const canDecide = can("Loan_Management", "can_update_loan");
+  const toast = useToast();
 
   const pageSize = useResponsivePageSize(10, 7);
   const [reqs, setReqs] = useState<RequestView[]>([]);
@@ -42,6 +47,41 @@ export function Requests() {
   const [page, setPage] = useState(1);
   const [total, setTotal] = useState(0);
   const [status, setStatus] = useState("");
+  const [downloadingId, setDownloadingId] = useState<number | null>(null);
+
+  // Lets an Approved release row's document be re-downloaded right from
+  // this list, without navigating to Loan Detail first — same generator
+  // LoanDetail.tsx's own Documents menu uses.
+  async function downloadReleaseAgreement(r: RequestView) {
+    setDownloadingId(r.id);
+    try {
+      const loan = await getLoanByNumber(r.loanNumber);
+      const customer = await getCustomer(loan.customerId);
+      printReleaseAgreement(
+        {
+          loanNumber: loan.id,
+          branchName: loan.branchName,
+          customerName: customer.name,
+          customerAddress: customer.address,
+          customerId: customer.id,
+          aadhaarLast4: customer.aadhaarLast4,
+          pan: customer.pan,
+          ornaments: loan.ornaments.map((o) => ({
+            name: o.name,
+            purity: o.purity,
+            quantity: o.quantity,
+            grossWeight: o.grossWeight,
+            netWeight: o.netWeight,
+          })),
+        },
+        toast
+      );
+    } catch {
+      toast("Could not load loan/customer details — try again");
+    } finally {
+      setDownloadingId(null);
+    }
+  }
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
 
   // Re-fetches whatever page is currently on screen — used both by the
@@ -106,18 +146,37 @@ export function Requests() {
                       <span className="chip" style={{ marginLeft: 6, color: "var(--red)", borderColor: "var(--red)" }}>Payment Overdue</span>
                     )}
                   </td>
-                  <td style={{ whiteSpace: "nowrap", textAlign: "center" }}>
-                    <button
-                      className="btn ghost sm"
-                      onClick={() => openModal(
-                        r.type === "Extension"
-                          ? <ExtensionReviewModalContent request={r} onSaved={refreshAfterSave} />
-                          : <ReleaseReviewModalContent request={r} onSaved={refreshAfterSave} />,
-                        true
-                      )}
-                    >
-                      {r.status === "Pending" && canDecide ? "Review" : "View"}
-                    </button>
+                  <td style={{ whiteSpace: "nowrap" }}>
+                    {/* Fixed flex layout, not text-align:center on the cell —
+                        centering inline content shifts the View/Review
+                        button's own x-position depending on whether the
+                        Download button beside it exists on that row. A
+                        reserved, always-same-size slot (invisible when not
+                        applicable) keeps every row's View button lined up
+                        in the same column. */}
+                    <div style={{ display: "flex", justifyContent: "center", alignItems: "center", gap: 6 }}>
+                      <button
+                        className="btn ghost sm"
+                        onClick={() => openModal(
+                          r.type === "Extension"
+                            ? <ExtensionReviewModalContent request={r} onSaved={refreshAfterSave} />
+                            : <ReleaseReviewModalContent request={r} onSaved={refreshAfterSave} />,
+                          true
+                        )}
+                      >
+                        {r.status === "Pending" && canDecide ? "Review" : "View"}
+                      </button>
+                      <button
+                        className="btn ghost sm"
+                        style={{ padding: "6px 10px", display: "inline-flex", alignItems: "center", visibility: r.type === "Release" && r.status === "Approved" ? "visible" : "hidden" }}
+                        title={downloadingId === r.id ? "Preparing…" : "Download Release Agreement"}
+                        disabled={downloadingId === r.id}
+                        onClick={() => downloadReleaseAgreement(r)}
+                        tabIndex={r.type === "Release" && r.status === "Approved" ? 0 : -1}
+                      >
+                        <Icon name="download" />
+                      </button>
+                    </div>
                   </td>
                 </tr>
               ))}

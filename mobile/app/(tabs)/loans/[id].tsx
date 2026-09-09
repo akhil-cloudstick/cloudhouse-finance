@@ -1,6 +1,6 @@
-import React, { useRef, useState } from "react";
-import { ScrollView, View, RefreshControl, Linking, Alert } from "react-native";
-import { useLocalSearchParams } from "expo-router";
+import React, { useEffect, useRef, useState } from "react";
+import { ScrollView, View, RefreshControl, Linking, Alert, Pressable } from "react-native";
+import { useLocalSearchParams, useRouter } from "expo-router";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useRefetchOnFocus } from "../../../src/hooks/useRefetchOnFocus";
 import { ScreenContainer } from "../../../src/components/ScreenContainer";
@@ -28,13 +28,23 @@ import {
   SANCTION_STAGE_ROLES,
   startIndemnityBondEsign,
   checkIndemnityBondEsign,
+  updateLoan,
+  hardDeleteLoan,
+  addOrnament,
+  updateOrnament,
+  deleteOrnament,
   type SanctionStage,
   type BondLang,
   type BondDeliverBy,
+  type OrnamentRequestInput,
 } from "../../../src/api/loans";
 import { recordPayment } from "../../../src/api/payments";
 import { recordBankPledge, releaseBankPledge, voidBankPledge, getBankPledgeHistory } from "../../../src/api/bankPledges";
 import { listBanks } from "../../../src/api/banks";
+import { listSchemes } from "../../../src/api/schemes";
+import { getCustomer } from "../../../src/api/customers";
+import { Scheme } from "../../../src/types/scheme";
+import { Ornament } from "../../../src/types/loan";
 import { fmt } from "../../../src/lib/format";
 import {
   getAuction,
@@ -54,7 +64,7 @@ import {
 } from "../../../src/types/auction";
 import { ApiError } from "../../../src/api/client";
 import { statusColors } from "../../../src/theme/colors";
-import { printPledgeSlip, printStatement, printIndemnityBond, printPacketLabel } from "../../../src/utils/loanPrint";
+import { printPledgeSlip, printStatement, printIndemnityBond, printPacketLabel, printReleaseAgreement } from "../../../src/utils/loanPrint";
 
 // Mirrors frontend/modules/loans/components/Auctions.tsx's role gating —
 // who may decide each kind of escalation.
@@ -81,6 +91,7 @@ const PAYMENT_METHODS = ["Cash", "UPI", "Bank Transfer", "Cheque"] as const;
 // approve/reject for Release) instead of pointing staff at the web app.
 export default function LoanDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
+  const router = useRouter();
   const loanId = Number(id);
   const queryClient = useQueryClient();
   const myRole = useRole();
@@ -145,6 +156,19 @@ export default function LoanDetailScreen() {
   // --- Payment form state ---------------------------------------------------
   const [paymentType, setPaymentType] = useState<(typeof PAYMENT_TYPES)[number]>("Partial");
   const [paymentAmount, setPaymentAmount] = useState("");
+  // Prefilled with the live-calculated outstanding interest (matching the
+  // web PaymentModal) — editable to charge a different amount, or cleared
+  // by hand to fall back to "use the system-calculated figure". Synced
+  // below whenever the loan refetches (e.g. this screen regains focus),
+  // as long as staff haven't already typed their own override.
+  const [paymentInterest, setPaymentInterest] = useState("");
+  const paymentInterestTouchedRef = useRef(false);
+  useEffect(() => {
+    const oi = loan.data?.outstandingInterest;
+    if (oi != null && !paymentInterestTouchedRef.current) {
+      setPaymentInterest(oi > 0 ? String(oi) : "");
+    }
+  }, [loan.data?.outstandingInterest]);
   // Defaults to today, same as the web PaymentModal, but editable so staff
   // can backdate a payment instead of it being silently forced to "today".
   const [paymentDate, setPaymentDate] = useState(new Date().toISOString().slice(0, 10));
@@ -182,6 +206,165 @@ export default function LoanDetailScreen() {
   const [esignSheetVisible, setEsignSheetVisible] = useState(false);
   const [esignLang, setEsignLang] = useState<BondLang>("en");
   const [esignNotice, setEsignNotice] = useState<string | null>(null);
+
+  // --- Edit Loan / Delete Loan Permanently -----------------------------------
+  // Mirrors frontend/common/components/modals/EditLoanModal.tsx +
+  // frontend/modules/loans/components/LoanDetail.tsx's "Loan Actions" menu —
+  // scheme/principal/ornament editing gated behind the ordinary
+  // "can_update_loan" permission, plus a single, separately-gated
+  // ("can_hard_delete_loan") destructive delete action.
+  const canEditLoan = can("Loan_Management", "can_update_loan");
+  const canHardDeleteLoan = can("Loan_Management", "can_hard_delete_loan");
+  const [editSheetVisible, setEditSheetVisible] = useState(false);
+  const [editSchemeId, setEditSchemeId] = useState<number | null>(null);
+  const [editSchemeLabel, setEditSchemeLabel] = useState("");
+  const [editSchemeQuery, setEditSchemeQuery] = useState("");
+  const [editSchemeFocused, setEditSchemeFocused] = useState(false);
+  const [editPrincipal, setEditPrincipal] = useState("");
+  type OrnRow = { id?: number; name: string; purity: string; gross: string; net: string; qty: string; removed?: boolean };
+  const [editRows, setEditRows] = useState<OrnRow[]>([]);
+  const [editErr, setEditErr] = useState("");
+  const [deletingLoan, setDeletingLoan] = useState(false);
+  const [printingReleaseAgreement, setPrintingReleaseAgreement] = useState(false);
+
+  function toOrnRow(o: Ornament): OrnRow {
+    return { id: o.id, name: o.name, purity: o.purity, gross: String(o.grossWeight), net: String(o.netWeight), qty: String(o.quantity) };
+  }
+
+  function openEditSheet() {
+    if (!loan.data) return;
+    setEditSchemeId(loan.data.schemeId);
+    setEditSchemeLabel(loan.data.scheme?.name ?? `Scheme #${loan.data.schemeId}`);
+    setEditSchemeQuery("");
+    setEditSchemeFocused(false);
+    setEditPrincipal(String(loan.data.principalAmount));
+    setEditRows((loan.data.ornaments ?? []).map(toOrnRow));
+    setEditErr("");
+    setEditSheetVisible(true);
+  }
+  function updEditRow(i: number, patch: Partial<OrnRow>) {
+    setEditRows((rs) => rs.map((r, idx) => (idx === i ? { ...r, ...patch } : r)));
+  }
+  function addEditRow() {
+    setEditRows((rs) => [...rs, { name: "", purity: "22K", gross: "", net: "", qty: "1" }]);
+  }
+  function removeEditRow(i: number) {
+    setEditRows((rs) => rs.map((r, idx) => (idx === i ? { ...r, removed: true } : r)));
+  }
+  const activeEditRows = editRows.filter((r) => !r.removed);
+
+  const editSchemeResults = useQuery({
+    queryKey: ["editLoanSchemes", editSchemeQuery],
+    queryFn: () => listSchemes(editSchemeQuery || undefined),
+    enabled: editSheetVisible && !!editSchemeQuery,
+  });
+
+  const saveEdit = useMutation({
+    mutationFn: async () => {
+      if (!(+editPrincipal > 0)) throw new Error("__validation__Please enter a valid principal amount.");
+      if (!activeEditRows.length) throw new Error("__validation__A loan must have at least one ornament.");
+      if (activeEditRows.some((r) => !r.name.trim() || !(+r.gross > 0) || !(+r.net > 0))) {
+        throw new Error("__validation__Every ornament needs a name, gross weight and net weight.");
+      }
+      if (activeEditRows.some((r) => +r.net > +r.gross)) {
+        throw new Error("__validation__Net Wt cannot be greater than Gross Wt for any ornament.");
+      }
+      const l = loan.data!;
+      await updateLoan(l.id, {
+        schemeId: editSchemeId != null && editSchemeId !== l.schemeId ? editSchemeId : undefined,
+        principalAmount: +editPrincipal !== l.principalAmount ? +editPrincipal : undefined,
+      });
+      // One call per ornament row, same as web's EditLoanModal — callable
+      // regardless of the loan's sanction stage.
+      for (const r of editRows) {
+        const input: OrnamentRequestInput = {
+          name: r.name.trim(),
+          purity: r.purity,
+          grossWeight: +r.gross,
+          deductionWeight: Math.max(0, +r.gross - +r.net),
+          quantity: +r.qty || 1,
+        };
+        if (r.removed) {
+          if (r.id) await deleteOrnament(r.id);
+        } else if (r.id) {
+          await updateOrnament(r.id, input);
+        } else {
+          await addOrnament(l.id, input);
+        }
+      }
+    },
+    onSuccess: () => {
+      setEditSheetVisible(false);
+      setEditErr("");
+      onOk();
+    },
+    onError: (err) => {
+      if (err instanceof Error && err.message.startsWith("__validation__")) {
+        setEditErr(err.message.replace("__validation__", ""));
+        return;
+      }
+      setEditErr(err instanceof ApiError ? err.message : "Could not save changes — try again.");
+    },
+  });
+
+  const doHardDelete = useMutation({
+    mutationFn: () => hardDeleteLoan(loanId),
+    onSuccess: () => {
+      setDeletingLoan(false);
+      router.back();
+    },
+    onError: (err) => {
+      setDeletingLoan(false);
+      onError(err);
+    },
+  });
+
+  function confirmHardDelete() {
+    if (!loan.data) return;
+    Alert.alert(
+      "Delete Loan Permanently",
+      `This permanently and irreversibly deletes loan ${loan.data.loanNumber}.\n\nEvery record tied to it will be removed: payments, ornaments, approvals, extension/release requests, auctions, bank pledges, packets, and reminders.\n\nThis cannot be undone.`,
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Delete Permanently",
+          style: "destructive",
+          onPress: () => {
+            setDeletingLoan(true);
+            doHardDelete.mutate();
+          },
+        },
+      ]
+    );
+  }
+
+  async function printReleaseAgreementDoc() {
+    if (!loan.data) return;
+    setPrintingReleaseAgreement(true);
+    try {
+      const c = loan.data.customer ? await getCustomer(loan.data.customerId) : null;
+      await printReleaseAgreement({
+        loanNumber: loan.data.loanNumber,
+        branchName: loan.data.branch?.name,
+        customerName: c?.name ?? loan.data.customer?.name,
+        customerAddress: c?.address ?? loan.data.customer?.address,
+        customerId: c ? String(c.id) : undefined,
+        aadhaarLast4: c?.aadhaarLast4,
+        pan: c?.pan ?? loan.data.customer?.pan,
+        ornaments: (loan.data.ornaments ?? []).map((o) => ({
+          name: o.name,
+          purity: o.purity,
+          quantity: o.quantity,
+          grossWeight: o.grossWeight,
+          netWeight: o.netWeight,
+        })),
+      });
+    } catch {
+      setError("Could not print the Release Agreement — try again.");
+    } finally {
+      setPrintingReleaseAgreement(false);
+    }
+  }
 
   function invalidate() {
     queryClient.invalidateQueries({ queryKey: ["auction", id] });
@@ -237,6 +420,7 @@ export default function LoanDetailScreen() {
         method: paymentMethod || undefined,
         reference: paymentReference || undefined,
         description: paymentDescription || undefined,
+        interestOverride: paymentInterest.trim() ? Number(paymentInterest) : undefined,
       }),
     onSuccess: () => {
       setPaymentAmount("");
@@ -244,6 +428,8 @@ export default function LoanDetailScreen() {
       setPaymentMethod(PAYMENT_METHODS[0]);
       setPaymentReference("");
       setPaymentDescription("");
+      setPaymentInterest("");
+      paymentInterestTouchedRef.current = false; // let the next payment's fresh outstanding interest prefill again
       onOk();
     },
     onError,
@@ -555,6 +741,18 @@ export default function LoanDetailScreen() {
               disabled={printingBond}
               style={{ height: 36, paddingHorizontal: 12 }}
             />
+            {/* Only reachable once the loan has actually closed
+             * (CompleteRelease already ran) — mirrors frontend/modules/
+             * loans/components/LoanDetail.tsx's Documents menu. */}
+            {l.status === "Closed" ? (
+              <GoldButton
+                title={printingReleaseAgreement ? "Preparing…" : "Release Agreement"}
+                variant="outline"
+                onPress={printReleaseAgreementDoc}
+                disabled={printingReleaseAgreement}
+                style={{ height: 36, paddingHorizontal: 12 }}
+              />
+            ) : null}
           </View>
         </Card>
 
@@ -652,6 +850,177 @@ export default function LoanDetailScreen() {
           />
         </BottomSheetModal>
 
+        {/* --- Loan Actions: Edit Loan / Delete Loan Permanently ------------
+         * Mirrors frontend/modules/loans/components/LoanDetail.tsx's "Loan
+         * Actions" menu. Edit Loan is gated the same as Request Extension
+         * (can_update_loan) and hidden once the loan is Closed/Auctioned;
+         * Delete Loan Permanently is the ONE delete action offered — no
+         * separate "soft delete" alternative — gated by its own
+         * "can_hard_delete_loan" permission. */}
+        {((l.status !== "Closed" && l.status !== "Auctioned" && canEditLoan) || canHardDeleteLoan) ? (
+          <Card>
+            <ThemedText variant="h3" style={{ marginBottom: 8 }}>
+              Loan Actions
+            </ThemedText>
+            <View style={{ gap: 8 }}>
+              {l.status !== "Closed" && l.status !== "Auctioned" && canEditLoan ? (
+                <GoldButton title="Edit Loan" variant="outline" onPress={openEditSheet} />
+              ) : null}
+              {canHardDeleteLoan ? (
+                <GoldButton
+                  title={deletingLoan ? "Deleting…" : "Delete Loan Permanently"}
+                  variant="outline"
+                  style={{ borderColor: colors.red }}
+                  onPress={confirmHardDelete}
+                  disabled={deletingLoan}
+                  loading={deletingLoan}
+                />
+              ) : null}
+            </View>
+          </Card>
+        ) : null}
+
+        <BottomSheetModal visible={editSheetVisible} onClose={() => setEditSheetVisible(false)} maxHeightPct={90}>
+          <ScrollView showsVerticalScrollIndicator={false}>
+            <ThemedText variant="h3" color={colors.goldDeep} style={{ marginBottom: 4 }}>
+              Edit Loan — {l.loanNumber}
+            </ThemedText>
+            <ThemedText variant="small" color={colors.muted} style={{ marginBottom: 14 }}>
+              Changes here apply from today forward — interest already recorded is never rewritten.
+            </ThemedText>
+
+            <ThemedText variant="label" color={colors.muted} style={{ marginBottom: 6 }}>
+              Scheme
+            </ThemedText>
+            {editSchemeId != null && !editSchemeFocused ? (
+              <Pressable
+                onPress={() => {
+                  setEditSchemeFocused(true);
+                  setEditSchemeQuery("");
+                }}
+                style={{ borderWidth: 1, borderColor: colors.line, borderRadius: 10, padding: 12, marginBottom: 14 }}
+              >
+                <ThemedText variant="body">{editSchemeLabel}</ThemedText>
+                <ThemedText variant="small" color={colors.muted}>
+                  Tap to change
+                </ThemedText>
+              </Pressable>
+            ) : (
+              <View style={{ marginBottom: 14 }}>
+                <GoldTextInput
+                  label="Search scheme"
+                  value={editSchemeQuery}
+                  onChangeText={setEditSchemeQuery}
+                  onFocus={() => setEditSchemeFocused(true)}
+                  placeholder="Type to search…"
+                />
+                {editSchemeFocused && (editSchemeResults.data ?? []).length > 0 ? (
+                  <View style={{ borderWidth: 1, borderColor: colors.line, borderRadius: 10 }}>
+                    {(editSchemeResults.data ?? []).map((s: Scheme, i: number) => (
+                      <Pressable
+                        key={s.id}
+                        onPress={() => {
+                          setEditSchemeId(s.id);
+                          setEditSchemeLabel(`${s.name} — ${s.ltvPercent}% LTV @ ${s.interestRate}%`);
+                          setEditSchemeFocused(false);
+                        }}
+                        style={{
+                          padding: 10,
+                          borderTopWidth: i === 0 ? 0 : 1,
+                          borderTopColor: colors.line,
+                        }}
+                      >
+                        <ThemedText variant="body">{s.name}</ThemedText>
+                        <ThemedText variant="small" color={colors.muted}>
+                          {s.ltvPercent}% LTV @ {s.interestRate}%
+                        </ThemedText>
+                      </Pressable>
+                    ))}
+                  </View>
+                ) : null}
+              </View>
+            )}
+
+            <GoldTextInput
+              label="Principal Amount (₹)"
+              keyboardType="numeric"
+              value={editPrincipal}
+              onChangeText={setEditPrincipal}
+            />
+
+            <ThemedText variant="label" color={colors.muted} style={{ marginTop: 8, marginBottom: 8 }}>
+              Ornaments
+            </ThemedText>
+            {editRows.map((r, i) =>
+              r.removed ? null : (
+                <View
+                  key={i}
+                  style={{ borderWidth: 1, borderColor: colors.line, borderRadius: 10, padding: 10, marginBottom: 10 }}
+                >
+                  <GoldTextInput label="Name" value={r.name} onChangeText={(v) => updEditRow(i, { name: v })} />
+                  <GoldTextInput label="Purity (e.g. 22K)" value={r.purity} onChangeText={(v) => updEditRow(i, { purity: v })} />
+                  <View style={{ flexDirection: "row", gap: 8 }}>
+                    <View style={{ flex: 1 }}>
+                      <GoldTextInput
+                        label="Gross (g)"
+                        keyboardType="numeric"
+                        value={r.gross}
+                        onChangeText={(v) => updEditRow(i, { gross: v })}
+                      />
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <GoldTextInput
+                        label="Net (g)"
+                        keyboardType="numeric"
+                        value={r.net}
+                        onChangeText={(v) => updEditRow(i, { net: v })}
+                      />
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <GoldTextInput
+                        label="Qty"
+                        keyboardType="numeric"
+                        value={r.qty}
+                        onChangeText={(v) => updEditRow(i, { qty: v })}
+                      />
+                    </View>
+                  </View>
+                  <GoldButton
+                    title="Remove Ornament"
+                    variant="outline"
+                    style={{ borderColor: colors.red, marginTop: 4 }}
+                    onPress={() => removeEditRow(i)}
+                  />
+                </View>
+              )
+            )}
+            <GoldButton title="+ Add Ornament" variant="outline" onPress={addEditRow} style={{ marginBottom: 14 }} />
+
+            <ThemedText variant="small" color={colors.muted} style={{ marginBottom: 8 }}>
+              Total net weight: {activeEditRows.reduce((s, r) => s + (+r.net || 0) * (+r.qty || 1), 0).toFixed(1)}g
+            </ThemedText>
+
+            {editErr ? (
+              <ThemedText variant="small" color={colors.red} style={{ marginBottom: 8 }}>
+                {editErr}
+              </ThemedText>
+            ) : null}
+
+            <View style={{ flexDirection: "row", gap: 8, marginBottom: 20 }}>
+              <View style={{ flex: 1 }}>
+                <GoldButton title="Cancel" variant="outline" onPress={() => setEditSheetVisible(false)} />
+              </View>
+              <View style={{ flex: 1 }}>
+                <GoldButton
+                  title={saveEdit.isPending ? "Saving…" : "Save Changes"}
+                  onPress={() => saveEdit.mutate()}
+                  loading={saveEdit.isPending}
+                />
+              </View>
+            </View>
+          </ScrollView>
+        </BottomSheetModal>
+
         {error ? (
           <Card>
             <ThemedText variant="small" color={colors.red}>
@@ -716,6 +1085,16 @@ export default function LoanDetailScreen() {
               onChange={setPaymentDate}
               max={new Date().toISOString().slice(0, 10)}
             />
+            <GoldTextInput
+              label="Interest (₹)"
+              keyboardType="numeric"
+              value={paymentInterest}
+              onChangeText={(v) => { paymentInterestTouchedRef.current = true; setPaymentInterest(v); }}
+            />
+            <ThemedText variant="small" color={colors.muted} style={{ marginTop: -8, marginBottom: 8 }}>
+              Outstanding interest: {fmt(l.outstandingInterest ?? 0)} — prefilled above, editable; leave blank to
+              use this figure.
+            </ThemedText>
             <ChipSelect options={PAYMENT_METHODS} value={paymentMethod} onChange={setPaymentMethod} label="Method" />
             <GoldTextInput label="Reference" value={paymentReference} onChangeText={setPaymentReference} />
             <GoldTextInput label="Description" value={paymentDescription} onChangeText={setPaymentDescription} />

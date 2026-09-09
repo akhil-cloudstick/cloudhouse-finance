@@ -260,6 +260,52 @@ func (h *Handler) UpdateOrnament(c *gin.Context) {
 	httpx.Success(c, http.StatusOK, rec)
 }
 
+// DeleteOrnament backs DELETE /loans/ornaments/:ornamentId — see
+// Service.DeleteOrnament's own doc comment.
+func (h *Handler) DeleteOrnament(c *gin.Context) {
+	ornamentID, err := httpx.IDParam(c, "ornamentId")
+	if err != nil {
+		httpx.FailErr(c, err)
+		return
+	}
+	rec, err := h.svc.DeleteOrnament(platform.RequestContext(c), ornamentID)
+	if err != nil {
+		httpx.FailErr(c, err)
+		return
+	}
+	httpx.Success(c, http.StatusOK, rec)
+}
+
+type updateLoanRequest struct {
+	SchemeID        *uint    `json:"schemeId"`
+	PrincipalAmount *float64 `json:"principalAmount"`
+}
+
+// UpdateLoan backs PATCH /loans/:id — see Service.UpdateLoan's own doc
+// comment for exactly what "editable after sanction" does and doesn't
+// change.
+func (h *Handler) UpdateLoan(c *gin.Context) {
+	loanID, err := httpx.IDParam(c, "id")
+	if err != nil {
+		httpx.FailErr(c, err)
+		return
+	}
+	var req updateLoanRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		httpx.Fail(c, http.StatusBadRequest, "Invalid input")
+		return
+	}
+	rec, err := h.svc.UpdateLoan(platform.RequestContext(c), loanID, UpdateLoanInput{
+		SchemeID:        req.SchemeID,
+		PrincipalAmount: req.PrincipalAmount,
+	})
+	if err != nil {
+		httpx.FailErr(c, err)
+		return
+	}
+	httpx.Success(c, http.StatusOK, rec)
+}
+
 type purityTestRequest struct {
 	TestedPurity          string  `json:"testedPurity" binding:"required"`
 	TestedGrossWeight     float64 `json:"testedGrossWeight" binding:"required"`
@@ -638,6 +684,10 @@ type paymentRequest struct {
 	Method        string  `json:"method"`
 	Reference     string  `json:"reference"`
 	Description   string  `json:"description"`
+	// InterestOverride — see PaymentInput.InterestOverride's own doc
+	// comment. Omitted/null means "use the system-calculated figure",
+	// same as before this field existed.
+	InterestOverride *float64 `json:"interestOverride"`
 }
 
 // staffSelectablePaymentTypes are the only Types this endpoint accepts — the
@@ -687,6 +737,7 @@ func (h *Handler) RecordPayment(c *gin.Context) {
 		Method:               req.Method,
 		Reference:            req.Reference,
 		Description:          req.Description,
+		InterestOverride:     req.InterestOverride,
 	})
 	if err != nil {
 		httpx.FailErr(c, err)
@@ -1449,6 +1500,23 @@ func (h *Handler) CompleteRelease(c *gin.Context) {
 		return
 	}
 	httpx.Success(c, http.StatusOK, rec)
+}
+
+// HardDeleteLoan backs DELETE /loans/:id/hard-delete — see
+// Service.HardDeleteLoan's own doc comment for the full cascade. Gated by
+// its own "can hard delete loan" permission at the route, not
+// perms.Delete.
+func (h *Handler) HardDeleteLoan(c *gin.Context) {
+	loanID, err := httpx.IDParam(c, "id")
+	if err != nil {
+		httpx.FailErr(c, err)
+		return
+	}
+	if err := h.svc.HardDeleteLoan(platform.RequestContext(c), loanID); err != nil {
+		httpx.FailErr(c, err)
+		return
+	}
+	httpx.Success(c, http.StatusOK, gin.H{"deleted": true})
 }
 
 // --- Approval limits ---------------------------------------------------

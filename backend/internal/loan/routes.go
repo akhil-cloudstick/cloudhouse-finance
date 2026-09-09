@@ -14,7 +14,10 @@ import (
 // with their own "can view/create/update/delete bank pledge" set (a
 // distinct module in the permission catalogue, even though the routes are
 // physically mounted here alongside everything else loan-shaped).
-func RegisterRoutes(rg *gin.RouterGroup, h *Handler, perms platform.CRUDMiddlewares, bankPledgePerms platform.CRUDMiddlewares) {
+// hardDeletePerm gates ONLY the hard-delete route, independently of the
+// ordinary "can delete loan" grant above — see authz.Catalogue's own
+// comment on "can hard delete loan" for why this is deliberately separate.
+func RegisterRoutes(rg *gin.RouterGroup, h *Handler, perms platform.CRUDMiddlewares, bankPledgePerms platform.CRUDMiddlewares, hardDeletePerm gin.HandlerFunc) {
 	rg.POST("", perms.Create, h.Create)
 	rg.GET("", perms.Read, h.List)
 
@@ -34,12 +37,16 @@ func RegisterRoutes(rg *gin.RouterGroup, h *Handler, perms platform.CRUDMiddlewa
 	rg.GET("/by-number/:loanNumber", perms.Read, h.GetByLoanNumber)
 	rg.GET("/interest-collected", perms.Read, h.GetInterestCollected)
 	rg.GET("/:id", perms.Read, h.Get)
+	// Editable even after final sanction — see Service.UpdateLoan's own doc
+	// comment for exactly what this does and doesn't change.
+	rg.PATCH("/:id", perms.Update, h.UpdateLoan)
 	// Customer-facing account statement PDF. Read-gated: it shows nothing
 	// the loan detail screen does not already show.
 	rg.GET("/:id/statement", perms.Read, h.Statement)
 
 	rg.POST("/:id/ornaments", perms.Update, h.AddOrnament)
 	rg.PUT("/ornaments/:ornamentId", perms.Update, h.UpdateOrnament)
+	rg.DELETE("/ornaments/:ornamentId", perms.Update, h.DeleteOrnament)
 	rg.POST("/ornaments/:ornamentId/purity-test", perms.Update, h.RecordPurityTest)
 	rg.POST("/ornaments/:ornamentId/images", perms.Update, h.AddOrnamentImage)
 
@@ -94,4 +101,8 @@ func RegisterRoutes(rg *gin.RouterGroup, h *Handler, perms platform.CRUDMiddlewa
 	rg.POST("/requests/:requestId/release-payment", perms.Update, h.RecordReleasePayment)
 	rg.POST("/requests/:requestId/approve", perms.Update, h.ApproveRequest)
 	rg.POST("/:id/complete-release", perms.Update, h.CompleteRelease)
+
+	// Hard delete — see Service.HardDeleteLoan's own doc comment for the
+	// full cascade. Gated by its own dedicated permission, not perms.Delete.
+	rg.DELETE("/:id/hard-delete", hardDeletePerm, h.HardDeleteLoan)
 }

@@ -782,6 +782,233 @@ func (s *Service) AddOrnament(ctx context.Context, loanID uint, in AddOrnamentIn
 	return s.recalculateAndSave(ctx, l)
 }
 
+// DeleteOrnament removes a single pledged item from a loan — e.g. a
+// data-entry mistake caught after the loan was already sanctioned. Its
+// photos and any purity re-test record are removed with it (neither has a
+// real DB-level FK cascade — see model_ornament.go — so both are deleted
+// explicitly here, before the ornament row itself). The loan's totals
+// (TotalNetWeight/TotalGoldValue/EligibleLoanAmount) are recalculated
+// immediately after, exactly as AddOrnament/UpdateOrnament already do.
+//
+// Refused if this is the loan's LAST ornament (a loan must always have at
+// least one — see ErrNoOrnaments at creation) or if the loan is already
+// Closed/Auctioned.
+func (s *Service) DeleteOrnament(ctx context.Context, ornamentID uint) (*Loan, error) {
+	o, err := s.ornamentRepo.FindByID(ctx, ornamentID)
+	if err != nil {
+		return nil, ErrOrnamentNotFound
+	}
+	l, err := s.repo.FindByID(ctx, o.LoanID)
+	if err != nil {
+		return nil, ErrNotFound
+	}
+	switch l.Status {
+	case StatusClosed, StatusAuctioned, StatusAuctionedBalanceDue:
+		return nil, ErrLoanTerminalState
+	}
+	existing, err := s.ornamentRepo.FindByLoanID(ctx, l.ID)
+	if err != nil {
+		return nil, err
+	}
+	if len(existing) <= 1 {
+		return nil, ErrNoOrnaments
+	}
+	if err := s.db.WithContext(ctx).Where("ornament_id = ?", ornamentID).Delete(&OrnamentImage{}).Error; err != nil {
+		return nil, err
+	}
+	if err := s.db.WithContext(ctx).Where("ornament_id = ?", ornamentID).Delete(&OrnamentPurityTest{}).Error; err != nil {
+		return nil, err
+	}
+	if err := s.db.WithContext(ctx).Delete(&Ornament{}, ornamentID).Error; err != nil {
+		return nil, err
+	}
+	return s.recalculateAndSave(ctx, l)
+}
+
+// UpdateLoanInput mirrors the fields editable on an existing loan, even
+// after it has been fully sanctioned — see UpdateLoan's own doc comment
+// for what "editable after sanction" actually changes vs. leaves alone.
+// Both fields are pointers so a caller can change just one without
+// resending the other.
+type UpdateLoanInput struct {
+	SchemeID        *uint
+	PrincipalAmount *float64
+}
+
+// UpdateLoan lets staff correct a loan's scheme or principal amount even
+// after final sanction — deliberately allowed with no confirmation/audit
+// trail beyond the ordinary "can update loan" permission, per an explicit
+// product decision (unlike Update's own field-by-field `changes` pattern
+// elsewhere in this package, nothing here is separately logged).
+//
+// Scheme change: swapping SchemeID is enough on its own — l.Scheme is
+// loaded fresh on every read/accrual call, so the new interest rate,
+// method and penal rate apply automatically to everything computed from
+// this point forward. Already-recorded AccruedInterest/
+// AccruedPenalInterest are untouched — this is deliberately
+// prospective-only, never rewriting history. LTVPercent also changes with
+// the scheme, so EligibleLoanAmount is recalculated against the loan's
+// current ornaments under the NEW scheme, same as AddOrnament/
+// UpdateOrnament/DeleteOrnament already do whenever the ornament set
+// changes.
+//
+// Principal change: PrincipalAmount is replaced outright, but
+// OutstandingAmount is adjusted by the DELTA (new − old) rather than
+// recomputed from scratch — whatever principal has already been repaid
+// stays repaid; only the portion still outstanding shifts by the same
+// amount the principal itself changed by.
+//
+// Refused on a loan that's already Closed/Auctioned — editing a finished
+// loan makes no sense.
+func (s *Service) UpdateLoan(ctx context.Context, loanID uint, in UpdateLoanInput) (*Loan, error) {
+	l, err := s.repo.FindByID(ctx, loanID)
+	if err != nil {
+		return nil, ErrNotFound
+	}
+	switch l.Status {
+	case StatusClosed, StatusAuctioned, StatusAuctionedBalanceDue:
+		return nil, ErrLoanTerminalState
+	}
+
+	if in.SchemeID != nil {
+		if _, err := s.schemeRepo.FindByID(ctx, *in.SchemeID); err != nil {
+			return nil, ErrSchemeInvalid
+		}
+		l.SchemeID = *in.SchemeID
+	}
+
+	if in.PrincipalAmount != nil {
+		if *in.PrincipalAmount <= 0 {
+			return nil, ErrInvalidPrincipal
+		}
+		delta := *in.PrincipalAmount - l.PrincipalAmount
+		l.PrincipalAmount = *in.PrincipalAmount
+		l.OutstandingAmount = platform.RoundMoney(l.OutstandingAmount + delta)
+		if l.OutstandingAmount < 0 {
+			l.OutstandingAmount = 0
+		}
+	}
+
+	sch, err := s.schemeRepo.FindByID(ctx, l.SchemeID)
+	if err != nil {
+		return nil, ErrSchemeInvalid
+	}
+	ornaments, err := s.ornamentRepo.FindByLoanID(ctx, l.ID)
+	if err != nil {
+		return nil, err
+	}
+	recalculateTotals(l, ornaments, sch)
+	if l.PrincipalAmount > l.EligibleLoanAmount {
+		return nil, ErrPrincipalTooHigh
+	}
+	if err := s.repo.Update(ctx, l); err != nil {
+		return nil, err
+	}
+	return s.Get(ctx, l.ID, nil)
+}
+
+// HardDeleteLoan permanently removes a loan and every record tied to it —
+// a genuine `DELETE`, not GORM's soft-delete (the loans table's DeletedAt
+// column is left entirely unused by this path) — with no undo. Gated by
+// its own "can hard delete loan" permission (see authz.Catalogue), kept
+// deliberately separate from the ordinary "can delete loan" grant, and
+// meant for exactly one thing: erasing a genuinely mistaken loan (wrong
+// customer, test data, duplicate entry), not for ordinary loan closure —
+// CompleteRelease is what a loan that was actually serviced goes through.
+//
+// Deletes, inside one transaction, in FK-safe order (children before the
+// loan itself): auction decision requests, auction records, request
+// approvals, loan requests, bank pledge records, loan payments, loan
+// approvals, ornament images/purity tests, ornaments, packets (a real
+// physical gold-storage record — deleted rather than unlinked, per an
+// explicit product decision), reminders, then the loan row. Packets/
+// reminders live in their own packages (internal/packet, internal/
+// reminder) — deleted here via raw SQL against their table names rather
+// than importing those packages, which would create an import cycle
+// (packet already imports loan for its own joined display fields).
+func (s *Service) HardDeleteLoan(ctx context.Context, loanID uint) error {
+	if _, err := s.repo.FindByID(ctx, loanID); err != nil {
+		return ErrNotFound
+	}
+	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		// AuctionRecord has THREE child tables (Notices/Events/
+		// DecisionRequests all FK-reference it) — every one has to go
+		// before the AuctionRecord row itself, same reasoning as
+		// packet_movements/bank_pledge_events below.
+		if err := tx.Where(
+			"auction_record_id IN (SELECT id FROM auction_records WHERE loan_id = ?)", loanID,
+		).Delete(&AuctionDecisionRequest{}).Error; err != nil {
+			return err
+		}
+		if err := tx.Where(
+			"auction_record_id IN (SELECT id FROM auction_records WHERE loan_id = ?)", loanID,
+		).Delete(&AuctionNotice{}).Error; err != nil {
+			return err
+		}
+		if err := tx.Where(
+			"auction_record_id IN (SELECT id FROM auction_records WHERE loan_id = ?)", loanID,
+		).Delete(&AuctionEvent{}).Error; err != nil {
+			return err
+		}
+		if err := tx.Where("loan_id = ?", loanID).Delete(&AuctionRecord{}).Error; err != nil {
+			return err
+		}
+		if err := tx.Where(
+			"request_id IN (SELECT id FROM loan_requests WHERE loan_id = ?)", loanID,
+		).Delete(&RequestApproval{}).Error; err != nil {
+			return err
+		}
+		if err := tx.Where("loan_id = ?", loanID).Delete(&LoanRequest{}).Error; err != nil {
+			return err
+		}
+		// bank_pledge_events FK-references bank_pledge_records, so its rows
+		// for this loan's pledge(s) must go first — same shortfall as
+		// packet_movements below.
+		if err := tx.Where(
+			"bank_pledge_record_id IN (SELECT id FROM bank_pledge_records WHERE loan_id = ?)", loanID,
+		).Delete(&BankPledgeEvent{}).Error; err != nil {
+			return err
+		}
+		if err := tx.Where("loan_id = ?", loanID).Delete(&BankPledgeRecord{}).Error; err != nil {
+			return err
+		}
+		if err := tx.Where("loan_id = ?", loanID).Delete(&LoanPayment{}).Error; err != nil {
+			return err
+		}
+		if err := tx.Where("loan_id = ?", loanID).Delete(&LoanApproval{}).Error; err != nil {
+			return err
+		}
+		if err := tx.Where(
+			"ornament_id IN (SELECT id FROM ornaments WHERE loan_id = ?)", loanID,
+		).Delete(&OrnamentImage{}).Error; err != nil {
+			return err
+		}
+		if err := tx.Where(
+			"ornament_id IN (SELECT id FROM ornaments WHERE loan_id = ?)", loanID,
+		).Delete(&OrnamentPurityTest{}).Error; err != nil {
+			return err
+		}
+		if err := tx.Where("loan_id = ?", loanID).Delete(&Ornament{}).Error; err != nil {
+			return err
+		}
+		// packet_movements FK-references packets, so its rows for this
+		// loan's packet(s) must go first — deleting the packet row
+		// directly (as below) without this violates fk_packets_movements.
+		if err := tx.Exec(
+			"DELETE FROM packet_movements WHERE packet_id IN (SELECT id FROM packets WHERE loan_id = ?)", loanID,
+		).Error; err != nil {
+			return err
+		}
+		if err := tx.Exec("DELETE FROM packets WHERE loan_id = ?", loanID).Error; err != nil {
+			return err
+		}
+		if err := tx.Exec("DELETE FROM reminders WHERE loan_id = ?", loanID).Error; err != nil {
+			return err
+		}
+		return tx.Unscoped().Delete(&Loan{}, loanID).Error
+	})
+}
+
 // UpdateOrnamentInput mirrors OrnamentInput for editing a pledged ornament.
 type UpdateOrnamentInput = OrnamentInput
 
@@ -1147,6 +1374,18 @@ type PaymentInput struct {
 	Method               string
 	Reference            string
 	Description          string
+	// InterestOverride, when set, replaces the system-computed interest
+	// bucket (AccruedInterest − InterestPaid) for THIS call only — the
+	// Record Payment screen shows the live-calculated interest prefilled,
+	// but the minimum-one-month/daily-prorated formula (see accrual.go's
+	// projectAccrual) is a formula, not a court order, and staff need to be
+	// able to adjust the actual amount charged for a specific settlement.
+	// Only meaningful for Interest/Partial/Full Settlement — the only
+	// types whose waterfall touches an interest bucket at all. Principal/
+	// penal/fee are never affected; AccruedInterest/InterestPaid still
+	// reconcile against whatever was actually applied, exactly as an
+	// un-overridden payment would.
+	InterestOverride *float64
 }
 
 // ErrExceedsOutstanding is returned when a payment's Type restricts which
@@ -1166,11 +1405,21 @@ var ErrExceedsOutstanding = httpx.NewBadRequest("amount does not match what is o
 // that outstanding fees get cleared before anything else. It does not
 // mutate l — the caller applies the returned deltas and decides
 // cash-recording.
-func allocatePayment(l *Loan, paymentType string, amount float64) (fee, penal, interest, principal float64, err error) {
+//
+// interestOverride, when non-nil, replaces the system-computed interest
+// bucket (AccruedInterest − InterestPaid) with a staff-entered figure —
+// see PaymentInput.InterestOverride's own doc comment for why this exists.
+// Every other bucket (fee/penal/principal) is unaffected; auction-driven
+// callers (RecordAuctionSale/write-off) always pass nil, since there is no
+// staff-facing amount to override there.
+func allocatePayment(l *Loan, paymentType string, amount float64, interestOverride *float64) (fee, penal, interest, principal float64, err error) {
 	const epsilon = 0.01 // guards against float rounding rejecting an exact payoff
 	feeOutstanding := l.OutstandingProcessingFee
 	penalOutstanding := l.AccruedPenalInterest - l.PenalInterestPaid
 	interestOutstanding := l.AccruedInterest - l.InterestPaid
+	if interestOverride != nil {
+		interestOutstanding = *interestOverride
+	}
 	principalOutstanding := l.OutstandingAmount
 
 	switch paymentType {
@@ -1319,6 +1568,9 @@ func (s *Service) RecordPayment(ctx context.Context, loanID uint, in PaymentInpu
 	if in.ProcessingFee < 0 {
 		return nil, ErrInvalidAmount
 	}
+	if in.InterestOverride != nil && *in.InterestOverride < 0 {
+		return nil, ErrInvalidAmount
+	}
 
 	s.accrueAndSave(ctx, l)
 
@@ -1329,7 +1581,7 @@ func (s *Service) RecordPayment(ctx context.Context, loanID uint, in PaymentInpu
 		l.OutstandingProcessingFee = platform.RoundMoney(l.OutstandingProcessingFee + in.ProcessingFee)
 	}
 
-	fee, penal, interest, principal, err := allocatePayment(l, in.Type, in.Amount)
+	fee, penal, interest, principal, err := allocatePayment(l, in.Type, in.Amount, in.InterestOverride)
 	if err != nil {
 		return nil, err
 	}
@@ -2053,7 +2305,7 @@ func (s *Service) RecordAuctionSale(ctx context.Context, loanID uint, branchID *
 
 	txErr := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		if applied > 0 {
-			fee, penal, interest, principal, err := allocatePayment(l, PaymentTypeAuctionSale, applied)
+			fee, penal, interest, principal, err := allocatePayment(l, PaymentTypeAuctionSale, applied, nil)
 			if err != nil {
 				return err
 			}
@@ -2422,7 +2674,7 @@ func (s *Service) ResolveAuctionDecision(ctx context.Context, loanID, requestID 
 				s.enrich(ctx, l)
 				owed := platform.RoundMoney(l.TotalOutstandingBalance)
 				if owed > 0 {
-					fee, penal, interest, principal, err := allocatePayment(l, PaymentTypeAuctionWriteOff, owed)
+					fee, penal, interest, principal, err := allocatePayment(l, PaymentTypeAuctionWriteOff, owed, nil)
 					if err != nil {
 						return err
 					}
