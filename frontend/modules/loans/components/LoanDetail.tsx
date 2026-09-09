@@ -488,14 +488,14 @@ export function LoanDetail({ id }: { id?: string }) {
       const c = await getCustomer(l.customerId);
       const rows = l.payments.length
         ? l.payments.map((p) => {
-            const isCash = p.type !== "Adjustment" && p.type !== "Waiver";
-            const breakdown = [
-              p.processingFeeApplied > 0 && `Fee ${fmt(p.processingFeeApplied)}`,
-              p.penalInterestApplied > 0 && `Penal ${fmt(p.penalInterestApplied)}`,
-              p.interestApplied > 0 && `Interest ${fmt(p.interestApplied)}`,
-              p.principalApplied > 0 && `Principal ${fmt(p.principalApplied)}`,
-            ].filter(Boolean).join(" · ");
-            return `<tr>
+          const isCash = p.type !== "Adjustment" && p.type !== "Waiver";
+          const breakdown = [
+            p.processingFeeApplied > 0 && `Fee ${fmt(p.processingFeeApplied)}`,
+            p.penalInterestApplied > 0 && `Penal ${fmt(p.penalInterestApplied)}`,
+            p.interestApplied > 0 && `Interest ${fmt(p.interestApplied)}`,
+            p.principalApplied > 0 && `Principal ${fmt(p.principalApplied)}`,
+          ].filter(Boolean).join(" · ");
+          return `<tr>
               <td>${p.paidOn}</td>
               <td>${p.type}${p.description ? " — " + p.description : ""}${breakdown ? `<br><span class="muted">${breakdown}</span>` : ""}</td>
               <td>${isCash ? p.method || "—" : "Non-cash"}</td>
@@ -503,11 +503,11 @@ export function LoanDetail({ id }: { id?: string }) {
               <td class="num">${fmt(p.amount)}</td>
               <td class="num">${fmt(p.runningBalance)}</td>
             </tr>`;
-          }).join("")
+        }).join("")
         : `<tr><td colspan="6" style="text-align:center;color:#777">No ledger entries yet.</td></tr>`;
       const security = l.ornaments.length
         ? l.ornaments.map((o) => `${o.quantity} × ${o.name} (${o.purity}, net ${o.netWeight.toFixed(1)}g)`).join("; ") +
-          ` — total net weight ${fmtW(l.totalNetWeight)}`
+        ` — total net weight ${fmtW(l.totalNetWeight)}`
         : "—";
       openPrintWindow("Statement — " + l.id, `
         ${brandHeader("Statement of Account")}
@@ -560,8 +560,15 @@ export function LoanDetail({ id }: { id?: string }) {
       }
       const w = window.open("", "_blank");
       if (!w) { toast("Popup blocked — please allow popups for this site to print"); return; }
+      // Die-cut "flag tag" stock: 81mm total — a 56mm×12mm head (perforated
+      // at the 28mm midpoint) plus a blank 25mm×3mm strap for wrapping
+      // around/through the item and tearing off. See the approved wire
+      // diagram (packet-flag-tag artifact) — same layout as NewLoan.tsx's
+      // printPacketLabel: first 28mm segment holds the QR, the second (the
+      // half that stays with the item once torn) holds the readable
+      // identifiers, the strap stays blank.
       w.document.write(`<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Packet Label — ${l.id}</title><style>
-        @page{size:50mm 30mm;margin:0}
+        @page{size:81mm 12mm;margin:0}
         body{margin:0;font-family:Arial,Helvetica,sans-serif;-webkit-print-color-adjust:exact}
         .label{width:50mm;height:30mm;box-sizing:border-box;padding:1.6mm;display:flex;align-items:center;gap:1.8mm;
           border:0.3mm dashed #aaa;overflow:hidden;page-break-inside:avoid}
@@ -571,20 +578,22 @@ export function LoanDetail({ id }: { id?: string }) {
         .t .id{font-size:3.4mm;font-weight:bold}
         .t div{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
         .noprint{text-align:center;margin:8mm;font-family:Arial}
-        @media print{.noprint{display:none} .label{border:none}}
+        @media print{.noprint{display:none} .head{border:none} .infocell{border-left:none} .strap .band{border:none}}
       </style></head><body>
-        <div class="label">
-          <img src="${qr}" alt="QR">
-          <div class="t">
-            <div class="brand">${BRAND.name.toUpperCase()}</div>
-            <div class="id">${l.id} · ${packetLabel}</div>
-            <div>${c.name || "—"}</div>
-            <div>${c.code || c.id || "—"} · ${c.phone || ""}</div>
-            <div>${new Date().toLocaleDateString("en-IN")} · ${l.totalNetWeight.toFixed(1)} g · ${l.ornaments.length} item(s)</div>
+        <div class="tag">
+          <div class="head">
+            <div class="qrcell"><img src="${qr}" alt="QR"></div>
+            <div class="infocell">
+              <div class="id">${packetLabel}</div>
+              <div class="name">${c.name || "—"}</div>
+              <div class="meta">${l.id} · ${l.totalNetWeight.toFixed(1)}g</div>
+              <div class="brand">${BRAND.name.toUpperCase()}</div>
+            </div>
           </div>
+          <div class="strap"><div class="band"></div></div>
         </div>
         <div class="noprint">
-          <p style="font-size:13px;color:#555">50mm × 30mm packet label — scanning the QR opens ${url}</p>
+          <p style="font-size:13px;color:#555">81mm × 12mm flag tag — scanning the QR opens ${url}</p>
           <button onclick="window.print()" style="padding:10px 26px;font-size:14px;cursor:pointer">🖨 Print Label</button>
         </div>
       </body></html>`);
@@ -703,7 +712,7 @@ export function LoanDetail({ id }: { id?: string }) {
               loan would read "Active" and "Overdue" at the same time. */}
           {!l.isDefaulted && l.isOverdue && l.status !== "Active" && <StatusChip status="Overdue" />}
           {!l.isOverdue && l.isDueSoon && <StatusChip status="Due Soon" />}
-          </h1>
+        </h1>
           <p><a href={`#customer/${l.customerId}`}>{l.customerName}</a> · {l.schemeName} · opened {l.opened} · due {l.due}{l.isOverdue ? ` · ${l.daysOverdue} days overdue` : ""}</p></div>
         {/* Everything from here down is one right-aligned group rather than
          * flat siblings of `.page-h` itself — `.page-h`'s own flex-wrap
@@ -720,89 +729,89 @@ export function LoanDetail({ id }: { id?: string }) {
          * paperwork (print/eSign), while the other three all change the
          * loan's own state and read more naturally leading. */}
         <div className="page-h-actions">
-        {approvalButtons ? approvalButtons : (
-          l.status !== "Closed" && canUpdateLoans && (
-            <button className="btn sm" onClick={() => openModal(<PaymentModalContent loan={l} onSaved={load} />)}><Icon name="coin" /> Record Payment</button>
-          )
-        )}
-        {l.status === "Closure Requested" && canUpdateLoans && (
-          // Only actually disabled while the request is in flight — the
-          // settlement/pledge gates below are enforced (and explained) by
-          // doCompleteRelease itself via a toast, since a plain `disabled`
-          // button never fires a click at all, leaving a hover-only title
-          // as the sole explanation. The title stays as a bonus hint for
-          // anyone who hovers before clicking.
-          <button className="btn" style={{ height: 30 }} disabled={completing} onClick={doCompleteRelease} title={l.totalOutstandingBalance > 0.01 ? "Final settlement must be fully paid first" : l.bankPledgeStatus === "Bank Pledged" ? "Release the bank pledge first" : undefined}>
-            <Icon name="unlock" /> {completing ? "Releasing…" : "Complete Release"}
-          </button>
-        )}
-        {!approvalButtons && ((canAcceptBankPledge(l.status, l.bankPledgeStatus) && !activePledge && canCreateBankPledges) || (l.status !== "Closed" && canUpdateLoans)) && (
-          <div className="docs-dd" ref={loanActionsMenuRef}>
-            <button className="btn ghost sm" onClick={() => setLoanActionsMenuOpen((v) => !v)}>
-              <Icon name="gear" /> Loan Actions <Icon name="chevronDown" className="docs-dd-chev" />
+          {approvalButtons ? approvalButtons : (
+            l.status !== "Closed" && canUpdateLoans && (
+              <button className="btn sm" onClick={() => openModal(<PaymentModalContent loan={l} onSaved={load} />)}><Icon name="coin" /> Record Payment</button>
+            )
+          )}
+          {l.status === "Closure Requested" && canUpdateLoans && (
+            // Only actually disabled while the request is in flight — the
+            // settlement/pledge gates below are enforced (and explained) by
+            // doCompleteRelease itself via a toast, since a plain `disabled`
+            // button never fires a click at all, leaving a hover-only title
+            // as the sole explanation. The title stays as a bonus hint for
+            // anyone who hovers before clicking.
+            <button className="btn" style={{ height: 30 }} disabled={completing} onClick={doCompleteRelease} title={l.totalOutstandingBalance > 0.01 ? "Final settlement must be fully paid first" : l.bankPledgeStatus === "Bank Pledged" ? "Release the bank pledge first" : undefined}>
+              <Icon name="unlock" /> {completing ? "Releasing…" : "Complete Release"}
             </button>
-            {loanActionsMenuOpen && (
-              <div className="docs-dd-menu">
-                {canAcceptBankPledge(l.status, l.bankPledgeStatus) && !activePledge && canCreateBankPledges && (
-                  <a href="#" title="Repledge to Bank" onClick={(e) => { e.preventDefault(); setLoanActionsMenuOpen(false); openModal(<RepledgeModalContent loan={l} onSaved={load} />); }}>
-                    <Icon name="bank" /><span className="tx">Repledge to Bank</span>
-                  </a>
-                )}
-                {l.status !== "Closed" && canUpdateLoans && (
-                  <a href="#" title="Request Extension" onClick={(e) => { e.preventDefault(); setLoanActionsMenuOpen(false); openModal(<RequestExtensionModalContent loan={l} onSaved={load} />); }}>
-                    <Icon name="clock" /><span className="tx">Request Extension</span>
-                  </a>
-                )}
-                {l.status !== "Closed" && canUpdateLoans && (
-                  <a href="#" title="Request Release" onClick={(e) => { e.preventDefault(); setLoanActionsMenuOpen(false); openModal(<RequestReleaseModalContent loan={l} onSaved={load} />); }}>
-                    <Icon name="unlock" /><span className="tx">Request Release</span>
-                  </a>
-                )}
-              </div>
-            )}
-          </div>
-        )}
-        {/* Print Label/Slip/Statement/Bond + the eSign action — always
+          )}
+          {!approvalButtons && ((canAcceptBankPledge(l.status, l.bankPledgeStatus) && !activePledge && canCreateBankPledges) || (l.status !== "Closed" && canUpdateLoans)) && (
+            <div className="docs-dd" ref={loanActionsMenuRef}>
+              <button className="btn ghost sm" onClick={() => setLoanActionsMenuOpen((v) => !v)}>
+                <Icon name="gear" /> Loan Actions <Icon name="chevronDown" className="docs-dd-chev" />
+              </button>
+              {loanActionsMenuOpen && (
+                <div className="docs-dd-menu">
+                  {canAcceptBankPledge(l.status, l.bankPledgeStatus) && !activePledge && canCreateBankPledges && (
+                    <a href="#" title="Repledge to Bank" onClick={(e) => { e.preventDefault(); setLoanActionsMenuOpen(false); openModal(<RepledgeModalContent loan={l} onSaved={load} />); }}>
+                      <Icon name="bank" /><span className="tx">Repledge to Bank</span>
+                    </a>
+                  )}
+                  {l.status !== "Closed" && canUpdateLoans && (
+                    <a href="#" title="Request Extension" onClick={(e) => { e.preventDefault(); setLoanActionsMenuOpen(false); openModal(<RequestExtensionModalContent loan={l} onSaved={load} />); }}>
+                      <Icon name="clock" /><span className="tx">Request Extension</span>
+                    </a>
+                  )}
+                  {l.status !== "Closed" && canUpdateLoans && (
+                    <a href="#" title="Request Release" onClick={(e) => { e.preventDefault(); setLoanActionsMenuOpen(false); openModal(<RequestReleaseModalContent loan={l} onSaved={load} />); }}>
+                      <Icon name="unlock" /><span className="tx">Request Release</span>
+                    </a>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+          {/* Print Label/Slip/Statement/Bond + the eSign action — always
          * available regardless of approval stage (staff may need to
          * (re)print the packet label or pledge slip at any point in the
          * loan's life, not just before it's sanctioned) — collapsed into
          * one "Documents" dropdown rather than 5 separate header buttons,
          * which outgrew the space next to the loan title on anything but a
          * very wide screen. */}
-        <div className="docs-dd" ref={docsMenuRef}>
-          <button className="btn ghost sm" onClick={() => setDocsMenuOpen((v) => !v)}>
-            <Icon name="doc" /> Documents <Icon name="chevronDown" className="docs-dd-chev" />
-          </button>
-          {docsMenuOpen && (
-            <div className="docs-dd-menu">
-              <a href="#" title="Print Label" className={printingLabel ? "disabled" : ""} onClick={(e) => { e.preventDefault(); if (printingLabel) return; setDocsMenuOpen(false); printPacketLabel(); }}>
-                <Icon name="box" /><span className="tx">{printingLabel ? "Preparing…" : "Print Label"}</span>
-              </a>
-              <a href="#" title="Print Slip" className={printingSlip ? "disabled" : ""} onClick={(e) => { e.preventDefault(); if (printingSlip) return; setDocsMenuOpen(false); printPledgeSlip(); }}>
-                <Icon name="doc" /><span className="tx">{printingSlip ? "Preparing…" : "Print Slip"}</span>
-              </a>
-              <a href="#" title="Statement" className={printingStatement ? "disabled" : ""} onClick={(e) => { e.preventDefault(); if (printingStatement) return; setDocsMenuOpen(false); printStatement(); }}>
-                <Icon name="doc" /><span className="tx">{printingStatement ? "Preparing…" : "Statement"}</span>
-              </a>
-              <a href="#" title="Print Bond" className={printingBond ? "disabled" : ""} onClick={(e) => { e.preventDefault(); if (printingBond) return; setDocsMenuOpen(false); openPrintBondLanguagePicker(); }}>
-                <Icon name="doc" /><span className="tx">{printingBond ? "Preparing…" : "Print Bond"}</span>
-              </a>
-              {l.indemnityBondSignStatus === "sign_complete" && l.indemnityBondSignedUrl ? (
-                <a href={l.indemnityBondSignedUrl} title="Signed Bond" target="_blank" rel="noopener noreferrer" onClick={() => setDocsMenuOpen(false)}>
-                  <Icon name="check" /><span className="tx">Signed Bond</span>
+          <div className="docs-dd" ref={docsMenuRef}>
+            <button className="btn ghost sm" onClick={() => setDocsMenuOpen((v) => !v)}>
+              <Icon name="doc" /> Documents <Icon name="chevronDown" className="docs-dd-chev" />
+            </button>
+            {docsMenuOpen && (
+              <div className="docs-dd-menu">
+                <a href="#" title="Print Label" className={printingLabel ? "disabled" : ""} onClick={(e) => { e.preventDefault(); if (printingLabel) return; setDocsMenuOpen(false); printPacketLabel(); }}>
+                  <Icon name="box" /><span className="tx">{printingLabel ? "Preparing…" : "Print Label"}</span>
                 </a>
-              ) : !canUpdateLoans ? null : esignStarted ? (
-                <a href="#" title="Check eSign Status" className={checkingEsign ? "disabled" : ""} onClick={(e) => { e.preventDefault(); if (checkingEsign) return; setDocsMenuOpen(false); checkIndemnityEsign(); }}>
-                  <Icon name="doc" /><span className="tx">{checkingEsign ? "Checking…" : "Check eSign Status"}</span>
+                <a href="#" title="Print Slip" className={printingSlip ? "disabled" : ""} onClick={(e) => { e.preventDefault(); if (printingSlip) return; setDocsMenuOpen(false); printPledgeSlip(); }}>
+                  <Icon name="doc" /><span className="tx">{printingSlip ? "Preparing…" : "Print Slip"}</span>
                 </a>
-              ) : (
-                <a href="#" title="Send Indemnity Bond for eSign" className={esigning ? "disabled" : ""} onClick={(e) => { e.preventDefault(); if (esigning) return; setDocsMenuOpen(false); openEsignLanguagePicker(); }}>
-                  <Icon name="doc" /><span className="tx">{esigning ? "Preparing…" : "Send Indemnity Bond for eSign"}</span>
+                <a href="#" title="Statement" className={printingStatement ? "disabled" : ""} onClick={(e) => { e.preventDefault(); if (printingStatement) return; setDocsMenuOpen(false); printStatement(); }}>
+                  <Icon name="doc" /><span className="tx">{printingStatement ? "Preparing…" : "Statement"}</span>
                 </a>
-              )}
-            </div>
-          )}
-        </div>
+                <a href="#" title="Print Bond" className={printingBond ? "disabled" : ""} onClick={(e) => { e.preventDefault(); if (printingBond) return; setDocsMenuOpen(false); openPrintBondLanguagePicker(); }}>
+                  <Icon name="doc" /><span className="tx">{printingBond ? "Preparing…" : "Print Bond"}</span>
+                </a>
+                {l.indemnityBondSignStatus === "sign_complete" && l.indemnityBondSignedUrl ? (
+                  <a href={l.indemnityBondSignedUrl} title="Signed Bond" target="_blank" rel="noopener noreferrer" onClick={() => setDocsMenuOpen(false)}>
+                    <Icon name="check" /><span className="tx">Signed Bond</span>
+                  </a>
+                ) : !canUpdateLoans ? null : esignStarted ? (
+                  <a href="#" title="Check eSign Status" className={checkingEsign ? "disabled" : ""} onClick={(e) => { e.preventDefault(); if (checkingEsign) return; setDocsMenuOpen(false); checkIndemnityEsign(); }}>
+                    <Icon name="doc" /><span className="tx">{checkingEsign ? "Checking…" : "Check eSign Status"}</span>
+                  </a>
+                ) : (
+                  <a href="#" title="Send Indemnity Bond for eSign" className={esigning ? "disabled" : ""} onClick={(e) => { e.preventDefault(); if (esigning) return; setDocsMenuOpen(false); openEsignLanguagePicker(); }}>
+                    <Icon name="doc" /><span className="tx">{esigning ? "Preparing…" : "Send Indemnity Bond for eSign"}</span>
+                  </a>
+                )}
+              </div>
+            )}
+          </div>
         </div>
       </div>
       {/* A loan sits in Closure Requested from the moment the release is

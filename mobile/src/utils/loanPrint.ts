@@ -293,10 +293,15 @@ async function fetchQrDataUri(data: string, size = 256): Promise<string> {
   return `data:image/png;base64,${base64}`;
 }
 
-// Ported from frontend/modules/loans/components/LoanDetail.tsx's
-// printPacketLabel — same 50mm×30mm label layout, same QR-encoded deep
-// link (the packet's code if this loan has one checked into a locker,
-// otherwise the loan itself), rendered against the same web app origin the
+// Ported from frontend/modules/loans/components/NewLoan.tsx's
+// printPacketLabel — same die-cut "flag tag" stock: 81mm total, a
+// 56mm×12mm head (perforated at the 28mm midpoint) plus a blank 25mm×3mm
+// strap for wrapping around/through the item and tearing off (see the
+// approved wire diagram, the packet-flag-tag artifact). First 28mm segment
+// holds the QR, the second — the half that stays with the item once torn —
+// holds the readable identifiers, the strap stays blank. QR-encoded deep
+// link is the packet's code if this loan has one checked into a locker,
+// otherwise the loan itself, rendered against the same web app origin the
 // QR would open (API_ORIGIN — the Go binary serves both the API and the
 // built frontend from one origin, see backend/internal/platform/config.go).
 export async function printPacketLabel(l: Loan) {
@@ -307,7 +312,7 @@ export async function printPacketLabel(l: Loan) {
   const qr = await fetchQrDataUri(url, 256);
 
   const html = `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Packet Label — ${l.loanNumber}</title><style>
-    @page{size:50mm 30mm;margin:0}
+    @page{size:81mm 12mm;margin:0}
     body{margin:0;font-family:Arial,Helvetica,sans-serif;-webkit-print-color-adjust:exact}
     .label{width:50mm;height:30mm;box-sizing:border-box;padding:1.6mm;display:flex;align-items:center;gap:1.8mm;
       border:0.3mm dashed #aaa;overflow:hidden;page-break-inside:avoid}
@@ -317,15 +322,17 @@ export async function printPacketLabel(l: Loan) {
     .t .id{font-size:3.4mm;font-weight:bold}
     .t div{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   </style></head><body>
-    <div class="label">
-      <img src="${qr}" alt="QR">
-      <div class="t">
-        <div class="brand">${BRAND.name.toUpperCase()}</div>
-        <div class="id">${l.loanNumber} · ${packetLabel}</div>
-        <div>${l.customer?.name || "—"}</div>
-        <div>${l.customer?.code || l.customer?.id || "—"} · ${l.customer?.phone || ""}</div>
-        <div>${new Date().toLocaleDateString("en-IN")} · ${(l.totalNetWeight ?? 0).toFixed(1)} g · ${(l.ornaments ?? []).length} item(s)</div>
+    <div class="tag">
+      <div class="head">
+        <div class="qrcell"><img src="${qr}" alt="QR"></div>
+        <div class="infocell">
+          <div class="id">${packetLabel}</div>
+          <div class="name">${l.customer?.name || "—"}</div>
+          <div class="meta">${l.loanNumber} · ${(l.totalNetWeight ?? 0).toFixed(1)}g</div>
+          <div class="brand">${BRAND.name.toUpperCase()}</div>
+        </div>
       </div>
+      <div class="strap"></div>
     </div>
   </body></html>`;
   await Print.printAsync({ html });

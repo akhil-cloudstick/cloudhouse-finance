@@ -483,8 +483,15 @@ export function NewLoan() {
     }
     const w = window.open("", "_blank");
     if (!w) { toast("Popup blocked — please allow popups for this site to print"); return; }
+    // Die-cut "flag tag" stock: 81mm total — a 56mm×12mm head (perforated
+    // at the 28mm midpoint) plus a blank 25mm×3mm strap for wrapping
+    // around/through the item and tearing off. See the approved wire
+    // diagram (packet-flag-tag artifact): first 28mm segment holds the QR,
+    // the second (the half that stays with the item once torn) holds the
+    // readable identifiers, the strap stays blank. Replaces the old plain
+    // 50mm×30mm rectangular label this stock physically can't fit.
     w.document.write(`<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Packet Label — ${provId}</title><style>
-      @page{size:50mm 30mm;margin:0}
+      @page{size:81mm 12mm;margin:0}
       body{margin:0;font-family:Arial,Helvetica,sans-serif;-webkit-print-color-adjust:exact}
       .label{width:50mm;height:30mm;box-sizing:border-box;padding:1.6mm;display:flex;align-items:center;gap:1.8mm;
         border:0.3mm dashed #aaa;overflow:hidden;page-break-inside:avoid}
@@ -494,20 +501,22 @@ export function NewLoan() {
       .t .id{font-size:3.4mm;font-weight:bold}
       .t div{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
       .noprint{text-align:center;margin:8mm;font-family:Arial}
-      @media print{.noprint{display:none} .label{border:none}}
+      @media print{.noprint{display:none} .head{border:none} .infocell{border-left:none} .strap .band{border:none}}
     </style></head><body>
-      <div class="label">
-        <img src="${qr}" alt="QR">
-        <div class="t">
-          <div class="brand">${BRAND.name.toUpperCase()}</div>
-          <div class="id">${provId} · ${packetLabel}</div>
-          <div>${c.name || "—"}</div>
-          <div>${c.id || "—"} · ${c.phone || ""}</div>
-          <div>${new Date().toLocaleDateString("en-IN")} · ${d.weight.toFixed(1)} g · ${d.orns.length} item(s)</div>
+      <div class="tag">
+        <div class="head">
+          <div class="qrcell"><img src="${qr}" alt="QR"></div>
+          <div class="infocell">
+            <div class="id">${packetLabel}</div>
+            <div class="name">${c.name || "—"}</div>
+            <div class="meta">${provId} · ${d.weight.toFixed(1)}g</div>
+            <div class="brand">${BRAND.name.toUpperCase()}</div>
+          </div>
         </div>
+        <div class="strap"><div class="band"></div></div>
       </div>
       <div class="noprint">
-        <p style="font-size:13px;color:#555">50mm × 30mm packet label — scanning the QR opens ${url}</p>
+        <p style="font-size:13px;color:#555">81mm × 12mm flag tag — scanning the QR opens ${url}</p>
         <button onclick="window.print()" style="padding:10px 26px;font-size:14px;cursor:pointer">🖨 Print Label</button>
       </div>
     </body></html>`);
