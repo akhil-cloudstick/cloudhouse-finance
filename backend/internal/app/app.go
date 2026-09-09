@@ -32,14 +32,15 @@ import (
 	"cloudhouse/backend/internal/customer"
 	"cloudhouse/backend/internal/customerauth"
 	"cloudhouse/backend/internal/dashboard"
+	"cloudhouse/backend/internal/demoreset"
 	"cloudhouse/backend/internal/employee"
 	"cloudhouse/backend/internal/goldrate"
+	"cloudhouse/backend/internal/investment"
 	"cloudhouse/backend/internal/loan"
 	"cloudhouse/backend/internal/locker"
 	"cloudhouse/backend/internal/notification"
 	"cloudhouse/backend/internal/ornamenttype"
 	"cloudhouse/backend/internal/packet"
-	"cloudhouse/backend/internal/investment"
 	"cloudhouse/backend/internal/personalloan"
 	"cloudhouse/backend/internal/platform"
 	"cloudhouse/backend/internal/puritystandard"
@@ -420,6 +421,14 @@ func Build(db *gorm.DB, cfg platform.Config) (*App, error) {
 	billingSvc := billing.NewService(db, tenantRepo, employeeRepo, razorpayClient, whatsappSender, commlogRepo)
 	billingHandler := billing.NewHandler(billingSvc)
 	billing.RegisterRoutes(protected.Group("/billing"), billingHandler, authzRepo)
+
+	// Demo-data reset. Builds its OWN service graph (demoseed.NewDeps) and
+	// deliberately does NOT reuse loanSvc/whatsappSender above: the seeder
+	// drives ~300 service calls, and through the real sender each would text a
+	// fabricated number from the operator's live OpenWA instance. Gated on the
+	// Administrator role rather than a permission — see demoreset.routes.go for
+	// why that is a deployment constraint rather than a shortcut.
+	demoreset.RegisterRoutes(protected.Group("/demo"), demoreset.NewHandler(db, cfg))
 	// The Razorpay webhook is a SIBLING of protected, never nested inside
 	// it — same reasoning as the superadmin console below: it carries no
 	// employee JWT and platform.CRUDPermissions would refuse it outright.

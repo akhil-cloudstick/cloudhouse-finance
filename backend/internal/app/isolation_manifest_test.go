@@ -402,6 +402,15 @@ var routeManifest = map[string]routeSpec{
 	"POST /api/v1/billing/subscribe": self("creates a subscription for the caller's own business only"),
 	"POST /api/v1/billing/confirm":   self("confirms the caller's own business's subscription only"),
 
+	// --------------------------------------------------------- demo reset
+	// Classed self, NOT probe, and the distinction is load-bearing:
+	// TestCrossTenantAccessIsRefused INVOKES every probe-classed route once
+	// per method per role, so classing a wipe endpoint as probe would destroy
+	// the probe database dozens of times mid-suite. There is also nothing to
+	// probe — the endpoint takes no identifier and no body, and acts only on
+	// the business its own JWT names.
+	"POST /api/v1/demo/reset": self("wipes and reseeds the caller's own business only; the tenant comes from the JWT, there is no identifier to substitute"),
+
 	// --------------------------------------------------- roles/permissions
 	"GET /api/v1/roles":                     list(),
 	"POST /api/v1/roles":                    list(),

@@ -85,7 +85,13 @@ func (h *Handler) List(c *gin.Context) {
 		if hasMore {
 			rec = rec[:limit]
 		}
-		httpx.Success(c, http.StatusOK, gin.H{"items": rec, "hasMore": hasMore, "total": total})
+		// Exactly one write. This line was duplicated, which appended the
+		// envelope to the response twice: gin does not stop a second render,
+		// so the body came back as `{...}{...}` — 200 OK, valid-looking in a
+		// terminal, and a parse error in the browser at the first byte after
+		// the first object. The Employees list rendered empty on every load
+		// as a result, which reads as "no data" rather than "broken
+		// response". Nothing else in this handler was wrong.
 		httpx.Success(c, http.StatusOK, gin.H{"items": rec, "hasMore": hasMore, "total": total})
 		return
 	}

@@ -79,7 +79,10 @@ func (h *Handler) List(c *gin.Context) {
 		if hasMore {
 			rec = rec[:limit]
 		}
-		httpx.Success(c, http.StatusOK, gin.H{"items": rec, "hasMore": hasMore, "total": total})
+		// One write only — the same duplicated line that was breaking the
+		// paged Employees list was here too, doubling the response body and
+		// making the paged Lockers list unparseable in the browser. See
+		// internal/employee/handler.go's List for the full explanation.
 		httpx.Success(c, http.StatusOK, gin.H{"items": rec, "hasMore": hasMore, "total": total})
 		return
 	}
