@@ -19,7 +19,7 @@ the actual git history at the time of writing; update it as new commits land.
     `/uploads` cookie path got the same revalidation. New tests:
     `TestDeletedEmployeeSessionStopsImmediately`,
     `TestRoleChangeTakesEffectImmediately`.
-  - **Step 9, branding.** All 31 hardcoded "Ambika Gold Finance" strings
+  - **Step 9, branding.** All 31 hardcoded "CloudHouse Gold Finance" strings
     across 7 files replaced via a new `loan.Service.brandedMessage` helper —
     build the message normally, then `strings.ReplaceAll` the literal name
     with the caller's own tenant's. `auth`/`customerauth`/`reminder`/`reports`
@@ -299,7 +299,7 @@ the actual git history at the time of writing; update it as new commits land.
     builds `/login/<slug>` and `/app/<slug>`, and owns the storage keys. No
     other module knows a key any more — which is what stops the next one being
     missed.
-  - **Sessions are keyed by business** (`ambikagold_token::<slug>`), fixing the
+  - **Sessions are keyed by business** (`cloudhouse_token::<slug>`), fixing the
     bug the plan had recorded as deferred: every business shares one browser
     origin, so a single key meant two businesses open in two tabs silently
     clobbered each other's sign-in. Signing out of one now deliberately leaves
@@ -493,7 +493,7 @@ the actual git history at the time of writing; update it as new commits land.
     one. A statement handed to a customer under another business's name is
     the most visible possible version of a tenancy mistake, and this is the
     first document to get it right — the other 30 hardcoded
-    "Ambika Gold Finance" strings still need the Step 9 branding work.
+    "CloudHouse Gold Finance" strings still need the Step 9 branding work.
   - Penal interest and processing-fee lines appear only when non-zero: a
     line reading "0.00" against a penalty invites a question at the counter
     that has no answer.
@@ -578,7 +578,7 @@ the actual git history at the time of writing; update it as new commits land.
     halt the others.
 
   **Found, not fixed:** 30 outbound strings across 7 files hardcode
-  "Ambika Gold Finance" — SMS and WhatsApp bodies, the indemnity bond, and
+  "CloudHouse Gold Finance" — SMS and WhatsApp bodies, the indemnity bond, and
   PDF exports. Every business's borrowers would be messaged under the first
   business's name. Not a data leak, but a branding one, and it needs the
   per-business branding from Step 9.
@@ -1658,7 +1658,7 @@ the actual git history at the time of writing; update it as new commits land.
   - Removed (root, uncommitted at time of writing): `server.mjs`,
     `public/index.html`, `public/app.html`, `public/app.js`,
     `public/app.css`, `public/data.js`, `public/qrcode.min.js`,
-    `public/ambika-gold.jpeg`.
+    `public/cloudhouse-gold.jpeg`.
   - Added: `backend/` (Node.js static file server), `frontend/` (all
     former `public/` assets, moved and renamed conceptually as the SPA).
 - Added `documents/` folder with project documentation (this file,
@@ -1666,7 +1666,7 @@ the actual git history at the time of writing; update it as new commits land.
   `api_documentation.md`, `context.md`) and a root `README.md`.
 
 ## 2026-08-07 (approx.) — a729d6a — Initial commit: gold app
-- Initial commit of the Ambika Gold Finance prototype.
+- Initial commit of the CloudHouse Gold Finance prototype.
 - Static customer sign-in page (`index.html`) and admin SPA (`app.html`,
   `app.js`, `app.css`) with a hash-based client-side router.
 - Mock data layer (`data.js`) backing all app screens via `window.DB`,

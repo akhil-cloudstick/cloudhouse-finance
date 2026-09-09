@@ -7,8 +7,8 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"ambikagold/backend/internal/platform"
-	"ambikagold/backend/internal/platform/httpx"
+	"cloudhouse/backend/internal/platform"
+	"cloudhouse/backend/internal/platform/httpx"
 )
 
 // MovementHandler wires HTTP requests to the MovementService.

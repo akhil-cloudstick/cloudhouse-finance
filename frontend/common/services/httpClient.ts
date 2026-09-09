@@ -11,7 +11,7 @@ export const API_BASE = process.env.NEXT_PUBLIC_API_BASE || "/api/v1";
 /* The JWT session lives in common/services/tenantSession.ts, keyed by
  * business slug.
  *
- * It used to be a single "ambikagold_token" key read directly here. Every
+ * It used to be a single "cloudhouse_token" key read directly here. Every
  * business shares one browser origin, so that one key meant two businesses
  * open in two tabs silently clobbered each other's session. Keys are per-slug
  * now, and this wrapper asks tenantSession which business the current tab is

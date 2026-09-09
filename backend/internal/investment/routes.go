@@ -3,7 +3,7 @@ package investment
 import (
 	"github.com/gin-gonic/gin"
 
-	"ambikagold/backend/internal/platform"
+	"cloudhouse/backend/internal/platform"
 )
 
 // RegisterRoutes mounts the investment endpoints under the given group

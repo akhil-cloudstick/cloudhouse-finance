@@ -5,8 +5,8 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"ambikagold/backend/internal/platform"
-	"ambikagold/backend/internal/platform/httpx"
+	"cloudhouse/backend/internal/platform"
+	"cloudhouse/backend/internal/platform/httpx"
 )
 
 // --- Customer mobile app (customer-mobile/) — batch 4: Profile & KYC. These
@@ -77,7 +77,7 @@ func (h *Handler) CustomerVerifyPAN(c *gin.Context) {
 // CustomerStartAadhaarVerify backs POST /customer/profile/aadhaar/start —
 // same pattern as the staff Handler.StartAadhaarVerify, reusing the shared
 // startAadhaarVerifyRequest body (redirectUrl). The customer app supplies
-// its own deep-link URL (e.g. ambikacustomer://aadhaar-callback via
+// its own deep-link URL (e.g. cloudhousecustomer://aadhaar-callback via
 // expo-linking), not a web page.
 func (h *Handler) CustomerStartAadhaarVerify(c *gin.Context) {
 	ctx := platform.RequestContext(c)

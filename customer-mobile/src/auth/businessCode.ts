@@ -18,7 +18,7 @@ import * as SecureStore from "expo-secure-store";
  * to authenticate against and grants nothing. Kept in SecureStore only because
  * that is what this app already uses for small values.
  */
-const BUSINESS_CODE_KEY = "ambikacustomer_business_code";
+const BUSINESS_CODE_KEY = "cloudhousecustomer_business_code";
 
 /* Same rule as the staff app's slug (frontend/common/services/tenantSession.ts):
  * lowercase alphanumerics and dashes. Validated so a stray value is never sent

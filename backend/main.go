@@ -4,9 +4,9 @@ import (
 	"context"
 	"log"
 
-	"ambikagold/backend/internal/app"
-	"ambikagold/backend/internal/migrate"
-	"ambikagold/backend/internal/platform"
+	"cloudhouse/backend/internal/app"
+	"cloudhouse/backend/internal/migrate"
+	"cloudhouse/backend/internal/platform"
 )
 
 // The authResources/staffRoles lists live in internal/migrate now — the
@@ -61,7 +61,7 @@ func main() {
 
 	application.StartBackgroundJobs(context.Background())
 
-	log.Printf("Ambika Gold API + web app listening on :%s (serving frontend from %s)", cfg.Port, cfg.FrontendDir)
+	log.Printf("CloudHouse Gold API + web app listening on :%s (serving frontend from %s)", cfg.Port, cfg.FrontendDir)
 	if err := application.Router.Run(":" + cfg.Port); err != nil {
 		log.Fatalf("server error: %v", err)
 	}

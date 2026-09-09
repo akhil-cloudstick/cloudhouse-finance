@@ -7,8 +7,8 @@ import { Platform } from "react-native";
 // exchanged server-side for a fresh session JWT via POST
 // /customer/auth/device-login. Its presence is also what app/_layout.tsx
 // uses to decide "try biometric" vs. "go straight to OTP login".
-const DEVICE_TOKEN_KEY = "ambikacustomer_device_token";
-const DEVICE_ID_KEY = "ambikacustomer_device_id";
+const DEVICE_TOKEN_KEY = "cloudhousecustomer_device_token";
+const DEVICE_ID_KEY = "cloudhousecustomer_device_id";
 
 export async function saveDeviceToken(token: string): Promise<void> {
   await SecureStore.setItemAsync(DEVICE_TOKEN_KEY, token);

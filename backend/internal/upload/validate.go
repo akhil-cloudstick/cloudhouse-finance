@@ -5,7 +5,7 @@ import (
 	"net/http"
 	"strings"
 
-	"ambikagold/backend/internal/platform/httpx"
+	"cloudhouse/backend/internal/platform/httpx"
 )
 
 // MaxUploadBytes caps a single file. Customer photos, KYC scans and ornament

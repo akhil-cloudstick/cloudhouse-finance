@@ -6,8 +6,8 @@ import (
 	"regexp"
 	"strconv"
 
-	"ambikagold/backend/internal/goldrate"
-	"ambikagold/backend/internal/puritystandard"
+	"cloudhouse/backend/internal/goldrate"
+	"cloudhouse/backend/internal/puritystandard"
 
 	"gorm.io/gorm"
 )

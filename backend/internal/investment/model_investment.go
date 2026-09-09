@@ -5,9 +5,9 @@ import (
 
 	"gorm.io/gorm"
 
-	"ambikagold/backend/internal/branch"
-	"ambikagold/backend/internal/customer"
-	"ambikagold/backend/internal/platform"
+	"cloudhouse/backend/internal/branch"
+	"cloudhouse/backend/internal/customer"
+	"cloudhouse/backend/internal/platform"
 )
 
 // Status values for Investment.Status. There is no "Pending" stage —

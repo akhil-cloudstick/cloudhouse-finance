@@ -8,8 +8,8 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"
 
-	"ambikagold/backend/internal/platform"
-	"ambikagold/backend/internal/platform/httpx"
+	"cloudhouse/backend/internal/platform"
+	"cloudhouse/backend/internal/platform/httpx"
 )
 
 // Handler wires HTTP/WebSocket requests to the Service.

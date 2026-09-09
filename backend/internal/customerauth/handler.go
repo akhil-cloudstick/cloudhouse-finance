@@ -7,10 +7,10 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"ambikagold/backend/internal/customer"
-	"ambikagold/backend/internal/platform"
-	"ambikagold/backend/internal/platform/httpx"
-	"ambikagold/backend/internal/upload"
+	"cloudhouse/backend/internal/customer"
+	"cloudhouse/backend/internal/platform"
+	"cloudhouse/backend/internal/platform/httpx"
+	"cloudhouse/backend/internal/upload"
 )
 
 type Handler struct {

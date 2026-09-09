@@ -118,7 +118,7 @@ page still cannot be used to enumerate businesses.
 - **`frontend/common/services/tenantSession.ts`** — the one place that knows
   about slugs and session storage. Parses the slug from the path, builds
   `/login/<slug>` and `/app/<slug>` links, and owns the storage keys.
-- **Sessions are keyed by slug** (`ambikagold_token::<slug>`), which fixes the
+- **Sessions are keyed by slug** (`cloudhouse_token::<slug>`), which fixes the
   bug the plan flagged as deferred: one shared key meant two businesses in two
   tabs silently clobbered each other's session. `migrateLegacySession()` moves
   an existing single-key session into the keyed layout, so the deploy does not
@@ -176,7 +176,7 @@ The decided design this implements (from Step 0 "Decided"):
 - ~~**Session storage will bite.**~~ **Fixed.** All businesses share one
   browser origin, and one `localStorage` key meant two businesses in two tabs
   clobbered each other's session. Keys are now per-slug
-  (`ambikagold_token::<slug>`), owned by
+  (`cloudhouse_token::<slug>`), owned by
   `frontend/common/services/tenantSession.ts` — no other module knows a
   storage key any more, which is what stops the next one from being missed.
   Signing out of one business deliberately leaves the other's session alone.
@@ -518,12 +518,12 @@ the restart that would have collapsed it to `1` under the old code.
 
 ## Step 9 — Branding — BRANDING DONE 2026-08-29, billing screens deferred to Step 10
 
-**All 31 hardcoded "Ambika Gold Finance" occurrences across 7 files fixed**
+**All 31 hardcoded "CloudHouse Gold Finance" occurrences across 7 files fixed**
 (SMS/WhatsApp bodies, the indemnity bond in all three languages, PDF export
 letterheads). Rather than thread a `%s` placeholder through 26 separate
 format strings, `loan.Service.brandedMessage(ctx, format, args...)` runs the
 ordinary `fmt.Sprintf` and then does one `strings.ReplaceAll` of the literal
-"Ambika Gold Finance" with the caller's own tenant name — every call site
+"CloudHouse Gold Finance" with the caller's own tenant name — every call site
 became a one-word change (`fmt.Sprintf` → `s.brandedMessage`, `ctx` as the
 first arg), and the message text itself stayed untouched and reviewable.
 `auth.Service`, `customerauth.Service`, `reminder.Service` and
@@ -710,7 +710,7 @@ NOT started by `Build` — the due/overdue sweep messages real borrowers.
 
 ```bash
 go test ./...                                   # the classification gate
-createdb -h localhost -U ambikagold mt_probe
+createdb -h localhost -U cloudhouse mt_probe
 DB_NAME=mt_probe go run ./cmd/migrate
 MT_TEST_DB=mt_probe go test ./internal/app/ -v  # the probes
 ```
@@ -846,7 +846,7 @@ document existed, paired with an uploads folder from a different point where
 it didn't (or vice versa), leaves referenced files missing or orphaned files
 with no owner:
 
-1. **The Postgres database** (`ambikagold` by default — `DB_NAME`,
+1. **The Postgres database** (`cloudhouse` by default — `DB_NAME`,
    `DB_HOST`, `DB_USER`, `DB_PASSWORD` in `.env` / `internal/platform/config.go`).
    Holds every business's rows, tenant-scoped or not.
 2. **The uploads directory** (`./uploads` by default — `UPLOADS_DIR`).
@@ -865,12 +865,12 @@ single-tenant data:
 # rather than plain SQL: it's compressed, and it's required for the
 # selective per-table restore this project's isolation model benefits from
 # (see "Per-business export" below).
-export PGPASSWORD=ambikagold
+export PGPASSWORD=cloudhouse
 TS=$(date +%Y%m%d-%H%M%S)
-pg_dump -h localhost -U ambikagold -Fc -f "ambikagold-$TS.dump" ambikagold
+pg_dump -h localhost -U cloudhouse -Fc -f "cloudhouse-$TS.dump" cloudhouse
 
 # The uploads folder, taken as close to the same moment as practical.
-tar -czf "ambikagold-uploads-$TS.tar.gz" -C /path/to/backend uploads
+tar -czf "cloudhouse-uploads-$TS.tar.gz" -C /path/to/backend uploads
 ```
 
 Store both files together, named with the same timestamp, in the same
@@ -888,21 +888,21 @@ work, not a code change here.
 
 ```bash
 # 1. Create a fresh, empty database — never restore on top of a live one.
-createdb -h localhost -U ambikagold ambikagold_restored
+createdb -h localhost -U cloudhouse cloudhouse_restored
 
 # 2. Restore the dump.
-pg_restore -h localhost -U ambikagold -d ambikagold_restored --no-owner ambikagold-<TS>.dump
+pg_restore -h localhost -U cloudhouse -d cloudhouse_restored --no-owner cloudhouse-<TS>.dump
 
 # 3. Restore the matching uploads folder alongside it.
-tar -xzf ambikagold-uploads-<TS>.tar.gz -C /path/to/restored/backend
+tar -xzf cloudhouse-uploads-<TS>.tar.gz -C /path/to/restored/backend
 
-# 4. Point a server at the restored database (DB_NAME=ambikagold_restored)
+# 4. Point a server at the restored database (DB_NAME=cloudhouse_restored)
 #    and verify with `migrate.CheckSchemaVersion` (Step 12) before serving
 #    real traffic — a dump taken from an older binary can predate the
 #    current CurrentSchemaVersion, and Step 12 exists precisely to refuse
 #    starting against a database that doesn't match what this server
 #    expects, rather than serve against a half-migrated schema.
-DB_NAME=ambikagold_restored go run ./cmd/migrate
+DB_NAME=cloudhouse_restored go run ./cmd/migrate
 ```
 
 Never restore directly onto the live database name. Restore alongside it,
@@ -919,9 +919,9 @@ business's data can be extracted without a special export feature:
 # List the tenant-scoped tables to include (see tenantScopedTables for the
 # current list — it changes as tables are added, so read it fresh rather
 # than trusting a copy pasted into a runbook).
-pg_dump -h localhost -U ambikagold -Fc \
+pg_dump -h localhost -U cloudhouse -Fc \
   --table=loans --table=customers --table=employees ... \
-  -f "business-<tenant_id>-<TS>.dump" ambikagold
+  -f "business-<tenant_id>-<TS>.dump" cloudhouse
 # then filter each table's rows to WHERE tenant_id = <id> during restore,
 # or dump with a matching row-level query per table — pg_dump alone dumps
 # whole tables, not filtered rows, so a genuinely isolated single-tenant

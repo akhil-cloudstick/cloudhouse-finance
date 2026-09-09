@@ -4,9 +4,9 @@ import (
 	"testing"
 	"time"
 
-	"ambikagold/backend/internal/authz"
-	"ambikagold/backend/internal/platform"
-	"ambikagold/backend/internal/scheme"
+	"cloudhouse/backend/internal/authz"
+	"cloudhouse/backend/internal/platform"
+	"cloudhouse/backend/internal/scheme"
 )
 
 // schemeMonthlySimple is a plain monthly-simple-interest scheme with a penal

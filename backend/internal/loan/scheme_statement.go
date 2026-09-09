@@ -9,9 +9,9 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"ambikagold/backend/internal/platform"
-	"ambikagold/backend/internal/platform/httpx"
-	"ambikagold/backend/internal/reports"
+	"cloudhouse/backend/internal/platform"
+	"cloudhouse/backend/internal/platform/httpx"
+	"cloudhouse/backend/internal/reports"
 )
 
 // statementHeaders is the flat, one-row-per-payment shape a scheme statement

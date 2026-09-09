@@ -17,7 +17,7 @@ import (
 
 	"gorm.io/gorm"
 
-	"ambikagold/backend/internal/platform"
+	"cloudhouse/backend/internal/platform"
 )
 
 // InterestRateType values for InvestmentPlan.InterestRateType.

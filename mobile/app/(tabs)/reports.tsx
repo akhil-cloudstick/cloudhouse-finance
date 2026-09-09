@@ -251,15 +251,15 @@ export default function ReportsScreen() {
         ? rows
             .map((r) => {
               const row = section.renderRow(r);
-              return `<tr><td style="padding:6px 10px;border-bottom:1px solid #e1e7f2;">${row.title}</td>
-                <td style="padding:6px 10px;border-bottom:1px solid #e1e7f2;color:#64748b;">${row.detail}</td></tr>`;
+              return `<tr><td style="padding:6px 10px;border-bottom:1px solid #e9e4f2;">${row.title}</td>
+                <td style="padding:6px 10px;border-bottom:1px solid #e9e4f2;color:#64748b;">${row.detail}</td></tr>`;
             })
             .join("")
         : `<tr><td colspan="2" style="padding:10px;color:#64748b;">No records.</td></tr>`;
       const html = `
         <html>
           <body style="font-family: -apple-system, sans-serif; padding: 24px; color: #16233d;">
-            <h1 style="color:#0e2050;margin:0 0 4px;">${BRAND.legalName}</h1>
+            <h1 style="color:#2b1a5e;margin:0 0 4px;">${BRAND.legalName}</h1>
             <h2 style="margin:0 0 4px;">${section.title}</h2>
             <p style="margin:0 0 4px;"><b>${section.headline(totals)}</b>${
               section.sub ? ` — ${section.sub(totals)}` : ""

@@ -3,7 +3,7 @@ package personalloan
 import (
 	"time"
 
-	"ambikagold/backend/internal/platform"
+	"cloudhouse/backend/internal/platform"
 )
 
 // PaymentMethodRenewalRollover marks the synthetic ledger entry RenewLoan

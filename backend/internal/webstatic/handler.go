@@ -14,7 +14,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"ambikagold/backend/internal/platform/httpx"
+	"cloudhouse/backend/internal/platform/httpx"
 )
 
 var mimeTypes = map[string]string{

@@ -1,35 +1,33 @@
-// Ported from frontend/app/app/app.css ":root" — the Chittilapilly Thommana
-// Financiers & Investments (CTFI) admin theme. Keep these values in sync with
-// that file; do not invent new colors in screens/components, import from here
-// instead.
+// Ported from frontend/app/app/app.css ":root" — the CloudHouse Gold Finance
+// admin theme. Keep these values in sync with that file; do not invent new
+// colors in screens/components, import from here instead.
 //
-// The key names below are the ROLE each colour plays, not its hue: they were
-// renamed from goldDeep/gold/goldMid/charcoal/ivory when the app was
-// re-themed from the previous gold identity to CTFI navy, so that the next
-// re-theme is a values-only change. `brand` is the primary (buttons, links,
-// active state); `accent` is the gold of the wordmark's "GOLD LOAN" badge and
-// is deliberately rationed.
+// The key names below are the ROLE each colour plays, not its hue, so a
+// re-theme stays a values-only change: `brand` is the primary (buttons,
+// links, active state) and carries the magenta at the heart of the CloudHouse
+// cloud; `nav`/`nav2` are the violet dark grounds; `accent` is the orange the
+// logo's gradient lands on and is deliberately rationed.
 export const colors = {
-  brandDeep: "#14306e",
-  brand: "#1a3e93",
-  brandMid: "#2450be",
-  brandLight: "#a8beec",
-  brandPale: "#e4ecfb",
-  brandFaint: "#f2f6fd",
+  brandDeep: "#8a0f5c",
+  brand: "#c0177a",
+  brandMid: "#d91786",
+  brandLight: "#f2a3d0",
+  brandPale: "#fce4f1",
+  brandFaint: "#fdf4f9",
 
-  nav: "#0e2050",
-  nav2: "#14306e",
+  nav: "#2b1a5e",
+  nav2: "#45248f",
 
-  accent: "#c9a227",
-  accentDeep: "#9a7a12",
-  accentPale: "#fbf3d8",
+  accent: "#ef7f28",
+  accentDeep: "#a85205",
+  accentPale: "#fdeeda",
 
   ink: "#16233d",
   muted: "#64748b",
 
-  bg: "#f5f7fb",
+  bg: "#f7f6fb",
   card: "#ffffff",
-  line: "#e1e7f2",
+  line: "#e9e4f2",
 
   green: "#157f4a",
   greenBg: "#e6f5ed",
@@ -38,7 +36,7 @@ export const colors = {
   amber: "#b57a0a",
   amberBg: "#fdf3dc",
   // Teal rather than blue, so an "informational" tone cannot be mistaken for
-  // the brand navy at a glance.
+  // a brand tone at a glance.
   info: "#0e7490",
   infoBg: "#e0f2f7",
 } as const;

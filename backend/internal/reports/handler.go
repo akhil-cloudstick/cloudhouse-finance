@@ -7,8 +7,8 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"ambikagold/backend/internal/platform"
-	"ambikagold/backend/internal/platform/httpx"
+	"cloudhouse/backend/internal/platform"
+	"cloudhouse/backend/internal/platform/httpx"
 )
 
 // Handler wires HTTP requests to Service, binding the common from/to/

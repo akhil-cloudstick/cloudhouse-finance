@@ -5,7 +5,7 @@ import (
 
 	"gorm.io/gorm"
 
-	"ambikagold/backend/internal/platform"
+	"cloudhouse/backend/internal/platform"
 )
 
 // Repository provides GORM-backed persistence for SuperAdminUser and AuditLog.

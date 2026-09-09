@@ -67,7 +67,7 @@ export default function LoginScreen() {
           {/* The logo art already carries the full name, so the h1
               wordmark under it was a duplicate — dropped, and the image
               given the space it freed. */}
-          <Image source={require("../../assets/ctfi.png")} style={styles.logo} resizeMode="contain" />
+          <Image source={require("../../assets/cloudhouse.png")} style={styles.logo} resizeMode="contain" />
           <ThemedText variant="body" color={colors.muted} style={styles.subtitle}>
             Staff sign in
           </ThemedText>

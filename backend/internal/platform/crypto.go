@@ -15,6 +15,12 @@ import (
 // key when SETTINGS_ENCRYPTION_KEY isn't set, so encrypted values stay
 // decryptable across restarts in local development. Never rely on this in
 // production — set a real SETTINGS_ENCRYPTION_KEY there.
+//
+// FROZEN STRING — do not "fix" the old brand name here. This is not a label:
+// it is hashed into the AES key that encrypted every value already sitting in
+// a dev database. Change it and integration API keys stored through the
+// Settings page stop decrypting, with no way back. Same for the Aadhaar seed
+// below. Rebranding these is a data migration, not a rename.
 const settingsDevFallbackSeed = "ambikagold-dev-only-settings-key-do-not-use-in-production"
 
 // aadhaarDevFallbackSeed is the equivalent dev-only fallback for
@@ -22,6 +28,9 @@ const settingsDevFallbackSeed = "ambikagold-dev-only-settings-key-do-not-use-in-
 // seed from Settings' — the two ciphers must never share a key, even the
 // dev fallback, since customer-PII and integration-API-key encryption have
 // independent rotation needs.
+//
+// Frozen for the same reason as settingsDevFallbackSeed: this one guards
+// stored customer Aadhaar numbers.
 const aadhaarDevFallbackSeed = "ambikagold-dev-only-aadhaar-key-do-not-use-in-production"
 
 // Cipher provides AES-256-GCM encrypt/decrypt for secrets at rest (see

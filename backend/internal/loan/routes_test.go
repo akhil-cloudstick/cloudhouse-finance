@@ -6,7 +6,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"ambikagold/backend/internal/platform"
+	"cloudhouse/backend/internal/platform"
 )
 
 // TestRegisterRoutesNoConflict pins down that the whole loan route tree can

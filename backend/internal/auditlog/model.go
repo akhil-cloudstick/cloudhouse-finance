@@ -15,7 +15,7 @@ package auditlog
 import (
 	"time"
 
-	"ambikagold/backend/internal/platform"
+	"cloudhouse/backend/internal/platform"
 )
 
 // Action* enumerates what this package can log today. Kept as a closed set

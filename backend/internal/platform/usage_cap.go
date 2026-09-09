@@ -6,7 +6,7 @@ import (
 
 	"gorm.io/gorm"
 
-	"ambikagold/backend/internal/platform/httpx"
+	"cloudhouse/backend/internal/platform/httpx"
 )
 
 // UsageCounter tracks how many times ONE business has used a shared outbound

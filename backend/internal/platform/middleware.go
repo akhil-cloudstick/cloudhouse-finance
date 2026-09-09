@@ -8,7 +8,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"ambikagold/backend/internal/platform/httpx"
+	"cloudhouse/backend/internal/platform/httpx"
 )
 
 // ErrPermissionNotFound is returned by PermissionChecker.IsAllowed when the

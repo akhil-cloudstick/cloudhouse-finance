@@ -7,7 +7,7 @@ import {
   activeBusinessSlug,
   businessCodeForRequest,
   clearSession,
-  migrateLegacySession,
+  purgeStaleSession,
   readEmployeeRaw,
   readPermissionsRaw,
   readToken,
@@ -153,9 +153,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   // Restore session from localStorage on first mount, discarding it if the
   // token has already expired.
   useEffect(() => {
-    // Carry a pre-multi-tenancy session into the per-business layout, so the
-    // deploy that introduces keyed storage does not sign everyone out.
-    migrateLegacySession();
+    // Housekeeping: drop the storage keys written under the app's previous
+    // name. Nothing is carried over — the rebrand renamed the session keys,
+    // so those values are unreadable and their holder signs in again once.
+    purgeStaleSession();
 
     const storedToken = readToken();
     const storedEmployee = readEmployeeRaw();

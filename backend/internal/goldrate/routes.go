@@ -3,7 +3,7 @@ package goldrate
 import (
 	"github.com/gin-gonic/gin"
 
-	"ambikagold/backend/internal/platform"
+	"cloudhouse/backend/internal/platform"
 )
 
 // RegisterRoutes mounts the gold-rate endpoints under the given group

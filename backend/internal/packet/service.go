@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"log"
 
-	"ambikagold/backend/internal/platform/httpx"
+	"cloudhouse/backend/internal/platform/httpx"
 )
 
 var (

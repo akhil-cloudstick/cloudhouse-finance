@@ -1,4 +1,4 @@
-module ambikagold/backend
+module cloudhouse/backend
 
 go 1.26
 

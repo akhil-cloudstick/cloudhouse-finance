@@ -1,7 +1,7 @@
 # Database Architecture
 
 ## Current state: real tables, some entities still mock
-A real PostgreSQL database (`ambikagold`) now exists, connected via GORM
+A real PostgreSQL database (`cloudhouse`) now exists, connected via GORM
 from the Go backend in `backend/`. Real tables so far include
 **branches**, **api_key_settings**, **schemes**, **gold_rates**,
 **employees**, **cash_movements**, **expenses**, **customers**, **loans**

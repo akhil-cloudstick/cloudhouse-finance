@@ -8,10 +8,10 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"ambikagold/backend/internal/employee"
-	"ambikagold/backend/internal/platform"
-	"ambikagold/backend/internal/platform/httpx"
-	"ambikagold/backend/internal/upload"
+	"cloudhouse/backend/internal/employee"
+	"cloudhouse/backend/internal/platform"
+	"cloudhouse/backend/internal/platform/httpx"
+	"cloudhouse/backend/internal/upload"
 )
 
 // Handler wires HTTP requests to the Service.

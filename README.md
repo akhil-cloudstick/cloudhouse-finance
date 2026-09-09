@@ -1,4 +1,4 @@
-# Ambika Gold Finance
+# CloudHouse Gold Finance
 
 Admin/management web app prototype for a gold-loan (pawnbroking) finance
 business. See [documents/project_overview.md](documents/project_overview.md)
@@ -19,7 +19,7 @@ gold-app/
 │   ├── app.js                # SPA router + all page logic
 │   ├── data.js                # Mock data layer (window.DB, localStorage-backed)
 │   ├── qrcode.min.js           # Vendored QR code library
-│   └── ambika-gold.jpeg         # Logo
+│   └── cloudhouse-gold.jpeg         # Logo
 └── documents/
     ├── project_overview.md
     ├── architecture.md

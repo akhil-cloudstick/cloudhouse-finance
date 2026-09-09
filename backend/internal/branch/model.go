@@ -5,7 +5,7 @@
 package branch
 
 import (
-	"ambikagold/backend/internal/platform"
+	"cloudhouse/backend/internal/platform"
 	"time"
 
 	"gorm.io/gorm"

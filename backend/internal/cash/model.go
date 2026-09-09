@@ -7,8 +7,8 @@ package cash
 import (
 	"time"
 
-	"ambikagold/backend/internal/branch"
-	"ambikagold/backend/internal/platform"
+	"cloudhouse/backend/internal/branch"
+	"cloudhouse/backend/internal/platform"
 )
 
 // CashMovement represents one cash-in or cash-out entry. For a cash-in

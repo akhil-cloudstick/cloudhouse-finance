@@ -3,7 +3,7 @@ package cash
 import (
 	"github.com/gin-gonic/gin"
 
-	"ambikagold/backend/internal/platform"
+	"cloudhouse/backend/internal/platform"
 )
 
 // RegisterMovementRoutes mounts the cash-movement endpoints under the given

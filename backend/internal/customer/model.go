@@ -12,8 +12,8 @@ import (
 
 	"gorm.io/gorm"
 
-	"ambikagold/backend/internal/branch"
-	"ambikagold/backend/internal/platform"
+	"cloudhouse/backend/internal/branch"
+	"cloudhouse/backend/internal/platform"
 )
 
 // Customer is the GORM/DB-only model. It is never returned directly by any

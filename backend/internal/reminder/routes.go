@@ -3,7 +3,7 @@ package reminder
 import (
 	"github.com/gin-gonic/gin"
 
-	"ambikagold/backend/internal/platform"
+	"cloudhouse/backend/internal/platform"
 )
 
 // RegisterRoutes mounts the reminder endpoints under the given group

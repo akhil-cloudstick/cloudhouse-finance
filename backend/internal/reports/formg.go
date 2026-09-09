@@ -12,7 +12,7 @@ import (
 	"github.com/jung-kurt/gofpdf"
 	"github.com/xuri/excelize/v2"
 
-	"ambikagold/backend/internal/platform/httpx"
+	"cloudhouse/backend/internal/platform/httpx"
 )
 
 // Form G — statement of accounts required under Rule 15(3) of the Kerala
@@ -28,19 +28,22 @@ import (
 
 // formGLenderName/formGLenderAddress are the money-lender's own registered
 // particulars printed at the top of the statement (Rule 15(3) requires the
-// lender's name and full postal address). Form G is a Kerala Money-Lenders
-// Act filing, so — unlike internal/loan/indemnitybond.go's lenderName
-// (a different, gold-loan-specific licensee) — this must be the entity
-// actually licensed under the KML Act: the MLL registration recorded on
-// file (MLL No. 32080354468) is in the name of "Chittilappilly Thomman
-// Financiers & Investments". There is still no structured business-profile
-// table in this codebase, so these remain fixed constants; wire both into
-// real config if one is ever added.
-const formGLenderName = "Chittilappilly Thomman Financiers & Investments (MLL No. 32080354468)"
+// lender's name and full postal address).
+//
+// DEMO PLACEHOLDERS. Form G is a statutory Kerala Money-Lenders Act filing
+// and these two fields identify the licensee, so they must carry the MLL
+// registration and registered postal address of the entity actually licensed
+// under the Act. The values below are deliberately fake and a filing produced
+// with them is not valid — replace both, and the matching pair in
+// internal/personalloan/bond.go, with the real registration before anyone
+// files this. There is still no structured business-profile table in this
+// codebase, so they remain fixed constants; wire them into real config if one
+// is ever added.
+const formGLenderName = "CloudHouse Gold Finance (MLL No. DEMO-0000000000)"
 
 // formGLenderAddress is the licensee's registered postal address, per the
-// same MLL registration referenced above.
-const formGLenderAddress = "Register No. XXI/118, Jangsion, Vellaankallur Block, Vadakkumkara Village, Mukundapuram Taluk, Thrissur District, Kerala"
+// same MLL registration referenced above. Also a demo placeholder.
+const formGLenderAddress = "Demo Registered Office, Door No. 0/000, Demo Village, Demo Taluk, Ernakulam District, Kerala"
 
 // FormGBranch is one branch's printed particulars (Rule 15(3) also wants
 // the branch's own postal address alongside the lender's).
@@ -661,7 +664,7 @@ func buildFormGPDF(stmt *FormGStatement) ([]byte, error) {
 	pdf.AddPage()
 
 	pdf.SetFont("Arial", "B", formGTitleFontSize)
-	pdf.MultiCell(0, 8, tr("Ambika Gold Finance — FORM G: Statement of Accounts (Kerala Money-Lenders Rules, 1964 — Rule 15(3))"), "", "L", false)
+	pdf.MultiCell(0, 8, tr("CloudHouse Gold Finance — FORM G: Statement of Accounts (Kerala Money-Lenders Rules, 1964 — Rule 15(3))"), "", "L", false)
 	pdf.Ln(2)
 
 	kv := func(k, v string) {

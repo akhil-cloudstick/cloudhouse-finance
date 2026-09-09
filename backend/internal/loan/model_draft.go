@@ -3,10 +3,10 @@ package loan
 import (
 	"time"
 
-	"ambikagold/backend/internal/branch"
-	"ambikagold/backend/internal/customer"
-	"ambikagold/backend/internal/platform"
-	"ambikagold/backend/internal/scheme"
+	"cloudhouse/backend/internal/branch"
+	"cloudhouse/backend/internal/customer"
+	"cloudhouse/backend/internal/platform"
+	"cloudhouse/backend/internal/scheme"
 )
 
 // LoanDraft is an unsubmitted New Gold Loan form, saved by the "Save Draft"

@@ -10,10 +10,10 @@ import (
 	"golang.org/x/crypto/bcrypt"
 	"gorm.io/gorm"
 
-	"ambikagold/backend/internal/auditlog"
-	"ambikagold/backend/internal/authz"
-	"ambikagold/backend/internal/branch"
-	"ambikagold/backend/internal/platform/httpx"
+	"cloudhouse/backend/internal/auditlog"
+	"cloudhouse/backend/internal/authz"
+	"cloudhouse/backend/internal/branch"
+	"cloudhouse/backend/internal/platform/httpx"
 )
 
 var (

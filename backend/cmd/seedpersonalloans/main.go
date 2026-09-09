@@ -15,12 +15,12 @@ import (
 
 	"gorm.io/gorm"
 
-	"ambikagold/backend/internal/branch"
-	"ambikagold/backend/internal/customer"
-	"ambikagold/backend/internal/employee"
-	"ambikagold/backend/internal/personalloan"
-	"ambikagold/backend/internal/platform"
-	"ambikagold/backend/internal/tenant"
+	"cloudhouse/backend/internal/branch"
+	"cloudhouse/backend/internal/customer"
+	"cloudhouse/backend/internal/employee"
+	"cloudhouse/backend/internal/personalloan"
+	"cloudhouse/backend/internal/platform"
+	"cloudhouse/backend/internal/tenant"
 )
 
 // loanCount is how many sample loans to create per active business.

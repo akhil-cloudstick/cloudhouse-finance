@@ -7,9 +7,9 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"ambikagold/backend/internal/loan"
-	"ambikagold/backend/internal/platform"
-	"ambikagold/backend/internal/platform/httpx"
+	"cloudhouse/backend/internal/loan"
+	"cloudhouse/backend/internal/platform"
+	"cloudhouse/backend/internal/platform/httpx"
 )
 
 // loanNoLongerMovableStatuses mirrors loan.bankPledgeIneligibleStatuses'

@@ -6,7 +6,7 @@ import (
 
 	"gorm.io/gorm"
 
-	"ambikagold/backend/internal/platform"
+	"cloudhouse/backend/internal/platform"
 )
 
 // TestCheckSchemaVersionRefusesAnUnmigratedDatabase is Step 12's proof: the

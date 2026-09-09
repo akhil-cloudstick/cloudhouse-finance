@@ -1,4 +1,4 @@
-# ambikagold mobile — build progress
+# cloudhouse mobile — build progress
 
 Tracks what's real vs. stubbed against the plan at
 `C:\Users\PC7\.claude\plans\i-want-to-build-misty-flame.md`. Update this file
@@ -19,7 +19,7 @@ Icons are the web admin UI's own glyphs, ported to `react-native-svg` in
 ## Done (real, backend-wired)
 
 - Project scaffold: Expo SDK 57 (Android target) + Expo Router + EAS project
-  `ambikagold` / `2eefa477-9d29-496f-9e91-06261ed62690`.
+  `cloudhouse` / `2eefa477-9d29-496f-9e91-06261ed62690`.
 - Gold theme ported verbatim from `frontend/app/app/app.css` (`src/theme/`).
 - Auth: login, JWT storage (`expo-secure-store`), session rehydrate via
   `/auth/me`, role/branch exposed via `useAuth()`/`useRole()`/`useIsAdministrator()`.

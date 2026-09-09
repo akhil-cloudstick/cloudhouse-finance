@@ -8,8 +8,8 @@ import (
 	"golang.org/x/crypto/bcrypt"
 	"gorm.io/gorm"
 
-	"ambikagold/backend/internal/branch"
-	"ambikagold/backend/internal/platform"
+	"cloudhouse/backend/internal/branch"
+	"cloudhouse/backend/internal/platform"
 )
 
 // Bootstrap Administrator credentials. Hardcoded rather than read from

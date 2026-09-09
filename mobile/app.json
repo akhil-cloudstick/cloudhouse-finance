@@ -1,19 +1,19 @@
 {
   "expo": {
-    "name": "CTFI Staff",
-    "slug": "ambikagold",
+    "name": "CloudHouse Staff",
+    "slug": "cloudhouse",
     "version": "1.0.0",
     "orientation": "portrait",
-    "icon": "./assets/ctfi.png",
+    "icon": "./assets/cloudhouse.png",
     "userInterfaceStyle": "light",
     "ios": {
       "supportsTablet": true
     },
     "android": {
-      "package": "com.ambikagold.app",
+      "package": "com.cloudhouse.app",
       "adaptiveIcon": {
         "backgroundColor": "#ffffff",
-        "foregroundImage": "./assets/ctfi-foreground.png",
+        "foregroundImage": "./assets/cloudhouse-foreground.png",
         "monochromeImage": "./assets/android-icon-monochrome.png"
       },
       "predictiveBackGestureEnabled": false
@@ -21,7 +21,7 @@
     "web": {
       "favicon": "./assets/favicon.png"
     },
-    "scheme": "ambikagold",
+    "scheme": "cloudhouse",
     "plugins": [
       "expo-router",
       "expo-secure-store",
@@ -29,7 +29,7 @@
       [
         "expo-splash-screen",
         {
-          "image": "./assets/ctfi.png",
+          "image": "./assets/cloudhouse.png",
           "imageWidth": 220,
           "resizeMode": "contain",
           "backgroundColor": "#ffffff"
@@ -47,15 +47,15 @@
       [
         "expo-image-picker",
         {
-          "photosPermission": "Chittilapilly Thommana Financiers & Investments needs access to your photos to attach customer KYC documents.",
-          "cameraPermission": "Chittilapilly Thommana Financiers & Investments needs the camera to photograph customer KYC documents."
+          "photosPermission": "CloudHouse Gold Finance needs access to your photos to attach customer KYC documents.",
+          "cameraPermission": "CloudHouse Gold Finance needs the camera to photograph customer KYC documents."
         }
       ],
       "expo-document-picker",
       [
         "expo-camera",
         {
-          "cameraPermission": "Chittilapilly Thommana Financiers & Investments needs the camera to scan packet label QR codes."
+          "cameraPermission": "CloudHouse Gold Finance needs the camera to scan packet label QR codes."
         }
       ]
     ],

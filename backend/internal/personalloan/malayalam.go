@@ -61,7 +61,7 @@ var tokensByLen = [4]map[string]mlToken{
 		"ch": {base: "ച"}, // ച
 		"jh": {base: "ഝ"}, // ഝ
 		"ny": {base: "ഞ"}, // ഞ
-		"th": {base: "ത"}, // ത (dental t — matches common names like "Thomman"→തൊമ്മാന)
+		"th": {base: "ത"}, // ത (dental t — matches common names like "Thomas"→തോമസ്)
 		"dh": {base: "ധ"}, // ധ
 		"ph": {base: "ഫ"}, // ഫ
 		"bh": {base: "ഭ"}, // ഭ

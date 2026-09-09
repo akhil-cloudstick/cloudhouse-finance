@@ -8,8 +8,8 @@ package main
 import (
 	"log"
 
-	"ambikagold/backend/internal/migrate"
-	"ambikagold/backend/internal/platform"
+	"cloudhouse/backend/internal/migrate"
+	"cloudhouse/backend/internal/platform"
 )
 
 func main() {

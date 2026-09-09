@@ -1,4 +1,4 @@
-/* Chittilapilly Thommana Financiers & Investments — mock data (frontend-only prototype).
+/* CloudHouse Gold Finance — mock data (frontend-only prototype).
  * Ported from legacy/data.js's `window.DB` IIFE. Same shape, same
  * localStorage keys, same mutator functions — behavior is unchanged,
  * only the module system and typing are different. No backend/API calls

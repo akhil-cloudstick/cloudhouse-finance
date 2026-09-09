@@ -12,7 +12,7 @@ import (
 	"fmt"
 	"os"
 
-	"ambikagold/backend/internal/platform"
+	"cloudhouse/backend/internal/platform"
 )
 
 func main() {

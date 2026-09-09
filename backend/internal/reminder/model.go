@@ -15,8 +15,8 @@ import (
 
 	"gorm.io/gorm"
 
-	"ambikagold/backend/internal/customer"
-	"ambikagold/backend/internal/platform"
+	"cloudhouse/backend/internal/customer"
+	"cloudhouse/backend/internal/platform"
 )
 
 // Reminder type values.

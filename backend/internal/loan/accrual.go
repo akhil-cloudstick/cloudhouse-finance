@@ -4,8 +4,8 @@ import (
 	"context"
 	"time"
 
-	"ambikagold/backend/internal/platform"
-	"ambikagold/backend/internal/scheme"
+	"cloudhouse/backend/internal/platform"
+	"cloudhouse/backend/internal/scheme"
 )
 
 // monthsPerQuarter is the period length for the "Quarterly simple" scheme

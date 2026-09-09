@@ -4,7 +4,7 @@ import (
 	"context"
 	"time"
 
-	"ambikagold/backend/internal/platform/httpx"
+	"cloudhouse/backend/internal/platform/httpx"
 )
 
 var (

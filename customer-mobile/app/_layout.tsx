@@ -183,7 +183,7 @@ export default function RootLayout() {
   const [assetsLoaded, setAssetsLoaded] = useState(false);
 
   useEffect(() => {
-    Asset.loadAsync(require("../assets/ctfi.png"))
+    Asset.loadAsync(require("../assets/cloudhouse.png"))
       .catch(() => {})
       .finally(() => setAssetsLoaded(true));
   }, []);

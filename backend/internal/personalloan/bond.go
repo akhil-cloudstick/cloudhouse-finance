@@ -23,7 +23,7 @@ import (
 	"github.com/chromedp/cdproto/page"
 	"github.com/chromedp/chromedp"
 
-	"ambikagold/backend/internal/customer"
+	"cloudhouse/backend/internal/customer"
 )
 
 // bondBlank is the placeholder printed wherever a field is missing —
@@ -33,37 +33,37 @@ const bondBlank = "________________"
 
 // financierName is who the borrower owes money to, per this document's own
 // opening paragraph. Personal loans are money-lending under the Kerala
-// Money-Lenders Act (not the gold-loan business "Ambika Gold Finance"
-// referenced elsewhere in this codebase's WhatsApp copy), so this uses the
-// actual KML-licensed entity on file: MLL No. 32080354468, registered in the
-// name of "Chittilappilly Thomman Financiers & Investments" — matching
-// internal/reports/formg.go's formGLenderName (same licensee, English form,
-// used there since Form G is an English-language statutory filing). There is
+// Money-Lenders Act, so this field must name the entity actually licensed
+// under that Act.
+//
+// DEMO PLACEHOLDER — the brand name transliterated, not a real licensee.
+// Together with establishmentAddress below it identifies the lender on an
+// executed bond, so both must be replaced with the real registered name and
+// MLL number (and the matching English pair in internal/reports/formg.go's
+// formGLenderName/formGLenderAddress) before a borrower signs one. There is
 // no dedicated config/env var for this, so it remains a fixed constant.
 //
-// Printed in Malayalam script directly (ചിറ്റിലപ്പിള്ളി തൊമ്മാന ഫിനാൻസിയേഴ്സ്
-// & ഇൻവെസ്റ്റ്മെന്റ്സ്) rather than run through ToMalayalam — this is a
-// single fixed, already-known institution name (taken verbatim from the
-// reference paper form), not user-entered data, so there's no reason to let
-// the best-effort transliterator guess at it when the correct spelling is
-// already on file.
+// Printed in Malayalam script directly rather than run through ToMalayalam:
+// this is a single fixed institution name, not user-entered data, so there is
+// no reason to let the best-effort transliterator guess at it.
 //
 // NOTE: unlike internal/loan/indemnitybond.go's lenderName/lenderRegNo, this
 // name is used only in the opening paragraph identifying who the borrower
 // owes money to — the financier's own signature/stamp area on this document
 // is intentionally left blank (see bondHTML's footer) for manual signing.
-const financierName = "ചിറ്റിലപ്പിള്ളി തൊമ്മാന ഫിനാൻസിയേഴ്സ് & ഇൻവെസ്റ്റ്മെന്റ്സ്"
+const financierName = "ക്ലൗഡ്ഹൗസ് ഗോൾഡ് ഫിനാൻസ്"
 
 // establishmentAddress is the financier's own registered particulars as they
 // appear on the reference form: district/taluk/village, the block/junction,
 // the room number, and the MLL registration number under which the
 // establishment operates — all fixed, since this is the lender's own
-// registered office, not something that varies per loan. Matches
-// internal/reports/formg.go's formGLenderAddress (same licensee, same
-// registration), just phrased in Malayalam and inline with the sentence
-// structure the paper form uses ("...പ്രവർത്തിച്ചുവരുന്ന <name> എന്ന
-// സ്ഥാപനത്തിന്റെ ഉടമക്ക്..."), rather than printed as a separate address block.
-const establishmentAddress = "തൃശ്ശൂർ ജില്ല മുകുന്ദപുരം താലൂക്ക് വടക്കുംകര വില്ലേജിൽ വെള്ളാങ്കല്ലൂർ ബ്ലോക്ക് ജംഗ്ഷനിൽ XXI/118 നമ്പർ മുറിയിൽ M L L No: 32080354468 രജിസ്റ്റർ നമ്പറിൽ പ്രവർത്തിച്ചുവരുന്ന"
+// registered office, not something that varies per loan.
+//
+// DEMO PLACEHOLDER, as financierName above. The wording keeps the paper
+// form's sentence structure ("...പ്രവർത്തിച്ചുവരുന്ന <name> എന്ന
+// സ്ഥാപനത്തിന്റെ ഉടമക്ക്...") and so must stay a phrase ending in
+// പ്രവർത്തിച്ചുവരുന്ന, not a standalone address block.
+const establishmentAddress = "എറണാകുളം ജില്ല ഡെമോ താലൂക്ക് ഡെമോ വില്ലേജിൽ 0/000 നമ്പർ മുറിയിൽ M L L No: DEMO-0000000000 രജിസ്റ്റർ നമ്പറിൽ പ്രവർത്തിച്ചുവരുന്ന"
 
 // BondData carries everything the borrower-only bond template needs,
 // resolved from a PersonalLoan + its preloaded Customer (see

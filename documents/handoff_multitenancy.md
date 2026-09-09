@@ -227,9 +227,9 @@ feature the product was requested for.
 - **The slug selects, it does not grant.** After login the business comes
   from the token and is never re-read from the URL. Keep it that way.
 - ~~**Deferred, and it will bite:**~~ **fixed 2026-08-29.** All businesses
-  share one browser origin, and the single `ambikagold_token` key meant two
+  share one browser origin, and the single `cloudhouse_token` key meant two
   businesses open in two tabs clobbered each other's session. Keys are now
-  per-slug (`ambikagold_token::<slug>`) and owned solely by
+  per-slug (`cloudhouse_token::<slug>`) and owned solely by
   `frontend/common/services/tenantSession.ts` — no other module knows a
   storage key, which is what keeps the next one from being missed. A legacy
   single-key session is migrated on first load, so the deploy does not sign
@@ -244,13 +244,13 @@ feature the product was requested for.
 cd backend && go build ./... && go vet ./... && go test ./...
 
 # Isolation tests need a scratch database
-createdb -h localhost -U ambikagold mt_probe
+createdb -h localhost -U cloudhouse mt_probe
 DB_NAME=mt_probe go run ./cmd/migrate
 MT_TEST_DB=mt_probe go test ./internal/platform/ ./internal/tenant/ -v
 
 # Clone live data to rehearse a migration
-createdb -h localhost -U ambikagold mt_probe
-pg_dump -h localhost -U ambikagold ambikagold | psql -q -U ambikagold -d mt_probe
+createdb -h localhost -U cloudhouse mt_probe
+pg_dump -h localhost -U cloudhouse cloudhouse | psql -q -U cloudhouse -d mt_probe
 DB_NAME=mt_probe go run ./cmd/migrate       # run TWICE — must change nothing
 
 # Run the server against the scratch database
@@ -315,7 +315,7 @@ second business possible at all.
   tenant in scope, which they now have. Besides colliding, a global count
   **leaks commercial information** — one business's next customer code
   reveals roughly how many customers the others have.
-- **30 hardcoded "Ambika Gold Finance" strings** across 7 files — SMS and
+- **30 hardcoded "CloudHouse Gold Finance" strings** across 7 files — SMS and
   WhatsApp bodies, the indemnity bond, PDF exports. Every business's
   borrowers would be messaged under the first business's name. The loan
   statement (`internal/loan/statement.go`) is the only document that gets

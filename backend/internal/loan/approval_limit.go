@@ -1,7 +1,7 @@
 package loan
 
 import (
-	"ambikagold/backend/internal/platform"
+	"cloudhouse/backend/internal/platform"
 	"context"
 	"errors"
 	"time"

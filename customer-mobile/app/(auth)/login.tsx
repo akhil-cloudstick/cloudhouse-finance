@@ -149,7 +149,7 @@ export default function LoginScreen() {
     <KeyboardAvoidingView style={styles.screen} behavior="padding">
       <ScrollView contentContainerStyle={styles.scrollContent} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
         <View style={styles.card}>
-          <Image source={require("../../assets/ctfi.png")} style={styles.logo} resizeMode="contain" />
+          <Image source={require("../../assets/cloudhouse.png")} style={styles.logo} resizeMode="contain" />
           <ThemedText variant="body" color={colors.muted} style={styles.subtitle}>
             Customer sign in
           </ThemedText>

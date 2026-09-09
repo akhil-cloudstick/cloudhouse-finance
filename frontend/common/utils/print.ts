@@ -3,7 +3,7 @@
  * triggers the browser print dialog. Same behavior, same popup-blocked
  * handling (reported via a `toast` callback instead of a global `toast()`).
  *
- * The styles are NOT the same: they were re-themed to the CTFI identity along
+ * The styles are NOT the same: they were re-themed to the CloudHouse identity along
  * with the rest of the UI. Note that this window is written with
  * document.write into a fresh document, so none of the app's CSS custom
  * properties exist inside it — every colour here has to be a literal, which
@@ -19,7 +19,7 @@ const esc = (s: string) =>
  * descriptor, the KML registration number and the contact numbers.
  *
  * This exists because the brand used to be written inline as
- * `<h1>AMBIKA GOLD FINANCE</h1>` in five separate templates across three
+ * `<h1>CLOUDHOUSE GOLD FINANCE</h1>` in five separate templates across three
  * files, two of which were copy-pasted duplicates of each other — so the
  * pledge slip and the statement could and did drift apart. Pass the document
  * title (e.g. "Gold Loan Pledge Slip") and it renders beneath the brand.

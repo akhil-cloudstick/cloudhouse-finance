@@ -3,7 +3,7 @@ package ornamenttype
 import (
 	"github.com/gin-gonic/gin"
 
-	"ambikagold/backend/internal/platform"
+	"cloudhouse/backend/internal/platform"
 )
 
 // RegisterRoutes mounts the ornament-type endpoints under the given group

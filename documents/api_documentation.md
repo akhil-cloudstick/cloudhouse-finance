@@ -61,7 +61,7 @@ comments scattered through the moved components.
 
 ## Current state
 A real Go backend now exists under `backend/` (Gin + GORM + PostgreSQL,
-db `ambikagold`). The Go binary (`backend/main.go`, port `8080`) serves both the
+db `cloudhouse`). The Go binary (`backend/main.go`, port `8080`) serves both the
 REST API and the built Next.js frontend (`frontend/out`) on a single
 port, superseding the old `backend/server.mjs` static file server (kept
 in the repo for reference only — see [architecture.md](architecture.md)).
@@ -459,7 +459,7 @@ Implemented in `backend/internal/customer/customer_mobile_handler.go`.
 |---|---|---|---|---|
 | GET | `/api/v1/customer/profile` | The caller's own full profile (`CustomerResponse` shape — no raw Aadhaar/internal fields) | — → `CustomerResponse` | Bearer customer token |
 | POST | `/api/v1/customer/profile/verify-pan` | Triggers a live Setu PAN-verify for the caller's on-file PAN and persists the result | — → `{ "customer", "message", "matchedName", "traceId" }` | Bearer customer token |
-| POST | `/api/v1/customer/profile/aadhaar/start` | Begins a DigiLocker Aadhaar-verify request; `redirectUrl` is the app's own deep link (e.g. `ambikacustomer://aadhaar-callback`) that DigiLocker redirects back to once the customer finishes logging in | `{ "redirectUrl" }` → `{ "id", "url", "status", "validUpto" }` | Bearer customer token |
+| POST | `/api/v1/customer/profile/aadhaar/start` | Begins a DigiLocker Aadhaar-verify request; `redirectUrl` is the app's own deep link (e.g. `cloudhousecustomer://aadhaar-callback`) that DigiLocker redirects back to once the customer finishes logging in | `{ "redirectUrl" }` → `{ "id", "url", "status", "validUpto" }` | Bearer customer token |
 | GET | `/api/v1/customer/profile/aadhaar/status` | Polled after the DigiLocker browser flow returns; `{ "status": "unauthenticated" }` while still pending, or `{ "customer", "status": "authenticated", "matchedName", "dob" }` once done | — | Bearer customer token |
 
 This batch is **fully view-only** otherwise — no endpoint lets a customer

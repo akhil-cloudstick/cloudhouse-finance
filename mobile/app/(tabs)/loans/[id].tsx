@@ -390,7 +390,7 @@ export default function LoanDetailScreen() {
   // dashboard instead of only opening it on this device.
   const doStartEsign = useMutation({
     mutationFn: (deliverBy: BondDeliverBy) =>
-      startIndemnityBondEsign(loanId, esignLang, "ambikagold://esign-callback", deliverBy),
+      startIndemnityBondEsign(loanId, esignLang, "cloudhouse://esign-callback", deliverBy),
     onSuccess: (started, deliverBy) => {
       setEsignSheetVisible(false);
       if (deliverBy === "open" && started.url) {

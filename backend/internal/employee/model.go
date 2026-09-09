@@ -7,8 +7,8 @@ import (
 
 	"gorm.io/gorm"
 
-	"ambikagold/backend/internal/branch"
-	"ambikagold/backend/internal/platform"
+	"cloudhouse/backend/internal/branch"
+	"cloudhouse/backend/internal/platform"
 )
 
 // Employee represents a staff member and their running performance

@@ -3,7 +3,7 @@ package employee
 import (
 	"github.com/gin-gonic/gin"
 
-	"ambikagold/backend/internal/platform"
+	"cloudhouse/backend/internal/platform"
 )
 
 // RegisterRoutes mounts the employee endpoints under the given group

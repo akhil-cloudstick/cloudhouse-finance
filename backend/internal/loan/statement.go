@@ -1,7 +1,7 @@
 package loan
 
 import (
-	"ambikagold/backend/internal/platform"
+	"cloudhouse/backend/internal/platform"
 	"bytes"
 	"context"
 	"fmt"
@@ -69,13 +69,13 @@ func (s *Service) businessName(ctx context.Context) string {
 }
 
 // brandedMessage is fmt.Sprintf with one extra step: every literal
-// occurrence of "Ambika Gold Finance" in the resulting string is replaced
+// occurrence of "CloudHouse Gold Finance" in the resulting string is replaced
 // with the caller's own tenant name.
 //
 // Multi-tenancy plan, Step 9. Before this, every SMS/WhatsApp notification
 // sent to a borrower — due/overdue reminders, sanction/disbursement,
 // payment receipts, auction notices, release and extension decisions —
-// named "Ambika Gold Finance" regardless of which business's borrower was
+// named "CloudHouse Gold Finance" regardless of which business's borrower was
 // reading it, the most visible possible version of a tenancy mistake.
 // businessName's own fallback (a neutral, non-branded label on any lookup
 // failure) applies here too, since this calls it directly — a failed tenant
@@ -88,7 +88,7 @@ func (s *Service) businessName(ctx context.Context) string {
 // correctness — is untouched.
 func (s *Service) brandedMessage(ctx context.Context, format string, args ...any) string {
 	msg := fmt.Sprintf(format, args...)
-	return strings.ReplaceAll(msg, "Ambika Gold Finance", s.businessName(ctx))
+	return strings.ReplaceAll(msg, "CloudHouse Gold Finance", s.businessName(ctx))
 }
 
 func money(v float64) string {

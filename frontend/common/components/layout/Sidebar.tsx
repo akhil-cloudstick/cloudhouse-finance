@@ -54,14 +54,21 @@ export function Sidebar({ route, open }: { route: string; open: boolean }) {
   return (
     <aside className={`side${open ? " open" : ""}`} id="side">
       <div className="brand">
-        {/* One lockup: the logo, then a text column carrying the monogram
-          * with the full name under it. Both text lines share a single left
-          * edge — the previous version put the full name on its own
-          * full-width line, which left CTFI aligned to nothing. */}
-        <BrandLogo size={80} />
+        {/* One lockup: the logo, then a text column splitting the name over
+          * two lines. Both share a single left edge — an earlier version put
+          * the second line on its own full-width row, which left the first
+          * aligned to nothing. The halves come from nameTop/nameBottom, not
+          * shortName + name, because those two overlap: the short name is a
+          * prefix of the full one and the lockup read "CloudHouse" above
+          * "CloudHouse Gold Finance". */}
+        {/* Size lives in CSS (.side .brand .brand-mark), not in this prop, so
+          * the mark and the wordmark beside it can be scaled together at the
+          * narrow-sidebar breakpoint. The prop only sets the SSR'd width/height
+          * attributes, which CSS then overrides. */}
+        <BrandLogo size={48} className="brand-mark" />
         <div className="t">
           <b>{BRAND.shortName}</b>
-          <span className="brand-full">{BRAND.name}</span>
+          <span className="brand-full">{BRAND.nameBottom}</span>
         </div>
       </div>
       <nav className="nav" id="navBox">

@@ -1,4 +1,4 @@
-/* Ambika Gold Finance — admin frontend (prototype, no backend) */
+/* CloudHouse Gold Finance — admin frontend (prototype, no backend) */
 (function(){
 'use strict';
 const $ = s => document.querySelector(s);
@@ -108,7 +108,7 @@ function router(){
       (route==='loan'&&a.getAttribute('href')==='#loans') ||
       (route==='customer'&&a.getAttribute('href')==='#customers'));
   });
-  $('#crumb').innerHTML = 'Ambika Gold Finance &nbsp;/&nbsp; <b>' + (titles[route]||'Dashboard') + '</b>';
+  $('#crumb').innerHTML = 'CloudHouse Gold Finance &nbsp;/&nbsp; <b>' + (titles[route]||'Dashboard') + '</b>';
   $('#side').classList.remove('open');
   view.innerHTML = '';
   fn(arg);
@@ -991,7 +991,7 @@ function renderNewLoan(){
     const d = nlDraft();
     if(!d.orns.length){ toast('Add at least one ornament with weight and qty first'); return; }
     printDoc('Pledge Slip — '+provId, `
-      <h1>AMBIKA GOLD FINANCE</h1><h2>Gold Loan Pledge Slip</h2>
+      <h1>CLOUDHOUSE GOLD FINANCE</h1><h2>Gold Loan Pledge Slip</h2>
       <table>
         <tr><th style="width:110px">Loan No</th><td>${provId}</td><th style="width:110px">Date</th><td>${new Date().toLocaleDateString('en-IN')}</td></tr>
         <tr><th>Customer</th><td>${d.c.name} (${d.c.id})</td><th>Phone</th><td>${d.c.phone||'—'}</td></tr>
@@ -1052,7 +1052,7 @@ function renderNewLoan(){
     printDoc('Indemnity Bond — '+provId, `
       <h1>INDEMNITY BOND</h1>
       <p>Date: ${dd} / ${mm} / 20${yy}</p>
-      <p>To<br>The Branch Manager<br>Ambika Gold Finance (NBFC)<br>${c.branch||B} Branch</p>
+      <p>To<br>The Branch Manager<br>CloudHouse Gold Finance (NBFC)<br>${c.branch||B} Branch</p>
       <p><b>Subject: Indemnity Bond in respect of Gold Loan Account No. ${provId}</b></p>
       <p>I/We, Mr./Ms. <b>${c.name||B}</b>, aged <b>${age}</b> years, residing at <b>${c.addr||B}</b>, do hereby solemnly affirm, declare and undertake as under:</p>
       <ol>
@@ -1103,7 +1103,7 @@ function renderNewLoan(){
       <div class="label">
         <img src="${qr}" alt="QR">
         <div class="t">
-          <div class="brand">AMBIKA GOLD FINANCE</div>
+          <div class="brand">CLOUDHOUSE GOLD FINANCE</div>
           <div class="id">${provId} · PKT-${provId.slice(3)}</div>
           <div>${c.name||'—'}</div>
           <div>${c.id||'—'} · ${c.phone||''}</div>
@@ -1637,7 +1637,7 @@ window.openAuctionModal = function(loan){
       <div class="notice" style="margin-bottom:16px">${icon('gavel')} ${a.cust} · ${fmtW(a.weight)} gold · outstanding <b>${fmt(a.outstanding)}</b> · notice issued ${a.notice}</div>
       <div class="frow c2">
         <div><label class="f">Auction Date *</label><input class="inp" id="auDate" type="date" min="${today}" value="${a.auctionDate!=='—'?a.auctionDate:''}"></div>
-        <div><label class="f">Venue</label><input class="inp" id="auVenue" value="${a.venue||'Ambika Gold Finance, Koratty Branch'}"></div>
+        <div><label class="f">Venue</label><input class="inp" id="auVenue" value="${a.venue||'CloudHouse Gold Finance, Koratty Branch'}"></div>
       </div>
       <p id="auErr" style="color:var(--red);font-size:12.5px;min-height:16px;margin-top:8px"></p>
     </div>
@@ -1648,7 +1648,7 @@ window.openAuctionModal = function(loan){
 };
 window.saveAuctionSchedule = function(loan){
   const date  = $('#auDate').value;
-  const venue = $('#auVenue').value.trim() || 'Ambika Gold Finance, Koratty Branch';
+  const venue = $('#auVenue').value.trim() || 'CloudHouse Gold Finance, Koratty Branch';
   const err   = $('#auErr');
   if(!date){ err.textContent = 'Please choose the auction date.'; return; }
   if(!D.updateAuction(loan, { stage:'Auction Scheduled', auctionDate: date, venue })){
@@ -1673,7 +1673,7 @@ window.printAuctionLetter = function(loan){
   const orns = D.ornaments[loan] || [];
   const today = new Date().toISOString().slice(0,10);
   printDoc('Auction Letter — ' + loan, `
-    <h1>AMBIKA GOLD FINANCE</h1>
+    <h1>CLOUDHOUSE GOLD FINANCE</h1>
     <h2>Koratty, Thrissur, Kerala · Ph: 0480-2730000</h2>
     <p class="muted">Ref: AGF/AUC/${loan.replace('GL-','')} · Date: ${today}</p>
     <p><b>To,</b><br>${c.name||a.cust}<br>${c.addr||''}<br>Ph: ${c.phone||''}</p>
@@ -1684,7 +1684,7 @@ window.printAuctionLetter = function(loan){
         your gold loan <b>${loan}</b> (outstanding <b>${fmt(a.outstanding)}</b> as on date, eligible for auction
         since ${a.eligible}) remain unpaid.</li>
       <li>You are hereby given final notice that the gold ornaments pledged against the said loan will be sold in
-        <b>PUBLIC AUCTION</b> on <b>${a.auctionDate}</b> at <b>${a.venue||'Ambika Gold Finance, Koratty Branch'}</b>,
+        <b>PUBLIC AUCTION</b> on <b>${a.auctionDate}</b> at <b>${a.venue||'CloudHouse Gold Finance, Koratty Branch'}</b>,
         if the entire dues are not settled before the auction date.</li>
       <li>Details of the pledged ornaments to be auctioned:</li>
     </ol>

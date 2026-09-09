@@ -9,7 +9,7 @@
 package notification
 
 import (
-	"ambikagold/backend/internal/platform"
+	"cloudhouse/backend/internal/platform"
 	"time"
 )
 

@@ -3,7 +3,7 @@ package upload
 import (
 	"time"
 
-	"ambikagold/backend/internal/platform"
+	"cloudhouse/backend/internal/platform"
 )
 
 // File is the record behind every uploaded file: customer photos, KYC

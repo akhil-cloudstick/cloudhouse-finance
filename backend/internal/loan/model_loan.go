@@ -18,10 +18,10 @@ import (
 
 	"gorm.io/gorm"
 
-	"ambikagold/backend/internal/branch"
-	"ambikagold/backend/internal/customer"
-	"ambikagold/backend/internal/platform"
-	"ambikagold/backend/internal/scheme"
+	"cloudhouse/backend/internal/branch"
+	"cloudhouse/backend/internal/customer"
+	"cloudhouse/backend/internal/platform"
+	"cloudhouse/backend/internal/scheme"
 )
 
 // Loan status values (matches the compliance doc's category list exactly;

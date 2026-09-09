@@ -3,7 +3,7 @@ package authz
 import (
 	"github.com/gin-gonic/gin"
 
-	"ambikagold/backend/internal/platform"
+	"cloudhouse/backend/internal/platform"
 )
 
 // RegisterRoutes mounts the standard's 3-endpoint permissions API (§7) plus

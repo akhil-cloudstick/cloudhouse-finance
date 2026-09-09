@@ -1,8 +1,8 @@
 package notification
 
 import (
-	"ambikagold/backend/internal/platform/httpx"
-	"ambikagold/backend/internal/realtime"
+	"cloudhouse/backend/internal/platform/httpx"
+	"cloudhouse/backend/internal/realtime"
 	"context"
 )
 

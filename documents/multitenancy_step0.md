@@ -210,8 +210,8 @@ fixed by the query-level filter alone.
 ## Decided
 
 **Login is per-business, reached through a per-business link.** Both staff and
-borrowers arrive at a URL carrying their business's code — `/login/ambika`,
-`/app/ambika` — so the business is established before any credential is
+borrowers arrive at a URL carrying their business's code — `/login/cloudhouse`,
+`/app/cloudhouse` — so the business is established before any credential is
 entered, and neither screen needs a picker or an extra field.
 
 Consequences to build for, since the code now lives in the URL:

@@ -6,8 +6,8 @@
  * storage key so a superadmin signed in in one tab and a tenant's own staff
  * signed in in another can never collide or be confused with each other. */
 
-const TOKEN_KEY = "ambikagold_superadmin_token";
-const USER_KEY = "ambikagold_superadmin_user";
+const TOKEN_KEY = "cloudhouse_superadmin_token";
+const USER_KEY = "cloudhouse_superadmin_user";
 
 export type SuperAdminUser = { id: number; name: string; username: string };
 

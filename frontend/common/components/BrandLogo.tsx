@@ -9,24 +9,22 @@ import BrandMark from "@/common/components/BrandMark";
  *
  * The artwork is rendered exactly as supplied: no crop, no background, no
  * border, no rounding. Earlier revisions of this component cropped to the
- * monogram and sat it on a white disc to raise contrast against the navy
+ * monogram and sat it on a white disc to raise contrast against the violet
  * sidebar; that was rejected — the logo is shown as-is by instruction.
  *
  * The one thing this still owns is the fallback: if the raster at
  * BRAND.markSrc is missing, it renders the inline-SVG BrandMark rather than a
- * broken-image icon. The five call sites used to hardcode their own
- * <img src="/ambika-gold.jpeg"> apiece, so a renamed asset broke all of them
+ * broken-image icon. The five call sites used to hardcode an <img> at their
+ * own copy of the logo path, so a renamed asset broke all of them
  * independently.
  */
 
 type Props = {
   size?: number;
   className?: string;
-  /** Only affects the SVG fallback: whether to draw its ring text. */
-  full?: boolean;
 };
 
-export default function BrandLogo({ size = 46, className, full }: Props) {
+export default function BrandLogo({ size = 46, className }: Props) {
   const [failed, setFailed] = useState(false);
 
   if (failed) {
@@ -34,7 +32,10 @@ export default function BrandLogo({ size = 46, className, full }: Props) {
       <BrandMark
         size={size}
         className={className}
-        showText={full}
+        // gradient, not currentColor: this stands in for a full-colour
+        // raster, and it has to read on both the violet sidebar and the
+        // white auth panels, neither of which shares a text colour.
+        gradient
         title={BRAND.legalName}
       />
     );

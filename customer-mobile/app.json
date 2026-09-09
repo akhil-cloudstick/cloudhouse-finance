@@ -1,26 +1,26 @@
 {
   "expo": {
-    "name": "CTFI",
-    "slug": "ambikacustomer",
+    "name": "CloudHouse Gold",
+    "slug": "cloudhousecustomer",
     "owner": "cloudhouse-team",
     "version": "1.0.0",
     "orientation": "portrait",
-    "icon": "./assets/ctfi.png",
+    "icon": "./assets/cloudhouse.png",
     "userInterfaceStyle": "light",
     "platforms": [
       "android"
     ],
     "android": {
-      "package": "com.ambikagold.customer",
+      "package": "com.cloudhouse.customer",
       "adaptiveIcon": {
         "backgroundColor": "#ffffff",
-        "foregroundImage": "./assets/ctfi-foreground.png",
+        "foregroundImage": "./assets/cloudhouse-foreground.png",
         "monochromeImage": "./assets/android-icon-monochrome.png"
       },
       "predictiveBackGestureEnabled": false,
       "softwareKeyboardLayoutMode": "resize"
     },
-    "scheme": "ambikacustomer",
+    "scheme": "cloudhousecustomer",
     "plugins": [
       "expo-router",
       "expo-secure-store",
@@ -28,7 +28,7 @@
       [
         "expo-splash-screen",
         {
-          "image": "./assets/ctfi.png",
+          "image": "./assets/cloudhouse.png",
           "imageWidth": 220,
           "resizeMode": "contain",
           "backgroundColor": "#ffffff"
@@ -38,19 +38,19 @@
         "expo-status-bar",
         {
           "style": "dark",
-          "backgroundColor": "#f5f7fb"
+          "backgroundColor": "#f7f6fb"
         }
       ],
       [
         "expo-local-authentication",
         {
-          "faceIDPermission": "Allow Chittilapilly Thommana Financiers & Investments to use Face unlock to sign you in."
+          "faceIDPermission": "Allow CloudHouse Gold Finance to use Face unlock to sign you in."
         }
       ],
       "expo-web-browser"
     ],
     "androidStatusBar": {
-      "backgroundColor": "#f5f7fb",
+      "backgroundColor": "#f7f6fb",
       "barStyle": "dark-content",
       "translucent": false
     },

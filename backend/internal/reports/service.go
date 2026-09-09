@@ -6,9 +6,9 @@ import (
 
 	"gorm.io/gorm"
 
-	"ambikagold/backend/internal/commlog"
-	"ambikagold/backend/internal/platform"
-	"ambikagold/backend/internal/tenant"
+	"cloudhouse/backend/internal/commlog"
+	"cloudhouse/backend/internal/platform"
+	"cloudhouse/backend/internal/tenant"
 )
 
 // Service implements every report's query/aggregation logic directly

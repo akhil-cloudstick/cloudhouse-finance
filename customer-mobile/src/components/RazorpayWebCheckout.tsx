@@ -71,7 +71,7 @@ function buildCheckoutHtml(options: RazorpayWebCheckoutOptions): string {
       width: 100%;
       height: 100%;
       height: 100dvh;
-      background: #f5f7fb;
+      background: #f7f6fb;
       overflow: hidden;
       position: fixed;
       top: 0;

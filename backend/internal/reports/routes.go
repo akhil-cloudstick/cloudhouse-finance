@@ -3,7 +3,7 @@ package reports
 import (
 	"github.com/gin-gonic/gin"
 
-	"ambikagold/backend/internal/platform"
+	"cloudhouse/backend/internal/platform"
 )
 
 // RegisterRoutes mounts every report's JSON listing endpoint plus the

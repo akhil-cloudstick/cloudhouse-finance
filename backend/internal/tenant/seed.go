@@ -1,7 +1,7 @@
 package tenant
 
 import (
-	"ambikagold/backend/internal/platform"
+	"cloudhouse/backend/internal/platform"
 	"context"
 	"errors"
 	"log"
@@ -23,7 +23,13 @@ var SeedTiers = []struct {
 const (
 	// DefaultTenantName/Code identify the single business that every row
 	// predating multi-tenancy is backfilled into. See EnsureDefault.
-	DefaultTenantName = "Default Business"
+	//
+	// The name is only ever applied when this tenant is CREATED — EnsureDefault
+	// finds an existing one by code, never by name — so changing it rebrands a
+	// fresh install without touching a deployment that is already running under
+	// its own business name. That distinction matters because this string is
+	// what brandedMessage substitutes into every borrower SMS.
+	DefaultTenantName = "CloudHouse Gold Finance"
 
 	// DefaultTenantCode becomes part of this business's login URL
 	// (/login/default). Codes are immutable once staff have the link, but

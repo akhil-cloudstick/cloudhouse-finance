@@ -14,8 +14,8 @@ package packet
 import (
 	"time"
 
-	"ambikagold/backend/internal/loan"
-	"ambikagold/backend/internal/platform"
+	"cloudhouse/backend/internal/loan"
+	"cloudhouse/backend/internal/platform"
 )
 
 // Packet stage values. "Loan Created" is not a Packet row state — it's the

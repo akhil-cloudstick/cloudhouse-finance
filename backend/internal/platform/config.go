@@ -113,6 +113,12 @@ func LoadConfig() Config {
 		Port:        getEnv("PORT", "8080"),
 		DBHost:      getEnv("DB_HOST", "localhost"),
 		DBPort:      getEnv("DB_PORT", "5432"),
+		// Deliberately still the pre-rebrand names: these are the role and
+		// database that the existing installation's data actually lives in,
+		// and a default is only useful if it connects to something real.
+		// Renaming a live Postgres role/database is a migration to run
+		// separately, not a side effect of rebranding. .env.example shows the
+		// CloudHouse names for a fresh setup.
 		DBUser:      getEnv("DB_USER", "ambikagold"),
 		DBPassword:  getEnv("DB_PASSWORD", "ambikagold"),
 		DBName:      getEnv("DB_NAME", "ambikagold"),
@@ -173,7 +179,7 @@ func getEnv(key, fallback string) string {
 // jwtDevFallbackSecret is used only when JWT_SECRET is unset, so local dev
 // without a .env file still works. Never rely on this in production — a
 // real JWT_SECRET is already configured in backend/.env for this project.
-const jwtDevFallbackSecret = "ambikagold-dev-only-jwt-secret-do-not-use-in-production"
+const jwtDevFallbackSecret = "cloudhouse-dev-only-jwt-secret-do-not-use-in-production"
 
 func getJWTSecret() string {
 	if v := os.Getenv("JWT_SECRET"); v != "" {

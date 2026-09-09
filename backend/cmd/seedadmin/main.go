@@ -15,8 +15,8 @@ package main
 import (
 	"log"
 
-	"ambikagold/backend/internal/employee"
-	"ambikagold/backend/internal/platform"
+	"cloudhouse/backend/internal/employee"
+	"cloudhouse/backend/internal/platform"
 )
 
 func main() {

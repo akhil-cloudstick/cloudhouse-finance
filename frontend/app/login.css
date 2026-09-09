@@ -1,7 +1,7 @@
 /* Sign-in surface — shared by /login, /forgot-password, /reset-password and
    the DigiLocker/eSign callbacks, all of which render inside .login-page.
 
-   Rebuilt for the CTFI navy identity. The page this replaces was ported
+   Rebuilt for the CloudHouse identity. The page this replaces was ported
    verbatim from legacy/index.html and was heavily jewellery-themed: floating
    gold-dust particles, four corner filigree ornaments, gilt corner studs on
    the card, and a "Trust / Value / Growth" motto. None of that survives — a
@@ -25,7 +25,7 @@
   overflow-x: hidden;
 }
 
-/* One soft navy wash off the top-left, standing in for the old page's three
+/* One soft violet wash off the top-left, standing in for the old page's three
    stacked warm radials. Fixed rather than scrolled so short and tall
    viewports get the same framing. */
 .login-page::before {
@@ -34,8 +34,8 @@
   inset: 0;
   pointer-events: none;
   background:
-    radial-gradient(1100px 620px at 12% -8%, rgba(26, 62, 147, .07) 0%, transparent 62%),
-    radial-gradient(820px 520px at 92% 108%, rgba(26, 62, 147, .05) 0%, transparent 58%);
+    radial-gradient(1100px 620px at 12% -8%, rgba(192, 23, 122, .07) 0%, transparent 62%),
+    radial-gradient(820px 520px at 92% 108%, rgba(192, 23, 122, .05) 0%, transparent 58%);
 }
 
 /* Grid, not flex: the two panels sit side by side on row 1 while the two
@@ -53,7 +53,12 @@
 
 /* ── identity panel ─────────────────────────────────────────── */
 .login-page .brand-panel {
-  background: linear-gradient(160deg, var(--nav-2) 0%, var(--nav) 100%);
+  /* Two layers: a 4px rail of the logo gradient pinned to the top edge, over
+     the violet field the white type actually sits on. The sweep is confined
+     to the rail so the panel keeps one predictable contrast ratio. */
+  background:
+    var(--brand-gradient) top left / 100% 4px no-repeat,
+    linear-gradient(160deg, var(--nav-2) 0%, var(--nav) 100%);
   color: #fff;
   border-radius: 14px 0 0 14px;
   padding: 48px 40px;
@@ -64,8 +69,8 @@
   position: relative;
   overflow: hidden;
   box-shadow:
-    0 1px 2px rgba(14, 32, 80, .06),
-    0 24px 60px -28px rgba(14, 32, 80, .34);
+    0 1px 2px rgba(43, 26, 94, .06),
+    0 24px 60px -28px rgba(43, 26, 94, .34);
 }
 
 /* Oversized, mostly-cropped seal as a watermark. Low enough not to compete
@@ -113,17 +118,19 @@
   font-weight: 500;
   letter-spacing: .26em;
   text-transform: uppercase;
-  color: #c6d4f2;
+  color: #ded1f3;
 }
 
-/* The one piece of gold on the page — matching the single gold badge in the
-   wordmark. Structure everywhere else stays navy. */
+/* The one full-colour moment on the page: the logo's own violet → magenta →
+   orange sweep, at 54px wide. Structure everywhere else stays violet, and
+   the sweep is never put behind text — at this size it is an ornament, and
+   a gradient under body copy has no single contrast ratio to guarantee. */
 .login-page .bp-rule {
   display: block;
   width: 54px;
   height: 3px;
   border-radius: 2px;
-  background: var(--accent);
+  background: var(--brand-gradient);
   margin: 26px 0 20px;
 }
 
@@ -150,8 +157,8 @@
   flex-direction: column;
   justify-content: center;
   box-shadow:
-    0 1px 2px rgba(14, 32, 80, .06),
-    0 24px 60px -28px rgba(14, 32, 80, .34);
+    0 1px 2px rgba(43, 26, 94, .06),
+    0 24px 60px -28px rgba(43, 26, 94, .34);
 }
 
 .login-page .brand {
@@ -171,7 +178,7 @@
   color: var(--muted);
 }
 /* The auth pages that share this stylesheet still lead with the seal, since
-   they have no navy panel of their own to carry it. */
+   they have no violet panel of their own to carry it. */
 .login-page .brand img {
   display: block;
   margin-bottom: 16px;
@@ -204,7 +211,7 @@
 .login-page .field input:focus {
   background: #fff;
   border-color: var(--brand);
-  box-shadow: 0 0 0 3px rgba(26, 62, 147, .12);
+  box-shadow: 0 0 0 3px rgba(192, 23, 122, .12);
 }
 
 .login-page .field label {
@@ -449,8 +456,8 @@
   }
   .login-page .wrap {
     box-shadow:
-      0 1px 2px rgba(14, 32, 80, .06),
-      0 20px 50px -26px rgba(14, 32, 80, .34);
+      0 1px 2px rgba(43, 26, 94, .06),
+      0 20px 50px -26px rgba(43, 26, 94, .34);
     border-radius: 14px;
   }
 }

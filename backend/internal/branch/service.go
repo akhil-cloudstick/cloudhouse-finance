@@ -6,10 +6,10 @@ import (
 
 	"gorm.io/gorm"
 
-	"ambikagold/backend/internal/auditlog"
-	"ambikagold/backend/internal/platform"
-	"ambikagold/backend/internal/platform/httpx"
-	"ambikagold/backend/internal/tenant"
+	"cloudhouse/backend/internal/auditlog"
+	"cloudhouse/backend/internal/platform"
+	"cloudhouse/backend/internal/platform/httpx"
+	"cloudhouse/backend/internal/tenant"
 )
 
 var (

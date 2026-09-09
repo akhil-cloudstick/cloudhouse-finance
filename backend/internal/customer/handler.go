@@ -5,8 +5,8 @@ import (
 	"strconv"
 	"time"
 
-	"ambikagold/backend/internal/platform"
-	"ambikagold/backend/internal/platform/httpx"
+	"cloudhouse/backend/internal/platform"
+	"cloudhouse/backend/internal/platform/httpx"
 
 	"github.com/gin-gonic/gin"
 )

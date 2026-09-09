@@ -19,7 +19,7 @@ package app
 //   - Everything else needs a scratch database and is skipped unless
 //     MT_TEST_DB names one:
 //
-//     createdb -h localhost -U ambikagold mt_probe
+//     createdb -h localhost -U cloudhouse mt_probe
 //     DB_NAME=mt_probe go run ./cmd/migrate
 //     MT_TEST_DB=mt_probe go test ./internal/app/ -v
 //
@@ -45,9 +45,9 @@ import (
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
 
-	"ambikagold/backend/internal/migrate"
-	"ambikagold/backend/internal/platform"
-	"ambikagold/backend/internal/upload"
+	"cloudhouse/backend/internal/migrate"
+	"cloudhouse/backend/internal/platform"
+	"cloudhouse/backend/internal/upload"
 )
 
 // staffRoles are the nine roles a business has. Probes run as every one of

@@ -49,11 +49,11 @@ import { useResponsivePageSize } from "@/common/utils/responsive";
  * equivalent. Now works directly off a real loan. */
 export function printAuctionLetter(loan: LoanView, toast: (m: string) => void) {
   const today = new Date().toISOString().slice(0, 10);
-  const venue = `${BRAND.legalName}, Koratty Branch`;
+  const venue = `${BRAND.legalName}, Head Office`;
 
   openPrintWindow("Auction Letter — " + loan.id, `
     ${brandHeader()}
-    <p class="muted">Ref: CTFI/AUC/${loan.id.replace("LN-", "")} · Date: ${today}</p>
+    <p class="muted">Ref: CHGF/AUC/${loan.id.replace("LN-", "")} · Date: ${today}</p>
     <p><b>To,</b><br>${loan.customerName}</p>
     <p><b>Subject: Final notice — public auction of gold ornaments pledged against loan ${loan.id}</b></p>
     <p>Dear Sir/Madam,</p>

@@ -53,16 +53,24 @@ type BondData struct {
 // to "________________" for a missing field.
 const blank = "________________"
 
-// lenderName/lenderRegNo are the fixed lender-side particulars printed on
-// every pledge agreement — same fixed text as the branch's paper form,
-// not driven by loan data.
-const lenderName = "Rinkesh Lalitbhai Soni"
-const lenderRegNo = "GMLVAL2627000029"
-const lenderAge = "22"
-const lenderBusiness = "Rinkesh Lalitbhai Soni"
-const lenderAadhaar = "415534095954"
-const lenderPAN = "KQMPS7359E"
-const lenderAddress = "At post Khattalwada, Main Bazar, Tal. Umargam, Dist. Valsad, State Gujarat, PIN code 396120"
+// lenderName/lenderRegNo and the rest are the fixed lender-side particulars
+// printed on every pledge agreement — same fixed text as the branch's paper
+// form, not driven by loan data.
+//
+// DEMO PLACEHOLDERS. These identify the lender on a document the borrower
+// signs, and the set includes an Aadhaar and a PAN, so they must be replaced
+// with the licensee's real particulars before any agreement is executed. The
+// values below are deliberately non-resolvable: the Aadhaar is masked rather
+// than a 12-digit number that could belong to someone, and the PAN is the
+// conventional all-A dummy. Nothing here is wired to config yet; if a
+// business-profile table is ever added, move all eight into it.
+const lenderName = "CloudHouse Gold Finance"
+const lenderRegNo = "DEMO-MLL-0000000000"
+const lenderAge = "—"
+const lenderBusiness = "CloudHouse Gold Finance"
+const lenderAadhaar = "XXXX XXXX XXXX"
+const lenderPAN = "AAAAA0000A"
+const lenderAddress = "Demo Registered Office, Door No. 0/000, Demo Village, Demo Taluk, Ernakulam District, Kerala, PIN 000000"
 
 func orBlank(s string) string {
 	if strings.TrimSpace(s) == "" {

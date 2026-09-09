@@ -1,4 +1,4 @@
-/* Ambika Gold Finance — mock data (frontend-only prototype) */
+/* CloudHouse Gold Finance — mock data (frontend-only prototype) */
 window.DB = (function(){
 
   const rates = JSON.parse(localStorage.getItem('agf_rates') || 'null') || {
@@ -20,7 +20,7 @@ window.DB = (function(){
   const schemes = JSON.parse(localStorage.getItem('agf_schemes') || 'null') || [
     { id:'SCH-01', name:'Swarna Classic',  rate:12,   duration:'12 months', ltv:75, method:'Monthly simple interest', penal:2, cond:'Interest payable monthly; penal 2%/m after due', active:true },
     { id:'SCH-02', name:'Swarna Plus',     rate:14.5, duration:'6 months',  ltv:80, method:'Monthly simple interest', penal:2.5, cond:'Higher LTV; bullet repayment allowed', active:true },
-    { id:'SCH-03', name:'Ambika Express',  rate:16,   duration:'3 months',  ltv:85, method:'Flat monthly',            penal:3, cond:'Short tenure; quick release', active:true },
+    { id:'SCH-03', name:'CloudHouse Express',  rate:16,   duration:'3 months',  ltv:85, method:'Flat monthly',            penal:3, cond:'Short tenure; quick release', active:true },
     { id:'SCH-04', name:'Krishi Gold',     rate:10.5, duration:'12 months', ltv:70, method:'Quarterly simple',        penal:1.5, cond:'Agriculture-purpose concession scheme', active:true },
     { id:'SCH-05', name:'Vyapar Gold',     rate:13,   duration:'9 months',  ltv:78, method:'Monthly simple interest', penal:2, cond:'For registered traders', active:false },
   ];

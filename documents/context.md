@@ -1,7 +1,7 @@
 # Context
 
 ## Business context
-Ambika Gold Finance is a gold-loan (pawnbroking) finance business. This
+CloudHouse Gold Finance is a gold-loan (pawnbroking) finance business. This
 project is the **Gold Loan Management Web & Mobile Application**, built to
 digitalize the complete gold loan business lifecycle:
 

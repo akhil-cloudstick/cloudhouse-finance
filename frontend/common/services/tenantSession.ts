@@ -15,7 +15,7 @@
  *    entirely once a session exists.
  *
  * 2. SESSIONS ARE KEYED BY SLUG. Every business shares one browser origin, so
- *    a single "ambikagold_token" key meant two businesses open in two tabs
+ *    a single "cloudhouse_token" key meant two businesses open in two tabs
  *    silently clobbered each other's session — you would be signed in as the
  *    wrong business, or logged out at random. Keys are per-slug instead.
  *
@@ -32,13 +32,19 @@
 /* Where the last-used business is remembered, so bare /login and /app resolve
  * to something instead of dead-ending. A pointer only — never a source of
  * authority. */
-const ACTIVE_BUSINESS_KEY = "ambikagold_active_business";
+const ACTIVE_BUSINESS_KEY = "cloudhouse_active_business";
 
-/* The pre-multi-tenancy keys. Read once by migrateLegacySession() so an
- * existing signed-in user is not logged out by the deploy that introduces
- * per-business keys, then removed. */
-const LEGACY_TOKEN_KEY = "ambikagold_token";
-const LEGACY_EMPLOYEE_KEY = "ambikagold_employee";
+/* Storage keys from before the rebrand, kept ONLY so purgeStaleSession() can
+ * delete them. These are historical localStorage strings, not brand surface:
+ * they are never read for a value and never displayed. Every key this app
+ * writes today is prefixed `cloudhouse_`. */
+const STALE_KEYS = [
+  "ambikagold_token",
+  "ambikagold_employee",
+  "ambikagold_active_business",
+  "ambikagold_superadmin_token",
+  "ambikagold_superadmin_user",
+] as const;
 
 /* The bucket used when no slug is known — the single-business installation,
  * which is every installation today. Named rather than empty so the storage
@@ -101,9 +107,9 @@ function bucket(slug?: string | null): string {
 export function sessionKeys(slug?: string | null) {
   const b = bucket(slug);
   return {
-    token: `ambikagold_token::${b}`,
-    employee: `ambikagold_employee::${b}`,
-    permissions: `ambikagold_permissions::${b}`,
+    token: `cloudhouse_token::${b}`,
+    employee: `cloudhouse_employee::${b}`,
+    permissions: `cloudhouse_permissions::${b}`,
   };
 }
 
@@ -146,23 +152,18 @@ export function writePermissionsRaw(slug: string | null, json: string): void {
   window.sessionStorage.setItem(sessionKeys(slug).permissions, json);
 }
 
-/* migrateLegacySession moves a pre-multi-tenancy session into the keyed
- * layout, so introducing per-business keys does not log everybody out on
- * deploy day. Runs once; the old keys are removed whether or not they held
- * anything, so it cannot run twice on the same data. */
-export function migrateLegacySession(): void {
+/* purgeStaleSession deletes the storage keys this app wrote under its previous
+ * name. It replaces a migrateLegacySession() that carried a pre-multi-tenancy
+ * token into the keyed layout: the rebrand renamed the keyed layout too, so
+ * there is no longer any value worth carrying over — every session predating
+ * it is unreadable and its holder signs in again once. What is left to do is
+ * housekeeping, so that a token from the old deployment does not sit in
+ * localStorage indefinitely after it has stopped being usable.
+ *
+ * Unconditional and idempotent: removeItem on an absent key is a no-op. */
+export function purgeStaleSession(): void {
   if (typeof window === "undefined") return;
-  const legacyToken = window.localStorage.getItem(LEGACY_TOKEN_KEY);
-  if (legacyToken) {
-    const keys = sessionKeys(null); // the default bucket: no slug existed then
-    if (!window.localStorage.getItem(keys.token)) {
-      window.localStorage.setItem(keys.token, legacyToken);
-      const legacyEmployee = window.localStorage.getItem(LEGACY_EMPLOYEE_KEY);
-      if (legacyEmployee) window.localStorage.setItem(keys.employee, legacyEmployee);
-    }
-  }
-  window.localStorage.removeItem(LEGACY_TOKEN_KEY);
-  window.localStorage.removeItem(LEGACY_EMPLOYEE_KEY);
+  for (const key of STALE_KEYS) window.localStorage.removeItem(key);
 }
 
 /* Link builders. Used everywhere instead of hardcoded "/login" and "/app" so

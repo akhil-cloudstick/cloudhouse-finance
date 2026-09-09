@@ -7,8 +7,8 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"ambikagold/backend/internal/platform"
-	"ambikagold/backend/internal/platform/httpx"
+	"cloudhouse/backend/internal/platform"
+	"cloudhouse/backend/internal/platform/httpx"
 )
 
 // AuthCookieName carries the session token to file requests.
@@ -23,7 +23,7 @@ import (
 //
 // A query-string token was the other option and is worse: URLs end up in
 // server logs, browser history, and Referer headers on any outbound link.
-const AuthCookieName = "ambikagold_files"
+const AuthCookieName = "cloudhouse_files"
 
 // ServeHandler replaces router.Static("/uploads", ...).
 //

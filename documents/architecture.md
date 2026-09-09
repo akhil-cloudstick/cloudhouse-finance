@@ -1,9 +1,9 @@
-# Ambika Gold Finance — System Architecture
+# CloudHouse Gold Finance — System Architecture
 
 > **Status:** this document describes the **planned production architecture**
 > (per the CloudHouse Gold Loan Management proposal). A real Go backend has
 > now been started under `backend/` (Gin + GORM + PostgreSQL, db
-> `ambikagold`) with eight domain modules implemented end-to-end —
+> `cloudhouse`) with eight domain modules implemented end-to-end —
 > `internal/branch` (centralized branch management), `internal/settings`
 > (integration API key storage), `internal/scheme` (loan schemes),
 > `internal/goldrate` (gold rates), `internal/employee` (employees),
@@ -48,7 +48,7 @@
 > See [project_overview.md](project_overview.md) for the full picture.
 
 ## Overview
-Ambika Gold Finance is a single Go backend service, serving both the REST
+CloudHouse Gold Finance is a single Go backend service, serving both the REST
 API and the built admin web app on **one port**, consumed by two frontends:
 a web admin dashboard and a customer-facing Android app. There is no
 separate reverse proxy and no BFF layer — both frontends talk directly to
@@ -65,7 +65,7 @@ the same REST API.
                                         ▼
                         ┌───────────────────────────────┐
                         │   PostgreSQL                      │
-                        │   db: ambikagold                    │
+                        │   db: cloudhouse                    │
                         └───────────────────────────────┘
                                         ▲
                         ┌───────────────┴──────────────┐
@@ -92,7 +92,7 @@ creation), never handler-to-handler.
 
 Data access goes through a thin repository layer using **GORM**
 (`gorm.io/gorm` with the `gorm.io/driver/postgres` driver) against a single
-PostgreSQL database (`ambikagold`). Model structs live alongside each
+PostgreSQL database (`cloudhouse`). Model structs live alongside each
 domain package (e.g. `internal/loan/model.go`) and GORM tags define
 columns/constraints. See
 [database_architecture.md](database_architecture.md) for schema detail.

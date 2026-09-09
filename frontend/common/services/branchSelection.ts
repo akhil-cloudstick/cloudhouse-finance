@@ -20,7 +20,7 @@ import { activeBusinessSlug } from "@/common/services/tenantSession";
 
 function storageKey(slug?: string | null): string {
   const s = slug === undefined ? activeBusinessSlug() : slug;
-  return `ambikagold_selected_branch::${s || "default"}`;
+  return `cloudhouse_selected_branch::${s || "default"}`;
 }
 
 /* The header name the backend reads — kept as one constant so a rename on

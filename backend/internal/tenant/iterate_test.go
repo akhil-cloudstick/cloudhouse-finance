@@ -5,7 +5,7 @@ import (
 	"os"
 	"testing"
 
-	"ambikagold/backend/internal/platform"
+	"cloudhouse/backend/internal/platform"
 	"gorm.io/gorm"
 )
 

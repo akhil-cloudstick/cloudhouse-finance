@@ -3,7 +3,7 @@ package investment
 import (
 	"time"
 
-	"ambikagold/backend/internal/platform"
+	"cloudhouse/backend/internal/platform"
 )
 
 // Payout status values. Unlike PersonalLoanInstallment's Pending/Paid/

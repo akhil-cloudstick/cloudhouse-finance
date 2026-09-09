@@ -5,7 +5,7 @@ import (
 
 	"gorm.io/gorm"
 
-	"ambikagold/backend/internal/loan"
+	"cloudhouse/backend/internal/loan"
 )
 
 // BackfillAuctionedPacketStatus corrects packets left stuck at a stale

@@ -5,7 +5,7 @@ import "./app/app.css";
 import { AuthProvider } from "@/common/auth-context";
 import { BRAND } from "@/common/config/brand";
 
-/* Montserrat carries the CTFI wordmark's voice — bold, geometric, tightly
+/* Montserrat carries the CloudHouse wordmark's voice — bold, geometric, tightly
  * tracked — so it takes the display role that Bodoni Moda used to hold.
  * Bodoni was dropped outright: its thick/thin contrast belonged to the old
  * jewellery brand, and mobile had already aliased it away as unreadable at

@@ -8,7 +8,7 @@ import (
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 
-	"ambikagold/backend/internal/platform/httpx"
+	"cloudhouse/backend/internal/platform/httpx"
 )
 
 // Repository provides GORM-backed persistence for Tenant and Tier.
@@ -45,7 +45,7 @@ func (r *Repository) FindByID(ctx context.Context, id uint) (*Tenant, error) {
 
 // FindByCode resolves the business in a login URL (/login/<code>). Matching
 // is case-insensitive: the code travels in URLs and gets retyped by people,
-// so "AMBIKA" and "ambika" must reach the same business.
+// so "CLOUDHOUSE" and "cloudhouse" must reach the same business.
 func (r *Repository) FindByCode(ctx context.Context, code string) (*Tenant, error) {
 	var t Tenant
 	if err := r.db.WithContext(ctx).Preload("Tier").Where("LOWER(code) = LOWER(?)", code).First(&t).Error; err != nil {

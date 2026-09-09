@@ -7,7 +7,7 @@ import (
 
 	"gorm.io/gorm"
 
-	"ambikagold/backend/internal/loan"
+	"cloudhouse/backend/internal/loan"
 )
 
 // NeedsAttentionPageSize is fixed (not caller-adjustable) — matches the

@@ -3,7 +3,7 @@ package auditlog
 import (
 	"github.com/gin-gonic/gin"
 
-	"ambikagold/backend/internal/platform"
+	"cloudhouse/backend/internal/platform"
 )
 
 // RegisterRoutes mounts the read-only audit log endpoint under the given

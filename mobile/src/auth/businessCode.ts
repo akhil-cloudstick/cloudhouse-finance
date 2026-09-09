@@ -15,7 +15,7 @@ import * as SecureStore from "expo-secure-store";
  * only because that is what this app already uses for small values (see
  * tokenStorage.ts).
  */
-const BUSINESS_CODE_KEY = "ambikastaff_business_code";
+const BUSINESS_CODE_KEY = "cloudhousestaff_business_code";
 
 /* Same rule as the web app's slug (frontend/common/services/tenantSession.ts)
  * and the customer app's lender code (customer-mobile/src/auth/businessCode.ts):

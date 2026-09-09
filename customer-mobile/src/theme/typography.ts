@@ -6,7 +6,7 @@
 // Web and mobile finally agree on typography. They used not to: the web app
 // set headings in Bodoni Moda SC, which these apps refused to adopt because
 // its small caps and extreme thick/thin contrast are hard to read at phone
-// sizes — so `serif` was aliased to a sans here and the two drifted. The CTFI
+// sizes — so `serif` was aliased to a sans here and the two drifted. The CloudHouse
 // re-theme dropped Bodoni everywhere in favour of Montserrat, which carries
 // the wordmark's voice and holds up at h3, the size most headings on these
 // screens actually are.

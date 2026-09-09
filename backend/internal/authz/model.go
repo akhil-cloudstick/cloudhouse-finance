@@ -7,7 +7,7 @@
 package authz
 
 import (
-	"ambikagold/backend/internal/platform"
+	"cloudhouse/backend/internal/platform"
 	"time"
 )
 

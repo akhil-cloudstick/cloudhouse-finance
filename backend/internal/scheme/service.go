@@ -4,8 +4,8 @@ import (
 	"context"
 	"fmt"
 
-	"ambikagold/backend/internal/branch"
-	"ambikagold/backend/internal/platform/httpx"
+	"cloudhouse/backend/internal/branch"
+	"cloudhouse/backend/internal/platform/httpx"
 )
 
 var (

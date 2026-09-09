@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
-	"ambikagold/backend/internal/platform"
-	"ambikagold/backend/internal/scheme"
+	"cloudhouse/backend/internal/platform"
+	"cloudhouse/backend/internal/scheme"
 )
 
 func nearly(t *testing.T, got, want float64, label string) {

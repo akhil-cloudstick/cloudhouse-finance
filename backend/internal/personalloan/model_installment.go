@@ -3,7 +3,7 @@ package personalloan
 import (
 	"time"
 
-	"ambikagold/backend/internal/platform"
+	"cloudhouse/backend/internal/platform"
 )
 
 // Installment status values — display/tracking only. Payments are not

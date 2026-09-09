@@ -14,11 +14,11 @@ import (
 
 	"gorm.io/gorm"
 
-	"ambikagold/backend/internal/commlog"
-	"ambikagold/backend/internal/customer"
-	"ambikagold/backend/internal/platform"
-	"ambikagold/backend/internal/platform/httpx"
-	"ambikagold/backend/internal/tenant"
+	"cloudhouse/backend/internal/commlog"
+	"cloudhouse/backend/internal/customer"
+	"cloudhouse/backend/internal/platform"
+	"cloudhouse/backend/internal/platform/httpx"
+	"cloudhouse/backend/internal/tenant"
 )
 
 var (
