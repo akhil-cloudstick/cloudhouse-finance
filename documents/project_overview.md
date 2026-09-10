@@ -1,8 +1,8 @@
-# CloudHouse Gold Finance — Project Overview
+# CloudHouse Finance — Project Overview
 
-## What CloudHouse Gold Finance Is
+## What CloudHouse Finance Is
 
-CloudHouse Gold Finance is a Gold Loan Management system for a gold-loan
+CloudHouse Finance is a Gold Loan Management system for a gold-loan
 (pawnbroking) finance business. It manages the full lifecycle of lending
 against pledged gold: customer onboarding and KYC, gold valuation, loan
 creation and approval, ornament/packet tracking, interest and payment
@@ -11,7 +11,7 @@ defaulted loans — auction and final settlement.
 
 ## Why This Migration
 
-Today CloudHouse Gold Finance exists as a **frontend-only prototype** with no
+Today CloudHouse Finance exists as a **frontend-only prototype** with no
 backend:
 
 - `frontend/` — a Next.js admin web app (migrated from an earlier flat

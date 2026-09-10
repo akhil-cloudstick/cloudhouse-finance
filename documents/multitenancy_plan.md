@@ -518,12 +518,12 @@ the restart that would have collapsed it to `1` under the old code.
 
 ## Step 9 — Branding — BRANDING DONE 2026-08-29, billing screens deferred to Step 10
 
-**All 31 hardcoded "CloudHouse Gold Finance" occurrences across 7 files fixed**
+**All 31 hardcoded "CloudHouse Finance" occurrences across 7 files fixed**
 (SMS/WhatsApp bodies, the indemnity bond in all three languages, PDF export
 letterheads). Rather than thread a `%s` placeholder through 26 separate
 format strings, `loan.Service.brandedMessage(ctx, format, args...)` runs the
 ordinary `fmt.Sprintf` and then does one `strings.ReplaceAll` of the literal
-"CloudHouse Gold Finance" with the caller's own tenant name — every call site
+"CloudHouse Finance" with the caller's own tenant name — every call site
 became a one-word change (`fmt.Sprintf` → `s.brandedMessage`, `ctx` as the
 first arg), and the message text itself stayed untouched and reviewable.
 `auth.Service`, `customerauth.Service`, `reminder.Service` and

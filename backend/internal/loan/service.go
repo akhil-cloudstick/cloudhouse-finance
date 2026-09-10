@@ -638,7 +638,7 @@ func (s *Service) Create(ctx context.Context, in CreateInput) (*Loan, error) {
 	s.enrich(ctx, created)
 
 	s.notifyCustomer(ctx, created.CustomerID, created.Customer.Phone, "Loan Application Submitted", s.brandedMessage(ctx,
-		"Dear %s, your gold loan application %s for ₹%.2f has been submitted and is pending approval. We'll notify you once it's sanctioned. — CloudHouse Gold Finance",
+		"Dear %s, your gold loan application %s for ₹%.2f has been submitted and is pending approval. We'll notify you once it's sanctioned. — CloudHouse Finance",
 		created.Customer.Name, created.LoanNumber, created.PrincipalAmount,
 	), commlog.TriggerLoanSubmission, "loan", created.ID)
 
@@ -1515,17 +1515,17 @@ func (s *Service) Approve(ctx context.Context, loanID uint, in ApprovalInput) (*
 	switch {
 	case disbursing:
 		s.notifyCustomer(ctx, l.CustomerID, l.Customer.Phone, "Loan Sanctioned", s.brandedMessage(ctx,
-			"Dear %s, your gold loan %s has been sanctioned and ₹%.2f has been disbursed. Due date: %s. — CloudHouse Gold Finance",
+			"Dear %s, your gold loan %s has been sanctioned and ₹%.2f has been disbursed. Due date: %s. — CloudHouse Finance",
 			l.Customer.Name, l.LoanNumber, l.PrincipalAmount, l.DueDate.Format("02-Jan-2006"),
 		), commlog.TriggerLoanSanction, "loan", l.ID)
 	case rejected:
 		s.notifyCustomer(ctx, l.CustomerID, l.Customer.Phone, "Loan Rejected", s.brandedMessage(ctx,
-			"Dear %s, your gold loan application %s has been rejected during approval. Please contact the branch for details. — CloudHouse Gold Finance",
+			"Dear %s, your gold loan application %s has been rejected during approval. Please contact the branch for details. — CloudHouse Finance",
 			l.Customer.Name, l.LoanNumber,
 		), commlog.TriggerLoanApproval, "loan", l.ID)
 	case nextStageLabel != "":
 		s.notifyCustomer(ctx, l.CustomerID, l.Customer.Phone, "Loan Approved", s.brandedMessage(ctx,
-			"Dear %s, your gold loan application %s has been approved at one stage and is now awaiting %s approval. — CloudHouse Gold Finance",
+			"Dear %s, your gold loan application %s has been approved at one stage and is now awaiting %s approval. — CloudHouse Finance",
 			l.Customer.Name, l.LoanNumber, nextStageLabel,
 		), commlog.TriggerLoanApproval, "loan", l.ID)
 	}
@@ -1852,7 +1852,7 @@ func (s *Service) RecordPayment(ctx context.Context, loanID uint, in PaymentInpu
 	// one payment).
 	if !auctionNotified {
 		s.notifyCustomer(ctx, l.CustomerID, l.Customer.Phone, "Payment Received", s.brandedMessage(ctx,
-			"Dear %s, we have received your payment of ₹%.2f (%s) towards loan %s. — CloudHouse Gold Finance",
+			"Dear %s, we have received your payment of ₹%.2f (%s) towards loan %s. — CloudHouse Finance",
 			l.Customer.Name, in.Amount, in.Type, l.LoanNumber,
 		), commlog.TriggerPayment, "loan", l.ID)
 	}
@@ -1903,7 +1903,7 @@ func (s *Service) resolveAuctionAfterPayment(ctx context.Context, l *Loan, p *Lo
 			s.recordAuctionEvent(ctx, tx, rec.ID, AuctionEventSettledByRepaymentAuto, nil, "",
 				fmt.Sprintf("Loan cleared in full by payment of ₹%.2f — auction cancelled automatically", p.Amount))
 			s.notifyCustomer(ctx, l.CustomerID, l.Customer.Phone, "Loan Settled", s.brandedMessage(ctx,
-				"Dear %s, we have received your payment of ₹%.2f. Loan %s is now fully settled, the auction has been cancelled, and your pledged gold is safe. — CloudHouse Gold Finance",
+				"Dear %s, we have received your payment of ₹%.2f. Loan %s is now fully settled, the auction has been cancelled, and your pledged gold is safe. — CloudHouse Finance",
 				l.Customer.Name, p.Amount, l.LoanNumber,
 			), commlog.TriggerPayment, "loan", l.ID)
 			return nil
@@ -1950,7 +1950,7 @@ func (s *Service) resolveAuctionAfterPayment(ctx context.Context, l *Loan, p *Lo
 			s.recordAuctionEvent(ctx, tx, rec.ID, AuctionEventDecisionRemove, nil, "", fmt.Sprintf(
 				"Payment of ₹%.2f cleared all interest and penal interest — auction withdrawn automatically (₹%.2f principal still payable)", p.Amount, outstanding))
 			s.notifyCustomer(ctx, l.CustomerID, l.Customer.Phone, "Removed From Auction", s.brandedMessage(ctx,
-				"Dear %s, we have received your payment of ₹%.2f. Loan %s is no longer overdue and has been removed from auction — your pledged gold is no longer at risk. A balance of ₹%.2f remains payable. — CloudHouse Gold Finance",
+				"Dear %s, we have received your payment of ₹%.2f. Loan %s is no longer overdue and has been removed from auction — your pledged gold is no longer at risk. A balance of ₹%.2f remains payable. — CloudHouse Finance",
 				l.Customer.Name, p.Amount, l.LoanNumber, outstanding,
 			), commlog.TriggerPayment, "loan", l.ID)
 			return nil
@@ -1999,7 +1999,7 @@ func (s *Service) resolveAuctionAfterPayment(ctx context.Context, l *Loan, p *Lo
 	// only fires for the case it was written for.
 	if hadActiveAuction && l.Status != StatusClosed {
 		s.notifyCustomer(ctx, l.CustomerID, l.Customer.Phone, "Payment Received — Auction On Hold", s.brandedMessage(ctx,
-			"Dear %s, we have received your payment of ₹%.2f towards loan %s. As the loan is not yet fully settled, the auction of your pledged gold is on hold while our management reviews your account. We will inform you of the decision. — CloudHouse Gold Finance",
+			"Dear %s, we have received your payment of ₹%.2f towards loan %s. As the loan is not yet fully settled, the auction of your pledged gold is on hold while our management reviews your account. We will inform you of the decision. — CloudHouse Finance",
 			l.Customer.Name, p.Amount, l.LoanNumber,
 		), commlog.TriggerPayment, "loan", l.ID)
 	}
@@ -2293,7 +2293,7 @@ func (s *Service) MarkAuctionEligible(ctx context.Context, loanID uint, branchID
 
 	s.recordAuctionEvent(ctx, nil, rec.ID, AuctionEventEligible, actorID, actorRole, "Loan marked auction-eligible")
 	s.notifyCustomer(ctx, l.CustomerID, l.Customer.Phone, "Auction Eligible", s.brandedMessage(ctx,
-		"Dear %s, your gold loan %s is seriously overdue and has now been marked eligible for auction. Outstanding: ₹%.2f. Please contact the branch immediately to settle and retain your pledged items. — CloudHouse Gold Finance",
+		"Dear %s, your gold loan %s is seriously overdue and has now been marked eligible for auction. Outstanding: ₹%.2f. Please contact the branch immediately to settle and retain your pledged items. — CloudHouse Finance",
 		l.Customer.Name, l.LoanNumber, l.TotalOutstandingBalance,
 	), commlog.TriggerAuctionEvent, "auction_record", rec.ID)
 
@@ -2413,7 +2413,7 @@ func (s *Service) ScheduleAuction(ctx context.Context, loanID uint, branchID *ui
 		fmt.Sprintf("Auction scheduled for %s (ref %s)", date.Format("02-Jan-2006"), referenceNumber))
 	if l, err := s.repo.FindByID(ctx, loanID); err == nil {
 		s.notifyCustomer(ctx, l.CustomerID, l.Customer.Phone, "Auction Scheduled", s.brandedMessage(ctx,
-			"Dear %s, the auction of the gold pledged against loan %s has been scheduled for %s (ref %s). You may still settle the outstanding dues before this date to reclaim your items. — CloudHouse Gold Finance",
+			"Dear %s, the auction of the gold pledged against loan %s has been scheduled for %s (ref %s). You may still settle the outstanding dues before this date to reclaim your items. — CloudHouse Finance",
 			l.Customer.Name, l.LoanNumber, date.Format("02-Jan-2006"), referenceNumber,
 		), commlog.TriggerAuctionEvent, "auction_record", rec.ID)
 	}
@@ -2613,14 +2613,14 @@ func (s *Service) RecordAuctionSale(ctx context.Context, loanID uint, branchID *
 			surplusNote = fmt.Sprintf(" A surplus of ₹%.2f is due back to you — the branch will contact you regarding this.", rec.SurplusPayableAmount)
 		}
 		s.notifyCustomer(ctx, l.CustomerID, l.Customer.Phone, "Auction Settled", s.brandedMessage(ctx,
-			"Dear %s, the gold pledged against loan %s was auctioned on %s for ₹%.2f. Your loan is now fully settled and closed.%s — CloudHouse Gold Finance",
+			"Dear %s, the gold pledged against loan %s was auctioned on %s for ₹%.2f. Your loan is now fully settled and closed.%s — CloudHouse Finance",
 			l.Customer.Name, l.LoanNumber, auctionDate.Format("02-Jan-2006"), saleAmount, surplusNote,
 		), commlog.TriggerAuctionEvent, "auction_record", rec.ID)
 	} else {
 		s.recordAuctionEvent(ctx, nil, rec.ID, AuctionEventShortfallEscalated, actorID, actorRole, fmt.Sprintf(
 			"Auction proceeds fell short by ₹%.2f — escalated for a write-off/pursue decision", platform.RoundMoney(totalDebt-netProceeds)))
 		s.notifyCustomer(ctx, l.CustomerID, l.Customer.Phone, "Auction Shortfall", s.brandedMessage(ctx,
-			"Dear %s, the gold pledged against loan %s was auctioned on %s for ₹%.2f, which did not cover the full amount due. A balance of ₹%.2f remains and is under review by our management. We will inform you of the outcome. — CloudHouse Gold Finance",
+			"Dear %s, the gold pledged against loan %s was auctioned on %s for ₹%.2f, which did not cover the full amount due. A balance of ₹%.2f remains and is under review by our management. We will inform you of the outcome. — CloudHouse Finance",
 			l.Customer.Name, l.LoanNumber, auctionDate.Format("02-Jan-2006"), saleAmount, platform.RoundMoney(totalDebt-netProceeds),
 		), commlog.TriggerAuctionEvent, "auction_record", rec.ID)
 	}
@@ -2717,12 +2717,12 @@ func (s *Service) SettleAuction(ctx context.Context, loanID uint, branchID *uint
 
 	if disposition == AuctionSurplusRefundedToCustomer {
 		s.notifyCustomer(ctx, l.CustomerID, l.Customer.Phone, "Auction Surplus Refund", s.brandedMessage(ctx,
-			"Dear %s, the surplus of ₹%.2f from the auction of loan %s is being refunded to you. Please visit the branch to collect it. — CloudHouse Gold Finance",
+			"Dear %s, the surplus of ₹%.2f from the auction of loan %s is being refunded to you. Please visit the branch to collect it. — CloudHouse Finance",
 			l.Customer.Name, rec.SurplusPayableAmount, l.LoanNumber,
 		), commlog.TriggerAuctionEvent, "auction_record", rec.ID)
 	} else {
 		s.notifyCustomer(ctx, l.CustomerID, l.Customer.Phone, "Auction Settled", s.brandedMessage(ctx,
-			"Dear %s, the auction settlement for loan %s is now complete and the loan is closed. — CloudHouse Gold Finance",
+			"Dear %s, the auction settlement for loan %s is now complete and the loan is closed. — CloudHouse Finance",
 			l.Customer.Name, l.LoanNumber,
 		), commlog.TriggerAuctionEvent, "auction_record", rec.ID)
 	}
@@ -2800,7 +2800,7 @@ func (s *Service) ResolveAuctionDecision(ctx context.Context, loanID, requestID 
 				// Case simply un-freezes and continues from its current stage.
 				s.recordAuctionEvent(ctx, tx, rec.ID, AuctionEventDecisionKeep, actorID, actorRole, remarks)
 				notifyMsg = s.brandedMessage(ctx,
-					"Dear %s, following review of your recent payment, loan %s remains scheduled for auction as a balance of ₹%.2f is still outstanding. Please contact the branch urgently. — CloudHouse Gold Finance",
+					"Dear %s, following review of your recent payment, loan %s remains scheduled for auction as a balance of ₹%.2f is still outstanding. Please contact the branch urgently. — CloudHouse Finance",
 					l.Customer.Name, l.LoanNumber, req.OutstandingAtRequest,
 				)
 			case AuctionDecisionRemovedFromAuction:
@@ -2817,7 +2817,7 @@ func (s *Service) ResolveAuctionDecision(ctx context.Context, loanID, requestID 
 				}
 				s.recordAuctionEvent(ctx, tx, rec.ID, AuctionEventDecisionRemove, actorID, actorRole, remarks)
 				notifyMsg = s.brandedMessage(ctx,
-					"Dear %s, following your recent payment, loan %s has been removed from auction and your pledged gold is no longer at risk. A balance of ₹%.2f remains payable. — CloudHouse Gold Finance",
+					"Dear %s, following your recent payment, loan %s has been removed from auction and your pledged gold is no longer at risk. A balance of ₹%.2f remains payable. — CloudHouse Finance",
 					l.Customer.Name, l.LoanNumber, req.OutstandingAtRequest,
 				)
 			default:
@@ -2852,7 +2852,7 @@ func (s *Service) ResolveAuctionDecision(ctx context.Context, loanID, requestID 
 				}
 				s.recordAuctionEvent(ctx, tx, rec.ID, AuctionEventDecisionPursue, actorID, actorRole, remarks)
 				notifyMsg = s.brandedMessage(ctx,
-					"Dear %s, the auction of your pledged gold under loan %s did not clear the full amount due. A balance of ₹%.2f remains payable and will continue to accrue interest. Please contact the branch to arrange settlement. — CloudHouse Gold Finance",
+					"Dear %s, the auction of your pledged gold under loan %s did not clear the full amount due. A balance of ₹%.2f remains payable and will continue to accrue interest. Please contact the branch to arrange settlement. — CloudHouse Finance",
 					l.Customer.Name, l.LoanNumber, req.OutstandingAtRequest,
 				)
 
@@ -2902,7 +2902,7 @@ func (s *Service) ResolveAuctionDecision(ctx context.Context, loanID, requestID 
 				s.recordAuctionEvent(ctx, tx, rec.ID, AuctionEventDecisionWriteOff, actorID, actorRole,
 					fmt.Sprintf("Shortfall of ₹%.2f written off: %s", owed, remarks))
 				notifyMsg = s.brandedMessage(ctx,
-					"Dear %s, the balance remaining on loan %s after auction has been waived and the loan is now closed. No further amount is payable. — CloudHouse Gold Finance",
+					"Dear %s, the balance remaining on loan %s after auction has been waived and the loan is now closed. No further amount is payable. — CloudHouse Finance",
 					l.Customer.Name, l.LoanNumber,
 				)
 
@@ -3442,7 +3442,7 @@ func (s *Service) ApproveReleaseRequest(ctx context.Context, requestID uint, bra
 		}
 		if notifyLoan != nil {
 			s.notifyCustomer(ctx, notifyLoan.CustomerID, notifyLoan.Customer.Phone, "Release Rejected", s.brandedMessage(ctx,
-				"Dear %s, your gold release request for loan %s has been rejected. Please contact the branch for details. — CloudHouse Gold Finance",
+				"Dear %s, your gold release request for loan %s has been rejected. Please contact the branch for details. — CloudHouse Finance",
 				notifyLoan.Customer.Name, notifyLoan.LoanNumber,
 			), commlog.TriggerReleaseRequest, "loan_request", req.ID)
 		}
@@ -3498,12 +3498,12 @@ func (s *Service) ApproveReleaseRequest(ctx context.Context, requestID uint, bra
 	if notifyLoan != nil {
 		if finalApproval {
 			s.notifyCustomer(ctx, notifyLoan.CustomerID, notifyLoan.Customer.Phone, "Release Approved", s.brandedMessage(ctx,
-				"Dear %s, your gold release request for loan %s has been fully approved. Closure is now being processed. — CloudHouse Gold Finance",
+				"Dear %s, your gold release request for loan %s has been fully approved. Closure is now being processed. — CloudHouse Finance",
 				notifyLoan.Customer.Name, notifyLoan.LoanNumber,
 			), commlog.TriggerReleaseRequest, "loan_request", req.ID)
 		} else {
 			s.notifyCustomer(ctx, notifyLoan.CustomerID, notifyLoan.Customer.Phone, "Release Approved", s.brandedMessage(ctx,
-				"Dear %s, your gold release request for loan %s has moved to the next approval stage (Management). — CloudHouse Gold Finance",
+				"Dear %s, your gold release request for loan %s has moved to the next approval stage (Management). — CloudHouse Finance",
 				notifyLoan.Customer.Name, notifyLoan.LoanNumber,
 			), commlog.TriggerReleaseRequest, "loan_request", req.ID)
 		}
@@ -3608,7 +3608,7 @@ func (s *Service) ApproveExtensionRequest(ctx context.Context, requestID uint, b
 		}
 		if notifyLoan != nil {
 			s.notifyCustomer(ctx, notifyLoan.CustomerID, notifyLoan.Customer.Phone, "Extension Rejected", s.brandedMessage(ctx,
-				"Dear %s, your extension request for loan %s has been rejected. Please contact the branch for details. — CloudHouse Gold Finance",
+				"Dear %s, your extension request for loan %s has been rejected. Please contact the branch for details. — CloudHouse Finance",
 				notifyLoan.Customer.Name, notifyLoan.LoanNumber,
 			), commlog.TriggerExtensionRequest, "loan_request", req.ID)
 		}
@@ -3665,12 +3665,12 @@ func (s *Service) ApproveExtensionRequest(ctx context.Context, requestID uint, b
 	if notifyLoan != nil {
 		if finalApproval {
 			s.notifyCustomer(ctx, notifyLoan.CustomerID, notifyLoan.Customer.Phone, "Extension Approved", s.brandedMessage(ctx,
-				"Dear %s, your extension request for loan %s has been fully approved. New due date: %s. — CloudHouse Gold Finance",
+				"Dear %s, your extension request for loan %s has been fully approved. New due date: %s. — CloudHouse Finance",
 				notifyLoan.Customer.Name, notifyLoan.LoanNumber, notifyLoan.DueDate.Format("02-Jan-2006"),
 			), commlog.TriggerExtensionRequest, "loan_request", req.ID)
 		} else if nextStageLabel != "" {
 			s.notifyCustomer(ctx, notifyLoan.CustomerID, notifyLoan.Customer.Phone, "Extension Approved", s.brandedMessage(ctx,
-				"Dear %s, your extension request for loan %s has moved to the next approval stage (%s). — CloudHouse Gold Finance",
+				"Dear %s, your extension request for loan %s has moved to the next approval stage (%s). — CloudHouse Finance",
 				notifyLoan.Customer.Name, notifyLoan.LoanNumber, nextStageLabel,
 			), commlog.TriggerExtensionRequest, "loan_request", req.ID)
 		}
@@ -4233,7 +4233,7 @@ func (s *Service) deliverEsignLink(ctx context.Context, l *Loan, url, lang, deli
 	}
 	title := "Sign Your Pledge Agreement"
 	body := fmt.Sprintf(
-		"CloudHouse Gold Finance: your %s pledge agreement for loan %s is ready to sign with Aadhaar. Open this link on your own phone to complete it: %s",
+		"CloudHouse Finance: your %s pledge agreement for loan %s is ready to sign with Aadhaar. Open this link on your own phone to complete it: %s",
 		langLabel, l.LoanNumber, url,
 	)
 

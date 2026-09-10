@@ -62,7 +62,7 @@ export function Sidebar({ route, open }: { route: string; open: boolean }) {
           * aligned to nothing. The halves come from nameTop/nameBottom, not
           * shortName + name, because those two overlap: the short name is a
           * prefix of the full one and the lockup read "CloudHouse" above
-          * "CloudHouse Gold Finance". */}
+          * "CloudHouse Finance". */}
         {/* Size lives in CSS (.side .brand .brand-mark), not in this prop, so
           * the mark and the wordmark beside it can be scaled together at the
           * narrow-sidebar breakpoint. The prop only sets the SSR'd width/height

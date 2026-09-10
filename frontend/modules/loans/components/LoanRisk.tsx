@@ -77,7 +77,7 @@ export function LoanRisk() {
       <div className="kpis" style={{ marginBottom: 16 }}>
         <div className="kpi"><div className="l">Total Open Loans</div><div className="v">{total}</div></div>
         <div className="kpi"><div className="l">Loss</div><div className="v" style={{ color: "var(--red)" }}>{counts.red}</div></div>
-        <div className="kpi"><div className="l">At Risk</div><div className="v" style={{ color: "var(--amber, #b8860b)" }}>{counts.orange}</div></div>
+        <div className="kpi"><div className="l">At Risk</div><div className="v" style={{ color: "var(--amber)" }}>{counts.orange}</div></div>
         <div className="kpi"><div className="l">Safe</div><div className="v" style={{ color: "var(--green)" }}>{counts.green}</div></div>
       </div>
 

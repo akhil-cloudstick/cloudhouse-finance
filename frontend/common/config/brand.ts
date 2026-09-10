@@ -1,4 +1,4 @@
-/* CloudHouse Gold Finance — single source of truth for every brand string and
+/* CloudHouse Finance — single source of truth for every brand string and
  * logo path in the web app.
  *
  * Why this file exists: the brand name used to be hardcoded in ~14 places
@@ -11,14 +11,14 @@
 
 export const BRAND = {
   /** Display name for chrome: sidebar, topbar breadcrumb, page titles. */
-  name: "CloudHouse Gold Finance",
+  name: "CloudHouse Finance",
   /** The sidebar's stacked lockup splits the name across two lines. */
   nameTop: "CLOUDHOUSE",
-  nameBottom: "Gold Finance",
+  nameBottom: "Finance",
   /** Compact form for tight spots (browser tab, collapsed sidebar, mobile). */
   shortName: "CloudHouse",
   /** Full legal name — print headers, copyright, legal documents. */
-  legalName: "CloudHouse Gold Finance",
+  legalName: "CloudHouse Finance",
   /** Sits under the legal name on documents and the login brand panel. */
   descriptor: "Gold Loans & Finance",
   /* Kerala Money Lenders registration — required on customer documents.
@@ -43,17 +43,17 @@ export const BRAND_PHONES = BRAND.phones.join("  |  ");
  * duplicated in six files), they import these. Keep in sync with the :root
  * block in app/app/app.css. */
 export const PRINT_COLORS = {
-  brand: "#c0177a",
-  brandDeep: "#8a0f5c",
-  accent: "#ef7f28",
-  ink: "#16233d",
-  muted: "#64748b",
-  line: "#e9e4f2",
-  tint: "#fdf4f9",
+  brand: "#6054bf", // oklch(0.515 0.162 284)
+  brandDeep: "#423591", // oklch(0.40  0.145 284)
+  accent: "#f99603", // oklch(0.76  0.17   65)
+  ink: "#11101a", // oklch(0.18  0.02  285)
+  muted: "#62626f", // oklch(0.50  0.02  285)
+  line: "#e3e2e7", // oklch(0.915 0.006 290)
+  tint: "#f9f9ff", // oklch(0.983 0.008 284)
 } as const;
 
 /* The logo's own violet → magenta → orange sweep. Used sparingly for brand
  * moments (login panel, sidebar rail, the topbar hairline) — never behind
  * body text, where a moving background destroys contrast. */
 export const BRAND_GRADIENT =
-  "linear-gradient(135deg, #6855bc 0%, #d91786 52%, #f49e35 100%)";
+  "linear-gradient(135deg, #6644de 0%, #c61f8f 52%, #f99603 100%)";

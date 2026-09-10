@@ -315,7 +315,7 @@ second business possible at all.
   tenant in scope, which they now have. Besides colliding, a global count
   **leaks commercial information** — one business's next customer code
   reveals roughly how many customers the others have.
-- **30 hardcoded "CloudHouse Gold Finance" strings** across 7 files — SMS and
+- **30 hardcoded "CloudHouse Finance" strings** across 7 files — SMS and
   WhatsApp bodies, the indemnity bond, PDF exports. Every business's
   borrowers would be messaged under the first business's name. The loan
   statement (`internal/loan/statement.go`) is the only document that gets

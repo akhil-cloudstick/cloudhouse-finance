@@ -83,7 +83,7 @@ export default function SuperAdminDashboard() {
       <header className="sa-topbar">
         <h1>Superadmin console</h1>
         <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-          {user && <span style={{ fontSize: 13, color: "#8b909c" }}>{user.name}</span>}
+          {user && <span style={{ fontSize: 13, color: "oklch(0.95 0.006 290 / 50%)" }}>{user.name}</span>}
           <button onClick={handleLogout}>Sign out</button>
         </div>
       </header>
@@ -168,7 +168,7 @@ export default function SuperAdminDashboard() {
                       </td>
                       <td>
                         {b.subscriptionExpiresAt ? (
-                          <span style={{ color: new Date(b.subscriptionExpiresAt) < new Date() ? "#c0392b" : undefined }}>
+                          <span style={{ color: new Date(b.subscriptionExpiresAt) < new Date() ? "oklch(0.52 0.20 25)" : undefined }}>
                             {new Date(b.subscriptionExpiresAt).toLocaleDateString()}
                           </span>
                         ) : (
@@ -447,7 +447,7 @@ function BusinessActionModal({
           {title} — {business.name}
         </h2>
         {kind === "suspend" && (
-          <p style={{ fontSize: 13, color: "#6b7080", marginTop: -8, marginBottom: 14 }}>
+          <p style={{ fontSize: 13, color: "oklch(0.50 0.02 285)", marginTop: -8, marginBottom: 14 }}>
             Restricts new lending and administration only. Never blocks a borrower repaying or collecting gold they
             have already paid for.
           </p>
@@ -528,7 +528,7 @@ function TierPriceModal({
     <div className="sa-modal-backdrop" onClick={onClose}>
       <form className="sa-modal" onClick={(e) => e.stopPropagation()} onSubmit={submit}>
         <h2>Set price — {tier.name}</h2>
-        <p style={{ fontSize: 13, color: "#6b7080", marginTop: -8, marginBottom: 14 }}>
+        <p style={{ fontSize: 13, color: "oklch(0.50 0.02 285)", marginTop: -8, marginBottom: 14 }}>
           Existing subscribers keep billing at their current price until they resubscribe or renew — this only
           affects the NEXT subscription created against this tier.
         </p>

@@ -169,7 +169,7 @@ export function RateModalContent() {
   const invalid24 = lastEdited === 24 && (violation22vs24 || violation18vs24);
   const invalid22 = lastEdited === 22 && violation22vs24;
   const invalid18 = lastEdited === 18 && (violation18vs22 || violation18vs24);
-  // A brighter, more saturated red than the app's usual --red (#a3372a,
+  // A brighter, more saturated red than the app's usual --red (#c21725,
   // deliberately muted for everyday error text) — this needs to read as
   // an alarm, not just a validation note.
   const BRIGHT_RED = "#ef4444";

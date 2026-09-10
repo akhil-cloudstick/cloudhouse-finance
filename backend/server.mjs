@@ -64,4 +64,4 @@ http.createServer((req, res) => {
     'Cache-Control': ext === '.html' ? 'no-cache' : 'public, max-age=86400',
   });
   createReadStream(file).pipe(res);
-}).listen(PORT, () => console.log(`CloudHouse Gold Finance serving on :${PORT}`));
+}).listen(PORT, () => console.log(`CloudHouse Finance serving on :${PORT}`));

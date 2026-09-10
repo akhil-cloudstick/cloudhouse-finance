@@ -1,4 +1,4 @@
-# CloudHouse Gold Finance — System Architecture
+# CloudHouse Finance — System Architecture
 
 > **Status:** this document describes the **planned production architecture**
 > (per the CloudHouse Gold Loan Management proposal). A real Go backend has
@@ -48,7 +48,7 @@
 > See [project_overview.md](project_overview.md) for the full picture.
 
 ## Overview
-CloudHouse Gold Finance is a single Go backend service, serving both the REST
+CloudHouse Finance is a single Go backend service, serving both the REST
 API and the built admin web app on **one port**, consumed by two frontends:
 a web admin dashboard and a customer-facing Android app. There is no
 separate reverse proxy and no BFF layer — both frontends talk directly to

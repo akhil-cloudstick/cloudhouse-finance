@@ -29,7 +29,7 @@ const (
 	// fresh install without touching a deployment that is already running under
 	// its own business name. That distinction matters because this string is
 	// what brandedMessage substitutes into every borrower SMS.
-	DefaultTenantName = "CloudHouse Gold Finance"
+	DefaultTenantName = "CloudHouse Finance"
 
 	// DefaultTenantCode becomes part of this business's login URL
 	// (/login/default). Codes are immutable once staff have the link, but

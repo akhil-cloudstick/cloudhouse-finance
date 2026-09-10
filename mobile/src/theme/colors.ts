@@ -1,4 +1,4 @@
-// Ported from frontend/app/app/app.css ":root" — the CloudHouse Gold Finance
+// Ported from frontend/app/app/app.css ":root" — the CloudHouse Finance
 // admin theme. Keep these values in sync with that file; do not invent new
 // colors in screens/components, import from here instead.
 //

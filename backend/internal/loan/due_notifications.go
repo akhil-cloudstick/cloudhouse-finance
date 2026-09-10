@@ -39,7 +39,7 @@ func (s *Service) CheckDueAndOverdueLoans(ctx context.Context) {
 			l.DueSoonNotifiedAt = &now
 			dirty = true
 			s.notifyCustomer(ctx, l.CustomerID, l.Customer.Phone, "Loan Due Soon", s.brandedMessage(ctx,
-				"Dear %s, your gold loan %s is due on %s. Please arrange payment to avoid overdue charges. — CloudHouse Gold Finance",
+				"Dear %s, your gold loan %s is due on %s. Please arrange payment to avoid overdue charges. — CloudHouse Finance",
 				l.Customer.Name, l.LoanNumber, l.DueDate.Format("02-Jan-2006"),
 			), commlog.TriggerLoanDueSoon, "loan", l.ID)
 		}
@@ -48,7 +48,7 @@ func (s *Service) CheckDueAndOverdueLoans(ctx context.Context) {
 			l.OverdueNotifiedAt = &now
 			dirty = true
 			s.notifyCustomer(ctx, l.CustomerID, l.Customer.Phone, "Loan Overdue", s.brandedMessage(ctx,
-				"Dear %s, your gold loan %s is now overdue (due date %s). Please settle the outstanding amount at the earliest to avoid further action. — CloudHouse Gold Finance",
+				"Dear %s, your gold loan %s is now overdue (due date %s). Please settle the outstanding amount at the earliest to avoid further action. — CloudHouse Finance",
 				l.Customer.Name, l.LoanNumber, l.DueDate.Format("02-Jan-2006"),
 			), commlog.TriggerLoanOverdue, "loan", l.ID)
 		}

@@ -1,4 +1,4 @@
-# CloudHouse Gold Finance
+# CloudHouse Finance
 
 Admin/management web app prototype for a gold-loan (pawnbroking) finance
 business. See [documents/project_overview.md](documents/project_overview.md)

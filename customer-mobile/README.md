@@ -1,4 +1,4 @@
-# CloudHouse Gold Finance — Customer App (Batch 1)
+# CloudHouse Finance — Customer App (Batch 1)
 
 Android-only Expo (React Native + expo-router) app for customer self-service. This is **Batch 1**: bottom-nav shell, OTP + biometric login, Home/Dashboard, and a Gold Rates rise-up modal. See the full batch plan for context and what's still to come (My Loans, Payments, Documents, Profile & KYC, Notifications, More).
 

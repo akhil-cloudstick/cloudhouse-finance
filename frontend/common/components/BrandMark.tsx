@@ -51,9 +51,9 @@ export default function BrandMark({ size = 40, gradient, className, title }: Pro
       <defs>
         {gradient && (
           <linearGradient id={`${uid}-g`} x1="0" y1="0" x2="1" y2="1">
-            <stop offset="0%" stopColor="#6855bc" />
-            <stop offset="52%" stopColor="#d91786" />
-            <stop offset="100%" stopColor="#f49e35" />
+            <stop offset="0%" stopColor="#6644de" />
+            <stop offset="52%" stopColor="#c61f8f" />
+            <stop offset="100%" stopColor="#f99603" />
           </linearGradient>
         )}
 

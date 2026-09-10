@@ -65,10 +65,10 @@ const blank = "________________"
 // than a 12-digit number that could belong to someone, and the PAN is the
 // conventional all-A dummy. Nothing here is wired to config yet; if a
 // business-profile table is ever added, move all eight into it.
-const lenderName = "CloudHouse Gold Finance"
+const lenderName = "CloudHouse Finance"
 const lenderRegNo = "DEMO-MLL-0000000000"
 const lenderAge = "—"
-const lenderBusiness = "CloudHouse Gold Finance"
+const lenderBusiness = "CloudHouse Finance"
 const lenderAadhaar = "XXXX XXXX XXXX"
 const lenderPAN = "AAAAA0000A"
 const lenderAddress = "Demo Registered Office, Door No. 0/000, Demo Village, Demo Taluk, Ernakulam District, Kerala, PIN 000000"

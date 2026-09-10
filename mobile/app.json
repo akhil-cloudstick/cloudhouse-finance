@@ -47,15 +47,15 @@
       [
         "expo-image-picker",
         {
-          "photosPermission": "CloudHouse Gold Finance needs access to your photos to attach customer KYC documents.",
-          "cameraPermission": "CloudHouse Gold Finance needs the camera to photograph customer KYC documents."
+          "photosPermission": "CloudHouse Finance needs access to your photos to attach customer KYC documents.",
+          "cameraPermission": "CloudHouse Finance needs the camera to photograph customer KYC documents."
         }
       ],
       "expo-document-picker",
       [
         "expo-camera",
         {
-          "cameraPermission": "CloudHouse Gold Finance needs the camera to scan packet label QR codes."
+          "cameraPermission": "CloudHouse Finance needs the camera to scan packet label QR codes."
         }
       ]
     ],

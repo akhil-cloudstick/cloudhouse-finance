@@ -41,7 +41,7 @@ import (
 // files this. There is still no structured business-profile table in this
 // codebase, so they remain fixed constants; wire them into real config if one
 // is ever added.
-const formGLenderName = "CloudHouse Gold Finance (MLL No. DEMO-0000000000)"
+const formGLenderName = "CloudHouse Finance (MLL No. DEMO-0000000000)"
 
 // formGLenderAddress is the licensee's registered postal address, per the
 // same MLL registration referenced above. Also a demo placeholder.
@@ -666,7 +666,7 @@ func buildFormGPDF(stmt *FormGStatement) ([]byte, error) {
 	pdf.AddPage()
 
 	pdf.SetFont("Arial", "B", formGTitleFontSize)
-	pdf.MultiCell(0, 8, tr("CloudHouse Gold Finance — FORM G: Statement of Accounts (Kerala Money-Lenders Rules, 1964 — Rule 15(3))"), "", "L", false)
+	pdf.MultiCell(0, 8, tr("CloudHouse Finance — FORM G: Statement of Accounts (Kerala Money-Lenders Rules, 1964 — Rule 15(3))"), "", "L", false)
 	pdf.Ln(2)
 
 	kv := func(k, v string) {

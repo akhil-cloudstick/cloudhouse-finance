@@ -34,8 +34,8 @@
   inset: 0;
   pointer-events: none;
   background:
-    radial-gradient(1100px 620px at 12% -8%, rgba(192, 23, 122, .07) 0%, transparent 62%),
-    radial-gradient(820px 520px at 92% 108%, rgba(192, 23, 122, .05) 0%, transparent 58%);
+    radial-gradient(1100px 620px at 12% -8%, oklch(0.56 0.22 346 / .07) 0%, transparent 62%),
+    radial-gradient(820px 520px at 92% 108%, oklch(0.52 0.22 286 / .05) 0%, transparent 58%);
 }
 
 /* Grid, not flex: the two panels sit side by side on row 1 while the two
@@ -53,11 +53,36 @@
 
 /* ── identity panel ─────────────────────────────────────────── */
 .login-page .brand-panel {
-  /* Two layers: a 4px rail of the logo gradient pinned to the top edge, over
-     the violet field the white type actually sits on. The sweep is confined
-     to the rail so the panel keeps one predictable contrast ratio. */
+  /* Four layers, top to bottom: a 4px rail of the logo gradient pinned to the
+     top edge; two soft glow orbs; then the dark field the white type sits on.
+     The orbs are the POS login panel's own treatment — there they are two
+     `size-96 blur-3xl` circles (bg-primary/25 top-right, bg-brand-violet/25
+     bottom-left) over a flat bg-sidebar. Reproduced here as radial gradients
+     rather than blurred elements so the panel needs no extra nodes and no
+     filter: same centres (a 384px circle inset -96px/-96px and -80px/-128px),
+     with the 64px feather expressed as the stop falloff. The radius and stops
+     were matched against the real blurred version side by side — a blurred
+     circle spreads well past its own edge and holds its core alpha almost to
+     the rim (the circle is 3x the blur), so the core is carried flat to 40%
+     and the fade runs out to 320px rather than stopping at the 192px radius.
+
+     The sweep stays confined to the 4px rail, and the orbs are kept at the
+     low alphas they carry in POS, so the white type still has one predictable
+     contrast ratio against the field beneath it. */
   background:
     var(--brand-gradient) top left / 100% 4px no-repeat,
+    radial-gradient(circle 320px at calc(100% - 96px) 96px,
+      oklch(0.56 0.22 346 / .25) 0%,
+      oklch(0.56 0.22 346 / .25) 40%,
+      oklch(0.56 0.22 346 / .15) 60%,
+      oklch(0.56 0.22 346 / .05) 80%,
+      transparent 100%),
+    radial-gradient(circle 320px at 112px calc(100% - 64px),
+      oklch(0.52 0.22 286 / .25) 0%,
+      oklch(0.52 0.22 286 / .25) 40%,
+      oklch(0.52 0.22 286 / .15) 60%,
+      oklch(0.52 0.22 286 / .05) 80%,
+      transparent 100%),
     linear-gradient(160deg, var(--nav-2) 0%, var(--nav) 100%);
   color: #fff;
   border-radius: 14px 0 0 14px;
@@ -69,8 +94,8 @@
   position: relative;
   overflow: hidden;
   box-shadow:
-    0 1px 2px rgba(43, 26, 94, .06),
-    0 24px 60px -28px rgba(43, 26, 94, .34);
+    0 1px 2px color-mix(in oklab, var(--nav) 6%, transparent),
+    0 24px 60px -28px color-mix(in oklab, var(--nav) 34%, transparent);
 }
 
 /* Oversized, mostly-cropped seal as a watermark. Low enough not to compete
@@ -118,7 +143,7 @@
   font-weight: 500;
   letter-spacing: .26em;
   text-transform: uppercase;
-  color: #ded1f3;
+  color: oklch(0.95 0.006 290 / 70%);
 }
 
 /* The one full-colour moment on the page: the logo's own violet → magenta →
@@ -138,7 +163,7 @@
 .login-page .bp-phone {
   margin: 0;
   font-size: 12.5px;
-  color: #a9bde2;
+  color: oklch(0.95 0.006 290 / 65%);
   letter-spacing: .02em;
 }
 .login-page .bp-phone {
@@ -157,8 +182,8 @@
   flex-direction: column;
   justify-content: center;
   box-shadow:
-    0 1px 2px rgba(43, 26, 94, .06),
-    0 24px 60px -28px rgba(43, 26, 94, .34);
+    0 1px 2px color-mix(in oklab, var(--nav) 6%, transparent),
+    0 24px 60px -28px color-mix(in oklab, var(--nav) 34%, transparent);
 }
 
 .login-page .brand {
@@ -211,7 +236,7 @@
 .login-page .field input:focus {
   background: #fff;
   border-color: var(--brand);
-  box-shadow: 0 0 0 3px rgba(192, 23, 122, .12);
+  box-shadow: 0 0 0 3px color-mix(in oklab, var(--brand) 12%, transparent);
 }
 
 .login-page .field label {
@@ -456,8 +481,8 @@
   }
   .login-page .wrap {
     box-shadow:
-      0 1px 2px rgba(43, 26, 94, .06),
-      0 20px 50px -26px rgba(43, 26, 94, .34);
+      0 1px 2px color-mix(in oklab, var(--nav) 6%, transparent),
+      0 20px 50px -26px color-mix(in oklab, var(--nav) 34%, transparent);
     border-radius: 14px;
   }
 }

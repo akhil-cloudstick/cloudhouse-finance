@@ -78,7 +78,7 @@ function Donut({ parts }: { parts: [string, number, string][] }) {
  * — re-run the check before reordering or adding a hue. Deliberately avoids
  * --green/--red/--amber, which are reserved for status and must not double
  * as "series 4". */
-const EXPENSE_COLORS = ["#3060d4", "#c2185b", "#0f9d8f", "#9c7a14", "#7b3fe4", "#5b8c12"];
+const EXPENSE_COLORS = ["#6054bf", "#8267e2", "#f99603", "#20a04e", "#62626f", "#0e8ba0"];
 
 /* Ported from legacy/app.js's `renderDashboard()`. All figures are now
  * derived from live DB state instead of hardcoded demo values. */
