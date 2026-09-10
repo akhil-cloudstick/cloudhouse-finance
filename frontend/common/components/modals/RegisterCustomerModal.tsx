@@ -53,7 +53,7 @@ export function RegisterCustomerModalContent({ onSaved }: { onSaved?: () => void
     // Exactly 10 digits — the input is digit-filtered and capped at 10, and
     // this matches what the mobile register screen enforces. The old
     // /^\d[\d ]{8,}$/ let 9-digit and space-separated numbers through.
-    if (!/^\d{10}$/.test(p)) { setErr("Please enter a valid 10-digit mobile number."); return; }
+    if (p && !/^\d{10}$/.test(p)) { setErr("Please enter a valid 10-digit mobile number."); return; }
     if (!branchId) { setErr("Please select a branch."); return; }
 
     setSaving(true);
@@ -103,7 +103,7 @@ export function RegisterCustomerModalContent({ onSaved }: { onSaved?: () => void
           {/* Digit-filtered on input like Aadhaar below (and like the mobile
               app's register screen), so letters/spaces/punctuation can't be
               typed at all rather than being caught only on save. */}
-          <div><label className="f">Mobile Number *</label><input className="inp" inputMode="numeric" placeholder="10-digit mobile" maxLength={10} value={phone} onChange={(e) => setPhone(e.target.value.replace(/\D/g, ""))} /></div>
+          <div><label className="f">Mobile Number</label><input className="inp" inputMode="numeric" placeholder="10-digit mobile" maxLength={10} value={phone} onChange={(e) => setPhone(e.target.value.replace(/\D/g, ""))} /></div>
           <div><label className="f">Branch *</label>
             <Select
               value={branchId === "" ? "" : String(branchId)}

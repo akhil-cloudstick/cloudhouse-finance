@@ -222,6 +222,22 @@ export function CustomerDetail({ id }: { id?: string }) {
     return () => row.removeEventListener("wheel", onWheel);
   });
 
+  // Edit Customer / Request Extension-Release / New Loan / Delete Customer
+  // used to be 4 separate header buttons — collapsed into one "Actions"
+  // dropdown the same way LoanDetail.tsx's "Documents"/"Loan Actions" menus
+  // are, since the header outgrew the space next to the customer name on
+  // anything but a very wide screen.
+  const [actionsMenuOpen, setActionsMenuOpen] = useState(false);
+  const actionsMenuRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!actionsMenuOpen) return;
+    function onDocClick(e: MouseEvent) {
+      if (!actionsMenuRef.current?.contains(e.target as Node)) setActionsMenuOpen(false);
+    }
+    document.addEventListener("click", onDocClick);
+    return () => document.removeEventListener("click", onDocClick);
+  }, [actionsMenuOpen]);
+
   const loanPager = useSubTablePage<LoanView>(listLoans, range, !!id);
   const ornamentPager = useSubTablePage<CustomerOrnamentRowView>(listOrnaments, range, !!id);
   const paymentPager = useSubTablePage<CustomerPaymentRowView>(listPayments, range, !!id);
@@ -338,66 +354,87 @@ export function CustomerDetail({ id }: { id?: string }) {
           <div><h1 style={{ fontSize: 26 }}>{c.name}</h1><p>{c.code} · {c.branchName} branch</p></div>
         </div>
         <div className="sp" />
-        {canUpdateCustomers && <button className="btn ghost sm" onClick={openEditCustomer}><Icon name="edit" /> Edit Customer</button>}
+        {(canUpdateCustomers || canHardDeleteCustomers) && (
+          <div className="docs-dd" ref={actionsMenuRef}>
+            <button className="btn ghost sm" onClick={() => setActionsMenuOpen((v) => !v)}>
+              <Icon name="gear" /> Actions <Icon name="chevronDown" className="docs-dd-chev" />
+            </button>
+            {actionsMenuOpen && (
+              <div className="docs-dd-menu">
+                {canUpdateCustomers && (
+                  <a href="#" title="Edit Customer" onClick={(e) => { e.preventDefault(); setActionsMenuOpen(false); openEditCustomer(); }}>
+                    <Icon name="edit" /><span className="tx">Edit Customer</span>
+                  </a>
+                )}
+                {canHardDeleteCustomers && (
+                  <a
+                    href="#"
+                    title="Delete Customer Permanently"
+                    className="danger"
+                    onClick={(e) => {
+                      e.preventDefault();
+                      setActionsMenuOpen(false);
+                      const activeLoans = cLoans.filter((l) => l.status !== "Closed" && l.status !== "Auctioned");
+                      const hasActiveLoans = activeLoans.length > 0 || (profile?.activeLoanCount ?? 0) > 0;
+                      const activeLoanListStr = activeLoans.map((l) => l.loanNumber || l.id).filter(Boolean).join(", ");
+
+                      openModal(
+                        <ConfirmModalContent
+                          title="Delete Customer Permanently"
+                          confirmLabel="Delete Permanently"
+                          busyLabel="Deleting…"
+                          disabled={hasActiveLoans}
+                          message={
+                            <>
+                              This permanently deletes <strong>{c.name}</strong> ({c.code}). This cannot be undone.
+                            </>
+                          }
+                          onConfirm={async () => {
+                            if (!id || hasActiveLoans) return;
+                            await hardDeleteCustomer(id);
+                            toast("Customer deleted permanently");
+                            location.hash = "customers";
+                          }}
+                        >
+                          {hasActiveLoans && (
+                            <div
+                              style={{
+                                marginTop: 14,
+                                padding: "12px 14px",
+                                background: "rgba(239, 68, 68, 0.08)",
+                                border: "1px solid var(--red)",
+                                borderRadius: 6,
+                                color: "var(--red)",
+                                fontSize: 13,
+                                lineHeight: 1.5,
+                              }}
+                            >
+                              <div style={{ fontWeight: 600, display: "flex", alignItems: "center", gap: 6, marginBottom: 4 }}>
+                                <Icon name="warning" /> Active Loans Warning
+                              </div>
+                              Cannot delete this customer — {activeLoanListStr ? <>the following loan(s) are still active: <strong>{activeLoanListStr}</strong></> : <>this customer has active loan(s)</>}. Active loans must be closed or deleted first.
+                            </div>
+                          )}
+                        </ConfirmModalContent>
+                      );
+                    }}
+                  >
+                    <Icon name="trash" /><span className="tx">Delete Customer Permanently</span>
+                  </a>
+                )}
+              </div>
+            )}
+          </div>
+        )}
         {canUpdateLoans && <button className="btn ghost sm" onClick={openRequestPicker}><Icon name="unlock" /> Request Extension / Release</button>}
         {canCreateLoans && <a className="btn sm" href="#newloan"><Icon name="plus" /> New Loan</a>}
-        {/* Deliberately the ONLY delete action offered here — no separate
-         * "soft delete" alternative next to it. Gated by its own permission
-         * ("can hard delete customer"), independent of ordinary
-         * update/delete rights — same pattern as LoanDetail.tsx's "Delete
-         * Loan Permanently". */}
-        {canHardDeleteCustomers && (
-          <button
-            className="btn ghost sm danger"
-            onClick={() => {
-              const activeLoans = cLoans.filter((l) => l.status !== "Closed" && l.status !== "Auctioned");
-              const hasActiveLoans = activeLoans.length > 0 || (profile?.activeLoanCount ?? 0) > 0;
-              const activeLoanListStr = activeLoans.map((l) => l.loanNumber || l.id).filter(Boolean).join(", ");
-
-              openModal(
-                <ConfirmModalContent
-                  title="Delete Customer Permanently"
-                  confirmLabel="Delete Permanently"
-                  busyLabel="Deleting…"
-                  disabled={hasActiveLoans}
-                  message={
-                    <>
-                      This permanently deletes <strong>{c.name}</strong> ({c.code}). This cannot be undone.
-                    </>
-                  }
-                  onConfirm={async () => {
-                    if (!id || hasActiveLoans) return;
-                    await hardDeleteCustomer(id);
-                    toast("Customer deleted permanently");
-                    location.hash = "customers";
-                  }}
-                >
-                  {hasActiveLoans && (
-                    <div
-                      style={{
-                        marginTop: 14,
-                        padding: "12px 14px",
-                        background: "rgba(239, 68, 68, 0.08)",
-                        border: "1px solid var(--red)",
-                        borderRadius: 6,
-                        color: "var(--red)",
-                        fontSize: 13,
-                        lineHeight: 1.5,
-                      }}
-                    >
-                      <div style={{ fontWeight: 600, display: "flex", alignItems: "center", gap: 6, marginBottom: 4 }}>
-                        <Icon name="warning" /> Active Loans Warning
-                      </div>
-                      Cannot delete this customer — {activeLoanListStr ? <>the following loan(s) are still active: <strong>{activeLoanListStr}</strong></> : <>this customer has active loan(s)</>}. Active loans must be closed or deleted first.
-                    </div>
-                  )}
-                </ConfirmModalContent>
-              );
-            }}
-          >
-            <Icon name="trash" /> Delete Customer
-          </button>
-        )}
+        {/* Edit Customer + Delete Customer collapsed into one "Actions"
+         * dropdown — same pattern as LoanDetail.tsx's "Documents"/"Loan
+         * Actions" menus. Delete stays the ONLY delete action offered here —
+         * no separate "soft delete" alternative next to it. Gated by its own
+         * permission ("can hard delete customer"), independent of ordinary
+         * update/delete rights. */}
+        
       </div>
       <hr className="gold-rule rule-xs" />
       {/* Opened-date filter for the whole 360 view — every card below plus
@@ -475,7 +512,7 @@ export function CustomerDetail({ id }: { id?: string }) {
                  * here. */}
                 <div className="i" style={{ gridColumn: "1 / -1", display: "flex", gap: 24 }}>
                   <div style={{ flex: 1, minWidth: 0 }}><div className="k">Date of Birth</div><div className="v">{c.dob || "—"}</div></div>
-                  <div style={{ flex: 1, minWidth: 0 }}><div className="k">Phone</div><div className="v">{c.phone}</div></div>
+                  <div style={{ flex: 1, minWidth: 0 }}><div className="k">Phone</div><div className="v">{c.phone || "—"}</div></div>
                 </div>
                 <div className="i"><div className="k">Address</div><div className="v">{c.address || "—"}</div></div>
               </div>

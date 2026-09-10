@@ -77,9 +77,6 @@ func validate(in CreateInput) error {
 	if in.Name == "" {
 		return ErrNameRequired
 	}
-	if in.Phone == "" {
-		return ErrPhoneRequired
-	}
 	if in.BranchID == 0 {
 		return ErrBranchReq
 	}

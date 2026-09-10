@@ -25,7 +25,7 @@ func NewHandler(svc *Service) *Handler {
 // server-side before it ever reaches storage — see service.go.
 type customerRequest struct {
 	Name    string `json:"name" binding:"required"`
-	Phone   string `json:"phone" binding:"required"`
+	Phone   string `json:"phone"`
 	DOB     string `json:"dob"` // "YYYY-MM-DD", optional
 	Address string `json:"address"`
 
