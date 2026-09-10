@@ -20,11 +20,18 @@ func NewHandler(svc *Service) *Handler {
 	return &Handler{svc: svc}
 }
 
-// publishRequest is the JSON body accepted by POST /gold-rates. Only the
-// 24K benchmark is published — see this package's doc comment.
+// publishRequest is the JSON body accepted by POST /gold-rates. `karat`
+// defaults to 24 when omitted, so existing callers that only ever sent
+// {k24, setBy} (a plain 24K-only publish) keep working unchanged; `rate`
+// falls back to `k24` for the same reason. New Manual/Auto-mode callers
+// (RateModalContent) send {karat, rate, setBy} for whichever karat is
+// being set this time — see PublishInput's doc comment for what happens
+// to the other two columns.
 type publishRequest struct {
 	Date  string  `json:"date"` // optional, "YYYY-MM-DD" — defaults to today
-	K24   float64 `json:"k24" binding:"required"`
+	Karat int     `json:"karat"`
+	Rate  float64 `json:"rate"`
+	K24   float64 `json:"k24"` // legacy alias for {karat:24, rate: k24}
 	SetBy string  `json:"setBy" binding:"required"`
 }
 
@@ -37,7 +44,15 @@ func (req publishRequest) toInput() (PublishInput, error) {
 		}
 		date = parsed
 	}
-	return PublishInput{Date: date, K24: req.K24, SetBy: req.SetBy}, nil
+	karat := req.Karat
+	rate := req.Rate
+	if karat == 0 {
+		karat = 24
+	}
+	if rate == 0 {
+		rate = req.K24
+	}
+	return PublishInput{Date: date, Karat: karat, Rate: rate, SetBy: req.SetBy}, nil
 }
 
 func (h *Handler) Publish(c *gin.Context) {

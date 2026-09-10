@@ -226,6 +226,9 @@ var routeManifest = map[string]routeSpec{
 	"GET /api/v1/cash/opening-balance":        list(),
 	"POST /api/v1/cash/opening-balance":       list(),
 	"GET /api/v1/cash/summary":                list(),
+	"GET /api/v1/gold-sales":                  list(),
+	"POST /api/v1/gold-sales":                 list(),
+	"GET /api/v1/gold-sales/:id":              probe("id=gold_sales"),
 
 	// ------------------------------------------------------------ settings
 	// :category is an enum (whatsapp, sms, ...), not a record identifier, so
@@ -286,6 +289,7 @@ var routeManifest = map[string]routeSpec{
 	"PUT /api/v1/loans/:id/bank-pledge/:pledgeId/void":     probe("id=loans", "pledgeId=bank_pledge_records"),
 	"GET /api/v1/loans/by-number/:loanNumber":              probe("loanNumber=loans:loan_number"),
 	"GET /api/v1/loans/interest-collected":                 list(),
+	"GET /api/v1/loans/risk-assessment":                    list(),
 	"GET /api/v1/loans/bank-pledges/history":               list(),
 	"GET /api/v1/loans/auctions/concluded":                 list(),
 	"GET /api/v1/loans/auctions/decisions/pending":         list(),
@@ -371,6 +375,7 @@ var routeManifest = map[string]routeSpec{
 	// TestCollectionsDoNotLeak is that comparison.
 	"GET /api/v1/reports/loans/status":          list(),
 	"GET /api/v1/reports/disbursement":          list(),
+	"GET /api/v1/reports/personal-loans":        list(),
 	"GET /api/v1/reports/interest-collection":   list(),
 	"GET /api/v1/reports/payment-collection":    list(),
 	"GET /api/v1/reports/outstanding-principal": list(),

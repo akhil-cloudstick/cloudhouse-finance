@@ -134,9 +134,17 @@ export function SelectLoanForRequestModalContent({ loans, onPicked }: { loans: L
   const { closeModal } = useModal();
   const [loanId, setLoanId] = useState("");
   const [type, setType] = useState<"Extension" | "Release">("Extension");
+  const [err, setErr] = useState("");
 
   const eligible = loans.filter((l) => l.status !== "Closed");
   const selected = eligible.find((l) => l.id === loanId);
+
+  // Not blanket-disabled on `!selected` — see RepledgeModal.tsx's own
+  // SelectLoanForRepledgeModalContent for why.
+  function next() {
+    if (!selected) { setErr("Please select a loan first."); return; }
+    onPicked(selected, type);
+  }
 
   return (
     <>
@@ -149,7 +157,7 @@ export function SelectLoanForRequestModalContent({ loans, onPicked }: { loans: L
               ...eligible.map((l) => ({ value: l.id, label: `${l.id} — due ${l.due} (outstanding ₹${l.outstanding.toLocaleString("en-IN")})` })),
             ]}
             value={loanId}
-            onChange={setLoanId}
+            onChange={(v) => { setLoanId(v); setErr(""); }}
           /></div></div>
         <div className="frow"><div><label className="f">Request Type *</label>
           <Select
@@ -160,10 +168,11 @@ export function SelectLoanForRequestModalContent({ loans, onPicked }: { loans: L
         {eligible.length === 0 && (
           <p className="notice"><Icon name="shield" /> This customer has no open loans to request an extension or release for.</p>
         )}
+        <p style={{ color: "var(--red)", fontSize: 12.5, minHeight: 16, marginTop: 8 }}>{err}</p>
       </div>
       <div className="ft">
         <button className="btn ghost" onClick={closeModal}>Cancel</button>
-        <button className="btn" disabled={!selected} onClick={() => selected && onPicked(selected, type)}><Icon name="check" /> Next</button>
+        <button className="btn" onClick={next}><Icon name="check" /> Next</button>
       </div>
     </>
   );

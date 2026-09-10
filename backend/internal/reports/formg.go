@@ -2,6 +2,7 @@ package reports
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"net/http"
 	"sort"
@@ -12,6 +13,7 @@ import (
 	"github.com/jung-kurt/gofpdf"
 	"github.com/xuri/excelize/v2"
 
+	"cloudhouse/backend/internal/platform"
 	"cloudhouse/backend/internal/platform/httpx"
 )
 
@@ -180,9 +182,9 @@ type loanMovementAgg struct {
 // usually correct in practice (closing a loan is the last write made to
 // it) but could be wrong if a closed loan's row is edited afterwards for
 // any other reason. PersonalLoan does carry a real ClosedAt, used directly.
-func (s *Service) goldLoansAdvanced(f Filter, from, to time.Time) (loanMovementAgg, error) {
+func (s *Service) goldLoansAdvanced(ctx context.Context, f Filter, from, to time.Time) (loanMovementAgg, error) {
 	var out loanMovementAgg
-	q := s.db.Table("loans").
+	q := s.db.WithContext(ctx).Table("loans").
 		Select("COUNT(DISTINCT customer_id) as persons, COALESCE(SUM(principal_amount),0) as amount").
 		Where("opened_date >= ? AND opened_date < ?", from, to).
 		Where("approval_stage = ?", "Approved").
@@ -194,9 +196,9 @@ func (s *Service) goldLoansAdvanced(f Filter, from, to time.Time) (loanMovementA
 	return out, err
 }
 
-func (s *Service) personalLoansAdvanced(f Filter, from, to time.Time) (loanMovementAgg, error) {
+func (s *Service) personalLoansAdvanced(ctx context.Context, f Filter, from, to time.Time) (loanMovementAgg, error) {
 	var out loanMovementAgg
-	q := s.db.Table("personal_loans").
+	q := s.db.WithContext(ctx).Table("personal_loans").
 		Select("COUNT(DISTINCT customer_id) as persons, COALESCE(SUM(principal_amount),0) as amount").
 		Where("opened_date >= ? AND opened_date < ?", from, to).
 		Where("deleted_at IS NULL")
@@ -207,9 +209,9 @@ func (s *Service) personalLoansAdvanced(f Filter, from, to time.Time) (loanMovem
 	return out, err
 }
 
-func (s *Service) goldLoansRedeemed(f Filter, from, to time.Time) (loanMovementAgg, error) {
+func (s *Service) goldLoansRedeemed(ctx context.Context, f Filter, from, to time.Time) (loanMovementAgg, error) {
 	var out loanMovementAgg
-	q := s.db.Table("loans").
+	q := s.db.WithContext(ctx).Table("loans").
 		Select("COUNT(DISTINCT customer_id) as persons, COALESCE(SUM(principal_amount),0) as amount").
 		Where("status = ?", "Closed").
 		Where("updated_at >= ? AND updated_at < ?", from, to).
@@ -221,9 +223,9 @@ func (s *Service) goldLoansRedeemed(f Filter, from, to time.Time) (loanMovementA
 	return out, err
 }
 
-func (s *Service) personalLoansRedeemed(f Filter, from, to time.Time) (loanMovementAgg, error) {
+func (s *Service) personalLoansRedeemed(ctx context.Context, f Filter, from, to time.Time) (loanMovementAgg, error) {
 	var out loanMovementAgg
-	q := s.db.Table("personal_loans").
+	q := s.db.WithContext(ctx).Table("personal_loans").
 		Select("COUNT(DISTINCT customer_id) as persons, COALESCE(SUM(principal_amount),0) as amount").
 		Where("status = ?", "Closed").
 		Where("closed_at >= ? AND closed_at < ?", from, to).
@@ -307,7 +309,7 @@ func maxOutstandingInPeriod(spans []loanSpan, from, to time.Time) (peak float64,
 	return peak, peakDate
 }
 
-func (s *Service) loanSpansForMaxOutstanding(f Filter, from, to time.Time) ([]loanSpan, error) {
+func (s *Service) loanSpansForMaxOutstanding(ctx context.Context, f Filter, from, to time.Time) ([]loanSpan, error) {
 	var spans []loanSpan
 
 	type goldRow struct {
@@ -320,7 +322,7 @@ func (s *Service) loanSpansForMaxOutstanding(f Filter, from, to time.Time) ([]lo
 	// Any loan that was opened before `to` and either isn't Closed yet or
 	// closed on/after `from` could have contributed to the outstanding
 	// balance at some point during the period.
-	gq := s.db.Table("loans").
+	gq := s.db.WithContext(ctx).Table("loans").
 		Select("opened_date, principal_amount, status, updated_at").
 		Where("opened_date < ?", to).
 		Where("status <> ? OR updated_at >= ?", "Closed", from).
@@ -347,7 +349,7 @@ func (s *Service) loanSpansForMaxOutstanding(f Filter, from, to time.Time) ([]lo
 		ClosedAt        *time.Time
 	}
 	var personalRows []personalRow
-	pq := s.db.Table("personal_loans").
+	pq := s.db.WithContext(ctx).Table("personal_loans").
 		Select("opened_date, principal_amount, status, closed_at").
 		Where("opened_date < ?", to).
 		Where("status <> ? OR closed_at IS NULL OR closed_at >= ?", "Closed", from).
@@ -370,9 +372,9 @@ func (s *Service) loanSpansForMaxOutstanding(f Filter, from, to time.Time) ([]lo
 // every active branch — Rule 15(3) wants "branch particulars" and a
 // lender operating several branches under one Form G reasonably lists all
 // of them when no single branch was chosen.
-func (s *Service) formGBranches(f Filter) ([]FormGBranch, error) {
+func (s *Service) formGBranches(ctx context.Context, f Filter) ([]FormGBranch, error) {
 	var out []FormGBranch
-	q := s.db.Table("branches").Select("name, address").Where("deleted_at IS NULL")
+	q := s.db.WithContext(ctx).Table("branches").Select("name, address").Where("deleted_at IS NULL")
 	if f.BranchID != nil {
 		q = q.Where("id = ?", *f.BranchID)
 	} else {
@@ -386,32 +388,32 @@ func (s *Service) formGBranches(f Filter) ([]FormGBranch, error) {
 // and applies Section-3/Section-4-assets-liabilities overrides (see
 // FormGOverrides) — GET /reports/form-g and the "form-g" export key both
 // call this.
-func (s *Service) BuildFormGStatement(f Filter, overrides FormGOverrides) (*FormGStatement, error) {
+func (s *Service) BuildFormGStatement(ctx context.Context, f Filter, overrides FormGOverrides) (*FormGStatement, error) {
 	from, to := dateRange(f)
 
-	branches, err := s.formGBranches(f)
+	branches, err := s.formGBranches(ctx, f)
 	if err != nil {
 		return nil, err
 	}
 
-	goldAdv, err := s.goldLoansAdvanced(f, from, to)
+	goldAdv, err := s.goldLoansAdvanced(ctx, f, from, to)
 	if err != nil {
 		return nil, err
 	}
-	personalAdv, err := s.personalLoansAdvanced(f, from, to)
+	personalAdv, err := s.personalLoansAdvanced(ctx, f, from, to)
 	if err != nil {
 		return nil, err
 	}
-	goldRed, err := s.goldLoansRedeemed(f, from, to)
+	goldRed, err := s.goldLoansRedeemed(ctx, f, from, to)
 	if err != nil {
 		return nil, err
 	}
-	personalRed, err := s.personalLoansRedeemed(f, from, to)
+	personalRed, err := s.personalLoansRedeemed(ctx, f, from, to)
 	if err != nil {
 		return nil, err
 	}
 
-	spans, err := s.loanSpansForMaxOutstanding(f, from, to)
+	spans, err := s.loanSpansForMaxOutstanding(ctx, f, from, to)
 	if err != nil {
 		return nil, err
 	}
@@ -498,7 +500,7 @@ func (h *Handler) FormG(c *gin.Context) {
 		badRequest(c, err)
 		return
 	}
-	stmt, err := h.svc.BuildFormGStatement(f, FormGOverrides{})
+	stmt, err := h.svc.BuildFormGStatement(platform.RequestContext(c), f, FormGOverrides{})
 	if err != nil {
 		serverError(c, err)
 		return
@@ -512,7 +514,7 @@ func (h *Handler) FormG(c *gin.Context) {
 // generic reflection-based toTable path.
 func (h *Handler) exportFormG(c *gin.Context, f Filter, format string) {
 	overrides := parseFormGOverrides(c)
-	stmt, err := h.svc.BuildFormGStatement(f, overrides)
+	stmt, err := h.svc.BuildFormGStatement(platform.RequestContext(c), f, overrides)
 	if err != nil {
 		serverError(c, err)
 		return

@@ -19,6 +19,13 @@ export function isFinenessInRange(finenessPercent: number): boolean {
   return finenessPercent > MIN_FINENESS_PERCENT && finenessPercent <= MAX_FINENESS_PERCENT;
 }
 
+/* The exact karat/24 ratio, rounded to 1 decimal — matches
+ * puritystandard.FinenessForKarat, used to seed/suggest fineness% for a
+ * given karat (Auto-mode gold rate publishing). */
+export function finenessForKarat(karat: number): number {
+  return Math.round((karat / 24) * 1000) / 10;
+}
+
 /* Per-gram rate for a purity, off the day's K24 benchmark — rounded to the
  * nearest whole rupee, matching loan/purity.go's rateForPurity. */
 export function rateForKarat(k24: number, karat: number): number {

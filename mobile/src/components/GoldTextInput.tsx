@@ -27,12 +27,18 @@ export function GoldTextInput({
   containerStyle,
   right,
   blur,
+  invalid,
   ...rest
 }: TextInputProps & {
   label?: string;
   right?: React.ReactNode;
   containerStyle?: StyleProp<ViewStyle>;
   blur?: boolean;
+  // Bright, alarm-red border override for a value that's flagged as
+  // wrong (e.g. Set Today's Gold Rate's purity-hierarchy check) — a
+  // deliberately more saturated red than colors.red, which stays muted
+  // for everyday validation text.
+  invalid?: boolean;
 }) {
   const InputSurface = blur && Platform.OS === "ios" ? BlurView : View;
   return (
@@ -44,7 +50,7 @@ export function GoldTextInput({
       ) : null}
       <View style={styles.inputRow}>
         <InputSurface
-          style={[styles.inputBox, blur && styles.inputBoxBlur]}
+          style={[styles.inputBox, blur && styles.inputBoxBlur, invalid && styles.inputBoxInvalid]}
           {...(blur && Platform.OS === "ios" ? { intensity: 30, tint: "light" as const } : {})}
         >
           <TextInput
@@ -87,6 +93,7 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   inputBoxBlur: { backgroundColor: "rgba(255, 253, 247, 0.55)", overflow: "hidden" },
+  inputBoxInvalid: { borderColor: "#ef4444", borderWidth: 1.5 },
   input: {
     flex: 1,
     height: "100%",

@@ -370,6 +370,21 @@ func (h *Handler) EmployeePerformance(c *gin.Context) {
 	respond(c, rows, totals, f)
 }
 
+func (h *Handler) PersonalLoans(c *gin.Context) {
+	ctx := platform.RequestContext(c)
+	f, err := parseFilter(c)
+	if err != nil {
+		badRequest(c, err)
+		return
+	}
+	rows, totals, err := h.svc.PersonalLoans(ctx, f)
+	if err != nil {
+		serverError(c, err)
+		return
+	}
+	respond(c, rows, totals, f)
+}
+
 func (h *Handler) CommunicationHistory(c *gin.Context) {
 	ctx := platform.RequestContext(c)
 	f, err := parseFilter(c)

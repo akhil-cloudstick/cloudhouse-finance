@@ -8,10 +8,11 @@ import { fmt, fmtW } from "@/common/utils/format";
 import { FormGReportView } from "@/modules/reports/components/FormGReportView";
 import { ReportView, type ReportConfig } from "@/modules/reports/components/ReportView";
 import {
-  getDisbursement, getLoansStatus, getInterestCollection, getOutstandingPrincipal,
+  getDisbursement, getPersonalLoans, getLoansStatus, getInterestCollection, getOutstandingPrincipal,
   getPaymentCollection, getGoldWeight, getPackets, getBankPledge, getLoanExtensions,
   getGoldRelease, getAuctions, getExpenseCashflow, getKYC, getGoldRateHistory,
   getEmployeePerformance, getCommunicationHistory, exportReport,
+  getDepositRegister, getInterestPayoutRegister, getMaturityRegister,
 } from "@/modules/reports/services/reportsService";
 
 function firstOfMonth(): string {
@@ -50,6 +51,32 @@ const REPORT_CONFIGS: ReportConfig[] = [
       { key: "amount", label: "Amount", numeric: true, render: (r) => fmt(r.amount) },
     ],
     totals: (t) => [{ label: "Loans", value: String(t.count) }, { label: "Total Amount", value: fmt(t.totalAmount) }],
+  },
+  {
+    id: "personal-loans",
+    title: "Personal Loans",
+    description: "Personal loans opened per day with amounts",
+    icon: "note",
+    exportKey: "personal-loans",
+    fetchFn: getPersonalLoans,
+    rowKey: (r) => r.loanId,
+    columns: [
+      { key: "loanNumber", label: "Loan #", render: (r) => r.loanNumber },
+      { key: "customerName", label: "Customer", render: (r) => r.customerName },
+      { key: "branchName", label: "Branch", render: (r) => r.branchName },
+      { key: "frequency", label: "Frequency", render: (r) => r.frequency },
+      { key: "openedDate", label: "Opened", render: (r) => dt(r.openedDate) },
+      { key: "principalAmount", label: "Principal", numeric: true, render: (r) => fmt(r.principalAmount) },
+      { key: "disbursedAmount", label: "Disbursed", numeric: true, render: (r) => fmt(r.disbursedAmount) },
+      { key: "outstandingAmount", label: "Outstanding", numeric: true, render: (r) => fmt(r.outstandingAmount) },
+      { key: "status", label: "Status", render: (r) => r.status },
+    ],
+    totals: (t) => [
+      { label: "Loans", value: String(t.count) },
+      { label: "Total Principal", value: fmt(t.totalPrincipal) },
+      { label: "Total Disbursed", value: fmt(t.totalDisbursed) },
+      { label: "Total Outstanding", value: fmt(t.totalOutstanding) },
+    ],
   },
   {
     id: "loans-status",
@@ -334,6 +361,69 @@ const REPORT_CONFIGS: ReportConfig[] = [
     ],
     totals: (t) => [{ label: "Total", value: String(t.count) }, { label: "Sent", value: String(t.sent) }, { label: "Failed", value: String(t.failed) }],
   },
+  {
+    id: "investments-deposit-register",
+    title: "Investment Deposit Register",
+    description: "Investor deposits opened per period",
+    icon: "coin",
+    exportKey: "investments-deposit-register",
+    fetchFn: getDepositRegister,
+    rowKey: (r) => r.investmentId,
+    columns: [
+      { key: "investmentNumber", label: "Investment #", render: (r) => r.investmentNumber },
+      { key: "customerName", label: "Investor", render: (r) => r.customerName },
+      { key: "planName", label: "Plan", render: (r) => r.planName },
+      { key: "branchName", label: "Branch", render: (r) => r.branchName },
+      { key: "principalAmount", label: "Principal", numeric: true, render: (r) => fmt(r.principalAmount) },
+      { key: "interestRate", label: "Rate", render: (r) => `${r.interestRate}%` },
+      { key: "startDate", label: "Start", render: (r) => dt(r.startDate) },
+      { key: "maturityDate", label: "Maturity", render: (r) => dt(r.maturityDate) },
+      { key: "status", label: "Status", render: (r) => r.status },
+    ],
+    totals: (t) => [{ label: "Deposits", value: String(t.count) }, { label: "Total Principal", value: fmt(t.totalPrincipal) }],
+  },
+  {
+    id: "investments-interest-payout-register",
+    title: "Interest Payout Register",
+    description: "Investor interest payouts due/paid per period",
+    icon: "chart",
+    exportKey: "investments-interest-payout-register",
+    fetchFn: getInterestPayoutRegister,
+    rowKey: (r) => `${r.investmentId}-${r.sequenceNo}`,
+    columns: [
+      { key: "investmentNumber", label: "Investment #", render: (r) => r.investmentNumber },
+      { key: "customerName", label: "Investor", render: (r) => r.customerName },
+      { key: "sequenceNo", label: "#", render: (r) => r.sequenceNo },
+      { key: "dueDate", label: "Due Date", render: (r) => dt(r.dueDate) },
+      { key: "amount", label: "Amount", numeric: true, render: (r) => fmt(r.amount) },
+      { key: "status", label: "Status", render: (r) => r.status },
+      { key: "paidAt", label: "Paid At", render: (r) => (r.paidAt ? dt(r.paidAt) : "—") },
+    ],
+    totals: (t) => [
+      { label: "Due", value: fmt(t.totalDue) }, { label: "Paid", value: fmt(t.totalPaid) }, { label: "Pending", value: fmt(t.totalPending) },
+    ],
+  },
+  {
+    id: "investments-maturity-register",
+    title: "Investment Maturity Register",
+    description: "Investments reaching maturity per period",
+    icon: "cal",
+    exportKey: "investments-maturity-register",
+    fetchFn: getMaturityRegister,
+    rowKey: (r) => r.investmentId,
+    columns: [
+      { key: "investmentNumber", label: "Investment #", render: (r) => r.investmentNumber },
+      { key: "customerName", label: "Investor", render: (r) => r.customerName },
+      { key: "branchName", label: "Branch", render: (r) => r.branchName },
+      { key: "principalAmount", label: "Principal", numeric: true, render: (r) => fmt(r.principalAmount) },
+      { key: "maturityDate", label: "Maturity", render: (r) => dt(r.maturityDate) },
+      { key: "status", label: "Status", render: (r) => r.status },
+    ],
+    totals: (t) => [
+      { label: "Active", value: String(t.active) }, { label: "Matured", value: String(t.matured) },
+      { label: "Closed", value: String(t.closed) }, { label: "Renewed", value: String(t.renewed) }, { label: "Total", value: String(t.count) },
+    ],
+  },
 ];
 
 /* Form G's tile — kept out of REPORT_CONFIGS above because it doesn't fit
@@ -408,7 +498,7 @@ export function Reports() {
               </span>
             </button>
             <div className="bd" style={{ display: "flex", flexDirection: "column", flex: 1 }}>
-              <b style={{ fontSize: 14.5, color: "var(--nav)", paddingRight: 40 }}>{r.title}</b>
+              <b style={{ fontSize: 14.5, color: "var(--charcoal)", paddingRight: 40 }}>{r.title}</b>
               <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 2 }}>{r.description}</div>
             </div>
           </div>

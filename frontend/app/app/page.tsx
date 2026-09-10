@@ -16,6 +16,7 @@ import { Customers } from "@/modules/customers/components/Customers";
 import { CustomerDetail } from "@/modules/customers/components/CustomerDetail";
 import { Loans } from "@/modules/loans/components/Loans";
 import { LoanDetail } from "@/modules/loans/components/LoanDetail";
+import { LoanRisk } from "@/modules/loans/components/LoanRisk";
 import { NewLoan } from "@/modules/loans/components/NewLoan";
 import { Schemes } from "@/modules/schemes/components/Schemes";
 import { GoldRates } from "@/modules/gold-rates/components/GoldRates";
@@ -27,6 +28,8 @@ import { PacketDetail } from "@/modules/packets/components/PacketDetail";
 import { BankPledge } from "@/modules/loans/components/BankPledge";
 import { PersonalLoans } from "@/modules/personal-loans/components/PersonalLoans";
 import { PersonalLoanDetail } from "@/modules/personal-loans/components/PersonalLoanDetail";
+import { Investments } from "@/modules/investments/components/Investments";
+import { InvestmentDetail } from "@/modules/investments/components/InvestmentDetail";
 import { Reports } from "@/modules/reports/components/Reports";
 import { Employees } from "@/modules/employees/components/Employees";
 import { Calendar } from "@/modules/reminders/components/Calendar";
@@ -53,8 +56,11 @@ const ROUTE_PERMISSIONS: Record<string, { module: string | null; key?: string }>
   schemes: { module: "Scheme_Management", key: "can_view_scheme" },
   goldrates: { module: "Gold_Rate_Management", key: "can_view_gold_rate" },
   requests: { module: "Loan_Management", key: "can_view_loan" },
+  loanrisk: { module: "Loan_Management", key: "can_view_loan" },
   personalloans: { module: "Personal_Loan_Management", key: "can_view_personal_loan" },
   personalloan: { module: "Personal_Loan_Management", key: "can_view_personal_loan" },
+  investments: { module: "Investment_Management", key: "can_view_investment" },
+  investment: { module: "Investment_Management", key: "can_view_investment" },
   cash: { module: "Cash_Management", key: "can_view_cash" },
   auctions: { module: "Loan_Management", key: "can_view_loan" },
   packets: { module: "Packet_Management", key: "can_view_packet" },
@@ -110,10 +116,16 @@ function View({ route, arg }: { route: string; arg?: string }) {
       return <GoldRates />;
     case "requests":
       return <Requests />;
+    case "loanrisk":
+      return <LoanRisk />;
     case "personalloans":
       return <PersonalLoans />;
     case "personalloan":
       return <PersonalLoanDetail id={arg} />;
+    case "investments":
+      return <Investments />;
+    case "investment":
+      return <InvestmentDetail id={arg} />;
     case "cash":
       return <Cash />;
     case "auctions":

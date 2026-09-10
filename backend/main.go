@@ -26,17 +26,16 @@ func main() {
 		log.Fatalf("database connection failed: %v", err)
 	}
 
-	// The API server no longer migrates its own schema on boot — multi-
-	// tenancy plan, Step 12. It used to, on EVERY restart, unattended,
-	// against whatever database it found; every deploy and every crash
-	// recovery was therefore also a live schema-altering migration run with
-	// nobody watching. Migrating is now a deliberate, explicit act —
-	// `go run ./cmd/migrate`, the only place internal/migrate.Run is called
-	// from — and the server's job here is only to verify that already
-	// happened, refusing to start with a clear instruction rather than
-	// running migrations anyway and hoping.
-	if err := migrate.CheckSchemaVersion(db); err != nil {
-		log.Fatalf("%v", err)
+	// The API server migrates its own schema on every boot — see
+	// migrate.Run's own doc comment: every step is additive, an idempotent
+	// backfill, or a column drop that only runs after that column's data has
+	// already been copied forward, so re-running it on an already-migrated
+	// database (the normal-restart case) is a no-op. `go run ./cmd/migrate`
+	// still exists for a migrate-only invocation (CI, or migrating without
+	// starting the HTTP server) — both call the same Run so the two never
+	// drift apart.
+	if err := migrate.Run(db, cfg); err != nil {
+		log.Fatalf("migration failed: %v", err)
 	}
 
 	// Tenant isolation is switched on here, AFTER migrations have run: every
@@ -56,9 +55,13 @@ func main() {
 
 	application, err := app.Build(db, cfg)
 	if err != nil {
-		log.Fatalf("aadhaar encryption setup failed: %v", err)
+		log.Fatalf("application setup failed: %v", err)
 	}
 
+	// StartBackgroundJobs is deliberately separate from Build (see its own
+	// doc comment): Build is also what the tenant-isolation test harness and
+	// any other test calls to get a real router, and those must NOT trigger
+	// real WhatsApp sends to real borrowers/business owners.
 	application.StartBackgroundJobs(context.Background())
 
 	log.Printf("CloudHouse Gold API + web app listening on :%s (serving frontend from %s)", cfg.Port, cfg.FrontendDir)

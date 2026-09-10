@@ -161,6 +161,10 @@ func Build(db *gorm.DB, cfg platform.Config) (*App, error) {
 	summarySvc := cash.NewSummaryService(movementRepo, expenseRepo, openingBalanceSvc)
 	summaryHandler := cash.NewSummaryHandler(summarySvc)
 
+	goldSaleRepo := cash.NewGoldSaleRepository(db)
+	goldSaleSvc := cash.NewGoldSaleService(goldSaleRepo, movementSvc, branchRepo)
+	goldSaleHandler := cash.NewGoldSaleHandler(goldSaleSvc)
+
 	settingsRepo := settings.NewRepository(db)
 	settingsSvc := settings.NewService(settingsRepo, settingsCipher)
 	settingsHandler := settings.NewHandler(settingsSvc)
@@ -369,6 +373,7 @@ func Build(db *gorm.DB, cfg platform.Config) (*App, error) {
 	cash.RegisterMovementRoutes(protected.Group("/cash-movements"), movementHandler, platform.CRUDPermissions(authzRepo, "cash"))
 	cash.RegisterExpenseRoutes(protected.Group("/expenses"), expenseHandler, platform.CRUDPermissions(authzRepo, "cash"))
 	cash.RegisterCashRoutes(protected.Group("/cash"), openingBalanceHandler, summaryHandler, platform.CRUDPermissions(authzRepo, "cash"))
+	cash.RegisterGoldSaleRoutes(protected.Group("/gold-sales"), goldSaleHandler, platform.CRUDPermissions(authzRepo, "cash"))
 	settings.RegisterRoutes(protected.Group("/settings/api-keys"), settingsHandler, platform.CRUDPermissions(authzRepo, "settings"))
 	customer.RegisterRoutes(protected.Group("/customers"), customerHandler, platform.CRUDPermissions(authzRepo, "customers"))
 	// Customer 360 lives on loanHandler (see internal/loan/service.go's
@@ -385,7 +390,7 @@ func Build(db *gorm.DB, cfg platform.Config) (*App, error) {
 	protected.GET("/customers/:id/bank-pledges", platform.CRUDPermissions(authzRepo, "customers").Read, loanHandler.ListBankPledgesForCustomer)
 	protected.GET("/customers/:id/auction-history", platform.CRUDPermissions(authzRepo, "customers").Read, loanHandler.ListAuctionHistoryForCustomer)
 	protected.GET("/customers/:id/personal-loans", platform.CRUDPermissions(authzRepo, "personalloans").Read, personalLoanHandler.ListLoansForCustomer)
-	loan.RegisterRoutes(protected.Group("/loans"), loanHandler, platform.CRUDPermissions(authzRepo, "loans"), platform.CRUDPermissions(authzRepo, "bankpledges"))
+	loan.RegisterRoutes(protected.Group("/loans"), loanHandler, platform.CRUDPermissions(authzRepo, "loans"), platform.CRUDPermissions(authzRepo, "bankpledges"), platform.RequirePermission(authzRepo, "can hard delete loan"))
 	dashboard.RegisterRoutes(protected.Group("/dashboard"), dashboardHandler, platform.CRUDPermissions(authzRepo, "loans"))
 	upload.RegisterRoutes(protected.Group("/uploads"), uploadHandler, platform.CRUDPermissions(authzRepo, "uploads"))
 	ornamenttype.RegisterRoutes(protected.Group("/ornament-types"), ornamentTypeHandler, platform.CRUDPermissions(authzRepo, "ornamenttypes"))

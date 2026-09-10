@@ -11,6 +11,8 @@ import { colors } from "../../theme/colors";
 import { fmt } from "../../lib/format";
 import { useAuth } from "../../auth/AuthContext";
 import { verifyReleaseChecklist, recordReleasePayment, approveReleaseRequest, RELEASE_STAGE_PERMISSIONS } from "../../api/loans";
+import { getCustomer } from "../../api/customers";
+import { printReleaseAgreement } from "../../utils/loanPrint";
 import { LoanRequest, Loan } from "../../types/loan";
 import { ApiError } from "../../api/client";
 
@@ -56,6 +58,7 @@ export function ReleaseReviewPanel({
   const [payment, setPayment] = useState("0");
   const [dueDate, setDueDate] = useState(request.paymentDueDate || "");
   const [decisionRemarks, setDecisionRemarks] = useState("");
+  const [downloading, setDownloading] = useState(false);
   // Seeds Charges/Notes/Due Date from `request` the FIRST time this panel
   // sees it (by id), not on every refetch — otherwise a background refetch
   // mid-edit would stomp on whatever staff is typing.
@@ -84,6 +87,37 @@ export function ReleaseReviewPanel({
 
   function reportError(err: unknown) {
     onError(err instanceof ApiError ? err.message : "Something went wrong — try again.");
+  }
+
+  // Lets an Approved release row's document be (re)downloaded right from
+  // this panel — mirrors web frontend/modules/loans/components/
+  // Requests.tsx's downloadReleaseAgreement, same generator LoanDetail.tsx's
+  // own Documents menu uses. `loan` is already on hand from the caller.
+  async function downloadReleaseAgreement() {
+    setDownloading(true);
+    try {
+      const c = await getCustomer(loan.customerId);
+      await printReleaseAgreement({
+        loanNumber: loan.loanNumber,
+        branchName: loan.branch?.name,
+        customerName: c.name,
+        customerAddress: c.address,
+        customerId: String(c.id),
+        aadhaarLast4: c.aadhaarLast4,
+        pan: c.pan,
+        ornaments: (loan.ornaments ?? []).map((o) => ({
+          name: o.name,
+          purity: o.purity,
+          quantity: o.quantity,
+          grossWeight: o.grossWeight,
+          netWeight: o.netWeight,
+        })),
+      });
+    } catch {
+      onError("Could not load customer details — try again");
+    } finally {
+      setDownloading(false);
+    }
   }
 
   const saveCharges = useMutation({
@@ -125,6 +159,15 @@ export function ReleaseReviewPanel({
 
   return (
     <View>
+      {request.status === "Approved" ? (
+        <GoldButton
+          title={downloading ? "Preparing…" : "Download Release Agreement"}
+          variant="outline"
+          onPress={downloadReleaseAgreement}
+          loading={downloading}
+          style={{ marginBottom: 12 }}
+        />
+      ) : null}
       <View style={{ flexDirection: "row", marginBottom: 10 }}>
         <View style={{ flex: 1 }}>
           <ThemedText variant="small" color={colors.muted}>

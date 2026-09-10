@@ -39,7 +39,7 @@ func TestAllocatePayment_AuctionSaleAllowsOvershootWithoutError(t *testing.T) {
 	l := loanOwing(50_000, 4_000, 1_000, 500)
 	totalOwed := 55_500.0
 
-	fee, penal, interest, principal, err := allocatePayment(l, PaymentTypeAuctionSale, 80_000)
+	fee, penal, interest, principal, err := allocatePayment(l, PaymentTypeAuctionSale, 80_000, nil)
 	if err != nil {
 		t.Fatalf("overshooting auction proceeds must not error, got %v", err)
 	}
@@ -58,7 +58,7 @@ func TestAllocatePayment_AuctionSaleAllowsOvershootWithoutError(t *testing.T) {
 func TestAllocatePayment_AuctionSaleFollowsWaterfallOnShortfall(t *testing.T) {
 	l := loanOwing(50_000, 4_000, 1_000, 500)
 
-	fee, penal, interest, principal, err := allocatePayment(l, PaymentTypeAuctionSale, 6_000)
+	fee, penal, interest, principal, err := allocatePayment(l, PaymentTypeAuctionSale, 6_000, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -81,12 +81,12 @@ func TestAllocatePayment_AuctionSaleFollowsWaterfallOnShortfall(t *testing.T) {
 func TestAllocatePayment_AuctionWriteOffReachesPrincipalUnlikeWaiver(t *testing.T) {
 	owed := 20_000.0
 
-	_, _, _, waiverPrincipal, err := allocatePayment(loanOwing(owed, 0, 0, 0), PaymentTypeWaiver, owed)
+	_, _, _, waiverPrincipal, err := allocatePayment(loanOwing(owed, 0, 0, 0), PaymentTypeWaiver, owed, nil)
 	if err == nil && waiverPrincipal != 0 {
 		t.Fatalf("Waiver must never touch principal, it allocated %.2f", waiverPrincipal)
 	}
 
-	_, _, _, principal, err := allocatePayment(loanOwing(owed, 0, 0, 0), PaymentTypeAuctionWriteOff, owed)
+	_, _, _, principal, err := allocatePayment(loanOwing(owed, 0, 0, 0), PaymentTypeAuctionWriteOff, owed, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -98,7 +98,7 @@ func TestAllocatePayment_AuctionWriteOffReachesPrincipalUnlikeWaiver(t *testing.
 // Writing off must never push a balance negative, which would turn a forgiven
 // debt into an apparent credit owed back to the customer.
 func TestAllocatePayment_AuctionWriteOffCannotOvershoot(t *testing.T) {
-	fee, penal, interest, principal, err := allocatePayment(loanOwing(1_000, 0, 0, 0), PaymentTypeAuctionWriteOff, 99_999)
+	fee, penal, interest, principal, err := allocatePayment(loanOwing(1_000, 0, 0, 0), PaymentTypeAuctionWriteOff, 99_999, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

@@ -69,9 +69,14 @@ func Run(db *gorm.DB, cfg platform.Config) error {
 		return err
 	}
 
-	if err := goldrate.MigrateLegacyColumns(db); err != nil {
-		return err
-	}
+	// goldrate.MigrateLegacyColumns used to run here — retired now that
+	// K22/K18 are live struct fields again (see goldrate.GoldRate's doc
+	// comment): that step's whole premise (renaming k22/k18 away because
+	// nothing used them) is now backwards, and re-running it against a DB
+	// that already has both the historical legacy_k22/legacy_k18 columns
+	// AND live k22/k18 columns fails outright (RENAME onto an
+	// already-occupied name). Nothing reads legacy_k22/legacy_k18 going
+	// forward; they stay orphaned in the schema, harmlessly.
 
 	// The auction uniqueness rule must be relaxed BEFORE AutoMigrate runs:
 	// GORM never drops an index it once created, so the old "one auction per
@@ -109,6 +114,7 @@ func Run(db *gorm.DB, cfg platform.Config) error {
 		&cash.CashMovement{},
 		&cash.Expense{},
 		&cash.OpeningCashBalance{},
+		&cash.GoldSale{},
 		&settings.ApiKeySetting{},
 		&customer.Customer{},
 		&loan.Loan{},
@@ -206,6 +212,10 @@ func Run(db *gorm.DB, cfg platform.Config) error {
 	}
 
 	if err := personalloan.BackfillRenewedLoanInstallments(db); err != nil {
+		return err
+	}
+
+	if err := personalloan.BackfillRenewedLoanStatus(db); err != nil {
 		return err
 	}
 
