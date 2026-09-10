@@ -94,11 +94,27 @@ export function RateModalContent() {
   function setAuto() {
     setMode("auto");
     setFineness24("100");
-    setFineness22(String(finenessForKarat(22)));
-    setFineness18(String(finenessForKarat(18)));
-    setRate24(ref24 > 0 ? String(ref24) : "");
-    setRate22(ref24 > 0 ? String(rateForFineness(ref24, finenessForKarat(22))) : "");
-    setRate18(ref24 > 0 ? String(rateForFineness(ref24, finenessForKarat(18))) : "");
+    const f22 = finenessForKarat(22);
+    const f18 = finenessForKarat(18);
+    setFineness22(String(f22));
+    setFineness18(String(f18));
+
+    let base24 = +rate24;
+    if (!(base24 > 0) && +rate22 > 0) {
+      base24 = Math.round((+rate22 / f22) * 100);
+    }
+    if (!(base24 > 0) && +rate18 > 0) {
+      base24 = Math.round((+rate18 / f18) * 100);
+    }
+    if (!(base24 > 0)) {
+      base24 = ref24;
+    }
+
+    if (base24 > 0) {
+      setRate24(String(base24));
+      setRate22(String(rateForFineness(base24, f22)));
+      setRate18(String(rateForFineness(base24, f18)));
+    }
     setLastEdited(null);
     setErr("");
   }
@@ -224,64 +240,59 @@ export function RateModalContent() {
           <button className={mode === "manual" ? "on" : ""} onClick={setManual}>Manual</button>
         </div>
 
-        <div className="frow c3">
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 12, marginBottom: 13 }}>
           <div>
             {mode === "auto" && (
               <div style={{ marginTop: 8, marginBottom: 12 }}>
                 <label className="f" style={{ marginBottom: 2 }}>Fineness (100%)</label>
-                <input className="inp" type="number" max={100} value={fineness24} onChange={(e) => editFineness24(e.target.value)} />
+                <input className="inp" type="number" max={100} style={{ width: 140 }} value={fineness24} onChange={(e) => editFineness24(e.target.value)} />
               </div>
             )}
             <label className="f">24K · 999 (₹/g)</label>
             <input
               className={`inp${shaking24 ? " shake-attention" : ""}`} type="number" value={rate24}
-              onChange={(e) => editRate24(e.target.value)} style={invalid24 ? invalidInputStyle : undefined}
+              onChange={(e) => editRate24(e.target.value)} style={{ width: 140, ...(invalid24 ? invalidInputStyle : {}) }}
             />
             {invalid24 && <p style={{ fontSize: 11, color: BRIGHT_RED, margin: "5px 0 0" }}>⚠ Price hierarchy is wrong.</p>}
             <p style={{ fontSize: 11, color: "var(--muted)", margin: "5px 0 0" }}>
               {mode === "manual" ? "set directly" : "adjust directly, or via fineness above"}
             </p>
-            
           </div>
 
           <div>
             {mode === "auto" && (
               <div style={{ marginTop: 8, marginBottom: 12 }}>
                 <label className="f" style={{ marginBottom: 2 }}>Fineness (91.7%)</label>
-                <input className="inp" type="number" max={100} value={fineness22} onChange={(e) => editFineness22(e.target.value)} />
+                <input className="inp" type="number" max={100} style={{ width: 140 }} value={fineness22} onChange={(e) => editFineness22(e.target.value)} />
               </div>
             )}
             <label className="f">22K (₹/g)</label>
-            
             <input
               className={`inp${shaking22 ? " shake-attention" : ""}`} type="number" value={rate22}
-              onChange={(e) => editRate22(e.target.value)} style={invalid22 ? invalidInputStyle : undefined}
+              onChange={(e) => editRate22(e.target.value)} style={{ width: 140, ...(invalid22 ? invalidInputStyle : {}) }}
             />
             {invalid22 && <p style={{ fontSize: 11, color: BRIGHT_RED, margin: "5px 0 0" }}>⚠ Price hierarchy is wrong.</p>}
             <p style={{ fontSize: 11, color: "var(--muted)", margin: "5px 0 0" }}>
               {mode === "manual" ? "set independently of 24K" : "editing this switches to Manual "}
             </p>
-            
           </div>
 
           <div>
             {mode === "auto" && (
               <div style={{ marginTop: 8, marginBottom: 12 }}>
                 <label className="f" style={{ marginBottom: 2 }}>Fineness (75%)</label>
-                <input className="inp" type="number" max={100} value={fineness18} onChange={(e) => editFineness18(e.target.value)} />
+                <input className="inp" type="number" max={100} style={{ width: 140 }} value={fineness18} onChange={(e) => editFineness18(e.target.value)} />
               </div>
             )}
             <label className="f">18K (₹/g)</label>
-            
             <input
               className={`inp${shaking18 ? " shake-attention" : ""}`} type="number" value={rate18}
-              onChange={(e) => editRate18(e.target.value)} style={invalid18 ? invalidInputStyle : undefined}
+              onChange={(e) => editRate18(e.target.value)} style={{ width: 140, ...(invalid18 ? invalidInputStyle : {}) }}
             />
             {invalid18 && <p style={{ fontSize: 11, color: BRIGHT_RED, margin: "5px 0 0" }}>⚠ Price hierarchy is wrong.</p>}
             <p style={{ fontSize: 11, color: "var(--muted)", margin: "5px 0 0" }}>
               {mode === "manual" ? "set independently of 24K" : "editing this switches to Manual "}
             </p>
-            
           </div>
         </div>
 

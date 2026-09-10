@@ -63,6 +63,10 @@ type Service struct {
 	aadhaarCipher *platform.Cipher
 	setu          *platform.SetuClient
 	digilocker    *platform.DigilockerClient
+
+	// loanHardDeleter is nil until main.go calls SetLoanHardDeleter — see
+	// harddelete.go.
+	loanHardDeleter LoanHardDeleter
 }
 
 func NewService(repo *Repository, branchRepo *branch.Repository, aadhaarCipher *platform.Cipher, setu *platform.SetuClient, digilocker *platform.DigilockerClient) *Service {
@@ -111,11 +115,11 @@ func (s *Service) Create(in CreateInput) (*Customer, error) {
 		return nil, err
 	}
 
-	count, err := s.repo.CountAll()
+	maxSuffix, err := s.repo.MaxCodeSuffix()
 	if err != nil {
 		return nil, err
 	}
-	code := fmt.Sprintf("CUST-%02d", count+1)
+	code := fmt.Sprintf("CUST-%02d", maxSuffix+1)
 
 	var encryptedAadhaar, last4 string
 	if in.Aadhaar != "" {

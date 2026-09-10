@@ -4,7 +4,6 @@ import { useEffect, useState } from "react";
 import { useModal } from "@/common/components/Modal";
 import { useToast } from "@/common/components/Toast";
 import { Select } from "@/common/components/ui/Select";
-import { DatePicker } from "@/common/components/ui/DatePicker";
 import { FileInput } from "@/common/components/ui/FileInput";
 import { Icon } from "@/common/components/Icon";
 import { createCustomer, uploadFile } from "@/modules/customers/services/customerService";
@@ -24,7 +23,6 @@ export function RegisterCustomerModalContent({ onSaved }: { onSaved?: () => void
 
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
-  const [dob, setDob] = useState("");
   const [branches, setBranches] = useState<BranchView[]>([]);
   const [branchId, setBranchId] = useState<number | "">("");
   const [addr, setAddr] = useState("");
@@ -71,7 +69,6 @@ export function RegisterCustomerModalContent({ onSaved }: { onSaved?: () => void
       const c = await createCustomer({
         name: n,
         phone: p,
-        dob,
         address: addr.trim(),
         branchId: Number(branchId),
         photoUrl,
@@ -100,15 +97,13 @@ export function RegisterCustomerModalContent({ onSaved }: { onSaved?: () => void
     <>
       <div className="hd"><h3>Register Customer</h3><button className="x" onClick={closeModal}>×</button></div>
       <div className="bd">
-        <div className="frow c2">
+        <label className="f">Personal Details</label>
+        <div className="frow c3">
           <div><label className="f">Full Name *</label><input className="inp" placeholder="e.g. Anil Varma" value={name} onChange={(e) => setName(e.target.value)} /></div>
           {/* Digit-filtered on input like Aadhaar below (and like the mobile
               app's register screen), so letters/spaces/punctuation can't be
               typed at all rather than being caught only on save. */}
           <div><label className="f">Mobile Number *</label><input className="inp" inputMode="numeric" placeholder="10-digit mobile" maxLength={10} value={phone} onChange={(e) => setPhone(e.target.value.replace(/\D/g, ""))} /></div>
-        </div>
-        <div className="frow c2">
-          <div><label className="f">Date of Birth</label><DatePicker value={dob} onChange={setDob} placeholder="Select date of birth…" max={new Date().toISOString().slice(0, 10)} /></div>
           <div><label className="f">Branch *</label>
             <Select
               value={branchId === "" ? "" : String(branchId)}
@@ -118,25 +113,28 @@ export function RegisterCustomerModalContent({ onSaved }: { onSaved?: () => void
             />
           </div>
         </div>
-        <div className="frow"><div><label className="f">Address</label><input className="inp" placeholder="House / street, town, district" value={addr} onChange={(e) => setAddr(e.target.value)} /></div></div>
-        <div className="frow c2">
+        <div className="frow c3">
+          <div><label className="f">Address</label><input className="inp" placeholder="House / street, town, district" value={addr} onChange={(e) => setAddr(e.target.value)} /></div>
           <div><label className="f">PAN Number</label><input className="inp" placeholder="ABCDE1234F" maxLength={10} style={{ textTransform: "uppercase" }} value={pan} onChange={(e) => setPan(e.target.value)} /></div>
           <div><label className="f">Aadhaar Number</label><input className="inp" placeholder="12-digit Aadhaar" maxLength={12} value={aadhaar} onChange={(e) => setAadhaar(e.target.value.replace(/\D/g, ""))} /></div>
         </div>
-        <div className="frow c2">
+
+        <label className="f" style={{ marginTop: 6 }}>Documents</label>
+        <div className="frow c3">
           <div><label className="f">Customer Photograph</label><FileInput value={photoFile} onChange={setPhotoFile} accept="image/*" /></div>
           <div><label className="f">Identity Proof</label><FileInput value={identityProofFile} onChange={setIdentityProofFile} accept="image/*,.pdf" /></div>
-        </div>
-        <div className="frow c2">
           <div><label className="f">Address Proof</label><FileInput value={addressProofFile} onChange={setAddressProofFile} accept="image/*,.pdf" /></div>
+        </div>
+        <div className="frow c3">
           <div><label className="f">Supporting KYC Document</label><FileInput value={kycDocFile} onChange={setKycDocFile} accept="image/*,.pdf" /></div>
         </div>
-        <label className="f" style={{ marginTop: 6 }}>Nominee Information (optional)</label>
-        <div className="frow c2">
+
+        <label className="f" style={{ marginTop: 6 }}>Nominee (optional)</label>
+        <div className="frow c3">
           <div><label className="f">Nominee Name</label><input className="inp" placeholder="e.g. Sunitha Varma" value={nomineeName} onChange={(e) => setNomineeName(e.target.value)} /></div>
           <div><label className="f">Relation</label><input className="inp" placeholder="e.g. Spouse" value={nomineeRelation} onChange={(e) => setNomineeRelation(e.target.value)} /></div>
+          <div><label className="f">Nominee Mobile Number</label><input className="inp" placeholder="10-digit mobile" inputMode="numeric" maxLength={10} value={nomineePhone} onChange={(e) => setNomineePhone(e.target.value.replace(/\D/g, ""))} /></div>
         </div>
-        <div className="frow"><div><label className="f">Nominee Mobile Number</label><input className="inp" placeholder="10-digit mobile" inputMode="numeric" maxLength={10} value={nomineePhone} onChange={(e) => setNomineePhone(e.target.value.replace(/\D/g, ""))} /></div></div>
         <p style={{ color: "var(--red)", fontSize: 12.5, minHeight: 16, marginTop: 8 }}>{err}</p>
       </div>
       <div className="ft">

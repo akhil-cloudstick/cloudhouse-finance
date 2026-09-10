@@ -204,6 +204,11 @@ func main() {
 	authzPermChecker := authz.NewRepository(db)
 	loanSvc := loan.NewService(db, loanRepo, loanOrnamentRepo, loanApprovalRepo, loanPaymentRepo, loanPledgeRepo, loanRequestRepo, requestApprovalRepo, loanAuctionRepo, loanApprovalLimitRepo, branchRepo, customerRepo, schemeRepo, goldRateRepo, packetSvc, packetSvc, movementSvc, notificationSvc, whatsappSender, commlogRepo, esignClient, cfg.UploadsDir, razorpayClient, aadhaarCipher, authzPermChecker)
 	loanHandler := loan.NewHandler(loanSvc)
+	// customerSvc was constructed before loanSvc existed, so this cascade
+	// capability (Customer HardDelete -> each of the customer's loans'
+	// HardDeleteLoan) is wired in after the fact rather than passed to
+	// customer.NewService — see customer/harddelete.go's doc comment.
+	customerSvc.SetLoanHardDeleter(loanSvc)
 
 	reminderRepo := reminder.NewRepository(db)
 	reminderSvc := reminder.NewService(reminderRepo, customerRepo, loanRepo, loanAuctionRepo, whatsappSender, commlogRepo)
@@ -341,7 +346,7 @@ func main() {
 	cash.RegisterExpenseRoutes(protected.Group("/expenses"), expenseHandler, platform.CRUDPermissions(authzRepo, "cash"))
 	cash.RegisterCashRoutes(protected.Group("/cash"), openingBalanceHandler, summaryHandler, platform.CRUDPermissions(authzRepo, "cash"))
 	settings.RegisterRoutes(protected.Group("/settings/api-keys"), settingsHandler, platform.CRUDPermissions(authzRepo, "settings"))
-	customer.RegisterRoutes(protected.Group("/customers"), customerHandler, platform.CRUDPermissions(authzRepo, "customers"))
+	customer.RegisterRoutes(protected.Group("/customers"), customerHandler, platform.CRUDPermissions(authzRepo, "customers"), platform.RequirePermission(authzRepo, "can hard delete customer"))
 	// Customer 360 lives on loanHandler (see internal/loan/service.go's
 	// GetCustomer360 doc comment — avoids a customer<->loan import cycle)
 	// but is mounted under /customers to keep the URL customer-shaped.

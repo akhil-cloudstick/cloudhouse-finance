@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useModal } from "@/common/components/Modal";
 import { useToast } from "@/common/components/Toast";
 import { useAuth } from "@/common/auth-context";
+import { ConfirmModalContent } from "@/common/components/modals/ConfirmModal";
 import { fmt, fmtW, initials } from "@/common/utils/format";
 import { StatusChip } from "@/common/components/ui/StatusChip";
 import { DatePicker } from "@/common/components/ui/DatePicker";
@@ -14,6 +15,7 @@ import {
   verifyCustomerPan,
   startAadhaarVerify,
   checkAadhaarVerify,
+  hardDeleteCustomer,
   listCustomerLoansPage,
   listCustomerOrnamentsPage,
   listCustomerPaymentsPage,
@@ -127,6 +129,7 @@ export function CustomerDetail({ id }: { id?: string }) {
   // Anything not granted is hidden, not disabled (see Customers.tsx).
   const canUpdateCustomers = can("Customer_Management", "can_update_customer");
   const canUpdateLoans = can("Loan_Management", "can_update_loan");
+  const canHardDeleteCustomers = can("Customer_Management", "can_hard_delete_customer");
 
   const [profile, setProfile] = useState<Customer360View | null>(null);
   const [error, setError] = useState("");
@@ -307,7 +310,8 @@ export function CustomerDetail({ id }: { id?: string }) {
           if (!id) return;
           getCustomer360(id, { from, to }).then(setProfile).catch(() => { });
         }}
-      />
+      />,
+      true
     );
   }
 
@@ -337,6 +341,63 @@ export function CustomerDetail({ id }: { id?: string }) {
         {canUpdateCustomers && <button className="btn ghost sm" onClick={openEditCustomer}><Icon name="edit" /> Edit Customer</button>}
         {canUpdateLoans && <button className="btn ghost sm" onClick={openRequestPicker}><Icon name="unlock" /> Request Extension / Release</button>}
         {canCreateLoans && <a className="btn sm" href="#newloan"><Icon name="plus" /> New Loan</a>}
+        {/* Deliberately the ONLY delete action offered here — no separate
+         * "soft delete" alternative next to it. Gated by its own permission
+         * ("can hard delete customer"), independent of ordinary
+         * update/delete rights — same pattern as LoanDetail.tsx's "Delete
+         * Loan Permanently". */}
+        {canHardDeleteCustomers && (
+          <button
+            className="btn ghost sm danger"
+            onClick={() => {
+              const activeLoans = cLoans.filter((l) => l.status !== "Closed" && l.status !== "Auctioned");
+              const hasActiveLoans = activeLoans.length > 0 || (profile?.activeLoanCount ?? 0) > 0;
+              const activeLoanListStr = activeLoans.map((l) => l.loanNumber || l.id).filter(Boolean).join(", ");
+
+              openModal(
+                <ConfirmModalContent
+                  title="Delete Customer Permanently"
+                  confirmLabel="Delete Permanently"
+                  busyLabel="Deleting…"
+                  disabled={hasActiveLoans}
+                  message={
+                    <>
+                      This permanently deletes <strong>{c.name}</strong> ({c.code}). This cannot be undone.
+                    </>
+                  }
+                  onConfirm={async () => {
+                    if (!id || hasActiveLoans) return;
+                    await hardDeleteCustomer(id);
+                    toast("Customer deleted permanently");
+                    location.hash = "customers";
+                  }}
+                >
+                  {hasActiveLoans && (
+                    <div
+                      style={{
+                        marginTop: 14,
+                        padding: "12px 14px",
+                        background: "rgba(239, 68, 68, 0.08)",
+                        border: "1px solid var(--red)",
+                        borderRadius: 6,
+                        color: "var(--red)",
+                        fontSize: 13,
+                        lineHeight: 1.5,
+                      }}
+                    >
+                      <div style={{ fontWeight: 600, display: "flex", alignItems: "center", gap: 6, marginBottom: 4 }}>
+                        <Icon name="warning" /> Active Loans Warning
+                      </div>
+                      Cannot delete this customer — {activeLoanListStr ? <>the following loan(s) are still active: <strong>{activeLoanListStr}</strong></> : <>this customer has active loan(s)</>}. Active loans must be closed or deleted first.
+                    </div>
+                  )}
+                </ConfirmModalContent>
+              );
+            }}
+          >
+            <Icon name="trash" /> Delete Customer
+          </button>
+        )}
       </div>
       <hr className="gold-rule rule-xs" />
       {/* Opened-date filter for the whole 360 view — every card below plus

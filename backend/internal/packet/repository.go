@@ -130,6 +130,14 @@ func (r *Repository) CountAll() (int64, error) {
 	return count, err
 }
 
+func (r *Repository) MaxCodeSuffix() (int, error) {
+	var maxSuffix int
+	err := r.db.Model(&Packet{}).Unscoped().
+		Select("COALESCE(MAX(CAST(SUBSTRING(code FROM 'PKT-(\\d+)') AS INTEGER)), 0)").
+		Scan(&maxSuffix).Error
+	return maxSuffix, err
+}
+
 // CountActivePackets implements locker.PacketCounter: how many packets are
 // currently checked into the given locker.
 func (r *Repository) CountActivePackets(lockerID uint) (int, error) {

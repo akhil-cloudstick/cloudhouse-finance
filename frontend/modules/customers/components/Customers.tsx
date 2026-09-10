@@ -1,8 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useData } from "@/common/DataProvider";
 import { useCustomers } from "@/modules/customers/store/CustomersProvider";
+import { useLoans } from "@/modules/loans/store/LoansProvider";
 import { useModal } from "@/common/components/Modal";
 import { StatusChip } from "@/common/components/ui/StatusChip";
 import { Icon } from "@/common/components/Icon";
@@ -22,8 +22,8 @@ const VERIFICATION_STATUS_OPTIONS = [
 
 /* Ported from legacy/app.js's `renderCustomers()`. Loads real data from the
  * Go backend (`GET /api/v1/customers`) instead of the localStorage mock
- * store — see the Customer Module stage-1 plan. Loan counts still come
- * from the mock `db.loans` (the Loan module itself is out of scope here).
+ * store — see the Customer Module stage-1 plan. Loan counts come from the
+ * real backend-backed `useLoans()`.
  *
  * The table below is paginated (10/page, one API call per page) via
  * listCustomersPage — kept separate from CustomersProvider's `customers`,
@@ -31,7 +31,7 @@ const VERIFICATION_STATUS_OPTIONS = [
  * single fetch-once-and-refresh full list. `customers.length` from the
  * provider is only used for the header's overview count. */
 export function Customers() {
-  const { db } = useData();
+  const { loans } = useLoans();
   const { customers, refresh: refreshAll } = useCustomers();
   const { openModal } = useModal();
   const pageSize = useResponsivePageSize(9, 6);
@@ -82,7 +82,7 @@ export function Customers() {
         <div className="sp" />
         <div className="search"><Icon name="search" /><input className="inp" placeholder="Search name, phone, ID…" value={q} onChange={(e) => setQ(e.target.value)} /></div>
         {canCreateCustomers && (
-          <button className="btn" onClick={() => openModal(<RegisterCustomerModalContent onSaved={refresh} />)}>
+          <button className="btn" onClick={() => openModal(<RegisterCustomerModalContent onSaved={refresh} />, true)}>
             <Icon name="plus" /> Register Customer
           </button>
         )}
@@ -121,7 +121,7 @@ export function Customers() {
               <td><StatusChip status={c.panStatus} /></td>
               <td><StatusChip status={c.aadhaarStatus} /></td>
               <td><StatusChip status={c.kycStatus} /></td>
-              <td className="num">{db.loans.filter((l) => l.cust === c.id).length}</td>
+              <td className="num">{loans.filter((l) => String(l.customerId) === String(c.id)).length}</td>
               <td style={{ textAlign: "right", color: "var(--gold-deep)" }}>›</td>
             </tr>
           ))}
