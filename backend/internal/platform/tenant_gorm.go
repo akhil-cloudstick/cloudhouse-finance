@@ -38,12 +38,21 @@ var tenantScopedTables = map[string]bool{
 	"loan_drafts": true, "loan_draft_ornaments": true,
 	"personal_loans": true, "personal_loan_installments": true,
 	"personal_loan_payments": true,
-	"ornament_types": true, "banks": true, "lockers": true,
+	"ornament_types":         true, "banks": true, "lockers": true,
 	"packets": true, "packet_movements": true, "purity_standards": true,
 	"reminders": true, "roles": true, "role_permissions": true,
 	"communication_logs": true, "customer_otp": true,
 	"customer_device_tokens": true, "notifications": true,
 	"uploaded_files": true,
+	// Gold sales and the investments module. Both shipped with a tenant_id
+	// column (they embed platform.TenantScoped) but were never added here,
+	// so the filter skipped them entirely and every query ran unscoped —
+	// the same defect as the uploaded_files one recorded in
+	// internal/app/isolation_manifest_test.go's header, and the reason a
+	// gold_sales row existed with tenant_id = 0: unregistered means the
+	// create callback never stamped it either.
+	"gold_sales":  true,
+	"investments": true, "investment_plans": true, "investment_payouts": true,
 	// This business's own audit log (Step 11) — tenant-scoped, unlike
 	// superadmin.AuditLog (deliberately exempt, see tenant_scope_db_test.go).
 	"audit_log_entries": true,

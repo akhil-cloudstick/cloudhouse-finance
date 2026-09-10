@@ -29,7 +29,7 @@ import {
 import { getCustomer, getCustomerAadhaarFull } from "@/modules/customers/services/customerService";
 import { listPackets } from "@/modules/packets/services/packetService";
 import { openPrintWindow, brandHeader } from "@/common/utils/print";
-import { BRAND, PRINT_COLORS } from "@/common/config/brand";
+import { BRAND, printColors } from "@/common/config/brand";
 import { printIndemnityBond, type BondLang } from "@/modules/loans/utils/indemnityBond";
 import { printReleaseAgreement, type ReleaseAgreementLang } from "@/modules/loans/utils/releaseAgreement";
 import { StageTracker } from "@/common/components/ui/StageTracker";
@@ -639,7 +639,7 @@ export function LoanDetail({ id }: { id?: string }) {
           border:0.3mm dashed #aaa;overflow:hidden;page-break-inside:avoid}
         .label img{width:25mm;height:25mm;flex:none}
         .t{font-size:2.5mm;line-height:1.45;min-width:0}
-        .t .brand{font-size:2mm;letter-spacing:0.3mm;color:${PRINT_COLORS.brand}}
+        .t .brand{font-size:2mm;letter-spacing:0.3mm;color:${printColors().brand}}
         .t .id{font-size:3.4mm;font-weight:bold}
         .t div{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
         .noprint{text-align:center;margin:8mm;font-family:Arial}

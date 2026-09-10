@@ -37,8 +37,9 @@ import { PurityPicker } from "@/common/components/ui/PurityPicker";
 import { rateForPurityString } from "@/common/utils/purity";
 import { makeEnterToSubmitHandler } from "@/common/utils/enterToSubmit";
 import { openPrintWindow, brandHeader } from "@/common/utils/print";
-import { BRAND, PRINT_COLORS } from "@/common/config/brand";
-import { printIndemnityBond, BOND_LANG_OPTIONS, type BondLang } from "@/modules/loans/utils/indemnityBond";
+import { BRAND, printColors } from "@/common/config/brand";
+import { printIndemnityBond, bondLangOptionsFor, type BondLang } from "@/modules/loans/utils/indemnityBond";
+import { useBranding } from "@/common/BrandingProvider";
 import { ApiError } from "@/common/services/httpClient";
 import type { Ornament } from "@/common/utils/data";
 
@@ -186,6 +187,8 @@ export function NewLoan() {
   // provisional provId-based URL once it's known.
   const [createdPacketCode, setCreatedPacketCode] = useState<string | null>(null);
   const [bondLang, setBondLang] = useState<BondLang>("en");
+  // Only the languages this business was granted; English always survives.
+  const bondLangOptions = bondLangOptionsFor(useBranding().languages);
   const [bondMenuOpen, setBondMenuOpen] = useState(false);
   const bondMenuRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -520,7 +523,7 @@ export function NewLoan() {
         border:0.3mm dashed #aaa;overflow:hidden;page-break-inside:avoid}
       .label img{width:25mm;height:25mm;flex:none}
       .t{font-size:2.5mm;line-height:1.45;min-width:0}
-      .t .brand{font-size:2mm;letter-spacing:0.3mm;color:${PRINT_COLORS.brand}}
+      .t .brand{font-size:2mm;letter-spacing:0.3mm;color:${printColors().brand}}
       .t .id{font-size:3.4mm;font-weight:bold}
       .t div{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
       .noprint{text-align:center;margin:8mm;font-family:Arial}
@@ -968,38 +971,30 @@ export function NewLoan() {
               >
                 🖨 Pledge Agreement <Icon name="chevronDown" className="docs-dd-chev" />
               </button>
+              {/* Generated from the business's granted languages rather than
+                * two hand-written entries. The pair used to be duplicated
+                * here and in EsignLanguageModal, so adding a language meant
+                * editing both and the labels could drift. */}
               {bondMenuOpen && (
                 <div className="docs-dd-menu" style={{ minWidth: 230, right: 0 }}>
-                  <a
-                    href="#"
-                    onClick={(e) => {
-                      e.preventDefault();
-                      setBondMenuOpen(false);
-                      setBondLang("en");
-                      printIndemnity("en");
-                    }}
-                  >
-                    <Icon name="doc" />
-                    <span className="tx">
-                      English
-                      <span style={{ display: "block", fontSize: 11, color: "var(--muted)" }}>Indemnity Bond</span>
-                    </span>
-                  </a>
-                  <a
-                    href="#"
-                    onClick={(e) => {
-                      e.preventDefault();
-                      setBondMenuOpen(false);
-                      setBondLang("ml");
-                      printIndemnity("ml");
-                    }}
-                  >
-                    <Icon name="doc" />
-                    <span className="tx">
-                      Malayalam
-                      <span style={{ display: "block", fontSize: 11, color: "var(--muted)" }}>ആഭരണ പണയ കരാർ</span>
-                    </span>
-                  </a>
+                  {bondLangOptions.map((o) => (
+                    <a
+                      key={o.value}
+                      href="#"
+                      onClick={(e) => {
+                        e.preventDefault();
+                        setBondMenuOpen(false);
+                        setBondLang(o.value);
+                        printIndemnity(o.value);
+                      }}
+                    >
+                      <Icon name="doc" />
+                      <span className="tx">
+                        {o.label}
+                        <span style={{ display: "block", fontSize: 11, color: "var(--muted)" }}>{o.native}</span>
+                      </span>
+                    </a>
+                  ))}
                 </div>
               )}
             </div>

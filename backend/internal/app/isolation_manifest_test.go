@@ -170,6 +170,16 @@ var routeManifest = map[string]routeSpec{
 	"POST /api/v1/webhooks/razorpay": public("Razorpay's own server; gated by webhook signature, not a JWT"),
 	"GET /api/v1/auth/me":            self("returns the caller's own claims; no identifier to substitute"),
 
+	// Branding. The two /public routes are unauthenticated by design — a
+	// sign-in page must render a business's logo and colour before there is
+	// a session. Neither is an enumeration oracle: an unknown code returns
+	// the platform default rather than a 404, and the logo is resolved from
+	// the tenant row's own LogoStorageKey, never from a key in the URL, so
+	// it cannot be aimed at another business's customer documents.
+	"GET /api/v1/public/branding/:code":      public("login-page branding; unknown codes return the platform default, never a 404"),
+	"GET /api/v1/public/branding/:code/logo": public("a public logo, resolved from the tenant row's own key rather than a caller-supplied one"),
+	"GET /api/v1/branding":                   self("the caller's own business's branding and grants, taken from the token; no identifier to substitute"),
+
 	// ------------------------------------------------------------ branches
 	"GET /api/v1/branches":  list(),
 	"POST /api/v1/branches": list(),
@@ -262,51 +272,55 @@ var routeManifest = map[string]routeSpec{
 	"POST /api/v1/customers/:id/verify-aadhaar/check": external("polls a live Setu session", "id=customers"),
 
 	// --------------------------------------------------------------- loans
-	"GET /api/v1/loans":                                    list(),
-	"POST /api/v1/loans":                                   list(),
-	"GET /api/v1/loans/:id":                                probe("id=loans"),
-	"GET /api/v1/loans/:id/approvals":                      probe("id=loans"),
-	"GET /api/v1/loans/:id/statement":                      probe("id=loans"),
-	"GET /api/v1/loans/:id/auction":                        probe("id=loans"),
-	"GET /api/v1/loans/:id/auction/history":                probe("id=loans"),
-	"GET /api/v1/loans/:id/bank-pledge/history":            probe("id=loans"),
-	"POST /api/v1/loans/:id/approve":                       probe("id=loans"),
-	"POST /api/v1/loans/:id/payments":                      probe("id=loans"),
-	"POST /api/v1/loans/:id/ornaments":                     probe("id=loans"),
-	"POST /api/v1/loans/:id/complete-release":              probe("id=loans"),
-	"POST /api/v1/loans/:id/extension-request":             probe("id=loans"),
-	"POST /api/v1/loans/:id/release-request":               probe("id=loans"),
-	"POST /api/v1/loans/:id/bank-pledge":                   probe("id=loans"),
-	"POST /api/v1/loans/:id/auction/eligible":              probe("id=loans"),
-	"POST /api/v1/loans/:id/auction/decision":              probe("id=loans"),
-	"POST /api/v1/loans/:id/auction/schedule":              probe("id=loans"),
-	"POST /api/v1/loans/:id/auction/sale":                  probe("id=loans"),
-	"POST /api/v1/loans/:id/auction/settle":                probe("id=loans"),
-	"POST /api/v1/loans/:id/auction/notice":                external("an auction notice is a legal notice sent to a real borrower over WhatsApp/SMS", "id=loans"),
-	"GET /api/v1/loans/:id/indemnity-bond/esign/status":    probe("id=loans"),
-	"POST /api/v1/loans/:id/indemnity-bond/esign/start":    external("starts a Setu Aadhaar eSign transaction", "id=loans"),
-	"PUT /api/v1/loans/:id/bank-pledge/:pledgeId/release":  probe("id=loans", "pledgeId=bank_pledge_records"),
-	"PUT /api/v1/loans/:id/bank-pledge/:pledgeId/void":     probe("id=loans", "pledgeId=bank_pledge_records"),
-	"GET /api/v1/loans/by-number/:loanNumber":              probe("loanNumber=loans:loan_number"),
-	"GET /api/v1/loans/interest-collected":                 list(),
-	"GET /api/v1/loans/risk-assessment":                    list(),
-	"GET /api/v1/loans/bank-pledges/history":               list(),
-	"GET /api/v1/loans/auctions/concluded":                 list(),
-	"GET /api/v1/loans/auctions/decisions/pending":         list(),
-	"GET /api/v1/loans/requests":                           list(),
-	"GET /api/v1/loans/drafts":                             list(),
-	"POST /api/v1/loans/drafts":                            list(),
-	"GET /api/v1/loans/drafts/:draftId":                    probe("draftId=loan_drafts"),
-	"PUT /api/v1/loans/drafts/:draftId":                    probe("draftId=loan_drafts"),
-	"DELETE /api/v1/loans/drafts/:draftId":                 probe("draftId=loan_drafts"),
-	"PUT /api/v1/loans/ornaments/:ornamentId":              probe("ornamentId=ornaments"),
-	"POST /api/v1/loans/ornaments/:ornamentId/images":      probe("ornamentId=ornaments"),
-	"POST /api/v1/loans/ornaments/:ornamentId/purity-test": probe("ornamentId=ornaments"),
-	"POST /api/v1/loans/requests/:requestId/approve":       probe("requestId=loan_requests"),
-	"PUT /api/v1/loans/requests/:requestId/decide":         probe("requestId=loan_requests"),
-	"PUT /api/v1/loans/requests/:requestId/verify":         probe("requestId=loan_requests"),
-	"GET /api/v1/loans/approval-limits/loan-operator":      list(),
-	"PUT /api/v1/loans/approval-limits/loan-operator":      list(),
+	"GET /api/v1/loans":                                      list(),
+	"POST /api/v1/loans":                                     list(),
+	"GET /api/v1/loans/:id":                                  probe("id=loans"),
+	"GET /api/v1/loans/:id/approvals":                        probe("id=loans"),
+	"GET /api/v1/loans/:id/statement":                        probe("id=loans"),
+	"GET /api/v1/loans/:id/auction":                          probe("id=loans"),
+	"GET /api/v1/loans/:id/auction/history":                  probe("id=loans"),
+	"GET /api/v1/loans/:id/bank-pledge/history":              probe("id=loans"),
+	"POST /api/v1/loans/:id/approve":                         probe("id=loans"),
+	"POST /api/v1/loans/:id/payments":                        probe("id=loans"),
+	"POST /api/v1/loans/:id/ornaments":                       probe("id=loans"),
+	"POST /api/v1/loans/:id/complete-release":                probe("id=loans"),
+	"POST /api/v1/loans/:id/extension-request":               probe("id=loans"),
+	"POST /api/v1/loans/:id/release-request":                 probe("id=loans"),
+	"POST /api/v1/loans/:id/bank-pledge":                     probe("id=loans"),
+	"POST /api/v1/loans/:id/auction/eligible":                probe("id=loans"),
+	"POST /api/v1/loans/:id/auction/decision":                probe("id=loans"),
+	"POST /api/v1/loans/:id/auction/schedule":                probe("id=loans"),
+	"POST /api/v1/loans/:id/auction/sale":                    probe("id=loans"),
+	"POST /api/v1/loans/:id/auction/settle":                  probe("id=loans"),
+	"POST /api/v1/loans/:id/auction/notice":                  external("an auction notice is a legal notice sent to a real borrower over WhatsApp/SMS", "id=loans"),
+	"GET /api/v1/loans/:id/indemnity-bond/esign/status":      probe("id=loans"),
+	"POST /api/v1/loans/:id/indemnity-bond/esign/start":      external("starts a Setu Aadhaar eSign transaction", "id=loans"),
+	"PUT /api/v1/loans/:id/bank-pledge/:pledgeId/release":    probe("id=loans", "pledgeId=bank_pledge_records"),
+	"PUT /api/v1/loans/:id/bank-pledge/:pledgeId/void":       probe("id=loans", "pledgeId=bank_pledge_records"),
+	"GET /api/v1/loans/by-number/:loanNumber":                probe("loanNumber=loans:loan_number"),
+	"GET /api/v1/loans/interest-collected":                   list(),
+	"GET /api/v1/loans/risk-assessment":                      list(),
+	"GET /api/v1/loans/bank-pledges/history":                 list(),
+	"GET /api/v1/loans/auctions/concluded":                   list(),
+	"GET /api/v1/loans/auctions/decisions/pending":           list(),
+	"GET /api/v1/loans/requests":                             list(),
+	"GET /api/v1/loans/drafts":                               list(),
+	"POST /api/v1/loans/drafts":                              list(),
+	"GET /api/v1/loans/drafts/:draftId":                      probe("draftId=loan_drafts"),
+	"PUT /api/v1/loans/drafts/:draftId":                      probe("draftId=loan_drafts"),
+	"DELETE /api/v1/loans/drafts/:draftId":                   probe("draftId=loan_drafts"),
+	"PATCH /api/v1/loans/:id":                                probe("id=loans"),
+	"DELETE /api/v1/loans/:id/hard-delete":                   probe("id=loans"),
+	"DELETE /api/v1/loans/ornaments/:ornamentId":             probe("ornamentId=ornaments"),
+	"POST /api/v1/loans/requests/:requestId/release-payment": probe("requestId=loan_requests"),
+	"PUT /api/v1/loans/ornaments/:ornamentId":                probe("ornamentId=ornaments"),
+	"POST /api/v1/loans/ornaments/:ornamentId/images":        probe("ornamentId=ornaments"),
+	"POST /api/v1/loans/ornaments/:ornamentId/purity-test":   probe("ornamentId=ornaments"),
+	"POST /api/v1/loans/requests/:requestId/approve":         probe("requestId=loan_requests"),
+	"PUT /api/v1/loans/requests/:requestId/decide":           probe("requestId=loan_requests"),
+	"PUT /api/v1/loans/requests/:requestId/verify":           probe("requestId=loan_requests"),
+	"GET /api/v1/loans/approval-limits/loan-operator":        list(),
+	"PUT /api/v1/loans/approval-limits/loan-operator":        list(),
 
 	// -------------------------------------------------------- personal-loans
 	"GET /api/v1/personal-loans":                      list(),
@@ -373,24 +387,54 @@ var routeManifest = map[string]routeSpec{
 	// returned every business's rows unfiltered, and the plan records that
 	// they had never been run with two businesses and the rows compared.
 	// TestCollectionsDoNotLeak is that comparison.
-	"GET /api/v1/reports/loans/status":          list(),
-	"GET /api/v1/reports/disbursement":          list(),
-	"GET /api/v1/reports/personal-loans":        list(),
-	"GET /api/v1/reports/interest-collection":   list(),
-	"GET /api/v1/reports/payment-collection":    list(),
-	"GET /api/v1/reports/outstanding-principal": list(),
-	"GET /api/v1/reports/gold-weight":           list(),
-	"GET /api/v1/reports/gold-release":          list(),
-	"GET /api/v1/reports/bank-pledge":           list(),
-	"GET /api/v1/reports/auctions":              list(),
-	"GET /api/v1/reports/loan-extensions":       list(),
-	"GET /api/v1/reports/packets":               list(),
-	"GET /api/v1/reports/expense-cashflow":      list(),
-	"GET /api/v1/reports/kyc":                   list(),
-	"GET /api/v1/reports/gold-rate-history":     list(),
-	"GET /api/v1/reports/employee-performance":  list(),
-	"GET /api/v1/reports/communication-history": list(),
-	"GET /api/v1/reports/form-g":                list(),
+
+	// ------------------------------------------------------ investments
+	//
+	// investments/investment_plans/investment_payouts each carry a
+	// tenant_id but were absent from platform.tenantScopedTables until the
+	// same change that classified these routes — so every query below ran
+	// UNFILTERED. Registering the tables is what makes these probes
+	// meaningful; classifying the routes without that would have recorded
+	// a guarantee nothing enforced.
+	"GET /api/v1/investment-plans":         list(),
+	"POST /api/v1/investment-plans":        list(),
+	"GET /api/v1/investment-plans/:id":     probe("id=investment_plans"),
+	"PUT /api/v1/investment-plans/:id":     probe("id=investment_plans"),
+	"GET /api/v1/investments":              list(),
+	"POST /api/v1/investments":             list(),
+	"GET /api/v1/investments/:id":          probe("id=investments"),
+	"GET /api/v1/investments/:id/schedule": probe("id=investments"),
+	"POST /api/v1/investments/:id/mature":  probe("id=investments"),
+	// Two identifiers, so both are substituted: reaching another business's
+	// payout through your own investment id must fail as surely as the
+	// reverse.
+	"POST /api/v1/investments/:id/payouts/:payoutId/pay": probe("id=investments", "payoutId=investment_payouts"),
+	// Customer-shaped URL, customer-owned identifier — same treatment as the
+	// other /customers/:id/* aggregates above.
+	"GET /api/v1/customers/:id/investments": probe("id=customers"),
+
+	"GET /api/v1/reports/investments/deposit-register":         list(),
+	"GET /api/v1/reports/investments/interest-payout-register": list(),
+	"GET /api/v1/reports/investments/investor-ledger":          list(),
+	"GET /api/v1/reports/investments/maturity-register":        list(),
+	"GET /api/v1/reports/loans/status":                         list(),
+	"GET /api/v1/reports/disbursement":                         list(),
+	"GET /api/v1/reports/personal-loans":                       list(),
+	"GET /api/v1/reports/interest-collection":                  list(),
+	"GET /api/v1/reports/payment-collection":                   list(),
+	"GET /api/v1/reports/outstanding-principal":                list(),
+	"GET /api/v1/reports/gold-weight":                          list(),
+	"GET /api/v1/reports/gold-release":                         list(),
+	"GET /api/v1/reports/bank-pledge":                          list(),
+	"GET /api/v1/reports/auctions":                             list(),
+	"GET /api/v1/reports/loan-extensions":                      list(),
+	"GET /api/v1/reports/packets":                              list(),
+	"GET /api/v1/reports/expense-cashflow":                     list(),
+	"GET /api/v1/reports/kyc":                                  list(),
+	"GET /api/v1/reports/gold-rate-history":                    list(),
+	"GET /api/v1/reports/employee-performance":                 list(),
+	"GET /api/v1/reports/communication-history":                list(),
+	"GET /api/v1/reports/form-g":                               list(),
 	// :key names the report to export, not a record. The export path is the
 	// classic blind spot — correct on screen, leaking in the file — so
 	// TestCollectionsDoNotLeak walks every export key too.
@@ -476,6 +520,16 @@ var routeManifest = map[string]routeSpec{
 
 	"GET /api/v1/superadmin/tiers":           superAdminRoute("the plan catalogue, identical for every business by definition"),
 	"PUT /api/v1/superadmin/tiers/:id/price": superAdminRoute("sets a tier's Razorpay subscription price — vendor pricing, not a business's own record"),
+
+	// Branding and entitlements. Vendor levers over another business's
+	// identity and feature grants, so the same class as everything above.
+	"PUT /api/v1/superadmin/businesses/:id/profile":   superAdminRoute("sets the name/legal identity printed on a business's own customer documents"),
+	"PUT /api/v1/superadmin/businesses/:id/branding":  superAdminRoute("sets the one colour the frontend derives a business's whole palette from"),
+	"POST /api/v1/superadmin/businesses/:id/logo":     superAdminRoute("stores a logo AS that business — the write runs under platform.WithTenant, so the uploaded_files row is stamped to it, not to the vendor"),
+	"PUT /api/v1/superadmin/businesses/:id/modules":   superAdminRoute("grants/revokes optional modules; enforced per request by platform.RequireTenantModule"),
+	"PUT /api/v1/superadmin/businesses/:id/languages": superAdminRoute("grants/revokes the languages a business may issue customer documents in"),
+
+	"GET /api/v1/superadmin/catalogue": superAdminRoute("the closed sets of toggleable modules/languages — a static vocabulary, no business's data at all"),
 
 	"GET /api/v1/superadmin/audit-log": superAdminRoute("every privileged superadmin action across every business, by design — this IS the record of who saw/changed what"),
 }

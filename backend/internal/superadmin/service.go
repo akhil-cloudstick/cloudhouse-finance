@@ -16,6 +16,7 @@ import (
 	"cloudhouse/backend/internal/platform"
 	"cloudhouse/backend/internal/platform/httpx"
 	"cloudhouse/backend/internal/tenant"
+	"cloudhouse/backend/internal/upload"
 )
 
 var (
@@ -54,12 +55,18 @@ type Service struct {
 
 	tenantRepo *tenant.Repository
 
+	// files/uploadsDir back SetLogo only. Held here rather than reached
+	// through another service so the logo write uses the same storage path
+	// (and the same SVG refusal) as every other upload in the system.
+	files      *upload.Repository
+	uploadsDir string
+
 	jwtSecret string
 	jwtExpiry time.Duration
 }
 
-func NewService(db *gorm.DB, repo *Repository, tenantRepo *tenant.Repository, jwtSecret string, jwtExpiry time.Duration) *Service {
-	return &Service{db: db, repo: repo, tenantRepo: tenantRepo, jwtSecret: jwtSecret, jwtExpiry: jwtExpiry}
+func NewService(db *gorm.DB, repo *Repository, tenantRepo *tenant.Repository, files *upload.Repository, uploadsDir, jwtSecret string, jwtExpiry time.Duration) *Service {
+	return &Service{db: db, repo: repo, tenantRepo: tenantRepo, files: files, uploadsDir: uploadsDir, jwtSecret: jwtSecret, jwtExpiry: jwtExpiry}
 }
 
 // --- Authentication ---------------------------------------------------------
@@ -101,6 +108,18 @@ type CreateBusinessInput struct {
 	AdminPassword string
 	AdminName     string
 	AdminPhone    string
+
+	// Branding and entitlements, all optional — a business can be created
+	// bare and fitted out later through the profile/branding/modules
+	// endpoints. Set here too so the console's create form is one step
+	// rather than five.
+	LegalName   string
+	AddressLine string
+	KMLRegNo    string
+	AppURL      string
+	BrandColor  string
+	Modules     []string
+	Languages   []string
 }
 
 // CreateBusiness is the single transaction that replaces the five
@@ -156,6 +175,27 @@ func (s *Service) CreateBusiness(ctx context.Context, actor *SuperAdminUser, in 
 		txEmployeeRepo := employee.NewRepository(tx)
 
 		t := tenant.Tenant{Name: name, Code: code, TierID: in.TierID, Status: tenant.StatusActive}
+		// Optional branding, validated the same way the dedicated endpoints
+		// validate it — a create must not be a way in for a value an update
+		// would have refused.
+		if c := strings.TrimSpace(strings.ToLower(in.BrandColor)); c != "" {
+			if !brandColorPattern.MatchString(c) {
+				return ErrInvalidBrandColor
+			}
+			t.BrandColor = c
+		}
+		if bad := tenant.ValidateModules(in.Modules); len(bad) > 0 {
+			return httpx.NewBadRequest("unknown module(s): " + strings.Join(bad, ", "))
+		}
+		if bad := tenant.ValidateLanguages(in.Languages); len(bad) > 0 {
+			return httpx.NewBadRequest("unknown language(s): " + strings.Join(bad, ", "))
+		}
+		t.LegalName = strings.TrimSpace(in.LegalName)
+		t.AddressLine = strings.TrimSpace(in.AddressLine)
+		t.KMLRegNo = strings.TrimSpace(in.KMLRegNo)
+		t.AppURL = strings.TrimSpace(in.AppURL)
+		t.SetModules(in.Modules)
+		t.SetLanguages(in.Languages)
 		if err := tx.Create(&t).Error; err != nil {
 			if isUniqueViolation(err) {
 				return ErrDuplicateCode

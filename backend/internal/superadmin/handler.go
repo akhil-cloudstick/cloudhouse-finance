@@ -58,14 +58,21 @@ func (h *Handler) Login(c *gin.Context) {
 // --- Businesses --------------------------------------------------------------
 
 type createBusinessRequest struct {
-	Name          string `json:"name"`
-	Code          string `json:"code"`
-	TierID        uint   `json:"tierId"`
-	AdminUsername string `json:"adminUsername"`
-	AdminPassword string `json:"adminPassword"`
-	AdminName     string `json:"adminName"`
-	AdminPhone    string `json:"adminPhone"`
-	Reason        string `json:"reason"`
+	Name          string   `json:"name"`
+	Code          string   `json:"code"`
+	TierID        uint     `json:"tierId"`
+	AdminUsername string   `json:"adminUsername"`
+	AdminPassword string   `json:"adminPassword"`
+	AdminName     string   `json:"adminName"`
+	AdminPhone    string   `json:"adminPhone"`
+	LegalName     string   `json:"legalName"`
+	AddressLine   string   `json:"addressLine"`
+	KMLRegNo      string   `json:"kmlRegNo"`
+	AppURL        string   `json:"appUrl"`
+	BrandColor    string   `json:"brandColor"`
+	Modules       []string `json:"modules"`
+	Languages     []string `json:"languages"`
+	Reason        string   `json:"reason"`
 }
 
 func (h *Handler) CreateBusiness(c *gin.Context) {
@@ -82,6 +89,13 @@ func (h *Handler) CreateBusiness(c *gin.Context) {
 		AdminPassword: req.AdminPassword,
 		AdminName:     req.AdminName,
 		AdminPhone:    req.AdminPhone,
+		LegalName:     req.LegalName,
+		AddressLine:   req.AddressLine,
+		KMLRegNo:      req.KMLRegNo,
+		AppURL:        req.AppURL,
+		BrandColor:    req.BrandColor,
+		Modules:       req.Modules,
+		Languages:     req.Languages,
 	}, req.Reason)
 	if err != nil {
 		httpx.FailErr(c, err)

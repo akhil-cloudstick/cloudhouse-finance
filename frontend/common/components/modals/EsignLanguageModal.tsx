@@ -3,7 +3,8 @@
 import { useState } from "react";
 import { useModal } from "@/common/components/Modal";
 import { Icon } from "@/common/components/Icon";
-import { BOND_LANG_OPTIONS, type BondLang } from "@/modules/loans/utils/indemnityBond";
+import { bondLangOptionsFor, type BondLang } from "@/modules/loans/utils/indemnityBond";
+import { useBranding } from "@/common/BrandingProvider";
 
 /* Lets staff pick which pledge-agreement language goes to Setu before
  * starting the customer's Aadhaar eSign — LoanDetail.tsx's "Send Indemnity
@@ -38,6 +39,10 @@ export function EsignLanguageModalContent({
 }) {
   const { closeModal } = useModal();
   const [lang, setLang] = useState<BondLang>("en");
+  // Only the languages this business was granted. English always survives
+  // the filter, so the picker can never render empty.
+  const { languages } = useBranding();
+  const langOptions = bondLangOptionsFor(languages);
   const [deliverBy, setDeliverBy] = useState<EsignDeliverBy>("whatsapp");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
@@ -89,7 +94,7 @@ export function EsignLanguageModalContent({
           {showDelivery ? "1. Bond language" : "Bond language"}
         </span>
         <div className="esign-lang-grid" style={{ marginBottom: showDelivery ? 16 : 0 }}>
-          {BOND_LANG_OPTIONS.map((o) => (
+          {langOptions.map((o) => (
             <button
               type="button"
               key={o.value}

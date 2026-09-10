@@ -1,7 +1,7 @@
 # CloudHouse Finance — System Architecture
 
 > **Status:** this document describes the **planned production architecture**
-> (per the CloudHouse Gold Loan Management proposal). A real Go backend has
+> (per the CloudHouse Loan Management proposal). A real Go backend has
 > now been started under `backend/` (Gin + GORM + PostgreSQL, db
 > `cloudhouse`) with eight domain modules implemented end-to-end —
 > `internal/branch` (centralized branch management), `internal/settings`

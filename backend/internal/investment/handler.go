@@ -283,6 +283,14 @@ func (h *Handler) ListInvestmentsForCustomer(c *gin.Context) {
 		httpx.FailErr(c, err)
 		return
 	}
+	// Ownership check BEFORE the list query: the customer must resolve
+	// inside the caller's own business. Without it this answers 200 with
+	// an empty list for another business's customer id, where every
+	// sibling /customers/:id/* route refuses.
+	if err := h.svc.EnsureCustomerExists(ctx, id); err != nil {
+		httpx.FailErr(c, err)
+		return
+	}
 	recs, _, _, err := h.svc.List(ctx, ListInput{BranchID: platform.GetBranchScope(c), CustomerID: &id, Limit: 1000})
 	if err != nil {
 		httpx.FailErr(c, err)

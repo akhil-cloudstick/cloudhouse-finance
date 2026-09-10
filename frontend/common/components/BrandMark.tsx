@@ -49,11 +49,22 @@ export default function BrandMark({ size = 40, gradient, className, title }: Pro
       aria-hidden={title ? undefined : true}
     >
       <defs>
+        {/* The gradient stops read the brand ramp rather than three literal
+            hexes, so this mark follows a business's own colour. That works
+            because this is INLINE SVG in the app document — the custom
+            properties exist here, in a way they never do inside a data-URI
+            or a print popup.
+
+            It is the ramp, not the old violet → magenta → amber logo sweep:
+            that sweep is CloudHouse's own artwork, and reusing it would put
+            our brand on every business's fallback mark. The literal
+            fallbacks preserve the original sweep for the cases where the
+            variables are absent (a print window, an isolated render). */}
         {gradient && (
           <linearGradient id={`${uid}-g`} x1="0" y1="0" x2="1" y2="1">
-            <stop offset="0%" stopColor="#6644de" />
-            <stop offset="52%" stopColor="#c61f8f" />
-            <stop offset="100%" stopColor="#f99603" />
+            <stop offset="0%" stopColor="var(--brand-deep, #6644de)" />
+            <stop offset="52%" stopColor="var(--brand, #c61f8f)" />
+            <stop offset="100%" stopColor="var(--brand-light, #f99603)" />
           </linearGradient>
         )}
 

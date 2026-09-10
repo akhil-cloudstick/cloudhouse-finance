@@ -209,8 +209,15 @@ var (
 	ErrEsignNotConfigured         = httpx.NewUnavailable("indemnity bond eSign is not configured")
 	ErrNoIndemnityBondSignRequest = httpx.NewBadRequest("no indemnity bond eSign has been started for this loan")
 	// ErrIndemnityBondAlreadySigned is a state conflict — Conflict, not BadRequest.
-	ErrIndemnityBondAlreadySigned      = httpx.NewConflict("this loan's indemnity bond has already been signed")
-	ErrUnsupportedIndemnityBondLang    = httpx.NewBadRequest("lang must be \"en\" or \"gu\"")
+	ErrIndemnityBondAlreadySigned = httpx.NewConflict("this loan's indemnity bond has already been signed")
+	// The message previously read `lang must be "en" or "gu"` while the code
+	// validated "ml" — it named a language the server could not produce and
+	// omitted the one it could.
+	ErrUnsupportedIndemnityBondLang = httpx.NewBadRequest("lang must be \"en\", \"ml\" or \"gu\"")
+	// ErrLanguageNotEnabled is distinct from ErrUnsupportedIndemnityBondLang:
+	// the language is real and this server can render it, but this business
+	// has not been granted it (see tenant.Tenant.HasLanguage).
+	ErrLanguageNotEnabled              = httpx.NewForbidden("this business is not set up to issue documents in that language")
 	ErrUnsupportedIndemnityBondDeliver = httpx.NewBadRequest("deliverBy must be \"open\", \"whatsapp\" or \"dashboard\"")
 )
 
@@ -4081,6 +4088,10 @@ func (s *Service) bondDataForLoan(ctx context.Context, l *Loan) BondData {
 		}
 	}
 
+	// The lender's own particulars come from the tenant profile, not from
+	// the loan — see renderBondHTML for the fallback order.
+	legalName, addressLine, kmlRegNo := s.lenderProfile(ctx)
+
 	return BondData{
 		LoanNumber:      l.LoanNumber,
 		CustomerName:    l.Customer.Name,
@@ -4097,6 +4108,9 @@ func (s *Service) bondDataForLoan(ctx context.Context, l *Loan) BondData {
 		Month:           now.Month().String(),
 		Year:            now.Year(),
 		BusinessName:    s.businessName(ctx),
+		LegalName:       legalName,
+		AddressLine:     addressLine,
+		KMLRegNo:        kmlRegNo,
 	}
 }
 
@@ -4128,8 +4142,15 @@ func (s *Service) StartIndemnityBondSign(ctx context.Context, loanID uint, branc
 	if s.esign == nil {
 		return nil, ErrEsignNotConfigured
 	}
-	if lang != BondLangEnglish && lang != BondLangMalayalam {
+	// Two separate checks. The first asks whether the language exists at
+	// all; the second asks whether THIS business was granted it, which is
+	// the vendor's decision and must be enforced server-side — hiding the
+	// option in the picker only decides what is drawn.
+	if lang != BondLangEnglish && lang != BondLangMalayalam && lang != BondLangGujarati {
 		return nil, ErrUnsupportedIndemnityBondLang
+	}
+	if !s.tenantAllowsLanguage(ctx, lang) {
+		return nil, ErrLanguageNotEnabled
 	}
 	if deliverBy == "" {
 		deliverBy = BondDeliverOpen

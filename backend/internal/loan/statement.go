@@ -1,8 +1,8 @@
 package loan
 
 import (
-	"cloudhouse/backend/internal/platform"
 	"bytes"
+	"cloudhouse/backend/internal/platform"
 	"context"
 	"fmt"
 	"strings"
@@ -303,4 +303,55 @@ func truncate(s string, max int) string {
 		return s[:max]
 	}
 	return s[:max-1] + "."
+}
+
+// lenderProfile resolves the business's own legal particulars for a customer
+// document: the registered name, address and money-lending registration
+// number the vendor set in the superadmin console.
+//
+// Returns empty strings rather than an error when there is no tenant or the
+// lookup fails. The caller (bondDataForLoan) hands these to renderBondHTML,
+// which falls back to the demo constants for anything blank — so a lookup
+// failure degrades to the old behaviour instead of printing a half-empty
+// letterhead, and never to ANOTHER business's particulars.
+func (s *Service) lenderProfile(ctx context.Context) (legalName, addressLine, kmlRegNo string) {
+	if s.tenantRepo == nil {
+		return "", "", ""
+	}
+	id, ok := platform.TenantFromContext(ctx)
+	if !ok {
+		return "", "", ""
+	}
+	t, err := s.tenantRepo.FindByID(ctx, id)
+	if err != nil {
+		return "", "", ""
+	}
+	return t.LegalName, t.AddressLine, t.KMLRegNo
+}
+
+// tenantAllowsLanguage reports whether this business has been granted the
+// language a document was requested in.
+//
+// Fails CLOSED for anything but English: if the tenant cannot be resolved we
+// do not know what was granted, and quietly issuing a Malayalam or Gujarati
+// contract to a business that never asked for one is the outcome worth
+// avoiding. English is always allowed — tenant.Tenant.HasLanguage guarantees
+// it, so a lookup failure can never leave a borrower unable to receive their
+// own agreement in any language at all.
+func (s *Service) tenantAllowsLanguage(ctx context.Context, lang string) bool {
+	if lang == BondLangEnglish {
+		return true
+	}
+	if s.tenantRepo == nil {
+		return false
+	}
+	id, ok := platform.TenantFromContext(ctx)
+	if !ok {
+		return false
+	}
+	t, err := s.tenantRepo.FindByID(ctx, id)
+	if err != nil {
+		return false
+	}
+	return t.HasLanguage(lang)
 }

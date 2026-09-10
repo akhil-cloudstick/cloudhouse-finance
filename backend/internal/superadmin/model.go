@@ -98,4 +98,15 @@ const (
 	// on every business subscribed to that tier going forward, so it gets
 	// the same mandatory-reason audit trail as every other lever here.
 	ActionSetTierPrice = "set_tier_price"
+	// The branding/entitlement levers (business profile, colour, logo,
+	// optional modules, document languages). These do not move money, but
+	// they change what a business's customers see on legally significant
+	// paperwork — the lender name and registration number on a pledge
+	// agreement — and what the software will do for them at all. Same
+	// mandatory-reason trail as everything else here.
+	ActionUpdateProfile = "update_profile"
+	ActionSetBranding   = "set_branding"
+	ActionSetLogo       = "set_logo"
+	ActionSetModules    = "set_modules"
+	ActionSetLanguages  = "set_languages"
 )

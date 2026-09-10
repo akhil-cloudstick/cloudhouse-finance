@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { login, SuperAdminApiError } from "@/common/services/superadminService";
 import { readSuperAdminToken, writeSuperAdminSession } from "@/common/services/superadminSession";
+import { VENDOR } from "@/common/config/brand";
 import "../superadmin.css";
 
 /* Deliberately plain and separate from the tenant login page's styling
@@ -44,7 +45,18 @@ export default function SuperAdminLoginPage() {
   return (
     <div className="sa-login">
       <form className="sa-login-card" onSubmit={handleSubmit}>
-        <h1>Superadmin console</h1>
+        {/* The VENDOR's mark, never a tenant's — this page belongs to us and
+          * must not re-brand to whichever business was last signed in. Plain
+          * <img> rather than BrandLogo for exactly that reason: BrandLogo
+          * resolves the tenant's logo through BrandingProvider. */}
+        <div className="sa-login-brand">
+          <img src={VENDOR.markSrc} alt="" />
+          <span className="sa-wordmark">
+            <b>{VENDOR.name}</b>
+            <span>{VENDOR.product}</span>
+          </span>
+        </div>
+        <h1>Sign in</h1>
         <p className="sa-muted">Manage every business on this deployment.</p>
         <label>
           Username

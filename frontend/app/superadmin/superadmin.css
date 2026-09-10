@@ -1,122 +1,245 @@
-/* Superadmin console — deliberately plain and visually distinct from the
- * tenant app (app/app/app.css) and the tenant login (app/login.css). Our own
- * team's tool, not a customer-facing surface. */
+/* Superadmin console — CloudHouse Technologies' own operator tool.
+ *
+ * Deliberately its own stylesheet, not app/app/app.css. Two reasons, and the
+ * second is the important one:
+ *
+ *  1. This console is never themed by a tenant. Every other surface in the
+ *     app re-colours itself to whichever business is signed in (see
+ *     common/config/theme.ts); this one must stay constant, or an operator
+ *     managing twelve businesses would see the chrome change under them and
+ *     lose track of which tool they are in.
+ *  2. So the tokens below are LITERAL, never var(--brand*). Reading the
+ *     branded variables here is the bug this comment exists to prevent.
+ *
+ * The tokens mirror app.css's neutral ramp (same oklch values) so the two
+ * still look like one product family, with a distinct near-black chrome that
+ * says "vendor tooling" at a glance.
+ */
+
+.sa-shell,
+.sa-login {
+  /* Vendor palette. Fixed — see the header comment. */
+  --sa-brand: oklch(0.515 0.162 284);
+  --sa-brand-deep: oklch(0.4 0.145 284);
+  --sa-brand-pale: oklch(0.955 0.02 284);
+  --sa-nav: oklch(0.14 0.025 285);
+  --sa-nav-2: oklch(0.19 0.03 285);
+
+  --sa-ink: oklch(0.18 0.02 285);
+  --sa-muted: oklch(0.5 0.02 285);
+  --sa-bg: oklch(0.972 0.004 290);
+  --sa-card: oklch(1 0 0);
+  --sa-line: oklch(0.915 0.006 290);
+
+  --sa-on-dark: oklch(0.95 0.006 290);
+  --sa-on-dark-dim: oklch(0.95 0.006 290 / 62%);
+
+  --sa-green: oklch(0.51 0.14 150);
+  --sa-green-bg: oklch(0.95 0.04 150);
+  --sa-red: oklch(0.52 0.2 25);
+  --sa-red-bg: oklch(0.95 0.025 25);
+  --sa-amber: oklch(0.53 0.114 70);
+  --sa-amber-bg: oklch(0.96 0.029 70);
+
+  font-family: system-ui, -apple-system, sans-serif;
+}
+
+/* --- Sign in --- */
 
 .sa-login {
   min-height: 100vh;
   display: flex;
   align-items: center;
   justify-content: center;
-  background: oklch(0.14 0.025 285);
-  font-family: system-ui, -apple-system, sans-serif;
+  padding: 20px;
+  background:
+    radial-gradient(1200px 600px at 50% -10%, oklch(0.24 0.05 285) 0%, transparent 70%),
+    var(--sa-nav);
 }
 .sa-login-card {
-  background: oklch(0.20 0.03 285);
-  border: 1px solid oklch(1 0 0 / 7%);
-  border-radius: 10px;
-  padding: 32px;
-  width: 320px;
+  background: var(--sa-nav-2);
+  border: 1px solid oklch(1 0 0 / 8%);
+  border-radius: 12px;
+  padding: 30px 32px 32px;
+  width: 340px;
   display: flex;
   flex-direction: column;
   gap: 14px;
+  box-shadow: 0 18px 50px oklch(0 0 0 / 45%);
+}
+.sa-login-brand {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  margin-bottom: 4px;
+}
+.sa-login-brand img {
+  width: 34px;
+  height: 34px;
+  object-fit: contain;
+  flex-shrink: 0;
+}
+.sa-login-brand .sa-wordmark {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.15;
+}
+.sa-login-brand .sa-wordmark b {
+  color: var(--sa-on-dark);
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+.sa-login-brand .sa-wordmark span {
+  color: var(--sa-on-dark-dim);
+  font-size: 11px;
+  letter-spacing: 0.11em;
+  text-transform: uppercase;
 }
 .sa-login-card h1 {
-  color: oklch(0.95 0.006 290);
-  font-size: 20px;
+  color: var(--sa-on-dark);
+  font-size: 19px;
   margin: 0;
 }
 .sa-muted {
-  color: oklch(0.95 0.006 290 / 50%);
+  color: var(--sa-on-dark-dim);
   font-size: 13px;
   margin: -8px 0 4px;
 }
 .sa-login-card label {
-  color: oklch(0.95 0.006 290 / 70%);
+  color: var(--sa-on-dark-dim);
   font-size: 13px;
   display: flex;
   flex-direction: column;
   gap: 6px;
 }
 .sa-login-card input {
-  background: oklch(0.14 0.025 285);
-  border: 1px solid oklch(1 0 0 / 7%);
-  border-radius: 6px;
-  padding: 9px 10px;
-  color: oklch(0.95 0.006 290);
+  background: var(--sa-nav);
+  border: 1px solid oklch(1 0 0 / 10%);
+  border-radius: 7px;
+  padding: 10px;
+  color: var(--sa-on-dark);
   font-size: 14px;
 }
 .sa-login-card input:focus {
-  outline: 2px solid oklch(0.515 0.162 284);
+  outline: 2px solid var(--sa-brand);
   outline-offset: 1px;
 }
 .sa-login-card button {
-  background: oklch(0.515 0.162 284);
+  background: var(--sa-brand);
   color: #fff;
   border: none;
-  border-radius: 6px;
-  padding: 10px;
+  border-radius: 7px;
+  padding: 11px;
   font-size: 14px;
   font-weight: 600;
   cursor: pointer;
   margin-top: 6px;
 }
+.sa-login-card button:hover:not(:disabled) {
+  background: var(--sa-brand-deep);
+}
 .sa-login-card button:disabled {
   opacity: 0.6;
   cursor: not-allowed;
 }
+
+/* .sa-error appears on BOTH the dark sign-in card and the light console, so
+ * it cannot take a background — only a colour that clears contrast on each. */
 .sa-error {
-  color: oklch(0.52 0.20 25);
+  color: oklch(0.63 0.19 25);
   font-size: 13px;
   margin: 0;
 }
+.sa-shell .sa-error {
+  color: var(--sa-red);
+}
 
-/* --- Dashboard shell --- */
+/* --- Shell --- */
+
 .sa-shell {
   min-height: 100vh;
-  background: oklch(0.962 0.004 290);
-  font-family: system-ui, -apple-system, sans-serif;
-  color: oklch(0.18 0.02 285);
+  background: var(--sa-bg);
+  color: var(--sa-ink);
 }
 .sa-topbar {
-  background: oklch(0.14 0.025 285);
-  color: oklch(0.95 0.006 290);
+  background: var(--sa-nav);
+  color: var(--sa-on-dark);
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 14px 24px;
+  gap: 16px;
+  padding: 12px 24px;
+  flex-wrap: wrap;
 }
-.sa-topbar h1 {
-  font-size: 16px;
-  margin: 0;
+.sa-topbar-brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+.sa-topbar-brand img {
+  width: 30px;
+  height: 30px;
+  object-fit: contain;
+  flex-shrink: 0;
+}
+.sa-topbar-brand .sa-wordmark {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.15;
+  min-width: 0;
+}
+.sa-topbar-brand .sa-wordmark b {
+  font-size: 13.5px;
+  font-weight: 700;
+}
+.sa-topbar-brand .sa-wordmark span {
+  font-size: 10.5px;
+  letter-spacing: 0.11em;
+  text-transform: uppercase;
+  color: var(--sa-on-dark-dim);
+}
+.sa-topbar-right {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.sa-topbar-user {
+  font-size: 13px;
+  color: var(--sa-on-dark-dim);
 }
 .sa-topbar button {
   background: none;
-  border: 1px solid oklch(1 0 0 / 7%);
-  color: oklch(0.95 0.006 290 / 70%);
+  border: 1px solid oklch(1 0 0 / 14%);
+  color: var(--sa-on-dark);
   border-radius: 6px;
   padding: 6px 12px;
   font-size: 13px;
   cursor: pointer;
 }
+.sa-topbar button:hover {
+  background: oklch(1 0 0 / 8%);
+}
 
 .sa-cards {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
   gap: 12px;
   padding: 20px 24px 0;
 }
 .sa-card {
-  background: #fff;
-  border: 1px solid oklch(0.915 0.006 290);
-  border-radius: 8px;
+  background: var(--sa-card);
+  border: 1px solid var(--sa-line);
+  border-radius: 10px;
   padding: 14px 16px;
 }
 .sa-card .sa-card-label {
   font-size: 12px;
-  color: oklch(0.50 0.02 285);
+  color: var(--sa-muted);
 }
 .sa-card .sa-card-value {
-  font-size: 22px;
+  font-size: 23px;
   font-weight: 700;
   margin-top: 4px;
 }
@@ -125,20 +248,25 @@
   display: flex;
   gap: 4px;
   padding: 20px 24px 0;
-  border-bottom: 1px solid oklch(0.915 0.006 290);
+  border-bottom: 1px solid var(--sa-line);
+  overflow-x: auto;
 }
 .sa-tab {
   background: none;
   border: none;
   padding: 10px 16px;
   font-size: 13px;
-  color: oklch(0.50 0.02 285);
+  color: var(--sa-muted);
   cursor: pointer;
   border-bottom: 2px solid transparent;
+  white-space: nowrap;
+}
+.sa-tab:hover {
+  color: var(--sa-ink);
 }
 .sa-tab.active {
-  color: oklch(0.18 0.02 285);
-  border-bottom-color: oklch(0.515 0.162 284);
+  color: var(--sa-ink);
+  border-bottom-color: var(--sa-brand);
   font-weight: 600;
 }
 
@@ -146,30 +274,82 @@
   padding: 20px 24px 40px;
 }
 
+/* Tables scroll inside their own box rather than pushing the page sideways —
+   the businesses table gained several columns and overflows on a laptop. */
+.sa-table-wrap {
+  overflow-x: auto;
+  background: var(--sa-card);
+  border: 1px solid var(--sa-line);
+  border-radius: 10px;
+}
 .sa-table {
   width: 100%;
   border-collapse: collapse;
-  background: #fff;
-  border: 1px solid oklch(0.915 0.006 290);
-  border-radius: 8px;
-  overflow: hidden;
   font-size: 13px;
 }
 .sa-table th {
   text-align: left;
-  background: oklch(0.962 0.004 290);
+  background: var(--sa-bg);
   padding: 10px 12px;
   font-size: 12px;
-  color: oklch(0.50 0.02 285);
-  border-bottom: 1px solid oklch(0.915 0.006 290);
+  font-weight: 600;
+  color: var(--sa-muted);
+  border-bottom: 1px solid var(--sa-line);
+  white-space: nowrap;
 }
 .sa-table td {
   padding: 10px 12px;
-  border-bottom: 1px solid oklch(0.962 0.004 290);
-  vertical-align: top;
+  border-bottom: 1px solid var(--sa-bg);
+  vertical-align: middle;
 }
 .sa-table tr:last-child td {
   border-bottom: none;
+}
+.sa-table code {
+  background: var(--sa-bg);
+  border: 1px solid var(--sa-line);
+  border-radius: 4px;
+  padding: 1px 5px;
+  font-size: 12px;
+}
+
+/* The business's own identity, shown as it will appear to their staff. */
+.sa-biz {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.sa-biz-logo {
+  width: 30px;
+  height: 30px;
+  border-radius: 6px;
+  object-fit: contain;
+  background: var(--sa-bg);
+  border: 1px solid var(--sa-line);
+  flex-shrink: 0;
+}
+.sa-biz-swatch {
+  width: 30px;
+  height: 30px;
+  border-radius: 6px;
+  border: 1px solid var(--sa-line);
+  flex-shrink: 0;
+}
+.sa-biz-name {
+  font-weight: 600;
+}
+.sa-biz-sub {
+  font-size: 11.5px;
+  color: var(--sa-muted);
+}
+.sa-url {
+  font-size: 12px;
+  color: var(--sa-brand-deep);
+  text-decoration: none;
+  word-break: break-all;
+}
+.sa-url:hover {
+  text-decoration: underline;
 }
 
 .sa-chip {
@@ -178,24 +358,41 @@
   border-radius: 10px;
   font-size: 11px;
   font-weight: 600;
+  white-space: nowrap;
 }
-.sa-chip.active { background: oklch(0.95 0.040 150); color: oklch(0.51 0.14 150); }
-.sa-chip.suspended { background: oklch(0.95 0.025 25); color: oklch(0.52 0.20 25); }
-.sa-chip.trial, .sa-chip.grace, .sa-chip.past_due, .sa-chip.over_quota { background: oklch(0.96 0.029 70); color: oklch(0.53 0.114 70); }
-.sa-chip.cancelled { background: oklch(0.962 0.004 290); color: oklch(0.50 0.02 285); }
+.sa-chip.active { background: var(--sa-green-bg); color: var(--sa-green); }
+.sa-chip.suspended { background: var(--sa-red-bg); color: var(--sa-red); }
+.sa-chip.trial,
+.sa-chip.grace,
+.sa-chip.past_due,
+.sa-chip.over_quota { background: var(--sa-amber-bg); color: var(--sa-amber); }
+.sa-chip.cancelled { background: var(--sa-bg); color: var(--sa-muted); }
+/* Module/language grants, shown as neutral tags — they are facts about the
+   account, not states needing attention, so they take no status colour. */
+.sa-chip.tag { background: var(--sa-brand-pale); color: var(--sa-brand-deep); }
+.sa-chip.off { background: var(--sa-bg); color: var(--sa-muted); font-weight: 500; }
+.sa-chips {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+}
 
 .sa-actions { display: flex; gap: 6px; flex-wrap: wrap; }
 .sa-btn {
-  background: #fff;
-  border: 1px solid oklch(0.915 0.006 290);
+  background: var(--sa-card);
+  border: 1px solid var(--sa-line);
   border-radius: 6px;
   padding: 5px 10px;
   font-size: 12px;
+  color: var(--sa-ink);
   cursor: pointer;
+  white-space: nowrap;
 }
-.sa-btn:hover { background: oklch(0.962 0.004 290); }
-.sa-btn.primary { background: oklch(0.515 0.162 284); border-color: oklch(0.515 0.162 284); color: #fff; }
-.sa-btn.danger { background: #fff; border-color: oklch(0.52 0.20 25); color: oklch(0.52 0.20 25); }
+.sa-btn:hover:not(:disabled) { background: var(--sa-bg); }
+.sa-btn.primary { background: var(--sa-brand); border-color: var(--sa-brand); color: #fff; }
+.sa-btn.primary:hover:not(:disabled) { background: var(--sa-brand-deep); border-color: var(--sa-brand-deep); }
+.sa-btn.danger { background: var(--sa-card); border-color: var(--sa-red); color: var(--sa-red); }
+.sa-btn.danger:hover:not(:disabled) { background: var(--sa-red-bg); }
 .sa-btn:disabled { opacity: 0.5; cursor: not-allowed; }
 
 .sa-toolbar {
@@ -205,55 +402,297 @@
 }
 
 /* --- Modal --- */
+
 .sa-modal-backdrop {
   position: fixed;
   inset: 0;
-  background: oklch(0.14 0.025 285 / 50%);
+  background: oklch(0.14 0.025 285 / 55%);
   display: flex;
   align-items: center;
   justify-content: center;
   z-index: 50;
   padding: 16px;
 }
+/* The scrolling shell. The modal itself is a flex COLUMN that never scrolls;
+   only .sa-modal-body does. That is what keeps the title and the action
+   buttons on screen for a long form — previously the whole modal scrolled, so
+   "Cancel" and "Create business" sat below the fold and you had to scroll to
+   the bottom to find out a form could even be submitted. */
 .sa-modal {
-  background: #fff;
-  border-radius: 10px;
-  padding: 24px;
+  background: var(--sa-card);
+  border-radius: 12px;
   width: 100%;
-  max-width: 420px;
+  max-width: 460px;
   max-height: 90vh;
-  overflow-y: auto;
+  box-shadow: 0 20px 60px oklch(0 0 0 / 30%);
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
 }
+.sa-modal.wide { max-width: 620px; }
 .sa-modal h2 {
   font-size: 16px;
-  margin: 0 0 16px;
+  /* No bottom margin: spacing is the head's padding now, since every modal
+     puts its title in .sa-modal-head. */
+  margin: 0;
 }
+.sa-modal-note {
+  font-size: 12.5px;
+  color: var(--sa-muted);
+  /* Was -8px, to pull it up under a title that sat in the same padded box.
+     The title lives in .sa-modal-head now, so the note starts the body. */
+  margin: 0 0 14px;
+  line-height: 1.5;
+}
+
+/* The label colour here was the console's one real bug: it read
+   oklch(0.95 ...) — near-white — against the white modal, so every field
+   label was invisible. It now takes the same muted ink the rest of the light
+   surface uses. */
 .sa-field {
   display: flex;
   flex-direction: column;
   gap: 5px;
   margin-bottom: 12px;
   font-size: 13px;
-  color: oklch(0.95 0.006 290 / 50%);
+  color: var(--sa-muted);
+}
+.sa-field > label {
+  font-weight: 500;
+  color: var(--sa-ink);
+}
+.sa-field .sa-hint {
+  font-size: 11.5px;
+  color: var(--sa-muted);
+  line-height: 1.45;
 }
 .sa-field input,
 .sa-field select,
 .sa-field textarea {
-  border: 1px solid oklch(0.915 0.006 290);
+  border: 1px solid var(--sa-line);
   border-radius: 6px;
   padding: 8px 10px;
   font-size: 13px;
   font-family: inherit;
+  color: var(--sa-ink);
+  background: var(--sa-card);
 }
-.sa-modal-actions {
+.sa-field input:focus,
+.sa-field select:focus,
+.sa-field textarea:focus {
+  outline: 2px solid var(--sa-brand);
+  outline-offset: -1px;
+  border-color: var(--sa-brand);
+}
+
+.sa-grid-2 {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0 12px;
+}
+@media (max-width: 520px) {
+  .sa-grid-2 { grid-template-columns: 1fr; }
+}
+
+/* Checkbox rows for module/language grants. Laid out as full-width rows with
+   the control first, so the hit area covers the label text too. */
+.sa-check {
   display: flex;
-  justify-content: flex-end;
-  gap: 8px;
-  margin-top: 18px;
+  align-items: flex-start;
+  gap: 9px;
+  padding: 8px 10px;
+  border: 1px solid var(--sa-line);
+  border-radius: 7px;
+  margin-bottom: 6px;
+  cursor: pointer;
+  font-size: 13px;
+  color: var(--sa-ink);
 }
+.sa-check:hover { background: var(--sa-bg); }
+.sa-check input { margin-top: 2px; flex-shrink: 0; accent-color: var(--sa-brand); }
+.sa-check.locked { opacity: 0.75; cursor: default; }
+.sa-check.locked:hover { background: none; }
+.sa-check .sa-check-sub {
+  display: block;
+  font-size: 11.5px;
+  color: var(--sa-muted);
+  margin-top: 2px;
+  line-height: 1.45;
+}
+
+/* --- Colour picker --- */
+
+.sa-color-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.sa-color-row input[type="color"] {
+  width: 44px;
+  height: 34px;
+  padding: 2px;
+  border: 1px solid var(--sa-line);
+  border-radius: 6px;
+  background: var(--sa-card);
+  cursor: pointer;
+  flex-shrink: 0;
+}
+.sa-color-row input[type="text"] {
+  width: 110px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  text-transform: lowercase;
+}
+
+/* The derived ramp, shown so the operator sees the whole palette their one
+   pick produces — not just the primary. Mirrors deriveBrandRamp's six steps
+   in the same order. */
+.sa-ramp {
+  display: flex;
+  border-radius: 7px;
+  overflow: hidden;
+  border: 1px solid var(--sa-line);
+  height: 34px;
+  flex: 1;
+  min-width: 120px;
+}
+.sa-ramp span {
+  flex: 1;
+}
+
+.sa-logo-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.sa-logo-preview {
+  width: 52px;
+  height: 52px;
+  border-radius: 8px;
+  border: 1px solid var(--sa-line);
+  background: var(--sa-bg);
+  object-fit: contain;
+  flex-shrink: 0;
+}
+
+/* Also previously near-white on white. */
 .sa-empty {
   padding: 24px;
   text-align: center;
-  color: oklch(0.95 0.006 290 / 50%);
+  color: var(--sa-muted);
   font-size: 13px;
+}
+
+/* --- Modal shell: sticky head, scrolling body, sticky foot --- */
+
+.sa-modal-head {
+  padding: 20px 24px 14px;
+  border-bottom: 1px solid var(--sa-line);
+  flex-shrink: 0;
+}
+.sa-modal-head h2 {
+  margin: 0;
+}
+.sa-modal-body {
+  padding: 18px 24px;
+  overflow-y: auto;
+  flex: 1;
+  min-height: 0;
+}
+.sa-modal-foot {
+  padding: 14px 24px;
+  border-top: 1px solid var(--sa-line);
+  background: var(--sa-card);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+/* Pushes the primary actions right while leaving room for a Back button and
+   the step counter on the left. */
+.sa-modal-foot .sa-foot-spacer { margin-left: auto; }
+.sa-foot-step {
+  font-size: 12px;
+  color: var(--sa-muted);
+}
+
+/* --- Wizard step rail --- */
+
+.sa-steps {
+  display: flex;
+  gap: 6px;
+  margin-top: 12px;
+  flex-wrap: wrap;
+}
+/* Steps are buttons, not decoration: an operator editing an existing business
+   wants to jump straight to Branding without clicking Next three times. In
+   create mode the unvisited ones are disabled, because skipping ahead past a
+   required field would only produce a validation error later. */
+.sa-step {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid var(--sa-line);
+  background: var(--sa-card);
+  border-radius: 999px;
+  padding: 4px 11px 4px 5px;
+  font-size: 12px;
+  color: var(--sa-muted);
+  cursor: pointer;
+}
+.sa-step:disabled { cursor: not-allowed; opacity: 0.55; }
+.sa-step .sa-step-n {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--sa-bg);
+  color: var(--sa-muted);
+  font-size: 11px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+.sa-step.active {
+  border-color: var(--sa-brand);
+  color: var(--sa-ink);
+  font-weight: 600;
+}
+.sa-step.active .sa-step-n { background: var(--sa-brand); color: #fff; }
+.sa-step.done .sa-step-n { background: var(--sa-green-bg); color: var(--sa-green); }
+
+/* --- Review step --- */
+
+.sa-review {
+  border: 1px solid var(--sa-line);
+  border-radius: 8px;
+  overflow: hidden;
+}
+.sa-review-row {
+  display: flex;
+  gap: 12px;
+  padding: 8px 12px;
+  font-size: 13px;
+  border-bottom: 1px solid var(--sa-bg);
+}
+.sa-review-row:last-child { border-bottom: none; }
+.sa-review-row dt {
+  width: 150px;
+  flex-shrink: 0;
+  color: var(--sa-muted);
+  margin: 0;
+}
+.sa-review-row dd {
+  margin: 0;
+  word-break: break-word;
+}
+.sa-review-row dd.empty { color: var(--sa-muted); }
+/* Marks the fields this save will actually change, so an operator can see at
+   a glance what they are about to write — and so an accidental edit is
+   visible before it is committed rather than after. */
+.sa-review-row.changed dd { font-weight: 600; }
+.sa-review-row.changed dt::after {
+  content: " •";
+  color: var(--sa-brand);
 }

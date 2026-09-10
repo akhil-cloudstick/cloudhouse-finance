@@ -1,54 +1,66 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>CloudHouse Gold Finance — Admin</title>
-<link rel="icon" href="cloudhouse-gold.jpeg" type="image/jpeg">
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Bodoni+Moda:opsz,wght@6..96,400;6..96,500;6..96,600;6..96,700;6..96,800&family=Jost:wght@300;400;500;600&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="app.css">
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>CloudHouse Finance — Admin</title>
+  <link rel="icon" href="cloudhouse-gold.jpeg" type="image/jpeg">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link
+    href="https://fonts.googleapis.com/css2?family=Bodoni+Moda:opsz,wght@6..96,400;6..96,500;6..96,600;6..96,700;6..96,800&family=Jost:wght@300;400;500;600&display=swap"
+    rel="stylesheet">
+  <link rel="stylesheet" href="app.css">
 </head>
+
 <body>
-<div class="shell">
-  <aside class="side" id="side">
-    <div class="brand">
-      <img src="cloudhouse-gold.jpeg" alt="CloudHouse Gold Finance">
-      <div class="t"><b>CLOUDHOUSE</b><span>Gold Finance</span></div>
-    </div>
-    <nav class="nav" id="navBox"></nav>
-    <div class="sfoot">Trust · Value · Growth<br><a href="index.html">← Sign out</a></div>
-  </aside>
-
-  <div class="main">
-    <header class="top">
-      <button class="burger" id="burger" aria-label="Menu">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 7h16M4 12h16M4 17h16"/></svg>
-      </button>
-      <span class="crumb" id="crumb"></span>
-      <div class="gsearch" id="gsearch">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.8-3.8"/></svg>
-        <input id="gsInput" type="text" placeholder="Search loans, customers, schemes, packets…" autocomplete="off">
-        <kbd>/</kbd>
-        <div class="gs-results" id="gsResults"></div>
+  <div class="shell">
+    <aside class="side" id="side">
+      <div class="brand">
+        <img src="cloudhouse-gold.jpeg" alt="CloudHouse Finance">
+        <div class="t"><b>CLOUDHOUSE</b><span>Finance</span></div>
       </div>
-      <span class="rate-chip" id="rateChip"></span>
-      <span class="user">
-        <span class="av">RM</span>
-        <span class="nm">Rajesh Menon<small>Owner · Administrator</small></span>
-      </span>
-      <a class="logout" href="index.html">Sign out</a>
-    </header>
-    <main class="page" id="view"></main>
+      <nav class="nav" id="navBox"></nav>
+      <div class="sfoot">Trust · Value · Growth<br><a href="index.html">← Sign out</a></div>
+    </aside>
+
+    <div class="main">
+      <header class="top">
+        <button class="burger" id="burger" aria-label="Menu">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M4 7h16M4 12h16M4 17h16" />
+          </svg>
+        </button>
+        <span class="crumb" id="crumb"></span>
+        <div class="gsearch" id="gsearch">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round">
+            <circle cx="11" cy="11" r="7" />
+            <path d="m20 20-3.8-3.8" />
+          </svg>
+          <input id="gsInput" type="text" placeholder="Search loans, customers, schemes, packets…" autocomplete="off">
+          <kbd>/</kbd>
+          <div class="gs-results" id="gsResults"></div>
+        </div>
+        <span class="rate-chip" id="rateChip"></span>
+        <span class="user">
+          <span class="av">RM</span>
+          <span class="nm">Rajesh Menon<small>Owner · Administrator</small></span>
+        </span>
+        <a class="logout" href="index.html">Sign out</a>
+      </header>
+      <main class="page" id="view"></main>
+    </div>
   </div>
-</div>
 
-<div class="modal-bg" id="modalBg"><div class="modal" id="modalBox"></div></div>
-<div id="toast"></div>
+  <div class="modal-bg" id="modalBg">
+    <div class="modal" id="modalBox"></div>
+  </div>
+  <div id="toast"></div>
 
-<script src="qrcode.min.js"></script>
-<script src="data.js?v=16"></script>
-<script src="app.js?v=16"></script>
+  <script src="qrcode.min.js"></script>
+  <script src="data.js?v=16"></script>
+  <script src="app.js?v=16"></script>
 </body>
+
 </html>

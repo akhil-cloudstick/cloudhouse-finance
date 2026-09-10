@@ -1,6 +1,7 @@
 import { openPrintWindow } from "@/common/utils/print";
 import { numberToIndianWords } from "@/common/utils/numberToWords";
 import { parsePurity } from "@/common/utils/purity";
+import { tenantLenderProfile } from "@/common/config/brand";
 
 /* Printable "FORM 7" gold-loan discharge receipt — generated once a loan
  * has actually closed (l.status === "Closed", i.e. after CompleteRelease
@@ -49,14 +50,17 @@ export type ReleaseAgreementParty = {
 };
 
 const B = "________________";
-// Same establishment identity as indemnityBond.ts's LENDER_NAME/
-// LENDER_REG_NO and backend/internal/loan/indemnitybond.go's lenderName/
-// lenderKMLRegNo.
-const LENDER_NAME = "CHITTILAPILLY THOMMANA FINANCIERS AND INVESTMENTS";
-const LENDER_ADDRESS = "XXI/118 - BLOCK JUNCTION, VELLANGALLUR, 680662";
+// FALLBACK lender identity, on the same terms as indemnityBond.ts's — the
+// business's own tenant profile wins where it is set, and these remain so
+// that a live deployment keeps printing what it has always printed.
+//
+// LENDER_PHONE/LENDER_EMAIL have no tenant-profile equivalent yet and are
+// therefore still always these values.
+const FALLBACK_LENDER_NAME = "CHITTILAPILLY THOMMANA FINANCIERS AND INVESTMENTS";
+const FALLBACK_LENDER_ADDRESS = "XXI/118 - BLOCK JUNCTION, VELLANGALLUR, 680662";
 const LENDER_PHONE = "+919037374004";
 const LENDER_EMAIL = "chittilapillythommanafinancier@gmail.com";
-const LENDER_KML_REG_NO = "32080354468";
+const FALLBACK_LENDER_KML_REG_NO = "32080354468";
 
 const MONTHS_EN = ["JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"];
 const MONTHS_ML = [
@@ -107,6 +111,12 @@ const SHARED_STYLE = `
 const MALAYALAM_FONT_STYLE = `body{font-family:'Noto Sans Malayalam','Nirmala UI','Mona Sans','Segoe UI',ui-sans-serif,system-ui,sans-serif}`;
 
 export function printReleaseAgreement(p: ReleaseAgreementParty, onBlocked: (msg: string) => void, lang: ReleaseAgreementLang = "en") {
+  // Per call, not at module load — see printIndemnityBond.
+  const profile = tenantLenderProfile();
+  const LENDER_NAME = profile.legalName || FALLBACK_LENDER_NAME;
+  const LENDER_ADDRESS = profile.addressLine || FALLBACK_LENDER_ADDRESS;
+  const LENDER_KML_REG_NO = profile.kmlRegNo || FALLBACK_LENDER_KML_REG_NO;
+
   const today = new Date().toISOString();
   const returnedDate = fmtDate(p.returnedDate || today, lang);
   const borrowedDate = fmtDate(p.borrowedDate, lang);

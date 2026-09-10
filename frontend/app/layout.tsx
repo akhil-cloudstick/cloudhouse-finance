@@ -3,6 +3,8 @@ import { Montserrat, Inter } from "next/font/google";
 import "./globals.css";
 import "./app/app.css";
 import { AuthProvider } from "@/common/auth-context";
+import { BrandingProvider } from "@/common/BrandingProvider";
+import { BrandPreload } from "./brand-preload";
 import { BRAND } from "@/common/config/brand";
 
 /* Montserrat carries the CloudHouse wordmark's voice — bold, geometric, tightly
@@ -51,9 +53,33 @@ export const viewport: Viewport = {
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
-    <html lang="en" className={`${inter.variable} ${montserrat.variable}`}>
+    /* suppressHydrationWarning is required, not cosmetic, and applies to THIS
+     * element only (it does not cascade to children).
+     *
+     * BrandPreload below runs before React hydrates and writes the brand ramp
+     * onto document.documentElement.style — that is its whole purpose, since a
+     * static export has no server render to inject the colour into. So by the
+     * time React arrives, <html> carries a style attribute the server-rendered
+     * markup never had, and React reports the mismatch.
+     *
+     * The alternative — rendering the style server-side — is impossible here:
+     * the colour depends on which business the visitor belongs to, which is
+     * only known in the browser (localStorage, keyed by slug). Suppressing on
+     * the one element we deliberately mutate is the narrowest correct fix. */
+    <html lang="en" suppressHydrationWarning className={`${inter.variable} ${montserrat.variable}`}>
+      <head>
+        {/* Ahead of everything: paints the business's own brand colour
+            before the first frame. See BrandPreload for why a static
+            export leaves no other place to do this. */}
+        <BrandPreload />
+      </head>
       <body>
-        <AuthProvider>{children}</AuthProvider>
+        {/* BrandingProvider wraps AuthProvider: the sign-in page itself needs
+            the business's logo and colour, and that is rendered before any
+            session exists. */}
+        <BrandingProvider>
+          <AuthProvider>{children}</AuthProvider>
+        </BrandingProvider>
       </body>
     </html>
   );

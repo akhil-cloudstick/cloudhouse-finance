@@ -1,5 +1,6 @@
 import { openPrintWindow } from "@/common/utils/print";
 import { numberToIndianWords } from "@/common/utils/numberToWords";
+import { tenantLenderProfile } from "@/common/config/brand";
 
 /* Printable Agreement of Pledge of Movable — the branch's standard pledge
  * deed. Lives here rather than inside NewLoan.tsx because it is needed at
@@ -21,14 +22,39 @@ import { numberToIndianWords } from "@/common/utils/numberToWords";
  * business). Mirrors backend/internal/loan/indemnitybond.go's
  * bondHTMLEnglish/bondHTMLMalayalam so the printed paper copy and the PDF
  * sent to Setu for eSign read identically. */
-export type BondLang = "en" | "ml";
+export type BondLang = "en" | "ml" | "gu";
 
-/* Shared label set — same two options wherever a bond-language picker
- * appears (NewLoan.tsx's print toggle, LoanDetail.tsx's eSign modal). */
+/* Shared label set — the same options wherever a bond-language picker
+ * appears (NewLoan.tsx's print toggle, LoanDetail.tsx's eSign modal).
+ *
+ * This is the full catalogue, mirroring tenant.KnownLanguages. It is NOT
+ * what a picker should render: which of these a business may actually issue
+ * is a per-business grant, so pickers call bondLangOptionsFor() below. */
 export const BOND_LANG_OPTIONS: { value: BondLang; label: string; native: string }[] = [
   { value: "en", label: "English", native: "Indemnity Bond" },
   { value: "ml", label: "Malayalam", native: "ആഭരണ പണയ കരാർ" },
+  { value: "gu", label: "Gujarati", native: "ગીરો કરાર" },
 ];
+
+/* bondLangOptionsFor narrows the catalogue to what this business has been
+ * granted. English is always present — tenant.Tenant.HasLanguage guarantees
+ * it server-side, and a picker with nothing in it would be worse than a
+ * picker with one option.
+ *
+ * Only what is OFFERED. The server independently refuses a language a
+ * business does not hold (loan.Service.StartIndemnityBondSign), so a crafted
+ * request gains nothing.
+ *
+ * Note Gujarati can be granted before its template exists: the vendor ticks
+ * the language, this offers it, and the backend answers with an explicit
+ * "template not installed" error rather than quietly printing English. That
+ * is the intended behaviour until the reviewed Gujarati wording lands — a
+ * visible gap beats a borrower signing a contract in the wrong language. */
+export function bondLangOptionsFor(languages: string[]): typeof BOND_LANG_OPTIONS {
+  const allowed = new Set(languages.length ? languages : ["en"]);
+  allowed.add("en");
+  return BOND_LANG_OPTIONS.filter((o) => allowed.has(o.value));
+}
 
 export type IndemnityBondOrnament = {
   name: string;
@@ -59,23 +85,33 @@ export type IndemnityBondParty = {
 };
 
 const B = "________________";
-// Same establishment identity as backend/internal/loan/indemnitybond.go's
-// lenderName/lenderAddressShort/lenderKMLRegNo — MLL No. 32080354468,
-// registered as "Chittilapilly Thommana Financiers and Investments",
-// verbatim from the branch's own reference letter ("XXI/118-BLOCK
-// JUNCTION, VELLANGALLUR, 680662" / "KML Reg No:32080354468"). No
-// individual proprietor's personal age/Aadhaar/PAN is on file for this
-// document — the reference letter identifies the lender by ESTABLISHMENT
-// only, so neither language branch below asks for those fields.
-const LENDER_NAME = "Chittilapilly Thommana Financiers and Investments";
-const LENDER_ADDRESS_SHORT = "XXI/118-BLOCK JUNCTION, VELLANGALLUR, 680662";
-const LENDER_KML_REG_NO = "32080354468";
+// These are now the FALLBACK only. The lender's particulars come from the
+// business's own tenant profile (set by the vendor in the superadmin
+// console, resolved here by tenantLenderProfile) — see printIndemnityBond.
+//
+// They stay as the fallback rather than being deleted because this
+// deployment has been printing them on real customer paperwork; switching a
+// live business's agreement to the platform name the moment this shipped
+// would be a worse outcome than a stale default. Note the backend's own
+// fallback (indemnitybond.go's lenderName) is DIFFERENT — that mismatch is
+// exactly what filling in the tenant profile resolves, since both sides then
+// read the same source.
+const FALLBACK_LENDER_NAME = "Chittilapilly Thommana Financiers and Investments";
+const FALLBACK_LENDER_ADDRESS_SHORT = "XXI/118-BLOCK JUNCTION, VELLANGALLUR, 680662";
+const FALLBACK_LENDER_KML_REG_NO = "32080354468";
 
 function fmtINR(n?: number) {
   return n != null ? n.toLocaleString("en-IN") : "";
 }
 
 export function printIndemnityBond(p: IndemnityBondParty, onBlocked: (msg: string) => void, lang: BondLang = "en") {
+  // Resolved per call, not at module load: which business is signed in can
+  // change within one browser session, and this module is imported once.
+  const profile = tenantLenderProfile();
+  const LENDER_NAME = profile.legalName || FALLBACK_LENDER_NAME;
+  const LENDER_ADDRESS_SHORT = profile.addressLine || FALLBACK_LENDER_ADDRESS_SHORT;
+  const LENDER_KML_REG_NO = profile.kmlRegNo || FALLBACK_LENDER_KML_REG_NO;
+
   const now = new Date();
   const dd = String(now.getDate()).padStart(2, "0");
   const yyyy = now.getFullYear();

@@ -113,6 +113,75 @@ type Tenant struct {
 	// job instead of once a day.
 	SubscriptionNotifiedAt *time.Time `json:"-"`
 
+	// --- Business profile ---------------------------------------------------
+	//
+	// Every field below is OPTIONAL and falls back to a platform default when
+	// empty, so a business that predates them keeps working untouched. They
+	// are the VENDOR's to set (the superadmin console), never the tenant's: a
+	// business must not be able to restate its own name, address or lending
+	// registration on its own legal paperwork.
+
+	// LegalName is the full registered name printed on customer documents —
+	// the pledge agreement and release form. Empty falls back to Name.
+	LegalName string `json:"legalName" gorm:"size:200"`
+
+	// AddressLine is the registered address printed under LegalName. One
+	// line rather than a structured address, because one line is all any of
+	// the document templates actually render.
+	AddressLine string `json:"addressLine" gorm:"size:300"`
+
+	// KMLRegNo is the Kerala Money Lenders registration number, required on
+	// customer-facing lending documents.
+	KMLRegNo string `json:"kmlRegNo" gorm:"size:60"`
+
+	// AppURL is where this business's own frontend is deployed, e.g.
+	// https://ambika.cloudhousesupport.site.
+	//
+	// NOTHING ROUTES BY THIS. Tenants are resolved by Code (/login/<code>),
+	// never by hostname — this is a display and bookkeeping field, and
+	// treating it as anything more would be a security change, not a
+	// convenience one.
+	AppURL string `json:"appUrl" gorm:"size:200"`
+
+	// BrandColor is the primary brand colour as "#rrggbb". The frontend
+	// derives its entire ramp (deep/mid/light/pale/faint) from this single
+	// value, so there is deliberately no way to set the other steps
+	// independently — see frontend/common/config/theme.ts. Empty means the
+	// platform default.
+	BrandColor string `json:"brandColor" gorm:"size:9"`
+
+	// LogoStorageKey points at an uploaded_files row owned by THIS tenant.
+	// Stored as the key, not a URL, so the file is always served through a
+	// route that re-resolves it from this row: a caller-supplied key must
+	// never reach the file store (see internal/branding and upload/serve.go).
+	LogoStorageKey string `json:"-" gorm:"size:120"`
+
+	// --- Optional modules and document languages ----------------------------
+
+	// EnabledModules is a comma-separated subset of KnownModules, and
+	// EMPTY MEANS NONE — an optional module stays off until the vendor turns
+	// it on, including for businesses that predate this column. Never parse
+	// it at a call site; read it through HasModule.
+	EnabledModules string `json:"-" gorm:"size:200"`
+
+	// DocumentLanguages is a comma-separated subset of KnownLanguages. English
+	// is always available and cannot be removed, so an empty value still
+	// means ["en"] — read it through HasLanguage, never directly.
+	DocumentLanguages string `json:"-" gorm:"size:60"`
+
+	// Modules/Languages are the JSON-facing view of the two columns above,
+	// populated by AfterFind so every read path hands the console arrays
+	// instead of making each caller remember to split a string.
+	Modules []string `json:"modules" gorm:"-"`
+
+	// LogoURL is where this business's logo can be fetched, derived from Code
+	// and LogoStorageKey. Derived rather than stored so there is exactly one
+	// place that decides the shape of the URL, and so a caller can never be
+	// handed a raw storage key to aim at the file store — see
+	// internal/branding's logo handler.
+	LogoURL   string   `json:"logoUrl" gorm:"-"`
+	Languages []string `json:"languages" gorm:"-"`
+
 	CreatedAt time.Time      `json:"createdAt"`
 	UpdatedAt time.Time      `json:"updatedAt"`
 	DeletedAt gorm.DeletedAt `json:"-" gorm:"index"`

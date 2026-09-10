@@ -1,6 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { brandRampHex, readCachedBrandColor, DEFAULT_BRAND_COLOR } from "@/common/config/theme";
+import { activeBusinessSlug } from "@/common/services/tenantSession";
 import { useSchemes } from "@/modules/schemes/store/SchemesProvider";
 import { useCustomers } from "@/modules/customers/store/CustomersProvider";
 import { useLoans } from "@/modules/loans/store/LoansProvider";
@@ -78,7 +80,15 @@ function Donut({ parts }: { parts: [string, number, string][] }) {
  * — re-run the check before reordering or adding a hue. Deliberately avoids
  * --green/--red/--amber, which are reserved for status and must not double
  * as "series 4". */
-const EXPENSE_COLORS = ["#6054bf", "#8267e2", "#f99603", "#20a04e", "#62626f", "#0e8ba0"];
+/* Only the FIRST series follows the business's brand colour. The other five
+ * stay fixed: a categorical palette's job is to keep six slices tellable
+ * apart, and re-deriving all of them from one hue would collapse the
+ * spacing the contrast check above was done against. One branded lead
+ * colour ties the chart to the rest of the app without costing legibility. */
+function expenseColors(): string[] {
+  const brand = brandRampHex(readCachedBrandColor(activeBusinessSlug()) || DEFAULT_BRAND_COLOR);
+  return [brand["--brand"], "#8267e2", "#f99603", "#20a04e", "#62626f", "#0e8ba0"];
+}
 
 /* Ported from legacy/app.js's `renderDashboard()`. All figures are now
  * derived from live DB state instead of hardcoded demo values. */
@@ -126,7 +136,8 @@ export function Dashboard() {
   const expenseByCat = Object.entries(
     expenses.reduce<Record<string, number>>((acc, e) => { acc[e.cat] = (acc[e.cat] || 0) + e.amt; return acc; }, {})
   );
-  const expenseParts: [string, number, string][] = expenseByCat.map(([cat, amt], i) => [cat, amt, EXPENSE_COLORS[i % EXPENSE_COLORS.length]]);
+  const palette = expenseColors();
+  const expenseParts: [string, number, string][] = expenseByCat.map(([cat, amt], i) => [cat, amt, palette[i % palette.length]]);
 
   const now = new Date();
   const monthBuckets: [string, number][] = Array.from({ length: 6 }, (_, i) => {

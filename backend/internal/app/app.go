@@ -27,6 +27,7 @@ import (
 	"cloudhouse/backend/internal/bank"
 	"cloudhouse/backend/internal/billing"
 	"cloudhouse/backend/internal/branch"
+	"cloudhouse/backend/internal/branding"
 	"cloudhouse/backend/internal/cash"
 	"cloudhouse/backend/internal/commlog"
 	"cloudhouse/backend/internal/customer"
@@ -34,12 +35,12 @@ import (
 	"cloudhouse/backend/internal/dashboard"
 	"cloudhouse/backend/internal/employee"
 	"cloudhouse/backend/internal/goldrate"
+	"cloudhouse/backend/internal/investment"
 	"cloudhouse/backend/internal/loan"
 	"cloudhouse/backend/internal/locker"
 	"cloudhouse/backend/internal/notification"
 	"cloudhouse/backend/internal/ornamenttype"
 	"cloudhouse/backend/internal/packet"
-	"cloudhouse/backend/internal/investment"
 	"cloudhouse/backend/internal/personalloan"
 	"cloudhouse/backend/internal/platform"
 	"cloudhouse/backend/internal/puritystandard"
@@ -293,6 +294,14 @@ func Build(db *gorm.DB, cfg platform.Config) (*App, error) {
 	// internal/auth/routes.go.
 	auth.RegisterRoutes(v1.Group("/auth"), authHandler, authMiddleware)
 
+	// Branding. The /public group is unauthenticated on purpose: a sign-in
+	// page has to render a business's logo and colour before there is any
+	// session to authorize. See internal/branding's package doc for why that
+	// is safe here and is NOT safe for internal/upload's file routes.
+	brandingSvc := branding.NewService(tenantRepo, uploadRepo, cfg.UploadsDir)
+	brandingHandler := branding.NewHandler(brandingSvc)
+	branding.RegisterPublicRoutes(v1.Group("/public"), brandingHandler)
+
 	// Customer app routes live under their own top-level group, gated by
 	// the customer JWT scheme rather than the employee authMiddleware used
 	// for everything else in this file.
@@ -365,7 +374,13 @@ func Build(db *gorm.DB, cfg platform.Config) (*App, error) {
 	// here regardless: the permissions table is seeded and restricted solely
 	// by cmd/migrate. This repo only reads those rows to authorize requests.
 
-	branch.RegisterRoutes(protected.Group("/branches"), branchHandler, platform.CRUDPermissions(authzRepo, "branches"))
+	// Branch MANAGEMENT is an optional module, so its writes carry a second
+	// gate alongside the permission check. The reads deliberately do not:
+	// branch dropdowns and the branch switcher are load-bearing across
+	// loans, cash, packets and reports, and turning off the management page
+	// must not break the rest of the app — see platform.RequireTenantModule.
+	branch.RegisterRoutes(protected.Group("/branches"), branchHandler, platform.CRUDPermissions(authzRepo, "branches"),
+		platform.RequireTenantModule(tenantRepo, tenant.ModuleBranches))
 	scheme.RegisterRoutes(protected.Group("/schemes"), schemeHandler, platform.CRUDPermissions(authzRepo, "schemes"))
 	goldrate.RegisterRoutes(protected.Group("/gold-rates"), goldRateHandler, platform.CRUDPermissions(authzRepo, "goldrates"))
 	puritystandard.RegisterRoutes(protected.Group("/purity-standards"), purityStandardHandler, platform.CRUDPermissions(authzRepo, "puritystandards"))
@@ -374,7 +389,10 @@ func Build(db *gorm.DB, cfg platform.Config) (*App, error) {
 	cash.RegisterExpenseRoutes(protected.Group("/expenses"), expenseHandler, platform.CRUDPermissions(authzRepo, "cash"))
 	cash.RegisterCashRoutes(protected.Group("/cash"), openingBalanceHandler, summaryHandler, platform.CRUDPermissions(authzRepo, "cash"))
 	cash.RegisterGoldSaleRoutes(protected.Group("/gold-sales"), goldSaleHandler, platform.CRUDPermissions(authzRepo, "cash"))
-	settings.RegisterRoutes(protected.Group("/settings/api-keys"), settingsHandler, platform.CRUDPermissions(authzRepo, "settings"))
+	// Settings is an optional module and the page is self-contained, so the
+	// whole group is gated — reads included.
+	settings.RegisterRoutes(protected.Group("/settings/api-keys"), settingsHandler, platform.CRUDPermissions(authzRepo, "settings"),
+		platform.RequireTenantModule(tenantRepo, tenant.ModuleSettings))
 	customer.RegisterRoutes(protected.Group("/customers"), customerHandler, platform.CRUDPermissions(authzRepo, "customers"))
 	// Customer 360 lives on loanHandler (see internal/loan/service.go's
 	// GetCustomer360 doc comment — avoids a customer<->loan import cycle)
@@ -393,6 +411,9 @@ func Build(db *gorm.DB, cfg platform.Config) (*App, error) {
 	loan.RegisterRoutes(protected.Group("/loans"), loanHandler, platform.CRUDPermissions(authzRepo, "loans"), platform.CRUDPermissions(authzRepo, "bankpledges"), platform.RequirePermission(authzRepo, "can hard delete loan"))
 	dashboard.RegisterRoutes(protected.Group("/dashboard"), dashboardHandler, platform.CRUDPermissions(authzRepo, "loans"))
 	upload.RegisterRoutes(protected.Group("/uploads"), uploadHandler, platform.CRUDPermissions(authzRepo, "uploads"))
+	// No CRUDPermissions: every employee needs their business's logo, colour
+	// and enabled modules to render the app at all.
+	branding.RegisterRoutes(protected.Group("/branding"), brandingHandler)
 	ornamenttype.RegisterRoutes(protected.Group("/ornament-types"), ornamentTypeHandler, platform.CRUDPermissions(authzRepo, "ornamenttypes"))
 	bank.RegisterRoutes(protected.Group("/banks"), bankHandler, platform.CRUDPermissions(authzRepo, "banks"))
 	locker.RegisterRoutes(protected.Group("/lockers"), lockerHandler, platform.CRUDPermissions(authzRepo, "lockers"))
@@ -439,7 +460,7 @@ func Build(db *gorm.DB, cfg platform.Config) (*App, error) {
 	// superadmin.RegisterRoutes, is the only gate these routes get — see the
 	// package doc comment for why tenant role grants must never reach them.
 	superAdminRepo := superadmin.NewRepository(db)
-	superAdminSvc := superadmin.NewService(db, superAdminRepo, tenantRepo, cfg.JWTSecret, cfg.JWTExpiry)
+	superAdminSvc := superadmin.NewService(db, superAdminRepo, tenantRepo, uploadRepo, cfg.UploadsDir, cfg.JWTSecret, cfg.JWTExpiry)
 	superAdminHandler := superadmin.NewHandler(superAdminSvc)
 	superadmin.RegisterRoutes(v1.Group("/superadmin"), superAdminHandler, platform.SuperAdminAuthMiddleware(cfg.JWTSecret))
 

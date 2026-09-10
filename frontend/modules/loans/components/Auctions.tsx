@@ -7,7 +7,7 @@ import { useLoans } from "@/modules/loans/store/LoansProvider";
 import { Icon } from "@/common/components/Icon";
 import { fmt, fmtW } from "@/common/utils/format";
 import { openPrintWindow, brandHeader } from "@/common/utils/print";
-import { BRAND, PRINT_COLORS } from "@/common/config/brand";
+import { BRAND, printColors } from "@/common/config/brand";
 import { StatusChip } from "@/common/components/ui/StatusChip";
 import { StageTracker } from "@/common/components/ui/StageTracker";
 import { useAuth } from "@/common/auth-context";

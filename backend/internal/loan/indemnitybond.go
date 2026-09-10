@@ -1,6 +1,7 @@
 package loan
 
 import (
+	"cloudhouse/backend/internal/platform/httpx"
 	"context"
 	"encoding/base64"
 	"fmt"
@@ -48,14 +49,49 @@ type BondData struct {
 	// Step 9) — populated by bondDataForLoan via Service.businessName, never
 	// left as a hardcoded lender name in the template itself.
 	BusinessName string
+
+	// LegalName/AddressLine/KMLRegNo are the LENDER's own particulars, taken
+	// from the business's tenant profile (superadmin console) rather than
+	// the loan. Empty falls back to the demo constants below — see
+	// renderBondHTML.
+	//
+	// Before these existed the lender was nine hardcoded constants, so every
+	// business's pledge agreement named the same lender. Worse, BusinessName
+	// was already resolved and passed in here and then silently DISCARDED by
+	// renderBondHTML, which rebuilt a stripped BondData; that is fixed.
+	LegalName   string
+	AddressLine string
+	KMLRegNo    string
 }
+
+// ErrGujaratiTemplateMissing is returned when a Gujarati pledge agreement is
+// requested on a build that has no Gujarati template.
+//
+// Gujarati is a real, grantable language (tenant.LangGujarati) so the vendor
+// can tick it and the UI can offer it, but the wording of a binding pledge
+// contract is not something to machine-translate or approximate. Until the
+// reviewed template is dropped in (see renderBondHTML), asking for one is an
+// explicit, visible refusal rather than a silent fallback to English.
+var ErrGujaratiTemplateMissing = httpx.NewBadRequest(
+	"the Gujarati pledge agreement template is not installed on this server yet")
 
 // blank is the placeholder used wherever the frontend template falls back
 // to "________________" for a missing field.
 const blank = "________________"
 
-// lenderName/lenderRegNo and the rest are the fixed lender-side particulars
-// printed on every pledge agreement — same fixed text as the branch's paper
+// lenderName/lenderRegNo and the rest are the FALLBACK lender-side particulars,
+// used only for a business whose tenant profile has not been filled in — see
+// renderBondHTML, which prefers BondData.LegalName/AddressLine/KMLRegNo (set
+// by the vendor in the superadmin console) over every one of them.
+//
+// lenderAge/lenderAadhaar/lenderPAN have NO tenant equivalent yet and are
+// therefore still always these placeholders. They identify the lender on a
+// document a borrower signs, so they must be replaced before any agreement is
+// executed for real.
+//
+// Historical note on the originals:
+// they were the fixed lender-side particulars printed on every pledge
+// agreement — the same fixed text as the branch's paper
 // form, not driven by loan data.
 //
 // DEMO PLACEHOLDERS. These identify the lender on a document the borrower
@@ -64,7 +100,8 @@ const blank = "________________"
 // values below are deliberately non-resolvable: the Aadhaar is masked rather
 // than a 12-digit number that could belong to someone, and the PAN is the
 // conventional all-A dummy. Nothing here is wired to config yet; if a
-// business-profile table is ever added, move all eight into it.
+// business-profile table now exists (tenant.Tenant), and the name, address and
+// registration number have moved into it.
 const lenderName = "CloudHouse Finance"
 const lenderRegNo = "DEMO-MLL-0000000000"
 const lenderAge = "—"
@@ -86,6 +123,18 @@ const lenderAddress = "Demo Registered Office, Door No. 0/000, Demo Village, Dem
 const lenderAddressShort = "DOOR NO. 0/000, DEMO VILLAGE, 000000"
 const lenderKMLRegNo = "DEMO-0000000000"
 
+// firstNonEmpty returns the first argument that is not blank after trimming.
+// Used to layer the lender's particulars: the business's own tenant profile
+// wins, and the demo constants below are only reached when a business has
+// not been given one.
+func firstNonEmpty(vals ...string) string {
+	for _, v := range vals {
+		if s := strings.TrimSpace(v); s != "" {
+			return s
+		}
+	}
+	return ""
+}
 func orBlank(s string) string {
 	if strings.TrimSpace(s) == "" {
 		return blank
@@ -407,13 +456,20 @@ type bondTemplateData struct {
 	AmountWords string
 }
 
-// BondLangEnglish/BondLangMalayalam are the two pledge-agreement languages
-// StartIndemnityBondSign/RenderIndemnityBondPDF accept — kept as named
-// constants rather than bare "en"/"gu" strings so every switch on lang
-// (here and in service.go) stays in sync if a third language is ever added.
+// BondLangEnglish/BondLangMalayalam/BondLangGujarati are the pledge-agreement
+// languages a business can be granted (tenant.KnownLanguages mirrors this set,
+// and is what the vendor ticks per business).
+//
+// Kept as named constants rather than bare strings so every switch on lang
+// stays in sync. NOTE: Gujarati is accepted by the type system and by the
+// per-business grant, but its TEMPLATE IS NOT INSTALLED in this build —
+// renderBondHTML returns ErrGujaratiTemplateMissing rather than silently
+// handing a borrower an English contract they did not ask for. See that
+// error's comment for what dropping the template in requires.
 const (
-	BondLangEnglish  = "en"
+	BondLangEnglish   = "en"
 	BondLangMalayalam = "ml"
+	BondLangGujarati  = "gu"
 )
 
 // BondDeliverOpen/WhatsApp/Dashboard are the ways the signing URL created by
@@ -442,6 +498,17 @@ func renderBondHTML(data BondData, lang string) (string, error) {
 	for _, o := range data.Ornaments {
 		totalValue += o.Value
 	}
+	// Gujarati is grantable but not installed. Refusing is the only safe
+	// answer: falling through to English would hand a borrower a binding
+	// contract in a language they did not choose and may not read.
+	//
+	// To install it, add bondTemplateGu/bondPageStyleGujarati alongside the
+	// Malayalam pair (font stack 'Noto Sans Gujarati', 'Nirmala UI', with the
+	// same host-installed-font caveat bondPageStyleMalayalam documents) and
+	// select them here.
+	if lang == BondLangGujarati {
+		return "", ErrGujaratiTemplateMissing
+	}
 	tmpl := bondTemplate
 	style := bondPageStyle
 	if lang == BondLangMalayalam {
@@ -464,23 +531,23 @@ func renderBondHTML(data BondData, lang string) (string, error) {
 	}
 
 	td := bondTemplateData{
-		BondData: BondData{
-			LoanNumber: data.LoanNumber,
-			Ornaments:  data.Ornaments,
-			Day:        data.Day,
-			Month:      data.Month,
-			Year:       data.Year,
-		},
-		Style:              template.CSS(style),
-		Blank:              blank,
-		LenderName:         lenderName,
-		LenderRegNo:        lenderKMLRegNo,
+		// Passed WHOLE. An earlier version rebuilt a stripped BondData with
+		// five fields copied across, which silently dropped BusinessName —
+		// the tenant name was resolved, handed in, and thrown away, so every
+		// business printed the same lender. Copy everything; the outer
+		// string fields below shadow their BondData namesakes for rendering.
+		BondData: data,
+		Style:    template.CSS(style),
+		Blank:    blank,
+		// Tenant profile first, demo constants only as a fallback.
+		LenderName:         firstNonEmpty(data.LegalName, data.BusinessName, lenderName),
+		LenderRegNo:        firstNonEmpty(data.KMLRegNo, lenderKMLRegNo),
 		LenderAge:          lenderAge,
-		LenderBusiness:     lenderBusiness,
+		LenderBusiness:     firstNonEmpty(data.LegalName, data.BusinessName, lenderBusiness),
 		LenderAadhaar:      lenderAadhaar,
 		LenderPAN:          lenderPAN,
-		LenderAddress:      lenderAddress,
-		LenderAddressShort: lenderAddressShort,
+		LenderAddress:      firstNonEmpty(data.AddressLine, lenderAddress),
+		LenderAddressShort: firstNonEmpty(data.AddressLine, lenderAddressShort),
 		Age:                ageOrBlank(data.Age),
 		Aadhaar:            aadhaarOrBlank(data.Aadhaar),
 		PAN:                orBlank(data.PAN),

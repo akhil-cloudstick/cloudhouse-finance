@@ -79,6 +79,19 @@ export type Business = {
   status: string;
   subscriptionExpiresAt?: string | null;
   gracePeriodEndsAt?: string | null;
+  legalName: string;
+  addressLine: string;
+  kmlRegNo: string;
+  appUrl: string;
+  brandColor: string;
+  /* Empty when the business has no logo. Derived server-side from the
+   * business code (tenant.Tenant.LogoPath) — never a raw storage key. */
+  logoUrl: string;
+  /* Optional modules and document languages this business has been granted.
+   * Both arrive as arrays even though the backend stores them as CSV — see
+   * tenant.Tenant's AfterFind. */
+  modules: string[];
+  languages: string[];
   createdAt: string;
   updatedAt: string;
 };
@@ -99,6 +112,16 @@ export type CreateBusinessInput = {
   adminPassword: string;
   adminName?: string;
   adminPhone?: string;
+  /* Branding and entitlements, all optional — a business can be created bare
+   * and fitted out afterwards through the profile/branding endpoints. Offered
+   * here so the create form is one step rather than five. */
+  legalName?: string;
+  addressLine?: string;
+  kmlRegNo?: string;
+  appUrl?: string;
+  brandColor?: string;
+  modules?: string[];
+  languages?: string[];
   reason: string;
 };
 
@@ -159,4 +182,90 @@ export function listAuditLog(filter?: { tenantId?: number; action?: string }): P
   if (filter?.action) params.set("action", filter.action);
   const qs = params.toString();
   return request<AuditLogEntry[]>(`/superadmin/audit-log${qs ? `?${qs}` : ""}`);
+}
+
+/* --- Branding and entitlements ---------------------------------------------
+ *
+ * Each of these is a separate endpoint rather than one big PUT, matching how
+ * suspend/reactivate/tier already work here: every superadmin action carries
+ * its own mandatory reason and produces its own audit row naming exactly
+ * what changed. A combined "save everything" call would log one vague entry
+ * for five different kinds of change.
+ */
+
+export type Catalogue = { modules: string[]; languages: string[] };
+
+/* The closed sets the checkboxes are built from, served from
+ * tenant.KnownModules/KnownLanguages so the console can never offer a key
+ * the backend would reject. */
+export function getCatalogue(): Promise<Catalogue> {
+  return request<Catalogue>("/superadmin/catalogue");
+}
+
+export type ProfileInput = {
+  name: string;
+  legalName: string;
+  addressLine: string;
+  kmlRegNo: string;
+  appUrl: string;
+  reason: string;
+};
+
+/* Note there is no `code` here. The sign-in code is part of the business's
+ * identity — every staff member's /login/<code> bookmark depends on it — and
+ * tenant.Tenant.Code documents it as immutable after creation. */
+export function updateProfile(id: number, input: ProfileInput): Promise<Business> {
+  return request<Business>(`/superadmin/businesses/${id}/profile`, {
+    method: "PUT",
+    body: JSON.stringify(input),
+  });
+}
+
+/* brandColor is "#rrggbb", or "" to fall back to the platform default. The
+ * rest of the palette is derived from it in the browser — see
+ * common/config/theme.ts — so there is only ever this one value to set. */
+export function setBranding(id: number, brandColor: string, reason: string): Promise<Business> {
+  return request<Business>(`/superadmin/businesses/${id}/branding`, {
+    method: "PUT",
+    body: JSON.stringify({ brandColor, reason }),
+  });
+}
+
+export function setModules(id: number, modules: string[], reason: string): Promise<Business> {
+  return request<Business>(`/superadmin/businesses/${id}/modules`, {
+    method: "PUT",
+    body: JSON.stringify({ modules, reason }),
+  });
+}
+
+export function setLanguages(id: number, languages: string[], reason: string): Promise<Business> {
+  return request<Business>(`/superadmin/businesses/${id}/languages`, {
+    method: "PUT",
+    body: JSON.stringify({ languages, reason }),
+  });
+}
+
+/* Multipart, so it cannot go through request() — that helper sets a JSON
+ * Content-Type, and setting any Content-Type by hand on a FormData body
+ * strips the boundary the server needs to parse it. */
+export async function uploadLogo(id: number, file: File, reason: string): Promise<Business> {
+  const token = readSuperAdminToken();
+  const form = new FormData();
+  form.append("file", file);
+  form.append("reason", reason);
+  const res = await fetch(`${API_BASE}/superadmin/businesses/${id}/logo`, {
+    method: "POST",
+    headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+    body: form,
+  });
+  let body: { success?: boolean; data?: Business; error?: string } | undefined;
+  try {
+    body = await res.json();
+  } catch {
+    /* non-JSON body */
+  }
+  if (!res.ok || body?.success === false) {
+    throw new SuperAdminApiError(body?.error || res.statusText, res.status);
+  }
+  return body?.data as Business;
 }

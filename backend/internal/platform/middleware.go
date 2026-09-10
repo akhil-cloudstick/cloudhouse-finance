@@ -3,6 +3,7 @@ package platform
 import (
 	"context"
 	"errors"
+	"log"
 	"net/http"
 	"strings"
 
@@ -303,5 +304,56 @@ func CRUDPermissions(checker PermissionChecker, resource string) CRUDMiddlewares
 		Read:   view,
 		Update: update,
 		Delete: deleteMw,
+	}
+}
+
+// TenantModuleChecker is the minimal surface RequireTenantModule needs from
+// internal/tenant.Repository. A narrow interface for the same reason
+// PermissionChecker is one: internal/tenant imports this package, so this
+// package cannot import it back.
+type TenantModuleChecker interface {
+	HasModule(ctx context.Context, tenantID uint, moduleKey string) (bool, error)
+}
+
+// RequireTenantModule gates a route on an OPTIONAL MODULE being enabled for
+// the caller's business (see tenant.KnownModules).
+//
+// This is a separate axis from RequirePermission and both apply: permissions
+// answer "may this ROLE do it", a module answers "did the vendor sell this
+// business the feature at all". A tenant administrator holding every
+// permission still cannot reach a module their business was not granted.
+//
+// It exists because hiding a nav item is not enforcement. The frontend
+// filters the sidebar on the same flag, but that only decides what is drawn;
+// without this, the endpoint stayed reachable to anyone who typed the URL or
+// called the API directly.
+//
+// Apply it NARROWLY — to the management routes of a feature, not to reads
+// other parts of the app depend on. Disabling the Branch Management page must
+// not break the branch dropdown on the new-loan form.
+func RequireTenantModule(checker TenantModuleChecker, moduleKey string) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		ctx := RequestContext(c)
+		tenantID, ok := TenantFromContext(ctx)
+		if !ok || tenantID == 0 {
+			// Should be unreachable behind AuthMiddleware, which rejects a
+			// token with no business. Fail closed rather than assume.
+			httpx.FailAbort(c, http.StatusUnauthorized, "no business in session")
+			return
+		}
+		enabled, err := checker.HasModule(ctx, tenantID, moduleKey)
+		if err != nil {
+			log.Printf("module check failed for tenant %d, module %q: %v", tenantID, moduleKey, err)
+			httpx.FailAbort(c, http.StatusForbidden, "this feature is not available for your business")
+			return
+		}
+		if !enabled {
+			// 403, not 404: the caller is legitimately authenticated and the
+			// route exists — what is missing is an entitlement, and saying so
+			// is what lets an administrator know to ask for it.
+			httpx.FailAbort(c, http.StatusForbidden, "this feature is not enabled for your business")
+			return
+		}
+		c.Next()
 	}
 }

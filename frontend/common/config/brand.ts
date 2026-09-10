@@ -1,3 +1,6 @@
+import { brandRampHex, readCachedBrandColor } from "@/common/config/theme";
+import { activeBusinessSlug } from "@/common/services/tenantSession";
+
 /* CloudHouse Finance — single source of truth for every brand string and
  * logo path in the web app.
  *
@@ -57,3 +60,134 @@ export const PRINT_COLORS = {
  * body text, where a moving background destroys contrast. */
 export const BRAND_GRADIENT =
   "linear-gradient(135deg, #6644de 0%, #c61f8f 52%, #f99603 100%)";
+
+/* VENDOR is us — the company that sells and operates this software — as
+ * distinct from BRAND above, which is the product a BUSINESS's own staff and
+ * customers see. They are deliberately separate strings: the superadmin
+ * console is our internal tool and should say so, while the tenant app is
+ * branded for whichever business is signed in (see common/BrandingProvider).
+ * Overloading BRAND for both is how a customer ends up looking at our
+ * vendor name on their own paperwork. */
+export const VENDOR = {
+  name: "CloudHouse Technologies",
+  shortName: "CloudHouse",
+  product: "Superadmin Console",
+  markSrc: "/cloudhouse-mark.png",
+} as const;
+
+/* printColors returns the brand ramp for the CURRENT business, in hex.
+ *
+ * Print and PDF templates open in a new window via document.write, where this
+ * app's CSS custom properties do not exist — so those templates cannot use
+ * var(--brand) and need literal values. PRINT_COLORS above is the static
+ * platform default; this is its per-business equivalent, and every template
+ * should call it rather than reading the constant, or a business with its own
+ * colour gets its own screen and CloudHouse's printouts.
+ *
+ * Reads the colour cached by BrandingProvider rather than the live context,
+ * so plain (non-React) template builders in common/utils and module util files
+ * can call it without being rewritten into hooks. */
+/** Same shape as PRINT_COLORS, but widened — these values are computed. */
+export type PrintColors = { [K in keyof typeof PRINT_COLORS]: string };
+
+export function printColors(): PrintColors {
+  const cached = readCachedBrandColor(activeBusinessSlug());
+  if (!cached) return PRINT_COLORS;
+  const ramp = brandRampHex(cached);
+  return {
+    ...PRINT_COLORS,
+    brand: ramp["--brand"] ?? PRINT_COLORS.brand,
+    brandDeep: ramp["--brand-deep"] ?? PRINT_COLORS.brandDeep,
+    tint: ramp["--brand-faint"] ?? PRINT_COLORS.tint,
+  };
+}
+
+/* --- Per-business identity for print templates -----------------------------
+ *
+ * The same problem printColors() solves, for STRINGS. A printed pledge slip
+ * or statement must carry the business's own legal name and money-lending
+ * registration number, not CloudHouse's — printing the vendor's registration
+ * on a borrower's paperwork would be wrong in a way that matters legally,
+ * not just cosmetically.
+ *
+ * Cached rather than read from React context for the same reason as the
+ * colour: the templates are plain string builders, not components. Written by
+ * BrandingProvider on every successful load.
+ */
+
+const BRAND_PROFILE_KEY_PREFIX = "cloudhouse_brand_profile::";
+
+export type PrintBrand = {
+  /** Raw registration number, for templates that render their own label. */
+  kmlRegNo: string;
+  legalName: string;
+  kmlRegLabel: string;
+  addressLine: string;
+};
+
+export function cacheBrandProfile(
+  slug: string | null,
+  profile: { legalName: string; kmlRegNo: string; addressLine: string }
+): void {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(BRAND_PROFILE_KEY_PREFIX + (slug || "default"), JSON.stringify(profile));
+  } catch {
+    /* storage disabled — templates fall back to the platform brand */
+  }
+}
+
+/* printBrand falls back FIELD BY FIELD rather than all-or-nothing: a business
+ * that has a legal name but no registration number on file should print its
+ * own name, not revert wholesale to CloudHouse's. */
+export function printBrand(): PrintBrand {
+  const fallback: PrintBrand = {
+    legalName: BRAND.legalName,
+    kmlRegLabel: BRAND.kmlRegLabel,
+    kmlRegNo: BRAND.kmlReg,
+    addressLine: "",
+  };
+  if (typeof window === "undefined") return fallback;
+  try {
+    const raw = window.localStorage.getItem(BRAND_PROFILE_KEY_PREFIX + (activeBusinessSlug() || "default"));
+    if (!raw) return fallback;
+    const p = JSON.parse(raw) as { legalName?: string; kmlRegNo?: string; addressLine?: string };
+    return {
+      legalName: p.legalName || fallback.legalName,
+      kmlRegLabel: p.kmlRegNo ? `KML Reg. No: ${p.kmlRegNo}` : fallback.kmlRegLabel,
+      kmlRegNo: p.kmlRegNo || fallback.kmlRegNo,
+      addressLine: p.addressLine || "",
+    };
+  } catch {
+    return fallback;
+  }
+}
+
+/* tenantLenderProfile is printBrand's counterpart with NO platform fallback:
+ * it returns empty strings when the business has not set a value.
+ *
+ * The two exist separately because they answer different questions. A
+ * printed masthead always needs *something*, so printBrand falls back to
+ * CloudHouse. The pledge agreement and release form instead have their own
+ * historical defaults — the particulars this deployment has been printing
+ * since before tenant profiles existed — and must keep using those rather
+ * than silently switching a live business's legal paperwork to the platform
+ * name. So they need to know whether a tenant value actually exists, which
+ * a pre-filled fallback would hide.
+ */
+export function tenantLenderProfile(): { legalName: string; addressLine: string; kmlRegNo: string } {
+  const empty = { legalName: "", addressLine: "", kmlRegNo: "" };
+  if (typeof window === "undefined") return empty;
+  try {
+    const raw = window.localStorage.getItem(BRAND_PROFILE_KEY_PREFIX + (activeBusinessSlug() || "default"));
+    if (!raw) return empty;
+    const p = JSON.parse(raw) as { legalName?: string; kmlRegNo?: string; addressLine?: string };
+    return {
+      legalName: p.legalName || "",
+      addressLine: p.addressLine || "",
+      kmlRegNo: p.kmlRegNo || "",
+    };
+  } catch {
+    return empty;
+  }
+}

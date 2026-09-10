@@ -24,12 +24,12 @@ import (
 	"cloudhouse/backend/internal/dashboard"
 	"cloudhouse/backend/internal/employee"
 	"cloudhouse/backend/internal/goldrate"
+	"cloudhouse/backend/internal/investment"
 	"cloudhouse/backend/internal/loan"
 	"cloudhouse/backend/internal/locker"
 	"cloudhouse/backend/internal/notification"
 	"cloudhouse/backend/internal/ornamenttype"
 	"cloudhouse/backend/internal/packet"
-	"cloudhouse/backend/internal/investment"
 	"cloudhouse/backend/internal/personalloan"
 	"cloudhouse/backend/internal/platform"
 	"cloudhouse/backend/internal/puritystandard"
@@ -375,6 +375,10 @@ func Run(db *gorm.DB, cfg platform.Config) error {
 	// tenant of the row that references the file, so those rows need their
 	// own tenant_id populated first.
 	if err := backfillUploadedFiles(db); err != nil {
+		return err
+	}
+
+	if err := backfillTenantGrantColumns(db); err != nil {
 		return err
 	}
 
@@ -929,6 +933,35 @@ func backfillBranches(db *gorm.DB) error {
 				return err
 			}
 			log.Printf("backfilled %s: %d row(s) -> branch %q (id=%d)", table, db.RowsAffected, name, b.ID)
+		}
+	}
+	return nil
+}
+
+// backfillTenantGrantColumns normalises the two grant columns from NULL to
+// the empty string.
+//
+// AutoMigrate adds enabled_modules/document_languages as NULLABLE, so every
+// business created before them holds NULL rather than "". Both mean the same
+// thing to tenant.Tenant's helpers (no optional modules; English only), but
+// NULL and "" are not the same thing to the DRIVER: plucking a NULL into a Go
+// string fails outright, which is how a NULL enabled_modules turned into a
+// 403 on every module-gated route for every existing business.
+//
+// tenant.Repository.HasModule now COALESCEs defensively, but the data itself
+// should not carry a distinction that has no meaning — otherwise every future
+// query against these columns has to remember the same trick.
+//
+// Idempotent: a second run updates nothing.
+func backfillTenantGrantColumns(db *gorm.DB) error {
+	for _, col := range []string{"enabled_modules", "document_languages"} {
+		res := db.Exec(
+			fmt.Sprintf("UPDATE tenants SET %s = '' WHERE %s IS NULL", col, col))
+		if res.Error != nil {
+			return fmt.Errorf("backfilling tenants.%s: %w", col, res.Error)
+		}
+		if res.RowsAffected > 0 {
+			log.Printf("backfilled tenants.%s: %d row(s) NULL -> ''", col, res.RowsAffected)
 		}
 	}
 	return nil

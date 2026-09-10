@@ -1,6 +1,7 @@
 import { apiFetchEnveloped as apiFetch, API_BASE, getAuthToken, ApiError } from "@/common/services/httpClient";
 import { branchHeader } from "@/common/services/branchSelection";
 import { isSmallScreen } from "@/common/utils/responsive";
+import type { BondLang } from "@/modules/loans/utils/indemnityBond";
 
 /* Mirrors backend/internal/loan/handler.go's ornamentRequest exactly. */
 export type OrnamentRequestInput = {
@@ -543,7 +544,10 @@ export type IndemnityBondDeliverBy = "open" | "whatsapp" | "dashboard";
 
 export async function startIndemnityBondEsign(
   loanId: number,
-  lang: "en" | "ml",
+  // BondLang, not a second inline union: the two drifted apart when
+  // Gujarati was added, and the whole point of the shared type is that a
+  // new language is one edit.
+  lang: BondLang,
   redirectUrl: string,
   deliverBy: IndemnityBondDeliverBy = "open"
 ): Promise<IndemnityBondEsignStart> {

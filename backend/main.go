@@ -64,7 +64,7 @@ func main() {
 	// real WhatsApp sends to real borrowers/business owners.
 	application.StartBackgroundJobs(context.Background())
 
-	log.Printf("CloudHouse Gold API + web app listening on :%s (serving frontend from %s)", cfg.Port, cfg.FrontendDir)
+	log.Printf("CloudHouse API + web app listening on :%s (serving frontend from %s)", cfg.Port, cfg.FrontendDir)
 	if err := application.Router.Run(":" + cfg.Port); err != nil {
 		log.Fatalf("server error: %v", err)
 	}
