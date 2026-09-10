@@ -3215,7 +3215,13 @@ table.tbl {
 
   .frow.c2,
   .frow.c3 {
-    grid-template-columns: 1fr
+    grid-template-columns: 1fr;
+    gap: 18px
+  }
+
+  .modal .bd > label.f {
+    margin-top: 20px !important;
+    margin-bottom: 10px
   }
 
   .top {
@@ -3534,7 +3540,21 @@ table.tbl {
   .frow.c2,
   .frow.c3,
   .frow.c4 {
-    grid-template-columns: 1fr
+    grid-template-columns: 1fr;
+    /* Stacking 3-4 side-by-side fields into one column multiplies how many
+     * rows a form needs — the same 13px row gap that read fine spread
+     * across a wide row now reads as everything crammed together. */
+    gap: 18px
+  }
+
+  /* Section headers (e.g. "Personal Details", "Documents") sit directly in
+   * `.bd`, not inside a `.frow` — unlike field labels above, which already
+   * have a tight 5px gap to their own input. Give these breathing room from
+   * the row before them, since on mobile that row is now a full stack of
+   * fields rather than one line. */
+  .modal .bd > label.f {
+    margin-top: 20px !important;
+    margin-bottom: 10px
   }
 
   /* PurityPicker's Karat/Fineness toggle and its search/value field —

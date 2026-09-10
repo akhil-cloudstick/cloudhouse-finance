@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { toDataURL } from "qrcode";
+import { useDropdownMenu } from "@/hooks/useDropdownMenu";
 import { useData } from "@/common/DataProvider";
 import { useCustomers } from "@/modules/customers/store/CustomersProvider";
 import { useSchemes } from "@/modules/schemes/store/SchemesProvider";
@@ -183,16 +184,13 @@ export function NewLoan() {
   // provisional provId-based URL once it's known.
   const [createdPacketCode, setCreatedPacketCode] = useState<string | null>(null);
   const [bondLang, setBondLang] = useState<BondLang>("en");
-  const [bondMenuOpen, setBondMenuOpen] = useState(false);
-  const bondMenuRef = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    if (!bondMenuOpen) return;
-    function onDocClick(e: MouseEvent) {
-      if (!bondMenuRef.current?.contains(e.target as Node)) setBondMenuOpen(false);
-    }
-    document.addEventListener("click", onDocClick);
-    return () => document.removeEventListener("click", onDocClick);
-  }, [bondMenuOpen]);
+  const {
+    open: bondMenuOpen,
+    setOpen: setBondMenuOpen,
+    menuRef: bondMenuRef,
+    triggerRef: bondMenuTriggerRef,
+    onKeyDown: onBondMenuKeyDown,
+  } = useDropdownMenu<HTMLDivElement>();
 
   useEffect(() => {
     listActiveBranches()
@@ -956,17 +954,20 @@ export function NewLoan() {
               * toggle + print button with a single dropdown matching
               * LoanDetail.tsx's Documents menu, picking between English and
               * Gujarati on the fly. */}
-            <div className="docs-dd" ref={bondMenuRef}>
+            <div className="docs-dd" ref={bondMenuRef} onKeyDown={onBondMenuKeyDown}>
               <button
+                ref={bondMenuTriggerRef}
                 type="button"
                 className="btn ghost"
                 onClick={() => setBondMenuOpen((v) => !v)}
                 title="Print pledge agreement in English or Gujarati"
+                aria-haspopup="menu"
+                aria-expanded={bondMenuOpen}
               >
                 🖨 Pledge Agreement <Icon name="chevronDown" className="docs-dd-chev" />
               </button>
               {bondMenuOpen && (
-                <div className="docs-dd-menu" style={{ minWidth: 230, right: 0 }}>
+                <div className="docs-dd-menu" role="menu" style={{ minWidth: 230, right: 0 }}>
                   <a
                     href="#"
                     onClick={(e) => {

@@ -127,6 +127,16 @@ export type CommunicationHistoryRow = {
 };
 export type CommunicationHistoryTotals = { count: number; sent: number; failed: number };
 
+export type TradeSheetRow = {
+  date: string; reference: string; type: string; party: string; purity: string;
+  netWeight: number; rate: number; value: number; branchName: string;
+};
+export type PurityStock = { purity: string; netWeight: number };
+export type TradeSheetTotals = { closingStockByPurity: PurityStock[]; totalValue: number };
+
+export type BalanceSheetRow = { section: "Assets" | "Liabilities" | "Capital"; label: string; amount: number };
+export type BalanceSheetTotals = { totalAssets: number; totalLiabilities: number; netPosition: number };
+
 /* ---- One function per report endpoint (path segments per routes.go). ---- */
 
 export const getDisbursement = (f: ReportFilters) =>
@@ -177,6 +187,12 @@ export const getEmployeePerformance = (f: ReportFilters) =>
 export const getCommunicationHistory = (f: ReportFilters) =>
   fetchReport<CommunicationHistoryRow, CommunicationHistoryTotals>("communication-history", f);
 
+export const getTradeSheet = (f: ReportFilters) =>
+  fetchReport<TradeSheetRow, TradeSheetTotals>("trade-sheet", f);
+
+export const getBalanceSheet = (f: ReportFilters) =>
+  fetchReport<BalanceSheetRow, BalanceSheetTotals>("balance-sheet", f);
+
 /* Report export keys, matching backend/internal/reports/export.go's
  * reportRows switch exactly (note "loans/status" list path vs
  * "loans-status" export key — the export key list is a *different* set of
@@ -185,7 +201,7 @@ export type ReportKey =
   | "disbursement" | "loans-status" | "interest-collection" | "outstanding-principal"
   | "payment-collection" | "gold-weight" | "packets" | "bank-pledge" | "loan-extensions"
   | "gold-release" | "auctions" | "expense-cashflow" | "kyc" | "gold-rate-history"
-  | "employee-performance" | "communication-history";
+  | "employee-performance" | "communication-history" | "trade-sheet" | "balance-sheet";
 
 /* Downloads GET /reports/export/:key?format=xlsx|pdf as a blob and triggers
  * a browser save, matching the object-URL + anchor-click pattern used for

@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useDropdownMenu } from "@/hooks/useDropdownMenu";
 import { useModal } from "@/common/components/Modal";
 import { useToast } from "@/common/components/Toast";
 import { useAuth } from "@/common/auth-context";
@@ -227,16 +228,13 @@ export function CustomerDetail({ id }: { id?: string }) {
   // dropdown the same way LoanDetail.tsx's "Documents"/"Loan Actions" menus
   // are, since the header outgrew the space next to the customer name on
   // anything but a very wide screen.
-  const [actionsMenuOpen, setActionsMenuOpen] = useState(false);
-  const actionsMenuRef = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    if (!actionsMenuOpen) return;
-    function onDocClick(e: MouseEvent) {
-      if (!actionsMenuRef.current?.contains(e.target as Node)) setActionsMenuOpen(false);
-    }
-    document.addEventListener("click", onDocClick);
-    return () => document.removeEventListener("click", onDocClick);
-  }, [actionsMenuOpen]);
+  const {
+    open: actionsMenuOpen,
+    setOpen: setActionsMenuOpen,
+    menuRef: actionsMenuRef,
+    triggerRef: actionsMenuTriggerRef,
+    onKeyDown: onActionsMenuKeyDown,
+  } = useDropdownMenu<HTMLDivElement>();
 
   const loanPager = useSubTablePage<LoanView>(listLoans, range, !!id);
   const ornamentPager = useSubTablePage<CustomerOrnamentRowView>(listOrnaments, range, !!id);
@@ -355,12 +353,18 @@ export function CustomerDetail({ id }: { id?: string }) {
         </div>
         <div className="sp" />
         {(canUpdateCustomers || canHardDeleteCustomers) && (
-          <div className="docs-dd" ref={actionsMenuRef}>
-            <button className="btn ghost sm" onClick={() => setActionsMenuOpen((v) => !v)}>
+          <div className="docs-dd" ref={actionsMenuRef} onKeyDown={onActionsMenuKeyDown}>
+            <button
+              ref={actionsMenuTriggerRef}
+              className="btn ghost sm"
+              onClick={() => setActionsMenuOpen((v) => !v)}
+              aria-haspopup="menu"
+              aria-expanded={actionsMenuOpen}
+            >
               <Icon name="gear" /> Actions <Icon name="chevronDown" className="docs-dd-chev" />
             </button>
             {actionsMenuOpen && (
-              <div className="docs-dd-menu">
+              <div className="docs-dd-menu" role="menu">
                 {canUpdateCustomers && (
                   <a href="#" title="Edit Customer" onClick={(e) => { e.preventDefault(); setActionsMenuOpen(false); openEditCustomer(); }}>
                     <Icon name="edit" /><span className="tx">Edit Customer</span>

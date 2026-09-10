@@ -111,6 +111,11 @@ export function SearchableSelect<T>({
   // Tracks the query the currently-open dropdown was first opened/typed
   // with, so re-focusing without typing doesn't re-fire a fetch.
   const loadedForRef = useRef<string | null>(null);
+  // Arrow-key navigation over the open results list: -1 means nothing
+  // highlighted (the plain "typing, nothing picked yet" state). Index space
+  // covers `items` first, then the "+ Create …" row (if shown) as one extra
+  // slot past the end.
+  const [highlightedIndex, setHighlightedIndex] = useState(-1);
 
   // Keep the visible text in sync if the parent changes `value` externally
   // (e.g. resetting the form) without the user typing.
@@ -121,6 +126,13 @@ export function SearchableSelect<T>({
   function loadPage(q: string, p: number, reqId: number, append: boolean) {
     const setBusy = append ? setLoadingMore : setLoading;
     setBusy(true);
+    // A fresh (non-appended) page — a new search term, or the box just
+    // opened — invalidates whatever was highlighted before. An appended
+    // page (infinite scroll / keyboard-nav prefetch) must NOT reset it:
+    // this used to live in a `useEffect` keyed on `items`, which also fired
+    // on every append and threw the user back to "nothing highlighted"
+    // mid-arrow-key-navigation the moment the next page loaded.
+    if (!append) setHighlightedIndex(-1);
     fetchFn(q, p)
       .then((result) => {
         if (reqId !== requestIdRef.current) return; // stale response — discard
@@ -257,6 +269,59 @@ export function SearchableSelect<T>({
     };
   }, [compact, open]);
 
+  const showCreateRowForNav = allowCreate && query.trim().length > 0 &&
+    !items.some((it) => getLabel(it).toLowerCase() === query.trim().toLowerCase()) && !loading;
+  const navRowCount = items.length + (showCreateRowForNav ? 1 : 0);
+
+  function scrollHighlightedIntoView(index: number) {
+    const list = resultsRef.current;
+    if (!list) return;
+    const row = list.children[index] as HTMLElement | undefined;
+    row?.scrollIntoView({ block: "nearest" });
+  }
+
+  function onInputKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
+    if (!open) {
+      if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+        e.preventDefault();
+        setSearchTerm("");
+        setOpen(true);
+      }
+      return;
+    }
+    if (!navRowCount) return;
+
+    switch (e.key) {
+      case "ArrowDown": {
+        e.preventDefault();
+        const next = highlightedIndex < navRowCount - 1 ? highlightedIndex + 1 : 0;
+        setHighlightedIndex(next);
+        scrollHighlightedIntoView(next);
+        if (next >= navRowCount - 3) loadNextPage(); // nearing the loaded end — fetch ahead, same as scroll
+        break;
+      }
+      case "ArrowUp": {
+        e.preventDefault();
+        const next = highlightedIndex > 0 ? highlightedIndex - 1 : navRowCount - 1;
+        setHighlightedIndex(next);
+        scrollHighlightedIntoView(next);
+        break;
+      }
+      case "Enter": {
+        if (highlightedIndex < 0) return;
+        e.preventDefault();
+        if (highlightedIndex < items.length) pick(items[highlightedIndex]);
+        else pickCreate();
+        break;
+      }
+      case "Escape": {
+        e.preventDefault();
+        setOpen(false);
+        break;
+      }
+    }
+  }
+
   function pick(item: T) {
     onChange(getId(item), item);
     setQuery(getLabel(item));
@@ -285,10 +350,12 @@ export function SearchableSelect<T>({
     <div className="gs-none">No results</div>
   ) : (
     <>
-      {items.map((item) => (
+      {items.map((item, i) => (
         <a
           key={getId(item)}
           href="#"
+          className={i === highlightedIndex ? "sel" : undefined}
+          onMouseEnter={() => setHighlightedIndex(i)}
           onClick={(e) => { e.preventDefault(); pick(item); }}
         >
           {renderOption ? renderOption(item) : <span className="tx"><b>{getLabel(item)}</b></span>}
@@ -298,6 +365,8 @@ export function SearchableSelect<T>({
       {showCreateRow && (
         <a
           href="#"
+          className={highlightedIndex === items.length ? "sel" : undefined}
+          onMouseEnter={() => setHighlightedIndex(items.length)}
           onClick={(e) => { e.preventDefault(); pickCreate(); }}
         >
           <span className="tx"><b>{creating ? "Creating…" : `+ Create "${query.trim()}"`}</b></span>
@@ -316,6 +385,7 @@ export function SearchableSelect<T>({
         autoComplete="off"
         onChange={(e) => { setQuery(e.target.value); setSearchTerm(e.target.value); setOpen(true); }}
         onFocus={() => { setSearchTerm(""); setOpen(true); }}
+        onKeyDown={onInputKeyDown}
       />
       {/* Every other caller: the original inline dropdown — absolute inside
        * `.ss`, natural width, themed scrollbar. Capped to exactly

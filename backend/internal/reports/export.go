@@ -51,6 +51,10 @@ func (h *Handler) reportRows(key string, f Filter) (rows any, totals any, err er
 		return call2(h.svc.EmployeePerformance(f))
 	case "communication-history":
 		return call2(h.svc.CommunicationHistory(f, ""))
+	case "trade-sheet":
+		return call2(h.svc.TradeSheet(f))
+	case "balance-sheet":
+		return call2(h.svc.BalanceSheet(f))
 	default:
 		return nil, nil, fmt.Errorf("unknown report key %q", key)
 	}

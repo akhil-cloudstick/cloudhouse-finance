@@ -10,7 +10,7 @@ import {
   getDisbursement, getLoansStatus, getInterestCollection, getOutstandingPrincipal,
   getPaymentCollection, getGoldWeight, getPackets, getBankPledge, getLoanExtensions,
   getGoldRelease, getAuctions, getExpenseCashflow, getKYC, getGoldRateHistory,
-  getEmployeePerformance, getCommunicationHistory, exportReport,
+  getEmployeePerformance, getCommunicationHistory, getTradeSheet, getBalanceSheet, exportReport,
 } from "@/modules/reports/services/reportsService";
 
 function firstOfMonth(): string {
@@ -328,6 +328,52 @@ const REPORT_CONFIGS: ReportConfig[] = [
     ],
     totals: (t) => [{ label: "Total", value: String(t.count) }, { label: "Sent", value: String(t.sent) }, { label: "Failed", value: String(t.failed) }],
   },
+  {
+    id: "trade-sheet",
+    title: "Trade / Stock Sheet",
+    description: "Gold movement & running stock by purity",
+    icon: "box",
+    exportKey: "trade-sheet",
+    fetchFn: getTradeSheet,
+    rowKey: (r) => `${r.type}-${r.reference}-${r.date}-${r.purity}`,
+    columns: [
+      { key: "date", label: "Date", render: (r) => dt(r.date) },
+      { key: "reference", label: "Reference", render: (r) => r.reference },
+      { key: "type", label: "Type", render: (r) => r.type },
+      { key: "party", label: "Party", render: (r) => r.party },
+      { key: "purity", label: "Purity", render: (r) => r.purity || "—" },
+      { key: "netWeight", label: "Net Wt. (g)", numeric: true, render: (r) => r.netWeight ? fmtW(r.netWeight) : "—" },
+      { key: "rate", label: "Rate/g", numeric: true, render: (r) => r.rate ? fmt(r.rate) : "—" },
+      { key: "value", label: "Value", numeric: true, render: (r) => fmt(r.value) },
+      { key: "branchName", label: "Branch", render: (r) => r.branchName },
+    ],
+    totals: (t) => [
+      ...t.closingStockByPurity.map((p: { purity: string; netWeight: number }) => ({ label: `Closing Stock (${p.purity})`, value: fmtW(p.netWeight) })),
+      { label: "Total Value", value: fmt(t.totalValue) },
+    ],
+  },
+  {
+    id: "balance-sheet",
+    title: "Balance Sheet",
+    description: "Assets, liabilities & net position as of a date",
+    icon: "scale",
+    exportKey: "balance-sheet",
+    fetchFn: getBalanceSheet,
+    // No date range — a balance sheet is a snapshot, so only the filter
+    // bar's "To" date is meaningful here (used as the as-of date; ReportView
+    // doesn't have a dedicated "as of" field, so "To" doubles as it).
+    rowKey: (r) => `${r.section}-${r.label}`,
+    columns: [
+      { key: "section", label: "Section", render: (r) => r.section },
+      { key: "label", label: "Line Item", render: (r) => r.label },
+      { key: "amount", label: "Amount", numeric: true, render: (r) => fmt(r.amount) },
+    ],
+    totals: (t) => [
+      { label: "Total Assets", value: fmt(t.totalAssets) },
+      { label: "Total Liabilities", value: fmt(t.totalLiabilities) },
+      { label: "Net Position", value: fmt(t.netPosition) },
+    ],
+  },
 ];
 
 /* Ported from legacy/app.js's `renderReports()` tile grid, now wired to
@@ -379,7 +425,7 @@ export function Reports() {
             </button>
             <div className="bd" style={{ display: "flex", flexDirection: "column", flex: 1 }}>
               <b style={{ fontSize: 14.5, color: "var(--charcoal)", paddingRight: 40 }}>{r.title}</b>
-              <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 2 }}>{r.description}</div>
+              <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 2, paddingRight: 40 }}>{r.description}</div>
             </div>
           </div>
         ))}
