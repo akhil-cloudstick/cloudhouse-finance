@@ -162,7 +162,7 @@ export function Icon({ name, className, style }: { name: string; className?: str
       strokeLinecap="round"
       strokeLinejoin="round"
       className={className}
-      style={style}
+      style={{ width: 16, height: 16, flexShrink: 0, ...style }}
     >
       {PATHS[name] || PATHS.doc}
     </svg>

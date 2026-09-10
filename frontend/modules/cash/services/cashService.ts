@@ -1,4 +1,4 @@
-import { apiFetchEnveloped as apiFetch, apiUploadEnveloped as apiUpload } from "@/common/services/httpClient";
+import { apiFetchEnveloped as apiFetch, apiUploadEnveloped as apiUpload, API_BASE, AUTH_TOKEN_KEY } from "@/common/services/httpClient";
 
 /* Shapes returned by the Go backend (backend/internal/cash/model.go). */
 export type BackendCashMovement = {
@@ -65,20 +65,73 @@ export async function listCashMovements(): Promise<CashMovementView[]> {
 
 export const CASH_MOVEMENTS_PAGE_SIZE = 8;
 
+// Mirrors backend/internal/cash/repository.go's Category* constants —
+// "" (CategoryAll) applies no filter. Kept as a plain string union rather
+// than an enum so a stray unrecognized value just falls through to "no
+// filter" server-side instead of a client-side type error.
+export type CashMovementCategory = "" | "loan" | "auction" | "collection" | "expenses";
+
+export type CashMovementFilters = { fromDate?: string; toDate?: string; category?: CashMovementCategory };
+
+function movementFilterParams(filters?: CashMovementFilters): URLSearchParams {
+  const params = new URLSearchParams();
+  if (filters?.fromDate) params.set("fromDate", filters.fromDate);
+  if (filters?.toDate) params.set("toDate", filters.toDate);
+  if (filters?.category) params.set("category", filters.category);
+  return params;
+}
+
 export async function listCashMovementsPage(
   page: number,
   limit?: number,
-  filters?: { fromDate?: string; toDate?: string } // "YYYY-MM-DD", both optional
+  filters?: CashMovementFilters
 ): Promise<{ items: CashMovementView[]; hasMore: boolean; total: number }> {
   const pageSize = limit ?? (typeof window !== "undefined" && (window.innerWidth < 1600 || window.innerHeight < 950) ? 7 : 8);
-  const params = new URLSearchParams({
-    limit: String(pageSize),
-    offset: String((page - 1) * pageSize),
-  });
-  if (filters?.fromDate) params.set("fromDate", filters.fromDate);
-  if (filters?.toDate) params.set("toDate", filters.toDate);
+  const params = movementFilterParams(filters);
+  params.set("limit", String(pageSize));
+  params.set("offset", String((page - 1) * pageSize));
   const rec = await apiFetch<{ items: BackendCashMovement[]; hasMore: boolean; total?: number }>(`/cash-movements?${params}`);
   return { items: (rec?.items || []).map(movementToView), hasMore: !!rec?.hasMore, total: rec?.total ?? 0 };
+}
+
+/* Downloads a file from an endpoint that returns a raw file body (CSV),
+ * not the {success, data} envelope apiFetchEnveloped expects — fetched by
+ * hand with the same bearer token, then handed to the browser as a real
+ * file save via a throwaway object-URL anchor click. */
+async function downloadFile(path: string, fallbackFilename: string): Promise<void> {
+  const token = typeof window !== "undefined" ? window.localStorage.getItem(AUTH_TOKEN_KEY) : null;
+  const res = await fetch(`${API_BASE}${path}`, {
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  });
+  if (!res.ok) throw new Error(`Download failed (${res.status})`);
+  const blob = await res.blob();
+  const disposition = res.headers.get("Content-Disposition") || "";
+  const match = /filename="([^"]+)"/.exec(disposition);
+  const filename = match?.[1] || fallbackFilename;
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
+
+/* Downloads every cash movement matching the given filters as a PDF —
+ * respects fromDate/toDate/category exactly like the table above, but is
+ * NEVER capped to a page size: the export always covers the full filtered
+ * set, not just whatever's currently paginated into the browser. */
+export async function exportCashMovements(filters?: CashMovementFilters): Promise<void> {
+  const params = movementFilterParams(filters);
+  const qs = params.toString() ? `?${params.toString()}` : "";
+  await downloadFile(`/cash-movements/export${qs}`, "cash-movements.pdf");
+}
+
+/* Downloads every expense-register row (branch-scoped server-side, same as
+ * the table) as a PDF. */
+export async function exportExpenses(): Promise<void> {
+  await downloadFile("/expenses/export", "expense-register.pdf");
 }
 
 export async function createCashMovement(input: CashMovementInput): Promise<CashMovementView> {

@@ -88,11 +88,11 @@ func (s *Service) Create(in CreateInput) (*Scheme, error) {
 		return nil, err
 	}
 
-	count, err := s.repo.CountAll()
+	maxSuffix, err := s.repo.MaxCodeSuffix()
 	if err != nil {
 		return nil, err
 	}
-	code := fmt.Sprintf("SCH-%02d", count+1)
+	code := fmt.Sprintf("SCH-%02d", maxSuffix+1)
 
 	rec := &Scheme{
 		Code:           code,
