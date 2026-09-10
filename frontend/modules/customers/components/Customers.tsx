@@ -103,8 +103,7 @@ export function Customers() {
       </div>
       {error && (
         <p style={{ color: "var(--red)", fontSize: 13.5 }}>
-          Could not reach the server — {error}
-          <button className="btn plain sm" style={{ marginLeft: 8 }} onClick={refresh}>Retry</button>
+          Something went wrong. Please try again later.
         </p>
       )}
       <div className="card"><div className="tbl-wrap tbl-scroll"><table className="tbl tbl-center col1-left">

@@ -700,6 +700,22 @@ h3,
   flex: 0 0 150px
 }
 
+/* Cash.tsx's Cash Movements filter row — the Type/From/To fields' own
+ * `.inp` height (~38px, the same as every plain text input) otherwise sat
+ * visibly taller than the Clear/Download `.btn.sm` buttons beside them in
+ * the same row. Scoped here (not a global `.inp`/`.dp-trigger` change) so
+ * every other date/select field app-wide keeps its normal height. */
+.cash-filter-row .inp {
+  height: 31px;
+  padding: 6px 10px;
+  box-sizing: border-box
+}
+
+.cash-filter-row .btn.sm {
+  height: 31px;
+  box-sizing: border-box
+}
+
 .dp-trigger {
   display: flex;
   align-items: center;
