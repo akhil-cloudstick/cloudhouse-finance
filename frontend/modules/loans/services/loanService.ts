@@ -680,6 +680,13 @@ export async function updateOrnament(ornamentId: number, input: OrnamentRequestI
   return toView(rec);
 }
 
+/* Refused server-side if this is the loan's last remaining ornament, or if
+ * the loan is already Closed/Auctioned — see backend Service.DeleteOrnament. */
+export async function deleteOrnament(ornamentId: number): Promise<LoanView> {
+  const rec = await apiFetch<BackendLoan>(`/loans/ornaments/${ornamentId}`, { method: "DELETE" });
+  return toView(rec);
+}
+
 export type PurityTestInput = {
   testedPurity: string;
   testedGrossWeight: number;
@@ -754,6 +761,28 @@ export async function approveLoan(loanId: number, input: ApprovalInput): Promise
   return toView(rec);
 }
 
+/* Editable even after final sanction (see backend Service.UpdateLoan's own
+ * doc comment) — scheme and/or principal amount, either independently.
+ * Ornaments themselves go through the existing addOrnament/updateOrnament/
+ * deleteOrnament calls below, one ornament at a time, not through this. */
+export type UpdateLoanInput = { schemeId?: number; principalAmount?: number };
+
+export async function updateLoan(loanId: number, input: UpdateLoanInput): Promise<LoanView> {
+  const rec = await apiFetch<BackendLoan>(`/loans/${loanId}`, {
+    method: "PATCH",
+    body: JSON.stringify(input),
+  });
+  return toView(rec);
+}
+
+/* Permanently deletes a loan and every record tied to it — a real DELETE,
+ * no undo. Gated server-side by its own "can hard delete loan" permission,
+ * independent of the ordinary "can delete loan" grant — see backend
+ * Service.HardDeleteLoan's own doc comment for the full cascade. */
+export async function hardDeleteLoan(loanId: number): Promise<void> {
+  await apiFetch<unknown>(`/loans/${loanId}/hard-delete`, { method: "DELETE" });
+}
+
 /* The Loan Operator's approval limit (see
  * backend/internal/loan/approval_limit.go). Now advisory only: the operator
  * stage is a verification, and the Branch Manager/Management sanction every
@@ -784,6 +813,11 @@ export type PaymentInput = {
   method?: string;
   reference?: string;
   description?: string;
+  // Overrides the system-calculated interest bucket for this payment only
+  // (see backend/internal/loan/service.go's PaymentInput.InterestOverride
+  // doc comment) — omit to use the live-calculated figure, same as before
+  // this existed.
+  interestOverride?: number;
 };
 
 export async function recordPayment(loanId: number, input: PaymentInput): Promise<LoanView> {

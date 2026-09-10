@@ -32,9 +32,14 @@ import { ApiError } from "../../src/api/client";
 // DocumentField), same shape as frontend/modules/loans/components/NewLoan.tsx's
 // OrnRow — uploaded immediately on pick, then linked to the ornament after
 // createLoan() returns (see submit's onSuccess below).
-type OrnRow = { name: string; purityUnit: PurityUnit; purityValue: string; grossWeight: string; quantity: string; img: string };
+// grossWeight/netWeight are two INDEPENDENT fields, not one derived from
+// the other — matches frontend/modules/loans/components/NewLoan.tsx's own
+// Gross Wt/Net Wt split: gross is a raw scale reading, net is the
+// separately assessed pure-gold weight loan value is actually calculated
+// on. deductionWeight sent at submit is grossWeight − netWeight.
+type OrnRow = { name: string; purityUnit: PurityUnit; purityValue: string; grossWeight: string; netWeight: string; quantity: string; img: string };
 
-const emptyRow: OrnRow = { name: "", purityUnit: "karat", purityValue: "", grossWeight: "", quantity: "1", img: "" };
+const emptyRow: OrnRow = { name: "", purityUnit: "karat", purityValue: "", grossWeight: "", netWeight: "", quantity: "1", img: "" };
 
 // Search-or-create against the shared ornament_types catalog — mirrors the
 // SearchableSelect(allowCreate) frontend/components/NewLoan.tsx wires to the
@@ -203,22 +208,28 @@ export default function NewLoanScreen() {
     return formatPurity(r.purityUnit, n);
   }
 
-  const validRows = rows.filter((r) => r.name.trim() && rowPurity(r) && Number(r.grossWeight) > 0);
+  const validRows = rows.filter((r) => r.name.trim() && rowPurity(r) && Number(r.grossWeight) > 0 && Number(r.netWeight) > 0);
+  // Checked separately (not folded into validRows) so a Net Wt typo shows
+  // as a clear error at submit time rather than silently dropping the row
+  // from the eligible-amount preview.
+  const hasNetExceedsGross = validRows.some((r) => Number(r.netWeight) > Number(r.grossWeight));
 
-  // Per-row gold value = weight × quantity × today's rate for that purity —
-  // same formula as frontend/components/NewLoan.tsx's rowVals. There's no
-  // deduction-weight field here (the web form always sends 0 for it too —
-  // see NewLoan.tsx's submit payload), so weight going in is weight priced.
+  // Per-row gold value = NET weight × quantity × today's rate for that
+  // purity — same formula (and same net-not-gross basis) as
+  // frontend/modules/loans/components/NewLoan.tsx's rowVals.
   function rowValue(r: OrnRow): number {
     const purity = rowPurity(r);
     const rate = purity ? rateForPurityString(k24, purity) : null;
     if (rate == null) return 0;
-    return Number(r.grossWeight || 0) * Number(r.quantity || 1) * rate;
+    return Number(r.netWeight || 0) * Number(r.quantity || 1) * rate;
+  }
+  function rowTotalWeight(r: OrnRow): number {
+    return Number(r.netWeight || 0) * Number(r.quantity || 1);
   }
   const totalGrossValue = validRows.reduce((sum, r) => sum + rowValue(r), 0);
   const eligibleAmount = scheme ? Math.round((totalGrossValue * scheme.ltvPercent) / 100) : 0;
 
-  const canSubmit = !!customer && !!scheme && Number(principal) > 0 && validRows.length > 0 && isTodaySet;
+  const canSubmit = !!customer && !!scheme && Number(principal) > 0 && validRows.length > 0 && isTodaySet && !hasNetExceedsGross;
 
   const submit = useMutation({
     mutationFn: () => {
@@ -228,6 +239,9 @@ export default function NewLoanScreen() {
         name: r.name.trim(),
         purity: rowPurity(r)!,
         grossWeight: Number(r.grossWeight),
+        // Backend re-derives NetWeight as grossWeight − deductionWeight —
+        // same approach NewLoan.tsx's web submit uses.
+        deductionWeight: Math.max(0, Number(r.grossWeight) - Number(r.netWeight)),
         quantity: r.quantity ? Number(r.quantity) : undefined,
       }));
       return createLoan({
@@ -470,6 +484,17 @@ export default function NewLoanScreen() {
                 value={row.grossWeight}
                 onChangeText={(v) => updateRow(i, { grossWeight: v })}
               />
+              <GoldTextInput
+                label="Net weight (g)"
+                keyboardType="numeric"
+                value={row.netWeight}
+                onChangeText={(v) => updateRow(i, { netWeight: v })}
+              />
+              {Number(row.netWeight) > Number(row.grossWeight) && row.netWeight.trim() ? (
+                <ThemedText variant="small" color={colors.red} style={{ marginTop: -6, marginBottom: 8 }}>
+                  Net Wt cannot be greater than Gross Wt
+                </ThemedText>
+              ) : null}
               <GoldTextInput label="Quantity" keyboardType="numeric" value={row.quantity} onChangeText={(v) => updateRow(i, { quantity: v })} />
               <DocumentField
                 label="Ornament photo"
@@ -478,10 +503,10 @@ export default function NewLoanScreen() {
                 onChange={(url) => updateRow(i, { img: url })}
                 allowPdf={false}
               />
-              {row.name.trim() && row.purityValue.trim() && Number(row.grossWeight) > 0 ? (
+              {row.name.trim() && row.purityValue.trim() && Number(row.grossWeight) > 0 && Number(row.netWeight) > 0 ? (
                 <ThemedText variant="small" color={colors.muted} style={{ marginBottom: 8 }}>
                   {rowPurity(row) != null
-                    ? `Value: ₹${fmt(rowValue(row))}`
+                    ? `Total Wt: ${rowTotalWeight(row).toFixed(2)}g · Value: ${fmt(rowValue(row))}`
                     : row.purityUnit === "karat"
                       ? "Karat must be between 10 and 24"
                       : "Fineness % must be greater than 0 and at most 100"}

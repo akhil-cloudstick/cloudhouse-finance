@@ -52,11 +52,15 @@ func ParsePurity(purity string) (karat *int, finenessPercent *float64, err error
 	return nil, nil, ErrInvalidPurity
 }
 
-// rateForPurity resolves the per-gram rate for a purity string off the
-// day's 24K benchmark: K24 × karat/24 (karat mode) or K24 × fineness%/100
-// (fineness mode), rounded to the nearest whole rupee — matching how K24
-// itself, and the old independently-entered K22/K18 rates, were always
-// whole-rupee figures.
+// rateForPurity resolves the per-gram rate for a purity string. An
+// ornament pledged at exactly 22K or 18K reads that karat's own
+// independently-published GoldRate column directly (Manual mode may have
+// set it to something other than K24 × ratio — see GoldRate's doc
+// comment) — 24K is always that column since only K24 is ever
+// independently published as the benchmark itself. Every other purity
+// (16K, a custom fineness%, etc.) is still derived off the day's K24
+// benchmark: K24 × karat/24 (karat mode) or K24 × fineness%/100
+// (fineness mode), rounded to the nearest whole rupee.
 func rateForPurity(gr *goldrate.GoldRate, purity string) (float64, error) {
 	karat, fineness, err := ParsePurity(purity)
 	if err != nil {
@@ -64,7 +68,27 @@ func rateForPurity(gr *goldrate.GoldRate, purity string) (float64, error) {
 	}
 	switch {
 	case karat != nil:
-		return math.Round(gr.K24 * float64(*karat) / 24), nil
+		switch *karat {
+		case 24:
+			return gr.K24, nil
+		case 22:
+			// Falls back to the derived figure when nothing has ever
+			// independently published 22K yet (a fresh row before this
+			// feature's first Manual/Auto publish, or a pre-migration
+			// history row) — a stored zero must never be quoted as a
+			// real rate.
+			if gr.K22 > 0 {
+				return gr.K22, nil
+			}
+			return math.Round(gr.K24 * 22 / 24), nil
+		case 18:
+			if gr.K18 > 0 {
+				return gr.K18, nil
+			}
+			return math.Round(gr.K24 * 18 / 24), nil
+		default:
+			return math.Round(gr.K24 * float64(*karat) / 24), nil
+		}
 	case fineness != nil:
 		return math.Round(gr.K24 * *fineness / 100), nil
 	default:

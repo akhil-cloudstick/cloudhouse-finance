@@ -52,34 +52,47 @@ func completedPeriods(from, asOf time.Time, months int) (int, time.Time) {
 // accrueAndSave (which persists the result) and by List (which only wants a
 // live-projected number for display, not a DB write on every listing).
 //
-// Interest is charged in WHOLE MONTHLY STEPS, never pro-rated by day: a loan
-// twelve days into its cycle owes nothing for that cycle, and the month's
-// interest lands in full the moment the month completes. Months are real
-// calendar months measured from the accrual anchor (see addMonths), not
-// 30-day blocks, so a loan opened on the 15th accrues on the 15th of every
-// month regardless of month length.
+// Interest charges a MINIMUM OF ONE FULL MONTH, billed the moment the loan
+// starts accruing at all — a loan repaid five days after opening still owes
+// a full month's interest, matching the conventional "minimum interest
+// period" gold-loan term. From the second month onward, interest accrues by
+// whole calendar month when a month completes, PLUS a running day-by-day
+// charge (`monthlyRate/30` per day) for whatever time is left short of the
+// next one — never both for the same day (see the anchor-management
+// comments below for how that's guaranteed). Months are real calendar
+// months measured from the accrual anchor (see addMonths), not 30-day
+// blocks, so a loan opened on the 15th completes each month on the 15th
+// regardless of month length.
 //
-// The third return value is the new accrual anchor — the exact instant the
-// last completed period ended. Callers MUST store this as LastAccrualDate
-// rather than "now", or the part-month remainder is thrown away on every
-// read and a loan that is fetched frequently would never complete a month.
+// The third return value is the new accrual anchor. Callers MUST store this
+// as LastAccrualDate rather than "now" for the first-month floor to behave
+// (see below) — it deliberately does NOT always equal asOf.
 //
 // Interest accrues on the current outstanding principal (reducing balance)
 // for every method except "Flat monthly", which — per the conventional
 // meaning of a flat-rate loan — charges on the original principal for the
 // full term regardless of repayments. "Compound monthly" additionally
 // charges each month on principal PLUS interest still unpaid, so unpaid
-// interest itself earns interest.
+// interest itself earns interest. The day-by-day remainder charge uses
+// whichever of those two bases (PrincipalAmount vs OutstandingAmount) that
+// loan's own method already uses for its whole-month charge — never a
+// third, hardcoded base.
 //
 // Penal interest accrues, in addition to regular interest, only for whole
 // months the loan has been overdue (past DueDate), applying Scheme.PenalRate
 // the same way regular interest applies Scheme.InterestRate (both read as
 // annual percentages — see frontend/components/NewLoan.tsx's "N% p.a."
-// label). Overdue months are counted from DueDate rather than from the
-// anchor, and months already charged are subtracted, so a due date falling
-// mid-cycle neither double-charges nor loses a month.
+// label). No minimum-month floor and no daily proration apply to penal
+// interest — it stays whole-month-only, counted from DueDate rather than
+// from the accrual anchor, with months already charged subtracted so a due
+// date falling mid-cycle neither double-charges nor loses a month.
 func projectAccrual(l *Loan, sch *scheme.Scheme, asOf time.Time) (interestDelta, penalDelta float64, newAnchor time.Time) {
 	from := l.LastAccrualDate
+	// CreateLoan seeds LastAccrualDate to OpenedDate directly (never leaves
+	// it zero — see service.go), so "no accrual has happened yet" is
+	// `from == OpenedDate`, not `from.IsZero()`. The zero check stays as a
+	// fallback for any pre-existing row from before that field existed.
+	firstAccrual := from.IsZero() || from.Equal(l.OpenedDate)
 	if from.IsZero() {
 		from = l.OpenedDate
 	}
@@ -95,39 +108,67 @@ func projectAccrual(l *Loan, sch *scheme.Scheme, asOf time.Time) (interestDelta,
 		return 0, 0, from
 	}
 
-	periodMonths := 1
-	if sch.InterestMethod == "Quarterly simple" {
-		periodMonths = monthsPerQuarter
-	}
-	periods, anchor := completedPeriods(from, asOf, periodMonths)
-	if periods == 0 {
-		// Still inside the current cycle — nothing is owed yet, and the
-		// anchor must not move.
-		return 0, 0, from
-	}
-
 	annualRate := sch.InterestRate / 100
 	monthlyRate := annualRate / 12
+	// The same base each method's whole-month branch below uses for ITS
+	// charge — kept as one variable so the leftover-days charge can never
+	// drift onto a different base than the method it's supplementing.
+	dailyBase := l.OutstandingAmount
+	if sch.InterestMethod == "Flat monthly" {
+		dailyBase = l.PrincipalAmount
+	}
 
-	switch sch.InterestMethod {
-	case "Flat monthly":
-		interestDelta = l.PrincipalAmount * monthlyRate * float64(periods)
-	case "Quarterly simple":
-		interestDelta = l.OutstandingAmount * (annualRate / 4) * float64(periods)
-	case "Compound monthly":
-		unpaid := l.AccruedInterest - l.InterestPaid
-		if unpaid < 0 {
-			unpaid = 0
+	var anchor time.Time
+	if firstAccrual {
+		// Minimum-one-month floor — the ONLY place this fires. Charged once,
+		// immediately, using the method's own whole-month formula for
+		// exactly one period, then the anchor jumps a full logical month
+		// past OpenedDate regardless of how little real time has actually
+		// passed. That's what makes a same-month repayment still owe a full
+		// month: there is no real day left inside that already-billed month
+		// for any later call to re-discover and charge again.
+		switch sch.InterestMethod {
+		case "Flat monthly":
+			interestDelta = l.PrincipalAmount * monthlyRate
+		case "Quarterly simple":
+			interestDelta = l.OutstandingAmount * (annualRate / 4)
+		default: // "Compound monthly", "Monthly simple interest"
+			interestDelta = l.OutstandingAmount * monthlyRate
 		}
-		for i := 0; i < periods; i++ {
-			d := (l.OutstandingAmount + unpaid) * monthlyRate
-			interestDelta += d
-			unpaid += d
+		anchor = addMonths(l.OpenedDate, 1)
+	} else {
+		// Anchor is already past the opening month — no more floor logic.
+		// Whole completed months first (existing per-method formulas,
+		// unchanged), then whatever's left short of the next month is
+		// charged day-by-day and the anchor advances all the way to asOf so
+		// those leftover days are consumed, not recounted next call.
+		periodMonths := 1
+		if sch.InterestMethod == "Quarterly simple" {
+			periodMonths = monthsPerQuarter
 		}
-	case "Monthly simple interest":
-		fallthrough
-	default:
-		interestDelta = l.OutstandingAmount * monthlyRate * float64(periods)
+		periods, boundary := completedPeriods(from, asOf, periodMonths)
+		switch sch.InterestMethod {
+		case "Flat monthly":
+			interestDelta = l.PrincipalAmount * monthlyRate * float64(periods)
+		case "Quarterly simple":
+			interestDelta = l.OutstandingAmount * (annualRate / 4) * float64(periods)
+		case "Compound monthly":
+			unpaid := l.AccruedInterest - l.InterestPaid
+			if unpaid < 0 {
+				unpaid = 0
+			}
+			for i := 0; i < periods; i++ {
+				d := (l.OutstandingAmount + unpaid) * monthlyRate
+				interestDelta += d
+				unpaid += d
+			}
+		default: // "Monthly simple interest"
+			interestDelta = l.OutstandingAmount * monthlyRate * float64(periods)
+		}
+		if leftoverDays := asOf.Sub(boundary).Hours() / 24; leftoverDays > 0 {
+			interestDelta += dailyBase * (monthlyRate / 30) * leftoverDays
+		}
+		anchor = asOf
 	}
 	if interestDelta < 0 {
 		interestDelta = 0

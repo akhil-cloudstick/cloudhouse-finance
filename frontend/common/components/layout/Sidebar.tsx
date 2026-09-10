@@ -45,7 +45,7 @@ export const NAV: [string, NavItem[]][] = [
   ]],
 ];
 
-export function Sidebar({ route, open }: { route: string; open: boolean }) {
+export function Sidebar({ route, open, onNavigateSameRoute }: { route: string; open: boolean; onNavigateSameRoute?: () => void }) {
   const { logout, can } = useAuth();
   const router = useRouter();
 
@@ -80,8 +80,33 @@ export function Sidebar({ route, open }: { route: string; open: boolean }) {
                   route === r ||
                   (route === "loan" && r === "loans") ||
                   (route === "customer" && r === "customers");
+                // Distinct from `isOn` (which also highlights "Loans" while
+                // viewing a loan's own detail page, "Customers" while
+                // viewing a customer's own detail page, etc.) — clicking
+                // "Loans" from a loan's detail page must still navigate to
+                // the list; only a click that lands on the EXACT same
+                // route already showing needs special handling below.
+                const isExactSameRoute = route === r;
                 return (
-                  <a key={r} href={`#${r}`} className={isOn ? "on" : ""}>
+                  <a
+                    key={r}
+                    href={`#${r}`}
+                    className={isOn ? "on" : ""}
+                    onClick={(e) => {
+                      // Clicking the item for the page already open doesn't
+                      // change location.hash (it's already that value), so
+                      // the browser never fires `hashchange` — the page
+                      // just silently stays exactly as it was, including
+                      // whatever filters/sub-view it had drifted into. This
+                      // forces that same "start fresh" reload staff expect
+                      // from clicking a nav item, even when it's already
+                      // the current page.
+                      if (isExactSameRoute) {
+                        e.preventDefault();
+                        onNavigateSameRoute?.();
+                      }
+                    }}
+                  >
                     <Icon name={ic} />
                     {t}
                   </a>

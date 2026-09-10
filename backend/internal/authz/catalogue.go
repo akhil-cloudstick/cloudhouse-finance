@@ -69,6 +69,12 @@ var Catalogue = []PermissionDef{
 	{"can create loan", "Create loans, ornaments, drafts, requests and payments", "Loan Management"},
 	{"can update loan", "Update and act on loans, ornaments, approvals, payments, requests and auctions", "Loan Management"},
 	{"can delete loan", "Delete loans, ornaments, drafts, requests and payments", "Loan Management"},
+	// Deliberately separate from "can delete loan" above — hard-deleting a
+	// loan permanently removes it and every record tied to it (ornaments,
+	// payments, approvals, requests, auctions, bank pledges, packets,
+	// reminders) from every table, with no soft-delete/undo. Locking this
+	// down independently of ordinary delete rights is the whole point.
+	{"can hard delete loan", "Permanently and irreversibly delete a loan and every record tied to it", "Loan Management"},
 
 	{"can view bank pledge", "View bank pledge records", "Bank Pledge Management"},
 	{"can create bank pledge", "Create bank pledges", "Bank Pledge Management"},

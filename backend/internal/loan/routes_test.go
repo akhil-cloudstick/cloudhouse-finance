@@ -28,7 +28,7 @@ func TestRegisterRoutesNoConflict(t *testing.T) {
 		}
 	}()
 
-	RegisterRoutes(r.Group("/api/v1/loans"), &Handler{}, perms, perms)
+	RegisterRoutes(r.Group("/api/v1/loans"), &Handler{}, perms, perms, pass)
 
 	// Every draft route must be present and distinct from the "/:id" loan
 	// routes — a silent mis-mount would otherwise show up only at runtime.
