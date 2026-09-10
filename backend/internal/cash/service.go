@@ -398,6 +398,31 @@ func (s *MovementService) RecordGoldSaleCashIn(ctx context.Context, ornamentType
 	return rec.ID, nil
 }
 
+// RecordGoldSaleCashOut creates the cash-out movement for what the business
+// originally paid to acquire the gold it just sold (called from
+// GoldSaleService.Create, alongside RecordGoldSaleCashIn's cash-in for the
+// sale proceeds) — so the acquisition cost shows up in the Cash Movements
+// table and offsets Expected Cash the same way any other cash-out does,
+// not just the net profit. Purpose's "Gold purchase cost — " prefix is
+// what SumBreakdownByDate's GoldPurchases bucket matches on.
+func (s *MovementService) RecordGoldSaleCashOut(ctx context.Context, ornamentType string, amount float64, branchID uint, occurredOn time.Time) (uint, error) {
+	rec := &CashMovement{
+		Type:     "out",
+		Purpose:  "Gold purchase cost — " + ornamentType,
+		Amount:   amount,
+		BranchID: &branchID,
+	}
+	if occurredOn.IsZero() {
+		rec.OccurredOn = time.Now()
+	} else {
+		rec.OccurredOn = occurredOn
+	}
+	if err := s.repo.Create(ctx, rec); err != nil {
+		return 0, err
+	}
+	return rec.ID, nil
+}
+
 // RecordBankPledgeReleaseExpense books a bank pledge's release/cash-out as
 // an auto-approved Expense entry (loan.CashRecorder, called from
 // loan.Service.ReleaseBankPledge), alongside RecordBankPledgeCashOut. This
@@ -801,15 +826,29 @@ func (s *GoldSaleService) Create(ctx context.Context, in RecordGoldSaleInput) (*
 		return nil, err
 	}
 
+	// The cost cash-out is only booked when there's an actual cost to
+	// record — a 0 cost genuinely moved no cash (e.g. gold received as a
+	// gift or already owned before this feature existed), so booking a
+	// ₹0 movement would just be noise in the Cash Movements table.
+	var costMovementID *uint
+	if in.CostAmount > 0 {
+		id, err := s.movementSvc.RecordGoldSaleCashOut(ctx, in.OrnamentType, in.CostAmount, in.BranchID, soldOn)
+		if err != nil {
+			return nil, err
+		}
+		costMovementID = &id
+	}
+
 	rec := &GoldSale{
-		OrnamentType:   in.OrnamentType,
-		SoldAmount:     in.SoldAmount,
-		CostAmount:     in.CostAmount,
-		Profit:         in.SoldAmount - in.CostAmount,
-		SoldOn:         soldOn,
-		BranchID:       in.BranchID,
-		CashMovementID: &movementID,
-		Remarks:        in.Remarks,
+		OrnamentType:       in.OrnamentType,
+		SoldAmount:         in.SoldAmount,
+		CostAmount:         in.CostAmount,
+		Profit:             in.SoldAmount - in.CostAmount,
+		SoldOn:             soldOn,
+		BranchID:           in.BranchID,
+		CashMovementID:     &movementID,
+		CostCashMovementID: costMovementID,
+		Remarks:            in.Remarks,
 	}
 	if err := s.repo.Create(ctx, rec); err != nil {
 		return nil, err

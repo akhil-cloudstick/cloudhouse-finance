@@ -246,6 +246,7 @@ export type CashOutBreakdown = {
   loanDisbursements: number;
   bankReleases: number;
   auctionRefunds: number;
+  goldPurchases: number;
   withdrawals: number;
 };
 
@@ -284,6 +285,7 @@ export type BackendGoldSale = {
   branchId: number;
   branch?: { id: number; name: string };
   cashMovementId?: number | null;
+  costCashMovementId?: number | null;
   remarks?: string;
   createdAt: string;
 };

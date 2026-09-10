@@ -97,11 +97,17 @@ func (OpeningCashBalance) TableName() string {
 // profit/loss, computed once and stored rather than left to be
 // recalculated (and potentially drift) on every read.
 //
-// Every sale also books a matching CashMovement (Source "GoldSale", Type
-// "in") for SoldAmount — see MovementService.RecordGoldSaleCashIn — so the
-// sale is reflected in Cash-in-Hand/Expected Cash the same way a loan
-// repayment or auction proceeds are, without a special case in the summary
-// math. CashMovementID links back to it for a receipt/audit trail.
+// Every sale also books TWO matching CashMovements — see
+// MovementService.RecordGoldSaleCashIn/RecordGoldSaleCashOut — so both
+// sides of the transaction are reflected in Cash-in-Hand/Expected Cash the
+// same way a loan repayment or auction proceeds are, without a special
+// case in the summary math:
+//   - a cash-IN (Source "GoldSale") for SoldAmount — CashMovementID links
+//     back to it.
+//   - a cash-OUT (Purpose "Gold purchase cost — <ornamentType>") for
+//     CostAmount — what the acquisition actually cost the till — booked
+//     only when CostAmount > 0 (a cost of 0 genuinely moved no cash, so
+//     nothing is booked); CostCashMovementID links back to it.
 type GoldSale struct {
 	platform.TenantScoped
 	ID uint `json:"id" gorm:"primaryKey"`
@@ -122,6 +128,12 @@ type GoldSale struct {
 	// FK, not because a normal sale can lack one.
 	CashMovementID *uint         `json:"cashMovementId"`
 	CashMovement   *CashMovement `json:"-" gorm:"foreignKey:CashMovementID"`
+
+	// CostCashMovementID is the matching cash-OUT row for CostAmount — nil
+	// when CostAmount is 0 (nothing to book) or for a legacy sale recorded
+	// before this existed.
+	CostCashMovementID *uint         `json:"costCashMovementId"`
+	CostCashMovement   *CashMovement `json:"-" gorm:"foreignKey:CostCashMovementID"`
 
 	Remarks   string    `json:"remarks" gorm:"size:500"`
 	CreatedAt time.Time `json:"createdAt"`

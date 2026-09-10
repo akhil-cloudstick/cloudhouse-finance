@@ -395,6 +395,7 @@ export function Cash() {
               ["Loan disbursements", summary?.disbursementsBreakdown?.loanDisbursements || 0],
               ["Bank releases", summary?.disbursementsBreakdown?.bankReleases || 0],
               ["Auction refunds", summary?.disbursementsBreakdown?.auctionRefunds || 0],
+              ["Gold purchases", summary?.disbursementsBreakdown?.goldPurchases || 0],
               ["Withdrawals", summary?.disbursementsBreakdown?.withdrawals || 0],
             ]}
           />

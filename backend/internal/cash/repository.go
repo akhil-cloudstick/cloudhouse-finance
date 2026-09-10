@@ -213,7 +213,14 @@ type CashOutBreakdown struct {
 	// they owed. Kept out of Withdrawals so a refund owed to a customer is not
 	// reported as the branch taking cash out for itself.
 	AuctionRefunds float64 `json:"auctionRefunds"`
-	Withdrawals    float64 `json:"withdrawals"` // everything else (manual "Take Cash Out")
+	// GoldPurchases is Purpose starting with "Gold purchase cost — " — what
+	// the business paid to acquire gold it's now reselling (see
+	// MovementService.RecordGoldSaleCashOut). Bucketed separately from
+	// Withdrawals for the same reason Auctions/GoldSales are split out of
+	// TopUps on the cash-IN side: it's a real cost of the gold-sale
+	// transaction, not a manual "Take Cash Out".
+	GoldPurchases float64 `json:"goldPurchases"`
+	Withdrawals   float64 `json:"withdrawals"` // everything else (manual "Take Cash Out")
 }
 
 // SumBreakdownByDate buckets every cash movement for the given day (and
@@ -265,6 +272,8 @@ func (r *MovementRepository) SumBreakdownByDate(ctx context.Context, branchID *u
 				out.BankReleases += rw.Amount
 			case strings.HasPrefix(rw.Purpose, "Auction surplus refunded"):
 				out.AuctionRefunds += rw.Amount
+			case strings.HasPrefix(rw.Purpose, "Gold purchase cost — "):
+				out.GoldPurchases += rw.Amount
 			default:
 				out.Withdrawals += rw.Amount
 			}
