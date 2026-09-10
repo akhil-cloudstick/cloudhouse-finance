@@ -135,6 +135,13 @@ function View({ route, arg }: { route: string; arg?: string }) {
 function AppShell() {
   const { route, arg } = useHashRoute();
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  // Bumped whenever the sidebar's own page is clicked again (see
+  // Sidebar.tsx's onNavigateSameRoute) — location.hash doesn't change in
+  // that case, so nothing else here would otherwise re-render the page.
+  // Folded into View's key below, forcing React to unmount and remount it
+  // (a real "start fresh" reload of that page's own state), same as a
+  // genuine route change already does.
+  const [reloadSeq, setReloadSeq] = useState(0);
 
   useEffect(() => {
     setSidebarOpen(false);
@@ -143,11 +150,11 @@ function AppShell() {
 
   return (
     <div className="shell">
-      <Sidebar route={route} open={sidebarOpen} />
+      <Sidebar route={route} open={sidebarOpen} onNavigateSameRoute={() => setReloadSeq((n) => n + 1)} />
       <div className="main">
         <Topbar route={route} arg={arg} onBurger={() => setSidebarOpen((v) => !v)} />
         <main className="page" id="view">
-          <View route={route} arg={arg} />
+          <View key={`${route}/${arg ?? ""}/${reloadSeq}`} route={route} arg={arg} />
         </main>
       </div>
     </div>
