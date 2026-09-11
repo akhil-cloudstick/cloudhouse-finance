@@ -8,8 +8,10 @@ import (
 
 // RegisterRoutes mounts the customer endpoints under the given group
 // (expected to be something like r.Group("/api/v1/customers")). perms gates
-// each verb by CRUD action against the "customers" resource.
-func RegisterRoutes(rg *gin.RouterGroup, h *Handler, perms platform.CRUDMiddlewares) {
+// each verb by CRUD action against the "customers" resource. hardDeletePerm
+// gates ONLY the hard-delete route, independently of perms.Delete — same
+// pattern as internal/loan/routes.go's hardDeletePerm.
+func RegisterRoutes(rg *gin.RouterGroup, h *Handler, perms platform.CRUDMiddlewares, hardDeletePerm gin.HandlerFunc) {
 	rg.POST("", perms.Create, h.Create)
 	rg.GET("", perms.Read, h.List)
 	rg.GET("/:id", perms.Read, h.Get)
@@ -22,4 +24,5 @@ func RegisterRoutes(rg *gin.RouterGroup, h *Handler, perms platform.CRUDMiddlewa
 	rg.POST("/:id/verify-aadhaar/start", perms.Update, h.StartAadhaarVerify)
 	rg.POST("/:id/verify-aadhaar/check", perms.Update, h.CheckAadhaarVerify)
 	rg.DELETE("/:id", perms.Delete, h.Delete)
+	rg.DELETE("/:id/hard-delete", hardDeletePerm, h.HardDelete)
 }

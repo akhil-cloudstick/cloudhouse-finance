@@ -64,6 +64,13 @@ var Catalogue = []PermissionDef{
 	{"can create customer", "Create customers", "Customer Management"},
 	{"can update customer", "Update customers", "Customer Management"},
 	{"can delete customer", "Delete customers", "Customer Management"},
+	// Deliberately separate from "can delete customer" above — hard-deleting
+	// a customer permanently removes them and every one of their loans (plus
+	// every record tied to each of those loans), their login/device
+	// credentials and their notifications, with no soft-delete/undo. Locking
+	// this down independently of ordinary delete rights is the whole point,
+	// same reasoning as "can hard delete loan" below.
+	{"can hard delete customer", "Permanently and irreversibly delete a customer and every record tied to them", "Customer Management"},
 
 	{"can view loan", "View loans, ornaments, approvals, payments, requests and auctions", "Loan Management"},
 	{"can create loan", "Create loans, ornaments, drafts, requests and payments", "Loan Management"},

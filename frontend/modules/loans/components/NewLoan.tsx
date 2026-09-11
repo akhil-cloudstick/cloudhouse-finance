@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { toDataURL } from "qrcode";
+import { useDropdownMenu } from "@/hooks/useDropdownMenu";
 import { useData } from "@/common/DataProvider";
 import { useCustomers } from "@/modules/customers/store/CustomersProvider";
 import { useSchemes } from "@/modules/schemes/store/SchemesProvider";
@@ -189,16 +190,13 @@ export function NewLoan() {
   const [bondLang, setBondLang] = useState<BondLang>("en");
   // Only the languages this business was granted; English always survives.
   const bondLangOptions = bondLangOptionsFor(useBranding().languages);
-  const [bondMenuOpen, setBondMenuOpen] = useState(false);
-  const bondMenuRef = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    if (!bondMenuOpen) return;
-    function onDocClick(e: MouseEvent) {
-      if (!bondMenuRef.current?.contains(e.target as Node)) setBondMenuOpen(false);
-    }
-    document.addEventListener("click", onDocClick);
-    return () => document.removeEventListener("click", onDocClick);
-  }, [bondMenuOpen]);
+  const {
+    open: bondMenuOpen,
+    setOpen: setBondMenuOpen,
+    menuRef: bondMenuRef,
+    triggerRef: bondMenuTriggerRef,
+    onKeyDown: onBondMenuKeyDown,
+  } = useDropdownMenu<HTMLDivElement>();
 
   useEffect(() => {
     listActiveBranches()
@@ -962,12 +960,15 @@ export function NewLoan() {
               * toggle + print button with a single dropdown matching
               * LoanDetail.tsx's Documents menu, picking between English and
               * Malayalam on the fly. */}
-            <div className="docs-dd" ref={bondMenuRef}>
+            <div className="docs-dd" ref={bondMenuRef} onKeyDown={onBondMenuKeyDown}>
               <button
+                ref={bondMenuTriggerRef}
                 type="button"
                 className="btn ghost"
                 onClick={() => setBondMenuOpen((v) => !v)}
                 title="Print pledge agreement in English or Malayalam"
+                aria-haspopup="menu"
+                aria-expanded={bondMenuOpen}
               >
                 🖨 Pledge Agreement <Icon name="chevronDown" className="docs-dd-chev" />
               </button>
@@ -976,7 +977,7 @@ export function NewLoan() {
                 * here and in EsignLanguageModal, so adding a language meant
                 * editing both and the labels could drift. */}
               {bondMenuOpen && (
-                <div className="docs-dd-menu" style={{ minWidth: 230, right: 0 }}>
+                <div className="docs-dd-menu" role="menu" style={{ minWidth: 230, right: 0 }}>
                   {bondLangOptions.map((o) => (
                     <a
                       key={o.value}

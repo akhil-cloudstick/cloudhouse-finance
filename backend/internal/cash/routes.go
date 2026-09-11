@@ -14,6 +14,7 @@ import (
 func RegisterMovementRoutes(rg *gin.RouterGroup, h *MovementHandler, perms platform.CRUDMiddlewares) {
 	rg.POST("", perms.Create, h.Record)
 	rg.GET("", perms.Read, h.List)
+	rg.GET("/export", perms.Read, h.Export)
 	rg.GET("/:id", perms.Read, h.Get)
 	rg.PATCH("/:id/status", perms.Update, h.SetStatus)
 }
@@ -23,6 +24,7 @@ func RegisterMovementRoutes(rg *gin.RouterGroup, h *MovementHandler, perms platf
 func RegisterExpenseRoutes(rg *gin.RouterGroup, h *ExpenseHandler, perms platform.CRUDMiddlewares) {
 	rg.POST("", perms.Create, h.Record)
 	rg.GET("", perms.Read, h.List)
+	rg.GET("/export", perms.Read, h.Export)
 	rg.GET("/:id", perms.Read, h.Get)
 	rg.PATCH("/:id/approve", perms.Update, h.Approve)
 	rg.PATCH("/:id/reject", perms.Update, h.Reject)

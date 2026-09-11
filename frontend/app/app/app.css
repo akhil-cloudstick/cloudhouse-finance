@@ -753,8 +753,7 @@ h3,
  * a different width depending on how long its placeholder was. */
 .fi {
   position: relative;
-  width: 230px;
-  max-width: 100%;
+  width: 100%;
   box-sizing: border-box
 }
 
@@ -863,6 +862,22 @@ h3,
 .report-filter-row .dp.dp-date {
   width: 150px;
   flex: 0 0 150px
+}
+
+/* Cash.tsx's Cash Movements filter row — the Type/From/To fields' own
+ * `.inp` height (~38px, the same as every plain text input) otherwise sat
+ * visibly taller than the Clear/Download `.btn.sm` buttons beside them in
+ * the same row. Scoped here (not a global `.inp`/`.dp-trigger` change) so
+ * every other date/select field app-wide keeps its normal height. */
+.cash-filter-row .inp {
+  height: 31px;
+  padding: 6px 10px;
+  box-sizing: border-box
+}
+
+.cash-filter-row .btn.sm {
+  height: 31px;
+  box-sizing: border-box
 }
 
 .dp-trigger {
@@ -1724,6 +1739,16 @@ h3,
   background: oklch(0.96 0.020 25)
 }
 
+@keyframes btnShake {
+  0%, 100% { transform: translateX(0); }
+  20%, 60% { transform: translateX(-6px); }
+  40%, 80% { transform: translateX(6px); }
+}
+
+.btn-shake {
+  animation: btnShake 0.4s ease-in-out !important;
+}
+
 .btn.plain {
   background: #fff;
   color: var(--ink);
@@ -2105,7 +2130,7 @@ label.f {
 }
 
 .frow.c3 {
-  grid-template-columns: 1fr 1fr 1fr
+  grid-template-columns: repeat(3, minmax(230px, 1fr))
 }
 
 .frow.c4 {
@@ -2679,7 +2704,7 @@ table.tbl {
 }
 
 .modal.wide {
-  max-width: 760px
+  max-width: 820px
 }
 
 @keyframes pop {
@@ -3459,7 +3484,13 @@ table.tbl {
 
   .frow.c2,
   .frow.c3 {
-    grid-template-columns: 1fr
+    grid-template-columns: 1fr;
+    gap: 18px
+  }
+
+  .modal .bd > label.f {
+    margin-top: 20px !important;
+    margin-bottom: 10px
   }
 
   .top {
@@ -3778,7 +3809,21 @@ table.tbl {
   .frow.c2,
   .frow.c3,
   .frow.c4 {
-    grid-template-columns: 1fr
+    grid-template-columns: 1fr;
+    /* Stacking 3-4 side-by-side fields into one column multiplies how many
+     * rows a form needs — the same 13px row gap that read fine spread
+     * across a wide row now reads as everything crammed together. */
+    gap: 18px
+  }
+
+  /* Section headers (e.g. "Personal Details", "Documents") sit directly in
+   * `.bd`, not inside a `.frow` — unlike field labels above, which already
+   * have a tight 5px gap to their own input. Give these breathing room from
+   * the row before them, since on mobile that row is now a full stack of
+   * fields rather than one line. */
+  .modal .bd > label.f {
+    margin-top: 20px !important;
+    margin-bottom: 10px
   }
 
   /* PurityPicker's Karat/Fineness toggle and its search/value field —

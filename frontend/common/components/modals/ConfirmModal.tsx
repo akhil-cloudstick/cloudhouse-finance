@@ -12,23 +12,37 @@ import { Icon } from "@/common/components/Icon";
 export function ConfirmModalContent({
   title,
   message,
+  children,
   confirmLabel = "Confirm",
   busyLabel = "Working…",
   danger = true,
+  disabled = false,
   onConfirm,
 }: {
   title: string;
-  message: React.ReactNode;
+  message?: React.ReactNode;
+  children?: React.ReactNode;
   confirmLabel?: string;
   busyLabel?: string;
   danger?: boolean;
+  disabled?: boolean;
   onConfirm: () => void | Promise<void>;
 }) {
   const { closeModal } = useModal();
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
+  const [shaking, setShaking] = useState(false);
+
+  function triggerShake() {
+    setShaking(true);
+    setTimeout(() => setShaking(false), 400);
+  }
 
   async function confirm() {
+    if (disabled) {
+      triggerShake();
+      return;
+    }
     setBusy(true);
     setErr("");
     try {
@@ -41,24 +55,35 @@ export function ConfirmModalContent({
     }
   }
 
+  function handleConfirmClick(e: React.MouseEvent) {
+    if (disabled) {
+      e.preventDefault();
+      triggerShake();
+      return;
+    }
+    confirm();
+  }
+
   return (
     <>
       <div className="hd"><h3>{title}</h3><button className="x" onClick={closeModal}>×</button></div>
       <div className="bd">
-        {/* {message} is wrapped in its own <span> rather than dropped
-         * directly into this flex row — a caller passing a Fragment with
-         * multiple lines/paragraphs (<br/> pairs, a <strong>, plain text)
-         * would otherwise have each of those children become its OWN flex
-         * item here (Fragments don't render a wrapping element), scattering
-         * a multi-line warning into a broken multi-column layout instead of
-         * stacked lines. One wrapper = one flex item = normal block flow
-         * inside it. */}
-        <div className="notice"><Icon name="shield" /> <span>{message}</span></div>
+        {message && <div className="notice"><span>{message}</span></div>}
+        {children}
         {err && <p style={{ color: "var(--red)", fontSize: 12.5, marginTop: 8 }}>{err}</p>}
       </div>
       <div className="ft">
         <button className="btn ghost" onClick={closeModal} disabled={busy}>Cancel</button>
-        <button className={`btn${danger ? " danger" : ""}`} onClick={confirm} disabled={busy}>
+        <button
+          className={`btn${danger ? " danger" : ""}${shaking ? " btn-shake" : ""}`}
+          onClick={handleConfirmClick}
+          disabled={busy}
+          style={
+            disabled
+              ? { opacity: 0.45, cursor: "not-allowed", filter: "saturate(0.5)" }
+              : undefined
+          }
+        >
           {busy ? busyLabel : confirmLabel}
         </button>
       </div>

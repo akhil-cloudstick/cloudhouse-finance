@@ -98,10 +98,32 @@ func (r *Repository) Delete(ctx context.Context, id uint) error {
 	return r.db.WithContext(ctx).Delete(&Customer{}, id).Error
 }
 
+// DB exposes the underlying *gorm.DB — used only by HardDeleteCustomer
+// (harddelete.go) to run its own final cascade (customer_device_tokens,
+// customer_otp, notifications, standalone reminders, then the customer row
+// itself) inside one transaction, mirroring how loan.Service.HardDeleteLoan
+// uses its own db handle rather than adding a dedicated Repository method
+// per table touched.
+func (r *Repository) DB() *gorm.DB {
+	return r.db
+}
+
 // CountAll returns the total number of customers ever created (including
 // soft-deleted ones), used to generate sequential Code values.
 func (r *Repository) CountAll(ctx context.Context) (int64, error) {
 	var count int64
 	err := r.db.WithContext(ctx).Unscoped().Model(&Customer{}).Count(&count).Error
 	return count, err
+}
+
+// MaxCodeSuffix returns the highest numeric suffix ever used in a
+// "CUST-NN" customer code, including customers that have since been
+// hard-deleted — the next code is always one past this max suffix,
+// never derived from row count.
+func (r *Repository) MaxCodeSuffix() (int, error) {
+	var maxSuffix int
+	err := r.db.Model(&Customer{}).Unscoped().
+		Select("COALESCE(MAX(CAST(SUBSTRING(code FROM 'CUST-(\\d+)') AS INTEGER)), 0)").
+		Scan(&maxSuffix).Error
+	return maxSuffix, err
 }

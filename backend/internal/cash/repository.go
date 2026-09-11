@@ -21,13 +21,29 @@ func (r *MovementRepository) Create(ctx context.Context, m *CashMovement) error 
 	return r.db.WithContext(ctx).Create(m).Error
 }
 
+// Category values MovementRepository.FindAll's `category` param accepts —
+// one bucket per the same Source/Purpose conventions
+// SumBreakdownByDate/CashInBreakdown/CashOutBreakdown already use, exposed
+// here as an actual row-level filter instead of only a same-day summary
+// split. "" (CategoryAll) applies no filter at all.
+const (
+	CategoryAll        = ""
+	CategoryLoan       = "loan"       // Source == "Loan" (manual top-up) OR Purpose starts with "Loan disbursement — "
+	CategoryAuction    = "auction"    // Source == "Auction" OR Purpose starts with "Auction surplus refunded"
+	CategoryCollection = "collection" // Source == "Collection" (loan repayments)
+	CategoryExpenses   = "expenses"   // everything else type=out that isn't Loan/Auction/Bank — the informal "Take Cash Out" bucket (CashOutBreakdown.Withdrawals)
+)
+
 // FindAll returns cash movements, optionally scoped to a single branch —
 // pass nil for an Administrator's unfiltered "all branches" view, or a
 // non-nil pointer to confine results to that branch (see
-// platform.GetBranchScope) — and optionally bounded to [fromDate, toDate]
-// on occurred_on; either end left zero-value means "no bound" on that
-// side (the Cash Movements table's default, unfiltered view).
-func (r *MovementRepository) FindAll(ctx context.Context, branchID *uint, fromDate, toDate time.Time, limit, offset int) ([]CashMovement, int64, error) {
+// platform.GetBranchScope) — optionally bounded to [fromDate, toDate] on
+// occurred_on (either end left zero-value means "no bound" on that side),
+// and optionally narrowed to one of the Category* buckets above. limit <= 0
+// returns every matching row unpaginated (used by the CSV export handlers,
+// which must never be capped to whatever page size the table itself is
+// currently showing).
+func (r *MovementRepository) FindAll(ctx context.Context, branchID *uint, fromDate, toDate time.Time, category string, limit, offset int) ([]CashMovement, int64, error) {
 	var movements []CashMovement
 	q := r.db.WithContext(ctx).Preload("Branch").Order("occurred_on desc, id desc")
 	if branchID != nil {
@@ -38,6 +54,19 @@ func (r *MovementRepository) FindAll(ctx context.Context, branchID *uint, fromDa
 	}
 	if !toDate.IsZero() {
 		q = q.Where("occurred_on < ?", toDate.AddDate(0, 0, 1))
+	}
+	switch category {
+	case CategoryLoan:
+		q = q.Where("source = ? OR purpose LIKE ?", "Loan", "Loan disbursement — %")
+	case CategoryAuction:
+		q = q.Where("source = ? OR purpose LIKE ?", "Auction", "Auction surplus refunded%")
+	case CategoryCollection:
+		q = q.Where("source = ?", "Collection")
+	case CategoryExpenses:
+		q = q.Where(
+			"type = ? AND source IS DISTINCT FROM ? AND source IS DISTINCT FROM ? AND (purpose IS NULL OR (purpose NOT LIKE ? AND purpose NOT LIKE ? AND purpose NOT LIKE ?))",
+			"out", "Loan", "Auction", "Loan disbursement — %", "Auction surplus refunded%", "Bank pledge release — %",
+		)
 	}
 	var total int64
 	if limit > 0 {

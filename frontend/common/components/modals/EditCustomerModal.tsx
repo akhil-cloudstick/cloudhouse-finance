@@ -4,7 +4,6 @@ import { useEffect, useState } from "react";
 import { useModal } from "@/common/components/Modal";
 import { useToast } from "@/common/components/Toast";
 import { Select } from "@/common/components/ui/Select";
-import { DatePicker } from "@/common/components/ui/DatePicker";
 import { FileInput } from "@/common/components/ui/FileInput";
 import { Icon } from "@/common/components/Icon";
 import { updateCustomer, uploadFile, type CustomerView } from "@/modules/customers/services/customerService";
@@ -54,7 +53,7 @@ export function EditCustomerModalContent({ customer, onSaved }: { customer: Cust
     const n = name.trim();
     const p = phone.trim();
     if (n.length < 3) { setErr("Please enter the customer’s full name."); return; }
-    if (!/^\d{10}$/.test(p)) { setErr("Please enter a valid 10-digit mobile number."); return; }
+    if (p && !/^\d{10}$/.test(p)) { setErr("Please enter a valid 10-digit mobile number."); return; }
     if (!branchId) { setErr("Please select a branch."); return; }
 
     setSaving(true);
@@ -98,12 +97,10 @@ export function EditCustomerModalContent({ customer, onSaved }: { customer: Cust
     <>
       <div className="hd"><h3>Edit Customer</h3><button className="x" onClick={closeModal}>×</button></div>
       <div className="bd">
-        <div className="frow c2">
+        <label className="f">Personal Details</label>
+        <div className="frow c3">
           <div><label className="f">Full Name *</label><input className="inp" placeholder="e.g. Anil Varma" value={name} onChange={(e) => setName(e.target.value)} /></div>
-          <div><label className="f">Mobile Number *</label><input className="inp" inputMode="numeric" placeholder="10-digit mobile" maxLength={10} value={phone} onChange={(e) => setPhone(e.target.value.replace(/\D/g, ""))} /></div>
-        </div>
-        <div className="frow c2">
-          <div><label className="f">Date of Birth</label><DatePicker value={dob} onChange={setDob} placeholder="Select date of birth…" max={new Date().toISOString().slice(0, 10)} /></div>
+          <div><label className="f">Mobile Number</label><input className="inp" inputMode="numeric" placeholder="10-digit mobile" maxLength={10} value={phone} onChange={(e) => setPhone(e.target.value.replace(/\D/g, ""))} /></div>
           <div><label className="f">Branch *</label>
             <Select
               value={branchId === "" ? "" : String(branchId)}
@@ -113,25 +110,28 @@ export function EditCustomerModalContent({ customer, onSaved }: { customer: Cust
             />
           </div>
         </div>
-        <div className="frow"><div><label className="f">Address</label><input className="inp" placeholder="House / street, town, district" value={addr} onChange={(e) => setAddr(e.target.value)} /></div></div>
-        <div className="frow c2">
+        <div className="frow c3">
+          <div><label className="f">Address</label><input className="inp" placeholder="House / street, town, district" value={addr} onChange={(e) => setAddr(e.target.value)} /></div>
           <div><label className="f">PAN Number</label><input className="inp" placeholder="ABCDE1234F" maxLength={10} style={{ textTransform: "uppercase" }} value={pan} onChange={(e) => setPan(e.target.value)} /></div>
           <div><label className="f">Aadhaar Number</label><input className="inp" placeholder="Leave blank to keep on-file Aadhaar" maxLength={12} value={aadhaar} onChange={(e) => setAadhaar(e.target.value.replace(/\D/g, ""))} /></div>
         </div>
-        <div className="frow c2">
+
+        <label className="f" style={{ marginTop: 6 }}>Documents</label>
+        <div className="frow c3">
           <div><label className="f">Customer Photograph {customer.photoUrl && <a href={customer.photoUrl} target="_blank" rel="noreferrer" style={{ fontWeight: 400 }}>(view current)</a>}</label><FileInput value={photoFile} onChange={setPhotoFile} accept="image/*" placeholder="Leave blank to keep current photo" /></div>
           <div><label className="f">Identity Proof {customer.identityProofUrl && <a href={customer.identityProofUrl} target="_blank" rel="noreferrer" style={{ fontWeight: 400 }}>(view current)</a>}</label><FileInput value={identityProofFile} onChange={setIdentityProofFile} accept="image/*,.pdf" placeholder="Leave blank to keep current document" /></div>
-        </div>
-        <div className="frow c2">
           <div><label className="f">Address Proof {customer.addressProofUrl && <a href={customer.addressProofUrl} target="_blank" rel="noreferrer" style={{ fontWeight: 400 }}>(view current)</a>}</label><FileInput value={addressProofFile} onChange={setAddressProofFile} accept="image/*,.pdf" placeholder="Leave blank to keep current document" /></div>
+        </div>
+        <div className="frow c3">
           <div><label className="f">Supporting KYC Document {customer.kycDocumentUrl && <a href={customer.kycDocumentUrl} target="_blank" rel="noreferrer" style={{ fontWeight: 400 }}>(view current)</a>}</label><FileInput value={kycDocFile} onChange={setKycDocFile} accept="image/*,.pdf" placeholder="Leave blank to keep current document" /></div>
         </div>
+
         <label className="f" style={{ marginTop: 6 }}>Nominee Information (optional)</label>
-        <div className="frow c2">
+        <div className="frow c3">
           <div><label className="f">Nominee Name</label><input className="inp" placeholder="e.g. Sunitha Varma" value={nomineeName} onChange={(e) => setNomineeName(e.target.value)} /></div>
           <div><label className="f">Relation</label><input className="inp" placeholder="e.g. Spouse" value={nomineeRelation} onChange={(e) => setNomineeRelation(e.target.value)} /></div>
+          <div><label className="f">Nominee Mobile Number</label><input className="inp" placeholder="10-digit mobile" inputMode="numeric" maxLength={10} value={nomineePhone} onChange={(e) => setNomineePhone(e.target.value.replace(/\D/g, ""))} /></div>
         </div>
-        <div className="frow"><div><label className="f">Nominee Mobile Number</label><input className="inp" placeholder="10-digit mobile" inputMode="numeric" maxLength={10} value={nomineePhone} onChange={(e) => setNomineePhone(e.target.value.replace(/\D/g, ""))} /></div></div>
         <p style={{ color: "var(--red)", fontSize: 12.5, minHeight: 16, marginTop: 8 }}>{err}</p>
       </div>
       <div className="ft">

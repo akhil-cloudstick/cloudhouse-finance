@@ -3,6 +3,7 @@ package cash
 import (
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -124,6 +125,7 @@ func (h *MovementHandler) List(c *gin.Context) {
 		httpx.Fail(c, http.StatusBadRequest, "invalid toDate: expected YYYY-MM-DD")
 		return
 	}
+	category := c.Query("category")
 
 	limit, _ := strconv.Atoi(c.Query("limit"))
 	if limit > 0 {
@@ -131,7 +133,7 @@ func (h *MovementHandler) List(c *gin.Context) {
 		if offset < 0 {
 			offset = 0
 		}
-		rec, total, err := h.svc.List(ctx, branchID, fromDate, toDate, limit+1, offset)
+		rec, total, err := h.svc.List(ctx, branchID, fromDate, toDate, category, limit+1, offset)
 		if err != nil {
 			httpx.FailErr(c, err)
 			return
@@ -144,12 +146,87 @@ func (h *MovementHandler) List(c *gin.Context) {
 		return
 	}
 
+	rec, _, err := h.svc.List(branchID, fromDate, toDate, category, 0, 0)
 	rec, _, err := h.svc.List(ctx, branchID, fromDate, toDate, 0, 0)
 	if err != nil {
 		httpx.FailErr(c, err)
 		return
 	}
 	httpx.Success(c, http.StatusOK, rec)
+}
+
+// Export streams every cash movement matching the same fromDate/toDate/
+// category filters the Cash Movements table itself uses — deliberately NOT
+// capped to the table's current page size or even its full loaded set, so
+// the downloaded file always reflects the filter, not how many rows
+// happen to be paginated into the browser right now.
+func (h *MovementHandler) Export(c *gin.Context) {
+	branchID := platform.GetBranchScope(c)
+
+	fromDate, err := parseOptionalDate(c.Query("fromDate"))
+	if err != nil {
+		httpx.Fail(c, http.StatusBadRequest, "invalid fromDate: expected YYYY-MM-DD")
+		return
+	}
+	toDate, err := parseOptionalDate(c.Query("toDate"))
+	if err != nil {
+		httpx.Fail(c, http.StatusBadRequest, "invalid toDate: expected YYYY-MM-DD")
+		return
+	}
+	category := c.Query("category")
+
+	rows, _, err := h.svc.List(branchID, fromDate, toDate, category, 0, 0)
+	if err != nil {
+		httpx.FailErr(c, err)
+		return
+	}
+
+	var noteParts []string
+	if !fromDate.IsZero() || !toDate.IsZero() {
+		from, to := "…", "…"
+		if !fromDate.IsZero() {
+			from = fromDate.Format("02 Jan 2006")
+		}
+		if !toDate.IsZero() {
+			to = toDate.Format("02 Jan 2006")
+		}
+		noteParts = append(noteParts, from+" – "+to)
+	}
+	if category != "" {
+		noteParts = append(noteParts, "type: "+category)
+	}
+
+	tableRows := make([][]string, len(rows))
+	for i, m := range rows {
+		branchName := ""
+		if m.Branch != nil {
+			branchName = m.Branch.Name
+		}
+		tableRows[i] = []string{
+			m.OccurredOn.Format("2006-01-02"),
+			m.Type,
+			m.Source,
+			m.Purpose,
+			m.Mode,
+			m.Bank,
+			branchName,
+			strconv.FormatFloat(m.Amount, 'f', 2, 64),
+			m.Status,
+		}
+	}
+
+	pdfBytes, err := renderTablePDF(
+		"Cash Movements",
+		strings.Join(noteParts, " · "),
+		[]string{"Date", "Type", "Source", "Purpose", "Mode", "Bank", "Branch", "Amount", "Loan Status"},
+		tableRows,
+	)
+	if err != nil {
+		httpx.Fail(c, http.StatusInternalServerError, err.Error())
+		return
+	}
+	c.Header("Content-Disposition", `attachment; filename="cash-movements.pdf"`)
+	c.Data(http.StatusOK, "application/pdf", pdfBytes)
 }
 
 func (h *MovementHandler) Get(c *gin.Context) {
@@ -273,6 +350,45 @@ func (h *ExpenseHandler) List(c *gin.Context) {
 		return
 	}
 	httpx.Success(c, http.StatusOK, rec)
+}
+
+// Export streams every expense-register row for the caller's branch scope
+// — see MovementHandler.Export's own doc comment for why this is never
+// capped to the table's current page size.
+func (h *ExpenseHandler) Export(c *gin.Context) {
+	branchID := platform.GetBranchScope(c)
+	rows, _, err := h.svc.List(branchID, 0, 0)
+	if err != nil {
+		httpx.FailErr(c, err)
+		return
+	}
+
+	tableRows := make([][]string, len(rows))
+	for i, e := range rows {
+		tableRows[i] = []string{
+			e.OccurredOn.Format("2006-01-02"),
+			e.Category,
+			e.Payee,
+			e.Mode,
+			e.Branch.Name,
+			strconv.FormatFloat(e.Amount, 'f', 2, 64),
+			e.Status,
+			e.Remarks,
+		}
+	}
+
+	pdfBytes, err := renderTablePDF(
+		"Expense Register",
+		"",
+		[]string{"Date", "Category", "Payee", "Mode", "Branch", "Amount", "Status", "Remarks"},
+		tableRows,
+	)
+	if err != nil {
+		httpx.Fail(c, http.StatusInternalServerError, err.Error())
+		return
+	}
+	c.Header("Content-Disposition", `attachment; filename="expense-register.pdf"`)
+	c.Data(http.StatusOK, "application/pdf", pdfBytes)
 }
 
 func (h *ExpenseHandler) Get(c *gin.Context) {

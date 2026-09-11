@@ -240,7 +240,7 @@ export function Dashboard() {
         )}
         {canCreateLoans && <a className="btn ghost" href="#newloan"><Icon name="plus" /> New Loan</a>}
         {canCreateCustomers && (
-          <button className="btn ghost" onClick={() => openModal(<RegisterCustomerModalContent onSaved={refreshCustomers} />)}>
+          <button className="btn ghost" onClick={() => openModal(<RegisterCustomerModalContent onSaved={refreshCustomers} />, true)}>
             <Icon name="user" /> Register Customer
           </button>
         )}

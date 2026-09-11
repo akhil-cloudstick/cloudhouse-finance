@@ -1123,6 +1123,24 @@ func (s *Service) UpdateLoan(ctx context.Context, loanID uint, in UpdateLoanInpu
 // reminder) — deleted here via raw SQL against their table names rather
 // than importing those packages, which would create an import cycle
 // (packet already imports loan for its own joined display fields).
+// LoansForCustomer returns a minimal summary (id, loan number, status) of
+// every loan belonging to the given customer — used by
+// customer.Service.HardDeleteCustomer (via the customer.LoanHardDeleter
+// interface this method satisfies) to check every loan is Closed/Auctioned
+// before allowing a customer to be hard-deleted, and then to hard-delete
+// each one in turn.
+func (s *Service) LoansForCustomer(customerID uint) ([]customer.LoanSummary, error) {
+	loans, _, err := s.repo.FindAll(LoanFilter{CustomerID: customerID})
+	if err != nil {
+		return nil, err
+	}
+	out := make([]customer.LoanSummary, len(loans))
+	for i, l := range loans {
+		out[i] = customer.LoanSummary{ID: l.ID, Number: l.LoanNumber, Status: l.Status}
+	}
+	return out, nil
+}
+
 func (s *Service) HardDeleteLoan(ctx context.Context, loanID uint) error {
 	if _, err := s.repo.FindByID(ctx, loanID); err != nil {
 		return ErrNotFound

@@ -31,6 +31,23 @@ export function makeEnterToSubmitHandler(primarySelector: string) {
     // already activate on Enter natively.
     if (target.tagName === "TEXTAREA" || target.tagName === "BUTTON" || target.tagName === "A" || target.tagName === "SELECT") return;
     const container = e.currentTarget;
+    // Plain text/number/date inputs: Enter moves to the next field instead
+    // of submitting, mirroring what Tab already does — only the last field
+    // in the container falls through to clicking the primary button below.
+    if (target.tagName === "INPUT") {
+      const focusable = Array.from(
+        container.querySelectorAll<HTMLElement>(
+          'input:not([disabled]):not([type="hidden"]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+        )
+      ).filter((el) => el.offsetParent !== null);
+      const next = focusable[focusable.indexOf(target) + 1];
+      if (next) {
+        e.preventDefault();
+        next.focus();
+        if (next instanceof HTMLInputElement) next.select();
+        return;
+      }
+    }
     const primary = container.querySelector<HTMLButtonElement>(primarySelector);
     if (!primary) return;
     e.preventDefault();

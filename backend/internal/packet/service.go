@@ -89,12 +89,12 @@ func NewService(repo *Repository, lockerCapacity LockerCapacityProvider) *Servic
 // PacketGenerated (ungrouped) rather than failing loan creation over it —
 // staff can still check it in manually later from the Packets page.
 func (s *Service) Create(ctx context.Context, loanID uint, lockerID *uint) (*Packet, error) {
-	count, err := s.repo.CountAll(ctx)
+	maxSuffix, err := s.repo.MaxCodeSuffix(ctx)
 	if err != nil {
 		return nil, err
 	}
 	p := &Packet{
-		Code:   fmt.Sprintf("PKT-%06d", count+1),
+		Code:   fmt.Sprintf("PKT-%06d", maxSuffix+1),
 		LoanID: loanID,
 		Status: StatusPacketGenerated,
 	}

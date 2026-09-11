@@ -25,7 +25,7 @@ func NewHandler(svc *Service) *Handler {
 // server-side before it ever reaches storage — see service.go.
 type customerRequest struct {
 	Name    string `json:"name" binding:"required"`
-	Phone   string `json:"phone" binding:"required"`
+	Phone   string `json:"phone"`
 	DOB     string `json:"dob"` // "YYYY-MM-DD", optional
 	Address string `json:"address"`
 
@@ -341,4 +341,22 @@ func (h *Handler) Delete(c *gin.Context) {
 		return
 	}
 	httpx.SuccessMessage(c, http.StatusOK, "Customer deleted successfully")
+}
+
+// HardDelete permanently removes the customer and every record tied to
+// them (see Service.HardDeleteCustomer) — refuses with a 409 naming the
+// offending loan number(s) if any of the customer's loans aren't yet
+// Closed/Auctioned. Gated by its own "can hard delete customer" permission,
+// independent of ordinary delete rights (see routes.go).
+func (h *Handler) HardDelete(c *gin.Context) {
+	id, err := httpx.IDParam(c, "id")
+	if err != nil {
+		httpx.FailErr(c, err)
+		return
+	}
+	if err := h.svc.HardDeleteCustomer(id); err != nil {
+		httpx.FailErr(c, err)
+		return
+	}
+	httpx.SuccessMessage(c, http.StatusOK, "Customer deleted permanently")
 }

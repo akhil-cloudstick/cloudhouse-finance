@@ -385,6 +385,34 @@ func (h *Handler) PersonalLoans(c *gin.Context) {
 	respond(c, rows, totals, f)
 }
 
+func (h *Handler) TradeSheet(c *gin.Context) {
+	f, err := parseFilter(c)
+	if err != nil {
+		badRequest(c, err)
+		return
+	}
+	rows, totals, err := h.svc.TradeSheet(f)
+	if err != nil {
+		serverError(c, err)
+		return
+	}
+	respond(c, rows, totals, f)
+}
+
+func (h *Handler) BalanceSheet(c *gin.Context) {
+	f, err := parseFilter(c)
+	if err != nil {
+		badRequest(c, err)
+		return
+	}
+	rows, totals, err := h.svc.BalanceSheet(f)
+	if err != nil {
+		serverError(c, err)
+		return
+	}
+	respond(c, rows, totals, f)
+}
+
 func (h *Handler) CommunicationHistory(c *gin.Context) {
 	ctx := platform.RequestContext(c)
 	f, err := parseFilter(c)

@@ -112,7 +112,10 @@ export type CustomerView = {
 export type CustomerFormInput = {
   name: string;
   phone: string;
-  dob: string; // "YYYY-MM-DD"
+  // Optional — RegisterCustomerModal.tsx no longer collects DOB at
+  // registration time (not used anywhere on the customer). EditCustomerModal
+  // still shows/edits it for a customer that already has one on file.
+  dob?: string; // "YYYY-MM-DD"
   address: string;
   branchId: number;
   photoUrl: string;
@@ -363,6 +366,15 @@ export async function updateCustomer(id: string, input: CustomerFormInput): Prom
 
 export async function deleteCustomer(id: string): Promise<void> {
   await apiFetch<void>(`/customers/${id}`, { method: "DELETE" });
+}
+
+/* Permanently deletes the customer and every record tied to them (loans and
+ * everything under each one, device/OTP login records, notifications,
+ * standalone reminders) — see backend/internal/customer/harddelete.go.
+ * Rejected (thrown) if any of the customer's loans aren't yet Closed/
+ * Auctioned; the thrown error's message names the offending loan number(s). */
+export async function hardDeleteCustomer(id: string): Promise<void> {
+  await apiFetch<void>(`/customers/${id}/hard-delete`, { method: "DELETE" });
 }
 
 /* Customer 360° profile — one consolidated view of every loan (with its

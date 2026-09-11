@@ -16,8 +16,10 @@ import { DatePicker } from "@/common/components/ui/DatePicker";
 import {
   listCashMovementsPage, listExpensesPage, listGoldSalesPage, getCashSummary, setOpeningBalance,
   setCashMovementLoanStatus, approveExpense, rejectExpense,
-  type CashMovementView, type ExpenseView, type GoldSaleView, type CashSummary,
+  exportCashMovements, exportExpenses,
+  type CashMovementView, type ExpenseView, type GoldSaleView, type CashSummary, type CashMovementCategory,
 } from "@/modules/cash/services/cashService";
+import { Select } from "@/common/components/ui/Select";
 import { ApiError } from "@/common/services/httpClient";
 import { useAuth } from "@/common/auth-context";
 import { useResponsivePageSize } from "@/common/utils/responsive";
@@ -185,6 +187,12 @@ export function Cash() {
   // row above and the Expense Register tab are untouched.
   const [movementsFrom, setMovementsFrom] = useState("");
   const [movementsTo, setMovementsTo] = useState("");
+  // Loan/Auction/Collection/Expenses — narrows which cash movements show,
+  // same Category* buckets backend/internal/cash/repository.go's FindAll
+  // filters on server-side (not a client-side re-filter of loaded rows).
+  const [movementsCategory, setMovementsCategory] = useState<CashMovementCategory>("");
+  const [downloadingMovements, setDownloadingMovements] = useState(false);
+  const [downloadingExpenses, setDownloadingExpenses] = useState(false);
 
   /* Guards against a stale response winning. The first render fires a
    * summary request before the branch list has loaded (branchId ""), then a
@@ -195,7 +203,7 @@ export function Cash() {
   const summarySeq = useRef(0);
 
   const refresh = useCallback(() => {
-    listCashMovementsPage(movementsPage, cashPageSize, { fromDate: movementsFrom || undefined, toDate: movementsTo || undefined }).then(({ items, hasMore, total }) => {
+    listCashMovementsPage(movementsPage, cashPageSize, { fromDate: movementsFrom || undefined, toDate: movementsTo || undefined, category: movementsCategory || undefined }).then(({ items, hasMore, total }) => {
       setMovements(items);
       setMovementsHasMore(hasMore);
       setMovementsTotal(total);
@@ -220,7 +228,7 @@ export function Cash() {
       if (seq !== summarySeq.current) return;
       setSummary(null);
     });
-  }, [branchId, today, movementsPage, expensesPage, goldSalesPage, cashPageSize, movementsFrom, movementsTo]);
+  }, [branchId, today, movementsPage, expensesPage, goldSalesPage, cashPageSize, movementsFrom, movementsTo, movementsCategory]);
 
   useEffect(() => {
     listActiveBranches().then((list) => {
@@ -287,6 +295,31 @@ export function Cash() {
       toast("Expense approved");
     } catch (e) {
       toast(e instanceof ApiError ? e.message : "Could not approve expense.");
+    }
+  }
+
+  // Both downloads use whatever's currently in the filter state (date
+  // range + category for movements) — never the loaded page's row count —
+  // matching listCashMovementsPage's own filter params exactly.
+  async function downloadMovements() {
+    setDownloadingMovements(true);
+    try {
+      await exportCashMovements({ fromDate: movementsFrom || undefined, toDate: movementsTo || undefined, category: movementsCategory || undefined });
+    } catch {
+      toast("Could not download cash movements — try again.");
+    } finally {
+      setDownloadingMovements(false);
+    }
+  }
+
+  async function downloadExpenses() {
+    setDownloadingExpenses(true);
+    try {
+      await exportExpenses();
+    } catch {
+      toast("Could not download the expense register — try again.");
+    } finally {
+      setDownloadingExpenses(false);
     }
   }
 
@@ -438,12 +471,28 @@ export function Cash() {
             {/* DatePicker is a fixed 230px app-wide by house convention
                 (app.css's `.dp.dp-date` rule ignores a narrower wrapper),
                 so these sit at their natural width rather than fighting it. */}
-            <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+            <div className="cash-filter-row" style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+              <div style={{ width: 150 }}>
+                <Select
+                  options={[
+                    { value: "", label: "All types" },
+                    { value: "loan", label: "Loan" },
+                    { value: "auction", label: "Auction" },
+                    { value: "collection", label: "Collection" },
+                    { value: "expenses", label: "Expenses" },
+                  ]}
+                  value={movementsCategory}
+                  onChange={(v) => { setMovementsCategory(v as CashMovementCategory); setMovementsPage(1); }}
+                />
+              </div>
               <DatePicker value={movementsFrom} onChange={(v) => { setMovementsFrom(v); setMovementsPage(1); }} placeholder="From date…" max={movementsTo || undefined} />
               <DatePicker value={movementsTo} onChange={(v) => { setMovementsTo(v); setMovementsPage(1); }} placeholder="To date…" min={movementsFrom || undefined} />
-              {(movementsFrom || movementsTo) && (
-                <button className="btn ghost sm" onClick={() => { setMovementsFrom(""); setMovementsTo(""); setMovementsPage(1); }}>Clear</button>
+              {(movementsFrom || movementsTo || movementsCategory) && (
+                <button className="btn ghost sm" onClick={() => { setMovementsFrom(""); setMovementsTo(""); setMovementsCategory(""); setMovementsPage(1); }}>Clear</button>
               )}
+              <button className="btn ghost sm" onClick={downloadMovements} disabled={downloadingMovements} title="Download every row matching the current filters">
+                <Icon name="download" /> {downloadingMovements ? "Preparing…" : "Download"}
+              </button>
             </div>
           </div>
           <div className="tbl-wrap tbl-scroll">
@@ -471,7 +520,14 @@ export function Cash() {
 
       {activeCashTab === "expenses" && (
         <div className="card">
-          <div className="hd"><h3>Expense Register</h3><div className="sp" /><span style={{ fontSize: 12.5, color: "var(--muted)" }}>Total {fmt(total)}</span></div>
+          <div className="hd">
+            <h3>Expense Register</h3>
+            <div className="sp" />
+            <button className="btn ghost sm" onClick={downloadExpenses} disabled={downloadingExpenses} title="Download every expense row">
+              <Icon name="download" /> {downloadingExpenses ? "Preparing…" : "Download"}
+            </button>
+            <span style={{ fontSize: 12.5, color: "var(--muted)", marginLeft: 12 }}>Total {fmt(total)}</span>
+          </div>
           <div className="tbl-wrap tbl-scroll">
             <table className="tbl tbl-center tbl-roomy">
               <thead><tr><th>Date</th><th>Category</th><th className="num">Amount</th><th>Mode</th><th>Description / Payee</th><th>Branch</th><th>Status</th><th style={{ textAlign: "center" }}>Receipt</th><th>Actions</th></tr></thead>

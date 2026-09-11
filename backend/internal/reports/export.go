@@ -61,6 +61,10 @@ func (h *Handler) reportRows(ctx context.Context, key string, f Filter) (rows an
 		return call2(h.svc.InterestPayoutRegister(ctx, f))
 	case "investments-maturity-register":
 		return call2(h.svc.MaturityRegister(ctx, f))
+	case "trade-sheet":
+		return call2(h.svc.TradeSheet(f))
+	case "balance-sheet":
+		return call2(h.svc.BalanceSheet(f))
 	default:
 		return nil, nil, fmt.Errorf("unknown report key %q", key)
 	}

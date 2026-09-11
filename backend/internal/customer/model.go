@@ -28,7 +28,7 @@ type Customer struct {
 	ID       uint          `json:"id" gorm:"primaryKey"`
 	Code     string        `json:"code" gorm:"index;size:20"`
 	Name     string        `json:"name" gorm:"not null;size:120"`
-	Phone    string        `json:"phone" gorm:"not null;size:20"`
+	Phone    string        `json:"phone" gorm:"size:20"`
 	DOB      time.Time     `json:"dob"`
 	Address  string        `json:"address" gorm:"size:255"`
 	BranchID uint          `json:"branchId" gorm:"not null"`

@@ -402,3 +402,48 @@ type PersonalLoanTotals struct {
 	TotalDisbursed   float64 `json:"totalDisbursed"`
 	TotalOutstanding float64 `json:"totalOutstanding"`
 }
+
+// TradeSheetRow is one gold-stock movement event — see reports_trade.go for
+// how Pledge In/Release Out/Re-pledge to Bank/Bank Release/Auction Out rows
+// are each sourced. Purity/NetWeight are blank/zero on the two event types
+// (bank re-pledge, auction) whose source table doesn't itemize weight.
+type TradeSheetRow struct {
+	Date       time.Time `json:"date"`
+	Reference  string    `json:"reference"`
+	Type       string    `json:"type"`
+	Party      string    `json:"party"`
+	Purity     string    `json:"purity"`
+	NetWeight  float64   `json:"netWeight"`
+	Rate       float64   `json:"rate"`
+	Value      float64   `json:"value"`
+	BranchName string    `json:"branchName"`
+}
+
+// PurityStock is one purity's closing stock weight, part of
+// TradeSheetTotals.
+type PurityStock struct {
+	Purity    string  `json:"purity"`
+	NetWeight float64 `json:"netWeight"`
+}
+
+type TradeSheetTotals struct {
+	ClosingStockByPurity []PurityStock `json:"closingStockByPurity"`
+	TotalValue           float64       `json:"totalValue"`
+}
+
+// BalanceSheetRow is one line item of the Assets/Liabilities/Capital
+// statement — see reports_balance.go for how each is computed. There's no
+// owner's-capital/equity ledger in this schema, so "Capital" carries a
+// single computed Net Position (Assets − Liabilities) row rather than a
+// real equity breakdown.
+type BalanceSheetRow struct {
+	Section string  `json:"section"` // "Assets" | "Liabilities" | "Capital"
+	Label   string  `json:"label"`
+	Amount  float64 `json:"amount"`
+}
+
+type BalanceSheetTotals struct {
+	TotalAssets      float64 `json:"totalAssets"`
+	TotalLiabilities float64 `json:"totalLiabilities"`
+	NetPosition      float64 `json:"netPosition"`
+}

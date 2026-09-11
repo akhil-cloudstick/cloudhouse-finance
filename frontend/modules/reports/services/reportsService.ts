@@ -287,6 +287,16 @@ export async function exportFormG(format: "xlsx" | "pdf", filters: ReportFilters
   window.URL.revokeObjectURL(url);
 }
 
+export type TradeSheetRow = {
+  date: string; reference: string; type: string; party: string; purity: string;
+  netWeight: number; rate: number; value: number; branchName: string;
+};
+export type PurityStock = { purity: string; netWeight: number };
+export type TradeSheetTotals = { closingStockByPurity: PurityStock[]; totalValue: number };
+
+export type BalanceSheetRow = { section: "Assets" | "Liabilities" | "Capital"; label: string; amount: number };
+export type BalanceSheetTotals = { totalAssets: number; totalLiabilities: number; netPosition: number };
+
 /* ---- One function per report endpoint (path segments per routes.go). ---- */
 
 export const getDisbursement = (f: ReportFilters) =>
@@ -349,6 +359,12 @@ export const getInterestPayoutRegister = (f: ReportFilters) =>
 export const getMaturityRegister = (f: ReportFilters) =>
   fetchReport<MaturityRegisterRow, MaturityRegisterTotals>("investments/maturity-register", f);
 
+export const getTradeSheet = (f: ReportFilters) =>
+  fetchReport<TradeSheetRow, TradeSheetTotals>("trade-sheet", f);
+
+export const getBalanceSheet = (f: ReportFilters) =>
+  fetchReport<BalanceSheetRow, BalanceSheetTotals>("balance-sheet", f);
+
 /* Report export keys, matching backend/internal/reports/export.go's
  * reportRows switch exactly (note "loans/status" list path vs
  * "loans-status" export key — the export key list is a *different* set of
@@ -357,7 +373,7 @@ export type ReportKey =
   | "disbursement" | "personal-loans" | "loans-status" | "interest-collection" | "outstanding-principal"
   | "payment-collection" | "gold-weight" | "packets" | "bank-pledge" | "loan-extensions"
   | "gold-release" | "auctions" | "expense-cashflow" | "kyc" | "gold-rate-history"
-  | "employee-performance" | "communication-history" | "form-g"
+  | "employee-performance" | "communication-history" | "trade-sheet" | "balance-sheet" | "form-g"
   | "investments-deposit-register" | "investments-interest-payout-register" | "investments-maturity-register";
 
 /* Downloads GET /reports/export/:key?format=xlsx|pdf as a blob and triggers

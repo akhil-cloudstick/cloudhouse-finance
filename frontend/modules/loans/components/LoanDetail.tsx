@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { toDataURL } from "qrcode";
+import { useDropdownMenu } from "@/hooks/useDropdownMenu";
 import { useModal } from "@/common/components/Modal";
 import { useToast } from "@/common/components/Toast";
 import { useAuth } from "@/common/auth-context";
@@ -159,16 +160,13 @@ export function LoanDetail({ id }: { id?: string }) {
   // header buttons — collapsed into one "Documents" dropdown (see the doc
   // menu below) so the header doesn't outgrow the space next to the loan
   // title on anything but a very wide screen.
-  const [docsMenuOpen, setDocsMenuOpen] = useState(false);
-  const docsMenuRef = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    if (!docsMenuOpen) return;
-    function onDocClick(e: MouseEvent) {
-      if (!docsMenuRef.current?.contains(e.target as Node)) setDocsMenuOpen(false);
-    }
-    document.addEventListener("click", onDocClick);
-    return () => document.removeEventListener("click", onDocClick);
-  }, [docsMenuOpen]);
+  const {
+    open: docsMenuOpen,
+    setOpen: setDocsMenuOpen,
+    menuRef: docsMenuRef,
+    triggerRef: docsMenuTriggerRef,
+    onKeyDown: onDocsMenuKeyDown,
+  } = useDropdownMenu<HTMLDivElement>();
   // Repledge to Bank / Request Extension / Request Release used to be 3
   // more separate header buttons alongside Record Payment — collapsed into
   // one "Loan Actions" dropdown the same way Documents was, for the same
@@ -176,16 +174,13 @@ export function LoanDetail({ id }: { id?: string }) {
   // Payment stays its own visible button — it's the primary action here
   // (styled `btn`, not `btn ghost`, unlike the other three), not something
   // to bury a click deeper for.
-  const [loanActionsMenuOpen, setLoanActionsMenuOpen] = useState(false);
-  const loanActionsMenuRef = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    if (!loanActionsMenuOpen) return;
-    function onDocClick(e: MouseEvent) {
-      if (!loanActionsMenuRef.current?.contains(e.target as Node)) setLoanActionsMenuOpen(false);
-    }
-    document.addEventListener("click", onDocClick);
-    return () => document.removeEventListener("click", onDocClick);
-  }, [loanActionsMenuOpen]);
+  const {
+    open: loanActionsMenuOpen,
+    setOpen: setLoanActionsMenuOpen,
+    menuRef: loanActionsMenuRef,
+    triggerRef: loanActionsMenuTriggerRef,
+    onKeyDown: onLoanActionsMenuKeyDown,
+  } = useDropdownMenu<HTMLDivElement>();
   // An outstanding request must survive a page reload: the loan itself
   // records the Setu status (indemnityBondSignStatus === "sign_initiated"),
   // so seed the local flag from it. Without this, reloading mid-signing put
@@ -809,12 +804,18 @@ export function LoanDetail({ id }: { id?: string }) {
             </button>
           )}
           {!approvalButtons && ((canAcceptBankPledge(l.status, l.bankPledgeStatus) && !activePledge && canCreateBankPledges) || (l.status !== "Closed" && canUpdateLoans) || canHardDeleteLoans) && (
-            <div className="docs-dd" ref={loanActionsMenuRef}>
-              <button className="btn ghost sm" onClick={() => setLoanActionsMenuOpen((v) => !v)}>
+            <div className="docs-dd" ref={loanActionsMenuRef} onKeyDown={onLoanActionsMenuKeyDown}>
+              <button
+              ref={loanActionsMenuTriggerRef}
+              className="btn ghost sm"
+              onClick={() => setLoanActionsMenuOpen((v) => !v)}
+              aria-haspopup="menu"
+              aria-expanded={loanActionsMenuOpen}
+            >
                 <Icon name="gear" /> Loan Actions <Icon name="chevronDown" className="docs-dd-chev" />
               </button>
               {loanActionsMenuOpen && (
-                <div className="docs-dd-menu">
+                <div className="docs-dd-menu" role="menu">
                   {canAcceptBankPledge(l.status, l.bankPledgeStatus) && !activePledge && canCreateBankPledges && (
                     <a href="#" title="Repledge to Bank" onClick={(e) => { e.preventDefault(); setLoanActionsMenuOpen(false); openModal(<RepledgeModalContent loan={l} onSaved={load} />); }}>
                       <Icon name="bank" /><span className="tx">Repledge to Bank</span>
@@ -887,12 +888,18 @@ export function LoanDetail({ id }: { id?: string }) {
          * one "Documents" dropdown rather than 5 separate header buttons,
          * which outgrew the space next to the loan title on anything but a
          * very wide screen. */}
-          <div className="docs-dd" ref={docsMenuRef}>
-            <button className="btn ghost sm" onClick={() => setDocsMenuOpen((v) => !v)}>
+          <div className="docs-dd" ref={docsMenuRef} onKeyDown={onDocsMenuKeyDown}>
+            <button
+            ref={docsMenuTriggerRef}
+            className="btn ghost sm"
+            onClick={() => setDocsMenuOpen((v) => !v)}
+            aria-haspopup="menu"
+            aria-expanded={docsMenuOpen}
+          >
               <Icon name="doc" /> Documents <Icon name="chevronDown" className="docs-dd-chev" />
             </button>
             {docsMenuOpen && (
-              <div className="docs-dd-menu">
+              <div className="docs-dd-menu" role="menu">
                 <a href="#" title="Print Label" className={printingLabel ? "disabled" : ""} onClick={(e) => { e.preventDefault(); if (printingLabel) return; setDocsMenuOpen(false); printPacketLabel(); }}>
                   <Icon name="box" /><span className="tx">{printingLabel ? "Preparing…" : "Print Label"}</span>
                 </a>
@@ -1030,7 +1037,7 @@ export function LoanDetail({ id }: { id?: string }) {
         <div className="grid">
           <div className="card gtop"><div className="hd"><h3>Pledged Ornaments — {fmtW(l.totalNetWeight)} total</h3></div>
             <div className="tbl-wrap"><table className="tbl">
-              <thead><tr><th>Ornament</th><th>Purity</th><th className="num">Gross (g)</th><th className="num">Net (g)</th><th className="num">Qty</th><th className="num">Gold Value</th><th style={{ textAlign: "center" }}>Photo</th></tr></thead>
+              <thead><tr><th>Ornament</th><th>Purity</th><th className="num" style={{ paddingRight: 18 }}>Gross (g)</th><th className="num">Net (g)</th><th className="num">Qty</th><th className="num">Gold Value</th><th style={{ textAlign: "center" }}>Photo</th></tr></thead>
               <tbody>
                 {l.ornaments.map((o) => (
                   <tr key={o.id}>
@@ -1081,11 +1088,11 @@ export function LoanDetail({ id }: { id?: string }) {
                     <tr key={p.id}>
                       <td>{p.paidOn}</td>
                       <td>
-                        {p.type}{p.description ? " — " + p.description : ""}
+                        {p.type}
                         {p.processingFee > 0 && (
-                          <div style={{ fontSize: 11, color: "var(--red)" }}>+{fmt(p.processingFee)} fee charged</div>
+                          <div style={{ fontSize: "0.85em", color: "var(--red)" }}>+{fmt(p.processingFee)} fee charged</div>
                         )}
-                        {breakdown && <div style={{ fontSize: 11, color: "var(--muted)" }}>{breakdown}</div>}
+                        {breakdown && <div style={{ fontSize: "0.85em", color: "var(--muted)" }}>{breakdown}</div>}
                       </td>
                       <td>{isCash ? p.method || "—" : <span style={{ color: "var(--muted)" }}>Non-cash</span>}</td>
                       <td>{p.reference || "—"}</td>
