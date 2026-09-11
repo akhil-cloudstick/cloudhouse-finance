@@ -454,7 +454,15 @@ func Build(db *gorm.DB, cfg platform.Config) (*App, error) {
 	// fabricated number from the operator's live OpenWA instance. Gated on the
 	// Administrator role rather than a permission — see demoreset.routes.go for
 	// why that is a deployment constraint rather than a shortcut.
-	demoreset.RegisterRoutes(protected.Group("/demo"), demoreset.NewHandler(db, cfg))
+	// Gated TWICE, and both gates are load-bearing. RequireTenantModule asks
+	// whether this business is allowed to reset at all — a vendor switch, off
+	// by default, so a demo tenancy that has gone live cannot wipe itself.
+	// The Administrator check inside RegisterRoutes then asks whether this
+	// particular employee may do it. Neither implies the other: a granted
+	// business still must not let a cashier wipe it, and an Administrator of
+	// a live client must not be able to wipe it at all.
+	demoreset.RegisterRoutes(protected.Group("/demo"), demoreset.NewHandler(db, cfg),
+		platform.RequireTenantModule(tenantRepo, tenant.ModuleDemoReset))
 	// The Razorpay webhook is a SIBLING of protected, never nested inside
 	// it — same reasoning as the superadmin console below: it carries no
 	// employee JWT and platform.CRUDPermissions would refuse it outright.

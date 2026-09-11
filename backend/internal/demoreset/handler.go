@@ -10,6 +10,7 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"strconv"
 	"sync/atomic"
 
 	"cloudhouse/backend/internal/platform"
@@ -85,12 +86,21 @@ type streamEvent struct {
 	Report *demoseed.Report `json:"report,omitempty"`
 }
 
-// Reset wipes the caller's own business and restores the demo dataset,
-// streaming progress as it goes.
+// Reset wipes the caller's own business, optionally restoring the demo
+// dataset afterwards, streaming progress as it goes.
 //
-// POST, no request body, no parameters. There is nothing to bind and nothing
-// to forge: the business comes from the authenticated session, so the
-// endpoint cannot be pointed at anyone else's data.
+// POST, no request body. The business still comes from the authenticated
+// session and cannot be forged, so the endpoint cannot be pointed at anyone
+// else's data. The one input is ?seed=, a query param per the house standard:
+//
+//	?seed=true   (or omitted)  wipe, then restore the demo dataset
+//	?seed=false                wipe only, leaving an empty business
+//
+// Omission means SEED, matching what this endpoint did before the flag
+// existed. That default is chosen against the usual "safest default" instinct
+// on purpose: both branches wipe, so neither is the safe one, and a caller
+// that has not been updated should keep behaving exactly as it did rather
+// than quietly start leaving the business empty.
 func (h *Handler) Reset(c *gin.Context) {
 	if !running.CompareAndSwap(false, true) {
 		httpx.Fail(c, http.StatusConflict, "A reset is already in progress. Wait for it to finish before starting another.")
@@ -102,6 +112,19 @@ func (h *Handler) Reset(c *gin.Context) {
 	if !ok || tenantID == 0 {
 		httpx.Fail(c, http.StatusUnauthorized, "Not signed in.")
 		return
+	}
+
+	// Parsed before the response is committed, so a malformed value is an
+	// ordinary 400 rather than an error object buried in a 200 stream.
+	// Anything other than an explicit "false" seeds — see the doc comment.
+	seedDemo := true
+	if raw := c.Query("seed"); raw != "" {
+		parsed, err := strconv.ParseBool(raw)
+		if err != nil {
+			httpx.Fail(c, http.StatusBadRequest, "The seed parameter must be true or false.")
+			return
+		}
+		seedDemo = parsed
 	}
 
 	// context.WithoutCancel because the reseed must outlive the request. A
@@ -128,7 +151,7 @@ func (h *Handler) Reset(c *gin.Context) {
 		c.Writer.Flush()
 	}
 
-	rep, err := demoseed.ResetWithProgress(ctx, h.deps, func(p demoseed.Progress) {
+	rep, err := demoseed.ResetWithOptions(ctx, h.deps, demoseed.Options{SeedDemo: seedDemo}, func(p demoseed.Progress) {
 		write(streamEvent{Step: p.Step, Index: p.Index, Total: p.Total})
 	})
 	if err != nil {

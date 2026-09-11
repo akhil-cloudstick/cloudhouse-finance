@@ -11,8 +11,15 @@ import (
 
 // RegisterRoutes mounts the demo reset under the given group (expected to be
 // something like protected.Group("/demo")).
-func RegisterRoutes(rg *gin.RouterGroup, h *Handler) {
-	rg.POST("/reset", requireAdministrator(), h.Reset)
+//
+// moduleGate is platform.RequireTenantModule for tenant.ModuleDemoReset —
+// passed in rather than built here so this package keeps no dependency on
+// the tenant repository, matching branch and settings. It runs BEFORE the
+// role check on purpose: "this business cannot reset" is the broader,
+// vendor-level answer, and a business without the grant should get the same
+// refusal whoever is asking.
+func RegisterRoutes(rg *gin.RouterGroup, h *Handler, moduleGate gin.HandlerFunc) {
+	rg.POST("/reset", moduleGate, requireAdministrator(), h.Reset)
 }
 
 // requireAdministrator gates the reset on the caller's role name.

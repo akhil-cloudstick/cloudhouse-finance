@@ -512,6 +512,9 @@
 .sa-check:hover { background: var(--sa-bg); }
 .sa-check input { margin-top: 2px; flex-shrink: 0; accent-color: var(--sa-brand); }
 .sa-check.locked { opacity: 0.75; cursor: default; }
+/* Square off the bottom edge so the confirmation below reads as part of the
+   same block rather than a separate card. */
+.sa-check.confirming { margin-bottom: 0; border-bottom-left-radius: 0; border-bottom-right-radius: 0; }
 .sa-check.locked:hover { background: none; }
 .sa-check .sa-check-sub {
   display: block;
@@ -519,6 +522,57 @@
   color: var(--sa-muted);
   margin-top: 2px;
   line-height: 1.45;
+}
+
+/* A module whose grant hands the business a destructive action rather than
+   revealing a page. Tinted only once it is actually ON: an unticked row is
+   a neutral choice, and colouring it red before anything has been granted
+   just teaches the operator to ignore the colour. */
+.sa-check.danger { border-color: color-mix(in oklab, var(--sa-red) 35%, transparent); }
+.sa-check.danger:has(input:checked) { background: var(--sa-red-bg); border-color: var(--sa-red); }
+.sa-check.danger input { accent-color: var(--sa-red); }
+/* The confirmation that appears under a destructive module when it is being
+   GRANTED. Pulled up by the row's own bottom margin so it reads as attached
+   to that row rather than floating between two of them. */
+.sa-grant-confirm {
+  margin: 0 0 6px;
+  padding: 11px 13px;
+  border: 1px solid var(--sa-red);
+  border-top: none;
+  border-radius: 0 0 7px 7px;
+  background: var(--sa-red-bg);
+}
+.sa-grant-confirm-title {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--sa-red);
+}
+.sa-grant-confirm-body {
+  margin: 5px 0 0;
+  font-size: 11.5px;
+  line-height: 1.5;
+  color: var(--sa-ink);
+}
+.sa-grant-confirm-actions {
+  display: flex;
+  gap: 7px;
+  margin-top: 11px;
+}
+.sa-grant-confirm-actions .sa-btn { flex: 1; }
+
+.sa-check-flag {
+  display: inline-block;
+  margin-left: 7px;
+  padding: 0 6px;
+  border-radius: 9px;
+  background: var(--sa-red-bg);
+  color: var(--sa-red);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  vertical-align: 1px;
 }
 
 /* --- Colour picker --- */

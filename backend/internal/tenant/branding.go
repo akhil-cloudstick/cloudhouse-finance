@@ -25,15 +25,25 @@ import (
 // ModuleBranches hides Branch Management and refuses branch writes — it does
 // not stop branches existing, being listed in a dropdown, or being switched
 // between, all of which the rest of the app depends on.
+// ModuleDemoReset is the exception to the "gates a page, never the data"
+// rule above, and the exception is the whole point of it. Every other module
+// hides a management screen while the records carry on existing; this one
+// governs an action that DELETES the business down to its admin login.
+//
+// It is off unless the vendor turns it on, which is the correct default for
+// a demo tenancy that has become a real client: the reset is a sales tool
+// for rehearsing a pitch, and there is no version of a live client wanting
+// it. Granting it says "this business is still a demo".
 const (
-	ModuleSettings = "settings"
-	ModuleBranches = "branches"
+	ModuleSettings  = "settings"
+	ModuleBranches  = "branches"
+	ModuleDemoReset = "demo_reset"
 )
 
 // KnownModules is the closed set. Adding an entry here is the only way a new
 // module becomes toggleable, so this slice is the answer to "what can the
 // vendor turn on?" — there is no second list to keep in step.
-var KnownModules = []string{ModuleSettings, ModuleBranches}
+var KnownModules = []string{ModuleSettings, ModuleBranches, ModuleDemoReset}
 
 // Document languages for customer-facing paperwork (the pledge agreement and
 // release form).

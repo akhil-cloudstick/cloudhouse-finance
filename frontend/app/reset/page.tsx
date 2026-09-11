@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useAuth } from "@/common/auth-context";
+import { useBranding } from "@/common/BrandingProvider";
 import {
   activeBusinessSlug,
   clearSession,
@@ -27,17 +28,49 @@ import BrandLogo from "@/common/components/BrandLogo";
 
 export default function ResetPage() {
   const { token, loading, isAdmin, permissionsLoaded } = useAuth();
+  // BrandingProvider is mounted in the ROOT layout, not app/app/, so it is
+  // available here even though nothing else from the console is.
+  const { hasModule, loaded: brandingLoaded } = useBranding();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [progress, setProgress] = useState<ResetProgress | null>(null);
+  // Defaults to true: this page has always wiped-and-reseeded, and the demo
+  // reseed is still the common case between client meetings.
+  const [seedDemo, setSeedDemo] = useState(true);
+  // The confirmation is a second screen rather than window.confirm, which is
+  // suppressible, unstyled, and cannot show WHICH of the two resets is about
+  // to run. ModalProvider is only mounted inside app/app/, so this page has
+  // to carry its own — see the file header.
+  const [confirming, setConfirming] = useState(false);
 
   // Own guard: not signed in, go and sign in.
   useEffect(() => {
     if (!loading && !token) window.location.replace(loginPath());
   }, [loading, token]);
 
+  // The vendor's switch. A business without the demo_reset module is sent to
+  // the app with no explanation, rather than shown a refusal — the point of
+  // the grant is that a live client should never learn this page exists, and
+  // "you do not have permission to wipe your data" announces it louder than
+  // the button would have.
+  //
+  // Gated on brandingLoaded because hasModule fails closed: acting before the
+  // grants arrive would bounce a business that IS allowed, on every cold open.
+  const granted = hasModule("demo_reset");
+  useEffect(() => {
+    if (!loading && token && brandingLoaded && !granted) {
+      window.location.replace(appPath());
+    }
+  }, [loading, token, brandingLoaded, granted]);
+
   if (loading || !token) {
     return <Centered>Checking your session…</Centered>;
+  }
+
+  // Same neutral wording for "still loading" and "not granted" — the second
+  // is a redirect in flight, and naming it would defeat the silence above.
+  if (!brandingLoaded || !granted) {
+    return <Centered>Loading…</Centered>;
   }
 
   // Wait for the permission fetch before judging the role: isAdmin is
@@ -63,11 +96,12 @@ export default function ResetPage() {
   }
 
   async function handleReset() {
+    setConfirming(false);
     setBusy(true);
     setError(null);
     setProgress(null);
     try {
-      const report = await resetDemoData(setProgress);
+      const report = await resetDemoData(setProgress, seedDemo);
 
       // The order below matters and each step has a reason.
 
@@ -167,11 +201,37 @@ export default function ResetPage() {
 
         {busy ? (
           <ResetProgressBar progress={progress} />
+        ) : confirming ? (
+          <ConfirmPanel
+            seedDemo={seedDemo}
+            onCancel={() => setConfirming(false)}
+            onConfirm={handleReset}
+          />
         ) : (
           <>
+            {/* The choice has to be made BEFORE the confirmation, so that the
+                confirmation can state which of the two is about to happen.
+                Asking after would mean confirming a thing not yet decided. */}
+            <label style={checkboxRow}>
+              <input
+                type="checkbox"
+                checked={seedDemo}
+                onChange={(e) => setSeedDemo(e.target.checked)}
+                style={{ marginTop: 2 }}
+              />
+              <span>
+                <b>Load the demo data afterwards</b>
+                <span style={{ display: "block", fontSize: 12, color: "var(--muted)", marginTop: 2 }}>
+                  {seedDemo
+                    ? "The scripted customers, loans, payments and rates are restored — ready to show a client."
+                    : "Nothing is put back. The business is left empty, ready for a real client to start entering their own data."}
+                </span>
+              </span>
+            </label>
+
             <button
               className="btn danger"
-              onClick={handleReset}
+              onClick={() => setConfirming(true)}
               style={{ width: "100%", marginTop: 6 }}
             >
               Reset demo data
@@ -258,6 +318,76 @@ function ResetProgressBar({ progress }: { progress: ResetProgress | null }) {
     </div>
   );
 }
+
+/* The confirmation step.
+ *
+ * Deliberately NOT window.confirm: browsers let a user suppress that dialog
+ * for the rest of the session ("don't show this again"), which would silently
+ * remove the only thing standing between a mis-click and an irreversible
+ * wipe — and it cannot say which of the two resets is about to run.
+ *
+ * The destructive button is on the RIGHT and "Keep the data" is the one the
+ * eye lands on first, autofocused, so that Enter and a stray click both do
+ * the harmless thing. It names the outcome ("Wipe and load demo" / "Wipe,
+ * leave empty") rather than saying "OK", because at the moment of confirming,
+ * restating what is about to happen is the entire job.
+ */
+function ConfirmPanel({
+  seedDemo,
+  onCancel,
+  onConfirm,
+}: {
+  seedDemo: boolean;
+  onCancel: () => void;
+  onConfirm: () => void;
+}) {
+  return (
+    <div
+      role="alertdialog"
+      aria-label="Confirm the reset"
+      style={{
+        marginTop: 6,
+        border: "1px solid var(--red)",
+        background: "var(--red-bg)",
+        borderRadius: 8,
+        padding: "14px 16px",
+      }}
+    >
+      <p style={{ margin: 0, fontSize: 14, fontWeight: 700, color: "var(--red)" }}>
+        This cannot be undone.
+      </p>
+      <p style={{ margin: "6px 0 0", fontSize: 13, lineHeight: 1.5 }}>
+        {seedDemo
+          ? "Everything in this business will be deleted, then the scripted demo dataset will be restored."
+          : "Everything in this business will be deleted and nothing will be put back. The business will be left empty."}{" "}
+        Your <b>admin</b> login is kept either way.
+      </p>
+      <div style={{ display: "flex", gap: 8, marginTop: 14 }}>
+        <button
+          className="btn plain"
+          onClick={onCancel}
+          autoFocus
+          style={{ flex: 1 }}
+        >
+          Keep the data
+        </button>
+        <button className="btn danger" onClick={onConfirm} style={{ flex: 1 }}>
+          {seedDemo ? "Wipe and load demo" : "Wipe, leave empty"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+const checkboxRow: React.CSSProperties = {
+  display: "flex",
+  alignItems: "flex-start",
+  gap: 10,
+  fontSize: 13,
+  lineHeight: 1.45,
+  marginBottom: 14,
+  cursor: "pointer",
+};
 
 function Centered({ children }: { children: React.ReactNode }) {
   return (

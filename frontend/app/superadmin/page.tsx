@@ -389,9 +389,13 @@ export default function SuperAdminDashboard() {
  * wording lives here. An unknown key falls back to the key itself rather
  * than rendering blank, so a backend that adds a module before this map
  * does still shows something usable. */
+/* Keys must match tenant.KnownModules in backend/internal/tenant/branding.go
+ * exactly — that slice is the closed set, and a key here with no counterpart
+ * there is silently dropped on save. */
 const MODULE_LABELS: Record<string, string> = {
   settings: "Settings",
   branches: "Branch Management",
+  demo_reset: "Demo Reset",
 };
 
 const LANGUAGE_LABELS: Record<string, string> = {
@@ -403,12 +407,19 @@ const LANGUAGE_LABELS: Record<string, string> = {
 const MODULE_HINTS: Record<string, string> = {
   settings: "The Settings page (integration API keys).",
   branches: "The Branch Management page. Branches themselves keep working either way — only administering them is hidden.",
+  demo_reset:
+    "Lets this business wipe its own data back to the admin login, optionally reloading the demo dataset. Leave OFF for a live client — every other module hides a page, this one hands out a delete button.",
 };
+
+/* Modules whose grant is irreversible in effect rather than merely
+ * revealing a page. Rendered with the danger styling so it does not read as
+ * just another tickbox in a list of pages. */
+const DESTRUCTIVE_MODULES = new Set(["demo_reset"]);
 
 const LANGUAGE_HINTS: Record<string, string> = {
   en: "Always available; cannot be turned off.",
   ml: "Pledge agreement and release form in Malayalam.",
-  gu: "Grantable now, but the Gujarati template is not installed on the server yet — requesting one returns an explicit error rather than an English document.",
+  gu: "Pledge agreement and release form in Gujarati. Note this is the Gujarat branch's own formal deed, not a translation of the English/Malayalam letter.",
 };
 
 function GrantChips({
@@ -559,6 +570,13 @@ function BusinessWizard({
   const [logoPreview, setLogoPreview] = useState<string | null>(null);
 
   const [modules, setModulesState] = useState<string[]>(business?.modules ?? []);
+  /* The module whose GRANT is awaiting confirmation, or null.
+   *
+   * Only ever set when ticking a DESTRUCTIVE_MODULES entry on. Revoking is
+   * deliberately instant: taking a delete button away from a business is the
+   * safe direction, and a confirmation there would train the operator to
+   * click through the one that matters. */
+  const [confirmGrant, setConfirmGrant] = useState<string | null>(null);
   const [languages, setLanguagesState] = useState<string[]>(business?.languages ?? ["en"]);
 
   const [adminUsername, setAdminUsername] = useState("admin");
@@ -843,19 +861,76 @@ function BusinessWizard({
                   Off by default. A module left unticked is hidden from the app and refused by the API, not merely
                   hidden from the menu.
                 </span>
-                {catalogue.modules.map((m) => (
-                  <label key={m} className="sa-check">
-                    <input
-                      type="checkbox"
-                      checked={modules.includes(m)}
-                      onChange={() => setModulesState(toggle(modules, m))}
-                    />
-                    <span>
-                      {MODULE_LABELS[m] ?? m}
-                      <span className="sa-check-sub">{MODULE_HINTS[m] ?? ""}</span>
-                    </span>
-                  </label>
-                ))}
+                {catalogue.modules.map((m) => {
+                  const destructive = DESTRUCTIVE_MODULES.has(m);
+                  const on = modules.includes(m);
+                  return (
+                    <div key={m}>
+                      <label className={`sa-check${destructive ? " danger" : ""}${confirmGrant === m ? " confirming" : ""}`}>
+                        <input
+                          type="checkbox"
+                          checked={on}
+                          onChange={() => {
+                            // Confirm the GRANT of a destructive module, never
+                            // the revoke. Turning it back off is the safe
+                            // direction and stays one click.
+                            if (destructive && !on) {
+                              setConfirmGrant(m);
+                              return;
+                            }
+                            setConfirmGrant(null);
+                            setModulesState(toggle(modules, m));
+                          }}
+                        />
+                        <span>
+                          {MODULE_LABELS[m] ?? m}
+                          {/* Only on the destructive ones. A badge on every row
+                              is wallpaper; on one row it is a stop sign. */}
+                          {destructive && <span className="sa-check-flag">irreversible</span>}
+                          <span className="sa-check-sub">{MODULE_HINTS[m] ?? ""}</span>
+                        </span>
+                      </label>
+
+                      {confirmGrant === m && (
+                        /* Inline rather than a second modal: the wizard is
+                           already one, and a dialog over a dialog is both
+                           awkward to dismiss and easy to confirm blindly.
+                           Sitting directly under the row keeps the thing
+                           being granted on screen while it is confirmed. */
+                        <div className="sa-grant-confirm" role="alertdialog" aria-label={`Confirm granting ${MODULE_LABELS[m] ?? m}`}>
+                          <p className="sa-grant-confirm-title">
+                            Give {name || "this business"} a delete button?
+                          </p>
+                          <p className="sa-grant-confirm-body">
+                            Any Administrator of this business will be able to wipe it back to its
+                            admin login, whenever they like, without asking you. Grant it only
+                            while this is still a demo.
+                          </p>
+                          <div className="sa-grant-confirm-actions">
+                            <button
+                              type="button"
+                              className="sa-btn"
+                              autoFocus
+                              onClick={() => setConfirmGrant(null)}
+                            >
+                              Cancel
+                            </button>
+                            <button
+                              type="button"
+                              className="sa-btn danger"
+                              onClick={() => {
+                                setModulesState(toggle(modules, m));
+                                setConfirmGrant(null);
+                              }}
+                            >
+                              Grant Demo Reset
+                            </button>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
               </div>
 
               <div className="sa-field">

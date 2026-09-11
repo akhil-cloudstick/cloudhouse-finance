@@ -39,18 +39,24 @@ type StreamEvent = Partial<ResetProgress> & {
 };
 
 /**
- * resetDemoData wipes and reseeds the demo, calling onProgress after each
- * phase, and resolves with the final report.
+ * resetDemoData wipes the business, calling onProgress after each phase, and
+ * resolves with the final report.
+ *
+ * `seedDemo` decides what happens AFTER the wipe — true restores the scripted
+ * dataset, false leaves the business empty. Both branches wipe identically, so
+ * neither is the safe one; the caller must always mean it. Defaults to true to
+ * match the endpoint, whose own default predates the flag.
  *
  * Rejects with an ApiError for a refusal before the stream starts (403 for a
- * non-Administrator, 409 for a reset already running), and with a plain Error
- * for a failure reported inside the stream.
+ * non-Administrator, 409 for a reset already running, 400 for a bad flag), and
+ * with a plain Error for a failure reported inside the stream.
  */
 export async function resetDemoData(
-  onProgress?: (p: ResetProgress) => void
+  onProgress?: (p: ResetProgress) => void,
+  seedDemo = true
 ): Promise<ResetReport> {
   const token = readToken();
-  const res = await fetch(`${API_BASE}/demo/reset`, {
+  const res = await fetch(`${API_BASE}/demo/reset?seed=${seedDemo}`, {
     method: "POST",
     headers: token ? { Authorization: `Bearer ${token}` } : {},
   });

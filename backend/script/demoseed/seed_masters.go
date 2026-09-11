@@ -96,8 +96,15 @@ func seedGoldRates(ctx context.Context, d *Deps, st *state, rep *Report) error {
 	for i, k24 := range goldRateFixtures {
 		if _, err := d.goldRateSvc.Publish(ctx, goldrate.PublishInput{
 			// i == last lands on today; earlier entries walk backwards.
-			Date:  st.clk.daysAgo(last - i),
-			K24:   k24,
+			Date: st.clk.daysAgo(last - i),
+			// Karat+Rate, not a K24 field: this deployment's PublishInput
+			// publishes ONE karat per call and carries the others forward from
+			// the previous row (goldrate.Service.Publish). Publishing 24 alone
+			// is correct and complete — 22K/18K are not stored per-karat for
+			// valuation, they are derived per ornament by loan/purity.go's
+			// rateForPurity, which is what the dashboard labels "computed".
+			Karat: 24,
+			Rate:  k24,
 			SetBy: "Admin",
 		}); err != nil {
 			return fmt.Errorf("publish gold rate for %s: %w", st.clk.daysAgo(last-i).Format("2006-01-02"), err)

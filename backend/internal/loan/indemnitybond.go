@@ -1,7 +1,6 @@
 package loan
 
 import (
-	"cloudhouse/backend/internal/platform/httpx"
 	"context"
 	"encoding/base64"
 	"fmt"
@@ -63,17 +62,6 @@ type BondData struct {
 	AddressLine string
 	KMLRegNo    string
 }
-
-// ErrGujaratiTemplateMissing is returned when a Gujarati pledge agreement is
-// requested on a build that has no Gujarati template.
-//
-// Gujarati is a real, grantable language (tenant.LangGujarati) so the vendor
-// can tick it and the UI can offer it, but the wording of a binding pledge
-// contract is not something to machine-translate or approximate. Until the
-// reviewed template is dropped in (see renderBondHTML), asking for one is an
-// explicit, visible refusal rather than a silent fallback to English.
-var ErrGujaratiTemplateMissing = httpx.NewBadRequest(
-	"the Gujarati pledge agreement template is not installed on this server yet")
 
 // blank is the placeholder used wherever the frontend template falls back
 // to "________________" for a missing field.
@@ -274,6 +262,15 @@ var bondTemplateMl = template.Must(
 	template.New("bond_ml").Funcs(template.FuncMap{"inc": func(i int) int { return i + 1 }}).Parse(bondHTMLMalayalam),
 )
 
+// bondTemplateGu is the Gujarati "ચલ મિલકતનો આડગીરો કરાર" (Movable Property
+// Pledge Agreement) template — the Gujarat branch's own paper form, brought
+// over from that deployment verbatim rather than translated here. See
+// bondHTMLGujarati for why it is a different document from the English and
+// Malayalam pair rather than a third translation of the same one.
+var bondTemplateGu = template.Must(
+	template.New("bond_gu").Funcs(template.FuncMap{"inc": func(i int) int { return i + 1 }}).Parse(bondHTMLGujarati),
+)
+
 // bondPageStyle mirrors frontend/common/utils/print.ts's openPrintWindow
 // stylesheet (minus the .noprint print button, irrelevant for a PDF render),
 // but with a standard sans-serif body font (Mona Sans, falling back to each
@@ -323,6 +320,31 @@ ol{padding-left:22px} ol li{margin-bottom:12px;text-align:justify}
 .sig div{flex:1;text-align:center}
 .sig span{display:block;border-top:1px solid #333;padding-top:6px;margin-top:44px;font-size:12.5px}
 /* See bondPageStyle's .sig-page comment — same fix, Malayalam template. */
+.sig-page{page-break-before:always;min-height:240mm;display:flex;flex-direction:column;justify-content:flex-end}
+`
+
+// bondPageStyleGujarati is bondPageStyleMalayalam with a Gujarati-capable
+// font stack. Identical in every other declaration — the two scripts want
+// the same layout, only a different face.
+//
+// The font stack is the whole point of the separate constant: 'Mona Sans'
+// and plain system-ui carry no Gujarati glyphs, so Chromium would render
+// every matra as a tofu box. Requires "Noto Sans Gujarati" (or another
+// Gujarati-covering face such as Shruti) installed ON THE HOST running
+// chromedp — the same caveat bondPageStyleMalayalam documents. Without it
+// the PDF still renders, just through whatever fallback the OS ships.
+const bondPageStyleGujarati = `
+body{font-family:'Noto Sans Gujarati','Shruti','Nirmala UI','Mona Sans','Segoe UI',ui-sans-serif,system-ui,sans-serif;color:#1a1a1a;margin:40px auto;max-width:760px;line-height:1.7;font-size:14px;padding:0 20px}
+h1{font-size:19px;text-align:center;margin:0 0 2px;letter-spacing:.3px}
+h2{font-size:14px;text-align:center;margin:0 0 18px;font-weight:normal;color:#555}
+table{width:100%;border-collapse:collapse;margin:14px 0}
+th,td{border:1px solid #999;padding:6px 8px;font-size:13px;text-align:left;vertical-align:middle}
+th{background:#f3ede1} .num{text-align:right}
+ol{padding-left:22px} ol li{margin-bottom:12px;text-align:justify}
+.sig{display:flex;justify-content:space-between;gap:20px;margin-top:60px}
+.sig div{flex:1;text-align:center}
+.sig span{display:block;border-top:1px solid #333;padding-top:6px;margin-top:44px;font-size:12.5px}
+/* See bondPageStyle's .sig-page comment — same fix, Gujarati template. */
 .sig-page{page-break-before:always;min-height:240mm;display:flex;flex-direction:column;justify-content:flex-end}
 `
 
@@ -423,6 +445,88 @@ const bondHTMLMalayalam = `<!DOCTYPE html><html lang="ml"><head><meta charset="U
 </div>
 </body></html>`
 
+// bondHTMLGujarati is the Gujarati "ચલ મિલકતનો આડગીરો કરાર" (Movable Property
+// Pledge Agreement) pledge deed, taken verbatim from the Gujarat deployment's
+// own reviewed template rather than translated here — the wording of a binding
+// pledge contract is not something to approximate (see the note that used to
+// stand where renderBondHTML now selects it).
+//
+// IT IS A DIFFERENT DOCUMENT FROM bondHTMLEnglish/bondHTMLMalayalam, and that
+// is correct rather than an oversight. Those two are one promissory-pledge
+// letter in two languages, matching the Kerala branch's paper form. This
+// follows the GUJARAT branch's paper form: the formal deed structure
+// (covenant to pay, pledge clause with its three sub-clauses, lender's
+// liability, right of lender, power of sale, interpretation clause, schedule,
+// signatures). Two states, two paper forms, so a Gujarati borrower signs the
+// deed their branch actually uses. Do not "align" the three.
+const bondHTMLGujarati = `<!DOCTYPE html><html lang="gu"><head><meta charset="UTF-8"><title>ચલ મિલકતનો આડગીરો કરાર — {{.LoanNumber}}</title><style>{{.Style}}</style></head><body>
+<h1>ચલ મિલકતનો આડગીરો કરાર</h1>
+<h2>ગોલ્ડ લોન એકાઉન્ટ નંબર {{.LoanNumber}}</h2>
+<p>આ આડગીરો કરાર તારીખ <b>{{printf "%02d" .Day}}</b>, માસ <b>{{.Month}}</b>, વર્ષ <b>{{.Year}}</b> ના રોજ નીચેના પક્ષકારો વચ્ચે કરવામાં આવે છે:</p>
+<p>
+<b>{{.CustomerName}}</b><br>
+ઉ.આ.વ. :- <b>{{.Age}}</b>, ધંધો:- {{.Blank}}<br>
+આધાર કાર્ડ નંબર :- <b>{{.Aadhaar}}</b><br>
+પાનકાર્ડ નંબર :- <b>{{.PAN}}</b><br>
+રહે. :- <b>{{.Address}}</b>
+</p>
+<p>( હવેથી આ કરારમાં પહેલા પક્ષને &quot;આડગીરો મૂકનાર&quot;, &quot;દેણદાર&quot;, &quot;આડમાં મૂકનાર&quot; જેવી સંજ્ઞાઓથી સંબોધવામાં આવશે. )</p>
+<p>અને</p>
+<p>
+<b>{{.LenderName}}</b><br>
+ઉ.આ.વ. :- <b>{{.LenderAge}}</b>, ધંધો:- <b>{{.LenderBusiness}}</b><br>
+આધાર કાર્ડ નંબર :- <b>{{.LenderAadhaar}}</b><br>
+પાનકાર્ડ નંબર :- <b>{{.LenderPAN}}</b><br>
+રહે. :- <b>{{.LenderAddress}}</b>
+</p>
+<p>( હવેથી આ કરારમાં બીજા પક્ષને &quot;આડગીરો લેનાર&quot;, &quot;નાણાં ધીરનાર&quot;, &quot;આડમાં લેનાર&quot; જેવી સંજ્ઞાઓથી સંબોધવામાં આવશે. )</p>
+<p>&quot;આડગીરો મૂકનાર&quot; અને &quot;આડગીરો લેનાર&quot; સંયુક્ત રીતે &quot;પક્ષકારો&quot; તરીકે સંબોધવામાં આવશે.</p>
+<p>આડગીરો લેનાર <b>{{.BranchName}}</b> ગામે નોંધણી પ્રમાણપત્ર નંબર <b>{{.LenderRegNo}}</b> હેઠળ નાણાં ધિરાણનો વ્યવસાય કરે છે.</p>
+<p><b>આથી નીચે મુજબ સંમતિ કરવામાં આવે છે:</b></p>
+<ol>
+<li><b>ચૂકવણી કરવાનો કરાર</b><br>આડમાં લેનાર દ્વારા આડમાં મૂકનારને આપવામાં આવેલ રૂપિયા <b>{{.PrincipalAmount}}</b> ના ઋણના બદલામાં, આડમાં મૂકનાર સંમત થાય છે કે, ઉપરોક્ત ઋણ તારીખ {{.Blank}} ના રોજ અથવા તે પહેલાં, આ કરારના અમલની તારીખથી <b>{{.InterestRate}}</b> પ્રતિ વર્ષના વ્યાજ સાથે પરત ચૂકવશે.</li>
+<li><b>આડગીરોની જોગવાઈ</b><br>આડમાં લેનારે રૂ. <b>{{.PrincipalAmount}}</b> ની રકમ ધિરાણ આપી છે, જેની પ્રાપ્તિ આડમાં મૂકનાર સ્વીકારે છે. આડમાં મૂકનારે પોતાની માલિકીની આ કરારની અનુસૂચિમાં દર્શાવેલી માલ ઉપરોક્ત ઋણની ચૂકવણી કરવા માટે જામીનગીરી તરીકે સુરક્ષા તરીકે આડમાં લેનારને નિક્ષેપ કરેલ છે. આ વસ્તુઓ આ કરારમાં નક્કી કરેલ રીતે આડમાં લેનાર પાસે જામીનગીરી તરીકે રાખવામાં આવશે.
+<ol type="a">
+<li><b>અસાધારણ ખર્ચ અંગે આડમાં લેનારનો હક્ક</b> — આડમાં લેનાર આડમાં મૂકેલા માલની જાળવણી માટે પોતાને થયેલો અસાધારણ ખર્ચ, આડમાં મૂકનાર પાસેથી મેળવવા હક્કદાર રહેશે.</li>
+<li><b>સમારકામનો ખર્ચ</b> — અનુસૂચિમાં દર્શાવેલ માલને સારી સ્થિતિમાં અને યોગ્ય કાર્યક્ષમ સ્થિતિમાં રાખવા માટેના ખર્ચ મેળવવા આડગીરો લેનાર હક્કદાર રહેશે.</li>
+<li><b>અન્ય ખર્ચ</b> — અન્ય તમામ ખર્ચ, ફી અને ખર્ચાઓ (જો કોઈ હોય તો), જેને કાયદા હેઠળ આડગીરો લેનાર પોતાની સુરક્ષા રકમમાં ઉમેરવા માટે હકદાર રહેશે.</li>
+</ol>
+</li>
+<li><b>નુકસાન માટે આડગીરો લેનારની જવાબદારી</b><br>આડગીરો લેનારની કસ્ટડીમાં અનુસૂચિમાં દર્શાવેલ માલને થનારા કોઈપણ અનૈચ્છિક નુકસાન અથવા તેમની વેચાણ પ્રક્રિયાના કારણે થનારા નુકસાન માટે આડગીરો લેનાર આડગીરો આપનાર પ્રત્યે જવાબદાર રહેશે નહીં.</li>
+<li><b>આડગીરો લેનારના અધિકાર</b><br>આ કરાર હેઠળ ચૂકવવાપાત્ર કોઈપણ વ્યાજની રકમ નિયત તારીખથી 30 દિવસની અંદર ચૂકવવામાં નહીં આવે, તો આ કરાર દ્વારા સુરક્ષિત સમગ્ર રકમ તરત જ ચૂકવવાપાત્ર બની જશે. મૂળ રકમ અને તેના પરના વ્યાજની ચૂકવણીમાં કસૂર કરે અથવા આડમાં મૂકનાર આ કરારમાંની કોઈ શરતનું પાલન ન કરે, તો આડમાં મૂકનારને કાયદા હેઠળ આડગીરો લેનાર તરીકે ઉપલબ્ધ કોઈપણ અથવા તમામ ઉપાયો અમલમાં મૂકવાનો અધિકાર રહેશે. આડમાં મૂકનાર વેચાણની ૨ મહિના પહેલા અગાઉથી નોટિસ આપી આડમાં મુકેલ વસ્તુ તે વેચી શકશે.</li>
+<li><b>વેચાણનો અધિકાર</b>
+<ol type="a">
+<li>કાયદા હેઠળ આડ લેનારને મળેલ વેચાણનો અધિકાર જાહેર હરાજી અથવા ખાનગી કરાર દ્વારા, આડમાં લેનારની વિવેકબુદ્ધિ મુજબ, તમામ વસ્તુઓને એક જ લોટમાં અથવા અનેક લોટમાં વેચીને અમલમાં મૂકી શકાય છે.</li>
+<li>ઉપરોક્ત વેચાણનો અધિકાર અમલમાં મૂકતા પહેલાં આડમાં લેનારે આડમાં મૂકનારને ઓછામાં ઓછા બે મહિનાની નોટિસ આપવાની રહેશે.</li>
+</ol>
+</li>
+<li><b>અર્થઘટનની જોગવાઈ</b><br>આથી બંને પક્ષકારો સંમત થાય છે કે આ કરારમાં સમાવિષ્ટ કોઈપણ જોગવાઈને કાયદેસર રીતે શક્ય તેટલી સંપૂર્ણ અસર આપવા માટે જ્યાં આવી વ્યાખ્યા જરૂરી હોય, ત્યાં &quot;આડગીરો લેનાર&quot; અને &quot;આડગીરો મૂકનાર&quot; શબ્દોમાં તેમના સંબંધિત વારસદારો, વહીવટદારો, એક્ઝિક્યુટર્સ, એડમિનિસ્ટ્રેટર્સ અને અધિકાર સોંપવામાં આવેલ વ્યક્તિઓનો પણ સમાવેશ થશે.</li>
+</ol>
+<p style="text-align:center"><b>-:: અનુસૂચિ ::-</b></p>
+<table>
+<thead><tr><th>અનુ.</th><th>વસ્તુનું વર્ણન</th><th>કેરેટ</th><th class="num">કુલ વજન (ગ્રામ)</th><th class="num">ચોખ્ખું વજન (ગ્રામ)</th><th class="num">અંદાજિત કિંમત (રૂ.)</th></tr></thead>
+<tbody>
+{{range $i, $o := .Ornaments}}<tr><td>{{inc $i}}</td><td>{{$o.Name}}</td><td>{{$o.Purity}}</td><td class="num">{{printf "%.1f" $o.GrossWeight}}</td><td class="num">{{printf "%.1f" $o.NetWeight}}</td><td class="num">{{printf "%.0f" $o.Value}}</td></tr>
+{{else}}<tr><td colspan="6" style="text-align:center;color:#777">{{.Blank}}</td></tr>
+{{end}}
+</tbody>
+</table>
+<p><b>કુલ અંદાજિત રકમ :- રૂ. {{.TotalValue}}/-</b></p>
+<p><b>કુલ ધિરાણ રકમ :- રૂ. {{.PrincipalAmount}}/-</b></p>
+<p>સ્થળ: {{.BranchName}}</p>
+<p>તારીખ: {{printf "%02d" .Day}} / {{.Month}} / {{.Year}}</p>
+<div class="sig-page">
+<div class="sig">
+<div>આડગીરો મૂકનાર<span>નામ: {{.CustomerName}}</span></div>
+<div>આડગીરો લેનાર<span>{{.LenderName}}</span></div>
+</div>
+<div class="sig">
+<div><span>સાક્ષી<br>નામ: {{.Blank}}</span></div>
+<div><span>સાક્ષી<br>નામ: {{.Blank}}</span></div>
+</div>
+</div>
+</body></html>`
+
 // bondTemplateData wraps BondData with the extra pre-formatted fields the
 // template above references — kept separate from BondData itself so
 // BondData stays a plain, easily-constructed value in service.go.
@@ -461,11 +565,13 @@ type bondTemplateData struct {
 // and is what the vendor ticks per business).
 //
 // Kept as named constants rather than bare strings so every switch on lang
-// stays in sync. NOTE: Gujarati is accepted by the type system and by the
-// per-business grant, but its TEMPLATE IS NOT INSTALLED in this build —
-// renderBondHTML returns ErrGujaratiTemplateMissing rather than silently
-// handing a borrower an English contract they did not ask for. See that
-// error's comment for what dropping the template in requires.
+// stays in sync.
+//
+// All three templates are installed — see renderBondHTML, which pairs each
+// language with its own font stack. English and Malayalam are one document
+// in two languages (the Kerala branch's promissory-pledge letter); Gujarati
+// is the Gujarat branch's own formal deed, a different document by design
+// rather than a third translation. bondHTMLGujarati explains why.
 const (
 	BondLangEnglish   = "en"
 	BondLangMalayalam = "ml"
@@ -498,22 +604,23 @@ func renderBondHTML(data BondData, lang string) (string, error) {
 	for _, o := range data.Ornaments {
 		totalValue += o.Value
 	}
-	// Gujarati is grantable but not installed. Refusing is the only safe
-	// answer: falling through to English would hand a borrower a binding
-	// contract in a language they did not choose and may not read.
+	// All three languages are installed. A switch rather than a chain of ifs
+	// because the template and its style MUST move together — a mismatch
+	// renders the right words in a face with no glyphs for them, i.e. a page
+	// of tofu boxes on a document a borrower signs. Pairing them at a single
+	// site is what stops that.
 	//
-	// To install it, add bondTemplateGu/bondPageStyleGujarati alongside the
-	// Malayalam pair (font stack 'Noto Sans Gujarati', 'Nirmala UI', with the
-	// same host-installed-font caveat bondPageStyleMalayalam documents) and
-	// select them here.
-	if lang == BondLangGujarati {
-		return "", ErrGujaratiTemplateMissing
-	}
-	tmpl := bondTemplate
-	style := bondPageStyle
-	if lang == BondLangMalayalam {
-		tmpl = bondTemplateMl
-		style = bondPageStyleMalayalam
+	// default is English, deliberately not an error: callers
+	// (StartIndemnityBondSign, Service.SendBondForSigning) validate lang
+	// first, so an unrecognised value here is a programming error rather than
+	// user input, and a bond in the wrong language beats no bond at all while
+	// still being obvious in review.
+	tmpl, style := bondTemplate, bondPageStyle
+	switch lang {
+	case BondLangMalayalam:
+		tmpl, style = bondTemplateMl, bondPageStyleMalayalam
+	case BondLangGujarati:
+		tmpl, style = bondTemplateGu, bondPageStyleGujarati
 	}
 	itemNames := make([]string, 0, len(data.Ornaments))
 	itemWeights := make([]string, 0, len(data.Ornaments))

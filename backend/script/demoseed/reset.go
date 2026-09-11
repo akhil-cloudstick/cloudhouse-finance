@@ -61,6 +61,20 @@ type Progress struct {
 // driving the reset, so an implementation that blocks slows the reset down.
 type ProgressFunc func(Progress)
 
+// Options tunes what a reset does after the wipe.
+//
+// The wipe itself is not optional and never has been: both modes clear the
+// business down to the same floor (the admin login, Head Office, the roles
+// and the business record — see wipe.go's findPreserved). The only question
+// this answers is whether the scripted dataset goes back in afterwards.
+type Options struct {
+	// SeedDemo restores the demo dataset after the wipe. False leaves the
+	// business empty — a real client's starting state rather than a
+	// demonstration, which is what a handover needs. The admin can still sign
+	// in either way; that is what makes "empty" usable rather than bricked.
+	SeedDemo bool
+}
+
 // Reset wipes the business named by the tenant on ctx and reseeds it.
 //
 // The tenant comes from the context and nowhere else — not a parameter, not a
@@ -73,7 +87,17 @@ func Reset(ctx context.Context, d *Deps) (*Report, error) {
 
 // ResetWithProgress is Reset with a callback after each phase. A nil callback
 // is the plain Reset behaviour, which is what the CLI uses.
+//
+// Kept seeding by default so that every existing caller — the CLI, and any
+// test — keeps its behaviour without being touched. A wipe that silently
+// stopped reseeding would be the worst kind of change to make by omission.
 func ResetWithProgress(ctx context.Context, d *Deps, onProgress ProgressFunc) (*Report, error) {
+	return ResetWithOptions(ctx, d, Options{SeedDemo: true}, onProgress)
+}
+
+// ResetWithOptions is ResetWithProgress with the post-wipe behaviour chosen
+// by the caller. See Options.
+func ResetWithOptions(ctx context.Context, d *Deps, opts Options, onProgress ProgressFunc) (*Report, error) {
 	tenantID, ok := platform.TenantFromContext(ctx)
 	if !ok || tenantID == 0 {
 		return nil, fmt.Errorf("demoseed: no business on the context — call platform.WithTenant first")
@@ -101,13 +125,22 @@ func ResetWithProgress(ctx context.Context, d *Deps, onProgress ProgressFunc) (*
 	}
 	rep.FilesRemoved = files
 
-	// The reseed is deliberately NOT one transaction. personalloan and
-	// investment open their own transactions on the root handle (which would
-	// not join an outer one), and loan.Service.Create derives its loan number
-	// from a COUNT that has to see previously committed rows. Wrapping the
-	// whole thing would produce visibility bugs, not atomicity. A failure
-	// mid-way is recoverable by running the reset again, which wipes first.
-	all := steps()
+	// No steps at all when the caller only wanted the business emptied, which
+	// makes the progress total 1 and the run a single phase. The steps are
+	// resolved here rather than unconditionally so that the total the client
+	// renders is the truth about this run — quoting 23 phases and then
+	// finishing at 1 reads as a crash, not a success.
+	var all []step
+	if opts.SeedDemo {
+		// The reseed is deliberately NOT one transaction. personalloan and
+		// investment open their own transactions on the root handle (which
+		// would not join an outer one), and loan.Service.Create derives its
+		// loan number from a COUNT that has to see previously committed rows.
+		// Wrapping the whole thing would produce visibility bugs, not
+		// atomicity. A failure mid-way is recoverable by running the reset
+		// again, which wipes first.
+		all = steps()
+	}
 	// +1 for the wipe, which is a phase the operator waits through too.
 	total := len(all) + 1
 	report := func(step string, index int) {
@@ -124,6 +157,9 @@ func ResetWithProgress(ctx context.Context, d *Deps, onProgress ProgressFunc) (*
 		report(s.name, i+2)
 	}
 
+	// Reported on both paths. On a wipe-only run this is the single most
+	// important line in the response: it is the operator's assurance that the
+	// database they just emptied is still one they can sign into.
 	rep.AdminUsername = adminUsername
 	rep.DurationMS = time.Since(started).Milliseconds()
 	rep.SeededAt = started.Format(time.RFC3339)
