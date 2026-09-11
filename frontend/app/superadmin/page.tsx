@@ -464,7 +464,7 @@ function ReasonField({
       <span className="sa-hint">
         {required
           ? "Creating, suspending or re-tiering a business always records why."
-          : "Edits are always audited; a reason is recorded only if you give one."}
+          : "This action is audited either way; a reason is recorded only if you give one."}
       </span>
     </div>
   );
@@ -571,9 +571,14 @@ function BusinessWizard({
 
   const step = steps[stepIdx];
   const isLast = stepIdx === steps.length - 1;
-  // Per the audit design: a reason is mandatory when bringing a business into
-  // existence, optional when editing one that already exists.
-  const reasonRequired = isCreate;
+  // A reason is never mandatory in this wizard. It used to be required on
+  // create, which is the one case where it earns nothing: a creation is
+  // already self-describing in the audit log (the business, its code, who
+  // made it, when), so the field only stood between an operator and the
+  // button. Edits are the case where "why" carries information, and those
+  // were already optional. The field stays on both paths and is still
+  // recorded whenever it is filled in — it just no longer blocks.
+  const reasonRequired = false;
 
   function goTo(i: number) {
     setStepIdx(i);

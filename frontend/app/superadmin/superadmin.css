@@ -687,7 +687,21 @@
   margin: 0;
   word-break: break-word;
 }
-.sa-review-row dd.empty { color: var(--sa-muted); }
+/* The padding/text-align/font-size resets are not cosmetic — they are a
+   defence. app/app/app.css is imported by the ROOT layout, so it loads on
+   /superadmin too, and it defines a bare `.empty` (app.css:3211) for the
+   tenant app's "no rows here" panels: 34px of padding and centred text. That
+   selector is only 0-1-0, so the colour below already beats it, but
+   specificity is resolved per-property — anything this rule does not name is
+   inherited from that panel style, which turned every unset row into a 100px
+   block with its value floating in the middle. Keep all four declarations
+   together; dropping one silently brings the tall rows back. */
+.sa-review-row dd.empty {
+  color: var(--sa-muted);
+  padding: 0;
+  text-align: left;
+  font-size: inherit;
+}
 /* Marks the fields this save will actually change, so an operator can see at
    a glance what they are about to write — and so an accidental edit is
    visible before it is committed rather than after. */
