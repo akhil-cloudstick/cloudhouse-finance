@@ -139,6 +139,14 @@ export function SearchableSelect<T>({
         setItems((prev) => (append ? [...prev, ...result.items] : result.items));
         setHasMore(result.hasMore);
         setPage(p);
+        // Pre-highlights the first result as soon as a fresh (non-append)
+        // page actually arrives, rather than leaving highlightedIndex at
+        // -1 until the user presses an arrow key first — without this,
+        // Enter alone right after typing/opening (the far more common
+        // combobox habit than arrowing down to row 0 first) did nothing at
+        // all, reading as "Enter doesn't work" even though arrow-key nav
+        // was fine once something was actually highlighted.
+        if (!append) setHighlightedIndex(result.items.length > 0 ? 0 : -1);
       })
       .catch(() => {
         if (reqId !== requestIdRef.current) return;
@@ -222,6 +230,27 @@ export function SearchableSelect<T>({
     return () => document.removeEventListener("click", onDocClick);
   }, []);
 
+  // Belt-and-braces alongside the input's own onBlur (below): closes this
+  // dropdown the moment focus lands ANYWHERE outside this component,
+  // including via Tab — relatedTarget on a blur event isn't reliably
+  // populated by every browser/timing combination, so blur alone
+  // occasionally left a dropdown open after tabbing past it while a
+  // later field's own dropdown opened on top of it. `focusin` bubbles
+  // (unlike plain `focus`), so one document-level listener catches every
+  // focus change app-wide; only this component's own open state reacts,
+  // scoped by `boxRef`/`resultsRef` same as the click listener above.
+  useEffect(() => {
+    if (!open) return;
+    function onFocusIn(e: FocusEvent) {
+      const target = e.target as Node;
+      if (boxRef.current?.contains(target)) return;
+      if (resultsRef.current?.contains(target)) return;
+      setOpen(false);
+    }
+    document.addEventListener("focusin", onFocusIn);
+    return () => document.removeEventListener("focusin", onFocusIn);
+  }, [open]);
+
   // compact-only: recompute the portal's fixed position whenever it opens,
   // and keep it pinned to the input while the box stays open — the
   // ancestor doing the scrolling is unknown from here (could be the whole
@@ -294,6 +323,14 @@ export function SearchableSelect<T>({
     switch (e.key) {
       case "ArrowDown": {
         e.preventDefault();
+        // Stops this from ALSO reaching an ancestor's own Enter/keydown
+        // handler (Modal.tsx's onModalKeyDown, or a page-level
+        // makeEnterToSubmitHandler) — preventDefault alone only cancels
+        // the key's default browser action, not other JS listeners still
+        // watching the same bubbling event. Without this, list navigation
+        // "worked" internally but every arrow/Enter press also fired
+        // whatever the container's own handler does, reading as broken.
+        e.stopPropagation();
         const next = highlightedIndex < navRowCount - 1 ? highlightedIndex + 1 : 0;
         setHighlightedIndex(next);
         scrollHighlightedIntoView(next);
@@ -302,6 +339,7 @@ export function SearchableSelect<T>({
       }
       case "ArrowUp": {
         e.preventDefault();
+        e.stopPropagation();
         const next = highlightedIndex > 0 ? highlightedIndex - 1 : navRowCount - 1;
         setHighlightedIndex(next);
         scrollHighlightedIntoView(next);
@@ -310,12 +348,14 @@ export function SearchableSelect<T>({
       case "Enter": {
         if (highlightedIndex < 0) return;
         e.preventDefault();
+        e.stopPropagation();
         if (highlightedIndex < items.length) pick(items[highlightedIndex]);
         else pickCreate();
         break;
       }
       case "Escape": {
         e.preventDefault();
+        e.stopPropagation();
         setOpen(false);
         break;
       }
@@ -354,6 +394,16 @@ export function SearchableSelect<T>({
         <a
           key={getId(item)}
           href="#"
+          // Not a real Tab stop — these are picked via click or the
+          // input's own ArrowUp/Down+Enter handling (onInputKeyDown)
+          // only. Without this, Tab walked into the open list's anchors
+          // one at a time instead of moving straight to the next field,
+          // which — combined with the input's own onBlur guard that
+          // deliberately keeps the dropdown open while focus is still
+          // somewhere inside it (so a click-to-select isn't closed out
+          // from under itself) — left the dropdown open the whole time
+          // Tab was stepping through its rows.
+          tabIndex={-1}
           className={i === highlightedIndex ? "sel" : undefined}
           onMouseEnter={() => setHighlightedIndex(i)}
           onClick={(e) => { e.preventDefault(); pick(item); }}
@@ -365,6 +415,7 @@ export function SearchableSelect<T>({
       {showCreateRow && (
         <a
           href="#"
+          tabIndex={-1}
           className={highlightedIndex === items.length ? "sel" : undefined}
           onMouseEnter={() => setHighlightedIndex(items.length)}
           onClick={(e) => { e.preventDefault(); pickCreate(); }}
@@ -386,6 +437,18 @@ export function SearchableSelect<T>({
         onChange={(e) => { setQuery(e.target.value); setSearchTerm(e.target.value); setOpen(true); }}
         onFocus={() => { setSearchTerm(""); setOpen(true); }}
         onKeyDown={onInputKeyDown}
+        // Closes the dropdown whenever focus actually leaves this field —
+        // previously it only closed on a document-level click outside, so
+        // moving focus away programmatically (e.g. Enter-to-next-field's
+        // next.focus() in enterToSubmit.ts) left it open, floating over
+        // whatever field focus had just moved to. Guarded by relatedTarget
+        // so clicking a result (which moves focus to that <a> a beat
+        // before its onClick fires pick()) doesn't close the dropdown out
+        // from under the click.
+        onBlur={(e) => {
+          if (resultsRef.current?.contains(e.relatedTarget as Node)) return;
+          setOpen(false);
+        }}
       />
       {/* Every other caller: the original inline dropdown — absolute inside
        * `.ss`, natural width, themed scrollbar. Capped to exactly

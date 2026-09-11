@@ -7,6 +7,7 @@ import { SchemeModalContent } from "@/common/components/modals/SchemeModal";
 import { SchemeStatementModalContent } from "@/common/components/modals/SchemeStatementModal";
 import { listSchemes, type SchemeView } from "@/modules/schemes/services/schemeService";
 import { useAuth } from "@/common/auth-context";
+import { useIsSmallScreen } from "@/common/utils/responsive";
 
 /* Ported from legacy/app.js's `renderSchemes()` (legacy/app.js:1222-1244).
  * Loads real data from the Go backend (`GET /api/v1/schemes`) instead of
@@ -16,6 +17,7 @@ export function Schemes() {
   // Every action here is hidden, not disabled, when the role lacks its
   // permission — see Customers.tsx.
   const { can } = useAuth();
+  const smallScreen = useIsSmallScreen();
   const canCreateSchemes = can("Scheme_Management", "can_create_scheme");
   const canUpdateSchemes = can("Scheme_Management", "can_update_scheme");
   const [schemes, setSchemes] = useState<SchemeView[] | null>(null);
@@ -38,12 +40,18 @@ export function Schemes() {
 
   return (
     <>
-      <div className="page-h">
+      <div className="page-h" style={{marginTop:-5}}>
         <div><h1>Loan Schemes</h1><p>Interest rates, tenure, LTV and calculation rules per scheme</p></div>
         <div className="sp" />
         {canCreateSchemes && <button className="btn" onClick={() => openModal(<SchemeModalContent onSaved={onSaved} />)}><Icon name="plus" /> New Scheme</button>}
       </div>
-      <hr className="gold-rule" />
+      {/* Explicit small-screen margin (matches Loans.tsx's own hr override)
+       * — .page-h's negative marginTop above pulls the header block up
+       * toward the top of the page on small/short (useIsSmallScreen)
+       * windows, which was leaving this rule reading as missing since it
+       * collapsed almost flush against the header instead of showing as a
+       * clearly separate divider line. */}
+      <hr className="gold-rule" style={smallScreen ? { margin: "4px 0 18px" } : undefined} />
       {error && (
         <p style={{ color: "var(--red)", fontSize: 13.5 }}>
           Something went wrong. Please try again later.

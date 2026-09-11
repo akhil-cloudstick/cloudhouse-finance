@@ -57,7 +57,7 @@ export function Sidebar({ route, open, onNavigateSameRoute }: { route: string; o
 
   return (
     <aside className={`side${open ? " open" : ""}`} id="side">
-      <div className="brand">
+      <div className="brand" style={{marginRight:-10}}>
         <img src="/ambika-gold.jpeg" alt="Ambika Gold Finance" />
         <div className="t">
           <b>AMBIKA</b>

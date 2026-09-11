@@ -153,7 +153,7 @@ export function Packets() {
         {canCreateLockers && <button className="btn" onClick={() => openModal(<LockerModalContent key="new" onSaved={load} />)}><Icon name="plus" /> Add Locker</button>}
       </div>
       {lookupErr && <p style={{ color: "var(--red)", fontSize: 12.5, marginTop: -4, marginBottom: 8 }}>{lookupErr}</p>}
-      <hr className="gold-rule" />
+      <hr className="gold-rule" style={{ margin: "4px 0 18px" }} />
       <div style={{ display: "flex", alignItems: "flex-end", justifyContent: "flex-end", gap: 12, flexWrap: "wrap", marginBottom: 16 }}>
         <div style={{ width: 200 }}>
           <label style={{ fontSize: 11.5, color: "var(--muted)", display: "block", marginBottom: 4 }}>Status</label>
@@ -173,10 +173,10 @@ export function Packets() {
           Something went wrong. Please try again later.
         </p>
       )}
-      <div className="grid cols21" style={{ alignItems: "stretch" }}>
-        <div className="card">
+      <div className="grid cols21">
+        <div className="card tbl-card">
           <div className="hd"><h3>Packets</h3></div>
-          <div className="tbl-wrap">
+          <div className="tbl-wrap tbl-wrap-3row">
             <table className="tbl tbl-center">
               <thead>
                 <tr><th>Packet Code</th><th>Loan</th><th>Customer</th><th className="num">Items</th><th className="num">Weight</th><th>Locker</th><th>Status</th></tr>
@@ -215,21 +215,20 @@ export function Packets() {
             <button className="btn plain sm" disabled={page >= totalPages} onClick={() => setPage((p) => Math.min(totalPages, p + 1))}>Next ›</button>
           </div>
         </div>
-        {/* The locker column takes its height from the packets card beside it:
-            the row stretches both columns to the same height, and this wrapper
-            holds that height while the absolutely-positioned list inside
-            scrolls on its own. scroll-hidden keeps that scrollbar invisible, so
-            neither this column nor the page grows past the packets card. */}
-        <div style={{ minHeight: 0, height: "100%", position: "relative" }}>
-          <div className="grid scroll-hidden" style={{ position: "absolute", inset: 0, alignContent: "start" }}>
-            {lockers.length === 0 ? (
-              <div className="empty" style={{ padding: "14px 4px" }}>
-                {packets === null && !error ? "Loading lockers…" : "No lockers added yet."}
-              </div>
-            ) : (
-              lockers.map((l) => <LockerCard key={l.id} l={l} packets={packets || []} canUpdate={canUpdateLockers} onChanged={load} />)
-            )}
-          </div>
+        {/* Packets (left) is now capped to its own natural 3-row height
+            (.tbl-wrap-3row) rather than stretching to match this column, so
+            the two no longer share one mirrored height — this is just a
+            plain, independently-scrolling box capped to show about 1.5
+            locker cards before it scrolls, the same way .tbl-wrap-3row caps
+            the table beside it. scroll-hidden keeps its scrollbar invisible. */}
+        <div className="grid scroll-hidden locker-col" style={{ alignContent: "start" }}>
+          {lockers.length === 0 ? (
+            <div className="empty" style={{ padding: "14px 4px" }}>
+              {packets === null && !error ? "Loading lockers…" : "No lockers added yet."}
+            </div>
+          ) : (
+            lockers.map((l) => <LockerCard key={l.id} l={l} packets={packets || []} canUpdate={canUpdateLockers} onChanged={load} />)
+          )}
         </div>
       </div>
     </>

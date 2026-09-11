@@ -186,8 +186,7 @@ export function BankPledge() {
         {canCreateBanks && <button className="btn ghost" onClick={() => openModal(<BankModalContent onSaved={() => {}} />)}><Icon name="plus" /> Add Bank</button>}
         {canCreatePledges && <button className="btn" onClick={startNewRepledge}><Icon name="plus" /> New Re-Pledge</button>}
       </div>
-      <hr className="gold-rule" />
-
+      <hr className="gold-rule rule-xs" />
       <div className="tabs" style={{ marginBottom: 14 }}>
         <button className={tab === "active" ? "on" : ""} onClick={() => setTab("active")}>Active</button>
         <button className={tab === "history" ? "on" : ""} onClick={showHistory}>History</button>
@@ -196,7 +195,7 @@ export function BankPledge() {
       {error && <div className="notice" style={{ marginBottom: 14 }}>{error}</div>}
 
       {tab === "active" ? (
-        <div className="card">
+        <div className="card tbl-card">
           <div className="hd"><h3>Re-Pledged Loans</h3></div>
           {pledgedError && <div className="notice" style={{ margin: 14 }}>{pledgedError}</div>}
           <div className="tbl-wrap">
@@ -273,7 +272,7 @@ export function BankPledge() {
           <div className="ft">If a customer requests closure while gold is bank-pledged, the release workflow flags the bank release step first.</div>
         </div>
       ) : (
-        <div className="card">
+        <div className="card tbl-card">
           <div className="hd"><h3>Re-Pledge History</h3></div>
           {historyError && <div className="notice" style={{ margin: 14 }}>{historyError}</div>}
           <div className="tbl-wrap">

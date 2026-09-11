@@ -144,6 +144,21 @@ const PATHS: Record<string, React.ReactNode> = {
     </>
   ),
   chevronDown: <path d="m6 9 6 6 6-6" />,
+  camera: (
+    <>
+      <path d="M3 8a1 1 0 0 1 1-1h2.2l1-1.6A1 1 0 0 1 8 5h8a1 1 0 0 1 .85.45L18 7h2a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1Z" />
+      <circle cx="12" cy="13" r="3.3" />
+    </>
+  ),
+  // Mirror image of `download` (arrow into a tray) — arrow points UP, out
+  // of the tray, for picking/uploading a file (ornament photos, KYC
+  // documents, receipts, …) rather than saving one down.
+  upload: (
+    <>
+      <path d="M12 15V3M7 8l5-5 5 5" />
+      <path d="M4 18v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2" />
+    </>
+  ),
   gear: (
     <>
       <circle cx="12" cy="12" r="3" />

@@ -10,7 +10,7 @@ import { RegisterCustomerModalContent } from "@/common/components/modals/Registe
 import { listCustomersPage, type CustomerView } from "@/modules/customers/services/customerService";
 import { Select } from "@/common/components/ui/Select";
 import { useAuth } from "@/common/auth-context";
-import { useResponsivePageSize } from "@/common/utils/responsive";
+import { useResponsivePageSize, useIsSmallScreen } from "@/common/utils/responsive";
 
 const VERIFICATION_STATUS_OPTIONS = [
   { value: "", label: "All" },
@@ -35,6 +35,7 @@ export function Customers() {
   const { customers, refresh: refreshAll } = useCustomers();
   const { openModal } = useModal();
   const pageSize = useResponsivePageSize(9, 6);
+  const smallScreen = useIsSmallScreen();
   // Action buttons are hidden outright when the role doesn't hold the
   // permission behind them — a disabled-looking control the user can never
   // use is worse than no control at all (house standard §12).
@@ -77,7 +78,7 @@ export function Customers() {
 
   return (
     <>
-      <div className="page-h">
+      <div className="page-h" style={smallScreen ? { marginTop: -5 } : undefined}>
         <div><h1>Customers &amp; KYC</h1><p>{customers.length} customers · PAN &amp; Aadhaar verification status</p></div>
         <div className="sp" />
         <div className="search"><Icon name="search" /><input className="inp" placeholder="Search name, phone, ID…" value={q} onChange={(e) => setQ(e.target.value)} /></div>
@@ -106,7 +107,7 @@ export function Customers() {
           Something went wrong. Please try again later.
         </p>
       )}
-      <div className="card"><div className="tbl-wrap tbl-scroll"><table className="tbl tbl-center col1-left">
+      <div className="card tbl-card"><div className="tbl-wrap tbl-scroll"><table className="tbl tbl-center col1-left">
         <thead><tr><th>Customer</th><th>Contact</th><th>Branch</th><th>PAN</th><th>Aadhaar</th><th>KYC Status</th><th className="num">Loans</th><th></th></tr></thead>
         <tbody>
           {loading ? (

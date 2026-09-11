@@ -134,20 +134,20 @@ export function Loans() {
 
   return (
     <>
-      <div className="page-h" style={smallScreen ? { gap: 9, marginBottom: 10 } : { marginBottom: 12 }}>
-        <div><h1>Loans</h1><p style={{ marginTop: 6 }}>All customer loans with search and status filters</p></div>
+      <div className="page-h" style={smallScreen ? { gap: 8, marginTop:-10, marginBottom: 10 } : { marginBottom: 12 }}>
+        <div><h1>Loans</h1><p style={{ marginTop: 0 }}>All customer loans with search and status filters</p></div>
         <div className="sp" />
         <div className="search"><Icon name="search" /><input className="inp" placeholder="Search loan ID or customer…" value={q} onChange={(e) => setQ(e.target.value)} /></div>
         {canCreateLoans && <a className="btn" href="#newloan"><Icon name="plus" /> New Gold Loan</a>}
       </div>
-      <hr className="gold-rule" style={{ margin: "4px 0 14px" }} />
-      <div style={{ marginBottom: 14 }} className="tabs">
+      <hr className="gold-rule" style={{ margin: smallScreen ? "2px 0 8px" : "4px 0 14px" }} />
+      <div style={{ marginTop: smallScreen ?-5:-10 ,marginBottom: smallScreen ? 8 : 14 }} className="tabs loans-cat-tabs">
         {CATS.map((c) => (
           <button key={c} className={c === cat ? "on" : ""} onClick={() => setCat(c)}>{c}</button>
         ))}
       </div>
       {error && <div className="notice" style={{ marginBottom: 14 }}>{error}</div>}
-      <div className="card"><div className="tbl-wrap tbl-scroll"><table className="tbl tbl-center">
+      <div className="card tbl-card"><div className="tbl-wrap tbl-scroll"><table className="tbl tbl-center">
         <thead><tr><th>Loan / Customer</th><th>Scheme</th><th>Opened / Due</th><th className="num">Principal</th><th className="num">Outstanding</th><th>Pledge</th><th>Status</th></tr></thead>
         <tbody>
           {loading ? (
