@@ -97,6 +97,13 @@ func Run(db *gorm.DB, cfg platform.Config) error {
 		return err
 	}
 
+	// gold_sales grew NOT NULL money columns after it shipped; AutoMigrate
+	// cannot add those to a table that already has rows. See
+	// cash.BackfillGoldSaleColumns - must run BEFORE AutoMigrate.
+	if err := cash.BackfillGoldSaleColumns(db); err != nil {
+		return err
+	}
+
 	if err := db.AutoMigrate(
 		// Tenancy first: tiers before tenants (tenants reference a tier),
 		// and both before every tenant-owned table below.
