@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { toDataURL } from "qrcode";
+import { useDropdownMenu } from "@/hooks/useDropdownMenu";
 import { useData } from "@/common/DataProvider";
 import { useCustomers } from "@/modules/customers/store/CustomersProvider";
 import { useSchemes } from "@/modules/schemes/store/SchemesProvider";
@@ -22,6 +23,7 @@ import {
   updateDraft,
   listDrafts,
   deleteDraft,
+  previewIndemnityBondPDF,
   type BackendLoanDraft,
   type SaveDraftInput,
 } from "@/modules/loans/services/loanService";
@@ -35,7 +37,7 @@ import { PurityPicker } from "@/common/components/ui/PurityPicker";
 import { rateForPurityString } from "@/common/utils/purity";
 import { makeEnterToSubmitHandler } from "@/common/utils/enterToSubmit";
 import { openPrintWindow } from "@/common/utils/print";
-import { printIndemnityBond, BOND_LANG_OPTIONS, type BondLang } from "@/modules/loans/utils/indemnityBond";
+import { BOND_LANG_OPTIONS, type BondLang } from "@/modules/loans/utils/indemnityBond";
 import { ApiError } from "@/common/services/httpClient";
 import type { Ornament } from "@/common/utils/data";
 
@@ -183,16 +185,13 @@ export function NewLoan() {
   // provisional provId-based URL once it's known.
   const [createdPacketCode, setCreatedPacketCode] = useState<string | null>(null);
   const [bondLang, setBondLang] = useState<BondLang>("en");
-  const [bondMenuOpen, setBondMenuOpen] = useState(false);
-  const bondMenuRef = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    if (!bondMenuOpen) return;
-    function onDocClick(e: MouseEvent) {
-      if (!bondMenuRef.current?.contains(e.target as Node)) setBondMenuOpen(false);
-    }
-    document.addEventListener("click", onDocClick);
-    return () => document.removeEventListener("click", onDocClick);
-  }, [bondMenuOpen]);
+  const {
+    open: bondMenuOpen,
+    setOpen: setBondMenuOpen,
+    menuRef: bondMenuRef,
+    triggerRef: bondMenuTriggerRef,
+    onKeyDown: onBondMenuKeyDown,
+  } = useDropdownMenu<HTMLDivElement>();
 
   useEffect(() => {
     listActiveBranches()
@@ -459,26 +458,46 @@ export function NewLoan() {
       toast);
   }
 
-  /* Same pledge agreement staff re-print from Loan Details later — see
-   * modules/loans/utils/indemnityBond.ts for the template. Full Aadhaar is
-   * fetched separately (getCustomerAadhaarFull) since the customer picker's
-   * cached CustomerView only ever carries the last-4. */
+  /* Downloads the same server-rendered PDF (real per-page header/footer)
+   * staff get from Loan Details after the loan is saved — POST /loans/
+   * indemnity-bond/preview-pdf, since there's no saved loan id yet at
+   * this pre-submission stage to GET a real one from (see
+   * loanService.ts's previewIndemnityBondPDF doc comment). Replaces the
+   * old client-side window.print() copy this button used to open. Full
+   * Aadhaar is fetched separately (getCustomerAadhaarFull) since the
+   * customer picker's cached CustomerView only ever carries the last-4. */
   async function printIndemnity(lang: BondLang = bondLang) {
     const d = buildDraft();
     const c = d.c as { id?: string; name?: string; dob?: string; address?: string; branchName?: string; phone?: string; pan?: string };
     const aadhaar = c.id ? await getCustomerAadhaarFull(c.id).catch(() => "") : "";
-    printIndemnityBond(
-      {
-        loanNumber: provId,
-        ...c,
-        aadhaar,
-        principalAmount: roundedEligible,
-        interestRate: d.sch.rate,
-        ornaments: d.orns.map((o) => ({ name: o.n, purity: o.purity, grossWeight: o.gross, netWeight: o.net, value: o.val })),
-      },
-      toast,
-      lang
-    );
+    // Loan doesn't exist yet at this pre-submission stage, so there's no
+    // real due date to read — computed the same way submitNewLoan() below
+    // derives the real one (today + the scheme's own tenure), so the
+    // preview bond's "repay on or before" clause isn't left blank.
+    const months = d.sch.durationMonths || 12;
+    const due = new Date();
+    due.setMonth(due.getMonth() + months);
+    try {
+      await previewIndemnityBondPDF(
+        {
+          loanNumber: provId,
+          name: c.name,
+          dob: c.dob,
+          address: c.address,
+          branchName: c.branchName,
+          phone: c.phone,
+          pan: c.pan,
+          aadhaar,
+          principalAmount: roundedEligible,
+          interestRate: d.sch.rate,
+          dueDate: due.toISOString().slice(0, 10),
+          ornaments: d.orns.map((o) => ({ name: o.n, purity: o.purity, grossWeight: o.gross, netWeight: o.net, value: o.val })),
+        },
+        lang
+      );
+    } catch {
+      toast("Could not download the pledge agreement — try again.");
+    }
   }
 
   async function printPacketLabel() {
@@ -829,7 +848,7 @@ export function NewLoan() {
               <col style={{ width: "13%" }} />
               <col style={{ width: "7%" }} />
             </colgroup>
-            <thead><tr><th>Ornament</th><th>Purity</th><th className="num">Gross Wt (g)</th><th className="num">Net Wt (g)</th><th className="num">Qty</th><th className="num">Total Wt (g)</th><th className="num">Value</th><th style={{ textAlign: "center" }}>Photo</th><th></th></tr></thead>
+            <thead><tr><th>Ornament</th><th>Purity</th><th className="num" style={{ paddingRight: 18 }}>Gross Wt (g)</th><th className="num" style={{ paddingLeft: 18 }}>Net Wt (g)</th><th className="num">Qty</th><th className="num">Total Wt (g)</th><th className="num">Value</th><th style={{ textAlign: "center" }}>Photo</th><th></th></tr></thead>
             <tbody>
               {rows.length === 0 && (
                 <tr><td colSpan={9} className="empty">No ornaments added yet — click &quot;Add Ornament&quot; below.</td></tr>
@@ -956,17 +975,20 @@ export function NewLoan() {
               * toggle + print button with a single dropdown matching
               * LoanDetail.tsx's Documents menu, picking between English and
               * Gujarati on the fly. */}
-            <div className="docs-dd" ref={bondMenuRef}>
+            <div className="docs-dd" ref={bondMenuRef} onKeyDown={onBondMenuKeyDown}>
               <button
+                ref={bondMenuTriggerRef}
                 type="button"
                 className="btn ghost"
                 onClick={() => setBondMenuOpen((v) => !v)}
                 title="Print pledge agreement in English or Gujarati"
+                aria-haspopup="menu"
+                aria-expanded={bondMenuOpen}
               >
                 🖨 Pledge Agreement <Icon name="chevronDown" className="docs-dd-chev" />
               </button>
               {bondMenuOpen && (
-                <div className="docs-dd-menu" style={{ minWidth: 230, right: 0 }}>
+                <div className="docs-dd-menu" role="menu" style={{ minWidth: 230, right: 0 }}>
                   <a
                     href="#"
                     onClick={(e) => {

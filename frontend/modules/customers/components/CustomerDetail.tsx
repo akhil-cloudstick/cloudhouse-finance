@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useDropdownMenu } from "@/hooks/useDropdownMenu";
 import { useModal } from "@/common/components/Modal";
 import { useToast } from "@/common/components/Toast";
 import { useAuth } from "@/common/auth-context";
@@ -91,9 +92,9 @@ function Pager({ page, total, pageSize, onChange }: { page: number; total: numbe
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
   return (
     <div className="ft" style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 14px" }}>
-      <button className="btn plain" style={{ padding: "9px 18px", fontSize: 13 }} disabled={page <= 1} onClick={() => onChange(Math.max(1, page - 1))}>‹ Prev</button>
+      <button className="btn plain" disabled={page <= 1} onClick={() => onChange(Math.max(1, page - 1))}>‹ Prev</button>
       <span style={{ fontSize: 13 }}>Page {page} of {totalPages}</span>
-      <button className="btn plain" style={{ padding: "9px 18px", fontSize: 13 }} disabled={page >= totalPages} onClick={() => onChange(Math.min(totalPages, page + 1))}>Next ›</button>
+      <button className="btn plain" disabled={page >= totalPages} onClick={() => onChange(Math.min(totalPages, page + 1))}>Next ›</button>
     </div>
   );
 }
@@ -227,16 +228,13 @@ export function CustomerDetail({ id }: { id?: string }) {
   // dropdown the same way LoanDetail.tsx's "Documents"/"Loan Actions" menus
   // are, since the header outgrew the space next to the customer name on
   // anything but a very wide screen.
-  const [actionsMenuOpen, setActionsMenuOpen] = useState(false);
-  const actionsMenuRef = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    if (!actionsMenuOpen) return;
-    function onDocClick(e: MouseEvent) {
-      if (!actionsMenuRef.current?.contains(e.target as Node)) setActionsMenuOpen(false);
-    }
-    document.addEventListener("click", onDocClick);
-    return () => document.removeEventListener("click", onDocClick);
-  }, [actionsMenuOpen]);
+  const {
+    open: actionsMenuOpen,
+    setOpen: setActionsMenuOpen,
+    menuRef: actionsMenuRef,
+    triggerRef: actionsMenuTriggerRef,
+    onKeyDown: onActionsMenuKeyDown,
+  } = useDropdownMenu<HTMLDivElement>();
 
   const loanPager = useSubTablePage<LoanView>(listLoans, range, !!id);
   const ornamentPager = useSubTablePage<CustomerOrnamentRowView>(listOrnaments, range, !!id);
@@ -355,12 +353,18 @@ export function CustomerDetail({ id }: { id?: string }) {
         </div>
         <div className="sp" />
         {(canUpdateCustomers || canHardDeleteCustomers) && (
-          <div className="docs-dd" ref={actionsMenuRef}>
-            <button className="btn ghost sm" onClick={() => setActionsMenuOpen((v) => !v)}>
+          <div className="docs-dd" ref={actionsMenuRef} onKeyDown={onActionsMenuKeyDown}>
+            <button
+              ref={actionsMenuTriggerRef}
+              className="btn ghost"
+              onClick={() => setActionsMenuOpen((v) => !v)}
+              aria-haspopup="menu"
+              aria-expanded={actionsMenuOpen}
+            >
               <Icon name="gear" /> Actions <Icon name="chevronDown" className="docs-dd-chev" />
             </button>
             {actionsMenuOpen && (
-              <div className="docs-dd-menu">
+              <div className="docs-dd-menu" role="menu">
                 {canUpdateCustomers && (
                   <a href="#" title="Edit Customer" onClick={(e) => { e.preventDefault(); setActionsMenuOpen(false); openEditCustomer(); }}>
                     <Icon name="edit" /><span className="tx">Edit Customer</span>
@@ -426,8 +430,8 @@ export function CustomerDetail({ id }: { id?: string }) {
             )}
           </div>
         )}
-        {canUpdateLoans && <button className="btn ghost sm" onClick={openRequestPicker}><Icon name="unlock" /> Request Extension / Release</button>}
-        {canCreateLoans && <a className="btn sm" href="#newloan"><Icon name="plus" /> New Loan</a>}
+        {canUpdateLoans && <button className="btn ghost" onClick={openRequestPicker}><Icon name="unlock" /> Request Extension / Release</button>}
+        {canCreateLoans && <a className="btn" href="#newloan"><Icon name="plus" /> New Loan</a>}
         {/* Edit Customer + Delete Customer collapsed into one "Actions"
          * dropdown — same pattern as LoanDetail.tsx's "Documents"/"Loan
          * Actions" menus. Delete stays the ONLY delete action offered here —
@@ -449,7 +453,7 @@ export function CustomerDetail({ id }: { id?: string }) {
           <DatePicker value={to} onChange={setTo} placeholder="Any end date…" min={from || undefined} />
         </div>
         {(from || to) && (
-          <button className="btn ghost sm" onClick={() => { setFrom(""); setTo(""); }}>Clear</button>
+          <button className="btn ghost" onClick={() => { setFrom(""); setTo(""); }}>Clear</button>
         )}
         {reloading && <span style={{ fontSize: 12.5, color: "var(--muted)" }}>Loading…</span>}
         {error && <span style={{ fontSize: 12.5, color: "var(--red)" }}>{error}</span>}

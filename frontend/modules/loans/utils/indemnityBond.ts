@@ -51,7 +51,22 @@ export type IndemnityBondParty = {
   principalAmount?: number;
   interestRate?: number;
   ornaments?: IndemnityBondOrnament[];
+  /* Loan due date ("YYYY-MM-DD"), e.g. LoanView.due — fills the "repay the
+   * said loan on or before ___" clause below, which previously always
+   * rendered as a blank underscore line regardless of the loan's actual
+   * due date. */
+  dueDate?: string;
 };
+
+/* The lender's own signature image (an authorized signatory's captured
+ * signature, not a per-loan/customer signature) — stamped on every
+ * printed/eSign'd bond next to LENDER_NAME below, same way the packet
+ * label's QR code resolves against `location.origin` rather than a
+ * relative path (this HTML is written into a blank popup window via
+ * openPrintWindow, whose own location is about:blank — a relative src
+ * would 404 there). Lives in public/assets so it's served as a plain
+ * static file. */
+const LENDER_SIGNATURE_URL = () => `${location.origin}/assets/lender-signature.svg`;
 
 const B = "________________";
 const LENDER_NAME = "Rinkesh Lalitbhai Soni";
@@ -64,6 +79,13 @@ const LENDER_ADDRESS = "At post Khattalwada, Main Bazar, Tal. Umargam, Dist. Val
 
 function fmtINR(n?: number) {
   return n != null ? n.toLocaleString("en-IN") : "";
+}
+
+function fmtDueDate(dueDate?: string) {
+  if (!dueDate) return "";
+  const d = new Date(dueDate);
+  if (isNaN(d.getTime())) return "";
+  return `${String(d.getDate()).padStart(2, "0")}-${String(d.getMonth() + 1).padStart(2, "0")}-${d.getFullYear()}`;
 }
 
 export function printIndemnityBond(p: IndemnityBondParty, onBlocked: (msg: string) => void, lang: BondLang = "en") {
@@ -92,7 +114,9 @@ export function printIndemnityBond(p: IndemnityBondParty, onBlocked: (msg: strin
       "ચલ મિલકતનો આડગીરો કરાર — " + p.loanNumber,
       `<style>
         @page{size:A4;margin:35mm 20mm 30mm 20mm}
-        body{font-family:'Noto Sans Gujarati','Shruti','Nirmala UI',Georgia,serif}
+        /* See the English template's identical body-margin comment above
+         * bondHTMLEnglish's own @page rule — same fix, Gujarati template. */
+        body{font-family:'Noto Sans Gujarati','Shruti','Nirmala UI',Georgia,serif;margin-top:130px !important;padding-bottom:110px !important}
       </style>
       <h1>ચલ મિલકતનો આડગીરો કરાર</h1>
       <p style="text-align:center;color:#555">ગોલ્ડ લોન એકાઉન્ટ નંબર ${p.loanNumber}</p>
@@ -118,7 +142,7 @@ export function printIndemnityBond(p: IndemnityBondParty, onBlocked: (msg: strin
       <p>આડગીરો લેનાર <b>${p.branchName || B}</b> ગામે નોંધણી પ્રમાણપત્ર નંબર <b>${LENDER_REG_NO}</b> હેઠળ નાણાં ધિરાણનો વ્યવસાય કરે છે.</p>
       <p><b>આથી નીચે મુજબ સંમતિ કરવામાં આવે છે:</b></p>
       <ol>
-        <li><b>ચૂકવણી કરવાનો કરાર</b><br>આડમાં લેનાર દ્વારા આડમાં મૂકનારને આપવામાં આવેલ રૂપિયા <b>${fmtINR(p.principalAmount) || B}</b> ના ઋણના બદલામાં, આડમાં મૂકનાર સંમત થાય છે કે, ઉપરોક્ત ઋણ તારીખ ${B} ના રોજ અથવા તે પહેલાં, આ કરારના અમલની તારીખથી <b>${p.interestRate != null ? p.interestRate + "%" : B}</b> પ્રતિ વર્ષના વ્યાજ સાથે પરત ચૂકવશે.</li>
+        <li><b>ચૂકવણી કરવાનો કરાર</b><br>આડમાં લેનાર દ્વારા આડમાં મૂકનારને આપવામાં આવેલ રૂપિયા <b>${fmtINR(p.principalAmount) || B}</b> ના ઋણના બદલામાં, આડમાં મૂકનાર સંમત થાય છે કે, ઉપરોક્ત ઋણ તારીખ ${fmtDueDate(p.dueDate) || B} ના રોજ અથવા તે પહેલાં, આ કરારના અમલની તારીખથી <b>${p.interestRate != null ? p.interestRate + "%" : B}</b> પ્રતિ વર્ષના વ્યાજ સાથે પરત ચૂકવશે.</li>
         <li><b>આડગીરોની જોગવાઈ</b><br>આડમાં લેનારે રૂ. <b>${fmtINR(p.principalAmount) || B}</b> ની રકમ ધિરાણ આપી છે, જેની પ્રાપ્તિ આડમાં મૂકનાર સ્વીકારે છે. આડમાં મૂકનારે પોતાની માલિકીની આ કરારની અનુસૂચિમાં દર્શાવેલી માલ ઉપરોક્ત ઋણની ચૂકવણી કરવા માટે જામીનગીરી તરીકે સુરક્ષા તરીકે આડમાં લેનારને નિક્ષેપ કરેલ છે. આ વસ્તુઓ આ કરારમાં નક્કી કરેલ રીતે આડમાં લેનાર પાસે જામીનગીરી તરીકે રાખવામાં આવશે.
           <ol type="a">
             <li><b>અસાધારણ ખર્ચ અંગે આડમાં લેનારનો હક્ક</b> — આડમાં લેનાર આડમાં મૂકેલા માલની જાળવણી માટે પોતાને થયેલો અસાધારણ ખર્ચ, આડમાં મૂકનાર પાસેથી મેળવવા હક્કદાર રહેશે.</li>
@@ -146,12 +170,12 @@ export function printIndemnityBond(p: IndemnityBondParty, onBlocked: (msg: strin
       <p>સ્થળ: ${p.branchName || B}</p>
       <p>તારીખ: ${dd} / ${monthName} / ${yyyy}</p>
       <div class="sig">
-        <div>આડગીરો મૂકનાર<span>નામ: ${p.name || B}</span></div>
-        <div>આડગીરો લેનાર<span>${LENDER_NAME}</span></div>
+        <div><span>સાક્ષી<br>નામ: ${B}</span></div>
+        <div><span>સાક્ષી<br>નામ: ${B}</span></div>
       </div>
       <div class="sig">
-        <div><span>સાક્ષી<br>નામ: ${B}</span></div>
-        <div><span>સાક્ષી<br>નામ: ${B}</span></div>
+        <div>આડગીરો મૂકનાર<span>નામ: ${p.name || B}</span></div>
+        <div>આડગીરો લેનાર<img src="${LENDER_SIGNATURE_URL()}" class="lender-sig" alt="Lender signature" /><span>${LENDER_NAME}</span></div>
       </div>`,
       onBlocked
     );
@@ -176,6 +200,17 @@ export function printIndemnityBond(p: IndemnityBondParty, onBlocked: (msg: strin
        * space on every printed page (e.g. for a pre-printed letterhead) —
        * bond-only, doesn't touch the slip/statement's own page setup. */
       @page{size:A4;margin:35mm 20mm 30mm 20mm}
+      /* @page above only controls the printable area when the browser's
+       * own print-dialog "Margins" setting is left on "Default" — picking
+       * "None" there forces the page margin to zero and there is no CSS
+       * way to override that browser-level choice once it's picked. Real,
+       * content-level body margin/padding (unlike @page) can't be zeroed
+       * out that way, so it's the only header/footer space guaranteed to
+       * survive regardless of that dropdown — sized to roughly match
+       * @page's own 35mm/30mm so the two agree when Margins IS left on
+       * Default (in which case this stacks additively with @page rather
+       * than replacing it — still fine, just extra breathing room). */
+      body{margin-top:130px !important;padding-bottom:110px !important}
     </style>
     <h1>AGREEMENT OF PLEDGE OF MOVABLE</h1>
     <p style="text-align:center;color:#555">Gold Loan Account No. ${p.loanNumber}</p>
@@ -201,7 +236,7 @@ export function printIndemnityBond(p: IndemnityBondParty, onBlocked: (msg: strin
     <p>The Money lender and borrower are collectively referred to as the "Parties".</p>
     <p><b>WHEREBY IT IS AGREED AS FOLLOWS</b></p>
     <ol>
-      <li><b>Covenant to pay</b><br>In Consideration of the loan of Rs <b>${fmtINR(p.principalAmount) || B}</b> advance by the lender to the borrower, the borrower hereby covenants with the lender that he will repay the said loan on or before ${B} with interest at <b>${p.interestRate != null ? p.interestRate + "%" : B}</b> percent per annum from the date of execution of this agreement.</li>
+      <li><b>Covenant to pay</b><br>In Consideration of the loan of Rs <b>${fmtINR(p.principalAmount) || B}</b> advance by the lender to the borrower, the borrower hereby covenants with the lender that he will repay the said loan on or before ${fmtDueDate(p.dueDate) || B} with interest at <b>${p.interestRate != null ? p.interestRate + "%" : B}</b> percent per annum from the date of execution of this agreement.</li>
       <li><b>Pledge Clause</b><br>The Lender has lent the sum of Rs <b>${fmtINR(p.principalAmount) || B}</b> (the receipt of which the borrower hereby acknowledges) and borrower has delivered to the lender article belonging to the borrower and specified in the schedule hereto to be held by him as security for the repayment of the aforesaid loan in the manner herein provided,
         <ol type="a">
           <li><b>Right to Extraordinary Expenses</b> — The lender is entitled to receive from the borrower extraordinary expenses incurred by him for the preservation of the good pledged.</li>
@@ -228,14 +263,14 @@ export function printIndemnityBond(p: IndemnityBondParty, onBlocked: (msg: strin
     <p><b>Total Loan Advanced :- Rs. ${fmtINR(p.principalAmount) || B}/-</b></p>
     <p>Place :- ${p.branchName || B}</p>
     <p>Date :- ${dd} / ${monthName} / ${yyyy}</p>
+    <p><b>IN WITNESS WHEREOF Etc.</b></p>
+    <div class="sig">
+      <div><span>Name: ${B}<br>Residing at</span></div>
+      <div><span>Name: ${B}<br>Residing at</span></div>
+    </div>
     <div class="sig">
       <div>The Borrower<span>Name: ${p.name || B}</span></div>
-      <div>The Lender<span>${LENDER_NAME}</span></div>
-    </div>
-    <p style="margin-top:20px"><b>IN WITNESS WHEREOF Etc.</b></p>
-    <div class="sig">
-      <div><span>Name: ${B}<br>Residing at</span></div>
-      <div><span>Name: ${B}<br>Residing at</span></div>
+      <div>The Lender<img src="${LENDER_SIGNATURE_URL()}" class="lender-sig" alt="Lender signature" /><span>${LENDER_NAME}</span></div>
     </div>`,
     onBlocked
   );

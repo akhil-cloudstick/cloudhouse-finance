@@ -304,3 +304,40 @@ type CommunicationHistoryTotals struct {
 	Sent   int `json:"sent"`
 	Failed int `json:"failed"`
 }
+
+// BalanceSheetRow is one printed line of the Ind AS Division III (NBFC)
+// style Balance Sheet — see reports_balance.go for how each is computed
+// and sourced. One row per line as a real Division III statement prints
+// it (including section headers like "I. ASSETS"/"(1) Financial Assets"
+// as their own rows, matching how the reference format lays them out),
+// rather than a nested structure — Label already carries the "(a)"/"(1)"/
+// roman-numeral prefix verbatim. Style/Indent are display hints only
+// (bold weight, left-indent level 0-2); Label is what actually prints.
+type BalanceSheetRow struct {
+	Label  string  `json:"label"`
+	Amount float64 `json:"amount"`
+	Style  string  `json:"style"`  // "" | "header" (bold, no amount) | "total" (bold, amount shown)
+	Indent int     `json:"indent"` // 0, 1, or 2
+}
+
+type BalanceSheetTotals struct {
+	TotalAssets      float64 `json:"totalAssets"`
+	TotalLiabilities float64 `json:"totalLiabilities"` // financial + non-financial, excludes equity
+	TotalEquity      float64 `json:"totalEquity"`
+}
+
+// ProfitLossRow is one printed line of the Statement of Profit and Loss —
+// see reports_profitloss.go. Same Label/Style/Indent convention as
+// BalanceSheetRow.
+type ProfitLossRow struct {
+	Label  string  `json:"label"`
+	Amount float64 `json:"amount"`
+	Style  string  `json:"style"`
+	Indent int     `json:"indent"`
+}
+
+type ProfitLossTotals struct {
+	TotalIncome     float64 `json:"totalIncome"`
+	TotalExpenses   float64 `json:"totalExpenses"`
+	ProfitForPeriod float64 `json:"profitForPeriod"`
+}

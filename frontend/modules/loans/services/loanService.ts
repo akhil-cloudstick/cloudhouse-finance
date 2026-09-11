@@ -1,4 +1,4 @@
-import { apiFetchEnveloped as apiFetch } from "@/common/services/httpClient";
+import { apiFetchEnveloped as apiFetch, API_BASE, AUTH_TOKEN_KEY, ApiError } from "@/common/services/httpClient";
 import { isSmallScreen } from "@/common/utils/responsive";
 
 /* Mirrors backend/internal/loan/handler.go's ornamentRequest exactly. */
@@ -1609,4 +1609,108 @@ export function canAcceptBankPledge(status: string, bankPledgeStatus: string): b
     !BANK_PLEDGE_INELIGIBLE_STATUSES.includes(status) &&
     bankPledgeStatus !== "Bank Pledged"
   );
+}
+
+/* Downloads the pledge agreement as a real PDF, rendered server-side (GET
+ * /loans/:id/indemnity-bond/pdf) — unlike the client-side print copy
+ * (modules/loans/utils/indemnityBond.ts's printIndemnityBond, a plain
+ * window.print()), this one has a genuine per-page header/footer: only
+ * Chrome's server-side PrintToPDF (chromedp, in the backend) supports a
+ * real repeating header/footer template — a browser's own "Save as PDF"
+ * from a live webpage has no equivalent a page's own CSS can drive, only
+ * the browser's generic default (and only if its own "Headers and
+ * footers" checkbox is on). Same blob-download pattern as
+ * schemeService.ts's downloadSchemeStatement / cashService.ts's
+ * exportCashMovements. Requires an already-saved loan (numericId) — the
+ * NewLoan.tsx pre-submission preview still uses the client-side copy,
+ * since there's no loan id yet to render against. */
+export async function downloadIndemnityBondPDF(loanNumericId: number, lang: "en" | "gu"): Promise<void> {
+  const token = typeof window !== "undefined" ? window.localStorage.getItem(AUTH_TOKEN_KEY) : null;
+  const res = await fetch(`${API_BASE}/loans/${loanNumericId}/indemnity-bond/pdf?lang=${lang}`, {
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  });
+  if (!res.ok) {
+    let message = res.statusText;
+    try {
+      const body = await res.json();
+      if (body?.error) message = body.error;
+    } catch {
+      /* non-JSON error body — fall back to statusText */
+    }
+    throw new ApiError(message, res.status);
+  }
+
+  const blob = await res.blob();
+  const disposition = res.headers.get("Content-Disposition") || "";
+  const match = disposition.match(/filename="?([^"]+)"?/);
+  const filename = match ? match[1] : `Pledge-Agreement-${loanNumericId}.pdf`;
+
+  const url = window.URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  window.URL.revokeObjectURL(url);
+}
+
+/* Same shape NewLoan.tsx's buildDraft() already assembles for the old
+ * client-side printIndemnityBond() call — ornaments included. */
+export type IndemnityBondPreviewInput = {
+  loanNumber: string;
+  name?: string;
+  dob?: string;
+  address?: string;
+  branchName?: string;
+  phone?: string;
+  pan?: string;
+  aadhaar?: string;
+  principalAmount?: number;
+  interestRate?: number;
+  dueDate?: string;
+  ornaments: { name: string; purity?: string; grossWeight: number; netWeight: number; value: number }[];
+};
+
+/* Pre-submission bond preview (New Loan's "Pledge Agreement" button) — POST
+ * /loans/indemnity-bond/preview-pdf, since there's no saved loan id yet to
+ * GET a real one from. Renders the exact same server-side PDF (real
+ * per-page header/footer included) downloadIndemnityBondPDF above gets for
+ * an already-saved loan — see PreviewIndemnityBondPDF's doc comment. Same
+ * blob-download pattern as that function, just POST with a JSON body
+ * instead of GET. */
+export async function previewIndemnityBondPDF(data: IndemnityBondPreviewInput, lang: "en" | "gu"): Promise<void> {
+  const token = typeof window !== "undefined" ? window.localStorage.getItem(AUTH_TOKEN_KEY) : null;
+  const res = await fetch(`${API_BASE}/loans/indemnity-bond/preview-pdf?lang=${lang}`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+    body: JSON.stringify(data),
+  });
+  if (!res.ok) {
+    let message = res.statusText;
+    try {
+      const body = await res.json();
+      if (body?.error) message = body.error;
+    } catch {
+      /* non-JSON error body — fall back to statusText */
+    }
+    throw new ApiError(message, res.status);
+  }
+
+  const blob = await res.blob();
+  const disposition = res.headers.get("Content-Disposition") || "";
+  const match = disposition.match(/filename="?([^"]+)"?/);
+  const filename = match ? match[1] : "Pledge-Agreement-Preview.pdf";
+
+  const url = window.URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  window.URL.revokeObjectURL(url);
 }

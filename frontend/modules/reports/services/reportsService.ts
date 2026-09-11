@@ -127,6 +127,16 @@ export type CommunicationHistoryRow = {
 };
 export type CommunicationHistoryTotals = { count: number; sent: number; failed: number };
 
+/* Both statements print one row per line the way a real Ind AS Division
+ * III (NBFC) statement lays it out — Label already carries the "I."/"(1)"/
+ * "(a)" prefix verbatim; style/indent are display hints only. */
+export type StatementStyle = "" | "header" | "total";
+export type BalanceSheetRow = { label: string; amount: number; style: StatementStyle; indent: number };
+export type BalanceSheetTotals = { totalAssets: number; totalLiabilities: number; totalEquity: number };
+
+export type ProfitLossRow = { label: string; amount: number; style: StatementStyle; indent: number };
+export type ProfitLossTotals = { totalIncome: number; totalExpenses: number; profitForPeriod: number };
+
 /* ---- One function per report endpoint (path segments per routes.go). ---- */
 
 export const getDisbursement = (f: ReportFilters) =>
@@ -177,6 +187,12 @@ export const getEmployeePerformance = (f: ReportFilters) =>
 export const getCommunicationHistory = (f: ReportFilters) =>
   fetchReport<CommunicationHistoryRow, CommunicationHistoryTotals>("communication-history", f);
 
+export const getBalanceSheet = (f: ReportFilters) =>
+  fetchReport<BalanceSheetRow, BalanceSheetTotals>("balance-sheet", f);
+
+export const getProfitAndLoss = (f: ReportFilters) =>
+  fetchReport<ProfitLossRow, ProfitLossTotals>("profit-loss", f);
+
 /* Report export keys, matching backend/internal/reports/export.go's
  * reportRows switch exactly (note "loans/status" list path vs
  * "loans-status" export key — the export key list is a *different* set of
@@ -185,7 +201,7 @@ export type ReportKey =
   | "disbursement" | "loans-status" | "interest-collection" | "outstanding-principal"
   | "payment-collection" | "gold-weight" | "packets" | "bank-pledge" | "loan-extensions"
   | "gold-release" | "auctions" | "expense-cashflow" | "kyc" | "gold-rate-history"
-  | "employee-performance" | "communication-history";
+  | "employee-performance" | "communication-history" | "balance-sheet" | "profit-loss";
 
 /* Downloads GET /reports/export/:key?format=xlsx|pdf as a blob and triggers
  * a browser save, matching the object-URL + anchor-click pattern used for

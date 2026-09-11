@@ -293,6 +293,34 @@ func (h *Handler) EmployeePerformance(c *gin.Context) {
 	respond(c, rows, totals, f)
 }
 
+func (h *Handler) BalanceSheet(c *gin.Context) {
+	f, err := parseFilter(c)
+	if err != nil {
+		badRequest(c, err)
+		return
+	}
+	rows, totals, err := h.svc.BalanceSheet(f)
+	if err != nil {
+		serverError(c, err)
+		return
+	}
+	respond(c, rows, totals, f)
+}
+
+func (h *Handler) ProfitAndLoss(c *gin.Context) {
+	f, err := parseFilter(c)
+	if err != nil {
+		badRequest(c, err)
+		return
+	}
+	rows, totals, err := h.svc.ProfitAndLoss(f)
+	if err != nil {
+		serverError(c, err)
+		return
+	}
+	respond(c, rows, totals, f)
+}
+
 func (h *Handler) CommunicationHistory(c *gin.Context) {
 	f, err := parseFilter(c)
 	if err != nil {

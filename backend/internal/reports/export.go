@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"reflect"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -51,6 +52,10 @@ func (h *Handler) reportRows(key string, f Filter) (rows any, totals any, err er
 		return call2(h.svc.EmployeePerformance(f))
 	case "communication-history":
 		return call2(h.svc.CommunicationHistory(f, ""))
+	case "balance-sheet":
+		return call2(h.svc.BalanceSheet(f))
+	case "profit-loss":
+		return call2(h.svc.ProfitAndLoss(f))
 	default:
 		return nil, nil, fmt.Errorf("unknown report key %q", key)
 	}
@@ -75,6 +80,19 @@ func (h *Handler) Export(c *gin.Context) {
 		return
 	}
 
+	// Balance Sheet / Statement of P&L are printed financial statements
+	// (bold subtotal rows, indented sub-items, a fixed Particulars/Amount
+	// layout with a letterhead) rather than a tabular listing of many
+	// records — the generic reflection-based toTable/BuildXLSX/BuildPDF
+	// path below (built for the other 17 reports) would just dump their
+	// Label/Amount/Style/Indent fields as flat columns, losing exactly the
+	// formatting a real Division III statement needs. These two keys get
+	// their own dedicated builder instead.
+	if key == "balance-sheet" || key == "profit-loss" {
+		h.exportStatement(c, key, format, f)
+		return
+	}
+
 	rows, _, err := h.reportRows(key, f)
 	if err != nil {
 		badRequest(c, err)
@@ -95,6 +113,74 @@ func (h *Handler) Export(c *gin.Context) {
 		c.Data(http.StatusOK, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", buf)
 	case "pdf":
 		buf, err := BuildPDF(key, headers, data)
+		if err != nil {
+			serverError(c, err)
+			return
+		}
+		c.Header("Content-Disposition", "attachment; filename=\""+filename+"\"")
+		c.Data(http.StatusOK, "application/pdf", buf)
+	default:
+		badRequest(c, fmt.Errorf("format must be xlsx or pdf"))
+	}
+}
+
+// StatementLine is the common shape BuildStatementXLSX/BuildStatementPDF
+// render — BalanceSheetRow and ProfitLossRow both already match it field
+// for field, so exportStatement just re-types the slice rather than
+// copying data.
+type StatementLine struct {
+	Label  string
+	Amount float64
+	Style  string
+	Indent int
+}
+
+// exportStatement renders Balance Sheet / Statement of P&L as a letterhead
+// financial statement (see Export's comment above), instead of the generic
+// tabular export every other report uses.
+func (h *Handler) exportStatement(c *gin.Context, key, format string, f Filter) {
+	var title, asOfLabel string
+	var lines []StatementLine
+
+	switch key {
+	case "balance-sheet":
+		rows, _, err := h.svc.BalanceSheet(f)
+		if err != nil {
+			serverError(c, err)
+			return
+		}
+		title = "Balance Sheet"
+		_, asOf := dateRange(f)
+		asOfLabel = "As at " + asOf.Format("02-Jan-2006")
+		for _, r := range rows {
+			lines = append(lines, StatementLine{Label: r.Label, Amount: r.Amount, Style: r.Style, Indent: r.Indent})
+		}
+	case "profit-loss":
+		rows, _, err := h.svc.ProfitAndLoss(f)
+		if err != nil {
+			serverError(c, err)
+			return
+		}
+		title = "Statement of Profit and Loss"
+		from, to := dateRange(f)
+		asOfLabel = fmt.Sprintf("For the period %s to %s", from.Format("02-Jan-2006"), to.Format("02-Jan-2006"))
+		for _, r := range rows {
+			lines = append(lines, StatementLine{Label: r.Label, Amount: r.Amount, Style: r.Style, Indent: r.Indent})
+		}
+	}
+
+	filename := fmt.Sprintf("%s-%s.%s", key, time.Now().Format("20060102-150405"), format)
+	switch format {
+	case "xlsx":
+		buf, err := BuildStatementXLSX(title, asOfLabel, lines)
+		if err != nil {
+			serverError(c, err)
+			return
+		}
+		c.Header("Content-Disposition", "attachment; filename=\""+filename+"\"")
+		c.Data(http.StatusOK, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", buf)
+	case "pdf":
+		buf, err := BuildStatementPDF(title, asOfLabel, lines)
 		if err != nil {
 			serverError(c, err)
 			return
@@ -214,6 +300,113 @@ func BuildXLSX(sheetName string, headers []string, data [][]string) ([]byte, err
 
 	buf, err := f.WriteToBuffer()
 	if err != nil {
+		return nil, err
+	}
+	return buf.Bytes(), nil
+}
+
+// BuildStatementXLSX renders a Balance Sheet/Statement of P&L as a plain
+// two-column (Particulars, Amount) sheet — bold rows for Style "header"/
+// "total", Amount left blank on "header" rows (pure section titles, no
+// figure of their own), indented by Indent levels of 2 spaces each since
+// a spreadsheet cell has no padding to reach for.
+func BuildStatementXLSX(title, asOfLabel string, lines []StatementLine) ([]byte, error) {
+	f := excelize.NewFile()
+	sheet := "Statement"
+	f.SetSheetName(f.GetSheetName(0), sheet)
+	bold, err := f.NewStyle(&excelize.Style{Font: &excelize.Font{Bold: true}})
+	if err != nil {
+		return nil, err
+	}
+
+	f.SetCellValue(sheet, "A1", "Ambika Gold Finance")
+	f.SetCellStyle(sheet, "A1", "A1", bold)
+	f.SetCellValue(sheet, "A2", title)
+	f.SetCellStyle(sheet, "A2", "A2", bold)
+	f.SetCellValue(sheet, "A3", asOfLabel)
+
+	row := 5
+	f.SetCellValue(sheet, fmt.Sprintf("A%d", row), "Particulars")
+	f.SetCellValue(sheet, fmt.Sprintf("B%d", row), "Amount (Rs.)")
+	f.SetCellStyle(sheet, fmt.Sprintf("A%d", row), fmt.Sprintf("B%d", row), bold)
+	row++
+
+	for _, l := range lines {
+		labelCell := fmt.Sprintf("A%d", row)
+		amountCell := fmt.Sprintf("B%d", row)
+		f.SetCellValue(sheet, labelCell, strings.Repeat("  ", l.Indent)+l.Label)
+		if l.Style != "header" {
+			f.SetCellValue(sheet, amountCell, l.Amount)
+		}
+		if l.Style == "header" || l.Style == "total" {
+			f.SetCellStyle(sheet, labelCell, amountCell, bold)
+		}
+		row++
+	}
+	f.SetColWidth(sheet, "A", "A", 55)
+	f.SetColWidth(sheet, "B", "B", 18)
+
+	buf, err := f.WriteToBuffer()
+	if err != nil {
+		return nil, err
+	}
+	return buf.Bytes(), nil
+}
+
+// BuildStatementPDF renders a Balance Sheet/Statement of P&L as a
+// letterhead + two-column (Particulars, Amount) statement — bold for
+// "header"/"total" rows, Amount left blank on "header" rows, Label
+// indented per its Indent level (matching a real Division III statement's
+// nested "I./​(1)/(a)" layout) rather than the flat multi-column reflected
+// table BuildPDF renders for every other report.
+func BuildStatementPDF(title, asOfLabel string, lines []StatementLine) ([]byte, error) {
+	pdf := gofpdf.New("P", "mm", "A4", "")
+	tr := pdf.UnicodeTranslatorFromDescriptor("")
+	pdf.AddPage()
+
+	pdf.SetFont("Arial", "B", 14)
+	pdf.CellFormat(0, 8, tr("Ambika Gold Finance"), "", 1, "C", false, 0, "")
+	pdf.SetFont("Arial", "B", 12)
+	pdf.CellFormat(0, 7, tr(title), "", 1, "C", false, 0, "")
+	pdf.SetFont("Arial", "", 10)
+	pdf.CellFormat(0, 6, tr(asOfLabel), "", 1, "C", false, 0, "")
+	pdf.Ln(4)
+
+	pageWidth, _ := pdf.GetPageSize()
+	marginL, _, marginR, _ := pdf.GetMargins()
+	usable := pageWidth - marginL - marginR
+	labelWidth := usable * 0.75
+	amountWidth := usable - labelWidth
+	const indentStep = 6.0
+
+	pdf.SetFont("Arial", "B", 9)
+	pdf.CellFormat(labelWidth, 7, tr("Particulars"), "B", 0, "L", false, 0, "")
+	pdf.CellFormat(amountWidth, 7, tr("Amount (Rs.)"), "B", 1, "R", false, 0, "")
+
+	for _, l := range lines {
+		bold := l.Style == "header" || l.Style == "total"
+		if bold {
+			pdf.SetFont("Arial", "B", 9)
+		} else {
+			pdf.SetFont("Arial", "", 9)
+		}
+		indent := float64(l.Indent) * indentStep
+		if indent > 0 {
+			pdf.CellFormat(indent, 6, "", "", 0, "L", false, 0, "")
+		}
+		pdf.CellFormat(labelWidth-indent, 6, tr(l.Label), "", 0, "L", false, 0, "")
+		amountStr := ""
+		if l.Style != "header" {
+			amountStr = fmt.Sprintf("%.2f", l.Amount)
+		}
+		pdf.CellFormat(amountWidth, 6, tr(amountStr), "", 1, "R", false, 0, "")
+		if pdf.GetY() > 270 {
+			pdf.AddPage()
+		}
+	}
+
+	var buf bytes.Buffer
+	if err := pdf.Output(&buf); err != nil {
 		return nil, err
 	}
 	return buf.Bytes(), nil

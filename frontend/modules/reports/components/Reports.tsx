@@ -10,8 +10,22 @@ import {
   getDisbursement, getLoansStatus, getInterestCollection, getOutstandingPrincipal,
   getPaymentCollection, getGoldWeight, getPackets, getBankPledge, getLoanExtensions,
   getGoldRelease, getAuctions, getExpenseCashflow, getKYC, getGoldRateHistory,
-  getEmployeePerformance, getCommunicationHistory, exportReport,
+  getEmployeePerformance, getCommunicationHistory, getBalanceSheet, getProfitAndLoss, exportReport,
+  type StatementStyle,
 } from "@/modules/reports/services/reportsService";
+
+/* Shared row renderer for the two "printed statement" reports (Balance
+ * Sheet, Statement of P&L) — one row per line exactly as a real Ind AS
+ * Division III statement lays it out (see reportsService's doc comment),
+ * so both tiles need the same bold/indent treatment off style+indent
+ * rather than a per-report render function. */
+function statementLabelCell(label: string, style: StatementStyle, indent: number) {
+  return <span style={{ fontWeight: style ? 700 : 400, paddingLeft: indent * 16 }}>{label}</span>;
+}
+function statementAmountCell(amount: number, style: StatementStyle) {
+  if (style === "header") return null;
+  return <span style={{ fontWeight: style === "total" ? 700 : 400 }}>{fmt(amount)}</span>;
+}
 
 function firstOfMonth(): string {
   const d = new Date();
@@ -328,6 +342,45 @@ const REPORT_CONFIGS: ReportConfig[] = [
     ],
     totals: (t) => [{ label: "Total", value: String(t.count) }, { label: "Sent", value: String(t.sent) }, { label: "Failed", value: String(t.failed) }],
   },
+  {
+    id: "balance-sheet",
+    title: "Balance Sheet",
+    description: "Assets, liabilities & equity as of a date (Ind AS Division III format)",
+    icon: "scale",
+    exportKey: "balance-sheet",
+    fetchFn: getBalanceSheet,
+    // No date range — a balance sheet is a snapshot, so only the filter
+    // bar's "To" date is meaningful here (used as the as-of date; ReportView
+    // doesn't have a dedicated "as of" field, so "To" doubles as it).
+    rowKey: (r) => r.label,
+    columns: [
+      { key: "label", label: "Particulars", render: (r) => statementLabelCell(r.label, r.style, r.indent) },
+      { key: "amount", label: "Amount (₹)", numeric: true, render: (r) => statementAmountCell(r.amount, r.style) },
+    ],
+    totals: (t) => [
+      { label: "Total Assets", value: fmt(t.totalAssets) },
+      { label: "Total Liabilities", value: fmt(t.totalLiabilities) },
+      { label: "Total Equity", value: fmt(t.totalEquity) },
+    ],
+  },
+  {
+    id: "profit-loss",
+    title: "Statement of Profit and Loss",
+    description: "Income & expenses for a period (Ind AS Division III format)",
+    icon: "chart",
+    exportKey: "profit-loss",
+    fetchFn: getProfitAndLoss,
+    rowKey: (r) => r.label,
+    columns: [
+      { key: "label", label: "Particulars", render: (r) => statementLabelCell(r.label, r.style, r.indent) },
+      { key: "amount", label: "Amount (₹)", numeric: true, render: (r) => statementAmountCell(r.amount, r.style) },
+    ],
+    totals: (t) => [
+      { label: "Total Income", value: fmt(t.totalIncome) },
+      { label: "Total Expenses", value: fmt(t.totalExpenses) },
+      { label: "Profit for Period", value: fmt(t.profitForPeriod) },
+    ],
+  },
 ];
 
 /* Ported from legacy/app.js's `renderReports()` tile grid, now wired to
@@ -379,7 +432,7 @@ export function Reports() {
             </button>
             <div className="bd" style={{ display: "flex", flexDirection: "column", flex: 1 }}>
               <b style={{ fontSize: 14.5, color: "var(--charcoal)", paddingRight: 40 }}>{r.title}</b>
-              <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 2 }}>{r.description}</div>
+              <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 2, paddingRight: 40 }}>{r.description}</div>
             </div>
           </div>
         ))}
