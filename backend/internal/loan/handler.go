@@ -1,6 +1,7 @@
 package loan
 
 import (
+	"fmt"
 	"io"
 	"net/http"
 	"strconv"
@@ -1548,6 +1549,131 @@ func (h *Handler) CheckIndemnityBondEsign(c *gin.Context) {
 		"loan":   rec,
 		"status": status.Status,
 	})
+}
+
+// DownloadIndemnityBondPDF renders the loan's pledge agreement in the
+// requested language (?lang=en|gu, default en) and returns it as a plain
+// PDF download — no Setu/eSign involved, just the same document staff
+// would otherwise get via the client-side "print for wet-ink signing"
+// copy (frontend/modules/loans/utils/indemnityBond.ts), except this one
+// has a real per-page header/footer (only possible server-side, via
+// chromedp — see RenderIndemnityBondPDF's header/footer template comment).
+func (h *Handler) DownloadIndemnityBondPDF(c *gin.Context) {
+	loanID, err := httpx.IDParam(c, "id")
+	if err != nil {
+		httpx.FailErr(c, err)
+		return
+	}
+	lang := c.DefaultQuery("lang", BondLangEnglish)
+	pdfBytes, filename, err := h.svc.RenderIndemnityBondPDFForLoan(loanID, platform.GetBranchScope(c), lang)
+	if err != nil {
+		httpx.FailErr(c, err)
+		return
+	}
+	c.Header("Content-Disposition", fmt.Sprintf("attachment; filename=%q", filename))
+	c.Data(http.StatusOK, "application/pdf", pdfBytes)
+}
+
+// indemnityBondPreviewOrnament/indemnityBondPreviewRequest mirror
+// frontend/modules/loans/components/NewLoan.tsx's buildDraft() output
+// (loanNumber/name/dob/address/branchName/phone/pan/aadhaar/
+// principalAmount/interestRate/dueDate/ornaments) — the same shape
+// printIndemnityBond() used to build for its now-retired client-side
+// window.print() copy.
+type indemnityBondPreviewOrnament struct {
+	Name        string  `json:"name"`
+	Purity      string  `json:"purity"`
+	GrossWeight float64 `json:"grossWeight"`
+	NetWeight   float64 `json:"netWeight"`
+	Value       float64 `json:"value"`
+}
+
+type indemnityBondPreviewRequest struct {
+	LoanNumber      string                         `json:"loanNumber"`
+	Name            string                         `json:"name"`
+	DOB             string                         `json:"dob"` // "YYYY-MM-DD", optional
+	Address         string                         `json:"address"`
+	BranchName      string                         `json:"branchName"`
+	Phone           string                         `json:"phone"`
+	PAN             string                         `json:"pan"`
+	Aadhaar         string                         `json:"aadhaar"`
+	PrincipalAmount float64                        `json:"principalAmount"`
+	InterestRate    float64                        `json:"interestRate"`
+	DueDate         string                         `json:"dueDate"` // "YYYY-MM-DD", optional
+	Ornaments       []indemnityBondPreviewOrnament `json:"ornaments"`
+}
+
+// PreviewIndemnityBondPDF renders the pledge agreement PDF from draft data
+// the frontend hasn't saved as a real loan yet (New Loan's pre-submission
+// preview) — everything DownloadIndemnityBondPDF renders from a saved
+// Loan, this renders straight from the request body instead, so the
+// New Loan page's preview gets the exact same server-rendered PDF (real
+// per-page header/footer included) as every other bond download, without
+// requiring a loan to exist first.
+func (h *Handler) PreviewIndemnityBondPDF(c *gin.Context) {
+	var req indemnityBondPreviewRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		httpx.Fail(c, http.StatusBadRequest, "Invalid input")
+		return
+	}
+	lang := c.DefaultQuery("lang", BondLangEnglish)
+	if lang != BondLangEnglish && lang != BondLangGujarati {
+		httpx.FailErr(c, ErrUnsupportedIndemnityBondLang)
+		return
+	}
+
+	age := 0
+	if req.DOB != "" {
+		if dob, err := time.Parse("2006-01-02", req.DOB); err == nil {
+			age = int(time.Since(dob).Hours() / 24 / 365.25)
+		}
+	}
+	var dueDate time.Time
+	if req.DueDate != "" {
+		if d, err := time.Parse("2006-01-02", req.DueDate); err == nil {
+			dueDate = d
+		}
+	}
+	ornaments := make([]BondOrnament, 0, len(req.Ornaments))
+	for _, o := range req.Ornaments {
+		ornaments = append(ornaments, BondOrnament{
+			Name:        o.Name,
+			Purity:      o.Purity,
+			GrossWeight: o.GrossWeight,
+			NetWeight:   o.NetWeight,
+			Value:       o.Value,
+		})
+	}
+	now := time.Now()
+	data := BondData{
+		LoanNumber:      req.LoanNumber,
+		CustomerName:    req.Name,
+		Age:             age,
+		Address:         req.Address,
+		BranchName:      req.BranchName,
+		Phone:           req.Phone,
+		PAN:             req.PAN,
+		Aadhaar:         req.Aadhaar,
+		PrincipalAmount: req.PrincipalAmount,
+		InterestRate:    req.InterestRate,
+		Ornaments:       ornaments,
+		Day:             now.Day(),
+		Month:           now.Month().String(),
+		Year:            now.Year(),
+		DueDate:         dueDate,
+	}
+
+	pdfBytes, err := RenderIndemnityBondPDF(data, lang)
+	if err != nil {
+		httpx.FailErr(c, err)
+		return
+	}
+	filename := "Pledge-Agreement-Preview.pdf"
+	if lang == BondLangGujarati {
+		filename = "Pledge-Agreement-Preview-Gujarati.pdf"
+	}
+	c.Header("Content-Disposition", fmt.Sprintf("attachment; filename=%q", filename))
+	c.Data(http.StatusOK, "application/pdf", pdfBytes)
 }
 
 // --- Loan drafts ------------------------------------------------------------

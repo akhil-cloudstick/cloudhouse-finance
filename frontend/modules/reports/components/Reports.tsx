@@ -10,8 +10,22 @@ import {
   getDisbursement, getLoansStatus, getInterestCollection, getOutstandingPrincipal,
   getPaymentCollection, getGoldWeight, getPackets, getBankPledge, getLoanExtensions,
   getGoldRelease, getAuctions, getExpenseCashflow, getKYC, getGoldRateHistory,
-  getEmployeePerformance, getCommunicationHistory, getTradeSheet, getBalanceSheet, exportReport,
+  getEmployeePerformance, getCommunicationHistory, getBalanceSheet, getProfitAndLoss, exportReport,
+  type StatementStyle,
 } from "@/modules/reports/services/reportsService";
+
+/* Shared row renderer for the two "printed statement" reports (Balance
+ * Sheet, Statement of P&L) — one row per line exactly as a real Ind AS
+ * Division III statement lays it out (see reportsService's doc comment),
+ * so both tiles need the same bold/indent treatment off style+indent
+ * rather than a per-report render function. */
+function statementLabelCell(label: string, style: StatementStyle, indent: number) {
+  return <span style={{ fontWeight: style ? 700 : 400, paddingLeft: indent * 16 }}>{label}</span>;
+}
+function statementAmountCell(amount: number, style: StatementStyle) {
+  if (style === "header") return null;
+  return <span style={{ fontWeight: style === "total" ? 700 : 400 }}>{fmt(amount)}</span>;
+}
 
 function firstOfMonth(): string {
   const d = new Date();
@@ -329,49 +343,42 @@ const REPORT_CONFIGS: ReportConfig[] = [
     totals: (t) => [{ label: "Total", value: String(t.count) }, { label: "Sent", value: String(t.sent) }, { label: "Failed", value: String(t.failed) }],
   },
   {
-    id: "trade-sheet",
-    title: "Trade / Stock Sheet",
-    description: "Gold movement & running stock by purity",
-    icon: "box",
-    exportKey: "trade-sheet",
-    fetchFn: getTradeSheet,
-    rowKey: (r) => `${r.type}-${r.reference}-${r.date}-${r.purity}`,
-    columns: [
-      { key: "date", label: "Date", render: (r) => dt(r.date) },
-      { key: "reference", label: "Reference", render: (r) => r.reference },
-      { key: "type", label: "Type", render: (r) => r.type },
-      { key: "party", label: "Party", render: (r) => r.party },
-      { key: "purity", label: "Purity", render: (r) => r.purity || "—" },
-      { key: "netWeight", label: "Net Wt. (g)", numeric: true, render: (r) => r.netWeight ? fmtW(r.netWeight) : "—" },
-      { key: "rate", label: "Rate/g", numeric: true, render: (r) => r.rate ? fmt(r.rate) : "—" },
-      { key: "value", label: "Value", numeric: true, render: (r) => fmt(r.value) },
-      { key: "branchName", label: "Branch", render: (r) => r.branchName },
-    ],
-    totals: (t) => [
-      ...t.closingStockByPurity.map((p: { purity: string; netWeight: number }) => ({ label: `Closing Stock (${p.purity})`, value: fmtW(p.netWeight) })),
-      { label: "Total Value", value: fmt(t.totalValue) },
-    ],
-  },
-  {
     id: "balance-sheet",
     title: "Balance Sheet",
-    description: "Assets, liabilities & net position as of a date",
+    description: "Assets, liabilities & equity as of a date (Ind AS Division III format)",
     icon: "scale",
     exportKey: "balance-sheet",
     fetchFn: getBalanceSheet,
     // No date range — a balance sheet is a snapshot, so only the filter
     // bar's "To" date is meaningful here (used as the as-of date; ReportView
     // doesn't have a dedicated "as of" field, so "To" doubles as it).
-    rowKey: (r) => `${r.section}-${r.label}`,
+    rowKey: (r) => r.label,
     columns: [
-      { key: "section", label: "Section", render: (r) => r.section },
-      { key: "label", label: "Line Item", render: (r) => r.label },
-      { key: "amount", label: "Amount", numeric: true, render: (r) => fmt(r.amount) },
+      { key: "label", label: "Particulars", render: (r) => statementLabelCell(r.label, r.style, r.indent) },
+      { key: "amount", label: "Amount (₹)", numeric: true, render: (r) => statementAmountCell(r.amount, r.style) },
     ],
     totals: (t) => [
       { label: "Total Assets", value: fmt(t.totalAssets) },
       { label: "Total Liabilities", value: fmt(t.totalLiabilities) },
-      { label: "Net Position", value: fmt(t.netPosition) },
+      { label: "Total Equity", value: fmt(t.totalEquity) },
+    ],
+  },
+  {
+    id: "profit-loss",
+    title: "Statement of Profit and Loss",
+    description: "Income & expenses for a period (Ind AS Division III format)",
+    icon: "chart",
+    exportKey: "profit-loss",
+    fetchFn: getProfitAndLoss,
+    rowKey: (r) => r.label,
+    columns: [
+      { key: "label", label: "Particulars", render: (r) => statementLabelCell(r.label, r.style, r.indent) },
+      { key: "amount", label: "Amount (₹)", numeric: true, render: (r) => statementAmountCell(r.amount, r.style) },
+    ],
+    totals: (t) => [
+      { label: "Total Income", value: fmt(t.totalIncome) },
+      { label: "Total Expenses", value: fmt(t.totalExpenses) },
+      { label: "Profit for Period", value: fmt(t.profitForPeriod) },
     ],
   },
 ];

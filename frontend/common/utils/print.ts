@@ -18,8 +18,15 @@ export function openPrintWindow(title: string, body: string, onBlocked: (msg: st
     th{background:#f3ede1} .num{text-align:right}
     ol li{margin-bottom:10px;text-align:justify}
     .sig{display:flex;justify-content:space-between;gap:20px;margin-top:60px}
-    .sig div{flex:1;text-align:center}
+    .sig div{flex:1;text-align:center;position:relative}
     .sig span{display:block;border-top:1px solid #333;padding-top:6px;margin-top:44px;font-size:12.5px}
+    /* Absolutely positioned — sits inside the existing blank gap the 44px
+     * margin-top above already reserves, rather than adding its own height
+     * to the flow. Only the Lender's side has this image; if it were a
+     * normal flow element instead, its line would render lower than the
+     * Borrower's identical (image-less) line beside it, since each .sig
+     * div sizes independently. */
+    .lender-sig{position:absolute;top:18px;left:50%;transform:translateX(-50%);width:110px;height:auto}
     .muted{color:#666;font-size:12.5px}
     @media print{.noprint{display:none}}
   </style></head><body>${body}

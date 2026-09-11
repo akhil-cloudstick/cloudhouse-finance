@@ -31,8 +31,8 @@ func RegisterRoutes(rg *gin.RouterGroup, h *Handler, perms platform.CRUDMiddlewa
 	rg.GET("/gold-rate-history", h.GoldRateHistory)
 	rg.GET("/employee-performance", h.EmployeePerformance)
 	rg.GET("/communication-history", h.CommunicationHistory)
-	rg.GET("/trade-sheet", h.TradeSheet)
 	rg.GET("/balance-sheet", h.BalanceSheet)
+	rg.GET("/profit-loss", h.ProfitAndLoss)
 
 	// Export lives under its own static "/export" prefix rather than
 	// "/:key/export" — gin's routing tree cannot mix a wildcard segment
