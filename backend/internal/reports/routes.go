@@ -16,6 +16,7 @@ func RegisterRoutes(rg *gin.RouterGroup, h *Handler, perms platform.CRUDMiddlewa
 	rg.Use(perms.Read)
 
 	rg.GET("/disbursement", h.Disbursement)
+	rg.GET("/personal-loans", h.PersonalLoans)
 	rg.GET("/loans/status", h.LoansStatus)
 	rg.GET("/interest-collection", h.InterestCollection)
 	rg.GET("/outstanding-principal", h.OutstandingPrincipal)

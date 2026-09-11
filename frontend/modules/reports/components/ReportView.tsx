@@ -61,7 +61,7 @@ function today(): string {
 }
 
 export function ReportView({ config, onBack }: { config: ReportConfig; onBack: () => void }) {
-  const pageSize = useResponsivePageSize(12, 7);
+  const pageSize = useResponsivePageSize(11, 6);
   const toast = useToast();
   const [branches, setBranches] = useState<BranchView[]>([]);
   const [branchId, setBranchId] = useState<number>(0);

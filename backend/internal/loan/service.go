@@ -209,8 +209,15 @@ var (
 	ErrEsignNotConfigured         = httpx.NewUnavailable("indemnity bond eSign is not configured")
 	ErrNoIndemnityBondSignRequest = httpx.NewBadRequest("no indemnity bond eSign has been started for this loan")
 	// ErrIndemnityBondAlreadySigned is a state conflict — Conflict, not BadRequest.
-	ErrIndemnityBondAlreadySigned      = httpx.NewConflict("this loan's indemnity bond has already been signed")
-	ErrUnsupportedIndemnityBondLang    = httpx.NewBadRequest("lang must be \"en\" or \"gu\"")
+	ErrIndemnityBondAlreadySigned = httpx.NewConflict("this loan's indemnity bond has already been signed")
+	// The message previously read `lang must be "en" or "gu"` while the code
+	// validated "ml" — it named a language the server could not produce and
+	// omitted the one it could.
+	ErrUnsupportedIndemnityBondLang = httpx.NewBadRequest("lang must be \"en\", \"ml\" or \"gu\"")
+	// ErrLanguageNotEnabled is distinct from ErrUnsupportedIndemnityBondLang:
+	// the language is real and this server can render it, but this business
+	// has not been granted it (see tenant.Tenant.HasLanguage).
+	ErrLanguageNotEnabled              = httpx.NewForbidden("this business is not set up to issue documents in that language")
 	ErrUnsupportedIndemnityBondDeliver = httpx.NewBadRequest("deliverBy must be \"open\", \"whatsapp\" or \"dashboard\"")
 )
 
@@ -601,11 +608,15 @@ func (s *Service) Create(ctx context.Context, in CreateInput) (*Loan, error) {
 	rec.PrincipalAmount = in.PrincipalAmount
 	rec.OutstandingAmount = in.PrincipalAmount
 
-	count, err := s.repo.CountAll(ctx)
+	// Derived from the highest suffix ever issued (including hard-deleted
+	// loans), not a live row COUNT — see MaxLoanNumberSuffix's own doc
+	// comment for why COUNT+1 can regenerate a number a surviving loan
+	// already holds once anything's ever been hard-deleted.
+	maxSuffix, err := s.repo.MaxLoanNumberSuffix(ctx)
 	if err != nil {
 		return nil, err
 	}
-	rec.LoanNumber = fmt.Sprintf("LN-%05d", count+1)
+	rec.LoanNumber = fmt.Sprintf("LN-%05d", maxSuffix+1)
 
 	if err := s.repo.Create(ctx, rec); err != nil {
 		return nil, err
@@ -634,7 +645,7 @@ func (s *Service) Create(ctx context.Context, in CreateInput) (*Loan, error) {
 	s.enrich(ctx, created)
 
 	s.notifyCustomer(ctx, created.CustomerID, created.Customer.Phone, "Loan Application Submitted", s.brandedMessage(ctx,
-		"Dear %s, your gold loan application %s for ₹%.2f has been submitted and is pending approval. We'll notify you once it's sanctioned. — CloudHouse Gold Finance",
+		"Dear %s, your gold loan application %s for ₹%.2f has been submitted and is pending approval. We'll notify you once it's sanctioned. — CloudHouse Finance",
 		created.Customer.Name, created.LoanNumber, created.PrincipalAmount,
 	), commlog.TriggerLoanSubmission, "loan", created.ID)
 
@@ -643,6 +654,192 @@ func (s *Service) Create(ctx context.Context, in CreateInput) (*Loan, error) {
 
 // List returns matching loans plus the total row count for f's filters
 // (ignoring Limit/Offset) — 0 when f.Limit <= 0 (see Repository.FindAll).
+// --- Gold-value risk assessment ---------------------------------------
+//
+// Compares each open loan's PRINCIPAL against what its pledged gold would
+// fetch if sold TODAY (unlike TotalGoldValue on the Loan itself, which is a
+// snapshot computed at creation/last-recalculation time off THAT day's
+// rate — see model_loan.go's own doc comment on that field). A gold-backed
+// loan's real security is the gold, not the paperwork, so as the gold price
+// moves the safety margin between what's lent and what's actually holding
+// it up can erode — this flags that before it becomes an actual loss.
+
+// RiskLevel classifies a loan's current gold-value-vs-principal safety
+// margin (see ClassifyRisk for the exact thresholds).
+type RiskLevel string
+
+const (
+	RiskGreen  RiskLevel = "Green"  // comfortably covered
+	RiskOrange RiskLevel = "Orange" // covered today, but the margin has eroded under the buffer
+	RiskRed    RiskLevel = "Red"    // gold, sold today, would not cover the principal
+)
+
+// RiskBufferPercent is the safety margin, as a fraction of principal, that
+// separates "Orange / At Risk" from "Green". A loan whose gold would fetch
+// less than principal alone is always Red regardless of this buffer.
+const RiskBufferPercent = 0.10
+
+// ClassifyRisk applies the red/orange/green thresholds documented on
+// RiskLevel's own constants:
+//   - currentGoldValue < principalAmount                        → Red
+//   - currentGoldValue < principalAmount × (1 + RiskBufferPercent) → Orange
+//   - otherwise                                                  → Green
+func ClassifyRisk(currentGoldValue, principalAmount float64) RiskLevel {
+	if currentGoldValue < principalAmount {
+		return RiskRed
+	}
+	if currentGoldValue < principalAmount*(1+RiskBufferPercent) {
+		return RiskOrange
+	}
+	return RiskGreen
+}
+
+// riskEligibleStatuses is every status where the loan still both (a) holds
+// the customer's gold in custody and (b) owes a real principal against it —
+// PendingApproval is excluded (principal chosen but never actually
+// disbursed yet) and Closed/Auctioned/AuctionedBalanceDue are excluded (the
+// gold is no longer what's securing anything, having already been returned
+// or sold).
+var riskEligibleStatuses = []string{
+	StatusActive, StatusDueSoon, StatusOverdue, StatusClosureRequested,
+	StatusDefaulted, StatusAuctionEligible,
+}
+
+// LoanRiskRow is one loan's risk-assessment listing row — see
+// ListLoanRiskAssessment.
+type LoanRiskRow struct {
+	LoanID           uint      `json:"loanId"`
+	LoanNumber       string    `json:"loanNumber"`
+	CustomerID       uint      `json:"customerId"`
+	CustomerName     string    `json:"customerName"`
+	Status           string    `json:"status"`
+	PrincipalAmount  float64   `json:"principalAmount"`
+	TotalNetWeight   float64   `json:"totalNetWeight"`
+	CurrentGoldValue float64   `json:"currentGoldValue"`
+	RiskLevel        RiskLevel `json:"riskLevel"`
+}
+
+// RiskAssessmentFilter narrows ListLoanRiskAssessment's results.
+type RiskAssessmentFilter struct {
+	// Status, when set, must be one of riskEligibleStatuses (checked by the
+	// handler) and narrows to exactly that status. Empty means every
+	// risk-eligible status (the page's default "All" view).
+	Status      string
+	BranchScope *uint
+
+	// OpenedFrom/OpenedTo bound OpenedDate, both optional and inclusive —
+	// same semantics as LoanFilter's own fields.
+	OpenedFrom *time.Time
+	OpenedTo   *time.Time
+
+	// Limit/Offset paginate Items below; Limit <= 0 means "no limit"
+	// (return everything matching, unpaginated). Applied in Go, AFTER
+	// every matching loan has already been fetched and classified — see
+	// RiskAssessmentResult's own doc comment for why.
+	Limit  int
+	Offset int
+}
+
+// RiskAssessmentResult is ListLoanRiskAssessment's return value: one page
+// of Items (per f.Limit/Offset) plus Total/Counts computed across EVERY
+// loan matching f's status/date/branch filters, not just the returned
+// page — so the page's KPI tiles (total open / loss / at-risk / safe) stay
+// correct regardless of which page is currently showing.
+type RiskAssessmentResult struct {
+	Items   []LoanRiskRow
+	Total   int
+	Counts  map[RiskLevel]int
+	HasMore bool
+}
+
+// ListLoanRiskAssessment lists risk-eligible loans matching f (branchScope
+// nil for an Administrator's unfiltered view — see platform.GetBranchScope)
+// with each one's current gold value (today's published rate × each
+// pledged ornament's own purity and net weight — a loan can carry
+// mixed-purity ornaments, so this is NOT just principal vs. a single flat
+// per-gram rate) and the resulting RiskLevel. Refused with ErrNoGoldRate if
+// no rate has ever been published — there is nothing to compare against.
+//
+// RiskLevel is computed per-row against a live rate, not a stored column,
+// so it can't be pushed down into a SQL WHERE/LIMIT/OFFSET the way
+// Service.List's filters can — every status/date/branch-matching loan is
+// fetched and classified first (one query, ordered the same opened_date
+// desc, id desc as Service.List), THEN paginated in Go. Loan counts per
+// branch are small enough (hundreds, not millions) for this to be cheap,
+// and it's what lets Counts/Total below cover every matching loan rather
+// than just whatever page happens to be showing.
+func (s *Service) ListLoanRiskAssessment(ctx context.Context, f RiskAssessmentFilter) (*RiskAssessmentResult, error) {
+	rate, err := s.goldRateRepo.FindLatest(ctx)
+	if err != nil {
+		return nil, ErrNoGoldRate
+	}
+
+	lf := LoanFilter{
+		BranchScope: f.BranchScope,
+		OpenedFrom:  f.OpenedFrom,
+		OpenedTo:    f.OpenedTo,
+	}
+	if f.Status != "" {
+		lf.Status = f.Status
+	} else {
+		lf.StatusIn = riskEligibleStatuses
+	}
+
+	loans, _, err := s.repo.FindAll(ctx, lf)
+	if err != nil {
+		return nil, err
+	}
+
+	rows := make([]LoanRiskRow, 0, len(loans))
+	counts := map[RiskLevel]int{RiskRed: 0, RiskOrange: 0, RiskGreen: 0}
+	for _, l := range loans {
+		var currentValue float64
+		for _, o := range l.Ornaments {
+			r, rErr := rateForPurity(rate, o.Purity)
+			if rErr != nil {
+				// An ornament with an unparseable/legacy purity string
+				// contributes nothing rather than failing the whole
+				// listing — see NormalizeLegacyPurities's own doc comment
+				// on why such a row is flagged for manual review, not
+				// silently coerced.
+				continue
+			}
+			currentValue += o.NetWeight * r
+		}
+		level := ClassifyRisk(currentValue, l.PrincipalAmount)
+		counts[level]++
+		rows = append(rows, LoanRiskRow{
+			LoanID:           l.ID,
+			LoanNumber:       l.LoanNumber,
+			CustomerID:       l.CustomerID,
+			CustomerName:     l.Customer.Name,
+			Status:           l.Status,
+			PrincipalAmount:  l.PrincipalAmount,
+			TotalNetWeight:   l.TotalNetWeight,
+			CurrentGoldValue: currentValue,
+			RiskLevel:        level,
+		})
+	}
+
+	total := len(rows)
+	items := rows
+	hasMore := false
+	if f.Limit > 0 {
+		start := f.Offset
+		if start > total {
+			start = total
+		}
+		end := start + f.Limit
+		if end > total {
+			end = total
+		}
+		items = rows[start:end]
+		hasMore = end < total
+	}
+
+	return &RiskAssessmentResult{Items: items, Total: total, Counts: counts, HasMore: hasMore}, nil
+}
+
 func (s *Service) List(ctx context.Context, f LoanFilter) ([]Loan, int64, error) {
 	loans, total, err := s.repo.FindAll(ctx, f)
 	if err != nil {
@@ -780,6 +977,233 @@ func (s *Service) AddOrnament(ctx context.Context, loanID uint, in AddOrnamentIn
 	}
 
 	return s.recalculateAndSave(ctx, l)
+}
+
+// DeleteOrnament removes a single pledged item from a loan — e.g. a
+// data-entry mistake caught after the loan was already sanctioned. Its
+// photos and any purity re-test record are removed with it (neither has a
+// real DB-level FK cascade — see model_ornament.go — so both are deleted
+// explicitly here, before the ornament row itself). The loan's totals
+// (TotalNetWeight/TotalGoldValue/EligibleLoanAmount) are recalculated
+// immediately after, exactly as AddOrnament/UpdateOrnament already do.
+//
+// Refused if this is the loan's LAST ornament (a loan must always have at
+// least one — see ErrNoOrnaments at creation) or if the loan is already
+// Closed/Auctioned.
+func (s *Service) DeleteOrnament(ctx context.Context, ornamentID uint) (*Loan, error) {
+	o, err := s.ornamentRepo.FindByID(ctx, ornamentID)
+	if err != nil {
+		return nil, ErrOrnamentNotFound
+	}
+	l, err := s.repo.FindByID(ctx, o.LoanID)
+	if err != nil {
+		return nil, ErrNotFound
+	}
+	switch l.Status {
+	case StatusClosed, StatusAuctioned, StatusAuctionedBalanceDue:
+		return nil, ErrLoanTerminalState
+	}
+	existing, err := s.ornamentRepo.FindByLoanID(ctx, l.ID)
+	if err != nil {
+		return nil, err
+	}
+	if len(existing) <= 1 {
+		return nil, ErrNoOrnaments
+	}
+	if err := s.db.WithContext(ctx).Where("ornament_id = ?", ornamentID).Delete(&OrnamentImage{}).Error; err != nil {
+		return nil, err
+	}
+	if err := s.db.WithContext(ctx).Where("ornament_id = ?", ornamentID).Delete(&OrnamentPurityTest{}).Error; err != nil {
+		return nil, err
+	}
+	if err := s.db.WithContext(ctx).Delete(&Ornament{}, ornamentID).Error; err != nil {
+		return nil, err
+	}
+	return s.recalculateAndSave(ctx, l)
+}
+
+// UpdateLoanInput mirrors the fields editable on an existing loan, even
+// after it has been fully sanctioned — see UpdateLoan's own doc comment
+// for what "editable after sanction" actually changes vs. leaves alone.
+// Both fields are pointers so a caller can change just one without
+// resending the other.
+type UpdateLoanInput struct {
+	SchemeID        *uint
+	PrincipalAmount *float64
+}
+
+// UpdateLoan lets staff correct a loan's scheme or principal amount even
+// after final sanction — deliberately allowed with no confirmation/audit
+// trail beyond the ordinary "can update loan" permission, per an explicit
+// product decision (unlike Update's own field-by-field `changes` pattern
+// elsewhere in this package, nothing here is separately logged).
+//
+// Scheme change: swapping SchemeID is enough on its own — l.Scheme is
+// loaded fresh on every read/accrual call, so the new interest rate,
+// method and penal rate apply automatically to everything computed from
+// this point forward. Already-recorded AccruedInterest/
+// AccruedPenalInterest are untouched — this is deliberately
+// prospective-only, never rewriting history. LTVPercent also changes with
+// the scheme, so EligibleLoanAmount is recalculated against the loan's
+// current ornaments under the NEW scheme, same as AddOrnament/
+// UpdateOrnament/DeleteOrnament already do whenever the ornament set
+// changes.
+//
+// Principal change: PrincipalAmount is replaced outright, but
+// OutstandingAmount is adjusted by the DELTA (new − old) rather than
+// recomputed from scratch — whatever principal has already been repaid
+// stays repaid; only the portion still outstanding shifts by the same
+// amount the principal itself changed by.
+//
+// Refused on a loan that's already Closed/Auctioned — editing a finished
+// loan makes no sense.
+func (s *Service) UpdateLoan(ctx context.Context, loanID uint, in UpdateLoanInput) (*Loan, error) {
+	l, err := s.repo.FindByID(ctx, loanID)
+	if err != nil {
+		return nil, ErrNotFound
+	}
+	switch l.Status {
+	case StatusClosed, StatusAuctioned, StatusAuctionedBalanceDue:
+		return nil, ErrLoanTerminalState
+	}
+
+	if in.SchemeID != nil {
+		if _, err := s.schemeRepo.FindByID(ctx, *in.SchemeID); err != nil {
+			return nil, ErrSchemeInvalid
+		}
+		l.SchemeID = *in.SchemeID
+	}
+
+	if in.PrincipalAmount != nil {
+		if *in.PrincipalAmount <= 0 {
+			return nil, ErrInvalidPrincipal
+		}
+		delta := *in.PrincipalAmount - l.PrincipalAmount
+		l.PrincipalAmount = *in.PrincipalAmount
+		l.OutstandingAmount = platform.RoundMoney(l.OutstandingAmount + delta)
+		if l.OutstandingAmount < 0 {
+			l.OutstandingAmount = 0
+		}
+	}
+
+	sch, err := s.schemeRepo.FindByID(ctx, l.SchemeID)
+	if err != nil {
+		return nil, ErrSchemeInvalid
+	}
+	ornaments, err := s.ornamentRepo.FindByLoanID(ctx, l.ID)
+	if err != nil {
+		return nil, err
+	}
+	recalculateTotals(l, ornaments, sch)
+	if l.PrincipalAmount > l.EligibleLoanAmount {
+		return nil, ErrPrincipalTooHigh
+	}
+	if err := s.repo.Update(ctx, l); err != nil {
+		return nil, err
+	}
+	return s.Get(ctx, l.ID, nil)
+}
+
+// HardDeleteLoan permanently removes a loan and every record tied to it —
+// a genuine `DELETE`, not GORM's soft-delete (the loans table's DeletedAt
+// column is left entirely unused by this path) — with no undo. Gated by
+// its own "can hard delete loan" permission (see authz.Catalogue), kept
+// deliberately separate from the ordinary "can delete loan" grant, and
+// meant for exactly one thing: erasing a genuinely mistaken loan (wrong
+// customer, test data, duplicate entry), not for ordinary loan closure —
+// CompleteRelease is what a loan that was actually serviced goes through.
+//
+// Deletes, inside one transaction, in FK-safe order (children before the
+// loan itself): auction decision requests, auction records, request
+// approvals, loan requests, bank pledge records, loan payments, loan
+// approvals, ornament images/purity tests, ornaments, packets (a real
+// physical gold-storage record — deleted rather than unlinked, per an
+// explicit product decision), reminders, then the loan row. Packets/
+// reminders live in their own packages (internal/packet, internal/
+// reminder) — deleted here via raw SQL against their table names rather
+// than importing those packages, which would create an import cycle
+// (packet already imports loan for its own joined display fields).
+func (s *Service) HardDeleteLoan(ctx context.Context, loanID uint) error {
+	if _, err := s.repo.FindByID(ctx, loanID); err != nil {
+		return ErrNotFound
+	}
+	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		// AuctionRecord has THREE child tables (Notices/Events/
+		// DecisionRequests all FK-reference it) — every one has to go
+		// before the AuctionRecord row itself, same reasoning as
+		// packet_movements/bank_pledge_events below.
+		if err := tx.Where(
+			"auction_record_id IN (SELECT id FROM auction_records WHERE loan_id = ?)", loanID,
+		).Delete(&AuctionDecisionRequest{}).Error; err != nil {
+			return err
+		}
+		if err := tx.Where(
+			"auction_record_id IN (SELECT id FROM auction_records WHERE loan_id = ?)", loanID,
+		).Delete(&AuctionNotice{}).Error; err != nil {
+			return err
+		}
+		if err := tx.Where(
+			"auction_record_id IN (SELECT id FROM auction_records WHERE loan_id = ?)", loanID,
+		).Delete(&AuctionEvent{}).Error; err != nil {
+			return err
+		}
+		if err := tx.Where("loan_id = ?", loanID).Delete(&AuctionRecord{}).Error; err != nil {
+			return err
+		}
+		if err := tx.Where(
+			"request_id IN (SELECT id FROM loan_requests WHERE loan_id = ?)", loanID,
+		).Delete(&RequestApproval{}).Error; err != nil {
+			return err
+		}
+		if err := tx.Where("loan_id = ?", loanID).Delete(&LoanRequest{}).Error; err != nil {
+			return err
+		}
+		// bank_pledge_events FK-references bank_pledge_records, so its rows
+		// for this loan's pledge(s) must go first — same shortfall as
+		// packet_movements below.
+		if err := tx.Where(
+			"bank_pledge_record_id IN (SELECT id FROM bank_pledge_records WHERE loan_id = ?)", loanID,
+		).Delete(&BankPledgeEvent{}).Error; err != nil {
+			return err
+		}
+		if err := tx.Where("loan_id = ?", loanID).Delete(&BankPledgeRecord{}).Error; err != nil {
+			return err
+		}
+		if err := tx.Where("loan_id = ?", loanID).Delete(&LoanPayment{}).Error; err != nil {
+			return err
+		}
+		if err := tx.Where("loan_id = ?", loanID).Delete(&LoanApproval{}).Error; err != nil {
+			return err
+		}
+		if err := tx.Where(
+			"ornament_id IN (SELECT id FROM ornaments WHERE loan_id = ?)", loanID,
+		).Delete(&OrnamentImage{}).Error; err != nil {
+			return err
+		}
+		if err := tx.Where(
+			"ornament_id IN (SELECT id FROM ornaments WHERE loan_id = ?)", loanID,
+		).Delete(&OrnamentPurityTest{}).Error; err != nil {
+			return err
+		}
+		if err := tx.Where("loan_id = ?", loanID).Delete(&Ornament{}).Error; err != nil {
+			return err
+		}
+		// packet_movements FK-references packets, so its rows for this
+		// loan's packet(s) must go first — deleting the packet row
+		// directly (as below) without this violates fk_packets_movements.
+		if err := tx.Exec(
+			"DELETE FROM packet_movements WHERE packet_id IN (SELECT id FROM packets WHERE loan_id = ?)", loanID,
+		).Error; err != nil {
+			return err
+		}
+		if err := tx.Exec("DELETE FROM packets WHERE loan_id = ?", loanID).Error; err != nil {
+			return err
+		}
+		if err := tx.Exec("DELETE FROM reminders WHERE loan_id = ?", loanID).Error; err != nil {
+			return err
+		}
+		return tx.Unscoped().Delete(&Loan{}, loanID).Error
+	})
 }
 
 // UpdateOrnamentInput mirrors OrnamentInput for editing a pledged ornament.
@@ -1098,17 +1522,17 @@ func (s *Service) Approve(ctx context.Context, loanID uint, in ApprovalInput) (*
 	switch {
 	case disbursing:
 		s.notifyCustomer(ctx, l.CustomerID, l.Customer.Phone, "Loan Sanctioned", s.brandedMessage(ctx,
-			"Dear %s, your gold loan %s has been sanctioned and ₹%.2f has been disbursed. Due date: %s. — CloudHouse Gold Finance",
+			"Dear %s, your gold loan %s has been sanctioned and ₹%.2f has been disbursed. Due date: %s. — CloudHouse Finance",
 			l.Customer.Name, l.LoanNumber, l.PrincipalAmount, l.DueDate.Format("02-Jan-2006"),
 		), commlog.TriggerLoanSanction, "loan", l.ID)
 	case rejected:
 		s.notifyCustomer(ctx, l.CustomerID, l.Customer.Phone, "Loan Rejected", s.brandedMessage(ctx,
-			"Dear %s, your gold loan application %s has been rejected during approval. Please contact the branch for details. — CloudHouse Gold Finance",
+			"Dear %s, your gold loan application %s has been rejected during approval. Please contact the branch for details. — CloudHouse Finance",
 			l.Customer.Name, l.LoanNumber,
 		), commlog.TriggerLoanApproval, "loan", l.ID)
 	case nextStageLabel != "":
 		s.notifyCustomer(ctx, l.CustomerID, l.Customer.Phone, "Loan Approved", s.brandedMessage(ctx,
-			"Dear %s, your gold loan application %s has been approved at one stage and is now awaiting %s approval. — CloudHouse Gold Finance",
+			"Dear %s, your gold loan application %s has been approved at one stage and is now awaiting %s approval. — CloudHouse Finance",
 			l.Customer.Name, l.LoanNumber, nextStageLabel,
 		), commlog.TriggerLoanApproval, "loan", l.ID)
 	}
@@ -1147,6 +1571,18 @@ type PaymentInput struct {
 	Method               string
 	Reference            string
 	Description          string
+	// InterestOverride, when set, replaces the system-computed interest
+	// bucket (AccruedInterest − InterestPaid) for THIS call only — the
+	// Record Payment screen shows the live-calculated interest prefilled,
+	// but the minimum-one-month/daily-prorated formula (see accrual.go's
+	// projectAccrual) is a formula, not a court order, and staff need to be
+	// able to adjust the actual amount charged for a specific settlement.
+	// Only meaningful for Interest/Partial/Full Settlement — the only
+	// types whose waterfall touches an interest bucket at all. Principal/
+	// penal/fee are never affected; AccruedInterest/InterestPaid still
+	// reconcile against whatever was actually applied, exactly as an
+	// un-overridden payment would.
+	InterestOverride *float64
 }
 
 // ErrExceedsOutstanding is returned when a payment's Type restricts which
@@ -1166,11 +1602,21 @@ var ErrExceedsOutstanding = httpx.NewBadRequest("amount does not match what is o
 // that outstanding fees get cleared before anything else. It does not
 // mutate l — the caller applies the returned deltas and decides
 // cash-recording.
-func allocatePayment(l *Loan, paymentType string, amount float64) (fee, penal, interest, principal float64, err error) {
+//
+// interestOverride, when non-nil, replaces the system-computed interest
+// bucket (AccruedInterest − InterestPaid) with a staff-entered figure —
+// see PaymentInput.InterestOverride's own doc comment for why this exists.
+// Every other bucket (fee/penal/principal) is unaffected; auction-driven
+// callers (RecordAuctionSale/write-off) always pass nil, since there is no
+// staff-facing amount to override there.
+func allocatePayment(l *Loan, paymentType string, amount float64, interestOverride *float64) (fee, penal, interest, principal float64, err error) {
 	const epsilon = 0.01 // guards against float rounding rejecting an exact payoff
 	feeOutstanding := l.OutstandingProcessingFee
 	penalOutstanding := l.AccruedPenalInterest - l.PenalInterestPaid
 	interestOutstanding := l.AccruedInterest - l.InterestPaid
+	if interestOverride != nil {
+		interestOutstanding = *interestOverride
+	}
 	principalOutstanding := l.OutstandingAmount
 
 	switch paymentType {
@@ -1319,6 +1765,9 @@ func (s *Service) RecordPayment(ctx context.Context, loanID uint, in PaymentInpu
 	if in.ProcessingFee < 0 {
 		return nil, ErrInvalidAmount
 	}
+	if in.InterestOverride != nil && *in.InterestOverride < 0 {
+		return nil, ErrInvalidAmount
+	}
 
 	s.accrueAndSave(ctx, l)
 
@@ -1329,7 +1778,7 @@ func (s *Service) RecordPayment(ctx context.Context, loanID uint, in PaymentInpu
 		l.OutstandingProcessingFee = platform.RoundMoney(l.OutstandingProcessingFee + in.ProcessingFee)
 	}
 
-	fee, penal, interest, principal, err := allocatePayment(l, in.Type, in.Amount)
+	fee, penal, interest, principal, err := allocatePayment(l, in.Type, in.Amount, in.InterestOverride)
 	if err != nil {
 		return nil, err
 	}
@@ -1410,7 +1859,7 @@ func (s *Service) RecordPayment(ctx context.Context, loanID uint, in PaymentInpu
 	// one payment).
 	if !auctionNotified {
 		s.notifyCustomer(ctx, l.CustomerID, l.Customer.Phone, "Payment Received", s.brandedMessage(ctx,
-			"Dear %s, we have received your payment of ₹%.2f (%s) towards loan %s. — CloudHouse Gold Finance",
+			"Dear %s, we have received your payment of ₹%.2f (%s) towards loan %s. — CloudHouse Finance",
 			l.Customer.Name, in.Amount, in.Type, l.LoanNumber,
 		), commlog.TriggerPayment, "loan", l.ID)
 	}
@@ -1461,7 +1910,7 @@ func (s *Service) resolveAuctionAfterPayment(ctx context.Context, l *Loan, p *Lo
 			s.recordAuctionEvent(ctx, tx, rec.ID, AuctionEventSettledByRepaymentAuto, nil, "",
 				fmt.Sprintf("Loan cleared in full by payment of ₹%.2f — auction cancelled automatically", p.Amount))
 			s.notifyCustomer(ctx, l.CustomerID, l.Customer.Phone, "Loan Settled", s.brandedMessage(ctx,
-				"Dear %s, we have received your payment of ₹%.2f. Loan %s is now fully settled, the auction has been cancelled, and your pledged gold is safe. — CloudHouse Gold Finance",
+				"Dear %s, we have received your payment of ₹%.2f. Loan %s is now fully settled, the auction has been cancelled, and your pledged gold is safe. — CloudHouse Finance",
 				l.Customer.Name, p.Amount, l.LoanNumber,
 			), commlog.TriggerPayment, "loan", l.ID)
 			return nil
@@ -1508,7 +1957,7 @@ func (s *Service) resolveAuctionAfterPayment(ctx context.Context, l *Loan, p *Lo
 			s.recordAuctionEvent(ctx, tx, rec.ID, AuctionEventDecisionRemove, nil, "", fmt.Sprintf(
 				"Payment of ₹%.2f cleared all interest and penal interest — auction withdrawn automatically (₹%.2f principal still payable)", p.Amount, outstanding))
 			s.notifyCustomer(ctx, l.CustomerID, l.Customer.Phone, "Removed From Auction", s.brandedMessage(ctx,
-				"Dear %s, we have received your payment of ₹%.2f. Loan %s is no longer overdue and has been removed from auction — your pledged gold is no longer at risk. A balance of ₹%.2f remains payable. — CloudHouse Gold Finance",
+				"Dear %s, we have received your payment of ₹%.2f. Loan %s is no longer overdue and has been removed from auction — your pledged gold is no longer at risk. A balance of ₹%.2f remains payable. — CloudHouse Finance",
 				l.Customer.Name, p.Amount, l.LoanNumber, outstanding,
 			), commlog.TriggerPayment, "loan", l.ID)
 			return nil
@@ -1557,7 +2006,7 @@ func (s *Service) resolveAuctionAfterPayment(ctx context.Context, l *Loan, p *Lo
 	// only fires for the case it was written for.
 	if hadActiveAuction && l.Status != StatusClosed {
 		s.notifyCustomer(ctx, l.CustomerID, l.Customer.Phone, "Payment Received — Auction On Hold", s.brandedMessage(ctx,
-			"Dear %s, we have received your payment of ₹%.2f towards loan %s. As the loan is not yet fully settled, the auction of your pledged gold is on hold while our management reviews your account. We will inform you of the decision. — CloudHouse Gold Finance",
+			"Dear %s, we have received your payment of ₹%.2f towards loan %s. As the loan is not yet fully settled, the auction of your pledged gold is on hold while our management reviews your account. We will inform you of the decision. — CloudHouse Finance",
 			l.Customer.Name, p.Amount, l.LoanNumber,
 		), commlog.TriggerPayment, "loan", l.ID)
 	}
@@ -1851,7 +2300,7 @@ func (s *Service) MarkAuctionEligible(ctx context.Context, loanID uint, branchID
 
 	s.recordAuctionEvent(ctx, nil, rec.ID, AuctionEventEligible, actorID, actorRole, "Loan marked auction-eligible")
 	s.notifyCustomer(ctx, l.CustomerID, l.Customer.Phone, "Auction Eligible", s.brandedMessage(ctx,
-		"Dear %s, your gold loan %s is seriously overdue and has now been marked eligible for auction. Outstanding: ₹%.2f. Please contact the branch immediately to settle and retain your pledged items. — CloudHouse Gold Finance",
+		"Dear %s, your gold loan %s is seriously overdue and has now been marked eligible for auction. Outstanding: ₹%.2f. Please contact the branch immediately to settle and retain your pledged items. — CloudHouse Finance",
 		l.Customer.Name, l.LoanNumber, l.TotalOutstandingBalance,
 	), commlog.TriggerAuctionEvent, "auction_record", rec.ID)
 
@@ -1971,7 +2420,7 @@ func (s *Service) ScheduleAuction(ctx context.Context, loanID uint, branchID *ui
 		fmt.Sprintf("Auction scheduled for %s (ref %s)", date.Format("02-Jan-2006"), referenceNumber))
 	if l, err := s.repo.FindByID(ctx, loanID); err == nil {
 		s.notifyCustomer(ctx, l.CustomerID, l.Customer.Phone, "Auction Scheduled", s.brandedMessage(ctx,
-			"Dear %s, the auction of the gold pledged against loan %s has been scheduled for %s (ref %s). You may still settle the outstanding dues before this date to reclaim your items. — CloudHouse Gold Finance",
+			"Dear %s, the auction of the gold pledged against loan %s has been scheduled for %s (ref %s). You may still settle the outstanding dues before this date to reclaim your items. — CloudHouse Finance",
 			l.Customer.Name, l.LoanNumber, date.Format("02-Jan-2006"), referenceNumber,
 		), commlog.TriggerAuctionEvent, "auction_record", rec.ID)
 	}
@@ -2053,7 +2502,7 @@ func (s *Service) RecordAuctionSale(ctx context.Context, loanID uint, branchID *
 
 	txErr := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		if applied > 0 {
-			fee, penal, interest, principal, err := allocatePayment(l, PaymentTypeAuctionSale, applied)
+			fee, penal, interest, principal, err := allocatePayment(l, PaymentTypeAuctionSale, applied, nil)
 			if err != nil {
 				return err
 			}
@@ -2171,14 +2620,14 @@ func (s *Service) RecordAuctionSale(ctx context.Context, loanID uint, branchID *
 			surplusNote = fmt.Sprintf(" A surplus of ₹%.2f is due back to you — the branch will contact you regarding this.", rec.SurplusPayableAmount)
 		}
 		s.notifyCustomer(ctx, l.CustomerID, l.Customer.Phone, "Auction Settled", s.brandedMessage(ctx,
-			"Dear %s, the gold pledged against loan %s was auctioned on %s for ₹%.2f. Your loan is now fully settled and closed.%s — CloudHouse Gold Finance",
+			"Dear %s, the gold pledged against loan %s was auctioned on %s for ₹%.2f. Your loan is now fully settled and closed.%s — CloudHouse Finance",
 			l.Customer.Name, l.LoanNumber, auctionDate.Format("02-Jan-2006"), saleAmount, surplusNote,
 		), commlog.TriggerAuctionEvent, "auction_record", rec.ID)
 	} else {
 		s.recordAuctionEvent(ctx, nil, rec.ID, AuctionEventShortfallEscalated, actorID, actorRole, fmt.Sprintf(
 			"Auction proceeds fell short by ₹%.2f — escalated for a write-off/pursue decision", platform.RoundMoney(totalDebt-netProceeds)))
 		s.notifyCustomer(ctx, l.CustomerID, l.Customer.Phone, "Auction Shortfall", s.brandedMessage(ctx,
-			"Dear %s, the gold pledged against loan %s was auctioned on %s for ₹%.2f, which did not cover the full amount due. A balance of ₹%.2f remains and is under review by our management. We will inform you of the outcome. — CloudHouse Gold Finance",
+			"Dear %s, the gold pledged against loan %s was auctioned on %s for ₹%.2f, which did not cover the full amount due. A balance of ₹%.2f remains and is under review by our management. We will inform you of the outcome. — CloudHouse Finance",
 			l.Customer.Name, l.LoanNumber, auctionDate.Format("02-Jan-2006"), saleAmount, platform.RoundMoney(totalDebt-netProceeds),
 		), commlog.TriggerAuctionEvent, "auction_record", rec.ID)
 	}
@@ -2275,12 +2724,12 @@ func (s *Service) SettleAuction(ctx context.Context, loanID uint, branchID *uint
 
 	if disposition == AuctionSurplusRefundedToCustomer {
 		s.notifyCustomer(ctx, l.CustomerID, l.Customer.Phone, "Auction Surplus Refund", s.brandedMessage(ctx,
-			"Dear %s, the surplus of ₹%.2f from the auction of loan %s is being refunded to you. Please visit the branch to collect it. — CloudHouse Gold Finance",
+			"Dear %s, the surplus of ₹%.2f from the auction of loan %s is being refunded to you. Please visit the branch to collect it. — CloudHouse Finance",
 			l.Customer.Name, rec.SurplusPayableAmount, l.LoanNumber,
 		), commlog.TriggerAuctionEvent, "auction_record", rec.ID)
 	} else {
 		s.notifyCustomer(ctx, l.CustomerID, l.Customer.Phone, "Auction Settled", s.brandedMessage(ctx,
-			"Dear %s, the auction settlement for loan %s is now complete and the loan is closed. — CloudHouse Gold Finance",
+			"Dear %s, the auction settlement for loan %s is now complete and the loan is closed. — CloudHouse Finance",
 			l.Customer.Name, l.LoanNumber,
 		), commlog.TriggerAuctionEvent, "auction_record", rec.ID)
 	}
@@ -2358,7 +2807,7 @@ func (s *Service) ResolveAuctionDecision(ctx context.Context, loanID, requestID 
 				// Case simply un-freezes and continues from its current stage.
 				s.recordAuctionEvent(ctx, tx, rec.ID, AuctionEventDecisionKeep, actorID, actorRole, remarks)
 				notifyMsg = s.brandedMessage(ctx,
-					"Dear %s, following review of your recent payment, loan %s remains scheduled for auction as a balance of ₹%.2f is still outstanding. Please contact the branch urgently. — CloudHouse Gold Finance",
+					"Dear %s, following review of your recent payment, loan %s remains scheduled for auction as a balance of ₹%.2f is still outstanding. Please contact the branch urgently. — CloudHouse Finance",
 					l.Customer.Name, l.LoanNumber, req.OutstandingAtRequest,
 				)
 			case AuctionDecisionRemovedFromAuction:
@@ -2375,7 +2824,7 @@ func (s *Service) ResolveAuctionDecision(ctx context.Context, loanID, requestID 
 				}
 				s.recordAuctionEvent(ctx, tx, rec.ID, AuctionEventDecisionRemove, actorID, actorRole, remarks)
 				notifyMsg = s.brandedMessage(ctx,
-					"Dear %s, following your recent payment, loan %s has been removed from auction and your pledged gold is no longer at risk. A balance of ₹%.2f remains payable. — CloudHouse Gold Finance",
+					"Dear %s, following your recent payment, loan %s has been removed from auction and your pledged gold is no longer at risk. A balance of ₹%.2f remains payable. — CloudHouse Finance",
 					l.Customer.Name, l.LoanNumber, req.OutstandingAtRequest,
 				)
 			default:
@@ -2410,7 +2859,7 @@ func (s *Service) ResolveAuctionDecision(ctx context.Context, loanID, requestID 
 				}
 				s.recordAuctionEvent(ctx, tx, rec.ID, AuctionEventDecisionPursue, actorID, actorRole, remarks)
 				notifyMsg = s.brandedMessage(ctx,
-					"Dear %s, the auction of your pledged gold under loan %s did not clear the full amount due. A balance of ₹%.2f remains payable and will continue to accrue interest. Please contact the branch to arrange settlement. — CloudHouse Gold Finance",
+					"Dear %s, the auction of your pledged gold under loan %s did not clear the full amount due. A balance of ₹%.2f remains payable and will continue to accrue interest. Please contact the branch to arrange settlement. — CloudHouse Finance",
 					l.Customer.Name, l.LoanNumber, req.OutstandingAtRequest,
 				)
 
@@ -2422,7 +2871,7 @@ func (s *Service) ResolveAuctionDecision(ctx context.Context, loanID, requestID 
 				s.enrich(ctx, l)
 				owed := platform.RoundMoney(l.TotalOutstandingBalance)
 				if owed > 0 {
-					fee, penal, interest, principal, err := allocatePayment(l, PaymentTypeAuctionWriteOff, owed)
+					fee, penal, interest, principal, err := allocatePayment(l, PaymentTypeAuctionWriteOff, owed, nil)
 					if err != nil {
 						return err
 					}
@@ -2460,7 +2909,7 @@ func (s *Service) ResolveAuctionDecision(ctx context.Context, loanID, requestID 
 				s.recordAuctionEvent(ctx, tx, rec.ID, AuctionEventDecisionWriteOff, actorID, actorRole,
 					fmt.Sprintf("Shortfall of ₹%.2f written off: %s", owed, remarks))
 				notifyMsg = s.brandedMessage(ctx,
-					"Dear %s, the balance remaining on loan %s after auction has been waived and the loan is now closed. No further amount is payable. — CloudHouse Gold Finance",
+					"Dear %s, the balance remaining on loan %s after auction has been waived and the loan is now closed. No further amount is payable. — CloudHouse Finance",
 					l.Customer.Name, l.LoanNumber,
 				)
 
@@ -3000,7 +3449,7 @@ func (s *Service) ApproveReleaseRequest(ctx context.Context, requestID uint, bra
 		}
 		if notifyLoan != nil {
 			s.notifyCustomer(ctx, notifyLoan.CustomerID, notifyLoan.Customer.Phone, "Release Rejected", s.brandedMessage(ctx,
-				"Dear %s, your gold release request for loan %s has been rejected. Please contact the branch for details. — CloudHouse Gold Finance",
+				"Dear %s, your gold release request for loan %s has been rejected. Please contact the branch for details. — CloudHouse Finance",
 				notifyLoan.Customer.Name, notifyLoan.LoanNumber,
 			), commlog.TriggerReleaseRequest, "loan_request", req.ID)
 		}
@@ -3056,12 +3505,12 @@ func (s *Service) ApproveReleaseRequest(ctx context.Context, requestID uint, bra
 	if notifyLoan != nil {
 		if finalApproval {
 			s.notifyCustomer(ctx, notifyLoan.CustomerID, notifyLoan.Customer.Phone, "Release Approved", s.brandedMessage(ctx,
-				"Dear %s, your gold release request for loan %s has been fully approved. Closure is now being processed. — CloudHouse Gold Finance",
+				"Dear %s, your gold release request for loan %s has been fully approved. Closure is now being processed. — CloudHouse Finance",
 				notifyLoan.Customer.Name, notifyLoan.LoanNumber,
 			), commlog.TriggerReleaseRequest, "loan_request", req.ID)
 		} else {
 			s.notifyCustomer(ctx, notifyLoan.CustomerID, notifyLoan.Customer.Phone, "Release Approved", s.brandedMessage(ctx,
-				"Dear %s, your gold release request for loan %s has moved to the next approval stage (Management). — CloudHouse Gold Finance",
+				"Dear %s, your gold release request for loan %s has moved to the next approval stage (Management). — CloudHouse Finance",
 				notifyLoan.Customer.Name, notifyLoan.LoanNumber,
 			), commlog.TriggerReleaseRequest, "loan_request", req.ID)
 		}
@@ -3166,7 +3615,7 @@ func (s *Service) ApproveExtensionRequest(ctx context.Context, requestID uint, b
 		}
 		if notifyLoan != nil {
 			s.notifyCustomer(ctx, notifyLoan.CustomerID, notifyLoan.Customer.Phone, "Extension Rejected", s.brandedMessage(ctx,
-				"Dear %s, your extension request for loan %s has been rejected. Please contact the branch for details. — CloudHouse Gold Finance",
+				"Dear %s, your extension request for loan %s has been rejected. Please contact the branch for details. — CloudHouse Finance",
 				notifyLoan.Customer.Name, notifyLoan.LoanNumber,
 			), commlog.TriggerExtensionRequest, "loan_request", req.ID)
 		}
@@ -3223,12 +3672,12 @@ func (s *Service) ApproveExtensionRequest(ctx context.Context, requestID uint, b
 	if notifyLoan != nil {
 		if finalApproval {
 			s.notifyCustomer(ctx, notifyLoan.CustomerID, notifyLoan.Customer.Phone, "Extension Approved", s.brandedMessage(ctx,
-				"Dear %s, your extension request for loan %s has been fully approved. New due date: %s. — CloudHouse Gold Finance",
+				"Dear %s, your extension request for loan %s has been fully approved. New due date: %s. — CloudHouse Finance",
 				notifyLoan.Customer.Name, notifyLoan.LoanNumber, notifyLoan.DueDate.Format("02-Jan-2006"),
 			), commlog.TriggerExtensionRequest, "loan_request", req.ID)
 		} else if nextStageLabel != "" {
 			s.notifyCustomer(ctx, notifyLoan.CustomerID, notifyLoan.Customer.Phone, "Extension Approved", s.brandedMessage(ctx,
-				"Dear %s, your extension request for loan %s has moved to the next approval stage (%s). — CloudHouse Gold Finance",
+				"Dear %s, your extension request for loan %s has moved to the next approval stage (%s). — CloudHouse Finance",
 				notifyLoan.Customer.Name, notifyLoan.LoanNumber, nextStageLabel,
 			), commlog.TriggerExtensionRequest, "loan_request", req.ID)
 		}
@@ -3639,6 +4088,10 @@ func (s *Service) bondDataForLoan(ctx context.Context, l *Loan) BondData {
 		}
 	}
 
+	// The lender's own particulars come from the tenant profile, not from
+	// the loan — see renderBondHTML for the fallback order.
+	legalName, addressLine, kmlRegNo := s.lenderProfile(ctx)
+
 	return BondData{
 		LoanNumber:      l.LoanNumber,
 		CustomerName:    l.Customer.Name,
@@ -3655,6 +4108,9 @@ func (s *Service) bondDataForLoan(ctx context.Context, l *Loan) BondData {
 		Month:           now.Month().String(),
 		Year:            now.Year(),
 		BusinessName:    s.businessName(ctx),
+		LegalName:       legalName,
+		AddressLine:     addressLine,
+		KMLRegNo:        kmlRegNo,
 	}
 }
 
@@ -3666,7 +4122,7 @@ func (s *Service) bondDataForLoan(ctx context.Context, l *Loan) BondData {
 // StartAadhaarVerify's redirectURL works.
 //
 // lang selects which pledge-agreement template is rendered and sent to
-// Setu — BondLangEnglish or BondLangGujarati; any other value is rejected.
+// Setu — BondLangEnglish or BondLangMalayalam; any other value is rejected.
 // The signed copy remembers which one was actually sent (see
 // l.IndemnityBondSignRequestID below), so re-checking status later doesn't
 // need lang passed again.
@@ -3686,8 +4142,15 @@ func (s *Service) StartIndemnityBondSign(ctx context.Context, loanID uint, branc
 	if s.esign == nil {
 		return nil, ErrEsignNotConfigured
 	}
-	if lang != BondLangEnglish && lang != BondLangGujarati {
+	// Two separate checks. The first asks whether the language exists at
+	// all; the second asks whether THIS business was granted it, which is
+	// the vendor's decision and must be enforced server-side — hiding the
+	// option in the picker only decides what is drawn.
+	if lang != BondLangEnglish && lang != BondLangMalayalam && lang != BondLangGujarati {
 		return nil, ErrUnsupportedIndemnityBondLang
+	}
+	if !s.tenantAllowsLanguage(ctx, lang) {
+		return nil, ErrLanguageNotEnabled
 	}
 	if deliverBy == "" {
 		deliverBy = BondDeliverOpen
@@ -3718,8 +4181,8 @@ func (s *Service) StartIndemnityBondSign(ctx context.Context, loanID uint, branc
 	}
 
 	docTitle := "Pledge Agreement - " + l.LoanNumber
-	if lang == BondLangGujarati {
-		docTitle = "Pledge Agreement (Gujarati) - " + l.LoanNumber
+	if lang == BondLangMalayalam {
+		docTitle = "Pledge Agreement (Malayalam) - " + l.LoanNumber
 	}
 	doc, err := s.esign.UploadDocument(pdfBytes, docTitle)
 	if err != nil {
@@ -3786,12 +4249,12 @@ func (s *Service) StartIndemnityBondSign(ctx context.Context, loanID uint, branc
 // signer.Identifier, so both use the identical number.
 func (s *Service) deliverEsignLink(ctx context.Context, l *Loan, url, lang, deliverBy, phone string) {
 	langLabel := "English"
-	if lang == BondLangGujarati {
-		langLabel = "Gujarati"
+	if lang == BondLangMalayalam {
+		langLabel = "Malayalam"
 	}
 	title := "Sign Your Pledge Agreement"
 	body := fmt.Sprintf(
-		"CloudHouse Gold Finance: your %s pledge agreement for loan %s is ready to sign with Aadhaar. Open this link on your own phone to complete it: %s",
+		"CloudHouse Finance: your %s pledge agreement for loan %s is ready to sign with Aadhaar. Open this link on your own phone to complete it: %s",
 		langLabel, l.LoanNumber, url,
 	)
 

@@ -35,7 +35,7 @@ function DigilockerCallbackContent() {
             </h1>
           </div>
 
-          <p style={{ textAlign: "center", color: "var(--muted, #64748b)", lineHeight: 1.6 }}>
+          <p style={{ textAlign: "center", color: "var(--muted, #62626f)", lineHeight: 1.6 }}>
             {success
               ? "You can close this tab now. Ask the staff member helping you to check the verification status back on their screen."
               : "The DigiLocker login was cancelled or didn't finish. You can close this tab and ask the staff member to send a new verification link."}

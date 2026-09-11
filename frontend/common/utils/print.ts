@@ -8,7 +8,7 @@
  * document.write into a fresh document, so none of the app's CSS custom
  * properties exist inside it — every colour here has to be a literal, which
  * is why they come from PRINT_COLORS rather than var(). */
-import { BRAND, BRAND_PHONES, PRINT_COLORS as C } from "@/common/config/brand";
+import { BRAND, BRAND_PHONES, printBrand, printColors } from "@/common/config/brand";
 
 /** Escapes text interpolated into the print HTML strings. */
 const esc = (s: string) =>
@@ -19,22 +19,29 @@ const esc = (s: string) =>
  * descriptor, the KML registration number and the contact numbers.
  *
  * This exists because the brand used to be written inline as
- * `<h1>CLOUDHOUSE GOLD FINANCE</h1>` in five separate templates across three
+ * `<h1>CLOUDHOUSE Finance</h1>` in five separate templates across three
  * files, two of which were copy-pasted duplicates of each other — so the
  * pledge slip and the statement could and did drift apart. Pass the document
  * title (e.g. "Gold Loan Pledge Slip") and it renders beneath the brand.
  */
 export function brandHeader(docTitle?: string): string {
+  // The signed-in business's own particulars, falling back to the platform
+  // brand field by field — see printBrand.
+  const B = printBrand();
   return `<header class="brandhead">
-    <div class="bh-name">${esc(BRAND.legalName.toUpperCase())}</div>
+    <div class="bh-name">${esc(B.legalName.toUpperCase())}</div>
     <div class="bh-desc">${esc(BRAND.descriptor)}</div>
-    <div class="bh-meta">${esc(BRAND.kmlRegLabel)} &nbsp;·&nbsp; ${esc(BRAND_PHONES)}</div>
+    <div class="bh-meta">${esc(B.kmlRegLabel)} &nbsp;·&nbsp; ${esc(BRAND_PHONES)}</div>${B.addressLine ? `
+    <div class="bh-meta">${esc(B.addressLine)}</div>` : ""}
     <div class="bh-rule"></div>
     ${docTitle ? `<h2>${esc(docTitle)}</h2>` : ""}
   </header>`;
 }
 
 export function openPrintWindow(title: string, body: string, onBlocked: (msg: string) => void) {
+  // Resolved per call, not at module load: the colour belongs to whichever
+  // business is signed in, and this module is imported once for all of them.
+  const C = printColors();
   const w = window.open("", "_blank");
   if (!w) {
     onBlocked("Popup blocked — please allow popups for this site to print");

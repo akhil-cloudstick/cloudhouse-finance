@@ -65,12 +65,18 @@ export async function listCashMovements(): Promise<CashMovementView[]> {
 
 export const CASH_MOVEMENTS_PAGE_SIZE = 8;
 
-export async function listCashMovementsPage(page: number, limit?: number): Promise<{ items: CashMovementView[]; hasMore: boolean; total: number }> {
+export async function listCashMovementsPage(
+  page: number,
+  limit?: number,
+  filters?: { fromDate?: string; toDate?: string } // "YYYY-MM-DD", both optional
+): Promise<{ items: CashMovementView[]; hasMore: boolean; total: number }> {
   const pageSize = limit ?? (typeof window !== "undefined" && (window.innerWidth < 1600 || window.innerHeight < 950) ? 7 : 8);
   const params = new URLSearchParams({
     limit: String(pageSize),
     offset: String((page - 1) * pageSize),
   });
+  if (filters?.fromDate) params.set("fromDate", filters.fromDate);
+  if (filters?.toDate) params.set("toDate", filters.toDate);
   const rec = await apiFetch<{ items: BackendCashMovement[]; hasMore: boolean; total?: number }>(`/cash-movements?${params}`);
   return { items: (rec?.items || []).map(movementToView), hasMore: !!rec?.hasMore, total: rec?.total ?? 0 };
 }
@@ -232,6 +238,7 @@ export type CashInBreakdown = {
   repayments: number;
   pledges: number;
   auctions: number;
+  goldSales: number;
   topUps: number;
 };
 
@@ -239,6 +246,7 @@ export type CashOutBreakdown = {
   loanDisbursements: number;
   bankReleases: number;
   auctionRefunds: number;
+  goldPurchases: number;
   withdrawals: number;
 };
 
@@ -260,4 +268,85 @@ export async function getCashSummary(branchId?: number, date?: string): Promise<
   if (date) qs.set("date", date);
   const suffix = qs.toString() ? `?${qs.toString()}` : "";
   return apiFetch<CashSummary>(`/cash/summary${suffix}`);
+}
+
+/* Gold Sale — the business selling gold it owns (bought stock, NOT a
+ * customer's pledged loan collateral — that's the Auction module instead).
+ * Mirrors backend/internal/cash/model.go's GoldSale. Every sale also books a
+ * matching cash-in movement (source "GoldSale"), so it's reflected in Cash-
+ * in-Hand/Expected Cash automatically — no separate step needed here. */
+export type BackendGoldSale = {
+  id: number;
+  ornamentType: string;
+  soldAmount: number;
+  costAmount: number;
+  profit: number;
+  soldOn: string;
+  branchId: number;
+  branch?: { id: number; name: string };
+  cashMovementId?: number | null;
+  costCashMovementId?: number | null;
+  remarks?: string;
+  createdAt: string;
+};
+
+export type GoldSaleView = {
+  id: number;
+  d: string;
+  ornamentType: string;
+  soldAmount: number;
+  costAmount: number;
+  profit: number;
+  branch: string;
+  branchId: number;
+  remarks?: string;
+};
+
+function goldSaleToView(g: BackendGoldSale): GoldSaleView {
+  return {
+    id: g.id,
+    d: g.soldOn.slice(0, 10),
+    ornamentType: g.ornamentType,
+    soldAmount: g.soldAmount,
+    costAmount: g.costAmount,
+    profit: g.profit,
+    branch: g.branch?.name || "",
+    branchId: g.branchId,
+    remarks: g.remarks,
+  };
+}
+
+export type GoldSaleInput = {
+  ornamentType: string;
+  soldAmount: number;
+  costAmount: number;
+  branchId: number;
+  soldOn?: string; // "YYYY-MM-DD"
+  remarks?: string;
+};
+
+export const GOLD_SALES_PAGE_SIZE = 8;
+
+export async function listGoldSalesPage(
+  page: number,
+  limit?: number,
+  filters?: { fromDate?: string; toDate?: string }
+): Promise<{ items: GoldSaleView[]; hasMore: boolean; total: number }> {
+  const pageSize = limit ?? GOLD_SALES_PAGE_SIZE;
+  const params = new URLSearchParams({
+    limit: String(pageSize),
+    offset: String((page - 1) * pageSize),
+  });
+  if (filters?.fromDate) params.set("fromDate", filters.fromDate);
+  if (filters?.toDate) params.set("toDate", filters.toDate);
+  const rec = await apiFetch<{ items: BackendGoldSale[]; hasMore: boolean; total?: number }>(`/gold-sales?${params}`);
+  return { items: (rec?.items || []).map(goldSaleToView), hasMore: !!rec?.hasMore, total: rec?.total ?? 0 };
+}
+
+export async function createGoldSale(input: GoldSaleInput): Promise<GoldSaleView> {
+  const rec = await apiFetch<BackendGoldSale>("/gold-sales", {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+  return goldSaleToView(rec);
 }

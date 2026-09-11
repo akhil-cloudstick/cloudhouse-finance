@@ -3,18 +3,19 @@
 import { useState } from "react";
 import { useModal } from "@/common/components/Modal";
 import { Icon } from "@/common/components/Icon";
-import { BOND_LANG_OPTIONS, type BondLang } from "@/modules/loans/utils/indemnityBond";
+import { bondLangOptionsFor, type BondLang } from "@/modules/loans/utils/indemnityBond";
+import { useBranding } from "@/common/BrandingProvider";
 
 /* Lets staff pick which pledge-agreement language goes to Setu before
  * starting the customer's Aadhaar eSign — LoanDetail.tsx's "Send Indemnity
  * Bond for eSign" action used to fire straight to Setu with "en" hardcoded
  * (see startIndemnityBondEsign's lang param); this puts that choice in
- * front of the officer instead, the same English/Gujarati choice
+ * front of the officer instead, the same English/Malayalam choice
  * NewLoan.tsx's print button already offers via BOND_LANG_OPTIONS.
  *
  * A responsive 2-up card grid rather than Select.tsx's dropdown: there are
  * only ever the two languages, and seeing both named at once (with the
- * loan's own language names, not just "en"/"gu") is quicker to get right
+ * loan's own language names, not just "en"/"ml") is quicker to get right
  * than opening a list. Stacks to one column at modal width, so it reads
  * fine on a phone-width viewport too. */
 export type EsignDeliverBy = "whatsapp" | "dashboard" | "open";
@@ -38,6 +39,10 @@ export function EsignLanguageModalContent({
 }) {
   const { closeModal } = useModal();
   const [lang, setLang] = useState<BondLang>("en");
+  // Only the languages this business was granted. English always survives
+  // the filter, so the picker can never render empty.
+  const { languages } = useBranding();
+  const langOptions = bondLangOptionsFor(languages);
   const [deliverBy, setDeliverBy] = useState<EsignDeliverBy>("whatsapp");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
@@ -89,7 +94,7 @@ export function EsignLanguageModalContent({
           {showDelivery ? "1. Bond language" : "Bond language"}
         </span>
         <div className="esign-lang-grid" style={{ marginBottom: showDelivery ? 16 : 0 }}>
-          {BOND_LANG_OPTIONS.map((o) => (
+          {langOptions.map((o) => (
             <button
               type="button"
               key={o.value}

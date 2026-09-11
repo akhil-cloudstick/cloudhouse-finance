@@ -75,8 +75,14 @@ func TestScopedTableSetIsNotEmptyAndHasNoGlobals(t *testing.T) {
 	// symptom was one business reading another's files while every test was
 	// green. TestEveryTenantScopedModelIsFiltered below is the check that
 	// actually catches it, by comparing this map against the database.
-	if len(tenantScopedTables) != 43 {
-		t.Errorf("expected 43 tenant-scoped tables, got %d — update this test "+
+	// 43 -> 47: gold_sales, investments, investment_plans and
+	// investment_payouts were added. All four already HAD a tenant_id column
+	// (they embed platform.TenantScoped) but were missing from the map, so
+	// they were served unfiltered — the exact uploaded_files failure this
+	// comment describes, repeated. Their routes were also absent from
+	// internal/app's route manifest, which is why no probe caught it.
+	if len(tenantScopedTables) != 47 {
+		t.Errorf("expected 47 tenant-scoped tables, got %d — update this test "+
 			"deliberately when adding a model, so a new table cannot slip in "+
 			"unfiltered", len(tenantScopedTables))
 	}

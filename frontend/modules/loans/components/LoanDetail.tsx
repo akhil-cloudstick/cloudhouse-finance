@@ -22,14 +22,16 @@ import {
   checkIndemnityBondEsign,
   canAcceptBankPledge,
   downloadLoanStatement,
+  hardDeleteLoan,
   type SanctionStage,
   type LoanView,
 } from "@/modules/loans/services/loanService";
 import { getCustomer, getCustomerAadhaarFull } from "@/modules/customers/services/customerService";
 import { listPackets } from "@/modules/packets/services/packetService";
 import { openPrintWindow, brandHeader } from "@/common/utils/print";
-import { BRAND, PRINT_COLORS } from "@/common/config/brand";
+import { BRAND, printColors } from "@/common/config/brand";
 import { printIndemnityBond, type BondLang } from "@/modules/loans/utils/indemnityBond";
+import { printReleaseAgreement, type ReleaseAgreementLang } from "@/modules/loans/utils/releaseAgreement";
 import { StageTracker } from "@/common/components/ui/StageTracker";
 import { ApiError } from "@/common/services/httpClient";
 import { useLoans } from "@/modules/loans/store/LoansProvider";
@@ -38,6 +40,7 @@ import { RepledgeModalContent } from "@/common/components/modals/RepledgeModal";
 import { ConfirmModalContent } from "@/common/components/modals/ConfirmModal";
 import { EsignLanguageModalContent, type EsignDeliverBy } from "@/common/components/modals/EsignLanguageModal";
 import { RequestExtensionModalContent, RequestReleaseModalContent } from "@/common/components/modals/RequestExtensionModal";
+import { EditLoanModalContent } from "@/common/components/modals/EditLoanModal";
 
 /* One row of the "Documents" dropdown below — either a click action
  * (onClick, e.g. printing something in-browser) or a plain link (href,
@@ -127,6 +130,11 @@ export function LoanDetail({ id }: { id?: string }) {
   const canUpdateLoans = can("Loan_Management", "can_update_loan");
   const canCreateBankPledges = can("Bank_Pledge_Management", "can_create_bank_pledge");
   const canUpdateBankPledges = can("Bank_Pledge_Management", "can_update_bank_pledge");
+  // Independent from "can_update_loan"/"can_delete_loan" — locking down the
+  // irreversible full-cascade delete separately from ordinary edit/soft
+  // delete rights is deliberate (see internal/authz/catalogue.go's own
+  // comment on this permission).
+  const canHardDeleteLoans = can("Loan_Management", "can_hard_delete_loan");
 
   const [loan, setLoan] = useState<LoanView | null>(null);
   const [error, setError] = useState("");
@@ -138,6 +146,7 @@ export function LoanDetail({ id }: { id?: string }) {
   const [printingSlip, setPrintingSlip] = useState(false);
   const [printingBond, setPrintingBond] = useState(false);
   const [printingStatement, setPrintingStatement] = useState(false);
+  const [printingReleaseAgreement, setPrintingReleaseAgreement] = useState(false);
   // Indemnity bond Aadhaar eSign (Setu) — same "started, then poll" shape
   // CustomerDetail.tsx's DigiLocker Aadhaar-verify flow uses: "started"
   // means the customer's been sent the eSign URL and we're waiting for
@@ -294,6 +303,19 @@ export function LoanDetail({ id }: { id?: string }) {
   // `sm` matches the other page-header buttons (Print Label, Print Slip,
   // Record Payment, …) — these used to render at the default, larger size
   // and towered over the row.
+  // Edit Loan is reachable during sanction review too, not only once a loan
+  // is fully Active — the Loan Officer verifying at the first stage is
+  // exactly who most often needs to correct a scheme/weight typo before it
+  // moves on, and waiting for full sanction just to fix it would mean
+  // re-running the whole chain. Gated the same as the Loan Actions menu's
+  // own Edit Loan entry: plain "can update loan", not the stage-specific
+  // verify/approve/sanction permission.
+  const editLoanButton = canUpdateLoans && l.status !== "Closed" && l.status !== "Auctioned" ? (
+    <button className="btn ghost sm" onClick={() => openModal(<EditLoanModalContent loan={l} onSaved={load} />)}>
+      <Icon name="edit" /> Edit Loan
+    </button>
+  ) : null;
+
   const approvalButtons = pendingStage ? (
     canActOnStage ? (
       <>
@@ -303,11 +325,15 @@ export function LoanDetail({ id }: { id?: string }) {
         <button className="btn danger sm" disabled={approving} onClick={() => doApprove(pendingStage, "Rejected")}>
           Reject
         </button>
+        {editLoanButton}
       </>
     ) : (
-      <span style={{ color: "var(--muted)", fontSize: 13 }}>
-        {isVerifyStage ? `Awaiting ${requiredRole} verification` : `Awaiting ${requiredRole} approval`}
-      </span>
+      <>
+        <span style={{ color: "var(--muted)", fontSize: 13 }}>
+          {isVerifyStage ? `Awaiting ${requiredRole} verification` : `Awaiting ${requiredRole} approval`}
+        </span>
+        {editLoanButton}
+      </>
     )
   ) : null;
 
@@ -469,6 +495,45 @@ export function LoanDetail({ id }: { id?: string }) {
     }
   }
 
+  /* Release Agreement — only reachable once the loan has actually closed
+   * (CompleteRelease already ran), same Documents dropdown as the other
+   * prints. Customer address isn't carried on LoanView, so this fetches it
+   * the same way printPledgeSlip/printStatement already do. */
+  async function printReleaseAgreementDoc(lang: ReleaseAgreementLang) {
+    setPrintingReleaseAgreement(true);
+    try {
+      const c = await getCustomer(l.customerId);
+      printReleaseAgreement(
+        {
+          loanNumber: l.id,
+          branchName: l.branchName,
+          customerName: c.name,
+          customerAddress: c.address,
+          borrowedDate: l.opened,
+          borrowedAmount: l.principal,
+          // No closedAt on LoanView — printReleaseAgreement defaults
+          // returnedDate to today when omitted, same as before.
+          returnedAmount: l.totalPaid,
+          totalInterest: l.interestPaid + l.penalInterestPaid,
+          ornaments: l.ornaments.map((o) => ({
+            name: o.name,
+            purity: o.purity,
+            quantity: o.quantity,
+            grossWeight: o.grossWeight,
+            netWeight: o.netWeight,
+            value: o.goldValue,
+          })),
+        },
+        toast,
+        lang
+      );
+    } catch {
+      toast("Could not load customer details — try again");
+    } finally {
+      setPrintingReleaseAgreement(false);
+    }
+  }
+
   /* Payment statement — a printable copy of the Payment Ledger card below,
    * plus the same loan/customer header printPledgeSlip uses, restructured
    * as a formal Statement of Account carrying the statutory particulars a
@@ -574,23 +639,21 @@ export function LoanDetail({ id }: { id?: string }) {
           border:0.3mm dashed #aaa;overflow:hidden;page-break-inside:avoid}
         .label img{width:25mm;height:25mm;flex:none}
         .t{font-size:2.5mm;line-height:1.45;min-width:0}
-        .t .brand{font-size:2mm;letter-spacing:0.3mm;color:${PRINT_COLORS.brand}}
+        .t .brand{font-size:2mm;letter-spacing:0.3mm;color:${printColors().brand}}
         .t .id{font-size:3.4mm;font-weight:bold}
         .t div{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
         .noprint{text-align:center;margin:8mm;font-family:Arial}
         @media print{.noprint{display:none} .head{border:none} .infocell{border-left:none} .strap .band{border:none}}
       </style></head><body>
-        <div class="tag">
-          <div class="head">
-            <div class="qrcell"><img src="${qr}" alt="QR"></div>
-            <div class="infocell">
-              <div class="id">${packetLabel}</div>
-              <div class="name">${c.name || "—"}</div>
-              <div class="meta">${l.id} · ${l.totalNetWeight.toFixed(1)}g</div>
-              <div class="brand">${BRAND.name.toUpperCase()}</div>
-            </div>
+        <div class="label">
+          <img src="${qr}" alt="QR">
+          <div class="t">
+            <div class="brand">${BRAND.name.toUpperCase()}</div>
+            <div class="id">${l.id} · ${packetLabel}</div>
+            <div>${c.name || "—"}</div>
+            <div>${c.code || c.id || "—"} · ${c.phone || ""}</div>
+            <div>${new Date().toLocaleDateString("en-IN")} · ${l.totalNetWeight.toFixed(1)} g · ${l.ornaments.length} item(s)</div>
           </div>
-          <div class="strap"><div class="band"></div></div>
         </div>
         <div class="noprint">
           <p style="font-size:13px;color:#555">81mm × 12mm flag tag — scanning the QR opens ${url}</p>
@@ -607,7 +670,7 @@ export function LoanDetail({ id }: { id?: string }) {
   }
 
   // Renders the bond server-side in the requested language (see
-  // BondLang/BOND_LANG_OPTIONS in indemnityBond.ts — "en" or "gu", chosen
+  // BondLang/BOND_LANG_OPTIONS in indemnityBond.ts — "en" or "ml", chosen
   // by the officer in EsignLanguageModal below) and starts the Aadhaar
   // eSign request. This is an ADDITIONAL path alongside NewLoan.tsx's
   // print-and-sign-by-hand buttons, not a replacement — eSign needs the
@@ -636,7 +699,7 @@ export function LoanDetail({ id }: { id?: string }) {
     }
   }
 
-  // Opens EsignLanguageModalContent so the officer picks English/Gujarati before
+  // Opens EsignLanguageModalContent so the officer picks English/Malayalam before
   // printing the bond.
   function openPrintBondLanguagePicker() {
     openModal(
@@ -650,7 +713,7 @@ export function LoanDetail({ id }: { id?: string }) {
     );
   }
 
-  // Opens EsignLanguageModal so the officer picks English/Gujarati and delivery
+  // Opens EsignLanguageModal so the officer picks English/Malayalam and delivery
   // channel (WhatsApp, customer mobile app, or browser tab) before starting the request.
   async function openEsignLanguagePicker() {
     let phone: string | undefined;
@@ -745,7 +808,7 @@ export function LoanDetail({ id }: { id?: string }) {
               <Icon name="unlock" /> {completing ? "Releasing…" : "Complete Release"}
             </button>
           )}
-          {!approvalButtons && ((canAcceptBankPledge(l.status, l.bankPledgeStatus) && !activePledge && canCreateBankPledges) || (l.status !== "Closed" && canUpdateLoans)) && (
+          {!approvalButtons && ((canAcceptBankPledge(l.status, l.bankPledgeStatus) && !activePledge && canCreateBankPledges) || (l.status !== "Closed" && canUpdateLoans) || canHardDeleteLoans) && (
             <div className="docs-dd" ref={loanActionsMenuRef}>
               <button className="btn ghost sm" onClick={() => setLoanActionsMenuOpen((v) => !v)}>
                 <Icon name="gear" /> Loan Actions <Icon name="chevronDown" className="docs-dd-chev" />
@@ -767,6 +830,52 @@ export function LoanDetail({ id }: { id?: string }) {
                       <Icon name="unlock" /><span className="tx">Request Release</span>
                     </a>
                   )}
+                {l.status !== "Closed" && l.status !== "Auctioned" && canUpdateLoans && (
+                  <a href="#" title="Edit Loan" onClick={(e) => { e.preventDefault(); setLoanActionsMenuOpen(false); openModal(<EditLoanModalContent loan={l} onSaved={load} />); }}>
+                    <Icon name="edit" /><span className="tx">Edit Loan</span>
+                  </a>
+                )}
+                {/* Deliberately the ONLY delete action offered here — there
+                 * is no separate "soft delete" alternative next to it, by
+                 * explicit product decision. Gated by its own permission
+                 * ("can hard delete loan"), independent of ordinary
+                 * update/delete rights. */}
+                {canHardDeleteLoans && (
+                  <a
+                    href="#"
+                    title="Delete Loan Permanently"
+                    className="danger"
+                    onClick={(e) => {
+                      e.preventDefault();
+                      setLoanActionsMenuOpen(false);
+                      openModal(
+                        <ConfirmModalContent
+                          title="Delete Loan Permanently"
+                          confirmLabel="Delete Permanently"
+                          busyLabel="Deleting…"
+                          message={
+                            <>
+                              This permanently and irreversibly deletes loan <strong>{l.id}</strong>.
+                              <br /><br />
+                              Every record tied to it will be removed: payments, ornaments, approvals,
+                              extension/release requests, auctions, bank pledges, packets, and reminders.
+                              <br /><br />
+                              This cannot be undone.
+                            </>
+                          }
+                          onConfirm={async () => {
+                            await hardDeleteLoan(l.numericId);
+                            toast("Loan deleted permanently");
+                            refreshLoans();
+                            location.hash = "loans";
+                          }}
+                        />
+                      );
+                    }}
+                  >
+                    <Icon name="trash" /><span className="tx">Delete Loan Permanently</span>
+                  </a>
+                )}
                 </div>
               )}
             </div>
@@ -796,6 +905,16 @@ export function LoanDetail({ id }: { id?: string }) {
                 <a href="#" title="Print Bond" className={printingBond ? "disabled" : ""} onClick={(e) => { e.preventDefault(); if (printingBond) return; setDocsMenuOpen(false); openPrintBondLanguagePicker(); }}>
                   <Icon name="doc" /><span className="tx">{printingBond ? "Preparing…" : "Print Bond"}</span>
                 </a>
+              {l.status === "Closed" && (
+                <>
+                  <a href="#" title="Release Agreement (English)" className={printingReleaseAgreement ? "disabled" : ""} onClick={(e) => { e.preventDefault(); if (printingReleaseAgreement) return; setDocsMenuOpen(false); printReleaseAgreementDoc("en"); }}>
+                    <Icon name="unlock" /><span className="tx">{printingReleaseAgreement ? "Preparing…" : "Release Agreement (English)"}</span>
+                  </a>
+                  <a href="#" title="Release Agreement (Malayalam)" className={printingReleaseAgreement ? "disabled" : ""} onClick={(e) => { e.preventDefault(); if (printingReleaseAgreement) return; setDocsMenuOpen(false); printReleaseAgreementDoc("ml"); }}>
+                    <Icon name="unlock" /><span className="tx">{printingReleaseAgreement ? "Preparing…" : "Release Agreement (Malayalam)"}</span>
+                  </a>
+                </>
+              )}
                 {l.indemnityBondSignStatus === "sign_complete" && l.indemnityBondSignedUrl ? (
                   <a href={l.indemnityBondSignedUrl} title="Signed Bond" target="_blank" rel="noopener noreferrer" onClick={() => setDocsMenuOpen(false)}>
                     <Icon name="check" /><span className="tx">Signed Bond</span>

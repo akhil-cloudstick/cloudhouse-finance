@@ -23,6 +23,8 @@ func (h *Handler) reportRows(ctx context.Context, key string, f Filter) (rows an
 	switch key {
 	case "disbursement":
 		return call2(h.svc.Disbursement(ctx, f))
+	case "personal-loans":
+		return call2(h.svc.PersonalLoans(ctx, f))
 	case "loans-status":
 		return call2(h.svc.LoanStatus(ctx, f, ""))
 	case "interest-collection":

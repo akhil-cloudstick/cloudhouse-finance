@@ -108,7 +108,7 @@ export function RenewLoanModalContent({ loan, onSaved }: { loan: BackendPersonal
             <div>New interest: <strong>{fmt(preview.interestAmount)}</strong></div>
             <div>Cash paid to customer: <strong>{fmt(preview.disbursedAmount)}</strong></div>
             <div>New repayment obligation: <strong>{fmt(principalNum)}</strong></div>
-            {preview.shortfall && <div style={{ color: "var(--red, #c0392b)", marginTop: 6 }}>⚠ New principal is not enough to cover the outstanding balance and interest.</div>}
+            {preview.shortfall && <div style={{ color: "var(--red, #c21725)", marginTop: 6 }}>⚠ New principal is not enough to cover the outstanding balance and interest.</div>}
           </div>
         )}
         {err && <div className="notice" style={{ marginTop: 10 }}>{err}</div>}

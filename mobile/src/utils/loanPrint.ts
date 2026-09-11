@@ -13,7 +13,6 @@ import { fmt } from "../lib/format";
 import { rupeesInWords } from "../lib/numberToWords";
 import { Loan } from "../types/loan";
 import { listPackets } from "../api/packets";
-import { getCustomerAadhaarFull } from "../api/customers";
 import { API_BASE_URL, API_ORIGIN } from "../api/config";
 import { getToken } from "../auth/tokenStorage";
 import { BRAND, BRAND_PHONES, PRINT_COLORS as C } from "../config/brand";
@@ -155,11 +154,20 @@ export async function printStatement(l: Loan) {
   );
 }
 
-// Ported from frontend/modules/loans/utils/indemnityBond.ts — same
-// "Agreement of Pledge of Movable" template, verbatim, English only (the
-// branch's paper form has never been translated).
-const LENDER_NAME = "Rinkesh Lalitbhai Soni";
-const LENDER_REG_NO = "GMLVAL2627000029";
+// Ported from frontend/modules/loans/utils/indemnityBond.ts's "en" branch
+// — the English translation of the branch's own actual reference
+// Malayalam pledge letter (a short promissory-pledge letter + built-in
+// release acknowledgment), not the old formal "MEMORANDUM OF AGREEMENT...
+// BETWEEN" numbered-clause deed this used to be. English only here (this
+// app has no bond-language picker — the Malayalam version lives in the
+// web/backend print flows only). Same establishment identity as backend/
+// internal/loan/indemnitybond.go's lenderName/lenderAddressShort/
+// lenderKMLRegNo — MLL No. 32080354468, registered as "Chittilapilly
+// Thommana Financiers and Investments".
+const LENDER_NAME = "Chittilapilly Thommana Financiers and Investments";
+const LENDER_ADDRESS_SHORT = "XXI/118-BLOCK JUNCTION, VELLANGALLUR, 680662";
+const LENDER_KML_REG_NO = "32080354468";
+const MONTHS_ABBR = ["JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"];
 
 function fmtINR(n?: number) {
   return n != null ? n.toLocaleString("en-IN") : "";
@@ -169,105 +177,170 @@ export async function printIndemnityBond(l: Loan) {
   const c = l.customer;
   const now = new Date();
   const dd = String(now.getDate()).padStart(2, "0");
-  const monthName = now.toLocaleString("en-IN", { month: "long" });
   const yyyy = now.getFullYear();
-  const age = c?.dob ? Math.floor((now.getTime() - new Date(c.dob).getTime()) / 31557600000) : "____";
+  const dateDisplay = `${dd} ${MONTHS_ABBR[now.getMonth()]} ${yyyy}`;
   const B = "________________";
   const name = c?.name || B;
-  const address = c?.address || B;
-  const branchName = l.branch?.name || B;
-  const pan = c?.pan || B;
-  // Full Aadhaar is decrypted server-side on demand (GET /customers/:id/
-  // aadhaar-full) — the Loan payload itself only ever carries other fields,
-  // never the plaintext number.
-  const aadhaarFull = c ? await getCustomerAadhaarFull(c.id).then((r) => r.aadhaar).catch(() => "") : "";
-  const aadhaar = aadhaarFull || B;
   const loanNumber = l.loanNumber;
   const principal = l.principalAmount;
-  const interestRate = l.scheme?.interestRate;
   const ornaments = l.ornaments ?? [];
-  const totalValue = ornaments.reduce((s, o) => s + (o.goldValue || 0), 0);
+  const itemNames = ornaments.length ? ornaments.map((o) => o.name).join(", ") : B;
+  const itemWeights = ornaments.length ? ornaments.map((o) => `${o.netWeight.toFixed(2)} GM`).join(", ") : B;
+  const amountWords = principal != null ? rupeesInWords(principal).replace(/^Rupees /, "").replace(/ Only$/i, "") : "";
+
+  await printDoc(
+    `${LENDER_NAME} — ${loanNumber}`,
+    `<style>
+      @page{size:A4;margin:20mm 15mm}
+      .hd-table{border:none;margin-bottom:10px}
+      .hd-table td{border:none;padding:2px 0;vertical-align:top}
+    </style>
+    <h1>${LENDER_NAME}</h1>
+    <h2>${LENDER_ADDRESS_SHORT}<br>KML Reg No: ${LENDER_KML_REG_NO}</h2>
+
+    <table class="hd-table">
+      <tr>
+        <td style="width:50%">ITEM NAME: ${itemNames}<br>ITEM Weight: ${itemWeights}</td>
+        <td>Loan No. ${loanNumber}<br>Date: ${dateDisplay}</td>
+      </tr>
+    </table>
+
+    <p>CUSTOMER NAME: ${name}<br>CUSTOMER MOB NO: ${c?.phone || B}</p>
+    <p>AMOUNT: ${fmtINR(principal) || B}</p>
+
+    <p>
+    I, <b>${name}</b>, declare that the gold ornaments shown above are my own property and no one else has any claim to them. I have pledged these ornaments with your establishment, <b>${LENDER_NAME}</b>, and hereby humbly request that a loan of Rs. <b>${fmtINR(principal) || B}</b> ( ${amountWords || B} only ), equal to the appraised value of the ornaments, be granted to me at monthly interest.
+    </p>
+    <p>Name: ${name}<br>Signature: ${B}</p>
+
+    <h3 style="text-align:center;margin-top:30px">DECLARATION</h3>
+
+    <p>
+    I, <b>${name}</b>, undertake to pay the interest on the loan of Rs. <b>${fmtINR(principal) || B}</b> availed by me every month without fail, and assure that I will close the loan by repaying the full amount along with interest within one year. If for any reason I am unable to repay the borrowed money with interest, I hereby agree that the owner of <b>${LENDER_NAME}</b> shall have the right to auction or sell these ornaments to recover any loss incurred by the establishment, and that I will not raise any claim regarding this thereafter.
+    </p>
+
+    <p>Name: ${name}<br>Signature: ${B}</p>
+    <p style="margin-top:18px"><b>Loan Sanctioned.</b></p>
+    <p>Date: ${dateDisplay}</p>
+
+    <hr style="margin-top:40px;border:none;border-top:1px solid #999">
+    <p style="margin-top:24px"><b>Signature of the person who receives the jewellery back</b></p>
+    <p>Ornaments received back without any damage.</p>
+    <p>Date: ${B}<br>Name: ${name}<br>Signature: ${B}</p>`
+  );
+}
+
+// Ported from frontend/modules/loans/utils/releaseAgreement.ts — same
+// "Acknowledgment of Safe Receipt and Release of Pledged Gold" wording,
+// verbatim (Part A/B/C plus the Essential Rules footer). Reachable only
+// once a loan has actually closed (l.status === "Closed"), same as web's
+// Release Agreement document.
+const B = "________________";
+
+function fmtReleaseDate(iso?: string) {
+  if (!iso) return B;
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return B;
+  return `${String(d.getDate()).padStart(2, "0")}/${String(d.getMonth() + 1).padStart(2, "0")}/${d.getFullYear()}`;
+}
+
+export type ReleaseAgreementOrnament = {
+  name: string;
+  purity?: string;
+  quantity: number;
+  grossWeight: number;
+  netWeight: number;
+};
+
+export type ReleaseAgreementParty = {
+  loanNumber: string;
+  branchName?: string;
+  branchCode?: string;
+  customerName?: string;
+  customerAddress?: string;
+  customerId?: string;
+  aadhaarLast4?: string;
+  pan?: string;
+  // Date the loan was actually repaid/settled — the release request's
+  // decidedAt, or today if there was no formal request.
+  closedOn?: string; // "YYYY-MM-DD"
+  ornaments?: ReleaseAgreementOrnament[];
+};
+
+export async function printReleaseAgreement(p: ReleaseAgreementParty) {
+  const today = new Date();
+  const deliveryDate = fmtReleaseDate(today.toISOString());
+  const closureDate = fmtReleaseDate(p.closedOn) || deliveryDate;
+  const ornaments = p.ornaments ?? [];
+
+  const totalQty = ornaments.reduce((s, o) => s + (o.quantity || 0), 0);
+  const totalGross = ornaments.reduce((s, o) => s + (o.grossWeight || 0) * (o.quantity || 1), 0);
+  const totalNet = ornaments.reduce((s, o) => s + (o.netWeight || 0) * (o.quantity || 1), 0);
 
   const rows = ornaments.length
     ? ornaments
         .map(
           (o, i) =>
-            `<tr><td>${i + 1}</td><td>${o.name}</td><td>${o.purity}</td>
-            <td class="num">${o.grossWeight.toFixed(1)}</td><td class="num">${o.netWeight.toFixed(1)}</td>
-            <td class="num">${fmtINR(o.goldValue)}</td></tr>`
+            `<tr><td>${i + 1}</td><td>${o.name}</td><td class="num">${o.quantity}</td>
+            <td class="num">${o.grossWeight.toFixed(2)}</td><td class="num">${o.netWeight.toFixed(2)}</td>
+            <td>${o.purity || "—"}</td><td>Sound / Intact</td></tr>`
         )
         .join("")
-    : `<tr><td colspan="6" style="text-align:center;color:#777">${B}</td></tr>`;
+    : `<tr><td colspan="7" style="text-align:center;color:#777">${B}</td></tr>`;
 
-  await printDoc(
-    `Agreement of Pledge of Movable — ${loanNumber}`,
-    `<style>
-      /* A4, with generous top/bottom margins reserving blank header/footer
-       * space on every printed page (e.g. for a pre-printed letterhead) —
-       * bond-only, doesn't touch the slip/statement's own page setup. */
-      @page{size:A4;margin:35mm 20mm 30mm 20mm}
-    </style>
-    <h1>AGREEMENT OF PLEDGE OF MOVABLE</h1>
-    <p style="text-align:center;color:#555">Gold Loan Account No. ${loanNumber}</p>
-    <p>MEMORANDUM OF AGREEMENT, made the <b>${dd}</b> day of <b>${monthName}, ${yyyy}</b> BETWEEN</p>
-    <p>
-      <b>${name}</b><br>
-      Age :- <b>${age}</b>, business :- ${B}<br>
-      Aadhar Card No. <b>${aadhaar}</b><br>
-      Pan Card No. <b>${pan}</b><br>
-      Residing at :- <b>${address}</b>
-    </p>
-    <p>(Hereinafter called "the borrower") of the one part.</p>
-    <p>AND</p>
-    <p>
-      <b>${LENDER_NAME}</b><br>
-      Age :- ${B}, business :- ${B}<br>
-      Aadhar Card No. ${B}<br>
-      Pan Card No. ${B}<br>
-      Residing at :- ${B}
-    </p>
-    <p>(Hereinafter called "the lender") of the other part.</p>
-    <p>The lender carrying on business of money-lending under certificate of registration number <b>${LENDER_REG_NO}</b> of the other part.</p>
-    <p>The Money lender and borrower are collectively referred to as the "Parties".</p>
-    <p><b>WHEREBY IT IS AGREED AS FOLLOWS</b></p>
-    <ol>
-      <li><b>Covenant to pay</b><br>In Consideration of the loan of Rs <b>${fmtINR(principal) || B}</b> advance by the lender to the borrower, the borrower hereby covenants with the lender that he will repay the said loan on or before ${B} with interest at <b>${interestRate != null ? interestRate + "%" : B}</b> percent per annum from the date of execution of this agreement.</li>
-      <li><b>Pledge Clause</b><br>The Lender has lent the sum of Rs <b>${fmtINR(principal) || B}</b> (the receipt of which the borrower hereby acknowledges) and borrower has delivered to the lender article belonging to the borrower and specified in the schedule hereto to be held by him as security for the repayment of the aforesaid loan in the manner herein provided,
-        <ol type="a">
-          <li><b>Right to Extraordinary Expenses</b> — The lender is entitled to receive from the borrower extraordinary expenses incurred by him for the preservation of the good pledged.</li>
-          <li><b>Expenses of Repairs</b> — The Expenses of keeping the said articles in a good state of repair and in proper working order.</li>
-          <li><b>Other Costs</b> — All other costs, charges and expenses (if any) which the lender may be entitled by law to add to his security.</li>
-        </ol>
-      </li>
-      <li><b>Lender's Liability for Losses</b><br>The Lender shall not be liable to the borrower for any involuntary losses which may occur during his custody of the said articles (goods) or by reason of the sale thereof.</li>
-      <li><b>Right of Lender</b><br>The Borrower further covenants with the lender that in case any interest payable hereunder is not paid within 30 days after the due date, the whole sum hereby secured shall become payable at once, and in case of default in the payment of the principal money hereby secured with interest thereon on the aforesaid or in the performance of any of the covenants by the borrower hereinbefore contained the lender may enforce all or any of the remedies of a Pawnee provided by law provided that in case of sale of any part of the pledged property, a previous notice of two months shall be given to the borrower.</li>
-      <li><b>Power of Sale</b>
-        <ol type="a">
-          <li>The power of sale conferred by law on the lender shall be exercisable by public auction or private contract in respect of the entire articles in one lot or in several lots at the discretion of the lender;</li>
-          <li>Before exercising such power of sale as aforesaid the lender shall give at least two months' notice to the borrower.</li>
-        </ol>
-      </li>
-      <li><b>Interpretation clause</b><br>It is hereby agreed that wherever such an interpretation would be requisite in order to give the fullest scope and effect legally possible to any covenant herein contained, the expression "the borrower" and "the lender" hereinbefore used include their respective heirs, executors, administrators, and assigns.</li>
-    </ol>
-    <p><b>The Schedule herein referred to</b></p>
+  const customerIdLine =
+    [p.customerId, p.aadhaarLast4 ? `Aadhaar •••• ${p.aadhaarLast4}` : "", p.pan].filter(Boolean).join(" · ") || B;
+
+  const html = `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Release Agreement — ${p.loanNumber}</title><style>
+    ${DOC_STYLE}
+    @page{size:A4;margin:30mm 20mm 25mm 20mm}
+  </style></head><body>
+    <h1>ACKNOWLEDGMENT OF SAFE RECEIPT AND RELEASE OF PLEDGED GOLD</h1>
+    <p><b>Loan Account Number:</b> ${p.loanNumber}<br>
+    <b>Branch Name/Code:</b> ${p.branchName || B}${p.branchCode ? " / " + p.branchCode : ""}<br>
+    <b>Lender Name:</b> ${LENDER_NAME} (KML Reg No. ${LENDER_KML_REG_NO})<br>
+    <b>Borrower Name:</b> ${p.customerName || B}<br>
+    <b>Customer ID / Aadhaar / PAN:</b> ${customerIdLine}</p>
+
+    <h2 style="text-align:left;font-weight:bold;font-size:15px;margin-top:22px">PART A: LENDER DISCHARGE DECLARATION</h2>
+    <p class="muted">(To be filled by the NBFC)</p>
+    <p>We confirm that Loan Account No. <b>${p.loanNumber}</b> availed by Sri/Smt. <b>${p.customerName || B}</b> has been fully repaid and settled on <b>${closureDate}</b>. The pledged collateral detailed below has been unsealed and delivered to the borrower on <b>${deliveryDate}</b>.</p>
+
+    <p><b>Details of Released Collateral:</b></p>
     <table>
-      <thead><tr><th>Sr. no</th><th>Description of the Article</th><th>Carat</th><th class="num">Gross Weight</th><th class="num">Net Weight</th><th class="num">Estimated Value</th></tr></thead>
+      <thead><tr><th>Item No.</th><th>Description of Ornaments</th><th class="num">Quantity</th><th class="num">Gross Wt. (g)</th><th class="num">Net Wt. (g)</th><th>Purity (K)</th><th>Condition</th></tr></thead>
       <tbody>${rows}</tbody>
+      <tfoot><tr><td colspan="2"><b>Total</b></td><td class="num"><b>${totalQty}</b></td><td class="num"><b>${totalGross.toFixed(2)}</b></td><td class="num"><b>${totalNet.toFixed(2)}</b></td><td></td><td></td></tr></tfoot>
     </table>
-    <p><b>Total Estimated Value :- Rs. ${fmtINR(totalValue) || B}/-</b></p>
-    <p><b>Total Loan Advanced :- Rs. ${fmtINR(principal) || B}/-</b></p>
-    <p>Place :- ${branchName}</p>
-    <p>Date :- ${dd} / ${monthName} / ${yyyy}</p>
+
+    <h2 style="text-align:left;font-weight:bold;font-size:15px;margin-top:22px">PART B: BORROWER ACKNOWLEDGMENT</h2>
+    <p class="muted">(To be signed by the Borrower)</p>
+    <p>I, <b>${p.customerName || B}</b>, residing at <b>${p.customerAddress || B}</b>, hereby acknowledge and declare that:</p>
+    <ol>
+      <li>I have physically inspected and weighed all the gold items listed above in the presence of the branch official(s).</li>
+      <li>The returned ornaments match the exact item description, weight, and purity specified in my original Pledge Receipt / Valuation Certificate.</li>
+      <li>I have received all items intact and in satisfactory condition, with no damage, loss, or substitution.</li>
+      <li>By signing this document, I confirm full receipt of my pledged collateral and release the Lender from any further custodial liability for this loan account.</li>
+    </ol>
+    <p><b>Date:</b> ${deliveryDate} &nbsp;&nbsp; <b>Place:</b> ${p.branchName || B}</p>
     <div class="sig">
-      <div>The Borrower<span>Name: ${name}</span></div>
-      <div>The Lender<span>${LENDER_NAME}</span></div>
+      <div><span>(Signature / Thumb Impression of Borrower)</span></div>
     </div>
-    <p style="margin-top:20px"><b>IN WITNESS WHEREOF Etc.</b></p>
+
+    <h2 style="text-align:left;font-weight:bold;font-size:15px;margin-top:22px">PART C: AUTHORIZED SIGNATORY</h2>
+    <p>Delivered in the presence of:</p>
     <div class="sig">
-      <div><span>Name: ${B}<br>Residing at</span></div>
-      <div><span>Name: ${B}<br>Residing at</span></div>
-    </div>`
-  );
+      <div><span>Authorized Signatory / Branch Manager<br>(Seal &amp; Branch Stamp)</span></div>
+    </div>
+
+    <h2 style="text-align:left;font-weight:bold;font-size:14px;margin-top:26px">Essential Rules Before Signing</h2>
+    <ol>
+      <li><b>Inspect First, Sign Second:</b> Always weigh and examine the items on the branch scale before signing. Once signed, proving subsequent loss or alteration is legally difficult.</li>
+      <li><b>Cross-Reference:</b> Compare the net weight and item descriptions against your original pledge card or assay certificate.</li>
+      <li><b>No Blanket Signatures:</b> Never sign a blank or partially pre-filled receipt form.</li>
+    </ol>
+  </body></html>`;
+  await Print.printAsync({ html });
 }
 
 // Fetches a QR PNG from the backend's internal/qr package (no QR-generation
@@ -322,15 +395,14 @@ export async function printPacketLabel(l: Loan) {
     .t .id{font-size:3.4mm;font-weight:bold}
     .t div{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   </style></head><body>
-    <div class="tag">
-      <div class="head">
-        <div class="qrcell"><img src="${qr}" alt="QR"></div>
-        <div class="infocell">
-          <div class="id">${packetLabel}</div>
-          <div class="name">${l.customer?.name || "—"}</div>
-          <div class="meta">${l.loanNumber} · ${(l.totalNetWeight ?? 0).toFixed(1)}g</div>
-          <div class="brand">${BRAND.name.toUpperCase()}</div>
-        </div>
+    <div class="label">
+      <img src="${qr}" alt="QR">
+      <div class="t">
+        <div class="brand">${BRAND.name.toUpperCase()}</div>
+        <div class="id">${l.loanNumber} · ${packetLabel}</div>
+        <div>${l.customer?.name || "—"}</div>
+        <div>${l.customer?.code || l.customer?.id || "—"} · ${l.customer?.phone || ""}</div>
+        <div>${new Date().toLocaleDateString("en-IN")} · ${(l.totalNetWeight ?? 0).toFixed(1)} g · ${(l.ornaments ?? []).length} item(s)</div>
       </div>
       <div class="strap"></div>
     </div>

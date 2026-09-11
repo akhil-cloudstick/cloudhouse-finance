@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { BRAND } from "@/common/config/brand";
+import { useBranding } from "@/common/BrandingProvider";
 import BrandMark from "@/common/components/BrandMark";
 
 /* The brand seal, as used by the sidebar, the three auth pages and the
@@ -25,7 +26,20 @@ type Props = {
 };
 
 export default function BrandLogo({ size = 46, className }: Props) {
-  const [failed, setFailed] = useState(false);
+  /* The signed-in business's own logo, falling back to the platform mark
+   * when it has none. Two fallbacks stack: no logoUrl at all (here), and a
+   * logoUrl that fails to load (onError below).
+   *
+   * `failed` is keyed on src so it resets when the logo changes. Without
+   * that, one business's broken logo would leave the flag stuck on and the
+   * next business signed into the same tab would render the platform mark
+   * even though its own logo is fine. */
+  const { logoUrl, legalName } = useBranding();
+  const src = logoUrl || BRAND.markSrc;
+  const alt = legalName || BRAND.legalName;
+
+  const [failedSrc, setFailedSrc] = useState<string | null>(null);
+  const failed = failedSrc === src;
 
   if (failed) {
     return (
@@ -36,22 +50,22 @@ export default function BrandLogo({ size = 46, className }: Props) {
         // raster, and it has to read on both the violet sidebar and the
         // white auth panels, neither of which shares a text colour.
         gradient
-        title={BRAND.legalName}
+        title={alt}
       />
     );
   }
 
   return (
     <img
-      src={BRAND.markSrc}
-      alt={BRAND.legalName}
+      src={src}
+      alt={alt}
       className={className}
       width={size}
       height={size}
       // contain, so a non-square asset keeps its aspect ratio instead of
       // being stretched to the square box.
       style={{ objectFit: "contain", flexShrink: 0 }}
-      onError={() => setFailed(true)}
+      onError={() => setFailedSrc(src)}
     />
   );
 }

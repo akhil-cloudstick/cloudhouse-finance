@@ -37,7 +37,7 @@ func TestAllocatePayment_TypeStopsAtItsOwnBucket(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			l := loanOwing(50_000, 4_000, 1_000, 500)
-			fee, penal, interest, principal, err := allocatePayment(l, tc.paymentType, tc.amount)
+			fee, penal, interest, principal, err := allocatePayment(l, tc.paymentType, tc.amount, nil)
 			if err != tc.wantErr {
 				t.Fatalf("error = %v, want %v", err, tc.wantErr)
 			}

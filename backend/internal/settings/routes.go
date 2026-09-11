@@ -10,7 +10,14 @@ import (
 // (expected to be something like r.Group("/api/v1/settings/api-keys")).
 // perms gates each verb by CRUD action against the "settings" resource —
 // deliberately gated since this holds sensitive integration API keys.
-func RegisterRoutes(rg *gin.RouterGroup, h *Handler, perms platform.CRUDMiddlewares) {
+//
+// moduleGate is platform.RequireTenantModule for the "settings" optional
+// module, applied to the WHOLE group including reads. Unlike branches, this
+// page is self-contained: nothing else in the app reads the integration keys
+// through this API, so hiding it hides a feature rather than breaking one.
+func RegisterRoutes(rg *gin.RouterGroup, h *Handler, perms platform.CRUDMiddlewares, moduleGate gin.HandlerFunc) {
+	rg.Use(moduleGate)
+
 	rg.GET("", perms.Read, h.List)
 	rg.GET("/:category", perms.Read, h.Get)
 	rg.PUT("/:category", perms.Update, h.Set)

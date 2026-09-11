@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "CloudHouse Gold",
+    "name": "CloudHouse",
     "slug": "cloudhousecustomer",
     "owner": "cloudhouse-team",
     "version": "1.0.0",
@@ -44,7 +44,7 @@
       [
         "expo-local-authentication",
         {
-          "faceIDPermission": "Allow CloudHouse Gold Finance to use Face unlock to sign you in."
+          "faceIDPermission": "Allow CloudHouse Finance to use Face unlock to sign you in."
         }
       ],
       "expo-web-browser"

@@ -47,6 +47,7 @@ import (
 
 	"cloudhouse/backend/internal/migrate"
 	"cloudhouse/backend/internal/platform"
+	"cloudhouse/backend/internal/tenant"
 	"cloudhouse/backend/internal/upload"
 )
 
@@ -315,10 +316,22 @@ func (h *harness) newBusiness(t *testing.T, code string) *business {
 		tokens:  map[string]string{},
 	}
 
+	// Every optional module enabled, for exactly the reason every permission
+	// is granted above: it removes the ENTITLEMENT layer from the experiment
+	// so that anything the harness gets back is the isolation boundary's own
+	// doing. Left at the default (none enabled), the module gate would answer
+	// 403 before a handler ever ran, and a probe that never reaches the
+	// handler proves nothing about tenant isolation.
+	//
+	// Built from tenant.KnownModules rather than a literal, so a module added
+	// later is covered here without anyone remembering to update this file.
+	allModules := strings.Join(tenant.KnownModules, ",")
+	allLanguages := strings.Join(tenant.KnownLanguages, ",")
+
 	if err := h.db.WithContext(ctx).Raw(`
-		INSERT INTO tenants (name, code, tier_id, status, created_at, updated_at)
-		VALUES (?, ?, ?, 'active', now(), now()) RETURNING id`,
-		b.name, b.code, tierID).Scan(&b.id).Error; err != nil {
+		INSERT INTO tenants (name, code, tier_id, status, enabled_modules, document_languages, created_at, updated_at)
+		VALUES (?, ?, ?, 'active', ?, ?, now(), now()) RETURNING id`,
+		b.name, b.code, tierID, allModules, allLanguages).Scan(&b.id).Error; err != nil {
 		t.Fatalf("create tenant: %v", err)
 	}
 
@@ -1468,9 +1481,16 @@ func TestBranchQuotaIsEnforced(t *testing.T) {
 	}
 
 	suffix := fmt.Sprintf("quotaprobe%d", time.Now().UnixNano())
+	// "modules" grants the branches module at creation time. Without it the
+	// branch-management routes answer 403 (not enabled for this business)
+	// and this test could never reach the quota check it exists to prove —
+	// the entitlement gate runs ahead of the quota gate by design, since
+	// there is no point counting branches for a business that does not
+	// administer them.
 	createBody := fmt.Sprintf(`{
 		"name": "Quota Probe Co", "code": %q, "tierId": %d,
 		"adminUsername": "admin", "adminPassword": "correcthorsebattery",
+		"modules": ["branches"],
 		"reason": "isolation harness quota-enforcement proof"
 	}`, suffix, starterID)
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/superadmin/businesses", strings.NewReader(createBody))

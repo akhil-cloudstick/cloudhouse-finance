@@ -550,7 +550,7 @@ func (d *pdfDoc) masthead() {
 	d.pdf.SetY(15)
 	d.pdf.SetTextColor(pdfInk[0], pdfInk[1], pdfInk[2])
 	d.pdf.SetFont(pdfFace, "B", 17)
-	d.pdf.CellFormat(0, 8, "CLOUDHOUSE GOLD FINANCE", "", 1, "C", false, 0, "")
+	d.pdf.CellFormat(0, 8, "CLOUDHOUSE Finance", "", 1, "C", false, 0, "")
 	d.pdf.SetFont(pdfFace, "", 12)
 	d.pdf.SetTextColor(pdfSubtitle[0], pdfSubtitle[1], pdfSubtitle[2])
 	d.pdf.CellFormat(0, 7, d.title, "", 1, "C", false, 0, "")

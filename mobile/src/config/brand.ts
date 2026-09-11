@@ -1,4 +1,4 @@
-/* CloudHouse Gold Finance — single source of truth for every brand string and
+/* CloudHouse Finance — single source of truth for every brand string and
  * logo asset in this app.
  *
  * Mirrors frontend/common/config/brand.ts. The two are separate files because
@@ -9,11 +9,11 @@
 
 export const BRAND = {
   /** Display name for chrome and drawer footers. */
-  name: "CloudHouse Gold Finance",
+  name: "CloudHouse Finance",
   /** Compact form for tight spots — tab titles, headers, splash. */
   shortName: "CloudHouse",
   /** Full legal name — print headers, copyright, payment sheets. */
-  legalName: "CloudHouse Gold Finance",
+  legalName: "CloudHouse Finance",
   descriptor: "Gold Loans & Finance",
   /* Kerala Money Lenders registration — required on customer documents.
    * DEMO VALUES: replace both with CloudHouse's real registration before

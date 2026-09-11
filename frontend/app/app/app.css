@@ -1,56 +1,100 @@
-/* CloudHouse Gold Finance — admin UI design system.
+/* CloudHouse Finance — admin UI design system.
    Originally ported from legacy/app.css and re-themed twice; the :root ramp
    below is the only place a brand colour is defined, and every rule reads
    from it. Layout, class names and breakpoints are unchanged from the port —
    each re-theme deliberately touched colour and type only, because the
    responsive rules further down are annotated fixes for specific components
    at specific widths and do not survive being "tidied". */
+/* Colour space: oklch throughout, matching the Cloudhouse Staff POS palette
+   this ramp is ported from — same values, so the two apps stay diffable. The
+   sRGB hex in each trailing comment is not decoration: print templates open
+   via document.write (no CSS custom properties), the body::before data-URI
+   needs a URL-encoded literal, and BrandMark.tsx renders inline SVG stops, so
+   those three surfaces consume the hex instead. Chroma is clamped to the sRGB
+   gamut ceiling where noted — above it the browser gamut-maps unpredictably
+   and Chrome and Safari disagree, which would desync the hex mirrors. */
 :root {
-  /* Brand — the magenta at the heart of the CloudHouse cloud, darkest to
-     lightest. --brand is the primary: buttons, links, focus, headings.
-     --brand-mid is the logo's own core magenta, kept for fills rather than
-     text because it only just clears AA on white. */
-  --brand-deep: #8a0f5c;
-  --brand: #c0177a;
-  --brand-mid: #d91786;
-  --brand-light: #f2a3d0;
-  --brand-pale: #fce4f1;
-  --brand-faint: #fdf4f9;
+  /* Brand — the violet end of the logo's own cloud sweep, hue 284 the whole
+     way down. --brand is the primary: buttons, links, focus, headings.
+     --brand-mid is deliberately LIGHTER than --brand: it is a fill (tabs,
+     selected days, the two hairline gradients), never text, and it only
+     reaches 4.49 on white.
 
-  /* Violet — the dark grounds: sidebar, toast, print rules. Taken from the
-     top-left of the logo's sweep, so the chrome and the mark share a hue. */
-  --nav: #2b1a5e;
-  --nav-2: #45248f;
+     Sampled, not invented: the mark at public/cloudhouse-mark.png is a raster
+     and cannot be recoloured, so the chrome is pulled FROM it instead. Its
+     opaque pixels bucket by hue as ~57% magenta (315-345), ~12% amber (15-45)
+     and ~19% violet (240-300); --brand is the mean of that violet band,
+     #6054bf = oklch(0.515 0.162 284).
 
-  /* Accent — the orange the logo's gradient lands on. Deliberately rationed:
-     the rate chip, loan-amount emphasis, and a hairline rule on the login
-     card and document headers. Structure is never accent-coloured. */
-  --accent: #ef7f28;
-  --accent-deep: #a85205;
-  --accent-pale: #fdeeda;
+     Note the chroma: 0.162, where the previous magenta primary ran 0.22. That
+     26% drop is the whole point — the logo's violet is genuinely more muted
+     than its magenta, so taking the primary from here reads as considered
+     rather than neon, without leaving the logo's palette. Do not "restore"
+     these to max chroma; the restraint is deliberate. */
+  --brand-deep:  oklch(0.40  0.145 284);  /* #423591  darker step for links/headings, 9.73 on white */
+  --brand:       oklch(0.515 0.162 284);  /* #6054bf  the logo's own violet, 5.96 on white          */
+  --brand-mid:   oklch(0.58  0.15  284);  /* #726acf  derived — fill step above --brand             */
+  --brand-light: oklch(0.75  0.10  284);  /* #a6a5eb  derived on 284                                */
+  --brand-pale:  oklch(0.955 0.020 284);  /* #eeeffe  derived on 284                                */
+  --brand-faint: oklch(0.983 0.008 284);  /* #f9f9ff  derived (C at gamut ceiling)                  */
 
-  /* The logo's full violet → magenta → orange sweep. Brand moments only
-     (login panel, sidebar rail, topbar hairline) — never behind body text. */
-  --brand-gradient: linear-gradient(135deg, #6855bc 0%, #d91786 52%, #f49e35 100%);
+  /* The dark grounds: sidebar, toast, print rules — POS's near-black sidebar.
+     --nav-2 is set EQUAL to --nav on purpose. Its only two consumers are the
+     nav-2 → nav gradients on .side and .login-page .brand-panel, so making the
+     two stops identical renders both surfaces flat (matching POS's flat rail)
+     without touching either gradient's angle or stop count. */
+  --nav:   oklch(0.14 0.025 285);         /* #080813  POS sidebar        */
+  --nav-2: oklch(0.14 0.025 285);         /* #080813  = --nav (flat)     */
+
+  /* Accent — the amber POS's gradient lands on. NOTE: all three currently have
+     zero var() consumers; they survive only to feed PRINT_COLORS. */
+  --accent:      oklch(0.76 0.17  65);    /* #f99603  POS brand-amber   */
+  --accent-deep: oklch(0.48 0.107 65);    /* #864f02  derived, in gamut */
+  --accent-pale: oklch(0.96 0.027 65);    /* #ffefdf  derived           */
+
+  /* The full violet → magenta → amber sweep. Brand moments only (login panel,
+     sidebar rail, topbar hairline) — never behind body text. Same geometry as
+     POS's own brand gradient: 135deg, three stops at 0/52/100%. */
+  --brand-gradient: linear-gradient(135deg,
+      oklch(0.52 0.22 286) 0%,            /* #6644de  POS brand-violet */
+      oklch(0.56 0.22 346) 52%,           /* #c61f8f  POS primary      */
+      oklch(0.76 0.17 65) 100%);          /* #f99603  POS brand-amber  */
 
   /* Neutrals — very slightly violet, so they sit under the sidebar rather
-     than fighting it. */
-  --ink: #16233d;
-  --muted: #64748b;
-  --bg: #f7f6fb;
-  --card: #ffffff;
-  --line: #e9e4f2;
+     than fighting it. --bg is POS's surface-2 rather than its background: the
+     cards here are white on a tinted page and need that tonal step to read as
+     raised, where POS's own background sits only 1.05:1 off its card and gets
+     away with it because every POS card is bordered. */
+  --ink:   oklch(0.18  0.02  285);        /* #11101a  POS foreground       */
+  --muted: oklch(0.50  0.02  285);        /* #62626f  POS muted-foreground  */
+  --bg:    oklch(0.972 0.004 290);        /* #f6f5f8  POS surface-2        */
+  --card:  oklch(1 0 0);                  /* #ffffff  POS card             */
+  --line:  oklch(0.915 0.006 290);        /* #e3e2e7  POS border/input     */
 
-  /* Status. --info is teal, not blue, so "informational" cannot be
-     mistaken for a brand tone at a glance. */
-  --green: #157f4a;
-  --green-bg: #e6f5ed;
-  --red: #c0392b;
-  --red-bg: #fcebe9;
-  --amber: #b57a0a;
-  --amber-bg: #fdf3dc;
-  --info: #0e7490;
-  --info-bg: #e0f2f7;
+  /* Status. Lightness is capped near 0.52 — POS uses these as solid fills
+     behind white text, but here they are ~11px chip TEXT on the pale -bg
+     companion, so POS's own L values land at 2.0-4.1:1 and fail AA. These
+     clear 4.5:1 on both the pale bg and a white card. --info is blue rather
+     than POS's absent token; with the brand now pink there is no collision. */
+  --green:    oklch(0.51 0.14  150);      /* #017b37  4.72 on --green-bg */
+  --green-bg: oklch(0.95 0.040 150);      /* #dcf7e1 */
+  --red:      oklch(0.52 0.20  25);       /* #c21725  5.24 on --red-bg   */
+  --red-bg:   oklch(0.95 0.025 25);       /* #ffe8e6  C at gamut ceiling */
+  --amber:    oklch(0.53 0.114 70);       /* #955e02  4.81 on --amber-bg */
+  --amber-bg: oklch(0.96 0.029 70);       /* #ffefdd  C at gamut ceiling */
+  --info:     oklch(0.52 0.119 240);      /* #0070a6  4.85 on --info-bg  */
+  --info-bg:  oklch(0.96 0.021 240);      /* #e6f4ff  C at gamut ceiling */
+
+  /* Two decorations whose colour lives inside a data-URI SVG, where it must
+     be a URL-encoded LITERAL — a url() cannot interpolate a var(). Rather
+     than leaving the brand hex stranded in two rules, the whole url() is a
+     variable: the values here are the platform default, and
+     applyBrandTheme (common/config/theme.ts) rewrites both with the
+     business's own derived hex on mount. Both are subtle enough (a 3.5%
+     page pattern, a 10x6px caret) that the one frame before that runs is
+     imperceptible, which is why the pre-paint script skips them. */
+  --page-pattern: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120' viewBox='0 0 120 120'%3E%3Cg fill='none' stroke='%236054bf' stroke-width='0.5' opacity='0.035'%3E%3Cpath d='M60 8 L112 60 L60 112 L8 60 Z'/%3E%3Ccircle cx='60' cy='60' r='14'/%3E%3C/g%3E%3C/svg%3E");
+  --select-caret: url("data:image/svg+xml;utf8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%236054bf' stroke-width='1.6' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
 
   --sidebar-w: 248px;
 }
@@ -74,7 +118,7 @@ body::before {
   position: fixed;
   inset: 0;
   z-index: 0;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120' viewBox='0 0 120 120'%3E%3Cg fill='none' stroke='%23c0177a' stroke-width='0.5' opacity='0.035'%3E%3Cpath d='M60 8 L112 60 L60 112 L8 60 Z'/%3E%3Ccircle cx='60' cy='60' r='14'/%3E%3C/g%3E%3C/svg%3E");
+  background-image: var(--page-pattern);
   pointer-events: none;
 }
 
@@ -111,7 +155,7 @@ h3,
   background:
     var(--brand-gradient) top left / 100% 3px no-repeat,
     linear-gradient(180deg, var(--nav-2) 0%, var(--nav) 100%);
-  color: #ded1f3;
+  color: oklch(0.95 0.006 290);
   display: flex;
   flex-direction: column;
   position: fixed;
@@ -119,7 +163,7 @@ h3,
   bottom: 0;
   left: 0;
   z-index: 40;
-  border-right: 1px solid rgba(192, 23, 122, .28);
+  border-right: 1px solid oklch(1 0 0 / 7%);
 }
 
 /* One horizontal lockup: logo, then a text column. 20px left matches
@@ -153,13 +197,13 @@ h3,
 }
 
 /* Sits directly under the monogram on the same left edge. Wraps to a second
- * line rather than clipping — at this column width "CLOUDHOUSE GOLD FINANCE"
+ * line rather than clipping — at this column width "CLOUDHOUSE FINANCE"
  * breaks after the first word, which is a natural place for it. */
 .side .brand-full {
   font-size: 8.4px;
   letter-spacing: .1em;
   text-transform: uppercase;
-  color: #8fa3c4;
+  color: oklch(0.95 0.006 290 / 55%);
   line-height: 1.45;
 }
 
@@ -222,7 +266,7 @@ h3,
 }
 
 .nav::-webkit-scrollbar-thumb {
-  background: rgba(192, 23, 122, .3);
+  background: color-mix(in oklab, var(--brand) 30%, transparent);
   border-radius: 3px
 }
 
@@ -230,7 +274,7 @@ h3,
   font-size: 9.5px;
   letter-spacing: .3em;
   text-transform: uppercase;
-  color: #55637d;
+  color: oklch(0.95 0.006 290 / 50%);
   padding: 16px 20px 7px;
 }
 
@@ -241,7 +285,7 @@ h3,
   padding: 9px 18px;
   margin: 1px 10px;
   border-radius: 6px;
-  color: #ded1f3;
+  color: oklch(0.95 0.006 290 / 70%);
   text-decoration: none;
   font-size: 14px;
   letter-spacing: .02em;
@@ -257,14 +301,14 @@ h3,
 }
 
 .nav a:hover {
-  background: rgba(192, 23, 122, .1);
-  color: #dbe6fb
+  background: oklch(0.20 0.03 285 / 60%);
+  color: oklch(0.95 0.006 290)
 }
 
 .nav a.on {
-  background: linear-gradient(90deg, rgba(192, 23, 122, .22), rgba(192, 23, 122, .08));
-  border-color: rgba(192, 23, 122, .35);
-  color: #dbe6fb;
+  background: linear-gradient(90deg, oklch(0.20 0.03 285), oklch(0.20 0.03 285));
+  border-color: oklch(1 0 0 / 7%);
+  color: oklch(0.99 0 0);
 }
 
 .nav a.on svg {
@@ -274,8 +318,8 @@ h3,
 .nav a .pill {
   margin-left: auto;
   font-size: 10.5px;
-  background: rgba(192, 23, 122, .25);
-  color: #dbe6fb;
+  background: oklch(0.20 0.03 285);
+  color: oklch(0.95 0.006 290);
   border-radius: 9px;
   padding: 1px 7px;
 }
@@ -290,7 +334,7 @@ h3,
   border-top: 1px solid rgba(255, 255, 255, .08);
   font-size: 10.5px;
   letter-spacing: .16em;
-  color: #55637d;
+  color: oklch(0.95 0.006 290 / 50%);
   white-space: nowrap;
 }
 
@@ -320,7 +364,7 @@ h3,
   align-items: center;
   gap: 16px;
   padding: 13px 26px;
-  background: rgba(245, 247, 251, .92);
+  background: oklch(0.972 0.004 290 / .92);
   backdrop-filter: blur(6px);
   border-bottom: 1px solid var(--line);
   width: 100%;
@@ -393,7 +437,7 @@ h3,
 
 .gsearch input:focus {
   border-color: var(--brand);
-  box-shadow: 0 0 0 3px rgba(192, 23, 122, .15)
+  box-shadow: 0 0 0 3px color-mix(in oklab, var(--brand) 15%, transparent)
 }
 
 .gsearch kbd {
@@ -407,7 +451,7 @@ h3,
   border: 1px solid var(--line);
   border-radius: 4px;
   padding: 1px 6px;
-  background: #fdf9fc;
+  background: var(--brand-faint);
   pointer-events: none;
 }
 
@@ -428,7 +472,7 @@ h3,
 .gsearch-trigger:hover {
   border-color: var(--brand);
   color: var(--brand-deep);
-  background: #fdf9fc;
+  background: var(--brand-faint);
 }
 
 .gsearch-trigger svg {
@@ -470,7 +514,7 @@ h3,
   background: var(--bg);
   border: 1px solid var(--line);
   border-radius: 10px;
-  box-shadow: 0 24px 60px -18px rgba(10, 23, 56, .4);
+  box-shadow: 0 24px 60px -18px color-mix(in oklab, var(--nav) 40%, transparent);
   max-height: 420px;
   overflow-y: auto;
   z-index: 60;
@@ -501,7 +545,7 @@ h3,
 
 .gs-results a:hover,
 .gs-results a.sel {
-  background: #eef3fc
+  background: var(--brand-pale)
 }
 
 .gs-results a.disabled {
@@ -519,7 +563,7 @@ h3,
   height: 30px;
   border-radius: 7px;
   flex-shrink: 0;
-  background: #fce4f1;
+  background: var(--brand-pale);
   color: var(--brand-deep);
   display: grid;
   place-content: center;
@@ -657,7 +701,7 @@ h3,
   background: var(--bg);
   border: 1px solid var(--line);
   border-radius: 10px;
-  box-shadow: 0 24px 60px -18px rgba(10, 23, 56, .4);
+  box-shadow: 0 24px 60px -18px color-mix(in oklab, var(--nav) 40%, transparent);
   z-index: 60;
   padding: 6px;
 }
@@ -674,7 +718,7 @@ h3,
 }
 
 .docs-dd-menu a:hover {
-  background: #eef3fc
+  background: var(--brand-pale)
 }
 
 .docs-dd-menu a.disabled {
@@ -870,7 +914,7 @@ h3,
   background: var(--card);
   border: 1px solid var(--line);
   border-radius: 10px;
-  box-shadow: 0 24px 60px -18px rgba(10, 23, 56, .4);
+  box-shadow: 0 24px 60px -18px color-mix(in oklab, var(--nav) 40%, transparent);
   padding: 12px;
 }
 
@@ -916,7 +960,7 @@ h3,
 }
 
 .dp-title:hover {
-  background: #fdf4f9;
+  background: var(--brand-faint);
   color: var(--brand-deep)
 }
 
@@ -943,7 +987,7 @@ h3,
 }
 
 .dp-year:hover:not(:disabled) {
-  background: #eef3fc
+  background: var(--brand-pale)
 }
 
 .dp-year.today {
@@ -977,7 +1021,7 @@ h3,
 }
 
 .dp-nav:hover {
-  background: #fdf4f9
+  background: var(--brand-faint)
 }
 
 .dp-grid {
@@ -1005,7 +1049,7 @@ h3,
 }
 
 .dp-day:hover:not(:disabled) {
-  background: #eef3fc
+  background: var(--brand-pale)
 }
 
 .dp-day.today {
@@ -1042,7 +1086,7 @@ h3,
   display: flex;
   align-items: center;
   gap: 9px;
-  background: linear-gradient(180deg, #fdf9fc, #fce4f1);
+  background: linear-gradient(180deg, var(--brand-faint), var(--brand-pale));
   border: 1px solid var(--line);
   border-radius: 20px;
   padding: 5px 14px 5px 9px;
@@ -1056,7 +1100,7 @@ h3,
   height: 7px;
   border-radius: 50%;
   background: var(--green);
-  box-shadow: 0 0 0 3px rgba(21, 127, 74, .18)
+  box-shadow: 0 0 0 3px color-mix(in oklab, var(--green) 18%, transparent)
 }
 
 .top .rate-chip b {
@@ -1075,12 +1119,12 @@ h3,
   height: 32px;
   border-radius: 50%;
   background: linear-gradient(135deg, var(--brand-light), var(--brand-deep));
-  color: #2b1a5e;
+  color: var(--nav);
   display: grid;
   place-content: center;
   font-weight: 600;
   font-size: 13px;
-  box-shadow: 0 0 0 2px #fff, 0 0 0 3px rgba(192, 23, 122, .4);
+  box-shadow: 0 0 0 2px #fff, 0 0 0 3px color-mix(in oklab, var(--brand) 40%, transparent);
 }
 
 .top .user .nm {
@@ -1107,7 +1151,7 @@ h3,
 
 .top .logout:hover {
   color: var(--red);
-  border-color: #f0c8c2
+  border-color: oklch(0.86 0.06 25)
 }
 
 /* No max-width — the page stretches to the full available width (up to
@@ -1401,9 +1445,9 @@ h3,
   background: rgba(255, 255, 255, .68);
   backdrop-filter: blur(16px) saturate(170%);
   -webkit-backdrop-filter: blur(16px) saturate(170%);
-  border: 1px solid rgba(192, 23, 122, .25);
+  border: 1px solid color-mix(in oklab, var(--brand) 25%, transparent);
   border-radius: 12px;
-  box-shadow: 0 8px 30px -10px rgba(43, 26, 94, .12), 0 1.5px 3px rgba(0, 0, 0, .02), inset 0 1px 1px rgba(255, 255, 255, .88);
+  box-shadow: 0 8px 30px -10px color-mix(in oklab, var(--nav) 12%, transparent), 0 1.5px 3px rgba(0, 0, 0, .02), inset 0 1px 1px rgba(255, 255, 255, .88);
   position: relative;
   /* Flex column so `.ft` always settles at the card's bottom edge — even
    * when a CSS grid row stretches this card taller than its own content
@@ -1432,7 +1476,7 @@ h3,
   align-items: center;
   gap: 10px;
   padding: 14px 18px 12px;
-  border-bottom: 1px solid rgba(192, 23, 122, .15);
+  border-bottom: 1px solid color-mix(in oklab, var(--brand) 15%, transparent);
   background: rgba(255, 255, 255, .25);
   border-radius: 12px 12px 0 0;
 }
@@ -1455,7 +1499,7 @@ h3,
 
 .card .ft {
   padding: 10px 18px;
-  border-top: 1px solid rgba(192, 23, 122, .15);
+  border-top: 1px solid color-mix(in oklab, var(--brand) 15%, transparent);
   font-size: 12.5px;
   color: var(--muted);
   background: rgba(255, 255, 255, .2);
@@ -1477,12 +1521,12 @@ h3,
   background: rgba(255, 255, 255, .72);
   backdrop-filter: blur(14px) saturate(160%);
   -webkit-backdrop-filter: blur(14px) saturate(160%);
-  border: 1px solid rgba(192, 23, 122, .25);
+  border: 1px solid color-mix(in oklab, var(--brand) 25%, transparent);
   border-radius: 12px;
   padding: 13px 15px;
   position: relative;
   overflow: hidden;
-  box-shadow: 0 6px 20px -6px rgba(43, 26, 94, .1), inset 0 1px 1px rgba(255, 255, 255, .9);
+  box-shadow: 0 6px 20px -6px color-mix(in oklab, var(--nav) 10%, transparent), inset 0 1px 1px rgba(255, 255, 255, .9);
   transition: all .15s ease;
 }
 
@@ -1575,7 +1619,7 @@ h3,
 }
 
 .kpi.warn::after {
-  background: linear-gradient(180deg, #e0745f, #c0392b)
+  background: linear-gradient(180deg, oklch(0.65 0.16 25), var(--red))
 }
 
 /* Dashboard's KPI tiles link out to the page that explains them (Loans
@@ -1602,7 +1646,7 @@ h3,
 }
 
 .kpi.ok::after {
-  background: linear-gradient(180deg, #4bab7a, #157f4a)
+  background: linear-gradient(180deg, oklch(0.68 0.13 150), var(--green))
 }
 
 /* ── buttons / inputs ───────────────────── */
@@ -1618,7 +1662,7 @@ h3,
   cursor: pointer;
   background: var(--brand);
   padding: 9px 18px;
-  box-shadow: 0 1px 2px rgba(43, 26, 94, .12), 0 6px 14px -8px rgba(43, 26, 94, .35);
+  box-shadow: 0 1px 2px color-mix(in oklab, var(--nav) 12%, transparent), 0 6px 14px -8px color-mix(in oklab, var(--nav) 35%, transparent);
   transition: filter .15s, transform .12s;
   display: inline-flex;
   align-items: center;
@@ -1660,7 +1704,7 @@ h3,
 }
 
 .btn.ghost:hover {
-  background: #fdf4f9
+  background: var(--brand-faint)
 }
 
 .btn.sm {
@@ -1672,12 +1716,12 @@ h3,
 .btn.danger {
   background: #fff;
   color: var(--red);
-  border-color: #e9a79f;
+  border-color: oklch(0.80 0.09 25);
   box-shadow: none
 }
 
 .btn.danger:hover {
-  background: #fdf1ef
+  background: oklch(0.96 0.020 25)
 }
 
 .btn.plain {
@@ -1739,7 +1783,7 @@ textarea.inp {
 
 .inp:focus {
   border-color: var(--brand);
-  box-shadow: 0 0 0 3px rgba(192, 23, 122, .15)
+  box-shadow: 0 0 0 3px color-mix(in oklab, var(--brand) 15%, transparent)
 }
 
 /* PurityPicker's Karat/Fineness search field sits beside a stacked
@@ -2028,7 +2072,7 @@ select.inp {
   -webkit-appearance: none;
   -moz-appearance: none;
   background-color: #fff;
-  background-image: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="10" height="6" viewBox="0 0 10 6"><path d="M1 1l4 4 4-4" stroke="%23c0177a" stroke-width="1.6" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>');
+  background-image: var(--select-caret);
   background-repeat: no-repeat;
   background-position: right 12px center;
   background-size: 10px 6px;
@@ -2037,7 +2081,7 @@ select.inp {
 }
 
 select.inp:disabled {
-  background-color: #fdf4f9;
+  background-color: var(--brand-faint);
   cursor: not-allowed
 }
 
@@ -2169,7 +2213,7 @@ table.tbl {
 
 .tbl td {
   padding: 11px 14px;
-  border-bottom: 1px solid rgba(225, 231, 242, .45);
+  border-bottom: 1px solid oklch(0.915 0.006 290 / .45);
   vertical-align: middle;
   background: rgba(255, 255, 255, .15)
 }
@@ -2210,7 +2254,7 @@ table.tbl {
 }
 
 .tbl tbody tr:hover {
-  background: rgba(247, 250, 254, .7)
+  background: oklch(0.972 0.004 290 / .7)
 }
 
 .tbl tr.click {
@@ -2301,13 +2345,13 @@ table.tbl {
 }
 
 .chip.brand {
-  background: #fce4f1;
+  background: var(--brand-pale);
   color: var(--brand-deep)
 }
 
 .chip.gray {
-  background: #eef1f7;
-  color: #55637d
+  background: oklch(0.962 0.004 290);
+  color: var(--muted)
 }
 
 /* "Verified" pill next to a customer's name in the customer pickers
@@ -2363,7 +2407,7 @@ table.tbl {
   font-size: 12.5px;
   padding: 7px 16px;
   cursor: pointer;
-  border: 1px solid rgba(192, 23, 122, .3);
+  border: 1px solid color-mix(in oklab, var(--brand) 30%, transparent);
   background: rgba(255, 255, 255, .8);
   backdrop-filter: blur(10px);
   -webkit-backdrop-filter: blur(10px);
@@ -2383,10 +2427,10 @@ table.tbl {
 }
 
 .tabs button.on {
-  background: linear-gradient(180deg, #f2a3d0 0%, #8a0f5c 100%);
+  background: linear-gradient(180deg, var(--brand-light) 0%, var(--brand-deep) 100%);
   color: #fff;
   border-color: var(--brand-deep);
-  box-shadow: 0 4px 14px rgba(69, 36, 143, .35), inset 0 1px 0 rgba(255, 255, 255, .4);
+  box-shadow: 0 4px 14px color-mix(in oklab, var(--nav-2) 35%, transparent), inset 0 1px 0 rgba(255, 255, 255, .4);
   font-weight: 600;
 }
 
@@ -2476,7 +2520,7 @@ table.tbl {
   place-content: center;
   font-size: 10px;
   font-weight: 700;
-  color: #2b2001;
+  color: oklch(0.25 0.05 70);
 }
 
 .esign-lang-card.sel {
@@ -2511,7 +2555,7 @@ table.tbl {
 }
 
 .esign-deliver-card:hover {
-  background: #fdfbf5;
+  background: oklch(0.98 0.012 70);
 }
 
 .esign-deliver-card.sel {
@@ -2609,7 +2653,7 @@ table.tbl {
 .modal-bg {
   position: fixed;
   inset: 0;
-  background: rgba(43, 26, 94, .55);
+  background: color-mix(in oklab, var(--nav) 55%, transparent);
   backdrop-filter: blur(3px);
   display: none;
   align-items: flex-start;
@@ -2629,7 +2673,7 @@ table.tbl {
   border: 1px solid var(--line);
   width: 100%;
   max-width: 520px;
-  box-shadow: 0 30px 80px -20px rgba(8, 18, 45, .6);
+  box-shadow: 0 30px 80px -20px color-mix(in oklab, var(--nav) 60%, transparent);
   position: relative;
   animation: pop .22s ease;
 }
@@ -2713,7 +2757,7 @@ table.tbl {
   display: flex;
   align-items: center;
   padding: 18px 22px 12px;
-  border-bottom: 1px solid #e9e4f2
+  border-bottom: 1px solid var(--line)
 }
 
 .modal .hd h3 {
@@ -2742,7 +2786,7 @@ table.tbl {
 
 .modal .ft {
   padding: 14px 22px;
-  border-top: 1px solid #e9e4f2;
+  border-top: 1px solid var(--line);
   display: flex;
   gap: 10px;
   justify-content: flex-end
@@ -2760,7 +2804,7 @@ table.tbl {
   border-radius: 8px;
   padding: 13px 14px;
   text-align: center;
-  background: linear-gradient(180deg, #ffffff, #eef3fc);
+  background: linear-gradient(180deg, var(--card), oklch(0.972 0.004 290));
 }
 
 .rate-tile .k {
@@ -2792,7 +2836,7 @@ table.tbl {
   align-items: center;
   gap: 11px;
   padding: 10px 2px;
-  border-bottom: 1px solid #e8edf6;
+  border-bottom: 1px solid var(--line);
   font-size: 13.5px;
 }
 
@@ -2807,7 +2851,7 @@ table.tbl {
   display: grid;
   place-content: center;
   flex-shrink: 0;
-  background: #fce4f1;
+  background: var(--brand-pale);
   color: var(--brand-deep);
 }
 
@@ -2907,7 +2951,7 @@ table.tbl {
   inset: 20px;
   border-radius: 50%;
   background: var(--card);
-  box-shadow: inset 0 1px 4px rgba(43, 26, 94, .15);
+  box-shadow: inset 0 1px 4px color-mix(in oklab, var(--nav) 15%, transparent);
 }
 
 .donut .c {
@@ -2976,7 +3020,7 @@ table.tbl {
 }
 
 .cal td {
-  border: 1px solid #e9e4f2;
+  border: 1px solid var(--line);
   height: 74px;
   vertical-align: top;
   padding: 4px 6px;
@@ -2989,7 +3033,7 @@ table.tbl {
 }
 
 .cal td.today {
-  background: #eef3fc;
+  background: var(--brand-pale);
   border-color: var(--brand-light)
 }
 
@@ -3053,8 +3097,8 @@ table.tbl {
   height: 13px;
   border-radius: 50%;
   margin: 0 auto 6px;
-  background: #e9e4f2;
-  border: 2px solid #cdd8ea;
+  background: var(--line);
+  border: 2px solid oklch(0.87 0.008 290);
   position: relative;
   z-index: 1;
 }
@@ -3066,7 +3110,7 @@ table.tbl {
   left: -50%;
   width: 100%;
   height: 2px;
-  background: #e9e4f2;
+  background: var(--line);
 }
 
 .track .st:first-child::after {
@@ -3109,12 +3153,12 @@ table.tbl {
   height: 58px;
   border-radius: 50%;
   background: linear-gradient(135deg, var(--brand-light), var(--brand-deep));
-  color: #2b1a5e;
+  color: var(--nav);
   display: grid;
   place-content: center;
   font-weight: 600;
   font-size: 21px;
-  box-shadow: 0 0 0 3px #fff, 0 0 0 4px rgba(192, 23, 122, .4);
+  box-shadow: 0 0 0 3px #fff, 0 0 0 4px color-mix(in oklab, var(--brand) 40%, transparent);
   flex-shrink: 0;
 }
 
@@ -3189,12 +3233,12 @@ table.tbl {
 }
 
 .notice {
-  background: #eef3fc;
+  background: oklch(0.972 0.004 290);
   border: 1px solid var(--brand-light);
   border-radius: 8px;
   padding: 10px 14px;
   font-size: 12.5px;
-  color: #8a0f5c;
+  color: var(--brand-deep);
   display: flex;
   gap: 9px;
   align-items: center;
@@ -3214,12 +3258,12 @@ table.tbl {
   left: 50%;
   transform: translateX(-50%) translateY(20px);
   background: var(--nav);
-  color: #dbe6fb;
+  color: oklch(0.95 0.006 290);
   font-size: 13.5px;
   letter-spacing: .03em;
   padding: 11px 22px;
   border-radius: 8px;
-  border: 1px solid rgba(192, 23, 122, .5);
+  border: 1px solid color-mix(in oklab, var(--brand) 50%, transparent);
   opacity: 0;
   pointer-events: none;
   transition: all .3s;
@@ -3342,7 +3386,7 @@ table.tbl {
   }
 
   /* Below 1560px the org name is dropped even with search collapsed to its
-   * icon — this width is narrow enough that "CloudHouse Gold Finance /" is
+   * icon — this width is narrow enough that "CloudHouse Finance /" is
    * clutter, and the page name alone ("Loans") is what actually orients
    * the reader. Search open or not, only the page name shows here. */
   .top .crumb-org {
@@ -3503,21 +3547,21 @@ table.tbl {
     background: rgba(255, 255, 255, .75);
     backdrop-filter: blur(18px) saturate(180%);
     -webkit-backdrop-filter: blur(18px) saturate(180%);
-    box-shadow: 0 10px 32px -8px rgba(43, 26, 94, .16), inset 0 1px 1px rgba(255, 255, 255, .95);
+    box-shadow: 0 10px 32px -8px color-mix(in oklab, var(--nav) 16%, transparent), inset 0 1px 1px rgba(255, 255, 255, .95);
   }
 
   .kpi {
     background: rgba(255, 255, 255, .78);
     backdrop-filter: blur(16px) saturate(180%);
     -webkit-backdrop-filter: blur(16px) saturate(180%);
-    box-shadow: 0 8px 24px -6px rgba(43, 26, 94, .14), inset 0 1px 1px rgba(255, 255, 255, .95);
+    box-shadow: 0 8px 24px -6px color-mix(in oklab, var(--nav) 14%, transparent), inset 0 1px 1px rgba(255, 255, 255, .95);
   }
 
   .tbl-wrap {
     background: rgba(255, 255, 255, .6);
     backdrop-filter: blur(16px) saturate(160%);
     -webkit-backdrop-filter: blur(16px) saturate(160%);
-    border: 1px solid rgba(192, 23, 122, .28);
+    border: 1px solid color-mix(in oklab, var(--brand) 28%, transparent);
   }
 }
 
@@ -3556,8 +3600,8 @@ table.tbl {
   letter-spacing: .08em;
   text-transform: uppercase;
   color: var(--brand-deep);
-  background: #fdf9fc;
-  border-bottom: 1px solid #e9e4f2;
+  background: var(--brand-faint);
+  border-bottom: 1px solid var(--line);
 }
 
 .perm-list-rows {
@@ -3567,7 +3611,7 @@ table.tbl {
 
 .perm-list-row {
   padding: 10px 16px !important;
-  border-bottom: 1px solid #e8edf6
+  border-bottom: 1px solid var(--line)
 }
 
 .perm-list-row:last-child {

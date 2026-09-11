@@ -15,17 +15,17 @@ import (
 )
 
 var (
-	ErrInvalidPrincipal    = httpx.NewBadRequest("principal amount must be greater than zero")
-	ErrInvalidTenureCount  = httpx.NewBadRequest("tenure count must be greater than zero")
-	ErrInvalidFrequency    = httpx.NewBadRequest("frequency must be Daily, Weekly or Monthly")
-	ErrInvalidInterestType = httpx.NewBadRequest("interest type must be Flat or Percentage")
+	ErrInvalidPrincipal     = httpx.NewBadRequest("principal amount must be greater than zero")
+	ErrInvalidTenureCount   = httpx.NewBadRequest("tenure count must be greater than zero")
+	ErrInvalidFrequency     = httpx.NewBadRequest("frequency must be Daily, Weekly or Monthly")
+	ErrInvalidInterestType  = httpx.NewBadRequest("interest type must be Flat or Percentage")
 	ErrInvalidInterestValue = httpx.NewBadRequest("interest value must not be negative")
-	ErrInterestTooHigh     = httpx.NewBadRequest("interest amount must be less than the principal amount")
+	ErrInterestTooHigh      = httpx.NewBadRequest("interest amount must be less than the principal amount")
 	ErrInvalidPaymentAmount = httpx.NewBadRequest("payment amount must be greater than zero")
-	ErrOverpayment         = httpx.NewBadRequest("payment amount exceeds the outstanding balance")
-	ErrLoanNotActive       = httpx.NewConflict("loan is not active")
-	ErrLoanNotFound        = httpx.NewNotFound("personal loan not found")
-	ErrRenewalShortfall    = httpx.NewBadRequest("new principal is not enough to cover the outstanding balance and interest")
+	ErrOverpayment          = httpx.NewBadRequest("payment amount exceeds the outstanding balance")
+	ErrLoanNotActive        = httpx.NewConflict("loan is not active")
+	ErrLoanNotFound         = httpx.NewNotFound("personal loan not found")
+	ErrRenewalShortfall     = httpx.NewBadRequest("new principal is not enough to cover the outstanding balance and interest")
 )
 
 const epsilon = 0.01
@@ -65,13 +65,13 @@ func NewService(repo *Repository, customerRepo *customer.Repository, cashRecorde
 
 // CreateInput mirrors the "New Personal Loan" form.
 type CreateInput struct {
-	BranchID      uint
-	CustomerID    uint
-	PrincipalAmount float64
-	InterestType  string
-	InterestValue float64
-	Frequency     string
-	TenureCount   int
+	BranchID            uint
+	CustomerID          uint
+	PrincipalAmount     float64
+	InterestType        string
+	InterestValue       float64
+	Frequency           string
+	TenureCount         int
 	CreatedByEmployeeID uint
 }
 
@@ -667,7 +667,13 @@ func (s *Service) RenewLoan(ctx context.Context, loanID uint, branchID *uint, in
 		}
 		old.OutstandingAmount = 0
 		old.TotalPaid = platform.RoundMoney(old.TotalPaid + rollover)
-		old.Status = StatusRenewed
+		// Closed, not the old StatusRenewed — a renewed loan really is
+		// finished (fully settled via the rollover above, gold/repayment
+		// obligation moved to the new loan); RenewedToLoanID already
+		// records that it was closed BY a renewal specifically, so nothing
+		// is lost by not having a separate status for it, and every
+		// "closed loans" list/filter now correctly includes it.
+		old.Status = StatusClosed
 		old.ClosedAt = &now
 		old.RenewedToLoanID = &newLoan.ID
 		if err := s.repo.Update(ctx, tx, old); err != nil {
@@ -725,4 +731,24 @@ func (s *Service) GenerateBond(ctx context.Context, loanID uint, branchID *uint)
 		return nil, nil, err
 	}
 	return pdf, loan, nil
+}
+
+// ErrCustomerNotFound is the refusal for a customer id that does not resolve
+// inside the caller's own business.
+var ErrCustomerNotFound = httpx.NewNotFound("customer not found")
+
+// EnsureCustomerExists resolves a customer id under the CALLER's tenant, and
+// is the ownership check behind GET /customers/:id/personal-loans.
+//
+// Same fix, same reasoning as investment.Service.EnsureCustomerExists and
+// loan.Service.ListLoansForCustomer: the tenant-scoped lookup IS the check,
+// and 404 is the right refusal because 403 would confirm the customer exists
+// and belongs to someone else. Before this the endpoint answered 200 with an
+// empty list for any customer id at all, disagreeing with every sibling
+// route under /customers/:id/*.
+func (s *Service) EnsureCustomerExists(ctx context.Context, customerID uint) error {
+	if _, err := s.customerRepo.FindByID(ctx, customerID); err != nil {
+		return ErrCustomerNotFound
+	}
+	return nil
 }

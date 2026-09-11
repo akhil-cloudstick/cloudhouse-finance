@@ -177,3 +177,29 @@ func (r *Repository) FindTierByID(ctx context.Context, id uint) (*Tier, error) {
 	}
 	return &t, nil
 }
+
+// HasModule reports whether an optional module is enabled for a business.
+//
+// Implements platform.TenantModuleChecker, which is how the request-time
+// gate (platform.RequireTenantModule) reaches this without platform having
+// to import this package.
+//
+// Selects the one column rather than loading the whole tenant with its Tier
+// preloaded: this runs on every gated request, and the answer is one string.
+// COALESCE, not a bare column name, and this is load-bearing rather than
+// defensive: AutoMigrate adds enabled_modules as NULLABLE, so every tenant
+// that predates the column holds NULL, not "". Plucking a NULL into a Go
+// string fails with "converting NULL to string is unsupported" — and because
+// RequireTenantModule fails closed on error, that turned into a 403 on every
+// gated route for every existing business. Caught by the cross-tenant probe
+// suite, which is the only place this path runs against a real database.
+func (r *Repository) HasModule(ctx context.Context, tenantID uint, moduleKey string) (bool, error) {
+	var enabled string
+	err := r.db.WithContext(ctx).Model(&Tenant{}).
+		Where("id = ?", tenantID).
+		Pluck("COALESCE(enabled_modules, '')", &enabled).Error
+	if err != nil {
+		return false, err
+	}
+	return containsCSV(enabled, moduleKey), nil
+}

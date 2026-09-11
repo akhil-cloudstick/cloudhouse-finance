@@ -186,6 +186,15 @@ export function SelectLoanForRepledgeModalContent({ onPicked }: { onPicked: (loa
   const { closeModal } = useModal();
   const [selected, setSelected] = useState<LoanView | null>(null);
   const [label, setLabel] = useState("");
+  const [err, setErr] = useState("");
+
+  // Not blanket-disabled on `!selected` — that would block this
+  // validation (and Enter-to-submit, see common/utils/enterToSubmit.ts)
+  // from ever running, silently doing nothing instead of showing a warning.
+  function next() {
+    if (!selected) { setErr("Please search for and pick a loan first."); return; }
+    onPicked(selected);
+  }
 
   return (
     <>
@@ -194,17 +203,18 @@ export function SelectLoanForRepledgeModalContent({ onPicked }: { onPicked: (loa
         <div className="frow"><div><label className="f">Loan *</label>
           <SearchableSelect<LoanView>
             value={label}
-            onChange={(_id, l) => { setSelected(l); setLabel(loanLabel(l)); }}
+            onChange={(_id, l) => { setSelected(l); setLabel(loanLabel(l)); setErr(""); }}
             fetchFn={searchEligibleLoansPage}
             getLabel={loanLabel}
             getId={(l) => String(l.numericId)}
             placeholder="Search by loan number…"
           /></div></div>
         <p className="notice"><Icon name="shield" /><span>Only loans whose gold isn&apos;t already with a bank are listed. Type a loan number to search, or scroll for more.</span></p>
+        <p style={{ color: "var(--red)", fontSize: 12.5, minHeight: 16, marginTop: 8 }}>{err}</p>
       </div>
       <div className="ft">
         <button className="btn ghost" onClick={closeModal}>Cancel</button>
-        <button className="btn" disabled={!selected} onClick={() => selected && onPicked(selected)}><Icon name="check" /> Next</button>
+        <button className="btn" onClick={next}><Icon name="check" /> Next</button>
       </div>
     </>
   );

@@ -636,3 +636,29 @@ func roundClamp(f float64) float64 {
 	}
 	return f
 }
+
+// ErrCustomerNotFound is the refusal for a customer id that does not resolve
+// inside the caller's own business.
+var ErrCustomerNotFound = httpx.NewNotFound("customer not found")
+
+// EnsureCustomerExists resolves a customer id under the CALLER's tenant, and
+// is the ownership check behind GET /customers/:id/investments.
+//
+// The lookup itself is the check: it runs tenant-scoped, so another
+// business's customer is simply not found — and 404 is the right refusal
+// because a 403 would confirm the customer exists and belongs to someone
+// else.
+//
+// Without this the endpoint answered 200 with an empty list for ANY customer
+// id, including another business's. No data crossed (the investments query is
+// tenant-scoped too), but the endpoint disagreed with its four siblings under
+// /customers/:id/*, which all refuse. internal/loan's ListLoansForCustomer
+// carries the same comment after the isolation harness caught the identical
+// bug there; this one stayed hidden because its route was missing from the
+// harness's manifest entirely.
+func (s *Service) EnsureCustomerExists(ctx context.Context, customerID uint) error {
+	if _, err := s.customerRepo.FindByID(ctx, customerID); err != nil {
+		return ErrCustomerNotFound
+	}
+	return nil
+}

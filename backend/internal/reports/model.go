@@ -380,3 +380,25 @@ type CommunicationHistoryTotals struct {
 	Sent   int `json:"sent"`
 	Failed int `json:"failed"`
 }
+
+// ---- Personal loan report (internal/personalloan) ----
+
+type PersonalLoanRow struct {
+	LoanID            uint      `json:"loanId"`
+	LoanNumber        string    `json:"loanNumber"`
+	OpenedDate        time.Time `json:"openedDate"`
+	CustomerName      string    `json:"customerName"`
+	BranchName        string    `json:"branchName"`
+	Frequency         string    `json:"frequency"`
+	PrincipalAmount   float64   `json:"principalAmount"`
+	DisbursedAmount   float64   `json:"disbursedAmount"`
+	OutstandingAmount float64   `json:"outstandingAmount"`
+	Status            string    `json:"status"`
+}
+
+type PersonalLoanTotals struct {
+	Count            int     `json:"count"`
+	TotalPrincipal   float64 `json:"totalPrincipal"`
+	TotalDisbursed   float64 `json:"totalDisbursed"`
+	TotalOutstanding float64 `json:"totalOutstanding"`
+}

@@ -27,5 +27,14 @@ func RegisterRoutes(rg *gin.RouterGroup, h *Handler, superAdminAuth gin.HandlerF
 	protected.GET("/tiers", h.ListTiers)
 	protected.PUT("/tiers/:id/price", h.SetTierPrice)
 
+	// Branding and entitlements. Same gate as everything above — see the
+	// function doc comment on why CRUDPermissions must never appear here.
+	protected.GET("/catalogue", h.Catalogue)
+	protected.PUT("/businesses/:id/profile", h.UpdateProfile)
+	protected.PUT("/businesses/:id/branding", h.SetBranding)
+	protected.POST("/businesses/:id/logo", h.SetLogo)
+	protected.PUT("/businesses/:id/modules", h.SetModules)
+	protected.PUT("/businesses/:id/languages", h.SetLanguages)
+
 	protected.GET("/audit-log", h.ListAuditLog)
 }

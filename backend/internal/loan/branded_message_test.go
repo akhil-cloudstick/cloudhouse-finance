@@ -7,7 +7,7 @@ import (
 )
 
 // TestBrandedMessageSubstitutesTheCallersOwnBusinessName is Step 9's proof:
-// a message built with the literal "CloudHouse Gold Finance" comes out with
+// a message built with the literal "CloudHouse Finance" comes out with
 // that literal replaced — the mechanism the plan's fix relies on — and a
 // caller with no tenant established falls back to a neutral label rather
 // than an empty or panicking lookup.
@@ -18,8 +18,8 @@ func TestBrandedMessageSubstitutesTheCallersOwnBusinessName(t *testing.T) {
 	// ever touches tenantRepo) is TenantFromContext's ok flag, so this path
 	// is safe to exercise even with tenantRepo nil, and is exactly what a
 	// background job with no session would hit.
-	msg := s.brandedMessage(context.Background(), "Dear %s, welcome to CloudHouse Gold Finance.", "Test")
-	if strings.Contains(msg, "CloudHouse Gold Finance") {
+	msg := s.brandedMessage(context.Background(), "Dear %s, welcome to CloudHouse Finance.", "Test")
+	if strings.Contains(msg, "CloudHouse Finance") {
 		t.Errorf("the hardcoded name must never survive brandedMessage: got %q", msg)
 	}
 	want := "Dear Test, welcome to Gold Loan Statement."
@@ -30,9 +30,9 @@ func TestBrandedMessageSubstitutesTheCallersOwnBusinessName(t *testing.T) {
 	// The substitution itself, independent of the lookup — this is the part
 	// every one of the 26 call sites in service.go/due_notifications.go
 	// actually relies on: whatever businessName(ctx) returns lands exactly
-	// where "CloudHouse Gold Finance" was, with the rest of the message and its
+	// where "CloudHouse Finance" was, with the rest of the message and its
 	// Sprintf arguments untouched.
-	rendered := strings.ReplaceAll("Your CloudHouse Gold Finance code is 1234.", "CloudHouse Gold Finance", "Real Test Gold Co")
+	rendered := strings.ReplaceAll("Your CloudHouse Finance code is 1234.", "CloudHouse Finance", "Real Test Gold Co")
 	if rendered != "Your Real Test Gold Co code is 1234." {
 		t.Errorf("substitution produced %q", rendered)
 	}
