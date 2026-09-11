@@ -354,7 +354,7 @@ func (h *Handler) HardDelete(c *gin.Context) {
 		httpx.FailErr(c, err)
 		return
 	}
-	if err := h.svc.HardDeleteCustomer(id); err != nil {
+	if err := h.svc.HardDeleteCustomer(platform.RequestContext(c), id); err != nil {
 		httpx.FailErr(c, err)
 		return
 	}

@@ -1,10 +1,11 @@
 package customer
 
 import (
+	"context"
 	"fmt"
 	"strings"
 
-	"ambikagold/backend/internal/platform/httpx"
+	"cloudhouse/backend/internal/platform/httpx"
 
 	"gorm.io/gorm"
 )
@@ -24,8 +25,8 @@ type LoanSummary struct {
 // imports customer for CustomerID-related lookups). Wired in from main.go
 // via SetLoanHardDeleter once both services exist.
 type LoanHardDeleter interface {
-	LoansForCustomer(customerID uint) ([]LoanSummary, error)
-	HardDeleteLoan(loanID uint) error
+	LoansForCustomer(ctx context.Context, customerID uint) ([]LoanSummary, error)
+	HardDeleteLoan(ctx context.Context, loanID uint) error
 }
 
 // SetLoanHardDeleter wires the loan package's hard-delete capability into
@@ -69,8 +70,8 @@ func errCustomerHasActiveLoans(loanNumbers []string) error {
 // run in one further transaction; a failure partway through simply leaves
 // already-deleted loans deleted, which is safe to retry (this method is
 // idempotent per loan).
-func (s *Service) HardDeleteCustomer(id uint) error {
-	rec, err := s.repo.FindByID(id)
+func (s *Service) HardDeleteCustomer(ctx context.Context, id uint) error {
+	rec, err := s.repo.FindByID(ctx, id)
 	if err != nil {
 		return ErrNotFound
 	}
@@ -78,7 +79,7 @@ func (s *Service) HardDeleteCustomer(id uint) error {
 		return ErrLoanHardDeleterNotConfigured
 	}
 
-	loans, err := s.loanHardDeleter.LoansForCustomer(id)
+	loans, err := s.loanHardDeleter.LoansForCustomer(ctx, id)
 	if err != nil {
 		return err
 	}
@@ -93,13 +94,13 @@ func (s *Service) HardDeleteCustomer(id uint) error {
 	}
 
 	for _, l := range loans {
-		if err := s.loanHardDeleter.HardDeleteLoan(l.ID); err != nil {
+		if err := s.loanHardDeleter.HardDeleteLoan(ctx, l.ID); err != nil {
 			return err
 		}
 	}
 
 	db := s.repo.DB()
-	return db.Transaction(func(tx *gorm.DB) error {
+	return db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		if err := tx.Exec("DELETE FROM customer_device_tokens WHERE customer_id = ?", rec.ID).Error; err != nil {
 			return err
 		}

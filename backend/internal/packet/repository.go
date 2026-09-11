@@ -134,9 +134,9 @@ func (r *Repository) CountAll(ctx context.Context) (int64, error) {
 	return count, err
 }
 
-func (r *Repository) MaxCodeSuffix() (int, error) {
+func (r *Repository) MaxCodeSuffix(ctx context.Context) (int, error) {
 	var maxSuffix int
-	err := r.db.Model(&Packet{}).Unscoped().
+	err := r.db.WithContext(ctx).Model(&Packet{}).Unscoped().
 		Select("COALESCE(MAX(CAST(SUBSTRING(code FROM 'PKT-(\\d+)') AS INTEGER)), 0)").
 		Scan(&maxSuffix).Error
 	return maxSuffix, err

@@ -120,9 +120,9 @@ func (r *Repository) CountAll(ctx context.Context) (int64, error) {
 // "CUST-NN" customer code, including customers that have since been
 // hard-deleted — the next code is always one past this max suffix,
 // never derived from row count.
-func (r *Repository) MaxCodeSuffix() (int, error) {
+func (r *Repository) MaxCodeSuffix(ctx context.Context) (int, error) {
 	var maxSuffix int
-	err := r.db.Model(&Customer{}).Unscoped().
+	err := r.db.WithContext(ctx).Model(&Customer{}).Unscoped().
 		Select("COALESCE(MAX(CAST(SUBSTRING(code FROM 'CUST-(\\d+)') AS INTEGER)), 0)").
 		Scan(&maxSuffix).Error
 	return maxSuffix, err

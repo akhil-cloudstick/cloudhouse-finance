@@ -240,6 +240,11 @@ func Build(db *gorm.DB, cfg platform.Config) (*App, error) {
 	loanSvc := loan.NewService(db, loanRepo, loanOrnamentRepo, loanApprovalRepo, loanPaymentRepo, loanPledgeRepo, loanRequestRepo, requestApprovalRepo, loanAuctionRepo, loanApprovalLimitRepo, branchRepo, customerRepo, schemeRepo, goldRateRepo, packetSvc, packetSvc, movementSvc, notificationSvc, whatsappSender, commlogRepo, esignClient, cfg.UploadsDir, uploadRepo, tenantRepo, razorpayClient, aadhaarCipher, authzRepo)
 	loanHandler := loan.NewHandler(loanSvc)
 
+	// customer hard-delete needs loan hard-delete, and loan already imports
+	// customer — wired here, after both services exist (see
+	// customer.Service.SetLoanHardDeleter).
+	customerSvc.SetLoanHardDeleter(loanSvc)
+
 	personalLoanRepo := personalloan.NewRepository(db)
 	personalLoanSvc := personalloan.NewService(personalLoanRepo, customerRepo, movementSvc, aadhaarCipher)
 	personalLoanHandler := personalloan.NewHandler(personalLoanSvc)
@@ -394,7 +399,7 @@ func Build(db *gorm.DB, cfg platform.Config) (*App, error) {
 	// whole group is gated — reads included.
 	settings.RegisterRoutes(protected.Group("/settings/api-keys"), settingsHandler, platform.CRUDPermissions(authzRepo, "settings"),
 		platform.RequireTenantModule(tenantRepo, tenant.ModuleSettings))
-	customer.RegisterRoutes(protected.Group("/customers"), customerHandler, platform.CRUDPermissions(authzRepo, "customers"))
+	customer.RegisterRoutes(protected.Group("/customers"), customerHandler, platform.CRUDPermissions(authzRepo, "customers"), platform.RequirePermission(authzRepo, "can hard delete customer"))
 	// Customer 360 lives on loanHandler (see internal/loan/service.go's
 	// GetCustomer360 doc comment — avoids a customer<->loan import cycle)
 	// but is mounted under /customers to keep the URL customer-shaped.

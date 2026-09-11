@@ -146,8 +146,7 @@ func (h *MovementHandler) List(c *gin.Context) {
 		return
 	}
 
-	rec, _, err := h.svc.List(branchID, fromDate, toDate, category, 0, 0)
-	rec, _, err := h.svc.List(ctx, branchID, fromDate, toDate, 0, 0)
+	rec, _, err := h.svc.List(ctx, branchID, fromDate, toDate, category, 0, 0)
 	if err != nil {
 		httpx.FailErr(c, err)
 		return
@@ -161,6 +160,7 @@ func (h *MovementHandler) List(c *gin.Context) {
 // the downloaded file always reflects the filter, not how many rows
 // happen to be paginated into the browser right now.
 func (h *MovementHandler) Export(c *gin.Context) {
+	ctx := platform.RequestContext(c)
 	branchID := platform.GetBranchScope(c)
 
 	fromDate, err := parseOptionalDate(c.Query("fromDate"))
@@ -175,7 +175,7 @@ func (h *MovementHandler) Export(c *gin.Context) {
 	}
 	category := c.Query("category")
 
-	rows, _, err := h.svc.List(branchID, fromDate, toDate, category, 0, 0)
+	rows, _, err := h.svc.List(ctx, branchID, fromDate, toDate, category, 0, 0)
 	if err != nil {
 		httpx.FailErr(c, err)
 		return
@@ -356,8 +356,9 @@ func (h *ExpenseHandler) List(c *gin.Context) {
 // — see MovementHandler.Export's own doc comment for why this is never
 // capped to the table's current page size.
 func (h *ExpenseHandler) Export(c *gin.Context) {
+	ctx := platform.RequestContext(c)
 	branchID := platform.GetBranchScope(c)
-	rows, _, err := h.svc.List(branchID, 0, 0)
+	rows, _, err := h.svc.List(ctx, branchID, 0, 0)
 	if err != nil {
 		httpx.FailErr(c, err)
 		return

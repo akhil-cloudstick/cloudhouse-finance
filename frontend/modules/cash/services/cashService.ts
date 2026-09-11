@@ -1,4 +1,4 @@
-import { apiFetchEnveloped as apiFetch, apiUploadEnveloped as apiUpload, API_BASE, AUTH_TOKEN_KEY } from "@/common/services/httpClient";
+import { apiFetchEnveloped as apiFetch, apiUploadEnveloped as apiUpload, API_BASE, getAuthToken } from "@/common/services/httpClient";
 
 /* Shapes returned by the Go backend (backend/internal/cash/model.go). */
 export type BackendCashMovement = {
@@ -99,7 +99,7 @@ export async function listCashMovementsPage(
  * hand with the same bearer token, then handed to the browser as a real
  * file save via a throwaway object-URL anchor click. */
 async function downloadFile(path: string, fallbackFilename: string): Promise<void> {
-  const token = typeof window !== "undefined" ? window.localStorage.getItem(AUTH_TOKEN_KEY) : null;
+  const token = getAuthToken();
   const res = await fetch(`${API_BASE}${path}`, {
     headers: token ? { Authorization: `Bearer ${token}` } : {},
   });

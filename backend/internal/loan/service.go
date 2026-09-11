@@ -1129,8 +1129,8 @@ func (s *Service) UpdateLoan(ctx context.Context, loanID uint, in UpdateLoanInpu
 // interface this method satisfies) to check every loan is Closed/Auctioned
 // before allowing a customer to be hard-deleted, and then to hard-delete
 // each one in turn.
-func (s *Service) LoansForCustomer(customerID uint) ([]customer.LoanSummary, error) {
-	loans, _, err := s.repo.FindAll(LoanFilter{CustomerID: customerID})
+func (s *Service) LoansForCustomer(ctx context.Context, customerID uint) ([]customer.LoanSummary, error) {
+	loans, _, err := s.repo.FindAll(ctx, LoanFilter{CustomerID: customerID})
 	if err != nil {
 		return nil, err
 	}
