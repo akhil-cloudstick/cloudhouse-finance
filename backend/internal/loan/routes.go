@@ -59,6 +59,11 @@ func RegisterRoutes(rg *gin.RouterGroup, h *Handler, perms platform.CRUDMiddlewa
 
 	rg.POST("/:id/indemnity-bond/esign/start", perms.Update, h.StartIndemnityBondEsign)
 	rg.GET("/:id/indemnity-bond/esign/status", perms.Read, h.CheckIndemnityBondEsign)
+	rg.GET("/:id/indemnity-bond/pdf", perms.Read, h.DownloadIndemnityBondPDF)
+	// Pre-submission preview (New Loan's own "Pledge Agreement" button) —
+	// gated the same as Create since it's only reachable from that page,
+	// which already requires "can create loan" to render at all.
+	rg.POST("/indemnity-bond/preview-pdf", perms.Create, h.PreviewIndemnityBondPDF)
 
 	rg.GET("/approval-limits/loan-operator", perms.Read, h.GetLoanOperatorApprovalLimit)
 	rg.PUT("/approval-limits/loan-operator", perms.Update, h.SetLoanOperatorApprovalLimit)

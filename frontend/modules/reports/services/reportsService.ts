@@ -286,16 +286,15 @@ export async function exportFormG(format: "xlsx" | "pdf", filters: ReportFilters
   a.remove();
   window.URL.revokeObjectURL(url);
 }
+/* Both statements print one row per line the way a real Ind AS Division
+ * III (NBFC) statement lays it out — Label already carries the "I."/"(1)"/
+ * "(a)" prefix verbatim; style/indent are display hints only. */
+export type StatementStyle = "" | "header" | "total";
+export type BalanceSheetRow = { label: string; amount: number; style: StatementStyle; indent: number };
+export type BalanceSheetTotals = { totalAssets: number; totalLiabilities: number; totalEquity: number };
 
-export type TradeSheetRow = {
-  date: string; reference: string; type: string; party: string; purity: string;
-  netWeight: number; rate: number; value: number; branchName: string;
-};
-export type PurityStock = { purity: string; netWeight: number };
-export type TradeSheetTotals = { closingStockByPurity: PurityStock[]; totalValue: number };
-
-export type BalanceSheetRow = { section: "Assets" | "Liabilities" | "Capital"; label: string; amount: number };
-export type BalanceSheetTotals = { totalAssets: number; totalLiabilities: number; netPosition: number };
+export type ProfitLossRow = { label: string; amount: number; style: StatementStyle; indent: number };
+export type ProfitLossTotals = { totalIncome: number; totalExpenses: number; profitForPeriod: number };
 
 /* ---- One function per report endpoint (path segments per routes.go). ---- */
 
@@ -359,11 +358,11 @@ export const getInterestPayoutRegister = (f: ReportFilters) =>
 export const getMaturityRegister = (f: ReportFilters) =>
   fetchReport<MaturityRegisterRow, MaturityRegisterTotals>("investments/maturity-register", f);
 
-export const getTradeSheet = (f: ReportFilters) =>
-  fetchReport<TradeSheetRow, TradeSheetTotals>("trade-sheet", f);
-
 export const getBalanceSheet = (f: ReportFilters) =>
   fetchReport<BalanceSheetRow, BalanceSheetTotals>("balance-sheet", f);
+
+export const getProfitAndLoss = (f: ReportFilters) =>
+  fetchReport<ProfitLossRow, ProfitLossTotals>("profit-loss", f);
 
 /* Report export keys, matching backend/internal/reports/export.go's
  * reportRows switch exactly (note "loans/status" list path vs
@@ -373,7 +372,7 @@ export type ReportKey =
   | "disbursement" | "personal-loans" | "loans-status" | "interest-collection" | "outstanding-principal"
   | "payment-collection" | "gold-weight" | "packets" | "bank-pledge" | "loan-extensions"
   | "gold-release" | "auctions" | "expense-cashflow" | "kyc" | "gold-rate-history"
-  | "employee-performance" | "communication-history" | "trade-sheet" | "balance-sheet" | "form-g"
+  | "employee-performance" | "communication-history" | "balance-sheet" | "profit-loss" | "form-g"
   | "investments-deposit-register" | "investments-interest-payout-register" | "investments-maturity-register";
 
 /* Downloads GET /reports/export/:key?format=xlsx|pdf as a blob and triggers

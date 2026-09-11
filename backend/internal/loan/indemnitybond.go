@@ -2,6 +2,7 @@ package loan
 
 import (
 	"context"
+	_ "embed"
 	"encoding/base64"
 	"fmt"
 	"html/template"
@@ -13,6 +14,18 @@ import (
 	"github.com/chromedp/cdproto/page"
 	"github.com/chromedp/chromedp"
 )
+
+// lenderSignatureSVG is the lender's own signature, a vector trace (not a
+// scanned/photographed image) — embedded into the binary and inlined as raw
+// SVG markup directly in the HTML (rather than an <img src="data:...">)
+// so it renders crisply at any size and needs no base64 round-trip. This
+// HTML is rendered headlessly via chromedp with no guarantee the frontend's
+// dev/prod server is reachable from wherever the backend runs, so embedding
+// it into the binary (rather than fetching it as a file/URL) is what makes
+// it always available.
+//
+//go:embed assets/lender_signature.svg
+var lenderSignatureSVG string
 
 // BondOrnament is one row of the pledge agreement's schedule table, mirrors
 // frontend/modules/loans/utils/indemnityBond.ts's IndemnityBondOrnament.
@@ -61,6 +74,7 @@ type BondData struct {
 	LegalName   string
 	AddressLine string
 	KMLRegNo    string
+	DueDate         time.Time // zero means unknown — rendered as a blank, same convention as Age
 }
 
 // blank is the placeholder used wherever the frontend template falls back
@@ -168,6 +182,16 @@ func rateOrBlank(rate float64) string {
 		return blank
 	}
 	return fmt.Sprintf("%g%%", rate)
+}
+
+// dueDateOrBlank formats the loan's due date for the "repay ... on or
+// before ___" clause — previously always a hardcoded blank on every
+// printed/eSigned bond regardless of the loan's actual due date.
+func dueDateOrBlank(dueDate time.Time) string {
+	if dueDate.IsZero() {
+		return blank
+	}
+	return dueDate.Format("02-01-2006")
 }
 
 // onesWords/tensWords/twoDigitWords/threeDigitWords/amountInWords convert a
@@ -285,8 +309,15 @@ th,td{border:1px solid #999;padding:6px 8px;font-size:13px;text-align:left;verti
 th{background:#f3ede1} .num{text-align:right}
 ol li{margin-bottom:10px;text-align:justify}
 .sig{display:flex;justify-content:space-between;gap:20px;margin-top:60px}
-.sig div{flex:1;text-align:center}
+.sig div{flex:1;text-align:center;position:relative}
 .sig span{display:block;border-top:1px solid #333;padding-top:6px;margin-top:44px;font-size:12.5px}
+/* Absolutely positioned — sits inside the existing blank gap the .sig
+ * span's own 44px margin-top already reserves, rather than adding its
+ * own height to the flow (which would push the Lender's line lower than
+ * the image-less Borrower's line beside it — see print.ts's identical
+ * fix for the on-screen/print copy of this same bond). */
+.lender-sig{position:absolute;top:18px;left:50%;transform:translateX(-50%);width:110px}
+.lender-sig svg{width:100%;height:auto;display:block}
 /* Forces the signature/witness block onto its own final page and pins it
  * to the bottom of that page's printable area — the same corner
  * RenderIndemnityBondPDF's caller stamps the Aadhaar eSign signature onto
@@ -342,46 +373,91 @@ th,td{border:1px solid #999;padding:6px 8px;font-size:13px;text-align:left;verti
 th{background:#f3ede1} .num{text-align:right}
 ol{padding-left:22px} ol li{margin-bottom:12px;text-align:justify}
 .sig{display:flex;justify-content:space-between;gap:20px;margin-top:60px}
-.sig div{flex:1;text-align:center}
+.sig div{flex:1;text-align:center;position:relative}
 .sig span{display:block;border-top:1px solid #333;padding-top:6px;margin-top:44px;font-size:12.5px}
+/* Absolutely positioned — sits inside the existing blank gap the .sig
+ * span's own 44px margin-top already reserves, rather than adding its
+ * own height to the flow (which would push the Lender's line lower than
+ * the image-less Borrower's line beside it — see print.ts's identical
+ * fix for the on-screen/print copy of this same bond). */
+.lender-sig{position:absolute;top:18px;left:50%;transform:translateX(-50%);width:110px}
+.lender-sig svg{width:100%;height:auto;display:block}
 /* See bondPageStyle's .sig-page comment — same fix, Gujarati template. */
 .sig-page{page-break-before:always;min-height:240mm;display:flex;flex-direction:column;justify-content:flex-end}
 `
 
-const bondHTMLEnglish = `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>{{.LenderName}} — {{.LoanNumber}}</title><style>{{.Style}}</style></head><body>
-<h1>{{.LenderName}}</h1>
-<h2>{{.LenderAddressShort}}<br>KML Reg No: {{.LenderRegNo}}</h2>
-
-<table style="border:none;margin:16px 0">
-<tr>
-<td style="border:none;width:50%">ITEM NAME: {{.ItemNames}}<br>ITEM Weight: {{.ItemWeights}}</td>
-<td style="border:none">Loan No. {{.LoanNumber}}<br>Date: {{.DateDisplay}}</td>
-</tr>
+const bondHTMLEnglish = `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Agreement of Pledge of Movable — {{.LoanNumber}}</title><style>{{.Style}}</style></head><body>
+<h1>AGREEMENT OF PLEDGE OF MOVABLE</h1>
+<h2>Gold Loan Account No. {{.LoanNumber}}</h2>
+<p>MEMORANDUM OF AGREEMENT, made the <b>{{printf "%02d" .Day}}</b> day of <b>{{.Month}}, {{.Year}}</b> BETWEEN</p>
+<p>
+<b>{{.CustomerName}}</b><br>
+Age :- <b>{{.Age}}</b>, business :- {{.Blank}}<br>
+Aadhar Card No. <b>{{.Aadhaar}}</b><br>
+Pan Card No. <b>{{.PAN}}</b><br>
+Residing at :- <b>{{.Address}}</b>
+</p>
+<p>(Hereinafter called &quot;the borrower&quot;) of the one part.</p>
+<p>AND</p>
+<p>
+<b>{{.LenderName}}</b><br>
+Age :- <b>{{.LenderAge}}</b>, business :- <b>{{.LenderBusiness}}</b><br>
+Aadhar Card No. <b>{{.LenderAadhaar}}</b><br>
+Pan Card No. <b>{{.LenderPAN}}</b><br>
+Residing at :- <b>{{.LenderAddress}}</b>
+</p>
+<p>(Hereinafter called &quot;the lender&quot;) of the other part.</p>
+<p>The lender carrying on business of money-lending under certificate of registration number <b>{{.LenderRegNo}}</b> of the other part.</p>
+<p>The Money lender and borrower are collectively referred to as the &quot;Parties&quot;.</p>
+<p><b>WHEREBY IT IS AGREED AS FOLLOWS</b></p>
+<ol>
+<li><b>Covenant to pay</b><br>In Consideration of the loan of Rs <b>{{.PrincipalAmount}}</b> advance by the lender to the borrower, the borrower hereby covenants with the lender that he will repay the said loan on or before {{.DueDate}} with interest at <b>{{.InterestRate}}</b> percent per annum from the date of execution of this agreement.</li>
+<li><b>Pledge Clause</b><br>The Lender has lent the sum of Rs <b>{{.PrincipalAmount}}</b> (the receipt of which the borrower hereby acknowledges) and borrower has delivered to the lender article belonging to the borrower and specified in the schedule hereto to be held by him as security for the repayment of the aforesaid loan in the manner herein provided,
+<ol type="a">
+<li><b>Right to Extraordinary Expenses</b> — The lender is entitled to receive from the borrower extraordinary expenses incurred by him for the preservation of the good pledged.</li>
+<li><b>Expenses of Repairs</b> — The Expenses of keeping the said articles in a good state of repair and in proper working order.</li>
+<li><b>Other Costs</b> — All other costs, charges and expenses (if any) which the lender may be entitled by law to add to his security.</li>
+</ol>
+</li>
+<li><b>Lender's Liability for Losses</b><br>The Lender shall not be liable to the borrower for any involuntary losses which may occur during his custody of the said articles (goods) or by reason of the sale thereof.</li>
+<li><b>Right of Lender</b><br>The Borrower further covenants with the lender that in case any interest payable hereunder is not paid within 30 days after the due date, the whole sum hereby secured shall become payable at once, and in case of default in the payment of the principal money hereby secured with interest thereon on the aforesaid or in the performance of any of the covenants by the borrower hereinbefore contained the lender may enforce all or any of the remedies of a Pawnee provided by law provided that in case of sale of any part of the pledged property, a previous notice of two months shall be given to the borrower.</li>
+<li><b>Power of Sale</b>
+<ol type="a">
+<li>The power of sale conferred by law on the lender shall be exercisable by public auction or private contract in respect of the entire articles in one lot or in several lots at the discretion of the lender;</li>
+<li>Before exercising such power of sale as aforesaid the lender shall give at least two months' notice to the borrower.</li>
+</ol>
+</li>
+<li><b>Interpretation clause</b><br>It is hereby agreed that wherever such an interpretation would be requisite in order to give the fullest scope and effect legally possible to any covenant herein contained, the expression &quot;the borrower&quot; and &quot;the lender&quot; hereinbefore used include their respective heirs, executors, administrators, and assigns.</li>
+</ol>
+<p><b>The Schedule herein referred to</b></p>
+<table>
+<thead><tr><th>Sr. no</th><th>Description of the Article</th><th>Carat</th><th class="num">Gross Weight</th><th class="num">Net Weight</th><th class="num">Estimated Value</th></tr></thead>
+<tbody>
+{{range $i, $o := .Ornaments}}<tr><td>{{inc $i}}</td><td>{{$o.Name}}</td><td>{{$o.Purity}}</td><td class="num">{{printf "%.1f" $o.GrossWeight}}</td><td class="num">{{printf "%.1f" $o.NetWeight}}</td><td class="num">{{printf "%.0f" $o.Value}}</td></tr>
+{{else}}<tr><td colspan="6" style="text-align:center;color:#777">{{.Blank}}</td></tr>
+{{end}}
+</tbody>
 </table>
 
-<p>CUSTOMER NAME: {{.CustomerName}}<br>CUSTOMER MOB NO: {{.Mobile}}</p>
-<p>AMOUNT: {{.PrincipalAmount}}</p>
-
-<p>
-I, <b>{{.CustomerName}}</b>, declare that the gold ornaments shown above are my own property and no one else has any claim to them. I have pledged these ornaments with your establishment, <b>{{.LenderName}}</b>, and hereby humbly request that a loan of Rs. <b>{{.PrincipalAmount}}</b> ( {{.AmountWords}} only ), equal to the appraised value of the ornaments, be granted to me at monthly interest.
-</p>
-<p>Name: {{.CustomerName}}<br>Signature: {{.Blank}}</p>
-
-<h3 style="text-align:center;margin-top:30px">DECLARATION</h3>
-
-<p>
-I, <b>{{.CustomerName}}</b>, undertake to pay the interest on the loan of Rs. <b>{{.PrincipalAmount}}</b> availed by me every month without fail, and assure that I will close the loan by repaying the full amount along with interest within one year. If for any reason I am unable to repay the borrowed money with interest, I hereby agree that the owner of <b>{{.LenderName}}</b> shall have the right to auction or sell these ornaments to recover any loss incurred by the establishment, and that I will not raise any claim regarding this thereafter.
-</p>
-
 <div class="sig-page">
-<p>Name: {{.CustomerName}}<br>Signature: {{.Blank}}</p>
-<p style="margin-top:18px"><b>Loan Sanctioned.</b></p>
-<p>Date: {{.DateDisplay}}</p>
-
-<hr style="margin-top:40px;border:none;border-top:1px solid #999">
-<p style="margin-top:24px"><b>Signature of the person who receives the jewellery back</b></p>
-<p>Ornaments received back without any damage.</p>
-<p>Date: {{.Blank}}<br>Name: {{.CustomerName}}<br>Signature: {{.Blank}}</p>
+<p><b>IN WITNESS WHEREOF Etc.</b></p>
+<div class="sig">
+<div><span>Name: {{.Blank}}<br>Residing at</span></div>
+<div><span>Name: {{.Blank}}<br>Residing at</span></div>
+</div>
+{{/* The Borrower/Lender signature row is deliberately the LAST thing in
+     this page-bottom-pinned block (.sig-page{justify-content:flex-end} —
+     see that class's comment) — Setu's Aadhaar eSign stamp targets
+     "bottom-right of the last page" (service.go's StartIndemnityBondSign),
+     which is whatever sits at the very bottom, not a specific line. With
+     the witness block below this one (the original order), the stamp
+     landed on/near the witness placeholder instead of the actual line the
+     borrower is signing. Reordering so the borrower's own line is the
+     true bottom-most content is what actually gets the two to line up. */}}
+<div class="sig">
+<div>The Borrower<span>Name: {{.CustomerName}}</span></div>
+<div>The Lender<div class="lender-sig">{{.LenderSignatureSVG}}</div><span>{{.LenderName}}</span></div>
+</div>
 </div>
 </body></html>`
 
@@ -484,7 +560,7 @@ const bondHTMLGujarati = `<!DOCTYPE html><html lang="gu"><head><meta charset="UT
 <p>આડગીરો લેનાર <b>{{.BranchName}}</b> ગામે નોંધણી પ્રમાણપત્ર નંબર <b>{{.LenderRegNo}}</b> હેઠળ નાણાં ધિરાણનો વ્યવસાય કરે છે.</p>
 <p><b>આથી નીચે મુજબ સંમતિ કરવામાં આવે છે:</b></p>
 <ol>
-<li><b>ચૂકવણી કરવાનો કરાર</b><br>આડમાં લેનાર દ્વારા આડમાં મૂકનારને આપવામાં આવેલ રૂપિયા <b>{{.PrincipalAmount}}</b> ના ઋણના બદલામાં, આડમાં મૂકનાર સંમત થાય છે કે, ઉપરોક્ત ઋણ તારીખ {{.Blank}} ના રોજ અથવા તે પહેલાં, આ કરારના અમલની તારીખથી <b>{{.InterestRate}}</b> પ્રતિ વર્ષના વ્યાજ સાથે પરત ચૂકવશે.</li>
+<li><b>ચૂકવણી કરવાનો કરાર</b><br>આડમાં લેનાર દ્વારા આડમાં મૂકનારને આપવામાં આવેલ રૂપિયા <b>{{.PrincipalAmount}}</b> ના ઋણના બદલામાં, આડમાં મૂકનાર સંમત થાય છે કે, ઉપરોક્ત ઋણ તારીખ {{.DueDate}} ના રોજ અથવા તે પહેલાં, આ કરારના અમલની તારીખથી <b>{{.InterestRate}}</b> પ્રતિ વર્ષના વ્યાજ સાથે પરત ચૂકવશે.</li>
 <li><b>આડગીરોની જોગવાઈ</b><br>આડમાં લેનારે રૂ. <b>{{.PrincipalAmount}}</b> ની રકમ ધિરાણ આપી છે, જેની પ્રાપ્તિ આડમાં મૂકનાર સ્વીકારે છે. આડમાં મૂકનારે પોતાની માલિકીની આ કરારની અનુસૂચિમાં દર્શાવેલી માલ ઉપરોક્ત ઋણની ચૂકવણી કરવા માટે જામીનગીરી તરીકે સુરક્ષા તરીકે આડમાં લેનારને નિક્ષેપ કરેલ છે. આ વસ્તુઓ આ કરારમાં નક્કી કરેલ રીતે આડમાં લેનાર પાસે જામીનગીરી તરીકે રાખવામાં આવશે.
 <ol type="a">
 <li><b>અસાધારણ ખર્ચ અંગે આડમાં લેનારનો હક્ક</b> — આડમાં લેનાર આડમાં મૂકેલા માલની જાળવણી માટે પોતાને થયેલો અસાધારણ ખર્ચ, આડમાં મૂકનાર પાસેથી મેળવવા હક્કદાર રહેશે.</li>
@@ -517,12 +593,16 @@ const bondHTMLGujarati = `<!DOCTYPE html><html lang="gu"><head><meta charset="UT
 <p>તારીખ: {{printf "%02d" .Day}} / {{.Month}} / {{.Year}}</p>
 <div class="sig-page">
 <div class="sig">
-<div>આડગીરો મૂકનાર<span>નામ: {{.CustomerName}}</span></div>
-<div>આડગીરો લેનાર<span>{{.LenderName}}</span></div>
+<div><span>સાક્ષી<br>નામ: {{.Blank}}</span></div>
+<div><span>સાક્ષી<br>નામ: {{.Blank}}</span></div>
 </div>
+{{/* See the English template's identical reordering comment above
+     bondHTMLEnglish's own .sig-page — the borrower's line must be the
+     true bottom-most content so Setu's "bottom-right of last page" eSign
+     stamp lands on it instead of the witness placeholder. */}}
 <div class="sig">
-<div><span>સાક્ષી<br>નામ: {{.Blank}}</span></div>
-<div><span>સાક્ષી<br>નામ: {{.Blank}}</span></div>
+<div>આડગીરો મૂકનાર<span>નામ: {{.CustomerName}}</span></div>
+<div>આડગીરો લેનાર<div class="lender-sig">{{.LenderSignatureSVG}}</div><span>{{.LenderName}}</span></div>
 </div>
 </div>
 </body></html>`
@@ -532,24 +612,26 @@ const bondHTMLGujarati = `<!DOCTYPE html><html lang="gu"><head><meta charset="UT
 // BondData stays a plain, easily-constructed value in service.go.
 type bondTemplateData struct {
 	BondData
-	Style              template.CSS
-	Blank              string
-	LenderName         string
-	LenderRegNo        string
-	LenderAge          string
-	LenderBusiness     string
-	LenderAadhaar      string
-	LenderPAN          string
-	LenderAddress      string
+	Style                 template.CSS
+	Blank                 string
+	LenderSignatureSVG template.HTML
+	LenderName            string
+	LenderRegNo           string
+	LenderAge             string
+	LenderBusiness        string
+	LenderAadhaar         string
+	LenderPAN             string
+	LenderAddress         string
 	LenderAddressShort string
-	Age                string
-	Aadhaar            string
-	PAN                string
-	Address            string
-	BranchName         string
-	PrincipalAmount    string
-	InterestRate       string
+	Age                   string
+	Aadhaar               string
+	PAN                   string
+	Address               string
+	BranchName            string
+	PrincipalAmount       string
+	InterestRate          string
 	TotalValue         string
+	DueDate               string
 	// Mobile/DateDisplay/ItemNames/ItemWeights/AmountWords back
 	// bondHTMLMalayalam only (see its own doc comment) — bondHTMLEnglish
 	// doesn't reference them.
@@ -644,30 +726,32 @@ func renderBondHTML(data BondData, lang string) (string, error) {
 		// business printed the same lender. Copy everything; the outer
 		// string fields below shadow their BondData namesakes for rendering.
 		BondData: data,
-		Style:    template.CSS(style),
-		Blank:    blank,
+		Style:       template.CSS(style),
+		Blank:       blank,
 		// Tenant profile first, demo constants only as a fallback.
-		LenderName:         firstNonEmpty(data.LegalName, data.BusinessName, lenderName),
-		LenderRegNo:        firstNonEmpty(data.KMLRegNo, lenderKMLRegNo),
-		LenderAge:          lenderAge,
-		LenderBusiness:     firstNonEmpty(data.LegalName, data.BusinessName, lenderBusiness),
-		LenderAadhaar:      lenderAadhaar,
-		LenderPAN:          lenderPAN,
-		LenderAddress:      firstNonEmpty(data.AddressLine, lenderAddress),
+		LenderSignatureSVG: template.HTML(lenderSignatureSVG),
+		LenderName:            firstNonEmpty(data.LegalName, data.BusinessName, lenderName),
+		LenderRegNo:           firstNonEmpty(data.KMLRegNo, lenderKMLRegNo),
+		LenderAge:             lenderAge,
+		LenderBusiness:        firstNonEmpty(data.LegalName, data.BusinessName, lenderBusiness),
+		LenderAadhaar:         lenderAadhaar,
+		LenderPAN:             lenderPAN,
+		LenderAddress:         firstNonEmpty(data.AddressLine, lenderAddress),
 		LenderAddressShort: firstNonEmpty(data.AddressLine, lenderAddressShort),
-		Age:                ageOrBlank(data.Age),
-		Aadhaar:            aadhaarOrBlank(data.Aadhaar),
-		PAN:                orBlank(data.PAN),
-		Address:            orBlank(data.Address),
-		BranchName:         orBlank(data.BranchName),
-		PrincipalAmount:    inrOrBlank(data.PrincipalAmount),
-		InterestRate:       rateOrBlank(data.InterestRate),
-		TotalValue:         inrOrBlank(totalValue),
+		Age:                   ageOrBlank(data.Age),
+		Aadhaar:               aadhaarOrBlank(data.Aadhaar),
+		PAN:                   orBlank(data.PAN),
+		Address:               orBlank(data.Address),
+		BranchName:            orBlank(data.BranchName),
+		PrincipalAmount:       inrOrBlank(data.PrincipalAmount),
+		InterestRate:          rateOrBlank(data.InterestRate),
+		TotalValue:            inrOrBlank(totalValue),
 		Mobile:             orBlank(data.Phone),
 		DateDisplay:        fmt.Sprintf("%02d %s %d", data.Day, strings.ToUpper(monthAbbrev(data.Month)), data.Year),
 		ItemNames:          itemNamesStr,
 		ItemWeights:        itemWeightsStr,
 		AmountWords:        amountInWords(data.PrincipalAmount),
+		DueDate:            dueDateOrBlank(data.DueDate),
 	}
 	td.CustomerName = orBlank(data.CustomerName)
 
@@ -677,6 +761,25 @@ func renderBondHTML(data BondData, lang string) (string, error) {
 	}
 	return sb.String(), nil
 }
+
+// bondHeaderTemplate/bondFooterTemplate are Chrome's PrintToPDF header/
+// footer templates — plain HTML rendered at a fixed height on EVERY page,
+// completely separate from the document's own content. Chrome recognizes a
+// handful of special classes it fills in itself: "date", "title", "url",
+// "pageNumber", "totalPages" — font-size must be set explicitly (these
+// templates render outside the document's own stylesheet, in their own
+// tiny default browser font otherwise). Kept as their own small templates
+// (not reusing bondPageStyle's CSS) since this is a completely different
+// rendering pass from the document body.
+const bondHeaderTemplate = `
+<div style="font-size:9px;width:100%;text-align:center;color:#8a6d1f;font-family:Arial,sans-serif;padding-top:6px">
+Ambika Gold Finance — Agreement of Pledge of Movable
+</div>`
+
+const bondFooterTemplate = `
+<div style="font-size:8px;width:100%;text-align:center;color:#888;font-family:Arial,sans-serif;padding-bottom:6px">
+Page <span class="pageNumber"></span> of <span class="totalPages"></span>
+</div>`
 
 // RenderIndemnityBondPDF renders the pledge agreement for the given loan/
 // customer data, in the given language (BondLangEnglish/BondLangMalayalam),
@@ -711,6 +814,18 @@ func RenderIndemnityBondPDF(data BondData, lang string) ([]byte, error) {
 			// page's own @page CSS. MarginTop/MarginBottom are
 			// deliberately generous (vs. the ~0.4in default) to reserve
 			// blank header/footer space on every printed page.
+			//
+			// DisplayHeaderFooter + Header/FooterTemplate are what
+			// actually make that reserved space show a real, repeating
+			// header/footer on EVERY page — unlike this same document's
+			// body-level CSS margin (used for the client-side "print for
+			// wet-ink signing" copy in frontend/common/utils/print.ts),
+			// which only ever shows once, at the very top of page 1 /
+			// bottom of the last page, not per page. A plain browser
+			// window.print() has no equivalent to these two params at
+			// all — Chrome's PrintToPDF (used only here, server-side) is
+			// the only place a real custom per-page header/footer is
+			// possible in this app.
 			buf, _, err := page.PrintToPDF().
 				WithPrintBackground(true).
 				WithPreferCSSPageSize(false).
@@ -720,6 +835,9 @@ func RenderIndemnityBondPDF(data BondData, lang string) ([]byte, error) {
 				WithMarginBottom(0.8).
 				WithMarginLeft(0.6).
 				WithMarginRight(0.6).
+				WithDisplayHeaderFooter(true).
+				WithHeaderTemplate(bondHeaderTemplate).
+				WithFooterTemplate(bondFooterTemplate).
 				Do(ctx)
 			if err != nil {
 				return err

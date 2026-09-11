@@ -132,10 +132,6 @@ export function EditLoanModalContent({ loan, onSaved }: { loan: LoanView; onSave
     <>
       <div className="hd"><h3>Edit Loan — {loan.id}</h3><button className="x" onClick={closeModal}>×</button></div>
       <div className="bd">
-        <p className="notice" style={{ marginBottom: 14 }}>
-          <Icon name="shield" /> Changes here apply from today forward — interest already recorded is never
-          rewritten. There is no confirmation step; review before saving.
-        </p>
         <div className="frow c2">
           <div><label className="f">Scheme</label>
             <SearchableSelect<SchemeView>
@@ -165,44 +161,67 @@ export function EditLoanModalContent({ loan, onSaved }: { loan: LoanView; onSave
         </p>
 
         <label className="f" style={{ marginTop: 10, display: "block" }}>Ornaments</label>
-        {rows.map((r, i) => r.removed ? null : (
-          <div key={i} style={{ border: "1px solid var(--line)", borderRadius: 8, padding: 10, marginBottom: 8 }}>
-            {/* Bare "frow" (no .c2/.c3 modifier) is a single-column grid —
-                these rows need the modifier or every field stacks onto its
-                own line instead of sitting side by side. */}
-            <div className="frow c2">
-              <div><label className="f">Name</label>
-                {/* PurityPicker beside it is pinned to a fixed 31px row
-                    (`.pur-row`, shared with NewLoan.tsx/Dashboard.tsx) —
-                    matched here rather than the other way around, since
-                    that height is a reused convention across the app. */}
-                <input className="inp" style={{ height: 31, padding: "6px 8px" }} value={r.name} onChange={(e) => updRow(i, { name: e.target.value })} /></div>
-              <div><label className="f">Purity</label>
-                <PurityPicker value={r.purity} onChange={(v) => updRow(i, { purity: v })} /></div>
+        {/* Ornament list scrolls on its own (a loan can carry many
+            ornaments, and the fixed fields above — scheme/principal/
+            eligible amount — shouldn't have to scroll away with them) —
+            scoped locally via inline style rather than a new global class,
+            same approach as the Gross/Net/Qty row fix above. "Add
+            Ornament" is the last child inside this same scrolling box with
+            position:sticky so it stays reachable at the bottom of the
+            visible list without needing to scroll all the way down first. */}
+        <div className="edit-loan-orn-scroll" style={{ maxHeight: 340, overflowY: "auto", paddingRight: 2 }}>
+          {rows.map((r, i) => r.removed ? null : (
+            <div key={i} className="eln-card" style={{ border: "1px solid var(--line)", borderRadius: 8, padding: 10 }}>
+              {/* Bare "frow" (no .c2/.c3 modifier) is a single-column grid —
+                  these rows need the modifier or every field stacks onto its
+                  own line instead of sitting side by side. */}
+              <div className="frow c2">
+                <div><label className="f">Name</label>
+                  {/* PurityPicker beside it is pinned to a fixed 31px row
+                      (`.pur-row`, shared with NewLoan.tsx/Dashboard.tsx) —
+                      matched here rather than the other way around, since
+                      that height is a reused convention across the app. */}
+                  <input className="inp" style={{ height: 31, padding: "6px 8px" }} value={r.name} onChange={(e) => updRow(i, { name: e.target.value })} /></div>
+                <div><label className="f">Purity</label>
+                  <PurityPicker value={r.purity} onChange={(v) => updRow(i, { purity: v })} /></div>
+              </div>
+              {/* Plain `.frow.c3` — this modal now opens `wide` (820px,
+                  see LoanDetail.tsx's openModal calls) instead of the
+                  default 520px, so the standard 3-up row (used by every
+                  other dense form in the app) has enough room without a
+                  local override, and gets the same small-screen collapse
+                  every other `.frow.c3` row already gets for free. */}
+              <div className="frow c3">
+                <div><label className="f">Gross (g)</label>
+                  <input className="inp" type="number" min={0} value={r.gross} onChange={(e) => updRow(i, { gross: e.target.value })} /></div>
+                <div><label className="f">Net (g)</label>
+                  <input className="inp" type="number" min={0} value={r.net} onChange={(e) => updRow(i, { net: e.target.value })} /></div>
+                <div><label className="f">Qty</label>
+                  <input className="inp" type="number" min={1} value={r.qty} onChange={(e) => updRow(i, { qty: e.target.value })} /></div>
+              </div>
+              <div style={{ display: "flex", justifyContent: "flex-end" }}>
+                <button className="btn danger sm" onClick={() => removeRow(i)} title="Remove ornament">✕ Remove</button>
+              </div>
             </div>
-            <div className="frow c3">
-              <div><label className="f">Gross (g)</label>
-                <input className="inp" type="number" min={0} value={r.gross} onChange={(e) => updRow(i, { gross: e.target.value })} /></div>
-              <div><label className="f">Net (g)</label>
-                <input className="inp" type="number" min={0} value={r.net} onChange={(e) => updRow(i, { net: e.target.value })} /></div>
-              <div><label className="f">Qty</label>
-                <input className="inp" type="number" min={1} value={r.qty} onChange={(e) => updRow(i, { qty: e.target.value })} /></div>
-            </div>
-            <div style={{ display: "flex", justifyContent: "flex-end" }}>
-              <button className="btn danger sm" onClick={() => removeRow(i)} title="Remove ornament">✕ Remove</button>
-            </div>
+          ))}
+          <div style={{ position: "sticky", bottom: 0, background: "var(--card)", padding: "6px 0" }}>
+            <button className="btn plain sm" onClick={addRow}><Icon name="plus" /> Add Ornament</button>
           </div>
-        ))}
-        <button className="btn plain sm" style={{ marginBottom: 10 }} onClick={addRow}><Icon name="plus" /> Add Ornament</button>
+        </div>
 
-        <p style={{ fontSize: 12, color: "var(--muted)" }}>
+        <p style={{ fontSize: 12, color: "var(--muted)", marginTop: 10 }}>
           Total net weight: {fmt(activeRows.reduce((s, r) => s + (+r.net || 0) * (+r.qty || 1), 0)).replace("₹", "")}g
           — the eligible loan amount recalculates automatically from these ornaments on save; the principal
           above is rejected if it ends up higher than the new eligible amount.
         </p>
         <p style={{ color: "var(--red)", fontSize: 12.5, minHeight: 16, marginTop: 8 }}>{err}</p>
       </div>
-      <div className="ft">
+      {/* Sticky within .modal-bg (the actual scrolling ancestor — see
+          app.css's `.modal-bg{overflow-y:auto}`), scoped locally via inline
+          style rather than a global `.modal .ft` change: Cancel/Save Changes
+          stay reachable without scrolling all the way down through the
+          scheme/principal/ornaments fields above. */}
+      <div className="ft" style={{ position: "sticky", bottom: 0, background: "var(--card)", zIndex: 1 }}>
         <button className="btn ghost" onClick={closeModal}>Cancel</button>
         <button className="btn" onClick={save} disabled={saving}><Icon name="check" /> {saving ? "Saving…" : "Save Changes"}</button>
       </div>

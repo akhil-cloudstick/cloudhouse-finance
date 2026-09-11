@@ -4129,7 +4129,44 @@ func (s *Service) bondDataForLoan(ctx context.Context, l *Loan) BondData {
 		LegalName:       legalName,
 		AddressLine:     addressLine,
 		KMLRegNo:        kmlRegNo,
+		DueDate:         l.DueDate,
 	}
+}
+
+// RenderIndemnityBondPDFForLoan renders the pledge agreement PDF for
+// loanID, in the given language, WITHOUT touching Setu at all — a plain
+// downloadable copy (with a real per-page header/footer, via
+// RenderIndemnityBondPDF's chromedp header/footer templates) for staff to
+// save/print for offline wet-ink signing, as an alternative to the
+// client-side window.print() copy (frontend/modules/loans/utils/
+// indemnityBond.ts), which has no way to produce a real repeating
+// per-page header/footer — only a browser's own print dialog can do that,
+// and only server-side via chromedp, not from page CSS alone.
+func (s *Service) RenderIndemnityBondPDFForLoan(ctx context.Context, loanID uint, branchID *uint, lang string) ([]byte, string, error) {
+	if lang != BondLangEnglish && lang != BondLangMalayalam && lang != BondLangGujarati {
+		return nil, "", ErrUnsupportedIndemnityBondLang
+	}
+	l, err := s.repo.FindByID(ctx, loanID)
+	if err != nil {
+		return nil, "", ErrNotFound
+	}
+	if branchID != nil && l.BranchID != *branchID {
+		return nil, "", ErrNotFound
+	}
+
+	pdfBytes, err := RenderIndemnityBondPDF(s.bondDataForLoan(ctx, l), lang)
+	if err != nil {
+		return nil, "", err
+	}
+
+	filename := "Pledge-Agreement-" + l.LoanNumber + ".pdf"
+	switch lang {
+	case BondLangMalayalam:
+		filename = "Pledge-Agreement-Malayalam-" + l.LoanNumber + ".pdf"
+	case BondLangGujarati:
+		filename = "Pledge-Agreement-Gujarati-" + l.LoanNumber + ".pdf"
+	}
+	return pdfBytes, filename, nil
 }
 
 // StartIndemnityBondSign renders the pledge agreement PDF for loanID,

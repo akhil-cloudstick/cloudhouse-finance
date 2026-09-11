@@ -1,2 +1,17 @@
 # OpenWA secrets - do not commit
 OpenWA/data/.api-key
+
+# Dependencies — never committed, at the repo root or in any sub-project.
+# The per-project .gitignore files (frontend/, mobile/, customer-mobile/,
+# OpenWA/) each ignore their own /node_modules with a LEADING SLASH, which
+# anchors the rule to that directory only. So an `npm install` run from the
+# repo root — which is how a stray root node_modules/ and its orphan
+# package-lock.json appear (concurrently already lives in frontend's own
+# devDependencies; the root has no package.json at all) — was matched by
+# none of them and staged 2,598 files. This unanchored rule catches
+# node_modules anywhere, including that root one.
+node_modules/
+
+# OS / editor noise
+.DS_Store
+Thumbs.db

@@ -82,7 +82,22 @@ export type IndemnityBondParty = {
   principalAmount?: number;
   interestRate?: number;
   ornaments?: IndemnityBondOrnament[];
+  /* Loan due date ("YYYY-MM-DD"), e.g. LoanView.due — fills the "repay the
+   * said loan on or before ___" clause below, which previously always
+   * rendered as a blank underscore line regardless of the loan's actual
+   * due date. */
+  dueDate?: string;
 };
+
+/* The lender's own signature image (an authorized signatory's captured
+ * signature, not a per-loan/customer signature) — stamped on every
+ * printed/eSign'd bond next to LENDER_NAME below, same way the packet
+ * label's QR code resolves against `location.origin` rather than a
+ * relative path (this HTML is written into a blank popup window via
+ * openPrintWindow, whose own location is about:blank — a relative src
+ * would 404 there). Lives in public/assets so it's served as a plain
+ * static file. */
+const LENDER_SIGNATURE_URL = () => `${location.origin}/assets/lender-signature.svg`;
 
 const B = "________________";
 // These are now the FALLBACK only. The lender's particulars come from the
@@ -115,6 +130,13 @@ const LENDER_PAN = "AAAAA0000A";
 
 function fmtINR(n?: number) {
   return n != null ? n.toLocaleString("en-IN") : "";
+}
+
+function fmtDueDate(dueDate?: string) {
+  if (!dueDate) return "";
+  const d = new Date(dueDate);
+  if (isNaN(d.getTime())) return "";
+  return `${String(d.getDate()).padStart(2, "0")}-${String(d.getMonth() + 1).padStart(2, "0")}-${d.getFullYear()}`;
 }
 
 export function printIndemnityBond(p: IndemnityBondParty, onBlocked: (msg: string) => void, lang: BondLang = "en") {
@@ -219,7 +241,9 @@ export function printIndemnityBond(p: IndemnityBondParty, onBlocked: (msg: strin
       "ચલ મિલકતનો આડગીરો કરાર — " + p.loanNumber,
       `<style>
         @page{size:A4;margin:35mm 20mm 30mm 20mm}
-        body{font-family:'Noto Sans Gujarati','Shruti','Nirmala UI',Georgia,serif}
+        /* See the English template's identical body-margin comment above
+         * bondHTMLEnglish's own @page rule — same fix, Gujarati template. */
+        body{font-family:'Noto Sans Gujarati','Shruti','Nirmala UI',Georgia,serif;margin-top:130px !important;padding-bottom:110px !important}
       </style>
       <h1>ચલ મિલકતનો આડગીરો કરાર</h1>
       <p style="text-align:center;color:#555">ગોલ્ડ લોન એકાઉન્ટ નંબર ${p.loanNumber}</p>
@@ -245,7 +269,7 @@ export function printIndemnityBond(p: IndemnityBondParty, onBlocked: (msg: strin
       <p>આડગીરો લેનાર <b>${p.branchName || B}</b> ગામે નોંધણી પ્રમાણપત્ર નંબર <b>${LENDER_KML_REG_NO}</b> હેઠળ નાણાં ધિરાણનો વ્યવસાય કરે છે.</p>
       <p><b>આથી નીચે મુજબ સંમતિ કરવામાં આવે છે:</b></p>
       <ol>
-        <li><b>ચૂકવણી કરવાનો કરાર</b><br>આડમાં લેનાર દ્વારા આડમાં મૂકનારને આપવામાં આવેલ રૂપિયા <b>${fmtINR(p.principalAmount) || B}</b> ના ઋણના બદલામાં, આડમાં મૂકનાર સંમત થાય છે કે, ઉપરોક્ત ઋણ તારીખ ${B} ના રોજ અથવા તે પહેલાં, આ કરારના અમલની તારીખથી <b>${p.interestRate != null ? p.interestRate + "%" : B}</b> પ્રતિ વર્ષના વ્યાજ સાથે પરત ચૂકવશે.</li>
+        <li><b>ચૂકવણી કરવાનો કરાર</b><br>આડમાં લેનાર દ્વારા આડમાં મૂકનારને આપવામાં આવેલ રૂપિયા <b>${fmtINR(p.principalAmount) || B}</b> ના ઋણના બદલામાં, આડમાં મૂકનાર સંમત થાય છે કે, ઉપરોક્ત ઋણ તારીખ ${fmtDueDate(p.dueDate) || B} ના રોજ અથવા તે પહેલાં, આ કરારના અમલની તારીખથી <b>${p.interestRate != null ? p.interestRate + "%" : B}</b> પ્રતિ વર્ષના વ્યાજ સાથે પરત ચૂકવશે.</li>
         <li><b>આડગીરોની જોગવાઈ</b><br>આડમાં લેનારે રૂ. <b>${fmtINR(p.principalAmount) || B}</b> ની રકમ ધિરાણ આપી છે, જેની પ્રાપ્તિ આડમાં મૂકનાર સ્વીકારે છે. આડમાં મૂકનારે પોતાની માલિકીની આ કરારની અનુસૂચિમાં દર્શાવેલી માલ ઉપરોક્ત ઋણની ચૂકવણી કરવા માટે જામીનગીરી તરીકે સુરક્ષા તરીકે આડમાં લેનારને નિક્ષેપ કરેલ છે. આ વસ્તુઓ આ કરારમાં નક્કી કરેલ રીતે આડમાં લેનાર પાસે જામીનગીરી તરીકે રાખવામાં આવશે.
           <ol type="a">
             <li><b>અસાધારણ ખર્ચ અંગે આડમાં લેનારનો હક્ક</b> — આડમાં લેનાર આડમાં મૂકેલા માલની જાળવણી માટે પોતાને થયેલો અસાધારણ ખર્ચ, આડમાં મૂકનાર પાસેથી મેળવવા હક્કદાર રહેશે.</li>
@@ -273,12 +297,12 @@ export function printIndemnityBond(p: IndemnityBondParty, onBlocked: (msg: strin
       <p>સ્થળ: ${p.branchName || B}</p>
       <p>તારીખ: ${dd} / ${monthName} / ${yyyy}</p>
       <div class="sig">
-        <div>આડગીરો મૂકનાર<span>નામ: ${p.name || B}</span></div>
-        <div>આડગીરો લેનાર<span>${LENDER_NAME}</span></div>
+        <div><span>સાક્ષી<br>નામ: ${B}</span></div>
+        <div><span>સાક્ષી<br>નામ: ${B}</span></div>
       </div>
       <div class="sig">
-        <div><span>સાક્ષી<br>નામ: ${B}</span></div>
-        <div><span>સાક્ષી<br>નામ: ${B}</span></div>
+        <div>આડગીરો મૂકનાર<span>નામ: ${p.name || B}</span></div>
+        <div>આડગીરો લેનાર<img src="${LENDER_SIGNATURE_URL()}" class="lender-sig" alt="Lender signature" /><span>${LENDER_NAME}</span></div>
       </div>`,
       onBlocked
     );
@@ -291,12 +315,31 @@ export function printIndemnityBond(p: IndemnityBondParty, onBlocked: (msg: strin
   // backend/internal/loan/indemnitybond.go's bondTemplate doc comment for
   // why that older document was replaced outright rather than kept
   // alongside this one.
-  const MONTHS_ABBR_EN = ["JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"];
-  const dateDisplayEn = `${dd} ${MONTHS_ABBR_EN[now.getMonth()]} ${yyyy}`;
-  const itemNamesEn = ornaments.length ? ornaments.map((o) => o.name).join(", ") : B;
-  const itemWeightsEn = ornaments.length ? ornaments.map((o) => `${o.netWeight.toFixed(2)} GM`).join(", ") : B;
-  const amountEn = p.principalAmount;
-  const amountWordsEn = amountEn != null ? numberToIndianWords(amountEn) : "";
+  // Locals the English deed needs (the two letter templates above do not):
+  // it names BOTH parties' particulars and prints an appraised total, the
+  // same way the Gujarati branch above does — see those locals' comments.
+  const monthName = now.toLocaleString("en-IN", { month: "long" });
+  const age = (() => {
+    if (!p.dob) return B;
+    const d = new Date(p.dob);
+    if (Number.isNaN(d.getTime())) return B;
+    let a = now.getFullYear() - d.getFullYear();
+    const m = now.getMonth() - d.getMonth();
+    if (m < 0 || (m === 0 && now.getDate() < d.getDate())) a--;
+    return a > 0 ? String(a) : B;
+  })();
+  const aadhaar = p.aadhaar || B;
+  const totalValue = ornaments.reduce((s, o) => s + (o.value ?? 0), 0);
+  const rows = ornaments.length
+    ? ornaments
+        .map(
+          (o, i) =>
+            `<tr><td>${i + 1}</td><td>${o.name}</td><td>${o.purity || "—"}</td>
+            <td class="num">${o.grossWeight.toFixed(1)}</td><td class="num">${o.netWeight.toFixed(1)}</td>
+            <td class="num">${fmtINR(o.value)}</td></tr>`
+        )
+        .join("")
+    : `<tr><td colspan="6" style="text-align:center;color:#777">${B}</td></tr>`;
 
   openPrintWindow(
     LENDER_NAME + " — " + p.loanNumber,
@@ -304,39 +347,78 @@ export function printIndemnityBond(p: IndemnityBondParty, onBlocked: (msg: strin
       @page{size:A4;margin:20mm 15mm}
       .hd-table{border:none;margin-bottom:10px}
       .hd-table td{border:none;padding:2px 0;vertical-align:top}
+      /* @page above only controls the printable area when the browser's
+       * own print-dialog "Margins" setting is left on "Default" — picking
+       * "None" there forces the page margin to zero and there is no CSS
+       * way to override that browser-level choice once it's picked. Real,
+       * content-level body margin/padding (unlike @page) can't be zeroed
+       * out that way, so it's the only header/footer space guaranteed to
+       * survive regardless of that dropdown — sized to roughly match
+       * @page's own 35mm/30mm so the two agree when Margins IS left on
+       * Default (in which case this stacks additively with @page rather
+       * than replacing it — still fine, just extra breathing room). */
+      body{margin-top:130px !important;padding-bottom:110px !important}
     </style>
-    <h1>${LENDER_NAME}</h1>
-    <h2>${LENDER_ADDRESS_SHORT}<br>KML Reg No: ${LENDER_KML_REG_NO}</h2>
-
-    <table class="hd-table">
-      <tr>
-        <td style="width:50%">ITEM NAME: ${itemNamesEn}<br>ITEM Weight: ${itemWeightsEn}</td>
-        <td>Loan No. ${p.loanNumber}<br>Date: ${dateDisplayEn}</td>
-      </tr>
+    <h1>AGREEMENT OF PLEDGE OF MOVABLE</h1>
+    <p style="text-align:center;color:#555">Gold Loan Account No. ${p.loanNumber}</p>
+    <p>MEMORANDUM OF AGREEMENT, made the <b>${dd}</b> day of <b>${monthName}, ${yyyy}</b> BETWEEN</p>
+    <p>
+      <b>${p.name || B}</b><br>
+      Age :- <b>${age}</b>, business :- ${B}<br>
+      Aadhar Card No. <b>${aadhaar}</b><br>
+      Pan Card No. <b>${p.pan || B}</b><br>
+      Residing at :- <b>${p.address || B}</b>
+    </p>
+    <p>(Hereinafter called "the borrower") of the one part.</p>
+    <p>AND</p>
+    <p>
+      <b>${LENDER_NAME}</b><br>
+      Age :- <b>${LENDER_AGE}</b>, business :- <b>${LENDER_NAME}</b><br>
+      Aadhar Card No. <b>${LENDER_AADHAAR}</b><br>
+      Pan Card No. <b>${LENDER_PAN}</b><br>
+      Residing at :- <b>${LENDER_ADDRESS_SHORT}</b>
+    </p>
+    <p>(Hereinafter called "the lender") of the other part.</p>
+    <p>The lender carrying on business of money-lending under certificate of registration number <b>${LENDER_KML_REG_NO}</b> of the other part.</p>
+    <p>The Money lender and borrower are collectively referred to as the "Parties".</p>
+    <p><b>WHEREBY IT IS AGREED AS FOLLOWS</b></p>
+    <ol>
+      <li><b>Covenant to pay</b><br>In Consideration of the loan of Rs <b>${fmtINR(p.principalAmount) || B}</b> advance by the lender to the borrower, the borrower hereby covenants with the lender that he will repay the said loan on or before ${fmtDueDate(p.dueDate) || B} with interest at <b>${p.interestRate != null ? p.interestRate + "%" : B}</b> percent per annum from the date of execution of this agreement.</li>
+      <li><b>Pledge Clause</b><br>The Lender has lent the sum of Rs <b>${fmtINR(p.principalAmount) || B}</b> (the receipt of which the borrower hereby acknowledges) and borrower has delivered to the lender article belonging to the borrower and specified in the schedule hereto to be held by him as security for the repayment of the aforesaid loan in the manner herein provided,
+        <ol type="a">
+          <li><b>Right to Extraordinary Expenses</b> — The lender is entitled to receive from the borrower extraordinary expenses incurred by him for the preservation of the good pledged.</li>
+          <li><b>Expenses of Repairs</b> — The Expenses of keeping the said articles in a good state of repair and in proper working order.</li>
+          <li><b>Other Costs</b> — All other costs, charges and expenses (if any) which the lender may be entitled by law to add to his security.</li>
+        </ol>
+      </li>
+      <li><b>Lender's Liability for Losses</b><br>The Lender shall not be liable to the borrower for any involuntary losses which may occur during his custody of the said articles (goods) or by reason of the sale thereof.</li>
+      <li><b>Right of Lender</b><br>The Borrower further covenants with the lender that in case any interest payable hereunder is not paid within 30 days after the due date, the whole sum hereby secured shall become payable at once, and in case of default in the payment of the principal money hereby secured with interest thereon on the aforesaid or in the performance of any of the covenants by the borrower hereinbefore contained the lender may enforce all or any of the remedies of a Pawnee provided by law provided that in case of sale of any part of the pledged property, a previous notice of two months shall be given to the borrower.</li>
+      <li><b>Power of Sale</b>
+        <ol type="a">
+          <li>The power of sale conferred by law on the lender shall be exercisable by public auction or private contract in respect of the entire articles in one lot or in several lots at the discretion of the lender;</li>
+          <li>Before exercising such power of sale as aforesaid the lender shall give at least two months' notice to the borrower.</li>
+        </ol>
+      </li>
+      <li><b>Interpretation clause</b><br>It is hereby agreed that wherever such an interpretation would be requisite in order to give the fullest scope and effect legally possible to any covenant herein contained, the expression "the borrower" and "the lender" hereinbefore used include their respective heirs, executors, administrators, and assigns.</li>
+    </ol>
+    <p><b>The Schedule herein referred to</b></p>
+    <table>
+      <thead><tr><th>Sr. no</th><th>Description of the Article</th><th>Carat</th><th class="num">Gross Weight</th><th class="num">Net Weight</th><th class="num">Estimated Value</th></tr></thead>
+      <tbody>${rows}</tbody>
     </table>
-
-    <p>CUSTOMER NAME: ${p.name || B}<br>CUSTOMER MOB NO: ${p.phone || B}</p>
-    <p>AMOUNT: ${fmtINR(amountEn) || B}</p>
-
-    <p>
-    I, <b>${p.name || B}</b>, declare that the gold ornaments shown above are my own property and no one else has any claim to them. I have pledged these ornaments with your establishment, <b>${LENDER_NAME}</b>, and hereby humbly request that a loan of Rs. <b>${fmtINR(amountEn) || B}</b> ( ${amountWordsEn || B} only ), equal to the appraised value of the ornaments, be granted to me at monthly interest.
-    </p>
-    <p>Name: ${p.name || B}<br>Signature: ${B}</p>
-
-    <h3 style="text-align:center;margin-top:30px">DECLARATION</h3>
-
-    <p>
-    I, <b>${p.name || B}</b>, undertake to pay the interest on the loan of Rs. <b>${fmtINR(amountEn) || B}</b> availed by me every month without fail, and assure that I will close the loan by repaying the full amount along with interest within one year. If for any reason I am unable to repay the borrowed money with interest, I hereby agree that the owner of <b>${LENDER_NAME}</b> shall have the right to auction or sell these ornaments to recover any loss incurred by the establishment, and that I will not raise any claim regarding this thereafter.
-    </p>
-
-    <p>Name: ${p.name || B}<br>Signature: ${B}</p>
-    <p style="margin-top:18px"><b>Loan Sanctioned.</b></p>
-    <p>Date: ${dateDisplayEn}</p>
-
-    <hr style="margin-top:40px;border:none;border-top:1px solid #999">
-    <p style="margin-top:24px"><b>Signature of the person who receives the jewellery back</b></p>
-    <p>Ornaments received back without any damage.</p>
-    <p>Date: ${B}<br>Name: ${p.name || B}<br>Signature: ${B}</p>`,
+    <p><b>Total Estimated Value :- Rs. ${fmtINR(totalValue) || B}/-</b></p>
+    <p><b>Total Loan Advanced :- Rs. ${fmtINR(p.principalAmount) || B}/-</b></p>
+    <p>Place :- ${p.branchName || B}</p>
+    <p>Date :- ${dd} / ${monthName} / ${yyyy}</p>
+    <p><b>IN WITNESS WHEREOF Etc.</b></p>
+    <div class="sig">
+      <div><span>Name: ${B}<br>Residing at</span></div>
+      <div><span>Name: ${B}<br>Residing at</span></div>
+    </div>
+    <div class="sig">
+      <div>The Borrower<span>Name: ${p.name || B}</span></div>
+      <div>The Lender<img src="${LENDER_SIGNATURE_URL()}" class="lender-sig" alt="Lender signature" /><span>${LENDER_NAME}</span></div>
+    </div>`,
     onBlocked
   );
 }

@@ -403,47 +403,39 @@ type PersonalLoanTotals struct {
 	TotalOutstanding float64 `json:"totalOutstanding"`
 }
 
-// TradeSheetRow is one gold-stock movement event — see reports_trade.go for
-// how Pledge In/Release Out/Re-pledge to Bank/Bank Release/Auction Out rows
-// are each sourced. Purity/NetWeight are blank/zero on the two event types
-// (bank re-pledge, auction) whose source table doesn't itemize weight.
-type TradeSheetRow struct {
-	Date       time.Time `json:"date"`
-	Reference  string    `json:"reference"`
-	Type       string    `json:"type"`
-	Party      string    `json:"party"`
-	Purity     string    `json:"purity"`
-	NetWeight  float64   `json:"netWeight"`
-	Rate       float64   `json:"rate"`
-	Value      float64   `json:"value"`
-	BranchName string    `json:"branchName"`
-}
-
-// PurityStock is one purity's closing stock weight, part of
-// TradeSheetTotals.
-type PurityStock struct {
-	Purity    string  `json:"purity"`
-	NetWeight float64 `json:"netWeight"`
-}
-
-type TradeSheetTotals struct {
-	ClosingStockByPurity []PurityStock `json:"closingStockByPurity"`
-	TotalValue           float64       `json:"totalValue"`
-}
-
-// BalanceSheetRow is one line item of the Assets/Liabilities/Capital
-// statement — see reports_balance.go for how each is computed. There's no
-// owner's-capital/equity ledger in this schema, so "Capital" carries a
-// single computed Net Position (Assets − Liabilities) row rather than a
-// real equity breakdown.
+// BalanceSheetRow is one printed line of the Ind AS Division III (NBFC)
+// style Balance Sheet — see reports_balance.go for how each is computed
+// and sourced. One row per line as a real Division III statement prints
+// it (including section headers like "I. ASSETS"/"(1) Financial Assets"
+// as their own rows, matching how the reference format lays them out),
+// rather than a nested structure — Label already carries the "(a)"/"(1)"/
+// roman-numeral prefix verbatim. Style/Indent are display hints only
+// (bold weight, left-indent level 0-2); Label is what actually prints.
 type BalanceSheetRow struct {
-	Section string  `json:"section"` // "Assets" | "Liabilities" | "Capital"
-	Label   string  `json:"label"`
-	Amount  float64 `json:"amount"`
+	Label  string  `json:"label"`
+	Amount float64 `json:"amount"`
+	Style  string  `json:"style"`  // "" | "header" (bold, no amount) | "total" (bold, amount shown)
+	Indent int     `json:"indent"` // 0, 1, or 2
 }
 
 type BalanceSheetTotals struct {
 	TotalAssets      float64 `json:"totalAssets"`
-	TotalLiabilities float64 `json:"totalLiabilities"`
-	NetPosition      float64 `json:"netPosition"`
+	TotalLiabilities float64 `json:"totalLiabilities"` // financial + non-financial, excludes equity
+	TotalEquity      float64 `json:"totalEquity"`
+}
+
+// ProfitLossRow is one printed line of the Statement of Profit and Loss —
+// see reports_profitloss.go. Same Label/Style/Indent convention as
+// BalanceSheetRow.
+type ProfitLossRow struct {
+	Label  string  `json:"label"`
+	Amount float64 `json:"amount"`
+	Style  string  `json:"style"`
+	Indent int     `json:"indent"`
+}
+
+type ProfitLossTotals struct {
+	TotalIncome     float64 `json:"totalIncome"`
+	TotalExpenses   float64 `json:"totalExpenses"`
+	ProfitForPeriod float64 `json:"profitForPeriod"`
 }

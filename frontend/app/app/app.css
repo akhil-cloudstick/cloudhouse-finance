@@ -1676,11 +1676,25 @@ h3,
   border-radius: 5px;
   cursor: pointer;
   background: var(--brand);
-  padding: 9px 18px;
+  padding: 0 18px;
+  /* Pinned to an explicit height (rather than letting padding + the
+   * font's own metrics decide it) so every ordinary button across every
+   * page lands at exactly the same height as every ordinary dropdown/
+   * input field (.inp/select.inp share this same 38px below) — before
+   * this, two buttons with the same padding could still render a pixel
+   * or two apart depending on font/line-height rounding, and buttons
+   * never quite matched the height of the fields beside them. `.btn.sm`
+   * (dense table-row/inline actions) and the several already-scoped
+   * 31px contexts (cash-filter-row, orn rows, etc.) keep their own
+   * smaller pinned height on purpose — this is the *default* button/
+   * field size only. */
+  height: 38px;
+  box-sizing: border-box;
   box-shadow: 0 1px 2px color-mix(in oklab, var(--nav) 12%, transparent), 0 6px 14px -8px color-mix(in oklab, var(--nav) 35%, transparent);
   transition: filter .15s, transform .12s;
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   gap: 8px;
   text-decoration: none;
 }
@@ -1723,7 +1737,14 @@ h3,
 }
 
 .btn.sm {
-  padding: 6px 12px;
+  padding: 0 12px;
+  /* Restores the compact height `.btn`'s own explicit 38px would
+   * otherwise force onto every button — `.sm` is the deliberate smaller
+   * size used for dense table-row/inline actions app-wide (many of those
+   * call sites already pinned this same 31px inline redundantly; kept
+   * here so new `.btn.sm` usages get it for free too). */
+  height: 31px;
+  box-sizing: border-box;
   font-size: 11px;
   letter-spacing: .12em
 }
@@ -1804,6 +1825,23 @@ textarea.inp {
   outline: 0;
   width: 100%;
   transition: border-color .2s, box-shadow .2s;
+}
+
+/* Every plain text input, select, and the app's own dropdown triggers
+ * (SearchableSelect/DatePicker/Select — all share this "inp" class, see
+ * their components) pinned to the same explicit 38px as `.btn`'s default
+ * size above, rather than the padding/font-metric-derived height that let
+ * an input and the button beside it drift a pixel or two apart depending
+ * on the browser. `textarea.inp` is excluded — its height comes from its
+ * own `rows` attribute, and multi-line free text fields (e.g. "Additional
+ * Information") must stay resizable, not pinned to a single input row's
+ * height. The several already-scoped 31px contexts (cash-filter-row,
+ * purity-select, orn-type-td, etc.) keep their own smaller pinned height
+ * on purpose, matching `.btn.sm` beside them in those same dense rows. */
+.inp,
+select.inp {
+  height: 38px;
+  box-sizing: border-box;
 }
 
 .inp:focus {
@@ -3493,6 +3531,17 @@ table.tbl {
     margin-bottom: 10px
   }
 
+  /* `.modal.wide` (RegisterCustomerModal/SchemeStatementModal/EditLoanModal/
+   * etc.) is two classes — higher specificity than the plain `.modal{
+   * max-width:100%}` rule below in the ≤480px block — so without its own
+   * override here, EVERY wide modal stayed pinned to 820px on any screen
+   * narrower than that (tablets included), overflowing the viewport
+   * horizontally instead of shrinking like every plain (non-wide) modal
+   * already does. */
+  .modal.wide {
+    max-width: 100%
+  }
+
   .top {
     padding: 11px 14px;
     gap: 10px
@@ -3958,19 +4007,54 @@ table.tbl {
     margin: 0 0 2px;
     font-size: 10.5px;
   }
+  /* Height deliberately NOT reduced here anymore — every plain input/
+   * select/dropdown trigger app-wide is pinned to a uniform 38px (see
+   * `.inp, select.inp`'s own rule), and this short-viewport "compact
+   * modal" block used to fight that with its own smaller height,
+   * leaving inputs inconsistently tiny on any screen under 850px tall
+   * (most laptops). Padding/font-size still shrink here for extra
+   * breathing room on a short screen; the modal itself already scrolls
+   * (`.modal-bg{overflow-y:auto}`) if content still doesn't fit. */
   .modal .inp,
   .modal input,
   .modal select {
-    height: 28px;
     padding: 3px 8px;
     font-size: 12px;
   }
   .modal .fi {
-    height: 28px;
     padding: 0 8px;
     font-size: 11px;
   }
   .modal textarea {
     min-height: 44px;
+  }
+}
+/* Edit Loan modal's own scrollable ornament list (EditLoanModal.tsx) —
+ * still scrollable by wheel/drag/touch, just with the scrollbar track
+ * itself hidden, matching how the rest of this app's scroll areas already
+ * hide their scrollbars (see "still scrollable ... without a visible
+ * scrollbar" above `.tbl-wrap`). Scoped to this one class rather than a
+ * global scrollbar rule. */
+.edit-loan-orn-scroll {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.edit-loan-orn-scroll::-webkit-scrollbar {
+  display: none;
+}
+
+/* Vertical gap between ornament cards (EditLoanModal.tsx) — wider on small
+ * screens, where each card is already taller (its Gross/Net/Qty row has
+ * just collapsed to one column, now via the standard `.frow.c3` rule since
+ * this modal opens `wide`), so cards need more separation to read as
+ * distinct blocks rather than running together. */
+.eln-card {
+  margin-bottom: 10px;
+}
+
+@media (max-width: 900px) {
+  .eln-card {
+    margin-bottom: 16px;
   }
 }

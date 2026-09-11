@@ -226,11 +226,13 @@ var routeManifest = map[string]routeSpec{
 	// --------------------------------------------------------------- cash
 	"GET /api/v1/cash-movements":              list(),
 	"POST /api/v1/cash-movements":             list(),
+	"GET /api/v1/cash-movements/export":       list(),
 	"GET /api/v1/cash-movements/:id":          probe("id=cash_movements"),
 	"PATCH /api/v1/cash-movements/:id/status": probe("id=cash_movements"),
 	"GET /api/v1/expenses":                    list(),
 	"POST /api/v1/expenses":                   list(),
 	"GET /api/v1/expenses/:id":                probe("id=expenses"),
+	"GET /api/v1/expenses/export":             list(),
 	"PATCH /api/v1/expenses/:id/approve":      probe("id=expenses"),
 	"PATCH /api/v1/expenses/:id/reject":       probe("id=expenses"),
 	"GET /api/v1/cash/opening-balance":        list(),
@@ -259,6 +261,7 @@ var routeManifest = map[string]routeSpec{
 	"GET /api/v1/customers/:id":                       probe("id=customers"),
 	"PUT /api/v1/customers/:id":                       probe("id=customers"),
 	"DELETE /api/v1/customers/:id":                    probe("id=customers"),
+	"DELETE /api/v1/customers/:id/hard-delete":        probe("id=customers"),
 	"GET /api/v1/customers/:id/profile360":            probe("id=customers"),
 	"GET /api/v1/customers/:id/loans":                 probe("id=customers"),
 	"GET /api/v1/customers/:id/ornaments":             probe("id=customers"),
@@ -294,6 +297,8 @@ var routeManifest = map[string]routeSpec{
 	"POST /api/v1/loans/:id/auction/settle":                  probe("id=loans"),
 	"POST /api/v1/loans/:id/auction/notice":                  external("an auction notice is a legal notice sent to a real borrower over WhatsApp/SMS", "id=loans"),
 	"GET /api/v1/loans/:id/indemnity-bond/esign/status":      probe("id=loans"),
+	"GET /api/v1/loans/:id/indemnity-bond/pdf":               probe("id=loans"),
+	"POST /api/v1/loans/indemnity-bond/preview-pdf":          self("renders a PDF purely from the posted draft in the request body; it reads no stored row, so there is no identifier to substitute"),
 	"POST /api/v1/loans/:id/indemnity-bond/esign/start":      external("starts a Setu Aadhaar eSign transaction", "id=loans"),
 	"PUT /api/v1/loans/:id/bank-pledge/:pledgeId/release":    probe("id=loans", "pledgeId=bank_pledge_records"),
 	"PUT /api/v1/loans/:id/bank-pledge/:pledgeId/void":       probe("id=loans", "pledgeId=bank_pledge_records"),
@@ -435,6 +440,8 @@ var routeManifest = map[string]routeSpec{
 	"GET /api/v1/reports/employee-performance":                 list(),
 	"GET /api/v1/reports/communication-history":                list(),
 	"GET /api/v1/reports/form-g":                               list(),
+	"GET /api/v1/reports/balance-sheet":                        list(),
+	"GET /api/v1/reports/profit-loss":                          list(),
 	// :key names the report to export, not a record. The export path is the
 	// classic blind spot — correct on screen, leaking in the file — so
 	// TestCollectionsDoNotLeak walks every export key too.

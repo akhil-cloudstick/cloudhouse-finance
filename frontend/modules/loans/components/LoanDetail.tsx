@@ -24,14 +24,15 @@ import {
   canAcceptBankPledge,
   downloadLoanStatement,
   hardDeleteLoan,
+  downloadIndemnityBondPDF,
   type SanctionStage,
   type LoanView,
 } from "@/modules/loans/services/loanService";
-import { getCustomer, getCustomerAadhaarFull } from "@/modules/customers/services/customerService";
+import { getCustomer } from "@/modules/customers/services/customerService";
 import { listPackets } from "@/modules/packets/services/packetService";
 import { openPrintWindow, brandHeader } from "@/common/utils/print";
 import { BRAND, printColors } from "@/common/config/brand";
-import { printIndemnityBond, type BondLang } from "@/modules/loans/utils/indemnityBond";
+import type { BondLang } from "@/modules/loans/utils/indemnityBond";
 import { printReleaseAgreement, type ReleaseAgreementLang } from "@/modules/loans/utils/releaseAgreement";
 import { StageTracker } from "@/common/components/ui/StageTracker";
 import { ApiError } from "@/common/services/httpClient";
@@ -306,7 +307,7 @@ export function LoanDetail({ id }: { id?: string }) {
   // own Edit Loan entry: plain "can update loan", not the stage-specific
   // verify/approve/sanction permission.
   const editLoanButton = canUpdateLoans && l.status !== "Closed" && l.status !== "Auctioned" ? (
-    <button className="btn ghost sm" onClick={() => openModal(<EditLoanModalContent loan={l} onSaved={load} />)}>
+    <button className="btn ghost" onClick={() => openModal(<EditLoanModalContent loan={l} onSaved={load} />, true)}>
       <Icon name="edit" /> Edit Loan
     </button>
   ) : null;
@@ -314,10 +315,10 @@ export function LoanDetail({ id }: { id?: string }) {
   const approvalButtons = pendingStage ? (
     canActOnStage ? (
       <>
-        <button className="btn sm" disabled={approving} onClick={() => doApprove(pendingStage, isVerifyStage ? "Verified" : "Approved")}>
+        <button className="btn" disabled={approving} onClick={() => doApprove(pendingStage, isVerifyStage ? "Verified" : "Approved")}>
           <Icon name="check" /> {isVerifyStage ? "Verify" : "Approve"}
         </button>
-        <button className="btn danger sm" disabled={approving} onClick={() => doApprove(pendingStage, "Rejected")}>
+        <button className="btn danger" disabled={approving} onClick={() => doApprove(pendingStage, "Rejected")}>
           Reject
         </button>
         {editLoanButton}
@@ -425,36 +426,19 @@ export function LoanDetail({ id }: { id?: string }) {
    * offline wet-ink signing — the branch prints it, the customer and two
    * witnesses sign by hand, and it is filed. Independent of the Aadhaar
    * eSign status: staff need this whenever eSign is unavailable, declined,
-   * or the customer simply prefers paper. */
+   * or the customer simply prefers paper.
+   *
+   * Downloads the server-rendered PDF (GET /loans/:id/indemnity-bond/pdf)
+   * rather than opening the old client-side window.print() copy — only
+   * the backend's chromedp render can produce a real per-page header/
+   * footer (see loanService.ts's downloadIndemnityBondPDF doc comment);
+   * a browser's own print dialog has no equivalent a page's CSS can
+   * drive. NewLoan.tsx's pre-submission preview still uses the old
+   * client-side copy — there's no saved loan id yet to render against. */
   function printBond(lang: BondLang = "en") {
     setPrintingBond(true);
-    Promise.all([getCustomer(l.customerId), getCustomerAadhaarFull(l.customerId).catch(() => "")])
-      .then(([c, aadhaar]) =>
-        printIndemnityBond(
-          {
-            loanNumber: l.id,
-            name: c.name,
-            dob: c.dob,
-            address: c.address,
-            phone: c.phone,
-            branchName: l.branchName,
-            pan: c.pan,
-            aadhaar,
-            principalAmount: l.principal,
-            interestRate: l.schemeRate,
-            ornaments: l.ornaments.map((o) => ({
-              name: o.name,
-              purity: o.purity,
-              grossWeight: o.grossWeight,
-              netWeight: o.netWeight,
-              value: o.goldValue,
-            })),
-          },
-          toast,
-          lang
-        )
-      )
-      .catch(() => toast("Could not load customer details for the bond."))
+    downloadIndemnityBondPDF(l.numericId, lang)
+      .catch(() => toast("Could not download the pledge agreement — try again."))
       .finally(() => setPrintingBond(false));
   }
 
@@ -789,7 +773,7 @@ export function LoanDetail({ id }: { id?: string }) {
         <div className="page-h-actions">
           {approvalButtons ? approvalButtons : (
             l.status !== "Closed" && canUpdateLoans && (
-              <button className="btn sm" onClick={() => openModal(<PaymentModalContent loan={l} onSaved={load} />)}><Icon name="coin" /> Record Payment</button>
+              <button className="btn" onClick={() => openModal(<PaymentModalContent loan={l} onSaved={load} />)}><Icon name="coin" /> Record Payment</button>
             )
           )}
           {l.status === "Closure Requested" && canUpdateLoans && (
@@ -799,7 +783,7 @@ export function LoanDetail({ id }: { id?: string }) {
             // button never fires a click at all, leaving a hover-only title
             // as the sole explanation. The title stays as a bonus hint for
             // anyone who hovers before clicking.
-            <button className="btn" style={{ height: 30 }} disabled={completing} onClick={doCompleteRelease} title={l.totalOutstandingBalance > 0.01 ? "Final settlement must be fully paid first" : l.bankPledgeStatus === "Bank Pledged" ? "Release the bank pledge first" : undefined}>
+            <button className="btn" disabled={completing} onClick={doCompleteRelease} title={l.totalOutstandingBalance > 0.01 ? "Final settlement must be fully paid first" : l.bankPledgeStatus === "Bank Pledged" ? "Release the bank pledge first" : undefined}>
               <Icon name="unlock" /> {completing ? "Releasing…" : "Complete Release"}
             </button>
           )}
@@ -807,7 +791,7 @@ export function LoanDetail({ id }: { id?: string }) {
             <div className="docs-dd" ref={loanActionsMenuRef} onKeyDown={onLoanActionsMenuKeyDown}>
               <button
               ref={loanActionsMenuTriggerRef}
-              className="btn ghost sm"
+              className="btn ghost"
               onClick={() => setLoanActionsMenuOpen((v) => !v)}
               aria-haspopup="menu"
               aria-expanded={loanActionsMenuOpen}
@@ -832,7 +816,7 @@ export function LoanDetail({ id }: { id?: string }) {
                     </a>
                   )}
                 {l.status !== "Closed" && l.status !== "Auctioned" && canUpdateLoans && (
-                  <a href="#" title="Edit Loan" onClick={(e) => { e.preventDefault(); setLoanActionsMenuOpen(false); openModal(<EditLoanModalContent loan={l} onSaved={load} />); }}>
+                  <a href="#" title="Edit Loan" onClick={(e) => { e.preventDefault(); setLoanActionsMenuOpen(false); openModal(<EditLoanModalContent loan={l} onSaved={load} />, true); }}>
                     <Icon name="edit" /><span className="tx">Edit Loan</span>
                   </a>
                 )}
@@ -891,7 +875,7 @@ export function LoanDetail({ id }: { id?: string }) {
           <div className="docs-dd" ref={docsMenuRef} onKeyDown={onDocsMenuKeyDown}>
             <button
             ref={docsMenuTriggerRef}
-            className="btn ghost sm"
+            className="btn ghost"
             onClick={() => setDocsMenuOpen((v) => !v)}
             aria-haspopup="menu"
             aria-expanded={docsMenuOpen}
