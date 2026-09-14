@@ -10,6 +10,7 @@ import { searchBanksPage, type BackendBank } from "@/modules/banks/services/bank
 import { SearchableSelect } from "@/common/components/ui/SearchableSelect";
 import { DatePicker } from "@/common/components/ui/DatePicker";
 import { ApiError } from "@/common/services/httpClient";
+import { useIsSmallScreen } from "@/common/utils/responsive";
 
 /* Ported from legacy/app.js's `openRepledgeModal()` / `saveRepledge()`. Now
  * posts to the real POST /loans/:id/bank-pledge endpoint. The old mock's
@@ -27,6 +28,7 @@ import { ApiError } from "@/common/services/httpClient";
 export function RepledgeModalContent({ loan, onSaved }: { loan: LoanView; onSaved: () => void }) {
   const { closeModal } = useModal();
   const toast = useToast();
+  const smallScreen = useIsSmallScreen();
   const today = new Date().toISOString().slice(0, 10);
 
   const [bank, setBank] = useState("");
@@ -81,12 +83,12 @@ export function RepledgeModalContent({ loan, onSaved }: { loan: LoanView; onSave
   return (
     <>
       <div className="hd"><h3>Repledge Gold to Bank — {loan.id}</h3><button className="x" onClick={closeModal}>×</button></div>
-      <div className="bd">
-        <div className="notice" style={{ marginBottom: 16 }}>
+      <div className="bd repledge-modal-bd">
+        <div className="notice" style={{ marginBottom: 12 }}>
           <Icon name="bank" /> {fmtW(loan.totalNetWeight)} gold pledged against this loan
         </div>
         {loan.ornaments.length > 0 && (
-          <div style={{ marginBottom: 16 }}>
+          <div style={{ marginBottom: 12 }}>
             <label className="f">Gold/Ornaments Being Pledged</label>
             <ul style={{ margin: "4px 0 0", paddingLeft: 18, fontSize: 13 }}>
               {loan.ornaments.map((o) => (
@@ -98,24 +100,56 @@ export function RepledgeModalContent({ loan, onSaved }: { loan: LoanView; onSave
             </ul>
           </div>
         )}
-        <div className="frow"><div><label className="f">Bank *</label>
-          <SearchableSelect<BackendBank>
-            value={bankLabel}
-            onChange={(id, item) => { setBank(item.name); setBankLabel(item.name); setBankId(Number(id) || undefined); }}
-            fetchFn={searchBanksPage}
-            getLabel={(b) => b.name}
-            getId={(b) => String(b.id)}
-            placeholder="Search for a registered bank…"
-          /></div></div>
-        <div className="frow c2">
-          <div><label className="f">Pledged Amount (₹) *</label><input className="inp" type="number" min={1} placeholder="amount raised from bank" value={amt} onChange={(e) => setAmt(e.target.value)} /></div>
-          <div><label className="f">Pledge Date *</label><DatePicker value={date} onChange={setDate} /></div>
-        </div>
-        <div className="frow c2">
-          <div><label className="f">Bank Interest Rate (% p.a.)</label><input className="inp" type="number" min={0} step={0.01} placeholder="rate charged by the bank" value={interestRate} onChange={(e) => setInterestRate(e.target.value)} /></div>
-          <div><label className="f">Reference Number</label><input className="inp" placeholder="bank's pledge/document reference" value={referenceNumber} onChange={(e) => setReferenceNumber(e.target.value)} maxLength={60} /></div>
-        </div>
-        <div className="frow"><div><label className="f">Bank Pledge Due Date</label><DatePicker value={dueDate} onChange={setDueDate} min={date} /></div></div>
+        {/* Small screens pack all 6 fields into a tight 3-col x 2-row grid
+         * (an explicit inline gridTemplateColumns, since `.frow.c3` collapses
+         * to one column below the usual breakpoint — that collapse is right
+         * for every other c3 usage, just not this compact small-screen
+         * layout) to keep the modal short enough that its footer buttons
+         * don't get pushed below the fold. Regular screens keep the
+         * original, more spacious row grouping instead. */}
+        {smallScreen ? (
+          <>
+            <div className="frow" style={{ marginBottom: 24, gridTemplateColumns: "repeat(3, 1fr)" }}>
+              <div><label className="f">Bank *</label>
+                <SearchableSelect<BackendBank>
+                  value={bankLabel}
+                  onChange={(id, item) => { setBank(item.name); setBankLabel(item.name); setBankId(Number(id) || undefined); }}
+                  fetchFn={searchBanksPage}
+                  getLabel={(b) => b.name}
+                  getId={(b) => String(b.id)}
+                  placeholder="Search for a registered bank…"
+                /></div>
+              <div><label className="f">Pledged Amount (₹) *</label><input className="inp" type="number" min={1} placeholder="amount raised from bank" value={amt} onChange={(e) => setAmt(e.target.value)} /></div>
+              <div><label className="f">Pledge Date *</label><DatePicker value={date} onChange={setDate} /></div>
+            </div>
+            <div className="frow" style={{ marginBottom: 14, gridTemplateColumns: "repeat(3, 1fr)" }}>
+              <div><label className="f">Interest Rate (% p.a.)</label><input className="inp" type="number" min={0} step={0.01} placeholder="rate charged by the bank" value={interestRate} onChange={(e) => setInterestRate(e.target.value)} /></div>
+              <div><label className="f">Reference Number</label><input className="inp" placeholder="bank's pledge/document reference" value={referenceNumber} onChange={(e) => setReferenceNumber(e.target.value)} maxLength={60} /></div>
+              <div><label className="f">Bank Pledge Due Date</label><DatePicker value={dueDate} onChange={setDueDate} min={date} /></div>
+            </div>
+          </>
+        ) : (
+          <>
+            <div className="frow" style={{ marginBottom: 14 }}><div><label className="f">Bank *</label>
+              <SearchableSelect<BackendBank>
+                value={bankLabel}
+                onChange={(id, item) => { setBank(item.name); setBankLabel(item.name); setBankId(Number(id) || undefined); }}
+                fetchFn={searchBanksPage}
+                getLabel={(b) => b.name}
+                getId={(b) => String(b.id)}
+                placeholder="Search for a registered bank…"
+              /></div></div>
+            <div className="frow c2" style={{ marginBottom: 14 }}>
+              <div><label className="f">Pledged Amount (₹) *</label><input className="inp" type="number" min={1} placeholder="amount raised from bank" value={amt} onChange={(e) => setAmt(e.target.value)} /></div>
+              <div><label className="f">Pledge Date *</label><DatePicker value={date} onChange={setDate} /></div>
+            </div>
+            <div className="frow c2" style={{ marginBottom: 14 }}>
+              <div><label className="f">Interest Rate (% p.a.)</label><input className="inp" type="number" min={0} step={0.01} placeholder="rate charged by the bank" value={interestRate} onChange={(e) => setInterestRate(e.target.value)} /></div>
+              <div><label className="f">Reference Number</label><input className="inp" placeholder="bank's pledge/document reference" value={referenceNumber} onChange={(e) => setReferenceNumber(e.target.value)} maxLength={60} /></div>
+            </div>
+            <div className="frow" style={{ marginBottom: 14 }}><div><label className="f">Bank Pledge Due Date</label><DatePicker value={dueDate} onChange={setDueDate} min={date} /></div></div>
+          </>
+        )}
 
         {/* Cash treatment. Not every re-pledge brings money into the branch
           * till — some are purely book-keeping — so this is an explicit choice
@@ -145,7 +179,7 @@ export function RepledgeModalContent({ loan, onSaved }: { loan: LoanView; onSave
             </label>
           </div>
           {/* .notice is display:flex — keep the text in one child element. */}
-          <p className="notice" style={{ marginTop: 8, fontSize: 12.5 }}>
+          <p className="notice" style={{ marginTop: 6, fontSize: 12.5 }}>
             <Icon name="shield" />
             <span>
               {cashTreatment === "CashIn"

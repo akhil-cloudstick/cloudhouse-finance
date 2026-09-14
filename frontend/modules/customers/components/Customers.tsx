@@ -78,7 +78,7 @@ export function Customers() {
 
   return (
     <>
-      <div className="page-h" style={smallScreen ? { marginTop: -5 } : undefined}>
+      <div className="page-h">
         <div><h1>Customers &amp; KYC</h1><p>{customers.length} customers · PAN &amp; Aadhaar verification status</p></div>
         <div className="sp" />
         <div className="search"><Icon name="search" /><input className="inp" placeholder="Search name, phone, ID…" value={q} onChange={(e) => setQ(e.target.value)} /></div>
@@ -88,8 +88,8 @@ export function Customers() {
           </button>
         )}
       </div>
-      <hr className="gold-rule" style={{ margin: "4px 0 18px" }} />
-      <div style={{ display: "flex", alignItems: "flex-end", justifyContent: "flex-end", gap: 12, flexWrap: "wrap", marginBottom: 16 }}>
+      <hr className="gold-rule" style={{ margin: "4px 0 10px" }} />
+      <div style={{ display: "flex", alignItems: "flex-end", justifyContent: "flex-end", gap: 12, flexWrap: "wrap", marginTop: 0, marginBottom: 10 }}>
         <div style={{ width: 180 }}>
           <label style={{ fontSize: 11.5, color: "var(--muted)", display: "block", marginBottom: 4 }}>PAN Verified</label>
           <Select options={VERIFICATION_STATUS_OPTIONS} value={panStatus} onChange={setPanStatus} />

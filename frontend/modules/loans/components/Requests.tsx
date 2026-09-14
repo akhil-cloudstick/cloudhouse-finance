@@ -12,7 +12,6 @@ import { printReleaseAgreement } from "@/modules/loans/utils/releaseAgreement";
 import { useToast } from "@/common/components/Toast";
 import { useAuth } from "@/common/auth-context";
 import { useResponsivePageSize } from "@/common/utils/responsive";
-
 const STATUS_OPTIONS = [
   { value: "", label: "All" },
   { value: "Pending", label: "Pending" },
@@ -106,8 +105,8 @@ export function Requests() {
       <div className="page-h">
         <div><h1>Loan Extensions &amp; Gold Release</h1><p>Extension/release requests submitted by customers (or logged by staff on their behalf) — review and approve/reject through each request's staged approval chain</p></div>
       </div>
-      <hr className="gold-rule" style={{ margin: "4px 0 18px" }} />
-      <div style={{ display: "flex", alignItems: "flex-end", justifyContent: "flex-end", gap: 12, flexWrap: "wrap", marginBottom: 16 }}>
+      <hr className="gold-rule" style={{ margin: "4px 0 10px" }} />
+      <div style={{ display: "flex", alignItems: "flex-end", justifyContent: "flex-end", gap: 12, flexWrap: "wrap", marginTop: 0, marginBottom: 10 }}>
         <div style={{ width: 180 }}>
           <label style={{ fontSize: 11.5, color: "var(--muted)", display: "block", marginBottom: 4 }}>Status</label>
           {/* setPage here rather than in a status-keyed effect, so the two

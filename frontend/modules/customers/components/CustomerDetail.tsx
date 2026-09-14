@@ -445,16 +445,16 @@ export function CustomerDetail({ id }: { id?: string }) {
        * — without it this rule was reading as missing on small/short
        * (useIsSmallScreen) windows, sitting too close to the header above
        * to read as its own divider line. */}
-      <hr className="gold-rule rule-xs" style={smallScreen ? { margin: "4px 0 15px" } : undefined} />
+      <hr className="gold-rule" style={{ margin: smallScreen ? "4px 0 6px" : "4px 0 10px" }} />
       {/* Opened-date filter for the whole 360 view — every card below plus
           the relationship totals come from the backend-filtered loan set. */}
       <div style={{ display: "flex", alignItems: "flex-end", justifyContent: "flex-end", gap: 12, flexWrap: "wrap", marginBottom: 18 }}>
         <div style={{ minWidth: 190 }}>
-          <label className="f">Loans Opened From</label>
+          <label className="f" style={{ textTransform: "none" }}>Loans Opened From</label>
           <DatePicker value={from} onChange={setFrom} placeholder="Any start date…" max={to || undefined} />
         </div>
         <div style={{ minWidth: 190 }}>
-          <label className="f">To</label>
+          <label className="f" style={{ textTransform: "none" }}>To</label>
           <DatePicker value={to} onChange={setTo} placeholder="Any end date…" min={from || undefined} />
         </div>
         {(from || to) && (

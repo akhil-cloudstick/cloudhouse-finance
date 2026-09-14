@@ -500,13 +500,13 @@ export function NewLoan() {
       toast);
   }
 
-  /* Downloads the same server-rendered PDF (real per-page header/footer)
-   * staff get from Loan Details after the loan is saved — POST /loans/
-   * indemnity-bond/preview-pdf, since there's no saved loan id yet at
-   * this pre-submission stage to GET a real one from (see
-   * loanService.ts's previewIndemnityBondPDF doc comment). Replaces the
-   * old client-side window.print() copy this button used to open. Full
-   * Aadhaar is fetched separately (getCustomerAadhaarFull) since the
+  /* Sends the same server-rendered PDF (real per-page header/footer)
+   * straight to the print dialog, same as Loan Details does after the loan
+   * is saved — POST /loans/indemnity-bond/preview-pdf, since there's no
+   * saved loan id yet at this pre-submission stage to GET a real one from
+   * (see loanService.ts's previewIndemnityBondPDF doc comment). Replaces
+   * the old client-side window.print() copy this button used to open.
+   * Full Aadhaar is fetched separately (getCustomerAadhaarFull) since the
    * customer picker's cached CustomerView only ever carries the last-4. */
   async function printIndemnity(lang: BondLang = bondLang) {
     const d = buildDraft();
@@ -530,7 +530,7 @@ export function NewLoan() {
           phone: c.phone,
           pan: c.pan,
           aadhaar,
-          principalAmount: roundedEligible,
+          principalAmount: principal,
           interestRate: d.sch.rate,
           dueDate: due.toISOString().slice(0, 10),
           ornaments: d.orns.map((o) => ({ name: o.n, purity: o.purity, grossWeight: o.gross, netWeight: o.net, value: o.val })),
@@ -538,7 +538,7 @@ export function NewLoan() {
         lang
       );
     } catch {
-      toast("Could not download the pledge agreement — try again.");
+      toast("Could not print the pledge agreement — try again.");
     }
   }
 
@@ -724,9 +724,15 @@ export function NewLoan() {
   }
 
   return (
-    <div onKeyDown={onEnterSubmit}>
+    /* display:contents keeps this key handler in the DOM (keydown still
+     * bubbles up from the form fields inside) without it becoming the sole
+     * flex item of `.page` (display:flex;flex-direction:column) — wrapping
+     * every child in one extra box here, unlike every other page whose
+     * .page-h/.gold-rule/etc. sit directly under .page, was pushing this
+     * page's title row out of alignment with the rest. */
+    <div onKeyDown={onEnterSubmit} style={{ display: "contents" }}>
       <div className="page-h"><div><h1>New Gold Loan</h1><p>Select a verified customer, choose a scheme, and record pledged ornaments</p></div></div>
-      <hr className="gold-rule" />
+      <hr className="gold-rule" style={{ margin: "4px 0 18px" }} />
       {!isTodaySet && (
         <div
           className={`notice${shakeRateBanner ? " shake-attention" : ""}`}
@@ -1129,11 +1135,17 @@ export function NewLoan() {
                 <input
                   id="loan-amount-input"
                   className="inp"
-                  type="number"
-                  min={1}
-                  placeholder={String(Math.round(eligible))}
-                  value={principalOverride}
-                  onChange={(e) => setPrincipalOverride(e.target.value)}
+                  type="text"
+                  inputMode="numeric"
+                  placeholder={Math.round(eligible).toLocaleString("en-IN")}
+                  value={principalOverride ? (+principalOverride).toLocaleString("en-IN") : ""}
+                  onChange={(e) => {
+                    // Store the raw digits (comma-free) — only the display
+                    // above is comma-grouped, same "en-IN" grouping fmt()
+                    // uses everywhere else money is shown.
+                    const digits = e.target.value.replace(/[^\d]/g, "");
+                    setPrincipalOverride(digits.replace(/^0+(?=\d)/, ""));
+                  }}
                   style={{ fontWeight: 600, color: "var(--gold-deep)", fontSize: 16 }}
                 />
               </div>

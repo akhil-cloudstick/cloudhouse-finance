@@ -77,10 +77,10 @@ export function Schemes() {
        * simply as many columns as actually fit, wrapping the rest onto the
        * next row instead of resizing anything (same pattern used on the
        * Roles & Permissions grid, so both pages' cards match). */}
-      <div className="grid" style={{ gridTemplateColumns: "repeat(auto-fill,minmax(300px,1fr))" }}>
+      <div className="grid" style={{ gridTemplateColumns: smallScreen ? "repeat(4, 1fr)" : "repeat(auto-fill,minmax(300px,1fr))" }}>
         {(schemes || []).map((s) => (
-          <div className="card gtop" key={s.id} style={{ minHeight: 300 }}>
-            <div className="hd">
+          <div className="card gtop" key={s.id} style={{ minHeight: smallScreen ? 190 : 300 }}>
+            <div className="hd" style={smallScreen ? { padding: "8px 12px 6px" } : undefined}>
               <div>
                 <h3>{s.name}</h3>
                 <span style={{ fontSize: 11.5, color: "var(--muted)" }}>{s.code}</span>
@@ -88,17 +88,17 @@ export function Schemes() {
               <div className="sp" />
               {s.active ? <span className="chip green">Active</span> : <span className="chip gray">Inactive</span>}
             </div>
-            <div className="bd">
-              <div className="kv scheme-kv" style={{ gridTemplateColumns: "1fr 1fr" }}>
+            <div className="bd" style={smallScreen ? { padding: "8px 12px" } : undefined}>
+              <div className="kv scheme-kv" style={{ gridTemplateColumns: "1fr 1fr", gap: smallScreen ? "6px 12px" : undefined }}>
                 <div className="i"><div className="k">Interest</div><div className="v" style={{ color: "var(--gold-deep)", fontWeight: 600 }}>{s.rate}% p.a.</div></div>
                 <div className="i"><div className="k">Duration</div><div className="v">{s.durationMonths} months</div></div>
                 <div className="i"><div className="k">LTV</div><div className="v">{s.ltv}%</div></div>
                 <div className="i"><div className="k">Method</div><div className="v">{s.method || "—"}</div></div>
                 <div className="i"><div className="k">Penal Charges</div><div className="v" style={{ color: "var(--red)", fontWeight: 600 }}>{s.penal}% / month</div></div>
               </div>
-              <p style={{ fontSize: 12.5, color: "var(--muted)", marginTop: 12, borderTop: "1px dashed var(--line)", paddingTop: 10, height: 60, overflow: "hidden" }}>{s.cond || "—"}</p>
+              <p style={{ fontSize: 12.5, color: "var(--muted)", marginTop: smallScreen ? 4 : 12, borderTop: "1px dashed var(--line)", paddingTop: smallScreen ? 4 : 10, height: smallScreen ? 28 : 60, overflow: "hidden" }}>{s.cond || "—"}</p>
             </div>
-            <div className="ft" style={{ display: "flex", gap: 8 }}>
+            <div className="ft" style={{ display: "flex", gap: 8, padding: smallScreen ? "6px 12px" : undefined }}>
               <a href="#" onClick={(e) => { e.preventDefault(); openModal(<SchemeStatementModalContent scheme={s} />, true); }}>Download Statement</a>
               <span style={{ flex: 1 }} />
               {canUpdateSchemes && <a href="#" onClick={(e) => { e.preventDefault(); openModal(<SchemeModalContent scheme={s} onSaved={onSaved} />); }}>Edit</a>}

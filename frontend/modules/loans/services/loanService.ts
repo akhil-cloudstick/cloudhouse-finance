@@ -1,6 +1,39 @@
 import { apiFetchEnveloped as apiFetch, API_BASE, AUTH_TOKEN_KEY, ApiError } from "@/common/services/httpClient";
 import { isSmallScreen } from "@/common/utils/responsive";
 
+/* Sends a PDF blob straight to the browser's print dialog instead of
+ * downloading it — no visible "preview" tab, just Ctrl+P's picker. Loads
+ * the blob into a hidden iframe and calls its contentWindow.print() once
+ * the PDF has actually rendered; the iframe (and its object URL) are torn
+ * down on the next afterprint/cancel so repeated prints don't leak either.
+ * Used by downloadIndemnityBondPDF / previewIndemnityBondPDF below. */
+function printPdfBlob(blob: Blob): void {
+  const url = window.URL.createObjectURL(blob);
+  const iframe = document.createElement("iframe");
+  iframe.style.position = "fixed";
+  iframe.style.right = "0";
+  iframe.style.bottom = "0";
+  iframe.style.width = "0";
+  iframe.style.height = "0";
+  iframe.style.border = "0";
+  iframe.src = url;
+  document.body.appendChild(iframe);
+  iframe.onload = () => {
+    const win = iframe.contentWindow;
+    if (!win) return;
+    const cleanup = () => {
+      window.URL.revokeObjectURL(url);
+      iframe.remove();
+    };
+    win.addEventListener("afterprint", cleanup, { once: true });
+    // Fallback in case afterprint never fires (e.g. print dialog cancelled
+    // in some browsers) — keep the iframe around long enough to print.
+    setTimeout(cleanup, 60_000);
+    win.focus();
+    win.print();
+  };
+}
+
 /* Mirrors backend/internal/loan/handler.go's ornamentRequest exactly. */
 export type OrnamentRequestInput = {
   name: string;
@@ -1611,19 +1644,18 @@ export function canAcceptBankPledge(status: string, bankPledgeStatus: string): b
   );
 }
 
-/* Downloads the pledge agreement as a real PDF, rendered server-side (GET
- * /loans/:id/indemnity-bond/pdf) — unlike the client-side print copy
- * (modules/loans/utils/indemnityBond.ts's printIndemnityBond, a plain
- * window.print()), this one has a genuine per-page header/footer: only
- * Chrome's server-side PrintToPDF (chromedp, in the backend) supports a
- * real repeating header/footer template — a browser's own "Save as PDF"
- * from a live webpage has no equivalent a page's own CSS can drive, only
- * the browser's generic default (and only if its own "Headers and
- * footers" checkbox is on). Same blob-download pattern as
- * schemeService.ts's downloadSchemeStatement / cashService.ts's
- * exportCashMovements. Requires an already-saved loan (numericId) — the
- * NewLoan.tsx pre-submission preview still uses the client-side copy,
- * since there's no loan id yet to render against. */
+/* Sends the pledge agreement straight to the print dialog (via
+ * printPdfBlob), rendered server-side (GET /loans/:id/indemnity-bond/pdf)
+ * — unlike the client-side print copy (modules/loans/utils/indemnityBond.ts's
+ * printIndemnityBond, a plain window.print()), this one has a genuine
+ * per-page header/footer: only Chrome's server-side PrintToPDF (chromedp,
+ * in the backend) supports a real repeating header/footer template — a
+ * browser's own "Save as PDF" from a live webpage has no equivalent a
+ * page's own CSS can drive, only the browser's generic default (and only
+ * if its own "Headers and footers" checkbox is on). Requires an
+ * already-saved loan (numericId) — the NewLoan.tsx pre-submission preview
+ * still uses the client-side copy, since there's no loan id yet to render
+ * against. */
 export async function downloadIndemnityBondPDF(loanNumericId: number, lang: "en" | "gu"): Promise<void> {
   const token = typeof window !== "undefined" ? window.localStorage.getItem(AUTH_TOKEN_KEY) : null;
   const res = await fetch(`${API_BASE}/loans/${loanNumericId}/indemnity-bond/pdf?lang=${lang}`, {
@@ -1641,18 +1673,7 @@ export async function downloadIndemnityBondPDF(loanNumericId: number, lang: "en"
   }
 
   const blob = await res.blob();
-  const disposition = res.headers.get("Content-Disposition") || "";
-  const match = disposition.match(/filename="?([^"]+)"?/);
-  const filename = match ? match[1] : `Pledge-Agreement-${loanNumericId}.pdf`;
-
-  const url = window.URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = filename;
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  window.URL.revokeObjectURL(url);
+  printPdfBlob(blob);
 }
 
 /* Same shape NewLoan.tsx's buildDraft() already assembles for the old
@@ -1672,13 +1693,12 @@ export type IndemnityBondPreviewInput = {
   ornaments: { name: string; purity?: string; grossWeight: number; netWeight: number; value: number }[];
 };
 
-/* Pre-submission bond preview (New Loan's "Pledge Agreement" button) — POST
+/* Pre-submission bond print (New Loan's "Pledge Agreement" button) — POST
  * /loans/indemnity-bond/preview-pdf, since there's no saved loan id yet to
  * GET a real one from. Renders the exact same server-side PDF (real
  * per-page header/footer included) downloadIndemnityBondPDF above gets for
- * an already-saved loan — see PreviewIndemnityBondPDF's doc comment. Same
- * blob-download pattern as that function, just POST with a JSON body
- * instead of GET. */
+ * an already-saved loan, and sends it straight to the print dialog the
+ * same way via printPdfBlob — just POST with a JSON body instead of GET. */
 export async function previewIndemnityBondPDF(data: IndemnityBondPreviewInput, lang: "en" | "gu"): Promise<void> {
   const token = typeof window !== "undefined" ? window.localStorage.getItem(AUTH_TOKEN_KEY) : null;
   const res = await fetch(`${API_BASE}/loans/indemnity-bond/preview-pdf?lang=${lang}`, {
@@ -1701,16 +1721,5 @@ export async function previewIndemnityBondPDF(data: IndemnityBondPreviewInput, l
   }
 
   const blob = await res.blob();
-  const disposition = res.headers.get("Content-Disposition") || "";
-  const match = disposition.match(/filename="?([^"]+)"?/);
-  const filename = match ? match[1] : "Pledge-Agreement-Preview.pdf";
-
-  const url = window.URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = filename;
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  window.URL.revokeObjectURL(url);
+  printPdfBlob(blob);
 }

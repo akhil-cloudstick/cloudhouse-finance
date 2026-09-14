@@ -147,7 +147,7 @@ export function ReportView({ config, onBack }: { config: ReportConfig; onBack: (
        * pins each group to its own edge rather than leaving them flush
        * together in the middle), instead of each getting its own full-
        * width block stacked one above the other. */}
-      <div style={{ display: "flex", flexWrap: "wrap", alignItems: "flex-end", justifyContent: "space-between", gap: 4, marginBottom: 4 }}>
+      <div style={{ display: "flex", flexWrap: "wrap", alignItems: "flex-end", justifyContent: "space-between", gap: 4, marginBottom: 23 }}>
         {/* Plain flex, not `.kpis` (display:grid; repeat(auto-fill,213px))
          * — a grid with auto-fill track repetition has no well-defined
          * intrinsic size, so nested as a flex item here (every other
