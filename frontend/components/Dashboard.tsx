@@ -231,7 +231,7 @@ export function Dashboard() {
   return (
     <>
       <div className="page-h">
-        <div><h1>Business Overview</h1><p>{todayLabel}</p></div>
+        <div><h1>Business Overview222222222222222222</h1><p>{todayLabel}</p></div>
         <div className="sp" />
         {canCreateRates && (
           <button className="btn" onClick={() => openModal(<RateModalContent />)}>
