@@ -862,6 +862,19 @@ h3,
   flex: 0 0 150px
 }
 
+/* RepledgeModal.tsx's own exception to the 230px house convention above —
+ * this modal's Pledge Date/Bank Pledge Due Date pickers sit in the same
+ * grid row as plain `.inp` text fields (Pledged Amount, Interest Rate,
+ * Reference Number), which stretch to fill their grid cell. A `.dp-date`
+ * ignoring that and staying fixed at 230px made it visibly narrower/wider
+ * than its row-mates depending on the grid's column width. Scoped to this
+ * modal only, so every other DatePicker app-wide keeps its normal fixed
+ * width. */
+.repledge-modal-bd .dp.dp-date {
+  width: 100%;
+  flex: 1 1 auto
+}
+
 /* Cash.tsx's Cash Movements filter row — the Type/From/To fields' own
  * `.inp` height (~38px, the same as every plain text input) otherwise sat
  * visibly taller than the Clear/Download `.btn.sm` buttons beside them in
@@ -2363,6 +2376,28 @@ label.f {
 .modal .frow {
   gap: 18px;
   margin-bottom: 22px
+}
+
+/* SchemeModal.tsx's own field rows, small screens only — a plain CSS media
+ * query (mirroring isSmallScreen()'s own width<1560/height<=850 pair, since
+ * that JS check's resize-driven React state update was NOT reliably
+ * reflecting here) rather than a JS-computed inline style, so the override
+ * applies purely from viewport size without depending on a resize event ever
+ * firing after mount. Shrinks the 22px `.modal .frow` gap above down to a
+ * still-visible 12px, so this 5-row modal fits shorter/narrower screens
+ * without its footer being pushed out of view, but without the rows
+ * touching each other the way an earlier, too-aggressive 2px pass did.
+ * `.modal .frow.scheme-frow` (3 classes, not 2) is deliberate — the
+ * ≤850px-tall block further down (`.modal .frow{margin:8px 0;gap:10px}`)
+ * has the SAME specificity as a plain `.modal .scheme-frow` and sits later
+ * in the file, so it was silently winning back the margin/gap this rule
+ * tries to set on short screens. The extra class beats it on specificity
+ * alone, regardless of source order. */
+@media (max-width: 1559px), (max-height: 850px) {
+  .modal .frow.scheme-frow {
+    margin: 0 0 12px;
+    gap: 12px
+  }
 }
 
 .frow.c2 {

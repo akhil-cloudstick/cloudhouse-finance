@@ -186,8 +186,8 @@ export function BankPledge() {
         {canCreateBanks && <button className="btn ghost" onClick={() => openModal(<BankModalContent onSaved={() => {}} />)}><Icon name="plus" /> Add Bank</button>}
         {canCreatePledges && <button className="btn" onClick={startNewRepledge}><Icon name="plus" /> New Re-Pledge</button>}
       </div>
-      <hr className="gold-rule rule-xs" />
-      <div className="tabs" style={{ marginBottom: 14 }}>
+      <hr className="gold-rule" style={{ margin: "4px 0 10px" }} />
+      <div className="tabs" style={{ marginTop: 4, marginBottom: 8 }}>
         <button className={tab === "active" ? "on" : ""} onClick={() => setTab("active")}>Active</button>
         <button className={tab === "history" ? "on" : ""} onClick={showHistory}>History</button>
       </div>
@@ -269,7 +269,7 @@ export function BankPledge() {
             <span style={{ fontSize: 12.5 }}>Page {pledgedPage} of {pledgedTotalPages}</span>
             <button className="btn plain sm" disabled={pledgedPage >= pledgedTotalPages} onClick={() => setPledgedPage((p) => Math.min(pledgedTotalPages, p + 1))}>Next ›</button>
           </div>
-          <div className="ft">If a customer requests closure while gold is bank-pledged, the release workflow flags the bank release step first.</div>
+          {/* <div className="ft">If a customer requests closure while gold is bank-pledged, the release workflow flags the bank release step first.</div> */}
         </div>
       ) : (
         <div className="card tbl-card">
@@ -304,7 +304,7 @@ export function BankPledge() {
               </tbody>
             </table>
           </div>
-          <div className="ft">Every re-pledge ever recorded, including released and voided ones. Voided records are kept for audit and never deleted.</div>
+          {/* <div className="ft">Every re-pledge ever recorded, including released and voided ones. Voided records are kept for audit and never deleted.</div> */}
           <div className="ft" style={{ display: "flex", alignItems: "center", gap: 10 }}>
             <button className="btn plain sm" disabled={historyPage <= 1} onClick={() => setHistoryPage((p) => Math.max(1, p - 1))}>‹ Prev</button>
             <span style={{ fontSize: 12.5 }}>Page {historyPage} of {historyTotalPages}</span>

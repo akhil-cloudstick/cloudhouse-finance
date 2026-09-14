@@ -405,7 +405,7 @@ export function Cash() {
         </div>
       </div>
 
-      <div style={{ display: "flex", flexWrap: "wrap", alignItems: "flex-start", gap: smallScreen ? 8 : 15, marginBottom: 0}}>
+      <div style={{ display: "flex", flexWrap: "wrap", alignItems: "flex-start", gap: smallScreen ? 8 : 15, marginBottom: smallScreen?0:20  }}>
         <div className="kpis kpis-money" style={{ marginBottom: 0, maxWidth: 1113 }}>
           <Kpi l="Opening Cash (today)" v={fmt(summary?.openingCash || 0)} />
           {/* Backend's `collections` is every cash-in movement for the day —

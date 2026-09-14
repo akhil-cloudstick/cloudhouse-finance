@@ -428,17 +428,18 @@ export function LoanDetail({ id }: { id?: string }) {
    * eSign status: staff need this whenever eSign is unavailable, declined,
    * or the customer simply prefers paper.
    *
-   * Downloads the server-rendered PDF (GET /loans/:id/indemnity-bond/pdf)
-   * rather than opening the old client-side window.print() copy — only
-   * the backend's chromedp render can produce a real per-page header/
-   * footer (see loanService.ts's downloadIndemnityBondPDF doc comment);
-   * a browser's own print dialog has no equivalent a page's CSS can
-   * drive. NewLoan.tsx's pre-submission preview still uses the old
-   * client-side copy — there's no saved loan id yet to render against. */
+   * Sends the server-rendered PDF (GET /loans/:id/indemnity-bond/pdf)
+   * straight to the print dialog, rather than opening the old client-side
+   * window.print() copy — only the backend's chromedp render can produce
+   * a real per-page header/footer (see loanService.ts's
+   * downloadIndemnityBondPDF doc comment); a browser's own print dialog
+   * has no equivalent a page's CSS can drive. NewLoan.tsx's pre-submission
+   * preview still uses the old client-side copy — there's no saved loan
+   * id yet to render against. */
   function printBond(lang: BondLang = "en") {
     setPrintingBond(true);
     downloadIndemnityBondPDF(l.numericId, lang)
-      .catch(() => toast("Could not download the pledge agreement — try again."))
+      .catch(() => toast("Could not print the pledge agreement — try again."))
       .finally(() => setPrintingBond(false));
   }
 
@@ -754,8 +755,8 @@ export function LoanDetail({ id }: { id?: string }) {
               loan would read "Active" and "Overdue" at the same time. */}
           {!l.isDefaulted && l.isOverdue && l.status !== "Active" && <StatusChip status="Overdue" />}
           {!l.isOverdue && l.isDueSoon && <StatusChip status="Due Soon" />}
-        </h1>
-          <p><a href={`#customer/${l.customerId}`}>{l.customerName}</a> · {l.schemeName} · opened {l.opened} · due {l.due}{l.isOverdue ? ` · ${l.daysOverdue} days overdue` : ""}</p></div>
+          </h1>
+          <p style={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}><a href={`#customer/${l.customerId}`}>{l.customerName}</a> · {l.schemeName} · opened {l.opened} · due {l.due}{l.isOverdue ? ` · ${l.daysOverdue} days overdue` : ""}</p></div>
         {/* Everything from here down is one right-aligned group rather than
          * flat siblings of `.page-h` itself — `.page-h`'s own flex-wrap
          * only right-aligns this whole cluster while it fits on the title's

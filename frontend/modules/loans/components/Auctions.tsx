@@ -1,4 +1,4 @@
-"use client";
+  "use client";
 
 import { useCallback, useEffect, useState } from "react";
 import { useModal } from "@/common/components/Modal";
@@ -381,7 +381,7 @@ export function Auctions() {
       <div className="page-h" >
         <div><h1>Auction Management</h1><p>Defaulted loans progressing through the regulated auction workflow</p> </div>
       </div>
-      <hr className="gold-rule" style={{ margin: "4px 0 12px" }} />
+      <hr className="gold-rule" style={{ margin: "4px 0 10px" }} />
 
       {/* .tabs's own overflow-x:auto (app.css) clips the last pill's right
           edge/shadow the instant its content is even 1-2px wider than the
@@ -389,7 +389,7 @@ export function Auctions() {
           2-button row sits right at that edge. auctions-tabs turns
           overflow off for just this row, matching Loans.tsx's own
           loans-cat-tabs fix for the same symptom. */}
-      <div className="tabs auctions-tabs" style={{ marginBottom: 14  }}>
+      <div className="tabs auctions-tabs" style={{ marginTop: 4, marginBottom: 8 }}>
         <button className={tab === "active" ? "on" : ""} onClick={() => setTab("active")}>Active Cases</button>
         <button className={tab === "history" ? "on" : ""} onClick={showHistory}>Auction History</button>
       </div>
@@ -423,7 +423,12 @@ export function Auctions() {
           <div className="card tbl-card" style={{ marginBottom: 16 }}>
             <div className="hd"><h3>Auctions Conducted</h3></div>
             {conductedError && <div className="notice" style={{ margin: 14 }}>{conductedError}</div>}
-            <div className="tbl-wrap">
+            {/* Capped to exactly 4 rows' worth of height (header ~35px + 4
+             * two-line rows at ~54px each, this table's rows carry a
+             * customer-name subline) — beyond that it scrolls internally
+             * via `.tbl-wrap`'s own overflow-y:auto rather than growing the
+             * card to fit every row on the page. */}
+            <div className="tbl-wrap" style={{ maxHeight: 251 }}>
               <table className="tbl">
                 <thead>
                   <tr>
@@ -468,7 +473,10 @@ export function Auctions() {
           <div className="card tbl-card">
             <div className="hd"><h3>Closed Without Auction</h3></div>
             {closedError && <div className="notice" style={{ margin: 14 }}>{closedError}</div>}
-            <div className="tbl-wrap">
+            {/* Same 4-row cap as "Auctions Conducted" above (rows here also
+             * carry a customer-name subline), so both History sub-tables
+             * settle at the same height instead of one dwarfing the other. */}
+            <div className="tbl-wrap" style={{ maxHeight: 251 }}>
               <table className="tbl">
                 <thead>
                   <tr><th>Loan</th><th>Marked Eligible</th><th>Outcome</th></tr>
