@@ -32,7 +32,7 @@ import {
   type LoanView,
 } from "@/modules/loans/services/loanService";
 import { ApiError } from "@/common/services/httpClient";
-import { useResponsivePageSize, useIsSmallScreen } from "@/common/utils/responsive";
+import { useResponsivePageSize } from "@/common/utils/responsive";
 
 /* Who may decide each kind of escalation, and who may run each auction
  * process step, is now driven by the "Auction Workflow" permissions (see
@@ -280,7 +280,6 @@ export function Auctions() {
    * filtered by hasSale so a sub-table's own page/offset never counts
    * against the other's rows (see loansApi.listConcludedAuctionsPage). */
   const pageSize = useResponsivePageSize(10, 7);
-  const smallScreen = useIsSmallScreen();
   const [conducted, setConducted] = useState<ConcludedAuctionRowView[]>([]);
   const [conductedPage, setConductedPage] = useState(1);
   const [conductedHasMore, setConductedHasMore] = useState(false);
@@ -427,8 +426,10 @@ export function Auctions() {
              * two-line rows at ~54px each, this table's rows carry a
              * customer-name subline) — beyond that it scrolls internally
              * via `.tbl-wrap`'s own overflow-y:auto rather than growing the
-             * card to fit every row on the page. */}
-            <div className="tbl-wrap" style={{ maxHeight: 251 }}>
+             * card to fit every row on the page. The `auction-history-tbl-wrap`
+             * class carries the matching CSS backstop plus the flex rules that
+             * stop the card spilling over the next one (see app.css). */}
+            <div className="tbl-wrap auction-history-tbl-wrap" style={{ maxHeight: 251 }}>
               <table className="tbl">
                 <thead>
                   <tr>
@@ -476,7 +477,7 @@ export function Auctions() {
             {/* Same 4-row cap as "Auctions Conducted" above (rows here also
              * carry a customer-name subline), so both History sub-tables
              * settle at the same height instead of one dwarfing the other. */}
-            <div className="tbl-wrap" style={{ maxHeight: 251 }}>
+            <div className="tbl-wrap auction-history-tbl-wrap" style={{ maxHeight: 251 }}>
               <table className="tbl">
                 <thead>
                   <tr><th>Loan</th><th>Marked Eligible</th><th>Outcome</th></tr>

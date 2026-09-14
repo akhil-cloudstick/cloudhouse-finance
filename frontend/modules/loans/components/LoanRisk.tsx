@@ -83,7 +83,7 @@ export function LoanRisk() {
 
       {error && <div className="notice" style={{ marginBottom: 14 }}>{error}</div>}
 
-      <div className="card">
+      <div className="card tbl-card">
         <div className="hd" style={{ flexWrap: "wrap", rowGap: 10 }}>
           <h3>Loans</h3>
           <div className="sp" />

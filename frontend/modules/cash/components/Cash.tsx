@@ -23,6 +23,7 @@ import { Select } from "@/common/components/ui/Select";
 import { ApiError } from "@/common/services/httpClient";
 import { useAuth } from "@/common/auth-context";
 import { useResponsivePageSize, useIsSmallScreen } from "@/common/utils/responsive";
+import { useDropdownMenu } from "@/hooks/useDropdownMenu";
 
 function Kpi({ l, v, s, parts, cls }: {
   l: string; v: string | number; s?: string; parts?: [string, number][]; cls?: string;
@@ -153,6 +154,20 @@ export function Cash() {
   const canCreateCash = can("Cash_Management", "can_create_cash");
   const canUpdateCash = can("Cash_Management", "can_update_cash");
   const today = new Date().toISOString().slice(0, 10);
+
+  // Take Cash Out / Add Cash / Gold Sale Amount used to be 3 separate ghost
+  // buttons beside "Record Expense" — collapsed into one "Actions" dropdown
+  // the same way LoanDetail.tsx's Loan Actions/Documents menus are, since
+  // they outgrew the header on anything but a very wide screen. Record
+  // Expense stays its own visible button — it's the primary action here
+  // (styled `btn`, not `btn ghost`), not something to bury a click deeper for.
+  const {
+    open: cashActionsMenuOpen,
+    setOpen: setCashActionsMenuOpen,
+    menuRef: cashActionsMenuRef,
+    triggerRef: cashActionsMenuTriggerRef,
+    onKeyDown: onCashActionsMenuKeyDown,
+  } = useDropdownMenu<HTMLDivElement>();
 
   const [branches, setBranches] = useState<BranchView[]>([]);
   const [branchId, setBranchId] = useState<number | "">("");
@@ -356,9 +371,30 @@ export function Cash() {
          * Cash beside the title). */}
         {canCreateCash && (
           <div className="page-h-actions">
-            <button className="btn ghost" onClick={() => openModal(<CashOutModalContent onSaved={refresh} />)}><Icon name="coin" /> Take Cash Out</button>
-            <button className="btn ghost" onClick={() => openModal(<AddCashModalContent onSaved={refresh} />)}><Icon name="coin" /> Add Cash</button>
-            <button className="btn ghost" onClick={() => openModal(<GoldSaleModalContent onSaved={refresh} />)}><Icon name="coin" /> Gold Sale Amount</button>
+            <div className="docs-dd" ref={cashActionsMenuRef} onKeyDown={onCashActionsMenuKeyDown}>
+              <button
+                ref={cashActionsMenuTriggerRef}
+                className="btn ghost"
+                onClick={() => setCashActionsMenuOpen((v) => !v)}
+                aria-haspopup="menu"
+                aria-expanded={cashActionsMenuOpen}
+              >
+                <Icon name="coin" /> Actions <Icon name="chevronDown" className="docs-dd-chev" />
+              </button>
+              {cashActionsMenuOpen && (
+                <div className="docs-dd-menu" role="menu">
+                  <a href="#" title="Take Cash Out" onClick={(e) => { e.preventDefault(); setCashActionsMenuOpen(false); openModal(<CashOutModalContent onSaved={refresh} />); }}>
+                    <Icon name="coin" /><span className="tx">Take Cash Out</span>
+                  </a>
+                  <a href="#" title="Add Cash" onClick={(e) => { e.preventDefault(); setCashActionsMenuOpen(false); openModal(<AddCashModalContent onSaved={refresh} />); }}>
+                    <Icon name="coin" /><span className="tx">Add Cash</span>
+                  </a>
+                  <a href="#" title="Gold Sale Amount" onClick={(e) => { e.preventDefault(); setCashActionsMenuOpen(false); openModal(<GoldSaleModalContent onSaved={refresh} />); }}>
+                    <Icon name="coin" /><span className="tx">Gold Sale Amount</span>
+                  </a>
+                </div>
+              )}
+            </div>
             <button className="btn" onClick={() => openModal(<ExpenseModalContent onSaved={refresh} />)}><Icon name="plus" /> Record Expense</button>
           </div>
         )}

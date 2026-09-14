@@ -77,14 +77,14 @@ export function PersonalLoans() {
         <div className="search"><Icon name="search" /><input className="inp" placeholder="Search loan # or customer…" value={q} onChange={(e) => setQ(e.target.value)} /></div>
         {canCreate && <button className="btn" onClick={openNewLoan}><Icon name="plus" /> New Personal Loan</button>}
       </div>
-      <hr className="gold-rule" style={{ margin: "4px 0 14px" }} />
+      <hr className="gold-rule" style={{ margin: "16px 0 14px" }} />
       <div style={{ marginBottom: 14 }} className="tabs">
         {FREQS.map((f) => (
           <button key={f} className={f === freq ? "on" : ""} onClick={() => setFreq(f)}>{f}</button>
         ))}
       </div>
       {error && <div className="notice" style={{ marginBottom: 14 }}>{error}</div>}
-      <div className="card"><div className="tbl-wrap tbl-scroll"><table className="tbl tbl-center">
+      <div className="card tbl-card"><div className="tbl-wrap tbl-scroll"><table className="tbl tbl-center">
         <thead><tr><th>Loan / Customer</th><th className="num">Principal</th><th className="num">Outstanding</th><th>Frequency</th><th>Status</th></tr></thead>
         <tbody>
           {loading ? (
