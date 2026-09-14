@@ -76,7 +76,7 @@ export function Sidebar({ route, open, onNavigateSameRoute }: { route: string; o
 
   return (
     <aside className={`side${open ? " open" : ""}`} id="side">
-      <div className="brand">
+      <div className="brand" style={{marginRight:-10}}>
         {/* One lockup: the logo, then a text column splitting the name over
           * two lines. Both share a single left edge — an earlier version put
           * the second line on its own full-width row, which left the first

@@ -173,10 +173,8 @@ h3,
   display: flex;
   align-items: center;
   gap: 12px;
-  padding: 20px 20px 18px;
-  /* Softer than the old hairline: at full opacity the rule competed
-   * with the nav's own active-item outline for attention. */
-  border-bottom: 1px solid rgba(255, 255, 255, .08);
+  padding: 18px 14px 16px 18px;
+  border-bottom: 1px solid rgba(201, 151, 28, .22);
 }
 
 /* The text column. min-width:0 is what lets the full name wrap inside the
@@ -275,15 +273,15 @@ h3,
   letter-spacing: .3em;
   text-transform: uppercase;
   color: oklch(0.95 0.006 290 / 50%);
-  padding: 16px 20px 7px;
+  padding: 16px 16px 7px 20px;
 }
 
 .nav a {
   display: flex;
   align-items: center;
   gap: 11px;
-  padding: 9px 18px;
-  margin: 1px 10px;
+  padding: 9px 15px 9px 18px;
+  margin: 1px 7px 1px 10px;
   border-radius: 6px;
   color: oklch(0.95 0.006 290 / 70%);
   text-decoration: none;
@@ -1176,7 +1174,81 @@ h3,
   padding: 24px 26px 24px 40px;
   flex: 1;
   min-height: 0;
-  overflow-y: auto
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column
+}
+
+/* Opt-in fix for the sticky-footer-clips-table-rows bug: on pages where the
+ * content above a table is tall enough that .page itself still scrolls, the
+ * `.tbl-wrap + .ft` sticky footer below rides up over the table's bounded
+ * box and overlaps its last row(s), because `.tbl-wrap`'s own max-height
+ * doesn't know to shrink and make room for it. `.tbl-card` opts a specific
+ * `.card` (the one wrapping a `.tbl-wrap` + `.ft` pair) into a flex-column
+ * layout that fills the remaining height inside `.page` (now a flex column
+ * itself, see above) so the table flexes to fill available room and the
+ * footer becomes a normal, non-overlapping flex item pinned to the bottom
+ * of the card instead of the page's scroll viewport. Deliberately scoped to
+ * `.tbl-card` rather than changing the generic `.tbl-wrap` / `.tbl-wrap +
+ * .ft` rules above, since Cash Movements / Expense Register (Cash.tsx) rely
+ * on the old sticky-overlay behavior and must keep it unchanged. */
+/* flex-grow:0 (not 1) so the whole card sizes to its own content — a
+ * short table (2-3 rows) then leaves no empty space below its footer
+ * inside the card. flex-shrink:1 + min-height:0 is what still lets the
+ * card give way and cap at .page's remaining height for a table long
+ * enough to otherwise overflow it, at which point .tbl-wrap below (also
+ * min-height:0 + overflow-y:auto) is what actually absorbs that squeeze
+ * and scrolls internally instead of the .ft footer getting pushed out. */
+.tbl-card {
+  display: flex;
+  flex-direction: column;
+  flex: 0 1 auto;
+  min-height: 0
+}
+
+/* flex:1 here would always stretch the table to fill every bit of the
+ * card's available height, even a 3-row table — leaving a tall empty gap
+ * above the footer. flex-grow:0 lets it size to its own content instead
+ * (Loan Extensions' 3 rows just sit at their natural height); flex-
+ * shrink:1 + min-height:0 + overflow-y:auto is what still lets it give way
+ * and scroll internally once a longer table's natural height would
+ * otherwise push the footer out of the card. */
+.tbl-card > .tbl-wrap {
+  flex: 0 1 auto;
+  min-height: 0;
+  max-height: none;
+  overflow-y: auto;
+}
+
+.tbl-card > .ft {
+  position: static;
+  flex-shrink: 0
+}
+
+/* Packets & Lockers: below 1366px ("small screen" — same threshold used
+ * elsewhere for this app), the packets table caps at exactly 5 data
+ * rows' worth of height (header ~38px + 5 rows at ~42px each, trimmed
+ * slightly so the 6th row's top edge doesn't peek in) before it scrolls
+ * internally, and the locker column caps at exactly one LockerCard tile
+ * tall before it scrolls — independent of each other (the two are no
+ * longer height-matched, see Packets.tsx). On a big screen there's
+ * enough room that both stay "normal": the table falls back to
+ * `.tbl-card > .tbl-wrap`'s own content-sized/cap-at-page-height
+ * behavior, and the locker column (`.scroll-hidden`'s own overflow-y:auto,
+ * no cap here) sizes to its own content. `.tbl-wrap.tbl-wrap-3row` (not
+ * just `.tbl-wrap-3row`) so this reliably beats the generic
+ * `.tbl-wrap{max-height:calc(100vh - 350px)}` rule regardless of source
+ * order — same specificity, single class vs single class, would
+ * otherwise let whichever is declared later win. */
+@media (max-width: 1366px) {
+  .tbl-wrap.tbl-wrap-3row {
+    max-height: 232px;
+  }
+
+  .grid.locker-col {
+    max-height: 339px;
+    overflow-y: auto;
+  }
 }
 
 .page-h {
@@ -1184,7 +1256,8 @@ h3,
   align-items: flex-end;
   gap: 14px;
   flex-wrap: wrap;
-  margin-bottom: 20px
+  margin-bottom: 20px;
+  flex-shrink: 0
 }
 
 .page-h h1 {
@@ -1266,12 +1339,21 @@ h3,
 }
 
 /* ── ornaments ──────────────────────────── */
+/* flex-shrink:0 — .page is now display:flex;flex-direction:column (see its
+ * own rule) so every child, this hr included, is a flex item. With no
+ * min-height of its own, a 2px rule's automatic minimum size floors near 0,
+ * so on any page tall enough to need .page's flex-shrink/scroll behavior it
+ * was the first thing squeezed away to ~0px height — invisible everywhere
+ * except a short page with nothing to shrink for. It should never
+ * participate in that shrink; the scrollable content below it is what's
+ * meant to give way instead. */
 .gold-rule {
   height: 2px;
   margin: 4px 0 23px;
   border: 0;
   background: linear-gradient(90deg, var(--brand-deep), var(--brand-light) 30%, transparent 75%);
   opacity: .6;
+  flex-shrink: 0;
 }
 
 /* Per-page tweaks to the title-rule gap, for pages whose first element
@@ -1517,8 +1599,36 @@ h3,
   border-top: 1px solid color-mix(in oklab, var(--brand) 15%, transparent);
   font-size: 12.5px;
   color: var(--muted);
-  background: rgba(255, 255, 255, .2);
+  background: var(--ivory);
   border-radius: 0 0 12px 12px;
+}
+
+/* Every list page's pagination footer (Loans, Customers, Employees, Cash,
+ * Auctions, Bank Pledge, Requests, Packets, Calendar, Reports, …) is this
+ * same "table .tbl-wrap immediately followed by .ft" pair inside one
+ * .card. .page (see .main above) is the page's single scroll container,
+ * so sticking the footer to ITS bottom edge — rather than leaving it in
+ * normal flow after however many rows loaded — keeps Prev/Next reachable
+ * without scrolling past a long table first. `position: sticky` already
+ * gives the second half of the ask for free: when the table has few rows
+ * the footer never has room to travel, so it just sits at its natural
+ * spot right under the table instead of pinning anywhere. A solid
+ * (non-transparent) background + blur is needed here, unlike the plain
+ * .card .ft above, so table rows scrolling underneath don't show through
+ * the sticky bar. */
+.tbl-wrap + .ft {
+  position: sticky;
+  bottom: 0;
+  z-index: 2;
+  background: var(--ivory);
+}
+
+/* Cash Movements / Expense Register (Cash.tsx) opt out of the sticky
+ * footer above via this extra class — two classes on .ft beats the
+ * generic rule's one-class-plus-combinator specificity, regardless of
+ * source order. */
+.tbl-wrap + .ft.ft-static {
+  position: static;
 }
 
 /* KPI tiles */
@@ -1597,6 +1707,51 @@ h3,
 .kpis-money .kpi {
   height: auto;
   min-height: 89px;
+}
+
+/* Cash.tsx's 5 money KPI tiles (Opening/In/Out/Expenses/Balance) at the
+ * shared fixed 213px width need ~1113px (5×213 + 4×12px gap) to fit on one
+ * row — wider than the content column at plenty of ordinary desktop/
+ * laptop window widths (1280px, 1366px, even 1559px once the sidebar and
+ * page padding are taken out), so they kept wrapping to 3+2 or 4+1
+ * instead. A one-off narrower band (a fixed 190px in a single 901-1450px
+ * media query) fixed 1366px but not 1280px or 1559px — every width needs
+ * fixing, not a hand-picked few. `repeat(5, minmax(0,1fr))` always divides
+ * whatever width IS available across exactly 5 tracks instead of packing
+ * as many fixed-213px columns as fit, so these 5 tiles share the row and
+ * never wrap at any desktop-ish width — ≤900px still falls back to the
+ * shared `.kpis{grid-template-columns:1fr 1fr}` stacked rule below,
+ * unaffected (a fluid 5-across grid would flatten these tiles far too
+ * narrow to read on a phone). Scoped to `.kpis-money` only — every other
+ * `.kpis` row app-wide (Dashboard, Reports, etc.) keeps its normal
+ * fixed-width auto-fill sizing. */
+@media (min-width: 1280px) {
+  .kpis-money {
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+  }
+  .kpis-money .kpi {
+    width: auto;
+  }
+}
+
+/* Between the ≤900px stacked fallback and the ≥1280px fluid 5-across
+ * grid above (1280px itself confirmed as the narrowest width 5 real,
+ * comfortably-sized tiles should ever appear on one line — anything
+ * narrower squeezes them below a size worth reading), dividing the same
+ * 5 tiles across 5 fluid columns squeezed every card down to an
+ * uncomfortably narrow sliver instead of reading as a normal-sized card
+ * — this band (tablet width, a collapsed-sidebar laptop, or an ordinary
+ * ~1100-1200px window) just extends the same 2-per-row stack the ≤900px
+ * rule already uses instead, trading "all 5 on one line" for
+ * "comfortably sized cards, 3 rows" until there's actually enough room
+ * for 5 real ones. */
+@media (min-width: 901px) and (max-width: 1279px) {
+  .kpis-money {
+    grid-template-columns: 1fr 1fr;
+  }
+  .kpis-money .kpi {
+    width: auto;
+  }
 }
 
 /* At a 1280px-ish window, Dashboard.tsx's main content column (sidebar +
@@ -1845,8 +2000,42 @@ select.inp {
 }
 
 .inp:focus {
-  border-color: var(--brand);
+  border-color: var(--brand); 
   box-shadow: 0 0 0 3px color-mix(in oklab, var(--brand) 15%, transparent)
+}
+
+/* Removes the native up/down spinner arrows from every number input
+ * app-wide (Gross/Net/Qty, principal amounts, rates, etc.) — three rules
+ * needed for full cross-browser coverage: the two ::-webkit- pseudo-
+ * elements Chrome/Safari/Edge draw the spinner with, and Firefox's own
+ * -moz-appearance switch (which has no separate spin-button pseudo-
+ * element to target). Typing/pasting a number still works identically;
+ * only the little arrow widget disappears. */
+input[type="number"]::-webkit-inner-spin-button,
+input[type="number"]::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+input[type="number"] {
+  -moz-appearance: textfield;
+}
+
+/* Removes the native up/down spinner arrows from every number input
+ * app-wide (Gross/Net/Qty, principal amounts, rates, etc.) — three rules
+ * needed for full cross-browser coverage: the two ::-webkit- pseudo-
+ * elements Chrome/Safari/Edge draw the spinner with, and Firefox's own
+ * -moz-appearance switch (which has no separate spin-button pseudo-
+ * element to target). Typing/pasting a number still works identically;
+ * only the little arrow widget disappears. */
+input[type="number"]::-webkit-inner-spin-button,
+input[type="number"]::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+input[type="number"] {
+  -moz-appearance: textfield;
 }
 
 /* PurityPicker's Karat/Fineness search field sits beside a stacked
@@ -2038,7 +2227,10 @@ select.inp {
   height: 31px
 }
 
-.orn-table th,
+.orn-table th {
+  padding: 8px 12px
+}
+
 .orn-table td {
   padding: 8px 6px
 }
@@ -2163,6 +2355,16 @@ label.f {
   margin-bottom: 13px
 }
 
+/* Every modal's own field rows get more vertical breathing room than a
+ * plain page form's 13px default — scoped to `.modal .frow` (not the base
+ * `.frow` above, which stays 13px for every non-modal form) and NOT
+ * inside a media query, so this applies at every screen size, not just
+ * the small-screen band the earlier congestion fix targeted. */
+.modal .frow {
+  gap: 18px;
+  margin-bottom: 22px
+}
+
 .frow.c2 {
   grid-template-columns: 1fr 1fr
 }
@@ -2179,11 +2381,19 @@ label.f {
 /* still scrollable by wheel/drag, just without a visible scrollbar */
 /* ── tables ─────────────────────────────── */
 /* still scrollable by wheel/drag, just without a visible scrollbar */
+/* The table itself scrolls now, not the .page around it — capped to the
+ * viewport (minus the page header/filters/tabs above and the sticky
+ * pagination footer below it, ~350px in the common case) so a long table
+ * scrolls internally while everything else on the page stays put. A
+ * max-height rather than a fixed height means a short table (few rows,
+ * or the empty/loading state) still just shrinks to fit its own content
+ * instead of leaving a tall empty gap. */
 .tbl-wrap {
   height: auto;
   min-height: 0;
+  max-height: calc(100vh - 350px);
   overflow-x: auto;
-  overflow-y: visible;
+  overflow-y: auto;
   scrollbar-width: none;
   -ms-overflow-style: none;
   background: rgba(255, 255, 255, .4);
@@ -2198,51 +2408,15 @@ label.f {
   display: none
 }
 
-/* Every .tbl-wrap table site-wide (Loans, Customers, Employees, Branches,
- * Cash, Auctions, Bank Pledge, Loan Detail, Requests, Packets, Packet
- * Detail, Gold Rates, Reports, Customer Detail) sits beside the app's fixed
- * sidebar, so at tablet/laptop widths (iPad landscape, a MacBook's actual
- * window width, which is rarely the full 1512-1728px screen) its content
- * column is often narrower than table.tbl's own 640px min-width — the table
- * scrolls (overflow-x:auto above), but with NO visible scrollbar (by
- * design, for the normal desktop case where nothing overflows) there was no
- * affordance telling anyone that content, not just a hard edge. This ONLY
- * restores a thin themed scrollbar inside that width range — a full desktop
- * viewport has no overflow to begin with, so nothing changes there; below
- * the app's existing 900px "mobile" breakpoint the scrollbar again stays
- * hidden, matching the touch-first, swipe-to-scroll pattern already used on
- * phones instead of a diminutive scrollbar thumb. */
-@media(max-width:1600px) and (min-width:901px) {
-  .tbl-wrap {
-    scrollbar-width: thin;
-    scrollbar-color: var(--brand-light) transparent
-  }
+/* Scrollbars stay fully hidden on every screen size (the base .tbl-wrap
+ * rules above already do this on both axes) — the table still scrolls by
+ * wheel/drag/touch, it just never shows a visible thumb or track. */
 
-  .tbl-wrap::-webkit-scrollbar {
-    width: auto;
-    height: 8px;
-    display: block
-  }
-
-  .tbl-wrap::-webkit-scrollbar-track {
-    background: transparent
-  }
-
-  .tbl-wrap::-webkit-scrollbar-thumb {
-    background: var(--brand-light);
-    border-radius: 6px
-  }
-
-  .tbl-wrap::-webkit-scrollbar-thumb:hover {
-    background: var(--brand)
-  }
-}
-
-/* .page (see .main above) is now the single correctly-sized scroll
- * container on every page, so tbl-scroll no longer needs its own guessed
- * max-height — it only keeps the table header stuck in view while .page
- * scrolls past a long table. */
-.tbl-scroll .tbl th {
+/* Every .tbl-wrap now owns its own bounded, internally-scrolling area
+ * (see its max-height above) rather than .page scrolling past a long
+ * table, so the header needs to stick within THAT scroll container on
+ * every table, not just ones explicitly opted in via .tbl-scroll. */
+.tbl-wrap .tbl th {
   position: sticky;
   top: 0;
   z-index: 1
@@ -2309,6 +2483,79 @@ table.tbl {
 .tbl.tbl-tight td {
   padding-top: 10px;
   padding-bottom: 10px
+}
+
+/* .tbl-stack: at narrow-enough widths, a wide table (Cash Movements' 7
+ * columns — Date/Type/Source-Purpose/Mode/Bank/Amount/Loan Status, or
+ * Expense Register's 9 — routinely wider than any reasonable window)
+ * stops trying to fit every column on one line (previously .tbl-wrap's
+ * own overflow-x:auto just squeezed them or forced a horizontal scroll)
+ * and instead lays each row out as its own stacked card, one column's
+ * label:value pair per line — the standard "responsive table" pattern.
+ * Requires each <td> to carry its own `data-label` (see Cash.tsx's
+ * MovementRow/ExpenseRow) since a stacked cell has no column header
+ * sitting above it to read off anymore. Opt-in via this class rather
+ * than every `.tbl` app-wide, since not every table has (or needs)
+ * per-cell data-label attributes yet. 1279px matches .kpis-money's own
+ * "narrower than this and things get uncomfortably squeezed" cutoff
+ * just above, rather than the app's usual 900px breakpoint — a 7-9
+ * column table is unreadable well before a KPI row even notices the
+ * width, so it needs its own wider threshold. */
+@media (max-width: 1279px) {
+  .tbl-stack thead {
+    display: none
+  }
+
+  .tbl-stack,
+  .tbl-stack tbody,
+  .tbl-stack tr {
+    display: block;
+    width: 100%
+  }
+
+  .tbl-stack tr {
+    border: 1px solid rgba(201, 151, 28, .25);
+    border-radius: 10px;
+    margin-bottom: 10px;
+    padding: 4px 14px;
+    background: rgba(255, 255, 255, .4)
+  }
+
+  .tbl-stack tr:last-child {
+    margin-bottom: 0
+  }
+
+  .tbl-stack td {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    text-align: right;
+    border-bottom: 1px dashed rgba(232, 220, 186, .6);
+    padding: 8px 0
+  }
+
+  .tbl-stack tr td:last-child {
+    border-bottom: 0
+  }
+
+  .tbl-stack td::before {
+    content: attr(data-label);
+    font-size: 10.5px;
+    letter-spacing: .14em;
+    text-transform: uppercase;
+    color: var(--muted);
+    text-align: left;
+    flex-shrink: 0
+  }
+
+  /* .tbl-center's own centering (loans/movements tables both use it) only
+   * makes sense in the tabular layout above this breakpoint — stacked,
+   * every value already sits against the right edge via the flex rule
+   * above regardless of this class. */
+  .tbl-stack.tbl-center td {
+    text-align: right
+  }
 }
 
 .tbl tbody tr {
@@ -2463,6 +2710,52 @@ table.tbl {
 
 .tabs::-webkit-scrollbar {
   display: none
+}
+
+/* Loans.tsx's All/Active/Due Soon/…/Closed status-filter row — the shared
+ * `.tabs{overflow-x:auto}` above is by design for tab rows too narrow to
+ * fit any screen width and meant to scroll, but this row's 8 buttons kept
+ * showing a horizontal scrollbar/scroll gesture even where the row had
+ * room to just wrap. Scoped to this row only (`.tabs.loans-cat-tabs`) so
+ * every other `.tabs` usage app-wide keeps its normal horizontal-scroll
+ * behavior. */
+.tabs.loans-cat-tabs {
+  overflow-x: visible;
+  flex-wrap: wrap;
+}
+
+/* Auctions.tsx's Active Cases/Auction History switch — same symptom as
+ * loans-cat-tabs above (the last pill's right edge/shadow getting clipped
+ * by `.tabs`'s overflow-x:auto), same fix, scoped to just this row. */
+.tabs.auctions-tabs {
+  overflow-x: visible;
+  flex-wrap: wrap;
+}
+
+/* Cash.tsx's Cash Movements/Expense Register switch (and any further tab
+ * button added beside it) shares the KPI tiles' own row on wide screens,
+ * pinned to its bottom-right corner (the tiles can grow taller than the
+ * switch once a breakdown list renders, so top-aligning left it looking
+ * stranded above the row instead of level with the cards' base). Below
+ * 1400px it instead drops to its own row, still right-aligned. */
+.cash-tabs-row {
+  align-self: flex-end;
+  margin-left: auto
+}
+
+/* .tabs button.on's shadow (app.css) is tuned for tab rows that sit on
+ * their own — beside the KPI cards here it reads as an oversized dark
+ * blur under just the active button, so trim it back for this row only. */
+.cash-tabs-row button.on {
+  box-shadow: 0 2px 6px rgba(154, 111, 15, .35), inset 0 1px 0 rgba(255, 255, 255, .4)
+}
+
+@media (max-width: 1400px) {
+  .cash-tabs-row {
+    width: 100%;
+    flex-basis: 100%;
+    justify-content: flex-end
+  }
 }
 
 .tabs button {
@@ -2888,6 +3181,25 @@ table.tbl {
 .rate-tile .u {
   font-size: 11px;
   color: var(--muted)
+}
+
+/* GoldRates.tsx's 24K/22K/18K tiles, small-screen (useIsSmallScreen)
+ * variant only — shrinks padding/font so the cards read smaller in both
+ * height and width, alongside the smaller `.rates3` max-width set inline
+ * in GoldRates.tsx. `.rate-tile` is only ever used on this page, so no
+ * further scoping class is needed. */
+.rate-tile-sm {
+  padding: 9px 10px;
+}
+
+.rate-tile-sm .r {
+  font-size: 19px;
+  margin-top: 2px;
+}
+
+.rate-tile-sm .k,
+.rate-tile-sm .u {
+  font-size: 10px;
 }
 
 .mini-list {
@@ -3600,6 +3912,30 @@ table.tbl {
     padding-right: 16px
   }
 
+  /* Small-screen modals: .modal-bg's 6vh top padding plus the desktop
+   * hd/bd/ft vertical padding (18/18/14px) left little of the viewport for
+   * the modal's own content on a phone, forcing the whole modal into
+   * .modal-bg's scroll before a user could see more than a field or two.
+   * Trimming both reclaims real height for the content itself instead. */
+  .modal-bg {
+    padding-top: 3vh;
+  }
+
+  .modal .hd {
+    padding-top: 12px;
+    padding-bottom: 10px
+  }
+
+  .modal .bd {
+    padding-top: 12px;
+    padding-bottom: 12px
+  }
+
+  .modal .ft {
+    padding-top: 10px;
+    padding-bottom: 10px
+  }
+
   .kpis {
     grid-template-columns: 1fr 1fr
   }
@@ -3635,6 +3971,26 @@ table.tbl {
     backdrop-filter: blur(16px) saturate(180%);
     -webkit-backdrop-filter: blur(16px) saturate(180%);
     box-shadow: 0 8px 24px -6px color-mix(in oklab, var(--nav) 14%, transparent), inset 0 1px 1px rgba(255, 255, 255, .95);
+  }
+
+  /* ReportView.tsx's "Total Loans"/"Total Outstanding" tiles only — the
+   * shared .kpi fixed 89px height is unchanged everywhere else (Dashboard,
+   * Cash) so this only shrinks the Reports page's own stat cards on small
+   * screens, matching how .kpis-money/.dashboard-kpis already scope their
+   * own tweaks to one page rather than the shared .kpi rule. */
+  .report-kpis .kpi {
+    height: 70px;
+    padding: 10px 13px;
+  }
+
+  /* ReportView.tsx's "Total Loans"/"Total Outstanding" tiles only — the
+   * shared .kpi fixed 89px height is unchanged everywhere else (Dashboard,
+   * Cash) so this only shrinks the Reports page's own stat cards on small
+   * screens, matching how .kpis-money/.dashboard-kpis already scope their
+   * own tweaks to one page rather than the shared .kpi rule. */
+  .report-kpis .kpi {
+    height: 70px;
+    padding: 10px 13px;
   }
 
   .tbl-wrap {
@@ -4000,8 +4356,8 @@ table.tbl {
     padding: 7px 16px;
   }
   .modal .frow {
-    margin: 4px 0;
-    gap: 8px;
+    margin: 8px 0;
+    gap: 10px;
   }
   .modal .f {
     margin: 0 0 2px;

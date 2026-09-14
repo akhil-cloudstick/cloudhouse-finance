@@ -111,7 +111,7 @@ export function Requests() {
       <div className="page-h">
         <div><h1>Loan Extensions &amp; Gold Release</h1><p>Extension/release requests submitted by customers (or logged by staff on their behalf) — review and approve/reject through each request's staged approval chain</p></div>
       </div>
-      <hr className="gold-rule" />
+      <hr className="gold-rule" style={{ margin: "4px 0 18px" }} />
       <div style={{ display: "flex", alignItems: "flex-end", justifyContent: "flex-end", gap: 12, flexWrap: "wrap", marginBottom: 16 }}>
         <div style={{ width: 180 }}>
           <label style={{ fontSize: 11.5, color: "var(--muted)", display: "block", marginBottom: 4 }}>Status</label>
@@ -124,7 +124,7 @@ export function Requests() {
           />
         </div>
       </div>
-      <div className="card">
+      <div className="card tbl-card">
         <div className="tbl-wrap tbl-scroll">
           <table className="tbl">
             <thead>

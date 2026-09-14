@@ -8,11 +8,11 @@ import { Icon } from "@/common/components/Icon";
 import { fmt } from "@/common/utils/format";
 import { listGoldRatesPage, type GoldRateView } from "@/modules/gold-rates/services/goldRateService";
 import { useAuth } from "@/common/auth-context";
-import { useResponsivePageSize } from "@/common/utils/responsive";
+import { useResponsivePageSize, useIsSmallScreen } from "@/common/utils/responsive";
 
-function RateTile({ k, r }: { k: string; r: number }) {
+function RateTile({ k, r, small }: { k: string; r: number; small?: boolean }) {
   return (
-    <div className="rate-tile">
+    <div className={small ? "rate-tile rate-tile-sm" : "rate-tile"}>
       <div className="k">{k}</div>
       <div className="r">{fmt(r)}</div>
       <div className="u">per gram</div>
@@ -27,6 +27,7 @@ export function GoldRates() {
   const { latest } = useGoldRates();
   const { openModal } = useModal();
   const pageSize = useResponsivePageSize(10, 6);
+  const smallScreen = useIsSmallScreen();
   // Hidden rather than disabled when the role cannot record a rate — see
   // Customers.tsx.
   const { can } = useAuth();
@@ -56,7 +57,7 @@ export function GoldRates() {
 
   return (
     <>
-      <div className="page-h">
+      <div className="page-h" >
         <div><h1>Gold Rates</h1><p>Daily published rates by purity · full history maintained for audit</p></div>
         <div className="sp"></div>
         {canCreateRates && (
@@ -66,17 +67,13 @@ export function GoldRates() {
         )}
       </div>
       <hr className="gold-rule" />
-      <div className="rates3" style={{ maxWidth: 720, marginBottom: 20 }}>
-        <RateTile k="24K · 999 · published" r={latest.k24} />
-        <RateTile k="22K · 916" r={latest.k22} />
-        <RateTile k="18K · 750" r={latest.k18} />
+      <div className="rates3" style={{ maxWidth: smallScreen ? 480 : 720, marginBottom: 20 }}>
+        <RateTile k="24K · 999 · published" r={latest.k24} small={smallScreen} />
+        <RateTile k="22K · 916" r={latest.k22} small={smallScreen} />
+        <RateTile k="18K · 750" r={latest.k18} small={smallScreen} />
       </div>
-      <p style={{ fontSize: 12.5, color: "var(--muted)", marginTop: -12, marginBottom: 20 }}>
-        24K is always published directly. 22K/18K can be published directly too (Manual mode) or derived
-        from 24K at a chosen purity (Auto mode) — see &quot;Set Today&apos;s Rate&quot;. Any other purity is
-        resolved per-ornament, at pledge time.
-      </p>
-      <div className="card">
+      
+      <div className="card tbl-card">
         <div className="hd"><h3>Rate History</h3></div>
         {error && <div className="notice" style={{ margin: "0 16px 14px" }}>{error}</div>}
         <div className="tbl-wrap tbl-scroll">

@@ -25,7 +25,7 @@ import {
   CUSTOMER_SUBTABLE_PAGE_SIZE,
   type Customer360View,
 } from "@/modules/customers/services/customerService";
-import { useResponsivePageSize } from "@/common/utils/responsive";
+import { useResponsivePageSize, useIsSmallScreen } from "@/common/utils/responsive";
 import type {
   LoanView,
   CustomerOrnamentRowView,
@@ -91,7 +91,7 @@ function useSubTablePage<T>(
 function Pager({ page, total, pageSize, onChange }: { page: number; total: number; pageSize: number; onChange: (p: number) => void }) {
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
   return (
-    <div className="ft" style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 14px" }}>
+    <div className="ft ft-static" style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 14px" }}>
       <button className="btn plain" disabled={page <= 1} onClick={() => onChange(Math.max(1, page - 1))}>‹ Prev</button>
       <span style={{ fontSize: 13 }}>Page {page} of {totalPages}</span>
       <button className="btn plain" disabled={page >= totalPages} onClick={() => onChange(Math.min(totalPages, page + 1))}>Next ›</button>
@@ -120,6 +120,7 @@ export function CustomerDetail({ id }: { id?: string }) {
   const { openModal } = useModal();
   const toast = useToast();
   const { role, can } = useAuth();
+  const smallScreen = useIsSmallScreen();
   // Cashier is outside the loan creation/approval flow — the backend
   // already 403s a Cashier's POST /loans, hide the button rather than let
   // them click into a form that can only ever fail. The permission grant
@@ -440,7 +441,11 @@ export function CustomerDetail({ id }: { id?: string }) {
          * update/delete rights. */}
         
       </div>
-      <hr className="gold-rule rule-xs" />
+      {/* Small-screen margin override (matches Loans.tsx's own hr override)
+       * — without it this rule was reading as missing on small/short
+       * (useIsSmallScreen) windows, sitting too close to the header above
+       * to read as its own divider line. */}
+      <hr className="gold-rule rule-xs" style={smallScreen ? { margin: "4px 0 15px" } : undefined} />
       {/* Opened-date filter for the whole 360 view — every card below plus
           the relationship totals come from the backend-filtered loan set. */}
       <div style={{ display: "flex", alignItems: "flex-end", justifyContent: "flex-end", gap: 12, flexWrap: "wrap", marginBottom: 18 }}>

@@ -129,7 +129,7 @@ export function ReportView({ config, onBack }: { config: ReportConfig; onBack: (
   const totalsItems = result ? config.totals(result.totals) : [];
 
   return (
-    <div>
+    <>
       <div className="page-h">
         <div>
           <button className="btn plain sm" style={{ marginBottom: 6 }} onClick={onBack}>
@@ -154,7 +154,7 @@ export function ReportView({ config, onBack }: { config: ReportConfig; onBack: (
        * pins each group to its own edge rather than leaving them flush
        * together in the middle), instead of each getting its own full-
        * width block stacked one above the other. */}
-      <div style={{ display: "flex", flexWrap: "wrap", alignItems: "flex-end", justifyContent: "space-between", gap: 24, marginBottom: 18 }}>
+      <div style={{ display: "flex", flexWrap: "wrap", alignItems: "flex-end", justifyContent: "space-between", gap: 4, marginBottom: 4 }}>
         {/* Plain flex, not `.kpis` (display:grid; repeat(auto-fill,213px))
          * — a grid with auto-fill track repetition has no well-defined
          * intrinsic size, so nested as a flex item here (every other
@@ -170,7 +170,7 @@ export function ReportView({ config, onBack }: { config: ReportConfig; onBack: (
          * its natural, fully-unwrapped width) left this free to just grow
          * past the viewport with nothing to wrap against instead. */}
         {totalsItems.length > 0 && (
-          <div style={{ display: "flex", flexWrap: "wrap", flexShrink: 0, maxWidth: "100%", gap: 12 }}>
+          <div className="report-kpis" style={{ display: "flex", flexWrap: "wrap", flexShrink: 0, maxWidth: "100%", gap: 4 }}>
             {totalsItems.map((t) => (
               <div className="kpi" key={t.label}>
                 <div className="l">{t.label}</div>
@@ -188,7 +188,7 @@ export function ReportView({ config, onBack }: { config: ReportConfig; onBack: (
          * here is the same 150px now, and `gap` (a single value, so it's
          * necessarily identical between every adjacent pair) keeps them
          * evenly spaced regardless of how many are showing. */}
-        <div className="report-filter-row" style={{ display: "flex", flexWrap: "wrap", gap: 20 }}>
+        <div className="report-filter-row" style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
           <div style={{ width: 150 }}>
             <label style={{ fontSize: 11.5, color: "var(--muted)", display: "block", marginBottom: 4 }}>From</label>
             <DatePicker value={from} onChange={setFrom} max={to} />
@@ -221,9 +221,9 @@ export function ReportView({ config, onBack }: { config: ReportConfig; onBack: (
         </div>
       </div>
 
-      {error && <div className="notice" style={{ marginBottom: 14 }}>{error}</div>}
+      {error && <div className="notice" style={{ marginBottom: 4 }}>{error}</div>}
 
-      <div className="card">
+      <div className="card tbl-card">
         <div className="tbl-wrap">
           <table className="tbl">
             <thead>
@@ -234,8 +234,14 @@ export function ReportView({ config, onBack }: { config: ReportConfig; onBack: (
                 <tr><td colSpan={config.columns.length} className="empty">Loading report…</td></tr>
               ) : rows.length === 0 ? (
                 <tr><td colSpan={config.columns.length} className="empty">No data for the selected filters.</td></tr>
-              ) : rows.map((row) => (
-                <tr key={config.rowKey(row)}>
+              ) : rows.map((row, i) => (
+                // Some reports' rowKey (e.g. interest-collection's
+                // `loanId-paidOn`) isn't guaranteed unique — two rows for the
+                // same loan can share a paidOn timestamp (interest and penal
+                // applied in the same run). The row's own position within
+                // the current page is always unique, so appending it here
+                // guards every report's key, not just that one.
+                <tr key={`${config.rowKey(row)}-${i}`}>
                   {config.columns.map((c) => (
                     <td key={c.key} className={c.numeric ? "num" : undefined}>{c.render(row)}</td>
                   ))}
@@ -244,12 +250,12 @@ export function ReportView({ config, onBack }: { config: ReportConfig; onBack: (
             </tbody>
           </table>
         </div>
-        <div className="ft" style={{ display: "flex", alignItems: "center", gap: 10 }}>
+        <div className="ft" style={{ display: "flex", alignItems: "center", gap: 4 }}>
           <button className="btn plain sm" disabled={page <= 1} onClick={() => setPage((p) => Math.max(1, p - 1))}>‹ Prev</button>
           <span style={{ fontSize: 12.5 }}>Page {page} of {totalPages}</span>
           <button className="btn plain sm" disabled={page >= totalPages} onClick={() => setPage((p) => Math.min(totalPages, p + 1))}>Next ›</button>
         </div>
       </div>
-    </div>
+    </>
   );
 }

@@ -50,16 +50,20 @@ import type { Ornament } from "@/common/utils/data";
 // lib/purity.ts) rather than a fixed k24/k22/k18 bucket — PURITY_LABEL is
 // gone since the string itself is already the display label.
 //
-// `w` (Gross Wt) and `netW` (Net Wt) are two INDEPENDENT inputs, not one
-// derived from the other — matching how an ornament is actually assessed:
-// gross is a raw scale reading (includes stones/dust/impurity), net is the
-// separately assessed pure-gold weight a jeweler determines. Loan value is
-// calculated off net weight, never gross — see rowVals below. `deductionWeight`
-// sent to the backend (Ornament.DeductionWeight) is derived as `w − netW`
-// at submit time; the backend re-derives NetWeight from that same subtraction,
-// so the two stay in agreement without the frontend needing to send NetWeight
-// directly.
-type OrnRow = { n: string; p: string; w: number; netW: number; q: number; img?: string; imgName?: string };
+// `w` (Gross Wt) and `lessWt` (Less Wt, i.e. deduction for stones/dust/
+// impurity) are the two independently-entered figures — matching how an
+// ornament is actually assessed: gross is a raw scale reading, "less wt" is
+// what a jeweler deducts from it. `netW` is NOT entered directly; it's
+// derived (`w − lessWt`, floored at 0, recomputed in updOrn below) purely
+// for display and for the loan valuation, which is calculated off net
+// weight alone — see rowVals below (qty is stored for record only, it does
+// not multiply into weight or value anywhere). `lessWt` is sent to the
+// backend as-is as Ornament.DeductionWeight, which already re-derives
+// NetWeight the same way (GrossWeight − DeductionWeight, see
+// backend/internal/loan/service.go) and already prices GoldValue as
+// NetWeight × rate with no quantity factor — this frontend calc was the
+// one out of step, not the backend.
+type OrnRow = { n: string; p: string; w: number; lessWt: number; netW: number; q: number; img?: string; imgName?: string };
 
 /* Ported from legacy/app.js's `renderNewLoan()` (legacy/app.js:845-1151).
  * Customer/scheme/ornament-type pickers now hit the real backend search
@@ -243,8 +247,8 @@ export function NewLoan() {
 
   const sch = (schemeObj && schemeObj.id === schemeId) ? schemeObj : schemes.find((s) => s.id === schemeId);
 
-  const rowVals = rows.map((r) => r.netW * r.q * (rateForPurityString(rates.k24, r.p) ?? 0));
-  const totalWeight = rows.reduce((s, r) => s + r.netW * r.q, 0);
+  const rowVals = rows.map((r) => r.netW * (rateForPurityString(rates.k24, r.p) ?? 0));
+  const totalWeight = rows.reduce((s, r) => s + r.netW, 0);
   const totalGross = rowVals.reduce((s, v) => s + v, 0);
   const eligible = sch ? (totalGross * sch.ltv) / 100 : 0;
   const principal = principalOverride.trim() ? Math.max(0, +principalOverride) : Math.round(eligible);
@@ -267,11 +271,41 @@ export function NewLoan() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [roundedEligible]);
 
+  // Set only by addOrnRow() below — distinguishes an actual "+ Add
+  // Ornament" click from every other way `rows` can grow (applyDraft()
+  // restoring a saved draft's ornaments, most notably), so the focus
+  // effect below only ever fires for the former.
+  const justAddedRowRef = useRef(false);
+
   function addOrnRow(pre?: OrnRow) {
     // Ornament type starts blank — it must be explicitly picked (or created)
     // via the SearchableSelect below, never silently defaulted.
-    setRows((rs) => [...rs, pre || { n: "", p: "22K", w: 0, netW: 0, q: 1 }]);
+    justAddedRowRef.current = true;
+    setRows((rs) => [...rs, pre || { n: "", p: "22K", w: 0, lessWt: 0, netW: 0, q: 1 }]);
   }
+
+  // Moves focus into a freshly-added row's own Ornament-type field —
+  // "+ Add Ornament" is an Enter-flow waypoint (enterToSubmit.ts): landing
+  // on it via Enter never clicks it (.focus() only), so it takes an
+  // explicit, separate Enter press while it's already focused to actually
+  // add a row (native "Enter activates the focused button" behavior).
+  // Without moving focus on from there afterward, it would still be the
+  // only thing focus could return to — leaving a THIRD accidental Enter
+  // free to re-click it again. Both the table and card ornament views
+  // render every row at once (CSS `display` toggles which is visible per
+  // breakpoint — see their own JSX comments), so this picks whichever
+  // instance of the newest row's own input is actually laid out
+  // (offsetParent !== null), same visibility check enterToSubmit.ts's own
+  // focusable-list building already uses.
+  useEffect(() => {
+    if (!justAddedRowRef.current) return;
+    justAddedRowRef.current = false;
+    requestAnimationFrame(() => {
+      const inputs = document.querySelectorAll<HTMLInputElement>(".orn-type-td input.inp");
+      const visible = Array.from(inputs).filter((el) => el.offsetParent !== null);
+      visible[visible.length - 1]?.focus();
+    });
+  }, [rows.length]);
   function delOrnRow(i: number) {
     setRows((rs) => rs.filter((_, idx) => idx !== i));
   }
@@ -279,8 +313,15 @@ export function NewLoan() {
     // Weight/qty can never go negative, however the value arrives (native
     // spinner decrement past 0, typed "-", pasted value, etc.) — clamp here
     // centrally rather than trusting each call site.
-    const clamped = (k === "w" || k === "netW" || k === "q") && typeof v === "number" ? (Math.max(0, v) as OrnRow[K]) : v;
-    setRows((rs) => rs.map((r, idx) => (idx === i ? { ...r, [k]: clamped } : r)));
+    const clamped = (k === "w" || k === "lessWt" || k === "q") && typeof v === "number" ? (Math.max(0, v) as OrnRow[K]) : v;
+    setRows((rs) => rs.map((r, idx) => {
+      if (idx !== i) return r;
+      const next = { ...r, [k]: clamped };
+      // netW is never entered directly — Gross Wt and Less Wt are the two
+      // real inputs, so any change to either recomputes it here.
+      if (k === "w" || k === "lessWt") next.netW = Math.max(0, next.w - next.lessWt);
+      return next;
+    }));
   }
 
   async function ornImgPicked(i: number, input: HTMLInputElement) {
@@ -391,10 +432,11 @@ export function NewLoan() {
       n: o.name,
       p: o.purity || "22K",
       w: o.grossWeight,
-      // Drafts are unvalidated scratch state and don't persist the Gross/Net
-      // distinction (see SaveDraftInput/BackendLoanDraft — no deductionWeight
-      // field) — reopening one assumes no deduction was recorded yet, same as
-      // this form's own default for a brand-new row.
+      // Drafts are unvalidated scratch state and don't persist the Gross/
+      // Less Wt distinction (see SaveDraftInput/BackendLoanDraft — no
+      // deductionWeight field) — reopening one assumes no deduction was
+      // recorded yet, same as this form's own default for a brand-new row.
+      lessWt: 0,
       netW: o.grossWeight,
       q: o.quantity,
       ...(o.imageUrl ? { img: o.imageUrl } : {}),
@@ -430,8 +472,8 @@ export function NewLoan() {
     const s = (schemeObj && schemeObj.id === schemeId) ? schemeObj : schemeOf(schemes, schemeId);
     let weight = 0, gross = 0;
     const orns: Ornament[] = rows.filter((r) => r.w > 0 && r.q > 0).map((r) => {
-      const v = r.netW * r.q * (rateForPurityString(rates.k24, r.p) ?? 0);
-      weight += r.netW * r.q; gross += v;
+      const v = r.netW * (rateForPurityString(rates.k24, r.p) ?? 0);
+      weight += r.netW; gross += v;
       return { n: r.n, purity: r.p, gross: r.w, net: r.netW, qty: r.q, val: Math.round(v), img: r.img };
     });
     const locker = lockers.find((k) => k.id === lockerId);
@@ -571,7 +613,7 @@ export function NewLoan() {
     const validRows = rows.filter((r) => r.w > 0 && r.q > 0);
     if (!validRows.length) { toast("Add at least one ornament with weight and qty"); return; }
     if (validRows.some((r) => !r.n.trim())) { toast("Please select an ornament type for every row"); return; }
-    if (validRows.some((r) => r.netW > r.w)) { toast("Net Wt cannot be greater than Gross Wt"); return; }
+    if (validRows.some((r) => r.lessWt > r.w)) { toast("Less Wt cannot be greater than Gross Wt"); return; }
     const s = (schemeObj && schemeObj.id === schemeId) ? schemeObj : schemes.find((x) => x.id === schemeId);
     if (!s) { toast("Please select a scheme"); return; }
     if (!custId) { toast("Please select a verified customer"); return; }
@@ -603,11 +645,11 @@ export function NewLoan() {
           name: r.n,
           purity: r.p,
           grossWeight: r.w,
-          // Backend re-derives NetWeight as grossWeight − deductionWeight —
-          // sending it this way (rather than a raw netWeight field) keeps the
-          // two independently-entered figures in agreement without a second
-          // field on the wire.
-          deductionWeight: Math.max(0, r.w - r.netW),
+          // Less Wt is now the direct input (netW is only ever derived
+          // client-side for display) — sent straight through as
+          // deductionWeight; the backend re-derives NetWeight from it the
+          // same way (GrossWeight − DeductionWeight).
+          deductionWeight: r.lessWt,
           quantity: r.q,
         })),
         ...(lockerId !== "" ? { lockerId: Number(lockerId) } : {}),
@@ -705,7 +747,12 @@ export function NewLoan() {
           </div>
         </div>
       )}
-      <div className="grid cols21">
+      {/* .cols21's shared 2fr:1fr ratio (app.css) is used by three other
+       * pages too (Packets/PacketDetail/Calendar) — this inline override,
+       * scoped to just this page's own grid instance, gives the ornament
+       * form more room (and the Valuation sidebar correspondingly less)
+       * without changing that shared class for the other three. */}
+      <div className="grid cols21" style={{ gridTemplateColumns: "minmax(0, 2.34fr) minmax(0, 0.9fr)" }}>
         {/* orn-form-card opts this card into a container query (app.css)
          * that switches the ornament table to the card view based on this
          * card's own rendered width, not the browser window's — the table
@@ -828,33 +875,46 @@ export function NewLoan() {
               on which one `fileRefs.current[i]` actually points to). */}
           {/* minWidth:900 is a real, computed floor — not an organic
               "however wide the content happens to need" guess. Purity's
-              own column (20%) is the binding constraint: its content needs
+              own column (22%) is the binding constraint: its content needs
               at least ~176px (the toggle's own 130px floor + 6px row gap +
-              the search field's 34px floor + ~6px cell padding), and 20%
-              of 176/0.20 = 880px, plus headroom for rounding — 900px.
-              table-layout:fixed does NOT reallocate a tight column's
-              shortfall from another column's slack, so these 9 <col>
-              percentages are kept summing to exactly 100 (not left to
-              silently normalize down) — a sum over 100 shrinks EVERY
-              column's real rendered share, including Purity's, which is
-              exactly what caused it to clip against Gross/Net Wt after
-              those two were last widened. Below this width Purity's
-              content no longer fits its own <td> and spills into the
-              column beside it instead of the table falling back to
-              .page's horizontal scroll the way it's meant to. */}
+              the search field's 34px floor + ~6px cell padding), comfortably
+              inside 22% of 900px (198px). table-layout:fixed does NOT
+              reallocate a tight column's shortfall from another column's
+              slack, so these 9 <col> percentages are kept summing to
+              exactly 100 (not left to silently normalize down) — a sum
+              over 100 shrinks EVERY column's real rendered share,
+              including Purity's, which is exactly what caused it to clip
+              against Gross/Net Wt after those two were last widened.
+              Below this width Purity's content no longer fits its own
+              <td> and spills into the column beside it instead of the
+              table falling back to .page's horizontal scroll the way it's
+              meant to. Ornament's own 13% is a deliberate, modest ~20%
+              bump over its original 11% (not the much larger jump a
+              previous pass tried, which — combined with a much wider
+              container it also needed — pushed this whole card past the
+              width `.grid.cols21`'s left column actually had to give it;
+              see that grid's own inline style override in this page for
+              the complementary fix on that side instead), taken from
+              Photo's share (13%→11%) — safe since Photo's content is now
+              just a single 31px icon button in the common case, not the
+              old "📷 Upload" text label it used to need room for. */}
           <div className="orn-table-view" style={{ width: "100%", minWidth: 900, paddingBottom: 6 }}><table className="tbl orn-table" style={{ width: "100%", tableLayout: "fixed" }}>
             <colgroup>
-              <col style={{ width: "11%" }} />
               <col style={{ width: "22%" }} />
-              <col style={{ width: "10%" }} />
-              <col style={{ width: "10%" }} />
+              <col style={{ width: "7%" }} />
+              {/* Purity needs real room for its Karat/Fineness toggle
+               * plus the number field beside it — it can't be squeezed
+               * to the same width as the plain number columns without
+               * clipping (see the width-budget note further up). */}
+              <col style={{ width: "20%" }} />
+              <col style={{ width: "9%" }} />
+              <col style={{ width: "9%" }} />
+              <col style={{ width: "9%" }} />
               <col style={{ width: "8%" }} />
-              <col style={{ width: "8%" }} />
-              <col style={{ width: "11%" }} />
-              <col style={{ width: "13%" }} />
+              <col style={{ width: "9%" }} />
               <col style={{ width: "7%" }} />
             </colgroup>
-            <thead><tr><th>Ornament</th><th>Purity</th><th className="num" style={{ paddingRight: 18 }}>Gross Wt (g)</th><th className="num" style={{ paddingLeft: 18 }}>Net Wt (g)</th><th className="num">Qty</th><th className="num">Total Wt (g)</th><th className="num">Value</th><th style={{ textAlign: "center" }}>Photo</th><th></th></tr></thead>
+            <thead><tr><th>Ornament</th><th style={{ textAlign: "center", paddingRight: 4 }}>Qty</th><th style={{ paddingLeft: 4 }}>Purity</th><th className="num" style={{ paddingRight: 8, overflow: "hidden", textOverflow: "ellipsis" }}>Gross(g)</th><th className="num" style={{ paddingLeft: 8, paddingRight: 8, overflow: "hidden", textOverflow: "ellipsis" }}>Less(g)</th><th className="num" style={{ paddingLeft: 8, overflow: "hidden", textOverflow: "ellipsis" }}>Net(g)</th><th style={{ textAlign: "center", paddingLeft: 6, paddingRight: 2 }}>Value</th><th style={{ textAlign: "left", paddingLeft: 6 }}>Photo</th><th></th></tr></thead>
             <tbody>
               {rows.length === 0 && (
                 <tr><td colSpan={9} className="empty">No ornaments added yet — click &quot;Add Ornament&quot; below.</td></tr>
@@ -874,25 +934,28 @@ export function NewLoan() {
                       onCreate={createOrnamentType}
                     />
                   </td>
-                  <td><PurityPicker value={r.p} onChange={(v) => updOrn(i, "p", v)} dropdownMinWidth={70} /></td>
-                  <td className="num"><input className="inp" style={{ padding: "6px 8px", width: "100%", minWidth: 70, height: 31, textAlign: "right", boxSizing: "border-box" }} type="number" min={0} value={r.w === 0 ? "" : r.w} onChange={(e) => updOrn(i, "w", e.target.value === "" ? 0 : Math.max(0, +e.target.value || 0))} /></td>
-                  <td className="num"><input className="inp" style={{ padding: "6px 8px", width: "100%", minWidth: 70, height: 31, textAlign: "right", boxSizing: "border-box" }} type="number" min={0} max={r.w || undefined} value={r.netW === 0 ? "" : r.netW} onChange={(e) => updOrn(i, "netW", e.target.value === "" ? 0 : Math.max(0, +e.target.value || 0))} /></td>
-                  <td className="num"><input className="inp" style={{ padding: "6px 8px", width: "100%", minWidth: 70, height: 31, textAlign: "right", boxSizing: "border-box" }} type="number" min={0} value={r.q} onChange={(e) => updOrn(i, "q", Math.max(0, +e.target.value || 0))} /></td>
-                  <td className="num">{(r.netW * r.q).toFixed(2)}</td>
-                  <td className="num">{fmt(rowVals[i])}</td>
-                  <td style={{ textAlign: "center", whiteSpace: "nowrap" }}>
+                  <td style={{ paddingRight: 4 }}><input className="inp" style={{ padding: "6px 8px", width: "100%", minWidth: 32, height: 31, textAlign: "center", boxSizing: "border-box" }} type="number" min={0} placeholder="Qty" value={r.q === 0 ? "" : r.q} onChange={(e) => updOrn(i, "q", e.target.value === "" ? 0 : Math.max(0, +e.target.value || 0))} /></td>
+                  <td style={{ paddingLeft: 4 }}><PurityPicker value={r.p} onChange={(v) => updOrn(i, "p", v)} dropdownMinWidth={0} /></td>
+                  <td className="num" style={{ paddingRight: 8 }}><input className="inp" style={{ padding: "6px 8px", width: "100%", minWidth: 68, height: 31, textAlign: "right", boxSizing: "border-box" }} type="number" min={0} placeholder="0.0gm" value={r.w === 0 ? "" : r.w} onChange={(e) => updOrn(i, "w", e.target.value === "" ? 0 : Math.max(0, +e.target.value || 0))} /></td>
+                  <td className="num" style={{ paddingLeft: 8, paddingRight: 8 }}><input className="inp" style={{ padding: "6px 8px", width: "100%", minWidth: 68, height: 31, textAlign: "right", boxSizing: "border-box" }} type="number" min={0} max={r.w || undefined} placeholder="0.0gm" value={r.lessWt === 0 ? "" : r.lessWt} onChange={(e) => updOrn(i, "lessWt", e.target.value === "" ? 0 : Math.max(0, +e.target.value || 0))} /></td>
+                  {/* Net Wt is never entered directly — it's Gross Wt − Less
+                      Wt, recomputed in updOrn — so this is a plain read-only
+                      display, not an input, unlike every column beside it. */}
+                  <td className="num" style={{ paddingLeft: 8 }}>{r.netW.toFixed(2)}</td>
+                  <td className="num" style={{ textAlign: "center", paddingLeft: 6, paddingRight: 2 }}>{fmt(rowVals[i])}</td>
+                  <td style={{ textAlign: "left", whiteSpace: "nowrap", paddingLeft: 6, paddingRight: 2 }}>
                     <input type="file" accept="image/*" ref={(el) => { fileRefs.current[i] = el; }} style={{ display: "none" }} onChange={(e) => ornImgPicked(i, e.target)} />
                     {r.img ? (
-                      <div style={{ display: "inline-flex", gap: 4, alignItems: "center", justifyContent: "center" }}>
+                      <div style={{ display: "inline-flex", gap: 4, alignItems: "center", justifyContent: "flex-start" }}>
                         <img src={r.img} style={{ width: 34, height: 34, objectFit: "cover", borderRadius: 6, border: "1px solid var(--line)", cursor: "pointer" }} title="View photo" onClick={() => viewOrnImg(i)} />
                         <button className="btn plain sm" style={{ padding: "0 7px", height: 31 }} title="Replace photo" onClick={() => fileRefs.current[i]?.click()}>↺</button>
                         <button className="btn plain sm" style={{ padding: "0 7px", height: 31 }} title="Remove photo" onClick={() => delOrnImg(i)}>✕</button>
                       </div>
                     ) : (
-                      <button className="btn plain sm" style={{ padding: "0 9px", height: 31 }} title="Upload ornament photo" onClick={() => fileRefs.current[i]?.click()}>📷 Upload</button>
+                      <button className="btn plain sm" style={{ padding: 0, width: 31, height: 31, display: "inline-flex", alignItems: "center", justifyContent: "center" }} title="Upload ornament photo" onClick={() => fileRefs.current[i]?.click()}><Icon name="upload" /></button>
                     )}
                   </td>
-                  <td style={{ textAlign: "center" }}>
+                  <td style={{ textAlign: "center", paddingLeft: 2 }}>
                     <button className="btn danger sm" style={{ height: 31, width: 31, padding: 0, display: "inline-flex", alignItems: "center", justifyContent: "center" }} title="Remove ornament" onClick={() => delOrnRow(i)}>✕</button>
                   </td>
                 </tr>
@@ -927,6 +990,12 @@ export function NewLoan() {
                       onCreate={createOrnamentType}
                     />
                   </div>
+                  {/* Qty sits right beside Ornament (not down with the
+                      weight fields) to match the table view's column order. */}
+                  <div style={{ width: 60, flexShrink: 0 }}>
+                    <label className="f">Qty</label>
+                    <input className="inp" style={{ padding: "6px 8px", width: "100%", height: 31, boxSizing: "border-box", textAlign: "center" }} type="number" min={0} placeholder="Qty" value={r.q === 0 ? "" : r.q} onChange={(e) => updOrn(i, "q", e.target.value === "" ? 0 : Math.max(0, +e.target.value || 0))} />
+                  </div>
                   <button className="btn danger sm" style={{ height: 31, width: 31, padding: 0, marginTop: 20, flexShrink: 0, display: "inline-flex", alignItems: "center", justifyContent: "center" }} title="Remove ornament" onClick={() => delOrnRow(i)}>✕</button>
                 </div>
                 <div>
@@ -936,26 +1005,28 @@ export function NewLoan() {
                 <div className="orn-card-row" style={{ flexWrap: "wrap" }}>
                   <div style={{ flex: 1, minWidth: 90 }}>
                     <label className="f">Gross Wt (g)</label>
-                    <input className="inp" style={{ padding: "6px 8px", width: "100%", height: 31, boxSizing: "border-box" }} type="number" min={0} value={r.w === 0 ? "" : r.w} onChange={(e) => updOrn(i, "w", e.target.value === "" ? 0 : Math.max(0, +e.target.value || 0))} />
+                    <input className="inp" style={{ padding: "6px 8px", width: "100%", height: 31, boxSizing: "border-box" }} type="number" min={0} placeholder="0.00 " value={r.w === 0 ? "" : r.w} onChange={(e) => updOrn(i, "w", e.target.value === "" ? 0 : Math.max(0, +e.target.value || 0))} />
+                  </div>
+                  <div style={{ flex: 1, minWidth: 90 }}>
+                    <label className="f">Less Wt (g)</label>
+                    <input className="inp" style={{ padding: "6px 8px", width: "100%", height: 31, boxSizing: "border-box" }} type="number" min={0} max={r.w || undefined} placeholder="0.00 " value={r.lessWt === 0 ? "" : r.lessWt} onChange={(e) => updOrn(i, "lessWt", e.target.value === "" ? 0 : Math.max(0, +e.target.value || 0))} />
                   </div>
                   <div style={{ flex: 1, minWidth: 90 }}>
                     <label className="f">Net Wt (g)</label>
-                    <input className="inp" style={{ padding: "6px 8px", width: "100%", height: 31, boxSizing: "border-box" }} type="number" min={0} max={r.w || undefined} value={r.netW === 0 ? "" : r.netW} onChange={(e) => updOrn(i, "netW", e.target.value === "" ? 0 : Math.max(0, +e.target.value || 0))} />
-                  </div>
-                  <div style={{ flex: 1, minWidth: 70 }}>
-                    <label className="f">Qty</label>
-                    <input className="inp" style={{ padding: "6px 8px", width: "100%", height: 31, boxSizing: "border-box" }} type="number" min={0} value={r.q} onChange={(e) => updOrn(i, "q", Math.max(0, +e.target.value || 0))} />
+                    {/* Read-only — derived as Gross Wt − Less Wt in updOrn. */}
+                    <input className="inp" style={{ padding: "6px 8px", width: "100%", height: 31, boxSizing: "border-box", background: "var(--panel-2, #f4f0e4)" }} type="text" readOnly value={r.netW.toFixed(2)} />
                   </div>
                 </div>
-                <div className="orn-card-row" style={{ justifyContent: "space-between", alignItems: "center" }}>
-                  <span style={{ fontSize: 11, letterSpacing: ".14em", textTransform: "uppercase", color: "var(--muted)" }}>Total Wt (g)</span>
-                  <b>{(r.netW * r.q).toFixed(2)}</b>
-                </div>
+                {/* Value/Photo are a tighter-knit summary pair than the
+                    sections above them (Ornament picker, Purity, Gross/
+                    Less Wt/Qty) — negative margin-top pulls them closer than
+                    `.orn-card`'s own shared 10px inter-row gap, without
+                    changing that gap for every other card app-wide. */}
                 <div className="orn-card-row" style={{ justifyContent: "space-between", alignItems: "center" }}>
                   <span style={{ fontSize: 11, letterSpacing: ".14em", textTransform: "uppercase", color: "var(--muted)" }}>Value</span>
                   <b>{fmt(rowVals[i])}</b>
                 </div>
-                <div className="orn-card-row" style={{ justifyContent: "space-between", alignItems: "center" }}>
+                <div className="orn-card-row" style={{ justifyContent: "space-between", alignItems: "center", marginTop: -4 }}>
                   <span style={{ fontSize: 11, letterSpacing: ".14em", textTransform: "uppercase", color: "var(--muted)" }}>Photo</span>
                   {/* Reuses the table view's own hidden file <input>/ref for
                       this row — see the comment above the table wrapper. */}
@@ -966,13 +1037,27 @@ export function NewLoan() {
                       <button className="btn plain sm" style={{ padding: "0 7px", height: 31 }} title="Remove photo" onClick={() => delOrnImg(i)}>✕</button>
                     </div>
                   ) : (
-                    <button className="btn plain sm" style={{ padding: "0 9px", height: 31 }} title="Upload ornament photo" onClick={() => fileRefs.current[i]?.click()}>📷 Upload</button>
+                    <button className="btn plain sm" style={{ padding: 0, width: 31, height: 31, display: "inline-flex", alignItems: "center", justifyContent: "center" }} title="Upload ornament photo" onClick={() => fileRefs.current[i]?.click()}><Icon name="upload" /></button>
                   )}
                 </div>
               </div>
             ))}
           </div>
-          <button className="btn plain sm" style={{ marginTop: 10 }} onClick={() => addOrnRow()}><Icon name="plus" /> Add Ornament</button>
+          {/* tabIndex only while there are zero ornaments — otherwise
+              there'd be NOTHING in this whole section for Enter to land
+              on at all (the row fields below only exist once at least one
+              row does), leaving no keyboard-only way to ever create the
+              first one. Deliberately NOT marked `data-enter-waypoint`
+              (unlike Select.tsx's own trigger) — adding an ornament has no
+              natural "done" signal the way picking a dropdown option
+              does, so pass-through treatment here would just re-trigger
+              it forever instead of ever letting a real click through.
+              Once rows.length > 0, tabIndex={-1} removes it from the
+              Enter chain entirely, so Enter from the last row's Qty field
+              goes straight to Loan Amount below instead of detouring back
+              here — adding another ornament from then on is a deliberate
+              mouse click. */}
+          <button className="btn plain sm" style={{ marginTop: 10 }} tabIndex={rows.length === 0 ? 0 : -1} onClick={() => addOrnRow()}><Icon name="plus" /> Add Ornament</button>
         </div>
           <div className="ft" style={{ display: "flex", gap: 10, justifyContent: "flex-end", flexWrap: "wrap", padding: "14px 18px" }}>
             <button className="btn ghost" onClick={printPacketLabel}>🏷 Print Label</button>

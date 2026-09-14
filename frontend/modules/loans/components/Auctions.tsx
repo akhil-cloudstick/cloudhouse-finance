@@ -32,7 +32,7 @@ import {
   type LoanView,
 } from "@/modules/loans/services/loanService";
 import { ApiError } from "@/common/services/httpClient";
-import { useResponsivePageSize } from "@/common/utils/responsive";
+import { useResponsivePageSize, useIsSmallScreen } from "@/common/utils/responsive";
 
 /* Who may decide each kind of escalation, and who may run each auction
  * process step, is now driven by the "Auction Workflow" permissions (see
@@ -280,6 +280,7 @@ export function Auctions() {
    * filtered by hasSale so a sub-table's own page/offset never counts
    * against the other's rows (see loansApi.listConcludedAuctionsPage). */
   const pageSize = useResponsivePageSize(10, 7);
+  const smallScreen = useIsSmallScreen();
   const [conducted, setConducted] = useState<ConcludedAuctionRowView[]>([]);
   const [conductedPage, setConductedPage] = useState(1);
   const [conductedHasMore, setConductedHasMore] = useState(false);
@@ -377,12 +378,18 @@ export function Auctions() {
 
   return (
     <>
-      <div className="page-h">
-        <div><h1>Auction Management</h1><p>Defaulted loans progressing through the regulated auction workflow</p></div>
+      <div className="page-h" >
+        <div><h1>Auction Management</h1><p>Defaulted loans progressing through the regulated auction workflow</p> </div>
       </div>
-      <hr className="gold-rule" />
+      <hr className="gold-rule" style={{ margin: "4px 0 12px" }} />
 
-      <div className="tabs" style={{ marginBottom: 14 }}>
+      {/* .tabs's own overflow-x:auto (app.css) clips the last pill's right
+          edge/shadow the instant its content is even 1-2px wider than the
+          container — invisible on rows with room to spare, but this
+          2-button row sits right at that edge. auctions-tabs turns
+          overflow off for just this row, matching Loans.tsx's own
+          loans-cat-tabs fix for the same symptom. */}
+      <div className="tabs auctions-tabs" style={{ marginBottom: 14  }}>
         <button className={tab === "active" ? "on" : ""} onClick={() => setTab("active")}>Active Cases</button>
         <button className={tab === "history" ? "on" : ""} onClick={showHistory}>Auction History</button>
       </div>
@@ -413,7 +420,7 @@ export function Auctions() {
             * what it fetched. This is the "previous auctions" record, kept apart
             * from cases that ended without a sale (below) so the sale figures
             * read as a clean set. */}
-          <div className="card" style={{ marginBottom: 16 }}>
+          <div className="card tbl-card" style={{ marginBottom: 16 }}>
             <div className="hd"><h3>Auctions Conducted</h3></div>
             {conductedError && <div className="notice" style={{ margin: 14 }}>{conductedError}</div>}
             <div className="tbl-wrap">
@@ -458,7 +465,7 @@ export function Auctions() {
           {/* Cases that closed without a sale. Separated because they have no
             * sale figures at all — showing them in the table above would fill
             * every money column with dashes. */}
-          <div className="card">
+          <div className="card tbl-card">
             <div className="hd"><h3>Closed Without Auction</h3></div>
             {closedError && <div className="notice" style={{ margin: 14 }}>{closedError}</div>}
             <div className="tbl-wrap">

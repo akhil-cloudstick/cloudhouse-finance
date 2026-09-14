@@ -22,7 +22,7 @@ import {
 import { Select } from "@/common/components/ui/Select";
 import { ApiError } from "@/common/services/httpClient";
 import { useAuth } from "@/common/auth-context";
-import { useResponsivePageSize } from "@/common/utils/responsive";
+import { useResponsivePageSize, useIsSmallScreen } from "@/common/utils/responsive";
 
 function Kpi({ l, v, s, parts, cls }: {
   l: string; v: string | number; s?: string; parts?: [string, number][]; cls?: string;
@@ -63,19 +63,19 @@ function MovementRow({ m, canUpdate, onToggleLoan }: { m: CashMovementView; canU
   const isLoan = m.type === "in" && m.source === "Loan";
   return (
     <tr>
-      <td>{m.d}</td>
-      <td>{m.type === "in" ? <span className="chip green">Cash In</span> : <span className="chip red">Cash Out</span>}</td>
+      <td data-label="Date">{m.d}</td>
+      <td data-label="Type">{m.type === "in" ? <span className="chip green">Cash In</span> : <span className="chip red">Cash Out</span>}</td>
       {/* Loan repayments post as source="Collection" with the payment
           type/loan number in `purpose` (see cash.MovementService.
           RecordLoanPaymentCashIn) — show both, not just source, so those
           rows don't all read as a bare "Collection". */}
-      <td>{m.type === "in" ? (m.purpose ? `${m.source} · ${m.purpose}` : m.source) : m.purpose || "—"}</td>
-      <td>{m.mode || "—"}</td>
-      <td>{m.bank || "—"}</td>
-      <td className="num" style={{ color: m.type === "in" ? "var(--green)" : "var(--red)" }}>
+      <td data-label="Source / Purpose">{m.type === "in" ? (m.purpose ? `${m.source} · ${m.purpose}` : m.source) : m.purpose || "—"}</td>
+      <td data-label="Mode">{m.mode || "—"}</td>
+      <td data-label="Bank">{m.bank || "—"}</td>
+      <td className="num" data-label="Amount" style={{ color: m.type === "in" ? "var(--green)" : "var(--red)" }}>
         {m.type === "in" ? "+" : "−"}{fmt(m.amount)}
       </td>
-      <td>
+      <td data-label="Loan Status">
         {isLoan ? (
           <>
             <span className={`chip ${m.status === "Closed" ? "gray" : "amber"}`}>{m.status || "Open"}</span>
@@ -96,22 +96,22 @@ function ExpenseRow({ e, canUpdate, onViewReceipt, onApprove, onReject }: {
 }) {
   return (
     <tr>
-      <td>{e.d}</td>
-      <td>{e.cat}</td>
-      <td className="num">{fmt(e.amt)}</td>
-      <td>{e.mode}</td>
-      <td>{e.payee}</td>
-      <td>{e.branch}</td>
-      <td>
+      <td data-label="Date">{e.d}</td>
+      <td data-label="Category">{e.cat}</td>
+      <td className="num" data-label="Amount">{fmt(e.amt)}</td>
+      <td data-label="Mode">{e.mode}</td>
+      <td data-label="Description / Payee">{e.payee}</td>
+      <td data-label="Branch">{e.branch}</td>
+      <td data-label="Status">
         <StatusChip status={e.status} />
         {e.remarks ? <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 2 }}>{e.remarks}</div> : null}
       </td>
-      <td style={{ textAlign: "center" }}>
+      <td data-label="Receipt" style={{ textAlign: "center" }}>
         {e.img
           ? <img src={e.img} style={{ width: 34, height: 34, objectFit: "cover", borderRadius: 6, border: "1px solid var(--line)", cursor: "pointer", verticalAlign: "middle" }} title="View receipt" onClick={onViewReceipt} />
           : <span style={{ color: "var(--muted)" }}>—</span>}
       </td>
-      <td>
+      <td data-label="Actions">
         {e.status === "Pending" && canUpdate ? (
           <div style={{ display: "flex", gap: 4 }}>
             <button className="btn plain sm" style={{ padding: "3px 8px", color: "var(--green)" }} onClick={onApprove}>Approve</button>
@@ -164,6 +164,7 @@ export function Cash() {
   const [movementsHasMore, setMovementsHasMore] = useState(false);
   const [movementsTotal, setMovementsTotal] = useState(0);
   const cashPageSize = useResponsivePageSize(7, 7);
+  const smallScreen = useIsSmallScreen();
   const [expensesPage, setExpensesPage] = useState(1);
   const [expensesHasMore, setExpensesHasMore] = useState(false);
   const [expensesTotal, setExpensesTotal] = useState(0);
@@ -338,8 +339,14 @@ export function Cash() {
   return (
     <>
       <div className="page-h">
-        <div><h1>Cash-in-Hand &amp; Expenses</h1><p>Daily cash movements, opening balances and branch expenses — recorded, approved and reconciled</p></div>
-        <div className="sp" />
+        {/* .page-h-title (flex:1;min-width:0, app.css) lets this block shrink
+         * and wrap its own subtitle instead of holding its full natural
+         * width and forcing the button cluster below onto its own line —
+         * same pattern as LoanDetail.tsx/Calendar.tsx. Without it, the title
+         * + subtitle's natural width plus the 3 buttons tipped `.page-h`
+         * past its wrap threshold on narrower screens well before the
+         * buttons actually ran out of room beside the title. */}
+        <div className="page-h-title"><h1>Cash-in-Hand &amp; Expenses</h1><p>Daily cash movements, opening balances and branch expenses.</p></div>
         {/* .page-h-actions (app.css) rather than flat siblings of `.page-h`
          * — its own margin-left:auto/justify-content:flex-end keeps all 3
          * buttons right-aligned as a group even once they wrap to their
@@ -358,7 +365,7 @@ export function Cash() {
       </div>
       <hr className="gold-rule rule-sm" />
 
-      <div className="card" style={{ marginBottom: 24 }}>
+      <div className="card" style={{ marginBottom: smallScreen ? 14 : 24 }}>
         <div className="hd">
           <h3>Opening Cash Balance — Today</h3>
           <div className="sp" />
@@ -398,8 +405,8 @@ export function Cash() {
         </div>
       </div>
 
-      <div style={{ display: "flex", alignItems: "flex-start", gap: 15, marginBottom: 24 }}>
-        <div className="kpis kpis-money" style={{ flex: 1, marginBottom: 0 }}>
+      <div style={{ display: "flex", flexWrap: "wrap", alignItems: "flex-start", gap: smallScreen ? 8 : 15, marginBottom: 0}}>
+        <div className="kpis kpis-money" style={{ marginBottom: 0, maxWidth: 1113 }}>
           <Kpi l="Opening Cash (today)" v={fmt(summary?.openingCash || 0)} />
           {/* Backend's `collections` is every cash-in movement for the day —
               Savings top-ups, bank pledges and loan repayments alike, not just
@@ -436,7 +443,7 @@ export function Cash() {
           <Kpi l="Balance in Hand" v={fmt(summary?.expectedCash || 0)} s="auto-calculated" cls="ok" />
         </div>
 
-        <div className="tabs" style={{ flexShrink: 0, alignSelf: "flex-end", marginBottom: 0 }}>
+        <div className="tabs cash-tabs-row" style={{ flexShrink: 0, marginBottom: 0 }}>
           <button
             className={activeCashTab === "movements" ? "on" : ""}
             onClick={() => setActiveCashTab("movements")}
@@ -496,7 +503,7 @@ export function Cash() {
             </div>
           </div>
           <div className="tbl-wrap tbl-scroll">
-            <table className="tbl tbl-center tbl-roomy">
+            <table className="tbl tbl-center tbl-roomy tbl-stack">
               <thead><tr><th>Date</th><th>Type</th><th>Source / Purpose</th><th>Mode</th><th>Bank</th><th className="num">Amount</th><th>Loan Status</th></tr></thead>
               <tbody>
                 {movements.length
@@ -505,7 +512,7 @@ export function Cash() {
               </tbody>
             </table>
           </div>
-          <div className="ft" style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+          <div className="ft ft-static" style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
             <button className="btn plain sm" disabled={movementsPage <= 1} onClick={() => setMovementsPage((p) => Math.max(1, p - 1))}>‹ Prev</button>
             {/* No total-row count comes back from the {items, hasMore}
               * envelope — only whether another page exists — so this shows
@@ -529,7 +536,7 @@ export function Cash() {
             <span style={{ fontSize: 12.5, color: "var(--muted)", marginLeft: 12 }}>Total {fmt(total)}</span>
           </div>
           <div className="tbl-wrap tbl-scroll">
-            <table className="tbl tbl-center tbl-roomy">
+            <table className="tbl tbl-center tbl-roomy tbl-stack">
               <thead><tr><th>Date</th><th>Category</th><th className="num">Amount</th><th>Mode</th><th>Description / Payee</th><th>Branch</th><th>Status</th><th style={{ textAlign: "center" }}>Receipt</th><th>Actions</th></tr></thead>
               <tbody>
                 {expenses.length
@@ -547,7 +554,7 @@ export function Cash() {
               </tbody>
             </table>
           </div>
-          <div className="ft" style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <div className="ft ft-static" style={{ display: "flex", alignItems: "center", gap: 10 }}>
             <button className="btn plain sm" disabled={expensesPage <= 1} onClick={() => setExpensesPage((p) => Math.max(1, p - 1))}>‹ Prev</button>
             <span style={{ fontSize: 12.5 }}>Page {expensesPage} of {expensesTotalPages}</span>
             <button className="btn plain sm" disabled={expensesPage >= expensesTotalPages} onClick={() => setExpensesPage((p) => Math.min(expensesTotalPages, p + 1))}>Next ›</button>

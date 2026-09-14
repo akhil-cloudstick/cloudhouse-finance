@@ -27,20 +27,63 @@ export function makeEnterToSubmitHandler(primarySelector: string) {
   return function onKeyDown(e: KeyboardEvent<HTMLElement>) {
     if (e.key !== "Enter") return;
     const target = e.target as HTMLElement;
-    // Textareas need Enter for real newlines; buttons/links/selects
-    // already activate on Enter natively.
-    if (target.tagName === "TEXTAREA" || target.tagName === "BUTTON" || target.tagName === "A" || target.tagName === "SELECT") return;
+    // A plain BUTTON/A/SELECT already activates on Enter natively — EXCEPT
+    // a button explicitly opted in as an Enter-flow waypoint via
+    // `data-enter-waypoint` (e.g. Select.tsx's own trigger button, a
+    // themed dropdown, not a native <select>): landing there via Enter is
+    // meant to let the user then Arrow/Enter through ITS OWN options, not
+    // just fall straight through — so this one Enter needs to move on to
+    // the NEXT field instead of clicking/re-opening it. Deliberately a
+    // separate marker from `tabindex` (which the focusable-list search
+    // just below also keys off, to make the field reachable at all) — a
+    // button can need to be reachable without ALSO wanting this pass-
+    // through treatment: NewLoan.tsx's "+ Add Ornament" sets `tabindex`
+    // only while there are zero ornaments (so it's reachable to create the
+    // very first one) but must NOT get this treatment, since clicking it
+    // (not passing through) is the entire point — it has no self-managed
+    // "done" state the way an opened dropdown does, so pass-through
+    // treatment there just re-triggers it forever without ever actually
+    // clicking (see that component's own comment on this button).
+    const isWaypointButton = target.tagName === "BUTTON" && target.hasAttribute("data-enter-waypoint");
+    if ((target.tagName === "BUTTON" && !isWaypointButton) || target.tagName === "A" || target.tagName === "SELECT") return;
     const container = e.currentTarget;
-    // Plain text/number/date inputs: Enter moves to the next field instead
-    // of submitting, mirroring what Tab already does — only the last field
+    // Textarea: Shift+Enter still inserts a real newline (native default,
+    // left alone below); plain Enter submits instead — same "Enter
+    // submits, Shift+Enter for a newline" convention chat/comment boxes
+    // already use elsewhere, rather than every Enter here always adding a
+    // newline regardless of intent.
+    if (target.tagName === "TEXTAREA") {
+      if (e.shiftKey) return;
+      const primary = container.querySelector<HTMLButtonElement>(primarySelector);
+      if (!primary) return;
+      e.preventDefault();
+      primary.click();
+      return;
+    }
+    // Plain text/number/date inputs (and opted-in waypoint buttons, see
+    // above): Enter moves to the next field instead of submitting/
+    // activating, mirroring what Tab already does — only the last field
     // in the container falls through to clicking the primary button below.
-    if (target.tagName === "INPUT") {
+    // Shift+Enter is the reverse: back to the previous field (mirroring
+    // Shift+Tab), for every plain input — textarea already claims
+    // Shift+Enter for its own newline above, so this never reaches one.
+    if (target.tagName === "INPUT" || isWaypointButton) {
       const focusable = Array.from(
         container.querySelectorAll<HTMLElement>(
           'input:not([disabled]):not([type="hidden"]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
         )
       ).filter((el) => el.offsetParent !== null);
-      const next = focusable[focusable.indexOf(target) + 1];
+      const idx = focusable.indexOf(target);
+      if (e.shiftKey) {
+        const prev = idx > 0 ? focusable[idx - 1] : null;
+        if (prev) {
+          e.preventDefault();
+          prev.focus();
+          if (prev instanceof HTMLInputElement) prev.select();
+        }
+        return;
+      }
+      const next = focusable[idx + 1];
       if (next) {
         e.preventDefault();
         next.focus();

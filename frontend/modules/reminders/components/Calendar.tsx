@@ -7,6 +7,7 @@ import { Icon } from "@/common/components/Icon";
 import { AddReminderModalContent } from "@/common/components/modals/ReminderModal";
 import { completeReminder, deleteReminder, getCalendarEvents, type CalendarEvent } from "@/modules/reminders/services/reminderService";
 import { useAuth } from "@/common/auth-context";
+import { useIsSmallScreen } from "@/common/utils/responsive";
 
 const DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
@@ -51,6 +52,7 @@ export function Calendar() {
   // Adding, completing and deleting reminders each need their own grant;
   // the calendar itself stays readable either way (see Customers.tsx).
   const { can } = useAuth();
+  const smallScreen = useIsSmallScreen();
   const canCreateReminders = can("Reminder_Management", "can_create_reminder");
   const canUpdateReminders = can("Reminder_Management", "can_update_reminder");
   const canDeleteReminders = can("Reminder_Management", "can_delete_reminder");
@@ -161,12 +163,15 @@ export function Calendar() {
           )}
         </div>
       </div>
-      <hr className="gold-rule" />
+      {/* 5px less bottom margin on small screens (laptop-height windows,
+       * see useIsSmallScreen) to tighten the gap between the header and the
+       * Due/Overdue/Follow-up/Payment legend row right below it. */}
+      <hr className="gold-rule" style={smallScreen ? { margin: "4px 0 18px" } : undefined} />
       {/* The Due/Overdue/Follow-up/Payment legend now sits below the rule,
        * left-aligned, rather than crammed onto the title row's right side
        * (moved once already) or between the title and the rule — reading
        * as a legend for the calendar grid directly beneath it. */}
-      <div style={{ display: "flex", gap: 8, marginBottom: 14 }}>
+      <div style={{ display: "flex", gap: 4, marginBottom: 14 }}>
         <span className="chip amber">Due</span>
         <span className="chip red">Overdue</span>
         <span className="chip info">Follow-up</span>

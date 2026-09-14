@@ -15,6 +15,7 @@ import {
   getDepositRegister, getInterestPayoutRegister, getMaturityRegister,
   type StatementStyle,
 } from "@/modules/reports/services/reportsService";
+import { useIsSmallScreen } from "@/common/utils/responsive";
 
 /* Shared row renderer for the two "printed statement" reports (Balance
  * Sheet, Statement of P&L) — one row per line exactly as a real Ind AS
@@ -111,7 +112,6 @@ const REPORT_CONFIGS: ReportConfig[] = [
     ],
     totals: (t) => [
       { label: "Active", value: String(t.active) }, { label: "Closed", value: String(t.closed) },
-      { label: "Due Soon", value: String(t.dueSoon) }, { label: "Overdue", value: String(t.overdue) },
       { label: "Defaulted", value: String(t.defaulted) }, { label: "Total", value: String(t.count) },
     ],
   },
@@ -498,6 +498,7 @@ const FORM_G_TILE = {
  * export) in place, rather than firing a stub toast. */
 export function Reports() {
   const toast = useToast();
+  const smallScreen = useIsSmallScreen();
   const [activeId, setActiveId] = useState<string | null>(null);
   const [printingId, setPrintingId] = useState<string | null>(null);
   const active = REPORT_CONFIGS.find((r) => r.id === activeId) || null;
@@ -534,7 +535,11 @@ export function Reports() {
       <div className="page-h">
         <div><h1>Reports</h1><p>Filterable reports, exportable to PDF / Excel</p></div>
       </div>
-      <hr className="gold-rule" />
+      {/* Small-screen margin override (matches Loans.tsx's own hr override)
+       * — without it this rule was reading as missing on small/short
+       * (useIsSmallScreen) windows, sitting too close to the header to read
+       * as its own divider line. */}
+      <hr className="gold-rule" style={smallScreen ? { margin: "4px 0 18px" } : undefined} />
       <div className="grid" style={{ gridTemplateColumns: "repeat(auto-fill,minmax(250px,1fr))" }}>
         {[...REPORT_CONFIGS, FORM_G_TILE].map((r) => (
           <div className="card" style={{ cursor: "pointer", minHeight: 120, display: "flex", flexDirection: "column", position: "relative" }} key={r.id} onClick={() => setActiveId(r.id)}>
