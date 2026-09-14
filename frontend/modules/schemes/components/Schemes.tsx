@@ -40,7 +40,7 @@ export function Schemes() {
 
   return (
     <>
-      <div className="page-h" style={{marginTop:-5}}>
+      <div className="page-h" >
         <div><h1>Loan Schemes</h1><p>Interest rates, tenure, LTV and calculation rules per scheme</p></div>
         <div className="sp" />
         {canCreateSchemes && <button className="btn" onClick={() => openModal(<SchemeModalContent onSaved={onSaved} />)}><Icon name="plus" /> New Scheme</button>}

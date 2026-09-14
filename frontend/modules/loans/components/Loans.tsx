@@ -134,14 +134,14 @@ export function Loans() {
 
   return (
     <>
-      <div className="page-h" style={smallScreen ? { gap: 8, marginTop:-10, marginBottom: 10 } : { marginBottom: 12 }}>
+      <div className="page-h" >
         <div><h1>Loans</h1><p style={{ marginTop: 0 }}>All customer loans with search and status filters</p></div>
         <div className="sp" />
         <div className="search"><Icon name="search" /><input className="inp" placeholder="Search loan ID or customer…" value={q} onChange={(e) => setQ(e.target.value)} /></div>
         {canCreateLoans && <a className="btn" href="#newloan"><Icon name="plus" /> New Gold Loan</a>}
       </div>
       <hr className="gold-rule" style={{ margin: smallScreen ? "2px 0 8px" : "4px 0 14px" }} />
-      <div style={{ marginTop: smallScreen ?-5:-10 ,marginBottom: smallScreen ? 8 : 14 }} className="tabs loans-cat-tabs">
+      <div style={{ marginTop: smallScreen ?-5:-2 ,marginBottom: smallScreen ? 8 : 2 }} className="tabs loans-cat-tabs">
         {CATS.map((c) => (
           <button key={c} className={c === cat ? "on" : ""} onClick={() => setCat(c)}>{c}</button>
         ))}

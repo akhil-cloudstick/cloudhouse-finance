@@ -928,10 +928,10 @@ export function NewLoan() {
                       onCreate={createOrnamentType}
                     />
                   </td>
-                  <td style={{ paddingRight: 4 }}><input className="inp" style={{ padding: "6px 8px", width: "100%", minWidth: 32, height: 31, textAlign: "center", boxSizing: "border-box" }} type="number" min={0} value={r.q} onChange={(e) => updOrn(i, "q", Math.max(0, +e.target.value || 0))} /></td>
+                  <td style={{ paddingRight: 4 }}><input className="inp" style={{ padding: "6px 8px", width: "100%", minWidth: 32, height: 31, textAlign: "center", boxSizing: "border-box" }} type="number" min={0} placeholder="Qty" value={r.q === 0 ? "" : r.q} onChange={(e) => updOrn(i, "q", e.target.value === "" ? 0 : Math.max(0, +e.target.value || 0))} /></td>
                   <td style={{ paddingLeft: 4 }}><PurityPicker value={r.p} onChange={(v) => updOrn(i, "p", v)} dropdownMinWidth={0} /></td>
-                  <td className="num" style={{ paddingRight: 8 }}><input className="inp" style={{ padding: "6px 8px", width: "100%", minWidth: 68, height: 31, textAlign: "right", boxSizing: "border-box" }} type="number" min={0} value={r.w === 0 ? "" : r.w} onChange={(e) => updOrn(i, "w", e.target.value === "" ? 0 : Math.max(0, +e.target.value || 0))} /></td>
-                  <td className="num" style={{ paddingLeft: 8, paddingRight: 8 }}><input className="inp" style={{ padding: "6px 8px", width: "100%", minWidth: 68, height: 31, textAlign: "right", boxSizing: "border-box" }} type="number" min={0} max={r.w || undefined} value={r.lessWt === 0 ? "" : r.lessWt} onChange={(e) => updOrn(i, "lessWt", e.target.value === "" ? 0 : Math.max(0, +e.target.value || 0))} /></td>
+                  <td className="num" style={{ paddingRight: 8 }}><input className="inp" style={{ padding: "6px 8px", width: "100%", minWidth: 68, height: 31, textAlign: "right", boxSizing: "border-box" }} type="number" min={0} placeholder="0.0gm" value={r.w === 0 ? "" : r.w} onChange={(e) => updOrn(i, "w", e.target.value === "" ? 0 : Math.max(0, +e.target.value || 0))} /></td>
+                  <td className="num" style={{ paddingLeft: 8, paddingRight: 8 }}><input className="inp" style={{ padding: "6px 8px", width: "100%", minWidth: 68, height: 31, textAlign: "right", boxSizing: "border-box" }} type="number" min={0} max={r.w || undefined} placeholder="0.0gm" value={r.lessWt === 0 ? "" : r.lessWt} onChange={(e) => updOrn(i, "lessWt", e.target.value === "" ? 0 : Math.max(0, +e.target.value || 0))} /></td>
                   {/* Net Wt is never entered directly — it's Gross Wt − Less
                       Wt, recomputed in updOrn — so this is a plain read-only
                       display, not an input, unlike every column beside it. */}
@@ -988,7 +988,7 @@ export function NewLoan() {
                       weight fields) to match the table view's column order. */}
                   <div style={{ width: 60, flexShrink: 0 }}>
                     <label className="f">Qty</label>
-                    <input className="inp" style={{ padding: "6px 8px", width: "100%", height: 31, boxSizing: "border-box", textAlign: "center" }} type="number" min={0} value={r.q} onChange={(e) => updOrn(i, "q", Math.max(0, +e.target.value || 0))} />
+                    <input className="inp" style={{ padding: "6px 8px", width: "100%", height: 31, boxSizing: "border-box", textAlign: "center" }} type="number" min={0} placeholder="Qty" value={r.q === 0 ? "" : r.q} onChange={(e) => updOrn(i, "q", e.target.value === "" ? 0 : Math.max(0, +e.target.value || 0))} />
                   </div>
                   <button className="btn danger sm" style={{ height: 31, width: 31, padding: 0, marginTop: 20, flexShrink: 0, display: "inline-flex", alignItems: "center", justifyContent: "center" }} title="Remove ornament" onClick={() => delOrnRow(i)}>✕</button>
                 </div>
@@ -999,11 +999,11 @@ export function NewLoan() {
                 <div className="orn-card-row" style={{ flexWrap: "wrap" }}>
                   <div style={{ flex: 1, minWidth: 90 }}>
                     <label className="f">Gross Wt (g)</label>
-                    <input className="inp" style={{ padding: "6px 8px", width: "100%", height: 31, boxSizing: "border-box" }} type="number" min={0} value={r.w === 0 ? "" : r.w} onChange={(e) => updOrn(i, "w", e.target.value === "" ? 0 : Math.max(0, +e.target.value || 0))} />
+                    <input className="inp" style={{ padding: "6px 8px", width: "100%", height: 31, boxSizing: "border-box" }} type="number" min={0} placeholder="0.00 " value={r.w === 0 ? "" : r.w} onChange={(e) => updOrn(i, "w", e.target.value === "" ? 0 : Math.max(0, +e.target.value || 0))} />
                   </div>
                   <div style={{ flex: 1, minWidth: 90 }}>
                     <label className="f">Less Wt (g)</label>
-                    <input className="inp" style={{ padding: "6px 8px", width: "100%", height: 31, boxSizing: "border-box" }} type="number" min={0} max={r.w || undefined} value={r.lessWt === 0 ? "" : r.lessWt} onChange={(e) => updOrn(i, "lessWt", e.target.value === "" ? 0 : Math.max(0, +e.target.value || 0))} />
+                    <input className="inp" style={{ padding: "6px 8px", width: "100%", height: 31, boxSizing: "border-box" }} type="number" min={0} max={r.w || undefined} placeholder="0.00 " value={r.lessWt === 0 ? "" : r.lessWt} onChange={(e) => updOrn(i, "lessWt", e.target.value === "" ? 0 : Math.max(0, +e.target.value || 0))} />
                   </div>
                   <div style={{ flex: 1, minWidth: 90 }}>
                     <label className="f">Net Wt (g)</label>

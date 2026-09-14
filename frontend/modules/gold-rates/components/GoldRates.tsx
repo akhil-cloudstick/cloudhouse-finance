@@ -57,7 +57,7 @@ export function GoldRates() {
 
   return (
     <>
-      <div className="page-h" style={{marginBottom: smallScreen ? 1:25}}>
+      <div className="page-h" >
         <div><h1>Gold Rates</h1><p>Daily published rates by purity · full history maintained for audit</p></div>
         <div className="sp"></div>
         {canCreateRates && (

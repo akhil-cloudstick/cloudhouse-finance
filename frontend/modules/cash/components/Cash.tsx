@@ -312,8 +312,14 @@ export function Cash() {
   return (
     <>
       <div className="page-h">
-        <div><h1>Cash-in-Hand &amp; Expenses</h1><p>Daily cash movements, opening balances and branch expenses — recorded, approved and reconciled</p></div>
-        <div className="sp" />
+        {/* .page-h-title (flex:1;min-width:0, app.css) lets this block shrink
+         * and wrap its own subtitle instead of holding its full natural
+         * width and forcing the button cluster below onto its own line —
+         * same pattern as LoanDetail.tsx/Calendar.tsx. Without it, the title
+         * + subtitle's natural width plus the 3 buttons tipped `.page-h`
+         * past its wrap threshold on narrower screens well before the
+         * buttons actually ran out of room beside the title. */}
+        <div className="page-h-title"><h1>Cash-in-Hand &amp; Expenses</h1><p>Daily cash movements, opening balances and branch expenses.</p></div>
         {/* .page-h-actions (app.css) rather than flat siblings of `.page-h`
          * — its own margin-left:auto/justify-content:flex-end keeps all 3
          * buttons right-aligned as a group even once they wrap to their

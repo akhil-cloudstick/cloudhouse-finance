@@ -164,7 +164,7 @@ export function PurityPicker({
             fetchFn={fetchFn}
             getLabel={getLabel}
             getId={(p) => String(p.id)}
-            placeholder={unit === "karat" ? `e.g. 22 (${MIN_KARAT}-${MAX_KARAT})` : "e.g. 91.6"}
+            placeholder={unit === "karat" ? `22 (${MIN_KARAT}-${MAX_KARAT})` : "91.6"}
             allowCreate
             onCreate={onCreate}
             disabled={disabled}

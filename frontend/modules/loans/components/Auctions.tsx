@@ -378,7 +378,7 @@ export function Auctions() {
 
   return (
     <>
-      <div className="page-h" style={smallScreen ? { marginBottom: 4 } : { marginBottom: 6 }}>
+      <div className="page-h" >
         <div><h1>Auction Management</h1><p>Defaulted loans progressing through the regulated auction workflow</p> </div>
       </div>
       <hr className="gold-rule" style={{ margin: "4px 0 12px" }} />
