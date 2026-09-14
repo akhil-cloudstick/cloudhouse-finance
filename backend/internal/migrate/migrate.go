@@ -104,86 +104,7 @@ func Run(db *gorm.DB, cfg platform.Config) error {
 		return err
 	}
 
-	if err := db.AutoMigrate(
-		// Tenancy first: tiers before tenants (tenants reference a tier),
-		// and both before every tenant-owned table below.
-		&tenant.Tier{},
-		&tenant.Tenant{},
-		&platform.Sequence{},
-		// Per-business daily usage counters (Step 13) — allocation
-		// bookkeeping like Sequence above, not business data, so it is
-		// exempt from the automatic tenant filter the same way.
-		&platform.UsageCounter{},
-		&branch.Branch{},
-		&scheme.Scheme{},
-		&goldrate.GoldRate{},
-		&employee.Employee{},
-		&cash.CashMovement{},
-		&cash.Expense{},
-		&cash.OpeningCashBalance{},
-		&cash.GoldSale{},
-		&settings.ApiKeySetting{},
-		&customer.Customer{},
-		&loan.Loan{},
-		&loan.Ornament{},
-		&loan.OrnamentPurityTest{},
-		&loan.OrnamentImage{},
-		&loan.LoanApproval{},
-		&loan.LoanPayment{},
-		&loan.BankPledgeRecord{},
-		&loan.BankPledgeEvent{},
-		&loan.AuctionRecord{},
-		&loan.AuctionNotice{},
-		&loan.AuctionEvent{},
-		&loan.AuctionDecisionRequest{},
-		&loan.LoanRequest{},
-		&loan.RequestApproval{},
-		&loan.ApprovalLimit{},
-		// Unsubmitted New Gold Loan forms behind the "Save Draft" button.
-		&loan.LoanDraft{},
-		&loan.LoanDraftOrnament{},
-		&ornamenttype.OrnamentType{},
-		&bank.Bank{},
-		&locker.Locker{},
-		&packet.Packet{},
-		&packet.PacketMovement{},
-		&puritystandard.PurityStandard{},
-		&reminder.Reminder{},
-		&personalloan.PersonalLoan{},
-		&personalloan.PersonalLoanInstallment{},
-		&personalloan.PersonalLoanPayment{},
-		&investment.InvestmentPlan{},
-		&investment.Investment{},
-		&investment.InvestmentPayout{},
-		&authz.Role{},
-		&authz.Permission{},
-		&authz.RolePermission{},
-		&commlog.CommunicationLog{},
-		&customerauth.OTP{},
-		&customerauth.DeviceToken{},
-		// Realtime notifications (WebSocket, ack-and-resend) — the durable
-		// in-app inbox behind the customer app's bell.
-		&notification.Notification{},
-		// Nightly KPI-count snapshots powering the mobile dashboard's trend
-		// indicators (see dashboard.Snapshot's doc comment).
-		&dashboard.Snapshot{},
-		// The authorization record behind every uploaded file. Before it,
-		// /uploads was served with no login check at all.
-		&upload.File{},
-		// The superadmin console's own tables (Step 7) — deliberately NOT
-		// tenant-scoped (no TenantScoped embed): a superadmin user belongs to
-		// no business, and the audit log's TenantID column points AT a
-		// business without being scoped BY one, so a superadmin can list every
-		// entry across every tenant.
-		&superadmin.SuperAdminUser{},
-		&superadmin.AuditLog{},
-		// This business's own audit log (Step 11) — tenant-scoped, unlike
-		// superadmin.AuditLog above.
-		&auditlog.Entry{},
-		// Nightly KPI-count snapshots powering the mobile dashboard's trend
-		// indicators (see dashboard.Snapshot's doc comment).
-		&dashboard.Snapshot{},
-	); err != nil {
+	if err := db.AutoMigrate(allModels...); err != nil {
 		return err
 	}
 
@@ -370,11 +291,24 @@ func Run(db *gorm.DB, cfg platform.Config) error {
 	// Being last also means it is the single point where "every row has a
 	// tenant" becomes true, so the NOT NULL and the composite unique indexes
 	// can both be applied with confidence.
+	// Must run BEFORE backfillTenancy, which would otherwise hand these rows
+	// to the default business as if they were its own.
+	if err := purgeGlobalDashboardSnapshots(db); err != nil {
+		return err
+	}
+
 	if err := backfillTenancy(db); err != nil {
 		return err
 	}
 
 	if err := createTenantCompositeUniques(db); err != nil {
+		return err
+	}
+
+	// Last, and only after every tenant_id is populated and NOT NULL: the
+	// policies below compare against that column, so applying them earlier
+	// would be comparing against nulls.
+	if err := applyRowLevelSecurity(db); err != nil {
 		return err
 	}
 
@@ -639,30 +573,20 @@ func purgeBankPledgeMirrorExpenses(db *gorm.DB) error {
 }
 
 // tenantScopedTables lists every table carrying a tenant_id, i.e. every
-// model embedding platform.TenantScoped. Kept here as plain strings rather
-// than reflected off the models so the backfill cannot silently skip a table
-// because of an import ordering accident — if a model gains the marker and
-// is not added here, the NOT NULL step below fails loudly on the next boot.
+// model embedding platform.TenantScoped.
 //
-// The two deliberate omissions are `permissions` (the global catalogue) and
-// `api_key_settings` (shared credentials, by product decision) — see
-// platform.TenantScoped's doc comment.
-var tenantScopedTables = []string{
-	"branches", "schemes", "gold_rates", "employees",
-	"cash_movements", "expenses", "opening_cash_balances",
-	"customers", "loans", "ornaments", "ornament_purity_tests",
-	"ornament_images", "loan_approvals", "loan_payments",
-	"bank_pledge_records", "bank_pledge_events",
-	"auction_records", "auction_notices", "auction_events",
-	"auction_decision_requests", "loan_requests", "request_approvals",
-	"approval_limits", "loan_drafts", "loan_draft_ornaments",
-	"personal_loans", "personal_loan_installments", "personal_loan_payments",
-	"ornament_types", "banks", "lockers", "packets", "packet_movements",
-	"purity_standards", "reminders", "roles", "role_permissions",
-	"communication_logs", "customer_otp", "customer_device_tokens",
-	"notifications",
-	"uploaded_files",
-}
+// This used to be a second, hand-maintained copy of the set in
+// platform/tenant_gorm.go, and the two drifted: gold_sales, investments,
+// investment_plans, investment_payouts and audit_log_entries were added to
+// the runtime filter but never here, so those tables were scoped on every
+// query while the database never made tenant_id mandatory on them. That is
+// how a gold_sales row with tenant_id = 0 came to exist. There is now one
+// definition, and this reads from it.
+//
+// The deliberate omissions live with that definition — `permissions` (the
+// global catalogue) and `api_key_settings` (shared credentials, by product
+// decision); see platform.TenantScoped's doc comment.
+func tenantScopedTables() []string { return platform.TenantScopedTableNames() }
 
 // backfillTenancy seeds the tier catalogue and the single tenant that all
 // pre-multi-tenancy data belongs to, points every existing row at it, and
@@ -686,7 +610,7 @@ func backfillTenancy(db *gorm.DB) error {
 		return fmt.Errorf("ensuring default tenant: %w", err)
 	}
 
-	for _, table := range tenantScopedTables {
+	for _, table := range tenantScopedTables() {
 		res := db.Exec(fmt.Sprintf(
 			`UPDATE %s SET tenant_id = ? WHERE tenant_id IS NULL OR tenant_id = 0`, table), def.ID)
 		if res.Error != nil {
@@ -700,7 +624,7 @@ func backfillTenancy(db *gorm.DB) error {
 	// Now that no row can be missing one, make it mandatory. A row created
 	// without a tenant from here on is a bug we want to hear about as a
 	// constraint violation, not discover later as data nobody can see.
-	for _, table := range tenantScopedTables {
+	for _, table := range tenantScopedTables() {
 		if err := db.Exec(fmt.Sprintf(
 			`ALTER TABLE %s ALTER COLUMN tenant_id SET NOT NULL`, table)).Error; err != nil {
 			return fmt.Errorf("enforcing tenant_id NOT NULL on %s: %w", table, err)
@@ -804,6 +728,11 @@ var tenantUniqueIndexes = []tenantUniqueIndex{
 
 	// A borrower may borrow from two businesses; each issues its own OTP.
 	{"customer_otp", "idx_customer_otp_phone", "uq_customer_otp_tenant_phone", "phone", ""},
+
+	// Each business captures its own row per calendar day. The index this
+	// replaces was unique on date ALONE, which would let whichever business
+	// captured a day first block every other business from capturing it.
+	{"dashboard_snapshots", "idx_dashboard_snapshots_date", "uq_dashboard_snapshots_tenant_date", "date", ""},
 }
 
 // createTenantCompositeUniques rewrites each audited constraint to include
@@ -970,6 +899,135 @@ func backfillTenantGrantColumns(db *gorm.DB) error {
 		if res.RowsAffected > 0 {
 			log.Printf("backfilled tenants.%s: %d row(s) NULL -> ''", col, res.RowsAffected)
 		}
+	}
+	return nil
+}
+
+// allModels is every model AutoMigrate creates, extracted from the call so
+// it can be inspected as data.
+//
+// TestEveryTenantScopedModelIsRegistered reflects over this list to assert
+// that every model embedding platform.TenantScoped is present in
+// platform.TenantScopedTableNames. That guard is the reason this is a
+// variable and not an inline argument list: the set of tenant-owned tables
+// is the isolation boundary, and it must not be possible to add a model that
+// carries a tenant_id without the migration and the runtime filter both
+// knowing about it. Five tables had already slipped through when the two
+// lists were maintained by hand.
+var allModels = []any{
+		// Tenancy first: tiers before tenants (tenants reference a tier),
+		// and both before every tenant-owned table below.
+		&tenant.Tier{},
+		&tenant.Tenant{},
+		&platform.Sequence{},
+		// Per-business daily usage counters (Step 13) — allocation
+		// bookkeeping like Sequence above, not business data, so it is
+		// exempt from the automatic tenant filter the same way.
+		&platform.UsageCounter{},
+		&branch.Branch{},
+		&scheme.Scheme{},
+		&goldrate.GoldRate{},
+		&employee.Employee{},
+		&cash.CashMovement{},
+		&cash.Expense{},
+		&cash.OpeningCashBalance{},
+		&cash.GoldSale{},
+		&settings.ApiKeySetting{},
+		&customer.Customer{},
+		&loan.Loan{},
+		&loan.Ornament{},
+		&loan.OrnamentPurityTest{},
+		&loan.OrnamentImage{},
+		&loan.LoanApproval{},
+		&loan.LoanPayment{},
+		&loan.BankPledgeRecord{},
+		&loan.BankPledgeEvent{},
+		&loan.AuctionRecord{},
+		&loan.AuctionNotice{},
+		&loan.AuctionEvent{},
+		&loan.AuctionDecisionRequest{},
+		&loan.LoanRequest{},
+		&loan.RequestApproval{},
+		&loan.ApprovalLimit{},
+		// Unsubmitted New Gold Loan forms behind the "Save Draft" button.
+		&loan.LoanDraft{},
+		&loan.LoanDraftOrnament{},
+		&ornamenttype.OrnamentType{},
+		&bank.Bank{},
+		&locker.Locker{},
+		&packet.Packet{},
+		&packet.PacketMovement{},
+		&puritystandard.PurityStandard{},
+		&reminder.Reminder{},
+		&personalloan.PersonalLoan{},
+		&personalloan.PersonalLoanInstallment{},
+		&personalloan.PersonalLoanPayment{},
+		&investment.InvestmentPlan{},
+		&investment.Investment{},
+		&investment.InvestmentPayout{},
+		&authz.Role{},
+		&authz.Permission{},
+		&authz.RolePermission{},
+		&commlog.CommunicationLog{},
+		&customerauth.OTP{},
+		&customerauth.DeviceToken{},
+		// Realtime notifications (WebSocket, ack-and-resend) — the durable
+		// in-app inbox behind the customer app's bell.
+		&notification.Notification{},
+		// Nightly KPI-count snapshots powering the mobile dashboard's trend
+		// indicators (see dashboard.Snapshot's doc comment).
+		&dashboard.Snapshot{},
+		// The authorization record behind every uploaded file. Before it,
+		// /uploads was served with no login check at all.
+		&upload.File{},
+		// The superadmin console's own tables (Step 7) — deliberately NOT
+		// tenant-scoped (no TenantScoped embed): a superadmin user belongs to
+		// no business, and the audit log's TenantID column points AT a
+		// business without being scoped BY one, so a superadmin can list every
+		// entry across every tenant.
+		&superadmin.SuperAdminUser{},
+		&superadmin.AuditLog{},
+		// This business's own audit log (Step 11) — tenant-scoped, unlike
+		// superadmin.AuditLog above.
+		&auditlog.Entry{},
+		// Nightly KPI-count snapshots powering the mobile dashboard's trend
+		// indicators (see dashboard.Snapshot's doc comment).
+		&dashboard.Snapshot{},
+}
+
+// purgeGlobalDashboardSnapshots deletes the dashboard_snapshots rows written
+// before that table was tenant-scoped.
+//
+// Those rows are not one business's counts that merely lack a label — they
+// are every business's counts ADDED TOGETHER, captured by a job that ran
+// under platform.AllowCrossTenant against a table with no tenant_id and a
+// globally unique date. There is no tenant they can be attributed to, and
+// backfillTenancy's ordinary "point orphans at the default business" rule
+// would be actively wrong here: it would hand one business a set of trend
+// figures computed from everyone's loan books.
+//
+// Deleting is safe because the data is derived and regenerates: the capture
+// job writes the current day's row on its next tick, and the only thing lost
+// is trend history that was never correct for anyone.
+//
+// Scoped to pre-tenancy rows only (tenant_id IS NULL OR 0), so it is
+// idempotent and never touches a row captured after the fix.
+func purgeGlobalDashboardSnapshots(db *gorm.DB) error {
+	var exists bool
+	if err := db.Raw(`SELECT EXISTS (
+		SELECT 1 FROM information_schema.columns
+		WHERE table_name = 'dashboard_snapshots' AND column_name = 'tenant_id')`).Scan(&exists).Error; err != nil {
+		return fmt.Errorf("checking dashboard_snapshots.tenant_id: %w", err)
+	}
+	if !exists {
+		return nil // fresh install: AutoMigrate has not created the table yet
+	}
+	res := db.Exec(`DELETE FROM dashboard_snapshots WHERE tenant_id IS NULL OR tenant_id = 0`)
+	if res.Error != nil {
+		return fmt.Errorf("purging pre-tenancy dashboard snapshots: %w", res.Error)
+	}
+	if res.RowsAffected > 0 {
+		log.Printf("tenancy: deleted %d pre-tenancy dashboard snapshot(s) — they held every business's counts summed together", res.RowsAffected)
 	}
 	return nil
 }

@@ -1,5 +1,7 @@
 package reports
 
+import "context"
+
 // BalanceSheet — Ind AS Division III (NBFC) style statement.
 
 // balanceOpenLoanStatuses mirrors OutstandingPrincipal's "currently open"
@@ -30,7 +32,7 @@ var balanceOpenLoanStatuses = []string{"Active", "Due Soon", "Overdue", "Default
 // this report incorrectly carried pledged gold value as an asset line;
 // that's the "wrong" this rewrite corrects, alongside adopting the actual
 // Division III statement structure instead of an ad hoc grouping.
-func (s *Service) BalanceSheet(f Filter) ([]BalanceSheetRow, BalanceSheetTotals, error) {
+func (s *Service) BalanceSheet(ctx context.Context, f Filter) ([]BalanceSheetRow, BalanceSheetTotals, error) {
 	_, asOf := dateRange(f)
 
 	var rows []BalanceSheetRow
@@ -53,7 +55,7 @@ func (s *Service) BalanceSheet(f Filter) ([]BalanceSheetRow, BalanceSheetTotals,
 		CashExpenses float64
 	}
 	var cashRows []cashRow
-	cq := s.db.Table("opening_cash_balances ocb").
+	cq := s.db.WithContext(ctx).Table("opening_cash_balances ocb").
 		Select(`ocb.amount as open_amt,
 			COALESCE(SUM(CASE WHEN cm.type = 'in' AND cm.mode = 'Cash' THEN cm.amount ELSE 0 END), 0) as total_in,
 			COALESCE(SUM(CASE WHEN cm.type = 'out' AND cm.mode = 'Cash' THEN cm.amount ELSE 0 END), 0) as total_out,
@@ -82,7 +84,7 @@ func (s *Service) BalanceSheet(f Filter) ([]BalanceSheetRow, BalanceSheetTotals,
 	// balance started at 0 at the dawn of this system's records.
 	type netAmt struct{ Value float64 }
 	var bank netAmt
-	bq := s.db.Table("cash_movements cm").
+	bq := s.db.WithContext(ctx).Table("cash_movements cm").
 		Select(`COALESCE(SUM(CASE WHEN cm.type = 'in' THEN cm.amount ELSE -cm.amount END), 0) as value`).
 		Where("cm.mode IN ?", []string{"UPI", "Bank Transfer"}).
 		Where("cm.occurred_on <= ?", asOf)
@@ -100,7 +102,7 @@ func (s *Service) BalanceSheet(f Filter) ([]BalanceSheetRow, BalanceSheetTotals,
 		AccruedPenal    float64
 	}
 	var lt loanTotals
-	lq := s.db.Table("loans l").
+	lq := s.db.WithContext(ctx).Table("loans l").
 		Select(`COALESCE(SUM(l.outstanding_amount), 0) as outstanding,
 			COALESCE(SUM(l.accrued_interest), 0) as accrued_interest,
 			COALESCE(SUM(l.accrued_penal_interest), 0) as accrued_penal`).
@@ -117,7 +119,7 @@ func (s *Service) BalanceSheet(f Filter) ([]BalanceSheetRow, BalanceSheetTotals,
 	// Borrowings (Other than Debt Securities): the bank OD/loan against
 	// gold this company has re-pledged out.
 	var borrowings netAmt
-	brq := s.db.Table("bank_pledge_records r").
+	brq := s.db.WithContext(ctx).Table("bank_pledge_records r").
 		Select("COALESCE(SUM(r.pledged_amount), 0) as value").
 		Joins("LEFT JOIN loans l ON l.id = r.loan_id").
 		Where("r.status = ?", "Active")
@@ -133,7 +135,7 @@ func (s *Service) BalanceSheet(f Filter) ([]BalanceSheetRow, BalanceSheetTotals,
 	// AuctionRecord's doc comment: once set it can never change, so this
 	// is the exact "still owed" gate, not FinalSettlementStatus).
 	var surplusPayable netAmt
-	spq := s.db.Table("auction_records r").
+	spq := s.db.WithContext(ctx).Table("auction_records r").
 		Select("COALESCE(SUM(r.surplus_payable_amount), 0) as value").
 		Joins("LEFT JOIN loans l ON l.id = r.loan_id").
 		Where("r.surplus_payable_amount > 0").
@@ -146,7 +148,7 @@ func (s *Service) BalanceSheet(f Filter) ([]BalanceSheetRow, BalanceSheetTotals,
 	}
 
 	var pendingExpenses netAmt
-	peq := s.db.Table("expenses e").
+	peq := s.db.WithContext(ctx).Table("expenses e").
 		Select("COALESCE(SUM(e.amount), 0) as value").
 		Where("e.status = ?", "Pending")
 	if f.BranchID != nil {

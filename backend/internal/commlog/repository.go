@@ -6,6 +6,8 @@ import (
 	"time"
 
 	"gorm.io/gorm"
+
+	"cloudhouse/backend/internal/platform"
 )
 
 var nonDigits = regexp.MustCompile(`\D`)
@@ -27,10 +29,10 @@ func NormalizeChatID(phone string) string {
 
 // Repository provides GORM-backed persistence for CommunicationLog records.
 type Repository struct {
-	db *gorm.DB
+	db platform.DB
 }
 
-func NewRepository(db *gorm.DB) *Repository {
+func NewRepository(db platform.DB) *Repository {
 	return &Repository{db: db}
 }
 

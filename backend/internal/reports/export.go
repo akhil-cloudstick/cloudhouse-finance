@@ -63,9 +63,9 @@ func (h *Handler) reportRows(ctx context.Context, key string, f Filter) (rows an
 	case "investments-maturity-register":
 		return call2(h.svc.MaturityRegister(ctx, f))
 	case "balance-sheet":
-		return call2(h.svc.BalanceSheet(f))
+		return call2(h.svc.BalanceSheet(ctx, f))
 	case "profit-loss":
-		return call2(h.svc.ProfitAndLoss(f))
+		return call2(h.svc.ProfitAndLoss(ctx, f))
 	default:
 		return nil, nil, fmt.Errorf("unknown report key %q", key)
 	}
@@ -181,12 +181,13 @@ type StatementLine struct {
 // financial statement (see Export's comment above), instead of the generic
 // tabular export every other report uses.
 func (h *Handler) exportStatement(c *gin.Context, key, format string, f Filter) {
+	ctx := platform.RequestContext(c)
 	var title, asOfLabel string
 	var lines []StatementLine
 
 	switch key {
 	case "balance-sheet":
-		rows, _, err := h.svc.BalanceSheet(f)
+		rows, _, err := h.svc.BalanceSheet(ctx, f)
 		if err != nil {
 			serverError(c, err)
 			return
@@ -198,7 +199,7 @@ func (h *Handler) exportStatement(c *gin.Context, key, format string, f Filter) 
 			lines = append(lines, StatementLine{Label: r.Label, Amount: r.Amount, Style: r.Style, Indent: r.Indent})
 		}
 	case "profit-loss":
-		rows, _, err := h.svc.ProfitAndLoss(f)
+		rows, _, err := h.svc.ProfitAndLoss(ctx, f)
 		if err != nil {
 			serverError(c, err)
 			return

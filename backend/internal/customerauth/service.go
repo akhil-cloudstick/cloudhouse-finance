@@ -315,6 +315,21 @@ func (s *Service) resolveTenant(ctx context.Context, code string) (uint, error) 
 		return t.ID, nil
 	}
 
+	// No code supplied: fall back to the host the request arrived on. Each
+	// business has its own frontend URL, so a borrower opening their lender's
+	// app is already saying which business they mean, and never has to type or
+	// be sent a code.
+	//
+	// This can only NARROW. The host is client-supplied, so a forged one at
+	// most selects a business the caller then still needs a valid OTP for,
+	// delivered to a phone number that business already holds.
+	if host, ok := platform.RequestHostFromContext(ctx); ok {
+		if t, err := s.tenantRepo.FindByAppURL(lookupCtx, host); err == nil && t != nil {
+			return t.ID, nil
+		}
+	}
+
+
 	all, err := s.tenantRepo.FindAll(lookupCtx)
 	if err != nil {
 		return 0, err

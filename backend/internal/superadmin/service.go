@@ -209,6 +209,21 @@ func (s *Service) CreateBusiness(ctx context.Context, actor *SuperAdminUser, in 
 
 		// From here, every write is stamped tenant_id = t.ID by the
 		// ordinary tenant-scope filter — see the function doc comment.
+		// Declare the new business on THIS transaction's connection before any
+		// of its rows are written. Row-Level Security's WITH CHECK clause
+		// rejects an insert whose tenant_id does not match app.tenant_id, and a
+		// superadmin request is not pinned by platform.PinTenantConn — it has no
+		// business of its own. Without this, creating a business fails at the
+		// first role insert once the application runs as a non-superuser.
+		//
+		// is_local = true scopes it to this transaction, so it is discarded at
+		// commit and the connection returns to the pool carrying nothing. That
+		// is safe here, unlike in PinConn, precisely because this IS a
+		// transaction and therefore already bound to one connection.
+		if err := tx.Exec(`SELECT set_config('app.tenant_id', ?, true)`, fmt.Sprint(t.ID)).Error; err != nil {
+			return fmt.Errorf("declaring the new business to postgres: %w", err)
+		}
+
 		newCtx := platform.WithTenant(ctx, t.ID)
 
 		if err := txAuthzRepo.SeedRoles(newCtx, authz.StaffRoles); err != nil {

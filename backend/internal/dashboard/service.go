@@ -111,15 +111,24 @@ func (s *Service) GetNeedsAttention(ctx context.Context, page int, branchScope *
 	}, nil
 }
 
-// CaptureDailySnapshot computes today's KPI counts (unscoped — every branch,
-// matching what an Administrator's mobile dashboard shows) and writes one
-// Snapshot row, unless today's row already exists. Called once/day by the
-// background ticker in main.go; the FindByDate guard is what makes "once
-// per day" actually hold, since the ticker itself has no fixed-wall-clock-
-// time scheduling to lean on.
+// CaptureDailySnapshot computes today's KPI counts for ONE business (every
+// branch of it, matching what that business's Administrator sees on the
+// mobile dashboard) and writes one Snapshot row, unless that business
+// already has today's row.
+//
+// Called hourly per active business by the ticker in internal/app, through
+// tenant.ForEachActive; the FindByDate guard is what makes "once per day"
+// actually hold, since the ticker has no fixed-wall-clock scheduling to lean
+// on. Because both the guard and the write are tenant-scoped, one business
+// having captured today says nothing about whether another has.
+//
+// It previously ran ONCE, under platform.AllowCrossTenant, against a table
+// with no tenant_id — so the counts it stored were every business's loans
+// added together, and every business's dashboard read that one row. Passing
+// a cross-tenant context here again would restore that leak.
 func (s *Service) CaptureDailySnapshot(ctx context.Context) error {
 	now := time.Now()
-	if _, err := s.snapshotRepo.FindByDate(now); err == nil {
+	if _, err := s.snapshotRepo.FindByDate(ctx, now); err == nil {
 		return nil // already captured today
 	}
 
@@ -155,7 +164,7 @@ func (s *Service) CaptureDailySnapshot(ctx context.Context) error {
 		}
 	}
 
-	return s.snapshotRepo.Create(&Snapshot{
+	return s.snapshotRepo.Create(ctx, &Snapshot{
 		Date:                 openedFrom,
 		ActiveCount:          len(active),
 		OverdueCount:         len(overdue),
@@ -173,8 +182,8 @@ func sameDay(a, b time.Time) bool {
 // "yesterday", since capture runs nightly), or nil if none has been
 // captured yet — e.g. the first day after this feature ships, before the
 // first nightly job has run.
-func (s *Service) LatestSnapshot() (*Snapshot, error) {
-	rec, err := s.snapshotRepo.FindLatest()
+func (s *Service) LatestSnapshot(ctx context.Context) (*Snapshot, error) {
+	rec, err := s.snapshotRepo.FindLatest(ctx)
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, nil
@@ -186,6 +195,6 @@ func (s *Service) LatestSnapshot() (*Snapshot, error) {
 
 // ListSnapshots returns captured snapshots history, paginated the same way
 // goldrate.Service.List is.
-func (s *Service) ListSnapshots(limit, offset int) ([]Snapshot, int64, error) {
-	return s.snapshotRepo.FindAll(limit, offset)
+func (s *Service) ListSnapshots(ctx context.Context, limit, offset int) ([]Snapshot, int64, error) {
+	return s.snapshotRepo.FindAll(ctx, limit, offset)
 }

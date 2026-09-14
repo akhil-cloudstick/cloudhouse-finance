@@ -4,14 +4,16 @@ import (
 	"context"
 
 	"gorm.io/gorm"
+
+	"cloudhouse/backend/internal/platform"
 )
 
 // Repository provides GORM-backed persistence for Customer records.
 type Repository struct {
-	db *gorm.DB
+	db platform.DB
 }
 
-func NewRepository(db *gorm.DB) *Repository {
+func NewRepository(db platform.DB) *Repository {
 	return &Repository{db: db}
 }
 
@@ -104,7 +106,7 @@ func (r *Repository) Delete(ctx context.Context, id uint) error {
 // itself) inside one transaction, mirroring how loan.Service.HardDeleteLoan
 // uses its own db handle rather than adding a dedicated Repository method
 // per table touched.
-func (r *Repository) DB() *gorm.DB {
+func (r *Repository) DB() platform.DB {
 	return r.db
 }
 

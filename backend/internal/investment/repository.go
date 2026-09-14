@@ -5,23 +5,25 @@ import (
 	"time"
 
 	"gorm.io/gorm"
+
+	"cloudhouse/backend/internal/platform"
 	"gorm.io/gorm/clause"
 )
 
 // Repository provides GORM-backed persistence for InvestmentPlan,
 // Investment and InvestmentPayout.
 type Repository struct {
-	db *gorm.DB
+	db platform.DB
 }
 
-func NewRepository(db *gorm.DB) *Repository {
+func NewRepository(db platform.DB) *Repository {
 	return &Repository{db: db}
 }
 
 // DB exposes the underlying *gorm.DB so Service can run multi-step writes
 // (create investment + schedule, maturity decisions) inside one
 // db.Transaction — mirrors personalloan.Repository.DB.
-func (r *Repository) DB() *gorm.DB { return r.db }
+func (r *Repository) DB() platform.DB { return r.db }
 
 // --- Plans ---
 
@@ -245,7 +247,7 @@ func (r *Repository) FindPendingPayoutsForCalendar(ctx context.Context, branchID
 // participate in an ongoing transaction), otherwise falls back to the
 // repository's own db handle scoped to ctx — mirrors
 // personalloan.Repository's identical helper.
-func dbOrDefault(ctx context.Context, tx *gorm.DB, fallback *gorm.DB) *gorm.DB {
+func dbOrDefault(ctx context.Context, tx *gorm.DB, fallback platform.DB) *gorm.DB {
 	if tx != nil {
 		return tx.WithContext(ctx)
 	}

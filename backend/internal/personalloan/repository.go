@@ -5,22 +5,24 @@ import (
 	"time"
 
 	"gorm.io/gorm"
+
+	"cloudhouse/backend/internal/platform"
 	"gorm.io/gorm/clause"
 )
 
 // Repository provides GORM-backed persistence for PersonalLoan and its
 // related installment/payment rows.
 type Repository struct {
-	db *gorm.DB
+	db platform.DB
 }
 
-func NewRepository(db *gorm.DB) *Repository {
+func NewRepository(db platform.DB) *Repository {
 	return &Repository{db: db}
 }
 
 // DB exposes the underlying *gorm.DB so Service can run multi-step writes
 // (create loan + schedule, renewal) inside one db.Transaction.
-func (r *Repository) DB() *gorm.DB { return r.db }
+func (r *Repository) DB() platform.DB { return r.db }
 
 func (r *Repository) Create(ctx context.Context, tx *gorm.DB, rec *PersonalLoan) error {
 	return dbOrDefault(ctx, tx, r.db).Create(rec).Error
@@ -197,7 +199,7 @@ func (r *Repository) FindPendingInstallmentsForCalendar(ctx context.Context, bra
 // dbOrDefault returns tx if the caller supplied one (a write that must
 // participate in an ongoing transaction), otherwise falls back to the
 // repository's own db handle scoped to ctx.
-func dbOrDefault(ctx context.Context, tx *gorm.DB, fallback *gorm.DB) *gorm.DB {
+func dbOrDefault(ctx context.Context, tx *gorm.DB, fallback platform.DB) *gorm.DB {
 	if tx != nil {
 		return tx.WithContext(ctx)
 	}

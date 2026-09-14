@@ -81,8 +81,8 @@ func TestScopedTableSetIsNotEmptyAndHasNoGlobals(t *testing.T) {
 	// they were served unfiltered — the exact uploaded_files failure this
 	// comment describes, repeated. Their routes were also absent from
 	// internal/app's route manifest, which is why no probe caught it.
-	if len(tenantScopedTables) != 47 {
-		t.Errorf("expected 47 tenant-scoped tables, got %d — update this test "+
+	if len(tenantScopedTables) != 48 {
+		t.Errorf("expected 48 tenant-scoped tables, got %d — update this test "+
 			"deliberately when adding a model, so a new table cannot slip in "+
 			"unfiltered", len(tenantScopedTables))
 	}

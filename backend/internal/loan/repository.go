@@ -5,6 +5,8 @@ import (
 	"time"
 
 	"gorm.io/gorm"
+
+	"cloudhouse/backend/internal/platform"
 	"gorm.io/gorm/clause"
 )
 
@@ -13,10 +15,10 @@ import (
 // LoanPayment, BankPledgeRecord — grouped in this one file the way
 // internal/cash groups CashMovement/Expense repositories).
 type Repository struct {
-	db *gorm.DB
+	db platform.DB
 }
 
-func NewRepository(db *gorm.DB) *Repository {
+func NewRepository(db platform.DB) *Repository {
 	return &Repository{db: db}
 }
 
@@ -238,10 +240,10 @@ func (r *Repository) FindOpenForCalendar(ctx context.Context) ([]Loan, error) {
 
 // OrnamentRepository provides GORM-backed persistence for Ornament records.
 type OrnamentRepository struct {
-	db *gorm.DB
+	db platform.DB
 }
 
-func NewOrnamentRepository(db *gorm.DB) *OrnamentRepository {
+func NewOrnamentRepository(db platform.DB) *OrnamentRepository {
 	return &OrnamentRepository{db: db}
 }
 
@@ -320,10 +322,10 @@ func (r *OrnamentRepository) AddImage(ctx context.Context, img *OrnamentImage) e
 
 // ApprovalRepository provides GORM-backed persistence for LoanApproval audit rows.
 type ApprovalRepository struct {
-	db *gorm.DB
+	db platform.DB
 }
 
-func NewApprovalRepository(db *gorm.DB) *ApprovalRepository {
+func NewApprovalRepository(db platform.DB) *ApprovalRepository {
 	return &ApprovalRepository{db: db}
 }
 
@@ -339,10 +341,10 @@ func (r *ApprovalRepository) FindByLoanID(ctx context.Context, loanID uint) ([]L
 
 // PaymentRepository provides GORM-backed persistence for LoanPayment audit rows.
 type PaymentRepository struct {
-	db *gorm.DB
+	db platform.DB
 }
 
-func NewPaymentRepository(db *gorm.DB) *PaymentRepository {
+func NewPaymentRepository(db platform.DB) *PaymentRepository {
 	return &PaymentRepository{db: db}
 }
 
@@ -440,10 +442,10 @@ func (r *PaymentRepository) SumInterestCollected(ctx context.Context, from, to t
 
 // BankPledgeRepository provides GORM-backed persistence for BankPledgeRecord rows.
 type BankPledgeRepository struct {
-	db *gorm.DB
+	db platform.DB
 }
 
-func NewBankPledgeRepository(db *gorm.DB) *BankPledgeRepository {
+func NewBankPledgeRepository(db platform.DB) *BankPledgeRepository {
 	return &BankPledgeRepository{db: db}
 }
 
@@ -569,10 +571,10 @@ func (r *BankPledgeRepository) CreateEvent(ctx context.Context, e *BankPledgeEve
 
 // LoanRequestRepository provides GORM-backed persistence for LoanRequest rows.
 type LoanRequestRepository struct {
-	db *gorm.DB
+	db platform.DB
 }
 
-func NewLoanRequestRepository(db *gorm.DB) *LoanRequestRepository {
+func NewLoanRequestRepository(db platform.DB) *LoanRequestRepository {
 	return &LoanRequestRepository{db: db}
 }
 
@@ -672,10 +674,10 @@ func (r *LoanRequestRepository) FindPendingReleaseByLoanID(ctx context.Context, 
 // RequestApprovalRepository provides GORM-backed persistence for
 // RequestApproval audit rows — mirrors ApprovalRepository.
 type RequestApprovalRepository struct {
-	db *gorm.DB
+	db platform.DB
 }
 
-func NewRequestApprovalRepository(db *gorm.DB) *RequestApprovalRepository {
+func NewRequestApprovalRepository(db platform.DB) *RequestApprovalRepository {
 	return &RequestApprovalRepository{db: db}
 }
 
@@ -692,10 +694,10 @@ func (r *RequestApprovalRepository) FindByRequestID(ctx context.Context, request
 // AuctionRepository provides GORM-backed persistence for AuctionRecord rows
 // (plus their nested Notices).
 type AuctionRepository struct {
-	db *gorm.DB
+	db platform.DB
 }
 
-func NewAuctionRepository(db *gorm.DB) *AuctionRepository {
+func NewAuctionRepository(db platform.DB) *AuctionRepository {
 	return &AuctionRepository{db: db}
 }
 
@@ -977,10 +979,10 @@ func (r *AuctionRepository) FindPendingDecisions(ctx context.Context, branchID *
 
 // DraftRepository persists unsubmitted New Gold Loan forms (see LoanDraft).
 type DraftRepository struct {
-	db *gorm.DB
+	db platform.DB
 }
 
-func NewDraftRepository(db *gorm.DB) *DraftRepository {
+func NewDraftRepository(db platform.DB) *DraftRepository {
 	return &DraftRepository{db: db}
 }
 

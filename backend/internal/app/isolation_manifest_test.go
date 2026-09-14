@@ -340,12 +340,13 @@ var routeManifest = map[string]routeSpec{
 
 	// ----------------------------------------------------------- dashboard
 	"GET /api/v1/dashboard/needs-attention": list(),
-	// Snapshot is a single global row per day (unscoped across every
-	// business — see dashboard.Service.CaptureDailySnapshot's doc comment),
-	// not a tenant-owned table, so there is no per-business row for a
-	// cross-tenant probe to catch a leak of.
-	"GET /api/v1/dashboard/snapshots":        global("Snapshot has no tenant_id; it is one unscoped row per day across every business by design"),
-	"GET /api/v1/dashboard/snapshots/latest": global("Snapshot has no tenant_id; it is one unscoped row per day across every business by design"),
+	// Snapshot IS tenant-owned. It was not: it shipped with no tenant_id, a
+	// globally unique date, and a capture job under AllowCrossTenant, so one
+	// row per day held every business's counts added together and every
+	// business read it. Classified global here, which is why no probe caught
+	// it. Both routes are ordinary per-business collections now.
+	"GET /api/v1/dashboard/snapshots":        list(),
+	"GET /api/v1/dashboard/snapshots/latest": list(),
 
 	// ------------------------------------------------------------- uploads
 	"POST /api/v1/uploads": list(),

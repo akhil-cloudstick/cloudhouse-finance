@@ -12,13 +12,32 @@ import (
 
 // Config holds all environment-driven settings for the application.
 type Config struct {
-	Port           string
-	DBHost         string
-	DBPort         string
-	DBUser         string
-	DBPassword     string
-	DBName         string
-	DBSSLMode      string
+	Port       string
+	DBHost     string
+	DBPort     string
+	DBUser     string
+	DBPassword string
+	DBName     string
+	DBSSLMode  string
+	// DBStatementTimeout and DBIdleTxTimeout bound how long a single query,
+	// and an abandoned open transaction, may hold server resources. Both are
+	// Postgres durations applied per connection in the DSN (see NewDatabase).
+	//
+	// Empty means "no limit", which is Postgres's own default and what this
+	// deployment ran with until now. They are deliberately OFF by default
+	// rather than set to a sensible-looking number: migrate.Run issues
+	// AutoMigrate and table rewrites on the same pool the API serves from, and
+	// a statement timeout short enough to be useful against a runaway report
+	// is short enough to kill an index build on a large table halfway through.
+	// Set them in production, and run `go run ./cmd/migrate` with them unset.
+	DBStatementTimeout string
+	DBIdleTxTimeout    string
+	// DBMaxOpenConns bounds the connection pool. Since platform.PinTenantConn
+	// holds one connection for each authenticated request, this is effectively
+	// the cap on concurrent authenticated requests — raise it together with
+	// Postgres's own max_connections, never past it.
+	DBMaxOpenConns int
+	DBMaxIdleConns int
 	FrontendDir    string
 	FrontendOrigin string
 	// SettingsEncryptionKey encrypts integration API keys at rest (see
@@ -110,20 +129,26 @@ func LoadConfig() Config {
 	_ = godotenv.Load()
 
 	return Config{
-		Port:        getEnv("PORT", "8080"),
-		DBHost:      getEnv("DB_HOST", "localhost"),
-		DBPort:      getEnv("DB_PORT", "5432"),
+		Port:   getEnv("PORT", "8080"),
+		DBHost: getEnv("DB_HOST", "localhost"),
+		DBPort: getEnv("DB_PORT", "5432"),
 		// Deliberately still the pre-rebrand names: these are the role and
 		// database that the existing installation's data actually lives in,
 		// and a default is only useful if it connects to something real.
 		// Renaming a live Postgres role/database is a migration to run
 		// separately, not a side effect of rebranding. .env.example shows the
 		// CloudHouse names for a fresh setup.
-		DBUser:      getEnv("DB_USER", "ambikagold"),
-		DBPassword:  getEnv("DB_PASSWORD", "ambikagold"),
-		DBName:      getEnv("DB_NAME", "ambikagold"),
-		DBSSLMode:   getEnv("DB_SSLMODE", "disable"),
-		FrontendDir: getEnv("FRONTEND_DIR", "../frontend/out"),
+		DBUser:     getEnv("DB_USER", "ambikagold"),
+		DBPassword: getEnv("DB_PASSWORD", "ambikagold"),
+		DBName:     getEnv("DB_NAME", "ambikagold"),
+		DBSSLMode:  getEnv("DB_SSLMODE", "disable"),
+		// Off by default — see the field comments. "30s" / "60s" are sensible
+		// production values once migrations are run separately.
+		DBStatementTimeout: getEnv("DB_STATEMENT_TIMEOUT", ""),
+		DBIdleTxTimeout:    getEnv("DB_IDLE_TX_TIMEOUT", ""),
+		DBMaxOpenConns:     getEnvInt("DB_MAX_OPEN_CONNS", 25),
+		DBMaxIdleConns:     getEnvInt("DB_MAX_IDLE_CONNS", 5),
+		FrontendDir:        getEnv("FRONTEND_DIR", "../frontend/out"),
 		// FrontendOrigin is the Next.js dev server origin allowed to make
 		// cross-origin API calls (`next dev` runs on its own port, separate
 		// from this API). Not needed in production, where the built frontend
@@ -216,4 +241,20 @@ func parseJWTExpiry(raw string) time.Duration {
 		return defaultJWTExpiry
 	}
 	return d
+}
+
+// getEnvInt reads an integer env var, falling back when unset or unparseable.
+// Unparseable is treated as unset rather than fatal, matching how every other
+// value in this file degrades to its default.
+func getEnvInt(key string, fallback int) int {
+	v := strings.TrimSpace(os.Getenv(key))
+	if v == "" {
+		return fallback
+	}
+	n, err := strconv.Atoi(v)
+	if err != nil || n <= 0 {
+		log.Printf("WARNING: %s=%q is not a positive integer — using %d", key, v, fallback)
+		return fallback
+	}
+	return n
 }

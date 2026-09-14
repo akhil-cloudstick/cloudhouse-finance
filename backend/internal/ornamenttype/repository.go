@@ -3,15 +3,15 @@ package ornamenttype
 import (
 	"context"
 
-	"gorm.io/gorm"
+	"cloudhouse/backend/internal/platform"
 )
 
 // Repository provides GORM-backed persistence for OrnamentType records.
 type Repository struct {
-	db *gorm.DB
+	db platform.DB
 }
 
-func NewRepository(db *gorm.DB) *Repository {
+func NewRepository(db platform.DB) *Repository {
 	return &Repository{db: db}
 }
 

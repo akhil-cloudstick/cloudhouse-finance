@@ -98,12 +98,19 @@ func (h *Handler) Upload(c *gin.Context) {
 	}
 	filename := fmt.Sprintf("%s-%s", id, safeName)
 
-	if err := os.MkdirAll(h.Dir, 0o755); err != nil {
+	// Per-business directory. Fails if there is no business in context
+	// rather than falling back to the flat root — see tenantDirFromContext.
+	dir, err := tenantDirFromContext(ctx, h.Dir)
+	if err != nil {
+		httpx.FailErr(c, err)
+		return
+	}
+	if err := os.MkdirAll(dir, 0o755); err != nil {
 		httpx.FailErr(c, err)
 		return
 	}
 
-	dest := filepath.Join(h.Dir, filename)
+	dest := filepath.Join(dir, filename)
 	if err := os.WriteFile(dest, data, 0o644); err != nil {
 		httpx.FailErr(c, err)
 		return
@@ -185,7 +192,14 @@ func SaveBytesRecorded(ctx context.Context, repo *Repository, dir, name string, 
 		return "", err
 	}
 
-	url, err := SaveBytes(dir, name, data)
+	// Written into the business's own directory, not the flat root, so
+	// server-generated files (the signed indemnity bond, a tenant logo) are
+	// attributable and capped per business like uploaded ones.
+	tenantDir, err := tenantDirFromContext(ctx, dir)
+	if err != nil {
+		return "", err
+	}
+	url, err := SaveBytes(tenantDir, name, data)
 	if err != nil {
 		return "", err
 	}
@@ -201,7 +215,7 @@ func SaveBytesRecorded(ctx context.Context, repo *Repository, dir, name string, 
 		SizeBytes:    int64(len(data)),
 	}
 	if err := repo.Create(ctx, rec); err != nil {
-		_ = os.Remove(filepath.Join(dir, key))
+		_ = os.Remove(filepath.Join(tenantDir, key))
 		return "", err
 	}
 	return url, nil

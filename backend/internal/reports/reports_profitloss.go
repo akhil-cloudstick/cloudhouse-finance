@@ -1,5 +1,7 @@
 package reports
 
+import "context"
+
 // ProfitAndLoss — Statement of Profit and Loss.
 
 // ProfitAndLoss computes the Statement of Profit and Loss for [f.From,
@@ -18,7 +20,7 @@ package reports
 // "Interest Income"/"Fees and Commission Income" here are amounts actually
 // *collected* in the period (this system's only income ledger is
 // loan_payments), not period-end accrual recognition.
-func (s *Service) ProfitAndLoss(f Filter) ([]ProfitLossRow, ProfitLossTotals, error) {
+func (s *Service) ProfitAndLoss(ctx context.Context, f Filter) ([]ProfitLossRow, ProfitLossTotals, error) {
 	from, to := dateRange(f)
 
 	var rows []ProfitLossRow
@@ -35,7 +37,7 @@ func (s *Service) ProfitAndLoss(f Filter) ([]ProfitLossRow, ProfitLossTotals, er
 		Penal    float64
 	}
 	var it incomeTotals
-	iq := s.db.Table("loan_payments p").
+	iq := s.db.WithContext(ctx).Table("loan_payments p").
 		Select(`COALESCE(SUM(p.interest_applied), 0) as interest,
 			COALESCE(SUM(p.processing_fee_applied), 0) as fees,
 			COALESCE(SUM(p.penal_interest_applied), 0) as penal`).
@@ -53,7 +55,7 @@ func (s *Service) ProfitAndLoss(f Filter) ([]ProfitLossRow, ProfitLossTotals, er
 	// to the customer, is never this company's income).
 	type sumValue struct{ Value float64 }
 	var oi sumValue
-	oq := s.db.Table("auction_records r").
+	oq := s.db.WithContext(ctx).Table("auction_records r").
 		Select("COALESCE(SUM(r.surplus_payable_amount), 0) as value").
 		Joins("LEFT JOIN loans l ON l.id = r.loan_id").
 		Where("r.surplus_disposition = ?", "RecordedAsIncome").
@@ -68,7 +70,7 @@ func (s *Service) ProfitAndLoss(f Filter) ([]ProfitLossRow, ProfitLossTotals, er
 	// Other Expenses: every approved expense in the period — this
 	// system's only expense ledger.
 	var oe sumValue
-	eq := s.db.Table("expenses e").
+	eq := s.db.WithContext(ctx).Table("expenses e").
 		Select("COALESCE(SUM(e.amount), 0) as value").
 		Where("e.status = ?", "Approved").
 		Where("e.occurred_on >= ? AND e.occurred_on < ?", from, to)

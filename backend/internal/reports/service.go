@@ -4,8 +4,6 @@ import (
 	"context"
 	"time"
 
-	"gorm.io/gorm"
-
 	"cloudhouse/backend/internal/commlog"
 	"cloudhouse/backend/internal/platform"
 	"cloudhouse/backend/internal/tenant"
@@ -16,12 +14,12 @@ import (
 // package queries by table name rather than importing every domain
 // package's GORM model).
 type Service struct {
-	db          *gorm.DB
+	db          platform.DB
 	commlogRepo *commlog.Repository
 	tenantRepo  *tenant.Repository
 }
 
-func NewService(db *gorm.DB, commlogRepo *commlog.Repository, tenantRepo *tenant.Repository) *Service {
+func NewService(db platform.DB, commlogRepo *commlog.Repository, tenantRepo *tenant.Repository) *Service {
 	return &Service{db: db, commlogRepo: commlogRepo, tenantRepo: tenantRepo}
 }
 

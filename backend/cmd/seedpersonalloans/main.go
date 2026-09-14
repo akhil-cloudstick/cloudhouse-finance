@@ -60,7 +60,7 @@ func main() {
 	personalLoanSvc := personalloan.NewService(personalLoanRepo, customerRepo, nil, nil)
 
 	ctx := context.Background()
-	tenant.ForEachActive(ctx, tenantRepo, "seedpersonalloans", func(ctx context.Context, t tenant.Tenant) error {
+	tenant.ForEachActive(ctx, db, tenantRepo, "seedpersonalloans", func(ctx context.Context, t tenant.Tenant) error {
 		return seedForTenant(ctx, db, personalLoanSvc, t)
 	})
 }

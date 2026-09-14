@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/gin-gonic/gin"
+	"gorm.io/gorm"
 
 	"cloudhouse/backend/internal/platform/httpx"
 )
@@ -354,6 +355,52 @@ func RequireTenantModule(checker TenantModuleChecker, moduleKey string) gin.Hand
 			httpx.FailAbort(c, http.StatusForbidden, "this feature is not enabled for your business")
 			return
 		}
+		c.Next()
+	}
+}
+
+// PinTenantConn checks out one database connection for the request and tells
+// Postgres which business it belongs to, so Row-Level Security can enforce
+// the boundary in the database rather than only in Go.
+//
+// Mounted immediately AFTER AuthMiddleware / CustomerAuthMiddleware, because
+// it reads the business those established from the token. It is deliberately
+// a separate middleware rather than part of them: the staff and borrower
+// schemes set the tenant in two different places, and both need identical
+// pinning.
+//
+// A request with no business — superadmin routes, the Razorpay webhook,
+// anything pre-login — passes straight through on the shared pool. Those
+// paths read across businesses on purpose and must not be pinned to one.
+//
+// # The cost, stated plainly
+//
+// One in-flight request now holds one database connection for its whole
+// duration, including any time spent waiting on Setu, Razorpay or WhatsApp.
+// That makes the connection pool, not CPU, the ceiling on concurrency, and it
+// is the price of RLS: the session variable the policy reads is per
+// connection, so the connection cannot be shared. Size DB_MAX_OPEN_CONNS
+// accordingly and keep third-party calls out of long database-bound paths.
+func PinTenantConn(base *gorm.DB) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		tenantID, ok := TenantFromGin(c)
+		if !ok {
+			c.Next()
+			return
+		}
+		ctx, release, err := PinConn(c.Request.Context(), base, tenantID)
+		if err != nil {
+			// The pool is exhausted or the database is unreachable. Not the
+			// caller's fault, and not something a retry of a different shape
+			// fixes, so say so rather than returning an empty result that
+			// looks like "this business has no data".
+			log.Printf("pinning a connection for business %d: %v", tenantID, err)
+			httpx.FailAbort(c, http.StatusServiceUnavailable, "the service is busy — please try again in a moment")
+			return
+		}
+		defer release()
+
+		c.Request = c.Request.WithContext(ctx)
 		c.Next()
 	}
 }

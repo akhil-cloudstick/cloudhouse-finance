@@ -391,7 +391,8 @@ func (h *Handler) BalanceSheet(c *gin.Context) {
 		badRequest(c, err)
 		return
 	}
-	rows, totals, err := h.svc.BalanceSheet(f)
+	ctx := platform.RequestContext(c)
+	rows, totals, err := h.svc.BalanceSheet(ctx, f)
 	if err != nil {
 		serverError(c, err)
 		return
@@ -405,7 +406,8 @@ func (h *Handler) ProfitAndLoss(c *gin.Context) {
 		badRequest(c, err)
 		return
 	}
-	rows, totals, err := h.svc.ProfitAndLoss(f)
+	ctx := platform.RequestContext(c)
+	rows, totals, err := h.svc.ProfitAndLoss(ctx, f)
 	if err != nil {
 		serverError(c, err)
 		return

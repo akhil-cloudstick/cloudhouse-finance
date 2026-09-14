@@ -15,10 +15,10 @@ import (
 // Repository provides GORM-backed persistence for roles, the permission
 // catalogue, and role_permissions grants.
 type Repository struct {
-	db *gorm.DB
+	db platform.DB
 }
 
-func NewRepository(db *gorm.DB) *Repository {
+func NewRepository(db platform.DB) *Repository {
 	return &Repository{db: db}
 }
 
@@ -91,7 +91,11 @@ func (r *Repository) SeedCatalogue(ctx context.Context, defs []PermissionDef) er
 // who holds them is unaffected. No-op (0 rows) once already resynced.
 func (r *Repository) RegroupModules(defs []PermissionDef) (updated int, err error) {
 	for _, def := range defs {
-		res := r.db.Model(&Permission{}).
+		// Background context on purpose: RegroupModules runs at migration time,
+		// outside any request, and permissions is the global catalogue — not one
+		// business's data. It therefore wants the shared pool, not a pinned
+		// per-request connection.
+		res := r.db.WithContext(context.Background()).Model(&Permission{}).
 			Where("name = ? AND (module_name <> ? OR description <> ?)", def.Name, def.ModuleName, def.Description).
 			Updates(map[string]any{"module_name": def.ModuleName, "description": def.Description})
 		if res.Error != nil {

@@ -5,6 +5,8 @@ import (
 	"time"
 
 	"gorm.io/gorm"
+
+	"cloudhouse/backend/internal/platform"
 )
 
 // Repository provides GORM-backed persistence for OTP and DeviceToken
@@ -12,10 +14,10 @@ import (
 // packages that own more than one small table) since they're always used
 // together by Service and neither is large enough to warrant its own file.
 type Repository struct {
-	db *gorm.DB
+	db platform.DB
 }
 
-func NewRepository(db *gorm.DB) *Repository {
+func NewRepository(db platform.DB) *Repository {
 	return &Repository{db: db}
 }
 

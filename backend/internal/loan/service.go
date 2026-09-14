@@ -234,7 +234,7 @@ type Service struct {
 	// The rest of this service keeps the codebase's existing non-transactional,
 	// log-and-continue style — no transaction infrastructure existed here
 	// before, and converting every write path was out of scope.
-	db *gorm.DB
+	db platform.DB
 
 	repo                *Repository
 	ornamentRepo        *OrnamentRepository
@@ -306,7 +306,7 @@ type Service struct {
 }
 
 func NewService(
-	db *gorm.DB,
+	db platform.DB,
 	repo *Repository,
 	ornamentRepo *OrnamentRepository,
 	approvalRepo *ApprovalRepository,

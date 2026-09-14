@@ -40,7 +40,7 @@ func (h *Handler) NeedsAttention(c *gin.Context) {
 // captured yet, since that's an expected startup state (first day after
 // this feature ships), not an error.
 func (h *Handler) LatestSnapshot(c *gin.Context) {
-	rec, err := h.svc.LatestSnapshot()
+	rec, err := h.svc.LatestSnapshot(platform.RequestContext(c))
 	if err != nil {
 		httpx.FailErr(c, err)
 		return
@@ -51,13 +51,14 @@ func (h *Handler) LatestSnapshot(c *gin.Context) {
 // ListSnapshots backs GET /dashboard/snapshots?limit=&offset= — paginated
 // snapshot history, same envelope shape as GET /gold-rates.
 func (h *Handler) ListSnapshots(c *gin.Context) {
+	ctx := platform.RequestContext(c)
 	limit, _ := strconv.Atoi(c.Query("limit"))
 	if limit > 0 {
 		offset, _ := strconv.Atoi(c.Query("offset"))
 		if offset < 0 {
 			offset = 0
 		}
-		rec, total, err := h.svc.ListSnapshots(limit+1, offset)
+		rec, total, err := h.svc.ListSnapshots(ctx, limit+1, offset)
 		if err != nil {
 			httpx.FailErr(c, err)
 			return
@@ -70,7 +71,7 @@ func (h *Handler) ListSnapshots(c *gin.Context) {
 		return
 	}
 
-	rec, _, err := h.svc.ListSnapshots(0, 0)
+	rec, _, err := h.svc.ListSnapshots(ctx, 0, 0)
 	if err != nil {
 		httpx.FailErr(c, err)
 		return

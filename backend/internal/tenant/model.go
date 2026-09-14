@@ -137,10 +137,16 @@ type Tenant struct {
 	// AppURL is where this business's own frontend is deployed, e.g.
 	// https://ambika.cloudhousesupport.site.
 	//
-	// NOTHING ROUTES BY THIS. Tenants are resolved by Code (/login/<code>),
-	// never by hostname — this is a display and bookkeeping field, and
-	// treating it as anything more would be a security change, not a
-	// convenience one.
+	// This DID say "nothing routes by this". It now does, deliberately and in
+	// one direction only (see FindByAppURL in host.go): the host a request
+	// arrives on may NARROW which business a borrower is signing in to, and
+	// may REFUSE a session minted for a different business, but it can never
+	// grant access to one. The Host header is client-supplied and is not
+	// treated as authentication anywhere — a forged host still needs a valid
+	// token for the business it names, which is exactly the position an
+	// attacker started from.
+	//
+	// Staff login is unchanged and still resolves by Code (/login/<code>).
 	AppURL string `json:"appUrl" gorm:"size:200"`
 
 	// BrandColor is the primary brand colour as "#rrggbb". The frontend

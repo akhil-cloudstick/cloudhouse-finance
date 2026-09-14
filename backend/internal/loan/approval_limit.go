@@ -35,10 +35,10 @@ const DefaultLoanOperatorApprovalLimit = 50000
 // ApprovalLimitRepository provides GORM-backed persistence for
 // ApprovalLimit rows.
 type ApprovalLimitRepository struct {
-	db *gorm.DB
+	db platform.DB
 }
 
-func NewApprovalLimitRepository(db *gorm.DB) *ApprovalLimitRepository {
+func NewApprovalLimitRepository(db platform.DB) *ApprovalLimitRepository {
 	return &ApprovalLimitRepository{db: db}
 }
 

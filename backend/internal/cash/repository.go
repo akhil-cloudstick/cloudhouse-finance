@@ -6,14 +6,16 @@ import (
 	"time"
 
 	"gorm.io/gorm"
+
+	"cloudhouse/backend/internal/platform"
 )
 
 // MovementRepository provides GORM-backed persistence for CashMovement records.
 type MovementRepository struct {
-	db *gorm.DB
+	db platform.DB
 }
 
-func NewMovementRepository(db *gorm.DB) *MovementRepository {
+func NewMovementRepository(db platform.DB) *MovementRepository {
 	return &MovementRepository{db: db}
 }
 
@@ -100,10 +102,10 @@ func (r *MovementRepository) Delete(ctx context.Context, id uint) error {
 
 // ExpenseRepository provides GORM-backed persistence for Expense records.
 type ExpenseRepository struct {
-	db *gorm.DB
+	db platform.DB
 }
 
-func NewExpenseRepository(db *gorm.DB) *ExpenseRepository {
+func NewExpenseRepository(db platform.DB) *ExpenseRepository {
 	return &ExpenseRepository{db: db}
 }
 
@@ -314,10 +316,10 @@ func (r *MovementRepository) SumBreakdownByDate(ctx context.Context, branchID *u
 // OpeningBalanceRepository provides GORM-backed persistence for
 // OpeningCashBalance records — one row per (branch, date).
 type OpeningBalanceRepository struct {
-	db *gorm.DB
+	db platform.DB
 }
 
-func NewOpeningBalanceRepository(db *gorm.DB) *OpeningBalanceRepository {
+func NewOpeningBalanceRepository(db platform.DB) *OpeningBalanceRepository {
 	return &OpeningBalanceRepository{db: db}
 }
 
@@ -350,10 +352,10 @@ func (r *OpeningBalanceRepository) Upsert(ctx context.Context, rec *OpeningCashB
 
 // GoldSaleRepository provides GORM-backed persistence for GoldSale records.
 type GoldSaleRepository struct {
-	db *gorm.DB
+	db platform.DB
 }
 
-func NewGoldSaleRepository(db *gorm.DB) *GoldSaleRepository {
+func NewGoldSaleRepository(db platform.DB) *GoldSaleRepository {
 	return &GoldSaleRepository{db: db}
 }
 

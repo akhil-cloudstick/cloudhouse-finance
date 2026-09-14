@@ -1,10 +1,9 @@
 package platform
 
 import (
+	"context"
 	"fmt"
 	"time"
-
-	"gorm.io/gorm"
 
 	"cloudhouse/backend/internal/platform/httpx"
 )
@@ -87,14 +86,20 @@ var ErrUsageCapExceeded = httpx.NewConflict("daily usage limit reached for this 
 //
 // tenantID must be non-zero; a cross-tenant/background context has no
 // business to charge the usage to and must resolve one before calling this.
-func CheckAndRecordUsage(db *gorm.DB, tenantID uint, category string) error {
+// The handle is platform.DB so callers can pass either the shared pool or a
+// ConnPinner without caring which. The query deliberately runs on the SHARED
+// pool (context.Background carries no pinned connection): usage_counters is
+// deployment-wide bookkeeping for shared provider credentials, not one
+// business's data, so it is exempt from the tenant filter and carries no RLS
+// policy — see its type doc.
+func CheckAndRecordUsage(db DB, tenantID uint, category string) error {
 	if tenantID == 0 {
 		return fmt.Errorf("platform: CheckAndRecordUsage requires a tenant (category %q)", category)
 	}
 	today := time.Now().UTC().Truncate(24 * time.Hour)
 
 	var count uint
-	err := db.Raw(`
+	err := db.WithContext(context.Background()).Raw(`
 		INSERT INTO usage_counters (tenant_id, category, day, count)
 		VALUES (?, ?, ?, 1)
 		ON CONFLICT (tenant_id, category, day)

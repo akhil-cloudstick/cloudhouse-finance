@@ -9,10 +9,10 @@ import "github.com/gin-gonic/gin"
 // and refresh require an already-valid customer session JWT, so
 // customerAuthMiddleware is applied to them specifically here, the same
 // pattern internal/auth/routes.go uses for /auth/me.
-func RegisterRoutes(rg *gin.RouterGroup, h *Handler, customerAuthMiddleware gin.HandlerFunc) {
+func RegisterRoutes(rg *gin.RouterGroup, h *Handler, customerAuth ...gin.HandlerFunc) {
 	rg.POST("/request-otp", h.RequestOTP)
 	rg.POST("/verify-otp", h.VerifyOTP)
 	rg.POST("/device-login", h.DeviceLogin)
-	rg.POST("/register-device", customerAuthMiddleware, h.RegisterDevice)
-	rg.POST("/refresh", customerAuthMiddleware, h.Refresh)
+	rg.POST("/register-device", append(append([]gin.HandlerFunc{}, customerAuth...), h.RegisterDevice)...)
+	rg.POST("/refresh", append(append([]gin.HandlerFunc{}, customerAuth...), h.Refresh)...)
 }

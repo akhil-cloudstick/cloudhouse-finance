@@ -2,7 +2,6 @@ package upload
 
 import (
 	"net/http"
-	"path/filepath"
 	"strings"
 
 	"github.com/gin-gonic/gin"
@@ -89,7 +88,10 @@ func (h *ServeHandler) Serve(c *gin.Context) {
 	// must never hold them.
 	c.Header("Cache-Control", "private, max-age=300")
 
-	c.File(filepath.Join(h.dir, rec.StorageKey))
+	// Per-business directory, falling back to the flat pre-split location
+	// for files written before it — see resolveReadPath. The authorization
+	// decision was already made by FindByStorageKey above.
+	c.File(resolveReadPath(h.dir, tenantID, rec.StorageKey))
 }
 
 // tenantFromCookie accepts either a staff or a borrower session, since both

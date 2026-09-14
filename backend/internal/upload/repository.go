@@ -3,14 +3,14 @@ package upload
 import (
 	"context"
 
-	"gorm.io/gorm"
+	"cloudhouse/backend/internal/platform"
 )
 
 type Repository struct {
-	db *gorm.DB
+	db platform.DB
 }
 
-func NewRepository(db *gorm.DB) *Repository {
+func NewRepository(db platform.DB) *Repository {
 	return &Repository{db: db}
 }
 

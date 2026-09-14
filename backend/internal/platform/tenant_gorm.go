@@ -2,6 +2,7 @@ package platform
 
 import (
 	"errors"
+	"sort"
 	"strings"
 
 	"gorm.io/gorm"
@@ -56,6 +57,35 @@ var tenantScopedTables = map[string]bool{
 	// This business's own audit log (Step 11) — tenant-scoped, unlike
 	// superadmin.AuditLog (deliberately exempt, see tenant_scope_db_test.go).
 	"audit_log_entries": true,
+	// Per-day KPI counts behind the mobile dashboard.s trend cards. Shipped
+	// with no tenant_id and a globally unique date, so one row held every
+	// business's counts summed together and every business read it — see
+	// dashboard.Snapshot.s doc comment.
+	"dashboard_snapshots": true,
+}
+
+// TenantScopedTableNames returns every tenant-owned table, in a stable
+// sorted order.
+//
+// This exists so internal/migrate can drive its tenant_id backfill, its
+// NOT NULL pass and its composite-unique audit from THIS definition instead
+// of keeping a second list of its own. It kept one until now, and the two
+// drifted: gold_sales, investments, investment_plans, investment_payouts and
+// audit_log_entries were added here but never to migrate's copy, so the
+// filter scoped them at runtime while the database never made tenant_id
+// mandatory on them — which is exactly how a gold_sales row with
+// tenant_id = 0 came to exist. One list cannot disagree with itself.
+//
+// Sorted rather than map order because migrations must apply in the same
+// sequence on every database; a random order makes one failing run hard to
+// compare against the next.
+func TenantScopedTableNames() []string {
+	names := make([]string, 0, len(tenantScopedTables))
+	for t := range tenantScopedTables {
+		names = append(names, t)
+	}
+	sort.Strings(names)
+	return names
 }
 
 // primaryTableAndAlias splits a GORM Statement.Table into the real table

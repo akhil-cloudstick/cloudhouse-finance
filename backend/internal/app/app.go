@@ -80,6 +80,10 @@ type App struct {
 	Router *gin.Engine
 
 	// startJobs is populated by Build and invoked by StartBackgroundJobs.
+	// db is the shared pool, kept so background jobs can pin a connection per
+	// business the way platform.PinTenantConn does per request — see
+	// tenant.ForEachActive.
+	db              *gorm.DB
 	tenantRepo      *tenant.Repository
 	notificationSvc *notification.Service
 	loanSvc         *loan.Service
@@ -102,38 +106,56 @@ func Build(db *gorm.DB, cfg platform.Config) (*App, error) {
 
 	router := gin.Default()
 	router.Use(corsMiddleware(cfg.FrontendOrigin))
+	// Records the host each request arrived on. Mounted before authentication
+	// because the borrower sign-in endpoints that read it are public by
+	// definition. Client-supplied and never treated as authentication — see
+	// platform.WithRequestHost.
+	router.Use(platform.CarryRequestHost())
 
 	// Tenant repository: used by auth to resolve which business a login is
 	// for, before any tenant is established, by the branch quota check
 	// below, and by the superadmin console (Step 7) to administer businesses —
 	// the ONLY routes in this server that mount it, gated solely by
+	// Tenant-owned repositories get the pinner, not the raw pool.
+	//
+	// It returns the request's PINNED connection when there is one, so the
+	// Postgres session variable Row-Level Security reads (app.tenant_id) and
+	// the query it authorises provably share one backend. On the shared pool
+	// they would not: a concurrent probe measured 460 of 960 statements running
+	// under another business's tenant id. See platform.PinConn.
+	//
+	// The control-plane repositories below — tenant, settings, superadmin —
+	// deliberately keep the raw pool: they read across every business by
+	// design, and pinning them to one business's connection would be wrong.
+	pinned := platform.NewConnPinner(db)
+
 	// platform.SuperAdminAuthMiddleware and never by a tenant role's grants.
 	tenantRepo := tenant.NewRepository(db)
 
 	// Declared early: the loan service needs it to record the generated
 	// indemnity bond, and the file-serving handler needs it to authorize
 	// reads.
-	uploadRepo := upload.NewRepository(db)
+	uploadRepo := upload.NewRepository(pinned)
 
 	// auditlog: this business's own record of its staff's privileged actions
 	// (Step 11) — distinct from internal/superadmin's, which records the
 	// superadmin's actions across every business. Declared here, ahead of
 	// every service that writes to it.
-	auditRepo := auditlog.NewRepository(db)
+	auditRepo := auditlog.NewRepository(pinned)
 
-	branchRepo := branch.NewRepository(db)
+	branchRepo := branch.NewRepository(pinned)
 	branchSvc := branch.NewService(branchRepo, tenantRepo, auditRepo)
 	branchHandler := branch.NewHandler(branchSvc)
 
-	schemeRepo := scheme.NewRepository(db)
+	schemeRepo := scheme.NewRepository(pinned)
 	schemeSvc := scheme.NewService(schemeRepo, branchRepo)
 	schemeHandler := scheme.NewHandler(schemeSvc)
 
-	goldRateRepo := goldrate.NewRepository(db)
+	goldRateRepo := goldrate.NewRepository(pinned)
 	goldRateSvc := goldrate.NewService(goldRateRepo)
 	goldRateHandler := goldrate.NewHandler(goldRateSvc)
 
-	purityStandardRepo := puritystandard.NewRepository(db)
+	purityStandardRepo := puritystandard.NewRepository(pinned)
 	purityStandardSvc := puritystandard.NewService(purityStandardRepo)
 	purityStandardHandler := puritystandard.NewHandler(purityStandardSvc)
 
@@ -142,28 +164,28 @@ func Build(db *gorm.DB, cfg platform.Config) (*App, error) {
 	// a role NAME to its id at create/update time — see
 	// employee.Service.resolveRoleID's doc comment for why that has to
 	// happen on the write itself rather than waiting for a later backfill.
-	authzRepo := authz.NewRepository(db)
+	authzRepo := authz.NewRepository(pinned)
 
-	employeeRepo := employee.NewRepository(db)
+	employeeRepo := employee.NewRepository(pinned)
 	employeeSvc := employee.NewService(employeeRepo, branchRepo, authzRepo, auditRepo)
 	employeeHandler := employee.NewHandler(employeeSvc)
 
-	movementRepo := cash.NewMovementRepository(db)
-	expenseRepo := cash.NewExpenseRepository(db)
+	movementRepo := cash.NewMovementRepository(pinned)
+	expenseRepo := cash.NewExpenseRepository(pinned)
 	movementSvc := cash.NewMovementService(movementRepo, expenseRepo, branchRepo)
 	movementHandler := cash.NewMovementHandler(movementSvc)
 
 	expenseSvc := cash.NewExpenseService(expenseRepo, branchRepo)
 	expenseHandler := cash.NewExpenseHandler(expenseSvc)
 
-	openingBalanceRepo := cash.NewOpeningBalanceRepository(db)
+	openingBalanceRepo := cash.NewOpeningBalanceRepository(pinned)
 	openingBalanceSvc := cash.NewOpeningBalanceService(openingBalanceRepo, branchRepo)
 	openingBalanceHandler := cash.NewOpeningBalanceHandler(openingBalanceSvc)
 
 	summarySvc := cash.NewSummaryService(movementRepo, expenseRepo, openingBalanceSvc)
 	summaryHandler := cash.NewSummaryHandler(summarySvc)
 
-	goldSaleRepo := cash.NewGoldSaleRepository(db)
+	goldSaleRepo := cash.NewGoldSaleRepository(pinned)
 	goldSaleSvc := cash.NewGoldSaleService(goldSaleRepo, movementSvc, branchRepo)
 	goldSaleHandler := cash.NewGoldSaleHandler(goldSaleSvc)
 
@@ -194,7 +216,7 @@ func Build(db *gorm.DB, cfg platform.Config) (*App, error) {
 	esignClient := platform.NewEsignClient(cfg)
 	razorpayClient := platform.NewRazorpayClient(cfg)
 
-	customerRepo := customer.NewRepository(db)
+	customerRepo := customer.NewRepository(pinned)
 	customerSvc := customer.NewService(db, customerRepo, branchRepo, aadhaarCipher, setuClient, digilockerClient)
 	customerHandler := customer.NewHandler(customerSvc)
 
@@ -202,8 +224,8 @@ func Build(db *gorm.DB, cfg platform.Config) (*App, error) {
 	// (locker.PacketCounter / packet.LockerCapacityProvider) so neither
 	// package imports the other — both repos are built first, then handed
 	// to each other's Service constructor.
-	lockerRepo := locker.NewRepository(db)
-	packetRepo := packet.NewRepository(db)
+	lockerRepo := locker.NewRepository(pinned)
+	packetRepo := packet.NewRepository(pinned)
 
 	packetSvc := packet.NewService(packetRepo, lockerRepo)
 	packetHandler := packet.NewHandler(packetSvc)
@@ -211,21 +233,21 @@ func Build(db *gorm.DB, cfg platform.Config) (*App, error) {
 	lockerSvc := locker.NewService(lockerRepo, branchRepo, packetRepo)
 	lockerHandler := locker.NewHandler(lockerSvc)
 
-	loanRepo := loan.NewRepository(db)
-	loanOrnamentRepo := loan.NewOrnamentRepository(db)
-	loanApprovalRepo := loan.NewApprovalRepository(db)
-	loanPaymentRepo := loan.NewPaymentRepository(db)
-	loanPledgeRepo := loan.NewBankPledgeRepository(db)
-	loanRequestRepo := loan.NewLoanRequestRepository(db)
-	requestApprovalRepo := loan.NewRequestApprovalRepository(db)
-	loanAuctionRepo := loan.NewAuctionRepository(db)
-	loanApprovalLimitRepo := loan.NewApprovalLimitRepository(db)
+	loanRepo := loan.NewRepository(pinned)
+	loanOrnamentRepo := loan.NewOrnamentRepository(pinned)
+	loanApprovalRepo := loan.NewApprovalRepository(pinned)
+	loanPaymentRepo := loan.NewPaymentRepository(pinned)
+	loanPledgeRepo := loan.NewBankPledgeRepository(pinned)
+	loanRequestRepo := loan.NewLoanRequestRepository(pinned)
+	requestApprovalRepo := loan.NewRequestApprovalRepository(pinned)
+	loanAuctionRepo := loan.NewAuctionRepository(pinned)
+	loanApprovalLimitRepo := loan.NewApprovalLimitRepository(pinned)
 	// packetSvc satisfies both loan.PacketCreator (auto-creates a packet
 	// right after loan creation) and loan.PacketMover (logs a matching
 	// packet movement on bank-pledge/release) — see internal/loan's
 	// PacketCreator/PacketMover doc comments. movementSvc satisfies
 	// loan.CashRecorder, reflecting bank-pledge amounts into Cash-in-Hand.
-	commlogRepo := commlog.NewRepository(db)
+	commlogRepo := commlog.NewRepository(pinned)
 
 	// Realtime notifications (WebSocket, ack-and-resend) — realtimeHub tracks
 	// live connections, notificationSvc is the durable store + resend logic
@@ -233,11 +255,11 @@ func Build(db *gorm.DB, cfg platform.Config) (*App, error) {
 	// implements loan.CustomerNotifier so internal/loan can fire
 	// notifications without importing this package directly.
 	realtimeHub := realtime.NewHub()
-	notificationRepo := notification.NewRepository(db)
+	notificationRepo := notification.NewRepository(pinned)
 	notificationSvc := notification.NewService(notificationRepo, realtimeHub)
 	notificationHandler := notification.NewHandler(notificationSvc, realtimeHub)
 
-	loanSvc := loan.NewService(db, loanRepo, loanOrnamentRepo, loanApprovalRepo, loanPaymentRepo, loanPledgeRepo, loanRequestRepo, requestApprovalRepo, loanAuctionRepo, loanApprovalLimitRepo, branchRepo, customerRepo, schemeRepo, goldRateRepo, packetSvc, packetSvc, movementSvc, notificationSvc, whatsappSender, commlogRepo, esignClient, cfg.UploadsDir, uploadRepo, tenantRepo, razorpayClient, aadhaarCipher, authzRepo)
+	loanSvc := loan.NewService(pinned, loanRepo, loanOrnamentRepo, loanApprovalRepo, loanPaymentRepo, loanPledgeRepo, loanRequestRepo, requestApprovalRepo, loanAuctionRepo, loanApprovalLimitRepo, branchRepo, customerRepo, schemeRepo, goldRateRepo, packetSvc, packetSvc, movementSvc, notificationSvc, whatsappSender, commlogRepo, esignClient, cfg.UploadsDir, uploadRepo, tenantRepo, razorpayClient, aadhaarCipher, authzRepo)
 	loanHandler := loan.NewHandler(loanSvc)
 
 	// customer hard-delete needs loan hard-delete, and loan already imports
@@ -245,30 +267,30 @@ func Build(db *gorm.DB, cfg platform.Config) (*App, error) {
 	// customer.Service.SetLoanHardDeleter).
 	customerSvc.SetLoanHardDeleter(loanSvc)
 
-	personalLoanRepo := personalloan.NewRepository(db)
+	personalLoanRepo := personalloan.NewRepository(pinned)
 	personalLoanSvc := personalloan.NewService(personalLoanRepo, customerRepo, movementSvc, aadhaarCipher)
 	personalLoanHandler := personalloan.NewHandler(personalLoanSvc)
 
-	investmentRepo := investment.NewRepository(db)
+	investmentRepo := investment.NewRepository(pinned)
 	investmentSvc := investment.NewService(investmentRepo, customerRepo, movementSvc, investmentCommsAdapter{notificationSvc: notificationSvc})
 	investmentHandler := investment.NewHandler(investmentSvc)
 
-	reminderRepo := reminder.NewRepository(db)
+	reminderRepo := reminder.NewRepository(pinned)
 	reminderSvc := reminder.NewService(reminderRepo, customerRepo, loanRepo, personalLoanSvc, loanAuctionRepo, whatsappSender, commlogRepo, tenantRepo)
 	reminderHandler := reminder.NewHandler(reminderSvc)
 
-	dashboardSnapshotRepo := dashboard.NewSnapshotRepository(db)
+	dashboardSnapshotRepo := dashboard.NewSnapshotRepository(pinned)
 	dashboardSvc := dashboard.NewService(loanRepo, loanRequestRepo, dashboardSnapshotRepo)
 	dashboardHandler := dashboard.NewHandler(dashboardSvc)
 
 	uploadHandler := upload.NewHandler(cfg.UploadsDir, uploadRepo)
 	uploadServeHandler := upload.NewServeHandler(uploadRepo, cfg.UploadsDir, cfg.JWTSecret, employeeRepo)
 
-	ornamentTypeRepo := ornamenttype.NewRepository(db)
+	ornamentTypeRepo := ornamenttype.NewRepository(pinned)
 	ornamentTypeSvc := ornamenttype.NewService(ornamentTypeRepo)
 	ornamentTypeHandler := ornamenttype.NewHandler(ornamentTypeSvc)
 
-	bankRepo := bank.NewRepository(db)
+	bankRepo := bank.NewRepository(pinned)
 	bankSvc := bank.NewService(bankRepo)
 	bankHandler := bank.NewHandler(bankSvc)
 
@@ -279,12 +301,17 @@ func Build(db *gorm.DB, cfg platform.Config) (*App, error) {
 	// sign-in, a separate JWT scheme (platform.CustomerClaims,
 	// platform.CustomerAuthMiddleware) from the employee one above, so
 	// customer tokens are never valid on staff routes and vice versa.
-	customerAuthRepo := customerauth.NewRepository(db)
+	customerAuthRepo := customerauth.NewRepository(pinned)
 	customerAuthSvc := customerauth.NewService(db, customerRepo, tenantRepo, customerAuthRepo, whatsappSender, cfg.JWTSecret, commlogRepo)
 	customerAuthHandler := customerauth.NewHandler(customerAuthSvc)
 	customerAuthMiddleware := platform.CustomerAuthMiddleware(cfg.JWTSecret)
+	// Pins one connection per request and declares the business to Postgres,
+	// so Row-Level Security enforces the boundary in the database. Mounted
+	// immediately after each auth middleware, never before it — it reads the
+	// business that authentication established. See platform.PinTenantConn.
+	pinConn := platform.PinTenantConn(db)
 
-	reportsSvc := reports.NewService(db, commlogRepo, tenantRepo)
+	reportsSvc := reports.NewService(pinned, commlogRepo, tenantRepo)
 	reportsHandler := reports.NewHandler(reportsSvc)
 
 	// employeeRepo doubles as the platform.EmployeeSessionChecker AuthMiddleware
@@ -311,9 +338,9 @@ func Build(db *gorm.DB, cfg platform.Config) (*App, error) {
 	// Customer app routes live under their own top-level group, gated by
 	// the customer JWT scheme rather than the employee authMiddleware used
 	// for everything else in this file.
-	customerauth.RegisterRoutes(v1.Group("/customer/auth"), customerAuthHandler, customerAuthMiddleware)
+	customerauth.RegisterRoutes(v1.Group("/customer/auth"), customerAuthHandler, customerAuthMiddleware, pinConn)
 	customerGoldRate := v1.Group("/customer/gold-rate")
-	customerGoldRate.Use(customerAuthMiddleware)
+	customerGoldRate.Use(customerAuthMiddleware, platform.RequireHostMatchesTenant(tenantRepo), pinConn)
 	// Reuses the existing staff goldrate handler's read-only methods
 	// verbatim (Latest/List take no employee-specific input) — only the
 	// route mount and auth middleware are customer-specific.
@@ -324,7 +351,7 @@ func Build(db *gorm.DB, cfg platform.Config) (*App, error) {
 	// customer-scoped methods (internal/loan/customer_handler.go), which
 	// force customerId from the JWT rather than trusting the client.
 	customerLoans := v1.Group("/customer/loans")
-	customerLoans.Use(customerAuthMiddleware)
+	customerLoans.Use(customerAuthMiddleware, platform.RequireHostMatchesTenant(tenantRepo), pinConn)
 	customerLoans.GET("", loanHandler.CustomerListLoans)
 	customerLoans.GET("/:id", loanHandler.CustomerGetLoan)
 	customerLoans.GET("/:id/requests", loanHandler.CustomerListLoanRequests)
@@ -340,7 +367,7 @@ func Build(db *gorm.DB, cfg platform.Config) (*App, error) {
 	customerLoans.GET("/:id/statement", loanHandler.CustomerLoanStatement)
 
 	customerPayments := v1.Group("/customer/payments")
-	customerPayments.Use(customerAuthMiddleware)
+	customerPayments.Use(customerAuthMiddleware, platform.RequireHostMatchesTenant(tenantRepo), pinConn)
 	customerPayments.GET("", loanHandler.CustomerListPayments)
 	customerPayments.GET("/:paymentId/receipt", loanHandler.CustomerPaymentReceipt)
 
@@ -350,7 +377,7 @@ func Build(db *gorm.DB, cfg platform.Config) (*App, error) {
 	// calls staff use, just customerID forced from the JWT instead of :id +
 	// branch scope.
 	customerProfile := v1.Group("/customer/profile")
-	customerProfile.Use(customerAuthMiddleware)
+	customerProfile.Use(customerAuthMiddleware, platform.RequireHostMatchesTenant(tenantRepo), pinConn)
 	customerProfile.GET("", customerHandler.CustomerGetProfile)
 	customerProfile.POST("/verify-pan", customerHandler.CustomerVerifyPAN)
 	customerProfile.POST("/aadhaar/start", customerHandler.CustomerStartAadhaarVerify)
@@ -363,10 +390,15 @@ func Build(db *gorm.DB, cfg platform.Config) (*App, error) {
 	// processes the request normally (JWT parsed, customerId set on context)
 	// right up until Upgrade() hijacks the connection.
 	customerNotifications := v1.Group("/customer/notifications")
-	customerNotifications.Use(customerAuthMiddleware)
+	customerNotifications.Use(customerAuthMiddleware, platform.RequireHostMatchesTenant(tenantRepo), pinConn)
 	customerNotifications.GET("", notificationHandler.List)
 	customerNotifications.POST("/:id/ack", notificationHandler.Ack)
 	customerNotifications.POST("/:id/read", notificationHandler.Read)
+	// Deliberately NOT pinned: this connection is upgraded to a WebSocket and
+	// stays open for as long as the borrower has the app in the foreground.
+	// Pinning would hold one database connection for that entire time, and a
+	// few hundred idle phones would exhaust the pool. The handler does its own
+	// scoped reads through the ordinary per-request path instead.
 	v1.GET("/customer/ws", customerAuthMiddleware, notificationHandler.Upgrade)
 
 	// Every other /api/v1 route requires a valid JWT ("checkpoint 1"), then
@@ -374,7 +406,7 @@ func Build(db *gorm.DB, cfg platform.Config) (*App, error) {
 	// ("checkpoint 2" — see platform.CRUDPermissions), currently allow-all
 	// for all 9 roles until an admin screen starts restricting rows.
 	protected := v1.Group("")
-	protected.Use(authMiddleware)
+	protected.Use(authMiddleware, platform.RequireHostMatchesTenant(tenantRepo), pinConn)
 
 	// authzRepo is declared earlier now (see employeeSvc above) — read-only
 	// here regardless: the permissions table is seeded and restricted solely
@@ -503,6 +535,7 @@ func Build(db *gorm.DB, cfg platform.Config) (*App, error) {
 
 	return &App{
 		Router:          router,
+		db:              db,
 		tenantRepo:      tenantRepo,
 		notificationSvc: notificationSvc,
 		loanSvc:         loanSvc,
@@ -557,7 +590,7 @@ func (a *App) StartBackgroundJobs(ctx context.Context) {
 		ticker := time.NewTicker(10 * time.Minute)
 		defer ticker.Stop()
 		for range ticker.C {
-			tenant.ForEachActive(ctx, a.tenantRepo, "notification resend", func(ctx context.Context, t tenant.Tenant) error {
+			tenant.ForEachActive(ctx, a.db, a.tenantRepo, "notification resend", func(ctx context.Context, t tenant.Tenant) error {
 				a.notificationSvc.ResendPending(ctx)
 				return nil
 			})
@@ -567,7 +600,7 @@ func (a *App) StartBackgroundJobs(ctx context.Context) {
 		ticker := time.NewTicker(1 * time.Hour)
 		defer ticker.Stop()
 		for range ticker.C {
-			tenant.ForEachActive(ctx, a.tenantRepo, "due/overdue sweep", func(ctx context.Context, t tenant.Tenant) error {
+			tenant.ForEachActive(ctx, a.db, a.tenantRepo, "due/overdue sweep", func(ctx context.Context, t tenant.Tenant) error {
 				a.loanSvc.CheckDueAndOverdueLoans(ctx)
 				return nil
 			})
@@ -577,7 +610,7 @@ func (a *App) StartBackgroundJobs(ctx context.Context) {
 		ticker := time.NewTicker(1 * time.Hour)
 		defer ticker.Stop()
 		for range ticker.C {
-			tenant.ForEachActive(ctx, a.tenantRepo, "investment maturity sweep", func(ctx context.Context, t tenant.Tenant) error {
+			tenant.ForEachActive(ctx, a.db, a.tenantRepo, "investment maturity sweep", func(ctx context.Context, t tenant.Tenant) error {
 				return a.investmentSvc.SweepMaturities(ctx)
 			})
 		}
@@ -589,22 +622,33 @@ func (a *App) StartBackgroundJobs(ctx context.Context) {
 			a.billingSvc.NotifyExpiringSubscriptions(ctx)
 		}
 	}()
-	// Dashboard KPI snapshot — captures today's counts once/day for the
-	// mobile dashboard's trend indicators (see dashboard.Service.
-	// CaptureDailySnapshot's doc comment). Deliberately cross-tenant: Snapshot
-	// is a single global row per day (unscoped across every business, same as
-	// before multi-tenancy), not a per-tenant table, so it needs the explicit
-	// exemption rather than a tenant walk. Ticks hourly like the jobs above;
-	// CaptureDailySnapshot's own FindByDate guard keeps it to one row per day
-	// regardless of tick cadence. Runs once immediately on boot too, so a
-	// fresh deploy doesn't wait up to an hour for its first snapshot.
-	snapshotCtx := platform.AllowCrossTenant(ctx)
+	// Dashboard KPI snapshot — captures today's counts once/day PER BUSINESS
+	// for the mobile dashboard's trend indicators (see
+	// dashboard.Service.CaptureDailySnapshot's doc comment).
+	//
+	// This used to run under platform.AllowCrossTenant against a table with
+	// no tenant_id, which meant one row per day held every business's counts
+	// added together and every business's dashboard read that same row — one
+	// customer could infer another's loan book size from their own trend
+	// cards. It now walks tenants like the three jobs above, so each business
+	// captures and reads its own row, and CaptureDailySnapshot's FindByDate
+	// guard becomes correctly once-per-business-per-day.
+	//
+	// Ticks hourly like the jobs above; the FindByDate guard is what holds it
+	// to one row a day regardless of tick cadence. Runs once immediately on
+	// boot too, so a fresh deploy doesn't wait up to an hour for its first
+	// snapshot.
+	captureSnapshots := func() {
+		tenant.ForEachActive(ctx, a.db, a.tenantRepo, "dashboard snapshot", func(ctx context.Context, t tenant.Tenant) error {
+			return a.dashboardSvc.CaptureDailySnapshot(ctx)
+		})
+	}
 	go func() {
-		a.dashboardSvc.CaptureDailySnapshot(snapshotCtx)
+		captureSnapshots()
 		ticker := time.NewTicker(1 * time.Hour)
 		defer ticker.Stop()
 		for range ticker.C {
-			a.dashboardSvc.CaptureDailySnapshot(snapshotCtx)
+			captureSnapshots()
 		}
 	}()
 }

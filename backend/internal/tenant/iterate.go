@@ -4,6 +4,8 @@ import (
 	"context"
 	"log"
 
+	"gorm.io/gorm"
+
 	"cloudhouse/backend/internal/platform"
 )
 
@@ -32,7 +34,7 @@ import (
 // One business failing never stops the others: the error is logged and the
 // loop continues. A single bad row should not silently halt reminders for
 // every other customer.
-func ForEachActive(ctx context.Context, repo *Repository, label string, fn func(ctx context.Context, t Tenant) error) {
+func ForEachActive(ctx context.Context, db *gorm.DB, repo *Repository, label string, fn func(ctx context.Context, t Tenant) error) {
 	all, err := repo.FindAll(platform.AllowCrossTenant(ctx))
 	if err != nil {
 		log.Printf("%s: could not list businesses: %v", label, err)

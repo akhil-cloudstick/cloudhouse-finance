@@ -56,7 +56,7 @@ func TestForEachActive(t *testing.T) {
 
 	t.Run("runs once per active business, scoped to it", func(t *testing.T) {
 		var seen []uint
-		ForEachActive(context.Background(), repo, "test", func(ctx context.Context, tn Tenant) error {
+		ForEachActive(context.Background(), db, repo, "test", func(ctx context.Context, tn Tenant) error {
 			got, ok := platform.TenantFromContext(ctx)
 			if !ok {
 				t.Errorf("business %d: callback ran with no tenant in context", tn.ID)
@@ -81,7 +81,7 @@ func TestForEachActive(t *testing.T) {
 			t.Skip("needs at least one active business")
 		}
 		var ran int
-		ForEachActive(context.Background(), repo, "test", func(ctx context.Context, tn Tenant) error {
+		ForEachActive(context.Background(), db, repo, "test", func(ctx context.Context, tn Tenant) error {
 			ran++
 			return context.DeadlineExceeded // every pass fails
 		})
