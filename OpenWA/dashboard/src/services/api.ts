@@ -3,17 +3,23 @@
 
 import { warnIfInsecureHttpUrl } from '../utils/urlSecurity';
 
-// Resolve the API base URL. By default this is the same-origin relative path '/api',
-// correct when the dashboard and API are served from the same origin (the default
-// single-container setup). For a split-origin deployment (dashboard hosted separately
-// from the API), set VITE_API_URL at build time to the API ORIGIN — e.g.
-// `VITE_API_URL=https://gateway.example.com` — and the '/api' prefix is appended here.
+// Resolve the API base URL. By default this is same-origin, under whatever path this
+// dashboard build itself is mounted at (Vite's `base` — see vite.config.ts; empty/root
+// when unset). That matters when the dashboard is reverse-proxied under a sub-path (e.g.
+// gold-app serves it at /admin/whatsapp): the built HTML/JS already carries that prefix
+// for its own assets via `base`, but this string is a runtime fetch() URL, which `base`
+// does NOT rewrite — so it has to be applied here explicitly, or every API call 404s
+// against the outer app's own root instead of reaching the proxy.
+// For a split-origin deployment (dashboard hosted separately from the API), set
+// VITE_API_URL at build time to the API ORIGIN — e.g. `VITE_API_URL=https://gateway.example.com`
+// — which wins over the mount-path prefix entirely, matching a real separate origin.
 // Previously VITE_API_URL was documented but never read, so the dashboard always called
 // same-origin '/api' and a split deployment failed with "Invalid API Key" (#91).
-// Exported so direct fetches (e.g. auth/validate in Login.tsx / App.tsx) honor VITE_API_URL
-// too — otherwise split-origin deployments break. Empty VITE_API_URL → '/api'.
+// Exported so direct fetches (e.g. auth/validate in Login.tsx / App.tsx) honor both cases
+// too — otherwise split-origin or sub-path-mounted deployments break.
 const API_ORIGIN = (import.meta.env.VITE_API_URL ?? '').replace(/\/+$/, '');
-export const API_BASE_URL = `${API_ORIGIN}/api`;
+export const MOUNT_PATH = import.meta.env.BASE_URL.replace(/\/+$/, ''); // e.g. "/admin/whatsapp", "" at root
+export const API_BASE_URL = API_ORIGIN ? `${API_ORIGIN}/api` : `${MOUNT_PATH}/api`;
 // Warn (not refuse — would break dev + TLS-terminating-proxy) when the API origin is an
 // insecure http:// URL pointing at a non-localhost host (API keys sent in cleartext).
 if (API_ORIGIN) warnIfInsecureHttpUrl(API_ORIGIN, 'VITE_API_URL');

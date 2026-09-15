@@ -1,6 +1,7 @@
 import { useEffect, useRef, useCallback, useState } from 'react';
 import { io, Socket } from 'socket.io-client';
 import { warnIfInsecureHttpUrl } from '../utils/urlSecurity';
+import { MOUNT_PATH } from '../services/api';
 
 interface SessionStatusEvent {
   sessionId: string;
@@ -171,6 +172,12 @@ export function useWebSocket(events: WebSocketEvents = {}) {
 
     setSocketEpoch(epoch => epoch + 1);
     socketRef.current = io(`${SOCKET_URL}/events`, {
+      // socket.io's own handshake path (separate from the "/events" namespace above) defaults
+      // to "/socket.io/" at the origin root — wrong once this dashboard is mounted under a
+      // sub-path (see MOUNT_PATH's doc comment in services/api.ts), since nothing forwards a
+      // bare root request there. Skipped when VITE_API_URL points at a real separate origin
+      // (MOUNT_PATH is "" in that case anyway — a split API origin is never sub-path-mounted).
+      path: `${MOUNT_PATH}/socket.io/`,
       autoConnect: true,
       reconnection: true,
       reconnectionAttempts: 5,

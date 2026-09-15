@@ -17,6 +17,14 @@ const nextConfig: NextConfig = {
     return [
       { source: "/api/v1/:path*", destination: `${BACKEND_ORIGIN}/api/v1/:path*` },
       { source: "/uploads/:path*", destination: `${BACKEND_ORIGIN}/uploads/:path*` },
+      // /admin/whatsapp goes through the Go backend, exactly like production
+      // (backend/internal/webstatic's WhatsApp proxy strips the prefix and
+      // forwards to OpenWA on WHATSAPP_ORIGIN) — no separate OpenWA port to
+      // know about in dev either; OpenWA's dashboard is pre-built and served
+      // by OpenWA itself (see OpenWA's dev:embedded script), so the Go
+      // backend is the only thing the browser ever talks to besides Next.
+      { source: "/admin/whatsapp", destination: `${BACKEND_ORIGIN}/admin/whatsapp/` },
+      { source: "/admin/whatsapp/:path*", destination: `${BACKEND_ORIGIN}/admin/whatsapp/:path*` },
       // Per-business links: /login/<slug> and /app/<slug> serve the same
       // login and app pages, which read the slug from their own URL.
       //

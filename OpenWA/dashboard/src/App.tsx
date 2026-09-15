@@ -105,7 +105,11 @@ function AppContent() {
 
   return (
     <ToastProvider>
-      <BrowserRouter>
+      {/* basename: without it every route/link/reload targets the site ROOT ("/sessions"), not
+          wherever this dashboard is actually mounted ("/admin/whatsapp/sessions" — see
+          MOUNT_PATH's doc comment in services/api.ts). BASE_URL always ends with "/"; Router
+          wants no trailing slash. */}
+      <BrowserRouter basename={import.meta.env.BASE_URL.replace(/\/+$/, '')}>
         <Suspense fallback={loadingFallback}>
           <Routes>
             <Route path="/" element={<Layout onLogout={handleLogout} userRole={role} />}>

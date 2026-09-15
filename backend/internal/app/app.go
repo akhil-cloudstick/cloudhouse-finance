@@ -531,6 +531,7 @@ func Build(db *gorm.DB, cfg platform.Config) (*App, error) {
 	// reads from disk.
 	router.GET("/uploads/:key", uploadServeHandler.Serve)
 
+	webstatic.RegisterWhatsAppProxy(router, cfg.WhatsAppOrigin)
 	webstatic.Register(router, cfg.FrontendDir)
 
 	return &App{
