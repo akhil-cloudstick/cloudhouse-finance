@@ -4412,10 +4412,10 @@ table.tbl {
     padding: 3px 8px;
     font-size: 12px;
   }
-  .modal .fi {
-    padding: 0 8px;
-    font-size: 11px;
-  }
+  /* `.fi` is only a positioning wrapper — the visible box is the `.inp`
+   * trigger inside it, which already picks up the compact padding/font from
+   * the rule above. Padding here instead inset that trigger by 16px, so the
+   * file field rendered narrower than every other input in the modal. */
   .modal textarea {
     min-height: 44px;
   }
