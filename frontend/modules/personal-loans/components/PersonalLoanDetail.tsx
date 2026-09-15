@@ -55,7 +55,14 @@ function usePagedTable<T>(fetchPage: (page: number) => Promise<{ items: T[]; has
  * every Customer 360 table. */
 function Pager({ page, totalPages, onChange }: { page: number; totalPages: number; onChange: (p: number) => void }) {
   return (
-    <div className="ft" style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 14px" }}>
+    /* ft-static opts out of the generic `.tbl-wrap + .ft{position:sticky;
+     * bottom:0}` rule (app.css) — sticky positions relative to `.page`'s
+     * own scroll, and with two of these cards stacked in `.pl-detail-grid`
+     * (narrow screens collapse it to one column), their two sticky footers
+     * raced to the same spot near the viewport bottom and collided —
+     * the Payment History pager landing on top of its own table header.
+     * Same fix Cash.tsx's Cash Movements pager already uses. */
+    <div className="ft ft-static" style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 14px" }}>
       <button className="btn plain" style={{ padding: "9px 18px", fontSize: 13 }} disabled={page <= 1} onClick={() => onChange(Math.max(1, page - 1))}>‹ Prev</button>
       <span style={{ fontSize: 13 }}>Page {page} of {totalPages}</span>
       <button className="btn plain" style={{ padding: "9px 18px", fontSize: 13 }} disabled={page >= totalPages} onClick={() => onChange(Math.min(totalPages, page + 1))}>Next ›</button>
