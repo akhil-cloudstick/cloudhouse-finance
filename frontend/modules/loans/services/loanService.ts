@@ -118,7 +118,13 @@ export type BackendLoanPayment = {
   paidOn: string;
   receivedByEmployeeId: number;
   description: string;
+  /* Derived/display-only — the single mode's name when exactly one split
+   * amount below is non-zero, "Split" when more than one is. */
   method: string;
+  cashAmount: number;
+  upiAmount: number;
+  bankTransferAmount: number;
+  chequeAmount: number;
   reference: string;
   penalInterestApplied: number;
   interestApplied: number;
@@ -242,6 +248,10 @@ export type PaymentView = {
   receivedByEmployeeId: number;
   description: string;
   method: string;
+  cashAmount: number;
+  upiAmount: number;
+  bankTransferAmount: number;
+  chequeAmount: number;
   reference: string;
   penalInterestApplied: number;
   interestApplied: number;
@@ -350,6 +360,10 @@ function toPaymentView(p: BackendLoanPayment): PaymentView {
     receivedByEmployeeId: p.receivedByEmployeeId,
     description: p.description,
     method: p.method,
+    cashAmount: p.cashAmount,
+    upiAmount: p.upiAmount,
+    bankTransferAmount: p.bankTransferAmount,
+    chequeAmount: p.chequeAmount,
     reference: p.reference,
     penalInterestApplied: p.penalInterestApplied,
     interestApplied: p.interestApplied,
@@ -789,7 +803,18 @@ export async function listLoanApprovals(loanId: number): Promise<ApprovalStageRe
 // loan they made, which advances the chain to the Branch Manager exactly
 // like an "Approved" action does at the two stages above it. It is not
 // valid at any other stage (backend: Service.Approve).
-export type ApprovalInput = { stage: SanctionStage; action: "Approved" | "Rejected" | "Verified"; remarks?: string };
+export type ApprovalInput = {
+  stage: SanctionStage;
+  action: "Approved" | "Rejected" | "Verified";
+  remarks?: string;
+  // Only meaningful (and only validated server-side) when this call is the
+  // one that clears FinalSanction and triggers disbursement — must sum to
+  // the loan's principal amount.
+  cashAmount?: number;
+  upiAmount?: number;
+  bankTransferAmount?: number;
+  chequeAmount?: number;
+};
 
 export async function approveLoan(loanId: number, input: ApprovalInput): Promise<LoanView> {
   const rec = await apiFetch<BackendLoan>(`/loans/${loanId}/approve`, {
@@ -851,7 +876,10 @@ export type PaymentInput = {
   type: "Interest" | "Penal Interest" | "Principal" | "Partial" | "Full Settlement" | string;
   processingFee?: number; // extra charge collected alongside amount — never applied to penal/interest/principal
   paidOn: string;
-  method?: string;
+  cashAmount?: number;
+  upiAmount?: number;
+  bankTransferAmount?: number;
+  chequeAmount?: number;
   reference?: string;
   description?: string;
   // Overrides the system-calculated interest bucket for this payment only
@@ -867,6 +895,46 @@ export async function recordPayment(loanId: number, input: PaymentInput): Promis
     body: JSON.stringify(input),
   });
   return toView(rec);
+}
+
+/* Top-up: draws additional cash against an already-Active loan's spare
+ * eligible value (headroom = eligibleLoanAmount - outstanding), without
+ * closing/reopening it — see backend/internal/loan/service.go's
+ * Service.TopUpLoan. */
+export type TopUpInput = {
+  amount: number;
+  cashAmount?: number;
+  upiAmount?: number;
+  bankTransferAmount?: number;
+  chequeAmount?: number;
+  occurredOn?: string; // "YYYY-MM-DD" — omit for today
+  reference?: string;
+};
+
+export async function topUpLoan(loanId: number, input: TopUpInput): Promise<LoanView> {
+  const rec = await apiFetch<BackendLoan>(`/loans/${loanId}/topup`, {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+  return toView(rec);
+}
+
+export type LoanTopUpView = {
+  id: number;
+  amount: number;
+  eligibleAmountAtTopUp: number;
+  cashAmount: number;
+  upiAmount: number;
+  bankTransferAmount: number;
+  chequeAmount: number;
+  occurredOn: string;
+  reference: string;
+  status: "Active" | "Reversed";
+  createdAt: string;
+};
+
+export async function listTopUps(loanId: number): Promise<LoanTopUpView[]> {
+  return (await apiFetch<LoanTopUpView[]>(`/loans/${loanId}/topups`)) || [];
 }
 
 export type BankPledgeInput = {

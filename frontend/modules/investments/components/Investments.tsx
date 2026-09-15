@@ -73,21 +73,27 @@ export function Investments() {
 
   return (
     <>
-      <div className="page-h" style={smallScreen ? { gap: 9, marginBottom: 10 } : { marginBottom: 12 }}>
+      {/* Header/rule/tab spacing deliberately mirrors Loans.tsx — see the
+        * same note in PersonalLoans.tsx. Keep the three in step. */}
+      <div className="page-h">
         <div><h1>Investments</h1><p>Investor deposits, interest payout schedules and maturity</p></div>
         <div className="sp" />
         <div className="search"><Icon name="search" /><input className="inp" placeholder="Search investment # or investor…" value={q} onChange={(e) => setQ(e.target.value)} /></div>
         {canUpdate && <button className="btn plain" onClick={openPlans}>Manage Plans</button>}
         {canCreate && <button className="btn" onClick={openNewInvestment}><Icon name="plus" /> New Investment</button>}
       </div>
-      <hr className="gold-rule" style={{ margin: "16px 0 14px" }} />
-      <div style={{ marginBottom: 14 }} className="tabs">
+      <hr className="gold-rule" style={{ margin: smallScreen ? "4px 0 6px" : "4px 0 10px" }} />
+      <div style={{ marginTop: 4, marginBottom: 6 }} className="tabs investments-tabs">
         {STATUSES.map((s) => (
           <button key={s} className={s === status ? "on" : ""} onClick={() => setStatus(s)}>{s}</button>
         ))}
       </div>
       {error && <div className="notice" style={{ marginBottom: 14 }}>{error}</div>}
-      <div className="card"><div className="tbl-wrap tbl-scroll"><table className="tbl tbl-center">
+      {/* `tbl-card`, not a bare `.card`: this is a `.tbl-wrap` + `.ft` pair,
+        * the shape that class exists for — without it the footer falls back
+        * to the sticky-overlay behavior and the card doesn't size to its own
+        * rows, which is why this table sat differently to Loans'. */}
+      <div className="card tbl-card"><div className="tbl-wrap tbl-scroll"><table className="tbl tbl-center">
         <thead><tr><th>Investment / Investor</th><th className="num">Principal</th><th>Rate</th><th>Maturity</th><th>Status</th></tr></thead>
         <tbody>
           {loading ? (

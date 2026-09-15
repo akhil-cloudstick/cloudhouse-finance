@@ -2448,8 +2448,8 @@ label.f {
  * inside a media query, so this applies at every screen size, not just
  * the small-screen band the earlier congestion fix targeted. */
 .modal .frow {
-  gap: 18px;
-  margin-bottom: 22px
+  gap: 22px;
+  margin-bottom: 28px
 }
 
 /* SchemeModal.tsx's own field rows, small screens only — a plain CSS media
@@ -2469,8 +2469,8 @@ label.f {
  * alone, regardless of source order. */
 @media (max-width: 1559px), (max-height: 850px) {
   .modal .frow.scheme-frow {
-    margin: 0 0 12px;
-    gap: 12px
+    margin: 0 0 18px;
+    gap: 18px
   }
 }
 
@@ -2821,22 +2821,29 @@ table.tbl {
   display: none
 }
 
-/* Loans.tsx's All/Active/Due Soon/…/Closed status-filter row — the shared
- * `.tabs{overflow-x:auto}` above is by design for tab rows too narrow to
- * fit any screen width and meant to scroll, but this row's 8 buttons kept
- * showing a horizontal scrollbar/scroll gesture even where the row had
- * room to just wrap. Scoped to this row only (`.tabs.loans-cat-tabs`) so
- * every other `.tabs` usage app-wide keeps its normal horizontal-scroll
- * behavior. */
-.tabs.loans-cat-tabs {
-  overflow-x: visible;
-  flex-wrap: wrap;
-}
-
-/* Auctions.tsx's Active Cases/Auction History switch — same symptom as
- * loans-cat-tabs above (the last pill's right edge/shadow getting clipped
- * by `.tabs`'s overflow-x:auto), same fix, scoped to just this row. */
-.tabs.auctions-tabs {
+/* Filter/switch rows that always have room to wrap, opting out of the
+ * shared `.tabs{overflow-x:auto}` above.
+ *
+ * That default is by design for tab rows too narrow to fit any screen width
+ * and genuinely meant to scroll — but a row that fits gains nothing from it
+ * and pays twice: a stray horizontal scrollbar/scroll gesture, and (since
+ * `overflow-x:auto` forces `overflow-y` to compute to `auto` too) the active
+ * pill's drop shadow sheared flat against the row's right and bottom edges.
+ * Making both axes `visible` again restores the shadow and lets the row wrap.
+ *
+ * Scoped per row rather than applied to `.tabs` itself, so a row that really
+ * does need to scroll keeps the default. Add new rows here rather than
+ * copying the declarations again:
+ *   loans-cat-tabs     Loans.tsx          All/Active/Due Soon/…/Closed
+ *   auctions-tabs      Auctions.tsx       Active Cases/Auction History
+ *   pl-freq-tabs       PersonalLoans.tsx  All/Daily/Weekly/Monthly
+ *   investments-tabs   Investments.tsx    status filter
+ *   bank-pledge-tabs   BankPledge.tsx     Pledged/History switch */
+.tabs.loans-cat-tabs,
+.tabs.auctions-tabs,
+.tabs.pl-freq-tabs,
+.tabs.investments-tabs,
+.tabs.bank-pledge-tabs {
   overflow-x: visible;
   flex-wrap: wrap;
 }
@@ -3121,10 +3128,16 @@ table.tbl {
   background: color-mix(in oklab, var(--nav) 55%, transparent);
   backdrop-filter: blur(3px);
   display: none;
+  /* Vertical centering is done with `margin:auto` on `.modal` below, NOT
+   * `align-items:center` here. This container scrolls (`overflow-y:auto`),
+   * and a centered flex item taller than the viewport gets its overflowing
+   * top clipped into unreachable negative scroll space. Auto margins only
+   * absorb *positive* free space — a too-tall modal falls back to
+   * flex-start and stays scrollable from its first field. */
   align-items: flex-start;
   justify-content: center;
   z-index: 80;
-  padding: 6vh 16px 16px;
+  padding: 16px;
   overflow-y: auto;
 }
 
@@ -3141,6 +3154,8 @@ table.tbl {
   box-shadow: 0 30px 80px -20px color-mix(in oklab, var(--nav) 60%, transparent);
   position: relative;
   animation: pop .22s ease;
+  /* Centers the modal in the viewport — see the note on `.modal-bg`. */
+  margin: auto;
 }
 
 .modal.wide {
@@ -3218,10 +3233,17 @@ table.tbl {
   background: linear-gradient(90deg, transparent, var(--brand-mid), transparent);
 }
 
+/* The header carries a bit more height than the footer, so the modal opens
+ * on a title bar with real presence rather than a thin strip above a chunky
+ * button bar. Its vertical padding stays identical to `.modal .ft`'s at
+ * every breakpoint below (keep the two in step there); the extra height
+ * comes from this content-box floor alone — 48px against the 38px the
+ * footer inherits from its buttons' pinned `.btn` height. */
 .modal .hd {
   display: flex;
   align-items: center;
-  padding: 18px 22px 12px;
+  min-height: 48px;
+  padding: 14px 22px;
   border-bottom: 1px solid var(--line)
 }
 
@@ -3245,16 +3267,113 @@ table.tbl {
   color: var(--red)
 }
 
+/* Modal *content* type is a notch smaller than the page's — the header and
+ * footer keep their own sizes. `body` never sets a font-size, so any modal
+ * text without an explicit one (radio/checkbox labels, helper copy, plain
+ * spans and list items) was falling through to the browser's 16px default
+ * and towering over the field labels beside it. 12px lines it up with the
+ * fields instead.
+ *
+ * The rules below are deliberately (0,2,0) specificity and sit ahead
+ * of every media query in this file, so the short-screen blocks further
+ * down — which set their own smaller `.modal .inp` / `.modal .f` sizes —
+ * still win there on source order. Don't "tidy" these into a more specific
+ * selector like `.modal .bd .inp`; that silently outranks those and undoes
+ * the compact sizing on short screens. */
 .modal .bd {
-  padding: 18px 22px
+  padding: 18px 22px;
+  font-size: 12px
 }
 
+.modal .inp {
+  font-size: 12.5px
+}
+
+.modal .notice {
+  font-size: 11.5px
+}
+
+.modal .f {
+  font-size: 10px
+}
+
+.modal .ccheck-hint {
+  font-size: 11.5px
+}
+
+/* Sticky to the bottom of `.modal-bg` (the scroll container), so a modal
+ * taller than the viewport — ReleaseReviewModal with its Record Payment
+ * panel expanded, EditLoanModal with a long ornament list — keeps Cancel/
+ * Save reachable instead of burying them below the fold.
+ *
+ * Deliberately sticky-within-`.modal-bg` rather than making `.modal` a
+ * flex column with an `overflow-y:auto` body: `.bd` must NOT become a
+ * scroll container, because Select's and SearchableSelect's option lists
+ * are `position:absolute` descendants of it (only DatePicker and the
+ * compact SearchableSelect escape via fixed/portal), and every one of them
+ * would get clipped against the modal's edge the moment it opened. Same
+ * pattern as `.tbl-wrap + .ft` for the pages' pagination bars.
+ *
+ * An opaque background is required, not inherited — rows scroll underneath
+ * this bar. */
 .modal .ft {
   padding: 14px 22px;
   border-top: 1px solid var(--line);
   display: flex;
   gap: 10px;
-  justify-content: flex-end
+  justify-content: flex-end;
+  position: sticky;
+  bottom: 0;
+  z-index: 3;
+  background: var(--card);
+  border-radius: 0 0 10px 10px
+}
+
+/* Opt-in: scroll the modal's OWN body instead of the page behind it.
+ *
+ * The default (above) is a page-level scroll with a sticky footer — the whole
+ * .modal grows past the viewport and .modal-bg scrolls it, which is what
+ * every modal carrying a Select/SearchableSelect needs: those option lists
+ * are `position:absolute` descendants of .bd and would clip the instant .bd
+ * became a scroll container.
+ *
+ * A modal whose only popover is a DatePicker (`position:fixed`, re-anchored
+ * on capture-phase scroll — see DatePicker.tsx) has nothing to clip, so it
+ * can opt in by tagging its body `className="bd bd-scroll"`. The modal then
+ * caps at the viewport, header and footer pin to its own frame, and only the
+ * middle moves — the page behind stays put. Used by ReleaseReviewModal,
+ * whose Record Payment panel makes it the tallest of these forms.
+ *
+ * `:has()` on the parent because .modal is rendered by the shared
+ * ModalProvider shell (Modal.tsx) — content components can only put classes
+ * on their own .hd/.bd/.ft, never on the box around them. */
+/* Base: on big screens (viewport height > 850px), ReleaseReviewModal renders
+ * at its original natural height with no inner scroll, centered on the page.
+ * On short screens (<= 850px), the compact query further below caps it at
+ * 500px and engages body scrolling. */
+.modal-bg:has(.bd-scroll) {
+  align-items: center;
+}
+
+.modal:has(> .bd-scroll) {
+  height: auto;
+  max-height: calc(100dvh - 32px);
+  display: flex;
+  flex-direction: column;
+  margin: auto;
+  align-self: center;
+}
+
+/* Neither bar may absorb the shrink */
+.modal:has(> .bd-scroll) > .hd,
+.modal:has(> .bd-scroll) > .ft {
+  flex: 0 0 auto;
+}
+
+.modal > .bd-scroll,
+.modal .bd.bd-scroll {
+  flex: 1 1 auto;
+  overflow-y: visible;
 }
 
 /* ── misc widgets ───────────────────────── */
@@ -4021,17 +4140,19 @@ table.tbl {
     padding-right: 16px
   }
 
-  /* Small-screen modals: .modal-bg's 6vh top padding plus the desktop
-   * hd/bd/ft vertical padding (18/18/14px) left little of the viewport for
-   * the modal's own content on a phone, forcing the whole modal into
-   * .modal-bg's scroll before a user could see more than a field or two.
-   * Trimming both reclaims real height for the content itself instead. */
+  /* Small-screen modals: the desktop hd/bd/ft vertical padding (18/18/14px)
+   * left little of the viewport for the modal's own content on a phone,
+   * forcing the whole modal into .modal-bg's scroll before a user could see
+   * more than a field or two. Trimming it, and the backdrop's own gutter,
+   * reclaims real height for the content itself instead. Kept symmetric so
+   * the modal stays centered rather than riding the top edge. */
   .modal-bg {
-    padding-top: 3vh;
+    padding: 12px;
   }
 
+  /* Matches `.modal .ft`'s 10px below — see the base `.modal .hd` rule. */
   .modal .hd {
-    padding-top: 12px;
+    padding-top: 10px;
     padding-bottom: 10px
   }
 
@@ -4320,20 +4441,16 @@ table.tbl {
 }
 
 /* Verification-checklist items (ReleaseReviewModal's Packet Location/Bank
- * Pledge/Customer Confirmation) stack full-width by default; on narrow
- * modals/phones they switch to a 2-up grid so the list doesn't push the
- * footer out of view. */
+ * Pledge/Customer Confirmation) sit 2-up at every width — the same c2 shape
+ * as the `.frow.c2` field rows above and below them in that modal, so the
+ * checklist reads as part of the form rather than a tall stacked list that
+ * pushed the footer out of view. (This used to be a flex column that only
+ * became a 2-up grid under 560px, i.e. wide screens got the tall layout and
+ * phones got the compact one — backwards.) */
 .ccheck-grid {
-  display: flex;
-  flex-direction: column;
-}
-
-@media (max-width: 560px) {
-  .ccheck-grid {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 4px 12px;
-  }
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px 12px;
 }
 
 /* ── additive small-phone / orientation rules (new requirement) ──
@@ -4405,6 +4522,12 @@ table.tbl {
     border-radius: 8px
   }
 
+  /* Follows `.modal`'s smaller radius above — the sticky footer paints its
+   * own opaque background over the card's bottom corners. */
+  .modal .ft {
+    border-radius: 0 0 8px 8px
+  }
+
   .kv {
     grid-template-columns: 1fr 1fr
   }
@@ -4461,7 +4584,7 @@ table.tbl {
   }
 
   .modal-bg {
-    padding: 3vh 12px 12px
+    padding: 12px
   }
 }
 
@@ -4470,16 +4593,29 @@ table.tbl {
   .modal-bg {
     padding: 8px 12px;
   }
-  .modal {
-    max-height: calc(100vh - 16px);
-  }
+  /* No `max-height` cap here any more. Capping the card's box while nothing
+   * inside it scrolls doesn't shorten the modal — the content simply paints
+   * past the card's bottom edge, which is how ReleaseReviewModal's footer
+   * ended up rendering outside the white panel once its Record Payment
+   * panel expanded. `.modal-bg` (overflow-y:auto) is the scroll container,
+   * and `.modal .ft` is sticky, so a modal taller than the viewport now
+   * scrolls with its action buttons pinned in view. */
+  /* Matches `.modal .ft`'s 7px below — see the base `.modal .hd` rule. The
+   * 48px floor there keeps the title uncramped despite the tight padding. */
   .modal .hd {
-    padding: 8px 16px;
+    padding: 7px 16px;
   }
+  /* 18px, not the 15px this used to be: at 15 the title sat *below* the
+   * close button's own 22px glyph, so the × read as the loudest thing in
+   * the header and the modal looked untitled. Compact, but still clearly
+   * the heading — the close button is stepped down to match. */
   .modal .hd h3 {
-    font-size: 15px;
+    font-size: 18px;
   }
-  .modal .bd {
+  .modal .hd .x {
+    font-size: 19px;
+  }
+  .modal .bd:not(.bd-scroll) {
     padding: 8px 16px;
     gap: 4px;
     /* visible, not hidden: hidden stopped .bd's own scrollbar on short
@@ -4494,12 +4630,47 @@ table.tbl {
      */
     overflow-y: visible;
   }
+  /* ReleaseReviewModal only: when viewport is <= 850px, cap at 500px, scroll inner body, page-centered */
+  .modal-bg:has(.bd-scroll) {
+    align-items: center;
+    overflow-y: hidden;
+  }
+  .modal:has(> .bd-scroll) {
+    --modal-h: 500px;
+    height: min(var(--modal-h), calc(100dvh - 32px));
+    max-height: min(var(--modal-h), calc(100dvh - 32px));
+    display: flex;
+    flex-direction: column;
+    margin: auto;
+    align-self: center;
+    overflow: hidden;
+  }
+  .modal:has(> .bd-scroll) > .hd,
+  .modal:has(> .bd-scroll) > .ft {
+    flex: 0 0 auto;
+  }
+  .modal > .bd-scroll,
+  .modal .bd.bd-scroll {
+    flex: 1 1 auto;
+    min-height: 0;
+    padding: 8px 16px;
+    overflow-y: auto !important;
+    overflow-x: hidden;
+    overscroll-behavior: contain;
+    scrollbar-width: thin;
+    scrollbar-color: var(--line) transparent;
+  }
   .modal .ft {
     padding: 7px 16px;
   }
+  /* Compact, but never cramped: rows on a short screen still keep a clearly
+   * visible gap between them. The earlier 11px/10px pair squeezed every
+   * modal-s rows into a single undifferentiated block on the ~800px-tall
+   * laptop viewports this query targets. A too-tall modal scrolls
+   * (`.modal-bg{overflow-y:auto}`) rather than losing its row rhythm. */
   .modal .frow {
-    margin: 8px 0;
-    gap: 10px;
+    margin: 16px 0;
+    gap: 16px;
   }
   .modal .f {
     margin: 0 0 2px;

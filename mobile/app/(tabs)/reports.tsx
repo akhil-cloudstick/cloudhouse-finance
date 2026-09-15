@@ -34,7 +34,6 @@ import {
 } from "../../src/api/reports";
 
 import { fmt } from "../../src/lib/format";
-import { tableCardStyle } from "../../src/components/ExpandableTable";
 import { BRAND } from "../../src/config/brand";
 
 const fmtW = (n: number) => `${(n ?? 0).toFixed(2)}g`;

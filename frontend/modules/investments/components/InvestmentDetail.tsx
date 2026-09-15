@@ -9,12 +9,12 @@ import { StatusChip } from "@/common/components/ui/StatusChip";
 import {
   getInvestment,
   getInvestmentSchedulePage,
-  markPayoutPaid,
   type BackendInvestment,
   type BackendInvestmentPayout,
 } from "@/modules/investments/services/investmentService";
 import { MaturityModalContent } from "@/modules/investments/components/MaturityModal";
 import { InvestorStatementModalContent } from "@/modules/investments/components/InvestorStatementModal";
+import { MarkPayoutPaidModalContent } from "@/common/components/modals/MarkPayoutPaidModal";
 import { useModal } from "@/common/components/Modal";
 
 /* Same click-paginated table pattern as personal-loans/components/
@@ -66,7 +66,6 @@ export function InvestmentDetail({ id }: { id?: string }) {
   const [investment, setInvestment] = useState<BackendInvestment | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
-  const [payingId, setPayingId] = useState<number | null>(null);
 
   const numericId = Number(id);
 
@@ -93,19 +92,19 @@ export function InvestmentDetail({ id }: { id?: string }) {
   if (loading) return <div className="notice">Loading investment…</div>;
   if (error || !investment) return <div className="notice">{error || "Investment not found."}</div>;
 
-  async function handleMarkPaid(payout: BackendInvestmentPayout) {
-    if (!investment || payingId) return;
-    setPayingId(payout.id);
-    try {
-      await markPayoutPaid(investment.id, payout.id);
-      toast(`${payout.isPrincipalReturn ? "Principal return" : "Interest payout"} of ${fmt(payout.amount)} recorded as paid`);
-      await refreshInvestment();
-      schedule.reload();
-    } catch (e) {
-      setError(e instanceof ApiError ? e.message : "Could not record this payout.");
-    } finally {
-      setPayingId(null);
-    }
+  function openMarkPaid(payout: BackendInvestmentPayout) {
+    if (!investment) return;
+    openModal(
+      <MarkPayoutPaidModalContent
+        investmentId={investment.id}
+        payout={payout}
+        onSaved={async () => {
+          toast(`${payout.isPrincipalReturn ? "Principal return" : "Interest payout"} of ${fmt(payout.amount)} recorded as paid`);
+          await refreshInvestment();
+          schedule.reload();
+        }}
+      />
+    );
   }
 
   function openMaturity() {
@@ -169,9 +168,7 @@ export function InvestmentDetail({ id }: { id?: string }) {
                 <td><StatusChip status={p.status} /></td>
                 <td>
                   {canUpdate && p.status === "Pending" && (
-                    <button className="btn plain sm" disabled={payingId === p.id} onClick={() => handleMarkPaid(p)}>
-                      {payingId === p.id ? "Recording…" : "Mark Paid"}
-                    </button>
+                    <button className="btn plain sm" onClick={() => openMarkPaid(p)}>Mark Paid</button>
                   )}
                 </td>
               </tr>

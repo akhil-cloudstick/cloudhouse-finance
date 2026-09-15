@@ -378,6 +378,15 @@ type approvalRequest struct {
 	Stage   string `json:"stage" binding:"required"`
 	Action  string `json:"action" binding:"required"`
 	Remarks string `json:"remarks"`
+
+	// CashAmount/UpiAmount/BankTransferAmount/ChequeAmount — only meaningful
+	// (and only validated) when this call is the one that clears
+	// FinalSanction and triggers disbursement; see ApprovalInput's doc
+	// comment.
+	CashAmount         float64 `json:"cashAmount"`
+	UpiAmount          float64 `json:"upiAmount"`
+	BankTransferAmount float64 `json:"bankTransferAmount"`
+	ChequeAmount       float64 `json:"chequeAmount"`
 }
 
 func (h *Handler) Approve(c *gin.Context) {
@@ -397,12 +406,16 @@ func (h *Handler) Approve(c *gin.Context) {
 	// self-approve any stage regardless of who they actually are.
 	actorEmployeeID, actorRole, actorRoleID := platform.ActorFromContext(c)
 	rec, err := h.svc.Approve(ctx, loanID, ApprovalInput{
-		Stage:           req.Stage,
-		Action:          req.Action,
-		ActorEmployeeID: actorEmployeeID,
-		ActorRole:       actorRole,
-		ActorRoleID:     actorRoleID,
-		Remarks:         req.Remarks,
+		Stage:              req.Stage,
+		Action:             req.Action,
+		ActorEmployeeID:    actorEmployeeID,
+		ActorRole:          actorRole,
+		ActorRoleID:        actorRoleID,
+		Remarks:            req.Remarks,
+		CashAmount:         req.CashAmount,
+		UpiAmount:          req.UpiAmount,
+		BankTransferAmount: req.BankTransferAmount,
+		ChequeAmount:       req.ChequeAmount,
 	})
 	if err != nil {
 		httpx.FailErr(c, err)
@@ -743,13 +756,16 @@ func (h *Handler) ListRiskAssessment(c *gin.Context) {
 // --- Payments ------------------------------------------------------------
 
 type paymentRequest struct {
-	Amount        float64 `json:"amount" binding:"required"`
-	Type          string  `json:"type" binding:"required"`
-	ProcessingFee float64 `json:"processingFee"`
-	PaidOn        string  `json:"paidOn" binding:"required"`
-	Method        string  `json:"method"`
-	Reference     string  `json:"reference"`
-	Description   string  `json:"description"`
+	Amount             float64 `json:"amount" binding:"required"`
+	Type               string  `json:"type" binding:"required"`
+	ProcessingFee      float64 `json:"processingFee"`
+	PaidOn             string  `json:"paidOn" binding:"required"`
+	CashAmount         float64 `json:"cashAmount"`
+	UpiAmount          float64 `json:"upiAmount"`
+	BankTransferAmount float64 `json:"bankTransferAmount"`
+	ChequeAmount       float64 `json:"chequeAmount"`
+	Reference          string  `json:"reference"`
+	Description        string  `json:"description"`
 	// InterestOverride — see PaymentInput.InterestOverride's own doc
 	// comment. Omitted/null means "use the system-calculated figure",
 	// same as before this field existed.
@@ -800,7 +816,10 @@ func (h *Handler) RecordPayment(c *gin.Context) {
 		ProcessingFee:        req.ProcessingFee,
 		PaidOn:               paidOn,
 		ReceivedByEmployeeID: &actorEmployeeID,
-		Method:               req.Method,
+		CashAmount:           req.CashAmount,
+		UpiAmount:            req.UpiAmount,
+		BankTransferAmount:   req.BankTransferAmount,
+		ChequeAmount:         req.ChequeAmount,
 		Reference:            req.Reference,
 		Description:          req.Description,
 		InterestOverride:     req.InterestOverride,
@@ -810,6 +829,74 @@ func (h *Handler) RecordPayment(c *gin.Context) {
 		return
 	}
 	httpx.Success(c, http.StatusCreated, rec)
+}
+
+type topUpRequest struct {
+	Amount             float64 `json:"amount" binding:"required"`
+	CashAmount         float64 `json:"cashAmount"`
+	UpiAmount          float64 `json:"upiAmount"`
+	BankTransferAmount float64 `json:"bankTransferAmount"`
+	ChequeAmount       float64 `json:"chequeAmount"`
+	// OccurredOn is optional, "YYYY-MM-DD" — defaults to today (matching
+	// RecordMovementInput's convention) when omitted.
+	OccurredOn string `json:"occurredOn"`
+	Reference  string `json:"reference"`
+}
+
+// TopUpLoan lets staff draw additional cash against an already-Active
+// loan's spare eligible value — see Service.TopUpLoan.
+func (h *Handler) TopUpLoan(c *gin.Context) {
+	ctx := platform.RequestContext(c)
+	loanID, err := httpx.IDParam(c, "id")
+	if err != nil {
+		httpx.FailErr(c, err)
+		return
+	}
+	var req topUpRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		httpx.Fail(c, http.StatusBadRequest, "Invalid input")
+		return
+	}
+	var occurredOn time.Time
+	if req.OccurredOn != "" {
+		occurredOn, err = parseDate(req.OccurredOn)
+		if err != nil {
+			httpx.Fail(c, http.StatusBadRequest, "invalid occurredOn: expected YYYY-MM-DD")
+			return
+		}
+	}
+	actorEmployeeID, _, _ := platform.ActorFromContext(c)
+	rec, err := h.svc.TopUpLoan(ctx, loanID, TopUpInput{
+		Amount:               req.Amount,
+		CashAmount:           req.CashAmount,
+		UpiAmount:            req.UpiAmount,
+		BankTransferAmount:   req.BankTransferAmount,
+		ChequeAmount:         req.ChequeAmount,
+		OccurredOn:           occurredOn,
+		Reference:            req.Reference,
+		ReceivedByEmployeeID: actorEmployeeID,
+	})
+	if err != nil {
+		httpx.FailErr(c, err)
+		return
+	}
+	httpx.Success(c, http.StatusOK, rec)
+}
+
+// ListTopUps returns a loan's full top-up history, newest first.
+func (h *Handler) ListTopUps(c *gin.Context) {
+	ctx := platform.RequestContext(c)
+	loanID, err := httpx.IDParam(c, "id")
+	if err != nil {
+		httpx.FailErr(c, err)
+		return
+	}
+	rec, err := h.svc.ListTopUps(ctx, loanID)
+	if err != nil {
+		httpx.FailErr(c, err)
+		return
+	}
+	httpx.Success(c, http.StatusOK, rec)
 }
 
 // --- Auction (7-stage workflow) ---------------------------------------------

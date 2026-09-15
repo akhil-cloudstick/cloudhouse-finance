@@ -13,6 +13,11 @@ export type CreatePersonalLoanInput = {
   interestValue: number;
   frequency: Frequency;
   tenureCount: number;
+  /* When true, disburses the full principal now with no interest withheld
+   * upfront — the customer owes principal + the full interest back instead
+   * of today's default (interest withheld upfront, principal-only
+   * repayment). Defaults to false server-side when omitted. */
+  fullDisbursement?: boolean;
 };
 
 /* Mirrors backend/internal/personalloan/model_loan.go's PersonalLoan
@@ -28,6 +33,7 @@ export type BackendPersonalLoan = {
   interestValue: number;
   interestAmount: number;
   disbursedAmount: number;
+  fullDisbursement: boolean;
   frequency: Frequency;
   tenureCount: number;
   installmentAmount: number;
@@ -62,7 +68,13 @@ export type BackendPersonalLoanPayment = {
   amount: number;
   paidOn: string;
   receivedByEmployeeId: number | null;
+  /* Derived/display-only — the single mode's name when exactly one split
+   * amount below is non-zero, "Split" when more than one is. */
   method: string;
+  cashAmount: number;
+  upiAmount: number;
+  bankTransferAmount: number;
+  chequeAmount: number;
   reference: string;
   description: string;
   runningBalance: number;
@@ -124,7 +136,15 @@ export function listPersonalLoanPaymentsPage(id: number, page: number): Promise<
 
 export function recordPersonalLoanPayment(
   id: number,
-  input: { amount: number; method: string; reference?: string; description?: string }
+  input: {
+    amount: number;
+    cashAmount?: number;
+    upiAmount?: number;
+    bankTransferAmount?: number;
+    chequeAmount?: number;
+    reference?: string;
+    description?: string;
+  }
 ): Promise<BackendPersonalLoan> {
   return apiFetch<BackendPersonalLoan>(`/personal-loans/${id}/payments`, { method: "POST", body: JSON.stringify(input) });
 }

@@ -77,6 +77,10 @@ export type BackendInvestmentPayout = {
   sequenceNo: number;
   dueDate: string;
   amount: number;
+  cashAmount: number;
+  upiAmount: number;
+  bankTransferAmount: number;
+  chequeAmount: number;
   isPrincipalReturn: boolean;
   status: PayoutStatus;
   paidAt: string | null;
@@ -133,8 +137,15 @@ export function getInvestmentSchedulePage(id: number, page: number): Promise<{ i
   return apiFetch<{ items: BackendInvestmentPayout[]; hasMore: boolean }>(`/investments/${id}/schedule?${params}`);
 }
 
-export function markPayoutPaid(investmentId: number, payoutId: number): Promise<BackendInvestmentPayout> {
-  return apiFetch<BackendInvestmentPayout>(`/investments/${investmentId}/payouts/${payoutId}/pay`, { method: "POST" });
+export function markPayoutPaid(
+  investmentId: number,
+  payoutId: number,
+  split: { cashAmount: number; upiAmount: number; bankTransferAmount: number; chequeAmount: number }
+): Promise<BackendInvestmentPayout> {
+  return apiFetch<BackendInvestmentPayout>(`/investments/${investmentId}/payouts/${payoutId}/pay`, {
+    method: "POST",
+    body: JSON.stringify(split),
+  });
 }
 
 export type MaturityAction = "Close" | "Renew";

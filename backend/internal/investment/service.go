@@ -43,7 +43,13 @@ const epsilon = 0.01
 // pattern so this package doesn't import internal/cash directly.
 type CashRecorder interface {
 	RecordInvestmentDepositCashIn(ctx context.Context, investmentID uint, investmentNumber string, amount float64, branchID uint, occurredOn time.Time) (movementID uint, err error)
-	RecordInvestmentPayoutCashOut(ctx context.Context, investmentID uint, investmentNumber string, amount float64, branchID uint, occurredOn time.Time, payoutType string) (movementID uint, err error)
+
+	// cashAmount/upiAmount/bankTransferAmount/chequeAmount split amount
+	// across the mode CashMovement rows actually written (see
+	// cash.MovementService.recordSplitCashMovement) — amount stays the
+	// authoritative total. customerID (0 = none) populates CashMovement.
+	// PartyCustomerID for the Party Transactions ledger.
+	RecordInvestmentPayoutCashOut(ctx context.Context, investmentID uint, investmentNumber string, amount, cashAmount, upiAmount, bankTransferAmount, chequeAmount float64, branchID uint, occurredOn time.Time, payoutType string, customerID uint) (movementID uint, err error)
 }
 
 // CommsRecorder logs a notification/comms-history entry for an investment
@@ -402,12 +408,23 @@ func (s *Service) GetSchedule(ctx context.Context, investmentID uint, branchID *
 	return recs, hasMore, nil
 }
 
+// MarkPayoutPaidInput carries the split-mode breakdown of a payout being
+// paid out — CashAmount/UpiAmount/BankTransferAmount/ChequeAmount (NOT NULL
+// DEFAULT 0) must sum to the payout's own Amount within
+// platform.RoundMoney's tolerance (see platform.ValidateSplit).
+type MarkPayoutPaidInput struct {
+	CashAmount         float64
+	UpiAmount          float64
+	BankTransferAmount float64
+	ChequeAmount       float64
+}
+
 // MarkPayoutPaid marks one due payout as Paid: row-locks the payout and its
 // parent investment, validates state, records the cash-out, updates the
 // investment's running TotalInterestPaid, and best-effort notifies the
 // investor — mirrors personalloan.Service.RecordPayment's transactional
 // shape but the cash direction is reversed (payout = cash OUT).
-func (s *Service) MarkPayoutPaid(ctx context.Context, investmentID, payoutID uint, branchID *uint, employeeID uint) (*InvestmentPayout, error) {
+func (s *Service) MarkPayoutPaid(ctx context.Context, investmentID, payoutID uint, branchID *uint, employeeID uint, in MarkPayoutPaidInput) (*InvestmentPayout, error) {
 	inv, err := s.Get(ctx, investmentID, branchID)
 	if err != nil {
 		return nil, err
@@ -435,11 +452,18 @@ func (s *Service) MarkPayoutPaid(ctx context.Context, investmentID, payoutID uin
 		if p.Status == PayoutStatusPaid {
 			return ErrPayoutAlreadyPaid
 		}
+		if err := platform.ValidateSplit(in.CashAmount, in.UpiAmount, in.BankTransferAmount, in.ChequeAmount, p.Amount); err != nil {
+			return err
+		}
 
 		now := time.Now()
 		p.Status = PayoutStatusPaid
 		p.PaidAt = &now
 		p.PaidByEmployeeID = &employeeID
+		p.CashAmount = in.CashAmount
+		p.UpiAmount = in.UpiAmount
+		p.BankTransferAmount = in.BankTransferAmount
+		p.ChequeAmount = in.ChequeAmount
 		if err := s.repo.UpdatePayout(ctx, tx, p); err != nil {
 			return err
 		}
@@ -462,7 +486,7 @@ func (s *Service) MarkPayoutPaid(ctx context.Context, investmentID, payoutID uin
 		payoutType = "Principal return"
 	}
 	if s.cashRecorder != nil {
-		movementID, err := s.cashRecorder.RecordInvestmentPayoutCashOut(ctx, inv.ID, inv.InvestmentNumber, payout.Amount, inv.BranchID, *payout.PaidAt, payoutType)
+		movementID, err := s.cashRecorder.RecordInvestmentPayoutCashOut(ctx, inv.ID, inv.InvestmentNumber, payout.Amount, payout.CashAmount, payout.UpiAmount, payout.BankTransferAmount, payout.ChequeAmount, inv.BranchID, *payout.PaidAt, payoutType, inv.CustomerID)
 		if err != nil {
 			log.Printf("cash-out movement (%s) failed for investment %d: %v", payoutType, inv.ID, err)
 		} else {

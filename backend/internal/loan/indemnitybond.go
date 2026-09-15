@@ -771,9 +771,13 @@ func renderBondHTML(data BondData, lang string) (string, error) {
 // tiny default browser font otherwise). Kept as their own small templates
 // (not reusing bondPageStyle's CSS) since this is a completely different
 // rendering pass from the document body.
+//
+// The header deliberately renders NOTHING. The empty div is kept rather
+// than the template removed because Chrome substitutes its own default
+// header (date + document title) whenever it is handed an empty header
+// template string, so an "empty" header has to be an empty element.
 const bondHeaderTemplate = `
 <div style="font-size:9px;width:100%;text-align:center;color:#8a6d1f;font-family:Arial,sans-serif;padding-top:6px">
-Ambika Gold Finance — Agreement of Pledge of Movable
 </div>`
 
 const bondFooterTemplate = `

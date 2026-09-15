@@ -5,12 +5,11 @@ import { useModal } from "@/common/components/Modal";
 import { useToast } from "@/common/components/Toast";
 import { Icon } from "@/common/components/Icon";
 import { Select } from "@/common/components/ui/Select";
+import { SplitPaymentInput, ZERO_SPLIT, type SplitAmounts } from "@/common/components/ui/SplitPaymentInput";
 import { fmt } from "@/common/utils/format";
 import { recordPayment, getLoan, type LoanView } from "@/modules/loans/services/loanService";
 import { ApiError } from "@/common/services/httpClient";
 import { useIsSmallScreen } from "@/common/utils/responsive";
-
-const METHODS = ["Cash", "UPI", "Bank Transfer", "Cheque"];
 
 /* What the Amount is allowed to pay off. Every mode clears any outstanding
  * processing fee first — a fee is a real charge, not something staff can
@@ -147,7 +146,8 @@ export function PaymentModalContent({ loan: initialLoan, onSaved }: { loan: Loan
   const [mode, setMode] = useState(ALLOCATION_MODES[0].value);
   const [fee, setFee] = useState("");
   const [date, setDate] = useState(today);
-  const [method, setMethod] = useState(METHODS[0]);
+  const [split, setSplit] = useState<SplitAmounts>(ZERO_SPLIT);
+  const [remaining, setRemaining] = useState(0);
   const [reference, setReference] = useState("");
   const [description, setDescription] = useState("");
   const [err, setErr] = useState("");
@@ -159,6 +159,7 @@ export function PaymentModalContent({ loan: initialLoan, onSaved }: { loan: Loan
   const previewAmount = +amt || 0;
   const previewLoan = { ...loan, outstandingProcessingFee: loan.outstandingProcessingFee + (+fee || 0) };
   const alloc = previewAllocation(previewLoan, mode, previewAmount);
+  const splitBalanced = Math.abs(remaining) < 0.01;
 
   async function save() {
     const amount = +amt;
@@ -168,6 +169,7 @@ export function PaymentModalContent({ loan: initialLoan, onSaved }: { loan: Loan
     const interestOverride = interest.trim() ? +interest : undefined;
     if (interestOverride != null && interestOverride < 0) { setErr("Interest cannot be negative."); return; }
     if (!date) { setErr("Please select the payment date."); return; }
+    if (!splitBalanced) { setErr("The payment breakdown must add up to the amount."); return; }
     setSaving(true);
     try {
       // The receiving employee is derived server-side from the logged-in
@@ -175,7 +177,10 @@ export function PaymentModalContent({ loan: initialLoan, onSaved }: { loan: Loan
       // PaymentInput doc comment).
       await recordPayment(loan.numericId, {
         amount, type: mode, processingFee: processingFee || undefined, paidOn: date,
-        method,
+        cashAmount: split.cashAmount,
+        upiAmount: split.upiAmount,
+        bankTransferAmount: split.bankTransferAmount,
+        chequeAmount: split.chequeAmount,
         reference: reference.trim() || undefined,
         description: description.trim() || undefined,
         interestOverride,
@@ -214,11 +219,9 @@ export function PaymentModalContent({ loan: initialLoan, onSaved }: { loan: Loan
               </div>
               <div><label className="f">Amount (₹) *</label><input className="inp" type="number" min={1} placeholder="e.g. 5000" value={amt} onChange={(e) => setAmt(e.target.value)} /></div>
             </div>
-            <div className="frow c2">
-              <div><label className="f">Payment Date *</label><input className="inp" type="date" value={date} onChange={(e) => setDate(e.target.value)} /></div>
-              <div><label className="f">Payment Method</label>
-                <Select options={METHODS.map((m) => ({ value: m, label: m }))} value={method} onChange={setMethod} />
-              </div>
+            <div className="frow"><div><label className="f">Payment Date *</label><input className="inp" type="date" value={date} onChange={(e) => setDate(e.target.value)} /></div></div>
+            <div className="frow">
+              <SplitPaymentInput totalAmount={previewAmount} onChange={(s, r) => { setSplit(s); setRemaining(r); }} />
             </div>
             <div className="frow c2">
               <div><label className="f">Reference No.</label><input className="inp" placeholder="e.g. UPI txn id, cheque no." value={reference} onChange={(e) => setReference(e.target.value)} /></div>
@@ -249,23 +252,23 @@ export function PaymentModalContent({ loan: initialLoan, onSaved }: { loan: Loan
               <div><label className="f">Amount (₹) *</label><input className="inp" type="number" min={1} placeholder="e.g. 5000" value={amt} onChange={(e) => setAmt(e.target.value)} /></div>
               <div><label className="f">Payment Date *</label><input className="inp" type="date" value={date} onChange={(e) => setDate(e.target.value)} /></div>
             </div>
+            <div className="frow">
+              <SplitPaymentInput totalAmount={previewAmount} onChange={(s, r) => { setSplit(s); setRemaining(r); }} />
+            </div>
             <div className="frow c2">
-              <div><label className="f">Payment Method</label>
-                <Select options={METHODS.map((m) => ({ value: m, label: m }))} value={method} onChange={setMethod} />
-              </div>
               <div><label className="f">Interest (₹)</label>
                 <input className="inp" type="number" min={0} value={interest} onChange={(e) => setInterest(e.target.value)} />
               </div>
+              <div><label className="f">Reference No.</label><input className="inp" placeholder="e.g. UPI txn id, cheque no." value={reference} onChange={(e) => setReference(e.target.value)} /></div>
             </div>
             <div className="frow c2">
-              <div><label className="f">Reference No.</label><input className="inp" placeholder="e.g. UPI txn id, cheque no." value={reference} onChange={(e) => setReference(e.target.value)} /></div>
               <div><label className="f">Additional Charges (₹)</label>
                 <input className="inp" type="number" min={0} placeholder="optional — e.g. late fee, documentation charge" value={fee} onChange={(e) => setFee(e.target.value)} />
               </div>
+              <div><label className="f">Description</label>
+                <input className="inp" placeholder="Optional note for the ledger" value={description} onChange={(e) => setDescription(e.target.value)} />
+              </div>
             </div>
-            <div className="frow"><div><label className="f">Description</label>
-              <input className="inp" placeholder="Optional note for the ledger" value={description} onChange={(e) => setDescription(e.target.value)} />
-            </div></div>
           </>
         )}
         {previewAmount > 0 && (
@@ -300,7 +303,7 @@ export function PaymentModalContent({ loan: initialLoan, onSaved }: { loan: Loan
       </div>
       <div className="ft">
         <button className="btn ghost" onClick={closeModal}>Cancel</button>
-        <button className="btn" onClick={save} disabled={saving}><Icon name="check" /> {saving ? "Recording…" : "Record Payment"}</button>
+        <button className="btn" onClick={save} disabled={saving || !splitBalanced}><Icon name="check" /> {saving ? "Recording…" : "Record Payment"}</button>
       </div>
     </>
   );

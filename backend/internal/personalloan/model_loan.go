@@ -77,8 +77,21 @@ type PersonalLoan struct {
 
 	// DisbursedAmount = Principal - InterestAmount (or, for a renewal,
 	// Principal - InterestAmount - rollover from the old loan) — the actual
-	// cash handed to the customer.
+	// cash handed to the customer. When FullDisbursement is true, interest is
+	// not withheld upfront: DisbursedAmount = Principal instead, and the
+	// customer's repayment obligation (PrincipalAmount, for schedule/
+	// OutstandingAmount purposes below) is Principal + InterestAmount.
 	DisbursedAmount float64 `json:"disbursedAmount" gorm:"not null;type:numeric(16,2)"`
+
+	// FullDisbursement, when true, means the full principal was handed to the
+	// customer with no interest withheld upfront — the customer owes
+	// principal + the full interest back instead of today's default
+	// (interest withheld upfront, customer repays principal only). Persisted
+	// (not just a creation-time input) so the loan detail page can always
+	// show the right note without deriving it ambiguously from
+	// DisbursedAmount (which would be indistinguishable from the default
+	// path whenever InterestAmount is 0).
+	FullDisbursement bool `json:"fullDisbursement" gorm:"not null;default:false"`
 
 	Frequency         string  `json:"frequency" gorm:"not null;size:10"`
 	TenureCount       int     `json:"tenureCount" gorm:"not null"`

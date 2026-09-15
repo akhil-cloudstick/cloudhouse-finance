@@ -14,6 +14,8 @@ import { rupeesInWords } from "@/common/utils/numberToWords";
 import {
   getLoanByNumber,
   approveLoan,
+  listTopUps,
+  type LoanTopUpView,
   releaseBankPledge,
   completeRelease,
   SANCTION_STAGES,
@@ -43,6 +45,8 @@ import { ConfirmModalContent } from "@/common/components/modals/ConfirmModal";
 import { EsignLanguageModalContent, type EsignDeliverBy } from "@/common/components/modals/EsignLanguageModal";
 import { RequestExtensionModalContent, RequestReleaseModalContent } from "@/common/components/modals/RequestExtensionModal";
 import { EditLoanModalContent } from "@/common/components/modals/EditLoanModal";
+import { DisburseLoanModalContent } from "@/common/components/modals/DisburseLoanModal";
+import { TopUpLoanModalContent } from "@/common/components/modals/TopUpLoanModal";
 
 /* One row of the "Documents" dropdown below — either a click action
  * (onClick, e.g. printing something in-browser) or a plain link (href,
@@ -139,6 +143,7 @@ export function LoanDetail({ id }: { id?: string }) {
   const canHardDeleteLoans = can("Loan_Management", "can_hard_delete_loan");
 
   const [loan, setLoan] = useState<LoanView | null>(null);
+  const [topUps, setTopUps] = useState<LoanTopUpView[]>([]);
   const [error, setError] = useState("");
   const [approving, setApproving] = useState(false);
   const [releasing, setReleasing] = useState(false);
@@ -214,6 +219,14 @@ export function LoanDetail({ id }: { id?: string }) {
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
+
+  // Top-up history — a small, separate fetch (LoanView itself carries
+  // ornaments/payments but not top-ups) refreshed whenever the loan's own
+  // numbers change, e.g. right after a top-up.
+  useEffect(() => {
+    if (!loan) return;
+    listTopUps(loan.numericId).then(setTopUps).catch(() => setTopUps([]));
+  }, [loan?.numericId, loan?.outstanding]);
 
   // The viewer who clicks Approve/Reject/Verify sees their own change
   // immediately (doApprove below calls setLoan(updated) directly) — this
@@ -312,10 +325,29 @@ export function LoanDetail({ id }: { id?: string }) {
     </button>
   ) : null;
 
+  // The FinalSanction stage's Approve action is also the disbursement
+  // moment (Service.Approve's disbursing branch) — collect the split-mode
+  // breakdown via a modal instead of the earlier stages' plain one-click
+  // Approve/Verify, which move no cash.
+  function onApproveClick() {
+    if (!pendingStage) return;
+    if (pendingStage === "FinalSanction") {
+      openModal(
+        <DisburseLoanModalContent
+          loan={l}
+          stage={pendingStage}
+          onSaved={(updated) => { setLoan(updated); refreshLoans(); toast("Approved and disbursed"); }}
+        />
+      );
+      return;
+    }
+    doApprove(pendingStage, isVerifyStage ? "Verified" : "Approved");
+  }
+
   const approvalButtons = pendingStage ? (
     canActOnStage ? (
       <>
-        <button className="btn" disabled={approving} onClick={() => doApprove(pendingStage, isVerifyStage ? "Verified" : "Approved")}>
+        <button className="btn" disabled={approving} onClick={onApproveClick}>
           <Icon name="check" /> {isVerifyStage ? "Verify" : "Approve"}
         </button>
         <button className="btn danger" disabled={approving} onClick={() => doApprove(pendingStage, "Rejected")}>
@@ -821,6 +853,11 @@ export function LoanDetail({ id }: { id?: string }) {
                     <Icon name="edit" /><span className="tx">Edit Loan</span>
                   </a>
                 )}
+                {l.status === "Active" && canUpdateLoans && (
+                  <a href="#" title="Top Up Loan" onClick={(e) => { e.preventDefault(); setLoanActionsMenuOpen(false); openModal(<TopUpLoanModalContent loan={l} onSaved={load} />); }}>
+                    <Icon name="coin" /><span className="tx">Top Up</span>
+                  </a>
+                )}
                 {/* Deliberately the ONLY delete action offered here — there
                  * is no separate "soft delete" alternative next to it, by
                  * explicit product decision. Gated by its own permission
@@ -1091,6 +1128,33 @@ export function LoanDetail({ id }: { id?: string }) {
             </table></div>
             {/* <div className="ft">Running balance = outstanding principal + outstanding interest + outstanding penal interest, immediately after this entry</div> */}
             </div>
+
+          {topUps.length > 0 && (
+            <div className="card"><div className="hd"><h3>Top-Up History</h3></div>
+              <div className="tbl-wrap"><table className="tbl">
+                <thead><tr><th>Date</th><th className="num">Amount</th><th>Mode</th><th>Reference</th><th className="num">Eligible at Top-Up</th></tr></thead>
+                <tbody>
+                  {topUps.map((t) => {
+                    const modeParts = [
+                      t.cashAmount > 0 && `Cash ${fmt(t.cashAmount)}`,
+                      t.upiAmount > 0 && `UPI ${fmt(t.upiAmount)}`,
+                      t.bankTransferAmount > 0 && `Bank Transfer ${fmt(t.bankTransferAmount)}`,
+                      t.chequeAmount > 0 && `Cheque ${fmt(t.chequeAmount)}`,
+                    ].filter(Boolean).join(" · ");
+                    return (
+                      <tr key={t.id}>
+                        <td>{t.occurredOn.slice(0, 10)}</td>
+                        <td className="num" style={{ color: "var(--green)" }}>+{fmt(t.amount)}</td>
+                        <td>{modeParts || "—"}</td>
+                        <td>{t.reference || "—"}</td>
+                        <td className="num">{fmt(t.eligibleAmountAtTopUp)}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table></div>
+            </div>
+          )}
         </div>
       </div>
     </>

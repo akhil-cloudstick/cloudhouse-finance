@@ -2,6 +2,7 @@ package loan
 
 import (
 	"context"
+	"errors"
 	"time"
 
 	"gorm.io/gorm"
@@ -41,6 +42,37 @@ func (r *Repository) Create(ctx context.Context, l *Loan) error {
 
 func (r *Repository) Update(ctx context.Context, l *Loan) error {
 	return r.db.WithContext(ctx).Save(l).Error
+}
+
+// LockByID is FindByID's row-locking counterpart, for use inside a
+// db.Transaction by writers that must serialize against concurrent changes
+// to the same loan (e.g. Service.TopUpLoan) before reading a balance they're
+// about to mutate — mirrors personalloan.Repository.LockByID /
+// investment.Repository.LockByID. Child collections are deliberately not
+// preloaded, matching AuctionRepository.FindActiveByLoanIDForUpdate's own
+// note: FOR UPDATE applies to a single-table query.
+func (r *Repository) LockByID(ctx context.Context, tx *gorm.DB, id uint) (*Loan, error) {
+	var l Loan
+	if err := tx.WithContext(ctx).Clauses(clause.Locking{Strength: "UPDATE"}).First(&l, id).Error; err != nil {
+		return nil, err
+	}
+	return &l, nil
+}
+
+// UpdateTx is Update's transactional counterpart, for use after LockByID
+// within the same db.Transaction — mirrors AuctionRepository.UpdateTx. tx
+// may be nil to write outside a transaction, same as AuctionRepository's.
+func (r *Repository) UpdateTx(ctx context.Context, tx *gorm.DB, l *Loan) error {
+	return r.dbOr(ctx, tx).Save(l).Error
+}
+
+// dbOr returns tx when the caller is inside a transaction, else the
+// repository's own handle — mirrors AuctionRepository.dbOr.
+func (r *Repository) dbOr(ctx context.Context, tx *gorm.DB) *gorm.DB {
+	if tx != nil {
+		return tx
+	}
+	return r.db.WithContext(ctx)
 }
 
 func (r *Repository) FindByID(ctx context.Context, id uint) (*Loan, error) {
@@ -352,6 +384,22 @@ func (r *PaymentRepository) Create(ctx context.Context, p *LoanPayment) error {
 	return r.db.WithContext(ctx).Create(p).Error
 }
 
+// CreateTx is Create's transactional counterpart, for use inside a
+// db.Transaction alongside Repository.LockByID/UpdateTx (e.g.
+// Service.RecordPayment, Service.TopUpLoan).
+func (r *PaymentRepository) CreateTx(ctx context.Context, tx *gorm.DB, p *LoanPayment) error {
+	return r.dbOr(ctx, tx).Create(p).Error
+}
+
+// dbOr returns tx when the caller is inside a transaction, else the
+// repository's own handle — mirrors Repository.dbOr.
+func (r *PaymentRepository) dbOr(ctx context.Context, tx *gorm.DB) *gorm.DB {
+	if tx != nil {
+		return tx
+	}
+	return r.db.WithContext(ctx)
+}
+
 func (r *PaymentRepository) FindByLoanID(ctx context.Context, loanID uint) ([]LoanPayment, error) {
 	var payments []LoanPayment
 	err := r.db.WithContext(ctx).Where("loan_id = ?", loanID).Order("paid_on desc, id desc").Find(&payments).Error
@@ -427,6 +475,21 @@ func (r *PaymentRepository) FindByCustomerIDForProfile(ctx context.Context, cust
 	return rows, total, err
 }
 
+// FindLatestPaidOn returns the loan's most recent LoanPayment.PaidOn, or the
+// zero time if it has no payments yet — see LoanTopUpRepository.
+// FindMostRecentDate's doc comment for why both are checked.
+func (r *PaymentRepository) FindLatestPaidOn(ctx context.Context, loanID uint) (time.Time, error) {
+	var p LoanPayment
+	err := r.db.WithContext(ctx).Where("loan_id = ?", loanID).Order("paid_on desc, id desc").First(&p).Error
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return time.Time{}, nil
+		}
+		return time.Time{}, err
+	}
+	return p.PaidOn, nil
+}
+
 // SumInterestCollected totals the interest + penal-interest portions of
 // every payment recorded with PaidOn within [from, to] (inclusive) —
 // backs the Dashboard's "Interest Collected" KPI (see
@@ -438,6 +501,46 @@ func (r *PaymentRepository) SumInterestCollected(ctx context.Context, from, to t
 		Select("COALESCE(SUM(interest_applied + penal_interest_applied), 0)").
 		Row().Scan(&total)
 	return total, err
+}
+
+// LoanTopUpRepository provides GORM-backed persistence for LoanTopUp rows.
+type LoanTopUpRepository struct {
+	db platform.DB
+}
+
+func NewLoanTopUpRepository(db platform.DB) *LoanTopUpRepository {
+	return &LoanTopUpRepository{db: db}
+}
+
+// CreateTx is the only write this repository exposes — LoanTopUp rows are
+// append-only (Phase 0.5 §6): a correction is a new reversal entry, never an
+// edit of this one. Always called inside the same transaction that locked
+// and updated the parent Loan (Service.TopUpLoan).
+func (r *LoanTopUpRepository) CreateTx(ctx context.Context, tx *gorm.DB, t *LoanTopUp) error {
+	return tx.WithContext(ctx).Create(t).Error
+}
+
+func (r *LoanTopUpRepository) FindByLoanID(ctx context.Context, loanID uint) ([]LoanTopUp, error) {
+	var recs []LoanTopUp
+	err := r.db.WithContext(ctx).Where("loan_id = ?", loanID).Order("occurred_on desc, id desc").Find(&recs).Error
+	return recs, err
+}
+
+// FindMostRecentDate returns the OccurredOn of the loan's latest top-up, or
+// the zero time if it has none yet — feeds the Phase 0.5 backdating check
+// (platform.ValidateOccurredOn), alongside the loan's latest LoanPayment
+// date (see PaymentRepository.FindLatestPaidOn), since either kind of event
+// can be the most recent one on the account.
+func (r *LoanTopUpRepository) FindMostRecentDate(ctx context.Context, loanID uint) (time.Time, error) {
+	var t LoanTopUp
+	err := r.db.WithContext(ctx).Where("loan_id = ?", loanID).Order("occurred_on desc, id desc").First(&t).Error
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return time.Time{}, nil
+		}
+		return time.Time{}, err
+	}
+	return t.OccurredOn, nil
 }
 
 // BankPledgeRepository provides GORM-backed persistence for BankPledgeRecord rows.

@@ -70,9 +70,23 @@ function MovementRow({ m, canUpdate, onToggleLoan }: { m: CashMovementView; canU
           type/loan number in `purpose` (see cash.MovementService.
           RecordLoanPaymentCashIn) — show both, not just source, so those
           rows don't all read as a bare "Collection". */}
-      <td data-label="Source / Purpose">{m.type === "in" ? (m.purpose ? `${m.source} · ${m.purpose}` : m.source) : m.purpose || "—"}</td>
+      <td data-label="Source / Purpose">
+        {m.partyCustomerId ? (
+          <a href="#" onClick={(e) => { e.preventDefault(); location.hash = "party-customer/" + m.partyCustomerId; }}>
+            {m.type === "in" ? (m.purpose ? `${m.source} · ${m.purpose}` : m.source) : m.purpose || "—"}
+          </a>
+        ) : (
+          m.type === "in" ? (m.purpose ? `${m.source} · ${m.purpose}` : m.source) : m.purpose || "—"
+        )}
+      </td>
       <td data-label="Mode">{m.mode || "—"}</td>
-      <td data-label="Bank">{m.bank || "—"}</td>
+      <td data-label="Bank">
+        {m.bankId ? (
+          <a href="#" onClick={(e) => { e.preventDefault(); location.hash = "party-bank/" + m.bankId; }}>{m.bank || "—"}</a>
+        ) : (
+          m.bank || "—"
+        )}
+      </td>
       <td className="num" data-label="Amount" style={{ color: m.type === "in" ? "var(--green)" : "var(--red)" }}>
         {m.type === "in" ? "+" : "−"}{fmt(m.amount)}
       </td>

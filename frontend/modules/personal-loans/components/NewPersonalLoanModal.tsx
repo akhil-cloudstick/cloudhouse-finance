@@ -41,6 +41,9 @@ export function NewPersonalLoanModalContent({ onSaved }: { onSaved: () => void }
   const [interestValue, setInterestValue] = useState("");
   const [frequency, setFrequency] = useState<Frequency>("Daily");
   const [tenureCount, setTenureCount] = useState("");
+  // Default unchecked — today's behavior (interest withheld upfront, customer
+  // repays principal only) is unchanged unless staff opts in.
+  const [fullDisbursement, setFullDisbursement] = useState(false);
   const [err, setErr] = useState("");
   const [saving, setSaving] = useState(false);
   // Toggles this same mounted component over to the inline "+ Add new
@@ -54,8 +57,17 @@ export function NewPersonalLoanModalContent({ onSaved }: { onSaved: () => void }
   const interestValueNum = +interestValue || 0;
   const tenureNum = +tenureCount || 0;
   const interestAmount = principalNum > 0 ? computeInterest(principalNum, interestType, interestValueNum) : 0;
-  const disbursedAmount = Math.round((principalNum - interestAmount) * 100) / 100;
-  const installmentAmount = tenureNum > 0 ? Math.round((principalNum / tenureNum) * 100) / 100 : 0;
+  // Mirrors backend/internal/personalloan/service.go's CreateLoan branch:
+  // unchecked disburses Principal-Interest and the obligation stays
+  // Principal; checked disburses the full Principal and the obligation
+  // becomes Principal+Interest instead.
+  const disbursedAmount = fullDisbursement
+    ? principalNum
+    : Math.round((principalNum - interestAmount) * 100) / 100;
+  const obligation = fullDisbursement
+    ? Math.round((principalNum + interestAmount) * 100) / 100
+    : principalNum;
+  const installmentAmount = tenureNum > 0 ? Math.round((obligation / tenureNum) * 100) / 100 : 0;
 
   async function save() {
     if (!customerId || !customerBranchId) { setErr("Please select a customer."); return; }
@@ -75,6 +87,7 @@ export function NewPersonalLoanModalContent({ onSaved }: { onSaved: () => void }
         interestValue: interestValueNum,
         frequency,
         tenureCount: tenureNum,
+        fullDisbursement,
       });
       toast(`Personal loan created — ${fmt(disbursedAmount)} disbursed to the customer`);
       onSaved();
@@ -152,12 +165,19 @@ export function NewPersonalLoanModalContent({ onSaved }: { onSaved: () => void }
           </div>
         </div></div>
 
+        <div className="frow"><div>
+          <label className="cradio" style={{ fontSize: 13, alignItems: "center" }}>
+            <input type="checkbox" checked={fullDisbursement} onChange={(e) => setFullDisbursement(e.target.checked)} />
+            <span className="mark" /><span>Full Amount — disburse the full principal now, no interest withheld upfront</span>
+          </label>
+        </div></div>
+
         {principalNum > 0 && tenureNum > 0 && (
           <div className="notice" style={{ marginTop: 4 }}>
             <div>Interest amount: <strong>{fmt(interestAmount)}</strong></div>
             <div>Disbursed to customer: <strong>{fmt(disbursedAmount)}</strong></div>
             <div>Installment amount: <strong>{fmt(installmentAmount)}</strong> / {frequency}</div>
-            <div>Repayment obligation: <strong>{fmt(principalNum)}</strong></div>
+            <div>Repayment obligation: <strong>{fmt(obligation)}</strong></div>
           </div>
         )}
 

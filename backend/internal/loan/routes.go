@@ -70,6 +70,11 @@ func RegisterRoutes(rg *gin.RouterGroup, h *Handler, perms platform.CRUDMiddlewa
 
 	rg.POST("/:id/payments", perms.Update, h.RecordPayment)
 
+	// Top-up is a mutation on an existing loan resource, not a new one — no
+	// new catalogue entry, same "can update loan" permission as payments.
+	rg.POST("/:id/topup", perms.Update, h.TopUpLoan)
+	rg.GET("/:id/topups", perms.Read, h.ListTopUps)
+
 	// Auctions are gated by the same "can view/create/update/delete loan" set
 	// as every other loan sub-resource — the house role-permission standard
 	// deliberately collapses what used to be a hardcoded role allowlist

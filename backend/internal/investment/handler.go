@@ -214,6 +214,13 @@ func (h *Handler) Schedule(c *gin.Context) {
 	httpx.Success(c, http.StatusOK, gin.H{"items": recs, "hasMore": hasMore})
 }
 
+type markPayoutPaidRequest struct {
+	CashAmount         float64 `json:"cashAmount"`
+	UpiAmount          float64 `json:"upiAmount"`
+	BankTransferAmount float64 `json:"bankTransferAmount"`
+	ChequeAmount       float64 `json:"chequeAmount"`
+}
+
 // MarkPayoutPaid marks one due payout of an investment as paid.
 func (h *Handler) MarkPayoutPaid(c *gin.Context) {
 	ctx := platform.RequestContext(c)
@@ -227,8 +234,20 @@ func (h *Handler) MarkPayoutPaid(c *gin.Context) {
 		httpx.FailErr(c, err)
 		return
 	}
+	// The split breakdown is required — Service.MarkPayoutPaid rejects an
+	// all-zero split against a non-zero payout Amount (platform.
+	// ValidateSplit), same "reject, don't silently default to Cash"
+	// convention as every other split-payment endpoint. A malformed/missing
+	// body binds to the zero value and is rejected the same way.
+	var req markPayoutPaidRequest
+	_ = c.ShouldBindJSON(&req)
 	employeeID, _, _ := platform.ActorFromContext(c)
-	rec, err := h.svc.MarkPayoutPaid(ctx, id, payoutID, platform.GetBranchScope(c), employeeID)
+	rec, err := h.svc.MarkPayoutPaid(ctx, id, payoutID, platform.GetBranchScope(c), employeeID, MarkPayoutPaidInput{
+		CashAmount:         req.CashAmount,
+		UpiAmount:          req.UpiAmount,
+		BankTransferAmount: req.BankTransferAmount,
+		ChequeAmount:       req.ChequeAmount,
+	})
 	if err != nil {
 		httpx.FailErr(c, err)
 		return

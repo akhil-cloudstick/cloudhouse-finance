@@ -104,6 +104,29 @@ func Run(db *gorm.DB, cfg platform.Config) error {
 		return err
 	}
 
+	// personal_loans grew a NOT NULL full_disbursement column after it
+	// shipped — same AutoMigrate limitation as gold_sales above. See
+	// personalloan.BackfillFullDisbursementColumn - must run BEFORE
+	// AutoMigrate.
+	if err := personalloan.BackfillFullDisbursementColumn(db); err != nil {
+		return err
+	}
+
+	// loan_payments/personal_loan_payments/investment_payouts all grew NOT
+	// NULL split-mode columns after they shipped — same AutoMigrate
+	// limitation as gold_sales above, plus (for the first two) a one-time
+	// exact-mapping backfill of the pre-existing free-text Method into
+	// exactly one split column. Must run BEFORE AutoMigrate.
+	if err := loan.BackfillPaymentSplitColumns(db); err != nil {
+		return err
+	}
+	if err := personalloan.BackfillPaymentSplitColumns(db); err != nil {
+		return err
+	}
+	if err := investment.BackfillPayoutSplitColumns(db); err != nil {
+		return err
+	}
+
 	if err := db.AutoMigrate(allModels...); err != nil {
 		return err
 	}
@@ -180,6 +203,10 @@ func Run(db *gorm.DB, cfg platform.Config) error {
 	}
 
 	if err := backfillBankPledgeBankID(db); err != nil {
+		return err
+	}
+
+	if err := backfillCashMovementBankID(db); err != nil {
 		return err
 	}
 
@@ -528,6 +555,43 @@ func backfillBankPledgeBankID(db *gorm.DB) error {
 			return err
 		}
 		log.Printf("backfilled bank_pledge_records: %d row(s) -> bank %q (id=%d)", db.RowsAffected, name, b.ID)
+	}
+	return nil
+}
+
+// backfillCashMovementBankID is cash_movements' counterpart to
+// backfillBankPledgeBankID above — same "one bank.Bank row per distinct
+// existing free-text value, case-sensitive first pass" approach, expected to
+// create near-duplicates ("HDFC", "HDFC Bank", "HDFC BANK LTD" as three
+// separate rows) — that's expected, not a bug this step tries to solve with
+// fuzzy matching; the Bank Management page's "merge duplicate bank" action
+// is where staff clean this up manually over time. Must run AFTER
+// AutoMigrate, since it needs cash_movements.bank_id (a plain nullable
+// column AutoMigrate adds itself, unlike the NOT NULL split columns above).
+func backfillCashMovementBankID(db *gorm.DB) error {
+	ctx := platform.AllowCrossTenant(context.Background())
+	bankRepo := bank.NewRepository(db)
+	bankSvc := bank.NewService(bankRepo)
+
+	var names []string
+	if err := db.Table("cash_movements").
+		Where("bank IS NOT NULL AND bank <> '' AND bank_id IS NULL").
+		Distinct("bank").Pluck("bank", &names).Error; err != nil {
+		return err
+	}
+
+	for _, name := range names {
+		b, _, err := bankSvc.FindOrCreate(ctx, bank.CreateInput{Name: name})
+		if err != nil {
+			return err
+		}
+		res := db.Table("cash_movements").
+			Where("bank = ? AND bank_id IS NULL", name).
+			Update("bank_id", b.ID)
+		if res.Error != nil {
+			return res.Error
+		}
+		log.Printf("backfilled cash_movements: %d row(s) -> bank %q (id=%d)", res.RowsAffected, name, b.ID)
 	}
 	return nil
 }
@@ -940,6 +1004,7 @@ var allModels = []any{
 		&loan.OrnamentImage{},
 		&loan.LoanApproval{},
 		&loan.LoanPayment{},
+		&loan.LoanTopUp{},
 		&loan.BankPledgeRecord{},
 		&loan.BankPledgeEvent{},
 		&loan.AuctionRecord{},

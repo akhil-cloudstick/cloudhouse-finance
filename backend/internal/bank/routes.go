@@ -12,4 +12,8 @@ import (
 func RegisterRoutes(rg *gin.RouterGroup, h *Handler, perms platform.CRUDMiddlewares) {
 	rg.GET("", perms.Read, h.List)
 	rg.POST("", perms.Create, h.Create)
+	rg.GET("/:id", perms.Read, h.Get)
+	rg.PUT("/:id", perms.Update, h.Update)
+	rg.DELETE("/:id", perms.Delete, h.Delete)
+	rg.POST("/:id/merge", perms.Update, h.Merge)
 }
