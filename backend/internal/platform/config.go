@@ -39,6 +39,15 @@ type Config struct {
 	DBMaxOpenConns int
 	DBMaxIdleConns int
 	FrontendDir    string
+	// FrontendOrigin is a comma-separated list of origins allowed to make
+	// cross-origin API calls in dev — each Next app runs `next dev` on its
+	// own port, separate from this API. Now two by default: the tenant
+	// frontend (3000) and the superadmin console, extracted into its own
+	// app/origin so it can later be embedded in an external ERP rather than
+	// sharing the tenant app's build/session (see corsMiddleware). Not
+	// needed in production if a reverse proxy serves both static builds from
+	// this same origin's domain; set explicitly there if they are deployed
+	// on separate origins instead.
 	FrontendOrigin string
 	// SettingsEncryptionKey encrypts integration API keys at rest (see
 	// internal/settings). Must be a base64-encoded 32-byte key for
@@ -153,7 +162,7 @@ func LoadConfig() Config {
 		// cross-origin API calls (`next dev` runs on its own port, separate
 		// from this API). Not needed in production, where the built frontend
 		// is served from this same binary/origin.
-		FrontendOrigin: getEnv("FRONTEND_ORIGIN", "http://localhost:3000"),
+		FrontendOrigin: getEnv("FRONTEND_ORIGIN", "http://localhost:3000,http://localhost:3100"),
 		// No safe default here — internal/platform.NewSettingsCipher derives
 		// a fixed dev-only key when this is empty, rather than baking a
 		// literal fallback secret into this file.

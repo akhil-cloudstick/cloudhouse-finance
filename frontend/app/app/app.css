@@ -97,6 +97,17 @@
   --select-caret: url("data:image/svg+xml;utf8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%236054bf' stroke-width='1.6' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
 
   --sidebar-w: 248px;
+
+  /* Per-business typography (multi-tenant theming) — defaults matching
+     theme.ts's DEFAULT_FONT_FAMILY/DEFAULT_FONT_SCALE, overwritten by
+     applyBrandTheme on mount exactly the way the brand colours above are.
+     Deliberately does NOT touch --font-sans/--font-display (the next/font
+     variables the rest of this file's headings key off of, including the
+     wordmark's cqi sizing, which is tuned to Montserrat's metrics) — only
+     `body`'s base text opts in, so a business's font choice changes running
+     text without silently reflowing the tuned brand lockup. */
+  --brand-font-family: 'Inter', sans-serif;
+  --brand-font-scale: 1;
 }
 
 /* No scrollbar-gutter here: .shell is height:100vh/overflow:hidden, so the
@@ -107,7 +118,8 @@ html {
 }
 
 body {
-  font-family: var(--font-sans), 'Inter', sans-serif;
+  font-family: var(--brand-font-family), var(--font-sans), 'Inter', sans-serif;
+  font-size: calc(1em * var(--brand-font-scale));
   color: var(--ink);
   background: var(--bg);
   min-height: 100vh;
@@ -146,15 +158,37 @@ h3,
   z-index: 1
 }
 
+/* The wait state before a business's own branding has loaded — see
+ * app/app/page.tsx's AppShell. Deliberately uses NO --brand* variable: those
+ * still hold whatever the LAST business's colours were (or the platform
+ * default on a fresh tab), and painting them here would be exactly the
+ * "shows another business's identity" flash this screen exists to prevent.
+ * Plain neutral grey/white only. */
+.shell-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100vh;
+  background: #f6f5f8;
+}
+.shell-loading-spinner {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  border: 3px solid #d8d8df;
+  border-top-color: #8a8a97;
+  animation: shell-loading-spin 0.8s linear infinite;
+}
+@keyframes shell-loading-spin {
+  to { transform: rotate(360deg); }
+}
+
 .side {
   width: var(--sidebar-w);
   flex-shrink: 0;
-  /* A 3px rail of the logo gradient along the top edge, over the violet
-     field the nav labels sit on. Confined to the rail: the labels need one
-     predictable contrast ratio, which a sweep behind them cannot give. */
-  background:
-    var(--brand-gradient) top left / 100% 3px no-repeat,
-    linear-gradient(180deg, var(--nav-2) 0%, var(--nav) 100%);
+  /* No gradient rail along the top edge — removed by request; the sidebar
+   * is just the plain top-to-bottom --nav-2/--nav ground now. */
+  background: linear-gradient(180deg, var(--nav-2) 0%, var(--nav) 100%);
   color: oklch(0.95 0.006 290);
   display: flex;
   flex-direction: column;
@@ -236,7 +270,16 @@ h3,
    name; at 10 letters the same rule painted 37px past the sidebar's edge. */
 .side .brand .t b {
   font-family: var(--font-display), 'Montserrat', sans-serif;
-  font-size: 17px;
+  /* Was proportional (13.6cqi of the text column, replaying a percentage
+   * tuned to fill a LONG full business name like "CloudHouse Finance") from
+   * when this line held the whole business name. It now holds only the
+   * SHORT identity (Sidebar.tsx's `shortName`, e.g. "CTFI") — a short
+   * string at that same percentage renders small relative to what a fixed
+   * size looks like, since cqi sizing scales with container width, not with
+   * how much of it the text actually needs to fill. A flat size, matching
+   * the reference this was checked against exactly (25px), is correct once
+   * the content here is always short. */
+  font-size: 25px;
   letter-spacing: .04em;
   display: block;
   color: #fff;
@@ -245,12 +288,6 @@ h3,
    * sitting low by the font's descender space. */
   line-height: 1;
   white-space: nowrap;
-}
-
-@supports (container-type: inline-size) {
-  .side .brand .t b {
-    font-size: 13.6cqi;
-  }
 }
 
 .nav {
@@ -272,7 +309,10 @@ h3,
   font-size: 9.5px;
   letter-spacing: .3em;
   text-transform: uppercase;
-  color: oklch(0.95 0.006 290 / 50%);
+  /* --nav-label, not a flat white-at-alpha — see theme.ts's derivation for
+   * why (a fixed opacity looked "faded" the same way for every tenant,
+   * unlike the reference's actual muted-same-hue-as-primary technique). */
+  color: var(--nav-label, oklch(0.95 0.006 290 / 50%));
   padding: 16px 16px 7px 20px;
 }
 
@@ -298,14 +338,25 @@ h3,
   opacity: .8
 }
 
+/* Was a FIXED near-black (oklch(0.20 0.03 285)) for both hover and the
+ * active item — completely independent of the tenant's own colours, so
+ * every business's sidebar highlighted the same way regardless of what
+ * primary colour they picked. The reference this was checked against
+ * highlights with a translucent tint of ITS primary colour instead (its own
+ * CSS literally reads rgba(26, 62, 147, .1) etc. — the primary's own RGB,
+ * at low alpha) — color-mix(... var(--brand) ...) is the same idea, just
+ * reading the CSS variable instead of a hardcoded literal, so it tracks
+ * whatever colour each tenant has actually set. */
 .nav a:hover {
-  background: oklch(0.20 0.03 285 / 60%);
+  background: color-mix(in oklab, var(--brand) 12%, transparent);
   color: oklch(0.95 0.006 290)
 }
 
 .nav a.on {
-  background: linear-gradient(90deg, oklch(0.20 0.03 285), oklch(0.20 0.03 285));
-  border-color: oklch(1 0 0 / 7%);
+  background: linear-gradient(90deg,
+    color-mix(in oklab, var(--brand) 24%, transparent),
+    color-mix(in oklab, var(--brand) 9%, transparent));
+  border-color: color-mix(in oklab, var(--brand) 35%, transparent);
   color: oklch(0.99 0 0);
 }
 
@@ -4328,12 +4379,17 @@ table.tbl {
     width: 210px
   }
 
-  /* The sidebar is 210px here. Only the mark shrinks — the wordmark is sized
-     as a fraction of the column it is given (see .side .brand .t b), so it
-     follows on its own and needs no font-size override here. */
+  /* The sidebar is 210px here. .side .brand .t b is a flat 25px now (see
+   * its own comment — it holds only the short identity, e.g. "CTFI"), which
+   * no longer shrinks on its own at this width the way the old proportional
+   * sizing did, so it gets an explicit smaller size here alongside the mark. */
   .side .brand .brand-mark {
     width: 38px;
     height: 38px;
+  }
+
+  .side .brand .t b {
+    font-size: 20px;
   }
 
   .side .brand-full {

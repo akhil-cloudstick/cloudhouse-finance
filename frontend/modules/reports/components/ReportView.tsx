@@ -48,6 +48,12 @@ export type ReportConfig<Row = any, Totals = any> = {
   // report needs a non-default range). No other report passes this, so no
   // other report's default range changes.
   defaultFromFn?: () => string;
+  // Set for the Personal Loans and Investments reports only — gates the
+  // report card the same way Sidebar.tsx gates those pages' own nav
+  // entries, so a business without the module doesn't see its reports
+  // exist either (the backend refuses the API calls too — see
+  // internal/reports/routes.go).
+  tenantModule?: string;
 };
 
 const ALL_BRANCHES: BranchView = { id: 0, name: "All branches", code: "", address: "", phone: "", isActive: true };

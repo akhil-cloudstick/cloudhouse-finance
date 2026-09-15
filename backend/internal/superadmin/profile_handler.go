@@ -21,6 +21,7 @@ import (
 type updateProfileRequest struct {
 	Name        string `json:"name"`
 	LegalName   string `json:"legalName"`
+	ShortName   string `json:"shortName"`
 	AddressLine string `json:"addressLine"`
 	KMLRegNo    string `json:"kmlRegNo"`
 	AppURL      string `json:"appUrl"`
@@ -41,6 +42,7 @@ func (h *Handler) UpdateProfile(c *gin.Context) {
 	rec, err := h.svc.UpdateProfile(platform.RequestContext(c), actor(c), id, ProfileInput{
 		Name:        req.Name,
 		LegalName:   req.LegalName,
+		ShortName:   req.ShortName,
 		AddressLine: req.AddressLine,
 		KMLRegNo:    req.KMLRegNo,
 		AppURL:      req.AppURL,
@@ -53,11 +55,19 @@ func (h *Handler) UpdateProfile(c *gin.Context) {
 }
 
 type setBrandingRequest struct {
-	// BrandColor is "#rrggbb", or empty to fall back to the platform
-	// default. Not a pointer: unlike an expiry date, "" is a meaningful
-	// value here (reset), not an absent one.
-	BrandColor string `json:"brandColor"`
-	Reason     string `json:"reason"`
+	// Every colour/typography/logo field is "", or a value from its closed
+	// set (see profile.go's knownFontFamilies etc.), or a hex colour — never
+	// a pointer, because "" is a meaningful value here (reset to default),
+	// not an absent one.
+	BrandColor     string `json:"brandColor"`
+	SecondaryColor string `json:"secondaryColor"`
+	AccentColor    string `json:"accentColor"`
+	SidebarColor   string `json:"sidebarColor"`
+	FontFamily     string `json:"fontFamily"`
+	FontScale      string `json:"fontScale"`
+	LogoScale      string `json:"logoScale"`
+	LogoDisplay    string `json:"logoDisplay"`
+	Reason         string `json:"reason"`
 }
 
 func (h *Handler) SetBranding(c *gin.Context) {
@@ -71,7 +81,16 @@ func (h *Handler) SetBranding(c *gin.Context) {
 		httpx.Fail(c, http.StatusBadRequest, "invalid input")
 		return
 	}
-	rec, err := h.svc.SetBrandColor(platform.RequestContext(c), actor(c), id, req.BrandColor, req.Reason)
+	rec, err := h.svc.SetTheme(platform.RequestContext(c), actor(c), id, ThemeInput{
+		BrandColor:     req.BrandColor,
+		SecondaryColor: req.SecondaryColor,
+		AccentColor:    req.AccentColor,
+		SidebarColor:   req.SidebarColor,
+		FontFamily:     req.FontFamily,
+		FontScale:      req.FontScale,
+		LogoScale:      req.LogoScale,
+		LogoDisplay:    req.LogoDisplay,
+	}, req.Reason)
 	if err != nil {
 		httpx.FailErr(c, err)
 		return

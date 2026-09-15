@@ -159,7 +159,7 @@ export default function ResetPage() {
     <div style={pageStyle}>
       <div style={cardStyle}>
         <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 18 }}>
-          <BrandLogo size={44} />
+          <BrandLogo size={44} scalable={false} />
           <div>
             <h1 style={{ fontSize: 20, margin: 0 }}>Reset the demo</h1>
             <p style={{ margin: "2px 0 0", fontSize: 13, color: "var(--muted)" }}>

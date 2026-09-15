@@ -37,6 +37,13 @@ const (
 	DefaultName       = "CloudHouse Finance"
 	DefaultLegalName  = "CloudHouse Finance"
 	DefaultBrandColor = "#6054bf"
+	// DefaultFontFamily/DefaultFontScale/DefaultLogoScale/DefaultLogoDisplay
+	// mirror the frontend's own fallbacks in theme.ts — see that file's
+	// header for why the two must agree.
+	DefaultFontFamily  = "inter"
+	DefaultFontScale   = "default"
+	DefaultLogoScale   = "default"
+	DefaultLogoDisplay = "transparent"
 )
 
 // Public is what an unauthenticated caller may learn about a business from
@@ -44,9 +51,25 @@ const (
 // tier, subscription state and billing identifiers must never appear here,
 // and a struct that lists what IS exposed cannot leak a field added later.
 type Public struct {
-	Name       string `json:"name"`
-	LegalName  string `json:"legalName"`
+	Name      string `json:"name"`
+	LegalName string `json:"legalName"`
+	// ShortName is empty ONLY as a signal to the caller that it has not
+	// been set — see publicOf's fallback (unlike LegalName/font/logo below,
+	// this one falls back to the business's own Name, not a platform
+	// constant, since "CloudHouse Finance" would be a strange short name to
+	// show for a business that has not picked one).
+	ShortName  string `json:"shortName"`
 	BrandColor string `json:"brandColor"`
+	// SecondaryColor/AccentColor/SidebarColor are empty when the business
+	// has not set them, which the frontend reads as "derive from BrandColor
+	// alone" — see theme.ts.
+	SecondaryColor string `json:"secondaryColor"`
+	AccentColor    string `json:"accentColor"`
+	SidebarColor   string `json:"sidebarColor"`
+	FontFamily     string `json:"fontFamily"`
+	FontScale      string `json:"fontScale"`
+	LogoScale      string `json:"logoScale"`
+	LogoDisplay    string `json:"logoDisplay"`
 	// LogoURL is empty when the business has no logo of its own, which the
 	// frontend reads as "use the platform mark".
 	LogoURL string `json:"logoUrl"`
@@ -69,11 +92,19 @@ type Self struct {
 // the caller reached us by.
 func publicOf(t *tenant.Tenant, logoURL string) Public {
 	p := Public{
-		Name:       t.Name,
-		LegalName:  t.LegalName,
-		BrandColor: t.BrandColor,
-		LogoURL:    logoURL,
-		AppURL:     t.AppURL,
+		Name:           t.Name,
+		LegalName:      t.LegalName,
+		ShortName:      t.ShortName,
+		BrandColor:     t.BrandColor,
+		SecondaryColor: t.SecondaryColor,
+		AccentColor:    t.AccentColor,
+		SidebarColor:   t.SidebarColor,
+		FontFamily:     t.FontFamily,
+		FontScale:      t.FontScale,
+		LogoScale:      t.LogoScale,
+		LogoDisplay:    t.LogoDisplay,
+		LogoURL:        logoURL,
+		AppURL:         t.AppURL,
 	}
 	if p.Name == "" {
 		p.Name = DefaultName
@@ -84,8 +115,26 @@ func publicOf(t *tenant.Tenant, logoURL string) Public {
 	if p.LegalName == "" {
 		p.LegalName = p.Name
 	}
+	if p.ShortName == "" {
+		p.ShortName = p.Name
+	}
 	if p.BrandColor == "" {
 		p.BrandColor = DefaultBrandColor
+	}
+	// SecondaryColor/AccentColor/SidebarColor deliberately do NOT fall back
+	// to a default here — empty means "not set", read by the frontend as
+	// "derive/auto", not "use the platform's".
+	if p.FontFamily == "" {
+		p.FontFamily = DefaultFontFamily
+	}
+	if p.FontScale == "" {
+		p.FontScale = DefaultFontScale
+	}
+	if p.LogoScale == "" {
+		p.LogoScale = DefaultLogoScale
+	}
+	if p.LogoDisplay == "" {
+		p.LogoDisplay = DefaultLogoDisplay
 	}
 	return p
 }
@@ -93,5 +142,9 @@ func publicOf(t *tenant.Tenant, logoURL string) Public {
 // defaultPublic is the answer for a code that matches no business. See the
 // package doc: indistinguishable from a real business with no branding set.
 func defaultPublic() Public {
-	return Public{Name: DefaultName, LegalName: DefaultLegalName, BrandColor: DefaultBrandColor}
+	return Public{
+		Name: DefaultName, LegalName: DefaultLegalName, ShortName: DefaultName, BrandColor: DefaultBrandColor,
+		FontFamily: DefaultFontFamily, FontScale: DefaultFontScale,
+		LogoScale: DefaultLogoScale, LogoDisplay: DefaultLogoDisplay,
+	}
 }

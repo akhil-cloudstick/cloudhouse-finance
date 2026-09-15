@@ -38,12 +38,22 @@ const (
 	ModuleSettings  = "settings"
 	ModuleBranches  = "branches"
 	ModuleDemoReset = "demo_reset"
+
+	// ModulePersonalLoans/ModuleInvestments gate the Personal Loans and
+	// Investments product lines end to end — the nav page, the reports
+	// list, and (see internal/app/app.go's route registration) the API
+	// routes themselves, not just what the frontend chooses to draw. Off by
+	// default, same as every other optional module: a business that has
+	// not been sold Personal Loans or Investments should not see either
+	// exist, not just have the button greyed out.
+	ModulePersonalLoans = "personal_loans"
+	ModuleInvestments   = "investments"
 )
 
 // KnownModules is the closed set. Adding an entry here is the only way a new
 // module becomes toggleable, so this slice is the answer to "what can the
 // vendor turn on?" — there is no second list to keep in step.
-var KnownModules = []string{ModuleSettings, ModuleBranches, ModuleDemoReset}
+var KnownModules = []string{ModuleSettings, ModuleBranches, ModuleDemoReset, ModulePersonalLoans, ModuleInvestments}
 
 // Document languages for customer-facing paperwork (the pledge agreement and
 // release form).

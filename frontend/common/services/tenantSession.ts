@@ -75,15 +75,64 @@ export function businessSlugFromPath(pathname?: string): string | null {
   return isValidBusinessSlug(candidate) ? candidate : null;
 }
 
-/* activeBusinessSlug is the business this browser tab is operating as: the
- * one in the URL if there is one, otherwise the last one used here.
+/* Host labels that never name a business — the platform's own bare/marketing
+ * subdomains, which a production deployment may put in front of the same
+ * origin. Extend this list rather than assuming every non-apex hostname is a
+ * tenant. */
+const RESERVED_HOST_LABELS = new Set(["www", "app", "admin", "api", "superadmin"]);
+
+/* Local-dev suffixes that carry a subdomain without a real DNS entry:
+ * "ambika.localhost" resolves to 127.0.0.1 in every modern browser with no
+ * hosts-file edit, and lvh.me/nip.io are the equivalent for tools that need
+ * a real DNS answer (e.g. some HTTPS/dev-proxy setups). See
+ * documents/local_multitenant_testing.md. */
+const LOCAL_HOST_SUFFIXES = ["localhost", "lvh.me", "nip.io"];
+
+const IPV4_PATTERN = /^\d{1,3}(\.\d{1,3}){3}$/;
+
+/* businessSlugFromHost reads a subdomain the way production will resolve a
+ * tenant on a real domain: https://ambika.cloudhousesupport.site/... names
+ * "ambika" without any /login/<slug> path segment at all. Mirrors (on the
+ * frontend, before any session exists) the same one-directional trust
+ * backend/internal/tenant/host.go already documents for the Host header:
+ * this only ever NAMES a candidate business for the login screen to show
+ * branding for — it is never treated as authorization, and
+ * businessCodeForRequest still sends it as an ordinary business code that
+ * auth.Service validates like any other.
  *
- * The URL wins deliberately. It is what makes two tabs on two businesses work
- * — each tab reads its own slug from its own address bar, so neither depends
- * on a shared "current business" value that the other could overwrite. */
+ * Returns null for a bare apex domain (no subdomain to read), "localhost"
+ * alone, a raw IP, or a reserved label — see the two lists above. */
+export function businessSlugFromHost(hostname?: string): string | null {
+  const host = (hostname ?? (typeof window === "undefined" ? "" : window.location.hostname)).toLowerCase();
+  if (!host || IPV4_PATTERN.test(host)) return null;
+  const labels = host.split(".");
+  if (labels.length < 2) return null; // "localhost" alone, or an unqualified host
+  const candidate = labels[0];
+  if (!isValidBusinessSlug(candidate) || RESERVED_HOST_LABELS.has(candidate)) return null;
+  const rest = labels.slice(1).join(".");
+  if (LOCAL_HOST_SUFFIXES.includes(rest)) return candidate;
+  // A bare two-label apex ("cloudhousesupport.site") has no subdomain to
+  // read at all — only three-or-more labels put something in front of it.
+  return labels.length >= 3 ? candidate : null;
+}
+
+/* activeBusinessSlug is the business this browser tab is operating as, in
+ * order of authority: the URL PATH if it names one (/login/<slug>), then the
+ * URL's HOST if it names one (a production subdomain), then the last one
+ * used on this browser.
+ *
+ * The URL wins deliberately, path before host: a path segment is an explicit,
+ * unambiguous choice (and the one manual-override/testing route that keeps
+ * working on a single shared hostname), while the host is what production
+ * subdomains resolve by when there is no path override. Either way, each tab
+ * reads its own slug from its own address bar, so two tabs on two businesses
+ * never depend on a shared "current business" value the other could
+ * overwrite. */
 export function activeBusinessSlug(): string | null {
   const fromPath = businessSlugFromPath();
   if (fromPath) return fromPath;
+  const fromHost = businessSlugFromHost();
+  if (fromHost) return fromHost;
   if (typeof window === "undefined") return null;
   const remembered = window.localStorage.getItem(ACTIVE_BUSINESS_KEY);
   return remembered && isValidBusinessSlug(remembered) ? remembered : null;

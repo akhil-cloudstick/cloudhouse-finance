@@ -13,7 +13,8 @@
    tokens are simply inherited and there is now one palette, not two. */
 
 .login-page {
-  font-family: var(--font-sans), 'Inter', sans-serif;
+  font-family: var(--brand-font-family), var(--font-sans), 'Inter', sans-serif;
+  font-size: calc(1em * var(--brand-font-scale));
   color: var(--ink);
   min-height: 100vh;
   background: var(--bg);
@@ -53,37 +54,15 @@
 
 /* ── identity panel ─────────────────────────────────────────── */
 .login-page .brand-panel {
-  /* Four layers, top to bottom: a 4px rail of the logo gradient pinned to the
-     top edge; two soft glow orbs; then the dark field the white type sits on.
-     The orbs are the POS login panel's own treatment — there they are two
-     `size-96 blur-3xl` circles (bg-primary/25 top-right, bg-brand-violet/25
-     bottom-left) over a flat bg-sidebar. Reproduced here as radial gradients
-     rather than blurred elements so the panel needs no extra nodes and no
-     filter: same centres (a 384px circle inset -96px/-96px and -80px/-128px),
-     with the 64px feather expressed as the stop falloff. The radius and stops
-     were matched against the real blurred version side by side — a blurred
-     circle spreads well past its own edge and holds its core alpha almost to
-     the rim (the circle is 3x the blur), so the core is carried flat to 40%
-     and the fade runs out to 320px rather than stopping at the 192px radius.
-
-     The sweep stays confined to the 4px rail, and the orbs are kept at the
-     low alphas they carry in POS, so the white type still has one predictable
-     contrast ratio against the field beneath it. */
-  background:
-    var(--brand-gradient) top left / 100% 4px no-repeat,
-    radial-gradient(circle 320px at calc(100% - 96px) 96px,
-      oklch(0.56 0.22 346 / .25) 0%,
-      oklch(0.56 0.22 346 / .25) 40%,
-      oklch(0.56 0.22 346 / .15) 60%,
-      oklch(0.56 0.22 346 / .05) 80%,
-      transparent 100%),
-    radial-gradient(circle 320px at 112px calc(100% - 64px),
-      oklch(0.52 0.22 286 / .25) 0%,
-      oklch(0.52 0.22 286 / .25) 40%,
-      oklch(0.52 0.22 286 / .15) 60%,
-      oklch(0.52 0.22 286 / .05) 80%,
-      transparent 100%),
-    linear-gradient(160deg, var(--nav-2) 0%, var(--nav) 100%);
+  /* Was: a 4px rail of the logo gradient, two "glow orb" radial gradients
+   * ported wholesale from the platform's own POS design in fixed literal
+   * colours (a magenta oklch(0.56 0.22 346) and a violet oklch(0.52 0.22
+   * 286) — CloudHouse's own palette, not derived from any tenant colour at
+   * all), then the dark nav-based field. Every business saw the exact same
+   * magenta/violet wash regardless of its own colours — which the reference
+   * this was checked against never has at all. Removed: just the flat
+   * tenant-coloured field remains, matching the reference exactly. */
+  background: linear-gradient(160deg, var(--nav-2) 0%, var(--nav) 100%);
   color: #fff;
   border-radius: 14px 0 0 14px;
   padding: 48px 40px;
@@ -126,6 +105,12 @@
   line-height: 1.1;
   letter-spacing: .01em;
   margin: 0;
+  /* The reference wordmark this was styled after hardcodes its top line in
+   * caps ("CHITTILAPILLY") as a literal string; ours derives the top line
+   * from a business's own Name field, entered in ordinary case — this
+   * transform gets the same all-caps look without requiring every tenant's
+   * name to be typed in caps in the superadmin console. */
+  text-transform: uppercase;
 }
 .login-page .bp-name span {
   display: block;

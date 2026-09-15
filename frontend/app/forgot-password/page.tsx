@@ -59,7 +59,7 @@ function ForgotPasswordInner() {
         <main className="card">
 
           <div className="brand">
-            <BrandLogo size={104} />
+            <BrandLogo size={104} scalable={false} />
             <h1>
               Reset your password
             </h1>

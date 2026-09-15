@@ -3,7 +3,6 @@ package branding
 import (
 	"context"
 	"errors"
-	"path/filepath"
 
 	"gorm.io/gorm"
 
@@ -88,5 +87,11 @@ func (s *Service) LogoFile(ctx context.Context, code string) (path, contentType 
 		}
 		return "", "", err
 	}
-	return filepath.Join(s.uploadsDir, f.StorageKey), f.ContentType, nil
+	// upload.ResolvePath, not a bare filepath.Join(s.uploadsDir, f.StorageKey):
+	// a logo written after the per-tenant upload split (see
+	// upload.TenantDir) lives at <uploadsDir>/<tenantID>/<key>, and the naive
+	// join 404'd every tenant's logo by looking for it at <uploadsDir>/<key>
+	// instead. ResolvePath tries the per-tenant path first, falling back to
+	// the flat legacy layout for files written before the split.
+	return upload.ResolvePath(s.uploadsDir, t.ID, f.StorageKey), f.ContentType, nil
 }

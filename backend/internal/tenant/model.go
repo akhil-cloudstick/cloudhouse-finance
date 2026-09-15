@@ -125,6 +125,15 @@ type Tenant struct {
 	// the pledge agreement and release form. Empty falls back to Name.
 	LegalName string `json:"legalName" gorm:"size:200"`
 
+	// ShortName is the compact identity shown where a full business name
+	// does not fit or is not the point — the sidebar's bold headline, the
+	// browser tab title, the login page's "Staff access to the X lending
+	// console." line — e.g. "CTFI" for "Chittilapilly Thommana Financiers &
+	// Investments". Empty falls back to Name, same convention as LegalName
+	// falling back to Name: a business that has not set one is far better
+	// served by its own name than by truncating it automatically.
+	ShortName string `json:"shortName" gorm:"size:40"`
+
 	// AddressLine is the registered address printed under LegalName. One
 	// line rather than a structured address, because one line is all any of
 	// the document templates actually render.
@@ -151,10 +160,48 @@ type Tenant struct {
 
 	// BrandColor is the primary brand colour as "#rrggbb". The frontend
 	// derives its entire ramp (deep/mid/light/pale/faint) from this single
-	// value, so there is deliberately no way to set the other steps
-	// independently — see frontend/common/config/theme.ts. Empty means the
-	// platform default.
+	// value — see frontend/common/config/theme.ts. Empty means the platform
+	// default.
 	BrandColor string `json:"brandColor" gorm:"size:9"`
+
+	// SecondaryColor/AccentColor are OPTIONAL second and third colours, each
+	// deriving its own independent ramp the same way BrandColor does (see
+	// theme.ts's deriveBrandRamp, applied per-colour). Most businesses need
+	// only BrandColor; these exist for the ones whose mark genuinely uses
+	// 2-3 coordinated colours rather than tints of one hue. Empty means "not
+	// set" — the frontend simply does not emit the --brand2-*/--brand3-*
+	// variables, so CSS that only reads --brand* is unaffected either way.
+	SecondaryColor string `json:"secondaryColor" gorm:"size:9"`
+	AccentColor    string `json:"accentColor" gorm:"size:9"`
+
+	// SidebarColor is a DIRECTLY-SET colour for the sidebar/login-panel dark
+	// ground — deliberately not derived from BrandColor. An earlier version
+	// tried to auto-derive a "sidebar navy" from the primary colour's own
+	// hue; that produced a plausible-looking colour but never an EXACT one,
+	// and matching an existing brand exactly (not "close enough") is the
+	// whole point of a vendor hand-entering it here. Empty means "auto": the
+	// frontend derives one from BrandColor as before, so a business that has
+	// not set this still gets a reasonable default rather than a flat black.
+	SidebarColor string `json:"sidebarColor" gorm:"size:9"`
+
+	// FontFamily/FontScale customise typography per business. FontFamily is
+	// a key into a fixed, small allow-list the frontend ships fonts for
+	// (never a free-form CSS value — see frontend/common/config/theme.ts) so
+	// a typo or an arbitrary string can never load a remote font this
+	// backend has not vetted. FontScale is a size preset ("compact",
+	// "default", "comfortable"); empty means "default" for both.
+	FontFamily string `json:"fontFamily" gorm:"size:40"`
+	FontScale  string `json:"fontScale" gorm:"size:20"`
+
+	// LogoScale/LogoDisplay tune how a logo of unusual proportions or
+	// contrast sits in the fixed sidebar/header slot. LogoScale is a
+	// multiplier preset ("small","default","large"); LogoDisplay picks a
+	// backing behind the image ("transparent","light-pad","dark-pad") for a
+	// logo that only reads clearly against one background. Both are
+	// auto-suggested by the console on upload and always
+	// vendor-overridable; empty means "default"/"transparent".
+	LogoScale   string `json:"logoScale" gorm:"size:20"`
+	LogoDisplay string `json:"logoDisplay" gorm:"size:20"`
 
 	// LogoStorageKey points at an uploaded_files row owned by THIS tenant.
 	// Stored as the key, not a URL, so the file is always served through a

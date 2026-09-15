@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useBranding } from "@/common/BrandingProvider";
 import { Icon } from "@/common/components/Icon";
 import { useToast } from "@/common/components/Toast";
 import { ApiError } from "@/common/services/httpClient";
@@ -73,6 +74,7 @@ const REPORT_CONFIGS: ReportConfig[] = [
     description: "Personal loans opened per day with amounts",
     icon: "note",
     exportKey: "personal-loans",
+    tenantModule: "personal_loans",
     fetchFn: getPersonalLoans,
     rowKey: (r) => r.loanId,
     columns: [
@@ -420,6 +422,7 @@ const REPORT_CONFIGS: ReportConfig[] = [
     description: "Investor deposits opened per period",
     icon: "coin",
     exportKey: "investments-deposit-register",
+    tenantModule: "investments",
     fetchFn: getDepositRegister,
     rowKey: (r) => r.investmentId,
     columns: [
@@ -441,6 +444,7 @@ const REPORT_CONFIGS: ReportConfig[] = [
     description: "Investor interest payouts due/paid per period",
     icon: "chart",
     exportKey: "investments-interest-payout-register",
+    tenantModule: "investments",
     fetchFn: getInterestPayoutRegister,
     rowKey: (r) => `${r.investmentId}-${r.sequenceNo}`,
     columns: [
@@ -462,6 +466,7 @@ const REPORT_CONFIGS: ReportConfig[] = [
     description: "Investments reaching maturity per period",
     icon: "cal",
     exportKey: "investments-maturity-register",
+    tenantModule: "investments",
     fetchFn: getMaturityRegister,
     rowKey: (r) => r.investmentId,
     columns: [
@@ -499,9 +504,15 @@ const FORM_G_TILE = {
 export function Reports() {
   const toast = useToast();
   const smallScreen = useIsSmallScreen();
+  const { hasModule } = useBranding();
+  // Personal Loans/Investments reports carry a tenantModule the way
+  // Sidebar.tsx's own nav entries do for those pages — a business without
+  // the module doesn't see the report tile exist, matching the backend
+  // refusing the underlying API call too (see internal/reports/routes.go).
+  const visibleConfigs = REPORT_CONFIGS.filter((r) => !r.tenantModule || hasModule(r.tenantModule));
   const [activeId, setActiveId] = useState<string | null>(null);
   const [printingId, setPrintingId] = useState<string | null>(null);
-  const active = REPORT_CONFIGS.find((r) => r.id === activeId) || null;
+  const active = visibleConfigs.find((r) => r.id === activeId) || null;
 
   if (activeId === "form-g") {
     return <FormGReportView onBack={() => setActiveId(null)} />;
@@ -541,7 +552,7 @@ export function Reports() {
        * as its own divider line. */}
       <hr className="gold-rule" style={smallScreen ? { margin: "4px 0 18px" } : undefined} />
       <div className="grid" style={{ gridTemplateColumns: "repeat(auto-fill,minmax(250px,1fr))" }}>
-        {[...REPORT_CONFIGS, FORM_G_TILE].map((r) => (
+        {[...visibleConfigs, FORM_G_TILE].map((r) => (
           <div className="card" style={{ cursor: "pointer", minHeight: 120, display: "flex", flexDirection: "column", position: "relative" }} key={r.id} onClick={() => setActiveId(r.id)}>
             <button
               className="btn ghost sm"

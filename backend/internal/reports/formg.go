@@ -28,24 +28,53 @@ import (
 // layout functions below, reusing the same excelize/gofpdf libraries and
 // house style as export.go's generic builders.
 
-// formGLenderName/formGLenderAddress are the money-lender's own registered
+// formGLenderName/formGLenderAddress are the FALLBACK money-lender
 // particulars printed at the top of the statement (Rule 15(3) requires the
-// lender's name and full postal address).
+// lender's name and full postal address) — used only for a business whose
+// tenant profile has no LegalName/KMLRegNo/AddressLine set yet. See
+// formGLenderParticulars, which prefers the tenant's own values (set by the
+// vendor in the superadmin console) the same way loan.Service.lenderProfile
+// and internal/loan/indemnitybond.go's BondData.LegalName do.
 //
 // DEMO PLACEHOLDERS. Form G is a statutory Kerala Money-Lenders Act filing
-// and these two fields identify the licensee, so they must carry the MLL
-// registration and registered postal address of the entity actually licensed
-// under the Act. The values below are deliberately fake and a filing produced
-// with them is not valid — replace both, and the matching pair in
-// internal/personalloan/bond.go, with the real registration before anyone
-// files this. There is still no structured business-profile table in this
-// codebase, so they remain fixed constants; wire them into real config if one
-// is ever added.
+// and these two fields identify the licensee, so a filing produced from a
+// tenant with no real KMLRegNo/AddressLine set is not valid — fill in that
+// business's tenant profile (superadmin console) with its real MLL
+// registration and registered postal address before anyone files this for
+// real. There is still no equivalent field for internal/personalloan/bond.go
+// to share — check that file separately.
 const formGLenderName = "CloudHouse Finance (MLL No. DEMO-0000000000)"
 
 // formGLenderAddress is the licensee's registered postal address, per the
 // same MLL registration referenced above. Also a demo placeholder.
 const formGLenderAddress = "Demo Registered Office, Door No. 0/000, Demo Village, Demo Taluk, Ernakulam District, Kerala"
+
+// formGLenderParticulars resolves the signed-in business's own name and
+// registered address for Form G's letterhead, falling back to the demo
+// placeholders above when the tenant profile has not been filled in — same
+// "never another business's particulars, degrade to demo instead" contract
+// as loan.Service.lenderProfile.
+func (s *Service) formGLenderParticulars(ctx context.Context) (name, address string) {
+	name, address = formGLenderName, formGLenderAddress
+	id, ok := platform.TenantFromContext(ctx)
+	if !ok || s.tenantRepo == nil {
+		return name, address
+	}
+	t, err := s.tenantRepo.FindByID(ctx, id)
+	if err != nil {
+		return name, address
+	}
+	if t.LegalName != "" {
+		name = t.LegalName
+		if t.KMLRegNo != "" {
+			name = fmt.Sprintf("%s (MLL No. %s)", t.LegalName, t.KMLRegNo)
+		}
+	}
+	if t.AddressLine != "" {
+		address = t.AddressLine
+	}
+	return name, address
+}
 
 // FormGBranch is one branch's printed particulars (Rule 15(3) also wants
 // the branch's own postal address alongside the lender's).
@@ -428,10 +457,11 @@ func (s *Service) BuildFormGStatement(ctx context.Context, f Filter, overrides F
 		excessLiabilities = -diff
 	}
 
+	lenderName, lenderAddress := s.formGLenderParticulars(ctx)
 	stmt := &FormGStatement{
 		PeriodLabel:   formGPeriodLabel(f),
-		LenderName:    formGLenderName,
-		LenderAddress: formGLenderAddress,
+		LenderName:    lenderName,
+		LenderAddress: lenderAddress,
 		Branches:      branches,
 		Section1: []FormGLoanCategory{
 			{Label: "Against security of gold or gold ornaments", Persons: goldAdv.Persons, Amount: goldAdv.Amount},
@@ -666,7 +696,7 @@ func buildFormGPDF(stmt *FormGStatement) ([]byte, error) {
 	pdf.AddPage()
 
 	pdf.SetFont("Arial", "B", formGTitleFontSize)
-	pdf.MultiCell(0, 8, tr("CloudHouse Finance — FORM G: Statement of Accounts (Kerala Money-Lenders Rules, 1964 — Rule 15(3))"), "", "L", false)
+	pdf.MultiCell(0, 8, tr(stmt.LenderName+" — FORM G: Statement of Accounts (Kerala Money-Lenders Rules, 1964 — Rule 15(3))"), "", "L", false)
 	pdf.Ln(2)
 
 	kv := func(k, v string) {

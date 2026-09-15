@@ -64,3 +64,16 @@ func resolveReadPath(root string, tenantID uint, key string) string {
 	}
 	return filepath.Join(root, key)
 }
+
+// ResolvePath is resolveReadPath, exported for callers outside this package
+// that resolve a stored key to an on-disk path themselves rather than going
+// through ServeHandler — currently just internal/branding's logo route,
+// which serves a tenant's logo unauthenticated and so cannot reuse
+// ServeHandler's cookie-based flow. Was previously done as a bare
+// filepath.Join(uploadsDir, key), which is wrong for any file written after
+// the per-tenant split (see TenantDir) — every tenant logo 404'd because the
+// bytes live at <root>/<tenantID>/<key> and the naive join looked for them
+// at <root>/<key>.
+func ResolvePath(root string, tenantID uint, key string) string {
+	return resolveReadPath(root, tenantID, key)
+}

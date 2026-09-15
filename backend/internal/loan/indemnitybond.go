@@ -5,6 +5,7 @@ import (
 	_ "embed"
 	"encoding/base64"
 	"fmt"
+	"html"
 	"html/template"
 	"math"
 	"regexp"
@@ -771,10 +772,25 @@ func renderBondHTML(data BondData, lang string) (string, error) {
 // tiny default browser font otherwise). Kept as their own small templates
 // (not reusing bondPageStyle's CSS) since this is a completely different
 // rendering pass from the document body.
-const bondHeaderTemplate = `
-<div style="font-size:9px;width:100%;text-align:center;color:#8a6d1f;font-family:Arial,sans-serif;padding-top:6px">
-Ambika Gold Finance — Agreement of Pledge of Movable
+const bondHeaderTemplateFmt = `
+<div style="font-size:9px;width:100%%;text-align:center;color:#8a6d1f;font-family:Arial,sans-serif;padding-top:6px">
+%s — Agreement of Pledge of Movable
 </div>`
+
+// bondHeaderTemplate fills bondHeaderTemplateFmt with the business's own
+// name, escaped for safe embedding in this tiny standalone HTML fragment —
+// html.EscapeString rather than a template, since this is a single
+// interpolated value, not a document. Was a hardcoded "Ambika Gold Finance"
+// printed on every business's pledge agreement regardless of who issued it;
+// falls back to the same demo lenderName renderBondHTML uses when the tenant
+// has not set BusinessName.
+func bondHeaderTemplate(businessName string) string {
+	name := strings.TrimSpace(businessName)
+	if name == "" {
+		name = lenderName
+	}
+	return fmt.Sprintf(bondHeaderTemplateFmt, html.EscapeString(name))
+}
 
 const bondFooterTemplate = `
 <div style="font-size:8px;width:100%;text-align:center;color:#888;font-family:Arial,sans-serif;padding-bottom:6px">
@@ -836,7 +852,7 @@ func RenderIndemnityBondPDF(data BondData, lang string) ([]byte, error) {
 				WithMarginLeft(0.6).
 				WithMarginRight(0.6).
 				WithDisplayHeaderFooter(true).
-				WithHeaderTemplate(bondHeaderTemplate).
+				WithHeaderTemplate(bondHeaderTemplate(data.BusinessName)).
 				WithFooterTemplate(bondFooterTemplate).
 				Do(ctx)
 			if err != nil {

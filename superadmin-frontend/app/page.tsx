@@ -25,9 +25,21 @@ import {
   type Catalogue,
 } from "@/common/services/superadminService";
 import { clearSuperAdminSession, readSuperAdminToken, readSuperAdminUser } from "@/common/services/superadminSession";
-import { loginPath } from "@/common/services/tenantSession";
+import { tenantLoginLink } from "@/common/services/tenantLink";
 import { VENDOR } from "@/common/config/brand";
-import { brandRampHex, DEFAULT_BRAND_COLOR } from "@/common/config/theme";
+import {
+  brandRampHex,
+  DEFAULT_BRAND_COLOR,
+  FONT_FAMILIES,
+  DEFAULT_FONT_FAMILY,
+  FONT_SCALES,
+  DEFAULT_FONT_SCALE,
+  LOGO_SCALES,
+  DEFAULT_LOGO_SCALE,
+  LOGO_DISPLAYS,
+  DEFAULT_LOGO_DISPLAY,
+} from "@/common/config/theme";
+import { extractPaletteFromImage } from "@/common/utils/dominantColor";
 
 type Tab = "businesses" | "tiers" | "audit";
 
@@ -73,7 +85,7 @@ export default function SuperAdminDashboard() {
     } catch (err) {
       if (err instanceof SuperAdminApiError && err.status === 401) {
         clearSuperAdminSession();
-        router.replace("/superadmin/login");
+        router.replace("/login");
         return;
       }
       setLoadError(err instanceof Error ? err.message : "Could not load the console.");
@@ -82,7 +94,7 @@ export default function SuperAdminDashboard() {
 
   useEffect(() => {
     if (!readSuperAdminToken()) {
-      router.replace("/superadmin/login");
+      router.replace("/login");
       return;
     }
     setUser(readSuperAdminUser());
@@ -91,7 +103,7 @@ export default function SuperAdminDashboard() {
 
   function handleLogout() {
     clearSuperAdminSession();
-    router.replace("/superadmin/login");
+    router.replace("/login");
   }
 
   const tierName = (id: number) => tiers?.find((t) => t.id === id)?.name ?? `#${id}`;
@@ -213,10 +225,10 @@ export default function SuperAdminDashboard() {
                             className="sa-btn"
                             style={{ marginTop: 4 }}
                             onClick={() => {
-                              const link = `${window.location.origin}${loginPath(b.code)}`;
+                              const link = tenantLoginLink(b.code);
                               navigator.clipboard.writeText(link);
                             }}
-                            title={`${window.location.origin}${loginPath(b.code)}`}
+                            title={tenantLoginLink(b.code)}
                           >
                             Copy sign-in link
                           </button>
@@ -560,14 +572,44 @@ function BusinessWizard({
   const [code, setCode] = useState("");
   const [tierId, setTierId] = useState(business?.tierId ?? tiers[0]?.id ?? 0);
   const [legalName, setLegalName] = useState(business?.legalName ?? "");
+  const initialShortName = business?.shortName ?? "";
+  const [shortName, setShortName] = useState(initialShortName);
   const [addressLine, setAddressLine] = useState(business?.addressLine ?? "");
   const [kmlRegNo, setKmlRegNo] = useState(business?.kmlRegNo ?? "");
   const [appUrl, setAppUrl] = useState(business?.appUrl ?? "");
 
   const initialColor = business?.brandColor || DEFAULT_BRAND_COLOR;
   const [color, setColor] = useState(initialColor);
+  const initialSecondary = business?.secondaryColor || "";
+  const [secondaryColor, setSecondaryColor] = useState(initialSecondary);
+  // accentColor is DELIBERATELY always sent as "" now, same treatment as
+  // sidebarColor below — it had exactly ONE visible use in the whole
+  // product (a small login-panel divider's gradient stop), and asking every
+  // business to pick a 3rd colour for that one line wasn't worth the
+  // confusion. Sending "" clears any value a business set while this field
+  // still existed.
+  const accentColor = "";
+  // sidebarColor is DELIBERATELY always sent as "" now, not carried through
+  // from business.sidebarColor. It briefly had its own console field before
+  // Secondary colour took over that job; a business that set one during
+  // that window keeps a value in the database that no field here can show
+  // or edit, and the frontend's theme derivation used to give it silent
+  // priority over Secondary — a colour change that appeared to do nothing,
+  // for a reason nobody editing the form could see. Sending "" on every
+  // save clears it the first time any business is next edited, and the
+  // frontend no longer reads this column at all regardless.
+  const sidebarColor = "";
+  const initialFontFamily = business?.fontFamily || DEFAULT_FONT_FAMILY;
+  const [fontFamily, setFontFamily] = useState(initialFontFamily);
+  const initialFontScale = business?.fontScale || DEFAULT_FONT_SCALE;
+  const [fontScale, setFontScale] = useState(initialFontScale);
+  const initialLogoScale = business?.logoScale || DEFAULT_LOGO_SCALE;
+  const [logoScale, setLogoScale] = useState(initialLogoScale);
+  const initialLogoDisplay = business?.logoDisplay || DEFAULT_LOGO_DISPLAY;
+  const [logoDisplay, setLogoDisplay] = useState(initialLogoDisplay);
   const [logoFile, setLogoFile] = useState<File | null>(null);
   const [logoPreview, setLogoPreview] = useState<string | null>(null);
+  const [suggestedPalette, setSuggestedPalette] = useState<string[]>([]);
 
   const [modules, setModulesState] = useState<string[]>(business?.modules ?? []);
   /* The module whose GRANT is awaiting confirmation, or null.
@@ -637,6 +679,30 @@ function BusinessWizard({
   function pickLogo(file: File | null) {
     setLogoFile(file);
     setLogoPreview(file ? URL.createObjectURL(file) : null);
+    setSuggestedPalette([]);
+    if (!file) return;
+    void extractPaletteFromImage(file).then((p) => {
+      setSuggestedPalette(p.colors);
+      // Fill Primary/Secondary/Accent from the logo IMMEDIATELY, in that
+      // order — not one click per field. Still never overwrites a colour
+      // the operator already picked by hand: each only fills if it is
+      // still at its untouched default, same guard the swatch buttons
+      // below use for a manual re-pick. Every field stays editable
+      // afterwards — see profile.go's SetTheme, which only ever writes
+      // what the operator actually submits, never what a logo suggested.
+      // BUG THIS FIXES: comparing against `initialColor` treated "matches
+      // what's already saved for this business" as "still untouched" — but
+      // on an EDIT, the already-saved value is the operator's real,
+      // deliberate colour, not a placeholder. Re-uploading (or just
+      // re-selecting) a logo on an existing business silently overwrote a
+      // correct, already-set Primary colour with whatever the image
+      // happened to extract. Only the true PLATFORM default may be
+      // auto-filled — anything a business actually has set, ever, is left
+      // alone.
+      const [first, second] = p.colors;
+      if (first && color === DEFAULT_BRAND_COLOR) setColor(first);
+      if (second && !secondaryColor) setSecondaryColor(second);
+    });
   }
 
   // What this save will actually write — drives the Review step's change
@@ -646,15 +712,34 @@ function BusinessWizard({
       !isCreate &&
       (name !== business.name ||
         legalName !== (business.legalName ?? "") ||
+        shortName !== initialShortName ||
         addressLine !== (business.addressLine ?? "") ||
         kmlRegNo !== (business.kmlRegNo ?? "") ||
         appUrl !== (business.appUrl ?? "")),
-    color: !isCreate && color !== initialColor,
+    theme:
+      !isCreate &&
+      (color !== initialColor ||
+        secondaryColor !== initialSecondary ||
+        fontFamily !== initialFontFamily ||
+        fontScale !== initialFontScale ||
+        logoScale !== initialLogoScale ||
+        logoDisplay !== initialLogoDisplay),
     logo: logoFile !== null,
     modules: !isCreate && !sameSet(modules, business.modules ?? []),
     languages: !isCreate && !sameSet(languages, business.languages ?? ["en"]),
   };
   const nothingToSave = !isCreate && !Object.values(changed).some(Boolean);
+
+  // Whether the branding step holds anything beyond the platform default —
+  // used on CREATE, where CreateBusiness only takes the primary colour (see
+  // superadmin.CreateBusinessInput) and everything else rides a follow-up
+  // SetTheme call, the same way the logo already rides a follow-up upload.
+  const themeBeyondDefault =
+    secondaryColor !== "" ||
+    fontFamily !== DEFAULT_FONT_FAMILY ||
+    fontScale !== DEFAULT_FONT_SCALE ||
+    logoScale !== DEFAULT_LOGO_SCALE ||
+    logoDisplay !== DEFAULT_LOGO_DISPLAY;
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -687,13 +772,44 @@ function BusinessWizard({
           reason,
         });
         // The logo needs an existing business to belong to, so it is the one
-        // thing that cannot ride along with the create call.
+        // thing that cannot ride along with the create call. Same for every
+        // theme field beyond the primary colour, which CreateBusinessInput
+        // does not carry (see superadmin.CreateBusinessInput's own comment).
+        // shortName rides the follow-up profile update for the same reason.
         if (logoFile) await uploadLogo(created.id, logoFile, reason);
+        if (shortName) {
+          await updateProfile(created.id, { name, legalName, shortName, addressLine, kmlRegNo, appUrl, reason });
+        }
+        if (themeBeyondDefault) {
+          await setBranding(created.id, {
+            brandColor: color,
+            secondaryColor,
+            accentColor,
+            sidebarColor,
+            fontFamily,
+            fontScale,
+            logoScale,
+            logoDisplay,
+            reason,
+          });
+        }
       } else {
         if (changed.profile) {
-          await updateProfile(business.id, { name, legalName, addressLine, kmlRegNo, appUrl, reason });
+          await updateProfile(business.id, { name, legalName, shortName, addressLine, kmlRegNo, appUrl, reason });
         }
-        if (changed.color) await setBranding(business.id, color, reason);
+        if (changed.theme) {
+          await setBranding(business.id, {
+            brandColor: color,
+            secondaryColor,
+            accentColor,
+            sidebarColor,
+            fontFamily,
+            fontScale,
+            logoScale,
+            logoDisplay,
+            reason,
+          });
+        }
         if (changed.logo && logoFile) await uploadLogo(business.id, logoFile, reason);
         if (changed.modules) await setModules(business.id, modules, reason);
         if (changed.languages) await setLanguages(business.id, languages, reason);
@@ -782,6 +898,14 @@ function BusinessWizard({
                   <span className="sa-hint">Printed on the pledge agreement. Falls back to the business name.</span>
                 </div>
                 <div className="sa-field">
+                  <label>Short name (optional)</label>
+                  <input value={shortName} onChange={(e) => setShortName(e.target.value)} placeholder={name || "e.g. CTFI"} />
+                  <span className="sa-hint">
+                    Shown where the full name doesn&apos;t fit: sidebar headline, browser tab, login page. Falls
+                    back to the business name.
+                  </span>
+                </div>
+                <div className="sa-field">
                   <label>Registration no. (KML/MLL)</label>
                   <input value={kmlRegNo} onChange={(e) => setKmlRegNo(e.target.value)} />
                 </div>
@@ -827,8 +951,8 @@ function BusinessWizard({
                   <RampPreview hex={color} />
                 </div>
                 <span className="sa-hint">
-                  Only the primary is chosen. Every other shade the app uses — hovers, fills, pale backgrounds, the
-                  print header — is derived from it, which is what the strip above shows.
+                  Every other shade the app uses — hovers, fills, pale backgrounds, the print header — is derived
+                  from this one, which is what the strip above shows.
                 </span>
               </div>
 
@@ -848,6 +972,120 @@ function BusinessWizard({
                   PNG, JPEG or WebP. SVG is refused — an SVG can carry a script, and serving one from this origin
                   would run it against the viewer&apos;s session.
                   {isCreate && " Uploaded once the business has been created."}
+                </span>
+              </div>
+
+              {suggestedPalette.length > 0 && (
+                <div className="sa-field">
+                  <label>Suggested from this logo</label>
+                  <div className="sa-color-row">
+                    {suggestedPalette.map((hex) => (
+                      <button
+                        key={hex}
+                        type="button"
+                        className="sa-swatch-btn"
+                        style={{ background: hex }}
+                        title={`Use ${hex}`}
+                        onClick={() => {
+                          // First click fills the primary (only while it's
+                          // still the untouched PLATFORM default — matching
+                          // `initialColor` here was the same bug fixed in
+                          // pickLogo's auto-fill just above: an existing
+                          // business's already-saved colour is a real,
+                          // deliberate choice, not a placeholder), the
+                          // second click the secondary.
+                          if (color === DEFAULT_BRAND_COLOR) setColor(hex);
+                          else if (!secondaryColor) setSecondaryColor(hex);
+                        }}
+                      />
+                    ))}
+                  </div>
+                  <span className="sa-hint">
+                    Pulled from the uploaded logo&apos;s own pixels — a suggestion only. Click a swatch to fill the
+                    next empty colour field; every field stays yours to edit or clear afterwards.
+                  </span>
+                </div>
+              )}
+
+              <div className="sa-field">
+                <label>Secondary colour (optional)</label>
+                <div className="sa-color-row">
+                  <input
+                    type="color"
+                    value={/^#[0-9a-fA-F]{6}$/.test(secondaryColor) ? secondaryColor : "#ffffff"}
+                    onChange={(e) => setSecondaryColor(e.target.value)}
+                  />
+                  <input
+                    type="text"
+                    value={secondaryColor}
+                    onChange={(e) => setSecondaryColor(e.target.value)}
+                    placeholder="unset"
+                  />
+                  {secondaryColor && (
+                    <button type="button" className="sa-link-btn" onClick={() => setSecondaryColor("")}>
+                      Clear
+                    </button>
+                  )}
+                  {secondaryColor && <RampPreview hex={secondaryColor} />}
+                </div>
+                <span className="sa-hint">
+                  <b>Also sets the sidebar and login panel&apos;s dark background</b> — enter this to match an
+                  existing brand&apos;s exact sidebar colour (e.g. a design tool&apos;s colour picker). Leave empty
+                  and it derives one from the primary colour automatically instead.
+                </span>
+              </div>
+
+              <div className="sa-field">
+                <label>Font</label>
+                <select value={fontFamily} onChange={(e) => setFontFamily(e.target.value)}>
+                  {Object.keys(FONT_FAMILIES).map((key) => (
+                    <option key={key} value={key}>
+                      {key[0].toUpperCase() + key.slice(1)}
+                    </option>
+                  ))}
+                </select>
+                <span className="sa-hint">Applies to running text; headings and the sidebar wordmark are unaffected.</span>
+              </div>
+
+              <div className="sa-field">
+                <label>Text size</label>
+                <select value={fontScale} onChange={(e) => setFontScale(e.target.value)}>
+                  {Object.keys(FONT_SCALES).map((key) => (
+                    <option key={key} value={key}>
+                      {key[0].toUpperCase() + key.slice(1)}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="sa-field">
+                <label>Logo size in the sidebar/header</label>
+                <select value={logoScale} onChange={(e) => setLogoScale(e.target.value)}>
+                  {Object.keys(LOGO_SCALES).map((key) => (
+                    <option key={key} value={key}>
+                      {key[0].toUpperCase() + key.slice(1)}
+                    </option>
+                  ))}
+                </select>
+                <span className="sa-hint">
+                  Only affects the sidebar and header — the login page&apos;s logo is a fixed size (already matched
+                  to a reference design) and does not use this setting. The logo already scales to fit its
+                  sidebar/header slot automatically; use this only when it still reads smaller or larger than it
+                  should there (e.g. thin linework vs. a solid block mark).
+                </span>
+              </div>
+
+              <div className="sa-field">
+                <label>Logo backing</label>
+                <select value={logoDisplay} onChange={(e) => setLogoDisplay(e.target.value)}>
+                  {LOGO_DISPLAYS.map((key) => (
+                    <option key={key} value={key}>
+                      {key === "transparent" ? "None (transparent)" : key === "light-pad" ? "Light backing" : "Dark backing"}
+                    </option>
+                  ))}
+                </select>
+                <span className="sa-hint">
+                  Use a backing swatch for a logo that only reads clearly against one background colour.
                 </span>
               </div>
             </>
@@ -998,10 +1236,16 @@ function BusinessWizard({
                 <ReviewRow label="Business name" value={name} changed={changed.profile} />
                 <ReviewRow label="Sign-in code" value={isCreate ? code : business.code} />
                 <ReviewRow label="Legal name" value={legalName} changed={changed.profile} />
+                <ReviewRow label="Short name" value={shortName || "(falls back to business name)"} changed={changed.profile} />
                 <ReviewRow label="Address" value={addressLine} changed={changed.profile} />
                 <ReviewRow label="Registration no." value={kmlRegNo} changed={changed.profile} />
                 <ReviewRow label="Deployment URL" value={appUrl} changed={changed.profile} />
-                <ReviewRow label="Primary colour" value={color} changed={changed.color} />
+                <ReviewRow label="Primary colour" value={color} changed={changed.theme} />
+                <ReviewRow label="Secondary colour" value={secondaryColor || "unset"} changed={changed.theme} />
+                <ReviewRow label="Font" value={fontFamily} changed={changed.theme} />
+                <ReviewRow label="Text size" value={fontScale} changed={changed.theme} />
+                <ReviewRow label="Logo size" value={logoScale} changed={changed.theme} />
+                <ReviewRow label="Logo backing" value={logoDisplay} changed={changed.theme} />
                 <ReviewRow
                   label="Logo"
                   value={logoFile ? logoFile.name : business?.logoUrl ? "already set" : ""}

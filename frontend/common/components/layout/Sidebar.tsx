@@ -40,8 +40,8 @@ export const NAV: [string, NavItem[]][] = [
     { route: "goldrates", title: "Gold Rates", icon: "coin", module: "Gold_Rate_Management", key: "can_view_gold_rate" },
     { route: "requests", title: "Extensions & Release", icon: "unlock", module: "Loan_Management", key: "can_view_loan" },
     { route: "loanrisk", title: "Loan Risk", icon: "warning", module: "Loan_Management", key: "can_view_loan" },
-    { route: "personalloans", title: "Personal Loans", icon: "note", module: "Personal_Loan_Management", key: "can_view_personal_loan" },
-    { route: "investments", title: "Investments", icon: "coin", module: "Investment_Management", key: "can_view_investment" },
+    { route: "personalloans", title: "Personal Loans", icon: "note", module: "Personal_Loan_Management", key: "can_view_personal_loan", tenantModule: "personal_loans" },
+    { route: "investments", title: "Investments", icon: "coin", module: "Investment_Management", key: "can_view_investment", tenantModule: "investments" },
   ]],
   ["Customers", [
     { route: "customers", title: "Customers & KYC", icon: "user", module: "Customer_Management", key: "can_view_customer" },
@@ -65,14 +65,17 @@ export const NAV: [string, NavItem[]][] = [
 
 export function Sidebar({ route, open, onNavigateSameRoute }: { route: string; open: boolean; onNavigateSameRoute?: () => void }) {
   const { can } = useAuth();
-  const { hasModule, name: businessName } = useBranding();
+  const { hasModule, name: businessName, shortName } = useBranding();
 
-  /* The lockup splits the business's own name across two lines. A
-   * single-word name has no second line, so the first carries all of it —
-   * rather than repeating the word or leaving the lower line dangling. */
-  const nameParts = (businessName || BRAND.name).trim().split(/\s+/);
-  const lockupTop = nameParts.length > 1 ? nameParts.slice(0, -1).join(" ") : nameParts[0];
-  const lockupBottom = nameParts.length > 1 ? nameParts[nameParts.length - 1] : "";
+  /* The bold headline is the business's SHORT identity ("CTFI"), the small
+   * line under it its full name ("Chittilapilly Thommana") — not a split of
+   * one string across two sizes (an earlier version did that, which is why
+   * a business with no distinct short name still needs one: shortName falls
+   * back to the full name server-side, so a business that has not set one
+   * just repeats its full name on both lines rather than an awkward
+   * word-split). */
+  const lockupTop = shortName || businessName || BRAND.shortName;
+  const lockupBottom = businessName || BRAND.name;
 
   return (
     <aside className={`side${open ? " open" : ""}`} id="side">

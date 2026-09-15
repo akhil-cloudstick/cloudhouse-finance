@@ -215,7 +215,7 @@ func (h *Handler) exportStatement(c *gin.Context, key, format string, f Filter) 
 	filename := fmt.Sprintf("%s-%s.%s", key, time.Now().Format("20060102-150405"), format)
 	switch format {
 	case "xlsx":
-		buf, err := BuildStatementXLSX(title, asOfLabel, lines)
+		buf, err := BuildStatementXLSX(h.svc.BusinessName(ctx), title, asOfLabel, lines)
 		if err != nil {
 			serverError(c, err)
 			return
@@ -223,7 +223,7 @@ func (h *Handler) exportStatement(c *gin.Context, key, format string, f Filter) 
 		c.Header("Content-Disposition", "attachment; filename=\""+filename+"\"")
 		c.Data(http.StatusOK, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", buf)
 	case "pdf":
-		buf, err := BuildStatementPDF(title, asOfLabel, lines)
+		buf, err := BuildStatementPDF(h.svc.BusinessName(ctx), title, asOfLabel, lines)
 		if err != nil {
 			serverError(c, err)
 			return
@@ -353,7 +353,7 @@ func BuildXLSX(sheetName string, headers []string, data [][]string) ([]byte, err
 // "total", Amount left blank on "header" rows (pure section titles, no
 // figure of their own), indented by Indent levels of 2 spaces each since
 // a spreadsheet cell has no padding to reach for.
-func BuildStatementXLSX(title, asOfLabel string, lines []StatementLine) ([]byte, error) {
+func BuildStatementXLSX(businessName, title, asOfLabel string, lines []StatementLine) ([]byte, error) {
 	f := excelize.NewFile()
 	sheet := "Statement"
 	f.SetSheetName(f.GetSheetName(0), sheet)
@@ -362,7 +362,7 @@ func BuildStatementXLSX(title, asOfLabel string, lines []StatementLine) ([]byte,
 		return nil, err
 	}
 
-	f.SetCellValue(sheet, "A1", "Ambika Gold Finance")
+	f.SetCellValue(sheet, "A1", businessName)
 	f.SetCellStyle(sheet, "A1", "A1", bold)
 	f.SetCellValue(sheet, "A2", title)
 	f.SetCellStyle(sheet, "A2", "A2", bold)
@@ -402,13 +402,13 @@ func BuildStatementXLSX(title, asOfLabel string, lines []StatementLine) ([]byte,
 // indented per its Indent level (matching a real Division III statement's
 // nested "I./​(1)/(a)" layout) rather than the flat multi-column reflected
 // table BuildPDF renders for every other report.
-func BuildStatementPDF(title, asOfLabel string, lines []StatementLine) ([]byte, error) {
+func BuildStatementPDF(businessName, title, asOfLabel string, lines []StatementLine) ([]byte, error) {
 	pdf := gofpdf.New("P", "mm", "A4", "")
 	tr := pdf.UnicodeTranslatorFromDescriptor("")
 	pdf.AddPage()
 
 	pdf.SetFont("Arial", "B", 14)
-	pdf.CellFormat(0, 8, tr("Ambika Gold Finance"), "", 1, "C", false, 0, "")
+	pdf.CellFormat(0, 8, tr(businessName), "", 1, "C", false, 0, "")
 	pdf.SetFont("Arial", "B", 12)
 	pdf.CellFormat(0, 7, tr(title), "", 1, "C", false, 0, "")
 	pdf.SetFont("Arial", "", 10)

@@ -6,6 +6,7 @@ import "../login.css";
 import { useAuth } from "@/common/auth-context";
 import { ApiError } from "@/common/services/httpClient";
 import { BRAND, BRAND_PHONES } from "@/common/config/brand";
+import { useBranding } from "@/common/BrandingProvider";
 import BrandLogo from "@/common/components/BrandLogo";
 import {
   activeBusinessSlug,
@@ -18,6 +19,23 @@ function LoginPageInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { login, token, loading } = useAuth();
+  // Every string on this page used to be the hardcoded platform BRAND,
+  // regardless of which business's /login/<slug> or subdomain a visitor
+  // actually reached — BrandLogo already reads the real business's logo via
+  // this same provider, but nothing else here did. legalName/kmlRegNo/name
+  // fall back to BRAND field by field, same convention as
+  // Sidebar.tsx/BrandLogo.tsx, rather than all-or-nothing.
+  const { name: businessName, shortName, legalName, kmlRegNo, loaded: brandingLoaded } = useBranding();
+  // The identity panel's big headline is the FULL business name, split
+  // across two lines by word — NOT the short name. The reference this was
+  // checked against never shows its short form ("CTFI") here at all, only
+  // in tight spots (sidebar headline, browser tab, the "Staff access to X"
+  // line below). A single-word name has no second line, so the first line
+  // carries all of it rather than repeating the word or leaving the second
+  // line dangling — same convention as Sidebar.tsx's own split.
+  const nameParts = (businessName || BRAND.name).trim().split(/\s+/);
+  const nameTop = nameParts.length > 1 ? nameParts.slice(0, -1).join(" ") : nameParts[0];
+  const nameBottom = nameParts.length > 1 ? nameParts[nameParts.length - 1] : "";
   const [passVisible, setPassVisible] = useState(false);
   const [identifier, setIdentifier] = useState("");
   const [pass, setPass] = useState("");
@@ -99,6 +117,22 @@ function LoginPageInner() {
     }
   }
 
+  // linkSlug (not a direct businessSlugFromPath() call here) — it starts
+  // null on the server AND on the client's first render alike, resolving to
+  // the real slug only in the effect above, after mount. Gating on a value
+  // that differs between server and client's FIRST render is exactly what
+  // caused a hydration-mismatch crash: the prerendered HTML (built with no
+  // URL to read) never showed this loading screen, so the client's first
+  // paint must not either — only once linkSlug updates post-mount (an
+  // ordinary re-render, not the hydration pass) is it safe to swap in.
+  if (linkSlug !== null && !brandingLoaded) {
+    return (
+      <div className="shell-loading" aria-busy="true" aria-label="Loading">
+        <div className="shell-loading-spinner" />
+      </div>
+    );
+  }
+
   return (
     <div className="login-page">
       <div className="wrap">
@@ -107,21 +141,21 @@ function LoginPageInner() {
           * name — the registration number and phone numbers are reference
           * detail, not worth a third of a phone screen. */}
         <aside className="brand-panel">
-          <BrandLogo size={168} className="bp-mark" />
+          <BrandLogo size={168} className="bp-mark" scalable={false} />
           <h1 className="bp-name">
-            {BRAND.nameTop}
-            <span>{BRAND.nameBottom}</span>
+            {nameTop}
+            {nameBottom && <span>{nameBottom}</span>}
           </h1>
           <p className="bp-desc">{BRAND.descriptor}</p>
           <span className="bp-rule" aria-hidden="true"></span>
-          <p className="bp-reg">{BRAND.kmlRegLabel}</p>
+          <p className="bp-reg">{kmlRegNo ? `KML Reg. No: ${kmlRegNo}` : BRAND.kmlRegLabel}</p>
           <p className="bp-phone">{BRAND_PHONES}</p>
         </aside>
 
         <main className="card">
           <div className="brand">
             <h2>Sign in</h2>
-            <p>Staff access to the {BRAND.shortName} lending console.</p>
+            <p>Staff access to the {shortName || businessName || BRAND.shortName} lending console.</p>
           </div>
 
           <form id="loginForm" noValidate onSubmit={handleSubmit}>
@@ -215,7 +249,7 @@ function LoginPageInner() {
 
         </main>
 
-        <p className="copy">© 2026 {BRAND.legalName}</p>
+        <p className="copy">© 2026 {legalName || BRAND.legalName}</p>
         <p className="powered">
           Powered by{" "}
           <a href="https://cloudhousetechnologies.com" target="_blank" rel="noopener">

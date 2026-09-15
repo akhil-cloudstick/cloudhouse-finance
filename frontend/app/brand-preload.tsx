@@ -1,4 +1,4 @@
-import { BRAND_COLOR_KEY_PREFIX, DEFAULT_BRAND_COLOR } from "@/common/config/theme";
+import { BRAND_COLOR_KEY_PREFIX, BRAND_TITLE_KEY_PREFIX, DEFAULT_BRAND_COLOR } from "@/common/config/theme";
 
 /* A blocking inline script that paints the signed-in business's brand colour
  * before React ever mounts.
@@ -50,6 +50,14 @@ const script = `
       document.documentElement.style.setProperty(steps[i][0],
         "oklch(" + steps[i][1] + " " + c.toFixed(3) + " " + H.toFixed(1) + ")");
     }
+    // The browser tab TEXT — same problem, same fix: a static export bakes
+    // one title for every business at build time (see app/layout.tsx's
+    // Metadata), so without this it shows the platform name until
+    // BrandingProvider's fetch resolves, on every load. Cached by
+    // BrandingProvider.tsx's cacheDocumentTitle, same per-slug keying as
+    // the colour above.
+    var title = localStorage.getItem(${JSON.stringify(BRAND_TITLE_KEY_PREFIX)} + slug);
+    if (title) document.title = title;
   } catch (e) { /* storage blocked or malformed value — keep the default theme */ }
 })();
 `;

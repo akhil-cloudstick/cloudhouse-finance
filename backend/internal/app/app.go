@@ -16,6 +16,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -60,9 +61,28 @@ import (
 // this API during local development) to make cross-origin requests. In
 // production the built frontend is served from this same binary/origin, so
 // this is effectively a no-op there.
-func corsMiddleware(allowedOrigin string) gin.HandlerFunc {
+// corsMiddleware allows a fixed, comma-separated set of dev-time origins to
+// call this API cross-origin — now two by default: the tenant frontend and
+// the separately-deployed superadmin console (see Config.FrontendOrigin).
+// Reflects the request's own Origin header back only when it exactly matches
+// one of the allowed set, rather than a single static value — the standard
+// shape for allow-LISTING several known origins, since
+// Access-Control-Allow-Origin can only ever name one at a time. An
+// unrecognised Origin gets no CORS header at all, which browsers already
+// treat as a refusal; this never widens access, only lets the enumerated dev
+// origins through.
+func corsMiddleware(allowedOrigins string) gin.HandlerFunc {
+	allowed := map[string]bool{}
+	for _, o := range strings.Split(allowedOrigins, ",") {
+		if o = strings.TrimSpace(o); o != "" {
+			allowed[o] = true
+		}
+	}
 	return func(c *gin.Context) {
-		c.Header("Access-Control-Allow-Origin", allowedOrigin)
+		if origin := c.GetHeader("Origin"); origin != "" && allowed[origin] {
+			c.Header("Access-Control-Allow-Origin", origin)
+			c.Header("Vary", "Origin")
+		}
 		c.Header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
 		c.Header("Access-Control-Allow-Headers", "Content-Type, Authorization")
 		if c.Request.Method == http.MethodOptions {
@@ -445,7 +465,7 @@ func Build(db *gorm.DB, cfg platform.Config) (*App, error) {
 	protected.GET("/customers/:id/payments", platform.CRUDPermissions(authzRepo, "customers").Read, loanHandler.ListPaymentsForCustomer)
 	protected.GET("/customers/:id/bank-pledges", platform.CRUDPermissions(authzRepo, "customers").Read, loanHandler.ListBankPledgesForCustomer)
 	protected.GET("/customers/:id/auction-history", platform.CRUDPermissions(authzRepo, "customers").Read, loanHandler.ListAuctionHistoryForCustomer)
-	protected.GET("/customers/:id/personal-loans", platform.CRUDPermissions(authzRepo, "personalloans").Read, personalLoanHandler.ListLoansForCustomer)
+	protected.GET("/customers/:id/personal-loans", platform.RequireTenantModule(tenantRepo, tenant.ModulePersonalLoans), platform.CRUDPermissions(authzRepo, "personalloans").Read, personalLoanHandler.ListLoansForCustomer)
 	loan.RegisterRoutes(protected.Group("/loans"), loanHandler, platform.CRUDPermissions(authzRepo, "loans"), platform.CRUDPermissions(authzRepo, "bankpledges"), platform.RequirePermission(authzRepo, "can hard delete loan"))
 	dashboard.RegisterRoutes(protected.Group("/dashboard"), dashboardHandler, platform.CRUDPermissions(authzRepo, "loans"))
 	upload.RegisterRoutes(protected.Group("/uploads"), uploadHandler, platform.CRUDPermissions(authzRepo, "uploads"))
@@ -457,15 +477,29 @@ func Build(db *gorm.DB, cfg platform.Config) (*App, error) {
 	locker.RegisterRoutes(protected.Group("/lockers"), lockerHandler, platform.CRUDPermissions(authzRepo, "lockers"))
 	packet.RegisterRoutes(protected.Group("/packets"), packetHandler, platform.CRUDPermissions(authzRepo, "packets"))
 	reminder.RegisterRoutes(protected.Group("/reminders"), reminderHandler, platform.CRUDPermissions(authzRepo, "reminders"))
-	personalloan.RegisterRoutes(protected.Group("/personal-loans"), personalLoanHandler, platform.CRUDPermissions(authzRepo, "personalloans"))
-	protected.GET("/customers/:id/investments", platform.CRUDPermissions(authzRepo, "investments").Read, investmentHandler.ListInvestmentsForCustomer)
-	investment.RegisterRoutes(protected.Group("/investments"), investmentHandler, platform.CRUDPermissions(authzRepo, "investments"))
-	investment.RegisterPlanRoutes(protected.Group("/investment-plans"), investmentHandler, platform.CRUDPermissions(authzRepo, "investments"))
+	// Personal Loans and Investments are optional modules, and unlike
+	// Branch Management (writes-only gate — see branch.RegisterRoutes'
+	// comment), the WHOLE group is gated here, reads included: neither
+	// product line's data is load-bearing for any OTHER feature the way
+	// branches are, so a business without the module should see the page,
+	// the API, and the related reports (see reports/routes.go) as if they
+	// did not exist, not merely be unable to write to them.
+	personalLoansGroup := protected.Group("/personal-loans")
+	personalLoansGroup.Use(platform.RequireTenantModule(tenantRepo, tenant.ModulePersonalLoans))
+	personalloan.RegisterRoutes(personalLoansGroup, personalLoanHandler, platform.CRUDPermissions(authzRepo, "personalloans"))
+
+	protected.GET("/customers/:id/investments", platform.RequireTenantModule(tenantRepo, tenant.ModuleInvestments), platform.CRUDPermissions(authzRepo, "investments").Read, investmentHandler.ListInvestmentsForCustomer)
+	investmentsGroup := protected.Group("/investments")
+	investmentsGroup.Use(platform.RequireTenantModule(tenantRepo, tenant.ModuleInvestments))
+	investment.RegisterRoutes(investmentsGroup, investmentHandler, platform.CRUDPermissions(authzRepo, "investments"))
+	investmentPlansGroup := protected.Group("/investment-plans")
+	investmentPlansGroup.Use(platform.RequireTenantModule(tenantRepo, tenant.ModuleInvestments))
+	investment.RegisterPlanRoutes(investmentPlansGroup, investmentHandler, platform.CRUDPermissions(authzRepo, "investments"))
 	// Reports are read-only, gated solely by "can view report" — the
 	// Administrator/Management/Branch Manager/Auditor default access is now
 	// applied via internal/authz.Restrictions (a role_permissions grant, not
 	// a hardcoded allowlist), editable from the permissions admin screen.
-	reports.RegisterRoutes(protected.Group("/reports"), reportsHandler, platform.CRUDPermissions(authzRepo, "reports"))
+	reports.RegisterRoutes(protected.Group("/reports"), reportsHandler, platform.CRUDPermissions(authzRepo, "reports"), tenantRepo)
 
 	// This business's own audit log (Step 11) — read-only, same
 	// "reports"-style single-permission gate; entries are written

@@ -15,7 +15,18 @@ import { API_BASE, apiFetchEnveloped } from "@/common/services/httpClient";
 export type PublicBranding = {
   name: string;
   legalName: string;
+  /** Compact identity for tight spots (sidebar headline, tab title, login
+   * subtext). Never empty — falls back to name server-side. */
+  shortName: string;
   brandColor: string;
+  /** Empty means "not set" — see frontend/common/config/theme.ts. */
+  secondaryColor: string;
+  accentColor: string;
+  sidebarColor: string;
+  fontFamily: string;
+  fontScale: string;
+  logoScale: string;
+  logoDisplay: string;
   /** Empty when the business has no logo — render the platform mark. */
   logoUrl: string;
   appUrl: string;
@@ -37,7 +48,12 @@ export type MyBranding = PublicBranding & {
 export async function fetchPublicBranding(code: string | null): Promise<PublicBranding | null> {
   if (!code) return null;
   try {
-    const res = await fetch(`${API_BASE}/public/branding/${encodeURIComponent(code)}`);
+    // no-store: this is refetched on every BrandingProvider load specifically
+    // so an edit in the superadmin console shows up on the next reload — a
+    // browser (or an intermediate dev-server proxy) treating this GET as
+    // cacheable would silently serve a stale business's old colours/logo/name
+    // after a real change, which is exactly what this exists to prevent.
+    const res = await fetch(`${API_BASE}/public/branding/${encodeURIComponent(code)}`, { cache: "no-store" });
     if (!res.ok) return null;
     const body = (await res.json()) as { success?: boolean; data?: PublicBranding };
     return body?.data ?? null;
@@ -47,5 +63,7 @@ export async function fetchPublicBranding(code: string | null): Promise<PublicBr
 }
 
 export function fetchMyBranding(): Promise<MyBranding> {
-  return apiFetchEnveloped<MyBranding>("/branding");
+  // no-store — same reasoning as fetchPublicBranding above: this must never
+  // serve a cached response after a superadmin edit.
+  return apiFetchEnveloped<MyBranding>("/branding", { cache: "no-store" });
 }

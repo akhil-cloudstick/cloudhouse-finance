@@ -38,6 +38,11 @@ var brandColorPattern = regexp.MustCompile(`^#[0-9a-fA-F]{6}$`)
 type ProfileInput struct {
 	Name        string
 	LegalName   string
+	// ShortName is the compact identity for tight spots — sidebar headline,
+	// browser tab, the login page's "Staff access to X" line — e.g. "CTFI"
+	// for "Chittilapilly Thommana Financiers & Investments". Empty falls
+	// back to Name, same convention as LegalName.
+	ShortName   string
 	AddressLine string
 	KMLRegNo    string
 	AppURL      string
@@ -64,6 +69,7 @@ func (s *Service) UpdateProfile(ctx context.Context, actor *SuperAdminUser, id u
 	beforeName := t.Name
 	t.Name = name
 	t.LegalName = strings.TrimSpace(in.LegalName)
+	t.ShortName = strings.TrimSpace(in.ShortName)
 	t.AddressLine = strings.TrimSpace(in.AddressLine)
 	t.KMLRegNo = strings.TrimSpace(in.KMLRegNo)
 	t.AppURL = strings.TrimSpace(in.AppURL)
@@ -78,39 +84,124 @@ func (s *Service) UpdateProfile(ctx context.Context, actor *SuperAdminUser, id u
 	return t, nil
 }
 
-// SetBrandColor sets the ONE colour a business's whole palette is derived
-// from. There is deliberately no way to set the individual ramp steps: the
-// frontend generates deep/mid/light/pale/faint from this value so the derived
-// shades always keep the same tonal relationship, whatever hue is chosen (see
-// frontend/common/config/theme.ts).
-//
-// An empty value clears it back to the platform default rather than being
-// rejected — "undo my colour" has to be expressible.
-func (s *Service) SetBrandColor(ctx context.Context, actor *SuperAdminUser, id uint, color, reason string) (*tenant.Tenant, error) {
-	reason = optionalReason(reason)
-	color = strings.TrimSpace(strings.ToLower(color))
-	if color != "" && !brandColorPattern.MatchString(color) {
-		return nil, ErrInvalidBrandColor
+// knownFontFamilies/knownFontScales/knownLogoScales/knownLogoDisplays are the
+// closed sets the console may choose from — same reasoning as
+// tenant.KnownModules: a fixed vocabulary the frontend has assets/CSS for,
+// enumerable in one place, so a typo becomes a 400 rather than a silently
+// unstyled page or (for FontFamily, if it were ever free text) a way to make
+// this origin fetch an arbitrary remote font.
+var (
+	knownFontFamilies = []string{"inter", "system", "lora", "poppins"}
+	knownFontScales   = []string{"compact", "default", "comfortable"}
+	knownLogoScales   = []string{"small", "default", "large", "xlarge"}
+	knownLogoDisplays = []string{"transparent", "light-pad", "dark-pad"}
+)
+
+func oneOf(value string, allowed []string) bool {
+	if value == "" {
+		return true // empty means "use the default" everywhere below
 	}
+	for _, a := range allowed {
+		if value == a {
+			return true
+		}
+	}
+	return false
+}
+
+// ThemeInput carries every branding lever the console's theme panel edits in
+// one request: the primary colour plus the optional second/third, typography,
+// and how the logo sits in its slot. Grouped into one call (rather than one
+// endpoint per field, as SetModules/SetLanguages are) because these are
+// edited together as "the theme" and one audit row per save reads far better
+// than five.
+type ThemeInput struct {
+	BrandColor     string
+	SecondaryColor string
+	AccentColor    string
+	// SidebarColor is a DIRECTLY-SET colour for the sidebar/login-panel dark
+	// ground, not derived from BrandColor — see tenant.Tenant.SidebarColor's
+	// doc comment for why an auto-derived value was not good enough.
+	SidebarColor string
+	FontFamily   string
+	FontScale    string
+	LogoScale    string
+	LogoDisplay  string
+}
+
+// SetTheme sets the business's whole visual theme: the colour(s) its palette
+// is derived from, its typography, and how its logo is framed.
+//
+// There is deliberately no way to set a colour ramp's individual steps —
+// frontend/common/config/theme.ts derives deep/mid/light/pale/faint from each
+// picked colour independently, so the derived shades always keep the same
+// tonal relationship, whatever hue is chosen. SecondaryColor/AccentColor are
+// optional: most businesses set only BrandColor, and leaving the other two
+// empty means "do not derive a second/third ramp" rather than "use a
+// default" — see branding.publicOf.
+//
+// An empty value in any field clears it back to the platform default (or, for
+// Secondary/AccentColor, to "unset") rather than being rejected — "undo my
+// choice" has to stay expressible field by field.
+func (s *Service) SetTheme(ctx context.Context, actor *SuperAdminUser, id uint, in ThemeInput, reason string) (*tenant.Tenant, error) {
+	reason = optionalReason(reason)
+	primary := strings.TrimSpace(strings.ToLower(in.BrandColor))
+	secondary := strings.TrimSpace(strings.ToLower(in.SecondaryColor))
+	accent := strings.TrimSpace(strings.ToLower(in.AccentColor))
+	sidebar := strings.TrimSpace(strings.ToLower(in.SidebarColor))
+	for _, c := range []string{primary, secondary, accent, sidebar} {
+		if c != "" && !brandColorPattern.MatchString(c) {
+			return nil, ErrInvalidBrandColor
+		}
+	}
+	fontFamily := strings.TrimSpace(strings.ToLower(in.FontFamily))
+	fontScale := strings.TrimSpace(strings.ToLower(in.FontScale))
+	logoScale := strings.TrimSpace(strings.ToLower(in.LogoScale))
+	logoDisplay := strings.TrimSpace(strings.ToLower(in.LogoDisplay))
+	if !oneOf(fontFamily, knownFontFamilies) {
+		return nil, httpx.NewBadRequest("unknown font family")
+	}
+	if !oneOf(fontScale, knownFontScales) {
+		return nil, httpx.NewBadRequest("unknown font scale")
+	}
+	if !oneOf(logoScale, knownLogoScales) {
+		return nil, httpx.NewBadRequest("unknown logo scale")
+	}
+	if !oneOf(logoDisplay, knownLogoDisplays) {
+		return nil, httpx.NewBadRequest("unknown logo display")
+	}
+
 	t, err := s.tenantRepo.FindByID(ctx, id)
 	if err != nil {
 		return nil, ErrBusinessNotFound
 	}
-	before := t.BrandColor
-	if before == "" {
-		before = "default"
-	}
-	t.BrandColor = color
+	before := fmt.Sprintf("brand=%s secondary=%s accent=%s sidebar=%s font=%s/%s logo=%s/%s",
+		orDefault(t.BrandColor), orDefault(t.SecondaryColor), orDefault(t.AccentColor), orDefault(t.SidebarColor),
+		orDefault(t.FontFamily), orDefault(t.FontScale), orDefault(t.LogoScale), orDefault(t.LogoDisplay))
+	t.BrandColor = primary
+	t.SecondaryColor = secondary
+	t.AccentColor = accent
+	t.SidebarColor = sidebar
+	t.FontFamily = fontFamily
+	t.FontScale = fontScale
+	t.LogoScale = logoScale
+	t.LogoDisplay = logoDisplay
 	if err := s.tenantRepo.Update(ctx, t); err != nil {
 		return nil, err
 	}
-	after := color
-	if after == "" {
-		after = "default"
-	}
+	after := fmt.Sprintf("brand=%s secondary=%s accent=%s sidebar=%s font=%s/%s logo=%s/%s",
+		orDefault(t.BrandColor), orDefault(t.SecondaryColor), orDefault(t.AccentColor), orDefault(t.SidebarColor),
+		orDefault(t.FontFamily), orDefault(t.FontScale), orDefault(t.LogoScale), orDefault(t.LogoDisplay))
 	s.audit(ctx, actor, ActionSetBranding, &t.ID, t.Name,
-		fmt.Sprintf("brandColor: %s -> %s", before, after), reason)
+		fmt.Sprintf("theme: %s -> %s", before, after), reason)
 	return t, nil
+}
+
+func orDefault(s string) string {
+	if s == "" {
+		return "default"
+	}
+	return s
 }
 
 // SetLogo stores a business's logo and points the tenant row at it.

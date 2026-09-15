@@ -12,6 +12,7 @@ import { Icon } from "@/common/components/Icon";
 import { useAuth } from "@/common/auth-context";
 import { loginPath } from "@/common/services/tenantSession";
 import { BRAND } from "@/common/config/brand";
+import { useBranding } from "@/common/BrandingProvider";
 import GlobalSearch from "./GlobalSearch";
 import { BranchSwitcher } from "./BranchSwitcher";
 
@@ -22,6 +23,10 @@ export function Topbar({ route, arg, onBurger }: { route: string; arg?: string; 
   const { customers } = useCustomers();
   const { openModal } = useModal();
   const { employee, logout } = useAuth();
+  // Was the hardcoded platform BRAND.name for every business — Sidebar.tsx
+  // already gets this right via the same hook, this was the one place that
+  // didn't.
+  const { name: businessName } = useBranding();
   const router = useRouter();
   const [searchOpen, setSearchOpen] = useState(false);
 
@@ -52,7 +57,7 @@ export function Topbar({ route, arg, onBurger }: { route: string; arg?: string; 
         </svg>
       </button>
       <span className="crumb" id="crumb">
-        <a href="#dashboard" style={{ color: "inherit", textDecoration: "none" }}>{BRAND.name}</a>
+        <a href="#dashboard" style={{ color: "inherit", textDecoration: "none" }}>{businessName || BRAND.name}</a>
         &nbsp;/&nbsp;
         <a href={crumbHref} style={{ color: "inherit", textDecoration: "none" }}><b>{crumb}</b></a>
       </span>

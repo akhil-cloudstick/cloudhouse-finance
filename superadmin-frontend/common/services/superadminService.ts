@@ -6,7 +6,7 @@
  * which means anything for a superadmin session, which belongs to no
  * business and no branch. Reusing it would risk one day silently attaching
  * the wrong bearer token to a superadmin request. */
-import { API_BASE } from "@/common/services/httpClient";
+import { API_BASE } from "@/common/services/apiBase";
 import { readSuperAdminToken, type SuperAdminUser } from "@/common/services/superadminSession";
 
 export class SuperAdminApiError extends Error {
@@ -80,10 +80,25 @@ export type Business = {
   subscriptionExpiresAt?: string | null;
   gracePeriodEndsAt?: string | null;
   legalName: string;
+  /* Compact identity for the sidebar headline/tab title/login subtext —
+   * e.g. "CTFI" for "Chittilapilly Thommana Financiers & Investments".
+   * Empty means "not set" (falls back to name at read time). */
+  shortName: string;
   addressLine: string;
   kmlRegNo: string;
   appUrl: string;
   brandColor: string;
+  /* Optional second/third colours and typography/logo presets — empty means
+   * "not set"/"default". See frontend/common/config/theme.ts. */
+  secondaryColor: string;
+  accentColor: string;
+  /* DIRECTLY-SET sidebar/login-panel dark ground colour — not derived from
+   * brandColor. Empty means "auto" (derived from brandColor's own hue). */
+  sidebarColor: string;
+  fontFamily: string;
+  fontScale: string;
+  logoScale: string;
+  logoDisplay: string;
   /* Empty when the business has no logo. Derived server-side from the
    * business code (tenant.Tenant.LogoPath) — never a raw storage key. */
   logoUrl: string;
@@ -205,6 +220,7 @@ export function getCatalogue(): Promise<Catalogue> {
 export type ProfileInput = {
   name: string;
   legalName: string;
+  shortName?: string;
   addressLine: string;
   kmlRegNo: string;
   appUrl: string;
@@ -221,13 +237,28 @@ export function updateProfile(id: number, input: ProfileInput): Promise<Business
   });
 }
 
-/* brandColor is "#rrggbb", or "" to fall back to the platform default. The
- * rest of the palette is derived from it in the browser — see
- * common/config/theme.ts — so there is only ever this one value to set. */
-export function setBranding(id: number, brandColor: string, reason: string): Promise<Business> {
+/* Every colour/typography/logo field the console's theme panel edits, sent
+ * together in one call — mirrors backend/internal/superadmin.ThemeInput.
+ * Each field is "#rrggbb"/a closed-set key, or "" to fall back to the
+ * platform default (secondary/accent instead fall back to "unset" — see
+ * theme.ts). The rest of each colour's ramp is derived from it in the
+ * browser, so there is never more than these few values to set. */
+export type ThemeInput = {
+  brandColor: string;
+  secondaryColor?: string;
+  accentColor?: string;
+  sidebarColor?: string;
+  fontFamily?: string;
+  fontScale?: string;
+  logoScale?: string;
+  logoDisplay?: string;
+  reason: string;
+};
+
+export function setBranding(id: number, theme: ThemeInput): Promise<Business> {
   return request<Business>(`/superadmin/businesses/${id}/branding`, {
     method: "PUT",
-    body: JSON.stringify({ brandColor, reason }),
+    body: JSON.stringify(theme),
   });
 }
 

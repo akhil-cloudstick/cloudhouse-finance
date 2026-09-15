@@ -20,7 +20,7 @@ export default function SuperAdminLoginPage() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (readSuperAdminToken()) router.replace("/superadmin");
+    if (readSuperAdminToken()) router.replace("/");
   }, [router]);
 
   async function handleSubmit(e: React.FormEvent) {
@@ -34,7 +34,7 @@ export default function SuperAdminLoginPage() {
     try {
       const res = await login(username.trim(), password);
       writeSuperAdminSession(res.token, res.superAdminUser);
-      router.push("/superadmin");
+      router.push("/");
     } catch (err) {
       setError(err instanceof SuperAdminApiError ? err.message : "Could not reach the server.");
     } finally {

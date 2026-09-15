@@ -2,7 +2,14 @@
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 import { BRAND, cacheBrandProfile } from "@/common/config/brand";
-import { applyBrandTheme, cacheBrandColor, DEFAULT_BRAND_COLOR } from "@/common/config/theme";
+import {
+  applyBrandTheme,
+  applyDocumentTitle,
+  applyFavicon,
+  cacheBrandTheme,
+  cacheDocumentTitle,
+  DEFAULT_BRAND_COLOR,
+} from "@/common/config/theme";
 import { activeBusinessSlug, readToken } from "@/common/services/tenantSession";
 import {
   fetchMyBranding,
@@ -34,9 +41,20 @@ import {
 export type BrandingValue = {
   name: string;
   legalName: string;
+  /** Compact identity for tight spots — sidebar headline, tab title, login
+   * subtext. Falls back to name, never empty. */
+  shortName: string;
   addressLine: string;
   kmlRegNo: string;
   brandColor: string;
+  /** Empty means "not set" — see frontend/common/config/theme.ts. */
+  secondaryColor: string;
+  accentColor: string;
+  sidebarColor: string;
+  fontFamily: string;
+  fontScale: string;
+  logoScale: string;
+  logoDisplay: string;
   /** Empty means "render the platform mark" — see BrandLogo. */
   logoUrl: string;
   appUrl: string;
@@ -61,9 +79,17 @@ export type BrandingValue = {
 const FALLBACK: Omit<BrandingValue, "hasModule" | "hasLanguage" | "refresh" | "loaded"> = {
   name: BRAND.name,
   legalName: BRAND.legalName,
+  shortName: BRAND.shortName,
   addressLine: "",
   kmlRegNo: BRAND.kmlReg,
   brandColor: DEFAULT_BRAND_COLOR,
+  secondaryColor: "",
+  accentColor: "",
+  sidebarColor: "",
+  fontFamily: "",
+  fontScale: "",
+  logoScale: "",
+  logoDisplay: "",
   logoUrl: "",
   appUrl: "",
   modules: [],
@@ -89,9 +115,17 @@ export function BrandingProvider({ children }: { children: React.ReactNode }) {
         const next = {
           name: b.name || FALLBACK.name,
           legalName: b.legalName || b.name || FALLBACK.legalName,
+          shortName: b.shortName || b.name || FALLBACK.shortName,
           addressLine: b.addressLine || "",
           kmlRegNo: b.kmlRegNo || "",
           brandColor: b.brandColor || DEFAULT_BRAND_COLOR,
+          secondaryColor: b.secondaryColor || "",
+          accentColor: b.accentColor || "",
+          sidebarColor: b.sidebarColor || "",
+          fontFamily: b.fontFamily || "",
+          fontScale: b.fontScale || "",
+          logoScale: b.logoScale || "",
+          logoDisplay: b.logoDisplay || "",
           logoUrl: b.logoUrl || "",
           appUrl: b.appUrl || "",
           modules: b.modules || [],
@@ -99,8 +133,17 @@ export function BrandingProvider({ children }: { children: React.ReactNode }) {
         };
         setState(next);
         setLoaded(true);
-        applyBrandTheme(next.brandColor);
-        cacheBrandColor(slug, next.brandColor);
+        const theme = {
+          primary: next.brandColor,
+          secondary: next.secondaryColor,
+          fontFamily: next.fontFamily,
+          fontScale: next.fontScale,
+        };
+        applyBrandTheme(theme);
+        cacheBrandTheme(slug, theme);
+        applyFavicon(next.logoUrl);
+        applyDocumentTitle(next.shortName);
+        cacheDocumentTitle(slug, next.shortName);
         // The print templates are plain string builders and cannot read
         // React context — see printBrand in common/config/brand.ts.
         cacheBrandProfile(slug, {
@@ -122,12 +165,29 @@ export function BrandingProvider({ children }: { children: React.ReactNode }) {
         ...prev,
         name: pub.name || FALLBACK.name,
         legalName: pub.legalName || pub.name || FALLBACK.legalName,
+        shortName: pub.shortName || pub.name || FALLBACK.shortName,
         brandColor: pub.brandColor || DEFAULT_BRAND_COLOR,
+        secondaryColor: pub.secondaryColor || "",
+        accentColor: pub.accentColor || "",
+        sidebarColor: pub.sidebarColor || "",
+        fontFamily: pub.fontFamily || "",
+        fontScale: pub.fontScale || "",
+        logoScale: pub.logoScale || "",
+        logoDisplay: pub.logoDisplay || "",
         logoUrl: pub.logoUrl || "",
         appUrl: pub.appUrl || "",
       }));
-      applyBrandTheme(pub.brandColor);
-      cacheBrandColor(slug, pub.brandColor || DEFAULT_BRAND_COLOR);
+      const theme = {
+        primary: pub.brandColor || DEFAULT_BRAND_COLOR,
+        secondary: pub.secondaryColor,
+        fontFamily: pub.fontFamily,
+        fontScale: pub.fontScale,
+      };
+      applyBrandTheme(theme);
+      cacheBrandTheme(slug, theme);
+      applyFavicon(pub.logoUrl);
+      applyDocumentTitle(pub.shortName || pub.name);
+      cacheDocumentTitle(slug, pub.shortName || pub.name);
     }
     setLoaded(true);
   }, []);

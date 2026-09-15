@@ -58,9 +58,9 @@ const ROUTE_PERMISSIONS: Record<string, { module: string | null; key?: string; t
   goldrates: { module: "Gold_Rate_Management", key: "can_view_gold_rate" },
   requests: { module: "Loan_Management", key: "can_view_loan" },
   loanrisk: { module: "Loan_Management", key: "can_view_loan" },
-  personalloans: { module: "Personal_Loan_Management", key: "can_view_personal_loan" },
+  personalloans: { module: "Personal_Loan_Management", key: "can_view_personal_loan", tenantModule: "personal_loans" },
   personalloan: { module: "Personal_Loan_Management", key: "can_view_personal_loan" },
-  investments: { module: "Investment_Management", key: "can_view_investment" },
+  investments: { module: "Investment_Management", key: "can_view_investment", tenantModule: "investments" },
   investment: { module: "Investment_Management", key: "can_view_investment" },
   cash: { module: "Cash_Management", key: "can_view_cash" },
   auctions: { module: "Loan_Management", key: "can_view_loan" },
@@ -183,6 +183,7 @@ function View({ route, arg }: { route: string; arg?: string }) {
 
 function AppShell() {
   const { route, arg } = useHashRoute();
+  const { loaded: brandingLoaded } = useBranding();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   // Bumped whenever the sidebar's own page is clicked again (see
   // Sidebar.tsx's onNavigateSameRoute) — location.hash doesn't change in
@@ -196,6 +197,24 @@ function AppShell() {
     setSidebarOpen(false);
     window.scrollTo(0, 0);
   }, [route, arg]);
+
+  // Sidebar and Topbar used to render immediately with the PLATFORM DEFAULT
+  // identity (CloudHouse's name/logo/colours) for every business, briefly
+  // and on every reload, until BrandingProvider's fetch resolved and swapped
+  // them for the real tenant — visible, unacceptable "shows another
+  // business's identity, even for a second" behaviour on a product where a
+  // signed-in operator's business is meant to be the ONLY one they ever see.
+  // `View` already gated its own content on this same flag; the chrome
+  // around it did not. A neutral, brand-less loading screen (no name, no
+  // logo, no tenant colour) is the correct wait state — never the wrong
+  // tenant's, even momentarily.
+  if (!brandingLoaded) {
+    return (
+      <div className="shell-loading" aria-busy="true" aria-label="Loading">
+        <div className="shell-loading-spinner" />
+      </div>
+    );
+  }
 
   return (
     <div className="shell">
