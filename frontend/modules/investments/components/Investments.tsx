@@ -80,7 +80,7 @@ export function Investments() {
         {canUpdate && <button className="btn plain" onClick={openPlans}>Manage Plans</button>}
         {canCreate && <button className="btn" onClick={openNewInvestment}><Icon name="plus" /> New Investment</button>}
       </div>
-      <hr className="gold-rule" style={{ margin: "4px 0 14px" }} />
+      <hr className="gold-rule" style={{ margin: "16px 0 14px" }} />
       <div style={{ marginBottom: 14 }} className="tabs">
         {STATUSES.map((s) => (
           <button key={s} className={s === status ? "on" : ""} onClick={() => setStatus(s)}>{s}</button>

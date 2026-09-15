@@ -61,7 +61,7 @@ function today(): string {
 }
 
 export function ReportView({ config, onBack }: { config: ReportConfig; onBack: () => void }) {
-  const pageSize = useResponsivePageSize(11, 6);
+  const pageSize = useResponsivePageSize(11, 7);
   const toast = useToast();
   const [branches, setBranches] = useState<BranchView[]>([]);
   const [branchId, setBranchId] = useState<number>(0);
@@ -188,7 +188,7 @@ export function ReportView({ config, onBack }: { config: ReportConfig; onBack: (
          * here is the same 150px now, and `gap` (a single value, so it's
          * necessarily identical between every adjacent pair) keeps them
          * evenly spaced regardless of how many are showing. */}
-        <div className="report-filter-row" style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
+        <div className="report-filter-row" style={{ display: "flex", flexWrap: "wrap", gap: 4, marginLeft: "auto" }}>
           <div style={{ width: 150 }}>
             <label style={{ fontSize: 11.5, color: "var(--muted)", display: "block", marginBottom: 4 }}>From</label>
             <DatePicker value={from} onChange={setFrom} max={to} />

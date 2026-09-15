@@ -875,6 +875,17 @@ h3,
   flex: 1 1 auto
 }
 
+/* Small-screen 3-col grid packs "Bank Pledge Due Date" into a column
+ * narrow enough that its label wraps to two lines, while its row-mates
+ * ("Interest Rate (% p.a.)", "Reference Number") stay on one — the wrapped
+ * label pushed just that one input down out of line with the other two.
+ * Reserving two lines of height on every label in this row (not just the
+ * one that wraps) keeps all three inputs starting at the same y regardless
+ * of which label happens to wrap at a given width. */
+.repledge-modal-bd label.f {
+  min-height: 28px
+}
+
 /* Cash.tsx's Cash Movements filter row — the Type/From/To fields' own
  * `.inp` height (~38px, the same as every plain text input) otherwise sat
  * visibly taller than the Clear/Download `.btn.sm` buttons beside them in
@@ -1172,7 +1183,9 @@ h3,
   border: 1px solid var(--line);
   padding: 5px 12px;
   border-radius: 6px;
-  background: #fff
+  background: #fff;
+  white-space: nowrap;
+  flex-shrink: 0
 }
 
 .top .logout:hover {
@@ -1233,9 +1246,70 @@ h3,
   overflow-y: auto;
 }
 
-.tbl-card > .ft {
-  position: static;
-  flex-shrink: 0
+/* `.tbl-card > .tbl-wrap + .ft` (3 selectors), not a plain `.tbl-card >
+ * .ft` (2) — the generic `.tbl-wrap + .ft{position:sticky;bottom:0}` rule
+ * below shares that same 2-selector specificity and sits LATER in the
+ * file, so a plain 2-selector override here was silently losing back to
+ * sticky-to-viewport positioning. That went unnoticed as long as a
+ * `.tbl-card`'s content stayed short enough that .page never actually
+ * needed to scroll (sticky never visibly engages with nothing to scroll
+ * past) — Auctions.tsx's own two stacked History tables exposed it once
+ * their own maxHeight grew tall enough to make the page scroll: each
+ * footer stuck to the PAGE's bottom instead of its own card's, and the
+ * two sticky footers then visually collided while scrolling. The extra
+ * selector here wins on specificity alone regardless of file order. */
+.tbl-card > .tbl-wrap + .ft {
+  /* !important: the extra selector above is already higher-specificity
+   * than the generic `.tbl-wrap + .ft{position:sticky}` rule and should
+   * win on its own, but this got reported as still overlapping after that
+   * fix — forcing it removes any doubt regardless of rule order or a
+   * cache serving an older stylesheet. */
+  position: static !important;
+  flex-shrink: 0 !important;
+}
+
+/* Auctions.tsx's own two History sub-tables — a plain CSS backstop (not
+ * just the inline maxHeight the JSX sets) so the cap survives regardless
+ * of load order against the generic `.tbl-wrap{max-height:calc(100vh -
+ * 350px)}`/`.tbl-card > .tbl-wrap{max-height:none}` rules above. `flex-basis:
+ * auto` alone (from the `.tbl-card > .tbl-wrap` rule) still lets this shrink
+ * well below its max-height if the surrounding `.card` is itself squeezed,
+ * so `flex-shrink:0` here is what actually holds it at the requested size. */
+.tbl-card > .tbl-wrap.auction-history-tbl-wrap {
+  max-height: 251px;
+  flex-shrink: 0;
+}
+
+/* THE overlap fix. `.page` is a flex column, so every `.tbl-card` is one of
+ * its flex ITEMS — and `.tbl-card{flex:0 1 auto;min-height:0}` above lets
+ * that item's BOX shrink below its own content height as soon as the page's
+ * content overflows. That is harmless for a normal table card, whose
+ * `.tbl-wrap` shrinks along with it and just scrolls internally. It is not
+ * harmless here: `.auction-history-tbl-wrap` sets `flex-shrink:0` to hold
+ * its fixed height, and `.hd`/`.ft` can't shrink either, so nothing inside
+ * gives way. The card's box gets squeezed, its contents don't, and the
+ * leftover (typically the `.ft` pagination bar) spills straight out of the
+ * bottom of the card — painting over the NEXT card, whose top now starts
+ * where the squeezed box ended. That's the "Auctions Conducted" footer
+ * landing on top of the "Closed Without Auction" heading. Extra margin
+ * between the cards can't fix it because the spill is taller than the gap.
+ * `flex-shrink:0` on the card itself is the fix: the card keeps its natural
+ * height and `.page` simply scrolls, as it does on every other page. */
+.tbl-card:has(> .tbl-wrap.auction-history-tbl-wrap) {
+  flex: 0 0 auto;
+}
+
+/* Packets & Lockers, big screens: the locker column used to size to its own
+ * content with no cap at all — with more than a handful of lockers, that
+ * stretched it (and the page) well past the packets table beside it instead
+ * of scrolling internally the same way `.tbl-wrap` does. Capped to the same
+ * `calc(100vh - 350px)` the packets table already uses, so the two columns
+ * top out at roughly the same height and the locker list scrolls in place.
+ * Placed before the ≤1366px block below so that block's own (smaller,
+ * fixed) cap still wins there via source order at equal specificity. */
+.grid.locker-col {
+  max-height: calc(100vh - 350px);
+  overflow-y: auto;
 }
 
 /* Packets & Lockers: below 1366px ("small screen" — same threshold used
@@ -1247,12 +1321,12 @@ h3,
  * longer height-matched, see Packets.tsx). On a big screen there's
  * enough room that both stay "normal": the table falls back to
  * `.tbl-card > .tbl-wrap`'s own content-sized/cap-at-page-height
- * behavior, and the locker column (`.scroll-hidden`'s own overflow-y:auto,
- * no cap here) sizes to its own content. `.tbl-wrap.tbl-wrap-3row` (not
- * just `.tbl-wrap-3row`) so this reliably beats the generic
- * `.tbl-wrap{max-height:calc(100vh - 350px)}` rule regardless of source
- * order — same specificity, single class vs single class, would
- * otherwise let whichever is declared later win. */
+ * behavior, and the locker column falls back to its own cap right above
+ * this block. `.tbl-wrap.tbl-wrap-3row` (not just `.tbl-wrap-3row`) so
+ * this reliably beats the generic `.tbl-wrap{max-height:calc(100vh -
+ * 350px)}` rule regardless of source order — same specificity, single
+ * class vs single class, would otherwise let whichever is declared later
+ * win. */
 @media (max-width: 1366px) {
   .tbl-wrap.tbl-wrap-3row {
     max-height: 232px;
@@ -4130,13 +4204,17 @@ table.tbl {
   border: 1.5px solid var(--line);
   background: var(--card);
   transition: border-color .15s, background .15s;
-  /* :checked+.mark::after below is positioned absolute — without this, it
-   * anchors against .cradio (the whole label, the nearest ancestor that IS
-   * positioned) instead of this box, so the inner dot's fixed 4px/4px
-   * offset is only right by coincidence when .mark happens to sit flush at
-   * the label's own top-left. Anchoring it to .mark itself makes the dot
-   * correctly centered in the ring regardless of label height/padding. */
+  /* :checked+.mark::after's inner dot is centered via grid (place-content),
+   * not the box-model math (position:absolute + fixed margin) this used to
+   * use — that math measured its 4px/4px offset from the BORDER-box corner,
+   * but with box-sizing:border-box the CONTENT box (where a non-absolute
+   * child actually sits) already starts 1.5px in from that corner (the
+   * ring's own border), so the old dot landed ~2.5px high-left of center
+   * instead of dead-center in the ring. Grid centering has no such offset
+   * to get wrong, and matches .ccheck's own checkmark below exactly. */
   position: relative;
+  display: grid;
+  place-content: center
 }
 
 .cradio .mark {
@@ -4144,9 +4222,7 @@ table.tbl {
 }
 
 .ccheck .mark {
-  border-radius: 4px;
-  display: grid;
-  place-content: center
+  border-radius: 4px
 }
 
 .cradio input:checked+.mark {
@@ -4155,12 +4231,10 @@ table.tbl {
 
 .cradio input:checked+.mark::after {
   content: "";
-  position: absolute;
   width: 8px;
   height: 8px;
   border-radius: 50%;
   background: var(--brand-deep);
-  margin: 4px 0 0 4px;
 }
 
 .ccheck input:checked+.mark {
@@ -4227,6 +4301,39 @@ table.tbl {
 .ccheck input:focus-visible+.mark {
   outline: 2px solid var(--brand-deep);
   outline-offset: 2px
+}
+
+/* Consistent title/hint sizing for every .ccheck (checklist-style checkbox)
+ * label across modals — was drifting between components (14px default
+ * bold vs. an ad-hoc inline fontSize:12/13 on the hint/second line),
+ * reading as mismatched font sizes within the same modal. */
+.ccheck b {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--nav);
+}
+
+.ccheck-hint {
+  font-size: 12.5px;
+  color: var(--muted);
+  margin-top: 2px;
+}
+
+/* Verification-checklist items (ReleaseReviewModal's Packet Location/Bank
+ * Pledge/Customer Confirmation) stack full-width by default; on narrow
+ * modals/phones they switch to a 2-up grid so the list doesn't push the
+ * footer out of view. */
+.ccheck-grid {
+  display: flex;
+  flex-direction: column;
+}
+
+@media (max-width: 560px) {
+  .ccheck-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 4px 12px;
+  }
 }
 
 /* ── additive small-phone / orientation rules (new requirement) ──
@@ -4412,10 +4519,10 @@ table.tbl {
     padding: 3px 8px;
     font-size: 12px;
   }
-  .modal .fi {
-    padding: 0 8px;
-    font-size: 11px;
-  }
+  /* `.fi` is only a positioning wrapper — the visible box is the `.inp`
+   * trigger inside it, which already picks up the compact padding/font from
+   * the rule above. Padding here instead inset that trigger by 16px, so the
+   * file field rendered narrower than every other input in the modal. */
   .modal textarea {
     min-height: 44px;
   }

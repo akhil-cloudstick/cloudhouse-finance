@@ -1089,7 +1089,8 @@ export function LoanDetail({ id }: { id?: string }) {
                 })}
               </tbody>
             </table></div>
-            <div className="ft">Running balance = outstanding principal + outstanding interest + outstanding penal interest, immediately after this entry</div></div>
+            {/* <div className="ft">Running balance = outstanding principal + outstanding interest + outstanding penal interest, immediately after this entry</div> */}
+            </div>
         </div>
       </div>
     </>
