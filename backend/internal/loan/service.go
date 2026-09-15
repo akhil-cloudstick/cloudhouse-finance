@@ -2286,6 +2286,17 @@ func (s *Service) MarkAuctionEligible(ctx context.Context, loanID uint, branchID
 	if branchID != nil && l.BranchID != *branchID {
 		return nil, ErrNotFound
 	}
+	// Without this, IsDefaulted below is judged against whatever
+	// AccruedInterest/AccruedPenalInterest a plain FindByID happens to find
+	// in the DB — stale until something else's read path (Get/
+	// GetByLoanNumber) last persisted a fresh accrual. A loan genuinely 130
+	// days overdue but not accrued since, say, day 60 could still show
+	// arrears as fully paid down here and get rejected with
+	// ErrLoanNotDefaulted, even though List()'s own in-memory accrual
+	// projection (what the Auctions screen actually displays) already
+	// shows it as Defaulted. Catching this action up the same way every
+	// other balance-changing action does keeps the check honest.
+	s.accrueAndSave(ctx, l)
 	s.enrich(ctx, l)
 	if !l.IsDefaulted {
 		return nil, ErrLoanNotDefaulted

@@ -247,7 +247,7 @@ export function ReleaseReviewModalContent({ request, onSaved }: { request: Reque
             <span className="mark" />
             <span>
               <b>Record Payment</b>
-              <div style={{ fontSize: 12, color: "var(--muted)" }}>
+              <div className="ccheck-hint">
                 {canRecordPayment
                   ? "Enter a discount and/or payment against the final settlement"
                   : "Past the Manager review stage — recorded through Complete Release instead"}
@@ -307,16 +307,18 @@ export function ReleaseReviewModalContent({ request, onSaved }: { request: Reque
             </div>
           )}
 
-          {checklistItems.map(([label, field, hint]) => (
-            <label key={field} className="ccheck" style={{ padding: "6px 0" }}>
-              <input type="checkbox" checked={req[field]} disabled={saving || !canDecide || !canVerifyChecklist || req.status !== "Pending"} onChange={(e) => toggle(field, e.target.checked)} />
-              <span className="mark" />
-              <span>
-                <b>{label}</b>
-                <div style={{ fontSize: 12, color: "var(--muted)" }}>{hint}</div>
-              </span>
-            </label>
-          ))}
+          <div className="ccheck-grid">
+            {checklistItems.map(([label, field, hint]) => (
+              <label key={field} className="ccheck" style={{ padding: "6px 0" }}>
+                <input type="checkbox" checked={req[field]} disabled={saving || !canDecide || !canVerifyChecklist || req.status !== "Pending"} onChange={(e) => toggle(field, e.target.checked)} />
+                <span className="mark" />
+                <span>
+                  <b>{label}</b>
+                  <div className="ccheck-hint">{hint}</div>
+                </span>
+              </label>
+            ))}
+          </div>
         </div>
 
         <div className="frow"><div><label className="f">Verification Notes</label><input className="inp" value={notes} disabled={!canDecide} onChange={(e) => setNotes(e.target.value)} onBlur={saveChargesAndNotes} placeholder="optional" /></div></div>
