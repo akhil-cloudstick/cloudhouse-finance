@@ -875,6 +875,17 @@ h3,
   flex: 1 1 auto
 }
 
+/* Small-screen 3-col grid packs "Bank Pledge Due Date" into a column
+ * narrow enough that its label wraps to two lines, while its row-mates
+ * ("Interest Rate (% p.a.)", "Reference Number") stay on one — the wrapped
+ * label pushed just that one input down out of line with the other two.
+ * Reserving two lines of height on every label in this row (not just the
+ * one that wraps) keeps all three inputs starting at the same y regardless
+ * of which label happens to wrap at a given width. */
+.repledge-modal-bd label.f {
+  min-height: 28px
+}
+
 /* Cash.tsx's Cash Movements filter row — the Type/From/To fields' own
  * `.inp` height (~38px, the same as every plain text input) otherwise sat
  * visibly taller than the Clear/Download `.btn.sm` buttons beside them in
@@ -4193,13 +4204,17 @@ table.tbl {
   border: 1.5px solid var(--line);
   background: var(--card);
   transition: border-color .15s, background .15s;
-  /* :checked+.mark::after below is positioned absolute — without this, it
-   * anchors against .cradio (the whole label, the nearest ancestor that IS
-   * positioned) instead of this box, so the inner dot's fixed 4px/4px
-   * offset is only right by coincidence when .mark happens to sit flush at
-   * the label's own top-left. Anchoring it to .mark itself makes the dot
-   * correctly centered in the ring regardless of label height/padding. */
+  /* :checked+.mark::after's inner dot is centered via grid (place-content),
+   * not the box-model math (position:absolute + fixed margin) this used to
+   * use — that math measured its 4px/4px offset from the BORDER-box corner,
+   * but with box-sizing:border-box the CONTENT box (where a non-absolute
+   * child actually sits) already starts 1.5px in from that corner (the
+   * ring's own border), so the old dot landed ~2.5px high-left of center
+   * instead of dead-center in the ring. Grid centering has no such offset
+   * to get wrong, and matches .ccheck's own checkmark below exactly. */
   position: relative;
+  display: grid;
+  place-content: center
 }
 
 .cradio .mark {
@@ -4207,9 +4222,7 @@ table.tbl {
 }
 
 .ccheck .mark {
-  border-radius: 4px;
-  display: grid;
-  place-content: center
+  border-radius: 4px
 }
 
 .cradio input:checked+.mark {
@@ -4218,12 +4231,10 @@ table.tbl {
 
 .cradio input:checked+.mark::after {
   content: "";
-  position: absolute;
   width: 8px;
   height: 8px;
   border-radius: 50%;
   background: var(--brand-deep);
-  margin: 4px 0 0 4px;
 }
 
 .ccheck input:checked+.mark {
