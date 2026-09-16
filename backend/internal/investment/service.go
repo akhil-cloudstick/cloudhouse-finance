@@ -32,6 +32,14 @@ var (
 	ErrPayoutAlreadyPaid      = httpx.NewConflict("payout has already been paid")
 	ErrPayoutBelongsElsewhere = httpx.NewNotFound("payout not found")
 	ErrInvalidMaturityAction  = httpx.NewBadRequest("maturity decision must be Close or Renew")
+	ErrInvalidEngine          = httpx.NewBadRequest("engine must be Schedule or Live")
+
+	// --- Live-engine (Add Cash / Withdraw) errors ---
+	ErrInvalidAmount                  = httpx.NewBadRequest("amount must be greater than zero")
+	ErrNotLiveEngine                  = httpx.NewBadRequest("this action is only available for investments using the live accrual engine")
+	ErrInsufficientPrincipal          = httpx.NewConflict("withdrawal exceeds the outstanding principal")
+	ErrInsufficientInterest           = httpx.NewConflict("withdrawal exceeds the outstanding interest")
+	ErrLiveEngineMaturityNotSupported = httpx.NewBadRequest("maturity decisions for live-engine investments are not yet supported — withdraw the outstanding balance instead")
 )
 
 const epsilon = 0.01
@@ -85,9 +93,22 @@ type PlanInput struct {
 	TenureMonths        int
 	MinPrincipal        float64
 	IsActive            bool
+	Engine              string
 }
 
-func validateFrequency(freq string) bool {
+// validateFrequency reports whether freq is a legal PayoutFrequency for the
+// given engine — EngineSchedule stays restricted to Monthly/Yearly exactly
+// as before (its generatePayoutSchedule stepping never learned Daily/
+// Weekly/Quarterly), while EngineLive's accrual engine (accrual.go) accepts
+// all five.
+func validateFrequency(engine, freq string) bool {
+	if engine == EngineLive {
+		switch freq {
+		case PayoutFrequencyDaily, PayoutFrequencyWeekly, PayoutFrequencyMonthly, PayoutFrequencyQuarterly, PayoutFrequencyYearly:
+			return true
+		}
+		return false
+	}
 	switch freq {
 	case PayoutFrequencyMonthly, PayoutFrequencyYearly:
 		return true
@@ -103,8 +124,18 @@ func validateRateType(t string) bool {
 	return false
 }
 
+func validateEngine(e string) bool {
+	switch e {
+	case EngineSchedule, EngineLive:
+		return true
+	}
+	return false
+}
+
 // monthsPerPeriod returns how many months elapse between payouts for a
-// given frequency — 1 for Monthly, 12 for Yearly.
+// given EngineSchedule frequency — 1 for Monthly, 12 for Yearly. Only ever
+// called for EngineSchedule plans/investments (Daily/Weekly/Quarterly are
+// not legal for that engine — see validateFrequency).
 func monthsPerPeriod(frequency string) int {
 	if frequency == PayoutFrequencyYearly {
 		return 12
@@ -112,11 +143,25 @@ func monthsPerPeriod(frequency string) int {
 	return 1
 }
 
+// engineOrDefault returns e, or EngineSchedule when e is empty — lets
+// existing callers/tests that never set PlanInput.Engine keep getting the
+// original product without having to be updated.
+func engineOrDefault(e string) string {
+	if e == "" {
+		return EngineSchedule
+	}
+	return e
+}
+
 func (s *Service) CreatePlan(ctx context.Context, in PlanInput) (*InvestmentPlan, error) {
+	engine := engineOrDefault(in.Engine)
+	if !validateEngine(engine) {
+		return nil, ErrInvalidEngine
+	}
 	if in.TenureMonths <= 0 {
 		return nil, ErrInvalidTenure
 	}
-	if !validateFrequency(in.PayoutFrequency) {
+	if !validateFrequency(engine, in.PayoutFrequency) {
 		return nil, ErrInvalidFrequency
 	}
 	if !validateRateType(in.InterestRateType) {
@@ -125,7 +170,11 @@ func (s *Service) CreatePlan(ctx context.Context, in PlanInput) (*InvestmentPlan
 	if in.InterestRatePercent < 0 {
 		return nil, ErrInvalidRatePercent
 	}
-	if in.TenureMonths%monthsPerPeriod(in.PayoutFrequency) != 0 {
+	// The tenure/frequency divisibility rule only applies to EngineSchedule,
+	// whose generatePayoutSchedule steps in whole calendar-month periods —
+	// EngineLive accrues continuously and has no fixed schedule to divide
+	// evenly.
+	if engine == EngineSchedule && in.TenureMonths%monthsPerPeriod(in.PayoutFrequency) != 0 {
 		return nil, ErrTenureNotDivisible
 	}
 	rec := &InvestmentPlan{
@@ -136,6 +185,7 @@ func (s *Service) CreatePlan(ctx context.Context, in PlanInput) (*InvestmentPlan
 		TenureMonths:        in.TenureMonths,
 		MinPrincipal:        platform.RoundMoney(in.MinPrincipal),
 		IsActive:            in.IsActive,
+		Engine:              engine,
 	}
 	if err := s.repo.CreatePlan(ctx, rec); err != nil {
 		return nil, err
@@ -151,10 +201,14 @@ func (s *Service) UpdatePlan(ctx context.Context, id uint, in PlanInput) (*Inves
 		}
 		return nil, err
 	}
+	engine := engineOrDefault(in.Engine)
+	if !validateEngine(engine) {
+		return nil, ErrInvalidEngine
+	}
 	if in.TenureMonths <= 0 {
 		return nil, ErrInvalidTenure
 	}
-	if !validateFrequency(in.PayoutFrequency) {
+	if !validateFrequency(engine, in.PayoutFrequency) {
 		return nil, ErrInvalidFrequency
 	}
 	if !validateRateType(in.InterestRateType) {
@@ -163,9 +217,10 @@ func (s *Service) UpdatePlan(ctx context.Context, id uint, in PlanInput) (*Inves
 	if in.InterestRatePercent < 0 {
 		return nil, ErrInvalidRatePercent
 	}
-	if in.TenureMonths%monthsPerPeriod(in.PayoutFrequency) != 0 {
+	if engine == EngineSchedule && in.TenureMonths%monthsPerPeriod(in.PayoutFrequency) != 0 {
 		return nil, ErrTenureNotDivisible
 	}
+	rec.Engine = engine
 	rec.Name = in.Name
 	rec.InterestRateType = in.InterestRateType
 	rec.InterestRatePercent = platform.RoundMoney(in.InterestRatePercent)
@@ -248,9 +303,18 @@ func (s *Service) CreateInvestment(ctx context.Context, in CreateInput) (*Invest
 		InterestRatePercent: plan.InterestRatePercent,
 		PayoutFrequency:     plan.PayoutFrequency,
 		TenureMonths:        plan.TenureMonths,
+		Engine:              engineOrDefault(plan.Engine),
 		StartDate:           startDate,
 		MaturityDate:        maturityDate,
 		Status:              StatusActive,
+	}
+	if rec.Engine == EngineLive {
+		// Live-engine investments seed their running balance and accrual
+		// anchor here instead of generating a payout schedule below — see
+		// accrual.go's projectAccrual, which reads OutstandingPrincipal/
+		// LastAccrualDate rather than a precomputed InvestmentPayout row.
+		rec.OutstandingPrincipal = principal
+		rec.LastAccrualDate = startDate
 	}
 
 	err = s.repo.DB().WithContext(ctx).Transaction(func(tx *gorm.DB) error {
@@ -264,21 +328,23 @@ func (s *Service) CreateInvestment(ctx context.Context, in CreateInput) (*Invest
 			return err
 		}
 
-		payouts := generatePayoutSchedule(rec)
-		// GORM's tenant-stamp Create hook (platform.stampCallback) reliably
-		// sets TenantID for a single-struct create — which is how `rec`
-		// above just got stamped — but does not propagate to every element
-		// of a []InvestmentPayout batch insert (see
-		// personalloan.Service.CreateLoan's identical fix/comment). Left
-		// unstamped, most payout rows persist with TenantID 0: not
-		// rejected, just invisible afterwards to any normally tenant-scoped
-		// query, so the payout schedule tab would show only a handful of
-		// rows for a long-tenure investment.
-		for i := range payouts {
-			payouts[i].TenantID = rec.TenantID
-		}
-		if err := s.repo.CreatePayouts(ctx, tx, payouts); err != nil {
-			return err
+		if rec.Engine != EngineLive {
+			payouts := generatePayoutSchedule(rec)
+			// GORM's tenant-stamp Create hook (platform.stampCallback)
+			// reliably sets TenantID for a single-struct create — which is
+			// how `rec` above just got stamped — but does not propagate to
+			// every element of a []InvestmentPayout batch insert (see
+			// personalloan.Service.CreateLoan's identical fix/comment). Left
+			// unstamped, most payout rows persist with TenantID 0: not
+			// rejected, just invisible afterwards to any normally
+			// tenant-scoped query, so the payout schedule tab would show
+			// only a handful of rows for a long-tenure investment.
+			for i := range payouts {
+				payouts[i].TenantID = rec.TenantID
+			}
+			if err := s.repo.CreatePayouts(ctx, tx, payouts); err != nil {
+				return err
+			}
 		}
 		return nil
 	})
@@ -286,10 +352,9 @@ func (s *Service) CreateInvestment(ctx context.Context, in CreateInput) (*Invest
 		return nil, err
 	}
 
-	// The deposit is recorded once the investment (and its schedule) is
-	// durably persisted — best-effort and outside the transaction, same as
-	// personalloan.Service.CreateLoan's disbursement recording: a failure
-	// here is logged, not fatal to investment creation.
+	// The deposit is recorded once the investment (and its schedule, if any)
+	// is durably persisted — best-effort and outside the transaction, same
+	// as personalloan.Service.CreateLoan's disbursement recording.
 	if s.cashRecorder != nil {
 		if _, err := s.cashRecorder.RecordInvestmentDepositCashIn(ctx, rec.ID, rec.InvestmentNumber, rec.PrincipalAmount, rec.BranchID, startDate); err != nil {
 			log.Printf("cash-in movement (investment deposit) failed for investment %d: %v", rec.ID, err)
@@ -340,7 +405,12 @@ func generatePayoutSchedule(inv *Investment) []InvestmentPayout {
 	return recs
 }
 
-// Get returns a single investment, branch-scoped.
+// Get returns a single investment, branch-scoped. For an EngineLive
+// investment this also settles (and persists) any interest accrued since
+// LastAccrualDate up to now before returning — mirrors
+// loan.Service.accrueAndEnrich's "a detail view is where staff act on the
+// numbers, so nail them down" rationale. An EngineSchedule investment runs
+// none of this — completely unchanged behavior.
 func (s *Service) Get(ctx context.Context, id uint, branchID *uint) (*Investment, error) {
 	rec, err := s.repo.FindByID(ctx, id, branchID)
 	if err != nil {
@@ -348,6 +418,12 @@ func (s *Service) Get(ctx context.Context, id uint, branchID *uint) (*Investment
 			return nil, ErrInvestmentNotFound
 		}
 		return nil, err
+	}
+	if rec.Engine == EngineLive {
+		if err := s.settleAndSave(ctx, nil, rec, time.Now()); err != nil {
+			return nil, err
+		}
+		rec.OutstandingInterest = clampMoney(rec.AccruedInterest - rec.InterestWithdrawn)
 	}
 	return rec, nil
 }
@@ -384,6 +460,19 @@ func (s *Service) List(ctx context.Context, in ListInput) ([]Investment, bool, i
 	hasMore := len(recs) > limit
 	if hasMore {
 		recs = recs[:limit]
+	}
+	// Listing is read-only and can return many rows, so EngineLive accrual
+	// here is projected into the in-memory copy for display only (never
+	// saved) — Get is what actually advances AccruedInterest/
+	// LastAccrualDate in the DB. Mirrors loan.Service.List's identical
+	// comment. EngineSchedule rows are untouched.
+	now := time.Now()
+	for i := range recs {
+		if recs[i].Engine != EngineLive {
+			continue
+		}
+		delta, _ := projectAccrual(&recs[i], now)
+		recs[i].OutstandingInterest = clampMoney(recs[i].AccruedInterest + delta - recs[i].InterestWithdrawn)
 	}
 	return recs, hasMore, total, nil
 }
@@ -549,10 +638,19 @@ type RenewInput struct {
 // Investment (via CreateInvestment) linked back via
 // RenewedFromInvestmentID/RenewedToInvestmentID and marks the old one
 // Renewed — mirrors personalloan.Service.RenewLoan's linked-list pattern.
+//
+// EngineLive investments are refused here (ErrLiveEngineMaturityNotSupported)
+// — this whole flow is written entirely in terms of the Schedule engine's
+// InvestmentPayout rows and was out of scope for the Add Cash/Withdraw
+// feature; use Withdraw to draw down the outstanding balance instead until
+// a Live-engine maturity flow is designed.
 func (s *Service) MatureInvestment(ctx context.Context, investmentID uint, branchID *uint, action string, renewIn *RenewInput) (*Investment, error) {
 	inv, err := s.Get(ctx, investmentID, branchID)
 	if err != nil {
 		return nil, err
+	}
+	if inv.Engine == EngineLive {
+		return nil, ErrLiveEngineMaturityNotSupported
 	}
 	if inv.Status != StatusMatured {
 		return nil, ErrInvestmentNotMatured
@@ -652,6 +750,270 @@ func (s *Service) ListPendingPayoutsForCalendar(ctx context.Context, branchID *u
 	return s.repo.FindPendingPayoutsForCalendar(ctx, branchID)
 }
 
+// --- Live engine: Add Cash / Withdraw ---
+
+// AddCashInput mirrors the "Add Cash" form.
+type AddCashInput struct {
+	Amount               float64
+	OccurredOn           time.Time // zero => time.Now()
+	CashAmount           float64
+	UpiAmount            float64
+	BankTransferAmount   float64
+	ChequeAmount         float64
+	Reference            string
+	RecordedByEmployeeID uint
+}
+
+// AddCash deposits additional principal into a Live-engine investment:
+// settles any interest accrued so far against the OLD OutstandingPrincipal
+// (see accrual.go's settleAndSave), THEN increases OutstandingPrincipal/
+// PrincipalAmount by Amount, writes an append-only InvestmentTransaction
+// row, and best-effort records the cash-in — mirrors
+// loan.Service.TopUpLoan's transactional shape and CreateInvestment's own
+// best-effort cash recording.
+func (s *Service) AddCash(ctx context.Context, investmentID uint, branchID *uint, in AddCashInput) (*Investment, error) {
+	if in.Amount <= 0 {
+		return nil, ErrInvalidAmount
+	}
+	amount := platform.RoundMoney(in.Amount)
+	if err := platform.ValidateSplit(in.CashAmount, in.UpiAmount, in.BankTransferAmount, in.ChequeAmount, amount); err != nil {
+		return nil, err
+	}
+	occurredOn := in.OccurredOn
+	if occurredOn.IsZero() {
+		occurredOn = time.Now()
+	}
+
+	var invID, branchOfInv uint
+	var invNumber string
+	var txRow InvestmentTransaction
+	err := s.repo.DB().WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		inv, err := s.repo.LockByID(ctx, tx, investmentID, branchID)
+		if err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return ErrInvestmentNotFound
+			}
+			return err
+		}
+		if inv.Engine != EngineLive {
+			return ErrNotLiveEngine
+		}
+		if inv.Status != StatusActive {
+			return ErrInvestmentNotActive
+		}
+		if err := platform.ValidateOccurredOn(occurredOn, inv.LastAccrualDate, time.Now()); err != nil {
+			return err
+		}
+
+		// 1. Settle first, against the pre-deposit OutstandingPrincipal.
+		if err := s.settleAndSave(ctx, tx, inv, occurredOn); err != nil {
+			return err
+		}
+		principalBefore := inv.OutstandingPrincipal
+		interestBefore := clampMoney(inv.AccruedInterest - inv.InterestWithdrawn)
+
+		// 2. Then mutate.
+		inv.OutstandingPrincipal = platform.RoundMoney(inv.OutstandingPrincipal + amount)
+		inv.PrincipalAmount = platform.RoundMoney(inv.PrincipalAmount + amount)
+		if err := s.repo.Update(ctx, tx, inv); err != nil {
+			return err
+		}
+
+		txRow = InvestmentTransaction{
+			InvestmentID:       inv.ID,
+			Type:               TxTypeDeposit,
+			Amount:             amount,
+			PrincipalAmount:    amount,
+			CashAmount:         in.CashAmount,
+			UpiAmount:          in.UpiAmount,
+			BankTransferAmount: in.BankTransferAmount,
+			ChequeAmount:       in.ChequeAmount,
+			PrincipalBefore:    principalBefore,
+			PrincipalAfter:     inv.OutstandingPrincipal,
+			InterestBefore:     interestBefore,
+			InterestAfter:      clampMoney(inv.AccruedInterest - inv.InterestWithdrawn),
+			OccurredOn:         occurredOn,
+			Reference:          in.Reference,
+		}
+		if in.RecordedByEmployeeID != 0 {
+			txRow.RecordedByEmployeeID = &in.RecordedByEmployeeID
+		}
+		if err := s.repo.CreateTransaction(ctx, tx, &txRow); err != nil {
+			return err
+		}
+		invID, branchOfInv, invNumber = inv.ID, inv.BranchID, inv.InvestmentNumber
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	if s.cashRecorder != nil {
+		if movementID, err := s.cashRecorder.RecordInvestmentDepositCashIn(ctx, invID, invNumber, amount, branchOfInv, occurredOn); err != nil {
+			log.Printf("cash-in movement (investment add-cash) failed for investment %d: %v", invID, err)
+		} else {
+			txRow.CashMovementID = &movementID
+			_ = s.repo.UpdateTransaction(ctx, nil, &txRow)
+		}
+	}
+	return s.Get(ctx, invID, branchID)
+}
+
+// WithdrawInput mirrors the "Withdraw" form. InterestAmount/PrincipalAmount
+// are the withdrawal's explicit Interest/Principal/Both split — see
+// InvestmentTransaction's doc comment for why two amounts rather than one
+// amount plus a source enum.
+type WithdrawInput struct {
+	InterestAmount       float64
+	PrincipalAmount      float64
+	OccurredOn           time.Time // zero => time.Now()
+	CashAmount           float64
+	UpiAmount            float64
+	BankTransferAmount   float64
+	ChequeAmount         float64
+	Reference            string
+	RecordedByEmployeeID uint
+}
+
+// Withdraw draws down a Live-engine investment's Outstanding Principal
+// and/or Outstanding Interest: settles interest first (same "settle before
+// mutate" order as AddCash), validates the requested split against the
+// freshly-settled balances, applies it, writes the ledger row, and
+// best-effort records the cash-out.
+func (s *Service) Withdraw(ctx context.Context, investmentID uint, branchID *uint, in WithdrawInput) (*Investment, error) {
+	if in.InterestAmount < 0 || in.PrincipalAmount < 0 {
+		return nil, ErrInvalidAmount
+	}
+	total := platform.RoundMoney(in.InterestAmount + in.PrincipalAmount)
+	if total <= 0 {
+		return nil, ErrInvalidAmount
+	}
+	if err := platform.ValidateSplit(in.CashAmount, in.UpiAmount, in.BankTransferAmount, in.ChequeAmount, total); err != nil {
+		return nil, err
+	}
+	occurredOn := in.OccurredOn
+	if occurredOn.IsZero() {
+		occurredOn = time.Now()
+	}
+
+	var invID, branchOfInv, custID uint
+	var invNumber string
+	var txRow InvestmentTransaction
+	err := s.repo.DB().WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		inv, err := s.repo.LockByID(ctx, tx, investmentID, branchID)
+		if err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return ErrInvestmentNotFound
+			}
+			return err
+		}
+		if inv.Engine != EngineLive {
+			return ErrNotLiveEngine
+		}
+		if inv.Status != StatusActive {
+			return ErrInvestmentNotActive
+		}
+		if err := platform.ValidateOccurredOn(occurredOn, inv.LastAccrualDate, time.Now()); err != nil {
+			return err
+		}
+
+		if err := s.settleAndSave(ctx, tx, inv, occurredOn); err != nil {
+			return err
+		}
+		principalBefore := inv.OutstandingPrincipal
+		interestBefore := clampMoney(inv.AccruedInterest - inv.InterestWithdrawn)
+
+		principalAmt := platform.RoundMoney(in.PrincipalAmount)
+		interestAmt := platform.RoundMoney(in.InterestAmount)
+		if principalAmt > principalBefore+epsilon {
+			return ErrInsufficientPrincipal
+		}
+		if interestAmt > interestBefore+epsilon {
+			return ErrInsufficientInterest
+		}
+
+		inv.OutstandingPrincipal = roundClamp(platform.RoundMoney(inv.OutstandingPrincipal - principalAmt))
+		inv.PrincipalAmount = roundClamp(platform.RoundMoney(inv.PrincipalAmount - principalAmt))
+		inv.InterestWithdrawn = platform.RoundMoney(inv.InterestWithdrawn + interestAmt)
+		if err := s.repo.Update(ctx, tx, inv); err != nil {
+			return err
+		}
+
+		txRow = InvestmentTransaction{
+			InvestmentID:       inv.ID,
+			Type:               TxTypeWithdrawal,
+			Amount:             total,
+			PrincipalAmount:    principalAmt,
+			InterestAmount:     interestAmt,
+			CashAmount:         in.CashAmount,
+			UpiAmount:          in.UpiAmount,
+			BankTransferAmount: in.BankTransferAmount,
+			ChequeAmount:       in.ChequeAmount,
+			PrincipalBefore:    principalBefore,
+			PrincipalAfter:     inv.OutstandingPrincipal,
+			InterestBefore:     interestBefore,
+			InterestAfter:      clampMoney(inv.AccruedInterest - inv.InterestWithdrawn),
+			OccurredOn:         occurredOn,
+			Reference:          in.Reference,
+		}
+		if in.RecordedByEmployeeID != 0 {
+			txRow.RecordedByEmployeeID = &in.RecordedByEmployeeID
+		}
+		if err := s.repo.CreateTransaction(ctx, tx, &txRow); err != nil {
+			return err
+		}
+		invID, branchOfInv, invNumber, custID = inv.ID, inv.BranchID, inv.InvestmentNumber, inv.CustomerID
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	if s.cashRecorder != nil {
+		payoutType := "Interest & Principal withdrawal"
+		switch {
+		case txRow.PrincipalAmount == 0:
+			payoutType = "Interest withdrawal"
+		case txRow.InterestAmount == 0:
+			payoutType = "Principal withdrawal"
+		}
+		movementID, err := s.cashRecorder.RecordInvestmentPayoutCashOut(ctx, invID, invNumber, total, in.CashAmount, in.UpiAmount, in.BankTransferAmount, in.ChequeAmount, branchOfInv, occurredOn, payoutType, custID)
+		if err != nil {
+			log.Printf("cash-out movement (investment withdrawal) failed for investment %d: %v", invID, err)
+		} else {
+			txRow.CashMovementID = &movementID
+			_ = s.repo.UpdateTransaction(ctx, nil, &txRow)
+		}
+	}
+	return s.Get(ctx, invID, branchID)
+}
+
+// GetTransactions returns one page of a Live-engine investment's ledger
+// (deposits + withdrawals), newest first — mirrors GetSchedule's shape.
+// Refuses (ErrNotLiveEngine) for a Schedule-engine investment, which has no
+// such ledger — its history lives in the payout schedule instead.
+func (s *Service) GetTransactions(ctx context.Context, investmentID uint, branchID *uint, limit, offset int) ([]InvestmentTransaction, bool, error) {
+	inv, err := s.Get(ctx, investmentID, branchID)
+	if err != nil {
+		return nil, false, err
+	}
+	if inv.Engine != EngineLive {
+		return nil, false, ErrNotLiveEngine
+	}
+	if limit <= 0 {
+		limit = 20
+	}
+	recs, err := s.repo.FindTransactions(ctx, investmentID, limit, offset)
+	if err != nil {
+		return nil, false, err
+	}
+	hasMore := len(recs) > limit
+	if hasMore {
+		recs = recs[:limit]
+	}
+	return recs, hasMore, nil
+}
+
 // roundClamp guards against floating-point drift leaving a payout amount
 // negative by a fraction of a paisa.
 func roundClamp(f float64) float64 {
@@ -659,6 +1021,17 @@ func roundClamp(f float64) float64 {
 		return 0
 	}
 	return f
+}
+
+// clampMoney floors a computed balance at zero, treating anything within
+// epsilon of zero as exactly zero — same rationale as loan.clampMoney: a
+// fully-drawn-down OutstandingInterest routinely lands a whisker above zero
+// (float rate arithmetic) rather than exactly on it.
+func clampMoney(v float64) float64 {
+	if v < epsilon {
+		return 0
+	}
+	return v
 }
 
 // ErrCustomerNotFound is the refusal for a customer id that does not resolve

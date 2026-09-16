@@ -20,6 +20,9 @@ func RegisterRoutes(rg *gin.RouterGroup, h *Handler, perms platform.CRUDMiddlewa
 	rg.GET("/:id/schedule", perms.Read, h.Schedule)
 	rg.POST("/:id/payouts/:payoutId/pay", perms.Update, h.MarkPayoutPaid)
 	rg.POST("/:id/mature", perms.Update, h.Mature)
+	rg.POST("/:id/add-cash", perms.Update, h.AddCash)
+	rg.POST("/:id/withdraw", perms.Update, h.Withdraw)
+	rg.GET("/:id/transactions", perms.Read, h.ListTransactions)
 }
 
 // RegisterPlanRoutes mounts the investment-plan endpoints under the given

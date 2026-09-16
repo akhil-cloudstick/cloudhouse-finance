@@ -126,6 +126,9 @@ func Run(db *gorm.DB, cfg platform.Config) error {
 	if err := investment.BackfillPayoutSplitColumns(db); err != nil {
 		return err
 	}
+	if err := investment.BackfillEngineColumn(db); err != nil {
+		return err
+	}
 
 	if err := db.AutoMigrate(allModels...); err != nil {
 		return err
@@ -979,85 +982,86 @@ func backfillTenantGrantColumns(db *gorm.DB) error {
 // knowing about it. Five tables had already slipped through when the two
 // lists were maintained by hand.
 var allModels = []any{
-		// Tenancy first: tiers before tenants (tenants reference a tier),
-		// and both before every tenant-owned table below.
-		&tenant.Tier{},
-		&tenant.Tenant{},
-		&platform.Sequence{},
-		// Per-business daily usage counters (Step 13) — allocation
-		// bookkeeping like Sequence above, not business data, so it is
-		// exempt from the automatic tenant filter the same way.
-		&platform.UsageCounter{},
-		&branch.Branch{},
-		&scheme.Scheme{},
-		&goldrate.GoldRate{},
-		&employee.Employee{},
-		&cash.CashMovement{},
-		&cash.Expense{},
-		&cash.OpeningCashBalance{},
-		&cash.GoldSale{},
-		&settings.ApiKeySetting{},
-		&customer.Customer{},
-		&loan.Loan{},
-		&loan.Ornament{},
-		&loan.OrnamentPurityTest{},
-		&loan.OrnamentImage{},
-		&loan.LoanApproval{},
-		&loan.LoanPayment{},
-		&loan.LoanTopUp{},
-		&loan.BankPledgeRecord{},
-		&loan.BankPledgeEvent{},
-		&loan.AuctionRecord{},
-		&loan.AuctionNotice{},
-		&loan.AuctionEvent{},
-		&loan.AuctionDecisionRequest{},
-		&loan.LoanRequest{},
-		&loan.RequestApproval{},
-		&loan.ApprovalLimit{},
-		// Unsubmitted New Gold Loan forms behind the "Save Draft" button.
-		&loan.LoanDraft{},
-		&loan.LoanDraftOrnament{},
-		&ornamenttype.OrnamentType{},
-		&bank.Bank{},
-		&locker.Locker{},
-		&packet.Packet{},
-		&packet.PacketMovement{},
-		&puritystandard.PurityStandard{},
-		&reminder.Reminder{},
-		&personalloan.PersonalLoan{},
-		&personalloan.PersonalLoanInstallment{},
-		&personalloan.PersonalLoanPayment{},
-		&investment.InvestmentPlan{},
-		&investment.Investment{},
-		&investment.InvestmentPayout{},
-		&authz.Role{},
-		&authz.Permission{},
-		&authz.RolePermission{},
-		&commlog.CommunicationLog{},
-		&customerauth.OTP{},
-		&customerauth.DeviceToken{},
-		// Realtime notifications (WebSocket, ack-and-resend) — the durable
-		// in-app inbox behind the customer app's bell.
-		&notification.Notification{},
-		// Nightly KPI-count snapshots powering the mobile dashboard's trend
-		// indicators (see dashboard.Snapshot's doc comment).
-		&dashboard.Snapshot{},
-		// The authorization record behind every uploaded file. Before it,
-		// /uploads was served with no login check at all.
-		&upload.File{},
-		// The superadmin console's own tables (Step 7) — deliberately NOT
-		// tenant-scoped (no TenantScoped embed): a superadmin user belongs to
-		// no business, and the audit log's TenantID column points AT a
-		// business without being scoped BY one, so a superadmin can list every
-		// entry across every tenant.
-		&superadmin.SuperAdminUser{},
-		&superadmin.AuditLog{},
-		// This business's own audit log (Step 11) — tenant-scoped, unlike
-		// superadmin.AuditLog above.
-		&auditlog.Entry{},
-		// Nightly KPI-count snapshots powering the mobile dashboard's trend
-		// indicators (see dashboard.Snapshot's doc comment).
-		&dashboard.Snapshot{},
+	// Tenancy first: tiers before tenants (tenants reference a tier),
+	// and both before every tenant-owned table below.
+	&tenant.Tier{},
+	&tenant.Tenant{},
+	&platform.Sequence{},
+	// Per-business daily usage counters (Step 13) — allocation
+	// bookkeeping like Sequence above, not business data, so it is
+	// exempt from the automatic tenant filter the same way.
+	&platform.UsageCounter{},
+	&branch.Branch{},
+	&scheme.Scheme{},
+	&goldrate.GoldRate{},
+	&employee.Employee{},
+	&cash.CashMovement{},
+	&cash.Expense{},
+	&cash.OpeningCashBalance{},
+	&cash.GoldSale{},
+	&settings.ApiKeySetting{},
+	&customer.Customer{},
+	&loan.Loan{},
+	&loan.Ornament{},
+	&loan.OrnamentPurityTest{},
+	&loan.OrnamentImage{},
+	&loan.LoanApproval{},
+	&loan.LoanPayment{},
+	&loan.LoanTopUp{},
+	&loan.BankPledgeRecord{},
+	&loan.BankPledgeEvent{},
+	&loan.AuctionRecord{},
+	&loan.AuctionNotice{},
+	&loan.AuctionEvent{},
+	&loan.AuctionDecisionRequest{},
+	&loan.LoanRequest{},
+	&loan.RequestApproval{},
+	&loan.ApprovalLimit{},
+	// Unsubmitted New Gold Loan forms behind the "Save Draft" button.
+	&loan.LoanDraft{},
+	&loan.LoanDraftOrnament{},
+	&ornamenttype.OrnamentType{},
+	&bank.Bank{},
+	&locker.Locker{},
+	&packet.Packet{},
+	&packet.PacketMovement{},
+	&puritystandard.PurityStandard{},
+	&reminder.Reminder{},
+	&personalloan.PersonalLoan{},
+	&personalloan.PersonalLoanInstallment{},
+	&personalloan.PersonalLoanPayment{},
+	&investment.InvestmentPlan{},
+	&investment.Investment{},
+	&investment.InvestmentPayout{},
+	&investment.InvestmentTransaction{},
+	&authz.Role{},
+	&authz.Permission{},
+	&authz.RolePermission{},
+	&commlog.CommunicationLog{},
+	&customerauth.OTP{},
+	&customerauth.DeviceToken{},
+	// Realtime notifications (WebSocket, ack-and-resend) — the durable
+	// in-app inbox behind the customer app's bell.
+	&notification.Notification{},
+	// Nightly KPI-count snapshots powering the mobile dashboard's trend
+	// indicators (see dashboard.Snapshot's doc comment).
+	&dashboard.Snapshot{},
+	// The authorization record behind every uploaded file. Before it,
+	// /uploads was served with no login check at all.
+	&upload.File{},
+	// The superadmin console's own tables (Step 7) — deliberately NOT
+	// tenant-scoped (no TenantScoped embed): a superadmin user belongs to
+	// no business, and the audit log's TenantID column points AT a
+	// business without being scoped BY one, so a superadmin can list every
+	// entry across every tenant.
+	&superadmin.SuperAdminUser{},
+	&superadmin.AuditLog{},
+	// This business's own audit log (Step 11) — tenant-scoped, unlike
+	// superadmin.AuditLog above.
+	&auditlog.Entry{},
+	// Nightly KPI-count snapshots powering the mobile dashboard's trend
+	// indicators (see dashboard.Snapshot's doc comment).
+	&dashboard.Snapshot{},
 }
 
 // purgeGlobalDashboardSnapshots deletes the dashboard_snapshots rows written

@@ -243,6 +243,25 @@ func (r *Repository) FindPendingPayoutsForCalendar(ctx context.Context, branchID
 	return rows, err
 }
 
+// --- Transactions (Live engine ledger) ---
+
+func (r *Repository) CreateTransaction(ctx context.Context, tx *gorm.DB, rec *InvestmentTransaction) error {
+	return dbOrDefault(ctx, tx, r.db).Create(rec).Error
+}
+
+func (r *Repository) UpdateTransaction(ctx context.Context, tx *gorm.DB, rec *InvestmentTransaction) error {
+	return dbOrDefault(ctx, tx, r.db).Save(rec).Error
+}
+
+// FindTransactions returns one page of an investment's ledger, newest
+// first — mirrors FindPayouts' Limit+1/hasMore shape.
+func (r *Repository) FindTransactions(ctx context.Context, investmentID uint, limit, offset int) ([]InvestmentTransaction, error) {
+	var recs []InvestmentTransaction
+	err := r.db.WithContext(ctx).Where("investment_id = ?", investmentID).
+		Order("occurred_on desc, id desc").Limit(limit + 1).Offset(offset).Find(&recs).Error
+	return recs, err
+}
+
 // dbOrDefault returns tx if the caller supplied one (a write that must
 // participate in an ongoing transaction), otherwise falls back to the
 // repository's own db handle scoped to ctx — mirrors
