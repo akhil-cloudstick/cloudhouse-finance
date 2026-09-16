@@ -6,9 +6,7 @@ import { StatusChip } from "@/common/components/ui/StatusChip";
 import { Icon } from "@/common/components/Icon";
 import { Select } from "@/common/components/ui/Select";
 import { useLoans } from "@/modules/loans/store/LoansProvider";
-import { listLoanRequestsPage, getLoanByNumber, type RequestView } from "@/modules/loans/services/loanService";
-import { getCustomer } from "@/modules/customers/services/customerService";
-import { printReleaseAgreement, type ReleaseAgreementLang } from "@/modules/loans/utils/releaseAgreement";
+import { listLoanRequestsPage, getLoanByNumber, downloadReleaseAgreementPDF, type RequestView } from "@/modules/loans/services/loanService";
 import { useToast } from "@/common/components/Toast";
 import { useAuth } from "@/common/auth-context";
 import { useResponsivePageSize } from "@/common/utils/responsive";
@@ -52,36 +50,14 @@ export function Requests() {
   // Lets an Approved release row's document be re-downloaded right from
   // this list, without navigating to Loan Detail first — same generator
   // LoanDetail.tsx's own Documents menu uses.
-  async function downloadReleaseAgreement(r: RequestView, lang: ReleaseAgreementLang) {
+  async function downloadReleaseAgreement(r: RequestView, lang: "en" | "ml") {
     setDownloadMenuId(null);
     setDownloadingId(r.id);
     try {
       const loan = await getLoanByNumber(r.loanNumber);
-      const customer = await getCustomer(loan.customerId);
-      printReleaseAgreement(
-        {
-          loanNumber: loan.id,
-          branchName: loan.branchName,
-          customerName: customer.name,
-          customerAddress: customer.address,
-          borrowedDate: loan.opened,
-          borrowedAmount: loan.principal,
-          returnedAmount: loan.totalPaid,
-          totalInterest: loan.interestPaid + loan.penalInterestPaid,
-          ornaments: loan.ornaments.map((o) => ({
-            name: o.name,
-            purity: o.purity,
-            quantity: o.quantity,
-            grossWeight: o.grossWeight,
-            netWeight: o.netWeight,
-            value: o.goldValue,
-          })),
-        },
-        toast,
-        lang
-      );
+      await downloadReleaseAgreementPDF(loan.numericId, lang);
     } catch {
-      toast("Could not load loan/customer details — try again");
+      toast("Could not generate the release agreement — try again");
     } finally {
       setDownloadingId(null);
     }

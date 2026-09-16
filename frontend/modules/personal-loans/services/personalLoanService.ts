@@ -1,4 +1,5 @@
 import { apiFetchEnveloped as apiFetch, API_BASE, getAuthToken, ApiError } from "@/common/services/httpClient";
+import { printPdfBlob } from "@/common/utils/print";
 
 export type InterestType = "Flat" | "Percentage";
 export type Frequency = "Daily" | "Weekly" | "Monthly";
@@ -13,6 +14,11 @@ export type CreatePersonalLoanInput = {
   interestValue: number;
   frequency: Frequency;
   tenureCount: number;
+  /* When true, disburses the full principal now with no interest withheld
+   * upfront — the customer owes principal + the full interest back instead
+   * of today's default (interest withheld upfront, principal-only
+   * repayment). Defaults to false server-side when omitted. */
+  fullDisbursement?: boolean;
 };
 
 /* Mirrors backend/internal/personalloan/model_loan.go's PersonalLoan
@@ -28,6 +34,7 @@ export type BackendPersonalLoan = {
   interestValue: number;
   interestAmount: number;
   disbursedAmount: number;
+  fullDisbursement: boolean;
   frequency: Frequency;
   tenureCount: number;
   installmentAmount: number;
@@ -62,7 +69,13 @@ export type BackendPersonalLoanPayment = {
   amount: number;
   paidOn: string;
   receivedByEmployeeId: number | null;
+  /* Derived/display-only — the single mode's name when exactly one split
+   * amount below is non-zero, "Split" when more than one is. */
   method: string;
+  cashAmount: number;
+  upiAmount: number;
+  bankTransferAmount: number;
+  chequeAmount: number;
   reference: string;
   description: string;
   runningBalance: number;
@@ -124,7 +137,15 @@ export function listPersonalLoanPaymentsPage(id: number, page: number): Promise<
 
 export function recordPersonalLoanPayment(
   id: number,
-  input: { amount: number; method: string; reference?: string; description?: string }
+  input: {
+    amount: number;
+    cashAmount?: number;
+    upiAmount?: number;
+    bankTransferAmount?: number;
+    chequeAmount?: number;
+    reference?: string;
+    description?: string;
+  }
 ): Promise<BackendPersonalLoan> {
   return apiFetch<BackendPersonalLoan>(`/personal-loans/${id}/payments`, { method: "POST", body: JSON.stringify(input) });
 }
@@ -158,10 +179,11 @@ export function listPersonalLoansForCustomer(customerId: number): Promise<Backen
   return apiFetch<BackendPersonalLoan[]>(`/customers/${customerId}/personal-loans`);
 }
 
-/* Downloads GET /personal-loans/:id/bond (the borrower-only bond PDF, see
- * backend/internal/personalloan/bond.go) as a blob and triggers a browser
- * save — same fetch → blob → temporary <a download> pattern as
- * frontend/modules/reports/services/reportsService.ts's exportReport(). */
+/* Sends GET /personal-loans/:id/bond (the borrower-only bond PDF, see
+ * backend/internal/personalloan/bond.go) straight to the browser's print
+ * dialog via printPdfBlob — same server-rendered-PDF-to-print-preview
+ * pattern as loanService.ts's downloadIndemnityBondPDF, rather than
+ * silently triggering a browser file save with no visible preview. */
 export async function downloadPersonalLoanBond(loanId: number): Promise<void> {
   const token = typeof window !== "undefined" ? getAuthToken() : null;
   const res = await fetch(`${API_BASE}/personal-loans/${loanId}/bond`, {
@@ -179,16 +201,5 @@ export async function downloadPersonalLoanBond(loanId: number): Promise<void> {
   }
 
   const blob = await res.blob();
-  const disposition = res.headers.get("Content-Disposition") || "";
-  const match = disposition.match(/filename="([^"]+)"/);
-  const filename = match ? match[1] : `bond-${loanId}.pdf`;
-
-  const url = window.URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = filename;
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  window.URL.revokeObjectURL(url);
+  printPdfBlob(blob);
 }

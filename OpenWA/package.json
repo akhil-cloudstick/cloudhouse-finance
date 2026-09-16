@@ -26,6 +26,8 @@
     "dashboard:ci": "cd dashboard && npm ci",
     "dashboard:dev": "cd dashboard && npm run dev",
     "dashboard:build": "cd dashboard && npm run build",
+    "dashboard:build:if-missing": "node -e \"const fs=require('fs');if(!fs.existsSync('dashboard/dist/index.html')){require('child_process').execSync('npm run dashboard:build',{stdio:'inherit'})}\"",
+    "dev:embedded": "npm run dashboard:build:if-missing && npm run start:dev",
     "postinstall": "node scripts/postinstall.js",
     "check:versions": "node scripts/check-doc-versions.mjs",
     "check:dockerignore": "node scripts/check-dockerignore.mjs",

@@ -21,13 +21,14 @@ func NewHandler(svc *Service) *Handler {
 }
 
 type createRequest struct {
-	BranchID        uint    `json:"branchId"`
-	CustomerID      uint    `json:"customerId"`
-	PrincipalAmount float64 `json:"principalAmount"`
-	InterestType    string  `json:"interestType"`
-	InterestValue   float64 `json:"interestValue"`
-	Frequency       string  `json:"frequency"`
-	TenureCount     int     `json:"tenureCount"`
+	BranchID         uint    `json:"branchId"`
+	CustomerID       uint    `json:"customerId"`
+	PrincipalAmount  float64 `json:"principalAmount"`
+	InterestType     string  `json:"interestType"`
+	InterestValue    float64 `json:"interestValue"`
+	Frequency        string  `json:"frequency"`
+	TenureCount      int     `json:"tenureCount"`
+	FullDisbursement bool    `json:"fullDisbursement"`
 }
 
 // Create validates + persists a new loan, disbursing it in the same step.
@@ -49,6 +50,7 @@ func (h *Handler) Create(c *gin.Context) {
 		InterestValue:       req.InterestValue,
 		Frequency:           req.Frequency,
 		TenureCount:         req.TenureCount,
+		FullDisbursement:    req.FullDisbursement,
 		CreatedByEmployeeID: employeeID,
 	})
 	if err != nil {
@@ -147,10 +149,13 @@ func (h *Handler) Payments(c *gin.Context) {
 }
 
 type paymentRequest struct {
-	Amount      float64 `json:"amount"`
-	Method      string  `json:"method"`
-	Reference   string  `json:"reference"`
-	Description string  `json:"description"`
+	Amount             float64 `json:"amount"`
+	CashAmount         float64 `json:"cashAmount"`
+	UpiAmount          float64 `json:"upiAmount"`
+	BankTransferAmount float64 `json:"bankTransferAmount"`
+	ChequeAmount       float64 `json:"chequeAmount"`
+	Reference          string  `json:"reference"`
+	Description        string  `json:"description"`
 }
 
 // RecordPayment collects a payment against a loan.
@@ -169,7 +174,10 @@ func (h *Handler) RecordPayment(c *gin.Context) {
 	employeeID, _, _ := platform.ActorFromContext(c)
 	rec, err := h.svc.RecordPayment(ctx, id, platform.GetBranchScope(c), PaymentInput{
 		Amount:               req.Amount,
-		Method:               req.Method,
+		CashAmount:           req.CashAmount,
+		UpiAmount:            req.UpiAmount,
+		BankTransferAmount:   req.BankTransferAmount,
+		ChequeAmount:         req.ChequeAmount,
 		Reference:            req.Reference,
 		Description:          req.Description,
 		ReceivedByEmployeeID: &employeeID,

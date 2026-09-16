@@ -30,9 +30,26 @@ type PersonalLoanPayment struct {
 	// collection — nil only for the RenewLoan rollover entry.
 	ReceivedByEmployeeID *uint `json:"receivedByEmployeeId"`
 
-	Method      string `json:"method" gorm:"size:30"` // e.g. "Cash" | "UPI" | PaymentMethodRenewalRollover
+	// Method is derived/display-only (platform.DeriveMethod) for a real
+	// collection — the single mode's name when exactly one split amount
+	// below is non-zero, "Split" when more than one is — but stays
+	// PaymentMethodRenewalRollover verbatim for RenewLoan's synthetic
+	// no-cash-moved entry, which has no split to derive from.
+	Method      string `json:"method" gorm:"size:30"`
 	Reference   string `json:"reference" gorm:"size:80"`
 	Description string `json:"description" gorm:"size:255"`
+
+	// CashAmount/UpiAmount/BankTransferAmount/ChequeAmount record exactly how
+	// much of Amount came through each mode — see LoanPayment's identical
+	// fields for the full rationale. All 0 for the RenewLoan rollover entry,
+	// which moves no real cash.
+	CashAmount         float64 `json:"cashAmount" gorm:"not null;type:numeric(16,2);default:0"`
+	UpiAmount          float64 `json:"upiAmount" gorm:"not null;type:numeric(16,2);default:0"`
+	BankTransferAmount float64 `json:"bankTransferAmount" gorm:"not null;type:numeric(16,2);default:0"`
+	ChequeAmount       float64 `json:"chequeAmount" gorm:"not null;type:numeric(16,2);default:0"`
+
+	// NeedsModeReview — see LoanPayment's identical field.
+	NeedsModeReview bool `json:"needsModeReview" gorm:"not null;default:false"`
 
 	// RunningBalance is OutstandingAmount immediately after this entry.
 	RunningBalance float64 `json:"runningBalance" gorm:"not null;type:numeric(16,2)"`

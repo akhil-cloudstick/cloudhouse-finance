@@ -1,39 +1,7 @@
 import { apiFetchEnveloped as apiFetch, API_BASE, getAuthToken, ApiError } from "@/common/services/httpClient";
 import { branchHeader } from "@/common/services/branchSelection";
 import { isSmallScreen } from "@/common/utils/responsive";
-
-/* Sends a PDF blob straight to the browser's print dialog instead of
- * downloading it — no visible "preview" tab, just Ctrl+P's picker. Loads
- * the blob into a hidden iframe and calls its contentWindow.print() once
- * the PDF has actually rendered; the iframe (and its object URL) are torn
- * down on the next afterprint/cancel so repeated prints don't leak either.
- * Used by downloadIndemnityBondPDF / previewIndemnityBondPDF below. */
-function printPdfBlob(blob: Blob): void {
-  const url = window.URL.createObjectURL(blob);
-  const iframe = document.createElement("iframe");
-  iframe.style.position = "fixed";
-  iframe.style.right = "0";
-  iframe.style.bottom = "0";
-  iframe.style.width = "0";
-  iframe.style.height = "0";
-  iframe.style.border = "0";
-  iframe.src = url;
-  document.body.appendChild(iframe);
-  iframe.onload = () => {
-    const win = iframe.contentWindow;
-    if (!win) return;
-    const cleanup = () => {
-      window.URL.revokeObjectURL(url);
-      iframe.remove();
-    };
-    win.addEventListener("afterprint", cleanup, { once: true });
-    // Fallback in case afterprint never fires (e.g. print dialog cancelled
-    // in some browsers) — keep the iframe around long enough to print.
-    setTimeout(cleanup, 60_000);
-    win.focus();
-    win.print();
-  };
-}
+import { printPdfBlob } from "@/common/utils/print";
 import type { BondLang } from "@/modules/loans/utils/indemnityBond";
 
 /* Mirrors backend/internal/loan/handler.go's ornamentRequest exactly. */
@@ -118,7 +86,13 @@ export type BackendLoanPayment = {
   paidOn: string;
   receivedByEmployeeId: number;
   description: string;
+  /* Derived/display-only — the single mode's name when exactly one split
+   * amount below is non-zero, "Split" when more than one is. */
   method: string;
+  cashAmount: number;
+  upiAmount: number;
+  bankTransferAmount: number;
+  chequeAmount: number;
   reference: string;
   penalInterestApplied: number;
   interestApplied: number;
@@ -242,6 +216,10 @@ export type PaymentView = {
   receivedByEmployeeId: number;
   description: string;
   method: string;
+  cashAmount: number;
+  upiAmount: number;
+  bankTransferAmount: number;
+  chequeAmount: number;
   reference: string;
   penalInterestApplied: number;
   interestApplied: number;
@@ -350,6 +328,10 @@ function toPaymentView(p: BackendLoanPayment): PaymentView {
     receivedByEmployeeId: p.receivedByEmployeeId,
     description: p.description,
     method: p.method,
+    cashAmount: p.cashAmount,
+    upiAmount: p.upiAmount,
+    bankTransferAmount: p.bankTransferAmount,
+    chequeAmount: p.chequeAmount,
     reference: p.reference,
     penalInterestApplied: p.penalInterestApplied,
     interestApplied: p.interestApplied,
@@ -789,7 +771,18 @@ export async function listLoanApprovals(loanId: number): Promise<ApprovalStageRe
 // loan they made, which advances the chain to the Branch Manager exactly
 // like an "Approved" action does at the two stages above it. It is not
 // valid at any other stage (backend: Service.Approve).
-export type ApprovalInput = { stage: SanctionStage; action: "Approved" | "Rejected" | "Verified"; remarks?: string };
+export type ApprovalInput = {
+  stage: SanctionStage;
+  action: "Approved" | "Rejected" | "Verified";
+  remarks?: string;
+  // Only meaningful (and only validated server-side) when this call is the
+  // one that clears FinalSanction and triggers disbursement — must sum to
+  // the loan's principal amount.
+  cashAmount?: number;
+  upiAmount?: number;
+  bankTransferAmount?: number;
+  chequeAmount?: number;
+};
 
 export async function approveLoan(loanId: number, input: ApprovalInput): Promise<LoanView> {
   const rec = await apiFetch<BackendLoan>(`/loans/${loanId}/approve`, {
@@ -851,7 +844,10 @@ export type PaymentInput = {
   type: "Interest" | "Penal Interest" | "Principal" | "Partial" | "Full Settlement" | string;
   processingFee?: number; // extra charge collected alongside amount — never applied to penal/interest/principal
   paidOn: string;
-  method?: string;
+  cashAmount?: number;
+  upiAmount?: number;
+  bankTransferAmount?: number;
+  chequeAmount?: number;
   reference?: string;
   description?: string;
   // Overrides the system-calculated interest bucket for this payment only
@@ -867,6 +863,46 @@ export async function recordPayment(loanId: number, input: PaymentInput): Promis
     body: JSON.stringify(input),
   });
   return toView(rec);
+}
+
+/* Top-up: draws additional cash against an already-Active loan's spare
+ * eligible value (headroom = eligibleLoanAmount - outstanding), without
+ * closing/reopening it — see backend/internal/loan/service.go's
+ * Service.TopUpLoan. */
+export type TopUpInput = {
+  amount: number;
+  cashAmount?: number;
+  upiAmount?: number;
+  bankTransferAmount?: number;
+  chequeAmount?: number;
+  occurredOn?: string; // "YYYY-MM-DD" — omit for today
+  reference?: string;
+};
+
+export async function topUpLoan(loanId: number, input: TopUpInput): Promise<LoanView> {
+  const rec = await apiFetch<BackendLoan>(`/loans/${loanId}/topup`, {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+  return toView(rec);
+}
+
+export type LoanTopUpView = {
+  id: number;
+  amount: number;
+  eligibleAmountAtTopUp: number;
+  cashAmount: number;
+  upiAmount: number;
+  bankTransferAmount: number;
+  chequeAmount: number;
+  occurredOn: string;
+  reference: string;
+  status: "Active" | "Reversed";
+  createdAt: string;
+};
+
+export async function listTopUps(loanId: number): Promise<LoanTopUpView[]> {
+  return (await apiFetch<LoanTopUpView[]>(`/loans/${loanId}/topups`)) || [];
 }
 
 export type BankPledgeInput = {
@@ -1756,6 +1792,35 @@ export async function downloadLoanStatement(loanId: number): Promise<void> {
 export async function downloadIndemnityBondPDF(loanNumericId: number, lang: BondLang): Promise<void> {
   const token = getAuthToken();
   const res = await fetch(`${API_BASE}/loans/${loanNumericId}/indemnity-bond/pdf?lang=${lang}`, {
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  });
+  if (!res.ok) {
+    let message = res.statusText;
+    try {
+      const body = await res.json();
+      if (body?.error) message = body.error;
+    } catch {
+      /* non-JSON error body — fall back to statusText */
+    }
+    throw new ApiError(message, res.status);
+  }
+
+  const blob = await res.blob();
+  printPdfBlob(blob);
+}
+
+/* Sends the FORM 7 release/discharge agreement straight to the print dialog
+ * (via printPdfBlob), rendered server-side (GET /loans/:id/release-agreement/pdf)
+ * — the server-side replacement for the client-side print copy
+ * (modules/loans/utils/releaseAgreement.ts's printReleaseAgreement, a plain
+ * window.print()), with the same genuine per-page header/footer
+ * downloadIndemnityBondPDF above gets. Requires an already-saved,
+ * closed loan (loanNumericId) — every current caller (LoanDetail.tsx,
+ * Requests.tsx) only reaches this once a loan is closed/release-approved, so
+ * there is no pre-save preview variant, unlike the indemnity bond. */
+export async function downloadReleaseAgreementPDF(loanNumericId: number, lang: "en" | "ml"): Promise<void> {
+  const token = getAuthToken();
+  const res = await fetch(`${API_BASE}/loans/${loanNumericId}/release-agreement/pdf?lang=${lang}`, {
     headers: token ? { Authorization: `Bearer ${token}` } : {},
   });
   if (!res.ok) {

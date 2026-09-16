@@ -84,6 +84,65 @@ func (r *MovementRepository) FindAll(ctx context.Context, branchID *uint, fromDa
 	return movements, total, err
 }
 
+// ListByBank returns every cash movement tagged to bankID (CashMovement.
+// BankID), newest first, optionally bounded to [fromDate, toDate] on
+// occurred_on — backs the Party Transactions page's bank drill-down
+// (Service.ListCashMovementsByBank). limit <= 0 returns every matching row
+// unpaginated (the PDF statement export).
+func (r *MovementRepository) ListByBank(ctx context.Context, bankID uint, fromDate, toDate time.Time, limit, offset int) ([]CashMovement, int64, error) {
+	q := r.db.WithContext(ctx).Preload("Branch").Model(&CashMovement{}).
+		Where("bank_id = ?", bankID).
+		Order("occurred_on desc, id desc")
+	if !fromDate.IsZero() {
+		q = q.Where("occurred_on >= ?", fromDate)
+	}
+	if !toDate.IsZero() {
+		q = q.Where("occurred_on < ?", toDate.AddDate(0, 0, 1))
+	}
+	var total int64
+	if limit > 0 {
+		if err := q.Session(&gorm.Session{}).Model(&CashMovement{}).Count(&total).Error; err != nil {
+			return nil, 0, err
+		}
+		q = q.Limit(limit)
+	}
+	if offset > 0 {
+		q = q.Offset(offset)
+	}
+	var movements []CashMovement
+	err := q.Find(&movements).Error
+	return movements, total, err
+}
+
+// ListByCustomer is ListByBank's counterpart for CashMovement.
+// PartyCustomerID — backs the Party Transactions page's customer drill-down
+// and CustomerDetail.tsx's "Transactions" tab (Service.
+// ListCashMovementsByCustomer), same shape/semantics.
+func (r *MovementRepository) ListByCustomer(ctx context.Context, customerID uint, fromDate, toDate time.Time, limit, offset int) ([]CashMovement, int64, error) {
+	q := r.db.WithContext(ctx).Preload("Branch").Model(&CashMovement{}).
+		Where("party_customer_id = ?", customerID).
+		Order("occurred_on desc, id desc")
+	if !fromDate.IsZero() {
+		q = q.Where("occurred_on >= ?", fromDate)
+	}
+	if !toDate.IsZero() {
+		q = q.Where("occurred_on < ?", toDate.AddDate(0, 0, 1))
+	}
+	var total int64
+	if limit > 0 {
+		if err := q.Session(&gorm.Session{}).Model(&CashMovement{}).Count(&total).Error; err != nil {
+			return nil, 0, err
+		}
+		q = q.Limit(limit)
+	}
+	if offset > 0 {
+		q = q.Offset(offset)
+	}
+	var movements []CashMovement
+	err := q.Find(&movements).Error
+	return movements, total, err
+}
+
 func (r *MovementRepository) FindByID(ctx context.Context, id uint) (*CashMovement, error) {
 	var m CashMovement
 	if err := r.db.WithContext(ctx).Preload("Branch").First(&m, id).Error; err != nil {

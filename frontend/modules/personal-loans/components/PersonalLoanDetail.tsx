@@ -150,6 +150,11 @@ export function PersonalLoanDetail({ id }: { id?: string }) {
         )}
       </div>
       {downloadError && <div className="notice" style={{ marginBottom: 12 }}>{downloadError}</div>}
+      {loan.fullDisbursement && (
+        <div className="notice" style={{ marginBottom: 12 }}>
+          Full amount disbursed — includes {fmt(loan.interestAmount)} interest.
+        </div>
+      )}
       <hr className="gold-rule" />
 
       <div className="kpis" style={{ marginBottom: 16 }}>

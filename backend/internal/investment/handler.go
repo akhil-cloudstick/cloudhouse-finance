@@ -30,6 +30,7 @@ type planRequest struct {
 	TenureMonths        int     `json:"tenureMonths"`
 	MinPrincipal        float64 `json:"minPrincipal"`
 	IsActive            bool    `json:"isActive"`
+	Engine              string  `json:"engine"`
 }
 
 func (h *Handler) CreatePlan(c *gin.Context) {
@@ -47,6 +48,7 @@ func (h *Handler) CreatePlan(c *gin.Context) {
 		TenureMonths:        req.TenureMonths,
 		MinPrincipal:        req.MinPrincipal,
 		IsActive:            req.IsActive,
+		Engine:              req.Engine,
 	})
 	if err != nil {
 		httpx.FailErr(c, err)
@@ -75,6 +77,7 @@ func (h *Handler) UpdatePlan(c *gin.Context) {
 		TenureMonths:        req.TenureMonths,
 		MinPrincipal:        req.MinPrincipal,
 		IsActive:            req.IsActive,
+		Engine:              req.Engine,
 	})
 	if err != nil {
 		httpx.FailErr(c, err)
@@ -214,6 +217,13 @@ func (h *Handler) Schedule(c *gin.Context) {
 	httpx.Success(c, http.StatusOK, gin.H{"items": recs, "hasMore": hasMore})
 }
 
+type markPayoutPaidRequest struct {
+	CashAmount         float64 `json:"cashAmount"`
+	UpiAmount          float64 `json:"upiAmount"`
+	BankTransferAmount float64 `json:"bankTransferAmount"`
+	ChequeAmount       float64 `json:"chequeAmount"`
+}
+
 // MarkPayoutPaid marks one due payout of an investment as paid.
 func (h *Handler) MarkPayoutPaid(c *gin.Context) {
 	ctx := platform.RequestContext(c)
@@ -227,8 +237,20 @@ func (h *Handler) MarkPayoutPaid(c *gin.Context) {
 		httpx.FailErr(c, err)
 		return
 	}
+	// The split breakdown is required — Service.MarkPayoutPaid rejects an
+	// all-zero split against a non-zero payout Amount (platform.
+	// ValidateSplit), same "reject, don't silently default to Cash"
+	// convention as every other split-payment endpoint. A malformed/missing
+	// body binds to the zero value and is rejected the same way.
+	var req markPayoutPaidRequest
+	_ = c.ShouldBindJSON(&req)
 	employeeID, _, _ := platform.ActorFromContext(c)
-	rec, err := h.svc.MarkPayoutPaid(ctx, id, payoutID, platform.GetBranchScope(c), employeeID)
+	rec, err := h.svc.MarkPayoutPaid(ctx, id, payoutID, platform.GetBranchScope(c), employeeID, MarkPayoutPaidInput{
+		CashAmount:         req.CashAmount,
+		UpiAmount:          req.UpiAmount,
+		BankTransferAmount: req.BankTransferAmount,
+		ChequeAmount:       req.ChequeAmount,
+	})
 	if err != nil {
 		httpx.FailErr(c, err)
 		return
@@ -297,4 +319,119 @@ func (h *Handler) ListInvestmentsForCustomer(c *gin.Context) {
 		return
 	}
 	httpx.Success(c, http.StatusOK, recs)
+}
+
+// --- Live engine: Add Cash / Withdraw / Transactions ---
+
+type addCashRequest struct {
+	Amount             float64 `json:"amount"`
+	OccurredOn         string  `json:"occurredOn"` // RFC3339, optional
+	CashAmount         float64 `json:"cashAmount"`
+	UpiAmount          float64 `json:"upiAmount"`
+	BankTransferAmount float64 `json:"bankTransferAmount"`
+	ChequeAmount       float64 `json:"chequeAmount"`
+	Reference          string  `json:"reference"`
+}
+
+func parseOccurredOn(raw string) time.Time {
+	if raw == "" {
+		return time.Time{}
+	}
+	if t, err := time.Parse(time.RFC3339, raw); err == nil {
+		return t
+	}
+	return time.Time{}
+}
+
+// AddCash deposits additional principal into a Live-engine investment.
+func (h *Handler) AddCash(c *gin.Context) {
+	ctx := platform.RequestContext(c)
+	id, err := httpx.IDParam(c, "id")
+	if err != nil {
+		httpx.FailErr(c, err)
+		return
+	}
+	var req addCashRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		httpx.Fail(c, http.StatusBadRequest, "Invalid input")
+		return
+	}
+	employeeID, _, _ := platform.ActorFromContext(c)
+	rec, err := h.svc.AddCash(ctx, id, platform.GetBranchScope(c), AddCashInput{
+		Amount:               req.Amount,
+		OccurredOn:           parseOccurredOn(req.OccurredOn),
+		CashAmount:           req.CashAmount,
+		UpiAmount:            req.UpiAmount,
+		BankTransferAmount:   req.BankTransferAmount,
+		ChequeAmount:         req.ChequeAmount,
+		Reference:            req.Reference,
+		RecordedByEmployeeID: employeeID,
+	})
+	if err != nil {
+		httpx.FailErr(c, err)
+		return
+	}
+	httpx.Success(c, http.StatusOK, rec)
+}
+
+type withdrawRequest struct {
+	InterestAmount     float64 `json:"interestAmount"`
+	PrincipalAmount    float64 `json:"principalAmount"`
+	OccurredOn         string  `json:"occurredOn"`
+	CashAmount         float64 `json:"cashAmount"`
+	UpiAmount          float64 `json:"upiAmount"`
+	BankTransferAmount float64 `json:"bankTransferAmount"`
+	ChequeAmount       float64 `json:"chequeAmount"`
+	Reference          string  `json:"reference"`
+}
+
+// Withdraw draws down a Live-engine investment's outstanding principal
+// and/or interest, per the caller's chosen split.
+func (h *Handler) Withdraw(c *gin.Context) {
+	ctx := platform.RequestContext(c)
+	id, err := httpx.IDParam(c, "id")
+	if err != nil {
+		httpx.FailErr(c, err)
+		return
+	}
+	var req withdrawRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		httpx.Fail(c, http.StatusBadRequest, "Invalid input")
+		return
+	}
+	employeeID, _, _ := platform.ActorFromContext(c)
+	rec, err := h.svc.Withdraw(ctx, id, platform.GetBranchScope(c), WithdrawInput{
+		InterestAmount:       req.InterestAmount,
+		PrincipalAmount:      req.PrincipalAmount,
+		OccurredOn:           parseOccurredOn(req.OccurredOn),
+		CashAmount:           req.CashAmount,
+		UpiAmount:            req.UpiAmount,
+		BankTransferAmount:   req.BankTransferAmount,
+		ChequeAmount:         req.ChequeAmount,
+		Reference:            req.Reference,
+		RecordedByEmployeeID: employeeID,
+	})
+	if err != nil {
+		httpx.FailErr(c, err)
+		return
+	}
+	httpx.Success(c, http.StatusOK, rec)
+}
+
+// ListTransactions returns one page of a Live-engine investment's ledger.
+func (h *Handler) ListTransactions(c *gin.Context) {
+	ctx := platform.RequestContext(c)
+	id, err := httpx.IDParam(c, "id")
+	if err != nil {
+		httpx.FailErr(c, err)
+		return
+	}
+	limit, _ := strconv.Atoi(c.Query("limit"))
+	offset, _ := strconv.Atoi(c.Query("offset"))
+	recs, hasMore, err := h.svc.GetTransactions(ctx, id, platform.GetBranchScope(c), limit, offset)
+	if err != nil {
+		httpx.FailErr(c, err)
+		return
+	}
+	httpx.Success(c, http.StatusOK, gin.H{"items": recs, "hasMore": hasMore})
 }

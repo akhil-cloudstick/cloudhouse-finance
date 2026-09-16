@@ -1,9 +1,19 @@
 import { apiFetchEnveloped as apiFetch } from "@/common/services/httpClient";
+import type { SplitAmounts } from "@/common/components/ui/SplitPaymentInput";
 
 export type InterestRateType = "Simple" | "Compound";
-export type PayoutFrequency = "Monthly" | "Yearly";
+/* Daily/Weekly/Quarterly only apply to Engine "Live" plans/investments —
+ * see backend/internal/investment/model_plan.go's PayoutFrequency* doc
+ * comment. A "Schedule" (legacy) plan/investment stays restricted to
+ * Monthly/Yearly. */
+export type PayoutFrequency = "Daily" | "Weekly" | "Monthly" | "Quarterly" | "Yearly";
 export type InvestmentStatus = "Active" | "Matured" | "Closed" | "Renewed";
 export type PayoutStatus = "Pending" | "Paid";
+/* Engine is the discriminator between the original precomputed-schedule
+ * product ("Schedule") and the new running-balance product ("Live") — see
+ * backend/internal/investment/model_plan.go's Engine* doc comment.
+ * Snapshotted from Plan onto Investment at creation time. */
+export type Engine = "Schedule" | "Live";
 
 /* Mirrors backend/internal/investment/model_plan.go's InvestmentPlan
  * exactly (only the fields the frontend needs). */
@@ -16,6 +26,7 @@ export type BackendInvestmentPlan = {
   tenureMonths: number;
   minPrincipal: number;
   isActive: boolean;
+  engine: Engine;
 };
 
 export type CreatePlanInput = {
@@ -26,6 +37,7 @@ export type CreatePlanInput = {
   tenureMonths: number;
   minPrincipal: number;
   isActive: boolean;
+  engine: Engine;
 };
 
 export function createInvestmentPlan(input: CreatePlanInput): Promise<BackendInvestmentPlan> {
@@ -67,6 +79,44 @@ export type BackendInvestment = {
   renewedFromInvestmentId: number | null;
   renewedToInvestmentId: number | null;
   createdAt: string;
+
+  engine: Engine;
+  /* Meaningful only when engine === "Live" — see model_investment.go's
+   * field doc comments. Zero/absent for a "Schedule" investment. */
+  outstandingPrincipal: number;
+  accruedInterest: number;
+  interestWithdrawn: number;
+  outstandingInterest: number;
+  lastAccrualDate: string | null;
+};
+
+/* One append-only ledger row (Add Cash deposit, or Withdraw of Interest/
+ * Principal/Both) against an Engine "Live" investment — mirrors
+ * backend/internal/investment/model_transaction.go's InvestmentTransaction.
+ * This is the Live-engine replacement for BackendInvestmentPayout's
+ * precomputed schedule row. */
+export type InvestmentTransactionType = "Deposit" | "Withdrawal";
+
+export type BackendInvestmentTransaction = {
+  id: number;
+  investmentId: number;
+  type: InvestmentTransactionType;
+  amount: number;
+  principalAmount: number;
+  interestAmount: number;
+  cashAmount: number;
+  upiAmount: number;
+  bankTransferAmount: number;
+  chequeAmount: number;
+  principalBefore: number;
+  principalAfter: number;
+  interestBefore: number;
+  interestAfter: number;
+  occurredOn: string;
+  recordedByEmployeeId: number | null;
+  reference: string;
+  cashMovementId: number | null;
+  createdAt: string;
 };
 
 /* Mirrors backend/internal/investment/model_payout.go's InvestmentPayout
@@ -77,6 +127,10 @@ export type BackendInvestmentPayout = {
   sequenceNo: number;
   dueDate: string;
   amount: number;
+  cashAmount: number;
+  upiAmount: number;
+  bankTransferAmount: number;
+  chequeAmount: number;
   isPrincipalReturn: boolean;
   status: PayoutStatus;
   paidAt: string | null;
@@ -133,8 +187,15 @@ export function getInvestmentSchedulePage(id: number, page: number): Promise<{ i
   return apiFetch<{ items: BackendInvestmentPayout[]; hasMore: boolean }>(`/investments/${id}/schedule?${params}`);
 }
 
-export function markPayoutPaid(investmentId: number, payoutId: number): Promise<BackendInvestmentPayout> {
-  return apiFetch<BackendInvestmentPayout>(`/investments/${investmentId}/payouts/${payoutId}/pay`, { method: "POST" });
+export function markPayoutPaid(
+  investmentId: number,
+  payoutId: number,
+  split: { cashAmount: number; upiAmount: number; bankTransferAmount: number; chequeAmount: number }
+): Promise<BackendInvestmentPayout> {
+  return apiFetch<BackendInvestmentPayout>(`/investments/${investmentId}/payouts/${payoutId}/pay`, {
+    method: "POST",
+    body: JSON.stringify(split),
+  });
 }
 
 export type MaturityAction = "Close" | "Renew";
@@ -148,4 +209,49 @@ export function matureInvestment(
 
 export function listInvestmentsForCustomer(customerId: number): Promise<BackendInvestment[]> {
   return apiFetch<BackendInvestment[]>(`/customers/${customerId}/investments`);
+}
+
+/* --- Live engine: Add Cash / Withdraw / Transactions --- */
+
+export type AddCashInput = SplitAmounts & {
+  amount: number;
+  occurredOn?: string; // RFC3339, optional — defaults to now on the backend
+  reference?: string;
+};
+
+export function addCashToInvestment(investmentId: number, input: AddCashInput): Promise<BackendInvestment> {
+  return apiFetch<BackendInvestment>(`/investments/${investmentId}/add-cash`, {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+}
+
+export type WithdrawInput = SplitAmounts & {
+  /* Either can be 0 — this pair IS the "withdraw from Interest / Principal /
+   * Both" choice; see BackendInvestmentTransaction's doc comment. */
+  interestAmount: number;
+  principalAmount: number;
+  occurredOn?: string;
+  reference?: string;
+};
+
+export function withdrawFromInvestment(investmentId: number, input: WithdrawInput): Promise<BackendInvestment> {
+  return apiFetch<BackendInvestment>(`/investments/${investmentId}/withdraw`, {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+}
+
+export const INVESTMENT_TRANSACTIONS_PAGE_SIZE = 20;
+
+/* `page` is 0-based, mirrors getInvestmentSchedulePage. */
+export function getInvestmentTransactionsPage(
+  investmentId: number,
+  page: number
+): Promise<{ items: BackendInvestmentTransaction[]; hasMore: boolean }> {
+  const params = new URLSearchParams({
+    limit: String(INVESTMENT_TRANSACTIONS_PAGE_SIZE),
+    offset: String(page * INVESTMENT_TRANSACTIONS_PAGE_SIZE),
+  });
+  return apiFetch<{ items: BackendInvestmentTransaction[]; hasMore: boolean }>(`/investments/${investmentId}/transactions?${params}`);
 }

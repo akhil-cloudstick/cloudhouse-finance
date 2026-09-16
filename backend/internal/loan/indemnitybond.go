@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"html/template"
 	"math"
+	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"time"
@@ -77,9 +79,15 @@ type BondData struct {
 	DueDate         time.Time // zero means unknown — rendered as a blank, same convention as Age
 }
 
-// blank is the placeholder used wherever the frontend template falls back
-// to "________________" for a missing field.
-const blank = "________________"
+// blank is the placeholder used wherever a field on the printed document has
+// no value — a run of non-breaking spaces rather than a printed underscore
+// line: the paper is still meant to be filled in by hand at signing time,
+// and needs a visibly reserved gap to write into, but the printed page
+// itself should show a plain blank space rather than a drawn rule (was
+// "________________" until this changed). Plain regular spaces would
+// collapse to nothing across an HTML line break, so this uses non-breaking
+// spaces ( ) to keep the gap visible.
+const blank = "                "
 
 // lenderName/lenderRegNo and the rest are the FALLBACK lender-side particulars,
 // used only for a business whose tenant profile has not been filled in — see
@@ -146,7 +154,7 @@ func orBlank(s string) string {
 
 func ageOrBlank(age int) string {
 	if age <= 0 {
-		return "____"
+		return blank
 	}
 	return fmt.Sprintf("%d", age)
 }
@@ -261,39 +269,53 @@ func amountInWords(amount float64) string {
 	return strings.Join(parts, " ")
 }
 
-// bondTemplate is the English translation of bondHTMLMalayalam's own
-// promissory-pledge letter (see that template's own doc comment) — same
-// wording/structure as the Malayalam version, just in English, rather than
-// the old formal "MEMORANDUM OF AGREEMENT... BETWEEN" numbered-clause deed
-// this used to be (a document that had, in fact, drifted into a
-// syntactically-broken state — stray untranslated Hindi text mid-document,
-// missing closing tags, an ornament-schedule table that never rendered —
-// before this replacement). Direct port of frontend/modules/loans/utils/
-// indemnityBond.ts's printIndemnityBond() "en" branch, same wording, same
-// structure, so the eSigned PDF matches what staff already see when
-// printing it by hand.
-var bondTemplate = template.Must(
-	template.New("bond_en").Funcs(template.FuncMap{"inc": func(i int) int { return i + 1 }}).Parse(bondHTMLEnglish),
-)
+// templatesDir is where every printable document's HTML source now lives —
+// plain .html files, not compiled into the binary (see bond_en/_ml/_gu
+// below, and personalloan/bond.go's own identical loadTemplate). Path is
+// relative to the backend process's own working directory, same convention
+// platform.Config's UploadsDir ("./uploads") already uses — the server is
+// always launched from the backend/ folder, so this always resolves to
+// backend/templates/.
+const templatesDir = "./templates"
+
+// mustLoadTemplate reads name from templatesDir and parses it with the given
+// funcs, panicking (via template.Must's own convention — this only ever runs
+// at package init, so a missing/malformed template file is a deployment
+// error that should fail loudly at startup, not a runtime error to recover
+// from) if the file is missing or fails to parse.
+func mustLoadTemplate(templateName, fileName string, funcs template.FuncMap) *template.Template {
+	b, err := os.ReadFile(filepath.Join(templatesDir, fileName))
+	if err != nil {
+		panic(fmt.Sprintf("pledge agreement: read template %s: %v", fileName, err))
+	}
+	return template.Must(template.New(templateName).Funcs(funcs).Parse(string(b)))
+}
+
+var bondTemplateFuncs = template.FuncMap{"inc": func(i int) int { return i + 1 }}
+
+// bondTemplate is the English translation of the Malayalam promissory-pledge
+// letter (backend/templates/kml-bond-malayalam.html's own doc history) —
+// same wording/structure as the Malayalam version, just in English, rather
+// than the old formal "MEMORANDUM OF AGREEMENT... BETWEEN" numbered-clause
+// deed this used to be. Loaded from backend/templates/kml-bond-english.html.
+var bondTemplate = mustLoadTemplate("bond_en", "kml-bond-english.html", bondTemplateFuncs)
 
 // bondTemplateMl is the Malayalam "ആഭരണ പണയ കരാർ" (Ornament Pledge
 // Agreement) template — replaces the branch's old Gujarati paper form
 // (that business has no relation to this branch; see lenderName's own doc
 // comment) with one modeled on the branch's ACTUAL Malayalam reference
 // form. Staff choose which language to print/eSign per loan (see
-// StartIndemnityBondSign's lang parameter).
-var bondTemplateMl = template.Must(
-	template.New("bond_ml").Funcs(template.FuncMap{"inc": func(i int) int { return i + 1 }}).Parse(bondHTMLMalayalam),
-)
+// StartIndemnityBondSign's lang parameter). Loaded from
+// backend/templates/kml-bond-malayalam.html.
+var bondTemplateMl = mustLoadTemplate("bond_ml", "kml-bond-malayalam.html", bondTemplateFuncs)
 
 // bondTemplateGu is the Gujarati "ચલ મિલકતનો આડગીરો કરાર" (Movable Property
 // Pledge Agreement) template — the Gujarat branch's own paper form, brought
-// over from that deployment verbatim rather than translated here. See
-// bondHTMLGujarati for why it is a different document from the English and
-// Malayalam pair rather than a third translation of the same one.
-var bondTemplateGu = template.Must(
-	template.New("bond_gu").Funcs(template.FuncMap{"inc": func(i int) int { return i + 1 }}).Parse(bondHTMLGujarati),
-)
+// over from that deployment verbatim rather than translated here. Kept as a
+// separately-named file (not "kml-*") since it's a different document from
+// the English/Malayalam pair, not a third translation of the same one.
+// Loaded from backend/templates/gml-bond-gujarati.html.
+var bondTemplateGu = mustLoadTemplate("bond_gu", "gml-bond-gujarati.html", bondTemplateFuncs)
 
 // bondPageStyle mirrors frontend/common/utils/print.ts's openPrintWindow
 // stylesheet (minus the .noprint print button, irrelevant for a PDF render),
@@ -318,18 +340,14 @@ ol li{margin-bottom:10px;text-align:justify}
  * fix for the on-screen/print copy of this same bond). */
 .lender-sig{position:absolute;top:18px;left:50%;transform:translateX(-50%);width:110px}
 .lender-sig svg{width:100%;height:auto;display:block}
-/* Forces the signature/witness block onto its own final page and pins it
- * to the bottom of that page's printable area — the same corner
- * RenderIndemnityBondPDF's caller stamps the Aadhaar eSign signature onto
- * (position "bottom-right" of the last page, see service.go's
- * StartIndemnityBondSign). Without this the block renders wherever it
- * naturally falls (often near the top of an otherwise-blank last page),
- * leaving a big gap between the signature text and the eSign stamp below
- * it. min-height is the paper's content-box height (11.69in - 0.9in top
- * margin - 0.8in bottom margin ≈ 254mm) minus a safety margin, so it never
- * overflows onto a spurious extra page.
- */
-.sig-page{page-break-before:always;min-height:240mm;display:flex;flex-direction:column;justify-content:flex-end}
+/* No forced page-break here (unlike the Gujarati deed's .sig-page below) —
+ * this bond's whole point is fitting the short KML letterhead letter onto
+ * ONE A4 page for a plain print. The signature/release block now just
+ * flows naturally after the main content. This does mean a bond sent for
+ * Aadhaar eSign no longer has a guaranteed page-bottom landing spot for
+ * Setu's stamp the way the old forced-second-page version did — re-verify
+ * StartIndemnityBondSign's eSign stamp placement after this change. */
+.sig-page{}
 `
 
 // bondPageStyleMalayalam is bondPageStyle with a font stack that leads with
@@ -339,19 +357,24 @@ ol li{margin-bottom:10px;text-align:justify}
 // installed on the host running chromedp — same requirement as internal/
 // personalloan/bond.go's own Malayalam template; without it the PDF still
 // renders, just via whatever fallback glyphs the OS ships.
+// Font sizes kept at their original values (14px body / 19px h1 / 14px h2 /
+// 13px table cells) — only the body's own outer margin and the signature
+// block's spacing were trimmed down (from 40px/60px/44px), and line-height
+// bumped up slightly (1.7 -> 1.8) for a bit more breathing room between
+// lines, so the short KML letter still reliably fits a single A4 page.
 const bondPageStyleMalayalam = `
-body{font-family:'Noto Sans Malayalam','Nirmala UI','Mona Sans','Segoe UI',ui-sans-serif,system-ui,sans-serif;color:#1a1a1a;margin:40px auto;max-width:760px;line-height:1.7;font-size:14px;padding:0 20px}
+body{font-family:'Noto Sans Malayalam','Nirmala UI','Mona Sans','Segoe UI',ui-sans-serif,system-ui,sans-serif;color:#1a1a1a;margin:8px auto;max-width:760px;line-height:1.6;font-size:14px;padding:0 20px}
 h1{font-size:19px;text-align:center;margin:0 0 2px;letter-spacing:.3px}
-h2{font-size:14px;text-align:center;margin:0 0 18px;font-weight:normal;color:#555}
-table{width:100%;border-collapse:collapse;margin:14px 0}
-th,td{border:1px solid #999;padding:6px 8px;font-size:13px;text-align:left;vertical-align:middle}
+h2{font-size:14px;text-align:center;margin:0 0 10px;font-weight:normal;color:#555}
+table{width:100%;border-collapse:collapse;margin:8px 0}
+th,td{border:1px solid #999;padding:4px 7px;font-size:13px;text-align:left;vertical-align:middle}
 th{background:#f3ede1} .num{text-align:right}
-ol{padding-left:22px} ol li{margin-bottom:12px;text-align:justify}
-.sig{display:flex;justify-content:space-between;gap:20px;margin-top:60px}
+ol{padding-left:22px} ol li{margin-bottom:8px;text-align:justify}
+.sig{display:flex;justify-content:space-between;gap:20px;margin-top:20px}
 .sig div{flex:1;text-align:center}
-.sig span{display:block;border-top:1px solid #333;padding-top:6px;margin-top:44px;font-size:12.5px}
-/* See bondPageStyle's .sig-page comment — same fix, Malayalam template. */
-.sig-page{page-break-before:always;min-height:240mm;display:flex;flex-direction:column;justify-content:flex-end}
+.sig span{display:block;border-top:1px solid #333;padding-top:4px;margin-top:16px;font-size:12.5px}
+/* No forced page-break — see bondPageStyle's .sig-page comment. */
+.sig-page{}
 `
 
 // bondPageStyleGujarati is bondPageStyleMalayalam with a Gujarati-capable
@@ -385,227 +408,6 @@ ol{padding-left:22px} ol li{margin-bottom:12px;text-align:justify}
 /* See bondPageStyle's .sig-page comment — same fix, Gujarati template. */
 .sig-page{page-break-before:always;min-height:240mm;display:flex;flex-direction:column;justify-content:flex-end}
 `
-
-const bondHTMLEnglish = `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Agreement of Pledge of Movable — {{.LoanNumber}}</title><style>{{.Style}}</style></head><body>
-<h1>AGREEMENT OF PLEDGE OF MOVABLE</h1>
-<h2>Gold Loan Account No. {{.LoanNumber}}</h2>
-<p>MEMORANDUM OF AGREEMENT, made the <b>{{printf "%02d" .Day}}</b> day of <b>{{.Month}}, {{.Year}}</b> BETWEEN</p>
-<p>
-<b>{{.CustomerName}}</b><br>
-Age :- <b>{{.Age}}</b>, business :- {{.Blank}}<br>
-Aadhar Card No. <b>{{.Aadhaar}}</b><br>
-Pan Card No. <b>{{.PAN}}</b><br>
-Residing at :- <b>{{.Address}}</b>
-</p>
-<p>(Hereinafter called &quot;the borrower&quot;) of the one part.</p>
-<p>AND</p>
-<p>
-<b>{{.LenderName}}</b><br>
-Age :- <b>{{.LenderAge}}</b>, business :- <b>{{.LenderBusiness}}</b><br>
-Aadhar Card No. <b>{{.LenderAadhaar}}</b><br>
-Pan Card No. <b>{{.LenderPAN}}</b><br>
-Residing at :- <b>{{.LenderAddress}}</b>
-</p>
-<p>(Hereinafter called &quot;the lender&quot;) of the other part.</p>
-<p>The lender carrying on business of money-lending under certificate of registration number <b>{{.LenderRegNo}}</b> of the other part.</p>
-<p>The Money lender and borrower are collectively referred to as the &quot;Parties&quot;.</p>
-<p><b>WHEREBY IT IS AGREED AS FOLLOWS</b></p>
-<ol>
-<li><b>Covenant to pay</b><br>In Consideration of the loan of Rs <b>{{.PrincipalAmount}}</b> advance by the lender to the borrower, the borrower hereby covenants with the lender that he will repay the said loan on or before {{.DueDate}} with interest at <b>{{.InterestRate}}</b> percent per annum from the date of execution of this agreement.</li>
-<li><b>Pledge Clause</b><br>The Lender has lent the sum of Rs <b>{{.PrincipalAmount}}</b> (the receipt of which the borrower hereby acknowledges) and borrower has delivered to the lender article belonging to the borrower and specified in the schedule hereto to be held by him as security for the repayment of the aforesaid loan in the manner herein provided,
-<ol type="a">
-<li><b>Right to Extraordinary Expenses</b> — The lender is entitled to receive from the borrower extraordinary expenses incurred by him for the preservation of the good pledged.</li>
-<li><b>Expenses of Repairs</b> — The Expenses of keeping the said articles in a good state of repair and in proper working order.</li>
-<li><b>Other Costs</b> — All other costs, charges and expenses (if any) which the lender may be entitled by law to add to his security.</li>
-</ol>
-</li>
-<li><b>Lender's Liability for Losses</b><br>The Lender shall not be liable to the borrower for any involuntary losses which may occur during his custody of the said articles (goods) or by reason of the sale thereof.</li>
-<li><b>Right of Lender</b><br>The Borrower further covenants with the lender that in case any interest payable hereunder is not paid within 30 days after the due date, the whole sum hereby secured shall become payable at once, and in case of default in the payment of the principal money hereby secured with interest thereon on the aforesaid or in the performance of any of the covenants by the borrower hereinbefore contained the lender may enforce all or any of the remedies of a Pawnee provided by law provided that in case of sale of any part of the pledged property, a previous notice of two months shall be given to the borrower.</li>
-<li><b>Power of Sale</b>
-<ol type="a">
-<li>The power of sale conferred by law on the lender shall be exercisable by public auction or private contract in respect of the entire articles in one lot or in several lots at the discretion of the lender;</li>
-<li>Before exercising such power of sale as aforesaid the lender shall give at least two months' notice to the borrower.</li>
-</ol>
-</li>
-<li><b>Interpretation clause</b><br>It is hereby agreed that wherever such an interpretation would be requisite in order to give the fullest scope and effect legally possible to any covenant herein contained, the expression &quot;the borrower&quot; and &quot;the lender&quot; hereinbefore used include their respective heirs, executors, administrators, and assigns.</li>
-</ol>
-<p><b>The Schedule herein referred to</b></p>
-<table>
-<thead><tr><th>Sr. no</th><th>Description of the Article</th><th>Carat</th><th class="num">Gross Weight</th><th class="num">Net Weight</th><th class="num">Estimated Value</th></tr></thead>
-<tbody>
-{{range $i, $o := .Ornaments}}<tr><td>{{inc $i}}</td><td>{{$o.Name}}</td><td>{{$o.Purity}}</td><td class="num">{{printf "%.1f" $o.GrossWeight}}</td><td class="num">{{printf "%.1f" $o.NetWeight}}</td><td class="num">{{printf "%.0f" $o.Value}}</td></tr>
-{{else}}<tr><td colspan="6" style="text-align:center;color:#777">{{.Blank}}</td></tr>
-{{end}}
-</tbody>
-</table>
-
-<div class="sig-page">
-<p><b>IN WITNESS WHEREOF Etc.</b></p>
-<div class="sig">
-<div><span>Name: {{.Blank}}<br>Residing at</span></div>
-<div><span>Name: {{.Blank}}<br>Residing at</span></div>
-</div>
-{{/* The Borrower/Lender signature row is deliberately the LAST thing in
-     this page-bottom-pinned block (.sig-page{justify-content:flex-end} —
-     see that class's comment) — Setu's Aadhaar eSign stamp targets
-     "bottom-right of the last page" (service.go's StartIndemnityBondSign),
-     which is whatever sits at the very bottom, not a specific line. With
-     the witness block below this one (the original order), the stamp
-     landed on/near the witness placeholder instead of the actual line the
-     borrower is signing. Reordering so the borrower's own line is the
-     true bottom-most content is what actually gets the two to line up. */}}
-<div class="sig">
-<div>The Borrower<span>Name: {{.CustomerName}}</span></div>
-<div>The Lender<div class="lender-sig">{{.LenderSignatureSVG}}</div><span>{{.LenderName}}</span></div>
-</div>
-</div>
-</body></html>`
-
-// bondHTMLMalayalam is the Malayalam "ആഭരണ പണയ കരാർ" (Ornament Pledge
-// Agreement) — same clause structure/order/coverage as bondHTMLEnglish
-// (a "വാഗ്‌ദത്തം"/promissory-pledge letter, not the formal "MEMORANDUM OF
-// AGREEMENT... BETWEEN" numbered-clause deed bondHTMLEnglish uses) —
-// verbatim from the branch's own actual reference letter (a filled
-// specimen for Loan No. A174, "SANJU R S"), parameterized here for the
-// current loan/customer.
-//
-// Structurally simpler than bondHTMLEnglish: no separate ornament-schedule
-// table, no numbered legal clauses (extraordinary expenses, power of sale,
-// interpretation clause, etc.) — just the two paragraphs the reference
-// letter actually has (an ownership declaration + loan request, then a
-// repayment promise with a sale-on-default clause), followed by a built-in
-// release-acknowledgment section ("Signature of the person who receives
-// the jewellery back / കേടുപാടുകളില്ലാതെ ആഭരണങ്ങൾ തിരികെ ലഭിച്ചു") — this
-// ONE document is what's used for both the pledge bond (print/eSign) and
-// the release agreement, matching the reference letter's own single-page
-// design.
-//
-// The lender is identified by establishment only (name + KML registration
-// + registered address, in the letter's own short letterhead form — see
-// lenderAddressShort/lenderKMLRegNo) — no individual proprietor's personal
-// age/Aadhaar/PAN, matching that reference form exactly.
-const bondHTMLMalayalam = `<!DOCTYPE html><html lang="ml"><head><meta charset="UTF-8"><title>{{.LenderName}} — {{.LoanNumber}}</title><style>{{.Style}}</style></head><body>
-<h1>{{.LenderName}}</h1>
-<h2>{{.LenderAddressShort}}<br>KML Reg No: {{.LenderRegNo}}</h2>
-
-<table style="border:none;margin:16px 0">
-<tr>
-<td style="border:none;width:50%">ITEM NAME: {{.ItemNames}}<br>ITEM Weight: {{.ItemWeights}}</td>
-<td style="border:none">Loan No. {{.LoanNumber}}<br>Date: {{.DateDisplay}}</td>
-</tr>
-</table>
-
-<p>CUSTOMER NAME: {{.CustomerName}}<br>CUSTOMER MOB NO: {{.Mobile}}</p>
-<p>AMOUNT: {{.PrincipalAmount}}</p>
-
-<p>
-ഞാൻ <b>{{.CustomerName}}</b> മുകളിൽ കാണിച്ചിട്ടുള്ള സ്വർണ്ണാഭരണങ്ങൾ എന്റെ സ്വന്തമാണ്. ഇതിന് വേറെ അവകാശികളില്ല. ഈ ആഭരണങ്ങൾ നിങ്ങളുടെ <b>{{.LenderName}}</b> എന്ന സ്ഥാപനത്തിൽ പണയംസ്വീകരിച്ച് ആഭരണത്തിൻ്റെ മതിപ്പുവിലയായ <b>{{.PrincipalAmount}}</b> രൂപ ( {{.AmountWords}} only ) മാസപലിശയ്ക്ക് വായ്‌പയായി തരണമെന്ന് വിനീതമായി അപേക്ഷിക്കുന്നു.
-</p>
-<p>Name: {{.CustomerName}}<br>Signature: {{.Blank}}</p>
-
-<h3 style="text-align:center;margin-top:30px">വാഗ്‌തദത്തം</h3>
-
-<p>
-ഞാൻ <b>{{.CustomerName}}</b> വായ്‌പയായി വാങ്ങിയ <b>{{.PrincipalAmount}}</b> രൂപയുടെ പലിശ മാസാമാസം അടച്ചുതീർത്തു കൊള്ളാമെന്നും, ഒരു വർഷത്തിനുള്ളിൽ മുഴുവൻ തുകയും പലിശയും അടച്ചുതീർത്ത് വായ്‌പ അവസാനിപ്പിക്കുമെന്ന് ഉറപ്പുതരുന്നു. ഏതെങ്കിലും കാരണവശാൽ വായ്‌പവാങ്ങിയ പണം പലിശയോടുകൂടി തിരിച്ചടക്കാൻ എനിക്കു സാധിക്കാതെവന്നാൽ നിങ്ങളുടെ <b>{{.LenderName}}</b> എന്ന സ്ഥാപനത്തിനുവരുന്ന കഷ്ടനഷ്ടങ്ങൾ തീർക്കാൻ, ഈ ആഭരണങ്ങൾ ലേലത്തിൽ വയ്ക്കുകയോ അല്ലെങ്കിൽ വിൽക്കുകയോ ചെയ്ത് സ്ഥാപനത്തിന്റെ നഷ്ടം തീർക്കാൻ സ്ഥാപന ഉടമയ്ക്ക് അവകാശമുണ്ടെന്നും പിന്നീട് ഇതുമായി ഒരു അവകാശവാദവും ഉന്നയിക്കില്ലെന്നും ഞാൻ ഇതിനാൽ വാഗ്ദാനം ചെയ്യുന്നു.
-</p>
-
-<div class="sig-page">
-<p>Name: {{.CustomerName}}<br>Signature: {{.Blank}}</p>
-<p style="margin-top:18px"><b>Loan Sanctioned.</b></p>
-<p>Date: {{.DateDisplay}}</p>
-
-<hr style="margin-top:40px;border:none;border-top:1px solid #999">
-<p style="margin-top:24px"><b>Signature of the person who receives the jewellery back</b></p>
-<p>കേടുപാടുകളില്ലാതെ ആഭരണങ്ങൾ തിരികെ ലഭിച്ചു</p>
-<p>Date: {{.Blank}}<br>Name: {{.CustomerName}}<br>Signature: {{.Blank}}</p>
-</div>
-</body></html>`
-
-// bondHTMLGujarati is the Gujarati "ચલ મિલકતનો આડગીરો કરાર" (Movable Property
-// Pledge Agreement) pledge deed, taken verbatim from the Gujarat deployment's
-// own reviewed template rather than translated here — the wording of a binding
-// pledge contract is not something to approximate (see the note that used to
-// stand where renderBondHTML now selects it).
-//
-// IT IS A DIFFERENT DOCUMENT FROM bondHTMLEnglish/bondHTMLMalayalam, and that
-// is correct rather than an oversight. Those two are one promissory-pledge
-// letter in two languages, matching the Kerala branch's paper form. This
-// follows the GUJARAT branch's paper form: the formal deed structure
-// (covenant to pay, pledge clause with its three sub-clauses, lender's
-// liability, right of lender, power of sale, interpretation clause, schedule,
-// signatures). Two states, two paper forms, so a Gujarati borrower signs the
-// deed their branch actually uses. Do not "align" the three.
-const bondHTMLGujarati = `<!DOCTYPE html><html lang="gu"><head><meta charset="UTF-8"><title>ચલ મિલકતનો આડગીરો કરાર — {{.LoanNumber}}</title><style>{{.Style}}</style></head><body>
-<h1>ચલ મિલકતનો આડગીરો કરાર</h1>
-<h2>ગોલ્ડ લોન એકાઉન્ટ નંબર {{.LoanNumber}}</h2>
-<p>આ આડગીરો કરાર તારીખ <b>{{printf "%02d" .Day}}</b>, માસ <b>{{.Month}}</b>, વર્ષ <b>{{.Year}}</b> ના રોજ નીચેના પક્ષકારો વચ્ચે કરવામાં આવે છે:</p>
-<p>
-<b>{{.CustomerName}}</b><br>
-ઉ.આ.વ. :- <b>{{.Age}}</b>, ધંધો:- {{.Blank}}<br>
-આધાર કાર્ડ નંબર :- <b>{{.Aadhaar}}</b><br>
-પાનકાર્ડ નંબર :- <b>{{.PAN}}</b><br>
-રહે. :- <b>{{.Address}}</b>
-</p>
-<p>( હવેથી આ કરારમાં પહેલા પક્ષને &quot;આડગીરો મૂકનાર&quot;, &quot;દેણદાર&quot;, &quot;આડમાં મૂકનાર&quot; જેવી સંજ્ઞાઓથી સંબોધવામાં આવશે. )</p>
-<p>અને</p>
-<p>
-<b>{{.LenderName}}</b><br>
-ઉ.આ.વ. :- <b>{{.LenderAge}}</b>, ધંધો:- <b>{{.LenderBusiness}}</b><br>
-આધાર કાર્ડ નંબર :- <b>{{.LenderAadhaar}}</b><br>
-પાનકાર્ડ નંબર :- <b>{{.LenderPAN}}</b><br>
-રહે. :- <b>{{.LenderAddress}}</b>
-</p>
-<p>( હવેથી આ કરારમાં બીજા પક્ષને &quot;આડગીરો લેનાર&quot;, &quot;નાણાં ધીરનાર&quot;, &quot;આડમાં લેનાર&quot; જેવી સંજ્ઞાઓથી સંબોધવામાં આવશે. )</p>
-<p>&quot;આડગીરો મૂકનાર&quot; અને &quot;આડગીરો લેનાર&quot; સંયુક્ત રીતે &quot;પક્ષકારો&quot; તરીકે સંબોધવામાં આવશે.</p>
-<p>આડગીરો લેનાર <b>{{.BranchName}}</b> ગામે નોંધણી પ્રમાણપત્ર નંબર <b>{{.LenderRegNo}}</b> હેઠળ નાણાં ધિરાણનો વ્યવસાય કરે છે.</p>
-<p><b>આથી નીચે મુજબ સંમતિ કરવામાં આવે છે:</b></p>
-<ol>
-<li><b>ચૂકવણી કરવાનો કરાર</b><br>આડમાં લેનાર દ્વારા આડમાં મૂકનારને આપવામાં આવેલ રૂપિયા <b>{{.PrincipalAmount}}</b> ના ઋણના બદલામાં, આડમાં મૂકનાર સંમત થાય છે કે, ઉપરોક્ત ઋણ તારીખ {{.DueDate}} ના રોજ અથવા તે પહેલાં, આ કરારના અમલની તારીખથી <b>{{.InterestRate}}</b> પ્રતિ વર્ષના વ્યાજ સાથે પરત ચૂકવશે.</li>
-<li><b>આડગીરોની જોગવાઈ</b><br>આડમાં લેનારે રૂ. <b>{{.PrincipalAmount}}</b> ની રકમ ધિરાણ આપી છે, જેની પ્રાપ્તિ આડમાં મૂકનાર સ્વીકારે છે. આડમાં મૂકનારે પોતાની માલિકીની આ કરારની અનુસૂચિમાં દર્શાવેલી માલ ઉપરોક્ત ઋણની ચૂકવણી કરવા માટે જામીનગીરી તરીકે સુરક્ષા તરીકે આડમાં લેનારને નિક્ષેપ કરેલ છે. આ વસ્તુઓ આ કરારમાં નક્કી કરેલ રીતે આડમાં લેનાર પાસે જામીનગીરી તરીકે રાખવામાં આવશે.
-<ol type="a">
-<li><b>અસાધારણ ખર્ચ અંગે આડમાં લેનારનો હક્ક</b> — આડમાં લેનાર આડમાં મૂકેલા માલની જાળવણી માટે પોતાને થયેલો અસાધારણ ખર્ચ, આડમાં મૂકનાર પાસેથી મેળવવા હક્કદાર રહેશે.</li>
-<li><b>સમારકામનો ખર્ચ</b> — અનુસૂચિમાં દર્શાવેલ માલને સારી સ્થિતિમાં અને યોગ્ય કાર્યક્ષમ સ્થિતિમાં રાખવા માટેના ખર્ચ મેળવવા આડગીરો લેનાર હક્કદાર રહેશે.</li>
-<li><b>અન્ય ખર્ચ</b> — અન્ય તમામ ખર્ચ, ફી અને ખર્ચાઓ (જો કોઈ હોય તો), જેને કાયદા હેઠળ આડગીરો લેનાર પોતાની સુરક્ષા રકમમાં ઉમેરવા માટે હકદાર રહેશે.</li>
-</ol>
-</li>
-<li><b>નુકસાન માટે આડગીરો લેનારની જવાબદારી</b><br>આડગીરો લેનારની કસ્ટડીમાં અનુસૂચિમાં દર્શાવેલ માલને થનારા કોઈપણ અનૈચ્છિક નુકસાન અથવા તેમની વેચાણ પ્રક્રિયાના કારણે થનારા નુકસાન માટે આડગીરો લેનાર આડગીરો આપનાર પ્રત્યે જવાબદાર રહેશે નહીં.</li>
-<li><b>આડગીરો લેનારના અધિકાર</b><br>આ કરાર હેઠળ ચૂકવવાપાત્ર કોઈપણ વ્યાજની રકમ નિયત તારીખથી 30 દિવસની અંદર ચૂકવવામાં નહીં આવે, તો આ કરાર દ્વારા સુરક્ષિત સમગ્ર રકમ તરત જ ચૂકવવાપાત્ર બની જશે. મૂળ રકમ અને તેના પરના વ્યાજની ચૂકવણીમાં કસૂર કરે અથવા આડમાં મૂકનાર આ કરારમાંની કોઈ શરતનું પાલન ન કરે, તો આડમાં મૂકનારને કાયદા હેઠળ આડગીરો લેનાર તરીકે ઉપલબ્ધ કોઈપણ અથવા તમામ ઉપાયો અમલમાં મૂકવાનો અધિકાર રહેશે. આડમાં મૂકનાર વેચાણની ૨ મહિના પહેલા અગાઉથી નોટિસ આપી આડમાં મુકેલ વસ્તુ તે વેચી શકશે.</li>
-<li><b>વેચાણનો અધિકાર</b>
-<ol type="a">
-<li>કાયદા હેઠળ આડ લેનારને મળેલ વેચાણનો અધિકાર જાહેર હરાજી અથવા ખાનગી કરાર દ્વારા, આડમાં લેનારની વિવેકબુદ્ધિ મુજબ, તમામ વસ્તુઓને એક જ લોટમાં અથવા અનેક લોટમાં વેચીને અમલમાં મૂકી શકાય છે.</li>
-<li>ઉપરોક્ત વેચાણનો અધિકાર અમલમાં મૂકતા પહેલાં આડમાં લેનારે આડમાં મૂકનારને ઓછામાં ઓછા બે મહિનાની નોટિસ આપવાની રહેશે.</li>
-</ol>
-</li>
-<li><b>અર્થઘટનની જોગવાઈ</b><br>આથી બંને પક્ષકારો સંમત થાય છે કે આ કરારમાં સમાવિષ્ટ કોઈપણ જોગવાઈને કાયદેસર રીતે શક્ય તેટલી સંપૂર્ણ અસર આપવા માટે જ્યાં આવી વ્યાખ્યા જરૂરી હોય, ત્યાં &quot;આડગીરો લેનાર&quot; અને &quot;આડગીરો મૂકનાર&quot; શબ્દોમાં તેમના સંબંધિત વારસદારો, વહીવટદારો, એક્ઝિક્યુટર્સ, એડમિનિસ્ટ્રેટર્સ અને અધિકાર સોંપવામાં આવેલ વ્યક્તિઓનો પણ સમાવેશ થશે.</li>
-</ol>
-<p style="text-align:center"><b>-:: અનુસૂચિ ::-</b></p>
-<table>
-<thead><tr><th>અનુ.</th><th>વસ્તુનું વર્ણન</th><th>કેરેટ</th><th class="num">કુલ વજન (ગ્રામ)</th><th class="num">ચોખ્ખું વજન (ગ્રામ)</th><th class="num">અંદાજિત કિંમત (રૂ.)</th></tr></thead>
-<tbody>
-{{range $i, $o := .Ornaments}}<tr><td>{{inc $i}}</td><td>{{$o.Name}}</td><td>{{$o.Purity}}</td><td class="num">{{printf "%.1f" $o.GrossWeight}}</td><td class="num">{{printf "%.1f" $o.NetWeight}}</td><td class="num">{{printf "%.0f" $o.Value}}</td></tr>
-{{else}}<tr><td colspan="6" style="text-align:center;color:#777">{{.Blank}}</td></tr>
-{{end}}
-</tbody>
-</table>
-<p><b>કુલ અંદાજિત રકમ :- રૂ. {{.TotalValue}}/-</b></p>
-<p><b>કુલ ધિરાણ રકમ :- રૂ. {{.PrincipalAmount}}/-</b></p>
-<p>સ્થળ: {{.BranchName}}</p>
-<p>તારીખ: {{printf "%02d" .Day}} / {{.Month}} / {{.Year}}</p>
-<div class="sig-page">
-<div class="sig">
-<div><span>સાક્ષી<br>નામ: {{.Blank}}</span></div>
-<div><span>સાક્ષી<br>નામ: {{.Blank}}</span></div>
-</div>
-{{/* See the English template's identical reordering comment above
-     bondHTMLEnglish's own .sig-page — the borrower's line must be the
-     true bottom-most content so Setu's "bottom-right of last page" eSign
-     stamp lands on it instead of the witness placeholder. */}}
-<div class="sig">
-<div>આડગીરો મૂકનાર<span>નામ: {{.CustomerName}}</span></div>
-<div>આડગીરો લેનાર<div class="lender-sig">{{.LenderSignatureSVG}}</div><span>{{.LenderName}}</span></div>
-</div>
-</div>
-</body></html>`
 
 // bondTemplateData wraps BondData with the extra pre-formatted fields the
 // template above references — kept separate from BondData itself so
@@ -653,7 +455,8 @@ type bondTemplateData struct {
 // language with its own font stack. English and Malayalam are one document
 // in two languages (the Kerala branch's promissory-pledge letter); Gujarati
 // is the Gujarat branch's own formal deed, a different document by design
-// rather than a third translation. bondHTMLGujarati explains why.
+// rather than a third translation — see backend/templates/gml-bond-gujarati.html's
+// own doc comment for why.
 const (
 	BondLangEnglish   = "en"
 	BondLangMalayalam = "ml"
@@ -771,9 +574,13 @@ func renderBondHTML(data BondData, lang string) (string, error) {
 // tiny default browser font otherwise). Kept as their own small templates
 // (not reusing bondPageStyle's CSS) since this is a completely different
 // rendering pass from the document body.
+//
+// The header deliberately renders NOTHING. The empty div is kept rather
+// than the template removed because Chrome substitutes its own default
+// header (date + document title) whenever it is handed an empty header
+// template string, so an "empty" header has to be an empty element.
 const bondHeaderTemplate = `
 <div style="font-size:9px;width:100%;text-align:center;color:#8a6d1f;font-family:Arial,sans-serif;padding-top:6px">
-Ambika Gold Finance — Agreement of Pledge of Movable
 </div>`
 
 const bondFooterTemplate = `
@@ -811,12 +618,10 @@ func RenderIndemnityBondPDF(data BondData, lang string) ([]byte, error) {
 			// A4 (8.27in x 11.69in), explicit rather than left to
 			// PreferCSSPageSize -- Chromium's default paper size is US
 			// Letter and headless PrintToPDF doesn't reliably honor a
-			// page's own @page CSS. MarginTop/MarginBottom are
-			// deliberately generous (vs. the ~0.4in default) to reserve
-			// blank header/footer space on every printed page.
+			// page's own @page CSS.
 			//
-			// DisplayHeaderFooter + Header/FooterTemplate are what
-			// actually make that reserved space show a real, repeating
+			// DisplayHeaderFooter + Header/FooterTemplate are what make
+			// this reserved margin space show a real, repeating
 			// header/footer on EVERY page — unlike this same document's
 			// body-level CSS margin (used for the client-side "print for
 			// wet-ink signing" copy in frontend/common/utils/print.ts),
@@ -826,13 +631,22 @@ func RenderIndemnityBondPDF(data BondData, lang string) ([]byte, error) {
 			// all — Chrome's PrintToPDF (used only here, server-side) is
 			// the only place a real custom per-page header/footer is
 			// possible in this app.
+			//
+			// MarginTop/MarginBottom trimmed from 0.9in/0.8in to 0.25in/
+			// 0.2in — the header is blank and the footer is a single
+			// small "Page X of Y" line (bondFooterTemplate), so the old
+			// margins reserved far more space than either ever used,
+			// which combined with .sig-page's now-removed forced
+			// page-break was pushing the short KML letter bond onto two
+			// pages instead of the one it should fit on. Still enough
+			// room for the footer text to render without clipping.
 			buf, _, err := page.PrintToPDF().
 				WithPrintBackground(true).
 				WithPreferCSSPageSize(false).
 				WithPaperWidth(8.27).
 				WithPaperHeight(11.69).
-				WithMarginTop(0.9).
-				WithMarginBottom(0.8).
+				WithMarginTop(0.25).
+				WithMarginBottom(0.2).
 				WithMarginLeft(0.6).
 				WithMarginRight(0.6).
 				WithDisplayHeaderFooter(true).

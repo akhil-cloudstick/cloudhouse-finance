@@ -111,6 +111,10 @@ func (h *MovementHandler) Record(c *gin.Context) {
 	httpx.Success(c, http.StatusCreated, rec)
 }
 
+// partyPageSize is the Party Transactions page's own page size (12) —
+// distinct from the app's usual 10, per that page's own convention.
+const partyPageSize = 12
+
 func (h *MovementHandler) List(c *gin.Context) {
 	ctx := platform.RequestContext(c)
 	branchID := platform.GetBranchScope(c)
@@ -152,6 +156,196 @@ func (h *MovementHandler) List(c *gin.Context) {
 		return
 	}
 	httpx.Success(c, http.StatusOK, rec)
+}
+
+// ListByBank returns one page of every cash movement tagged to :bankId,
+// plus PartyTotals across every matching row — backs the Party Transactions
+// page's bank drill-down. Page size defaults to 12 (per the Party
+// Transactions page's own convention, distinct from the app's usual 10) when
+// limit is omitted.
+func (h *MovementHandler) ListByBank(c *gin.Context) {
+	ctx := platform.RequestContext(c)
+	bankID, err := httpx.IDParam(c, "bankId")
+	if err != nil {
+		httpx.FailErr(c, err)
+		return
+	}
+	fromDate, err := parseOptionalDate(c.Query("fromDate"))
+	if err != nil {
+		httpx.Fail(c, http.StatusBadRequest, "invalid fromDate: expected YYYY-MM-DD")
+		return
+	}
+	toDate, err := parseOptionalDate(c.Query("toDate"))
+	if err != nil {
+		httpx.Fail(c, http.StatusBadRequest, "invalid toDate: expected YYYY-MM-DD")
+		return
+	}
+	limit, _ := strconv.Atoi(c.Query("limit"))
+	if limit <= 0 {
+		limit = partyPageSize
+	}
+	offset, _ := strconv.Atoi(c.Query("offset"))
+	if offset < 0 {
+		offset = 0
+	}
+	rec, total, totals, err := h.svc.ListCashMovementsByBank(ctx, bankID, fromDate, toDate, limit, offset)
+	if err != nil {
+		httpx.FailErr(c, err)
+		return
+	}
+	httpx.Success(c, http.StatusOK, gin.H{"items": rec, "total": total, "totals": totals})
+}
+
+// ListByCustomer is ListByBank's counterpart for :customerId — backs the
+// Party Transactions page's customer drill-down and CustomerDetail.tsx's
+// "Transactions" tab.
+func (h *MovementHandler) ListByCustomer(c *gin.Context) {
+	ctx := platform.RequestContext(c)
+	customerID, err := httpx.IDParam(c, "customerId")
+	if err != nil {
+		httpx.FailErr(c, err)
+		return
+	}
+	fromDate, err := parseOptionalDate(c.Query("fromDate"))
+	if err != nil {
+		httpx.Fail(c, http.StatusBadRequest, "invalid fromDate: expected YYYY-MM-DD")
+		return
+	}
+	toDate, err := parseOptionalDate(c.Query("toDate"))
+	if err != nil {
+		httpx.Fail(c, http.StatusBadRequest, "invalid toDate: expected YYYY-MM-DD")
+		return
+	}
+	limit, _ := strconv.Atoi(c.Query("limit"))
+	if limit <= 0 {
+		limit = partyPageSize
+	}
+	offset, _ := strconv.Atoi(c.Query("offset"))
+	if offset < 0 {
+		offset = 0
+	}
+	rec, total, totals, err := h.svc.ListCashMovementsByCustomer(ctx, customerID, fromDate, toDate, limit, offset)
+	if err != nil {
+		httpx.FailErr(c, err)
+		return
+	}
+	httpx.Success(c, http.StatusOK, gin.H{"items": rec, "total": total, "totals": totals})
+}
+
+// partyStatementRows/partyStatementNote are ListByBank/ListByCustomer's
+// shared PDF-export shape — factored out of Export above so the Party
+// Transactions page's "Export Statement" reuses the exact same
+// renderTablePDF call/column layout instead of a second copy of it.
+func partyStatementRows(rows []CashMovement) [][]string {
+	tableRows := make([][]string, len(rows))
+	for i, m := range rows {
+		branchName := ""
+		if m.Branch != nil {
+			branchName = m.Branch.Name
+		}
+		tableRows[i] = []string{
+			m.OccurredOn.Format("2006-01-02"),
+			m.Type,
+			m.Source,
+			m.Purpose,
+			m.Mode,
+			m.Bank,
+			branchName,
+			strconv.FormatFloat(m.Amount, 'f', 2, 64),
+			m.Status,
+		}
+	}
+	return tableRows
+}
+
+func partyStatementNote(fromDate, toDate time.Time) string {
+	if fromDate.IsZero() && toDate.IsZero() {
+		return ""
+	}
+	from, to := "…", "…"
+	if !fromDate.IsZero() {
+		from = fromDate.Format("02 Jan 2006")
+	}
+	if !toDate.IsZero() {
+		to = toDate.Format("02 Jan 2006")
+	}
+	return from + " – " + to
+}
+
+// ExportByBank streams a PDF statement of every cash movement tagged to
+// :bankId matching the same fromDate/toDate filters the Party Transactions
+// page itself uses — never capped to the page's current page size.
+func (h *MovementHandler) ExportByBank(c *gin.Context) {
+	ctx := platform.RequestContext(c)
+	bankID, err := httpx.IDParam(c, "bankId")
+	if err != nil {
+		httpx.FailErr(c, err)
+		return
+	}
+	fromDate, err := parseOptionalDate(c.Query("fromDate"))
+	if err != nil {
+		httpx.Fail(c, http.StatusBadRequest, "invalid fromDate: expected YYYY-MM-DD")
+		return
+	}
+	toDate, err := parseOptionalDate(c.Query("toDate"))
+	if err != nil {
+		httpx.Fail(c, http.StatusBadRequest, "invalid toDate: expected YYYY-MM-DD")
+		return
+	}
+	rows, _, err := h.svc.repo.ListByBank(ctx, bankID, fromDate, toDate, 0, 0)
+	if err != nil {
+		httpx.FailErr(c, err)
+		return
+	}
+	pdfBytes, err := renderTablePDF(
+		"Party Transactions",
+		partyStatementNote(fromDate, toDate),
+		[]string{"Date", "Type", "Source", "Purpose", "Mode", "Bank", "Branch", "Amount", "Status"},
+		partyStatementRows(rows),
+	)
+	if err != nil {
+		httpx.Fail(c, http.StatusInternalServerError, err.Error())
+		return
+	}
+	c.Header("Content-Disposition", `attachment; filename="party-transactions.pdf"`)
+	c.Data(http.StatusOK, "application/pdf", pdfBytes)
+}
+
+// ExportByCustomer is ExportByBank's counterpart for :customerId.
+func (h *MovementHandler) ExportByCustomer(c *gin.Context) {
+	ctx := platform.RequestContext(c)
+	customerID, err := httpx.IDParam(c, "customerId")
+	if err != nil {
+		httpx.FailErr(c, err)
+		return
+	}
+	fromDate, err := parseOptionalDate(c.Query("fromDate"))
+	if err != nil {
+		httpx.Fail(c, http.StatusBadRequest, "invalid fromDate: expected YYYY-MM-DD")
+		return
+	}
+	toDate, err := parseOptionalDate(c.Query("toDate"))
+	if err != nil {
+		httpx.Fail(c, http.StatusBadRequest, "invalid toDate: expected YYYY-MM-DD")
+		return
+	}
+	rows, _, err := h.svc.repo.ListByCustomer(ctx, customerID, fromDate, toDate, 0, 0)
+	if err != nil {
+		httpx.FailErr(c, err)
+		return
+	}
+	pdfBytes, err := renderTablePDF(
+		"Party Transactions",
+		partyStatementNote(fromDate, toDate),
+		[]string{"Date", "Type", "Source", "Purpose", "Mode", "Bank", "Branch", "Amount", "Status"},
+		partyStatementRows(rows),
+	)
+	if err != nil {
+		httpx.Fail(c, http.StatusInternalServerError, err.Error())
+		return
+	}
+	c.Header("Content-Disposition", `attachment; filename="party-transactions.pdf"`)
+	c.Data(http.StatusOK, "application/pdf", pdfBytes)
 }
 
 // Export streams every cash movement matching the same fromDate/toDate/

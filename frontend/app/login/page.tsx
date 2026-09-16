@@ -142,6 +142,14 @@ function LoginPageInner() {
                 required
                 value={identifier}
                 onChange={(e) => setIdentifier(e.target.value)}
+                onKeyDown={(e) => {
+                  // Enter here moves on to Password instead of submitting
+                  // the form early with no password typed yet.
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    document.getElementById("pass")?.focus();
+                  }
+                }}
               />
               <label htmlFor="identifier">Username or Phone</label>
               <span className="icon" aria-hidden="true">

@@ -216,12 +216,10 @@ export function EditLoanModalContent({ loan, onSaved }: { loan: LoanView; onSave
         </p>
         <p style={{ color: "var(--red)", fontSize: 12.5, minHeight: 16, marginTop: 8 }}>{err}</p>
       </div>
-      {/* Sticky within .modal-bg (the actual scrolling ancestor — see
-          app.css's `.modal-bg{overflow-y:auto}`), scoped locally via inline
-          style rather than a global `.modal .ft` change: Cancel/Save Changes
-          stay reachable without scrolling all the way down through the
-          scheme/principal/ornaments fields above. */}
-      <div className="ft" style={{ position: "sticky", bottom: 0, background: "var(--card)", zIndex: 1 }}>
+      {/* The sticky-within-`.modal-bg` treatment this used to declare inline
+          is now on `.modal .ft` in app.css, for every modal — nothing needed
+          here beyond the class. */}
+      <div className="ft">
         <button className="btn ghost" onClick={closeModal}>Cancel</button>
         <button className="btn" onClick={save} disabled={saving}><Icon name="check" /> {saving ? "Saving…" : "Save Changes"}</button>
       </div>

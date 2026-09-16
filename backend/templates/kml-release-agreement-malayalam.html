@@ -1,0 +1,56 @@
+<!DOCTYPE html><html><head><meta charset="UTF-8"><title>FORM 7 — Release — {{.LoanNumber}}</title><style>{{.Style}}</style></head><body>
+<h1>FORM 7</h1>
+<table class="hd-table">
+  <tr>
+    <td style="width:65%">
+      <b style="font-size:15px">{{.LenderName}}</b><br>
+      {{.LenderAddress}}<br>
+      PHONE: {{.LenderPhone}} &nbsp; EMAIL: {{.LenderEmail}}<br>
+      KML Reg No: {{.LenderKMLRegNo}}
+    </td>
+    <td style="text-align:right">
+      <b>സ്വർണ്ണ വായ്പ</b><br>
+      തിയ്യതി: {{.ReturnedDate}}
+    </td>
+  </tr>
+</table>
+<p><b>ക്രമ നമ്പർ:</b> {{.LoanNumber}}</p>
+
+<p>
+  {{.CustomerLine}} <b>{{.BorrowedAmount}}</b> രൂപ <b>{{.BorrowedDate}}</b> തിയ്യതി വായ്പയായി വാങ്ങിയിട്ടുണ്ട്.
+  ഉപഭോക്താവ് <b>{{.ReturnedAmount}}</b> രൂപ <b>{{.ReturnedDate}}</b> തിയ്യതി തിരികെ അടച്ചിട്ടുണ്ട്.
+</p>
+
+<table class="amt-table">
+  <tr><td><b>മുതൽ തുക:</b></td><td class="num">{{.BorrowedAmount}}/-</td></tr>
+  <tr><td><b>മൊത്തം പലിശ:</b></td><td class="num">{{.TotalInterest}}/-</td></tr>
+  <tr><td><b>ആകെ തുക:</b></td><td class="num">{{.ReturnedAmount}}/-</td></tr>
+</table>
+<p>({{.AmountWordsLine}})</p>
+
+<table>
+  <thead><tr><th>ഇനത്തിന്റെ പേര്</th><th class="num">എണ്ണം</th><th>ലോഹം</th><th class="num">GSWT</th><th class="num">NTWT</th><th class="num">FNWT</th><th class="num">വിലയിരുത്തൽ</th></tr></thead>
+  <tbody>
+  {{range .Ornaments}}<tr><td>{{.Name}}</td><td class="num">{{.Quantity}}</td><td>സ്വർണ്ണം</td>
+    <td class="num">{{printf "%.2f" .GrossWeight}} GM</td><td class="num">{{printf "%.2f" .NetWeight}} GM</td>
+    <td class="num">{{printf "%.2f" .FineWeight}} GM</td><td class="num">{{.Value}}</td></tr>
+  {{else}}<tr><td colspan="7" style="text-align:center;color:#777">{{.Blank}}</td></tr>
+  {{end}}
+  </tbody>
+</table>
+
+<p class="terms">
+  <b>നിബന്ധനകൾ:</b> ഈ ആഭരണങ്ങൾ പരിശോധിച്ച് തൂക്കം കൃത്യമാണെന്ന് ഉറപ്പുവരുത്തിയ ശേഷം മാത്രം ഒപ്പ് വെക്കുക.
+  ഒപ്പ് വെച്ചതിനുശേഷം ഉള്ള ഏതെങ്കിലും അവകാശവാദം സ്വീകരിക്കുന്നതല്ല.
+</p>
+
+<p style="margin-top:20px">വിരൽ അടയാളം</p>
+
+<div class="sig-row">
+  <div><span class="sig-line">&nbsp;</span><br>ഉപഭോക്താവിന്റെ ഒപ്പ്</div>
+  <div><span class="sig-line">&nbsp;</span><br>സാക്ഷി</div>
+</div>
+<div class="sig-row">
+  <div><span class="sig-line">&nbsp;</span><br>ഉടമയുടെ ഒപ്പ്</div>
+</div>
+</body></html>

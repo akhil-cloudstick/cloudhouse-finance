@@ -114,7 +114,7 @@ export function RenewLoanModalContent({ loan, onSaved }: { loan: BackendPersonal
         {err && <div className="notice" style={{ marginTop: 10 }}>{err}</div>}
       </div>
       <div className="ft">
-        <button className="btn plain" style={{ fontSize: 12.5, fontWeight: 600, letterSpacing: ".16em", textTransform: "uppercase" }} onClick={closeModal}>Cancel</button>
+        <button className="btn ghost" onClick={closeModal}>Cancel</button>
         <button className="btn" disabled={saving || !!preview?.shortfall} onClick={save}>{saving ? "Renewing…" : "Confirm Renewal"}</button>
       </div>
     </>

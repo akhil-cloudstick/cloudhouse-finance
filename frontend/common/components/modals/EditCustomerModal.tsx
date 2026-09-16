@@ -5,6 +5,7 @@ import { useModal } from "@/common/components/Modal";
 import { useToast } from "@/common/components/Toast";
 import { Select } from "@/common/components/ui/Select";
 import { FileInput } from "@/common/components/ui/FileInput";
+import { DatePicker } from "@/common/components/ui/DatePicker";
 import { Icon } from "@/common/components/Icon";
 import { updateCustomer, uploadFile, type CustomerView } from "@/modules/customers/services/customerService";
 import { listActiveBranches, type BranchView } from "@/modules/branches/services/branchService";
@@ -39,6 +40,19 @@ export function EditCustomerModalContent({ customer, onSaved }: { customer: Cust
   const [identityProofFile, setIdentityProofFile] = useState<File | null>(null);
   const [addressProofFile, setAddressProofFile] = useState<File | null>(null);
   const [kycDocFile, setKycDocFile] = useState<File | null>(null);
+
+  // "Additional Information" — collapsed by default, all optional, same
+  // fields RegisterCustomerModal.tsx's own Additional Information section
+  // collects, pre-filled here from whatever the customer already has on
+  // file (blank for a customer registered before this section existed).
+  const [showAdditional, setShowAdditional] = useState(false);
+  const [fatherName, setFatherName] = useState(customer.fatherName || "");
+  const [age, setAge] = useState(customer.age ? String(customer.age) : "");
+  const [district, setDistrict] = useState(customer.district || "");
+  const [taluk, setTaluk] = useState(customer.taluk || "");
+  const [village, setVillage] = useState(customer.village || "");
+  const [place, setPlace] = useState(customer.place || "");
+  const [pinCode, setPinCode] = useState(customer.pinCode || "");
 
   const [err, setErr] = useState("");
   const [saving, setSaving] = useState(false);
@@ -81,6 +95,13 @@ export function EditCustomerModalContent({ customer, onSaved }: { customer: Cust
         nomineeName: nomineeName.trim(),
         nomineeRelation: nomineeRelation.trim(),
         nomineePhone: nomineePhone.trim(),
+        fatherName: fatherName.trim(),
+        district: district.trim(),
+        taluk: taluk.trim(),
+        village: village.trim(),
+        place: place.trim(),
+        pinCode: pinCode.trim(),
+        ...(age.trim() ? { age: Number(age) } : {}),
       });
 
       onSaved?.();
@@ -96,7 +117,7 @@ export function EditCustomerModalContent({ customer, onSaved }: { customer: Cust
   return (
     <>
       <div className="hd"><h3>Edit Customer</h3><button className="x" onClick={closeModal}>×</button></div>
-      <div className="bd">
+      <div className="bd bd-scroll">
         <label className="f">Personal Details</label>
         <div className="frow c3">
           <div><label className="f">Full Name *</label><input className="inp" placeholder="e.g. Anil Varma" value={name} onChange={(e) => setName(e.target.value)} /></div>
@@ -132,6 +153,35 @@ export function EditCustomerModalContent({ customer, onSaved }: { customer: Cust
           <div><label className="f">Relation</label><input className="inp" placeholder="e.g. Spouse" value={nomineeRelation} onChange={(e) => setNomineeRelation(e.target.value)} /></div>
           <div><label className="f">Nominee Mobile Number</label><input className="inp" placeholder="10-digit mobile" inputMode="numeric" maxLength={10} value={nomineePhone} onChange={(e) => setNomineePhone(e.target.value.replace(/\D/g, ""))} /></div>
         </div>
+
+        <button
+          type="button"
+          className="btn plain sm"
+          style={{ marginTop: 6, display: "inline-flex", alignItems: "center", gap: 6 }}
+          onClick={() => setShowAdditional((v) => !v)}
+          aria-expanded={showAdditional}
+        >
+          <Icon name="chevronDown" style={{ transform: showAdditional ? "rotate(180deg)" : undefined, transition: "transform .15s" }} />
+          Additional Information
+        </button>
+        {showAdditional && (
+          <>
+            <div className="frow c3" style={{ marginTop: 14 }}>
+              <div><label className="f">Father&apos;s Name</label><input className="inp" placeholder="e.g. Ravi Varma" value={fatherName} onChange={(e) => setFatherName(e.target.value)} /></div>
+              <div><label className="f">Age</label><input className="inp" type="number" min={1} placeholder="e.g. 35" value={age} onChange={(e) => setAge(e.target.value)} /></div>
+              <div><label className="f">Date of Birth</label><DatePicker value={dob} onChange={setDob} placeholder="Select date of birth…" max={new Date().toISOString().slice(0, 10)} /></div>
+            </div>
+            <div className="frow c3">
+              <div><label className="f">District</label><input className="inp" placeholder="e.g. Thrissur" value={district} onChange={(e) => setDistrict(e.target.value)} /></div>
+              <div><label className="f">Taluk</label><input className="inp" placeholder="e.g. Kozhikode" value={taluk} onChange={(e) => setTaluk(e.target.value)} /></div>
+              <div><label className="f">Village</label><input className="inp" placeholder="e.g. Feroke" value={village} onChange={(e) => setVillage(e.target.value)} /></div>
+            </div>
+            <div className="frow c3">
+              <div><label className="f">Place</label><input className="inp" placeholder="e.g. Feroke" value={place} onChange={(e) => setPlace(e.target.value)} /></div>
+              <div><label className="f">Pin Code</label><input className="inp" inputMode="numeric" placeholder="6-digit pin code" maxLength={6} value={pinCode} onChange={(e) => setPinCode(e.target.value.replace(/\D/g, ""))} /></div>
+            </div>
+          </>
+        )}
         <p style={{ color: "var(--red)", fontSize: 12.5, minHeight: 16, marginTop: 8 }}>{err}</p>
       </div>
       <div className="ft">

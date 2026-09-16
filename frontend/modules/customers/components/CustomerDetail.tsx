@@ -39,6 +39,7 @@ import {
   RequestReleaseModalContent,
 } from "@/common/components/modals/RequestExtensionModal";
 import { EditCustomerModalContent } from "@/common/components/modals/EditCustomerModal";
+import { listCashMovementsByCustomer, type CashMovementView } from "@/modules/cash/services/cashService";
 
 /* Server-side pager for the 360 view's sub-tables: each of the 5 tables
  * below fetches its own page (limit 10) from its own
@@ -171,12 +172,24 @@ export function CustomerDetail({ id }: { id?: string }) {
   const listPayments = useCallback((page: number, r?: { from?: string; to?: string }) => listCustomerPaymentsPage(id || "", page, r, subtablePageSize), [id, subtablePageSize]);
   const listBankPledges = useCallback((page: number, r?: { from?: string; to?: string }) => listCustomerBankPledgesPage(id || "", page, r, subtablePageSize), [id, subtablePageSize]);
   const listAuctionHistory = useCallback((page: number, r?: { from?: string; to?: string }) => listCustomerAuctionHistoryPage(id || "", page, r, subtablePageSize), [id, subtablePageSize]);
+  // Every CashMovement tagged to this customer (PartyCustomerID) — same
+  // underlying query as the standalone Party Transactions page
+  // (PartyLedger.tsx), reached here instead via this customer's own 360
+  // view. listCashMovementsByCustomer's {items,total,totals} envelope is
+  // adapted to useSubTablePage's {items,hasMore,total} contract.
+  const numericCustomerId = Number(id);
+  const listTransactions = useCallback(
+    (page: number, r?: { from?: string; to?: string }) =>
+      listCashMovementsByCustomer(numericCustomerId, page, { fromDate: r?.from, toDate: r?.to }, subtablePageSize)
+        .then((res) => ({ items: res.items, total: res.total, hasMore: page * subtablePageSize < res.total })),
+    [numericCustomerId, subtablePageSize]
+  );
 
   const [activeTable, setActiveTable] = useState(0);
-  const TABLE_TABS = ["Loan History", "Pledged Ornaments", "Payment History", "Bank Pledges", "Auction History"];
+  const TABLE_TABS = ["Loan History", "Pledged Ornaments", "Payment History", "Bank Pledges", "Auction History", "Transactions"];
   // One icon per tab, same order as TABLE_TABS — shown on the rail so each
   // stop says which table it selects.
-  const TABLE_TAB_ICONS = ["list", "scale", "coin", "bank", "gavel"];
+  const TABLE_TAB_ICONS = ["list", "scale", "coin", "bank", "gavel", "chart"];
   // Lets a mouse-wheel or trackpad scroll over the tabs section switch tabs.
   // wheelLock debounces rapid scroll events from a single physical gesture.
   const wheelLock = useRef(false);
@@ -242,6 +255,7 @@ export function CustomerDetail({ id }: { id?: string }) {
   const paymentPager = useSubTablePage<CustomerPaymentRowView>(listPayments, range, !!id);
   const bankPledgePager = useSubTablePage<CustomerBankPledgeRowView>(listBankPledges, range, !!id);
   const auctionPager = useSubTablePage<CustomerAuctionRowView>(listAuctionHistory, range, !!id);
+  const transactionPager = useSubTablePage<CashMovementView>(listTransactions, range, !!id);
 
   // profile.loans still backs the "Request Extension / Release" picker
   // below — that's a full-set picker, not a paginated table, so it keeps
@@ -708,6 +722,30 @@ export function CustomerDetail({ id }: { id?: string }) {
                   </tbody>
                 </table></div>
                 <Pager page={auctionPager.page} total={auctionPager.total} pageSize={subtablePageSize} onChange={auctionPager.setPage} />
+              </div>
+            )}
+
+            {activeTable === 5 && (
+              <div key={activeTable} className="tab-slide-up">
+                <div className="tbl-wrap tbl-wrap-auto"><table className="tbl tbl-center">
+                  <thead><tr><th>Date</th><th>Type</th><th>Mode</th><th>Purpose</th><th className="num">Amount</th></tr></thead>
+                  <tbody>
+                    {transactionPager.items.length === 0 ? (
+                      <tr><td colSpan={5} className="empty compact">No transactions recorded yet.</td></tr>
+                    ) : transactionPager.items.map((m) => (
+                      <tr key={m.id}>
+                        <td>{m.d}</td>
+                        <td>{m.type === "in" ? <span className="chip green">In</span> : <span className="chip red">Out</span>}</td>
+                        <td>{m.mode || "—"}</td>
+                        <td>{m.purpose || m.source || "—"}</td>
+                        <td className="num" style={{ color: m.type === "in" ? "var(--green)" : "var(--red)" }}>
+                          {m.type === "in" ? "+" : "−"}{fmt(m.amount)}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table></div>
+                <Pager page={transactionPager.page} total={transactionPager.total} pageSize={subtablePageSize} onChange={transactionPager.setPage} />
               </div>
             )}
           </div>

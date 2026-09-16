@@ -78,8 +78,22 @@ type CashRecorder interface {
 	RecordBankPledgeCashIn(ctx context.Context, loanID uint, bankName string, amount float64, occurredOn time.Time) (movementID uint, err error)
 	RecordBankPledgeCashOut(ctx context.Context, loanID uint, bankName string, amount float64, occurredOn time.Time, branchID uint) (movementID uint, err error)
 	RecordBankPledgeReleaseExpense(ctx context.Context, loanID uint, bankName string, amount float64, occurredOn time.Time, branchID uint) (expenseID uint, err error)
-	RecordLoanDisbursementCashOut(ctx context.Context, loanID uint, loanNumber string, amount float64, branchID uint, occurredOn time.Time) (movementID uint, err error)
-	RecordLoanPaymentCashIn(ctx context.Context, loanID uint, loanNumber string, amount float64, branchID uint, occurredOn time.Time, paymentType string) (movementID uint, err error)
+
+	// cashAmount/upiAmount/bankTransferAmount/chequeAmount split amount
+	// across the mode CashMovement rows actually written (see
+	// cash.MovementService.recordSplitCashMovement) — amount stays the
+	// authoritative total. customerID (0 = none) populates CashMovement.
+	// PartyCustomerID for the Party Transactions ledger.
+	RecordLoanDisbursementCashOut(ctx context.Context, loanID uint, loanNumber string, amount, cashAmount, upiAmount, bankTransferAmount, chequeAmount float64, branchID uint, occurredOn time.Time, customerID uint) (movementID uint, err error)
+	RecordLoanPaymentCashIn(ctx context.Context, loanID uint, loanNumber string, amount, cashAmount, upiAmount, bankTransferAmount, chequeAmount float64, branchID uint, occurredOn time.Time, paymentType string, customerID uint) (movementID uint, err error)
+
+	// RecordLoanTopUpCashOut books a loan top-up's cash-out — additional
+	// principal handed to the customer against spare eligible value,
+	// functionally an additional disbursement (same direction as
+	// RecordLoanDisbursementCashOut). Purely additive to this interface: one
+	// new method, one implementer (cash.MovementService) to update, no
+	// other caller disturbed.
+	RecordLoanTopUpCashOut(ctx context.Context, loanID uint, loanNumber string, amount, cashAmount, upiAmount, bankTransferAmount, chequeAmount float64, branchID uint, occurredOn time.Time, customerID uint) (movementID uint, err error)
 
 	// RecordAuctionSaleCashIn books the NET proceeds of an auction (sale price
 	// less auction expenses) into Cash-in-Hand. Previously an auction recorded
@@ -125,6 +139,13 @@ var (
 	ErrUseStagedExtensionApproval = httpx.NewBadRequest("extension requests are now decided through the staged approval chain — use POST /loans/requests/:requestId/approve instead")
 	ErrLoanTerminalState          = httpx.NewBadRequest("loan is already Closed, Auctioned, or Defaulted — nothing left to extend")
 	ErrChecklistIncomplete        = httpx.NewBadRequest("the release verification checklist must be fully complete before approval")
+	// ErrTopUpShortfall mirrors personalloan.ErrRenewalShortfall exactly —
+	// the requested top-up exceeds the loan's current headroom
+	// (EligibleLoanAmount - OutstandingAmount); reject, don't clamp.
+	ErrTopUpShortfall = httpx.NewBadRequest("requested amount exceeds the loan's available headroom — add more ornaments first")
+	// ErrLoanNotActiveForTopUp guards TopUpLoan: only an Active loan has
+	// spare eligible value worth drawing against.
+	ErrLoanNotActiveForTopUp = httpx.NewConflict("loan must be Active to top up")
 	// ErrNotManagerStage guards RecordReleasePayment: recording a payment/
 	// discount from the release review screen is only allowed while the
 	// request is still at the first (Manager) stage — once it has moved to
@@ -246,11 +267,11 @@ type Service struct {
 	auctionRepo         *AuctionRepository
 	approvalLimitRepo   *ApprovalLimitRepository
 
-	// draftRepo is built from db inside NewService rather than being passed
-	// in like the repositories above — drafts are internal scratch state
-	// with no other consumer, and this constructor already takes 21
-	// arguments.
+	// draftRepo/topUpRepo are built from db inside NewService rather than
+	// being passed in like the repositories above — neither has another
+	// consumer, and this constructor already takes 21 arguments.
 	draftRepo *DraftRepository
+	topUpRepo *LoanTopUpRepository
 
 	branchRepo   *branch.Repository
 	customerRepo *customer.Repository
@@ -346,6 +367,7 @@ func NewService(
 		auctionRepo:         auctionRepo,
 		approvalLimitRepo:   approvalLimitRepo,
 		draftRepo:           NewDraftRepository(db),
+		topUpRepo:           NewLoanTopUpRepository(db),
 		branchRepo:          branchRepo,
 		customerRepo:        customerRepo,
 		schemeRepo:          schemeRepo,
@@ -1433,6 +1455,17 @@ type ApprovalInput struct {
 	ActorRole       string // employee.ValidRoles value — audit-trail display only, not used for authorization any more (see checkStagePermission)
 	ActorRoleID     uint   // authz.Role.ID — checked against sanctionChain's required "Approval Workflow" permission
 	Remarks         string
+
+	// CashAmount/UpiAmount/BankTransferAmount/ChequeAmount split the
+	// principal actually disbursed across payment modes — only meaningful
+	// (and only validated) when this call is the one that clears
+	// FinalSanction and triggers disbursement; ignored at every earlier
+	// stage. Must sum to the loan's PrincipalAmount within
+	// platform.RoundMoney's tolerance — see platform.ValidateSplit.
+	CashAmount         float64
+	UpiAmount          float64
+	BankTransferAmount float64
+	ChequeAmount       float64
 }
 
 // Approve advances (or terminates) a loan's 3-step sanction chain:
@@ -1524,6 +1557,12 @@ func (s *Service) Approve(ctx context.Context, loanID uint, in ApprovalInput) (*
 		}
 	}
 
+	if disbursing {
+		if err := platform.ValidateSplit(in.CashAmount, in.UpiAmount, in.BankTransferAmount, in.ChequeAmount, l.PrincipalAmount); err != nil {
+			return nil, err
+		}
+	}
+
 	if err := s.repo.Update(ctx, l); err != nil {
 		return nil, err
 	}
@@ -1532,7 +1571,7 @@ func (s *Service) Approve(ctx context.Context, loanID uint, in ApprovalInput) (*
 	// final approval stage — logging it earlier (e.g. at Create) would show
 	// cash going out for a loan that might still be rejected.
 	if disbursing && s.cashRecorder != nil {
-		if _, err := s.cashRecorder.RecordLoanDisbursementCashOut(ctx, l.ID, l.LoanNumber, l.PrincipalAmount, l.BranchID, time.Now()); err != nil {
+		if _, err := s.cashRecorder.RecordLoanDisbursementCashOut(ctx, l.ID, l.LoanNumber, l.PrincipalAmount, in.CashAmount, in.UpiAmount, in.BankTransferAmount, in.ChequeAmount, l.BranchID, time.Now(), l.CustomerID); err != nil {
 			log.Printf("cash-out movement (disbursement) failed for loan %d: %v", l.ID, err)
 		}
 	}
@@ -1577,7 +1616,12 @@ func (s *Service) ListApprovals(ctx context.Context, loanID uint) ([]LoanApprova
 
 // PaymentInput mirrors the body of POST /loans/:id/payments. ProcessingFee
 // is an optional additional charge collected alongside Amount — see
-// LoanPayment.ProcessingFee's doc comment.
+// LoanPayment.ProcessingFee's doc comment. Method is no longer accepted as
+// free-text input — CashAmount/UpiAmount/BankTransferAmount/ChequeAmount
+// (NOT NULL DEFAULT 0, must sum to Amount within platform.RoundMoney's
+// tolerance — see platform.ValidateSplit) are now the source of truth, and
+// the stored LoanPayment.Method is derived from them (platform.DeriveMethod)
+// for old readers.
 type PaymentInput struct {
 	Amount        float64
 	Type          string
@@ -1586,9 +1630,22 @@ type PaymentInput struct {
 	// ReceivedByEmployeeID is nil for a customer-initiated online (Razorpay)
 	// payment — see LoanPayment.ReceivedByEmployeeID's doc comment.
 	ReceivedByEmployeeID *uint
-	Method               string
-	Reference            string
-	Description          string
+	CashAmount           float64
+	UpiAmount            float64
+	BankTransferAmount   float64
+	ChequeAmount         float64
+	// Method is a legacy/system escape hatch for callers that don't have a
+	// per-mode breakdown to give — VerifyAndRecordRazorpayPayment (an online
+	// gateway payment, not one of the four in-branch modes) and
+	// RecordReleasePayment's Partial-type settlement (which doesn't yet have
+	// a split-entry UI). When set, split validation is skipped, the four
+	// split columns stay 0, and the stored LoanPayment.Method is this string
+	// verbatim instead of the derived one. New staff-entered payments (via
+	// the split-payment UI) should leave this blank and supply the four
+	// split amounts instead.
+	Method      string
+	Reference   string
+	Description string
 	// InterestOverride, when set, replaces the system-computed interest
 	// bucket (AccruedInterest − InterestPaid) for THIS call only — the
 	// Record Payment screen shows the live-calculated interest prefilled,
@@ -1783,6 +1840,16 @@ func (s *Service) RecordPayment(ctx context.Context, loanID uint, in PaymentInpu
 	if in.ProcessingFee < 0 {
 		return nil, ErrInvalidAmount
 	}
+	// Split validation only applies to cash-bearing types — Adjustment/
+	// Waiver/Discount/Auction* move no real cash, so there is no mode to
+	// speak of for them (their split fields are left at their zero value) —
+	// and is skipped for a caller using the legacy Method escape hatch (see
+	// PaymentInput.Method's doc comment).
+	if isCashPaymentType(in.Type) && in.Method == "" {
+		if err := platform.ValidateSplit(in.CashAmount, in.UpiAmount, in.BankTransferAmount, in.ChequeAmount, in.Amount); err != nil {
+			return nil, err
+		}
+	}
 	if in.InterestOverride != nil && *in.InterestOverride < 0 {
 		return nil, ErrInvalidAmount
 	}
@@ -1846,7 +1913,11 @@ func (s *Service) RecordPayment(ctx context.Context, loanID uint, in PaymentInpu
 		PaidOn:               in.PaidOn,
 		ReceivedByEmployeeID: in.ReceivedByEmployeeID,
 		Description:          in.Description,
-		Method:               in.Method,
+		Method:               methodOrDerived(in.Method, in.CashAmount, in.UpiAmount, in.BankTransferAmount, in.ChequeAmount),
+		CashAmount:           in.CashAmount,
+		UpiAmount:            in.UpiAmount,
+		BankTransferAmount:   in.BankTransferAmount,
+		ChequeAmount:         in.ChequeAmount,
 		Reference:            in.Reference,
 		PenalInterestApplied: penal,
 		InterestApplied:      interest,
@@ -1861,7 +1932,7 @@ func (s *Service) RecordPayment(ctx context.Context, loanID uint, in PaymentInpu
 	// of this same amount, not collected on top of it (see allocatePayment's
 	// fee-first priority), so the cash-in movement is just Amount.
 	if isCashPaymentType(in.Type) && s.cashRecorder != nil {
-		if _, err := s.cashRecorder.RecordLoanPaymentCashIn(ctx, l.ID, l.LoanNumber, in.Amount, l.BranchID, in.PaidOn, in.Type); err != nil {
+		if _, err := s.cashRecorder.RecordLoanPaymentCashIn(ctx, l.ID, l.LoanNumber, in.Amount, in.CashAmount, in.UpiAmount, in.BankTransferAmount, in.ChequeAmount, l.BranchID, in.PaidOn, in.Type, l.CustomerID); err != nil {
 			log.Printf("cash-in movement (payment) failed for loan %d: %v", l.ID, err)
 		}
 	}
@@ -1883,6 +1954,151 @@ func (s *Service) RecordPayment(ctx context.Context, loanID uint, in PaymentInpu
 	}
 
 	return s.Get(ctx, l.ID, nil)
+}
+
+// TopUpInput mirrors the "Top Up Loan" form.
+type TopUpInput struct {
+	Amount               float64
+	CashAmount           float64
+	UpiAmount            float64
+	BankTransferAmount   float64
+	ChequeAmount         float64
+	OccurredOn           time.Time
+	Reference            string
+	ReceivedByEmployeeID uint
+}
+
+// TopUpLoan lets a customer draw additional cash against an already-Active
+// loan's spare eligible value, without closing/reopening it — a single-step
+// flow (no multi-stage sanction chain, per the confirmed design): headroom
+// = EligibleLoanAmount - OutstandingAmount (OutstandingAmount is already
+// principal-only, see Loan.OutstandingAmount's own doc comment), and the
+// entire read-headroom-then-write-principal sequence runs inside one
+// row-locked transaction (Phase 0.5 §5) so two simultaneous top-ups on the
+// same loan serialize instead of both succeeding against the same stale
+// headroom.
+//
+// On success, PrincipalAmount and OutstandingAmount both increase by
+// Amount — accrual.go's existing accrual already runs off OutstandingAmount
+// going forward, so interest naturally starts accruing on the larger
+// balance from OccurredOn without any separate recalculation (interest is
+// never charged on interest — only principal ever feeds accrual.go).
+func (s *Service) TopUpLoan(ctx context.Context, loanID uint, in TopUpInput) (*Loan, error) {
+	if in.Amount <= 0 {
+		return nil, ErrInvalidAmount
+	}
+	if err := platform.ValidateSplit(in.CashAmount, in.UpiAmount, in.BankTransferAmount, in.ChequeAmount, in.Amount); err != nil {
+		return nil, err
+	}
+	occurredOn := in.OccurredOn
+	if occurredOn.IsZero() {
+		occurredOn = time.Now()
+	}
+
+	var result *Loan
+	var eligibleAtTopUp float64
+	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		l, err := s.repo.LockByID(ctx, tx, loanID)
+		if err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return ErrNotFound
+			}
+			return err
+		}
+		if l.Status != StatusActive && l.Status != StatusDueSoon && l.Status != StatusOverdue {
+			return ErrLoanNotActiveForTopUp
+		}
+
+		// Recompute EligibleLoanAmount from the loan's current ornaments —
+		// the same scheme-LTV calculation AddOrnament/UpdateLoan already use
+		// (recalculateTotals) — rather than trusting the denormalized field
+		// to not have drifted, since this number is about to gate real money
+		// going out.
+		sch, err := s.schemeRepo.FindByID(ctx, l.SchemeID)
+		if err != nil {
+			return ErrSchemeInvalid
+		}
+		ornaments, err := s.ornamentRepo.FindByLoanID(ctx, l.ID)
+		if err != nil {
+			return err
+		}
+		recalculateTotals(l, ornaments, sch)
+
+		// Backdating guard (Phase 0.5 §7): OccurredOn must be >= the most
+		// recent event on this account — either a payment or an earlier
+		// top-up — and not in the future.
+		latestPaidOn, err := s.paymentRepo.FindLatestPaidOn(ctx, l.ID)
+		if err != nil {
+			return err
+		}
+		latestTopUp, err := s.topUpRepo.FindMostRecentDate(ctx, l.ID)
+		if err != nil {
+			return err
+		}
+		latest := latestPaidOn
+		if latestTopUp.After(latest) {
+			latest = latestTopUp
+		}
+		if err := platform.ValidateOccurredOn(occurredOn, latest, time.Now()); err != nil {
+			return err
+		}
+
+		headroom := platform.RoundMoney(l.EligibleLoanAmount - l.OutstandingAmount)
+		amount := platform.RoundMoney(in.Amount)
+		if amount > headroom+0.01 {
+			return ErrTopUpShortfall
+		}
+		eligibleAtTopUp = l.EligibleLoanAmount
+
+		l.PrincipalAmount = platform.RoundMoney(l.PrincipalAmount + amount)
+		l.OutstandingAmount = platform.RoundMoney(l.OutstandingAmount + amount)
+		if err := s.repo.UpdateTx(ctx, tx, l); err != nil {
+			return err
+		}
+
+		topUp := &LoanTopUp{
+			LoanID:                l.ID,
+			Amount:                amount,
+			EligibleAmountAtTopUp: eligibleAtTopUp,
+			CashAmount:            in.CashAmount,
+			UpiAmount:             in.UpiAmount,
+			BankTransferAmount:    in.BankTransferAmount,
+			ChequeAmount:          in.ChequeAmount,
+			OccurredOn:            occurredOn,
+			Reference:             in.Reference,
+			Status:                TopUpStatusActive,
+		}
+		if in.ReceivedByEmployeeID != 0 {
+			topUp.ReceivedByEmployeeID = &in.ReceivedByEmployeeID
+		}
+		if err := s.topUpRepo.CreateTx(ctx, tx, topUp); err != nil {
+			return err
+		}
+
+		result = l
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	// Best-effort and outside the transaction, same rationale as
+	// RecordPayment's disbursement/collection cash recording.
+	if s.cashRecorder != nil {
+		if _, err := s.cashRecorder.RecordLoanTopUpCashOut(ctx, result.ID, result.LoanNumber, in.Amount, in.CashAmount, in.UpiAmount, in.BankTransferAmount, in.ChequeAmount, result.BranchID, occurredOn, result.CustomerID); err != nil {
+			log.Printf("cash-out movement (top-up) failed for loan %d: %v", result.ID, err)
+		}
+	}
+	return s.Get(ctx, result.ID, nil)
+}
+
+// ListTopUps returns the loan's full top-up history, newest first — backs
+// the "Top-up history" panel on LoanDetail.tsx.
+func (s *Service) ListTopUps(ctx context.Context, loanID uint) ([]LoanTopUp, error) {
+	if _, err := s.repo.FindByID(ctx, loanID); err != nil {
+		return nil, ErrNotFound
+	}
+	return s.topUpRepo.FindByLoanID(ctx, loanID)
 }
 
 // resolveAuctionAfterPayment reacts to a payment on a loan whose gold is still

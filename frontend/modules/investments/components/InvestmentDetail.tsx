@@ -9,12 +9,16 @@ import { StatusChip } from "@/common/components/ui/StatusChip";
 import {
   getInvestment,
   getInvestmentSchedulePage,
-  markPayoutPaid,
+  getInvestmentTransactionsPage,
   type BackendInvestment,
   type BackendInvestmentPayout,
+  type BackendInvestmentTransaction,
 } from "@/modules/investments/services/investmentService";
 import { MaturityModalContent } from "@/modules/investments/components/MaturityModal";
 import { InvestorStatementModalContent } from "@/modules/investments/components/InvestorStatementModal";
+import { MarkPayoutPaidModalContent } from "@/common/components/modals/MarkPayoutPaidModal";
+import { AddInvestmentCashModalContent } from "@/common/components/modals/AddInvestmentCashModal";
+import { WithdrawInvestmentModalContent } from "@/common/components/modals/WithdrawInvestmentModal";
 import { useModal } from "@/common/components/Modal";
 
 /* Same click-paginated table pattern as personal-loans/components/
@@ -66,7 +70,6 @@ export function InvestmentDetail({ id }: { id?: string }) {
   const [investment, setInvestment] = useState<BackendInvestment | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
-  const [payingId, setPayingId] = useState<number | null>(null);
 
   const numericId = Number(id);
 
@@ -89,23 +92,29 @@ export function InvestmentDetail({ id }: { id?: string }) {
     useCallback((page) => getInvestmentSchedulePage(numericId, page), [numericId]),
     numericId
   );
+  const transactions = usePagedTable<BackendInvestmentTransaction>(
+    useCallback((page) => getInvestmentTransactionsPage(numericId, page), [numericId]),
+    numericId
+  );
 
   if (loading) return <div className="notice">Loading investment…</div>;
   if (error || !investment) return <div className="notice">{error || "Investment not found."}</div>;
 
-  async function handleMarkPaid(payout: BackendInvestmentPayout) {
-    if (!investment || payingId) return;
-    setPayingId(payout.id);
-    try {
-      await markPayoutPaid(investment.id, payout.id);
-      toast(`${payout.isPrincipalReturn ? "Principal return" : "Interest payout"} of ${fmt(payout.amount)} recorded as paid`);
-      await refreshInvestment();
-      schedule.reload();
-    } catch (e) {
-      setError(e instanceof ApiError ? e.message : "Could not record this payout.");
-    } finally {
-      setPayingId(null);
-    }
+  const isLive = investment.engine === "Live";
+
+  function openMarkPaid(payout: BackendInvestmentPayout) {
+    if (!investment) return;
+    openModal(
+      <MarkPayoutPaidModalContent
+        investmentId={investment.id}
+        payout={payout}
+        onSaved={async () => {
+          toast(`${payout.isPrincipalReturn ? "Principal return" : "Interest payout"} of ${fmt(payout.amount)} recorded as paid`);
+          await refreshInvestment();
+          schedule.reload();
+        }}
+      />
+    );
   }
 
   function openMaturity() {
@@ -116,6 +125,34 @@ export function InvestmentDetail({ id }: { id?: string }) {
   function openStatement() {
     if (!investment) return;
     openModal(<InvestorStatementModalContent customerId={investment.customerId} customerName={investment.customer?.name || "Investor"} />);
+  }
+
+  function openAddCash() {
+    if (!investment) return;
+    openModal(
+      <AddInvestmentCashModalContent
+        investment={investment}
+        onSaved={async () => {
+          toast("Cash added to this investment");
+          await refreshInvestment();
+          transactions.reload();
+        }}
+      />
+    );
+  }
+
+  function openWithdraw() {
+    if (!investment) return;
+    openModal(
+      <WithdrawInvestmentModalContent
+        investment={investment}
+        onSaved={async () => {
+          toast("Withdrawal recorded");
+          await refreshInvestment();
+          transactions.reload();
+        }}
+      />
+    );
   }
 
   const investorName = investment.customer?.name || investment.customer?.code || "";
@@ -129,7 +166,13 @@ export function InvestmentDetail({ id }: { id?: string }) {
         </div>
         <div className="sp" />
         <button className="btn plain" onClick={openStatement}>View Statement</button>
-        {canUpdate && investment.status === "Matured" && (
+        {canUpdate && isLive && investment.status === "Active" && (
+          <>
+            <button className="btn plain" onClick={openAddCash}>Add Cash</button>
+            <button className="btn" onClick={openWithdraw}>Withdraw</button>
+          </>
+        )}
+        {canUpdate && !isLive && investment.status === "Matured" && (
           <button className="btn" onClick={openMaturity}>Close / Renew</button>
         )}
       </div>
@@ -138,7 +181,11 @@ export function InvestmentDetail({ id }: { id?: string }) {
       <div className="kpis" style={{ marginBottom: 16 }}>
         <div className="kpi"><div className="l">Principal</div><div className="v">{fmt(investment.principalAmount)}</div></div>
         <div className="kpi"><div className="l">Interest Rate</div><div className="v">{investment.interestRatePercent}%</div><div className="s">{investment.interestRateType} · {investment.payoutFrequency}</div></div>
-        <div className="kpi"><div className="l">Interest Paid</div><div className="v">{fmt(investment.totalInterestPaid)}</div></div>
+        {isLive ? (
+          <div className="kpi"><div className="l">Outstanding Interest</div><div className="v">{fmt(investment.outstandingInterest)}</div></div>
+        ) : (
+          <div className="kpi"><div className="l">Interest Paid</div><div className="v">{fmt(investment.totalInterestPaid)}</div></div>
+        )}
         <div className="kpi"><div className="l">Maturity Date</div><div className="v" style={{ fontSize: 17 }}>{investment.maturityDate.slice(0, 10)}</div></div>
         <div className="kpi"><div className="l">Status</div><div className="v" style={{ fontSize: 15 }}><StatusChip status={investment.status} /></div></div>
         <div className="kpi"><div className="l">Tenure</div><div className="v" style={{ fontSize: 17 }}>{investment.tenureMonths} mo</div></div>
@@ -150,36 +197,62 @@ export function InvestmentDetail({ id }: { id?: string }) {
         )}
       </div>
 
-      <div className="card">
-        <div className="hd"><h3>Interest Payout Schedule</h3></div>
-        {schedule.error && <div className="notice" style={{ margin: 14 }}>{schedule.error}</div>}
-        <div className="tbl-wrap tbl-wrap-auto"><table className="tbl tbl-center">
-          <thead><tr><th>#</th><th>Due Date</th><th className="num">Amount</th><th>Type</th><th>Status</th><th></th></tr></thead>
-          <tbody>
-            {schedule.loading ? (
-              <tr><td colSpan={6} className="empty compact">Loading…</td></tr>
-            ) : schedule.items.length === 0 ? (
-              <tr><td colSpan={6} className="empty compact">No payouts scheduled.</td></tr>
-            ) : schedule.items.map((p) => (
-              <tr key={p.id}>
-                <td>{p.sequenceNo}</td>
-                <td>{p.dueDate.slice(0, 10)}</td>
-                <td className="num">{fmt(p.amount)}</td>
-                <td>{p.isPrincipalReturn ? "Principal Return" : "Interest"}</td>
-                <td><StatusChip status={p.status} /></td>
-                <td>
-                  {canUpdate && p.status === "Pending" && (
-                    <button className="btn plain sm" disabled={payingId === p.id} onClick={() => handleMarkPaid(p)}>
-                      {payingId === p.id ? "Recording…" : "Mark Paid"}
-                    </button>
-                  )}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table></div>
-        <Pager page={schedule.page} totalPages={schedule.totalPages} onChange={schedule.setPage} />
-      </div>
+      {isLive ? (
+        <div className="card">
+          <div className="hd"><h3>Transactions</h3></div>
+          {transactions.error && <div className="notice" style={{ margin: 14 }}>{transactions.error}</div>}
+          <div className="tbl-wrap tbl-wrap-auto"><table className="tbl tbl-center">
+            <thead><tr><th>Date</th><th>Type</th><th className="num">Amount</th><th className="num">Principal</th><th className="num">Interest</th><th className="num">Principal After</th><th className="num">Interest After</th></tr></thead>
+            <tbody>
+              {transactions.loading ? (
+                <tr><td colSpan={7} className="empty compact">Loading…</td></tr>
+              ) : transactions.items.length === 0 ? (
+                <tr><td colSpan={7} className="empty compact">No transactions yet.</td></tr>
+              ) : transactions.items.map((tx) => (
+                <tr key={tx.id}>
+                  <td>{tx.occurredOn.slice(0, 10)}</td>
+                  <td>{tx.type}</td>
+                  <td className="num">{fmt(tx.amount)}</td>
+                  <td className="num">{fmt(tx.principalAmount)}</td>
+                  <td className="num">{fmt(tx.interestAmount)}</td>
+                  <td className="num">{fmt(tx.principalAfter)}</td>
+                  <td className="num">{fmt(tx.interestAfter)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table></div>
+          <Pager page={transactions.page} totalPages={transactions.totalPages} onChange={transactions.setPage} />
+        </div>
+      ) : (
+        <div className="card">
+          <div className="hd"><h3>Interest Payout Schedule</h3></div>
+          {schedule.error && <div className="notice" style={{ margin: 14 }}>{schedule.error}</div>}
+          <div className="tbl-wrap tbl-wrap-auto"><table className="tbl tbl-center">
+            <thead><tr><th>#</th><th>Due Date</th><th className="num">Amount</th><th>Type</th><th>Status</th><th></th></tr></thead>
+            <tbody>
+              {schedule.loading ? (
+                <tr><td colSpan={6} className="empty compact">Loading…</td></tr>
+              ) : schedule.items.length === 0 ? (
+                <tr><td colSpan={6} className="empty compact">No payouts scheduled.</td></tr>
+              ) : schedule.items.map((p) => (
+                <tr key={p.id}>
+                  <td>{p.sequenceNo}</td>
+                  <td>{p.dueDate.slice(0, 10)}</td>
+                  <td className="num">{fmt(p.amount)}</td>
+                  <td>{p.isPrincipalReturn ? "Principal Return" : "Interest"}</td>
+                  <td><StatusChip status={p.status} /></td>
+                  <td>
+                    {canUpdate && p.status === "Pending" && (
+                      <button className="btn plain sm" onClick={() => openMarkPaid(p)}>Mark Paid</button>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table></div>
+          <Pager page={schedule.page} totalPages={schedule.totalPages} onChange={schedule.setPage} />
+        </div>
+      )}
     </>
   );
 }

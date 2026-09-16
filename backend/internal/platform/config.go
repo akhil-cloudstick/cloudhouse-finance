@@ -120,6 +120,22 @@ type Config struct {
 	SuperAdminBootstrapUsername string
 	SuperAdminBootstrapPassword string
 	SuperAdminBootstrapName     string
+
+	// WhatsAppOrigin is where the OpenWA service (./OpenWA) listens —
+	// reverse-proxied under /admin/whatsapp so the browser only ever talks
+	// to this one origin. OpenWA itself stays unaware of that prefix: see
+	// internal/webstatic's WhatsApp proxy, which strips it before
+	// forwarding.
+	WhatsAppOrigin string
+
+	// WhatsAppAPIKey and WhatsAppSessionID are a temporary .env-driven
+	// fallback for OpenWASender.Send, used only when Settings > WhatsApp
+	// (settings.CategoryWhatsApp) has never been configured — see app.go's
+	// whatsappLoader. WhatsAppOrigin doubles as the send path's base URL in
+	// that fallback, so this never introduces a second "where is OpenWA"
+	// setting alongside it.
+	WhatsAppAPIKey    string
+	WhatsAppSessionID string
 }
 
 // LoadConfig reads a .env file if present (local/dev convenience) and
@@ -191,6 +207,10 @@ func LoadConfig() Config {
 		SuperAdminBootstrapUsername: getEnv("SUPERADMIN_USERNAME", ""),
 		SuperAdminBootstrapPassword: getEnv("SUPERADMIN_PASSWORD", ""),
 		SuperAdminBootstrapName:     getEnv("SUPERADMIN_NAME", ""),
+
+		WhatsAppOrigin:    getEnv("WHATSAPP_ORIGIN", "http://127.0.0.1:2785"),
+		WhatsAppAPIKey:    getEnv("WHATSAPP_API_KEY", ""),
+		WhatsAppSessionID: getEnv("WHATSAPP_SESSION_ID", ""),
 	}
 }
 

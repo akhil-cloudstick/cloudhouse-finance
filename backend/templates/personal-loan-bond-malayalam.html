@@ -1,0 +1,44 @@
+<!DOCTYPE html><html><head><meta charset="UTF-8"><title>വാഗ്ദത്ത പത്രം — {{.LoanNumber}}</title><style>{{.Style}}</style></head><body>
+<h1>വാഗ്ദത്ത പത്രം</h1>
+<h2>Personal Loan Account No. {{.LoanNumber}}</h2>
+
+<p>
+<b>{{.District}}</b> ജില്ല <b>{{.Taluk}}</b> താലൂക്ക് <b>{{.Village}}</b> വില്ലേജ്
+<b>{{.Place}}</b> ദേശത്ത് <b>{{.Place}}</b> പി.ഒ, പിൻ. <b>{{.PinCode}}</b>
+<b>{{.FatherName}}</b>-ന്റെ മകൻ/മകൾ <b>{{.BorrowerName}}</b>
+( ആധാർനമ്പർ <b>{{.Aadhaar}}</b> ) എന്ന ഞാൻ <b>{{.Age}}</b> വയസ്സ്. ബിസിനസ്സ് ചെയ്യുന്ന ഞാൻ,
+{{.EstablishmentAddress}} <b>{{.FinancierName}}</b> എന്ന
+സ്ഥാപനത്തിന്റെ ഉടമക്ക് എഴുതി കൊടുക്കുന്ന വാഗ്ദത്ത പത്രം.
+</p>
+
+<p>
+ഞാൻ <b>{{.BorrowerName}}</b> {{printf "%02d" .Day}}/{{.Month}}/{{.Year}} തിയ്യതി
+<b>{{.FinancierName}}</b> എന്ന സ്ഥാപനത്തിൽനിന്നു കടമായി കൈപ്പറ്റിയ രൂപ
+<b>{{.PrincipalAmount}}</b> ( ₹{{.PrincipalAmount}}/- ) ആവശ്യപ്പെടുമ്പോൾ വർഷത്തിൽ
+<b>{{.InterestRate}}</b> പലിശ സഹിതം സ്ഥാപനത്തിനോ, ഓർഡർക്കോ തന്നുകൊള്ളാമെന്ന് ഇതിനാൽ
+വാഗ്ദത്തം ചെയ്യു കൊള്ളുന്നു.
+</p>
+
+<div class="meta">
+<div>തിയ്യതി :- {{printf "%02d" .Day}} / {{.Month}} / {{.Year}}</div>
+<div>സ്ഥലം :- {{.Blank}}</div>
+</div>
+
+<div class="sig">
+<div><span>കടം വാങ്ങിയ ആളുടെ ഒപ്പ്<br>Name: {{.BorrowerName}}</span></div>
+<div><span>&nbsp;</span></div>
+</div>
+
+<div class="footer-row">
+<div>Mobi No :- {{.Mobile}}&nbsp;&nbsp;&nbsp;&nbsp;പേര് :- {{.BorrowerName}}</div>
+</div>
+
+<div class="witness">
+<div><b>സാക്ഷി</b></div>
+<div>പേര് :- {{.Blank}}</div>
+<div>മേൽവിലാസം :- {{.Blank}}</div>
+<div>ഒപ്പ് :- {{.Blank}}</div>
+<div>സ്ഥലം :- {{.Blank}}</div>
+<div>തിയ്യതി :- {{.Blank}}</div>
+</div>
+</body></html>

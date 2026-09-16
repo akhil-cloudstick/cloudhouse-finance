@@ -358,3 +358,13 @@ func isCashPaymentType(t string) bool {
 		return false
 	}
 }
+
+// methodOrDerived returns legacyMethod verbatim when a caller supplied one
+// (see PaymentInput.Method's doc comment for why some callers still do),
+// otherwise derives it from the four split amounts (platform.DeriveMethod).
+func methodOrDerived(legacyMethod string, cash, upi, bank, cheque float64) string {
+	if legacyMethod != "" {
+		return legacyMethod
+	}
+	return platform.DeriveMethod(cash, upi, bank, cheque)
+}
