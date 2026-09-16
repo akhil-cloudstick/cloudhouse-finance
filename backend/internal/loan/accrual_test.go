@@ -138,12 +138,14 @@ func TestProjectAccrual_DailyProrationPastFirstMonth(t *testing.T) {
 		OutstandingAmount: 100_000,
 		LastAccrualDate:   from,
 		DueDate:           from.AddDate(1, 0, 0),
-		Scheme:            sch,
+		SchemeInterestRate:   sch.InterestRate,
+		SchemeInterestMethod: sch.InterestMethod,
+		SchemePenalRate:      sch.PenalRate,
 	}
 
 	// 100,000 × (0.01/30) × days = 33.333/day.
 	for _, days := range []int{1, 12, 29} {
-		i, p, anchor := projectAccrual(l, &sch, from.AddDate(0, 0, days))
+		i, p, anchor := projectAccrual(l, from.AddDate(0, 0, days))
 		nearly(t, i, 100_000*0.01/30*float64(days), "daily-prorated interest")
 		if p != 0 {
 			t.Fatalf("day %d: no penal interest owed with no overdue months, got %.4f", days, p)
@@ -156,7 +158,7 @@ func TestProjectAccrual_DailyProrationPastFirstMonth(t *testing.T) {
 	// The month completes on the 15th — the full month lands at once, with
 	// zero leftover exactly at the boundary (not the whole month PLUS a
 	// day's worth of proration).
-	i, _, anchor := projectAccrual(l, &sch, from.AddDate(0, 1, 0))
+	i, _, anchor := projectAccrual(l, from.AddDate(0, 1, 0))
 	nearly(t, i, 1000, "one completed month at 12% p.a. on 100,000, no double-count at the boundary")
 	if !anchor.Equal(from.AddDate(0, 1, 0)) {
 		t.Fatalf("anchor should advance to the month boundary, got %s", anchor)
@@ -177,11 +179,13 @@ func TestProjectAccrual_FirstMonthFloorChargedImmediately(t *testing.T) {
 		OpenedDate:        opened,
 		LastAccrualDate:   opened, // exactly how CreateLoan seeds a fresh loan
 		DueDate:           opened.AddDate(1, 0, 0),
-		Scheme:            sch,
+		SchemeInterestRate:   sch.InterestRate,
+		SchemeInterestMethod: sch.InterestMethod,
+		SchemePenalRate:      sch.PenalRate,
 	}
 
 	// Settled 5 days in — still owes a full month, not 5 days' worth.
-	i, p, anchor := projectAccrual(l, &sch, opened.AddDate(0, 0, 5))
+	i, p, anchor := projectAccrual(l, opened.AddDate(0, 0, 5))
 	nearly(t, i, 1000, "same-month settlement still owes a full month's interest")
 	if p != 0 {
 		t.Fatalf("no penal interest expected, got %.4f", p)
@@ -196,7 +200,7 @@ func TestProjectAccrual_FirstMonthFloorChargedImmediately(t *testing.T) {
 	// re-charge anything, since those days were already consumed by the
 	// floor's own anchor jump.
 	l.LastAccrualDate = anchor
-	i2, _, anchor2 := projectAccrual(l, &sch, opened.AddDate(0, 0, 20))
+	i2, _, anchor2 := projectAccrual(l, opened.AddDate(0, 0, 20))
 	if i2 != 0 {
 		t.Fatalf("no interest should accrue again inside the already-billed first month, got %.4f", i2)
 	}
@@ -218,10 +222,12 @@ func TestProjectAccrual_FlatMonthlyProratesOffPrincipalNotOutstanding(t *testing
 		OutstandingAmount: 40_000, // most of it already repaid
 		LastAccrualDate:   from,
 		DueDate:           from.AddDate(1, 0, 0),
-		Scheme:            sch,
+		SchemeInterestRate:   sch.InterestRate,
+		SchemeInterestMethod: sch.InterestMethod,
+		SchemePenalRate:      sch.PenalRate,
 	}
 
-	i, _, _ := projectAccrual(l, &sch, from.AddDate(0, 0, 10))
+	i, _, _ := projectAccrual(l, from.AddDate(0, 0, 10))
 	nearly(t, i, 100_000*0.01/30*10, "Flat monthly's daily proration uses PrincipalAmount")
 }
 
@@ -237,13 +243,15 @@ func TestProjectAccrual_RemainderSurvivesRepeatedReads(t *testing.T) {
 		OutstandingAmount: 100_000,
 		LastAccrualDate:   from,
 		DueDate:           from.AddDate(1, 0, 0),
-		Scheme:            sch,
+		SchemeInterestRate:   sch.InterestRate,
+		SchemeInterestMethod: sch.InterestMethod,
+		SchemePenalRate:      sch.PenalRate,
 	}
 
 	// Simulate a fetch every day for 90 days, persisting the anchor each time
 	// exactly as accrueAndSave does.
 	for day := 1; day <= 90; day++ {
-		i, _, anchor := projectAccrual(l, &sch, from.AddDate(0, 0, day))
+		i, _, anchor := projectAccrual(l, from.AddDate(0, 0, day))
 		l.AccruedInterest += i
 		l.LastAccrualDate = anchor
 	}
@@ -260,10 +268,12 @@ func TestProjectAccrual_CompoundChargesInterestOnUnpaidInterest(t *testing.T) {
 		OutstandingAmount: 100_000,
 		LastAccrualDate:   from,
 		DueDate:           from.AddDate(1, 0, 0),
-		Scheme:            sch,
+		SchemeInterestRate:   sch.InterestRate,
+		SchemeInterestMethod: sch.InterestMethod,
+		SchemePenalRate:      sch.PenalRate,
 	}
 
-	i, _, anchor := projectAccrual(l, &sch, from.AddDate(0, 3, 0))
+	i, _, anchor := projectAccrual(l, from.AddDate(0, 3, 0))
 	// 1%/month compounding: 1000 + 1010 + 1020.10
 	nearly(t, i, 3030.10, "three compounded months")
 	l.AccruedInterest += i
@@ -271,14 +281,14 @@ func TestProjectAccrual_CompoundChargesInterestOnUnpaidInterest(t *testing.T) {
 
 	// Leaving it unpaid, month four charges on principal + the 3030.10 owed.
 	unpaid := *l
-	i, _, _ = projectAccrual(&unpaid, &sch, from.AddDate(0, 4, 0))
+	i, _, _ = projectAccrual(&unpaid, from.AddDate(0, 4, 0))
 	nearly(t, i, 1030.30, "month four compounds on unpaid interest")
 
 	// Clearing that interest drops month four back to plain principal — the
 	// customer stops paying interest on interest the moment they settle it.
 	settled := *l
 	settled.InterestPaid = settled.AccruedInterest
-	i, _, _ = projectAccrual(&settled, &sch, from.AddDate(0, 4, 0))
+	i, _, _ = projectAccrual(&settled, from.AddDate(0, 4, 0))
 	nearly(t, i, 1000, "month four on principal alone once interest is paid")
 }
 
@@ -292,15 +302,17 @@ func TestProjectAccrual_MonthEndClampsInsteadOfOverflowing(t *testing.T) {
 		OutstandingAmount: 100_000,
 		LastAccrualDate:   from,
 		DueDate:           from.AddDate(1, 0, 0),
-		Scheme:            sch,
+		SchemeInterestRate:   sch.InterestRate,
+		SchemeInterestMethod: sch.InterestMethod,
+		SchemePenalRate:      sch.PenalRate,
 	}
 
 	// 2026 is not a leap year, so the cycle completes on 28 Feb, not 3 Mar.
 	// 27 Feb is still mid-cycle (27 days of daily proration since 31 Jan),
 	// not the full month yet.
-	iMidCycle, _, _ := projectAccrual(l, &sch, time.Date(2026, 2, 27, 0, 0, 0, 0, time.UTC))
+	iMidCycle, _, _ := projectAccrual(l, time.Date(2026, 2, 27, 0, 0, 0, 0, time.UTC))
 	nearly(t, iMidCycle, 100_000*0.01/30*27, "27 days' daily proration, not the full month yet")
-	i, _, anchor := projectAccrual(l, &sch, time.Date(2026, 2, 28, 0, 0, 0, 0, time.UTC))
+	i, _, anchor := projectAccrual(l, time.Date(2026, 2, 28, 0, 0, 0, 0, time.UTC))
 	nearly(t, i, 1000, "cycle completes on 28 Feb")
 	if anchor.Day() != 28 || anchor.Month() != time.February {
 		t.Fatalf("anchor should clamp to 28 Feb, got %s", anchor)
@@ -319,18 +331,20 @@ func TestProjectAccrual_PenalCountsWholeOverdueMonthsOnce(t *testing.T) {
 		OutstandingAmount: 100_000,
 		LastAccrualDate:   opened,
 		DueDate:           due,
-		Scheme:            sch,
+		SchemeInterestRate:   sch.InterestRate,
+		SchemeInterestMethod: sch.InterestMethod,
+		SchemePenalRate:      sch.PenalRate,
 	}
 
 	// Read at 1 June: overdue months completed from 20 Mar are 20 Apr and
 	// 20 May, so exactly two months of penal at 2%/month.
-	_, p, anchor := projectAccrual(l, &sch, time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC))
+	_, p, anchor := projectAccrual(l, time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC))
 	nearly(t, p, 4000, "two overdue months of penal")
 	l.AccruedPenalInterest += p
 	l.LastAccrualDate = anchor
 
 	// Reading again the next day must not re-charge those same months.
-	_, p, _ = projectAccrual(l, &sch, time.Date(2026, 6, 2, 0, 0, 0, 0, time.UTC))
+	_, p, _ = projectAccrual(l, time.Date(2026, 6, 2, 0, 0, 0, 0, time.UTC))
 	if p != 0 {
 		t.Fatalf("already-charged overdue months must not repeat, got %.4f", p)
 	}

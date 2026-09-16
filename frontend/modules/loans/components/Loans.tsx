@@ -8,6 +8,7 @@ import { useAuth } from "@/common/auth-context";
 import { useHashRoute } from "@/hooks/useHashRoute";
 import { listLoansPage, type LoanView } from "@/modules/loans/services/loanService";
 import { useResponsivePageSize, useIsSmallScreen } from "@/common/utils/responsive";
+import { DatePicker } from "@/common/components/ui/DatePicker";
 
 const CATS = ["All", "Active", "Due Soon", "Overdue", "Defaulted", "Pending Approval", "Auction Eligible", "Closed"];
 
@@ -50,6 +51,12 @@ export function Loans() {
   const initialCat = initialCatArg ? decodeURIComponent(initialCatArg) : undefined;
   const [cat, setCat] = useState(() => (initialCat && CATS.includes(initialCat) ? initialCat : "All"));
   const [q, setQ] = useState("");
+  const [fromDate, setFromDate] = useState("");
+  const [toDate, setToDate] = useState("");
+  // Small-screen category tabs collapse behind a "Filter" button; opening it
+  // hides the date-range filter and shows the tabs, and picking a tab
+  // collapses the tabs back and reveals the date filter again.
+  const [tabsExpanded, setTabsExpanded] = useState(false);
   const [page, setPage] = useState(1);
   const [filtered, setFiltered] = useState<LoanView[] | null>(null);
   const [hasMore, setHasMore] = useState(false);
@@ -61,7 +68,7 @@ export function Loans() {
 
   // Any filter change resets back to page 1 rather than leaving the user
   // stranded on a page number the new filter may not have.
-  useEffect(() => { setPage(1); }, [cat, q, pageSize]);
+  useEffect(() => { setPage(1); }, [cat, q, fromDate, toDate, pageSize]);
 
   // LoansProvider fetches once when the app shell mounts and is only
   // re-fetched by pages that explicitly call refresh() (LoanDetail, Requests,
@@ -96,7 +103,14 @@ export function Loans() {
     let cancelled = false;
     setSearching(true);
     const handle = setTimeout(() => {
-      listLoansPage({ status: cat === "All" ? undefined : cat, q: q.trim() || undefined, page, limit: pageSize })
+      listLoansPage({
+        status: cat === "All" ? undefined : cat,
+        q: q.trim() || undefined,
+        from: fromDate || undefined,
+        to: toDate || undefined,
+        page,
+        limit: pageSize,
+      })
         .then((res) => { if (!cancelled) { setFiltered(res.items); setHasMore(res.hasMore); setServerTotal(res.total); setSearchError(""); } })
         .catch((e) => { if (!cancelled) setSearchError(e instanceof Error ? e.message : "Search failed."); })
         .finally(() => { if (!cancelled) setSearching(false); });
@@ -111,7 +125,7 @@ export function Loans() {
     // computed category, the table only caught up on a browser reload.
     // Keying off the new array identity re-issues the filtered query in step
     // with every provider refresh.
-  }, [cat, q, page, computedPredicate, allLoans, pageSize]);
+  }, [cat, q, fromDate, toDate, page, computedPredicate, allLoans, pageSize]);
 
   const loading = filtered === null ? providerLoading : searching;
   const error = searchError || providerError;
@@ -123,6 +137,8 @@ export function Loans() {
       const needle = q.trim().toLowerCase();
       rows = rows.filter((l) => l.id.toLowerCase().includes(needle) || l.customerName.toLowerCase().includes(needle));
     }
+    if (fromDate) rows = rows.filter((l) => l.opened >= fromDate);
+    if (toDate) rows = rows.filter((l) => l.opened <= toDate);
     totalPages = Math.max(1, Math.ceil(rows.length / pageSize));
     rows = rows.slice((page - 1) * pageSize, page * pageSize);
   } else {
@@ -140,11 +156,34 @@ export function Loans() {
         <div className="search"><Icon name="search" /><input className="inp" placeholder="Search loan ID or customer…" value={q} onChange={(e) => setQ(e.target.value)} /></div>
         {canCreateLoans && <a className="btn" href="#newloan"><Icon name="plus" /> New Gold Loan</a>}
       </div>
-      <hr className="gold-rule" style={{ margin: smallScreen ? "4px 0 6px" : "4px 0 10px" }} />
-      <div style={{ marginTop: 4, marginBottom: 6 }} className="tabs loans-cat-tabs">
-        {CATS.map((c) => (
-          <button key={c} className={c === cat ? "on" : ""} onClick={() => setCat(c)}>{c}</button>
-        ))}
+      <hr className="gold-rule" style={{ margin: "4px 0 10px" }} />
+      <div className={`loans-filter-row${smallScreen ? " small" : ""}`} style={{ marginTop: 4, marginBottom: 14 }}>
+        <div className="tabs loans-filter-toggle-tabs">
+          <button type="button" className="loans-filter-toggle" onClick={() => setTabsExpanded((v) => !v)}>
+            <Icon name="filter" /> Filter
+          </button>
+        </div>
+        <div className={`tabs loans-cat-tabs${tabsExpanded ? " expanded" : ""}`}>
+          {CATS.map((c) => (
+            <button
+              key={c}
+              className={c === cat ? "on" : ""}
+              onClick={() => { setCat(c); setTabsExpanded(false); }}
+            >
+              {c}
+            </button>
+          ))}
+        </div>
+        <div className={`loans-date-filter${tabsExpanded ? " collapsed" : ""}`}>
+          <DatePicker value={fromDate} onChange={setFromDate} placeholder="From date…" max={toDate || undefined} />
+          <span className="loans-date-sep">to</span>
+          <DatePicker value={toDate} onChange={setToDate} placeholder="To date…" min={fromDate || undefined} />
+          {(fromDate || toDate) && (
+            <button type="button" className="btn plain sm" onClick={() => { setFromDate(""); setToDate(""); }}>
+              Clear
+            </button>
+          )}
+        </div>
       </div>
       {error && <div className="notice" style={{ marginBottom: 14 }}>{error}</div>}
       <div className="card tbl-card"><div className="tbl-wrap tbl-scroll"><table className="tbl tbl-center">

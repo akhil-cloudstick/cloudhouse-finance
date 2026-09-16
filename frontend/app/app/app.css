@@ -1796,6 +1796,47 @@ h3,
   min-height: 89px;
 }
 
+/* PersonalLoanDetail.tsx's KPI row — combines what used to be 6-8 separate
+ * .kpi tiles into one card, each figure shown inline at a much smaller size
+ * (label + value on one line) instead of one stat per card. */
+.kpis-strip {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 28px;
+  background: rgba(255, 255, 255, .72);
+  backdrop-filter: blur(14px) saturate(160%);
+  -webkit-backdrop-filter: blur(14px) saturate(160%);
+  border: 1px solid color-mix(in oklab, var(--brand) 25%, transparent);
+  border-radius: 12px;
+  padding: 14px 18px;
+  box-shadow: 0 6px 20px -6px color-mix(in oklab, var(--nav) 10%, transparent), inset 0 1px 1px rgba(255, 255, 255, .9);
+}
+
+.kpis-strip-item {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  font-size: 12.5px;
+}
+
+.kpis-strip-item .l {
+  letter-spacing: .1em;
+  text-transform: uppercase;
+  font-size: 10.5px;
+  color: var(--muted);
+}
+
+.kpis-strip-item .v {
+  font-weight: 700;
+  color: var(--nav);
+}
+
+.kpis-strip-item .s {
+  color: var(--muted);
+  font-size: 11.5px;
+}
+
 /* Cash.tsx's 5 money KPI tiles (Opening/In/Out/Expenses/Balance) at the
  * shared fixed 213px width need ~1113px (5×213 + 4×12px gap) to fit on one
  * row — wider than the content column at plenty of ordinary desktop/
@@ -2840,12 +2881,54 @@ table.tbl {
  *   investments-tabs   Investments.tsx    status filter
  *   bank-pledge-tabs   BankPledge.tsx     Pledged/History switch */
 .tabs.loans-cat-tabs,
+.tabs.loans-filter-toggle-tabs,
 .tabs.auctions-tabs,
 .tabs.pl-freq-tabs,
 .tabs.investments-tabs,
 .tabs.bank-pledge-tabs {
   overflow-x: visible;
   flex-wrap: wrap;
+}
+
+/* Loans page filter row: category tabs + date-range filter side by side on
+ * wide screens. The "Filter" toggle button is desktop-hidden and only takes
+ * over on narrow screens (see the max-width:900px block below), where the
+ * two rows can't fit together and one collapses behind it at a time. */
+.loans-filter-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+
+.loans-filter-row.small {
+  flex-wrap: nowrap;
+}
+
+.loans-filter-row .tabs.loans-cat-tabs,
+.loans-filter-row .tabs.loans-filter-toggle-tabs {
+  margin-bottom: 0;
+  padding-bottom: 0;
+}
+
+.loans-filter-toggle-tabs {
+  display: none;
+}
+
+.loans-date-filter {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+}
+
+.loans-date-filter .dp {
+  width: 150px;
+}
+
+.loans-date-sep {
+  font-size: 12.5px;
+  color: var(--muted);
 }
 
 /* Cash.tsx's Cash Movements/Expense Register switch (and any further tab
@@ -4742,4 +4825,55 @@ table.tbl {
   .eln-card {
     margin-bottom: 16px;
   }
+}
+
+/* Loans page: on small screens (Loans.tsx's own useIsSmallScreen — <1560px
+ * wide or <=850px tall, the same threshold the page already uses for its
+ * page size) the category tabs and the date-range filter can no longer share
+ * a row, so only one shows at a time — driven by the `.loans-filter-row.small`
+ * class Loans.tsx applies, not a CSS breakpoint of its own, so this stays in
+ * lockstep with the rest of the page's small-screen behavior. The date filter
+ * is the default view; tapping "Filter" swaps in the category tabs
+ * (auto-collapsing back once a tab is picked — see Loans.tsx's
+ * setTabsExpanded(false) on tab click). */
+.loans-filter-row.small .loans-filter-toggle-tabs {
+  display: flex;
+  order: -1;
+  flex-shrink: 0;
+}
+
+.loans-filter-row.small .loans-filter-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.loans-filter-row.small .tabs.loans-cat-tabs {
+  display: none;
+}
+
+.loans-filter-row.small .tabs.loans-cat-tabs.expanded {
+  display: flex;
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  order: 2;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.loans-filter-row.small .loans-date-filter {
+  margin-left: auto;
+}
+
+.loans-filter-row.small .loans-date-filter.collapsed {
+  display: none;
+}
+
+.loans-filter-row.small .loans-date-filter .dp {
+  width: 120px;
+}
+
+.loans-filter-row.small .loans-date-filter .dp-trigger {
+  height: 31px;
+  box-sizing: border-box;
 }

@@ -194,29 +194,31 @@ func Build(db *gorm.DB, cfg platform.Config) (*App, error) {
 	settingsHandler := settings.NewHandler(settingsSvc)
 
 	// whatsappSender delivers messages (OTPs, reminders, and anything else
-	// that wants WhatsApp delivery) via a self-hosted OpenWA instance,
-	// configured live through Settings > WhatsApp (settingsSvc, category
-	// "whatsapp") — see platform.OpenWASender. Until that setting is
-	// configured, fall back to WHATSAPP_ORIGIN/WHATSAPP_API_KEY/
-	// WHATSAPP_SESSION_ID from .env (cfg), so sending still works before
-	// anyone has filled in the Settings page. This is a temporary bridge —
-	// once Settings > WhatsApp is set, its row wins and the env fallback is
-	// never consulted. Either way it reuses WhatsAppOrigin, the same "where
-	// is OpenWA" setting the /admin/whatsapp dashboard proxy uses, so this
-	// never becomes a second place port/host changes need to be made.
+	// that wants WhatsApp delivery) via a self-hosted OpenWA instance — see
+	// platform.OpenWASender. TEMPORARY: WHATSAPP_ORIGIN/WHATSAPP_API_KEY/
+	// WHATSAPP_SESSION_ID from .env (cfg) take priority over Settings >
+	// WhatsApp (settingsSvc, category "whatsapp") whenever WHATSAPP_API_KEY
+	// is set, so a stale/wrong Settings row can't silently override a
+	// deliberately-configured .env — only once WHATSAPP_API_KEY is unset does
+	// the Settings row apply again. Reuses WhatsAppOrigin, the same "where is
+	// OpenWA" setting the /admin/whatsapp dashboard proxy uses, so this never
+	// becomes a second place port/host changes need to be made.
 	whatsappLoader := func() (platform.WhatsAppConfig, error) {
+		if cfg.WhatsAppAPIKey != "" {
+			return platform.WhatsAppConfig{
+				BaseURL:   cfg.WhatsAppOrigin,
+				APIKey:    cfg.WhatsAppAPIKey,
+				SessionID: cfg.WhatsAppSessionID,
+			}, nil
+		}
 		view, err := settingsSvc.Get(platform.AllowCrossTenant(context.Background()), settings.CategoryWhatsApp)
 		if err != nil {
 			return platform.WhatsAppConfig{}, err
 		}
-		if view.IsSet {
-			return platform.ParseWhatsAppConfig(view.Value)
+		if !view.IsSet {
+			return platform.WhatsAppConfig{}, nil
 		}
-		return platform.WhatsAppConfig{
-			BaseURL:   cfg.WhatsAppOrigin,
-			APIKey:    cfg.WhatsAppAPIKey,
-			SessionID: cfg.WhatsAppSessionID,
-		}, nil
+		return platform.ParseWhatsAppConfig(view.Value)
 	}
 	whatsappSender := platform.NewOpenWASender(whatsappLoader)
 
@@ -256,7 +258,7 @@ func Build(db *gorm.DB, cfg platform.Config) (*App, error) {
 	// packet movement on bank-pledge/release) — see internal/loan's
 	// PacketCreator/PacketMover doc comments. movementSvc satisfies
 	// loan.CashRecorder, reflecting bank-pledge amounts into Cash-in-Hand.
-	commlogRepo := commlog.NewRepository(pinned)
+	commlogRepo := commlog.NewRepository(pinned, db)
 
 	// Realtime notifications (WebSocket, ack-and-resend) — realtimeHub tracks
 	// live connections, notificationSvc is the durable store + resend logic

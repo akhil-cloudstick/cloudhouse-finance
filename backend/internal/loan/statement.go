@@ -149,7 +149,7 @@ func writeLoanSummary(pdf *gofpdf.Fpdf, l *Loan) {
 	kv(pdf, "Customer", fmt.Sprintf("%s (%s)", l.Customer.Name, l.Customer.Code))
 	kv(pdf, "Phone", l.Customer.Phone)
 	kv(pdf, "Scheme", l.Scheme.Name)
-	kv(pdf, "Interest Rate", fmt.Sprintf("%.2f%% p.a.", l.Scheme.InterestRate))
+	kv(pdf, "Interest Rate", fmt.Sprintf("%.2f%% p.a.", l.SchemeInterestRate))
 	kv(pdf, "Opened On", dateOnly(l.OpenedDate))
 	kv(pdf, "Due On", dateOnly(l.DueDate))
 }

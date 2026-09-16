@@ -147,3 +147,57 @@ func BackfillNullMoney(db *gorm.DB) error {
 	}
 	return nil
 }
+
+// BackfillSchemeSnapshot is a one-time, idempotent step for the new
+// loans.scheme_code/scheme_interest_rate/scheme_duration_months/
+// scheme_ltv_percent/scheme_interest_method/scheme_penal_rate columns —
+// added so every loan freezes the calculation terms of the scheme it was
+// opened under, rather than reading the (editable, soft-deletable) scheme
+// row live forever. See Loan.applySchemeSnapshot's doc comment.
+//
+// Must run AFTER AutoMigrate, since these are the columns AutoMigrate itself
+// creates (plain nullable/zero-default additions — no NOT NULL, so unlike
+// BackfillNullMoney's siblings there is no ordering requirement forcing this
+// before AutoMigrate). Only rows still at the zero value are touched, so a
+// loan created after this code shipped (already snapshotted at Create /
+// UpdateLoan time) is never overwritten.
+//
+// Joins to schemes with Unscoped semantics (no `deleted_at IS NULL` filter)
+// so a loan whose scheme was later soft-deleted still gets backfilled from
+// its last known terms, instead of being silently left at zero. A loan
+// whose scheme_id matches no row at all (should not occur — schemes are
+// only ever soft-deleted, never hard-deleted) is left at zero and is not
+// treated as fatal.
+func BackfillSchemeSnapshot(db *gorm.DB) error {
+	if !db.Migrator().HasTable(&Loan{}) {
+		return nil // fresh install — AutoMigrate will create the columns with defaults
+	}
+	for _, col := range []string{
+		"scheme_code", "scheme_interest_rate", "scheme_duration_months",
+		"scheme_ltv_percent", "scheme_interest_method", "scheme_penal_rate",
+	} {
+		if !db.Migrator().HasColumn(&Loan{}, col) {
+			return nil // AutoMigrate has not run yet this boot
+		}
+	}
+	res := db.Exec(`
+		UPDATE loans l
+		SET scheme_code = s.code,
+		    scheme_interest_rate = s.interest_rate,
+		    scheme_duration_months = s.duration_months,
+		    scheme_ltv_percent = s.ltv_percent,
+		    scheme_interest_method = s.interest_method,
+		    scheme_penal_rate = s.penal_rate
+		FROM schemes s
+		WHERE s.id = l.scheme_id
+		  AND l.scheme_code = ''
+		  AND l.scheme_interest_rate = 0
+		  AND l.scheme_ltv_percent = 0`)
+	if res.Error != nil {
+		return res.Error
+	}
+	if res.RowsAffected > 0 {
+		log.Printf("backfilled %d loan(s) with a frozen snapshot of their scheme's terms", res.RowsAffected)
+	}
+	return nil
+}
