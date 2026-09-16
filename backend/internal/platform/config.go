@@ -120,6 +120,13 @@ type Config struct {
 	SuperAdminBootstrapUsername string
 	SuperAdminBootstrapPassword string
 	SuperAdminBootstrapName     string
+
+	// WhatsAppOrigin is where the OpenWA service (./OpenWA) listens —
+	// reverse-proxied under /admin/whatsapp so the browser only ever talks
+	// to this one origin. OpenWA itself stays unaware of that prefix: see
+	// internal/webstatic's WhatsApp proxy, which strips it before
+	// forwarding.
+	WhatsAppOrigin string
 }
 
 // LoadConfig reads a .env file if present (local/dev convenience) and
@@ -191,6 +198,8 @@ func LoadConfig() Config {
 		SuperAdminBootstrapUsername: getEnv("SUPERADMIN_USERNAME", ""),
 		SuperAdminBootstrapPassword: getEnv("SUPERADMIN_PASSWORD", ""),
 		SuperAdminBootstrapName:     getEnv("SUPERADMIN_NAME", ""),
+
+		WhatsAppOrigin: getEnv("WHATSAPP_ORIGIN", "http://127.0.0.1:2785"),
 	}
 }
 

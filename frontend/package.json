@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "concurrently -n frontend,openwa -c blue,green \"next dev\" \"npm run dev --prefix ../OpenWA\"",
+    "dev": "concurrently -n frontend,openwa -c blue,green \"next dev\" \"npm run dev:embedded --prefix ../OpenWA\"",
     "build": "next build",
     "start": "next start",
     "lint": "eslint"

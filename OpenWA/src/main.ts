@@ -3,7 +3,7 @@
 // webhook Worker's @Processor connection) see the configured values rather than pre-dotenv defaults.
 import './config/load-env';
 import { NestFactory } from '@nestjs/core';
-import { INestApplication, ShutdownSignal } from '@nestjs/common';
+import { INestApplication, ShutdownSignal, LogLevel as NestLogLevel } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { SwaggerModule } from '@nestjs/swagger';
 import { AppModule, DASHBOARD_DIST, dashboardServingEnabled, dashboardBuildPresent } from './app.module';
@@ -100,8 +100,19 @@ async function bootstrap() {
     logger: bootstrapLogger,
   });
 
+  // Nest's own framework logger (RouterExplorer's "Mapped {route}" lines, module-init noise, etc.)
+  // is a SEPARATE pipeline from the app's LoggerService above — muting it here does not touch the
+  // startup banner (including the API key), which AuthService prints through LoggerService, not
+  // this one. Default to error+warn only so a normal successful boot is a handful of lines instead
+  // of hundreds of route mappings; set NEST_LOG_LEVELS (comma-separated: log,error,warn,debug,verbose)
+  // to restore full framework logging when actually debugging Nest/DI itself.
+  const nestLogLevels = (process.env.NEST_LOG_LEVELS?.split(',').map(l => l.trim()).filter(Boolean) ?? [
+    'error',
+    'warn',
+  ]) as NestLogLevel[];
+
   // Disable Nest's default body parser so we can set an explicit size cap below.
-  const app = await NestFactory.create(AppModule, { bodyParser: false });
+  const app = await NestFactory.create(AppModule, { bodyParser: false, logger: nestLogLevels });
   appInstance = app;
 
   // Cross-replica WebSocket fan-out: when Redis is enabled, broadcasts reach clients on every
