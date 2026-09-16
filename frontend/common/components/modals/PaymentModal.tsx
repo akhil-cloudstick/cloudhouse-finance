@@ -198,7 +198,16 @@ export function PaymentModalContent({ loan: initialLoan, onSaved }: { loan: Loan
   return (
     <>
       <div className="hd"><h3>Record Payment — {loan.id}</h3><button className="x" onClick={closeModal}>×</button></div>
-      <div className="bd">
+      {/* `bd-scroll` caps the modal at the viewport and scrolls THIS body
+        * instead of the page behind it (see app.css) — this modal's own
+        * `<Select>` dropdown (Apply Payment To) is a `position:absolute`
+        * descendant of `.bd`, unlike DatePicker's `position:fixed` panel, so
+        * it can in principle get clipped if opened right at the scrolled
+        * body's bottom edge. Accepted as the smaller issue versus the whole
+        * page scrolling instead of the modal — the dropdown is short (a
+        * handful of allocation-mode options), so in practice this rarely
+        * bites. */}
+      <div className="bd bd-scroll">
         <div className="notice" style={{ marginBottom: 16, flexDirection: "column", alignItems: "stretch", gap: 4 }}>
           <div><Icon name="coin" /> Outstanding principal: <b>{fmt(loan.outstanding)}</b></div>
           <div>Outstanding interest: <b>{fmt(loan.outstandingInterest)}</b>{loan.outstandingPenalInterest > 0 && <> · Penal interest: <b>{fmt(loan.outstandingPenalInterest)}</b></>}</div>

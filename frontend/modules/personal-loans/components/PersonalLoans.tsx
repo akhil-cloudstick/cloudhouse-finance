@@ -66,7 +66,11 @@ export function PersonalLoans() {
   const nextDisabled = knownTotal ? page >= totalPages : !hasMore;
 
   function openNewLoan() {
-    openModal(<NewPersonalLoanModalContent onSaved={() => { closeModal(); setPage(1); void refresh(); }} />);
+    // Wide: this modal can swap in the full RegisterCustomerModalContent
+    // ("+ Add new customer" flow) inline, whose 3-column field rows need a
+    // wide modal's width — see NewPersonalLoanModal.tsx's creatingCustomer
+    // branch.
+    openModal(<NewPersonalLoanModalContent onSaved={() => { closeModal(); setPage(1); void refresh(); }} />, true);
   }
 
   return (

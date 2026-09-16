@@ -1778,13 +1778,38 @@ func (h *Handler) CheckIndemnityBondEsign(c *gin.Context) {
 // has a real per-page header/footer (only possible server-side, via
 // chromedp — see RenderIndemnityBondPDF's header/footer template comment).
 func (h *Handler) DownloadIndemnityBondPDF(c *gin.Context) {
+	ctx := platform.RequestContext(c)
+
 	loanID, err := httpx.IDParam(c, "id")
 	if err != nil {
 		httpx.FailErr(c, err)
 		return
 	}
 	lang := c.DefaultQuery("lang", BondLangEnglish)
-	pdfBytes, filename, err := h.svc.RenderIndemnityBondPDFForLoan(c.Request.Context(), loanID, platform.GetBranchScope(c), lang)
+	pdfBytes, filename, err := h.svc.RenderIndemnityBondPDFForLoan(ctx, loanID, platform.GetBranchScope(c), lang)
+	if err != nil {
+		httpx.FailErr(c, err)
+		return
+	}
+	c.Header("Content-Disposition", fmt.Sprintf("attachment; filename=%q", filename))
+	c.Data(http.StatusOK, "application/pdf", pdfBytes)
+}
+
+// DownloadReleaseAgreementPDF renders the loan's FORM 7 discharge receipt in
+// the requested language (?lang=en|ml, default en) and returns it as a plain
+// PDF download — the server-side replacement for the client-side
+// window.print() copy frontend/modules/loans/utils/releaseAgreement.ts used
+// to build, with a real per-page header/footer (see RenderReleaseAgreementPDF).
+func (h *Handler) DownloadReleaseAgreementPDF(c *gin.Context) {
+	ctx := platform.RequestContext(c)
+
+	loanID, err := httpx.IDParam(c, "id")
+	if err != nil {
+		httpx.FailErr(c, err)
+		return
+	}
+	lang := c.DefaultQuery("lang", BondLangEnglish)
+	pdfBytes, filename, err := h.svc.RenderReleaseAgreementPDFForLoan(ctx, loanID, platform.GetBranchScope(c), lang)
 	if err != nil {
 		httpx.FailErr(c, err)
 		return

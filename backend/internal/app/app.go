@@ -196,18 +196,27 @@ func Build(db *gorm.DB, cfg platform.Config) (*App, error) {
 	// whatsappSender delivers messages (OTPs, reminders, and anything else
 	// that wants WhatsApp delivery) via a self-hosted OpenWA instance,
 	// configured live through Settings > WhatsApp (settingsSvc, category
-	// "whatsapp") rather than an env var — see platform.OpenWASender. Until
-	// that setting is configured, Send returns a clear "not configured"
-	// error rather than silently doing nothing.
+	// "whatsapp") — see platform.OpenWASender. Until that setting is
+	// configured, fall back to WHATSAPP_ORIGIN/WHATSAPP_API_KEY/
+	// WHATSAPP_SESSION_ID from .env (cfg), so sending still works before
+	// anyone has filled in the Settings page. This is a temporary bridge —
+	// once Settings > WhatsApp is set, its row wins and the env fallback is
+	// never consulted. Either way it reuses WhatsAppOrigin, the same "where
+	// is OpenWA" setting the /admin/whatsapp dashboard proxy uses, so this
+	// never becomes a second place port/host changes need to be made.
 	whatsappLoader := func() (platform.WhatsAppConfig, error) {
 		view, err := settingsSvc.Get(platform.AllowCrossTenant(context.Background()), settings.CategoryWhatsApp)
 		if err != nil {
 			return platform.WhatsAppConfig{}, err
 		}
-		if !view.IsSet {
-			return platform.WhatsAppConfig{}, nil
+		if view.IsSet {
+			return platform.ParseWhatsAppConfig(view.Value)
 		}
-		return platform.ParseWhatsAppConfig(view.Value)
+		return platform.WhatsAppConfig{
+			BaseURL:   cfg.WhatsAppOrigin,
+			APIKey:    cfg.WhatsAppAPIKey,
+			SessionID: cfg.WhatsAppSessionID,
+		}, nil
 	}
 	whatsappSender := platform.NewOpenWASender(whatsappLoader)
 

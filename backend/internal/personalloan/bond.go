@@ -17,6 +17,8 @@ import (
 	"encoding/base64"
 	"fmt"
 	"html/template"
+	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -27,9 +29,11 @@ import (
 )
 
 // bondBlank is the placeholder printed wherever a field is missing —
-// matches internal/loan/indemnitybond.go's own "blank" constant so both
-// bond documents read consistently when hand-filled later.
-const bondBlank = "________________"
+// non-breaking spaces rather than an underscore line, matching
+// internal/loan/indemnitybond.go's own "blank" constant (see its doc
+// comment for why non-breaking spaces rather than plain empty/spaces) so
+// both bond documents read consistently.
+const bondBlank = "                "
 
 // financierName is who the borrower owes money to, per this document's own
 // opening paragraph. Personal loans are money-lending under the Kerala
@@ -99,7 +103,7 @@ func bondOrBlank(s string) string {
 
 func bondAgeOrBlank(age int) string {
 	if age <= 0 {
-		return "____"
+		return bondBlank
 	}
 	return fmt.Sprintf("%d", age)
 }
@@ -125,9 +129,24 @@ func bondRateOrBlank(rate float64) string {
 	return fmt.Sprintf("%g%%", rate)
 }
 
-// bondTemplate parses bondHTML once at package init, matching
-// internal/loan/indemnitybond.go's template.Must pattern.
-var bondTemplate = template.Must(template.New("personal_loan_bond").Parse(bondHTML))
+// templatesDir is where every printable document's HTML source now lives —
+// plain .html files, not compiled into the binary. Path is relative to the
+// backend process's own working directory (same convention platform.Config's
+// UploadsDir ("./uploads") already uses, and internal/loan/indemnitybond.go's
+// identical templatesDir) — the server is always launched from the backend/
+// folder, so this always resolves to backend/templates/.
+const templatesDir = "./templates"
+
+// bondTemplate parses the personal-loan bond template (loaded from
+// backend/templates/personal-loan-bond-malayalam.html) once at package init,
+// matching internal/loan/indemnitybond.go's own template-loading pattern.
+var bondTemplate = template.Must(func() (*template.Template, error) {
+	b, err := os.ReadFile(filepath.Join(templatesDir, "personal-loan-bond-malayalam.html"))
+	if err != nil {
+		return nil, fmt.Errorf("personal loan bond: read template: %w", err)
+	}
+	return template.New("personal_loan_bond").Parse(string(b))
+}())
 
 // bondPageStyle mirrors internal/loan/indemnitybond.go's bondPageStyle CSS
 // (same margins/typography) but adds a Malayalam-capable font stack ahead of
@@ -153,57 +172,14 @@ p{margin:0 0 14px;text-align:justify}
 .witness div{margin-bottom:10px}
 `
 
-// bondHTML is the borrower-only surety-letter template, structured to match
-// the attached handwritten reference: title, an opening paragraph naming the
-// borrower + the financier + the loan terms, a borrower signature/date/place
-// block, then a "Mobi No / പേര്" row and a witness name/address/signature
-// block — all left as blank lines for manual completion, same as the
-// original paper form. No lender/financier signature, stamp, or witness
-// detail is ever prefilled (see package doc comment).
-const bondHTML = `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>വാഗ്ദത്ത പത്രം — {{.LoanNumber}}</title><style>{{.Style}}</style></head><body>
-<h1>വാഗ്ദത്ത പത്രം</h1>
-<h2>Personal Loan Account No. {{.LoanNumber}}</h2>
-
-<p>
-<b>{{.District}}</b> ജില്ല <b>{{.Taluk}}</b> താലൂക്ക് <b>{{.Village}}</b> വില്ലേജ്
-<b>{{.Place}}</b> ദേശത്ത് <b>{{.Place}}</b> പി.ഒ, പിൻ. <b>{{.PinCode}}</b>
-<b>{{.FatherName}}</b>-ന്റെ മകൻ/മകൾ <b>{{.BorrowerName}}</b>
-( ആധാർനമ്പർ <b>{{.Aadhaar}}</b> ) എന്ന ഞാൻ <b>{{.Age}}</b> വയസ്സ്. ബിസിനസ്സ് ചെയ്യുന്ന ഞാൻ,
-{{.EstablishmentAddress}} <b>{{.FinancierName}}</b> എന്ന
-സ്ഥാപനത്തിന്റെ ഉടമക്ക് എഴുതി കൊടുക്കുന്ന വാഗ്ദത്ത പത്രം.
-</p>
-
-<p>
-ഞാൻ <b>{{.BorrowerName}}</b> {{printf "%02d" .Day}}/{{.Month}}/{{.Year}} തിയ്യതി
-<b>{{.FinancierName}}</b> എന്ന സ്ഥാപനത്തിൽനിന്നു കടമായി കൈപ്പറ്റിയ രൂപ
-<b>{{.PrincipalAmount}}</b> ( ₹{{.PrincipalAmount}}/- ) ആവശ്യപ്പെടുമ്പോൾ വർഷത്തിൽ
-<b>{{.InterestRate}}</b> പലിശ സഹിതം സ്ഥാപനത്തിനോ, ഓർഡർക്കോ തന്നുകൊള്ളാമെന്ന് ഇതിനാൽ
-വാഗ്ദത്തം ചെയ്യു കൊള്ളുന്നു.
-</p>
-
-<div class="meta">
-<div>തിയ്യതി :- {{printf "%02d" .Day}} / {{.Month}} / {{.Year}}</div>
-<div>സ്ഥലം :- {{.Blank}}</div>
-</div>
-
-<div class="sig">
-<div><span>കടം വാങ്ങിയ ആളുടെ ഒപ്പ്<br>Name: {{.BorrowerName}}</span></div>
-<div><span>&nbsp;</span></div>
-</div>
-
-<div class="footer-row">
-<div>Mobi No :- {{.Mobile}}&nbsp;&nbsp;&nbsp;&nbsp;പേര് :- {{.BorrowerName}}</div>
-</div>
-
-<div class="witness">
-<div><b>സാക്ഷി</b></div>
-<div>പേര് :- {{.Blank}}</div>
-<div>മേൽവിലാസം :- {{.Blank}}</div>
-<div>ഒപ്പ് :- {{.Blank}}</div>
-<div>സ്ഥലം :- {{.Blank}}</div>
-<div>തിയ്യതി :- {{.Blank}}</div>
-</div>
-</body></html>`
+// The borrower-only surety-letter template is loaded from
+// backend/templates/personal-loan-bond-malayalam.html (see bondTemplate
+// above): title, an opening paragraph naming the borrower + the financier +
+// the loan terms, a borrower signature/date/place block, then a "Mobi No /
+// പേര്" row and a witness name/address/signature block — all left as blank
+// lines for manual completion, same as the original paper form. No
+// lender/financier signature, stamp, or witness detail is ever prefilled
+// (see package doc comment).
 
 // bondTemplateData wraps BondData with the extra pre-formatted display
 // fields the template above references, same separation-of-concerns as
@@ -273,12 +249,36 @@ func renderBondHTML(data BondData) (string, error) {
 	return sb.String(), nil
 }
 
+// bondHeaderTemplate/bondFooterTemplate are Chrome's PrintToPDF header/
+// footer templates — plain HTML rendered at a fixed height on EVERY page,
+// completely separate from the document's own content. Duplicated from
+// internal/loan/indemnitybond.go's identical constants rather than shared
+// (nothing here is shared code with internal/loan, by design — see package
+// doc comment). See that file's own doc comment for why the header is
+// deliberately empty rather than removed outright.
+const bondHeaderTemplate = `
+<div style="font-size:9px;width:100%;text-align:center;color:#8a6d1f;font-family:Arial,sans-serif;padding-top:6px">
+</div>`
+
+const bondFooterTemplate = `
+<div style="font-size:8px;width:100%;text-align:center;color:#888;font-family:Arial,sans-serif;padding-bottom:6px">
+Page <span class="pageNumber"></span> of <span class="totalPages"></span>
+</div>`
+
 // GenerateBondPDF renders the borrower-only surety letter for the given
 // loan/customer into a PDF, via a headless Chromium tab driven by chromedp —
 // same invocation pattern as internal/loan's RenderIndemnityBondPDF
 // (data: URL navigation, A4 paper size, generous margins). Requires a
 // Chrome/Chromium binary on the host; chromedp returns a clear error if none
 // is found.
+//
+// Sets a real per-page header/footer via chromedp's DisplayHeaderFooter,
+// same as internal/loan/indemnitybond.go's RenderIndemnityBondPDF — this was
+// previously missing here, so a multi-page bond fell back to Chrome's own
+// default header/footer (page URL + date) instead of the blank
+// header/"Page X of Y" footer every other bond in the app uses, and that
+// default isn't guaranteed to repeat consistently across pages the way an
+// explicit template does.
 func GenerateBondPDF(ctx context.Context, loan *PersonalLoan, cust *customer.Customer, aadhaar string) ([]byte, error) {
 	data := bondDataForLoan(loan, cust, aadhaar)
 	html, err := renderBondHTML(data)
@@ -301,15 +301,24 @@ func GenerateBondPDF(ctx context.Context, loan *PersonalLoan, cust *customer.Cus
 		chromedp.Navigate("data:text/html;charset=utf-8;base64,"+encoded),
 		chromedp.WaitReady("body"),
 		chromedp.ActionFunc(func(ctx context.Context) error {
+			// MarginTop/MarginBottom kept small (0.4in/0.35in, matching
+			// internal/loan/indemnitybond.go's identical trim) — the
+			// header is blank and the footer is one small "Page X of Y"
+			// line, so a larger reserved margin just pushes this
+			// single-page letter closer to overflowing onto a second page
+			// for no visible benefit.
 			buf, _, err := page.PrintToPDF().
 				WithPrintBackground(true).
 				WithPreferCSSPageSize(false).
 				WithPaperWidth(8.27).
 				WithPaperHeight(11.69).
-				WithMarginTop(0.9).
-				WithMarginBottom(0.8).
+				WithMarginTop(0.4).
+				WithMarginBottom(0.35).
 				WithMarginLeft(0.6).
 				WithMarginRight(0.6).
+				WithDisplayHeaderFooter(true).
+				WithHeaderTemplate(bondHeaderTemplate).
+				WithFooterTemplate(bondFooterTemplate).
 				Do(ctx)
 			if err != nil {
 				return err

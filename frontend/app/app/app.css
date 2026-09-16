@@ -2448,8 +2448,8 @@ label.f {
  * inside a media query, so this applies at every screen size, not just
  * the small-screen band the earlier congestion fix targeted. */
 .modal .frow {
-  gap: 22px;
-  margin-bottom: 28px
+  gap: 14px;
+  margin-bottom: 16px
 }
 
 /* SchemeModal.tsx's own field rows, small screens only — a plain CSS media
@@ -3347,12 +3347,15 @@ table.tbl {
  * `:has()` on the parent because .modal is rendered by the shared
  * ModalProvider shell (Modal.tsx) — content components can only put classes
  * on their own .hd/.bd/.ft, never on the box around them. */
-/* Base: on big screens (viewport height > 850px), ReleaseReviewModal renders
- * at its original natural height with no inner scroll, centered on the page.
- * On short screens (<= 850px), the compact query further below caps it at
- * 500px and engages body scrolling. */
+/* A bd-scroll modal renders at its natural height up to the viewport (minus
+ * a little breathing room) at every screen size — once its content would
+ * exceed that, `.bd-scroll` itself becomes the scroll container (not
+ * `.modal-bg`/the page behind it), with `.hd`/`.ft` pinned in place. The
+ * short-screen query further below just tightens the cap and padding for a
+ * short viewport; the scrolling mechanism itself is the same everywhere. */
 .modal-bg:has(.bd-scroll) {
   align-items: center;
+  overflow-y: hidden;
 }
 
 .modal:has(> .bd-scroll) {
@@ -3362,6 +3365,7 @@ table.tbl {
   flex-direction: column;
   margin: auto;
   align-self: center;
+  overflow: hidden;
 }
 
 /* Neither bar may absorb the shrink */
@@ -3373,7 +3377,12 @@ table.tbl {
 .modal > .bd-scroll,
 .modal .bd.bd-scroll {
   flex: 1 1 auto;
-  overflow-y: visible;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  scrollbar-color: var(--line) transparent;
 }
 
 /* ── misc widgets ───────────────────────── */
@@ -3899,6 +3908,13 @@ table.tbl {
 
 @media(max-width:1060px) {
   .frow.c4 {
+    grid-template-columns: 1fr 1fr
+  }
+
+  /* Same intermediate step as .frow.c4 above — a 3-column row goes to 2
+   * columns here before the ≤900px rule below collapses it the rest of the
+   * way to 1, instead of jumping straight from 3 columns to 1. */
+  .frow.c3 {
     grid-template-columns: 1fr 1fr
   }
 

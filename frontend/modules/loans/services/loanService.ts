@@ -1,39 +1,7 @@
 import { apiFetchEnveloped as apiFetch, API_BASE, getAuthToken, ApiError } from "@/common/services/httpClient";
 import { branchHeader } from "@/common/services/branchSelection";
 import { isSmallScreen } from "@/common/utils/responsive";
-
-/* Sends a PDF blob straight to the browser's print dialog instead of
- * downloading it — no visible "preview" tab, just Ctrl+P's picker. Loads
- * the blob into a hidden iframe and calls its contentWindow.print() once
- * the PDF has actually rendered; the iframe (and its object URL) are torn
- * down on the next afterprint/cancel so repeated prints don't leak either.
- * Used by downloadIndemnityBondPDF / previewIndemnityBondPDF below. */
-function printPdfBlob(blob: Blob): void {
-  const url = window.URL.createObjectURL(blob);
-  const iframe = document.createElement("iframe");
-  iframe.style.position = "fixed";
-  iframe.style.right = "0";
-  iframe.style.bottom = "0";
-  iframe.style.width = "0";
-  iframe.style.height = "0";
-  iframe.style.border = "0";
-  iframe.src = url;
-  document.body.appendChild(iframe);
-  iframe.onload = () => {
-    const win = iframe.contentWindow;
-    if (!win) return;
-    const cleanup = () => {
-      window.URL.revokeObjectURL(url);
-      iframe.remove();
-    };
-    win.addEventListener("afterprint", cleanup, { once: true });
-    // Fallback in case afterprint never fires (e.g. print dialog cancelled
-    // in some browsers) — keep the iframe around long enough to print.
-    setTimeout(cleanup, 60_000);
-    win.focus();
-    win.print();
-  };
-}
+import { printPdfBlob } from "@/common/utils/print";
 import type { BondLang } from "@/modules/loans/utils/indemnityBond";
 
 /* Mirrors backend/internal/loan/handler.go's ornamentRequest exactly. */
@@ -1824,6 +1792,35 @@ export async function downloadLoanStatement(loanId: number): Promise<void> {
 export async function downloadIndemnityBondPDF(loanNumericId: number, lang: BondLang): Promise<void> {
   const token = getAuthToken();
   const res = await fetch(`${API_BASE}/loans/${loanNumericId}/indemnity-bond/pdf?lang=${lang}`, {
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  });
+  if (!res.ok) {
+    let message = res.statusText;
+    try {
+      const body = await res.json();
+      if (body?.error) message = body.error;
+    } catch {
+      /* non-JSON error body — fall back to statusText */
+    }
+    throw new ApiError(message, res.status);
+  }
+
+  const blob = await res.blob();
+  printPdfBlob(blob);
+}
+
+/* Sends the FORM 7 release/discharge agreement straight to the print dialog
+ * (via printPdfBlob), rendered server-side (GET /loans/:id/release-agreement/pdf)
+ * — the server-side replacement for the client-side print copy
+ * (modules/loans/utils/releaseAgreement.ts's printReleaseAgreement, a plain
+ * window.print()), with the same genuine per-page header/footer
+ * downloadIndemnityBondPDF above gets. Requires an already-saved,
+ * closed loan (loanNumericId) — every current caller (LoanDetail.tsx,
+ * Requests.tsx) only reaches this once a loan is closed/release-approved, so
+ * there is no pre-save preview variant, unlike the indemnity bond. */
+export async function downloadReleaseAgreementPDF(loanNumericId: number, lang: "en" | "ml"): Promise<void> {
+  const token = getAuthToken();
+  const res = await fetch(`${API_BASE}/loans/${loanNumericId}/release-agreement/pdf?lang=${lang}`, {
     headers: token ? { Authorization: `Bearer ${token}` } : {},
   });
   if (!res.ok) {

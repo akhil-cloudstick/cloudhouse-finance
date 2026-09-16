@@ -8,7 +8,7 @@ import { fmt } from "@/common/utils/format";
 import { SearchableSelect } from "@/common/components/ui/SearchableSelect";
 import { searchCustomersPage, type CustomerView } from "@/modules/customers/services/customerService";
 import { VerifiedBadge } from "@/modules/customers/components/VerifiedBadge";
-import { CreateCustomerModalContent } from "@/modules/personal-loans/components/CreateCustomerModal";
+import { RegisterCustomerModalContent } from "@/common/components/modals/RegisterCustomerModal";
 import {
   createPersonalLoan,
   type Frequency,
@@ -47,10 +47,10 @@ export function NewPersonalLoanModalContent({ onSaved }: { onSaved: () => void }
   const [err, setErr] = useState("");
   const [saving, setSaving] = useState(false);
   // Toggles this same mounted component over to the inline "+ Add new
-  // customer" form (CreateCustomerModal.tsx) instead of swapping the modal
-  // via useModal — swapping would unmount this component and lose every
-  // field already typed (principal, tenure, …). Kept local rather than
-  // lifted, since only this modal ever needs it.
+  // customer" form (RegisterCustomerModalContent, via its `onCreated` prop)
+  // instead of swapping the modal via useModal — swapping would unmount
+  // this component and lose every field already typed (principal, tenure,
+  // …). Kept local rather than lifted, since only this modal ever needs it.
   const [creatingCustomer, setCreatingCustomer] = useState(false);
 
   const principalNum = +principal || 0;
@@ -100,7 +100,7 @@ export function NewPersonalLoanModalContent({ onSaved }: { onSaved: () => void }
 
   if (creatingCustomer) {
     return (
-      <CreateCustomerModalContent
+      <RegisterCustomerModalContent
         onCreated={(c) => {
           setCustomerId(+c.id);
           setCustomerBranchId(c.branchId);
