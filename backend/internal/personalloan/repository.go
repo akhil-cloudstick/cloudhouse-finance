@@ -144,6 +144,38 @@ func (r *Repository) UpdateInstallment(ctx context.Context, tx *gorm.DB, rec *Pe
 	return dbOrDefault(ctx, tx, r.db).Save(rec).Error
 }
 
+// ReplaceInstallments deletes every existing installment row for loanID and
+// inserts recs in its place, inside tx — used by the penal-interest sweep to
+// swap a loan's whole schedule for a freshly generated one when a penal
+// charge fires (see penal.go). Installment rows are already documented as
+// non-authoritative/display-only (model_installment.go), so discarding the
+// old (unpaid) rows outright is safe: nothing besides display derives from
+// them once superseded.
+func (r *Repository) ReplaceInstallments(ctx context.Context, tx *gorm.DB, loanID uint, recs []PersonalLoanInstallment) error {
+	db := dbOrDefault(ctx, tx, r.db)
+	if err := db.Where("personal_loan_id = ?", loanID).Delete(&PersonalLoanInstallment{}).Error; err != nil {
+		return err
+	}
+	if len(recs) == 0 {
+		return nil
+	}
+	return db.Create(&recs).Error
+}
+
+// FindActiveForPenalSweep returns every currently Active or Pending personal
+// loan with a positive PenalInterestRate or PenalFlatAmount — the candidate
+// set SweepPenalInterest evaluates each tick. A loan with neither set can
+// never owe a penal charge, so excluding it keeps the sweep from
+// locking/examining rows it can never act on. Pending loans are included
+// because a loan can go through more than one penal cycle.
+func (r *Repository) FindActiveForPenalSweep(ctx context.Context) ([]PersonalLoan, error) {
+	var recs []PersonalLoan
+	err := r.db.WithContext(ctx).
+		Where("status IN ? AND (penal_interest_rate > 0 OR penal_flat_amount > 0)", []string{StatusActive, StatusPending}).
+		Find(&recs).Error
+	return recs, err
+}
+
 func (r *Repository) CreatePayment(ctx context.Context, tx *gorm.DB, rec *PersonalLoanPayment) error {
 	return dbOrDefault(ctx, tx, r.db).Create(rec).Error
 }

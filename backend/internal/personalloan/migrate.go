@@ -149,3 +149,45 @@ func BackfillRenewedLoanStatus(db *gorm.DB) error {
 	}
 	return nil
 }
+
+// penalColumns are PersonalLoan's new penal-interest columns — same
+// column-add-with-DEFAULT mechanics as BackfillFullDisbursementColumn, needed
+// because a bare AutoMigrate ADD COLUMN ... NOT NULL fails outright on a
+// table that already has rows. last_penal_applied_at is nullable (no penal
+// charge has ever fired for a pre-existing loan) so it needs no DEFAULT.
+// Must run BEFORE AutoMigrate.
+func BackfillPenalColumns(db *gorm.DB) error {
+	m := db.Migrator()
+	if !m.HasTable(&PersonalLoan{}) {
+		return nil // fresh install — AutoMigrate creates the whole table
+	}
+	numericCols := []string{"penal_interest_rate", "penal_flat_amount", "total_penal_interest_charged"}
+	for _, col := range numericCols {
+		if m.HasColumn(&PersonalLoan{}, col) {
+			continue
+		}
+		if err := db.Exec(fmt.Sprintf(`ALTER TABLE personal_loans ADD COLUMN %s numeric(16,2) NOT NULL DEFAULT 0`, col)).Error; err != nil {
+			return err
+		}
+		log.Printf("added personal_loans.%s with a default for pre-existing rows", col)
+	}
+	if !m.HasColumn(&PersonalLoan{}, "grace_period_days") {
+		if err := db.Exec(`ALTER TABLE personal_loans ADD COLUMN grace_period_days integer NOT NULL DEFAULT 0`).Error; err != nil {
+			return err
+		}
+		log.Printf("added personal_loans.grace_period_days with a default for pre-existing rows")
+	}
+	if !m.HasColumn(&PersonalLoan{}, "penal_cycle_count") {
+		if err := db.Exec(`ALTER TABLE personal_loans ADD COLUMN penal_cycle_count integer NOT NULL DEFAULT 0`).Error; err != nil {
+			return err
+		}
+		log.Printf("added personal_loans.penal_cycle_count with a default for pre-existing rows")
+	}
+	if !m.HasColumn(&PersonalLoan{}, "last_penal_applied_at") {
+		if err := db.Exec(`ALTER TABLE personal_loans ADD COLUMN last_penal_applied_at timestamptz`).Error; err != nil {
+			return err
+		}
+		log.Printf("added personal_loans.last_penal_applied_at")
+	}
+	return nil
+}
