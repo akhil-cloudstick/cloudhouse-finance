@@ -58,6 +58,19 @@ export async function listBanks(): Promise<BackendBank[]> {
   return (await apiFetch<BackendBank[]>("/banks")) || [];
 }
 
+export const BANKS_PAGE_SIZE = 10;
+
+/* Paginated variant of listBanks for the Bank Management admin table — the
+ * backend's GET /banks already supports limit/offset/total (mirrors
+ * loan/customer's List, see backend/internal/bank/handler.go), this just
+ * wasn't wired up on the frontend yet. `page` is 1-based, same convention as
+ * listLoansPage/listBankPledgeHistoryPage. */
+export async function listBanksPage(page: number, limit: number = BANKS_PAGE_SIZE): Promise<{ items: BackendBank[]; hasMore: boolean; total: number }> {
+  const params = new URLSearchParams({ limit: String(limit), offset: String((page - 1) * limit) });
+  const res = await apiFetch<{ items: BackendBank[] | null; hasMore: boolean; total?: number }>(`/banks?${params}`);
+  return { items: res.items || [], hasMore: !!res.hasMore, total: res.total ?? 0 };
+}
+
 /* The Party Transactions page's bank-drill-down header needs the bank's own
  * name/details. */
 export async function getBank(id: number): Promise<BackendBank> {

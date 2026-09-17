@@ -81,7 +81,7 @@ export function LoanRisk() {
         <div className="kpi"><div className="l">Safe</div><div className="v" style={{ color: "var(--green)" }}>{counts.green}</div></div>
       </div>
 
-      <div className="loan-risk-filters" style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", marginBottom: 10 }}>
+      <div className="loan-risk-filters" style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", marginBottom: 10, justifyContent: "flex-end" }}>
         <select className="inp" style={{ width: 170 }} value={status} onChange={(e) => setStatus(e.target.value)}>
           <option value="">All statuses</option>
           {RISK_STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}

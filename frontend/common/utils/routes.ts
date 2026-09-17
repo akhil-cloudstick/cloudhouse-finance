@@ -26,4 +26,5 @@ export const TITLES: Record<string, string> = {
   "roles-permissions": "Roles & Permissions",
   billing: "Billing",
   settings: "Settings",
+  "party-bank": "Transactions", "party-customer": "Transactions",
 };

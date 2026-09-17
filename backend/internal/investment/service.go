@@ -97,10 +97,11 @@ type PlanInput struct {
 }
 
 // validateFrequency reports whether freq is a legal PayoutFrequency for the
-// given engine — EngineSchedule stays restricted to Monthly/Yearly exactly
-// as before (its generatePayoutSchedule stepping never learned Daily/
-// Weekly/Quarterly), while EngineLive's accrual engine (accrual.go) accepts
-// all five.
+// given engine — EngineSchedule accepts Monthly/Quarterly/Yearly (its
+// generatePayoutSchedule stepping is month-based, and Quarterly is just a
+// 3-month step; Daily/Weekly need day-based stepping the schedule engine
+// doesn't have), while EngineLive's accrual engine (accrual.go) accepts all
+// five.
 func validateFrequency(engine, freq string) bool {
 	if engine == EngineLive {
 		switch freq {
@@ -110,7 +111,7 @@ func validateFrequency(engine, freq string) bool {
 		return false
 	}
 	switch freq {
-	case PayoutFrequencyMonthly, PayoutFrequencyYearly:
+	case PayoutFrequencyMonthly, PayoutFrequencyQuarterly, PayoutFrequencyYearly:
 		return true
 	}
 	return false
@@ -133,14 +134,18 @@ func validateEngine(e string) bool {
 }
 
 // monthsPerPeriod returns how many months elapse between payouts for a
-// given EngineSchedule frequency — 1 for Monthly, 12 for Yearly. Only ever
-// called for EngineSchedule plans/investments (Daily/Weekly/Quarterly are
-// not legal for that engine — see validateFrequency).
+// given EngineSchedule frequency — 1 for Monthly, 3 for Quarterly, 12 for
+// Yearly. Only ever called for EngineSchedule plans/investments (Daily/
+// Weekly are not legal for that engine — see validateFrequency).
 func monthsPerPeriod(frequency string) int {
-	if frequency == PayoutFrequencyYearly {
+	switch frequency {
+	case PayoutFrequencyYearly:
 		return 12
+	case PayoutFrequencyQuarterly:
+		return 3
+	default:
+		return 1
 	}
-	return 1
 }
 
 // engineOrDefault returns e, or EngineSchedule when e is empty — lets
@@ -365,8 +370,8 @@ func (s *Service) CreateInvestment(ctx context.Context, in CreateInput) (*Invest
 
 // generatePayoutSchedule builds TenureMonths/monthsPerPeriod interest-due
 // rows starting the first period after StartDate, stepping by
-// PayoutFrequency (Monthly +1 calendar month, Yearly +12 calendar months —
-// this Yearly case doesn't exist in personalloan today). Each row's Amount
+// PayoutFrequency (Monthly +1 calendar month, Quarterly +3, Yearly +12).
+// Each row's Amount
 // is the interest earned that period: Simple interest is a flat fraction
 // of the principal every period; Compound recomputes off the cumulative
 // compounded value so later periods earn slightly more, matching standard

@@ -145,7 +145,13 @@ export function Loans() {
     rows = filtered ?? [];
     totalPages = Math.max(1, Math.ceil(serverTotal / pageSize));
   }
-  const knownTotal = !!computedPredicate || serverTotal > 0;
+  // serverTotal > 0 used to stand in for "we have a real total," but that
+  // misreads a legitimately empty result (search/filter matching 0 loans) as
+  // "total unknown," falling back to the stale hasMore flag for the Next
+  // button and dropping the "of totalPages" label on a perfectly valid,
+  // just-empty page. `filtered` is null only until the first server response
+  // lands, so checking that instead correctly treats total: 0 as known.
+  const knownTotal = !!computedPredicate || filtered !== null;
   const nextDisabled = knownTotal ? page >= totalPages : !hasMore;
 
   return (
