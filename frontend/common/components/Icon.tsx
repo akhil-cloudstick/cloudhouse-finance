@@ -159,6 +159,7 @@ const PATHS: Record<string, React.ReactNode> = {
       <path d="M4 18v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2" />
     </>
   ),
+  filter: <path d="M4 5h16l-6.5 7.5v6L10.5 21v-8.5Z" />,
   gear: (
     <>
       <circle cx="12" cy="12" r="3" />

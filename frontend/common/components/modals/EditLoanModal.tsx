@@ -169,7 +169,7 @@ export function EditLoanModalContent({ loan, onSaved }: { loan: LoanView; onSave
             Ornament" is the last child inside this same scrolling box with
             position:sticky so it stays reachable at the bottom of the
             visible list without needing to scroll all the way down first. */}
-        <div className="edit-loan-orn-scroll" style={{ maxHeight: 340, overflowY: "auto", paddingRight: 2 }}>
+        <div className="edit-loan-orn-scroll" style={{ maxHeight: 220, overflowY: "auto", paddingRight: 2 }}>
           {rows.map((r, i) => r.removed ? null : (
             <div key={i} className="eln-card" style={{ border: "1px solid var(--line)", borderRadius: 8, padding: 10 }}>
               {/* Bare "frow" (no .c2/.c3 modifier) is a single-column grid —

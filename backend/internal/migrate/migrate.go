@@ -138,6 +138,12 @@ func Run(db *gorm.DB, cfg platform.Config) error {
 		return err
 	}
 
+	// Must run AFTER AutoMigrate: it backfills the scheme_* snapshot columns
+	// AutoMigrate itself creates on loans. See loan.BackfillSchemeSnapshot.
+	if err := loan.BackfillSchemeSnapshot(db); err != nil {
+		return err
+	}
+
 	// loan_payments.received_by_employee_id became nullable (batch 3:
 	// Razorpay/customer payments — an online payment has no employee
 	// actor). GORM's AutoMigrate above only adds/alters columns to be less

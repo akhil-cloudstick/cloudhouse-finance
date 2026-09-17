@@ -138,7 +138,6 @@ export function PersonalLoanDetail({ id }: { id?: string }) {
     <>
       <div className="page-h">
         <div>
-          <a href="#personalloans" style={{ fontSize: 13 }}>← Back</a>
           <h1>Loan {loan.loanNumber}{customerName ? ` · ${customerName}` : ""}</h1>
         </div>
         <div className="sp" />
@@ -157,18 +156,18 @@ export function PersonalLoanDetail({ id }: { id?: string }) {
       )}
       <hr className="gold-rule" />
 
-      <div className="kpis" style={{ marginBottom: 16 }}>
-        <div className="kpi"><div className="l">Principal</div><div className="v">{fmt(loan.principalAmount)}</div></div>
-        <div className="kpi"><div className="l">Interest</div><div className="v">{fmt(loan.interestAmount)}</div><div className="s">{loan.interestType === "Flat" ? "Flat" : `${loan.interestValue}%`}</div></div>
-        <div className="kpi"><div className="l">Disbursed</div><div className="v">{fmt(loan.disbursedAmount)}</div></div>
-        <div className="kpi"><div className="l">Outstanding</div><div className="v">{fmt(loan.outstandingAmount)}</div></div>
-        <div className="kpi"><div className="l">Status</div><div className="v" style={{ fontSize: 15 }}><StatusChip status={loan.status} /></div></div>
-        <div className="kpi"><div className="l">Frequency</div><div className="v" style={{ fontSize: 17 }}>{loan.frequency}</div></div>
+      <div className="kpis-strip" style={{ marginBottom: 16 }}>
+        <div className="kpis-strip-item"><span className="l">Principal</span><span className="v">{fmt(loan.principalAmount)}</span></div>
+        <div className="kpis-strip-item"><span className="l">Interest</span><span className="v">{fmt(loan.interestAmount)}</span><span className="s">({loan.interestType === "Flat" ? "Flat" : `${loan.interestValue}%`})</span></div>
+        <div className="kpis-strip-item"><span className="l">Disbursed</span><span className="v">{fmt(loan.disbursedAmount)}</span></div>
+        <div className="kpis-strip-item"><span className="l">Outstanding</span><span className="v">{fmt(loan.outstandingAmount)}</span></div>
+        <div className="kpis-strip-item"><span className="l">Status</span><StatusChip status={loan.status} /></div>
+        <div className="kpis-strip-item"><span className="l">Frequency</span><span className="v">{loan.frequency}</span></div>
         {loan.renewedFromLoanId && (
-          <div className="kpi"><div className="l">Renewed From</div><div className="v" style={{ fontSize: 17 }}><a href={`#personalloan/${loan.renewedFromLoanId}`}>Loan #{loan.renewedFromLoanId}</a></div></div>
+          <div className="kpis-strip-item"><span className="l">Renewed From</span><a href={`#personalloan/${loan.renewedFromLoanId}`}>Loan #{loan.renewedFromLoanId}</a></div>
         )}
         {loan.renewedToLoanId && (
-          <div className="kpi"><div className="l">Renewed To</div><div className="v" style={{ fontSize: 17 }}><a href={`#personalloan/${loan.renewedToLoanId}`}>Loan #{loan.renewedToLoanId}</a></div></div>
+          <div className="kpis-strip-item"><span className="l">Renewed To</span><a href={`#personalloan/${loan.renewedToLoanId}`}>Loan #{loan.renewedToLoanId}</a></div>
         )}
       </div>
 

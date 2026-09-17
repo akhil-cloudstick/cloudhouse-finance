@@ -197,7 +197,7 @@ export function LoanDetail({ id }: { id?: string }) {
   useEffect(() => {
     if (loan?.indemnityBondSignStatus === "sign_initiated") setEsignStarted(true);
   }, [loan?.indemnityBondSignStatus]);
-  function load() {
+  function load(isBackgroundRefresh = false) {
     if (!id) return;
     // Direct, atomic lookup by loan number (GET /loans/by-number/:loanNumber)
     // — previously this went through listLoans({q: id}) + a client-side
@@ -207,7 +207,16 @@ export function LoanDetail({ id }: { id?: string }) {
     // a just-abandoned page). A single request has nothing to race with.
     getLoanByNumber(id)
       .then(setLoan)
-      .catch((e) => setError(e instanceof Error ? e.message : "Failed to load loan."));
+      .catch((e) => {
+        // The 20s background poll below shares this function but must never
+        // blank out a page that's already showing a valid loan — e.g. an
+        // approval that just committed successfully, followed moments later
+        // by an unrelated transient failure on this poll's own request. Only
+        // the initial mount fetch (isBackgroundRefresh === false) should
+        // surface "Loan not found".
+        if (isBackgroundRefresh) return;
+        setError(e instanceof Error ? e.message : "Failed to load loan.");
+      });
     // load() also runs as PaymentModal/RepledgeModal's onSaved after a
     // payment/repledge — those change this loan's status/outstanding too,
     // so the shared list other pages read needs the same refresh.
@@ -241,7 +250,7 @@ export function LoanDetail({ id }: { id?: string }) {
   // endpoint on every open tab.
   useEffect(() => {
     if (!id) return;
-    const timer = setInterval(load, 20000);
+    const timer = setInterval(() => load(true), 20000);
     return () => clearInterval(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);

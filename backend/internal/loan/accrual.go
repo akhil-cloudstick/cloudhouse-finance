@@ -5,7 +5,6 @@ import (
 	"time"
 
 	"cloudhouse/backend/internal/platform"
-	"cloudhouse/backend/internal/scheme"
 )
 
 // monthsPerQuarter is the period length for the "Quarterly simple" scheme
@@ -80,14 +79,17 @@ func completedPeriods(from, asOf time.Time, months int) (int, time.Time) {
 // third, hardcoded base.
 //
 // Penal interest accrues, in addition to regular interest, only for whole
-// months the loan has been overdue (past DueDate), applying Scheme.PenalRate
-// the same way regular interest applies Scheme.InterestRate (both read as
-// annual percentages — see frontend/components/NewLoan.tsx's "N% p.a."
-// label). No minimum-month floor and no daily proration apply to penal
-// interest — it stays whole-month-only, counted from DueDate rather than
-// from the accrual anchor, with months already charged subtracted so a due
-// date falling mid-cycle neither double-charges nor loses a month.
-func projectAccrual(l *Loan, sch *scheme.Scheme, asOf time.Time) (interestDelta, penalDelta float64, newAnchor time.Time) {
+// months the loan has been overdue (past DueDate), applying the loan's own
+// frozen SchemePenalRate the same way regular interest applies
+// SchemeInterestRate (both read as annual percentages — see
+// frontend/components/NewLoan.tsx's "N% p.a." label, and both snapshotted
+// from the scheme at loan creation/reassignment rather than looked up live
+// — see Loan.applySchemeSnapshot). No minimum-month floor and no daily
+// proration apply to penal interest — it stays whole-month-only, counted
+// from DueDate rather than from the accrual anchor, with months already
+// charged subtracted so a due date falling mid-cycle neither double-charges
+// nor loses a month.
+func projectAccrual(l *Loan, asOf time.Time) (interestDelta, penalDelta float64, newAnchor time.Time) {
 	from := l.LastAccrualDate
 	// CreateLoan seeds LastAccrualDate to OpenedDate directly (never leaves
 	// it zero — see service.go), so "no accrual has happened yet" is
@@ -109,13 +111,13 @@ func projectAccrual(l *Loan, sch *scheme.Scheme, asOf time.Time) (interestDelta,
 		return 0, 0, from
 	}
 
-	annualRate := sch.InterestRate / 100
+	annualRate := l.SchemeInterestRate / 100
 	monthlyRate := annualRate / 12
 	// The same base each method's whole-month branch below uses for ITS
 	// charge — kept as one variable so the leftover-days charge can never
 	// drift onto a different base than the method it's supplementing.
 	dailyBase := l.OutstandingAmount
-	if sch.InterestMethod == "Flat monthly" {
+	if l.SchemeInterestMethod == "Flat monthly" {
 		dailyBase = l.PrincipalAmount
 	}
 
@@ -128,7 +130,7 @@ func projectAccrual(l *Loan, sch *scheme.Scheme, asOf time.Time) (interestDelta,
 		// passed. That's what makes a same-month repayment still owe a full
 		// month: there is no real day left inside that already-billed month
 		// for any later call to re-discover and charge again.
-		switch sch.InterestMethod {
+		switch l.SchemeInterestMethod {
 		case "Flat monthly":
 			interestDelta = l.PrincipalAmount * monthlyRate
 		case "Quarterly simple":
@@ -144,11 +146,11 @@ func projectAccrual(l *Loan, sch *scheme.Scheme, asOf time.Time) (interestDelta,
 		// charged day-by-day and the anchor advances all the way to asOf so
 		// those leftover days are consumed, not recounted next call.
 		periodMonths := 1
-		if sch.InterestMethod == "Quarterly simple" {
+		if l.SchemeInterestMethod == "Quarterly simple" {
 			periodMonths = monthsPerQuarter
 		}
 		periods, boundary := completedPeriods(from, asOf, periodMonths)
-		switch sch.InterestMethod {
+		switch l.SchemeInterestMethod {
 		case "Flat monthly":
 			interestDelta = l.PrincipalAmount * monthlyRate * float64(periods)
 		case "Quarterly simple":
@@ -175,11 +177,11 @@ func projectAccrual(l *Loan, sch *scheme.Scheme, asOf time.Time) (interestDelta,
 		interestDelta = 0
 	}
 
-	if sch.PenalRate > 0 && !l.DueDate.IsZero() {
+	if l.SchemePenalRate > 0 && !l.DueDate.IsZero() {
 		charged, _ := completedPeriods(l.DueDate, from, 1)
 		total, _ := completedPeriods(l.DueDate, anchor, 1)
 		if overdueMonths := total - charged; overdueMonths > 0 {
-			penalDelta = l.OutstandingAmount * (sch.PenalRate / 100 / 12) * float64(overdueMonths)
+			penalDelta = l.OutstandingAmount * (l.SchemePenalRate / 100 / 12) * float64(overdueMonths)
 			if penalDelta < 0 {
 				penalDelta = 0
 			}
@@ -193,7 +195,7 @@ func projectAccrual(l *Loan, sch *scheme.Scheme, asOf time.Time) (interestDelta,
 // (callers use this to decide whether to re-fetch the saved row).
 func (s *Service) accrueAndSave(ctx context.Context, l *Loan) bool {
 	now := time.Now()
-	interestDelta, penalDelta, anchor := projectAccrual(l, &l.Scheme, now)
+	interestDelta, penalDelta, anchor := projectAccrual(l, now)
 	if interestDelta <= 0 && penalDelta <= 0 {
 		// No accrual, but the loan may still have crossed its due date since
 		// the last read — that alone flips a serviced loan back to Overdue.

@@ -29,15 +29,51 @@ func NormalizeChatID(phone string) string {
 
 // Repository provides GORM-backed persistence for CommunicationLog records.
 type Repository struct {
-	db platform.DB
+	db   platform.DB
+	base *gorm.DB // unpinned handle to the shared pool, for CreateBackground's own short-lived pin
 }
 
-func NewRepository(db platform.DB) *Repository {
-	return &Repository{db: db}
+func NewRepository(db platform.DB, base *gorm.DB) *Repository {
+	return &Repository{db: db, base: base}
 }
 
 func (r *Repository) Create(ctx context.Context, rec *CommunicationLog) error {
 	return r.db.WithContext(ctx).Create(rec).Error
+}
+
+// CreateBackground is Create for a caller running in a goroutine that
+// outlives the HTTP request it started in — e.g. loan.Service.notifyCustomer,
+// which sends WhatsApp notifications on its own goroutine so a slow/
+// unreachable gateway doesn't hold the request open (see its doc comment).
+//
+// ctx there is the request's context (via context.WithoutCancel, so it isn't
+// cancelled early, but still CARRIES the request's pinned-connection value):
+// platform.PinTenantConn's deferred release() closes that *sql.Conn the
+// instant the HTTP handler returns, almost always before this goroutine's
+// write runs, so Create on it fails every time with "sql: connection is
+// already closed" — silently dropping the audit row for every
+// loan/reminder/auth notification. Confirmed against this exact repo: rows
+// written from the reminder cron (no HTTP request, so no pinned connection
+// to lose) succeed; rows attempted from a request handler's background
+// goroutine (loan submission, sanction, approval, …) never landed.
+//
+// The fix is to check out a SEPARATE connection scoped to rec's own tenant —
+// never write unpinned, since this table is Row-Level-Security-scoped by
+// TenantID and an unpinned write would run without app.tenant_id set — held
+// only for this one insert, so it has nothing to race against.
+func (r *Repository) CreateBackground(tenantID uint, rec *CommunicationLog) error {
+	// WithTenant is required alongside PinConn's own set_config: PinConn only
+	// tells POSTGRES which business this connection speaks for (RLS); GORM's
+	// own tenant-stamp callback (platform.stampCallback) separately reads the
+	// tenant from the Go context on every Create, and stamps ErrNoTenantInContext
+	// instead of a row if it's missing.
+	ctx := platform.WithTenant(context.Background(), tenantID)
+	ctx, release, err := platform.PinConn(ctx, r.base, tenantID)
+	if err != nil {
+		return err
+	}
+	defer release()
+	return platform.NewConnPinner(r.base).WithContext(ctx).Create(rec).Error
 }
 
 // Filter mirrors the query params the Communication History report accepts

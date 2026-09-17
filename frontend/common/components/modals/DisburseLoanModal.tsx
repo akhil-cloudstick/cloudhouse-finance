@@ -56,11 +56,8 @@ export function DisburseLoanModalContent({
 
   return (
     <>
-      <div className="hd"><h3>Approve &amp; Disburse — {loan.id}</h3><button className="x" onClick={closeModal}>×</button></div>
+      <div className="hd" style={{ minHeight: 66 }}><h3>Approve &amp; Disburse — {loan.id}</h3><button className="x" onClick={closeModal}>×</button></div>
       <div className="bd">
-        <div className="notice" style={{ marginBottom: 16 }}>
-          Approving this loan disburses <strong>{fmt(loan.principal)}</strong> to the customer.
-        </div>
         <div className="frow">
           <SplitPaymentInput totalAmount={loan.principal} onChange={(s, r) => { setSplit(s); setRemaining(r); }} />
         </div>

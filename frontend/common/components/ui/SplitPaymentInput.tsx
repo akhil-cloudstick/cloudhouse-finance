@@ -111,7 +111,13 @@ export function SplitPaymentInput({
 
   function addLine() {
     setTouched(true);
-    setLines((prev) => [...prev, { mode: "Cash", amount: "" }]);
+    // Prefills the new line with whatever's still unallocated — the common
+    // case is one more line to finish balancing the split, so this saves
+    // staff from retyping (or worse, mistyping) the remaining amount by hand.
+    setLines((prev) => {
+      const currentRemaining = Math.round((totalAmount - splitTotal(sumSplitLines(prev))) * 100) / 100;
+      return [...prev, { mode: "Cash", amount: currentRemaining > 0 ? String(currentRemaining) : "" }];
+    });
   }
 
   function removeLine(i: number) {
@@ -122,40 +128,48 @@ export function SplitPaymentInput({
   return (
     <div className="split-payment">
       <label className="f">Payment breakdown</label>
-      {lines.map((l, i) => (
-        <div key={i} style={{ display: "flex", gap: 8, alignItems: "center", marginTop: i === 0 ? 6 : 8 }}>
-          <div style={{ width: 150, flexShrink: 0 }}>
-            <Select options={MODE_OPTIONS} value={l.mode} onChange={(v) => updateLine(i, { mode: v as SplitPaymentMode })} />
+      {/* Caps at ~3 visible lines and scrolls internally once a 4th is added,
+       * instead of growing the modal further — same "scroll inside, not the
+       * modal" treatment as EditLoanModal's ornament list. Safe to scroll
+       * here (unlike `.bd` itself) because Select's own dropdown is
+       * `position:fixed` (viewport-anchored, see Select.tsx), so it can't be
+       * clipped by this box's overflow. */}
+      <div className="split-payment-lines" style={{ maxHeight: 150, overflowY: "auto", paddingRight: 2 }}>
+        {lines.map((l, i) => (
+          <div key={i} style={{ display: "flex", gap: 8, alignItems: "center", marginTop: i === 0 ? 6 : 8 }}>
+            <div style={{ width: 150, flexShrink: 0 }}>
+              <Select options={MODE_OPTIONS} value={l.mode} onChange={(v) => updateLine(i, { mode: v as SplitPaymentMode })} />
+            </div>
+            <input
+              className="inp"
+              type="number"
+              min={0}
+              step={0.01}
+              placeholder="Amount"
+              value={l.amount}
+              onChange={(e) => updateLine(i, { amount: e.target.value })}
+              style={{ flex: 1 }}
+            />
+            {lines.length > 1 && (
+              <button
+                type="button"
+                className="btn plain sm"
+                onClick={() => removeLine(i)}
+                aria-label="Remove this payment line"
+                style={{ flexShrink: 0, height: 38, boxSizing: "border-box" }}
+              >
+                ✕
+              </button>
+            )}
           </div>
-          <input
-            className="inp"
-            type="number"
-            min={0}
-            step={0.01}
-            placeholder="Amount"
-            value={l.amount}
-            onChange={(e) => updateLine(i, { amount: e.target.value })}
-            style={{ flex: 1 }}
-          />
-          {lines.length > 1 && (
-            <button
-              type="button"
-              className="btn plain sm"
-              onClick={() => removeLine(i)}
-              aria-label="Remove this payment line"
-              style={{ flexShrink: 0 }}
-            >
-              ✕
-            </button>
-          )}
-        </div>
-      ))}
+        ))}
+      </div>
       <button type="button" className="btn plain sm" style={{ marginTop: 8 }} onClick={addLine}>
         + Add Payment
       </button>
       <div style={{ marginTop: 8, fontSize: 12.5, fontWeight: 600, color: balanced ? "var(--green)" : "var(--red)" }}>
-        Remaining to allocate: {fmt(remaining)}
-        {balanced && " · ✓ balanced"}
+        Remaining: {fmt(remaining)}
+        {/* {balanced && " · ✓ balanced"} */}
       </div>
     </div>
   );

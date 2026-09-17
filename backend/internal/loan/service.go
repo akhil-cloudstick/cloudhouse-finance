@@ -443,12 +443,16 @@ func (s *Service) checkStagePermission(ctx context.Context, roleID uint, permiss
 // report, which is where they belonged all along.
 func (s *Service) notifyCustomer(ctx context.Context, customerID uint, phone, title, message, triggerType, relatedEntityType string, relatedEntityID uint) {
 	if s.whatsapp != nil {
-		// WithoutCancel, not Background: the goroutine outlives the request
-		// (whose ctx is cancelled the moment the handler returns, which would
-		// abort the commlog write) but must keep every value on it — tenant
-		// scope above all, since the commlog row is tenant-owned (see
-		// platform.TenantScoped).
-		bg := context.WithoutCancel(ctx)
+		// tenantID is read from ctx BEFORE spawning the goroutine below: the
+		// request's own pinned connection (see platform.PinTenantConn) is
+		// released the instant this handler returns, almost always before
+		// that goroutine's commlog write runs, so a write still riding that
+		// connection fails every time with "sql: connection is already
+		// closed" — silently dropping the audit row for every one of these
+		// notifications. commlogRepo.CreateBackground checks out its OWN
+		// short-lived connection instead, scoped to this tenant, so it has
+		// nothing to race against — see its doc comment.
+		tenantID, _ := platform.TenantFromContext(ctx)
 		go func() {
 			// A panic in a detached goroutine takes the whole process with
 			// it; a failed courtesy message must never do that.
@@ -476,7 +480,7 @@ func (s *Service) notifyCustomer(ctx context.Context, customerID uint, phone, ti
 					rec.Status = commlog.StatusFailed
 					rec.ErrorMessage = sendErr.Error()
 				}
-				if err := s.commlogRepo.Create(bg, rec); err != nil {
+				if err := s.commlogRepo.CreateBackground(tenantID, rec); err != nil {
 					log.Printf("communication log write failed (phone %s): %v", phone, err)
 				}
 			}
@@ -540,8 +544,10 @@ func valueOrnament(o *Ornament, gr *goldrate.GoldRate) error {
 }
 
 // recalculateTotals sums a loan's ornaments into its denormalized totals
-// and recomputes EligibleLoanAmount = TotalGoldValue × Scheme.LTVPercent/100.
-func recalculateTotals(l *Loan, ornaments []Ornament, sch *scheme.Scheme) {
+// and recomputes EligibleLoanAmount = TotalGoldValue × SchemeLTVPercent/100,
+// using the loan's own frozen scheme snapshot rather than a live scheme
+// lookup.
+func recalculateTotals(l *Loan, ornaments []Ornament) {
 	var totalNet, totalValue float64
 	for _, o := range ornaments {
 		totalNet += o.NetWeight
@@ -549,7 +555,7 @@ func recalculateTotals(l *Loan, ornaments []Ornament, sch *scheme.Scheme) {
 	}
 	l.TotalNetWeight = totalNet
 	l.TotalGoldValue = totalValue
-	l.EligibleLoanAmount = totalValue * (sch.LTVPercent / 100)
+	l.EligibleLoanAmount = totalValue * (l.SchemeLTVPercent / 100)
 }
 
 func (s *Service) Create(ctx context.Context, in CreateInput) (*Loan, error) {
@@ -622,7 +628,8 @@ func (s *Service) Create(ctx context.Context, in CreateInput) (*Loan, error) {
 		// whenever it happens to first be viewed/paid against.
 		LastAccrualDate: in.OpenedDate,
 	}
-	recalculateTotals(rec, ornaments, sch)
+	rec.applySchemeSnapshot(sch)
+	recalculateTotals(rec, ornaments)
 
 	if in.PrincipalAmount > rec.EligibleLoanAmount {
 		return nil, ErrPrincipalTooHigh
@@ -874,7 +881,7 @@ func (s *Service) List(ctx context.Context, f LoanFilter) ([]Loan, int64, error)
 	now := time.Now()
 	for i := range loans {
 		l := &loans[i]
-		interestDelta, penalDelta, _ := projectAccrual(l, &l.Scheme, now)
+		interestDelta, penalDelta, _ := projectAccrual(l, now)
 		l.AccruedInterest = platform.RoundMoney(l.AccruedInterest + interestDelta)
 		l.AccruedPenalInterest = platform.RoundMoney(l.AccruedPenalInterest + penalDelta)
 		s.enrich(ctx, l)
@@ -1060,16 +1067,17 @@ type UpdateLoanInput struct {
 // product decision (unlike Update's own field-by-field `changes` pattern
 // elsewhere in this package, nothing here is separately logged).
 //
-// Scheme change: swapping SchemeID is enough on its own — l.Scheme is
-// loaded fresh on every read/accrual call, so the new interest rate,
-// method and penal rate apply automatically to everything computed from
-// this point forward. Already-recorded AccruedInterest/
-// AccruedPenalInterest are untouched — this is deliberately
-// prospective-only, never rewriting history. LTVPercent also changes with
-// the scheme, so EligibleLoanAmount is recalculated against the loan's
-// current ornaments under the NEW scheme, same as AddOrnament/
-// UpdateOrnament/DeleteOrnament already do whenever the ornament set
-// changes.
+// Scheme change: swapping SchemeID re-snapshots the new scheme's terms
+// (interest rate, method, penal rate, LTV, duration) onto the loan at the
+// moment of the swap — every accrual/eligibility calculation reads that
+// frozen snapshot, not a live scheme lookup, so a later edit to either the
+// old or new scheme never again affects this loan. Already-recorded
+// AccruedInterest/AccruedPenalInterest are untouched — this is
+// deliberately prospective-only, never rewriting history. LTVPercent also
+// changes with the scheme, so EligibleLoanAmount is recalculated against
+// the loan's current ornaments under the NEW scheme's snapshot, same as
+// AddOrnament/UpdateOrnament/DeleteOrnament already do whenever the
+// ornament set changes.
 //
 // Principal change: PrincipalAmount is replaced outright, but
 // OutstandingAmount is adjusted by the DELTA (new − old) rather than
@@ -1090,10 +1098,12 @@ func (s *Service) UpdateLoan(ctx context.Context, loanID uint, in UpdateLoanInpu
 	}
 
 	if in.SchemeID != nil {
-		if _, err := s.schemeRepo.FindByID(ctx, *in.SchemeID); err != nil {
+		sch, err := s.schemeRepo.FindByID(ctx, *in.SchemeID)
+		if err != nil {
 			return nil, ErrSchemeInvalid
 		}
 		l.SchemeID = *in.SchemeID
+		l.applySchemeSnapshot(sch)
 	}
 
 	if in.PrincipalAmount != nil {
@@ -1108,15 +1118,11 @@ func (s *Service) UpdateLoan(ctx context.Context, loanID uint, in UpdateLoanInpu
 		}
 	}
 
-	sch, err := s.schemeRepo.FindByID(ctx, l.SchemeID)
-	if err != nil {
-		return nil, ErrSchemeInvalid
-	}
 	ornaments, err := s.ornamentRepo.FindByLoanID(ctx, l.ID)
 	if err != nil {
 		return nil, err
 	}
-	recalculateTotals(l, ornaments, sch)
+	recalculateTotals(l, ornaments)
 	if l.PrincipalAmount > l.EligibleLoanAmount {
 		return nil, ErrPrincipalTooHigh
 	}
@@ -1286,15 +1292,11 @@ func (s *Service) UpdateOrnament(ctx context.Context, ornamentID uint, in Update
 }
 
 func (s *Service) recalculateAndSave(ctx context.Context, l *Loan) (*Loan, error) {
-	sch, err := s.schemeRepo.FindByID(ctx, l.SchemeID)
-	if err != nil {
-		return nil, ErrSchemeInvalid
-	}
 	ornaments, err := s.ornamentRepo.FindByLoanID(ctx, l.ID)
 	if err != nil {
 		return nil, err
 	}
-	recalculateTotals(l, ornaments, sch)
+	recalculateTotals(l, ornaments)
 	if err := s.repo.Update(ctx, l); err != nil {
 		return nil, err
 	}
@@ -2011,18 +2013,14 @@ func (s *Service) TopUpLoan(ctx context.Context, loanID uint, in TopUpInput) (*L
 
 		// Recompute EligibleLoanAmount from the loan's current ornaments —
 		// the same scheme-LTV calculation AddOrnament/UpdateLoan already use
-		// (recalculateTotals) — rather than trusting the denormalized field
-		// to not have drifted, since this number is about to gate real money
-		// going out.
-		sch, err := s.schemeRepo.FindByID(ctx, l.SchemeID)
-		if err != nil {
-			return ErrSchemeInvalid
-		}
+		// (recalculateTotals, against the loan's frozen scheme snapshot) —
+		// rather than trusting the denormalized field to not have drifted,
+		// since this number is about to gate real money going out.
 		ornaments, err := s.ornamentRepo.FindByLoanID(ctx, l.ID)
 		if err != nil {
 			return err
 		}
-		recalculateTotals(l, ornaments, sch)
+		recalculateTotals(l, ornaments)
 
 		// Backdating guard (Phase 0.5 §7): OccurredOn must be >= the most
 		// recent event on this account — either a payment or an earlier
@@ -4347,7 +4345,7 @@ func (s *Service) bondDataForLoan(ctx context.Context, l *Loan) BondData {
 		PAN:             l.Customer.PAN,
 		Aadhaar:         aadhaar,
 		PrincipalAmount: l.PrincipalAmount,
-		InterestRate:    l.Scheme.InterestRate,
+		InterestRate:    l.SchemeInterestRate,
 		Ornaments:       ornaments,
 		Day:             now.Day(),
 		Month:           now.Month().String(),
@@ -4550,12 +4548,11 @@ func (s *Service) deliverEsignLink(ctx context.Context, l *Loan, url, lang, deli
 		// notifyCustomer — an OpenWA send can take up to its own client
 		// timeout, and this must not hold up the eSign response the
 		// caller is waiting on to open its own confirmation screen.
-		// WithoutCancel, not Background: the goroutine outlives the request
-		// (whose ctx is cancelled the moment the handler returns, which would
-		// abort the commlog write) but must keep every value on it — tenant
-		// scope above all, since the commlog row is tenant-owned (see
-		// platform.TenantScoped).
-		bg := context.WithoutCancel(ctx)
+		// tenantID (not the request ctx) is what the commlog write below
+		// uses — see notifyCustomer's identical comment for why: the
+		// request's own pinned connection is gone by the time this goroutine
+		// runs, so commlogRepo.CreateBackground pins its own instead.
+		tenantID, _ := platform.TenantFromContext(ctx)
 		go func() {
 			// A panic in a detached goroutine takes the whole process with
 			// it; a failed courtesy message must never do that.
@@ -4583,7 +4580,7 @@ func (s *Service) deliverEsignLink(ctx context.Context, l *Loan, url, lang, deli
 					rec.Status = commlog.StatusFailed
 					rec.ErrorMessage = sendErr.Error()
 				}
-				if err := s.commlogRepo.Create(bg, rec); err != nil {
+				if err := s.commlogRepo.CreateBackground(tenantID, rec); err != nil {
 					log.Printf("indemnity bond eSign: communication log write failed (loan %d): %v", l.ID, err)
 				}
 			}
