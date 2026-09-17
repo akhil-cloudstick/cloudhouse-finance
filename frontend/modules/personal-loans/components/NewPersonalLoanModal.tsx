@@ -44,6 +44,11 @@ export function NewPersonalLoanModalContent({ onSaved }: { onSaved: () => void }
   // Default unchecked — today's behavior (interest withheld upfront, customer
   // repays principal only) is unchanged unless staff opts in.
   const [fullDisbursement, setFullDisbursement] = useState(false);
+  // Both optional — left blank, the backend defaults penal rate to the
+  // loan's own effective interest rate and grace period to 0 (see
+  // CreateInput.PenalInterestRate's doc comment).
+  const [penalInterestRate, setPenalInterestRate] = useState("");
+  const [gracePeriodDays, setGracePeriodDays] = useState("");
   const [err, setErr] = useState("");
   const [saving, setSaving] = useState(false);
   // Toggles this same mounted component over to the inline "+ Add new
@@ -88,6 +93,8 @@ export function NewPersonalLoanModalContent({ onSaved }: { onSaved: () => void }
         frequency,
         tenureCount: tenureNum,
         fullDisbursement,
+        penalInterestRate: penalInterestRate ? +penalInterestRate : undefined,
+        gracePeriodDays: gracePeriodDays ? +gracePeriodDays : undefined,
       });
       toast(`Personal loan created — ${fmt(disbursedAmount)} disbursed to the customer`);
       onSaved();
@@ -154,23 +161,29 @@ export function NewPersonalLoanModalContent({ onSaved }: { onSaved: () => void }
           </div>
           <div><label className="f">Interest Value *</label><input className="inp" type="number" min={0} step={0.01} placeholder={interestType === "Flat" ? "e.g. 100" : "e.g. 2"} value={interestValue} onChange={(e) => setInterestValue(e.target.value)} /></div>
         </div>
-        <div className="frow"><div><label className="f">Collection Frequency *</label>
-          <div style={{ display: "flex", gap: 14, marginTop: 6 }}>
-            {(["Daily", "Weekly", "Monthly"] as Frequency[]).map((f) => (
-              <label key={f} className="cradio" style={{ fontSize: 13, alignItems: "center" }}>
-                <input type="radio" name="frequency" checked={frequency === f} onChange={() => setFrequency(f)} />
-                <span className="mark" /><span>{f}</span>
-              </label>
-            ))}
+        <div className="frow c2">
+          <div><label className="f">Collection Frequency *</label>
+            <div style={{ display: "flex", gap: 14, marginTop: 6 }}>
+              {(["Daily", "Weekly", "Monthly"] as Frequency[]).map((f) => (
+                <label key={f} className="cradio" style={{ fontSize: 13, alignItems: "center" }}>
+                  <input type="radio" name="frequency" checked={frequency === f} onChange={() => setFrequency(f)} />
+                  <span className="mark" /><span>{f}</span>
+                </label>
+              ))}
+            </div>
           </div>
-        </div></div>
+          <div>
+            <label className="cradio" style={{ fontSize: 13, alignItems: "center", marginTop: 24 }}>
+              <input type="checkbox" checked={fullDisbursement} onChange={(e) => setFullDisbursement(e.target.checked)} />
+              <span className="mark" /><span>Full Amount — disburse the full principal now, no interest withheld upfront</span>
+            </label>
+          </div>
+        </div>
 
-        <div className="frow"><div>
-          <label className="cradio" style={{ fontSize: 13, alignItems: "center" }}>
-            <input type="checkbox" checked={fullDisbursement} onChange={(e) => setFullDisbursement(e.target.checked)} />
-            <span className="mark" /><span>Full Amount — disburse the full principal now, no interest withheld upfront</span>
-          </label>
-        </div></div>
+        <div className="frow c2">
+          <div><label className="f">Penal Interest Rate (% p.a.)</label><input className="inp" type="number" min={0} step={0.01} placeholder="Defaults to the loan's own interest rate" value={penalInterestRate} onChange={(e) => setPenalInterestRate(e.target.value)} /></div>
+          <div><label className="f">Grace Period (days)</label><input className="inp" type="number" min={0} placeholder="e.g. 5" value={gracePeriodDays} onChange={(e) => setGracePeriodDays(e.target.value)} /></div>
+        </div>
 
         {principalNum > 0 && tenureNum > 0 && (
           <div className="notice" style={{ marginTop: 4 }}>

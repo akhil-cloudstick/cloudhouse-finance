@@ -3,7 +3,7 @@ import { printPdfBlob } from "@/common/utils/print";
 
 export type InterestType = "Flat" | "Percentage";
 export type Frequency = "Daily" | "Weekly" | "Monthly";
-export type PersonalLoanStatus = "Active" | "Closed" | "Renewed" | "Defaulted";
+export type PersonalLoanStatus = "Active" | "Pending" | "Closed" | "Renewed" | "Defaulted";
 
 /* Mirrors backend/internal/personalloan/handler.go's createRequest exactly. */
 export type CreatePersonalLoanInput = {
@@ -19,6 +19,11 @@ export type CreatePersonalLoanInput = {
    * of today's default (interest withheld upfront, principal-only
    * repayment). Defaults to false server-side when omitted. */
   fullDisbursement?: boolean;
+  /* Omit or 0 to default to the loan's own effective interest rate — see
+   * backend CreateInput.PenalInterestRate's doc comment. */
+  penalInterestRate?: number;
+  /* Omit or 0 for no grace period. */
+  gracePeriodDays?: number;
 };
 
 /* Mirrors backend/internal/personalloan/model_loan.go's PersonalLoan
@@ -46,6 +51,12 @@ export type BackendPersonalLoan = {
   closedAt: string | null;
   renewedFromLoanId: number | null;
   renewedToLoanId: number | null;
+  penalInterestRate: number;
+  penalFlatAmount: number;
+  gracePeriodDays: number;
+  penalCycleCount: number;
+  totalPenalInterestCharged: number;
+  lastPenalAppliedAt: string | null;
   createdAt: string;
 };
 

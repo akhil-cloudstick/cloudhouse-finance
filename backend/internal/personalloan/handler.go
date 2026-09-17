@@ -29,6 +29,11 @@ type createRequest struct {
 	Frequency        string  `json:"frequency"`
 	TenureCount      int     `json:"tenureCount"`
 	FullDisbursement bool    `json:"fullDisbursement"`
+
+	// PenalInterestRate left unset/0 makes CreateLoan default it to the
+	// loan's own effective interest rate — see CreateInput's doc comment.
+	PenalInterestRate float64 `json:"penalInterestRate"`
+	GracePeriodDays   int     `json:"gracePeriodDays"`
 }
 
 // Create validates + persists a new loan, disbursing it in the same step.
@@ -51,6 +56,8 @@ func (h *Handler) Create(c *gin.Context) {
 		Frequency:           req.Frequency,
 		TenureCount:         req.TenureCount,
 		FullDisbursement:    req.FullDisbursement,
+		PenalInterestRate:   req.PenalInterestRate,
+		GracePeriodDays:     req.GracePeriodDays,
 		CreatedByEmployeeID: employeeID,
 	})
 	if err != nil {

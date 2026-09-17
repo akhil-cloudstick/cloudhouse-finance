@@ -87,6 +87,7 @@ type App struct {
 	tenantRepo      *tenant.Repository
 	notificationSvc *notification.Service
 	loanSvc         *loan.Service
+	personalLoanSvc *personalloan.Service
 	billingSvc      *billing.Service
 	dashboardSvc    *dashboard.Service
 	investmentSvc   *investment.Service
@@ -556,6 +557,7 @@ func Build(db *gorm.DB, cfg platform.Config) (*App, error) {
 		tenantRepo:      tenantRepo,
 		notificationSvc: notificationSvc,
 		loanSvc:         loanSvc,
+		personalLoanSvc: personalLoanSvc,
 		billingSvc:      billingSvc,
 		dashboardSvc:    dashboardSvc,
 		investmentSvc:   investmentSvc,
@@ -620,6 +622,15 @@ func (a *App) StartBackgroundJobs(ctx context.Context) {
 			tenant.ForEachActive(ctx, a.db, a.tenantRepo, "due/overdue sweep", func(ctx context.Context, t tenant.Tenant) error {
 				a.loanSvc.CheckDueAndOverdueLoans(ctx)
 				return nil
+			})
+		}
+	}()
+	go func() {
+		ticker := time.NewTicker(1 * time.Hour)
+		defer ticker.Stop()
+		for range ticker.C {
+			tenant.ForEachActive(ctx, a.db, a.tenantRepo, "personal loan penal interest sweep", func(ctx context.Context, t tenant.Tenant) error {
+				return a.personalLoanSvc.SweepPenalInterest(ctx)
 			})
 		}
 	}()

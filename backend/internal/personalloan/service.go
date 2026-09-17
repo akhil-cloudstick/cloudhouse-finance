@@ -20,6 +20,8 @@ var (
 	ErrInvalidFrequency     = httpx.NewBadRequest("frequency must be Daily, Weekly or Monthly")
 	ErrInvalidInterestType  = httpx.NewBadRequest("interest type must be Flat or Percentage")
 	ErrInvalidInterestValue = httpx.NewBadRequest("interest value must not be negative")
+	ErrInvalidPenalInterestRate = httpx.NewBadRequest("penal interest rate must not be negative")
+	ErrInvalidGracePeriodDays   = httpx.NewBadRequest("grace period days must not be negative")
 	ErrInterestTooHigh      = httpx.NewBadRequest("interest amount must be less than the principal amount")
 	ErrInvalidPaymentAmount = httpx.NewBadRequest("payment amount must be greater than zero")
 	ErrOverpayment          = httpx.NewBadRequest("payment amount exceeds the outstanding balance")
@@ -84,6 +86,15 @@ type CreateInput struct {
 	// becomes Principal + InterestAmount instead of the default Principal
 	// only. See PersonalLoan.FullDisbursement's doc comment.
 	FullDisbursement bool
+
+	// PenalInterestRate/GracePeriodDays feed PersonalLoan's identically named
+	// fields — see that struct's doc comment. PenalInterestRate <= 0 means
+	// "not supplied": CreateLoan fills in the loan's own effective annual
+	// interest rate instead of leaving penal interest disabled, since a
+	// personal loan with no explicit penal rate is not meant to have no
+	// penalty, just no CUSTOM one.
+	PenalInterestRate float64
+	GracePeriodDays   int
 }
 
 func validateFrequency(freq string) bool {
@@ -112,6 +123,25 @@ func computeInterest(principal float64, interestType string, interestValue float
 	return platform.RoundMoney(interestValue)
 }
 
+// defaultPenalTerms derives the (PenalInterestRate, PenalFlatAmount) pair to
+// use when the caller didn't supply an explicit PenalInterestRate at
+// creation — a personal loan with no explicit penal rate still gets a
+// penalty, matching its own interest terms rather than 0/disabled.
+// Percentage-type loans have a real annual rate to default to (their own
+// InterestValue) and use it directly, at full value, per penal cycle — no
+// annualizing or proration. Flat-type loans only have a rupee amount for the
+// whole tenure, with no percentage to derive from, so they get
+// PenalFlatAmount = InterestAmount instead: each missed cycle re-charges the
+// same flat interest amount rather than a percentage of the (changing)
+// outstanding balance. See PersonalLoan.PenalInterestRate/PenalFlatAmount's
+// doc comment and evaluateAndApplyPenal, which picks between the two.
+func defaultPenalTerms(interestType string, interestValue, interestAmount float64) (rate, flatAmount float64) {
+	if interestType == InterestTypePercentage {
+		return interestValue, 0
+	}
+	return 0, interestAmount
+}
+
 // CreateLoan validates the input, computes interest/disbursement, generates
 // the full repayment schedule, and persists the loan — a single step that
 // leaves the loan Active and disbursed (no separate approval stage; see
@@ -131,6 +161,12 @@ func (s *Service) CreateLoan(ctx context.Context, in CreateInput) (*PersonalLoan
 	}
 	if in.InterestValue < 0 {
 		return nil, ErrInvalidInterestValue
+	}
+	if in.PenalInterestRate < 0 {
+		return nil, ErrInvalidPenalInterestRate
+	}
+	if in.GracePeriodDays < 0 {
+		return nil, ErrInvalidGracePeriodDays
 	}
 	if _, err := s.customerRepo.FindByID(ctx, in.CustomerID); err != nil {
 		return nil, err
@@ -157,6 +193,12 @@ func (s *Service) CreateLoan(ctx context.Context, in CreateInput) (*PersonalLoan
 	}
 	installmentAmount := platform.RoundMoney(obligation / float64(in.TenureCount))
 
+	penalRate := in.PenalInterestRate
+	var penalFlatAmount float64
+	if penalRate <= 0 {
+		penalRate, penalFlatAmount = defaultPenalTerms(in.InterestType, in.InterestValue, interestAmount)
+	}
+
 	now := time.Now()
 	rec := &PersonalLoan{
 		BranchID:            in.BranchID,
@@ -176,6 +218,9 @@ func (s *Service) CreateLoan(ctx context.Context, in CreateInput) (*PersonalLoan
 		Status:              StatusActive,
 		OpenedDate:          now,
 		DisbursedAt:         now,
+		PenalInterestRate:   penalRate,
+		PenalFlatAmount:     penalFlatAmount,
+		GracePeriodDays:     in.GracePeriodDays,
 	}
 
 	err := s.repo.DB().WithContext(ctx).Transaction(func(tx *gorm.DB) error {
@@ -237,8 +282,17 @@ func (s *Service) CreateLoan(ctx context.Context, in CreateInput) (*PersonalLoan
 // remains so the schedule sums to exactly PrincipalAmount regardless of
 // rounding drift from the Principal/TenureCount division.
 func generateSchedule(loan *PersonalLoan) []PersonalLoanInstallment {
+	return generateScheduleFrom(loan, loan.OpenedDate)
+}
+
+// generateScheduleFrom is generateSchedule with an explicit anchor instead of
+// always OpenedDate — used by penal.go to regenerate a fresh schedule
+// starting from the moment a penal charge fires, without disturbing the
+// loan's original OpenedDate (kept as the loan's true origination date for
+// display/reporting).
+func generateScheduleFrom(loan *PersonalLoan, anchor time.Time) []PersonalLoanInstallment {
 	recs := make([]PersonalLoanInstallment, 0, loan.TenureCount)
-	due := loan.OpenedDate
+	due := anchor
 	var runningTotal float64
 	for i := 1; i <= loan.TenureCount; i++ {
 		due = stepDueDate(due, loan.Frequency)
@@ -414,7 +468,9 @@ func (s *Service) RecordPayment(ctx context.Context, loanID uint, branchID *uint
 			}
 			return err
 		}
-		if rec.Status != StatusActive {
+		switch rec.Status {
+		case StatusActive, StatusPending:
+		default:
 			return ErrLoanNotActive
 		}
 		amount := platform.RoundMoney(in.Amount)
@@ -457,6 +513,21 @@ func (s *Service) RecordPayment(ctx context.Context, loanID uint, branchID *uint
 			rec.Status = StatusClosed
 			now := time.Now()
 			rec.ClosedAt = &now
+		} else if rec.Status == StatusPending {
+			// A Pending loan reverts to Active as soon as its CURRENT
+			// schedule is no longer past its own grace period — Pending is
+			// a live "currently past grace with a balance owed" indicator,
+			// not a one-way flag, and this payment may be exactly what took
+			// it current again. If it's still overdue (e.g. a partial
+			// payment that doesn't clear the arrears in time), it stays
+			// Pending until the next penal sweep evaluates it again.
+			var currentInstallments []PersonalLoanInstallment
+			if err := tx.Where("personal_loan_id = ?", rec.ID).Find(&currentInstallments).Error; err != nil {
+				return err
+			}
+			if !isPastGracePeriod(rec, currentInstallments, time.Now()) {
+				rec.Status = StatusActive
+			}
 		}
 		if err := s.repo.Update(ctx, tx, rec); err != nil {
 			return err
@@ -575,7 +646,14 @@ func (s *Service) PreviewRenewal(ctx context.Context, loanID uint, branchID *uin
 	if err != nil {
 		return nil, err
 	}
-	if old.Status != StatusActive {
+	// A Pending loan (past its schedule + grace period, already carrying a
+	// penal charge in OutstandingAmount — see penal.go) can still be
+	// renewed, same as an Active one: renewal always rolls over whatever
+	// OutstandingAmount currently is, penal-adjusted or not, with no special
+	// case needed for either status.
+	switch old.Status {
+	case StatusActive, StatusPending:
+	default:
 		return nil, ErrLoanNotActive
 	}
 	if in.PrincipalAmount <= 0 {
@@ -631,7 +709,12 @@ func (s *Service) RenewLoan(ctx context.Context, loanID uint, branchID *uint, in
 			}
 			return err
 		}
-		if old.Status != StatusActive || old.RenewedToLoanID != nil {
+		switch old.Status {
+		case StatusActive, StatusPending:
+		default:
+			return ErrLoanNotActive
+		}
+		if old.RenewedToLoanID != nil {
 			return ErrLoanNotActive
 		}
 

@@ -112,6 +112,13 @@ func Run(db *gorm.DB, cfg platform.Config) error {
 		return err
 	}
 
+	// personal_loans grew NOT NULL penal-interest columns after it shipped —
+	// same AutoMigrate limitation as above. See
+	// personalloan.BackfillPenalColumns - must run BEFORE AutoMigrate.
+	if err := personalloan.BackfillPenalColumns(db); err != nil {
+		return err
+	}
+
 	// loan_payments/personal_loan_payments/investment_payouts all grew NOT
 	// NULL split-mode columns after they shipped — same AutoMigrate
 	// limitation as gold_sales above, plus (for the first two) a one-time
