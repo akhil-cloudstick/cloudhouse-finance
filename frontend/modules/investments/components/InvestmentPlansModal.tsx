@@ -27,12 +27,13 @@ const emptyForm: CreatePlanInput = {
   engine: "Schedule",
 };
 
-/* EngineSchedule (legacy) plans stay restricted to Monthly/Yearly — the old
- * generatePayoutSchedule stepping never learned Daily/Weekly/Quarterly.
- * EngineLive plans (the new Add Cash/Withdraw running-balance product) offer
- * all five, defaulting to Monthly. */
-const SCHEDULE_FREQUENCIES: PayoutFrequency[] = ["Monthly", "Yearly"];
-const LIVE_FREQUENCIES: PayoutFrequency[] = ["Daily", "Weekly", "Monthly", "Quarterly", "Yearly"];
+/* Fixed Payout (backend Engine "Schedule") now also offers Quarterly
+ * alongside Monthly/Yearly — generatePayoutSchedule steps in whole calendar
+ * months, so Quarterly is just a 3-month step; Daily/Weekly aren't offered
+ * here since the schedule engine has no day-based stepping. Single Payout
+ * (backend Engine "Live") has no frequency picker at all: interest accrues
+ * continuously and is paid out once at maturity. */
+const FIXED_PAYOUT_FREQUENCIES: PayoutFrequency[] = ["Monthly", "Quarterly", "Yearly"];
 
 /* Admin-only "Manage Plans" modal, launched from Investments.tsx — lists
  * every plan (active and retired: a retired plan must stay visible here
@@ -101,11 +102,12 @@ export function InvestmentPlansModalContent({ onChanged }: { onChanged: () => vo
     if (!form.name.trim()) { setFormErr("Please enter a plan name."); return; }
     if (form.interestRatePercent < 0) { setFormErr("Interest rate must not be negative."); return; }
     if (form.tenureMonths <= 0) { setFormErr("Tenure must be greater than zero."); return; }
-    // The tenure/frequency divisibility rule only applies to Schedule plans
-    // (whose fixed payout schedule steps in whole calendar-month periods) —
-    // Live plans accrue continuously and have nothing to divide evenly.
+    // The tenure/frequency divisibility rule only applies to Fixed Payout
+    // plans (whose payout schedule steps in whole calendar-month periods) —
+    // Single Payout plans accrue continuously and pay out once at maturity,
+    // with nothing to divide evenly.
     if (form.engine === "Schedule") {
-      const stepMonths = form.payoutFrequency === "Yearly" ? 12 : 1;
+      const stepMonths = form.payoutFrequency === "Yearly" ? 12 : form.payoutFrequency === "Quarterly" ? 3 : 1;
       if (form.tenureMonths % stepMonths !== 0) { setFormErr(`Tenure months must divide evenly by ${stepMonths} for ${form.payoutFrequency} payouts.`); return; }
     }
 
@@ -138,7 +140,7 @@ export function InvestmentPlansModalContent({ onChanged }: { onChanged: () => vo
             </div>
             {error && <div className="notice">{error}</div>}
             <div className="tbl-wrap tbl-wrap-auto"><table className="tbl tbl-center">
-              <thead><tr><th>Name</th><th className="num">Rate</th><th>Frequency</th><th className="num">Tenure</th><th className="num">Min Principal</th><th>Engine</th><th>Status</th><th></th></tr></thead>
+              <thead><tr><th>Name</th><th className="num">Rate</th><th>Frequency</th><th className="num">Tenure</th><th className="num">Min Principal</th><th>Payout</th><th>Status</th><th></th></tr></thead>
               <tbody>
                 {loading ? (
                   <tr><td colSpan={8} className="empty compact">Loading…</td></tr>
@@ -151,7 +153,7 @@ export function InvestmentPlansModalContent({ onChanged }: { onChanged: () => vo
                     <td>{p.payoutFrequency}</td>
                     <td className="num">{p.tenureMonths}mo</td>
                     <td className="num">{fmt(p.minPrincipal)}</td>
-                    <td>{p.engine === "Live" ? "Live" : "Schedule"}</td>
+                    <td>{p.engine === "Live" ? "Single Payout" : "Fixed Payout"}</td>
                     <td><StatusChip status={p.isActive ? "Active" : "Closed"} /></td>
                     <td><button className="btn plain sm" onClick={(e) => { e.stopPropagation(); startEdit(p); }}>Edit</button></td>
                   </tr>
@@ -171,55 +173,47 @@ export function InvestmentPlansModalContent({ onChanged }: { onChanged: () => vo
             <div className="frow c2">
               <div><label className="f">Plan Name *</label><input className="inp" placeholder="e.g. Gold Saver 12mo" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} /></div>
               <div><label className="f">Interest Rate Type *</label>
-                <div style={{ display: "flex", gap: 14, marginTop: 6 }}>
+                <select className="inp" value={form.interestRateType} onChange={(e) => setForm({ ...form, interestRateType: e.target.value as InterestRateType })}>
                   {(["Simple", "Compound"] as InterestRateType[]).map((t) => (
-                    <label key={t} className="cradio" style={{ fontSize: 13 }}>
-                      <input type="radio" name="rateType" checked={form.interestRateType === t} onChange={() => setForm({ ...form, interestRateType: t })} />
-                      <span className="mark" /><span>{t}</span>
-                    </label>
+                    <option key={t} value={t}>{t}</option>
                   ))}
-                </div>
+                </select>
               </div>
             </div>
             <div className="frow c2">
               <div><label className="f">Interest Rate (% p.a.) *</label><input className="inp" type="number" min={0} step={0.01} placeholder="e.g. 8" value={form.interestRatePercent || ""} onChange={(e) => setForm({ ...form, interestRatePercent: +e.target.value || 0 })} /></div>
-              <div><label className="f">Engine *</label>
-                <div style={{ display: "flex", gap: 14, marginTop: 6 }}>
+              <div><label className="f">Payout *</label>
+                <select
+                  className="inp"
+                  value={form.engine}
+                  onChange={(e) => setForm({
+                    ...form,
+                    engine: e.target.value as Engine,
+                    // Reset frequency to Monthly (the shared default)
+                    // whenever the allowed set changes, so a stray
+                    // Quarterly value can't survive a switch back to
+                    // Fixed Payout.
+                    payoutFrequency: "Monthly",
+                  })}
+                >
                   {(["Schedule", "Live"] as Engine[]).map((e) => (
-                    <label key={e} className="cradio" style={{ fontSize: 13 }}>
-                      <input
-                        type="radio"
-                        name="engine"
-                        checked={form.engine === e}
-                        onChange={() => setForm({
-                          ...form,
-                          engine: e,
-                          // Reset frequency to Monthly (the shared default)
-                          // whenever the allowed set changes, so a stray
-                          // Daily/Weekly/Quarterly value can't survive a
-                          // switch back to Schedule.
-                          payoutFrequency: "Monthly",
-                        })}
-                      />
-                      <span className="mark" /><span>{e === "Live" ? "Live (Add Cash / Withdraw)" : "Schedule (fixed payouts)"}</span>
-                    </label>
+                    <option key={e} value={e}>{e === "Live" ? "Single Payout (accumulates, paid at maturity)" : "Fixed Payout"}</option>
                   ))}
-                </div>
+                </select>
               </div>
             </div>
-            <div className="frow c2">
-              <div><label className="f">Payout / Accrual Period *</label>
-                <div style={{ display: "flex", gap: 14, marginTop: 6, flexWrap: "wrap" }}>
-                  {(form.engine === "Live" ? LIVE_FREQUENCIES : SCHEDULE_FREQUENCIES).map((f) => (
-                    <label key={f} className="cradio" style={{ fontSize: 13 }}>
-                      <input type="radio" name="payoutFreq" checked={form.payoutFrequency === f} onChange={() => setForm({ ...form, payoutFrequency: f })} />
-                      <span className="mark" /><span>{f}</span>
-                    </label>
-                  ))}
+            {form.engine === "Schedule" && (
+              <div className="frow c2">
+                <div><label className="f">Payout Frequency *</label>
+                  <select className="inp" value={form.payoutFrequency} onChange={(e) => setForm({ ...form, payoutFrequency: e.target.value as PayoutFrequency })}>
+                    {FIXED_PAYOUT_FREQUENCIES.map((f) => (
+                      <option key={f} value={f}>{f}</option>
+                    ))}
+                  </select>
                 </div>
+                <div />
               </div>
-              <div />
-            </div>
+            )}
             <div className="frow c2">
               <div><label className="f">Tenure (months) *</label><input className="inp" type="number" min={1} placeholder="e.g. 12" value={form.tenureMonths || ""} onChange={(e) => setForm({ ...form, tenureMonths: +e.target.value || 0 })} /></div>
               <div><label className="f">Minimum Principal (₹)</label><input className="inp" type="number" min={0} placeholder="e.g. 10000" value={form.minPrincipal || ""} onChange={(e) => setForm({ ...form, minPrincipal: +e.target.value || 0 })} /></div>

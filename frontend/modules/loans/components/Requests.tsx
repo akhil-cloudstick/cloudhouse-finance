@@ -137,6 +137,7 @@ export function Requests() {
                     <div style={{ display: "flex", justifyContent: "center", alignItems: "center", gap: 6 }}>
                       <button
                         className="btn ghost sm"
+                        style={{ minWidth: 74, textAlign: "center", justifyContent: "center" }}
                         onClick={() => openModal(
                           r.type === "Extension"
                             ? <ExtensionReviewModalContent request={r} onSaved={refreshAfterSave} />

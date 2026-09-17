@@ -68,6 +68,7 @@ function splitTotal(s: SplitAmounts): number {
 export function SplitPaymentInput({
   totalAmount,
   onChange,
+  scrollInternally = true,
 }: {
   /** The amount this split must sum to — drives the live "remaining to
    * allocate" indicator. The single starting line tracks this value live
@@ -77,6 +78,11 @@ export function SplitPaymentInput({
    * split and how much of totalAmount is still unallocated (0 = balanced,
    * matching platform.ValidateSplit's tolerance). */
   onChange: (split: SplitAmounts, remaining: number) => void;
+  /** Caps the lines list at ~3 visible rows and scrolls internally past
+   * that, instead of growing with the list — the default, used by every
+   * modal except PaymentModal, which sets this false so the breakdown
+   * never gets cropped and only the modal's own `.bd-scroll` body scrolls. */
+  scrollInternally?: boolean;
 }) {
   const [lines, setLines] = useState<SplitPaymentLine[]>([
     { mode: "Cash", amount: totalAmount > 0 ? String(totalAmount) : "" },
@@ -133,8 +139,12 @@ export function SplitPaymentInput({
        * modal" treatment as EditLoanModal's ornament list. Safe to scroll
        * here (unlike `.bd` itself) because Select's own dropdown is
        * `position:fixed` (viewport-anchored, see Select.tsx), so it can't be
-       * clipped by this box's overflow. */}
-      <div className="split-payment-lines" style={{ maxHeight: 150, overflowY: "auto", paddingRight: 2 }}>
+       * clipped by this box's overflow. Skipped when scrollInternally is
+       * false (see PaymentModal), which instead relies on `.bd-scroll`. */}
+      <div
+        className="split-payment-lines"
+        style={scrollInternally ? { maxHeight: 150, overflowY: "auto", paddingRight: 2 } : undefined}
+      >
         {lines.map((l, i) => (
           <div key={i} style={{ display: "flex", gap: 8, alignItems: "center", marginTop: i === 0 ? 6 : 8 }}>
             <div style={{ width: 150, flexShrink: 0 }}>

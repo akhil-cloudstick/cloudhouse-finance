@@ -8,14 +8,19 @@ import { ApiError } from "@/common/services/httpClient";
 import { useAuth } from "@/common/auth-context";
 import { BankModalContent } from "@/common/components/modals/BankModal";
 import { MergeBankModalContent } from "@/common/components/modals/MergeBankModal";
-import { listBanks, deleteBank, type BackendBank } from "@/modules/banks/services/bankService";
+import { listBanks, listBanksPage, deleteBank, type BackendBank } from "@/modules/banks/services/bankService";
+
+const PAGE_SIZE = 10;
 
 /* Centralized bank management — mirrors Branches.tsx exactly (simple CRUD
- * table, no pagination at this scale). Unlike Branches, deleting a bank
- * really deletes it (hard delete, guarded by a reference count) rather than
- * deactivating it — see backend Service.Delete's doc comment — so a bank
- * still referenced by history is blocked with a warning naming how many
- * transactions/pledges are linked, pointing staff at "Merge" instead. */
+ * table). Unlike Branches, deleting a bank really deletes it (hard delete,
+ * guarded by a reference count) rather than deactivating it — see backend
+ * Service.Delete's doc comment — so a bank still referenced by history is
+ * blocked with a warning naming how many transactions/pledges are linked,
+ * pointing staff at "Merge" instead.
+ *
+ * Paginated server-side via listBanksPage (GET /banks?limit=&offset=) —
+ * same {items, hasMore, total} envelope as Loans.tsx's listLoansPage. */
 export function Banks() {
   const { openModal } = useModal();
   const toast = useToast();
@@ -24,22 +29,36 @@ export function Banks() {
   const canUpdate = can("Bank_Management", "can_update_bank");
   const canDelete = can("Bank_Management", "can_delete_bank");
   const [banks, setBanks] = useState<BackendBank[] | null>(null);
+  const [total, setTotal] = useState(0);
   const [error, setError] = useState("");
+  const [page, setPage] = useState(1);
 
   async function load() {
     try {
-      setBanks(await listBanks());
+      const res = await listBanksPage(page, PAGE_SIZE);
+      setBanks(res.items);
+      setTotal(res.total);
       setError("");
     } catch (e) {
       setError(e instanceof ApiError ? e.message : "Failed to load banks.");
     }
   }
 
-  useEffect(() => { load(); }, []);
+  useEffect(() => { load(); }, [page]);
+
+  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+
+  // Merge needs every bank as a pick-target, not just the current page — a
+  // separate unpaginated fetch, same call listBanks() made before this page
+  // was paginated.
+  async function openMerge(source: BackendBank) {
+    const all = await listBanks();
+    openModal(<MergeBankModalContent source={source} banks={all} onSaved={load} />);
+  }
 
   function onDelete(b: BackendBank) {
     openModal(
-      <ConfirmDeleteBank bank={b} onMergeInstead={() => openModal(<MergeBankModalContent source={b} banks={banks || []} onSaved={load} />)} onSaved={load} />
+      <ConfirmDeleteBank bank={b} onMergeInstead={() => openMerge(b)} onSaved={load} />
     );
   }
 
@@ -57,7 +76,7 @@ export function Banks() {
         <p style={{ color: "var(--muted)", fontSize: 13.5 }}>No banks yet. Click &quot;Add Bank&quot; to create one.</p>
       )}
       {banks !== null && banks.length > 0 && (
-        <div className="card">
+        <div className="card tbl-card">
           <div className="tbl-wrap">
             <table className="tbl">
               <thead>
@@ -74,8 +93,8 @@ export function Banks() {
                     <td>
                       <div style={{ display: "flex", gap: 12 }}>
                         {canUpdate && <a href="#" onClick={(e) => { e.preventDefault(); openModal(<BankModalContent bank={b} onSaved={load} />); }}>Edit</a>}
-                        {canUpdate && banks.length > 1 && (
-                          <a href="#" onClick={(e) => { e.preventDefault(); openModal(<MergeBankModalContent source={b} banks={banks} onSaved={load} />); }}>Merge</a>
+                        {canUpdate && total > 1 && (
+                          <a href="#" onClick={(e) => { e.preventDefault(); openMerge(b); }}>Merge</a>
                         )}
                         {canDelete && (
                           <a href="#" style={{ color: "var(--red)" }} onClick={(e) => { e.preventDefault(); onDelete(b); }}>Delete</a>
@@ -86,6 +105,11 @@ export function Banks() {
                 ))}
               </tbody>
             </table>
+          </div>
+          <div className="ft" style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <button className="btn plain sm" disabled={page <= 1} onClick={() => setPage((p) => Math.max(1, p - 1))}>‹ Prev</button>
+            <span style={{ fontSize: 12.5 }}>Page {page} of {totalPages}</span>
+            <button className="btn plain sm" disabled={page >= totalPages} onClick={() => setPage((p) => Math.min(totalPages, p + 1))}>Next ›</button>
           </div>
         </div>
       )}

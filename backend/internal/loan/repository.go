@@ -208,6 +208,16 @@ func (r *Repository) FindAll(ctx context.Context, f LoanFilter) ([]Loan, int64, 
 	q := applyFilters(preloadAll(r.db.WithContext(ctx)).Model(&Loan{}).Order("opened_date desc, id desc"), f)
 	var total int64
 	if f.Limit > 0 {
+		// A real COUNT over the same filter, ignoring Limit/Offset — computed
+		// on a cloned session so chaining Limit/Offset below doesn't affect
+		// it (same pattern as CountFiltered). Without this, `total` was left
+		// at its zero value here despite the handler's response claiming it
+		// as "a real COUNT" — every paginated Loans page therefore reported
+		// total: 0, which made the frontend treat page 1 as the last page
+		// and permanently disable Next as soon as the total became "known".
+		if err := applyFilters(r.db.WithContext(ctx).Model(&Loan{}), f).Count(&total).Error; err != nil {
+			return nil, 0, err
+		}
 		q = q.Limit(f.Limit)
 	}
 	if f.Offset > 0 {

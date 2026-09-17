@@ -230,7 +230,7 @@ export function PaymentModalContent({ loan: initialLoan, onSaved }: { loan: Loan
             </div>
             <div className="frow"><div><label className="f">Payment Date *</label><input className="inp" type="date" value={date} onChange={(e) => setDate(e.target.value)} /></div></div>
             <div className="frow">
-              <SplitPaymentInput totalAmount={previewAmount} onChange={(s, r) => { setSplit(s); setRemaining(r); }} />
+              <SplitPaymentInput totalAmount={previewAmount} onChange={(s, r) => { setSplit(s); setRemaining(r); }} scrollInternally={false} />
             </div>
             <div className="frow c2">
               <div><label className="f">Reference No.</label><input className="inp" placeholder="e.g. UPI txn id, cheque no." value={reference} onChange={(e) => setReference(e.target.value)} /></div>
@@ -262,7 +262,7 @@ export function PaymentModalContent({ loan: initialLoan, onSaved }: { loan: Loan
               <div><label className="f">Payment Date *</label><input className="inp" type="date" value={date} onChange={(e) => setDate(e.target.value)} /></div>
             </div>
             <div className="frow">
-              <SplitPaymentInput totalAmount={previewAmount} onChange={(s, r) => { setSplit(s); setRemaining(r); }} />
+              <SplitPaymentInput totalAmount={previewAmount} onChange={(s, r) => { setSplit(s); setRemaining(r); }} scrollInternally={false} />
             </div>
             <div className="frow c2">
               <div><label className="f">Interest (₹)</label>

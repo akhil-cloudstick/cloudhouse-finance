@@ -453,7 +453,7 @@ export async function listCashMovementsByBank(
   const params = partyRangeParams(range);
   params.set("limit", String(pageSize));
   params.set("offset", String((page - 1) * pageSize));
-  const rec = await apiFetch<{ items: BackendCashMovement[]; total: number; totals: PartyTotals }>(`/cash-movements/party/bank/${bankId}?${params}`);
+  const rec = await apiFetch<{ items: BackendCashMovement[]; total: number; totals: PartyTotals }>(`/cash-movements/transactions/bank/${bankId}?${params}`);
   return { items: (rec?.items || []).map(movementToView), total: rec?.total ?? 0, totals: rec?.totals ?? { totalIn: 0, totalOut: 0, net: 0, inCount: 0, outCount: 0 } };
 }
 
@@ -466,18 +466,18 @@ export async function listCashMovementsByCustomer(
   const params = partyRangeParams(range);
   params.set("limit", String(pageSize));
   params.set("offset", String((page - 1) * pageSize));
-  const rec = await apiFetch<{ items: BackendCashMovement[]; total: number; totals: PartyTotals }>(`/cash-movements/party/customer/${customerId}?${params}`);
+  const rec = await apiFetch<{ items: BackendCashMovement[]; total: number; totals: PartyTotals }>(`/cash-movements/transactions/customer/${customerId}?${params}`);
   return { items: (rec?.items || []).map(movementToView), total: rec?.total ?? 0, totals: rec?.totals ?? { totalIn: 0, totalOut: 0, net: 0, inCount: 0, outCount: 0 } };
 }
 
 export async function exportPartyStatementByBank(bankId: number, range?: PartyDateRange): Promise<void> {
   const params = partyRangeParams(range);
   const qs = params.toString() ? `?${params.toString()}` : "";
-  await downloadFile(`/cash-movements/party/bank/${bankId}/export${qs}`, "party-transactions.pdf");
+  await downloadFile(`/cash-movements/transactions/bank/${bankId}/export${qs}`, "party-transactions.pdf");
 }
 
 export async function exportPartyStatementByCustomer(customerId: number, range?: PartyDateRange): Promise<void> {
   const params = partyRangeParams(range);
   const qs = params.toString() ? `?${params.toString()}` : "";
-  await downloadFile(`/cash-movements/party/customer/${customerId}/export${qs}`, "party-transactions.pdf");
+  await downloadFile(`/cash-movements/transactions/customer/${customerId}/export${qs}`, "party-transactions.pdf");
 }

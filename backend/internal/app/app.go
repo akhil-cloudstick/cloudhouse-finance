@@ -431,6 +431,11 @@ func Build(db *gorm.DB, cfg platform.Config) (*App, error) {
 	branch.RegisterRoutes(protected.Group("/branches"), branchHandler, platform.CRUDPermissions(authzRepo, "branches"),
 		platform.RequireTenantModule(tenantRepo, tenant.ModuleBranches))
 	scheme.RegisterRoutes(protected.Group("/schemes"), schemeHandler, platform.CRUDPermissions(authzRepo, "schemes"))
+	// Scheme-wide statement export — lives on loanHandler (see
+	// loan.SchemeStatement's own doc comment for why), mounted here to keep
+	// the URL scheme-shaped. Gated by "loans" read since it's loan/payment
+	// data being exported, same as the per-loan statement route.
+	protected.GET("/schemes/:id/statement", platform.CRUDPermissions(authzRepo, "loans").Read, loanHandler.SchemeStatement)
 	goldrate.RegisterRoutes(protected.Group("/gold-rates"), goldRateHandler, platform.CRUDPermissions(authzRepo, "goldrates"))
 	puritystandard.RegisterRoutes(protected.Group("/purity-standards"), purityStandardHandler, platform.CRUDPermissions(authzRepo, "puritystandards"))
 	employee.RegisterRoutes(protected.Group("/employees"), employeeHandler, platform.CRUDPermissions(authzRepo, "employees"))

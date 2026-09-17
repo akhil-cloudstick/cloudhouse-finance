@@ -143,7 +143,11 @@ export function EditLoanModalContent({ loan, onSaved }: { loan: LoanView; onSave
               placeholder="Search active schemes…"
             /></div>
           <div><label className="f">Principal Amount (₹)</label>
-            <input className="inp" type="number" min={1} value={principal} onChange={(e) => setPrincipal(e.target.value)} /></div>
+            <input className="inp" type="number" min={1} max={eligibleLoanAmount} value={principal} onChange={(e) => setPrincipal(e.target.value)} />
+            <p style={{ fontSize: 11, color: "var(--muted)", marginTop: 4 }}>
+              Max {fmt(eligibleLoanAmount)} (based on scheme LTV)
+            </p>
+          </div>
         </div>
         <div className="frow c2">
           <div>
