@@ -60,8 +60,8 @@ export function SchemeModalContent({ scheme: s, onSaved }: { scheme?: SchemeView
     if (n.length < 3) { setErr("Please enter a scheme name."); return; }
     if (!(r > 0)) { setErr("Please enter a valid interest rate."); return; }
     if (!(d > 0)) { setErr("Please enter a valid loan duration in months."); return; }
-    if (!(l >= 1 && l <= 90)) { setErr("LTV must be between 1 and 90%."); return; }
-    if (!(p >= 0 && p <= 10)) { setErr("Please enter penal charges between 0 and 10% per month."); return; }
+    if (!(l >= 1 && l <= 100)) { setErr("LTV must be between 1 and 100%."); return; }
+    if (!(p >= 0 && p <= 60)) { setErr("Please enter penal charges between 0 and 60% per annum."); return; }
     if (!branchId) { setErr("Please select a branch."); return; }
 
     const input = { name: n, rate: r, durationMonths: d, ltv: l, penal: p, method, cond: cond.trim(), active, branchId: branchId as number };
@@ -91,16 +91,16 @@ export function SchemeModalContent({ scheme: s, onSaved }: { scheme?: SchemeView
         <div className="frow c2 scheme-frow">
           <div><label className="f">Loan Duration (months) *</label>
             <input className="inp" type="number" min={1} step={1} placeholder="e.g. 12" value={duration} onChange={(e) => setDuration(e.target.value)} /></div>
-          <div><label className="f">LTV (%) *</label><input className="inp" type="number" min={1} max={90} placeholder="max 90" value={ltv} onChange={(e) => setLtv(e.target.value)} /></div>
+          <div><label className="f">LTV (%) *</label><input className="inp" type="number" min={1} max={100} placeholder="e.g. 90" value={ltv} onChange={(e) => setLtv(e.target.value)} /></div>
         </div>
         <div className="frow c2 scheme-frow">
           <div><label className="f">Interest Calculation Method</label>
             <Select options={METHOD_OPTIONS} value={method} onChange={setMethod} /></div>
-          <div><label className="f">Penal Charges (% / month) *</label>
-            <input className="inp" type="number" step="0.1" min={0} max={10} placeholder="e.g. 2" value={penal} onChange={(e) => setPenal(e.target.value)} /></div>
+          <div><label className="f">Penal Charges (% p.a.) *</label>
+            <input className="inp" type="number" step="0.1" min={0} max={60} placeholder="e.g. 24" value={penal} onChange={(e) => setPenal(e.target.value)} /></div>
         </div>
         <div className="frow scheme-frow"><div><label className="f">Applicable Conditions</label>
-          <input className="inp" placeholder="e.g. Interest payable monthly; penal 2%/m after due" value={cond} onChange={(e) => setCond(e.target.value)} /></div></div>
+          <input className="inp" placeholder="e.g. Interest payable monthly; penal 24% p.a. after due" value={cond} onChange={(e) => setCond(e.target.value)} /></div></div>
         <div className="frow c2 scheme-frow">
           <div><label className="f">Status</label>
             <Select options={STATUS_OPTIONS} value={active ? "1" : "0"} onChange={(v) => setActive(v === "1")} /></div>

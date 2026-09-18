@@ -105,7 +105,7 @@ type LoanFilter struct {
 	CustomerID uint
 	SchemeID   uint
 	LoanIDs    []uint // when non-empty, narrows to exactly these loans (e.g. a scheme statement's loan picker)
-	Query      string // matches LoanNumber (case-insensitive, partial)
+	Query      string // matches LoanNumber or the customer's name (case-insensitive, partial)
 
 	// BranchScope is the caller's branch-scoping restriction (see
 	// platform.GetBranchScope) — nil for Administrator (no restriction),
@@ -176,7 +176,17 @@ func applyFilters(q *gorm.DB, f LoanFilter) *gorm.DB {
 		q = q.Where("id IN ?", f.LoanIDs)
 	}
 	if f.Query != "" {
-		q = q.Where("loan_number ILIKE ?", "%"+f.Query+"%")
+		// Deliberately no explicit Select("loans.*") here — this filter is
+		// shared by both FindAll's Find() and its Count(), and Select survives
+		// into Count() too (GORM wraps it as COUNT("loans"."*"), which Postgres
+		// rejects), so it can't be set unconditionally in applyFilters. GORM's
+		// Find still scans this correctly despite the customers join adding
+		// same-named columns (id, created_at, ...): it maps by the Loan
+		// model's own known column list rather than raw column position,
+		// exactly as personalloan.Repository's identical join already relies
+		// on (see personalloan/repository.go's Query handling).
+		q = q.Joins("JOIN customers ON customers.id = loans.customer_id").
+			Where("loans.loan_number ILIKE ? OR customers.name ILIKE ?", "%"+f.Query+"%", "%"+f.Query+"%")
 	}
 	if f.BranchScope != nil {
 		q = q.Where("branch_id = ?", *f.BranchScope)

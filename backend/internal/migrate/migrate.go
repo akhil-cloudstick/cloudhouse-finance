@@ -1043,6 +1043,7 @@ var allModels = []any{
 	&personalloan.PersonalLoan{},
 	&personalloan.PersonalLoanInstallment{},
 	&personalloan.PersonalLoanPayment{},
+	&personalloan.PersonalLoanHistory{},
 	&investment.InvestmentPlan{},
 	&investment.Investment{},
 	&investment.InvestmentPayout{},

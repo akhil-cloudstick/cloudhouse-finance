@@ -140,6 +140,14 @@ func (r *Repository) FindInstallments(ctx context.Context, loanID uint, limit, o
 	return recs, err
 }
 
+// CountInstallments returns the total number of installment rows for a
+// loan's CURRENT schedule — feeds the Schedule table's real "Page N of M".
+func (r *Repository) CountInstallments(ctx context.Context, loanID uint) (int64, error) {
+	var count int64
+	err := r.db.WithContext(ctx).Model(&PersonalLoanInstallment{}).Where("personal_loan_id = ?", loanID).Count(&count).Error
+	return count, err
+}
+
 func (r *Repository) UpdateInstallment(ctx context.Context, tx *gorm.DB, rec *PersonalLoanInstallment) error {
 	return dbOrDefault(ctx, tx, r.db).Save(rec).Error
 }
@@ -190,6 +198,14 @@ func (r *Repository) FindPayments(ctx context.Context, loanID uint, limit, offse
 	return recs, err
 }
 
+// CountPayments returns the total number of payment rows for a loan — feeds
+// the Payment History table's real "Page N of M".
+func (r *Repository) CountPayments(ctx context.Context, loanID uint) (int64, error) {
+	var count int64
+	err := r.db.WithContext(ctx).Model(&PersonalLoanPayment{}).Where("personal_loan_id = ?", loanID).Count(&count).Error
+	return count, err
+}
+
 // CalendarInstallment is one pending installment joined with its loan and
 // customer — just enough for the reminder calendar to show "who owes what,
 // when" without pulling in the full PersonalLoan/Customer structs (see
@@ -226,6 +242,28 @@ func (r *Repository) FindPendingInstallmentsForCalendar(ctx context.Context, bra
 	}
 	err := q.Scan(&rows).Error
 	return rows, err
+}
+
+func (r *Repository) CreateHistory(ctx context.Context, tx *gorm.DB, rec *PersonalLoanHistory) error {
+	return dbOrDefault(ctx, tx, r.db).Create(rec).Error
+}
+
+// FindHistory returns one page of a loan's change-history timeline, newest
+// first (matching FindPayments) — limit+1 rows for the same cheap hasMore
+// trick as FindInstallments/FindPayments.
+func (r *Repository) FindHistory(ctx context.Context, loanID uint, limit, offset int) ([]PersonalLoanHistory, error) {
+	var recs []PersonalLoanHistory
+	err := r.db.WithContext(ctx).Where("personal_loan_id = ?", loanID).Order("occurred_at desc, id desc").
+		Limit(limit + 1).Offset(offset).Find(&recs).Error
+	return recs, err
+}
+
+// CountHistory returns the total number of history rows for a loan — feeds
+// the History table's real "Page N of M".
+func (r *Repository) CountHistory(ctx context.Context, loanID uint) (int64, error) {
+	var count int64
+	err := r.db.WithContext(ctx).Model(&PersonalLoanHistory{}).Where("personal_loan_id = ?", loanID).Count(&count).Error
+	return count, err
 }
 
 // dbOrDefault returns tx if the caller supplied one (a write that must

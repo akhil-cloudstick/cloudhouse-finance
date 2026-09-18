@@ -252,7 +252,8 @@ func (s *Service) CreateLoan(ctx context.Context, in CreateInput) (*PersonalLoan
 		if err := s.repo.CreateInstallments(ctx, tx, installments); err != nil {
 			return err
 		}
-		return nil
+		return s.logHistory(ctx, tx, rec.ID, rec.TenantID, EventLoanCreated,
+			fmt.Sprintf("Loan opened for ₹%.2f", rec.PrincipalAmount), rec.PrincipalAmount, nil, now)
 	})
 	if err != nil {
 		return nil, err
@@ -325,6 +326,49 @@ func stepDueDate(from time.Time, frequency string) time.Time {
 	}
 }
 
+// logHistory writes one PersonalLoanHistory row inside tx — called from
+// CreateLoan/RenewLoan/applyPenalIfDue right alongside the mutation each
+// describes so the change-history timeline stays consistent with the loan
+// row it documents.
+func (s *Service) logHistory(ctx context.Context, tx *gorm.DB, loanID uint, tenantID uint, event, detail string, amount float64, relatedLoanID *uint, occurredAt time.Time) error {
+	rec := &PersonalLoanHistory{
+		PersonalLoanID: loanID,
+		Event:          event,
+		Detail:         detail,
+		Amount:         amount,
+		RelatedLoanID:  relatedLoanID,
+		OccurredAt:     occurredAt,
+	}
+	rec.TenantID = tenantID
+	return s.repo.CreateHistory(ctx, tx, rec)
+}
+
+// GetHistory returns one page of a loan's change-history timeline
+// (limit/offset, page size defaults to defaultPageSize when limit <= 0),
+// plus whether another page exists and the TOTAL row count — backs the
+// Personal Loan detail page's History table (switchable with Schedule).
+func (s *Service) GetHistory(ctx context.Context, loanID uint, branchID *uint, limit, offset int) ([]PersonalLoanHistory, bool, int64, error) {
+	if _, err := s.Get(ctx, loanID, branchID); err != nil {
+		return nil, false, 0, err
+	}
+	if limit <= 0 {
+		limit = defaultPageSize
+	}
+	total, err := s.repo.CountHistory(ctx, loanID)
+	if err != nil {
+		return nil, false, 0, err
+	}
+	recs, err := s.repo.FindHistory(ctx, loanID, limit, offset)
+	if err != nil {
+		return nil, false, 0, err
+	}
+	hasMore := len(recs) > limit
+	if hasMore {
+		recs = recs[:limit]
+	}
+	return recs, hasMore, total, nil
+}
+
 // Get returns a single loan, branch-scoped.
 func (s *Service) Get(ctx context.Context, id uint, branchID *uint) (*PersonalLoan, error) {
 	rec, err := s.repo.FindByID(ctx, id, branchID)
@@ -388,44 +432,54 @@ const defaultPageSize = 10
 
 // GetSchedule returns one page of a loan's installment schedule
 // (limit/offset, page size defaults to defaultPageSize when limit <= 0),
-// plus whether another page exists.
-func (s *Service) GetSchedule(ctx context.Context, loanID uint, branchID *uint, limit, offset int) ([]PersonalLoanInstallment, bool, error) {
+// plus whether another page exists and the TOTAL row count — the total is
+// what lets the Schedule table show a real "Page N of M" instead of just
+// enabling/disabling Next (see Service.List's identical reasoning).
+func (s *Service) GetSchedule(ctx context.Context, loanID uint, branchID *uint, limit, offset int) ([]PersonalLoanInstallment, bool, int64, error) {
 	if _, err := s.Get(ctx, loanID, branchID); err != nil {
-		return nil, false, err
+		return nil, false, 0, err
 	}
 	if limit <= 0 {
 		limit = defaultPageSize
 	}
+	total, err := s.repo.CountInstallments(ctx, loanID)
+	if err != nil {
+		return nil, false, 0, err
+	}
 	recs, err := s.repo.FindInstallments(ctx, loanID, limit, offset)
 	if err != nil {
-		return nil, false, err
+		return nil, false, 0, err
 	}
 	hasMore := len(recs) > limit
 	if hasMore {
 		recs = recs[:limit]
 	}
-	return recs, hasMore, nil
+	return recs, hasMore, total, nil
 }
 
 // ListPayments returns one page of a loan's payment ledger (limit/offset,
 // page size defaults to defaultPageSize when limit <= 0), newest first,
-// plus whether another page exists.
-func (s *Service) ListPayments(ctx context.Context, loanID uint, branchID *uint, limit, offset int) ([]PersonalLoanPayment, bool, error) {
+// plus whether another page exists and the TOTAL row count.
+func (s *Service) ListPayments(ctx context.Context, loanID uint, branchID *uint, limit, offset int) ([]PersonalLoanPayment, bool, int64, error) {
 	if _, err := s.Get(ctx, loanID, branchID); err != nil {
-		return nil, false, err
+		return nil, false, 0, err
 	}
 	if limit <= 0 {
 		limit = defaultPageSize
 	}
+	total, err := s.repo.CountPayments(ctx, loanID)
+	if err != nil {
+		return nil, false, 0, err
+	}
 	recs, err := s.repo.FindPayments(ctx, loanID, limit, offset)
 	if err != nil {
-		return nil, false, err
+		return nil, false, 0, err
 	}
 	hasMore := len(recs) > limit
 	if hasMore {
 		recs = recs[:limit]
 	}
-	return recs, hasMore, nil
+	return recs, hasMore, total, nil
 }
 
 // PaymentInput mirrors the "Collect Payment" form. Method is no longer
@@ -805,6 +859,15 @@ func (s *Service) RenewLoan(ctx context.Context, loanID uint, branchID *uint, in
 		old.ClosedAt = &now
 		old.RenewedToLoanID = &newLoan.ID
 		if err := s.repo.Update(ctx, tx, old); err != nil {
+			return err
+		}
+
+		if err := s.logHistory(ctx, tx, old.ID, old.TenantID, EventLoanRenewed,
+			fmt.Sprintf("Renewed into loan %s", newLoan.LoanNumber), newLoan.PrincipalAmount, &newLoan.ID, now); err != nil {
+			return err
+		}
+		if err := s.logHistory(ctx, tx, newLoan.ID, newLoan.TenantID, EventLoanCreated,
+			fmt.Sprintf("Loan opened for ₹%.2f (renewed from loan %s)", newLoan.PrincipalAmount, old.LoanNumber), newLoan.PrincipalAmount, &old.ID, now); err != nil {
 			return err
 		}
 

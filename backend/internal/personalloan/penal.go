@@ -3,6 +3,7 @@ package personalloan
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log"
 	"time"
 
@@ -165,6 +166,10 @@ func (s *Service) applyPenalIfDue(ctx context.Context, loanID uint, asOf time.Ti
 		for i := range newInstallments {
 			newInstallments[i].TenantID = loan.TenantID
 		}
-		return s.repo.ReplaceInstallments(ctx, tx, loan.ID, newInstallments)
+		if err := s.repo.ReplaceInstallments(ctx, tx, loan.ID, newInstallments); err != nil {
+			return err
+		}
+		return s.logHistory(ctx, tx, loan.ID, loan.TenantID, EventPenalApplied,
+			fmt.Sprintf("Installment period ended unpaid — ₹%.2f penal interest added (cycle %d)", penalAmount, loan.PenalCycleCount), penalAmount, nil, asOf)
 	})
 }
