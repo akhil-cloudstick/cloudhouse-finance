@@ -337,9 +337,12 @@ func TestProjectAccrual_PenalCountsWholeOverdueMonthsOnce(t *testing.T) {
 	}
 
 	// Read at 1 June: overdue months completed from 20 Mar are 20 Apr and
-	// 20 May, so exactly two months of penal at 2%/month.
-	_, p, anchor := projectAccrual(l, time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC))
-	nearly(t, p, 4000, "two overdue months of penal")
+	// 20 May, so exactly two months of penal at 2%/month — on OutstandingAmount
+	// (100,000) PLUS the interest this same call accrues but leaves unpaid
+	// (5 months at 1%/month = 5,000), i.e. 2% * 105,000 = 2,100 per month.
+	i, p, anchor := projectAccrual(l, time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC))
+	nearly(t, p, 4200, "two overdue months of penal on outstanding principal plus unpaid interest")
+	l.AccruedInterest += i
 	l.AccruedPenalInterest += p
 	l.LastAccrualDate = anchor
 

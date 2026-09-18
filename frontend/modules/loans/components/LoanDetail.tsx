@@ -832,14 +832,20 @@ export function LoanDetail({ id }: { id?: string }) {
          * `.page-h`'s own wrap threshold, dropping the whole button
          * cluster to its own line on anything but a very wide window even
          * though there was visibly still room for it beside the title. */}
-        <div className="page-h-title"><h1>{l.id} <StatusChip status={l.status} />
+        <div className="page-h-title"><h1>{l.id} {/* Defaulted is the more specific state — a defaulted loan's own
+              l.status still reads "Overdue" backend-side, so without this
+              guard the title showed both "Overdue" and "Defaulted" chips
+              side by side for the same loan. */}
+          {!l.isDefaulted && <StatusChip status={l.status} />}
           {l.isDefaulted && <StatusChip status="Defaulted" />}
           {/* A past-term loan whose interest is paid off comes back from the
               backend as "Active" (see refreshServicingStatus in
               loan/accrual.go). isOverdue stays true — the term really has
               expired — so suppress the duplicate chip here, or a serviced
-              loan would read "Active" and "Overdue" at the same time. */}
-          {!l.isDefaulted && l.isOverdue && l.status !== "Active" && <StatusChip status="Overdue" />}
+              loan would read "Active" and "Overdue" at the same time. Also
+              suppress when l.status is already "Overdue" itself, or the
+              title would show two identical "Overdue" chips. */}
+          {!l.isDefaulted && l.isOverdue && l.status !== "Active" && l.status !== "Overdue" && <StatusChip status="Overdue" />}
           {!l.isOverdue && l.isDueSoon && <StatusChip status="Due Soon" />}
           </h1>
           <p style={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}><a href={`#customer/${l.customerId}`}>{l.customerName}</a> · {l.schemeName} · opened {l.opened} · due {l.due}{l.isOverdue ? ` · ${l.daysOverdue} days overdue` : ""}</p></div>
@@ -908,7 +914,7 @@ export function LoanDetail({ id }: { id?: string }) {
                   </a>
                 )}
                 {l.status === "Active" && canUpdateLoans && (
-                  <a href="#" title="Top Up Loan" onClick={(e) => { e.preventDefault(); setLoanActionsMenuOpen(false); openModal(<TopUpLoanModalContent loan={l} onSaved={load} />); }}>
+                  <a href="#" title="Top Up Loan" onClick={(e) => { e.preventDefault(); setLoanActionsMenuOpen(false); openModal(<TopUpLoanModalContent loan={l} onSaved={() => load()} />); }}>
                     <Icon name="coin" /><span className="tx">Top Up</span>
                   </a>
                 )}

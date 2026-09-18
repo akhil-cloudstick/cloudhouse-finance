@@ -11,10 +11,13 @@ import { StatusChip } from "@/common/components/ui/StatusChip";
 import {
   getPersonalLoan,
   getPersonalLoanSchedulePage,
+  getPersonalLoanHistoryPage,
   listPersonalLoanPaymentsPage,
   downloadPersonalLoanBond,
+  PERSONAL_LOAN_PAGE_SIZE,
   type BackendPersonalLoan,
   type BackendPersonalLoanInstallment,
+  type BackendPersonalLoanHistory,
   type BackendPersonalLoanPayment,
 } from "@/modules/personal-loans/services/personalLoanService";
 import { CollectPaymentModalContent } from "@/modules/personal-loans/components/CollectPaymentModal";
@@ -24,10 +27,10 @@ import { RenewLoanModalContent } from "@/modules/personal-loans/components/Renew
  * 360 detail tables (modules/customers/components/CustomerDetail.tsx):
  * `.card > .hd > h3` header, `.tbl-wrap.tbl-wrap-auto` + `.tbl.tbl-center`
  * body, and this same Pager footer. */
-function usePagedTable<T>(fetchPage: (page: number) => Promise<{ items: T[]; hasMore: boolean }>, resetKey: unknown) {
+function usePagedTable<T>(fetchPage: (page: number) => Promise<{ items: T[]; hasMore: boolean; total: number }>, resetKey: unknown) {
   const [items, setItems] = useState<T[]>([]);
   const [page, setPage] = useState(1);
-  const [hasMore, setHasMore] = useState(false);
+  const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
@@ -36,7 +39,7 @@ function usePagedTable<T>(fetchPage: (page: number) => Promise<{ items: T[]; has
     try {
       const res = await fetchPage(p - 1);
       setItems(res.items);
-      setHasMore(res.hasMore);
+      setTotal(res.total);
       setError("");
     } catch (e) {
       setError(e instanceof ApiError ? e.message : "Could not load.");
@@ -48,23 +51,22 @@ function usePagedTable<T>(fetchPage: (page: number) => Promise<{ items: T[]; has
   useEffect(() => { setPage(1); }, [resetKey]);
   useEffect(() => { void load(page); }, [load, page]);
 
-  const totalPages = hasMore ? page + 1 : page;
+  const totalPages = Math.max(1, Math.ceil(total / PERSONAL_LOAN_PAGE_SIZE));
   return { items, page, setPage, totalPages, loading, error, reload: () => load(page) };
 }
 
-/* Mirrors CustomerDetail.tsx's own local Pager exactly (same markup,
- * classes and inline sizing) so this page's pagination looks identical to
- * every Customer 360 table. */
+/* Mirrors Loans.tsx's own `.card.tbl-card` + `.tbl-wrap` + plain `.ft`
+ * pattern exactly, rather than the old tbl-wrap-auto/ft-static combo, so
+ * this page's tables grow/scroll and its pagers sit exactly like every
+ * other list table's — including on tall/wide screens, where
+ * tbl-wrap-auto's own calc(100vh - 350px) cap made these tables noticeably
+ * shorter than Loans.tsx's `.tbl-card > .tbl-wrap{max-height:none}` one.
+ * `.tbl-card`'s own layout (see its app.css comment) is what already solves
+ * the two-stacked-cards sticky-footer collision ft-static used to work
+ * around, so the plain `.ft` here needs no such opt-out. */
 function Pager({ page, totalPages, onChange }: { page: number; totalPages: number; onChange: (p: number) => void }) {
   return (
-    /* ft-static opts out of the generic `.tbl-wrap + .ft{position:sticky;
-     * bottom:0}` rule (app.css) — sticky positions relative to `.page`'s
-     * own scroll, and with two of these cards stacked in `.pl-detail-grid`
-     * (narrow screens collapse it to one column), their two sticky footers
-     * raced to the same spot near the viewport bottom and collided —
-     * the Payment History pager landing on top of its own table header.
-     * Same fix Cash.tsx's Cash Movements pager already uses. */
-    <div className="ft ft-static" style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 14px" }}>
+    <div className="ft" style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 14px" }}>
       <button className="btn plain" style={{ padding: "9px 18px", fontSize: 13 }} disabled={page <= 1} onClick={() => onChange(Math.max(1, page - 1))}>‹ Prev</button>
       <span style={{ fontSize: 13 }}>Page {page} of {totalPages}</span>
       <button className="btn plain" style={{ padding: "9px 18px", fontSize: 13 }} disabled={page >= totalPages} onClick={() => onChange(Math.min(totalPages, page + 1))}>Next ›</button>
@@ -110,8 +112,14 @@ export function PersonalLoanDetail({ id }: { id?: string }) {
 
   useEffect(() => { void refreshLoan(); }, [refreshLoan]);
 
+  const [scheduleTab, setScheduleTab] = useState<"schedule" | "history">("schedule");
+
   const schedule = usePagedTable<BackendPersonalLoanInstallment>(
     useCallback((page) => getPersonalLoanSchedulePage(numericId, page), [numericId]),
+    numericId
+  );
+  const history = usePagedTable<BackendPersonalLoanHistory>(
+    useCallback((page) => getPersonalLoanHistoryPage(numericId, page), [numericId]),
     numericId
   );
   const payments = usePagedTable<BackendPersonalLoanPayment>(
@@ -196,14 +204,10 @@ export function PersonalLoanDetail({ id }: { id?: string }) {
         </div>
       </div>
       {downloadError && <div className="notice" style={{ marginBottom: 12 }}>{downloadError}</div>}
-      {loan.fullDisbursement && (
-        <div className="notice" style={{ marginBottom: 12 }}>
-          Full amount disbursed — includes {fmt(loan.interestAmount)} interest.
-        </div>
-      )}
       <hr className="gold-rule" />
 
       <div className="kpis-strip" style={{ marginBottom: 16 }}>
+        <div className="kpis-strip-item"><span className="l">Created</span><span className="v">{loan.openedDate.slice(0, 10)}</span></div>
         <div className="kpis-strip-item"><span className="l">Principal</span><span className="v">{fmt(loan.principalAmount)}</span></div>
         <div className="kpis-strip-item"><span className="l">Interest</span><span className="v">{fmt(loan.interestAmount)}</span><span className="s">({loan.interestType === "Flat" ? "Flat" : `${loan.interestValue}%`})</span></div>
         <div className="kpis-strip-item"><span className="l">Disbursed</span><span className="v">{fmt(loan.disbursedAmount)}</span></div>
@@ -221,42 +225,86 @@ export function PersonalLoanDetail({ id }: { id?: string }) {
         )}
       </div>
 
-      {loan.penalCycleCount > 0 && (
-        <div className="notice" style={{ marginBottom: 12 }}>
-          This loan went unpaid past its schedule and grace period {loan.penalCycleCount} time(s) — {fmt(loan.totalPenalInterestCharged)} in penal interest at {loan.penalInterestRate}% p.a. has been added to the outstanding balance, and the installment schedule has been regenerated.
-        </div>
-      )}
-
       <div className="pl-detail-grid">
-        <div className="card">
-          <div className="hd"><h3>Schedule</h3></div>
-          {schedule.error && <div className="notice" style={{ margin: 14 }}>{schedule.error}</div>}
-          <div className="tbl-wrap tbl-wrap-auto"><table className="tbl tbl-center">
-            <thead><tr><th>#</th><th>Due Date</th><th className="num">Amount</th><th>Status</th></tr></thead>
-            <tbody>
-              {schedule.loading ? (
-                <tr><td colSpan={4} className="empty compact">Loading…</td></tr>
-              ) : schedule.items.length === 0 ? (
-                <tr><td colSpan={4} className="empty compact">No installments.</td></tr>
-              ) : schedule.items.map((s) => (
-                <tr key={s.id}>
-                  <td>{s.sequenceNo}</td>
-                  <td>{s.dueDate.slice(0, 10)}</td>
-                  <td className="num">{fmt(s.amount)}</td>
-                  <td><StatusChip status={s.status === "PartiallyPaid" ? "Partially Paid" : s.status} /></td>
-                </tr>
-              ))}
-            </tbody>
-          </table></div>
-          <Pager page={schedule.page} totalPages={schedule.totalPages} onChange={schedule.setPage} />
+        <div className="card tbl-card">
+          <div className="hd" style={{ justifyContent: "space-between" }}>
+            <h3>{scheduleTab === "schedule" ? "Schedule" : "History"}</h3>
+            <div className="seg" style={{ display: "flex", gap: 4 }}>
+              <button
+                type="button"
+                className={`btn plain${scheduleTab === "schedule" ? " active" : ""}`}
+                style={{ height: 24, padding: "0 10px", fontSize: 11.5, lineHeight: "22px", fontWeight: scheduleTab === "schedule" ? 600 : 400 }}
+                onClick={() => setScheduleTab("schedule")}
+              >
+                Schedule
+              </button>
+              <button
+                type="button"
+                className={`btn plain${scheduleTab === "history" ? " active" : ""}`}
+                style={{ height: 24, padding: "0 10px", fontSize: 11.5, lineHeight: "22px", fontWeight: scheduleTab === "history" ? 600 : 400 }}
+                onClick={() => setScheduleTab("history")}
+              >
+                History
+              </button>
+            </div>
+          </div>
+          {scheduleTab === "schedule" ? (
+            <>
+              {schedule.error && <div className="notice" style={{ margin: 14 }}>{schedule.error}</div>}
+              <div className="tbl-wrap pl-tbl-wrap-fixed"><table className="tbl tbl-center">
+                <thead><tr><th>#</th><th>Due Date</th><th className="num">Amount</th><th>Status</th></tr></thead>
+                <tbody>
+                  {schedule.loading ? (
+                    <tr><td colSpan={4} className="empty compact">Loading…</td></tr>
+                  ) : schedule.items.length === 0 ? (
+                    <tr><td colSpan={4} className="empty compact">No installments.</td></tr>
+                  ) : schedule.items.map((s) => (
+                    <tr key={s.id}>
+                      <td>{s.sequenceNo}</td>
+                      <td>{s.dueDate.slice(0, 10)}</td>
+                      <td className="num">{fmt(s.amount)}</td>
+                      <td><StatusChip status={s.status === "PartiallyPaid" ? "Partially Paid" : s.status} /></td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table></div>
+              <Pager page={schedule.page} totalPages={schedule.totalPages} onChange={schedule.setPage} />
+            </>
+          ) : (
+            <>
+              {history.error && <div className="notice" style={{ margin: 14 }}>{history.error}</div>}
+              <div className="tbl-wrap pl-tbl-wrap-fixed"><table className="tbl tbl-center">
+                <thead><tr><th>Date</th><th>Event</th><th className="num">Amount</th></tr></thead>
+                <tbody>
+                  {history.loading ? (
+                    <tr><td colSpan={3} className="empty compact">Loading…</td></tr>
+                  ) : history.items.length === 0 ? (
+                    <tr><td colSpan={3} className="empty compact">No history yet.</td></tr>
+                  ) : history.items.map((hEntry) => (
+                    <tr key={hEntry.id}>
+                      <td>{hEntry.occurredAt.slice(0, 10)}</td>
+                      <td className="pl-history-detail" title={hEntry.detail}>
+                        {hEntry.detail}
+                        {hEntry.relatedLoanId && (
+                          <> · <a href={`#personalloan/${hEntry.relatedLoanId}`}>View loan</a></>
+                        )}
+                      </td>
+                      <td className="num">{hEntry.amount ? fmt(hEntry.amount) : ""}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table></div>
+              <Pager page={history.page} totalPages={history.totalPages} onChange={history.setPage} />
+            </>
+          )}
         </div>
 
-        <div className="card">
+        <div className="card tbl-card">
           <div className="hd" style={{ justifyContent: "space-between" }}>
             <h3>Payment History</h3>
           </div>
           {payments.error && <div className="notice" style={{ margin: 14 }}>{payments.error}</div>}
-          <div className="tbl-wrap tbl-wrap-auto"><table className="tbl tbl-center">
+          <div className="tbl-wrap pl-tbl-wrap-fixed"><table className="tbl tbl-center">
             <thead><tr><th>Date</th><th className="num">Amount</th><th>Method</th><th className="num">Balance</th></tr></thead>
             <tbody>
               {payments.loading ? (

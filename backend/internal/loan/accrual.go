@@ -84,11 +84,15 @@ func completedPeriods(from, asOf time.Time, months int) (int, time.Time) {
 // SchemeInterestRate (both read as annual percentages — see
 // frontend/components/NewLoan.tsx's "N% p.a." label, and both snapshotted
 // from the scheme at loan creation/reassignment rather than looked up live
-// — see Loan.applySchemeSnapshot). No minimum-month floor and no daily
-// proration apply to penal interest — it stays whole-month-only, counted
-// from DueDate rather than from the accrual anchor, with months already
-// charged subtracted so a due date falling mid-cycle neither double-charges
-// nor loses a month.
+// — see Loan.applySchemeSnapshot). Unlike regular interest, the penal base
+// is OutstandingAmount PLUS unpaid interest (AccruedInterest − InterestPaid,
+// including the interestDelta this same call just computed) — a customer who
+// has fallen behind on interest as well as principal is charged penal on the
+// whole amount owed, not principal alone. No minimum-month floor and no
+// daily proration apply to penal interest — it stays whole-month-only,
+// counted from DueDate rather than from the accrual anchor, with months
+// already charged subtracted so a due date falling mid-cycle neither
+// double-charges nor loses a month.
 func projectAccrual(l *Loan, asOf time.Time) (interestDelta, penalDelta float64, newAnchor time.Time) {
 	from := l.LastAccrualDate
 	// CreateLoan seeds LastAccrualDate to OpenedDate directly (never leaves
@@ -181,7 +185,12 @@ func projectAccrual(l *Loan, asOf time.Time) (interestDelta, penalDelta float64,
 		charged, _ := completedPeriods(l.DueDate, from, 1)
 		total, _ := completedPeriods(l.DueDate, anchor, 1)
 		if overdueMonths := total - charged; overdueMonths > 0 {
-			penalDelta = l.OutstandingAmount * (l.SchemePenalRate / 100 / 12) * float64(overdueMonths)
+			unpaidInterest := l.AccruedInterest + interestDelta - l.InterestPaid
+			if unpaidInterest < 0 {
+				unpaidInterest = 0
+			}
+			penalBase := l.OutstandingAmount + unpaidInterest
+			penalDelta = penalBase * (l.SchemePenalRate / 100 / 12) * float64(overdueMonths)
 			if penalDelta < 0 {
 				penalDelta = 0
 			}

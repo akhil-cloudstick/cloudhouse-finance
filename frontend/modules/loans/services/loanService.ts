@@ -148,6 +148,15 @@ export type BackendLoan = {
   customer?: NestedCustomer;
   schemeId: number;
   scheme?: NestedScheme;
+  // The loan's own frozen scheme terms as they stood at creation (or the
+  // last explicit scheme swap) — see backend Loan.SchemeInterestRate's doc
+  // comment. Display must read these, not the live `scheme` above, so
+  // editing a scheme later never changes what an existing loan shows it was
+  // charged under.
+  schemeInterestRate: number;
+  schemeLtvPercent: number;
+  schemeInterestMethod: string;
+  schemePenalRate: number;
   openedDate: string;
   dueDate: string;
   additionalInfo?: string;
@@ -401,10 +410,10 @@ export function toView(l: BackendLoan): LoanView {
     customerName: l.customer?.name || "—",
     schemeId: String(l.schemeId),
     schemeName: l.scheme?.name || "—",
-    schemeRate: l.scheme?.interestRate || 0,
-    schemeLtv: l.scheme?.ltvPercent || 0,
-    schemeMethod: l.scheme?.interestMethod || "—",
-    schemePenal: l.scheme?.penalRate || 0,
+    schemeRate: l.schemeInterestRate || 0,
+    schemeLtv: l.schemeLtvPercent || 0,
+    schemeMethod: l.schemeInterestMethod || "—",
+    schemePenal: l.schemePenalRate || 0,
     opened: l.openedDate ? l.openedDate.slice(0, 10) : "",
     due: l.dueDate ? l.dueDate.slice(0, 10) : "",
     additionalInfo: l.additionalInfo || "",
