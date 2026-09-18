@@ -229,28 +229,23 @@ export function PersonalLoanDetail({ id }: { id?: string }) {
         <div className="card tbl-card">
           <div className="hd" style={{ justifyContent: "space-between" }}>
             <h3>{scheduleTab === "schedule" ? "Schedule" : "History"}</h3>
-            <div className="seg" style={{ display: "flex", gap: 4 }}>
-              <button
-                type="button"
-                className={`btn plain${scheduleTab === "schedule" ? " active" : ""}`}
-                style={{ height: 24, padding: "0 10px", fontSize: 11.5, lineHeight: "22px", fontWeight: scheduleTab === "schedule" ? 600 : 400 }}
-                onClick={() => setScheduleTab("schedule")}
-              >
-                Schedule
-              </button>
-              <button
-                type="button"
-                className={`btn plain${scheduleTab === "history" ? " active" : ""}`}
-                style={{ height: 24, padding: "0 10px", fontSize: 11.5, lineHeight: "22px", fontWeight: scheduleTab === "history" ? 600 : 400 }}
-                onClick={() => setScheduleTab("history")}
-              >
-                History
-              </button>
+            <div
+              className="seg-toggle"
+              role="button"
+              tabIndex={0}
+              onClick={() => setScheduleTab(scheduleTab === "schedule" ? "history" : "schedule")}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" || e.key === " ") setScheduleTab(scheduleTab === "schedule" ? "history" : "schedule");
+              }}
+            >
+              <span className="seg-toggle-thumb" style={{ transform: scheduleTab === "schedule" ? "translateX(0)" : "translateX(100%)" }} />
+              <span className={`seg-toggle-opt${scheduleTab === "schedule" ? " active" : ""}`}>Schedule</span>
+              <span className={`seg-toggle-opt${scheduleTab === "history" ? " active" : ""}`}>History</span>
             </div>
           </div>
           {scheduleTab === "schedule" ? (
             <>
-              {schedule.error && <div className="notice" style={{ margin: 14 }}>{schedule.error}</div>}
+              {schedule.error && schedule.items.length > 0 && <div className="notice" style={{ margin: 14 }}>{schedule.error}</div>}
               <div className="tbl-wrap pl-tbl-wrap-fixed"><table className="tbl tbl-center">
                 <thead><tr><th>#</th><th>Due Date</th><th className="num">Amount</th><th>Status</th></tr></thead>
                 <tbody>
@@ -272,7 +267,7 @@ export function PersonalLoanDetail({ id }: { id?: string }) {
             </>
           ) : (
             <>
-              {history.error && <div className="notice" style={{ margin: 14 }}>{history.error}</div>}
+              {history.error && history.items.length > 0 && <div className="notice" style={{ margin: 14 }}>{history.error}</div>}
               <div className="tbl-wrap pl-tbl-wrap-fixed"><table className="tbl tbl-center">
                 <thead><tr><th>Date</th><th>Event</th><th className="num">Amount</th></tr></thead>
                 <tbody>
