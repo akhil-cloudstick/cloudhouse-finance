@@ -76,3 +76,84 @@ func (h *Handler) Create(c *gin.Context) {
 	}
 	httpx.Success(c, http.StatusOK, rec)
 }
+
+// Get returns a single bank by id — the Bank Management admin screen's edit
+// form and the Party Transactions page's bank header both need this.
+func (h *Handler) Get(c *gin.Context) {
+	ctx := platform.RequestContext(c)
+	id, err := httpx.IDParam(c, "id")
+	if err != nil {
+		httpx.FailErr(c, err)
+		return
+	}
+	rec, err := h.svc.Get(ctx, id)
+	if err != nil {
+		httpx.FailErr(c, err)
+		return
+	}
+	httpx.Success(c, http.StatusOK, rec)
+}
+
+// Update is the Bank Management admin screen's real, explicit update —
+// distinct from Create/FindOrCreate's reuse-or-create semantics.
+func (h *Handler) Update(c *gin.Context) {
+	ctx := platform.RequestContext(c)
+	id, err := httpx.IDParam(c, "id")
+	if err != nil {
+		httpx.FailErr(c, err)
+		return
+	}
+	var req bankRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		httpx.Fail(c, http.StatusBadRequest, "Invalid input")
+		return
+	}
+	rec, err := h.svc.Update(ctx, id, CreateInput{Name: req.Name, Branch: req.Branch, Ifsc: req.Ifsc, AccountNo: req.AccountNo, Phone: req.Phone})
+	if err != nil {
+		httpx.FailErr(c, err)
+		return
+	}
+	httpx.Success(c, http.StatusOK, rec)
+}
+
+// Delete hard-deletes a bank — refused (ErrInUse) while any CashMovement/
+// BankPledgeRecord still references it; see Service.Delete's doc comment.
+func (h *Handler) Delete(c *gin.Context) {
+	ctx := platform.RequestContext(c)
+	id, err := httpx.IDParam(c, "id")
+	if err != nil {
+		httpx.FailErr(c, err)
+		return
+	}
+	if err := h.svc.Delete(ctx, id); err != nil {
+		httpx.FailErr(c, err)
+		return
+	}
+	httpx.Success(c, http.StatusOK, gin.H{"deleted": true})
+}
+
+type mergeRequest struct {
+	TargetID uint `json:"targetId" binding:"required"`
+}
+
+// Merge reassigns a duplicate bank's history onto the canonical bank named
+// by :id (the target) then deletes the source — see Service.Merge.
+func (h *Handler) Merge(c *gin.Context) {
+	ctx := platform.RequestContext(c)
+	sourceID, err := httpx.IDParam(c, "id")
+	if err != nil {
+		httpx.FailErr(c, err)
+		return
+	}
+	var req mergeRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		httpx.Fail(c, http.StatusBadRequest, "Invalid input")
+		return
+	}
+	rec, err := h.svc.Merge(ctx, sourceID, req.TargetID)
+	if err != nil {
+		httpx.FailErr(c, err)
+		return
+	}
+	httpx.Success(c, http.StatusOK, rec)
+}

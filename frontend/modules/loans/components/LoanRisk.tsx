@@ -82,24 +82,21 @@ export function LoanRisk() {
         <div className="kpi"><div className="l">Safe</div><div className="v" style={{ color: "var(--green)" }}>{counts.green}</div></div>
       </div>
 
+      <div className="loan-risk-filters" style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", marginBottom: 10, justifyContent: "flex-end" }}>
+        <select className="inp" style={{ width: 170 }} value={status} onChange={(e) => setStatus(e.target.value)}>
+          <option value="">All statuses</option>
+          {RISK_STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}
+        </select>
+        <DatePicker value={fromDate} onChange={setFromDate} placeholder="Opened from…" max={toDate || undefined} />
+        <DatePicker value={toDate} onChange={setToDate} placeholder="Opened to…" min={fromDate || undefined} />
+        {(status || fromDate || toDate) && (
+          <button className="btn ghost sm" onClick={() => { setStatus(""); setFromDate(""); setToDate(""); }}>Clear</button>
+        )}
+      </div>
+
       {error && <div className="notice" style={{ marginBottom: 14 }}>{error}</div>}
 
-      <div className="card">
-        <div className="hd" style={{ flexWrap: "wrap", rowGap: 10 }}>
-          <h3>Loans</h3>
-          <div className="sp" />
-          <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-            <select className="inp" style={{ width: 170 }} value={status} onChange={(e) => setStatus(e.target.value)}>
-              <option value="">All statuses</option>
-              {RISK_STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}
-            </select>
-            <DatePicker value={fromDate} onChange={setFromDate} placeholder="Opened from…" max={toDate || undefined} />
-            <DatePicker value={toDate} onChange={setToDate} placeholder="Opened to…" min={fromDate || undefined} />
-            {(status || fromDate || toDate) && (
-              <button className="btn ghost sm" onClick={() => { setStatus(""); setFromDate(""); setToDate(""); }}>Clear</button>
-            )}
-          </div>
-        </div>
+      <div className="card tbl-card">
         <div className="tbl-wrap tbl-scroll">
           <table className="tbl tbl-center">
             <thead>

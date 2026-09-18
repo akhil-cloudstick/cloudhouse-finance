@@ -104,11 +104,50 @@ func Run(db *gorm.DB, cfg platform.Config) error {
 		return err
 	}
 
+	// personal_loans grew a NOT NULL full_disbursement column after it
+	// shipped — same AutoMigrate limitation as gold_sales above. See
+	// personalloan.BackfillFullDisbursementColumn - must run BEFORE
+	// AutoMigrate.
+	if err := personalloan.BackfillFullDisbursementColumn(db); err != nil {
+		return err
+	}
+
+	// personal_loans grew NOT NULL penal-interest columns after it shipped —
+	// same AutoMigrate limitation as above. See
+	// personalloan.BackfillPenalColumns - must run BEFORE AutoMigrate.
+	if err := personalloan.BackfillPenalColumns(db); err != nil {
+		return err
+	}
+
+	// loan_payments/personal_loan_payments/investment_payouts all grew NOT
+	// NULL split-mode columns after they shipped — same AutoMigrate
+	// limitation as gold_sales above, plus (for the first two) a one-time
+	// exact-mapping backfill of the pre-existing free-text Method into
+	// exactly one split column. Must run BEFORE AutoMigrate.
+	if err := loan.BackfillPaymentSplitColumns(db); err != nil {
+		return err
+	}
+	if err := personalloan.BackfillPaymentSplitColumns(db); err != nil {
+		return err
+	}
+	if err := investment.BackfillPayoutSplitColumns(db); err != nil {
+		return err
+	}
+	if err := investment.BackfillEngineColumn(db); err != nil {
+		return err
+	}
+
 	if err := db.AutoMigrate(allModels...); err != nil {
 		return err
 	}
 
 	if err := scheme.DropLegacyDateColumns(db); err != nil {
+		return err
+	}
+
+	// Must run AFTER AutoMigrate: it backfills the scheme_* snapshot columns
+	// AutoMigrate itself creates on loans. See loan.BackfillSchemeSnapshot.
+	if err := loan.BackfillSchemeSnapshot(db); err != nil {
 		return err
 	}
 
@@ -180,6 +219,10 @@ func Run(db *gorm.DB, cfg platform.Config) error {
 	}
 
 	if err := backfillBankPledgeBankID(db); err != nil {
+		return err
+	}
+
+	if err := backfillCashMovementBankID(db); err != nil {
 		return err
 	}
 
@@ -528,6 +571,43 @@ func backfillBankPledgeBankID(db *gorm.DB) error {
 			return err
 		}
 		log.Printf("backfilled bank_pledge_records: %d row(s) -> bank %q (id=%d)", db.RowsAffected, name, b.ID)
+	}
+	return nil
+}
+
+// backfillCashMovementBankID is cash_movements' counterpart to
+// backfillBankPledgeBankID above — same "one bank.Bank row per distinct
+// existing free-text value, case-sensitive first pass" approach, expected to
+// create near-duplicates ("HDFC", "HDFC Bank", "HDFC BANK LTD" as three
+// separate rows) — that's expected, not a bug this step tries to solve with
+// fuzzy matching; the Bank Management page's "merge duplicate bank" action
+// is where staff clean this up manually over time. Must run AFTER
+// AutoMigrate, since it needs cash_movements.bank_id (a plain nullable
+// column AutoMigrate adds itself, unlike the NOT NULL split columns above).
+func backfillCashMovementBankID(db *gorm.DB) error {
+	ctx := platform.AllowCrossTenant(context.Background())
+	bankRepo := bank.NewRepository(db)
+	bankSvc := bank.NewService(bankRepo)
+
+	var names []string
+	if err := db.Table("cash_movements").
+		Where("bank IS NOT NULL AND bank <> '' AND bank_id IS NULL").
+		Distinct("bank").Pluck("bank", &names).Error; err != nil {
+		return err
+	}
+
+	for _, name := range names {
+		b, _, err := bankSvc.FindOrCreate(ctx, bank.CreateInput{Name: name})
+		if err != nil {
+			return err
+		}
+		res := db.Table("cash_movements").
+			Where("bank = ? AND bank_id IS NULL", name).
+			Update("bank_id", b.ID)
+		if res.Error != nil {
+			return res.Error
+		}
+		log.Printf("backfilled cash_movements: %d row(s) -> bank %q (id=%d)", res.RowsAffected, name, b.ID)
 	}
 	return nil
 }
@@ -925,84 +1005,86 @@ func backfillTenantGrantColumns(db *gorm.DB) error {
 // knowing about it. Five tables had already slipped through when the two
 // lists were maintained by hand.
 var allModels = []any{
-		// Tenancy first: tiers before tenants (tenants reference a tier),
-		// and both before every tenant-owned table below.
-		&tenant.Tier{},
-		&tenant.Tenant{},
-		&platform.Sequence{},
-		// Per-business daily usage counters (Step 13) — allocation
-		// bookkeeping like Sequence above, not business data, so it is
-		// exempt from the automatic tenant filter the same way.
-		&platform.UsageCounter{},
-		&branch.Branch{},
-		&scheme.Scheme{},
-		&goldrate.GoldRate{},
-		&employee.Employee{},
-		&cash.CashMovement{},
-		&cash.Expense{},
-		&cash.OpeningCashBalance{},
-		&cash.GoldSale{},
-		&settings.ApiKeySetting{},
-		&customer.Customer{},
-		&loan.Loan{},
-		&loan.Ornament{},
-		&loan.OrnamentPurityTest{},
-		&loan.OrnamentImage{},
-		&loan.LoanApproval{},
-		&loan.LoanPayment{},
-		&loan.BankPledgeRecord{},
-		&loan.BankPledgeEvent{},
-		&loan.AuctionRecord{},
-		&loan.AuctionNotice{},
-		&loan.AuctionEvent{},
-		&loan.AuctionDecisionRequest{},
-		&loan.LoanRequest{},
-		&loan.RequestApproval{},
-		&loan.ApprovalLimit{},
-		// Unsubmitted New Gold Loan forms behind the "Save Draft" button.
-		&loan.LoanDraft{},
-		&loan.LoanDraftOrnament{},
-		&ornamenttype.OrnamentType{},
-		&bank.Bank{},
-		&locker.Locker{},
-		&packet.Packet{},
-		&packet.PacketMovement{},
-		&puritystandard.PurityStandard{},
-		&reminder.Reminder{},
-		&personalloan.PersonalLoan{},
-		&personalloan.PersonalLoanInstallment{},
-		&personalloan.PersonalLoanPayment{},
-		&investment.InvestmentPlan{},
-		&investment.Investment{},
-		&investment.InvestmentPayout{},
-		&authz.Role{},
-		&authz.Permission{},
-		&authz.RolePermission{},
-		&commlog.CommunicationLog{},
-		&customerauth.OTP{},
-		&customerauth.DeviceToken{},
-		// Realtime notifications (WebSocket, ack-and-resend) — the durable
-		// in-app inbox behind the customer app's bell.
-		&notification.Notification{},
-		// Nightly KPI-count snapshots powering the mobile dashboard's trend
-		// indicators (see dashboard.Snapshot's doc comment).
-		&dashboard.Snapshot{},
-		// The authorization record behind every uploaded file. Before it,
-		// /uploads was served with no login check at all.
-		&upload.File{},
-		// The superadmin console's own tables (Step 7) — deliberately NOT
-		// tenant-scoped (no TenantScoped embed): a superadmin user belongs to
-		// no business, and the audit log's TenantID column points AT a
-		// business without being scoped BY one, so a superadmin can list every
-		// entry across every tenant.
-		&superadmin.SuperAdminUser{},
-		&superadmin.AuditLog{},
-		// This business's own audit log (Step 11) — tenant-scoped, unlike
-		// superadmin.AuditLog above.
-		&auditlog.Entry{},
-		// Nightly KPI-count snapshots powering the mobile dashboard's trend
-		// indicators (see dashboard.Snapshot's doc comment).
-		&dashboard.Snapshot{},
+	// Tenancy first: tiers before tenants (tenants reference a tier),
+	// and both before every tenant-owned table below.
+	&tenant.Tier{},
+	&tenant.Tenant{},
+	&platform.Sequence{},
+	// Per-business daily usage counters (Step 13) — allocation
+	// bookkeeping like Sequence above, not business data, so it is
+	// exempt from the automatic tenant filter the same way.
+	&platform.UsageCounter{},
+	&branch.Branch{},
+	&scheme.Scheme{},
+	&goldrate.GoldRate{},
+	&employee.Employee{},
+	&cash.CashMovement{},
+	&cash.Expense{},
+	&cash.OpeningCashBalance{},
+	&cash.GoldSale{},
+	&settings.ApiKeySetting{},
+	&customer.Customer{},
+	&loan.Loan{},
+	&loan.Ornament{},
+	&loan.OrnamentPurityTest{},
+	&loan.OrnamentImage{},
+	&loan.LoanApproval{},
+	&loan.LoanPayment{},
+	&loan.LoanTopUp{},
+	&loan.BankPledgeRecord{},
+	&loan.BankPledgeEvent{},
+	&loan.AuctionRecord{},
+	&loan.AuctionNotice{},
+	&loan.AuctionEvent{},
+	&loan.AuctionDecisionRequest{},
+	&loan.LoanRequest{},
+	&loan.RequestApproval{},
+	&loan.ApprovalLimit{},
+	// Unsubmitted New Gold Loan forms behind the "Save Draft" button.
+	&loan.LoanDraft{},
+	&loan.LoanDraftOrnament{},
+	&ornamenttype.OrnamentType{},
+	&bank.Bank{},
+	&locker.Locker{},
+	&packet.Packet{},
+	&packet.PacketMovement{},
+	&puritystandard.PurityStandard{},
+	&reminder.Reminder{},
+	&personalloan.PersonalLoan{},
+	&personalloan.PersonalLoanInstallment{},
+	&personalloan.PersonalLoanPayment{},
+	&investment.InvestmentPlan{},
+	&investment.Investment{},
+	&investment.InvestmentPayout{},
+	&investment.InvestmentTransaction{},
+	&authz.Role{},
+	&authz.Permission{},
+	&authz.RolePermission{},
+	&commlog.CommunicationLog{},
+	&customerauth.OTP{},
+	&customerauth.DeviceToken{},
+	// Realtime notifications (WebSocket, ack-and-resend) — the durable
+	// in-app inbox behind the customer app's bell.
+	&notification.Notification{},
+	// Nightly KPI-count snapshots powering the mobile dashboard's trend
+	// indicators (see dashboard.Snapshot's doc comment).
+	&dashboard.Snapshot{},
+	// The authorization record behind every uploaded file. Before it,
+	// /uploads was served with no login check at all.
+	&upload.File{},
+	// The superadmin console's own tables (Step 7) — deliberately NOT
+	// tenant-scoped (no TenantScoped embed): a superadmin user belongs to
+	// no business, and the audit log's TenantID column points AT a
+	// business without being scoped BY one, so a superadmin can list every
+	// entry across every tenant.
+	&superadmin.SuperAdminUser{},
+	&superadmin.AuditLog{},
+	// This business's own audit log (Step 11) — tenant-scoped, unlike
+	// superadmin.AuditLog above.
+	&auditlog.Entry{},
+	// Nightly KPI-count snapshots powering the mobile dashboard's trend
+	// indicators (see dashboard.Snapshot's doc comment).
+	&dashboard.Snapshot{},
 }
 
 // purgeGlobalDashboardSnapshots deletes the dashboard_snapshots rows written

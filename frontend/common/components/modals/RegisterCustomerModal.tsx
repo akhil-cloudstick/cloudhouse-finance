@@ -5,8 +5,9 @@ import { useModal } from "@/common/components/Modal";
 import { useToast } from "@/common/components/Toast";
 import { Select } from "@/common/components/ui/Select";
 import { FileInput } from "@/common/components/ui/FileInput";
+import { DatePicker } from "@/common/components/ui/DatePicker";
 import { Icon } from "@/common/components/Icon";
-import { createCustomer, uploadFile } from "@/modules/customers/services/customerService";
+import { createCustomer, uploadFile, type CustomerView } from "@/modules/customers/services/customerService";
 import { listActiveBranches, type BranchView } from "@/modules/branches/services/branchService";
 import { navigate } from "@/common/services/appRoutes";
 
@@ -17,8 +18,26 @@ import { navigate } from "@/common/services/appRoutes";
  * Aadhaar (encrypted server-side, never stored/returned in plaintext),
  * identity/address proof, supporting KYC docs, and nominee info. KYC/PAN/
  * Aadhaar status all come back "Verified" immediately — no live Setu/
- * DigiLocker call happens yet (stage-1 stub, see backend/internal/customer). */
-export function RegisterCustomerModalContent({ onSaved }: { onSaved?: () => void }) {
+ * DigiLocker call happens yet (stage-1 stub, see backend/internal/customer).
+ *
+ * Canonical customer-registration modal — also used by the personal-loan
+ * "+ Add new customer" flow (NewPersonalLoanModal.tsx) via `onCreated`,
+ * which used to have its own near-duplicate form (CreateCustomerModal.tsx).
+ * The personal-loan-only fields it collected (Father's Name/Age/DOB/
+ * District/Taluk/Village/Place/Pin Code) live in the collapsed "Additional
+ * Information" section below — optional everywhere, including here. */
+export function RegisterCustomerModalContent({
+  onSaved,
+  onCreated,
+}: {
+  // Full standalone "Register Customer" flow (Customers.tsx/Dashboard.tsx):
+  // closes the modal itself, toasts, and navigates to the new customer.
+  onSaved?: () => void;
+  // Inline flow (NewPersonalLoanModal.tsx): hands the created customer back
+  // to the caller instead — the caller stays on its own form and decides
+  // what happens next, so this modal must not close itself or navigate.
+  onCreated?: (customer: CustomerView) => void;
+}) {
   const { closeModal } = useModal();
   const toast = useToast();
 
@@ -37,6 +56,18 @@ export function RegisterCustomerModalContent({ onSaved }: { onSaved?: () => void
   const [identityProofFile, setIdentityProofFile] = useState<File | null>(null);
   const [addressProofFile, setAddressProofFile] = useState<File | null>(null);
   const [kycDocFile, setKycDocFile] = useState<File | null>(null);
+
+  // "Additional Information" — collapsed by default, all optional. Ported
+  // from the now-retired CreateCustomerModal.tsx (personal-loan-only form).
+  const [showAdditional, setShowAdditional] = useState(false);
+  const [fatherName, setFatherName] = useState("");
+  const [age, setAge] = useState("");
+  const [dob, setDob] = useState("");
+  const [district, setDistrict] = useState("");
+  const [taluk, setTaluk] = useState("");
+  const [village, setVillage] = useState("");
+  const [place, setPlace] = useState("");
+  const [pinCode, setPinCode] = useState("");
 
   const [err, setErr] = useState("");
   const [saving, setSaving] = useState(false);
@@ -70,6 +101,7 @@ export function RegisterCustomerModalContent({ onSaved }: { onSaved?: () => void
       const c = await createCustomer({
         name: n,
         phone: p,
+        ...(dob ? { dob } : {}),
         address: addr.trim(),
         branchId: Number(branchId),
         photoUrl,
@@ -81,8 +113,19 @@ export function RegisterCustomerModalContent({ onSaved }: { onSaved?: () => void
         nomineeName: nomineeName.trim(),
         nomineeRelation: nomineeRelation.trim(),
         nomineePhone: nomineePhone.trim(),
+        ...(fatherName.trim() ? { fatherName: fatherName.trim() } : {}),
+        ...(district.trim() ? { district: district.trim() } : {}),
+        ...(taluk.trim() ? { taluk: taluk.trim() } : {}),
+        ...(village.trim() ? { village: village.trim() } : {}),
+        ...(place.trim() ? { place: place.trim() } : {}),
+        ...(pinCode.trim() ? { pinCode: pinCode.trim() } : {}),
+        ...(age.trim() ? { age: Number(age) } : {}),
       });
 
+      if (onCreated) {
+        onCreated(c);
+        return;
+      }
       onSaved?.();
       closeModal();
       toast(`${n} registered — ${c.code} · KYC auto-verified (stage 1 — no live verification yet)`);
@@ -97,7 +140,7 @@ export function RegisterCustomerModalContent({ onSaved }: { onSaved?: () => void
   return (
     <>
       <div className="hd"><h3>Register Customer</h3><button className="x" onClick={closeModal}>×</button></div>
-      <div className="bd">
+      <div className="bd bd-scroll">
         <label className="f">Personal Details</label>
         <div className="frow c3">
           <div><label className="f">Full Name *</label><input className="inp" placeholder="e.g. Anil Varma" value={name} onChange={(e) => setName(e.target.value)} /></div>
@@ -136,6 +179,38 @@ export function RegisterCustomerModalContent({ onSaved }: { onSaved?: () => void
           <div><label className="f">Relation</label><input className="inp" placeholder="e.g. Spouse" value={nomineeRelation} onChange={(e) => setNomineeRelation(e.target.value)} /></div>
           <div><label className="f">Nominee Mobile Number</label><input className="inp" placeholder="10-digit mobile" inputMode="numeric" maxLength={10} value={nomineePhone} onChange={(e) => setNomineePhone(e.target.value.replace(/\D/g, ""))} /></div>
         </div>
+        {/* Collapsed by default — the personal-loan-only fields this used to
+            be CreateCustomerModal.tsx's own dedicated form for, kept
+            optional here since general (gold-loan) registration never
+            required them. */}
+        <button
+          type="button"
+          className="btn plain sm"
+          style={{ marginTop: 6, display: "inline-flex", alignItems: "center", gap: 6 }}
+          onClick={() => setShowAdditional((v) => !v)}
+          aria-expanded={showAdditional}
+        >
+          <Icon name="chevronDown" style={{ transform: showAdditional ? "rotate(180deg)" : undefined, transition: "transform .15s" }} />
+          Additional Information
+        </button>
+        {showAdditional && (
+          <>
+            <div className="frow c3" style={{ marginTop: 14 }}>
+              <div><label className="f">Father&apos;s Name</label><input className="inp" placeholder="e.g. Ravi Varma" value={fatherName} onChange={(e) => setFatherName(e.target.value)} /></div>
+              <div><label className="f">Age</label><input className="inp" type="number" min={1} placeholder="e.g. 35" value={age} onChange={(e) => setAge(e.target.value)} /></div>
+              <div><label className="f">Date of Birth</label><DatePicker value={dob} onChange={setDob} placeholder="Select date of birth…" max={new Date().toISOString().slice(0, 10)} /></div>
+            </div>
+            <div className="frow c3">
+              <div><label className="f">District</label><input className="inp" placeholder="e.g. Thrissur" value={district} onChange={(e) => setDistrict(e.target.value)} /></div>
+              <div><label className="f">Taluk</label><input className="inp" placeholder="e.g. Kozhikode" value={taluk} onChange={(e) => setTaluk(e.target.value)} /></div>
+              <div><label className="f">Village</label><input className="inp" placeholder="e.g. Feroke" value={village} onChange={(e) => setVillage(e.target.value)} /></div>
+            </div>
+            <div className="frow c3">
+              <div><label className="f">Place</label><input className="inp" placeholder="e.g. Feroke" value={place} onChange={(e) => setPlace(e.target.value)} /></div>
+              <div><label className="f">Pin Code</label><input className="inp" inputMode="numeric" placeholder="6-digit pin code" maxLength={6} value={pinCode} onChange={(e) => setPinCode(e.target.value.replace(/\D/g, ""))} /></div>
+            </div>
+          </>
+        )}
         <p style={{ color: "var(--red)", fontSize: 12.5, minHeight: 16, marginTop: 8 }}>{err}</p>
       </div>
       <div className="ft">

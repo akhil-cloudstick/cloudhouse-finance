@@ -188,7 +188,7 @@ export function BankPledge() {
         {canCreatePledges && <button className="btn" onClick={startNewRepledge}><Icon name="plus" /> New Re-Pledge</button>}
       </div>
       <hr className="gold-rule" style={{ margin: "4px 0 10px" }} />
-      <div className="tabs" style={{ marginTop: 4, marginBottom: 8 }}>
+      <div className="tabs bank-pledge-tabs" style={{ marginTop: 4, marginBottom: 8 }}>
         <button className={tab === "active" ? "on" : ""} onClick={() => setTab("active")}>Active</button>
         <button className={tab === "history" ? "on" : ""} onClick={showHistory}>History</button>
       </div>

@@ -202,10 +202,29 @@ export function ReleaseReviewModalContent({ request, onSaved }: { request: Reque
     ["Customer Confirmation", "customerConfirmed", "Customer has confirmed the release in person"],
   ];
 
+  // Emitted in two pieces around the payment panel below (Packet Location
+  // first, then Bank Pledge/Customer Confirmation) rather than as a single
+  // .map(), so the panel can sit BETWEEN the grid's two rows.
+  const renderChecklistItem = ([label, field, hint]: (typeof checklistItems)[number]) => (
+    <label key={field} className="ccheck" style={{ padding: "6px 0" }}>
+      <input type="checkbox" checked={req[field]} disabled={saving || !canDecide || !canVerifyChecklist || req.status !== "Pending"} onChange={(e) => toggle(field, e.target.checked)} />
+      <span className="mark" />
+      <span>
+        <b>{label}</b>
+        <div className="ccheck-hint">{hint}</div>
+      </span>
+    </label>
+  );
+
   return (
     <>
       <div className="hd"><h3>Review Release — {req.loanNumber}</h3><button className="x" onClick={closeModal}>×</button></div>
-      <div className="bd">
+      {/* `bd-scroll` caps the modal at the viewport and scrolls THIS body
+        * instead of the page behind it — see app.css. Safe here because the
+        * only popover field in this modal is the Due Date `DatePicker`,
+        * whose panel is `position:fixed` and re-anchors on capture-phase
+        * scroll, so it isn't clipped by the body's new scroll edge. */}
+      <div className="bd bd-scroll">
         {loan ? (
           <div className="kv" style={{ gridTemplateColumns: "1fr 1fr", marginBottom: 14 }}>
             <div className="i"><div className="k">Outstanding Principal</div><div className="v">{fmt(loan.outstanding)}</div></div>
@@ -234,89 +253,96 @@ export function ReleaseReviewModalContent({ request, onSaved }: { request: Reque
         <div style={{ margin: "14px 0" }}>
           <label className="f">Verification Checklist</label>
 
-          {/* checked reflects req.paymentVerified — kept honest against the
-           * loan's live balance server-side regardless of how it clears
-           * (this screen's own Discount/Payment fields below, or the
-           * loan's ordinary Record Payment screen instead — see
-           * Service.syncPaymentVerified/VerifyReleaseChecklist), so
-           * approval never gets stuck on a stale flag. The checkbox itself
-           * just expands/collapses the fields below; the real state comes
-           * from the backend on every load, not from clicking it. */}
-          <label className="ccheck" style={{ padding: "6px 0", cursor: canRecordPayment ? "pointer" : "default" }} onClick={(e) => { e.preventDefault(); if (canRecordPayment) setRecordPaymentMode((v) => !v); }}>
-            <input type="checkbox" checked={req.paymentVerified} disabled readOnly />
-            <span className="mark" />
-            <span>
-              <b>Record Payment</b>
-              <div style={{ fontSize: 12, color: "var(--muted)" }}>
-                {canRecordPayment
-                  ? "Enter a discount and/or payment against the final settlement"
-                  : "Past the Manager review stage — recorded through Complete Release instead"}
-              </div>
-            </span>
-          </label>
-
-          {recordPaymentMode && (
-            <div style={{ padding: "4px 0 10px 28px" }}>
-              {alreadyRecorded > 0 && (
-                <div style={{ fontSize: 12, color: "var(--muted)", marginBottom: canRecordPayment ? 6 : 0 }}>
-                  Already recorded: {fmt(req.recordedDiscount)} discount + {fmt(req.recordedPayment)} payment.
-                  {canRecordPayment ? " The fields below are for an ADDITIONAL amount, on top of that." : ""}
-                </div>
-              )}
-              {/* Past the Manager stage, RecordReleasePayment itself is
-                  refused server-side (see canRecordPayment's own comment
-                  above) — the Discount/Payment/Due-Date inputs and Save
-                  button would just be dead weight here, not a form staff can
-                  actually still submit, so they're skipped entirely instead
-                  of rendering disabled and empty. */}
-              {canRecordPayment && (
-                <>
-                  <div className={`frow ${needsDueDate ? "c3" : "c2"}`}>
-                    <div><label className="f">Discount (₹)</label><input className="inp" type="number" min={0} disabled={saving || !canDecide || req.status !== "Pending"} value={discount} onChange={(e) => {
-                      const nextDiscount = e.target.value;
-                      setDiscount(nextDiscount);
-                      // Payment re-prefills with whatever's left of the final
-                      // settlement (minus anything already recorded before)
-                      // after this discount, each time Discount changes —
-                      // staff can still edit Payment by hand afterward, this
-                      // only recomputes the starting point.
-                      if (settlementTarget != null) {
-                        setPayment(String(Math.max(0, +(settlementTarget - alreadyRecorded - (+nextDiscount || 0)).toFixed(2))));
-                      }
-                    }} /></div>
-                    <div><label className="f">Payment (₹)</label><input className="inp" type="number" min={0} disabled={saving || !canDecide || req.status !== "Pending"} value={payment} onChange={(e) => setPayment(e.target.value)} /></div>
-                    {needsDueDate && (
-                      <div>
-                        <label className="f">Due Date</label>
-                        <DatePicker value={dueDate} onChange={setDueDate} min={today} disabled={saving || !canDecide || req.status !== "Pending"} />
-                      </div>
-                    )}
-                  </div>
-                  {req.status === "Pending" && canDecide && (
-                    <button className="btn sm" style={{ marginTop: 8 }} disabled={saving} onClick={savePayment}>
-                      Save Payment
-                    </button>
-                  )}
-                </>
-              )}
-              {isOverdue && (
-                <p className="notice" style={{ color: "var(--red)", marginTop: 8 }}>
-                  <Icon name="shield" /> Payment overdue — due date was {req.paymentDueDate}, balance still outstanding.
-                </p>
-              )}
-            </div>
-          )}
-
-          {checklistItems.map(([label, field, hint]) => (
-            <label key={field} className="ccheck" style={{ padding: "6px 0" }}>
-              <input type="checkbox" checked={req[field]} disabled={saving || !canDecide || !canVerifyChecklist || req.status !== "Pending"} onChange={(e) => toggle(field, e.target.checked)} />
+          {/* All four items share one `.ccheck-grid` so they lay out as a
+           * 2x2 block, with the expandable payment panel spanning the full
+           * width between the two rows. Record Payment is written out by hand
+           * rather than driven off `checklistItems` because it alone is
+           * read-only and toggles that panel. */}
+          <div className="ccheck-grid">
+            {/* checked reflects req.paymentVerified — kept honest against the
+             * loan's live balance server-side regardless of how it clears
+             * (this screen's own Discount/Payment fields below, or the
+             * loan's ordinary Record Payment screen instead — see
+             * Service.syncPaymentVerified/VerifyReleaseChecklist), so
+             * approval never gets stuck on a stale flag. The checkbox itself
+             * just expands/collapses the fields below; the real state comes
+             * from the backend on every load, not from clicking it. */}
+            <label className="ccheck" style={{ padding: "6px 0", cursor: canRecordPayment ? "pointer" : "default" }} onClick={(e) => { e.preventDefault(); if (canRecordPayment) setRecordPaymentMode((v) => !v); }}>
+              <input type="checkbox" checked={req.paymentVerified} disabled readOnly />
               <span className="mark" />
               <span>
-                <b>{label}</b>
-                <div style={{ fontSize: 12, color: "var(--muted)" }}>{hint}</div>
+                <b>Record Payment</b>
+                <div className="ccheck-hint">
+                  {canRecordPayment
+                    ? "Enter a discount and/or payment against the final settlement"
+                    : "Past the Manager review stage — recorded through Complete Release instead"}
+                </div>
               </span>
             </label>
-          ))}
+
+            {checklistItems.slice(0, 1).map(renderChecklistItem)}
+
+            {/* Spans both grid columns, sitting BETWEEN the two rows — so the
+              * Discount/Payment/Due-Date fields open directly under the Record
+              * Payment checkbox that reveals them and ABOVE the Bank Pledge row,
+              * rather than below the whole checklist where they read as
+              * unrelated to the checkbox. Full-width rather than inline in its
+              * own cell: a panel this tall inside a single 2-column cell would
+              * strand the items beside it against a half-empty column. */}
+            {recordPaymentMode && (
+              <div style={{ gridColumn: "1 / -1", padding: "4px 0 10px 28px" }}>
+                {alreadyRecorded > 0 && (
+                  <div style={{ fontSize: 12, color: "var(--muted)", marginBottom: canRecordPayment ? 6 : 0 }}>
+                    Already recorded: {fmt(req.recordedDiscount)} discount + {fmt(req.recordedPayment)} payment.
+                    {canRecordPayment ? " The fields below are for an ADDITIONAL amount, on top of that." : ""}
+                  </div>
+                )}
+                {/* Past the Manager stage, RecordReleasePayment itself is
+                    refused server-side (see canRecordPayment's own comment
+                    above) — the Discount/Payment/Due-Date inputs and Save
+                    button would just be dead weight here, not a form staff can
+                    actually still submit, so they're skipped entirely instead
+                    of rendering disabled and empty. */}
+                {canRecordPayment && (
+                  <>
+                    <div className={`frow ${needsDueDate ? "c3" : "c2"}`}>
+                      <div><label className="f">Discount (₹)</label><input className="inp" type="number" min={0} disabled={saving || !canDecide || req.status !== "Pending"} value={discount} onChange={(e) => {
+                        const nextDiscount = e.target.value;
+                        setDiscount(nextDiscount);
+                        // Payment re-prefills with whatever's left of the final
+                        // settlement (minus anything already recorded before)
+                        // after this discount, each time Discount changes —
+                        // staff can still edit Payment by hand afterward, this
+                        // only recomputes the starting point.
+                        if (settlementTarget != null) {
+                          setPayment(String(Math.max(0, +(settlementTarget - alreadyRecorded - (+nextDiscount || 0)).toFixed(2))));
+                        }
+                      }} /></div>
+                      <div><label className="f">Payment (₹)</label><input className="inp" type="number" min={0} disabled={saving || !canDecide || req.status !== "Pending"} value={payment} onChange={(e) => setPayment(e.target.value)} /></div>
+                      {needsDueDate && (
+                        <div>
+                          <label className="f">Due Date</label>
+                          <DatePicker value={dueDate} onChange={setDueDate} min={today} disabled={saving || !canDecide || req.status !== "Pending"} />
+                        </div>
+                      )}
+                    </div>
+                    {req.status === "Pending" && canDecide && (
+                      <button className="btn sm" style={{ marginTop: 8 }} disabled={saving} onClick={savePayment}>
+                        Save Payment
+                      </button>
+                    )}
+                  </>
+                )}
+                {isOverdue && (
+                  <p className="notice" style={{ color: "var(--red)", marginTop: 8 }}>
+                    <Icon name="shield" /> Payment overdue — due date was {req.paymentDueDate}, balance still outstanding.
+                  </p>
+                )}
+              </div>
+            )}
+
+            {checklistItems.slice(1).map(renderChecklistItem)}
+          </div>
         </div>
 
         <div className="frow"><div><label className="f">Verification Notes</label><input className="inp" value={notes} disabled={!canDecide} onChange={(e) => setNotes(e.target.value)} onBlur={saveChargesAndNotes} placeholder="optional" /></div></div>

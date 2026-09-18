@@ -7,7 +7,9 @@ package cash
 import (
 	"time"
 
+	"cloudhouse/backend/internal/bank"
 	"cloudhouse/backend/internal/branch"
+	"cloudhouse/backend/internal/customer"
 	"cloudhouse/backend/internal/platform"
 )
 
@@ -17,15 +19,15 @@ import (
 // setCashLoanStatus/toggleCashLoan).
 type CashMovement struct {
 	platform.TenantScoped
-	ID         uint           `json:"id" gorm:"primaryKey"`
-	Type       string         `json:"type" gorm:"not null;size:10"` // "in" | "out"
-	Source     string         `json:"source" gorm:"size:20"`        // "Savings" | "Loan" — only for type=in
-	Purpose    string         `json:"purpose" gorm:"size:120"`      // only for type=out
+	ID      uint   `json:"id" gorm:"primaryKey"`
+	Type    string `json:"type" gorm:"not null;size:10"` // "in" | "out"
+	Source  string `json:"source" gorm:"size:20"`        // "Savings" | "Loan" — only for type=in
+	Purpose string `json:"purpose" gorm:"size:120"`      // only for type=out
 	// Mode is how the cash physically arrived — "Cash" | "UPI" | "Bank
 	// Transfer" (same free-text convention as Expense.Mode) — required for
 	// type=in via AddCashModal.tsx; left blank for cash-out and any other
 	// movement that doesn't record one.
-	Mode       string         `json:"mode" gorm:"size:20"`
+	Mode string `json:"mode" gorm:"size:20"`
 	// Bank names which bank the cash came from — required when Source is
 	// "Loan" (regardless of Mode) or when Mode is "UPI"/"Bank Transfer"
 	// (regardless of Source): both cases mean the cash didn't just appear as
@@ -36,7 +38,35 @@ type CashMovement struct {
 	BranchID   *uint          `json:"branchId"`              // nullable — not every cash movement is tied to a till yet
 	Branch     *branch.Branch `json:"branch,omitempty" gorm:"foreignKey:BranchID"`
 	OccurredOn time.Time      `json:"occurredOn" gorm:"not null"`
-	CreatedAt  time.Time      `json:"createdAt"`
+
+	// TransactionGroupID (renamed from an earlier "GroupRef" naming) groups
+	// several CashMovement rows that together make up one logical split
+	// payment — e.g. a single ₹10,000 collection paid ₹6,000 cash + ₹4,000
+	// UPI becomes two rows sharing one TransactionGroupID (a UUID generated
+	// once per payment/disbursement call). Deliberately a plain string, not
+	// a hard FK to another table — it identifies a logical event, not a row.
+	// Nullable/blank for older rows and for any movement that was never
+	// split (still exactly one row, just with no group to speak of).
+	TransactionGroupID string `json:"transactionGroupId" gorm:"size:40;index"`
+
+	// BankID is the real, queryable bank identity behind this movement — the
+	// free-text Bank field above is kept for display/back-compat, BankID is
+	// the FK the Party Transactions ledger (bank drill-down) actually
+	// queries against. Nullable: not every movement has a bank (plain cash
+	// has none), and historical rows are only linked by a one-time backfill.
+	BankID  *uint      `json:"bankId"`
+	BankRef *bank.Bank `json:"bankRef,omitempty" gorm:"foreignKey:BankID"`
+
+	// PartyCustomerID links this movement to the customer it was actually
+	// collected from/paid to, when the recorder call already has one in
+	// hand (a loan/personal-loan/investment payment always does — the
+	// recorder functions just weren't threading CustomerID through before).
+	// Nullable: an expense-style cash-out or a movement with no customer
+	// party has none.
+	PartyCustomerID *uint              `json:"partyCustomerId"`
+	PartyCustomer   *customer.Customer `json:"partyCustomer,omitempty" gorm:"foreignKey:PartyCustomerID"`
+
+	CreatedAt time.Time `json:"createdAt"`
 }
 
 func (CashMovement) TableName() string {
@@ -112,9 +142,9 @@ type GoldSale struct {
 	platform.TenantScoped
 	ID uint `json:"id" gorm:"primaryKey"`
 
-	OrnamentType string    `json:"ornamentType" gorm:"not null;size:80"`
-	SoldAmount   float64   `json:"soldAmount" gorm:"not null;type:numeric(16,2)"`
-	CostAmount   float64   `json:"costAmount" gorm:"not null;type:numeric(16,2)"`
+	OrnamentType string  `json:"ornamentType" gorm:"not null;size:80"`
+	SoldAmount   float64 `json:"soldAmount" gorm:"not null;type:numeric(16,2)"`
+	CostAmount   float64 `json:"costAmount" gorm:"not null;type:numeric(16,2)"`
 	// Profit is SoldAmount − CostAmount, computed at write time — negative
 	// on a loss-making sale, not clamped to zero.
 	Profit float64   `json:"profit" gorm:"not null;type:numeric(16,2)"`

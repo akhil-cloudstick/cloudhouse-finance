@@ -37,6 +37,8 @@ import { Reports } from "@/modules/reports/components/Reports";
 import { Employees } from "@/modules/employees/components/Employees";
 import { Calendar } from "@/modules/reminders/components/Calendar";
 import { Branches } from "@/modules/branches/components/Branches";
+import { Banks } from "@/modules/banks/components/Banks";
+import { PartyLedger } from "@/modules/cash/components/PartyLedger";
 import { Settings } from "@/modules/settings/components/Settings";
 import { RolesPermissions } from "@/modules/roles/components/RolesPermissions";
 import { Billing } from "@/modules/billing/components/Billing";
@@ -73,6 +75,12 @@ const ROUTE_PERMISSIONS: Record<string, { module: string | null; key?: string; t
   employees: { module: "Employee_Management", key: "can_view_employee" },
   calendar: { module: "Reminder_Management", key: "can_view_reminder" },
   branches: { module: "Branch_Management", key: "can_view_branch", tenantModule: "branches" },
+  banks: { module: "Bank_Management", key: "can_view_bank" },
+  // Drill-down-only routes off the Cash & Expenses page — reuse can_view_cash
+  // (viewing a party's ledger is a drill-down of data the user can already
+  // see there, not a new resource) rather than a new permission.
+  "party-bank": { module: "Cash_Management", key: "can_view_cash" },
+  "party-customer": { module: "Cash_Management", key: "can_view_cash" },
   "roles-permissions": { module: "Role_Management", key: "can_view_role_and_permission" },
   billing: { module: "Billing", key: "can_manage_billing" },
   settings: { module: "Settings_Management", key: "can_view_setting", tenantModule: "settings" },
@@ -171,6 +179,12 @@ function View({ route, arg }: { route: string; arg?: string }) {
       return <Calendar />;
     case "branches":
       return <Branches />;
+    case "banks":
+      return <Banks />;
+    case "party-bank":
+      return <PartyLedger kind="bank" id={arg} />;
+    case "party-customer":
+      return <PartyLedger kind="customer" id={arg} />;
     case "roles-permissions":
       return <RolesPermissions />;
     case "billing":

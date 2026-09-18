@@ -38,6 +38,13 @@ export function Select({
   // trigger's onMouseDown/onClick below for why a plain click-to-toggle
   // doesn't work here.
   const openBeforeMouseDownRef = useRef(false);
+  // Viewport-coords panel position, same technique as DatePicker.tsx's
+  // panelPos: `position:fixed` (not the plain absolute .gs-results default)
+  // so opening this dropdown inside a scrollable container — e.g.
+  // SplitPaymentInput's own payment-line list, capped and scrolled once it
+  // grows past a few rows — can't add to that ancestor's scrollable overflow
+  // or get clipped by its overflow:hidden/auto.
+  const [panelPos, setPanelPos] = useState<{ top: number; left: number; width: number } | null>(null);
 
   useEffect(() => {
     function onDocClick(e: MouseEvent) {
@@ -46,6 +53,23 @@ export function Select({
     document.addEventListener("click", onDocClick);
     return () => document.removeEventListener("click", onDocClick);
   }, []);
+
+  useEffect(() => {
+    if (!open) return;
+    function updatePos() {
+      const el = boxRef.current;
+      if (!el) return;
+      const r = el.getBoundingClientRect();
+      setPanelPos({ top: r.bottom + 6, left: r.left, width: r.width });
+    }
+    updatePos();
+    window.addEventListener("scroll", updatePos, true);
+    window.addEventListener("resize", updatePos);
+    return () => {
+      window.removeEventListener("scroll", updatePos, true);
+      window.removeEventListener("resize", updatePos);
+    };
+  }, [open]);
 
   const selected = options.find((o) => o.value === value);
 
@@ -168,8 +192,8 @@ export function Select({
           <path d="M1 1l4 4 4-4" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
         </svg>
       </button>
-      {open && (
-        <div ref={listRef} className="gs-results open" style={{ position: "absolute", top: "calc(100% + 6px)", left: 0, right: 0, zIndex: 60, maxHeight: 260, overflowY: "auto" }}>
+      {open && panelPos && (
+        <div ref={listRef} className="gs-results open" style={{ position: "fixed", top: panelPos.top, left: panelPos.left, width: panelPos.width, zIndex: 60, maxHeight: 260, overflowY: "auto" }}>
           {options.length === 0 ? (
             <div className="gs-none">No options</div>
           ) : (

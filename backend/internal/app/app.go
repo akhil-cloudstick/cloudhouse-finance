@@ -107,6 +107,7 @@ type App struct {
 	tenantRepo      *tenant.Repository
 	notificationSvc *notification.Service
 	loanSvc         *loan.Service
+	personalLoanSvc *personalloan.Service
 	billingSvc      *billing.Service
 	dashboardSvc    *dashboard.Service
 	investmentSvc   *investment.Service
@@ -214,12 +215,23 @@ func Build(db *gorm.DB, cfg platform.Config) (*App, error) {
 	settingsHandler := settings.NewHandler(settingsSvc)
 
 	// whatsappSender delivers messages (OTPs, reminders, and anything else
-	// that wants WhatsApp delivery) via a self-hosted OpenWA instance,
-	// configured live through Settings > WhatsApp (settingsSvc, category
-	// "whatsapp") rather than an env var — see platform.OpenWASender. Until
-	// that setting is configured, Send returns a clear "not configured"
-	// error rather than silently doing nothing.
+	// that wants WhatsApp delivery) via a self-hosted OpenWA instance — see
+	// platform.OpenWASender. TEMPORARY: WHATSAPP_ORIGIN/WHATSAPP_API_KEY/
+	// WHATSAPP_SESSION_ID from .env (cfg) take priority over Settings >
+	// WhatsApp (settingsSvc, category "whatsapp") whenever WHATSAPP_API_KEY
+	// is set, so a stale/wrong Settings row can't silently override a
+	// deliberately-configured .env — only once WHATSAPP_API_KEY is unset does
+	// the Settings row apply again. Reuses WhatsAppOrigin, the same "where is
+	// OpenWA" setting the /admin/whatsapp dashboard proxy uses, so this never
+	// becomes a second place port/host changes need to be made.
 	whatsappLoader := func() (platform.WhatsAppConfig, error) {
+		if cfg.WhatsAppAPIKey != "" {
+			return platform.WhatsAppConfig{
+				BaseURL:   cfg.WhatsAppOrigin,
+				APIKey:    cfg.WhatsAppAPIKey,
+				SessionID: cfg.WhatsAppSessionID,
+			}, nil
+		}
 		view, err := settingsSvc.Get(platform.AllowCrossTenant(context.Background()), settings.CategoryWhatsApp)
 		if err != nil {
 			return platform.WhatsAppConfig{}, err
@@ -267,7 +279,7 @@ func Build(db *gorm.DB, cfg platform.Config) (*App, error) {
 	// packet movement on bank-pledge/release) — see internal/loan's
 	// PacketCreator/PacketMover doc comments. movementSvc satisfies
 	// loan.CashRecorder, reflecting bank-pledge amounts into Cash-in-Hand.
-	commlogRepo := commlog.NewRepository(pinned)
+	commlogRepo := commlog.NewRepository(pinned, db)
 
 	// Realtime notifications (WebSocket, ack-and-resend) — realtimeHub tracks
 	// live connections, notificationSvc is the durable store + resend logic
@@ -440,6 +452,11 @@ func Build(db *gorm.DB, cfg platform.Config) (*App, error) {
 	branch.RegisterRoutes(protected.Group("/branches"), branchHandler, platform.CRUDPermissions(authzRepo, "branches"),
 		platform.RequireTenantModule(tenantRepo, tenant.ModuleBranches))
 	scheme.RegisterRoutes(protected.Group("/schemes"), schemeHandler, platform.CRUDPermissions(authzRepo, "schemes"))
+	// Scheme-wide statement export — lives on loanHandler (see
+	// loan.SchemeStatement's own doc comment for why), mounted here to keep
+	// the URL scheme-shaped. Gated by "loans" read since it's loan/payment
+	// data being exported, same as the per-loan statement route.
+	protected.GET("/schemes/:id/statement", platform.CRUDPermissions(authzRepo, "loans").Read, loanHandler.SchemeStatement)
 	goldrate.RegisterRoutes(protected.Group("/gold-rates"), goldRateHandler, platform.CRUDPermissions(authzRepo, "goldrates"))
 	puritystandard.RegisterRoutes(protected.Group("/purity-standards"), purityStandardHandler, platform.CRUDPermissions(authzRepo, "puritystandards"))
 	employee.RegisterRoutes(protected.Group("/employees"), employeeHandler, platform.CRUDPermissions(authzRepo, "employees"))
@@ -565,6 +582,7 @@ func Build(db *gorm.DB, cfg platform.Config) (*App, error) {
 	// reads from disk.
 	router.GET("/uploads/:key", uploadServeHandler.Serve)
 
+	webstatic.RegisterWhatsAppProxy(router, cfg.WhatsAppOrigin)
 	webstatic.Register(router, cfg.FrontendDir)
 
 	return &App{
@@ -573,6 +591,7 @@ func Build(db *gorm.DB, cfg platform.Config) (*App, error) {
 		tenantRepo:      tenantRepo,
 		notificationSvc: notificationSvc,
 		loanSvc:         loanSvc,
+		personalLoanSvc: personalLoanSvc,
 		billingSvc:      billingSvc,
 		dashboardSvc:    dashboardSvc,
 		investmentSvc:   investmentSvc,
@@ -637,6 +656,15 @@ func (a *App) StartBackgroundJobs(ctx context.Context) {
 			tenant.ForEachActive(ctx, a.db, a.tenantRepo, "due/overdue sweep", func(ctx context.Context, t tenant.Tenant) error {
 				a.loanSvc.CheckDueAndOverdueLoans(ctx)
 				return nil
+			})
+		}
+	}()
+	go func() {
+		ticker := time.NewTicker(1 * time.Hour)
+		defer ticker.Stop()
+		for range ticker.C {
+			tenant.ForEachActive(ctx, a.db, a.tenantRepo, "personal loan penal interest sweep", func(ctx context.Context, t tenant.Tenant) error {
+				return a.personalLoanSvc.SweepPenalInterest(ctx)
 			})
 		}
 	}()

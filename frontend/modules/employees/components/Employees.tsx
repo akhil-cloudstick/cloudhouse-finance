@@ -7,6 +7,7 @@ import { Icon } from "@/common/components/Icon";
 import { useAuth } from "@/common/auth-context";
 import { fmt, initials } from "@/common/utils/format";
 import { EmployeeModalContent } from "@/common/components/modals/EmployeeModal";
+import { ConfirmModalContent } from "@/common/components/modals/ConfirmModal";
 import { deleteEmployee, listEmployeesPage, type EmployeeView } from "@/modules/employees/services/employeeService";
 import { useResponsivePageSize } from "@/common/utils/responsive";
 import { routeHref } from "@/common/services/appRoutes";
@@ -45,15 +46,20 @@ export function Employees() {
     load();
   }
 
-  async function onDelete(e: EmployeeView) {
-    if (!confirm(`Delete employee "${e.name}"? This cannot be undone.`)) return;
-    try {
-      await deleteEmployee(e.id);
-      toast(`Employee "${e.name}" deleted`);
-      load();
-    } catch (err) {
-      toast(err instanceof Error ? err.message : "Failed to delete employee.");
-    }
+  function onDelete(e: EmployeeView) {
+    openModal(
+      <ConfirmModalContent
+        title="Delete Employee"
+        message={`Delete employee "${e.name}"? This cannot be undone.`}
+        confirmLabel="Delete"
+        busyLabel="Deleting…"
+        onConfirm={async () => {
+          await deleteEmployee(e.id);
+          toast(`Employee "${e.name}" deleted`);
+          load();
+        }}
+      />
+    );
   }
 
   return (

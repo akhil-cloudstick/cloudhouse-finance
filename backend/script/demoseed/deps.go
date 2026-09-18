@@ -116,7 +116,7 @@ func NewDeps(db *gorm.DB, cfg platform.Config) *Deps {
 	ornTypeRepo := ornamenttype.NewRepository(db)
 	purityRepo := puritystandard.NewRepository(db)
 	uploadRepo := upload.NewRepository(db)
-	commlogRepo := commlog.NewRepository(db)
+	commlogRepo := commlog.NewRepository(db, db)
 	notifRepo := notification.NewRepository(db)
 
 	loanRepo := loan.NewRepository(db)

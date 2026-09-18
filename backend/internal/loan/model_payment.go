@@ -68,8 +68,35 @@ type LoanPayment struct {
 
 	// Ledger display fields.
 	Description string `json:"description" gorm:"size:255"`
-	Method      string `json:"method" gorm:"size:30"` // e.g. "Cash" | "UPI" | "Bank Transfer" — free text, mirrors cash.Expense.Mode's convention
-	Reference   string `json:"reference" gorm:"size:80"`
+	// Method is now derived/display-only (platform.DeriveMethod), computed
+	// from the four split amounts below rather than accepted as free-text
+	// input: the single mode's name when exactly one is non-zero, "Split"
+	// when more than one is. Kept as a real stored column so every existing
+	// reader (ledger tables, PDF receipts/statements) keeps working
+	// unchanged.
+	Method    string `json:"method" gorm:"size:30"`
+	Reference string `json:"reference" gorm:"size:80"`
+
+	// CashAmount/UpiAmount/BankTransferAmount/ChequeAmount record exactly how
+	// much of Amount came through each mode — Amount stays the authoritative
+	// total (everything downstream that reads Amount is unaffected); these
+	// four are purely an added breakdown, NOT NULL DEFAULT 0 like every
+	// other allocation-bucket column on this struct. Their sum must equal
+	// Amount within platform.RoundMoney's tolerance — see
+	// platform.ValidateSplit, called from Service.RecordPayment/Approve
+	// before persisting.
+	CashAmount         float64 `json:"cashAmount" gorm:"not null;type:numeric(16,2);default:0"`
+	UpiAmount          float64 `json:"upiAmount" gorm:"not null;type:numeric(16,2);default:0"`
+	BankTransferAmount float64 `json:"bankTransferAmount" gorm:"not null;type:numeric(16,2);default:0"`
+	ChequeAmount       float64 `json:"chequeAmount" gorm:"not null;type:numeric(16,2);default:0"`
+
+	// NeedsModeReview flags a row the one-time Method backfill migration
+	// could not map to exactly one of Cash/UPI/Bank Transfer/Cheque (blank,
+	// a typo, an unrecognized string) — left with all four split amounts at
+	// 0 rather than silently guessed as Cash. Staff reconcile these
+	// manually; new rows going forward never set this (the split is always
+	// known at entry time).
+	NeedsModeReview bool `json:"needsModeReview" gorm:"not null;default:false"`
 
 	// How Amount was split across the four buckets — lets the ledger show
 	// a breakdown per entry instead of just a lump sum. ProcessingFeeApplied

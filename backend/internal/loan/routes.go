@@ -60,6 +60,7 @@ func RegisterRoutes(rg *gin.RouterGroup, h *Handler, perms platform.CRUDMiddlewa
 	rg.POST("/:id/indemnity-bond/esign/start", perms.Update, h.StartIndemnityBondEsign)
 	rg.GET("/:id/indemnity-bond/esign/status", perms.Read, h.CheckIndemnityBondEsign)
 	rg.GET("/:id/indemnity-bond/pdf", perms.Read, h.DownloadIndemnityBondPDF)
+	rg.GET("/:id/release-agreement/pdf", perms.Read, h.DownloadReleaseAgreementPDF)
 	// Pre-submission preview (New Loan's own "Pledge Agreement" button) —
 	// gated the same as Create since it's only reachable from that page,
 	// which already requires "can create loan" to render at all.
@@ -69,6 +70,11 @@ func RegisterRoutes(rg *gin.RouterGroup, h *Handler, perms platform.CRUDMiddlewa
 	rg.PUT("/approval-limits/loan-operator", perms.Update, h.SetLoanOperatorApprovalLimit)
 
 	rg.POST("/:id/payments", perms.Update, h.RecordPayment)
+
+	// Top-up is a mutation on an existing loan resource, not a new one — no
+	// new catalogue entry, same "can update loan" permission as payments.
+	rg.POST("/:id/topup", perms.Update, h.TopUpLoan)
+	rg.GET("/:id/topups", perms.Read, h.ListTopUps)
 
 	// Auctions are gated by the same "can view/create/update/delete loan" set
 	// as every other loan sub-resource — the house role-permission standard

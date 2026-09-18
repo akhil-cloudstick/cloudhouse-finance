@@ -58,6 +58,7 @@ export const NAV: [string, NavItem[]][] = [
   ]],
   ["Administration", [
     { route: "branches", title: "Branch Management", icon: "bank", module: "Branch_Management", key: "can_view_branch", tenantModule: "branches" },
+    { route: "banks", title: "Bank Management", icon: "bank", module: "Bank_Management", key: "can_view_bank" },
     { route: "roles-permissions", title: "Roles & Permissions", icon: "shield", module: "Role_Management", key: "can_view_role_and_permission" },
     { route: "billing", title: "Billing", icon: "coin", module: "Billing", key: "can_manage_billing" },
     { route: "settings", title: "Settings", icon: "gear", module: "Settings_Management", key: "can_view_setting", tenantModule: "settings" },

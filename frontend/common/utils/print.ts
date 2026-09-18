@@ -14,6 +14,41 @@ import { BRAND, BRAND_PHONES, printBrand, printColors } from "@/common/config/br
 const esc = (s: string) =>
   s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 
+/* Sends a PDF blob straight to the browser's print dialog instead of
+ * downloading it — no visible "preview" tab, just Ctrl+P's picker. Loads
+ * the blob into a hidden iframe and calls its contentWindow.print() once
+ * the PDF has actually rendered; the iframe (and its object URL) are torn
+ * down on the next afterprint/cancel so repeated prints don't leak either.
+ * Shared by every server-rendered PDF print flow (indemnity bond, release
+ * agreement, personal-loan bond) — moved here from loanService.ts so it's
+ * not duplicated per module. */
+export function printPdfBlob(blob: Blob): void {
+  const url = window.URL.createObjectURL(blob);
+  const iframe = document.createElement("iframe");
+  iframe.style.position = "fixed";
+  iframe.style.right = "0";
+  iframe.style.bottom = "0";
+  iframe.style.width = "0";
+  iframe.style.height = "0";
+  iframe.style.border = "0";
+  iframe.src = url;
+  document.body.appendChild(iframe);
+  iframe.onload = () => {
+    const win = iframe.contentWindow;
+    if (!win) return;
+    const cleanup = () => {
+      window.URL.revokeObjectURL(url);
+      iframe.remove();
+    };
+    win.addEventListener("afterprint", cleanup, { once: true });
+    // Fallback in case afterprint never fires (e.g. print dialog cancelled
+    // in some browsers) — keep the iframe around long enough to print.
+    setTimeout(cleanup, 60_000);
+    win.focus();
+    win.print();
+  };
+}
+
 /**
  * The masthead every printed document opens with: the legal name, the
  * descriptor, the KML registration number and the contact numbers.

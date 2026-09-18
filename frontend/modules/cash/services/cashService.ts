@@ -17,6 +17,14 @@ export type BackendCashMovement = {
   branch?: { id: number; name: string };
   occurredOn: string;
   createdAt: string;
+  // Party Transactions ledger fields — see backend/internal/cash/model.go's
+  // CashMovement. transactionGroupId groups several rows from one split
+  // payment (see SplitPaymentInput.tsx); bankId/partyCustomerId are the
+  // real, queryable identities behind the free-text bank/customer this
+  // movement is tied to (nullable — not every movement has either).
+  transactionGroupId?: string;
+  bankId?: number | null;
+  partyCustomerId?: number | null;
 };
 
 export type CashMovementView = {
@@ -30,6 +38,10 @@ export type CashMovementView = {
   amount: number;
   status?: string;
   branchId?: number | null;
+  branchName?: string;
+  transactionGroupId?: string;
+  bankId?: number | null;
+  partyCustomerId?: number | null;
 };
 
 function movementToView(m: BackendCashMovement): CashMovementView {
@@ -44,6 +56,10 @@ function movementToView(m: BackendCashMovement): CashMovementView {
     amount: m.amount,
     status: m.status,
     branchId: m.branchId,
+    branchName: m.branch?.name,
+    transactionGroupId: m.transactionGroupId,
+    bankId: m.bankId,
+    partyCustomerId: m.partyCustomerId,
   };
 }
 
@@ -402,4 +418,66 @@ export async function createGoldSale(input: GoldSaleInput): Promise<GoldSaleView
     body: JSON.stringify(input),
   });
   return goldSaleToView(rec);
+}
+
+/* Party Transactions ledger — one bank or customer's full cash-movement
+ * history, drilled into from a Cash & Expenses row's bank/customer or from
+ * CustomerDetail.tsx's own "Transactions" tab. Page size defaults to 12
+ * (the Party Transactions page's own convention, distinct from the app's
+ * usual 10) per backend/internal/cash/handler.go's partyPageSize. */
+export const PARTY_PAGE_SIZE = 12;
+
+export type PartyTotals = {
+  totalIn: number;
+  totalOut: number;
+  net: number;
+  inCount: number;
+  outCount: number;
+};
+
+export type PartyDateRange = { fromDate?: string; toDate?: string };
+
+function partyRangeParams(range?: PartyDateRange): URLSearchParams {
+  const params = new URLSearchParams();
+  if (range?.fromDate) params.set("fromDate", range.fromDate);
+  if (range?.toDate) params.set("toDate", range.toDate);
+  return params;
+}
+
+export async function listCashMovementsByBank(
+  bankId: number,
+  page: number,
+  range?: PartyDateRange,
+  pageSize: number = PARTY_PAGE_SIZE
+): Promise<{ items: CashMovementView[]; total: number; totals: PartyTotals }> {
+  const params = partyRangeParams(range);
+  params.set("limit", String(pageSize));
+  params.set("offset", String((page - 1) * pageSize));
+  const rec = await apiFetch<{ items: BackendCashMovement[]; total: number; totals: PartyTotals }>(`/cash-movements/transactions/bank/${bankId}?${params}`);
+  return { items: (rec?.items || []).map(movementToView), total: rec?.total ?? 0, totals: rec?.totals ?? { totalIn: 0, totalOut: 0, net: 0, inCount: 0, outCount: 0 } };
+}
+
+export async function listCashMovementsByCustomer(
+  customerId: number,
+  page: number,
+  range?: PartyDateRange,
+  pageSize: number = PARTY_PAGE_SIZE
+): Promise<{ items: CashMovementView[]; total: number; totals: PartyTotals }> {
+  const params = partyRangeParams(range);
+  params.set("limit", String(pageSize));
+  params.set("offset", String((page - 1) * pageSize));
+  const rec = await apiFetch<{ items: BackendCashMovement[]; total: number; totals: PartyTotals }>(`/cash-movements/transactions/customer/${customerId}?${params}`);
+  return { items: (rec?.items || []).map(movementToView), total: rec?.total ?? 0, totals: rec?.totals ?? { totalIn: 0, totalOut: 0, net: 0, inCount: 0, outCount: 0 } };
+}
+
+export async function exportPartyStatementByBank(bankId: number, range?: PartyDateRange): Promise<void> {
+  const params = partyRangeParams(range);
+  const qs = params.toString() ? `?${params.toString()}` : "";
+  await downloadFile(`/cash-movements/transactions/bank/${bankId}/export${qs}`, "party-transactions.pdf");
+}
+
+export async function exportPartyStatementByCustomer(customerId: number, range?: PartyDateRange): Promise<void> {
+  const params = partyRangeParams(range);
+  const qs = params.toString() ? `?${params.toString()}` : "";
+  await downloadFile(`/cash-movements/transactions/customer/${customerId}/export${qs}`, "party-transactions.pdf");
 }

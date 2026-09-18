@@ -212,6 +212,20 @@ type Loan struct {
 	SchemeID uint          `json:"schemeId" gorm:"not null"`
 	Scheme   scheme.Scheme `json:"scheme" gorm:"foreignKey:SchemeID"`
 
+	// The fields below freeze the scheme's calculation terms as they stood
+	// at loan creation (or the last explicit scheme swap via UpdateLoan).
+	// Every accrual/penalty/eligibility calculation reads these instead of
+	// the live Scheme row, so editing or soft-deleting a scheme later never
+	// changes the terms of a loan already opened under it. Scheme name is
+	// deliberately NOT snapshotted — it's cosmetic display text, not a
+	// calculation input, so display code keeps reading Scheme.Name live.
+	SchemeCode           string  `json:"schemeCode" gorm:"size:20"`
+	SchemeInterestRate   float64 `json:"schemeInterestRate"`
+	SchemeDurationMonths int     `json:"schemeDurationMonths"`
+	SchemeLTVPercent     float64 `json:"schemeLtvPercent"`
+	SchemeInterestMethod string  `json:"schemeInterestMethod" gorm:"size:80"`
+	SchemePenalRate      float64 `json:"schemePenalRate"`
+
 	OpenedDate time.Time `json:"openedDate" gorm:"not null"`
 	DueDate    time.Time `json:"dueDate" gorm:"not null"`
 
@@ -338,3 +352,17 @@ type Loan struct {
 }
 
 func (Loan) TableName() string { return "loans" }
+
+// applySchemeSnapshot copies sch's calculation-relevant fields onto l,
+// freezing them at their current values. Called at loan creation and again
+// whenever a loan's scheme is explicitly reassigned (UpdateLoan) — never on
+// a later scheme edit, so an existing loan's terms stay fixed regardless of
+// what happens to the scheme afterward.
+func (l *Loan) applySchemeSnapshot(sch *scheme.Scheme) {
+	l.SchemeCode = sch.Code
+	l.SchemeInterestRate = sch.InterestRate
+	l.SchemeDurationMonths = sch.DurationMonths
+	l.SchemeLTVPercent = sch.LTVPercent
+	l.SchemeInterestMethod = sch.InterestMethod
+	l.SchemePenalRate = sch.PenalRate
+}

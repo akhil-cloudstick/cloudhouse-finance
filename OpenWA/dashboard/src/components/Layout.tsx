@@ -141,7 +141,7 @@ export function Layout({ onLogout, userRole }: LayoutProps) {
             {isMobileOpen ? <X size={24} /> : <Menu size={24} />}
           </button>
           <div className="mobile-brand">
-            <img src="/openwa_logo.webp" alt="OpenWA" className="sidebar-logo" />
+            <img src={`${import.meta.env.BASE_URL}openwa_logo.webp`} alt="OpenWA" className="sidebar-logo" />
             <span className="brand-name">{t('common.appName')}</span>
           </div>
           <div style={{ width: 40 }} />

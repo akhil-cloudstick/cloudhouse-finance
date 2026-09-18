@@ -1,0 +1,86 @@
+<!--
+  ARCHIVED — do not wire this into any Go code or route. Not currently used
+  anywhere in the app.
+
+  This is the old formal "MEMORANDUM OF AGREEMENT... BETWEEN" numbered-clause
+  pledge deed that kml-bond-english.html used to contain, kept here only as a
+  reference/backup copy after kml-bond-english.html was replaced with the
+  short KML letterhead letter format (matching kml-bond-malayalam.html's
+  structure). If this document is ever needed again, it would need to be
+  wired up explicitly (new bondTemplate var + mustLoadTemplate call in
+  indemnitybond.go) — nothing currently loads this file.
+-->
+<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Agreement of Pledge of Movable — {{.LoanNumber}}</title><style>{{.Style}}</style></head><body>
+<h1>AGREEMENT OF PLEDGE OF MOVABLE</h1>
+<h2>Gold Loan Account No. {{.LoanNumber}}</h2>
+<p>MEMORANDUM OF AGREEMENT, made the <b>{{printf "%02d" .Day}}</b> day of <b>{{.Month}}, {{.Year}}</b> BETWEEN</p>
+<p>
+<b>{{.CustomerName}}</b><br>
+Age :- <b>{{.Age}}</b>, business :- {{.Blank}}<br>
+Aadhar Card No. <b>{{.Aadhaar}}</b><br>
+Pan Card No. <b>{{.PAN}}</b><br>
+Residing at :- <b>{{.Address}}</b>
+</p>
+<p>(Hereinafter called &quot;the borrower&quot;) of the one part.</p>
+<p>AND</p>
+<p>
+<b>{{.LenderName}}</b><br>
+Age :- <b>{{.LenderAge}}</b>, business :- <b>{{.LenderBusiness}}</b><br>
+Aadhar Card No. <b>{{.LenderAadhaar}}</b><br>
+Pan Card No. <b>{{.LenderPAN}}</b><br>
+Residing at :- <b>{{.LenderAddress}}</b>
+</p>
+<p>(Hereinafter called &quot;the lender&quot;) of the other part.</p>
+<p>The lender carrying on business of money-lending under certificate of registration number <b>{{.LenderRegNo}}</b> of the other part.</p>
+<p>The Money lender and borrower are collectively referred to as the &quot;Parties&quot;.</p>
+<p><b>WHEREBY IT IS AGREED AS FOLLOWS</b></p>
+<ol>
+<li><b>Covenant to pay</b><br>In Consideration of the loan of Rs <b>{{.PrincipalAmount}}</b> advance by the lender to the borrower, the borrower hereby covenants with the lender that he will repay the said loan on or before {{.DueDate}} with interest at <b>{{.InterestRate}}</b> percent per annum from the date of execution of this agreement.</li>
+<li><b>Pledge Clause</b><br>The Lender has lent the sum of Rs <b>{{.PrincipalAmount}}</b> (the receipt of which the borrower hereby acknowledges) and borrower has delivered to the lender article belonging to the borrower and specified in the schedule hereto to be held by him as security for the repayment of the aforesaid loan in the manner herein provided,
+<ol type="a">
+<li><b>Right to Extraordinary Expenses</b> — The lender is entitled to receive from the borrower extraordinary expenses incurred by him for the preservation of the good pledged.</li>
+<li><b>Expenses of Repairs</b> — The Expenses of keeping the said articles in a good state of repair and in proper working order.</li>
+<li><b>Other Costs</b> — All other costs, charges and expenses (if any) which the lender may be entitled by law to add to his security.</li>
+</ol>
+</li>
+<li><b>Lender's Liability for Losses</b><br>The Lender shall not be liable to the borrower for any involuntary losses which may occur during his custody of the said articles (goods) or by reason of the sale thereof.</li>
+<li><b>Right of Lender</b><br>The Borrower further covenants with the lender that in case any interest payable hereunder is not paid within 30 days after the due date, the whole sum hereby secured shall become payable at once, and in case of default in the payment of the principal money hereby secured with interest thereon on the aforesaid or in the performance of any of the covenants by the borrower hereinbefore contained the lender may enforce all or any of the remedies of a Pawnee provided by law provided that in case of sale of any part of the pledged property, a previous notice of two months shall be given to the borrower.</li>
+<li><b>Power of Sale</b>
+<ol type="a">
+<li>The power of sale conferred by law on the lender shall be exercisable by public auction or private contract in respect of the entire articles in one lot or in several lots at the discretion of the lender;</li>
+<li>Before exercising such power of sale as aforesaid the lender shall give at least two months' notice to the borrower.</li>
+</ol>
+</li>
+<li><b>Interpretation clause</b><br>It is hereby agreed that wherever such an interpretation would be requisite in order to give the fullest scope and effect legally possible to any covenant herein contained, the expression &quot;the borrower&quot; and &quot;the lender&quot; hereinbefore used include their respective heirs, executors, administrators, and assigns.</li>
+</ol>
+<p><b>The Schedule herein referred to</b></p>
+<table>
+<thead><tr><th>Sr. no</th><th>Description of the Article</th><th>Carat</th><th class="num">Gross Weight</th><th class="num">Net Weight</th><th class="num">Estimated Value</th></tr></thead>
+<tbody>
+{{range $i, $o := .Ornaments}}<tr><td>{{inc $i}}</td><td>{{$o.Name}}</td><td>{{$o.Purity}}</td><td class="num">{{printf "%.1f" $o.GrossWeight}}</td><td class="num">{{printf "%.1f" $o.NetWeight}}</td><td class="num">{{printf "%.0f" $o.Value}}</td></tr>
+{{else}}<tr><td colspan="6" style="text-align:center;color:#777">{{.Blank}}</td></tr>
+{{end}}
+</tbody>
+</table>
+<p><b>Total Estimated Value :- Rs. {{.TotalValue}}/-</b></p>
+<p><b>Total Loan Advanced :- Rs. {{.PrincipalAmount}}/-</b></p>
+<p>Place :- {{.Blank}}</p>
+<p>Date :- {{printf "%02d" .Day}} / {{.Month}} / {{.Year}}</p>
+
+<div class="sig-page">
+<p><b>IN WITNESS WHEREOF Etc.</b></p>
+<div class="sig">
+<div><span>Name: {{.Blank}}<br>Residing at</span></div>
+<div><span>Name: {{.Blank}}<br>Residing at</span></div>
+</div>
+{{/* The Borrower/Lender signature row is deliberately the LAST thing in
+     this page-bottom-pinned block (.sig-page{justify-content:flex-end} —
+     see that class's comment) — Setu's Aadhaar eSign stamp targets
+     "bottom-right of the last page", which is whatever sits at the very
+     bottom, not a specific line. */}}
+<div class="sig">
+<div>The Borrower<span>Name: {{.CustomerName}}</span></div>
+<div>The Lender<div class="lender-sig">{{.LenderSignatureSVG}}</div><span>{{.LenderName}}</span></div>
+</div>
+</div>
+</body></html>

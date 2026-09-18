@@ -160,11 +160,21 @@ export function NewLoan() {
   const [rows, setRows] = useState<OrnRow[]>([]);
   // Staff can override the disbursed principal instead of always taking the
   // scheme-LTV-computed eligible amount as-is (e.g. rounding down, or
-  // sanctioning less than the max eligible). Empty string means "use the
-  // eligible amount" — the field is re-blanked whenever the eligible amount
-  // itself changes so a stale manual figure never silently outlives the
-  // ornaments/scheme it was computed against.
+  // sanctioning less than the max eligible). Prefilled to the eligible
+  // amount (see the roundedEligible effect below) rather than left empty
+  // behind a placeholder, so the field shows a real, immediately-editable
+  // figure from the start — empty string still means "use the eligible
+  // amount" for the principal calc below, but now only transiently, while
+  // staff have the field cleared mid-edit, not as the field's resting
+  // state. Re-prefilled whenever the eligible amount itself changes so a
+  // stale manual figure never silently outlives the ornaments/scheme it
+  // was computed against.
   const [principalOverride, setPrincipalOverride] = useState("");
+  // True while the staff member's most recent keystroke in "Loan amount to
+  // disburse" typed a number above the eligible amount — shown as inline
+  // feedback since the field itself silently clamps to the eligible ceiling
+  // rather than accepting the excess digits.
+  const [principalExceedsEligible, setPrincipalExceedsEligible] = useState(false);
   // Free text staff may want to record on this loan that no standard field
   // captures — carried through onto the printed Statement of Account.
   const [additionalInfo, setAdditionalInfo] = useState("");
@@ -202,6 +212,17 @@ export function NewLoan() {
     menuRef: bondMenuRef,
     triggerRef: bondMenuTriggerRef,
     onKeyDown: onBondMenuKeyDown,
+  } = useDropdownMenu<HTMLDivElement>();
+  // Slip/Label print dropdown — same "Print Slip + Label" combined third
+  // option LoanDetail.tsx's Documents menu has, on a pre-submission draft
+  // instead of a saved loan (see printPledgeSlip/printPacketLabel/
+  // printSlipAndLabel below).
+  const {
+    open: slipLabelMenuOpen,
+    setOpen: setSlipLabelMenuOpen,
+    menuRef: slipLabelMenuRef,
+    triggerRef: slipLabelMenuTriggerRef,
+    onKeyDown: onSlipLabelMenuKeyDown,
   } = useDropdownMenu<HTMLDivElement>();
 
   useEffect(() => {
@@ -252,13 +273,17 @@ export function NewLoan() {
   const totalWeight = rows.reduce((s, r) => s + r.netW, 0);
   const totalGross = rowVals.reduce((s, v) => s + v, 0);
   const eligible = sch ? (totalGross * sch.ltv) / 100 : 0;
-  const principal = principalOverride.trim() ? Math.max(0, +principalOverride) : Math.round(eligible);
-
   // Clear a stale manual override whenever the eligible amount it was based
   // on changes (ornaments edited, scheme swapped, rates refreshed) — the
   // field falls back to showing the new eligible amount as a placeholder
   // rather than silently keeping an amount computed against different gold.
   const roundedEligible = Math.round(eligible);
+  // Staff can reduce the disbursed principal below the eligible amount, but
+  // never raise it above — the eligible amount (LTV × gold value) is the
+  // hard ceiling a manual override may not cross. Empty principalOverride
+  // (field genuinely cleared mid-edit) also falls back to roundedEligible
+  // here, same as its prefilled resting state.
+  const principal = principalOverride.trim() ? Math.min(Math.max(0, +principalOverride), roundedEligible) : roundedEligible;
   // Set when a saved draft is being applied: that draft's own override
   // arrived together with its ornaments, so it is not stale and must survive
   // the reset this effect would otherwise perform. See applyDraft().
@@ -268,7 +293,11 @@ export function NewLoan() {
       skipOverrideResetRef.current = false;
       return;
     }
-    setPrincipalOverride("");
+    // Prefill with the new eligible amount rather than clearing to empty —
+    // the field should always show a real, ready-to-submit figure, not a
+    // placeholder staff have to notice and accept.
+    setPrincipalOverride(roundedEligible > 0 ? String(roundedEligible) : "");
+    setPrincipalExceedsEligible(false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [roundedEligible]);
 
@@ -317,9 +346,17 @@ export function NewLoan() {
     const clamped = (k === "w" || k === "lessWt" || k === "q") && typeof v === "number" ? (Math.max(0, v) as OrnRow[K]) : v;
     setRows((rs) => rs.map((r, idx) => {
       if (idx !== i) return r;
+      // Net Wt is directly editable — editing it derives Less Wt instead
+      // (Gross Wt never changes as a side effect of editing Net/Less Wt).
+      // Clamped to [0, Gross Wt], mirroring the submit-time guard that Less
+      // Wt can't exceed Gross Wt.
+      if (k === "netW" && typeof v === "number") {
+        const netW = Math.min(Math.max(0, v), r.w);
+        return { ...r, netW, lessWt: Math.max(0, r.w - netW) };
+      }
       const next = { ...r, [k]: clamped };
-      // netW is never entered directly — Gross Wt and Less Wt are the two
-      // real inputs, so any change to either recomputes it here.
+      // Gross Wt/Less Wt are the two inputs that drive Net Wt — any change
+      // to either recomputes it here.
       if (k === "w" || k === "lessWt") next.netW = Math.max(0, next.w - next.lessWt);
       return next;
     }));
@@ -481,10 +518,16 @@ export function NewLoan() {
     return { c, sch: s, orns, weight, gross, eligible: Math.round((gross * s.ltv) / 100), locker };
   }
 
-  function printPledgeSlip() {
+  /* Inner markup only (no <html>/brand-window wrapper) — shared by
+   * printPledgeSlip (its own print window) and printSlipAndLabel (combined
+   * with the packet label below into one print job), same split
+   * LoanDetail.tsx's pledgeSlipBodyHTML uses for the saved-loan version of
+   * this same document. Returns null when there's nothing to print yet
+   * (no ornaments), same guard printPledgeSlip always had. */
+  function pledgeSlipBodyHTML(): string | null {
     const d = buildDraft();
-    if (!d.orns.length) { toast("Add at least one ornament with weight and qty first"); return; }
-    openPrintWindow("Pledge Slip — " + provId, `
+    if (!d.orns.length) return null;
+    return `
       ${brandHeader("Gold Loan Pledge Slip")}
       <table>
         <tr><th style="width:110px">Loan No</th><td>${provId}</td><th style="width:110px">Date</th><td>${new Date().toLocaleDateString("en-IN")}</td></tr>
@@ -503,8 +546,13 @@ export function NewLoan() {
         </tbody>
       </table>
       <p><b>Eligible loan amount: ${fmt(d.eligible)}</b> &nbsp;<span class="muted">(at today's published rates — 22K ${fmt(rates.k22)}/g)</span></p>
-      <div class="sig"><div><span>Customer Signature</span></div><div><span>Cashier</span></div><div><span>Branch Manager</span></div></div>`,
-      toast);
+      <div class="sig"><div><span>Customer Signature</span></div><div><span>Cashier</span></div><div><span>Branch Manager</span></div></div>`;
+  }
+
+  function printPledgeSlip() {
+    const body = pledgeSlipBodyHTML();
+    if (body == null) { toast("Add at least one ornament with weight and qty first"); return; }
+    openPrintWindow("Pledge Slip — " + provId, body, toast);
   }
 
   /* Sends the same server-rendered PDF (real per-page header/footer)
@@ -549,7 +597,12 @@ export function NewLoan() {
     }
   }
 
-  async function printPacketLabel() {
+  /* Resolves the QR code + packet label shared by printPacketLabel (its own
+   * die-cut-stock print window) and printSlipAndLabel (label reworked onto
+   * a normal A4 page) — same split LoanDetail.tsx's packetLabelData uses.
+   * Returns null (after toasting) on QR failure so callers can bail the
+   * same way the original try/catch did. */
+  async function packetLabelData(): Promise<{ d: ReturnType<typeof buildDraft>; c: { name?: string; id?: string; phone?: string }; packetLabel: string; url: string; qr: string } | null> {
     const d = buildDraft();
     const c = d.c as { name?: string; id?: string; phone?: string };
     // Once the loan has actually been created, the real Packet.Code (see
@@ -567,8 +620,44 @@ export function NewLoan() {
       qr = await toDataURL(url, { width: 256, errorCorrectionLevel: "M" });
     } catch {
       toast("Could not generate QR code");
-      return;
+      return null;
     }
+    return { d, c, packetLabel, url, qr };
+  }
+
+  /* The label's own CSS + markup, shared by printPacketLabel (label-only,
+   * its own 81mm×12mm die-cut-stock page) and printSlipAndLabel (label
+   * centered on a normal A4 page instead — see that function's own
+   * comment for why). Mirrors LoanDetail.tsx's labelStyle/labelBodyHTML. */
+  function labelStyle(): string {
+    return `
+      body{margin:0;font-family:Arial,Helvetica,sans-serif;-webkit-print-color-adjust:exact}
+      .label{width:50mm;height:30mm;box-sizing:border-box;padding:1.6mm;display:flex;align-items:center;gap:1.8mm;
+        border:0.3mm dashed #aaa;overflow:hidden;page-break-inside:avoid}
+      .label img{width:25mm;height:25mm;flex:none}
+      .t{font-size:2.5mm;line-height:1.45;min-width:0}
+      .t .brand{font-size:2mm;letter-spacing:0.3mm;color:${printColors().brand}}
+      .t .id{font-size:3.4mm;font-weight:bold}
+      .t div{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}`;
+  }
+
+  function labelBodyHTML(data: NonNullable<Awaited<ReturnType<typeof packetLabelData>>>): string {
+    const { d, c, packetLabel, qr } = data;
+    return `<div class="label">
+      <img src="${qr}" alt="QR">
+      <div class="t">
+        <div class="brand">${tenantLenderProfile().legalName.toUpperCase()}</div>
+        <div class="id">${provId} · ${packetLabel}</div>
+        <div>${c.name || "—"}</div>
+        <div>${c.id || "—"} · ${c.phone || ""}</div>
+        <div>${new Date().toLocaleDateString("en-IN")} · ${d.weight.toFixed(1)} g · ${d.orns.length} item(s)</div>
+      </div>
+    </div>`;
+  }
+
+  async function printPacketLabel() {
+    const data = await packetLabelData();
+    if (!data) return;
     const w = window.open("", "_blank");
     if (!w) { toast("Popup blocked — please allow popups for this site to print"); return; }
     // Die-cut "flag tag" stock: 81mm total — a 56mm×12mm head (perforated
@@ -580,34 +669,40 @@ export function NewLoan() {
     // 50mm×30mm rectangular label this stock physically can't fit.
     w.document.write(`<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Packet Label — ${provId}</title><style>
       @page{size:81mm 12mm;margin:0}
-      body{margin:0;font-family:Arial,Helvetica,sans-serif;-webkit-print-color-adjust:exact}
-      .label{width:50mm;height:30mm;box-sizing:border-box;padding:1.6mm;display:flex;align-items:center;gap:1.8mm;
-        border:0.3mm dashed #aaa;overflow:hidden;page-break-inside:avoid}
-      .label img{width:25mm;height:25mm;flex:none}
-      .t{font-size:2.5mm;line-height:1.45;min-width:0}
-      .t .brand{font-size:2mm;letter-spacing:0.3mm;color:${printColors().brand}}
-      .t .id{font-size:3.4mm;font-weight:bold}
-      .t div{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+      ${labelStyle()}
       .noprint{text-align:center;margin:8mm;font-family:Arial}
       @media print{.noprint{display:none} .head{border:none} .infocell{border-left:none} .strap .band{border:none}}
     </style></head><body>
-      <div class="label">
-        <img src="${qr}" alt="QR">
-        <div class="t">
-          <div class="brand">${tenantLenderProfile().legalName.toUpperCase()}</div>
-          <div class="id">${provId} · ${packetLabel}</div>
-          <div>${c.name || "—"}</div>
-          <div>${c.id || "—"} · ${c.phone || ""}</div>
-          <div>${new Date().toLocaleDateString("en-IN")} · ${d.weight.toFixed(1)} g · ${d.orns.length} item(s)</div>
-        </div>
-      </div>
+      ${labelBodyHTML(data)}
       <div class="noprint">
-        <p style="font-size:13px;color:#555">81mm × 12mm flag tag — scanning the QR opens ${url}</p>
+        <p style="font-size:13px;color:#555">81mm × 12mm flag tag — scanning the QR opens ${data.url}</p>
         <button onclick="window.print()" style="padding:10px 26px;font-size:14px;cursor:pointer">🖨 Print Label</button>
       </div>
     </body></html>`);
     w.document.close();
     setTimeout(() => { try { w.focus(); w.print(); } catch { /* ignore */ } }, 400);
+  }
+
+  /* Combined "Print Slip + Label" — one print job, one A4 page: the slip's
+   * content followed directly by the label at natural size (not the 81mm
+   * die-cut stock size), separated by a dashed rule — NOT a hard
+   * page-break onto a second sheet. Same approach as LoanDetail.tsx's
+   * printSlipAndLabel. Order is slip then label. */
+  async function printSlipAndLabel() {
+    const body = pledgeSlipBodyHTML();
+    if (body == null) { toast("Add at least one ornament with weight and qty first"); return; }
+    const data = await packetLabelData();
+    if (!data) return;
+    openPrintWindow(
+      "Pledge Slip + Label — " + provId,
+      `${body}
+      <div style="margin-top:24px;padding-top:16px;border-top:1px dashed #ccc;text-align:center">
+        <style>${labelStyle()}</style>
+        <div style="display:inline-block">${labelBodyHTML(data)}</div>
+        <p class="muted" style="margin-top:12px">Packet label — scanning the QR opens ${data.url}</p>
+      </div>`,
+      toast
+    );
   }
 
   async function submitNewLoan() {
@@ -945,10 +1040,10 @@ export function NewLoan() {
                   <td style={{ paddingLeft: 4 }}><PurityPicker value={r.p} onChange={(v) => updOrn(i, "p", v)} dropdownMinWidth={0} /></td>
                   <td className="num" style={{ paddingRight: 8 }}><input className="inp" style={{ padding: "6px 8px", width: "100%", minWidth: 68, height: 31, textAlign: "right", boxSizing: "border-box" }} type="number" min={0} placeholder="0.0gm" value={r.w === 0 ? "" : r.w} onChange={(e) => updOrn(i, "w", e.target.value === "" ? 0 : Math.max(0, +e.target.value || 0))} /></td>
                   <td className="num" style={{ paddingLeft: 8, paddingRight: 8 }}><input className="inp" style={{ padding: "6px 8px", width: "100%", minWidth: 68, height: 31, textAlign: "right", boxSizing: "border-box" }} type="number" min={0} max={r.w || undefined} placeholder="0.0gm" value={r.lessWt === 0 ? "" : r.lessWt} onChange={(e) => updOrn(i, "lessWt", e.target.value === "" ? 0 : Math.max(0, +e.target.value || 0))} /></td>
-                  {/* Net Wt is never entered directly — it's Gross Wt − Less
-                      Wt, recomputed in updOrn — so this is a plain read-only
-                      display, not an input, unlike every column beside it. */}
-                  <td className="num" style={{ paddingLeft: 8 }}>{r.netW.toFixed(2)}</td>
+                  {/* Net Wt is directly editable — editing it derives Less
+                      Wt instead (see updOrn); Gross Wt never changes as a
+                      side effect. */}
+                  <td className="num" style={{ paddingLeft: 8 }}><input className="inp" style={{ padding: "6px 8px", width: "100%", minWidth: 68, height: 31, textAlign: "right", boxSizing: "border-box" }} type="number" min={0} max={r.w || undefined} placeholder="0.0gm" value={r.netW === 0 ? "" : r.netW} onChange={(e) => updOrn(i, "netW", e.target.value === "" ? 0 : Math.max(0, +e.target.value || 0))} /></td>
                   <td className="num" style={{ textAlign: "center", paddingLeft: 6, paddingRight: 2 }}>{fmt(rowVals[i])}</td>
                   <td style={{ textAlign: "left", whiteSpace: "nowrap", paddingLeft: 6, paddingRight: 2 }}>
                     <input type="file" accept="image/*" ref={(el) => { fileRefs.current[i] = el; }} style={{ display: "none" }} onChange={(e) => ornImgPicked(i, e.target)} />
@@ -1020,8 +1115,8 @@ export function NewLoan() {
                   </div>
                   <div style={{ flex: 1, minWidth: 90 }}>
                     <label className="f">Net Wt (g)</label>
-                    {/* Read-only — derived as Gross Wt − Less Wt in updOrn. */}
-                    <input className="inp" style={{ padding: "6px 8px", width: "100%", height: 31, boxSizing: "border-box", background: "var(--panel-2, #f4f0e4)" }} type="text" readOnly value={r.netW.toFixed(2)} />
+                    {/* Editable — editing derives Less Wt instead, see updOrn. */}
+                    <input className="inp" style={{ padding: "6px 8px", width: "100%", height: 31, boxSizing: "border-box" }} type="number" min={0} max={r.w || undefined} placeholder="0.00 " value={r.netW === 0 ? "" : r.netW} onChange={(e) => updOrn(i, "netW", e.target.value === "" ? 0 : Math.max(0, +e.target.value || 0))} />
                   </div>
                 </div>
                 {/* Value/Photo are a tighter-knit summary pair than the
@@ -1067,8 +1162,36 @@ export function NewLoan() {
           <button className="btn plain sm" style={{ marginTop: 10 }} tabIndex={rows.length === 0 ? 0 : -1} onClick={() => addOrnRow()}><Icon name="plus" /> Add Ornament</button>
         </div>
           <div className="ft" style={{ display: "flex", gap: 10, justifyContent: "flex-end", flexWrap: "wrap", padding: "14px 18px" }}>
-            <button className="btn ghost" onClick={printPacketLabel}>🏷 Print Label</button>
-            <button className="btn ghost" onClick={printPledgeSlip}>🖨 Print Slip</button>
+            {/* Slip/Label print dropdown — replaces the old 2 separate
+              * buttons with a single dropdown (same shell as the Pledge
+              * Agreement dropdown just below), adding a third "Print Slip +
+              * Label" option that combines both into one print job. */}
+            <div className="docs-dd" ref={slipLabelMenuRef} onKeyDown={onSlipLabelMenuKeyDown}>
+              <button
+                ref={slipLabelMenuTriggerRef}
+                type="button"
+                className="btn ghost"
+                onClick={() => setSlipLabelMenuOpen((v) => !v)}
+                title="Print the packet label and/or pledge slip"
+                aria-haspopup="menu"
+                aria-expanded={slipLabelMenuOpen}
+              >
+                🖨 Slip / Label <Icon name="chevronDown" className="docs-dd-chev" />
+              </button>
+              {slipLabelMenuOpen && (
+                <div className="docs-dd-menu" role="menu" style={{ minWidth: 190 }}>
+                  <a href="#" onClick={(e) => { e.preventDefault(); setSlipLabelMenuOpen(false); printPacketLabel(); }}>
+                    <Icon name="box" /><span className="tx">Print Label</span>
+                  </a>
+                  <a href="#" onClick={(e) => { e.preventDefault(); setSlipLabelMenuOpen(false); printPledgeSlip(); }}>
+                    <Icon name="doc" /><span className="tx">Print Slip</span>
+                  </a>
+                  <a href="#" onClick={(e) => { e.preventDefault(); setSlipLabelMenuOpen(false); printSlipAndLabel(); }}>
+                    <Icon name="doc" /><span className="tx">Print Slip + Label</span>
+                  </a>
+                </div>
+              )}
+            </div>
             {/* Pledge agreement print dropdown — replaces the old 2-button
               * toggle + print button with a single dropdown matching
               * LoanDetail.tsx's Documents menu, picking between English and
@@ -1136,17 +1259,40 @@ export function NewLoan() {
                   className="inp"
                   type="text"
                   inputMode="numeric"
-                  placeholder={Math.round(eligible).toLocaleString("en-IN")}
+                  // principalOverride is itself prefilled to the eligible
+                  // amount (see the roundedEligible effect below) rather
+                  // than left empty behind a placeholder, so this just
+                  // displays whatever's actually stored — including
+                  // genuinely empty while staff are mid-edit (e.g. having
+                  // just cleared the field to type a smaller figure).
                   value={principalOverride ? (+principalOverride).toLocaleString("en-IN") : ""}
                   onChange={(e) => {
                     // Store the raw digits (comma-free) — only the display
                     // above is comma-grouped, same "en-IN" grouping fmt()
                     // uses everywhere else money is shown.
                     const digits = e.target.value.replace(/[^\d]/g, "");
-                    setPrincipalOverride(digits.replace(/^0+(?=\d)/, ""));
+                    const clean = digits.replace(/^0+(?=\d)/, "");
+                    const num = clean === "" ? 0 : +clean;
+                    // The eligible amount is a hard ceiling — clamp what's
+                    // stored so the displayed value never shows a figure
+                    // that would silently be capped later, and surface the
+                    // clamp as inline feedback instead of just truncating
+                    // keystrokes.
+                    if (num > roundedEligible) {
+                      setPrincipalOverride(String(roundedEligible));
+                      setPrincipalExceedsEligible(true);
+                    } else {
+                      setPrincipalOverride(clean);
+                      setPrincipalExceedsEligible(false);
+                    }
                   }}
                   style={{ fontWeight: 600, color: "var(--brand-deep)", fontSize: 16 }}
                 />
+                {principalExceedsEligible && (
+                  <p style={{ color: "var(--red)", fontSize: 12, margin: "4px 0 0" }}>
+                    Loan amount can&apos;t exceed {fmt(roundedEligible)}.
+                  </p>
+                )}
               </div>
               <div style={{ padding: "10px 0 2px" }}>
                 <label className="f" htmlFor="additional-info-input">Additional Information (optional)</label>
@@ -1161,7 +1307,7 @@ export function NewLoan() {
                 />
               </div>
             </div>
-            <div className="ft">Uses today&apos;s published rates (22K {fmt(rates.k22)}/g) — defaults to the eligible amount but can be overridden</div></div>
+            <div className="ft">Uses today&apos;s published rates (22K {fmt(rates.k22)}/g) — defaults to the eligible amount, and can be reduced but not increased beyond it</div></div>
           {/* Saved drafts. Only rendered when there are any — an empty card
               on every visit would be noise on a page staff use constantly.
               Drafts are this employee's own (scoped server-side from the

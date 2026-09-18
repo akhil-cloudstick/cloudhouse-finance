@@ -66,25 +66,33 @@ export function PersonalLoans() {
   const nextDisabled = knownTotal ? page >= totalPages : !hasMore;
 
   function openNewLoan() {
-    openModal(<NewPersonalLoanModalContent onSaved={() => { closeModal(); setPage(1); void refresh(); }} />);
+    // Wide: this modal can swap in the full RegisterCustomerModalContent
+    // ("+ Add new customer" flow) inline, whose 3-column field rows need a
+    // wide modal's width — see NewPersonalLoanModal.tsx's creatingCustomer
+    // branch.
+    openModal(<NewPersonalLoanModalContent onSaved={() => { closeModal(); setPage(1); void refresh(); }} />, true);
   }
 
   return (
     <>
-      <div className="page-h" style={smallScreen ? { gap: 9, marginBottom: 10 } : { marginBottom: 12 }}>
+      {/* Header/rule/tab spacing deliberately mirrors Loans.tsx — the two
+        * pages sit next to each other in the sidebar and are the same
+        * shape (title + search + filter chips + paginated table), so they
+        * should not drift apart vertically. Keep them in step. */}
+      <div className="page-h">
         <div><h1>Personal Loans</h1><p>Small unsecured cash loans, repaid daily/weekly/monthly</p></div>
         <div className="sp" />
         <div className="search"><Icon name="search" /><input className="inp" placeholder="Search loan # or customer…" value={q} onChange={(e) => setQ(e.target.value)} /></div>
         {canCreate && <button className="btn" onClick={openNewLoan}><Icon name="plus" /> New Personal Loan</button>}
       </div>
-      <hr className="gold-rule" style={{ margin: "4px 0 14px" }} />
-      <div style={{ marginBottom: 14 }} className="tabs">
+      <hr className="gold-rule" style={{ margin: smallScreen ? "4px 0 6px" : "4px 0 10px" }} />
+      <div style={{ marginTop: 4, marginBottom: 6 }} className="tabs pl-freq-tabs">
         {FREQS.map((f) => (
           <button key={f} className={f === freq ? "on" : ""} onClick={() => setFreq(f)}>{f}</button>
         ))}
       </div>
       {error && <div className="notice" style={{ marginBottom: 14 }}>{error}</div>}
-      <div className="card"><div className="tbl-wrap tbl-scroll"><table className="tbl tbl-center">
+      <div className="card tbl-card"><div className="tbl-wrap tbl-scroll"><table className="tbl tbl-center">
         <thead><tr><th>Loan / Customer</th><th className="num">Principal</th><th className="num">Outstanding</th><th>Frequency</th><th>Status</th></tr></thead>
         <tbody>
           {loading ? (

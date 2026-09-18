@@ -14,6 +14,8 @@ import { rupeesInWords } from "@/common/utils/numberToWords";
 import {
   getLoanByNumber,
   approveLoan,
+  listTopUps,
+  type LoanTopUpView,
   releaseBankPledge,
   completeRelease,
   SANCTION_STAGES,
@@ -25,6 +27,7 @@ import {
   downloadLoanStatement,
   hardDeleteLoan,
   downloadIndemnityBondPDF,
+  downloadReleaseAgreementPDF,
   type SanctionStage,
   type LoanView,
 } from "@/modules/loans/services/loanService";
@@ -33,7 +36,6 @@ import { listPackets } from "@/modules/packets/services/packetService";
 import { openPrintWindow, brandHeader } from "@/common/utils/print";
 import { printColors, tenantLenderProfile } from "@/common/config/brand";
 import type { BondLang } from "@/modules/loans/utils/indemnityBond";
-import { printReleaseAgreement, type ReleaseAgreementLang } from "@/modules/loans/utils/releaseAgreement";
 import { StageTracker } from "@/common/components/ui/StageTracker";
 import { ApiError } from "@/common/services/httpClient";
 import { useLoans } from "@/modules/loans/store/LoansProvider";
@@ -44,6 +46,8 @@ import { EsignLanguageModalContent, type EsignDeliverBy } from "@/common/compone
 import { RequestExtensionModalContent, RequestReleaseModalContent } from "@/common/components/modals/RequestExtensionModal";
 import { EditLoanModalContent } from "@/common/components/modals/EditLoanModal";
 import { navigate, routeHref } from "@/common/services/appRoutes";
+import { DisburseLoanModalContent } from "@/common/components/modals/DisburseLoanModal";
+import { TopUpLoanModalContent } from "@/common/components/modals/TopUpLoanModal";
 
 /* One row of the "Documents" dropdown below — either a click action
  * (onClick, e.g. printing something in-browser) or a plain link (href,
@@ -140,6 +144,7 @@ export function LoanDetail({ id }: { id?: string }) {
   const canHardDeleteLoans = can("Loan_Management", "can_hard_delete_loan");
 
   const [loan, setLoan] = useState<LoanView | null>(null);
+  const [topUps, setTopUps] = useState<LoanTopUpView[]>([]);
   const [error, setError] = useState("");
   const [approving, setApproving] = useState(false);
   const [releasing, setReleasing] = useState(false);
@@ -147,6 +152,7 @@ export function LoanDetail({ id }: { id?: string }) {
   const [statementBusy, setStatementBusy] = useState(false);
   const [printingLabel, setPrintingLabel] = useState(false);
   const [printingSlip, setPrintingSlip] = useState(false);
+  const [printingSlipAndLabel, setPrintingSlipAndLabel] = useState(false);
   const [printingBond, setPrintingBond] = useState(false);
   const [printingStatement, setPrintingStatement] = useState(false);
   const [printingReleaseAgreement, setPrintingReleaseAgreement] = useState(false);
@@ -192,7 +198,7 @@ export function LoanDetail({ id }: { id?: string }) {
   useEffect(() => {
     if (loan?.indemnityBondSignStatus === "sign_initiated") setEsignStarted(true);
   }, [loan?.indemnityBondSignStatus]);
-  function load() {
+  function load(isBackgroundRefresh = false) {
     if (!id) return;
     // Direct, atomic lookup by loan number (GET /loans/by-number/:loanNumber)
     // — previously this went through listLoans({q: id}) + a client-side
@@ -202,7 +208,16 @@ export function LoanDetail({ id }: { id?: string }) {
     // a just-abandoned page). A single request has nothing to race with.
     getLoanByNumber(id)
       .then(setLoan)
-      .catch((e) => setError(e instanceof Error ? e.message : "Failed to load loan."));
+      .catch((e) => {
+        // The 20s background poll below shares this function but must never
+        // blank out a page that's already showing a valid loan — e.g. an
+        // approval that just committed successfully, followed moments later
+        // by an unrelated transient failure on this poll's own request. Only
+        // the initial mount fetch (isBackgroundRefresh === false) should
+        // surface "Loan not found".
+        if (isBackgroundRefresh) return;
+        setError(e instanceof Error ? e.message : "Failed to load loan.");
+      });
     // load() also runs as PaymentModal/RepledgeModal's onSaved after a
     // payment/repledge — those change this loan's status/outstanding too,
     // so the shared list other pages read needs the same refresh.
@@ -216,6 +231,14 @@ export function LoanDetail({ id }: { id?: string }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
 
+  // Top-up history — a small, separate fetch (LoanView itself carries
+  // ornaments/payments but not top-ups) refreshed whenever the loan's own
+  // numbers change, e.g. right after a top-up.
+  useEffect(() => {
+    if (!loan) return;
+    listTopUps(loan.numericId).then(setTopUps).catch(() => setTopUps([]));
+  }, [loan?.numericId, loan?.outstanding]);
+
   // The viewer who clicks Approve/Reject/Verify sees their own change
   // immediately (doApprove below calls setLoan(updated) directly) — this
   // poll is for everyone else who might have this same loan open: the next
@@ -228,7 +251,7 @@ export function LoanDetail({ id }: { id?: string }) {
   // endpoint on every open tab.
   useEffect(() => {
     if (!id) return;
-    const timer = setInterval(load, 20000);
+    const timer = setInterval(() => load(true), 20000);
     return () => clearInterval(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
@@ -313,10 +336,29 @@ export function LoanDetail({ id }: { id?: string }) {
     </button>
   ) : null;
 
+  // The FinalSanction stage's Approve action is also the disbursement
+  // moment (Service.Approve's disbursing branch) — collect the split-mode
+  // breakdown via a modal instead of the earlier stages' plain one-click
+  // Approve/Verify, which move no cash.
+  function onApproveClick() {
+    if (!pendingStage) return;
+    if (pendingStage === "FinalSanction") {
+      openModal(
+        <DisburseLoanModalContent
+          loan={l}
+          stage={pendingStage}
+          onSaved={(updated) => { setLoan(updated); refreshLoans(); toast("Approved and disbursed"); }}
+        />
+      );
+      return;
+    }
+    doApprove(pendingStage, isVerifyStage ? "Verified" : "Approved");
+  }
+
   const approvalButtons = pendingStage ? (
     canActOnStage ? (
       <>
-        <button className="btn" disabled={approving} onClick={() => doApprove(pendingStage, isVerifyStage ? "Verified" : "Approved")}>
+        <button className="btn" disabled={approving} onClick={onApproveClick}>
           <Icon name="check" /> {isVerifyStage ? "Verify" : "Approve"}
         </button>
         <button className="btn danger" disabled={approving} onClick={() => doApprove(pendingStage, "Rejected")}>
@@ -444,31 +486,38 @@ export function LoanDetail({ id }: { id?: string }) {
       .finally(() => setPrintingBond(false));
   }
 
+  /* Inner markup only (no <html>/brand-window wrapper) — shared by
+   * printPledgeSlip (its own print window) and printSlipAndLabel (combined
+   * with the packet label below into one print job). Needs the customer
+   * record the same way printPledgeSlip always has. */
+  function pledgeSlipBodyHTML(c: { name: string; code?: string; id: string; phone?: string; address?: string }): string {
+    return `
+      ${brandHeader("Gold Loan Pledge Slip")}
+      <table>
+        <tr><th style="width:110px">Loan No</th><td>${l.id}</td><th style="width:110px">Date</th><td>${new Date().toLocaleDateString("en-IN")}</td></tr>
+        <tr><th>Customer</th><td>${c.name} (${c.code || c.id})</td><th>Phone</th><td>${c.phone || "—"}</td></tr>
+        <tr><th>Address</th><td>${c.address || "—"}</td><th>Branch</th><td>${l.branchName || "—"}</td></tr>
+        <tr><th>Scheme</th><td>${l.schemeName} @ ${l.schemeRate}% p.a. (LTV ${l.schemeLtv}%)</td>
+            <th>Opened</th><td>${l.opened}</td></tr>
+      </table>
+      <table>
+        <thead><tr><th>#</th><th>Ornament</th><th>Purity</th><th class="num">Net Wt (g)</th><th class="num">Qty</th><th class="num">Value</th><th>Photo</th></tr></thead>
+        <tbody>
+          ${l.ornaments.map((o, i) => `<tr><td>${i + 1}</td><td>${o.name}</td><td>${o.purity}</td>
+            <td class="num">${o.netWeight.toFixed(1)}</td><td class="num">${o.quantity}</td><td class="num">${fmt(o.goldValue)}</td>
+            <td style="text-align:center">${o.photoUrl ? `<img src="${o.photoUrl}" style="width:56px;height:56px;object-fit:cover">` : "—"}</td></tr>`).join("")}
+          <tr><th colspan="3">Total</th><th class="num">${l.totalNetWeight.toFixed(1)}</th><th></th><th class="num">${fmt(l.totalGoldValue)}</th><th></th></tr>
+        </tbody>
+      </table>
+      <p><b>Principal disbursed: ${fmt(l.principal)}</b> &nbsp;<span class="muted">(eligible amount at pledge time: ${fmt(l.eligibleLoanAmount)})</span></p>
+      <div class="sig"><div><span>Customer Signature</span></div><div><span>Cashier</span></div><div><span>Branch Manager</span></div></div>`;
+  }
+
   async function printPledgeSlip() {
     setPrintingSlip(true);
     try {
       const c = await getCustomer(l.customerId);
-      openPrintWindow("Pledge Slip — " + l.id, `
-        ${brandHeader("Gold Loan Pledge Slip")}
-        <table>
-          <tr><th style="width:110px">Loan No</th><td>${l.id}</td><th style="width:110px">Date</th><td>${new Date().toLocaleDateString("en-IN")}</td></tr>
-          <tr><th>Customer</th><td>${c.name} (${c.code || c.id})</td><th>Phone</th><td>${c.phone || "—"}</td></tr>
-          <tr><th>Address</th><td>${c.address || "—"}</td><th>Branch</th><td>${l.branchName || "—"}</td></tr>
-          <tr><th>Scheme</th><td>${l.schemeName} @ ${l.schemeRate}% p.a. (LTV ${l.schemeLtv}%)</td>
-              <th>Opened</th><td>${l.opened}</td></tr>
-        </table>
-        <table>
-          <thead><tr><th>#</th><th>Ornament</th><th>Purity</th><th class="num">Net Wt (g)</th><th class="num">Qty</th><th class="num">Value</th><th>Photo</th></tr></thead>
-          <tbody>
-            ${l.ornaments.map((o, i) => `<tr><td>${i + 1}</td><td>${o.name}</td><td>${o.purity}</td>
-              <td class="num">${o.netWeight.toFixed(1)}</td><td class="num">${o.quantity}</td><td class="num">${fmt(o.goldValue)}</td>
-              <td style="text-align:center">${o.photoUrl ? `<img src="${o.photoUrl}" style="width:56px;height:56px;object-fit:cover">` : "—"}</td></tr>`).join("")}
-            <tr><th colspan="3">Total</th><th class="num">${l.totalNetWeight.toFixed(1)}</th><th></th><th class="num">${fmt(l.totalGoldValue)}</th><th></th></tr>
-          </tbody>
-        </table>
-        <p><b>Principal disbursed: ${fmt(l.principal)}</b> &nbsp;<span class="muted">(eligible amount at pledge time: ${fmt(l.eligibleLoanAmount)})</span></p>
-        <div class="sig"><div><span>Customer Signature</span></div><div><span>Cashier</span></div><div><span>Branch Manager</span></div></div>`,
-        toast);
+      openPrintWindow("Pledge Slip — " + l.id, pledgeSlipBodyHTML(c), toast);
     } catch {
       toast("Could not load customer details — try again");
     } finally {
@@ -478,38 +527,15 @@ export function LoanDetail({ id }: { id?: string }) {
 
   /* Release Agreement — only reachable once the loan has actually closed
    * (CompleteRelease already ran), same Documents dropdown as the other
-   * prints. Customer address isn't carried on LoanView, so this fetches it
-   * the same way printPledgeSlip/printStatement already do. */
-  async function printReleaseAgreementDoc(lang: ReleaseAgreementLang) {
+   * prints. Server-rendered (GET /loans/:id/release-agreement/pdf) — see
+   * downloadReleaseAgreementPDF's doc comment — so there's no more
+   * client-side data assembly here, unlike the old printReleaseAgreement(). */
+  async function printReleaseAgreementDoc(lang: "en" | "ml") {
     setPrintingReleaseAgreement(true);
     try {
-      const c = await getCustomer(l.customerId);
-      printReleaseAgreement(
-        {
-          loanNumber: l.id,
-          branchName: l.branchName,
-          customerName: c.name,
-          customerAddress: c.address,
-          borrowedDate: l.opened,
-          borrowedAmount: l.principal,
-          // No closedAt on LoanView — printReleaseAgreement defaults
-          // returnedDate to today when omitted, same as before.
-          returnedAmount: l.totalPaid,
-          totalInterest: l.interestPaid + l.penalInterestPaid,
-          ornaments: l.ornaments.map((o) => ({
-            name: o.name,
-            purity: o.purity,
-            quantity: o.quantity,
-            grossWeight: o.grossWeight,
-            netWeight: o.netWeight,
-            value: o.goldValue,
-          })),
-        },
-        toast,
-        lang
-      );
+      await downloadReleaseAgreementPDF(l.numericId, lang);
     } catch {
-      toast("Could not load customer details — try again");
+      toast("Could not generate the release agreement — try again");
     } finally {
       setPrintingReleaseAgreement(false);
     }
@@ -582,28 +608,73 @@ export function LoanDetail({ id }: { id?: string }) {
     }
   }
 
+  /* Resolves the QR code + packet code shared by printPacketLabel (its own
+   * die-cut-stock print window) and printSlipAndLabel (the label reworked
+   * to sit centered on a normal A4 page instead). Kept separate from the
+   * two functions' own HTML/window logic since only this data-gathering
+   * part is identical between them — the markup around it differs (sticker
+   * page size vs. A4). Returns null (after toasting) on QR failure so
+   * callers can bail the same way the original try/catch did. */
+  async function packetLabelData(): Promise<{ c: Awaited<ReturnType<typeof getCustomer>>; packetLabel: string; url: string; qr: string } | null> {
+    const [c, packets] = await Promise.all([
+      getCustomer(l.customerId),
+      listPackets({ loanId: l.numericId }).catch(() => []),
+    ]);
+    const packet = packets[0];
+    const packetLabel = packet?.code || "PKT-" + l.numericId;
+    // appPath keeps the business slug, so a scanned label opens the right
+    // organisation's app rather than a bare /app that has forgotten which
+    // business the reader belongs to.
+    const url = packet
+      ? location.origin + appPath(undefined, "#packet/" + packet.code)
+      : location.origin + appPath(undefined, "#loan/" + l.id);
+    let qr: string;
+    try {
+      qr = await toDataURL(url, { width: 256, errorCorrectionLevel: "M" });
+    } catch {
+      toast("Could not generate QR code");
+      return null;
+    }
+    return { c, packetLabel, url, qr };
+  }
+
+  /* The label's own CSS + markup, shared by printPacketLabel (label-only,
+   * its own 81mm×12mm die-cut-stock page) and printSlipAndLabel (label
+   * reworked onto a normal A4 page via labelStyleForA4/labelBodyHTML
+   * below). Kept as one source of truth so the two never drift apart —
+   * see printSlipAndLabel's own comment for why the combined print can't
+   * just reuse this page size unchanged. */
+  function labelStyle(): string {
+    return `
+      body{margin:0;font-family:Arial,Helvetica,sans-serif;-webkit-print-color-adjust:exact}
+      .label{width:50mm;height:30mm;box-sizing:border-box;padding:1.6mm;display:flex;align-items:center;gap:1.8mm;
+        border:0.3mm dashed #aaa;overflow:hidden;page-break-inside:avoid}
+      .label img{width:25mm;height:25mm;flex:none}
+      .t{font-size:2.5mm;line-height:1.45;min-width:0}
+      .t .brand{font-size:2mm;letter-spacing:0.3mm;color:${printColors().brand}}
+      .t .id{font-size:3.4mm;font-weight:bold}
+      .t div{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}`;
+  }
+
+  function labelBodyHTML(data: { c: Awaited<ReturnType<typeof getCustomer>>; packetLabel: string; qr: string }): string {
+    const { c, packetLabel, qr } = data;
+    return `<div class="label">
+      <img src="${qr}" alt="QR">
+      <div class="t">
+        <div class="brand">${tenantLenderProfile().legalName.toUpperCase()}</div>
+        <div class="id">${l.id} · ${packetLabel}</div>
+        <div>${c.name || "—"}</div>
+        <div>${c.code || c.id || "—"} · ${c.phone || ""}</div>
+        <div>${new Date().toLocaleDateString("en-IN")} · ${l.totalNetWeight.toFixed(1)} g · ${l.ornaments.length} item(s)</div>
+      </div>
+    </div>`;
+  }
+
   async function printPacketLabel() {
     setPrintingLabel(true);
     try {
-      const [c, packets] = await Promise.all([
-        getCustomer(l.customerId),
-        listPackets({ loanId: l.numericId }).catch(() => []),
-      ]);
-      const packet = packets[0];
-      const packetLabel = packet?.code || "PKT-" + l.numericId;
-      // appPath keeps the business slug, so a scanned label opens the right
-      // organisation's app rather than a bare /app that has forgotten which
-      // business the reader belongs to.
-      const url = packet
-        ? location.origin + appPath(undefined, "#packet/" + packet.code)
-        : location.origin + appPath(undefined, "#loan/" + l.id);
-      let qr: string;
-      try {
-        qr = await toDataURL(url, { width: 256, errorCorrectionLevel: "M" });
-      } catch {
-        toast("Could not generate QR code");
-        return;
-      }
+      const data = await packetLabelData();
+      if (!data) return;
       const w = window.open("", "_blank");
       if (!w) { toast("Popup blocked — please allow popups for this site to print"); return; }
       // Die-cut "flag tag" stock: 81mm total — a 56mm×12mm head (perforated
@@ -615,29 +686,13 @@ export function LoanDetail({ id }: { id?: string }) {
       // identifiers, the strap stays blank.
       w.document.write(`<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Packet Label — ${l.id}</title><style>
         @page{size:81mm 12mm;margin:0}
-        body{margin:0;font-family:Arial,Helvetica,sans-serif;-webkit-print-color-adjust:exact}
-        .label{width:50mm;height:30mm;box-sizing:border-box;padding:1.6mm;display:flex;align-items:center;gap:1.8mm;
-          border:0.3mm dashed #aaa;overflow:hidden;page-break-inside:avoid}
-        .label img{width:25mm;height:25mm;flex:none}
-        .t{font-size:2.5mm;line-height:1.45;min-width:0}
-        .t .brand{font-size:2mm;letter-spacing:0.3mm;color:${printColors().brand}}
-        .t .id{font-size:3.4mm;font-weight:bold}
-        .t div{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+        ${labelStyle()}
         .noprint{text-align:center;margin:8mm;font-family:Arial}
         @media print{.noprint{display:none} .head{border:none} .infocell{border-left:none} .strap .band{border:none}}
       </style></head><body>
-        <div class="label">
-          <img src="${qr}" alt="QR">
-          <div class="t">
-            <div class="brand">${tenantLenderProfile().legalName.toUpperCase()}</div>
-            <div class="id">${l.id} · ${packetLabel}</div>
-            <div>${c.name || "—"}</div>
-            <div>${c.code || c.id || "—"} · ${c.phone || ""}</div>
-            <div>${new Date().toLocaleDateString("en-IN")} · ${l.totalNetWeight.toFixed(1)} g · ${l.ornaments.length} item(s)</div>
-          </div>
-        </div>
+        ${labelBodyHTML(data)}
         <div class="noprint">
-          <p style="font-size:13px;color:#555">81mm × 12mm flag tag — scanning the QR opens ${url}</p>
+          <p style="font-size:13px;color:#555">81mm × 12mm flag tag — scanning the QR opens ${data.url}</p>
           <button onclick="window.print()" style="padding:10px 26px;font-size:14px;cursor:pointer">🖨 Print Label</button>
         </div>
       </body></html>`);
@@ -647,6 +702,37 @@ export function LoanDetail({ id }: { id?: string }) {
       toast("Could not load customer details — try again");
     } finally {
       setPrintingLabel(false);
+    }
+  }
+
+  /* Combined "Print Slip + Label" — one print job, one A4 page: the slip's
+   * own content followed directly by the label (a dashed rule separates the
+   * two), NOT a hard page-break onto a second sheet. The label's native
+   * stock is a 81mm×12mm die-cut tag, a different physical size from the
+   * slip's A4, but at natural size it's small enough to sit comfortably
+   * below the slip's table/signature block on a single A4 sheet — same
+   * markup/CSS (labelStyle/labelBodyHTML) as the standalone label print,
+   * just without the 81mm @page override. Order is slip then label, per the
+   * print-format request this was added for. */
+  async function printSlipAndLabel() {
+    setPrintingSlipAndLabel(true);
+    try {
+      const [c, data] = await Promise.all([getCustomer(l.customerId), packetLabelData()]);
+      if (!data) return;
+      openPrintWindow(
+        "Pledge Slip + Label — " + l.id,
+        `${pledgeSlipBodyHTML(c)}
+        <div style="margin-top:24px;padding-top:16px;border-top:1px dashed #ccc;text-align:center">
+          <style>${labelStyle()}</style>
+          <div style="display:inline-block">${labelBodyHTML(data)}</div>
+          <p class="muted" style="margin-top:12px">Packet label — scanning the QR opens ${data.url}</p>
+        </div>`,
+        toast
+      );
+    } catch {
+      toast("Could not load customer/packet details — try again");
+    } finally {
+      setPrintingSlipAndLabel(false);
     }
   }
 
@@ -822,6 +908,11 @@ export function LoanDetail({ id }: { id?: string }) {
                     <Icon name="edit" /><span className="tx">Edit Loan</span>
                   </a>
                 )}
+                {l.status === "Active" && canUpdateLoans && (
+                  <a href="#" title="Top Up Loan" onClick={(e) => { e.preventDefault(); setLoanActionsMenuOpen(false); openModal(<TopUpLoanModalContent loan={l} onSaved={load} />); }}>
+                    <Icon name="coin" /><span className="tx">Top Up</span>
+                  </a>
+                )}
                 {/* Deliberately the ONLY delete action offered here — there
                  * is no separate "soft delete" alternative next to it, by
                  * explicit product decision. Gated by its own permission
@@ -891,6 +982,9 @@ export function LoanDetail({ id }: { id?: string }) {
                 </a>
                 <a href="#" title="Print Slip" className={printingSlip ? "disabled" : ""} onClick={(e) => { e.preventDefault(); if (printingSlip) return; setDocsMenuOpen(false); printPledgeSlip(); }}>
                   <Icon name="doc" /><span className="tx">{printingSlip ? "Preparing…" : "Print Slip"}</span>
+                </a>
+                <a href="#" title="Print Slip + Label" className={printingSlipAndLabel ? "disabled" : ""} onClick={(e) => { e.preventDefault(); if (printingSlipAndLabel) return; setDocsMenuOpen(false); printSlipAndLabel(); }}>
+                  <Icon name="doc" /><span className="tx">{printingSlipAndLabel ? "Preparing…" : "Print Slip + Label"}</span>
                 </a>
                 <a href="#" title="Statement" className={printingStatement ? "disabled" : ""} onClick={(e) => { e.preventDefault(); if (printingStatement) return; setDocsMenuOpen(false); printStatement(); }}>
                   <Icon name="doc" /><span className="tx">{printingStatement ? "Preparing…" : "Statement"}</span>
@@ -1090,7 +1184,35 @@ export function LoanDetail({ id }: { id?: string }) {
                 })}
               </tbody>
             </table></div>
-            <div className="ft">Running balance = outstanding principal + outstanding interest + outstanding penal interest, immediately after this entry</div></div>
+            {/* <div className="ft">Running balance = outstanding principal + outstanding interest + outstanding penal interest, immediately after this entry</div> */}
+            </div>
+
+          {topUps.length > 0 && (
+            <div className="card"><div className="hd"><h3>Top-Up History</h3></div>
+              <div className="tbl-wrap"><table className="tbl">
+                <thead><tr><th>Date</th><th className="num">Amount</th><th>Mode</th><th>Reference</th><th className="num">Eligible at Top-Up</th></tr></thead>
+                <tbody>
+                  {topUps.map((t) => {
+                    const modeParts = [
+                      t.cashAmount > 0 && `Cash ${fmt(t.cashAmount)}`,
+                      t.upiAmount > 0 && `UPI ${fmt(t.upiAmount)}`,
+                      t.bankTransferAmount > 0 && `Bank Transfer ${fmt(t.bankTransferAmount)}`,
+                      t.chequeAmount > 0 && `Cheque ${fmt(t.chequeAmount)}`,
+                    ].filter(Boolean).join(" · ");
+                    return (
+                      <tr key={t.id}>
+                        <td>{t.occurredOn.slice(0, 10)}</td>
+                        <td className="num" style={{ color: "var(--green)" }}>+{fmt(t.amount)}</td>
+                        <td>{modeParts || "—"}</td>
+                        <td>{t.reference || "—"}</td>
+                        <td className="num">{fmt(t.eligibleAmountAtTopUp)}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table></div>
+            </div>
+          )}
         </div>
       </div>
     </>

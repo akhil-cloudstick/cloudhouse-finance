@@ -54,6 +54,50 @@ type Investment struct {
 	PayoutFrequency     string  `json:"payoutFrequency" gorm:"not null;size:10"`
 	TenureMonths        int     `json:"tenureMonths" gorm:"not null"`
 
+	// Engine is snapshotted from Plan.Engine at creation time — see the
+	// Engine* consts' doc comment in model_plan.go. Every field below this
+	// point is meaningful only for Engine == EngineLive; an EngineSchedule
+	// investment never writes them and they stay at their zero-value
+	// defaults for its entire life.
+	Engine string `json:"engine" gorm:"not null;size:10;default:'Schedule'"`
+
+	// OutstandingPrincipal is the investor's live principal balance for a
+	// Live-engine investment — starts at PrincipalAmount (see
+	// Service.CreateInvestment) and moves only via Service.AddCash (+) and
+	// Service.Withdraw's principal component (-). PrincipalAmount itself is
+	// kept in step with it (see AddCash/Withdraw) so the headline "principal
+	// invested" figure stays meaningful; for an EngineSchedule investment
+	// PrincipalAmount is fixed for life exactly as before and this field is
+	// simply unused.
+	OutstandingPrincipal float64 `json:"outstandingPrincipal" gorm:"not null;type:numeric(16,2);default:0"`
+
+	// AccruedInterest is the cumulative interest ever settled up to
+	// LastAccrualDate — mirrors loan.Loan.AccruedInterest exactly (see
+	// accrual.go's projectAccrual/settleAndSave).
+	AccruedInterest float64 `json:"accruedInterest" gorm:"not null;type:numeric(16,2);default:0"`
+
+	// InterestWithdrawn is the cumulative interest ever withdrawn via
+	// Service.Withdraw's InterestAmount component. Deliberately a separate
+	// field from TotalInterestPaid below rather than a reuse of it:
+	// TotalInterestPaid is documented as strictly the sum of paid
+	// InvestmentPayout rows (a concept a Live-engine investment has none
+	// of — it never generates payout rows), and must stay untouched so
+	// EngineSchedule's existing MarkPayoutPaid code path is never at risk of
+	// a Live-engine regression.
+	InterestWithdrawn float64 `json:"interestWithdrawn" gorm:"not null;type:numeric(16,2);default:0"`
+
+	// LastAccrualDate is the accrual anchor projectAccrual/settleAndSave
+	// advance forward from — no gorm tag, same bare style as
+	// loan.Loan.LastAccrualDate's identical field (a zero value is a safe,
+	// meaningful "nothing settled yet" default; projectAccrual falls back to
+	// StartDate for it).
+	LastAccrualDate time.Time `json:"lastAccrualDate"`
+
+	// OutstandingInterest is computed at read time (AccruedInterest -
+	// InterestWithdrawn, clamped at 0) — never persisted, mirrors
+	// loan.Loan.OutstandingInterest. See Service.Get/List.
+	OutstandingInterest float64 `json:"outstandingInterest" gorm:"-"`
+
 	StartDate    time.Time `json:"startDate" gorm:"not null"`
 	MaturityDate time.Time `json:"maturityDate" gorm:"not null"`
 
@@ -62,6 +106,8 @@ type Investment struct {
 	// TotalInterestPaid is the running sum of paid InvestmentPayout rows,
 	// kept denormalized (updated transactionally alongside each payout's
 	// Status change in MarkPayoutPaid) — mirrors PersonalLoan.TotalPaid.
+	// EngineSchedule only; see InterestWithdrawn above for the Live-engine
+	// equivalent.
 	TotalInterestPaid float64 `json:"totalInterestPaid" gorm:"not null;type:numeric(16,2);default:0"`
 
 	ClosedAt *time.Time `json:"closedAt"`
@@ -74,7 +120,8 @@ type Investment struct {
 	RenewedFromInvestmentID *uint `json:"renewedFromInvestmentId"`
 	RenewedToInvestmentID   *uint `json:"renewedToInvestmentId"`
 
-	Payouts []InvestmentPayout `json:"payouts,omitempty" gorm:"foreignKey:InvestmentID"`
+	Payouts      []InvestmentPayout      `json:"payouts,omitempty" gorm:"foreignKey:InvestmentID"`
+	Transactions []InvestmentTransaction `json:"transactions,omitempty" gorm:"foreignKey:InvestmentID"`
 
 	CreatedAt time.Time      `json:"createdAt"`
 	UpdatedAt time.Time      `json:"updatedAt"`

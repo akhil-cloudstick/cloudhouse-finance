@@ -3,6 +3,8 @@
 import { useCallback, useEffect, useState } from "react";
 import { useAuth } from "@/common/auth-context";
 import { useModal } from "@/common/components/Modal";
+import { useDropdownMenu } from "@/hooks/useDropdownMenu";
+import { Icon } from "@/common/components/Icon";
 import { ApiError } from "@/common/services/httpClient";
 import { fmt } from "@/common/utils/format";
 import { StatusChip } from "@/common/components/ui/StatusChip";
@@ -56,7 +58,14 @@ function usePagedTable<T>(fetchPage: (page: number) => Promise<{ items: T[]; has
  * every Customer 360 table. */
 function Pager({ page, totalPages, onChange }: { page: number; totalPages: number; onChange: (p: number) => void }) {
   return (
-    <div className="ft" style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 14px" }}>
+    /* ft-static opts out of the generic `.tbl-wrap + .ft{position:sticky;
+     * bottom:0}` rule (app.css) — sticky positions relative to `.page`'s
+     * own scroll, and with two of these cards stacked in `.pl-detail-grid`
+     * (narrow screens collapse it to one column), their two sticky footers
+     * raced to the same spot near the viewport bottom and collided —
+     * the Payment History pager landing on top of its own table header.
+     * Same fix Cash.tsx's Cash Movements pager already uses. */
+    <div className="ft ft-static" style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 14px" }}>
       <button className="btn plain" style={{ padding: "9px 18px", fontSize: 13 }} disabled={page <= 1} onClick={() => onChange(Math.max(1, page - 1))}>‹ Prev</button>
       <span style={{ fontSize: 13 }}>Page {page} of {totalPages}</span>
       <button className="btn plain" style={{ padding: "9px 18px", fontSize: 13 }} disabled={page >= totalPages} onClick={() => onChange(Math.min(totalPages, page + 1))}>Next ›</button>
@@ -68,6 +77,16 @@ export function PersonalLoanDetail({ id }: { id?: string }) {
   const { can } = useAuth();
   const { openModal, closeModal } = useModal();
   const canUpdate = can("Personal_Loan_Management", "can_update_personal_loan");
+  // Download Bond + Renew Loan used to be two separate header buttons —
+  // collapsed into one "Loan Actions" dropdown, same shape as gold loan's
+  // LoanDetail.tsx (LoanActions/Documents menus, both built on this hook).
+  const {
+    open: actionsMenuOpen,
+    setOpen: setActionsMenuOpen,
+    menuRef: actionsMenuRef,
+    triggerRef: actionsMenuTriggerRef,
+    onKeyDown: onActionsMenuKeyDown,
+  } = useDropdownMenu<HTMLDivElement>();
 
   const [loan, setLoan] = useState<BackendPersonalLoan | null>(null);
   const [loading, setLoading] = useState(true);
@@ -132,34 +151,82 @@ export function PersonalLoanDetail({ id }: { id?: string }) {
     <>
       <div className="page-h">
         <div>
-          <a href={routeHref("personalloans")} style={{ fontSize: 13 }}>← Back</a>
           <h1>Loan {loan.loanNumber}{customerName ? ` · ${customerName}` : ""}</h1>
         </div>
         <div className="sp" />
-        <button className="btn doc-action pl-download-bond" disabled={downloadingBond} onClick={handleDownloadBond}>
-          <span className="doc-action-tx">{downloadingBond ? "Preparing…" : "Download Bond"}</span>
-        </button>
-        {canUpdate && loan.status === "Active" && (
-          <button className="btn" onClick={openRenew}>Renew Loan</button>
+        {canUpdate && (loan.status === "Active" || loan.status === "Pending") && (
+          <button className="btn" onClick={openCollect}>+ Collect</button>
         )}
+        <div className="docs-dd" ref={actionsMenuRef} onKeyDown={onActionsMenuKeyDown}>
+          <button
+            ref={actionsMenuTriggerRef}
+            type="button"
+            className="btn ghost"
+            onClick={() => setActionsMenuOpen((v) => !v)}
+            aria-haspopup="menu"
+            aria-expanded={actionsMenuOpen}
+          >
+            <Icon name="gear" /> Loan Actions <Icon name="chevronDown" className="docs-dd-chev" />
+          </button>
+          {actionsMenuOpen && (
+            <div className="docs-dd-menu" role="menu">
+              <a
+                href="#"
+                title="Download Bond"
+                className={downloadingBond ? "disabled" : ""}
+                onClick={(e) => {
+                  e.preventDefault();
+                  if (downloadingBond) return;
+                  setActionsMenuOpen(false);
+                  void handleDownloadBond();
+                }}
+              >
+                <Icon name="download" /><span className="tx">{downloadingBond ? "Preparing…" : "Download Bond"}</span>
+              </a>
+              {/* Renewable in both Active and Pending (past its schedule +
+               * grace period, carrying a penal charge — see backend
+               * PersonalLoan.StatusPending's doc comment) — renewal rolls
+               * over whatever OutstandingAmount currently is either way. */}
+              {canUpdate && (loan.status === "Active" || loan.status === "Pending") && (
+                <a href="#" title="Renew Loan" onClick={(e) => { e.preventDefault(); setActionsMenuOpen(false); openRenew(); }}>
+                  <Icon name="clock" /><span className="tx">Renew Loan</span>
+                </a>
+              )}
+            </div>
+          )}
+        </div>
       </div>
       {downloadError && <div className="notice" style={{ marginBottom: 12 }}>{downloadError}</div>}
+      {loan.fullDisbursement && (
+        <div className="notice" style={{ marginBottom: 12 }}>
+          Full amount disbursed — includes {fmt(loan.interestAmount)} interest.
+        </div>
+      )}
       <hr className="gold-rule" />
 
-      <div className="kpis" style={{ marginBottom: 16 }}>
-        <div className="kpi"><div className="l">Principal</div><div className="v">{fmt(loan.principalAmount)}</div></div>
-        <div className="kpi"><div className="l">Interest</div><div className="v">{fmt(loan.interestAmount)}</div><div className="s">{loan.interestType === "Flat" ? "Flat" : `${loan.interestValue}%`}</div></div>
-        <div className="kpi"><div className="l">Disbursed</div><div className="v">{fmt(loan.disbursedAmount)}</div></div>
-        <div className="kpi"><div className="l">Outstanding</div><div className="v">{fmt(loan.outstandingAmount)}</div></div>
-        <div className="kpi"><div className="l">Status</div><div className="v" style={{ fontSize: 15 }}><StatusChip status={loan.status} /></div></div>
-        <div className="kpi"><div className="l">Frequency</div><div className="v" style={{ fontSize: 17 }}>{loan.frequency}</div></div>
+      <div className="kpis-strip" style={{ marginBottom: 16 }}>
+        <div className="kpis-strip-item"><span className="l">Principal</span><span className="v">{fmt(loan.principalAmount)}</span></div>
+        <div className="kpis-strip-item"><span className="l">Interest</span><span className="v">{fmt(loan.interestAmount)}</span><span className="s">({loan.interestType === "Flat" ? "Flat" : `${loan.interestValue}%`})</span></div>
+        <div className="kpis-strip-item"><span className="l">Disbursed</span><span className="v">{fmt(loan.disbursedAmount)}</span></div>
+        <div className="kpis-strip-item"><span className="l">Outstanding</span><span className="v">{fmt(loan.outstandingAmount)}</span></div>
+        <div className="kpis-strip-item"><span className="l">Status</span><StatusChip status={loan.status} /></div>
+        <div className="kpis-strip-item"><span className="l">Frequency</span><span className="v">{loan.frequency}</span></div>
         {loan.renewedFromLoanId && (
-          <div className="kpi"><div className="l">Renewed From</div><div className="v" style={{ fontSize: 17 }}><a href={routeHref(`personalloan/${loan.renewedFromLoanId}`)}>Loan #{loan.renewedFromLoanId}</a></div></div>
+          <div className="kpis-strip-item"><span className="l">Renewed From</span><a href={`#personalloan/${loan.renewedFromLoanId}`}>Loan #{loan.renewedFromLoanId}</a></div>
         )}
         {loan.renewedToLoanId && (
-          <div className="kpi"><div className="l">Renewed To</div><div className="v" style={{ fontSize: 17 }}><a href={routeHref(`personalloan/${loan.renewedToLoanId}`)}>Loan #{loan.renewedToLoanId}</a></div></div>
+          <div className="kpis-strip-item"><span className="l">Renewed To</span><a href={`#personalloan/${loan.renewedToLoanId}`}>Loan #{loan.renewedToLoanId}</a></div>
+        )}
+        {loan.penalCycleCount > 0 && (
+          <div className="kpis-strip-item"><span className="l">Penal Interest</span><span className="v">{fmt(loan.totalPenalInterestCharged)}</span><span className="s">(cycle {loan.penalCycleCount})</span></div>
         )}
       </div>
+
+      {loan.penalCycleCount > 0 && (
+        <div className="notice" style={{ marginBottom: 12 }}>
+          This loan went unpaid past its schedule and grace period {loan.penalCycleCount} time(s) — {fmt(loan.totalPenalInterestCharged)} in penal interest at {loan.penalInterestRate}% p.a. has been added to the outstanding balance, and the installment schedule has been regenerated.
+        </div>
+      )}
 
       <div className="pl-detail-grid">
         <div className="card">
@@ -188,7 +255,6 @@ export function PersonalLoanDetail({ id }: { id?: string }) {
         <div className="card">
           <div className="hd" style={{ justifyContent: "space-between" }}>
             <h3>Payment History</h3>
-            {canUpdate && loan.status === "Active" && <button className="btn sm" onClick={openCollect}>+ Collect</button>}
           </div>
           {payments.error && <div className="notice" style={{ margin: 14 }}>{payments.error}</div>}
           <div className="tbl-wrap tbl-wrap-auto"><table className="tbl tbl-center">

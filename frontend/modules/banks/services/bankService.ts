@@ -40,10 +40,60 @@ export async function createBank(name: string): Promise<BackendBank> {
 /* Full "Add Bank" form submission — name + the descriptive fields. Same
  * find-or-create endpoint as createBank(); note branch/ifsc/phone are only
  * persisted when a NEW bank is created (an existing name-match is returned
- * as-is, per the backend's FindOrCreate semantics). */
+ * as-is, per the backend's FindOrCreate semantics). Used by both the
+ * bank-picker's inline "add new" flow and the Bank Management admin page's
+ * "Add Bank" form — a name collision there just reuses the existing row,
+ * which is a reasonable admin outcome too (see backend Service.Update's own
+ * doc comment for why RENAMING instead rejects a collision outright). */
 export async function createBankFull(input: { name: string; branch: string; ifsc: string; accountNo: string; phone: string }): Promise<BackendBank> {
   return apiFetch<BackendBank>("/banks", {
     method: "POST",
     body: JSON.stringify(input),
+  });
+}
+
+/* Bank Management admin page's list — no pagination at this scale, same
+ * convention as Branches.tsx/listBranches(). */
+export async function listBanks(): Promise<BackendBank[]> {
+  return (await apiFetch<BackendBank[]>("/banks")) || [];
+}
+
+export const BANKS_PAGE_SIZE = 10;
+
+/* Paginated variant of listBanks for the Bank Management admin table — the
+ * backend's GET /banks already supports limit/offset/total (mirrors
+ * loan/customer's List, see backend/internal/bank/handler.go), this just
+ * wasn't wired up on the frontend yet. `page` is 1-based, same convention as
+ * listLoansPage/listBankPledgeHistoryPage. */
+export async function listBanksPage(page: number, limit: number = BANKS_PAGE_SIZE): Promise<{ items: BackendBank[]; hasMore: boolean; total: number }> {
+  const params = new URLSearchParams({ limit: String(limit), offset: String((page - 1) * limit) });
+  const res = await apiFetch<{ items: BackendBank[] | null; hasMore: boolean; total?: number }>(`/banks?${params}`);
+  return { items: res.items || [], hasMore: !!res.hasMore, total: res.total ?? 0 };
+}
+
+/* The Party Transactions page's bank-drill-down header needs the bank's own
+ * name/details. */
+export async function getBank(id: number): Promise<BackendBank> {
+  return apiFetch<BackendBank>(`/banks/${id}`);
+}
+
+export async function updateBank(id: number, input: { name: string; branch: string; ifsc: string; accountNo: string; phone: string }): Promise<BackendBank> {
+  return apiFetch<BackendBank>(`/banks/${id}`, { method: "PUT", body: JSON.stringify(input) });
+}
+
+/* Hard-deletes a bank — the backend refuses (409) while any transaction or
+ * bank-pledge record still references it; the caller should catch that and
+ * point staff at mergeBanks instead. */
+export async function deleteBank(id: number): Promise<void> {
+  await apiFetch<{ deleted: boolean }>(`/banks/${id}`, { method: "DELETE" });
+}
+
+/* Reassigns every transaction/pledge from sourceId onto targetId, then
+ * deletes sourceId (now unreferenced) — the "merge duplicate bank" action.
+ * Returns the surviving (target) bank. */
+export async function mergeBanks(sourceId: number, targetId: number): Promise<BackendBank> {
+  return apiFetch<BackendBank>(`/banks/${sourceId}/merge`, {
+    method: "POST",
+    body: JSON.stringify({ targetId }),
   });
 }

@@ -36,7 +36,7 @@ function toneForStatus(status: string): "green" | "red" | "amber" | "blue" | "mu
   const s = status.toLowerCase();
   if (s === "active" || s === "paid") return "green";
   if (s === "defaulted") return "red";
-  if (s === "renewed" || s === "partiallypaid" || s === "partially paid") return "amber";
+  if (s === "renewed" || s === "pending" || s === "partiallypaid" || s === "partially paid") return "amber";
   return "blue";
 }
 
@@ -275,6 +275,11 @@ export default function PersonalLoanDetailScreen() {
                 onPress={() => router.push(`/personal-loans/${l.renewedToLoanId}`)}
               >
                 Renewed to Loan #{l.renewedToLoanId}
+              </ThemedText>
+            ) : null}
+            {l.penalCycleCount > 0 ? (
+              <ThemedText variant="small" color={colors.red} style={{ marginTop: 4 }}>
+                Penal interest applied {l.penalCycleCount} time(s) — {fmt(l.totalPenalInterestCharged)} added at {l.penalInterestRate}% p.a.
               </ThemedText>
             ) : null}
 

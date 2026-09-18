@@ -15,6 +15,13 @@ func RegisterMovementRoutes(rg *gin.RouterGroup, h *MovementHandler, perms platf
 	rg.POST("", perms.Create, h.Record)
 	rg.GET("", perms.Read, h.List)
 	rg.GET("/export", perms.Read, h.Export)
+	// Party Transactions drill-down — reuses the same can_view_cash
+	// permission as every other read here (it's a drill-down of data the
+	// user can already see on the Cash page, not a new resource).
+	rg.GET("/transactions/bank/:bankId", perms.Read, h.ListByBank)
+	rg.GET("/transactions/bank/:bankId/export", perms.Read, h.ExportByBank)
+	rg.GET("/transactions/customer/:customerId", perms.Read, h.ListByCustomer)
+	rg.GET("/transactions/customer/:customerId/export", perms.Read, h.ExportByCustomer)
 	rg.GET("/:id", perms.Read, h.Get)
 	rg.PATCH("/:id/status", perms.Update, h.SetStatus)
 }

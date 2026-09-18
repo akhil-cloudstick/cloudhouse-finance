@@ -143,7 +143,11 @@ export function EditLoanModalContent({ loan, onSaved }: { loan: LoanView; onSave
               placeholder="Search active schemes…"
             /></div>
           <div><label className="f">Principal Amount (₹)</label>
-            <input className="inp" type="number" min={1} value={principal} onChange={(e) => setPrincipal(e.target.value)} /></div>
+            <input className="inp" type="number" min={1} max={eligibleLoanAmount} value={principal} onChange={(e) => setPrincipal(e.target.value)} />
+            <p style={{ fontSize: 11, color: "var(--muted)", marginTop: 4 }}>
+              Max {fmt(eligibleLoanAmount)} (based on scheme LTV)
+            </p>
+          </div>
         </div>
         <div className="frow c2">
           <div>
@@ -169,7 +173,7 @@ export function EditLoanModalContent({ loan, onSaved }: { loan: LoanView; onSave
             Ornament" is the last child inside this same scrolling box with
             position:sticky so it stays reachable at the bottom of the
             visible list without needing to scroll all the way down first. */}
-        <div className="edit-loan-orn-scroll" style={{ maxHeight: 340, overflowY: "auto", paddingRight: 2 }}>
+        <div className="edit-loan-orn-scroll" style={{ maxHeight: 220, overflowY: "auto", paddingRight: 2 }}>
           {rows.map((r, i) => r.removed ? null : (
             <div key={i} className="eln-card" style={{ border: "1px solid var(--line)", borderRadius: 8, padding: 10 }}>
               {/* Bare "frow" (no .c2/.c3 modifier) is a single-column grid —
@@ -216,12 +220,10 @@ export function EditLoanModalContent({ loan, onSaved }: { loan: LoanView; onSave
         </p>
         <p style={{ color: "var(--red)", fontSize: 12.5, minHeight: 16, marginTop: 8 }}>{err}</p>
       </div>
-      {/* Sticky within .modal-bg (the actual scrolling ancestor — see
-          app.css's `.modal-bg{overflow-y:auto}`), scoped locally via inline
-          style rather than a global `.modal .ft` change: Cancel/Save Changes
-          stay reachable without scrolling all the way down through the
-          scheme/principal/ornaments fields above. */}
-      <div className="ft" style={{ position: "sticky", bottom: 0, background: "var(--card)", zIndex: 1 }}>
+      {/* The sticky-within-`.modal-bg` treatment this used to declare inline
+          is now on `.modal .ft` in app.css, for every modal — nothing needed
+          here beyond the class. */}
+      <div className="ft">
         <button className="btn ghost" onClick={closeModal}>Cancel</button>
         <button className="btn" onClick={save} disabled={saving}><Icon name="check" /> {saving ? "Saving…" : "Save Changes"}</button>
       </div>

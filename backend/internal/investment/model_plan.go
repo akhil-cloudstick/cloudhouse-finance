@@ -27,11 +27,35 @@ const (
 )
 
 // PayoutFrequency values for InvestmentPlan.PayoutFrequency and
-// Investment.PayoutFrequency, driving generatePayoutSchedule's due-date
-// stepping.
+// Investment.PayoutFrequency. For an EngineSchedule plan/investment this
+// drives generatePayoutSchedule's due-date stepping exactly as before, and
+// stays restricted to Monthly/Yearly (see validateFrequency). For an
+// EngineLive plan/investment it is instead the accrual period consumed by
+// projectAccrual (accrual.go), and all five values are legal — Daily/
+// Weekly/Quarterly only make sense for the new live engine, so they were
+// never offered to the old one.
 const (
-	PayoutFrequencyMonthly = "Monthly"
-	PayoutFrequencyYearly  = "Yearly"
+	PayoutFrequencyDaily     = "Daily"
+	PayoutFrequencyWeekly    = "Weekly"
+	PayoutFrequencyMonthly   = "Monthly"
+	PayoutFrequencyQuarterly = "Quarterly"
+	PayoutFrequencyYearly    = "Yearly"
+)
+
+// Engine values — the discriminator between the original product (a fixed
+// interest-payout schedule precomputed in full at creation, see
+// generatePayoutSchedule) and the new live-accrual product (Outstanding
+// Principal/Interest that move via Service.AddCash/Withdraw and accrue
+// day-by-day, see accrual.go). EngineSchedule is the default so every plan
+// and investment that predates this feature backfills to it and is never
+// touched by any Live-engine code path (settleAndSave, AddCash, Withdraw,
+// projectAccrual all no-op or refuse outright for it) — see migrate.go's
+// BackfillEngineColumn. An Investment snapshots its Plan's Engine at
+// creation time, same as every other plan term, so retiring/editing a plan
+// afterwards never changes what an existing investment already is.
+const (
+	EngineSchedule = "Schedule"
+	EngineLive     = "Live"
 )
 
 // InvestmentPlan is an admin-defined product an investor can put money
@@ -49,6 +73,10 @@ type InvestmentPlan struct {
 	InterestRatePercent float64 `json:"interestRatePercent" gorm:"not null;type:numeric(6,3)"`
 	PayoutFrequency     string  `json:"payoutFrequency" gorm:"not null;size:10"`
 	TenureMonths        int     `json:"tenureMonths" gorm:"not null"`
+
+	// Engine selects which product a new investment created against this
+	// plan gets — see the Engine* consts' doc comment above.
+	Engine string `json:"engine" gorm:"not null;size:10;default:'Schedule'"`
 
 	// MinPrincipal is the smallest deposit this plan accepts; zero means no
 	// floor.

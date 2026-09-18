@@ -85,7 +85,7 @@ func seedPersonalLoans(ctx context.Context, d *Deps, st *state, rep *Report) err
 				Amount: amount,
 				// No PaidOn field: personalloan.Service dates the receipt itself.
 				ReceivedByEmployeeID: &st.keep.adminID,
-				Method:               "Cash",
+				CashAmount:           amount,
 				Description:          "Demo installment receipt",
 			}); err != nil {
 				return fmt.Errorf("record personal loan payment %d on loan %d: %w", r+1, i+1, err)
@@ -198,7 +198,7 @@ func seedInvestments(ctx context.Context, d *Deps, st *state, rep *Report) error
 			if j >= 4 || po.DueDate.After(st.clk.today) {
 				break
 			}
-			if _, err := d.investmentSvc.MarkPayoutPaid(ctx, ids[i], po.ID, nil, st.keep.adminID); err != nil {
+			if _, err := d.investmentSvc.MarkPayoutPaid(ctx, ids[i], po.ID, nil, st.keep.adminID, investment.MarkPayoutPaidInput{CashAmount: po.Amount}); err != nil {
 				// A payout that cannot be paid (already paid, or out of
 				// order) is not worth failing the whole reset over.
 				continue

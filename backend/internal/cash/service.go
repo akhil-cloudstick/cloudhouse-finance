@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"cloudhouse/backend/internal/branch"
+	"cloudhouse/backend/internal/platform"
 	"cloudhouse/backend/internal/platform/httpx"
 )
 
@@ -36,12 +37,16 @@ var (
 )
 
 // Cash-in Mode values for RecordMovementInput.Mode/CashMovement.Mode — free
-// text like Expense.Mode, but these three are what AddCashModal.tsx's own
-// dropdown offers.
+// text like Expense.Mode. Cash/UPI/BankTransfer are what AddCashModal.tsx's
+// own dropdown offers; Cheque is additionally one of the four split-payment
+// modes recordSplitCashMovement writes (loan/personal-loan repayments and
+// disbursement, investment payouts) but is not offered by AddCashModal.tsx
+// itself.
 const (
 	CashModeCash         = "Cash"
 	CashModeUPI          = "UPI"
 	CashModeBankTransfer = "Bank Transfer"
+	CashModeCheque       = "Cheque"
 )
 
 // RecordMovementInput mirrors the fields supplied by AddCashModal.tsx /
@@ -154,6 +159,64 @@ func (s *MovementService) List(ctx context.Context, branchID *uint, fromDate, to
 	return s.repo.FindAll(ctx, branchID, fromDate, toDate, category, limit, offset)
 }
 
+// PartyTotals is the Party Transactions page's KPI row — Total In / Total
+// Out / Net across every movement matching the same filter as the list
+// beneath it (not just the current page), plus how many transactions each
+// side represents.
+type PartyTotals struct {
+	TotalIn  float64 `json:"totalIn"`
+	TotalOut float64 `json:"totalOut"`
+	Net      float64 `json:"net"`
+	InCount  int     `json:"inCount"`
+	OutCount int     `json:"outCount"`
+}
+
+func sumPartyTotals(rows []CashMovement) PartyTotals {
+	var t PartyTotals
+	for _, m := range rows {
+		if m.Type == "in" {
+			t.TotalIn += m.Amount
+			t.InCount++
+		} else {
+			t.TotalOut += m.Amount
+			t.OutCount++
+		}
+	}
+	t.Net = t.TotalIn - t.TotalOut
+	return t
+}
+
+// ListCashMovementsByBank returns one page of every cash movement tagged to
+// bankID, newest first, plus the TOTAL row count and PartyTotals across
+// every matching row (not just the page) — backs the Party Transactions
+// page's bank drill-down (GET /cash/parties/bank/:bankId).
+func (s *MovementService) ListCashMovementsByBank(ctx context.Context, bankID uint, fromDate, toDate time.Time, limit, offset int) ([]CashMovement, int64, PartyTotals, error) {
+	rows, total, err := s.repo.ListByBank(ctx, bankID, fromDate, toDate, limit, offset)
+	if err != nil {
+		return nil, 0, PartyTotals{}, err
+	}
+	all, _, err := s.repo.ListByBank(ctx, bankID, fromDate, toDate, 0, 0)
+	if err != nil {
+		return nil, 0, PartyTotals{}, err
+	}
+	return rows, total, sumPartyTotals(all), nil
+}
+
+// ListCashMovementsByCustomer is ListCashMovementsByBank's counterpart for
+// CashMovement.PartyCustomerID — backs the Party Transactions page's
+// customer drill-down and CustomerDetail.tsx's "Transactions" tab.
+func (s *MovementService) ListCashMovementsByCustomer(ctx context.Context, customerID uint, fromDate, toDate time.Time, limit, offset int) ([]CashMovement, int64, PartyTotals, error) {
+	rows, total, err := s.repo.ListByCustomer(ctx, customerID, fromDate, toDate, limit, offset)
+	if err != nil {
+		return nil, 0, PartyTotals{}, err
+	}
+	all, _, err := s.repo.ListByCustomer(ctx, customerID, fromDate, toDate, 0, 0)
+	if err != nil {
+		return nil, 0, PartyTotals{}, err
+	}
+	return rows, total, sumPartyTotals(all), nil
+}
+
 // Get returns the movement by id, or ErrMovementNotFound if it doesn't
 // exist OR (when branchID is non-nil) belongs to a different branch (or has
 // no branch at all) — a non-admin gets the same "not found" for another
@@ -167,6 +230,63 @@ func (s *MovementService) Get(ctx context.Context, id uint, branchID *uint) (*Ca
 		return nil, ErrMovementNotFound
 	}
 	return rec, nil
+}
+
+// splitComponent pairs one payment mode's name with its rupee amount — the
+// shape recordSplitCashMovement iterates over.
+type splitComponent struct {
+	mode   string
+	amount float64
+}
+
+// recordSplitCashMovement writes one CashMovement row per non-zero
+// component in components — the "1 row per mode, not 1 row per payment"
+// design Phase 2 settled on, so a plain row-filter+sum still answers "total
+// cash in today" / "total UPI in today" without unpacking per-mode columns
+// across rows. All rows written for one call share a single
+// TransactionGroupID, so the Cash & Expenses / Party Transactions pages can
+// still show or collapse them as one logical event.
+//
+// When every component is zero — a caller with no mode information at all,
+// e.g. personal-loan disbursement, which Phase 2's split-payment UI does not
+// cover — falls back to writing exactly one legacy-style row for the full
+// amount with Mode left blank, matching this codebase's behavior before
+// split-mode recording existed. This never silently drops the movement.
+//
+// base supplies every field except Mode/Amount/TransactionGroupID (Type,
+// Source/Purpose, BranchID, OccurredOn, PartyCustomerID, …), pre-populated
+// by the caller. Returns the ID of the FIRST row written, so existing
+// single-ID callers (e.g. InvestmentPayout.CashMovementID) keep working
+// unchanged.
+func (s *MovementService) recordSplitCashMovement(ctx context.Context, base CashMovement, amount float64, components []splitComponent) (uint, error) {
+	groupID := platform.NewTransactionGroupID()
+	var firstID uint
+	var wrote int
+	for _, c := range components {
+		if c.amount <= 0 {
+			continue
+		}
+		rec := base
+		rec.Mode = c.mode
+		rec.Amount = c.amount
+		rec.TransactionGroupID = groupID
+		if err := s.repo.Create(ctx, &rec); err != nil {
+			return 0, err
+		}
+		if wrote == 0 {
+			firstID = rec.ID
+		}
+		wrote++
+	}
+	if wrote == 0 {
+		rec := base
+		rec.Amount = amount
+		if err := s.repo.Create(ctx, &rec); err != nil {
+			return 0, err
+		}
+		firstID = rec.ID
+	}
+	return firstID, nil
 }
 
 // RecordBankPledgeCashIn creates the cash-in movement for a loan's gold
@@ -193,52 +313,96 @@ func (s *MovementService) RecordBankPledgeCashIn(ctx context.Context, loanID uin
 	return rec.ID, nil
 }
 
-// RecordLoanDisbursementCashOut creates the cash-out movement for a loan's
-// principal being handed to the customer (loan.CashRecorder, called from
-// loan.Service.Approve once a loan clears its final approval stage).
-// Purpose carries the loan number so it reads sensibly in the Cash
-// Movements table without a dedicated column.
-func (s *MovementService) RecordLoanDisbursementCashOut(ctx context.Context, loanID uint, loanNumber string, amount float64, branchID uint, occurredOn time.Time) (uint, error) {
-	rec := &CashMovement{
+// RecordLoanDisbursementCashOut creates the cash-out movement(s) for a
+// loan's principal being handed to the customer (loan.CashRecorder, called
+// from loan.Service.Approve once a loan clears its final approval stage;
+// also personalloan.CashRecorder, called from personalloan.Service.
+// CreateLoan's disbursement, which has no split-mode UI in Phase 2's scope
+// and so always passes all-zero split amounts — recordSplitCashMovement's
+// legacy fallback handles that transparently). cashAmount/upiAmount/
+// bankTransferAmount/chequeAmount split amount across up to four
+// CashMovement rows sharing one TransactionGroupID; customerID (0 = none)
+// populates PartyCustomerID for the Party Transactions ledger. Purpose
+// carries the loan number so it reads sensibly in the Cash Movements table
+// without a dedicated column.
+func (s *MovementService) RecordLoanDisbursementCashOut(ctx context.Context, loanID uint, loanNumber string, amount, cashAmount, upiAmount, bankTransferAmount, chequeAmount float64, branchID uint, occurredOn time.Time, customerID uint) (uint, error) {
+	base := CashMovement{
 		Type:     "out",
 		Purpose:  "Loan disbursement — " + loanNumber,
-		Amount:   amount,
 		BranchID: &branchID,
 	}
 	if occurredOn.IsZero() {
-		rec.OccurredOn = time.Now()
+		base.OccurredOn = time.Now()
 	} else {
-		rec.OccurredOn = occurredOn
+		base.OccurredOn = occurredOn
 	}
-	if err := s.repo.Create(ctx, rec); err != nil {
-		return 0, err
+	if customerID != 0 {
+		base.PartyCustomerID = &customerID
 	}
-	return rec.ID, nil
+	return s.recordSplitCashMovement(ctx, base, amount, []splitComponent{
+		{CashModeCash, cashAmount},
+		{CashModeUPI, upiAmount},
+		{CashModeBankTransfer, bankTransferAmount},
+		{CashModeCheque, chequeAmount},
+	})
 }
 
-// RecordLoanPaymentCashIn creates the cash-in movement for a customer's loan
-// repayment (loan.CashRecorder, called from loan.Service.RecordPayment).
-// Source is "Collection" — distinct from the "Savings"/"Loan" sources
-// AddCashModal.tsx offers for manually topping up the till (that "Loan"
-// source means the branch itself borrowed cash from a bank, unrelated to a
-// customer repaying their gold loan).
-func (s *MovementService) RecordLoanPaymentCashIn(ctx context.Context, loanID uint, loanNumber string, amount float64, branchID uint, occurredOn time.Time, paymentType string) (uint, error) {
-	rec := &CashMovement{
+// RecordLoanTopUpCashOut creates the cash-out movement(s) for a gold-loan
+// top-up (loan.CashRecorder, called from loan.Service.TopUpLoan) — the same
+// per-mode-row + TransactionGroupID convention as
+// RecordLoanDisbursementCashOut, since a top-up is functionally an
+// additional disbursement.
+func (s *MovementService) RecordLoanTopUpCashOut(ctx context.Context, loanID uint, loanNumber string, amount, cashAmount, upiAmount, bankTransferAmount, chequeAmount float64, branchID uint, occurredOn time.Time, customerID uint) (uint, error) {
+	base := CashMovement{
+		Type:     "out",
+		Purpose:  "Loan top-up — " + loanNumber,
+		BranchID: &branchID,
+	}
+	if occurredOn.IsZero() {
+		base.OccurredOn = time.Now()
+	} else {
+		base.OccurredOn = occurredOn
+	}
+	if customerID != 0 {
+		base.PartyCustomerID = &customerID
+	}
+	return s.recordSplitCashMovement(ctx, base, amount, []splitComponent{
+		{CashModeCash, cashAmount},
+		{CashModeUPI, upiAmount},
+		{CashModeBankTransfer, bankTransferAmount},
+		{CashModeCheque, chequeAmount},
+	})
+}
+
+// RecordLoanPaymentCashIn creates the cash-in movement(s) for a customer's
+// loan repayment (loan.CashRecorder, called from loan.Service.RecordPayment;
+// also personalloan.CashRecorder, called from personalloan.Service.
+// RecordPayment). Source is "Collection" — distinct from the "Savings"/
+// "Loan" sources AddCashModal.tsx offers for manually topping up the till
+// (that "Loan" source means the branch itself borrowed cash from a bank,
+// unrelated to a customer repaying their gold loan). See
+// RecordLoanDisbursementCashOut for the split/customerID parameters.
+func (s *MovementService) RecordLoanPaymentCashIn(ctx context.Context, loanID uint, loanNumber string, amount, cashAmount, upiAmount, bankTransferAmount, chequeAmount float64, branchID uint, occurredOn time.Time, paymentType string, customerID uint) (uint, error) {
+	base := CashMovement{
 		Type:     "in",
 		Source:   "Collection",
 		Purpose:  fmt.Sprintf("%s — %s", paymentType, loanNumber),
-		Amount:   amount,
 		BranchID: &branchID,
 	}
 	if occurredOn.IsZero() {
-		rec.OccurredOn = time.Now()
+		base.OccurredOn = time.Now()
 	} else {
-		rec.OccurredOn = occurredOn
+		base.OccurredOn = occurredOn
 	}
-	if err := s.repo.Create(ctx, rec); err != nil {
-		return 0, err
+	if customerID != 0 {
+		base.PartyCustomerID = &customerID
 	}
-	return rec.ID, nil
+	return s.recordSplitCashMovement(ctx, base, amount, []splitComponent{
+		{CashModeCash, cashAmount},
+		{CashModeUPI, upiAmount},
+		{CashModeBankTransfer, bankTransferAmount},
+		{CashModeCheque, chequeAmount},
+	})
 }
 
 // RecordBankPledgeCashOut creates the cash-out movement for a loan's gold
@@ -291,28 +455,33 @@ func (s *MovementService) RecordInvestmentDepositCashIn(ctx context.Context, inv
 	return rec.ID, nil
 }
 
-// RecordInvestmentPayoutCashOut creates the cash-out movement for an
+// RecordInvestmentPayoutCashOut creates the cash-out movement(s) for an
 // interest payout or final principal return on an investment
 // (investment.CashRecorder, called from investment.Service.MarkPayoutPaid).
 // payoutType carries "Interest payout" or "Principal return" so it reads
 // sensibly in the Cash Movements table without a dedicated column —
 // mirrors RecordLoanDisbursementCashOut's Purpose-carries-context approach.
-func (s *MovementService) RecordInvestmentPayoutCashOut(ctx context.Context, investmentID uint, investmentNumber string, amount float64, branchID uint, occurredOn time.Time, payoutType string) (uint, error) {
-	rec := &CashMovement{
+// See RecordLoanDisbursementCashOut for the split/customerID parameters.
+func (s *MovementService) RecordInvestmentPayoutCashOut(ctx context.Context, investmentID uint, investmentNumber string, amount, cashAmount, upiAmount, bankTransferAmount, chequeAmount float64, branchID uint, occurredOn time.Time, payoutType string, customerID uint) (uint, error) {
+	base := CashMovement{
 		Type:     "out",
 		Purpose:  fmt.Sprintf("%s — %s", payoutType, investmentNumber),
-		Amount:   amount,
 		BranchID: &branchID,
 	}
 	if occurredOn.IsZero() {
-		rec.OccurredOn = time.Now()
+		base.OccurredOn = time.Now()
 	} else {
-		rec.OccurredOn = occurredOn
+		base.OccurredOn = occurredOn
 	}
-	if err := s.repo.Create(ctx, rec); err != nil {
-		return 0, err
+	if customerID != 0 {
+		base.PartyCustomerID = &customerID
 	}
-	return rec.ID, nil
+	return s.recordSplitCashMovement(ctx, base, amount, []splitComponent{
+		{CashModeCash, cashAmount},
+		{CashModeUPI, upiAmount},
+		{CashModeBankTransfer, bankTransferAmount},
+		{CashModeCheque, chequeAmount},
+	})
 }
 
 // RecordAuctionSaleCashIn creates the cash-in movement for the NET proceeds of

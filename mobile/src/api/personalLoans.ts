@@ -5,7 +5,7 @@ import { apiRequestEnveloped as apiRequest } from "./client";
 // no-KYC loan product separate from the Gold Loan module.
 export type InterestType = "Flat" | "Percentage";
 export type Frequency = "Daily" | "Weekly" | "Monthly";
-export type PersonalLoanStatus = "Active" | "Closed" | "Renewed" | "Defaulted";
+export type PersonalLoanStatus = "Active" | "Pending" | "Closed" | "Renewed" | "Defaulted";
 
 export type PersonalLoan = {
   id: number;
@@ -29,6 +29,12 @@ export type PersonalLoan = {
   closedAt: string | null;
   renewedFromLoanId: number | null;
   renewedToLoanId: number | null;
+  penalInterestRate: number;
+  penalFlatAmount: number;
+  gracePeriodDays: number;
+  penalCycleCount: number;
+  totalPenalInterestCharged: number;
+  lastPenalAppliedAt: string | null;
   createdAt: string;
 };
 
@@ -94,6 +100,11 @@ export type CreatePersonalLoanInput = {
   interestValue: number;
   frequency: Frequency;
   tenureCount: number;
+  // Omit or 0 to default to the loan's own effective interest rate — see
+  // backend CreateInput.PenalInterestRate's doc comment.
+  penalInterestRate?: number;
+  // Omit or 0 for no grace period.
+  gracePeriodDays?: number;
 };
 
 export function createPersonalLoan(input: CreatePersonalLoanInput) {

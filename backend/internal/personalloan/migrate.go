@@ -1,6 +1,7 @@
 package personalloan
 
 import (
+	"fmt"
 	"log"
 
 	"gorm.io/gorm"
@@ -34,6 +35,98 @@ func BackfillRenewedLoanInstallments(db *gorm.DB) error {
 	return nil
 }
 
+// paymentSplitColumns are PersonalLoanPayment's new NOT NULL DEFAULT 0
+// split-mode columns — see loan.paymentSplitColumns for the identical
+// rationale.
+var paymentSplitColumns = []string{"cash_amount", "upi_amount", "bank_transfer_amount", "cheque_amount"}
+
+// BackfillPaymentSplitColumns is personal_loan_payments' counterpart to
+// loan.BackfillPaymentSplitColumns — same column-add-with-DEFAULT mechanics,
+// same exact-mapping-only Method backfill, same "never overwrite an
+// already-split row" guard. The one difference: PaymentMethodRenewalRollover
+// ("Renewal Rollover") is a legitimate, recognized value that moves no real
+// cash — RenewLoan's synthetic rollover entry — so it is excluded from the
+// NeedsModeReview flag rather than being (incorrectly) treated as an
+// unrecognized mode. Must run BEFORE AutoMigrate.
+func BackfillPaymentSplitColumns(db *gorm.DB) error {
+	m := db.Migrator()
+	if !m.HasTable(&PersonalLoanPayment{}) {
+		return nil // fresh install — AutoMigrate creates the whole table
+	}
+	for _, col := range paymentSplitColumns {
+		if m.HasColumn(&PersonalLoanPayment{}, col) {
+			continue
+		}
+		if err := db.Exec(fmt.Sprintf(`ALTER TABLE personal_loan_payments ADD COLUMN %s numeric(16,2) NOT NULL DEFAULT 0`, col)).Error; err != nil {
+			return err
+		}
+		log.Printf("added personal_loan_payments.%s with a default for pre-existing rows", col)
+	}
+	if !m.HasColumn(&PersonalLoanPayment{}, "needs_mode_review") {
+		if err := db.Exec(`ALTER TABLE personal_loan_payments ADD COLUMN needs_mode_review boolean NOT NULL DEFAULT false`).Error; err != nil {
+			return err
+		}
+		log.Printf("added personal_loan_payments.needs_mode_review with a default for pre-existing rows")
+	}
+
+	const unsplit = `cash_amount = 0 AND upi_amount = 0 AND bank_transfer_amount = 0 AND cheque_amount = 0`
+	mapping := []struct{ method, column string }{
+		{"cash", "cash_amount"},
+		{"upi", "upi_amount"},
+		{"bank transfer", "bank_transfer_amount"},
+		{"cheque", "cheque_amount"},
+	}
+	var mapped int64
+	for _, mp := range mapping {
+		res := db.Exec(fmt.Sprintf(`UPDATE personal_loan_payments SET %s = amount WHERE %s AND LOWER(TRIM(method)) = ?`, mp.column, unsplit), mp.method)
+		if res.Error != nil {
+			return res.Error
+		}
+		mapped += res.RowsAffected
+	}
+	if mapped > 0 {
+		log.Printf("backfilled %d personal_loan_payments row(s) from Method into a split column", mapped)
+	}
+
+	res := db.Exec(fmt.Sprintf(`
+		UPDATE personal_loan_payments SET needs_mode_review = true
+		WHERE %s AND amount <> 0
+		AND LOWER(TRIM(method)) NOT IN ('cash', 'upi', 'bank transfer', 'cheque', 'renewal rollover')`, unsplit))
+	if res.Error != nil {
+		return res.Error
+	}
+	if res.RowsAffected > 0 {
+		log.Printf("flagged %d personal_loan_payments row(s) with an unrecognized Method for manual mode review", res.RowsAffected)
+	}
+	return nil
+}
+
+// BackfillFullDisbursementColumn adds PersonalLoan.FullDisbursement's
+// full_disbursement column ahead of AutoMigrate. GORM's AutoMigrate issues a
+// bare `ALTER TABLE ... ADD full_disbursement boolean NOT NULL`, which
+// Postgres rejects outright on a table that already has rows ("column
+// contains null values") — same failure mode as cash.BackfillGoldSaleColumns,
+// same fix: give the ADD its own DEFAULT so existing rows satisfy the NOT
+// NULL immediately, since the failing statement is the ADD itself, not a
+// later UPDATE. Every pre-existing loan predates this feature, so `false`
+// (today's default, unchecked, behavior) is the only correct value for them
+// — not a guess. Idempotent and a no-op on a fresh install, where AutoMigrate
+// creates the whole table correctly itself.
+func BackfillFullDisbursementColumn(db *gorm.DB) error {
+	m := db.Migrator()
+	if !m.HasTable(&PersonalLoan{}) {
+		return nil // fresh install — AutoMigrate creates the whole table
+	}
+	if m.HasColumn(&PersonalLoan{}, "full_disbursement") {
+		return nil
+	}
+	if err := db.Exec(`ALTER TABLE personal_loans ADD COLUMN full_disbursement boolean NOT NULL DEFAULT false`).Error; err != nil {
+		return err
+	}
+	log.Printf("added personal_loans.full_disbursement with a default for pre-existing rows")
+	return nil
+}
+
 // BackfillRenewedLoanStatus is a one-time, idempotent step for personal
 // loans that were renewed before RenewLoan started closing the old loan
 // outright (Status=Closed) instead of leaving it at the old, separate
@@ -53,6 +146,48 @@ func BackfillRenewedLoanStatus(db *gorm.DB) error {
 	}
 	if res.RowsAffected > 0 {
 		log.Printf("backfilled %d personal loan(s) from Renewed to Closed", res.RowsAffected)
+	}
+	return nil
+}
+
+// penalColumns are PersonalLoan's new penal-interest columns — same
+// column-add-with-DEFAULT mechanics as BackfillFullDisbursementColumn, needed
+// because a bare AutoMigrate ADD COLUMN ... NOT NULL fails outright on a
+// table that already has rows. last_penal_applied_at is nullable (no penal
+// charge has ever fired for a pre-existing loan) so it needs no DEFAULT.
+// Must run BEFORE AutoMigrate.
+func BackfillPenalColumns(db *gorm.DB) error {
+	m := db.Migrator()
+	if !m.HasTable(&PersonalLoan{}) {
+		return nil // fresh install — AutoMigrate creates the whole table
+	}
+	numericCols := []string{"penal_interest_rate", "penal_flat_amount", "total_penal_interest_charged"}
+	for _, col := range numericCols {
+		if m.HasColumn(&PersonalLoan{}, col) {
+			continue
+		}
+		if err := db.Exec(fmt.Sprintf(`ALTER TABLE personal_loans ADD COLUMN %s numeric(16,2) NOT NULL DEFAULT 0`, col)).Error; err != nil {
+			return err
+		}
+		log.Printf("added personal_loans.%s with a default for pre-existing rows", col)
+	}
+	if !m.HasColumn(&PersonalLoan{}, "grace_period_days") {
+		if err := db.Exec(`ALTER TABLE personal_loans ADD COLUMN grace_period_days integer NOT NULL DEFAULT 0`).Error; err != nil {
+			return err
+		}
+		log.Printf("added personal_loans.grace_period_days with a default for pre-existing rows")
+	}
+	if !m.HasColumn(&PersonalLoan{}, "penal_cycle_count") {
+		if err := db.Exec(`ALTER TABLE personal_loans ADD COLUMN penal_cycle_count integer NOT NULL DEFAULT 0`).Error; err != nil {
+			return err
+		}
+		log.Printf("added personal_loans.penal_cycle_count with a default for pre-existing rows")
+	}
+	if !m.HasColumn(&PersonalLoan{}, "last_penal_applied_at") {
+		if err := db.Exec(`ALTER TABLE personal_loans ADD COLUMN last_penal_applied_at timestamptz`).Error; err != nil {
+			return err
+		}
+		log.Printf("added personal_loans.last_penal_applied_at")
 	}
 	return nil
 }
