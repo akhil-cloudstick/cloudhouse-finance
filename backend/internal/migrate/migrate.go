@@ -717,6 +717,16 @@ var tenantUniqueIndexes = []tenantUniqueIndex{
 	{"roles", "idx_roles_name", "uq_roles_tenant_name", "name", ""},
 	{"approval_limits", "idx_approval_limits_role", "uq_approval_limits_tenant_role", "role", ""},
 
+	// Both of these were missed when this list was first written, and both
+	// are generated per business exactly like loans.loan_number above — the
+	// first personal loan of EVERY business is PL-00001. Global uniqueness
+	// therefore meant the business that created one first permanently owned
+	// that number, and every other business hit 23505 on its own first
+	// personal loan (which is how this was found: a demo reseed died on
+	// "PL-00001" that belonged to a different business entirely).
+	{"personal_loans", "idx_personal_loans_loan_number", "uq_personal_loans_tenant_loan_number", "loan_number", ""},
+	{"investments", "idx_investments_investment_number", "uq_investments_tenant_investment_number", "investment_number", ""},
+
 	// Login identifiers. Per-business by decision: two businesses may each
 	// employ a "ravi", and one person may genuinely work for two of them.
 	// The partial predicates are carried over verbatim from the indexes they

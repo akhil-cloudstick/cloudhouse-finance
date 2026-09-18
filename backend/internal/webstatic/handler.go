@@ -37,7 +37,7 @@ var mimeTypes = map[string]string{
 // paths the same way a static host would:
 //
 //	/            -> index.html
-//	/app         -> app.html (or app/index.html)
+//	/ctfi/loans  -> app.html (the console, which reads the path itself)
 //	/whatever.js -> whatever.js (exact asset)
 //
 // Falls back to 404.html (if present) for anything unresolved.
@@ -87,8 +87,9 @@ func (h *Handler) resolve(urlPath string) string {
 		}
 	}
 
-	// Per-business links: /login/<slug> and /app/<slug> serve the same login
-	// and app pages, which read the slug from their own URL.
+	// Per-business links: /<slug>/login and /<slug>/<route> serve the login
+	// page and the app shell, which read the business and the page from their
+	// own URL.
 	//
 	// Nothing matches them on disk, and nothing can: the frontend builds with
 	// Next's output: "export", where a dynamic route needs every parameter
@@ -110,26 +111,109 @@ func (h *Handler) resolve(urlPath string) string {
 	return ""
 }
 
-// sluggedPage maps /login/<slug> to login.html and /app/<slug> to app.html,
-// and returns "" for anything else — including deeper paths like
-// /app/<slug>/extra, which are not part of the link design and should keep
-// 404ing rather than silently serving the app shell.
+// sluggedPage maps a per-business URL to the static page that serves it, and
+// returns "" for anything it does not recognise.
+//
+// The URL shape is business-first — the code leads the path and the page
+// follows it:
+//
+//	/ctfi/login          -> login.html
+//	/ctfi/reset          -> reset.html
+//	/ctfi                -> app.html
+//	/ctfi/dashboard      -> app.html
+//	/ctfi/loan/GL-1001   -> app.html
+//	/dashboard           -> app.html   (the single-business install)
+//
+// The console is ONE static document for every route, because a static export
+// has no per-route HTML to serve and tenant slugs are created at runtime, so
+// there is no list of paths to pre-render. The document reads the path back
+// and renders the right page — see frontend/hooks/useAppRoute.ts.
+//
+// This resolves the PAGE only. The slug grants nothing: the business is
+// established from the session token, and a signed-in user who edits the slug
+// in the address bar still sees exactly their own business's data.
+//
+// Keep in step with frontend/next.config.ts's rewrites, which do the same job
+// under `next dev`, and with frontend/common/config/routes.ts, which is where
+// appRoutes and isBusinessSlug below take their vocabulary from.
 func sluggedPage(clean string) string {
 	parts := strings.Split(strings.TrimPrefix(clean, "/"), "/")
-	if len(parts) != 2 || parts[1] == "" {
+	if len(parts) == 0 || parts[0] == "" {
 		return ""
 	}
-	if !isBusinessSlug(parts[1]) {
+	// Deeper than /<slug>/<route>/<arg> is not part of the link design and
+	// should keep 404ing rather than silently serving the app shell — a
+	// fallback that is too eager stops being a fallback and hides real 404s.
+	if len(parts) > 3 {
 		return ""
 	}
+
+	// A leading business code is optional: the single-business install reaches
+	// the same pages without one.
+	if isBusinessSlug(parts[0]) && !isReservedSegment(parts[0]) {
+		parts = parts[1:]
+		if len(parts) == 0 {
+			return "app.html" // /ctfi alone -> the console's landing page
+		}
+	} else if len(parts) > 2 {
+		// No business code, so at most /<route>/<arg> can follow.
+		return ""
+	}
+
 	switch parts[0] {
 	case "login":
+		if len(parts) != 1 {
+			return ""
+		}
 		return "login.html"
-	case "app":
-		return "app.html"
-	default:
-		return ""
+	case "reset":
+		if len(parts) != 1 {
+			return ""
+		}
+		return "reset.html"
 	}
+	if appRoutes[parts[0]] {
+		return "app.html"
+	}
+	return ""
+}
+
+// appRoutes is every page the console can show, and therefore every word that
+// may appear where a route is expected. It exists so that "/ctfi/loans" (the
+// loans page) can be told apart from "/ctfi/nonsense" (a 404), and so that a
+// business can never be coded with a word that would shadow a page.
+//
+// Mirrors APP_ROUTES in frontend/common/config/routes.ts. A route added there
+// and not here is reachable in dev and 404s in production.
+var appRoutes = map[string]bool{
+	"dashboard": true, "customers": true, "customer": true,
+	"loans": true, "loan": true, "newloan": true,
+	"schemes": true, "goldrates": true, "requests": true,
+	"loanrisk": true, "personalloans": true, "personalloan": true,
+	"investments": true, "investment": true, "cash": true,
+	"auctions": true, "packets": true, "packet": true,
+	"bankpledge": true, "reports": true, "employees": true,
+	"calendar": true, "branches": true, "roles-permissions": true,
+	"billing": true, "settings": true,
+}
+
+// isReservedSegment reports whether a first path segment can never name a
+// business. That is the cost of putting the code first: "/loans" is either a
+// business called "loans" or the bare install's loans page, and only a list
+// can decide. Mirrors RESERVED_ROOT_SEGMENTS in
+// frontend/common/config/routes.ts, which also refuses to let such a code be
+// created in the first place.
+func isReservedSegment(s string) bool {
+	if appRoutes[s] {
+		return true
+	}
+	switch s {
+	case "login", "reset", "api", "uploads", "assets", "static", "_next",
+		"favicon.ico", "index", "app", "superadmin", "forgot-password",
+		"reset-password", "digilocker-callback", "esign-callback":
+		return true
+	}
+	return false
 }
 
 // isBusinessSlug mirrors the frontend's slug rule (lowercase alphanumerics

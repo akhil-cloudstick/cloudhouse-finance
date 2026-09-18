@@ -11,6 +11,7 @@ import { listPacketsPage, getPacketByCode, type PacketView } from "@/modules/pac
 import { Select } from "@/common/components/ui/Select";
 import { useAuth } from "@/common/auth-context";
 import { useResponsivePageSize } from "@/common/utils/responsive";
+import { navigate, routeHref } from "@/common/services/appRoutes";
 
 /* Mirrors packet.Status* in backend/internal/packet/model.go. */
 const PACKET_STATUS_OPTIONS = [
@@ -45,7 +46,7 @@ function LockerCard({ l, packets, canUpdate, onChanged }: { l: LockerView; packe
           <ul style={{ margin: "10px 0 0", padding: 0, listStyle: "none", fontSize: 12.5 }}>
             {inLocker.map((p) => (
               <li key={p.id} style={{ padding: "3px 0", borderTop: "1px dashed var(--line)" }}>
-                <a href={`#packet/${p.code}`}>{p.code}</a> — {p.loanNumber} · {p.customerName}
+                <a href={routeHref(`packet/${p.code}`)}>{p.code}</a> — {p.loanNumber} · {p.customerName}
               </li>
             ))}
           </ul>
@@ -127,7 +128,7 @@ export function Packets() {
     setLookupErr("");
     try {
       const p = await getPacketByCode(code);
-      location.hash = `packet/${p.code}`;
+      navigate(`packet/${p.code}`);
     } catch {
       // Not an exact packet code — that's fine, the live `q` filter above
       // already narrowed the table to whatever matched; only complain when
@@ -195,9 +196,9 @@ export function Packets() {
                   // sold — same override PacketDetail.tsx applies.
                   const displayStatus = p.loanStatus === "Auctioned" || p.loanStatus === "Auctioned - Balance Due" ? "Auctioned" : p.status;
                   return (
-                    <tr key={p.id} className="click" onClick={() => { location.hash = `packet/${p.code}`; }}>
-                      <td><a href={`#packet/${p.code}`} className="id" onClick={(e) => e.stopPropagation()}>{p.code}</a></td>
-                      <td><a href={`#loan/${p.loanNumber}`} onClick={(e) => e.stopPropagation()}>{p.loanNumber}</a></td>
+                    <tr key={p.id} className="click" onClick={() => { navigate(`packet/${p.code}`); }}>
+                      <td><a href={routeHref(`packet/${p.code}`)} className="id" onClick={(e) => e.stopPropagation()}>{p.code}</a></td>
+                      <td><a href={routeHref(`loan/${p.loanNumber}`)} onClick={(e) => e.stopPropagation()}>{p.loanNumber}</a></td>
                       <td>{p.customerName}</td>
                       <td className="num">{p.itemCount}</td>
                       <td className="num">{fmtW(p.totalWeight)}</td>

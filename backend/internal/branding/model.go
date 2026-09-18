@@ -58,8 +58,13 @@ type Public struct {
 	// this one falls back to the business's own Name, not a platform
 	// constant, since "CloudHouse Finance" would be a strange short name to
 	// show for a business that has not picked one).
-	ShortName  string `json:"shortName"`
-	BrandColor string `json:"brandColor"`
+	ShortName string `json:"shortName"`
+	// LockupTagline is the sidebar's small second line. Unlike ShortName it
+	// has NO fallback here: empty means "not set", which the frontend reads as
+	// "use the business name, unless that would just repeat the headline".
+	// Resolving it server-side would lose that distinction.
+	LockupTagline string `json:"lockupTagline"`
+	BrandColor    string `json:"brandColor"`
 	// SecondaryColor/AccentColor/SidebarColor are empty when the business
 	// has not set them, which the frontend reads as "derive from BrandColor
 	// alone" — see theme.ts.
@@ -95,6 +100,7 @@ func publicOf(t *tenant.Tenant, logoURL string) Public {
 		Name:           t.Name,
 		LegalName:      t.LegalName,
 		ShortName:      t.ShortName,
+		LockupTagline:  t.LockupTagline,
 		BrandColor:     t.BrandColor,
 		SecondaryColor: t.SecondaryColor,
 		AccentColor:    t.AccentColor,

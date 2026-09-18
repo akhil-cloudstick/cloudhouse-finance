@@ -428,12 +428,51 @@ export function applyFavicon(logoUrl: string | null | undefined): void {
 /* applyDocumentTitle is applyFavicon's counterpart for the browser TAB TEXT
  * — same problem (a build-time static value, `app/layout.tsx`'s Metadata
  * `title`, baked once for every tenant), same fix (set it at runtime once a
- * tenant's own name is known). Unlike the favicon, `document.title` has no
- * browser-caching quirk to work around — a plain assignment always takes
- * effect immediately. */
+ * tenant's own name is known).
+ *
+ * WHY A PLAIN ASSIGNMENT IS NOT ENOUGH. It used to be one, on the reasoning
+ * that document.title has no caching quirk to work around. It does not — but
+ * it has a competitor. Next's App Router does not render <Metadata> together
+ * with the page: it resolves it in a separate, suspended branch of the tree
+ * that commits whenever it is ready, which may be BEFORE or AFTER this
+ * function runs on any given load. When it commits last it writes the neutral
+ * "Loading…" back over the business's real name, and nothing re-runs to
+ * correct it — the "tab stuck on Loading…, fixed by a refresh, broken again
+ * by the next one" symptom, random precisely because it is a race. React then
+ * believes the title element already says "Loading…", so later renders are
+ * no-ops and it never self-corrects. That same commit is also what briefly
+ * empties the title, which is when the browser falls back to showing the raw
+ * URL — the "tab says localhost:3000" half of the report.
+ *
+ * So the tenant's title is LATCHED: assigned, then re-asserted by a
+ * MutationObserver any time anything else changes it. The observer is
+ * installed once and watches only the <title> element, so the cost is a
+ * handful of callbacks over the page's life.
+ *
+ * The latch is deliberately one-directional: only a later applyDocumentTitle
+ * call (real branding arriving, or the navigation re-assert in
+ * BrandingProvider) changes what is held. An empty name is a no-op, not a
+ * release — an empty document.title is the URL-in-the-tab bug itself.
+ */
+let latchedTitle: string | null = null;
+let titleObserver: MutationObserver | null = null;
+
+function watchDocumentTitle(): void {
+  if (titleObserver || typeof MutationObserver === "undefined") return;
+  titleObserver = new MutationObserver(() => {
+    if (latchedTitle && document.title !== latchedTitle) document.title = latchedTitle;
+  });
+  /* childList on <head> catches Next REPLACING the <title> element wholesale;
+   * subtree + characterData catches it rewriting the text node inside the
+   * existing one. Both occur, depending on how the metadata branch commits. */
+  titleObserver.observe(document.head, { childList: true, subtree: true, characterData: true });
+}
+
 export function applyDocumentTitle(businessName: string | null | undefined): void {
   if (typeof document === "undefined" || !businessName) return;
-  document.title = businessName;
+  latchedTitle = businessName;
+  if (document.title !== businessName) document.title = businessName;
+  watchDocumentTitle();
 }
 
 /** Cached alongside the theme, for the SAME reason as the colour: a static
@@ -507,3 +546,50 @@ export function readCachedBrandTheme(slug: string | null): BrandTheme | null {
   const hex = readCachedBrandColor(slug);
   return hex ? { primary: hex } : null;
 }
+
+/* --- Pre-paint logo cache ---------------------------------------------------
+ *
+ * The colour and the tab text are replayed before the first paint; the LOGO
+ * was not, which is why a cold load still showed the platform mark for a
+ * frame or two in the tab icon and on the login panel. Same cache, same
+ * per-slug keying, read synchronously by brand-preload.tsx.
+ *
+ * Product rule this serves: a business must never see any brand but its own,
+ * not even for a frame — not another business's, and not the vendor's. When
+ * no cached logo exists (the very first visit on this browser) the correct
+ * answer is a neutral placeholder, never the platform mark.
+ */
+export const BRAND_LOGO_KEY_PREFIX = "cloudhouse_brand_logo::";
+
+export function cacheBrandLogo(slug: string | null, logoUrl: string): void {
+  if (typeof window === "undefined" || !logoUrl) return;
+  try {
+    window.localStorage.setItem(BRAND_LOGO_KEY_PREFIX + (slug || "default"), logoUrl);
+  } catch {
+    /* Private mode / storage disabled — first paint falls back to neutral */
+  }
+}
+
+export function readCachedBrandLogo(slug: string | null): string | null {
+  if (typeof window === "undefined") return null;
+  try {
+    return window.localStorage.getItem(BRAND_LOGO_KEY_PREFIX + (slug || "default"));
+  } catch {
+    return null;
+  }
+}
+
+export function readCachedDocumentTitle(slug: string | null): string | null {
+  if (typeof window === "undefined") return null;
+  try {
+    return window.localStorage.getItem(BRAND_TITLE_KEY_PREFIX + (slug || "default"));
+  } catch {
+    return null;
+  }
+}
+
+/* The tab text shown while a business's own name is still unknown. Never the
+ * platform name: see the header above. A single space would collapse to the
+ * URL in most browsers, which leaks nothing but reads as broken, so this says
+ * what is actually happening. */
+export const NEUTRAL_DOCUMENT_TITLE = "Loading…";

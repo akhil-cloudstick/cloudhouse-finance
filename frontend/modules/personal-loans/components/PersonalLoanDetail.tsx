@@ -17,6 +17,7 @@ import {
 } from "@/modules/personal-loans/services/personalLoanService";
 import { CollectPaymentModalContent } from "@/modules/personal-loans/components/CollectPaymentModal";
 import { RenewLoanModalContent } from "@/modules/personal-loans/components/RenewLoanModal";
+import { navigate, routeHref } from "@/common/services/appRoutes";
 
 /* Click-paginated table (10 rows/page) — same shape/theme as the Customer
  * 360 detail tables (modules/customers/components/CustomerDetail.tsx):
@@ -109,7 +110,7 @@ export function PersonalLoanDetail({ id }: { id?: string }) {
   }
   function openRenew() {
     if (!loan) return;
-    openModal(<RenewLoanModalContent loan={loan} onSaved={() => { closeModal(); location.hash = "personalloans"; }} />);
+    openModal(<RenewLoanModalContent loan={loan} onSaved={() => { closeModal(); navigate("personalloans"); }} />);
   }
 
   async function handleDownloadBond() {
@@ -131,7 +132,7 @@ export function PersonalLoanDetail({ id }: { id?: string }) {
     <>
       <div className="page-h">
         <div>
-          <a href="#personalloans" style={{ fontSize: 13 }}>← Back</a>
+          <a href={routeHref("personalloans")} style={{ fontSize: 13 }}>← Back</a>
           <h1>Loan {loan.loanNumber}{customerName ? ` · ${customerName}` : ""}</h1>
         </div>
         <div className="sp" />
@@ -153,10 +154,10 @@ export function PersonalLoanDetail({ id }: { id?: string }) {
         <div className="kpi"><div className="l">Status</div><div className="v" style={{ fontSize: 15 }}><StatusChip status={loan.status} /></div></div>
         <div className="kpi"><div className="l">Frequency</div><div className="v" style={{ fontSize: 17 }}>{loan.frequency}</div></div>
         {loan.renewedFromLoanId && (
-          <div className="kpi"><div className="l">Renewed From</div><div className="v" style={{ fontSize: 17 }}><a href={`#personalloan/${loan.renewedFromLoanId}`}>Loan #{loan.renewedFromLoanId}</a></div></div>
+          <div className="kpi"><div className="l">Renewed From</div><div className="v" style={{ fontSize: 17 }}><a href={routeHref(`personalloan/${loan.renewedFromLoanId}`)}>Loan #{loan.renewedFromLoanId}</a></div></div>
         )}
         {loan.renewedToLoanId && (
-          <div className="kpi"><div className="l">Renewed To</div><div className="v" style={{ fontSize: 17 }}><a href={`#personalloan/${loan.renewedToLoanId}`}>Loan #{loan.renewedToLoanId}</a></div></div>
+          <div className="kpi"><div className="l">Renewed To</div><div className="v" style={{ fontSize: 17 }}><a href={routeHref(`personalloan/${loan.renewedToLoanId}`)}>Loan #{loan.renewedToLoanId}</a></div></div>
         )}
       </div>
 

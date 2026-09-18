@@ -2,14 +2,13 @@
 
 import { Suspense, useState } from "react";
 import BrandLogo from "@/common/components/BrandLogo";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useSearchParams } from "next/navigation";
 import "../login.css";
 import { resetPassword } from "@/common/services/authService";
 import { ApiError } from "@/common/services/httpClient";
 import { businessCodeForRequest, isValidBusinessSlug, loginPath } from "@/common/services/tenantSession";
 
 function ResetPasswordForm() {
-  const router = useRouter();
   const searchParams = useSearchParams();
 
   // The phone number is fixed to whatever "Forgot password" requested a code
@@ -59,7 +58,12 @@ function ResetPasswordForm() {
     setSubmitting(true);
     try {
       await resetPassword(phone.trim(), otp.trim(), password, businessCode);
-      router.push(`${loginPath(businessCode || null)}?reset=success`);
+      /* A real navigation, not router.push: the console is a separate
+       * document in the static export and the business-first URL that
+       * reaches it exists only as a server-side fallback, which Next's
+       * client router knows nothing about. See app/page.tsx's header. */
+      // eslint-disable-next-line @next/next/no-location-assign-relative-destination
+      window.location.assign(`${loginPath(businessCode || null)}?reset=success`);
     } catch (err) {
       const text =
         err instanceof ApiError

@@ -232,12 +232,25 @@ h3,
  * line rather than clipping — at this column width "CLOUDHOUSE FINANCE"
  * breaks after the first word, which is a natural place for it. */
 .side .brand-full {
-  font-size: 8.4px;
+  font-size: calc(var(--lockup-bottom, 8.4px) * var(--lockup-rail, 1));
   letter-spacing: .1em;
   text-transform: uppercase;
   color: oklch(0.95 0.006 290 / 55%);
   line-height: 1.45;
+  overflow-wrap: anywhere;
+  /* pre-line, so a line break the vendor typed in the subtitle box is
+   * honoured — CTFI's reads "CHITTILAPILLY / THOMMANA", and where a long name
+   * should break is an editorial call, not something a width rule can infer.
+   * pre-line rather than pre-wrap: it still collapses runs of spaces and
+   * ignores leading indentation, so only the deliberate breaks survive. */
+  white-space: pre-line;
 }
+
+/* Two steps only — the line is small to begin with, so there is not much
+ * range to spend. "GOLD FINANCE" (12) sits at sm; "CHITTILAPILLY THOMMANA"
+ * (22) drops to xs and wraps after the first word. */
+.side .brand-full[data-fit="sm"] { --lockup-bottom: 8.4px; }
+.side .brand-full[data-fit="xs"] { --lockup-bottom: 7.6px; }
 
 /* Circular white disc holding the brand seal. Its size comes from the
  * component (inline width/height), so this only has to do the clipping.
@@ -253,42 +266,49 @@ h3,
   height: 48px;
 }
 
-/* The wordmark. It is a brand name, so it is never wrapped, abbreviated or
-   ellipsised — it either fits at full length or the type gets smaller.
-   Sizing it in cqi is what guarantees that: the name's rendered width is a
-   fixed multiple of its font-size (~6.77x for "CloudHouse" in Montserrat 700
-   at .04em), so pinning the font-size to a percentage of the column keeps the
-   name at a constant ~92% of the space available — at ANY sidebar width, and
-   without a per-breakpoint override to forget.
-
-   The 17px fallback below is not a compromise value: it is the largest size
-   that fits the NARROWEST sidebar (210px, the short-landscape rule), so
-   browsers without container queries are correct everywhere too, just less
-   generous on the wide sidebar.
-
-   This replaced a hardcoded 25px that had been chosen for a four-letter short
-   name; at 10 letters the same rule painted 37px past the sidebar's edge. */
+/* The wordmark, sized by how LONG it is.
+ *
+ * Two earlier rules each got half of this right. A flat 25px was tuned for a
+ * four-letter short name ("CTFI") and painted a ten-letter one past the
+ * sidebar's edge. Replacing it with a proportional 13.6cqi fixed the overflow
+ * but keyed on the column's WIDTH, which is constant — so a short name and a
+ * long one still rendered at the same size, and the short one looked starved.
+ *
+ * What actually varies between businesses is the number of characters, and
+ * that is not something CSS can measure. So the step is chosen in JS
+ * (common/utils/brandLockup.ts) from the string length and arrives here as
+ * data-fit; this file owns only the pixels. Sizes are multiplied by
+ * --lockup-rail so the narrow-sidebar breakpoint can scale every step with
+ * one number instead of overriding them one at a time. */
 .side .brand .t b {
   font-family: var(--font-display), 'Montserrat', sans-serif;
-  /* Was proportional (13.6cqi of the text column, replaying a percentage
-   * tuned to fill a LONG full business name like "CloudHouse Finance") from
-   * when this line held the whole business name. It now holds only the
-   * SHORT identity (Sidebar.tsx's `shortName`, e.g. "CTFI") — a short
-   * string at that same percentage renders small relative to what a fixed
-   * size looks like, since cqi sizing scales with container width, not with
-   * how much of it the text actually needs to fill. A flat size, matching
-   * the reference this was checked against exactly (25px), is correct once
-   * the content here is always short. */
-  font-size: 25px;
+  /* Fallback covers a render before data-fit is attached; it is the smallest
+   * step, so it can never be the one that overflows. */
+  font-size: calc(var(--lockup-top, 14px) * var(--lockup-rail, 1));
   letter-spacing: .04em;
-  display: block;
   color: #fff;
   font-weight: 700;
   /* line-height:1 so the cap-height centres against the logo instead of
    * sitting low by the font's descender space. */
   line-height: 1;
-  white-space: nowrap;
+  /* A name that is long even at the smallest step wraps to a second line
+   * rather than running off the rail — the old white-space:nowrap had no
+   * other outcome available. Two lines is the ceiling: past that the lockup
+   * would push the nav down. `anywhere` because a single unbroken 30-character
+   * word is exactly the case that needs breaking. */
+  overflow-wrap: anywhere;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
 }
+
+/* The steps. Tuned against the live lockups: "CTFI" (4) and "AMBIKA" (6) at
+ * xl, "CloudHouse" (10) at lg — which is the size the flat 25px got wrong. */
+.side .brand .t b[data-fit="xl"] { --lockup-top: 26px; }
+.side .brand .t b[data-fit="lg"] { --lockup-top: 21px; }
+.side .brand .t b[data-fit="md"] { --lockup-top: 17px; }
+.side .brand .t b[data-fit="sm"] { --lockup-top: 14px; }
 
 .nav {
   flex: 1;
@@ -4379,21 +4399,17 @@ table.tbl {
     width: 210px
   }
 
-  /* The sidebar is 210px here. .side .brand .t b is a flat 25px now (see
-   * its own comment — it holds only the short identity, e.g. "CTFI"), which
-   * no longer shrinks on its own at this width the way the old proportional
-   * sizing did, so it gets an explicit smaller size here alongside the mark. */
+  /* The sidebar is 210px here rather than 248px. Both lines are sized from
+   * their own step (see .side .brand .t b), so this scales the whole scale by
+   * the width ratio in one place instead of restating each step — a step
+   * added later is covered automatically. */
+  .side .brand .t {
+    --lockup-rail: .84;
+  }
+
   .side .brand .brand-mark {
     width: 38px;
     height: 38px;
-  }
-
-  .side .brand .t b {
-    font-size: 20px;
-  }
-
-  .side .brand-full {
-    font-size: 7.6px;
   }
 
   .main {

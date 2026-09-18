@@ -11,6 +11,7 @@ import { listCustomersPage, type CustomerView } from "@/modules/customers/servic
 import { Select } from "@/common/components/ui/Select";
 import { useAuth } from "@/common/auth-context";
 import { useResponsivePageSize, useIsSmallScreen } from "@/common/utils/responsive";
+import { navigate } from "@/common/services/appRoutes";
 
 const VERIFICATION_STATUS_OPTIONS = [
   { value: "", label: "All" },
@@ -115,7 +116,7 @@ export function Customers() {
           ) : rows.length === 0 ? (
             <tr><td colSpan={8} className="empty">{error ? "—" : "No customers match your search."}</td></tr>
           ) : rows.map((c) => (
-            <tr className="click" key={c.id} onClick={() => { location.hash = "customer/" + c.id; }}>
+            <tr className="click" key={c.id} onClick={() => { navigate("customer/" + c.id); }}>
               <td><span className="id">{c.code}</span><span className="sub" style={{ fontSize: 13.5, color: "var(--nav)", fontWeight: 500 }}>{c.name}</span></td>
               <td>{c.phone || "—"}<span className="sub">{c.address}</span></td>
               <td>{c.branchName}</td>

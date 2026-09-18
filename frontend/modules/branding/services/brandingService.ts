@@ -18,6 +18,10 @@ export type PublicBranding = {
   /** Compact identity for tight spots (sidebar headline, tab title, login
    * subtext). Never empty — falls back to name server-side. */
   shortName: string;
+  /** Sidebar subline under the headline. Unlike shortName this one CAN be
+   * empty — no server-side fallback — which the lockup reads as "use the
+   * business name, unless that would just repeat the headline". */
+  lockupTagline: string;
   brandColor: string;
   /** Empty means "not set" — see frontend/common/config/theme.ts. */
   secondaryColor: string;

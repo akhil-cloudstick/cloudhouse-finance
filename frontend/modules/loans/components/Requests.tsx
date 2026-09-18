@@ -20,6 +20,7 @@ const STATUS_OPTIONS = [
 ];
 import { ReleaseReviewModalContent } from "@/common/components/modals/ReleaseReviewModal";
 import { ExtensionReviewModalContent } from "@/common/components/modals/ExtensionReviewModal";
+import { routeHref } from "@/common/services/appRoutes";
 
 /* Real "Extensions & Release" review page — staff approve/reject the
  * extension/release requests logged by the customer-mobile app (or by staff
@@ -138,7 +139,7 @@ export function Requests() {
                 <tr key={r.id}>
                   <td><span className="id">#{r.id}</span></td>
                   <td><span className={`chip ${r.type === "Extension" ? "info" : "brand"}`}>{r.type}</span></td>
-                  <td><a href={`#loan/${r.loanNumber}`}>{r.loanNumber}</a></td>
+                  <td><a href={routeHref(`loan/${r.loanNumber}`)}>{r.loanNumber}</a></td>
                   <td>{r.customerName}</td>
                   <td>{r.detail}</td>
                   <td>{r.requestedAt}</td>

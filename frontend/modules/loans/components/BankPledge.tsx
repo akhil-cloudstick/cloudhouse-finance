@@ -21,6 +21,7 @@ import { BankModalContent } from "@/common/components/modals/BankModal";
 import { ConfirmModalContent } from "@/common/components/modals/ConfirmModal";
 import { ApiError } from "@/common/services/httpClient";
 import { useResponsivePageSize } from "@/common/utils/responsive";
+import { routeHref } from "@/common/services/appRoutes";
 
 /* Roles permitted to void a re-pledge. Mirrors the server-side guard on
  * PUT /loans/:id/bank-pledge/:pledgeId/void — voiding rewrites booked cash
@@ -213,7 +214,7 @@ export function BankPledge() {
                   const treatment = active?.cashTreatment ?? "CashIn";
                   return (
                     <tr key={l.id}>
-                      <td><a href={`#loan/${l.id}`}>{l.id}</a></td>
+                      <td><a href={routeHref(`loan/${l.id}`)}>{l.id}</a></td>
                       <td>{l.customerName}</td>
                       <td>{active?.bankName || "—"}</td>
                       <td className="num">{fmtW(l.totalNetWeight)}</td>

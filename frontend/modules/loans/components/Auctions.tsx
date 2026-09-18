@@ -33,6 +33,7 @@ import {
 } from "@/modules/loans/services/loanService";
 import { ApiError } from "@/common/services/httpClient";
 import { useResponsivePageSize, useIsSmallScreen } from "@/common/utils/responsive";
+import { routeHref } from "@/common/services/appRoutes";
 
 /* Who may decide each kind of escalation, and who may run each auction
  * process step, is now driven by the "Auction Workflow" permissions (see
@@ -444,7 +445,7 @@ export function Auctions() {
                     <tr><td colSpan={7} className="empty">No auctions have been conducted yet.</td></tr>
                   ) : conducted.map((r) => (
                     <tr key={r.id}>
-                      <td><a href={`#loan/${r.loanNumber}`}>{r.loanNumber}</a><small className="sub" style={{ display: "block" }}>{r.customerName}</small></td>
+                      <td><a href={routeHref(`loan/${r.loanNumber}`)}>{r.loanNumber}</a><small className="sub" style={{ display: "block" }}>{r.customerName}</small></td>
                       <td>{r.auctionDate || "—"}</td>
                       <td>{r.auctionReferenceNumber || "—"}</td>
                       <td className="num">{fmt(r.saleAmount)}</td>
@@ -488,7 +489,7 @@ export function Auctions() {
                     <tr><td colSpan={3} className="empty">No cases have closed without going to auction.</td></tr>
                   ) : closedWithoutSale.map((r) => (
                     <tr key={r.id}>
-                      <td><a href={`#loan/${r.loanNumber}`}>{r.loanNumber}</a><small className="sub" style={{ display: "block" }}>{r.customerName}</small></td>
+                      <td><a href={routeHref(`loan/${r.loanNumber}`)}>{r.loanNumber}</a><small className="sub" style={{ display: "block" }}>{r.customerName}</small></td>
                       <td>{r.auctionEligibleDate || "—"}</td>
                       <td>
                         {/* A withdrawn case never reached settlement, so the

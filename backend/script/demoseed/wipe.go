@@ -7,7 +7,6 @@ import (
 	"path/filepath"
 	"strings"
 
-	"cloudhouse/backend/internal/authz"
 	"cloudhouse/backend/internal/employee"
 	"cloudhouse/backend/internal/platform"
 
@@ -20,6 +19,14 @@ type preserved struct {
 	adminID       uint
 	adminBranchID uint
 	uploadKeys    []string
+	// logoKey is the business's branding logo, kept out of the wipe entirely.
+	// tenants.logo_storage_key survives (the tenants table is not wiped), so
+	// deleting the uploaded_files row it points at leaves
+	// branding.Service.Public unable to resolve the file — the console and
+	// the login page then render the platform mark instead of the business's
+	// own logo, which reads as the reset having broken branding. Empty when
+	// the business has no logo of its own.
+	logoKey string
 }
 
 // wipeOrder is every table the wipe empties, children before parents.
@@ -68,7 +75,9 @@ var wipeOrder = []string{
 
 	"loans",
 
-	// Parents and flat tables.
+	// Parents and flat tables. gold_sales carries FKs to both branches and
+	// cash_movements, so it has to go before either of them.
+	"gold_sales",
 	"customer_otp",
 	"customer_device_tokens",
 	"customers",
@@ -84,15 +93,21 @@ var wipeOrder = []string{
 	"approval_limits",
 	"communication_logs",
 	"audit_log_entries",
-	"uploaded_files",
-	// Deleted and re-seeded by seed_masters.go. Re-seeded rather than kept
+	// uploaded_files is NOT here: it is emptied in wipeIdentityTables, which
+	// is the only place that knows which row is the branding logo and has to
+	// be kept.
+	//
+	// purity_standards is deleted and re-seeded by seed_masters.go. Re-seeded rather than kept
 	// because puritystandard.SeedStandards runs cross-tenant and would either
 	// skip on another business's row or create ours at tenant_id 0.
 	"purity_standards",
-	// Grants are rebuilt from the catalogue, so a permission an operator
-	// toggled during a demo reverts. Role ROWS survive (see wipeRoles), which
-	// is what keeps the admin's role_id valid.
-	"role_permissions",
+	// role_permissions is NOT wiped, and neither are roles. A business's
+	// roles and the permissions granted to them are CONFIGURATION — set up
+	// once for the business, the same class of thing as its logo, colours and
+	// fonts — not demo data. Wiping them logged the operator into a console
+	// with every page gone, which is not what "clear the demo data" means to
+	// anyone who asks for it. seed_grants.go only fills in grants for a
+	// business that has none.
 }
 
 // untenantedTables are tenant-scoped models that the GORM tenant callbacks do
@@ -110,12 +125,77 @@ var untenantedTables = map[string]bool{
 	"investments":        true,
 	"investment_plans":   true,
 	"investment_payouts": true,
-	// role_permissions is correctly scoped for ordinary writes, but
-	// authz.Repository.CreateRole inserts a role's initial grants with a
-	// slice Create — the batch-insert pitfall — so those particular rows land
-	// at tenant_id = 0. Without sweeping them the unique index on
-	// (role_id, permission_id) blocks the next reseed.
-	"role_permissions": true,
+	// role_permissions is deliberately NOT listed here. tenant_id is the
+	// wrong key for that table altogether, and it is no longer wiped at all —
+	// see wipeOrder.
+}
+
+// childOf maps a table to the foreign key and parent table that ANCHOR it to
+// a business, for every child row that a foreign key protects.
+//
+// # WHY A ROW'S OWN tenant_id IS NOT TRUSTED HERE
+//
+// A child row's tenant_id can be wrong, and in this database some of them
+// are. Anything written outside a request — a boot-time backfill on a plain
+// *gorm.DB, or a slice Create where GORM's stamp callback does not fire —
+// lands at tenant_id = 0, and the next boot's migrate.backfillTenancy sweeps
+// every zero to the DEFAULT tenant rather than the owning one. The row is
+// then filed under a business that has nothing to do with it.
+//
+// `DELETE FROM packet_movements WHERE tenant_id = 2` therefore misses two
+// movements belonging to tenant 2's own packets, and the packets delete that
+// follows dies on fk_packets_movements (23503) — which is exactly the failure
+// this map fixes. Deleting by parent instead makes the wipe depend on the
+// relationship, which is enforced by a real foreign key, rather than on a
+// column that is only as correct as whatever last wrote it.
+//
+// The list mirrors the schema's actual foreign keys; a new FK into a
+// tenant-scoped parent belongs here as well as in wipeOrder.
+var childOf = map[string]struct{ fk, parent string }{
+	"ornament_purity_tests":      {"ornament_id", "ornaments"},
+	"ornament_images":            {"ornament_id", "ornaments"},
+	"packet_movements":           {"packet_id", "packets"},
+	"auction_events":             {"auction_record_id", "auction_records"},
+	"auction_notices":            {"auction_record_id", "auction_records"},
+	"auction_decision_requests":  {"auction_record_id", "auction_records"},
+	"bank_pledge_events":         {"bank_pledge_record_id", "bank_pledge_records"},
+	"personal_loan_payments":     {"personal_loan_id", "personal_loans"},
+	"personal_loan_installments": {"personal_loan_id", "personal_loans"},
+	"investment_payouts":         {"investment_id", "investments"},
+	"loan_draft_ornaments":       {"draft_id", "loan_drafts"},
+	"loan_approvals":             {"loan_id", "loans"},
+	"loan_payments":              {"loan_id", "loans"},
+	"loan_requests":              {"loan_id", "loans"},
+	"bank_pledge_records":        {"loan_id", "loans"},
+	"packets":                    {"loan_id", "loans"},
+	"ornaments":                  {"loan_id", "loans"},
+	"reminders":                  {"customer_id", "customers"},
+	"personal_loans":             {"customer_id", "customers"},
+	"loan_drafts":                {"customer_id", "customers"},
+	"investments":                {"customer_id", "customers"},
+	"loans":                      {"customer_id", "customers"},
+}
+
+// tenantPredicate is the WHERE clause that selects one business's rows in a
+// table: the row's own tenant_id, OR — for a child — its parent's, resolved
+// recursively up the chain so a mis-stamped row at any level is still caught.
+//
+// tenantID is interpolated rather than bound because the clause nests to an
+// arbitrary depth and counting placeholders across that recursion is a bug
+// waiting to happen. It is a uint from the session, never a string from a
+// request, so there is nothing here to inject.
+func tenantPredicate(table string, tenantID uint) string {
+	clause := fmt.Sprintf("%s.tenant_id = %d", table, tenantID)
+	if untenantedTables[table] {
+		clause = fmt.Sprintf("(%s OR %s.tenant_id = 0 OR %s.tenant_id IS NULL)",
+			clause, table, table)
+	}
+	c, ok := childOf[table]
+	if !ok {
+		return clause
+	}
+	return fmt.Sprintf("(%s OR %s.%s IN (SELECT %s.id FROM %s WHERE %s))",
+		clause, table, c.fk, c.parent, c.parent, tenantPredicate(c.parent, tenantID))
 }
 
 // wipe empties the business and returns what it preserved.
@@ -184,17 +264,42 @@ func findPreserved(ctx context.Context, db *gorm.DB, tenantID uint) (*preserved,
 			employee.AdminUsername, tenantID)
 	}
 
-	// Read the upload keys BEFORE the rows are deleted; afterwards there is
-	// no record of which files on disk belonged to this business.
-	var keys []string
+	// The branding logo is read first so it can be excluded from everything
+	// below. A missing tenants row is not fatal here — the wipe would simply
+	// have no logo to protect.
+	// Plucked into a slice, not a string: GORM's Pluck requires one, and an
+	// empty result then means "no tenants row" rather than an error.
+	var logoKeys []string
 	if err := db.WithContext(ctx).
-		Table("uploaded_files").
-		Where("tenant_id = ?", tenantID).
-		Pluck("storage_key", &keys).Error; err != nil {
+		Table("tenants").
+		Where("id = ?", tenantID).
+		Limit(1).
+		Pluck("logo_storage_key", &logoKeys).Error; err != nil {
+		return nil, fmt.Errorf("read branding logo key: %w", err)
+	}
+	var logoKey string
+	if len(logoKeys) > 0 {
+		logoKey = logoKeys[0]
+	}
+
+	// Read the upload keys BEFORE the rows are deleted; afterwards there is
+	// no record of which files on disk belonged to this business. The logo is
+	// left out so removeUploadFiles never deletes it from disk.
+	var keys []string
+	q := db.WithContext(ctx).Table("uploaded_files").Where("tenant_id = ?", tenantID)
+	if logoKey != "" {
+		q = q.Where("storage_key <> ?", logoKey)
+	}
+	if err := q.Pluck("storage_key", &keys).Error; err != nil {
 		return nil, fmt.Errorf("list upload keys: %w", err)
 	}
 
-	return &preserved{adminID: row.ID, adminBranchID: row.BranchID, uploadKeys: keys}, nil
+	return &preserved{
+		adminID:       row.ID,
+		adminBranchID: row.BranchID,
+		uploadKeys:    keys,
+		logoKey:       logoKey,
+	}, nil
 }
 
 // deleteFrom empties one table for one business.
@@ -206,38 +311,47 @@ func findPreserved(ctx context.Context, db *gorm.DB, tenantID uint) (*preserved,
 // LN-, CUST- and PKT- numbers upward on every reset, defeating "identical
 // every time" and eventually colliding with the composite unique indexes.
 func deleteFrom(tx *gorm.DB, table string, tenantID uint) (int64, error) {
-	if untenantedTables[table] {
-		res := tx.Exec(
-			"DELETE FROM "+table+" WHERE tenant_id = ? OR tenant_id = 0 OR tenant_id IS NULL",
-			tenantID)
-		return res.RowsAffected, res.Error
-	}
-	res := tx.Exec("DELETE FROM "+table+" WHERE tenant_id = ?", tenantID)
+	// The predicate covers the row's own tenant_id, the untenanted zero/NULL
+	// cases, and — for a child table — its parent's business. See
+	// tenantPredicate and childOf for why the parent matters.
+	res := tx.Exec("DELETE FROM " + table + " WHERE " + tenantPredicate(table, tenantID))
 	return res.RowsAffected, res.Error
 }
 
 // wipeIdentityTables clears the tables that carry the login, keeping the rows
 // the admin depends on.
 func wipeIdentityTables(tx *gorm.DB, tenantID uint, keep *preserved, rep *Report) error {
+	// Uploads: everything except the branding logo. Kept here rather than in
+	// wipeOrder because this is the only place that knows which row that is —
+	// branding.Service resolves the logo through uploaded_files, so deleting
+	// the row un-brands a business whose tenants.logo_storage_key still
+	// points at a file that is very much still on disk.
+	var res *gorm.DB
+	if keep.logoKey != "" {
+		res = tx.Exec("DELETE FROM uploaded_files WHERE tenant_id = ? AND storage_key <> ?",
+			tenantID, keep.logoKey)
+	} else {
+		res = tx.Exec("DELETE FROM uploaded_files WHERE tenant_id = ?", tenantID)
+	}
+	if res.Error != nil {
+		return fmt.Errorf("wipe uploaded_files: %w", res.Error)
+	}
+	if res.RowsAffected > 0 {
+		rep.Deleted["uploaded_files"] = res.RowsAffected
+	}
+
 	// Employees: everyone except the admin.
-	res := tx.Exec("DELETE FROM employees WHERE tenant_id = ? AND id <> ?", tenantID, keep.adminID)
+	res = tx.Exec("DELETE FROM employees WHERE tenant_id = ? AND id <> ?", tenantID, keep.adminID)
 	if res.Error != nil {
 		return fmt.Errorf("wipe employees: %w", res.Error)
 	}
 	rep.Deleted["employees"] = res.RowsAffected
 
-	// Roles: only ones an operator invented during a demo. The nine canonical
-	// roles stay, which is what keeps the admin's role_id — and therefore
-	// every permission check — valid. The name list is built from
-	// authz.StaffRoles rather than typed out, so it cannot drift from the
-	// roles migrate actually seeds.
-	res = tx.Exec("DELETE FROM roles WHERE tenant_id = ? AND name NOT IN ?", tenantID, authz.StaffRoles)
-	if res.Error != nil {
-		return fmt.Errorf("wipe roles: %w", res.Error)
-	}
-	if res.RowsAffected > 0 {
-		rep.Deleted["roles"] = res.RowsAffected
-	}
+	// Roles are NOT touched — not even the custom ones a demo created. They
+	// are the business's own access configuration, and an operator who spent
+	// the morning setting up a "Front Desk" role should not lose it to a data
+	// reset. seed_grants.go creates its fixture roles only when they are
+	// missing, so re-running the seed does not duplicate them.
 
 	// Branches: everything except the one the admin belongs to. employees
 	// .branch_id is NOT NULL, so removing it would orphan the login.

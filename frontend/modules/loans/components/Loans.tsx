@@ -5,9 +5,10 @@ import { useLoans } from "@/modules/loans/store/LoansProvider";
 import { LoanRow } from "@/modules/loans/components/LoanRow";
 import { Icon } from "@/common/components/Icon";
 import { useAuth } from "@/common/auth-context";
-import { useHashRoute } from "@/hooks/useHashRoute";
+import { useAppRoute } from "@/hooks/useAppRoute";
 import { listLoansPage, type LoanView } from "@/modules/loans/services/loanService";
 import { useResponsivePageSize, useIsSmallScreen } from "@/common/utils/responsive";
+import { routeHref } from "@/common/services/appRoutes";
 
 const CATS = ["All", "Active", "Due Soon", "Overdue", "Defaulted", "Pending Approval", "Auction Eligible", "Closed"];
 
@@ -46,7 +47,7 @@ export function Loans() {
   // Dashboard KPI cards ("Active Loans", "Due Soon", etc.) link here as
   // `#loans/<category>` so the tab they promise is the tab that's actually
   // open on arrival, instead of always landing on "All".
-  const { arg: initialCatArg } = useHashRoute();
+  const { arg: initialCatArg } = useAppRoute();
   const initialCat = initialCatArg ? decodeURIComponent(initialCatArg) : undefined;
   const [cat, setCat] = useState(() => (initialCat && CATS.includes(initialCat) ? initialCat : "All"));
   const [q, setQ] = useState("");
@@ -68,7 +69,7 @@ export function Loans() {
   // NewLoan). Anything else that moves a loan — an auction sale, a bank
   // re-pledge, or plain server-side interest accrual — left this page
   // rendering the app-mount snapshot until a full browser reload. <Loans/> is
-  // remounted on every hash route change (see app/app/page.tsx's View), so
+  // remounted on every route change (see app/app/page.tsx's View), so
   // refreshing here gives the list the same on-demand round trip opening a
   // loan already gets.
   useEffect(() => { refreshLoans(); }, [refreshLoans]);
@@ -138,7 +139,7 @@ export function Loans() {
         <div><h1>Loans</h1><p>All customer loans with search and status filters</p></div>
         <div className="sp" />
         <div className="search"><Icon name="search" /><input className="inp" placeholder="Search loan ID or customer…" value={q} onChange={(e) => setQ(e.target.value)} /></div>
-        {canCreateLoans && <a className="btn" href="#newloan"><Icon name="plus" /> New Gold Loan</a>}
+        {canCreateLoans && <a className="btn" href={routeHref("newloan")}><Icon name="plus" /> New Gold Loan</a>}
       </div>
       <hr className="gold-rule" style={{ margin: smallScreen ? "4px 0 6px" : "4px 0 10px" }} />
       <div style={{ marginTop: 4, marginBottom: 6 }} className="tabs loans-cat-tabs">

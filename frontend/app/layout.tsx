@@ -5,7 +5,7 @@ import "./app/app.css";
 import { AuthProvider } from "@/common/auth-context";
 import { BrandingProvider } from "@/common/BrandingProvider";
 import { BrandPreload } from "./brand-preload";
-import { BRAND } from "@/common/config/brand";
+import { NEUTRAL_DOCUMENT_TITLE } from "@/common/config/theme";
 
 /* Montserrat carries the CloudHouse wordmark's voice — bold, geometric, tightly
  * tracked — so it takes the display role that Bodoni Moda used to hold.
@@ -32,13 +32,27 @@ const montserrat = Montserrat({
   display: "swap",
 });
 
+/* DELIBERATELY UNBRANDED.
+ *
+ * next.config.ts sets output: "export", so whatever is written here is baked
+ * into the HTML of every page for every business. It used to be the platform
+ * name and mark, which meant each business's own staff saw CloudHouse in the
+ * tab and on the tab icon for the first frames of every cold load, before
+ * BrandingProvider's fetch could replace them. A business must only ever see
+ * its own identity — showing the vendor's, or any other tenant's, even for a
+ * few hundred milliseconds is not allowed.
+ *
+ * So the baked values are neutral: a "Loading…" tab and an empty icon. The
+ * business's real name and logo are installed before the first paint by
+ * app/brand-preload.tsx from the per-slug cache, and again by applyFavicon /
+ * applyDocumentTitle once branding loads. Only a browser that has never seen
+ * this business before sees the neutral pair, and only until the first
+ * response arrives.
+ */
 export const metadata: Metadata = {
-  // Short form in the tab: the full legal name truncates to nothing useful
-  // at typical tab widths.
-  title: BRAND.shortName,
-  description: BRAND.legalName,
+  title: NEUTRAL_DOCUMENT_TITLE,
   icons: {
-    icon: BRAND.markSrc,
+    icon: "/blank-icon.svg",
   },
 };
 

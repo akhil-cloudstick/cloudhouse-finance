@@ -1,13 +1,17 @@
 "use client";
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
-import { BRAND, cacheBrandProfile } from "@/common/config/brand";
+import { usePathname } from "next/navigation";
+import { cacheBrandProfile, readCachedBrandIdentity } from "@/common/config/brand";
 import {
   applyBrandTheme,
   applyDocumentTitle,
   applyFavicon,
+  cacheBrandLogo,
   cacheBrandTheme,
   cacheDocumentTitle,
+  readCachedDocumentTitle,
+  NEUTRAL_DOCUMENT_TITLE,
   DEFAULT_BRAND_COLOR,
 } from "@/common/config/theme";
 import { activeBusinessSlug, readToken } from "@/common/services/tenantSession";
@@ -26,7 +30,7 @@ import {
  * stages:
  *
  *   1. Signed out — the PUBLIC endpoint, keyed by the slug in the URL
- *      (/login/<code>). Name, logo and colour only.
+ *      (/<code>/login). Name, logo and colour only.
  *   2. Signed in — the authenticated endpoint, which additionally returns the
  *      address, registration number, enabled modules and document languages.
  *      The business comes from the token, never the URL: the slug SELECTS a
@@ -44,6 +48,10 @@ export type BrandingValue = {
   /** Compact identity for tight spots — sidebar headline, tab title, login
    * subtext. Falls back to name, never empty. */
   shortName: string;
+  /** Sidebar subline under the headline. CAN be empty — no server-side
+   * fallback — which resolveLockup reads as "use the business name, unless
+   * that would just repeat the headline". See common/utils/brandLockup.ts. */
+  lockupTagline: string;
   addressLine: string;
   kmlRegNo: string;
   brandColor: string;
@@ -62,6 +70,11 @@ export type BrandingValue = {
   languages: string[];
   /** True once a real response has been applied (either stage). */
   loaded: boolean;
+  /** True when this browser already knew the business's name and logo before
+   * the fetch — i.e. the values on screen are the business's own, replayed
+   * from cache, and a placeholder is not needed. False on a first-ever visit,
+   * where chrome must render neutrally until `loaded`. */
+  cached: boolean;
   /**
    * hasModule gates an OPTIONAL module (tenant.KnownModules). Fails closed:
    * an unknown key, or a value that has not loaded yet, is false.
@@ -76,12 +89,19 @@ export type BrandingValue = {
   refresh: () => void;
 };
 
-const FALLBACK: Omit<BrandingValue, "hasModule" | "hasLanguage" | "refresh" | "loaded"> = {
-  name: BRAND.name,
-  legalName: BRAND.legalName,
-  shortName: BRAND.shortName,
+const FALLBACK: Omit<BrandingValue, "hasModule" | "hasLanguage" | "refresh" | "loaded" | "cached"> = {
+  /* EMPTY, not the platform brand. This is what every consumer renders on the
+   * one load where a business's own identity is not yet known, and the rule is
+   * that a business sees its own brand or a neutral placeholder — never the
+   * vendor's and never another tenant's, not even for a frame. Chrome that
+   * reads these (Sidebar, Topbar, the login panel, BrandLogo) handles the empty
+   * case explicitly rather than substituting a name of its own. */
+  name: "",
+  legalName: "",
+  shortName: "",
+  lockupTagline: "",
   addressLine: "",
-  kmlRegNo: BRAND.kmlReg,
+  kmlRegNo: "",
   brandColor: DEFAULT_BRAND_COLOR,
   secondaryColor: "",
   accentColor: "",
@@ -98,9 +118,99 @@ const FALLBACK: Omit<BrandingValue, "hasModule" | "hasLanguage" | "refresh" | "l
 
 const BrandingContext = createContext<BrandingValue | undefined>(undefined);
 
+/* initialBranding replays the business's last-known name and logo so a reload
+ * renders ITS identity on the first frame rather than the platform's.
+ *
+ * Returns FALLBACK only when this browser has never loaded this business.
+ * Callers must treat that state (loaded === false and cached === false) as
+ * "show a neutral placeholder" — never as licence to paint the platform mark,
+ * which is the whole flash this file exists to remove.
+ *
+ * Applied from an EFFECT, never during render. This used to be a lazy
+ * useState initializer, on the reasoning that a lazy initializer "runs in the
+ * browser only". It does not: lazy means it runs on the first render rather
+ * than every render, and the client's first render is the HYDRATION render —
+ * the one pass that must match the prerendered HTML exactly. The build has no
+ * localStorage, so it rendered BrandLogo's neutral placeholder while a
+ * returning user's browser rendered an <img>: two different elements in one
+ * slot, which React reports as a hydration mismatch and then crashes trying
+ * to unpick ("Cannot read properties of null (reading 'removeChild')").
+ *
+ * Deferring costs nothing visually. The browser paints the prerendered HTML —
+ * the placeholder — before any of this code runs either way; the cache can
+ * only ever swap it afterwards. What is genuinely pre-paint is the inline
+ * script in brand-preload.tsx, which sets colours, title and favicon outside
+ * React's tree, where there is no hydration contract to break.
+ */
+function initialBranding(): { state: typeof FALLBACK; cached: boolean } {
+  const id = readCachedBrandIdentity(activeBusinessSlug());
+  if (!id) return { state: FALLBACK, cached: false };
+  return {
+    state: {
+      ...FALLBACK,
+      name: id.name || FALLBACK.name,
+      shortName: id.shortName || id.name || FALLBACK.shortName,
+      lockupTagline: id.lockupTagline,
+      legalName: id.legalName || id.name || FALLBACK.legalName,
+      logoUrl: id.logoUrl,
+    },
+    cached: true,
+  };
+}
+
 export function BrandingProvider({ children }: { children: React.ReactNode }) {
+  /* FALLBACK on the first render, on BOTH sides — that is what makes the
+   * hydration render agree with the prerendered HTML. The cache lands in the
+   * effect below, one tick later. */
   const [state, setState] = useState(FALLBACK);
+  const [cached, setCached] = useState(false);
   const [loaded, setLoaded] = useState(false);
+  const pathname = usePathname();
+
+  /* Replay the cache and re-assert the cached favicon, after hydration.
+   *
+   * brand-preload.tsx already set the favicon before the first paint, but
+   * Next's App Router re-applies the static <Metadata> when it hydrates,
+   * which put the neutral placeholder back and left it there until the fetch
+   * returned — the "tab stays wrong until the next refresh" symptom. The tab
+   * text itself is handled by the dedicated effect below, not here.
+   */
+  useEffect(() => {
+    const seed = initialBranding();
+    if (!seed.cached) return;
+    /* set-state-in-effect is exactly what is wanted here, not an oversight.
+     * localStorage is an external system React cannot read during render
+     * without breaking hydration — which is the bug this effect exists to
+     * fix. One extra render on mount is the price, and it is invisible: the
+     * browser has already painted the prerendered HTML by this point. */
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setState(seed.state);
+    setCached(true);
+    applyFavicon(seed.state.logoUrl);
+  }, []);
+
+  /* The tab text, in ONE place, re-applied whenever the answer could change.
+   *
+   * Three bugs lived in doing this at each fetch site instead. A fetch that
+   * returned nothing (unknown slug, a 404, a backend blip) skipped its
+   * apply call entirely and left "Loading…" in the tab forever, with no
+   * retry and nothing to recover it but a manual reload. A browser holding a
+   * cached title but no cached profile took an early return and never
+   * re-asserted after the App Router restored the static metadata title. And
+   * because every apply was tied to a fetch that runs once per mount, a
+   * client-side navigation could restore the metadata title with nothing left
+   * to overwrite it again.
+   *
+   * Keying on pathname fixes the third; falling back through the title cache
+   * to the neutral placeholder fixes the other two. The result is never
+   * empty, which matters: an empty document.title makes the browser display
+   * the raw URL, the "tab shows localhost:3000/ctfi/newloan" symptom.
+   */
+  useEffect(() => {
+    applyDocumentTitle(
+      state.shortName || readCachedDocumentTitle(activeBusinessSlug()) || NEUTRAL_DOCUMENT_TITLE
+    );
+  }, [pathname, state.shortName]);
 
   const load = useCallback(async () => {
     const slug = activeBusinessSlug();
@@ -116,6 +226,7 @@ export function BrandingProvider({ children }: { children: React.ReactNode }) {
           name: b.name || FALLBACK.name,
           legalName: b.legalName || b.name || FALLBACK.legalName,
           shortName: b.shortName || b.name || FALLBACK.shortName,
+          lockupTagline: b.lockupTagline || "",
           addressLine: b.addressLine || "",
           kmlRegNo: b.kmlRegNo || "",
           brandColor: b.brandColor || DEFAULT_BRAND_COLOR,
@@ -142,7 +253,11 @@ export function BrandingProvider({ children }: { children: React.ReactNode }) {
         applyBrandTheme(theme);
         cacheBrandTheme(slug, theme);
         applyFavicon(next.logoUrl);
-        applyDocumentTitle(next.shortName);
+        cacheBrandLogo(slug, next.logoUrl);
+        /* Only CACHE here — applying is the title effect's job, driven off
+         * state.shortName, which setState above has just changed. Applying at
+         * the fetch sites too is what let the failure paths below fall
+         * through with the tab still saying "Loading…". */
         cacheDocumentTitle(slug, next.shortName);
         // The print templates are plain string builders and cannot read
         // React context — see printBrand in common/config/brand.ts.
@@ -150,6 +265,11 @@ export function BrandingProvider({ children }: { children: React.ReactNode }) {
           legalName: next.legalName,
           kmlRegNo: next.kmlRegNo,
           addressLine: next.addressLine,
+          // Also the pre-paint identity — see readCachedBrandIdentity.
+          name: next.name,
+          shortName: next.shortName,
+          lockupTagline: next.lockupTagline,
+          logoUrl: next.logoUrl,
         });
         return;
       } catch {
@@ -166,6 +286,7 @@ export function BrandingProvider({ children }: { children: React.ReactNode }) {
         name: pub.name || FALLBACK.name,
         legalName: pub.legalName || pub.name || FALLBACK.legalName,
         shortName: pub.shortName || pub.name || FALLBACK.shortName,
+        lockupTagline: pub.lockupTagline || "",
         brandColor: pub.brandColor || DEFAULT_BRAND_COLOR,
         secondaryColor: pub.secondaryColor || "",
         accentColor: pub.accentColor || "",
@@ -186,8 +307,21 @@ export function BrandingProvider({ children }: { children: React.ReactNode }) {
       applyBrandTheme(theme);
       cacheBrandTheme(slug, theme);
       applyFavicon(pub.logoUrl);
-      applyDocumentTitle(pub.shortName || pub.name);
+      cacheBrandLogo(slug, pub.logoUrl);
+      // Cache only — see the note on the authenticated branch above.
       cacheDocumentTitle(slug, pub.shortName || pub.name);
+      // The sign-in page is where a business is most often seen cold, so the
+      // public read seeds the identity cache too — without this, only users
+      // who have already signed in on this browser get a flash-free login.
+      cacheBrandProfile(slug, {
+        legalName: pub.legalName || pub.name || "",
+        kmlRegNo: "",
+        addressLine: "",
+        name: pub.name || "",
+        shortName: pub.shortName || pub.name || "",
+        lockupTagline: pub.lockupTagline || "",
+        logoUrl: pub.logoUrl || "",
+      });
     }
     setLoaded(true);
   }, []);
@@ -209,8 +343,8 @@ export function BrandingProvider({ children }: { children: React.ReactNode }) {
   );
 
   const value = useMemo<BrandingValue>(
-    () => ({ ...state, loaded, hasModule, hasLanguage, refresh: () => void load() }),
-    [state, loaded, hasModule, hasLanguage, load]
+    () => ({ ...state, loaded, cached, hasModule, hasLanguage, refresh: () => void load() }),
+    [state, loaded, cached, hasModule, hasLanguage, load]
   );
 
   return <BrandingContext.Provider value={value}>{children}</BrandingContext.Provider>;
@@ -226,6 +360,7 @@ export function useBranding(): BrandingValue {
   return {
     ...FALLBACK,
     loaded: false,
+    cached: false,
     hasModule: () => false,
     hasLanguage: (code: string) => code === "en",
     refresh: () => {},

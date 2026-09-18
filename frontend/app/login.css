@@ -144,6 +144,33 @@
   margin: 26px 0 20px;
 }
 
+/* The rule while the business is still unknown — a NEUTRAL bar, not the
+ * gradient.
+ *
+ * --brand-gradient is declared statically in app/app/app.css and only
+ * overwritten by applyBrandTheme once branding resolves; brand-preload.tsx's
+ * pre-paint script sets the six ramp steps but not this one. So for the frames
+ * before the response lands, every business's sign-in page painted the
+ * platform's own violet→magenta→orange sweep and then swapped — the same flash
+ * the name placeholder and the blank tab icon already exist to prevent, just
+ * in the one element that had been missed.
+ *
+ * Neutral here means currentColor (the panel's white text) at the placeholder
+ * bars' own opacity, sharing their keyframes so the two pulse in step instead
+ * of drifting against each other a few pixels apart. */
+.login-page .bp-rule--loading {
+  background: currentColor;
+  animation: loginBrandPulse 1.1s ease-in-out infinite;
+}
+
+/* Shared by .bp-rule--loading and NamePlaceholder's bars. It lives here rather
+ * than in an inline <style> inside the placeholder component so that an
+ * element which renders without that component still has it. */
+@keyframes loginBrandPulse {
+  0%, 100% { opacity: .10; }
+  50% { opacity: .22; }
+}
+
 .login-page .bp-reg,
 .login-page .bp-phone {
   margin: 0;

@@ -1,4 +1,9 @@
-import { BRAND_COLOR_KEY_PREFIX, BRAND_TITLE_KEY_PREFIX, DEFAULT_BRAND_COLOR } from "@/common/config/theme";
+import {
+  BRAND_COLOR_KEY_PREFIX,
+  BRAND_LOGO_KEY_PREFIX,
+  BRAND_TITLE_KEY_PREFIX,
+  DEFAULT_BRAND_COLOR,
+} from "@/common/config/theme";
 
 /* A blocking inline script that paints the signed-in business's brand colour
  * before React ever mounts.
@@ -26,9 +31,17 @@ import { BRAND_COLOR_KEY_PREFIX, BRAND_TITLE_KEY_PREFIX, DEFAULT_BRAND_COLOR } f
 const script = `
 (function () {
   try {
+    // The business is the FIRST path segment (/ctfi/dashboard), unless that
+    // segment is a page name — the same ambiguity common/config/routes.ts
+    // resolves with RESERVED_ROOT_SEGMENTS, in the smallest form that can be
+    // inlined here. Getting it wrong only costs a cache miss (the neutral
+    // loading state, then the real branding a moment later), never another
+    // business's brand: an unknown slug simply has nothing cached under it.
     var p = location.pathname.split("/").filter(Boolean);
-    var slug = (p.length > 1 && (p[0] === "login" || p[0] === "app") && /^[a-z0-9][a-z0-9-]*$/.test(p[1].toLowerCase()))
-      ? p[1].toLowerCase()
+    var reserved = /^(login|reset|app|api|uploads|assets|static|_next|index|superadmin|forgot-password|reset-password|digilocker-callback|esign-callback|dashboard|customers?|loans?|newloan|schemes|goldrates|requests|loanrisk|personalloans?|investments?|cash|auctions|packets?|bankpledge|reports|employees|calendar|branches|roles-permissions|billing|settings)$/;
+    var first = p.length ? p[0].toLowerCase() : "";
+    var slug = (first && /^[a-z0-9][a-z0-9-]*$/.test(first) && !reserved.test(first))
+      ? first
       : (localStorage.getItem("cloudhouse_active_business") || "default");
     var hex = localStorage.getItem(${JSON.stringify(BRAND_COLOR_KEY_PREFIX)} + slug) || ${JSON.stringify(DEFAULT_BRAND_COLOR)};
     var m = /^#?([0-9a-f]{6})$/i.exec(hex);
@@ -58,6 +71,23 @@ const script = `
     // the colour above.
     var title = localStorage.getItem(${JSON.stringify(BRAND_TITLE_KEY_PREFIX)} + slug);
     if (title) document.title = title;
+    // The tab ICON, same problem once more. app/layout.tsx now ships a
+    // deliberately blank icon rather than the platform mark — a business must
+    // never see another brand, not even for one frame — so the worst case
+    // here is a blank tab icon for a moment instead of the wrong one.
+    //
+    // Inserted as a fresh <link> after removing every baked-in one, for the
+    // reason applyFavicon's own comment gives: several browsers only re-fetch
+    // a favicon on element insertion, never on an href change.
+    var logo = localStorage.getItem(${JSON.stringify(BRAND_LOGO_KEY_PREFIX)} + slug);
+    if (logo) {
+      var links = document.querySelectorAll('link[rel="icon"]');
+      for (var j = 0; j < links.length; j++) links[j].parentNode.removeChild(links[j]);
+      var el = document.createElement("link");
+      el.rel = "icon";
+      el.href = logo;
+      document.head.appendChild(el);
+    }
   } catch (e) { /* storage blocked or malformed value — keep the default theme */ }
 })();
 `;

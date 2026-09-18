@@ -15,15 +15,20 @@ import (
 // look if the bootstrap admin is ever renamed.
 const adminUsername = employee.AdminUsername
 
-// seedGrants rebuilds role_permissions from the catalogue and re-applies the
-// role restrictions, reproducing exactly what migrate.Run would produce.
+// seedGrants makes sure this business has a usable set of roles and grants,
+// WITHOUT resetting the ones it already has.
 //
-// The wipe deleted every grant, so this is not optional — without it the
-// admin holds no permissions and the entire console 403s. Rebuilding rather
-// than preserving is the point: a permission an operator toggled off while
-// demonstrating Roles & Permissions comes back on for the next client.
+// Roles and their permissions are configuration, not demo data — the wipe
+// leaves both alone, the same way it leaves the business's logo, colours and
+// fonts alone. So this is a fill-the-gaps step, not a rebuild:
 //
-// # WHY NOT authz.Repository.BackfillGrants
+//   - fixture roles are created only when a role of that name is missing;
+//   - the full grant grid is written only for a business that has NO grants
+//     at all, which is either a brand-new business or one left broken by the
+//     older reset that did wipe them. A business with grants keeps every
+//     permission exactly as its administrator left it.
+//
+// # WHY NOT authz.Repository.BackfillGrants FOR THE REBUILD
 //
 // BackfillGrants issues a slice Create of roughly 810 RolePermission rows.
 // role_permissions IS tenant-scoped, and GORM's stamp callback does not
@@ -35,22 +40,37 @@ const adminUsername = employee.AdminUsername
 // permission lookup, and every check would 403. So the grid is built and
 // stamped explicitly.
 func seedGrants(ctx context.Context, d *Deps, st *state, rep *Report) error {
-	// Two roles beyond the nine canonical ones, so the Roles & Permissions
-	// screen has custom rows to open and edit. Created BEFORE the grid below
-	// so they receive grants like any other role. The wipe removes exactly
-	// these (it keeps only authz.StaffRoles by name), so they come back
-	// unmodified on every reset even if an operator edited them mid-demo.
-	for _, r := range customRoleFixtures {
-		if _, err := d.authzRepo.CreateRole(ctx, r.Name, r.Description); err != nil {
-			return fmt.Errorf("create role %q: %w", r.Name, err)
-		}
-	}
-	rep.created("custom roles", len(customRoleFixtures))
-
 	roles, err := d.authzRepo.ListRoles(ctx)
 	if err != nil {
 		return fmt.Errorf("list roles: %w", err)
 	}
+
+	// Two roles beyond the nine canonical ones, so the Roles & Permissions
+	// screen has custom rows to open and edit. Created by NAME-CHECK rather
+	// than unconditionally: roles now survive the wipe, so a second reset
+	// would otherwise add a second "Front Desk" every time.
+	existing := make(map[string]bool, len(roles))
+	for _, r := range roles {
+		existing[r.Name] = true
+	}
+	created := 0
+	for _, r := range customRoleFixtures {
+		if existing[r.Name] {
+			continue
+		}
+		if _, err := d.authzRepo.CreateRole(ctx, r.Name, r.Description); err != nil {
+			return fmt.Errorf("create role %q: %w", r.Name, err)
+		}
+		created++
+	}
+	if created > 0 {
+		rep.created("custom roles", created)
+		// Re-read so the roles just created are included below.
+		if roles, err = d.authzRepo.ListRoles(ctx); err != nil {
+			return fmt.Errorf("list roles: %w", err)
+		}
+	}
+
 	if len(roles) == 0 {
 		return fmt.Errorf("no roles found for this business — run `go run ./cmd/migrate` first")
 	}
@@ -65,28 +85,46 @@ func seedGrants(ctx context.Context, d *Deps, st *state, rep *Report) error {
 		return fmt.Errorf("permission catalogue is empty — run `go run ./cmd/migrate` first")
 	}
 
-	// authz.Repository.CreateRole seeds its own grant rows for the role it
-	// creates, so the custom roles above already have some. They are cleared
-	// here so the grid below is the single source of truth rather than
-	// colliding with them on idx_role_permission, which is unique on
-	// (role_id, permission_id) and NOT scoped by tenant.
-	//
-	// The `OR tenant_id = 0` is load-bearing and is the batch-insert bug
-	// again: CreateRole writes its grants with a slice Create, so the stamp
-	// callback does not fire and those rows land at tenant_id = 0. A delete
-	// scoped to this business alone leaves them behind, and the grid then
-	// fails on the unique index — which is exactly what happened while this
-	// was being written.
-	if err := d.db.WithContext(platform.AllowCrossTenant(ctx)).
-		Exec("DELETE FROM role_permissions WHERE tenant_id = ? OR tenant_id = 0 OR tenant_id IS NULL",
-			st.tenantID).Error; err != nil {
-		return fmt.Errorf("clear grants before rebuild: %w", err)
-	}
-
-	rows := make([]authz.RolePermission, 0, len(roles)*len(perms))
+	// The Administrator role id is needed by the loan flows further down
+	// whatever happens to the grants below.
 	for _, r := range roles {
 		if r.Name == authz.SystemRoleName {
 			st.adminRoleID = r.ID
+		}
+	}
+	if st.adminRoleID == 0 {
+		return fmt.Errorf("no %q role found for this business", authz.SystemRoleName)
+	}
+
+	// Which of this business's roles already hold grants. Counted BY ROLE and
+	// not by tenant_id, because idx_role_permission is (role_id,
+	// permission_id) with no tenant column: a row is a collision for this
+	// business's role whatever tenant_id it carries, and it routinely carries
+	// the wrong one (CreateRole's slice insert lands rows at tenant_id = 0,
+	// and the next boot's migrate.backfillTenancy sweeps those to the DEFAULT
+	// tenant rather than the owning one). Counting by tenant_id is what made
+	// the reset insert duplicates and die on 23505.
+	var granted []uint
+	if err := d.db.WithContext(platform.AllowCrossTenant(ctx)).
+		Raw(`SELECT DISTINCT role_id FROM role_permissions
+		     WHERE role_id IN (SELECT id FROM roles WHERE tenant_id = ?)`, st.tenantID).
+		Scan(&granted).Error; err != nil {
+		return fmt.Errorf("read existing grants: %w", err)
+	}
+	hasGrants := make(map[uint]bool, len(granted))
+	for _, id := range granted {
+		hasGrants[id] = true
+	}
+
+	// Only roles with NO grants at all are filled in — a brand-new business,
+	// or one left empty by the older reset that used to wipe this table. A
+	// role whose permissions an administrator has curated is left exactly as
+	// they set it, which is the whole point of not treating permissions as
+	// demo data.
+	rows := make([]authz.RolePermission, 0, len(roles)*len(perms))
+	for _, r := range roles {
+		if hasGrants[r.ID] {
+			continue
 		}
 		for _, p := range perms {
 			rp := authz.RolePermission{RoleID: r.ID, PermissionID: p.ID, Permission: true}
@@ -94,22 +132,21 @@ func seedGrants(ctx context.Context, d *Deps, st *state, rep *Report) error {
 			rows = append(rows, rp)
 		}
 	}
-	if st.adminRoleID == 0 {
-		return fmt.Errorf("no %q role found for this business", authz.SystemRoleName)
-	}
 
-	if err := d.db.WithContext(ctx).CreateInBatches(rows, 200).Error; err != nil {
-		return fmt.Errorf("insert grants: %w", err)
+	if len(rows) > 0 {
+		if err := d.db.WithContext(ctx).CreateInBatches(rows, 200).Error; err != nil {
+			return fmt.Errorf("insert grants: %w", err)
+		}
+		// ApplyRestrictions is safe to reuse verbatim: it loops single-struct
+		// upserts, so the stamp callback does fire. This is what narrows the
+		// allow-all default back to the separation-of-duties the approval
+		// chains depend on. Run only when grants were actually created, so it
+		// cannot silently re-revoke something an administrator granted.
+		if err := d.authzRepo.ApplyRestrictions(ctx, authz.Restrictions); err != nil {
+			return fmt.Errorf("apply restrictions: %w", err)
+		}
+		rep.created("permission grants", len(rows))
 	}
-
-	// ApplyRestrictions is safe to reuse verbatim: it loops single-struct
-	// upserts, so the stamp callback does fire. This is what narrows the
-	// allow-all default back to the separation-of-duties the approval chains
-	// depend on.
-	if err := d.authzRepo.ApplyRestrictions(ctx, authz.Restrictions); err != nil {
-		return fmt.Errorf("apply restrictions: %w", err)
-	}
-	rep.created("permission grants", len(rows))
 
 	// The sanction chain compares a loan's principal against this per-role
 	// ceiling. Seeded directly because loan.SeedLoanOperatorLimit is a

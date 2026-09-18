@@ -84,6 +84,12 @@ export type Business = {
    * e.g. "CTFI" for "Chittilapilly Thommana Financiers & Investments".
    * Empty means "not set" (falls back to name at read time). */
   shortName: string;
+  /* Free-text second line of the sidebar lockup, under the headline — the
+   * full name ("Chittilapilly Thommana") for a business whose headline is a
+   * short code, or a descriptor ("Gold Finance") for one whose headline is
+   * its own name. Empty means "not set"; unlike shortName there is no
+   * server-side fallback. */
+  lockupTagline: string;
   addressLine: string;
   kmlRegNo: string;
   appUrl: string;
@@ -221,6 +227,7 @@ export type ProfileInput = {
   name: string;
   legalName: string;
   shortName?: string;
+  lockupTagline?: string;
   addressLine: string;
   kmlRegNo: string;
   appUrl: string;

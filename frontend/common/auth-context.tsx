@@ -7,6 +7,7 @@ import {
   activeBusinessSlug,
   businessCodeForRequest,
   clearSession,
+  clearSessionsForToken,
   purgeStaleSession,
   readEmployeeRaw,
   readPermissionsRaw,
@@ -214,18 +215,42 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
    * tab keeps its session, which is the point of keying by slug — logging out
    * of one customer's books must not log you out of another's. */
   const logout = useCallback(() => {
-    clearSession();
+    /* Resolve the slug ONCE and clear everything against that one answer.
+     *
+     * clearSession() used to be called with no slug, which made it re-resolve
+     * activeBusinessSlug() internally — and that walks path, then host, then
+     * the remembered-business pointer. So the key it removed was whatever the
+     * URL happened to say at that instant, while the login page then read the
+     * key its OWN url resolved to. When those disagreed, the token survived,
+     * the login page saw a valid session and bounced straight back to the
+     * dashboard: the "first click on Sign out does nothing" bug. */
+    const slug = activeBusinessSlug();
+    clearSession(slug);
+    /* ...and then again by TOKEN VALUE, which is the authoritative sweep.
+     *
+     * The slug above is still resolved from the URL, and the paragraph above
+     * describes why that can be the wrong answer. When it is, the line above
+     * removes a key that was never there and the real token lives on under
+     * the bucket writeSession actually chose — so the login page reads a live
+     * session and bounces back to the dashboard, the "sign out, see login for
+     * a moment, land back on home" bug. clearSessionsForToken finds the token
+     * wherever it is; matching on the value means it cannot touch another
+     * business's session in another tab. */
+    clearSessionsForToken(token);
     // A branch selection is a lens on THIS sign-in — the next person to log
     // in on this machine (or this person, on a different business) should
     // start at "all branches", not silently inherit whatever was selected.
-    clearSelectedBranch(activeBusinessSlug());
+    clearSelectedBranch(slug);
     setSelectedBranchIdState(null);
     setToken(null);
     setEmployee(null);
     setPermissions({});
     setPermissionsLoaded(false);
     setPermissionsFailed(false);
-  }, []);
+    // `token` is a real dependency now, not incidental: clearSessionsForToken
+    // matches on its value. Signing out with a stale closure would sweep the
+    // PREVIOUS token's buckets and leave the current one behind.
+  }, [token]);
 
   const refetchPermissions = useCallback(() => {
     if (employee) void loadPermissions(employee);

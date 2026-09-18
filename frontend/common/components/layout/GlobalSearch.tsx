@@ -8,6 +8,7 @@ import { useLoans } from "@/modules/loans/store/LoansProvider";
 import { Icon } from "@/common/components/Icon";
 import { StatusChip } from "@/common/components/ui/StatusChip";
 import { fmt } from "@/common/utils/format";
+import { navigate, routeHref } from "@/common/services/appRoutes";
 
 type ResultRow = { href: string; ic: string; t: string; s: string; chip: string | null };
 type ResultGroup = [string, ResultRow[]];
@@ -43,7 +44,7 @@ export default function GlobalSearch({
       .filter((l) => hit(l.id) || hit(l.customerName) || hit(l.status))
       .slice(0, 5)
       .map((l) => ({
-        href: "#loan/" + l.id,
+        href: routeHref("loan/" + l.id),
         ic: "list",
         t: l.id + " — " + l.customerName,
         s: l.schemeName + " · " + fmt(l.principal),
@@ -55,7 +56,7 @@ export default function GlobalSearch({
       .filter((c) => hit(c.name) || hit(c.id) || hit(c.phone) || hit(c.address))
       .slice(0, 5)
       .map((c) => ({
-        href: "#customer/" + c.id,
+        href: routeHref("customer/" + c.id),
         ic: "user",
         t: c.name,
         s: c.code + " · " + c.phone + " · " + c.branchName,
@@ -67,7 +68,7 @@ export default function GlobalSearch({
       .filter((s) => hit(s.name) || hit(s.id))
       .slice(0, 4)
       .map((s) => ({
-        href: "#schemes",
+        href: routeHref("schemes"),
         ic: "doc",
         t: s.name,
         s: s.rate + "% p.a. · " + s.ltv + "% LTV · penal " + s.penal + "%/m",
@@ -79,7 +80,7 @@ export default function GlobalSearch({
       .filter((p) => hit(p.id) || hit(p.qr) || hit(p.cust))
       .slice(0, 4)
       .map((p) => ({
-        href: "#packets",
+        href: routeHref("packets"),
         ic: "box",
         t: p.id + " — " + p.cust,
         s: p.weight.toFixed(1) + " g · " + p.locker,
@@ -91,7 +92,7 @@ export default function GlobalSearch({
       .filter((e) => hit(e.name) || hit(e.id) || hit(e.role))
       .slice(0, 4)
       .map((e) => ({
-        href: "#employees",
+        href: routeHref("employees"),
         ic: "user",
         t: e.name,
         s: e.role + " · " + e.branch,
@@ -123,7 +124,7 @@ export default function GlobalSearch({
     } else if (e.key === "Enter") {
       const target = sel >= 0 ? flatItems[sel] : flatItems[0];
       if (target) {
-        window.location.hash = target.href;
+        navigate(target.href);
         setQuery("");
         closeResults();
         setExpanded(false);

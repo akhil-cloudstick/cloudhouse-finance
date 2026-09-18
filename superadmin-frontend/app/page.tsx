@@ -574,6 +574,14 @@ function BusinessWizard({
   const [legalName, setLegalName] = useState(business?.legalName ?? "");
   const initialShortName = business?.shortName ?? "";
   const [shortName, setShortName] = useState(initialShortName);
+  const initialTagline = business?.lockupTagline ?? "";
+  const [tagline, setTagline] = useState(initialTagline);
+  /* The tagline starts as a MIRROR of the business name — that is the right
+   * answer for a business whose sidebar headline is a short code, which is
+   * the case we most often type in — and stops mirroring the moment the
+   * vendor edits it. Seeded true when editing an existing business so a saved
+   * tagline is never silently overwritten by a rename. */
+  const [taglineTouched, setTaglineTouched] = useState(!isCreate);
   const [addressLine, setAddressLine] = useState(business?.addressLine ?? "");
   const [kmlRegNo, setKmlRegNo] = useState(business?.kmlRegNo ?? "");
   const [appUrl, setAppUrl] = useState(business?.appUrl ?? "");
@@ -713,6 +721,7 @@ function BusinessWizard({
       (name !== business.name ||
         legalName !== (business.legalName ?? "") ||
         shortName !== initialShortName ||
+        tagline !== initialTagline ||
         addressLine !== (business.addressLine ?? "") ||
         kmlRegNo !== (business.kmlRegNo ?? "") ||
         appUrl !== (business.appUrl ?? "")),
@@ -777,8 +786,10 @@ function BusinessWizard({
         // does not carry (see superadmin.CreateBusinessInput's own comment).
         // shortName rides the follow-up profile update for the same reason.
         if (logoFile) await uploadLogo(created.id, logoFile, reason);
-        if (shortName) {
-          await updateProfile(created.id, { name, legalName, shortName, addressLine, kmlRegNo, appUrl, reason });
+        if (shortName || tagline) {
+          await updateProfile(created.id, {
+            name, legalName, shortName, lockupTagline: tagline, addressLine, kmlRegNo, appUrl, reason,
+          });
         }
         if (themeBeyondDefault) {
           await setBranding(created.id, {
@@ -795,7 +806,9 @@ function BusinessWizard({
         }
       } else {
         if (changed.profile) {
-          await updateProfile(business.id, { name, legalName, shortName, addressLine, kmlRegNo, appUrl, reason });
+          await updateProfile(business.id, {
+            name, legalName, shortName, lockupTagline: tagline, addressLine, kmlRegNo, appUrl, reason,
+          });
         }
         if (changed.theme) {
           await setBranding(business.id, {
@@ -852,7 +865,14 @@ function BusinessWizard({
               <div className="sa-grid-2">
                 <div className="sa-field">
                   <label>Business name</label>
-                  <input value={name} onChange={(e) => setName(e.target.value)} autoFocus />
+                  <input
+                    value={name}
+                    onChange={(e) => {
+                      setName(e.target.value);
+                      if (!taglineTouched) setTagline(e.target.value);
+                    }}
+                    autoFocus
+                  />
                   <span className="sa-hint">Shown in the app and in borrower messages.</span>
                 </div>
                 <div className="sa-field">
@@ -903,6 +923,27 @@ function BusinessWizard({
                   <span className="sa-hint">
                     Shown where the full name doesn&apos;t fit: sidebar headline, browser tab, login page. Falls
                     back to the business name.
+                  </span>
+                </div>
+                <div className="sa-field">
+                  <label>Sidebar subtitle (optional)</label>
+                  {/* A textarea, not an input, because the break in a long
+                    * subtitle is an editorial choice: CTFI's reads
+                    * "CHITTILAPILLY / THOMMANA". Press Return where it should
+                    * break — inside a textarea that inserts a newline rather
+                    * than submitting the wizard. Two lines is the ceiling
+                    * (see resolveLockup); a third would push the nav down. */}
+                  <textarea
+                    value={tagline}
+                    onChange={(e) => { setTaglineTouched(true); setTagline(e.target.value); }}
+                    placeholder={name || "e.g. Gold Finance"}
+                    rows={2}
+                  />
+                  <span className="sa-hint">
+                    The small line under the sidebar headline. Use the full name (&ldquo;Chittilapilly
+                    Thommana&rdquo; under &ldquo;CTFI&rdquo;) or a descriptor (&ldquo;Gold Finance&rdquo; under
+                    &ldquo;Ambika&rdquo;). Press Return to split it over two lines (typing
+                    &ldquo;\n&rdquo; works too). Hidden when it would only repeat the headline.
                   </span>
                 </div>
                 <div className="sa-field">

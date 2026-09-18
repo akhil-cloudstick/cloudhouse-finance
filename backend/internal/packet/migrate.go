@@ -50,6 +50,15 @@ func BackfillAuctionedPacketStatus(db *gorm.DB) error {
 				ToStatus:   StatusReadyForRelease,
 				Remarks:    "Backfill: loan's gold already left custody",
 			}
+			// Copied off the packet. This runs at boot on a plain *gorm.DB
+			// with no tenant in the context, so the stamp callback cannot
+			// fire and the row would land at tenant_id = 0 — which the next
+			// migrate.backfillTenancy then sweeps to the DEFAULT tenant, not
+			// to the business that owns the packet. The movement would then
+			// be invisible to its own business and, worse, survive that
+			// business's demo reset and block the packets delete on
+			// fk_packets_movements.
+			mid.TenantID = p.TenantID
 			if err := db.Create(mid).Error; err != nil {
 				return err
 			}
@@ -61,6 +70,7 @@ func BackfillAuctionedPacketStatus(db *gorm.DB) error {
 			ToStatus:   StatusReleased,
 			Remarks:    "Backfill: loan's gold already left custody",
 		}
+		final.TenantID = p.TenantID // same reason as the mid-step above
 		if err := db.Create(final).Error; err != nil {
 			return err
 		}

@@ -547,9 +547,20 @@ func (r *Repository) CreateRole(ctx context.Context, name, description string) (
 		if err := tx.Find(&perms).Error; err != nil {
 			return err
 		}
+		// TenantID is stamped BY HAND, copied off the role that was just
+		// created rather than left to the create callback. A slice Create is
+		// the documented batch-insert pitfall: the stamp callback does not
+		// fire, so these rows would land at tenant_id = 0 — and since
+		// idx_role_permission is (role_id, permission_id) with no tenant
+		// column, nothing ever complains. The damage shows up later, when the
+		// next boot's migrate.backfillTenancy sweeps every zero to the
+		// DEFAULT tenant, filing a business's own grants under tenant 1 where
+		// its permission lookups cannot see them.
 		rows := make([]RolePermission, 0, len(perms))
 		for _, p := range perms {
-			rows = append(rows, RolePermission{RoleID: role.ID, PermissionID: p.ID, Permission: true})
+			rp := RolePermission{RoleID: role.ID, PermissionID: p.ID, Permission: true}
+			rp.TenantID = role.TenantID
+			rows = append(rows, rp)
 		}
 		if len(rows) > 0 {
 			if err := tx.Create(&rows).Error; err != nil {

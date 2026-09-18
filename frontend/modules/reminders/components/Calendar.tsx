@@ -8,6 +8,7 @@ import { AddReminderModalContent } from "@/common/components/modals/ReminderModa
 import { completeReminder, deleteReminder, getCalendarEvents, type CalendarEvent } from "@/modules/reminders/services/reminderService";
 import { useAuth } from "@/common/auth-context";
 import { useIsSmallScreen } from "@/common/utils/responsive";
+import { routeHref } from "@/common/services/appRoutes";
 
 const DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
@@ -242,9 +243,9 @@ export function Calendar() {
                       </span>
                     )}
                     {e.personalLoanId != null ? (
-                      <span className="rt"><a className="btn sm ghost" href={`#personalloan/${e.personalLoanId}`}>Open loan</a></span>
+                      <span className="rt"><a className="btn sm ghost" href={routeHref(`personalloan/${e.personalLoanId}`)}>Open loan</a></span>
                     ) : e.loanNumber ? (
-                      <span className="rt"><a className="btn sm ghost" href={`#loan/${e.loanNumber}`}>Open loan</a></span>
+                      <span className="rt"><a className="btn sm ghost" href={routeHref(`loan/${e.loanNumber}`)}>Open loan</a></span>
                     ) : null}
                   </li>
                 ))}

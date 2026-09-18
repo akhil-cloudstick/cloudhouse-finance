@@ -31,7 +31,7 @@ import {
 import { getCustomer } from "@/modules/customers/services/customerService";
 import { listPackets } from "@/modules/packets/services/packetService";
 import { openPrintWindow, brandHeader } from "@/common/utils/print";
-import { BRAND, printColors } from "@/common/config/brand";
+import { printColors, tenantLenderProfile } from "@/common/config/brand";
 import type { BondLang } from "@/modules/loans/utils/indemnityBond";
 import { printReleaseAgreement, type ReleaseAgreementLang } from "@/modules/loans/utils/releaseAgreement";
 import { StageTracker } from "@/common/components/ui/StageTracker";
@@ -43,6 +43,7 @@ import { ConfirmModalContent } from "@/common/components/modals/ConfirmModal";
 import { EsignLanguageModalContent, type EsignDeliverBy } from "@/common/components/modals/EsignLanguageModal";
 import { RequestExtensionModalContent, RequestReleaseModalContent } from "@/common/components/modals/RequestExtensionModal";
 import { EditLoanModalContent } from "@/common/components/modals/EditLoanModal";
+import { navigate, routeHref } from "@/common/services/appRoutes";
 
 /* One row of the "Documents" dropdown below — either a click action
  * (onClick, e.g. printing something in-browser) or a plain link (href,
@@ -628,7 +629,7 @@ export function LoanDetail({ id }: { id?: string }) {
         <div class="label">
           <img src="${qr}" alt="QR">
           <div class="t">
-            <div class="brand">${BRAND.name.toUpperCase()}</div>
+            <div class="brand">${tenantLenderProfile().legalName.toUpperCase()}</div>
             <div class="id">${l.id} · ${packetLabel}</div>
             <div>${c.name || "—"}</div>
             <div>${c.code || c.id || "—"} · ${c.phone || ""}</div>
@@ -756,7 +757,7 @@ export function LoanDetail({ id }: { id?: string }) {
           {!l.isDefaulted && l.isOverdue && l.status !== "Active" && <StatusChip status="Overdue" />}
           {!l.isOverdue && l.isDueSoon && <StatusChip status="Due Soon" />}
           </h1>
-          <p style={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}><a href={`#customer/${l.customerId}`}>{l.customerName}</a> · {l.schemeName} · opened {l.opened} · due {l.due}{l.isOverdue ? ` · ${l.daysOverdue} days overdue` : ""}</p></div>
+          <p style={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}><a href={routeHref(`customer/${l.customerId}`)}>{l.customerName}</a> · {l.schemeName} · opened {l.opened} · due {l.due}{l.isOverdue ? ` · ${l.daysOverdue} days overdue` : ""}</p></div>
         {/* Everything from here down is one right-aligned group rather than
          * flat siblings of `.page-h` itself — `.page-h`'s own flex-wrap
          * only right-aligns this whole cluster while it fits on the title's
@@ -853,7 +854,7 @@ export function LoanDetail({ id }: { id?: string }) {
                             await hardDeleteLoan(l.numericId);
                             toast("Loan deleted permanently");
                             refreshLoans();
-                            location.hash = "loans";
+                            navigate("loans");
                           }}
                         />
                       );

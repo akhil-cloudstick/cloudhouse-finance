@@ -16,6 +16,7 @@ import {
 import { MaturityModalContent } from "@/modules/investments/components/MaturityModal";
 import { InvestorStatementModalContent } from "@/modules/investments/components/InvestorStatementModal";
 import { useModal } from "@/common/components/Modal";
+import { routeHref } from "@/common/services/appRoutes";
 
 /* Same click-paginated table pattern as personal-loans/components/
  * PersonalLoanDetail.tsx's usePagedTable + Pager. */
@@ -124,7 +125,7 @@ export function InvestmentDetail({ id }: { id?: string }) {
     <>
       <div className="page-h">
         <div>
-          <a href="#investments" style={{ fontSize: 13 }}>← Back</a>
+          <a href={routeHref("investments")} style={{ fontSize: 13 }}>← Back</a>
           <h1>Investment {investment.investmentNumber}{investorName ? ` · ${investorName}` : ""}</h1>
         </div>
         <div className="sp" />
@@ -143,10 +144,10 @@ export function InvestmentDetail({ id }: { id?: string }) {
         <div className="kpi"><div className="l">Status</div><div className="v" style={{ fontSize: 15 }}><StatusChip status={investment.status} /></div></div>
         <div className="kpi"><div className="l">Tenure</div><div className="v" style={{ fontSize: 17 }}>{investment.tenureMonths} mo</div></div>
         {investment.renewedFromInvestmentId && (
-          <div className="kpi"><div className="l">Renewed From</div><div className="v" style={{ fontSize: 17 }}><a href={`#investment/${investment.renewedFromInvestmentId}`}>Investment #{investment.renewedFromInvestmentId}</a></div></div>
+          <div className="kpi"><div className="l">Renewed From</div><div className="v" style={{ fontSize: 17 }}><a href={routeHref(`investment/${investment.renewedFromInvestmentId}`)}>Investment #{investment.renewedFromInvestmentId}</a></div></div>
         )}
         {investment.renewedToInvestmentId && (
-          <div className="kpi"><div className="l">Renewed To</div><div className="v" style={{ fontSize: 17 }}><a href={`#investment/${investment.renewedToInvestmentId}`}>Investment #{investment.renewedToInvestmentId}</a></div></div>
+          <div className="kpi"><div className="l">Renewed To</div><div className="v" style={{ fontSize: 17 }}><a href={routeHref(`investment/${investment.renewedToInvestmentId}`)}>Investment #{investment.renewedToInvestmentId}</a></div></div>
         )}
       </div>
 

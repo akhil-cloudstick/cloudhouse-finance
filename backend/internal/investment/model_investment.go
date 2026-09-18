@@ -27,7 +27,7 @@ const (
 type Investment struct {
 	platform.TenantScoped
 	ID               uint   `json:"id" gorm:"primaryKey"`
-	InvestmentNumber string `json:"investmentNumber" gorm:"uniqueIndex;size:20"`
+	InvestmentNumber string `json:"investmentNumber" gorm:"index;size:20"` // unique per TENANT — see migrate.tenantUniqueIndexes
 
 	BranchID uint          `json:"branchId" gorm:"not null"`
 	Branch   branch.Branch `json:"branch" gorm:"foreignKey:BranchID"`

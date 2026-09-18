@@ -2,9 +2,10 @@
 
 import { Icon } from "@/common/components/Icon";
 import { useAuth } from "@/common/auth-context";
-import { BRAND } from "@/common/config/brand";
 import { useBranding } from "@/common/BrandingProvider";
 import BrandLogo from "@/common/components/BrandLogo";
+import { routeHref } from "@/common/services/appRoutes";
+import { resolveLockup } from "@/common/utils/brandLockup";
 
 /* Ported from legacy/app.js's `NAV` array + nav-building/active-link logic
  * in `router()`. Each item now also carries the permission that gates it
@@ -65,36 +66,41 @@ export const NAV: [string, NavItem[]][] = [
 
 export function Sidebar({ route, open, onNavigateSameRoute }: { route: string; open: boolean; onNavigateSameRoute?: () => void }) {
   const { can } = useAuth();
-  const { hasModule, name: businessName, shortName } = useBranding();
+  const { hasModule, name: businessName, shortName, lockupTagline } = useBranding();
 
-  /* The bold headline is the business's SHORT identity ("CTFI"), the small
-   * line under it its full name ("Chittilapilly Thommana") — not a split of
-   * one string across two sizes (an earlier version did that, which is why
-   * a business with no distinct short name still needs one: shortName falls
-   * back to the full name server-side, so a business that has not set one
-   * just repeats its full name on both lines rather than an awkward
-   * word-split). */
-  const lockupTop = shortName || businessName || BRAND.shortName;
-  const lockupBottom = businessName || BRAND.name;
+  /* Which two lines to show, and at what size, is resolveLockup's call — see
+   * common/utils/brandLockup.ts for why it is a shared pure function rather
+   * than a couple of lines here. This used to hardcode "headline = short code,
+   * subline = full name", which only ever read correctly for one business.
+   *
+   * No platform fallback anywhere in that path. On the one load where neither
+   * the cache nor the fetch has produced a name yet, the lockup renders empty
+   * rather than the vendor's: a business is never shown a brand that is not
+   * its own, and an empty line for a moment is the honest version of "not
+   * known yet". */
+  const lockup = resolveLockup({ name: businessName, shortName, lockupTagline });
 
   return (
     <aside className={`side${open ? " open" : ""}`} id="side">
       <div className="brand" style={{marginRight:-10}}>
-        {/* One lockup: the logo, then a text column splitting the name over
-          * two lines. Both share a single left edge — an earlier version put
-          * the second line on its own full-width row, which left the first
-          * aligned to nothing. The halves come from nameTop/nameBottom, not
-          * shortName + name, because those two overlap: the short name is a
-          * prefix of the full one and the lockup read "CloudHouse" above
-          * "CloudHouse Finance". */}
+        {/* One lockup: the logo, then a text column of up to two lines. Both
+          * share a single left edge — an earlier version put the second line
+          * on its own full-width row, which left the first aligned to
+          * nothing. The overlap this once guarded against (the headline being
+          * a prefix of the subline: "CloudHouse" above "CloudHouse Finance")
+          * is now resolveLockup's job — it drops a subline that would only
+          * restate the headline. */}
         {/* Size lives in CSS (.side .brand .brand-mark), not in this prop, so
           * the mark and the wordmark beside it can be scaled together at the
           * narrow-sidebar breakpoint. The prop only sets the SSR'd width/height
           * attributes, which CSS then overrides. */}
         <BrandLogo size={48} className="brand-mark" />
+        {/* The fit tokens carry only a size STEP; the pixels behind them live
+          * in app.css so the narrow-rail breakpoint can scale every step at
+          * once instead of being patched per step. */}
         <div className="t">
-          <b>{lockupTop}</b>
-          {lockupBottom && <span className="brand-full">{lockupBottom}</span>}
+          <b data-fit={lockup.topFit}>{lockup.top}</b>
+          {lockup.bottom && <span className="brand-full" data-fit={lockup.bottomFit}>{lockup.bottom}</span>}
         </div>
       </div>
       <nav className="nav" id="navBox">
@@ -134,13 +140,13 @@ export function Sidebar({ route, open, onNavigateSameRoute }: { route: string; o
                 return (
                   <a
                     key={r}
-                    href={`#${r}`}
+                    href={routeHref(r)}
                     className={isOn ? "on" : ""}
                     onClick={(e) => {
-                      // Clicking the item for the page already open doesn't
-                      // change location.hash (it's already that value), so
-                      // the browser never fires `hashchange` — the page
-                      // just silently stays exactly as it was, including
+                      // Clicking the item for the page already open leaves
+                      // the URL unchanged, so the router has nothing to
+                      // react to — the page just silently stays exactly as
+                      // it was, including
                       // whatever filters/sub-view it had drifted into. This
                       // forces that same "start fresh" reload staff expect
                       // from clicking a nav item, even when it's already

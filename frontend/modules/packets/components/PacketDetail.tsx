@@ -16,6 +16,7 @@ import {
   getPacketByCode, listMovements, recordMovement, PACKET_STAGES, PACKET_STATUS,
   type PacketView, type MovementView,
 } from "@/modules/packets/services/packetService";
+import { routeHref } from "@/common/services/appRoutes";
 
 /* Hardcoded actor id — this codebase has no auth/session yet, so every
  * staff-attributed action across the app (loan approvals, payments) uses
@@ -197,7 +198,7 @@ export function PacketDetail({ code }: { code?: string }) {
           </div>
           <div className="ft">
             Sealed contents of packet {p.code}, taken from loan{" "}
-            <a href={`#loan/${p.loanNumber}`}>{p.loanNumber}</a> — ornament photos are on the loan page.
+            <a href={routeHref(`loan/${p.loanNumber}`)}>{p.loanNumber}</a> — ornament photos are on the loan page.
           </div>
         </div>
 

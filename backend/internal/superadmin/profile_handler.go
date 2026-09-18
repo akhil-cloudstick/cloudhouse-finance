@@ -21,11 +21,12 @@ import (
 type updateProfileRequest struct {
 	Name        string `json:"name"`
 	LegalName   string `json:"legalName"`
-	ShortName   string `json:"shortName"`
-	AddressLine string `json:"addressLine"`
-	KMLRegNo    string `json:"kmlRegNo"`
-	AppURL      string `json:"appUrl"`
-	Reason      string `json:"reason"`
+	ShortName     string `json:"shortName"`
+	LockupTagline string `json:"lockupTagline"`
+	AddressLine   string `json:"addressLine"`
+	KMLRegNo      string `json:"kmlRegNo"`
+	AppURL        string `json:"appUrl"`
+	Reason        string `json:"reason"`
 }
 
 func (h *Handler) UpdateProfile(c *gin.Context) {
@@ -42,10 +43,11 @@ func (h *Handler) UpdateProfile(c *gin.Context) {
 	rec, err := h.svc.UpdateProfile(platform.RequestContext(c), actor(c), id, ProfileInput{
 		Name:        req.Name,
 		LegalName:   req.LegalName,
-		ShortName:   req.ShortName,
-		AddressLine: req.AddressLine,
-		KMLRegNo:    req.KMLRegNo,
-		AppURL:      req.AppURL,
+		ShortName:     req.ShortName,
+		LockupTagline: req.LockupTagline,
+		AddressLine:   req.AddressLine,
+		KMLRegNo:      req.KMLRegNo,
+		AppURL:        req.AppURL,
 	}, req.Reason)
 	if err != nil {
 		httpx.FailErr(c, err)

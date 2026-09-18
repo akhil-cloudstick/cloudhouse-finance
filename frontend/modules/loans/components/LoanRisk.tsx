@@ -8,6 +8,7 @@ import {
   listLoanRiskAssessmentPage, RISK_STATUSES, LOAN_RISK_PAGE_SIZE,
   type LoanRiskRow, type LoanRiskLevel, type LoanRiskCounts,
 } from "@/modules/loans/services/loanService";
+import { routeHref } from "@/common/services/appRoutes";
 
 const RISK_CHIP: Record<LoanRiskLevel, string> = { Green: "green", Orange: "amber", Red: "red" };
 const RISK_LABEL: Record<LoanRiskLevel, string> = { Green: "Safe", Orange: "At Risk", Red: "Loss" };
@@ -122,7 +123,7 @@ export function LoanRisk() {
                 return (
                   <tr key={r.loanId}>
                     <td>
-                      <a href={`#loan/${r.loanNumber}`}>{r.loanNumber}</a>
+                      <a href={routeHref(`loan/${r.loanNumber}`)}>{r.loanNumber}</a>
                       <div style={{ fontSize: 11.5, color: "var(--muted)" }}>{r.customerName}</div>
                     </td>
                     <td>{r.status}</td>

@@ -11,7 +11,9 @@ import { ModalProvider } from "@/common/components/Modal";
 import { ToastProvider } from "@/common/components/Toast";
 import { Sidebar } from "@/common/components/layout/Sidebar";
 import { Topbar } from "@/common/components/layout/Topbar";
-import { useHashRoute } from "@/hooks/useHashRoute";
+import { useAppRoute } from "@/hooks/useAppRoute";
+import { navigate, parsePath } from "@/common/services/appRoutes";
+import { activeBusinessSlug } from "@/common/services/tenantSession";
 import { Dashboard } from "@/components/Dashboard";
 import { Customers } from "@/modules/customers/components/Customers";
 import { CustomerDetail } from "@/modules/customers/components/CustomerDetail";
@@ -40,12 +42,12 @@ import { RolesPermissions } from "@/modules/roles/components/RolesPermissions";
 import { Billing } from "@/modules/billing/components/Billing";
 import { useAuth } from "@/common/auth-context";
 
-/* Every route the hash router can reach, mapped to the permission that
+/* Every route the router can reach, mapped to the permission that
  * gates it — the same module/key pairs Sidebar.tsx filters its nav on (see
  * that file's NAV array). module: null means always reachable (Dashboard).
  * This is what actually enforces access to a page: the nav filter only
  * stops a user from *finding* a page, this stops them *reaching* it by
- * typed/bookmarked hash — including detail routes (a customer/loan/packet
+ * typed/bookmarked URL — including detail routes (a customer/loan/packet
  * id), which need the same permission as their list page (§11). */
 const ROUTE_PERMISSIONS: Record<string, { module: string | null; key?: string; tenantModule?: string }> = {
   dashboard: { module: null },
@@ -182,16 +184,58 @@ function View({ route, arg }: { route: string; arg?: string }) {
 }
 
 function AppShell() {
-  const { route, arg } = useHashRoute();
+  const { route, arg } = useAppRoute();
   const { loaded: brandingLoaded } = useBranding();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   // Bumped whenever the sidebar's own page is clicked again (see
-  // Sidebar.tsx's onNavigateSameRoute) — location.hash doesn't change in
-  // that case, so nothing else here would otherwise re-render the page.
+  // Sidebar.tsx's onNavigateSameRoute) — the URL doesn't change in that
+  // case, so nothing else here would otherwise re-render the page.
   // Folded into View's key below, forcing React to unmount and remount it
   // (a real "start fresh" reload of that page's own state), same as a
   // genuine route change already does.
   const [reloadSeq, setReloadSeq] = useState(0);
+
+  /* In-app links navigate WITHOUT a full page load.
+   *
+   * Every route link in the console is a plain <a href="/ctfi/loan/GL-1001">,
+   * and that is deliberate: it middle-clicks into a new tab, it copies as a
+   * real link, and it still works if this handler never runs. What it must
+   * not do is make the browser re-download the app shell and re-fetch every
+   * provider on each click, which is what an unintercepted anchor does and
+   * what the old "#hash" links never did.
+   *
+   * So: one listener on the document, converting an ordinary left-click on a
+   * same-origin route link into a pushState move. Everything a user might
+   * mean OTHER than "go there in this tab" is left to the browser —
+   * modifier-clicks and middle-clicks (open elsewhere), target="_blank",
+   * download links, and any href outside this app. Intercepting those is the
+   * classic way a hand-rolled router breaks ctrl-click.
+   */
+  useEffect(() => {
+    function onClick(e: MouseEvent) {
+      if (e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+      const a = (e.target as HTMLElement | null)?.closest?.("a");
+      if (!a) return;
+      const href = a.getAttribute("href");
+      if (!href || !href.startsWith("/")) return; // "#", mailto:, external
+      if (a.target && a.target !== "_self") return;
+      if (a.hasAttribute("download")) return;
+
+      const { slug, route: r, arg: nextArg, page } = parsePath(href);
+      // A standalone page (/ctfi/login, /ctfi/reset) is a real document, not
+      // a console route — let the browser load it.
+      if (page) return;
+      // A link into a DIFFERENT business must also be a full load: the
+      // session, branding and every provider are per business, and
+      // pushState would keep this one's in memory.
+      if (slug && slug !== activeBusinessSlug()) return;
+
+      e.preventDefault();
+      navigate(r, nextArg, slug);
+    }
+    document.addEventListener("click", onClick);
+    return () => document.removeEventListener("click", onClick);
+  }, []);
 
   useEffect(() => {
     setSidebarOpen(false);

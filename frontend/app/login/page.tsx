@@ -1,11 +1,11 @@
 "use client";
 
-import { Suspense, useEffect, useState } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { Suspense, useEffect, useRef, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import "../login.css";
 import { useAuth } from "@/common/auth-context";
 import { ApiError } from "@/common/services/httpClient";
-import { BRAND, BRAND_PHONES } from "@/common/config/brand";
+import { BRAND } from "@/common/config/brand";
 import { useBranding } from "@/common/BrandingProvider";
 import BrandLogo from "@/common/components/BrandLogo";
 import {
@@ -16,16 +16,29 @@ import {
 } from "@/common/services/tenantSession";
 
 function LoginPageInner() {
-  const router = useRouter();
   const searchParams = useSearchParams();
   const { login, token, loading } = useAuth();
   // Every string on this page used to be the hardcoded platform BRAND,
-  // regardless of which business's /login/<slug> or subdomain a visitor
+  // regardless of which business's /<slug>/login or subdomain a visitor
   // actually reached — BrandLogo already reads the real business's logo via
   // this same provider, but nothing else here did. legalName/kmlRegNo/name
   // fall back to BRAND field by field, same convention as
   // Sidebar.tsx/BrandLogo.tsx, rather than all-or-nothing.
-  const { name: businessName, shortName, legalName, kmlRegNo, loaded: brandingLoaded } = useBranding();
+  const {
+    name: businessName,
+    shortName,
+    legalName,
+    kmlRegNo,
+    loaded: brandingLoaded,
+    cached: brandingCached,
+  } = useBranding();
+  /* known === "this panel may show a name". Until then it shows placeholder
+   * bars, NOT the platform name: a business's sign-in page must never carry
+   * anyone else's identity, the vendor's included, even for the frames before
+   * its branding arrives. `cached` covers the common case — a reload on a
+   * browser that already knows this business paints its real name on the
+   * first frame with no placeholder at all. */
+  const known = (brandingLoaded || brandingCached) && !!businessName;
   // The identity panel's big headline is the FULL business name, split
   // across two lines by word — NOT the short name. The reference this was
   // checked against never shows its short form ("CTFI") here at all, only
@@ -33,7 +46,7 @@ function LoginPageInner() {
   // line below). A single-word name has no second line, so the first line
   // carries all of it rather than repeating the word or leaving the second
   // line dangling — same convention as Sidebar.tsx's own split.
-  const nameParts = (businessName || BRAND.name).trim().split(/\s+/);
+  const nameParts = (businessName || "").trim().split(/\s+/);
   const nameTop = nameParts.length > 1 ? nameParts.slice(0, -1).join(" ") : nameParts[0];
   const nameBottom = nameParts.length > 1 ? nameParts[nameParts.length - 1] : "";
   const [passVisible, setPassVisible] = useState(false);
@@ -42,13 +55,13 @@ function LoginPageInner() {
   const [submitting, setSubmitting] = useState(false);
   const [msg, setMsg] = useState<{ text: string; ok: boolean } | null>(null);
 
-  /* linkSlug is the business named by the URL (/login/<slug>), and null on a
+  /* linkSlug is the business named by the URL (/<slug>/login), and null on a
    * bare /login. When it is set, the business is already established and no
    * field is shown; when it is null the form offers a business-code box,
    * because a bare /login must not dead-end.
    *
    * Read from the pathname rather than a route parameter: the frontend is a
-   * static export, so /login/<slug> cannot be a prerendered dynamic route —
+   * static export, so /<slug>/login cannot be a prerendered dynamic route —
    * runtime-created tenants have no build-time slug list. One login page is
    * served for every slugged path instead (a Next rewrite in dev,
    * internal/webstatic's fallback in production), and it parses its own URL. */
@@ -69,13 +82,30 @@ function LoginPageInner() {
     }
   }, [searchParams]);
 
-  // Already signed in with a valid token — skip the form entirely. Keeps the
-  // slug, so the app opens under the business the link named.
+  /* THE ONLY PLACE THIS PAGE LEAVES FOR THE CONSOLE.
+   *
+   * It covers both ways a token appears: already present on arrival (skip the
+   * form entirely, keeping the slug so the app opens under the business the
+   * link named) and set by handleSubmit a moment ago.
+   *
+   * handleSubmit used to navigate as well, on a 400ms timer, which made every
+   * successful sign-in fire TWO navigations: this effect's replace() the
+   * instant login() set the token, then an assign() 400ms later. The second
+   * one lands mid-flight and aborts the first, and the browser is left on the
+   * page it never finished leaving — the "login succeeds but stays on the
+   * login page until I refresh" bug, intermittent because it depended on
+   * whether the first load had committed inside those 400ms.
+   *
+   * navigatedRef makes it fire once even if a re-render would re-satisfy the
+   * condition. A navigation is in flight from that moment; re-issuing it is
+   * the same abort by another route.
+   */
+  const navigatedRef = useRef(false);
   useEffect(() => {
-    if (!loading && token) {
-      router.replace(appPath(businessSlugFromPath() ?? activeBusinessSlug()));
-    }
-  }, [loading, token, router]);
+    if (loading || !token || navigatedRef.current) return;
+    navigatedRef.current = true;
+    window.location.replace(appPath(businessSlugFromPath() ?? activeBusinessSlug()));
+  }, [loading, token]);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -103,10 +133,17 @@ function LoginPageInner() {
     setSubmitting(true);
     try {
       await login(trimmedIdentifier, pass, code);
+      /* No navigation here. login() has just set the token, and the effect
+       * above owns the move to the console — see its comment for why having
+       * both was self-defeating. `submitting` deliberately stays true: the
+       * form must not become interactive again while the browser is leaving.
+       *
+       * (The navigation is still a real document load, not router.push — the
+       * console is a separate document in the static export and the
+       * business-first URL that reaches it exists only as a server-side
+       * fallback, which Next's client router knows nothing about. That
+       * reasoning now lives at the single call site.) */
       setMsg({ text: "Signed in. Taking you through…", ok: true });
-      setTimeout(() => {
-        router.push(appPath(code || null));
-      }, 400);
     } catch (err) {
       const text =
         err instanceof ApiError
@@ -142,20 +179,44 @@ function LoginPageInner() {
           * detail, not worth a third of a phone screen. */}
         <aside className="brand-panel">
           <BrandLogo size={168} className="bp-mark" scalable={false} />
-          <h1 className="bp-name">
-            {nameTop}
-            {nameBottom && <span>{nameBottom}</span>}
-          </h1>
+          {known ? (
+            <h1 className="bp-name">
+              {nameTop}
+              {nameBottom && <span>{nameBottom}</span>}
+            </h1>
+          ) : (
+            <h1 className="bp-name" aria-hidden="true">
+              <NamePlaceholder />
+            </h1>
+          )}
           <p className="bp-desc">{BRAND.descriptor}</p>
-          <span className="bp-rule" aria-hidden="true"></span>
-          <p className="bp-reg">{kmlRegNo ? `KML Reg. No: ${kmlRegNo}` : BRAND.kmlRegLabel}</p>
-          <p className="bp-phone">{BRAND_PHONES}</p>
+          {/* Gated on `known` for the same reason the name above it is: until
+            * this business's own colours arrive, --brand-gradient still holds
+            * the platform's default sweep, and a business must never be shown
+            * anyone else's brand — not even for the few frames before the
+            * response lands. Unknown gets the neutral placeholder bar. */}
+          <span
+            className={known ? "bp-rule" : "bp-rule bp-rule--loading"}
+            aria-hidden="true"
+          ></span>
+          {/* The business's OWN registration number or nothing at all. It used
+            * to fall back to the platform's, which printed CloudHouse's money-
+            * lending registration on another company's sign-in page — wrong in
+            * a way that matters legally, not just cosmetically. Same reason the
+            * platform contact numbers that sat below it are gone: branding
+            * carries no per-business phone numbers, so there is nothing
+            * truthful to show in their place. */}
+          {kmlRegNo && <p className="bp-reg">{`KML Reg. No: ${kmlRegNo}`}</p>}
         </aside>
 
         <main className="card">
           <div className="brand">
             <h2>Sign in</h2>
-            <p>Staff access to the {shortName || businessName || BRAND.shortName} lending console.</p>
+            <p>
+              {known
+                ? `Staff access to the ${shortName || businessName} lending console.`
+                : "Staff access to your lending console."}
+            </p>
           </div>
 
           <form id="loginForm" noValidate onSubmit={handleSubmit}>
@@ -164,7 +225,7 @@ function LoginPageInner() {
               * already resolves that single tenant on its own when no code
               * is given (see handleSubmit's `code` — an empty typedCode is
               * still a valid, if under-specified, login). The multi-tenant
-              * slug plumbing (linkSlug, businessCode state, /login/<slug>
+              * slug plumbing (linkSlug, businessCode state, /<slug>/login
               * URLs) is left in place; only the input is no longer shown. */}
 
             <div className="field">
@@ -249,7 +310,7 @@ function LoginPageInner() {
 
         </main>
 
-        <p className="copy">© 2026 {legalName || BRAND.legalName}</p>
+        {known && <p className="copy">© 2026 {legalName || businessName}</p>}
         <p className="powered">
           Powered by{" "}
           <a href="https://cloudhousetechnologies.com" target="_blank" rel="noopener">
@@ -266,5 +327,31 @@ export default function LoginPage() {
     <Suspense fallback={null}>
       <LoginPageInner />
     </Suspense>
+  );
+}
+
+/* The name placeholder.
+ *
+ * Shown only on a browser that has never opened this business, and only until
+ * the branding response lands. Two neutral bars rather than a spinner, because
+ * they occupy the same two lines the real name will, so nothing on the panel
+ * jumps when it arrives. */
+function NamePlaceholder() {
+  const bar: React.CSSProperties = {
+    display: "block",
+    height: "0.72em",
+    borderRadius: 4,
+    background: "currentColor",
+    opacity: 0.16,
+    /* Declared in login.css, not in an inline <style> here as it used to be:
+     * .bp-rule--loading pulses with these bars and would otherwise depend on
+     * this component happening to be mounted to get its keyframes at all. */
+    animation: "loginBrandPulse 1.1s ease-in-out infinite",
+  };
+  return (
+    <>
+      <span style={{ ...bar, width: "9ch" }} />
+      <span style={{ ...bar, width: "6ch", marginTop: "0.22em" }} />
+    </>
   );
 }

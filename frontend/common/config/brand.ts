@@ -125,13 +125,60 @@ export type PrintBrand = {
   addressLine: string;
 };
 
+/* readCachedBrandIdentity replays the last-known IDENTITY (not just the print
+ * fields) for a business, so a cold load can render that business's own name
+ * and logo on the very first frame instead of a placeholder.
+ *
+ * The rule it serves: no business ever sees a brand that is not its own — not
+ * the vendor's, not another tenant's. Where this returns nothing (the first
+ * visit on this browser) the caller must show a neutral placeholder, never the
+ * platform brand. Keyed per slug exactly like every other cache here, so two
+ * businesses open in two tabs cannot read each other's.
+ */
+export function readCachedBrandIdentity(slug: string | null): {
+  name: string;
+  shortName: string;
+  /** No fallback to name here — empty is meaningful to resolveLockup. */
+  lockupTagline: string;
+  legalName: string;
+  logoUrl: string;
+} | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = window.localStorage.getItem(BRAND_PROFILE_KEY_PREFIX + (slug || "default"));
+    if (!raw) return null;
+    const p = JSON.parse(raw) as Record<string, string | undefined>;
+    if (!p.name && !p.logoUrl) return null;
+    return {
+      name: p.name || "",
+      shortName: p.shortName || p.name || "",
+      lockupTagline: p.lockupTagline || "",
+      legalName: p.legalName || p.name || "",
+      logoUrl: p.logoUrl || "",
+    };
+  } catch {
+    return null;
+  }
+}
+
 export function cacheBrandProfile(
   slug: string | null,
-  profile: { legalName: string; kmlRegNo: string; addressLine: string }
+  profile: { legalName: string; kmlRegNo: string; addressLine: string } & Partial<{ name: string; shortName: string; lockupTagline: string; logoUrl: string }>
 ): void {
   if (typeof window === "undefined") return;
+  const key = BRAND_PROFILE_KEY_PREFIX + (slug || "default");
   try {
-    window.localStorage.setItem(BRAND_PROFILE_KEY_PREFIX + (slug || "default"), JSON.stringify(profile));
+    /* MERGE, never replace. Two callers write this record with different
+     * halves of it: the authenticated read supplies the registration number
+     * and address, the public (signed-out) read only ever knows the name and
+     * logo. A straight overwrite meant an expired token — which falls through
+     * to the public read — silently blanked the registration number that the
+     * print templates then had to fall back to the platform's for. Empty
+     * strings are treated as "not supplied" and leave the stored value alone. */
+    const prev = JSON.parse(window.localStorage.getItem(key) || "{}") as Record<string, string>;
+    const merged: Record<string, string> = { ...prev };
+    for (const [k, v] of Object.entries(profile)) if (v) merged[k] = v;
+    window.localStorage.setItem(key, JSON.stringify(merged));
   } catch {
     /* storage disabled — templates fall back to the platform brand */
   }

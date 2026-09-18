@@ -134,6 +134,15 @@ type Tenant struct {
 	// served by its own name than by truncating it automatically.
 	ShortName string `json:"shortName" gorm:"size:40"`
 
+	// LockupTagline is the small uppercase line under the sidebar's bold
+	// headline. It is free text because what belongs there differs per
+	// business and cannot be derived: "Chittilapilly Thommana" (the full name,
+	// under the short code "CTFI") for one, "Gold Finance" (a descriptor, under
+	// the name itself) for the next. Empty is meaningful — the frontend then
+	// falls back to Name, and suppresses the line entirely when that would
+	// merely restate the headline. Deliberately NOT defaulted server-side.
+	LockupTagline string `json:"lockupTagline" gorm:"size:120"`
+
 	// AddressLine is the registered address printed under LegalName. One
 	// line rather than a structured address, because one line is all any of
 	// the document templates actually render.

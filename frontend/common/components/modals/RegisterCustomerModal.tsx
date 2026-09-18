@@ -8,6 +8,7 @@ import { FileInput } from "@/common/components/ui/FileInput";
 import { Icon } from "@/common/components/Icon";
 import { createCustomer, uploadFile } from "@/modules/customers/services/customerService";
 import { listActiveBranches, type BranchView } from "@/modules/branches/services/branchService";
+import { navigate } from "@/common/services/appRoutes";
 
 /* Ported from legacy/app.js's `openCustomerModal()` / `saveCustomer()`. Now
  * calls the Go backend (`POST /api/v1/customers`) instead of writing to the
@@ -85,7 +86,7 @@ export function RegisterCustomerModalContent({ onSaved }: { onSaved?: () => void
       onSaved?.();
       closeModal();
       toast(`${n} registered — ${c.code} · KYC auto-verified (stage 1 — no live verification yet)`);
-      location.hash = "customer/" + c.id;
+      navigate("customer/" + c.id);
     } catch (e) {
       setErr(e instanceof Error ? e.message : "Failed to register customer.");
     } finally {

@@ -3,6 +3,7 @@
 import { fmt } from "@/common/utils/format";
 import { StatusChip } from "@/common/components/ui/StatusChip";
 import type { LoanView } from "@/modules/loans/services/loanService";
+import { navigate } from "@/common/services/appRoutes";
 
 /* Ported from legacy/app.js's `loanRow(l)` — the shared row-builder used by
  * both the Customer 360° loan history table and the Loans page. Now reads
@@ -31,7 +32,7 @@ function displayStatus(l: LoanView): string {
 
 export function LoanRow({ loan: l }: { loan: LoanView }) {
   return (
-    <tr className="click" onClick={() => { location.hash = "loan/" + l.id; }}>
+    <tr className="click" onClick={() => { navigate("loan/" + l.id); }}>
       <td><span className="id">{l.id}</span><span className="sub">{l.customerName}</span></td>
       <td>{l.schemeName}</td>
       <td>{l.opened}<span className="sub">due {l.due}</span></td>

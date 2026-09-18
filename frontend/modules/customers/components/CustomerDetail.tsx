@@ -39,6 +39,7 @@ import {
   RequestReleaseModalContent,
 } from "@/common/components/modals/RequestExtensionModal";
 import { EditCustomerModalContent } from "@/common/components/modals/EditCustomerModal";
+import { navigate, routeHref } from "@/common/services/appRoutes";
 
 /* Server-side pager for the 360 view's sub-tables: each of the 5 tables
  * below fetches its own page (limit 10) from its own
@@ -398,7 +399,7 @@ export function CustomerDetail({ id }: { id?: string }) {
                             if (!id || hasActiveLoans) return;
                             await hardDeleteCustomer(id);
                             toast("Customer deleted permanently");
-                            location.hash = "customers";
+                            navigate("customers");
                           }}
                         >
                           {hasActiveLoans && (
@@ -432,7 +433,7 @@ export function CustomerDetail({ id }: { id?: string }) {
           </div>
         )}
         {canUpdateLoans && <button className="btn ghost" onClick={openRequestPicker}><Icon name="unlock" /> Request Extension / Release</button>}
-        {canCreateLoans && <a className="btn" href="#newloan"><Icon name="plus" /> New Loan</a>}
+        {canCreateLoans && <a className="btn" href={routeHref("newloan")}><Icon name="plus" /> New Loan</a>}
         {/* Edit Customer + Delete Customer collapsed into one "Actions"
          * dropdown — same pattern as LoanDetail.tsx's "Documents"/"Loan
          * Actions" menus. Delete stays the ONLY delete action offered here —
@@ -632,7 +633,7 @@ export function CustomerDetail({ id }: { id?: string }) {
                       <tr><td colSpan={5} className="empty compact">No pledged ornaments yet.</td></tr>
                     ) : ornamentPager.items.map((o) => (
                       <tr key={o.loanId + "-" + o.id}>
-                        <td><a href={`#loan/${o.loanNumber}`}>{o.loanNumber}</a></td>
+                        <td><a href={routeHref(`loan/${o.loanNumber}`)}>{o.loanNumber}</a></td>
                         <td>{o.name}</td>
                         <td><span className="chip brand">{o.purity}</span></td>
                         <td className="num">{fmtW(o.netWeight)}</td>
@@ -654,7 +655,7 @@ export function CustomerDetail({ id }: { id?: string }) {
                       <tr><td colSpan={5} className="empty compact">No payments recorded yet.</td></tr>
                     ) : paymentPager.items.map((p) => (
                       <tr key={p.loanId + "-" + p.id}>
-                        <td><a href={`#loan/${p.loanNumber}`}>{p.loanNumber}</a></td>
+                        <td><a href={routeHref(`loan/${p.loanNumber}`)}>{p.loanNumber}</a></td>
                         <td>{p.paidOn}</td>
                         <td>{p.type}</td>
                         <td className="num">{fmt(p.amount)}</td>
@@ -676,7 +677,7 @@ export function CustomerDetail({ id }: { id?: string }) {
                       <tr><td colSpan={5} className="empty compact">No bank pledges yet.</td></tr>
                     ) : bankPledgePager.items.map((p) => (
                       <tr key={p.loanId + "-" + p.id}>
-                        <td><a href={`#loan/${p.loanNumber}`}>{p.loanNumber}</a></td>
+                        <td><a href={routeHref(`loan/${p.loanNumber}`)}>{p.loanNumber}</a></td>
                         <td>{p.bankName}</td>
                         <td className="num">{fmt(p.pledgedAmount)}</td>
                         <td>{p.pledgeDate}</td>
@@ -698,7 +699,7 @@ export function CustomerDetail({ id }: { id?: string }) {
                       <tr><td colSpan={5} className="empty compact">No auction records yet.</td></tr>
                     ) : auctionPager.items.map((a) => (
                       <tr key={a.id}>
-                        <td><a href={`#loan/${a.loanNumber}`}>{a.loanNumber}</a></td>
+                        <td><a href={routeHref(`loan/${a.loanNumber}`)}>{a.loanNumber}</a></td>
                         <td><StatusChip status={a.stage} /></td>
                         <td>{a.auctionDate || "—"}</td>
                         <td className="num">{a.saleAmount ? fmt(a.saleAmount) : "—"}</td>

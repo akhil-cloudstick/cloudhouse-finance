@@ -3,10 +3,11 @@
 import { fmt } from "@/common/utils/format";
 import { StatusChip } from "@/common/components/ui/StatusChip";
 import type { BackendInvestment } from "@/modules/investments/services/investmentService";
+import { navigate } from "@/common/services/appRoutes";
 
 export function InvestmentRow({ investment }: { investment: BackendInvestment }) {
   return (
-    <tr className="click" onClick={() => { location.hash = "investment/" + investment.id; }}>
+    <tr className="click" onClick={() => { navigate("investment/" + investment.id); }}>
       <td><span className="id">{investment.investmentNumber}</span><span className="sub">{investment.customer?.name}</span></td>
       <td className="num">{fmt(investment.principalAmount)}</td>
       <td>{investment.interestRatePercent}% {investment.payoutFrequency}</td>

@@ -1,7 +1,6 @@
 "use client";
 
 import { useState } from "react";
-import { useRouter } from "next/navigation";
 import { useCustomers } from "@/modules/customers/store/CustomersProvider";
 import { useGoldRates } from "@/modules/gold-rates/store/GoldRatesProvider";
 import { fmt } from "@/common/utils/format";
@@ -11,10 +10,10 @@ import { RateModalContent } from "@/common/components/modals/RateModal";
 import { Icon } from "@/common/components/Icon";
 import { useAuth } from "@/common/auth-context";
 import { loginPath } from "@/common/services/tenantSession";
-import { BRAND } from "@/common/config/brand";
 import { useBranding } from "@/common/BrandingProvider";
 import GlobalSearch from "./GlobalSearch";
 import { BranchSwitcher } from "./BranchSwitcher";
+import { routeHref } from "@/common/services/appRoutes";
 
 /* Ported from legacy/app.html's <header class="top"> + app.js's
  * `refreshRateChip()` / breadcrumb logic in `router()`. */
@@ -27,17 +26,24 @@ export function Topbar({ route, arg, onBurger }: { route: string; arg?: string; 
   // already gets this right via the same hook, this was the one place that
   // didn't.
   const { name: businessName } = useBranding();
-  const router = useRouter();
   const [searchOpen, setSearchOpen] = useState(false);
 
   function handleLogout(e: React.MouseEvent) {
     e.preventDefault();
-    // Resolve the link before logout: it clears the remembered business, and
-    // a signed-out user should land back on their own organisation.s sign-in
-    // page rather than a bare form asking for a business code.
-    const back = loginPath();
+    /* Drop the session and stop. The navigation belongs to app/app/layout.tsx,
+     * whose guard already watches for exactly this ("no token in the app
+     * shell → go to the sign-in page") and does it as a full document load,
+     * which is required: the console and the sign-in page are separate
+     * documents in the static export, and the business-first URL that reaches
+     * the latter (/ctfi/login) exists only as a dev rewrite and a server-side
+     * fallback that Next's client router knows nothing about.
+     *
+     * This handler used to navigate as well, and two replace() calls into the
+     * same transition is one too many — the second lands mid-flight and
+     * aborts the first. Leaving the move to the guard also means the
+     * sign-in link is resolved from the same state the guard sees, rather
+     * than from a value captured a moment earlier here. */
     logout();
-    router.replace(back);
   }
 
   const crumb =
@@ -57,7 +63,7 @@ export function Topbar({ route, arg, onBurger }: { route: string; arg?: string; 
         </svg>
       </button>
       <span className="crumb" id="crumb">
-        <a href="#dashboard" style={{ color: "inherit", textDecoration: "none" }}>{businessName || BRAND.name}</a>
+        <a href={routeHref("dashboard")} style={{ color: "inherit", textDecoration: "none" }}>{businessName}</a>
         &nbsp;/&nbsp;
         <a href={crumbHref} style={{ color: "inherit", textDecoration: "none" }}><b>{crumb}</b></a>
       </span>
@@ -65,7 +71,7 @@ export function Topbar({ route, arg, onBurger }: { route: string; arg?: string; 
       <a
         className={`rate-chip${searchOpen ? " rate-chip-shrunk" : ""}`}
         id="rateChip"
-        href="#goldrates"
+        href={routeHref("goldrates")}
         title="22K is computed from the published 24K rate, not separately published"
         style={{ textDecoration: "none", color: "inherit" }}
       >

@@ -9,6 +9,7 @@ import { fmt, initials } from "@/common/utils/format";
 import { EmployeeModalContent } from "@/common/components/modals/EmployeeModal";
 import { deleteEmployee, listEmployeesPage, type EmployeeView } from "@/modules/employees/services/employeeService";
 import { useResponsivePageSize } from "@/common/utils/responsive";
+import { routeHref } from "@/common/services/appRoutes";
 
 /* Ported from legacy/app.js's `renderEmployees()`. Loads real data from the
  * Go backend (`GET /api/v1/employees`), following the Branches.tsx pattern. */
@@ -61,7 +62,7 @@ export function Employees() {
         <div><h1>Employees &amp; Roles</h1><p>Role-based access · performance across loans, collections and follow-ups</p></div>
         <div className="sp" />
         {canViewRoles && (
-          <a className="btn ghost" href="#roles-permissions"><Icon name="shield" /> Roles</a>
+          <a className="btn ghost" href={routeHref("roles-permissions")}><Icon name="shield" /> Roles</a>
         )}
         {canCreateEmployees && (
           <button className="btn" onClick={() => openModal(<EmployeeModalContent onSaved={onSaved} />)}><Icon name="plus" /> Add Employee</button>

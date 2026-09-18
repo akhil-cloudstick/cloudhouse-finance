@@ -6,6 +6,7 @@ import { ApiError } from "@/common/services/httpClient";
 import { fmt } from "@/common/utils/format";
 import { StatusChip } from "@/common/components/ui/StatusChip";
 import { getInvestorLedger, type InvestorLedgerRow, type InvestorLedgerTotals } from "@/modules/reports/services/reportsService";
+import { navigate } from "@/common/services/appRoutes";
 
 const dt = (v: string) => v ? new Date(v).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" }) : "—";
 
@@ -51,7 +52,7 @@ export function InvestorStatementModalContent({ customerId, customerName }: { cu
             ) : rows.length === 0 ? (
               <tr><td colSpan={7} className="empty compact">No investments for this investor.</td></tr>
             ) : rows.map((r) => (
-              <tr key={r.investmentId} className="click" onClick={() => { location.hash = "investment/" + r.investmentId; closeModal(); }}>
+              <tr key={r.investmentId} className="click" onClick={() => { navigate("investment/" + r.investmentId); closeModal(); }}>
                 <td>{r.investmentNumber}</td>
                 <td>{r.planName}</td>
                 <td className="num">{fmt(r.principalAmount)}</td>

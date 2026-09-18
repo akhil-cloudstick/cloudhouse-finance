@@ -30,7 +30,14 @@ export default function ResetPage() {
   const { token, loading, isAdmin, permissionsLoaded } = useAuth();
   // BrandingProvider is mounted in the ROOT layout, not app/app/, so it is
   // available here even though nothing else from the console is.
-  const { hasModule, loaded: brandingLoaded } = useBranding();
+  const { hasModule, loaded: brandingLoaded, name: businessName } = useBranding();
+  /* Which business this page is about to wipe. Reached as /reset/<slug>, so
+   * the slug selects the per-slug session (tenantSession keys tokens by slug)
+   * and every call below therefore carries THAT business's token — the wipe
+   * acts on the business in the token, never on the one in the URL. A bare
+   * /reset still falls back to the last business used on this browser, which
+   * is why the card names the business it is going to delete. */
+  const slug = activeBusinessSlug();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [progress, setProgress] = useState<ResetProgress | null>(null);
@@ -161,9 +168,12 @@ export default function ResetPage() {
         <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 18 }}>
           <BrandLogo size={44} scalable={false} />
           <div>
-            <h1 style={{ fontSize: 20, margin: 0 }}>Reset the demo</h1>
+            <h1 style={{ fontSize: 20, margin: 0 }}>
+              Reset {businessName || "this business"}
+            </h1>
             <p style={{ margin: "2px 0 0", fontSize: 13, color: "var(--muted)" }}>
               Restores the scripted dataset for the next client.
+              {slug ? ` Business: ${slug}.` : ""}
             </p>
           </div>
         </div>

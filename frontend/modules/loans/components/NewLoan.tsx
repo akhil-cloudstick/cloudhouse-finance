@@ -39,11 +39,12 @@ import { PurityPicker } from "@/common/components/ui/PurityPicker";
 import { rateForPurityString } from "@/common/utils/purity";
 import { makeEnterToSubmitHandler } from "@/common/utils/enterToSubmit";
 import { openPrintWindow, brandHeader } from "@/common/utils/print";
-import { BRAND, printColors } from "@/common/config/brand";
+import { printColors, tenantLenderProfile } from "@/common/config/brand";
 import { bondLangOptionsFor, type BondLang } from "@/modules/loans/utils/indemnityBond";
 import { useBranding } from "@/common/BrandingProvider";
 import { ApiError } from "@/common/services/httpClient";
 import type { Ornament } from "@/common/utils/data";
+import { navigate } from "@/common/services/appRoutes";
 
 
 // Purity is now a plain unit-suffixed string ("22K" / "91.6%", see
@@ -593,7 +594,7 @@ export function NewLoan() {
       <div class="label">
         <img src="${qr}" alt="QR">
         <div class="t">
-          <div class="brand">${BRAND.name.toUpperCase()}</div>
+          <div class="brand">${tenantLenderProfile().legalName.toUpperCase()}</div>
           <div class="id">${provId} · ${packetLabel}</div>
           <div>${c.name || "—"}</div>
           <div>${c.id || "—"} · ${c.phone || ""}</div>
@@ -702,7 +703,7 @@ export function NewLoan() {
       refresh();
       refreshLoans();
       toast(`Loan ${loan.loanNumber} submitted for approval`);
-      location.hash = "loan/" + loan.loanNumber;
+      navigate("loan/" + loan.loanNumber);
     } catch (err) {
       toast(err instanceof ApiError ? err.message : "Could not submit loan — try again");
     } finally {

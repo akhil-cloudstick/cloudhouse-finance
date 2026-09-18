@@ -1,9 +1,9 @@
 "use client";
 
 import { useState, type CSSProperties } from "react";
-import { BRAND } from "@/common/config/brand";
+
 import { useBranding } from "@/common/BrandingProvider";
-import BrandMark from "@/common/components/BrandMark";
+
 import { DEFAULT_LOGO_DISPLAY, DEFAULT_LOGO_SCALE, LOGO_SCALES } from "@/common/config/theme";
 
 /* The brand seal, as used by the sidebar, the three auth pages and the
@@ -14,11 +14,13 @@ import { DEFAULT_LOGO_DISPLAY, DEFAULT_LOGO_SCALE, LOGO_SCALES } from "@/common/
  * monogram and sat it on a white disc to raise contrast against the violet
  * sidebar; that was rejected — the logo is shown as-is by instruction.
  *
- * The one thing this still owns is the fallback: if the raster at
- * BRAND.markSrc is missing, it renders the inline-SVG BrandMark rather than a
- * broken-image icon. The five call sites used to hardcode an <img> at their
- * own copy of the logo path, so a renamed asset broke all of them
- * independently.
+ * The one thing this still owns is the fallback, and it is deliberately NOT
+ * the platform mark: a business must only ever see its own brand, so a
+ * missing or broken logo degrades to that business's own initial, and to a
+ * neutral placeholder while even its name is still unknown. The five call
+ * sites used to hardcode an <img> at their own copy of the platform logo
+ * path, which is how the vendor's mark ended up flashing on every tenant's
+ * screen on a cold load.
  */
 
 type Props = {
@@ -43,9 +45,14 @@ export default function BrandLogo({ size = 46, className, scalable = true }: Pro
    * that, one business's broken logo would leave the flag stuck on and the
    * next business signed into the same tab would render the platform mark
    * even though its own logo is fine. */
-  const { logoUrl, legalName, logoScale, logoDisplay } = useBranding();
-  const src = logoUrl || BRAND.markSrc;
-  const alt = legalName || BRAND.legalName;
+  const { logoUrl, legalName, name, loaded, cached, logoScale, logoDisplay } = useBranding();
+  /* No platform fallback, by product rule: a business must never be shown a
+   * brand that is not its own — not another tenant's and not the vendor's,
+   * not even for the frames before its branding arrives. So an absent logo
+   * renders either the business's own initial (once its name is known) or a
+   * neutral placeholder block, never CloudHouse's mark. */
+  const src = logoUrl;
+  const alt = legalName || name || "";
 
   const [failedSrc, setFailedSrc] = useState<string | null>(null);
   const failed = failedSrc === src;
@@ -87,17 +94,43 @@ export default function BrandLogo({ size = 46, className, scalable = true }: Pro
           boxSizing: "border-box",
         };
 
-  if (failed) {
+  /* Three states share one slot, all of them tenant-safe:
+   *   - a real logo (below),
+   *   - the business's initial, when it has no logo or the file 404s,
+   *   - a neutral pulsing block, when even the name is not known yet.
+   * The last only happens on a browser that has never opened this business;
+   * every later load replays the name and logo from cache before first paint
+   * (see BrandingProvider's initialBranding), so it is not a visible state
+   * for a returning user. */
+  if (!src || failed) {
+    const initial = alt.trim().charAt(0).toUpperCase();
+    const settled = loaded || cached;
     return (
-      <span style={wrapperStyle} className={className}>
-        <BrandMark
-          size={effectiveSize}
-          // gradient, not currentColor: this stands in for a full-colour
-          // raster, and it has to read on both the violet sidebar and the
-          // white auth panels, neither of which shares a text colour.
-          gradient
-          title={alt}
-        />
+      <span
+        style={{
+          ...wrapperStyle,
+          display: "inline-flex",
+          alignItems: "center",
+          justifyContent: "center",
+          borderRadius: "20%",
+          background: settled && initial ? "var(--brand)" : "var(--brand-pale, rgba(0,0,0,.06))",
+          color: "#fff",
+          fontFamily: "var(--font-display), var(--font-sans), sans-serif",
+          fontWeight: 700,
+          fontSize: Math.round(effectiveSize * 0.46),
+          lineHeight: 1,
+          overflow: "hidden",
+          animation: settled ? undefined : "brandLogoPulse 1.1s ease-in-out infinite",
+        }}
+        className={className}
+        aria-label={settled && initial ? alt : undefined}
+        aria-hidden={settled && initial ? undefined : true}
+        role={settled && initial ? "img" : undefined}
+      >
+        {settled && initial ? initial : null}
+        {!settled && (
+          <style>{"@keyframes brandLogoPulse{0%,100%{opacity:.45}50%{opacity:.9}}"}</style>
+        )}
       </span>
     );
   }

@@ -42,10 +42,15 @@ type ProfileInput struct {
 	// browser tab, the login page's "Staff access to X" line — e.g. "CTFI"
 	// for "Chittilapilly Thommana Financiers & Investments". Empty falls
 	// back to Name, same convention as LegalName.
-	ShortName   string
-	AddressLine string
-	KMLRegNo    string
-	AppURL      string
+	ShortName string
+	// LockupTagline is the sidebar's small second line under the headline —
+	// "Chittilapilly Thommana" under "CTFI", or "Gold Finance" under
+	// "CloudHouse". Free text, because which of those two a business wants is
+	// not derivable from its name. Empty is left empty (see tenant.Tenant).
+	LockupTagline string
+	AddressLine   string
+	KMLRegNo      string
+	AppURL        string
 }
 
 // UpdateProfile renames a business and sets the legal identity printed on its
@@ -70,6 +75,7 @@ func (s *Service) UpdateProfile(ctx context.Context, actor *SuperAdminUser, id u
 	t.Name = name
 	t.LegalName = strings.TrimSpace(in.LegalName)
 	t.ShortName = strings.TrimSpace(in.ShortName)
+	t.LockupTagline = strings.TrimSpace(in.LockupTagline)
 	t.AddressLine = strings.TrimSpace(in.AddressLine)
 	t.KMLRegNo = strings.TrimSpace(in.KMLRegNo)
 	t.AppURL = strings.TrimSpace(in.AppURL)

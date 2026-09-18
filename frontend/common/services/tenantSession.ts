@@ -3,8 +3,8 @@
  * The app is sold to many independent businesses from one deployment, so a
  * username is only unique WITHIN a business and the backend needs to know
  * which one a login is for. It learns that from a `businessCode`, and the
- * business reaches its staff through a per-business link: /login/<slug>,
- * /app/<slug>.
+ * business reaches its staff through a per-business link, with the code at
+ * the front of the path: /<slug>/login, /<slug>/dashboard.
  *
  * Three rules this module exists to enforce:
  *
@@ -29,6 +29,8 @@
  * changing it breaks every saved bookmark.
  */
 
+import { isBusinessSegment, isValidBusinessSlug as isValidSlug } from "@/common/config/routes";
+
 /* Where the last-used business is remembered, so bare /login and /app resolve
  * to something instead of dead-ending. A pointer only — never a source of
  * authority. */
@@ -51,28 +53,27 @@ const STALE_KEYS = [
  * keys stay readable in devtools. */
 const DEFAULT_BUCKET = "default";
 
-/* Slugs are lowercase alphanumeric plus dashes. Anything else is not treated
- * as a slug at all, which keeps a stray path segment ("/login/callback") from
- * being mistaken for a business and sent to the backend as a code. */
-const SLUG_PATTERN = /^[a-z0-9][a-z0-9-]*$/;
+/* The slug rules themselves live in common/config/routes.ts, which has no
+ * imports: both this module and appRoutes.ts need them, and each of those
+ * two already needs the other. Re-exported here so the many callers that
+ * reach for it through this module keep working. */
+export { isValidBusinessSlug } from "@/common/config/routes";
 
-/* The path prefixes that carry a business slug. */
-const SLUGGED_PREFIXES = ["login", "app"] as const;
-
-export function isValidBusinessSlug(value: string): boolean {
-  return SLUG_PATTERN.test(value) && value.length <= 60;
-}
-
-/* businessSlugFromPath pulls the slug out of /login/<slug> or /app/<slug>.
- * Returns null for bare /login, /app, and any path whose segment is not a
- * well-formed slug. */
+/* businessSlugFromPath reads the business out of the FIRST path segment:
+ * /ctfi/login, /ctfi/dashboard, /ctfi/loan/GL-1001.
+ *
+ * The business code leads the path so that everything belonging to one
+ * customer sits under one prefix that is theirs. The cost is that the first
+ * segment is ambiguous — "/loans" could be a business called "loans" — which
+ * is settled by routes.ts's reserved list, not by guessing. Returns null for
+ * a bare path (/login, /dashboard), which is the single-business install.
+ */
 export function businessSlugFromPath(pathname?: string): string | null {
   const path = pathname ?? (typeof window === "undefined" ? "" : window.location.pathname);
   const parts = path.split("/").filter(Boolean);
-  if (parts.length < 2) return null;
-  if (!SLUGGED_PREFIXES.includes(parts[0] as (typeof SLUGGED_PREFIXES)[number])) return null;
-  const candidate = parts[1].toLowerCase();
-  return isValidBusinessSlug(candidate) ? candidate : null;
+  if (!parts.length) return null;
+  const candidate = parts[0].toLowerCase();
+  return isBusinessSegment(candidate) ? candidate : null;
 }
 
 /* Host labels that never name a business — the platform's own bare/marketing
@@ -108,7 +109,7 @@ export function businessSlugFromHost(hostname?: string): string | null {
   const labels = host.split(".");
   if (labels.length < 2) return null; // "localhost" alone, or an unqualified host
   const candidate = labels[0];
-  if (!isValidBusinessSlug(candidate) || RESERVED_HOST_LABELS.has(candidate)) return null;
+  if (!isValidSlug(candidate) || RESERVED_HOST_LABELS.has(candidate)) return null;
   const rest = labels.slice(1).join(".");
   if (LOCAL_HOST_SUFFIXES.includes(rest)) return candidate;
   // A bare two-label apex ("cloudhousesupport.site") has no subdomain to
@@ -135,12 +136,12 @@ export function activeBusinessSlug(): string | null {
   if (fromHost) return fromHost;
   if (typeof window === "undefined") return null;
   const remembered = window.localStorage.getItem(ACTIVE_BUSINESS_KEY);
-  return remembered && isValidBusinessSlug(remembered) ? remembered : null;
+  return remembered && isValidSlug(remembered) ? remembered : null;
 }
 
 export function rememberActiveBusiness(slug: string | null): void {
   if (typeof window === "undefined") return;
-  if (slug && isValidBusinessSlug(slug)) {
+  if (slug && isValidSlug(slug)) {
     window.localStorage.setItem(ACTIVE_BUSINESS_KEY, slug);
   } else {
     window.localStorage.removeItem(ACTIVE_BUSINESS_KEY);
@@ -149,7 +150,7 @@ export function rememberActiveBusiness(slug: string | null): void {
 
 function bucket(slug?: string | null): string {
   const s = slug === undefined ? activeBusinessSlug() : slug;
-  return s && isValidBusinessSlug(s) ? s : DEFAULT_BUCKET;
+  return s && isValidSlug(s) ? s : DEFAULT_BUCKET;
 }
 
 /* The storage keys for one business's session. */
@@ -188,6 +189,40 @@ export function clearSession(slug?: string | null): void {
   window.sessionStorage.removeItem(keys.permissions);
 }
 
+/* clearSessionsForToken removes every bucket holding THIS EXACT token, and
+ * returns how many it cleared.
+ *
+ * Sign-out clears the bucket that activeBusinessSlug() resolves to at the
+ * moment of the click. That answer is derived from the current URL (path,
+ * then host, then the remembered pointer), and it is not guaranteed to be
+ * the answer that was current when writeSession chose a bucket — a login
+ * that named a business explicitly and a later bare-path URL resolve
+ * differently. When they disagree the token SURVIVES the sign-out, the login
+ * page reads it back as a live session, and its "already signed in" effect
+ * bounces the user straight to the dashboard: signing out appears to work
+ * for an instant and then undoes itself.
+ *
+ * Matching on the token VALUE rather than widening the slug guess is what
+ * keeps this safe for the multi-tenant case. Two businesses signed in in two
+ * tabs hold two different tokens, so clearing by value can only ever remove
+ * the session actually being signed out of — never the other tab's, which is
+ * the whole reason sessions are keyed per business in the first place.
+ */
+export function clearSessionsForToken(token: string | null): number {
+  if (typeof window === "undefined" || !token) return 0;
+  const prefix = "cloudhouse_token::";
+  // Collected before mutating: removeItem reindexes localStorage, so removing
+  // inside a key(i) walk skips entries.
+  const buckets: string[] = [];
+  for (let i = 0; i < window.localStorage.length; i++) {
+    const key = window.localStorage.key(i);
+    if (!key || !key.startsWith(prefix)) continue;
+    if (window.localStorage.getItem(key) === token) buckets.push(key.slice(prefix.length));
+  }
+  buckets.forEach((b) => clearSession(b));
+  return buckets.length;
+}
+
 /* readPermissions/writePermissions mirror the permission map per business.
  * sessionStorage, so it dies with the tab (the map is a cache, never an
  * authority — see the role-permission standard). */
@@ -215,18 +250,12 @@ export function purgeStaleSession(): void {
   for (const key of STALE_KEYS) window.localStorage.removeItem(key);
 }
 
-/* Link builders. Used everywhere instead of hardcoded "/login" and "/app" so
- * a signed-in user is never bounced to a URL that has forgotten which
- * business they belong to. */
-export function loginPath(slug?: string | null): string {
-  const s = slug === undefined ? activeBusinessSlug() : slug;
-  return s && isValidBusinessSlug(s) ? `/login/${s}` : "/login";
-}
-
-export function appPath(slug?: string | null, hash = "#dashboard"): string {
-  const s = slug === undefined ? activeBusinessSlug() : slug;
-  return s && isValidBusinessSlug(s) ? `/app/${s}${hash}` : `/app${hash}`;
-}
+/* The link builders moved to common/services/appRoutes.ts, which owns the
+ * whole URL shape — routes as well as the two standalone pages. Re-exported
+ * here because this is where every caller already imports them from, and a
+ * link built against the old shape would resolve to a page that no longer
+ * exists. */
+export { appPath, loginPath, resetPath } from "@/common/services/appRoutes";
 
 /* The business code sent to the backend with a login, password-reset request
  * or OTP verification.
@@ -238,5 +267,5 @@ export function appPath(slug?: string | null, hash = "#dashboard"): string {
  * against a business they never named. */
 export function businessCodeForRequest(slug?: string | null): string {
   const s = slug === undefined ? activeBusinessSlug() : slug;
-  return s && isValidBusinessSlug(s) ? s : "";
+  return s && isValidSlug(s) ? s : "";
 }

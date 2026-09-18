@@ -11,28 +11,52 @@ import type { NextConfig } from "next";
 // needed.
 const BACKEND_ORIGIN = process.env.BACKEND_ORIGIN || "http://localhost:8080";
 
+/* What may appear where a business code is expected, as a path-to-regexp
+ * constraint on the :slug parameter.
+ *
+ * Without it the catch-all rules below match ANY path of the right depth,
+ * including a missing /_next/static/*.js chunk — which then comes back as the
+ * app shell's HTML with a 200, and the browser reports a MIME type error
+ * instead of the 404 that would have explained it. The API and uploads escape
+ * that only because their rewrites are listed first; these prefixes have no
+ * rewrite of their own and need the exclusion.
+ *
+ * Mirrors RESERVED_ROOT_SEGMENTS in common/config/routes.ts and
+ * isReservedSegment in backend/internal/webstatic. The app's own route names
+ * are deliberately NOT excluded here: "/loans" has to reach the shell either
+ * way, as the bare install's loans page. */
+const SLUG = "((?!_next|api|uploads|assets|static|favicon\.ico)[a-z0-9][a-z0-9-]*)";
+
 const nextConfig: NextConfig = {
   output: "export",
   async rewrites() {
     return [
       { source: "/api/v1/:path*", destination: `${BACKEND_ORIGIN}/api/v1/:path*` },
       { source: "/uploads/:path*", destination: `${BACKEND_ORIGIN}/uploads/:path*` },
-      // Per-business links: /login/<slug> and /app/<slug> serve the same
-      // login and app pages, which read the slug from their own URL.
+      // Per-business links. The business code leads the path and the page
+      // follows it — /ctfi/login, /ctfi/dashboard, /ctfi/loan/GL-1001 — so
+      // everything one customer touches sits under one prefix that is theirs.
       //
-      // They are NOT Next dynamic routes ([slug]) because this project builds
+      // These are NOT Next dynamic routes ([slug]) because this project builds
       // with output: "export": a dynamic route needs every parameter known at
       // build time via generateStaticParams, and tenant slugs are created at
       // runtime by the vendor, so there is no list to generate. Rewriting to
       // one static page is what makes a slugged URL work at all.
       //
-      // Rewrites are dev-only here (output: "export" does not support them),
-      // so production needs the same fallback server-side — see
-      // backend/internal/webstatic's slugged-path handling. Keep the two in
-      // step: a path that works in dev and 404s in production is worse than
-      // one that never worked.
-      { source: "/login/:slug", destination: "/login" },
-      { source: "/app/:slug", destination: "/app" },
+      // ORDER MATTERS. The two-segment page rules must precede the catch-all
+      // route rule, or /ctfi/login would be served the app shell. These are
+      // afterFiles rewrites, so real pages (/login, /forgot-password) and
+      // real assets still win over every pattern here.
+      //
+      // Rewrites are dev-only (output: "export" does not support them), so
+      // production needs the same fallback server-side — see
+      // backend/internal/webstatic. Keep the two in step: a path that works in
+      // dev and 404s in production is worse than one that never worked.
+      { source: `/:slug${SLUG}/login`, destination: "/login" },
+      { source: `/:slug${SLUG}/reset`, destination: "/reset" },
+      { source: `/:slug${SLUG}`, destination: "/app" },
+      { source: `/:slug${SLUG}/:route`, destination: "/app" },
+      { source: `/:slug${SLUG}/:route/:arg`, destination: "/app" },
     ];
   },
 };
