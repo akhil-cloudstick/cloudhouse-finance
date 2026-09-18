@@ -137,11 +137,40 @@ func bondRateOrBlank(rate float64) string {
 // folder, so this always resolves to backend/templates/.
 const templatesDir = "./templates"
 
+// findTemplatesDir locates templatesDir, walking up from the working
+// directory if it is not there — same helper and same reason as
+// internal/loan/indemnitybond.go's: `go test` runs each package with its own
+// directory as the working directory, and this template loads at package
+// INIT, so without the walk every test in this package (and in every package
+// importing it — internal/app and internal/migrate) panicked before it could
+// run. Production starts in backend/, matches the first candidate, and walks
+// nothing.
+func findTemplatesDir() string {
+	if _, err := os.Stat(templatesDir); err == nil {
+		return templatesDir
+	}
+	dir, err := os.Getwd()
+	if err != nil {
+		return templatesDir
+	}
+	for {
+		candidate := filepath.Join(dir, "templates")
+		if _, err := os.Stat(candidate); err == nil {
+			return candidate
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			return templatesDir
+		}
+		dir = parent
+	}
+}
+
 // bondTemplate parses the personal-loan bond template (loaded from
 // backend/templates/personal-loan-bond-malayalam.html) once at package init,
 // matching internal/loan/indemnitybond.go's own template-loading pattern.
 var bondTemplate = template.Must(func() (*template.Template, error) {
-	b, err := os.ReadFile(filepath.Join(templatesDir, "personal-loan-bond-malayalam.html"))
+	b, err := os.ReadFile(filepath.Join(findTemplatesDir(), "personal-loan-bond-malayalam.html"))
 	if err != nil {
 		return nil, fmt.Errorf("personal loan bond: read template: %w", err)
 	}

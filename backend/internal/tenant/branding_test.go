@@ -128,3 +128,73 @@ func TestValidateRejectsUnknownAndAcceptsKnown(t *testing.T) {
 		t.Errorf("ValidateLanguages = %v, want [fr]", bad)
 	}
 }
+
+// TestPolicyBoundsLanguages pins the rule that makes policy the primary axis:
+// a business can only be granted a language its document family has a
+// template for. Without this a KML business could be entitled to Gujarati,
+// which has no KML template — the grant would look saved in the console and
+// then silently render another language at print time.
+func TestPolicyBoundsLanguages(t *testing.T) {
+	kml := &Tenant{Policy: PolicyKML}
+	kml.SetLanguages([]string{"en", "ml", "gu"})
+	if got, want := kml.LanguageList(), []string{"en", "ml"}; !reflect.DeepEqual(got, want) {
+		t.Errorf("KML LanguageList() = %v, want %v (Gujarati has no KML template)", got, want)
+	}
+	if kml.HasLanguage("gu") {
+		t.Error("KML business reports Gujarati as issuable")
+	}
+
+	gml := &Tenant{Policy: PolicyGML}
+	gml.SetLanguages([]string{"en", "ml", "gu"})
+	if got, want := gml.LanguageList(), []string{"en", "gu"}; !reflect.DeepEqual(got, want) {
+		t.Errorf("GML LanguageList() = %v, want %v (Malayalam has no GML template)", got, want)
+	}
+	if gml.HasLanguage("ml") {
+		t.Error("GML business reports Malayalam as issuable")
+	}
+}
+
+// TestSetPolicyRefiltersLanguages covers the switch case: a business moved to
+// another family must not keep an entitlement the new family cannot print.
+func TestSetPolicyRefiltersLanguages(t *testing.T) {
+	tn := &Tenant{Policy: PolicyKML}
+	tn.SetLanguages([]string{"en", "ml"})
+	tn.SetPolicy(PolicyGML)
+	if tn.HasLanguage("ml") {
+		t.Error("Malayalam survived the switch to GML, which has no Malayalam template")
+	}
+	if !tn.HasLanguage("en") {
+		t.Error("English must survive every policy switch")
+	}
+}
+
+// TestEmptyPolicyIsKML pins the empty-means-KML rule every tenant row
+// predating the policy column relies on.
+func TestEmptyPolicyIsKML(t *testing.T) {
+	tn := &Tenant{}
+	if got := tn.PolicyOrDefault(); got != PolicyKML {
+		t.Errorf("PolicyOrDefault() = %q, want %q", got, PolicyKML)
+	}
+	tn.SetLanguages([]string{"en", "ml"})
+	if !tn.HasLanguage("ml") {
+		t.Error("an unset policy should behave as KML, which grants Malayalam")
+	}
+}
+
+// TestEveryPolicyHasEnglish is the invariant PolicyLanguages' own doc comment
+// states and bondDocFor's fallback chain depends on: HasLanguage grants
+// English unconditionally, so a policy without an English template would
+// describe a business that cannot print its own paperwork.
+func TestEveryPolicyHasEnglish(t *testing.T) {
+	for _, p := range KnownPolicies {
+		found := false
+		for _, l := range LanguagesForPolicy(p) {
+			if l == LangEnglish {
+				found = true
+			}
+		}
+		if !found {
+			t.Errorf("policy %q has no English document language", p)
+		}
+	}
+}

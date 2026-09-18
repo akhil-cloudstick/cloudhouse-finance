@@ -43,6 +43,112 @@ import { extractPaletteFromImage } from "@/common/utils/dominantColor";
 
 type Tab = "businesses" | "tiers" | "audit";
 
+/* The sidebar's nav model, grouped the way the ERP staff panel groups its
+ * own: a short uppercase section label over a handful of icon-led rows.
+ *
+ * These are VIEWS, not routes — selecting one sets the `tab` state the
+ * console already used for its tab strip. Kept as state rather than promoted
+ * to real routes because the auth guard, the data loads and the modals all
+ * hang off this single page; turning them into routes is a separate change
+ * with no visible benefit here.
+ *
+ * `title`/`subtitle` feed the topbar, so each view names itself in one place
+ * instead of the heading drifting from the content under it. */
+const NAV: { group: string; items: { id: Tab; label: string; icon: IconName; title: string; subtitle: string }[] }[] = [
+  {
+    group: "Main Navigation",
+    items: [
+      {
+        id: "businesses",
+        label: "Businesses",
+        icon: "building",
+        title: "Businesses",
+        subtitle: "Every tenancy on the platform, and what each is entitled to.",
+      },
+      {
+        id: "tiers",
+        label: "Plans & Tiers",
+        icon: "layers",
+        title: "Plans & Tiers",
+        subtitle: "Subscription tiers and the price each one bills at.",
+      },
+    ],
+  },
+  {
+    group: "Platform",
+    items: [
+      {
+        id: "audit",
+        label: "Audit Log",
+        icon: "clipboard",
+        title: "Audit Log",
+        subtitle: "Every vendor action, who took it and why.",
+      },
+    ],
+  },
+];
+
+type IconName = "building" | "layers" | "clipboard" | "bell" | "sun" | "user";
+
+/* Inline SVGs rather than an icon package. This console's dependencies are
+ * next + react and nothing else, deliberately, and six glyphs do not justify
+ * changing that. All are 24x24 stroke icons on currentColor so they take the
+ * colour of whatever row they sit in. */
+function Icon({ name }: { name: IconName }) {
+  const paths: Record<IconName, React.ReactNode> = {
+    building: (
+      <>
+        <path d="M3 21h18M5 21V5a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v16M13 21V9h5a1 1 0 0 1 1 1v11" />
+        <path d="M8 8h2M8 12h2M8 16h2M16 13h1M16 17h1" />
+      </>
+    ),
+    layers: (
+      <>
+        <path d="M12 3 3 8l9 5 9-5-9-5Z" />
+        <path d="m3 13 9 5 9-5M3 18l9 5 9-5" />
+      </>
+    ),
+    clipboard: (
+      <>
+        <path d="M9 4h6v3H9zM9 5H7a1 1 0 0 0-1 1v14a1 1 0 0 0 1 1h10a1 1 0 0 0 1-1V6a1 1 0 0 0-1-1h-2" />
+        <path d="M9 12h6M9 16h4" />
+      </>
+    ),
+    bell: (
+      <>
+        <path d="M18 8a6 6 0 1 0-12 0c0 7-3 8-3 8h18s-3-1-3-8" />
+        <path d="M13.7 21a2 2 0 0 1-3.4 0" />
+      </>
+    ),
+    sun: (
+      <>
+        <circle cx="12" cy="12" r="4" />
+        <path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4" />
+      </>
+    ),
+    user: (
+      <>
+        <circle cx="12" cy="8" r="4" />
+        <path d="M4 21a8 8 0 0 1 16 0" />
+      </>
+    ),
+  };
+  return (
+    <svg
+      className="sa-icon"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.7"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      {paths[name]}
+    </svg>
+  );
+}
+
 /* The console described in the multi-tenancy plan's Step 7/Section 5:
  * analytics header, tabs, cards and modals rather than deep navigation.
  *
@@ -108,261 +214,339 @@ export default function SuperAdminDashboard() {
 
   const tierName = (id: number) => tiers?.find((t) => t.id === id)?.name ?? `#${id}`;
 
+  /* The nav entry for the open view, which supplies the topbar's title and
+   * subtitle. Falls back to the first entry so the header is never blank. */
+  const current = NAV.flatMap((g) => g.items).find((i) => i.id === tab) ?? NAV[0].items[0];
+
   return (
     <div className="sa-shell">
-      <header className="sa-topbar">
-        <div className="sa-topbar-brand">
+      <aside className="sa-side">
+        <div className="sa-side-brand">
           {/* The vendor's own mark. Never BrandLogo — that resolves the
             * signed-in TENANT's logo, and this console must look the same
             * whichever businesses it is managing. */}
           <img src={VENDOR.markSrc} alt="" />
           <span className="sa-wordmark">
-            <b>{VENDOR.name}</b>
+            <b>{VENDOR.shortName}</b>
             <span>{VENDOR.product}</span>
           </span>
         </div>
-        <div className="sa-topbar-right">
-          {user && <span className="sa-topbar-user">{user.name}</span>}
-          <button onClick={handleLogout}>Sign out</button>
-        </div>
-      </header>
 
-      <div className="sa-cards">
-        <div className="sa-card">
-          <div className="sa-card-label">Businesses</div>
-          <div className="sa-card-value">{businesses?.length ?? "—"}</div>
-        </div>
-        <div className="sa-card">
-          <div className="sa-card-label">Active</div>
-          <div className="sa-card-value">{businesses?.filter((b) => b.status === "active").length ?? "—"}</div>
-        </div>
-        <div className="sa-card">
-          <div className="sa-card-label">Suspended</div>
-          <div className="sa-card-value">{businesses?.filter((b) => b.status === "suspended").length ?? "—"}</div>
-        </div>
-        <div className="sa-card">
-          <div className="sa-card-label">Plans</div>
-          <div className="sa-card-value">{tiers?.length ?? "—"}</div>
-        </div>
-      </div>
-
-      <nav className="sa-tabs">
-        {(["businesses", "tiers", "audit"] as Tab[]).map((t) => (
-          <button key={t} className={`sa-tab${tab === t ? " active" : ""}`} onClick={() => setTab(t)}>
-            {t === "businesses" ? "Businesses" : t === "tiers" ? "Tiers" : "Audit log"}
-          </button>
-        ))}
-      </nav>
-
-      <div className="sa-content">
-        {loadError && <p className="sa-error">{loadError}</p>}
-
-        {tab === "businesses" && (
-          <>
-            <div className="sa-toolbar">
-              <button className="sa-btn primary" onClick={() => setWizard({ business: null, openAt: "profile" })}>
-                + New business
-              </button>
+        <nav className="sa-nav">
+          {NAV.map((group) => (
+            <div className="sa-nav-group" key={group.group}>
+              <p className="sa-nav-label">{group.group}</p>
+              {group.items.map((item) => (
+                <button
+                  key={item.id}
+                  type="button"
+                  className={`sa-nav-item${tab === item.id ? " active" : ""}`}
+                  aria-current={tab === item.id ? "page" : undefined}
+                  onClick={() => setTab(item.id)}
+                >
+                  <Icon name={item.icon} />
+                  {item.label}
+                </button>
+              ))}
             </div>
-            {businesses === null ? (
-              <p className="sa-empty">Loading…</p>
-            ) : businesses.length === 0 ? (
-              <p className="sa-empty">No businesses yet.</p>
-            ) : (
-              <div className="sa-table-wrap">
-                <table className="sa-table">
-                  <thead>
-                    <tr>
-                      <th>Business</th>
-                      <th>Code</th>
-                      <th>URL</th>
-                      <th>Tier</th>
-                      <th>Status</th>
-                      <th>Modules</th>
-                      <th>Languages</th>
-                      <th>Renewal</th>
-                      <th>Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {businesses.map((b) => (
-                      <tr key={b.id}>
-                        <td>
-                          <div className="sa-biz">
-                            {/* The business's own identity as its staff see
-                              * it — a logo when set, otherwise a swatch of
-                              * its colour, so a row is recognisable at a
-                              * glance even before a logo is uploaded. */}
-                            {b.logoUrl ? (
-                              <img className="sa-biz-logo" src={b.logoUrl} alt="" />
-                            ) : (
-                              <span
-                                className="sa-biz-swatch"
-                                style={{ background: b.brandColor || DEFAULT_BRAND_COLOR }}
-                              />
-                            )}
-                            <span>
-                              <span className="sa-biz-name">{b.name}</span>
-                              {b.legalName && b.legalName !== b.name && (
-                                <span className="sa-biz-sub">{b.legalName}</span>
+          ))}
+
+          <div className="sa-nav-group">
+            <p className="sa-nav-label">Quick Actions</p>
+            <button
+              type="button"
+              className="sa-nav-item"
+              onClick={() => setWizard({ business: null, openAt: "profile" })}
+            >
+              <Icon name="building" />
+              New Business
+            </button>
+          </div>
+        </nav>
+
+        <div className="sa-side-foot">{VENDOR.name}</div>
+      </aside>
+
+      <div className="sa-main">
+        <header className="sa-topbar">
+          <div className="sa-topbar-head">
+            <h1>{current.title}</h1>
+            <p>{current.subtitle}</p>
+          </div>
+          <div className="sa-topbar-right">
+            {/* Presentational only, and deliberately so: the console has no
+              * notification feed and no dark theme to switch to. They are
+              * here because the ERP shell this matches has them in the same
+              * slot, and leaving the corner empty made the two products look
+              * unrelated. Disabled rather than clickable-but-inert, so the
+              * chrome never promises something it cannot do. */}
+            <button className="sa-icon-btn" type="button" disabled aria-hidden="true" tabIndex={-1}>
+              <Icon name="bell" />
+            </button>
+            <button className="sa-icon-btn" type="button" disabled aria-hidden="true" tabIndex={-1}>
+              <Icon name="sun" />
+            </button>
+            <div className="sa-topbar-user">
+              <span className="sa-avatar">
+                <Icon name="user" />
+              </span>
+              {user && <span className="sa-topbar-name">{user.name}</span>}
+            </div>
+            <button className="sa-btn" onClick={handleLogout}>
+              Sign out
+            </button>
+          </div>
+        </header>
+
+        <div className="sa-cards">
+          <div className="sa-card">
+            <span className="sa-card-icon violet">
+              <Icon name="building" />
+            </span>
+            <div>
+              <div className="sa-card-value">{businesses?.length ?? "—"}</div>
+              <div className="sa-card-label">Businesses</div>
+            </div>
+          </div>
+          <div className="sa-card">
+            <span className="sa-card-icon green">
+              <Icon name="building" />
+            </span>
+            <div>
+              <div className="sa-card-value">{businesses?.filter((b) => b.status === "active").length ?? "—"}</div>
+              <div className="sa-card-label">Active</div>
+            </div>
+          </div>
+          <div className="sa-card">
+            <span className="sa-card-icon amber">
+              <Icon name="building" />
+            </span>
+            <div>
+              <div className="sa-card-value">{businesses?.filter((b) => b.status === "suspended").length ?? "—"}</div>
+              <div className="sa-card-label">Suspended</div>
+            </div>
+          </div>
+          <div className="sa-card">
+            <span className="sa-card-icon blue">
+              <Icon name="layers" />
+            </span>
+            <div>
+              <div className="sa-card-value">{tiers?.length ?? "—"}</div>
+              <div className="sa-card-label">Plans</div>
+            </div>
+          </div>
+        </div>
+
+        <div className="sa-content">
+          {loadError && <p className="sa-error">{loadError}</p>}
+
+          {tab === "businesses" && (
+            <>
+              <div className="sa-toolbar">
+                <button className="sa-btn primary" onClick={() => setWizard({ business: null, openAt: "profile" })}>
+                  + New business
+                </button>
+              </div>
+              {businesses === null ? (
+                <p className="sa-empty">Loading…</p>
+              ) : businesses.length === 0 ? (
+                <p className="sa-empty">No businesses yet.</p>
+              ) : (
+                <div className="sa-table-wrap">
+                  <table className="sa-table">
+                    <thead>
+                      <tr>
+                        <th>Business</th>
+                        <th>Code</th>
+                        <th>URL</th>
+                        <th>Tier</th>
+                        <th>Status</th>
+                        <th>Modules</th>
+                        <th>Languages</th>
+                        <th>Renewal</th>
+                        <th>Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {businesses.map((b) => (
+                        <tr key={b.id}>
+                          <td>
+                            <div className="sa-biz">
+                              {/* The business's own identity as its staff see
+                                * it — a logo when set, otherwise a swatch of
+                                * its colour, so a row is recognisable at a
+                                * glance even before a logo is uploaded. */}
+                              {b.logoUrl ? (
+                                <img className="sa-biz-logo" src={b.logoUrl} alt="" />
+                              ) : (
+                                <span
+                                  className="sa-biz-swatch"
+                                  style={{ background: b.brandColor || DEFAULT_BRAND_COLOR }}
+                                />
                               )}
-                            </span>
-                          </div>
-                        </td>
-                        <td>
-                          <code>{b.code}</code>
-                        </td>
-                        <td>
-                          {b.appUrl ? (
-                            <a className="sa-url" href={b.appUrl} target="_blank" rel="noreferrer">
-                              {b.appUrl.replace(/^https?:\/\//, "")}
-                            </a>
-                          ) : (
-                            <span className="sa-biz-sub">not set</span>
-                          )}
-                          <br />
-                          <button
-                            className="sa-btn"
-                            style={{ marginTop: 4 }}
-                            onClick={() => {
-                              const link = tenantLoginLink(b.code);
-                              navigator.clipboard.writeText(link);
-                            }}
-                            title={tenantLoginLink(b.code)}
-                          >
-                            Copy sign-in link
-                          </button>
-                        </td>
-                        <td>{b.tier?.name ?? tierName(b.tierId)}</td>
-                        <td>
-                          <span className={`sa-chip ${b.status}`}>{b.status}</span>
-                        </td>
-                        <td>
-                          <GrantChips values={b.modules} labels={MODULE_LABELS} emptyLabel="none" />
-                        </td>
-                        <td>
-                          <GrantChips values={b.languages} labels={LANGUAGE_LABELS} emptyLabel="English" />
-                        </td>
-                        <td>
-                          {b.subscriptionExpiresAt ? (
-                            <span
-                              style={{
-                                color:
-                                  new Date(b.subscriptionExpiresAt) < new Date() ? "var(--sa-red)" : undefined,
-                              }}
-                            >
-                              {new Date(b.subscriptionExpiresAt).toLocaleDateString()}
-                            </span>
-                          ) : (
-                            "—"
-                          )}
-                          {b.gracePeriodEndsAt && (
-                            <span className="sa-chip grace" style={{ marginLeft: 6 }}>
-                              grace ends {new Date(b.gracePeriodEndsAt).toLocaleDateString()}
-                            </span>
-                          )}
-                        </td>
-                        <td className="sa-actions">
-                          <button className="sa-btn" onClick={() => setWizard({ business: b, openAt: "profile" })}>
-                            Edit
-                          </button>
-                          <button className="sa-btn" onClick={() => setWizard({ business: b, openAt: "branding" })}>
-                            Branding
-                          </button>
-                          <button className="sa-btn" onClick={() => setActingOn({ business: b, kind: "tier" })}>
-                            Tier
-                          </button>
-                          {b.status === "suspended" ? (
+                              <span>
+                                <span className="sa-biz-name">{b.name}</span>
+                                {b.legalName && b.legalName !== b.name && (
+                                  <span className="sa-biz-sub">{b.legalName}</span>
+                                )}
+                              </span>
+                            </div>
+                          </td>
+                          <td>
+                            <code>{b.code}</code>
+                          </td>
+                          <td>
+                            {b.appUrl ? (
+                              <a className="sa-url" href={b.appUrl} target="_blank" rel="noreferrer">
+                                {b.appUrl.replace(/^https?:\/\//, "")}
+                              </a>
+                            ) : (
+                              <span className="sa-biz-sub">not set</span>
+                            )}
+                            <br />
                             <button
                               className="sa-btn"
-                              onClick={() => setActingOn({ business: b, kind: "reactivate" })}
+                              style={{ marginTop: 4 }}
+                              onClick={() => {
+                                const link = tenantLoginLink(b.code);
+                                navigator.clipboard.writeText(link);
+                              }}
+                              title={tenantLoginLink(b.code)}
                             >
-                              Reactivate
+                              Copy sign-in link
                             </button>
-                          ) : (
-                            <button
-                              className="sa-btn danger"
-                              onClick={() => setActingOn({ business: b, kind: "suspend" })}
-                            >
-                              Suspend
+                          </td>
+                          <td>{b.tier?.name ?? tierName(b.tierId)}</td>
+                          <td>
+                            <span className={`sa-chip ${b.status}`}>{b.status}</span>
+                          </td>
+                          <td>
+                            <GrantChips values={b.modules} labels={MODULE_LABELS} emptyLabel="none" />
+                          </td>
+                          <td>
+                            <GrantChips values={b.languages} labels={LANGUAGE_LABELS} emptyLabel="English" />
+                          </td>
+                          <td>
+                            {b.subscriptionExpiresAt ? (
+                              <span
+                                style={{
+                                  color:
+                                    new Date(b.subscriptionExpiresAt) < new Date() ? "var(--sa-red)" : undefined,
+                                }}
+                              >
+                                {new Date(b.subscriptionExpiresAt).toLocaleDateString()}
+                              </span>
+                            ) : (
+                              "—"
+                            )}
+                            {b.gracePeriodEndsAt && (
+                              <span className="sa-chip grace" style={{ marginLeft: 6 }}>
+                                grace ends {new Date(b.gracePeriodEndsAt).toLocaleDateString()}
+                              </span>
+                            )}
+                          </td>
+                          <td className="sa-actions">
+                            <button className="sa-btn" onClick={() => setWizard({ business: b, openAt: "profile" })}>
+                              Edit
                             </button>
-                          )}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </>
-        )}
+                            <button className="sa-btn" onClick={() => setWizard({ business: b, openAt: "branding" })}>
+                              Branding
+                            </button>
+                            <button className="sa-btn" onClick={() => setActingOn({ business: b, kind: "tier" })}>
+                              Tier
+                            </button>
+                            {b.status === "suspended" ? (
+                              <button
+                                className="sa-btn"
+                                onClick={() => setActingOn({ business: b, kind: "reactivate" })}
+                              >
+                                Reactivate
+                              </button>
+                            ) : (
+                              <button
+                                className="sa-btn danger"
+                                onClick={() => setActingOn({ business: b, kind: "suspend" })}
+                              >
+                                Suspend
+                              </button>
+                            )}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </>
+          )}
 
-        {tab === "tiers" && (
-          <div className="sa-table-wrap">
-            <table className="sa-table">
-              <thead>
-                <tr>
-                  <th>Name</th>
-                  <th>Branch quota</th>
-                  <th>Monthly price</th>
-                  <th>Active</th>
-                  <th></th>
-                </tr>
-              </thead>
-              <tbody>
-                {(tiers ?? []).map((t) => (
-                  <tr key={t.id}>
-                    <td>{t.name}</td>
-                    <td>{t.branchQuota}</td>
-                    <td>{t.priceInPaise > 0 ? `₹${(t.priceInPaise / 100).toLocaleString("en-IN")}` : "Not billed"}</td>
-                    <td>{t.isActive ? "Yes" : "No"}</td>
-                    <td>
-                      <button className="sa-btn" onClick={() => setPricingTier(t)}>
-                        Set price
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-
-        {tab === "audit" && (
-          <div className="sa-table-wrap">
-            <table className="sa-table">
-              <thead>
-                <tr>
-                  <th>When</th>
-                  <th>Actor</th>
-                  <th>Action</th>
-                  <th>Business</th>
-                  <th>Detail</th>
-                  <th>Reason</th>
-                </tr>
-              </thead>
-              <tbody>
-                {(auditLog ?? []).map((e) => (
-                  <tr key={e.id}>
-                    <td>{new Date(e.createdAt).toLocaleString()}</td>
-                    <td>{e.actorName}</td>
-                    <td>{e.action}</td>
-                    <td>{e.tenantName || "—"}</td>
-                    <td>{e.detail}</td>
-                    <td>{e.reason}</td>
-                  </tr>
-                ))}
-                {(auditLog ?? []).length === 0 && (
+          {tab === "tiers" && (
+            <div className="sa-table-wrap">
+              <table className="sa-table">
+                <thead>
                   <tr>
-                    <td colSpan={6} className="sa-empty">
-                      No actions logged yet.
-                    </td>
+                    <th>Name</th>
+                    <th>Branch quota</th>
+                    <th>Monthly price</th>
+                    <th>Active</th>
+                    <th></th>
                   </tr>
-                )}
-              </tbody>
-            </table>
-          </div>
-        )}
+                </thead>
+                <tbody>
+                  {(tiers ?? []).map((t) => (
+                    <tr key={t.id}>
+                      <td>{t.name}</td>
+                      <td>{t.branchQuota}</td>
+                      <td>{t.priceInPaise > 0 ? `₹${(t.priceInPaise / 100).toLocaleString("en-IN")}` : "Not billed"}</td>
+                      <td>{t.isActive ? "Yes" : "No"}</td>
+                      <td>
+                        <button className="sa-btn" onClick={() => setPricingTier(t)}>
+                          Set price
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          {tab === "audit" && (
+            <div className="sa-table-wrap">
+              <table className="sa-table">
+                <thead>
+                  <tr>
+                    <th>When</th>
+                    <th>Actor</th>
+                    <th>Action</th>
+                    <th>Business</th>
+                    <th>Detail</th>
+                    <th>Reason</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {(auditLog ?? []).map((e) => (
+                    <tr key={e.id}>
+                      <td>{new Date(e.createdAt).toLocaleString()}</td>
+                      <td>{e.actorName}</td>
+                      <td>{e.action}</td>
+                      <td>{e.tenantName || "—"}</td>
+                      <td>{e.detail}</td>
+                      <td>{e.reason}</td>
+                    </tr>
+                  ))}
+                  {(auditLog ?? []).length === 0 && (
+                    <tr>
+                      <td colSpan={6} className="sa-empty">
+                        No actions logged yet.
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
       </div>
 
       {/* ONE wizard for both creating and editing. It used to be three
@@ -584,6 +768,13 @@ function BusinessWizard({
   const [taglineTouched, setTaglineTouched] = useState(!isCreate);
   const [addressLine, setAddressLine] = useState(business?.addressLine ?? "");
   const [kmlRegNo, setKmlRegNo] = useState(business?.kmlRegNo ?? "");
+  /* The document policy — which FAMILY of customer-facing paperwork this
+   * business issues. Chosen before languages, because it decides which
+   * languages are offered at all (see policyLanguages below). Defaults to the
+   * catalogue's first policy on create; an existing business with an empty
+   * value predates the field and is on the backend's KML default. */
+  const initialPolicy = business?.policy || catalogue.policies[0]?.code || "";
+  const [policy, setPolicyState] = useState(initialPolicy);
   const [appUrl, setAppUrl] = useState(business?.appUrl ?? "");
 
   const initialColor = business?.brandColor || DEFAULT_BRAND_COLOR;
@@ -628,6 +819,25 @@ function BusinessWizard({
    * click through the one that matters. */
   const [confirmGrant, setConfirmGrant] = useState<string | null>(null);
   const [languages, setLanguagesState] = useState<string[]>(business?.languages ?? ["en"]);
+
+  /* The languages the chosen policy actually has templates for. Served in the
+   * catalogue rather than hardcoded here, so this list can never offer a
+   * combination the renderer cannot produce. Falls back to the full set if
+   * the policy is unrecognised, which only happens if the catalogue and the
+   * stored value have drifted. */
+  const policyLanguages =
+    catalogue.policies.find((p) => p.code === policy)?.languages ?? catalogue.languages;
+
+  /* Changing policy PRUNES any language the new policy has no template for.
+   * Done here rather than at submit so the operator sees the checkbox clear
+   * when they switch — the backend rejects such a combination with a 400, and
+   * a form that lets you tick something the save will refuse is worse than
+   * one that shows you the constraint. */
+  function setPolicy(next: string) {
+    setPolicyState(next);
+    const allowed = catalogue.policies.find((p) => p.code === next)?.languages ?? [];
+    setLanguagesState((prev) => prev.filter((l) => allowed.includes(l)));
+  }
 
   const [adminUsername, setAdminUsername] = useState("admin");
   const [adminPassword, setAdminPassword] = useState("");
@@ -724,6 +934,7 @@ function BusinessWizard({
         tagline !== initialTagline ||
         addressLine !== (business.addressLine ?? "") ||
         kmlRegNo !== (business.kmlRegNo ?? "") ||
+        policy !== initialPolicy ||
         appUrl !== (business.appUrl ?? "")),
     theme:
       !isCreate &&
@@ -774,6 +985,7 @@ function BusinessWizard({
           legalName,
           addressLine,
           kmlRegNo,
+          policy,
           appUrl,
           brandColor: color,
           modules,
@@ -788,7 +1000,7 @@ function BusinessWizard({
         if (logoFile) await uploadLogo(created.id, logoFile, reason);
         if (shortName || tagline) {
           await updateProfile(created.id, {
-            name, legalName, shortName, lockupTagline: tagline, addressLine, kmlRegNo, appUrl, reason,
+            name, legalName, shortName, lockupTagline: tagline, addressLine, kmlRegNo, policy, appUrl, reason,
           });
         }
         if (themeBeyondDefault) {
@@ -807,7 +1019,7 @@ function BusinessWizard({
       } else {
         if (changed.profile) {
           await updateProfile(business.id, {
-            name, legalName, shortName, lockupTagline: tagline, addressLine, kmlRegNo, appUrl, reason,
+            name, legalName, shortName, lockupTagline: tagline, addressLine, kmlRegNo, policy, appUrl, reason,
           });
         }
         if (changed.theme) {
@@ -853,7 +1065,7 @@ function BusinessWizard({
                 onClick={() => goTo(i)}
               >
                 <span className="sa-step-n">{i + 1}</span>
-                {s.label}
+                <span className="sa-step-label">{s.label}</span>
               </button>
             ))}
           </div>
@@ -947,9 +1159,29 @@ function BusinessWizard({
                   </span>
                 </div>
                 <div className="sa-field">
-                  <label>Registration no. (KML/MLL)</label>
+                  <label>Registration no.</label>
                   <input value={kmlRegNo} onChange={(e) => setKmlRegNo(e.target.value)} />
+                  <span className="sa-hint">
+                    Printed on this business&rsquo;s customer-facing lending documents.
+                  </span>
                 </div>
+              </div>
+
+              <div className="sa-field">
+                <label>Document policy</label>
+                <select value={policy} onChange={(e) => setPolicy(e.target.value)}>
+                  {catalogue.policies.map((p) => (
+                    <option key={p.code} value={p.code}>
+                      {p.label}
+                    </option>
+                  ))}
+                </select>
+                <span className="sa-hint">
+                  The regulatory regime this business lends under. It decides which pledge
+                  agreement its borrowers sign &mdash; these are different legal instruments,
+                  not translations of one &mdash; and narrows the document languages offered
+                  on the Grants step.
+                </span>
               </div>
 
               <div className="sa-field">
@@ -1214,7 +1446,12 @@ function BusinessWizard({
 
               <div className="sa-field">
                 <label>Document languages</label>
-                {catalogue.languages.map((l) => {
+                <span className="sa-hint">
+                  Limited to the languages the{" "}
+                  {catalogue.policies.find((p) => p.code === policy)?.label ?? "selected"} policy
+                  has templates for. Change the policy on the Profile step to see others.
+                </span>
+                {policyLanguages.map((l) => {
                   const locked = l === "en";
                   return (
                     <label key={l} className={`sa-check${locked ? " locked" : ""}`}>
@@ -1280,6 +1517,11 @@ function BusinessWizard({
                 <ReviewRow label="Short name" value={shortName || "(falls back to business name)"} changed={changed.profile} />
                 <ReviewRow label="Address" value={addressLine} changed={changed.profile} />
                 <ReviewRow label="Registration no." value={kmlRegNo} changed={changed.profile} />
+                <ReviewRow
+                  label="Document policy"
+                  value={catalogue.policies.find((p) => p.code === policy)?.label ?? policy}
+                  changed={changed.profile}
+                />
                 <ReviewRow label="Deployment URL" value={appUrl} changed={changed.profile} />
                 <ReviewRow label="Primary colour" value={color} changed={changed.theme} />
                 <ReviewRow label="Secondary colour" value={secondaryColor || "unset"} changed={changed.theme} />

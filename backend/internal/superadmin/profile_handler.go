@@ -26,6 +26,7 @@ type updateProfileRequest struct {
 	AddressLine   string `json:"addressLine"`
 	KMLRegNo      string `json:"kmlRegNo"`
 	AppURL        string `json:"appUrl"`
+	Policy        string `json:"policy"`
 	Reason        string `json:"reason"`
 }
 
@@ -48,6 +49,7 @@ func (h *Handler) UpdateProfile(c *gin.Context) {
 		AddressLine:   req.AddressLine,
 		KMLRegNo:      req.KMLRegNo,
 		AppURL:        req.AppURL,
+		Policy:        req.Policy,
 	}, req.Reason)
 	if err != nil {
 		httpx.FailErr(c, err)

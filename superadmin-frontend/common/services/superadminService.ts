@@ -92,6 +92,12 @@ export type Business = {
   lockupTagline: string;
   addressLine: string;
   kmlRegNo: string;
+  /* The regulatory regime this business lends under, one of the catalogue's
+   * policy codes ("kml"/"gml"). It selects which FAMILY of customer-facing
+   * paperwork the business issues, and bounds which document languages it may
+   * be granted at all — see Catalogue.policies. Empty means the KML default,
+   * which is what every business created before this field existed issued. */
+  policy: string;
   appUrl: string;
   brandColor: string;
   /* Optional second/third colours and typography/logo presets — empty means
@@ -139,6 +145,9 @@ export type CreateBusinessInput = {
   legalName?: string;
   addressLine?: string;
   kmlRegNo?: string;
+  /* Document policy. Omitted means the backend's KML default. Languages
+   * outside this policy are rejected with a 400, not silently dropped. */
+  policy?: string;
   appUrl?: string;
   brandColor?: string;
   modules?: string[];
@@ -214,7 +223,17 @@ export function listAuditLog(filter?: { tenantId?: number; action?: string }): P
  * for five different kinds of change.
  */
 
-export type Catalogue = { modules: string[]; languages: string[] };
+/* One selectable document policy. `languages` is the closed list of document
+ * languages this policy actually has templates for — the console narrows its
+ * language checkboxes to it once a policy is picked, so the mapping is never
+ * duplicated here where it could drift from what the renderer can produce. */
+export type PolicyOption = { code: string; label: string; languages: string[] };
+
+export type Catalogue = {
+  modules: string[];
+  languages: string[];
+  policies: PolicyOption[];
+};
 
 /* The closed sets the checkboxes are built from, served from
  * tenant.KnownModules/KnownLanguages so the console can never offer a key
@@ -230,6 +249,7 @@ export type ProfileInput = {
   lockupTagline?: string;
   addressLine: string;
   kmlRegNo: string;
+  policy: string;
   appUrl: string;
   reason: string;
 };

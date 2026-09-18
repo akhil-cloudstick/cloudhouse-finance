@@ -67,6 +67,72 @@ const (
 // see HasLanguage.
 var KnownLanguages = []string{LangEnglish, LangMalayalam, LangGujarati}
 
+// Document policies — the regulatory regime a business lends under, which
+// decides WHICH FAMILY of customer-facing paperwork it issues. This is a
+// different axis from language: KML and GML are not translations of one
+// document, they are different documents (see backend/templates — the
+// kml-* files are a promissory-pledge letter, the gml-* files a movable
+// property pledge deed). A business signs borrowers onto one family only.
+const (
+	PolicyKML = "kml"
+	PolicyGML = "gml"
+)
+
+// KnownPolicies is the closed set, same contract as KnownModules: adding an
+// entry here (plus the template files it names) is the only way a new policy
+// becomes selectable.
+var KnownPolicies = []string{PolicyKML, PolicyGML}
+
+// PolicyLanguages says which document languages each policy actually has
+// templates for. This is what narrows the language checkboxes in the console
+// — policy is chosen first, and only the languages under it are offered, so a
+// business can never be entitled to a document that does not exist.
+//
+// English is in every entry and must stay that way: HasLanguage guarantees
+// English unconditionally, so a policy without an English template would
+// describe a business that cannot print its own paperwork.
+var PolicyLanguages = map[string][]string{
+	PolicyKML: {LangEnglish, LangMalayalam},
+	PolicyGML: {LangEnglish, LangGujarati},
+}
+
+// PolicyOrDefault normalises a stored policy value. Empty means KML: every
+// tenant row predating this column was issuing the kml-* documents, so that
+// is what "unset" has always meant in practice.
+func PolicyOrDefault(policy string) string {
+	p := strings.ToLower(strings.TrimSpace(policy))
+	if ValidatePolicy(p) {
+		return p
+	}
+	return PolicyKML
+}
+
+// ValidatePolicy reports whether policy is one of KnownPolicies. Unlike
+// ValidateModules/ValidateLanguages (which return the unrecognised entries of
+// a set) this takes a single value, because a business has exactly one.
+func ValidatePolicy(policy string) bool {
+	for _, p := range KnownPolicies {
+		if p == policy {
+			return true
+		}
+	}
+	return false
+}
+
+// LanguagesForPolicy returns the languages issuable under policy, in
+// KnownLanguages order, always including English. An unrecognised policy is
+// read as the default rather than returning nothing, so a bad stored value
+// degrades to KML paperwork rather than to a business that can print none.
+func LanguagesForPolicy(policy string) []string {
+	langs, ok := PolicyLanguages[PolicyOrDefault(policy)]
+	if !ok {
+		langs = []string{LangEnglish}
+	}
+	out := make([]string, len(langs))
+	copy(out, langs)
+	return out
+}
+
 // HasModule reports whether an optional module is enabled for this business.
 //
 // Reads the stored column rather than the derived Modules slice, so it is
@@ -81,20 +147,45 @@ func (t *Tenant) HasModule(key string) bool {
 // English is always true regardless of what is stored: it is the fallback
 // every template has, and a business with no issuable language at all would
 // be unable to hand a borrower their own agreement.
+// A language the business's POLICY has no template for is refused even when
+// the stored column names it — see LanguageList for why a stored column can
+// say that. English stays unconditional: every policy has an English
+// template, and that is a rule PolicyLanguages documents and must keep.
 func (t *Tenant) HasLanguage(code string) bool {
 	if code == LangEnglish {
 		return true
 	}
-	return containsCSV(t.DocumentLanguages, code)
+	if !containsCSV(t.DocumentLanguages, code) {
+		return false
+	}
+	for _, l := range LanguagesForPolicy(t.Policy) {
+		if l == code {
+			return true
+		}
+	}
+	return false
 }
+
+// PolicyOrDefault is the single read path for the Policy column, the way
+// HasModule/HasLanguage are for the other two. Never read t.Policy directly:
+// empty means KML, and every call site forgetting that is a business issuing
+// the wrong family of paperwork.
+func (t *Tenant) PolicyOrDefault() string { return PolicyOrDefault(t.Policy) }
 
 // ModuleList returns the enabled modules, in KnownModules order.
 func (t *Tenant) ModuleList() []string { return filterKnown(t.EnabledModules, KnownModules) }
 
 // LanguageList returns the issuable languages, in KnownLanguages order and
 // always including English.
+//
+// Filtered by the business's POLICY as well as by KnownLanguages: a stored
+// column that predates the policy column, or one written before the policy
+// was changed, can name a language this business's document family has no
+// template for. Filtering on read (not only on write) means such a row can
+// never hand a caller a language that would fall back to another policy's
+// paperwork.
 func (t *Tenant) LanguageList() []string {
-	out := filterKnown(t.DocumentLanguages, KnownLanguages)
+	out := filterKnown(t.DocumentLanguages, LanguagesForPolicy(t.Policy))
 	for _, c := range out {
 		if c == LangEnglish {
 			return out
@@ -115,10 +206,25 @@ func (t *Tenant) SetModules(keys []string) {
 // SetLanguages replaces the issuable languages. English is always stored,
 // whether or not the caller included it, so the column can never describe a
 // business that cannot print its own paperwork.
+//
+// Filtered by the business's policy as well, so the column can never describe
+// a business entitled to a language its document family has no template for.
+// Set the policy FIRST (SetPolicy re-filters what is already stored, so the
+// order only matters within one write).
 func (t *Tenant) SetLanguages(codes []string) {
 	t.DocumentLanguages = strings.Join(
-		filterKnown(strings.Join(append(codes, LangEnglish), ","), KnownLanguages), ",")
+		filterKnown(strings.Join(append(codes, LangEnglish), ","), LanguagesForPolicy(t.Policy)), ",")
 	t.syncDerived()
+}
+
+// SetPolicy switches the document family and re-filters the stored languages
+// through the new one, dropping any that the new family has no template for.
+// Doing it here rather than leaving it to callers is what stops a business
+// switched from KML to GML keeping a Malayalam entitlement it can no longer
+// print.
+func (t *Tenant) SetPolicy(policy string) {
+	t.Policy = PolicyOrDefault(policy)
+	t.SetLanguages(t.LanguageList())
 }
 
 // ValidateModules returns the unrecognised entries in keys, if any.

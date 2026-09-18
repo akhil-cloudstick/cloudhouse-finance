@@ -307,26 +307,29 @@ func truncate(s string, max int) string {
 
 // lenderProfile resolves the business's own legal particulars for a customer
 // document: the registered name, address and money-lending registration
-// number the vendor set in the superadmin console.
+// number the vendor set in the superadmin console, plus the document policy
+// that decides WHICH family of paperwork this business issues.
 //
 // Returns empty strings rather than an error when there is no tenant or the
 // lookup fails. The caller (bondDataForLoan) hands these to renderBondHTML,
 // which falls back to the demo constants for anything blank — so a lookup
 // failure degrades to the old behaviour instead of printing a half-empty
-// letterhead, and never to ANOTHER business's particulars.
-func (s *Service) lenderProfile(ctx context.Context) (legalName, addressLine, kmlRegNo string) {
+// letterhead, and never to ANOTHER business's particulars. The empty policy
+// degrades the same way: bondDocFor reads it as the KML default, which is
+// what every tenant issued before the policy column existed.
+func (s *Service) lenderProfile(ctx context.Context) (legalName, addressLine, kmlRegNo, policy string) {
 	if s.tenantRepo == nil {
-		return "", "", ""
+		return "", "", "", ""
 	}
 	id, ok := platform.TenantFromContext(ctx)
 	if !ok {
-		return "", "", ""
+		return "", "", "", ""
 	}
 	t, err := s.tenantRepo.FindByID(ctx, id)
 	if err != nil {
-		return "", "", ""
+		return "", "", "", ""
 	}
-	return t.LegalName, t.AddressLine, t.KMLRegNo
+	return t.LegalName, t.AddressLine, t.KMLRegNo, t.PolicyOrDefault()
 }
 
 // tenantAllowsLanguage reports whether this business has been granted the

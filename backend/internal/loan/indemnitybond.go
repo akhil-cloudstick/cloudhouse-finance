@@ -14,6 +14,8 @@ import (
 	"strings"
 	"time"
 
+	"cloudhouse/backend/internal/tenant"
+
 	"github.com/chromedp/cdproto/page"
 	"github.com/chromedp/chromedp"
 )
@@ -77,7 +79,15 @@ type BondData struct {
 	LegalName   string
 	AddressLine string
 	KMLRegNo    string
-	DueDate         time.Time // zero means unknown — rendered as a blank, same convention as Age
+
+	// Policy is the business's document family, one of tenant.KnownPolicies,
+	// resolved from the same tenant profile the three fields above come from.
+	// It picks WHICH DOCUMENT is rendered (see bondDocs); language picks
+	// which translation of it. Empty is read as the KML default, so a caller
+	// that forgets it gets the pre-policy behaviour rather than no document.
+	Policy string
+
+	DueDate time.Time // zero means unknown — rendered as a blank, same convention as Age
 }
 
 // blank is the placeholder used wherever a field on the printed document has
@@ -271,13 +281,52 @@ func amountInWords(amount float64) string {
 }
 
 // templatesDir is where every printable document's HTML source now lives —
-// plain .html files, not compiled into the binary (see bond_en/_ml/_gu
-// below, and personalloan/bond.go's own identical loadTemplate). Path is
-// relative to the backend process's own working directory, same convention
+// plain .html files, not compiled into the binary (see bondDocs below, and
+// personalloan/bond.go's own identical loadTemplate). Path is relative to
+// the backend process's own working directory, same convention
 // platform.Config's UploadsDir ("./uploads") already uses — the server is
 // always launched from the backend/ folder, so this always resolves to
 // backend/templates/.
 const templatesDir = "./templates"
+
+// findTemplatesDir locates templatesDir, walking up from the working
+// directory if it is not there.
+//
+// The walk exists for `go test`, which runs each package with its OWN
+// directory as the working directory, never backend/. Since these templates
+// load at package INIT, that made every test in this package panic before it
+// reached TestMain — not one of them could run, and adding a chdir to
+// TestMain would not have helped because init has already finished by then.
+// Production is unaffected: the server starts in backend/, so the first
+// candidate matches and nothing is walked.
+//
+// Returns templatesDir unchanged when no ancestor has one, so the failure is
+// still the clear "read template X: no such file" panic below rather than
+// something about directory walking.
+func findTemplatesDir() string {
+	if _, err := os.Stat(templatesDir); err == nil {
+		return templatesDir
+	}
+	dir, err := os.Getwd()
+	if err != nil {
+		return templatesDir
+	}
+	for {
+		candidate := filepath.Join(dir, "templates")
+		if _, err := os.Stat(candidate); err == nil {
+			return candidate
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			return templatesDir
+		}
+		dir = parent
+	}
+}
+
+// resolvedTemplatesDir is computed once, at init, so the walk above happens
+// a single time rather than per template.
+var resolvedTemplatesDir = findTemplatesDir()
 
 // mustLoadTemplate reads name from templatesDir and parses it with the given
 // funcs, panicking (via template.Must's own convention — this only ever runs
@@ -285,7 +334,7 @@ const templatesDir = "./templates"
 // error that should fail loudly at startup, not a runtime error to recover
 // from) if the file is missing or fails to parse.
 func mustLoadTemplate(templateName, fileName string, funcs template.FuncMap) *template.Template {
-	b, err := os.ReadFile(filepath.Join(templatesDir, fileName))
+	b, err := os.ReadFile(filepath.Join(resolvedTemplatesDir, fileName))
 	if err != nil {
 		panic(fmt.Sprintf("pledge agreement: read template %s: %v", fileName, err))
 	}
@@ -294,29 +343,79 @@ func mustLoadTemplate(templateName, fileName string, funcs template.FuncMap) *te
 
 var bondTemplateFuncs = template.FuncMap{"inc": func(i int) int { return i + 1 }}
 
-// bondTemplate is the English translation of the Malayalam promissory-pledge
-// letter (backend/templates/kml-bond-malayalam.html's own doc history) —
-// same wording/structure as the Malayalam version, just in English, rather
-// than the old formal "MEMORANDUM OF AGREEMENT... BETWEEN" numbered-clause
-// deed this used to be. Loaded from backend/templates/kml-bond-english.html.
-var bondTemplate = mustLoadTemplate("bond_en", "kml-bond-english.html", bondTemplateFuncs)
+// bondDoc pairs a template with the page CSS it must be rendered under.
+// They are ONE value rather than two lookups because the pairing is load
+// bearing: the style carries the font stack, so a template fetched with the
+// wrong style renders the right words in a face with no glyphs for them —
+// a page of tofu boxes on a document a borrower signs. Keeping them in a
+// single struct makes that structural rather than a convention held up by a
+// comment, which is what the language switch below used to be.
+type bondDoc struct {
+	tmpl  *template.Template
+	style string
+}
 
-// bondTemplateMl is the Malayalam "ആഭരണ പണയ കരാർ" (Ornament Pledge
-// Agreement) template — replaces the branch's old Gujarati paper form
-// (that business has no relation to this branch; see lenderName's own doc
-// comment) with one modeled on the branch's ACTUAL Malayalam reference
-// form. Staff choose which language to print/eSign per loan (see
-// StartIndemnityBondSign's lang parameter). Loaded from
-// backend/templates/kml-bond-malayalam.html.
-var bondTemplateMl = mustLoadTemplate("bond_ml", "kml-bond-malayalam.html", bondTemplateFuncs)
+// bondDocs is every pledge agreement the app can issue, keyed
+// [policy][language].
+//
+// Two axes, not one. POLICY picks the document — the kml-* files are a short
+// promissory-pledge letter, the gml-* files a Gujarati movable-property
+// pledge deed, and they are different instruments, not translations of each
+// other. LANGUAGE picks the translation within that family. Until this map
+// existed the selection keyed on language alone, so "Gujarati" silently
+// meant "print the GML deed" and a business's regulatory regime was never
+// modelled at all.
+//
+// Every policy MUST have an English entry: tenant.HasLanguage grants English
+// unconditionally, so a policy without one describes a business that cannot
+// print its own paperwork. bondDocFor's fallback chain relies on it too.
+var bondDocs = map[string]map[string]bondDoc{
+	tenant.PolicyKML: {
+		// The English KML bond is a translation of the Malayalam
+		// promissory-pledge letter (see kml-bond-malayalam.html's own doc
+		// history) — same wording and structure, not the old formal
+		// "MEMORANDUM OF AGREEMENT... BETWEEN" numbered-clause deed it
+		// used to be.
+		BondLangEnglish: {mustLoadTemplate("bond_kml_en", "kml-bond-english.html", bondTemplateFuncs), bondPageStyle},
+		// The Malayalam "ആഭരണ പണയ കരാർ" (Ornament Pledge Agreement),
+		// modeled on the branch's actual Malayalam reference form.
+		BondLangMalayalam: {mustLoadTemplate("bond_kml_ml", "kml-bond-malayalam.html", bondTemplateFuncs), bondPageStyleMalayalam},
+	},
+	tenant.PolicyGML: {
+		// The English rendering of the same movable-property deed as the
+		// Gujarati entry below — NOT the KML letter. A GML business printing
+		// in English must get its own instrument.
+		BondLangEnglish: {mustLoadTemplate("bond_gml_en", "gml-bond-english.html", bondTemplateFuncs), bondPageStyle},
+		// The Gujarati "ચલ મિલકતનો આડગીરો કરાર" (Movable Property Pledge
+		// Agreement) — the Gujarat deployment's own paper form, brought over
+		// verbatim rather than translated here.
+		BondLangGujarati: {mustLoadTemplate("bond_gml_gu", "gml-bond-gujarati.html", bondTemplateFuncs), bondPageStyleGujarati},
+	},
+}
 
-// bondTemplateGu is the Gujarati "ચલ મિલકતનો આડગીરો કરાર" (Movable Property
-// Pledge Agreement) template — the Gujarat branch's own paper form, brought
-// over from that deployment verbatim rather than translated here. Kept as a
-// separately-named file (not "kml-*") since it's a different document from
-// the English/Malayalam pair, not a third translation of the same one.
-// Loaded from backend/templates/gml-bond-gujarati.html.
-var bondTemplateGu = mustLoadTemplate("bond_gu", "gml-bond-gujarati.html", bondTemplateFuncs)
+// bondDocFor resolves the document for a policy and language.
+//
+// Fallback order is policy+language → policy+English → KML+English, and the
+// ORDER is the point: a missing translation drops to another language of the
+// SAME instrument, never to another policy's instrument, because a borrower
+// signing the wrong legal document is a worse failure than signing the right
+// one in a second language. The final KML+English arm is unreachable for any
+// value in tenant.KnownPolicies and exists so an unrecognised stored policy
+// still produces a document; callers validate policy and language before
+// reaching here, so anything it catches is a programming error.
+func bondDocFor(policy, lang string) bondDoc {
+	family, ok := bondDocs[tenant.PolicyOrDefault(policy)]
+	if !ok {
+		family = bondDocs[tenant.PolicyKML]
+	}
+	if doc, ok := family[lang]; ok {
+		return doc
+	}
+	if doc, ok := family[BondLangEnglish]; ok {
+		return doc
+	}
+	return bondDocs[tenant.PolicyKML][BondLangEnglish]
+}
 
 // bondPageStyle mirrors frontend/common/utils/print.ts's openPrintWindow
 // stylesheet (minus the .noprint print button, irrelevant for a PDF render),
@@ -490,24 +589,19 @@ func renderBondHTML(data BondData, lang string) (string, error) {
 	for _, o := range data.Ornaments {
 		totalValue += o.Value
 	}
-	// All three languages are installed. A switch rather than a chain of ifs
-	// because the template and its style MUST move together — a mismatch
-	// renders the right words in a face with no glyphs for them, i.e. a page
-	// of tofu boxes on a document a borrower signs. Pairing them at a single
-	// site is what stops that.
+	// Document family first, then language within it — see bondDocs. The
+	// template and its style arrive as one value because they MUST move
+	// together: a mismatch renders the right words in a face with no glyphs
+	// for them, i.e. a page of tofu boxes on a document a borrower signs.
 	//
-	// default is English, deliberately not an error: callers
-	// (StartIndemnityBondSign, Service.SendBondForSigning) validate lang
-	// first, so an unrecognised value here is a programming error rather than
-	// user input, and a bond in the wrong language beats no bond at all while
-	// still being obvious in review.
-	tmpl, style := bondTemplate, bondPageStyle
-	switch lang {
-	case BondLangMalayalam:
-		tmpl, style = bondTemplateMl, bondPageStyleMalayalam
-	case BondLangGujarati:
-		tmpl, style = bondTemplateGu, bondPageStyleGujarati
-	}
+	// Falling back rather than erroring is deliberate: callers
+	// (StartIndemnityBondSign, Service.SendBondForSigning) validate policy
+	// and language first, so anything bondDocFor has to absorb is a
+	// programming error rather than user input, and a bond in a second
+	// language of the right instrument beats no bond at all while still
+	// being obvious in review.
+	doc := bondDocFor(data.Policy, lang)
+	tmpl, style := doc.tmpl, doc.style
 	itemNames := make([]string, 0, len(data.Ornaments))
 	itemWeights := make([]string, 0, len(data.Ornaments))
 	for _, o := range data.Ornaments {

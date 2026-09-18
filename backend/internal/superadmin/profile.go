@@ -51,6 +51,11 @@ type ProfileInput struct {
 	AddressLine   string
 	KMLRegNo      string
 	AppURL        string
+	// Policy is the document family, one of tenant.KnownPolicies. Empty is
+	// read as the KML default rather than rejected, so a console that has not
+	// been updated, or a caller that omits the field, leaves a business on
+	// the paperwork it was already issuing.
+	Policy string
 }
 
 // UpdateProfile renames a business and sets the legal identity printed on its
@@ -79,10 +84,20 @@ func (s *Service) UpdateProfile(ctx context.Context, actor *SuperAdminUser, id u
 	t.AddressLine = strings.TrimSpace(in.AddressLine)
 	t.KMLRegNo = strings.TrimSpace(in.KMLRegNo)
 	t.AppURL = strings.TrimSpace(in.AppURL)
+	// SetPolicy, not a bare assignment: switching family re-filters the
+	// stored languages through the new one, so a business moved from KML to
+	// GML cannot keep a Malayalam entitlement it has no template for.
+	beforePolicy := t.PolicyOrDefault()
+	beforeLanguages := t.DocumentLanguages
+	t.SetPolicy(in.Policy)
 	if err := s.tenantRepo.Update(ctx, t); err != nil {
 		return nil, err
 	}
-	detail := fmt.Sprintf("legalName=%q kmlRegNo=%q appUrl=%q", t.LegalName, t.KMLRegNo, t.AppURL)
+	detail := fmt.Sprintf("legalName=%q kmlRegNo=%q appUrl=%q policy=%q", t.LegalName, t.KMLRegNo, t.AppURL, t.Policy)
+	if beforePolicy != t.Policy {
+		detail += fmt.Sprintf("; policy: %s -> %s (languages: %s -> %s)",
+			beforePolicy, t.Policy, beforeLanguages, t.DocumentLanguages)
+	}
 	if beforeName != t.Name {
 		detail = fmt.Sprintf("name: %s -> %s; ", beforeName, t.Name) + detail
 	}
@@ -286,6 +301,28 @@ func (s *Service) SetModules(ctx context.Context, actor *SuperAdminUser, id uint
 	return t, nil
 }
 
+// outsidePolicy returns the entries of languages that policy has no document
+// template for. Separate from tenant.ValidateLanguages, which answers "is
+// this a language the app knows at all?" — this answers the narrower "is it
+// one THIS business can actually print?", and both checks apply.
+func outsidePolicy(policy string, languages []string) []string {
+	allowed := tenant.LanguagesForPolicy(policy)
+	var bad []string
+	for _, code := range languages {
+		ok := false
+		for _, a := range allowed {
+			if a == code {
+				ok = true
+				break
+			}
+		}
+		if !ok {
+			bad = append(bad, code)
+		}
+	}
+	return bad
+}
+
 // SetLanguages replaces the languages a business may issue customer documents
 // in. English is always retained by tenant.Tenant.SetLanguages — a business
 // that could not print its own pledge agreement in any language would be a
@@ -298,6 +335,14 @@ func (s *Service) SetLanguages(ctx context.Context, actor *SuperAdminUser, id ui
 	t, err := s.tenantRepo.FindByID(ctx, id)
 	if err != nil {
 		return nil, ErrBusinessNotFound
+	}
+	// Rejected, not silently dropped: a language outside this business's
+	// document policy has no template to render, and returning 400 tells the
+	// operator that rather than saving a request that looks like it worked.
+	if bad := outsidePolicy(t.PolicyOrDefault(), languages); len(bad) > 0 {
+		return nil, httpx.NewBadRequest(fmt.Sprintf(
+			"language(s) not available under the %s policy: %s",
+			strings.ToUpper(t.PolicyOrDefault()), strings.Join(bad, ", ")))
 	}
 	before := t.DocumentLanguages
 	if before == "" {
@@ -312,18 +357,54 @@ func (s *Service) SetLanguages(ctx context.Context, actor *SuperAdminUser, id ui
 	return t, nil
 }
 
-// CatalogueResponse is the closed sets the console renders checkboxes from.
-type CatalogueResponse struct {
-	Modules   []string `json:"modules"`
+// PolicyOption is one selectable document policy, with the languages that
+// policy actually has templates for. The console narrows its language
+// checkboxes to Languages once a policy is picked, so the mapping lives here
+// (from tenant.PolicyLanguages) rather than being duplicated in TypeScript
+// where it could drift out of step with what the renderer can produce.
+type PolicyOption struct {
+	Code      string   `json:"code"`
+	Label     string   `json:"label"`
 	Languages []string `json:"languages"`
 }
 
+// policyLabels are the console-facing names for tenant.KnownPolicies. Kept
+// here rather than in the tenant package because they are presentation, not
+// domain — the stored value is the code.
+var policyLabels = map[string]string{
+	tenant.PolicyKML: "KML — Kerala Money Lenders",
+	tenant.PolicyGML: "GML — Gujarat Money Lenders",
+}
+
+// CatalogueResponse is the closed sets the console renders checkboxes from.
+type CatalogueResponse struct {
+	Modules   []string       `json:"modules"`
+	Languages []string       `json:"languages"`
+	Policies  []PolicyOption `json:"policies"`
+}
+
 // Catalogue returns what the vendor can toggle. Served from
-// tenant.KnownModules/KnownLanguages so the console cannot offer a key the
-// backend would then reject, and adding a module stays a one-line change in
-// one file.
+// tenant.KnownModules/KnownLanguages/KnownPolicies so the console cannot
+// offer a key the backend would then reject, and adding a module stays a
+// one-line change in one file.
 func (s *Service) Catalogue() CatalogueResponse {
-	return CatalogueResponse{Modules: tenant.KnownModules, Languages: tenant.KnownLanguages}
+	policies := make([]PolicyOption, 0, len(tenant.KnownPolicies))
+	for _, code := range tenant.KnownPolicies {
+		label, ok := policyLabels[code]
+		if !ok {
+			label = strings.ToUpper(code)
+		}
+		policies = append(policies, PolicyOption{
+			Code:      code,
+			Label:     label,
+			Languages: tenant.LanguagesForPolicy(code),
+		})
+	}
+	return CatalogueResponse{
+		Modules:   tenant.KnownModules,
+		Languages: tenant.KnownLanguages,
+		Policies:  policies,
+	}
 }
 
 // noReasonGiven is what lands in the audit log when an edit is saved without

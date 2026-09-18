@@ -10,6 +10,8 @@ import (
 	"strings"
 	"time"
 
+	"cloudhouse/backend/internal/tenant"
+
 	"github.com/chromedp/cdproto/page"
 	"github.com/chromedp/chromedp"
 )
@@ -50,6 +52,12 @@ type ReleaseAgreementData struct {
 	LegalName   string
 	AddressLine string
 	KMLRegNo    string
+
+	// Policy is the business's document family, one of tenant.KnownPolicies
+	// — same field and same meaning as BondData.Policy. See
+	// releaseAgreementDocFor for the caveat that FORM 7 currently exists
+	// only in the KML family.
+	Policy string
 }
 
 // releaseBlank matches indemnitybond.go's blank constant (non-breaking
@@ -146,18 +154,46 @@ type releaseOrnamentTemplateData struct {
 	Value       string
 }
 
-var releaseAgreementTemplateEn = mustLoadTemplate("release_agreement_en", "kml-release-agreement-english.html", nil)
-var releaseAgreementTemplateMl = mustLoadTemplate("release_agreement_ml", "kml-release-agreement-malayalam.html", nil)
+// releaseAgreementDocs is the discharge receipt keyed [policy][language],
+// the same two-axis shape as indemnitybond.go's bondDocs.
+//
+// TODO(gml-release): the GML family has no FORM 7 of its own. FORM 7 is a
+// Kerala statutory form, so a Gujarat business may need a different discharge
+// receipt entirely or none at all — that is a legal question, not a coding
+// one, and inventing the document here would be worse than the fallback.
+// Until it is answered a GML business receives the KML English receipt (see
+// releaseAgreementDocFor), which is the pre-policy behaviour rather than a
+// new one. Add a "gml" entry here and the fallback stops applying.
+var releaseAgreementDocs = map[string]map[string]*template.Template{
+	tenant.PolicyKML: {
+		BondLangEnglish:   mustLoadTemplate("release_agreement_kml_en", "kml-release-agreement-english.html", nil),
+		BondLangMalayalam: mustLoadTemplate("release_agreement_kml_ml", "kml-release-agreement-malayalam.html", nil),
+	},
+}
 
-// renderReleaseAgreementHTML executes the template for the requested
-// language against data, returning the full HTML document string ready to
+// releaseAgreementDocFor resolves the receipt for a policy and language, on
+// the same fallback order as bondDocFor — policy+language, then that policy's
+// English, then KML English. A policy with no entry at all falls through to
+// the last arm; see the TODO above for why GML is one today.
+func releaseAgreementDocFor(policy, lang string) *template.Template {
+	family, ok := releaseAgreementDocs[tenant.PolicyOrDefault(policy)]
+	if ok {
+		if tmpl, ok := family[lang]; ok {
+			return tmpl
+		}
+		if tmpl, ok := family[BondLangEnglish]; ok {
+			return tmpl
+		}
+	}
+	return releaseAgreementDocs[tenant.PolicyKML][BondLangEnglish]
+}
+
+// renderReleaseAgreementHTML executes the template for the requested policy
+// and language against data, returning the full HTML document string ready to
 // hand to RenderReleaseAgreementPDF. lang must be BondLangEnglish or
 // BondLangMalayalam (this document has no Gujarati variant).
 func renderReleaseAgreementHTML(data ReleaseAgreementData, lang string) (string, error) {
-	tmpl := releaseAgreementTemplateEn
-	if lang == BondLangMalayalam {
-		tmpl = releaseAgreementTemplateMl
-	}
+	tmpl := releaseAgreementDocFor(data.Policy, lang)
 
 	// html.EscapeString on every interpolated value before wrapping it in
 	// literal <b> tags: CustomerName/CustomerCareOf/CustomerAddress are
@@ -332,7 +368,7 @@ func (s *Service) releaseAgreementDataForLoan(ctx context.Context, l *Loan) Rele
 		})
 	}
 
-	legalName, addressLine, kmlRegNo := s.lenderProfile(ctx)
+	legalName, addressLine, kmlRegNo, policy := s.lenderProfile(ctx)
 
 	return ReleaseAgreementData{
 		LoanNumber:      l.LoanNumber,
@@ -348,6 +384,7 @@ func (s *Service) releaseAgreementDataForLoan(ctx context.Context, l *Loan) Rele
 		LegalName:       legalName,
 		AddressLine:     addressLine,
 		KMLRegNo:        kmlRegNo,
+		Policy:          policy,
 	}
 }
 

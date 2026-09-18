@@ -152,6 +152,19 @@ type Tenant struct {
 	// customer-facing lending documents.
 	KMLRegNo string `json:"kmlRegNo" gorm:"size:60"`
 
+	// Policy is the regulatory regime this business lends under, one of
+	// tenant.KnownPolicies ("kml"/"gml"). It selects which FAMILY of
+	// customer-facing paperwork the business issues — the kml-* or the gml-*
+	// templates in backend/templates — and, through PolicyLanguages, narrows
+	// which document languages it may be granted at all.
+	//
+	// EMPTY MEANS KML, not "none": every row predating this column was
+	// already issuing the kml-* documents, so that is what unset has always
+	// meant in practice and a backfill would only restate it. Never read this
+	// field directly — go through PolicyOrDefault, the way EnabledModules and
+	// DocumentLanguages are only ever read through HasModule/HasLanguage.
+	Policy string `json:"policy" gorm:"size:20"`
+
 	// AppURL is where this business's own frontend is deployed, e.g.
 	// https://ambika.cloudhousesupport.site.
 	//

@@ -4333,7 +4333,7 @@ func (s *Service) bondDataForLoan(ctx context.Context, l *Loan) BondData {
 
 	// The lender's own particulars come from the tenant profile, not from
 	// the loan — see renderBondHTML for the fallback order.
-	legalName, addressLine, kmlRegNo := s.lenderProfile(ctx)
+	legalName, addressLine, kmlRegNo, policy := s.lenderProfile(ctx)
 
 	return BondData{
 		LoanNumber:      l.LoanNumber,
@@ -4354,6 +4354,7 @@ func (s *Service) bondDataForLoan(ctx context.Context, l *Loan) BondData {
 		LegalName:       legalName,
 		AddressLine:     addressLine,
 		KMLRegNo:        kmlRegNo,
+		Policy:          policy,
 		DueDate:         l.DueDate,
 	}
 }

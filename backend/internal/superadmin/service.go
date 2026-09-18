@@ -120,6 +120,10 @@ type CreateBusinessInput struct {
 	BrandColor  string
 	Modules     []string
 	Languages   []string
+	// Policy is the document family this business lends under, one of
+	// tenant.KnownPolicies. It also bounds Languages — see CreateBusiness.
+	// Empty means the KML default.
+	Policy string
 }
 
 // CreateBusiness is the single transaction that replaces the five
@@ -190,11 +194,28 @@ func (s *Service) CreateBusiness(ctx context.Context, actor *SuperAdminUser, in 
 		if bad := tenant.ValidateLanguages(in.Languages); len(bad) > 0 {
 			return httpx.NewBadRequest("unknown language(s): " + strings.Join(bad, ", "))
 		}
+		// Policy is rejected outright if unrecognised (a typo must not
+		// silently create a business on the wrong paperwork), but an EMPTY
+		// value is accepted as the KML default — see tenant.Tenant.Policy.
+		policy := strings.ToLower(strings.TrimSpace(in.Policy))
+		if policy != "" && !tenant.ValidatePolicy(policy) {
+			return httpx.NewBadRequest("unknown policy: " + policy)
+		}
+		policy = tenant.PolicyOrDefault(policy)
+		if bad := outsidePolicy(policy, in.Languages); len(bad) > 0 {
+			return httpx.NewBadRequest(fmt.Sprintf(
+				"language(s) not available under the %s policy: %s",
+				strings.ToUpper(policy), strings.Join(bad, ", ")))
+		}
 		t.LegalName = strings.TrimSpace(in.LegalName)
 		t.AddressLine = strings.TrimSpace(in.AddressLine)
 		t.KMLRegNo = strings.TrimSpace(in.KMLRegNo)
 		t.AppURL = strings.TrimSpace(in.AppURL)
 		t.SetModules(in.Modules)
+		// Policy before languages: SetLanguages filters against the policy on
+		// the tenant, so the order here is what makes that filter see the
+		// new business's own family rather than the zero value.
+		t.Policy = policy
 		t.SetLanguages(in.Languages)
 		if err := tx.Create(&t).Error; err != nil {
 			if isUniqueViolation(err) {

@@ -1,14 +1,17 @@
 <!--
-  ARCHIVED — do not wire this into any Go code or route. Not currently used
-  anywhere in the app.
+  The GML (Gujarat) document family's ENGLISH pledge deed — the English
+  counterpart of gml-bond-gujarati.html, the same "Agreement of Pledge of
+  Movable" instrument rather than a translation of the KML letter.
 
-  This is the old formal "MEMORANDUM OF AGREEMENT... BETWEEN" numbered-clause
-  pledge deed that kml-bond-english.html used to contain, kept here only as a
-  reference/backup copy after kml-bond-english.html was replaced with the
-  short KML letterhead letter format (matching kml-bond-malayalam.html's
-  structure). If this document is ever needed again, it would need to be
-  wired up explicitly (new bondTemplate var + mustLoadTemplate call in
-  indemnitybond.go) — nothing currently loads this file.
+  Loaded by indemnitybond.go's bondDocs as [gml][en]. It exists as a wired-up
+  template because every policy MUST have an English entry: tenant.HasLanguage
+  grants English unconditionally, so a GML business printing in English has to
+  receive its own instrument, not the KML promissory-pledge letter.
+
+  This file was previously marked ARCHIVED — it is the numbered-clause deed
+  kml-bond-english.html used to contain, before that was replaced with the
+  short KML letterhead letter matching kml-bond-malayalam.html. It turned out
+  to be exactly the English GML deed the policy split needed.
 -->
 <!DOCTYPE html><html><head><meta charset="UTF-8"><title>Agreement of Pledge of Movable — {{.LoanNumber}}</title><style>{{.Style}}</style></head><body>
 <h1>AGREEMENT OF PLEDGE OF MOVABLE</h1>
