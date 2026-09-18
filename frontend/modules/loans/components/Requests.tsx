@@ -38,7 +38,7 @@ export function Requests() {
   const canDecide = can("Loan_Management", "can_update_loan");
   const toast = useToast();
 
-  const pageSize = useResponsivePageSize(10, 7);
+  const pageSize = useResponsivePageSize(15, 15);
   const [reqs, setReqs] = useState<RequestView[]>([]);
   const [loading, setLoading] = useState(true);
   const [page, setPage] = useState(1);
@@ -99,7 +99,7 @@ export function Requests() {
           />
         </div>
       </div>
-      <div className="card tbl-card">
+      <div className="card tbl-card tbl-card-fill">
         <div className="tbl-wrap tbl-scroll">
           <table className="tbl">
             <thead>

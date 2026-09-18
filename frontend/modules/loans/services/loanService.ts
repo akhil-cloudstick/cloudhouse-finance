@@ -1577,7 +1577,7 @@ export type LoanRiskRow = {
 // page's own status filter dropdown.
 export const RISK_STATUSES = ["Active", "Due Soon", "Overdue", "Closure Requested", "Defaulted", "Auction Eligible"] as const;
 
-export const LOAN_RISK_PAGE_SIZE = 8;
+export const LOAN_RISK_PAGE_SIZE = 15;
 
 // Mirrors backend/internal/loan/handler.go's ListRiskAssessment response
 // envelope — counts/total cover every loan matching the filter, not just

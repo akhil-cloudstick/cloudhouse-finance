@@ -26,7 +26,7 @@ export function Investments() {
   const canCreate = can("Investment_Management", "can_create_investment");
   const canUpdate = can("Investment_Management", "can_update_investment");
   const smallScreen = useIsSmallScreen();
-  const pageSize = useResponsivePageSize(10, 7);
+  const pageSize = useResponsivePageSize(15, 15);
 
   const [status, setStatus] = useState<"All" | InvestmentStatus>("All");
   const [q, setQ] = useState("");
@@ -93,7 +93,7 @@ export function Investments() {
         * the shape that class exists for — without it the footer falls back
         * to the sticky-overlay behavior and the card doesn't size to its own
         * rows, which is why this table sat differently to Loans'. */}
-      <div className="card tbl-card"><div className="tbl-wrap tbl-scroll"><table className="tbl tbl-center">
+      <div className="card tbl-card tbl-card-fill"><div className="tbl-wrap tbl-scroll"><table className="tbl tbl-center">
         <thead><tr><th>Investment / Investor</th><th className="num">Principal</th><th>Rate</th><th>Maturity</th><th>Status</th></tr></thead>
         <tbody>
           {loading ? (

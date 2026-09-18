@@ -124,7 +124,7 @@ export function PartyLedger({ kind, id }: { kind: "bank" | "customer"; id?: stri
 
       {error && <div className="notice" style={{ marginBottom: 14 }}>{error}</div>}
 
-      <div className="card tbl-card">
+      <div className="card tbl-card tbl-card-fill">
         <div className="hd" style={{ flexWrap: "wrap", rowGap: 10 }}>
           <h3>Transactions</h3>
           <div className="sp" />

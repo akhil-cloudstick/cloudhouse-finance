@@ -198,10 +198,10 @@ export function InvestmentDetail({ id }: { id?: string }) {
       </div>
 
       {isLive ? (
-        <div className="card">
+        <div className="card tbl-card tbl-card-fill">
           <div className="hd"><h3>Transactions</h3></div>
           {transactions.error && <div className="notice" style={{ margin: 14 }}>{transactions.error}</div>}
-          <div className="tbl-wrap tbl-wrap-auto"><table className="tbl tbl-center">
+          <div className="tbl-wrap"><table className="tbl tbl-center">
             <thead><tr><th>Date</th><th>Type</th><th className="num">Amount</th><th className="num">Principal</th><th className="num">Interest</th><th className="num">Principal After</th><th className="num">Interest After</th></tr></thead>
             <tbody>
               {transactions.loading ? (
@@ -224,10 +224,10 @@ export function InvestmentDetail({ id }: { id?: string }) {
           <Pager page={transactions.page} totalPages={transactions.totalPages} onChange={transactions.setPage} />
         </div>
       ) : (
-        <div className="card">
+        <div className="card tbl-card tbl-card-fill">
           <div className="hd"><h3>Interest Payout Schedule</h3></div>
           {schedule.error && <div className="notice" style={{ margin: 14 }}>{schedule.error}</div>}
-          <div className="tbl-wrap tbl-wrap-auto"><table className="tbl tbl-center">
+          <div className="tbl-wrap"><table className="tbl tbl-center">
             <thead><tr><th>#</th><th>Due Date</th><th className="num">Amount</th><th>Type</th><th>Status</th><th></th></tr></thead>
             <tbody>
               {schedule.loading ? (

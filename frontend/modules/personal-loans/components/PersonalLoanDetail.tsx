@@ -39,7 +39,7 @@ function usePagedTable<T>(fetchPage: (page: number) => Promise<{ items: T[]; has
     try {
       const res = await fetchPage(p - 1);
       setItems(res.items);
-      setTotal(res.total);
+      setTotal(Number.isFinite(res.total) ? res.total : 0);
       setError("");
     } catch (e) {
       setError(e instanceof ApiError ? e.message : "Could not load.");
@@ -51,7 +51,11 @@ function usePagedTable<T>(fetchPage: (page: number) => Promise<{ items: T[]; has
   useEffect(() => { setPage(1); }, [resetKey]);
   useEffect(() => { void load(page); }, [load, page]);
 
-  const totalPages = Math.max(1, Math.ceil(total / PERSONAL_LOAN_PAGE_SIZE));
+  // Guards against a NaN total (a stale/failed request, or a response
+  // missing the field) ever propagating into "Page N of NaN" — and, via
+  // the Pager's Math.min(totalPages, ...)/Math.max(totalPages, ...) Next/
+  // Prev handlers, into a NaN `page` itself.
+  const totalPages = Math.max(1, Math.ceil((Number.isFinite(total) ? total : 0) / PERSONAL_LOAN_PAGE_SIZE));
   return { items, page, setPage, totalPages, loading, error, reload: () => load(page) };
 }
 
@@ -226,7 +230,7 @@ export function PersonalLoanDetail({ id }: { id?: string }) {
       </div>
 
       <div className="pl-detail-grid">
-        <div className="card tbl-card">
+        <div className="card tbl-card tbl-card-fill">
           <div className="hd" style={{ justifyContent: "space-between" }}>
             <h3>{scheduleTab === "schedule" ? "Schedule" : "History"}</h3>
             <div
@@ -294,7 +298,7 @@ export function PersonalLoanDetail({ id }: { id?: string }) {
           )}
         </div>
 
-        <div className="card tbl-card">
+        <div className="card tbl-card tbl-card-fill">
           <div className="hd" style={{ justifyContent: "space-between" }}>
             <h3>Payment History</h3>
           </div>

@@ -95,7 +95,7 @@ export function LoanRisk() {
 
       {error && <div className="notice" style={{ marginBottom: 14 }}>{error}</div>}
 
-      <div className="card tbl-card">
+      <div className="card tbl-card tbl-card-fill">
         <div className="tbl-wrap tbl-scroll">
           <table className="tbl tbl-center">
             <thead>

@@ -192,7 +192,7 @@ export function Cash() {
   const [movementsPage, setMovementsPage] = useState(1);
   const [movementsHasMore, setMovementsHasMore] = useState(false);
   const [movementsTotal, setMovementsTotal] = useState(0);
-  const cashPageSize = useResponsivePageSize(7, 7);
+  const cashPageSize = useResponsivePageSize(15, 15);
   const smallScreen = useIsSmallScreen();
   const [expensesPage, setExpensesPage] = useState(1);
   const [expensesHasMore, setExpensesHasMore] = useState(false);
@@ -516,7 +516,7 @@ export function Cash() {
       </div>
 
       {activeCashTab === "movements" && (
-        <div className="card">
+        <div className="card tbl-card tbl-card-fill">
           <div className="hd" style={{ flexWrap: "wrap", rowGap: 10 }}>
             <h3>Cash Movements</h3>
             <div className="sp" />
@@ -576,7 +576,7 @@ export function Cash() {
       )}
 
       {activeCashTab === "expenses" && (
-        <div className="card">
+        <div className="card tbl-card tbl-card-fill">
           <div className="hd">
             <h3>Expense Register</h3>
             <div className="sp" />
@@ -604,17 +604,17 @@ export function Cash() {
               </tbody>
             </table>
           </div>
-          <div className="ft ft-static" style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <div className="ft ft-static" style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
             <button className="btn plain sm" disabled={expensesPage <= 1} onClick={() => setExpensesPage((p) => Math.max(1, p - 1))}>‹ Prev</button>
             <span style={{ fontSize: 12.5 }}>Page {expensesPage} of {expensesTotalPages}</span>
             <button className="btn plain sm" disabled={expensesPage >= expensesTotalPages} onClick={() => setExpensesPage((p) => Math.min(expensesTotalPages, p + 1))}>Next ›</button>
+            <span style={{ fontSize: 12.5, color: "var(--muted)" }}>Cash expenses automatically reflect in Cash-in-Hand calculations · receipt images attached to expense records</span>
           </div>
-          <div className="ft">Cash expenses automatically reflect in Cash-in-Hand calculations · receipt images attached to expense records</div>
         </div>
       )}
 
       {activeCashTab === "goldSales" && (
-        <div className="card">
+        <div className="card tbl-card tbl-card-fill">
           <div className="hd">
             <h3>Gold Sales</h3>
             <div className="sp" />
@@ -632,12 +632,12 @@ export function Cash() {
               </tbody>
             </table>
           </div>
-          <div className="ft" style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <div className="ft" style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
             <button className="btn plain sm" disabled={goldSalesPage <= 1} onClick={() => setGoldSalesPage((p) => Math.max(1, p - 1))}>‹ Prev</button>
             <span style={{ fontSize: 12.5 }}>Page {goldSalesPage} of {goldSalesTotalPages}</span>
             <button className="btn plain sm" disabled={goldSalesPage >= goldSalesTotalPages} onClick={() => setGoldSalesPage((p) => Math.min(goldSalesTotalPages, p + 1))}>Next ›</button>
+            <span style={{ fontSize: 12.5, color: "var(--muted)" }}>Sold amount automatically books into Cash-in-Hand as a cash-in movement</span>
           </div>
-          <div className="ft">Sold amount automatically books into Cash-in-Hand as a cash-in movement</div>
         </div>
       )}
     </>
