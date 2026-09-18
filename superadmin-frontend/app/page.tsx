@@ -27,6 +27,7 @@ import {
 import { clearSuperAdminSession, readSuperAdminToken, readSuperAdminUser } from "@/common/services/superadminSession";
 import { tenantLoginLink } from "@/common/services/tenantLink";
 import { VENDOR } from "@/common/config/brand";
+import { Select } from "@/common/components/Select";
 import {
   brandRampHex,
   DEFAULT_BRAND_COLOR,
@@ -588,6 +589,13 @@ export default function SuperAdminDashboard() {
 /* Keys must match tenant.KnownModules in backend/internal/tenant/branding.go
  * exactly — that slice is the closed set, and a key here with no counterpart
  * there is silently dropped on save. */
+/* The theme presets are stored as lowercase keys ("compact", "light-pad") and
+   shown title-cased. Was inline in four places before the dropdowns moved to
+   the Select component, which takes a label rather than children. */
+function titleCase(key: string) {
+  return key[0].toUpperCase() + key.slice(1);
+}
+
 const MODULE_LABELS: Record<string, string> = {
   settings: "Settings",
   branches: "Branch Management",
@@ -1112,13 +1120,15 @@ function BusinessWizard({
               {isCreate && (
                 <div className="sa-field">
                   <label>Tier</label>
-                  <select value={tierId} onChange={(e) => setTierId(Number(e.target.value))}>
-                    {tiers.map((t) => (
-                      <option key={t.id} value={t.id}>
-                        {t.name} ({t.branchQuota} branch{t.branchQuota === 1 ? "" : "es"})
-                      </option>
-                    ))}
-                  </select>
+                  <Select
+                    value={String(tierId)}
+                    onChange={(v) => setTierId(Number(v))}
+                    ariaLabel="Tier"
+                    options={tiers.map((t) => ({
+                      value: String(t.id),
+                      label: `${t.name} (${t.branchQuota} branch${t.branchQuota === 1 ? "" : "es"})`,
+                    }))}
+                  />
                   <span className="sa-hint">Changed later from the Tier action on the business row.</span>
                 </div>
               )}
@@ -1169,13 +1179,12 @@ function BusinessWizard({
 
               <div className="sa-field">
                 <label>Document policy</label>
-                <select value={policy} onChange={(e) => setPolicy(e.target.value)}>
-                  {catalogue.policies.map((p) => (
-                    <option key={p.code} value={p.code}>
-                      {p.label}
-                    </option>
-                  ))}
-                </select>
+                <Select
+                  value={policy}
+                  onChange={setPolicy}
+                  ariaLabel="Document policy"
+                  options={catalogue.policies.map((p) => ({ value: p.code, label: p.label }))}
+                />
                 <span className="sa-hint">
                   The regulatory regime this business lends under. It decides which pledge
                   agreement its borrowers sign &mdash; these are different legal instruments,
@@ -1310,36 +1319,33 @@ function BusinessWizard({
 
               <div className="sa-field">
                 <label>Font</label>
-                <select value={fontFamily} onChange={(e) => setFontFamily(e.target.value)}>
-                  {Object.keys(FONT_FAMILIES).map((key) => (
-                    <option key={key} value={key}>
-                      {key[0].toUpperCase() + key.slice(1)}
-                    </option>
-                  ))}
-                </select>
+                <Select
+                  value={fontFamily}
+                  onChange={setFontFamily}
+                  ariaLabel="Font"
+                  options={Object.keys(FONT_FAMILIES).map((key) => ({ value: key, label: titleCase(key) }))}
+                />
                 <span className="sa-hint">Applies to running text; headings and the sidebar wordmark are unaffected.</span>
               </div>
 
               <div className="sa-field">
                 <label>Text size</label>
-                <select value={fontScale} onChange={(e) => setFontScale(e.target.value)}>
-                  {Object.keys(FONT_SCALES).map((key) => (
-                    <option key={key} value={key}>
-                      {key[0].toUpperCase() + key.slice(1)}
-                    </option>
-                  ))}
-                </select>
+                <Select
+                  value={fontScale}
+                  onChange={setFontScale}
+                  ariaLabel="Text size"
+                  options={Object.keys(FONT_SCALES).map((key) => ({ value: key, label: titleCase(key) }))}
+                />
               </div>
 
               <div className="sa-field">
                 <label>Logo size in the sidebar/header</label>
-                <select value={logoScale} onChange={(e) => setLogoScale(e.target.value)}>
-                  {Object.keys(LOGO_SCALES).map((key) => (
-                    <option key={key} value={key}>
-                      {key[0].toUpperCase() + key.slice(1)}
-                    </option>
-                  ))}
-                </select>
+                <Select
+                  value={logoScale}
+                  onChange={setLogoScale}
+                  ariaLabel="Logo size in the sidebar/header"
+                  options={Object.keys(LOGO_SCALES).map((key) => ({ value: key, label: titleCase(key) }))}
+                />
                 <span className="sa-hint">
                   Only affects the sidebar and header — the login page&apos;s logo is a fixed size (already matched
                   to a reference design) and does not use this setting. The logo already scales to fit its
@@ -1350,13 +1356,20 @@ function BusinessWizard({
 
               <div className="sa-field">
                 <label>Logo backing</label>
-                <select value={logoDisplay} onChange={(e) => setLogoDisplay(e.target.value)}>
-                  {LOGO_DISPLAYS.map((key) => (
-                    <option key={key} value={key}>
-                      {key === "transparent" ? "None (transparent)" : key === "light-pad" ? "Light backing" : "Dark backing"}
-                    </option>
-                  ))}
-                </select>
+                <Select
+                  value={logoDisplay}
+                  onChange={setLogoDisplay}
+                  ariaLabel="Logo backing"
+                  options={LOGO_DISPLAYS.map((key) => ({
+                    value: key,
+                    label:
+                      key === "transparent"
+                        ? "None (transparent)"
+                        : key === "light-pad"
+                          ? "Light backing"
+                          : "Dark backing",
+                  }))}
+                />
                 <span className="sa-hint">
                   Use a backing swatch for a logo that only reads clearly against one background colour.
                 </span>
@@ -1663,13 +1676,15 @@ function BusinessActionModal({
           {kind === "tier" && (
             <div className="sa-field">
               <label>New tier</label>
-              <select value={tierId} onChange={(e) => setTierId(Number(e.target.value))}>
-                {tiers.map((t) => (
-                  <option key={t.id} value={t.id}>
-                    {t.name} ({t.branchQuota} branch{t.branchQuota === 1 ? "" : "es"})
-                  </option>
-                ))}
-              </select>
+              <Select
+                value={String(tierId)}
+                onChange={(v) => setTierId(Number(v))}
+                ariaLabel="New tier"
+                options={tiers.map((t) => ({
+                  value: String(t.id),
+                  label: `${t.name} (${t.branchQuota} branch${t.branchQuota === 1 ? "" : "es"})`,
+                }))}
+              />
             </div>
           )}
           <ReasonField value={reason} onChange={setReason} required />

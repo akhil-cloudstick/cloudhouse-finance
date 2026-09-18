@@ -608,7 +608,10 @@ body {
 }
 
 /* Native carets cannot be coloured, so the caret is drawn as a background
-   image and the native one removed. padding-right leaves room for it. */
+   image and the native one removed. padding-right leaves room for it.
+   Kept for any <select> that is still native — the console's own dropdowns
+   use the Select component below, because styling the closed control is as
+   far as CSS can go. */
 .sa-shell select,
 .sa-login select {
   appearance: none;
@@ -619,6 +622,110 @@ body {
   background-position: right 10px center;
   background-size: 16px;
   cursor: pointer;
+}
+
+/* --- Dropdown (common/components/Select.tsx) ------------------------------
+
+   A native <select> draws its open list in the OPERATING SYSTEM, outside the
+   page, where CSS cannot reach it: every dropdown in the wizard was themed
+   until it was opened and then showed a raw platform list inside a themed
+   modal. This is the markup that replaces it — a button plus a listbox that
+   are both ordinary elements, and so can actually take the theme. */
+
+.sa-select {
+  position: relative;
+}
+.sa-select-btn {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  box-sizing: border-box;
+  width: 100%;
+  padding: 9px 11px;
+  border: 1px solid var(--sa-line);
+  border-radius: var(--sa-radius-sm);
+  background: var(--sa-card);
+  color: var(--sa-ink);
+  font: inherit;
+  font-size: 13.5px;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 0.12s, box-shadow 0.12s;
+}
+.sa-select-btn:hover:not(:disabled) {
+  border-color: oklch(0.85 0.01 290);
+}
+/* Open is a held state, not a transient focus one, so it keeps the ring
+   whether the list was opened by mouse or by keyboard. */
+.sa-select.open .sa-select-btn {
+  border-color: var(--sa-brand);
+  box-shadow: var(--sa-ring);
+}
+.sa-select-btn:disabled {
+  background: var(--sa-bg);
+  color: var(--sa-muted);
+  cursor: not-allowed;
+  opacity: 0.75;
+}
+.sa-select-placeholder {
+  color: oklch(0.65 0.015 285);
+}
+.sa-select-caret {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+  color: var(--sa-muted);
+  transition: transform 0.15s;
+}
+.sa-select.open .sa-select-caret {
+  transform: rotate(180deg);
+}
+
+.sa-select-list {
+  position: absolute;
+  z-index: 60;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  margin: 0;
+  padding: 4px;
+  list-style: none;
+  /* Scrolls itself past this height rather than growing until it is clipped
+     by the modal body's own overflow. */
+  max-height: 240px;
+  overflow-y: auto;
+  background: var(--sa-card);
+  border: 1px solid var(--sa-line);
+  border-radius: var(--sa-radius-sm);
+  box-shadow: var(--sa-shadow-lg);
+}
+/* Set by the component when there is not enough room below the control — see
+   its openList(). The 240px max-height above is the measurement it uses, so
+   the two must change together. */
+.sa-select-list.up {
+  top: auto;
+  bottom: calc(100% + 4px);
+}
+.sa-select-option {
+  padding: 8px 10px;
+  border-radius: 6px;
+  font-size: 13.5px;
+  color: var(--sa-ink);
+  cursor: pointer;
+}
+/* `active` is the keyboard/hover row, `selected` is the stored value. They
+   are separate because arrowing through a list must not look like it has
+   already changed the value. */
+.sa-select-option.active {
+  background: var(--sa-side-hover);
+}
+.sa-select-option.selected {
+  color: var(--sa-brand-deep);
+  font-weight: 600;
+}
+.sa-select-option.selected.active {
+  background: var(--sa-side-active-bg);
 }
 
 /* The date picker's calendar button is a shadow-DOM part; this is the only
