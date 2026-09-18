@@ -576,12 +576,14 @@ func renderBondHTML(data BondData, lang string) (string, error) {
 // (not reusing bondPageStyle's CSS) since this is a completely different
 // rendering pass from the document body.
 //
-// The header deliberately renders NOTHING. The empty div is kept rather
-// than the template removed because Chrome substitutes its own default
-// header (date + document title) whenever it is handed an empty header
-// template string, so an "empty" header has to be an empty element.
-const bondHeaderTemplate = `
-<div style="font-size:9px;width:100%;text-align:center;color:#8a6d1f;font-family:Arial,sans-serif;padding-top:6px">
+// bondHeaderTemplateFmt carries a single %s — the issuing business's name,
+// filled in by bondHeaderTemplate. The div is kept even when that name is
+// empty because Chrome substitutes its own default header (date + document
+// title) whenever it is handed an empty header template string, so an
+// "empty" header has to be an empty element.
+const bondHeaderTemplateFmt = `
+<div style="font-size:9px;width:100%%;text-align:center;color:#8a6d1f;font-family:Arial,sans-serif;padding-top:6px">
+%s
 </div>`
 
 // bondHeaderTemplate fills bondHeaderTemplateFmt with the business's own

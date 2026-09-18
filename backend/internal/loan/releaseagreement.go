@@ -299,7 +299,7 @@ func RenderReleaseAgreementPDF(data ReleaseAgreementData, lang string) ([]byte, 
 				WithMarginLeft(0.6).
 				WithMarginRight(0.6).
 				WithDisplayHeaderFooter(true).
-				WithHeaderTemplate(bondHeaderTemplate).
+				WithHeaderTemplate(bondHeaderTemplate(data.LegalName)).
 				WithFooterTemplate(bondFooterTemplate).
 				Do(ctx)
 			if err != nil {
