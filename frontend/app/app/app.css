@@ -1204,7 +1204,7 @@ h3,
  * ~1980px screens) instead of capping at 1460px and leaving empty space
  * on wide monitors, matching every table/card grid below to fill it. */
 .page {
-  padding: 24px 26px 24px 40px;
+  padding: 24px 40px 40px 40px;
   flex: 1;
   min-height: 0;
   overflow-y: auto;
