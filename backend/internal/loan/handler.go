@@ -5,6 +5,7 @@ import (
 	"io"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -296,9 +297,16 @@ func (h *Handler) UpdateLoan(c *gin.Context) {
 		httpx.Fail(c, http.StatusBadRequest, "Invalid input")
 		return
 	}
+	// Same rationale as Approve's handler: actor identity comes from the
+	// authenticated JWT, never the request body — only used if this edit
+	// turns out to touch a material field and the loan gets resubmitted
+	// for approval (see UpdateLoan's own doc comment).
+	actorEmployeeID, actorRole, _ := platform.ActorFromContext(c)
 	rec, err := h.svc.UpdateLoan(platform.RequestContext(c), loanID, UpdateLoanInput{
 		SchemeID:        req.SchemeID,
 		PrincipalAmount: req.PrincipalAmount,
+		ActorEmployeeID: actorEmployeeID,
+		ActorRole:       actorRole,
 	})
 	if err != nil {
 		httpx.FailErr(c, err)
@@ -701,18 +709,39 @@ func riskStatusAllowed(status string) bool {
 	return false
 }
 
+// riskLevelAllowed reports whether v is a real RiskLevel wire value —
+// same "reject an unrecognized filter value outright" treatment
+// riskStatusAllowed gives `status`.
+func riskLevelAllowed(v string) bool {
+	switch RiskLevel(v) {
+	case RiskSafe, RiskAtRisk, RiskLoss:
+		return true
+	default:
+		return false
+	}
+}
+
 // ListRiskAssessment backs GET /loans/risk-assessment — see
 // Service.ListLoanRiskAssessment's own doc comment. Query params: `status`
-// (one of the risk-eligible statuses, omitted for "All"), `from`/`to`
-// (opened-date range, "YYYY-MM-DD"), `limit`/`offset` (paginated when limit
-// > 0). Response always carries `total`/`counts` across every loan matching
-// the filter (not just the current page), for the page's KPI tiles.
+// (one of the risk-eligible statuses, omitted for "All"), `riskLevel` (one of
+// Safe/AtRisk/Loss, omitted for "All" — narrows the returned rows but not
+// `counts`, so the KPI tiles stay a true breakdown of the whole matching set
+// even while one level is selected), `from`/`to` (opened-date range,
+// "YYYY-MM-DD"), `limit`/`offset` (paginated when limit > 0). Response always
+// carries `total`/`counts` across every loan matching status/from/to (not
+// just the current page or the riskLevel filter), for the page's KPI tiles.
 func (h *Handler) ListRiskAssessment(c *gin.Context) {
 	ctx := platform.RequestContext(c)
 
 	status := c.Query("status")
 	if status != "" && !riskStatusAllowed(status) {
 		httpx.Fail(c, http.StatusBadRequest, "invalid status")
+		return
+	}
+
+	riskLevel := c.Query("riskLevel")
+	if riskLevel != "" && !riskLevelAllowed(riskLevel) {
+		httpx.Fail(c, http.StatusBadRequest, "invalid riskLevel")
 		return
 	}
 
@@ -723,6 +752,7 @@ func (h *Handler) ListRiskAssessment(c *gin.Context) {
 
 	f := RiskAssessmentFilter{
 		Status:      status,
+		RiskLevel:   RiskLevel(riskLevel),
 		BranchScope: platform.GetBranchScope(c),
 		OpenedFrom:  from,
 		OpenedTo:    to,
@@ -746,9 +776,9 @@ func (h *Handler) ListRiskAssessment(c *gin.Context) {
 		"hasMore": result.HasMore,
 		"total":   result.Total,
 		"counts": gin.H{
-			"red":    result.Counts[RiskRed],
-			"orange": result.Counts[RiskOrange],
-			"green":  result.Counts[RiskGreen],
+			"loss":   result.Counts[RiskLoss],
+			"atRisk": result.Counts[RiskAtRisk],
+			"safe":   result.Counts[RiskSafe],
 		},
 	})
 }
@@ -977,6 +1007,7 @@ func (h *Handler) ListConcludedAuctions(c *gin.Context) {
 		b := v == "true"
 		hasSale = &b
 	}
+	query := strings.TrimSpace(c.Query("q"))
 
 	limit, _ := strconv.Atoi(c.Query("limit"))
 	if limit > 0 {
@@ -984,7 +1015,7 @@ func (h *Handler) ListConcludedAuctions(c *gin.Context) {
 		if offset < 0 {
 			offset = 0
 		}
-		rec, total, err := h.svc.ListConcludedAuctions(ctx, platform.GetBranchScope(c), hasSale, limit+1, offset)
+		rec, total, err := h.svc.ListConcludedAuctions(ctx, platform.GetBranchScope(c), hasSale, query, limit+1, offset)
 		if err != nil {
 			httpx.FailErr(c, err)
 			return
@@ -997,7 +1028,7 @@ func (h *Handler) ListConcludedAuctions(c *gin.Context) {
 		return
 	}
 
-	recs, _, err := h.svc.ListConcludedAuctions(ctx, platform.GetBranchScope(c), hasSale, 0, 0)
+	recs, _, err := h.svc.ListConcludedAuctions(ctx, platform.GetBranchScope(c), hasSale, query, 0, 0)
 	if err != nil {
 		httpx.FailErr(c, err)
 		return
@@ -1378,6 +1409,11 @@ func (h *Handler) CreateExtensionRequest(c *gin.Context) {
 type releaseRequestRequest struct {
 	Detail      string `json:"detail"`
 	RequestedBy string `json:"requestedBy"`
+	// OrnamentIDs selects a Partial Ornament Release's subset of the loan's
+	// currently-pledged ornaments — omitted/empty means a full release,
+	// unchanged from before this field existed. See ReleaseRequestInput's
+	// own doc comment for the exact full-vs-partial rule.
+	OrnamentIDs []uint `json:"ornamentIds"`
 }
 
 func (h *Handler) CreateReleaseRequest(c *gin.Context) {
@@ -1395,6 +1431,7 @@ func (h *Handler) CreateReleaseRequest(c *gin.Context) {
 	rec, err := h.svc.CreateReleaseRequest(ctx, loanID, ReleaseRequestInput{
 		Detail:      req.Detail,
 		RequestedBy: req.RequestedBy,
+		OrnamentIDs: req.OrnamentIDs,
 	})
 	if err != nil {
 		httpx.FailErr(c, err)
@@ -1481,15 +1518,13 @@ func (h *Handler) DecideRequest(c *gin.Context) {
 
 // --- Release verification checklist & approval chain ----------------------
 
-type checklistRequest struct {
-	PaymentVerified    *bool    `json:"paymentVerified"`
-	PacketVerified     *bool    `json:"packetVerified"`
-	BankPledgeVerified *bool    `json:"bankPledgeVerified"`
-	CustomerConfirmed  *bool    `json:"customerConfirmed"`
-	VerificationNotes  *string  `json:"verificationNotes"`
-	Charges            *float64 `json:"charges"`
-}
-
+// VerifyReleaseChecklist parses its body as a raw map rather than a typed
+// struct: it needs to tell "customerSawGold explicitly sent as false" apart
+// from "field omitted" (ChecklistInput.CustomerSawGold is a *bool, updated
+// only when non-nil), and the old checklist's PacketVerified/
+// BankPledgeVerified/PaymentVerified/CustomerConfirmed fields are simply
+// ignored if an old client still sends them — see ChecklistInput's own doc
+// comment on why those retired fields no longer do anything.
 func (h *Handler) VerifyReleaseChecklist(c *gin.Context) {
 	ctx := platform.RequestContext(c)
 	requestID, err := httpx.IDParam(c, "requestId")
@@ -1497,20 +1532,32 @@ func (h *Handler) VerifyReleaseChecklist(c *gin.Context) {
 		httpx.FailErr(c, err)
 		return
 	}
-	var req checklistRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
+	var raw map[string]any
+	if err := c.ShouldBindJSON(&raw); err != nil {
 		httpx.Fail(c, http.StatusBadRequest, "Invalid input")
 		return
 	}
+	var customerSawGold *bool
+	if v, ok := raw["customerSawGold"]; ok {
+		b, _ := v.(bool)
+		customerSawGold = &b
+	}
+	var verificationNotes *string
+	if v, ok := raw["verificationNotes"]; ok {
+		s, _ := v.(string)
+		verificationNotes = &s
+	}
+	var charges *float64
+	if v, ok := raw["charges"]; ok {
+		f, _ := v.(float64)
+		charges = &f
+	}
 	_, _, actorRoleID := platform.ActorFromContext(c)
 	rec, err := h.svc.VerifyReleaseChecklist(ctx, requestID, platform.GetBranchScope(c), ChecklistInput{
-		PaymentVerified:    req.PaymentVerified,
-		PacketVerified:     req.PacketVerified,
-		BankPledgeVerified: req.BankPledgeVerified,
-		CustomerConfirmed:  req.CustomerConfirmed,
-		VerificationNotes:  req.VerificationNotes,
-		Charges:            req.Charges,
-		ActorRoleID:        actorRoleID,
+		CustomerSawGold:   customerSawGold,
+		VerificationNotes: verificationNotes,
+		Charges:           charges,
+		ActorRoleID:       actorRoleID,
 	})
 	if err != nil {
 		httpx.FailErr(c, err)
@@ -1520,8 +1567,19 @@ func (h *Handler) VerifyReleaseChecklist(c *gin.Context) {
 }
 
 type releasePaymentRequest struct {
-	Discount float64 `json:"discount"`
-	Payment  float64 `json:"payment"`
+	// Type is any general PaymentType* value (Interest, Principal, Partial,
+	// Full Settlement, ...) — see ReleasePaymentInput.Type's own comment.
+	// Defaults to Partial when omitted.
+	Type               string   `json:"type"`
+	Amount             float64  `json:"amount"`
+	Discount           float64  `json:"discount"`
+	CashAmount         float64  `json:"cashAmount"`
+	UpiAmount          float64  `json:"upiAmount"`
+	BankTransferAmount float64  `json:"bankTransferAmount"`
+	ChequeAmount       float64  `json:"chequeAmount"`
+	Method             string   `json:"method"`
+	Reference          string   `json:"reference"`
+	InterestOverride   *float64 `json:"interestOverride"`
 	// DueDate is a plain "YYYY-MM-DD" string (matching every other date
 	// field in this package — see parseDate/auctionScheduleRequest), NOT a
 	// bare *time.Time: Go's default time.Time JSON unmarshalling only
@@ -1532,8 +1590,11 @@ type releasePaymentRequest struct {
 }
 
 // RecordReleasePayment backs POST /loans/requests/:requestId/release-payment
-// — the "Record Payment" step on the Manager-stage release review screen
-// (see Service.RecordReleasePayment's doc comment).
+// — the "Record Payment" step on the release review screen (see
+// Service.RecordReleaseRequestPayment's doc comment). Handler name kept
+// stable even though it now calls RecordReleaseRequestPayment underneath —
+// same route, same request shape family, just driven by the general
+// payment path instead of a bespoke Interest/Principal split.
 func (h *Handler) RecordReleasePayment(c *gin.Context) {
 	ctx := platform.RequestContext(c)
 	requestID, err := httpx.IDParam(c, "requestId")
@@ -1556,12 +1617,20 @@ func (h *Handler) RecordReleasePayment(c *gin.Context) {
 		dueDate = &d
 	}
 	actorEmployeeID, _, actorRoleID := platform.ActorFromContext(c)
-	rec, err := h.svc.RecordReleasePayment(ctx, requestID, platform.GetBranchScope(c), ReleasePaymentInput{
-		Discount:        req.Discount,
-		Payment:         req.Payment,
-		DueDate:         dueDate,
-		ActorEmployeeID: actorEmployeeID,
-		ActorRoleID:     actorRoleID,
+	rec, err := h.svc.RecordReleaseRequestPayment(ctx, requestID, platform.GetBranchScope(c), ReleasePaymentInput{
+		Type:               req.Type,
+		Amount:             req.Amount,
+		Discount:           req.Discount,
+		CashAmount:         req.CashAmount,
+		UpiAmount:          req.UpiAmount,
+		BankTransferAmount: req.BankTransferAmount,
+		ChequeAmount:       req.ChequeAmount,
+		Method:             req.Method,
+		Reference:          req.Reference,
+		InterestOverride:   req.InterestOverride,
+		DueDate:            dueDate,
+		ActorEmployeeID:    actorEmployeeID,
+		ActorRoleID:        actorRoleID,
 	})
 	if err != nil {
 		httpx.FailErr(c, err)
@@ -1810,6 +1879,28 @@ func (h *Handler) DownloadReleaseAgreementPDF(c *gin.Context) {
 	}
 	lang := c.DefaultQuery("lang", BondLangEnglish)
 	pdfBytes, filename, err := h.svc.RenderReleaseAgreementPDFForLoan(ctx, loanID, platform.GetBranchScope(c), lang)
+	if err != nil {
+		httpx.FailErr(c, err)
+		return
+	}
+	c.Header("Content-Disposition", fmt.Sprintf("attachment; filename=%q", filename))
+	c.Data(http.StatusOK, "application/pdf", pdfBytes)
+}
+
+// DownloadPartialReleaseReceiptPDF backs
+// GET /loans/requests/:requestId/partial-release-receipt/pdf — the Partial
+// Ornament Release counterpart to DownloadReleaseAgreementPDF above. Only
+// valid for a Release request with IsPartial true; a full release keeps
+// using the FORM 7 endpoint instead.
+func (h *Handler) DownloadPartialReleaseReceiptPDF(c *gin.Context) {
+	ctx := platform.RequestContext(c)
+
+	requestID, err := httpx.IDParam(c, "requestId")
+	if err != nil {
+		httpx.FailErr(c, err)
+		return
+	}
+	pdfBytes, filename, err := h.svc.RenderPartialReleaseReceiptPDFForRequest(ctx, requestID, platform.GetBranchScope(c), BondLangEnglish)
 	if err != nil {
 		httpx.FailErr(c, err)
 		return

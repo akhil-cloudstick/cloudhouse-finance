@@ -84,7 +84,7 @@ export function TopUpLoanModalContent({ loan, onSaved }: { loan: LoanView; onSav
   return (
     <>
       <div className="hd"><h3>Top Up Loan — {loan.id}</h3><button className="x" onClick={closeModal}>×</button></div>
-      <div className="bd">
+      <div className="bd bd-scroll">
         <div className="notice" style={{ marginBottom: 16, flexDirection: "column", alignItems: "stretch", gap: 4 }}>
           <div><Icon name="coin" /> Available headroom: <b>{fmt(headroom)}</b></div>
           <div style={{ fontSize: 12, color: "var(--muted)" }}>Eligible {fmt(loan.eligibleLoanAmount)} − Outstanding {fmt(loan.outstanding)}</div>

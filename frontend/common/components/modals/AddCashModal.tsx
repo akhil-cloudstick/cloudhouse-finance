@@ -76,7 +76,7 @@ export function AddCashModalContent({ onSaved }: { onSaved?: () => void }) {
   return (
     <>
       <div className="hd"><h3>Add Cash</h3><button className="x" onClick={closeModal}>×</button></div>
-      <div className="bd">
+      <div className="bd bd-scroll">
         <div className="frow c2">
           <div><label className="f">Source of Cash *</label>
             <Select

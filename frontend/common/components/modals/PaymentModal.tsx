@@ -7,7 +7,7 @@ import { Icon } from "@/common/components/Icon";
 import { Select } from "@/common/components/ui/Select";
 import { SplitPaymentInput, ZERO_SPLIT, type SplitAmounts } from "@/common/components/ui/SplitPaymentInput";
 import { fmt } from "@/common/utils/format";
-import { recordPayment, getLoan, type LoanView } from "@/modules/loans/services/loanService";
+import { recordPayment, recordReleasePayment, getLoan, type LoanView } from "@/modules/loans/services/loanService";
 import { ApiError } from "@/common/services/httpClient";
 import { useIsSmallScreen } from "@/common/utils/responsive";
 
@@ -100,7 +100,15 @@ function previewAllocation(loan: LoanView, mode: string, amount: number) {
  * off first, ahead of penal interest/interest/principal (see
  * LoanPayment.ProcessingFee/ProcessingFeeApplied). It's not extra cash on
  * top of Amount — Amount is the total cash handed over either way. */
-export function PaymentModalContent({ loan: initialLoan, onSaved }: { loan: LoanView; onSaved: () => void }) {
+// releaseRequestId, when passed, routes this same form at the release
+// endpoint (POST /loans/requests/:requestId/release-payment) instead of the
+// plain loan payment endpoint, and reveals a Discount field only relevant
+// in that context (negotiated reduction, no-cash entry) — see the release
+// review screen's own "Record Payment"/"Top-Up Payment" actions
+// (ReleaseReviewModal.tsx). Everything else (allocation mode, split
+// payment, interest override, processing fee) is identical either way, so
+// this stays one component rather than a duplicate bespoke modal.
+export function PaymentModalContent({ loan: initialLoan, onSaved, releaseRequestId }: { loan: LoanView; onSaved: () => void; releaseRequestId?: number }) {
   const { closeModal } = useModal();
   const toast = useToast();
   const smallScreen = useIsSmallScreen();
@@ -123,12 +131,56 @@ export function PaymentModalContent({ loan: initialLoan, onSaved }: { loan: Loan
       // an in-flight refresh landing after they've started typing their
       // own override would otherwise clobber it mid-edit.
       if (!interestTouchedRef.current) setInterestRaw(fresh.outstandingInterest > 0 ? String(fresh.outstandingInterest) : "");
+      if (!amountTouchedRef.current) {
+        const v = amountForMode(fresh, mode);
+        setAmt(v > 0 ? String(v) : "");
+      }
     }).catch(() => { /* keep the possibly-stale prop rather than blocking the form */ });
     return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [initialLoan.numericId]);
 
-  const [amt, setAmt] = useState("");
+  // amountForMode is what's actually owed in the bucket(s) the picked mode
+  // reaches — same buckets previewAllocation below draws from — so staff
+  // rarely have to type Amount by hand at all; picking a mode just fills in
+  // what it would fully clear. Full Settlement/Partial ("Both") both reach
+  // everything owed, since Partial's waterfall is the same fee→penal→
+  // interest→principal chain a settlement pays in full.
+  function amountForMode(l: LoanView, m: string): number {
+    switch (m) {
+      case "Interest":
+        return l.outstandingProcessingFee + l.outstandingPenalInterest + l.outstandingInterest;
+      case "Penal Interest":
+        return l.outstandingProcessingFee + l.outstandingPenalInterest;
+      case "Principal":
+        return l.outstandingProcessingFee + l.outstanding;
+      case "Partial":
+      case "Full Settlement":
+      default:
+        return l.settlementAmount;
+    }
+  }
+
+  const [amt, setAmt] = useState(() => {
+    const v = amountForMode(initialLoan, ALLOCATION_MODES[0].value);
+    return v > 0 ? String(v) : "";
+  });
+  // Set the instant a mode is picked, before the user has typed their own
+  // Amount — once they touch the field by hand this stops overwriting it, same
+  // "prefill, don't fight an edit" rule as the Interest field's own
+  // interestTouchedRef below.
+  const amountTouchedRef = useRef(false);
+  function selectMode(nextMode: string) {
+    setMode(nextMode);
+    if (!amountTouchedRef.current) {
+      const v = amountForMode(loan, nextMode);
+      setAmt(v > 0 ? String(v) : "");
+    }
+  }
+  function setAmount(v: string) {
+    amountTouchedRef.current = true;
+    setAmt(v);
+  }
   // Prefilled with the live-calculated figure but editable — the formula
   // (see backend accrual.go's projectAccrual: minimum one month, then
   // whole months + a daily-prorated remainder) is a formula, not a court
@@ -150,6 +202,11 @@ export function PaymentModalContent({ loan: initialLoan, onSaved }: { loan: Loan
   const [remaining, setRemaining] = useState(0);
   const [reference, setReference] = useState("");
   const [description, setDescription] = useState("");
+  // Release-context only (releaseRequestId set) — a negotiated reduction
+  // with no cash movement, posted alongside the payment as a real
+  // PaymentTypeDiscount ledger entry (see backend/internal/loan/service.go's
+  // RecordReleaseRequestPayment).
+  const [discount, setDiscount] = useState("");
   const [err, setErr] = useState("");
   const [saving, setSaving] = useState(false);
 
@@ -170,21 +227,35 @@ export function PaymentModalContent({ loan: initialLoan, onSaved }: { loan: Loan
     if (interestOverride != null && interestOverride < 0) { setErr("Interest cannot be negative."); return; }
     if (!date) { setErr("Please select the payment date."); return; }
     if (!splitBalanced) { setErr("The payment breakdown must add up to the amount."); return; }
+    const discountAmount = discount.trim() ? +discount : 0;
+    if (discountAmount < 0) { setErr("Discount cannot be negative."); return; }
     setSaving(true);
     try {
       // The receiving employee is derived server-side from the logged-in
       // user's JWT — no employeeId sent from here (see loansApi.ts's
       // PaymentInput doc comment).
-      await recordPayment(loan.numericId, {
-        amount, type: mode, processingFee: processingFee || undefined, paidOn: date,
-        cashAmount: split.cashAmount,
-        upiAmount: split.upiAmount,
-        bankTransferAmount: split.bankTransferAmount,
-        chequeAmount: split.chequeAmount,
-        reference: reference.trim() || undefined,
-        description: description.trim() || undefined,
-        interestOverride,
-      });
+      if (releaseRequestId != null) {
+        await recordReleasePayment(releaseRequestId, {
+          amount, type: mode, discount: discountAmount || undefined,
+          cashAmount: split.cashAmount,
+          upiAmount: split.upiAmount,
+          bankTransferAmount: split.bankTransferAmount,
+          chequeAmount: split.chequeAmount,
+          reference: reference.trim() || undefined,
+          interestOverride,
+        });
+      } else {
+        await recordPayment(loan.numericId, {
+          amount, type: mode, processingFee: processingFee || undefined, paidOn: date,
+          cashAmount: split.cashAmount,
+          upiAmount: split.upiAmount,
+          bankTransferAmount: split.bankTransferAmount,
+          chequeAmount: split.chequeAmount,
+          reference: reference.trim() || undefined,
+          description: description.trim() || undefined,
+          interestOverride,
+        });
+      }
       onSaved();
       closeModal();
       toast(`Payment of ${fmt(amount)} recorded${processingFee ? ` (incl. ${fmt(processingFee)} processing fee charged)` : ""}`);
@@ -224,9 +295,9 @@ export function PaymentModalContent({ loan: initialLoan, onSaved }: { loan: Loan
           <>
             <div className="frow c2">
               <div><label className="f">Apply Payment To *</label>
-                <Select options={ALLOCATION_MODES.map((m) => ({ value: m.value, label: m.label }))} value={mode} onChange={setMode} />
+                <Select options={ALLOCATION_MODES.map((m) => ({ value: m.value, label: m.label }))} value={mode} onChange={selectMode} />
               </div>
-              <div><label className="f">Amount (₹) *</label><input className="inp" type="number" min={1} placeholder="e.g. 5000" value={amt} onChange={(e) => setAmt(e.target.value)} /></div>
+              <div><label className="f">Amount (₹) *</label><input className="inp" type="number" min={1} placeholder="e.g. 5000" value={amt} onChange={(e) => setAmount(e.target.value)} /></div>
             </div>
             <div className="frow"><div><label className="f">Payment Date *</label><input className="inp" type="date" value={date} onChange={(e) => setDate(e.target.value)} /></div></div>
             <div className="frow">
@@ -239,11 +310,15 @@ export function PaymentModalContent({ loan: initialLoan, onSaved }: { loan: Loan
               </div>
             </div>
             <div className="frow c2">
-              <div><label className="f">Additional Charges (₹)</label>
-                <input className="inp" type="number" min={0} placeholder="optional — e.g. late fee, documentation charge" value={fee} onChange={(e) => setFee(e.target.value)} />
-              </div>
+              {releaseRequestId != null ? (
+                <div><label className="f">Discount (₹)</label><input className="inp" type="number" min={0} placeholder="optional — negotiated reduction" value={discount} onChange={(e) => setDiscount(e.target.value)} /></div>
+              ) : (
+                <div><label className="f">Additional Charges (₹)</label>
+                  <input className="inp" type="number" min={0} placeholder="optional — e.g. late fee, documentation charge" value={fee} onChange={(e) => setFee(e.target.value)} />
+                </div>
+              )}
               <div><label className="f">Description</label>
-                <input className="inp" placeholder="Optional note for the ledger" value={description} onChange={(e) => setDescription(e.target.value)} />
+                <input className="inp" placeholder="Optional note for the ledger" value={description} onChange={(e) => setDescription(e.target.value)} disabled={releaseRequestId != null} />
               </div>
             </div>
           </>
@@ -255,10 +330,10 @@ export function PaymentModalContent({ loan: initialLoan, onSaved }: { loan: Loan
               * here, then Amount/Date, Method/Interest, Reference/Charges
               * pair up, and Description closes it out alone. */}
             <div className="frow"><div><label className="f">Apply Payment To *</label>
-              <Select options={ALLOCATION_MODES.map((m) => ({ value: m.value, label: m.label }))} value={mode} onChange={setMode} />
+              <Select options={ALLOCATION_MODES.map((m) => ({ value: m.value, label: m.label }))} value={mode} onChange={selectMode} />
             </div></div>
             <div className="frow c2">
-              <div><label className="f">Amount (₹) *</label><input className="inp" type="number" min={1} placeholder="e.g. 5000" value={amt} onChange={(e) => setAmt(e.target.value)} /></div>
+              <div><label className="f">Amount (₹) *</label><input className="inp" type="number" min={1} placeholder="e.g. 5000" value={amt} onChange={(e) => setAmount(e.target.value)} /></div>
               <div><label className="f">Payment Date *</label><input className="inp" type="date" value={date} onChange={(e) => setDate(e.target.value)} /></div>
             </div>
             <div className="frow">
@@ -271,11 +346,15 @@ export function PaymentModalContent({ loan: initialLoan, onSaved }: { loan: Loan
               <div><label className="f">Reference No.</label><input className="inp" placeholder="e.g. UPI txn id, cheque no." value={reference} onChange={(e) => setReference(e.target.value)} /></div>
             </div>
             <div className="frow c2">
-              <div><label className="f">Additional Charges (₹)</label>
-                <input className="inp" type="number" min={0} placeholder="optional — e.g. late fee, documentation charge" value={fee} onChange={(e) => setFee(e.target.value)} />
-              </div>
+              {releaseRequestId != null ? (
+                <div><label className="f">Discount (₹)</label><input className="inp" type="number" min={0} placeholder="optional — negotiated reduction" value={discount} onChange={(e) => setDiscount(e.target.value)} /></div>
+              ) : (
+                <div><label className="f">Additional Charges (₹)</label>
+                  <input className="inp" type="number" min={0} placeholder="optional — e.g. late fee, documentation charge" value={fee} onChange={(e) => setFee(e.target.value)} />
+                </div>
+              )}
               <div><label className="f">Description</label>
-                <input className="inp" placeholder="Optional note for the ledger" value={description} onChange={(e) => setDescription(e.target.value)} />
+                <input className="inp" placeholder="Optional note for the ledger" value={description} onChange={(e) => setDescription(e.target.value)} disabled={releaseRequestId != null} />
               </div>
             </div>
           </>

@@ -9,14 +9,17 @@ import (
 )
 
 var (
-	ErrNotFound        = httpx.NewNotFound("scheme not found")
-	ErrInvalidDuration = httpx.NewBadRequest("duration must be greater than zero months")
-	ErrInvalidLTV      = httpx.NewBadRequest("ltv percent must be between 0 and 100")
-	ErrInvalidRate     = httpx.NewBadRequest("interest rate must be non-negative")
-	ErrInvalidWeight   = httpx.NewBadRequest("gold weight must be greater than zero")
-	ErrInvalidGoldRt   = httpx.NewBadRequest("gold rate must be greater than zero")
-	ErrBranchReq       = httpx.NewBadRequest("branch is required")
-	ErrBranchInvalid   = httpx.NewBadRequest("branch does not exist")
+	ErrNotFound              = httpx.NewNotFound("scheme not found")
+	ErrInvalidDuration       = httpx.NewBadRequest("duration must be greater than zero months")
+	ErrInvalidLTV            = httpx.NewBadRequest("ltv percent must be between 0 and 100")
+	ErrInvalidRate           = httpx.NewBadRequest("interest rate must be non-negative")
+	ErrInvalidWeight         = httpx.NewBadRequest("gold weight must be greater than zero")
+	ErrInvalidGoldRt         = httpx.NewBadRequest("gold rate must be greater than zero")
+	ErrBranchReq             = httpx.NewBadRequest("branch is required")
+	ErrBranchInvalid         = httpx.NewBadRequest("branch does not exist")
+	ErrInvalidServiceCharge  = httpx.NewBadRequest("service charge type must be None, Flat, or Percent")
+	ErrInvalidServiceChgMode = httpx.NewBadRequest("service charge mode must be WithheldFromPayout or AddedToPrincipal when a charge type is set")
+	ErrInvalidServiceChgVal  = httpx.NewBadRequest("service charge value must be non-negative, and no more than 100 for a Percent charge")
 )
 
 // CreateInput / UpdateInput mirror the fields an admin supplies when
@@ -31,6 +34,14 @@ type CreateInput struct {
 	PenalRate      float64
 	Conditions     string
 	IsActive       bool
+
+	// ServiceChargeType/Value/Mode configure an optional per-loan charge —
+	// see Scheme's own doc comment on the ServiceChargeType*/
+	// ServiceChargeMode* constants. ServiceChargeType empty is treated the
+	// same as ServiceChargeTypeNone (the zero value/default).
+	ServiceChargeType  string
+	ServiceChargeValue float64
+	ServiceChargeMode  string
 }
 
 type UpdateInput = CreateInput
@@ -64,6 +75,23 @@ func validate(in CreateInput) error {
 	if in.InterestRate < 0 {
 		return ErrInvalidRate
 	}
+	switch in.ServiceChargeType {
+	case "", ServiceChargeTypeNone:
+		// No charge configured — Mode/Value are ignored regardless of what
+		// was sent, same "don't validate fields the type makes moot"
+		// approach the loan payment split types use elsewhere.
+	case ServiceChargeTypeFlat, ServiceChargeTypePercent:
+		if in.ServiceChargeValue < 0 || (in.ServiceChargeType == ServiceChargeTypePercent && in.ServiceChargeValue > 100) {
+			return ErrInvalidServiceChgVal
+		}
+		switch in.ServiceChargeMode {
+		case ServiceChargeModeWithheldFromPayout, ServiceChargeModeAddedToPrincipal:
+		default:
+			return ErrInvalidServiceChgMode
+		}
+	default:
+		return ErrInvalidServiceCharge
+	}
 	return nil
 }
 
@@ -95,17 +123,24 @@ func (s *Service) Create(ctx context.Context, in CreateInput) (*Scheme, error) {
 	}
 	code := fmt.Sprintf("SCH-%02d", maxSuffix+1)
 
+	chargeType := in.ServiceChargeType
+	if chargeType == "" {
+		chargeType = ServiceChargeTypeNone
+	}
 	rec := &Scheme{
-		Code:           code,
-		BranchID:       in.BranchID,
-		Name:           in.Name,
-		InterestRate:   in.InterestRate,
-		DurationMonths: in.DurationMonths,
-		LTVPercent:     in.LTVPercent,
-		InterestMethod: in.InterestMethod,
-		PenalRate:      in.PenalRate,
-		Conditions:     in.Conditions,
-		IsActive:       in.IsActive,
+		Code:               code,
+		BranchID:           in.BranchID,
+		Name:               in.Name,
+		InterestRate:       in.InterestRate,
+		DurationMonths:     in.DurationMonths,
+		LTVPercent:         in.LTVPercent,
+		InterestMethod:     in.InterestMethod,
+		PenalRate:          in.PenalRate,
+		Conditions:         in.Conditions,
+		IsActive:           in.IsActive,
+		ServiceChargeType:  chargeType,
+		ServiceChargeValue: in.ServiceChargeValue,
+		ServiceChargeMode:  in.ServiceChargeMode,
 	}
 	if err := s.repo.Create(ctx, rec); err != nil {
 		return nil, err
@@ -165,6 +200,10 @@ func (s *Service) Update(ctx context.Context, id uint, in UpdateInput, branchID 
 		return nil, ErrNotFound
 	}
 
+	chargeType := in.ServiceChargeType
+	if chargeType == "" {
+		chargeType = ServiceChargeTypeNone
+	}
 	rec.BranchID = in.BranchID
 	rec.Name = in.Name
 	rec.InterestRate = in.InterestRate
@@ -174,6 +213,9 @@ func (s *Service) Update(ctx context.Context, id uint, in UpdateInput, branchID 
 	rec.PenalRate = in.PenalRate
 	rec.Conditions = in.Conditions
 	rec.IsActive = in.IsActive
+	rec.ServiceChargeType = chargeType
+	rec.ServiceChargeValue = in.ServiceChargeValue
+	rec.ServiceChargeMode = in.ServiceChargeMode
 
 	if err := s.repo.Update(ctx, rec); err != nil {
 		return nil, err

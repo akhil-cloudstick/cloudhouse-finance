@@ -16,6 +16,24 @@ export type Ornament = {
   remarks?: string;
 };
 
+// Mirrors backend/internal/loan/service.go's LoanRiskRow — GET
+// /loans/risk-assessment. riskLevel is computed server-side (see
+// Service.ClassifyRisk): "Loss" (today's gold value < principal), "AtRisk"
+// (covered but under the 10% safety margin), "Safe" (comfortably covered).
+export type LoanRiskLevel = "Safe" | "AtRisk" | "Loss";
+
+export type LoanRiskRow = {
+  loanId: number;
+  loanNumber: string;
+  customerId: number;
+  customerName: string;
+  status: string;
+  principalAmount: number;
+  totalNetWeight: number;
+  currentGoldValue: number;
+  riskLevel: LoanRiskLevel;
+};
+
 // backend/internal/loan/model.go's LoanApproval (266-284) — one row per
 // decision at a sanction-chain stage.
 export type LoanApproval = {
@@ -39,6 +57,13 @@ export type LoanPayment = {
   receivedByEmployeeId: number;
   description?: string;
   method?: string;
+  // How amount was split across modes — mirrors web loanService.ts's
+  // PaymentView. method above is derived from these (the single mode's
+  // name when exactly one is non-zero, "Split" when more than one).
+  cashAmount?: number;
+  upiAmount?: number;
+  bankTransferAmount?: number;
+  chequeAmount?: number;
   reference?: string;
   processingFeeApplied: number;
   penalInterestApplied: number;
@@ -46,6 +71,9 @@ export type LoanPayment = {
   principalApplied: number;
   runningBalance: number;
   processingFee: number;
+  // Links this payment to the CashMovement row(s) it produced — see
+  // CashMovement.transactionGroupId in types/cash.ts.
+  cashTransactionGroupId?: string;
   createdAt: string;
 };
 
@@ -184,6 +212,13 @@ export type Loan = {
   // Sanction-chain state — "" once Approved/Rejected past the chain.
   approvalStage: string;
   approvalWarning?: string;
+  // Frozen at final sanction (Approve reaching FinalSanction), distinct
+  // from principalAmount which can still change pre-approval — see backend
+  // Loan.SanctionedAmount's own doc comment. Zero/absent until the loan
+  // actually clears final sanction.
+  sanctionedAmount?: number;
+  disbursedAmount?: number;
+  disbursementDate?: string | null;
   bankPledgeStatus?: string;
   ornaments?: Ornament[];
   approvals?: LoanApproval[];

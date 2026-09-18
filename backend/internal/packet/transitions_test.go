@@ -10,11 +10,11 @@ func TestTransitionGraph(t *testing.T) {
 	valid := []struct{ from, to string }{
 		{StatusPacketGenerated, StatusLockerStored},
 		{StatusLockerStored, StatusBankPledged},
-		{StatusLockerStored, StatusReadyForRelease},
+		{StatusLockerStored, StatusReleased},
 		{StatusBankPledged, StatusReturned},
 		{StatusReturned, StatusLockerStored},
-		{StatusReturned, StatusReadyForRelease},
-		{StatusReadyForRelease, StatusReleased},
+		{StatusReturned, StatusReleased},
+		{StatusReadyForRelease, StatusReleased}, // legacy status, still terminates the same way
 	}
 	for _, tc := range valid {
 		if !isAllowed(tc.from, tc.to) {
@@ -25,12 +25,8 @@ func TestTransitionGraph(t *testing.T) {
 	invalid := []struct{ from, to string }{
 		{StatusPacketGenerated, StatusBankPledged}, // skips Locker Stored
 		{StatusPacketGenerated, StatusReturned},
-		{StatusPacketGenerated, StatusReadyForRelease},
 		{StatusPacketGenerated, StatusReleased},
-		{StatusLockerStored, StatusReturned}, // skips Bank Pledged
-		{StatusLockerStored, StatusReleased},
 		{StatusBankPledged, StatusLockerStored}, // must go through Returned
-		{StatusBankPledged, StatusReadyForRelease},
 		{StatusBankPledged, StatusReleased},
 		{StatusReadyForRelease, StatusLockerStored},
 		{StatusReadyForRelease, StatusBankPledged},

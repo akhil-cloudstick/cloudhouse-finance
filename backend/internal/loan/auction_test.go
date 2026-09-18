@@ -141,6 +141,31 @@ func TestIsActiveAuctionStage(t *testing.T) {
 	}
 }
 
+// Regression test for the "this loan has no auction case yet — mark it
+// auction-eligible first" bug: a payment received on a loan whose gold was
+// already sold (Auctioned, with an undisposed surplus sitting on
+// SurplusPayableAmount) must never be treated as pre-sale collection
+// progress. resolveAuctionAfterPayment used to withdraw ANY case whose
+// interest/penal arrears were cleared by a payment, regardless of stage —
+// which silently marked an already-sold, surplus-pending case Withdrawn,
+// after which FindActiveByLoanID's `stage NOT IN (Settled, Withdrawn)`
+// filter could never find it again, so SettleAuction (and the Settle
+// Auction screen) failed as if the loan had never been auctioned at all.
+func TestIsPreSaleAuctionStage_ExcludesPostSaleStages(t *testing.T) {
+	preSale := []string{AuctionStageEligible, AuctionStageNotice, AuctionStageScheduled}
+	for _, st := range preSale {
+		if !IsPreSaleAuctionStage(st) {
+			t.Errorf("%q is before the sale — a payment should still be able to withdraw the case", st)
+		}
+	}
+	postSale := []string{AuctionStageAuctioned, AuctionStageSettled, AuctionStageWithdrawn}
+	for _, st := range postSale {
+		if IsPreSaleAuctionStage(st) {
+			t.Errorf("%q is at or past the sale — a payment must not withdraw this case (it would orphan an undisposed surplus)", st)
+		}
+	}
+}
+
 // A loan pulled out of the auction pipeline has to rejoin ordinary collection
 // on the status its due date actually warrants — landing on Active when it is
 // months overdue would hide it from every overdue report.

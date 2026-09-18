@@ -10,6 +10,8 @@ import {
   getInvestment,
   getInvestmentSchedulePage,
   getInvestmentTransactionsPage,
+  downloadInvestmentBondPdf,
+  printInvestmentBondPdf,
   type BackendInvestment,
   type BackendInvestmentPayout,
   type BackendInvestmentTransaction,
@@ -70,6 +72,8 @@ export function InvestmentDetail({ id }: { id?: string }) {
   const [investment, setInvestment] = useState<BackendInvestment | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [downloadingBond, setDownloadingBond] = useState(false);
+  const [printingBond, setPrintingBond] = useState(false);
 
   const numericId = Number(id);
 
@@ -127,6 +131,30 @@ export function InvestmentDetail({ id }: { id?: string }) {
     openModal(<InvestorStatementModalContent customerId={investment.customerId} customerName={investment.customer?.name || "Investor"} />);
   }
 
+  async function handleDownloadBond() {
+    if (!investment) return;
+    setDownloadingBond(true);
+    try {
+      await downloadInvestmentBondPdf(investment.id, investment.investmentNumber);
+    } catch (e) {
+      toast(e instanceof ApiError ? e.message : "Could not download the agreement — try again.");
+    } finally {
+      setDownloadingBond(false);
+    }
+  }
+
+  async function handlePrintBond() {
+    if (!investment) return;
+    setPrintingBond(true);
+    try {
+      await printInvestmentBondPdf(investment.id);
+    } catch (e) {
+      toast(e instanceof ApiError ? e.message : "Could not print the agreement — try again.");
+    } finally {
+      setPrintingBond(false);
+    }
+  }
+
   function openAddCash() {
     if (!investment) return;
     openModal(
@@ -166,6 +194,16 @@ export function InvestmentDetail({ id }: { id?: string }) {
         </div>
         <div className="sp" />
         <button className="btn plain" onClick={openStatement}>View Statement</button>
+        {investment.plan?.productType === "Bond" && (
+          <>
+            <button className="btn plain" onClick={handlePrintBond} disabled={printingBond}>
+              {printingBond ? "Opening…" : "Print Agreement"}
+            </button>
+            <button className="btn plain" onClick={handleDownloadBond} disabled={downloadingBond}>
+              {downloadingBond ? "Downloading…" : "Download Agreement"}
+            </button>
+          </>
+        )}
         {canUpdate && isLive && investment.status === "Active" && (
           <>
             <button className="btn plain" onClick={openAddCash}>Add Cash</button>

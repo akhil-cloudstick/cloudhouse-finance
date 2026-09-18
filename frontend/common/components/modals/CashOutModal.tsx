@@ -47,7 +47,7 @@ export function CashOutModalContent({ onSaved }: { onSaved?: () => void }) {
   return (
     <>
       <div className="hd"><h3>Take Cash Out</h3><button className="x" onClick={closeModal}>×</button></div>
-      <div className="bd">
+      <div className="bd bd-scroll">
         <div className="frow"><div><label className="f">Purpose *</label>
           <input className="inp" placeholder="e.g. Bank deposit" value={purpose} onChange={(e) => setPurpose(e.target.value)} /></div></div>
         <div className="frow"><div><label className="f">Bank</label>

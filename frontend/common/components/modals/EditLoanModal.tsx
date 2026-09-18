@@ -26,10 +26,11 @@ function toRow(o: OrnamentView): OrnRow {
  * after final sanction — see backend Service.UpdateLoan/DeleteOrnament's
  * own doc comments for exactly what does and doesn't change (prospective
  * only: a scheme swap applies to interest/eligibility from here forward,
- * never rewriting already-recorded AccruedInterest). No confirmation
- * dialog or audit log here, by explicit product decision — a plain edit
- * form gated by the ordinary "can update loan" permission, same as any
- * other loan action. */
+ * never rewriting already-recorded AccruedInterest). Editing scheme or
+ * principal — the two fields that change what's charged/owed — resubmits
+ * the loan for the sanction chain (ApprovalStage resets, Status goes back
+ * to Pending Approval), so the warning below fires the moment either one
+ * differs from what the loan already has; ornament-only edits do not. */
 export function EditLoanModalContent({ loan, onSaved }: { loan: LoanView; onSaved: () => void }) {
   const { closeModal } = useModal();
   const toast = useToast();
@@ -70,6 +71,12 @@ export function EditLoanModalContent({ loan, onSaved }: { loan: LoanView; onSave
     0
   );
   const eligibleLoanAmount = (totalGoldValue * schemeLtv) / 100;
+
+  // Mirrors the backend's own materialChange check in Service.UpdateLoan —
+  // scheme or principal differing from what's on file is what triggers
+  // re-approval there, so the warning here fires on exactly the same
+  // condition rather than a looser "any field touched" guess.
+  const triggersReapproval = schemeId !== loan.schemeId || (+principal > 0 && +principal !== loan.principal);
 
   async function save() {
     if (!(+principal > 0)) { setErr("Please enter a valid principal amount."); return; }
@@ -131,7 +138,7 @@ export function EditLoanModalContent({ loan, onSaved }: { loan: LoanView; onSave
   return (
     <>
       <div className="hd"><h3>Edit Loan — {loan.id}</h3><button className="x" onClick={closeModal}>×</button></div>
-      <div className="bd">
+      <div className="bd bd-scroll">
         <div className="frow c2">
           <div><label className="f">Scheme</label>
             <SearchableSelect<SchemeView>
@@ -163,6 +170,14 @@ export function EditLoanModalContent({ loan, onSaved }: { loan: LoanView; onSave
           Recomputes live as ornaments or scheme change below. The backend recalculates the authoritative
           figure on save.
         </p>
+
+        {triggersReapproval && (
+          <div className="notice" style={{ marginBottom: 14, color: "var(--red)" }}>
+            <Icon name="shield" />
+            Changing the scheme or principal amount requires re-approval before the loan is active again —
+            saving will resubmit it through the sanction chain from the first stage.
+          </div>
+        )}
 
         <label className="f" style={{ marginTop: 10, display: "block" }}>Ornaments</label>
         {/* Ornament list scrolls on its own (a loan can carry many

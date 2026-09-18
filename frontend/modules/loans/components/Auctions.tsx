@@ -274,6 +274,12 @@ function AuctionCard({ l, onLoanChanged }: { l: LoanView; onLoanChanged: () => v
 export function Auctions() {
   const { loans, loading, error, refresh } = useLoans();
   const [tab, setTab] = useState<"active" | "history">("active");
+  // One search box shared by both tabs — Active Cases filters client-side
+  // over the already-loaded loan list (same reason its pagination is
+  // client-side, see the comment on `allCases` below); History re-queries
+  // the server on each edit (debounced), since its two sub-tables are real
+  // paginated backend queries.
+  const [q, setQ] = useState("");
 
   /* The two History sub-tables ("Auctions Conducted" / "Closed Without
    * Auction") are now independently paginated, real server queries — each
@@ -307,14 +313,23 @@ export function Auctions() {
   /* "Auctioned - Balance Due" is included so a loan whose sale fell short stays
    * visible here while its shortfall decision is outstanding — otherwise the
    * case needing the most attention would drop off the page. */
-  const allCases = loans.filter((l) =>
+  const auctionEligibleCases = loans.filter((l) =>
     l.isDefaulted ||
     l.status === "Auction Eligible" ||
     l.status === "Auctioned" ||
     l.status === "Auctioned - Balance Due"
   );
+  const trimmedQ = q.trim().toLowerCase();
+  const allCases = trimmedQ
+    ? auctionEligibleCases.filter((l) => l.id.toLowerCase().includes(trimmedQ) || l.customerName.toLowerCase().includes(trimmedQ))
+    : auctionEligibleCases;
   const activeTotalPages = Math.max(1, Math.ceil(allCases.length / pageSize));
   const cases = allCases.slice((activePage - 1) * pageSize, activePage * pageSize);
+
+  // The active-tab page must reset when the search narrows/widens the
+  // result set, or a search that leaves fewer pages than the current one
+  // would strand the viewer on a page that no longer exists.
+  useEffect(() => { setActivePage(1); }, [trimmedQ]);
 
   /* Loaded on demand — a concluded-case sweep across every loan is not worth
    * paying for until someone opens the tab. Fetched from the click handler
@@ -327,11 +342,11 @@ export function Auctions() {
    * sub-table's rows from the WHERE clause, so page 2 of "Auctions Conducted"
    * is genuinely the next 10 sold cases, not offset by however many
    * closed-without-sale rows happened to land in between. */
-  const loadConducted = useCallback(async (page: number) => {
+  const loadConducted = useCallback(async (page: number, query: string) => {
     setConductedLoading(true);
     setConductedError("");
     try {
-      const { items, hasMore, total } = await listConcludedAuctionsPage(page, true, pageSize);
+      const { items, hasMore, total } = await listConcludedAuctionsPage(page, true, pageSize, query);
       setConducted(items);
       setConductedHasMore(hasMore);
       setConductedTotal(total);
@@ -342,11 +357,11 @@ export function Auctions() {
     }
   }, [pageSize]);
 
-  const loadClosed = useCallback(async (page: number) => {
+  const loadClosed = useCallback(async (page: number, query: string) => {
     setClosedLoading(true);
     setClosedError("");
     try {
-      const { items, hasMore, total } = await listConcludedAuctionsPage(page, false, pageSize);
+      const { items, hasMore, total } = await listConcludedAuctionsPage(page, false, pageSize, query);
       setClosedWithoutSale(items);
       setClosedHasMore(hasMore);
       setClosedTotal(total);
@@ -361,24 +376,42 @@ export function Auctions() {
     setTab("history");
     setConductedPage(1);
     setClosedPage(1);
-    void loadConducted(1);
-    void loadClosed(1);
+    void loadConducted(1, q.trim());
+    void loadClosed(1, q.trim());
   }
 
   function changeConductedPage(page: number) {
     setConductedPage(page);
-    void loadConducted(page);
+    void loadConducted(page, q.trim());
   }
 
   function changeClosedPage(page: number) {
     setClosedPage(page);
-    void loadClosed(page);
+    void loadClosed(page, q.trim());
   }
+
+  // Debounced re-search of both History sub-tables as the user types, only
+  // while that tab is actually open — Active Cases needs no such effect
+  // since its filter runs inline on every render (client-side, no request
+  // to debounce).
+  useEffect(() => {
+    if (tab !== "history") return;
+    const handle = setTimeout(() => {
+      setConductedPage(1);
+      setClosedPage(1);
+      void loadConducted(1, q.trim());
+      void loadClosed(1, q.trim());
+    }, 300);
+    return () => clearTimeout(handle);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [q, tab]);
 
   return (
     <>
       <div className="page-h" >
         <div><h1>Auction Management</h1><p>Defaulted loans progressing through the regulated auction workflow</p> </div>
+        <div className="sp" />
+        <div className="search"><Icon name="search" /><input className="inp" placeholder="Search loan no, customer, reference…" value={q} onChange={(e) => setQ(e.target.value)} /></div>
       </div>
       <hr className="gold-rule" style={{ margin: "4px 0 10px" }} />
 
@@ -402,7 +435,9 @@ export function Auctions() {
           /* Wrapped in a .card so an empty Active Cases tab still reads as a
            * panel like every other page, rather than a bare line of text
            * floating on the page background. */
-          <div className="card"><div className="empty">No loans currently in the auction workflow.</div></div>
+          <div className="card"><div className="empty">
+            {trimmedQ ? "No auction cases match your search." : "No loans currently in the auction workflow."}
+          </div></div>
         ) : (
           <>
             {cases.map((l) => <AuctionCard key={l.id} l={l} onLoanChanged={refresh} />)}

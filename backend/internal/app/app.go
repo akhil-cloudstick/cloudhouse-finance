@@ -284,7 +284,7 @@ func Build(db *gorm.DB, cfg platform.Config) (*App, error) {
 	personalLoanHandler := personalloan.NewHandler(personalLoanSvc)
 
 	investmentRepo := investment.NewRepository(pinned)
-	investmentSvc := investment.NewService(investmentRepo, customerRepo, movementSvc, investmentCommsAdapter{notificationSvc: notificationSvc})
+	investmentSvc := investment.NewService(investmentRepo, customerRepo, movementSvc, investmentCommsAdapter{notificationSvc: notificationSvc}, tenantRepo)
 	investmentHandler := investment.NewHandler(investmentSvc)
 
 	reminderRepo := reminder.NewRepository(pinned)

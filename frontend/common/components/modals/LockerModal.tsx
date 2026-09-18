@@ -67,7 +67,7 @@ export function LockerModalContent({ locker, onSaved }: { locker?: LockerView; o
   return (
     <>
       <div className="hd"><h3>{locker ? `Edit Locker — ${locker.code}` : "Add Locker"}</h3><button className="x" onClick={closeModal}>×</button></div>
-      <div className="bd">
+      <div className="bd bd-scroll">
         <div className="frow c2">
           <div><label className="f">Locker Code *</label><input className="inp" placeholder="e.g. LKR-B2" value={code} onChange={(e) => setCode(e.target.value.toUpperCase())} /></div>
           <div><label className="f">Capacity (packets) *</label><input className="inp" type="number" min={1} value={cap} onChange={(e) => setCap(e.target.value)} /></div>

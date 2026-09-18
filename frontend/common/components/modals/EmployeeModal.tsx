@@ -143,7 +143,7 @@ export function EmployeeModalContent({ employee, onSaved }: { employee?: Employe
   return (
     <>
       <div className="hd"><h3>{employee ? "Edit Employee — " + employee.name : "Add Employee"}</h3><button className="x" onClick={closeModal}>×</button></div>
-      <div className="bd">
+      <div className="bd bd-scroll">
         <div className="frow c2">
           <div><label className="f">Full Name *</label><input className="inp" placeholder="e.g. Arun Kumar" value={name} onChange={(e) => setName(e.target.value)} maxLength={120} autoComplete="off" /></div>
           <div><label className="f">Mobile Number</label>

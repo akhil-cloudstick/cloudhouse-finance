@@ -32,7 +32,7 @@ import {
   type LoanView,
 } from "@/modules/loans/services/loanService";
 import { getCustomer } from "@/modules/customers/services/customerService";
-import { listPackets } from "@/modules/packets/services/packetService";
+import { listPackets, type PacketView } from "@/modules/packets/services/packetService";
 import { openPrintWindow, brandHeader } from "@/common/utils/print";
 import { BRAND, printColors } from "@/common/config/brand";
 import type { BondLang } from "@/modules/loans/utils/indemnityBond";
@@ -144,6 +144,10 @@ export function LoanDetail({ id }: { id?: string }) {
 
   const [loan, setLoan] = useState<LoanView | null>(null);
   const [topUps, setTopUps] = useState<LoanTopUpView[]>([]);
+  // This loan's tracking packet — small, separate fetch (LoanView itself
+  // carries no packet/locker info), used only to drive the "Gold Pledge /
+  // Locker" release warning below.
+  const [packet, setPacket] = useState<PacketView | null>(null);
   const [error, setError] = useState("");
   const [approving, setApproving] = useState(false);
   const [releasing, setReleasing] = useState(false);
@@ -237,6 +241,15 @@ export function LoanDetail({ id }: { id?: string }) {
     if (!loan) return;
     listTopUps(loan.numericId).then(setTopUps).catch(() => setTopUps([]));
   }, [loan?.numericId, loan?.outstanding]);
+
+  // Re-fetched whenever bankPledgeStatus/status change, e.g. right after a
+  // locker check-in/out or the bank pledge being released — the "Gold
+  // Pledge / Locker" warning below needs the packet's current stage to
+  // stay in sync with those actions.
+  useEffect(() => {
+    if (!loan) return;
+    listPackets({ loanId: loan.numericId }).then((ps) => setPacket(ps[0] ?? null)).catch(() => setPacket(null));
+  }, [loan?.numericId, loan?.bankPledgeStatus, loan?.status]);
 
   // The viewer who clicks Approve/Reject/Verify sees their own change
   // immediately (doApprove below calls setLoan(updated) directly) — this
@@ -375,7 +388,18 @@ export function LoanDetail({ id }: { id?: string }) {
     )
   ) : null;
 
-  const activePledge = l.bankPledges.find((p) => !p.isReleased);
+  // Was `!p.isReleased` — but isReleased is derived only from releaseDate
+  // (see loanService.ts's toBankPledgeView), which a VOIDED pledge never
+  // sets either (void cancels the entry, it isn't a release). That let a
+  // voided record be picked up here as if it were still the active pledge.
+  // `status` is the reliable field (Active/Released/Voided, always present,
+  // DB-defaulted, never empty) — use that instead.
+  const activePledge = l.bankPledges.find((p) => p.status === "Active");
+  // Every pledge/release/repledge cycle this loan has ever had, most recent
+  // first — the "which bank, when" trail item #14 asked for, distinct from
+  // activePledge above (the one currently in effect, if any). Sorted
+  // client-side since preloadAll's Pledges preload carries no ORDER BY.
+  const pledgeHistory = [...l.bankPledges].sort((a, b) => b.pledgeDate.localeCompare(a.pledgeDate));
 
   /* Confirms first: releasing moves cash (for a CashIn pledge) and changes
    * where the gold physically sits, which is too consequential for a single
@@ -894,7 +918,7 @@ export function LoanDetail({ id }: { id?: string }) {
               {loanActionsMenuOpen && (
                 <div className="docs-dd-menu" role="menu">
                   {canAcceptBankPledge(l.status, l.bankPledgeStatus) && !activePledge && canCreateBankPledges && (
-                    <a href="#" title="Repledge to Bank" onClick={(e) => { e.preventDefault(); setLoanActionsMenuOpen(false); openModal(<RepledgeModalContent loan={l} onSaved={load} />); }}>
+                    <a href="#" title="Repledge to Bank" onClick={(e) => { e.preventDefault(); setLoanActionsMenuOpen(false); openModal(<RepledgeModalContent loan={l} onSaved={load} />, true); }}>
                       <Icon name="bank" /><span className="tx">Repledge to Bank</span>
                     </a>
                   )}
@@ -1051,7 +1075,7 @@ export function LoanDetail({ id }: { id?: string }) {
       )}
       <hr className="gold-rule" />
 
-      <div className="grid cols12">
+      <div className="grid cols12 loan-detail-grid">
         <div className="grid">
           <div className="card gtop"><div className="hd"><h3>Financial Summary</h3></div>
             <div className="bd"><div className="kv" style={{ gridTemplateColumns: "1fr 1fr" }}>
@@ -1092,19 +1116,78 @@ export function LoanDetail({ id }: { id?: string }) {
                     </div></div>
                     <div className="i"><div className="k">Status</div><div className="v"><StatusChip status="Bank Pledged" /></div></div>
                   </div>
-                  <div className="notice" style={{ marginTop: 12 }}><Icon name="shield" /> Closure requires bank release process first.</div>
+                  {/* One combined warning names everything still standing between
+                    * this loan and closure — the bank pledge, and a locker if the
+                    * gold is also checked into one (see CompleteRelease's guards
+                    * on the backend) — instead of leaving staff to guess why
+                    * "Complete Release" won't go through. */}
+                  <div className="notice" style={{ marginTop: 12 }}>
+                    <Icon name="shield" />
+                    {" Closure requires releasing this bank pledge first"}
+                    {packet?.status === "Locker Stored" ? ", and checking the gold out of its locker." : "."}
+                  </div>
                   {canUpdateBankPledges && (
                     <button className="btn ghost sm" style={{ marginTop: 12 }} disabled={releasing} onClick={doReleasePledge}>
                       {releasing ? "Releasing…" : "Release from Bank"}
                     </button>
                   )}
+                  {packet?.status === "Locker Stored" && (
+                    <a className="btn ghost sm" style={{ marginTop: 12, marginLeft: 8, display: "inline-flex" }} href={appPath(undefined, "#packet/" + packet.code)}>
+                      Go to Packet
+                    </a>
+                  )}
                 </>
               ) : (
-                <p style={{ fontSize: 13.5, color: "var(--muted)" }}>
-                  Gold is {l.bankPledgeStatus === "Released" ? "released to customer" : "held in-house"} — <StatusChip status={l.bankPledgeStatus} />
-                </p>
+                <>
+                  <p style={{ fontSize: 13.5, color: "var(--muted)" }}>
+                    Gold is {l.bankPledgeStatus === "Released" ? "released to customer" : "held in-house"} — <StatusChip status={l.bankPledgeStatus} />
+                  </p>
+                  {packet?.status === "Locker Stored" && (
+                    <>
+                      {l.totalOutstandingBalance <= 0.01 ? (
+                        <div className="notice" style={{ color: "var(--red)", marginTop: 12 }}>
+                          <Icon name="shield" /> This loan is fully paid, but its gold is still checked into a locker — check it out before this loan can be closed.
+                        </div>
+                      ) : (
+                        <p style={{ fontSize: 13.5, color: "var(--muted)", marginTop: 8 }}>Gold is currently held in a locker.</p>
+                      )}
+                      <a className="btn ghost sm" style={{ marginTop: 12, display: "inline-flex" }} href={appPath(undefined, "#packet/" + packet.code)}>
+                        Go to Packet
+                      </a>
+                    </>
+                  )}
+                </>
               )}
             </div></div>
+          {pledgeHistory.length > 0 && (
+            <div className="card"><div className="hd"><h3>Pledge History</h3></div>
+              <div className="bd tbl-wrap">
+                <table className="tbl">
+                  <thead>
+                    <tr><th>Bank</th><th>Pledged On</th><th>Released On</th><th className="num">Amount</th><th>Status</th></tr>
+                  </thead>
+                  <tbody>
+                    {pledgeHistory.map((p) => (
+                      <tr key={p.id}>
+                        <td>{p.bankName}</td>
+                        <td>{p.pledgeDate}</td>
+                        <td>{p.releaseDate || "—"}</td>
+                        <td className="num">{fmt(p.pledgedAmount)}</td>
+                        <td>
+                          {/* Wire value stays "Voided" (backend status), only the displayed label is "Deleted" — see
+                            * BankPledge.tsx's own comment on this same relabel (item #13). */}
+                          <StatusChip status={p.status === "Voided" ? "Deleted" : p.status} />
+                          {p.status === "Voided" && p.voidReason && (
+                            <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 2 }}>{p.voidReason}</div>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
           <div className="card"><div className="hd"><h3>Settlement Preview</h3></div>
             <div className="bd" style={{ fontSize: 13.5 }}>
               <div style={{ display: "flex", justifyContent: "space-between", padding: "4px 0" }}><span>Outstanding principal</span><b>{fmt(l.outstanding)}</b></div>
@@ -1149,7 +1232,25 @@ export function LoanDetail({ id }: { id?: string }) {
             <div className="tbl-wrap"><table className="tbl">
               <thead><tr><th>Date</th><th>Description</th><th>Method</th><th>Reference</th><th className="num">Debit</th><th className="num">Credit</th><th className="num">Running Balance</th></tr></thead>
               <tbody>
-                {l.payments.length === 0 ? (
+                {l.disbursementDate && (
+                  <tr>
+                    <td>{l.disbursementDate}</td>
+                    <td>
+                      Loan Sanctioned
+                      {l.sanctionedAmount !== l.disbursedAmount && (
+                        <div style={{ fontSize: "0.85em", color: "var(--muted)" }}>
+                          Sanctioned {fmt(l.sanctionedAmount)} · ₹{fmt(l.sanctionedAmount - l.disbursedAmount)} withheld as service charge
+                        </div>
+                      )}
+                    </td>
+                    <td>—</td>
+                    <td>—</td>
+                    <td className="num" style={{ color: "var(--red)" }}>{fmt(l.disbursedAmount)}</td>
+                    <td className="num">—</td>
+                    <td className="num">{fmt(l.sanctionedAmount)}</td>
+                  </tr>
+                )}
+                {l.payments.length === 0 && !l.disbursementDate ? (
                   <tr><td colSpan={7} className="empty">No ledger entries yet.</td></tr>
                 ) : l.payments.map((p) => {
                   // Interest/Principal/Partial/Full Settlement/Waiver all

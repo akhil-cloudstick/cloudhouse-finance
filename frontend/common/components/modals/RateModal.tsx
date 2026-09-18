@@ -234,7 +234,7 @@ export function RateModalContent() {
   return (
     <>
       <div className="hd"><h3>Set Today&apos;s Gold Rate</h3><button className="x" onClick={closeModal}>×</button></div>
-      <div className="bd">
+      <div className="bd bd-scroll">
         <div className="tabs" style={{ marginBottom: 14 }}>
           <button className={mode === "auto" ? "on" : ""} onClick={setAuto}>Auto</button>
           <button className={mode === "manual" ? "on" : ""} onClick={setManual}>Manual</button>

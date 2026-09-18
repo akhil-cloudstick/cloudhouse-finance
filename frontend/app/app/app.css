@@ -935,6 +935,25 @@ h3,
   flex-shrink: 0
 }
 
+/* SearchableSelect's own chevron (components/SearchableSelect.tsx,
+ * non-compact only) — the trigger there is a plain `.inp` text input, not a
+ * flex `.dp-trigger` button, so the icon is positioned absolute over it
+ * instead of laid out inline; `.ss-input`'s extra right padding keeps typed
+ * text from running underneath it. */
+.ss-chevron {
+  position: absolute;
+  top: 50%;
+  right: 10px;
+  width: 9px;
+  height: 9px;
+  color: var(--brand-deep);
+  pointer-events: none
+}
+
+.ss-input {
+  padding-right: 26px
+}
+
 .dp-trigger:disabled {
   cursor: not-allowed;
   opacity: .6
@@ -1467,7 +1486,15 @@ h3,
 /* ── cards / grid ───────────────────────── */
 .grid {
   display: grid;
-  gap: 15px
+  gap: 15px;
+  /* A grid item's default min-width is `auto` (sized to its content), so a
+   * nested `.grid` (e.g. LoanDetail.tsx's card column inside .grid.cols12)
+   * would refuse to shrink below whatever `.tbl` min-width:640px table sits
+   * inside it, forcing the outer grid — and the whole page — wider than the
+   * viewport instead of letting `.tbl-wrap`'s own overflow-x:auto scroll it
+   * internally. min-width:0 here just allows shrinking; it does not force
+   * it, so nothing that already fit is affected. */
+  min-width: 0
 }
 
 .grid.cols21 {
@@ -1646,9 +1673,15 @@ h3,
    * otherwise leave their footer floating mid-card instead of aligned
    * with the row's tallest card's footer). No overflow/scroll is set on
    * `.bd`, so content still grows the card naturally; this only fills
-   * the slack a stretched grid row adds. */
+   * the slack a stretched grid row adds. min-width:0 for the same reason as
+   * the base `.grid` rule above — a flex/grid item's default min-width is
+   * `auto`, so a card wrapping a `.tbl` (min-width:640px) would otherwise
+   * refuse to shrink and push its own grid column, and the page, wider than
+   * the viewport instead of letting `.tbl-wrap` scroll that table
+   * internally. */
   display: flex;
   flex-direction: column;
+  min-width: 0;
   transition: all .2s ease;
 }
 
@@ -4050,6 +4083,19 @@ table.tbl {
   height: 18px;
   display: block;
   color: var(--ink)
+}
+
+/* LoanDetail.tsx's Financial Summary/Pledged Ornaments pair: the right
+ * column holds a `.tbl` with a hard min-width:640px (see that class's own
+ * comment further up this file), so the shared .grid.cols12 threshold below
+ * (1060px) is too narrow here — at 1060-1450px-ish the left card still has
+ * to squeeze into a column too thin for it, clipping into the table beside
+ * it. Stacks earlier, same 1560px boundary .pl-detail-grid uses for the
+ * same min-width:640px-table reason. */
+@media(max-width:1560px) {
+  .loan-detail-grid {
+    grid-template-columns: 1fr
+  }
 }
 
 @media(max-width:1060px) {

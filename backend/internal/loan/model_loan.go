@@ -71,6 +71,15 @@ const (
 // Service.Approve.
 const ApprovalActionVerified = "Verified"
 
+// ApprovalActionEdited is the LoanApproval.Action value for the audit row
+// Service.UpdateLoan writes when a material edit (scheme or principal
+// change) resubmits an already-approved-or-in-chain loan back to the first
+// sanction stage — distinct from Approved/Rejected/Verified, all of which
+// are real decisions made BY a stage; this one records that the loan's own
+// terms changed and the chain had to restart, not that anyone approved or
+// rejected anything.
+const ApprovalActionEdited = "Edited"
+
 // ApprovalStagePendingManager/PendingManagement are the Release-request
 // chain's two pending stages ONLY (LoanRequest.ApprovalStage) — unrelated
 // to the loan sanction chain below, which has its own 4 pending stages.
@@ -226,6 +235,20 @@ type Loan struct {
 	SchemeInterestMethod string  `json:"schemeInterestMethod" gorm:"size:80"`
 	SchemePenalRate      float64 `json:"schemePenalRate"`
 
+	// ServiceChargeType/Value/Mode are the scheme's charge configuration as
+	// it stood at creation (see scheme.Scheme's own ServiceChargeType*/
+	// ServiceChargeMode* constants) — frozen the same way every other
+	// Scheme* field above is. ServiceChargeAmount is the actual rupee
+	// amount computed from Value against THIS loan's PrincipalAmount at
+	// creation (Value is a flat amount or a percentage depending on Type;
+	// Amount is always a concrete rupee figure either way) — see
+	// Service.Create for where it's computed and WithheldFromPayout vs.
+	// AddedToPrincipal is applied.
+	ServiceChargeType   string  `json:"serviceChargeType" gorm:"size:10"`
+	ServiceChargeValue  float64 `json:"serviceChargeValue" gorm:"type:numeric(16,2);default:0"`
+	ServiceChargeMode   string  `json:"serviceChargeMode" gorm:"size:20"`
+	ServiceChargeAmount float64 `json:"serviceChargeAmount" gorm:"type:numeric(16,2);default:0"`
+
 	OpenedDate time.Time `json:"openedDate" gorm:"not null"`
 	DueDate    time.Time `json:"dueDate" gorm:"not null"`
 
@@ -322,6 +345,22 @@ type Loan struct {
 	Status        string `json:"status" gorm:"not null;size:30"`
 	ApprovalStage string `json:"approvalStage" gorm:"not null;size:30"`
 
+	// SanctionedAmount/DisbursedAmount/DisbursementDate record what actually
+	// happened at final sanction, distinct from PrincipalAmount above (which
+	// is set at Create and can still change via UpdateLoan before the loan
+	// is fully approved). SanctionedAmount is a frozen snapshot of
+	// PrincipalAmount taken the moment Approve reaches FinalSanction —
+	// immutable afterward even if the loan is later edited. DisbursedAmount
+	// is what was actually paid out to the customer at that same moment
+	// (equal to SanctionedAmount today, since no fee is currently withheld
+	// from the payout — will differ once a withheld scheme service charge
+	// exists). All three stay zero/nil until the loan clears FinalSanction;
+	// a loan still Pending Approval, or one rejected before reaching that
+	// stage, never had a real disbursement to record.
+	SanctionedAmount float64    `json:"sanctionedAmount" gorm:"type:numeric(16,2);default:0"`
+	DisbursedAmount  float64    `json:"disbursedAmount" gorm:"type:numeric(16,2);default:0"`
+	DisbursementDate *time.Time `json:"disbursementDate"`
+
 	BankPledgeStatus string `json:"bankPledgeStatus" gorm:"not null;size:20;default:'Not Pledged'"`
 
 	AuctionDate   *time.Time `json:"auctionDate"`
@@ -365,4 +404,32 @@ func (l *Loan) applySchemeSnapshot(sch *scheme.Scheme) {
 	l.SchemeLTVPercent = sch.LTVPercent
 	l.SchemeInterestMethod = sch.InterestMethod
 	l.SchemePenalRate = sch.PenalRate
+	// Configuration only — NOT the computed ServiceChargeAmount, which
+	// needs PrincipalAmount and isn't known yet at every call site of this
+	// method (Create calls it before PrincipalAmount is even assigned).
+	// See Service.Create/applyServiceCharge for where Amount is actually
+	// computed and applied.
+	l.ServiceChargeType = sch.ServiceChargeType
+	l.ServiceChargeValue = sch.ServiceChargeValue
+	l.ServiceChargeMode = sch.ServiceChargeMode
+}
+
+// computeServiceChargeAmount turns l's snapshotted ServiceChargeType/Value
+// into a concrete rupee amount against principalAmount — a flat amount is
+// used as-is, a percentage is applied to principalAmount, and None (or an
+// unrecognized type) is always zero. Kept as its own small pure function
+// (rather than inlined in Service.Create) so it can be re-derived without
+// re-fetching the scheme, and so principal-change paths (UpdateLoan) can
+// call it too if the product ever wants the charge to re-derive off an
+// edited principal — not done today (see UpdateLoan's own doc comment: the
+// charge is a creation-time-only snapshot, never recomputed on edit).
+func computeServiceChargeAmount(chargeType string, chargeValue, principalAmount float64) float64 {
+	switch chargeType {
+	case scheme.ServiceChargeTypeFlat:
+		return chargeValue
+	case scheme.ServiceChargeTypePercent:
+		return principalAmount * chargeValue / 100
+	default:
+		return 0
+	}
 }

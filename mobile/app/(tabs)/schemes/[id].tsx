@@ -12,6 +12,7 @@ import { ChipSelect } from "../../../src/components/ChipSelect";
 import { BottomSheetModal } from "../../../src/components/BottomSheetModal";
 import { colors } from "../../../src/theme/colors";
 import { getScheme, toggleSchemeActive, updateScheme, type SchemeInput } from "../../../src/api/schemes";
+import { ServiceChargeType, ServiceChargeMode } from "../../../src/types/scheme";
 import { listLoansPage } from "../../../src/api/loans";
 import { downloadSchemeStatement, previewSchemeStatementPdf } from "../../../src/utils/schemeStatement";
 import { useRefetchOnFocus } from "../../../src/hooks/useRefetchOnFocus";
@@ -20,6 +21,29 @@ import { ApiError } from "../../../src/api/client";
 // Mirrors new.tsx's own METHODS list (frontend/components/modals/
 // SchemeModal.tsx's fixed options, ported as a ChipSelect there too).
 const METHODS = ["Monthly simple interest", "Flat monthly", "Quarterly simple", "Compound monthly"] as const;
+
+// Mirrors new.tsx's own CHARGE_TYPES/CHARGE_MODES + wire-value mapping —
+// see that file's own comment on why ChipSelect uses display text as the
+// value here instead of the raw wire value.
+const CHARGE_TYPES = ["No service charge", "Flat amount", "Percentage"] as const;
+const CHARGE_MODES = ["Withhold from payout", "Add to principal"] as const;
+
+function chargeTypeToWire(v: (typeof CHARGE_TYPES)[number]): ServiceChargeType {
+  if (v === "Flat amount") return "Flat";
+  if (v === "Percentage") return "Percent";
+  return "None";
+}
+function chargeTypeFromWire(v: ServiceChargeType | undefined): (typeof CHARGE_TYPES)[number] {
+  if (v === "Flat") return "Flat amount";
+  if (v === "Percent") return "Percentage";
+  return "No service charge";
+}
+function chargeModeToWire(v: (typeof CHARGE_MODES)[number]): ServiceChargeMode {
+  return v === "Add to principal" ? "AddedToPrincipal" : "WithheldFromPayout";
+}
+function chargeModeFromWire(v: ServiceChargeMode | undefined): (typeof CHARGE_MODES)[number] {
+  return v === "AddedToPrincipal" ? "Add to principal" : "Withhold from payout";
+}
 
 function firstOfMonth(): string {
   const d = new Date();
@@ -60,6 +84,9 @@ export default function SchemeDetailScreen() {
   const [editMethod, setEditMethod] = useState<(typeof METHODS)[number]>(METHODS[0]);
   const [editPenalRate, setEditPenalRate] = useState("");
   const [editConditions, setEditConditions] = useState("");
+  const [editChargeType, setEditChargeType] = useState<(typeof CHARGE_TYPES)[number]>(CHARGE_TYPES[0]);
+  const [editChargeValue, setEditChargeValue] = useState("");
+  const [editChargeMode, setEditChargeMode] = useState<(typeof CHARGE_MODES)[number]>(CHARGE_MODES[0]);
   const [editError, setEditError] = useState<string | null>(null);
 
   function openEdit() {
@@ -71,12 +98,16 @@ export default function SchemeDetailScreen() {
     setEditMethod((METHODS as readonly string[]).includes(data.interestMethod ?? "") ? (data.interestMethod as (typeof METHODS)[number]) : METHODS[0]);
     setEditPenalRate(data.penalRate != null ? String(data.penalRate) : "");
     setEditConditions(data.conditions ?? "");
+    setEditChargeType(chargeTypeFromWire(data.serviceChargeType));
+    setEditChargeValue(data.serviceChargeType && data.serviceChargeType !== "None" ? String(data.serviceChargeValue ?? "") : "");
+    setEditChargeMode(chargeModeFromWire(data.serviceChargeMode));
     setEditError(null);
     setEditOpen(true);
   }
 
   const saveEdit = useMutation({
     mutationFn: () => {
+      const wireChargeType = chargeTypeToWire(editChargeType);
       const input: SchemeInput = {
         name: editName,
         branchId: data!.branchId,
@@ -87,6 +118,9 @@ export default function SchemeDetailScreen() {
         penalRate: editPenalRate ? Number(editPenalRate) : undefined,
         conditions: editConditions.trim() || undefined,
         isActive: data!.isActive,
+        serviceChargeType: wireChargeType,
+        serviceChargeValue: wireChargeType === "None" ? 0 : Number(editChargeValue),
+        serviceChargeMode: wireChargeType === "None" ? undefined : chargeModeToWire(editChargeMode),
       };
       return updateScheme(schemeId, input);
     },
@@ -189,6 +223,12 @@ export default function SchemeDetailScreen() {
               <ThemedText variant="body" style={{ marginTop: 12 }}>
                 Interest {data.interestRate}% · {data.durationMonths} months · LTV {data.ltvPercent}%
               </ThemedText>
+              {data.serviceChargeType && data.serviceChargeType !== "None" ? (
+                <ThemedText variant="small" color={colors.muted} style={{ marginTop: 4 }}>
+                  Service charge: {data.serviceChargeType === "Flat" ? `₹${data.serviceChargeValue}` : `${data.serviceChargeValue}%`}
+                  {" "}({data.serviceChargeMode === "AddedToPrincipal" ? "added to principal" : "withheld"})
+                </ThemedText>
+              ) : null}
               {data.conditions ? (
                 <ThemedText variant="small" color={colors.muted} style={{ marginTop: 8 }}>
                   {data.conditions}
@@ -355,6 +395,18 @@ export default function SchemeDetailScreen() {
           <ChipSelect label="Interest calculation method" options={METHODS} value={editMethod} onChange={setEditMethod} />
           <GoldTextInput label="Penal charges (% / month)" keyboardType="numeric" value={editPenalRate} onChangeText={setEditPenalRate} />
           <GoldTextInput label="Applicable conditions" value={editConditions} onChangeText={setEditConditions} />
+          <ChipSelect label="Service charge" options={CHARGE_TYPES} value={editChargeType} onChange={setEditChargeType} />
+          {editChargeType !== CHARGE_TYPES[0] ? (
+            <>
+              <GoldTextInput
+                label={editChargeType === "Flat amount" ? "Charge amount (₹)" : "Charge (% of principal)"}
+                keyboardType="numeric"
+                value={editChargeValue}
+                onChangeText={setEditChargeValue}
+              />
+              <ChipSelect label="How the charge is collected" options={CHARGE_MODES} value={editChargeMode} onChange={setEditChargeMode} />
+            </>
+          ) : null}
           {editError ? (
             <ThemedText variant="small" color={colors.red} style={{ marginBottom: 8 }}>
               {editError}

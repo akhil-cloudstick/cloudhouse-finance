@@ -60,8 +60,10 @@ export default function TabsLayout() {
         <Tabs.Screen name="reports" options={{ title: "Reports", href: null }} />
         <Tabs.Screen name="schemes" options={{ title: "Schemes", headerShown: false, href: null }} />
         <Tabs.Screen name="personal-loans" options={{ title: "Personal Loans", headerShown: false, href: null }} />
+        <Tabs.Screen name="investments" options={{ title: "Investments", headerShown: false, href: null }} />
         <Tabs.Screen name="gold-rates" options={{ title: "Gold Rates", href: null }} />
         <Tabs.Screen name="requests" options={{ title: "Extensions & Release", href: null }} />
+        <Tabs.Screen name="loan-risk" options={{ title: "Loan Risk", href: null }} />
         <Tabs.Screen name="lockers" options={{ title: "Lockers", headerShown: false, href: null }} />
         <Tabs.Screen name="banks" options={{ title: "Bank Pledge", headerShown: false, href: null }} />
         <Tabs.Screen name="auctions" options={{ title: "Auctions", headerShown: false, href: null }} />

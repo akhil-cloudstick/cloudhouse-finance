@@ -6,10 +6,19 @@ import { Card } from "../../../src/components/Card";
 import { ThemedText } from "../../../src/components/ThemedText";
 import { GoldTextInput } from "../../../src/components/GoldTextInput";
 import { GoldButton } from "../../../src/components/GoldButton";
-import { ChipSelect } from "../../../src/components/ChipSelect";
 import { colors, statusColors, StatusTone } from "../../../src/theme/colors";
-import { getCashSummary, listCashMovementsPage, createCashMovement, listExpensesPage, createExpense, approveExpense, rejectExpense } from "../../../src/api/cash";
-import { CashMovement, Expense } from "../../../src/types/cash";
+import {
+  getCashSummary,
+  listCashMovementsPage,
+  createCashMovement,
+  listExpensesPage,
+  createExpense,
+  approveExpense,
+  rejectExpense,
+  listGoldSalesPage,
+  createGoldSale,
+} from "../../../src/api/cash";
+import { CashMovement, Expense, GoldSale } from "../../../src/types/cash";
 import { useAuth } from "../../../src/auth/AuthContext";
 import { ApiError } from "../../../src/api/client";
 import { useRefetchOnFocus } from "../../../src/hooks/useRefetchOnFocus";
@@ -17,7 +26,12 @@ import { fmt } from "../../../src/lib/format";
 import { ExpandableTable, defaultVisibleCount, type TableColumn, type ExtraField } from "../../../src/components/ExpandableTable";
 
 const PAGE_SIZE = 10;
-const MOVEMENT_TYPES = ["in", "out"] as const;
+
+// Three dedicated actions replace the old single "Add cash movement" toggle
+// with an in/out chip — mirrors the web Cash module's "Take Cash Out" /
+// "Add Cash" / "Gold Sale Amount" action menu (frontend/modules/cash/
+// components/Cash.tsx), plus the existing "Record Expense".
+type CashAction = "addCash" | "takeCashOut" | "goldSale" | "expense" | null;
 
 function StatusPill({ label, tone }: { label: string; tone: StatusTone }) {
   const t = statusColors(tone);
@@ -49,6 +63,11 @@ function movementExtraFields(m: CashMovement) {
   return [
     { label: "Date", value: fmtDate(m.occurredOn) },
     { label: "Source", value: m.source },
+    // The mode this specific row was recorded in — for a payment split
+    // across cash/UPI/bank/cheque, each mode books its own CashMovement
+    // row (sharing transactionGroupId), so this is what surfaces that
+    // distribution here rather than only a single lump amount.
+    { label: "Mode", value: m.mode || "—" },
     { label: "Bank", value: m.bank || "—" },
     { label: "Branch", value: m.branch?.name || "—" },
   ];
@@ -63,11 +82,10 @@ export default function CashScreen() {
   const isAdmin = employee?.role === "Administrator";
   const today = new Date().toISOString().slice(0, 10);
 
-  const [tab, setTab] = useState<"movements" | "expenses">("movements");
-  const [showForm, setShowForm] = useState(false);
+  const [tab, setTab] = useState<"movements" | "expenses" | "goldSales">("movements");
+  const [action, setAction] = useState<CashAction>(null);
 
-  // Movement form state
-  const [mType, setMType] = useState<(typeof MOVEMENT_TYPES)[number]>("in");
+  // Add Cash form state (createCashMovement type "in")
   const [mSource, setMSource] = useState("");
   const [mPurpose, setMPurpose] = useState("");
   const [mAmount, setMAmount] = useState("");
@@ -76,7 +94,17 @@ export default function CashScreen() {
   const [eAmount, setEAmount] = useState("");
   const [eMode, setEMode] = useState("");
   const [ePayee, setEPayee] = useState("");
+  // Gold Sale form state
+  const [gType, setGType] = useState("");
+  const [gSold, setGSold] = useState("");
+  const [gCost, setGCost] = useState("");
+  const [gRemarks, setGRemarks] = useState("");
   const [formError, setFormError] = useState<string | null>(null);
+
+  function closeForm() {
+    setAction(null);
+    setFormError(null);
+  }
 
   const summary = useQuery({
     queryKey: ["cash-summary", employee?.branchId, today],
@@ -97,16 +125,33 @@ export default function CashScreen() {
     getNextPageParam: (lastPage, allPages) => (lastPage.hasMore ? allPages.length * PAGE_SIZE : undefined),
     enabled: tab === "expenses",
   });
+  const goldSales = useInfiniteQuery({
+    queryKey: ["gold-sales"],
+    queryFn: ({ pageParam = 0 }) => listGoldSalesPage({ limit: PAGE_SIZE, offset: pageParam }),
+    initialPageParam: 0,
+    getNextPageParam: (lastPage, allPages) => (lastPage.hasMore ? allPages.length * PAGE_SIZE : undefined),
+    enabled: tab === "goldSales",
+  });
 
-  useRefetchOnFocus(summary.refetch, movements.refetch, expenses.refetch);
+  useRefetchOnFocus(summary.refetch, movements.refetch, expenses.refetch, goldSales.refetch);
 
   const movementItems = movements.data?.pages.flatMap((p) => p.items) ?? [];
   const expenseItems = expenses.data?.pages.flatMap((p) => p.items) ?? [];
+  const goldSaleItems = goldSales.data?.pages.flatMap((p) => p.items) ?? [];
 
-  const createMovement = useMutation({
-    mutationFn: () => createCashMovement({ type: mType, source: mSource, purpose: mPurpose, amount: Number(mAmount), bank: undefined }),
+  const addCash = useMutation({
+    mutationFn: () => createCashMovement({ type: "in", source: mSource, purpose: mPurpose, amount: Number(mAmount), bank: undefined }),
     onSuccess: () => {
-      setMSource(""); setMPurpose(""); setMAmount(""); setShowForm(false); setFormError(null);
+      setMSource(""); setMPurpose(""); setMAmount(""); closeForm();
+      queryClient.invalidateQueries({ queryKey: ["cash-movements"] });
+      queryClient.invalidateQueries({ queryKey: ["cash-summary"] });
+    },
+    onError: (err) => setFormError(err instanceof ApiError ? err.message : "Could not save."),
+  });
+  const takeCashOut = useMutation({
+    mutationFn: () => createCashMovement({ type: "out", source: mSource, purpose: mPurpose, amount: Number(mAmount), bank: undefined }),
+    onSuccess: () => {
+      setMSource(""); setMPurpose(""); setMAmount(""); closeForm();
       queryClient.invalidateQueries({ queryKey: ["cash-movements"] });
       queryClient.invalidateQueries({ queryKey: ["cash-summary"] });
     },
@@ -115,8 +160,25 @@ export default function CashScreen() {
   const createExp = useMutation({
     mutationFn: () => createExpense({ category: eCategory, amount: Number(eAmount), mode: eMode, payee: ePayee, branchId: employee!.branchId }),
     onSuccess: () => {
-      setECategory(""); setEAmount(""); setEMode(""); setEPayee(""); setShowForm(false); setFormError(null);
+      setECategory(""); setEAmount(""); setEMode(""); setEPayee(""); closeForm();
       queryClient.invalidateQueries({ queryKey: ["expenses"] });
+      queryClient.invalidateQueries({ queryKey: ["cash-summary"] });
+    },
+    onError: (err) => setFormError(err instanceof ApiError ? err.message : "Could not save."),
+  });
+  const createGold = useMutation({
+    mutationFn: () =>
+      createGoldSale({
+        ornamentType: gType,
+        soldAmount: Number(gSold),
+        costAmount: Number(gCost || 0),
+        branchId: employee!.branchId,
+        remarks: gRemarks.trim() || undefined,
+      }),
+    onSuccess: () => {
+      setGType(""); setGSold(""); setGCost(""); setGRemarks(""); closeForm();
+      queryClient.invalidateQueries({ queryKey: ["gold-sales"] });
+      queryClient.invalidateQueries({ queryKey: ["cash-movements"] });
       queryClient.invalidateQueries({ queryKey: ["cash-summary"] });
     },
     onError: (err) => setFormError(err instanceof ApiError ? err.message : "Could not save."),
@@ -129,6 +191,29 @@ export default function CashScreen() {
     mutationFn: (id: number) => rejectExpense(id, "Rejected from mobile app", employee?.name),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["expenses"] }),
   });
+
+  const GOLD_SALE_COLUMNS: TableColumn<GoldSale>[] = [
+    { key: "ornamentType", label: "Ornament", render: (g) => g.ornamentType, weight: 1.3 },
+    { key: "soldAmount", label: "Sold For", render: (g) => fmt(g.soldAmount) },
+    {
+      key: "profit",
+      label: "Profit/Loss",
+      render: (g) => (
+        <ThemedText variant="small" color={g.profit >= 0 ? colors.green : colors.red}>
+          {g.profit >= 0 ? "+" : "−"}{fmt(Math.abs(g.profit))}
+        </ThemedText>
+      ),
+    },
+  ];
+  const GOLD_SALE_VISIBLE = Math.min(GOLD_SALE_COLUMNS.length, defaultVisibleCount(GOLD_SALE_COLUMNS.length + 4));
+  function goldSaleExtraFields(g: GoldSale): ExtraField[] {
+    return [
+      { label: "Date", value: fmtDate(g.soldOn) },
+      { label: "Cost", value: fmt(g.costAmount) },
+      { label: "Branch", value: g.branch?.name || "—" },
+      { label: "Remarks", value: g.remarks || "—" },
+    ];
+  }
 
   const EXPENSE_COLUMNS: TableColumn<Expense>[] = [
     { key: "amount", label: "Amount", render: (e) => fmt(e.amount) },
@@ -195,104 +280,158 @@ export default function CashScreen() {
           )}
         </Card>
 
-        {/* --- Table tab switch: this screen holds two tables --- */}
+        {/* --- Table tab switch: this screen holds three tables --- */}
         <View style={styles.tableTabs}>
           <Pressable
-            onPress={() => { setTab("movements"); setShowForm(false); setFormError(null); }}
+            onPress={() => { setTab("movements"); closeForm(); }}
             style={[styles.tableTab, tab === "movements" && styles.tableTabOn]}
           >
             <ThemedText variant="small" numberOfLines={1} color={tab === "movements" ? colors.card : colors.muted}>
-              Cash Movements
+              Movements
             </ThemedText>
           </Pressable>
           <Pressable
-            onPress={() => { setTab("expenses"); setShowForm(false); setFormError(null); }}
+            onPress={() => { setTab("expenses"); closeForm(); }}
             style={[styles.tableTab, tab === "expenses" && styles.tableTabOn]}
           >
             <ThemedText variant="small" numberOfLines={1} color={tab === "expenses" ? colors.card : colors.muted}>
               Expenses
             </ThemedText>
           </Pressable>
+          <Pressable
+            onPress={() => { setTab("goldSales"); closeForm(); }}
+            style={[styles.tableTab, tab === "goldSales" && styles.tableTabOn]}
+          >
+            <ThemedText variant="small" numberOfLines={1} color={tab === "goldSales" ? colors.card : colors.muted}>
+              Gold Sales
+            </ThemedText>
+          </Pressable>
         </View>
 
-        <GoldButton
-          title={showForm ? "Cancel" : tab === "movements" ? "Add cash movement" : "Add expense"}
-          variant="outline"
-          onPress={() => setShowForm((v) => !v)}
-          style={{ marginBottom: 12 }}
-        />
+        {/* --- Actions: a dedicated button per action, matching the web's
+         * "Take Cash Out" / "Add Cash" / "Gold Sale Amount" / "Record
+         * Expense" set — rather than one generic form with an in/out toggle. */}
+        <View style={styles.actionRow}>
+          <Pressable style={styles.actionBtn} onPress={() => setAction((a) => (a === "addCash" ? null : "addCash"))}>
+            <ThemedText variant="small" color={colors.brandDeep}>Add Cash</ThemedText>
+          </Pressable>
+          <Pressable style={styles.actionBtn} onPress={() => setAction((a) => (a === "takeCashOut" ? null : "takeCashOut"))}>
+            <ThemedText variant="small" color={colors.brandDeep}>Take Cash Out</ThemedText>
+          </Pressable>
+          <Pressable style={styles.actionBtn} onPress={() => setAction((a) => (a === "goldSale" ? null : "goldSale"))}>
+            <ThemedText variant="small" color={colors.brandDeep}>Gold Sale</ThemedText>
+          </Pressable>
+          <Pressable style={styles.actionBtn} onPress={() => setAction((a) => (a === "expense" ? null : "expense"))}>
+            <ThemedText variant="small" color={colors.brandDeep}>Record Expense</ThemedText>
+          </Pressable>
+        </View>
 
-        {showForm ? (
+        {action === "addCash" || action === "takeCashOut" ? (
           <Card>
-            {tab === "movements" ? (
-              <>
-                <ChipSelect label="Type" options={MOVEMENT_TYPES} value={mType} onChange={setMType} />
-                <GoldTextInput label="Source" value={mSource} onChangeText={setMSource} />
-                <GoldTextInput label="Purpose" value={mPurpose} onChangeText={setMPurpose} />
-                <GoldTextInput label="Amount" keyboardType="numeric" value={mAmount} onChangeText={setMAmount} />
-                {formError ? <ThemedText variant="small" color={colors.red} style={{ marginBottom: 8 }}>{formError}</ThemedText> : null}
-                <GoldButton title="Save" onPress={() => createMovement.mutate()} loading={createMovement.isPending} disabled={!mSource || !mPurpose || !mAmount} />
-              </>
-            ) : (
-              <>
-                <GoldTextInput label="Category" value={eCategory} onChangeText={setECategory} />
-                <GoldTextInput label="Amount" keyboardType="numeric" value={eAmount} onChangeText={setEAmount} />
-                <GoldTextInput label="Mode (Cash/UPI/...)" value={eMode} onChangeText={setEMode} />
-                <GoldTextInput label="Payee" value={ePayee} onChangeText={setEPayee} />
-                {formError ? <ThemedText variant="small" color={colors.red} style={{ marginBottom: 8 }}>{formError}</ThemedText> : null}
-                <GoldButton title="Save" onPress={() => createExp.mutate()} loading={createExp.isPending} disabled={!eCategory || !eAmount || !eMode || !ePayee} />
-              </>
-            )}
+            <ThemedText variant="h3" style={{ marginBottom: 8 }}>
+              {action === "addCash" ? "Add Cash" : "Take Cash Out"}
+            </ThemedText>
+            <GoldTextInput label="Source / Purpose" value={mSource} onChangeText={setMSource} />
+            <GoldTextInput label="Purpose" value={mPurpose} onChangeText={setMPurpose} />
+            <GoldTextInput label="Amount" keyboardType="numeric" value={mAmount} onChangeText={setMAmount} />
+            {formError ? <ThemedText variant="small" color={colors.red} style={{ marginBottom: 8 }}>{formError}</ThemedText> : null}
+            <GoldButton
+              title="Save"
+              onPress={() => (action === "addCash" ? addCash.mutate() : takeCashOut.mutate())}
+              loading={action === "addCash" ? addCash.isPending : takeCashOut.isPending}
+              disabled={!mSource || !mPurpose || !mAmount}
+            />
+          </Card>
+        ) : null}
+
+        {action === "expense" ? (
+          <Card>
+            <ThemedText variant="h3" style={{ marginBottom: 8 }}>Record Expense</ThemedText>
+            <GoldTextInput label="Category" value={eCategory} onChangeText={setECategory} />
+            <GoldTextInput label="Amount" keyboardType="numeric" value={eAmount} onChangeText={setEAmount} />
+            <GoldTextInput label="Mode (Cash/UPI/...)" value={eMode} onChangeText={setEMode} />
+            <GoldTextInput label="Payee" value={ePayee} onChangeText={setEPayee} />
+            {formError ? <ThemedText variant="small" color={colors.red} style={{ marginBottom: 8 }}>{formError}</ThemedText> : null}
+            <GoldButton title="Save" onPress={() => createExp.mutate()} loading={createExp.isPending} disabled={!eCategory || !eAmount || !eMode || !ePayee} />
+          </Card>
+        ) : null}
+
+        {action === "goldSale" ? (
+          <Card>
+            <ThemedText variant="h3" style={{ marginBottom: 8 }}>Gold Sale Amount</ThemedText>
+            <GoldTextInput label="Ornament Type" value={gType} onChangeText={setGType} placeholder="e.g. Chain, Bangle, Studs" />
+            <GoldTextInput label="Sold For (₹)" keyboardType="numeric" value={gSold} onChangeText={setGSold} />
+            <GoldTextInput label="Cost to Acquire (₹)" keyboardType="numeric" value={gCost} onChangeText={setGCost} />
+            <GoldTextInput label="Remarks (optional)" value={gRemarks} onChangeText={setGRemarks} />
+            {formError ? <ThemedText variant="small" color={colors.red} style={{ marginBottom: 8 }}>{formError}</ThemedText> : null}
+            <GoldButton title="Save" onPress={() => createGold.mutate()} loading={createGold.isPending} disabled={!gType || !gSold} />
           </Card>
         ) : null}
       </View>
 
       {tab === "movements" ? (
-        <>
-          <View style={{ flex: 1, paddingHorizontal: 16 }}>
-            <ExpandableTable<CashMovement>
-              columns={MOVEMENT_COLUMNS}
-              visibleCount={MOVEMENT_VISIBLE}
-              data={movementItems}
-              keyExtractor={(m) => String(m.id)}
-              extraFields={movementExtraFields}
-              emptyText={movements.isLoading ? "Loading…" : movements.isError ? "Could not load cash movements." : "No movements yet."}
-              refreshControl={
-                <RefreshControl
-                  refreshing={summary.isRefetching || (movements.isRefetching && !movements.isFetchingNextPage)}
-                  onRefresh={() => { summary.refetch(); movements.refetch(); }}
-                />
-              }
-              onEndReached={() => {
-                if (movements.hasNextPage && !movements.isFetchingNextPage) movements.fetchNextPage();
-              }}
-              isFetchingNextPage={movements.isFetchingNextPage}
-            />
-          </View>
-        </>
+        <View style={{ flex: 1, paddingHorizontal: 16 }}>
+          <ExpandableTable<CashMovement>
+            columns={MOVEMENT_COLUMNS}
+            visibleCount={MOVEMENT_VISIBLE}
+            data={movementItems}
+            keyExtractor={(m) => String(m.id)}
+            extraFields={movementExtraFields}
+            emptyText={movements.isLoading ? "Loading…" : movements.isError ? "Could not load cash movements." : "No movements yet."}
+            refreshControl={
+              <RefreshControl
+                refreshing={summary.isRefetching || (movements.isRefetching && !movements.isFetchingNextPage)}
+                onRefresh={() => { summary.refetch(); movements.refetch(); }}
+              />
+            }
+            onEndReached={() => {
+              if (movements.hasNextPage && !movements.isFetchingNextPage) movements.fetchNextPage();
+            }}
+            isFetchingNextPage={movements.isFetchingNextPage}
+          />
+        </View>
+      ) : tab === "expenses" ? (
+        <View style={{ flex: 1, paddingHorizontal: 16 }}>
+          <ExpandableTable<Expense>
+            columns={EXPENSE_COLUMNS}
+            visibleCount={EXPENSE_VISIBLE}
+            data={expenseItems}
+            keyExtractor={(e) => String(e.id)}
+            extraFields={expenseExtraFields}
+            emptyText={expenses.isLoading ? "Loading…" : expenses.isError ? "Could not load expenses." : "No expenses yet."}
+            refreshControl={
+              <RefreshControl
+                refreshing={summary.isRefetching || (expenses.isRefetching && !expenses.isFetchingNextPage)}
+                onRefresh={() => { summary.refetch(); expenses.refetch(); }}
+              />
+            }
+            onEndReached={() => {
+              if (expenses.hasNextPage && !expenses.isFetchingNextPage) expenses.fetchNextPage();
+            }}
+            isFetchingNextPage={expenses.isFetchingNextPage}
+          />
+        </View>
       ) : (
-        <>
-          <View style={{ flex: 1, paddingHorizontal: 16 }}>
-            <ExpandableTable<Expense>
-              columns={EXPENSE_COLUMNS}
-              visibleCount={EXPENSE_VISIBLE}
-              data={expenseItems}
-              keyExtractor={(e) => String(e.id)}
-              extraFields={expenseExtraFields}
-              emptyText={expenses.isLoading ? "Loading…" : expenses.isError ? "Could not load expenses." : "No expenses yet."}
-              refreshControl={
-                <RefreshControl
-                  refreshing={summary.isRefetching || (expenses.isRefetching && !expenses.isFetchingNextPage)}
-                  onRefresh={() => { summary.refetch(); expenses.refetch(); }}
-                />
-              }
-              onEndReached={() => {
-                if (expenses.hasNextPage && !expenses.isFetchingNextPage) expenses.fetchNextPage();
-              }}
-              isFetchingNextPage={expenses.isFetchingNextPage}
-            />
-          </View>
-        </>
+        <View style={{ flex: 1, paddingHorizontal: 16 }}>
+          <ExpandableTable<GoldSale>
+            columns={GOLD_SALE_COLUMNS}
+            visibleCount={GOLD_SALE_VISIBLE}
+            data={goldSaleItems}
+            keyExtractor={(g) => String(g.id)}
+            extraFields={goldSaleExtraFields}
+            emptyText={goldSales.isLoading ? "Loading…" : goldSales.isError ? "Could not load gold sales." : 'No gold sales recorded yet. Use "Gold Sale".'}
+            refreshControl={
+              <RefreshControl
+                refreshing={summary.isRefetching || (goldSales.isRefetching && !goldSales.isFetchingNextPage)}
+                onRefresh={() => { summary.refetch(); goldSales.refetch(); }}
+              />
+            }
+            onEndReached={() => {
+              if (goldSales.hasNextPage && !goldSales.isFetchingNextPage) goldSales.fetchNextPage();
+            }}
+            isFetchingNextPage={goldSales.isFetchingNextPage}
+          />
+        </View>
       )}
     </ScreenContainer>
   );
@@ -310,6 +449,15 @@ const styles = StyleSheet.create({
     backgroundColor: colors.card,
   },
   tableTabOn: { backgroundColor: colors.brandDeep, borderColor: colors.brandDeep },
+  actionRow: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginBottom: 12 },
+  actionBtn: {
+    borderWidth: 1,
+    borderColor: colors.brandDeep,
+    backgroundColor: colors.brandPale,
+    borderRadius: 18,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+  },
   smallApprove: { backgroundColor: colors.green, borderRadius: 7, paddingHorizontal: 10, paddingVertical: 6 },
   smallReject: { borderWidth: 1, borderColor: colors.red, borderRadius: 7, paddingHorizontal: 10, paddingVertical: 6 },
 });

@@ -31,6 +31,22 @@ func IsActiveAuctionStage(stage string) bool {
 	return stage != AuctionStageSettled && stage != AuctionStageWithdrawn
 }
 
+// IsPreSaleAuctionStage reports whether a case is still ahead of the sale —
+// i.e. the gold has not been sold yet, so the loan can still be pulled out
+// of the pipeline entirely (Withdrawn) as a keep/remove decision's outcome.
+// Once a case reaches Auctioned, removing it from the pipeline is no longer
+// a valid outcome of a payment or a PartialRepayment decision: the sale
+// already happened, and what's left to resolve (a shortfall needing
+// write-off/pursue, or a surplus needing disposition via SettleAuction) is
+// handled entirely by the Shortfall decision kind and SettleAuction — never
+// by silently marking the case Withdrawn. Used by
+// Service.resolveAuctionAfterPayment to stop a post-sale payment from
+// orphaning an undisposed surplus (see that function's comment for the bug
+// this guards against).
+func IsPreSaleAuctionStage(stage string) bool {
+	return stage == AuctionStageEligible || stage == AuctionStageNotice || stage == AuctionStageScheduled
+}
+
 // Auction final-settlement status values for AuctionRecord.
 // FinalSettlementStatus.
 const (

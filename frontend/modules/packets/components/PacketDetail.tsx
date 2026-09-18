@@ -106,7 +106,7 @@ export function PacketDetail({ code }: { code?: string }) {
         toast("This loan can no longer be re-pledged to a bank.");
         return;
       }
-      openModal(<RepledgeModalContent loan={loan} onSaved={load} />);
+      openModal(<RepledgeModalContent loan={loan} onSaved={load} />, true);
     } catch (e) {
       toast(e instanceof ApiError ? e.message : "Could not load the loan — try again.");
     } finally {
@@ -282,7 +282,7 @@ export function PacketDetail({ code }: { code?: string }) {
                 {canCreateBankPledge && (
                   <button className="btn ghost" disabled={busy} onClick={openBankPledge}><Icon name="bank" /> Repledge to Bank</button>
                 )}
-                <button className="btn ghost" disabled={busy} onClick={() => doMove(PACKET_STATUS.READY_FOR_RELEASE)}>Mark Ready for Release</button>
+                <button className="btn" disabled={busy} onClick={() => doMove(PACKET_STATUS.RELEASED)}><Icon name="check" /> Mark Released</button>
               </div>
             )}
 

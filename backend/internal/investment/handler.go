@@ -1,6 +1,7 @@
 package investment
 
 import (
+	"fmt"
 	"net/http"
 	"strconv"
 	"time"
@@ -31,6 +32,7 @@ type planRequest struct {
 	MinPrincipal        float64 `json:"minPrincipal"`
 	IsActive            bool    `json:"isActive"`
 	Engine              string  `json:"engine"`
+	ProductType         string  `json:"productType"`
 }
 
 func (h *Handler) CreatePlan(c *gin.Context) {
@@ -49,6 +51,7 @@ func (h *Handler) CreatePlan(c *gin.Context) {
 		MinPrincipal:        req.MinPrincipal,
 		IsActive:            req.IsActive,
 		Engine:              req.Engine,
+		ProductType:         req.ProductType,
 	})
 	if err != nil {
 		httpx.FailErr(c, err)
@@ -78,6 +81,7 @@ func (h *Handler) UpdatePlan(c *gin.Context) {
 		MinPrincipal:        req.MinPrincipal,
 		IsActive:            req.IsActive,
 		Engine:              req.Engine,
+		ProductType:         req.ProductType,
 	})
 	if err != nil {
 		httpx.FailErr(c, err)
@@ -198,6 +202,26 @@ func (h *Handler) Get(c *gin.Context) {
 		return
 	}
 	httpx.Success(c, http.StatusOK, rec)
+}
+
+// DownloadBondPDF backs GET /investments/:id/bond/pdf — the Debenture
+// Subscription Agreement for a Bond-type investment (see
+// investmentbond.go). Refused with ErrNotBondProduct for a Deposit-type
+// investment.
+func (h *Handler) DownloadBondPDF(c *gin.Context) {
+	ctx := platform.RequestContext(c)
+	id, err := httpx.IDParam(c, "id")
+	if err != nil {
+		httpx.FailErr(c, err)
+		return
+	}
+	pdfBytes, filename, err := h.svc.RenderInvestmentBondPDFForInvestment(ctx, id, platform.GetBranchScope(c))
+	if err != nil {
+		httpx.FailErr(c, err)
+		return
+	}
+	c.Header("Content-Disposition", fmt.Sprintf("attachment; filename=%q", filename))
+	c.Data(http.StatusOK, "application/pdf", pdfBytes)
 }
 
 func (h *Handler) Schedule(c *gin.Context) {

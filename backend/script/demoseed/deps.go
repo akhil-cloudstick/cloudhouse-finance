@@ -227,7 +227,7 @@ func NewDeps(db *gorm.DB, cfg platform.Config) *Deps {
 		reminderSvc: reminder.NewService(reminder.NewRepository(db), customerRepo, loanRepo, personalSvc, auctionRepo, nil, nil, tenantRepo),
 		// comms nil: investment.Service only uses it to announce payouts and
 		// maturity over WhatsApp.
-		investmentSvc: investment.NewService(investment.NewRepository(db), customerRepo, movementSvc, nil),
+		investmentSvc: investment.NewService(investment.NewRepository(db), customerRepo, movementSvc, nil, tenantRepo),
 	}
 }
 

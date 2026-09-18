@@ -46,6 +46,19 @@ type Packet struct {
 	// into a locker (e.g. Bank Pledged, Ready For Release, Released).
 	CurrentLockerID *uint `json:"currentLockerId"`
 
+	// TotalGrossWeight/TotalNetWeight mirror the physical contents of this
+	// packet — initialized from the sum of the loan's ornaments' weights
+	// when the packet is first created (see Service.Create), then
+	// decremented by RecordPartialGoldReleaseMovement whenever a Partial
+	// Ornament Release hands back some (not all) of the loan's gold while
+	// the packet itself stays in custody holding the rest. Without this,
+	// a vault-inventory audit that scans packet-level weight would drift
+	// away from what the locker actually still holds after any partial
+	// release — the whole point of tracking it at the packet level instead
+	// of only ever re-deriving it from the loan's live ornament rows.
+	TotalGrossWeight float64 `json:"totalGrossWeight" gorm:"type:numeric(16,3);default:0"`
+	TotalNetWeight   float64 `json:"totalNetWeight" gorm:"type:numeric(16,3);default:0"`
+
 	Movements []PacketMovement `json:"movements,omitempty" gorm:"foreignKey:PacketID"`
 
 	CreatedAt time.Time `json:"createdAt"`

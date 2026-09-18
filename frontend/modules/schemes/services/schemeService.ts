@@ -2,6 +2,9 @@ import { apiFetchEnveloped as apiFetch, API_BASE, getAuthToken, ApiError } from 
 
 /* Shape returned by the Go backend (backend/internal/scheme/model.go). A
  * scheme's tenure is a real field now — no more start/end date window. */
+export type ServiceChargeType = "None" | "Flat" | "Percent";
+export type ServiceChargeMode = "WithheldFromPayout" | "AddedToPrincipal";
+
 export type BackendScheme = {
   id: number;
   code: string;
@@ -15,6 +18,14 @@ export type BackendScheme = {
   isActive: boolean;
   branchId: number;
   branch?: { id: number; name: string; code?: string };
+  // Optional charge applied to every loan opened under this scheme — see
+  // backend/internal/scheme/model.go's ServiceChargeType*/ServiceChargeMode*
+  // constants. serviceChargeValue is a flat rupee amount when Type is
+  // "Flat", or a percentage of principal when Type is "Percent"; ignored
+  // when Type is "None".
+  serviceChargeType?: ServiceChargeType;
+  serviceChargeValue?: number;
+  serviceChargeMode?: ServiceChargeMode;
 };
 
 /* Shape the Schemes UI renders — closer to how a scheme is described on
@@ -32,6 +43,9 @@ export type SchemeView = {
   active: boolean;
   branchId: number;
   branchName: string;
+  serviceChargeType: ServiceChargeType;
+  serviceChargeValue: number;
+  serviceChargeMode: ServiceChargeMode;
 };
 
 export type SchemeFormInput = {
@@ -44,6 +58,9 @@ export type SchemeFormInput = {
   cond: string;
   active: boolean;
   branchId: number;
+  serviceChargeType: ServiceChargeType;
+  serviceChargeValue: number;
+  serviceChargeMode: ServiceChargeMode;
 };
 
 function toView(s: BackendScheme): SchemeView {
@@ -60,6 +77,9 @@ function toView(s: BackendScheme): SchemeView {
     active: s.isActive,
     branchId: s.branchId,
     branchName: s.branch?.name || "",
+    serviceChargeType: s.serviceChargeType || "None",
+    serviceChargeValue: s.serviceChargeValue || 0,
+    serviceChargeMode: s.serviceChargeMode || "WithheldFromPayout",
   };
 }
 
@@ -74,6 +94,9 @@ function toRequestBody(input: SchemeFormInput) {
     conditions: input.cond,
     isActive: input.active,
     branchId: input.branchId,
+    serviceChargeType: input.serviceChargeType,
+    serviceChargeValue: input.serviceChargeType === "None" ? 0 : input.serviceChargeValue,
+    serviceChargeMode: input.serviceChargeType === "None" ? undefined : input.serviceChargeMode,
   };
 }
 

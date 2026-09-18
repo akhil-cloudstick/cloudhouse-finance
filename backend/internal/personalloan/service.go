@@ -47,8 +47,8 @@ type CashRecorder interface {
 	// cash.MovementService.recordSplitCashMovement) — amount stays the
 	// authoritative total. customerID (0 = none) populates CashMovement.
 	// PartyCustomerID for the Party Transactions ledger.
-	RecordLoanDisbursementCashOut(ctx context.Context, loanID uint, loanNumber string, amount, cashAmount, upiAmount, bankTransferAmount, chequeAmount float64, branchID uint, occurredOn time.Time, customerID uint) (movementID uint, err error)
-	RecordLoanPaymentCashIn(ctx context.Context, loanID uint, loanNumber string, amount, cashAmount, upiAmount, bankTransferAmount, chequeAmount float64, branchID uint, occurredOn time.Time, paymentType string, customerID uint) (movementID uint, err error)
+	RecordLoanDisbursementCashOut(ctx context.Context, loanID uint, loanNumber string, amount, cashAmount, upiAmount, bankTransferAmount, chequeAmount float64, branchID uint, occurredOn time.Time, customerID uint) (movementID uint, groupID string, err error)
+	RecordLoanPaymentCashIn(ctx context.Context, loanID uint, loanNumber string, amount, cashAmount, upiAmount, bankTransferAmount, chequeAmount float64, branchID uint, occurredOn time.Time, paymentType string, customerID uint) (movementID uint, groupID string, err error)
 }
 
 // Service implements personal-loan business rules on top of the Repository.
@@ -269,7 +269,7 @@ func (s *Service) CreateLoan(ctx context.Context, in CreateInput) (*PersonalLoan
 		// not personal-loan disbursement) — all-zero split amounts fall back
 		// to one legacy-style unmoded row (see cash.MovementService.
 		// recordSplitCashMovement).
-		if _, err := s.cashRecorder.RecordLoanDisbursementCashOut(ctx, rec.ID, rec.LoanNumber, rec.DisbursedAmount, 0, 0, 0, 0, rec.BranchID, now, rec.CustomerID); err != nil {
+		if _, _, err := s.cashRecorder.RecordLoanDisbursementCashOut(ctx, rec.ID, rec.LoanNumber, rec.DisbursedAmount, 0, 0, 0, 0, rec.BranchID, now, rec.CustomerID); err != nil {
 			log.Printf("cash-out movement (personal loan disbursement) failed for loan %d: %v", rec.ID, err)
 		}
 	}
@@ -601,7 +601,7 @@ func (s *Service) RecordPayment(ctx context.Context, loanID uint, branchID *uint
 	// Best-effort and outside the transaction, same rationale as CreateLoan's
 	// disbursement recording above.
 	if s.cashRecorder != nil {
-		if _, err := s.cashRecorder.RecordLoanPaymentCashIn(ctx, result.ID, result.LoanNumber, paidAmount, in.CashAmount, in.UpiAmount, in.BankTransferAmount, in.ChequeAmount, result.BranchID, paidOn, "Personal Loan Payment", result.CustomerID); err != nil {
+		if _, _, err := s.cashRecorder.RecordLoanPaymentCashIn(ctx, result.ID, result.LoanNumber, paidAmount, in.CashAmount, in.UpiAmount, in.BankTransferAmount, in.ChequeAmount, result.BranchID, paidOn, "Personal Loan Payment", result.CustomerID); err != nil {
 			log.Printf("cash-in movement (personal loan payment) failed for loan %d: %v", result.ID, err)
 		}
 	}
@@ -887,7 +887,7 @@ func (s *Service) RenewLoan(ctx context.Context, loanID uint, branchID *uint, in
 	if s.cashRecorder != nil && result.NewLoan.DisbursedAmount > epsilon {
 		// No split-mode UI on renewal either — see CreateLoan's identical
 		// all-zero rationale above.
-		if _, err := s.cashRecorder.RecordLoanDisbursementCashOut(ctx, result.NewLoan.ID, result.NewLoan.LoanNumber, result.NewLoan.DisbursedAmount, 0, 0, 0, 0, result.NewLoan.BranchID, result.NewLoan.DisbursedAt, result.NewLoan.CustomerID); err != nil {
+		if _, _, err := s.cashRecorder.RecordLoanDisbursementCashOut(ctx, result.NewLoan.ID, result.NewLoan.LoanNumber, result.NewLoan.DisbursedAmount, 0, 0, 0, 0, result.NewLoan.BranchID, result.NewLoan.DisbursedAt, result.NewLoan.CustomerID); err != nil {
 			log.Printf("cash-out movement (personal loan renewal disbursement) failed for loan %d: %v", result.NewLoan.ID, err)
 		}
 	}

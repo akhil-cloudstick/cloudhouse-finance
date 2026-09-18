@@ -136,7 +136,7 @@ export function BankPledge() {
       <SelectLoanForRepledgeModalContent
         onPicked={(loan) => {
           closeModal();
-          openModal(<RepledgeModalContent loan={loan} onSaved={refreshAll} />);
+          openModal(<RepledgeModalContent loan={loan} onSaved={refreshAll} />, true);
         }}
       />
     );
@@ -175,7 +175,7 @@ export function BankPledge() {
   }
 
   function confirmVoid(rec: BankPledgeRecordView) {
-    openModal(<VoidPledgeModalContent rec={rec} onDone={() => { refreshAll(); toast("Bank pledge voided"); }} />);
+    openModal(<VoidPledgeModalContent rec={rec} onDone={() => { refreshAll(); toast("Pledge entry deleted"); }} />);
   }
 
   return (
@@ -234,7 +234,7 @@ export function BankPledge() {
                               <button
                                 className="btn ghost sm"
                                 style={{ marginLeft: 6 }}
-                                title="Cancel a re-pledge recorded in error — the only way to correct a wrong cash treatment"
+                                title="Cancel the repledge"
                                 onClick={() => confirmVoid({
                                   id: active.id,
                                   loanId: l.numericId,
@@ -252,7 +252,7 @@ export function BankPledge() {
                                   events: [],
                                 })}
                               >
-                                Void
+                                Delete
                               </button>
                             )}
                           </>
@@ -294,7 +294,9 @@ export function BankPledge() {
                     <td>{r.pledgeDate || "—"}</td>
                     <td>{r.releaseDate || "—"}</td>
                     <td>
-                      <span className={`pill ${r.status === "Voided" ? "red" : r.status === "Released" ? "" : "green"}`}>{r.status}</span>
+                      {/* Wire value stays "Voided" (backend status), only the displayed label is "Deleted" — see item #13's
+                        * Void→Delete relabel: this is a UI wording change, not a status-value rename. */}
+                      <span className={`pill ${r.status === "Voided" ? "red" : r.status === "Released" ? "" : "green"}`}>{r.status === "Voided" ? "Deleted" : r.status}</span>
                       {r.status === "Voided" && r.voidReason && (
                         <div style={{ fontSize: 11.5, color: "var(--muted)", marginTop: 2 }}>{r.voidReason}</div>
                       )}
@@ -335,14 +337,14 @@ function VoidPledgeModalContent({ rec, onDone }: { rec: BankPledgeRecordView; on
   const [err, setErr] = useState("");
 
   async function submit() {
-    if (!reason.trim()) { setErr("Please state why this re-pledge is being voided."); return; }
+    if (!reason.trim()) { setErr("Please state why this pledge entry is being deleted."); return; }
     setBusy(true);
     try {
       await voidBankPledge(rec.loanId, rec.id, reason.trim());
       closeModal();
       onDone();
     } catch (e) {
-      setErr(e instanceof ApiError ? e.message : "Could not void the pledge — try again.");
+      setErr(e instanceof ApiError ? e.message : "Could not delete the pledge entry — try again.");
     } finally {
       setBusy(false);
     }
@@ -350,17 +352,17 @@ function VoidPledgeModalContent({ rec, onDone }: { rec: BankPledgeRecordView; on
 
   return (
     <>
-      <div className="hd"><h3>Void Bank Re-Pledge</h3><button className="x" onClick={closeModal}>×</button></div>
+      <div className="hd"><h3>Delete Repledge Record</h3><button className="x" onClick={closeModal}>×</button></div>
       <div className="bd">
         {/* .notice is display:flex — keep the text in one child element. */}
         <div className="notice" style={{ marginBottom: 14 }}>
           <Icon name="shield" />
           <span>
-            Voiding cancels this re-pledge of <strong>{fmt(rec.pledgedAmount)}</strong> to <strong>{rec.bankName}</strong>.
+            Cancel Pledge Entry — this undoes a re-pledge of <strong>{fmt(rec.pledgedAmount)}</strong> to <strong>{rec.bankName}</strong> entered in error.
             {rec.cashTreatment === "CashIn"
               ? ` A compensating cash-out of ${fmt(rec.pledgedAmount)} will be booked, since the original added cash to the till.`
               : " No cash will move — this pledge was recorded only."}
-            {" "}The record stays visible in history. To fix a wrong cash treatment, void this and create a fresh re-pledge.
+            {" "}The record stays visible in history for audit. To fix a wrong cash treatment, delete this entry and create a fresh re-pledge. Use Release instead if the gold is actually being returned from the bank.
           </span>
         </div>
         <div className="frow"><div>
@@ -371,7 +373,7 @@ function VoidPledgeModalContent({ rec, onDone }: { rec: BankPledgeRecordView; on
       </div>
       <div className="ft">
         <button className="btn ghost" onClick={closeModal} disabled={busy}>Cancel</button>
-        <button className="btn danger" onClick={submit} disabled={busy}>{busy ? "Voiding…" : "Void Re-Pledge"}</button>
+        <button className="btn danger" onClick={submit} disabled={busy}>{busy ? "Deleting…" : "Delete Entry"}</button>
       </div>
     </>
   );
