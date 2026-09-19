@@ -171,6 +171,19 @@ func sluggedPage(clean string) string {
 			return ""
 		}
 		return "reset.html"
+	case "superadmin":
+		// The super admin console — a separate app/superadmin/* route tree
+		// (frontend/superadmin), never part of a business's own app shell.
+		// /superadmin never carries a business code ahead of it (it is
+		// reserved, see isReservedSegment), so parts here is exactly what the
+		// browser sent.
+		if len(parts) == 1 {
+			return "superadmin.html"
+		}
+		if len(parts) == 2 && parts[1] == "login" {
+			return "superadmin/login.html"
+		}
+		return ""
 	}
 	if appRoutes[parts[0]] {
 		return "app.html"

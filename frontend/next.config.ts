@@ -29,6 +29,7 @@ const SLUG = "((?!_next|api|uploads|assets|static|favicon\.ico)[a-z0-9][a-z0-9-]
 
 const nextConfig: NextConfig = {
   output: "export",
+
   async rewrites() {
     return [
       { source: "/api/v1/:path*", destination: `${BACKEND_ORIGIN}/api/v1/:path*` },
@@ -41,24 +42,25 @@ const nextConfig: NextConfig = {
       // backend is the only thing the browser ever talks to besides Next.
       { source: "/admin/whatsapp", destination: `${BACKEND_ORIGIN}/admin/whatsapp/` },
       { source: "/admin/whatsapp/:path*", destination: `${BACKEND_ORIGIN}/admin/whatsapp/:path*` },
-      // Per-business links: /login/<slug> and /app/<slug> serve the same
-      // login and app pages, which read the slug from their own URL.
-      //
-      // These are NOT Next dynamic routes ([slug]) because this project builds
-      // with output: "export": a dynamic route needs every parameter known at
-      // build time via generateStaticParams, and tenant slugs are created at
-      // runtime by the vendor, so there is no list to generate. Rewriting to
-      // one static page is what makes a slugged URL work at all.
+      // Per-business links: /<slug>, /<slug>/login, /<slug>/reset,
+      // /<slug>/<route> and /<slug>/<route>/<arg> all fall back to a plain
+      // static page — /<slug> is NOT a Next dynamic route (see
+      // app/app/layout.tsx for why a [slug] segment doesn't work with
+      // `output: "export"` + a runtime-created tenant slug). The real slug
+      // is read client-side from window.location by parsePath()
+      // (product/services/appRoutes.ts), never from anything Next resolves.
       //
       // ORDER MATTERS. The two-segment page rules must precede the catch-all
-      // route rule, or /ctfi/login would be served the app shell. These are
-      // afterFiles rewrites, so real pages (/login, /forgot-password) and
-      // real assets still win over every pattern here.
+      // route rules, or /ctfi/login would be served the app shell instead of
+      // the login page. These are afterFiles rewrites, so real pages
+      // (/login, /forgot-password) and real assets still win over every
+      // pattern here.
       //
       // Rewrites are dev-only (output: "export" does not support them), so
       // production needs the same fallback server-side — see
-      // backend/internal/webstatic. Keep the two in step: a path that works in
-      // dev and 404s in production is worse than one that never worked.
+      // backend/internal/webstatic's sluggedPage. Keep the two in step: a
+      // path that works in dev and 404s in production is worse than one that
+      // never worked.
       { source: `/:slug${SLUG}/login`, destination: "/login" },
       { source: `/:slug${SLUG}/reset`, destination: "/reset" },
       { source: `/:slug${SLUG}`, destination: "/app" },
