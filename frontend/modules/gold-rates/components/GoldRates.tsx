@@ -26,7 +26,7 @@ function RateTile({ k, r, small }: { k: string; r: number; small?: boolean }) {
 export function GoldRates() {
   const { latest } = useGoldRates();
   const { openModal } = useModal();
-  const pageSize = useResponsivePageSize(10, 6);
+  const pageSize = useResponsivePageSize(15, 15);
   const smallScreen = useIsSmallScreen();
   // Hidden rather than disabled when the role cannot record a rate — see
   // Customers.tsx.
@@ -73,7 +73,7 @@ export function GoldRates() {
         <RateTile k="18K · 750" r={latest.k18} small={smallScreen} />
       </div>
       
-      <div className="card tbl-card">
+      <div className="card tbl-card tbl-card-fill">
         <div className="hd"><h3>Rate History</h3></div>
         {error && <div className="notice" style={{ margin: "0 16px 14px" }}>{error}</div>}
         <div className="tbl-wrap tbl-scroll">

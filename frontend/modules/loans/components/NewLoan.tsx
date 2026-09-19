@@ -616,7 +616,7 @@ export function NewLoan() {
        * scoped to just this page's own grid instance, gives the ornament
        * form more room (and the Valuation sidebar correspondingly less)
        * without changing that shared class for the other three. */}
-      <div className="grid cols21" style={{ gridTemplateColumns: "minmax(0, 2.34fr) minmax(0, 0.9fr)" }}>
+      <div className="grid cols21 newloan-orn-grid" style={{ gridTemplateColumns: "minmax(0, 2.34fr) minmax(0, 0.9fr)" }}>
         {/* orn-form-card opts this card into a container query (app.css)
          * that switches the ornament table to the card view based on this
          * card's own rendered width, not the browser window's — the table
@@ -940,7 +940,7 @@ export function NewLoan() {
           </div>
         </div>
 
-        <div className="grid">
+        <div className="grid newloan-sidebar">
           <div className="card gtop"><div className="hd"><h3>Valuation</h3></div>
             <div className="bd" style={{ fontSize: 13.5 }}>
               <div style={{ display: "flex", justifyContent: "space-between", padding: "5px 0" }}><span>Total net weight</span><b>{totalWeight.toFixed(1)} g</b></div>

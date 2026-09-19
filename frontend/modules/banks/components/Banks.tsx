@@ -10,7 +10,7 @@ import { BankModalContent } from "@/common/components/modals/BankModal";
 import { MergeBankModalContent } from "@/common/components/modals/MergeBankModal";
 import { listBanks, listBanksPage, deleteBank, type BackendBank } from "@/modules/banks/services/bankService";
 
-const PAGE_SIZE = 10;
+const PAGE_SIZE = 15;
 
 /* Centralized bank management — mirrors Branches.tsx exactly (simple CRUD
  * table). Unlike Branches, deleting a bank really deletes it (hard delete,
@@ -76,7 +76,7 @@ export function Banks() {
         <p style={{ color: "var(--muted)", fontSize: 13.5 }}>No banks yet. Click &quot;Add Bank&quot; to create one.</p>
       )}
       {banks !== null && banks.length > 0 && (
-        <div className="card tbl-card">
+        <div className="card tbl-card tbl-card-fill">
           <div className="tbl-wrap">
             <table className="tbl">
               <thead>

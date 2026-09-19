@@ -310,7 +310,7 @@ export function Auctions() {
    * Auction") are now independently paginated, real server queries — each
    * filtered by hasSale so a sub-table's own page/offset never counts
    * against the other's rows (see loansApi.listConcludedAuctionsPage). */
-  const pageSize = useResponsivePageSize(10, 7);
+  const pageSize = useResponsivePageSize(15, 15);
   const [conducted, setConducted] = useState<ConcludedAuctionRowView[]>([]);
   const [conductedPage, setConductedPage] = useState(1);
   const [conductedHasMore, setConductedHasMore] = useState(false);

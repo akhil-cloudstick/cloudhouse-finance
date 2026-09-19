@@ -49,7 +49,7 @@ export function BankPledge({ focusLoanNumber }: { focusLoanNumber?: string } = {
   const canCreatePledges = can("Bank_Pledge_Management", "can_create_bank_pledge");
   const canUpdatePledges = can("Bank_Pledge_Management", "can_update_bank_pledge");
   const canCreateBanks = can("Bank_Management", "can_create_bank");
-  const pageSize = useResponsivePageSize(10, 7);
+  const pageSize = useResponsivePageSize(15, 15);
   const [tab, setTab] = useState<"active" | "history">("active");
   // One search box for both tabs, matching loan number, bank name, or
   // customer name — seeded from the route arg when arriving via a
@@ -207,7 +207,7 @@ export function BankPledge({ focusLoanNumber }: { focusLoanNumber?: string } = {
       {error && <div className="notice" style={{ marginBottom: 14 }}>{error}</div>}
 
       {tab === "active" ? (
-        <div className="card tbl-card">
+        <div className="card tbl-card tbl-card-fill">
           <div className="hd"><h3>Re-Pledged Loans</h3></div>
           {pledgedError && <div className="notice" style={{ margin: 14 }}>{pledgedError}</div>}
           <div className="tbl-wrap">
@@ -284,7 +284,7 @@ export function BankPledge({ focusLoanNumber }: { focusLoanNumber?: string } = {
           {/* <div className="ft">If a customer requests closure while gold is bank-pledged, the release workflow flags the bank release step first.</div> */}
         </div>
       ) : (
-        <div className="card tbl-card">
+        <div className="card tbl-card tbl-card-fill">
           <div className="hd"><h3>Re-Pledge History</h3></div>
           {historyError && <div className="notice" style={{ margin: 14 }}>{historyError}</div>}
           <div className="tbl-wrap">

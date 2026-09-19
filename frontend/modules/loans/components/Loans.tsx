@@ -38,7 +38,7 @@ const COMPUTED_CATS: Partial<Record<string, (l: LoanView) => boolean>> = {
 export function Loans() {
   const { loans: allLoans, loading: providerLoading, error: providerError, refresh: refreshLoans } = useLoans();
   const { role } = useAuth();
-  const pageSize = useResponsivePageSize(10, 7);
+  const pageSize = useResponsivePageSize(15, 15);
   const smallScreen = useIsSmallScreen();
   // Cashier is outside the loan creation/approval flow — the backend
   // already 403s a Cashier's POST /loans, so hide the button rather than
@@ -192,7 +192,7 @@ export function Loans() {
         </div>
       </div>
       {error && <div className="notice" style={{ marginBottom: 14 }}>{error}</div>}
-      <div className="card tbl-card"><div className="tbl-wrap tbl-scroll"><table className="tbl tbl-center">
+      <div className="card tbl-card tbl-card-fill"><div className="tbl-wrap tbl-scroll"><table className="tbl tbl-center">
         <thead><tr><th>Loan / Customer</th><th>Scheme</th><th>Opened / Due</th><th className="num">Principal</th><th className="num">Outstanding</th><th>Pledge</th><th>Status</th></tr></thead>
         <tbody>
           {loading ? (
