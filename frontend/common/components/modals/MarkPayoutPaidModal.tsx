@@ -46,7 +46,7 @@ export function MarkPayoutPaidModalContent({
   return (
     <>
       <div className="hd"><h3>Mark Payout Paid</h3><button className="x" onClick={closeModal}>×</button></div>
-      <div className="bd">
+      <div className="bd bd-scroll">
         <div className="notice" style={{ marginBottom: 16 }}>
           {payout.isPrincipalReturn ? "Principal return" : "Interest payout"} of <strong>{fmt(payout.amount)}</strong>
         </div>

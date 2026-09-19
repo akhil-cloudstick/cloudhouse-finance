@@ -18,11 +18,10 @@ import (
 // nothing else ever revisits it.
 //
 // Moves each affected packet straight to Released and clears its locker
-// slot, recording a PacketMovement audit row for the jump (through
-// ReadyForRelease first, same two-step RecordGoldReleaseMovement always
-// takes) so the packet's own history stays legible rather than showing an
-// unexplained gap. Idempotent: only packets not already Released are
-// touched, so re-running finds nothing once applied.
+// slot, recording a PacketMovement audit row for the jump so the packet's
+// own history stays legible rather than showing an unexplained gap.
+// Idempotent: only packets not already Released are touched, so re-running
+// finds nothing once applied.
 func BackfillAuctionedPacketStatus(db *gorm.DB) error {
 	if !db.Migrator().HasTable(&Packet{}) || !db.Migrator().HasTable(&loan.Loan{}) {
 		return nil // fresh install
@@ -42,22 +41,9 @@ func BackfillAuctionedPacketStatus(db *gorm.DB) error {
 	}
 
 	for _, p := range stuck {
-		fromStatus := p.Status
-		if fromStatus != StatusReadyForRelease {
-			mid := &PacketMovement{
-				PacketID:   p.ID,
-				FromStatus: fromStatus,
-				ToStatus:   StatusReadyForRelease,
-				Remarks:    "Backfill: loan's gold already left custody",
-			}
-			if err := db.Create(mid).Error; err != nil {
-				return err
-			}
-			fromStatus = StatusReadyForRelease
-		}
 		final := &PacketMovement{
 			PacketID:   p.ID,
-			FromStatus: fromStatus,
+			FromStatus: p.Status,
 			ToStatus:   StatusReleased,
 			Remarks:    "Backfill: loan's gold already left custody",
 		}

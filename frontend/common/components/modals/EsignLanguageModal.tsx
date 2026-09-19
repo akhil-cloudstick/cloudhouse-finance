@@ -89,7 +89,7 @@ export function EsignLanguageModalContent({
         </div>
         <button className="x" onClick={closeModal}>×</button>
       </div>
-      <div className="bd">
+      <div className="bd bd-scroll">
         <span style={{ fontSize: 11, color: "var(--muted)", textTransform: "uppercase", letterSpacing: ".06em", display: "block", marginBottom: 8 }}>
           {showDelivery ? "1. Bond language" : "Bond language"}
         </span>

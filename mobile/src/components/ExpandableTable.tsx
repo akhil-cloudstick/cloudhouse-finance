@@ -165,7 +165,14 @@ export function TableRow<T>({
   const [expanded, setExpanded] = useState(false);
   const visibleCols = columns.slice(0, visibleCount);
   const hiddenCols = columns.slice(visibleCount);
-  const extra: ExtraField[] = [...hiddenCols.map((c) => ({ label: c.label, value: c.render(row) })), ...(extraFields?.(row) ?? [])];
+  // Expanded card repeats the already-visible columns alongside the hidden
+  // ones so every field on the row is readable in the title/detail view
+  // without having to compare back against the collapsed row above it.
+  const extra: ExtraField[] = [
+    ...visibleCols.map((c) => ({ label: c.label, value: c.render(row) })),
+    ...hiddenCols.map((c) => ({ label: c.label, value: c.render(row) })),
+    ...(extraFields?.(row) ?? []),
+  ];
 
   const body = (
     <>
@@ -404,7 +411,7 @@ const styles = StyleSheet.create({
   // this replaces): on rows with several short columns (e.g. Customers'
   // Phone next to its KYC status pill) that read as two unrelated values
   // crowded together instead of two separate columns.
-  dataRow: { flexDirection: "row", alignItems: "center", paddingVertical: 11, paddingHorizontal: 10, backgroundColor: colors.card, gap: 10 },
+  dataRow: { flexDirection: "row", alignItems: "center", paddingVertical: 16, paddingHorizontal: 10, backgroundColor: colors.card, gap: 10 },
   cellText: { fontSize: 14.5 },
   firstCell: { fontWeight: "600" as const },
   chevCol: { width: 24, alignItems: "center", justifyContent: "center" },
@@ -423,18 +430,19 @@ const styles = StyleSheet.create({
   // single shared card's own colors.card fill).
   detailWrapCard: { backgroundColor: colors.card },
   // cardRows variant of a table row — see TableRow's own `cardRows` branch.
+  // No border on cardInner any more — the row reads as its own card purely
+  // through this shadow (heavier than the table-wide tableCardStyle's) so it
+  // visibly lifts off the page background without an outline.
   cardOuter: {
     marginBottom: 10,
     shadowColor: colors.nav,
-    shadowOpacity: 0.08,
+    shadowOpacity: 0.18,
     shadowRadius: 10,
-    shadowOffset: { width: 0, height: 4 },
-    elevation: 2,
+    shadowOffset: { width: 0, height: 5 },
+    elevation: 4,
   },
   cardInner: {
     borderRadius: RADIUS - 2,
-    borderWidth: 1,
-    borderColor: colors.line,
     overflow: "hidden",
     backgroundColor: colors.card,
   },

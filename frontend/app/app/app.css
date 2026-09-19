@@ -935,6 +935,25 @@ h3,
   flex-shrink: 0
 }
 
+/* SearchableSelect's own chevron (components/SearchableSelect.tsx,
+ * non-compact only) — the trigger there is a plain `.inp` text input, not a
+ * flex `.dp-trigger` button, so the icon is positioned absolute over it
+ * instead of laid out inline; `.ss-input`'s extra right padding keeps typed
+ * text from running underneath it. */
+.ss-chevron {
+  position: absolute;
+  top: 50%;
+  right: 10px;
+  width: 9px;
+  height: 9px;
+  color: var(--brand-deep);
+  pointer-events: none
+}
+
+.ss-input {
+  padding-right: 26px
+}
+
 .dp-trigger:disabled {
   cursor: not-allowed;
   opacity: .6
@@ -1475,7 +1494,15 @@ h3,
 /* ── cards / grid ───────────────────────── */
 .grid {
   display: grid;
-  gap: 15px
+  gap: 15px;
+  /* A grid item's default min-width is `auto` (sized to its content), so a
+   * nested `.grid` (e.g. LoanDetail.tsx's card column inside .grid.cols12)
+   * would refuse to shrink below whatever `.tbl` min-width:640px table sits
+   * inside it, forcing the outer grid — and the whole page — wider than the
+   * viewport instead of letting `.tbl-wrap`'s own overflow-x:auto scroll it
+   * internally. min-width:0 here just allows shrinking; it does not force
+   * it, so nothing that already fit is affected. */
+  min-width: 0
 }
 
 .grid.cols21 {
@@ -1789,9 +1816,15 @@ h3,
    * otherwise leave their footer floating mid-card instead of aligned
    * with the row's tallest card's footer). No overflow/scroll is set on
    * `.bd`, so content still grows the card naturally; this only fills
-   * the slack a stretched grid row adds. */
+   * the slack a stretched grid row adds. min-width:0 for the same reason as
+   * the base `.grid` rule above — a flex/grid item's default min-width is
+   * `auto`, so a card wrapping a `.tbl` (min-width:640px) would otherwise
+   * refuse to shrink and push its own grid column, and the page, wider than
+   * the viewport instead of letting `.tbl-wrap` scroll that table
+   * internally. */
   display: flex;
   flex-direction: column;
+  min-width: 0;
   transition: all .2s ease;
 }
 
@@ -3565,12 +3598,25 @@ table.tbl {
  * every breakpoint below (keep the two in step there); the extra height
  * comes from this content-box floor alone — 48px against the 38px the
  * footer inherits from its buttons' pinned `.btn` height. */
+/* Sticky to the top of `.modal-bg`, mirroring `.modal .ft`'s own sticky-
+ * bottom treatment just below (see that rule's doc comment for why this is
+ * done via `.modal-bg`'s scroll rather than making `.bd` its own scroll
+ * container) — a modal taller than the viewport (EditLoanModal with a long
+ * ornament list, etc.) used to scroll its title out of view entirely,
+ * which read as "the whole page is scrolling" rather than just this
+ * modal's body. Now the header stays put and only the middle moves,
+ * exactly like the footer already does. */
 .modal .hd {
   display: flex;
   align-items: center;
   min-height: 48px;
   padding: 14px 22px;
-  border-bottom: 1px solid var(--line)
+  border-bottom: 1px solid var(--line);
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  background: var(--card);
+  border-radius: 10px 10px 0 0
 }
 
 .modal .hd h3 {
@@ -4230,6 +4276,25 @@ table.tbl {
   height: 18px;
   display: block;
   color: var(--ink)
+}
+
+/* LoanDetail.tsx's top row: Financial Summary / Settlement Preview /
+ * Pledged Ornaments side by side, three equal columns, kept at EVERY
+ * screen size (including small screens, per explicit request) rather than
+ * stacking. minmax(0,1fr) rather than a bare 1fr — a grid item's default
+ * min-width is `auto`, so it would otherwise refuse to shrink below its
+ * content's natural width (same trap `.grid`'s own min-width:0 rule
+ * documents), which matters for Pledged Ornaments' key/value blocks on a
+ * narrow viewport. */
+.loan-detail-c3 {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1fr);
+  /* stretch (the grid default, but stated explicitly here since the shared
+   * .grid.cols21/.cols12 rules elsewhere in this file set align-items:start)
+   * so all three cards in the row match the tallest one's height, rather
+   * than each shrinking to its own content — each `.card` is already a
+   * flex column, so the extra height just becomes blank space at the
+   * bottom of the shorter cards' `.bd`. */
+  align-items: stretch
 }
 
 @media(max-width:1060px) {
@@ -5001,15 +5066,22 @@ table.tbl {
      */
     overflow-y: visible;
   }
-  /* ReleaseReviewModal only: when viewport is <= 850px, cap at 500px, scroll inner body, page-centered */
+  /* Capped at 500px tall on a short (<=850px) viewport, scrolling the inner
+   * body once content actually exceeds that — NOT a fixed height. This used
+   * to set `height: min(500px, ...)` (not just max-height), which forced
+   * EVERY bd-scroll modal to a flat 500px box even when its content was a
+   * couple of short fields — stretching e.g. DisburseLoanModal/ConfirmModal
+   * into a mostly-empty panel on any laptop-height screen. height:auto lets
+   * a short modal size to its own content and only pins to the 500px cap
+   * once something (ReleaseReviewModal's expanded Record Payment panel,
+   * EditLoanModal's ornament list, ...) genuinely needs it. */
   .modal-bg:has(.bd-scroll) {
     align-items: center;
     overflow-y: hidden;
   }
   .modal:has(> .bd-scroll) {
-    --modal-h: 500px;
-    height: min(var(--modal-h), calc(100dvh - 32px));
-    max-height: min(var(--modal-h), calc(100dvh - 32px));
+    height: auto;
+    max-height: min(500px, calc(100dvh - 32px));
     display: flex;
     flex-direction: column;
     margin: auto;

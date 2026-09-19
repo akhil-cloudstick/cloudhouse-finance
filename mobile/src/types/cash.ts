@@ -4,12 +4,25 @@ export type CashMovement = {
   type: "in" | "out";
   source: string;
   purpose: string;
+  // Payment mode this specific movement was made in ("Cash"/"UPI"/"Bank
+  // Transfer"/"Cheque") — a single loan payment split across modes books
+  // one CashMovement row PER non-zero mode, sharing transactionGroupId
+  // below, so this is what actually lets the ledger show the distribution
+  // instead of one lump sum.
+  mode?: string;
   bank?: string;
   amount: number;
   status?: string;
   branchId: number;
   branch?: { id: number; name: string };
   occurredOn: string;
+  // Groups every CashMovement row produced by one split payment/
+  // disbursement — see this field's own doc comment on `mode` above.
+  transactionGroupId?: string;
+  bankId?: number;
+  bankRef?: { id: number; name: string };
+  partyCustomerId?: number;
+  partyCustomer?: { id: number; name: string };
   createdAt: string;
 };
 
@@ -36,4 +49,18 @@ export type CashSummary = {
   disbursements: number;
   cashExpenses: number;
   expectedCash: number;
+};
+
+// Mirrors backend/internal/cash's GoldSale JSON shape (model.go).
+export type GoldSale = {
+  id: number;
+  ornamentType: string;
+  soldAmount: number;
+  costAmount: number;
+  profit: number;
+  soldOn: string;
+  branchId: number;
+  branch?: { id: number; name: string };
+  remarks?: string;
+  createdAt: string;
 };

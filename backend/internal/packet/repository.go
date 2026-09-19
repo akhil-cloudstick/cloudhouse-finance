@@ -19,11 +19,36 @@ func NewRepository(db platform.DB) *Repository {
 }
 
 func preload(db *gorm.DB) *gorm.DB {
-	return db.Preload("Loan").Preload("Loan.Customer").Preload("Loan.Branch").Preload("Loan.Ornaments")
+	// Loan.Ornaments is filtered to currently-pledged (released_at IS NULL)
+	// — a packet view means "what does this packet/locker slot physically
+	// hold right now", so an ornament already handed back on a prior
+	// Partial Ornament Release must not still show up in the packet's own
+	// ornament list.
+	return db.Preload("Loan").Preload("Loan.Customer").Preload("Loan.Branch").
+		Preload("Loan.Ornaments", "released_at IS NULL")
 }
 
 func (r *Repository) Create(ctx context.Context, p *Packet) error {
 	return r.db.WithContext(ctx).Create(p).Error
+}
+
+// SumLoanOrnamentWeights totals a loan's CURRENTLY-PLEDGED ornaments'
+// gross/net weight (released_at IS NULL) — used to seed a freshly-created
+// packet's own TotalGrossWeight/TotalNetWeight. Filtered the same way
+// recalculateTotals is on the loan side: at packet-creation time nothing is
+// released yet, so the filter is a no-op then, but the same query is safe
+// to reuse anywhere else "what does this loan's gold weigh right now" is
+// needed.
+func (r *Repository) SumLoanOrnamentWeights(ctx context.Context, loanID uint) (grossWeight, netWeight float64, err error) {
+	var row struct {
+		GrossWeight float64
+		NetWeight   float64
+	}
+	err = r.db.WithContext(ctx).Table("ornaments").
+		Select("COALESCE(SUM(gross_weight), 0) AS gross_weight, COALESCE(SUM(net_weight), 0) AS net_weight").
+		Where("loan_id = ? AND released_at IS NULL", loanID).
+		Scan(&row).Error
+	return row.GrossWeight, row.NetWeight, err
 }
 
 func (r *Repository) FindByID(ctx context.Context, id uint) (*Packet, error) {

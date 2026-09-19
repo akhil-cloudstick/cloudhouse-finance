@@ -67,7 +67,7 @@ export function ConfirmModalContent({
   return (
     <>
       <div className="hd"><h3>{title}</h3><button className="x" onClick={closeModal}>×</button></div>
-      <div className="bd">
+      <div className="bd bd-scroll">
         {message && <div className="notice"><span>{message}</span></div>}
         {children}
         {err && <p style={{ color: "var(--red)", fontSize: 12.5, marginTop: 8 }}>{err}</p>}

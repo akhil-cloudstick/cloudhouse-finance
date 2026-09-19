@@ -2,6 +2,7 @@ package loan
 
 import (
 	"context"
+	"sort"
 	"time"
 
 	"cloudhouse/backend/internal/platform"
@@ -47,6 +48,92 @@ func completedPeriods(from, asOf time.Time, months int) (int, time.Time) {
 	return n, addMonths(from, months*n)
 }
 
+// firstMonthTopUpSegment is one day-span of the still-unaccrued first month
+// held at a single, unchanging balance — either before any top-up (the
+// loan's opening balance) or between two top-ups (or a top-up and the
+// month's end).
+type firstMonthTopUpSegment struct {
+	start, end time.Time
+	base       float64 // PrincipalAmount or OutstandingAmount, per the method — see projectAccrual
+}
+
+// firstMonthTopUpSegments builds the day-by-day balance history for a
+// loan's still-unaccrued first month, if — and only if — at least one
+// top-up in topUps actually landed before monthEnd (addMonths(OpenedDate,
+// 1)). Returns nil when there is nothing to split (no top-ups, or every
+// top-up landed on/after monthEnd — accrual has already run naturally by
+// then in practice, but this guard keeps the function correct either way),
+// so callers can fall back to the ordinary flat-month charge unchanged.
+//
+// l.PrincipalAmount/OutstandingAmount already reflect every top-up applied
+// so far (TopUpLoan adds directly to both) — this walks the given top-ups
+// NEWEST FIRST, subtracting each one's Amount back out, to reconstruct what
+// the balance was BEFORE it landed. topUps is expected oldest-first (see
+// LoanTopUpRepository.FindByLoanID's own ordering); this function sorts
+// defensively rather than trusting the caller's order.
+func firstMonthTopUpSegments(l *Loan, topUps []LoanTopUp, monthEnd time.Time) []firstMonthTopUpSegment {
+	if len(topUps) == 0 {
+		return nil
+	}
+	sorted := make([]LoanTopUp, len(topUps))
+	copy(sorted, topUps)
+	sort.Slice(sorted, func(i, j int) bool { return sorted[i].OccurredOn.Before(sorted[j].OccurredOn) })
+
+	// Only top-ups strictly before the month's end actually split anything;
+	// one recorded later belongs to a month that will accrue normally once
+	// it arrives.
+	inMonth := sorted[:0:0]
+	for _, t := range sorted {
+		if t.OccurredOn.Before(monthEnd) {
+			inMonth = append(inMonth, t)
+		}
+	}
+	if len(inMonth) == 0 {
+		return nil
+	}
+
+	currentBase := l.OutstandingAmount
+	if l.SchemeInterestMethod == "Flat monthly" {
+		currentBase = l.PrincipalAmount
+	}
+
+	// Walk newest-first, peeling each top-up's Amount off currentBase to
+	// find the balance that held immediately before it — then walk that
+	// reconstructed history forward (oldest segment first) to build the
+	// actual day-span list accrual sums over.
+	preTopUpBase := make([]float64, len(inMonth))
+	for i := len(inMonth) - 1; i >= 0; i-- {
+		currentBase -= inMonth[i].Amount
+		preTopUpBase[i] = currentBase
+	}
+
+	segments := make([]firstMonthTopUpSegment, 0, len(inMonth)+1)
+	segStart := l.OpenedDate
+	base := preTopUpBase[0]
+	for i, t := range inMonth {
+		end := t.OccurredOn
+		if end.After(monthEnd) {
+			end = monthEnd
+		}
+		segments = append(segments, firstMonthTopUpSegment{start: segStart, end: end, base: base})
+		segStart = end
+		if i+1 < len(preTopUpBase) {
+			base = preTopUpBase[i+1]
+		} else {
+			// After the last top-up, the balance is the loan's current one
+			// (every top-up already applied).
+			base = l.OutstandingAmount
+			if l.SchemeInterestMethod == "Flat monthly" {
+				base = l.PrincipalAmount
+			}
+		}
+	}
+	if segStart.Before(monthEnd) {
+		segments = append(segments, firstMonthTopUpSegment{start: segStart, end: monthEnd, base: base})
+	}
+	return segments
+}
+
 // projectAccrual computes the interest and penal-interest that would accrue
 // on l between l.LastAccrualDate and asOf, WITHOUT mutating l — used both by
 // accrueAndSave (which persists the result) and by List (which only wants a
@@ -78,6 +165,22 @@ func completedPeriods(from, asOf time.Time, months int) (int, time.Time) {
 // loan's own method already uses for its whole-month charge — never a
 // third, hardcoded base.
 //
+// firstMonthTopUps: any top-ups (Service.TopUpLoan) that landed inside the
+// still-unaccrued first month, oldest first. Ordinarily the first-month
+// floor below charges a flat month on whatever OutstandingAmount happens to
+// be AT ACCRUAL TIME — since accrual is lazy/read-time, a top-up recorded
+// before the first accrual ever runs would otherwise get the WHOLE first
+// month charged on the post-top-up balance, including the days before the
+// top-up existed. When this is non-empty, the flat-month charge is instead
+// split day-by-day at monthlyRate/30 (the same daily rate the leftover-days
+// charge below already uses): the pre-top-up balance for the days up to
+// each top-up's OccurredOn, then the new balance for the days after it,
+// continuing through however many top-ups landed in the month, up to the
+// addMonths(OpenedDate, 1) boundary. Empty for every call site that hasn't
+// resolved the loan's top-up history (e.g. List's batch projection, which
+// accepts the flat-month behavior for its display-only, unsaved figure
+// rather than an extra query per listed loan).
+//
 // Penal interest accrues, in addition to regular interest, only for whole
 // months the loan has been overdue (past DueDate), applying the loan's own
 // frozen SchemePenalRate the same way regular interest applies
@@ -93,7 +196,7 @@ func completedPeriods(from, asOf time.Time, months int) (int, time.Time) {
 // counted from DueDate rather than from the accrual anchor, with months
 // already charged subtracted so a due date falling mid-cycle neither
 // double-charges nor loses a month.
-func projectAccrual(l *Loan, asOf time.Time) (interestDelta, penalDelta float64, newAnchor time.Time) {
+func projectAccrual(l *Loan, asOf time.Time, firstMonthTopUps []LoanTopUp) (interestDelta, penalDelta float64, newAnchor time.Time) {
 	from := l.LastAccrualDate
 	// CreateLoan seeds LastAccrualDate to OpenedDate directly (never leaves
 	// it zero — see service.go), so "no accrual has happened yet" is
@@ -127,22 +230,40 @@ func projectAccrual(l *Loan, asOf time.Time) (interestDelta, penalDelta float64,
 
 	var anchor time.Time
 	if firstAccrual {
-		// Minimum-one-month floor — the ONLY place this fires. Charged once,
-		// immediately, using the method's own whole-month formula for
-		// exactly one period, then the anchor jumps a full logical month
-		// past OpenedDate regardless of how little real time has actually
-		// passed. That's what makes a same-month repayment still owe a full
-		// month: there is no real day left inside that already-billed month
-		// for any later call to re-discover and charge again.
-		switch l.SchemeInterestMethod {
-		case "Flat monthly":
-			interestDelta = l.PrincipalAmount * monthlyRate
-		case "Quarterly simple":
-			interestDelta = l.OutstandingAmount * (annualRate / 4)
-		default: // "Compound monthly", "Monthly simple interest"
-			interestDelta = l.OutstandingAmount * monthlyRate
-		}
 		anchor = addMonths(l.OpenedDate, 1)
+		if segments := firstMonthTopUpSegments(l, firstMonthTopUps, anchor); segments != nil {
+			// A top-up landed before this loan's first accrual ever ran —
+			// split the flat first-month charge day-by-day across each
+			// balance the loan actually held during the month, instead of
+			// charging the whole month on whatever it ended up at. Same
+			// per-day rate (monthlyRate/30) the leftover-days charge below
+			// already uses elsewhere in this function.
+			for _, seg := range segments {
+				days := seg.end.Sub(seg.start).Hours() / 24
+				if days <= 0 {
+					continue
+				}
+				interestDelta += seg.base * (monthlyRate / 30) * days
+			}
+		} else {
+			// Minimum-one-month floor — the ordinary case (no top-up landed
+			// before this loan's first accrual ran). Charged once,
+			// immediately, using the method's own whole-month formula for
+			// exactly one period; the anchor above already jumped a full
+			// logical month past OpenedDate regardless of how little real
+			// time has actually passed. That's what makes a same-month
+			// repayment still owe a full month: there is no real day left
+			// inside that already-billed month for any later call to
+			// re-discover and charge again.
+			switch l.SchemeInterestMethod {
+			case "Flat monthly":
+				interestDelta = l.PrincipalAmount * monthlyRate
+			case "Quarterly simple":
+				interestDelta = l.OutstandingAmount * (annualRate / 4)
+			default: // "Compound monthly", "Monthly simple interest"
+				interestDelta = l.OutstandingAmount * monthlyRate
+			}
+		}
 	} else {
 		// Anchor is already past the opening month — no more floor logic.
 		// Whole completed months first (existing per-method formulas,
@@ -204,7 +325,18 @@ func projectAccrual(l *Loan, asOf time.Time) (interestDelta, penalDelta float64,
 // (callers use this to decide whether to re-fetch the saved row).
 func (s *Service) accrueAndSave(ctx context.Context, l *Loan) bool {
 	now := time.Now()
-	interestDelta, penalDelta, anchor := projectAccrual(l, now)
+	// Top-up history is only fetched when this loan is actually about to hit
+	// the first-accrual floor (see projectAccrual's firstMonthTopUps doc
+	// comment) — an unconditional query here would cost every single
+	// accrual call, not just the one-time first month, for a loan that has
+	// never been topped up at all (the overwhelming majority).
+	var firstMonthTopUps []LoanTopUp
+	if l.LastAccrualDate.IsZero() || l.LastAccrualDate.Equal(l.OpenedDate) {
+		if ups, err := s.topUpRepo.FindByLoanID(ctx, l.ID); err == nil {
+			firstMonthTopUps = ups
+		}
+	}
+	interestDelta, penalDelta, anchor := projectAccrual(l, now, firstMonthTopUps)
 	if interestDelta <= 0 && penalDelta <= 0 {
 		// No accrual, but the loan may still have crossed its due date since
 		// the last read — that alone flips a serviced loan back to Overdue.

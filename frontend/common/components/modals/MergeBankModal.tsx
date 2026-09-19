@@ -42,7 +42,7 @@ export function MergeBankModalContent({ source, banks, onSaved }: { source: Back
   return (
     <>
       <div className="hd"><h3>Merge Duplicate Bank</h3><button className="x" onClick={closeModal}>×</button></div>
-      <div className="bd">
+      <div className="bd bd-scroll">
         <div className="frow"><div><label className="f">Merge "{source.name}" into</label>
           <Select
             options={candidates.map((b) => ({ value: String(b.id), label: b.name }))}

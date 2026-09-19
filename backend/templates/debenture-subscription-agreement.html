@@ -1,0 +1,40 @@
+<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Debenture Subscription Agreement — {{.InvestmentNumber}}</title><style>{{.Style}}</style></head><body>
+<h1>SECURED DEBENTURE SUBSCRIPTION AGREEMENT</h1>
+<p style="text-align:center;color:#555;margin-top:-6px">MODEL TEMPLATE WITH REFERENCE DATA</p>
+<p>THIS AGREEMENT is entered into on this {{.AgreementDate}}, at {{.IssuerCity}}, by and between:</p>
+<p><b>THE ISSUER:</b> {{.LenderName}}, having its registered office at {{.LenderAddress}} (hereinafter called the "Company" or "Issuer").</p>
+<p><b>THE INVESTOR:</b> {{.CustomerName}}, residing at {{.CustomerAddress}} (hereinafter called the "Subscriber" or "Investor").</p>
+<p>WHEREAS, the Issuer is raising capital through the placement of Secured Non-Convertible Debentures (NCDs) and the Investor wishes to subscribe to the same under the commercial terms set out below.</p>
+
+<h3>1. COMMERCIAL TERMS OF THE INVESTMENT</h3>
+<table>
+  <thead><tr><th>Financial Parameter</th><th>Value</th></tr></thead>
+  <tbody>
+    <tr><td>Security Instrument Type</td><td>Secured Non-Convertible Debentures (NCDs)</td></tr>
+    <tr><td>Face Value per Unit</td><td class="num">{{.FaceValuePerUnit}}</td></tr>
+    <tr><td>Total Investment Principal</td><td class="num">{{.PrincipalAmount}}</td></tr>
+    {{if .UnitsAllocated}}<tr><td>Number of Units Allocated</td><td class="num">{{.UnitsAllocated}}</td></tr>{{end}}
+    <tr><td>Fixed Interest Rate / Coupon</td><td class="num">{{.InterestRateDisplay}}</td></tr>
+    <tr><td>Payout Frequency Cadence</td><td>{{.PayoutFrequency}}</td></tr>
+    <tr><td>Investment Tenure</td><td>{{.TenureDisplay}}</td></tr>
+    <tr><td>Final Redemption Date</td><td>{{.MaturityDate}}</td></tr>
+    <tr><td>Total Projected Return</td><td class="num">{{.ProjectedReturn}}</td></tr>
+  </tbody>
+</table>
+
+<h3>2. SECURITY COVERAGE AND COLLATERAL BACKING</h3>
+<p>The repayment of the Investment Principal and Interest accrued under this agreement is secured by a first-ranking charge over the Issuer's book debts and gold loan receivables pool. The Issuer shall maintain adequate asset cover throughout the tenure of these debentures.</p>
+
+<h3>3. EVENTS OF DEFAULT AND LEGAL REMEDIES</h3>
+<p>An Event of Default shall trigger if the Issuer fails to credit any scheduled interest payout within a 14-day grace period from the scheduled due date. Upon a default, the Investor is entitled to pursue recovery of the full outstanding Principal and accrued Interest through the applicable legal remedies.</p>
+
+<h3>4. GOVERNING LAW AND JURISDICTION</h3>
+<p>This agreement is governed by the laws of India, including the applicable provisions of the Companies Act, 2013 and SEBI regulations where relevant. Any disputes arising from this agreement shall fall under the jurisdiction of the competent courts at {{.IssuerCity}}.</p>
+
+<p style="margin-top:24px">IN WITNESS WHEREOF, the parties hereto sign and execute this agreement:</p>
+<div class="sig-row">
+  <div><span class="sig-line">&nbsp;</span><br>For {{.LenderName}}<br>Authorized Signatory</div>
+  <div><span class="sig-line">&nbsp;</span><br>{{.CustomerName}}<br>Subscriber / Investor</div>
+</div>
+<p style="margin-top:18px;color:#777;font-size:11px">This is a system-generated reference document. Investment No. {{.InvestmentNumber}} — generated {{.GeneratedOn}}.</p>
+</body></html>

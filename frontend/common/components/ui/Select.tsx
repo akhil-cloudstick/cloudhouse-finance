@@ -188,7 +188,12 @@ export function Select({
         <span style={{ color: selected ? "var(--nav)" : "var(--muted)" }}>
           {selected ? selected.label : placeholder}
         </span>
-        <svg className="sel-chevron" viewBox="0 0 10 6" fill="none">
+        <svg
+          className="sel-chevron"
+          viewBox="0 0 10 6"
+          fill="none"
+          style={{ transform: open ? "rotate(180deg)" : "none", transition: "transform .15s ease" }}
+        >
           <path d="M1 1l4 4 4-4" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
         </svg>
       </button>

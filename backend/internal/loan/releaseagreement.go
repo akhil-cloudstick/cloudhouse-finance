@@ -319,6 +319,14 @@ func RenderReleaseAgreementPDF(data ReleaseAgreementData, lang string) ([]byte, 
 // a closed loan's own preloaded Customer/Branch/Ornaments/payment totals —
 // same fields LoanDetail.tsx/Requests.tsx used to assemble client-side from
 // LoanView before this migrated server-side.
+// Deliberately reads l.Ornaments UNFILTERED (not released_at IS NULL): FORM
+// 7 only ever fires for a FULL release, at which point every ornament is
+// being released together, so there is nothing to exclude — and even if an
+// earlier Partial Ornament Release had already taken some ornaments out
+// on this same loan, the discharge receipt should still list everything
+// that was ever pledged, not just what happened to still be here today.
+// (The Partial Release Receipt, by contrast, deliberately DOES filter — see
+// its own generator.)
 func (s *Service) releaseAgreementDataForLoan(ctx context.Context, l *Loan) ReleaseAgreementData {
 	ornaments := make([]ReleaseAgreementOrnament, 0, len(l.Ornaments))
 	for _, o := range l.Ornaments {

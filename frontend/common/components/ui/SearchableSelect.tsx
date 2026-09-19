@@ -473,7 +473,7 @@ export function SearchableSelect<T>({
   return (
     <div className="ss" ref={boxRef} style={{ position: "relative" }}>
       <input
-        className="inp"
+        className={compact ? "inp" : "inp ss-input"}
         placeholder={placeholder}
         value={query}
         disabled={disabled}
@@ -494,6 +494,21 @@ export function SearchableSelect<T>({
           setOpen(false);
         }}
       />
+      {/* Purely a visual "this is a dropdown" cue, matching Select.tsx's own
+       * chevron — `pointerEvents:none` so it never steals clicks/focus from
+       * the input underneath. Skipped in `compact` mode (PurityPicker's
+       * search half, as narrow as ~34px) where there's no room for it
+       * without crowding the typed value itself. */}
+      {!compact && (
+        <svg
+          className="sel-chevron ss-chevron"
+          viewBox="0 0 10 6"
+          fill="none"
+          style={{ transform: open ? "translateY(-50%) rotate(180deg)" : "translateY(-50%)", transition: "transform .15s ease" }}
+        >
+          <path d="M1 1l4 4 4-4" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
+      )}
       {/* Every other caller: the original inline dropdown — absolute inside
        * `.ss`, natural width, themed scrollbar. Capped to exactly
        * ROWS_BOX_HEIGHT (~5 rows) rather than app.css's own generic

@@ -126,6 +126,20 @@ type LoanPayment struct {
 	// new fee.
 	ProcessingFee float64 `json:"processingFee" gorm:"type:numeric(16,2);default:0"`
 
+	// CashTransactionGroupID links this payment back to the CashMovement
+	// row(s) it produced (cash.MovementService.RecordLoanPaymentCashIn) —
+	// one row per non-zero mode among CashAmount/UpiAmount/
+	// BankTransferAmount/ChequeAmount above, all sharing this same group id
+	// (see CashMovement.TransactionGroupID). Previously the only link back
+	// from a payment to its ledger entries was an indirect match on
+	// Purpose text / PartyCustomerID — this is the direct one. Set in a
+	// best-effort follow-up update after the cash movement is recorded
+	// (RecordPayment creates the LoanPayment row first, since the movement
+	// can't be booked until the payment/allocation succeeds), so it can be
+	// blank on a payment whose cash-recording failed or was skipped
+	// (isCashPaymentType false, e.g. a Waiver).
+	CashTransactionGroupID string `json:"cashTransactionGroupId,omitempty" gorm:"size:40;index"`
+
 	CreatedAt time.Time `json:"createdAt"`
 }
 

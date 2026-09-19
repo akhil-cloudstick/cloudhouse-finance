@@ -61,7 +61,7 @@ export function AddInvestmentCashModalContent({
   return (
     <>
       <div className="hd"><h3>Add Cash</h3><button className="x" onClick={closeModal}>×</button></div>
-      <div className="bd">
+      <div className="bd bd-scroll">
         <div className="notice" style={{ marginBottom: 16 }}>
           Current Outstanding Principal: <strong>{fmt(investment.outstandingPrincipal)}</strong>
         </div>

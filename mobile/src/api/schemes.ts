@@ -1,5 +1,5 @@
 import { apiRequestEnveloped as apiRequest } from "./client";
-import { Scheme } from "../types/scheme";
+import { Scheme, ServiceChargeMode, ServiceChargeType } from "../types/scheme";
 
 export function listSchemes(q?: string) {
   return apiRequest<Scheme[]>("/schemes", { params: { q } });
@@ -26,6 +26,9 @@ export type SchemeInput = {
   penalRate?: number;
   conditions?: string;
   isActive?: boolean;
+  serviceChargeType?: ServiceChargeType;
+  serviceChargeValue?: number;
+  serviceChargeMode?: ServiceChargeMode;
 };
 
 export function createScheme(input: SchemeInput) {

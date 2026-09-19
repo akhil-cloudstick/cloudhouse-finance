@@ -3,7 +3,10 @@ import { isSmallScreen } from "@/common/utils/responsive";
 
 /* Packet stage values — mirror backend/internal/packet/model.go's Status
  * constants exactly (string literals, not enums, per this codebase's
- * plain-string-status convention — see loan.Status for precedent). */
+ * plain-string-status convention — see loan.Status for precedent).
+ * READY_FOR_RELEASE is no longer a step gold passes through on its way to
+ * Released (kept only so historic movement rows and any packet still
+ * sitting in that legacy status still render correctly). */
 export const PACKET_STATUS = {
   GENERATED: "Packet Generated",
   LOCKER_STORED: "Locker Stored",
@@ -13,7 +16,7 @@ export const PACKET_STATUS = {
   RELEASED: "Released",
 } as const;
 
-/* Ordered stepper sequence for PacketDetail's 6-stage visual. Typed as
+/* Ordered stepper sequence for PacketDetail's 5-stage visual. Typed as
  * string[] (not a literal-union array) so callers can index/search it with
  * an arbitrary status string from the backend. */
 export const PACKET_STAGES: string[] = [
@@ -21,7 +24,6 @@ export const PACKET_STAGES: string[] = [
   PACKET_STATUS.LOCKER_STORED,
   PACKET_STATUS.BANK_PLEDGED,
   PACKET_STATUS.RETURNED,
-  PACKET_STATUS.READY_FOR_RELEASE,
   PACKET_STATUS.RELEASED,
 ];
 

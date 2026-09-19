@@ -58,7 +58,7 @@ export function BankModalContent({ bank: b, onSaved }: { bank?: BackendBank; onS
   return (
     <>
       <div className="hd"><h3>{b ? "Edit Bank — " + b.name : "Add Bank"}</h3><button className="x" onClick={closeModal}>×</button></div>
-      <div className="bd">
+      <div className="bd bd-scroll">
         <div className="frow c2">
           <div><label className="f">Bank Name *</label>
             <input className="inp" placeholder="e.g. HDFC Bank" value={name} onChange={(e) => setName(e.target.value)} maxLength={120} autoComplete="off" /></div>

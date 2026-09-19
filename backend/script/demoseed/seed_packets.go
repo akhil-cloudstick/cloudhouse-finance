@@ -13,15 +13,15 @@ import (
 // A path rather than a target, because packet.Service enforces a stage graph:
 //
 //	PacketGenerated -> LockerStored
-//	LockerStored    -> BankPledged | ReadyForRelease
+//	LockerStored    -> BankPledged | Released
 //	BankPledged     -> Returned
-//	Returned        -> LockerStored | ReadyForRelease
-//	ReadyForRelease -> Released (terminal)
+//	Returned        -> LockerStored | Released
+//	Released        (terminal)
 //
-// A packet therefore cannot be dropped straight into Ready For Release from
-// the state loan creation leaves it in, which is what an earlier version of
-// this file tried to do. Walking the hops is also more faithful: each one is a
-// real packet_movements row, and those rows are the custody audit trail.
+// A packet therefore cannot be dropped straight into Released from
+// PacketGenerated, which is what an earlier version of this file tried to do.
+// Walking the hops is also more faithful: each one is a real packet_movements
+// row, and those rows are the custody audit trail.
 type packetMovePlan struct {
 	loanIdx int
 	path    []string
@@ -49,11 +49,10 @@ var packetMovePlans = []packetMovePlan{
 	// settled loan (29) — that one is the release-request target in
 	// seedLoanRequests, and a packet already Released cannot have a release
 	// raised against it.
-	{16, []string{packet.StatusLockerStored, packet.StatusReadyForRelease, packet.StatusReleased}},
+	{16, []string{packet.StatusLockerStored, packet.StatusReleased}},
 	{17, []string{packet.StatusLockerStored}},
-	// Awaiting release.
-	{18, []string{packet.StatusLockerStored, packet.StatusReadyForRelease}},
-	{19, []string{packet.StatusLockerStored, packet.StatusReadyForRelease}},
+	{18, []string{packet.StatusLockerStored}},
+	{19, []string{packet.StatusLockerStored}},
 	{29, []string{packet.StatusLockerStored}},
 	// The two auction cases that reach a completed sale. RecordAuctionSale
 	// asks packet.Service to release the gold, and that hop is only legal

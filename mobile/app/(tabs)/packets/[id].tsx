@@ -118,7 +118,13 @@ export default function PacketDetailScreen() {
         : undefined,
   }));
 
-  const lockerOptions = (lockers.data ?? []).filter((l) => l.isActive);
+  // Scoped to the loan's own branch — a locker physically lives at one
+  // branch, so listing every branch's lockers here let staff check gold
+  // into a locker the loan's branch doesn't actually have.
+  const packetBranchId = packet.data?.loan?.branchId;
+  const lockerOptions = (lockers.data ?? []).filter(
+    (l) => l.isActive && (packetBranchId == null || l.branchId === packetBranchId)
+  );
   const canRecord = !!target && (!needsLocker || !!lockerId);
 
   const ornaments = packet.data.loan?.ornaments ?? [];

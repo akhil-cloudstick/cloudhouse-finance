@@ -1,8 +1,6 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { toDataURL } from "qrcode";
-import { useDropdownMenu } from "@/hooks/useDropdownMenu";
 import { useData } from "@/common/DataProvider";
 import { useCustomers } from "@/modules/customers/store/CustomersProvider";
 import { useSchemes } from "@/modules/schemes/store/SchemesProvider";
@@ -13,8 +11,7 @@ import { useToast } from "@/common/components/Toast";
 import { useAuth } from "@/common/auth-context";
 import { Icon } from "@/common/components/Icon";
 import { fmt, custOf, schemeOf } from "@/common/utils/format";
-import { appPath } from "@/common/services/tenantSession";
-import { uploadFile, searchCustomersPage, getCustomerAadhaarFull, type CustomerView } from "@/modules/customers/services/customerService";
+import { uploadFile, searchCustomersPage, type CustomerView } from "@/modules/customers/services/customerService";
 import { VerifiedBadge } from "@/modules/customers/components/VerifiedBadge";
 import { searchActiveSchemesPage, type SchemeView } from "@/modules/schemes/services/schemeService";
 import { searchOrnamentTypesPage, createOrnamentType, type BackendOrnamentType } from "@/modules/ornament-types/services/ornamentTypeService";
@@ -25,11 +22,9 @@ import {
   updateDraft,
   listDrafts,
   deleteDraft,
-  previewIndemnityBondPDF,
   type BackendLoanDraft,
   type SaveDraftInput,
 } from "@/modules/loans/services/loanService";
-import { listPackets } from "@/modules/packets/services/packetService";
 import { publishGoldRate } from "@/modules/gold-rates/services/goldRateService";
 import { listActiveBranches, type BranchView } from "@/modules/branches/services/branchService";
 import { listLockers, type LockerView } from "@/modules/lockers/services/lockerService";
@@ -38,12 +33,7 @@ import { StatusChip } from "@/common/components/ui/StatusChip";
 import { PurityPicker } from "@/common/components/ui/PurityPicker";
 import { rateForPurityString } from "@/common/utils/purity";
 import { makeEnterToSubmitHandler } from "@/common/utils/enterToSubmit";
-import { openPrintWindow, brandHeader } from "@/common/utils/print";
-import { BRAND, printColors } from "@/common/config/brand";
-import { bondLangOptionsFor, type BondLang } from "@/modules/loans/utils/indemnityBond";
-import { useBranding } from "@/common/BrandingProvider";
 import { ApiError } from "@/common/services/httpClient";
-import type { Ornament } from "@/common/utils/data";
 
 
 // Purity is now a plain unit-suffixed string ("22K" / "91.6%", see
@@ -197,33 +187,6 @@ export function NewLoan() {
   const [draftId, setDraftId] = useState<number | null>(null);
   const [savingDraft, setSavingDraft] = useState(false);
   const [drafts, setDrafts] = useState<BackendLoanDraft[]>([]);
-  // Real Packet.Code, fetched right after loan creation succeeds (the
-  // backend auto-creates the loan's tracking packet — see
-  // loan.PacketCreator) — printPacketLabel() prefers this over the
-  // provisional provId-based URL once it's known.
-  const [createdPacketCode, setCreatedPacketCode] = useState<string | null>(null);
-  const [bondLang, setBondLang] = useState<BondLang>("en");
-  // Only the languages this business was granted; English always survives.
-  const bondLangOptions = bondLangOptionsFor(useBranding().languages);
-  const {
-    open: bondMenuOpen,
-    setOpen: setBondMenuOpen,
-    menuRef: bondMenuRef,
-    triggerRef: bondMenuTriggerRef,
-    onKeyDown: onBondMenuKeyDown,
-  } = useDropdownMenu<HTMLDivElement>();
-  // Slip/Label print dropdown — same "Print Slip + Label" combined third
-  // option LoanDetail.tsx's Documents menu has, on a pre-submission draft
-  // instead of a saved loan (see printPledgeSlip/printPacketLabel/
-  // printSlipAndLabel below).
-  const {
-    open: slipLabelMenuOpen,
-    setOpen: setSlipLabelMenuOpen,
-    menuRef: slipLabelMenuRef,
-    triggerRef: slipLabelMenuTriggerRef,
-    onKeyDown: onSlipLabelMenuKeyDown,
-  } = useDropdownMenu<HTMLDivElement>();
-
   useEffect(() => {
     listActiveBranches()
       .then((list) => {
@@ -259,7 +222,11 @@ export function NewLoan() {
     // Full lockers were previously shown but disabled (unclickable) — since
     // SearchableSelect rows are always clickable, they're excluded outright
     // instead, matching the same "can't pick a full locker" behavior.
-    const available = activeLockers.filter((k) => k.occupied < k.capacity);
+    //
+    // Also scoped to the loan's selected branch: a locker physically lives
+    // at one branch, so listing every branch's lockers here let staff
+    // assign gold into a locker the branch doesn't actually have access to.
+    const available = activeLockers.filter((k) => k.occupied < k.capacity && (branchId === "" || k.branchId === branchId));
     const items = query
       ? available.filter((k) => `${k.code} ${k.branchName}`.toLowerCase().includes(query))
       : available;
@@ -276,13 +243,33 @@ export function NewLoan() {
   // on changes (ornaments edited, scheme swapped, rates refreshed) — the
   // field falls back to showing the new eligible amount as a placeholder
   // rather than silently keeping an amount computed against different gold.
-  const roundedEligible = Math.round(eligible);
-  // Staff can reduce the disbursed principal below the eligible amount, but
-  // never raise it above — the eligible amount (LTV × gold value) is the
-  // hard ceiling a manual override may not cross. Empty principalOverride
-  // (field genuinely cleared mid-edit) also falls back to roundedEligible
-  // here, same as its prefilled resting state.
-  const principal = principalOverride.trim() ? Math.min(Math.max(0, +principalOverride), roundedEligible) : roundedEligible;
+  const roundedEligible = Math.floor(eligible);
+  // When the scheme adds its service charge to the principal, the FINAL
+  // principal (what's entered here + the charge) is what the backend caps
+  // at EligibleLoanAmount, not just the entered amount alone (see
+  // loan.Service.Create's finalPrincipal check) — a loan with an added
+  // charge must stay within gold coverage the same as any other loan, so
+  // the entry ceiling here is reduced by the charge to match, rather than
+  // letting staff enter the full eligible amount and have it rejected
+  // server-side once the charge is added. WithheldFromPayout doesn't touch
+  // PrincipalAmount at all, so it needs no such adjustment.
+  const maxPrincipalEntry = (() => {
+    if (!sch || sch.serviceChargeType === "None" || sch.serviceChargeMode !== "AddedToPrincipal") return roundedEligible;
+    if (sch.serviceChargeType === "Flat") {
+      // principal + flatCharge <= eligible  =>  principal <= eligible - flatCharge
+      return Math.max(0, Math.floor(roundedEligible - sch.serviceChargeValue));
+    }
+    // principal + principal*(rate/100) <= eligible  =>  principal <= eligible / (1 + rate/100)
+    return Math.max(0, Math.floor(roundedEligible / (1 + sch.serviceChargeValue / 100)));
+  })();
+  // Staff can reduce the disbursed principal below the ceiling, but never
+  // raise it above — maxPrincipalEntry (eligible amount, minus any
+  // AddedToPrincipal charge) is the hard cap a manual override may not
+  // cross, and is also what an empty/cleared field falls back to (NOT the
+  // full roundedEligible — defaulting to that when a charge applies would
+  // prefill a figure that fails submission the moment the charge is added
+  // on top).
+  const principal = principalOverride.trim() ? Math.min(Math.max(0, +principalOverride), maxPrincipalEntry) : maxPrincipalEntry;
   // Set when a saved draft is being applied: that draft's own override
   // arrived together with its ornaments, so it is not stale and must survive
   // the reset this effect would otherwise perform. See applyDraft().
@@ -292,13 +279,16 @@ export function NewLoan() {
       skipOverrideResetRef.current = false;
       return;
     }
-    // Prefill with the new eligible amount rather than clearing to empty —
-    // the field should always show a real, ready-to-submit figure, not a
-    // placeholder staff have to notice and accept.
-    setPrincipalOverride(roundedEligible > 0 ? String(roundedEligible) : "");
+    // Prefill with maxPrincipalEntry (the eligible amount, or less when an
+    // AddedToPrincipal charge needs room — see that field's own comment)
+    // rather than clearing to empty — the field should always show a real,
+    // ready-to-submit figure, not a placeholder staff have to notice and
+    // accept, and never one that would fail submission as soon as the
+    // charge is added on top.
+    setPrincipalOverride(maxPrincipalEntry > 0 ? String(maxPrincipalEntry) : "");
     setPrincipalExceedsEligible(false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [roundedEligible]);
+  }, [maxPrincipalEntry]);
 
   // Set only by addOrnRow() below — distinguishes an actual "+ Add
   // Ornament" click from every other way `rows` can grow (applyDraft()
@@ -499,211 +489,6 @@ export function NewLoan() {
     }
   }
 
-  // TODO: buildDraft()/print* functions build their own Ornament shape
-  // straight from `rows` (not from any backend response), so they stay
-  // consistent even though submitNewLoan() now posts to the real loan API —
-  // no rewrite needed here, but note this if createLoan()'s ornament shape
-  // ever changes and rows are adjusted to match it more closely.
-  function buildDraft() {
-    const c = custOf(customers, custId);
-    const s = (schemeObj && schemeObj.id === schemeId) ? schemeObj : schemeOf(schemes, schemeId);
-    let weight = 0, gross = 0;
-    const orns: Ornament[] = rows.filter((r) => r.w > 0 && r.q > 0).map((r) => {
-      const v = r.netW * (rateForPurityString(rates.k24, r.p) ?? 0);
-      weight += r.netW; gross += v;
-      return { n: r.n, purity: r.p, gross: r.w, net: r.netW, qty: r.q, val: Math.round(v), img: r.img };
-    });
-    const locker = lockers.find((k) => k.id === lockerId);
-    return { c, sch: s, orns, weight, gross, eligible: Math.round((gross * s.ltv) / 100), locker };
-  }
-
-  /* Inner markup only (no <html>/brand-window wrapper) — shared by
-   * printPledgeSlip (its own print window) and printSlipAndLabel (combined
-   * with the packet label below into one print job), same split
-   * LoanDetail.tsx's pledgeSlipBodyHTML uses for the saved-loan version of
-   * this same document. Returns null when there's nothing to print yet
-   * (no ornaments), same guard printPledgeSlip always had. */
-  function pledgeSlipBodyHTML(): string | null {
-    const d = buildDraft();
-    if (!d.orns.length) return null;
-    return `
-      ${brandHeader("Gold Loan Pledge Slip")}
-      <table>
-        <tr><th style="width:110px">Loan No</th><td>${provId}</td><th style="width:110px">Date</th><td>${new Date().toLocaleDateString("en-IN")}</td></tr>
-        <tr><th>Customer</th><td>${d.c.name} (${d.c.id})</td><th>Phone</th><td>${"phone" in d.c ? d.c.phone : "—"}</td></tr>
-        <tr><th>Address</th><td>${"address" in d.c ? d.c.address : "—"}</td><th>Branch</th><td>${"branchName" in d.c ? d.c.branchName : "—"}</td></tr>
-        <tr><th>Scheme</th><td>${d.sch.name} @ ${d.sch.rate}% p.a. (LTV ${d.sch.ltv}%)</td>
-            <th>Locker</th><td>${d.locker ? d.locker.code + " — " + d.locker.branchName : "Not assigned"}</td></tr>
-      </table>
-      <table>
-        <thead><tr><th>#</th><th>Ornament</th><th>Purity</th><th class="num">Net Wt (g)</th><th class="num">Qty</th><th class="num">Value</th><th>Photo</th></tr></thead>
-        <tbody>
-          ${d.orns.map((o, i) => `<tr><td>${i + 1}</td><td>${o.n}</td><td>${o.purity}</td>
-            <td class="num">${o.net.toFixed(1)}</td><td class="num">${o.qty}</td><td class="num">${fmt(o.val)}</td>
-            <td style="text-align:center">${o.img ? `<img src="${o.img}" style="width:56px;height:56px;object-fit:cover">` : "—"}</td></tr>`).join("")}
-          <tr><th colspan="3">Total</th><th class="num">${d.weight.toFixed(1)}</th><th></th><th class="num">${fmt(d.gross)}</th><th></th></tr>
-        </tbody>
-      </table>
-      <p><b>Eligible loan amount: ${fmt(d.eligible)}</b> &nbsp;<span class="muted">(at today's published rates — 22K ${fmt(rates.k22)}/g)</span></p>
-      <div class="sig"><div><span>Customer Signature</span></div><div><span>Cashier</span></div><div><span>Branch Manager</span></div></div>`;
-  }
-
-  function printPledgeSlip() {
-    const body = pledgeSlipBodyHTML();
-    if (body == null) { toast("Add at least one ornament with weight and qty first"); return; }
-    openPrintWindow("Pledge Slip — " + provId, body, toast);
-  }
-
-  /* Sends the same server-rendered PDF (real per-page header/footer)
-   * straight to the print dialog, same as Loan Details does after the loan
-   * is saved — POST /loans/indemnity-bond/preview-pdf, since there's no
-   * saved loan id yet at this pre-submission stage to GET a real one from
-   * (see loanService.ts's previewIndemnityBondPDF doc comment). Replaces
-   * the old client-side window.print() copy this button used to open.
-   * Full Aadhaar is fetched separately (getCustomerAadhaarFull) since the
-   * customer picker's cached CustomerView only ever carries the last-4. */
-  async function printIndemnity(lang: BondLang = bondLang) {
-    const d = buildDraft();
-    const c = d.c as { id?: string; name?: string; dob?: string; address?: string; branchName?: string; phone?: string; pan?: string };
-    const aadhaar = c.id ? await getCustomerAadhaarFull(c.id).catch(() => "") : "";
-    // Loan doesn't exist yet at this pre-submission stage, so there's no
-    // real due date to read — computed the same way submitNewLoan() below
-    // derives the real one (today + the scheme's own tenure), so the
-    // preview bond's "repay on or before" clause isn't left blank.
-    const months = d.sch.durationMonths || 12;
-    const due = new Date();
-    due.setMonth(due.getMonth() + months);
-    try {
-      await previewIndemnityBondPDF(
-        {
-          loanNumber: provId,
-          name: c.name,
-          dob: c.dob,
-          address: c.address,
-          branchName: c.branchName,
-          phone: c.phone,
-          pan: c.pan,
-          aadhaar,
-          principalAmount: principal,
-          interestRate: d.sch.rate,
-          dueDate: due.toISOString().slice(0, 10),
-          ornaments: d.orns.map((o) => ({ name: o.n, purity: o.purity, grossWeight: o.gross, netWeight: o.net, value: o.val })),
-        },
-        lang
-      );
-    } catch {
-      toast("Could not print the pledge agreement — try again.");
-    }
-  }
-
-  /* Resolves the QR code + packet label shared by printPacketLabel (its own
-   * die-cut-stock print window) and printSlipAndLabel (label reworked onto
-   * a normal A4 page) — same split LoanDetail.tsx's packetLabelData uses.
-   * Returns null (after toasting) on QR failure so callers can bail the
-   * same way the original try/catch did. */
-  async function packetLabelData(): Promise<{ d: ReturnType<typeof buildDraft>; c: { name?: string; id?: string; phone?: string }; packetLabel: string; url: string; qr: string } | null> {
-    const d = buildDraft();
-    const c = d.c as { name?: string; id?: string; phone?: string };
-    // Once the loan has actually been created, the real Packet.Code (see
-    // backend/internal/packet) is known — encode #packet/<code> so a
-    // future scan-lookup app (GET /packets/by-code/:code) resolves it.
-    // Before submission, fall back to the provisional loan-id URL used for
-    // the pre-submission label preview.
-    const packetLabel = createdPacketCode || "PKT-" + provId.slice(3);
-    // appPath keeps the business slug — see LoanDetail's label QR.
-    const url = createdPacketCode
-      ? location.origin + appPath(undefined, "#packet/" + createdPacketCode)
-      : location.origin + appPath(undefined, "#loan/" + provId);
-    let qr: string;
-    try {
-      qr = await toDataURL(url, { width: 256, errorCorrectionLevel: "M" });
-    } catch {
-      toast("Could not generate QR code");
-      return null;
-    }
-    return { d, c, packetLabel, url, qr };
-  }
-
-  /* The label's own CSS + markup, shared by printPacketLabel (label-only,
-   * its own 81mm×12mm die-cut-stock page) and printSlipAndLabel (label
-   * centered on a normal A4 page instead — see that function's own
-   * comment for why). Mirrors LoanDetail.tsx's labelStyle/labelBodyHTML. */
-  function labelStyle(): string {
-    return `
-      body{margin:0;font-family:Arial,Helvetica,sans-serif;-webkit-print-color-adjust:exact}
-      .label{width:50mm;height:30mm;box-sizing:border-box;padding:1.6mm;display:flex;align-items:center;gap:1.8mm;
-        border:0.3mm dashed #aaa;overflow:hidden;page-break-inside:avoid}
-      .label img{width:25mm;height:25mm;flex:none}
-      .t{font-size:2.5mm;line-height:1.45;min-width:0}
-      .t .brand{font-size:2mm;letter-spacing:0.3mm;color:${printColors().brand}}
-      .t .id{font-size:3.4mm;font-weight:bold}
-      .t div{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}`;
-  }
-
-  function labelBodyHTML(data: NonNullable<Awaited<ReturnType<typeof packetLabelData>>>): string {
-    const { d, c, packetLabel, qr } = data;
-    return `<div class="label">
-      <img src="${qr}" alt="QR">
-      <div class="t">
-        <div class="brand">${BRAND.name.toUpperCase()}</div>
-        <div class="id">${provId} · ${packetLabel}</div>
-        <div>${c.name || "—"}</div>
-        <div>${c.id || "—"} · ${c.phone || ""}</div>
-        <div>${new Date().toLocaleDateString("en-IN")} · ${d.weight.toFixed(1)} g · ${d.orns.length} item(s)</div>
-      </div>
-    </div>`;
-  }
-
-  async function printPacketLabel() {
-    const data = await packetLabelData();
-    if (!data) return;
-    const w = window.open("", "_blank");
-    if (!w) { toast("Popup blocked — please allow popups for this site to print"); return; }
-    // Die-cut "flag tag" stock: 81mm total — a 56mm×12mm head (perforated
-    // at the 28mm midpoint) plus a blank 25mm×3mm strap for wrapping
-    // around/through the item and tearing off. See the approved wire
-    // diagram (packet-flag-tag artifact): first 28mm segment holds the QR,
-    // the second (the half that stays with the item once torn) holds the
-    // readable identifiers, the strap stays blank. Replaces the old plain
-    // 50mm×30mm rectangular label this stock physically can't fit.
-    w.document.write(`<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Packet Label — ${provId}</title><style>
-      @page{size:81mm 12mm;margin:0}
-      ${labelStyle()}
-      .noprint{text-align:center;margin:8mm;font-family:Arial}
-      @media print{.noprint{display:none} .head{border:none} .infocell{border-left:none} .strap .band{border:none}}
-    </style></head><body>
-      ${labelBodyHTML(data)}
-      <div class="noprint">
-        <p style="font-size:13px;color:#555">81mm × 12mm flag tag — scanning the QR opens ${data.url}</p>
-        <button onclick="window.print()" style="padding:10px 26px;font-size:14px;cursor:pointer">🖨 Print Label</button>
-      </div>
-    </body></html>`);
-    w.document.close();
-    setTimeout(() => { try { w.focus(); w.print(); } catch { /* ignore */ } }, 400);
-  }
-
-  /* Combined "Print Slip + Label" — one print job, one A4 page: the slip's
-   * content followed directly by the label at natural size (not the 81mm
-   * die-cut stock size), separated by a dashed rule — NOT a hard
-   * page-break onto a second sheet. Same approach as LoanDetail.tsx's
-   * printSlipAndLabel. Order is slip then label. */
-  async function printSlipAndLabel() {
-    const body = pledgeSlipBodyHTML();
-    if (body == null) { toast("Add at least one ornament with weight and qty first"); return; }
-    const data = await packetLabelData();
-    if (!data) return;
-    openPrintWindow(
-      "Pledge Slip + Label — " + provId,
-      `${body}
-      <div style="margin-top:24px;padding-top:16px;border-top:1px dashed #ccc;text-align:center">
-        <style>${labelStyle()}</style>
-        <div style="display:inline-block">${labelBodyHTML(data)}</div>
-        <p class="muted" style="margin-top:12px">Packet label — scanning the QR opens ${data.url}</p>
-      </div>`,
-      toast
-    );
-  }
-
   async function submitNewLoan() {
     const validRows = rows.filter((r) => r.w > 0 && r.q > 0);
     if (!validRows.length) { toast("Add at least one ornament with weight and qty"); return; }
@@ -767,28 +552,6 @@ export function NewLoan() {
           return Promise.resolve();
         })
       );
-
-      // Fetch the auto-created packet's real Code so any subsequent
-      // printPacketLabel() call encodes it — fail-soft: packet lookup is
-      // enrichment, not a hard dependency of loan submission.
-      try {
-        const pkts = await listPackets({ loanId: loan.id });
-        if (pkts[0]) setCreatedPacketCode(pkts[0].code);
-      } catch {
-        // ignore — packet tracking is enrichment, not required here
-      }
-
-      // Fetch the backend-auto-created tracking packet (loan.PacketCreator,
-      // fired right after loan.Service.Create() succeeds) so
-      // printPacketLabel() can encode its real Code instead of a
-      // provisional loan-id-based URL. Best-effort: a lookup failure here
-      // shouldn't block the loan-creation success path.
-      try {
-        const packets = await listPackets({ loanId: loan.id });
-        if (packets.length) setCreatedPacketCode(packets[0].code);
-      } catch {
-        // ignore — printPacketLabel() falls back to the provisional id
-      }
 
       // The draft (if any) was consumed server-side by the create call above.
       setDraftId(null);
@@ -1161,79 +924,13 @@ export function NewLoan() {
           <button className="btn plain sm" style={{ marginTop: 10 }} tabIndex={rows.length === 0 ? 0 : -1} onClick={() => addOrnRow()}><Icon name="plus" /> Add Ornament</button>
         </div>
           <div className="ft" style={{ display: "flex", gap: 10, justifyContent: "flex-end", flexWrap: "wrap", padding: "14px 18px" }}>
-            {/* Slip/Label print dropdown — replaces the old 2 separate
-              * buttons with a single dropdown (same shell as the Pledge
-              * Agreement dropdown just below), adding a third "Print Slip +
-              * Label" option that combines both into one print job. */}
-            <div className="docs-dd" ref={slipLabelMenuRef} onKeyDown={onSlipLabelMenuKeyDown}>
-              <button
-                ref={slipLabelMenuTriggerRef}
-                type="button"
-                className="btn ghost"
-                onClick={() => setSlipLabelMenuOpen((v) => !v)}
-                title="Print the packet label and/or pledge slip"
-                aria-haspopup="menu"
-                aria-expanded={slipLabelMenuOpen}
-              >
-                🖨 Slip / Label <Icon name="chevronDown" className="docs-dd-chev" />
-              </button>
-              {slipLabelMenuOpen && (
-                <div className="docs-dd-menu" role="menu" style={{ minWidth: 190 }}>
-                  <a href="#" onClick={(e) => { e.preventDefault(); setSlipLabelMenuOpen(false); printPacketLabel(); }}>
-                    <Icon name="box" /><span className="tx">Print Label</span>
-                  </a>
-                  <a href="#" onClick={(e) => { e.preventDefault(); setSlipLabelMenuOpen(false); printPledgeSlip(); }}>
-                    <Icon name="doc" /><span className="tx">Print Slip</span>
-                  </a>
-                  <a href="#" onClick={(e) => { e.preventDefault(); setSlipLabelMenuOpen(false); printSlipAndLabel(); }}>
-                    <Icon name="doc" /><span className="tx">Print Slip + Label</span>
-                  </a>
-                </div>
-              )}
-            </div>
-            {/* Pledge agreement print dropdown — replaces the old 2-button
-              * toggle + print button with a single dropdown matching
-              * LoanDetail.tsx's Documents menu, picking between English and
-              * Malayalam on the fly. */}
-            <div className="docs-dd" ref={bondMenuRef} onKeyDown={onBondMenuKeyDown}>
-              <button
-                ref={bondMenuTriggerRef}
-                type="button"
-                className="btn ghost"
-                onClick={() => setBondMenuOpen((v) => !v)}
-                title="Print pledge agreement in English or Malayalam"
-                aria-haspopup="menu"
-                aria-expanded={bondMenuOpen}
-              >
-                🖨 Pledge Agreement <Icon name="chevronDown" className="docs-dd-chev" />
-              </button>
-              {/* Generated from the business's granted languages rather than
-                * two hand-written entries. The pair used to be duplicated
-                * here and in EsignLanguageModal, so adding a language meant
-                * editing both and the labels could drift. */}
-              {bondMenuOpen && (
-                <div className="docs-dd-menu" role="menu" style={{ minWidth: 230, right: 0 }}>
-                  {bondLangOptions.map((o) => (
-                    <a
-                      key={o.value}
-                      href="#"
-                      onClick={(e) => {
-                        e.preventDefault();
-                        setBondMenuOpen(false);
-                        setBondLang(o.value);
-                        printIndemnity(o.value);
-                      }}
-                    >
-                      <Icon name="doc" />
-                      <span className="tx">
-                        {o.label}
-                        <span style={{ display: "block", fontSize: 11, color: "var(--muted)" }}>{o.native}</span>
-                      </span>
-                    </a>
-                  ))}
-                </div>
-              )}
-            </div>
+            {/* Slip/Label and Pledge Agreement print/download were removed
+              * from here — a loan is still provisional at this point (not
+              * yet saved/approved), so printing its documents before
+              * submission served no purpose and only encouraged staff to
+              * hand out paperwork for a loan that might still change during
+              * approval. The same documents remain available from
+              * LoanDetail.tsx once the loan is saved. */}
             <button className="btn ghost" onClick={saveDraftNow} disabled={savingDraft}>
               {savingDraft ? "Saving…" : draftId ? "Update Draft" : "Save Draft"}
             </button>
@@ -1272,13 +969,15 @@ export function NewLoan() {
                     const digits = e.target.value.replace(/[^\d]/g, "");
                     const clean = digits.replace(/^0+(?=\d)/, "");
                     const num = clean === "" ? 0 : +clean;
-                    // The eligible amount is a hard ceiling — clamp what's
-                    // stored so the displayed value never shows a figure
-                    // that would silently be capped later, and surface the
-                    // clamp as inline feedback instead of just truncating
-                    // keystrokes.
-                    if (num > roundedEligible) {
-                      setPrincipalOverride(String(roundedEligible));
+                    // maxPrincipalEntry (the eligible amount, minus room for
+                    // any AddedToPrincipal charge — see its own comment
+                    // above) is a hard ceiling — clamp what's stored so the
+                    // displayed value never shows a figure that would
+                    // silently be rejected server-side later, and surface
+                    // the clamp as inline feedback instead of just
+                    // truncating keystrokes.
+                    if (num > maxPrincipalEntry) {
+                      setPrincipalOverride(String(maxPrincipalEntry));
                       setPrincipalExceedsEligible(true);
                     } else {
                       setPrincipalOverride(clean);
@@ -1289,10 +988,28 @@ export function NewLoan() {
                 />
                 {principalExceedsEligible && (
                   <p style={{ color: "var(--red)", fontSize: 12, margin: "4px 0 0" }}>
-                    Loan amount can&apos;t exceed {fmt(roundedEligible)}.
+                    {maxPrincipalEntry < roundedEligible
+                      ? `Loan amount can't exceed ${fmt(maxPrincipalEntry)} — the scheme's service charge is added on top, and the total must still stay within the ${fmt(roundedEligible)} eligible amount.`
+                      : `Loan amount can't exceed ${fmt(roundedEligible)}.`}
                   </p>
                 )}
               </div>
+              {sch && sch.serviceChargeType !== "None" && (() => {
+                const principal = +principalOverride || 0;
+                const charge = sch.serviceChargeType === "Flat" ? sch.serviceChargeValue : (principal * sch.serviceChargeValue) / 100;
+                const withheld = sch.serviceChargeMode === "WithheldFromPayout";
+                return (
+                  <div className="notice" style={{ marginTop: 8 }}>
+                    <Icon name="shield" />
+                    <span>
+                      Service charge {sch.serviceChargeType === "Flat" ? fmt(charge) : `${sch.serviceChargeValue}% (${fmt(charge)})`}
+                      {" "}{withheld
+                        ? `will be withheld from the payout — customer receives ${fmt(Math.max(0, principal - charge))}, but owes interest on the full ${fmt(principal)}.`
+                        : `will be added to the principal — customer owes and receives ${fmt(principal + charge)} in total.`}
+                    </span>
+                  </div>
+                );
+              })()}
               <div style={{ padding: "10px 0 2px" }}>
                 <label className="f" htmlFor="additional-info-input">Additional Information (optional)</label>
                 <textarea

@@ -52,7 +52,7 @@ export function settleAuction(loanId: number, disposition: AuctionSurplusDisposi
 // "Auctions Conducted" (a sale was recorded), hasSale=false is "Closed
 // Without Auction" (Withdrawn before a sale) — two independently paginated
 // tables, same as web.
-export function listConcludedAuctions(params: { hasSale: boolean; limit: number; offset: number }) {
+export function listConcludedAuctions(params: { hasSale: boolean; limit: number; offset: number; q?: string }) {
   return apiRequest<{ items: ConcludedAuctionRow[]; hasMore: boolean }>("/loans/auctions/concluded", { params });
 }
 

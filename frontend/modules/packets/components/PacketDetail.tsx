@@ -106,7 +106,7 @@ export function PacketDetail({ code }: { code?: string }) {
         toast("This loan can no longer be re-pledged to a bank.");
         return;
       }
-      openModal(<RepledgeModalContent loan={loan} onSaved={load} />);
+      openModal(<RepledgeModalContent loan={loan} onSaved={load} />, true);
     } catch (e) {
       toast(e instanceof ApiError ? e.message : "Could not load the loan — try again.");
     } finally {
@@ -239,7 +239,15 @@ export function PacketDetail({ code }: { code?: string }) {
             <hr className="gold-rule" style={{ margin: "16px 0" }} />
 
             {!movementLocked && canMovePackets && (p.status === PACKET_STATUS.GENERATED || p.status === PACKET_STATUS.RETURNED) && !pickLocker && (
-              <button className="btn" disabled={busy} onClick={() => setPickLocker(true)}><Icon name="lock" /> Check In to Locker</button>
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                <button className="btn" disabled={busy} onClick={() => setPickLocker(true)}><Icon name="lock" /> Check In to Locker</button>
+                {/* Returned-from-bank gold going straight back to the
+                  * customer doesn't need a locker stop in between — the
+                  * same direct-to-Released edge LOCKER_STORED gets below. */}
+                {p.status === PACKET_STATUS.RETURNED && (
+                  <button className="btn ghost" disabled={busy} onClick={() => doMove(PACKET_STATUS.RELEASED)}><Icon name="check" /> Release</button>
+                )}
+              </div>
             )}
             {!movementLocked && pickLocker && (
               <div className="frow" style={{ marginBottom: 10 }}>
@@ -282,12 +290,16 @@ export function PacketDetail({ code }: { code?: string }) {
                 {canCreateBankPledge && (
                   <button className="btn ghost" disabled={busy} onClick={openBankPledge}><Icon name="bank" /> Repledge to Bank</button>
                 )}
-                <button className="btn ghost" disabled={busy} onClick={() => doMove(PACKET_STATUS.READY_FOR_RELEASE)}>Mark Ready for Release</button>
+                <button className="btn" disabled={busy} onClick={() => doMove(PACKET_STATUS.RELEASED)}><Icon name="check" /> Release</button>
               </div>
             )}
 
+            {/* READY_FOR_RELEASE is a legacy status only — no packet is ever
+              * moved INTO it anymore (see allowedTransitions in backend/
+              * internal/packet/service.go), but a packet seeded/recorded
+              * before that change still needs a way out of it. */}
             {!movementLocked && canMovePackets && p.status === PACKET_STATUS.READY_FOR_RELEASE && (
-              <button className="btn" disabled={busy} onClick={() => doMove(PACKET_STATUS.RELEASED)}><Icon name="check" /> Mark Released</button>
+              <button className="btn" disabled={busy} onClick={() => doMove(PACKET_STATUS.RELEASED)}><Icon name="check" /> Release</button>
             )}
 
             {!isAuctioned && p.status === PACKET_STATUS.BANK_PLEDGED && (

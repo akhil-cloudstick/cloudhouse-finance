@@ -109,7 +109,7 @@ export function RepledgeModalContent({ loan, onSaved }: { loan: LoanView; onSave
          * original, more spacious row grouping instead. */}
         {smallScreen ? (
           <>
-            <div className="frow" style={{ marginBottom: 24, gridTemplateColumns: "repeat(3, 1fr)" }}>
+            <div className="frow" style={{ marginBottom: 24, gridTemplateColumns: "repeat(3, minmax(180px, 1fr))" }}>
               <div><label className="f">Bank *</label>
                 <SearchableSelect<BackendBank>
                   value={bankLabel}
@@ -122,7 +122,7 @@ export function RepledgeModalContent({ loan, onSaved }: { loan: LoanView; onSave
               <div><label className="f">Pledged Amount (₹) *</label><input className="inp" type="number" min={1} placeholder="amount raised from bank" value={amt} onChange={(e) => setAmt(e.target.value)} /></div>
               <div><label className="f">Pledge Date *</label><DatePicker value={date} onChange={setDate} /></div>
             </div>
-            <div className="frow" style={{ marginBottom: 14, gridTemplateColumns: "repeat(3, 1fr)" }}>
+            <div className="frow" style={{ marginBottom: 14, gridTemplateColumns: "repeat(3, minmax(180px, 1fr))" }}>
               <div><label className="f">Interest Rate (% p.a.)</label><input className="inp" type="number" min={0} step={0.01} placeholder="rate charged by the bank" value={interestRate} onChange={(e) => setInterestRate(e.target.value)} /></div>
               <div><label className="f">Reference Number</label><input className="inp" placeholder="bank's pledge/document reference" value={referenceNumber} onChange={(e) => setReferenceNumber(e.target.value)} maxLength={60} /></div>
               <div><label className="f">Bank Pledge Due Date</label><DatePicker value={dueDate} onChange={setDueDate} min={date} /></div>

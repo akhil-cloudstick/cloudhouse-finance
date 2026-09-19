@@ -535,6 +535,19 @@ export default function NewLoanScreen() {
             value={principal}
             onChangeText={setPrincipal}
           />
+          {scheme && scheme.serviceChargeType && scheme.serviceChargeType !== "None" ? (() => {
+            const p = +principal || eligibleAmount || 0;
+            const charge = scheme.serviceChargeType === "Flat" ? (scheme.serviceChargeValue ?? 0) : (p * (scheme.serviceChargeValue ?? 0)) / 100;
+            const withheld = scheme.serviceChargeMode === "WithheldFromPayout";
+            return (
+              <ThemedText variant="small" color={colors.muted} style={{ marginTop: -8, marginBottom: 8 }}>
+                Service charge {scheme.serviceChargeType === "Flat" ? fmt(charge) : `${scheme.serviceChargeValue}% (${fmt(charge)})`}
+                {" "}{withheld
+                  ? `withheld from payout — customer receives ${fmt(Math.max(0, p - charge))}, owes interest on the full ${fmt(p)}.`
+                  : `added to principal — customer owes and receives ${fmt(p + charge)} in total. The eligible-amount ceiling above must cover this total.`}
+              </ThemedText>
+            );
+          })() : null}
           <GoldTextInput
             label="Additional Information (optional)"
             placeholder="Anything else worth recording on this loan…"

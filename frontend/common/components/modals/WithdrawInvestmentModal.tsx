@@ -80,7 +80,7 @@ export function WithdrawInvestmentModalContent({
   return (
     <>
       <div className="hd"><h3>Withdraw</h3><button className="x" onClick={closeModal}>×</button></div>
-      <div className="bd">
+      <div className="bd bd-scroll">
         <div className="notice" style={{ marginBottom: 16 }}>
           Outstanding Principal: <strong>{fmt(outstandingPrincipal)}</strong> · Outstanding Interest: <strong>{fmt(outstandingInterest)}</strong>
         </div>

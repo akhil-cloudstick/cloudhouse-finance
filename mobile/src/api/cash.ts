@@ -1,5 +1,5 @@
 import { apiRequestEnveloped as apiRequest } from "./client";
-import { CashMovement, Expense, CashSummary } from "../types/cash";
+import { CashMovement, Expense, CashSummary, GoldSale } from "../types/cash";
 
 // Cash movements — branch-scoped, no query params today.
 export function listCashMovements() {
@@ -70,4 +70,23 @@ export function getCashSummary(branchId: number, date?: string) {
 
 export function setOpeningBalance(branchId: number, amount: number, date?: string) {
   return apiRequest<void>("/cash/opening-balance", { method: "POST", body: { branchId, amount, date } });
+}
+
+// Gold sales — sold amount books a cash-in movement server-side (Source
+// "GoldSale"), cost amount books a matching cash-out if > 0; see
+// backend/internal/cash/handler.go's Record. Same {items,hasMore} pagination
+// pattern as cash movements/expenses when `limit` is passed.
+export function listGoldSalesPage(params: { limit: number; offset: number }) {
+  return apiRequest<{ items: GoldSale[]; hasMore: boolean }>("/gold-sales", { params });
+}
+
+export function createGoldSale(input: {
+  ornamentType: string;
+  soldAmount: number;
+  costAmount: number;
+  branchId: number;
+  soldOn?: string;
+  remarks?: string;
+}) {
+  return apiRequest<GoldSale>("/gold-sales", { method: "POST", body: input });
 }

@@ -6,12 +6,14 @@ import { ScreenContainer } from "../../../src/components/ScreenContainer";
 import { ThemedText } from "../../../src/components/ThemedText";
 import { ChipSelect } from "../../../src/components/ChipSelect";
 import { FilterSheetButton } from "../../../src/components/FilterSheetButton";
+import { GoldTextInput } from "../../../src/components/GoldTextInput";
 import { colors, statusColors, StatusTone } from "../../../src/theme/colors";
 import { listLoansPage } from "../../../src/api/loans";
 import { listConcludedAuctions } from "../../../src/api/auctions";
 import { Loan } from "../../../src/types/loan";
 import { AUCTION_OUTCOME_LABELS, ConcludedAuctionRow } from "../../../src/types/auction";
 import { fmt } from "../../../src/lib/format";
+import { useDebouncedValue } from "../../../src/hooks/useDebouncedValue";
 import { useRefetchOnFocus } from "../../../src/hooks/useRefetchOnFocus";
 import { ExpandableTable, type TableColumn } from "../../../src/components/ExpandableTable";
 
@@ -94,6 +96,8 @@ function activeExtraFields(l: Loan) {
 function ActiveCases() {
   const router = useRouter();
   const [filter, setFilter] = useState<(typeof FILTERS)[number]>("Auction Eligible");
+  const [search, setSearch] = useState("");
+  const debouncedSearch = useDebouncedValue(search);
   // "Auction Eligible"/"Auctioned - Balance Due" are real stored status
   // values, so the backend can filter+paginate them directly. "Defaulted"
   // has no such column (see the top-of-file comment) — for that one this
@@ -103,10 +107,11 @@ function ActiveCases() {
   const isDefaultedFilter = filter === "Defaulted";
 
   const { data, isLoading, isError, isFetching, isFetchingNextPage, fetchNextPage, hasNextPage, refetch } = useInfiniteQuery({
-    queryKey: ["loans", "auctions", filter],
+    queryKey: ["loans", "auctions", filter, debouncedSearch],
     queryFn: ({ pageParam = 0 }) =>
       listLoansPage({
         status: isDefaultedFilter ? undefined : filter,
+        q: debouncedSearch || undefined,
         limit: PAGE_SIZE,
         offset: pageParam,
       }),
@@ -130,7 +135,15 @@ function ActiveCases() {
 
   return (
     <>
-      <View style={{ paddingHorizontal: 16, marginBottom: 12 }}>
+      <GoldTextInput
+        label="Search auctions"
+        placeholder="Loan no or customer…"
+        value={search}
+        onChangeText={setSearch}
+        containerStyle={{ marginHorizontal: 16, marginTop: 12 }}
+        blur
+      />
+      <View style={{ paddingHorizontal: 16, marginTop: 12, marginBottom: 12 }}>
         <FilterSheetButton options={FILTERS} value={filter} onChange={setFilter} label="Filter" />
       </View>
       <View style={{ flex: 1, paddingHorizontal: 16 }}>
@@ -181,6 +194,8 @@ function AuctionHistory() {
   const router = useRouter();
   const [table, setTable] = useState<(typeof HISTORY_TABLES)[number]>("Auctions Conducted");
   const hasSale = table === "Auctions Conducted";
+  const [search, setSearch] = useState("");
+  const debouncedSearch = useDebouncedValue(search);
 
   // Same rationale as ActiveCases' openLoan below — [id].tsx's route param
   // is the loan's numeric id (it calls getLoan(Number(id))), not its
@@ -192,8 +207,9 @@ function AuctionHistory() {
   }
 
   const { data, isLoading, isError, isFetching, isFetchingNextPage, fetchNextPage, hasNextPage, refetch } = useInfiniteQuery({
-    queryKey: ["auctionHistory", hasSale],
-    queryFn: ({ pageParam = 0 }) => listConcludedAuctions({ hasSale, limit: PAGE_SIZE, offset: pageParam }),
+    queryKey: ["auctionHistory", hasSale, debouncedSearch],
+    queryFn: ({ pageParam = 0 }) =>
+      listConcludedAuctions({ hasSale, q: debouncedSearch || undefined, limit: PAGE_SIZE, offset: pageParam }),
     initialPageParam: 0,
     getNextPageParam: (lastPage, allPages) => (lastPage.hasMore ? allPages.length * PAGE_SIZE : undefined),
   });
@@ -204,7 +220,15 @@ function AuctionHistory() {
 
   return (
     <>
-      <View style={{ paddingHorizontal: 16 }}>
+      <GoldTextInput
+        label="Search auction history"
+        placeholder="Loan no, customer, or reference…"
+        value={search}
+        onChangeText={setSearch}
+        containerStyle={{ marginHorizontal: 16, marginTop: 12 }}
+        blur
+      />
+      <View style={{ paddingHorizontal: 16, marginTop: 12 }}>
         <ChipSelect options={HISTORY_TABLES} value={table} onChange={setTable} label="Table" />
       </View>
       <View style={{ flex: 1, paddingHorizontal: 16 }}>

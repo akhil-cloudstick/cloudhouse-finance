@@ -5,6 +5,7 @@ import { useModal } from "@/common/components/Modal";
 import { ApiError } from "@/common/services/httpClient";
 import { fmt } from "@/common/utils/format";
 import { StatusChip } from "@/common/components/ui/StatusChip";
+import { Select } from "@/common/components/ui/Select";
 import {
   createInvestmentPlan,
   updateInvestmentPlan,
@@ -14,6 +15,7 @@ import {
   type InterestRateType,
   type PayoutFrequency,
   type Engine,
+  type ProductType,
 } from "@/modules/investments/services/investmentService";
 
 const emptyForm: CreatePlanInput = {
@@ -25,6 +27,7 @@ const emptyForm: CreatePlanInput = {
   minPrincipal: 0,
   isActive: true,
   engine: "Schedule",
+  productType: "Deposit",
 };
 
 /* Fixed Payout (backend Engine "Schedule") now also offers Quarterly
@@ -94,6 +97,7 @@ export function InvestmentPlansModalContent({ onChanged }: { onChanged: () => vo
       minPrincipal: p.minPrincipal,
       isActive: p.isActive,
       engine: p.engine,
+      productType: p.productType,
     });
     setFormErr("");
   }
@@ -140,15 +144,16 @@ export function InvestmentPlansModalContent({ onChanged }: { onChanged: () => vo
             </div>
             {error && <div className="notice">{error}</div>}
             <div className="tbl-wrap tbl-wrap-auto"><table className="tbl tbl-center">
-              <thead><tr><th>Name</th><th className="num">Rate</th><th>Frequency</th><th className="num">Tenure</th><th className="num">Min Principal</th><th>Payout</th><th>Status</th><th></th></tr></thead>
+              <thead><tr><th>Name</th><th>Type</th><th className="num">Rate</th><th>Frequency</th><th className="num">Tenure</th><th className="num">Min Principal</th><th>Payout</th><th>Status</th><th></th></tr></thead>
               <tbody>
                 {loading ? (
-                  <tr><td colSpan={8} className="empty compact">Loading…</td></tr>
+                  <tr><td colSpan={9} className="empty compact">Loading…</td></tr>
                 ) : plans.length === 0 ? (
-                  <tr><td colSpan={8} className="empty compact">No plans yet.</td></tr>
+                  <tr><td colSpan={9} className="empty compact">No plans yet.</td></tr>
                 ) : pagePlans.map((p) => (
                   <tr key={p.id} className="click" onClick={() => startEdit(p)}>
                     <td>{p.name}<div className="sub">{p.interestRateType}</div></td>
+                    <td>{p.productType === "Bond" ? <span className="chip info">Bond</span> : "Deposit"}</td>
                     <td className="num">{p.interestRatePercent}%</td>
                     <td>{p.payoutFrequency}</td>
                     <td className="num">{p.tenureMonths}mo</td>
@@ -172,44 +177,56 @@ export function InvestmentPlansModalContent({ onChanged }: { onChanged: () => vo
           <>
             <div className="frow c2">
               <div><label className="f">Plan Name *</label><input className="inp" placeholder="e.g. Gold Saver 12mo" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} /></div>
-              <div><label className="f">Interest Rate Type *</label>
-                <select className="inp" value={form.interestRateType} onChange={(e) => setForm({ ...form, interestRateType: e.target.value as InterestRateType })}>
-                  {(["Simple", "Compound"] as InterestRateType[]).map((t) => (
-                    <option key={t} value={t}>{t}</option>
-                  ))}
-                </select>
+              <div><label className="f">Product Type *</label>
+                <Select
+                  value={form.productType}
+                  onChange={(v) => setForm({ ...form, productType: v as ProductType })}
+                  options={[
+                    { value: "Deposit", label: "Deposit" },
+                    { value: "Bond", label: "Bond — generates a Debenture Subscription Agreement" },
+                  ]}
+                />
               </div>
+            </div>
+            <div className="frow c2">
+              <div><label className="f">Interest Rate Type *</label>
+                <Select
+                  value={form.interestRateType}
+                  onChange={(v) => setForm({ ...form, interestRateType: v as InterestRateType })}
+                  options={(["Simple", "Compound"] as InterestRateType[]).map((t) => ({ value: t, label: t }))}
+                />
+              </div>
+              <div />
             </div>
             <div className="frow c2">
               <div><label className="f">Interest Rate (% p.a.) *</label><input className="inp" type="number" min={0} step={0.01} placeholder="e.g. 8" value={form.interestRatePercent || ""} onChange={(e) => setForm({ ...form, interestRatePercent: +e.target.value || 0 })} /></div>
               <div><label className="f">Payout *</label>
-                <select
-                  className="inp"
+                <Select
                   value={form.engine}
-                  onChange={(e) => setForm({
+                  onChange={(v) => setForm({
                     ...form,
-                    engine: e.target.value as Engine,
+                    engine: v as Engine,
                     // Reset frequency to Monthly (the shared default)
                     // whenever the allowed set changes, so a stray
                     // Quarterly value can't survive a switch back to
                     // Fixed Payout.
                     payoutFrequency: "Monthly",
                   })}
-                >
-                  {(["Schedule", "Live"] as Engine[]).map((e) => (
-                    <option key={e} value={e}>{e === "Live" ? "Single Payout (accumulates, paid at maturity)" : "Fixed Payout"}</option>
-                  ))}
-                </select>
+                  options={(["Schedule", "Live"] as Engine[]).map((e) => ({
+                    value: e,
+                    label: e === "Live" ? "Single Payout (accumulates, paid at maturity)" : "Fixed Payout",
+                  }))}
+                />
               </div>
             </div>
             {form.engine === "Schedule" && (
               <div className="frow c2">
                 <div><label className="f">Payout Frequency *</label>
-                  <select className="inp" value={form.payoutFrequency} onChange={(e) => setForm({ ...form, payoutFrequency: e.target.value as PayoutFrequency })}>
-                    {FIXED_PAYOUT_FREQUENCIES.map((f) => (
-                      <option key={f} value={f}>{f}</option>
-                    ))}
-                  </select>
+                  <Select
+                    value={form.payoutFrequency}
+                    onChange={(v) => setForm({ ...form, payoutFrequency: v as PayoutFrequency })}
+                    options={FIXED_PAYOUT_FREQUENCIES.map((f) => ({ value: f, label: f }))}
+                  />
                 </div>
                 <div />
               </div>

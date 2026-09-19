@@ -109,7 +109,7 @@ export function ExtensionReviewModalContent({ request, onSaved }: { request: Req
         <h3>Review Extension — {req.loanNumber}</h3>
         <button className="x" onClick={closeModal}>×</button>
       </div>
-      <div className="bd">
+      <div className="bd bd-scroll">
         <div className="kv" style={{ gridTemplateColumns: "1fr 1fr", marginBottom: 14 }}>
           <div className="i">
             <div className="k">Requested Extension</div>

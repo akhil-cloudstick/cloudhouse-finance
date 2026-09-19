@@ -323,10 +323,10 @@ export default function GoldRatesScreen() {
       ) : null}
 
       <View style={{ paddingHorizontal: 16, marginBottom: 4, marginTop: formVisible ? 12 : 0 }}>
-        <ThemedText variant="small" color={colors.muted}>
+        {/* <ThemedText variant="small" color={colors.muted}>
           24K is always published directly. 22K/18K can be published directly too (Manual mode) or derived from
           24K at a chosen purity (Auto mode). Any other purity is resolved per-ornament, at pledge time.
-        </ThemedText>
+        </ThemedText> */}
       </View>
 
       <View style={{ flex: 1, paddingHorizontal: 16, paddingTop: 16 }}>

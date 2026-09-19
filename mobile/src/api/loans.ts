@@ -1,5 +1,5 @@
 import { apiRequestEnveloped as apiRequest } from "./client";
-import { Loan, LoanApproval, LoanRequest } from "../types/loan";
+import { Loan, LoanApproval, LoanRequest, LoanRiskLevel, LoanRiskRow } from "../types/loan";
 
 // q/status/branchId/customerId mirror backend/internal/loan/handler.go's
 // LoanFilter — all server-side, per the plan's "no client-side filtering" rule.
@@ -34,6 +34,30 @@ export function getInterestCollected(from?: string, to?: string) {
   return apiRequest<{ interestCollected: number; from: string; to: string }>("/loans/interest-collected", {
     params: { from, to },
   });
+}
+
+// Risk-eligible statuses — mirrors loanService.ts's RISK_STATUSES, sent as
+// the `status` filter's options ("All statuses" sends none).
+export const RISK_STATUSES = ["Active", "Due Soon", "Overdue", "Closure Requested", "Defaulted", "Auction Eligible"] as const;
+
+export type LoanRiskCounts = { loss: number; atRisk: number; safe: number };
+
+// GET /loans/risk-assessment — see LoanRiskRow's own doc comment. `total`/
+// `counts` cover every loan matching status/from/to (NOT riskLevel below —
+// see loanService.ts's LoanRiskCounts doc comment on the web side), not
+// just this page, for the screen's KPI tiles.
+export function listLoanRiskAssessmentPage(params: {
+  status?: string;
+  riskLevel?: LoanRiskLevel;
+  from?: string; // "YYYY-MM-DD", bounds openedDate
+  to?: string;
+  limit: number;
+  offset: number;
+}) {
+  return apiRequest<{ items: LoanRiskRow[]; hasMore: boolean; total: number; counts: LoanRiskCounts }>(
+    "/loans/risk-assessment",
+    { params }
+  );
 }
 
 export function getLoan(id: number) {

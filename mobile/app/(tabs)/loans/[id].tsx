@@ -40,6 +40,7 @@ import {
 } from "../../../src/api/loans";
 import { recordPayment } from "../../../src/api/payments";
 import { recordBankPledge, releaseBankPledge, voidBankPledge, getBankPledgeHistory } from "../../../src/api/bankPledges";
+import { listPackets } from "../../../src/api/packets";
 import { listBanks } from "../../../src/api/banks";
 import { listSchemes } from "../../../src/api/schemes";
 import { getCustomer } from "../../../src/api/customers";
@@ -111,6 +112,14 @@ export default function LoanDetailScreen() {
   const canActOnAuction = can("Loan_Management", "can_update_loan");
 
   const loan = useQuery({ queryKey: ["loan", id], queryFn: () => getLoan(loanId), enabled: !!id });
+  // This loan's tracking packet — used only to drive the "Gold Pledge /
+  // Locker" release warning below (mirrors web LoanDetail.tsx).
+  const packetQuery = useQuery({
+    queryKey: ["loanPacket", id],
+    queryFn: () => listPackets({ loanId }),
+    enabled: !!id,
+  });
+  const packet = packetQuery.data?.[0];
   const auction = useQuery({
     queryKey: ["auction", id],
     queryFn: () => getAuction(loanId),
@@ -948,6 +957,17 @@ export default function LoanDetailScreen() {
               onChangeText={setEditPrincipal}
             />
 
+            {/* Mirrors web EditLoanModal.tsx's own warning — same condition
+              * the backend's Service.UpdateLoan uses to decide whether this
+              * edit resubmits the loan for approval (scheme or principal
+              * differing from what's on file). */}
+            {(editSchemeId != null && editSchemeId !== l.schemeId) || (+editPrincipal > 0 && +editPrincipal !== l.principalAmount) ? (
+              <ThemedText variant="small" color={colors.red} style={{ marginTop: -8, marginBottom: 12 }}>
+                Changing the scheme or principal amount requires re-approval before the loan is active again —
+                saving will resubmit it through the sanction chain from the first stage.
+              </ThemedText>
+            ) : null}
+
             <ThemedText variant="label" color={colors.muted} style={{ marginTop: 8, marginBottom: 8 }}>
               Ornaments
             </ThemedText>
@@ -1119,6 +1139,13 @@ export default function LoanDetailScreen() {
               <ExtensionReviewPanel request={pendingExtension} onSaved={invalidateRequests} onError={onRequestError} />
             ) : (
               <>
+                {(l.outstandingInterest ?? 0) > 0.01 || (l.outstandingPenalInterest ?? 0) > 0.01 ? (
+                  <ThemedText variant="small" color={colors.red} style={{ marginBottom: 10 }}>
+                    Outstanding interest {fmt(l.outstandingInterest ?? 0)}
+                    {(l.outstandingPenalInterest ?? 0) > 0.01 ? ` + penal interest ${fmt(l.outstandingPenalInterest ?? 0)}` : ""} must be
+                    paid before an extension can be requested — use Record Payment above.
+                  </ThemedText>
+                ) : null}
                 <GoldTextInput
                   label="Months"
                   keyboardType="numeric"
@@ -1130,7 +1157,7 @@ export default function LoanDetailScreen() {
                   title="Submit Extension Request"
                   onPress={() => requestExtension.mutate()}
                   loading={requestExtension.isPending}
-                  disabled={!extensionMonths}
+                  disabled={!extensionMonths || (l.outstandingInterest ?? 0) > 0.01 || (l.outstandingPenalInterest ?? 0) > 0.01}
                 />
               </>
             )}
@@ -1194,6 +1221,69 @@ export default function LoanDetailScreen() {
           </Card>
         ) : null}
 
+        {/* --- Gold Pledge / Locker -------------------------------------
+         * Only rendered while gold is still physically somewhere other
+         * than back with the customer (pledged to a bank, or checked into
+         * a locker). Mirrors web LoanDetail.tsx's own section — see its
+         * comment for why this matters once the balance is fully paid. */}
+        {l.bankPledgeStatus === "Bank Pledged" || packet?.status === "Locker Stored" ? (
+          <Card>
+            <ThemedText variant="h3" style={{ marginBottom: 8 }}>
+              Gold Pledge / Locker
+            </ThemedText>
+            {(l.totalOutstandingBalance ?? 0) <= 0.01 ? (
+              <ThemedText variant="body" color={colors.red}>
+                {l.bankPledgeStatus === "Bank Pledged"
+                  ? "This loan is fully paid, but its gold is still pledged to a bank — release it from the bank pledge before this loan can be closed."
+                  : "This loan is fully paid, but its gold is still checked into a locker — check it out before this loan can be closed."}
+              </ThemedText>
+            ) : (
+              <ThemedText variant="body" color={colors.muted}>
+                {l.bankPledgeStatus === "Bank Pledged" ? "Gold is currently pledged to a bank." : "Gold is currently held in a locker."}
+              </ThemedText>
+            )}
+            {l.bankPledgeStatus === "Bank Pledged" && activePledge ? (
+              <GoldButton
+                title="Release from Bank"
+                variant="outline"
+                onPress={() => setConfirmReleaseVisible(true)}
+                style={{ marginTop: 10 }}
+              />
+            ) : null}
+            {packet?.status === "Locker Stored" ? (
+              <GoldButton
+                title="Go to Packet"
+                variant="outline"
+                onPress={() => router.push(`/packets/${packet.id}`)}
+                style={{ marginTop: 10 }}
+              />
+            ) : null}
+          </Card>
+        ) : null}
+
+        {/* --- Sanction & Disbursement --------------------------------------
+         * Only shown once the loan has actually cleared final sanction
+         * (disbursementDate set) — a loan still Pending Approval, or
+         * rejected before reaching that stage, never had a real
+         * disbursement to show. Mirrors web LoanDetail.tsx's own section. */}
+        {l.disbursementDate ? (
+          <Card>
+            <ThemedText variant="h3" style={{ marginBottom: 8 }}>
+              Sanction &amp; Disbursement
+            </ThemedText>
+            <ThemedText variant="body">Sanctioned: {fmt(l.sanctionedAmount ?? 0)}</ThemedText>
+            <ThemedText variant="body">Disbursed: {fmt(l.disbursedAmount ?? 0)}</ThemedText>
+            <ThemedText variant="small" color={colors.muted}>
+              Disbursed on {l.disbursementDate}
+            </ThemedText>
+            {(l.sanctionedAmount ?? 0) !== (l.disbursedAmount ?? 0) ? (
+              <ThemedText variant="small" color={colors.amber} style={{ marginTop: 6 }}>
+                ₹{fmt((l.sanctionedAmount ?? 0) - (l.disbursedAmount ?? 0))} was withheld from the payout as a service charge.
+              </ThemedText>
+            ) : null}
+          </Card>
+        ) : null}
+
         {/* --- Bank Pledge ------------------------------------------------------
          * Brought to parity with frontend/modules/loans/components/
          * BankPledge.tsx: a real bank picker (bankId, not just a typed
@@ -1242,7 +1332,7 @@ export default function LoanDetailScreen() {
                   />
                 </View>
                 <GoldButton
-                  title="Void"
+                  title="Delete"
                   variant="outline"
                   onPress={() => setVoidSheetVisible(true)}
                   style={{ height: 44, paddingHorizontal: 16, borderColor: colors.red }}
@@ -1356,11 +1446,12 @@ export default function LoanDetailScreen() {
 
         <BottomSheetModal visible={voidSheetVisible} onClose={() => setVoidSheetVisible(false)}>
           <ThemedText variant="h3" style={{ marginBottom: 4 }}>
-            Void This Pledge
+            Delete Repledge Record
           </ThemedText>
           <ThemedText variant="small" color={colors.muted} style={{ marginBottom: 12 }}>
-            For a pledge recorded in error — the only way to fix a wrong cash treatment (it can&apos;t be
-            edited). Books a compensating cash-out if it originally moved cash.
+            Cancel Pledge Entry — for a pledge recorded in error, not an actual gold return (use Release
+            for that). Reverses any cash movement the original pledge made; the record stays visible in
+            history for audit, it isn&apos;t erased.
           </ThemedText>
           <GoldTextInput
             label="Reason *"
@@ -1369,7 +1460,7 @@ export default function LoanDetailScreen() {
             placeholder="e.g. wrong cash treatment entered"
           />
           <GoldButton
-            title="Void Pledge"
+            title="Delete Entry"
             onPress={() => activePledge && doVoidPledge.mutate(activePledge.id)}
             loading={doVoidPledge.isPending}
             disabled={!voidReason.trim()}
@@ -1401,7 +1492,8 @@ export default function LoanDetailScreen() {
                       variant="small"
                       color={p.status === "Active" ? colors.green : p.status === "Voided" ? colors.red : colors.muted}
                     >
-                      {p.status}
+                      {/* Wire value stays "Voided", only the displayed label is "Deleted" — see item #13's Void→Delete relabel. */}
+                      {p.status === "Voided" ? "Deleted" : p.status}
                     </ThemedText>
                   </View>
                   <ThemedText variant="small" color={colors.muted}>

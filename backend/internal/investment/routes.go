@@ -18,6 +18,7 @@ func RegisterRoutes(rg *gin.RouterGroup, h *Handler, perms platform.CRUDMiddlewa
 	rg.GET("", perms.Read, h.List)
 	rg.GET("/:id", perms.Read, h.Get)
 	rg.GET("/:id/schedule", perms.Read, h.Schedule)
+	rg.GET("/:id/bond/pdf", perms.Read, h.DownloadBondPDF)
 	rg.POST("/:id/payouts/:payoutId/pay", perms.Update, h.MarkPayoutPaid)
 	rg.POST("/:id/mature", perms.Update, h.Mature)
 	rg.POST("/:id/add-cash", perms.Update, h.AddCash)

@@ -30,19 +30,27 @@ type schemeRequest struct {
 	PenalRate      float64 `json:"penalRate"`
 	Conditions     string  `json:"conditions"`
 	IsActive       bool    `json:"isActive"`
+	// ServiceCharge* are all optional — an omitted ServiceChargeType is
+	// treated as "None" by Service.Create/Update, same as an explicit one.
+	ServiceChargeType  string  `json:"serviceChargeType"`
+	ServiceChargeValue float64 `json:"serviceChargeValue"`
+	ServiceChargeMode  string  `json:"serviceChargeMode"`
 }
 
 func (req schemeRequest) toInput() CreateInput {
 	return CreateInput{
-		Name:           req.Name,
-		BranchID:       req.BranchID,
-		InterestRate:   req.InterestRate,
-		DurationMonths: req.DurationMonths,
-		LTVPercent:     req.LTVPercent,
-		InterestMethod: req.InterestMethod,
-		PenalRate:      req.PenalRate,
-		Conditions:     req.Conditions,
-		IsActive:       req.IsActive,
+		Name:               req.Name,
+		BranchID:           req.BranchID,
+		InterestRate:       req.InterestRate,
+		DurationMonths:     req.DurationMonths,
+		LTVPercent:         req.LTVPercent,
+		InterestMethod:     req.InterestMethod,
+		PenalRate:          req.PenalRate,
+		Conditions:         req.Conditions,
+		IsActive:           req.IsActive,
+		ServiceChargeType:  req.ServiceChargeType,
+		ServiceChargeValue: req.ServiceChargeValue,
+		ServiceChargeMode:  req.ServiceChargeMode,
 	}
 }
 

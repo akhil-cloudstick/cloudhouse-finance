@@ -32,7 +32,7 @@ export type MatrixResponse = {
 };
 
 export function fetchRoles(): Promise<Role[]> {
-  return apiRequest<Role[]>("/roles");
+  return apiRequestEnveloped<Role[]>("/roles");
 }
 
 export function fetchRoleMatrix(actingEmployeeId: number, roleId: number, search?: string): Promise<MatrixResponse> {

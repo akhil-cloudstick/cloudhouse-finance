@@ -71,7 +71,7 @@ export function GoldSaleModalContent({ onSaved }: { onSaved?: () => void }) {
   return (
     <>
       <div className="hd"><h3>Record Gold Sale</h3><button className="x" onClick={closeModal}>×</button></div>
-      <div className="bd">
+      <div className="bd bd-scroll">
         <div className="frow"><div><label className="f">Ornament Type *</label>
           <input className="inp" placeholder="e.g. Chain, Bangle, Studs" value={ornamentType} onChange={(e) => setOrnamentType(e.target.value)} /></div></div>
         <div className="frow c2">

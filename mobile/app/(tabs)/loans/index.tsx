@@ -1,5 +1,5 @@
-import React, { useRef, useState } from "react";
-import { RefreshControl, Pressable, View, ScrollView, StyleSheet } from "react-native";
+import React, { useState } from "react";
+import { RefreshControl, View } from "react-native";
 import { useInfiniteQuery } from "@tanstack/react-query";
 import { useRouter } from "expo-router";
 import { ScreenContainer } from "../../../src/components/ScreenContainer";
@@ -7,7 +7,7 @@ import { ThemedText } from "../../../src/components/ThemedText";
 import { GoldTextInput } from "../../../src/components/GoldTextInput";
 import { GoldButton } from "../../../src/components/GoldButton";
 import { FilterSheetButton } from "../../../src/components/FilterSheetButton";
-import { colors, statusColors } from "../../../src/theme/colors";
+import { statusColors } from "../../../src/theme/colors";
 import { listLoansPage } from "../../../src/api/loans";
 import { Loan } from "../../../src/types/loan";
 import { useDebouncedValue } from "../../../src/hooks/useDebouncedValue";
@@ -92,10 +92,6 @@ export default function LoansScreen() {
     getNextPageParam: (lastPage, allPages) => (lastPage.hasMore ? allPages.length * PAGE_SIZE : undefined),
   });
 
-  // Lets tapping the "All" chip scroll the filter row back to the left —
-  // see the call site below for why only All needs it.
-  const filterScrollRef = useRef<ScrollView>(null);
-
   useRefetchOnFocus(refetch);
 
   const loans = data?.pages.flatMap((p) => p.items) ?? [];
@@ -120,39 +116,9 @@ export default function LoansScreen() {
           <GoldButton title="+ New Loan" onPress={() => router.push("/new-loan")} />
         </View>
       ) : null}
-      <ScrollView
-        ref={filterScrollRef}
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        style={styles.filterRow}
-        contentContainerStyle={[styles.filterRowContent, { paddingHorizontal: 16 }]}
-      >
-        {STATUS_FILTERS.map((s) => {
-          const active = s === statusFilter;
-          return (
-            <Pressable
-              key={s}
-              onPress={() => {
-                setStatusFilter(s);
-                // "All" is always the leftmost chip — if you'd scrolled
-                // right to reach a later filter and then tap back to All,
-                // the row stayed at that scroll position, so the
-                // now-selected All chip sat clipped at the left edge of
-                // the visible viewport instead of coming back into view.
-                // Every other chip you can tap is, by definition, already
-                // fully on-screen at the moment you tap it, so only All
-                // needs this.
-                if (s === "All") filterScrollRef.current?.scrollTo({ x: 0, animated: true });
-              }}
-              style={[styles.filterChip, active && styles.filterChipActive]}
-            >
-              <ThemedText variant="small" numberOfLines={1} color={active ? colors.bg : colors.ink}>
-                {s}
-              </ThemedText>
-            </Pressable>
-          );
-        })}
-      </ScrollView>
+      <View style={{ marginHorizontal: 16, marginBottom: 12 }}>
+        <FilterSheetButton options={STATUS_FILTERS} value={statusFilter} onChange={setStatusFilter} />
+      </View>
 
       {/* Only this scrolls — column-label row (sticky, inside
        * ExpandableTable) stays put; reaching the bottom loads the next page. */}
@@ -175,37 +141,3 @@ export default function LoansScreen() {
     </ScreenContainer>
   );
 }
-
-const styles = StyleSheet.create({
-  // marginTop/marginBottom (not padding) previously sat directly on the
-  // ScrollView itself — a horizontal ScrollView's OWN vertical margin can
-  // get eaten by its parent's layout pass before it ever measures its
-  // content, which was clipping the chip row's top/bottom edge (and,
-  // combined with no vertical padding on the content, the chips' own
-  // shadow-free borders too). Padding lives on contentContainerStyle
-  // instead, inside the scrollable area, so it can never be clipped.
-  // height is pinned explicitly (not left to intrinsic content sizing) so
-  // Android can't re-measure this row to a squashed height/width mid-scroll
-  // of the vertical ScrollView below it — that remeasure-on-scroll is what
-  // was making "All" (the widest/leftmost chip, so the most visible one)
-  // visibly shrink while the table scrolled.
-  filterRow: { marginTop: 10, marginBottom: 12, flexGrow: 0, height: 40 },
-  filterRowContent: { gap: 8, paddingVertical: 3, paddingRight: 4, alignItems: "center" },
-  // height + justifyContent (not just paddingVertical) pin every chip to
-  // the identical box regardless of which is active — active vs inactive
-  // used to differ only by fill color, but without a fixed height each
-  // chip's box was sized off its own text's line height, so re-selecting a
-  // filter (which reflows the whole row) could nudge that by a px and read
-  // as the chip visibly "growing".
-  filterChip: {
-    flexShrink: 0,
-    height: 32,
-    justifyContent: "center",
-    borderWidth: 1,
-    borderColor: colors.line,
-    backgroundColor: colors.card,
-    borderRadius: 16,
-    paddingHorizontal: 12,
-  },
-  filterChipActive: { backgroundColor: colors.brandDeep, borderColor: colors.brandDeep },
-});

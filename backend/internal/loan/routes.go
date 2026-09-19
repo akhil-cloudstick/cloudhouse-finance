@@ -116,6 +116,7 @@ func RegisterRoutes(rg *gin.RouterGroup, h *Handler, perms platform.CRUDMiddlewa
 	rg.POST("/requests/:requestId/release-payment", perms.Update, h.RecordReleasePayment)
 	rg.POST("/requests/:requestId/approve", perms.Update, h.ApproveRequest)
 	rg.POST("/:id/complete-release", perms.Update, h.CompleteRelease)
+	rg.GET("/requests/:requestId/partial-release-receipt/pdf", perms.Read, h.DownloadPartialReleaseReceiptPDF)
 
 	// Hard delete — see Service.HardDeleteLoan's own doc comment for the
 	// full cascade. Gated by its own dedicated permission, not perms.Delete.
