@@ -58,6 +58,19 @@ const (
 	EngineLive     = "Live"
 )
 
+// ProductType* are InvestmentPlan.ProductType's values — a purely
+// cosmetic/categorization label, NOT a separate financial engine: a Bond
+// plan uses the exact same Engine/InterestRateType/PayoutFrequency/
+// TenureMonths math as a Deposit plan, it's just branded and worded as a
+// bond (e.g. "Face Value" instead of "Principal" in the UI, and a
+// Debenture Subscription Agreement document instead of no document at
+// all — see investmentbond.go). ProductTypeDeposit is the default/zero
+// value so every plan that predates this feature backfills to it.
+const (
+	ProductTypeDeposit = "Deposit"
+	ProductTypeBond    = "Bond"
+)
+
 // InvestmentPlan is an admin-defined product an investor can put money
 // into — e.g. "Gold Saver 12mo @ 8%". Editing a plan only affects
 // investments created after the edit: every Investment snapshots the
@@ -77,6 +90,11 @@ type InvestmentPlan struct {
 	// Engine selects which product a new investment created against this
 	// plan gets — see the Engine* consts' doc comment above.
 	Engine string `json:"engine" gorm:"not null;size:10;default:'Schedule'"`
+
+	// ProductType is a display/document-generation label — see the
+	// ProductType* consts' doc comment above for why it's not a separate
+	// calculation engine.
+	ProductType string `json:"productType" gorm:"not null;size:10;default:'Deposit'"`
 
 	// MinPrincipal is the smallest deposit this plan accepts; zero means no
 	// floor.

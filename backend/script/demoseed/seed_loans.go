@@ -159,14 +159,21 @@ func seedLoans(ctx context.Context, d *Deps, st *state, rep *Report) error {
 			if p.reject && stage == p.approvals-1 {
 				action = loan.ApprovalStageRejected
 			}
-			if _, err := d.loanSvc.Approve(ctx, l.ID, loan.ApprovalInput{
+			approval := loan.ApprovalInput{
 				Stage:           chain[stage],
 				Action:          action,
 				ActorEmployeeID: st.keep.adminID,
 				ActorRole:       "Administrator",
 				ActorRoleID:     st.adminRoleID,
 				Remarks:         "Demo approval",
-			}); err != nil {
+			}
+			// FinalSanction is the stage that clears disbursement, so it's the
+			// only one platform.ValidateSplit checks — pay the whole principal
+			// out as cash, same as every other all-cash demo transaction.
+			if chain[stage] == loan.SanctionStageFinalSanction && action == loan.ApprovalStageApproved {
+				approval.CashAmount = p.principal
+			}
+			if _, err := d.loanSvc.Approve(ctx, l.ID, approval); err != nil {
 				return fmt.Errorf("approve loan %d at %s: %w", i+1, chain[stage], err)
 			}
 		}

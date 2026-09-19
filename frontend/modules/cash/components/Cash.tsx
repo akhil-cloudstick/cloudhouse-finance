@@ -7,14 +7,14 @@ import { Icon } from "@/common/components/Icon";
 import { fmt } from "@/common/utils/format";
 import { StatusChip } from "@/common/components/ui/StatusChip";
 import { AddCashModalContent } from "@/common/components/modals/AddCashModal";
+import { OpeningCashModalContent } from "@/common/components/modals/OpeningCashModal";
 import { CashOutModalContent } from "@/common/components/modals/CashOutModal";
 import { ExpenseModalContent, ReceiptViewModalContent } from "@/common/components/modals/ExpenseModal";
 import { GoldSaleModalContent } from "@/common/components/modals/GoldSaleModal";
-import { listActiveBranches, type BranchView } from "@/modules/branches/services/branchService";
-import { SearchableSelect } from "@/common/components/ui/SearchableSelect";
+import { listActiveBranches } from "@/modules/branches/services/branchService";
 import { DatePicker } from "@/common/components/ui/DatePicker";
 import {
-  listCashMovementsPage, listExpensesPage, listGoldSalesPage, getCashSummary, setOpeningBalance,
+  listCashMovementsPage, listExpensesPage, listGoldSalesPage, getCashSummary,
   setCashMovementLoanStatus, approveExpense, rejectExpense,
   exportCashMovements, exportExpenses,
   type CashMovementView, type ExpenseView, type GoldSaleView, type CashSummary, type CashMovementCategory,
@@ -183,7 +183,6 @@ export function Cash() {
     onKeyDown: onCashActionsMenuKeyDown,
   } = useDropdownMenu<HTMLDivElement>();
 
-  const [branches, setBranches] = useState<BranchView[]>([]);
   const [branchId, setBranchId] = useState<number | "">("");
   const [branchLabel, setBranchLabel] = useState("");
   const [movements, setMovements] = useState<CashMovementView[]>([]);
@@ -192,7 +191,7 @@ export function Cash() {
   const [movementsPage, setMovementsPage] = useState(1);
   const [movementsHasMore, setMovementsHasMore] = useState(false);
   const [movementsTotal, setMovementsTotal] = useState(0);
-  const cashPageSize = useResponsivePageSize(7, 7);
+  const cashPageSize = useResponsivePageSize(15, 15);
   const smallScreen = useIsSmallScreen();
   const [expensesPage, setExpensesPage] = useState(1);
   const [expensesHasMore, setExpensesHasMore] = useState(false);
@@ -204,11 +203,6 @@ export function Cash() {
   const expensesTotalPages = Math.max(1, Math.ceil(expensesTotal / cashPageSize));
   const goldSalesTotalPages = Math.max(1, Math.ceil(goldSalesTotal / cashPageSize));
   const [summary, setSummary] = useState<CashSummary | null>(null);
-  const [openingInput, setOpeningInput] = useState("");
-  // Once today's opening balance exists for the selected branch we show it
-  // read-only instead of an empty-looking input asking for it again — the
-  // figure is entered once per branch per day. "Change" reopens the input.
-  const [editingOpening, setEditingOpening] = useState(false);
   // Switches the card below between the Cash Movements and Expense Register
   // tables instead of stacking both full tables on the page at once.
   const [activeCashTab, setActiveCashTab] = useState<"movements" | "expenses" | "goldSales">("movements");
@@ -252,8 +246,6 @@ export function Cash() {
     getCashSummary(branchId || undefined, today).then((s) => {
       if (seq !== summarySeq.current) return;
       setSummary(s);
-      setOpeningInput(s.openingCashSet ? String(s.openingCash) : "");
-      setEditingOpening(false);
     }).catch(() => {
       if (seq !== summarySeq.current) return;
       setSummary(null);
@@ -262,7 +254,6 @@ export function Cash() {
 
   useEffect(() => {
     listActiveBranches().then((list) => {
-      setBranches(list);
       if (list.length) {
         setBranchId((cur) => cur || list[0].id);
         setBranchLabel((cur) => cur || list[0].name);
@@ -270,23 +261,7 @@ export function Cash() {
     }).catch(() => {});
   }, []);
 
-  // "All branches" is a synthetic id-0 row (never a real Branch) prepended
-  // to the local filter list — GET /branches is already scoped server-side
-  // (non-admins only ever get their own branch back), so it's only ever
-  // meaningfully different from the single real row for an Administrator.
-  const ALL_BRANCHES: BranchView = { id: 0, name: "All branches", code: "", address: "", phone: "", isActive: true };
-  async function searchBranchesFilter(q: string, _page: number): Promise<{ items: BranchView[]; hasMore: boolean }> {
-    const query = q.trim().toLowerCase();
-    const all = [ALL_BRANCHES, ...branches];
-    const items = query ? all.filter((b) => b.name.toLowerCase().includes(query)) : all;
-    return { items, hasMore: false };
-  }
-
   useEffect(() => { refresh(); }, [refresh]);
-
-  // Locked = today's figure is already on record for this branch, so the
-  // card reports it rather than asking for it again.
-  const openingLocked = !!branchId && !!summary?.openingCashSet && !editingOpening;
 
   const total = expenses.reduce((s, e) => s + e.amt, 0);
   const cashIn = movements.filter((m) => m.type === "in").reduce((s, m) => s + m.amount, 0);
@@ -302,19 +277,6 @@ export function Cash() {
       toast(`Loan from ${m.bank} marked ${next.toLowerCase()}`);
     } catch (e) {
       toast(e instanceof ApiError ? e.message : "Could not update loan status.");
-    }
-  }
-
-  async function saveOpeningBalance() {
-    if (!branchId) { toast("Select a branch first."); return; }
-    const amount = +openingInput;
-    if (openingInput.trim() === "" || !(amount >= 0)) { toast("Enter a valid opening balance."); return; }
-    try {
-      await setOpeningBalance(branchId, amount, today);
-      refresh();
-      toast(`Opening cash set to ${fmt(amount)}`);
-    } catch (e) {
-      toast(e instanceof ApiError ? e.message : "Could not save opening balance.");
     }
   }
 
@@ -410,50 +372,25 @@ export function Cash() {
               )}
             </div>
             <button className="btn" onClick={() => openModal(<ExpenseModalContent onSaved={refresh} />)}><Icon name="plus" /> Record Expense</button>
+            {canUpdateCash && (
+              <button
+                className="btn ghost"
+                onClick={() => openModal(
+                  <OpeningCashModalContent
+                    initialBranchId={branchId || undefined}
+                    initialBranchLabel={branchId ? branchLabel : undefined}
+                    date={today}
+                    onSaved={refresh}
+                  />
+                )}
+              >
+                <Icon name="coin" /> Opening Balance
+              </button>
+            )}
           </div>
         )}
       </div>
       <hr className="gold-rule rule-sm" />
-
-      <div className="card" style={{ marginBottom: smallScreen ? 14 : 24 }}>
-        <div className="hd">
-          <h3>Opening Cash Balance — Today</h3>
-          <div className="sp" />
-          <div style={{ width: 140 }}>
-            <SearchableSelect<BranchView>
-              value={branchLabel}
-              onChange={(id, item) => { setBranchId(item.id === 0 ? "" : item.id); setBranchLabel(item.name); }}
-              fetchFn={searchBranchesFilter}
-              getLabel={(b) => b.name}
-              getId={(b) => String(b.id)}
-              placeholder="Search branch…"
-            />
-          </div>
-          {/* Without "can update cash" the figure is read-only: no Change
-              button, and no input/Set pair to record one with either. */}
-          {openingLocked || !canUpdateCash ? (
-            <>
-              <b style={{ marginLeft: 8, fontSize: 16, color: "var(--brand-deep)" }}>{fmt(summary?.openingCash || 0)}</b>
-              {canUpdateCash && (
-                <button className="btn ghost sm" style={{ marginLeft: 8 }} onClick={() => { setOpeningInput(String(summary?.openingCash ?? "")); setEditingOpening(true); }}>Change</button>
-              )}
-            </>
-          ) : (
-            <>
-              <input className="inp" style={{ width: 140, marginLeft: 8 }} type="number" min={0} placeholder="e.g. 50000" value={openingInput} onChange={(e) => setOpeningInput(e.target.value)} />
-              <button className="btn sm" style={{ marginLeft: 8 }} onClick={saveOpeningBalance} disabled={!branchId}>Set</button>
-              {editingOpening && (
-                <button className="btn ghost sm" style={{ marginLeft: 8 }} onClick={() => setEditingOpening(false)}>Cancel</button>
-              )}
-            </>
-          )}
-        </div>
-        <div className="ft">
-          {openingLocked
-            ? "Already recorded for this branch today — it feeds directly into the KPI below. Use “Change” only to correct a wrong figure."
-            : "Enter the opening cash-in-hand for the selected branch at the start of the day — it feeds directly into the KPI below."}
-        </div>
-      </div>
 
       <div style={{ display: "flex", flexWrap: "wrap", alignItems: "flex-start", gap: smallScreen ? 8 : 15, marginBottom: smallScreen?0:20  }}>
         <div className="kpis kpis-money" style={{ marginBottom: 0, maxWidth: 1113 }}>
@@ -516,7 +453,7 @@ export function Cash() {
       </div>
 
       {activeCashTab === "movements" && (
-        <div className="card">
+        <div className="card tbl-card tbl-card-fill">
           <div className="hd" style={{ flexWrap: "wrap", rowGap: 10 }}>
             <h3>Cash Movements</h3>
             <div className="sp" />
@@ -576,7 +513,7 @@ export function Cash() {
       )}
 
       {activeCashTab === "expenses" && (
-        <div className="card">
+        <div className="card tbl-card tbl-card-fill">
           <div className="hd">
             <h3>Expense Register</h3>
             <div className="sp" />
@@ -604,17 +541,17 @@ export function Cash() {
               </tbody>
             </table>
           </div>
-          <div className="ft ft-static" style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <div className="ft ft-static" style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
             <button className="btn plain sm" disabled={expensesPage <= 1} onClick={() => setExpensesPage((p) => Math.max(1, p - 1))}>‹ Prev</button>
             <span style={{ fontSize: 12.5 }}>Page {expensesPage} of {expensesTotalPages}</span>
             <button className="btn plain sm" disabled={expensesPage >= expensesTotalPages} onClick={() => setExpensesPage((p) => Math.min(expensesTotalPages, p + 1))}>Next ›</button>
+            <span style={{ fontSize: 12.5, color: "var(--muted)" }}>Cash expenses automatically reflect in Cash-in-Hand calculations · receipt images attached to expense records</span>
           </div>
-          <div className="ft">Cash expenses automatically reflect in Cash-in-Hand calculations · receipt images attached to expense records</div>
         </div>
       )}
 
       {activeCashTab === "goldSales" && (
-        <div className="card">
+        <div className="card tbl-card tbl-card-fill">
           <div className="hd">
             <h3>Gold Sales</h3>
             <div className="sp" />
@@ -632,12 +569,12 @@ export function Cash() {
               </tbody>
             </table>
           </div>
-          <div className="ft" style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <div className="ft" style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
             <button className="btn plain sm" disabled={goldSalesPage <= 1} onClick={() => setGoldSalesPage((p) => Math.max(1, p - 1))}>‹ Prev</button>
             <span style={{ fontSize: 12.5 }}>Page {goldSalesPage} of {goldSalesTotalPages}</span>
             <button className="btn plain sm" disabled={goldSalesPage >= goldSalesTotalPages} onClick={() => setGoldSalesPage((p) => Math.min(goldSalesTotalPages, p + 1))}>Next ›</button>
+            <span style={{ fontSize: 12.5, color: "var(--muted)" }}>Sold amount automatically books into Cash-in-Hand as a cash-in movement</span>
           </div>
-          <div className="ft">Sold amount automatically books into Cash-in-Hand as a cash-in movement</div>
         </div>
       )}
     </>

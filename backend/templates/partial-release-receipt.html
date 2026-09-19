@@ -1,0 +1,65 @@
+<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Partial Release Receipt — {{.LoanNumber}}</title><style>{{.Style}}</style></head><body>
+<h1>PARTIAL RELEASE</h1>
+<table class="hd-table">
+  <tr>
+    <td style="width:65%">
+      <b style="font-size:15px">{{.LenderName}}</b><br>
+      {{.LenderAddress}}
+    </td>
+    <td style="text-align:right">
+      <b>PARTIAL GOLD RELEASE RECEIPT</b><br>
+      DATE: {{.ReleaseDate}}
+    </td>
+  </tr>
+</table>
+<p><b>Loan No.</b> {{.LoanNumber}} &nbsp; <b>Branch:</b> {{.BranchName}}</p>
+<p><b>Customer:</b> {{.CustomerName}}<br>{{.CustomerAddress}}</p>
+
+<p>
+  This receipt confirms a <b>PARTIAL</b> release of pledged gold against the above loan.
+  The ornaments listed below under "Released This Transaction" have been handed back to the
+  customer; the loan continues, secured by the ornaments listed under "Still Pledged".
+</p>
+
+<table class="amt-table">
+  <tr><td><b>SETTLEMENT AMOUNT COLLECTED:</b></td><td class="num">{{.SettlementAmount}}/-</td></tr>
+</table>
+
+<h3>Released This Transaction</h3>
+<table>
+  <thead><tr><th>Item Name</th><th class="num">Qty</th><th class="num">GSWT</th><th class="num">NTWT</th><th class="num">FNWT</th><th class="num">Valuation</th></tr></thead>
+  <tbody>
+  {{range .ReleasedOrnaments}}<tr><td>{{.Name}}</td><td class="num">{{.Quantity}}</td>
+    <td class="num">{{printf "%.2f" .GrossWeight}} GM</td><td class="num">{{printf "%.2f" .NetWeight}} GM</td>
+    <td class="num">{{printf "%.2f" .FineWeight}} GM</td><td class="num">{{.Value}}</td></tr>
+  {{else}}<tr><td colspan="6" style="text-align:center;color:#777">None</td></tr>
+  {{end}}
+  </tbody>
+</table>
+
+<h3>Still Pledged (remaining collateral)</h3>
+<table>
+  <thead><tr><th>Item Name</th><th class="num">Qty</th><th class="num">GSWT</th><th class="num">NTWT</th><th class="num">FNWT</th><th class="num">Valuation</th></tr></thead>
+  <tbody>
+  {{range .StillPledgedOrnaments}}<tr><td>{{.Name}}</td><td class="num">{{.Quantity}}</td>
+    <td class="num">{{printf "%.2f" .GrossWeight}} GM</td><td class="num">{{printf "%.2f" .NetWeight}} GM</td>
+    <td class="num">{{printf "%.2f" .FineWeight}} GM</td><td class="num">{{.Value}}</td></tr>
+  {{else}}<tr><td colspan="6" style="text-align:center;color:#777">None</td></tr>
+  {{end}}
+  </tbody>
+</table>
+
+<table class="amt-table">
+  <tr><td><b>REVISED PRINCIPAL BALANCE:</b></td><td class="num">{{.RevisedPrincipalBalance}}/-</td></tr>
+  <tr><td><b>REVISED TOTAL GOLD VALUE:</b></td><td class="num">{{.RevisedTotalGoldValue}}/-</td></tr>
+  <tr><td><b>REVISED LTV RATIO:</b></td><td class="num">{{.RevisedLTVRatio}}</td></tr>
+</table>
+
+<div class="sig-row">
+  <div><span class="sig-line">&nbsp;</span><br>CUSTOMER SIGNATURE</div>
+  <div><span class="sig-line">&nbsp;</span><br>Witness</div>
+</div>
+<div class="sig-row">
+  <div><span class="sig-line">&nbsp;</span><br>OWNER SIGNATURE</div>
+</div>
+</body></html>

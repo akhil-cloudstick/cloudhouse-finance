@@ -13,6 +13,7 @@ import (
 	"cloudhouse/backend/internal/customer"
 	"cloudhouse/backend/internal/platform"
 	"cloudhouse/backend/internal/platform/httpx"
+	"cloudhouse/backend/internal/tenant"
 )
 
 var (
@@ -33,6 +34,7 @@ var (
 	ErrPayoutBelongsElsewhere = httpx.NewNotFound("payout not found")
 	ErrInvalidMaturityAction  = httpx.NewBadRequest("maturity decision must be Close or Renew")
 	ErrInvalidEngine          = httpx.NewBadRequest("engine must be Schedule or Live")
+	ErrInvalidProductType     = httpx.NewBadRequest("product type must be Deposit or Bond")
 
 	// --- Live-engine (Add Cash / Withdraw) errors ---
 	ErrInvalidAmount                  = httpx.NewBadRequest("amount must be greater than zero")
@@ -57,7 +59,7 @@ type CashRecorder interface {
 	// cash.MovementService.recordSplitCashMovement) — amount stays the
 	// authoritative total. customerID (0 = none) populates CashMovement.
 	// PartyCustomerID for the Party Transactions ledger.
-	RecordInvestmentPayoutCashOut(ctx context.Context, investmentID uint, investmentNumber string, amount, cashAmount, upiAmount, bankTransferAmount, chequeAmount float64, branchID uint, occurredOn time.Time, payoutType string, customerID uint) (movementID uint, err error)
+	RecordInvestmentPayoutCashOut(ctx context.Context, investmentID uint, investmentNumber string, amount, cashAmount, upiAmount, bankTransferAmount, chequeAmount float64, branchID uint, occurredOn time.Time, payoutType string, customerID uint) (movementID uint, groupID string, err error)
 }
 
 // CommsRecorder logs a notification/comms-history entry for an investment
@@ -76,10 +78,15 @@ type Service struct {
 	customerRepo *customer.Repository
 	cashRecorder CashRecorder
 	comms        CommsRecorder
+	// tenantRepo supplies the issuer's legal name/address/registration
+	// number printed on a Bond-type investment's Debenture Subscription
+	// Agreement — see investmentbond.go and loan.Service's identical
+	// lenderProfile pattern (same tenant profile, same nil-safe fallback).
+	tenantRepo *tenant.Repository
 }
 
-func NewService(repo *Repository, customerRepo *customer.Repository, cashRecorder CashRecorder, comms CommsRecorder) *Service {
-	return &Service{repo: repo, customerRepo: customerRepo, cashRecorder: cashRecorder, comms: comms}
+func NewService(repo *Repository, customerRepo *customer.Repository, cashRecorder CashRecorder, comms CommsRecorder, tenantRepo *tenant.Repository) *Service {
+	return &Service{repo: repo, customerRepo: customerRepo, cashRecorder: cashRecorder, comms: comms, tenantRepo: tenantRepo}
 }
 
 // --- Plans ---
@@ -94,6 +101,7 @@ type PlanInput struct {
 	MinPrincipal        float64
 	IsActive            bool
 	Engine              string
+	ProductType         string
 }
 
 // validateFrequency reports whether freq is a legal PayoutFrequency for the
@@ -158,10 +166,31 @@ func engineOrDefault(e string) string {
 	return e
 }
 
+// productTypeOrDefault mirrors engineOrDefault — ProductTypeDeposit for an
+// empty value, same "existing callers never had to set this" backfill.
+func productTypeOrDefault(t string) string {
+	if t == "" {
+		return ProductTypeDeposit
+	}
+	return t
+}
+
+func validateProductType(t string) bool {
+	switch t {
+	case ProductTypeDeposit, ProductTypeBond:
+		return true
+	}
+	return false
+}
+
 func (s *Service) CreatePlan(ctx context.Context, in PlanInput) (*InvestmentPlan, error) {
 	engine := engineOrDefault(in.Engine)
 	if !validateEngine(engine) {
 		return nil, ErrInvalidEngine
+	}
+	productType := productTypeOrDefault(in.ProductType)
+	if !validateProductType(productType) {
+		return nil, ErrInvalidProductType
 	}
 	if in.TenureMonths <= 0 {
 		return nil, ErrInvalidTenure
@@ -191,6 +220,7 @@ func (s *Service) CreatePlan(ctx context.Context, in PlanInput) (*InvestmentPlan
 		MinPrincipal:        platform.RoundMoney(in.MinPrincipal),
 		IsActive:            in.IsActive,
 		Engine:              engine,
+		ProductType:         productType,
 	}
 	if err := s.repo.CreatePlan(ctx, rec); err != nil {
 		return nil, err
@@ -210,6 +240,10 @@ func (s *Service) UpdatePlan(ctx context.Context, id uint, in PlanInput) (*Inves
 	if !validateEngine(engine) {
 		return nil, ErrInvalidEngine
 	}
+	productType := productTypeOrDefault(in.ProductType)
+	if !validateProductType(productType) {
+		return nil, ErrInvalidProductType
+	}
 	if in.TenureMonths <= 0 {
 		return nil, ErrInvalidTenure
 	}
@@ -226,6 +260,7 @@ func (s *Service) UpdatePlan(ctx context.Context, id uint, in PlanInput) (*Inves
 		return nil, ErrTenureNotDivisible
 	}
 	rec.Engine = engine
+	rec.ProductType = productType
 	rec.Name = in.Name
 	rec.InterestRateType = in.InterestRateType
 	rec.InterestRatePercent = platform.RoundMoney(in.InterestRatePercent)
@@ -580,7 +615,7 @@ func (s *Service) MarkPayoutPaid(ctx context.Context, investmentID, payoutID uin
 		payoutType = "Principal return"
 	}
 	if s.cashRecorder != nil {
-		movementID, err := s.cashRecorder.RecordInvestmentPayoutCashOut(ctx, inv.ID, inv.InvestmentNumber, payout.Amount, payout.CashAmount, payout.UpiAmount, payout.BankTransferAmount, payout.ChequeAmount, inv.BranchID, *payout.PaidAt, payoutType, inv.CustomerID)
+		movementID, _, err := s.cashRecorder.RecordInvestmentPayoutCashOut(ctx, inv.ID, inv.InvestmentNumber, payout.Amount, payout.CashAmount, payout.UpiAmount, payout.BankTransferAmount, payout.ChequeAmount, inv.BranchID, *payout.PaidAt, payoutType, inv.CustomerID)
 		if err != nil {
 			log.Printf("cash-out movement (%s) failed for investment %d: %v", payoutType, inv.ID, err)
 		} else {
@@ -982,7 +1017,7 @@ func (s *Service) Withdraw(ctx context.Context, investmentID uint, branchID *uin
 		case txRow.InterestAmount == 0:
 			payoutType = "Principal withdrawal"
 		}
-		movementID, err := s.cashRecorder.RecordInvestmentPayoutCashOut(ctx, invID, invNumber, total, in.CashAmount, in.UpiAmount, in.BankTransferAmount, in.ChequeAmount, branchOfInv, occurredOn, payoutType, custID)
+		movementID, _, err := s.cashRecorder.RecordInvestmentPayoutCashOut(ctx, invID, invNumber, total, in.CashAmount, in.UpiAmount, in.BankTransferAmount, in.ChequeAmount, branchOfInv, occurredOn, payoutType, custID)
 		if err != nil {
 			log.Printf("cash-out movement (investment withdrawal) failed for investment %d: %v", invID, err)
 		} else {

@@ -1,5 +1,6 @@
-import { apiFetchEnveloped as apiFetch } from "@/common/services/httpClient";
+import { apiFetchEnveloped as apiFetch, API_BASE, getAuthToken, ApiError } from "@/common/services/httpClient";
 import type { SplitAmounts } from "@/common/components/ui/SplitPaymentInput";
+import { printPdfBlob } from "@/common/utils/print";
 
 export type InterestRateType = "Simple" | "Compound";
 /* Daily/Weekly/Quarterly only apply to Engine "Live" plans/investments —
@@ -15,6 +16,15 @@ export type PayoutStatus = "Pending" | "Paid";
  * Snapshotted from Plan onto Investment at creation time. */
 export type Engine = "Schedule" | "Live";
 
+// ProductType is a display/document-generation label, NOT a separate
+// calculation engine — a Bond plan uses the exact same Engine/rate/
+// frequency/tenure math as a Deposit plan, it's just branded and worded as
+// a bond, and generates a Debenture Subscription Agreement PDF (see
+// investmentService.ts's printInvestmentBondPdf below) that a Deposit
+// plan doesn't. See backend/internal/investment/model_plan.go's
+// ProductType* doc comment.
+export type ProductType = "Deposit" | "Bond";
+
 /* Mirrors backend/internal/investment/model_plan.go's InvestmentPlan
  * exactly (only the fields the frontend needs). */
 export type BackendInvestmentPlan = {
@@ -27,6 +37,7 @@ export type BackendInvestmentPlan = {
   minPrincipal: number;
   isActive: boolean;
   engine: Engine;
+  productType: ProductType;
 };
 
 export type CreatePlanInput = {
@@ -38,6 +49,7 @@ export type CreatePlanInput = {
   minPrincipal: number;
   isActive: boolean;
   engine: Engine;
+  productType: ProductType;
 };
 
 export function createInvestmentPlan(input: CreatePlanInput): Promise<BackendInvestmentPlan> {
@@ -255,3 +267,54 @@ export function getInvestmentTransactionsPage(
   });
   return apiFetch<{ items: BackendInvestmentTransaction[]; hasMore: boolean }>(`/investments/${investmentId}/transactions?${params}`);
 }
+
+/* Fetches a PDF blob at the given investment endpoint path — shared helper
+ * behind fetchInvestmentBondPdf and fetchInvestmentStatementPdf below. */
+async function fetchInvestmentPdf(investmentId: number, path: string): Promise<Blob> {
+  const token = typeof window !== "undefined" ? getAuthToken() : null;
+  const res = await fetch(`${API_BASE}/investments/${investmentId}/${path}`, {
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  });
+  if (!res.ok) {
+    let message = res.statusText;
+    try {
+      const body = await res.json();
+      if (body?.error) message = body.error;
+    } catch {
+      /* non-JSON error body — fall back to statusText */
+    }
+    throw new ApiError(message, res.status);
+  }
+  return res.blob();
+}
+
+/* Fetches GET /investments/:id/bond/pdf as a blob — shared by
+ * printInvestmentBondPdf and printInvestmentStatementPdf below (straight to
+ * the print dialog), mirroring loanService.ts's downloadIndemnityBondPDF/
+ * downloadReleaseAgreementPDF print flow. Available for every investment
+ * regardless of ProductType. */
+async function fetchInvestmentBondPdf(investmentId: number): Promise<Blob> {
+  return fetchInvestmentPdf(investmentId, "bond/pdf");
+}
+
+/* Fetches GET /investments/:id/statement/pdf as a blob — the investor
+ * account statement (terms + full transaction/payout history). */
+async function fetchInvestmentStatementPdf(investmentId: number): Promise<Blob> {
+  return fetchInvestmentPdf(investmentId, "statement/pdf");
+}
+
+/* Sends the Debenture Subscription Agreement straight to the browser's
+ * print dialog — same printPdfBlob flow as loanService.ts's
+ * downloadIndemnityBondPDF/downloadReleaseAgreementPDF. */
+export async function printInvestmentBondPdf(investmentId: number): Promise<void> {
+  const blob = await fetchInvestmentBondPdf(investmentId);
+  printPdfBlob(blob);
+}
+
+/* Sends the investment's account statement straight to the browser's print
+ * dialog — same printPdfBlob flow as printInvestmentBondPdf above. */
+export async function printInvestmentStatementPdf(investmentId: number): Promise<void> {
+  const blob = await fetchInvestmentStatementPdf(investmentId);
+  printPdfBlob(blob);
+}
+

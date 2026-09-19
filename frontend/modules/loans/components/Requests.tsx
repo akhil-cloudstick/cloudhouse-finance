@@ -6,7 +6,7 @@ import { StatusChip } from "@/common/components/ui/StatusChip";
 import { Icon } from "@/common/components/Icon";
 import { Select } from "@/common/components/ui/Select";
 import { useLoans } from "@/modules/loans/store/LoansProvider";
-import { listLoanRequestsPage, getLoanByNumber, downloadReleaseAgreementPDF, type RequestView } from "@/modules/loans/services/loanService";
+import { listLoanRequestsPage, getLoanByNumber, downloadReleaseAgreementPDF, downloadPartialReleaseReceiptPDF, type RequestView } from "@/modules/loans/services/loanService";
 import { useToast } from "@/common/components/Toast";
 import { useAuth } from "@/common/auth-context";
 import { useResponsivePageSize } from "@/common/utils/responsive";
@@ -39,7 +39,7 @@ export function Requests() {
   const canDecide = can("Loan_Management", "can_update_loan");
   const toast = useToast();
 
-  const pageSize = useResponsivePageSize(10, 7);
+  const pageSize = useResponsivePageSize(15, 15);
   const [reqs, setReqs] = useState<RequestView[]>([]);
   const [loading, setLoading] = useState(true);
   const [page, setPage] = useState(1);
@@ -59,6 +59,21 @@ export function Requests() {
       await downloadReleaseAgreementPDF(loan.numericId, lang);
     } catch {
       toast("Could not generate the release agreement — try again");
+    } finally {
+      setDownloadingId(null);
+    }
+  }
+
+  // Partial Ornament Release counterpart — keyed off the REQUEST rather
+  // than the loan (the receipt lists only what THIS request released), same
+  // Approved-only gate as the full-release FORM 7 agreement above.
+  async function downloadPartialReceipt(r: RequestView) {
+    setDownloadMenuId(null);
+    setDownloadingId(r.id);
+    try {
+      await downloadPartialReleaseReceiptPDF(r.id);
+    } catch {
+      toast("Could not generate the partial release receipt — try again");
     } finally {
       setDownloadingId(null);
     }
@@ -85,7 +100,7 @@ export function Requests() {
   return (
     <>
       <div className="page-h">
-        <div><h1>Loan Extensions &amp; Gold Release</h1><p>Extension/release requests submitted by customers (or logged by staff on their behalf) — review and approve/reject through each request's staged approval chain</p></div>
+        <div><h1>Loan Extensions &amp; Gold Release</h1><p>Extension/release requests </p></div>
       </div>
       <hr className="gold-rule" style={{ margin: "4px 0 10px" }} />
       <div style={{ display: "flex", alignItems: "flex-end", justifyContent: "flex-end", gap: 12, flexWrap: "wrap", marginTop: 0, marginBottom: 10 }}>
@@ -100,7 +115,7 @@ export function Requests() {
           />
         </div>
       </div>
-      <div className="card tbl-card">
+      <div className="card tbl-card tbl-card-fill">
         <div className="tbl-wrap tbl-scroll">
           <table className="tbl">
             <thead>
@@ -114,16 +129,26 @@ export function Requests() {
               ) : reqs.map((r) => (
                 <tr key={r.id}>
                   <td><span className="id">#{r.id}</span></td>
-                  <td><span className={`chip ${r.type === "Extension" ? "info" : "brand"}`}>{r.type}</span></td>
+                  <td>
+                    <span className={`chip ${r.type === "Extension" ? "info" : "brand"}`}>{r.type}</span>
+                    {/* Only meaningful for Release — flags at a glance which
+                        rows hand back every ornament vs. only some, since
+                        the review chain and CompleteRelease behave
+                        differently for each (see backend/internal/loan/
+                        model_request.go's LoanRequest.IsPartial). */}
+                    {r.type === "Release" && r.isPartial && (
+                      <span className="chip" style={{ marginLeft: 4 }}>Partial</span>
+                    )}
+                  </td>
                   <td><a href={routeHref(`loan/${r.loanNumber}`)}>{r.loanNumber}</a></td>
                   <td>{r.customerName}</td>
                   <td>{r.detail}</td>
                   <td>{r.requestedAt}</td>
                   <td>
                     <StatusChip status={r.status} />
-                    {/* Set by RecordReleasePayment when a Manager-stage discount+payment
+                    {/* Set by RecordReleaseRequestPayment when a recorded discount+payment
                         fell short of the final settlement — see ReleaseReviewModal.tsx. */}
-                    {r.paymentDueDate && r.status === "Pending" && !r.paymentVerified && new Date(r.paymentDueDate) < new Date() && (
+                    {r.paymentDueDate && r.status === "Pending" && !r.paymentRecorded && new Date(r.paymentDueDate) < new Date() && (
                       <span className="chip" style={{ marginLeft: 6, color: "var(--red)", borderColor: "var(--red)" }}>Payment Overdue</span>
                     )}
                   </td>
@@ -165,12 +190,24 @@ export function Requests() {
                         </button>
                         {downloadMenuId === r.id && (
                           <div className="docs-dd-menu" style={{ minWidth: 170, right: 0 }}>
-                            <a href="#" onClick={(e) => { e.preventDefault(); downloadReleaseAgreement(r, "en"); }}>
-                              <Icon name="doc" /><span className="tx">English</span>
-                            </a>
-                            <a href="#" onClick={(e) => { e.preventDefault(); downloadReleaseAgreement(r, "ml"); }}>
-                              <Icon name="doc" /><span className="tx">Malayalam</span>
-                            </a>
+                            {/* A partial release never produces the FORM 7 full-release
+                                agreement (the loan stays open) — only its own Partial
+                                Release Receipt, listing just the ornaments this
+                                request released — see DownloadPartialReleaseReceiptPDF. */}
+                            {r.isPartial ? (
+                              <a href="#" onClick={(e) => { e.preventDefault(); downloadPartialReceipt(r); }}>
+                                <Icon name="doc" /><span className="tx">Partial Release Receipt</span>
+                              </a>
+                            ) : (
+                              <>
+                                <a href="#" onClick={(e) => { e.preventDefault(); downloadReleaseAgreement(r, "en"); }}>
+                                  <Icon name="doc" /><span className="tx">English</span>
+                                </a>
+                                <a href="#" onClick={(e) => { e.preventDefault(); downloadReleaseAgreement(r, "ml"); }}>
+                                  <Icon name="doc" /><span className="tx">Malayalam</span>
+                                </a>
+                              </>
+                            )}
                           </div>
                         )}
                       </div>

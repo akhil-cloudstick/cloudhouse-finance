@@ -50,11 +50,22 @@ const CUSTOMER_COLUMNS: TableColumn<Customer>[] = [
 ];
 const CUSTOMER_VISIBLE_COUNT = defaultVisibleCount(CUSTOMER_COLUMNS.length + 5);
 
+function ageFromDob(dob: string): number {
+  const birth = new Date(dob);
+  const today = new Date();
+  let age = today.getFullYear() - birth.getFullYear();
+  const beforeBirthdayThisYear =
+    today.getMonth() < birth.getMonth() || (today.getMonth() === birth.getMonth() && today.getDate() < birth.getDate());
+  if (beforeBirthdayThisYear) age -= 1;
+  return age;
+}
+
 function customerExtraFields(c: Customer) {
   return [
     { label: "Code", value: c.code },
     { label: "Branch", value: c.branch?.name || "—" },
     { label: "DOB", value: c.dob ? new Date(c.dob).toLocaleDateString("en-IN") : "—" },
+    { label: "Age", value: c.dob ? `${ageFromDob(c.dob)}` : "—" },
     { label: "Address", value: c.address || "—" },
     { label: "PAN", value: c.pan || "—" },
   ];

@@ -32,7 +32,7 @@ export type Packet = {
   id: number;
   code: string;
   loanId: number;
-  loan?: { id: number; loanNumber: string; ornaments?: PacketOrnament[] };
+  loan?: { id: number; loanNumber: string; branchId?: number; ornaments?: PacketOrnament[] };
   status: string;
   currentLockerId?: number;
   movements?: PacketMovement[];

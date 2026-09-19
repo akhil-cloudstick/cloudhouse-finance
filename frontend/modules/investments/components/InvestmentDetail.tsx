@@ -10,17 +10,20 @@ import {
   getInvestment,
   getInvestmentSchedulePage,
   getInvestmentTransactionsPage,
+  printInvestmentBondPdf,
+  printInvestmentStatementPdf,
   type BackendInvestment,
   type BackendInvestmentPayout,
   type BackendInvestmentTransaction,
 } from "@/modules/investments/services/investmentService";
 import { MaturityModalContent } from "@/modules/investments/components/MaturityModal";
-import { InvestorStatementModalContent } from "@/modules/investments/components/InvestorStatementModal";
 import { MarkPayoutPaidModalContent } from "@/common/components/modals/MarkPayoutPaidModal";
 import { AddInvestmentCashModalContent } from "@/common/components/modals/AddInvestmentCashModal";
 import { WithdrawInvestmentModalContent } from "@/common/components/modals/WithdrawInvestmentModal";
 import { useModal } from "@/common/components/Modal";
 import { routeHref } from "@/common/services/appRoutes";
+import { useDropdownMenu } from "@/hooks/useDropdownMenu";
+import { Icon } from "@/common/components/Icon";
 
 /* Same click-paginated table pattern as personal-loans/components/
  * PersonalLoanDetail.tsx's usePagedTable + Pager. */
@@ -71,6 +74,23 @@ export function InvestmentDetail({ id }: { id?: string }) {
   const [investment, setInvestment] = useState<BackendInvestment | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [printingBond, setPrintingBond] = useState(false);
+  const [printingStatement, setPrintingStatement] = useState(false);
+
+  const {
+    open: cashMenuOpen,
+    setOpen: setCashMenuOpen,
+    menuRef: cashMenuRef,
+    triggerRef: cashMenuTriggerRef,
+    onKeyDown: onCashMenuKeyDown,
+  } = useDropdownMenu<HTMLDivElement>();
+  const {
+    open: docsMenuOpen,
+    setOpen: setDocsMenuOpen,
+    menuRef: docsMenuRef,
+    triggerRef: docsMenuTriggerRef,
+    onKeyDown: onDocsMenuKeyDown,
+  } = useDropdownMenu<HTMLDivElement>();
 
   const numericId = Number(id);
 
@@ -123,9 +143,28 @@ export function InvestmentDetail({ id }: { id?: string }) {
     openModal(<MaturityModalContent investment={investment} onSaved={() => { closeModal(); void refreshInvestment(); schedule.reload(); }} />);
   }
 
-  function openStatement() {
+  async function handlePrintBond() {
     if (!investment) return;
-    openModal(<InvestorStatementModalContent customerId={investment.customerId} customerName={investment.customer?.name || "Investor"} />);
+    setPrintingBond(true);
+    try {
+      await printInvestmentBondPdf(investment.id);
+    } catch (e) {
+      toast(e instanceof ApiError ? e.message : "Could not print the agreement — try again.");
+    } finally {
+      setPrintingBond(false);
+    }
+  }
+
+  async function handlePrintStatement() {
+    if (!investment) return;
+    setPrintingStatement(true);
+    try {
+      await printInvestmentStatementPdf(investment.id);
+    } catch (e) {
+      toast(e instanceof ApiError ? e.message : "Could not print the statement — try again.");
+    } finally {
+      setPrintingStatement(false);
+    }
   }
 
   function openAddCash() {
@@ -162,16 +201,56 @@ export function InvestmentDetail({ id }: { id?: string }) {
     <>
       <div className="page-h">
         <div>
-          <a href={routeHref("investments")} style={{ fontSize: 13 }}>← Back</a>
-          <h1>Investment {investment.investmentNumber}{investorName ? ` · ${investorName}` : ""}</h1>
+          <h1>Investment {investment.investmentNumber}</h1>
+          <p style={{ margin: "2px 0 0", fontSize: 13.5, color: "var(--muted)", display: "flex", alignItems: "center", gap: 8 }}>
+            {investorName}{investment.plan?.name ? ` · ${investment.plan.name}` : ""}
+            <StatusChip status={investment.status} />
+          </p>
         </div>
         <div className="sp" />
-        <button className="btn plain" onClick={openStatement}>View Statement</button>
+        <div className="docs-dd" ref={docsMenuRef} onKeyDown={onDocsMenuKeyDown}>
+          <button
+            ref={docsMenuTriggerRef}
+            className="btn plain"
+            onClick={() => setDocsMenuOpen((v) => !v)}
+            aria-haspopup="menu"
+            aria-expanded={docsMenuOpen}
+          >
+            <Icon name="doc" /> Documents <Icon name="chevronDown" className="docs-dd-chev" />
+          </button>
+          {docsMenuOpen && (
+            <div className="docs-dd-menu" role="menu">
+              <a href="#" title="Print Agreement" className={printingBond ? "disabled" : ""} onClick={(e) => { e.preventDefault(); if (printingBond) return; setDocsMenuOpen(false); void handlePrintBond(); }}>
+                <Icon name="doc" /><span className="tx">{printingBond ? "Opening…" : "Print Agreement"}</span>
+              </a>
+              <a href="#" title="Print Statement" className={printingStatement ? "disabled" : ""} onClick={(e) => { e.preventDefault(); if (printingStatement) return; setDocsMenuOpen(false); void handlePrintStatement(); }}>
+                <Icon name="doc" /><span className="tx">{printingStatement ? "Opening…" : "Print Statement"}</span>
+              </a>
+            </div>
+          )}
+        </div>
         {canUpdate && isLive && investment.status === "Active" && (
-          <>
-            <button className="btn plain" onClick={openAddCash}>Add Cash</button>
-            <button className="btn" onClick={openWithdraw}>Withdraw</button>
-          </>
+          <div className="docs-dd" ref={cashMenuRef} onKeyDown={onCashMenuKeyDown}>
+            <button
+              ref={cashMenuTriggerRef}
+              className="btn"
+              onClick={() => setCashMenuOpen((v) => !v)}
+              aria-haspopup="menu"
+              aria-expanded={cashMenuOpen}
+            >
+              <Icon name="coin" /> Cash <Icon name="chevronDown" className="docs-dd-chev" />
+            </button>
+            {cashMenuOpen && (
+              <div className="docs-dd-menu" role="menu">
+                <a href="#" title="Add Cash" onClick={(e) => { e.preventDefault(); setCashMenuOpen(false); openAddCash(); }}>
+                  <Icon name="plus" /><span className="tx">Add Cash</span>
+                </a>
+                <a href="#" title="Withdraw" onClick={(e) => { e.preventDefault(); setCashMenuOpen(false); openWithdraw(); }}>
+                  <Icon name="coin" /><span className="tx">Withdraw</span>
+                </a>
+              </div>
+            )}
+          </div>
         )}
         {canUpdate && !isLive && investment.status === "Matured" && (
           <button className="btn" onClick={openMaturity}>Close / Renew</button>
@@ -188,8 +267,6 @@ export function InvestmentDetail({ id }: { id?: string }) {
           <div className="kpi"><div className="l">Interest Paid</div><div className="v">{fmt(investment.totalInterestPaid)}</div></div>
         )}
         <div className="kpi"><div className="l">Maturity Date</div><div className="v" style={{ fontSize: 17 }}>{investment.maturityDate.slice(0, 10)}</div></div>
-        <div className="kpi"><div className="l">Status</div><div className="v" style={{ fontSize: 15 }}><StatusChip status={investment.status} /></div></div>
-        <div className="kpi"><div className="l">Tenure</div><div className="v" style={{ fontSize: 17 }}>{investment.tenureMonths} mo</div></div>
         {investment.renewedFromInvestmentId && (
           <div className="kpi"><div className="l">Renewed From</div><div className="v" style={{ fontSize: 17 }}><a href={routeHref(`investment/${investment.renewedFromInvestmentId}`)}>Investment #{investment.renewedFromInvestmentId}</a></div></div>
         )}
@@ -199,10 +276,10 @@ export function InvestmentDetail({ id }: { id?: string }) {
       </div>
 
       {isLive ? (
-        <div className="card">
+        <div className="card tbl-card tbl-card-fill">
           <div className="hd"><h3>Transactions</h3></div>
           {transactions.error && <div className="notice" style={{ margin: 14 }}>{transactions.error}</div>}
-          <div className="tbl-wrap tbl-wrap-auto"><table className="tbl tbl-center">
+          <div className="tbl-wrap"><table className="tbl tbl-center">
             <thead><tr><th>Date</th><th>Type</th><th className="num">Amount</th><th className="num">Principal</th><th className="num">Interest</th><th className="num">Principal After</th><th className="num">Interest After</th></tr></thead>
             <tbody>
               {transactions.loading ? (
@@ -225,10 +302,10 @@ export function InvestmentDetail({ id }: { id?: string }) {
           <Pager page={transactions.page} totalPages={transactions.totalPages} onChange={transactions.setPage} />
         </div>
       ) : (
-        <div className="card">
+        <div className="card tbl-card tbl-card-fill">
           <div className="hd"><h3>Interest Payout Schedule</h3></div>
           {schedule.error && <div className="notice" style={{ margin: 14 }}>{schedule.error}</div>}
-          <div className="tbl-wrap tbl-wrap-auto"><table className="tbl tbl-center">
+          <div className="tbl-wrap"><table className="tbl tbl-center">
             <thead><tr><th>#</th><th>Due Date</th><th className="num">Amount</th><th>Type</th><th>Status</th><th></th></tr></thead>
             <tbody>
               {schedule.loading ? (

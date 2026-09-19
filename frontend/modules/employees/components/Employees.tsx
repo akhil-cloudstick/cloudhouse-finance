@@ -18,7 +18,7 @@ export function Employees() {
   const { openModal } = useModal();
   const toast = useToast();
   const { can } = useAuth();
-  const pageSize = useResponsivePageSize(12, 8);
+  const pageSize = useResponsivePageSize(15, 15);
   const canViewRoles = can("Role_Management", "can_view_role_and_permission");
   const canCreateEmployees = can("Employee_Management", "can_create_employee");
   const canUpdateEmployees = can("Employee_Management", "can_update_employee");
@@ -89,7 +89,7 @@ export function Employees() {
         </p>
       )}
       {employees !== null && employees.length > 0 && (
-        <div className="card tbl-card">
+        <div className="card tbl-card tbl-card-fill">
           <div className="tbl-wrap">
             <table className="tbl tbl-center col1-left tbl-tight">
               <thead>

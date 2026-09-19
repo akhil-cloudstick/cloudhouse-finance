@@ -166,7 +166,7 @@ export function CustomerDetail({ id }: { id?: string }) {
       .finally(() => setReloading(false));
   }, [id, from, to]);
 
-  const subtablePageSize = useResponsivePageSize(10, 7);
+  const subtablePageSize = useResponsivePageSize(15, 15);
   const range = { from, to };
   const listLoans = useCallback((page: number, r?: { from?: string; to?: string }) => listCustomerLoansPage(id || "", page, r, subtablePageSize), [id, subtablePageSize]);
   const listOrnaments = useCallback((page: number, r?: { from?: string; to?: string }) => listCustomerOrnamentsPage(id || "", page, r, subtablePageSize), [id, subtablePageSize]);
@@ -596,7 +596,7 @@ export function CustomerDetail({ id }: { id?: string }) {
             </div>
           </div>
         </div>
-        <div ref={rowRef} style={{ display: "flex", gap: 16, alignItems: "stretch", height: "100%" }}>
+        <div ref={rowRef} className="cust-360-tabrow" style={{ display: "flex", gap: 16, alignItems: "stretch", height: "100%" }}>
           {/* The rail selects the table below. Each stop carries the icon for
             its own table (loans / ornaments / payments / bank / auction) so
             the rail reads without hovering for the tooltip. onWheel lives on
@@ -619,7 +619,7 @@ export function CustomerDetail({ id }: { id?: string }) {
             ))}
           </div>
 
-          <div className="card" style={{ flex: 1, alignSelf: "flex-start" }}>
+          <div className="card tbl-card tbl-card-fill">
             <div className="hd">
               <h3>{TABLE_TABS[activeTable]}</h3>
             </div>

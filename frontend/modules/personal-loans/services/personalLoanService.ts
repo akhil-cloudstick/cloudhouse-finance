@@ -134,16 +134,36 @@ export const PERSONAL_LOAN_PAGE_SIZE = 10;
 
 /* Paginated schedule/payments — backs PersonalLoanDetail's infinite-scroll
  * panels. `page` is 0-based; the backend responds with an
- * {items, hasMore} envelope (see backend/internal/personalloan/handler.go's
- * Schedule/Payments). */
-export function getPersonalLoanSchedulePage(id: number, page: number): Promise<{ items: BackendPersonalLoanInstallment[]; hasMore: boolean }> {
+ * {items, hasMore, total} envelope (see
+ * backend/internal/personalloan/handler.go's Schedule/Payments) — `total` is
+ * the real row count so the pager can show "Page N of M" instead of an
+ * hasMore-derived estimate. */
+export function getPersonalLoanSchedulePage(id: number, page: number): Promise<{ items: BackendPersonalLoanInstallment[]; hasMore: boolean; total: number }> {
   const params = new URLSearchParams({ limit: String(PERSONAL_LOAN_PAGE_SIZE), offset: String(page * PERSONAL_LOAN_PAGE_SIZE) });
-  return apiFetch<{ items: BackendPersonalLoanInstallment[]; hasMore: boolean }>(`/personal-loans/${id}/schedule?${params}`);
+  return apiFetch<{ items: BackendPersonalLoanInstallment[]; hasMore: boolean; total: number }>(`/personal-loans/${id}/schedule?${params}`);
 }
 
-export function listPersonalLoanPaymentsPage(id: number, page: number): Promise<{ items: BackendPersonalLoanPayment[]; hasMore: boolean }> {
+export function listPersonalLoanPaymentsPage(id: number, page: number): Promise<{ items: BackendPersonalLoanPayment[]; hasMore: boolean; total: number }> {
   const params = new URLSearchParams({ limit: String(PERSONAL_LOAN_PAGE_SIZE), offset: String(page * PERSONAL_LOAN_PAGE_SIZE) });
-  return apiFetch<{ items: BackendPersonalLoanPayment[]; hasMore: boolean }>(`/personal-loans/${id}/payments?${params}`);
+  return apiFetch<{ items: BackendPersonalLoanPayment[]; hasMore: boolean; total: number }>(`/personal-loans/${id}/payments?${params}`);
+}
+
+/* Mirrors backend/internal/personalloan/model_history.go's
+ * PersonalLoanHistory exactly. */
+export type BackendPersonalLoanHistory = {
+  id: number;
+  personalLoanId: number;
+  event: "loan_created" | "penal_applied" | "loan_renewed";
+  detail: string;
+  amount: number;
+  relatedLoanId: number | null;
+  occurredAt: string;
+  createdAt: string;
+};
+
+export function getPersonalLoanHistoryPage(id: number, page: number): Promise<{ items: BackendPersonalLoanHistory[]; hasMore: boolean; total: number }> {
+  const params = new URLSearchParams({ limit: String(PERSONAL_LOAN_PAGE_SIZE), offset: String(page * PERSONAL_LOAN_PAGE_SIZE) });
+  return apiFetch<{ items: BackendPersonalLoanHistory[]; hasMore: boolean; total: number }>(`/personal-loans/${id}/history?${params}`);
 }
 
 export function recordPersonalLoanPayment(

@@ -59,6 +59,13 @@ type PacketMover interface {
 	// auctioned loan's packet reads as an ordinary Released packet (the
 	// gold left custody either way), not a separate status.
 	RecordGoldReleaseMovement(ctx context.Context, loanID uint, remarks string) error
+	// RecordPartialGoldReleaseMovement is CompleteRelease's Partial
+	// Ornament Release counterpart to RecordGoldReleaseMovement above: only
+	// some of the loan's ornaments are handed back, the packet stays in its
+	// current stage (it's still physically holding the rest), and this just
+	// logs the audit remark and decrements the packet's own weight totals
+	// by what actually left custody.
+	RecordPartialGoldReleaseMovement(ctx context.Context, loanID uint, releasedGrossWeight, releasedNetWeight float64, remarks string) error
 }
 
 // CashRecorder reflects a loan's real cash flow into Cash-in-Hand & Expenses
@@ -83,9 +90,12 @@ type CashRecorder interface {
 	// across the mode CashMovement rows actually written (see
 	// cash.MovementService.recordSplitCashMovement) — amount stays the
 	// authoritative total. customerID (0 = none) populates CashMovement.
-	// PartyCustomerID for the Party Transactions ledger.
-	RecordLoanDisbursementCashOut(ctx context.Context, loanID uint, loanNumber string, amount, cashAmount, upiAmount, bankTransferAmount, chequeAmount float64, branchID uint, occurredOn time.Time, customerID uint) (movementID uint, err error)
-	RecordLoanPaymentCashIn(ctx context.Context, loanID uint, loanNumber string, amount, cashAmount, upiAmount, bankTransferAmount, chequeAmount float64, branchID uint, occurredOn time.Time, paymentType string, customerID uint) (movementID uint, err error)
+	// PartyCustomerID for the Party Transactions ledger. groupID is the
+	// TransactionGroupID every row this call wrote shares — callers store
+	// it (see LoanPayment.CashTransactionGroupID) so a payment can be
+	// traced back to its full mode breakdown, not just a single row.
+	RecordLoanDisbursementCashOut(ctx context.Context, loanID uint, loanNumber string, amount, cashAmount, upiAmount, bankTransferAmount, chequeAmount float64, branchID uint, occurredOn time.Time, customerID uint) (movementID uint, groupID string, err error)
+	RecordLoanPaymentCashIn(ctx context.Context, loanID uint, loanNumber string, amount, cashAmount, upiAmount, bankTransferAmount, chequeAmount float64, branchID uint, occurredOn time.Time, paymentType string, customerID uint) (movementID uint, groupID string, err error)
 
 	// RecordLoanTopUpCashOut books a loan top-up's cash-out — additional
 	// principal handed to the customer against spare eligible value,
@@ -93,7 +103,14 @@ type CashRecorder interface {
 	// RecordLoanDisbursementCashOut). Purely additive to this interface: one
 	// new method, one implementer (cash.MovementService) to update, no
 	// other caller disturbed.
-	RecordLoanTopUpCashOut(ctx context.Context, loanID uint, loanNumber string, amount, cashAmount, upiAmount, bankTransferAmount, chequeAmount float64, branchID uint, occurredOn time.Time, customerID uint) (movementID uint, err error)
+	RecordLoanTopUpCashOut(ctx context.Context, loanID uint, loanNumber string, amount, cashAmount, upiAmount, bankTransferAmount, chequeAmount float64, branchID uint, occurredOn time.Time, customerID uint) (movementID uint, groupID string, err error)
+
+	// RecordServiceChargeCashIn books a WithheldFromPayout scheme service
+	// charge as company income at disbursement time — the charge never
+	// leaves the till (it's deducted from what's paid out, not paid out
+	// and then collected back), so this is a plain single-mode cash-in,
+	// not a split like the other Record*CashOut/CashIn methods here.
+	RecordServiceChargeCashIn(ctx context.Context, loanID uint, loanNumber string, amount float64, branchID uint, occurredOn time.Time) (movementID uint, err error)
 
 	// RecordAuctionSaleCashIn books the NET proceeds of an auction (sale price
 	// less auction expenses) into Cash-in-Hand. Previously an auction recorded
@@ -105,6 +122,13 @@ type CashRecorder interface {
 	// retaining the surplus as income needs no movement, because the full net
 	// proceeds already came in via RecordAuctionSaleCashIn.
 	RecordAuctionSurplusCashOut(ctx context.Context, loanID uint, loanNumber string, amount float64, branchID uint, occurredOn time.Time) (movementID uint, err error)
+
+	// DeleteLoanDisbursementCashMovements retracts a loan's disbursement
+	// cash-out (and withheld-service-charge cash-in, if any) — called from
+	// UpdateLoan when a materially edited, already-disbursed loan is
+	// resubmitted for approval, since it will be disbursed again at the new
+	// amount once re-sanctioned and the stale entry must not stay behind.
+	DeleteLoanDisbursementCashMovements(ctx context.Context, loanNumber string) error
 }
 
 var (
@@ -128,6 +152,7 @@ var (
 	ErrRequestNotFound       = httpx.NewNotFound("loan request not found")
 	ErrInvalidRequestType    = httpx.NewBadRequest("type must be Extension or Release")
 	ErrInvalidMonths         = httpx.NewBadRequest("requested extension months must be greater than zero")
+	ErrExtensionNeedsPayment = httpx.NewBadRequest("outstanding interest and penal interest must be paid before an extension can be requested")
 	ErrRequestAlreadyDecided = httpx.NewBadRequest("loan request has already been decided")
 	ErrInvalidPaymentType    = httpx.NewBadRequest("type must be Interest, Principal, Partial, Full Settlement, Adjustment, Waiver, or Discount")
 	ErrNotExtensionRequest   = httpx.NewBadRequest("this request is not an Extension request")
@@ -138,7 +163,7 @@ var (
 	// (see Service.ApproveExtensionRequest), never a single decide call.
 	ErrUseStagedExtensionApproval = httpx.NewBadRequest("extension requests are now decided through the staged approval chain — use POST /loans/requests/:requestId/approve instead")
 	ErrLoanTerminalState          = httpx.NewBadRequest("loan is already Closed, Auctioned, or Defaulted — nothing left to extend")
-	ErrChecklistIncomplete        = httpx.NewBadRequest("the release verification checklist must be fully complete before approval")
+	ErrChecklistIncomplete        = httpx.NewBadRequest("\"Customer has seen the gold\" must be ticked and a payment recorded before this can be approved")
 	// ErrTopUpShortfall mirrors personalloan.ErrRenewalShortfall exactly —
 	// the requested top-up exceeds the loan's current headroom
 	// (EligibleLoanAmount - OutstandingAmount); reject, don't clamp.
@@ -217,11 +242,18 @@ var (
 	// Administrator may decide a shortfall) — Forbidden, not BadRequest.
 	ErrShortfallAuthorityRequired    = httpx.NewForbidden("only a Branch Manager, Management, or Administrator may decide a post-auction shortfall")
 	ErrAuctionBalanceDueCannotSettle = httpx.NewBadRequest("this auction left a balance owing — resolve the shortfall decision instead of settling")
-	ErrNoSurplusToDispose            = httpx.NewBadRequest("this auction left no surplus to dispose of")
-	ErrSurplusAlreadyDisposed        = httpx.NewConflict("this auction's surplus has already been disposed of")
-	ErrInvalidSurplusDisposition     = httpx.NewBadRequest("surplus disposition must be either \"RefundedToCustomer\" or \"RecordedAsIncome\"")
-	ErrSettlementRemarksRequired     = httpx.NewBadRequest("remarks are required when a customer's auction surplus is retained as income")
-	ErrDecisionRemarksRequired       = httpx.NewBadRequest("remarks are required for this decision")
+	// ErrAuctionAlreadyConcluded: SettleAuction was called against a case
+	// that has already left the Auctioned stage (typically Settled) —
+	// distinct from ErrAuctionWrongStage's other causes (e.g. calling it
+	// before a sale is even recorded) so a stale client screen that still
+	// shows a "Settle Surplus" button gets a message that actually explains
+	// what happened, rather than the generic wrong-stage text.
+	ErrAuctionAlreadyConcluded   = httpx.NewConflict("this auction case has already been settled — refresh the page to see its current state")
+	ErrNoSurplusToDispose        = httpx.NewBadRequest("this auction left no surplus to dispose of")
+	ErrSurplusAlreadyDisposed    = httpx.NewConflict("this auction's surplus has already been disposed of")
+	ErrInvalidSurplusDisposition = httpx.NewBadRequest("surplus disposition must be either \"RefundedToCustomer\" or \"RecordedAsIncome\"")
+	ErrSettlementRemarksRequired = httpx.NewBadRequest("remarks are required when a customer's auction surplus is retained as income")
+	ErrDecisionRemarksRequired   = httpx.NewBadRequest("remarks are required for this decision")
 
 	// ErrEsignNotConfigured/ErrNoIndemnityBondSignRequest are returned by the
 	// indemnity-bond Aadhaar eSign flow (StartIndemnityBondSign/
@@ -240,6 +272,24 @@ var (
 	// has not been granted it (see tenant.Tenant.HasLanguage).
 	ErrLanguageNotEnabled              = httpx.NewForbidden("this business is not set up to issue documents in that language")
 	ErrUnsupportedIndemnityBondDeliver = httpx.NewBadRequest("deliverBy must be \"open\", \"whatsapp\" or \"dashboard\"")
+
+	// --- Partial Ornament Release ------------------------------------------
+
+	// ErrRequestLocked is a state conflict (Locked is a real prior action —
+	// a payment already recorded — not a malformed request), returned when
+	// a Rejected approval action or a CustomerSawGold change is attempted
+	// against a release request that a payment has already locked. See
+	// LoanRequest.Locked's doc comment for why RecordPayment itself is
+	// deliberately NOT gated by this.
+	ErrRequestLocked = httpx.NewConflict("this release request is locked after payment — it can no longer be rejected or have its checklist changed")
+	// ErrDriftPaymentRequired is ApproveReleaseRequest's refusal of a
+	// Partial Ornament Release's final (Management) approval when live
+	// drift (partialReleaseDrift, no buffer) has crept back above zero
+	// since the request was created — e.g. extra penal interest accrued in
+	// the meantime. Conflict, not BadRequest: the request itself was valid
+	// when submitted, it is the passage of time that broke the condition.
+	// The frontend responds by revealing the Top-Up Payment field.
+	ErrDriftPaymentRequired = httpx.NewConflict("outstanding balance has drifted above what the remaining collateral supports — record a top-up payment before approving")
 )
 
 // Service implements loan business rules: ornament valuation, eligible-
@@ -558,6 +608,47 @@ func recalculateTotals(l *Loan, ornaments []Ornament) {
 	l.EligibleLoanAmount = totalValue * (l.SchemeLTVPercent / 100)
 }
 
+// partialReleaseRemaining is the Partial Ornament Release eligibility check,
+// evaluated at SELECTION/creation time (CreateReleaseRequest): how much more
+// the customer needs to pay down (or how much MORE collateral they need to
+// leave pledged) before the ornaments they want back can safely be released.
+//
+//	remaining = (outstandingBalance + buffer) - (remainingGoldValue × ltvPercent / 100)
+//
+// partialReleaseRemaining is the buffered version of the Partial Ornament
+// Release collateral check — buffer = 5% of the loan's PrincipalAmount,
+// deliberately included here (and nowhere else) to absorb ordinary drift
+// between the moment a customer selects ornaments and the moment staff
+// actually act on the request. No longer a HARD GATE on CreateReleaseRequest
+// itself (a customer may log a partial release before paying anything
+// down — see that function's own doc comment) — kept as the same pure,
+// tested formula the frontend's own live warning mirrors, available for a
+// future caller that wants this buffered figure rather than
+// partialReleaseDrift's unbuffered one below.
+//
+// remaining <= 0 means the condition is met as-is; remaining > 0 is the
+// amount still needed.
+func partialReleaseRemaining(outstandingBalance, principalAmount, remainingGoldValue, ltvPercent float64) float64 {
+	buffer := 0.05 * principalAmount
+	return (outstandingBalance + buffer) - (remainingGoldValue * ltvPercent / 100)
+}
+
+// partialReleaseDrift is partialReleaseRemaining's no-buffer counterpart,
+// and the SOLE point that actually enforces the collateral condition — at
+// Management approval time, via ApproveReleaseRequest:
+//
+//	drift = outstandingBalance - (remainingGoldValue × ltvPercent / 100)
+//
+// drift <= 0 means the remaining collateral still covers the live balance
+// and approval proceeds normally; drift > 0.01 means it no longer does, and
+// ApproveReleaseRequest refuses with ErrDriftPaymentRequired until a top-up
+// payment (recorded via the ordinary RecordPayment path — see
+// LoanRequest.Locked's doc comment on why that call is never blocked by
+// Locked) brings it back to zero or below.
+func partialReleaseDrift(outstandingBalance, remainingGoldValue, ltvPercent float64) float64 {
+	return outstandingBalance - (remainingGoldValue * ltvPercent / 100)
+}
+
 func (s *Service) Create(ctx context.Context, in CreateInput) (*Loan, error) {
 	if len(in.Ornaments) == 0 {
 		return nil, ErrNoOrnaments
@@ -631,11 +722,30 @@ func (s *Service) Create(ctx context.Context, in CreateInput) (*Loan, error) {
 	rec.applySchemeSnapshot(sch)
 	recalculateTotals(rec, ornaments)
 
-	if in.PrincipalAmount > rec.EligibleLoanAmount {
+	// The service charge amount is computed once here, against the
+	// principal the operator actually chose, and frozen from then on
+	// (ServiceChargeAmount is never recomputed on a later edit — see
+	// UpdateLoan's own doc comment). AddedToPrincipal rolls the charge
+	// straight into what's borrowed (and therefore what interest accrues
+	// on) — the FINAL principal (operator's chosen amount + charge) is
+	// what must fit within EligibleLoanAmount below, same gold-coverage
+	// safety check as an ordinary loan, so a loan with an added charge is
+	// never under-collateralized by the charge amount; the operator may
+	// need to choose a lower base amount to leave room for it.
+	// WithheldFromPayout leaves PrincipalAmount/OutstandingAmount
+	// untouched here — the reduction happens only at actual disbursement
+	// time (see Approve's FinalSanction branch), since the charge is
+	// deducted from the payout, not added to the debt.
+	rec.ServiceChargeAmount = computeServiceChargeAmount(rec.ServiceChargeType, rec.ServiceChargeValue, in.PrincipalAmount)
+	finalPrincipal := in.PrincipalAmount
+	if rec.ServiceChargeMode == scheme.ServiceChargeModeAddedToPrincipal && rec.ServiceChargeAmount > 0 {
+		finalPrincipal = platform.RoundMoney(in.PrincipalAmount + rec.ServiceChargeAmount)
+	}
+	if finalPrincipal > rec.EligibleLoanAmount {
 		return nil, ErrPrincipalTooHigh
 	}
-	rec.PrincipalAmount = in.PrincipalAmount
-	rec.OutstandingAmount = in.PrincipalAmount
+	rec.PrincipalAmount = finalPrincipal
+	rec.OutstandingAmount = rec.PrincipalAmount
 
 	// Derived from the highest suffix ever issued (including hard-deleted
 	// loans), not a live row COUNT — see MaxLoanNumberSuffix's own doc
@@ -698,29 +808,29 @@ func (s *Service) Create(ctx context.Context, in CreateInput) (*Loan, error) {
 type RiskLevel string
 
 const (
-	RiskGreen  RiskLevel = "Green"  // comfortably covered
-	RiskOrange RiskLevel = "Orange" // covered today, but the margin has eroded under the buffer
-	RiskRed    RiskLevel = "Red"    // gold, sold today, would not cover the principal
+	RiskSafe   RiskLevel = "Safe"   // comfortably covered
+	RiskAtRisk RiskLevel = "AtRisk" // covered today, but the margin has eroded under the buffer
+	RiskLoss   RiskLevel = "Loss"   // gold, sold today, would not cover the principal
 )
 
 // RiskBufferPercent is the safety margin, as a fraction of principal, that
-// separates "Orange / At Risk" from "Green". A loan whose gold would fetch
-// less than principal alone is always Red regardless of this buffer.
+// separates "At Risk" from "Safe". A loan whose gold would fetch less than
+// principal alone is always Loss regardless of this buffer.
 const RiskBufferPercent = 0.10
 
-// ClassifyRisk applies the red/orange/green thresholds documented on
+// ClassifyRisk applies the loss/at-risk/safe thresholds documented on
 // RiskLevel's own constants:
-//   - currentGoldValue < principalAmount                        → Red
-//   - currentGoldValue < principalAmount × (1 + RiskBufferPercent) → Orange
-//   - otherwise                                                  → Green
+//   - currentGoldValue < principalAmount                        → Loss
+//   - currentGoldValue < principalAmount × (1 + RiskBufferPercent) → AtRisk
+//   - otherwise                                                  → Safe
 func ClassifyRisk(currentGoldValue, principalAmount float64) RiskLevel {
 	if currentGoldValue < principalAmount {
-		return RiskRed
+		return RiskLoss
 	}
 	if currentGoldValue < principalAmount*(1+RiskBufferPercent) {
-		return RiskOrange
+		return RiskAtRisk
 	}
-	return RiskGreen
+	return RiskSafe
 }
 
 // riskEligibleStatuses is every status where the loan still both (a) holds
@@ -755,6 +865,16 @@ type RiskAssessmentFilter struct {
 	// risk-eligible status (the page's default "All" view).
 	Status      string
 	BranchScope *uint
+
+	// RiskLevel, when set, must be one of RiskSafe/RiskAtRisk/RiskLoss and
+	// narrows to loans classified at exactly that level. Empty means every
+	// level. Applied AFTER classification (see ListLoanRiskAssessment's own
+	// doc comment on why RiskLevel can't be pushed into the SQL query), but
+	// BEFORE Counts/Total are computed — unlike Limit/Offset below, this is
+	// a real narrowing of the matching set, not just which page of it is
+	// returned, so the KPI tiles reflect the filtered set the same way
+	// Status/OpenedFrom/OpenedTo already do.
+	RiskLevel RiskLevel
 
 	// OpenedFrom/OpenedTo bound OpenedDate, both optional and inclusive —
 	// same semantics as LoanFilter's own fields.
@@ -820,10 +940,16 @@ func (s *Service) ListLoanRiskAssessment(ctx context.Context, f RiskAssessmentFi
 	}
 
 	rows := make([]LoanRiskRow, 0, len(loans))
-	counts := map[RiskLevel]int{RiskRed: 0, RiskOrange: 0, RiskGreen: 0}
+	counts := map[RiskLevel]int{RiskLoss: 0, RiskAtRisk: 0, RiskSafe: 0}
 	for _, l := range loans {
 		var currentValue float64
 		for _, o := range l.Ornaments {
+			// A released ornament (Partial Ornament Release) no longer
+			// secures anything — including it here would overstate the
+			// loan's collateral and understate its real risk.
+			if o.ReleasedAt != nil {
+				continue
+			}
 			r, rErr := rateForPurity(rate, o.Purity)
 			if rErr != nil {
 				// An ornament with an unparseable/legacy purity string
@@ -837,6 +963,9 @@ func (s *Service) ListLoanRiskAssessment(ctx context.Context, f RiskAssessmentFi
 		}
 		level := ClassifyRisk(currentValue, l.PrincipalAmount)
 		counts[level]++
+		if f.RiskLevel != "" && level != f.RiskLevel {
+			continue
+		}
 		rows = append(rows, LoanRiskRow{
 			LoanID:           l.ID,
 			LoanNumber:       l.LoanNumber,
@@ -881,7 +1010,10 @@ func (s *Service) List(ctx context.Context, f LoanFilter) ([]Loan, int64, error)
 	now := time.Now()
 	for i := range loans {
 		l := &loans[i]
-		interestDelta, penalDelta, _ := projectAccrual(l, now)
+		// nil top-ups: see projectAccrual's firstMonthTopUps doc comment —
+		// List's batch projection accepts the flat-month approximation for
+		// its display-only figure rather than an extra query per row.
+		interestDelta, penalDelta, _ := projectAccrual(l, now, nil)
 		l.AccruedInterest = platform.RoundMoney(l.AccruedInterest + interestDelta)
 		l.AccruedPenalInterest = platform.RoundMoney(l.AccruedPenalInterest + penalDelta)
 		s.enrich(ctx, l)
@@ -1059,13 +1191,27 @@ func (s *Service) DeleteOrnament(ctx context.Context, ornamentID uint) (*Loan, e
 type UpdateLoanInput struct {
 	SchemeID        *uint
 	PrincipalAmount *float64
+
+	// ActorEmployeeID/ActorRole identify who made the edit — only used when
+	// the edit touches a financially material field and the loan gets
+	// resubmitted for approval (see UpdateLoan's own doc comment), to write
+	// the LoanApproval audit row the same way Approve does.
+	ActorEmployeeID uint
+	ActorRole       string
 }
 
 // UpdateLoan lets staff correct a loan's scheme or principal amount even
-// after final sanction — deliberately allowed with no confirmation/audit
-// trail beyond the ordinary "can update loan" permission, per an explicit
-// product decision (unlike Update's own field-by-field `changes` pattern
-// elsewhere in this package, nothing here is separately logged).
+// after final sanction. Both fields are financially material — they change
+// what the customer owes and what rate it accrues at — so an edit to
+// either one resubmits the loan for the sanction chain: ApprovalStage
+// resets to the first stage and Status moves back to PendingApproval,
+// exactly as if the loan were freshly created, with a LoanApproval audit
+// row recording that the edit is what triggered the resubmission (mirrors
+// the row Approve itself writes per stage decision — same table, same
+// shape). A loan that's still mid-chain (not yet ApprovalStageApproved)
+// simply restarts from the first stage again; there's no partial-progress
+// state to preserve since the terms just changed underneath whatever an
+// earlier stage had already signed off on.
 //
 // Scheme change: swapping SchemeID re-snapshots the new scheme's terms
 // (interest rate, method, penal rate, LTV, duration) onto the loan at the
@@ -1097,6 +1243,14 @@ func (s *Service) UpdateLoan(ctx context.Context, loanID uint, in UpdateLoanInpu
 		return nil, ErrLoanTerminalState
 	}
 
+	// Detected against the loan as it stood before this call's own changes
+	// are applied below — only a REAL change to what's charged/owed should
+	// resubmit the loan for approval, not a no-op edit that happens to
+	// resend the same SchemeID/PrincipalAmount already on file.
+	materialChange := (in.SchemeID != nil && *in.SchemeID != l.SchemeID) ||
+		(in.PrincipalAmount != nil && platform.RoundMoney(*in.PrincipalAmount) != platform.RoundMoney(l.PrincipalAmount))
+	wasDisbursed := l.DisbursementDate != nil
+
 	if in.SchemeID != nil {
 		sch, err := s.schemeRepo.FindByID(ctx, *in.SchemeID)
 		if err != nil {
@@ -1126,9 +1280,61 @@ func (s *Service) UpdateLoan(ctx context.Context, loanID uint, in UpdateLoanInpu
 	if l.PrincipalAmount > l.EligibleLoanAmount {
 		return nil, ErrPrincipalTooHigh
 	}
+
+	// Re-derived for consistency whenever the scheme or principal changed
+	// (applySchemeSnapshot above already re-snapshotted ServiceChargeType/
+	// Value/Mode from the new scheme, if one was given) — deliberately
+	// NOT folded back into PrincipalAmount the way Create does for
+	// AddedToPrincipal, since that would silently re-inflate the principal
+	// on every edit; the resubmitted approval chain below is what surfaces
+	// the new charge figure to a human before disbursement (still frozen
+	// at whatever it is at FinalSanction, same as Create).
+	if in.SchemeID != nil || in.PrincipalAmount != nil {
+		l.ServiceChargeAmount = computeServiceChargeAmount(l.ServiceChargeType, l.ServiceChargeValue, l.PrincipalAmount)
+	}
+
+	if materialChange {
+		l.ApprovalStage = SanctionStageLoanOperator
+		l.Status = StatusPendingApproval
+		// The loan will be disbursed again, at the new amount, once it
+		// clears the chain — the old sanction/disbursement snapshot no
+		// longer describes what actually happened, and Approve's
+		// FinalSanction branch only re-derives it (and re-records the cash
+		// movement) when these are cleared. See SanctionedAmount's own doc
+		// comment on why it's normally treated as immutable — this is the
+		// deliberate exception, since the original disbursement is being
+		// retracted below, not just amended.
+		if wasDisbursed {
+			l.SanctionedAmount = 0
+			l.DisbursedAmount = 0
+			l.DisbursementDate = nil
+		}
+	}
+
 	if err := s.repo.Update(ctx, l); err != nil {
 		return nil, err
 	}
+
+	if materialChange && wasDisbursed && s.cashRecorder != nil {
+		if err := s.cashRecorder.DeleteLoanDisbursementCashMovements(ctx, l.LoanNumber); err != nil {
+			log.Printf("retracting disbursement cash movement(s) failed for loan %d: %v", l.ID, err)
+		}
+	}
+
+	if materialChange {
+		audit := &LoanApproval{
+			LoanID:          l.ID,
+			Stage:           SanctionStageLoanOperator,
+			Action:          ApprovalActionEdited,
+			ActorEmployeeID: in.ActorEmployeeID,
+			ActorRole:       in.ActorRole,
+			Remarks:         "Loan edited (scheme/principal changed) — resubmitted for approval",
+		}
+		if err := s.approvalRepo.Create(ctx, audit); err != nil {
+			log.Printf("edit-resubmission audit row failed for loan %d: %v", l.ID, err)
+		}
+	}
+
 	return s.Get(ctx, l.ID, nil)
 }
 
@@ -1556,11 +1762,28 @@ func (s *Service) Approve(ctx context.Context, loanID uint, in ApprovalInput) (*
 			l.ApprovalStage = ApprovalStageApproved
 			l.Status = StatusActive
 			disbursing = true
+			// Frozen at the moment of final sanction — see these fields'
+			// own doc comment on model_loan.go for why they're distinct
+			// from PrincipalAmount. DisbursedAmount is PrincipalAmount
+			// minus the service charge ONLY when it's WithheldFromPayout —
+			// an AddedToPrincipal charge was already folded into
+			// PrincipalAmount at Create, so the full amount is disbursed
+			// (the charge was borrowed, not deducted); a WithheldFromPayout
+			// charge is collected upfront by paying out that much less,
+			// while the customer still owes interest on the full
+			// (undiscounted) SanctionedAmount.
+			now := time.Now()
+			l.SanctionedAmount = l.PrincipalAmount
+			l.DisbursedAmount = l.PrincipalAmount
+			if l.ServiceChargeMode == scheme.ServiceChargeModeWithheldFromPayout && l.ServiceChargeAmount > 0 {
+				l.DisbursedAmount = platform.RoundMoney(l.PrincipalAmount - l.ServiceChargeAmount)
+			}
+			l.DisbursementDate = &now
 		}
 	}
 
 	if disbursing {
-		if err := platform.ValidateSplit(in.CashAmount, in.UpiAmount, in.BankTransferAmount, in.ChequeAmount, l.PrincipalAmount); err != nil {
+		if err := platform.ValidateSplit(in.CashAmount, in.UpiAmount, in.BankTransferAmount, in.ChequeAmount, l.DisbursedAmount); err != nil {
 			return nil, err
 		}
 	}
@@ -1571,10 +1794,22 @@ func (s *Service) Approve(ctx context.Context, loanID uint, in ApprovalInput) (*
 
 	// The principal only actually leaves the till once the loan clears its
 	// final approval stage — logging it earlier (e.g. at Create) would show
-	// cash going out for a loan that might still be rejected.
+	// cash going out for a loan that might still be rejected. DisbursedAmount
+	// (not PrincipalAmount) is what's actually handed over — see this
+	// field's own doc comment just above for why they can differ.
 	if disbursing && s.cashRecorder != nil {
-		if _, err := s.cashRecorder.RecordLoanDisbursementCashOut(ctx, l.ID, l.LoanNumber, l.PrincipalAmount, in.CashAmount, in.UpiAmount, in.BankTransferAmount, in.ChequeAmount, l.BranchID, time.Now(), l.CustomerID); err != nil {
+		if _, _, err := s.cashRecorder.RecordLoanDisbursementCashOut(ctx, l.ID, l.LoanNumber, l.DisbursedAmount, in.CashAmount, in.UpiAmount, in.BankTransferAmount, in.ChequeAmount, l.BranchID, time.Now(), l.CustomerID); err != nil {
 			log.Printf("cash-out movement (disbursement) failed for loan %d: %v", l.ID, err)
+		}
+		// The withheld charge is real cash the branch keeps rather than
+		// pays out — booked as its own cash-in (income) so it shows up in
+		// Cash & Expenses like any other collection, not just as a number
+		// on the loan (see item #11's CashTransactionGroupID work for the
+		// same "make it visible in the ledger" rationale).
+		if l.ServiceChargeMode == scheme.ServiceChargeModeWithheldFromPayout && l.ServiceChargeAmount > 0 {
+			if _, err := s.cashRecorder.RecordServiceChargeCashIn(ctx, l.ID, l.LoanNumber, l.ServiceChargeAmount, l.BranchID, time.Now()); err != nil {
+				log.Printf("cash-in movement (service charge) failed for loan %d: %v", l.ID, err)
+			}
 		}
 	}
 
@@ -1582,7 +1817,7 @@ func (s *Service) Approve(ctx context.Context, loanID uint, in ApprovalInput) (*
 	case disbursing:
 		s.notifyCustomer(ctx, l.CustomerID, l.Customer.Phone, "Loan Sanctioned", s.brandedMessage(ctx,
 			"Dear %s, your gold loan %s has been sanctioned and ₹%.2f has been disbursed. Due date: %s. — CloudHouse Finance",
-			l.Customer.Name, l.LoanNumber, l.PrincipalAmount, l.DueDate.Format("02-Jan-2006"),
+			l.Customer.Name, l.LoanNumber, l.DisbursedAmount, l.DueDate.Format("02-Jan-2006"),
 		), commlog.TriggerLoanSanction, "loan", l.ID)
 	case rejected:
 		s.notifyCustomer(ctx, l.CustomerID, l.Customer.Phone, "Loan Rejected", s.brandedMessage(ctx,
@@ -1934,8 +2169,17 @@ func (s *Service) RecordPayment(ctx context.Context, loanID uint, in PaymentInpu
 	// of this same amount, not collected on top of it (see allocatePayment's
 	// fee-first priority), so the cash-in movement is just Amount.
 	if isCashPaymentType(in.Type) && s.cashRecorder != nil {
-		if _, err := s.cashRecorder.RecordLoanPaymentCashIn(ctx, l.ID, l.LoanNumber, in.Amount, in.CashAmount, in.UpiAmount, in.BankTransferAmount, in.ChequeAmount, l.BranchID, in.PaidOn, in.Type, l.CustomerID); err != nil {
+		if _, groupID, err := s.cashRecorder.RecordLoanPaymentCashIn(ctx, l.ID, l.LoanNumber, in.Amount, in.CashAmount, in.UpiAmount, in.BankTransferAmount, in.ChequeAmount, l.BranchID, in.PaidOn, in.Type, l.CustomerID); err != nil {
 			log.Printf("cash-in movement (payment) failed for loan %d: %v", l.ID, err)
+		} else if groupID != "" {
+			// Best-effort, same as the cash recording itself above: losing
+			// this link is worse UX (can't trace the payment to its ledger
+			// rows) but must never fail a payment that otherwise succeeded.
+			// RecordPayment returns a fresh s.Get() below, not p directly, so
+			// this write only needs to land in the DB, not on p in memory.
+			if err := s.paymentRepo.SetCashTransactionGroupID(ctx, p.ID, groupID); err != nil {
+				log.Printf("linking payment %d to cash movement group failed: %v", p.ID, err)
+			}
 		}
 	}
 
@@ -2083,7 +2327,7 @@ func (s *Service) TopUpLoan(ctx context.Context, loanID uint, in TopUpInput) (*L
 	// Best-effort and outside the transaction, same rationale as
 	// RecordPayment's disbursement/collection cash recording.
 	if s.cashRecorder != nil {
-		if _, err := s.cashRecorder.RecordLoanTopUpCashOut(ctx, result.ID, result.LoanNumber, in.Amount, in.CashAmount, in.UpiAmount, in.BankTransferAmount, in.ChequeAmount, result.BranchID, occurredOn, result.CustomerID); err != nil {
+		if _, _, err := s.cashRecorder.RecordLoanTopUpCashOut(ctx, result.ID, result.LoanNumber, in.Amount, in.CashAmount, in.UpiAmount, in.BankTransferAmount, in.ChequeAmount, result.BranchID, occurredOn, result.CustomerID); err != nil {
 			log.Printf("cash-out movement (top-up) failed for loan %d: %v", result.ID, err)
 		}
 	}
@@ -2132,6 +2376,23 @@ func (s *Service) resolveAuctionAfterPayment(ctx context.Context, l *Loan, p *Lo
 			return err
 		}
 		hadActiveAuction = true
+
+		// A case at Auctioned (or later) has already been sold — this
+		// function's keep/remove-from-auction reaction only makes sense
+		// pre-sale, while the gold itself is still at risk. Letting it run
+		// post-sale wrongly moved the case to Withdrawn whenever a payment
+		// happened to zero out interest/penal arrears, even though the case
+		// still had an undisposed surplus sitting on SurplusPayableAmount —
+		// FindActiveByLoanID's `stage NOT IN (Settled, Withdrawn)` filter
+		// then could never find it again, so the Settle Auction screen
+		// failed with "this loan has no auction case yet" even though the
+		// gold had genuinely been sold. Shortfall/surplus disposition after
+		// a sale is handled entirely by ResolveAuctionDecision (Shortfall
+		// kind) and SettleAuction — this function must leave those cases
+		// alone.
+		if !IsPreSaleAuctionStage(rec.Stage) {
+			return nil
+		}
 
 		if l.Status == StatusClosed {
 			rec.Stage = AuctionStageSettled
@@ -2301,8 +2562,13 @@ func (s *Service) RecordBankPledge(ctx context.Context, loanID uint, branchID *u
 		return nil, ErrBankPledgeStillActive
 	}
 
+	// Only currently-pledged ornaments can be handed to the bank — a
+	// released one is already back with the customer.
 	var grossWeight float64
 	for _, o := range l.Ornaments {
+		if o.ReleasedAt != nil {
+			continue
+		}
 		grossWeight += o.GrossWeight
 	}
 
@@ -2455,9 +2721,9 @@ func (s *Service) GetAuctionHistory(ctx context.Context, loanID uint, branchID *
 // ListConcludedAuctions returns finished auction cases (Settled or Withdrawn)
 // across all loans, scoped to the caller's branch — backs the Auctions
 // screen's History tab. See AuctionRepository.FindAllConcluded for hasSale/
-// limit/offset semantics.
-func (s *Service) ListConcludedAuctions(ctx context.Context, branchID *uint, hasSale *bool, limit, offset int) ([]ConcludedAuctionRow, int64, error) {
-	return s.auctionRepo.FindAllConcluded(ctx, branchID, hasSale, limit, offset)
+// query/limit/offset semantics.
+func (s *Service) ListConcludedAuctions(ctx context.Context, branchID *uint, hasSale *bool, query string, limit, offset int) ([]ConcludedAuctionRow, int64, error) {
+	return s.auctionRepo.FindAllConcluded(ctx, branchID, hasSale, query, limit, offset)
 }
 
 // ListPendingAuctionDecisions returns every outstanding escalation awaiting a
@@ -2926,6 +3192,24 @@ func (s *Service) SettleAuction(ctx context.Context, loanID uint, branchID *uint
 	}
 	rec, err := s.getAuctionRecord(ctx, loanID)
 	if err != nil {
+		// getAuctionRecord's FindActiveByLoanID excludes Settled/Withdrawn
+		// cases outright (see that repository method's own doc comment), so
+		// a loan whose auction case ALREADY settled looks identical to one
+		// that never had a case at all — both fail the active lookup and,
+		// without this fallback, both surfaced the same misleading
+		// ErrAuctionNotFound ("mark it auction-eligible first") even when
+		// the sale had genuinely already gone through and the surplus
+		// already disposed of. A stale client screen re-submitting Settle
+		// after its first click already succeeded is exactly when this
+		// fires: history still finds the just-concluded record, so the
+		// error now names what actually happened.
+		if hist, histErr := s.auctionRepo.FindHistoryByLoanID(ctx, loanID); histErr == nil {
+			for _, h := range hist {
+				if h.Stage == AuctionStageSettled {
+					return nil, ErrAuctionAlreadyConcluded
+				}
+			}
+		}
 		return nil, err
 	}
 	if rec.Stage != AuctionStageAuctioned {
@@ -2977,7 +3261,16 @@ func (s *Service) SettleAuction(ctx context.Context, loanID uint, branchID *uint
 		), commlog.TriggerAuctionEvent, "auction_record", rec.ID)
 	}
 
-	return s.getAuctionRecord(ctx, loanID)
+	// rec is already fully updated (Stage=Settled, disposition, in-memory)
+	// and saved above — NOT re-fetched via getAuctionRecord, which would
+	// immediately fail: its FindActiveByLoanID excludes Settled/Withdrawn
+	// records outright (see that repository method's own doc comment), so
+	// calling it here on the record THIS SAME FUNCTION just settled always
+	// returned ErrAuctionNotFound (mapped to a 404) even on a fully
+	// successful settle — the settle itself went through (Stage, event, and
+	// notification all already committed above), but the response looked
+	// like a failure and the caller never received the updated record.
+	return rec, nil
 }
 
 // ResolveAuctionDecision records a human decision on an escalation and applies
@@ -3217,11 +3510,28 @@ type ExtensionRequestInput struct {
 // out by Months. It does not itself change the loan — staff must Approve it
 // via DecideRequest for the new due date to take effect.
 func (s *Service) CreateExtensionRequest(ctx context.Context, loanID uint, in ExtensionRequestInput) (*LoanRequest, error) {
-	if _, err := s.repo.FindByID(ctx, loanID); err != nil {
+	l, err := s.repo.FindByID(ctx, loanID)
+	if err != nil {
 		return nil, ErrNotFound
 	}
 	if in.Months <= 0 {
 		return nil, ErrInvalidMonths
+	}
+	// Same "catch stale accrual up first" rationale as MarkAuctionEligible's
+	// IsDefaulted check — without this, OutstandingInterest/
+	// OutstandingPenalInterest below are judged against whatever the DB
+	// happened to have from the last read path that persisted a fresh
+	// accrual, not what's actually owed today.
+	s.accrueAndSave(ctx, l)
+	s.enrich(ctx, l)
+	// The customer must clear the interest/penal-interest arrears currently
+	// standing before an extension moves forward — extending the due date
+	// on top of unpaid arrears would just let them compound further.
+	// Principal not yet due is not a blocker here (same distinction
+	// resolveAuctionAfterPayment draws): an extension is about arrears, not
+	// the full balance.
+	if l.OutstandingInterest > moneyEpsilon || l.OutstandingPenalInterest > moneyEpsilon {
+		return nil, ErrExtensionNeedsPayment
 	}
 	requestedBy := in.RequestedBy
 	if requestedBy == "" {
@@ -3248,30 +3558,108 @@ func (s *Service) CreateExtensionRequest(ctx context.Context, loanID uint, in Ex
 type ReleaseRequestInput struct {
 	Detail      string
 	RequestedBy string // "Customer" | "Staff"; defaults to "Staff" if empty
+	// OrnamentIDs selects which of the loan's currently-pledged ornaments
+	// this request asks to release. Empty/omitted means "every ornament" —
+	// the existing full-release behavior, completely unchanged. A non-empty
+	// STRICT SUBSET makes this a Partial Ornament Release (IsPartial=true),
+	// gated by partialReleaseRemaining below. Selecting every currently-
+	// pledged ornament is also treated as a full release regardless of how
+	// it was expressed (explicit full list or omitted) — see this func's
+	// own comment on why.
+	OrnamentIDs []uint
 }
 
-// CreateReleaseRequest logs a customer's ask to close a loan and take the
-// pledged gold back. It does not itself close the loan — staff must Approve
-// it via DecideRequest, which moves the loan to Closure Requested; actual
-// closure still happens through the existing full-settlement payment flow.
+// CreateReleaseRequest logs a customer's ask to release gold back — either
+// every currently-pledged ornament (full release, closing the loan once
+// fully settled — unchanged from before Partial Ornament Release existed),
+// or, via in.OrnamentIDs, a Partial Ornament Release of just some of them
+// while the loan continues on the rest.
+//
+// IsPartial is always computed here, never client-supplied: selecting ALL
+// currently-pledged ornaments (or omitting the selection) forces
+// IsPartial=false unconditionally, because V_remain would otherwise be zero
+// — meaningless as a partial-release computation, and this is exactly what
+// a full release already is. This same rule is what makes a single-
+// ornament loan work with no special-case code: selecting that one
+// ornament is selecting 100%, so it always resolves to a full release.
+//
+// A genuine strict-subset selection no longer blocks CreateReleaseRequest
+// itself on partialReleaseRemaining — a customer may ask for a partial
+// release before paying anything down, and staff record that payment
+// later from the release review screen. ApproveReleaseRequest re-runs the
+// same collateral check (partialReleaseDrift, no buffer) at approval time
+// and refuses with ErrDriftPaymentRequired until it is satisfied — that is
+// now the sole enforcement point; this function only computes IsPartial.
 func (s *Service) CreateReleaseRequest(ctx context.Context, loanID uint, in ReleaseRequestInput) (*LoanRequest, error) {
-	if _, err := s.repo.FindByID(ctx, loanID); err != nil {
+	l, err := s.Get(ctx, loanID, nil)
+	if err != nil {
 		return nil, ErrNotFound
 	}
 	requestedBy := in.RequestedBy
 	if requestedBy == "" {
 		requestedBy = RequestedByStaff
 	}
+
+	active := make([]Ornament, 0, len(l.Ornaments))
+	for _, o := range l.Ornaments {
+		if o.ReleasedAt == nil {
+			active = append(active, o)
+		}
+	}
+
+	isPartial := false
+	var selectedIDs []uint
+	if len(in.OrnamentIDs) > 0 && len(in.OrnamentIDs) < len(active) {
+		activeByID := make(map[uint]Ornament, len(active))
+		for _, o := range active {
+			activeByID[o.ID] = o
+		}
+		selectedSet := make(map[uint]bool, len(in.OrnamentIDs))
+		for _, id := range in.OrnamentIDs {
+			if _, ok := activeByID[id]; !ok {
+				// Not a currently-pledged ornament on THIS loan — either it
+				// belongs to a different loan, doesn't exist, or has
+				// already been released. Refusing outright is safer than
+				// silently ignoring an ID that doesn't belong.
+				return nil, ErrOrnamentNotFound
+			}
+			selectedSet[id] = true
+		}
+		selectedIDs = in.OrnamentIDs
+		isPartial = true
+	} else if len(in.OrnamentIDs) > 0 {
+		// Every active ornament was selected (or more IDs than exist were
+		// passed, which len(active) below would also have to satisfy) —
+		// forced to a full release regardless of the LTV math; validate the
+		// IDs belong to this loan for a clean error rather than silently
+		// falling through.
+		activeByID := make(map[uint]bool, len(active))
+		for _, o := range active {
+			activeByID[o.ID] = true
+		}
+		for _, id := range in.OrnamentIDs {
+			if !activeByID[id] {
+				return nil, ErrOrnamentNotFound
+			}
+		}
+	}
+
 	req := &LoanRequest{
 		LoanID:      loanID,
 		Type:        RequestTypeRelease,
 		Status:      RequestStatusPending,
 		RequestedBy: requestedBy,
 		Detail:      in.Detail,
+		IsPartial:   isPartial,
 		RequestedAt: time.Now(),
 	}
 	if err := s.requestRepo.Create(ctx, req); err != nil {
 		return nil, err
+	}
+	if isPartial {
+		if err := s.requestRepo.CreateOrnamentSelections(ctx, req.ID, selectedIDs); err != nil {
+			return nil, err
+		}
 	}
 	return s.requestRepo.FindByID(ctx, req.ID)
 }
@@ -3280,9 +3668,6 @@ func (s *Service) ListRequests(ctx context.Context, f LoanRequestFilter) ([]Loan
 	reqs, total, err := s.requestRepo.FindAll(ctx, f)
 	if err != nil {
 		return nil, 0, err
-	}
-	for i := range reqs {
-		s.syncPaymentVerified(ctx, &reqs[i])
 	}
 	return reqs, total, nil
 }
@@ -3295,34 +3680,7 @@ func (s *Service) GetRequest(ctx context.Context, requestID uint) (*LoanRequest,
 	if err != nil {
 		return nil, ErrRequestNotFound
 	}
-	s.syncPaymentVerified(ctx, req)
 	return req, nil
-}
-
-// syncPaymentVerified keeps a pending Release request's PaymentVerified
-// checklist item honest against the loan's LIVE balance, so the Record
-// Payment checkbox reflects reality regardless of how the balance actually
-// got cleared — RecordReleasePayment's own increments (which already tick
-// it directly), or the loan's ordinary Record Payment screen used instead,
-// which this package otherwise has no visibility into. Cheap in the common
-// case (already true, or not a pending Release request) — the one real
-// Get(loanID) call, with its accrual/enrich cost, only happens for a
-// pending Release request still waiting on this one checklist item.
-// Errors are swallowed: this is a best-effort read-time refresh, not
-// something that should fail whatever endpoint called it.
-func (s *Service) syncPaymentVerified(ctx context.Context, req *LoanRequest) {
-	if req.Type != RequestTypeRelease || req.Status != RequestStatusPending || req.PaymentVerified {
-		return
-	}
-	l, err := s.Get(ctx, req.LoanID, nil)
-	if err != nil {
-		return
-	}
-	if l.TotalOutstandingBalance <= 0.01 {
-		req.PaymentVerified = true
-		req.PaymentDueDate = nil
-		_ = s.requestRepo.Update(ctx, req)
-	}
 }
 
 // DecideRequest is the RETIRED single-step decision path — Release requests
@@ -3355,7 +3713,14 @@ func isLoanTerminal(status string) bool {
 }
 
 // ChecklistInput mirrors the body of PUT /loans/requests/:requestId/verify.
+//
+// PacketVerified/BankPledgeVerified/PaymentVerified are accepted but no
+// longer applied — see LoanRequest's doc comment on why the checklist
+// collapsed to CustomerSawGold/PaymentRecorded/Locked. Kept only so an old
+// client sending them doesn't hit a binding error; VerifyReleaseChecklist
+// simply ignores them now.
 type ChecklistInput struct {
+	CustomerSawGold    *bool
 	PaymentVerified    *bool
 	PacketVerified     *bool
 	BankPledgeVerified *bool
@@ -3365,13 +3730,16 @@ type ChecklistInput struct {
 	ActorRoleID        uint // authz.Role.ID — must hold "can verify release checklist"
 }
 
-// VerifyReleaseChecklist updates one or more of a pending Release request's
-// verification-checklist items. Callable repeatedly as staff confirm each
-// item in person (payment settled, packet location, bank pledge status,
-// customer confirmation) — ApproveReleaseRequest refuses the first approval
-// stage until all four are true. Previously had no role gate at all — any
-// authenticated caller could verify a release checklist; now requires "can
-// verify release checklist" (see internal/authz.Catalogue).
+// VerifyReleaseChecklist updates a pending Release request's reworked
+// 2-item checklist. CustomerSawGold can be set freely while the request is
+// Pending — this used to also require the loan's packet be at
+// packet.StatusReadyForRelease (ErrPacketNotReadyForRelease), but that gate
+// was removed: staff confirming the customer has seen the gold in person is
+// itself the check, and the packet's own stage is tracked/enforced
+// separately in internal/packet, not duplicated here. Can no longer be
+// changed at all once the request is Locked (ErrRequestLocked) — see
+// LoanRequest's own doc comment for why. Previously had no role gate at
+// all; now requires "can verify release checklist" (see internal/authz.Catalogue).
 func (s *Service) VerifyReleaseChecklist(ctx context.Context, requestID uint, branchID *uint, in ChecklistInput) (*LoanRequest, error) {
 	req, err := s.requestRepo.FindByID(ctx, requestID)
 	if err != nil {
@@ -3390,57 +3758,11 @@ func (s *Service) VerifyReleaseChecklist(ctx context.Context, requestID uint, br
 		return nil, ErrWrongStage
 	}
 
-	if in.PaymentVerified != nil {
-		if *in.PaymentVerified {
-			// Balance can clear through paths this package never sees the
-			// increments of (e.g. the loan's own ordinary Record Payment
-			// screen, used directly instead of this review screen's
-			// Discount/Payment fields) — RecordReleasePayment isn't the
-			// only way PaymentVerified should ever become true, but ticking
-			// it must still mean the balance is genuinely settled, not just
-			// staff's say-so.
-			l, err := s.Get(ctx, req.LoanID, nil)
-			if err != nil {
-				return nil, err
-			}
-			if l.TotalOutstandingBalance > 0.01 {
-				return nil, ErrPaymentNotCleared
-			}
-			req.PaymentDueDate = nil
+	if in.CustomerSawGold != nil {
+		if req.Locked {
+			return nil, ErrRequestLocked
 		}
-		req.PaymentVerified = *in.PaymentVerified
-	}
-	if in.PacketVerified != nil {
-		req.PacketVerified = *in.PacketVerified
-	}
-	if in.BankPledgeVerified != nil {
-		if *in.BankPledgeVerified {
-			// Same reasoning as PaymentVerified above: ticking this must mean
-			// there's genuinely no active bank pledge left, not just staff's
-			// say-so — otherwise the checklist could be marked complete and
-			// sail through Manager approval, only for the final Management
-			// stage's own CompleteRelease call to fail with
-			// ErrBankPledgeStillActive, well after staff believed this item
-			// was already confirmed. Checked the same way CompleteRelease
-			// itself does: the loan's own stored status first (cheap, covers
-			// the normal case), then the pledge RECORDS (in case that string
-			// has drifted away from an already-open record).
-			l, err := s.Get(ctx, req.LoanID, nil)
-			if err != nil {
-				return nil, err
-			}
-			hasActivePledge, err := s.pledgeRepo.HasActive(ctx, req.LoanID)
-			if err != nil {
-				return nil, err
-			}
-			if l.BankPledgeStatus == BankPledgeStatusPledged || hasActivePledge {
-				return nil, ErrBankPledgeStillActive
-			}
-		}
-		req.BankPledgeVerified = *in.BankPledgeVerified
-	}
-	if in.CustomerConfirmed != nil {
-		req.CustomerConfirmed = *in.CustomerConfirmed
+		req.CustomerSawGold = *in.CustomerSawGold
 	}
 	if in.VerificationNotes != nil {
 		req.VerificationNotes = *in.VerificationNotes
@@ -3459,40 +3781,62 @@ func (s *Service) VerifyReleaseChecklist(ctx context.Context, requestID uint, br
 }
 
 // ReleasePaymentInput mirrors the body of
-// POST /loans/requests/:requestId/release-payment.
+// POST /loans/requests/:requestId/release-payment — the release review
+// screen's "Record Payment" action, now a thin release-context wrapper
+// around the SAME general RecordPayment/PaymentInput path used everywhere
+// else on a loan (see RecordReleaseRequestPayment's own doc comment),
+// rather than a bespoke Interest-only/Interest+Principal selector.
 type ReleasePaymentInput struct {
-	Discount float64
-	Payment  float64
-	// DueDate is required only when Discount+Payment don't cover the final
-	// settlement (see RecordReleasePayment).
+	// Type is any of the ordinary PaymentType* values RecordPayment already
+	// accepts (Interest, Principal, Partial, Full Settlement, ...) — the
+	// same general payment modal used elsewhere on the loan, opened from
+	// this release context. Defaults to PaymentTypePartial when empty, for
+	// backward compatibility with callers still posting a bare
+	// amount/discount pair the old way.
+	Type   string
+	Amount float64
+	// Discount is a negotiated reduction posted alongside Amount as its own
+	// PaymentTypeDiscount ledger entry — see allocatePayment's
+	// PaymentTypeDiscount case. Independent of Type/Amount: either, both,
+	// or neither may be set.
+	Discount           float64
+	CashAmount         float64
+	UpiAmount          float64
+	BankTransferAmount float64
+	ChequeAmount       float64
+	Method             string
+	Reference          string
+	InterestOverride   *float64
+	// DueDate is required only when Discount+Amount don't cover the final
+	// settlement (see RecordReleaseRequestPayment).
 	DueDate         *time.Time
 	ActorEmployeeID uint
 	ActorRoleID     uint // authz.Role.ID — must hold "can verify release checklist"
 }
 
-// RecordReleasePayment is the "Record Payment" step on the Manager-stage
-// release review screen: staff enter a Discount (a negotiated reduction,
-// posted as a no-cash PaymentTypeDiscount ledger entry) and/or a Payment
-// (real cash, posted as PaymentTypePartial) directly against the loan.
+// RecordReleaseRequestPayment is the "Record Payment" step on the release
+// review screen (see ReleasePaymentInput). It posts Discount (if any) as
+// PaymentTypeDiscount, then Amount as whatever Type was given, through the
+// exact same RecordPayment/allocatePayment waterfall as any other loan
+// payment — no bespoke Interest-only/Interest+Principal selector.
 //
-// This used to also close the loan out immediately and force the request to
-// Approved the moment the balance hit zero — completely bypassing
-// ApproveReleaseRequest's Manager→Management sign-off chain, so a single
-// "can verify release checklist" actor could hand gold back on their own.
-// It no longer does either: recording a payment only ever records the
-// payment. If the two together clear the balance, that only flips the
-// checklist's PaymentVerified flag (one of the four checkboxes
-// ApproveReleaseRequest requires complete before its chain will even start —
-// see ErrChecklistIncomplete) and clears any stored PaymentDueDate; the
-// request stays Pending and must still go through the ordinary Manager then
-// Management approval, and CompleteRelease (the actual hand-the-gold-back
-// step), like any other release. If they fall short, the shortfall stays
-// outstanding and DueDate is stored so the Requests list/review screen can
-// flag it red once that date passes unpaid.
+// On success, called against a still-Pending release request: sets
+// PaymentRecorded=true and Locked=true on the request (see LoanRequest's own
+// doc comment on what Locked then blocks), then auto-advances the request
+// one stage forward by running the exact same logic ApproveReleaseRequest's
+// Manager stage performs — staff no longer click a separate "approve" action
+// right after recording the triggering payment; recording it IS the
+// forwarding action. This only fires the FIRST time a payment is recorded
+// (PaymentRecorded still false coming in) — a later drift/top-up payment
+// (ErrDriftPaymentRequired's remedy) reuses this same method but must NOT
+// re-advance a request that has already moved past Manager, so the
+// auto-advance is skipped whenever the request is already Locked.
 //
 // Only callable while the request is still at (or before) the Manager
-// stage — see ErrNotManagerStage.
-func (s *Service) RecordReleasePayment(ctx context.Context, requestID uint, branchID *uint, in ReleasePaymentInput) (*LoanRequest, error) {
+// stage — see ErrNotManagerStage. Renamed from the old RecordReleasePayment:
+// same route, same audit/DueDate mechanics, but driven by the general
+// payment path instead of its own Interest/Principal split.
+func (s *Service) RecordReleaseRequestPayment(ctx context.Context, requestID uint, branchID *uint, in ReleasePaymentInput) (*LoanRequest, error) {
 	req, err := s.requestRepo.FindByID(ctx, requestID)
 	if err != nil {
 		return nil, ErrRequestNotFound
@@ -3506,13 +3850,22 @@ func (s *Service) RecordReleasePayment(ctx context.Context, requestID uint, bran
 	if req.Status != RequestStatusPending {
 		return nil, ErrRequestAlreadyDecided
 	}
-	if req.ApprovalStage != "" && req.ApprovalStage != ApprovalStagePendingManager {
+	// A drift/top-up payment (ErrDriftPaymentRequired's remedy) legitimately
+	// arrives with ApprovalStage already advanced to PendingManagement — that
+	// IS the request being past the Manager stage, by design (see this
+	// func's doc comment). Refusing it here would make ErrDriftPaymentRequired
+	// unrecoverable: staff could never record the very payment the error
+	// tells them to record. Only a Locked, IsPartial request gets this
+	// exception; an ordinary (non-drift) attempt to pay past Manager stage
+	// is still refused.
+	pastManagerForDriftTopUp := req.IsPartial && req.Locked && req.ApprovalStage == ApprovalStagePendingManagement
+	if req.ApprovalStage != "" && req.ApprovalStage != ApprovalStagePendingManager && !pastManagerForDriftTopUp {
 		return nil, ErrNotManagerStage
 	}
 	if !s.checkStagePermission(ctx, in.ActorRoleID, "can verify release checklist") {
 		return nil, ErrWrongStage
 	}
-	if in.Discount < 0 || in.Payment < 0 {
+	if in.Discount < 0 || in.Amount < 0 {
 		return nil, ErrInvalidAmount
 	}
 
@@ -3522,17 +3875,15 @@ func (s *Service) RecordReleasePayment(ctx context.Context, requestID uint, bran
 	// track fee/penal/interest/principal. It is folded into the SAME
 	// Payment call below as PaymentInput.ProcessingFee (the "charge it, then
 	// let this same call collect it" mechanism ordinary loan payments
-	// already use), fee being allocatePayment's first-priority bucket — so
-	// Payment must cover Outstanding + Charges − Discount, exactly the
-	// on-screen "Final Settlement" figure, and a Payment that falls short
-	// still fails with ErrExceedsOutstanding ("amount does not match what is
-	// owed"), same as any other shortfall. chargeDelta (not the raw Charges
-	// total) is used so re-recording after Charges was already added in a
-	// previous Save Payment click never re-charges the same rupees twice.
+	// already use). chargeDelta (not the raw Charges total) is used so
+	// re-recording after Charges was already added in a previous Save
+	// Payment click never re-charges the same rupees twice.
 	chargeDelta := platform.RoundMoney(req.Charges - req.ChargesApplied)
 	if chargeDelta < 0 {
 		chargeDelta = 0
 	}
+
+	wasAlreadyRecorded := req.PaymentRecorded
 
 	if in.Discount > 0 {
 		if _, err := s.RecordPayment(ctx, req.LoanID, PaymentInput{
@@ -3545,21 +3896,33 @@ func (s *Service) RecordReleasePayment(ctx context.Context, requestID uint, bran
 			return nil, err
 		}
 	}
-	// Payment carries chargeDelta even when in.Payment is 0 — Charges must
+
+	paymentType := in.Type
+	if paymentType == "" {
+		paymentType = PaymentTypePartial
+	}
+	// Amount carries chargeDelta even when in.Amount is 0 — Charges must
 	// still get billed and collected on its own if that's the only thing
 	// left to settle this round (e.g. Discount alone already covered the
 	// rest of the balance).
-	paymentAmount := in.Payment
+	paymentAmount := in.Amount
 	if chargeDelta > 0.01 && paymentAmount <= 0 {
 		paymentAmount = chargeDelta
 	}
 	if paymentAmount > 0 {
 		if _, err := s.RecordPayment(ctx, req.LoanID, PaymentInput{
 			Amount:               paymentAmount,
-			Type:                 PaymentTypePartial,
+			Type:                 paymentType,
 			ProcessingFee:        chargeDelta,
 			PaidOn:               time.Now(),
 			ReceivedByEmployeeID: &in.ActorEmployeeID,
+			CashAmount:           in.CashAmount,
+			UpiAmount:            in.UpiAmount,
+			BankTransferAmount:   in.BankTransferAmount,
+			ChequeAmount:         in.ChequeAmount,
+			Method:               in.Method,
+			Reference:            in.Reference,
+			InterestOverride:     in.InterestOverride,
 			Description:          "Release payment",
 		}); err != nil {
 			return nil, err
@@ -3573,25 +3936,50 @@ func (s *Service) RecordReleasePayment(ctx context.Context, requestID uint, bran
 	}
 
 	req.RecordedDiscount = platform.RoundMoney(req.RecordedDiscount + in.Discount)
-	req.RecordedPayment = platform.RoundMoney(req.RecordedPayment + in.Payment)
+	req.RecordedPayment = platform.RoundMoney(req.RecordedPayment + in.Amount)
 
-	if l.TotalOutstandingBalance <= 0.01 {
-		// Balance cleared — that satisfies the PaymentVerified checklist item,
-		// nothing more. The request stays Pending: ApproveReleaseRequest's own
-		// Manager→Management chain (gated on the full checklist, including
-		// this flag) is still required before the gold can actually be
-		// released via CompleteRelease.
-		req.PaymentVerified = true
+	if req.IsPartial {
+		// PaymentDueDate exists to track a FULL release's final settlement
+		// still falling short after a payment (see LoanRequest's own doc
+		// comment) — a concept that doesn't apply to a Partial Ornament
+		// Release at all. That release only concerns the ornaments being
+		// selected out; the loan's overall TotalOutstandingBalance is
+		// expected to stay positive regardless (the rest of the loan
+		// continues on its own existing due date), so this check would
+		// otherwise demand a due date on every partial-release payment
+		// even when the minimum amount needed to release THOSE ornaments
+		// (the "Remaining" figure on the request modal) has already been
+		// fully covered.
 		req.PaymentDueDate = nil
+	} else if l.TotalOutstandingBalance <= 0.01 {
+		req.PaymentDueDate = nil
+	} else if in.Discount <= 0 && paymentAmount <= 0 {
+		// Neither a discount nor a real payment was actually posted this
+		// call (e.g. Charges alone, already fully applied) — nothing
+		// changed, so there is nothing to flip PaymentRecorded/Locked over
+		// and no new DueDate requirement either.
+	} else if in.DueDate == nil {
+		return nil, ErrDueDateRequired
 	} else {
-		if in.DueDate == nil {
-			return nil, ErrDueDateRequired
-		}
 		req.PaymentDueDate = in.DueDate
 	}
 
+	req.PaymentRecorded = true
+	req.Locked = true
+
 	if err := s.requestRepo.Update(ctx, req); err != nil {
 		return nil, err
+	}
+
+	if !wasAlreadyRecorded {
+		// Auto-advance one stage forward, exactly like ApproveReleaseRequest's
+		// Manager-stage branch — this is the mechanism, not a second
+		// approval action staff must separately click. Runs with the SAME
+		// actor identity that recorded the payment; a top-up/drift payment
+		// recorded later (wasAlreadyRecorded == true) does not repeat this.
+		if _, err := s.advanceReleaseRequestStage(ctx, req, in.ActorEmployeeID, "Auto-advanced after payment was recorded"); err != nil {
+			return nil, err
+		}
 	}
 	return s.requestRepo.FindByID(ctx, req.ID)
 }
@@ -3608,13 +3996,14 @@ type ReleaseApprovalInput struct {
 // ApproveReleaseRequest advances (or terminates) a Release request's fixed
 // 2-step Manager→Management chain — the exact same pattern as Loan.Approve,
 // reused per the business decision that release approvals go through the
-// same workflow as loan sanctioning. The chain cannot even start until the
-// verification checklist (VerifyReleaseChecklist) is fully complete. A
-// Rejected action at either stage only rejects the request — the loan is
-// untouched. The final Approved action (Management stage) snapshots
-// SettlementAmount = Loan.TotalOutstandingBalance + Charges and moves the
-// loan to StatusClosureRequested; CompleteRelease (below) does the actual
-// hand-back once the settlement is fully paid.
+// same workflow as loan sanctioning. A Rejected action at either stage only
+// rejects the request — the loan is untouched, and is refused outright with
+// ErrRequestLocked once a payment has locked the request (see LoanRequest.
+// Locked's doc comment). The final Approved action (Management stage)
+// snapshots SettlementAmount = Loan.TotalOutstandingBalance + Charges and
+// moves the loan to StatusClosureRequested (full release only — a Partial
+// Ornament Release leaves the loan exactly as it is); CompleteRelease
+// (below) does the actual hand-back.
 func (s *Service) ApproveReleaseRequest(ctx context.Context, requestID uint, branchID *uint, in ReleaseApprovalInput) (*LoanRequest, error) {
 	req, err := s.requestRepo.FindByID(ctx, requestID)
 	if err != nil {
@@ -3632,13 +4021,43 @@ func (s *Service) ApproveReleaseRequest(ctx context.Context, requestID uint, bra
 	if req.ApprovalStage == ApprovalStageApproved || req.ApprovalStage == ApprovalStageRejected {
 		return nil, ErrRequestAlreadyDecided
 	}
-	// Refresh PaymentVerified against the loan's live balance first — the
-	// balance may have cleared through the loan's ordinary Record Payment
-	// screen rather than this package's own RecordReleasePayment, which is
-	// the only path that otherwise ever sets this flag directly.
-	s.syncPaymentVerified(ctx, req)
-	if !req.PaymentVerified || !req.PacketVerified || !req.BankPledgeVerified || !req.CustomerConfirmed {
+	if in.Action == ApprovalStageRejected && req.Locked {
+		return nil, ErrRequestLocked
+	}
+	if !req.CustomerSawGold {
 		return nil, ErrChecklistIncomplete
+	}
+	if !req.PaymentRecorded {
+		// PaymentRecorded is ordinarily set by RecordReleaseRequestPayment,
+		// tying a specific settlement figure to this request for the audit
+		// trail. But a loan can also already satisfy the release's own
+		// financial condition WITHOUT a payment ever run through that
+		// request-linked endpoint — e.g. it was paid down by an ordinary
+		// payment before the release was even requested, or via the Top-Up
+		// Payment path (posted against the plain loan, not this request —
+		// see ReleaseReviewModal.tsx's own comment on why). Forcing staff to
+		// click Record Payment again in that case would either double-charge
+		// or require recording a pointless ₹0 entry just to flip this flag.
+		// Checked here, live, rather than trusting a stale req field: a full
+		// release is satisfied once the loan's balance is actually cleared;
+		// a partial release reuses the exact same drift check
+		// ApprovalStagePendingManagement re-runs below.
+		l, err := s.Get(ctx, req.LoanID, nil)
+		if err != nil {
+			return nil, err
+		}
+		conditionAlreadyMet := false
+		if req.IsPartial {
+			remainingGoldValue, gvErr := s.partialReleaseRemainingGoldValue(ctx, req)
+			if gvErr == nil && partialReleaseDrift(l.TotalOutstandingBalance, remainingGoldValue, l.SchemeLTVPercent) <= 0.01 {
+				conditionAlreadyMet = true
+			}
+		} else if l.TotalOutstandingBalance <= 0.01 {
+			conditionAlreadyMet = true
+		}
+		if !conditionAlreadyMet {
+			return nil, ErrChecklistIncomplete
+		}
 	}
 
 	stage := req.ApprovalStage
@@ -3699,29 +4118,89 @@ func (s *Service) ApproveReleaseRequest(ctx context.Context, requestID uint, bra
 		return s.requestRepo.FindByID(ctx, req.ID)
 	}
 
+	return s.advanceReleaseRequestStage(ctx, req, in.ActorEmployeeID, in.Remarks)
+}
+
+// advanceReleaseRequestStage moves a Release request one step forward
+// through its Manager→Management chain — Manager becomes pending
+// Management, Management becomes the final Approved (which snapshots
+// SettlementAmount and, for a full release, moves the loan to
+// StatusClosureRequested before CompleteRelease hands the gold back).
+//
+// Shared by two callers: ApproveReleaseRequest's own explicit approval
+// action, and RecordReleaseRequestPayment's auto-advance the moment the
+// triggering payment is recorded (see that method's own doc comment on why
+// staff no longer click a separate approval action right after paying) —
+// both need the exact same stage-transition/settlement/CompleteRelease
+// logic, just reached from a different trigger.
+//
+// For a Partial Ornament Release specifically, the final (Management) step
+// re-checks partialReleaseDrift (no buffer) against the loan's LIVE balance:
+// if drift has crept back above zero since the request was created (e.g.
+// extra penal interest accrued while it sat waiting for approval), this
+// refuses with ErrDriftPaymentRequired rather than proceeding — the caller
+// records a top-up payment (through RecordReleaseRequestPayment again,
+// still allowed while Locked) and retries. A full release keeps its
+// existing "settle in full" gate untouched — CompleteRelease still enforces
+// that on its own for a full release; only the partial path needs this
+// extra drift check here, before the loan is ever touched.
+func (s *Service) advanceReleaseRequestStage(ctx context.Context, req *LoanRequest, actorEmployeeID uint, remarks string) (*LoanRequest, error) {
+	stage := req.ApprovalStage
+	if stage == "" {
+		stage = ApprovalStagePendingManager
+	}
+	// Snapshot of every field the Management branch below mutates, restored
+	// if CompleteRelease then fails — see that branch's own comment on why
+	// the Approved state must be persisted BEFORE CompleteRelease runs
+	// (its own "not yet fully cleared" lookup needs to find it already
+	// saved). Without this rollback, a CompleteRelease failure (e.g.
+	// ErrBankPledgeStillActive — the bank pledge/locker was never actually
+	// released before Management approved) left the request stuck Approved
+	// in the DB while the caller only ever saw the returned error: the UI
+	// never learned the new status (stayed open on stale "Pending" state),
+	// and the request could never be approved again afterward
+	// (ApproveReleaseRequest refuses an already-Approved request outright).
+	preApprovalStage, preStatus := req.ApprovalStage, req.Status
+
+	notifyLoan, _ := s.repo.FindByID(ctx, req.LoanID)
+
 	finalApproval := false
 	switch stage {
 	case ApprovalStagePendingManager:
 		req.ApprovalStage = ApprovalStagePendingManagement
 	case ApprovalStagePendingManagement:
-		req.ApprovalStage = ApprovalStageApproved
-		finalApproval = true
-
 		l, err := s.Get(ctx, req.LoanID, nil)
 		if err != nil {
 			return nil, err
 		}
+
+		if req.IsPartial {
+			remainingGoldValue, err := s.partialReleaseRemainingGoldValue(ctx, req)
+			if err != nil {
+				return nil, err
+			}
+			drift := partialReleaseDrift(l.TotalOutstandingBalance, remainingGoldValue, l.SchemeLTVPercent)
+			if drift > 0.01 {
+				return nil, ErrDriftPaymentRequired
+			}
+		}
+
+		req.ApprovalStage = ApprovalStageApproved
+		finalApproval = true
+
 		req.SettlementAmount = l.TotalOutstandingBalance + req.Charges
-		l.Status = StatusClosureRequested
-		if err := s.repo.Update(ctx, l); err != nil {
-			return nil, err
+		if !req.IsPartial {
+			l.Status = StatusClosureRequested
+			if err := s.repo.Update(ctx, l); err != nil {
+				return nil, err
+			}
 		}
 
 		req.Status = RequestStatusApproved
 		now := time.Now()
 		req.DecidedAt = &now
-		req.DecidedByEmployeeID = &in.ActorEmployeeID
-		req.Remarks = in.Remarks
+		req.DecidedByEmployeeID = &actorEmployeeID
+		req.Remarks = remarks
 
 		// Persist the Approved state before CompleteRelease runs: when the
 		// balance isn't already fully cleared (an early release, paid off
@@ -3731,13 +4210,24 @@ func (s *Service) ApproveReleaseRequest(ctx context.Context, requestID uint, bra
 		if err := s.requestRepo.Update(ctx, req); err != nil {
 			return nil, err
 		}
-		//  Finish the release right here rather than leaving staff to find
+		// Finish the release right here rather than leaving staff to find
 		// and click a separate "Complete Release" action afterward —
 		// Management approval was the last real decision point; once it's
 		// given there is nothing left to authorize; see CompleteRelease's
 		// own doc comment for what it still checks (bank pledge cleared,
-		// balance settled) before it will actually hand the gold back.
-		if _, err := s.CompleteRelease(ctx, req.LoanID, nil, in.ActorEmployeeID); err != nil {
+		// balance settled for a full release) before it will actually hand
+		// the gold back.
+		if _, err := s.CompleteRelease(ctx, req.LoanID, nil, actorEmployeeID); err != nil {
+			// Roll back the Approved state just persisted above — see this
+			// function's own doc comment on preApprovalStage/preStatus for
+			// why leaving it stuck Approved is worse than the extra write.
+			req.ApprovalStage = preApprovalStage
+			req.Status = preStatus
+			req.DecidedAt = nil
+			req.DecidedByEmployeeID = nil
+			if rbErr := s.requestRepo.Update(ctx, req); rbErr != nil {
+				log.Printf("could not roll back release request %d to %s after CompleteRelease failed: %v", req.ID, preStatus, rbErr)
+			}
 			return nil, err
 		}
 	}
@@ -3759,6 +4249,34 @@ func (s *Service) ApproveReleaseRequest(ctx context.Context, requestID uint, bra
 		}
 	}
 	return s.requestRepo.FindByID(ctx, req.ID)
+}
+
+// partialReleaseRemainingGoldValue re-derives V_remain (the combined
+// GoldValue of whatever ornaments this Partial Ornament Release request
+// would leave pledged) at the moment it is needed, rather than trusting a
+// value snapshotted back at CreateReleaseRequest time — GoldValue itself can
+// move between creation and approval (a new gold rate published in the
+// meantime), so re-deriving keeps the drift check honest against the
+// CURRENT numbers, not stale ones.
+func (s *Service) partialReleaseRemainingGoldValue(ctx context.Context, req *LoanRequest) (float64, error) {
+	all, err := s.ornamentRepo.FindAllByLoanID(ctx, req.LoanID)
+	if err != nil {
+		return 0, err
+	}
+	selected := make(map[uint]bool, len(req.OrnamentSelections))
+	for _, sel := range req.OrnamentSelections {
+		selected[sel.OrnamentID] = true
+	}
+	var remaining float64
+	for _, o := range all {
+		if o.ReleasedAt != nil {
+			continue // already gone, contributes to neither side
+		}
+		if !selected[o.ID] {
+			remaining += o.GoldValue
+		}
+	}
+	return remaining, nil
 }
 
 // extensionChain is the Extension-request chain's fixed stage order,
@@ -3929,29 +4447,34 @@ func (s *Service) ApproveExtensionRequest(ctx context.Context, requestID uint, b
 }
 
 // CompleteRelease is the actual "hand the gold back" step — separate from
-// approving the release request. It requires: an Approved Release request
-// for this loan; the settlement fully paid (TotalOutstandingBalance <= 0 —
-// every repayment recorded via RecordPayment has already reduced this
-// automatically); and the bank pledge already released, if there was one.
-// Only then does it move the loan's packet to Released and close the loan.
+// approving the release request. Requires an Approved Release request for
+// this loan and the bank pledge already released, if there was one.
+//
+// Branches on that request's IsPartial:
+//
+//   - Full release (IsPartial == false): completely unchanged from before
+//     Partial Ornament Release existed — additionally requires the
+//     settlement fully paid (TotalOutstandingBalance <= 0), moves the
+//     packet through to Released, and closes the loan.
+//   - Partial release (IsPartial == true): the "fully paid" guard is
+//     skipped entirely — a Partial Ornament Release is already gated
+//     upstream by partialReleaseRemaining (at creation) and
+//     partialReleaseDrift (at final approval), which is a collateral-
+//     coverage check, not a "balance must be zero" one; the loan is
+//     expected to still carry a real outstanding balance on the ornaments
+//     staying pledged. Only the SELECTED ornaments are marked Released,
+//     the packet stays in its current stage (still holding the rest — see
+//     RecordPartialGoldReleaseMovement), the loan's own Status is left
+//     exactly as it was, and TotalNetWeight/TotalGoldValue/
+//     EligibleLoanAmount are recomputed from what remains
+//     (PrincipalAmount/OutstandingAmount untouched). Finishes by
+//     generating the Partial Release Receipt in place of FORM 7.
 func (s *Service) CompleteRelease(ctx context.Context, loanID uint, branchID *uint, employeeID uint) (*Loan, error) {
-	if _, err := s.requestRepo.FindApprovedReleaseByLoanID(ctx, loanID); err != nil {
-		return nil, ErrReleaseNotApproved
-	}
-
 	l, err := s.Get(ctx, loanID, branchID)
 	if err != nil {
 		return nil, err
 	}
-	paidInFull := l.TotalOutstandingBalance <= 0.01
-	if !paidInFull {
-		if _, err := s.requestRepo.FindApprovedReleaseByLoanID(ctx, loanID); err != nil {
-			return nil, ErrReleaseNotApproved
-		}
-	}
-	if l.TotalOutstandingBalance > 0.01 {
-		return nil, ErrOutstandingBalanceRemains
-	}
+
 	// Asks the pledge RECORDS, not just the loan-level string. The string is
 	// a stored copy that can lie: a loan carrying two Active records (only
 	// possible before RecordBankPledge's once-per-loan guard) has its string
@@ -3967,6 +4490,35 @@ func (s *Service) CompleteRelease(ctx context.Context, loanID uint, branchID *ui
 	}
 	if hasActivePledge {
 		return nil, ErrBankPledgeStillActive
+	}
+
+	paidInFull := l.TotalOutstandingBalance <= 0.01
+
+	// A loan that's already paid in full closes directly here — the
+	// release-approval checklist (payment/packet/bank-pledge verification,
+	// manager sign-off) exists to negotiate a discount/settlement BEFORE
+	// the balance is cleared; once it's genuinely zero there's nothing left
+	// for that workflow to decide, and gold has already been confirmed
+	// returned by the pledge checks just above. Only a Partial Ornament
+	// Release (which by definition leaves a real balance on the ornaments
+	// staying pledged) or a not-yet-fully-paid settlement still requires an
+	// approved release request.
+	var approved *LoanRequest
+	if !paidInFull {
+		approved, err = s.requestRepo.FindApprovedReleaseByLoanID(ctx, loanID)
+		if err != nil {
+			return nil, ErrReleaseNotApproved
+		}
+	} else if a, err := s.requestRepo.FindApprovedReleaseByLoanID(ctx, loanID); err == nil {
+		approved = a
+	}
+
+	if approved != nil && approved.IsPartial {
+		return s.completePartialRelease(ctx, l, approved)
+	}
+
+	if l.TotalOutstandingBalance > 0.01 {
+		return nil, ErrOutstandingBalanceRemains
 	}
 
 	if s.packetMover != nil {
@@ -4003,6 +4555,69 @@ func (s *Service) CompleteRelease(ctx context.Context, loanID uint, branchID *ui
 		}
 	}
 
+	return s.Get(ctx, l.ID, nil)
+}
+
+// completePartialRelease is CompleteRelease's Partial Ornament Release
+// branch — see that function's own doc comment for the full contrast with
+// the full-release path.
+func (s *Service) completePartialRelease(ctx context.Context, l *Loan, approved *LoanRequest) (*Loan, error) {
+	selected := make(map[uint]bool, len(approved.OrnamentSelections))
+	for _, sel := range approved.OrnamentSelections {
+		selected[sel.OrnamentID] = true
+	}
+	if len(selected) == 0 {
+		// Should be unreachable — CreateReleaseRequest never marks a request
+		// IsPartial without a real selection — but a defensive check here is
+		// cheap insurance against releasing nothing while still reporting
+		// success.
+		return nil, ErrReleaseNotApproved
+	}
+
+	all, err := s.ornamentRepo.FindAllByLoanID(ctx, l.ID)
+	if err != nil {
+		return nil, err
+	}
+
+	now := time.Now()
+	var releasedGross, releasedNet float64
+	releasedCount := 0
+	for i := range all {
+		o := &all[i]
+		if !selected[o.ID] || o.ReleasedAt != nil {
+			continue
+		}
+		o.ReleasedAt = &now
+		if err := s.ornamentRepo.Update(ctx, o); err != nil {
+			return nil, err
+		}
+		releasedGross += o.GrossWeight
+		releasedNet += o.NetWeight
+		releasedCount++
+	}
+
+	if s.packetMover != nil {
+		remarks := fmt.Sprintf("Partial release: %d ornament(s) handed back to customer", releasedCount)
+		if err := s.packetMover.RecordPartialGoldReleaseMovement(ctx, l.ID, releasedGross, releasedNet, remarks); err != nil {
+			log.Printf("packet partial gold-release movement failed for loan %d: %v", l.ID, err)
+		}
+	}
+
+	// Recompute the loan's collateral totals from what remains pledged —
+	// PrincipalAmount/OutstandingAmount are deliberately untouched: a
+	// Partial Ornament Release changes what secures the loan, not what is
+	// owed on it. Loan.Status is likewise left exactly as it was — the loan
+	// is still active on the ornaments that remain.
+	if _, err := s.recalculateAndSave(ctx, l); err != nil {
+		return nil, err
+	}
+
+	// The Partial Release Receipt itself is generated on demand by
+	// DownloadPartialReleaseReceiptPDF (mirrors DownloadReleaseAgreementPDF)
+	// rather than eagerly here — nothing about this method's job ("hand the
+	// selected gold back") requires a PDF to exist yet, and generating one
+	// speculatively on every release would burn a headless-Chromium render
+	// for a document staff may never actually download.
 	return s.Get(ctx, l.ID, nil)
 }
 
@@ -4161,8 +4776,8 @@ func (s *Service) GetBankPledgeHistory(ctx context.Context, loanID uint, branchI
 
 // ListBankPledgeHistory returns re-pledge records across all loans, scoped to
 // the caller's branch — backs the Bank Re-Pledge screen's History tab.
-func (s *Service) ListBankPledgeHistory(ctx context.Context, branchID *uint, limit, offset int) ([]BankPledgeRecord, int64, error) {
-	return s.pledgeRepo.FindAllHistory(ctx, branchID, limit, offset)
+func (s *Service) ListBankPledgeHistory(ctx context.Context, branchID *uint, query string, limit, offset int) ([]BankPledgeHistoryRow, int64, error) {
+	return s.pledgeRepo.FindAllHistory(ctx, branchID, query, limit, offset)
 }
 
 // --- Customer 360 -----------------------------------------------------------
@@ -4303,6 +4918,12 @@ func (s *Service) ListAuctionHistoryForCustomer(ctx context.Context, customerID 
 // printIndemnity() assembles via buildDraft(), computed from the loan's own
 // data rather than the pre-save draft it uses (this runs against a real,
 // persisted loan — see StartIndemnityBondSign).
+//
+// Deliberately reads l.Ornaments UNFILTERED (not released_at IS NULL): the
+// indemnity bond is the pledge agreement for what the customer originally
+// pledged when the loan opened — it stays historically accurate even after
+// a later Partial Ornament Release, exactly like the FORM 7 release
+// agreement's own full-history read (see releaseAgreementDataForLoan).
 func (s *Service) bondDataForLoan(ctx context.Context, l *Loan) BondData {
 	now := time.Now()
 	age := 0

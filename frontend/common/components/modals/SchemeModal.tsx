@@ -6,13 +6,25 @@ import { useToast } from "@/common/components/Toast";
 import { Icon } from "@/common/components/Icon";
 import { useAuth } from "@/common/auth-context";
 import { listActiveBranches, type BranchView } from "@/modules/branches/services/branchService";
-import { createScheme, updateScheme, type SchemeView } from "@/modules/schemes/services/schemeService";
+import {
+  createScheme, updateScheme,
+  type SchemeView, type ServiceChargeType, type ServiceChargeMode,
+} from "@/modules/schemes/services/schemeService";
 import { Select } from "@/common/components/ui/Select";
 
 const DEFAULT_DURATION_MONTHS = 12;
 const METHODS = ["Monthly simple interest", "Flat monthly", "Quarterly simple", "Compound monthly"];
 const METHOD_OPTIONS = METHODS.map((m) => ({ value: m, label: m }));
 const STATUS_OPTIONS = [{ value: "1", label: "Active" }, { value: "0", label: "Inactive" }];
+const CHARGE_TYPE_OPTIONS: { value: ServiceChargeType; label: string }[] = [
+  { value: "None", label: "No service charge" },
+  { value: "Flat", label: "Flat amount (₹)" },
+  { value: "Percent", label: "Percentage of principal" },
+];
+const CHARGE_MODE_OPTIONS: { value: ServiceChargeMode; label: string }[] = [
+  { value: "WithheldFromPayout", label: "Withhold from payout — deducted from what's disbursed" },
+  { value: "AddedToPrincipal", label: "Added to principal — borrowed and repaid like the rest of the loan" },
+];
 
 /* Ported from legacy/app.js's `openSchemeModal(id)` / `saveScheme(id)`
  * (legacy/app.js:1154-1219). Now calls the Go backend (`POST`/`PUT
@@ -30,6 +42,9 @@ export function SchemeModalContent({ scheme: s, onSaved }: { scheme?: SchemeView
   const [penal, setPenal] = useState(s ? String(s.penal) : "");
   const [cond, setCond] = useState(s?.cond || "");
   const [active, setActive] = useState(s ? s.active : true);
+  const [chargeType, setChargeType] = useState<ServiceChargeType>(s?.serviceChargeType || "None");
+  const [chargeValue, setChargeValue] = useState(s && s.serviceChargeType !== "None" ? String(s.serviceChargeValue) : "");
+  const [chargeMode, setChargeMode] = useState<ServiceChargeMode>(s?.serviceChargeMode || "WithheldFromPayout");
   const [branches, setBranches] = useState<BranchView[]>([]);
   const [branchId, setBranchId] = useState<number | "">(
     s?.branchId || (!isAdmin && myBranchId ? myBranchId : "")
@@ -60,11 +75,19 @@ export function SchemeModalContent({ scheme: s, onSaved }: { scheme?: SchemeView
     if (n.length < 3) { setErr("Please enter a scheme name."); return; }
     if (!(r > 0)) { setErr("Please enter a valid interest rate."); return; }
     if (!(d > 0)) { setErr("Please enter a valid loan duration in months."); return; }
-    if (!(l >= 1 && l <= 90)) { setErr("LTV must be between 1 and 90%."); return; }
-    if (!(p >= 0 && p <= 10)) { setErr("Please enter penal charges between 0 and 10% per month."); return; }
+    if (!(l >= 1 && l <= 100)) { setErr("LTV must be between 1 and 100%."); return; }
+    if (!(p >= 0 && p <= 60)) { setErr("Please enter penal charges between 0 and 60% per annum."); return; }
     if (!branchId) { setErr("Please select a branch."); return; }
+    const cv = chargeType === "None" ? 0 : parseFloat(chargeValue);
+    if (chargeType !== "None" && !(cv >= 0 && (chargeType !== "Percent" || cv <= 100))) {
+      setErr(chargeType === "Percent" ? "Percentage charge must be between 0 and 100." : "Please enter a valid flat charge amount.");
+      return;
+    }
 
-    const input = { name: n, rate: r, durationMonths: d, ltv: l, penal: p, method, cond: cond.trim(), active, branchId: branchId as number };
+    const input = {
+      name: n, rate: r, durationMonths: d, ltv: l, penal: p, method, cond: cond.trim(), active, branchId: branchId as number,
+      serviceChargeType: chargeType, serviceChargeValue: cv, serviceChargeMode: chargeMode,
+    };
     setSaving(true);
     setErr("");
     try {
@@ -83,7 +106,7 @@ export function SchemeModalContent({ scheme: s, onSaved }: { scheme?: SchemeView
   return (
     <>
       <div className="hd"><h3>{s ? "Edit Scheme — " + s.name : "New Loan Scheme"}</h3><button className="x" onClick={closeModal}>×</button></div>
-      <div className="bd">
+      <div className="bd bd-scroll">
         <div className="frow c2 scheme-frow">
           <div><label className="f">Scheme Name *</label><input className="inp" placeholder="e.g. Swarna Premium" value={name} onChange={(e) => setName(e.target.value)} /></div>
           <div><label className="f">Interest Rate (% p.a.) *</label><input className="inp" type="number" step="0.1" min={0} placeholder="12.5" value={rate} onChange={(e) => setRate(e.target.value)} /></div>
@@ -91,16 +114,32 @@ export function SchemeModalContent({ scheme: s, onSaved }: { scheme?: SchemeView
         <div className="frow c2 scheme-frow">
           <div><label className="f">Loan Duration (months) *</label>
             <input className="inp" type="number" min={1} step={1} placeholder="e.g. 12" value={duration} onChange={(e) => setDuration(e.target.value)} /></div>
-          <div><label className="f">LTV (%) *</label><input className="inp" type="number" min={1} max={90} placeholder="max 90" value={ltv} onChange={(e) => setLtv(e.target.value)} /></div>
+          <div><label className="f">LTV (%) *</label><input className="inp" type="number" min={1} max={100} placeholder="e.g. 90" value={ltv} onChange={(e) => setLtv(e.target.value)} /></div>
         </div>
         <div className="frow c2 scheme-frow">
           <div><label className="f">Interest Calculation Method</label>
             <Select options={METHOD_OPTIONS} value={method} onChange={setMethod} /></div>
-          <div><label className="f">Penal Charges (% / month) *</label>
-            <input className="inp" type="number" step="0.1" min={0} max={10} placeholder="e.g. 2" value={penal} onChange={(e) => setPenal(e.target.value)} /></div>
+          <div><label className="f">Penal Charges (% p.a.) *</label>
+            <input className="inp" type="number" step="0.1" min={0} max={60} placeholder="e.g. 24" value={penal} onChange={(e) => setPenal(e.target.value)} /></div>
         </div>
         <div className="frow scheme-frow"><div><label className="f">Applicable Conditions</label>
-          <input className="inp" placeholder="e.g. Interest payable monthly; penal 2%/m after due" value={cond} onChange={(e) => setCond(e.target.value)} /></div></div>
+          <input className="inp" placeholder="e.g. Interest payable monthly; penal 24% p.a. after due" value={cond} onChange={(e) => setCond(e.target.value)} /></div></div>
+        <div className="frow c2 scheme-frow">
+          <div><label className="f">Service Charge</label>
+            <Select options={CHARGE_TYPE_OPTIONS} value={chargeType} onChange={(v) => setChargeType(v as ServiceChargeType)} /></div>
+          {chargeType !== "None" && (
+            <div><label className="f">{chargeType === "Flat" ? "Charge Amount (₹) *" : "Charge (% of principal) *"}</label>
+              <input
+                className="inp" type="number" step={chargeType === "Flat" ? 1 : 0.1} min={0} max={chargeType === "Percent" ? 100 : undefined}
+                placeholder={chargeType === "Flat" ? "e.g. 500" : "e.g. 2"}
+                value={chargeValue} onChange={(e) => setChargeValue(e.target.value)}
+              /></div>
+          )}
+        </div>
+        {chargeType !== "None" && (
+          <div className="frow scheme-frow"><div><label className="f">How the charge is collected *</label>
+            <Select options={CHARGE_MODE_OPTIONS} value={chargeMode} onChange={(v) => setChargeMode(v as ServiceChargeMode)} /></div></div>
+        )}
         <div className="frow c2 scheme-frow">
           <div><label className="f">Status</label>
             <Select options={STATUS_OPTIONS} value={active ? "1" : "0"} onChange={(v) => setActive(v === "1")} /></div>

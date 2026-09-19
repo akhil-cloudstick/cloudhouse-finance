@@ -68,7 +68,7 @@ export function IssueNoticeModalContent({ loan, onSaved, onError }: { loan: Loan
   return (
     <>
       <div className="hd"><h3>Issue Auction Notice — {loan.id}</h3><button className="x" onClick={closeModal}>×</button></div>
-      <div className="bd">
+      <div className="bd bd-scroll">
         <div className="frow"><div><label className="f">Channel</label>
           <p style={{ fontSize: 13.5, margin: "4px 0 0" }}>{NOTICE_CHANNELS.join(" · ")} — sent automatically</p></div></div>
         <div className="frow"><div><label className="f">Remarks</label><input className="inp" value={remarks} onChange={(e) => setRemarks(e.target.value)} /></div></div>
@@ -110,7 +110,7 @@ export function ScheduleAuctionModalContent({ loan, onSaved, onError }: { loan: 
   return (
     <>
       <div className="hd"><h3>Schedule Auction — {loan.id}</h3><button className="x" onClick={closeModal}>×</button></div>
-      <div className="bd">
+      <div className="bd bd-scroll">
         <div className="frow c2">
           <div><label className="f">Auction Date *</label><DatePicker value={date} onChange={setDate} /></div>
           <div><label className="f">Reference Number</label><input className="inp" value={ref} onChange={(e) => setRef(e.target.value)} /></div>
@@ -156,7 +156,7 @@ export function RecordSaleModalContent({ loan, onSaved, onError }: { loan: LoanV
   return (
     <>
       <div className="hd"><h3>Record Auction Sale — {loan.id}</h3><button className="x" onClick={closeModal}>×</button></div>
-      <div className="bd">
+      <div className="bd bd-scroll">
         <div className="notice" style={{ marginBottom: 16 }}>
           <Icon name="gavel" /> {loan.customerName} · outstanding <b>{fmt(loan.totalOutstandingBalance)}</b>
         </div>
@@ -244,8 +244,17 @@ export function SettleAuctionModalContent({ loan, rec, onSaved, onError }: { loa
         ? `Surplus of ${fmt(surplus)} marked for refund to ${loan.customerName}`
         : `Auction settled for ${loan.id} — surplus retained as income`);
     } catch (e) {
-      setErr(e instanceof ApiError ? e.message : "Could not settle the auction — try again.");
       onError?.(); // see IssueNoticeModalContent's onError comment above
+      // "already settled" means a previous attempt already succeeded (a
+      // stale screen re-submitting after its first click went through) —
+      // nothing left for this modal to do, so close it instead of leaving
+      // staff staring at a settle form for a case that's already done.
+      if (e instanceof ApiError && /already been settled/i.test(e.message)) {
+        closeModal();
+        toast("This auction case was already settled.");
+        return;
+      }
+      setErr(e instanceof ApiError ? e.message : "Could not settle the auction — try again.");
       submittingRef.current = false;
     } finally {
       setSaving(false);
@@ -255,7 +264,7 @@ export function SettleAuctionModalContent({ loan, rec, onSaved, onError }: { loa
   return (
     <>
       <div className="hd"><h3>Settle Auction — {loan.id}</h3><button className="x" onClick={closeModal}>×</button></div>
-      <div className="bd">
+      <div className="bd bd-scroll">
         <div className="notice" style={{ marginBottom: 16 }}>
           <Icon name="gavel" />
           <span>
@@ -356,7 +365,7 @@ export function AuctionDecisionModalContent({
         <h3>{isShortfall ? "Shortfall Decision" : "Repayment Decision"} — {loan.id}</h3>
         <button className="x" onClick={closeModal}>×</button>
       </div>
-      <div className="bd">
+      <div className="bd bd-scroll">
         <div className="notice" style={{ marginBottom: 16 }}>
           <Icon name="shield" />
           <span>

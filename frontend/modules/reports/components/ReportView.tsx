@@ -67,7 +67,7 @@ function today(): string {
 }
 
 export function ReportView({ config, onBack }: { config: ReportConfig; onBack: () => void }) {
-  const pageSize = useResponsivePageSize(11, 7);
+  const pageSize = useResponsivePageSize(15, 15);
   const toast = useToast();
   const [branches, setBranches] = useState<BranchView[]>([]);
   const [branchId, setBranchId] = useState<number>(0);
@@ -229,7 +229,7 @@ export function ReportView({ config, onBack }: { config: ReportConfig; onBack: (
 
       {error && <div className="notice" style={{ marginBottom: 4 }}>{error}</div>}
 
-      <div className="card tbl-card">
+      <div className="card tbl-card tbl-card-fill">
         <div className="tbl-wrap">
           <table className="tbl">
             <thead>

@@ -170,7 +170,7 @@ function View({ route, arg }: { route: string; arg?: string }) {
     case "packet":
       return <PacketDetail code={arg} />;
     case "bankpledge":
-      return <BankPledge />;
+      return <BankPledge focusLoanNumber={arg} />;
     case "reports":
       return <Reports />;
     case "employees":

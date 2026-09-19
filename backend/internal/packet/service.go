@@ -41,15 +41,20 @@ type LockerCapacityProvider interface {
 // allowedTransitions is the packet stage graph enforced by RecordMovement:
 //
 //	PacketGenerated -> LockerStored
-//	LockerStored    -> BankPledged | ReadyForRelease
+//	LockerStored    -> BankPledged | Released
 //	BankPledged     -> Returned
-//	Returned        -> LockerStored | ReadyForRelease
-//	ReadyForRelease -> Released (terminal)
+//	Returned        -> LockerStored | Released
+//	Released        (terminal)
+//
+// StatusReadyForRelease is no longer a step a packet passes through — gold
+// goes straight from custody (LockerStored/Returned) to Released — but the
+// status value itself stays defined so historic movement rows recorded
+// before this change still read correctly.
 var allowedTransitions = map[string][]string{
 	StatusPacketGenerated: {StatusLockerStored},
-	StatusLockerStored:    {StatusBankPledged, StatusReadyForRelease},
+	StatusLockerStored:    {StatusBankPledged, StatusReleased},
 	StatusBankPledged:     {StatusReturned},
-	StatusReturned:        {StatusLockerStored, StatusReadyForRelease},
+	StatusReturned:        {StatusLockerStored, StatusReleased},
 	StatusReadyForRelease: {StatusReleased},
 	StatusReleased:        {},
 }
@@ -97,6 +102,20 @@ func (s *Service) Create(ctx context.Context, loanID uint, lockerID *uint) (*Pac
 		Code:   fmt.Sprintf("PKT-%06d", maxSuffix+1),
 		LoanID: loanID,
 		Status: StatusPacketGenerated,
+	}
+
+	// TotalGrossWeight/TotalNetWeight start as the sum of the loan's own
+	// ornaments — the loan is guaranteed to exist and already carry its
+	// ornaments by the time CreatePacketForLoan runs (called right after
+	// loan.Service.Create succeeds), so a lookup failure here is logged and
+	// left at zero rather than failing packet creation over it; the
+	// weights are cosmetic/audit figures, not something the lending flow
+	// itself depends on.
+	if grossWeight, netWeight, err := s.repo.SumLoanOrnamentWeights(ctx, loanID); err != nil {
+		log.Printf("packet: could not sum ornament weights for loan %d at packet creation: %v", loanID, err)
+	} else {
+		p.TotalGrossWeight = grossWeight
+		p.TotalNetWeight = netWeight
 	}
 
 	remarks := ""
@@ -259,27 +278,65 @@ func (s *Service) RecordBankReleaseMovement(ctx context.Context, loanID uint, re
 
 // RecordGoldReleaseMovement implements loan.PacketMover — called by
 // loan.Service.CompleteRelease once every release gate (settlement paid,
-// bank pledge released, approval chain complete) has passed. Routes the
-// packet through ReadyForRelease first if it isn't already there (both
-// LockerStored and Returned allow that edge), then to the terminal
-// Released state.
+// bank pledge released, approval chain complete) has passed. Moves the
+// packet straight from its current custody status to the terminal Released
+// state — there is no intermediate "Ready For Release" step to pass
+// through first.
 func (s *Service) RecordGoldReleaseMovement(ctx context.Context, loanID uint, remarks string) error {
 	p, err := s.repo.FindActiveByLoanID(ctx, loanID)
 	if err != nil {
 		return err
 	}
-	if p.Status != StatusReadyForRelease {
-		if !isAllowed(p.Status, StatusReadyForRelease) {
-			return ErrInvalidPacketTransition
-		}
-		if _, err := s.RecordMovement(ctx, p.ID, StatusReadyForRelease, nil, 0, remarks); err != nil {
-			return err
-		}
-		p, err = s.repo.FindByID(ctx, p.ID)
-		if err != nil {
-			return err
-		}
+	if p.Status != StatusReleased && !isAllowed(p.Status, StatusReleased) {
+		return ErrInvalidPacketTransition
 	}
 	_, err = s.RecordMovement(ctx, p.ID, StatusReleased, nil, 0, remarks)
 	return err
+}
+
+// RecordPartialGoldReleaseMovement implements loan.PacketMover's partial
+// counterpart to RecordGoldReleaseMovement — called by
+// loan.Service.CompleteRelease for a Partial Ornament Release, once only
+// SOME of the loan's ornaments are being handed back and the rest stay
+// physically in this packet.
+//
+// Unlike a full release, this deliberately does NOT drive any stage
+// transition (FromStatus == ToStatus == the packet's current status): the
+// packet is loan-scoped, not ornament-scoped, and it still holds real gold
+// in the same locker/bank-pledge state it was already in, so nothing about
+// its own custody stage has changed. The movement row exists purely as an
+// audit remark ("which ornaments came out, how much weight left") — see
+// RecordMovement's normal FromStatus != ToStatus rows for the stage-change
+// case this is not.
+//
+// The weight decrement is the operative effect: without it, a packet's own
+// TotalGrossWeight/TotalNetWeight would silently drift away from what the
+// locker physically still holds every time a partial release happened,
+// which defeats the reason those columns exist in the first place (see
+// Packet.TotalGrossWeight's doc comment).
+func (s *Service) RecordPartialGoldReleaseMovement(ctx context.Context, loanID uint, releasedGrossWeight, releasedNetWeight float64, remarks string) error {
+	p, err := s.repo.FindActiveByLoanID(ctx, loanID)
+	if err != nil {
+		return err
+	}
+
+	p.TotalGrossWeight -= releasedGrossWeight
+	p.TotalNetWeight -= releasedNetWeight
+	if p.TotalGrossWeight < 0 {
+		p.TotalGrossWeight = 0
+	}
+	if p.TotalNetWeight < 0 {
+		p.TotalNetWeight = 0
+	}
+	if err := s.repo.Update(ctx, p); err != nil {
+		return err
+	}
+
+	mv := &PacketMovement{
+		PacketID:   p.ID,
+		FromStatus: p.Status,
+		ToStatus:   p.Status,
+		Remarks:    remarks,
+	}
+	return s.repo.CreateMovement(ctx, mv)
 }

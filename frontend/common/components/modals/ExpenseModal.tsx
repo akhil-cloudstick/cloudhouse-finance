@@ -78,7 +78,7 @@ export function ExpenseModalContent({ onSaved }: { onSaved?: () => void }) {
   return (
     <>
       <div className="hd"><h3>Record Expense</h3><button className="x" onClick={closeModal}>×</button></div>
-      <div className="bd">
+      <div className="bd bd-scroll">
         <div className="frow"><div><label className="f">Description *</label>
           <input className="inp" placeholder="e.g. Office maintenance" value={desc} onChange={(e) => setDesc(e.target.value)} /></div></div>
         <div className="frow c2">
@@ -118,7 +118,7 @@ export function ReceiptViewModalContent({ e }: { e: ExpenseView }) {
   return (
     <>
       <div className="hd"><h3>Receipt — {e.payee} ({fmt(e.amt)})</h3><button className="x" onClick={closeModal}>×</button></div>
-      <div className="bd" style={{ textAlign: "center" }}>
+      <div className="bd bd-scroll" style={{ textAlign: "center" }}>
         <img src={e.img} style={{ maxWidth: "100%", maxHeight: "70vh", borderRadius: 8 }} alt="Receipt" />
       </div>
     </>

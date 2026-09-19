@@ -202,6 +202,18 @@ func Run(db *gorm.DB, cfg platform.Config) error {
 		return err
 	}
 
+	// Partial Ornament Release: both must run AFTER AutoMigrate (they write
+	// into columns AutoMigrate itself creates — see each function's own doc
+	// comment for why this ordering, unlike some other steps in this file,
+	// is a same-table copy rather than a pre-AutoMigrate NOT-NULL
+	// workaround).
+	if err := loan.BackfillReleaseChecklistColumns(db); err != nil {
+		return err
+	}
+	if err := loan.BackfillPacketWeightTotals(db); err != nil {
+		return err
+	}
+
 	if err := backfillBranches(db); err != nil {
 		return err
 	}
@@ -1038,6 +1050,7 @@ var allModels = []any{
 	&loan.AuctionEvent{},
 	&loan.AuctionDecisionRequest{},
 	&loan.LoanRequest{},
+	&loan.LoanRequestOrnament{},
 	&loan.RequestApproval{},
 	&loan.ApprovalLimit{},
 	// Unsubmitted New Gold Loan forms behind the "Save Draft" button.
@@ -1053,6 +1066,7 @@ var allModels = []any{
 	&personalloan.PersonalLoan{},
 	&personalloan.PersonalLoanInstallment{},
 	&personalloan.PersonalLoanPayment{},
+	&personalloan.PersonalLoanHistory{},
 	&investment.InvestmentPlan{},
 	&investment.Investment{},
 	&investment.InvestmentPayout{},

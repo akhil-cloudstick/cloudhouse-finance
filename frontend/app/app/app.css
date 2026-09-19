@@ -462,13 +462,18 @@ h3,
   font-weight: 500
 }
 
-/* global search (header, starts 200px to the right) */
+/* global search (header) — sits immediately to the left of the gold-rate
+ * island: `margin-left: auto` claims all the leftover space from the crumb
+ * side so the search bar (and the rate chip/user block right after it in
+ * markup order) stay pinned together at the header's right edge, instead of
+ * the old fixed 200px-from-crumb + margin-right:auto combo that left a large
+ * dead gap before the rate chip on wide screens. */
 .gsearch {
   position: relative;
-  flex: 1;
+  flex: 0 1 440px;
   max-width: 440px;
-  margin-left: 200px;
-  margin-right: auto;
+  margin-left: auto;
+  margin-right: 12px;
   min-width: 170px;
 }
 
@@ -946,6 +951,17 @@ h3,
   flex: 1 1 auto
 }
 
+/* Cash.tsx's Cash Movements filter row — same 230px-ignoring problem as the
+ * report filter bar above: at this row's typical card width, two fixed
+ * 230px date fields plus the type select, Clear and Download buttons don't
+ * fit on one line and wrap. Narrowed to 130px, matching the row's other
+ * compact controls, so From/To/Clear/Download stay on a single line.
+ * Scoped to `.cash-filter-row` only. */
+.cash-filter-row .dp.dp-date {
+  width: 130px;
+  flex: 0 0 130px
+}
+
 /* Small-screen 3-col grid packs "Bank Pledge Due Date" into a column
  * narrow enough that its label wraps to two lines, while its row-mates
  * ("Interest Rate (% p.a.)", "Reference Number") stay on one — the wrapped
@@ -999,6 +1015,25 @@ h3,
   height: 9px;
   color: var(--brand-deep);
   flex-shrink: 0
+}
+
+/* SearchableSelect's own chevron (components/SearchableSelect.tsx,
+ * non-compact only) — the trigger there is a plain `.inp` text input, not a
+ * flex `.dp-trigger` button, so the icon is positioned absolute over it
+ * instead of laid out inline; `.ss-input`'s extra right padding keeps typed
+ * text from running underneath it. */
+.ss-chevron {
+  position: absolute;
+  top: 50%;
+  right: 10px;
+  width: 9px;
+  height: 9px;
+  color: var(--brand-deep);
+  pointer-events: none
+}
+
+.ss-input {
+  padding-right: 26px
 }
 
 .dp-trigger:disabled {
@@ -1190,7 +1225,9 @@ h3,
 .branch-switcher select:focus{outline:2px solid var(--brand);outline-offset:1px}
 
 .top .rate-chip {
-  margin-left: auto;
+  /* No longer margin-left:auto — .gsearch now owns that (see its own
+   * comment) so it and the rate chip sit flush next to each other instead
+   * of each claiming the same auto-margin space and fighting over it. */
   display: flex;
   align-items: center;
   gap: 9px;
@@ -1268,7 +1305,7 @@ h3,
  * ~1980px screens) instead of capping at 1460px and leaving empty space
  * on wide monitors, matching every table/card grid below to fill it. */
 .page {
-  padding: 24px 26px 24px 40px;
+  padding: 24px 40px 40px 40px;
   flex: 1;
   min-height: 0;
   overflow-y: auto;
@@ -1339,6 +1376,25 @@ h3,
   flex-shrink: 0 !important;
 }
 
+/* Opt-in fill variant of `.tbl-card`/`.tbl-wrap` above: those default to
+ * flex-grow:0 (size-to-content) so short tables don't stretch with empty
+ * space above their footer — correct for most pages, but some pages want
+ * the opposite: a table card that always fills the remaining space down
+ * to `.page`'s own bottom padding, regardless of row count, so its bottom
+ * edge lines up with every other filled card on the page. Added alongside
+ * `tbl-card`/`tbl-wrap` (not a replacement) so it never touches the
+ * default behavior other pages already rely on. */
+.tbl-card-fill {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+.tbl-card-fill > .tbl-wrap {
+  flex: 1 1 auto;
+  min-height: 0;
+  max-height: none;
+  overflow-y: auto;
+}
+
 /* Auctions.tsx's own two History sub-tables — a plain CSS backstop (not
  * just the inline maxHeight the JSX sets) so the cap survives regardless
  * of load order against the generic `.tbl-wrap{max-height:calc(100vh -
@@ -1370,43 +1426,32 @@ h3,
   flex: 0 0 auto;
 }
 
-/* Packets & Lockers, big screens: the locker column used to size to its own
- * content with no cap at all — with more than a handful of lockers, that
- * stretched it (and the page) well past the packets table beside it instead
- * of scrolling internally the same way `.tbl-wrap` does. Capped to the same
- * `calc(100vh - 350px)` the packets table already uses, so the two columns
- * top out at roughly the same height and the locker list scrolls in place.
- * Placed before the ≤1366px block below so that block's own (smaller,
- * fixed) cap still wins there via source order at equal specificity. */
-.grid.locker-col {
-  max-height: calc(100vh - 350px);
+/* Packets & Lockers: the packets table (left) now fills down to the
+ * page's consistent bottom gap via `.tbl-card-fill` like every other
+ * table card, and this locker column stretches to match it height-for-
+ * height instead of capping itself to an independent calc(100vh-Npx)
+ * guess. `.packets-grid` (this row's own grid container, the last thing
+ * on the page) is the one that actually owns the available height —
+ * see its own rule further down — this just makes the locker column
+ * fill whatever row height that hands down and scroll internally past
+ * it, on every screen size (no separate small-screen breakpoint needed;
+ * the row height itself already shrinks with the viewport).
+ *
+ * `min-height:0` is required, not cosmetic: a grid row's `1fr` track
+ * still computes an automatic MINIMUM size from its items' own content
+ * height unless each item explicitly overrides that to 0. With enough
+ * lockers loaded, this column's stacked LockerCards' natural height
+ * could exceed the packets table's height and drag the whole row (and
+ * the page) taller than intended — only showing up on wide/short
+ * screens where there's room for many locker cards to actually reach
+ * that natural height; a narrow screen that stacks this grid to a
+ * single column never hits it, which is why the bug looked "fine on
+ * small screens, broken on big ones". */
+.packets-grid > .grid.locker-col {
+  max-height: none;
+  height: 100%;
+  min-height: 0;
   overflow-y: auto;
-}
-
-/* Packets & Lockers: below 1366px ("small screen" — same threshold used
- * elsewhere for this app), the packets table caps at exactly 5 data
- * rows' worth of height (header ~38px + 5 rows at ~42px each, trimmed
- * slightly so the 6th row's top edge doesn't peek in) before it scrolls
- * internally, and the locker column caps at exactly one LockerCard tile
- * tall before it scrolls — independent of each other (the two are no
- * longer height-matched, see Packets.tsx). On a big screen there's
- * enough room that both stay "normal": the table falls back to
- * `.tbl-card > .tbl-wrap`'s own content-sized/cap-at-page-height
- * behavior, and the locker column falls back to its own cap right above
- * this block. `.tbl-wrap.tbl-wrap-3row` (not just `.tbl-wrap-3row`) so
- * this reliably beats the generic `.tbl-wrap{max-height:calc(100vh -
- * 350px)}` rule regardless of source order — same specificity, single
- * class vs single class, would otherwise let whichever is declared later
- * win. */
-@media (max-width: 1366px) {
-  .tbl-wrap.tbl-wrap-3row {
-    max-height: 232px;
-  }
-
-  .grid.locker-col {
-    max-height: 339px;
-    overflow-y: auto;
-  }
 }
 
 .page-h {
@@ -1531,12 +1576,69 @@ h3,
 /* ── cards / grid ───────────────────────── */
 .grid {
   display: grid;
-  gap: 15px
+  gap: 15px;
+  /* A grid item's default min-width is `auto` (sized to its content), so a
+   * nested `.grid` (e.g. LoanDetail.tsx's card column inside .grid.cols12)
+   * would refuse to shrink below whatever `.tbl` min-width:640px table sits
+   * inside it, forcing the outer grid — and the whole page — wider than the
+   * viewport instead of letting `.tbl-wrap`'s own overflow-x:auto scroll it
+   * internally. min-width:0 here just allows shrinking; it does not force
+   * it, so nothing that already fit is affected. */
+  min-width: 0
 }
 
 .grid.cols21 {
   grid-template-columns: minmax(0, 2fr) minmax(0, 1fr);
   align-items: start
+}
+
+/* Packets & Lockers' own `.cols21` row — the last element on the page —
+ * stretched and given a 1fr row track so it fills `.page`'s remaining
+ * height down to its bottom padding, the same consistent-gap treatment
+ * every other table card page now gets. `align-items:start` above
+ * (shared with NewLoan.tsx's own unrelated `.cols21` use) is overridden
+ * here rather than there, so this stays scoped to Packets alone.
+ * `.grid.packets-grid` (2 classes), not bare `.packets-grid` (1 class) —
+ * `.grid.cols21` right above is itself 2 classes, so a 1-class override
+ * here was silently losing to its `align-items:start` regardless of
+ * source order (equal-specificity ties go to whichever is later in the
+ * file, but 1 class is simply lower specificity than 2 and never gets
+ * the chance to tie). That left the packets card's own box at its
+ * natural, un-stretched height — only the grid CELL area was tall,
+ * as empty space no visible card ever grew into. */
+.grid.packets-grid {
+  grid-template-rows: 1fr;
+  align-items: stretch;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+/* NewLoan.tsx's ornament-form card and Valuation sidebar, so both columns'
+ * bottoms line up: `stretch` (not the base `start`) makes the sidebar
+ * grid-item's box match the (usually taller) form card's height, and
+ * `.newloan-sidebar` turning that item into a flex column with its
+ * trailing `.notice` set to grow (below) is what actually pushes the
+ * visible extra space into that last box rather than leaving it as dead
+ * grid-cell area past the sidebar's real content. No overflow/scroll is
+ * introduced here — deliberately, since the ornament form's own
+ * SearchableSelect dropdowns pop out via position:absolute and would get
+ * clipped by any scrollable ancestor (see NewLoan.tsx's own comment on
+ * this near its ornament table). The page still simply scrolls if the
+ * form itself is taller than the viewport, same as before. */
+/* `.grid.cols21.newloan-orn-grid` (2 classes), not bare
+ * `.newloan-orn-grid` (1 class) — same specificity mistake as
+ * `.packets-grid` above: `.grid.cols21{align-items:start}` is 2 classes
+ * and would otherwise always win over a 1-class override regardless of
+ * source order, leaving the columns un-stretched. */
+.grid.cols21.newloan-orn-grid {
+  align-items: stretch;
+}
+.newloan-sidebar {
+  display: flex;
+  flex-direction: column;
+}
+.newloan-sidebar > .notice:last-child {
+  flex: 1 1 auto;
 }
 
 /* minmax(0,…) like .cols21 above — a bare `1fr` leaves grid items at
@@ -1551,7 +1653,65 @@ h3,
  * (a 1fr column re-measures per tab and visibly jumps), and the table on the
  * right wraps to fit its column rather than scrolling horizontally. */
 .grid.cols12.cust-360 {
-  grid-template-columns: 430px minmax(0, 1fr)
+  grid-template-columns: 430px minmax(0, 1fr);
+  /* Fills the remaining .page height (this grid is the last element on
+   * the page) so the tabbed table card on the right can stretch down to
+   * the same consistent bottom gap every other table card now uses,
+   * instead of sizing to its own tallest tab's content. */
+  grid-template-rows: 1fr;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+/* Same automatic-minimum-track-size issue as Packets & Lockers'
+ * `.locker-col` (see that rule's own comment): a grid row's `1fr` track
+ * still computes its MINIMUM size from each item's own content height
+ * unless that item explicitly zeroes it out. The left profile column's
+ * card (KYC + documents + nominee + loan totals) can be tall enough on
+ * its own to drag the row taller than the intended fill height at some
+ * widths, which is what made the right-hand table card's bottom gap
+ * inconsistent depending on window size. */
+.grid.cols12.cust-360 > .grid,
+.grid.cols12.cust-360 > .cust-360-tabrow {
+  min-height: 0;
+}
+
+/* min-height:0 above lets this column's box shrink to the row's real
+ * height instead of dragging the row taller — but with a profile that
+ * has a lot of KYC/nominee/loan data, the card's own content then no
+ * longer fits inside that shrunk box. Without its own scroll, the
+ * overflow just spilled straight past the card's bottom border with no
+ * padding, flush against the page edge. Sized here and scrolled on
+ * `.bd` specifically (below), not the card itself, so the "Customer
+ * Profile" heading stays fixed above the scrolling content instead of
+ * scrolling away with it. */
+/* `height:100%` down this chain relied on every ancestor having a
+ * genuinely definite (not just grid-stretched) height to resolve
+ * against, which didn't hold up in practice — the card overflowed past
+ * its box again. Using `flex` the whole way down instead (this wrapper
+ * only ever holds the one profile `.card`, so trading its `display:grid`
+ * for a flex column changes nothing else) is the same reliable
+ * grow-to-fill mechanism `.tbl-card-fill` already uses elsewhere. */
+.grid.cols12.cust-360 > .grid {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+.grid.cols12.cust-360 > .grid > .card {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+/* Scrolled on `.bd` (the KYC/documents/nominee/loan-details content),
+ * not on `.card` itself — `.card` is already `display:flex;flex-
+ * direction:column` (see its own rule), so `.hd` ("Customer Profile")
+ * stays a plain, un-scrolled sibling above `.bd` and the scrollbar only
+ * ever runs alongside the content below it, never over the heading. No
+ * sticky/background hack needed this way — `.hd` was never inside the
+ * scrolling area to begin with. */
+.grid.cols12.cust-360 > .grid > .card > .bd {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
 }
 
 /* At an ordinary laptop window (1280-1400px-ish), the fixed 430px left
@@ -1668,6 +1828,34 @@ h3,
   overflow-y: hidden;
 }
 
+/* The tabbed sub-table card opts into `tbl-card-fill` (same as every other
+ * table card) so it fills down to the page's bottom padding, but its
+ * `.tbl-wrap` sits nested inside a `.tab-slide-up` transition wrapper
+ * rather than being `tbl-card-fill`'s direct child (the generic
+ * `.tbl-card-fill > .tbl-wrap` rule doesn't reach through that extra
+ * level), and the 56vh cap right above this exists specifically to be
+ * overridden here — descendant selectors so specificity wins regardless
+ * of file order. */
+.cust-360 .tbl-card-fill {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+.cust-360 .tbl-card-fill > .tab-slide-up {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+.cust-360 .tbl-card-fill .tbl-wrap {
+  height: auto;
+  max-height: none;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+}
+
 .cust-360 .tbl {
   table-layout: fixed;
   width: 100%
@@ -1710,9 +1898,15 @@ h3,
    * otherwise leave their footer floating mid-card instead of aligned
    * with the row's tallest card's footer). No overflow/scroll is set on
    * `.bd`, so content still grows the card naturally; this only fills
-   * the slack a stretched grid row adds. */
+   * the slack a stretched grid row adds. min-width:0 for the same reason as
+   * the base `.grid` rule above — a flex/grid item's default min-width is
+   * `auto`, so a card wrapping a `.tbl` (min-width:640px) would otherwise
+   * refuse to shrink and push its own grid column, and the page, wider than
+   * the viewport instead of letting `.tbl-wrap` scroll that table
+   * internally. */
   display: flex;
   flex-direction: column;
+  min-width: 0;
   transition: all .2s ease;
 }
 
@@ -2063,6 +2257,47 @@ h3,
   height: 16px
 }
 
+.seg-toggle {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  height: 24px;
+  padding: 2px;
+  border-radius: 6px;
+  background: var(--panel-2, #eef0f3);
+  border: 1px solid var(--line);
+  cursor: pointer;
+  user-select: none;
+}
+
+.seg-toggle-thumb {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: calc(50% - 2px);
+  height: calc(100% - 4px);
+  border-radius: 5px;
+  background: var(--brand);
+  transition: transform .18s ease;
+}
+
+.seg-toggle-opt {
+  position: relative;
+  z-index: 1;
+  flex: 1;
+  text-align: center;
+  padding: 0 10px;
+  font-size: 11.5px;
+  font-weight: 400;
+  color: var(--muted);
+  transition: color .18s ease, font-weight .18s ease;
+}
+
+.seg-toggle-opt.active {
+  color: #fff;
+  font-weight: 600;
+}
+
 .btn:hover {
   background: var(--brand-mid);
   border-color: var(--brand-mid);
@@ -2146,7 +2381,7 @@ h3,
  * only ever has one card here, so it never needed this) — equal columns
  * at desk width, stacked below 1060px alongside every other .grid.cols*
  * breakpoint (see @media(max-width:1060px) further down this file). */
-.pl-detail-grid{display:grid;grid-template-columns:1fr 1fr;gap:15px;align-items:start}
+.pl-detail-grid{display:grid;grid-template-columns:1fr 1fr;grid-template-rows:1fr;gap:15px;align-items:stretch;flex:1 1 auto;min-height:0}
 .btn.doc-action{width:132px;flex:0 0 auto;overflow:hidden}
 .doc-action-tx{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;display:inline-block;min-width:0}
 /* PersonalLoanDetail.tsx's Download Bond button is the row's only action
@@ -2623,6 +2858,28 @@ label.f {
   border-radius: 10px;
 }
 
+/* PersonalLoanDetail.tsx's Schedule/History and Payment History cards sit
+ * side by side in `.pl-detail-grid`. Both cards now use `.tbl-card-fill`
+ * so their `.tbl-wrap` stretches to fill `.pl-detail-grid`'s row (itself
+ * stretched to `.page`'s remaining height) rather than sizing to a fixed
+ * pixel height — that keeps both cards' bottoms aligned to the same line
+ * regardless of viewport height, while still matching each other via the
+ * shared grid row height. Row height is still pinned below so a chip row
+ * and a plain-text row occupy the same space. */
+
+/* Schedule's Status column renders a `.chip` badge, which stacks its own
+ * padding on top of `.tbl td`'s, making that row taller than Payment
+ * History's plain-text rows — so at the same 10 rows the two tables in
+ * `.pl-tbl-wrap-fixed` don't actually match row-for-row. Pin every row to
+ * one height and center cell content in it so a chip row and a plain-text
+ * row occupy the same space. */
+.pl-tbl-wrap-fixed .tbl td {
+  height: 43.6px;
+  box-sizing: border-box;
+  padding-top: 0;
+  padding-bottom: 0;
+}
+
 .tbl-wrap::-webkit-scrollbar {
   width: 0;
   height: 0;
@@ -2704,6 +2961,22 @@ table.tbl {
 .tbl.tbl-tight td {
   padding-top: 10px;
   padding-bottom: 10px
+}
+
+/* Personal Loan detail page's History table Event/detail cell: all three
+ * switchable/side-by-side tables there (Schedule, Payment History, History)
+ * share the exact same base .tbl row padding and page size (10 rows) so a
+ * full page comes out the same height on every one of them — but History's
+ * detail column carries free-text long enough to wrap onto a second line
+ * (e.g. a renewal's "Renewed into loan PL-00042 · View loan"), which alone
+ * would make just its own rows taller than Schedule's are. Clamping it to
+ * one line (title attribute in the markup carries the full text as a
+ * tooltip) is what keeps every row the same height instead. */
+.pl-history-detail {
+  max-width: 260px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 /* .tbl-stack: at narrow-enough widths, a wide table (Cash Movements' 7
@@ -3052,6 +3325,20 @@ table.tbl {
   transform: translateY(-1px);
 }
 
+/* Browser default focus outlines paint OUTSIDE the button's own box — on a
+ * row like Loans.tsx's small-screen "Filter" toggle, sitting right against
+ * .page's edge, that outline got sheared flat by .page's own
+ * overflow-y:auto (which forces overflow-x to auto too, clipping anything
+ * bleeding past the edge — the same trap the .tabs overflow-x:visible
+ * exemptions above are scoped around). An inset box-shadow ring instead
+ * paints inside the button's own border box, so it can never be clipped by
+ * an ancestor's scroll container regardless of how close the button sits to
+ * its edge. */
+.tabs button:focus-visible {
+  outline: none;
+  box-shadow: inset 0 0 0 2px var(--brand);
+}
+
 .tabs button.on {
   background: linear-gradient(180deg, var(--brand-light) 0%, var(--brand-deep) 100%);
   color: #fff;
@@ -3393,12 +3680,25 @@ table.tbl {
  * every breakpoint below (keep the two in step there); the extra height
  * comes from this content-box floor alone — 48px against the 38px the
  * footer inherits from its buttons' pinned `.btn` height. */
+/* Sticky to the top of `.modal-bg`, mirroring `.modal .ft`'s own sticky-
+ * bottom treatment just below (see that rule's doc comment for why this is
+ * done via `.modal-bg`'s scroll rather than making `.bd` its own scroll
+ * container) — a modal taller than the viewport (EditLoanModal with a long
+ * ornament list, etc.) used to scroll its title out of view entirely,
+ * which read as "the whole page is scrolling" rather than just this
+ * modal's body. Now the header stays put and only the middle moves,
+ * exactly like the footer already does. */
 .modal .hd {
   display: flex;
   align-items: center;
   min-height: 48px;
   padding: 14px 22px;
-  border-bottom: 1px solid var(--line)
+  border-bottom: 1px solid var(--line);
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  background: var(--card);
+  border-radius: 10px 10px 0 0
 }
 
 .modal .hd h3 {
@@ -4060,6 +4360,25 @@ table.tbl {
   color: var(--ink)
 }
 
+/* LoanDetail.tsx's top row: Financial Summary / Settlement Preview /
+ * Pledged Ornaments side by side, three equal columns, kept at EVERY
+ * screen size (including small screens, per explicit request) rather than
+ * stacking. minmax(0,1fr) rather than a bare 1fr — a grid item's default
+ * min-width is `auto`, so it would otherwise refuse to shrink below its
+ * content's natural width (same trap `.grid`'s own min-width:0 rule
+ * documents), which matters for Pledged Ornaments' key/value blocks on a
+ * narrow viewport. */
+.loan-detail-c3 {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1fr);
+  /* stretch (the grid default, but stated explicitly here since the shared
+   * .grid.cols21/.cols12 rules elsewhere in this file set align-items:start)
+   * so all three cards in the row match the tallest one's height, rather
+   * than each shrinking to its own content — each `.card` is already a
+   * flex column, so the extra height just becomes blank space at the
+   * bottom of the shorter cards' `.bd`. */
+  align-items: stretch
+}
+
 @media(max-width:1060px) {
   .frow.c4 {
     grid-template-columns: 1fr 1fr
@@ -4076,6 +4395,32 @@ table.tbl {
   .grid.cols12,
   .grid.cols12.cust-360 {
     grid-template-columns: 1fr
+  }
+
+  /* Stacked to one column here, so the profile card and the tabbed
+   * table card are now two separate rows, not two side-by-side items
+   * sharing one `1fr` row — forcing that same single-row fill (set for
+   * the desktop 2-column layout, further up this file) instead made the
+   * profile card claim the whole remaining height and left the table
+   * card's own fill rules with no real row height to stretch into, so it
+   * collapsed flush against the page's bottom edge with no breathing
+   * room. Falls back to ordinary content-sized rows and lets `.page`'s
+   * own bottom padding provide the gap, same as before this table
+   * learned to fill. */
+  .grid.cols12.cust-360 {
+    grid-template-rows: none;
+    flex: 0 1 auto;
+    min-height: 0;
+  }
+
+  .cust-360 .tbl-card-fill,
+  .cust-360 .tbl-card-fill > .tab-slide-up {
+    flex: 0 1 auto;
+  }
+
+  .cust-360 .tbl-card-fill .tbl-wrap {
+    flex: 0 1 auto;
+    max-height: 56vh;
   }
 }
 
@@ -4108,13 +4453,14 @@ table.tbl {
 
 /* ── screens 1559px and below: collapsible search & responsive gold rate ── */
 @media (max-width: 1559px) {
-  /* Default: search is closed and starts 200px to the right */
+  /* Default: search collapses to just its trigger icon, pinned next to the
+   * rate chip via the same margin-left:auto as the wide-screen rule. */
   .gsearch {
     flex: 0 0 auto;
     max-width: none;
     min-width: 0;
-    margin-left: 200px;
-    margin-right: 0;
+    margin-left: auto;
+    margin-right: 8px;
   }
   .gsearch:not(.gsearch-expanded) .gsearch-trigger {
     display: flex;
@@ -4123,14 +4469,16 @@ table.tbl {
     display: none;
   }
 
-  /* When opened: becomes a normal search bar, expanding to the right */
+  /* When opened: becomes a normal search bar, expanding to the LEFT (toward
+   * the crumb) since it's anchored at the header's right edge next to the
+   * rate chip, not the left. */
   .gsearch.gsearch-expanded {
     flex: 1;
     max-width: 320px;
     min-width: 0;
-    margin-left: 200px;
+    margin-left: auto;
     margin-right: 4px;
-    transform-origin: left center;
+    transform-origin: right center;
   }
   .gsearch.gsearch-expanded .gsearch-trigger {
     display: none;
@@ -4139,7 +4487,7 @@ table.tbl {
     display: flex;
     width: 100%;
     min-width: 0;
-    transform-origin: left center;
+    transform-origin: right center;
     animation: expandSearchRight .22s cubic-bezier(.16, 1, .3, 1) forwards;
   }
   .gsearch.gsearch-expanded input {
@@ -4801,15 +5149,22 @@ table.tbl {
      */
     overflow-y: visible;
   }
-  /* ReleaseReviewModal only: when viewport is <= 850px, cap at 500px, scroll inner body, page-centered */
+  /* Capped at 500px tall on a short (<=850px) viewport, scrolling the inner
+   * body once content actually exceeds that — NOT a fixed height. This used
+   * to set `height: min(500px, ...)` (not just max-height), which forced
+   * EVERY bd-scroll modal to a flat 500px box even when its content was a
+   * couple of short fields — stretching e.g. DisburseLoanModal/ConfirmModal
+   * into a mostly-empty panel on any laptop-height screen. height:auto lets
+   * a short modal size to its own content and only pins to the 500px cap
+   * once something (ReleaseReviewModal's expanded Record Payment panel,
+   * EditLoanModal's ornament list, ...) genuinely needs it. */
   .modal-bg:has(.bd-scroll) {
     align-items: center;
     overflow-y: hidden;
   }
   .modal:has(> .bd-scroll) {
-    --modal-h: 500px;
-    height: min(var(--modal-h), calc(100dvh - 32px));
-    max-height: min(var(--modal-h), calc(100dvh - 32px));
+    height: auto;
+    max-height: min(500px, calc(100dvh - 32px));
     display: flex;
     flex-direction: column;
     margin: auto;

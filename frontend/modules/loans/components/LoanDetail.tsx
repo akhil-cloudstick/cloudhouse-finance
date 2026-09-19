@@ -32,7 +32,7 @@ import {
   type LoanView,
 } from "@/modules/loans/services/loanService";
 import { getCustomer } from "@/modules/customers/services/customerService";
-import { listPackets } from "@/modules/packets/services/packetService";
+import { listPackets, type PacketView } from "@/modules/packets/services/packetService";
 import { openPrintWindow, brandHeader } from "@/common/utils/print";
 import { printColors, tenantLenderProfile } from "@/common/config/brand";
 import type { BondLang } from "@/modules/loans/utils/indemnityBond";
@@ -145,6 +145,10 @@ export function LoanDetail({ id }: { id?: string }) {
 
   const [loan, setLoan] = useState<LoanView | null>(null);
   const [topUps, setTopUps] = useState<LoanTopUpView[]>([]);
+  // This loan's tracking packet — small, separate fetch (LoanView itself
+  // carries no packet/locker info), used only to drive the "Gold Pledge /
+  // Locker" release warning below.
+  const [packet, setPacket] = useState<PacketView | null>(null);
   const [error, setError] = useState("");
   const [approving, setApproving] = useState(false);
   const [releasing, setReleasing] = useState(false);
@@ -238,6 +242,15 @@ export function LoanDetail({ id }: { id?: string }) {
     if (!loan) return;
     listTopUps(loan.numericId).then(setTopUps).catch(() => setTopUps([]));
   }, [loan?.numericId, loan?.outstanding]);
+
+  // Re-fetched whenever bankPledgeStatus/status change, e.g. right after a
+  // locker check-in/out or the bank pledge being released — the "Gold
+  // Pledge / Locker" warning below needs the packet's current stage to
+  // stay in sync with those actions.
+  useEffect(() => {
+    if (!loan) return;
+    listPackets({ loanId: loan.numericId }).then((ps) => setPacket(ps[0] ?? null)).catch(() => setPacket(null));
+  }, [loan?.numericId, loan?.bankPledgeStatus, loan?.status]);
 
   // The viewer who clicks Approve/Reject/Verify sees their own change
   // immediately (doApprove below calls setLoan(updated) directly) — this
@@ -376,7 +389,18 @@ export function LoanDetail({ id }: { id?: string }) {
     )
   ) : null;
 
-  const activePledge = l.bankPledges.find((p) => !p.isReleased);
+  // Was `!p.isReleased` — but isReleased is derived only from releaseDate
+  // (see loanService.ts's toBankPledgeView), which a VOIDED pledge never
+  // sets either (void cancels the entry, it isn't a release). That let a
+  // voided record be picked up here as if it were still the active pledge.
+  // `status` is the reliable field (Active/Released/Voided, always present,
+  // DB-defaulted, never empty) — use that instead.
+  const activePledge = l.bankPledges.find((p) => p.status === "Active");
+  // Every pledge/release/repledge cycle this loan has ever had, most recent
+  // first — the "which bank, when" trail item #14 asked for, distinct from
+  // activePledge above (the one currently in effect, if any). Sorted
+  // client-side since preloadAll's Pledges preload carries no ORDER BY.
+  const pledgeHistory = [...l.bankPledges].sort((a, b) => b.pledgeDate.localeCompare(a.pledgeDate));
 
   /* Confirms first: releasing moves cash (for a CashIn pledge) and changes
    * where the gold physically sits, which is too consequential for a single
@@ -833,14 +857,20 @@ export function LoanDetail({ id }: { id?: string }) {
          * `.page-h`'s own wrap threshold, dropping the whole button
          * cluster to its own line on anything but a very wide window even
          * though there was visibly still room for it beside the title. */}
-        <div className="page-h-title"><h1>{l.id} <StatusChip status={l.status} />
+        <div className="page-h-title"><h1>{l.id} {/* Defaulted is the more specific state — a defaulted loan's own
+              l.status still reads "Overdue" backend-side, so without this
+              guard the title showed both "Overdue" and "Defaulted" chips
+              side by side for the same loan. */}
+          {!l.isDefaulted && <StatusChip status={l.status} />}
           {l.isDefaulted && <StatusChip status="Defaulted" />}
           {/* A past-term loan whose interest is paid off comes back from the
               backend as "Active" (see refreshServicingStatus in
               loan/accrual.go). isOverdue stays true — the term really has
               expired — so suppress the duplicate chip here, or a serviced
-              loan would read "Active" and "Overdue" at the same time. */}
-          {!l.isDefaulted && l.isOverdue && l.status !== "Active" && <StatusChip status="Overdue" />}
+              loan would read "Active" and "Overdue" at the same time. Also
+              suppress when l.status is already "Overdue" itself, or the
+              title would show two identical "Overdue" chips. */}
+          {!l.isDefaulted && l.isOverdue && l.status !== "Active" && l.status !== "Overdue" && <StatusChip status="Overdue" />}
           {!l.isOverdue && l.isDueSoon && <StatusChip status="Due Soon" />}
           </h1>
           <p style={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}><a href={routeHref(`customer/${l.customerId}`)}>{l.customerName}</a> · {l.schemeName} · opened {l.opened} · due {l.due}{l.isOverdue ? ` · ${l.daysOverdue} days overdue` : ""}</p></div>
@@ -889,7 +919,7 @@ export function LoanDetail({ id }: { id?: string }) {
               {loanActionsMenuOpen && (
                 <div className="docs-dd-menu" role="menu">
                   {canAcceptBankPledge(l.status, l.bankPledgeStatus) && !activePledge && canCreateBankPledges && (
-                    <a href="#" title="Repledge to Bank" onClick={(e) => { e.preventDefault(); setLoanActionsMenuOpen(false); openModal(<RepledgeModalContent loan={l} onSaved={load} />); }}>
+                    <a href="#" title="Repledge to Bank" onClick={(e) => { e.preventDefault(); setLoanActionsMenuOpen(false); openModal(<RepledgeModalContent loan={l} onSaved={load} />, true); }}>
                       <Icon name="bank" /><span className="tx">Repledge to Bank</span>
                     </a>
                   )}
@@ -909,7 +939,7 @@ export function LoanDetail({ id }: { id?: string }) {
                   </a>
                 )}
                 {l.status === "Active" && canUpdateLoans && (
-                  <a href="#" title="Top Up Loan" onClick={(e) => { e.preventDefault(); setLoanActionsMenuOpen(false); openModal(<TopUpLoanModalContent loan={l} onSaved={load} />); }}>
+                  <a href="#" title="Top Up Loan" onClick={(e) => { e.preventDefault(); setLoanActionsMenuOpen(false); openModal(<TopUpLoanModalContent loan={l} onSaved={() => load()} />); }}>
                     <Icon name="coin" /><span className="tx">Top Up</span>
                   </a>
                 )}
@@ -1046,13 +1076,12 @@ export function LoanDetail({ id }: { id?: string }) {
       )}
       <hr className="gold-rule" />
 
-      <div className="grid cols12">
-        <div className="grid">
-          <div className="card gtop"><div className="hd"><h3>Financial Summary</h3></div>
-            <div className="bd"><div className="kv" style={{ gridTemplateColumns: "1fr 1fr" }}>
+      <div className="grid loan-detail-c3">
+        <div className="card gtop"><div className="hd"><h3>Financial Summary</h3></div>
+            <div className="bd"><div className="kv" style={{ gridTemplateColumns: "1fr 1fr 1fr" }}>
               <div className="i"><div className="k">Principal</div><div className="v">{fmt(l.principal)}</div></div>
-              <div className="i"><div className="k">Outstanding Principal</div><div className="v" style={{ color: "var(--brand-deep)", fontWeight: 600 }}>{fmt(l.outstanding)}</div></div>
-              <div className="i"><div className="k">Accrued Interest</div><div className="v">{fmt(l.accruedInterest)}</div></div>
+              <div className="i"><div className="k">Remaining</div><div className="v" style={{ color: "var(--brand-deep)", fontWeight: 600 }}>{fmt(l.outstanding)}</div></div>
+              <div className="i"><div className="k">Interest</div><div className="v">{fmt(l.accruedInterest)}</div></div>
               <div className="i"><div className="k">Interest Paid</div><div className="v">{fmt(l.interestPaid)}</div></div>
               <div className="i"><div className="k">Outstanding Interest</div><div className="v">{fmt(l.outstandingInterest)}</div></div>
               {l.accruedPenalInterest > 0 && <>
@@ -1065,10 +1094,163 @@ export function LoanDetail({ id }: { id?: string }) {
               <div className="i"><div className="k">Total Paid</div><div className="v">{fmt(l.totalPaid)}</div></div>
               <div className="i"><div className="k">Scheme Rate</div><div className="v">{l.schemeRate}% p.a.</div></div>
               <div className="i"><div className="k">LTV</div><div className="v">{l.schemeLtv}%</div></div>
-              <div className="i"><div className="k">Interest Method</div><div className="v">{l.schemeMethod}</div></div>
+              
               <div className="i"><div className="k">Penal Rate</div><div className="v">{l.schemePenal != null ? l.schemePenal + "% p.a." : "—"}</div></div>
+              <div className="i"><div className="k">Interest Method</div><div className="v">{l.schemeMethod}</div></div>
             </div></div></div>
-          <div className="card"><div className="hd"><h3>Bank Pledge</h3></div>
+
+        <div className="card gtop"><div className="hd"><h3>Settlement Preview</h3></div>
+            <div className="bd" style={{ fontSize: 13.5 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", padding: "4px 0" }}><span>Outstanding principal</span><b>{fmt(l.outstanding)}</b></div>
+              <div style={{ display: "flex", justifyContent: "space-between", padding: "4px 0" }}><span>Outstanding interest</span><b>{fmt(l.outstandingInterest)}</b></div>
+              <div style={{ display: "flex", justifyContent: "space-between", padding: "4px 0" }}><span>Outstanding penal interest</span><b>{fmt(l.outstandingPenalInterest)}</b></div>
+              {l.outstandingProcessingFee > 0 && (
+                <div style={{ display: "flex", justifyContent: "space-between", padding: "4px 0" }}><span>Outstanding processing fee</span><b>{fmt(l.outstandingProcessingFee)}</b></div>
+              )}
+              <div style={{ display: "flex", justifyContent: "space-between", padding: "8px 0 2px", borderTop: "1px dashed var(--line)", marginTop: 6 }}>
+                <span style={{ fontWeight: 600 }}>Final settlement</span><b style={{ color: "var(--brand-deep)" }}>{fmt(l.settlementAmount)}</b></div>
+            </div>
+            <div className="ft">Principal + Interest + Penal Interest + Processing Fee − Payments/Waivers = Final Settlement Amount</div></div>
+
+        <div className="card gtop"><div className="hd"><h3>Pledged Ornaments</h3></div>
+            <div className="bd">
+              {l.ornaments.map((o, i) => (
+                <div key={o.id} style={i > 0 ? { marginTop: 14, paddingTop: 14, borderTop: "1px dashed var(--line)" } : undefined}>
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
+                    <span style={{ fontWeight: 600 }}>{o.name}</span>
+                    <span style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                      {o.releasedAt && <span className="chip" style={{ color: "var(--green, #1a7f37)" }} title={`Released on ${o.releasedAt}`}>Released {o.releasedAt.slice(0, 10)}</span>}
+                      <span className="chip brand">{o.purity}</span>
+                    </span>
+                  </div>
+                  <div className="kv" style={{ gridTemplateColumns: "1fr 1fr" }}>
+                    <div className="i"><div className="k">Gross</div><div className="v">{o.grossWeight.toFixed(1)} g</div></div>
+                    <div className="i"><div className="k">Net</div><div className="v">{o.netWeight.toFixed(1)} g</div></div>
+                    <div className="i"><div className="k">Qty</div><div className="v">{o.quantity}</div></div>
+                    <div className="i"><div className="k">Gold Value</div><div className="v">{fmt(o.goldValue)}</div></div>
+                    <div className="i">
+                      <div className="k">Photo</div>
+                      <div className="v">
+                        {o.photoUrl ? (
+                          <span style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                            <img src={o.photoUrl} style={{ width: 34, height: 34, objectFit: "cover", borderRadius: 6, border: "1px solid var(--line)", cursor: "pointer" }} title="View photo" onClick={() => viewOrnImg(o.photoUrl!, o.name)} />
+                            <button className="btn plain sm" style={{ padding: "4px 8px" }} onClick={() => viewOrnImg(o.photoUrl!, o.name)}>View</button>
+                          </span>
+                        ) : (
+                          <span style={{ color: "var(--muted)" }}>—</span>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+            <div className="ft">Jewellery images linked to loan record</div></div>
+      </div>
+
+      <div className="card gtop" style={{ marginTop: 16 }}><div className="hd"><h3>Payment Ledger</h3></div>
+            <div className="tbl-wrap"><table className="tbl">
+              <thead><tr><th>Date</th><th>Description</th><th>Method</th><th>Reference</th><th className="num">Debit</th><th className="num">Credit</th><th className="num">Running Balance</th></tr></thead>
+              <tbody>
+                {l.disbursementDate && (
+                  <tr>
+                    <td>{l.disbursementDate}</td>
+                    <td>
+                      Loan Sanctioned
+                      {l.sanctionedAmount !== l.disbursedAmount && (
+                        <div style={{ fontSize: "0.85em", color: "var(--muted)" }}>
+                          Sanctioned {fmt(l.sanctionedAmount)} · ₹{fmt(l.sanctionedAmount - l.disbursedAmount)} withheld as service charge
+                        </div>
+                      )}
+                    </td>
+                    <td>—</td>
+                    <td>—</td>
+                    <td className="num" style={{ color: "var(--red)" }}>{fmt(l.disbursedAmount)}</td>
+                    <td className="num">—</td>
+                    <td className="num">{fmt(l.sanctionedAmount)}</td>
+                  </tr>
+                )}
+                {l.payments.length === 0 && !l.disbursementDate && topUps.length === 0 ? (
+                  <tr><td colSpan={7} className="empty">No ledger entries yet.</td></tr>
+                ) : (
+                  // Top-ups are additional disbursements, not repayments —
+                  // merged chronologically alongside l.payments (rather than
+                  // kept in their own separate "Top-Up History" card) so the
+                  // ledger reads as one continuous timeline of every cash
+                  // movement against the loan, sanction through settlement.
+                  [
+                    ...l.payments.map((p) => ({ kind: "payment" as const, date: p.paidOn, sortKey: p.paidOn, row: p })),
+                    ...topUps.map((t) => ({ kind: "topup" as const, date: t.occurredOn.slice(0, 10), sortKey: t.occurredOn, row: t })),
+                  ]
+                    .sort((a, b) => a.sortKey.localeCompare(b.sortKey))
+                    .map((entry) => {
+                      if (entry.kind === "topup") {
+                        const t = entry.row;
+                        const modeParts = [
+                          t.cashAmount > 0 && `Cash ${fmt(t.cashAmount)}`,
+                          t.upiAmount > 0 && `UPI ${fmt(t.upiAmount)}`,
+                          t.bankTransferAmount > 0 && `Bank Transfer ${fmt(t.bankTransferAmount)}`,
+                          t.chequeAmount > 0 && `Cheque ${fmt(t.chequeAmount)}`,
+                        ].filter(Boolean).join(" · ");
+                        return (
+                          <tr key={`topup-${t.id}`}>
+                            <td>{entry.date}</td>
+                            <td>
+                              Loan Top-Up
+                              <div style={{ fontSize: "0.85em", color: "var(--muted)" }}>Eligible at top-up {fmt(t.eligibleAmountAtTopUp)}</div>
+                            </td>
+                            <td>{modeParts || "—"}</td>
+                            <td>{t.reference || "—"}</td>
+                            <td className="num" style={{ color: "var(--red)" }}>{fmt(t.amount)}</td>
+                            <td className="num">—</td>
+                            <td className="num">—</td>
+                          </tr>
+                        );
+                      }
+
+                      const p = entry.row;
+                      // Interest/Principal/Partial/Full Settlement/Waiver all
+                      // reduce what's owed (credit); an Adjustment can go
+                      // either way depending on what it corrected — shown as a
+                      // credit here since today's only use is reducing
+                      // principal (see loan.allocatePayment's Adjustment case).
+                      const isCash = p.type !== "Adjustment" && p.type !== "Waiver";
+                      // Fee-applied (from allocatePayment's waterfall) shows
+                      // alongside the other buckets; a newly-charged fee this
+                      // entry (p.processingFee) is noted separately since it's
+                      // not part of what Amount paid down — it's what got
+                      // added to the balance in the first place.
+                      const breakdown = [
+                        p.processingFeeApplied > 0 && `Fee ${fmt(p.processingFeeApplied)}`,
+                        p.penalInterestApplied > 0 && `Penal ${fmt(p.penalInterestApplied)}`,
+                        p.interestApplied > 0 && `Interest ${fmt(p.interestApplied)}`,
+                        p.principalApplied > 0 && `Principal ${fmt(p.principalApplied)}`,
+                      ].filter(Boolean).join(" · ");
+                      return (
+                        <tr key={p.id}>
+                          <td>{p.paidOn}</td>
+                          <td>
+                            {p.type}
+                            {p.processingFee > 0 && (
+                              <div style={{ fontSize: "0.85em", color: "var(--red)" }}>+{fmt(p.processingFee)} fee charged</div>
+                            )}
+                            {breakdown && <div style={{ fontSize: "0.85em", color: "var(--muted)" }}>{breakdown}</div>}
+                          </td>
+                          <td>{isCash ? p.method || "—" : <span style={{ color: "var(--muted)" }}>Non-cash</span>}</td>
+                          <td>{p.reference || "—"}</td>
+                          <td className="num">—</td>
+                          <td className="num" style={{ color: "var(--green)" }}>{fmt(p.amount)}</td>
+                          <td className="num">{fmt(p.runningBalance)}</td>
+                        </tr>
+                      );
+                    })
+                )}
+              </tbody>
+            </table></div>
+            {/* <div className="ft">Running balance = outstanding principal + outstanding interest + outstanding penal interest, immediately after this entry</div> */}
+            </div>
+
+      <div className="card gtop" style={{ marginTop: 16 }}><div className="hd"><h3>Bank Pledge and Locker</h3></div>
             <div className="bd">
               {activePledge ? (
                 <>
@@ -1087,134 +1269,84 @@ export function LoanDetail({ id }: { id?: string }) {
                     </div></div>
                     <div className="i"><div className="k">Status</div><div className="v"><StatusChip status="Bank Pledged" /></div></div>
                   </div>
-                  <div className="notice" style={{ marginTop: 12 }}><Icon name="shield" /> Closure requires bank release process first.</div>
+                  {/* One combined warning names everything still standing between
+                    * this loan and closure — the bank pledge, and a locker if the
+                    * gold is also checked into one (see CompleteRelease's guards
+                    * on the backend) — instead of leaving staff to guess why
+                    * "Complete Release" won't go through. */}
+                  <div className="notice" style={{ marginTop: 12 }}>
+                    <Icon name="shield" />
+                    {" Closure requires releasing this bank pledge first"}
+                    {packet?.status === "Locker Stored" ? ", and checking the gold out of its locker." : "."}
+                  </div>
                   {canUpdateBankPledges && (
                     <button className="btn ghost sm" style={{ marginTop: 12 }} disabled={releasing} onClick={doReleasePledge}>
                       {releasing ? "Releasing…" : "Release from Bank"}
                     </button>
                   )}
+                  {packet?.status === "Locker Stored" && (
+                    <a className="btn ghost sm" style={{ marginTop: 12, marginLeft: 8, display: "inline-flex" }} href={appPath(undefined, "#packet/" + packet.code)}>
+                      Go to Packet
+                    </a>
+                  )}
                 </>
               ) : (
-                <p style={{ fontSize: 13.5, color: "var(--muted)" }}>
-                  Gold is {l.bankPledgeStatus === "Released" ? "released to customer" : "held in-house"} — <StatusChip status={l.bankPledgeStatus} />
-                </p>
+                <>
+                  <p style={{ fontSize: 13.5, color: "var(--muted)" }}>
+                    Gold is {l.bankPledgeStatus === "Released" ? "released to customer" : "held in-house"} — <StatusChip status={l.bankPledgeStatus} />
+                  </p>
+                  {packet?.status === "Locker Stored" && (
+                    <>
+                      {l.totalOutstandingBalance <= 0.01 ? (
+                        <div className="notice" style={{ color: "var(--red)", marginTop: 12 }}>
+                          <Icon name="shield" /> This loan is fully paid, but its gold is still checked into a locker — check it out before this loan can be closed.
+                        </div>
+                      ) : (
+                        <p style={{ fontSize: 13.5, color: "var(--muted)", marginTop: 8 }}>Gold is currently held in a locker.</p>
+                      )}
+                      <a className="btn ghost sm" style={{ marginTop: 12, display: "inline-flex" }} href={appPath(undefined, "#packet/" + packet.code)}>
+                        Go to Packet
+                      </a>
+                    </>
+                  )}
+                </>
+              )}
+              {/* Folded into this same Bank Pledge and Locker card rather
+                * than a separate one — the history is every past pledge/
+                * release/repledge cycle for this loan, which reads more
+                * naturally right below the current pledge status than as
+                * its own standalone card. */}
+              {pledgeHistory.length > 0 && (
+                <>
+                  <h4 style={{ marginTop: 16, marginBottom: 8, fontSize: 13 }}>Pledge History</h4>
+                  <div className="tbl-wrap">
+                    <table className="tbl">
+                      <thead>
+                        <tr><th>Bank</th><th>Pledged On</th><th>Released On</th><th className="num">Amount</th><th>Status</th></tr>
+                      </thead>
+                      <tbody>
+                        {pledgeHistory.map((p) => (
+                          <tr key={p.id}>
+                            <td>{p.bankName}</td>
+                            <td>{p.pledgeDate}</td>
+                            <td>{p.releaseDate || "—"}</td>
+                            <td className="num">{fmt(p.pledgedAmount)}</td>
+                            <td>
+                              {/* Wire value stays "Voided" (backend status), only the displayed label is "Deleted" — see
+                                * BankPledge.tsx's own comment on this same relabel (item #13). */}
+                              <StatusChip status={p.status === "Voided" ? "Deleted" : p.status} />
+                              {p.status === "Voided" && p.voidReason && (
+                                <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 2 }}>{p.voidReason}</div>
+                              )}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </>
               )}
             </div></div>
-          <div className="card"><div className="hd"><h3>Settlement Preview</h3></div>
-            <div className="bd" style={{ fontSize: 13.5 }}>
-              <div style={{ display: "flex", justifyContent: "space-between", padding: "4px 0" }}><span>Outstanding principal</span><b>{fmt(l.outstanding)}</b></div>
-              <div style={{ display: "flex", justifyContent: "space-between", padding: "4px 0" }}><span>Outstanding interest</span><b>{fmt(l.outstandingInterest)}</b></div>
-              <div style={{ display: "flex", justifyContent: "space-between", padding: "4px 0" }}><span>Outstanding penal interest</span><b>{fmt(l.outstandingPenalInterest)}</b></div>
-              {l.outstandingProcessingFee > 0 && (
-                <div style={{ display: "flex", justifyContent: "space-between", padding: "4px 0" }}><span>Outstanding processing fee</span><b>{fmt(l.outstandingProcessingFee)}</b></div>
-              )}
-              <div style={{ display: "flex", justifyContent: "space-between", padding: "8px 0 2px", borderTop: "1px dashed var(--line)", marginTop: 6 }}>
-                <span style={{ fontWeight: 600 }}>Final settlement</span><b style={{ color: "var(--brand-deep)" }}>{fmt(l.settlementAmount)}</b></div>
-            </div>
-            <div className="ft">Principal + Interest + Penal Interest + Processing Fee − Payments/Waivers = Final Settlement Amount</div></div>
-        </div>
-
-        <div className="grid">
-          <div className="card gtop"><div className="hd"><h3>Pledged Ornaments — {fmtW(l.totalNetWeight)} total</h3></div>
-            <div className="tbl-wrap"><table className="tbl">
-              <thead><tr><th>Ornament</th><th>Purity</th><th className="num" style={{ paddingRight: 18 }}>Gross (g)</th><th className="num">Net (g)</th><th className="num">Qty</th><th className="num">Gold Value</th><th style={{ textAlign: "center" }}>Photo</th></tr></thead>
-              <tbody>
-                {l.ornaments.map((o) => (
-                  <tr key={o.id}>
-                    <td>{o.name}</td><td><span className="chip brand">{o.purity}</span></td>
-                    <td className="num">{o.grossWeight.toFixed(1)}</td><td className="num">{o.netWeight.toFixed(1)}</td>
-                    <td className="num">{o.quantity}</td><td className="num">{fmt(o.goldValue)}</td>
-                    <td style={{ textAlign: "center", whiteSpace: "nowrap" }}>
-                      {o.photoUrl ? (
-                        <>
-                          <img src={o.photoUrl} style={{ width: 34, height: 34, objectFit: "cover", borderRadius: 6, border: "1px solid var(--line)", cursor: "pointer", verticalAlign: "middle" }} title="View photo" onClick={() => viewOrnImg(o.photoUrl!, o.name)} />
-                          <button className="btn plain sm" style={{ padding: "4px 8px", verticalAlign: "middle" }} onClick={() => viewOrnImg(o.photoUrl!, o.name)}>View</button>
-                        </>
-                      ) : (
-                        <span style={{ color: "var(--muted)" }}>—</span>
-                      )}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table></div>
-            <div className="ft">Jewellery images linked to loan record</div></div>
-
-          <div className="card"><div className="hd"><h3>Payment Ledger</h3></div>
-            <div className="tbl-wrap"><table className="tbl">
-              <thead><tr><th>Date</th><th>Description</th><th>Method</th><th>Reference</th><th className="num">Debit</th><th className="num">Credit</th><th className="num">Running Balance</th></tr></thead>
-              <tbody>
-                {l.payments.length === 0 ? (
-                  <tr><td colSpan={7} className="empty">No ledger entries yet.</td></tr>
-                ) : l.payments.map((p) => {
-                  // Interest/Principal/Partial/Full Settlement/Waiver all
-                  // reduce what's owed (credit); an Adjustment can go
-                  // either way depending on what it corrected — shown as a
-                  // credit here since today's only use is reducing
-                  // principal (see loan.allocatePayment's Adjustment case).
-                  const isCash = p.type !== "Adjustment" && p.type !== "Waiver";
-                  // Fee-applied (from allocatePayment's waterfall) shows
-                  // alongside the other buckets; a newly-charged fee this
-                  // entry (p.processingFee) is noted separately since it's
-                  // not part of what Amount paid down — it's what got
-                  // added to the balance in the first place.
-                  const breakdown = [
-                    p.processingFeeApplied > 0 && `Fee ${fmt(p.processingFeeApplied)}`,
-                    p.penalInterestApplied > 0 && `Penal ${fmt(p.penalInterestApplied)}`,
-                    p.interestApplied > 0 && `Interest ${fmt(p.interestApplied)}`,
-                    p.principalApplied > 0 && `Principal ${fmt(p.principalApplied)}`,
-                  ].filter(Boolean).join(" · ");
-                  return (
-                    <tr key={p.id}>
-                      <td>{p.paidOn}</td>
-                      <td>
-                        {p.type}
-                        {p.processingFee > 0 && (
-                          <div style={{ fontSize: "0.85em", color: "var(--red)" }}>+{fmt(p.processingFee)} fee charged</div>
-                        )}
-                        {breakdown && <div style={{ fontSize: "0.85em", color: "var(--muted)" }}>{breakdown}</div>}
-                      </td>
-                      <td>{isCash ? p.method || "—" : <span style={{ color: "var(--muted)" }}>Non-cash</span>}</td>
-                      <td>{p.reference || "—"}</td>
-                      <td className="num">—</td>
-                      <td className="num" style={{ color: "var(--green)" }}>{fmt(p.amount)}</td>
-                      <td className="num">{fmt(p.runningBalance)}</td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table></div>
-            {/* <div className="ft">Running balance = outstanding principal + outstanding interest + outstanding penal interest, immediately after this entry</div> */}
-            </div>
-
-          {topUps.length > 0 && (
-            <div className="card"><div className="hd"><h3>Top-Up History</h3></div>
-              <div className="tbl-wrap"><table className="tbl">
-                <thead><tr><th>Date</th><th className="num">Amount</th><th>Mode</th><th>Reference</th><th className="num">Eligible at Top-Up</th></tr></thead>
-                <tbody>
-                  {topUps.map((t) => {
-                    const modeParts = [
-                      t.cashAmount > 0 && `Cash ${fmt(t.cashAmount)}`,
-                      t.upiAmount > 0 && `UPI ${fmt(t.upiAmount)}`,
-                      t.bankTransferAmount > 0 && `Bank Transfer ${fmt(t.bankTransferAmount)}`,
-                      t.chequeAmount > 0 && `Cheque ${fmt(t.chequeAmount)}`,
-                    ].filter(Boolean).join(" · ");
-                    return (
-                      <tr key={t.id}>
-                        <td>{t.occurredOn.slice(0, 10)}</td>
-                        <td className="num" style={{ color: "var(--green)" }}>+{fmt(t.amount)}</td>
-                        <td>{modeParts || "—"}</td>
-                        <td>{t.reference || "—"}</td>
-                        <td className="num">{fmt(t.eligibleAmountAtTopUp)}</td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table></div>
-            </div>
-          )}
-        </div>
-      </div>
     </>
   );
 }

@@ -64,6 +64,7 @@ export type BackendOrnament = {
   remarks: string;
   purityTest?: BackendOrnamentPurityTest | null;
   images?: BackendOrnamentImage[];
+  releasedAt?: string | null;
 };
 
 export type BackendLoanApproval = {
@@ -98,6 +99,12 @@ export type BackendLoanPayment = {
   interestApplied: number;
   principalApplied: number;
   runningBalance: number;
+  /* Links this payment to the CashMovement row(s) it produced (one row per
+   * non-zero mode among cashAmount/upiAmount/bankTransferAmount/
+   * chequeAmount above, all sharing this group id) — empty for a payment
+   * that never recorded cash (e.g. a Waiver) or whose cash-recording
+   * failed. */
+  cashTransactionGroupId?: string;
   createdAt: string;
 };
 
@@ -148,6 +155,15 @@ export type BackendLoan = {
   customer?: NestedCustomer;
   schemeId: number;
   scheme?: NestedScheme;
+  // The loan's own frozen scheme terms as they stood at creation (or the
+  // last explicit scheme swap) — see backend Loan.SchemeInterestRate's doc
+  // comment. Display must read these, not the live `scheme` above, so
+  // editing a scheme later never changes what an existing loan shows it was
+  // charged under.
+  schemeInterestRate: number;
+  schemeLtvPercent: number;
+  schemeInterestMethod: string;
+  schemePenalRate: number;
   openedDate: string;
   dueDate: string;
   additionalInfo?: string;
@@ -168,6 +184,13 @@ export type BackendLoan = {
   totalPaid: number;
   status: string;
   approvalStage: string;
+  // Frozen at final sanction (Approve reaching FinalSanction), distinct from
+  // principalAmount above which can still change pre-approval — see backend
+  // Loan.SanctionedAmount's own doc comment. Zero/absent until the loan
+  // actually clears final sanction.
+  sanctionedAmount?: number;
+  disbursedAmount?: number;
+  disbursementDate?: string | null;
   bankPledgeStatus: string;
   isDueSoon: boolean;
   isOverdue: boolean;
@@ -204,6 +227,10 @@ export type OrnamentView = {
   goldValue: number;
   remarks: string;
   photoUrl?: string;
+  // Set once CompleteRelease actually hands this ornament back — null while
+  // still physically pledged. See backend/internal/loan/model_ornament.go's
+  // Ornament.ReleasedAt doc comment.
+  releasedAt: string | null;
 };
 
 export type PaymentView = {
@@ -225,6 +252,7 @@ export type PaymentView = {
   interestApplied: number;
   principalApplied: number;
   runningBalance: number;
+  cashTransactionGroupId?: string;
 };
 
 export type BankPledgeView = {
@@ -282,6 +310,9 @@ export type LoanView = {
   totalPaid: number;
   status: string;
   approvalStage: string;
+  sanctionedAmount: number;
+  disbursedAmount: number;
+  disbursementDate: string | null;
   bankPledgeStatus: string;
   isDueSoon: boolean;
   isOverdue: boolean;
@@ -314,6 +345,7 @@ function toOrnamentView(o: BackendOrnament): OrnamentView {
     goldValue: o.goldValue,
     remarks: o.remarks,
     photoUrl: o.images && o.images.length ? o.images[o.images.length - 1].imageUrl : undefined,
+    releasedAt: o.releasedAt ?? null,
   };
 }
 
@@ -337,6 +369,7 @@ function toPaymentView(p: BackendLoanPayment): PaymentView {
     interestApplied: p.interestApplied,
     principalApplied: p.principalApplied,
     runningBalance: p.runningBalance,
+    cashTransactionGroupId: p.cashTransactionGroupId,
   };
 }
 
@@ -401,10 +434,10 @@ export function toView(l: BackendLoan): LoanView {
     customerName: l.customer?.name || "—",
     schemeId: String(l.schemeId),
     schemeName: l.scheme?.name || "—",
-    schemeRate: l.scheme?.interestRate || 0,
-    schemeLtv: l.scheme?.ltvPercent || 0,
-    schemeMethod: l.scheme?.interestMethod || "—",
-    schemePenal: l.scheme?.penalRate || 0,
+    schemeRate: l.schemeInterestRate || 0,
+    schemeLtv: l.schemeLtvPercent || 0,
+    schemeMethod: l.schemeInterestMethod || "—",
+    schemePenal: l.schemePenalRate || 0,
     opened: l.openedDate ? l.openedDate.slice(0, 10) : "",
     due: l.dueDate ? l.dueDate.slice(0, 10) : "",
     additionalInfo: l.additionalInfo || "",
@@ -425,6 +458,9 @@ export function toView(l: BackendLoan): LoanView {
     totalPaid: l.totalPaid,
     status: l.status,
     approvalStage: l.approvalStage,
+    sanctionedAmount: l.sanctionedAmount || 0,
+    disbursedAmount: l.disbursedAmount || 0,
+    disbursementDate: l.disbursementDate ? l.disbursementDate.slice(0, 10) : null,
     bankPledgeStatus: l.bankPledgeStatus,
     isDueSoon: l.isDueSoon,
     isOverdue: l.isOverdue,
@@ -968,6 +1004,13 @@ export type BankPledgeEventView = {
 export type BankPledgeRecordView = {
   id: number;
   loanId: number;
+  // Populated only by rows that carry their parent loan alongside them
+  // (the History tab's branch-wide query) — a plain per-loan history call
+  // (GET /loans/:id/bank-pledge/history) already has the loan in context,
+  // so its rows leave these blank rather than re-fetching what the caller
+  // already has.
+  loanNumber?: string;
+  customerName?: string;
   bankName: string;
   pledgedAmount: number;
   pledgeDate: string;
@@ -982,10 +1025,12 @@ export type BankPledgeRecordView = {
   events: BankPledgeEventView[];
 };
 
-function toBankPledgeRecordView(r: BackendBankPledgeRecord): BankPledgeRecordView {
+function toBankPledgeRecordView(r: BackendBankPledgeRecord & { loanNumber?: string; customerName?: string }): BankPledgeRecordView {
   return {
     id: r.id,
     loanId: r.loanId,
+    loanNumber: r.loanNumber,
+    customerName: r.customerName,
     bankName: r.bankName,
     pledgedAmount: r.pledgedAmount,
     pledgeDate: r.pledgeDate ? r.pledgeDate.slice(0, 10) : "",
@@ -1027,12 +1072,15 @@ export const BANK_PLEDGE_HISTORY_PAGE_SIZE = 10;
 // envelope pattern.
 export async function listBankPledgeHistoryPage(
   page: number,
-  limit?: number
+  limit?: number,
+  query?: string
 ): Promise<{ items: BankPledgeRecordView[]; hasMore: boolean; total: number }> {
   const pageSize = limit ?? (isSmallScreen() ? 7 : 10);
   const offset = (page - 1) * pageSize;
-  const res = await apiFetch<{ items: BackendBankPledgeRecord[] | null; hasMore: boolean; total?: number }>(
-    `/loans/bank-pledges/history?limit=${pageSize}&offset=${offset}`
+  const params = new URLSearchParams({ limit: String(pageSize), offset: String(offset) });
+  if (query) params.set("q", query);
+  const res = await apiFetch<{ items: (BackendBankPledgeRecord & { loanNumber?: string; customerName?: string })[] | null; hasMore: boolean; total?: number }>(
+    `/loans/bank-pledges/history?${params.toString()}`
   );
   return { items: (res.items || []).map(toBankPledgeRecordView), hasMore: res.hasMore, total: res.total ?? 0 };
 }
@@ -1357,7 +1405,8 @@ export const AUCTION_HISTORY_PAGE_SIZE = 10;
 export async function listConcludedAuctionsPage(
   page: number,
   hasSale: boolean,
-  limit?: number
+  limit?: number,
+  q?: string
 ): Promise<{ items: ConcludedAuctionRowView[]; hasMore: boolean; total: number }> {
   const pageSize = limit ?? (isSmallScreen() ? 7 : 10);
   const params = new URLSearchParams({
@@ -1365,6 +1414,7 @@ export async function listConcludedAuctionsPage(
     offset: String((page - 1) * pageSize),
     hasSale: String(hasSale),
   });
+  if (q && q.trim()) params.set("q", q.trim());
   const rec = await apiFetch<{ items: BackendConcludedAuctionRow[]; hasMore: boolean; total?: number }>(
     `/loans/auctions/concluded?${params}`
   );
@@ -1423,6 +1473,16 @@ export type BackendLoanRequest = {
   // Release only — the same Manager→Management chain used for loan
   // sanctioning (see backend/internal/loan/model.go's LoanRequest).
   approvalStage?: string;
+  // isPartial/customerSawGold/paymentRecorded/locked are the reworked
+  // Partial Ornament Release fields — see backend/internal/loan/
+  // model_request.go's LoanRequest doc comment. paymentVerified/
+  // packetVerified/bankPledgeVerified/customerConfirmed are the RETIRED
+  // 4-item checklist, kept only because the backend still serialises them
+  // (nothing writes/reads them any more) — not used by this file any more.
+  isPartial: boolean;
+  customerSawGold: boolean;
+  paymentRecorded: boolean;
+  locked: boolean;
   paymentVerified: boolean;
   packetVerified: boolean;
   bankPledgeVerified: boolean;
@@ -1439,6 +1499,9 @@ export type BackendLoanRequest = {
   recordedDiscount: number;
   recordedPayment: number;
   paymentDueDate?: string | null;
+  // Partial Ornament Release's selected-ornament set — see
+  // backend/internal/loan/model_request.go's LoanRequestOrnament.
+  ornamentSelections?: { id: number; requestId: number; ornamentId: number }[];
   remarks: string;
   requestedAt: string;
   decidedAt?: string | null;
@@ -1459,10 +1522,10 @@ export type RequestView = {
   remarks: string;
   requestedExtensionMonths: number | null;
   approvalStage: string; // "" for Extension requests
-  paymentVerified: boolean;
-  packetVerified: boolean;
-  bankPledgeVerified: boolean;
-  customerConfirmed: boolean;
+  isPartial: boolean;
+  customerSawGold: boolean;
+  paymentRecorded: boolean;
+  locked: boolean;
   verificationNotes: string;
   charges: number;
   chargesApplied: number;
@@ -1470,6 +1533,9 @@ export type RequestView = {
   recordedDiscount: number;
   recordedPayment: number;
   paymentDueDate: string | null; // "YYYY-MM-DD", null if not set
+  // Ornament IDs selected for release on this request — empty for a plain
+  // full release (or an Extension request).
+  ornamentIds: number[];
 };
 
 function toRequestView(r: BackendLoanRequest): RequestView {
@@ -1486,10 +1552,10 @@ function toRequestView(r: BackendLoanRequest): RequestView {
     remarks: r.remarks,
     requestedExtensionMonths: r.requestedExtensionMonths ?? null,
     approvalStage: r.approvalStage || "",
-    paymentVerified: r.paymentVerified,
-    packetVerified: r.packetVerified,
-    bankPledgeVerified: r.bankPledgeVerified,
-    customerConfirmed: r.customerConfirmed,
+    isPartial: r.isPartial,
+    customerSawGold: r.customerSawGold,
+    paymentRecorded: r.paymentRecorded,
+    locked: r.locked,
     verificationNotes: r.verificationNotes,
     charges: r.charges,
     chargesApplied: r.chargesApplied ?? 0,
@@ -1497,6 +1563,7 @@ function toRequestView(r: BackendLoanRequest): RequestView {
     recordedDiscount: r.recordedDiscount ?? 0,
     recordedPayment: r.recordedPayment ?? 0,
     paymentDueDate: r.paymentDueDate ? r.paymentDueDate.slice(0, 10) : null,
+    ornamentIds: (r.ornamentSelections || []).map((s) => s.ornamentId),
   };
 }
 
@@ -1548,7 +1615,7 @@ export async function getInterestCollected(from?: string, to?: string): Promise<
  * pledged gold would fetch sold TODAY (today's published rate × each
  * ornament's own purity/weight — a loan can carry mixed-purity ornaments),
  * not the value the loan was opened at. */
-export type LoanRiskLevel = "Green" | "Orange" | "Red";
+export type LoanRiskLevel = "Safe" | "AtRisk" | "Loss";
 
 export type LoanRiskRow = {
   loanId: number;
@@ -1568,17 +1635,19 @@ export type LoanRiskRow = {
 // page's own status filter dropdown.
 export const RISK_STATUSES = ["Active", "Due Soon", "Overdue", "Closure Requested", "Defaulted", "Auction Eligible"] as const;
 
-export const LOAN_RISK_PAGE_SIZE = 8;
+export const LOAN_RISK_PAGE_SIZE = 15;
 
 // Mirrors backend/internal/loan/handler.go's ListRiskAssessment response
-// envelope — counts/total cover every loan matching the filter, not just
-// the current page, so the KPI tiles stay correct regardless of page.
-export type LoanRiskCounts = { red: number; orange: number; green: number };
+// envelope — counts/total cover every loan matching status/date (NOT the
+// riskLevel filter below), not just the current page, so the KPI tiles stay
+// a true breakdown of the whole matching set even while one risk level is
+// selected.
+export type LoanRiskCounts = { loss: number; atRisk: number; safe: number };
 
 export async function listLoanRiskAssessmentPage(
   page: number,
   limit?: number,
-  filters?: { status?: string; fromDate?: string; toDate?: string }
+  filters?: { status?: string; riskLevel?: LoanRiskLevel; fromDate?: string; toDate?: string }
 ): Promise<{ items: LoanRiskRow[]; hasMore: boolean; total: number; counts: LoanRiskCounts }> {
   const pageSize = limit ?? LOAN_RISK_PAGE_SIZE;
   const params = new URLSearchParams({
@@ -1586,10 +1655,11 @@ export async function listLoanRiskAssessmentPage(
     offset: String((page - 1) * pageSize),
   });
   if (filters?.status) params.set("status", filters.status);
+  if (filters?.riskLevel) params.set("riskLevel", filters.riskLevel);
   if (filters?.fromDate) params.set("from", filters.fromDate);
   if (filters?.toDate) params.set("to", filters.toDate);
   const rec = await apiFetch<{ items: LoanRiskRow[]; hasMore: boolean; total: number; counts: LoanRiskCounts }>(`/loans/risk-assessment?${params}`);
-  return { items: rec?.items || [], hasMore: !!rec?.hasMore, total: rec?.total ?? 0, counts: rec?.counts ?? { red: 0, orange: 0, green: 0 } };
+  return { items: rec?.items || [], hasMore: !!rec?.hasMore, total: rec?.total ?? 0, counts: rec?.counts ?? { loss: 0, atRisk: 0, safe: 0 } };
 }
 
 export async function createExtensionRequest(loanId: number, months: number, detail?: string): Promise<RequestView> {
@@ -1600,10 +1670,16 @@ export async function createExtensionRequest(loanId: number, months: number, det
   return toRequestView(rec);
 }
 
-export async function createReleaseRequest(loanId: number, detail?: string): Promise<RequestView> {
+/* ornamentIds selects a Partial Ornament Release's subset of the loan's
+ * currently-pledged ornaments — omit (or pass every pledged ornament's id)
+ * for a full release, unchanged from before this parameter existed; the
+ * backend forces IsPartial back to false itself when every ornament is
+ * selected (see CreateReleaseRequest's own doc comment), so the caller
+ * doesn't need to special-case "select all" as anything but a normal call. */
+export async function createReleaseRequest(loanId: number, detail?: string, ornamentIds?: number[]): Promise<RequestView> {
   const rec = await apiFetch<BackendLoanRequest>(`/loans/${loanId}/release-request`, {
     method: "POST",
-    body: JSON.stringify({ detail }),
+    body: JSON.stringify({ detail, ornamentIds: ornamentIds && ornamentIds.length ? ornamentIds : undefined }),
   });
   return toRequestView(rec);
 }
@@ -1623,14 +1699,14 @@ export async function decideRequest(requestId: number, action: "Approved" | "Rej
 }
 
 /* --- Release verification checklist & approval chain --------------------
- * A Release request must have all four checklist items ticked before the
- * first approval stage can be submitted — see backend/internal/loan/
- * service.go's ApproveReleaseRequest. */
+ * Reworked 2-item checklist (customerSawGold + the payment step below) —
+ * see backend/internal/loan/model_request.go's LoanRequest doc comment and
+ * VerifyReleaseChecklist's handler, which reads customerSawGold as a
+ * "present or not" *bool so it can tell "explicitly set to false" apart
+ * from "field omitted"; leaving it undefined here therefore leaves the
+ * server-side value untouched, same as charges/verificationNotes below. */
 export type ChecklistInput = {
-  paymentVerified?: boolean;
-  packetVerified?: boolean;
-  bankPledgeVerified?: boolean;
-  customerConfirmed?: boolean;
+  customerSawGold?: boolean;
   verificationNotes?: string;
   charges?: number;
 };
@@ -1643,16 +1719,27 @@ export async function verifyReleaseChecklist(requestId: number, input: Checklist
   return toRequestView(rec);
 }
 
-/* "Record Payment" step on the Manager-stage release review screen —
- * records a Discount and/or a Payment straight against the loan and, if
- * together they cover the final settlement, ticks the paymentVerified
- * checklist item — nothing more (see backend/internal/loan/service.go's
- * RecordReleasePayment). The request always stays Pending afterward and
- * still needs the Manager→Management approval chain, which completes the
- * release automatically at the final stage. Falls short → dueDate is
- * required for the remaining balance. employeeId/role are NOT sent —
- * derived server-side from the JWT, same as everywhere else in this file. */
-export type ReleasePaymentInput = { discount: number; payment: number; dueDate?: string };
+/* "Record Payment" step on the release review screen — now driven by the
+ * SAME general payment shape PaymentModalContent posts to /loans/:id/payments
+ * (see PaymentInput above), plus a Discount amount posted alongside it as a
+ * real PaymentTypeDiscount ledger entry (see backend/internal/loan/
+ * service.go's RecordReleaseRequestPayment). On success this flips
+ * PaymentRecorded/Locked true and auto-advances the request through the
+ * Manager stage — there is no more separate "does this clear the balance"
+ * branch on the frontend, the backend handles the whole waterfall. */
+export type ReleasePaymentInput = {
+  type?: string;
+  amount: number;
+  discount?: number;
+  cashAmount?: number;
+  upiAmount?: number;
+  bankTransferAmount?: number;
+  chequeAmount?: number;
+  method?: string;
+  reference?: string;
+  interestOverride?: number;
+  dueDate?: string;
+};
 
 export async function recordReleasePayment(requestId: number, input: ReleasePaymentInput): Promise<RequestView> {
   const rec = await apiFetch<BackendLoanRequest>(`/loans/requests/${requestId}/release-payment`, {
@@ -1792,6 +1879,31 @@ export async function downloadLoanStatement(loanId: number): Promise<void> {
 export async function downloadIndemnityBondPDF(loanNumericId: number, lang: BondLang): Promise<void> {
   const token = getAuthToken();
   const res = await fetch(`${API_BASE}/loans/${loanNumericId}/indemnity-bond/pdf?lang=${lang}`, {
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  });
+  if (!res.ok) {
+    let message = res.statusText;
+    try {
+      const body = await res.json();
+      if (body?.error) message = body.error;
+    } catch {
+      /* non-JSON error body — fall back to statusText */
+    }
+    throw new ApiError(message, res.status);
+  }
+
+  const blob = await res.blob();
+  printPdfBlob(blob);
+}
+
+/* Partial Ornament Release counterpart to downloadReleaseAgreementPDF below
+ * — GET /loans/requests/:requestId/partial-release-receipt/pdf, keyed off
+ * the request rather than the loan (the receipt lists only the ornaments
+ * released BY THIS REQUEST). Only valid for a Release request with
+ * isPartial true — see DownloadPartialReleaseReceiptPDF's own doc comment. */
+export async function downloadPartialReleaseReceiptPDF(requestId: number): Promise<void> {
+  const token = getAuthToken();
+  const res = await fetch(`${API_BASE}/loans/requests/${requestId}/partial-release-receipt/pdf`, {
     headers: token ? { Authorization: `Bearer ${token}` } : {},
   });
   if (!res.ok) {

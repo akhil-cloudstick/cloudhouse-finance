@@ -157,7 +157,17 @@ func writeLoanSummary(pdf *gofpdf.Fpdf, l *Loan) {
 func writeOrnaments(pdf *gofpdf.Fpdf, l *Loan) {
 	sectionTitle(pdf, "Pledged Ornaments")
 
-	if len(l.Ornaments) == 0 {
+	// Filtered to currently-pledged: a loan statement is "what secures this
+	// loan today", so an ornament already handed back on a Partial Ornament
+	// Release must not still be listed here.
+	active := make([]Ornament, 0, len(l.Ornaments))
+	for _, o := range l.Ornaments {
+		if o.ReleasedAt == nil {
+			active = append(active, o)
+		}
+	}
+
+	if len(active) == 0 {
 		pdf.SetFont("Arial", "I", 9)
 		pdf.CellFormat(0, 6, "No ornaments recorded.", "", 1, "L", false, 0, "")
 		return
@@ -179,7 +189,7 @@ func writeOrnaments(pdf *gofpdf.Fpdf, l *Loan) {
 
 	pdf.SetFont("Arial", "", 9)
 	var totalGross, totalNet, totalValue float64
-	for _, o := range l.Ornaments {
+	for _, o := range active {
 		pdf.CellFormat(widths[0], 6, truncate(o.Name, 38), "1", 0, "L", false, 0, "")
 		pdf.CellFormat(widths[1], 6, o.Purity, "1", 0, "L", false, 0, "")
 		pdf.CellFormat(widths[2], 6, fmt.Sprintf("%.2f", o.GrossWeight), "1", 0, "R", false, 0, "")

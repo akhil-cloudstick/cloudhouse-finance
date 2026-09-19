@@ -50,15 +50,57 @@ type LoanRequest struct {
 	// terminal ApprovalStageApproved/ApprovalStageRejected values.
 	ApprovalStage string `json:"approvalStage,omitempty" gorm:"size:30"`
 
-	// Verification checklist, Release only — all four must be true before
-	// the first approval stage can be submitted (see
-	// Service.ApproveReleaseRequest). Staff tick these one at a time via
-	// Service.VerifyReleaseChecklist as they confirm each item in person.
+	// IsPartial marks a Release request that hands back only SOME of the
+	// loan's ornaments (see OrnamentIDs below / LoanRequestOrnament) rather
+	// than every ornament and the whole loan. Always computed server-side
+	// in CreateReleaseRequest — never client-supplied directly — because
+	// selecting every currently-pledged ornament (or omitting the
+	// selection entirely) is forced back to a plain full release regardless
+	// of what the caller asked for; see CreateReleaseRequest's own comment.
+	IsPartial bool `json:"isPartial"`
+
+	// PaymentVerified/PacketVerified/BankPledgeVerified/CustomerConfirmed
+	// are the RETIRED 4-item checklist. Left on the model (rather than
+	// dropped) only so the one-time migration backfill in
+	// migrate_release.go has somewhere to read the pre-existing values
+	// from — nothing in Service writes or reads these any more. See
+	// CustomerSawGold/PaymentRecorded/Locked below, their replacement.
 	PaymentVerified    bool   `json:"paymentVerified"`
 	PacketVerified     bool   `json:"packetVerified"`
 	BankPledgeVerified bool   `json:"bankPledgeVerified"`
 	CustomerConfirmed  bool   `json:"customerConfirmed"`
 	VerificationNotes  string `json:"verificationNotes" gorm:"size:255"`
+
+	// CustomerSawGold/PaymentRecorded/Locked are the reworked 2-item
+	// release checklist (see VerifyReleaseChecklist):
+	//
+	//   - CustomerSawGold is a plain staff attestation, settable freely while
+	//     the request is Pending and not yet Locked — there is no manual
+	//     "packet verified" checkbox any more (dropped along with
+	//     PacketVerified above) and no packet-status gate either; the
+	//     packet's own stage is tracked and enforced separately in
+	//     internal/packet, not duplicated here.
+	//   - PaymentRecorded flips true the moment a payment is recorded
+	//     against this request via the general RecordPayment path (see
+	//     Service.RecordPayment's release-context hook), not through a
+	//     separate bespoke payment screen.
+	//   - Locked flips true at the same moment as PaymentRecorded and never
+	//     clears. While Locked: CustomerSawGold can no longer be changed,
+	//     and ApproveReleaseRequest refuses a Rejected action
+	//     (ErrRequestLocked) — once real money has moved against the
+	//     release, walking it back by simply unchecking a box or rejecting
+	//     outright is no longer a safe undo. RecordPayment itself is NOT
+	//     blocked by Locked — the later drift/top-up payment (see
+	//     ApproveReleaseRequest's ErrDriftPaymentRequired) must still be
+	//     postable while the request sits Locked.
+	//
+	// "No active bank pledge" is deliberately NOT a field here any more
+	// either — it stays enforced automatically inside CompleteRelease via
+	// pledgeRepo.HasActive, rather than a manual tickbox staff could get
+	// out of sync with reality.
+	CustomerSawGold bool `json:"customerSawGold"`
+	PaymentRecorded bool `json:"paymentRecorded"`
+	Locked          bool `json:"locked"`
 
 	// RecordedDiscount/RecordedPayment/PaymentDueDate back the "Record
 	// Payment" step on the Manager-stage release review screen (see
@@ -99,11 +141,33 @@ type LoanRequest struct {
 	DecidedAt           *time.Time `json:"decidedAt,omitempty"`
 	DecidedByEmployeeID *uint      `json:"decidedByEmployeeId,omitempty"`
 
+	// OrnamentSelections is the Partial Release's selected-ornament set,
+	// loaded via LoanRequestOrnament — see that type's own doc comment for
+	// why it is a real join table rather than a JSON column. Empty for
+	// every Extension request and for a plain full Release request.
+	OrnamentSelections []LoanRequestOrnament `json:"ornamentSelections,omitempty" gorm:"foreignKey:RequestID"`
+
 	CreatedAt time.Time `json:"createdAt"`
 	UpdatedAt time.Time `json:"updatedAt"`
 }
 
 func (LoanRequest) TableName() string { return "loan_requests" }
+
+// LoanRequestOrnament is one ornament selected for release on a Partial
+// Ornament Release request — mirrors RequestApproval being its own table
+// (rather than a JSON/comma-separated column) precisely so the selection is
+// queryable: CompleteRelease needs "which Ornament rows does this request
+// touch" as a real join, not a blob it has to parse.
+type LoanRequestOrnament struct {
+	platform.TenantScoped
+	ID         uint `json:"id" gorm:"primaryKey"`
+	RequestID  uint `json:"requestId" gorm:"not null;index"`
+	OrnamentID uint `json:"ornamentId" gorm:"not null;index"`
+
+	CreatedAt time.Time `json:"createdAt"`
+}
+
+func (LoanRequestOrnament) TableName() string { return "loan_request_ornaments" }
 
 // RequestApproval is the audit trail for a Release LoanRequest's
 // Manager→Management approval chain — mirrors LoanApproval exactly, kept as

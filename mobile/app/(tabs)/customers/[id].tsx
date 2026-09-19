@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { Pressable, RefreshControl, ScrollView, View, StyleSheet } from "react-native";
+import { RefreshControl, View } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useQuery, useInfiniteQuery } from "@tanstack/react-query";
 import { ScreenContainer } from "../../../src/components/ScreenContainer";
@@ -19,10 +19,21 @@ import { Loan, CustomerOrnamentRow, CustomerPaymentRow, CustomerBankPledgeRow, C
 import { fmt } from "../../../src/lib/format";
 import { useRefetchOnFocus } from "../../../src/hooks/useRefetchOnFocus";
 import { ExpandableTable, type TableColumn } from "../../../src/components/ExpandableTable";
+import { FilterSheetButton } from "../../../src/components/FilterSheetButton";
 
 const PAGE_SIZE = 10; // matches the rest of the mobile app's paginated tables
 
 const fmtW = (n?: number | null) => `${(n ?? 0).toFixed(2)}g`;
+
+function ageFromDob(dob: string): number {
+  const birth = new Date(dob);
+  const today = new Date();
+  let age = today.getFullYear() - birth.getFullYear();
+  const beforeBirthdayThisYear =
+    today.getMonth() < birth.getMonth() || (today.getMonth() === birth.getMonth() && today.getDate() < birth.getDate());
+  if (beforeBirthdayThisYear) age -= 1;
+  return age;
+}
 
 // Mirrors frontend/modules/customers/components/CustomerDetail.tsx's
 // TABLE_TABS — same 5 tabs, same order. Loan History reuses the existing
@@ -259,18 +270,7 @@ export default function CustomerDetailScreen() {
        * comment on why it otherwise needs a dedicated flex:1 slot rather
        * than a shared ScrollView. */}
       <View style={{ paddingHorizontal: 10, paddingTop: 20 }}>
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.tabRow} contentContainerStyle={{ gap: 8 }}>
-          {TABS.map((t, i) => {
-            const active = i === tab;
-            return (
-              <Pressable key={t} onPress={() => changeTab(i)} style={[styles.tabChip, active && styles.tabChipActive]}>
-                <ThemedText variant="small" color={active ? colors.bg : colors.ink}>
-                  {t}
-                </ThemedText>
-              </Pressable>
-            );
-          })}
-        </ScrollView>
+        <FilterSheetButton options={TABS} value={TABS[tab]} onChange={(t) => changeTab(TABS.indexOf(t))} />
       </View>
 
       <View style={{ flex: 1, paddingHorizontal: 10, paddingTop: 8 }}>
@@ -298,7 +298,7 @@ export default function CustomerDetailScreen() {
                 </ThemedText>
                 {data.dob ? (
                   <ThemedText variant="small" style={{ marginTop: 4 }} color={colors.muted}>
-                    DOB {new Date(data.dob).toLocaleDateString("en-IN")}
+                    DOB {new Date(data.dob).toLocaleDateString("en-IN")} · Age {ageFromDob(data.dob)}
                   </ThemedText>
                 ) : null}
                 <ThemedText variant="body" style={{ marginTop: 4 }} color={colors.muted}>
@@ -349,15 +349,3 @@ export default function CustomerDetailScreen() {
   );
 }
 
-const styles = StyleSheet.create({
-  tabRow: { marginTop: 4, marginBottom: 12, flexGrow: 0 },
-  tabChip: {
-    borderWidth: 1,
-    borderColor: colors.line,
-    backgroundColor: colors.card,
-    borderRadius: 20,
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-  },
-  tabChipActive: { backgroundColor: colors.brandDeep, borderColor: colors.brandDeep },
-});

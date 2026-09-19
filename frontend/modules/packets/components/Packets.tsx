@@ -70,7 +70,7 @@ export function Packets() {
   const canCreateLockers = can("Locker_Management", "can_create_locker");
   const canUpdateLockers = can("Locker_Management", "can_update_locker");
 
-  const pageSize = useResponsivePageSize(11, 7);
+  const pageSize = useResponsivePageSize(15, 15);
   const [packets, setPackets] = useState<PacketView[] | null>(null);
   const [lockers, setLockers] = useState<LockerView[]>([]);
   const [error, setError] = useState("");
@@ -174,10 +174,10 @@ export function Packets() {
           Something went wrong. Please try again later.
         </p>
       )}
-      <div className="grid cols21">
-        <div className="card tbl-card">
+      <div className="grid cols21 packets-grid">
+        <div className="card tbl-card tbl-card-fill">
           <div className="hd"><h3>Packets</h3></div>
-          <div className="tbl-wrap tbl-wrap-3row">
+          <div className="tbl-wrap">
             <table className="tbl tbl-center">
               <thead>
                 <tr><th>Packet Code</th><th>Loan</th><th>Customer</th><th className="num">Items</th><th className="num">Weight</th><th>Locker</th><th>Status</th></tr>
@@ -216,12 +216,13 @@ export function Packets() {
             <button className="btn plain sm" disabled={page >= totalPages} onClick={() => setPage((p) => Math.min(totalPages, p + 1))}>Next ›</button>
           </div>
         </div>
-        {/* Packets (left) is now capped to its own natural 3-row height
-            (.tbl-wrap-3row) rather than stretching to match this column, so
-            the two no longer share one mirrored height — this is just a
-            plain, independently-scrolling box capped to show about 1.5
-            locker cards before it scrolls, the same way .tbl-wrap-3row caps
-            the table beside it. scroll-hidden keeps its scrollbar invisible. */}
+        {/* Packets (left) now fills down to the page's consistent bottom
+            gap like every other table card (.tbl-card-fill), and this
+            locker column stretches to match it height-for-height
+            (.packets-grid's align-items:stretch) instead of capping itself
+            to its own calc(100vh-350px) guess. scroll-hidden keeps its
+            scrollbar invisible while it scrolls internally past that
+            shared height. */}
         <div className="grid scroll-hidden locker-col" style={{ alignContent: "start" }}>
           {lockers.length === 0 ? (
             <div className="empty" style={{ padding: "14px 4px" }}>

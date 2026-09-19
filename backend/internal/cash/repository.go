@@ -159,6 +159,19 @@ func (r *MovementRepository) Delete(ctx context.Context, id uint) error {
 	return r.db.WithContext(ctx).Delete(&CashMovement{}, id).Error
 }
 
+// DeleteByPurposes removes every CashMovement whose Purpose is an exact
+// match for one of the given strings — used to retract a loan's
+// disbursement (and any accompanying withheld-service-charge) entries
+// when the loan is edited and about to be re-disbursed at a new amount,
+// so the old figure doesn't linger in Cash & Expenses alongside the new
+// one. A no-op given an empty slice.
+func (r *MovementRepository) DeleteByPurposes(ctx context.Context, purposes []string) error {
+	if len(purposes) == 0 {
+		return nil
+	}
+	return r.db.WithContext(ctx).Where("purpose IN ?", purposes).Delete(&CashMovement{}).Error
+}
+
 // ExpenseRepository provides GORM-backed persistence for Expense records.
 type ExpenseRepository struct {
 	db platform.DB

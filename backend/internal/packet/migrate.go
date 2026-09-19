@@ -18,11 +18,10 @@ import (
 // nothing else ever revisits it.
 //
 // Moves each affected packet straight to Released and clears its locker
-// slot, recording a PacketMovement audit row for the jump (through
-// ReadyForRelease first, same two-step RecordGoldReleaseMovement always
-// takes) so the packet's own history stays legible rather than showing an
-// unexplained gap. Idempotent: only packets not already Released are
-// touched, so re-running finds nothing once applied.
+// slot, recording a PacketMovement audit row for the jump so the packet's
+// own history stays legible rather than showing an unexplained gap.
+// Idempotent: only packets not already Released are touched, so re-running
+// finds nothing once applied.
 func BackfillAuctionedPacketStatus(db *gorm.DB) error {
 	if !db.Migrator().HasTable(&Packet{}) || !db.Migrator().HasTable(&loan.Loan{}) {
 		return nil // fresh install
@@ -42,31 +41,9 @@ func BackfillAuctionedPacketStatus(db *gorm.DB) error {
 	}
 
 	for _, p := range stuck {
-		fromStatus := p.Status
-		if fromStatus != StatusReadyForRelease {
-			mid := &PacketMovement{
-				PacketID:   p.ID,
-				FromStatus: fromStatus,
-				ToStatus:   StatusReadyForRelease,
-				Remarks:    "Backfill: loan's gold already left custody",
-			}
-			// Copied off the packet. This runs at boot on a plain *gorm.DB
-			// with no tenant in the context, so the stamp callback cannot
-			// fire and the row would land at tenant_id = 0 — which the next
-			// migrate.backfillTenancy then sweeps to the DEFAULT tenant, not
-			// to the business that owns the packet. The movement would then
-			// be invisible to its own business and, worse, survive that
-			// business's demo reset and block the packets delete on
-			// fk_packets_movements.
-			mid.TenantID = p.TenantID
-			if err := db.Create(mid).Error; err != nil {
-				return err
-			}
-			fromStatus = StatusReadyForRelease
-		}
 		final := &PacketMovement{
 			PacketID:   p.ID,
-			FromStatus: fromStatus,
+			FromStatus: p.Status,
 			ToStatus:   StatusReleased,
 			Remarks:    "Backfill: loan's gold already left custody",
 		}

@@ -255,10 +255,13 @@ type splitComponent struct {
 //
 // base supplies every field except Mode/Amount/TransactionGroupID (Type,
 // Source/Purpose, BranchID, OccurredOn, PartyCustomerID, …), pre-populated
-// by the caller. Returns the ID of the FIRST row written, so existing
-// single-ID callers (e.g. InvestmentPayout.CashMovementID) keep working
-// unchanged.
-func (s *MovementService) recordSplitCashMovement(ctx context.Context, base CashMovement, amount float64, components []splitComponent) (uint, error) {
+// by the caller. Returns the ID of the FIRST row written (so existing
+// single-ID callers, e.g. InvestmentPayout.CashMovementID, keep working
+// unchanged) plus the shared TransactionGroupID every written row carries —
+// callers that need to trace back to the FULL set of rows a split produced
+// (not just the first) store the group ID instead of/alongside the single
+// ID (see LoanPayment.CashTransactionGroupID).
+func (s *MovementService) recordSplitCashMovement(ctx context.Context, base CashMovement, amount float64, components []splitComponent) (uint, string, error) {
 	groupID := platform.NewTransactionGroupID()
 	var firstID uint
 	var wrote int
@@ -271,7 +274,7 @@ func (s *MovementService) recordSplitCashMovement(ctx context.Context, base Cash
 		rec.Amount = c.amount
 		rec.TransactionGroupID = groupID
 		if err := s.repo.Create(ctx, &rec); err != nil {
-			return 0, err
+			return 0, "", err
 		}
 		if wrote == 0 {
 			firstID = rec.ID
@@ -281,12 +284,13 @@ func (s *MovementService) recordSplitCashMovement(ctx context.Context, base Cash
 	if wrote == 0 {
 		rec := base
 		rec.Amount = amount
+		rec.TransactionGroupID = groupID
 		if err := s.repo.Create(ctx, &rec); err != nil {
-			return 0, err
+			return 0, "", err
 		}
 		firstID = rec.ID
 	}
-	return firstID, nil
+	return firstID, groupID, nil
 }
 
 // RecordBankPledgeCashIn creates the cash-in movement for a loan's gold
@@ -313,6 +317,32 @@ func (s *MovementService) RecordBankPledgeCashIn(ctx context.Context, loanID uin
 	return rec.ID, nil
 }
 
+// RecordServiceChargeCashIn creates the cash-in movement for a
+// WithheldFromPayout scheme service charge, booked as company income the
+// moment a loan disburses (loan.CashRecorder, called from
+// loan.Service.Approve's FinalSanction branch, right alongside the
+// disbursement cash-out). Source "Service Charge" is its own value —
+// distinct from "Collection" (a customer repayment) — since this is a fee
+// the branch itself keeps, not money coming back on a loan already lent.
+func (s *MovementService) RecordServiceChargeCashIn(ctx context.Context, loanID uint, loanNumber string, amount float64, branchID uint, occurredOn time.Time) (uint, error) {
+	rec := &CashMovement{
+		Type:     "in",
+		Source:   "Service Charge",
+		Purpose:  "Service charge — " + loanNumber,
+		Amount:   amount,
+		BranchID: &branchID,
+	}
+	if occurredOn.IsZero() {
+		rec.OccurredOn = time.Now()
+	} else {
+		rec.OccurredOn = occurredOn
+	}
+	if err := s.repo.Create(ctx, rec); err != nil {
+		return 0, err
+	}
+	return rec.ID, nil
+}
+
 // RecordLoanDisbursementCashOut creates the cash-out movement(s) for a
 // loan's principal being handed to the customer (loan.CashRecorder, called
 // from loan.Service.Approve once a loan clears its final approval stage;
@@ -325,7 +355,7 @@ func (s *MovementService) RecordBankPledgeCashIn(ctx context.Context, loanID uin
 // populates PartyCustomerID for the Party Transactions ledger. Purpose
 // carries the loan number so it reads sensibly in the Cash Movements table
 // without a dedicated column.
-func (s *MovementService) RecordLoanDisbursementCashOut(ctx context.Context, loanID uint, loanNumber string, amount, cashAmount, upiAmount, bankTransferAmount, chequeAmount float64, branchID uint, occurredOn time.Time, customerID uint) (uint, error) {
+func (s *MovementService) RecordLoanDisbursementCashOut(ctx context.Context, loanID uint, loanNumber string, amount, cashAmount, upiAmount, bankTransferAmount, chequeAmount float64, branchID uint, occurredOn time.Time, customerID uint) (uint, string, error) {
 	base := CashMovement{
 		Type:     "out",
 		Purpose:  "Loan disbursement — " + loanNumber,
@@ -352,7 +382,7 @@ func (s *MovementService) RecordLoanDisbursementCashOut(ctx context.Context, loa
 // per-mode-row + TransactionGroupID convention as
 // RecordLoanDisbursementCashOut, since a top-up is functionally an
 // additional disbursement.
-func (s *MovementService) RecordLoanTopUpCashOut(ctx context.Context, loanID uint, loanNumber string, amount, cashAmount, upiAmount, bankTransferAmount, chequeAmount float64, branchID uint, occurredOn time.Time, customerID uint) (uint, error) {
+func (s *MovementService) RecordLoanTopUpCashOut(ctx context.Context, loanID uint, loanNumber string, amount, cashAmount, upiAmount, bankTransferAmount, chequeAmount float64, branchID uint, occurredOn time.Time, customerID uint) (uint, string, error) {
 	base := CashMovement{
 		Type:     "out",
 		Purpose:  "Loan top-up — " + loanNumber,
@@ -382,7 +412,7 @@ func (s *MovementService) RecordLoanTopUpCashOut(ctx context.Context, loanID uin
 // (that "Loan" source means the branch itself borrowed cash from a bank,
 // unrelated to a customer repaying their gold loan). See
 // RecordLoanDisbursementCashOut for the split/customerID parameters.
-func (s *MovementService) RecordLoanPaymentCashIn(ctx context.Context, loanID uint, loanNumber string, amount, cashAmount, upiAmount, bankTransferAmount, chequeAmount float64, branchID uint, occurredOn time.Time, paymentType string, customerID uint) (uint, error) {
+func (s *MovementService) RecordLoanPaymentCashIn(ctx context.Context, loanID uint, loanNumber string, amount, cashAmount, upiAmount, bankTransferAmount, chequeAmount float64, branchID uint, occurredOn time.Time, paymentType string, customerID uint) (uint, string, error) {
 	base := CashMovement{
 		Type:     "in",
 		Source:   "Collection",
@@ -462,7 +492,7 @@ func (s *MovementService) RecordInvestmentDepositCashIn(ctx context.Context, inv
 // sensibly in the Cash Movements table without a dedicated column —
 // mirrors RecordLoanDisbursementCashOut's Purpose-carries-context approach.
 // See RecordLoanDisbursementCashOut for the split/customerID parameters.
-func (s *MovementService) RecordInvestmentPayoutCashOut(ctx context.Context, investmentID uint, investmentNumber string, amount, cashAmount, upiAmount, bankTransferAmount, chequeAmount float64, branchID uint, occurredOn time.Time, payoutType string, customerID uint) (uint, error) {
+func (s *MovementService) RecordInvestmentPayoutCashOut(ctx context.Context, investmentID uint, investmentNumber string, amount, cashAmount, upiAmount, bankTransferAmount, chequeAmount float64, branchID uint, occurredOn time.Time, payoutType string, customerID uint) (uint, string, error) {
 	base := CashMovement{
 		Type:     "out",
 		Purpose:  fmt.Sprintf("%s — %s", payoutType, investmentNumber),
@@ -640,6 +670,22 @@ func strPtr(s string) *string { return &s }
 // instead of deleting history), kept for any other future caller.
 func (s *MovementService) DeleteCashMovement(ctx context.Context, id uint) error {
 	return s.repo.Delete(ctx, id)
+}
+
+// DeleteLoanDisbursementCashMovements retracts the cash-out entry (or
+// entries, if the payout was split across modes) recorded for a loan's
+// disbursement, plus the withheld-service-charge cash-in if there was
+// one — the exact set RecordLoanDisbursementCashOut/
+// RecordServiceChargeCashIn together write at FinalSanction. Called by
+// loan.Service.UpdateLoan (loan.CashRecorder) right before a materially
+// edited, already-disbursed loan is resubmitted for approval: it will be
+// disbursed again at the new amount once it clears the chain, so the old
+// figure must not linger alongside the new one in Cash & Expenses.
+func (s *MovementService) DeleteLoanDisbursementCashMovements(ctx context.Context, loanNumber string) error {
+	return s.repo.DeleteByPurposes(ctx, []string{
+		"Loan disbursement — " + loanNumber,
+		"Service charge — " + loanNumber,
+	})
 }
 
 // SetLoanStatus updates the Open/Closed status of a loan-sourced cash-in

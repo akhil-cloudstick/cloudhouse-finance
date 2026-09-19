@@ -156,7 +156,7 @@ export function SchemeStatementModalContent({ scheme: s }: { scheme: SchemeView 
         </div>
         <button className="x" onClick={closeModal}>×</button>
       </div>
-      <div className="bd">
+      <div className="bd bd-scroll">
         <div className="frow c3">
           <div><label className="f">From</label><DatePicker value={from} onChange={setFrom} max={to} /></div>
           <div><label className="f">To</label><DatePicker value={to} onChange={setTo} min={from} max={today()} /></div>

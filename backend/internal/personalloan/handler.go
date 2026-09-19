@@ -127,12 +127,12 @@ func (h *Handler) Schedule(c *gin.Context) {
 	}
 	limit, _ := strconv.Atoi(c.Query("limit"))
 	offset, _ := strconv.Atoi(c.Query("offset"))
-	recs, hasMore, err := h.svc.GetSchedule(ctx, id, platform.GetBranchScope(c), limit, offset)
+	recs, hasMore, total, err := h.svc.GetSchedule(ctx, id, platform.GetBranchScope(c), limit, offset)
 	if err != nil {
 		httpx.FailErr(c, err)
 		return
 	}
-	httpx.Success(c, http.StatusOK, gin.H{"items": recs, "hasMore": hasMore})
+	httpx.Success(c, http.StatusOK, gin.H{"items": recs, "hasMore": hasMore, "total": total})
 }
 
 // Payments returns one page of a loan's payment ledger as the
@@ -147,12 +147,12 @@ func (h *Handler) Payments(c *gin.Context) {
 	}
 	limit, _ := strconv.Atoi(c.Query("limit"))
 	offset, _ := strconv.Atoi(c.Query("offset"))
-	recs, hasMore, err := h.svc.ListPayments(ctx, id, platform.GetBranchScope(c), limit, offset)
+	recs, hasMore, total, err := h.svc.ListPayments(ctx, id, platform.GetBranchScope(c), limit, offset)
 	if err != nil {
 		httpx.FailErr(c, err)
 		return
 	}
-	httpx.Success(c, http.StatusOK, gin.H{"items": recs, "hasMore": hasMore})
+	httpx.Success(c, http.StatusOK, gin.H{"items": recs, "hasMore": hasMore, "total": total})
 }
 
 type paymentRequest struct {
@@ -163,6 +163,26 @@ type paymentRequest struct {
 	ChequeAmount       float64 `json:"chequeAmount"`
 	Reference          string  `json:"reference"`
 	Description        string  `json:"description"`
+}
+
+// History returns one page of a loan's change-history timeline as the
+// {items, hasMore} envelope (limit/offset query params, page size defaults
+// to 10 — see Service.GetHistory).
+func (h *Handler) History(c *gin.Context) {
+	ctx := platform.RequestContext(c)
+	id, err := httpx.IDParam(c, "id")
+	if err != nil {
+		httpx.FailErr(c, err)
+		return
+	}
+	limit, _ := strconv.Atoi(c.Query("limit"))
+	offset, _ := strconv.Atoi(c.Query("offset"))
+	recs, hasMore, total, err := h.svc.GetHistory(ctx, id, platform.GetBranchScope(c), limit, offset)
+	if err != nil {
+		httpx.FailErr(c, err)
+		return
+	}
+	httpx.Success(c, http.StatusOK, gin.H{"items": recs, "hasMore": hasMore, "total": total})
 }
 
 // RecordPayment collects a payment against a loan.

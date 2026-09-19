@@ -25,7 +25,7 @@ export function PersonalLoans() {
   const { openModal, closeModal } = useModal();
   const canCreate = can("Personal_Loan_Management", "can_create_personal_loan");
   const smallScreen = useIsSmallScreen();
-  const pageSize = useResponsivePageSize(10, 7);
+  const pageSize = useResponsivePageSize(15, 15);
 
   const [freq, setFreq] = useState<"All" | Frequency>("All");
   const [q, setQ] = useState("");
@@ -92,7 +92,7 @@ export function PersonalLoans() {
         ))}
       </div>
       {error && <div className="notice" style={{ marginBottom: 14 }}>{error}</div>}
-      <div className="card tbl-card"><div className="tbl-wrap tbl-scroll"><table className="tbl tbl-center">
+      <div className="card tbl-card tbl-card-fill"><div className="tbl-wrap tbl-scroll"><table className="tbl tbl-center">
         <thead><tr><th>Loan / Customer</th><th className="num">Principal</th><th className="num">Outstanding</th><th>Frequency</th><th>Status</th></tr></thead>
         <tbody>
           {loading ? (

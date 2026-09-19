@@ -83,7 +83,7 @@ export function RepledgeModalContent({ loan, onSaved }: { loan: LoanView; onSave
   return (
     <>
       <div className="hd"><h3>Repledge Gold to Bank — {loan.id}</h3><button className="x" onClick={closeModal}>×</button></div>
-      <div className="bd repledge-modal-bd">
+      <div className="bd bd-scroll repledge-modal-bd">
         <div className="notice" style={{ marginBottom: 12 }}>
           <Icon name="bank" /> {fmtW(loan.totalNetWeight)} gold pledged against this loan
         </div>
@@ -109,7 +109,7 @@ export function RepledgeModalContent({ loan, onSaved }: { loan: LoanView; onSave
          * original, more spacious row grouping instead. */}
         {smallScreen ? (
           <>
-            <div className="frow" style={{ marginBottom: 24, gridTemplateColumns: "repeat(3, 1fr)" }}>
+            <div className="frow" style={{ marginBottom: 24, gridTemplateColumns: "repeat(3, minmax(180px, 1fr))" }}>
               <div><label className="f">Bank *</label>
                 <SearchableSelect<BackendBank>
                   value={bankLabel}
@@ -122,15 +122,15 @@ export function RepledgeModalContent({ loan, onSaved }: { loan: LoanView; onSave
               <div><label className="f">Pledged Amount (₹) *</label><input className="inp" type="number" min={1} placeholder="amount raised from bank" value={amt} onChange={(e) => setAmt(e.target.value)} /></div>
               <div><label className="f">Pledge Date *</label><DatePicker value={date} onChange={setDate} /></div>
             </div>
-            <div className="frow" style={{ marginBottom: 14, gridTemplateColumns: "repeat(3, 1fr)" }}>
+            <div className="frow" style={{ marginBottom: 14, gridTemplateColumns: "repeat(3, minmax(180px, 1fr))" }}>
               <div><label className="f">Interest Rate (% p.a.)</label><input className="inp" type="number" min={0} step={0.01} placeholder="rate charged by the bank" value={interestRate} onChange={(e) => setInterestRate(e.target.value)} /></div>
               <div><label className="f">Reference Number</label><input className="inp" placeholder="bank's pledge/document reference" value={referenceNumber} onChange={(e) => setReferenceNumber(e.target.value)} maxLength={60} /></div>
               <div><label className="f">Bank Pledge Due Date</label><DatePicker value={dueDate} onChange={setDueDate} min={date} /></div>
             </div>
           </>
         ) : (
-          <>
-            <div className="frow" style={{ marginBottom: 14 }}><div><label className="f">Bank *</label>
+          <div className="frow c3" style={{ marginBottom: 14 }}>
+            <div><label className="f">Bank *</label>
               <SearchableSelect<BackendBank>
                 value={bankLabel}
                 onChange={(id, item) => { setBank(item.name); setBankLabel(item.name); setBankId(Number(id) || undefined); }}
@@ -138,17 +138,13 @@ export function RepledgeModalContent({ loan, onSaved }: { loan: LoanView; onSave
                 getLabel={(b) => b.name}
                 getId={(b) => String(b.id)}
                 placeholder="Search for a registered bank…"
-              /></div></div>
-            <div className="frow c2" style={{ marginBottom: 14 }}>
-              <div><label className="f">Pledged Amount (₹) *</label><input className="inp" type="number" min={1} placeholder="amount raised from bank" value={amt} onChange={(e) => setAmt(e.target.value)} /></div>
-              <div><label className="f">Pledge Date *</label><DatePicker value={date} onChange={setDate} /></div>
-            </div>
-            <div className="frow c2" style={{ marginBottom: 14 }}>
-              <div><label className="f">Interest Rate (% p.a.)</label><input className="inp" type="number" min={0} step={0.01} placeholder="rate charged by the bank" value={interestRate} onChange={(e) => setInterestRate(e.target.value)} /></div>
-              <div><label className="f">Reference Number</label><input className="inp" placeholder="bank's pledge/document reference" value={referenceNumber} onChange={(e) => setReferenceNumber(e.target.value)} maxLength={60} /></div>
-            </div>
-            <div className="frow" style={{ marginBottom: 14 }}><div><label className="f">Bank Pledge Due Date</label><DatePicker value={dueDate} onChange={setDueDate} min={date} /></div></div>
-          </>
+              /></div>
+            <div><label className="f">Pledged Amount (₹) *</label><input className="inp" type="number" min={1} placeholder="amount raised from bank" value={amt} onChange={(e) => setAmt(e.target.value)} /></div>
+            <div><label className="f">Pledge Date *</label><DatePicker value={date} onChange={setDate} /></div>
+            <div><label className="f">Interest Rate (% p.a.)</label><input className="inp" type="number" min={0} step={0.01} placeholder="rate charged by the bank" value={interestRate} onChange={(e) => setInterestRate(e.target.value)} /></div>
+            <div><label className="f">Reference Number</label><input className="inp" placeholder="bank's pledge/document reference" value={referenceNumber} onChange={(e) => setReferenceNumber(e.target.value)} maxLength={60} /></div>
+            <div><label className="f">Bank Pledge Due Date</label><DatePicker value={dueDate} onChange={setDueDate} min={date} /></div>
+          </div>
         )}
 
         {/* Cash treatment. Not every re-pledge brings money into the branch

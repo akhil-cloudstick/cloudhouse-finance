@@ -1,12 +1,13 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useModal } from "@/common/components/Modal";
 import { useToast } from "@/common/components/Toast";
 import { useAuth } from "@/common/auth-context";
 import { StageTracker } from "@/common/components/ui/StageTracker";
 import { Icon } from "@/common/components/Icon";
-import { approveExtensionRequest, type RequestView } from "@/modules/loans/services/loanService";
+import { fmt } from "@/common/utils/format";
+import { approveExtensionRequest, getLoan, type PaymentView, type RequestView } from "@/modules/loans/services/loanService";
 import { ApiError } from "@/common/services/httpClient";
 
 const EXTENSION_STAGES = ["LoanOfficer", "BranchManager", "Management"] as const;
@@ -68,6 +69,30 @@ export function ExtensionReviewModalContent({ request, onSaved }: { request: Req
   const [req, setReq] = useState(request);
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState("");
+  // The interest/penal-interest arrears that had to be cleared before this
+  // request could even be logged (see CreateExtensionRequest's
+  // ErrExtensionNeedsPayment) isn't stored on the request itself — it's
+  // just whatever payment(s) the loan's own ledger shows around
+  // req.requestedAt. Fetched here (not carried on RequestView) so this
+  // modal always reflects the loan's real payment history rather than a
+  // snapshot that could drift from it.
+  const [clearingPayments, setClearingPayments] = useState<PaymentView[] | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    getLoan(req.loanNumericId)
+      .then((loan) => {
+        if (cancelled) return;
+        const cutoff = req.requestedAt.slice(0, 10);
+        const relevant = loan.payments
+          .filter((p) => (p.interestApplied > 0.01 || p.penalInterestApplied > 0.01) && p.paidOn <= cutoff)
+          .sort((a, b) => (a.paidOn < b.paidOn ? 1 : -1));
+        setClearingPayments(relevant.slice(0, 3));
+      })
+      .catch(() => { /* best-effort — the review still works without this context */ });
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [req.loanNumericId, req.requestedAt]);
 
   const stageKey = stageKeyFor(req.approvalStage);
   const stageIndex = stageKey ? EXTENSION_STAGES.indexOf(stageKey) : EXTENSION_STAGES.length;
@@ -109,7 +134,7 @@ export function ExtensionReviewModalContent({ request, onSaved }: { request: Req
         <h3>Review Extension — {req.loanNumber}</h3>
         <button className="x" onClick={closeModal}>×</button>
       </div>
-      <div className="bd">
+      <div className="bd bd-scroll">
         <div className="kv" style={{ gridTemplateColumns: "1fr 1fr", marginBottom: 14 }}>
           <div className="i">
             <div className="k">Requested Extension</div>
@@ -121,6 +146,19 @@ export function ExtensionReviewModalContent({ request, onSaved }: { request: Req
           </div>
         </div>
         {req.detail && <p className="notice">{req.detail}</p>}
+
+        {clearingPayments && clearingPayments.length > 0 && (
+          <div className="notice" style={{ marginBottom: 14 }}>
+            <Icon name="check" /> Interest paid to clear arrears before this request:
+            <ul style={{ margin: "4px 0 0", paddingLeft: 18 }}>
+              {clearingPayments.map((p) => (
+                <li key={p.id}>
+                  {p.paidOn} — {fmt(p.interestApplied)}{p.penalInterestApplied > 0.01 ? ` + ${fmt(p.penalInterestApplied)} penal` : ""} via {p.method}
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
 
         <StageTracker
           stages={EXTENSION_STAGES.map((k) => STAGE_LABELS[k])}

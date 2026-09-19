@@ -28,6 +28,17 @@ type Ornament struct {
 	PurityTest *OrnamentPurityTest `json:"purityTest,omitempty" gorm:"foreignKey:OrnamentID"`
 	Images     []OrnamentImage     `json:"images,omitempty" gorm:"foreignKey:OrnamentID"`
 
+	// ReleasedAt is nil while this ornament is still physically pledged.
+	// Set once, at the moment CompleteRelease actually hands it back to the
+	// customer — either every ornament on a full release, or only the
+	// selected subset on a Partial Ornament Release (see
+	// Service.CompleteRelease and ReleaseRequestInput.OrnamentIDs). Never
+	// cleared afterward: a released ornament stays released even if the
+	// loan itself later reopens some other way. Callers that mean
+	// "currently pledged" must filter ReleasedAt == nil themselves — see
+	// the repo-wide audit in Service.recalculateTotals and its neighbours.
+	ReleasedAt *time.Time `json:"releasedAt,omitempty"`
+
 	CreatedAt time.Time `json:"createdAt"`
 	UpdatedAt time.Time `json:"updatedAt"`
 }

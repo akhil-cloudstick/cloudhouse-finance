@@ -105,7 +105,7 @@ type LoanFilter struct {
 	CustomerID uint
 	SchemeID   uint
 	LoanIDs    []uint // when non-empty, narrows to exactly these loans (e.g. a scheme statement's loan picker)
-	Query      string // matches LoanNumber (case-insensitive, partial)
+	Query      string // matches LoanNumber or the customer's name (case-insensitive, partial)
 
 	// BranchScope is the caller's branch-scoping restriction (see
 	// platform.GetBranchScope) — nil for Administrator (no restriction),
@@ -176,7 +176,17 @@ func applyFilters(q *gorm.DB, f LoanFilter) *gorm.DB {
 		q = q.Where("id IN ?", f.LoanIDs)
 	}
 	if f.Query != "" {
-		q = q.Where("loan_number ILIKE ?", "%"+f.Query+"%")
+		// Deliberately no explicit Select("loans.*") here — this filter is
+		// shared by both FindAll's Find() and its Count(), and Select survives
+		// into Count() too (GORM wraps it as COUNT("loans"."*"), which Postgres
+		// rejects), so it can't be set unconditionally in applyFilters. GORM's
+		// Find still scans this correctly despite the customers join adding
+		// same-named columns (id, created_at, ...): it maps by the Loan
+		// model's own known column list rather than raw column position,
+		// exactly as personalloan.Repository's identical join already relies
+		// on (see personalloan/repository.go's Query handling).
+		q = q.Joins("JOIN customers ON customers.id = loans.customer_id").
+			Where("loans.loan_number ILIKE ? OR customers.name ILIKE ?", "%"+f.Query+"%", "%"+f.Query+"%")
 	}
 	if f.BranchScope != nil {
 		q = q.Where("branch_id = ?", *f.BranchScope)
@@ -305,9 +315,28 @@ func (r *OrnamentRepository) FindByID(ctx context.Context, id uint) (*Ornament, 
 	return &o, nil
 }
 
+// FindByLoanID returns a loan's CURRENTLY-PLEDGED ornaments only
+// (released_at IS NULL) — every caller (recalculateTotals inputs, the
+// last-ornament delete guard, top-up eligibility) means "what still secures
+// this loan right now", never full history. A path that genuinely wants
+// released ornaments too (release agreements, audit trails) reads
+// Loan.Ornaments directly instead of going through this repository method —
+// see the Partial Release Receipt / FORM 7 generators.
 func (r *OrnamentRepository) FindByLoanID(ctx context.Context, loanID uint) ([]Ornament, error) {
 	var ornaments []Ornament
-	err := r.db.WithContext(ctx).Preload("PurityTest").Preload("Images").Where("loan_id = ?", loanID).Order("id asc").Find(&ornaments).Error
+	err := r.db.WithContext(ctx).Preload("PurityTest").Preload("Images").
+		Where("loan_id = ? AND released_at IS NULL", loanID).Order("id asc").Find(&ornaments).Error
+	return ornaments, err
+}
+
+// FindAllByLoanID returns EVERY ornament on a loan, released or not — for
+// paths that genuinely need full history (e.g. the Partial Release Receipt's
+// "still pledged" vs "released this transaction" tables, both of which need
+// to see released rows too).
+func (r *OrnamentRepository) FindAllByLoanID(ctx context.Context, loanID uint) ([]Ornament, error) {
+	var ornaments []Ornament
+	err := r.db.WithContext(ctx).Preload("PurityTest").Preload("Images").
+		Where("loan_id = ?", loanID).Order("id asc").Find(&ornaments).Error
 	return ornaments, err
 }
 
@@ -328,12 +357,17 @@ type CustomerOrnamentRow struct {
 // for the same window — same semantics as LoanFilter.OpenedFrom/OpenedTo.
 // FindByCustomerID returns matching rows plus the TOTAL row count (Limit/
 // Offset ignored, 0 when limit <= 0).
+// Excludes released ornaments (released_at IS NULL) — a partially/fully
+// released ornament no longer secures anything and the customer 360 view
+// means "what's currently pledged," same intent as every other
+// currently-pledged-only consumer in this package (recalculate, risk
+// assessment, the loan statement).
 func (r *OrnamentRepository) FindByCustomerID(ctx context.Context, customerID uint, from, to *time.Time, limit, offset int) ([]CustomerOrnamentRow, int64, error) {
 	var rows []CustomerOrnamentRow
 	q := r.db.WithContext(ctx).Model(&Ornament{}).
 		Select("ornaments.*, loans.loan_number AS loan_number").
 		Joins("JOIN loans ON loans.id = ornaments.loan_id").
-		Where("loans.customer_id = ?", customerID)
+		Where("loans.customer_id = ? AND ornaments.released_at IS NULL", customerID)
 	if from != nil {
 		q = q.Where("loans.opened_date >= ?", startOfDay(*from))
 	}
@@ -399,6 +433,15 @@ func (r *PaymentRepository) Create(ctx context.Context, p *LoanPayment) error {
 // Service.RecordPayment, Service.TopUpLoan).
 func (r *PaymentRepository) CreateTx(ctx context.Context, tx *gorm.DB, p *LoanPayment) error {
 	return r.dbOr(ctx, tx).Create(p).Error
+}
+
+// SetCashTransactionGroupID stamps a payment row with the TransactionGroupID
+// its cash movement(s) were recorded under, once that's known — see
+// LoanPayment.CashTransactionGroupID's own doc comment on why this is a
+// follow-up update rather than set at Create time.
+func (r *PaymentRepository) SetCashTransactionGroupID(ctx context.Context, paymentID uint, groupID string) error {
+	return r.db.WithContext(ctx).Model(&LoanPayment{}).Where("id = ?", paymentID).
+		Update("cash_transaction_group_id", groupID).Error
 }
 
 // dbOr returns tx when the caller is inside a transaction, else the
@@ -613,20 +656,41 @@ func (r *BankPledgeRepository) FindHistoryByLoanID(ctx context.Context, loanID u
 	return pledges, err
 }
 
+// BankPledgeHistoryRow is one BankPledgeRecord plus its parent loan's
+// LoanNumber/customer name — same rationale as CustomerBankPledgeRow below,
+// but for the branch-wide History tab rather than one customer's own view.
+type BankPledgeHistoryRow struct {
+	BankPledgeRecord
+	LoanNumber   string `json:"loanNumber"`
+	CustomerName string `json:"customerName"`
+}
+
 // FindAllHistory lists re-pledge records across all loans, newest first —
 // backs the Bank Re-Pledge screen's History tab, which previously had no way
 // to see anything but currently-pledged gold. branchID scopes to the caller's
-// branch (nil for Administrator), applied via a JOIN on loans the same way
-// LoanRequestRepository.FindAll does it.
+// branch (nil for Administrator). Always joined to loans/customers now (not
+// just when branchID is set) so every row carries its parent loan's number
+// and customer name for display/search — a bare BankPledgeRecord.LoanID is
+// a numeric FK, not something staff can search or read at a glance. query,
+// when non-empty, matches loan number, bank name, or customer name.
 // FindAllHistory returns matching pledges plus the TOTAL row count (Limit/
 // Offset ignored, 0 when limit <= 0).
-func (r *BankPledgeRepository) FindAllHistory(ctx context.Context, branchID *uint, limit, offset int) ([]BankPledgeRecord, int64, error) {
-	var pledges []BankPledgeRecord
+func (r *BankPledgeRepository) FindAllHistory(ctx context.Context, branchID *uint, query string, limit, offset int) ([]BankPledgeHistoryRow, int64, error) {
+	var pledges []BankPledgeHistoryRow
 	q := r.db.WithContext(ctx).Model(&BankPledgeRecord{}).
+		Select("bank_pledge_records.*, loans.loan_number AS loan_number, customers.name AS customer_name").
+		Joins("JOIN loans ON loans.id = bank_pledge_records.loan_id").
+		Joins("JOIN customers ON customers.id = loans.customer_id").
 		Preload("Events", func(d *gorm.DB) *gorm.DB { return d.Order("created_at asc, id asc") })
 	if branchID != nil {
-		q = q.Joins("JOIN loans ON loans.id = bank_pledge_records.loan_id").
-			Where("loans.branch_id = ?", *branchID)
+		q = q.Where("loans.branch_id = ?", *branchID)
+	}
+	if query != "" {
+		like := "%" + query + "%"
+		q = q.Where(
+			"loans.loan_number ILIKE ? OR bank_pledge_records.bank_name ILIKE ? OR customers.name ILIKE ?",
+			like, like, like,
+		)
 	}
 	q = q.Order("bank_pledge_records.id desc")
 	var total int64
@@ -701,10 +765,25 @@ func (r *LoanRequestRepository) Update(ctx context.Context, req *LoanRequest) er
 
 func (r *LoanRequestRepository) FindByID(ctx context.Context, id uint) (*LoanRequest, error) {
 	var req LoanRequest
-	if err := r.db.WithContext(ctx).Preload("Loan.Customer").First(&req, id).Error; err != nil {
+	if err := r.db.WithContext(ctx).Preload("Loan.Customer").Preload("OrnamentSelections").First(&req, id).Error; err != nil {
 		return nil, err
 	}
 	return &req, nil
+}
+
+// CreateOrnamentSelections persists a Partial Ornament Release's selected
+// ornament set as real LoanRequestOrnament rows — called once, right after
+// CreateReleaseRequest inserts the parent request, never updated afterward
+// (the selection is fixed at creation; there is no "edit selection" flow).
+func (r *LoanRequestRepository) CreateOrnamentSelections(ctx context.Context, requestID uint, ornamentIDs []uint) error {
+	if len(ornamentIDs) == 0 {
+		return nil
+	}
+	rows := make([]LoanRequestOrnament, len(ornamentIDs))
+	for i, id := range ornamentIDs {
+		rows[i] = LoanRequestOrnament{RequestID: requestID, OrnamentID: id}
+	}
+	return r.db.WithContext(ctx).Create(&rows).Error
 }
 
 // LoanRequestFilter narrows FindAll's results; zero-value fields are ignored.
@@ -757,7 +836,14 @@ func (r *LoanRequestRepository) FindAll(ctx context.Context, f LoanRequestFilter
 // actually approved before letting the gold go out.
 func (r *LoanRequestRepository) FindApprovedReleaseByLoanID(ctx context.Context, loanID uint) (*LoanRequest, error) {
 	var req LoanRequest
-	err := r.db.WithContext(ctx).Preload("Loan.Customer").
+	// OrnamentSelections must be preloaded here too — CompleteRelease's
+	// completePartialRelease branch reads approved.OrnamentSelections
+	// directly (never re-fetches by ID), and without it every Partial
+	// Ornament Release request looked like it had selected NOTHING,
+	// tripping that function's "should be unreachable" empty-selection
+	// guard and refusing Management approval with ErrReleaseNotApproved
+	// (404) for every genuine partial release.
+	err := r.db.WithContext(ctx).Preload("Loan.Customer").Preload("OrnamentSelections").
 		Where("loan_id = ? AND type = ? AND status = ?", loanID, RequestTypeRelease, RequestStatusApproved).
 		Order("id desc").First(&req).Error
 	if err != nil {
@@ -904,10 +990,15 @@ type ConcludedAuctionRow struct {
 // gold — the History tab's "Auctions Conducted" vs "Closed Without Auction"
 // split, done here so each sub-table's own limit/offset paginates only its
 // own rows instead of counting against a mixed set. nil means no filter.
-// limit/offset apply only when limit > 0, matching LoanFilter's convention.
-// FindAllConcluded returns matching rows plus the TOTAL row count (Limit/
-// Offset ignored, 0 when limit <= 0).
-func (r *AuctionRepository) FindAllConcluded(ctx context.Context, branchID *uint, hasSale *bool, limit, offset int) ([]ConcludedAuctionRow, int64, error) {
+// query, when non-empty, matches loan number, customer name, or the auction's
+// own reference number — same ILIKE-across-joined-tables approach
+// Repository.FindAll uses for the Loans list search (see its Query handling
+// above); the loans/customers JOINs already exist unconditionally here, so
+// this reuses them rather than adding new ones. limit/offset apply only when
+// limit > 0, matching LoanFilter's convention. FindAllConcluded returns
+// matching rows plus the TOTAL row count (Limit/Offset ignored, 0 when
+// limit <= 0).
+func (r *AuctionRepository) FindAllConcluded(ctx context.Context, branchID *uint, hasSale *bool, query string, limit, offset int) ([]ConcludedAuctionRow, int64, error) {
 	var rows []ConcludedAuctionRow
 	q := preloadAuctionDetail(r.db.WithContext(ctx)).Model(&AuctionRecord{}).
 		Select("auction_records.*, loans.loan_number AS loan_number, customers.name AS customer_name").
@@ -923,6 +1014,13 @@ func (r *AuctionRepository) FindAllConcluded(ctx context.Context, branchID *uint
 		} else {
 			q = q.Where("auction_records.sale_amount <= 0")
 		}
+	}
+	if query != "" {
+		like := "%" + query + "%"
+		q = q.Where(
+			"loans.loan_number ILIKE ? OR customers.name ILIKE ? OR auction_records.auction_reference_number ILIKE ?",
+			like, like, like,
+		)
 	}
 	q = q.Order("auction_records.updated_at desc, auction_records.id desc")
 	var total int64

@@ -80,7 +80,7 @@ export function BranchModalContent({ branch: b, onSaved }: { branch?: BranchView
   return (
     <>
       <div className="hd"><h3>{b ? "Edit Branch — " + b.name : "Add Branch"}</h3><button className="x" onClick={closeModal}>×</button></div>
-      <div className="bd">
+      <div className="bd bd-scroll">
         <div className="frow c2">
           <div><label className="f">Branch Name *</label>
             <input

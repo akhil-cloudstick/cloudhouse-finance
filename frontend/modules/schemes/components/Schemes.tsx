@@ -94,7 +94,13 @@ export function Schemes() {
                 <div className="i"><div className="k">Duration</div><div className="v">{s.durationMonths} months</div></div>
                 <div className="i"><div className="k">LTV</div><div className="v">{s.ltv}%</div></div>
                 <div className="i"><div className="k">Method</div><div className="v">{s.method || "—"}</div></div>
-                <div className="i"><div className="k">Penal Charges</div><div className="v" style={{ color: "var(--red)", fontWeight: 600 }}>{s.penal}% / month</div></div>
+                <div className="i"><div className="k">Penal Charges</div><div className="v" style={{ color: "var(--red)", fontWeight: 600 }}>{s.penal}% p.a.</div></div>
+                {s.serviceChargeType !== "None" && (
+                  <div className="i"><div className="k">Service Charge</div><div className="v">
+                    {s.serviceChargeType === "Flat" ? `₹${s.serviceChargeValue}` : `${s.serviceChargeValue}%`}
+                    {" "}({s.serviceChargeMode === "AddedToPrincipal" ? "added to principal" : "withheld"})
+                  </div></div>
+                )}
               </div>
               <p style={{ fontSize: 12.5, color: "var(--muted)", marginTop: smallScreen ? 4 : 12, borderTop: "1px dashed var(--line)", paddingTop: smallScreen ? 4 : 10, height: smallScreen ? 28 : 60, overflow: "hidden" }}>{s.cond || "—"}</p>
             </div>
