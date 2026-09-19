@@ -258,23 +258,20 @@ export function PacketDetail({ code }: { code?: string }) {
                     * <select> over every locker at once — see
                     * lockerService.ts's searchLockersPage. Full lockers are
                     * filtered out of each page rather than shown disabled.
-                    * Deliberately NOT scoped to the packet's own branch (the
-                    * old plain <select> was) — a branch with no locker of
-                    * its own would otherwise leave staff with nothing to
-                    * pick; showing every active locker lets them check gold
-                    * into whichever one is actually available. The branch
-                    * mismatch is visible in the label below. */}
+                    * Scoped to the packet's own branch — gold physically at
+                    * one branch can't be checked into another branch's
+                    * locker. */}
                   <SearchableSelect<LockerView>
                     value=""
                     placeholder="Search locker code…"
                     fetchFn={(q, page) =>
-                      searchLockersPage(q, page, { activeOnly: true }).then((res) => ({
+                      searchLockersPage(q, page, { activeOnly: true, branchId: p.branchId }).then((res) => ({
                         items: res.items.filter((l) => l.occupied < l.capacity),
                         hasMore: res.hasMore,
                       }))
                     }
                     getId={(l) => String(l.id)}
-                    getLabel={(l) => `${l.code} (${l.occupied}/${l.capacity})${l.branchId !== p.branchId ? ` · ${l.branchName}` : ""}`}
+                    getLabel={(l) => `${l.code} (${l.occupied}/${l.capacity})`}
                     onChange={(id) => setLockerId(id ? Number(id) : "")}
                   />
                 </div>

@@ -3192,10 +3192,25 @@ func (s *Service) SettleAuction(ctx context.Context, loanID uint, branchID *uint
 	}
 	rec, err := s.getAuctionRecord(ctx, loanID)
 	if err != nil {
+		// getAuctionRecord's FindActiveByLoanID excludes Settled/Withdrawn
+		// cases outright (see that repository method's own doc comment), so
+		// a loan whose auction case ALREADY settled looks identical to one
+		// that never had a case at all — both fail the active lookup and,
+		// without this fallback, both surfaced the same misleading
+		// ErrAuctionNotFound ("mark it auction-eligible first") even when
+		// the sale had genuinely already gone through and the surplus
+		// already disposed of. A stale client screen re-submitting Settle
+		// after its first click already succeeded is exactly when this
+		// fires: history still finds the just-concluded record, so the
+		// error now names what actually happened.
+		if hist, histErr := s.auctionRepo.FindHistoryByLoanID(ctx, loanID); histErr == nil {
+			for _, h := range hist {
+				if h.Stage == AuctionStageSettled {
+					return nil, ErrAuctionAlreadyConcluded
+				}
+			}
+		}
 		return nil, err
-	}
-	if rec.Stage == AuctionStageSettled {
-		return nil, ErrAuctionAlreadyConcluded
 	}
 	if rec.Stage != AuctionStageAuctioned {
 		return nil, ErrAuctionWrongStage
@@ -3246,7 +3261,16 @@ func (s *Service) SettleAuction(ctx context.Context, loanID uint, branchID *uint
 		), commlog.TriggerAuctionEvent, "auction_record", rec.ID)
 	}
 
-	return s.getAuctionRecord(ctx, loanID)
+	// rec is already fully updated (Stage=Settled, disposition, in-memory)
+	// and saved above — NOT re-fetched via getAuctionRecord, which would
+	// immediately fail: its FindActiveByLoanID excludes Settled/Withdrawn
+	// records outright (see that repository method's own doc comment), so
+	// calling it here on the record THIS SAME FUNCTION just settled always
+	// returned ErrAuctionNotFound (mapped to a 404) even on a fully
+	// successful settle — the settle itself went through (Stage, event, and
+	// notification all already committed above), but the response looked
+	// like a failure and the caller never received the updated record.
+	return rec, nil
 }
 
 // ResolveAuctionDecision records a human decision on an escalation and applies

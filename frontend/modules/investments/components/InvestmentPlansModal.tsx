@@ -15,9 +15,11 @@ import {
   type InterestRateType,
   type PayoutFrequency,
   type Engine,
-  type ProductType,
 } from "@/modules/investments/services/investmentService";
 
+// Every plan is a Bond product now — ProductType has no live "Deposit"
+// alternative left in the UI, so the create/edit form no longer offers a
+// choice; every plan is created/saved as "Bond" (see form submission below).
 const emptyForm: CreatePlanInput = {
   name: "",
   interestRateType: "Simple",
@@ -27,7 +29,7 @@ const emptyForm: CreatePlanInput = {
   minPrincipal: 0,
   isActive: true,
   engine: "Schedule",
-  productType: "Deposit",
+  productType: "Bond",
 };
 
 /* Fixed Payout (backend Engine "Schedule") now also offers Quarterly
@@ -97,7 +99,7 @@ export function InvestmentPlansModalContent({ onChanged }: { onChanged: () => vo
       minPrincipal: p.minPrincipal,
       isActive: p.isActive,
       engine: p.engine,
-      productType: p.productType,
+      productType: "Bond",
     });
     setFormErr("");
   }
@@ -177,18 +179,6 @@ export function InvestmentPlansModalContent({ onChanged }: { onChanged: () => vo
           <>
             <div className="frow c2">
               <div><label className="f">Plan Name *</label><input className="inp" placeholder="e.g. Gold Saver 12mo" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} /></div>
-              <div><label className="f">Product Type *</label>
-                <Select
-                  value={form.productType}
-                  onChange={(v) => setForm({ ...form, productType: v as ProductType })}
-                  options={[
-                    { value: "Deposit", label: "Deposit" },
-                    { value: "Bond", label: "Bond — generates a Debenture Subscription Agreement" },
-                  ]}
-                />
-              </div>
-            </div>
-            <div className="frow c2">
               <div><label className="f">Interest Rate Type *</label>
                 <Select
                   value={form.interestRateType}
@@ -196,7 +186,6 @@ export function InvestmentPlansModalContent({ onChanged }: { onChanged: () => vo
                   options={(["Simple", "Compound"] as InterestRateType[]).map((t) => ({ value: t, label: t }))}
                 />
               </div>
-              <div />
             </div>
             <div className="frow c2">
               <div><label className="f">Interest Rate (% p.a.) *</label><input className="inp" type="number" min={0} step={0.01} placeholder="e.g. 8" value={form.interestRatePercent || ""} onChange={(e) => setForm({ ...form, interestRatePercent: +e.target.value || 0 })} /></div>

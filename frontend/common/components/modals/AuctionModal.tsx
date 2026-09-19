@@ -244,8 +244,17 @@ export function SettleAuctionModalContent({ loan, rec, onSaved, onError }: { loa
         ? `Surplus of ${fmt(surplus)} marked for refund to ${loan.customerName}`
         : `Auction settled for ${loan.id} — surplus retained as income`);
     } catch (e) {
-      setErr(e instanceof ApiError ? e.message : "Could not settle the auction — try again.");
       onError?.(); // see IssueNoticeModalContent's onError comment above
+      // "already settled" means a previous attempt already succeeded (a
+      // stale screen re-submitting after its first click went through) —
+      // nothing left for this modal to do, so close it instead of leaving
+      // staff staring at a settle form for a case that's already done.
+      if (e instanceof ApiError && /already been settled/i.test(e.message)) {
+        closeModal();
+        toast("This auction case was already settled.");
+        return;
+      }
+      setErr(e instanceof ApiError ? e.message : "Could not settle the auction — try again.");
       submittingRef.current = false;
     } finally {
       setSaving(false);

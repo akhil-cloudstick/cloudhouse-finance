@@ -35,7 +35,6 @@ var (
 	ErrInvalidMaturityAction  = httpx.NewBadRequest("maturity decision must be Close or Renew")
 	ErrInvalidEngine          = httpx.NewBadRequest("engine must be Schedule or Live")
 	ErrInvalidProductType     = httpx.NewBadRequest("product type must be Deposit or Bond")
-	ErrNotBondProduct         = httpx.NewBadRequest("the Debenture Subscription Agreement is only available for a Bond-type investment")
 
 	// --- Live-engine (Add Cash / Withdraw) errors ---
 	ErrInvalidAmount                  = httpx.NewBadRequest("amount must be greater than zero")

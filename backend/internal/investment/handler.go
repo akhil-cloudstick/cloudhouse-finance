@@ -205,9 +205,8 @@ func (h *Handler) Get(c *gin.Context) {
 }
 
 // DownloadBondPDF backs GET /investments/:id/bond/pdf — the Debenture
-// Subscription Agreement for a Bond-type investment (see
-// investmentbond.go). Refused with ErrNotBondProduct for a Deposit-type
-// investment.
+// Subscription Agreement, available for any investment (see
+// investmentbond.go).
 func (h *Handler) DownloadBondPDF(c *gin.Context) {
 	ctx := platform.RequestContext(c)
 	id, err := httpx.IDParam(c, "id")
@@ -216,6 +215,25 @@ func (h *Handler) DownloadBondPDF(c *gin.Context) {
 		return
 	}
 	pdfBytes, filename, err := h.svc.RenderInvestmentBondPDFForInvestment(ctx, id, platform.GetBranchScope(c))
+	if err != nil {
+		httpx.FailErr(c, err)
+		return
+	}
+	c.Header("Content-Disposition", fmt.Sprintf("attachment; filename=%q", filename))
+	c.Data(http.StatusOK, "application/pdf", pdfBytes)
+}
+
+// DownloadStatement backs GET /investments/:id/statement/pdf — the
+// investor-facing account statement (terms + full transaction/payout
+// history), see statement.go.
+func (h *Handler) DownloadStatement(c *gin.Context) {
+	ctx := platform.RequestContext(c)
+	id, err := httpx.IDParam(c, "id")
+	if err != nil {
+		httpx.FailErr(c, err)
+		return
+	}
+	pdfBytes, filename, err := h.svc.Statement(ctx, id, platform.GetBranchScope(c))
 	if err != nil {
 		httpx.FailErr(c, err)
 		return

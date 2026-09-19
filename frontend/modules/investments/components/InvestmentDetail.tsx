@@ -10,8 +10,8 @@ import {
   getInvestment,
   getInvestmentSchedulePage,
   getInvestmentTransactionsPage,
-  downloadInvestmentBondPdf,
   printInvestmentBondPdf,
+  printInvestmentStatementPdf,
   type BackendInvestment,
   type BackendInvestmentPayout,
   type BackendInvestmentTransaction,
@@ -73,8 +73,8 @@ export function InvestmentDetail({ id }: { id?: string }) {
   const [investment, setInvestment] = useState<BackendInvestment | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
-  const [downloadingBond, setDownloadingBond] = useState(false);
   const [printingBond, setPrintingBond] = useState(false);
+  const [printingStatement, setPrintingStatement] = useState(false);
 
   const {
     open: cashMenuOpen,
@@ -142,18 +142,6 @@ export function InvestmentDetail({ id }: { id?: string }) {
     openModal(<MaturityModalContent investment={investment} onSaved={() => { closeModal(); void refreshInvestment(); schedule.reload(); }} />);
   }
 
-  async function handleDownloadBond() {
-    if (!investment) return;
-    setDownloadingBond(true);
-    try {
-      await downloadInvestmentBondPdf(investment.id, investment.investmentNumber);
-    } catch (e) {
-      toast(e instanceof ApiError ? e.message : "Could not download the agreement — try again.");
-    } finally {
-      setDownloadingBond(false);
-    }
-  }
-
   async function handlePrintBond() {
     if (!investment) return;
     setPrintingBond(true);
@@ -163,6 +151,18 @@ export function InvestmentDetail({ id }: { id?: string }) {
       toast(e instanceof ApiError ? e.message : "Could not print the agreement — try again.");
     } finally {
       setPrintingBond(false);
+    }
+  }
+
+  async function handlePrintStatement() {
+    if (!investment) return;
+    setPrintingStatement(true);
+    try {
+      await printInvestmentStatementPdf(investment.id);
+    } catch (e) {
+      toast(e instanceof ApiError ? e.message : "Could not print the statement — try again.");
+    } finally {
+      setPrintingStatement(false);
     }
   }
 
@@ -195,7 +195,6 @@ export function InvestmentDetail({ id }: { id?: string }) {
   }
 
   const investorName = investment.customer?.name || investment.customer?.code || "";
-  const hasBondDocs = investment.plan?.productType === "Bond";
 
   return (
     <>
@@ -208,29 +207,27 @@ export function InvestmentDetail({ id }: { id?: string }) {
           </p>
         </div>
         <div className="sp" />
-        {hasBondDocs && (
-          <div className="docs-dd" ref={docsMenuRef} onKeyDown={onDocsMenuKeyDown}>
-            <button
-              ref={docsMenuTriggerRef}
-              className="btn plain"
-              onClick={() => setDocsMenuOpen((v) => !v)}
-              aria-haspopup="menu"
-              aria-expanded={docsMenuOpen}
-            >
-              <Icon name="doc" /> Documents <Icon name="chevronDown" className="docs-dd-chev" />
-            </button>
-            {docsMenuOpen && (
-              <div className="docs-dd-menu" role="menu">
-                <a href="#" title="Print Agreement" className={printingBond ? "disabled" : ""} onClick={(e) => { e.preventDefault(); if (printingBond) return; setDocsMenuOpen(false); void handlePrintBond(); }}>
-                  <Icon name="doc" /><span className="tx">{printingBond ? "Opening…" : "Print Agreement"}</span>
-                </a>
-                <a href="#" title="Download Agreement" className={downloadingBond ? "disabled" : ""} onClick={(e) => { e.preventDefault(); if (downloadingBond) return; setDocsMenuOpen(false); void handleDownloadBond(); }}>
-                  <Icon name="download" /><span className="tx">{downloadingBond ? "Downloading…" : "Download Agreement"}</span>
-                </a>
-              </div>
-            )}
-          </div>
-        )}
+        <div className="docs-dd" ref={docsMenuRef} onKeyDown={onDocsMenuKeyDown}>
+          <button
+            ref={docsMenuTriggerRef}
+            className="btn plain"
+            onClick={() => setDocsMenuOpen((v) => !v)}
+            aria-haspopup="menu"
+            aria-expanded={docsMenuOpen}
+          >
+            <Icon name="doc" /> Documents <Icon name="chevronDown" className="docs-dd-chev" />
+          </button>
+          {docsMenuOpen && (
+            <div className="docs-dd-menu" role="menu">
+              <a href="#" title="Print Agreement" className={printingBond ? "disabled" : ""} onClick={(e) => { e.preventDefault(); if (printingBond) return; setDocsMenuOpen(false); void handlePrintBond(); }}>
+                <Icon name="doc" /><span className="tx">{printingBond ? "Opening…" : "Print Agreement"}</span>
+              </a>
+              <a href="#" title="Print Statement" className={printingStatement ? "disabled" : ""} onClick={(e) => { e.preventDefault(); if (printingStatement) return; setDocsMenuOpen(false); void handlePrintStatement(); }}>
+                <Icon name="doc" /><span className="tx">{printingStatement ? "Opening…" : "Print Statement"}</span>
+              </a>
+            </div>
+          )}
+        </div>
         {canUpdate && isLive && investment.status === "Active" && (
           <div className="docs-dd" ref={cashMenuRef} onKeyDown={onCashMenuKeyDown}>
             <button

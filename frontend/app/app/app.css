@@ -880,6 +880,17 @@ h3,
   flex: 1 1 auto
 }
 
+/* Cash.tsx's Cash Movements filter row — same 230px-ignoring problem as the
+ * report filter bar above: at this row's typical card width, two fixed
+ * 230px date fields plus the type select, Clear and Download buttons don't
+ * fit on one line and wrap. Narrowed to 130px, matching the row's other
+ * compact controls, so From/To/Clear/Download stay on a single line.
+ * Scoped to `.cash-filter-row` only. */
+.cash-filter-row .dp.dp-date {
+  width: 130px;
+  flex: 0 0 130px
+}
+
 /* Small-screen 3-col grid packs "Bank Pledge Due Date" into a column
  * narrow enough that its label wraps to two lines, while its row-mates
  * ("Interest Rate (% p.a.)", "Reference Number") stay on one — the wrapped
