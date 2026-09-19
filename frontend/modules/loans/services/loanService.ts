@@ -1004,6 +1004,13 @@ export type BankPledgeEventView = {
 export type BankPledgeRecordView = {
   id: number;
   loanId: number;
+  // Populated only by rows that carry their parent loan alongside them
+  // (the History tab's branch-wide query) — a plain per-loan history call
+  // (GET /loans/:id/bank-pledge/history) already has the loan in context,
+  // so its rows leave these blank rather than re-fetching what the caller
+  // already has.
+  loanNumber?: string;
+  customerName?: string;
   bankName: string;
   pledgedAmount: number;
   pledgeDate: string;
@@ -1018,10 +1025,12 @@ export type BankPledgeRecordView = {
   events: BankPledgeEventView[];
 };
 
-function toBankPledgeRecordView(r: BackendBankPledgeRecord): BankPledgeRecordView {
+function toBankPledgeRecordView(r: BackendBankPledgeRecord & { loanNumber?: string; customerName?: string }): BankPledgeRecordView {
   return {
     id: r.id,
     loanId: r.loanId,
+    loanNumber: r.loanNumber,
+    customerName: r.customerName,
     bankName: r.bankName,
     pledgedAmount: r.pledgedAmount,
     pledgeDate: r.pledgeDate ? r.pledgeDate.slice(0, 10) : "",
@@ -1063,12 +1072,15 @@ export const BANK_PLEDGE_HISTORY_PAGE_SIZE = 10;
 // envelope pattern.
 export async function listBankPledgeHistoryPage(
   page: number,
-  limit?: number
+  limit?: number,
+  query?: string
 ): Promise<{ items: BankPledgeRecordView[]; hasMore: boolean; total: number }> {
   const pageSize = limit ?? (isSmallScreen() ? 7 : 10);
   const offset = (page - 1) * pageSize;
-  const res = await apiFetch<{ items: BackendBankPledgeRecord[] | null; hasMore: boolean; total?: number }>(
-    `/loans/bank-pledges/history?limit=${pageSize}&offset=${offset}`
+  const params = new URLSearchParams({ limit: String(pageSize), offset: String(offset) });
+  if (query) params.set("q", query);
+  const res = await apiFetch<{ items: (BackendBankPledgeRecord & { loanNumber?: string; customerName?: string })[] | null; hasMore: boolean; total?: number }>(
+    `/loans/bank-pledges/history?${params.toString()}`
   );
   return { items: (res.items || []).map(toBankPledgeRecordView), hasMore: res.hasMore, total: res.total ?? 0 };
 }

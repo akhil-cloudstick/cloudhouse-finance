@@ -242,11 +242,18 @@ var (
 	// Administrator may decide a shortfall) — Forbidden, not BadRequest.
 	ErrShortfallAuthorityRequired    = httpx.NewForbidden("only a Branch Manager, Management, or Administrator may decide a post-auction shortfall")
 	ErrAuctionBalanceDueCannotSettle = httpx.NewBadRequest("this auction left a balance owing — resolve the shortfall decision instead of settling")
-	ErrNoSurplusToDispose            = httpx.NewBadRequest("this auction left no surplus to dispose of")
-	ErrSurplusAlreadyDisposed        = httpx.NewConflict("this auction's surplus has already been disposed of")
-	ErrInvalidSurplusDisposition     = httpx.NewBadRequest("surplus disposition must be either \"RefundedToCustomer\" or \"RecordedAsIncome\"")
-	ErrSettlementRemarksRequired     = httpx.NewBadRequest("remarks are required when a customer's auction surplus is retained as income")
-	ErrDecisionRemarksRequired       = httpx.NewBadRequest("remarks are required for this decision")
+	// ErrAuctionAlreadyConcluded: SettleAuction was called against a case
+	// that has already left the Auctioned stage (typically Settled) —
+	// distinct from ErrAuctionWrongStage's other causes (e.g. calling it
+	// before a sale is even recorded) so a stale client screen that still
+	// shows a "Settle Surplus" button gets a message that actually explains
+	// what happened, rather than the generic wrong-stage text.
+	ErrAuctionAlreadyConcluded   = httpx.NewConflict("this auction case has already been settled — refresh the page to see its current state")
+	ErrNoSurplusToDispose        = httpx.NewBadRequest("this auction left no surplus to dispose of")
+	ErrSurplusAlreadyDisposed    = httpx.NewConflict("this auction's surplus has already been disposed of")
+	ErrInvalidSurplusDisposition = httpx.NewBadRequest("surplus disposition must be either \"RefundedToCustomer\" or \"RecordedAsIncome\"")
+	ErrSettlementRemarksRequired = httpx.NewBadRequest("remarks are required when a customer's auction surplus is retained as income")
+	ErrDecisionRemarksRequired   = httpx.NewBadRequest("remarks are required for this decision")
 
 	// ErrEsignNotConfigured/ErrNoIndemnityBondSignRequest are returned by the
 	// indemnity-bond Aadhaar eSign flow (StartIndemnityBondSign/
@@ -275,14 +282,6 @@ var (
 	// LoanRequest.Locked's doc comment for why RecordPayment itself is
 	// deliberately NOT gated by this.
 	ErrRequestLocked = httpx.NewConflict("this release request is locked after payment — it can no longer be rejected or have its checklist changed")
-	// ErrInsufficientRemainingCollateral is CreateReleaseRequest's rejection
-	// for a Partial Ornament Release whose unselected ornaments would not
-	// adequately secure what remains owed, even with the buffer (see
-	// partialReleaseRemaining). Carries no amount itself — callers read the
-	// `remaining` figure computed alongside it from the response body/log,
-	// same convention as other amount-carrying BadRequest errors in this
-	// package (e.g. ErrTopUpShortfall).
-	ErrInsufficientRemainingCollateral = httpx.NewBadRequest("the ornaments staying pledged would not adequately secure the remaining balance — select fewer ornaments or pay down the balance first")
 	// ErrDriftPaymentRequired is ApproveReleaseRequest's refusal of a
 	// Partial Ornament Release's final (Management) approval when live
 	// drift (partialReleaseDrift, no buffer) has crept back above zero
@@ -616,29 +615,27 @@ func recalculateTotals(l *Loan, ornaments []Ornament) {
 //
 //	remaining = (outstandingBalance + buffer) - (remainingGoldValue × ltvPercent / 100)
 //
-// buffer = 5% of the loan's PrincipalAmount, deliberately included here (and
-// nowhere else) to absorb ordinary drift between the moment a customer
-// selects ornaments and the moment staff/Manager/Management actually act on
-// the request — interest keeps accruing the whole time, and without slack a
-// selection valid to the last rupee at creation would routinely fail the
-// SAME calculation an hour later purely from the clock ticking, forcing
-// customers to restart their selection for no real change in risk.
-// partialReleaseDrift (below) is the no-buffer version used once the
-// request has actually reached final approval.
+// partialReleaseRemaining is the buffered version of the Partial Ornament
+// Release collateral check — buffer = 5% of the loan's PrincipalAmount,
+// deliberately included here (and nowhere else) to absorb ordinary drift
+// between the moment a customer selects ornaments and the moment staff
+// actually act on the request. No longer a HARD GATE on CreateReleaseRequest
+// itself (a customer may log a partial release before paying anything
+// down — see that function's own doc comment) — kept as the same pure,
+// tested formula the frontend's own live warning mirrors, available for a
+// future caller that wants this buffered figure rather than
+// partialReleaseDrift's unbuffered one below.
 //
-// remaining <= 0 means the condition is met and the selection is valid
-// as-is; remaining > 0 is the amount still needed. CreateReleaseRequest
-// rejects with ErrInsufficientRemainingCollateral once remaining > 0.01.
+// remaining <= 0 means the condition is met as-is; remaining > 0 is the
+// amount still needed.
 func partialReleaseRemaining(outstandingBalance, principalAmount, remainingGoldValue, ltvPercent float64) float64 {
 	buffer := 0.05 * principalAmount
 	return (outstandingBalance + buffer) - (remainingGoldValue * ltvPercent / 100)
 }
 
 // partialReleaseDrift is partialReleaseRemaining's no-buffer counterpart,
-// evaluated at the Management approval stage rather than at selection time.
-// The buffer above exists to absorb ordinary drift; this function measures
-// that same drift directly, with nothing to absorb it, to decide whether a
-// Top-Up Payment must be collected before approval can proceed:
+// and the SOLE point that actually enforces the collateral condition — at
+// Management approval time, via ApproveReleaseRequest:
 //
 //	drift = outstandingBalance - (remainingGoldValue × ltvPercent / 100)
 //
@@ -1013,7 +1010,10 @@ func (s *Service) List(ctx context.Context, f LoanFilter) ([]Loan, int64, error)
 	now := time.Now()
 	for i := range loans {
 		l := &loans[i]
-		interestDelta, penalDelta, _ := projectAccrual(l, now)
+		// nil top-ups: see projectAccrual's firstMonthTopUps doc comment —
+		// List's batch projection accepts the flat-month approximation for
+		// its display-only figure rather than an extra query per row.
+		interestDelta, penalDelta, _ := projectAccrual(l, now, nil)
 		l.AccruedInterest = platform.RoundMoney(l.AccruedInterest + interestDelta)
 		l.AccruedPenalInterest = platform.RoundMoney(l.AccruedPenalInterest + penalDelta)
 		s.enrich(ctx, l)
@@ -3194,6 +3194,9 @@ func (s *Service) SettleAuction(ctx context.Context, loanID uint, branchID *uint
 	if err != nil {
 		return nil, err
 	}
+	if rec.Stage == AuctionStageSettled {
+		return nil, ErrAuctionAlreadyConcluded
+	}
 	if rec.Stage != AuctionStageAuctioned {
 		return nil, ErrAuctionWrongStage
 	}
@@ -3556,11 +3559,13 @@ type ReleaseRequestInput struct {
 // ornament loan work with no special-case code: selecting that one
 // ornament is selecting 100%, so it always resolves to a full release.
 //
-// A genuine strict-subset selection is checked against
-// partialReleaseRemaining (with its 5% drift buffer) computed from the
-// ornaments that would stay pledged — rejected with
-// ErrInsufficientRemainingCollateral if what remains would not adequately
-// secure what's still owed.
+// A genuine strict-subset selection no longer blocks CreateReleaseRequest
+// itself on partialReleaseRemaining — a customer may ask for a partial
+// release before paying anything down, and staff record that payment
+// later from the release review screen. ApproveReleaseRequest re-runs the
+// same collateral check (partialReleaseDrift, no buffer) at approval time
+// and refuses with ErrDriftPaymentRequired until it is satisfied — that is
+// now the sole enforcement point; this function only computes IsPartial.
 func (s *Service) CreateReleaseRequest(ctx context.Context, loanID uint, in ReleaseRequestInput) (*LoanRequest, error) {
 	l, err := s.Get(ctx, loanID, nil)
 	if err != nil {
@@ -3597,17 +3602,6 @@ func (s *Service) CreateReleaseRequest(ctx context.Context, loanID uint, in Rele
 			selectedSet[id] = true
 		}
 		selectedIDs = in.OrnamentIDs
-
-		var remainingGoldValue float64
-		for _, o := range active {
-			if !selectedSet[o.ID] {
-				remainingGoldValue += o.GoldValue
-			}
-		}
-		remaining := partialReleaseRemaining(l.TotalOutstandingBalance, l.PrincipalAmount, remainingGoldValue, l.SchemeLTVPercent)
-		if remaining > 0.01 {
-			return nil, ErrInsufficientRemainingCollateral
-		}
 		isPartial = true
 	} else if len(in.OrnamentIDs) > 0 {
 		// Every active ornament was selected (or more IDs than exist were
@@ -3920,7 +3914,20 @@ func (s *Service) RecordReleaseRequestPayment(ctx context.Context, requestID uin
 	req.RecordedDiscount = platform.RoundMoney(req.RecordedDiscount + in.Discount)
 	req.RecordedPayment = platform.RoundMoney(req.RecordedPayment + in.Amount)
 
-	if l.TotalOutstandingBalance <= 0.01 {
+	if req.IsPartial {
+		// PaymentDueDate exists to track a FULL release's final settlement
+		// still falling short after a payment (see LoanRequest's own doc
+		// comment) — a concept that doesn't apply to a Partial Ornament
+		// Release at all. That release only concerns the ornaments being
+		// selected out; the loan's overall TotalOutstandingBalance is
+		// expected to stay positive regardless (the rest of the loan
+		// continues on its own existing due date), so this check would
+		// otherwise demand a due date on every partial-release payment
+		// even when the minimum amount needed to release THOSE ornaments
+		// (the "Remaining" figure on the request modal) has already been
+		// fully covered.
+		req.PaymentDueDate = nil
+	} else if l.TotalOutstandingBalance <= 0.01 {
 		req.PaymentDueDate = nil
 	} else if in.Discount <= 0 && paymentAmount <= 0 {
 		// Neither a discount nor a real payment was actually posted this
@@ -3993,8 +4000,40 @@ func (s *Service) ApproveReleaseRequest(ctx context.Context, requestID uint, bra
 	if in.Action == ApprovalStageRejected && req.Locked {
 		return nil, ErrRequestLocked
 	}
-	if !req.CustomerSawGold || !req.PaymentRecorded {
+	if !req.CustomerSawGold {
 		return nil, ErrChecklistIncomplete
+	}
+	if !req.PaymentRecorded {
+		// PaymentRecorded is ordinarily set by RecordReleaseRequestPayment,
+		// tying a specific settlement figure to this request for the audit
+		// trail. But a loan can also already satisfy the release's own
+		// financial condition WITHOUT a payment ever run through that
+		// request-linked endpoint — e.g. it was paid down by an ordinary
+		// payment before the release was even requested, or via the Top-Up
+		// Payment path (posted against the plain loan, not this request —
+		// see ReleaseReviewModal.tsx's own comment on why). Forcing staff to
+		// click Record Payment again in that case would either double-charge
+		// or require recording a pointless ₹0 entry just to flip this flag.
+		// Checked here, live, rather than trusting a stale req field: a full
+		// release is satisfied once the loan's balance is actually cleared;
+		// a partial release reuses the exact same drift check
+		// ApprovalStagePendingManagement re-runs below.
+		l, err := s.Get(ctx, req.LoanID, nil)
+		if err != nil {
+			return nil, err
+		}
+		conditionAlreadyMet := false
+		if req.IsPartial {
+			remainingGoldValue, gvErr := s.partialReleaseRemainingGoldValue(ctx, req)
+			if gvErr == nil && partialReleaseDrift(l.TotalOutstandingBalance, remainingGoldValue, l.SchemeLTVPercent) <= 0.01 {
+				conditionAlreadyMet = true
+			}
+		} else if l.TotalOutstandingBalance <= 0.01 {
+			conditionAlreadyMet = true
+		}
+		if !conditionAlreadyMet {
+			return nil, ErrChecklistIncomplete
+		}
 	}
 
 	stage := req.ApprovalStage
@@ -4086,6 +4125,18 @@ func (s *Service) advanceReleaseRequestStage(ctx context.Context, req *LoanReque
 	if stage == "" {
 		stage = ApprovalStagePendingManager
 	}
+	// Snapshot of every field the Management branch below mutates, restored
+	// if CompleteRelease then fails — see that branch's own comment on why
+	// the Approved state must be persisted BEFORE CompleteRelease runs
+	// (its own "not yet fully cleared" lookup needs to find it already
+	// saved). Without this rollback, a CompleteRelease failure (e.g.
+	// ErrBankPledgeStillActive — the bank pledge/locker was never actually
+	// released before Management approved) left the request stuck Approved
+	// in the DB while the caller only ever saw the returned error: the UI
+	// never learned the new status (stayed open on stale "Pending" state),
+	// and the request could never be approved again afterward
+	// (ApproveReleaseRequest refuses an already-Approved request outright).
+	preApprovalStage, preStatus := req.ApprovalStage, req.Status
 
 	notifyLoan, _ := s.repo.FindByID(ctx, req.LoanID)
 
@@ -4143,6 +4194,16 @@ func (s *Service) advanceReleaseRequestStage(ctx context.Context, req *LoanReque
 		// balance settled for a full release) before it will actually hand
 		// the gold back.
 		if _, err := s.CompleteRelease(ctx, req.LoanID, nil, actorEmployeeID); err != nil {
+			// Roll back the Approved state just persisted above — see this
+			// function's own doc comment on preApprovalStage/preStatus for
+			// why leaving it stuck Approved is worse than the extra write.
+			req.ApprovalStage = preApprovalStage
+			req.Status = preStatus
+			req.DecidedAt = nil
+			req.DecidedByEmployeeID = nil
+			if rbErr := s.requestRepo.Update(ctx, req); rbErr != nil {
+				log.Printf("could not roll back release request %d to %s after CompleteRelease failed: %v", req.ID, preStatus, rbErr)
+			}
 			return nil, err
 		}
 	}
@@ -4691,8 +4752,8 @@ func (s *Service) GetBankPledgeHistory(ctx context.Context, loanID uint, branchI
 
 // ListBankPledgeHistory returns re-pledge records across all loans, scoped to
 // the caller's branch — backs the Bank Re-Pledge screen's History tab.
-func (s *Service) ListBankPledgeHistory(ctx context.Context, branchID *uint, limit, offset int) ([]BankPledgeRecord, int64, error) {
-	return s.pledgeRepo.FindAllHistory(ctx, branchID, limit, offset)
+func (s *Service) ListBankPledgeHistory(ctx context.Context, branchID *uint, query string, limit, offset int) ([]BankPledgeHistoryRow, int64, error) {
+	return s.pledgeRepo.FindAllHistory(ctx, branchID, query, limit, offset)
 }
 
 // --- Customer 360 -----------------------------------------------------------

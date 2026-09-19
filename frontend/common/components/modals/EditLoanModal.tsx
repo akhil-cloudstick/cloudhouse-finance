@@ -138,7 +138,7 @@ export function EditLoanModalContent({ loan, onSaved }: { loan: LoanView; onSave
   return (
     <>
       <div className="hd"><h3>Edit Loan — {loan.id}</h3><button className="x" onClick={closeModal}>×</button></div>
-      <div className="bd bd-scroll">
+      <div className="bd">
         <div className="frow c2">
           <div><label className="f">Scheme</label>
             <SearchableSelect<SchemeView>
@@ -174,8 +174,7 @@ export function EditLoanModalContent({ loan, onSaved }: { loan: LoanView; onSave
         {triggersReapproval && (
           <div className="notice" style={{ marginBottom: 14, color: "var(--red)" }}>
             <Icon name="shield" />
-            Changing the scheme or principal amount requires re-approval before the loan is active again —
-            saving will resubmit it through the sanction chain from the first stage.
+            Saving will resubmit this loan for approval from the first stage.
           </div>
         )}
 

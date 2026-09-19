@@ -104,6 +104,31 @@ function AuctionCard({ l, onLoanChanged }: { l: LoanView; onLoanChanged: () => v
   }
   useEffect(load, [l.numericId]);
 
+  // Settle Surplus's button visibility is gated on this card's own `rec`
+  // state, which only refreshes after an action taken FROM this card
+  // (onSaved) — if the case moved on elsewhere (another tab/session, or an
+  // auto-settle at sale time) the button can still be showing a stale
+  // "Auctioned" stage when the server has already moved past it, so opening
+  // the modal on that stale read would submit against a stage the backend
+  // then rejects with the generic ErrAuctionWrongStage. Re-fetching right
+  // before opening closes that window; a genuinely-stale case just makes
+  // the button disappear on next render instead of opening a doomed modal.
+  const [checkingRec, setCheckingRec] = useState(false);
+  async function openSettleModal() {
+    setCheckingRec(true);
+    try {
+      const fresh = await getAuctionRecord(l.numericId);
+      setRec(fresh);
+      if (!fresh || fresh.stage !== "Auctioned" || !hasUndisposedSurplus(fresh)) {
+        toast("This auction case has already moved on — refreshing.");
+        return;
+      }
+      openModal(<SettleAuctionModalContent loan={l} rec={fresh} onSaved={onSaved} onError={load} />);
+    } finally {
+      setCheckingRec(false);
+    }
+  }
+
   async function doMarkEligible() {
     setStarting(true);
     try {
@@ -256,7 +281,7 @@ function AuctionCard({ l, onLoanChanged }: { l: LoanView; onLoanChanged: () => v
         {/* Settle is the surplus-disposition step, so it only applies when the
           * sale actually left a surplus and the loan is not balance-due. */}
         {!frozen && canAct && can("Auction_Workflow", "can_settle_auction") && rec && rec.stage === "Auctioned" && !balanceDue && hasUndisposedSurplus(rec) && (
-          <button className="btn sm" onClick={() => openModal(<SettleAuctionModalContent loan={l} rec={rec} onSaved={onSaved} onError={load} />)}><Icon name="check" /> Settle Surplus</button>
+          <button className="btn sm" disabled={checkingRec} onClick={openSettleModal}><Icon name="check" /> {checkingRec ? "Checking…" : "Settle Surplus"}</button>
         )}
         {rec && (rec.stage === "Auctioned" || rec.stage === "Settled") && (
           <button className="btn sm ghost" onClick={() => printAuctionLetter(l, toast)}><Icon name="doc" /> Print Auction Letter</button>
@@ -372,14 +397,6 @@ export function Auctions() {
     }
   }, [pageSize]);
 
-  function showHistory() {
-    setTab("history");
-    setConductedPage(1);
-    setClosedPage(1);
-    void loadConducted(1, q.trim());
-    void loadClosed(1, q.trim());
-  }
-
   function changeConductedPage(page: number) {
     setConductedPage(page);
     void loadConducted(page, q.trim());
@@ -390,12 +407,16 @@ export function Auctions() {
     void loadClosed(page, q.trim());
   }
 
-  // Debounced re-search of both History sub-tables as the user types, only
-  // while that tab is actually open — Active Cases needs no such effect
-  // since its filter runs inline on every render (client-side, no request
-  // to debounce).
+  // Debounced re-search of both History sub-tables as the user types.
+  // Deliberately NOT gated on `tab === "history"` — a loan that has already
+  // been through auction and settled drops out of Active Cases' own filter
+  // (see auctionEligibleCases above, which only matches loans still
+  // in-flight), so it can only ever be found via this History query. Running
+  // it unconditionally means the moment a search matches something there,
+  // the "no results" hint below can point the viewer at Auction History
+  // with an accurate count, rather than requiring them to already know to
+  // switch tabs before the same search box finds a concluded case.
   useEffect(() => {
-    if (tab !== "history") return;
     const handle = setTimeout(() => {
       setConductedPage(1);
       setClosedPage(1);
@@ -404,7 +425,7 @@ export function Auctions() {
     }, 300);
     return () => clearTimeout(handle);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [q, tab]);
+  }, [q]);
 
   return (
     <>
@@ -423,7 +444,7 @@ export function Auctions() {
           loans-cat-tabs fix for the same symptom. */}
       <div className="tabs auctions-tabs" style={{ marginTop: 4, marginBottom: 8 }}>
         <button className={tab === "active" ? "on" : ""} onClick={() => setTab("active")}>Active Cases</button>
-        <button className={tab === "history" ? "on" : ""} onClick={showHistory}>Auction History</button>
+        <button className={tab === "history" ? "on" : ""} onClick={() => setTab("history")}>Auction History</button>
       </div>
 
       {error && <div className="notice" style={{ marginBottom: 14 }}>{error}</div>}
@@ -436,7 +457,11 @@ export function Auctions() {
            * panel like every other page, rather than a bare line of text
            * floating on the page background. */
           <div className="card"><div className="empty">
-            {trimmedQ ? "No auction cases match your search." : "No loans currently in the auction workflow."}
+            {trimmedQ
+              ? (conductedTotal + closedTotal) > 0
+                ? <>No active cases match your search, but {conductedTotal + closedTotal} concluded case{conductedTotal + closedTotal === 1 ? "" : "s"} did — <a href="#" onClick={(e) => { e.preventDefault(); setTab("history"); }}>see Auction History</a>.</>
+                : "No auction cases match your search."
+              : "No loans currently in the auction workflow."}
           </div></div>
         ) : (
           <>

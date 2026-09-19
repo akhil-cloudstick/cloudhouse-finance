@@ -656,20 +656,41 @@ func (r *BankPledgeRepository) FindHistoryByLoanID(ctx context.Context, loanID u
 	return pledges, err
 }
 
+// BankPledgeHistoryRow is one BankPledgeRecord plus its parent loan's
+// LoanNumber/customer name — same rationale as CustomerBankPledgeRow below,
+// but for the branch-wide History tab rather than one customer's own view.
+type BankPledgeHistoryRow struct {
+	BankPledgeRecord
+	LoanNumber   string `json:"loanNumber"`
+	CustomerName string `json:"customerName"`
+}
+
 // FindAllHistory lists re-pledge records across all loans, newest first —
 // backs the Bank Re-Pledge screen's History tab, which previously had no way
 // to see anything but currently-pledged gold. branchID scopes to the caller's
-// branch (nil for Administrator), applied via a JOIN on loans the same way
-// LoanRequestRepository.FindAll does it.
+// branch (nil for Administrator). Always joined to loans/customers now (not
+// just when branchID is set) so every row carries its parent loan's number
+// and customer name for display/search — a bare BankPledgeRecord.LoanID is
+// a numeric FK, not something staff can search or read at a glance. query,
+// when non-empty, matches loan number, bank name, or customer name.
 // FindAllHistory returns matching pledges plus the TOTAL row count (Limit/
 // Offset ignored, 0 when limit <= 0).
-func (r *BankPledgeRepository) FindAllHistory(ctx context.Context, branchID *uint, limit, offset int) ([]BankPledgeRecord, int64, error) {
-	var pledges []BankPledgeRecord
+func (r *BankPledgeRepository) FindAllHistory(ctx context.Context, branchID *uint, query string, limit, offset int) ([]BankPledgeHistoryRow, int64, error) {
+	var pledges []BankPledgeHistoryRow
 	q := r.db.WithContext(ctx).Model(&BankPledgeRecord{}).
+		Select("bank_pledge_records.*, loans.loan_number AS loan_number, customers.name AS customer_name").
+		Joins("JOIN loans ON loans.id = bank_pledge_records.loan_id").
+		Joins("JOIN customers ON customers.id = loans.customer_id").
 		Preload("Events", func(d *gorm.DB) *gorm.DB { return d.Order("created_at asc, id asc") })
 	if branchID != nil {
-		q = q.Joins("JOIN loans ON loans.id = bank_pledge_records.loan_id").
-			Where("loans.branch_id = ?", *branchID)
+		q = q.Where("loans.branch_id = ?", *branchID)
+	}
+	if query != "" {
+		like := "%" + query + "%"
+		q = q.Where(
+			"loans.loan_number ILIKE ? OR bank_pledge_records.bank_name ILIKE ? OR customers.name ILIKE ?",
+			like, like, like,
+		)
 	}
 	q = q.Order("bank_pledge_records.id desc")
 	var total int64
@@ -815,7 +836,14 @@ func (r *LoanRequestRepository) FindAll(ctx context.Context, f LoanRequestFilter
 // actually approved before letting the gold go out.
 func (r *LoanRequestRepository) FindApprovedReleaseByLoanID(ctx context.Context, loanID uint) (*LoanRequest, error) {
 	var req LoanRequest
-	err := r.db.WithContext(ctx).Preload("Loan.Customer").
+	// OrnamentSelections must be preloaded here too — CompleteRelease's
+	// completePartialRelease branch reads approved.OrnamentSelections
+	// directly (never re-fetches by ID), and without it every Partial
+	// Ornament Release request looked like it had selected NOTHING,
+	// tripping that function's "should be unreachable" empty-selection
+	// guard and refusing Management approval with ErrReleaseNotApproved
+	// (404) for every genuine partial release.
+	err := r.db.WithContext(ctx).Preload("Loan.Customer").Preload("OrnamentSelections").
 		Where("loan_id = ? AND type = ? AND status = ?", loanID, RequestTypeRelease, RequestStatusApproved).
 		Order("id desc").First(&req).Error
 	if err != nil {

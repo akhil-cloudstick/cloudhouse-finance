@@ -38,7 +38,7 @@ const VOID_ROLES = ["Administrator", "Management", "Branch Manager"];
  * loans. "History" exists because that view alone made a released re-pledge
  * vanish from the UI completely — there was no way to see what had been pledged
  * where, for how much, or who released it. */
-export function BankPledge() {
+export function BankPledge({ focusLoanNumber }: { focusLoanNumber?: string } = {}) {
   const { error, refresh } = useLoans();
   const { openModal, closeModal } = useModal();
   const { role, can } = useAuth();
@@ -51,6 +51,12 @@ export function BankPledge() {
   const canCreateBanks = can("Bank_Management", "can_create_bank");
   const pageSize = useResponsivePageSize(10, 7);
   const [tab, setTab] = useState<"active" | "history">("active");
+  // One search box for both tabs, matching loan number, bank name, or
+  // customer name — seeded from the route arg when arriving via a
+  // "#bankpledge/LN-00013"-style link (see ReleaseReviewModal.tsx's
+  // gold-still-pledged warning), same pattern as Auctions.tsx's own search.
+  const [q, setQ] = useState(focusLoanNumber || "");
+  const trimmedQ = q.trim();
   const [releasingId, setReleasingId] = useState<number | null>(null);
   const [history, setHistory] = useState<BankPledgeRecordView[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
@@ -73,11 +79,11 @@ export function BankPledge() {
   const pledgedTotalPages = Math.max(1, Math.ceil(pledgedTotal / pageSize));
 
   const canVoid = !!role && canUpdatePledges && VOID_ROLES.includes(role);
-  const loadPledged = useCallback(async (page: number) => {
+  const loadPledged = useCallback(async (page: number, query: string) => {
     setPledgedLoading(true);
     setPledgedError("");
     try {
-      const res = await listLoansPage({ bankPledgeStatus: "Bank Pledged", page, limit: pageSize });
+      const res = await listLoansPage({ bankPledgeStatus: "Bank Pledged", q: query || undefined, page, limit: pageSize });
       setPledged(res.items);
       setPledgedHasMore(res.hasMore);
       setPledgedTotal(res.total);
@@ -88,20 +94,11 @@ export function BankPledge() {
     }
   }, [pageSize]);
 
-  useEffect(() => { void loadPledged(pledgedPage); }, [loadPledged, pledgedPage]);
-
-  /* Fetched lazily — the history query spans every loan, so there is no reason
-   * to pay for it until someone opens the tab. Triggered from the click handler
-   * rather than an effect on `tab`: the fetch responds to a user action rather
-   * than synchronizing state, and doing it in an effect trips
-   * react-hooks/set-state-in-effect for the cascading render it causes.
-   * Re-runs (via the effect below) whenever `historyPage` changes while the
-   * tab is open. */
-  const loadHistory = useCallback(async (page: number) => {
+  const loadHistory = useCallback(async (page: number, query: string) => {
     setHistoryLoading(true);
     setHistoryError("");
     try {
-      const res = await listBankPledgeHistoryPage(page, pageSize);
+      const res = await listBankPledgeHistoryPage(page, pageSize, query || undefined);
       setHistory(res.items);
       setHistoryHasMore(res.hasMore);
       setHistoryTotal(res.total);
@@ -112,23 +109,37 @@ export function BankPledge() {
     }
   }, [pageSize]);
 
-  // Page changes while the History tab is open re-fetch that page. Opening
-  // the tab (showHistory) resets historyPage to 1, which also triggers this.
+  // Both tabs' data is kept in sync with the search box regardless of which
+  // one is open — a loan that's already been released/voided drops out of
+  // the Active tab's own bankPledgeStatus filter, so it can only ever be
+  // found via History; querying both unconditionally (debounced, and on
+  // mount since trimmedQ starts truthy when arriving via focusLoanNumber)
+  // means switching tabs never shows stale results for whatever's typed.
   useEffect(() => {
-    if (tab === "history") void loadHistory(historyPage);
+    const handle = setTimeout(() => {
+      setPledgedPage(1);
+      setHistoryPage(1);
+      void loadPledged(1, trimmedQ);
+      void loadHistory(1, trimmedQ);
+    }, 300);
+    return () => clearTimeout(handle);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tab, historyPage]);
+  }, [trimmedQ]);
 
-  function showHistory() {
-    setTab("history");
-    if (historyPage === 1) void loadHistory(1);
-    else setHistoryPage(1);
+  function changePledgedPage(page: number) {
+    setPledgedPage(page);
+    void loadPledged(page, trimmedQ);
+  }
+
+  function changeHistoryPage(page: number) {
+    setHistoryPage(page);
+    void loadHistory(page, trimmedQ);
   }
 
   function refreshAll() {
     refresh();
-    void loadPledged(pledgedPage);
-    if (tab === "history") void loadHistory(historyPage);
+    void loadPledged(pledgedPage, trimmedQ);
+    void loadHistory(historyPage, trimmedQ);
   }
 
   function startNewRepledge() {
@@ -183,13 +194,14 @@ export function BankPledge() {
       <div className="page-h">
         <div><h1>Bank &amp; Gold Re-Pledge</h1><p>Customer gold re-pledged with external banks</p></div>
         <div className="sp" />
+        <div className="search"><Icon name="search" /><input className="inp" placeholder="Search loan no, bank, customer…" value={q} onChange={(e) => setQ(e.target.value)} /></div>
         {canCreateBanks && <button className="btn ghost" onClick={() => openModal(<BankModalContent onSaved={() => {}} />)}><Icon name="plus" /> Add Bank</button>}
         {canCreatePledges && <button className="btn" onClick={startNewRepledge}><Icon name="plus" /> New Re-Pledge</button>}
       </div>
       <hr className="gold-rule" style={{ margin: "4px 0 10px" }} />
       <div className="tabs bank-pledge-tabs" style={{ marginTop: 4, marginBottom: 8 }}>
         <button className={tab === "active" ? "on" : ""} onClick={() => setTab("active")}>Active</button>
-        <button className={tab === "history" ? "on" : ""} onClick={showHistory}>History</button>
+        <button className={tab === "history" ? "on" : ""} onClick={() => setTab("history")}>History</button>
       </div>
 
       {error && <div className="notice" style={{ marginBottom: 14 }}>{error}</div>}
@@ -212,7 +224,7 @@ export function BankPledge() {
                   const active = l.bankPledges.find((p) => !p.isReleased);
                   const treatment = active?.cashTreatment ?? "CashIn";
                   return (
-                    <tr key={l.id}>
+                    <tr key={l.id} style={focusLoanNumber && l.id === focusLoanNumber ? { background: "var(--brand-pale)" } : undefined}>
                       <td><a href={`#loan/${l.id}`}>{l.id}</a></td>
                       <td>{l.customerName}</td>
                       <td>{active?.bankName || "—"}</td>
@@ -265,9 +277,9 @@ export function BankPledge() {
             </table>
           </div>
           <div className="ft" style={{ display: "flex", alignItems: "center", gap: 10 }}>
-            <button className="btn plain sm" disabled={pledgedPage <= 1} onClick={() => setPledgedPage((p) => Math.max(1, p - 1))}>‹ Prev</button>
+            <button className="btn plain sm" disabled={pledgedPage <= 1} onClick={() => changePledgedPage(Math.max(1, pledgedPage - 1))}>‹ Prev</button>
             <span style={{ fontSize: 12.5 }}>Page {pledgedPage} of {pledgedTotalPages}</span>
-            <button className="btn plain sm" disabled={pledgedPage >= pledgedTotalPages} onClick={() => setPledgedPage((p) => Math.min(pledgedTotalPages, p + 1))}>Next ›</button>
+            <button className="btn plain sm" disabled={pledgedPage >= pledgedTotalPages} onClick={() => changePledgedPage(Math.min(pledgedTotalPages, pledgedPage + 1))}>Next ›</button>
           </div>
           {/* <div className="ft">If a customer requests closure while gold is bank-pledged, the release workflow flags the bank release step first.</div> */}
         </div>
@@ -278,16 +290,17 @@ export function BankPledge() {
           <div className="tbl-wrap">
             <table className="tbl">
               <thead>
-                <tr><th>Loan</th><th>Bank</th><th className="num">Amount</th><th>Cash</th><th>Pledged</th><th>Released</th><th>Status</th></tr>
+                <tr><th>Loan</th><th>Customer</th><th>Bank</th><th className="num">Amount</th><th>Cash</th><th>Pledged</th><th>Released</th><th>Status</th></tr>
               </thead>
               <tbody>
                 {historyLoading ? (
-                  <tr><td colSpan={7} className="empty">Loading…</td></tr>
+                  <tr><td colSpan={8} className="empty">Loading…</td></tr>
                 ) : history.length === 0 ? (
-                  <tr><td colSpan={7} className="empty">No re-pledge records yet.</td></tr>
+                  <tr><td colSpan={8} className="empty">No re-pledge records yet.</td></tr>
                 ) : history.map((r) => (
                   <tr key={r.id}>
-                    <td>#{r.loanId}</td>
+                    <td>{r.loanNumber ? <a href={`#loan/${r.loanNumber}`}>{r.loanNumber}</a> : `#${r.loanId}`}</td>
+                    <td>{r.customerName || "—"}</td>
                     <td>{r.bankName}</td>
                     <td className="num">{fmt(r.pledgedAmount)}</td>
                     <td><CashTreatmentBadge treatment={r.cashTreatment} /></td>
@@ -308,9 +321,9 @@ export function BankPledge() {
           </div>
           {/* <div className="ft">Every re-pledge ever recorded, including released and voided ones. Voided records are kept for audit and never deleted.</div> */}
           <div className="ft" style={{ display: "flex", alignItems: "center", gap: 10 }}>
-            <button className="btn plain sm" disabled={historyPage <= 1} onClick={() => setHistoryPage((p) => Math.max(1, p - 1))}>‹ Prev</button>
+            <button className="btn plain sm" disabled={historyPage <= 1} onClick={() => changeHistoryPage(Math.max(1, historyPage - 1))}>‹ Prev</button>
             <span style={{ fontSize: 12.5 }}>Page {historyPage} of {historyTotalPages}</span>
-            <button className="btn plain sm" disabled={historyPage >= historyTotalPages} onClick={() => setHistoryPage((p) => Math.min(historyTotalPages, p + 1))}>Next ›</button>
+            <button className="btn plain sm" disabled={historyPage >= historyTotalPages} onClick={() => changeHistoryPage(Math.min(historyTotalPages, historyPage + 1))}>Next ›</button>
           </div>
         </div>
       )}

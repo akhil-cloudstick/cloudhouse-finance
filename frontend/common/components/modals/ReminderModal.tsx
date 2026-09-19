@@ -65,7 +65,7 @@ export function AddReminderModalContent({ initialDate, onSaved }: { initialDate?
   return (
     <>
       <div className="hd"><h3>Add Reminder</h3><button className="x" onClick={closeModal}>×</button></div>
-      <div className="bd bd-scroll">
+      <div className="bd">
         <div className="frow">
           <div>
             <label className="f">Customer *</label>

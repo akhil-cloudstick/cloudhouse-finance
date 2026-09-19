@@ -83,7 +83,7 @@ export function RepledgeModalContent({ loan, onSaved }: { loan: LoanView; onSave
   return (
     <>
       <div className="hd"><h3>Repledge Gold to Bank — {loan.id}</h3><button className="x" onClick={closeModal}>×</button></div>
-      <div className="bd bd-scroll repledge-modal-bd">
+      <div className="bd repledge-modal-bd">
         <div className="notice" style={{ marginBottom: 12 }}>
           <Icon name="bank" /> {fmtW(loan.totalNetWeight)} gold pledged against this loan
         </div>
@@ -233,7 +233,7 @@ export function SelectLoanForRepledgeModalContent({ onPicked }: { onPicked: (loa
   return (
     <>
       <div className="hd"><h3>New Bank Re-Pledge</h3><button className="x" onClick={closeModal}>×</button></div>
-      <div className="bd bd-scroll">
+      <div className="bd">
         <div className="frow"><div><label className="f">Loan *</label>
           <SearchableSelect<LoanView>
             value={label}

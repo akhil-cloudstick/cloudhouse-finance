@@ -1346,6 +1346,7 @@ func (h *Handler) GetBankPledgeHistory(c *gin.Context) {
 func (h *Handler) ListBankPledgeHistory(c *gin.Context) {
 	ctx := platform.RequestContext(c)
 	branchID := platform.GetBranchScope(c)
+	query := c.Query("q")
 
 	limit, _ := strconv.Atoi(c.Query("limit"))
 	if limit > 0 {
@@ -1353,7 +1354,7 @@ func (h *Handler) ListBankPledgeHistory(c *gin.Context) {
 		if offset < 0 {
 			offset = 0
 		}
-		recs, total, err := h.svc.ListBankPledgeHistory(ctx, branchID, limit+1, offset)
+		recs, total, err := h.svc.ListBankPledgeHistory(ctx, branchID, query, limit+1, offset)
 		if err != nil {
 			httpx.FailErr(c, err)
 			return
@@ -1366,7 +1367,7 @@ func (h *Handler) ListBankPledgeHistory(c *gin.Context) {
 		return
 	}
 
-	recs, _, err := h.svc.ListBankPledgeHistory(ctx, branchID, 0, 0)
+	recs, _, err := h.svc.ListBankPledgeHistory(ctx, branchID, query, 0, 0)
 	if err != nil {
 		httpx.FailErr(c, err)
 		return

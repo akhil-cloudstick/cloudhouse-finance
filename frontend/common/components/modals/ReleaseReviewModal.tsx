@@ -6,9 +6,11 @@ import { useToast } from "@/common/components/Toast";
 import { Icon } from "@/common/components/Icon";
 import { fmt } from "@/common/utils/format";
 import { getLoan, listLoanRequests, verifyReleaseChecklist, approveReleaseRequest, type RequestView, type LoanView } from "@/modules/loans/services/loanService";
+import { listPackets, type PacketView } from "@/modules/packets/services/packetService";
 import { PaymentModalContent } from "@/common/components/modals/PaymentModal";
 import { ApiError } from "@/common/services/httpClient";
 import { useAuth } from "@/common/auth-context";
+import { appPath } from "@/common/services/tenantSession";
 
 // Mirrors backend/internal/loan/service.go's partialReleaseDrift — the
 // no-buffer check ApproveReleaseRequest re-runs at Manager/Management
@@ -44,6 +46,7 @@ export function ReleaseReviewModalContent({ request, onSaved }: { request: Reque
   const canVerifyChecklist = can("Release_Approval", "can_verify_release_checklist");
 
   const [loan, setLoan] = useState<LoanView | null>(null);
+  const [packet, setPacket] = useState<PacketView | null>(null);
   const [req, setReq] = useState(request);
   const [notes, setNotes] = useState(request.verificationNotes || "");
   const [saving, setSaving] = useState(false);
@@ -55,6 +58,21 @@ export function ReleaseReviewModalContent({ request, onSaved }: { request: Reque
   useEffect(() => {
     getLoan(request.loanNumericId).then(setLoan).catch(() => setLoan(null));
   }, [request.loanNumericId]);
+
+  // The backend no longer gates CustomerSawGold on the packet's own stage
+  // (see VerifyReleaseChecklist's own doc comment — that's tracked
+  // separately in internal/packet now), but ticking it while the gold is
+  // still physically pledged to a bank or sitting in a locker would have
+  // staff attest to something that hasn't actually happened yet. Caught
+  // here instead, same listPackets({loanId}) call LoanDetail.tsx already
+  // makes for its own Bank Pledge card.
+  useEffect(() => {
+    if (!loan) return;
+    listPackets({ loanId: loan.numericId }).then((ps) => setPacket(ps[0] ?? null)).catch(() => setPacket(null));
+  }, [loan?.numericId, loan?.bankPledgeStatus]);
+
+  const goldStillHeld = loan?.bankPledgeStatus === "Bank Pledged" || packet?.status === "Locker Stored";
+  const goldHeldReason = loan?.bankPledgeStatus === "Bank Pledged" ? "pledged to a bank" : "checked into a locker";
 
   // Re-fetches this one request after a payment recorded via the general
   // Record Payment modal — that modal returns a LoanView, not the updated
@@ -73,7 +91,7 @@ export function ReleaseReviewModalContent({ request, onSaved }: { request: Reque
   const stage = req.approvalStage === "PendingManagement" ? "Management" : "Manager";
   const canActOnStage = can("Release_Approval", stage === "Management" ? "can_approve_release_management_stage" : "can_approve_release_manager_stage");
 
-  const gaveGoldCheckboxDisabled = saving || !canDecide || !canVerifyChecklist || req.status !== "Pending" || req.locked;
+  const gaveGoldCheckboxDisabled = saving || !canDecide || !canVerifyChecklist || req.status !== "Pending" || req.locked || goldStillHeld;
 
   // Live pre-check for the Top-Up Payment reveal — only meaningful for a
   // partial release (a full release keeps today's plain
@@ -83,6 +101,17 @@ export function ReleaseReviewModalContent({ request, onSaved }: { request: Reque
     : 0;
   const drift = loan && req.isPartial ? partialReleaseDrift(loan.totalOutstandingBalance, remainingCollateral, loan.schemeLtv) : 0;
   const driftLikely = req.isPartial && drift > 0.01;
+
+  // Mirrors ApproveReleaseRequest's own fallback: PaymentRecorded is
+  // ordinarily set by clicking Record Payment against THIS request, but a
+  // loan can already satisfy the release's financial condition without
+  // that — paid down by an ordinary payment before the release was even
+  // requested, or via the Top-Up Payment path above (which posts against
+  // the plain loan, not this request). In that case the backend accepts
+  // Approve anyway, so the button/messaging here must not block on
+  // paymentRecorded alone or it would show a stale "must record payment"
+  // warning for a release that's actually ready to go.
+  const paymentConditionMet = req.paymentRecorded || (!!loan && (req.isPartial ? !driftLikely : loan.totalOutstandingBalance <= 0.01));
 
   async function toggleSawGold(value: boolean) {
     setSaving(true);
@@ -198,6 +227,18 @@ export function ReleaseReviewModalContent({ request, onSaved }: { request: Reque
               </span>
             </label>
           </div>
+          {goldStillHeld && loan && (
+            <p className="notice" style={{ marginTop: 8, color: "var(--red)" }}>
+              <Icon name="shield" />{" "}
+              This loan&apos;s gold is still {goldHeldReason}, so it can&apos;t be shown to the customer yet — release it from{" "}
+              {loan.bankPledgeStatus === "Bank Pledged" ? (
+                <a href={appPath(undefined, "#bankpledge/" + loan.id)} onClick={closeModal}>Bank &amp; Gold Re-Pledge</a>
+              ) : (
+                <a href={appPath(undefined, "#packet/" + packet?.code)} onClick={closeModal}>Packet {packet?.code}</a>
+              )}
+              {" "}first.
+            </p>
+          )}
         </div>
 
         <button
@@ -231,17 +272,17 @@ export function ReleaseReviewModalContent({ request, onSaved }: { request: Reque
           </div>
         )}
 
-        {req.status === "Pending" && (!req.customerSawGold || !req.paymentRecorded) && (
+        {req.status === "Pending" && (!req.customerSawGold || !paymentConditionMet) && (
           <p className="notice" style={{ marginTop: 12 }}>
             <Icon name="shield" />{" "}
-            {!req.customerSawGold && !req.paymentRecorded
-              ? '"Customer has seen the gold" must be ticked and a payment recorded before this can be approved.'
+            {!req.customerSawGold && !paymentConditionMet
+              ? '"Customer has seen the gold" must be ticked and the minimum amount paid before this can be approved.'
               : !req.customerSawGold
                 ? '"Customer has seen the gold" must be ticked before this can be approved.'
-                : "A payment must be recorded (via Record Payment above) before this can be approved."}
+                : "The minimum amount must be paid (via Record Payment above, or an earlier payment on the loan) before this can be approved."}
           </p>
         )}
-        {req.status === "Pending" && req.customerSawGold && req.paymentRecorded && (
+        {req.status === "Pending" && req.customerSawGold && paymentConditionMet && (
           <p className="notice" style={{ marginTop: 12 }}><Icon name="clock" /> Awaiting {stage} approval — same chain used for loan sanctioning.</p>
         )}
         <p style={{ color: "var(--red)", fontSize: 12.5, minHeight: 16, marginTop: 8 }}>{err}</p>
@@ -254,7 +295,7 @@ export function ReleaseReviewModalContent({ request, onSaved }: { request: Reque
               * request) removes Reject entirely — see LoanRequest.Locked's
               * own doc comment (ErrRequestLocked). */}
             {!req.locked && <button className="btn danger" disabled={saving} onClick={() => decide("Rejected")}>Reject</button>}
-            <button className="btn" disabled={saving || !req.customerSawGold || !req.paymentRecorded} onClick={() => decide("Approved")}>
+            <button className="btn" disabled={saving || !req.customerSawGold || !paymentConditionMet} onClick={() => decide("Approved")}>
               <Icon name="check" /> Approve ({stage})
             </button>
           </>

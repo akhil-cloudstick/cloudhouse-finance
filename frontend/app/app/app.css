@@ -3418,12 +3418,25 @@ table.tbl {
  * every breakpoint below (keep the two in step there); the extra height
  * comes from this content-box floor alone — 48px against the 38px the
  * footer inherits from its buttons' pinned `.btn` height. */
+/* Sticky to the top of `.modal-bg`, mirroring `.modal .ft`'s own sticky-
+ * bottom treatment just below (see that rule's doc comment for why this is
+ * done via `.modal-bg`'s scroll rather than making `.bd` its own scroll
+ * container) — a modal taller than the viewport (EditLoanModal with a long
+ * ornament list, etc.) used to scroll its title out of view entirely,
+ * which read as "the whole page is scrolling" rather than just this
+ * modal's body. Now the header stays put and only the middle moves,
+ * exactly like the footer already does. */
 .modal .hd {
   display: flex;
   align-items: center;
   min-height: 48px;
   padding: 14px 22px;
-  border-bottom: 1px solid var(--line)
+  border-bottom: 1px solid var(--line);
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  background: var(--card);
+  border-radius: 10px 10px 0 0
 }
 
 .modal .hd h3 {
@@ -4085,17 +4098,23 @@ table.tbl {
   color: var(--ink)
 }
 
-/* LoanDetail.tsx's Financial Summary/Pledged Ornaments pair: the right
- * column holds a `.tbl` with a hard min-width:640px (see that class's own
- * comment further up this file), so the shared .grid.cols12 threshold below
- * (1060px) is too narrow here — at 1060-1450px-ish the left card still has
- * to squeeze into a column too thin for it, clipping into the table beside
- * it. Stacks earlier, same 1560px boundary .pl-detail-grid uses for the
- * same min-width:640px-table reason. */
-@media(max-width:1560px) {
-  .loan-detail-grid {
-    grid-template-columns: 1fr
-  }
+/* LoanDetail.tsx's top row: Financial Summary / Settlement Preview /
+ * Pledged Ornaments side by side, three equal columns, kept at EVERY
+ * screen size (including small screens, per explicit request) rather than
+ * stacking. minmax(0,1fr) rather than a bare 1fr — a grid item's default
+ * min-width is `auto`, so it would otherwise refuse to shrink below its
+ * content's natural width (same trap `.grid`'s own min-width:0 rule
+ * documents), which matters for Pledged Ornaments' key/value blocks on a
+ * narrow viewport. */
+.loan-detail-c3 {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1fr);
+  /* stretch (the grid default, but stated explicitly here since the shared
+   * .grid.cols21/.cols12 rules elsewhere in this file set align-items:start)
+   * so all three cards in the row match the tallest one's height, rather
+   * than each shrinking to its own content — each `.card` is already a
+   * flex column, so the extra height just becomes blank space at the
+   * bottom of the shorter cards' `.bd`. */
+  align-items: stretch
 }
 
 @media(max-width:1060px) {
@@ -4841,15 +4860,22 @@ table.tbl {
      */
     overflow-y: visible;
   }
-  /* ReleaseReviewModal only: when viewport is <= 850px, cap at 500px, scroll inner body, page-centered */
+  /* Capped at 500px tall on a short (<=850px) viewport, scrolling the inner
+   * body once content actually exceeds that — NOT a fixed height. This used
+   * to set `height: min(500px, ...)` (not just max-height), which forced
+   * EVERY bd-scroll modal to a flat 500px box even when its content was a
+   * couple of short fields — stretching e.g. DisburseLoanModal/ConfirmModal
+   * into a mostly-empty panel on any laptop-height screen. height:auto lets
+   * a short modal size to its own content and only pins to the 500px cap
+   * once something (ReleaseReviewModal's expanded Record Payment panel,
+   * EditLoanModal's ornament list, ...) genuinely needs it. */
   .modal-bg:has(.bd-scroll) {
     align-items: center;
     overflow-y: hidden;
   }
   .modal:has(> .bd-scroll) {
-    --modal-h: 500px;
-    height: min(var(--modal-h), calc(100dvh - 32px));
-    max-height: min(var(--modal-h), calc(100dvh - 32px));
+    height: auto;
+    max-height: min(500px, calc(100dvh - 32px));
     display: flex;
     flex-direction: column;
     margin: auto;

@@ -229,20 +229,64 @@ export function PaymentModalContent({ loan: initialLoan, onSaved, releaseRequest
     if (!splitBalanced) { setErr("The payment breakdown must add up to the amount."); return; }
     const discountAmount = discount.trim() ? +discount : 0;
     if (discountAmount < 0) { setErr("Discount cannot be negative."); return; }
+    if (discountAmount > amount) { setErr("Discount cannot exceed the amount."); return; }
     setSaving(true);
     try {
       // The receiving employee is derived server-side from the logged-in
       // user's JWT — no employeeId sent from here (see loansApi.ts's
       // PaymentInput doc comment).
       if (releaseRequestId != null) {
+        // Amount here is what's typed as the full settlement figure — the
+        // discount is a negotiated reduction covering part of it with no
+        // cash movement, so the actual cash payment sent alongside it is
+        // the remainder. RecordReleaseRequestPayment applies the discount
+        // as its own ledger entry FIRST, which reduces the loan's
+        // outstanding balance before the payment call runs — sending the
+        // undiscounted amount here would then overshoot what's left owed
+        // and get rejected as ErrExceedsOutstanding, even though the
+        // discount had already gone through (see that function's own
+        // sequencing). Netting it out here keeps the two in sync.
+        const cashAmount = Math.round((amount - discountAmount) * 100) / 100;
+        // interestOverride is prefilled from outstandingInterest at MODAL-
+        // OPEN time (see the `interest` state's own doc comment) — a fixed
+        // snapshot, not live. The discount posted just above (inside
+        // RecordReleaseRequestPayment) reduces outstanding interest FIRST
+        // in its own penal->interest->principal waterfall before this
+        // payment call ever runs, so that stale prefilled figure no longer
+        // matches what's actually still owed once a discount is in play —
+        // sending it anyway made Full Settlement's amount-vs-total check
+        // compare against the wrong total and reject a correct payment.
+        // Only suppressed when the user hasn't hand-edited the field
+        // (interestTouchedRef): an explicit override is still respected,
+        // same as with no discount at all.
+        const effectiveInterestOverride = discountAmount > 0 && !interestTouchedRef.current ? undefined : interestOverride;
+        // The split breakdown (cash/UPI/bank transfer/cheque) was entered
+        // against the full pre-discount Amount, so it no longer sums to
+        // cashAmount once the discount is netted out above — scaled down
+        // by the same ratio so it still adds up to what's actually being
+        // sent (ValidateSplit on the backend requires the parts to sum to
+        // the whole). Discount-only settlements (nothing left to pay in
+        // cash) skip the split entirely.
+        const splitRatio = amount > 0 ? cashAmount / amount : 0;
+        const scaledSplit = cashAmount <= 0.01 ? ZERO_SPLIT : {
+          cashAmount: Math.round(split.cashAmount * splitRatio * 100) / 100,
+          upiAmount: Math.round(split.upiAmount * splitRatio * 100) / 100,
+          bankTransferAmount: Math.round(split.bankTransferAmount * splitRatio * 100) / 100,
+          chequeAmount: Math.round(split.chequeAmount * splitRatio * 100) / 100,
+        };
+        // Rounding across four components can leave a fraction of a rupee
+        // unaccounted for — folded into cash (the default/most common mode)
+        // rather than left as drift the backend's own sum check would reject.
+        const scaledTotal = scaledSplit.cashAmount + scaledSplit.upiAmount + scaledSplit.bankTransferAmount + scaledSplit.chequeAmount;
+        scaledSplit.cashAmount = Math.round((scaledSplit.cashAmount + (cashAmount - scaledTotal)) * 100) / 100;
         await recordReleasePayment(releaseRequestId, {
-          amount, type: mode, discount: discountAmount || undefined,
-          cashAmount: split.cashAmount,
-          upiAmount: split.upiAmount,
-          bankTransferAmount: split.bankTransferAmount,
-          chequeAmount: split.chequeAmount,
+          amount: cashAmount, type: mode, discount: discountAmount || undefined,
+          cashAmount: scaledSplit.cashAmount,
+          upiAmount: scaledSplit.upiAmount,
+          bankTransferAmount: scaledSplit.bankTransferAmount,
+          chequeAmount: scaledSplit.chequeAmount,
           reference: reference.trim() || undefined,
-          interestOverride,
+          interestOverride: effectiveInterestOverride,
         });
       } else {
         await recordPayment(loan.numericId, {

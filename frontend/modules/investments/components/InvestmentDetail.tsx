@@ -17,11 +17,12 @@ import {
   type BackendInvestmentTransaction,
 } from "@/modules/investments/services/investmentService";
 import { MaturityModalContent } from "@/modules/investments/components/MaturityModal";
-import { InvestorStatementModalContent } from "@/modules/investments/components/InvestorStatementModal";
 import { MarkPayoutPaidModalContent } from "@/common/components/modals/MarkPayoutPaidModal";
 import { AddInvestmentCashModalContent } from "@/common/components/modals/AddInvestmentCashModal";
 import { WithdrawInvestmentModalContent } from "@/common/components/modals/WithdrawInvestmentModal";
 import { useModal } from "@/common/components/Modal";
+import { useDropdownMenu } from "@/hooks/useDropdownMenu";
+import { Icon } from "@/common/components/Icon";
 
 /* Same click-paginated table pattern as personal-loans/components/
  * PersonalLoanDetail.tsx's usePagedTable + Pager. */
@@ -75,6 +76,21 @@ export function InvestmentDetail({ id }: { id?: string }) {
   const [downloadingBond, setDownloadingBond] = useState(false);
   const [printingBond, setPrintingBond] = useState(false);
 
+  const {
+    open: cashMenuOpen,
+    setOpen: setCashMenuOpen,
+    menuRef: cashMenuRef,
+    triggerRef: cashMenuTriggerRef,
+    onKeyDown: onCashMenuKeyDown,
+  } = useDropdownMenu<HTMLDivElement>();
+  const {
+    open: docsMenuOpen,
+    setOpen: setDocsMenuOpen,
+    menuRef: docsMenuRef,
+    triggerRef: docsMenuTriggerRef,
+    onKeyDown: onDocsMenuKeyDown,
+  } = useDropdownMenu<HTMLDivElement>();
+
   const numericId = Number(id);
 
   const refreshInvestment = useCallback(async () => {
@@ -124,11 +140,6 @@ export function InvestmentDetail({ id }: { id?: string }) {
   function openMaturity() {
     if (!investment) return;
     openModal(<MaturityModalContent investment={investment} onSaved={() => { closeModal(); void refreshInvestment(); schedule.reload(); }} />);
-  }
-
-  function openStatement() {
-    if (!investment) return;
-    openModal(<InvestorStatementModalContent customerId={investment.customerId} customerName={investment.customer?.name || "Investor"} />);
   }
 
   async function handleDownloadBond() {
@@ -184,31 +195,64 @@ export function InvestmentDetail({ id }: { id?: string }) {
   }
 
   const investorName = investment.customer?.name || investment.customer?.code || "";
+  const hasBondDocs = investment.plan?.productType === "Bond";
 
   return (
     <>
       <div className="page-h">
         <div>
-          <a href="#investments" style={{ fontSize: 13 }}>← Back</a>
-          <h1>Investment {investment.investmentNumber}{investorName ? ` · ${investorName}` : ""}</h1>
+          <h1>Investment {investment.investmentNumber}</h1>
+          <p style={{ margin: "2px 0 0", fontSize: 13.5, color: "var(--muted)", display: "flex", alignItems: "center", gap: 8 }}>
+            {investorName}{investment.plan?.name ? ` · ${investment.plan.name}` : ""}
+            <StatusChip status={investment.status} />
+          </p>
         </div>
         <div className="sp" />
-        <button className="btn plain" onClick={openStatement}>View Statement</button>
-        {investment.plan?.productType === "Bond" && (
-          <>
-            <button className="btn plain" onClick={handlePrintBond} disabled={printingBond}>
-              {printingBond ? "Opening…" : "Print Agreement"}
+        {hasBondDocs && (
+          <div className="docs-dd" ref={docsMenuRef} onKeyDown={onDocsMenuKeyDown}>
+            <button
+              ref={docsMenuTriggerRef}
+              className="btn plain"
+              onClick={() => setDocsMenuOpen((v) => !v)}
+              aria-haspopup="menu"
+              aria-expanded={docsMenuOpen}
+            >
+              <Icon name="doc" /> Documents <Icon name="chevronDown" className="docs-dd-chev" />
             </button>
-            <button className="btn plain" onClick={handleDownloadBond} disabled={downloadingBond}>
-              {downloadingBond ? "Downloading…" : "Download Agreement"}
-            </button>
-          </>
+            {docsMenuOpen && (
+              <div className="docs-dd-menu" role="menu">
+                <a href="#" title="Print Agreement" className={printingBond ? "disabled" : ""} onClick={(e) => { e.preventDefault(); if (printingBond) return; setDocsMenuOpen(false); void handlePrintBond(); }}>
+                  <Icon name="doc" /><span className="tx">{printingBond ? "Opening…" : "Print Agreement"}</span>
+                </a>
+                <a href="#" title="Download Agreement" className={downloadingBond ? "disabled" : ""} onClick={(e) => { e.preventDefault(); if (downloadingBond) return; setDocsMenuOpen(false); void handleDownloadBond(); }}>
+                  <Icon name="download" /><span className="tx">{downloadingBond ? "Downloading…" : "Download Agreement"}</span>
+                </a>
+              </div>
+            )}
+          </div>
         )}
         {canUpdate && isLive && investment.status === "Active" && (
-          <>
-            <button className="btn plain" onClick={openAddCash}>Add Cash</button>
-            <button className="btn" onClick={openWithdraw}>Withdraw</button>
-          </>
+          <div className="docs-dd" ref={cashMenuRef} onKeyDown={onCashMenuKeyDown}>
+            <button
+              ref={cashMenuTriggerRef}
+              className="btn"
+              onClick={() => setCashMenuOpen((v) => !v)}
+              aria-haspopup="menu"
+              aria-expanded={cashMenuOpen}
+            >
+              <Icon name="coin" /> Cash <Icon name="chevronDown" className="docs-dd-chev" />
+            </button>
+            {cashMenuOpen && (
+              <div className="docs-dd-menu" role="menu">
+                <a href="#" title="Add Cash" onClick={(e) => { e.preventDefault(); setCashMenuOpen(false); openAddCash(); }}>
+                  <Icon name="plus" /><span className="tx">Add Cash</span>
+                </a>
+                <a href="#" title="Withdraw" onClick={(e) => { e.preventDefault(); setCashMenuOpen(false); openWithdraw(); }}>
+                  <Icon name="coin" /><span className="tx">Withdraw</span>
+                </a>
+              </div>
+            )}
+          </div>
         )}
         {canUpdate && !isLive && investment.status === "Matured" && (
           <button className="btn" onClick={openMaturity}>Close / Renew</button>
@@ -225,8 +269,6 @@ export function InvestmentDetail({ id }: { id?: string }) {
           <div className="kpi"><div className="l">Interest Paid</div><div className="v">{fmt(investment.totalInterestPaid)}</div></div>
         )}
         <div className="kpi"><div className="l">Maturity Date</div><div className="v" style={{ fontSize: 17 }}>{investment.maturityDate.slice(0, 10)}</div></div>
-        <div className="kpi"><div className="l">Status</div><div className="v" style={{ fontSize: 15 }}><StatusChip status={investment.status} /></div></div>
-        <div className="kpi"><div className="l">Tenure</div><div className="v" style={{ fontSize: 17 }}>{investment.tenureMonths} mo</div></div>
         {investment.renewedFromInvestmentId && (
           <div className="kpi"><div className="l">Renewed From</div><div className="v" style={{ fontSize: 17 }}><a href={`#investment/${investment.renewedFromInvestmentId}`}>Investment #{investment.renewedFromInvestmentId}</a></div></div>
         )}
