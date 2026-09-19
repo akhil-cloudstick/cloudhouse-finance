@@ -1117,7 +1117,10 @@ export function LoanDetail({ id }: { id?: string }) {
                 <div key={o.id} style={i > 0 ? { marginTop: 14, paddingTop: 14, borderTop: "1px dashed var(--line)" } : undefined}>
                   <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
                     <span style={{ fontWeight: 600 }}>{o.name}</span>
-                    <span className="chip brand">{o.purity}</span>
+                    <span style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                      {o.releasedAt && <span className="chip" style={{ color: "var(--green, #1a7f37)" }} title={`Released on ${o.releasedAt}`}>Released {o.releasedAt.slice(0, 10)}</span>}
+                      <span className="chip brand">{o.purity}</span>
+                    </span>
                   </div>
                   <div className="kv" style={{ gridTemplateColumns: "1fr 1fr" }}>
                     <div className="i"><div className="k">Gross</div><div className="v">{o.grossWeight.toFixed(1)} g</div></div>

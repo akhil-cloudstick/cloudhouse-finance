@@ -20,7 +20,7 @@ export type Engine = "Schedule" | "Live";
 // calculation engine — a Bond plan uses the exact same Engine/rate/
 // frequency/tenure math as a Deposit plan, it's just branded and worded as
 // a bond, and generates a Debenture Subscription Agreement PDF (see
-// investmentService.ts's downloadInvestmentBondPdf below) that a Deposit
+// investmentService.ts's printInvestmentBondPdf below) that a Deposit
 // plan doesn't. See backend/internal/investment/model_plan.go's
 // ProductType* doc comment.
 export type ProductType = "Deposit" | "Bond";
@@ -268,16 +268,11 @@ export function getInvestmentTransactionsPage(
   return apiFetch<{ items: BackendInvestmentTransaction[]; hasMore: boolean }>(`/investments/${investmentId}/transactions?${params}`);
 }
 
-/* Fetches GET /investments/:id/bond/pdf as a blob — shared by
- * downloadInvestmentBondPdf (saves to disk) and printInvestmentBondPdf
- * (straight to the print dialog) below, mirroring loanService.ts's split
- * between downloadIndemnityBondPDF-style print flows and schemeService.ts's
- * downloadSchemeStatement-style disk-save flows: this document supports
- * both. Only valid for a Bond-type investment (backend refuses with
- * ErrNotBondProduct otherwise). */
-async function fetchInvestmentBondPdf(investmentId: number): Promise<Blob> {
+/* Fetches a PDF blob at the given investment endpoint path — shared helper
+ * behind fetchInvestmentBondPdf and fetchInvestmentStatementPdf below. */
+async function fetchInvestmentPdf(investmentId: number, path: string): Promise<Blob> {
   const token = typeof window !== "undefined" ? getAuthToken() : null;
-  const res = await fetch(`${API_BASE}/investments/${investmentId}/bond/pdf`, {
+  const res = await fetch(`${API_BASE}/investments/${investmentId}/${path}`, {
     headers: token ? { Authorization: `Bearer ${token}` } : {},
   });
   if (!res.ok) {
@@ -293,18 +288,19 @@ async function fetchInvestmentBondPdf(investmentId: number): Promise<Blob> {
   return res.blob();
 }
 
-/* Downloads the Debenture Subscription Agreement to disk — same object-URL
- * + anchor-click pattern as schemeService.ts's downloadSchemeStatement. */
-export async function downloadInvestmentBondPdf(investmentId: number, investmentNumber: string): Promise<void> {
-  const blob = await fetchInvestmentBondPdf(investmentId);
-  const url = window.URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = `Debenture-Subscription-Agreement-${investmentNumber}.pdf`;
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  window.URL.revokeObjectURL(url);
+/* Fetches GET /investments/:id/bond/pdf as a blob — shared by
+ * printInvestmentBondPdf and printInvestmentStatementPdf below (straight to
+ * the print dialog), mirroring loanService.ts's downloadIndemnityBondPDF/
+ * downloadReleaseAgreementPDF print flow. Available for every investment
+ * regardless of ProductType. */
+async function fetchInvestmentBondPdf(investmentId: number): Promise<Blob> {
+  return fetchInvestmentPdf(investmentId, "bond/pdf");
+}
+
+/* Fetches GET /investments/:id/statement/pdf as a blob — the investor
+ * account statement (terms + full transaction/payout history). */
+async function fetchInvestmentStatementPdf(investmentId: number): Promise<Blob> {
+  return fetchInvestmentPdf(investmentId, "statement/pdf");
 }
 
 /* Sends the Debenture Subscription Agreement straight to the browser's
@@ -314,3 +310,11 @@ export async function printInvestmentBondPdf(investmentId: number): Promise<void
   const blob = await fetchInvestmentBondPdf(investmentId);
   printPdfBlob(blob);
 }
+
+/* Sends the investment's account statement straight to the browser's print
+ * dialog — same printPdfBlob flow as printInvestmentBondPdf above. */
+export async function printInvestmentStatementPdf(investmentId: number): Promise<void> {
+  const blob = await fetchInvestmentStatementPdf(investmentId);
+  printPdfBlob(blob);
+}
+

@@ -64,7 +64,7 @@ export function RequestExtensionModalContent({ loan, onSaved }: { loan: LoanView
         {hasArrears && (
           <div className="notice" style={{ marginBottom: 16, color: "var(--red)" }}>
             <Icon name="shield" />
-            Outstanding interest {fmt(loan.outstandingInterest)}{loan.outstandingPenalInterest > 0.01 ? ` + penal interest ${fmt(loan.outstandingPenalInterest)}` : ""} must be paid before an extension can be requested.
+            Outstanding interest {fmt(loan.outstandingInterest)}{loan.outstandingPenalInterest > 0.01 ? ` + penal interest ${fmt(loan.outstandingPenalInterest)}` : ""} must be paid.
             {" "}
             <a
               href="#"
@@ -187,7 +187,6 @@ export function RequestReleaseModalContent({ loan: initialLoan, onSaved }: { loa
   const allSelected = selected.size === pledged.length;
   const remainingOrnaments = pledged.filter((o) => !selected.has(o.id));
   const remainingCollateral = remainingOrnaments.reduce((sum, o) => sum + o.goldValue, 0);
-  const eligibleOnRemaining = (remainingCollateral * loan.schemeLtv) / 100;
   const remaining = allSelected ? 0 : partialReleaseRemaining(loan.totalOutstandingBalance, loan.principal, remainingCollateral, loan.schemeLtv);
   const conditionMet = allSelected || remaining <= 0.01;
 
@@ -247,29 +246,15 @@ export function RequestReleaseModalContent({ loan: initialLoan, onSaved }: { loa
         {/* Plain inline text, not a notice/toast banner — see the plan's
          * wireframe note on why these live figures stay out of `.notice`. */}
         <div className="kv" style={{ gridTemplateColumns: "1fr 1fr", marginTop: 14 }}>
-          <div className="i"><div className="k">Remaining Collateral</div><div className="v">{fmt(remainingCollateral)}</div></div>
-          <div className="i"><div className="k">Eligible On What Stays Pledged</div><div className="v">{fmt(eligibleOnRemaining)}</div></div>
           <div className="i"><div className="k">Minimum Amount to Release the Gold</div>
             <div className="v" style={{ color: conditionMet ? "var(--green, #1a7f37)" : "var(--red)" }}>
-              {allSelected ? "Full release" : conditionMet ? "₹0" : fmt(remaining)}
+              {allSelected ? fmt(loan.settlementAmount) : conditionMet ? "₹0" : fmt(remaining)}
             </div>
           </div>
         </div>
         <div className="notice" style={{ margin: "14px 0" }}>
-          <Icon name="unlock" /> {allSelected ? `${fmtW(loan.totalNetWeight)} gold pledged` : `${selected.size} of ${pledged.length} ornaments selected`} — staff will verify the gold was shown to the customer and record payment before release
+          <Icon name="unlock" /> {allSelected ? `${fmtW(loan.totalNetWeight)} gold pledged` : `${selected.size} of ${pledged.length} ornaments selected`} 
         </div>
-        {/* The minimum-amount condition is no longer a gate on LOGGING the
-          * request — a customer can ask for a partial release before paying
-          * anything down, and staff record that payment later from the
-          * Release & Extension review screen. ApproveReleaseRequest already
-          * re-checks this same condition (partialReleaseDrift) and refuses
-          * with ErrDriftPaymentRequired until it's cleared, so this is just
-          * an early heads-up, not the actual enforcement point. */}
-        {!allSelected && !conditionMet && (
-          <div className="notice" style={{ margin: "0 0 14px", color: "var(--red)" }}>
-            <Icon name="shield" /> The customer will need to pay at least {fmt(remaining)} before this release can be approved — it can still be logged now and paid later from Release &amp; Extension.
-          </div>
-        )}
         <div className="frow"><div><label className="f">Note</label><input className="inp" placeholder="optional detail" value={detail} onChange={(e) => setDetail(e.target.value)} /></div></div>
         <p style={{ color: "var(--red)", fontSize: 12.5, minHeight: 16, marginTop: 8 }}>{err}</p>
       </div>

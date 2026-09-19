@@ -54,6 +54,31 @@ func BackfillGoldSaleColumns(db *gorm.DB) error {
 			log.Printf("backfilled %d NULL gold_sales.%s value(s)", res.RowsAffected, col.name)
 		}
 	}
+	if err := dropOrphanedGoldSaleCustomerName(db); err != nil {
+		return err
+	}
+	return nil
+}
+
+// dropOrphanedGoldSaleCustomerName relaxes gold_sales.customer_name's NOT
+// NULL constraint if the column is still present. It predates GoldSale's
+// current shape (a "Gold Sale" here is the business selling its own gold
+// stock, not a customer transaction — see model.go — so there has never
+// been a CustomerName field on GoldSale or a corresponding request field),
+// and GORM's AutoMigrate only ever ADDs columns it knows about, so it can
+// never touch this leftover constraint itself: every insert has omitted
+// customer_name since before this codebase's current schema, and Postgres
+// rejects it outright. HasColumn/ALTER ... DROP NOT NULL is a no-op if the
+// column has already been dropped or never had the constraint, so this is
+// safe to run on every boot.
+func dropOrphanedGoldSaleCustomerName(db *gorm.DB) error {
+	if !db.Migrator().HasColumn(&GoldSale{}, "customer_name") {
+		return nil
+	}
+	if err := db.Exec(`ALTER TABLE gold_sales ALTER COLUMN customer_name DROP NOT NULL`).Error; err != nil {
+		return err
+	}
+	log.Printf("dropped NOT NULL on orphaned gold_sales.customer_name")
 	return nil
 }
 

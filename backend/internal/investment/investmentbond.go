@@ -323,16 +323,13 @@ func (s *Service) investmentBondDataFor(ctx context.Context, inv *Investment) In
 
 // RenderInvestmentBondPDFForInvestment renders the Debenture Subscription
 // Agreement PDF for a given investment — the server-side handler for
-// GET /investments/:id/bond/pdf. Refused for a non-Bond-type investment
-// (ErrNotBondProduct) — the document only makes sense for the product it
-// was written to describe.
+// GET /investments/:id/bond/pdf. Available for every investment regardless
+// of ProductType — the agreement is now the standard document for all
+// plans, not just Bond-labeled ones.
 func (s *Service) RenderInvestmentBondPDFForInvestment(ctx context.Context, investmentID uint, branchID *uint) ([]byte, string, error) {
 	inv, err := s.repo.FindByID(ctx, investmentID, branchID)
 	if err != nil {
 		return nil, "", ErrInvestmentNotFound
-	}
-	if inv.Plan.ProductType != ProductTypeBond {
-		return nil, "", ErrNotBondProduct
 	}
 
 	data := s.investmentBondDataFor(ctx, inv)
