@@ -876,6 +876,37 @@ body {
 .sa-url:hover {
   text-decoration: underline;
 }
+.sa-signin-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 4px;
+}
+.sa-signin-row .sa-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+.sa-signin-row .sa-btn .sa-icon {
+  width: 13px;
+  height: 13px;
+}
+/* A smaller, square variant of .sa-icon-btn (that one is the round 34px
+   topbar size) for sitting inline next to the copy button in a table row. */
+.sa-signin-row .sa-icon-btn {
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  flex-shrink: 0;
+}
+.sa-signin-row .sa-icon-btn .sa-icon {
+  width: 14px;
+  height: 14px;
+}
+.sa-signin-row .sa-icon-btn:hover {
+  background: var(--sa-bg);
+  color: var(--sa-ink);
+}
 
 .sa-chip {
   display: inline-block;
@@ -919,6 +950,61 @@ body {
 }
 .sa-actions .sa-btn + .sa-btn {
   margin-left: 6px;
+}
+.sa-actions .sa-toggle {
+  margin-left: 6px;
+}
+.sa-actions .sa-toggle + .sa-btn {
+  margin-left: 6px;
+}
+
+/* Active/inactive switch. A checkbox drives it (real focus/keyboard support)
+   but is visually hidden — the track+thumb pair is what's on screen. */
+.sa-toggle {
+  position: relative;
+  display: inline-block;
+  vertical-align: middle;
+  width: 36px;
+  height: 20px;
+  cursor: pointer;
+}
+.sa-toggle input {
+  position: absolute;
+  opacity: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  cursor: pointer;
+}
+.sa-toggle-track {
+  position: absolute;
+  inset: 0;
+  background: var(--sa-red-bg);
+  border: 1px solid var(--sa-red);
+  border-radius: 999px;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+.sa-toggle input:checked + .sa-toggle-track {
+  background: var(--sa-green);
+  border-color: var(--sa-green);
+}
+.sa-toggle-thumb {
+  position: absolute;
+  top: 1px;
+  left: 1px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 2px oklch(0.2 0.02 285 / 25%);
+  transition: transform 0.15s ease;
+}
+.sa-toggle input:checked + .sa-toggle-track .sa-toggle-thumb {
+  transform: translateX(16px);
+}
+.sa-toggle input:focus-visible + .sa-toggle-track {
+  outline: 2px solid var(--sa-brand);
+  outline-offset: 2px;
 }
 .sa-btn {
   background: var(--sa-card);
@@ -977,7 +1063,7 @@ body {
   min-height: 0;
   overflow: hidden;
 }
-.sa-modal.wide { max-width: 620px; }
+.sa-modal.wide { max-width: 720px; height: 720px; max-height: 90vh; }
 .sa-modal h2 {
   font-size: 16px;
   /* No bottom margin: spacing is the head's padding now, since every modal
@@ -991,6 +1077,10 @@ body {
      The title lives in .sa-modal-head now, so the note starts the body. */
   margin: 0 0 14px;
   line-height: 1.5;
+}
+.sa-modal-note.danger {
+  color: var(--sa-red);
+  font-weight: 600;
 }
 
 /* The label colour here was the console's one real bug: it read
@@ -1350,6 +1440,10 @@ body {
   padding: 20px 24px 14px;
   border-bottom: 1px solid var(--sa-line);
   flex-shrink: 0;
+  position: sticky;
+  top: 0;
+  background: var(--sa-card);
+  z-index: 1;
 }
 .sa-modal-head h2 {
   margin: 0;
@@ -1368,6 +1462,9 @@ body {
   align-items: center;
   gap: 8px;
   flex-shrink: 0;
+  position: sticky;
+  bottom: 0;
+  z-index: 1;
 }
 /* Pushes the primary actions right while leaving room for a Back button and
    the step counter on the left. */

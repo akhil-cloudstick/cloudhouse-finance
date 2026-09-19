@@ -171,6 +171,27 @@ func (h *Handler) ReactivateBusiness(c *gin.Context) {
 	httpx.Success(c, http.StatusOK, rec)
 }
 
+// DeleteBusiness permanently removes a business — see Service.HardDeleteBusiness.
+// There is no success payload beyond the envelope: the record it would
+// describe no longer exists.
+func (h *Handler) DeleteBusiness(c *gin.Context) {
+	id, err := httpx.IDParam(c, "id")
+	if err != nil {
+		httpx.FailErr(c, err)
+		return
+	}
+	var req reasonRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		httpx.Fail(c, http.StatusBadRequest, "invalid input")
+		return
+	}
+	if err := h.svc.HardDeleteBusiness(platform.RequestContext(c), actor(c), id, req.Reason); err != nil {
+		httpx.FailErr(c, err)
+		return
+	}
+	httpx.Success(c, http.StatusOK, gin.H{"deleted": true})
+}
+
 type changeTierRequest struct {
 	TierID uint   `json:"tierId"`
 	Reason string `json:"reason"`

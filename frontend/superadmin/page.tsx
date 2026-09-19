@@ -11,6 +11,7 @@ import {
   createBusiness,
   suspendBusiness,
   reactivateBusiness,
+  deleteBusiness,
   changeTier,
   setTierPrice,
   updateProfile,
@@ -89,7 +90,7 @@ const NAV: { group: string; items: { id: Tab; label: string; icon: IconName; tit
   },
 ];
 
-type IconName = "building" | "layers" | "clipboard" | "bell" | "sun" | "user";
+type IconName = "building" | "layers" | "clipboard" | "bell" | "sun" | "user" | "copy" | "external";
 
 /* Inline SVGs rather than an icon package. This console's dependencies are
  * next + react and nothing else, deliberately, and six glyphs do not justify
@@ -131,6 +132,18 @@ function Icon({ name }: { name: IconName }) {
       <>
         <circle cx="12" cy="8" r="4" />
         <path d="M4 21a8 8 0 0 1 16 0" />
+      </>
+    ),
+    copy: (
+      <>
+        <rect x="9" y="9" width="11" height="11" rx="1.5" />
+        <path d="M6 15H5a1.5 1.5 0 0 1-1.5-1.5V5A1.5 1.5 0 0 1 5 3.5h8.5A1.5 1.5 0 0 1 15 5v1" />
+      </>
+    ),
+    external: (
+      <>
+        <path d="M14 4h6v6M20 4 11 13" />
+        <path d="M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1h5" />
       </>
     ),
   };
@@ -175,7 +188,14 @@ export default function SuperAdminDashboard() {
    * the wizard already on that step instead of making the operator page
    * through the profile fields first. */
   const [wizard, setWizard] = useState<{ business: Business | null; openAt: StepId } | null>(null);
-  const [actingOn, setActingOn] = useState<{ business: Business; kind: "suspend" | "reactivate" | "tier" } | null>(
+  // Which business's sign-in link was just copied, to flash "Copied" on that
+  // row's button only — briefly, and reset by itself so a stale "Copied"
+  // never survives past the next click elsewhere.
+  const [copiedCode, setCopiedCode] = useState<string | null>(null);
+  const [actingOn, setActingOn] = useState<{
+    business: Business;
+    kind: "suspend" | "reactivate" | "tier" | "delete";
+  } | null>(
     null
   );
   const [pricingTier, setPricingTier] = useState<Tier | null>(null);
@@ -214,6 +234,27 @@ export default function SuperAdminDashboard() {
   }
 
   const tierName = (id: number) => tiers?.find((t) => t.id === id)?.name ?? `#${id}`;
+
+  // The link an operator actually wants to hand a business: its OWN deployed
+  // URL with the sign-in code appended, not the generic tenant-app fallback,
+  // whenever the business has a deployment URL set.
+  const businessSignInLink = (b: Business) =>
+    b.appUrl ? `${b.appUrl.replace(/\/+$/, "")}/login/${b.code}` : tenantLoginLink(b.code);
+
+  async function copySignInLink(b: Business) {
+    const link = businessSignInLink(b);
+    try {
+      await navigator.clipboard.writeText(link);
+    } catch {
+      // Clipboard access can be denied (insecure context, blocked
+      // permission) — fall back to a manual-copy prompt rather than leaving
+      // the operator thinking the click did nothing.
+      window.prompt("Copy this link:", link);
+      return;
+    }
+    setCopiedCode(b.code);
+    setTimeout(() => setCopiedCode((c) => (c === b.code ? null : c)), 1500);
+  }
 
   /* The nav entry for the open view, which supplies the topbar's title and
    * subtitle. Falls back to the first entry so the header is never blank. */
@@ -404,18 +445,26 @@ export default function SuperAdminDashboard() {
                             ) : (
                               <span className="sa-biz-sub">not set</span>
                             )}
-                            <br />
-                            <button
-                              className="sa-btn"
-                              style={{ marginTop: 4 }}
-                              onClick={() => {
-                                const link = tenantLoginLink(b.code);
-                                navigator.clipboard.writeText(link);
-                              }}
-                              title={tenantLoginLink(b.code)}
-                            >
-                              Copy sign-in link
-                            </button>
+                            <div className="sa-signin-row">
+                              <button
+                                type="button"
+                                className="sa-btn"
+                                onClick={() => copySignInLink(b)}
+                                title={businessSignInLink(b)}
+                              >
+                                <Icon name="copy" />
+                                {copiedCode === b.code ? "Copied" : "Copy sign-in link"}
+                              </button>
+                              <a
+                                className="sa-icon-btn"
+                                href={businessSignInLink(b)}
+                                target="_blank"
+                                rel="noreferrer"
+                                title={`Open ${businessSignInLink(b)} in a new tab`}
+                              >
+                                <Icon name="external" />
+                              </a>
+                            </div>
                           </td>
                           <td>{b.tier?.name ?? tierName(b.tierId)}</td>
                           <td>
@@ -450,27 +499,30 @@ export default function SuperAdminDashboard() {
                             <button className="sa-btn" onClick={() => setWizard({ business: b, openAt: "profile" })}>
                               Edit
                             </button>
-                            <button className="sa-btn" onClick={() => setWizard({ business: b, openAt: "branding" })}>
-                              Branding
+                            <label
+                              className="sa-toggle"
+                              title={b.status === "suspended" ? "Reactivate business" : "Suspend business"}
+                            >
+                              <input
+                                type="checkbox"
+                                checked={b.status !== "suspended"}
+                                onChange={() =>
+                                  setActingOn({
+                                    business: b,
+                                    kind: b.status === "suspended" ? "reactivate" : "suspend",
+                                  })
+                                }
+                              />
+                              <span className="sa-toggle-track">
+                                <span className="sa-toggle-thumb" />
+                              </span>
+                            </label>
+                            <button
+                              className="sa-btn danger"
+                              onClick={() => setActingOn({ business: b, kind: "delete" })}
+                            >
+                              Delete
                             </button>
-                            <button className="sa-btn" onClick={() => setActingOn({ business: b, kind: "tier" })}>
-                              Tier
-                            </button>
-                            {b.status === "suspended" ? (
-                              <button
-                                className="sa-btn"
-                                onClick={() => setActingOn({ business: b, kind: "reactivate" })}
-                              >
-                                Reactivate
-                              </button>
-                            ) : (
-                              <button
-                                className="sa-btn danger"
-                                onClick={() => setActingOn({ business: b, kind: "suspend" })}
-                              >
-                                Suspend
-                              </button>
-                            )}
                           </td>
                         </tr>
                       ))}
@@ -1104,9 +1156,7 @@ function BusinessWizard({
                         onChange={(e) => setCode(e.target.value.toLowerCase())}
                         placeholder="lowercase-letters-numbers-dashes"
                       />
-                      <span className="sa-hint">
-                        Used in /login/&lt;code&gt;. Permanent once shared — it cannot be changed later.
-                      </span>
+                      <span className="sa-hint">Used in /login/&lt;code&gt;. Permanent once shared.</span>
                     </>
                   ) : (
                     <>
@@ -1142,10 +1192,7 @@ function BusinessWizard({
                 <div className="sa-field">
                   <label>Short name (optional)</label>
                   <input value={shortName} onChange={(e) => setShortName(e.target.value)} placeholder={name || "e.g. CTFI"} />
-                  <span className="sa-hint">
-                    Shown where the full name doesn&apos;t fit: sidebar headline, browser tab, login page. Falls
-                    back to the business name.
-                  </span>
+                  <span className="sa-hint">Shown where the full name doesn&apos;t fit (sidebar, tab, login).</span>
                 </div>
                 <div className="sa-field">
                   <label>Sidebar subtitle (optional)</label>
@@ -1161,19 +1208,12 @@ function BusinessWizard({
                     placeholder={name || "e.g. Gold Finance"}
                     rows={2}
                   />
-                  <span className="sa-hint">
-                    The small line under the sidebar headline. Use the full name (&ldquo;Chittilapilly
-                    Thommana&rdquo; under &ldquo;CTFI&rdquo;) or a descriptor (&ldquo;Gold Finance&rdquo; under
-                    &ldquo;Ambika&rdquo;). Press Return to split it over two lines (typing
-                    &ldquo;\n&rdquo; works too). Hidden when it would only repeat the headline.
-                  </span>
+                  <span className="sa-hint">The small line under the sidebar headline. Press Return to split it over two lines.</span>
                 </div>
                 <div className="sa-field">
                   <label>Registration no.</label>
                   <input value={kmlRegNo} onChange={(e) => setKmlRegNo(e.target.value)} />
-                  <span className="sa-hint">
-                    Printed on this business&rsquo;s customer-facing lending documents.
-                  </span>
+                  <span className="sa-hint">Printed on this business&rsquo;s lending documents.</span>
                 </div>
               </div>
 
@@ -1185,12 +1225,7 @@ function BusinessWizard({
                   ariaLabel="Document policy"
                   options={catalogue.policies.map((p) => ({ value: p.code, label: p.label }))}
                 />
-                <span className="sa-hint">
-                  The regulatory regime this business lends under. It decides which pledge
-                  agreement its borrowers sign &mdash; these are different legal instruments,
-                  not translations of one &mdash; and narrows the document languages offered
-                  on the Grants step.
-                </span>
+                <span className="sa-hint">Decides the pledge agreement and narrows document languages on the Grants step.</span>
               </div>
 
               <div className="sa-field">
@@ -1206,10 +1241,7 @@ function BusinessWizard({
                   onChange={(e) => setAppUrl(e.target.value)}
                   placeholder="https://acme.cloudhousesupport.site"
                 />
-                <span className="sa-hint">
-                  Where this business&apos;s frontend is deployed. Recorded for reference only — sign-in is still
-                  resolved by the code above, not by hostname.
-                </span>
+                <span className="sa-hint">Recorded for reference only — sign-in still uses the code above.</span>
               </div>
             </>
           )}
@@ -1232,10 +1264,7 @@ function BusinessWizard({
                   />
                   <RampPreview hex={color} />
                 </div>
-                <span className="sa-hint">
-                  Every other shade the app uses — hovers, fills, pale backgrounds, the print header — is derived
-                  from this one, which is what the strip above shows.
-                </span>
+                <span className="sa-hint">Every other shade (hovers, fills, print header) is derived from this.</span>
               </div>
 
               <div className="sa-field">
@@ -1251,9 +1280,7 @@ function BusinessWizard({
                   />
                 </div>
                 <span className="sa-hint">
-                  PNG, JPEG or WebP. SVG is refused — an SVG can carry a script, and serving one from this origin
-                  would run it against the viewer&apos;s session.
-                  {isCreate && " Uploaded once the business has been created."}
+                  PNG, JPEG or WebP (no SVG).{isCreate && " Uploaded once the business has been created."}
                 </span>
               </div>
 
@@ -1282,10 +1309,7 @@ function BusinessWizard({
                       />
                     ))}
                   </div>
-                  <span className="sa-hint">
-                    Pulled from the uploaded logo&apos;s own pixels — a suggestion only. Click a swatch to fill the
-                    next empty colour field; every field stays yours to edit or clear afterwards.
-                  </span>
+                  <span className="sa-hint">Click a swatch to fill the next empty colour field.</span>
                 </div>
               )}
 
@@ -1310,11 +1334,7 @@ function BusinessWizard({
                   )}
                   {secondaryColor && <RampPreview hex={secondaryColor} />}
                 </div>
-                <span className="sa-hint">
-                  <b>Also sets the sidebar and login panel&apos;s dark background</b> — enter this to match an
-                  existing brand&apos;s exact sidebar colour (e.g. a design tool&apos;s colour picker). Leave empty
-                  and it derives one from the primary colour automatically instead.
-                </span>
+                <span className="sa-hint">Also sets the sidebar/login background. Leave empty to derive it automatically.</span>
               </div>
 
               <div className="sa-field">
@@ -1346,12 +1366,7 @@ function BusinessWizard({
                   ariaLabel="Logo size in the sidebar/header"
                   options={Object.keys(LOGO_SCALES).map((key) => ({ value: key, label: titleCase(key) }))}
                 />
-                <span className="sa-hint">
-                  Only affects the sidebar and header — the login page&apos;s logo is a fixed size (already matched
-                  to a reference design) and does not use this setting. The logo already scales to fit its
-                  sidebar/header slot automatically; use this only when it still reads smaller or larger than it
-                  should there (e.g. thin linework vs. a solid block mark).
-                </span>
+                <span className="sa-hint">Only affects the sidebar/header, not the login page logo.</span>
               </div>
 
               <div className="sa-field">
@@ -1460,9 +1475,7 @@ function BusinessWizard({
               <div className="sa-field">
                 <label>Document languages</label>
                 <span className="sa-hint">
-                  Limited to the languages the{" "}
-                  {catalogue.policies.find((p) => p.code === policy)?.label ?? "selected"} policy
-                  has templates for. Change the policy on the Profile step to see others.
+                  Limited to templates for the {catalogue.policies.find((p) => p.code === policy)?.label ?? "selected"} policy.
                 </span>
                 {policyLanguages.map((l) => {
                   const locked = l === "en";
@@ -1624,18 +1637,25 @@ function BusinessActionModal({
   onDone,
 }: {
   business: Business;
-  kind: "suspend" | "reactivate" | "tier";
+  kind: "suspend" | "reactivate" | "tier" | "delete";
   tiers: Tier[];
   onClose: () => void;
   onDone: () => void;
 }) {
   const [reason, setReason] = useState("");
   const [tierId, setTierId] = useState(business.tierId);
+  const [confirmCode, setConfirmCode] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const title =
-    kind === "suspend" ? "Suspend business" : kind === "reactivate" ? "Reactivate business" : "Change tier";
+    kind === "suspend"
+      ? "Suspend business"
+      : kind === "reactivate"
+        ? "Reactivate business"
+        : kind === "delete"
+          ? "Delete business permanently"
+          : "Change tier";
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -1644,10 +1664,15 @@ function BusinessActionModal({
       setError("A reason is required.");
       return;
     }
+    if (kind === "delete" && confirmCode.trim() !== business.code) {
+      setError(`Type ${business.code} exactly to confirm.`);
+      return;
+    }
     setSubmitting(true);
     try {
       if (kind === "suspend") await suspendBusiness(business.id, reason);
       else if (kind === "reactivate") await reactivateBusiness(business.id, reason);
+      else if (kind === "delete") await deleteBusiness(business.id, reason);
       else await changeTier(business.id, tierId, reason);
       onDone();
       onClose();
@@ -1673,6 +1698,20 @@ function BusinessActionModal({
               have already paid for.
             </p>
           )}
+          {kind === "delete" && (
+            <>
+              <p className="sa-modal-note danger">
+                This permanently deletes {business.name} — every branch, customer, loan, staff login and its logo
+                file. This cannot be undone.
+              </p>
+              <div className="sa-field">
+                <label>
+                  Type <b>{business.code}</b> to confirm
+                </label>
+                <input value={confirmCode} onChange={(e) => setConfirmCode(e.target.value)} autoComplete="off" />
+              </div>
+            </>
+          )}
           {kind === "tier" && (
             <div className="sa-field">
               <label>New tier</label>
@@ -1695,7 +1734,11 @@ function BusinessActionModal({
           <button type="button" className="sa-btn" onClick={onClose}>
             Cancel
           </button>
-          <button type="submit" className={`sa-btn ${kind === "suspend" ? "danger" : "primary"}`} disabled={submitting}>
+          <button
+            type="submit"
+            className={`sa-btn ${kind === "suspend" || kind === "delete" ? "danger" : "primary"}`}
+            disabled={submitting}
+          >
             {submitting ? "Working…" : title}
           </button>
         </div>

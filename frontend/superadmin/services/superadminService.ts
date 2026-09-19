@@ -176,6 +176,13 @@ export function reactivateBusiness(id: number, reason: string): Promise<Business
   });
 }
 
+export function deleteBusiness(id: number, reason: string): Promise<{ deleted: boolean }> {
+  return request<{ deleted: boolean }>(`/superadmin/businesses/${id}`, {
+    method: "DELETE",
+    body: JSON.stringify({ reason }),
+  });
+}
+
 export function changeTier(id: number, tierId: number, reason: string): Promise<Business> {
   return request<Business>(`/superadmin/businesses/${id}/tier`, {
     method: "PUT",

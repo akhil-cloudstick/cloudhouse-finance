@@ -23,6 +23,7 @@ func RegisterRoutes(rg *gin.RouterGroup, h *Handler, superAdminAuth gin.HandlerF
 	protected.POST("/businesses/:id/reactivate", h.ReactivateBusiness)
 	protected.PUT("/businesses/:id/tier", h.ChangeTier)
 	protected.PUT("/businesses/:id/expiry", h.AdjustExpiry)
+	protected.DELETE("/businesses/:id", h.DeleteBusiness)
 
 	protected.GET("/tiers", h.ListTiers)
 	protected.PUT("/tiers/:id/price", h.SetTierPrice)

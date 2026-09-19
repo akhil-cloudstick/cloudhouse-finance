@@ -109,4 +109,10 @@ const (
 	ActionSetLogo       = "set_logo"
 	ActionSetModules    = "set_modules"
 	ActionSetLanguages  = "set_languages"
+	// ActionDeleteBusiness logs a permanent, irreversible business deletion —
+	// every row it owned and its uploaded files, gone. TenantID is left nil
+	// on this entry (see AuditLog.TenantID's doc comment): the tenants row no
+	// longer exists to point at, so TenantName is the only surviving record
+	// of which business this was.
+	ActionDeleteBusiness = "delete_business"
 )
