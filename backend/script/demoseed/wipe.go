@@ -76,8 +76,13 @@ var wipeOrder = []string{
 	"loans",
 
 	// Parents and flat tables. gold_sales carries FKs to both branches and
-	// cash_movements, so it has to go before either of them.
+	// cash_movements, so it has to go before either of them. cash_movements
+	// carries an optional FK to customers (party_customer_id, recording which
+	// customer a cash entry was paid to/by) and to banks (bank_id), so it must
+	// go before customers and before banks too — see childOf below, and
+	// internal/superadmin/harddelete.go's identical fix for the same table.
 	"gold_sales",
+	"cash_movements",
 	"customer_otp",
 	"customer_device_tokens",
 	"customers",
@@ -87,7 +92,6 @@ var wipeOrder = []string{
 	"banks",
 	"ornament_types",
 	"gold_rates",
-	"cash_movements",
 	"expenses",
 	"opening_cash_balances",
 	"approval_limits",
@@ -174,6 +178,12 @@ var childOf = map[string]struct{ fk, parent string }{
 	"loan_drafts":                {"customer_id", "customers"},
 	"investments":                {"customer_id", "customers"},
 	"loans":                      {"customer_id", "customers"},
+	// cash_movements.tenant_id has the same kind of mis-stamping risk the
+	// untenanted models above have — resolving party_customer_id up to its
+	// customer catches a cash entry whose own tenant_id is wrong, the same way
+	// childOf does everywhere else. Mirrors
+	// internal/superadmin/harddelete.go's hardDeleteChildOf entry.
+	"cash_movements": {"party_customer_id", "customers"},
 }
 
 // tenantPredicate is the WHERE clause that selects one business's rows in a

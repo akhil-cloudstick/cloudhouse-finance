@@ -212,7 +212,7 @@ export default function SuperAdminDashboard() {
     } catch (err) {
       if (err instanceof SuperAdminApiError && err.status === 401) {
         clearSuperAdminSession();
-        router.replace("/login");
+        router.replace("/superadmin/login");
         return;
       }
       setLoadError(err instanceof Error ? err.message : "Could not load the console.");
@@ -221,7 +221,7 @@ export default function SuperAdminDashboard() {
 
   useEffect(() => {
     if (!readSuperAdminToken()) {
-      router.replace("/login");
+      router.replace("/superadmin/login");
       return;
     }
     setUser(readSuperAdminUser());
@@ -230,16 +230,18 @@ export default function SuperAdminDashboard() {
 
   function handleLogout() {
     clearSuperAdminSession();
-    router.replace("/login");
+    router.replace("/superadmin/login");
   }
 
   const tierName = (id: number) => tiers?.find((t) => t.id === id)?.name ?? `#${id}`;
 
   // The link an operator actually wants to hand a business: its OWN deployed
   // URL with the sign-in code appended, not the generic tenant-app fallback,
-  // whenever the business has a deployment URL set.
+  // whenever the business has a deployment URL set. The code leads the path
+  // (/<code>/login) — see tenantLoginLink's doc comment for why the reverse
+  // order doesn't match any real route.
   const businessSignInLink = (b: Business) =>
-    b.appUrl ? `${b.appUrl.replace(/\/+$/, "")}/login/${b.code}` : tenantLoginLink(b.code);
+    b.appUrl ? `${b.appUrl.replace(/\/+$/, "")}/${b.code}/login` : tenantLoginLink(b.code);
 
   async function copySignInLink(b: Business) {
     const link = businessSignInLink(b);

@@ -1,0 +1,120 @@
+name: golddemo
+
+# 4 containers (db, frontend build job, migrate job, backend), all on one
+# dedicated network isolated from every other app on this host. No custom
+# subnet is pinned here — Docker auto-assigns a free one from its default
+# address pool, avoiding collisions with the other per-app networks already
+# running (gold_website_network, ctfi_gold_app_network, melusiv_*_network,
+# etc.) without us having to track their subnets by hand.
+#
+# The backend is the only container bound to the host, on 127.0.0.1:6789 —
+# matching the CloudStick panel's nginx vhost for this app exactly (see
+# /etc/nginx-cs/vhosts.d/gold-app-demo.d/proxy.conf), so no shared/panel
+# config needs to change. db and frontend are internal-only.
+
+services:
+  golddemo_db:
+    image: postgres:15
+    container_name: golddemo_db
+    restart: always
+    environment:
+      POSTGRES_USER: ${DB_USER}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_DB: ${DB_NAME}
+    volumes:
+      - golddemo_db_pgdata:/var/lib/postgresql/data
+    networks:
+      - golddemo_network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER} -d ${DB_NAME}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # Build-only job: `npm run build` produces the Next.js static export and
+  # copies it into the golddemo_frontend_out volume, then exits 0. Not a
+  # long-running server — static export has no server to run (see
+  # frontend/Dockerfile). golddemo_backend waits for this to finish
+  # successfully before it starts.
+  golddemo_frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: golddemo_frontend
+    volumes:
+      - golddemo_frontend_out:/shared-out
+    networks:
+      - golddemo_network
+
+  # One-off job: applies internal/migrate.Run (AutoMigrate + backfills +
+  # seeds the default admin login only if one doesn't already exist) then
+  # exits. Idempotent — safe to run on every `docker compose up`. Mirrors
+  # `go run ./cmd/migrate`, the same command the app's own docs call for
+  # before the server's first boot against a fresh database.
+  golddemo_migrate:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: golddemo_migrate
+    command: ["./migrate"]
+    env_file:
+      - .env
+    environment:
+      DB_HOST: golddemo_db
+      DB_PORT: "5432"
+    depends_on:
+      golddemo_db:
+        condition: service_healthy
+    networks:
+      - golddemo_network
+
+  golddemo_backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: golddemo_backend
+    restart: always
+    env_file:
+      - .env
+    environment:
+      DB_HOST: golddemo_db
+      DB_PORT: "5432"
+    depends_on:
+      golddemo_db:
+        condition: service_healthy
+      golddemo_frontend:
+        condition: service_completed_successfully
+      golddemo_migrate:
+        condition: service_completed_successfully
+    ports:
+      # Loopback-only, same convention as ctfi_backend/izora_postgres/
+      # mailpro_app/gold_app on this host — the CloudStick nginx vhost for
+      # golddemo.cloudhousesupport.site already proxy_passes to
+      # http://127.0.0.1:6789, not exposed on 0.0.0.0.
+      - "127.0.0.1:6789:6789"
+    volumes:
+      - golddemo_frontend_out:/app/frontend/out:ro
+      - golddemo_uploads:/app/uploads
+    networks:
+      - golddemo_network
+
+volumes:
+  golddemo_db_pgdata:
+  golddemo_frontend_out:
+  golddemo_uploads:
+
+networks:
+  golddemo_network:
+    name: golddemo_network
+    driver: bridge
+    # Pinned (rather than left to Docker's auto-assigned pool) because this
+    # host's firewall (CSF) explicitly allowlists each app's docker subnet
+    # by IP in /etc/csf/csfpost.sh (see that file for the pattern already
+    # used by melusiv_network, salesbot_network, izora_network,
+    # echotech_ecotech_erp_network, gold_website_network, etc.) — that rule
+    # needs a stable subnet to reference, not whatever Docker happens to
+    # pick on a given `docker compose up`. 172.31.0.0/16 was free against
+    # every other app network on this host at the time this was set up.
+    ipam:
+      config:
+        - subnet: 172.31.0.0/16

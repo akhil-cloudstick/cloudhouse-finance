@@ -19,7 +19,35 @@ func seedLoanRequests(ctx context.Context, d *Deps, st *state, rep *Report) erro
 		if idx >= len(st.loanIDs) {
 			continue
 		}
-		req, err := d.loanSvc.CreateExtensionRequest(ctx, st.loanIDs[idx], loan.ExtensionRequestInput{
+		loanID := st.loanIDs[idx]
+
+		// seedPayments deliberately leaves these loans with outstanding
+		// interest/penal interest ("the loans still show arrears afterwards" —
+		// see seed_payments.go's paymentPlans comment), but
+		// CreateExtensionRequest now refuses to open an extension while either
+		// is still owed (ErrExtensionNeedsPayment). Clear what's left right
+		// before asking for the extension — "the customer paid up, then asked
+		// for more time" is exactly the scenario the arrears fixture doesn't
+		// otherwise cover. Re-read fresh, same as seedPayments: accrual moves
+		// with the clock and the previous payment already changed it.
+		l, err := d.loanSvc.Get(ctx, loanID, nil)
+		if err != nil {
+			return fmt.Errorf("read loan index %d before extension request: %w", idx, err)
+		}
+		if amount := payableAmount(l, loan.PaymentTypeInterest, 1.0); amount > 0 {
+			if _, err := d.loanSvc.RecordPayment(ctx, loanID, loan.PaymentInput{
+				Amount:               amount,
+				Type:                 loan.PaymentTypeInterest,
+				PaidOn:               st.clk.daysAgo(1),
+				ReceivedByEmployeeID: &st.keep.adminID,
+				Method:               "Cash",
+				Description:          "Interest cleared before requesting extension",
+			}); err != nil {
+				return fmt.Errorf("clear interest before extension request on loan index %d: %w", idx, err)
+			}
+		}
+
+		req, err := d.loanSvc.CreateExtensionRequest(ctx, loanID, loan.ExtensionRequestInput{
 			Months:      3,
 			Detail:      "Customer requested additional time",
 			RequestedBy: loan.RequestedByStaff,
@@ -90,6 +118,13 @@ func seedLoanRequests(ctx context.Context, d *Deps, st *state, rep *Report) erro
 
 		notes := "Demo verification"
 		check := loan.ChecklistInput{
+			// ApproveReleaseRequest now gates on req.CustomerSawGold alone —
+			// PacketVerified/BankPledgeVerified/CustomerConfirmed/PaymentVerified
+			// are the pre-rework fields VerifyReleaseChecklist no longer reads
+			// (see its doc comment on the "reworked 2-item checklist"). Kept
+			// here anyway since they're harmless and still part of the input
+			// type; CustomerSawGold is the one that actually has to be set.
+			CustomerSawGold:    &yes,
 			PacketVerified:     &yes,
 			BankPledgeVerified: &yes,
 			CustomerConfirmed:  &yes,

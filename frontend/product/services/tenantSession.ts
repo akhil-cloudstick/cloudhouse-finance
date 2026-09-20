@@ -79,8 +79,14 @@ export function businessSlugFromPath(pathname?: string): string | null {
 /* Host labels that never name a business — the platform's own bare/marketing
  * subdomains, which a production deployment may put in front of the same
  * origin. Extend this list rather than assuming every non-apex hostname is a
- * tenant. */
-const RESERVED_HOST_LABELS = new Set(["www", "app", "admin", "api", "superadmin"]);
+ * tenant.
+ *
+ * "golddemo" is this deployment's own hostname (golddemo.cloudhousesupport.site),
+ * not a tenant code — this box still runs one dedicated Docker stack per
+ * business (see documents/local_multitenant_testing.md), so the subdomain
+ * names the deployment, not a business within it. The one tenant here keeps
+ * its code "default" and is reached at /default/login or bare /login. */
+const RESERVED_HOST_LABELS = new Set(["www", "app", "admin", "api", "superadmin", "golddemo"]);
 
 /* Local-dev suffixes that carry a subdomain without a real DNS entry:
  * "ambika.localhost" resolves to 127.0.0.1 in every modern browser with no

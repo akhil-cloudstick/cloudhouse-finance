@@ -1,8 +1,14 @@
 "use client";
 
 import { useEffect } from "react";
-import { useAuth } from "@/product/providers/auth-context";
-import { appPath, loginPath } from "@/product/services/tenantSession";
+import { isTokenValid } from "@/product/providers/auth-context";
+import {
+  appPath,
+  businessSlugFromHost,
+  businessSlugFromPath,
+  loginPath,
+  readToken,
+} from "@/product/services/tenantSession";
 
 /* Cross-page moves are FULL document loads (window.location), not Next's
  * client router.
@@ -17,15 +23,27 @@ import { appPath, loginPath } from "@/product/services/tenantSession";
  */
 
 /* Root route is just a traffic director: signed-in visitors go straight to
- * the app shell's dashboard, everyone else to /login. The real login form
- * lives at /login (app/login/page.tsx). */
+ * the app shell's dashboard, everyone else to a login page.
+ *
+ * The slug this page acts on comes ONLY from the path and the host, never
+ * from useAuth()/activeBusinessSlug() — both of those also fall back to
+ * whatever business was last remembered in this browser's localStorage. With
+ * several tenants opened in the same browser over time, that remembered
+ * value is whichever business was visited most recently, not "no business
+ * named" — so a bare "/" would silently follow that tenant instead of
+ * landing somewhere predictable. Reading the token for the resolved slug
+ * directly (readToken(slug), not the ambient useAuth() token) keeps this
+ * page's decision a pure function of the URL: "/" always means THIS
+ * deployment's own business ("default"), while an explicit business URL
+ * (/ctfi, ctfi.localhost) still wins and shows THAT business, independent of
+ * whatever else is signed in in this browser. The real login form lives at
+ * /login (app/login/page.tsx). */
 export default function RootPage() {
-  const { token, loading } = useAuth();
-
   useEffect(() => {
-    if (loading) return;
-    window.location.replace(token ? appPath() : loginPath());
-  }, [loading, token]);
+    const slug = businessSlugFromPath() ?? businessSlugFromHost() ?? "default";
+    const signedIn = isTokenValid(readToken(slug));
+    window.location.replace(signedIn ? appPath(slug) : loginPath(slug));
+  }, []);
 
   return null;
 }
