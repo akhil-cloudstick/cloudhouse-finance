@@ -6,7 +6,12 @@ import { useSearchParams } from "next/navigation";
 import "@/product/styles/login.css";
 import { resetPassword } from "@/product/services/authService";
 import { ApiError } from "@/product/services/httpClient";
-import { businessCodeForRequest, isValidBusinessSlug, loginPath } from "@/product/services/tenantSession";
+import {
+  businessCodeForRequest,
+  isValidBusinessSlug,
+  loginPath,
+  resolveActiveSlug,
+} from "@/product/services/tenantSession";
 
 function ResetPasswordForm() {
   const searchParams = useSearchParams();
@@ -26,6 +31,11 @@ function ResetPasswordForm() {
    * number is unique only WITHIN a business — see the forgot-password page. */
   const linkedCode = searchParams.get("b")?.trim().toLowerCase() ?? "";
   const businessCode = isValidBusinessSlug(linkedCode) ? linkedCode : businessCodeForRequest();
+  /* Same reasoning as forgot-password/page.tsx: keep the slug in the "Back to
+   * login" / post-reset links for an explicit ?b= param or the bare-install
+   * fallback, but not for one that only came from a host-resolved subdomain. */
+  const { slug: resolvedSlug, fromPath } = resolveActiveSlug();
+  const loginIncludesSlug = isValidBusinessSlug(linkedCode) || resolvedSlug === null || fromPath;
   const [otp, setOtp] = useState("");
   const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
@@ -63,7 +73,7 @@ function ResetPasswordForm() {
        * reaches it exists only as a server-side fallback, which Next's
        * client router knows nothing about. See app/page.tsx's header. */
       // eslint-disable-next-line @next/next/no-location-assign-relative-destination
-      window.location.assign(`${loginPath(businessCode || null)}?reset=success`);
+      window.location.assign(`${loginPath(businessCode || null, loginIncludesSlug)}?reset=success`);
     } catch (err) {
       const text =
         err instanceof ApiError
@@ -218,7 +228,7 @@ function ResetPasswordForm() {
             </p>
 
             <div className="aux" style={{ justifyContent: "center" }}>
-              <a href={loginPath(businessCode || null)}>← Back to login</a>
+              <a href={loginPath(businessCode || null, loginIncludesSlug)}>← Back to login</a>
             </div>
           </form>
           )}

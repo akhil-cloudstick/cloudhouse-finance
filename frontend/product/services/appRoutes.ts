@@ -32,7 +32,7 @@ import {
   isBusinessSegment,
   type StandalonePage,
 } from "@/product/config/routes";
-import { activeBusinessSlug, isValidBusinessSlug } from "@/product/services/tenantSession";
+import { activeBusinessSlug, isValidBusinessSlug, resolveActiveSlug } from "@/product/services/tenantSession";
 
 export type ParsedPath = {
   /** The business named by the URL, or null on a bare path. */
@@ -81,14 +81,42 @@ export function parsePath(pathname?: string): ParsedPath {
   };
 }
 
-/* prefix is the leading "/<slug>" for a business, or "" when none is known.
+/* prefix is the leading "/<slug>" for a business, or "" when none is known —
+ * or when includeInUrl says not to write one even though a slug is known.
  *
- * Resolved from the current URL by default, so every link a page renders
- * stays inside the business that page is already showing. A link that dropped
- * the prefix would silently move the user to the bare install. */
-function prefix(slug?: string | null): string {
-  const s = slug === undefined ? activeBusinessSlug() : slug;
-  return s && isValidBusinessSlug(s) ? `/${s}` : "";
+ * THE SLUG ARGUMENT AND includeInUrl ARE INDEPENDENT. slug says which
+ * business (or "current tab's business" when omitted); includeInUrl says
+ * whether that business belongs in the URL AT ALL. The two are separate
+ * because a host-resolved tenant (https://demo.cloudhousesupport.site/) has a
+ * perfectly good slug — the login/session/QR code all still need it — but its
+ * address bar never had that slug in it, and every link this app writes must
+ * keep it that way. A path-resolved slug (/ctfi/login, typed by hand or
+ * followed from a bookmark — see documents/local_multitenant_testing.md) is
+ * the opposite: the slug is already sitting in the address bar, so every link
+ * this page renders should keep carrying it forward.
+ *
+ * When slug is omitted (the common case — a page linking to another page of
+ * itself), the answer is resolved from the current URL: resolveActiveSlug()
+ * tells apart a path match (write it) from a host match (don't) exactly the
+ * way this comment above describes, and only falls back to
+ * activeBusinessSlug()'s third tier — the browser's remembered business — for
+ * the bare-install case neither the path nor the host names anything, where
+ * the slug has always been written into the URL (that behaviour predates this
+ * distinction and is unchanged here).
+ *
+ * When slug IS given explicitly, includeInUrl defaults to true — unchanged
+ * from before this distinction existed. A caller passing a slug already made
+ * its own choice of business (e.g. Billing.tsx listing every OTHER business's
+ * login link) and still gets it written into the URL unless it opts out. */
+function prefix(slug?: string | null, includeInUrl?: boolean): string {
+  if (slug === undefined) {
+    const resolved = resolveActiveSlug();
+    const s = resolved.slug ?? activeBusinessSlug();
+    const include = includeInUrl !== undefined ? includeInUrl : resolved.slug === null || resolved.fromPath;
+    return include && s && isValidBusinessSlug(s) ? `/${s}` : "";
+  }
+  const include = includeInUrl !== undefined ? includeInUrl : true;
+  return include && slug && isValidBusinessSlug(slug) ? `/${slug}` : "";
 }
 
 /**
@@ -102,8 +130,18 @@ function prefix(slug?: string | null): string {
  * The argument is URL-encoded: ids are business data (a packet code, a loan
  * number) and a slash or a space in one would otherwise silently alter the
  * path it is pasted into.
+ *
+ * includeInUrl is prefix()'s own flag, passed straight through — see its
+ * comment. Left undefined (the default) for every call site that isn't one of
+ * the handful deciding this for themselves; prefix() resolves it from the
+ * current URL in that case.
  */
-export function routeHref(route: string, arg?: string | number, slug?: string | null): string {
+export function routeHref(
+  route: string,
+  arg?: string | number,
+  slug?: string | null,
+  includeInUrl?: boolean
+): string {
   let r = route;
   let a = arg;
   if (a === undefined && r.includes("/")) {
@@ -112,7 +150,7 @@ export function routeHref(route: string, arg?: string | number, slug?: string | 
     r = r.slice(0, cut);
   }
   const tail = a === undefined || a === "" ? "" : `/${encodeURIComponent(String(a))}`;
-  return `${prefix(slug)}/${r}${tail}`;
+  return `${prefix(slug, includeInUrl)}/${r}${tail}`;
 }
 
 /* The event navigate() raises so the router re-reads the URL.
@@ -136,16 +174,20 @@ export function navigate(route: string, arg?: string | number, slug?: string | n
 }
 
 /** The console's landing page for a business. */
-export function appPath(slug?: string | null, route: string = DEFAULT_ROUTE): string {
-  return routeHref(route, undefined, slug);
+export function appPath(
+  slug?: string | null,
+  route: string = DEFAULT_ROUTE,
+  includeInUrl?: boolean
+): string {
+  return routeHref(route, undefined, slug, includeInUrl);
 }
 
 /** The business's sign-in page: /<slug>/login, or bare /login. */
-export function loginPath(slug?: string | null): string {
-  return `${prefix(slug)}/login`;
+export function loginPath(slug?: string | null, includeInUrl?: boolean): string {
+  return `${prefix(slug, includeInUrl)}/login`;
 }
 
 /** The operator's reset tool for one business: /<slug>/reset. */
-export function resetPath(slug?: string | null): string {
-  return `${prefix(slug)}/reset`;
+export function resetPath(slug?: string | null, includeInUrl?: boolean): string {
+  return `${prefix(slug, includeInUrl)}/reset`;
 }

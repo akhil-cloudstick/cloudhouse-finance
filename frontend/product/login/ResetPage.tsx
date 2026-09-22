@@ -8,6 +8,7 @@ import {
   clearSession,
   loginPath,
   appPath,
+  resolveActiveSlug,
 } from "@/product/services/tenantSession";
 import { resetDemoData, type ResetProgress } from "@/product/pages/demo/services/demoService";
 import BrandLogo from "@/product/components/BrandLogo";
@@ -115,6 +116,12 @@ export default function ResetPage() {
       // 1. Capture the business slug BEFORE anything touches storage —
       //    clearing the session is what makes it unresolvable.
       const slug = activeBusinessSlug();
+      // ...and separately, whether that slug should be written into the
+      // sign-in link below: not for a host-resolved tenant, whose address bar
+      // never had it — see the same distinction made in LoginPage.tsx and
+      // RootPage.
+      const { slug: resolvedSlug, fromPath } = resolveActiveSlug();
+      const includeInUrl = resolvedSlug === null || fromPath;
 
       // 2. The client-side mock store. A PREFIX SCAN, not a hardcoded list:
       //    common/utils/data.ts writes eight agf_* keys holding loans,
@@ -152,7 +159,7 @@ export default function ResetPage() {
       //    the report is logged server-side for anyone who wants the counts.
       //    void marks the value as deliberately unused.
       void report;
-      window.location.replace(loginPath(slug));
+      window.location.replace(loginPath(slug, includeInUrl));
     } catch (err) {
       // Deliberately do NOT clear the session on failure: the operator has to
       // stay signed in to read this and try again.

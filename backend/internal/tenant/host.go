@@ -40,6 +40,62 @@ func NormalizeHost(v string) string {
 	return strings.TrimSuffix(v, ".")
 }
 
+// BaseDomain is the platform's shared domain that each business is given a
+// subdomain of (e.g. "ambika" -> ambika.cloudhousesupport.site). Set once at
+// boot from platform.Config.BaseDomain (see SetBaseDomain) — a package
+// variable rather than a parameter threaded through every caller, since
+// SubdomainLabel is called from request-handling code that has no config
+// object of its own to carry it in.
+var BaseDomain = "cloudhousesupport.site"
+
+// SetBaseDomain overrides BaseDomain from the resolved app config. A blank
+// value is ignored, so BaseDomain always resolves to something usable.
+func SetBaseDomain(domain string) {
+	domain = strings.TrimSuffix(strings.ToLower(strings.TrimSpace(domain)), ".")
+	if domain != "" {
+		BaseDomain = domain
+	}
+}
+
+// ReservedHostLabels are subdomain labels that never name a business — the
+// platform's own bare/marketing/admin subdomains. "demo" is deliberately NOT
+// here: it is an ordinary tenant code, reached at demo.<BaseDomain> like any
+// other business.
+var ReservedHostLabels = map[string]bool{
+	"www":        true,
+	"api":        true,
+	"admin":      true,
+	"superadmin": true,
+}
+
+// SubdomainLabel reads a tenant code off a single-level subdomain of
+// BaseDomain: "ambika.cloudhousesupport.site" -> ("ambika", true).
+//
+// Returns ok=false when host does not end in "."+BaseDomain, when there is
+// more than one label in front of BaseDomain (e.g.
+// "a.b.cloudhousesupport.site" — not a single-level subdomain), or when the
+// label is reserved (see ReservedHostLabels). Like FindByAppURL below, this
+// only ever NARROWS or REFUSES which business a request names — it is never
+// authorization.
+func SubdomainLabel(host string) (label string, ok bool) {
+	h := NormalizeHost(host)
+	if h == "" || BaseDomain == "" {
+		return "", false
+	}
+	suffix := "." + BaseDomain
+	if !strings.HasSuffix(h, suffix) {
+		return "", false
+	}
+	candidate := strings.TrimSuffix(h, suffix)
+	if candidate == "" || strings.Contains(candidate, ".") {
+		return "", false
+	}
+	if ReservedHostLabels[candidate] {
+		return "", false
+	}
+	return candidate, true
+}
+
 // FindByAppURL resolves the business whose own frontend is served from host.
 //
 // # What this may and may not be used for

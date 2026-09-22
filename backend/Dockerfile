@@ -18,10 +18,16 @@ RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o /out/server . \
 # Debian slim (not alpine) so `apt-get install chromium` works — chromedp
 # drives a headless Chromium tab to render the loan indemnity bond PDF
 # (see internal/platform/setu_esign.go, internal/loan/indemnitybond.go).
+# fonts-noto-core provides the Malayalam/Gujarati glyphs the bond CSS
+# requests (Noto Sans Malayalam / Noto Sans Gujarati); without it Chromium
+# has no matching font and renders those scripts as tofu boxes, while
+# Latin/English text still resolves via Debian's default fonts.
 FROM debian:bookworm-slim
 RUN apt-get update \
     && apt-get install -y --no-install-recommends ca-certificates tzdata chromium \
-    && rm -rf /var/lib/apt/lists/*
+       fonts-noto-core fontconfig \
+    && rm -rf /var/lib/apt/lists/* \
+    && fc-cache -f
 
 WORKDIR /app
 COPY --from=builder /out/server ./server

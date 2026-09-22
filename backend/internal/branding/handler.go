@@ -24,6 +24,17 @@ func (h *Handler) PublicBranding(c *gin.Context) {
 	httpx.Success(c, http.StatusOK, h.svc.PublicByCode(platform.RequestContext(c), c.Param("code")))
 }
 
+// PublicBrandingByHost answers /public/branding for a login page reached at
+// a business's own subdomain, with no :code in the path at all — the tenant
+// is resolved from the request's Host header instead (platform.
+// CarryRequestHost, mounted globally, is what makes that available here; see
+// Service.PublicByHost for the enumeration-safe fallback).
+func (h *Handler) PublicBrandingByHost(c *gin.Context) {
+	ctx := platform.RequestContext(c)
+	host, _ := platform.RequestHostFromContext(ctx)
+	httpx.Success(c, http.StatusOK, h.svc.PublicByHost(ctx, host))
+}
+
 // PublicLogo streams a business's logo, unauthenticated.
 //
 // Unlike upload.ServeHandler — which gates every file behind a session

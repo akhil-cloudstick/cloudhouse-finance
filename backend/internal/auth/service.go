@@ -103,6 +103,18 @@ func (s *Service) resolveTenant(ctx context.Context, code string) (uint, error) 
 		return t.ID, nil
 	}
 
+	// No code supplied: each business now also has its own subdomain of the
+	// platform's base domain (see tenant.SubdomainLabel), so staff visiting
+	// their business's own URL don't need to type a code either — mirrors
+	// customerauth.Service.resolveTenant's host fallback. Only ever NARROWS:
+	// a forged Host at most selects a business the caller still needs valid
+	// credentials for.
+	if host, ok := platform.RequestHostFromContext(ctx); ok {
+		if t, err := s.tenantRepo.FindByHostLabel(lookupCtx, host); err == nil && t != nil {
+			return t.ID, nil
+		}
+	}
+
 	all, err := s.tenantRepo.FindAll(lookupCtx)
 	if err != nil {
 		return 0, err

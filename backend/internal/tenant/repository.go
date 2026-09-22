@@ -54,6 +54,22 @@ func (r *Repository) FindByCode(ctx context.Context, code string) (*Tenant, erro
 	return &t, nil
 }
 
+// FindByHostLabel resolves the business named by a request's subdomain, e.g.
+// a request arriving at "ambika.cloudhousesupport.site" resolves to the
+// tenant coded "ambika". Delegates to FindByCode once SubdomainLabel has
+// picked the candidate code off the host, so it returns the same
+// gorm.ErrRecordNotFound "not found" convention FindByCode does — including
+// when the host names no subdomain at all (bare apex, an IP, a reserved
+// label): callers must treat that as "no hint available", not as an error,
+// same as FindByAppURL below.
+func (r *Repository) FindByHostLabel(ctx context.Context, host string) (*Tenant, error) {
+	label, ok := SubdomainLabel(host)
+	if !ok {
+		return nil, gorm.ErrRecordNotFound
+	}
+	return r.FindByCode(ctx, label)
+}
+
 // FindByRazorpaySubscriptionID resolves the business a webhook event belongs
 // to. Called with AllowCrossTenant by billing.Service — a webhook has no
 // tenant of its own to scope the lookup to; this IS how it finds one.

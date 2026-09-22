@@ -81,12 +81,10 @@ export function businessSlugFromPath(pathname?: string): string | null {
  * origin. Extend this list rather than assuming every non-apex hostname is a
  * tenant.
  *
- * "golddemo" is this deployment's own hostname (golddemo.cloudhousesupport.site),
- * not a tenant code — this box still runs one dedicated Docker stack per
- * business (see documents/local_multitenant_testing.md), so the subdomain
- * names the deployment, not a business within it. The one tenant here keeps
- * its code "default" and is reached at /default/login or bare /login. */
-const RESERVED_HOST_LABELS = new Set(["www", "app", "admin", "api", "superadmin", "golddemo"]);
+ * "demo" is NOT reserved: it is an ordinary tenant code like any other,
+ * reachable at demo.cloudhousesupport.site same as any other business's
+ * subdomain. */
+const RESERVED_HOST_LABELS = new Set(["www", "app", "admin", "api", "superadmin"]);
 
 /* Local-dev suffixes that carry a subdomain without a real DNS entry:
  * "ambika.localhost" resolves to 127.0.0.1 in every modern browser with no
@@ -143,6 +141,30 @@ export function activeBusinessSlug(): string | null {
   if (typeof window === "undefined") return null;
   const remembered = window.localStorage.getItem(ACTIVE_BUSINESS_KEY);
   return remembered && isValidSlug(remembered) ? remembered : null;
+}
+
+/* resolveActiveSlug names the active business AND reports which of the two
+ * URL signals actually matched: the PATH (an explicit /<slug> segment) or
+ * the HOST (a production subdomain).
+ *
+ * activeBusinessSlug() alone cannot answer that — it collapses path, host and
+ * the remembered pointer into one value, so a caller building a link had no
+ * way to tell "this came from an explicit /ctfi/... URL, keep showing it" from
+ * "this came from the Host header, the address bar never had it". Getting
+ * that wrong is exactly how a host-resolved tenant
+ * (https://demo.cloudhousesupport.site/) ends up redirected to
+ * .../demo/login — a slug the visitor never typed, printed into the URL
+ * anyway.
+ *
+ * Deliberately built only on businessSlugFromPath()/businessSlugFromHost(),
+ * not the remembered-business fallback: a caller that wants that third tier
+ * too (as the historical `activeBusinessSlug()` callers do) asks for it
+ * itself when this returns a null slug, and decides on its own whether that
+ * bare-fallback case should still show a slug in the URL. */
+export function resolveActiveSlug(): { slug: string | null; fromPath: boolean } {
+  const fromPath = businessSlugFromPath();
+  if (fromPath) return { slug: fromPath, fromPath: true };
+  return { slug: businessSlugFromHost(), fromPath: false };
 }
 
 export function rememberActiveBusiness(slug: string | null): void {

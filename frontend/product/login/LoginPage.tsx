@@ -13,6 +13,7 @@ import {
   appPath,
   businessSlugFromPath,
   isValidBusinessSlug,
+  resolveActiveSlug,
 } from "@/product/services/tenantSession";
 
 function LoginPageInner() {
@@ -104,7 +105,15 @@ function LoginPageInner() {
   useEffect(() => {
     if (loading || !token || navigatedRef.current) return;
     navigatedRef.current = true;
-    window.location.replace(appPath(businessSlugFromPath() ?? activeBusinessSlug()));
+    // Same host-vs-path distinction as everywhere else this page's business
+    // feeds a URL: a host-resolved tenant never had the slug in its address
+    // bar, so the console it lands on must not gain one. A path-resolved slug
+    // (or the bare-install fallback to the last business used here, when
+    // neither the path nor the host named one) still carries it forward.
+    const { slug: resolvedSlug, fromPath } = resolveActiveSlug();
+    const slug = resolvedSlug ?? activeBusinessSlug();
+    const includeInUrl = resolvedSlug === null || fromPath;
+    window.location.replace(appPath(slug, undefined, includeInUrl));
   }, [loading, token]);
 
   async function handleSubmit(e: React.FormEvent) {

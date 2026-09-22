@@ -14,7 +14,9 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	"cloudhouse/backend/internal/platform"
 	"cloudhouse/backend/internal/platform/httpx"
+	"cloudhouse/backend/internal/tenant"
 )
 
 var mimeTypes = map[string]string{
@@ -255,6 +257,60 @@ func isFile(p string) bool {
 	return err == nil && !info.IsDir()
 }
 
+// isSuperAdminHost reports whether host IS the platform's own reserved
+// superadmin subdomain (e.g. "superadmin.cloudhousesupport.site").
+//
+// tenant.SubdomainLabel cannot answer this: it deliberately returns ok=false
+// for every RESERVED label — "superadmin" included, see
+// tenant.ReservedHostLabels — because a reserved label never names a
+// business, which is exactly right for tenant resolution. This handler needs
+// the opposite question answered ("is this host that one specific reserved
+// subdomain") so it repeats SubdomainLabel's own host comparison
+// (tenant.NormalizeHost against "."+tenant.BaseDomain) rather than reusing
+// its boolean, which cannot tell "superadmin" apart from any other host that
+// simply matches no business either (an IP, localhost, the shared API
+// domain).
+func isSuperAdminHost(host string) bool {
+	h := tenant.NormalizeHost(host)
+	if h == "" || tenant.BaseDomain == "" {
+		return false
+	}
+	return h == "superadmin."+tenant.BaseDomain
+}
+
+// isSuperAdminPath reports whether urlPath is /superadmin itself or anything
+// under it.
+func isSuperAdminPath(urlPath string) bool {
+	clean := strings.TrimRight(urlPath, "/")
+	if clean == "" {
+		clean = "/"
+	}
+	return clean == "/superadmin" || strings.HasPrefix(clean, "/superadmin/")
+}
+
+// rewriteForSuperAdminHost maps the bare paths the superadmin console is
+// reached at ON ITS OWN SUBDOMAIN onto the paths sluggedPage already knows how
+// to serve, so that host carries no /superadmin segment in its URL at all.
+//
+// Only "/" and "/login" are rewritten. Everything else — a real asset under
+// /_next/..., or /superadmin and /superadmin/login typed directly, which keep
+// working exactly as before — passes through untouched into the normal
+// resolution below.
+func rewriteForSuperAdminHost(urlPath string) string {
+	clean := strings.TrimRight(urlPath, "/")
+	if clean == "" {
+		clean = "/"
+	}
+	switch clean {
+	case "/":
+		return "/superadmin"
+	case "/login":
+		return "/superadmin/login"
+	default:
+		return urlPath
+	}
+}
+
 // Register mounts the static handler as Gin's catch-all NoRoute handler.
 // It only serves GET/HEAD requests to non-API paths, so JSON 404s from the
 // REST API (e.g. GET /api/v1/schemes/999) are unaffected.
@@ -271,7 +327,33 @@ func Register(router *gin.Engine, root string) {
 			return
 		}
 
-		file := h.resolve(c.Request.URL.Path)
+		// The superadmin console is reserved to its own subdomain: reachable
+		// with no /superadmin segment at all on THAT host, and reachable from
+		// NOWHERE else — not even /superadmin typed explicitly on a tenant's
+		// own subdomain. See internal/tenant/host.go's ReservedHostLabels.
+		//
+		// Read via platform.RequestHostFromContext (populated by
+		// platform.CarryRequestHost, mounted globally ahead of NoRoute) rather
+		// than c.Request.Host directly, for the same one-directional-trust
+		// reasoning already documented there and in tenant.FindByAppURL: this
+		// only ever narrows which bundle is served, never grants anything —
+		// the console's own auth still gates every API call it makes.
+		host, _ := platform.RequestHostFromContext(c.Request.Context())
+		urlPath := c.Request.URL.Path
+		switch {
+		case isSuperAdminHost(host):
+			urlPath = rewriteForSuperAdminHost(urlPath)
+		case isSuperAdminPath(urlPath):
+			notFound := filepath.Join(h.root, "404.html")
+			if body, err := os.ReadFile(notFound); err == nil {
+				c.Data(http.StatusNotFound, "text/html; charset=utf-8", body)
+				return
+			}
+			c.String(http.StatusNotFound, "Not found")
+			return
+		}
+
+		file := h.resolve(urlPath)
 		if file == "" {
 			notFound := filepath.Join(h.root, "404.html")
 			if body, err := os.ReadFile(notFound); err == nil {

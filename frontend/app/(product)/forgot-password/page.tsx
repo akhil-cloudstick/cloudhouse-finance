@@ -5,7 +5,12 @@ import BrandLogo from "@/product/components/BrandLogo";
 import { useRouter, useSearchParams } from "next/navigation";
 import "@/product/styles/login.css";
 import { forgotPassword } from "@/product/services/authService";
-import { businessCodeForRequest, isValidBusinessSlug, loginPath } from "@/product/services/tenantSession";
+import {
+  businessCodeForRequest,
+  isValidBusinessSlug,
+  loginPath,
+  resolveActiveSlug,
+} from "@/product/services/tenantSession";
 
 function ForgotPasswordInner() {
   const router = useRouter();
@@ -25,6 +30,13 @@ function ForgotPasswordInner() {
    * not a bookmarkable business identity. */
   const linkedCode = searchParams.get("b")?.trim().toLowerCase() ?? "";
   const businessCode = isValidBusinessSlug(linkedCode) ? linkedCode : businessCodeForRequest();
+  /* Whether the "Back to login" link below should write businessCode into the
+   * URL: yes for an explicit ?b=<slug> link param (as deliberate as a typed
+   * path segment) or the bare-install fallback with no path/host match at
+   * all, but never for a slug that only came from a host-resolved tenant's
+   * subdomain — its address bar never had it. */
+  const { slug: resolvedSlug, fromPath } = resolveActiveSlug();
+  const loginIncludesSlug = isValidBusinessSlug(linkedCode) || resolvedSlug === null || fromPath;
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -82,7 +94,7 @@ function ForgotPasswordInner() {
                 </a>
               </div>
               <div className="aux" style={{ justifyContent: "center", marginTop: 8 }}>
-                <a href={loginPath(businessCode || null)}>← Back to login</a>
+                <a href={loginPath(businessCode || null, loginIncludesSlug)}>← Back to login</a>
               </div>
             </>
           ) : (
@@ -115,7 +127,7 @@ function ForgotPasswordInner() {
               </p>
 
               <div className="aux" style={{ justifyContent: "center" }}>
-                <a href={loginPath(businessCode || null)}>← Back to login</a>
+                <a href={loginPath(businessCode || null, loginIncludesSlug)}>← Back to login</a>
               </div>
             </form>
           )}

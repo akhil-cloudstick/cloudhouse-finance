@@ -324,6 +324,14 @@ func (s *Service) resolveTenant(ctx context.Context, code string) (uint, error) 
 	// most selects a business the caller then still needs a valid OTP for,
 	// delivered to a phone number that business already holds.
 	if host, ok := platform.RequestHostFromContext(ctx); ok {
+		// Subdomain first: every business now has its own subdomain of the
+		// platform's base domain (see tenant.SubdomainLabel), which is the
+		// normal way a business is reached today. FindByAppURL stays as a
+		// secondary fallback, for a business's own custom domain — something
+		// SubdomainLabel cannot recognise.
+		if t, err := s.tenantRepo.FindByHostLabel(lookupCtx, host); err == nil && t != nil {
+			return t.ID, nil
+		}
 		if t, err := s.tenantRepo.FindByAppURL(lookupCtx, host); err == nil && t != nil {
 			return t.ID, nil
 		}

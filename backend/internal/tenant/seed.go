@@ -31,11 +31,19 @@ const (
 	// what brandedMessage substitutes into every borrower SMS.
 	DefaultTenantName = "CloudHouse Finance"
 
-	// DefaultTenantCode becomes part of this business's login URL
-	// (/login/default). Codes are immutable once staff have the link, but
-	// this one is safe to change while it is still the ONLY tenant and the
-	// per-business login has not shipped — after that, don't.
-	DefaultTenantCode = "default"
+	// DefaultTenantCode becomes part of this business's login URL/subdomain
+	// (demo.cloudhousesupport.site). Codes are immutable once staff have the
+	// link, but this one is safe to change while it is still the ONLY tenant
+	// and the per-business login has not shipped — after that, don't.
+	//
+	// "demo" rather than "default": this deployment reaches its one seeded
+	// tenant at demo.cloudhousesupport.site (see tenant.SubdomainLabel), and
+	// "default" reads oddly as a live subdomain. This is a seed-constant
+	// change only, for a fresh/empty database — an existing populated
+	// database with a tenant already coded "default" needs a data migration
+	// (UPDATE tenants SET code = 'demo' WHERE code = 'default'), which is out
+	// of scope here.
+	DefaultTenantCode = "demo"
 
 	// DefaultTenantTier is deliberately the largest plan: the existing
 	// installation may already have more branches than a smaller tier

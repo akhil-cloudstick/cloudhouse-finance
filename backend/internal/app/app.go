@@ -15,6 +15,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"net/url"
 	"os"
 	"strings"
 	"time"
@@ -57,29 +58,61 @@ import (
 	"cloudhouse/backend/internal/webstatic"
 )
 
-// corsMiddleware allows the Next.js dev server (a different origin/port from
-// this API during local development) to make cross-origin requests. In
-// production the built frontend is served from this same binary/origin, so
-// this is effectively a no-op there.
-// corsMiddleware allows a fixed, comma-separated set of dev-time origins to
-// call this API cross-origin — now two by default: the tenant frontend and
-// the separately-deployed superadmin console (see Config.FrontendOrigin).
-// Reflects the request's own Origin header back only when it exactly matches
-// one of the allowed set, rather than a single static value — the standard
-// shape for allow-LISTING several known origins, since
-// Access-Control-Allow-Origin can only ever name one at a time. An
-// unrecognised Origin gets no CORS header at all, which browsers already
-// treat as a refusal; this never widens access, only lets the enumerated dev
-// origins through.
+// corsMiddleware allows a fixed, comma-separated set of origins to call this
+// API cross-origin — each business's own subdomain, the superadmin console,
+// and (in dev) the Next.js dev servers (see Config.FrontendOrigin). Reflects
+// the request's own Origin header back only when it matches one of the
+// allowed set, rather than a single static value — the standard shape for
+// allow-LISTING several known origins, since Access-Control-Allow-Origin can
+// only ever name one at a time. An unrecognised Origin gets no CORS header at
+// all, which browsers already treat as a refusal; this never widens access,
+// only lets the enumerated origins through.
+//
+// Every business now has its own subdomain of the platform's base domain
+// (see tenant.SubdomainLabel), which would otherwise mean listing every
+// tenant's origin here individually and editing this config on every new
+// signup. An entry containing "*." is instead treated as a wildcard covering
+// every subdomain of what follows it — "https://*.cloudhousesupport.site"
+// matches "https://ambika.cloudhousesupport.site",
+// "https://demo.cloudhousesupport.site", any number of labels deep, etc.
+// Exact entries (no "*.") keep matching by exact string equality, unchanged.
 func corsMiddleware(allowedOrigins string) gin.HandlerFunc {
-	allowed := map[string]bool{}
+	var exact = map[string]bool{}
+	var wildcardSuffixes []string // each is ".example.com" — the part after "*."
 	for _, o := range strings.Split(allowedOrigins, ",") {
-		if o = strings.TrimSpace(o); o != "" {
-			allowed[o] = true
+		if o = strings.TrimSpace(o); o == "" {
+			continue
 		}
+		if idx := strings.Index(o, "*."); idx >= 0 {
+			wildcardSuffixes = append(wildcardSuffixes, "."+strings.ToLower(o[idx+len("*."):]))
+			continue
+		}
+		exact[o] = true
+	}
+	originAllowed := func(origin string) bool {
+		if exact[origin] {
+			return true
+		}
+		if len(wildcardSuffixes) == 0 {
+			return false
+		}
+		u, err := url.Parse(origin)
+		if err != nil || u.Host == "" {
+			return false
+		}
+		host := strings.ToLower(u.Hostname())
+		for _, suffix := range wildcardSuffixes {
+			// An anchored suffix match on a leading "." — NOT strings.Contains,
+			// which would let "evilcloudhousesupport.site" (no separating dot)
+			// through as if it were a subdomain of "cloudhousesupport.site".
+			if strings.HasSuffix(host, suffix) {
+				return true
+			}
+		}
+		return false
 	}
 	return func(c *gin.Context) {
-		if origin := c.GetHeader("Origin"); origin != "" && allowed[origin] {
+		if origin := c.GetHeader("Origin"); origin != "" && originAllowed(origin) {
 			c.Header("Access-Control-Allow-Origin", origin)
 			c.Header("Vary", "Origin")
 		}
@@ -124,6 +157,11 @@ func Build(db *gorm.DB, cfg platform.Config) (*App, error) {
 	if err != nil {
 		return nil, fmt.Errorf("aadhaar encryption setup: %w", err)
 	}
+
+	// Every business is reached at its own subdomain of cfg.BaseDomain (see
+	// tenant.SubdomainLabel) — set once here from config, before anything
+	// that resolves a tenant from the request host.
+	tenant.SetBaseDomain(cfg.BaseDomain)
 
 	router := gin.Default()
 	router.Use(corsMiddleware(cfg.FrontendOrigin))

@@ -9,6 +9,11 @@ import "github.com/gin-gonic/gin"
 // session yet. See the package doc for why that is safe here and is not in
 // internal/upload.
 func RegisterPublicRoutes(rg *gin.RouterGroup, h *Handler) {
+	// No :code — resolves the tenant from the request's own subdomain
+	// instead (see Handler.PublicBrandingByHost). Registered before the
+	// :code routes below only for readability; gin's router does not care
+	// about registration order between a literal and a distinct pattern.
+	rg.GET("/branding", h.PublicBrandingByHost)
 	rg.GET("/branding/:code", h.PublicBranding)
 	rg.GET("/branding/:code/logo", h.PublicLogo)
 }

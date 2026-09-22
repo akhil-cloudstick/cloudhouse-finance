@@ -3,7 +3,13 @@
  * can go to a relative `/api/v1` path. In dev (`next dev` on its own port)
  * point NEXT_PUBLIC_API_BASE at the backend, e.g. http://localhost:8080/api/v1.
  */
-import { activeBusinessSlug, clearSession, loginPath, readToken } from "@/product/services/tenantSession";
+import {
+  activeBusinessSlug,
+  clearSession,
+  loginPath,
+  readToken,
+  resolveActiveSlug,
+} from "@/product/services/tenantSession";
 import { branchHeader } from "@/product/services/branchSelection";
 
 export const API_BASE = process.env.NEXT_PUBLIC_API_BASE || "/api/v1";
@@ -57,7 +63,13 @@ function handleUnauthorized(path: string) {
   if (path.startsWith("/auth/")) return;
   const slug = activeBusinessSlug();
   clearSession(slug);
-  const target = loginPath(slug);
+  // A host-resolved tenant's address bar never had the slug in it — don't
+  // write one back in when bouncing to the sign-in page. A path-resolved
+  // slug, or the bare-install fallback with no path/host match at all, keep
+  // carrying it forward exactly as before.
+  const { slug: resolvedSlug, fromPath } = resolveActiveSlug();
+  const includeInUrl = resolvedSlug === null || fromPath;
+  const target = loginPath(slug, includeInUrl);
   if (window.location.pathname !== target) {
     window.location.href = target;
   }

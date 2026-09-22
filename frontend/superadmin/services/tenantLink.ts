@@ -1,34 +1,17 @@
-/* Builds the sign-in link this console shows an operator for a given
- * business, e.g. to copy and send to that business's own admin.
- *
- * The eventual plan is for this console to be its OWN app on its own origin
- * (see the repo root's documents/multitenancy_plan.md, "extract superadmin
- * into its own app/portal") — at that point the tenant app's origin could no
- * longer be read from window.location.origin (that would be THIS console's
- * origin instead), and NEXT_PUBLIC_TENANT_APP_ORIGIN would need to be set
- * per deployment. But that extraction "is tracked separately and not done
- * here" (documents/local_multitenant_testing.md) — TODAY this console is
- * still mounted inside the same Next app as the tenant app, same origin,
- * same Docker deployment (see documents/local_multitenant_testing.md: each
- * business still gets its own whole deployment, not its own subdomain of a
- * shared one). So window.location.origin IS the tenant app's origin right
- * now, and is a far safer default than a hardcoded localhost — a build that
- * forgets to set NEXT_PUBLIC_TENANT_APP_ORIGIN silently handed out
- * http://localhost:3000 links that only worked on whoever built it. */
-function tenantAppOrigin(): string {
-  const configured = process.env.NEXT_PUBLIC_TENANT_APP_ORIGIN;
-  if (configured) return configured;
-  if (typeof window !== "undefined") return window.location.origin;
-  return "http://localhost:3000";
-}
+/* The platform's base domain each business is given a subdomain of, e.g.
+ * "ambika" -> https://ambika.cloudhousesupport.site. Every business gets its
+ * own subdomain of one shared deployment now (see
+ * backend/internal/tenant/host.go's SubdomainLabel and
+ * frontend/product/services/tenantSession.ts's businessSlugFromHost, which
+ * resolve the same domain from the other direction), so the tenant's own
+ * live URL is a subdomain of this, never a slugged path on a fixed origin. */
+const BASE_DOMAIN = "cloudhousesupport.site";
 
-/** The staff sign-in link for a business, given its `code`. Mirrors
- * frontend/common/services/tenantSession.ts's loginPath — kept as a small
- * local re-implementation rather than a cross-app import, since the two
- * apps intentionally do not share a build. The code leads the path
- * (/<code>/login), matching loginPath, next.config.ts's rewrites and
- * backend/internal/webstatic's sluggedPage — /login/<code> matches none of
- * those and falls through to the generic shell. */
+/** The staff sign-in link for a business, given its `code`: that business's
+ * own subdomain of BASE_DOMAIN. Login (or any other page — there is no path
+ * segment to add) resolves entirely from the Host header on that subdomain,
+ * per backend/internal/tenant/host.go's SubdomainLabel, so no /login suffix
+ * or slug is needed here. */
 export function tenantLoginLink(code: string): string {
-  return `${tenantAppOrigin()}/${code}/login`;
+  return `https://${code}.${BASE_DOMAIN}`;
 }

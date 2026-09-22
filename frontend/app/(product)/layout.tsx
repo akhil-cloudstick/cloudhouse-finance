@@ -1,5 +1,5 @@
 import type { Metadata, Viewport } from "next";
-import { Montserrat, Inter } from "next/font/google";
+import localFont from "next/font/local";
 import "./globals.css";
 import "@/product/styles/app.css";
 import { AuthProvider } from "@/product/providers/auth-context";
@@ -18,17 +18,21 @@ import { NEUTRAL_DOCUMENT_TITLE } from "@/product/config/theme";
  * rather than a hardcoded family string. The old --font-jost/--font-bodoni-moda
  * variables were declared here but never actually referenced by any rule,
  * which is how the stylesheets and this file were free to drift apart. */
-const inter = Inter({
+/* Self-hosted (next/font/local) rather than next/font/google: the frontend
+ * build container's network has no outbound internet access, so a build-time
+ * fetch to fonts.googleapis.com fails. Both files are the same Google Fonts
+ * variable-font woff2s (latin subset), just vendored into the repo. */
+const inter = localFont({
+  src: "./fonts/Inter-Variable-latin.woff2",
   variable: "--font-sans",
-  weight: ["400", "500", "600", "700"],
-  subsets: ["latin"],
+  weight: "400 700",
   display: "swap",
 });
 
-const montserrat = Montserrat({
+const montserrat = localFont({
+  src: "./fonts/Montserrat-Variable-latin.woff2",
   variable: "--font-display",
-  weight: ["600", "700", "800"],
-  subsets: ["latin"],
+  weight: "600 800",
   display: "swap",
 });
 

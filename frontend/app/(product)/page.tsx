@@ -4,10 +4,9 @@ import { useEffect } from "react";
 import { isTokenValid } from "@/product/providers/auth-context";
 import {
   appPath,
-  businessSlugFromHost,
-  businessSlugFromPath,
   loginPath,
   readToken,
+  resolveActiveSlug,
 } from "@/product/services/tenantSession";
 
 /* Cross-page moves are FULL document loads (window.location), not Next's
@@ -40,9 +39,19 @@ import {
  * /login (app/login/page.tsx). */
 export default function RootPage() {
   useEffect(() => {
-    const slug = businessSlugFromPath() ?? businessSlugFromHost() ?? "default";
+    // resolveActiveSlug tells apart a path match from a host match; only a
+    // host-resolved tenant (a production subdomain) must NOT get its slug
+    // written into the URL this redirects to — its address bar never had it.
+    // Neither a path-named business nor the "nothing matched at all"
+    // single-install fallback below changes: both keep showing the slug
+    // exactly as before.
+    const { slug: resolvedSlug, fromPath } = resolveActiveSlug();
+    const slug = resolvedSlug ?? "default";
+    const includeInUrl = resolvedSlug === null || fromPath;
     const signedIn = isTokenValid(readToken(slug));
-    window.location.replace(signedIn ? appPath(slug) : loginPath(slug));
+    window.location.replace(
+      signedIn ? appPath(slug, undefined, includeInUrl) : loginPath(slug, includeInUrl)
+    );
   }, []);
 
   return null;

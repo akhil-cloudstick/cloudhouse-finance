@@ -45,6 +45,21 @@ func (s *Service) PublicByCode(ctx context.Context, code string) Public {
 	return publicOf(t, t.LogoPath())
 }
 
+// PublicByHost answers the login page when it is reached at a business's own
+// subdomain rather than a slugged /:code path — e.g.
+// https://ambika.cloudhousesupport.site. Mirrors PublicByCode exactly,
+// including never returning an error for an unresolvable host (see the
+// package doc on enumeration): a host that names no business (the shared
+// domain, an IP, a reserved label) gets the same defaultPublic() an unknown
+// :code does, so this cannot be used to probe which subdomains are taken.
+func (s *Service) PublicByHost(ctx context.Context, host string) Public {
+	t, err := s.tenants.FindByHostLabel(platform.AllowCrossTenant(ctx), host)
+	if err != nil {
+		return defaultPublic()
+	}
+	return publicOf(t, t.LogoPath())
+}
+
 // ForTenant answers a signed-in app. The tenant comes from the caller's
 // token via the context, never from a parameter — there is deliberately no
 // way to ask this for a business other than your own.
