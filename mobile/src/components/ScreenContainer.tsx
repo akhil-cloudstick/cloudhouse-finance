@@ -2,11 +2,14 @@ import React from "react";
 import { KeyboardAvoidingView, Platform, StyleSheet, ViewStyle } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { colors } from "../theme/colors";
+import { useHeaderSpace } from "../theme/layout";
 
 export function ScreenContainer({ children, style }: { children: React.ReactNode; style?: ViewStyle }) {
+  const headerSpace = useHeaderSpace();
   // edges omits "top" and "bottom": the floating header (FloatingHeader)
   // already sits inside the top safe-area inset, and the tab bar (AppTabBar)
-  // is a sibling row below the scene that reserves its own bottom inset —
+  // floats over the scene and clears its own bottom inset (scrollers pad by
+  // TAB_BAR_SPACE instead) —
   // applying either edge here again would double that gap.
   return (
     <SafeAreaView edges={["left", "right"]} style={[styles.container, style]}>
@@ -20,7 +23,9 @@ export function ScreenContainer({ children, style }: { children: React.ReactNode
        * double-handling a keyboard the OS is already resizing the window
        * for under "adjustResize". */}
       <KeyboardAvoidingView
-        style={styles.flex}
+        // Content starts below the floating header; scrollers reach back up
+        // under it (see useHeaderSpace) so content can scroll behind it.
+        style={[styles.flex, { paddingTop: headerSpace }]}
         behavior={Platform.OS === "ios" ? "padding" : "height"}
       >
         {children}

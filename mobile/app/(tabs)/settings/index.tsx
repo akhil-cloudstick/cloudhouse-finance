@@ -1,4 +1,6 @@
 import React, { useState } from "react";
+import { TAB_BAR_SPACE } from "../../../src/theme/layout";
+import { TopFaded } from "../../../src/components/EdgeFade";
 import { FlatList, RefreshControl, View } from "react-native";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { ScreenContainer } from "../../../src/components/ScreenContainer";
@@ -41,10 +43,12 @@ export default function SettingsScreen() {
 
   return (
     <ScreenContainer style={{ paddingHorizontal: 0 }}>
+      <TopFaded>{(fade) => (
       <FlatList<ApiKeyView>
+        {...fade}
         data={data ?? []}
         keyExtractor={(item) => item.category}
-        contentContainerStyle={{ paddingHorizontal: 8, paddingTop: 20, paddingBottom: 16 }}
+        contentContainerStyle={{ paddingHorizontal: 8, paddingTop: 20, paddingBottom: TAB_BAR_SPACE }}
         refreshControl={<RefreshControl refreshing={isRefetching} onRefresh={refetch} />}
         ListEmptyComponent={
           <ThemedText color={colors.muted}>
@@ -107,6 +111,7 @@ export default function SettingsScreen() {
           );
         }}
       />
+      )}</TopFaded>
     </ScreenContainer>
   );
 }

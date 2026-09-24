@@ -1,8 +1,10 @@
-import React, { useState, ReactElement } from "react";
+import React, { useMemo, useState, ReactElement } from "react";
 import { View, Pressable, StyleSheet, ViewStyle, FlatList, RefreshControlProps, ScrollView, ActivityIndicator } from "react-native";
 import { ThemedText } from "./ThemedText";
 import { Icon } from "./Icon";
 import { colors } from "../theme/colors";
+import { withGutter, gutterContentStyle } from "./Gutter";
+import { useHeaderSpace } from "../theme/layout";
 
 // `.Context` exists at runtime — VirtualizedList.js reads it via
 // `ScrollView.Context.Consumer` to decide whether to fire "VirtualizedLists
@@ -115,6 +117,8 @@ export function TableHeader<T>({
   visibleCount: number;
   cardRows?: boolean;
 }) {
+  // Card rows label each cell inline (2×2 grid), so a separate label row is redundant.
+  if (cardRows) return null;
   const visibleCols = columns.slice(0, visibleCount);
   return (
     <View style={cardRows ? styles.headRowPlain : [styles.headRow, styles.firstRowRadius]}>
@@ -165,17 +169,44 @@ export function TableRow<T>({
   const [expanded, setExpanded] = useState(false);
   const visibleCols = columns.slice(0, visibleCount);
   const hiddenCols = columns.slice(visibleCount);
-  // Expanded card repeats the already-visible columns alongside the hidden
-  // ones so every field on the row is readable in the title/detail view
-  // without having to compare back against the collapsed row above it.
+  // Only what the collapsed row doesn't already show.
   const extra: ExtraField[] = [
-    ...visibleCols.map((c) => ({ label: c.label, value: c.render(row) })),
     ...hiddenCols.map((c) => ({ label: c.label, value: c.render(row) })),
     ...(extraFields?.(row) ?? []),
   ];
 
+  const cardGrid = (
+    <Pressable onPress={() => setExpanded((v) => !v)} style={styles.cardRow}>
+      <View style={styles.cardGrid}>
+        {visibleCols.slice(0, 4).map((c, i) => {
+          const content = c.render(row);
+          return (
+            <View key={c.key} style={styles.cardCell}>
+              <ThemedText variant="small" color={colors.muted} style={styles.detailK} numberOfLines={1}>
+                {c.label.toUpperCase()}
+              </ThemedText>
+              {typeof content === "string" || typeof content === "number" ? (
+                <ThemedText variant="small" numberOfLines={1} style={[styles.cellText, i === 0 && styles.firstCell]}>
+                  {content}
+                </ThemedText>
+              ) : (
+                content
+              )}
+            </View>
+          );
+        })}
+      </View>
+      <View style={styles.chevCol}>
+        <View style={{ transform: [{ rotate: expanded ? "90deg" : "-90deg" }] }}>
+          <Icon name="chevronLeft" size={11} color={colors.muted} />
+        </View>
+      </View>
+    </Pressable>
+  );
+
   const body = (
     <>
+      {cardRows ? cardGrid : (
       <Pressable
         onPress={() => setExpanded((v) => !v)}
         style={[styles.dataRow, !cardRows && isLast && !expanded && styles.lastRowRadius]}
@@ -203,6 +234,7 @@ export function TableRow<T>({
           </View>
         </View>
       </Pressable>
+      )}
 
       {expanded ? (
         <View style={[styles.detailWrap, !cardRows && isLast && styles.lastRowRadius, cardRows && styles.detailWrapCard]}>
@@ -316,6 +348,18 @@ export function ExpandableTable<T>({
    * of TableHeader's normal fixed-sibling placement below. */
   headerContent?: React.ReactNode;
 }) {
+  const headerSpace = useHeaderSpace();
+  // Offset-paged lists can return the same row on two pages when rows are
+  // added between fetches; duplicate keys crash the FlatList, so keep the first.
+  const rows = useMemo(() => {
+    const seen = new Set<string>();
+    return data.filter((r) => {
+      const k = keyExtractor(r);
+      if (seen.has(k)) return false;
+      seen.add(k);
+      return true;
+    });
+  }, [data, keyExtractor]);
   return (
     <View style={[!cardRows && tableCardStyle, styles.flatList, style]}>
       {headerContent ? null : <TableHeader columns={columns} visibleCount={visibleCount} cardRows={cardRows} />}
@@ -332,9 +376,14 @@ export function ExpandableTable<T>({
        * RN-sanctioned way to say so without disabling the check globally. */}
       <ScrollViewContextReset value={null}>
         <FlatList
-          data={data}
+          data={rows}
           keyExtractor={keyExtractor}
-          style={styles.rowsList}
+          // Reaches up under the floating header (see useHeaderSpace) so rows
+          // scroll behind it and fade out in its gradient; the content is
+          // padded back down by the same amount so nothing moves at rest.
+          style={[cardRows ? withGutter(styles.rowsList) : styles.rowsList, { marginTop: -headerSpace }]}
+          contentContainerStyle={[cardRows ? gutterContentStyle : undefined, { paddingTop: headerSpace }]}
+          scrollEventThrottle={16}
           showsVerticalScrollIndicator={false}
           ListHeaderComponent={
             headerContent ? (
@@ -360,7 +409,8 @@ export function ExpandableTable<T>({
               cardRows={cardRows}
             />
           )}
-          refreshControl={refreshControl}
+          // Spinner starts below the floating header, not behind it.
+          refreshControl={refreshControl ? React.cloneElement(refreshControl, { progressViewOffset: headerSpace }) : undefined}
           onEndReached={onEndReached}
           onEndReachedThreshold={0.5}
           ListFooterComponent={
@@ -412,7 +462,10 @@ const styles = StyleSheet.create({
   // Phone next to its KYC status pill) that read as two unrelated values
   // crowded together instead of two separate columns.
   dataRow: { flexDirection: "row", alignItems: "center", paddingVertical: 16, paddingHorizontal: 10, backgroundColor: colors.card, gap: 10 },
-  cellText: { fontSize: 14.5 },
+  cardRow: { flexDirection: "row", alignItems: "center", paddingVertical: 18, paddingHorizontal: 14, backgroundColor: colors.card, gap: 10, minHeight: 96 },
+  cardGrid: { flex: 1, flexDirection: "row", flexWrap: "wrap", rowGap: 14 },
+  cardCell: { width: "50%", paddingRight: 10 },
+  cellText: { fontSize: 16 },
   firstCell: { fontWeight: "600" as const },
   chevCol: { width: 24, alignItems: "center", justifyContent: "center" },
   detailWrap: {
@@ -435,11 +488,10 @@ const styles = StyleSheet.create({
   // visibly lifts off the page background without an outline.
   cardOuter: {
     marginBottom: 10,
-    shadowColor: colors.nav,
-    shadowOpacity: 0.18,
-    shadowRadius: 10,
-    shadowOffset: { width: 0, height: 5 },
-    elevation: 4,
+    // boxShadow (not elevation) so the 0.2 intensity holds on Android too —
+    // elevation has no opacity control.
+    boxShadow: "0px 5px 10px rgba(43, 26, 94, 0.2)",
+    borderRadius: RADIUS - 2,
   },
   cardInner: {
     borderRadius: RADIUS - 2,
@@ -448,7 +500,7 @@ const styles = StyleSheet.create({
   },
   detailGrid: { flexDirection: "row", flexWrap: "wrap" },
   detailField: { width: "50%", paddingRight: 10, marginBottom: 9 },
-  detailK: { fontSize: 10.5, letterSpacing: 0.6, marginBottom: 2 },
+  detailK: { fontSize: 12, letterSpacing: 0.6, marginBottom: 3 },
   viewBtn: {
     flexDirection: "row",
     alignItems: "center",

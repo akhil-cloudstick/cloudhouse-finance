@@ -1,7 +1,8 @@
 import React from "react";
-import { Pressable, ActivityIndicator, StyleSheet, ViewStyle, Platform } from "react-native";
+import { Pressable, ActivityIndicator, StyleSheet, ViewStyle, Platform, View } from "react-native";
 import { colors } from "../theme/colors";
 import { ThemedText } from "./ThemedText";
+import { Icon } from "./Icon";
 
 type Props = {
   title: string;
@@ -10,9 +11,11 @@ type Props = {
   loading?: boolean;
   variant?: "primary" | "outline";
   style?: ViewStyle;
+  /** Icon.tsx glyph name shown before the title. */
+  icon?: string;
 };
 
-export function GoldButton({ title, onPress, disabled, loading, variant = "primary", style }: Props) {
+export function GoldButton({ title, onPress, disabled, loading, variant = "primary", style, icon }: Props) {
   const isPrimary = variant === "primary";
   return (
     <Pressable
@@ -31,9 +34,12 @@ export function GoldButton({ title, onPress, disabled, loading, variant = "prima
       ) : (
         // One step up from typeScale.label (13) — buttons read a little
         // more confident at this size without jumping all the way to body.
-        <ThemedText variant="label" color={isPrimary ? colors.bg : colors.brandDeep} style={styles.title}>
-          {title}
-        </ThemedText>
+        <View style={styles.row}>
+          {icon ? <Icon name={icon} size={18} color={isPrimary ? colors.bg : colors.brandDeep} /> : null}
+          <ThemedText variant="label" color={isPrimary ? colors.bg : colors.brandDeep} style={styles.title} numberOfLines={1}>
+            {title}
+          </ThemedText>
+        </View>
       )}
     </Pressable>
   );
@@ -41,6 +47,7 @@ export function GoldButton({ title, onPress, disabled, loading, variant = "prima
 
 const styles = StyleSheet.create({
   title: { fontSize: 15 },
+  row: { flexDirection: "row", alignItems: "center", gap: 8 },
   base: {
     height: 48,
     borderRadius: 14,

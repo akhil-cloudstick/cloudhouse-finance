@@ -74,10 +74,10 @@ export function ExtensionReviewPanel({
                   height: 10,
                   borderRadius: 5,
                   marginBottom: 4,
-                  backgroundColor: done ? colors.green : active ? colors.goldDeep : colors.line,
+                  backgroundColor: done ? colors.green : active ? colors.brandDeep : colors.line,
                 }}
               />
-              <ThemedText variant="small" color={active ? colors.goldDeep : colors.muted} style={{ textAlign: "center" }}>
+              <ThemedText variant="small" color={active ? colors.brandDeep : colors.muted} style={{ textAlign: "center" }}>
                 {EXTENSION_STAGE_LABELS[s]}
               </ThemedText>
             </View>

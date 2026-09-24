@@ -1,5 +1,6 @@
 import React, { useState } from "react";
-import { ScrollView, View, Pressable, RefreshControl, StyleSheet, Platform } from "react-native";
+import { View, Pressable, RefreshControl, StyleSheet, Platform } from "react-native";
+import { GutterScrollView } from "../../src/components/Gutter";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useRefetchOnFocus } from "../../src/hooks/useRefetchOnFocus";
 import { useRouter } from "expo-router";
@@ -20,6 +21,8 @@ import { listOrnamentTypes, createOrnamentType } from "../../src/api/ornamentTyp
 import { formatPurity, isKaratInRange, isFinenessInRange, rateForPurityString, PurityUnit } from "../../src/lib/purity";
 import { fmt } from "../../src/lib/format";
 import { ChipSelect } from "../../src/components/ChipSelect";
+import { SearchDropdown } from "../../src/components/SearchDropdown";
+import { Icon } from "../../src/components/Icon";
 import { Customer } from "../../src/types/customer";
 import { Scheme } from "../../src/types/scheme";
 import { ApiError } from "../../src/api/client";
@@ -32,30 +35,50 @@ import { ApiError } from "../../src/api/client";
 // DocumentField), same shape as frontend/modules/loans/components/NewLoan.tsx's
 // OrnRow — uploaded immediately on pick, then linked to the ornament after
 // createLoan() returns (see submit's onSuccess below).
-// grossWeight/netWeight are two INDEPENDENT fields, not one derived from
-// the other — matches frontend/modules/loans/components/NewLoan.tsx's own
-// Gross Wt/Net Wt split: gross is a raw scale reading, net is the
-// separately assessed pure-gold weight loan value is actually calculated
-// on. deductionWeight sent at submit is grossWeight − netWeight.
-type OrnRow = { name: string; purityUnit: PurityUnit; purityValue: string; grossWeight: string; netWeight: string; quantity: string; img: string };
+// Gross Wt / Less Wt / Net Wt mirror frontend/modules/loans/components/NewLoan.tsx:
+// Net = Gross − Less; editing Net derives Less instead. Less Wt is sent as
+// deductionWeight, which the backend uses to re-derive NetWeight.
+type OrnRow = { name: string; purityUnit: PurityUnit; purityValue: string; grossWeight: string; lessWeight: string; netWeight: string; quantity: string; img: string };
 
-const emptyRow: OrnRow = { name: "", purityUnit: "karat", purityValue: "", grossWeight: "", netWeight: "", quantity: "1", img: "" };
+const emptyRow: OrnRow = { name: "", purityUnit: "karat", purityValue: "", grossWeight: "", lessWeight: "", netWeight: "", quantity: "1", img: "" };
 
-// Search-or-create against the shared ornament_types catalog — mirrors the
-// SearchableSelect(allowCreate) frontend/components/NewLoan.tsx wires to the
-// "Ornament" column, so staff aren't limited to types someone already typed
-// in on the web admin; picking or typing a new one here adds it to the same
-// catalog. createOrnamentType find-or-creates (dedupes by name) server-side,
-// so it's safe to call even when the typed name already exists.
-function OrnamentNameField({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+const trimNum = (n: number) => String(+n.toFixed(3));
+
+function applyWeightEdit(r: OrnRow, patch: Partial<OrnRow>): OrnRow {
+  const next = { ...r, ...patch };
+  const gross = Number(next.grossWeight) || 0;
+  if ("netWeight" in patch) {
+    if (next.netWeight.trim() === "") return { ...next, lessWeight: "" };
+    const net = gross > 0 ? Math.min(Number(next.netWeight) || 0, gross) : Number(next.netWeight) || 0;
+    return { ...next, netWeight: net === Number(next.netWeight) ? next.netWeight : trimNum(net), lessWeight: gross > 0 ? trimNum(Math.max(0, gross - net)) : "" };
+  }
+  if ("grossWeight" in patch || "lessWeight" in patch) {
+    if (next.grossWeight.trim() === "") return { ...next, netWeight: "" };
+    return { ...next, netWeight: trimNum(Math.max(0, gross - (Number(next.lessWeight) || 0))) };
+  }
+  return next;
+}
+
+// Search-or-create against the shared ornament_types catalog (same as the web
+// SearchableSelect with allowCreate). createOrnamentType find-or-creates by name.
+function OrnamentNameField({
+  value,
+  onChange,
+  open,
+  onOpenChange,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  open: boolean;
+  onOpenChange: (o: boolean) => void;
+}) {
   const queryClient = useQueryClient();
-  const [focused, setFocused] = useState(false);
   const debounced = useDebouncedValue(value);
 
   const results = useQuery({
     queryKey: ["ornamentTypes", debounced],
     queryFn: () => listOrnamentTypes(debounced || undefined),
-    enabled: focused,
+    enabled: open,
   });
 
   const create = useMutation({
@@ -63,7 +86,7 @@ function OrnamentNameField({ value, onChange }: { value: string; onChange: (v: s
     onSuccess: (type) => {
       queryClient.invalidateQueries({ queryKey: ["ornamentTypes"] });
       onChange(type.name);
-      setFocused(false);
+      onOpenChange(false);
     },
   });
 
@@ -72,41 +95,22 @@ function OrnamentNameField({ value, onChange }: { value: string; onChange: (v: s
   const exactMatch = options.some((t) => t.name.toLowerCase() === trimmed.toLowerCase());
 
   return (
-    <View>
-      <GoldTextInput
-        label="Ornament name"
-        placeholder="e.g. Chain, Bangle…"
-        value={value}
-        onChangeText={onChange}
-        onFocus={() => setFocused(true)}
-        // Delay the blur-driven close so a tap on a suggestion (which fires
-        // after the input blurs) still registers before the list unmounts.
-        onBlur={() => setTimeout(() => setFocused(false), 150)}
-      />
-      {focused && trimmed ? (
-        <ScrollView nestedScrollEnabled style={{ maxHeight: 180 }} keyboardShouldPersistTaps="handled">
-          {options.map((t) => (
-            <Pressable
-              key={t.id}
-              onPress={() => {
-                onChange(t.name);
-                setFocused(false);
-              }}
-              style={{ paddingVertical: 8 }}
-            >
-              <ThemedText variant="body">{t.name}</ThemedText>
-            </Pressable>
-          ))}
-          {!exactMatch ? (
-            <Pressable onPress={() => create.mutate(trimmed)} style={{ paddingVertical: 8 }}>
-              <ThemedText variant="small" color={colors.brandDeep}>
-                + Add &quot;{trimmed}&quot; as a new ornament type
-              </ThemedText>
-            </Pressable>
-          ) : null}
-        </ScrollView>
-      ) : null}
-    </View>
+    <SearchDropdown
+      label="Ornament type"
+      placeholder="Select or type to add…"
+      query={value}
+      onQueryChange={onChange}
+      open={open}
+      onOpenChange={onOpenChange}
+      items={options}
+      keyOf={(t) => t.id}
+      renderItem={(t) => <ThemedText variant="body">{t.name}</ThemedText>}
+      onSelect={(t) => onChange(t.name)}
+      loading={results.isLoading}
+      addLabel={trimmed && !exactMatch ? (create.isPending ? "Adding…" : `+ Add "${trimmed}" as a new ornament type`) : undefined}
+      onAdd={() => !create.isPending && create.mutate(trimmed)}
+      emptyText="No ornament types yet — type a name to add one"
+    />
   );
 }
 
@@ -124,19 +128,17 @@ export default function NewLoanScreen() {
   const [customerQuery, setCustomerQuery] = useState("");
   const debouncedCustomerQuery = useDebouncedValue(customerQuery);
   const [customer, setCustomer] = useState<Customer | null>(null);
-  // Both result queries fetch unconditionally (see their comments below), so
-  // gating the dropdown on "has data" alone showed both floating panels at
-  // once as soon as the screen mounted — neither field had been touched
-  // yet. Only show a dropdown while its own field is actually focused,
-  // same pattern as OrnamentNameField's suggestion list above. The timeout
-  // on blur (not an immediate close) lets a tap on a row register first —
-  // blur fires before the row's onPress otherwise.
-  const [customerFocused, setCustomerFocused] = useState(false);
 
   const [schemeQuery, setSchemeQuery] = useState("");
   const debouncedSchemeQuery = useDebouncedValue(schemeQuery);
   const [scheme, setScheme] = useState<Scheme | null>(null);
-  const [schemeFocused, setSchemeFocused] = useState(false);
+
+  // Only one dropdown open at a time: "customer", "scheme", or "orn-<row index>".
+  const [openDropdown, setOpenDropdown] = useState<string | null>(null);
+  const dropdownProps = (id: string) => ({
+    open: openDropdown === id,
+    onOpenChange: (o: boolean) => setOpenDropdown(o ? id : null),
+  });
 
   const [principal, setPrincipal] = useState("");
   // Free text staff may want to record on this loan that no standard field
@@ -188,12 +190,13 @@ export default function NewLoanScreen() {
   const k24 = goldRate.data?.k24 ?? 0;
 
   function updateRow(i: number, patch: Partial<OrnRow>) {
-    setRows((prev) => prev.map((r, idx) => (idx === i ? { ...r, ...patch } : r)));
+    setRows((prev) => prev.map((r, idx) => (idx === i ? applyWeightEdit(r, patch) : r)));
   }
   function addRow() {
     setRows((prev) => [...prev, { ...emptyRow }]);
   }
   function removeRow(i: number) {
+    setOpenDropdown(null);
     setRows((prev) => prev.filter((_, idx) => idx !== i));
   }
 
@@ -209,10 +212,7 @@ export default function NewLoanScreen() {
   }
 
   const validRows = rows.filter((r) => r.name.trim() && rowPurity(r) && Number(r.grossWeight) > 0 && Number(r.netWeight) > 0);
-  // Checked separately (not folded into validRows) so a Net Wt typo shows
-  // as a clear error at submit time rather than silently dropping the row
-  // from the eligible-amount preview.
-  const hasNetExceedsGross = validRows.some((r) => Number(r.netWeight) > Number(r.grossWeight));
+  const hasLessExceedsGross = rows.some((r) => Number(r.lessWeight) > Number(r.grossWeight));
 
   // Per-row gold value = NET weight × quantity × today's rate for that
   // purity — same formula (and same net-not-gross basis) as
@@ -227,9 +227,11 @@ export default function NewLoanScreen() {
     return Number(r.netWeight || 0) * Number(r.quantity || 1);
   }
   const totalGrossValue = validRows.reduce((sum, r) => sum + rowValue(r), 0);
+  const totalNetWeight = validRows.reduce((sum, r) => sum + rowTotalWeight(r), 0);
   const eligibleAmount = scheme ? Math.round((totalGrossValue * scheme.ltvPercent) / 100) : 0;
+  const principalExceedsEligible = !!scheme && validRows.length > 0 && Number(principal) > eligibleAmount;
 
-  const canSubmit = !!customer && !!scheme && Number(principal) > 0 && validRows.length > 0 && isTodaySet && !hasNetExceedsGross;
+  const canSubmit = !!customer && !!scheme && Number(principal) > 0 && validRows.length > 0 && isTodaySet && !hasLessExceedsGross;
 
   const submit = useMutation({
     mutationFn: () => {
@@ -239,9 +241,7 @@ export default function NewLoanScreen() {
         name: r.name.trim(),
         purity: rowPurity(r)!,
         grossWeight: Number(r.grossWeight),
-        // Backend re-derives NetWeight as grossWeight − deductionWeight —
-        // same approach NewLoan.tsx's web submit uses.
-        deductionWeight: Math.max(0, Number(r.grossWeight) - Number(r.netWeight)),
+        deductionWeight: Number(r.lessWeight) || 0,
         quantity: r.quantity ? Number(r.quantity) : undefined,
       }));
       return createLoan({
@@ -302,8 +302,13 @@ export default function NewLoanScreen() {
 
   return (
     <ScreenContainer style={{ padding: 0 }}>
-      <View style={{ flex: 1, paddingHorizontal: 8, paddingTop: 20 }}>
-      <ScrollView
+      <View
+        style={{ flex: 1, paddingHorizontal: 8, paddingTop: 20 }}
+        onTouchStart={() => {
+          if (openDropdown) setOpenDropdown(null);
+        }}
+      >
+      <GutterScrollView
         showsVerticalScrollIndicator={false}
         nestedScrollEnabled={true}
         keyboardShouldPersistTaps="handled"
@@ -319,16 +324,9 @@ export default function NewLoanScreen() {
         ) : null}
 
         <Card>
-          <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
-            <ThemedText variant="h3">Customer</ThemedText>
-            {customerFocused && !customer ? (
-              <Pressable onPress={() => setCustomerFocused(false)} hitSlop={8}>
-                <ThemedText variant="small" color={colors.brandDeep}>
-                  Hide list
-                </ThemedText>
-              </Pressable>
-            ) : null}
-          </View>
+          <ThemedText variant="h3" style={{ marginBottom: 8 }}>
+            Customer
+          </ThemedText>
           {customer ? (
             <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
               <View>
@@ -344,58 +342,33 @@ export default function NewLoanScreen() {
               </Pressable>
             </View>
           ) : (
-            <View>
-              <GoldTextInput
-                label="Search customer"
-                placeholder="Name, phone, or code…"
-                value={customerQuery}
-                onChangeText={setCustomerQuery}
-                onFocus={() => {
-                  setCustomerFocused(true);
-                  setSchemeFocused(false);
-                }}
-              />
-              {customerFocused && (customerResults.data ?? []).length > 0 ? (
-                <View style={styles.dropdownContainer}>
-                  <ScrollView
-                    nestedScrollEnabled={true}
-                    style={{ maxHeight: 220 }}
-                    keyboardShouldPersistTaps="handled"
-                    showsVerticalScrollIndicator={true}
-                  >
-                    {(customerResults.data ?? []).map((c, i) => (
-                      <Pressable
-                        key={c.id}
-                        onPress={() => {
-                          setCustomer(c);
-                          setCustomerFocused(false);
-                        }}
-                        style={[styles.dropdownRow, i > 0 && styles.dropdownDivider]}
-                      >
-                        <ThemedText variant="body">{c.name}</ThemedText>
-                        <ThemedText variant="small" color={colors.muted}>
-                          {c.code} · {c.phone}
-                        </ThemedText>
-                      </Pressable>
-                    ))}
-                  </ScrollView>
-                </View>
-              ) : null}
-            </View>
+            <SearchDropdown
+              label="Search customer"
+              placeholder="Name, phone, or code…"
+              query={customerQuery}
+              onQueryChange={setCustomerQuery}
+              {...dropdownProps("customer")}
+              items={customerResults.data ?? []}
+              keyOf={(c) => c.id}
+              renderItem={(c) => (
+                <>
+                  <ThemedText variant="body">{c.name}</ThemedText>
+                  <ThemedText variant="small" color={colors.muted}>
+                    {c.code} · {c.phone}
+                  </ThemedText>
+                </>
+              )}
+              onSelect={setCustomer}
+              loading={customerResults.isLoading}
+              emptyText="No customers found"
+            />
           )}
         </Card>
 
         <Card>
-          <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
-            <ThemedText variant="h3">Scheme</ThemedText>
-            {schemeFocused && !scheme ? (
-              <Pressable onPress={() => setSchemeFocused(false)} hitSlop={8}>
-                <ThemedText variant="small" color={colors.brandDeep}>
-                  Hide list
-                </ThemedText>
-              </Pressable>
-            ) : null}
-          </View>
+          <ThemedText variant="h3" style={{ marginBottom: 8 }}>
+            Scheme
+          </ThemedText>
           {scheme ? (
             <>
               <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
@@ -411,51 +384,28 @@ export default function NewLoanScreen() {
                   </ThemedText>
                 </Pressable>
               </View>
-              {validRows.length > 0 ? (
-                <ThemedText variant="small" color={colors.muted} style={{ marginTop: 8 }}>
-                  Gold value ₹{fmt(totalGrossValue)} × {scheme.ltvPercent}% LTV = eligible amount ₹
-                  {fmt(eligibleAmount)}
-                </ThemedText>
-              ) : null}
             </>
           ) : (
-            <View>
-              <GoldTextInput
-                label="Search scheme"
-                value={schemeQuery}
-                onChangeText={setSchemeQuery}
-                onFocus={() => {
-                  setSchemeFocused(true);
-                  setCustomerFocused(false);
-                }}
-              />
-              {schemeFocused && (schemeResults.data ?? []).length > 0 ? (
-                <View style={styles.dropdownContainer}>
-                  <ScrollView
-                    nestedScrollEnabled={true}
-                    style={{ maxHeight: 220 }}
-                    keyboardShouldPersistTaps="handled"
-                    showsVerticalScrollIndicator={true}
-                  >
-                    {(schemeResults.data ?? []).map((s, i) => (
-                      <Pressable
-                        key={s.id}
-                        onPress={() => {
-                          setScheme(s);
-                          setSchemeFocused(false);
-                        }}
-                        style={[styles.dropdownRow, i > 0 && styles.dropdownDivider]}
-                      >
-                        <ThemedText variant="body">{s.name}</ThemedText>
-                        <ThemedText variant="small" color={colors.muted}>
-                          {s.interestRate}% · {s.durationMonths} months
-                        </ThemedText>
-                      </Pressable>
-                    ))}
-                  </ScrollView>
-                </View>
-              ) : null}
-            </View>
+            <SearchDropdown
+              label="Search scheme"
+              placeholder="Scheme name…"
+              query={schemeQuery}
+              onQueryChange={setSchemeQuery}
+              {...dropdownProps("scheme")}
+              items={schemeResults.data ?? []}
+              keyOf={(s) => s.id}
+              renderItem={(s) => (
+                <>
+                  <ThemedText variant="body">{s.name}</ThemedText>
+                  <ThemedText variant="small" color={colors.muted}>
+                    {s.interestRate}% · {s.durationMonths} months · LTV {s.ltvPercent}%
+                  </ThemedText>
+                </>
+              )}
+              onSelect={setScheme}
+              loading={schemeResults.isLoading}
+              emptyText="No schemes found"
+            />
           )}
         </Card>
 
@@ -465,7 +415,7 @@ export default function NewLoanScreen() {
           </ThemedText>
           {rows.map((row, i) => (
             <View key={i} style={{ marginBottom: 12, paddingBottom: 12, borderBottomWidth: i < rows.length - 1 ? 1 : 0, borderBottomColor: colors.line }}>
-              <OrnamentNameField value={row.name} onChange={(v) => updateRow(i, { name: v })} />
+              <OrnamentNameField value={row.name} onChange={(v) => updateRow(i, { name: v })} {...dropdownProps(`orn-${i}`)} />
               <ChipSelect
                 label="Purity unit"
                 options={["Karat", "Fineness"] as const}
@@ -478,21 +428,36 @@ export default function NewLoanScreen() {
                 value={row.purityValue}
                 onChangeText={(v) => updateRow(i, { purityValue: v })}
               />
-              <GoldTextInput
-                label="Gross weight (g)"
-                keyboardType="numeric"
-                value={row.grossWeight}
-                onChangeText={(v) => updateRow(i, { grossWeight: v })}
-              />
-              <GoldTextInput
-                label="Net weight (g)"
-                keyboardType="numeric"
-                value={row.netWeight}
-                onChangeText={(v) => updateRow(i, { netWeight: v })}
-              />
-              {Number(row.netWeight) > Number(row.grossWeight) && row.netWeight.trim() ? (
+              <View style={styles.weightRow}>
+                <GoldTextInput
+                  label="Gross Wt (g)"
+                  keyboardType="numeric"
+                  placeholder="0.00"
+                  value={row.grossWeight}
+                  onChangeText={(v) => updateRow(i, { grossWeight: v })}
+                  containerStyle={styles.weightCell}
+                />
+                <GoldTextInput
+                  label="Less Wt (g)"
+                  keyboardType="numeric"
+                  placeholder="0.00"
+                  value={row.lessWeight}
+                  onChangeText={(v) => updateRow(i, { lessWeight: v })}
+                  containerStyle={styles.weightCell}
+                  invalid={Number(row.lessWeight) > Number(row.grossWeight)}
+                />
+                <GoldTextInput
+                  label="Net Wt (g)"
+                  keyboardType="numeric"
+                  placeholder="0.00"
+                  value={row.netWeight}
+                  onChangeText={(v) => updateRow(i, { netWeight: v })}
+                  containerStyle={styles.weightCell}
+                />
+              </View>
+              {Number(row.lessWeight) > Number(row.grossWeight) ? (
                 <ThemedText variant="small" color={colors.red} style={{ marginTop: -6, marginBottom: 8 }}>
-                  Net Wt cannot be greater than Gross Wt
+                  Less Wt cannot be greater than Gross Wt
                 </ThemedText>
               ) : null}
               <GoldTextInput label="Quantity" keyboardType="numeric" value={row.quantity} onChangeText={(v) => updateRow(i, { quantity: v })} />
@@ -513,15 +478,48 @@ export default function NewLoanScreen() {
                 </ThemedText>
               ) : null}
               {rows.length > 1 ? (
-                <Pressable onPress={() => removeRow(i)}>
-                  <ThemedText variant="small" color={colors.red}>
-                    Remove
-                  </ThemedText>
+                <Pressable onPress={() => removeRow(i)} hitSlop={8} style={styles.removeBtn} accessibilityLabel="Remove ornament">
+                  <View style={{ transform: [{ rotate: "45deg" }] }}>
+                    <Icon name="plus" size={16} color={colors.red} />
+                  </View>
                 </Pressable>
               ) : null}
             </View>
           ))}
           <GoldButton title="+ Add ornament" variant="outline" onPress={addRow} />
+        </Card>
+
+        <Card style={{ backgroundColor: colors.brandPale, borderColor: colors.brandDeep }}>
+          <ThemedText variant="h3" style={{ marginBottom: 10 }}>
+            Eligible Loan Amount
+          </ThemedText>
+          <View style={styles.summaryRow}>
+            <ThemedText variant="small" color={colors.muted}>Total Net Wt</ThemedText>
+            <ThemedText variant="small">{totalNetWeight.toFixed(2)} g</ThemedText>
+          </View>
+          <View style={styles.summaryRow}>
+            <ThemedText variant="small" color={colors.muted}>Gold Value</ThemedText>
+            <ThemedText variant="small">{fmt(totalGrossValue)}</ThemedText>
+          </View>
+          <View style={styles.summaryRow}>
+            <ThemedText variant="small" color={colors.muted}>LTV</ThemedText>
+            <ThemedText variant="small">{scheme ? `${scheme.ltvPercent}%` : "—"}</ThemedText>
+          </View>
+          <View style={[styles.summaryRow, styles.summaryTotal]}>
+            <ThemedText variant="body" style={{ fontWeight: "700" }}>Eligible Amount</ThemedText>
+            <ThemedText variant="body" color={colors.brandDeep} style={{ fontWeight: "700" }}>
+              {fmt(eligibleAmount)}
+            </ThemedText>
+          </View>
+          {!scheme ? (
+            <ThemedText variant="small" color={colors.muted} style={{ marginTop: 6 }}>
+              Select a scheme to calculate the eligible amount.
+            </ThemedText>
+          ) : validRows.length === 0 ? (
+            <ThemedText variant="small" color={colors.muted} style={{ marginTop: 6 }}>
+              Add an ornament with type, purity and weights to calculate.
+            </ThemedText>
+          ) : null}
         </Card>
 
         <Card>
@@ -535,6 +533,11 @@ export default function NewLoanScreen() {
             value={principal}
             onChangeText={setPrincipal}
           />
+          {principalExceedsEligible ? (
+            <ThemedText variant="small" color={colors.red} style={{ marginTop: -8, marginBottom: 8 }}>
+              Principal is above the eligible amount of {fmt(eligibleAmount)}.
+            </ThemedText>
+          ) : null}
           {scheme && scheme.serviceChargeType && scheme.serviceChargeType !== "None" ? (() => {
             const p = +principal || eligibleAmount || 0;
             const charge = scheme.serviceChargeType === "Flat" ? (scheme.serviceChargeValue ?? 0) : (p * (scheme.serviceChargeValue ?? 0)) / 100;
@@ -572,20 +575,24 @@ export default function NewLoanScreen() {
             disabled={!canSubmit || submit.isPending}
           />
         </Card>
-      </ScrollView>
+      </GutterScrollView>
       </View>
     </ScreenContainer>  );
 }
 
 const styles = StyleSheet.create({
-  dropdownContainer: {
-    marginTop: 8,
-    backgroundColor: colors.bg,
-    borderRadius: 12,
+  weightRow: { flexDirection: "row", gap: 8 },
+  weightCell: { flex: 1 },
+  removeBtn: {
+    alignSelf: "flex-end",
+    width: 32,
+    height: 32,
+    borderRadius: 16,
     borderWidth: 1,
-    borderColor: colors.line,
-    overflow: "hidden",
+    borderColor: colors.red,
+    alignItems: "center",
+    justifyContent: "center",
   },
-  dropdownRow: { paddingVertical: 10, paddingHorizontal: 12 },
-  dropdownDivider: { borderTopWidth: 1, borderTopColor: colors.line },
+  summaryRow: { flexDirection: "row", justifyContent: "space-between", paddingVertical: 4 },
+  summaryTotal: { borderTopWidth: 1, borderTopColor: colors.line, marginTop: 6, paddingTop: 10 },
 });

@@ -1,5 +1,6 @@
 import React, { useState } from "react";
-import { ScrollView, View, RefreshControl, Alert } from "react-native";
+import { View, RefreshControl, Alert } from "react-native";
+import { GutterScrollView } from "../../../src/components/Gutter";
 import { useLocalSearchParams } from "expo-router";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { ScreenContainer } from "../../../src/components/ScreenContainer";
@@ -247,7 +248,7 @@ export default function InvestmentDetailScreen() {
   return (
     <ScreenContainer style={{ padding: 0 }}>
       <View style={{ flex: 1, paddingHorizontal: 8, paddingTop: 20 }}>
-        <ScrollView
+        <GutterScrollView
           showsVerticalScrollIndicator={false}
           refreshControl={<RefreshControl refreshing={investment.isRefetching} onRefresh={() => investment.refetch()} />}
         >
@@ -475,7 +476,7 @@ export default function InvestmentDetailScreen() {
               <Pager page={schedule.page} totalPages={schedule.totalPages} onChange={schedule.setPage} />
             </Card>
           )}
-        </ScrollView>
+        </GutterScrollView>
       </View>
     </ScreenContainer>
   );

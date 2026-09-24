@@ -1,9 +1,10 @@
 import React from "react";
 import { View, Pressable, StyleSheet } from "react-native";
 import type { BottomTabBarProps } from "expo-router/js-tabs";
-import { ThemedText } from "./ThemedText";
+import Svg, { Defs, LinearGradient, Rect, Stop } from "react-native-svg";
 import { Icon } from "./Icon";
 import { colors } from "../theme/colors";
+import { TAB_BAR_FADE, TAB_BAR_HEIGHT } from "../theme/layout";
 import { useMoreSheet } from "./MoreSheet";
 import { useAuth } from "../auth/AuthContext";
 
@@ -60,93 +61,115 @@ export function AppTabBar({ state, navigation, insets }: BottomTabBarProps) {
     }
   }
 
-  return (
-    // In normal flow, not absolutely positioned: the tab navigator lays the
-    // custom tabBar out below the scene (BottomTabView is a flex column), so
-    // it reserves its own height and no screen needs extra bottom padding.
-    // paddingBottom covers the Android gesture pill / iOS home indicator —
-    // the app draws edge-to-edge, which SDK 57+ enforces, so without this the
-    // bar sat flush against the very bottom of the screen with nothing
-    // protecting it from the gesture nav / home indicator.
-    <View style={[styles.wrap, { paddingBottom: insets.bottom }]}>
-      <View style={styles.island}>
-        {visibleTabs.map(({ route: name, label, icon }) => {
-          const isActive = name === activeRouteName;
-          return (
-            // android_ripple disabled and no background on iconWrap any more
-            // — the highlight on tap (and the persistent "selected" state)
-            // is now the icon/label's own color changing, not a round fill
-            // painted behind it.
-            <Pressable
-              key={name}
-              onPress={() => onTabPress(name)}
-              style={styles.item}
-              android_ripple={{ color: "transparent" }}
-            >
-              {({ pressed }) => {
-                const highlighted = isActive || pressed;
-                return (
-                  <>
-                    <View style={[styles.iconWrap, highlighted && styles.iconWrapActive]}>
-                      <Icon name={icon} size={21} color={highlighted ? colors.brandDeep : colors.muted} />
-                    </View>
-                    <ThemedText variant="label" color={highlighted ? colors.brandDeep : colors.muted} numberOfLines={1}>
-                      {label}
-                    </ThemedText>
-                  </>
-                );
-              }}
-            </Pressable>
-          );
-        })}
+  const center = visibleTabs.find((t) => t.route === "new-loan");
+  const sideTabs = visibleTabs.filter((t) => t.route !== "new-loan");
+  // Two slots either side of the raised centre button; "More" is always last.
+  const slots: ({ route: string; label: string; icon: string } | "more")[] = [...sideTabs, "more"];
+  const left = center ? slots.slice(0, Math.ceil(slots.length / 2)) : slots;
+  const right = center ? slots.slice(Math.ceil(slots.length / 2)) : [];
 
-        {/* Not a route — raises the More sheet over whatever screen is on. */}
-        <Pressable onPress={open} style={styles.item} android_ripple={{ color: "transparent" }}>
+  function renderSlot(slot: (typeof slots)[number]) {
+    if (slot === "more") {
+      return (
+        // Not a route — raises the More sheet over whatever screen is on.
+        <Pressable key="more" onPressIn={open} style={styles.item} accessibilityLabel="More" hitSlop={6}>
           {({ pressed }) => (
-            <>
-              <View style={[styles.iconWrap, pressed && styles.iconWrapActive]}>
-                <Icon name="dots" size={21} color={pressed ? colors.brandDeep : colors.muted} />
-              </View>
-              <ThemedText variant="label" color={pressed ? colors.brandDeep : colors.muted}>
-                More
-              </ThemedText>
-            </>
+            <View style={[styles.circle, pressed && styles.circleActive]}>
+              <Icon name="dots" size={24} color={pressed ? colors.brandDeep : colors.muted} />
+            </View>
           )}
         </Pressable>
+      );
+    }
+    const isActive = slot.route === activeRouteName;
+    return (
+      // onPressIn (not onPress) so the switch starts the moment the finger lands.
+      <Pressable key={slot.route} onPressIn={() => onTabPress(slot.route)} style={styles.item} accessibilityLabel={slot.label} hitSlop={6}>
+        <View style={[styles.circle, isActive && styles.circleActive]}>
+          <Icon name={slot.icon} size={24} color={isActive ? colors.brandDeep : colors.muted} />
+        </View>
+      </Pressable>
+    );
+  }
+
+  return (
+    // Floats over the scene (absolute) with no background of its own: the page
+    // shows through and fades out gradually across the bar's full height
+    // (the gradient below). box-none lets taps on that faded area reach the
+    // page. Scroll content pads its bottom by TAB_BAR_SPACE to clear the bar.
+    // paddingBottom clears the gesture pill / home indicator.
+    <View style={[styles.wrap, { paddingBottom: insets.bottom }]} pointerEvents="box-none">
+      <View style={StyleSheet.absoluteFill} pointerEvents="none">
+        <Svg width="100%" height="100%">
+          <Defs>
+            <LinearGradient id="tabBarFade" x1="0" y1="0" x2="0" y2="1">
+              {FADE_STOPS.map((s) => (
+                <Stop key={s} offset={s} stopColor={colors.bg} stopOpacity={s} />
+              ))}
+            </LinearGradient>
+          </Defs>
+          <Rect x="0" y="0" width="100%" height="100%" fill="url(#tabBarFade)" />
+        </Svg>
+      </View>
+      <View style={styles.island}>
+        {left.map(renderSlot)}
+        {center ? (
+          <View style={styles.centerSlot}>
+            <Pressable
+              onPressIn={() => onTabPress(center.route)}
+              style={({ pressed }) => [styles.centerBtn, pressed && { transform: [{ scale: 0.94 }] }]}
+              accessibilityLabel={center.label}
+            >
+              <Icon name={center.icon} size={28} color={colors.card} />
+            </Pressable>
+          </View>
+        ) : null}
+        {right.map(renderSlot)}
       </View>
     </View>
   );
 }
 
+const CENTER = 62;
+// Opacity climbs in 20 equal small steps from clear (top) to solid (bottom).
+const FADE_STOPS = Array.from({ length: 21 }, (_, i) => i / 20);
+
 const styles = StyleSheet.create({
-  wrap: { paddingHorizontal: 0, paddingTop: 0, backgroundColor: colors.card },
-  // Flush full-width footer bar — no floating "island" card, no gap from
-  // the background behind it (wrap and island share the same fill).
+
+  // paddingTop is the fade zone above the bar (the gradient spans the whole wrap).
+  wrap: { position: "absolute", left: 0, right: 0, bottom: 0, paddingHorizontal: 14, paddingTop: TAB_BAR_FADE },
   island: {
     flexDirection: "row",
-    alignItems: "stretch",
+    alignItems: "center",
+    height: TAB_BAR_HEIGHT,
     backgroundColor: colors.card,
-    borderTopWidth: 1,
-    borderTopColor: colors.line,
-    paddingVertical: 4,
-    paddingHorizontal: 6,
-    gap: 2,
+    borderRadius: 26,
+    paddingHorizontal: 8,
+    // boxShadow, not elevation: Android's elevation shadow drew a stray
+    // rectangle beneath the rounded bar. boxShadow follows the border radius.
+    boxShadow: "0px 6px 16px rgba(43, 26, 94, 0.12)",
   },
-  item: {
-    flex: 1,
+  item: { flex: 1, height: "100%", alignItems: "center", justifyContent: "center" },
+  // Rounded rectangle (not a full circle); overflow hidden so Android always
+  // clips the highlight to the rounded corners after a re-render.
+  circle: { width: 54, height: 40, borderRadius: 14, overflow: "hidden", alignItems: "center", justifyContent: "center" },
+  circleActive: { backgroundColor: colors.brandPale },
+  centerSlot: { flex: 1, alignItems: "center" },
+  // Raised above the bar; the page-coloured ring fakes the notch in the reference design.
+  centerBtn: {
+    width: CENTER,
+    height: CENTER,
+    borderRadius: CENTER / 2,
+    marginTop: -CENTER * 0.72,
+    backgroundColor: colors.brandDeep,
+    borderWidth: 5,
+    borderColor: colors.bg,
     alignItems: "center",
     justifyContent: "center",
-    gap: 0,
-    paddingVertical: 0,
+    shadowColor: colors.brandDeep,
+    shadowOpacity: 0.35,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 6 },
+    elevation: 10,
   },
-  // Matches customer-mobile/src/components/AppTabBar.tsx's sizing exactly —
-  // a rectangular chip (wider than tall, softly rounded corners) behind
-  // just the icon, not a circle. overflow hidden keeps Android's default
-  // rectangular Pressable ripple from spilling past the corners.
-  iconWrap: { width: 52, height: 30, borderRadius: 8, overflow: "hidden", alignItems: "center", justifyContent: "center" },
-  // WhatsApp-style active state: a filled pill highlight behind just the
-  // icon, not an outline around the whole item — same as the customer app,
-  // toggled on both the persistent "selected" tab and the momentary
-  // pressed state (this bar never painted a background at all before).
-  iconWrapActive: { backgroundColor: colors.brandPale },
 });

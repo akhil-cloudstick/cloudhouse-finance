@@ -40,3 +40,33 @@ export function voidBankPledge(loanId: number, pledgeId: number, reason: string)
 export function getBankPledgeHistory(loanId: number) {
   return apiRequest<BankPledgeRecord[]>(`/loans/${loanId}/bank-pledge/history`);
 }
+
+// History rows (GET /loans/bank-pledges/history) are joined with the loan's
+// number and customer name so they can be listed without the parent loan.
+export type BankPledgeHistoryRow = BankPledgeRecordWithWeights & { loanNumber?: string; customerName?: string };
+
+// Weight fields the backend sends on every pledge record but types/loan.ts's
+// BankPledgeRecord doesn't declare yet.
+export type BankPledgeRecordWithWeights = BankPledgeRecord & {
+  pledgedGrossWeight?: number;
+  pledgedNetWeight?: number;
+};
+
+// items can come back null (Go nil slice) for an empty page.
+type Page<T> = { items: T[] | null; hasMore: boolean; total?: number };
+
+// Loans currently re-pledged with a bank — the Bank Pledge screen's Active
+// tab. Each loan carries its bankPledges[] preloaded; the Active one is the
+// pledge to release.
+export async function listBankPledgedLoansPage(params: { q?: string; limit: number; offset: number }) {
+  const res = await apiRequest<Page<Loan>>("/loans", {
+    params: { bankPledgeStatus: "Bank Pledged", ...params },
+  });
+  return { items: res.items ?? [], hasMore: res.hasMore, total: res.total ?? 0 };
+}
+
+// Every pledge ever recorded across all loans (Active, Released, Voided).
+export async function listBankPledgeHistoryPage(params: { q?: string; limit: number; offset: number }) {
+  const res = await apiRequest<Page<BankPledgeHistoryRow>>("/loans/bank-pledges/history", { params });
+  return { items: res.items ?? [], hasMore: res.hasMore, total: res.total ?? 0 };
+}

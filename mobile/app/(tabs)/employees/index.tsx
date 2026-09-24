@@ -52,11 +52,13 @@ export default function EmployeesScreen() {
 
   return (
     <ScreenContainer style={{ paddingHorizontal: 0 }}>
-      <View style={{ paddingHorizontal: 16, paddingTop: 20 }}>
-        <GoldButton title="Add employee" variant="outline" onPress={() => router.push("/employees/new")} />
-      </View>
-      <View style={{ flex: 1, paddingHorizontal: 16, paddingTop: 16 }}>
+      <View style={{ flex: 1, paddingHorizontal: 16 }}>
         <ExpandableTable<Employee>
+          headerContent={
+            <View style={{ paddingTop: 20, marginBottom: 16 }}>
+              <GoldButton title="Add employee" variant="outline" onPress={() => router.push("/employees/new")} />
+            </View>
+          }
           columns={EMPLOYEE_COLUMNS}
           visibleCount={EMPLOYEE_VISIBLE_COUNT}
           data={employees}

@@ -96,34 +96,37 @@ export default function LoansScreen() {
 
   const loans = data?.pages.flatMap((p) => p.items) ?? [];
 
-  return (
-    <ScreenContainer style={{ paddingHorizontal: 0 }}>
-      {/* Fixed top: search, +New Loan, status filters — none of this scrolls
-       * with the table (see ExpandableTable.tsx's own comment on why the
-       * table needs its own flex:1 slot rather than sitting inside a shared
-       * ScrollView). Same containerStyle/margins as Customers' own search
-       * field + button, for an identical look between the two list screens. */}
+  // Search, +New Loan, status filter scroll away WITH the rows
+  // (ExpandableTable's headerContent) so the table's top fade sits right
+  // under the app header. Same containerStyle/margins as Customers' own
+  // search field + button, for an identical look between the two screens.
+  const listHeader = (
+    <View>
       <GoldTextInput
         label="Search loans"
         placeholder="Loan number or customer…"
         value={search}
         onChangeText={setSearch}
-        containerStyle={{ marginHorizontal: 16, marginTop: 28 }}
+        containerStyle={{ marginTop: 28 }}
         blur
       />
       {canCreateLoan ? (
-        <View style={{ marginHorizontal: 16, marginBottom: 12 }}>
+        <View style={{ marginBottom: 12 }}>
           <GoldButton title="+ New Loan" onPress={() => router.push("/new-loan")} />
         </View>
       ) : null}
-      <View style={{ marginHorizontal: 16, marginBottom: 12 }}>
+      <View style={{ marginBottom: 12 }}>
         <FilterSheetButton options={STATUS_FILTERS} value={statusFilter} onChange={setStatusFilter} />
       </View>
+    </View>
+  );
 
-      {/* Only this scrolls — column-label row (sticky, inside
-       * ExpandableTable) stays put; reaching the bottom loads the next page. */}
+  return (
+    <ScreenContainer style={{ paddingHorizontal: 0 }}>
+      {/* Reaching the bottom loads the next page. */}
       <View style={{ flex: 1, paddingHorizontal: 16 }}>
         <ExpandableTable<Loan>
+          headerContent={listHeader}
           columns={LOAN_COLUMNS}
           visibleCount={LOAN_VISIBLE_COUNT}
           data={loans}

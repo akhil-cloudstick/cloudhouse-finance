@@ -1,8 +1,8 @@
 import React, { createContext, useCallback, useContext, useMemo, useState } from "react";
-import { View, Pressable, StyleSheet, ScrollView } from "react-native";
+import { View, Pressable, StyleSheet } from "react-native";
 import { useRouter, usePathname } from "expo-router";
 import { ThemedText } from "./ThemedText";
-import { BottomSheetModal } from "./BottomSheetModal";
+import { BottomSheetModal, SheetScrollView } from "./BottomSheetModal";
 import { Icon } from "./Icon";
 import { colors } from "../theme/colors";
 import { useAuth } from "../auth/AuthContext";
@@ -134,7 +134,7 @@ function MoreSheet({ visible, onClose }: { visible: boolean; onClose: () => void
         </ThemedText>
       </View>
 
-      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scroll}>
+      <SheetScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scroll}>
         {groups.map(([group, rows]) => (
           <View key={group} style={styles.group}>
             <ThemedText variant="label" color={colors.muted} style={styles.groupLabel}>
@@ -146,18 +146,17 @@ function MoreSheet({ visible, onClose }: { visible: boolean; onClose: () => void
                 // when it's the first segment.
                 const isActive = pathname === `/${route}` || pathname.startsWith(`/${route}/`);
                 return (
-                  <Pressable
-                    key={route}
-                    onPress={() => go(route)}
-                    style={[styles.item, isActive && styles.itemActive, i > 0 && styles.itemDivider]}
-                  >
-                    <Icon name={icon} size={20} color={isActive ? colors.brandDeep : colors.muted} />
-                    {/* Same "body" variant/font for every row, active or not —
-                        only color and background change on selection. */}
-                    <ThemedText variant="body" color={isActive ? colors.brandDeep : colors.ink}>
-                      {label}
-                    </ThemedText>
-                  </Pressable>
+                  <React.Fragment key={route}>
+                    {i > 0 ? <View style={styles.itemDivider} /> : null}
+                    <Pressable onPress={() => go(route)} style={[styles.item, isActive && styles.itemActive]}>
+                      <Icon name={icon} size={20} color={isActive ? colors.brandDeep : colors.muted} />
+                      {/* Same "body" variant/font for every row, active or not —
+                          only color and background change on selection. */}
+                      <ThemedText variant="body" color={isActive ? colors.brandDeep : colors.ink}>
+                        {label}
+                      </ThemedText>
+                    </Pressable>
+                  </React.Fragment>
                 );
               })}
             </View>
@@ -175,7 +174,7 @@ function MoreSheet({ visible, onClose }: { visible: boolean; onClose: () => void
             ← Sign out
           </ThemedText>
         </Pressable>
-      </ScrollView>
+      </SheetScrollView>
     </BottomSheetModal>
   );
 }
@@ -194,9 +193,13 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: colors.line,
     overflow: "hidden",
+    padding: 4,
   },
-  item: { flexDirection: "row", alignItems: "center", gap: 12, paddingHorizontal: 16, paddingVertical: 12 },
-  itemDivider: { borderTopWidth: 1, borderTopColor: colors.line },
+  // Every row has the same size and rounded corners, so the active
+  // highlight is just a background — it never shifts the row layout.
+  // 12px side padding + the island's 4px keeps content where it was.
+  item: { flexDirection: "row", alignItems: "center", gap: 12, paddingHorizontal: 12, paddingVertical: 12, borderRadius: 10 },
+  itemDivider: { height: 1, backgroundColor: colors.line, marginHorizontal: 12 },
   itemActive: { backgroundColor: colors.brandPale },
   signOut: { paddingVertical: 14, paddingHorizontal: 6 },
 });

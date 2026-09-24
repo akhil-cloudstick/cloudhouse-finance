@@ -1,3 +1,5 @@
+import { Platform } from "react-native";
+
 // Body text is 'Inter', headings 'Montserrat' — matching the web app
 // (frontend/app/layout.tsx). Loaded via @expo-google-fonts in
 // app/_layout.tsx; reference the family names below rather than hardcoding
@@ -15,13 +17,17 @@
 // alias purely so existing typeScale references and any screen that reached
 // for fonts.serif keep working; it has not been an actual serif since before
 // this re-theme.
+// iOS uses the system face, San Francisco (weights come from fontWeight in
+// typeScale). SF's licence limits it to Apple platforms, so Android keeps
+// Inter/Montserrat — Inter is the closest freely-licensed match to SF.
+const ios = Platform.OS === "ios";
 export const fonts = {
-  body: "Inter_400Regular",
-  bodyMedium: "Inter_500Medium",
-  bodySemiBold: "Inter_600SemiBold",
-  display: "Montserrat_700Bold",
-  serif: "Montserrat_700Bold",
-} as const;
+  body: ios ? "System" : "Inter_400Regular",
+  bodyMedium: ios ? "System" : "Inter_500Medium",
+  bodySemiBold: ios ? "System" : "Inter_600SemiBold",
+  display: ios ? "System" : "Montserrat_700Bold",
+  serif: ios ? "System" : "Montserrat_700Bold",
+};
 
 export const typeScale = {
   // Headings run larger than the old Bodoni scale (28/22/18) — mixed-case
@@ -32,6 +38,6 @@ export const typeScale = {
   h2: { fontFamily: fonts.display, fontSize: 26, fontWeight: "700" as const },
   h3: { fontFamily: fonts.display, fontSize: 21, fontWeight: "700" as const },
   body: { fontFamily: fonts.body, fontSize: 15 },
-  label: { fontFamily: fonts.bodyMedium, fontSize: 13 },
+  label: { fontFamily: fonts.bodyMedium, fontSize: 13, fontWeight: "500" as const },
   small: { fontFamily: fonts.body, fontSize: 12 },
 } as const;

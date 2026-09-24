@@ -7,6 +7,11 @@ import { colors } from "../theme/colors";
 import { fonts } from "../theme/typography";
 import { useAuth } from "../auth/AuthContext";
 import { Icon } from "./Icon";
+import Svg, { Defs, LinearGradient, Rect, Stop } from "react-native-svg";
+
+// Fade reaches this far below the header card; opacity steps down evenly.
+const HEADER_FADE_BELOW = 48;
+const HEADER_FADE_STOPS = Array.from({ length: 21 }, (_, i) => i / 20);
 
 // Android's real blur (`blurMethod="dimezisBlurView"`) needs an explicit
 // `blurTarget` ref onto a `BlurTargetView` wrapping whatever should be
@@ -54,7 +59,32 @@ export function FloatingHeader({ title, navigation }: { title: string; navigatio
     .join("");
 
   return (
-    <View style={[styles.wrap, { marginTop: insets.top + 8 }]}>
+    <View style={[styles.wrap, { marginTop: insets.top + 8 }]} pointerEvents="box-none">
+      {/* The header floats over the page (headerTransparent). Content scrolls
+          up behind it: solid from the status-bar icons down to the header's
+          bottom edge, then fading out evenly over HEADER_FADE_BELOW. */}
+      <View
+        pointerEvents="none"
+        style={{ position: "absolute", left: 0, right: 0, top: -(insets.top + 8), height: insets.top + 8 + 48 + HEADER_FADE_BELOW }}
+      >
+        <Svg width="100%" height="100%">
+          <Defs>
+            <LinearGradient id="headerFade" x1="0" y1="0" x2="0" y2="1">
+              {(() => {
+                const total = insets.top + 8 + 48 + HEADER_FADE_BELOW;
+                const solidEnd = (insets.top + 8 + 48) / total;
+                return [
+                  <Stop key="top" offset={0} stopColor={colors.bg} stopOpacity={1} />,
+                  ...HEADER_FADE_STOPS.map((s) => (
+                    <Stop key={s} offset={solidEnd + s * (1 - solidEnd)} stopColor={colors.bg} stopOpacity={1 - s} />
+                  )),
+                ];
+              })()}
+            </LinearGradient>
+          </Defs>
+          <Rect x="0" y="0" width="100%" height="100%" fill="url(#headerFade)" />
+        </Svg>
+      </View>
       <IslandSurface style={styles.island}>
         {canGoBack ? (
           <Pressable onPress={() => navigation.goBack()} hitSlop={10} style={styles.iconBtn}>
@@ -75,9 +105,11 @@ export function FloatingHeader({ title, navigation }: { title: string; navigatio
         </Pressable>
       </IslandSurface>
 
-      <Modal visible={menuOpen} transparent animationType="fade" onRequestClose={() => setMenuOpen(false)}>
+      {/* statusBarTranslucent: the modal then lays out from the screen top like the
+          header does, so insets.top isn't counted twice (the old oversized gap). */}
+      <Modal visible={menuOpen} transparent statusBarTranslucent animationType="fade" onRequestClose={() => setMenuOpen(false)}>
         <Pressable style={styles.backdrop} onPress={() => setMenuOpen(false)}>
-          <View style={[styles.menu, { marginTop: insets.top + 52 }]}>
+          <View style={[styles.menu, { marginTop: insets.top + 60 }]}>
             <ThemedText variant="body" color={colors.brandDeep} style={[styles.menuName, { fontFamily: fonts.serif, fontWeight: "700" as const }]} numberOfLines={1}>
               {employee?.name}
             </ThemedText>

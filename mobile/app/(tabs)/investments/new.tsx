@@ -1,5 +1,6 @@
 import React, { useState } from "react";
 import { ScrollView, View, Pressable, StyleSheet } from "react-native";
+import { GutterScrollView } from "../../../src/components/Gutter";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { useRouter } from "expo-router";
 import { ScreenContainer } from "../../../src/components/ScreenContainer";
@@ -81,7 +82,7 @@ export default function NewInvestmentScreen() {
   return (
     <ScreenContainer style={{ padding: 0 }}>
       <View style={{ flex: 1, paddingHorizontal: 8, paddingTop: 20 }}>
-        <ScrollView showsVerticalScrollIndicator={false} nestedScrollEnabled keyboardShouldPersistTaps="handled">
+        <GutterScrollView showsVerticalScrollIndicator={false} nestedScrollEnabled keyboardShouldPersistTaps="handled">
           <Card>
             <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
               <ThemedText variant="h3">Investor</ThemedText>
@@ -207,7 +208,7 @@ export default function NewInvestmentScreen() {
             loading={submit.isPending}
           />
           <View style={{ height: 24 }} />
-        </ScrollView>
+        </GutterScrollView>
       </View>
     </ScreenContainer>
   );

@@ -22,12 +22,12 @@ const PAGE_SIZE = 10;
 // sent server-side as the `frequency` param ("All" sends none at all).
 const FREQ_FILTERS = ["All", "Daily", "Weekly", "Monthly"] as const;
 
-function toneForStatus(status: string): "green" | "red" | "amber" | "blue" | "muted" {
+function toneForStatus(status: string): "green" | "red" | "amber" | "info" | "muted" {
   const s = status.toLowerCase();
   if (s === "active") return "green";
   if (s === "defaulted") return "red";
   if (s === "renewed") return "amber";
-  return "blue";
+  return "info";
 }
 
 function StatusPill({ status }: { status: string }) {
@@ -83,28 +83,35 @@ export default function PersonalLoansScreen() {
 
   const loans = data?.pages.flatMap((p) => p.items) ?? [];
 
-  return (
-    <ScreenContainer style={{ paddingHorizontal: 0 }}>
+  // Scrolls away with the rows (ExpandableTable's headerContent) so the
+  // table's top fade sits right under the app header.
+  const listHeader = (
+    <View>
       <GoldTextInput
         label="Search personal loans"
         placeholder="Loan number or customer…"
         value={search}
         onChangeText={setSearch}
-        containerStyle={{ marginHorizontal: 16, marginTop: 28 }}
+        containerStyle={{ marginTop: 28 }}
         blur
       />
       {canCreate ? (
-        <View style={{ marginHorizontal: 16, marginBottom: 12 }}>
+        <View style={{ marginBottom: 12 }}>
           <GoldButton title="+ New Personal Loan" onPress={() => router.push("/personal-loans/new")} />
         </View>
       ) : null}
 
-      <View style={{ marginHorizontal: 16, marginBottom: 12 }}>
+      <View style={{ marginBottom: 12 }}>
         <FilterSheetButton label="Frequency" options={FREQ_FILTERS} value={freq} onChange={setFreq} />
       </View>
+    </View>
+  );
 
+  return (
+    <ScreenContainer style={{ paddingHorizontal: 0 }}>
       <View style={{ flex: 1, paddingHorizontal: 16 }}>
         <ExpandableTable<PersonalLoan>
+          headerContent={listHeader}
           columns={LOAN_COLUMNS}
           visibleCount={LOAN_VISIBLE_COUNT}
           data={loans}

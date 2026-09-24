@@ -1,23 +1,38 @@
 import React, { useState } from "react";
-import { RefreshControl, View } from "react-native";
-import { useInfiniteQuery } from "@tanstack/react-query";
+import { Pressable, RefreshControl, ScrollView, View } from "react-native";
+import { useInfiniteQuery, useQueries, useQuery } from "@tanstack/react-query";
 import { useRouter, useLocalSearchParams } from "expo-router";
 import { ScreenContainer } from "../../../src/components/ScreenContainer";
 import { ThemedText } from "../../../src/components/ThemedText";
 import { GoldTextInput } from "../../../src/components/GoldTextInput";
-import { GoldButton } from "../../../src/components/GoldButton";
+import { Icon } from "../../../src/components/Icon";
+import { ChipSelect } from "../../../src/components/ChipSelect";
 import { colors, statusColors, StatusTone } from "../../../src/theme/colors";
 import { listPacketsPage, getPacketByCode } from "../../../src/api/packets";
+import { getLocker } from "../../../src/api/lockers";
 import { Packet } from "../../../src/types/packet";
 import { useRefetchOnFocus } from "../../../src/hooks/useRefetchOnFocus";
+import { useDebouncedValue } from "../../../src/hooks/useDebouncedValue";
 import { QrScanner, parsePacketCode } from "../../../src/components/QrScanner";
 import { ExpandableTable, type TableColumn } from "../../../src/components/ExpandableTable";
 
 const PAGE_SIZE = 10;
 
+// "Ready For Release" is a legacy stage nothing moves into any more, so it
+// isn't offered as a filter.
+const STATUS_FILTERS = ["All", "Packet Generated", "Locker Stored", "Bank Pledged", "Returned", "Released"] as const;
+type StatusFilter = (typeof STATUS_FILTERS)[number];
+
+const AUCTIONED_LOAN = ["Auctioned", "Auctioned - Balance Due"];
+
+function displayStatus(p: Packet) {
+  return p.loan?.status && AUCTIONED_LOAN.includes(p.loan.status) ? "Auctioned" : p.status;
+}
+
 function toneForStatus(status: string): StatusTone {
   if (status === "Released") return "green";
   if (status === "Bank Pledged") return "info";
+  if (status === "Auctioned") return "red";
   if (status === "Ready For Release" || status === "Returned") return "amber";
   return "muted";
 }
@@ -35,39 +50,31 @@ function StatusPill({ status }: { status: string }) {
   );
 }
 
-// Only 3 columns exist for a packet, so all 3 stay visible — the "3 for a
-// large table" rule only ever trims, and there's nothing to trim here.
 const PACKET_COLUMNS: TableColumn<Packet>[] = [
   { key: "code", label: "Code", render: (p) => p.code },
   { key: "loan", label: "Loan", render: (p) => p.loan?.loanNumber ?? `#${p.loanId}` },
-  { key: "status", label: "Status", render: (p) => <StatusPill status={p.status} /> },
+  { key: "status", label: "Status", render: (p) => <StatusPill status={displayStatus(p)} /> },
 ];
 
-function packetExtraFields(p: Packet) {
-  return [
-    { label: "Locker", value: p.currentLockerId ? `#${p.currentLockerId}` : "—" },
-    { label: "Items", value: p.loan?.ornaments?.length ? String(p.loan.ornaments.length) : "—" },
-    { label: "Updated", value: new Date(p.updatedAt).toLocaleDateString("en-IN") },
-  ];
-}
-
 // Barcode/QR lookup (`by-code`) is a separate real endpoint from the
-// status-filtered list — both are server-side, no client-side scanning of
-// a full packet list to find a code.
+// filtered list — both are server-side, nothing is filtered on-device.
 export default function PacketsScreen() {
   const router = useRouter();
-  // Arriving from a locker's detail screen (`/packets?lockerId=…`) scopes
-  // this list to that locker's packets instead of the branch-wide list.
+  // Arriving from a locker (`/packets?lockerId=…`) scopes this list to that
+  // locker's packets instead of the branch-wide list.
   const { lockerId: lockerIdParam } = useLocalSearchParams<{ lockerId?: string }>();
   const lockerId = lockerIdParam ? Number(lockerIdParam) : undefined;
-  const [status, setStatus] = useState<string | undefined>(undefined);
-  const [code, setCode] = useState("");
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>("All");
+  const status = statusFilter === "All" ? undefined : statusFilter;
+  const [search, setSearch] = useState("");
+  const debouncedSearch = useDebouncedValue(search);
+  const q = debouncedSearch.trim() || undefined;
   const [lookupError, setLookupError] = useState<string | null>(null);
   const [scannerOpen, setScannerOpen] = useState(false);
 
   const { data, isLoading, isError, isFetching, isFetchingNextPage, fetchNextPage, hasNextPage, refetch } = useInfiniteQuery({
-    queryKey: ["packets", status, lockerId],
-    queryFn: ({ pageParam = 0 }) => listPacketsPage({ status, lockerId, limit: PAGE_SIZE, offset: pageParam }),
+    queryKey: ["packets", "page", status, lockerId, q],
+    queryFn: ({ pageParam = 0 }) => listPacketsPage({ status, lockerId, q, limit: PAGE_SIZE, offset: pageParam }),
     initialPageParam: 0,
     getNextPageParam: (lastPage, allPages) => (lastPage.hasMore ? allPages.length * PAGE_SIZE : undefined),
   });
@@ -76,8 +83,36 @@ export default function PacketsScreen() {
 
   const packets = data?.pages.flatMap((p) => p.items) ?? [];
 
-  async function lookupByCode(rawCode?: string) {
-    const target = (rawCode ?? code).trim();
+  const scopedLocker = useQuery({
+    queryKey: ["locker", String(lockerId)],
+    queryFn: () => getLocker(lockerId!),
+    enabled: lockerId != null,
+  });
+
+  // Packets only carry currentLockerId — resolve each distinct locker's code
+  // once (shared cache with the locker detail screen).
+  const lockerIds = Array.from(
+    new Set(packets.map((p) => p.currentLockerId).filter((v): v is number => typeof v === "number" && v > 0))
+  );
+  const lockerLookups = useQueries({
+    queries: lockerIds.map((lid) => ({ queryKey: ["locker", String(lid)], queryFn: () => getLocker(lid), staleTime: 60_000 })),
+  });
+  const lockerCode = (lid?: number) => {
+    if (!lid) return "—";
+    return lockerLookups[lockerIds.indexOf(lid)]?.data?.code ?? "…";
+  };
+
+  function packetExtraFields(p: Packet) {
+    const items = (p.loan?.ornaments ?? []).reduce((sum, o) => sum + (o.quantity || 0), 0);
+    return [
+      { label: "Customer", value: p.loan?.customer?.name || "—" },
+      { label: "Items", value: String(items) },
+      { label: "Net weight", value: p.totalNetWeight != null ? `${p.totalNetWeight.toFixed(2)} g` : "—" },
+      { label: "Locker", value: lockerCode(p.currentLockerId) },
+    ];
+  }
+
+  async function lookupByCode(target: string) {
     setLookupError(null);
     try {
       const packet = await getPacketByCode(target);
@@ -94,31 +129,52 @@ export default function PacketsScreen() {
       setLookupError("That QR code isn't a packet label.");
       return;
     }
-    setCode(scannedCode);
     lookupByCode(scannedCode);
   }
 
-  return (
-    <ScreenContainer style={{ paddingHorizontal: 0 }}>
-      <View style={{ paddingHorizontal: 16, paddingTop: 20 }}>
-        <GoldTextInput label="Find by barcode/QR code" value={code} onChangeText={setCode} />
+  // Scrolls away with the rows (ExpandableTable's headerContent) so the
+  // table's top fade sits right under the app header.
+  const listHeader = (
+      <View style={{ paddingTop: 20 }}>
+        {lockerId != null ? (
+          <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
+            <ThemedText variant="label" color={colors.brandDeep}>
+              Locker {scopedLocker.data?.code ?? `#${lockerId}`}
+              {scopedLocker.data ? ` · ${scopedLocker.data.occupied}/${scopedLocker.data.capacity}` : ""}
+            </ThemedText>
+            <ThemedText variant="small" color={colors.muted} onPress={() => router.setParams({ lockerId: undefined })}>
+              Show all ×
+            </ThemedText>
+          </View>
+        ) : null}
+        <GoldTextInput
+          label="Search code, loan no., customer"
+          value={search}
+          onChangeText={setSearch}
+          right={
+            <Pressable onPress={() => setScannerOpen(true)} hitSlop={12} accessibilityLabel="Scan packet label">
+              <Icon name="scan" size={18} color={colors.brandDeep} />
+            </Pressable>
+          }
+        />
         {lookupError ? (
           <ThemedText variant="small" color={colors.red} style={{ marginBottom: 8 }}>
             {lookupError}
           </ThemedText>
         ) : null}
-        <View style={{ flexDirection: "row", gap: 8 }}>
-          <View style={{ flex: 1 }}>
-            <GoldButton title="Find packet" variant="outline" onPress={() => lookupByCode()} disabled={!code} />
-          </View>
-          <View style={{ flex: 1 }}>
-            <GoldButton title="Scan Label" onPress={() => setScannerOpen(true)} />
-          </View>
-        </View>
+        {/* One scrollable row instead of wrapping six chips over three lines. */}
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} keyboardShouldPersistTaps="handled">
+          <ChipSelect options={STATUS_FILTERS} value={statusFilter} onChange={setStatusFilter} />
+        </ScrollView>
       </View>
+  );
+
+  return (
+    <ScreenContainer style={{ paddingHorizontal: 0 }}>
       <QrScanner visible={scannerOpen} onClose={() => setScannerOpen(false)} onScanned={onScanned} title="Scan Packet Label" />
-      <View style={{ flex: 1, paddingHorizontal: 16, paddingTop: 16 }}>
+      <View style={{ flex: 1, paddingHorizontal: 16 }}>
         <ExpandableTable<Packet>
+          headerContent={listHeader}
           columns={PACKET_COLUMNS}
           visibleCount={PACKET_COLUMNS.length}
           data={packets}

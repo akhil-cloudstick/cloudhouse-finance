@@ -64,15 +64,20 @@ export default function SchemesScreen() {
 
   const schemes = data?.pages.flatMap((p) => p.items) ?? [];
 
+  // Search + "New" scroll away with the rows (ExpandableTable's headerContent)
+  // so the table's top fade sits right under the app header.
+  const listHeader = (
+    <View style={{ paddingTop: 20, marginBottom: 16 }}>
+      <GoldTextInput label="Search schemes" value={search} onChangeText={setSearch} blur />
+      <GoldButton title="+ New Scheme" variant="outline" onPress={() => router.push("/schemes/new")} />
+    </View>
+  );
+
   return (
     <ScreenContainer style={{ paddingHorizontal: 0 }}>
-      <View style={{ paddingHorizontal: 16, paddingTop: 20 }}>
-        <GoldTextInput label="Search schemes" value={search} onChangeText={setSearch} blur />
-        <GoldButton title="+ New Scheme" variant="outline" onPress={() => router.push("/schemes/new")} />
-      </View>
-
-      <View style={{ flex: 1, paddingHorizontal: 16, paddingTop: 16 }}>
+      <View style={{ flex: 1, paddingHorizontal: 16 }}>
         <ExpandableTable<Scheme>
+          headerContent={listHeader}
           columns={SCHEME_COLUMNS}
           visibleCount={SCHEME_VISIBLE_COUNT}
           data={schemes}

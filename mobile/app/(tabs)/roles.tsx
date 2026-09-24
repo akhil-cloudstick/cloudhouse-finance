@@ -1,4 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
+import { TAB_BAR_SPACE } from "../../src/theme/layout";
+import { TopFaded } from "../../src/components/EdgeFade";
 import { View, Pressable, ScrollView, Switch, StyleSheet } from "react-native";
 import { ScreenContainer } from "../../src/components/ScreenContainer";
 import { Card } from "../../src/components/Card";
@@ -393,9 +395,11 @@ export default function RolesPermissionsScreen() {
         ) : null}
       </View>
 
+      <TopFaded>{(fade) => (
       <ScrollView
+        {...fade}
         showsVerticalScrollIndicator={false}
-        contentContainerStyle={{ paddingHorizontal: 16, paddingTop: 8, paddingBottom: 24 }}
+        contentContainerStyle={{ paddingHorizontal: 16, paddingTop: 8, paddingBottom: TAB_BAR_SPACE }}
       >
         {!effective && !error ? <ThemedText color={colors.muted}>Loading…</ThemedText> : null}
         {effective && moduleEntries.length === 0 ? (
@@ -430,6 +434,7 @@ export default function RolesPermissionsScreen() {
           </Card>
         ))}
       </ScrollView>
+      )}</TopFaded>
 
       <RenameDeleteRoleSheet
         visible={editVisible}

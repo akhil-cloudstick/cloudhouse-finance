@@ -134,6 +134,7 @@ type CashRecorder interface {
 var (
 	ErrNotFound              = httpx.NewNotFound("loan not found")
 	ErrOrnamentNotFound      = httpx.NewNotFound("ornament not found")
+	ErrReleaseAlreadyPending = httpx.NewConflict("a release has already been requested for this loan and is waiting for approval")
 	ErrBranchInvalid         = httpx.NewBadRequest("branch does not exist")
 	ErrCustomerInvalid       = httpx.NewBadRequest("customer does not exist")
 	ErrSchemeInvalid         = httpx.NewBadRequest("scheme does not exist")
@@ -3598,6 +3599,18 @@ func (s *Service) CreateReleaseRequest(ctx context.Context, loanID uint, in Rele
 	requestedBy := in.RequestedBy
 	if requestedBy == "" {
 		requestedBy = RequestedByStaff
+	}
+
+	// One pending release per loan: a second request (a double tap, or the
+	// customer and staff apps at once) would ask for the same gold twice.
+	pending, _, err := s.requestRepo.FindAll(ctx, LoanRequestFilter{LoanID: loanID, Status: RequestStatusPending})
+	if err != nil {
+		return nil, err
+	}
+	for _, r := range pending {
+		if r.Type == RequestTypeRelease {
+			return nil, ErrReleaseAlreadyPending
+		}
 	}
 
 	active := make([]Ornament, 0, len(l.Ornaments))

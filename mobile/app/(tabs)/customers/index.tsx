@@ -110,24 +110,30 @@ export default function CustomersScreen() {
 
   const customers = data?.pages.flatMap((p) => p.items) ?? [];
 
-  return (
-    <ScreenContainer style={{ paddingHorizontal: 0 }}>
+  // Search + register scroll away with the rows (ExpandableTable's
+  // headerContent) so the table's top fade sits right under the app header.
+  const listHeader = (
+    <View>
       <GoldTextInput
         label="Search customers"
         placeholder="Name, phone, or code…"
         value={search}
         onChangeText={setSearch}
-        containerStyle={{ marginHorizontal: 16, marginTop: 28 }}
+        containerStyle={{ marginTop: 28 }}
         blur
       />
-      <View style={{ marginHorizontal: 16, marginBottom: 12 }}>
+      <View style={{ marginBottom: 12 }}>
         <GoldButton title="+ Register customer" onPress={() => router.push("/customers/new")} />
       </View>
+    </View>
+  );
 
-      {/* Only this scrolls — column-label row (sticky, inside
-       * ExpandableTable) stays put; reaching the bottom loads the next page. */}
+  return (
+    <ScreenContainer style={{ paddingHorizontal: 0 }}>
+      {/* Reaching the bottom loads the next page. */}
       <View style={{ flex: 1, paddingHorizontal: 16 }}>
         <ExpandableTable<Customer>
+          headerContent={listHeader}
           columns={CUSTOMER_COLUMNS}
           visibleCount={CUSTOMER_VISIBLE_COUNT}
           data={customers}

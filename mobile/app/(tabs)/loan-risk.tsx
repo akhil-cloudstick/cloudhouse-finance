@@ -100,9 +100,10 @@ export default function LoanRiskScreen() {
   const total = latest?.total ?? 0;
   const counts = latest?.counts ?? { loss: 0, atRisk: 0, safe: 0 };
 
-  return (
-    <ScreenContainer style={{ paddingHorizontal: 0 }}>
-      <View style={{ paddingHorizontal: 16, paddingTop: 20 }}>
+  // Summary card + filters scroll away with the rows (ExpandableTable's
+  // headerContent) so the table's top fade sits right under the app header.
+  const listHeader = (
+      <View style={{ paddingTop: 20 }}>
         <Card>
           <ThemedText variant="h3" style={{ marginBottom: 8 }}>
             Gold-value risk assessment
@@ -118,9 +119,13 @@ export default function LoanRiskScreen() {
           <FilterSheetButton label="Risk" options={RISK_LEVEL_FILTERS} value={riskLevelFilter} onChange={setRiskLevelFilter} />
         </View>
       </View>
+  );
 
+  return (
+    <ScreenContainer style={{ paddingHorizontal: 0 }}>
       <View style={{ flex: 1, paddingHorizontal: 16 }}>
         <ExpandableTable<LoanRiskRow>
+          headerContent={listHeader}
           columns={RISK_COLUMNS}
           visibleCount={RISK_VISIBLE_COUNT}
           data={rows}

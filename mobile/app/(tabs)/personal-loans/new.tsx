@@ -1,5 +1,7 @@
 import React, { useState } from "react";
-import { ScrollView, View, Pressable, StyleSheet } from "react-native";
+import { View, Pressable } from "react-native";
+import { GutterScrollView } from "../../../src/components/Gutter";
+import { SearchDropdown } from "../../../src/components/SearchDropdown";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { useRouter } from "expo-router";
 import { ScreenContainer } from "../../../src/components/ScreenContainer";
@@ -90,23 +92,16 @@ export default function NewPersonalLoanScreen() {
 
   return (
     <ScreenContainer style={{ padding: 0 }}>
-      <View style={{ flex: 1, paddingHorizontal: 8, paddingTop: 20 }}>
-        <ScrollView
+      <View style={{ flex: 1, paddingHorizontal: 8, paddingTop: 20 }} onTouchStart={() => customerFocused && setCustomerFocused(false)}>
+        <GutterScrollView
           showsVerticalScrollIndicator={false}
           nestedScrollEnabled
           keyboardShouldPersistTaps="handled"
         >
           <Card>
-            <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
-              <ThemedText variant="h3">Customer</ThemedText>
-              {customerFocused && !customer ? (
-                <Pressable onPress={() => setCustomerFocused(false)} hitSlop={8}>
-                  <ThemedText variant="small" color={colors.goldDeep}>
-                    Hide list
-                  </ThemedText>
-                </Pressable>
-              ) : null}
-            </View>
+            <ThemedText variant="h3" style={{ marginBottom: 8 }}>
+              Customer
+            </ThemedText>
             {customer ? (
               <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
                 <View>
@@ -122,36 +117,27 @@ export default function NewPersonalLoanScreen() {
                 </Pressable>
               </View>
             ) : (
-              <View>
-                <GoldTextInput
-                  label="Search customer"
-                  placeholder="Name, phone, or code…"
-                  value={customerQuery}
-                  onChangeText={setCustomerQuery}
-                  onFocus={() => setCustomerFocused(true)}
-                />
-                {customerFocused && (customerResults.data ?? []).length > 0 ? (
-                  <View style={styles.dropdownContainer}>
-                    <ScrollView nestedScrollEnabled style={{ maxHeight: 220 }} keyboardShouldPersistTaps="handled">
-                      {(customerResults.data ?? []).map((c, i) => (
-                        <Pressable
-                          key={c.id}
-                          onPress={() => {
-                            setCustomer(c);
-                            setCustomerFocused(false);
-                          }}
-                          style={[styles.dropdownRow, i > 0 && styles.dropdownDivider]}
-                        >
-                          <ThemedText variant="body">{c.name}</ThemedText>
-                          <ThemedText variant="small" color={colors.muted}>
-                            {c.code} · {c.phone}
-                          </ThemedText>
-                        </Pressable>
-                      ))}
-                    </ScrollView>
-                  </View>
-                ) : null}
-              </View>
+              <SearchDropdown
+                label="Search customer"
+                placeholder="Name, phone, or code…"
+                query={customerQuery}
+                onQueryChange={setCustomerQuery}
+                open={customerFocused}
+                onOpenChange={setCustomerFocused}
+                items={customerResults.data ?? []}
+                keyOf={(c) => c.id}
+                renderItem={(c) => (
+                  <>
+                    <ThemedText variant="body">{c.name}</ThemedText>
+                    <ThemedText variant="small" color={colors.muted}>
+                      {c.code} · {c.phone}
+                    </ThemedText>
+                  </>
+                )}
+                onSelect={setCustomer}
+                loading={customerResults.isLoading}
+                emptyText="No customers found"
+              />
             )}
           </Card>
 
@@ -184,7 +170,7 @@ export default function NewPersonalLoanScreen() {
             <ChipSelect label="Collection Frequency" options={["Daily", "Weekly", "Monthly"] as const} value={frequency} onChange={setFrequency} />
 
             {principalNum > 0 && tenureNum > 0 ? (
-              <View style={{ backgroundColor: colors.goldPale, borderRadius: 12, padding: 12, marginTop: 4 }}>
+              <View style={{ backgroundColor: colors.brandPale, borderRadius: 12, padding: 12, marginTop: 4 }}>
                 <ThemedText variant="small">Interest amount: {fmt(interestAmount)}</ThemedText>
                 <ThemedText variant="small">Disbursed to customer: {fmt(disbursedAmount)}</ThemedText>
                 <ThemedText variant="small">
@@ -209,21 +195,9 @@ export default function NewPersonalLoanScreen() {
             loading={submit.isPending}
           />
           <View style={{ height: 24 }} />
-        </ScrollView>
+        </GutterScrollView>
       </View>
     </ScreenContainer>
   );
 }
 
-const styles = StyleSheet.create({
-  dropdownContainer: {
-    marginTop: 8,
-    backgroundColor: colors.ivory,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: colors.line,
-    overflow: "hidden",
-  },
-  dropdownRow: { paddingVertical: 10, paddingHorizontal: 12 },
-  dropdownDivider: { borderTopWidth: 1, borderTopColor: colors.line },
-});

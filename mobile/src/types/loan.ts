@@ -14,6 +14,8 @@ export type Ornament = {
   quantity: number;
   goldValue: number;
   remarks?: string;
+  // Set once handed back by a (partial) release; unset while still pledged.
+  releasedAt?: string | null;
 };
 
 // Mirrors backend/internal/loan/service.go's LoanRiskRow — GET
@@ -113,10 +115,15 @@ export type LoanRequest = {
   requestedExtensionMonths?: number | null;
   newDueDate?: string | null;
   approvalStage?: string; // Release only — "PendingManager" | "PendingManagement" | "Approved" | "Rejected"
-  paymentVerified: boolean;
-  packetVerified: boolean;
-  bankPledgeVerified: boolean;
-  customerConfirmed: boolean;
+  // Release only. isPartial: a strict subset of ornaments (ornamentSelections).
+  // Approve needs customerSawGold plus a recorded payment (or the balance
+  // condition already met); `locked` (set by the first release payment)
+  // freezes customerSawGold and hides Reject.
+  isPartial?: boolean;
+  ornamentSelections?: { ornamentId: number }[];
+  customerSawGold?: boolean;
+  paymentRecorded?: boolean;
+  locked?: boolean;
   verificationNotes?: string;
   charges: number;
   // How much of `charges` has already been posted onto the loan as a real
@@ -179,6 +186,11 @@ export type Loan = {
   customer?: { id: number; name: string; phone: string; code?: string; address?: string; dob?: string; pan?: string };
   schemeId: number;
   scheme?: { id: number; name: string; interestRate: number; ltvPercent: number };
+  schemeLtvPercent?: number;
+  // Frozen from the scheme at creation. "WithheldFromPayout" pays out
+  // principal − serviceChargeAmount at disbursement.
+  serviceChargeMode?: string;
+  serviceChargeAmount?: number;
   status: string;
   openedDate: string;
   dueDate: string;

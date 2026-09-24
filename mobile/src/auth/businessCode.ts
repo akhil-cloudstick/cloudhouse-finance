@@ -37,9 +37,15 @@ export async function saveBusinessCode(code: string): Promise<void> {
   await SecureStore.setItemAsync(BUSINESS_CODE_KEY, normalized);
 }
 
+/* The login screen hides the business code field, so a backend that asks for
+ * one needs it from here instead: EXPO_PUBLIC_DEFAULT_BUSINESS_CODE in
+ * .env.local or eas.json. Used only when this device has none remembered. */
+const DEFAULT_BUSINESS_CODE = normalizeBusinessCode(process.env.EXPO_PUBLIC_DEFAULT_BUSINESS_CODE ?? "");
+
 export async function getBusinessCode(): Promise<string> {
   const stored = await SecureStore.getItemAsync(BUSINESS_CODE_KEY);
-  return stored && isValidBusinessCode(stored) ? stored : "";
+  if (stored && isValidBusinessCode(stored)) return stored;
+  return isValidBusinessCode(DEFAULT_BUSINESS_CODE) ? DEFAULT_BUSINESS_CODE : "";
 }
 
 export async function clearBusinessCode(): Promise<void> {

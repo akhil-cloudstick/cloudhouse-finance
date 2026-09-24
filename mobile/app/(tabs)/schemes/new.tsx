@@ -1,5 +1,6 @@
 import React, { useState } from "react";
-import { View, ScrollView } from "react-native";
+import { View } from "react-native";
+import { GutterScrollView } from "../../../src/components/Gutter";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "expo-router";
 import { ScreenContainer } from "../../../src/components/ScreenContainer";
@@ -83,14 +84,15 @@ export default function NewSchemeScreen() {
 
   return (
     <ScreenContainer style={{ padding: 0 }}>
-      <View style={{ flex: 1, paddingHorizontal: 8, paddingTop: 20 }}>      {/* style={{flex:1}} matters here specifically: without it this
+      <View style={{ flex: 1, paddingHorizontal: 8, paddingTop: 20 }}>
+      {/* style={{flex:1}} matters here specifically: without it this
        * ScrollView sizes itself to its own (tall — 8 fields) content height
        * instead of the space ScreenContainer's KeyboardAvoidingView actually
        * has once the keyboard opens and shrinks that space, so it never
        * establishes a bounded scrollable viewport — the keyboard just
        * covers whatever's near the bottom (Conditions, Status, the Create
        * button) with no way to scroll it into view. */}
-      <ScrollView
+      <GutterScrollView
         style={{ flex: 1 }}
         contentContainerStyle={{ paddingBottom: 24 }}
         showsVerticalScrollIndicator={false}
@@ -162,7 +164,7 @@ export default function NewSchemeScreen() {
           />
         </View>
       </Card>
-      </ScrollView>
+      </GutterScrollView>
       </View>
     </ScreenContainer>  );
 }

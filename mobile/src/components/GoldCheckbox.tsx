@@ -35,25 +35,25 @@ export function GoldCheckbox({
       hitSlop={8}
       style={[styles.box, value && styles.boxChecked, disabled && styles.boxDisabled]}
     >
-      {value ? <Icon name="check" size={12} color={colors.card} strokeWidth={3} /> : null}
+      {value ? <Icon name="check" size={15} color={colors.card} strokeWidth={3} /> : null}
     </Pressable>
   );
 }
 
 const styles = StyleSheet.create({
   box: {
-    width: 20,
-    height: 20,
-    borderRadius: 5,
-    borderWidth: 1.5,
-    borderColor: colors.line,
+    width: 24,
+    height: 24,
+    borderRadius: 7,
+    borderWidth: 2,
+    borderColor: colors.muted,
     backgroundColor: colors.card,
     alignItems: "center",
     justifyContent: "center",
   },
   boxChecked: {
-    borderColor: colors.goldDeep,
-    backgroundColor: colors.goldDeep,
+    borderColor: colors.brandDeep,
+    backgroundColor: colors.brandDeep,
   },
   boxDisabled: { opacity: 0.5 },
 });
