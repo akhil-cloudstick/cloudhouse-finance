@@ -1,8 +1,9 @@
 import React, { useMemo, useState } from "react";
-import { RefreshControl, View, Pressable, StyleSheet, ScrollView } from "react-native";
+import { RefreshControl, View, Pressable, StyleSheet } from "react-native";
+import { GutterScrollView } from "../../src/components/Gutter";
 import { useQuery, useQueryClient, useMutation } from "@tanstack/react-query";
 import { ScreenContainer } from "../../src/components/ScreenContainer";
-import { BottomSheetModal } from "../../src/components/BottomSheetModal";
+import { BottomSheetModal, SheetScrollView } from "../../src/components/BottomSheetModal";
 import { Card } from "../../src/components/Card";
 import { ThemedText } from "../../src/components/ThemedText";
 import { GoldTextInput } from "../../src/components/GoldTextInput";
@@ -103,7 +104,7 @@ function AddReminderModal({ visible, onClose }: { visible: boolean; onClose: () 
         </Pressable>
       </View>
 
-      <ScrollView showsVerticalScrollIndicator={false}>
+      <SheetScrollView showsVerticalScrollIndicator={false}>
           {customer ? (
             <Card>
               <ThemedText variant="body">{customer.name} — {customer.code}</ThemedText>
@@ -162,7 +163,7 @@ function AddReminderModal({ visible, onClose }: { visible: boolean; onClose: () 
             loading={create.isPending}
             disabled={!customer || !dueDate}
           />
-      </ScrollView>
+      </SheetScrollView>
     </BottomSheetModal>
   );
 }
@@ -264,7 +265,7 @@ export default function RemindersScreen() {
   return (
     <ScreenContainer style={{ padding: 0 }}>
       <View style={{ flex: 1, paddingHorizontal: 8, paddingTop: 20 }}>
-      <ScrollView
+      <GutterScrollView
         showsVerticalScrollIndicator={false}
         refreshControl={<RefreshControl refreshing={isRefetching} onRefresh={refetch} />}
       >
@@ -348,7 +349,7 @@ export default function RemindersScreen() {
             );
           })
         )}
-      </ScrollView>
+      </GutterScrollView>
       <AddReminderModal visible={addVisible} onClose={() => setAddVisible(false)} />
       </View>
     </ScreenContainer>  );

@@ -13,7 +13,7 @@ import { colors } from "../theme/colors";
 // there was more off to the side (see Loans.tsx's original bug), and even
 // ChipSelect's flex-wrap version ate a full row of vertical space above the
 // table permanently, active or not. This collapses to one small button
-// (plus a dismissible pill showing the active filter, if any isn't the
+// (showing the active filter inside itself, if any isn't the
 // default) regardless of how many options there are, and the picker itself
 // gets the whole sheet to lay out in rather than squeezing sideways.
 //
@@ -36,8 +36,9 @@ export function FilterSheetButton<T extends string>({
   options: readonly T[];
   value: T;
   onChange: (v: T) => void;
-  /** The option that counts as "no filter applied" — suppresses the active-
-   * filter pill and is what its × clears back to. Defaults to `options[0]`
+  /** The option that counts as "no filter applied" — the button shows its
+   * plain label while this is selected, and a tap on an applied filter
+   * resets back to it. Defaults to `options[0]`
    * (this app's convention: the least-restrictive option always leads,
    * e.g. Loans' "All" or Auctions' "Auction Eligible"). */
   defaultValue?: T;
@@ -49,22 +50,24 @@ export function FilterSheetButton<T extends string>({
   return (
     <>
       <View style={styles.row}>
-        <Pressable onPress={() => setSheetVisible(true)} style={styles.trigger}>
+        {/* Shows just the current selection (same styling either way).
+            Tapping while a filter is applied resets it; with no filter
+            applied it opens the options. */}
+        <Pressable onPress={() => (isFiltered ? onChange(noFilter) : setSheetVisible(true))} style={styles.trigger}>
           <Icon name="list" size={15} color={colors.brandDeep} />
-          <ThemedText variant="label" color={colors.brandDeep}>
-            {label}
+          <ThemedText variant="label" color={colors.brandDeep} numberOfLines={1}>
+            {isFiltered ? value : label}
           </ThemedText>
-        </Pressable>
-        {isFiltered ? (
-          <Pressable onPress={() => onChange(noFilter)} style={styles.activePill}>
-            <ThemedText variant="small" numberOfLines={1} color={colors.bg}>
-              {value}
-            </ThemedText>
-            <ThemedText variant="small" color={colors.bg} style={{ marginLeft: 6 }}>
+          {isFiltered ? (
+            <ThemedText variant="label" color={colors.brandDeep}>
               ×
             </ThemedText>
-          </Pressable>
-        ) : null}
+          ) : (
+            <View style={{ transform: [{ rotate: "-90deg" }] }}>
+              <Icon name="chevronLeft" size={11} color={colors.brandDeep} />
+            </View>
+          )}
+        </Pressable>
       </View>
 
       <BottomSheetModal visible={sheetVisible} onClose={() => setSheetVisible(false)}>
@@ -107,14 +110,6 @@ const styles = StyleSheet.create({
     backgroundColor: colors.brandPale,
     borderRadius: 18,
     paddingHorizontal: 14,
-  },
-  activePill: {
-    flexDirection: "row",
-    alignItems: "center",
-    height: 36,
-    borderRadius: 18,
-    paddingHorizontal: 12,
-    backgroundColor: colors.brandDeep,
   },
   grid: { flexDirection: "row", flexWrap: "wrap", gap: 8, paddingBottom: 8 },
   chip: {

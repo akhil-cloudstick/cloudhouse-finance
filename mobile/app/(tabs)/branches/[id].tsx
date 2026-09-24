@@ -1,5 +1,6 @@
 import React from "react";
-import { ScrollView, RefreshControl, View } from "react-native";
+import { RefreshControl, View } from "react-native";
+import { GutterScrollView } from "../../../src/components/Gutter";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { ScreenContainer } from "../../../src/components/ScreenContainer";
@@ -35,7 +36,7 @@ export default function BranchDetailScreen() {
   return (
     <ScreenContainer style={{ padding: 0 }}>
       <View style={{ flex: 1, paddingHorizontal: 8, paddingTop: 20 }}>
-      <ScrollView
+      <GutterScrollView
         showsVerticalScrollIndicator={false}
         refreshControl={<RefreshControl refreshing={isRefetching} onRefresh={refetch} />}
       >
@@ -71,7 +72,7 @@ export default function BranchDetailScreen() {
             ) : null}
           </Card>
         )}
-      </ScrollView>
+      </GutterScrollView>
       </View>
     </ScreenContainer>  );
 }

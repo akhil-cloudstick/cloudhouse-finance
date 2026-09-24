@@ -19,9 +19,11 @@ import { useFocusEffect } from "expo-router";
 export function useRefetchOnFocus(...refetches: Array<() => void>) {
   useFocusEffect(
     useCallback(() => {
-      refetches.forEach((r) => r());
-      // Intentionally no cleanup — this only needs to fire on focus, not
-      // on blur.
+      // Deferred a beat so the newly focused screen paints before N network
+      // requests and their re-renders compete with it (tab switches felt
+      // laggy). Cancelled if the screen loses focus first.
+      const t = setTimeout(() => refetches.forEach((r) => r()), 300);
+      return () => clearTimeout(t);
       // eslint-disable-next-line react-hooks/exhaustive-deps
     }, refetches)
   );

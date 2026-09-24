@@ -1,5 +1,6 @@
 import React, { useState } from "react";
-import { ScrollView, View, StyleSheet, Pressable, FlatList, RefreshControl, Alert } from "react-native";
+import { View, StyleSheet, Pressable, RefreshControl, Alert } from "react-native";
+import { GutterScrollView } from "../../src/components/Gutter";
 import { useQuery } from "@tanstack/react-query";
 import * as Print from "expo-print";
 import * as FileSystem from "expo-file-system/legacy";
@@ -8,12 +9,11 @@ import { useRefetchOnFocus } from "../../src/hooks/useRefetchOnFocus";
 import { API_BASE_URL } from "../../src/api/config";
 import { getToken } from "../../src/auth/tokenStorage";
 import { ScreenContainer } from "../../src/components/ScreenContainer";
-import { BottomSheetModal } from "../../src/components/BottomSheetModal";
+import { BottomSheetModal, SheetFlatList } from "../../src/components/BottomSheetModal";
 import { Card } from "../../src/components/Card";
 import { ThemedText } from "../../src/components/ThemedText";
 import { GoldButton } from "../../src/components/GoldButton";
 import { colors } from "../../src/theme/colors";
-import { tableCardStyle } from "../../src/components/ExpandableTable";
 import {
   getDisbursement,
   getLoansStatus,
@@ -315,7 +315,7 @@ export default function ReportsScreen() {
   return (
     <ScreenContainer style={{ padding: 0 }}>
       <View style={{ flex: 1, paddingHorizontal: 8, paddingTop: 20 }}>
-      <ScrollView
+      <GutterScrollView
         showsVerticalScrollIndicator={false}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
       >
@@ -341,27 +341,13 @@ export default function ReportsScreen() {
             );
           })}
         </View>
-      </ScrollView>
+      </GutterScrollView>
 
-      <BottomSheetModal visible={!!preview} onClose={() => setPreview(null)} maxHeightPct={85} dragToClose={false}>
+      <BottomSheetModal visible={!!preview} onClose={() => setPreview(null)} maxHeightPct={85}>
         <View style={styles.sheetHeader}>
           <ThemedText variant="h3" color={colors.brandDeep} numberOfLines={1} style={{ flex: 1 }}>
             {preview?.title}
           </ThemedText>
-          <GoldButton
-            title={exporting ? "Exporting…" : "Export .xlsx"}
-            variant="outline"
-            onPress={() => preview && exportSection(preview)}
-            disabled={exporting || !preview}
-            style={{ height: 36, paddingHorizontal: 14, marginRight: 8 }}
-          />
-          <GoldButton
-            title={printing ? "Printing…" : "Print"}
-            variant="outline"
-            onPress={() => preview && printSection(preview)}
-            disabled={printing || !preview}
-            style={{ height: 36, paddingHorizontal: 14 }}
-          />
           <Pressable onPress={() => setPreview(null)} hitSlop={10} style={{ paddingLeft: 12 }}>
             <ThemedText variant="h3" color={colors.muted}>
               ×
@@ -381,12 +367,13 @@ export default function ReportsScreen() {
             return <ThemedText color={colors.muted}>No records.</ThemedText>;
           }
           return (
-            <FlatList
+            <SheetFlatList
               data={rows}
               keyExtractor={(_, i) => String(i)}
               showsVerticalScrollIndicator={true}
               style={{ flexShrink: 1 }}
-              contentContainerStyle={tableCardStyle}
+              // Padding gives the cards' shadows room inside the list's clip.
+              contentContainerStyle={{ paddingHorizontal: 6, paddingTop: 4, paddingBottom: 6 }}
               renderItem={({ item, index }) => {
                 const row = preview!.renderRow(item);
                 // Same "each row its own separated, shadowed card" treatment
@@ -409,12 +396,33 @@ export default function ReportsScreen() {
             />
           );
         })()}
+        {/* Pinned below the list (outside it), so the actions stay visible however far the report scrolls. */}
+        <View style={styles.sheetFooter}>
+          <View style={{ flex: 1 }}>
+            <GoldButton
+              title={exporting ? "Exporting…" : "Export .xlsx"}
+              icon="download"
+              variant="outline"
+              onPress={() => preview && exportSection(preview)}
+              disabled={exporting || !preview}
+            />
+          </View>
+          <View style={{ flex: 1 }}>
+            <GoldButton
+              title={printing ? "Printing…" : "Print"}
+              icon="doc"
+              onPress={() => preview && printSection(preview)}
+              disabled={printing || !preview}
+            />
+          </View>
+        </View>
       </BottomSheetModal>
       </View>
     </ScreenContainer>  );
 }
 
 const styles = StyleSheet.create({
+  sheetFooter: { flexDirection: "row", gap: 8, paddingTop: 12, borderTopWidth: 1, borderTopColor: colors.line, marginTop: 8 },
   grid: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
   tileWrap: { minWidth: "47%", flexGrow: 1 },
   tile: { flex: 1 },
@@ -428,21 +436,17 @@ const styles = StyleSheet.create({
   // and the rounded/clipped border live on two nested Views rather than
   // one, since a View can't clip its children via overflow:hidden while
   // still painting a shadow that extends past its own bounds on iOS.
+  // Same card look as every other table's rows (ExpandableTable cardOuter/cardInner).
   previewCardOuter: {
     marginBottom: 10,
-    shadowColor: colors.nav,
-    shadowOpacity: 0.08,
-    shadowRadius: 10,
-    shadowOffset: { width: 0, height: 4 },
-    elevation: 2,
+    borderRadius: 14,
+    boxShadow: "0px 5px 10px rgba(43, 26, 94, 0.2)",
   },
   previewCardInner: {
     borderRadius: 14,
-    borderWidth: 1,
-    borderColor: colors.line,
     overflow: "hidden",
     backgroundColor: colors.card,
-    paddingVertical: 11,
-    paddingHorizontal: 12,
+    paddingVertical: 16,
+    paddingHorizontal: 14,
   },
 });

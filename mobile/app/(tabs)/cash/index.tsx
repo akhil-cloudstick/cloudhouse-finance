@@ -249,14 +249,11 @@ export default function CashScreen() {
     return fields;
   }
 
-  return (
-    <ScreenContainer style={{ padding: 0 }}>
-      {/* Summary, tab switch, and the Add form are fixed — only the table
-       * below scrolls (its column-label row and count footer both sticky,
-       * more rows loading in via infinite scroll). See ExpandableTable.tsx's
-       * own comment on why it needs its own flex:1 slot rather than a
-       * shared ScrollView. */}
-      <View style={{ paddingHorizontal: 16, paddingTop: 20 }}>
+  // Summary, tab switch, actions and the open form scroll away WITH the table
+  // (ExpandableTable's headerContent) — as a fixed block above it they left
+  // the table almost no room and the page couldn't scroll.
+  const pageHeader = (
+    <View>
         <Card>
           <ThemedText variant="h3" style={{ marginBottom: 8 }}>
             Today's cash summary
@@ -367,10 +364,13 @@ export default function CashScreen() {
             <GoldButton title="Save" onPress={() => createGold.mutate()} loading={createGold.isPending} disabled={!gType || !gSold} />
           </Card>
         ) : null}
-      </View>
+    </View>
+  );
 
+  return (
+    <ScreenContainer style={{ padding: 0 }}>
       {tab === "movements" ? (
-        <View style={{ flex: 1, paddingHorizontal: 16 }}>
+        <View style={{ flex: 1, paddingHorizontal: 16, paddingTop: 20 }}>
           <ExpandableTable<CashMovement>
             columns={MOVEMENT_COLUMNS}
             visibleCount={MOVEMENT_VISIBLE}
@@ -388,10 +388,11 @@ export default function CashScreen() {
               if (movements.hasNextPage && !movements.isFetchingNextPage) movements.fetchNextPage();
             }}
             isFetchingNextPage={movements.isFetchingNextPage}
+            headerContent={pageHeader}
           />
         </View>
       ) : tab === "expenses" ? (
-        <View style={{ flex: 1, paddingHorizontal: 16 }}>
+        <View style={{ flex: 1, paddingHorizontal: 16, paddingTop: 20 }}>
           <ExpandableTable<Expense>
             columns={EXPENSE_COLUMNS}
             visibleCount={EXPENSE_VISIBLE}
@@ -409,10 +410,11 @@ export default function CashScreen() {
               if (expenses.hasNextPage && !expenses.isFetchingNextPage) expenses.fetchNextPage();
             }}
             isFetchingNextPage={expenses.isFetchingNextPage}
+            headerContent={pageHeader}
           />
         </View>
       ) : (
-        <View style={{ flex: 1, paddingHorizontal: 16 }}>
+        <View style={{ flex: 1, paddingHorizontal: 16, paddingTop: 20 }}>
           <ExpandableTable<GoldSale>
             columns={GOLD_SALE_COLUMNS}
             visibleCount={GOLD_SALE_VISIBLE}
@@ -430,6 +432,7 @@ export default function CashScreen() {
               if (goldSales.hasNextPage && !goldSales.isFetchingNextPage) goldSales.fetchNextPage();
             }}
             isFetchingNextPage={goldSales.isFetchingNextPage}
+            headerContent={pageHeader}
           />
         </View>
       )}

@@ -6,6 +6,8 @@ export default function SettingsLayout() {
   return (
     <Stack
       screenOptions={{
+        // Header floats over the scene; see useHeaderSpace (src/theme/layout.ts).
+        headerTransparent: true,
         header: ({ options, route, navigation }) => (
           <FloatingHeader title={options.title ?? route.name} navigation={navigation} />
         ),

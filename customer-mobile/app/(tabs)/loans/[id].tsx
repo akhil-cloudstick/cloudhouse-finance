@@ -97,6 +97,10 @@ export default function LoanDetailScreen() {
 
   const [loan, setLoan] = useState<Loan | null>(null);
   const [latestRequest, setLatestRequest] = useState<LoanRequest | null>(null);
+  // While one of each is Pending, its request button is replaced by a
+  // "waiting for approval" note so the same gold can't be requested twice.
+  const [pendingRelease, setPendingRelease] = useState(false);
+  const [pendingExtension, setPendingExtension] = useState(false);
   const [payments, setPayments] = useState<LoanPayment[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -117,6 +121,8 @@ export default function LoanDetailScreen() {
       ]);
       setLoan(l);
       setLatestRequest(requests[0] ?? null);
+      setPendingRelease(requests.some((r) => r.type === "Release" && r.status === "Pending"));
+      setPendingExtension(requests.some((r) => r.type === "Extension" && r.status === "Pending"));
       setPayments(loanPayments);
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Could not load this loan.");
@@ -267,19 +273,37 @@ export default function LoanDetailScreen() {
           ) : null}
 
           <GoldButton title="Pay" onPress={() => setPayOpen(true)} style={{ marginTop: 8, marginBottom: 10 }} />
+          {pendingRelease || pendingExtension ? (
+            <Card style={{ backgroundColor: colors.amberBg, borderColor: colors.amber, marginBottom: 10 }}>
+              {pendingRelease ? (
+                <ThemedText variant="body" color={colors.amber} style={{ fontWeight: "600" }}>
+                  Release requested — waiting for approval
+                </ThemedText>
+              ) : null}
+              {pendingExtension ? (
+                <ThemedText variant="body" color={colors.amber} style={{ fontWeight: "600", marginTop: pendingRelease ? 6 : 0 }}>
+                  Extension requested — waiting for approval
+                </ThemedText>
+              ) : null}
+            </Card>
+          ) : null}
           <View style={{ flexDirection: "row", gap: 10, marginBottom: 24 }}>
-            <GoldButton
-              title="Request Extension"
-              variant="outline"
-              onPress={() => setExtensionOpen(true)}
-              style={{ flex: 1 }}
-            />
-            <GoldButton
-              title="Request Release"
-              variant="outline"
-              onPress={() => setReleaseOpen(true)}
-              style={{ flex: 1 }}
-            />
+            {!pendingExtension ? (
+              <GoldButton
+                title="Request Extension"
+                variant="outline"
+                onPress={() => setExtensionOpen(true)}
+                style={{ flex: 1 }}
+              />
+            ) : null}
+            {!pendingRelease ? (
+              <GoldButton
+                title="Request Release"
+                variant="outline"
+                onPress={() => setReleaseOpen(true)}
+                style={{ flex: 1 }}
+              />
+            ) : null}
           </View>
         </ScrollView>
       </ScreenContainer>

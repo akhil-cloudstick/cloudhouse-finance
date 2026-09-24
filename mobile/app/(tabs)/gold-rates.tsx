@@ -234,9 +234,16 @@ export default function GoldRatesScreen() {
 
   const canPublish = +rate24 > 0 && +rate22 > 0 && +rate18 > 0;
 
-  return (
-    <ScreenContainer style={{ paddingHorizontal: 0 }}>
-      <View style={{ paddingHorizontal: 16, paddingTop: 20, marginBottom: 8 }}>
+  // The publish form (Card below) used to sit as a fixed sibling above
+  // ExpandableTable, squeezing its flex:1 slot down to almost nothing
+  // whenever the form was open — the table's own FlatList scrolled fine,
+  // there just wasn't room left to see it. Moved into ExpandableTable's
+  // `headerContent` instead, so it scrolls away WITH the table — same fix
+  // as customers/[id].tsx's own profile/nominee cards (see that screen's
+  // comment and ExpandableTable.tsx's `headerContent` doc comment).
+  const formHeader = (
+    <>
+      <View style={{ paddingTop: 20, marginBottom: 8 }}>
         <GoldButton
           title={formVisible ? "Cancel" : "+ Set today's rate"}
           variant={formVisible ? "outline" : "primary"}
@@ -245,7 +252,7 @@ export default function GoldRatesScreen() {
       </View>
 
       {formVisible ? (
-        <Card style={{ marginHorizontal: 16 }}>
+        <Card style={{ marginBottom: 12 }}>
           <ThemedText variant="h3" style={{ marginBottom: 8 }}>
             Set Today&apos;s Gold Rate
           </ThemedText>
@@ -321,14 +328,11 @@ export default function GoldRatesScreen() {
           />
         </Card>
       ) : null}
+    </>
+  );
 
-      <View style={{ paddingHorizontal: 16, marginBottom: 4, marginTop: formVisible ? 12 : 0 }}>
-        {/* <ThemedText variant="small" color={colors.muted}>
-          24K is always published directly. 22K/18K can be published directly too (Manual mode) or derived from
-          24K at a chosen purity (Auto mode). Any other purity is resolved per-ornament, at pledge time.
-        </ThemedText> */}
-      </View>
-
+  return (
+    <ScreenContainer style={{ paddingHorizontal: 0 }}>
       <View style={{ flex: 1, paddingHorizontal: 16, paddingTop: 16 }}>
         <ExpandableTable<GoldRate>
           columns={RATE_COLUMNS}
@@ -336,6 +340,7 @@ export default function GoldRatesScreen() {
           data={rates}
           keyExtractor={(r) => String(r.id)}
           extraFields={rateExtraFields}
+          headerContent={formHeader}
           emptyText={isLoading ? "Loading…" : isError ? "Could not load gold rates." : "No rates published yet."}
           refreshControl={<RefreshControl refreshing={isFetching && !isFetchingNextPage && !isLoading} onRefresh={refetch} />}
           onEndReached={() => {

@@ -1,5 +1,6 @@
 import React, { useMemo, useState } from "react";
-import { ScrollView, RefreshControl, View, Pressable, Alert } from "react-native";
+import { RefreshControl, View, Pressable, Alert } from "react-native";
+import { GutterScrollView } from "../../../src/components/Gutter";
 import { useLocalSearchParams } from "expo-router";
 import { useQuery, useQueryClient, useMutation } from "@tanstack/react-query";
 import { ScreenContainer } from "../../../src/components/ScreenContainer";
@@ -9,7 +10,7 @@ import { GoldTextInput } from "../../../src/components/GoldTextInput";
 import { GoldButton } from "../../../src/components/GoldButton";
 import { GoldDatePicker } from "../../../src/components/GoldDatePicker";
 import { ChipSelect } from "../../../src/components/ChipSelect";
-import { BottomSheetModal } from "../../../src/components/BottomSheetModal";
+import { BottomSheetModal, SheetScrollView } from "../../../src/components/BottomSheetModal";
 import { colors } from "../../../src/theme/colors";
 import { getScheme, toggleSchemeActive, updateScheme, type SchemeInput } from "../../../src/api/schemes";
 import { ServiceChargeType, ServiceChargeMode } from "../../../src/types/scheme";
@@ -203,7 +204,7 @@ export default function SchemeDetailScreen() {
   return (
     <ScreenContainer style={{ padding: 0 }}>
       <View style={{ flex: 1, paddingHorizontal: 8, paddingTop: 20 }}>
-      <ScrollView
+      <GutterScrollView
         showsVerticalScrollIndicator={false}
         refreshControl={<RefreshControl refreshing={isRefetching} onRefresh={refetch} />}
       >
@@ -285,7 +286,7 @@ export default function SchemeDetailScreen() {
             </Card>
           </>
         )}
-      </ScrollView>
+      </GutterScrollView>
       </View>
 
       <BottomSheetModal visible={statementOpen} onClose={() => setStatementOpen(false)}>
@@ -307,7 +308,7 @@ export default function SchemeDetailScreen() {
           </ThemedText>
           {loans.length > 0 ? (
             <Pressable onPress={toggleSelectAll} hitSlop={6}>
-              <ThemedText variant="label" color={colors.goldDeep}>
+              <ThemedText variant="label" color={colors.brandDeep}>
                 {allLoanIdsSelected ? "Clear all" : "Select all"}
               </ThemedText>
             </Pressable>
@@ -318,7 +319,7 @@ export default function SchemeDetailScreen() {
         ) : loans.length === 0 ? (
           <ThemedText color={colors.muted}>No loans opened under this scheme in that range.</ThemedText>
         ) : (
-          <ScrollView style={{ maxHeight: 220 }}>
+          <SheetScrollView style={{ maxHeight: 220 }}>
             {loans.map((l) => (
               <Pressable
                 key={l.id}
@@ -348,7 +349,7 @@ export default function SchemeDetailScreen() {
                 <ThemedText color={colors.muted}>₹{l.principalAmount.toLocaleString("en-IN")}</ThemedText>
               </Pressable>
             ))}
-          </ScrollView>
+          </SheetScrollView>
         )}
 
         {loans.length > 0 ? (
@@ -387,7 +388,7 @@ export default function SchemeDetailScreen() {
         <ThemedText variant="h3" style={{ marginBottom: 12 }}>
           Edit Scheme
         </ThemedText>
-        <ScrollView keyboardShouldPersistTaps="handled" style={{ maxHeight: 420 }}>
+        <SheetScrollView keyboardShouldPersistTaps="handled" style={{ maxHeight: 420 }}>
           <GoldTextInput label="Name" value={editName} onChangeText={setEditName} />
           <GoldTextInput label="Interest rate (% p.a.)" keyboardType="numeric" value={editInterestRate} onChangeText={setEditInterestRate} />
           <GoldTextInput label="Duration (months)" keyboardType="numeric" value={editDurationMonths} onChangeText={setEditDurationMonths} />
@@ -412,7 +413,7 @@ export default function SchemeDetailScreen() {
               {editError}
             </ThemedText>
           ) : null}
-        </ScrollView>
+        </SheetScrollView>
         <View style={{ flexDirection: "row", gap: 12, marginTop: 8 }}>
           <View style={{ flex: 1 }}>
             <GoldButton title="Cancel" variant="outline" onPress={() => setEditOpen(false)} />

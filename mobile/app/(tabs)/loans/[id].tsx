@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
-import { ScrollView, View, RefreshControl, Linking, Alert, Pressable } from "react-native";
+import { View, RefreshControl, Linking, Alert, Pressable, ActivityIndicator } from "react-native";
+import { GutterScrollView } from "../../../src/components/Gutter";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useRefetchOnFocus } from "../../../src/hooks/useRefetchOnFocus";
@@ -10,8 +11,11 @@ import { GoldTextInput } from "../../../src/components/GoldTextInput";
 import { GoldDatePicker } from "../../../src/components/GoldDatePicker";
 import { GoldButton } from "../../../src/components/GoldButton";
 import { ChipSelect } from "../../../src/components/ChipSelect";
-import { BottomSheetModal } from "../../../src/components/BottomSheetModal";
+import { BottomSheetModal, SheetScrollView } from "../../../src/components/BottomSheetModal";
 import { Icon } from "../../../src/components/Icon";
+import { SelectDropdown } from "../../../src/components/SelectDropdown";
+import { PaymentSplitInput, PaymentBreakdownSheet, ZERO_SPLIT, isBalanced } from "../../../src/components/PaymentBreakdown";
+import type { SplitAmounts } from "../../../src/api/investments";
 import { ExtensionReviewPanel } from "../../../src/components/loanRequests/ExtensionReviewPanel";
 import { ReleaseReviewPanel } from "../../../src/components/loanRequests/ReleaseReviewPanel";
 import { colors } from "../../../src/theme/colors";
@@ -43,10 +47,10 @@ import { recordBankPledge, releaseBankPledge, voidBankPledge, getBankPledgeHisto
 import { listPackets } from "../../../src/api/packets";
 import { listBanks } from "../../../src/api/banks";
 import { listSchemes } from "../../../src/api/schemes";
-import { getCustomer } from "../../../src/api/customers";
 import { Scheme } from "../../../src/types/scheme";
 import { Ornament } from "../../../src/types/loan";
-import { fmt } from "../../../src/lib/format";
+import { fmt, fmtDate } from "../../../src/lib/format";
+import { GoldCheckbox } from "../../../src/components/GoldCheckbox";
 import {
   getAuction,
   markAuctionEligible,
@@ -65,7 +69,18 @@ import {
 } from "../../../src/types/auction";
 import { ApiError } from "../../../src/api/client";
 import { statusColors } from "../../../src/theme/colors";
-import { printPledgeSlip, printStatement, printIndemnityBond, printPacketLabel, printReleaseAgreement } from "../../../src/utils/loanPrint";
+import {
+  printPledgeSlip,
+  printStatement,
+  printPacketLabel,
+  printLabelAndSlipOnePage,
+  printPledgeAgreementPdf,
+  printReleaseAgreementPdf,
+  PLEDGE_AGREEMENT_LANGS,
+  RELEASE_AGREEMENT_LANGS,
+  DOC_LANG_LABELS,
+  type DocLang,
+} from "../../../src/utils/loanPrint";
 
 // Mirrors frontend/modules/loans/components/Auctions.tsx's role gating —
 // who may decide each kind of escalation.
@@ -77,10 +92,12 @@ const SHORTFALL_DECISION_ROLES = ["Administrator", "Management", "Branch Manager
 // staff-entered here (mirrors frontend/components/modals/PaymentModal.tsx).
 const PAYMENT_TYPES = ["Interest", "Principal", "Partial", "Full Settlement", "Adjustment", "Waiver"] as const;
 
-// Mirrors frontend/common/components/modals/PaymentModal.tsx's METHODS —
-// same fixed choices, kept as a dropdown/chip picker rather than free text
-// so a staff-entered method can't drift from what the web app records.
-const PAYMENT_METHODS = ["Cash", "UPI", "Bank Transfer", "Cheque"] as const;
+// Aadhaar eSign bond languages offered as their own rows in Print & Documents.
+const ESIGN_LANGS: { code: BondLang; name: string }[] = [
+  { code: "en", name: "English" },
+  { code: "ml", name: "Malayalam" },
+];
+const BOND_LANG_NAMES: Record<BondLang, string> = { en: "English", ml: "Malayalam", gu: "Gujarati" };
 
 // v2: adds Payments, Extension/Release requests, Bank Pledge, and the
 // sanction-chain Approval workflow alongside the existing auction section.
@@ -112,8 +129,8 @@ export default function LoanDetailScreen() {
   const canActOnAuction = can("Loan_Management", "can_update_loan");
 
   const loan = useQuery({ queryKey: ["loan", id], queryFn: () => getLoan(loanId), enabled: !!id });
-  // This loan's tracking packet — used only to drive the "Gold Pledge /
-  // Locker" release warning below (mirrors web LoanDetail.tsx).
+  // This loan's tracking packet — used only to drive the Bank Pledge card's
+  // locker info/release warning below (mirrors web LoanDetail.tsx).
   const packetQuery = useQuery({
     queryKey: ["loanPacket", id],
     queryFn: () => listPackets({ loanId }),
@@ -149,7 +166,11 @@ export default function LoanDetailScreen() {
   const [printingLabel, setPrintingLabel] = useState(false);
   const [printingSlip, setPrintingSlip] = useState(false);
   const [printingStatement, setPrintingStatement] = useState(false);
-  const [printingBond, setPrintingBond] = useState(false);
+  // "<doc>-<lang>" of the agreement being fetched, so only that row spins.
+  const [printingAgreement, setPrintingAgreement] = useState<string | null>(null);
+  const [printingLabelSlip, setPrintingLabelSlip] = useState(false);
+  const [printingOnePage, setPrintingOnePage] = useState(false);
+  const [printSheetVisible, setPrintSheetVisible] = useState(false);
 
   // --- Auction form state (unchanged from v1) -------------------------------
   const [auctionDate, setAuctionDate] = useState("");
@@ -181,17 +202,20 @@ export default function LoanDetailScreen() {
   // Defaults to today, same as the web PaymentModal, but editable so staff
   // can backdate a payment instead of it being silently forced to "today".
   const [paymentDate, setPaymentDate] = useState(new Date().toISOString().slice(0, 10));
-  // Defaults to the first option ("Cash"), matching the web modal's
-  // `useState(METHODS[0])` — a fixed-choice field reads oddly with nothing
-  // selected, and cash is the common case.
-  const [paymentMethod, setPaymentMethod] = useState<(typeof PAYMENT_METHODS)[number]>(PAYMENT_METHODS[0]);
   const [paymentReference, setPaymentReference] = useState("");
   const [paymentDescription, setPaymentDescription] = useState("");
+  const [paymentSheetVisible, setPaymentSheetVisible] = useState(false);
+  const [paymentTypeOpen, setPaymentTypeOpen] = useState(false);
+  const [paymentSplit, setPaymentSplit] = useState<SplitAmounts>(ZERO_SPLIT);
+  // Final-sanction approval disburses the loan, so it collects a breakdown first.
+  const [disburseOpen, setDisburseOpen] = useState(false);
 
   // --- Extension/Release request form state ---------------------------------
   const [extensionMonths, setExtensionMonths] = useState("");
   const [extensionDetail, setExtensionDetail] = useState("");
   const [releaseDetail, setReleaseDetail] = useState("");
+  // Ornaments picked for release; null = all still-pledged ones (full release).
+  const [releaseSelected, setReleaseSelected] = useState<number[] | null>(null);
 
   // --- Bank pledge form state -------------------------------------------------
   // bankId links the pledge to a real Bank record (frontend/backend already
@@ -200,7 +224,7 @@ export default function LoanDetailScreen() {
   const [pledgeBankId, setPledgeBankId] = useState<number | undefined>(undefined);
   const [pledgeBankName, setPledgeBankName] = useState("");
   const [pledgeAmount, setPledgeAmount] = useState("");
-  const [pledgeDate, setPledgeDate] = useState("");
+  const [pledgeDate, setPledgeDate] = useState(new Date().toISOString().slice(0, 10));
   const [pledgeInterestRate, setPledgeInterestRate] = useState("");
   const [pledgeDueDate, setPledgeDueDate] = useState("");
   const [pledgeReference, setPledgeReference] = useState("");
@@ -234,7 +258,6 @@ export default function LoanDetailScreen() {
   const [editRows, setEditRows] = useState<OrnRow[]>([]);
   const [editErr, setEditErr] = useState("");
   const [deletingLoan, setDeletingLoan] = useState(false);
-  const [printingReleaseAgreement, setPrintingReleaseAgreement] = useState(false);
 
   function toOrnRow(o: Ornament): OrnRow {
     return { id: o.id, name: o.name, purity: o.purity, gross: String(o.grossWeight), net: String(o.netWeight), qty: String(o.quantity) };
@@ -347,31 +370,17 @@ export default function LoanDetailScreen() {
     );
   }
 
-  async function printReleaseAgreementDoc() {
-    if (!loan.data) return;
-    setPrintingReleaseAgreement(true);
+  async function printAgreement(doc: "pledge" | "release", lang: DocLang) {
+    if (!loan.data || printingAgreement) return;
+    setPrintingAgreement(`${doc}-${lang}`);
+    setError(null);
     try {
-      const c = loan.data.customer ? await getCustomer(loan.data.customerId) : null;
-      await printReleaseAgreement({
-        loanNumber: loan.data.loanNumber,
-        branchName: loan.data.branch?.name,
-        customerName: c?.name ?? loan.data.customer?.name,
-        customerAddress: c?.address ?? loan.data.customer?.address,
-        customerId: c ? String(c.id) : undefined,
-        aadhaarLast4: c?.aadhaarLast4,
-        pan: c?.pan ?? loan.data.customer?.pan,
-        ornaments: (loan.data.ornaments ?? []).map((o) => ({
-          name: o.name,
-          purity: o.purity,
-          quantity: o.quantity,
-          grossWeight: o.grossWeight,
-          netWeight: o.netWeight,
-        })),
-      });
-    } catch {
-      setError("Could not print the Release Agreement — try again.");
+      if (doc === "pledge") await printPledgeAgreementPdf(loan.data.id, loan.data.loanNumber, lang);
+      else await printReleaseAgreementPdf(loan.data.id, loan.data.loanNumber, lang);
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : `Could not print the ${doc === "pledge" ? "Pledge" : "Release"} Agreement — try again.`);
     } finally {
-      setPrintingReleaseAgreement(false);
+      setPrintingAgreement(null);
     }
   }
 
@@ -426,7 +435,7 @@ export default function LoanDetailScreen() {
         amount: Number(paymentAmount),
         type: paymentType,
         paidOn: paymentDate,
-        method: paymentMethod || undefined,
+        ...paymentSplit,
         reference: paymentReference || undefined,
         description: paymentDescription || undefined,
         interestOverride: paymentInterest.trim() ? Number(paymentInterest) : undefined,
@@ -434,11 +443,11 @@ export default function LoanDetailScreen() {
     onSuccess: () => {
       setPaymentAmount("");
       setPaymentDate(new Date().toISOString().slice(0, 10));
-      setPaymentMethod(PAYMENT_METHODS[0]);
       setPaymentReference("");
       setPaymentDescription("");
       setPaymentInterest("");
       paymentInterestTouchedRef.current = false; // let the next payment's fresh outstanding interest prefill again
+      setPaymentSheetVisible(false);
       onOk();
     },
     onError,
@@ -471,6 +480,7 @@ export default function LoanDetailScreen() {
     onSuccess: () => {
       setExtensionMonths("");
       setExtensionDetail("");
+      queryClient.invalidateQueries({ queryKey: ["loanRequests", id] });
       onOk();
     },
     onError: (err) => {
@@ -484,13 +494,22 @@ export default function LoanDetailScreen() {
       if (requestReleaseSubmittingRef.current) throw new Error("__duplicate_submit__");
       requestReleaseSubmittingRef.current = true;
       try {
-        return await createReleaseRequest(loanId, { detail: releaseDetail || undefined, requestedBy: "Staff" });
+        const pledgedIds = (loan.data?.ornaments ?? []).filter((o) => !o.releasedAt).map((o) => o.id);
+        const ornamentIds = releaseSelected ?? pledgedIds;
+        const isFull = ornamentIds.length === pledgedIds.length;
+        return await createReleaseRequest(loanId, {
+          detail: releaseDetail.trim() || (isFull ? "Full settlement requested" : "Partial release requested"),
+          requestedBy: "Staff",
+          ornamentIds,
+        });
       } finally {
         requestReleaseSubmittingRef.current = false;
       }
     },
     onSuccess: () => {
       setReleaseDetail("");
+      queryClient.invalidateQueries({ queryKey: ["loanRequests", id] });
+      setReleaseSelected(null);
       onOk();
     },
     onError: (err) => {
@@ -514,9 +533,12 @@ export default function LoanDetailScreen() {
   }
 
   const doApprove = useMutation({
-    mutationFn: (vars: { stage: SanctionStage; action: "Approved" | "Rejected" | "Verified" }) =>
+    mutationFn: (vars: { stage: SanctionStage; action: "Approved" | "Rejected" | "Verified" } & Partial<SplitAmounts>) =>
       approveLoan(loanId, vars),
-    onSuccess: onOk,
+    onSuccess: () => {
+      setDisburseOpen(false);
+      onOk();
+    },
     onError,
   });
 
@@ -536,7 +558,7 @@ export default function LoanDetailScreen() {
       setPledgeBankId(undefined);
       setPledgeBankName("");
       setPledgeAmount("");
-      setPledgeDate("");
+      setPledgeDate(new Date().toISOString().slice(0, 10));
       setPledgeInterestRate("");
       setPledgeDueDate("");
       setPledgeReference("");
@@ -596,6 +618,9 @@ export default function LoanDetailScreen() {
       } else {
         setEsignNotice("Sent to the customer's dashboard — they'll see it next time they open the app.");
       }
+      // eSign status/notice now live in the Print & Documents sheet — reopen
+      // it so the result is visible.
+      setPrintSheetVisible(true);
       onOk();
     },
     onError: (err) => {
@@ -658,7 +683,7 @@ export default function LoanDetailScreen() {
   return (
     <ScreenContainer style={{ padding: 0 }}>
       <View style={{ flex: 1, paddingHorizontal: 8, paddingTop: 20 }}>
-      <ScrollView
+      <GutterScrollView
         showsVerticalScrollIndicator={false}
         refreshControl={
           <RefreshControl
@@ -702,120 +727,194 @@ export default function LoanDetailScreen() {
           </ThemedText>
         </Card>
 
-        {/* --- Print / documents ------------------------------------------- */}
+        {/* --- Print / documents -------------------------------------------
+         * One button opening a sheet that lists every print option plus the
+         * Aadhaar eSign of the indemnity bond. eSign is additional to the
+         * print-and-sign-by-hand route — needs the customer's own
+         * device/network, so the wet-signature prints stay available
+         * regardless. Mirrors frontend/modules/loans/components/
+         * LoanDetail.tsx's Documents menu + eSign section. */}
         <Card>
-          <ThemedText variant="h3" style={{ marginBottom: 8 }}>
-            Print
-          </ThemedText>
-          <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
-            <GoldButton
-              title={printingLabel ? "Preparing…" : "Print Label"}
-              variant="outline"
-              onPress={() => {
-                setPrintingLabel(true);
-                printPacketLabel(l)
-                  .catch(() => setError("Could not print the packet label — try again."))
-                  .finally(() => setPrintingLabel(false));
-              }}
-              disabled={printingLabel}
-              style={{ height: 36, paddingHorizontal: 12 }}
-            />
-            <GoldButton
-              title={printingSlip ? "Preparing…" : "Print Slip"}
-              variant="outline"
-              onPress={() => {
-                setPrintingSlip(true);
-                printPledgeSlip(l).finally(() => setPrintingSlip(false));
-              }}
-              disabled={printingSlip}
-              style={{ height: 36, paddingHorizontal: 12 }}
-            />
-            <GoldButton
-              title={printingStatement ? "Preparing…" : "Print Statement"}
-              variant="outline"
-              onPress={() => {
-                setPrintingStatement(true);
-                printStatement(l).finally(() => setPrintingStatement(false));
-              }}
-              disabled={printingStatement}
-              style={{ height: 36, paddingHorizontal: 12 }}
-            />
-            <GoldButton
-              title={printingBond ? "Preparing…" : "Print Pledge Agreement"}
-              variant="outline"
-              onPress={() => {
-                setPrintingBond(true);
-                printIndemnityBond(l).finally(() => setPrintingBond(false));
-              }}
-              disabled={printingBond}
-              style={{ height: 36, paddingHorizontal: 12 }}
-            />
-            {/* Only reachable once the loan has actually closed
-             * (CompleteRelease already ran) — mirrors frontend/modules/
-             * loans/components/LoanDetail.tsx's Documents menu. */}
-            {l.status === "Closed" ? (
-              <GoldButton
-                title={printingReleaseAgreement ? "Preparing…" : "Release Agreement"}
-                variant="outline"
-                onPress={printReleaseAgreementDoc}
-                disabled={printingReleaseAgreement}
-                style={{ height: 36, paddingHorizontal: 12 }}
-              />
-            ) : null}
-          </View>
+          <GoldButton title="Print & Documents" icon="doc" variant="outline" onPress={() => setPrintSheetVisible(true)} />
         </Card>
 
-        {/* --- Aadhaar eSign --------------------------------------------------
-         * Additional to the print-and-sign-by-hand buttons above — needs the
-         * customer's own device/network, so the wet-signature route above
-         * stays available regardless. Mirrors frontend/modules/loans/
-         * components/LoanDetail.tsx's eSign section. */}
-        {l.status !== "Closed" ? (
-          <Card>
-            <ThemedText variant="h3" style={{ marginBottom: 8 }}>
-              Aadhaar eSign
+        <BottomSheetModal visible={printSheetVisible} onClose={() => setPrintSheetVisible(false)} maxHeightPct={90}>
+          <SheetScrollView showsVerticalScrollIndicator={false}>
+            <ThemedText variant="h3" style={{ marginBottom: 4 }}>
+              Print &amp; Documents
             </ThemedText>
-            {l.indemnityBondSignStatus === "sign_complete" && l.indemnityBondSignedUrl ? (
-              <ThemedText variant="small" color={colors.green}>
-                Signed — {l.indemnityBondSignedUrl}
-              </ThemedText>
-            ) : (
-              <>
-                <ThemedText variant="small" color={colors.muted} style={{ marginBottom: 10 }}>
-                  {l.indemnityBondSignStatus === "sign_initiated"
-                    ? "Awaiting the customer's Aadhaar + OTP signature."
-                    : "Not yet sent for eSign."}
-                </ThemedText>
-                {esignNotice ? (
-                  <ThemedText variant="small" color={colors.info} style={{ marginBottom: 10 }}>
-                    {esignNotice}
-                  </ThemedText>
-                ) : null}
-                <View style={{ flexDirection: "row", gap: 8 }}>
-                  <View style={{ flex: 1 }}>
-                    <GoldButton
-                      title="Send for eSign"
-                      onPress={() => {
-                        setEsignNotice(null);
-                        setEsignSheetVisible(true);
-                      }}
+            <ThemedText variant="small" color={colors.muted} style={{ marginBottom: 14 }}>
+              {l.loanNumber} · {l.customer?.name ?? `Customer #${l.customerId}`}
+            </ThemedText>
+            <View style={{ borderWidth: 1, borderColor: colors.line, borderRadius: 12, overflow: "hidden", marginBottom: 14 }}>
+              <DocRow
+                first
+                icon="box"
+                title="Packet Label"
+                subtitle="QR label for the gold packet"
+                busy={printingLabel}
+                onPress={() => {
+                  setPrintingLabel(true);
+                  printPacketLabel(l)
+                    .catch(() => setError("Could not print the packet label — try again."))
+                    .finally(() => setPrintingLabel(false));
+                }}
+              />
+              <DocRow
+                icon="note"
+                title="Pledge Slip"
+                subtitle="Ornaments, weights and principal disbursed"
+                busy={printingSlip}
+                onPress={() => {
+                  setPrintingSlip(true);
+                  printPledgeSlip(l).finally(() => setPrintingSlip(false));
+                }}
+              />
+              <DocRow
+                icon="doc"
+                title="Label & Slip — One Page"
+                subtitle="Packet label (cut-out) and pledge slip on a single A4 page"
+                busy={printingOnePage}
+                onPress={() => {
+                  setPrintingOnePage(true);
+                  printLabelAndSlipOnePage(l)
+                    .catch(() => setError("Could not print the label and slip — try again."))
+                    .finally(() => setPrintingOnePage(false));
+                }}
+              />
+              <DocRow
+                icon="list"
+                title="Statement"
+                subtitle="Statement of account for this loan"
+                busy={printingStatement}
+                onPress={() => {
+                  setPrintingStatement(true);
+                  printStatement(l).finally(() => setPrintingStatement(false));
+                }}
+              />
+              {PLEDGE_AGREEMENT_LANGS.map((lang) => (
+                <DocRow
+                  key={`pledge-${lang}`}
+                  icon="stamp"
+                  title={`Pledge Agreement — ${DOC_LANG_LABELS[lang]}`}
+                  subtitle="Indemnity bond for wet signature"
+                  busy={printingAgreement === `pledge-${lang}`}
+                  onPress={() => printAgreement("pledge", lang)}
+                />
+              ))}
+              {/* Only reachable once the loan has actually closed
+               * (CompleteRelease already ran). */}
+              {l.status === "Closed"
+                ? RELEASE_AGREEMENT_LANGS.map((lang) => (
+                    <DocRow
+                      key={`release-${lang}`}
+                      icon="unlock"
+                      title={`Release Agreement — ${DOC_LANG_LABELS[lang]}`}
+                      subtitle="Gold handed back to the customer"
+                      busy={printingAgreement === `release-${lang}`}
+                      onPress={() => printAgreement("release", lang)}
                     />
-                  </View>
-                  {l.indemnityBondSignStatus === "sign_initiated" ? (
-                    <View style={{ flex: 1 }}>
-                      <GoldButton
-                        title="Check eSign Status"
-                        variant="outline"
-                        onPress={() => doCheckEsign.mutate()}
-                        loading={doCheckEsign.isPending}
+                  ))
+                : null}
+              {l.status !== "Closed"
+                ? (() => {
+                    const st = l.indemnityBondSignStatus;
+                    const signed = st === "sign_complete" && !!l.indemnityBondSignedUrl;
+                    const openEsign = (lang?: BondLang) => {
+                      if (lang) setEsignLang(lang);
+                      setEsignNotice(null);
+                      setPrintSheetVisible(false);
+                      setEsignSheetVisible(true);
+                    };
+                    // Not yet sent (or failed): one row per language, each opening
+                    // the send sheet pre-set to it. Once sent/signed a loan has a
+                    // single eSign, so one status row takes over.
+                    if (!signed && st !== "sign_initiated") {
+                      return (
+                        <>
+                          {ESIGN_LANGS.map(({ code, name }) => (
+                            <DocRow
+                              key={code}
+                              icon="shield"
+                              title={`Aadhaar eSign — ${name}`}
+                              subtitle={st === "failed" ? "Last attempt failed — tap to send again" : `Send the ${name} bond for Aadhaar eSign`}
+                              subtitleColor={st === "failed" ? colors.red : undefined}
+                              onPress={() => openEsign(code)}
+                              extra={
+                                esignNotice && esignLang === code ? (
+                                  <ThemedText variant="small" color={colors.info} style={{ marginTop: 4 }}>
+                                    {esignNotice}
+                                  </ThemedText>
+                                ) : null
+                              }
+                            />
+                          ))}
+                        </>
+                      );
+                    }
+                    return (
+                      <DocRow
+                        icon="shield"
+                        title="Aadhaar eSign"
+                        subtitle={
+                          signed
+                            ? "Signed — tap to open the signed bond"
+                            : "Initiated — awaiting the customer's Aadhaar + OTP signature. Tap to check status."
+                        }
+                        subtitleColor={signed ? colors.green : undefined}
+                        busy={doCheckEsign.isPending}
+                        onPress={() => {
+                          if (signed) {
+                            Linking.openURL(l.indemnityBondSignedUrl!).catch(() => setError("Could not open the signed bond."));
+                          } else {
+                            doCheckEsign.mutate();
+                          }
+                        }}
+                        extra={
+                          <>
+                            {esignNotice ? (
+                              <ThemedText variant="small" color={colors.info} style={{ marginTop: 4 }}>
+                                {esignNotice}
+                              </ThemedText>
+                            ) : null}
+                            {st === "sign_initiated" ? (
+                              <Pressable onPress={() => openEsign()} hitSlop={8} style={{ marginTop: 6 }}>
+                                <ThemedText variant="small" color={colors.brandDeep} style={{ fontWeight: "700" }}>
+                                  Send again
+                                </ThemedText>
+                              </Pressable>
+                            ) : null}
+                          </>
+                        }
                       />
-                    </View>
-                  ) : null}
-                </View>
-              </>
-            )}
-          </Card>
-        ) : null}
+                    );
+                  })()
+                : null}
+            </View>
+            {error ? (
+              <ThemedText variant="small" color={colors.red} style={{ marginBottom: 10 }}>
+                {error}
+              </ThemedText>
+            ) : null}
+            <GoldButton
+              title={printingLabelSlip ? "Preparing…" : "Print Label & Slip"}
+              icon="doc"
+              onPress={async () => {
+                setPrintingLabelSlip(true);
+                try {
+                  await printPacketLabel(l);
+                  await printPledgeSlip(l);
+                } catch {
+                  setError("Could not print the label and slip — try again.");
+                } finally {
+                  setPrintingLabelSlip(false);
+                }
+              }}
+              disabled={printingLabelSlip}
+              style={{ marginBottom: 8 }}
+            />
+          </SheetScrollView>
+        </BottomSheetModal>
 
         <BottomSheetModal visible={esignSheetVisible} onClose={() => setEsignSheetVisible(false)}>
           <ThemedText variant="h3" style={{ marginBottom: 4 }}>
@@ -827,9 +926,9 @@ export default function LoanDetailScreen() {
           </ThemedText>
           <ChipSelect
             label="Bond language"
-            options={["en", "ml"] as const}
-            value={esignLang}
-            onChange={setEsignLang}
+            options={["English", "Malayalam", "Gujarati"] as const}
+            value={BOND_LANG_NAMES[esignLang] as "English" | "Malayalam" | "Gujarati"}
+            onChange={(name) => setEsignLang(name === "Malayalam" ? "ml" : name === "Gujarati" ? "gu" : "en")}
           />
           <ThemedText variant="label" color={colors.muted} style={{ marginTop: 4, marginBottom: 8 }}>
             Deliver via
@@ -890,8 +989,8 @@ export default function LoanDetailScreen() {
         ) : null}
 
         <BottomSheetModal visible={editSheetVisible} onClose={() => setEditSheetVisible(false)} maxHeightPct={90}>
-          <ScrollView showsVerticalScrollIndicator={false}>
-            <ThemedText variant="h3" color={colors.goldDeep} style={{ marginBottom: 4 }}>
+          <SheetScrollView showsVerticalScrollIndicator={false}>
+            <ThemedText variant="h3" color={colors.brandDeep} style={{ marginBottom: 4 }}>
               Edit Loan — {l.loanNumber}
             </ThemedText>
             <ThemedText variant="small" color={colors.muted} style={{ marginBottom: 14 }}>
@@ -1038,7 +1137,7 @@ export default function LoanDetailScreen() {
                 />
               </View>
             </View>
-          </ScrollView>
+          </SheetScrollView>
         </BottomSheetModal>
 
         {error ? (
@@ -1061,15 +1160,20 @@ export default function LoanDetailScreen() {
               </ThemedText>
             ) : null}
             {canActOnStage ? (
-              <View style={{ flexDirection: "row", gap: 8 }}>
-                <View style={{ flex: 1 }}>
+              // Stacked, one full-width button per line — "Approve & Disburse" is too long to share a row.
+              <View style={{ gap: 10 }}>
+                <View>
                   <GoldButton
-                    title={isVerifyStage ? "Verify" : "Approve"}
-                    onPress={() => doApprove.mutate({ stage: pendingStage, action: isVerifyStage ? "Verified" : "Approved" })}
+                    title={isVerifyStage ? "Verify" : pendingStage === "FinalSanction" ? "Approve & Disburse" : "Approve"}
+                    onPress={() =>
+                      pendingStage === "FinalSanction"
+                        ? (setError(null), setDisburseOpen(true))
+                        : doApprove.mutate({ stage: pendingStage, action: isVerifyStage ? "Verified" : "Approved" })
+                    }
                     loading={doApprove.isPending}
                   />
                 </View>
-                <View style={{ flex: 1 }}>
+                <View>
                   <GoldButton
                     title="Reject"
                     variant="outline"
@@ -1086,13 +1190,74 @@ export default function LoanDetailScreen() {
           </Card>
         ) : null}
 
+        {pendingStage === "FinalSanction" ? (() => {
+          // Mirrors backend Approve: a WithheldFromPayout service charge is paid out that much less.
+          const withheld = l.serviceChargeMode === "WithheldFromPayout" ? l.serviceChargeAmount ?? 0 : 0;
+          const payout = Math.round((l.principalAmount - withheld) * 100) / 100;
+          return (
+            <PaymentBreakdownSheet
+              visible={disburseOpen}
+              onClose={() => setDisburseOpen(false)}
+              title="Approve & Disburse"
+              subtitle={`${l.loanNumber} · ${withheld > 0 ? `${fmt(l.principalAmount)} less ${fmt(withheld)} service charge` : "Principal"} paid out to the customer`}
+              total={payout}
+              confirmLabel={`Approve & Disburse ${fmt(payout)}`}
+              onConfirm={(split) => doApprove.mutate({ stage: "FinalSanction", action: "Approved", ...split })}
+              loading={doApprove.isPending}
+              error={disburseOpen ? error : null}
+            />
+          );
+        })() : null}
+
         {/* --- Payments ------------------------------------------------------- */}
         {l.status !== "Closed" ? (
           <Card>
-            <ThemedText variant="h3" style={{ marginBottom: 8 }}>
+            <GoldButton
+              title="Record Payment"
+              icon="coin"
+              onPress={() => {
+                setPaymentTypeOpen(false);
+                setPaymentSheetVisible(true);
+              }}
+            />
+          </Card>
+        ) : null}
+
+        <BottomSheetModal visible={paymentSheetVisible} onClose={() => setPaymentSheetVisible(false)} maxHeightPct={90}>
+          <SheetScrollView
+            showsVerticalScrollIndicator={false}
+            keyboardShouldPersistTaps="handled"
+            // Tap anywhere outside the type dropdown closes it (SelectDropdown
+            // stops its own touches from reaching here).
+            onTouchStart={() => paymentTypeOpen && setPaymentTypeOpen(false)}
+          >
+            <ThemedText variant="h3" style={{ marginBottom: 4 }}>
               Record Payment
             </ThemedText>
-            <ChipSelect options={PAYMENT_TYPES} value={paymentType} onChange={setPaymentType} label="Type" />
+            <ThemedText variant="small" color={colors.muted} style={{ marginBottom: 14 }}>
+              {l.loanNumber} · Outstanding {fmt(l.outstandingAmount)}
+            </ThemedText>
+            <SelectDropdown
+              label="Type"
+              value={paymentType}
+              options={PAYMENT_TYPES}
+              open={paymentTypeOpen}
+              onOpenChange={setPaymentTypeOpen}
+              onChange={(t) => {
+                setPaymentType(t);
+                // Prefill the amount this type normally settles; left blank
+                // for types with no natural figure (Partial/Adjustment/Waiver).
+                const auto =
+                  t === "Interest"
+                    ? l.outstandingInterest
+                    : t === "Principal"
+                      ? l.outstandingAmount
+                      : t === "Full Settlement"
+                        ? l.settlementAmount ?? l.totalOutstandingBalance
+                        : undefined;
+                setPaymentAmount(auto != null && auto > 0 ? String(Math.round(auto * 100) / 100) : "");
+              }}
+            />
             <GoldTextInput
               label="Amount"
               keyboardType="numeric"
@@ -1115,17 +1280,23 @@ export default function LoanDetailScreen() {
               Outstanding interest: {fmt(l.outstandingInterest ?? 0)} — prefilled above, editable; leave blank to
               use this figure.
             </ThemedText>
-            <ChipSelect options={PAYMENT_METHODS} value={paymentMethod} onChange={setPaymentMethod} label="Method" />
+            <PaymentSplitInput total={Number(paymentAmount) || 0} value={paymentSplit} onChange={setPaymentSplit} />
             <GoldTextInput label="Reference" value={paymentReference} onChangeText={setPaymentReference} />
             <GoldTextInput label="Description" value={paymentDescription} onChangeText={setPaymentDescription} />
+            {error ? (
+              <ThemedText variant="small" color={colors.red} style={{ marginBottom: 10 }}>
+                {error}
+              </ThemedText>
+            ) : null}
             <GoldButton
               title="Record Payment"
               onPress={() => pay.mutate()}
               loading={pay.isPending}
-              disabled={!paymentAmount || !paymentDate}
+              disabled={!paymentAmount || !paymentDate || !isBalanced(paymentSplit, Number(paymentAmount) || 0)}
+              style={{ marginBottom: 8 }}
             />
-          </Card>
-        ) : null}
+          </SheetScrollView>
+        </BottomSheetModal>
 
         {/* --- Extension request / review ---------------------------------------
          * Once a request is Pending, ExtensionReviewPanel takes over — same
@@ -1207,57 +1378,71 @@ export default function LoanDetailScreen() {
                 />
               </>
             ) : pendingRelease ? (
-              <ReleaseReviewPanel request={pendingRelease} loan={l} onSaved={invalidateRequests} onError={onRequestError} />
-            ) : (
               <>
-                <GoldTextInput label="Detail" value={releaseDetail} onChangeText={setReleaseDetail} />
-                <GoldButton
-                  title="Submit Release Request"
-                  onPress={() => requestRelease.mutate()}
-                  loading={requestRelease.isPending}
-                />
+                {/* A release is already pending — no new request form, so the same gold can't be requested twice. */}
+                <View style={{ backgroundColor: colors.amberBg, borderRadius: 10, padding: 10, marginBottom: 12 }}>
+                  <ThemedText variant="body" color={colors.amber} style={{ fontWeight: "600" }}>
+                    Release requested — waiting for approval
+                  </ThemedText>
+                </View>
+                <ReleaseReviewPanel request={pendingRelease} loan={l} onSaved={invalidateRequests} onError={onRequestError} />
               </>
-            )}
-          </Card>
-        ) : null}
-
-        {/* --- Gold Pledge / Locker -------------------------------------
-         * Only rendered while gold is still physically somewhere other
-         * than back with the customer (pledged to a bank, or checked into
-         * a locker). Mirrors web LoanDetail.tsx's own section — see its
-         * comment for why this matters once the balance is fully paid. */}
-        {l.bankPledgeStatus === "Bank Pledged" || packet?.status === "Locker Stored" ? (
-          <Card>
-            <ThemedText variant="h3" style={{ marginBottom: 8 }}>
-              Gold Pledge / Locker
-            </ThemedText>
-            {(l.totalOutstandingBalance ?? 0) <= 0.01 ? (
-              <ThemedText variant="body" color={colors.red}>
-                {l.bankPledgeStatus === "Bank Pledged"
-                  ? "This loan is fully paid, but its gold is still pledged to a bank — release it from the bank pledge before this loan can be closed."
-                  : "This loan is fully paid, but its gold is still checked into a locker — check it out before this loan can be closed."}
-              </ThemedText>
             ) : (
-              <ThemedText variant="body" color={colors.muted}>
-                {l.bankPledgeStatus === "Bank Pledged" ? "Gold is currently pledged to a bank." : "Gold is currently held in a locker."}
-              </ThemedText>
+              (() => {
+                const pledged = (l.ornaments ?? []).filter((o) => !o.releasedAt);
+                const selected = new Set(releaseSelected ?? pledged.map((o) => o.id));
+                const allSelected = selected.size === pledged.length;
+                const ltv = l.schemeLtvPercent ?? l.scheme?.ltvPercent ?? 0;
+                const outstandingBal = l.totalOutstandingBalance ?? l.outstandingAmount;
+                const remainingGold = pledged.filter((o) => !selected.has(o.id)).reduce((s, o) => s + o.goldValue, 0);
+                // Web's partialReleaseRemaining: balance + 5% principal buffer − what the remaining gold covers.
+                const minPartial = outstandingBal + 0.05 * l.principalAmount - (remainingGold * ltv) / 100;
+                const minAmount = allSelected ? l.settlementAmount ?? outstandingBal : Math.max(0, minPartial);
+                const toggle = (id: number) => {
+                  const next = new Set(selected);
+                  if (next.has(id)) next.delete(id);
+                  else next.add(id);
+                  setReleaseSelected(Array.from(next));
+                };
+                return (
+                  <>
+                    <ThemedText variant="label" color={colors.muted} style={{ marginBottom: 8 }}>
+                      Ornaments to release — {selected.size} of {pledged.length}
+                    </ThemedText>
+                    <View style={{ borderWidth: 1, borderColor: colors.line, borderRadius: 12, overflow: "hidden", marginBottom: 12 }}>
+                      {pledged.map((o, i) => (
+                        <Pressable
+                          key={o.id}
+                          onPress={() => toggle(o.id)}
+                          style={{ flexDirection: "row", alignItems: "center", gap: 10, paddingVertical: 10, paddingHorizontal: 10, borderTopWidth: i ? 1 : 0, borderTopColor: colors.line }}
+                        >
+                          <GoldCheckbox value={selected.has(o.id)} onValueChange={() => toggle(o.id)} />
+                          <View style={{ flex: 1 }}>
+                            <ThemedText variant="body">{o.name}</ThemedText>
+                            <ThemedText variant="small" color={colors.muted}>
+                              {o.purity} · {o.netWeight.toFixed(2)}g · {fmt(o.goldValue)}
+                            </ThemedText>
+                          </View>
+                        </Pressable>
+                      ))}
+                    </View>
+                    <View style={{ flexDirection: "row", justifyContent: "space-between", marginBottom: 12 }}>
+                      <ThemedText variant="small" color={colors.muted}>Minimum amount to release</ThemedText>
+                      <ThemedText variant="body" color={allSelected || minAmount > 0.01 ? colors.red : colors.green} style={{ fontWeight: "700" }}>
+                        {fmt(minAmount)}
+                      </ThemedText>
+                    </View>
+                    <GoldTextInput label="Note (optional)" value={releaseDetail} onChangeText={setReleaseDetail} />
+                    <GoldButton
+                      title={allSelected ? "Request Full Release" : "Request Partial Release"}
+                      onPress={() => requestRelease.mutate()}
+                      loading={requestRelease.isPending}
+                      disabled={selected.size === 0}
+                    />
+                  </>
+                );
+              })()
             )}
-            {l.bankPledgeStatus === "Bank Pledged" && activePledge ? (
-              <GoldButton
-                title="Release from Bank"
-                variant="outline"
-                onPress={() => setConfirmReleaseVisible(true)}
-                style={{ marginTop: 10 }}
-              />
-            ) : null}
-            {packet?.status === "Locker Stored" ? (
-              <GoldButton
-                title="Go to Packet"
-                variant="outline"
-                onPress={() => router.push(`/packets/${packet.id}`)}
-                style={{ marginTop: 10 }}
-              />
-            ) : null}
           </Card>
         ) : null}
 
@@ -1291,7 +1476,9 @@ export default function LoanDetailScreen() {
          * accepted both — this form just never sent them), a Void action
          * for a mis-recorded pledge, and a History view — all three
          * already implemented in src/api/bankPledges.ts and unused until
-         * now. */}
+         * now. Also carries what used to be a separate "Gold Pledge /
+         * Locker" card (mirrors web LoanDetail.tsx): while gold is still
+         * pledged or in a locker, the fully-paid warning and locker link. */}
         <Card>
           <View style={{ flexDirection: "row", alignItems: "center", marginBottom: 8 }}>
             <ThemedText variant="h3" style={{ flex: 1 }}>
@@ -1304,18 +1491,44 @@ export default function LoanDetailScreen() {
               style={{ height: 32, paddingHorizontal: 12 }}
             />
           </View>
+          {l.bankPledgeStatus === "Bank Pledged" || packet?.status === "Locker Stored" ? (
+            (l.totalOutstandingBalance ?? 0) <= 0.01 ? (
+              <ThemedText variant="body" color={colors.red} style={{ marginBottom: 8 }}>
+                {l.bankPledgeStatus === "Bank Pledged"
+                  ? "This loan is fully paid, but its gold is still pledged to a bank — release it from the bank pledge before this loan can be closed."
+                  : "This loan is fully paid, but its gold is still checked into a locker — check it out before this loan can be closed."}
+              </ThemedText>
+            ) : l.bankPledgeStatus !== "Bank Pledged" ? (
+              // "Pledged to a bank" is already shown by the pledge details below.
+              <ThemedText variant="body" color={colors.muted} style={{ marginBottom: 8 }}>
+                Gold is currently held in a locker.
+              </ThemedText>
+            ) : !activePledge ? (
+              <ThemedText variant="body" color={colors.muted} style={{ marginBottom: 8 }}>
+                Gold is currently pledged to a bank.
+              </ThemedText>
+            ) : null
+          ) : null}
+          {packet?.status === "Locker Stored" ? (
+            <GoldButton
+              title="Go to Packet"
+              variant="outline"
+              onPress={() => router.push(`/packets/${packet.id}`)}
+              style={{ marginBottom: 10 }}
+            />
+          ) : null}
           {activePledge ? (
             <>
               <ThemedText variant="body">{activePledge.bankName}</ThemedText>
               <ThemedText variant="small" color={colors.muted}>
-                Pledged ₹{activePledge.pledgedAmount.toLocaleString("en-IN")} on {activePledge.pledgeDate}
+                Pledged ₹{activePledge.pledgedAmount.toLocaleString("en-IN")} on {fmtDate(activePledge.pledgeDate)}
                 {activePledge.referenceNumber ? ` · Ref ${activePledge.referenceNumber}` : ""}
               </ThemedText>
               {activePledge.bankInterestRate != null || activePledge.bankPledgeDueDate ? (
                 <ThemedText variant="small" color={colors.muted}>
                   {activePledge.bankInterestRate != null ? `${activePledge.bankInterestRate}% p.a.` : ""}
                   {activePledge.bankInterestRate != null && activePledge.bankPledgeDueDate ? " · " : ""}
-                  {activePledge.bankPledgeDueDate ? `due ${activePledge.bankPledgeDueDate}` : ""}
+                  {activePledge.bankPledgeDueDate ? `due ${fmtDate(activePledge.bankPledgeDueDate)}` : ""}
                 </ThemedText>
               ) : null}
               <ThemedText variant="small" color={colors.muted} style={{ marginBottom: 8 }}>
@@ -1356,10 +1569,11 @@ export default function LoanDetailScreen() {
               />
               <View style={{ flexDirection: "row", gap: 8 }}>
                 <View style={{ flex: 1 }}>
-                  <GoldTextInput
-                    label="Pledge Date (YYYY-MM-DD)"
+                  <GoldDatePicker
+                    label="Pledge Date"
                     value={pledgeDate}
-                    onChangeText={setPledgeDate}
+                    onChange={setPledgeDate}
+                    max={new Date().toISOString().slice(0, 10)}
                   />
                 </View>
                 <View style={{ flex: 1 }}>
@@ -1371,7 +1585,7 @@ export default function LoanDetailScreen() {
                   />
                 </View>
               </View>
-              <GoldDatePicker label="Due Date" value={pledgeDueDate} onChange={setPledgeDueDate} />
+              <GoldDatePicker label="Due Date" value={pledgeDueDate} onChange={setPledgeDueDate} min={pledgeDate || undefined} />
               <GoldTextInput label="Reference Number" value={pledgeReference} onChangeText={setPledgeReference} />
               <ChipSelect
                 options={["RecordOnly", "CashIn"] as const}
@@ -1403,7 +1617,7 @@ export default function LoanDetailScreen() {
               Loading banks…
             </ThemedText>
           ) : (
-            <ScrollView style={{ maxHeight: 320 }}>
+            <SheetScrollView style={{ maxHeight: 320 }}>
               {(banksQuery.data ?? []).map((b) => (
                 <GoldButton
                   key={b.id}
@@ -1417,7 +1631,7 @@ export default function LoanDetailScreen() {
                   }}
                 />
               ))}
-            </ScrollView>
+            </SheetScrollView>
           )}
         </BottomSheetModal>
 
@@ -1480,7 +1694,7 @@ export default function LoanDetailScreen() {
               No bank pledge history for this loan yet.
             </ThemedText>
           ) : (
-            <ScrollView style={{ maxHeight: 400 }}>
+            <SheetScrollView style={{ maxHeight: 400 }}>
               {(historyQuery.data ?? []).map((p) => (
                 <View
                   key={p.id}
@@ -1497,7 +1711,7 @@ export default function LoanDetailScreen() {
                     </ThemedText>
                   </View>
                   <ThemedText variant="small" color={colors.muted}>
-                    ₹{p.pledgedAmount.toLocaleString("en-IN")} · pledged {p.pledgeDate}
+                    ₹{p.pledgedAmount.toLocaleString("en-IN")} · pledged {fmtDate(p.pledgeDate)}
                     {p.referenceNumber ? ` · ${p.referenceNumber}` : ""}
                   </ThemedText>
                   {p.status === "Voided" && p.voidReason ? (
@@ -1507,7 +1721,7 @@ export default function LoanDetailScreen() {
                   ) : null}
                 </View>
               ))}
-            </ScrollView>
+            </SheetScrollView>
           )}
         </BottomSheetModal>
 
@@ -1735,7 +1949,61 @@ export default function LoanDetailScreen() {
             </Card>
           );
         })()}
-      </ScrollView>
+      </GutterScrollView>
       </View>
     </ScreenContainer>  );
+}
+
+// One row of the Print & Documents sheet's table-like list.
+function DocRow({
+  icon,
+  title,
+  subtitle,
+  subtitleColor,
+  onPress,
+  busy,
+  first,
+  extra,
+}: {
+  icon: string;
+  title: string;
+  subtitle: string;
+  subtitleColor?: string;
+  onPress: () => void;
+  busy?: boolean;
+  first?: boolean;
+  extra?: React.ReactNode;
+}) {
+  return (
+    <Pressable
+      onPress={onPress}
+      disabled={busy}
+      style={({ pressed }) => ({
+        flexDirection: "row",
+        alignItems: "center",
+        gap: 12,
+        paddingVertical: 12,
+        paddingHorizontal: 12,
+        borderTopWidth: first ? 0 : 1,
+        borderTopColor: colors.line,
+        backgroundColor: pressed ? colors.line : undefined,
+      })}
+    >
+      <Icon name={icon} size={20} color={colors.brandDeep} />
+      <View style={{ flex: 1 }}>
+        <ThemedText variant="body">{title}</ThemedText>
+        <ThemedText variant="small" color={subtitleColor ?? colors.muted}>
+          {busy ? "Preparing…" : subtitle}
+        </ThemedText>
+        {extra}
+      </View>
+      {busy ? (
+        <ActivityIndicator color={colors.brandDeep} />
+      ) : (
+        <View style={{ transform: [{ rotate: "180deg" }] }}>
+          <Icon name="chevronLeft" size={16} color={colors.muted} />
+        </View>
+      )}
+    </Pressable>
+  );
 }

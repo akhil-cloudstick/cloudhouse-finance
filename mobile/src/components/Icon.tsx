@@ -16,6 +16,13 @@ const PATHS: Record<string, React.ReactNode> = {
     </>
   ),
   plus: <Path d="M12 5v14M5 12h14" />,
+  download: <Path d="M12 4v11M7 10.5l5 5 5-5M5 20h14" />,
+  mail: (
+    <>
+      <Rect x="3" y="5" width="18" height="14" rx="2.5" />
+      <Path d="m4 7 8 6 8-6" />
+    </>
+  ),
   check: <Path d="M4 12.5 9.5 18 20 6.5" />,
   search: (
     <>

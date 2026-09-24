@@ -1,4 +1,6 @@
 import React, { useState } from "react";
+import { TAB_BAR_SPACE } from "../../../src/theme/layout";
+import { TopFaded } from "../../../src/components/EdgeFade";
 import { FlatList, RefreshControl, View } from "react-native";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { ScreenContainer } from "../../../src/components/ScreenContainer";
@@ -25,7 +27,7 @@ export default function CashMovementsScreen() {
   const [error, setError] = useState<string | null>(null);
 
   const { data, isLoading, isError, refetch, isRefetching } = useQuery({
-    queryKey: ["cash-movements"],
+    queryKey: ["cash-movements", "list"],
     queryFn: listCashMovements,
   });
 
@@ -73,10 +75,12 @@ export default function CashMovementsScreen() {
           />
         </Card>
       ) : null}
+      <TopFaded>{(fade) => (
       <FlatList<CashMovement>
+        {...fade}
         data={data ?? []}
         keyExtractor={(item) => String(item.id)}
-        contentContainerStyle={{ padding: 16 }}
+        contentContainerStyle={{ padding: 16, paddingBottom: TAB_BAR_SPACE }}
         refreshControl={<RefreshControl refreshing={isRefetching} onRefresh={refetch} />}
         ListEmptyComponent={
           <ThemedText color={colors.muted}>
@@ -111,6 +115,7 @@ export default function CashMovementsScreen() {
           );
         }}
       />
+      )}</TopFaded>
     </ScreenContainer>
   );
 }

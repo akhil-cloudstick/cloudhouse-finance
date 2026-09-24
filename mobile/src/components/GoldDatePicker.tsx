@@ -1,8 +1,8 @@
 import React, { useMemo, useState } from "react";
-import { View, Pressable, StyleSheet, ScrollView } from "react-native";
+import { View, Pressable, StyleSheet } from "react-native";
 import { ThemedText } from "./ThemedText";
 import { GoldButton } from "./GoldButton";
-import { BottomSheetModal } from "./BottomSheetModal";
+import { BottomSheetModal, SheetScrollView } from "./BottomSheetModal";
 import { Icon } from "./Icon";
 import { colors } from "../theme/colors";
 
@@ -163,7 +163,7 @@ export function GoldDatePicker({
         </View>
 
         {pickingYear ? (
-          <ScrollView style={{ maxHeight: 260 }} showsVerticalScrollIndicator={false}>
+          <SheetScrollView style={{ maxHeight: 260 }} showsVerticalScrollIndicator={false}>
             <View style={styles.yearGrid}>
               {years.map((y) => {
                 const active = y === cursor.getFullYear();
@@ -183,7 +183,7 @@ export function GoldDatePicker({
                 );
               })}
             </View>
-          </ScrollView>
+          </SheetScrollView>
         ) : (
           <>
             <View style={styles.weekRow}>

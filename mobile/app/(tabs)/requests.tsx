@@ -1,17 +1,23 @@
 import React, { useState } from "react";
-import { RefreshControl, View, ScrollView } from "react-native";
+import { RefreshControl, View } from "react-native";
 import { useInfiniteQuery, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ScreenContainer } from "../../src/components/ScreenContainer";
 import { ThemedText } from "../../src/components/ThemedText";
-import { BottomSheetModal } from "../../src/components/BottomSheetModal";
+import { BottomSheetModal, SheetScrollView } from "../../src/components/BottomSheetModal";
 import { FilterSheetButton } from "../../src/components/FilterSheetButton";
 import { colors, statusColors } from "../../src/theme/colors";
 import { listLoanRequestsPage, getLoan } from "../../src/api/loans";
-import { getCustomer } from "../../src/api/customers";
-import { printReleaseAgreement } from "../../src/utils/loanPrint";
+import {
+  printReleaseAgreementPdf,
+  printPartialReleaseReceiptPdf,
+  RELEASE_AGREEMENT_LANGS,
+  DOC_LANG_LABELS,
+  type DocLang,
+} from "../../src/utils/loanPrint";
+import { ApiError } from "../../src/api/client";
 import { LoanRequest } from "../../src/types/loan";
 import { useRefetchOnFocus } from "../../src/hooks/useRefetchOnFocus";
-import { ExpandableTable, defaultVisibleCount, type TableColumn } from "../../src/components/ExpandableTable";
+import { ExpandableTable, type TableColumn } from "../../src/components/ExpandableTable";
 import { ExtensionReviewPanel } from "../../src/components/loanRequests/ExtensionReviewPanel";
 import { ReleaseReviewPanel } from "../../src/components/loanRequests/ReleaseReviewPanel";
 import { useAuth } from "../../src/auth/AuthContext";
@@ -23,7 +29,7 @@ const PAGE_SIZE = 10;
 // components/Requests.tsx's STATUS_OPTIONS.
 const STATUS_FILTERS = ["All", "Pending", "Approved", "Rejected"] as const;
 
-function toneForStatus(status: string): "green" | "red" | "amber" | "blue" | "muted" {
+function toneForStatus(status: string): "green" | "red" | "amber" | "info" | "muted" {
   if (status === "Approved") return "green";
   if (status === "Rejected") return "red";
   if (status === "Pending") return "amber";
@@ -44,7 +50,7 @@ function StatusPill({ status }: { status: string }) {
 }
 
 function TypePill({ type }: { type: "Extension" | "Release" }) {
-  const tone = statusColors(type === "Extension" ? "blue" : "amber");
+  const tone = statusColors(type === "Extension" ? "info" : "amber");
   return (
     <ThemedText
       variant="label"
@@ -56,22 +62,20 @@ function TypePill({ type }: { type: "Extension" | "Release" }) {
   );
 }
 
-// 7 fields total (id, type, loan, customer, detail, date, status) — over
-// defaultVisibleCount's 6-field threshold, so this collapses to 3 visible
-// columns same as the Loans list, with the rest folded into the expand strip.
 const REQUEST_COLUMNS: TableColumn<LoanRequest>[] = [
-  { key: "id", label: "Request", render: (r) => `#${r.id}`, weight: 0.7 },
-  { key: "type", label: "Type", render: (r) => <TypePill type={r.type} />, weight: 0.9 },
+  // First four show on the row card (2×2); Request # stays in the expanded strip.
   { key: "loan", label: "Loan", render: (r) => r.loan?.loanNumber ?? `#${r.loanId}`, weight: 1 },
-  { key: "customer", label: "Customer", render: (r) => r.loan?.customer?.name ?? "—", weight: 1.2 },
   { key: "status", label: "Status", render: (r) => <StatusPill status={r.status} /> },
+  { key: "type", label: "Type", render: (r) => <TypePill type={r.type} />, weight: 0.9 },
+  { key: "customer", label: "Customer", render: (r) => r.loan?.customer?.name ?? "—", weight: 1.2 },
+  { key: "id", label: "Request", render: (r) => `#${r.id}`, weight: 0.7 },
 ];
-const REQUEST_VISIBLE_COUNT = defaultVisibleCount(REQUEST_COLUMNS.length + 2);
+const REQUEST_VISIBLE_COUNT = 4;
 
 function requestExtraFields(
   r: LoanRequest,
-  onDownload: (r: LoanRequest) => void,
-  downloadingId: number | null
+  onDownload: (r: LoanRequest, lang: DocLang | "partial") => void,
+  downloading: string | null
 ) {
   const fields: { label: string; value: React.ReactNode }[] = [
     { label: "Detail", value: r.detail || "—" },
@@ -81,16 +85,24 @@ function requestExtraFields(
   // this list, without navigating to Loan Detail first — mirrors web
   // frontend/modules/loans/components/Requests.tsx's downloadReleaseAgreement.
   if (r.type === "Release" && r.status === "Approved") {
+    // Partial releases only have the backend's English receipt; full ones
+    // get one button per FORM 7 language.
+    const langs: (DocLang | "partial")[] = r.isPartial ? ["partial"] : RELEASE_AGREEMENT_LANGS;
     fields.push({
       label: "Document",
       value: (
-        <GoldButton
-          title={downloadingId === r.id ? "Preparing…" : "Download"}
-          variant="outline"
-          onPress={() => onDownload(r)}
-          disabled={downloadingId === r.id}
-          style={{ height: 32, paddingHorizontal: 12, alignSelf: "flex-start" }}
-        />
+        <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6 }}>
+          {langs.map((lang) => (
+            <GoldButton
+              key={lang}
+              title={downloading === `${r.id}-${lang}` ? "Preparing…" : lang === "partial" ? "Download" : DOC_LANG_LABELS[lang]}
+              variant="outline"
+              onPress={() => onDownload(r, lang)}
+              disabled={downloading !== null}
+              style={{ height: 32, paddingHorizontal: 12, alignSelf: "flex-start" }}
+            />
+          ))}
+        </View>
       ),
     });
   }
@@ -117,7 +129,8 @@ export default function RequestsScreen() {
   // like nothing happened after each step).
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [sheetError, setSheetError] = useState<string | null>(null);
-  const [downloadingId, setDownloadingId] = useState<number | null>(null);
+  // "<requestId>-<lang>" of the document being fetched.
+  const [downloading, setDownloading] = useState<string | null>(null);
 
   const { data, isLoading, isError, isFetching, isFetchingNextPage, fetchNextPage, hasNextPage, refetch } = useInfiniteQuery({
     queryKey: ["loanRequests", "list", statusFilter],
@@ -145,31 +158,17 @@ export default function RequestsScreen() {
     enabled: !!selected && selected.type === "Release",
   });
 
-  async function downloadReleaseAgreement(r: LoanRequest) {
-    setDownloadingId(r.id);
+  async function downloadReleaseAgreement(r: LoanRequest, lang: DocLang | "partial") {
+    if (downloading) return;
+    setDownloading(`${r.id}-${lang}`);
+    setSheetError(null);
     try {
-      const loan = await getLoan(r.loanId);
-      const customer = await getCustomer(loan.customerId);
-      await printReleaseAgreement({
-        loanNumber: loan.loanNumber,
-        branchName: loan.branch?.name,
-        customerName: customer.name,
-        customerAddress: customer.address,
-        customerId: String(customer.id),
-        aadhaarLast4: customer.aadhaarLast4,
-        pan: customer.pan,
-        ornaments: (loan.ornaments ?? []).map((o) => ({
-          name: o.name,
-          purity: o.purity,
-          quantity: o.quantity,
-          grossWeight: o.grossWeight,
-          netWeight: o.netWeight,
-        })),
-      });
-    } catch {
-      setSheetError("Could not load customer details — try again");
+      if (lang === "partial") await printPartialReleaseReceiptPdf(r.id);
+      else await printReleaseAgreementPdf(r.loanId, r.loan?.loanNumber ?? String(r.loanId), lang);
+    } catch (err) {
+      setSheetError(err instanceof ApiError ? err.message : "Could not download the Release Agreement — try again.");
     } finally {
-      setDownloadingId(null);
+      setDownloading(null);
     }
   }
 
@@ -185,17 +184,24 @@ export default function RequestsScreen() {
 
   return (
     <ScreenContainer style={{ paddingHorizontal: 0 }}>
-      <View style={{ marginHorizontal: 16, marginTop: 28, marginBottom: 12 }}>
-        <FilterSheetButton options={STATUS_FILTERS} value={statusFilter} onChange={setStatusFilter} />
-      </View>
-
       <View style={{ flex: 1, paddingHorizontal: 16 }}>
         <ExpandableTable<LoanRequest>
+          headerContent={
+            <View style={{ marginTop: 28, marginBottom: 12 }}>
+              <FilterSheetButton options={STATUS_FILTERS} value={statusFilter} onChange={setStatusFilter} />
+              {/* Row downloads fail with no sheet open — show it here. */}
+              {!selected && sheetError ? (
+                <ThemedText variant="small" color={colors.red} style={{ marginTop: 8 }}>
+                  {sheetError}
+                </ThemedText>
+              ) : null}
+            </View>
+          }
           columns={REQUEST_COLUMNS}
           visibleCount={REQUEST_VISIBLE_COUNT}
           data={requests}
           keyExtractor={(r) => String(r.id)}
-          extraFields={(r) => requestExtraFields(r, downloadReleaseAgreement, downloadingId)}
+          extraFields={(r) => requestExtraFields(r, downloadReleaseAgreement, downloading)}
           onViewDescription={(r) => setSelectedId(r.id)}
           emptyText={isLoading ? "Loading…" : isError ? "Could not load requests." : "No extension or release requests yet."}
           refreshControl={<RefreshControl refreshing={isFetching && !isFetchingNextPage && !isLoading} onRefresh={refetch} />}
@@ -215,8 +221,8 @@ export default function RequestsScreen() {
         maxHeightPct={90}
       >
         {selected ? (
-          <ScrollView showsVerticalScrollIndicator={false}>
-            <ThemedText variant="h3" color={colors.goldDeep} style={{ marginBottom: 4 }}>
+          <SheetScrollView showsVerticalScrollIndicator={false}>
+            <ThemedText variant="h3" color={colors.brandDeep} style={{ marginBottom: 4 }}>
               {selected.type === "Extension" ? "Review Extension" : "Review Release"} — {selected.loan?.loanNumber ?? `#${selected.loanId}`}
             </ThemedText>
             <ThemedText variant="small" color={colors.muted} style={{ marginBottom: 14 }}>
@@ -253,7 +259,7 @@ export default function RequestsScreen() {
             ) : (
               <ThemedText color={colors.red}>Could not load this loan's financials.</ThemedText>
             )}
-          </ScrollView>
+          </SheetScrollView>
         ) : null}
       </BottomSheetModal>
     </ScreenContainer>

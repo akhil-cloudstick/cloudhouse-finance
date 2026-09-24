@@ -1,11 +1,14 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
+import { TAB_BAR_SPACE, useHeaderSpace } from "../../src/theme/layout";
 import { ScrollView, View, Pressable, StyleSheet, RefreshControl } from "react-native";
 import { useQuery } from "@tanstack/react-query";
 import { useRouter } from "expo-router";
 import { ScreenContainer } from "../../src/components/ScreenContainer";
 import { GlassCard } from "../../src/components/GlassCard";
+import { BottomSheetModal, SheetScrollView } from "../../src/components/BottomSheetModal";
 import { ThemedText } from "../../src/components/ThemedText";
-import { ChipSelect } from "../../src/components/ChipSelect";
+import { SearchDropdown } from "../../src/components/SearchDropdown";
+import { useDebouncedValue } from "../../src/hooks/useDebouncedValue";
 import { GoldTextInput } from "../../src/components/GoldTextInput";
 import { colors, statusColors, StatusTone } from "../../src/theme/colors";
 import { useAuth } from "../../src/auth/AuthContext";
@@ -18,6 +21,7 @@ import { listPurityStandards } from "../../src/api/purityStandards";
 import { listSchemes } from "../../src/api/schemes";
 import { latestDashboardSnapshot } from "../../src/api/dashboard";
 import { CalendarEvent } from "../../src/types/reminder";
+import { Scheme } from "../../src/types/scheme";
 
 import { fmt } from "../../src/lib/format";
 
@@ -37,6 +41,9 @@ function rateForPurityString(k24: number, purity: string): number | null {
   }
   return null;
 }
+
+// Rows shown on the Needs Attention / Upcoming Reminders cards before "View all".
+const CARD_ROWS = 5;
 
 const EXPENSE_COLORS = [colors.brandDeep, colors.brandMid, colors.info, colors.green, colors.red, colors.amber];
 
@@ -80,6 +87,9 @@ function toneForType(type: CalendarEvent["type"]): StatusTone {
 // gold-loan calculator, upcoming reminders, expense summary).
 export default function DashboardScreen() {
   const router = useRouter();
+  const headerSpace = useHeaderSpace();
+  const [attnOpen, setAttnOpen] = useState(false);
+  const [remindersOpen, setRemindersOpen] = useState(false);
   const { employee } = useAuth();
   const branchId = employee?.branchId;
   const today = new Date().toISOString().slice(0, 10);
@@ -103,8 +113,30 @@ export default function DashboardScreen() {
     queryKey: ["loans", "requests", "pending"],
     queryFn: () => listLoanRequests({ status: "Pending" }),
   });
-  const purityStandards = useQuery({ queryKey: ["purity-standards", "all"], queryFn: () => listPurityStandards() });
-  const schemes = useQuery({ queryKey: ["schemes", "all"], queryFn: () => listSchemes() });
+  // Gold Loan Calculator pickers — each dropdown searches its backend list
+  // (`?q=`) as the user types; the input shows the selected label until edited.
+  const [calcPurity, setCalcPurity] = useState("22K");
+  const [purityQuery, setPurityQuery] = useState("22K");
+  const [calcScheme, setCalcScheme] = useState<Scheme | null>(null);
+  const [schemeQuery, setSchemeQuery] = useState("");
+  const [openDropdown, setOpenDropdown] = useState<"purity" | "scheme" | null>(null);
+  const dropdownProps = (id: "purity" | "scheme") => ({
+    open: openDropdown === id,
+    onOpenChange: (o: boolean) => setOpenDropdown(o ? id : null),
+  });
+  // Typing narrows the list; while the input still shows the selection, list everything.
+  const debouncedPurityQuery = useDebouncedValue(purityQuery === calcPurity ? "" : purityQuery.trim());
+  const debouncedSchemeQuery = useDebouncedValue(schemeQuery === (calcScheme?.name ?? "") ? "" : schemeQuery.trim());
+  const purityStandards = useQuery({
+    queryKey: ["purity-standards", debouncedPurityQuery],
+    queryFn: () => listPurityStandards(debouncedPurityQuery || undefined),
+  });
+  const schemes = useQuery({
+    // Distinct from the Schemes list's ["schemes", q] infinite query — sharing
+    // that key put a plain array where it expects {pages}, crashing the list.
+    queryKey: ["schemes", "picker", debouncedSchemeQuery],
+    queryFn: () => listSchemes(debouncedSchemeQuery || undefined),
+  });
   // Cash in Hand — mirrors frontend/components/Dashboard.tsx's own KPI
   // exactly: all-time net(cash-in movements − cash-out movements), branch-
   // scoped server-side from the logged-in employee's own branch (backend/
@@ -172,6 +204,13 @@ export default function DashboardScreen() {
   const pledgedLoans = loanList.filter((l) => l.bankPledgeStatus === "Bank Pledged");
 
   const requestList = requests.data ?? [];
+  // Needs Attention, in priority order. The card shows the first CARD_ROWS;
+  // "View all" raises a sheet with every item.
+  const attnItems: { key: string; color: string; label: string; action?: string; onPress?: () => void }[] = [
+    ...pendingApprovalLoans.map((l) => ({ key: `appr-${l.id}`, color: colors.amber, label: `Loan approval — ${l.loanNumber}`, action: "Review", onPress: () => openLoan(l.id) })),
+    ...requestList.map((r) => ({ key: `req-${r.id}`, color: colors.info, label: `${r.type} request — loan #${r.loanId}` })),
+    ...auctionLoans.map((l) => ({ key: `auc-${l.id}`, color: colors.red, label: `Auction case — ${l.loanNumber}`, action: "Open", onPress: () => openLoan(l.id) })),
+  ];
   const extensionCount = requestList.filter((r) => r.type === "Extension").length;
   const releaseCount = requestList.filter((r) => r.type === "Release").length;
 
@@ -204,9 +243,64 @@ export default function DashboardScreen() {
   });
   const maxBar = Math.max(1, ...monthBuckets.map(([, v]) => v));
 
-  const upcomingReminders = [...(events.data ?? [])]
-    .sort((a, b) => (a.type === "Overdue" ? -1 : b.type === "Overdue" ? 1 : a.date.localeCompare(b.date)))
-    .slice(0, 8);
+  const allReminders = [...(events.data ?? [])].sort((a, b) =>
+    a.type === "Overdue" ? -1 : b.type === "Overdue" ? 1 : a.date.localeCompare(b.date)
+  );
+
+  function renderAttnRow(it: (typeof attnItems)[number]) {
+    const row = (
+      <View style={styles.attnRow}>
+        <View style={[styles.attnDot, { backgroundColor: it.color }]} />
+        <View style={{ flex: 1 }}>
+          <ThemedText variant="body">{it.label}</ThemedText>
+        </View>
+        {it.action ? (
+          <ThemedText variant="small" color={colors.brandDeep}>
+            {it.action}
+          </ThemedText>
+        ) : null}
+      </View>
+    );
+    return it.onPress ? (
+      <Pressable
+        key={it.key}
+        onPress={() => {
+          setAttnOpen(false);
+          it.onPress!();
+        }}
+      >
+        {row}
+      </Pressable>
+    ) : (
+      <View key={it.key}>{row}</View>
+    );
+  }
+
+  function renderReminderRow(e: CalendarEvent, i: number) {
+    const tone = statusColors(toneForType(e.type));
+    return (
+      <View key={i} style={styles.attnRow}>
+        <View style={[styles.attnDot, { backgroundColor: tone.fg }]} />
+        <View style={{ flex: 1 }}>
+          <ThemedText variant="body">{e.title}</ThemedText>
+          <ThemedText variant="small" color={colors.muted}>
+            {e.detail} · {e.date}
+          </ThemedText>
+        </View>
+      </View>
+    );
+  }
+
+  // "View all (N)" beside a card title, only when the card is truncated.
+  function viewAll(count: number, onPress: () => void) {
+    return count > CARD_ROWS ? (
+      <Pressable onPress={onPress} hitSlop={8}>
+        <ThemedText variant="small" color={colors.brandDeep} style={{ fontWeight: "600" }}>
+          View all ({count})
+        </ThemedText>
+      </Pressable>
+    ) : null;
+  }
 
   const expenseByCat = Object.entries(
     (expenses.data ?? []).reduce<Record<string, number>>((acc, e) => {
@@ -218,25 +312,38 @@ export default function DashboardScreen() {
 
   // Gold Loan Calculator state.
   const [calcWeight, setCalcWeight] = useState("10");
-  const [calcPurity, setCalcPurity] = useState("22K");
-  const [calcSchemeId, setCalcSchemeId] = useState<number | undefined>(undefined);
   const activeSchemes = (schemes.data ?? []).filter((s) => s.isActive);
-  const effectiveSchemeId = calcSchemeId ?? activeSchemes[0]?.id;
-  const purityLabels = (purityStandards.data ?? []).map((p) => p.label);
+  const activePurities = (purityStandards.data ?? []).filter((p) => p.isActive);
+  // Preselect the first active scheme once the list first loads.
+  const firstActiveScheme = activeSchemes[0];
+  useEffect(() => {
+    if (!calcScheme && firstActiveScheme) {
+      setCalcScheme(firstActiveScheme);
+      setSchemeQuery(firstActiveScheme.name);
+    }
+  }, [calcScheme, firstActiveScheme]);
 
   const w = parseFloat(calcWeight) || 0;
   const k24 = goldRate.data?.k24 ?? 0;
   const rate = rateForPurityString(k24, calcPurity) ?? 0;
-  const selectedScheme = activeSchemes.find((s) => s.id === effectiveSchemeId);
+  const selectedScheme = calcScheme;
   const gross = w * rate;
   const eligible = selectedScheme ? (gross * selectedScheme.ltvPercent) / 100 : 0;
 
   return (
     <ScreenContainer style={{ padding: 0 }}>
+
       <ScrollView
+
         showsVerticalScrollIndicator={false}
-        contentContainerStyle={{ paddingHorizontal: 8, paddingTop: 20, paddingBottom: 16 }}
-        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
+        // Reaches up under the floating header so content scrolls behind it.
+        style={{ marginTop: -headerSpace }}
+        contentContainerStyle={{ paddingHorizontal: 8, paddingTop: 20 + headerSpace, paddingBottom: TAB_BAR_SPACE }}
+        keyboardShouldPersistTaps="handled"
+        onTouchStart={() => {
+          if (openDropdown) setOpenDropdown(null);
+        }}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} progressViewOffset={headerSpace} />}
       >
         <ThemedText variant="h2" color={colors.brandDeep}>
           Welcome, {employee?.name}
@@ -399,61 +506,16 @@ export default function DashboardScreen() {
         </GlassCard>
 
         <GlassCard>
-          <ThemedText variant="h3" style={{ marginBottom: 8 }}>
-            Needs Attention
-          </ThemedText>
-          {pendingApprovalLoans.length + requestList.length + auctionLoans.length === 0 ? (
+          <View style={styles.cardTitleRow}>
+            <ThemedText variant="h3">Needs Attention</ThemedText>
+            {viewAll(attnItems.length, () => setAttnOpen(true))}
+          </View>
+          {attnItems.length === 0 ? (
             <ThemedText variant="small" color={colors.muted}>
               Nothing needs attention right now.
             </ThemedText>
           ) : (
-            <>
-              {pendingApprovalLoans.map((l) => (
-                <Pressable key={`appr-${l.id}`} onPress={() => openLoan(l.id)}>
-                  <View style={styles.attnRow}>
-                    <View style={[styles.attnDot, { backgroundColor: colors.amber }]} />
-                    <View style={{ flex: 1 }}>
-                      <ThemedText variant="body">Loan approval — {l.loanNumber}</ThemedText>
-                      <ThemedText variant="small" color={colors.muted}>
-                        {l.customer?.name ?? "Customer"} · {fmt(l.principalAmount)} · at {l.approvalStage} stage
-                      </ThemedText>
-                    </View>
-                    <ThemedText variant="small" color={colors.brandDeep}>
-                      Review
-                    </ThemedText>
-                  </View>
-                </Pressable>
-              ))}
-              {requestList.map((r) => (
-                <View key={`req-${r.id}`} style={styles.attnRow}>
-                  <View style={[styles.attnDot, { backgroundColor: colors.info }]} />
-                  <View style={{ flex: 1 }}>
-                    <ThemedText variant="body">
-                      {r.type} request — loan #{r.loanId}
-                    </ThemedText>
-                    <ThemedText variant="small" color={colors.muted}>
-                      {r.detail || r.requestedBy}
-                    </ThemedText>
-                  </View>
-                </View>
-              ))}
-              {auctionLoans.map((l) => (
-                <Pressable key={`auc-${l.id}`} onPress={() => openLoan(l.id)}>
-                  <View style={styles.attnRow}>
-                    <View style={[styles.attnDot, { backgroundColor: colors.red }]} />
-                    <View style={{ flex: 1 }}>
-                      <ThemedText variant="body">Auction case — {l.loanNumber}</ThemedText>
-                      <ThemedText variant="small" color={colors.muted}>
-                        {l.customer?.name ?? "Customer"} · {fmt(l.outstandingAmount)} outstanding · {l.status}
-                      </ThemedText>
-                    </View>
-                    <ThemedText variant="small" color={colors.brandDeep}>
-                      Open
-                    </ThemedText>
-                  </View>
-                </Pressable>
-              ))}
-            </>
+            attnItems.slice(0, CARD_ROWS).map(renderAttnRow)
           )}
         </GlassCard>
 
@@ -467,20 +529,44 @@ export default function DashboardScreen() {
             value={calcWeight}
             onChangeText={setCalcWeight}
           />
-          <ChipSelect
+          <SearchDropdown
             label="Purity"
-            options={purityLabels.length ? purityLabels : ["22K"]}
-            value={calcPurity}
-            onChange={setCalcPurity}
-          />
-          <ChipSelect
-            label="Scheme"
-            options={activeSchemes.map((s) => s.name)}
-            value={selectedScheme?.name}
-            onChange={(name) => {
-              const s = activeSchemes.find((sc) => sc.name === name);
-              if (s) setCalcSchemeId(s.id);
+            placeholder="Select purity…"
+            query={purityQuery}
+            onQueryChange={setPurityQuery}
+            {...dropdownProps("purity")}
+            items={activePurities}
+            keyOf={(p) => p.id}
+            renderItem={(p) => <ThemedText variant="body">{p.label}</ThemedText>}
+            onSelect={(p) => {
+              setCalcPurity(p.label);
+              setPurityQuery(p.label);
             }}
+            loading={purityStandards.isLoading}
+            emptyText="No purity standards found"
+          />
+          <SearchDropdown
+            label="Scheme"
+            placeholder="Select scheme…"
+            query={schemeQuery}
+            onQueryChange={setSchemeQuery}
+            {...dropdownProps("scheme")}
+            items={activeSchemes}
+            keyOf={(s) => s.id}
+            renderItem={(s) => (
+              <>
+                <ThemedText variant="body">{s.name}</ThemedText>
+                <ThemedText variant="small" color={colors.muted}>
+                  {s.interestRate}% · {s.durationMonths} months · LTV {s.ltvPercent}%
+                </ThemedText>
+              </>
+            )}
+            onSelect={(s) => {
+              setCalcScheme(s);
+              setSchemeQuery(s.name);
+            }}
+            loading={schemes.isLoading}
+            emptyText="No schemes found"
           />
           <View style={styles.calcResult}>
             <View style={styles.calcRow}>
@@ -504,24 +590,12 @@ export default function DashboardScreen() {
         </GlassCard>
 
         <GlassCard>
-          <ThemedText variant="h3" style={{ marginBottom: 8 }}>
-            Upcoming Reminders
-          </ThemedText>
-          {upcomingReminders.length ? (
-            upcomingReminders.map((e, i) => {
-              const tone = statusColors(toneForType(e.type));
-              return (
-                <View key={i} style={styles.attnRow}>
-                  <View style={[styles.attnDot, { backgroundColor: tone.fg }]} />
-                  <View style={{ flex: 1 }}>
-                    <ThemedText variant="body">{e.title}</ThemedText>
-                    <ThemedText variant="small" color={colors.muted}>
-                      {e.detail} · {e.date}
-                    </ThemedText>
-                  </View>
-                </View>
-              );
-            })
+          <View style={styles.cardTitleRow}>
+            <ThemedText variant="h3">Upcoming Reminders</ThemedText>
+            {viewAll(allReminders.length, () => setRemindersOpen(true))}
+          </View>
+          {allReminders.length ? (
+            allReminders.slice(0, CARD_ROWS).map(renderReminderRow)
           ) : (
             <ThemedText variant="small" color={colors.muted}>
               {events.isLoading ? "Loading…" : "No pending reminders."}
@@ -565,11 +639,25 @@ export default function DashboardScreen() {
           )}
         </GlassCard>
       </ScrollView>
+
+      <BottomSheetModal visible={attnOpen} onClose={() => setAttnOpen(false)} maxHeightPct={80}>
+        <ThemedText variant="h3" style={{ marginBottom: 8 }}>
+          Needs Attention ({attnItems.length})
+        </ThemedText>
+        <SheetScrollView showsVerticalScrollIndicator={false}>{attnItems.map(renderAttnRow)}</SheetScrollView>
+      </BottomSheetModal>
+      <BottomSheetModal visible={remindersOpen} onClose={() => setRemindersOpen(false)} maxHeightPct={80}>
+        <ThemedText variant="h3" style={{ marginBottom: 8 }}>
+          Upcoming Reminders ({allReminders.length})
+        </ThemedText>
+        <SheetScrollView showsVerticalScrollIndicator={false}>{allReminders.map(renderReminderRow)}</SheetScrollView>
+      </BottomSheetModal>
     </ScreenContainer>
   );
 }
 
 const styles = StyleSheet.create({
+  cardTitleRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 8 },
   trendRow: { flexDirection: "row", gap: 4, marginTop: 2 },
   trendText: { fontSize: 11 },
   grid: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginBottom: 12 },
@@ -603,7 +691,8 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 10,
-    paddingVertical: 8,
+    minHeight: 56,
+    paddingVertical: 14,
     borderBottomWidth: 1,
     borderBottomColor: colors.line,
   },

@@ -26,14 +26,15 @@ type Source = { key: string; label: string; icon: string; run: () => Promise<Pic
 async function fromCamera(): Promise<PickedFile | null> {
   const perm = await ImagePicker.requestCameraPermissionsAsync();
   if (!perm.granted) throw new Error("Camera permission is needed to take a photo.");
-  const res = await ImagePicker.launchCameraAsync({ mediaTypes: "images", quality: 0.7 });
+  // Low quality keeps full-resolution camera shots small enough to upload quickly.
+  const res = await ImagePicker.launchCameraAsync({ mediaTypes: "images", quality: 0.35, exif: false });
   if (res.canceled || !res.assets?.length) return null;
   const a = res.assets[0];
   return { uri: a.uri, name: a.fileName || "photo.jpg", mimeType: a.mimeType || "image/jpeg" };
 }
 
 async function fromLibrary(): Promise<PickedFile | null> {
-  const res = await ImagePicker.launchImageLibraryAsync({ mediaTypes: "images", quality: 0.7 });
+  const res = await ImagePicker.launchImageLibraryAsync({ mediaTypes: "images", quality: 0.35, exif: false });
   if (res.canceled || !res.assets?.length) return null;
   const a = res.assets[0];
   return { uri: a.uri, name: a.fileName || "image.jpg", mimeType: a.mimeType || "image/jpeg" };

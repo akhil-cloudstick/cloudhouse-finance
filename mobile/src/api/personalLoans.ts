@@ -113,7 +113,16 @@ export function createPersonalLoan(input: CreatePersonalLoanInput) {
 
 export function recordPersonalLoanPayment(
   id: number,
-  input: { amount: number; method: string; reference?: string; description?: string }
+  input: {
+    amount: number;
+    // Backend requires these to sum to amount (platform.ValidateSplit).
+    cashAmount: number;
+    upiAmount: number;
+    bankTransferAmount: number;
+    chequeAmount: number;
+    reference?: string;
+    description?: string;
+  }
 ) {
   return apiRequest<PersonalLoan>(`/personal-loans/${id}/payments`, { method: "POST", body: input });
 }

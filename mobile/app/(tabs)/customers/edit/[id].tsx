@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from "react";
-import { View, ScrollView, KeyboardAvoidingView, Platform } from "react-native";
+import { View, KeyboardAvoidingView, Platform } from "react-native";
+import { GutterScrollView } from "../../../../src/components/Gutter";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { ScreenContainer } from "../../../../src/components/ScreenContainer";
@@ -104,7 +105,7 @@ export default function EditCustomerScreen() {
     <ScreenContainer style={{ padding: 0 }}>
       <View style={{ flex: 1, paddingHorizontal: 8, paddingTop: 20 }}>
       <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === "ios" ? "padding" : "height"}>
-        <ScrollView
+        <GutterScrollView
           showsVerticalScrollIndicator={false}
           keyboardShouldPersistTaps="handled"
           keyboardDismissMode="on-drag"
@@ -192,7 +193,7 @@ export default function EditCustomerScreen() {
               />
             </View>
           </Card>
-        </ScrollView>
+        </GutterScrollView>
       </KeyboardAvoidingView>
       </View>
     </ScreenContainer>  );

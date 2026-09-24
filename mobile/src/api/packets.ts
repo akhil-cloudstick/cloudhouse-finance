@@ -14,10 +14,12 @@ export function listPacketsPage(params: {
   loanId?: number;
   lockerId?: number;
   status?: string;
+  /** Packet code / loan number / customer name. */
+  q?: string;
   limit: number;
   offset: number;
 }) {
-  return apiRequest<{ items: Packet[]; hasMore: boolean }>("/packets", { params });
+  return apiRequest<{ items: Packet[]; hasMore: boolean; total?: number }>("/packets", { params });
 }
 
 export function getPacketByCode(code: string) {
@@ -33,7 +35,8 @@ export function getPacketMovements(id: number) {
 }
 
 // The only write on this module — packets themselves are auto-created when
-// a loan is created, there's no direct POST /packets.
+// a loan is created, there's no direct POST /packets. Returns the updated
+// packet; 409 when the loan is Auctioned/Closed or the locker is full.
 export function movePacket(id: number, input: { toStatus: string; lockerId?: number; employeeId: number; remarks?: string }) {
-  return apiRequest<PacketMovement>(`/packets/${id}/movements`, { method: "POST", body: input });
+  return apiRequest<Packet>(`/packets/${id}/movements`, { method: "POST", body: input });
 }

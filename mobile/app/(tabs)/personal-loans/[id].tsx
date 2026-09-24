@@ -1,5 +1,6 @@
 import React, { useState } from "react";
-import { ScrollView, View, RefreshControl } from "react-native";
+import { View, RefreshControl } from "react-native";
+import { GutterScrollView } from "../../../src/components/Gutter";
 import * as FileSystem from "expo-file-system/legacy";
 import * as Sharing from "expo-sharing";
 import { useLocalSearchParams, useRouter } from "expo-router";
@@ -32,12 +33,12 @@ const SUB_PAGE_SIZE = 10;
 
 const PAYMENT_METHODS = ["Cash", "UPI", "Bank Transfer"] as const;
 
-function toneForStatus(status: string): "green" | "red" | "amber" | "blue" | "muted" {
+function toneForStatus(status: string): "green" | "red" | "amber" | "info" | "muted" {
   const s = status.toLowerCase();
   if (s === "active" || s === "paid") return "green";
   if (s === "defaulted") return "red";
   if (s === "renewed" || s === "pending" || s === "partiallypaid" || s === "partially paid") return "amber";
-  return "blue";
+  return "info";
 }
 
 function StatusPill({ status }: { status: string }) {
@@ -107,13 +108,18 @@ export default function PersonalLoanDetailScreen() {
   }
 
   const collect = useMutation({
-    mutationFn: () =>
-      recordPersonalLoanPayment(loanId, {
-        amount: Number(collectAmount),
-        method: collectMethod,
+    mutationFn: () => {
+      const amount = Number(collectAmount);
+      return recordPersonalLoanPayment(loanId, {
+        amount,
+        cashAmount: collectMethod === "Cash" ? amount : 0,
+        upiAmount: collectMethod === "UPI" ? amount : 0,
+        bankTransferAmount: collectMethod === "Bank Transfer" ? amount : 0,
+        chequeAmount: 0,
         reference: collectReference || undefined,
         description: collectDescription || undefined,
-      }),
+      });
+    },
     onSuccess: () => {
       setCollectAmount("");
       setCollectReference("");
@@ -224,12 +230,12 @@ export default function PersonalLoanDetailScreen() {
   return (
     <ScreenContainer style={{ padding: 0 }}>
       <View style={{ flex: 1, paddingHorizontal: 8, paddingTop: 20 }}>
-        <ScrollView
+        <GutterScrollView
           showsVerticalScrollIndicator={false}
           refreshControl={<RefreshControl refreshing={loan.isRefetching} onRefresh={() => loan.refetch()} />}
         >
           <Card>
-            <ThemedText variant="h2" color={colors.goldDeep}>
+            <ThemedText variant="h2" color={colors.brandDeep}>
               {l.loanNumber}
             </ThemedText>
             <ThemedText variant="body" style={{ marginTop: 8 }}>
@@ -260,7 +266,7 @@ export default function PersonalLoanDetailScreen() {
             {l.renewedFromLoanId ? (
               <ThemedText
                 variant="small"
-                color={colors.blue}
+                color={colors.info}
                 style={{ marginTop: 4 }}
                 onPress={() => router.push(`/personal-loans/${l.renewedFromLoanId}`)}
               >
@@ -270,7 +276,7 @@ export default function PersonalLoanDetailScreen() {
             {l.renewedToLoanId ? (
               <ThemedText
                 variant="small"
-                color={colors.blue}
+                color={colors.info}
                 style={{ marginTop: 4 }}
                 onPress={() => router.push(`/personal-loans/${l.renewedToLoanId}`)}
               >
@@ -286,7 +292,8 @@ export default function PersonalLoanDetailScreen() {
             <View style={{ flexDirection: "row", gap: 8, marginTop: 14 }}>
               <View style={{ flex: 1 }}>
                 <GoldButton
-                  title={downloadingBond ? "Preparing…" : "Download Bond"}
+                  title={downloadingBond ? "…" : "BOND"}
+                  icon="download"
                   variant="outline"
                   onPress={downloadBond}
                   disabled={downloadingBond}
@@ -352,7 +359,7 @@ export default function PersonalLoanDetailScreen() {
               <ChipSelect label="Collection Frequency" options={["Daily", "Weekly", "Monthly"] as const} value={renewFrequency} onChange={setRenewFrequency} />
 
               {renewPreview.data ? (
-                <View style={{ backgroundColor: colors.goldPale, borderRadius: 12, padding: 12, marginBottom: 12 }}>
+                <View style={{ backgroundColor: colors.brandPale, borderRadius: 12, padding: 12, marginBottom: 12 }}>
                   <ThemedText variant="small">Rollover (old outstanding): {fmt(renewPreview.data.rollover)}</ThemedText>
                   <ThemedText variant="small">New interest: {fmt(renewPreview.data.interestAmount)}</ThemedText>
                   <ThemedText variant="small">Cash paid to customer: {fmt(renewPreview.data.disbursedAmount)}</ThemedText>
@@ -459,7 +466,7 @@ export default function PersonalLoanDetailScreen() {
             )}
             <Pager page={payments.page} totalPages={payments.totalPages} onChange={payments.setPage} />
           </Card>
-        </ScrollView>
+        </GutterScrollView>
       </View>
     </ScreenContainer>
   );

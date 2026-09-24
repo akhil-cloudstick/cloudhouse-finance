@@ -11,10 +11,12 @@ export default function PersonalLoansLayout() {
   return (
     <Stack
       screenOptions={{
+        // Header floats over the scene; see useHeaderSpace (src/theme/layout.ts).
+        headerTransparent: true,
         header: ({ options, route, navigation }) => (
           <FloatingHeader title={options.title ?? route.name} navigation={navigation} />
         ),
-        contentStyle: { backgroundColor: colors.ivory },
+        contentStyle: { backgroundColor: colors.bg },
       }}
     >
       <Stack.Screen name="index" options={{ title: "Personal Loans" }} />

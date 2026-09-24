@@ -1,4 +1,6 @@
 import React from "react";
+import { TAB_BAR_SPACE } from "../../../src/theme/layout";
+import { TopFaded } from "../../../src/components/EdgeFade";
 import { FlatList, RefreshControl, Pressable, View } from "react-native";
 import { useQuery } from "@tanstack/react-query";
 import { useRouter } from "expo-router";
@@ -27,10 +29,12 @@ export default function BranchesScreen() {
       <View style={{ paddingHorizontal: 16, paddingTop: 20 }}>
         <GoldButton title="Add branch" variant="outline" onPress={() => router.push("/branches/new")} />
       </View>
+      <TopFaded>{(fade) => (
       <FlatList<Branch>
+        {...fade}
         data={data ?? []}
         keyExtractor={(item) => String(item.id)}
-        contentContainerStyle={{ paddingHorizontal: 16, paddingTop: 16, paddingBottom: 16 }}
+        contentContainerStyle={{ paddingHorizontal: 16, paddingTop: 16, paddingBottom: TAB_BAR_SPACE }}
         refreshControl={<RefreshControl refreshing={isRefetching} onRefresh={refetch} />}
         ListEmptyComponent={
           <ThemedText color={colors.muted}>
@@ -51,6 +55,7 @@ export default function BranchesScreen() {
           </Pressable>
         )}
       />
+      )}</TopFaded>
     </ScreenContainer>
   );
 }

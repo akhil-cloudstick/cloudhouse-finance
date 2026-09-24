@@ -1,5 +1,6 @@
 import React, { useState } from "react";
-import { View, ScrollView, KeyboardAvoidingView, Platform } from "react-native";
+import { View, KeyboardAvoidingView, Platform } from "react-native";
+import { GutterScrollView } from "../../../src/components/Gutter";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "expo-router";
 import { ScreenContainer } from "../../../src/components/ScreenContainer";
@@ -79,11 +80,11 @@ export default function NewCustomerScreen() {
         style={{ flex: 1 }}
         behavior={Platform.OS === "ios" ? "padding" : "height"}
       >
-        <ScrollView
+        <GutterScrollView
           showsVerticalScrollIndicator={false}
           keyboardShouldPersistTaps="handled"
           keyboardDismissMode="on-drag"
-          contentContainerStyle={{ flexGrow: 1, paddingBottom: 24 }}
+          contentContainerStyle={{ flexGrow: 1 }}
         >
           <Card>
           <GoldTextInput label="Full Name *" value={name} onChangeText={setName} placeholder="e.g. Anil Varma" />
@@ -173,7 +174,7 @@ export default function NewCustomerScreen() {
             />
           </View>
           </Card>
-        </ScrollView>
+        </GutterScrollView>
       </KeyboardAvoidingView>
       </View>
     </ScreenContainer>  );

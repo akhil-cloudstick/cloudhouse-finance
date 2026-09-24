@@ -3,6 +3,7 @@
 // `unstable-native-tabs` variant, avoided here because the whole point of
 // this bar is a custom look).
 import { Tabs } from "expo-router/js-tabs";
+import { Dimensions, Easing } from "react-native";
 import { colors } from "../../src/theme/colors";
 import { FloatingHeader } from "../../src/components/FloatingHeader";
 import { AppTabBar } from "../../src/components/AppTabBar";
@@ -28,12 +29,16 @@ import { MoreSheetProvider } from "../../src/components/MoreSheet";
 // ever renders the four TABS entries, but if the custom bar were ever
 // swapped for the default BottomTabBar these screens still wouldn't leak
 // into it as a row of 18 icons.
+const SCREEN_W = Dimensions.get("window").width;
+
 export default function TabsLayout() {
   return (
     <MoreSheetProvider>
       <Tabs
         tabBar={(props) => <AppTabBar {...props} />}
         screenOptions={{
+        // Header floats over the scene; see useHeaderSpace (src/theme/layout.ts).
+        headerTransparent: true,
           header: ({ options, route, navigation }) => (
             <FloatingHeader title={options.title ?? route.name} navigation={navigation} />
           ),
@@ -46,13 +51,28 @@ export default function TabsLayout() {
           // from the Dashboard left the Loans tab parked on that loan
           // forever — coming back to Loans showed the loan, not the list.
           popToTopOnBlur: true,
+          // Hidden tabs stop re-rendering (background refetches etc.), so the
+          // switch isn't competing with work on screens you can't see.
+          freezeOnBlur: true,
+          // Slide only — no opacity. The built-in fade/shift presets animate
+          // opacity, and Android redraws elevation shadows under an animating
+          // opacity, which made the edges under headers/buttons/cards flash.
+          sceneStyleInterpolator: ({ current }) => ({
+            sceneStyle: {
+              transform: [
+                { translateX: current.progress.interpolate({ inputRange: [-1, 0, 1], outputRange: [-SCREEN_W, 0, SCREEN_W] }) },
+              ],
+            },
+          }),
+          transitionSpec: { animation: "timing", config: { duration: 220, easing: Easing.out(Easing.cubic) } },
         }}
       >
-        {/* --- the four primary tabs --- */}
+        {/* --- the four primary tabs --- mounted up front (lazy: false) so the
+            first switch to each doesn't pay the full mount cost. */}
         <Tabs.Screen name="dashboard" options={{ title: "Dashboard" }} />
-        <Tabs.Screen name="loans" options={{ title: "Loans", headerShown: false }} />
-        <Tabs.Screen name="customers" options={{ title: "Customers", headerShown: false }} />
-        <Tabs.Screen name="new-loan" options={{ title: "New Loan" }} />
+        <Tabs.Screen name="loans" options={{ title: "Loans", headerShown: false, lazy: false }} />
+        <Tabs.Screen name="customers" options={{ title: "Customers", headerShown: false, lazy: false }} />
+        <Tabs.Screen name="new-loan" options={{ title: "New Loan", lazy: false }} />
 
         {/* --- reachable from the More sheet only --- */}
         <Tabs.Screen name="packets" options={{ title: "Packets", headerShown: false, href: null }} />

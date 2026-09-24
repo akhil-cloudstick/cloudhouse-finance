@@ -83,33 +83,40 @@ export default function InvestmentsScreen() {
 
   const investments = data?.pages.flatMap((p) => p.items) ?? [];
 
-  return (
-    <ScreenContainer style={{ paddingHorizontal: 0 }}>
+  // Scrolls away with the rows (ExpandableTable's headerContent) so the
+  // table's top fade sits right under the app header.
+  const listHeader = (
+    <View>
       <GoldTextInput
         label="Search investments"
         placeholder="Investment # or investor…"
         value={search}
         onChangeText={setSearch}
-        containerStyle={{ marginHorizontal: 16, marginTop: 28 }}
+        containerStyle={{ marginTop: 28 }}
         blur
       />
       {canUpdate ? (
-        <View style={{ marginHorizontal: 16, marginBottom: 12 }}>
+        <View style={{ marginBottom: 12 }}>
           <GoldButton title="Manage Plans" variant="outline" onPress={() => router.push("/investments/plans")} />
         </View>
       ) : null}
       {canCreate ? (
-        <View style={{ marginHorizontal: 16, marginBottom: 12 }}>
+        <View style={{ marginBottom: 12 }}>
           <GoldButton title="+ New Investment" onPress={() => router.push("/investments/new")} />
         </View>
       ) : null}
 
-      <View style={{ marginHorizontal: 16, marginBottom: 12 }}>
+      <View style={{ marginBottom: 12 }}>
         <FilterSheetButton options={STATUS_FILTERS} value={status} onChange={setStatus} />
       </View>
+    </View>
+  );
 
+  return (
+    <ScreenContainer style={{ paddingHorizontal: 0 }}>
       <View style={{ flex: 1, paddingHorizontal: 16 }}>
         <ExpandableTable<Investment>
+          headerContent={listHeader}
           columns={INVESTMENT_COLUMNS}
           visibleCount={INVESTMENT_VISIBLE_COUNT}
           data={investments}

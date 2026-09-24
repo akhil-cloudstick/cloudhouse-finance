@@ -1,6 +1,10 @@
-// Mirrors backend/internal/packet's JSON shape. Stage machine:
-// "Packet Generated" -> "Locker Stored" -> "Bank Pledged" ->
-// "Returned"/"Ready For Release" -> "Released".
+// Mirrors backend/internal/packet's JSON shape. Manual moves:
+// "Packet Generated" -> "Locker Stored" -> "Released"; "Returned" ->
+// "Locker Stored" | "Released". "Bank Pledged"/"Returned" are only entered
+// via the loan's bank pledge and its release. "Ready For Release" is legacy:
+// nothing moves into it, a packet already there can go -> "Released".
+// A movement with fromStatus === toStatus is a partial ornament release
+// (remarks explain it), not a stage change.
 export type PacketMovement = {
   id: number;
   packetId: number;
@@ -32,9 +36,20 @@ export type Packet = {
   id: number;
   code: string;
   loanId: number;
-  loan?: { id: number; loanNumber: string; branchId?: number; ornaments?: PacketOrnament[] };
+  // `ornaments` holds only the still-unreleased ornaments.
+  loan?: {
+    id: number;
+    loanNumber: string;
+    branchId?: number;
+    branch?: { id: number; name: string };
+    customer?: { id: number; name: string };
+    status?: string;
+    ornaments?: PacketOrnament[];
+  };
   status: string;
   currentLockerId?: number;
+  totalGrossWeight?: number;
+  totalNetWeight?: number;
   movements?: PacketMovement[];
   createdAt: string;
   updatedAt: string;

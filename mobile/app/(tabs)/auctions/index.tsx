@@ -52,12 +52,18 @@ const HISTORY_TABLES = ["Auctions Conducted", "Closed Without Auction"] as const
 export default function AuctionsScreen() {
   const [topTab, setTopTab] = useState<(typeof TOP_TABS)[number]>("Active Cases");
 
+  // The tab chips ride inside each table's headerContent (with that tab's own
+  // search/filter), so everything scrolls away with the rows and the table's
+  // top fade sits right under the app header.
+  const topTabs = (
+    <View style={{ paddingTop: 20 }}>
+      <ChipSelect options={TOP_TABS} value={topTab} onChange={setTopTab} />
+    </View>
+  );
+
   return (
     <ScreenContainer style={{ paddingHorizontal: 0 }}>
-      <View style={{ paddingHorizontal: 16, paddingTop: 20 }}>
-        <ChipSelect options={TOP_TABS} value={topTab} onChange={setTopTab} />
-      </View>
-      {topTab === "Active Cases" ? <ActiveCases /> : <AuctionHistory />}
+      {topTab === "Active Cases" ? <ActiveCases topTabs={topTabs} /> : <AuctionHistory topTabs={topTabs} />}
     </ScreenContainer>
   );
 }
@@ -93,7 +99,7 @@ function activeExtraFields(l: Loan) {
   ];
 }
 
-function ActiveCases() {
+function ActiveCases({ topTabs }: { topTabs: React.ReactNode }) {
   const router = useRouter();
   const [filter, setFilter] = useState<(typeof FILTERS)[number]>("Auction Eligible");
   const [search, setSearch] = useState("");
@@ -133,21 +139,28 @@ function ActiveCases() {
     router.push(`/loans/${id}`);
   }
 
-  return (
-    <>
+  const listHeader = (
+    <View>
+      {topTabs}
       <GoldTextInput
         label="Search auctions"
         placeholder="Loan no or customer…"
         value={search}
         onChangeText={setSearch}
-        containerStyle={{ marginHorizontal: 16, marginTop: 12 }}
+        containerStyle={{ marginTop: 12 }}
         blur
       />
-      <View style={{ paddingHorizontal: 16, marginTop: 12, marginBottom: 12 }}>
+      <View style={{ marginTop: 12, marginBottom: 12 }}>
         <FilterSheetButton options={FILTERS} value={filter} onChange={setFilter} label="Filter" />
       </View>
+    </View>
+  );
+
+  return (
+    <>
       <View style={{ flex: 1, paddingHorizontal: 16 }}>
         <ExpandableTable<Loan>
+          headerContent={listHeader}
           columns={ACTIVE_COLUMNS}
           visibleCount={ACTIVE_COLUMNS.length}
           data={filtered}
@@ -190,7 +203,7 @@ function historyExtraFields(r: ConcludedAuctionRow) {
   ];
 }
 
-function AuctionHistory() {
+function AuctionHistory({ topTabs }: { topTabs: React.ReactNode }) {
   const router = useRouter();
   const [table, setTable] = useState<(typeof HISTORY_TABLES)[number]>("Auctions Conducted");
   const hasSale = table === "Auctions Conducted";
@@ -218,21 +231,28 @@ function AuctionHistory() {
 
   const records = data?.pages.flatMap((p) => p.items) ?? [];
 
-  return (
-    <>
+  const listHeader = (
+    <View>
+      {topTabs}
       <GoldTextInput
         label="Search auction history"
         placeholder="Loan no, customer, or reference…"
         value={search}
         onChangeText={setSearch}
-        containerStyle={{ marginHorizontal: 16, marginTop: 12 }}
+        containerStyle={{ marginTop: 12 }}
         blur
       />
-      <View style={{ paddingHorizontal: 16, marginTop: 12 }}>
+      <View style={{ marginTop: 12 }}>
         <ChipSelect options={HISTORY_TABLES} value={table} onChange={setTable} label="Table" />
       </View>
+    </View>
+  );
+
+  return (
+    <>
       <View style={{ flex: 1, paddingHorizontal: 16 }}>
         <ExpandableTable<ConcludedAuctionRow>
+          headerContent={listHeader}
           columns={HISTORY_COLUMNS}
           visibleCount={HISTORY_COLUMNS.length}
           data={records}
