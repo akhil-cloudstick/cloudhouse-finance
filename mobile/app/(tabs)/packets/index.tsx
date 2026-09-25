@@ -7,11 +7,12 @@ import { ThemedText } from "../../../src/components/ThemedText";
 import { GoldTextInput } from "../../../src/components/GoldTextInput";
 import { Icon } from "../../../src/components/Icon";
 import { ChipSelect } from "../../../src/components/ChipSelect";
-import { colors, statusColors, StatusTone } from "../../../src/theme/colors";
+import { statusColors, StatusTone } from "../../../src/theme/colors";
+import { useTheme } from "../../../src/theme/ThemeProvider";
 import { listPacketsPage, getPacketByCode } from "../../../src/api/packets";
 import { getLocker } from "../../../src/api/lockers";
 import { Packet } from "../../../src/types/packet";
-import { useRefetchOnFocus } from "../../../src/hooks/useRefetchOnFocus";
+import { useRefetchOnFocus, useResetOnBlur } from "../../../src/hooks/useRefetchOnFocus";
 import { useDebouncedValue } from "../../../src/hooks/useDebouncedValue";
 import { QrScanner, parsePacketCode } from "../../../src/components/QrScanner";
 import { ExpandableTable, type TableColumn } from "../../../src/components/ExpandableTable";
@@ -38,7 +39,8 @@ function toneForStatus(status: string): StatusTone {
 }
 
 function StatusPill({ status }: { status: string }) {
-  const tone = statusColors(toneForStatus(status));
+  const { colors } = useTheme();
+  const tone = statusColors(toneForStatus(status), colors);
   return (
     <ThemedText
       variant="label"
@@ -59,6 +61,7 @@ const PACKET_COLUMNS: TableColumn<Packet>[] = [
 // Barcode/QR lookup (`by-code`) is a separate real endpoint from the
 // filtered list — both are server-side, nothing is filtered on-device.
 export default function PacketsScreen() {
+  const { colors } = useTheme();
   const router = useRouter();
   // Arriving from a locker (`/packets?lockerId=…`) scopes this list to that
   // locker's packets instead of the branch-wide list.
@@ -80,6 +83,11 @@ export default function PacketsScreen() {
   });
 
   useRefetchOnFocus(refetch);
+
+  useResetOnBlur(() => {
+    setScannerOpen(false);
+    setLookupError(null);
+  });
 
   const packets = data?.pages.flatMap((p) => p.items) ?? [];
 
@@ -181,7 +189,8 @@ export default function PacketsScreen() {
           keyExtractor={(p) => String(p.id)}
           extraFields={packetExtraFields}
           onViewDescription={(p) => router.push(`/packets/${p.id}`)}
-          emptyText={isLoading ? "Loading…" : isError ? "Could not load packets." : "No packets found."}
+          loading={isLoading}
+          emptyText={isError ? "Could not load packets." : "No packets found."}
           refreshControl={<RefreshControl refreshing={isFetching && !isFetchingNextPage && !isLoading} onRefresh={refetch} />}
           onEndReached={() => {
             if (hasNextPage && !isFetchingNextPage) fetchNextPage();

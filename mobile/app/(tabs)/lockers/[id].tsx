@@ -10,11 +10,14 @@ import { Card } from "../../../src/components/Card";
 import { ThemedText } from "../../../src/components/ThemedText";
 import { GoldButton } from "../../../src/components/GoldButton";
 import { colors } from "../../../src/theme/colors";
+import { useTheme } from "../../../src/theme/ThemeProvider";
 import { getLocker, deleteLocker } from "../../../src/api/lockers";
 import { ApiError } from "../../../src/api/client";
 import { useRefetchOnFocus } from "../../../src/hooks/useRefetchOnFocus";
+import { Loading } from "../../../src/components/Loading";
 
 export default function LockerDetailScreen() {
+  const { colors } = useTheme();
   const { id } = useLocalSearchParams<{ id: string }>();
   const lockerId = Number(id);
   const router = useRouter();
@@ -52,7 +55,7 @@ export default function LockerDetailScreen() {
         refreshControl={<RefreshControl refreshing={isRefetching} onRefresh={refetch} />}
       >
         {isLoading ? (
-          <ThemedText color={colors.muted}>Loading…</ThemedText>
+          <Loading full />
         ) : isError || !data ? (
           <ThemedText color={colors.red}>Could not load this locker.</ThemedText>
         ) : (
@@ -88,7 +91,7 @@ export default function LockerDetailScreen() {
               Stored Packets
             </ThemedText>
             {packets.isLoading ? (
-              <ThemedText color={colors.muted}>Loading…</ThemedText>
+              <Loading />
             ) : (packets.data ?? []).length === 0 ? (
               <ThemedText color={colors.muted}>No packets are stored in this locker.</ThemedText>
             ) : (

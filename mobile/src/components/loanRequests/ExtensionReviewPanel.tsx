@@ -5,7 +5,7 @@ import { ThemedText } from "../ThemedText";
 import { GoldTextInput } from "../GoldTextInput";
 import { GoldButton } from "../GoldButton";
 import { Icon } from "../Icon";
-import { colors } from "../../theme/colors";
+import { useTheme } from "../../theme/ThemeProvider";
 import { useAuth } from "../../auth/AuthContext";
 import {
   approveExtensionRequest,
@@ -33,6 +33,7 @@ export function ExtensionReviewPanel({
   onSaved: () => void;
   onError: (message: string) => void;
 }) {
+  const { colors } = useTheme();
   const { can } = useAuth();
   const canDecide = can("Loan_Management", "can_update_loan");
   const [remarks, setRemarks] = useState("");

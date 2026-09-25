@@ -9,7 +9,9 @@ import { ThemedText } from "../../src/components/ThemedText";
 import { GoldTextInput } from "../../src/components/GoldTextInput";
 import { GoldButton } from "../../src/components/GoldButton";
 import { ChipSelect } from "../../src/components/ChipSelect";
-import { colors, statusColors, StatusTone } from "../../src/theme/colors";
+import { statusColors, StatusTone } from "../../src/theme/colors";
+import { useTheme, useThemedStyles } from "../../src/theme/ThemeProvider";
+import type { Colors } from "../../src/theme/colors";
 import { getCalendarEvents, createReminder } from "../../src/api/reminders";
 import { listCustomers } from "../../src/api/customers";
 import { CalendarEvent } from "../../src/types/reminder";
@@ -17,7 +19,8 @@ import { Customer } from "../../src/types/customer";
 import { useDebouncedValue } from "../../src/hooks/useDebouncedValue";
 import { ApiError } from "../../src/api/client";
 import { useAuth } from "../../src/auth/AuthContext";
-import { useRefetchOnFocus } from "../../src/hooks/useRefetchOnFocus";
+import { useRefetchOnFocus, useResetOnBlur } from "../../src/hooks/useRefetchOnFocus";
+import { Loading } from "../../src/components/Loading";
 
 function toneForType(type: CalendarEvent["type"]): StatusTone {
   if (type === "Overdue") return "red";
@@ -44,6 +47,8 @@ function fmtMonthYear(year: number, month: number): string {
 // Custom reminder (optionally tied to a loan) via POST /reminders
 // (backend/internal/reminder/handler.go's reminderRequest).
 function AddReminderModal({ visible, onClose }: { visible: boolean; onClose: () => void }) {
+  const { colors } = useTheme();
+  const styles = useThemedStyles(makeStyles);
   const queryClient = useQueryClient();
   const [customerSearch, setCustomerSearch] = useState("");
   const debouncedCustomerSearch = useDebouncedValue(customerSearch);
@@ -186,6 +191,8 @@ function DayCell({
   isSelected: boolean;
   onPress: () => void;
 }) {
+  const { colors } = useTheme();
+  const styles = useThemedStyles(makeStyles);
   const dotTypes = Array.from(new Set(events.map((e) => e.type))).slice(0, 4);
   return (
     <Pressable
@@ -201,7 +208,7 @@ function DayCell({
       {dotTypes.length ? (
         <View style={styles.dotsRow}>
           {dotTypes.map((t) => (
-            <View key={t} style={[styles.dot, { backgroundColor: statusColors(toneForType(t)).fg }]} />
+            <View key={t} style={[styles.dot, { backgroundColor: statusColors(toneForType(t), colors).fg }]} />
           ))}
         </View>
       ) : null}
@@ -216,6 +223,8 @@ function DayCell({
 // (manual reminders + live loan due/overdue/interest events) — no
 // client-side date filtering beyond bucketing by day-of-month.
 export default function RemindersScreen() {
+  const { colors } = useTheme();
+  const styles = useThemedStyles(makeStyles);
   const [addVisible, setAddVisible] = useState(false);
   const today = new Date();
   const [year, setYear] = useState(today.getFullYear());
@@ -232,6 +241,10 @@ export default function RemindersScreen() {
   });
 
   useRefetchOnFocus(refetch);
+
+  useResetOnBlur(() => {
+    setAddVisible(false);
+  });
 
   const events = data ?? [];
 
@@ -264,12 +277,17 @@ export default function RemindersScreen() {
 
   return (
     <ScreenContainer style={{ padding: 0 }}>
-      <View style={{ flex: 1, paddingHorizontal: 8, paddingTop: 20 }}>
+      <View style={{ flex: 1, paddingHorizontal: 8, paddingTop: 16 }}>
       <GutterScrollView
         showsVerticalScrollIndicator={false}
         refreshControl={<RefreshControl refreshing={isRefetching} onRefresh={refetch} />}
       >
-        <GoldButton title="+ Add Reminder" onPress={() => setAddVisible(true)} style={{ marginBottom: 16 }} />
+        {/* Same paddingTop/marginBottom as gold-rates.tsx's own top action
+            button, so both sit at the same vertical position under the
+            floating header. */}
+        <View style={{ paddingTop: 20, marginBottom: 8 }}>
+          <GoldButton title="+ Add Reminder" onPress={() => setAddVisible(true)} />
+        </View>
 
         <Card>
           <View style={styles.monthNav}>
@@ -291,7 +309,7 @@ export default function RemindersScreen() {
           </View>
 
           {isLoading ? (
-            <ThemedText color={colors.muted}>Loading…</ThemedText>
+            <Loading />
           ) : isError ? (
             <ThemedText color={colors.red}>Could not load reminders.</ThemedText>
           ) : (
@@ -324,7 +342,7 @@ export default function RemindersScreen() {
           <ThemedText color={colors.muted}>Nothing due this day.</ThemedText>
         ) : (
           dayEvents.map((item, idx) => {
-            const tone = statusColors(toneForType(item.type));
+            const tone = statusColors(toneForType(item.type), colors);
             return (
               <Card key={`${item.date}-${item.type}-${item.loanId ?? item.reminderId ?? idx}`}>
                 <ThemedText
@@ -355,7 +373,7 @@ export default function RemindersScreen() {
     </ScreenContainer>  );
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (c: Colors) => StyleSheet.create({
   sheetHeader: {
     flexDirection: "row",
     justifyContent: "space-between",
@@ -395,10 +413,10 @@ const styles = StyleSheet.create({
   },
   dayCellToday: {
     borderWidth: 1.5,
-    borderColor: colors.brandDeep,
+    borderColor: c.brandDeep,
   },
   dayCellSelected: {
-    backgroundColor: colors.brandDeep,
+    backgroundColor: c.brandDeep,
   },
   monthNavArrowCircle: {
     width: 30,
@@ -406,7 +424,7 @@ const styles = StyleSheet.create({
     borderRadius: 15,
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: colors.brandPale,
+    backgroundColor: c.brandPale,
   },
   dotsRow: {
     flexDirection: "row",

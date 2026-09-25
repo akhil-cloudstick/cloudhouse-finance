@@ -172,3 +172,91 @@ export const getEmployeePerformance = (f: ReportFilters) =>
 
 export const getCommunicationHistory = (f: ReportFilters) =>
   fetchReport<CommunicationHistoryRow, CommunicationHistoryTotals>("communication-history", f);
+
+/* ---- Reports added after the original 16 (web parity with
+ * frontend/modules/reports/services/reportsService.ts). ---- */
+
+export type PersonalLoanRow = {
+  loanId: number; loanNumber: string; openedDate: string; customerName: string; branchName: string;
+  frequency: string; principalAmount: number; disbursedAmount: number; outstandingAmount: number; status: string;
+};
+export type PersonalLoanTotals = {
+  count: number; totalPrincipal: number; totalDisbursed: number; totalOutstanding: number;
+};
+
+export type DepositRegisterRow = {
+  investmentId: number; investmentNumber: string; customerName: string; planName: string;
+  principalAmount: number; interestRate: number; startDate: string; maturityDate: string;
+  branchName: string; status: string;
+};
+export type DepositRegisterTotals = { count: number; totalPrincipal: number };
+
+export type InterestPayoutRegisterRow = {
+  investmentId: number; investmentNumber: string; customerName: string; sequenceNo: number;
+  dueDate: string; amount: number; status: string; paidAt: string | null;
+};
+export type InterestPayoutRegisterTotals = { count: number; totalDue: number; totalPaid: number; totalPending: number };
+
+export type MaturityRegisterRow = {
+  investmentId: number; investmentNumber: string; customerName: string; branchName: string;
+  principalAmount: number; maturityDate: string; status: string;
+};
+export type MaturityRegisterTotals = { active: number; matured: number; closed: number; renewed: number; count: number };
+
+/* Balance Sheet / P&L print one row per statement line (Ind AS Division
+ * III) — label carries its "I."/"(1)"/"(a)" prefix; style/indent are
+ * display hints only. */
+export type StatementStyle = "" | "header" | "total";
+export type StatementRow = { label: string; amount: number; style: StatementStyle; indent: number };
+export type BalanceSheetTotals = { totalAssets: number; totalLiabilities: number; totalEquity: number };
+export type ProfitLossTotals = { totalIncome: number; totalExpenses: number; profitForPeriod: number };
+
+/* Form G (Kerala Money-Lenders Rules 1964, Rule 15(3)) — a single
+ * fixed-layout statement, not {rows, totals}; see
+ * backend/internal/reports/formg.go. */
+export type FormGLoanCategory = { label: string; persons: number; amount: number; remarks: string };
+export type FormGStatement = {
+  periodLabel: string;
+  lenderName: string;
+  lenderAddress: string;
+  branches: { name: string; address: string }[];
+  section1Advanced: FormGLoanCategory[];
+  section2Redeemed: FormGLoanCategory[];
+  section3Deposits: {
+    openingCount: number; openingAmount: number;
+    duringCount: number; duringAmount: number;
+    repaidCount: number; repaidAmount: number;
+    closingCount: number; closingAmount: number;
+  };
+  section4FinancialPosition: {
+    maxOutstanding: number;
+    maxOutstandingDate?: string | null;
+    assetsValue: number;
+    liabilitiesValue: number;
+    excessAssetsOverLiabilities: number;
+    excessLiabilitiesOverAssets: number;
+  };
+};
+
+export const getPersonalLoans = (f: ReportFilters) =>
+  fetchReport<PersonalLoanRow, PersonalLoanTotals>("personal-loans", f);
+
+export const getDepositRegister = (f: ReportFilters) =>
+  fetchReport<DepositRegisterRow, DepositRegisterTotals>("investments/deposit-register", f);
+
+export const getInterestPayoutRegister = (f: ReportFilters) =>
+  fetchReport<InterestPayoutRegisterRow, InterestPayoutRegisterTotals>("investments/interest-payout-register", f);
+
+export const getMaturityRegister = (f: ReportFilters) =>
+  fetchReport<MaturityRegisterRow, MaturityRegisterTotals>("investments/maturity-register", f);
+
+export const getBalanceSheet = (f: ReportFilters) =>
+  fetchReport<StatementRow, BalanceSheetTotals>("balance-sheet", f);
+
+export const getProfitAndLoss = (f: ReportFilters) =>
+  fetchReport<StatementRow, ProfitLossTotals>("profit-loss", f);
+
+export const getFormG = (f: ReportFilters) =>
+  apiRequest<FormGStatement>("/reports/form-g", {
+    params: { from: f.from, to: f.to, branch_id: f.branchId },
+  });

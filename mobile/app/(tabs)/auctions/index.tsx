@@ -8,6 +8,7 @@ import { ChipSelect } from "../../../src/components/ChipSelect";
 import { FilterSheetButton } from "../../../src/components/FilterSheetButton";
 import { GoldTextInput } from "../../../src/components/GoldTextInput";
 import { colors, statusColors, StatusTone } from "../../../src/theme/colors";
+import { useTheme } from "../../../src/theme/ThemeProvider";
 import { listLoansPage } from "../../../src/api/loans";
 import { listConcludedAuctions } from "../../../src/api/auctions";
 import { Loan } from "../../../src/types/loan";
@@ -69,9 +70,10 @@ export default function AuctionsScreen() {
 }
 
 function LoanStatusPill({ status }: { status: string }) {
+  const { colors } = useTheme();
   const s = status.toLowerCase();
   const tone: StatusTone = s.includes("default") ? "red" : s.includes("balance due") ? "amber" : "info";
-  const t = statusColors(tone);
+  const t = statusColors(tone, colors);
   return (
     <ThemedText
       variant="label"
@@ -167,7 +169,8 @@ function ActiveCases({ topTabs }: { topTabs: React.ReactNode }) {
           keyExtractor={(l) => String(l.id)}
           extraFields={activeExtraFields}
           onViewDescription={(l) => openLoan(l.id)}
-          emptyText={isLoading ? "Loading…" : isError ? "Could not load loans." : "No loans found for this filter."}
+          loading={isLoading}
+          emptyText={isError ? "Could not load loans." : "No loans found for this filter."}
           refreshControl={<RefreshControl refreshing={isFetching && !isFetchingNextPage && !isLoading} onRefresh={refetch} />}
           onEndReached={() => {
             if (hasNextPage && !isFetchingNextPage) fetchNextPage();
@@ -259,7 +262,8 @@ function AuctionHistory({ topTabs }: { topTabs: React.ReactNode }) {
           keyExtractor={(r) => String(r.id)}
           extraFields={historyExtraFields}
           onViewDescription={(r) => openLoan(r.loanId)}
-          emptyText={isLoading ? "Loading…" : isError ? "Could not load auction history." : "No concluded auctions."}
+          loading={isLoading}
+          emptyText={isError ? "Could not load auction history." : "No concluded auctions."}
           refreshControl={<RefreshControl refreshing={isFetching && !isFetchingNextPage && !isLoading} onRefresh={refetch} />}
           onEndReached={() => {
             if (hasNextPage && !isFetchingNextPage) fetchNextPage();

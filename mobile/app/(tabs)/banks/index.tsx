@@ -9,6 +9,7 @@ import { GoldButton } from "../../../src/components/GoldButton";
 import { ChipSelect } from "../../../src/components/ChipSelect";
 import { BottomSheetModal, SheetScrollView } from "../../../src/components/BottomSheetModal";
 import { colors } from "../../../src/theme/colors";
+import { useTheme } from "../../../src/theme/ThemeProvider";
 import { createBank } from "../../../src/api/banks";
 import {
   listBankPledgedLoansPage,
@@ -21,7 +22,7 @@ import {
 import { Loan } from "../../../src/types/loan";
 import { useDebouncedValue } from "../../../src/hooks/useDebouncedValue";
 import { ApiError } from "../../../src/api/client";
-import { useRefetchOnFocus } from "../../../src/hooks/useRefetchOnFocus";
+import { useRefetchOnFocus, useResetOnBlur } from "../../../src/hooks/useRefetchOnFocus";
 import { useAuth } from "../../../src/auth/AuthContext";
 import { fmt, fmtDate } from "../../../src/lib/format";
 import { ExpandableTable, type TableColumn } from "../../../src/components/ExpandableTable";
@@ -92,6 +93,7 @@ function historyExtraFields(r: BankPledgeHistoryRow) {
 // frontend/modules/loans/components/BankPledge.tsx. Recording a new pledge
 // still happens from the loan's own detail screen (loans/[id].tsx).
 export default function BankPledgeScreen() {
+  const { colors } = useTheme();
   const router = useRouter();
   const queryClient = useQueryClient();
   const { can, employee } = useAuth();
@@ -133,6 +135,14 @@ export default function BankPledgeScreen() {
   const current = tab === "Active" ? active : history;
 
   useRefetchOnFocus(current.refetch);
+
+  useResetOnBlur(() => {
+    setReleaseTarget(null);
+    setReleaseError(null);
+    setVoidTarget(null);
+    setVoidError(null);
+    setAddVisible(false);
+  });
 
   const loans = active.data?.pages.flatMap((p) => p.items) ?? [];
   const records = history.data?.pages.flatMap((p) => p.items) ?? [];
@@ -289,7 +299,8 @@ export default function BankPledgeScreen() {
             keyExtractor={(l) => String(l.id)}
             extraFields={activeExtraFields}
             onViewDescription={(l) => router.push(`/loans/${l.id}`)}
-            emptyText={active.isLoading ? "Loading…" : active.isError ? "Could not load pledges." : "No loans currently bank-pledged."}
+            loading={active.isLoading}
+            emptyText={active.isError ? "Could not load pledges." : "No loans currently bank-pledged."}
             refreshControl={refreshControl}
             onEndReached={onEndReached}
             isFetchingNextPage={active.isFetchingNextPage}
@@ -303,7 +314,8 @@ export default function BankPledgeScreen() {
             keyExtractor={(r) => String(r.id)}
             extraFields={historyExtraFields}
             onViewDescription={(r) => router.push(`/loans/${r.loanId}`)}
-            emptyText={history.isLoading ? "Loading…" : history.isError ? "Could not load history." : "No re-pledge records yet."}
+            loading={history.isLoading}
+            emptyText={history.isError ? "Could not load history." : "No re-pledge records yet."}
             refreshControl={refreshControl}
             onEndReached={onEndReached}
             isFetchingNextPage={history.isFetchingNextPage}

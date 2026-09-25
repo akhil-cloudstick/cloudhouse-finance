@@ -8,16 +8,19 @@ import { Card } from "../../../src/components/Card";
 import { ThemedText } from "../../../src/components/ThemedText";
 import { GoldTextInput } from "../../../src/components/GoldTextInput";
 import { GoldButton } from "../../../src/components/GoldButton";
-import { colors, statusColors } from "../../../src/theme/colors";
+import { statusColors } from "../../../src/theme/colors";
+import { useTheme } from "../../../src/theme/ThemeProvider";
 import { listApiKeys, setApiKey } from "../../../src/api/settings";
 import { ApiKeyView, ApiKeyCategory } from "../../../src/types/apiKey";
 import { ApiError } from "../../../src/api/client";
-import { useRefetchOnFocus } from "../../../src/hooks/useRefetchOnFocus";
+import { useRefetchOnFocus, useResetOnBlur } from "../../../src/hooks/useRefetchOnFocus";
+import { Loading } from "../../../src/components/Loading";
 
 // Administrator-only, matching web — this whole route is hidden from the
 // More sheet for non-Administrators (src/components/MoreSheet.tsx), and the
 // backend's own RBAC check would 403 a non-Administrator regardless.
 export default function SettingsScreen() {
+  const { colors } = useTheme();
   const queryClient = useQueryClient();
   const [editing, setEditing] = useState<ApiKeyCategory | null>(null);
   const [value, setValue] = useState("");
@@ -29,6 +32,12 @@ export default function SettingsScreen() {
   });
 
   useRefetchOnFocus(refetch);
+
+  useResetOnBlur(() => {
+    setEditing(null);
+    setValue("");
+    setError(null);
+  });
 
   const save = useMutation({
     mutationFn: (category: ApiKeyCategory) => setApiKey(category, value),
@@ -51,12 +60,16 @@ export default function SettingsScreen() {
         contentContainerStyle={{ paddingHorizontal: 8, paddingTop: 20, paddingBottom: TAB_BAR_SPACE }}
         refreshControl={<RefreshControl refreshing={isRefetching} onRefresh={refetch} />}
         ListEmptyComponent={
-          <ThemedText color={colors.muted}>
-            {isLoading ? "Loading…" : isError ? "Could not load API keys." : "No categories found."}
-          </ThemedText>
+          isLoading ? (
+            <Loading />
+          ) : (
+            <ThemedText color={colors.muted}>
+              {isError ? "Could not load API keys." : "No categories found."}
+            </ThemedText>
+          )
         }
         renderItem={({ item }) => {
-          const tone = statusColors(item.configured ? "green" : "muted");
+          const tone = statusColors(item.configured ? "green" : "muted", colors);
           const isEditing = editing === item.category;
           return (
             <Card>

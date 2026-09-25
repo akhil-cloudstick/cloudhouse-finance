@@ -10,6 +10,7 @@ import { ThemedText } from "../../src/components/ThemedText";
 import { GoldTextInput } from "../../src/components/GoldTextInput";
 import { GoldButton } from "../../src/components/GoldButton";
 import { colors } from "../../src/theme/colors";
+import { useTheme } from "../../src/theme/ThemeProvider";
 import { useAuth } from "../../src/auth/AuthContext";
 import { useDebouncedValue } from "../../src/hooks/useDebouncedValue";
 import { listCustomers } from "../../src/api/customers";
@@ -120,6 +121,7 @@ function OrnamentNameField({
 // ornament rows + principal), without that screen's draft-saving, print
 // helpers, or gold-rate-eligibility calculator, which stay web-only for now.
 export default function NewLoanScreen() {
+  const { colors } = useTheme();
   const router = useRouter();
   const { employee, can } = useAuth();
   const canCreateLoan = can("Loan_Management", "can_create_loan");

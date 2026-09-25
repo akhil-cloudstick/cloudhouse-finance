@@ -9,13 +9,16 @@ import { GoldTextInput } from "../../../src/components/GoldTextInput";
 import { GoldButton } from "../../../src/components/GoldButton";
 import { ChipSelect } from "../../../src/components/ChipSelect";
 import { GoldCheckbox } from "../../../src/components/GoldCheckbox";
+import { Loading } from "../../../src/components/Loading";
 import { colors, statusColors } from "../../../src/theme/colors";
+import { useTheme } from "../../../src/theme/ThemeProvider";
 import { ApiError } from "../../../src/api/client";
 import { BottomSheetModal, SheetScrollView } from "../../../src/components/BottomSheetModal";
 import { Icon } from "../../../src/components/Icon";
 import { fmt } from "../../../src/lib/format";
 import { listInvestmentPlans, createInvestmentPlan, updateInvestmentPlan, CreatePlanInput } from "../../../src/api/investments";
 import { InvestmentPlan, InterestRateType, InvestmentEngine, InvestmentProductType, PayoutFrequency } from "../../../src/types/investment";
+import { useResetOnBlur } from "../../../src/hooks/useRefetchOnFocus";
 
 // Admin-only "Manage Plans" screen — mirrors web's InvestmentPlansModal.tsx:
 // lists every plan (active AND retired, since existing investments still
@@ -40,7 +43,7 @@ type FormState = {
 const BLANK_FORM: FormState = {
   id: null,
   name: "",
-  productType: "Deposit",
+  productType: "Bond",
   interestRateType: "Simple",
   interestRatePercent: "",
   engine: "Schedule",
@@ -51,7 +54,8 @@ const BLANK_FORM: FormState = {
 };
 
 function StatusChip({ active }: { active: boolean }) {
-  const tone = statusColors(active ? "green" : "muted");
+  const { colors } = useTheme();
+  const tone = statusColors(active ? "green" : "muted", colors);
   return (
     <ThemedText
       variant="label"
@@ -71,11 +75,9 @@ function PlanCard({ plan, onPress }: { plan: InvestmentPlan; onPress: () => void
         <ThemedText variant="body" style={{ fontSize: 16, fontWeight: "600" }}>
           {plan.name}
         </ThemedText>
-        {plan.productType === "Bond" ? (
-          <ThemedText variant="small" color={colors.muted}>
-            Bond
-          </ThemedText>
-        ) : null}
+        <ThemedText variant="small" color={colors.muted}>
+          Bond
+        </ThemedText>
       </View>
       <StatusChip active={plan.isActive} />
       <View style={{ transform: [{ rotate: "180deg" }] }}>
@@ -97,12 +99,18 @@ function DetailRow({ k, v }: { k: string; v: string }) {
 }
 
 export default function InvestmentPlansScreen() {
+  const { colors } = useTheme();
   const queryClient = useQueryClient();
   const plans = useQuery({ queryKey: ["investmentPlans", "all"], queryFn: () => listInvestmentPlans(false) });
 
   const [form, setForm] = useState<FormState | null>(null);
   const [viewing, setViewing] = useState<InvestmentPlan | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  useResetOnBlur(() => {
+    setForm(null);
+    setViewing(null);
+  });
 
   function openCreate() {
     setForm(BLANK_FORM);
@@ -182,7 +190,7 @@ export default function InvestmentPlansScreen() {
                 <GoldButton title="+ New Plan" onPress={openCreate} />
               </View>
               {plans.isLoading ? (
-                <ThemedText variant="small" color={colors.muted}>Loading…</ThemedText>
+                <Loading />
               ) : (plans.data ?? []).length === 0 ? (
                 <ThemedText variant="small" color={colors.muted}>No plans yet.</ThemedText>
               ) : (
@@ -195,12 +203,6 @@ export default function InvestmentPlansScreen() {
                 {form.id ? "Edit Plan" : "New Plan"}
               </ThemedText>
               <GoldTextInput label="Plan Name" value={form.name} onChangeText={(v) => setForm({ ...form, name: v })} />
-              <ChipSelect
-                label="Product Type"
-                options={["Deposit", "Bond"] as const}
-                value={form.productType}
-                onChange={(v) => setForm({ ...form, productType: v })}
-              />
               <ChipSelect
                 label="Interest Rate Type"
                 options={["Simple", "Compound"] as const}

@@ -7,7 +7,8 @@ import { ThemedText } from "../../../src/components/ThemedText";
 import { GoldTextInput } from "../../../src/components/GoldTextInput";
 import { GoldButton } from "../../../src/components/GoldButton";
 import { FilterSheetButton } from "../../../src/components/FilterSheetButton";
-import { colors, statusColors } from "../../../src/theme/colors";
+import { statusColors } from "../../../src/theme/colors";
+import { useTheme } from "../../../src/theme/ThemeProvider";
 import { listInvestmentsPage } from "../../../src/api/investments";
 import { Investment, InvestmentStatus } from "../../../src/types/investment";
 import { useDebouncedValue } from "../../../src/hooks/useDebouncedValue";
@@ -15,6 +16,7 @@ import { useRefetchOnFocus } from "../../../src/hooks/useRefetchOnFocus";
 import { useAuth } from "../../../src/auth/AuthContext";
 import { fmt } from "../../../src/lib/format";
 import { ExpandableTable, defaultVisibleCount, type TableColumn } from "../../../src/components/ExpandableTable";
+import { HEADER_FADE_BELOW } from "../../../src/components/FloatingHeader";
 
 const PAGE_SIZE = 10;
 
@@ -30,7 +32,8 @@ function toneForStatus(status: InvestmentStatus): "green" | "red" | "amber" | "i
 }
 
 function StatusPill({ status }: { status: InvestmentStatus }) {
-  const tone = statusColors(toneForStatus(status));
+  const { colors } = useTheme();
+  const tone = statusColors(toneForStatus(status), colors);
   return (
     <ThemedText
       variant="label"
@@ -92,7 +95,7 @@ export default function InvestmentsScreen() {
         placeholder="Investment # or investor…"
         value={search}
         onChangeText={setSearch}
-        containerStyle={{ marginTop: 28 }}
+        containerStyle={{ marginTop: HEADER_FADE_BELOW + 4 }}
         blur
       />
       {canUpdate ? (
@@ -123,7 +126,8 @@ export default function InvestmentsScreen() {
           keyExtractor={(i) => String(i.id)}
           extraFields={investmentExtraFields}
           onViewDescription={(i) => router.push(`/investments/${i.id}`)}
-          emptyText={isLoading ? "Loading…" : isError ? "Could not load investments." : "No investments in this category."}
+          loading={isLoading}
+          emptyText={isError ? "Could not load investments." : "No investments in this category."}
           refreshControl={<RefreshControl refreshing={isFetching && !isFetchingNextPage && !isLoading} onRefresh={refetch} />}
           onEndReached={() => {
             if (hasNextPage && !isFetchingNextPage) fetchNextPage();

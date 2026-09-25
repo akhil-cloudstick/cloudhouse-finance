@@ -9,14 +9,16 @@ import { GoldButton } from "../../../src/components/GoldButton";
 import { ChipSelect } from "../../../src/components/ChipSelect";
 import { Icon } from "../../../src/components/Icon";
 import { BottomSheetModal, SheetScrollView } from "../../../src/components/BottomSheetModal";
-import { colors, statusColors } from "../../../src/theme/colors";
+import { Loading } from "../../../src/components/Loading";
+import { statusColors } from "../../../src/theme/colors";
+import { useTheme } from "../../../src/theme/ThemeProvider";
 import { listLockersPage, createLocker, updateLocker } from "../../../src/api/lockers";
 import { listBranches } from "../../../src/api/branches";
 import { getPacketByCode } from "../../../src/api/packets";
 import { Locker } from "../../../src/types/locker";
 import { useAuth } from "../../../src/auth/AuthContext";
 import { ApiError } from "../../../src/api/client";
-import { useRefetchOnFocus } from "../../../src/hooks/useRefetchOnFocus";
+import { useRefetchOnFocus, useResetOnBlur } from "../../../src/hooks/useRefetchOnFocus";
 import { useDebouncedValue } from "../../../src/hooks/useDebouncedValue";
 import { QrScanner, parsePacketCode } from "../../../src/components/QrScanner";
 import { ExpandableTable, type TableColumn } from "../../../src/components/ExpandableTable";
@@ -25,7 +27,8 @@ const PAGE_SIZE = 10;
 const ACTIVE_OPTIONS = ["Active", "Inactive"] as const;
 
 function StatusPill({ active }: { active: boolean }) {
-  const tone = statusColors(active ? "green" : "muted");
+  const { colors } = useTheme();
+  const tone = statusColors(active ? "green" : "muted", colors);
   return (
     <ThemedText
       variant="label"
@@ -50,6 +53,7 @@ function lockerExtraFields(l: Locker) {
 }
 
 export default function LockersScreen() {
+  const { colors } = useTheme();
   const router = useRouter();
   const queryClient = useQueryClient();
   const { employee, can } = useAuth();
@@ -81,6 +85,13 @@ export default function LockersScreen() {
   });
 
   useRefetchOnFocus(refetch);
+
+  useResetOnBlur(() => {
+    setSheetVisible(false);
+    setEditing(null);
+    setScannerOpen(false);
+    setScanError(null);
+  });
 
   const lockers = data?.pages.flatMap((p) => p.items) ?? [];
 
@@ -196,7 +207,8 @@ export default function LockersScreen() {
           ]}
           // Opens the locker page, which lists its stored packets (each links to the packet).
           onViewDescription={(l) => router.push(`/lockers/${l.id}`)}
-          emptyText={isLoading ? "Loading…" : isError ? "Could not load lockers." : "No lockers found."}
+          loading={isLoading}
+          emptyText={isError ? "Could not load lockers." : "No lockers found."}
           refreshControl={<RefreshControl refreshing={isFetching && !isFetchingNextPage && !isLoading} onRefresh={refetch} />}
           onEndReached={() => {
             if (hasNextPage && !isFetchingNextPage) fetchNextPage();
@@ -242,11 +254,11 @@ export default function LockersScreen() {
               value={branchOptions.find((b) => b.id === branchId)?.name}
               onChange={(name) => setBranchId(branchOptions.find((b) => b.name === name)?.id)}
             />
+          ) : branches.isLoading ? (
+            <Loading />
           ) : (
             <ThemedText variant="small" color={colors.muted} style={{ marginBottom: 14 }}>
-              {branches.isLoading
-                ? "Loading branches…"
-                : `Branch: ${editing?.branch?.name ?? (branchId === employee?.branchId ? "your branch" : `#${branchId ?? "—"}`)}`}
+              {`Branch: ${editing?.branch?.name ?? (branchId === employee?.branchId ? "your branch" : `#${branchId ?? "—"}`)}`}
             </ThemedText>
           )}
           {editing ? (

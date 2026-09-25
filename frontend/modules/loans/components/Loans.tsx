@@ -10,7 +10,7 @@ import { listLoansPage, type LoanView } from "@/modules/loans/services/loanServi
 import { useResponsivePageSize, useIsSmallScreen } from "@/common/utils/responsive";
 import { DatePicker } from "@/common/components/ui/DatePicker";
 
-const CATS = ["All", "Active", "Due Soon", "Overdue", "Defaulted", "Pending Approval", "Auction Eligible", "Closed"];
+const CATS = ["All", "Active", "Due Soon", "Overdue", "Defaulted", "Pending Approval", "Auction Eligible", "Closed", "Rejected"];
 
 /* "Due Soon"/"Overdue"/"Defaulted" are computed read-time flags (isDueSoon/
  * isOverdue/isDefaulted, see loan/accrual.go's enrichStatusFlags), NOT

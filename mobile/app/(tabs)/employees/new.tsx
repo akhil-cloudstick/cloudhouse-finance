@@ -7,7 +7,7 @@ import { Card } from "../../../src/components/Card";
 import { ThemedText } from "../../../src/components/ThemedText";
 import { GoldTextInput } from "../../../src/components/GoldTextInput";
 import { GoldButton } from "../../../src/components/GoldButton";
-import { ChipSelect } from "../../../src/components/ChipSelect";
+import { SelectDropdown } from "../../../src/components/SelectDropdown";
 import { colors } from "../../../src/theme/colors";
 import { createEmployee } from "../../../src/api/employees";
 import { ROLES, Role } from "../../../src/types/employee";
@@ -20,6 +20,7 @@ export default function NewEmployeeScreen() {
   const { employee: me } = useAuth();
   const [name, setName] = useState("");
   const [role, setRole] = useState<Role>("Cashier");
+  const [roleOpen, setRoleOpen] = useState(false);
   const [phone, setPhone] = useState("");
   const [error, setError] = useState<string | null>(null);
 
@@ -39,7 +40,7 @@ export default function NewEmployeeScreen() {
       <Card>
         <GoldTextInput label="Name" value={name} onChangeText={setName} />
         <GoldTextInput label="Phone (login identifier)" value={phone} onChangeText={setPhone} />
-        <ChipSelect label="Role" options={ROLES} value={role} onChange={setRole} />
+        <SelectDropdown label="Role" options={ROLES} value={role} onChange={setRole} open={roleOpen} onOpenChange={setRoleOpen} />
         {error ? (
           <ThemedText variant="small" color={colors.red} style={{ marginBottom: 8 }}>
             {error}

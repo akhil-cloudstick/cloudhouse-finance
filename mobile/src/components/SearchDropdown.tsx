@@ -4,6 +4,7 @@ import { GoldTextInput } from "./GoldTextInput";
 import { ThemedText } from "./ThemedText";
 import { Icon } from "./Icon";
 import { colors } from "../theme/colors";
+import { useTheme } from "../theme/ThemeProvider";
 
 // Search-as-you-type picker. `open` is owned by the screen so it can close every
 // dropdown on a tap outside: the screen closes on its own onTouchStart, and this
@@ -40,6 +41,7 @@ export function SearchDropdown<T>({
   onAdd?: () => void;
   emptyText?: string;
 }) {
+  const { colors } = useTheme();
   return (
     <View onTouchStart={(e) => e.stopPropagation()}>
       <GoldTextInput

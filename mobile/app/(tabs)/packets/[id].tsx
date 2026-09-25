@@ -5,7 +5,7 @@ import { Icon } from "../../../src/components/Icon";
 import { GutterScrollView } from "../../../src/components/Gutter";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useQuery, useQueries, useMutation, useQueryClient } from "@tanstack/react-query";
-import { useRefetchOnFocus } from "../../../src/hooks/useRefetchOnFocus";
+import { useRefetchOnFocus, useResetOnBlur } from "../../../src/hooks/useRefetchOnFocus";
 import { useDebouncedValue } from "../../../src/hooks/useDebouncedValue";
 import { ScreenContainer } from "../../../src/components/ScreenContainer";
 import { Card } from "../../../src/components/Card";
@@ -15,12 +15,14 @@ import { GoldButton } from "../../../src/components/GoldButton";
 import { SearchDropdown } from "../../../src/components/SearchDropdown";
 import { Stepper, Step } from "../../../src/components/Stepper";
 import { colors, statusColors, StatusTone } from "../../../src/theme/colors";
+import { useTheme } from "../../../src/theme/ThemeProvider";
 import { getPacket, getPacketMovements, movePacket } from "../../../src/api/packets";
 import { listLockersPage, getLocker } from "../../../src/api/lockers";
 import { Locker } from "../../../src/types/locker";
 import { useAuth } from "../../../src/auth/AuthContext";
 import { ApiError } from "../../../src/api/client";
 import { fmt } from "../../../src/lib/format";
+import { Loading } from "../../../src/components/Loading";
 
 const GENERATED = "Packet Generated";
 const LOCKER_STORED = "Locker Stored";
@@ -42,7 +44,8 @@ function toneForStatus(status: string): StatusTone {
 }
 
 function StatusPill({ status }: { status: string }) {
-  const tone = statusColors(toneForStatus(status));
+  const { colors } = useTheme();
+  const tone = statusColors(toneForStatus(status), colors);
   return (
     <ThemedText
       variant="label"
@@ -74,6 +77,7 @@ function KV({ k, v }: { k: string; v: React.ReactNode }) {
 }
 
 export default function PacketDetailScreen() {
+  const { colors } = useTheme();
   const { id } = useLocalSearchParams<{ id: string }>();
   const packetId = Number(id);
   const router = useRouter();
@@ -159,14 +163,12 @@ export default function PacketDetailScreen() {
     setReleaseConfirmOpen(true);
   }
 
-  if (packet.isLoading)
-    return (
-      <ScreenContainer style={{ padding: 0 }}>
-        <View style={{ flex: 1, paddingHorizontal: 8, paddingTop: 20 }}>
-          <ThemedText color={colors.muted}>Loading…</ThemedText>
-        </View>
-      </ScreenContainer>
-    );
+  useResetOnBlur(() => {
+    setReleaseConfirmOpen(false);
+    resetPicker();
+  });
+
+  if (packet.isLoading) return <Loading full />;
   if (packet.isError || !packet.data)
     return (
       <ScreenContainer style={{ padding: 0 }}>
@@ -182,7 +184,7 @@ export default function PacketDetailScreen() {
   const isAuctioned = AUCTIONED_LOAN.includes(loanStatus);
   // Once auctioned/closed the gold has left custody: the loan outcome is the
   // meaningful status and the packet's own stage is moot.
-  const movementLocked = isAuctioned || loanStatus === "Closed";
+  const movementLocked = isAuctioned || loanStatus === "Closed" || loanStatus === "Rejected";
   const displayStatus = isAuctioned ? "Auctioned" : status;
 
   // Rail shows only the stages this packet can actually pass through: the

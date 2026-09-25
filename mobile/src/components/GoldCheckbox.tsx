@@ -2,6 +2,7 @@ import React from "react";
 import { Pressable, StyleSheet } from "react-native";
 import { Icon } from "./Icon";
 import { colors } from "../theme/colors";
+import { useTheme } from "../theme/ThemeProvider";
 
 /* Themed checkbox — replaces the platform `Switch` (react-native) on the
  * Release verification checklist. Two problems that had: it's a toggle
@@ -25,6 +26,7 @@ export function GoldCheckbox({
   onValueChange?: (next: boolean) => void;
   disabled?: boolean;
 }) {
+  const { colors } = useTheme();
   const interactive = !disabled && !!onValueChange;
   return (
     <Pressable
@@ -33,7 +35,7 @@ export function GoldCheckbox({
       }}
       disabled={!interactive}
       hitSlop={8}
-      style={[styles.box, value && styles.boxChecked, disabled && styles.boxDisabled]}
+      style={[styles.box, value && { borderColor: colors.brandDeep, backgroundColor: colors.brandDeep }, disabled && styles.boxDisabled]}
     >
       {value ? <Icon name="check" size={15} color={colors.card} strokeWidth={3} /> : null}
     </Pressable>
@@ -50,10 +52,6 @@ const styles = StyleSheet.create({
     backgroundColor: colors.card,
     alignItems: "center",
     justifyContent: "center",
-  },
-  boxChecked: {
-    borderColor: colors.brandDeep,
-    backgroundColor: colors.brandDeep,
   },
   boxDisabled: { opacity: 0.5 },
 });

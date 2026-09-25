@@ -8,7 +8,9 @@ import { Card } from "../../../src/components/Card";
 import { ThemedText } from "../../../src/components/ThemedText";
 import { GoldTextInput } from "../../../src/components/GoldTextInput";
 import { GoldButton } from "../../../src/components/GoldButton";
+import { Loading } from "../../../src/components/Loading";
 import { colors } from "../../../src/theme/colors";
+import { useTheme } from "../../../src/theme/ThemeProvider";
 import { useDebouncedValue } from "../../../src/hooks/useDebouncedValue";
 import { listCustomers } from "../../../src/api/customers";
 import { listInvestmentPlans, createInvestment } from "../../../src/api/investments";
@@ -23,6 +25,7 @@ import { ApiError } from "../../../src/api/client";
 // snapshots the plan's rate/frequency/tenure and generates the full payout
 // schedule server-side, same as web.
 export default function NewInvestmentScreen() {
+  const { colors } = useTheme();
   const router = useRouter();
 
   const [customer, setCustomer] = useState<Customer | null>(null);
@@ -147,7 +150,7 @@ export default function NewInvestmentScreen() {
               Investment Plan
             </ThemedText>
             {plans.isLoading ? (
-              <ThemedText variant="small" color={colors.muted}>Loading plans…</ThemedText>
+              <Loading />
             ) : (plans.data ?? []).length === 0 ? (
               <ThemedText variant="small" color={colors.muted}>No active plans available.</ThemedText>
             ) : (
@@ -158,7 +161,7 @@ export default function NewInvestmentScreen() {
                     <Pressable
                       key={p.id}
                       onPress={() => setPlan(p)}
-                      style={[styles.planRow, active && styles.planRowActive]}
+                      style={[styles.planRow, active && { backgroundColor: colors.brandDeep, borderColor: colors.brandDeep }]}
                     >
                       <ThemedText variant="body" color={active ? colors.card : colors.ink}>
                         {p.name}
@@ -233,5 +236,4 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     paddingHorizontal: 12,
   },
-  planRowActive: { backgroundColor: colors.brandDeep, borderColor: colors.brandDeep },
 });

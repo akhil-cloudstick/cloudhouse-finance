@@ -22,7 +22,7 @@ export const initials = (n: string) =>
   n.split(" ").map((w) => w[0]).slice(0, 2).join("");
 
 const STATUS_COLOR: Record<string, string> = {
-  Active: "green", Closed: "gray", "Due Soon": "amber", Overdue: "red",
+  Active: "green", Closed: "gray", Rejected: "red", "Due Soon": "amber", Overdue: "red",
   "Pending Approval": "info", "Auction Eligible": "red", Verified: "green",
   Pending: "amber", Failed: "red", Completed: "gray", Approved: "green",
   "Locker Stored": "brand", "Bank Pledged": "info", "Ready for Release": "amber",

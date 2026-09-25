@@ -1,4 +1,4 @@
-import { useCallback } from "react";
+import { useCallback, useRef } from "react";
 import { useFocusEffect } from "expo-router";
 
 // React Query's `refetchOnWindowFocus` (on by default) only fires off a
@@ -26,5 +26,32 @@ export function useRefetchOnFocus(...refetches: Array<() => void>) {
       return () => clearTimeout(t);
       // eslint-disable-next-line react-hooks/exhaustive-deps
     }, refetches)
+  );
+}
+
+// The same "tabs stay mounted" behavior that leaves queries stale (see
+// above) also leaves local component STATE stale — including whether a
+// BottomSheetModal/Modal is open. Open a card's detail sheet on a tab,
+// switch away, come back: react-navigation just refocuses the same mounted
+// screen, so the sheet is still sitting there open with whatever it was
+// last showing, instead of the screen resetting to its normal closed/list
+// view. Pass a single cleanup callback that resets every "is a modal/sheet
+// open" (and "what's currently open in it") state variable for the screen;
+// it runs on BLUR (leaving the tab), not on focus, and needs no defer since
+// resetting local state is instant.
+export function useResetOnBlur(onBlur: () => void) {
+  // `onBlur` is almost always passed as a fresh inline closure on every
+  // render — if it were a useFocusEffect dependency, its changing identity
+  // would tear the effect down and rerun it on EVERY render (not just on a
+  // real blur), firing the "reset" cleanup immediately after every state
+  // change, including the one that just opened the very modal this is meant
+  // to guard. Routing it through a ref keeps the effect itself stable across
+  // renders, so its cleanup only ever runs on an actual screen blur/unmount.
+  const onBlurRef = useRef(onBlur);
+  onBlurRef.current = onBlur;
+  useFocusEffect(
+    useCallback(() => {
+      return () => onBlurRef.current();
+    }, [])
   );
 }

@@ -3,6 +3,7 @@ import { View, Pressable, StyleSheet } from "react-native";
 import { ThemedText } from "./ThemedText";
 import { Icon } from "./Icon";
 import { colors } from "../theme/colors";
+import { useTheme } from "../theme/ThemeProvider";
 
 // Plain (non-typing) dropdown: tap the field to open the option list, tap an
 // option to pick it. `open` is owned by the screen (like SearchDropdown) so a
@@ -23,6 +24,7 @@ export function SelectDropdown<T extends string>({
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }) {
+  const { colors } = useTheme();
   return (
     <View style={{ marginBottom: 14 }} onTouchStart={(e) => e.stopPropagation()}>
       {label ? (
@@ -47,7 +49,7 @@ export function SelectDropdown<T extends string>({
                 onChange(opt);
                 onOpenChange(false);
               }}
-              style={[styles.row, i > 0 && styles.divider, opt === value && styles.rowActive]}
+              style={[styles.row, i > 0 && styles.divider, opt === value && { backgroundColor: colors.brandPale }]}
             >
               <ThemedText variant="body" color={opt === value ? colors.brandDeep : colors.ink}>
                 {opt}
@@ -80,6 +82,5 @@ const styles = StyleSheet.create({
     overflow: "hidden",
   },
   row: { paddingVertical: 12, paddingHorizontal: 14 },
-  rowActive: { backgroundColor: colors.brandPale },
   divider: { borderTopWidth: 1, borderTopColor: colors.line },
 });

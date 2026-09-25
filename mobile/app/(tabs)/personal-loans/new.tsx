@@ -10,7 +10,7 @@ import { ThemedText } from "../../../src/components/ThemedText";
 import { GoldTextInput } from "../../../src/components/GoldTextInput";
 import { GoldButton } from "../../../src/components/GoldButton";
 import { ChipSelect } from "../../../src/components/ChipSelect";
-import { colors } from "../../../src/theme/colors";
+import { useTheme } from "../../../src/theme/ThemeProvider";
 import { useDebouncedValue } from "../../../src/hooks/useDebouncedValue";
 import { listCustomers } from "../../../src/api/customers";
 import { createPersonalLoan, InterestType, Frequency } from "../../../src/api/personalLoans";
@@ -27,6 +27,7 @@ function computeInterest(principal: number, interestType: InterestType, value: n
 }
 
 export default function NewPersonalLoanScreen() {
+  const { colors } = useTheme();
   const router = useRouter();
 
   const [customer, setCustomer] = useState<Customer | null>(null);

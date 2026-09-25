@@ -38,6 +38,13 @@ const (
 	StatusAuctionEligible  = "Auction Eligible"
 	StatusAuctioned        = "Auctioned"
 
+	// StatusRejected means the loan was turned down somewhere in the
+	// sanction chain (Service.Approve with Action=Rejected). It is terminal
+	// like Closed, but distinct from it: a Closed loan was disbursed and its
+	// gold released, a Rejected one never had any money move at all.
+	// RejectedBy*/RejectedAt/RejectionRemarks on Loan record who and why.
+	StatusRejected = "Rejected"
+
 	// StatusAuctionedBalanceDue means the gold was sold but the proceeds did
 	// not cover everything owed, so a real balance remains. The loan is NOT
 	// closed and the amount stays collectible, pending a Branch Manager/
@@ -155,6 +162,7 @@ const (
 // would reject.
 var bankPledgeIneligibleStatuses = []string{
 	StatusClosed,
+	StatusRejected,
 	StatusClosureRequested,
 	StatusAuctioned,
 	StatusAuctionedBalanceDue,
@@ -344,6 +352,16 @@ type Loan struct {
 
 	Status        string `json:"status" gorm:"not null;size:30"`
 	ApprovalStage string `json:"approvalStage" gorm:"not null;size:30"`
+
+	// Set only when the sanction chain rejects the loan (Status =
+	// StatusRejected). RejectedByName is copied from the employee at the
+	// moment of rejection so the loan page can say "Rejected by <name>"
+	// without a join, and keeps saying it if that employee is later renamed
+	// or removed.
+	RejectedByEmployeeID *uint      `json:"rejectedByEmployeeId"`
+	RejectedByName       string     `json:"rejectedByName" gorm:"size:120"`
+	RejectedAt           *time.Time `json:"rejectedAt"`
+	RejectionRemarks     string     `json:"rejectionRemarks" gorm:"size:255"`
 
 	// SanctionedAmount/DisbursedAmount/DisbursementDate record what actually
 	// happened at final sanction, distinct from PrincipalAmount above (which

@@ -13,12 +13,16 @@ import { listPackets } from "../api/packets";
 import { API_BASE_URL, API_ORIGIN } from "../api/config";
 import { getToken } from "../auth/tokenStorage";
 import { ApiError } from "../api/client";
-import { BRAND, BRAND_PHONES, PRINT_COLORS as C } from "../config/brand";
+import { BRAND, printBrand, printColors } from "../config/brand";
 
 // Same CSS as openPrintWindow (frontend/common/utils/print.ts) — kept
 // byte-for-byte so a printed slip/statement/bond looks the same whichever
 // app produced it.
-const DOC_STYLE = `
+// A function, not a constant: the colours are the signed-in business's own
+// (printColors), which are only known at runtime and can change.
+function docStyle(): string {
+  const C = printColors();
+  return `
   body{font-family:'Inter','Segoe UI',ui-sans-serif,system-ui,-apple-system,Helvetica,Arial,sans-serif;color:${C.ink};margin:40px auto;max-width:760px;line-height:1.55;font-size:14px;padding:0 20px}
   h1{font-size:20px;text-align:center;margin:0 0 2px;letter-spacing:1px}
   h2{font-size:15px;text-align:center;margin:0 0 18px;font-weight:normal;color:${C.muted}}
@@ -38,20 +42,32 @@ const DOC_STYLE = `
   .sig span{display:block;border-top:1px solid ${C.ink};padding-top:6px;margin-top:44px;font-size:12.5px}
   .muted{color:${C.muted};font-size:12.5px}
 `;
+}
 
-/** Mirrors brandHeader() in frontend/common/utils/print.ts. */
+// Business particulars come from the backend, so escape them before they go
+// into the HTML (a legal name like "… Financiers & Investments" is common).
+function esc(v: string): string {
+  return v.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+}
+
+/** Mirrors brandHeader() in frontend/common/utils/print.ts — the signed-in
+ * business's own particulars, falling back to the platform brand field by
+ * field (see printBrand). */
 function brandHeader(docTitle?: string): string {
+  const B = printBrand();
+  const meta = [B.kmlRegLabel, B.phones].filter(Boolean).map(esc).join(" &nbsp;·&nbsp; ");
   return `<header class="brandhead">
-    <div class="bh-name">${BRAND.legalName.toUpperCase()}</div>
-    <div class="bh-desc">${BRAND.descriptor}</div>
-    <div class="bh-meta">${BRAND.kmlRegLabel} &nbsp;·&nbsp; ${BRAND_PHONES}</div>
+    <div class="bh-name">${esc(B.legalName.toUpperCase())}</div>
+    <div class="bh-desc">${esc(BRAND.descriptor)}</div>
+    <div class="bh-meta">${meta}</div>${B.addressLine ? `
+    <div class="bh-meta">${esc(B.addressLine)}</div>` : ""}
     <div class="bh-rule"></div>
     ${docTitle ? `<h2>${docTitle}</h2>` : ""}
   </header>`;
 }
 
 async function printDoc(title: string, body: string) {
-  const html = `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>${title}</title><style>${DOC_STYLE}</style></head><body>${body}</body></html>`;
+  const html = `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>${title}</title><style>${docStyle()}</style></head><body>${body}</body></html>`;
   await Print.printAsync({ html });
 }
 
@@ -98,10 +114,11 @@ function pledgeSlipBody(l: Loan): string {
 /** Packet label and pledge slip on ONE A4 page: the label at its real size in
  * a dashed cut-out box at the top, the full slip below — a single print job. */
 export async function printLabelAndSlipOnePage(l: Loan) {
+  const C = printColors();
   const label = await packetLabelParts(l);
   const html = `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Label &amp; Slip — ${l.loanNumber}</title><style>
     @page{size:A4;margin:12mm}
-    ${DOC_STYLE}
+    ${docStyle()}
     body{margin:0 auto}
     ${label.css}
     .cutout{display:flex;align-items:center;gap:4mm;margin-bottom:8mm}
@@ -273,6 +290,7 @@ export async function printPacketLabel(l: Loan) {
 // The label's CSS and markup, shared by the label-stock print and the
 // one-page Label & Slip print.
 async function packetLabelParts(l: Loan): Promise<{ css: string; html: string }> {
+  const C = printColors();
   const packets = await listPackets({ loanId: l.id }).catch(() => []);
   const packet = packets[0];
   const packetLabel = packet?.code || `PKT-${l.id}`;
@@ -290,7 +308,7 @@ async function packetLabelParts(l: Loan): Promise<{ css: string; html: string }>
     <div class="label">
       <img src="${qr}" alt="QR">
       <div class="t">
-        <div class="brand">${BRAND.name.toUpperCase()}</div>
+        <div class="brand">${esc(printBrand().name.toUpperCase())}</div>
         <div class="id">${l.loanNumber} · ${packetLabel}</div>
         <div>${l.customer?.name || "—"}</div>
         <div>${l.customer?.code || l.customer?.id || "—"} · ${l.customer?.phone || ""}</div>

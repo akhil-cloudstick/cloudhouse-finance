@@ -6,11 +6,23 @@ import { ThemedText } from "./ThemedText";
 import { colors } from "../theme/colors";
 import { fonts } from "../theme/typography";
 import { useAuth } from "../auth/AuthContext";
+import { useTheme } from "../theme/ThemeProvider";
+import { routeEnabled } from "../config/tenantModules";
 import { Icon } from "./Icon";
 import Svg, { Defs, LinearGradient, Rect, Stop } from "react-native-svg";
 
-// Fade reaches this far below the header card; opacity steps down evenly.
-const HEADER_FADE_BELOW = 48;
+// Fade reaches this far below the header card; opacity steps down evenly —
+// same step count/shape as AppTabBar's own fade so both edges match, but a
+// shorter span: the header sits right at the top of the content, so a gap as
+// wide as the tab bar's (measured from the screen's bottom edge) reads as a
+// large empty band between the header pill and where content visibly starts.
+// Exported so any screen placing its own opaque content (a search field,
+// etc.) at the very top of what scrolls under the header can clear this zone
+// instead of guessing a margin — landing INSIDE it puts solid content over
+// the gradient, which looks like a hard cut instead of a fade.
+export const HEADER_FADE_BELOW = 32;
+// Opacity falls in 20 equal small steps from solid (top) to clear (bottom) —
+// mirrors AppTabBar's FADE_STOPS (climbing the other way, clear to solid).
 const HEADER_FADE_STOPS = Array.from({ length: 21 }, (_, i) => i / 20);
 
 // Android's real blur (`blurMethod="dimezisBlurView"`) needs an explicit
@@ -32,10 +44,12 @@ const IslandSurface = View;
 // index/detail screens inside customers/loans/etc.) — never both at once
 // for the same screen, or the duplicate-header bug comes back.
 export function FloatingHeader({ title, navigation }: { title: string; navigation: any }) {
+  const { colors, hasModule } = useTheme();
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const { employee, signOut, can } = useAuth();
-  const canViewSettings = can("Settings_Management", "can_view_setting");
+  // Settings is also an optional per-business module (see MoreSheet).
+  const canViewSettings = can("Settings_Management", "can_view_setting") && routeEnabled("settings", hasModule);
   const [menuOpen, setMenuOpen] = useState(false);
 
   // Left button is a back chevron on nested Stack detail screens
@@ -61,8 +75,14 @@ export function FloatingHeader({ title, navigation }: { title: string; navigatio
   return (
     <View style={[styles.wrap, { marginTop: insets.top + 8 }]} pointerEvents="box-none">
       {/* The header floats over the page (headerTransparent). Content scrolls
-          up behind it: solid from the status-bar icons down to the header's
-          bottom edge, then fading out evenly over HEADER_FADE_BELOW. */}
+          up behind it, so everything above and including the island needs
+          its own solid cover — not just a fade below the island — or the
+          status-bar strip above the island (this View's own marginTop) shows
+          scrolled content with nothing covering it. Positioned relative to
+          `wrap` (which already sits at insets.top + 8 on screen): covers
+          from above wrap's own top (the status-bar gap, via the negative
+          top/insets.top+8 height) down through the island solidly, then
+          fades out evenly over HEADER_FADE_BELOW below it. */}
       <View
         pointerEvents="none"
         style={{ position: "absolute", left: 0, right: 0, top: -(insets.top + 8), height: insets.top + 8 + 48 + HEADER_FADE_BELOW }}
@@ -98,7 +118,7 @@ export function FloatingHeader({ title, navigation }: { title: string; navigatio
           {title.toUpperCase()}
         </ThemedText>
 
-        <Pressable onPress={() => setMenuOpen(true)} hitSlop={8} style={styles.avatar}>
+        <Pressable onPress={() => setMenuOpen(true)} hitSlop={8} style={[styles.avatar, { backgroundColor: colors.brandDeep }]}>
           <ThemedText variant="label" color={colors.card}>
             {initials}
           </ThemedText>
@@ -183,7 +203,6 @@ const styles = StyleSheet.create({
     width: 30,
     height: 30,
     borderRadius: 15,
-    backgroundColor: colors.brandDeep,
     alignItems: "center",
     justifyContent: "center",
   },

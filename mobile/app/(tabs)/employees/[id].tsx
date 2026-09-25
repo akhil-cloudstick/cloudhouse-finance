@@ -7,11 +7,13 @@ import { ScreenContainer } from "../../../src/components/ScreenContainer";
 import { Card } from "../../../src/components/Card";
 import { ThemedText } from "../../../src/components/ThemedText";
 import { GoldButton } from "../../../src/components/GoldButton";
-import { colors } from "../../../src/theme/colors";
+import { useTheme } from "../../../src/theme/ThemeProvider";
 import { getEmployee, deleteEmployee } from "../../../src/api/employees";
 import { useRefetchOnFocus } from "../../../src/hooks/useRefetchOnFocus";
+import { Loading } from "../../../src/components/Loading";
 
 export default function EmployeeDetailScreen() {
+  const { colors } = useTheme();
   const { id } = useLocalSearchParams<{ id: string }>();
   const employeeId = Number(id);
   const router = useRouter();
@@ -41,7 +43,7 @@ export default function EmployeeDetailScreen() {
           refreshControl={<RefreshControl refreshing={isRefetching} onRefresh={refetch} />}
         >
           {isLoading ? (
-            <ThemedText color={colors.muted}>Loading…</ThemedText>
+            <Loading full />
           ) : isError || !data ? (
             <ThemedText color={colors.red}>Could not load this employee.</ThemedText>
           ) : (

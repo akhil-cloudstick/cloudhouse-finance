@@ -11,7 +11,7 @@ import { listGoldRatesPage, publishGoldRate, latestGoldRate } from "../../src/ap
 import { GoldRate } from "../../src/types/goldRate";
 import { ApiError } from "../../src/api/client";
 import { useAuth } from "../../src/auth/AuthContext";
-import { useRefetchOnFocus } from "../../src/hooks/useRefetchOnFocus";
+import { useRefetchOnFocus, useResetOnBlur } from "../../src/hooks/useRefetchOnFocus";
 import { rateForPurityString, finenessForKarat, rateForFineness } from "../../src/lib/purity";
 import { fmt } from "../../src/lib/format";
 import { ExpandableTable, type TableColumn } from "../../src/components/ExpandableTable";
@@ -203,6 +203,11 @@ export default function GoldRatesScreen() {
 
   useRefetchOnFocus(refetch, latest.refetch);
 
+  useResetOnBlur(() => {
+    setFormVisible(false);
+    setError(null);
+  });
+
   const rates = data?.pages.flatMap((p) => p.items) ?? [];
 
   function onSaved(msg: string) {
@@ -341,7 +346,8 @@ export default function GoldRatesScreen() {
           keyExtractor={(r) => String(r.id)}
           extraFields={rateExtraFields}
           headerContent={formHeader}
-          emptyText={isLoading ? "Loading…" : isError ? "Could not load gold rates." : "No rates published yet."}
+          loading={isLoading}
+          emptyText={isError ? "Could not load gold rates." : "No rates published yet."}
           refreshControl={<RefreshControl refreshing={isFetching && !isFetchingNextPage && !isLoading} onRefresh={refetch} />}
           onEndReached={() => {
             if (hasNextPage && !isFetchingNextPage) fetchNextPage();

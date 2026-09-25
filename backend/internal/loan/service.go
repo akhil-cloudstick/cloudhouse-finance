@@ -249,7 +249,7 @@ var (
 	// before a sale is even recorded) so a stale client screen that still
 	// shows a "Settle Surplus" button gets a message that actually explains
 	// what happened, rather than the generic wrong-stage text.
-	ErrAuctionAlreadyConcluded   = httpx.NewConflict("this auction case has already been settled — refresh the page to see its current state")
+	ErrAuctionAlreadyConcluded   = httpx.NewConflict("this auction case has already been settled")
 	ErrNoSurplusToDispose        = httpx.NewBadRequest("this auction left no surplus to dispose of")
 	ErrSurplusAlreadyDisposed    = httpx.NewConflict("this auction's surplus has already been disposed of")
 	ErrInvalidSurplusDisposition = httpx.NewBadRequest("surplus disposition must be either \"RefundedToCustomer\" or \"RecordedAsIncome\"")
@@ -1162,7 +1162,7 @@ func (s *Service) DeleteOrnament(ctx context.Context, ornamentID uint) (*Loan, e
 		return nil, ErrNotFound
 	}
 	switch l.Status {
-	case StatusClosed, StatusAuctioned, StatusAuctionedBalanceDue:
+	case StatusClosed, StatusRejected, StatusAuctioned, StatusAuctionedBalanceDue:
 		return nil, ErrLoanTerminalState
 	}
 	existing, err := s.ornamentRepo.FindByLoanID(ctx, l.ID)
@@ -1240,7 +1240,7 @@ func (s *Service) UpdateLoan(ctx context.Context, loanID uint, in UpdateLoanInpu
 		return nil, ErrNotFound
 	}
 	switch l.Status {
-	case StatusClosed, StatusAuctioned, StatusAuctionedBalanceDue:
+	case StatusClosed, StatusRejected, StatusAuctioned, StatusAuctionedBalanceDue:
 		return nil, ErrLoanTerminalState
 	}
 
@@ -1750,7 +1750,12 @@ func (s *Service) Approve(ctx context.Context, loanID uint, in ApprovalInput) (*
 	var nextStageLabel string
 	if rejected {
 		l.ApprovalStage = ApprovalStageRejected
-		l.Status = StatusClosed
+		l.Status = StatusRejected
+		now := time.Now()
+		l.RejectedAt = &now
+		l.RejectedByEmployeeID = &in.ActorEmployeeID
+		l.RejectedByName = s.employeeName(ctx, in.ActorEmployeeID)
+		l.RejectionRemarks = in.Remarks
 	} else {
 		switch stage {
 		case SanctionStageLoanOperator:
@@ -1833,6 +1838,17 @@ func (s *Service) Approve(ctx context.Context, loanID uint, in ApprovalInput) (*
 	}
 
 	return s.Get(ctx, l.ID, nil)
+}
+
+// employeeName looks up an employee's display name for denormalized audit
+// fields like Loan.RejectedByName. Best-effort: a failed lookup returns ""
+// rather than failing the decision it is only describing.
+func (s *Service) employeeName(ctx context.Context, employeeID uint) string {
+	var name string
+	if err := s.db.WithContext(ctx).Table("employees").Select("name").Where("id = ?", employeeID).Limit(1).Scan(&name).Error; err != nil {
+		log.Printf("employee name lookup failed for employee %d: %v", employeeID, err)
+	}
+	return name
 }
 
 // GetInterestCollected sums the interest + penal-interest portions of
@@ -3718,11 +3734,11 @@ func (s *Service) DecideRequest(ctx context.Context, requestID uint, branchID *u
 }
 
 // isLoanTerminal reports whether a loan has already reached a state with
-// nothing left to extend or release — Closed, Auctioned, or Defaulted.
+// nothing left to extend or release — Closed, Rejected, Auctioned, or Defaulted.
 // Everything else (Overdue, Due Soon, Closure Requested, ...) is left to
 // staff judgment, per the extension business rules.
 func isLoanTerminal(status string) bool {
-	return status == StatusClosed || status == StatusAuctioned || status == StatusDefaulted
+	return status == StatusClosed || status == StatusRejected || status == StatusAuctioned || status == StatusDefaulted
 }
 
 // ChecklistInput mirrors the body of PUT /loans/requests/:requestId/verify.
@@ -4037,10 +4053,14 @@ func (s *Service) ApproveReleaseRequest(ctx context.Context, requestID uint, bra
 	if in.Action == ApprovalStageRejected && req.Locked {
 		return nil, ErrRequestLocked
 	}
-	if !req.CustomerSawGold {
+	// The checklist gates APPROVAL only. Rejecting is exactly what staff do
+	// when the customer never came to see the gold or never paid, so
+	// demanding a ticked checklist and a recorded payment first made a
+	// rejection impossible in the very case it exists for.
+	if in.Action == ApprovalStageApproved && !req.CustomerSawGold {
 		return nil, ErrChecklistIncomplete
 	}
-	if !req.PaymentRecorded {
+	if in.Action == ApprovalStageApproved && !req.PaymentRecorded {
 		// PaymentRecorded is ordinarily set by RecordReleaseRequestPayment,
 		// tying a specific settlement figure to this request for the audit
 		// trail. But a loan can also already satisfy the release's own

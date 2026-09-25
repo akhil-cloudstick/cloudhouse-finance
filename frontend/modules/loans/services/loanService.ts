@@ -208,6 +208,10 @@ export type BackendLoan = {
   payments?: BackendLoanPayment[];
   bankPledges?: BackendBankPledgeRecord[];
   approvalWarning?: string;
+  // Set only when the sanction chain rejected the loan (status "Rejected").
+  rejectedByName?: string;
+  rejectedAt?: string | null;
+  rejectionRemarks?: string;
   createdAt: string;
   updatedAt: string;
 };
@@ -319,6 +323,9 @@ export type LoanView = {
   isDefaulted: boolean;
   daysOverdue: number;
   approvalWarning: string;
+  rejectedByName: string;
+  rejectedAt: string | null;
+  rejectionRemarks: string;
   auctionDate: string | null;
   auctionAmount: number | null;
   // Indemnity bond Aadhaar eSign (Setu) — indemnityBondSignStatus mirrors
@@ -467,6 +474,9 @@ export function toView(l: BackendLoan): LoanView {
     isDefaulted: l.isDefaulted,
     daysOverdue: l.daysOverdue,
     approvalWarning: l.approvalWarning || "",
+    rejectedByName: l.rejectedByName || "",
+    rejectedAt: l.rejectedAt || null,
+    rejectionRemarks: l.rejectionRemarks || "",
     auctionDate: l.auctionDate ? l.auctionDate.slice(0, 10) : null,
     auctionAmount: l.auctionAmount ?? null,
     indemnityBondSignStatus: l.indemnityBondSignStatus || "",
@@ -1795,7 +1805,8 @@ export async function completeRelease(loanId: number): Promise<LoanView> {
  * CanAcceptBankPledge — the loan statuses whose gold is no longer the
  * branch's to hand to a bank, so no re-pledge entry point should offer them.
  *
- * "Closed" is gold already released back to the customer; "Closure
+ * "Closed" is gold already released back to the customer; "Rejected" was
+ * turned down before disbursement; "Closure
  * Requested" has the release in flight and committed; the two auctioned
  * states mean the gold has been sold; "Pending Approval" was never
  * disbursed.
@@ -1804,6 +1815,7 @@ export async function completeRelease(loanId: number): Promise<LoanView> {
  * Service.RecordBankPledge, so a stale copy here degrades to an error toast
  * rather than a bad write. */
 const BANK_PLEDGE_INELIGIBLE_STATUSES = [
+  "Rejected",
   "Closed",
   "Closure Requested",
   "Auctioned",

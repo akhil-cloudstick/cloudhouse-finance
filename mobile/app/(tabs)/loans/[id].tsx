@@ -3,7 +3,7 @@ import { View, RefreshControl, Linking, Alert, Pressable, ActivityIndicator } fr
 import { GutterScrollView } from "../../../src/components/Gutter";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { useRefetchOnFocus } from "../../../src/hooks/useRefetchOnFocus";
+import { useRefetchOnFocus, useResetOnBlur } from "../../../src/hooks/useRefetchOnFocus";
 import { ScreenContainer } from "../../../src/components/ScreenContainer";
 import { Card } from "../../../src/components/Card";
 import { ThemedText } from "../../../src/components/ThemedText";
@@ -11,6 +11,7 @@ import { GoldTextInput } from "../../../src/components/GoldTextInput";
 import { GoldDatePicker } from "../../../src/components/GoldDatePicker";
 import { GoldButton } from "../../../src/components/GoldButton";
 import { ChipSelect } from "../../../src/components/ChipSelect";
+import { Loading } from "../../../src/components/Loading";
 import { BottomSheetModal, SheetScrollView } from "../../../src/components/BottomSheetModal";
 import { Icon } from "../../../src/components/Icon";
 import { SelectDropdown } from "../../../src/components/SelectDropdown";
@@ -18,7 +19,7 @@ import { PaymentSplitInput, PaymentBreakdownSheet, ZERO_SPLIT, isBalanced } from
 import type { SplitAmounts } from "../../../src/api/investments";
 import { ExtensionReviewPanel } from "../../../src/components/loanRequests/ExtensionReviewPanel";
 import { ReleaseReviewPanel } from "../../../src/components/loanRequests/ReleaseReviewPanel";
-import { colors } from "../../../src/theme/colors";
+import { useTheme } from "../../../src/theme/ThemeProvider";
 import { useRole, useAuth } from "../../../src/auth/AuthContext";
 import {
   getLoan,
@@ -108,6 +109,7 @@ const BOND_LANG_NAMES: Record<BondLang, string> = { en: "English", ml: "Malayala
 // verification checklist + Record Payment + Manager/Management
 // approve/reject for Release) instead of pointing staff at the web app.
 export default function LoanDetailScreen() {
+  const { colors } = useTheme();
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
   const loanId = Number(id);
@@ -258,6 +260,19 @@ export default function LoanDetailScreen() {
   const [editRows, setEditRows] = useState<OrnRow[]>([]);
   const [editErr, setEditErr] = useState("");
   const [deletingLoan, setDeletingLoan] = useState(false);
+
+  useResetOnBlur(() => {
+    setPrintSheetVisible(false);
+    setEsignSheetVisible(false);
+    setEditSheetVisible(false);
+    setPaymentSheetVisible(false);
+    setPaymentTypeOpen(false);
+    setBankPickerVisible(false);
+    setVoidSheetVisible(false);
+    setHistoryVisible(false);
+    setConfirmReleaseVisible(false);
+    setDisburseOpen(false);
+  });
 
   function toOrnRow(o: Ornament): OrnRow {
     return { id: o.id, name: o.name, purity: o.purity, gross: String(o.grossWeight), net: String(o.netWeight), qty: String(o.quantity) };
@@ -648,7 +663,7 @@ export default function LoanDetailScreen() {
     return (
       <ScreenContainer style={{ padding: 0 }}>
         <View style={{ flex: 1, paddingHorizontal: 8, paddingTop: 20 }}>
-      <ThemedText color={colors.muted}>Loading…</ThemedText>
+      <Loading full />
         </View>
       </ScreenContainer>    );
   }
@@ -662,6 +677,10 @@ export default function LoanDetailScreen() {
   }
 
   const l = loan.data;
+  // Closed (gold released) and Rejected (turned down in the sanction chain,
+  // never disbursed) are both finished — nothing left to pay, extend,
+  // release or edit.
+  const isFinished = l.status === "Closed" || l.status === "Rejected";
   const activePledge = l.bankPledges?.find((p) => p.status === "Active");
 
   // The Extension/Release cards below hand off to ExtensionReviewPanel/
@@ -705,6 +724,13 @@ export default function LoanDetailScreen() {
           <ThemedText variant="label" style={{ marginTop: 12 }}>
             Status: {l.status}
           </ThemedText>
+          {l.status === "Rejected" ? (
+            <ThemedText variant="small" color={colors.red} style={{ marginTop: 4 }}>
+              Rejected{l.rejectedByName ? ` by ${l.rejectedByName}` : ""}
+              {l.rejectedAt ? ` on ${l.rejectedAt.slice(0, 10)}` : ""}
+              {l.rejectionRemarks ? ` — ${l.rejectionRemarks}` : ""}. This loan was never disbursed.
+            </ThemedText>
+          ) : null}
           <ThemedText variant="body" style={{ marginTop: 4 }}>
             Principal {fmt(l.principalAmount)}
           </ThemedText>
@@ -816,7 +842,7 @@ export default function LoanDetailScreen() {
                     />
                   ))
                 : null}
-              {l.status !== "Closed"
+              {!isFinished
                 ? (() => {
                     const st = l.indemnityBondSignStatus;
                     const signed = st === "sign_complete" && !!l.indemnityBondSignedUrl;
@@ -965,13 +991,13 @@ export default function LoanDetailScreen() {
          * Delete Loan Permanently is the ONE delete action offered — no
          * separate "soft delete" alternative — gated by its own
          * "can_hard_delete_loan" permission. */}
-        {((l.status !== "Closed" && l.status !== "Auctioned" && canEditLoan) || canHardDeleteLoan) ? (
+        {((!isFinished && l.status !== "Auctioned" && canEditLoan) || canHardDeleteLoan) ? (
           <Card>
             <ThemedText variant="h3" style={{ marginBottom: 8 }}>
               Loan Actions
             </ThemedText>
             <View style={{ gap: 8 }}>
-              {l.status !== "Closed" && l.status !== "Auctioned" && canEditLoan ? (
+              {!isFinished && l.status !== "Auctioned" && canEditLoan ? (
                 <GoldButton title="Edit Loan" variant="outline" onPress={openEditSheet} />
               ) : null}
               {canHardDeleteLoan ? (
@@ -1210,7 +1236,7 @@ export default function LoanDetailScreen() {
         })() : null}
 
         {/* --- Payments ------------------------------------------------------- */}
-        {l.status !== "Closed" ? (
+        {!isFinished ? (
           <Card>
             <GoldButton
               title="Record Payment"
@@ -1301,7 +1327,7 @@ export default function LoanDetailScreen() {
         {/* --- Extension request / review ---------------------------------------
          * Once a request is Pending, ExtensionReviewPanel takes over — same
          * component the standalone Requests list screen's review sheet uses. */}
-        {l.status !== "Closed" ? (
+        {!isFinished ? (
           <Card>
             <ThemedText variant="h3" style={{ marginBottom: 8 }}>
               {pendingExtension ? "Review Extension" : "Request Extension"}
@@ -1339,7 +1365,7 @@ export default function LoanDetailScreen() {
          * Once a request is Pending, ReleaseReviewPanel takes over — same
          * component the standalone Requests list screen's review sheet uses.
          * `loan` comes straight from this screen's own already-loaded `l`. */}
-        {l.status !== "Closed" ? (
+        {!isFinished ? (
           <Card>
             <ThemedText variant="h3" style={{ marginBottom: 8 }}>
               Release
@@ -1552,7 +1578,7 @@ export default function LoanDetailScreen() {
                 />
               </View>
             </>
-          ) : l.status !== "Closed" ? (
+          ) : !isFinished ? (
             <>
               <GoldTextInput
                 label="Bank"
@@ -1613,9 +1639,7 @@ export default function LoanDetailScreen() {
             Choose Bank
           </ThemedText>
           {banksQuery.isLoading ? (
-            <ThemedText variant="small" color={colors.muted}>
-              Loading banks…
-            </ThemedText>
+            <Loading />
           ) : (
             <SheetScrollView style={{ maxHeight: 320 }}>
               {(banksQuery.data ?? []).map((b) => (
@@ -1686,9 +1710,7 @@ export default function LoanDetailScreen() {
             Bank Pledge History
           </ThemedText>
           {historyQuery.isLoading ? (
-            <ThemedText variant="small" color={colors.muted}>
-              Loading history…
-            </ThemedText>
+            <Loading />
           ) : (historyQuery.data ?? []).length === 0 ? (
             <ThemedText variant="small" color={colors.muted}>
               No bank pledge history for this loan yet.
@@ -1762,7 +1784,7 @@ export default function LoanDetailScreen() {
                   <ThemedText variant="small" color={colors.muted}>
                     This loan&apos;s gold was already sold at auction — see Auction History for the outcome.
                   </ThemedText>
-                ) : l.status !== "Active" && l.status !== "Closed" ? (
+                ) : l.isDefaulted ? (
                   canActOnAuction ? (
                     <GoldButton
                       title="Mark auction eligible"
@@ -1793,15 +1815,15 @@ export default function LoanDetailScreen() {
                   {decisionReq ? (
                     <View
                       style={{
-                        backgroundColor: statusColors("red").bg,
-                        borderColor: statusColors("red").fg,
+                        backgroundColor: statusColors("red", colors).bg,
+                        borderColor: statusColors("red", colors).fg,
                         borderWidth: 1,
                         borderRadius: 8,
                         padding: 10,
                         marginBottom: 12,
                       }}
                     >
-                      <ThemedText variant="small" color={statusColors("red").fg} style={{ marginBottom: 8 }}>
+                      <ThemedText variant="small" color={statusColors("red", colors).fg} style={{ marginBottom: 8 }}>
                         {decisionReq.kind === "Shortfall"
                           ? `Shortfall — awaiting authority. The sale realised ₹${fmt(decisionReq.amountPaid)} and left ₹${fmt(decisionReq.outstandingAtRequest)} owing.`
                           : `Decision pending. ₹${fmt(decisionReq.amountPaid)} was paid, leaving ₹${fmt(decisionReq.outstandingAtRequest)} owing. No notice, schedule, or sale can proceed until this is resolved.`}
@@ -1849,10 +1871,11 @@ export default function LoanDetailScreen() {
 
                   {!frozen && canActOnAuction && rec.stage === "NoticeIssued" ? (
                     <>
-                      <GoldTextInput
-                        label="Auction date (YYYY-MM-DD)"
+                      <GoldDatePicker
+                        label="Auction date"
                         value={auctionDate}
-                        onChangeText={setAuctionDate}
+                        onChange={setAuctionDate}
+                        min={new Date().toISOString().slice(0, 10)}
                       />
                       <GoldTextInput
                         label="Reference number"
@@ -1974,6 +1997,7 @@ function DocRow({
   first?: boolean;
   extra?: React.ReactNode;
 }) {
+  const { colors } = useTheme();
   return (
     <Pressable
       onPress={onPress}

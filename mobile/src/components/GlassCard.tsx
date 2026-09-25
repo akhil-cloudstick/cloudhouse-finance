@@ -2,6 +2,7 @@ import React from "react";
 import { View, StyleSheet, Platform, ViewStyle } from "react-native";
 import { BlurView } from "expo-blur";
 import { colors } from "../theme/colors";
+import { useTheme } from "../theme/ThemeProvider";
 
 // Drop-in replacement for Card — same {children, style} shape — used across
 // the Dashboard for its "glassy" card treatment (see the approved
@@ -25,6 +26,10 @@ import { colors } from "../theme/colors";
 // why that isn't done anywhere in this app yet) — a separate, bigger piece
 // of work, not a style tweak.
 export function GlassCard({ children, style }: { children: React.ReactNode; style?: ViewStyle | ViewStyle[] }) {
+  // Outline follows the business's brand colour from the backend branding
+  // (ThemeProvider swaps the ramp at runtime), so it must come from
+  // useTheme() rather than the static StyleSheet below.
+  const { colors: theme } = useTheme();
   const Inner = Platform.OS === "ios" ? BlurView : View;
   const innerProps = Platform.OS === "ios" ? { intensity: 34, tint: "light" as const } : {};
   return (
@@ -32,6 +37,7 @@ export function GlassCard({ children, style }: { children: React.ReactNode; styl
       style={[
         styles.glass,
         Platform.OS === "ios" ? [styles.iosTranslucent, styles.iosClip] : styles.androidOpaque,
+        { borderColor: softBorder(theme.brandLight) },
         style,
       ]}
       {...innerProps}
@@ -39,6 +45,12 @@ export function GlassCard({ children, style }: { children: React.ReactNode; styl
       {children}
     </Inner>
   );
+}
+
+// Slightly quieter outline — brandLight at ~65% alpha. Only #rrggbb input
+// gets the alpha suffix; anything else passes through unchanged.
+function softBorder(hex: string): string {
+  return /^#[0-9a-f]{6}$/i.test(hex) ? `${hex}A6` : hex;
 }
 
 const styles = StyleSheet.create({
@@ -57,12 +69,10 @@ const styles = StyleSheet.create({
     elevation: 3,
   },
   iosTranslucent: {
-    borderColor: "rgba(255,255,255,0.6)",
     backgroundColor: "rgba(255,253,247,0.5)",
   },
   iosClip: { overflow: "hidden" },
   androidOpaque: {
-    borderColor: colors.line,
     backgroundColor: colors.card,
   },
 });

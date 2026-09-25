@@ -1,13 +1,14 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { RefreshControl, View } from "react-native";
 import { useInfiniteQuery } from "@tanstack/react-query";
-import { useRouter } from "expo-router";
+import { useLocalSearchParams, useRouter } from "expo-router";
 import { ScreenContainer } from "../../../src/components/ScreenContainer";
 import { ThemedText } from "../../../src/components/ThemedText";
 import { GoldTextInput } from "../../../src/components/GoldTextInput";
 import { GoldButton } from "../../../src/components/GoldButton";
 import { FilterSheetButton } from "../../../src/components/FilterSheetButton";
 import { statusColors } from "../../../src/theme/colors";
+import { useTheme } from "../../../src/theme/ThemeProvider";
 import { listLoansPage } from "../../../src/api/loans";
 import { Loan } from "../../../src/types/loan";
 import { useDebouncedValue } from "../../../src/hooks/useDebouncedValue";
@@ -15,6 +16,7 @@ import { useRefetchOnFocus } from "../../../src/hooks/useRefetchOnFocus";
 import { useAuth } from "../../../src/auth/AuthContext";
 import { fmt } from "../../../src/lib/format";
 import { ExpandableTable, defaultVisibleCount, type TableColumn } from "../../../src/components/ExpandableTable";
+import { HEADER_FADE_BELOW } from "../../../src/components/FloatingHeader";
 
 const PAGE_SIZE = 10;
 
@@ -23,7 +25,7 @@ const PAGE_SIZE = 10;
 // (that one is a client-computed refinement of Overdue on the web side;
 // filtering server-side by loan.status directly, as this screen does,
 // doesn't have that distinction). "All" sends no status param at all.
-const STATUS_FILTERS = ["All", "Active", "Due Soon", "Overdue", "Pending Approval", "Auction Eligible", "Closed"] as const;
+const STATUS_FILTERS = ["All", "Active", "Due Soon", "Overdue", "Pending Approval", "Auction Eligible", "Closed", "Rejected"] as const;
 
 function toneForStatus(status: string): "green" | "red" | "amber" | "info" | "muted" {
   const s = status.toLowerCase();
@@ -34,7 +36,8 @@ function toneForStatus(status: string): "green" | "red" | "amber" | "info" | "mu
 }
 
 function StatusPill({ status }: { status: string }) {
-  const tone = statusColors(toneForStatus(status));
+  const { colors } = useTheme();
+  const tone = statusColors(toneForStatus(status), colors);
   return (
     <ThemedText
       variant="label"
@@ -76,6 +79,15 @@ export default function LoansScreen() {
   const debouncedSearch = useDebouncedValue(search);
   const [statusFilter, setStatusFilter] = useState<(typeof STATUS_FILTERS)[number]>("All");
 
+  // Dashboard tiles deep-link here with ?status=…; `t` changes on every tap
+  // so the filter re-applies even though this tab screen stays mounted.
+  const params = useLocalSearchParams<{ status?: string; t?: string }>();
+  useEffect(() => {
+    const s = STATUS_FILTERS.find((f) => f === params.status);
+    if (s) setStatusFilter(s);
+    else if (params.t) setStatusFilter("All");
+  }, [params.status, params.t]);
+
   // Each page is its own, separate API call keyed by offset — a new
   // search/filter changes the queryKey, so react-query starts a fresh
   // page-1 fetch instead of reusing a stale accumulated list.
@@ -107,7 +119,7 @@ export default function LoansScreen() {
         placeholder="Loan number or customer…"
         value={search}
         onChangeText={setSearch}
-        containerStyle={{ marginTop: 28 }}
+        containerStyle={{ marginTop: HEADER_FADE_BELOW + 4 }}
         blur
       />
       {canCreateLoan ? (
@@ -133,7 +145,8 @@ export default function LoansScreen() {
           keyExtractor={(l) => String(l.id)}
           extraFields={loanExtraFields}
           onViewDescription={(l) => router.push(`/loans/${l.id}`)}
-          emptyText={isLoading ? "Loading…" : isError ? "Could not load loans." : "No loans found."}
+          loading={isLoading}
+          emptyText={isError ? "Could not load loans." : "No loans found."}
           refreshControl={<RefreshControl refreshing={isFetching && !isFetchingNextPage && !isLoading} onRefresh={refetch} />}
           onEndReached={() => {
             if (hasNextPage && !isFetchingNextPage) fetchNextPage();

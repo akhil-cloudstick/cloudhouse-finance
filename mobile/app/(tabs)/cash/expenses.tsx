@@ -8,12 +8,14 @@ import { Card } from "../../../src/components/Card";
 import { ThemedText } from "../../../src/components/ThemedText";
 import { GoldTextInput } from "../../../src/components/GoldTextInput";
 import { GoldButton } from "../../../src/components/GoldButton";
-import { colors, statusColors, StatusTone } from "../../../src/theme/colors";
+import { statusColors, StatusTone } from "../../../src/theme/colors";
+import { useTheme } from "../../../src/theme/ThemeProvider";
 import { listExpenses, createExpense, approveExpense, rejectExpense } from "../../../src/api/cash";
 import { Expense } from "../../../src/types/cash";
 import { useAuth } from "../../../src/auth/AuthContext";
 import { ApiError } from "../../../src/api/client";
-import { useRefetchOnFocus } from "../../../src/hooks/useRefetchOnFocus";
+import { useRefetchOnFocus, useResetOnBlur } from "../../../src/hooks/useRefetchOnFocus";
+import { Loading } from "../../../src/components/Loading";
 
 function toneForStatus(status: Expense["status"]): StatusTone {
   if (status === "Approved") return "green";
@@ -22,6 +24,7 @@ function toneForStatus(status: Expense["status"]): StatusTone {
 }
 
 export default function ExpensesScreen() {
+  const { colors } = useTheme();
   const queryClient = useQueryClient();
   const { employee } = useAuth();
   const isAdmin = employee?.role === "Administrator";
@@ -38,6 +41,11 @@ export default function ExpensesScreen() {
   });
 
   useRefetchOnFocus(refetch);
+
+  useResetOnBlur(() => {
+    setShowForm(false);
+    setError(null);
+  });
 
   const create = useMutation({
     mutationFn: () =>
@@ -100,12 +108,16 @@ export default function ExpensesScreen() {
         contentContainerStyle={{ paddingHorizontal: 8, paddingTop: 16, paddingBottom: TAB_BAR_SPACE }}
         refreshControl={<RefreshControl refreshing={isRefetching} onRefresh={refetch} />}
         ListEmptyComponent={
-          <ThemedText color={colors.muted}>
-            {isLoading ? "Loading…" : isError ? "Could not load expenses." : "No expenses yet."}
-          </ThemedText>
+          isLoading ? (
+            <Loading />
+          ) : (
+            <ThemedText color={colors.muted}>
+              {isError ? "Could not load expenses." : "No expenses yet."}
+            </ThemedText>
+          )
         }
         renderItem={({ item }) => {
-          const tone = statusColors(toneForStatus(item.status));
+          const tone = statusColors(toneForStatus(item.status), colors);
           return (
             <Card>
               <ThemedText variant="h3">₹{item.amount.toLocaleString("en-IN")}</ThemedText>

@@ -9,10 +9,12 @@ import { ThemedText } from "../../../src/components/ThemedText";
 import { GoldTextInput } from "../../../src/components/GoldTextInput";
 import { GoldButton } from "../../../src/components/GoldButton";
 import { ChipSelect } from "../../../src/components/ChipSelect";
+import { Loading } from "../../../src/components/Loading";
 import { colors, statusColors } from "../../../src/theme/colors";
+import { useTheme } from "../../../src/theme/ThemeProvider";
 import { fmt } from "../../../src/lib/format";
 import { useAuth } from "../../../src/auth/AuthContext";
-import { useRefetchOnFocus } from "../../../src/hooks/useRefetchOnFocus";
+import { useRefetchOnFocus, useResetOnBlur } from "../../../src/hooks/useRefetchOnFocus";
 import { ApiError } from "../../../src/api/client";
 import {
   getInvestment,
@@ -42,7 +44,8 @@ function toneForInvestmentStatus(status: InvestmentStatus): "green" | "red" | "a
 }
 
 function StatusPill({ label, tone }: { label: string; tone: "green" | "red" | "amber" | "info" | "muted" }) {
-  const t = statusColors(tone);
+  const { colors } = useTheme();
+  const t = statusColors(tone, colors);
   return (
     <ThemedText
       variant="small"
@@ -79,6 +82,7 @@ function Pager({ page, totalPages, onChange }: { page: number; totalPages: numbe
 }
 
 export default function InvestmentDetailScreen() {
+  const { colors } = useTheme();
   const { id } = useLocalSearchParams<{ id: string }>();
   const investmentId = Number(id);
   const queryClient = useQueryClient();
@@ -213,6 +217,11 @@ export default function InvestmentDetailScreen() {
     onError: (err) => setError(err instanceof ApiError ? err.message : "Could not mark the payout paid — try again."),
   });
 
+  useResetOnBlur(() => {
+    setAction(null);
+    setMarkingPayoutId(null);
+  });
+
   const transactions = usePagedSubTable(
     "investmentTransactions",
     investmentId,
@@ -228,7 +237,7 @@ export default function InvestmentDetailScreen() {
     return (
       <ScreenContainer style={{ padding: 0 }}>
         <View style={{ flex: 1, paddingHorizontal: 8, paddingTop: 20 }}>
-          <ThemedText color={colors.muted}>Loading…</ThemedText>
+          <Loading full />
         </View>
       </ScreenContainer>
     );
@@ -405,7 +414,7 @@ export default function InvestmentDetailScreen() {
               {transactions.isError ? (
                 <ThemedText variant="small" color={colors.red}>Could not load transactions.</ThemedText>
               ) : transactions.isLoading ? (
-                <ThemedText variant="small" color={colors.muted}>Loading…</ThemedText>
+                <Loading />
               ) : transactions.items.length === 0 ? (
                 <ThemedText variant="small" color={colors.muted}>No transactions yet.</ThemedText>
               ) : (
@@ -431,7 +440,7 @@ export default function InvestmentDetailScreen() {
               {schedule.isError ? (
                 <ThemedText variant="small" color={colors.red}>Could not load the schedule.</ThemedText>
               ) : schedule.isLoading ? (
-                <ThemedText variant="small" color={colors.muted}>Loading…</ThemedText>
+                <Loading />
               ) : schedule.items.length === 0 ? (
                 <ThemedText variant="small" color={colors.muted}>No payouts scheduled.</ThemedText>
               ) : (

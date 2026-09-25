@@ -11,8 +11,10 @@ import { SearchDropdown } from "../../src/components/SearchDropdown";
 import { useDebouncedValue } from "../../src/hooks/useDebouncedValue";
 import { GoldTextInput } from "../../src/components/GoldTextInput";
 import { colors, statusColors, StatusTone } from "../../src/theme/colors";
+import type { Colors } from "../../src/theme/colors";
+import { useTheme } from "../../src/theme/ThemeProvider";
 import { useAuth } from "../../src/auth/AuthContext";
-import { useRefetchOnFocus } from "../../src/hooks/useRefetchOnFocus";
+import { useRefetchOnFocus, useResetOnBlur } from "../../src/hooks/useRefetchOnFocus";
 import { latestGoldRate, listGoldRatesPage } from "../../src/api/goldRates";
 import { getCalendarEvents } from "../../src/api/reminders";
 import { listLoans, listLoanRequests, getInterestCollected } from "../../src/api/loans";
@@ -24,6 +26,7 @@ import { CalendarEvent } from "../../src/types/reminder";
 import { Scheme } from "../../src/types/scheme";
 
 import { fmt } from "../../src/lib/format";
+import { Loading } from "../../src/components/Loading";
 
 // Mirrors backend/internal/loan/purity.go's ParsePurity/rateForPurity, same
 // as frontend/lib/purity.ts's rateForPurityString — kept local here since
@@ -45,7 +48,7 @@ function rateForPurityString(k24: number, purity: string): number | null {
 // Rows shown on the Needs Attention / Upcoming Reminders cards before "View all".
 const CARD_ROWS = 5;
 
-const EXPENSE_COLORS = [colors.brandDeep, colors.brandMid, colors.info, colors.green, colors.red, colors.amber];
+const expenseColors = (c: Colors) => [c.brandDeep, c.brandMid, c.info, c.green, c.red, c.amber];
 
 // Small "▲12% / ▼5%" badge comparing a live count/value against a real
 // previous-period baseline (yesterday's captured snapshot, or the prior
@@ -86,6 +89,8 @@ function toneForType(type: CalendarEvent["type"]): StatusTone {
 // for the reference layout (KPI row, disbursement bars, Needs Attention,
 // gold-loan calculator, upcoming reminders, expense summary).
 export default function DashboardScreen() {
+  const { colors } = useTheme();
+  const EXPENSE_COLORS = expenseColors(colors);
   const router = useRouter();
   const headerSpace = useHeaderSpace();
   const [attnOpen, setAttnOpen] = useState(false);
@@ -103,6 +108,14 @@ export default function DashboardScreen() {
   function openLoan(id: string | number) {
     router.push("/loans");
     router.push(`/loans/${id}`);
+  }
+
+  // KPI tile → its page, optionally pre-selecting a filter/tab/section.
+  // `t` is a fresh nonce so re-tapping the same tile re-applies the filter
+  // even when the (still-mounted) target screen already saw these params.
+  function go(path: string, params: Record<string, string> = {}) {
+    const qs = new URLSearchParams({ ...params, t: String(Date.now()) }).toString();
+    router.push(`${path}?${qs}` as never);
   }
 
   const goldRate = useQuery({ queryKey: ["gold-rates", "latest"], queryFn: latestGoldRate });
@@ -172,6 +185,11 @@ export default function DashboardScreen() {
     snapshot.refetch,
     goldRateHistory.refetch
   );
+
+  useResetOnBlur(() => {
+    setAttnOpen(false);
+    setRemindersOpen(false);
+  });
 
   const [refreshing, setRefreshing] = useState(false);
   async function onRefresh() {
@@ -277,7 +295,7 @@ export default function DashboardScreen() {
   }
 
   function renderReminderRow(e: CalendarEvent, i: number) {
-    const tone = statusColors(toneForType(e.type));
+    const tone = statusColors(toneForType(e.type), colors);
     return (
       <View key={i} style={styles.attnRow}>
         <View style={[styles.attnDot, { backgroundColor: tone.fg }]} />
@@ -356,14 +374,14 @@ export default function DashboardScreen() {
             separate 3-across row above this grid, but that broke the
             strict 2-column layout everything else follows. */}
         <View style={styles.grid}>
-          <GlassCard style={styles.tile}>
+          <Tile onPress={() => go("/loans")}>
             <ThemedText variant="label" color={colors.muted}>
               Loans Opened Today
             </ThemedText>
             <ThemedText variant="h3">{loans.isLoading ? "…" : openedTodayCount}</ThemedText>
             <Trend current={openedTodayCount} previous={snapshot.data?.openedTodayCount} goodDirection="up" />
-          </GlassCard>
-          <GlassCard style={styles.tile}>
+          </Tile>
+          <Tile onPress={() => go("/loans", { status: "Overdue" })}>
             <ThemedText variant="label" color={colors.muted}>
               Overdue
             </ThemedText>
@@ -371,8 +389,8 @@ export default function DashboardScreen() {
               {loans.isLoading ? "…" : overdueCount}
             </ThemedText>
             <Trend current={overdueCount} previous={snapshot.data?.overdueCount} goodDirection="down" />
-          </GlassCard>
-          <GlassCard style={styles.tile}>
+          </Tile>
+          <Tile onPress={() => go("/reminders")}>
             <ThemedText variant="label" color={colors.muted}>
               Due Today
             </ThemedText>
@@ -380,8 +398,8 @@ export default function DashboardScreen() {
               {events.isLoading ? "…" : dueTodayCount}
             </ThemedText>
             <Trend current={dueTodayCount} previous={snapshot.data?.dueTodayCount} goodDirection="down" />
-          </GlassCard>
-          <GlassCard style={styles.tile}>
+          </Tile>
+          <Tile onPress={() => go("/gold-rates")}>
             <ThemedText variant="label" color={colors.muted}>
               24K Gold Rate
             </ThemedText>
@@ -389,8 +407,8 @@ export default function DashboardScreen() {
               {goldRate.isLoading ? "…" : goldRate.data ? `₹${goldRate.data.k24.toLocaleString("en-IN")}` : "—"}
             </ThemedText>
             {goldRate.data ? <Trend current={goldRate.data.k24} previous={previousK24} goodDirection="up" /> : null}
-          </GlassCard>
-          <GlassCard style={styles.tile}>
+          </Tile>
+          <Tile full onPress={() => go("/cash", { tab: "movements" })}>
             <ThemedText variant="label" color={colors.muted}>
               Cash in Hand
             </ThemedText>
@@ -400,8 +418,8 @@ export default function DashboardScreen() {
             <ThemedText variant="small" color={colors.muted}>
               across {movementList.length} movements
             </ThemedText>
-          </GlassCard>
-          <GlassCard style={styles.tile}>
+          </Tile>
+          <Tile full onPress={() => go("/reports", { section: "interest-collection" })}>
             <ThemedText variant="label" color={colors.muted}>
               Interest Collected
             </ThemedText>
@@ -411,22 +429,22 @@ export default function DashboardScreen() {
             <ThemedText variant="small" color={colors.muted}>
               this month
             </ThemedText>
-          </GlassCard>
-          <GlassCard style={styles.tile}>
+          </Tile>
+          <Tile onPress={() => go("/loans", { status: "Active" })}>
             <ThemedText variant="label" color={colors.muted}>
               Active Loans
             </ThemedText>
             <ThemedText variant="h3">{loans.isLoading ? "…" : activeCount}</ThemedText>
             <Trend current={activeCount} previous={snapshot.data?.activeCount} goodDirection="up" />
-          </GlassCard>
-          <GlassCard style={styles.tile}>
+          </Tile>
+          <Tile onPress={() => go("/loans")}>
             <ThemedText variant="label" color={colors.muted}>
               Loan Opened Today
             </ThemedText>
             <ThemedText variant="h3">{loans.isLoading ? "…" : openedTodayCount}</ThemedText>
             <Trend current={openedTodayCount} previous={snapshot.data?.openedTodayCount} goodDirection="up" />
-          </GlassCard>
-          <GlassCard style={styles.tile}>
+          </Tile>
+          <Tile onPress={() => go("/loans", { status: "Pending Approval" })}>
             <ThemedText variant="label" color={colors.muted}>
               Pending Approvals
             </ThemedText>
@@ -434,8 +452,8 @@ export default function DashboardScreen() {
               {loans.isLoading ? "…" : pendingApprovalLoans.length}
             </ThemedText>
             <Trend current={pendingApprovalLoans.length} previous={snapshot.data?.pendingApprovalCount} goodDirection="down" />
-          </GlassCard>
-          <GlassCard style={styles.tile}>
+          </Tile>
+          <Tile onPress={() => go("/requests")}>
             <ThemedText variant="label" color={colors.muted}>
               Extension Requests
             </ThemedText>
@@ -443,8 +461,8 @@ export default function DashboardScreen() {
             <ThemedText variant="small" color={colors.muted}>
               from mobile app
             </ThemedText>
-          </GlassCard>
-          <GlassCard style={styles.tile}>
+          </Tile>
+          <Tile onPress={() => go("/requests")}>
             <ThemedText variant="label" color={colors.muted}>
               Gold Release Requests
             </ThemedText>
@@ -452,8 +470,8 @@ export default function DashboardScreen() {
             <ThemedText variant="small" color={colors.muted}>
               settlement review
             </ThemedText>
-          </GlassCard>
-          <GlassCard style={styles.tile}>
+          </Tile>
+          <Tile onPress={() => go("/banks")}>
             <ThemedText variant="label" color={colors.muted}>
               Bank-Pledged Loans
             </ThemedText>
@@ -461,8 +479,8 @@ export default function DashboardScreen() {
             <ThemedText variant="small" color={colors.muted}>
               {fmt(pledgedLoans.reduce((s, l) => s + l.principalAmount, 0))} re-pledged
             </ThemedText>
-          </GlassCard>
-          <GlassCard style={styles.tile}>
+          </Tile>
+          <Tile onPress={() => go("/auctions")}>
             <ThemedText variant="label" color={colors.muted}>
               Auction Cases
             </ThemedText>
@@ -472,8 +490,8 @@ export default function DashboardScreen() {
             <ThemedText variant="small" color={colors.muted}>
               {fmt(auctionLoans.reduce((s, l) => s + l.outstandingAmount, 0))} outstanding
             </ThemedText>
-          </GlassCard>
-          <GlassCard style={styles.tile}>
+          </Tile>
+          <Tile onPress={() => go("/cash", { tab: "expenses" })}>
             <ThemedText variant="label" color={colors.muted}>
               Today&apos;s Expenses
             </ThemedText>
@@ -481,7 +499,7 @@ export default function DashboardScreen() {
             <ThemedText variant="small" color={colors.muted}>
               {expPendingCount} pending approval
             </ThemedText>
-          </GlassCard>
+          </Tile>
         </View>
 
         <GlassCard style={{ marginTop: 4 }}>
@@ -495,7 +513,7 @@ export default function DashboardScreen() {
                   {v >= 0.1 ? `₹${v.toFixed(1)}L` : ""}
                 </ThemedText>
                 <View style={styles.barTrack}>
-                  <View style={[styles.barFill, { height: `${(v / maxBar) * 100}%` }]} />
+                  <View style={[styles.barFill, { backgroundColor: colors.brandMid, height: `${(v / maxBar) * 100}%` }]} />
                 </View>
                 <ThemedText variant="small" color={colors.muted}>
                   {m}
@@ -568,7 +586,7 @@ export default function DashboardScreen() {
             loading={schemes.isLoading}
             emptyText="No schemes found"
           />
-          <View style={styles.calcResult}>
+          <View style={[styles.calcResult, { backgroundColor: colors.brandPale, borderColor: colors.brandLight }]}>
             <View style={styles.calcRow}>
               <ThemedText variant="small">Gross Gold Value</ThemedText>
               <ThemedText variant="small" style={{ fontWeight: "600" }}>
@@ -596,9 +614,11 @@ export default function DashboardScreen() {
           </View>
           {allReminders.length ? (
             allReminders.slice(0, CARD_ROWS).map(renderReminderRow)
+          ) : events.isLoading ? (
+            <Loading />
           ) : (
             <ThemedText variant="small" color={colors.muted}>
-              {events.isLoading ? "Loading…" : "No pending reminders."}
+              No pending reminders.
             </ThemedText>
           )}
         </GlassCard>
@@ -656,6 +676,16 @@ export default function DashboardScreen() {
   );
 }
 
+// A tappable KPI tile. The width lives on the Pressable (the grid item), and
+// the GlassCard simply fills it.
+function Tile({ full, onPress, children }: { full?: boolean; onPress: () => void; children: React.ReactNode }) {
+  return (
+    <Pressable onPress={onPress} style={({ pressed }) => [full ? styles.tileFullWrap : styles.tileWrap, pressed && styles.tilePressed]}>
+      <GlassCard style={styles.tile}>{children}</GlassCard>
+    </Pressable>
+  );
+}
+
 const styles = StyleSheet.create({
   cardTitleRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 8 },
   trendRow: { flexDirection: "row", gap: 4, marginTop: 2 },
@@ -668,8 +698,11 @@ const styles = StyleSheet.create({
   // exactly half the row regardless of its own content length, so an odd
   // tile count still lines up instead of one long label pushing a 3rd
   // column onto some rows and 2 onto others.
+  tileWrap: { width: "48%" },
+  // Cash in Hand / Interest Collected take a full row each.
+  tileFullWrap: { width: "100%" },
+  tilePressed: { opacity: 0.7 },
   tile: {
-    width: "48%",
     paddingVertical: 16,
     paddingHorizontal: 12,
   },
@@ -683,7 +716,6 @@ const styles = StyleSheet.create({
   },
   barFill: {
     width: "100%",
-    backgroundColor: colors.brandMid,
     borderRadius: 4,
     minHeight: 2,
   },
@@ -698,9 +730,7 @@ const styles = StyleSheet.create({
   },
   attnDot: { width: 8, height: 8, borderRadius: 4 },
   calcResult: {
-    backgroundColor: colors.brandPale,
     borderWidth: 1,
-    borderColor: colors.brandLight,
     borderRadius: 8,
     padding: 12,
     gap: 6,

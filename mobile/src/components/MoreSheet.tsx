@@ -6,7 +6,8 @@ import { BottomSheetModal, SheetScrollView } from "./BottomSheetModal";
 import { Icon } from "./Icon";
 import { colors } from "../theme/colors";
 import { useAuth } from "../auth/AuthContext";
-import { BRAND } from "../config/brand";
+import { useTheme } from "../theme/ThemeProvider";
+import { routeEnabled } from "../config/tenantModules";
 
 // The "More" destination for the bottom bar — every module that isn't one of
 // the four primary tabs. Replaces the old side drawer (AppDrawerContent):
@@ -110,12 +111,15 @@ function MoreSheet({ visible, onClose }: { visible: boolean; onClose: () => void
   const router = useRouter();
   const pathname = usePathname();
   const { employee, signOut, can } = useAuth();
+  const { colors, businessName, hasModule } = useTheme();
 
+  // A row is filtered OUT when the role lacks its permission OR the business
+  // doesn't have its optional module (src/config/tenantModules.ts).
   // A permission-gated row is filtered OUT of the array (never rendered
   // disabled) — §12.3. An empty group is dropped entirely rather than
   // rendered with a bare heading — §12.4.
   const groups = GROUPS.map(
-    ([group, rows]) => [group, rows.filter((item) => can(item.module, item.key))] as [string, MoreItem[]]
+    ([group, rows]) => [group, rows.filter((item) => can(item.module, item.key) && routeEnabled(item.route, hasModule))] as [string, MoreItem[]]
   ).filter(([, rows]) => rows.length > 0);
 
   function go(route: string) {
@@ -127,7 +131,7 @@ function MoreSheet({ visible, onClose }: { visible: boolean; onClose: () => void
     <BottomSheetModal visible={visible} onClose={onClose}>
       <View style={styles.head}>
         <ThemedText variant="h3" color={colors.brandDeep}>
-          {BRAND.name}
+          {businessName}
         </ThemedText>
         <ThemedText variant="small" color={colors.muted}>
           {employee?.name} · {employee?.role}
@@ -148,7 +152,7 @@ function MoreSheet({ visible, onClose }: { visible: boolean; onClose: () => void
                 return (
                   <React.Fragment key={route}>
                     {i > 0 ? <View style={styles.itemDivider} /> : null}
-                    <Pressable onPress={() => go(route)} style={[styles.item, isActive && styles.itemActive]}>
+                    <Pressable onPress={() => go(route)} style={[styles.item, isActive && { backgroundColor: colors.brandPale }]}>
                       <Icon name={icon} size={20} color={isActive ? colors.brandDeep : colors.muted} />
                       {/* Same "body" variant/font for every row, active or not —
                           only color and background change on selection. */}
@@ -200,6 +204,5 @@ const styles = StyleSheet.create({
   // 12px side padding + the island's 4px keeps content where it was.
   item: { flexDirection: "row", alignItems: "center", gap: 12, paddingHorizontal: 12, paddingVertical: 12, borderRadius: 10 },
   itemDivider: { height: 1, backgroundColor: colors.line, marginHorizontal: 12 },
-  itemActive: { backgroundColor: colors.brandPale },
   signOut: { paddingVertical: 14, paddingHorizontal: 6 },
 });

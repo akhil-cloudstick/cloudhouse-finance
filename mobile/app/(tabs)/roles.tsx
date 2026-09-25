@@ -10,10 +10,12 @@ import { GoldButton } from "../../src/components/GoldButton";
 import { BottomSheetModal } from "../../src/components/BottomSheetModal";
 import { Icon } from "../../src/components/Icon";
 import { colors } from "../../src/theme/colors";
+import { useTheme } from "../../src/theme/ThemeProvider";
 import { useAuth } from "../../src/auth/AuthContext";
 import { useDebouncedValue } from "../../src/hooks/useDebouncedValue";
-import { useRefetchOnFocus } from "../../src/hooks/useRefetchOnFocus";
+import { useRefetchOnFocus, useResetOnBlur } from "../../src/hooks/useRefetchOnFocus";
 import { ApiError } from "../../src/api/client";
+import { Loading } from "../../src/components/Loading";
 import {
   fetchRoles,
   fetchRoleMatrix,
@@ -52,6 +54,7 @@ function RenameDeleteRoleSheet({
   onSaved: (id: number) => void;
   onDeleted: () => void;
 }) {
+  const { colors } = useTheme();
   const [name, setName] = useState("");
   const [desc, setDesc] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -179,6 +182,7 @@ function NewRoleCard({ onCreated }: { onCreated: (role: Role) => void }) {
 }
 
 export default function RolesPermissionsScreen() {
+  const { colors } = useTheme();
   const { employee, can } = useAuth();
   const canView = can("Role_Management", "can_view_role_and_permission");
   const canCreateRole = can("Role_Management", "can_create_role");
@@ -234,6 +238,11 @@ export default function RolesPermissionsScreen() {
   }, [roleId, employee, debouncedSearch]);
 
   useRefetchOnFocus(loadMatrix);
+
+  useResetOnBlur(() => {
+    setShowNewRole(false);
+    setEditVisible(false);
+  });
 
   const effective = useMemo(() => {
     if (!matrix) return null;
@@ -319,7 +328,7 @@ export default function RolesPermissionsScreen() {
           {(roles ?? []).map((r) => {
             const active = r.id === roleId;
             return (
-              <Pressable key={r.id} onPress={() => setRoleId(r.id)} style={[styles.roleChip, active && styles.roleChipActive]}>
+              <Pressable key={r.id} onPress={() => setRoleId(r.id)} style={[styles.roleChip, active && { backgroundColor: colors.brandDeep, borderColor: colors.brandDeep }]}>
                 <ThemedText variant="small" numberOfLines={1} color={active ? colors.bg : colors.ink}>
                   {r.name}
                   {r.isSystem ? " (system)" : ""}
@@ -401,7 +410,7 @@ export default function RolesPermissionsScreen() {
         showsVerticalScrollIndicator={false}
         contentContainerStyle={{ paddingHorizontal: 16, paddingTop: 8, paddingBottom: TAB_BAR_SPACE }}
       >
-        {!effective && !error ? <ThemedText color={colors.muted}>Loading…</ThemedText> : null}
+        {!effective && !error ? <Loading /> : null}
         {effective && moduleEntries.length === 0 ? (
           <ThemedText color={colors.muted}>No permissions match &quot;{search}&quot;.</ThemedText>
         ) : null}
@@ -467,7 +476,6 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     paddingHorizontal: 14,
   },
-  roleChipActive: { backgroundColor: colors.brandDeep, borderColor: colors.brandDeep },
   permRow: { flexDirection: "row", alignItems: "center", paddingVertical: 10 },
   permRowDivider: { borderTopWidth: 1, borderTopColor: colors.line },
 });

@@ -271,6 +271,10 @@ export function LoanDetail({ id }: { id?: string }) {
   if (error) return <div className="empty">Loan not found — {error}</div>;
   if (!loan) return <div className="empty">Loading loan…</div>;
   const l = loan;
+  // Closed (gold released) and Rejected (turned down in the sanction chain,
+  // never disbursed) are both finished — nothing left to pay, extend,
+  // release or edit.
+  const isFinished = l.status === "Closed" || l.status === "Rejected";
 
   function viewOrnImg(url: string, name: string) {
     openModal(
@@ -342,7 +346,7 @@ export function LoanDetail({ id }: { id?: string }) {
   // re-running the whole chain. Gated the same as the Loan Actions menu's
   // own Edit Loan entry: plain "can update loan", not the stage-specific
   // verify/approve/sanction permission.
-  const editLoanButton = canUpdateLoans && l.status !== "Closed" && l.status !== "Auctioned" ? (
+  const editLoanButton = canUpdateLoans && !isFinished && l.status !== "Auctioned" ? (
     <button className="btn ghost" onClick={() => openModal(<EditLoanModalContent loan={l} onSaved={load} />, true)}>
       <Icon name="edit" /> Edit Loan
     </button>
@@ -889,7 +893,7 @@ export function LoanDetail({ id }: { id?: string }) {
          * loan's own state and read more naturally leading. */}
         <div className="page-h-actions">
           {approvalButtons ? approvalButtons : (
-            l.status !== "Closed" && canUpdateLoans && (
+            !isFinished && canUpdateLoans && (
               <button className="btn" onClick={() => openModal(<PaymentModalContent loan={l} onSaved={load} />)}><Icon name="coin" /> Record Payment</button>
             )
           )}
@@ -904,7 +908,7 @@ export function LoanDetail({ id }: { id?: string }) {
               <Icon name="unlock" /> {completing ? "Releasing…" : "Complete Release"}
             </button>
           )}
-          {!approvalButtons && ((canAcceptBankPledge(l.status, l.bankPledgeStatus) && !activePledge && canCreateBankPledges) || (l.status !== "Closed" && canUpdateLoans) || canHardDeleteLoans) && (
+          {!approvalButtons && ((canAcceptBankPledge(l.status, l.bankPledgeStatus) && !activePledge && canCreateBankPledges) || (!isFinished && canUpdateLoans) || canHardDeleteLoans) && (
             <div className="docs-dd" ref={loanActionsMenuRef} onKeyDown={onLoanActionsMenuKeyDown}>
               <button
               ref={loanActionsMenuTriggerRef}
@@ -922,17 +926,17 @@ export function LoanDetail({ id }: { id?: string }) {
                       <Icon name="bank" /><span className="tx">Repledge to Bank</span>
                     </a>
                   )}
-                  {l.status !== "Closed" && canUpdateLoans && (
+                  {!isFinished && canUpdateLoans && (
                     <a href="#" title="Request Extension" onClick={(e) => { e.preventDefault(); setLoanActionsMenuOpen(false); openModal(<RequestExtensionModalContent loan={l} onSaved={load} />); }}>
                       <Icon name="clock" /><span className="tx">Request Extension</span>
                     </a>
                   )}
-                  {l.status !== "Closed" && canUpdateLoans && (
+                  {!isFinished && canUpdateLoans && (
                     <a href="#" title="Request Release" onClick={(e) => { e.preventDefault(); setLoanActionsMenuOpen(false); openModal(<RequestReleaseModalContent loan={l} onSaved={load} />); }}>
                       <Icon name="unlock" /><span className="tx">Request Release</span>
                     </a>
                   )}
-                {l.status !== "Closed" && l.status !== "Auctioned" && canUpdateLoans && (
+                {!isFinished && l.status !== "Auctioned" && canUpdateLoans && (
                   <a href="#" title="Edit Loan" onClick={(e) => { e.preventDefault(); setLoanActionsMenuOpen(false); openModal(<EditLoanModalContent loan={l} onSaved={load} />, true); }}>
                     <Icon name="edit" /><span className="tx">Edit Loan</span>
                   </a>
@@ -1058,6 +1062,13 @@ export function LoanDetail({ id }: { id?: string }) {
       {l.status === "Closure Requested" && l.totalOutstandingBalance > 0.01 && (
         <div className="notice" style={{ marginBottom: 14, color: "var(--amber)" }}>
           <Icon name="shield" /> Final settlement of {fmt(l.totalOutstandingBalance)} has not been recorded yet — record the payment before completing the release. The loan stays in Closure Requested until then.
+        </div>
+      )}
+      {l.status === "Rejected" && (
+        <div className="notice" style={{ marginBottom: 14, color: "var(--red)" }}>
+          <Icon name="shield" /> Rejected{l.rejectedByName ? ` by ${l.rejectedByName}` : ""}
+          {l.rejectedAt ? ` on ${l.rejectedAt.slice(0, 10)}` : ""}
+          {l.rejectionRemarks ? ` — ${l.rejectionRemarks}` : ""}. This loan was never disbursed.
         </div>
       )}
       {pendingStage && (

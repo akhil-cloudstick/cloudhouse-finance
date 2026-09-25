@@ -6,12 +6,14 @@ import { ScreenContainer } from "../../../src/components/ScreenContainer";
 import { ThemedText } from "../../../src/components/ThemedText";
 import { GoldTextInput } from "../../../src/components/GoldTextInput";
 import { GoldButton } from "../../../src/components/GoldButton";
-import { colors, statusColors, StatusTone } from "../../../src/theme/colors";
+import { statusColors, StatusTone } from "../../../src/theme/colors";
+import { useTheme } from "../../../src/theme/ThemeProvider";
 import { listCustomersPage } from "../../../src/api/customers";
 import { Customer } from "../../../src/types/customer";
 import { useDebouncedValue } from "../../../src/hooks/useDebouncedValue";
 import { useRefetchOnFocus } from "../../../src/hooks/useRefetchOnFocus";
 import { ExpandableTable, defaultVisibleCount, type TableColumn } from "../../../src/components/ExpandableTable";
+import { HEADER_FADE_BELOW } from "../../../src/components/FloatingHeader";
 
 const PAGE_SIZE = 10;
 
@@ -23,7 +25,8 @@ function kycTone(status: string): StatusTone {
 }
 
 function StatusPill({ status }: { status: string }) {
-  const tone = statusColors(kycTone(status));
+  const { colors } = useTheme();
+  const tone = statusColors(kycTone(status), colors);
   return (
     <ThemedText
       variant="label"
@@ -119,7 +122,7 @@ export default function CustomersScreen() {
         placeholder="Name, phone, or code…"
         value={search}
         onChangeText={setSearch}
-        containerStyle={{ marginTop: 28 }}
+        containerStyle={{ marginTop: HEADER_FADE_BELOW + 4 }}
         blur
       />
       <View style={{ marginBottom: 12 }}>
@@ -140,7 +143,8 @@ export default function CustomersScreen() {
           keyExtractor={(c) => String(c.id)}
           extraFields={customerExtraFields}
           onViewDescription={(c) => router.push(`/customers/${c.id}`)}
-          emptyText={isLoading ? "Loading…" : isError ? "Could not load customers." : "No customers found."}
+          loading={isLoading}
+          emptyText={isError ? "Could not load customers." : "No customers found."}
           refreshControl={<RefreshControl refreshing={manualRefreshing} onRefresh={onPullToRefresh} />}
           onEndReached={() => {
             if (hasNextPage && !isFetchingNextPage) fetchNextPage();

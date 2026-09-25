@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { View } from "react-native";
+import { useRouter, usePathname } from "expo-router";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { ThemedText } from "../ThemedText";
 import { GoldTextInput } from "../GoldTextInput";
@@ -8,7 +9,7 @@ import { GoldButton } from "../GoldButton";
 import { GoldCheckbox } from "../GoldCheckbox";
 import { ChipSelect } from "../ChipSelect";
 import { Icon } from "../Icon";
-import { colors } from "../../theme/colors";
+import { useTheme } from "../../theme/ThemeProvider";
 import { fmt } from "../../lib/format";
 import { useAuth } from "../../auth/AuthContext";
 import { verifyReleaseChecklist, recordReleasePayment, approveReleaseRequest, RELEASE_STAGE_PERMISSIONS } from "../../api/loans";
@@ -51,6 +52,14 @@ export function ReleaseReviewPanel({
   onSaved: () => void;
   onError: (message: string) => void;
 }) {
+  const { colors } = useTheme();
+  const router = useRouter();
+  const pathname = usePathname();
+  // The Bank Pledge card this would link to is already further down this
+  // very screen when the panel is embedded in the loan detail page (as
+  // opposed to the Requests list's sheet, viewed from elsewhere) — so that
+  // link is only useful, and only shown, from the Requests screen.
+  const onThisLoanPage = pathname === `/loans/${loan.id}`;
   const { can } = useAuth();
   const canDecide = can("Loan_Management", "can_update_loan");
   const canVerifyChecklist = can("Release_Approval", "can_verify_release_checklist");
@@ -91,7 +100,8 @@ export function ReleaseReviewPanel({
     queryFn: () => listPackets({ loanId: loan.id }),
     enabled: isPending,
   });
-  const packetStatus = packet.data?.[0]?.status;
+  const packetRecord = packet.data?.[0];
+  const packetStatus = packetRecord?.status;
   const goldStillHeld = loan.bankPledgeStatus === "Bank Pledged" || packetStatus === "Locker Stored";
   const goldHeldReason = loan.bankPledgeStatus === "Bank Pledged" ? "pledged to a bank" : "checked into a locker";
 
@@ -290,12 +300,25 @@ export function ReleaseReviewPanel({
         </View>
       </View>
       {goldStillHeld && isPending ? (
-        <View style={{ flexDirection: "row", gap: 6, marginBottom: 10 }}>
-          <Icon name="shield" size={13} color={colors.red} />
-          <ThemedText variant="small" color={colors.red} style={{ flex: 1 }}>
-            This loan&apos;s gold is still {goldHeldReason}, so it can&apos;t be shown to the customer yet — release it from{" "}
-            {loan.bankPledgeStatus === "Bank Pledged" ? "Bank Pledge" : "Packets"} first.
-          </ThemedText>
+        <View style={{ marginBottom: 10 }}>
+          <View style={{ flexDirection: "row", gap: 6, marginBottom: 8 }}>
+            <Icon name="shield" size={13} color={colors.red} />
+            <ThemedText variant="small" color={colors.red} style={{ flex: 1 }}>
+              This loan&apos;s gold is still {goldHeldReason}, so it can&apos;t be shown to the customer yet — release it from{" "}
+              {loan.bankPledgeStatus === "Bank Pledged" ? "Bank Pledge" : "the Locker"} first.
+            </ThemedText>
+          </View>
+          {loan.bankPledgeStatus === "Bank Pledged" ? (
+            onThisLoanPage ? null : (
+              <GoldButton title="Go to Bank Pledge" variant="outline" onPress={() => router.push(`/loans/${loan.id}`)} />
+            )
+          ) : (
+            <GoldButton
+              title="Go to Locker"
+              variant="outline"
+              onPress={() => (packetRecord ? router.push(`/packets/${packetRecord.id}`) : router.push("/lockers"))}
+            />
+          )}
         </View>
       ) : null}
 
