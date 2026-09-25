@@ -6,6 +6,7 @@ import { ThemedText } from "../../src/components/ThemedText";
 import { Card } from "../../src/components/Card";
 import { FilterSheetButton } from "../../src/components/FilterSheetButton";
 import { colors, statusColors } from "../../src/theme/colors";
+import { useTheme } from "../../src/theme/ThemeProvider";
 import { listLoanRiskAssessmentPage, RISK_STATUSES } from "../../src/api/loans";
 import { LoanRiskRow, LoanRiskLevel } from "../../src/types/loan";
 import { useRefetchOnFocus } from "../../src/hooks/useRefetchOnFocus";
@@ -38,7 +39,8 @@ function riskLevelFilterToWire(v: (typeof RISK_LEVEL_FILTERS)[number]): LoanRisk
 }
 
 function RiskPill({ level }: { level: LoanRiskLevel }) {
-  const tone = statusColors(RISK_TONE[level]);
+  const { colors } = useTheme();
+  const tone = statusColors(RISK_TONE[level], colors);
   return (
     <ThemedText
       variant="label"
@@ -131,9 +133,8 @@ export default function LoanRiskScreen() {
           data={rows}
           keyExtractor={(r) => String(r.loanId)}
           extraFields={riskExtraFields}
-          emptyText={
-            isLoading ? "Loading…" : isError ? "Could not load risk assessment. A gold rate may not be published yet." : "No loans found."
-          }
+          loading={isLoading}
+          emptyText={isError ? "Could not load risk assessment. A gold rate may not be published yet." : "No loans found."}
           refreshControl={<RefreshControl refreshing={isFetching && !isFetchingNextPage && !isLoading} onRefresh={refetch} />}
           onEndReached={() => {
             if (hasNextPage && !isFetchingNextPage) fetchNextPage();

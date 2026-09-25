@@ -224,6 +224,10 @@ export type Loan = {
   // Sanction-chain state — "" once Approved/Rejected past the chain.
   approvalStage: string;
   approvalWarning?: string;
+  // Set only when the sanction chain rejected the loan (status "Rejected").
+  rejectedByName?: string;
+  rejectedAt?: string | null;
+  rejectionRemarks?: string;
   // Frozen at final sanction (Approve reaching FinalSanction), distinct
   // from principalAmount which can still change pre-approval — see backend
   // Loan.SanctionedAmount's own doc comment. Zero/absent until the loan

@@ -9,15 +9,18 @@ import { ThemedText } from "../../../src/components/ThemedText";
 import { GoldTextInput } from "../../../src/components/GoldTextInput";
 import { GoldButton } from "../../../src/components/GoldButton";
 import { ChipSelect } from "../../../src/components/ChipSelect";
-import { colors, statusColors } from "../../../src/theme/colors";
+import { statusColors } from "../../../src/theme/colors";
+import { useTheme } from "../../../src/theme/ThemeProvider";
 import { listCashMovements, createCashMovement } from "../../../src/api/cash";
 import { CashMovement } from "../../../src/types/cash";
 import { ApiError } from "../../../src/api/client";
-import { useRefetchOnFocus } from "../../../src/hooks/useRefetchOnFocus";
+import { useRefetchOnFocus, useResetOnBlur } from "../../../src/hooks/useRefetchOnFocus";
+import { Loading } from "../../../src/components/Loading";
 
 const TYPES = ["in", "out"] as const;
 
 export default function CashMovementsScreen() {
+  const { colors } = useTheme();
   const queryClient = useQueryClient();
   const [showForm, setShowForm] = useState(false);
   const [type, setType] = useState<(typeof TYPES)[number]>("in");
@@ -32,6 +35,11 @@ export default function CashMovementsScreen() {
   });
 
   useRefetchOnFocus(refetch);
+
+  useResetOnBlur(() => {
+    setShowForm(false);
+    setError(null);
+  });
 
   const create = useMutation({
     mutationFn: () => createCashMovement({ type, source, purpose, amount: Number(amount), bank: undefined }),
@@ -83,12 +91,16 @@ export default function CashMovementsScreen() {
         contentContainerStyle={{ padding: 16, paddingBottom: TAB_BAR_SPACE }}
         refreshControl={<RefreshControl refreshing={isRefetching} onRefresh={refetch} />}
         ListEmptyComponent={
-          <ThemedText color={colors.muted}>
-            {isLoading ? "Loading…" : isError ? "Could not load cash movements." : "No movements yet."}
-          </ThemedText>
+          isLoading ? (
+            <Loading />
+          ) : (
+            <ThemedText color={colors.muted}>
+              {isError ? "Could not load cash movements." : "No movements yet."}
+            </ThemedText>
+          )
         }
         renderItem={({ item }) => {
-          const tone = statusColors(item.type === "in" ? "green" : "amber");
+          const tone = statusColors(item.type === "in" ? "green" : "amber", colors);
           return (
             <Card>
               <ThemedText variant="h3">

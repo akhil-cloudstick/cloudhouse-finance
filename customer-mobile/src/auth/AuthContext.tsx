@@ -4,6 +4,7 @@ import { SessionResponse } from "../api/auth";
 import { saveToken, clearToken } from "./tokenStorage";
 import { clearDeviceToken } from "./deviceToken";
 import * as profileApi from "../api/profile";
+import { useTheme } from "../theme/ThemeProvider";
 
 type AuthState = {
   customer: Customer | null;
@@ -35,15 +36,22 @@ const AuthContext = createContext<AuthState | undefined>(undefined);
 // path that didn't: a stored-session-token refresh, which has no customer
 // object of its own to hand back.
 export function AuthProvider({ children }: { children: React.ReactNode }) {
+  const { refreshBranding } = useTheme();
   const [customer, setCustomer] = useState<Customer | null>(null);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
 
-  const completeLogin = useCallback(async (session: SessionResponse) => {
-    await saveToken(session.token);
-    setCustomer(session.customer);
-    setIsAuthenticated(true);
-  }, []);
+  const completeLogin = useCallback(
+    async (session: SessionResponse) => {
+      await saveToken(session.token);
+      setCustomer(session.customer);
+      setIsAuthenticated(true);
+      // The lender code may have just changed, and the theme can now use
+      // the authenticated /branding endpoint instead of the public one.
+      refreshBranding();
+    },
+    [refreshBranding]
+  );
 
   const markAuthenticated = useCallback(() => {
     setIsAuthenticated(true);
@@ -59,7 +67,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     await clearDeviceToken();
     setCustomer(null);
     setIsAuthenticated(false);
-  }, []);
+    refreshBranding();
+  }, [refreshBranding]);
 
   return (
     <AuthContext.Provider

@@ -65,7 +65,8 @@ export default function EmployeesScreen() {
           keyExtractor={(e) => String(e.id)}
           extraFields={employeeExtraFields}
           onViewDescription={(e) => router.push(`/employees/${e.id}`)}
-          emptyText={isLoading ? "Loading…" : isError ? "Could not load employees." : "No employees found."}
+          loading={isLoading}
+          emptyText={isError ? "Could not load employees." : "No employees found."}
           refreshControl={<RefreshControl refreshing={isFetching && !isFetchingNextPage && !isLoading} onRefresh={refetch} />}
           onEndReached={() => {
             if (hasNextPage && !isFetchingNextPage) fetchNextPage();

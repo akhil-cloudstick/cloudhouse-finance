@@ -1,4 +1,5 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
+import { useLocalSearchParams } from "expo-router";
 import { View, RefreshControl, Pressable, StyleSheet } from "react-native";
 import { useQuery, useInfiniteQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { ScreenContainer } from "../../../src/components/ScreenContainer";
@@ -6,7 +7,9 @@ import { Card } from "../../../src/components/Card";
 import { ThemedText } from "../../../src/components/ThemedText";
 import { GoldTextInput } from "../../../src/components/GoldTextInput";
 import { GoldButton } from "../../../src/components/GoldButton";
-import { colors, statusColors, StatusTone } from "../../../src/theme/colors";
+import { statusColors, StatusTone } from "../../../src/theme/colors";
+import type { Colors } from "../../../src/theme/colors";
+import { useTheme, useThemedStyles } from "../../../src/theme/ThemeProvider";
 import {
   getCashSummary,
   listCashMovementsPage,
@@ -21,7 +24,8 @@ import {
 import { CashMovement, Expense, GoldSale } from "../../../src/types/cash";
 import { useAuth } from "../../../src/auth/AuthContext";
 import { ApiError } from "../../../src/api/client";
-import { useRefetchOnFocus } from "../../../src/hooks/useRefetchOnFocus";
+import { useRefetchOnFocus, useResetOnBlur } from "../../../src/hooks/useRefetchOnFocus";
+import { Loading } from "../../../src/components/Loading";
 import { fmt } from "../../../src/lib/format";
 import { ExpandableTable, defaultVisibleCount, type TableColumn, type ExtraField } from "../../../src/components/ExpandableTable";
 
@@ -34,7 +38,8 @@ const PAGE_SIZE = 10;
 type CashAction = "addCash" | "takeCashOut" | "goldSale" | "expense" | null;
 
 function StatusPill({ label, tone }: { label: string; tone: StatusTone }) {
-  const t = statusColors(tone);
+  const { colors } = useTheme();
+  const t = statusColors(tone, colors);
   return (
     <ThemedText
       variant="label"
@@ -77,12 +82,20 @@ function movementExtraFields(m: CashMovement) {
 // used to be two separate routes (/cash/movements, /cash/expenses) reached
 // via nav buttons — merged in place per the approved table redesign.
 export default function CashScreen() {
+  const { colors } = useTheme();
+  const styles = useThemedStyles(makeStyles);
   const queryClient = useQueryClient();
   const { employee } = useAuth();
   const isAdmin = employee?.role === "Administrator";
   const today = new Date().toISOString().slice(0, 10);
 
   const [tab, setTab] = useState<"movements" | "expenses" | "goldSales">("movements");
+
+  // Dashboard tiles deep-link here with ?tab=…; `t` re-applies it per tap.
+  const params = useLocalSearchParams<{ tab?: string; t?: string }>();
+  useEffect(() => {
+    if (params.tab === "movements" || params.tab === "expenses" || params.tab === "goldSales") setTab(params.tab);
+  }, [params.tab, params.t]);
   const [action, setAction] = useState<CashAction>(null);
 
   // Add Cash form state (createCashMovement type "in")
@@ -134,6 +147,10 @@ export default function CashScreen() {
   });
 
   useRefetchOnFocus(summary.refetch, movements.refetch, expenses.refetch, goldSales.refetch);
+
+  useResetOnBlur(() => {
+    closeForm();
+  });
 
   const movementItems = movements.data?.pages.flatMap((p) => p.items) ?? [];
   const expenseItems = expenses.data?.pages.flatMap((p) => p.items) ?? [];
@@ -259,7 +276,7 @@ export default function CashScreen() {
             Today's cash summary
           </ThemedText>
           {summary.isLoading ? (
-            <ThemedText color={colors.muted}>Loading…</ThemedText>
+            <Loading />
           ) : summary.isError || !summary.data ? (
             <ThemedText color={colors.red}>Could not load today's summary.</ThemedText>
           ) : (
@@ -377,7 +394,8 @@ export default function CashScreen() {
             data={movementItems}
             keyExtractor={(m) => String(m.id)}
             extraFields={movementExtraFields}
-            emptyText={movements.isLoading ? "Loading…" : movements.isError ? "Could not load cash movements." : "No movements yet."}
+            loading={movements.isLoading}
+            emptyText={movements.isError ? "Could not load cash movements." : "No movements yet."}
             refreshControl={
               <RefreshControl
                 refreshing={summary.isRefetching || (movements.isRefetching && !movements.isFetchingNextPage)}
@@ -399,7 +417,8 @@ export default function CashScreen() {
             data={expenseItems}
             keyExtractor={(e) => String(e.id)}
             extraFields={expenseExtraFields}
-            emptyText={expenses.isLoading ? "Loading…" : expenses.isError ? "Could not load expenses." : "No expenses yet."}
+            loading={expenses.isLoading}
+            emptyText={expenses.isError ? "Could not load expenses." : "No expenses yet."}
             refreshControl={
               <RefreshControl
                 refreshing={summary.isRefetching || (expenses.isRefetching && !expenses.isFetchingNextPage)}
@@ -421,7 +440,8 @@ export default function CashScreen() {
             data={goldSaleItems}
             keyExtractor={(g) => String(g.id)}
             extraFields={goldSaleExtraFields}
-            emptyText={goldSales.isLoading ? "Loading…" : goldSales.isError ? "Could not load gold sales." : 'No gold sales recorded yet. Use "Gold Sale".'}
+            loading={goldSales.isLoading}
+            emptyText={goldSales.isError ? "Could not load gold sales." : 'No gold sales recorded yet. Use "Gold Sale".'}
             refreshControl={
               <RefreshControl
                 refreshing={summary.isRefetching || (goldSales.isRefetching && !goldSales.isFetchingNextPage)}
@@ -440,7 +460,7 @@ export default function CashScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (c: Colors) => StyleSheet.create({
   tableTabs: { flexDirection: "row", gap: 8, marginTop: 4, marginBottom: 12 },
   tableTab: {
     flex: 1,
@@ -448,19 +468,19 @@ const styles = StyleSheet.create({
     paddingVertical: 9,
     borderRadius: 10,
     borderWidth: 1,
-    borderColor: colors.line,
-    backgroundColor: colors.card,
+    borderColor: c.line,
+    backgroundColor: c.card,
   },
-  tableTabOn: { backgroundColor: colors.brandDeep, borderColor: colors.brandDeep },
+  tableTabOn: { backgroundColor: c.brandDeep, borderColor: c.brandDeep },
   actionRow: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginBottom: 12 },
   actionBtn: {
     borderWidth: 1,
-    borderColor: colors.brandDeep,
-    backgroundColor: colors.brandPale,
+    borderColor: c.brandDeep,
+    backgroundColor: c.brandPale,
     borderRadius: 18,
     paddingHorizontal: 14,
     paddingVertical: 8,
   },
-  smallApprove: { backgroundColor: colors.green, borderRadius: 7, paddingHorizontal: 10, paddingVertical: 6 },
-  smallReject: { borderWidth: 1, borderColor: colors.red, borderRadius: 7, paddingHorizontal: 10, paddingVertical: 6 },
+  smallApprove: { backgroundColor: c.green, borderRadius: 7, paddingHorizontal: 10, paddingVertical: 6 },
+  smallReject: { borderWidth: 1, borderColor: c.red, borderRadius: 7, paddingHorizontal: 10, paddingVertical: 6 },
 });

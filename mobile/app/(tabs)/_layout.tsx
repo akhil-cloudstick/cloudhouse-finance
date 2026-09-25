@@ -2,12 +2,16 @@
 // supported path is `expo-router/js-tabs` (there's also an
 // `unstable-native-tabs` variant, avoided here because the whole point of
 // this bar is a custom look).
+import { useEffect } from "react";
+import { useRouter, useSegments } from "expo-router";
 import { Tabs } from "expo-router/js-tabs";
 import { Dimensions, Easing } from "react-native";
 import { colors } from "../../src/theme/colors";
 import { FloatingHeader } from "../../src/components/FloatingHeader";
 import { AppTabBar } from "../../src/components/AppTabBar";
 import { MoreSheetProvider } from "../../src/components/MoreSheet";
+import { useTheme } from "../../src/theme/ThemeProvider";
+import { routeEnabled } from "../../src/config/tenantModules";
 
 // Bottom-bar nav — replaces the old side drawer entirely. Four primary tabs
 // (dashboard, loans, customers, new-loan) live in AppTabBar; every other
@@ -31,7 +35,23 @@ import { MoreSheetProvider } from "../../src/components/MoreSheet";
 // into it as a row of 18 icons.
 const SCREEN_W = Dimensions.get("window").width;
 
+// One guard for every optional module (src/config/tenantModules.ts): the
+// More sheet already hides a disabled module's entry, this catches a deep
+// link, a stale nav state, or a module switched off while its screen is open
+// (branding refreshes on foreground / every minute).
+function useTenantModuleGuard() {
+  const segments = useSegments();
+  const router = useRouter();
+  const { hasModule, ready } = useTheme();
+  const route = (segments as string[])[1] ?? "";
+
+  useEffect(() => {
+    if (ready && route && !routeEnabled(route, hasModule)) router.replace("/(tabs)/dashboard");
+  }, [ready, route, hasModule, router]);
+}
+
 export default function TabsLayout() {
+  useTenantModuleGuard();
   return (
     <MoreSheetProvider>
       <Tabs

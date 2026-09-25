@@ -7,11 +7,13 @@ import { ScreenContainer } from "../../../src/components/ScreenContainer";
 import { Card } from "../../../src/components/Card";
 import { ThemedText } from "../../../src/components/ThemedText";
 import { GoldButton } from "../../../src/components/GoldButton";
-import { colors } from "../../../src/theme/colors";
+import { Loading } from "../../../src/components/Loading";
+import { useTheme } from "../../../src/theme/ThemeProvider";
 import { getBranch, deactivateBranch } from "../../../src/api/branches";
 import { useRefetchOnFocus } from "../../../src/hooks/useRefetchOnFocus";
 
 export default function BranchDetailScreen() {
+  const { colors } = useTheme();
   const { id } = useLocalSearchParams<{ id: string }>();
   const branchId = Number(id);
   const router = useRouter();
@@ -41,7 +43,7 @@ export default function BranchDetailScreen() {
         refreshControl={<RefreshControl refreshing={isRefetching} onRefresh={refetch} />}
       >
         {isLoading ? (
-          <ThemedText color={colors.muted}>Loading…</ThemedText>
+          <Loading full />
         ) : isError || !data ? (
           <ThemedText color={colors.red}>Could not load this branch.</ThemedText>
         ) : (

@@ -6,7 +6,8 @@ import { ScreenContainer } from "../../../src/components/ScreenContainer";
 import { ThemedText } from "../../../src/components/ThemedText";
 import { GoldTextInput } from "../../../src/components/GoldTextInput";
 import { GoldButton } from "../../../src/components/GoldButton";
-import { colors, statusColors } from "../../../src/theme/colors";
+import { statusColors } from "../../../src/theme/colors";
+import { useTheme } from "../../../src/theme/ThemeProvider";
 import { listSchemesPage } from "../../../src/api/schemes";
 import { Scheme } from "../../../src/types/scheme";
 import { useDebouncedValue } from "../../../src/hooks/useDebouncedValue";
@@ -16,7 +17,8 @@ import { ExpandableTable, defaultVisibleCount, type TableColumn } from "../../..
 const PAGE_SIZE = 10;
 
 function StatusPill({ active }: { active: boolean }) {
-  const tone = statusColors(active ? "green" : "muted");
+  const { colors } = useTheme();
+  const tone = statusColors(active ? "green" : "muted", colors);
   return (
     <ThemedText
       variant="label"
@@ -84,7 +86,8 @@ export default function SchemesScreen() {
           keyExtractor={(s) => String(s.id)}
           extraFields={schemeExtraFields}
           onViewDescription={(s) => router.push(`/schemes/${s.id}`)}
-          emptyText={isLoading ? "Loading…" : isError ? "Could not load schemes." : "No schemes found."}
+          loading={isLoading}
+          emptyText={isError ? "Could not load schemes." : "No schemes found."}
           refreshControl={<RefreshControl refreshing={isFetching && !isFetchingNextPage && !isLoading} onRefresh={refetch} />}
           onEndReached={() => {
             if (hasNextPage && !isFetchingNextPage) fetchNextPage();

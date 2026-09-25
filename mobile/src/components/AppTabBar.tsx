@@ -7,6 +7,7 @@ import { colors } from "../theme/colors";
 import { TAB_BAR_FADE, TAB_BAR_HEIGHT } from "../theme/layout";
 import { useMoreSheet } from "./MoreSheet";
 import { useAuth } from "../auth/AuthContext";
+import { useTheme } from "../theme/ThemeProvider";
 
 // Bottom bar for the (tabs) group — replaces the old side drawer
 // (AppDrawerContent). Four primary destinations plus a "More" slot that
@@ -29,10 +30,16 @@ const TABS: { route: string; label: string; icon: string; module: string | null;
 ];
 
 export function AppTabBar({ state, navigation, insets }: BottomTabBarProps) {
+  const { colors } = useTheme();
   const { open } = useMoreSheet();
   const { can } = useAuth();
   const activeRouteName = state.routes[state.index]?.name;
   const visibleTabs = TABS.filter((t) => t.module === null || can(t.module, t.key!));
+  // Every screen reachable only via the More sheet (Reminders, Reports,
+  // Settings, ...) is still one of this navigator's routes — just not one of
+  // the 4 primary TABS — so "the More slot is active" is exactly "the
+  // current route isn't one of those 4".
+  const isMoreActive = !TABS.some((t) => t.route === activeRouteName);
 
   function onTabPress(name: string) {
     const route = state.routes.find((r) => r.name === name);
@@ -74,8 +81,8 @@ export function AppTabBar({ state, navigation, insets }: BottomTabBarProps) {
         // Not a route — raises the More sheet over whatever screen is on.
         <Pressable key="more" onPressIn={open} style={styles.item} accessibilityLabel="More" hitSlop={6}>
           {({ pressed }) => (
-            <View style={[styles.circle, pressed && styles.circleActive]}>
-              <Icon name="dots" size={24} color={pressed ? colors.brandDeep : colors.muted} />
+            <View style={[styles.circle, (pressed || isMoreActive) && { backgroundColor: colors.brandPale }]}>
+              <Icon name="dots" size={24} color={pressed || isMoreActive ? colors.brandDeep : colors.muted} />
             </View>
           )}
         </Pressable>
@@ -85,7 +92,7 @@ export function AppTabBar({ state, navigation, insets }: BottomTabBarProps) {
     return (
       // onPressIn (not onPress) so the switch starts the moment the finger lands.
       <Pressable key={slot.route} onPressIn={() => onTabPress(slot.route)} style={styles.item} accessibilityLabel={slot.label} hitSlop={6}>
-        <View style={[styles.circle, isActive && styles.circleActive]}>
+        <View style={[styles.circle, isActive && { backgroundColor: colors.brandPale }]}>
           <Icon name={slot.icon} size={24} color={isActive ? colors.brandDeep : colors.muted} />
         </View>
       </Pressable>
@@ -117,7 +124,7 @@ export function AppTabBar({ state, navigation, insets }: BottomTabBarProps) {
           <View style={styles.centerSlot}>
             <Pressable
               onPressIn={() => onTabPress(center.route)}
-              style={({ pressed }) => [styles.centerBtn, pressed && { transform: [{ scale: 0.94 }] }]}
+              style={({ pressed }) => [styles.centerBtn, { backgroundColor: colors.brandDeep, shadowColor: colors.brandDeep }, pressed && { transform: [{ scale: 0.94 }] }]}
               accessibilityLabel={center.label}
             >
               <Icon name={center.icon} size={28} color={colors.card} />
@@ -153,7 +160,6 @@ const styles = StyleSheet.create({
   // Rounded rectangle (not a full circle); overflow hidden so Android always
   // clips the highlight to the rounded corners after a re-render.
   circle: { width: 54, height: 40, borderRadius: 14, overflow: "hidden", alignItems: "center", justifyContent: "center" },
-  circleActive: { backgroundColor: colors.brandPale },
   centerSlot: { flex: 1, alignItems: "center" },
   // Raised above the bar; the page-coloured ring fakes the notch in the reference design.
   centerBtn: {
@@ -161,12 +167,10 @@ const styles = StyleSheet.create({
     height: CENTER,
     borderRadius: CENTER / 2,
     marginTop: -CENTER * 0.72,
-    backgroundColor: colors.brandDeep,
     borderWidth: 5,
     borderColor: colors.bg,
     alignItems: "center",
     justifyContent: "center",
-    shadowColor: colors.brandDeep,
     shadowOpacity: 0.35,
     shadowRadius: 10,
     shadowOffset: { width: 0, height: 6 },

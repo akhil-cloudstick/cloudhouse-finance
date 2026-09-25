@@ -1,13 +1,17 @@
 {
   "expo": {
     "name": "CloudHouse Staff",
-    "slug": "cloudhouse",
+    "slug": "ambikagold",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/cloudhouse.png",
     "userInterfaceStyle": "light",
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "bundleIdentifier": "com.cloudhouse.app",
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
+      }
     },
     "android": {
       "package": "com.cloudhouse.app",

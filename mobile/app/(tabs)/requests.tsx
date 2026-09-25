@@ -5,7 +5,8 @@ import { ScreenContainer } from "../../src/components/ScreenContainer";
 import { ThemedText } from "../../src/components/ThemedText";
 import { BottomSheetModal, SheetScrollView } from "../../src/components/BottomSheetModal";
 import { FilterSheetButton } from "../../src/components/FilterSheetButton";
-import { colors, statusColors } from "../../src/theme/colors";
+import { statusColors } from "../../src/theme/colors";
+import { useTheme } from "../../src/theme/ThemeProvider";
 import { listLoanRequestsPage, getLoan } from "../../src/api/loans";
 import {
   printReleaseAgreementPdf,
@@ -16,8 +17,9 @@ import {
 } from "../../src/utils/loanPrint";
 import { ApiError } from "../../src/api/client";
 import { LoanRequest } from "../../src/types/loan";
-import { useRefetchOnFocus } from "../../src/hooks/useRefetchOnFocus";
+import { useRefetchOnFocus, useResetOnBlur } from "../../src/hooks/useRefetchOnFocus";
 import { ExpandableTable, type TableColumn } from "../../src/components/ExpandableTable";
+import { HEADER_FADE_BELOW } from "../../src/components/FloatingHeader";
 import { ExtensionReviewPanel } from "../../src/components/loanRequests/ExtensionReviewPanel";
 import { ReleaseReviewPanel } from "../../src/components/loanRequests/ReleaseReviewPanel";
 import { useAuth } from "../../src/auth/AuthContext";
@@ -37,7 +39,8 @@ function toneForStatus(status: string): "green" | "red" | "amber" | "info" | "mu
 }
 
 function StatusPill({ status }: { status: string }) {
-  const tone = statusColors(toneForStatus(status));
+  const { colors } = useTheme();
+  const tone = statusColors(toneForStatus(status), colors);
   return (
     <ThemedText
       variant="label"
@@ -50,7 +53,8 @@ function StatusPill({ status }: { status: string }) {
 }
 
 function TypePill({ type }: { type: "Extension" | "Release" }) {
-  const tone = statusColors(type === "Extension" ? "info" : "amber");
+  const { colors } = useTheme();
+  const tone = statusColors(type === "Extension" ? "info" : "amber", colors);
   return (
     <ThemedText
       variant="label"
@@ -117,6 +121,7 @@ function requestExtraFields(
  * components the loan detail screen's own Extension/Release cards use, so
  * there's exactly one implementation of that review logic either way. */
 export default function RequestsScreen() {
+  const { colors } = useTheme();
   const { can } = useAuth();
   const canDecide = can("Loan_Management", "can_update_loan");
   const queryClient = useQueryClient();
@@ -145,6 +150,12 @@ export default function RequestsScreen() {
   });
 
   useRefetchOnFocus(refetch);
+
+  useResetOnBlur(() => {
+    setSelectedId(null);
+    setSheetError(null);
+    setDownloading(null);
+  });
 
   const requests = data?.pages.flatMap((p) => p.items) ?? [];
   const selected = requests.find((r) => r.id === selectedId) ?? null;
@@ -187,7 +198,7 @@ export default function RequestsScreen() {
       <View style={{ flex: 1, paddingHorizontal: 16 }}>
         <ExpandableTable<LoanRequest>
           headerContent={
-            <View style={{ marginTop: 28, marginBottom: 12 }}>
+            <View style={{ marginTop: HEADER_FADE_BELOW + 4, marginBottom: 12 }}>
               <FilterSheetButton options={STATUS_FILTERS} value={statusFilter} onChange={setStatusFilter} />
               {/* Row downloads fail with no sheet open — show it here. */}
               {!selected && sheetError ? (
@@ -203,7 +214,8 @@ export default function RequestsScreen() {
           keyExtractor={(r) => String(r.id)}
           extraFields={(r) => requestExtraFields(r, downloadReleaseAgreement, downloading)}
           onViewDescription={(r) => setSelectedId(r.id)}
-          emptyText={isLoading ? "Loading…" : isError ? "Could not load requests." : "No extension or release requests yet."}
+          loading={isLoading}
+          emptyText={isError ? "Could not load requests." : "No extension or release requests yet."}
           refreshControl={<RefreshControl refreshing={isFetching && !isFetchingNextPage && !isLoading} onRefresh={refetch} />}
           onEndReached={() => {
             if (hasNextPage && !isFetchingNextPage) fetchNextPage();

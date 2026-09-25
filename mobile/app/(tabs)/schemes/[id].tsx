@@ -11,13 +11,14 @@ import { GoldButton } from "../../../src/components/GoldButton";
 import { GoldDatePicker } from "../../../src/components/GoldDatePicker";
 import { ChipSelect } from "../../../src/components/ChipSelect";
 import { BottomSheetModal, SheetScrollView } from "../../../src/components/BottomSheetModal";
-import { colors } from "../../../src/theme/colors";
-import { getScheme, toggleSchemeActive, updateScheme, type SchemeInput } from "../../../src/api/schemes";
+import { useTheme } from "../../../src/theme/ThemeProvider";
+import { getScheme, toggleSchemeActive, updateScheme, calculateSchemeEligibility, type SchemeInput } from "../../../src/api/schemes";
 import { ServiceChargeType, ServiceChargeMode } from "../../../src/types/scheme";
 import { listLoansPage } from "../../../src/api/loans";
 import { downloadSchemeStatement, previewSchemeStatementPdf } from "../../../src/utils/schemeStatement";
-import { useRefetchOnFocus } from "../../../src/hooks/useRefetchOnFocus";
+import { useRefetchOnFocus, useResetOnBlur } from "../../../src/hooks/useRefetchOnFocus";
 import { ApiError } from "../../../src/api/client";
+import { Loading } from "../../../src/components/Loading";
 
 // Mirrors new.tsx's own METHODS list (frontend/components/modals/
 // SchemeModal.tsx's fixed options, ported as a ChipSelect there too).
@@ -55,6 +56,7 @@ function today(): string {
 }
 
 export default function SchemeDetailScreen() {
+  const { colors } = useTheme();
   const { id } = useLocalSearchParams<{ id: string }>();
   const schemeId = Number(id);
   const queryClient = useQueryClient();
@@ -133,6 +135,16 @@ export default function SchemeDetailScreen() {
     onError: (err) => setEditError(err instanceof ApiError ? err.message : "Could not save."),
   });
 
+  // Eligibility calculator — this state was dropped in bf3ecdc while the
+  // card that renders it below stayed, crashing the screen on open.
+  const [goldWeight, setGoldWeight] = useState("");
+  const [goldRate, setGoldRate] = useState("");
+  const [eligible, setEligible] = useState<number | null>(null);
+  const calculate = useMutation({
+    mutationFn: () => calculateSchemeEligibility(schemeId, Number(goldWeight), Number(goldRate)),
+    onSuccess: (res) => setEligible(res.eligibleAmount),
+  });
+
   // Download Statement — a bottom sheet with the same date-range + loan
   // filters as the web Schemes page's SchemeStatementModal, downloading
   // from the same GET /schemes/:id/statement endpoint (see
@@ -185,6 +197,16 @@ export default function SchemeDetailScreen() {
   // schemeStatement.ts's previewSchemeStatementPdf doc comment). PDF only,
   // same as the web modal's own preview.
   const [previewing, setPreviewing] = useState(false);
+
+  useResetOnBlur(() => {
+    setEditOpen(false);
+    setEditError(null);
+    setStatementOpen(false);
+    setSelectedLoanIds(new Set());
+    setDownloading(null);
+    setPreviewing(false);
+  });
+
   async function handlePreview() {
     setPreviewing(true);
     try {
@@ -209,7 +231,7 @@ export default function SchemeDetailScreen() {
         refreshControl={<RefreshControl refreshing={isRefetching} onRefresh={refetch} />}
       >
         {isLoading ? (
-          <ThemedText color={colors.muted}>Loading…</ThemedText>
+          <Loading full />
         ) : isError || !data ? (
           <ThemedText color={colors.red}>Could not load this scheme.</ThemedText>
         ) : (
@@ -315,7 +337,7 @@ export default function SchemeDetailScreen() {
           ) : null}
         </View>
         {loansQuery.isLoading ? (
-          <ThemedText color={colors.muted}>Loading loans…</ThemedText>
+          <Loading />
         ) : loans.length === 0 ? (
           <ThemedText color={colors.muted}>No loans opened under this scheme in that range.</ThemedText>
         ) : (

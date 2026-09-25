@@ -4,6 +4,7 @@ import { ThemedText } from "./ThemedText";
 import { Icon } from "./Icon";
 import { BottomSheetModal } from "./BottomSheetModal";
 import { colors } from "../theme/colors";
+import { useTheme } from "../theme/ThemeProvider";
 
 // Shared "Filters" trigger + bottom sheet for a page-level status filter —
 // replaces a horizontal chip row (ScrollView or ChipSelect's own flex-wrap)
@@ -43,6 +44,7 @@ export function FilterSheetButton<T extends string>({
    * e.g. Loans' "All" or Auctions' "Auction Eligible"). */
   defaultValue?: T;
 }) {
+  const { colors } = useTheme();
   const [sheetVisible, setSheetVisible] = useState(false);
   const noFilter = defaultValue ?? options[0];
   const isFiltered = value !== noFilter;
@@ -53,7 +55,7 @@ export function FilterSheetButton<T extends string>({
         {/* Shows just the current selection (same styling either way).
             Tapping while a filter is applied resets it; with no filter
             applied it opens the options. */}
-        <Pressable onPress={() => (isFiltered ? onChange(noFilter) : setSheetVisible(true))} style={styles.trigger}>
+        <Pressable onPress={() => (isFiltered ? onChange(noFilter) : setSheetVisible(true))} style={[styles.trigger, { borderColor: colors.brandDeep, backgroundColor: colors.brandPale }]}>
           <Icon name="list" size={15} color={colors.brandDeep} />
           <ThemedText variant="label" color={colors.brandDeep} numberOfLines={1}>
             {isFiltered ? value : label}
@@ -84,7 +86,7 @@ export function FilterSheetButton<T extends string>({
                   onChange(opt);
                   setSheetVisible(false);
                 }}
-                style={[styles.chip, active && styles.chipActive]}
+                style={[styles.chip, active && { backgroundColor: colors.brandDeep, borderColor: colors.brandDeep }]}
               >
                 <ThemedText variant="small" numberOfLines={1} color={active ? colors.bg : colors.ink}>
                   {opt}
@@ -106,8 +108,6 @@ const styles = StyleSheet.create({
     gap: 6,
     height: 36,
     borderWidth: 1,
-    borderColor: colors.brandDeep,
-    backgroundColor: colors.brandPale,
     borderRadius: 18,
     paddingHorizontal: 14,
   },
@@ -122,5 +122,4 @@ const styles = StyleSheet.create({
     borderRadius: 18,
     paddingHorizontal: 14,
   },
-  chipActive: { backgroundColor: colors.brandDeep, borderColor: colors.brandDeep },
 });

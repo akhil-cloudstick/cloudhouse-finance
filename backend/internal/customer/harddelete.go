@@ -85,7 +85,7 @@ func (s *Service) HardDeleteCustomer(ctx context.Context, id uint) error {
 	}
 	var blocking []string
 	for _, l := range loans {
-		if l.Status != "Closed" && l.Status != "Auctioned" {
+		if l.Status != "Closed" && l.Status != "Rejected" && l.Status != "Auctioned" {
 			blocking = append(blocking, l.Number)
 		}
 	}

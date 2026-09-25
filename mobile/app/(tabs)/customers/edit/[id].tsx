@@ -13,6 +13,7 @@ import { DocumentField } from "../../../../src/components/DocumentField";
 import { colors } from "../../../../src/theme/colors";
 import { getCustomer, updateCustomer } from "../../../../src/api/customers";
 import { ApiError } from "../../../../src/api/client";
+import { Loading } from "../../../../src/components/Loading";
 
 // Edit counterpart to customers/new.tsx, wired to the PUT /customers/:id
 // update (src/api/customers.ts's updateCustomer). Same field set/order as
@@ -96,7 +97,7 @@ export default function EditCustomerScreen() {
     return (
       <ScreenContainer style={{ padding: 0 }}>
         <View style={{ flex: 1, paddingHorizontal: 8, paddingTop: 20 }}>
-      <ThemedText color={colors.muted}>{isError ? "Could not load this customer." : "Loading…"}</ThemedText>
+      {isError ? <ThemedText color={colors.muted}>Could not load this customer.</ThemedText> : <Loading full />}
         </View>
       </ScreenContainer>    );
   }

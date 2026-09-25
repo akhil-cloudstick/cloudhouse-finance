@@ -7,13 +7,15 @@ import { ThemedText } from "../../../src/components/ThemedText";
 import { GoldTextInput } from "../../../src/components/GoldTextInput";
 import { GoldButton } from "../../../src/components/GoldButton";
 import { FilterSheetButton } from "../../../src/components/FilterSheetButton";
-import { colors, statusColors } from "../../../src/theme/colors";
+import { statusColors } from "../../../src/theme/colors";
+import { useTheme } from "../../../src/theme/ThemeProvider";
 import { listPersonalLoansPage, PersonalLoan, Frequency } from "../../../src/api/personalLoans";
 import { useDebouncedValue } from "../../../src/hooks/useDebouncedValue";
 import { useRefetchOnFocus } from "../../../src/hooks/useRefetchOnFocus";
 import { useAuth } from "../../../src/auth/AuthContext";
 import { fmt } from "../../../src/lib/format";
 import { ExpandableTable, defaultVisibleCount, type TableColumn } from "../../../src/components/ExpandableTable";
+import { HEADER_FADE_BELOW } from "../../../src/components/FloatingHeader";
 
 const PAGE_SIZE = 10;
 
@@ -31,7 +33,8 @@ function toneForStatus(status: string): "green" | "red" | "amber" | "info" | "mu
 }
 
 function StatusPill({ status }: { status: string }) {
-  const tone = statusColors(toneForStatus(status));
+  const { colors } = useTheme();
+  const tone = statusColors(toneForStatus(status), colors);
   return (
     <ThemedText
       variant="label"
@@ -92,7 +95,7 @@ export default function PersonalLoansScreen() {
         placeholder="Loan number or customer…"
         value={search}
         onChangeText={setSearch}
-        containerStyle={{ marginTop: 28 }}
+        containerStyle={{ marginTop: HEADER_FADE_BELOW + 4 }}
         blur
       />
       {canCreate ? (
@@ -118,7 +121,8 @@ export default function PersonalLoansScreen() {
           keyExtractor={(l) => String(l.id)}
           extraFields={loanExtraFields}
           onViewDescription={(l) => router.push(`/personal-loans/${l.id}`)}
-          emptyText={isLoading ? "Loading…" : isError ? "Could not load personal loans." : "No personal loans found."}
+          loading={isLoading}
+          emptyText={isError ? "Could not load personal loans." : "No personal loans found."}
           refreshControl={<RefreshControl refreshing={isFetching && !isFetchingNextPage && !isLoading} onRefresh={refetch} />}
           onEndReached={() => {
             if (hasNextPage && !isFetchingNextPage) fetchNextPage();

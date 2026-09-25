@@ -1,19 +1,24 @@
+import { deriveBrandRampHex, DEFAULT_BRAND_COLOR } from "./brandRamp";
+
 // Ported from frontend/app/app/app.css ":root" — the CloudHouse Finance
 // admin theme. Keep these values in sync with that file; do not invent new
 // colors in screens/components, import from here instead.
 //
 // The key names below are the ROLE each colour plays, not its hue, so a
 // re-theme stays a values-only change: `brand` is the primary (buttons,
-// links, active state) and carries the magenta at the heart of the CloudHouse
-// cloud; `nav`/`nav2` are the violet dark grounds; `accent` is the orange the
+// links, active state), set per business at runtime (see below);
+// `nav`/`nav2` are the violet dark grounds; `accent` is the orange the
 // logo's gradient lands on and is deliberately rationed.
+//
+// The six brand* steps are not literals: they are derived from the platform
+// default (backend/internal/branding.DefaultBrandColor) with the same ramp
+// the web app uses, so "no branding set" looks identical on both. At runtime
+// ThemeProvider swaps in the business's own ramp — so read brand* through
+// useTheme().colors, never from this static object, or that screen ignores
+// the business's colour. The neutral tokens below never change per business
+// and may be imported directly.
 export const colors = {
-  brandDeep: "#8a0f5c",
-  brand: "#c0177a",
-  brandMid: "#d91786",
-  brandLight: "#f2a3d0",
-  brandPale: "#fce4f1",
-  brandFaint: "#fdf4f9",
+  ...deriveBrandRampHex(DEFAULT_BRAND_COLOR),
 
   nav: "#2b1a5e",
   nav2: "#45248f",
@@ -39,26 +44,32 @@ export const colors = {
   // a brand tone at a glance.
   info: "#0e7490",
   infoBg: "#e0f2f7",
-} as const;
+};
+
+// Every token as a plain string — a themed ramp replaces the brand* values at
+// runtime, so they cannot be typed as their default literals.
+export type Colors = { [K in keyof typeof colors]: string };
 
 // "brand"/"info" replace the old "gold"/"blue" tones — they name the role, so
 // they survive a re-theme. Matches the .chip.* classes in the web app and the
 // STATUS_COLOR map in frontend/common/utils/format.ts; keep all three in step.
 export type StatusTone = "green" | "red" | "amber" | "info" | "brand" | "muted";
 
-export function statusColors(tone: StatusTone): { fg: string; bg: string } {
+// Pass useTheme().colors from inside a component so the "brand" tone follows
+// the business's colour; defaults to the static (platform) set.
+export function statusColors(tone: StatusTone, c: Colors = colors): { fg: string; bg: string } {
   switch (tone) {
     case "green":
-      return { fg: colors.green, bg: colors.greenBg };
+      return { fg: c.green, bg: c.greenBg };
     case "red":
-      return { fg: colors.red, bg: colors.redBg };
+      return { fg: c.red, bg: c.redBg };
     case "amber":
-      return { fg: colors.amber, bg: colors.amberBg };
+      return { fg: c.amber, bg: c.amberBg };
     case "info":
-      return { fg: colors.info, bg: colors.infoBg };
+      return { fg: c.info, bg: c.infoBg };
     case "brand":
-      return { fg: colors.brand, bg: colors.brandPale };
+      return { fg: c.brand, bg: c.brandPale };
     default:
-      return { fg: colors.muted, bg: colors.brandFaint };
+      return { fg: c.muted, bg: c.brandFaint };
   }
 }

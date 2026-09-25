@@ -3,6 +3,8 @@ import { View, StyleSheet } from "react-native";
 import { ThemedText } from "./ThemedText";
 import { Icon } from "./Icon";
 import { colors } from "../theme/colors";
+import type { Colors } from "../theme/colors";
+import { useTheme, useThemedStyles } from "../theme/ThemeProvider";
 
 export type StepState = "done" | "current" | "upcoming";
 
@@ -16,6 +18,8 @@ export type Step = { key: string; label: string; state: StepState; caption?: str
 // the next legal move is. Steps are not pressable, because in a lifecycle
 // like this you don't jump to a stage, you advance to the next one.
 export function Stepper({ steps }: { steps: Step[] }) {
+  const { colors } = useTheme();
+  const styles = useThemedStyles(makeStyles);
   return (
     <View>
       {steps.map((step, i) => {
@@ -63,7 +67,7 @@ export function Stepper({ steps }: { steps: Step[] }) {
 
 const DOT = 24;
 
-const styles = StyleSheet.create({
+const makeStyles = (c: Colors) => StyleSheet.create({
   row: { flexDirection: "row", gap: 12 },
   rail: { alignItems: "center", width: DOT },
   dot: {
@@ -76,10 +80,10 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  dotDone: { backgroundColor: colors.brand, borderColor: colors.brand },
-  dotCurrent: { backgroundColor: colors.brandDeep, borderColor: colors.brandDeep },
+  dotDone: { backgroundColor: c.brand, borderColor: c.brand },
+  dotCurrent: { backgroundColor: c.brandDeep, borderColor: c.brandDeep },
   line: { flex: 1, width: 2, backgroundColor: colors.line, marginVertical: 2 },
-  lineDone: { backgroundColor: colors.brand },
+  lineDone: { backgroundColor: c.brand },
   body: { flex: 1, paddingBottom: 18, paddingTop: 2 },
   bodyLast: { paddingBottom: 0 },
 });

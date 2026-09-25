@@ -8,6 +8,7 @@ import { Card } from "../../../src/components/Card";
 import { ThemedText } from "../../../src/components/ThemedText";
 import { GoldButton } from "../../../src/components/GoldButton";
 import { colors, statusColors } from "../../../src/theme/colors";
+import { useTheme } from "../../../src/theme/ThemeProvider";
 import { getCustomer } from "../../../src/api/customers";
 import {
   listCustomerOrnamentsPage,
@@ -21,6 +22,7 @@ import { fmt, fmtDate } from "../../../src/lib/format";
 import { useRefetchOnFocus } from "../../../src/hooks/useRefetchOnFocus";
 import { TableRow, type TableColumn } from "../../../src/components/ExpandableTable";
 import { Icon } from "../../../src/components/Icon";
+import { Loading } from "../../../src/components/Loading";
 import Svg, { Defs, LinearGradient, Rect, Stop } from "react-native-svg";
 
 const STICKY_FADE_STOPS = Array.from({ length: 21 }, (_, i) => i / 20);
@@ -53,7 +55,8 @@ function toneForLoanStatus(status: string): "green" | "red" | "amber" | "info" |
 }
 
 function Pill({ label, tone }: { label: string; tone: "green" | "red" | "amber" | "info" | "muted" }) {
-  const t = statusColors(tone);
+  const { colors } = useTheme();
+  const t = statusColors(tone, colors);
   return (
     <ThemedText
       variant="label"
@@ -140,6 +143,7 @@ function auctionExtra(a: CustomerAuctionRow) {
 }
 
 function TableSwitcher({ index, onGo }: { index: number; onGo: (i: number) => void }) {
+  const { colors } = useTheme();
   const canPrev = index > 0;
   const canNext = index < TABS.length - 1;
   return (
@@ -154,7 +158,7 @@ function TableSwitcher({ index, onGo }: { index: number; onGo: (i: number) => vo
         <View style={styles.dots}>
           {TABS.map((t, i) => (
             <Pressable key={t} onPress={() => onGo(i)} hitSlop={6}>
-              <View style={[styles.dot, i === index && styles.dotActive]} />
+              <View style={[styles.dot, i === index && styles.dotActive, i === index && { backgroundColor: colors.brandDeep }]} />
             </Pressable>
           ))}
         </View>
@@ -169,6 +173,7 @@ function TableSwitcher({ index, onGo }: { index: number; onGo: (i: number) => vo
 }
 
 export default function CustomerDetailScreen() {
+  const { colors } = useTheme();
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
   const customerId = Number(id);
@@ -277,11 +282,7 @@ export default function CustomerDetailScreen() {
   const EXTRAS = [loanExtra, ornamentExtra, paymentExtra, pledgeExtra, auctionExtra] as ((row: any) => { label: string; value: React.ReactNode }[])[];
 
   if (isLoading) {
-    return (
-      <ScreenContainer style={{ paddingHorizontal: 16, paddingTop: 20 }}>
-        <ThemedText color={colors.muted}>Loading…</ThemedText>
-      </ScreenContainer>
-    );
+    return <Loading full />;
   }
   if (isError || !data) {
     return (
@@ -413,9 +414,17 @@ export default function CustomerDetailScreen() {
                 }}
               >
                 {items.length === 0 ? (
-                  <ThemedText color={colors.muted} style={{ padding: 16 }}>
-                    {q.isError ? "Could not load." : q.isLoading || !q.data ? "Loading…" : `No ${name.toLowerCase()} found.`}
-                  </ThemedText>
+                  q.isError ? (
+                    <ThemedText color={colors.muted} style={{ padding: 16 }}>
+                      Could not load.
+                    </ThemedText>
+                  ) : q.isLoading || !q.data ? (
+                    <Loading />
+                  ) : (
+                    <ThemedText color={colors.muted} style={{ padding: 16 }}>
+                      {`No ${name.toLowerCase()} found.`}
+                    </ThemedText>
+                  )
                 ) : (
                   items.map((item: any, idx: number) => (
                     <TableRow<any>
@@ -467,6 +476,6 @@ const styles = StyleSheet.create({
   switchBtn: { width: 36, height: 36, alignItems: "center", justifyContent: "center" },
   dots: { flexDirection: "row", gap: 6, marginTop: 4 },
   dot: { width: 6, height: 6, borderRadius: 3, backgroundColor: colors.line },
-  dotActive: { width: 16, backgroundColor: colors.brandDeep },
+  dotActive: { width: 16 },
 });
 

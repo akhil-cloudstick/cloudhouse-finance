@@ -5,6 +5,7 @@ import { GoldTextInput } from "./GoldTextInput";
 import { GoldButton } from "./GoldButton";
 import { BottomSheetModal, SheetScrollView } from "./BottomSheetModal";
 import { colors } from "../theme/colors";
+import { useTheme } from "../theme/ThemeProvider";
 import { fmt } from "../lib/format";
 import type { SplitAmounts } from "../api/investments";
 
@@ -36,6 +37,7 @@ export function PaymentSplitInput({
   value: SplitAmounts;
   onChange: (s: SplitAmounts) => void;
 }) {
+  const { colors } = useTheme();
   const [single, setSingle] = useState<keyof SplitAmounts | null>("cashAmount");
   const [text, setText] = useState<Record<keyof SplitAmounts, string>>({ cashAmount: "", upiAmount: "", bankTransferAmount: "", chequeAmount: "" });
 
@@ -58,7 +60,7 @@ export function PaymentSplitInput({
         {MODES.map((m) => {
           const on = single === m.key;
           return (
-            <Pressable key={m.key} onPress={() => setSingle(m.key)} style={[styles.chip, on && styles.chipOn]}>
+            <Pressable key={m.key} onPress={() => setSingle(m.key)} style={[styles.chip, on && { backgroundColor: colors.brandDeep, borderColor: colors.brandDeep }]}>
               <ThemedText variant="small" color={on ? colors.card : colors.ink}>
                 All {m.label}
               </ThemedText>
@@ -153,7 +155,6 @@ const styles = StyleSheet.create({
     borderColor: colors.line,
     backgroundColor: colors.card,
   },
-  chipOn: { backgroundColor: colors.brandDeep, borderColor: colors.brandDeep },
   grid: { flexDirection: "row", flexWrap: "wrap", columnGap: 8 },
   cell: { width: "48%" },
   remainRow: { flexDirection: "row", justifyContent: "space-between", marginTop: -4 },

@@ -18,36 +18,47 @@ export async function uploadFile(file: PickedFile): Promise<string> {
   const token = await getToken();
   if (token) headers.Authorization = `Bearer ${token}`;
 
-  // fetch()+FormData, not expo-file-system's uploadAsync: uploadAsync reads
-  // the file itself through the native ExponentFileSystem module, which on
-  // Android chokes on URIs it didn't create — a `file:///.../DocumentPicker/
-  // <uuid>.jpg` from expo-document-picker (used for the PDF-or-file source,
-  // see DocumentField.tsx's fromFiles) throws "java.io.IOException:
-  // Location ... isn't readable" even straight out of the picker, and a
-  // pre-copy into our own cache dir hit the exact same error, so that
-  // workaround is gone too. fetch's FormData instead hands the URI to RN's
-  // own networking bridge, which resolves file:// and content:// URIs (the
-  // camera/gallery pickers' own scheme) through Android's ContentResolver —
-  // the same path used for outgoing HTTP file uploads. Confirmed working
-  // for camera, gallery, and document-picker sources; expo-file-system is no
-  // longer imported here.
+  // XMLHttpRequest+FormData, deliberately NOT fetch(). The global fetch in
+  // this app is expo/fetch (installed by expo's winter runtime), and its
+  // FormData encoder only understands strings and Blobs — React Native's
+  // {uri, name, type} file part makes it throw "Unsupported FormDataPart
+  // implementation" on the device before any request is sent, so camera and
+  // gallery photos never reached the backend at all. XHR is still React
+  // Native's own: its networking bridge resolves file:// and content:// URIs
+  // (camera, gallery and document-picker sources) through Android's
+  // ContentResolver and streams the bytes itself.
+  //
+  // expo-file-system's uploadAsync stays avoided: on Android it throws
+  // "java.io.IOException: Location ... isn't readable" for a
+  // `file:///.../DocumentPicker/<uuid>.jpg` it didn't create, even straight
+  // out of the picker.
   const form = new FormData();
   // React Native's FormData accepts this shape (uri/name/type) even though
   // it doesn't match the DOM Blob type FormData.append expects on paper.
   form.append("file", { uri: file.uri, name: file.name || "upload.tmp", type: file.mimeType || "application/octet-stream" } as unknown as Blob);
 
-  const res = await fetch(`${API_BASE_URL}/uploads`, {
-    method: "POST",
-    // No Content-Type here — fetch sets multipart/form-data with the right
+  return new Promise<string>((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open("POST", `${API_BASE_URL}/uploads`);
+    // No Content-Type here — XHR sets multipart/form-data with the right
     // boundary itself from the FormData body; setting it manually drops the
     // boundary and the backend can't parse the multipart request at all.
-    headers,
-    body: form,
+    for (const [k, v] of Object.entries(headers)) xhr.setRequestHeader(k, v);
+    xhr.onload = () => {
+      let data: any;
+      try {
+        data = JSON.parse(xhr.responseText);
+      } catch {
+        data = undefined;
+      }
+      if (xhr.status < 200 || xhr.status >= 300 || data?.success === false) {
+        reject(new ApiError(xhr.status, (data && (data.error || data.message)) || `Upload failed (${xhr.status})`, data));
+        return;
+      }
+      resolve((data as { success: boolean; data: { url: string } }).data.url);
+    };
+    xhr.onerror = () => reject(new ApiError(0, "Couldn't reach the server — check your connection and try again.", undefined));
+    xhr.ontimeout = xhr.onerror;
+    xhr.send(form);
   });
-
-  const data = await res.json().catch(() => undefined);
-  if (!res.ok || data?.success === false) {
-    throw new ApiError(res.status, (data && (data.error || data.message)) || `Upload failed (${res.status})`, data);
-  }
-  return (data as { success: boolean; data: { url: string } }).data.url;
 }

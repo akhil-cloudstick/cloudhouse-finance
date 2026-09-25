@@ -368,7 +368,16 @@ h3,
   width: 100%;
   max-width: 100%;
   box-sizing: border-box;
-  overflow: hidden;
+  /* Clip only sideways (to stop the header row overflowing the viewport) —
+   * a plain `overflow:hidden` also clipped vertically and cut off the
+   * global-search results panel that hangs below the bar. `clip` on one
+   * axis, unlike `hidden`, leaves the other axis truly `visible`.
+   * position+z-index lift that panel above .page's content (kept under
+   * .side's 40 so the mobile drawer still covers the header). */
+  overflow-x: clip;
+  overflow-y: visible;
+  position: relative;
+  z-index: 30;
 }
 
 .top .crumb {
@@ -4519,7 +4528,8 @@ table.tbl {
   .top.search-open {
     gap: 8px;
     max-width: 100%;
-    overflow: hidden;
+    overflow-x: clip;
+    overflow-y: visible;
   }
 
   /* Side gold rate: expanded when search closed, shrinks when search open */

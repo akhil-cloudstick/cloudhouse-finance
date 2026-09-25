@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { Slot, useRouter, useSegments } from "expo-router";
 import { QueryClient, QueryClientProvider, focusManager } from "@tanstack/react-query";
 import { useFonts, Inter_400Regular, Inter_500Medium, Inter_600SemiBold } from "@expo-google-fonts/inter";
@@ -11,7 +11,7 @@ import { StatusBar } from "expo-status-bar";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 
-import { ThemeProvider } from "../src/theme/ThemeProvider";
+import { ThemeProvider, useTheme } from "../src/theme/ThemeProvider";
 import { SheetHost } from "../src/components/SheetHost";
 import { AuthProvider, useAuth } from "../src/auth/AuthContext";
 import { colors } from "../src/theme/colors";
@@ -73,9 +73,13 @@ function StatusBarBackdrop() {
 
 function RootNavigation() {
   const { employee, isLoading } = useAuth();
+  const { colors: themed } = useTheme();
   const segments = useSegments();
   const router = useRouter();
   useAndroidStatusBarTranslucency();
+  // The (auth) screens draw their brand panel up behind the status bar, so
+  // they get light icons and no ivory backdrop painted over that panel.
+  const onAuthScreen = segments[0] === "(auth)";
 
   useEffect(() => {
     if (isLoading) return;
@@ -91,7 +95,7 @@ function RootNavigation() {
     return (
       <View style={{ flex: 1, alignItems: "center", justifyContent: "center", backgroundColor: colors.bg }}>
         <StatusBar style="dark" />
-        <ActivityIndicator color={colors.brand} />
+        <ActivityIndicator color={themed.brand} />
       </View>
     );
   }
@@ -106,12 +110,12 @@ function RootNavigation() {
     // older (and in Expo Go), where the OS otherwise reserves an opaque
     // system-bar area and paints it black instead of drawing behind it.
     <View style={{ flex: 1, backgroundColor: colors.bg }}>
-      <StatusBar style="dark" />
+      <StatusBar style={onAuthScreen ? "light" : "dark"} />
       <Slot />
       {/* Bottom sheets render here — above every screen, laid out against
           the real screen bounds. See src/components/SheetHost.tsx. */}
       <SheetHost />
-      <StatusBarBackdrop />
+      {onAuthScreen ? null : <StatusBarBackdrop />}
     </View>
   );
 }
@@ -138,21 +142,35 @@ export default function RootLayout() {
       .finally(() => setAssetsLoaded(true));
   }, []);
 
-  useEffect(() => {
-    if (fontsLoaded && assetsLoaded) SplashScreen.hideAsync();
-  }, [fontsLoaded, assetsLoaded]);
-
-  if (!fontsLoaded || !assetsLoaded) return null;
-
+  // ThemeProvider mounts straight away (not after fonts) so its cached-brand
+  // read runs in parallel with font loading; SplashGate holds the splash
+  // until all three are done.
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
       <QueryClientProvider client={queryClient}>
         <ThemeProvider>
-          <AuthProvider>
-            <RootNavigation />
-          </AuthProvider>
+          <SplashGate loaded={fontsLoaded && assetsLoaded}>
+            <AuthProvider>
+              <RootNavigation />
+            </AuthProvider>
+          </SplashGate>
         </ThemeProvider>
       </QueryClientProvider>
     </GestureHandlerRootView>
   );
+}
+
+// Keeps the native splash up until fonts/assets are loaded AND the
+// business's cached brand colour has been applied, so the platform default
+// colour never flashes before the business's own. Sits under ThemeProvider
+// because RootLayout renders the provider and so can't read it itself.
+function SplashGate({ loaded, children }: { loaded: boolean; children: ReactNode }) {
+  const { ready } = useTheme();
+  const show = loaded && ready;
+
+  useEffect(() => {
+    if (show) SplashScreen.hideAsync();
+  }, [show]);
+
+  return show ? <>{children}</> : null;
 }

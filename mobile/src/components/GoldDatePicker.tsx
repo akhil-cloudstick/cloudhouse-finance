@@ -5,6 +5,8 @@ import { GoldButton } from "./GoldButton";
 import { BottomSheetModal, SheetScrollView } from "./BottomSheetModal";
 import { Icon } from "./Icon";
 import { colors } from "../theme/colors";
+import type { Colors } from "../theme/colors";
+import { useTheme, useThemedStyles } from "../theme/ThemeProvider";
 
 // A calendar drawn in the app's own gold/ivory language, NOT the stock OS
 // date dialog — same reasoning as AppTabBar/FloatingHeader being custom
@@ -65,6 +67,8 @@ export function GoldDatePicker({
   min?: string;
   max?: string;
 }) {
+  const { colors } = useTheme();
+  const styles = useThemedStyles(makeStyles);
   const [open, setOpen] = useState(false);
   const selected = parseISO(value);
   const minDate = parseISO(min);
@@ -250,7 +254,7 @@ export function GoldDatePicker({
   );
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (c: Colors) => StyleSheet.create({
   wrap: { marginBottom: 14 },
   label: { marginBottom: 6 },
   field: {
@@ -282,8 +286,8 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  daySelected: { backgroundColor: colors.brandDeep },
-  dayToday: { borderWidth: 1, borderColor: colors.brand },
+  daySelected: { backgroundColor: c.brandDeep },
+  dayToday: { borderWidth: 1, borderColor: c.brand },
   yearGrid: { flexDirection: "row", flexWrap: "wrap", gap: 8, paddingVertical: 4 },
   year: {
     paddingVertical: 10,
@@ -293,7 +297,7 @@ const styles = StyleSheet.create({
     borderColor: colors.line,
     backgroundColor: colors.card,
   },
-  yearActive: { backgroundColor: colors.brandPale, borderColor: colors.brand },
+  yearActive: { backgroundColor: c.brandPale, borderColor: c.brand },
   footer: {
     flexDirection: "row",
     alignItems: "center",

@@ -2,7 +2,10 @@ import React, { useMemo, useState, ReactElement } from "react";
 import { View, Pressable, StyleSheet, ViewStyle, FlatList, RefreshControlProps, ScrollView, ActivityIndicator } from "react-native";
 import { ThemedText } from "./ThemedText";
 import { Icon } from "./Icon";
+import { Loading } from "./Loading";
+import { useResetOnBlur } from "../hooks/useRefetchOnFocus";
 import { colors } from "../theme/colors";
+import { useTheme } from "../theme/ThemeProvider";
 import { withGutter, gutterContentStyle } from "./Gutter";
 import { useHeaderSpace } from "../theme/layout";
 
@@ -117,11 +120,12 @@ export function TableHeader<T>({
   visibleCount: number;
   cardRows?: boolean;
 }) {
+  const { colors } = useTheme();
   // Card rows label each cell inline (2×2 grid), so a separate label row is redundant.
   if (cardRows) return null;
   const visibleCols = columns.slice(0, visibleCount);
   return (
-    <View style={cardRows ? styles.headRowPlain : [styles.headRow, styles.firstRowRadius]}>
+    <View style={cardRows ? styles.headRowPlain : [styles.headRow, { backgroundColor: colors.brandPale }, styles.firstRowRadius]}>
       {visibleCols.map((c) => (
         <ThemedText
           key={c.key}
@@ -166,7 +170,13 @@ export function TableRow<T>({
    * one shared card — see ExpandableTable's own `cardRows` doc comment. */
   cardRows?: boolean;
 }) {
+  const { colors } = useTheme();
   const [expanded, setExpanded] = useState(false);
+  // Tab screens stay mounted when you switch away (see useResetOnBlur's own
+  // doc comment) — without this, a row left expanded is still expanded when
+  // you come back to the tab, instead of the list resetting to its normal
+  // collapsed state.
+  useResetOnBlur(() => setExpanded(false));
   const visibleCols = columns.slice(0, visibleCount);
   const hiddenCols = columns.slice(visibleCount);
   // Only what the collapsed row doesn't already show.
@@ -255,7 +265,7 @@ export function TableRow<T>({
             ))}
           </View>
           {onViewDescription ? (
-            <Pressable onPress={() => onViewDescription(row)} style={styles.viewBtn}>
+            <Pressable onPress={() => onViewDescription(row)} style={[styles.viewBtn, { backgroundColor: colors.brandDeep }]}>
               <ThemedText variant="label" color={colors.card}>
                 View Description
               </ThemedText>
@@ -305,6 +315,7 @@ export function ExpandableTable<T>({
   extraFields,
   onViewDescription,
   emptyText = "No records found.",
+  loading,
   refreshControl,
   style,
   onEndReached,
@@ -323,6 +334,9 @@ export function ExpandableTable<T>({
   extraFields?: (row: T) => ExtraField[];
   onViewDescription?: (row: T) => void;
   emptyText?: string;
+  /** Shows the centered buffer spinner in place of the rows/emptyText while
+   * the first page is still loading. */
+  loading?: boolean;
   refreshControl?: ReactElement<RefreshControlProps>;
   style?: ViewStyle;
   /** Infinite-scroll hook — pass useInfiniteQuery's fetchNextPage (guarded by
@@ -348,6 +362,7 @@ export function ExpandableTable<T>({
    * of TableHeader's normal fixed-sibling placement below. */
   headerContent?: React.ReactNode;
 }) {
+  const { colors } = useTheme();
   const headerSpace = useHeaderSpace();
   // Offset-paged lists can return the same row on two pages when rows are
   // added between fetches; duplicate keys crash the FlatList, so keep the first.
@@ -394,9 +409,13 @@ export function ExpandableTable<T>({
             ) : undefined
           }
           ListEmptyComponent={
-            <ThemedText color={colors.muted} style={{ padding: 16 }}>
-              {emptyText}
-            </ThemedText>
+            loading ? (
+              <Loading />
+            ) : (
+              <ThemedText color={colors.muted} style={{ padding: 16 }}>
+                {emptyText}
+              </ThemedText>
+            )
           }
           renderItem={({ item, index }) => (
             <TableRow
@@ -436,7 +455,6 @@ const styles = StyleSheet.create({
   headRow: {
     flexDirection: "row",
     alignItems: "center",
-    backgroundColor: colors.brandPale,
     paddingVertical: 9,
     paddingHorizontal: 10,
     gap: 10,
@@ -506,7 +524,6 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     gap: 6,
-    backgroundColor: colors.brandDeep,
     borderRadius: 10,
     paddingVertical: 11,
     marginTop: 2,

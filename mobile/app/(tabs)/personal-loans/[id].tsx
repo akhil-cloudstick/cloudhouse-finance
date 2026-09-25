@@ -1,18 +1,20 @@
 import React, { useState } from "react";
-import { View, RefreshControl } from "react-native";
+import { View, RefreshControl, Pressable } from "react-native";
 import { GutterScrollView } from "../../../src/components/Gutter";
 import * as FileSystem from "expo-file-system/legacy";
 import * as Sharing from "expo-sharing";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { useRefetchOnFocus } from "../../../src/hooks/useRefetchOnFocus";
+import { useRefetchOnFocus, useResetOnBlur } from "../../../src/hooks/useRefetchOnFocus";
 import { ScreenContainer } from "../../../src/components/ScreenContainer";
 import { Card } from "../../../src/components/Card";
 import { ThemedText } from "../../../src/components/ThemedText";
 import { GoldTextInput } from "../../../src/components/GoldTextInput";
 import { GoldButton } from "../../../src/components/GoldButton";
 import { ChipSelect } from "../../../src/components/ChipSelect";
+import { Icon } from "../../../src/components/Icon";
 import { colors, statusColors } from "../../../src/theme/colors";
+import { useTheme } from "../../../src/theme/ThemeProvider";
 import { useAuth } from "../../../src/auth/AuthContext";
 import { fmt } from "../../../src/lib/format";
 import { API_BASE_URL } from "../../../src/api/config";
@@ -27,7 +29,11 @@ import {
   renewPersonalLoan,
   InterestType,
   Frequency,
+  PersonalLoan,
 } from "../../../src/api/personalLoans";
+import { Loading } from "../../../src/components/Loading";
+import { Tabs } from "../../../src/components/Tabs";
+import { fmtDate } from "../../../src/lib/format";
 
 const SUB_PAGE_SIZE = 10;
 
@@ -42,7 +48,8 @@ function toneForStatus(status: string): "green" | "red" | "amber" | "info" | "mu
 }
 
 function StatusPill({ status }: { status: string }) {
-  const tone = statusColors(toneForStatus(status));
+  const { colors } = useTheme();
+  const tone = statusColors(toneForStatus(status), colors);
   return (
     <ThemedText
       variant="small"
@@ -67,6 +74,27 @@ function usePagedSubTable<T>(queryKeyPrefix: string, id: number, fetchPage: (lim
   return { items: q.data?.items ?? [], page, setPage, totalPages, isLoading: q.isLoading, isError: q.isError, refetch: q.refetch };
 }
 
+const SCHEDULE_TABS = ["Schedule", "Payment History", "Schedule History"] as const;
+
+// Walks the renewal chain both ways from the current loan (renewedFromLoanId
+// backward, renewedToLoanId forward) so "Schedule History" can show the
+// loan's opened date alongside every renewal that led to/from it. Each link
+// only ever points to one neighbour, so this is a simple linked walk, not a
+// full tree — at most one fetch per hop, cached per loan id like everything
+// else on this screen.
+function useRenewalChain(loan: PersonalLoan | undefined) {
+  const olderId = loan?.renewedFromLoanId ?? null;
+  const newerId = loan?.renewedToLoanId ?? null;
+  const older = useQuery({ queryKey: ["personalLoan", olderId], queryFn: () => getPersonalLoan(olderId!), enabled: !!olderId });
+  const newer = useQuery({ queryKey: ["personalLoan", newerId], queryFn: () => getPersonalLoan(newerId!), enabled: !!newerId });
+  return {
+    isLoading: (!!olderId && older.isLoading) || (!!newerId && newer.isLoading),
+    isError: (!!olderId && older.isError) || (!!newerId && newer.isError),
+    older: olderId ? older.data : undefined,
+    newer: newerId ? newer.data : undefined,
+  };
+}
+
 function Pager({ page, totalPages, onChange }: { page: number; totalPages: number; onChange: (p: number) => void }) {
   return (
     <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 14, paddingTop: 10 }}>
@@ -80,6 +108,7 @@ function Pager({ page, totalPages, onChange }: { page: number; totalPages: numbe
 }
 
 export default function PersonalLoanDetailScreen() {
+  const { colors } = useTheme();
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
   const loanId = Number(id);
@@ -92,6 +121,9 @@ export default function PersonalLoanDetailScreen() {
 
   const schedule = usePagedSubTable("personalLoanSchedule", loanId, (limit, offset) => getPersonalLoanSchedulePage(loanId, limit, offset));
   const payments = usePagedSubTable("personalLoanPayments", loanId, (limit, offset) => listPersonalLoanPaymentsPage(loanId, limit, offset));
+
+  const [scheduleTab, setScheduleTab] = useState<(typeof SCHEDULE_TABS)[number]>("Schedule");
+  const renewalChain = useRenewalChain(loan.data);
 
   const [error, setError] = useState<string | null>(null);
 
@@ -137,6 +169,10 @@ export default function PersonalLoanDetailScreen() {
   const [renewInterestValue, setRenewInterestValue] = useState("");
   const [renewFrequency, setRenewFrequency] = useState<Frequency>("Daily");
   const [renewTenure, setRenewTenure] = useState("");
+
+  useResetOnBlur(() => {
+    setRenewOpen(false);
+  });
 
   function openRenew() {
     if (!loan.data) return;
@@ -207,13 +243,7 @@ export default function PersonalLoanDetailScreen() {
   }
 
   if (loan.isLoading) {
-    return (
-      <ScreenContainer style={{ padding: 0 }}>
-        <View style={{ flex: 1, paddingHorizontal: 8, paddingTop: 20 }}>
-          <ThemedText color={colors.muted}>Loading…</ThemedText>
-        </View>
-      </ScreenContainer>
-    );
+    return <Loading full />;
   }
   if (loan.isError || !loan.data) {
     return (
@@ -263,26 +293,6 @@ export default function PersonalLoanDetailScreen() {
               ))}
             </View>
 
-            {l.renewedFromLoanId ? (
-              <ThemedText
-                variant="small"
-                color={colors.info}
-                style={{ marginTop: 4 }}
-                onPress={() => router.push(`/personal-loans/${l.renewedFromLoanId}`)}
-              >
-                Renewed from Loan #{l.renewedFromLoanId}
-              </ThemedText>
-            ) : null}
-            {l.renewedToLoanId ? (
-              <ThemedText
-                variant="small"
-                color={colors.info}
-                style={{ marginTop: 4 }}
-                onPress={() => router.push(`/personal-loans/${l.renewedToLoanId}`)}
-              >
-                Renewed to Loan #{l.renewedToLoanId}
-              </ThemedText>
-            ) : null}
             {l.penalCycleCount > 0 ? (
               <ThemedText variant="small" color={colors.red} style={{ marginTop: 4 }}>
                 Penal interest applied {l.penalCycleCount} time(s) — {fmt(l.totalPenalInterestCharged)} added at {l.penalInterestRate}% p.a.
@@ -388,83 +398,144 @@ export default function PersonalLoanDetailScreen() {
             </Card>
           ) : null}
 
-          {/* --- Schedule ------------------------------------------------------ */}
+          {/* --- Schedule / Payment History / Schedule History -------------- */}
           <Card>
-            <ThemedText variant="h3" style={{ marginBottom: 8 }}>
-              Schedule
-            </ThemedText>
-            {schedule.isError ? (
-              <ThemedText variant="small" color={colors.red}>
-                Could not load the schedule.
-              </ThemedText>
-            ) : schedule.isLoading ? (
-              <ThemedText variant="small" color={colors.muted}>
-                Loading…
-              </ThemedText>
-            ) : schedule.items.length === 0 ? (
-              <ThemedText variant="small" color={colors.muted}>
-                No installments.
-              </ThemedText>
-            ) : (
-              schedule.items.map((s) => (
-                <View
-                  key={s.id}
-                  style={{ flexDirection: "row", alignItems: "center", paddingVertical: 8, borderTopWidth: 1, borderTopColor: colors.line }}
-                >
-                  <ThemedText variant="small" style={{ width: 28 }}>
-                    #{s.sequenceNo}
-                  </ThemedText>
-                  <ThemedText variant="small" style={{ flex: 1 }}>
-                    {s.dueDate.slice(0, 10)}
-                  </ThemedText>
-                  <ThemedText variant="small" style={{ width: 90, textAlign: "right" }}>
-                    {fmt(s.amount)}
-                  </ThemedText>
-                  <View style={{ width: 96, alignItems: "flex-end" }}>
-                    <StatusPill status={s.status === "PartiallyPaid" ? "Partially Paid" : s.status} />
-                  </View>
-                </View>
-              ))
-            )}
-            <Pager page={schedule.page} totalPages={schedule.totalPages} onChange={schedule.setPage} />
-          </Card>
+            <Tabs options={SCHEDULE_TABS} value={scheduleTab} onChange={setScheduleTab} />
 
-          {/* --- Payment History ------------------------------------------------ */}
-          <Card>
-            <ThemedText variant="h3" style={{ marginBottom: 8 }}>
-              Payment History
-            </ThemedText>
-            {payments.isError ? (
-              <ThemedText variant="small" color={colors.red}>
-                Could not load payments.
-              </ThemedText>
-            ) : payments.isLoading ? (
-              <ThemedText variant="small" color={colors.muted}>
-                Loading…
-              </ThemedText>
-            ) : payments.items.length === 0 ? (
-              <ThemedText variant="small" color={colors.muted}>
-                No payments yet.
-              </ThemedText>
+            {scheduleTab === "Schedule" ? (
+              <>
+                {schedule.isError ? (
+                  <ThemedText variant="small" color={colors.red}>
+                    Could not load the schedule.
+                  </ThemedText>
+                ) : schedule.isLoading ? (
+                  <Loading />
+                ) : schedule.items.length === 0 ? (
+                  <ThemedText variant="small" color={colors.muted}>
+                    No installments.
+                  </ThemedText>
+                ) : (
+                  schedule.items.map((s) => (
+                    <View
+                      key={s.id}
+                      style={{ flexDirection: "row", alignItems: "center", paddingVertical: 8, borderTopWidth: 1, borderTopColor: colors.line }}
+                    >
+                      <ThemedText variant="small" style={{ width: 28 }}>
+                        #{s.sequenceNo}
+                      </ThemedText>
+                      <ThemedText variant="small" style={{ flex: 1 }}>
+                        {s.dueDate.slice(0, 10)}
+                      </ThemedText>
+                      <ThemedText variant="small" style={{ width: 90, textAlign: "right" }}>
+                        {fmt(s.amount)}
+                      </ThemedText>
+                      <View style={{ width: 96, alignItems: "flex-end" }}>
+                        <StatusPill status={s.status === "PartiallyPaid" ? "Partially Paid" : s.status} />
+                      </View>
+                    </View>
+                  ))
+                )}
+                <Pager page={schedule.page} totalPages={schedule.totalPages} onChange={schedule.setPage} />
+              </>
+            ) : scheduleTab === "Payment History" ? (
+              <>
+                {payments.isError ? (
+                  <ThemedText variant="small" color={colors.red}>
+                    Could not load payments.
+                  </ThemedText>
+                ) : payments.isLoading ? (
+                  <Loading />
+                ) : payments.items.length === 0 ? (
+                  <ThemedText variant="small" color={colors.muted}>
+                    No payments yet.
+                  </ThemedText>
+                ) : (
+                  payments.items.map((p) => (
+                    <View
+                      key={p.id}
+                      style={{ flexDirection: "row", alignItems: "center", paddingVertical: 8, borderTopWidth: 1, borderTopColor: colors.line }}
+                    >
+                      <ThemedText variant="small" style={{ flex: 1 }}>
+                        {p.paidOn.slice(0, 10)}
+                      </ThemedText>
+                      <ThemedText variant="small" style={{ width: 90, textAlign: "right" }}>
+                        {fmt(p.amount)}
+                      </ThemedText>
+                      <ThemedText variant="small" color={colors.muted} style={{ width: 90, textAlign: "right" }} numberOfLines={1}>
+                        {p.method}
+                      </ThemedText>
+                    </View>
+                  ))
+                )}
+                <Pager page={payments.page} totalPages={payments.totalPages} onChange={payments.setPage} />
+              </>
             ) : (
-              payments.items.map((p) => (
-                <View
-                  key={p.id}
-                  style={{ flexDirection: "row", alignItems: "center", paddingVertical: 8, borderTopWidth: 1, borderTopColor: colors.line }}
-                >
-                  <ThemedText variant="small" style={{ flex: 1 }}>
-                    {p.paidOn.slice(0, 10)}
+              <>
+                {renewalChain.isError ? (
+                  <ThemedText variant="small" color={colors.red}>
+                    Could not load the loan's history.
                   </ThemedText>
-                  <ThemedText variant="small" style={{ width: 90, textAlign: "right" }}>
-                    {fmt(p.amount)}
-                  </ThemedText>
-                  <ThemedText variant="small" color={colors.muted} style={{ width: 90, textAlign: "right" }} numberOfLines={1}>
-                    {p.method}
-                  </ThemedText>
-                </View>
-              ))
+                ) : renewalChain.isLoading ? (
+                  <Loading />
+                ) : (
+                  <>
+                    {renewalChain.older ? (
+                      <Pressable
+                        key={renewalChain.older.id}
+                        onPress={() => router.push(`/personal-loans/${renewalChain.older!.id}`)}
+                        style={{ flexDirection: "row", alignItems: "center", paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: colors.line }}
+                      >
+                        <View style={{ flex: 1 }}>
+                          <ThemedText variant="small">{renewalChain.older.loanNumber}</ThemedText>
+                          <ThemedText variant="small" color={colors.muted}>
+                            Renewed into this loan · Opened {fmtDate(renewalChain.older.openedDate)}
+                          </ThemedText>
+                        </View>
+                        <View style={{ transform: [{ rotate: "180deg" }] }}>
+                          <Icon name="chevronLeft" size={14} color={colors.muted} />
+                        </View>
+                      </Pressable>
+                    ) : null}
+
+                    <View style={{ flexDirection: "row", alignItems: "center", paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: colors.line }}>
+                      <View style={{ flex: 1 }}>
+                        <ThemedText variant="small" style={{ fontWeight: "600" }}>
+                          {l.loanNumber} (this loan)
+                        </ThemedText>
+                        <ThemedText variant="small" color={colors.muted}>
+                          Opened {fmtDate(l.openedDate)}
+                        </ThemedText>
+                      </View>
+                      <StatusPill status={l.status} />
+                    </View>
+
+                    {renewalChain.newer ? (
+                      <Pressable
+                        key={renewalChain.newer.id}
+                        onPress={() => router.push(`/personal-loans/${renewalChain.newer!.id}`)}
+                        style={{ flexDirection: "row", alignItems: "center", paddingVertical: 10 }}
+                      >
+                        <View style={{ flex: 1 }}>
+                          <ThemedText variant="small">{renewalChain.newer.loanNumber}</ThemedText>
+                          <ThemedText variant="small" color={colors.muted}>
+                            Renewed from this loan · Opened {fmtDate(renewalChain.newer.openedDate)}
+                          </ThemedText>
+                        </View>
+                        <View style={{ transform: [{ rotate: "180deg" }] }}>
+                          <Icon name="chevronLeft" size={14} color={colors.muted} />
+                        </View>
+                      </Pressable>
+                    ) : null}
+
+                    {!renewalChain.older && !renewalChain.newer ? (
+                      <ThemedText variant="small" color={colors.muted}>
+                        This loan has not been renewed.
+                      </ThemedText>
+                    ) : null}
+                  </>
+                )}
+              </>
             )}
-            <Pager page={payments.page} totalPages={payments.totalPages} onChange={payments.setPage} />
           </Card>
         </GutterScrollView>
       </View>

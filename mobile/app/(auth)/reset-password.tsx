@@ -1,13 +1,19 @@
 import React, { useState } from "react";
-import { View, StyleSheet, KeyboardAvoidingView, Pressable, ScrollView } from "react-native";
+import { Keyboard } from "react-native";
 import { useRouter, useLocalSearchParams } from "expo-router";
-import { colors } from "../../src/theme/colors";
-import { ThemedText } from "../../src/components/ThemedText";
-import { GoldTextInput, PasswordToggle } from "../../src/components/GoldTextInput";
-import { GoldButton } from "../../src/components/GoldButton";
 import { resetPassword } from "../../src/api/auth";
 import { getBusinessCode } from "../../src/auth/businessCode";
 import { ApiError } from "../../src/api/client";
+import {
+  AuthShell,
+  AuthField,
+  AuthButton,
+  AuthError,
+  AuthLink,
+  KeyboardAnchor,
+  OtpInput,
+  PasswordEye,
+} from "../../src/components/AuthKit";
 
 // Mirrors frontend/app/reset-password/page.tsx. The phone number is fixed to
 // whatever "Forgot password" requested a code for and is NOT re-typable here
@@ -30,6 +36,7 @@ export default function ResetPasswordScreen() {
   const [showConfirm, setShowConfirm] = useState(false);
 
   async function handleSubmit() {
+    Keyboard.dismiss();
     setError(null);
     if (!otp.trim()) {
       setError("Please enter the code sent by SMS.");
@@ -47,98 +54,58 @@ export default function ResetPasswordScreen() {
     try {
       const code = await getBusinessCode();
       await resetPassword(phone, otp.trim(), password, code);
-      router.replace("/login");
+      router.dismissTo("/login");
     } catch (err) {
       setError(err instanceof ApiError ? err.message || "This code is invalid or has expired." : "This code is invalid or has expired.");
       setSubmitting(false);
     }
   }
 
-  return (
-    <KeyboardAvoidingView style={styles.screen} behavior="padding">
-      <ScrollView
-        contentContainerStyle={styles.scrollContent}
-        keyboardShouldPersistTaps="handled"
-        showsVerticalScrollIndicator={false}
-      >
-      <View style={styles.card}>
-        <ThemedText variant="h2" color={colors.brandDeep} style={styles.title}>
-          Set a new password
-        </ThemedText>
+  if (!phone) {
+    return (
+      <AuthShell eyebrow="Reset password" title={"Request a\ncode first."} onBack={() => router.replace("/login")}>
+        <AuthError message="No phone number to reset — request a code first." />
+        <KeyboardAnchor>
+          <AuthButton title="Request a reset code" onPress={() => router.replace("/forgot-password")} />
+        </KeyboardAnchor>
+      </AuthShell>
+    );
+  }
 
-        {!phone ? (
-          <>
-            <ThemedText variant="body" color={colors.red} style={styles.msg}>
-              No phone number to reset — request a code first.
-            </ThemedText>
-            <Pressable onPress={() => router.replace("/forgot-password")} style={styles.backLink}>
-              <ThemedText variant="label" color={colors.muted}>
-                ← Request a reset code
-              </ThemedText>
-            </Pressable>
-          </>
-        ) : (
-          <>
-            <ThemedText variant="small" color={colors.muted} style={styles.subtitle}>
-              Resetting the password for {phone}
-            </ThemedText>
-            <GoldTextInput
-              label="Reset code"
-              keyboardType="number-pad"
-              value={otp}
-              onChangeText={setOtp}
-            />
-            <GoldTextInput
-              label="New password"
-              secureTextEntry={!showPassword}
-              value={password}
-              onChangeText={setPassword}
-              right={<PasswordToggle visible={showPassword} onToggle={() => setShowPassword((v) => !v)} />}
-            />
-            <GoldTextInput
-              label="Confirm password"
-              secureTextEntry={!showConfirm}
-              value={confirm}
-              onChangeText={setConfirm}
-              right={<PasswordToggle visible={showConfirm} onToggle={() => setShowConfirm((v) => !v)} />}
-            />
-            {error ? (
-              <ThemedText variant="small" color={colors.red} style={styles.error}>
-                {error}
-              </ThemedText>
-            ) : null}
-            <GoldButton
-              title="Set new password"
-              onPress={handleSubmit}
-              loading={submitting}
-              disabled={!otp || !password || !confirm}
-            />
-            <Pressable onPress={() => router.replace("/login")} style={styles.backLink}>
-              <ThemedText variant="label" color={colors.muted}>
-                ← Back to login
-              </ThemedText>
-            </Pressable>
-          </>
-        )}
-      </View>
-      </ScrollView>
-    </KeyboardAvoidingView>
+  return (
+    <AuthShell
+      compact
+      eyebrow="Verify & reset"
+      title={"Set a new\npassword."}
+      subtitle={`Enter the 6-digit code sent to ${phone}.`}
+      onBack={() => router.back()}
+    >
+      <OtpInput value={otp} onChange={setOtp} />
+      <AuthField
+        label="New password"
+        icon="lock"
+        placeholder="At least 8 characters"
+        secureTextEntry={!showPassword}
+        value={password}
+        onChangeText={setPassword}
+        right={<PasswordEye visible={showPassword} onToggle={() => setShowPassword((v) => !v)} />}
+      />
+      <AuthField
+        label="Confirm password"
+        icon="lock"
+        placeholder="Re-enter the password"
+        secureTextEntry={!showConfirm}
+        value={confirm}
+        onChangeText={setConfirm}
+        right={<PasswordEye visible={showConfirm} onToggle={() => setShowConfirm((v) => !v)} />}
+      />
+
+      <AuthError message={error} />
+
+      <KeyboardAnchor>
+        <AuthButton title="Set new password" onPress={handleSubmit} disabled={!otp || !password || !confirm} loading={submitting} />
+      </KeyboardAnchor>
+      <AuthLink label="Back to sign in" onPress={() => router.replace("/login")} />
+    </AuthShell>
   );
 }
-
-const styles = StyleSheet.create({
-  screen: { flex: 1, backgroundColor: colors.bg },
-  scrollContent: { flexGrow: 1, justifyContent: "center", padding: 24 },
-  card: {
-    backgroundColor: colors.card,
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: colors.line,
-    padding: 24,
-  },
-  title: { marginBottom: 8, textAlign: "center" },
-  subtitle: { marginBottom: 20, textAlign: "center" },
-  msg: { marginBottom: 20, textAlign: "center" },
-  error: { marginBottom: 12 },
-  backLink: { marginTop: 16, alignItems: "center" },
-});

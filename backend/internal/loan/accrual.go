@@ -471,7 +471,7 @@ func clampMoney(v float64) float64 {
 // (see enrich() above) for the same reason.
 func enrichStatusFlags(l *Loan, asOf time.Time) {
 	switch l.Status {
-	case StatusClosed, StatusAuctioned:
+	case StatusClosed, StatusRejected, StatusAuctioned:
 		return
 	}
 	if asOf.After(l.DueDate) {

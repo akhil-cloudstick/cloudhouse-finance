@@ -8,6 +8,7 @@ import { ScreenContainer } from "../../../src/components/ScreenContainer";
 import { Card } from "../../../src/components/Card";
 import { ThemedText } from "../../../src/components/ThemedText";
 import { GoldButton } from "../../../src/components/GoldButton";
+import { Loading } from "../../../src/components/Loading";
 import { colors } from "../../../src/theme/colors";
 import { listBranches } from "../../../src/api/branches";
 import { Branch } from "../../../src/types/branch";
@@ -37,9 +38,13 @@ export default function BranchesScreen() {
         contentContainerStyle={{ paddingHorizontal: 16, paddingTop: 16, paddingBottom: TAB_BAR_SPACE }}
         refreshControl={<RefreshControl refreshing={isRefetching} onRefresh={refetch} />}
         ListEmptyComponent={
-          <ThemedText color={colors.muted}>
-            {isLoading ? "Loading…" : isError ? "Could not load branches." : "No branches found."}
-          </ThemedText>
+          isLoading ? (
+            <Loading />
+          ) : (
+            <ThemedText color={colors.muted}>
+              {isError ? "Could not load branches." : "No branches found."}
+            </ThemedText>
+          )
         }
         renderItem={({ item }) => (
           <Pressable onPress={() => router.push(`/branches/${item.id}`)}>

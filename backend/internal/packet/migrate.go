@@ -31,7 +31,7 @@ func BackfillAuctionedPacketStatus(db *gorm.DB) error {
 	err := db.Model(&Packet{}).
 		Joins("JOIN loans ON loans.id = packets.loan_id").
 		Where("packets.status <> ?", StatusReleased).
-		Where("loans.status IN (?, ?, ?)", loan.StatusAuctioned, loan.StatusAuctionedBalanceDue, loan.StatusClosed).
+		Where("loans.status IN (?, ?, ?, ?)", loan.StatusAuctioned, loan.StatusAuctionedBalanceDue, loan.StatusClosed, loan.StatusRejected).
 		Find(&stuck).Error
 	if err != nil {
 		return err
