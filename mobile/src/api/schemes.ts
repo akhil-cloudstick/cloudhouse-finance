@@ -9,7 +9,7 @@ export function listSchemes(q?: string) {
 // List) into the {items, hasMore} envelope — used by the paginated mobile
 // Schemes list (10/page, one API call per page).
 export function listSchemesPage(params: { q?: string; limit: number; offset: number }) {
-  return apiRequest<{ items: Scheme[]; hasMore: boolean }>("/schemes", { params });
+  return apiRequest<{ items: Scheme[]; hasMore: boolean; total?: number }>("/schemes", { params });
 }
 
 export function getScheme(id: number) {

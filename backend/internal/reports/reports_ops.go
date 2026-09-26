@@ -115,6 +115,8 @@ func (s *Service) KYC(ctx context.Context, f Filter) ([]KYCRow, KYCTotals, error
 	if err := q.Scan(&rows).Error; err != nil {
 		return nil, KYCTotals{}, err
 	}
+	// Search before totals, so Totals describe the rows actually shown.
+	rows = MatchRows(rows, f.Q)
 	totals := KYCTotals{Count: len(rows)}
 	for _, r := range rows {
 		if r.KYCStatus == "Verified" {

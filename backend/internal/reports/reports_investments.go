@@ -31,6 +31,8 @@ func (s *Service) DepositRegister(ctx context.Context, f Filter) ([]DepositRegis
 	if err := q.Scan(&rows).Error; err != nil {
 		return nil, DepositRegisterTotals{}, err
 	}
+	// Search before totals, so Totals describe the rows actually shown.
+	rows = MatchRows(rows, f.Q)
 	totals := DepositRegisterTotals{Count: len(rows)}
 	for _, r := range rows {
 		totals.TotalPrincipal += r.PrincipalAmount
@@ -56,6 +58,8 @@ func (s *Service) InterestPayoutRegister(ctx context.Context, f Filter) ([]Inter
 	if err := q.Scan(&rows).Error; err != nil {
 		return nil, InterestPayoutRegisterTotals{}, err
 	}
+	// Search before totals, so Totals describe the rows actually shown.
+	rows = MatchRows(rows, f.Q)
 	totals := InterestPayoutRegisterTotals{Count: len(rows)}
 	for _, r := range rows {
 		totals.TotalDue += r.Amount

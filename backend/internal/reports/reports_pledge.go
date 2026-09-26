@@ -22,6 +22,8 @@ func (s *Service) BankPledge(ctx context.Context, f Filter) ([]BankPledgeRow, Ba
 	if err := q.Scan(&rows).Error; err != nil {
 		return nil, BankPledgeTotals{}, err
 	}
+	// Search before totals, so Totals describe the rows actually shown.
+	rows = MatchRows(rows, f.Q)
 	totals := BankPledgeTotals{Count: len(rows)}
 	for _, r := range rows {
 		if r.Status == "Active" {
@@ -49,6 +51,8 @@ func (s *Service) LoanExtensions(ctx context.Context, f Filter) ([]LoanExtension
 	if err := q.Scan(&rows).Error; err != nil {
 		return nil, LoanExtensionTotals{}, err
 	}
+	// Search before totals, so Totals describe the rows actually shown.
+	rows = MatchRows(rows, f.Q)
 	return rows, LoanExtensionTotals{Count: len(rows)}, nil
 }
 
@@ -71,6 +75,8 @@ func (s *Service) GoldRelease(ctx context.Context, f Filter) ([]GoldReleaseRow, 
 	if err := q.Scan(&rows).Error; err != nil {
 		return nil, GoldReleaseTotals{}, err
 	}
+	// Search before totals, so Totals describe the rows actually shown.
+	rows = MatchRows(rows, f.Q)
 	totals := GoldReleaseTotals{Count: len(rows)}
 	for _, r := range rows {
 		totals.TotalSettlement += r.SettlementAmount
@@ -95,6 +101,8 @@ func (s *Service) Auctions(ctx context.Context, f Filter) ([]AuctionRow, Auction
 	if err := q.Scan(&rows).Error; err != nil {
 		return nil, AuctionTotals{}, err
 	}
+	// Search before totals, so Totals describe the rows actually shown.
+	rows = MatchRows(rows, f.Q)
 	totals := AuctionTotals{Count: len(rows)}
 	for _, r := range rows {
 		totals.TotalSaleAmount += r.SaleAmount

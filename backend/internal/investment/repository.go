@@ -47,14 +47,28 @@ func (r *Repository) FindPlanByID(ctx context.Context, id uint) (*InvestmentPlan
 // IsActive plans (used when populating the "pick a plan" list for a new
 // investment — a retired plan must still be readable by ID for existing
 // investments, just not offered for new ones).
-func (r *Repository) FindAllPlans(ctx context.Context, activeOnly bool) ([]InvestmentPlan, error) {
+//
+// search, when non-empty, matches the plan name (case-insensitive,
+// partial). limit > 0 applies Limit/Offset and reports the TOTAL match
+// count (0 when limit <= 0, where every matching plan is returned).
+func (r *Repository) FindAllPlans(ctx context.Context, activeOnly bool, search string, limit, offset int) ([]InvestmentPlan, int64, error) {
 	var recs []InvestmentPlan
-	q := r.db.WithContext(ctx).Order("id desc")
+	q := r.db.WithContext(ctx).Model(&InvestmentPlan{}).Order("id desc")
 	if activeOnly {
 		q = q.Where("is_active = ?", true)
 	}
+	if search != "" {
+		q = q.Where("name ILIKE ?", "%"+search+"%")
+	}
+	var total int64
+	if limit > 0 {
+		if err := q.Session(&gorm.Session{}).Count(&total).Error; err != nil {
+			return nil, 0, err
+		}
+		q = q.Limit(limit).Offset(offset)
+	}
 	err := q.Find(&recs).Error
-	return recs, err
+	return recs, total, err
 }
 
 // --- Investments ---
@@ -103,7 +117,7 @@ type ListFilter struct {
 	BranchID   *uint
 	CustomerID *uint
 	Status     string
-	Query      string // matches InvestmentNumber or the customer's Name
+	Query      string // matches InvestmentNumber or the customer's Name/Code
 	Limit      int
 	Offset     int
 }
@@ -115,19 +129,21 @@ type ListFilter struct {
 func (r *Repository) FindAll(ctx context.Context, f ListFilter) ([]Investment, int64, error) {
 	var recs []Investment
 	q := r.db.WithContext(ctx).Preload("Customer").Preload("Plan").Model(&Investment{}).Order("investments.id desc")
+	// Columns are table-qualified: the Query search JOINs customers, which
+	// has its own branch_id, so an unqualified branch_id was ambiguous.
 	if f.BranchID != nil {
-		q = q.Where("branch_id = ?", *f.BranchID)
+		q = q.Where("investments.branch_id = ?", *f.BranchID)
 	}
 	if f.CustomerID != nil {
-		q = q.Where("customer_id = ?", *f.CustomerID)
+		q = q.Where("investments.customer_id = ?", *f.CustomerID)
 	}
 	if f.Status != "" {
-		q = q.Where("status = ?", f.Status)
+		q = q.Where("investments.status = ?", f.Status)
 	}
 	if f.Query != "" {
 		like := "%" + f.Query + "%"
 		q = q.Joins("JOIN customers ON customers.id = investments.customer_id").
-			Where("investments.investment_number ILIKE ? OR customers.name ILIKE ?", like, like)
+			Where("investments.investment_number ILIKE ? OR customers.name ILIKE ? OR customers.code ILIKE ?", like, like, like)
 	}
 	var total int64
 	if f.Limit > 0 {

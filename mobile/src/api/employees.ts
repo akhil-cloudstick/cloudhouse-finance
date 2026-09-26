@@ -11,8 +11,9 @@ export function listEmployees() {
 // Page-scoped variant: passing `limit` flips the backend (employee/
 // handler.go's List) into the {items, hasMore} envelope — used by the
 // paginated mobile Employees list (10/page, one API call per page).
-export function listEmployeesPage(params: { limit: number; offset: number }) {
-  return apiRequest<{ items: Employee[]; hasMore: boolean }>("/employees", { params });
+// `q` searches name / code / phone server-side.
+export function listEmployeesPage(params: { q?: string; limit: number; offset: number }) {
+  return apiRequest<{ items: Employee[]; hasMore: boolean; total?: number }>("/employees", { params });
 }
 
 export function getEmployee(id: number) {

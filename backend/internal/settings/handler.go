@@ -2,6 +2,8 @@ package settings
 
 import (
 	"net/http"
+	"strconv"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 
@@ -24,6 +26,12 @@ type setRequest struct {
 }
 
 // List returns every known category (configured or not) — GET /settings/api-keys.
+//
+// q matches the category (the provider slot, e.g. "sms", "whatsapp") or the
+// admin's own key label — never the secret value. Opt-in pagination: no
+// limit returns the bare array (the original shape); limit > 0 returns
+// {items, hasMore, total}. The set is a fixed handful of categories, so
+// both are applied in memory after Service.List.
 func (h *Handler) List(c *gin.Context) {
 	ctx := platform.RequestContext(c)
 	views, err := h.svc.List(ctx)
@@ -31,7 +39,43 @@ func (h *Handler) List(c *gin.Context) {
 		httpx.FailErr(c, err)
 		return
 	}
+	views = filterApiKeyViews(views, c.Query("q"))
+
+	limit, _ := strconv.Atoi(c.Query("limit"))
+	if limit > 0 {
+		offset, _ := strconv.Atoi(c.Query("offset"))
+		if offset < 0 {
+			offset = 0
+		}
+		total := len(views)
+		if offset > total {
+			offset = total
+		}
+		end := offset + limit
+		if end > total {
+			end = total
+		}
+		httpx.Success(c, http.StatusOK, gin.H{"items": views[offset:end], "hasMore": end < total, "total": total})
+		return
+	}
 	httpx.Success(c, http.StatusOK, views)
+}
+
+// filterApiKeyViews keeps views whose Category or Name contains q
+// (case-insensitive); an empty q keeps all.
+func filterApiKeyViews(views []ApiKeyView, q string) []ApiKeyView {
+	needle := strings.ToLower(strings.TrimSpace(q))
+	if needle == "" {
+		return views
+	}
+	kept := make([]ApiKeyView, 0, len(views))
+	for _, v := range views {
+		if strings.Contains(strings.ToLower(string(v.Category)), needle) ||
+			strings.Contains(strings.ToLower(v.Name), needle) {
+			kept = append(kept, v)
+		}
+	}
+	return kept
 }
 
 // Get returns one category — GET /settings/api-keys/:category.

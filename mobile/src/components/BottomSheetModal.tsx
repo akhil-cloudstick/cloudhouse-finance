@@ -41,12 +41,16 @@ export function BottomSheetModal({
   children,
   maxHeightPct = 88,
   dragToClose = true,
+  bare = false,
 }: {
   visible: boolean;
   onClose: () => void;
   children: React.ReactNode;
   maxHeightPct?: number;
   dragToClose?: boolean;
+  /** Prototype sheet styling (.modal-card.sheet-bottom): white card, 24
+   * radius, no side padding — the content lays out its own head/body. */
+  bare?: boolean;
 }) {
   const insets = useSafeAreaInsets();
   const translateY = useRef(new Animated.Value(0)).current;
@@ -158,24 +162,24 @@ export function BottomSheetModal({
       <View style={styles.overlay} pointerEvents={visible ? "box-none" : "none"}>
         {/* Backdrop dims in step with the sheet's position, so a drag or close
             fades it out instead of it vanishing in one frame at unmount. */}
-        <Animated.View style={[StyleSheet.absoluteFill, styles.backdrop, { opacity: backdropOpacity }]}>
+        <Animated.View style={[StyleSheet.absoluteFill, bare ? styles.backdropBare : styles.backdrop, { opacity: backdropOpacity }]}>
           <Pressable style={StyleSheet.absoluteFill} onPress={closeSheet} />
         </Animated.View>
         {(() => {
           const sheet = (
             <Animated.View
               style={[
-                styles.sheet,
+                bare ? styles.sheetBare : styles.sheet,
                 {
                   maxHeight: `${maxHeightPct}%`,
                   marginBottom: keyboardHeight,
-                  paddingBottom: keyboardHeight ? 14 : 14 + Math.max(insets.bottom, 10),
+                  paddingBottom: bare ? (keyboardHeight ? 0 : insets.bottom) : keyboardHeight ? 14 : 14 + Math.max(insets.bottom, 10),
                   transform: [{ translateY }],
                 },
               ]}
             >
-              <View style={styles.handleWrap}>
-                <View style={styles.handle} />
+              <View style={bare ? styles.handleWrapBare : styles.handleWrap}>
+                <View style={bare ? styles.handleBare : styles.handle} />
               </View>
               <SheetScrollContext.Provider value={dragToClose ? scrollCtx : null}>{children}</SheetScrollContext.Provider>
             </Animated.View>
@@ -185,7 +189,7 @@ export function BottomSheetModal({
       </View>
     );
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mounted, visible, maxHeightPct, keyboardHeight, insets.bottom, children, dragGesture, dragToClose, scrollCtx]);
+  }, [mounted, visible, maxHeightPct, keyboardHeight, insets.bottom, children, dragGesture, dragToClose, scrollCtx, bare]);
 
   useEffect(() => () => sheetStore.remove(id), [id]);
 
@@ -194,6 +198,19 @@ export function BottomSheetModal({
 
 const styles = StyleSheet.create({
   backdrop: { backgroundColor: "rgba(0,0,0,0.4)" },
+  // prototype .modal-backdrop
+  backdropBare: { backgroundColor: "rgba(10,8,20,0.48)" },
+  // prototype .modal-card.sheet-bottom
+  sheetBare: {
+    backgroundColor: colors.card,
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    overflow: "hidden",
+    boxShadow: "0px 24px 60px rgba(0,0,0,0.35)",
+  },
+  // prototype .sheet-handle-area / .sheet-handle
+  handleWrapBare: { paddingTop: 10, paddingBottom: 2, alignItems: "center" },
+  handleBare: { width: 36, height: 4, borderRadius: 99, backgroundColor: colors.line },
   overlay: {
     position: "absolute",
     top: 0,

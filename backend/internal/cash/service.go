@@ -155,8 +155,8 @@ func (s *MovementService) Record(ctx context.Context, in RecordMovementInput) (*
 // branches — Administrator only, see platform.GetBranchScope) and to
 // [fromDate, toDate] (zero value on either end means "no bound" on that
 // side — the Cash Movements table's default, unfiltered view).
-func (s *MovementService) List(ctx context.Context, branchID *uint, fromDate, toDate time.Time, category string, limit, offset int) ([]CashMovement, int64, error) {
-	return s.repo.FindAll(ctx, branchID, fromDate, toDate, category, limit, offset)
+func (s *MovementService) List(ctx context.Context, branchID *uint, fromDate, toDate time.Time, category, search string, limit, offset int) ([]CashMovement, int64, error) {
+	return s.repo.FindAll(ctx, branchID, fromDate, toDate, category, search, limit, offset)
 }
 
 // PartyTotals is the Party Transactions page's KPI row — Total In / Total
@@ -766,8 +766,8 @@ func (s *ExpenseService) Record(ctx context.Context, in RecordExpenseInput) (*Ex
 
 // List returns expenses, optionally scoped to branchID (nil = all branches
 // — Administrator only, see platform.GetBranchScope).
-func (s *ExpenseService) List(ctx context.Context, branchID *uint, limit, offset int) ([]Expense, int64, error) {
-	return s.repo.FindAll(ctx, branchID, limit, offset)
+func (s *ExpenseService) List(ctx context.Context, branchID *uint, search string, limit, offset int) ([]Expense, int64, error) {
+	return s.repo.FindAll(ctx, branchID, search, limit, offset)
 }
 
 // Get returns the expense by id, or ErrExpenseNotFound if it doesn't exist
@@ -1075,8 +1075,8 @@ func (s *GoldSaleService) Create(ctx context.Context, in RecordGoldSaleInput) (*
 // branches — Administrator only, see platform.GetBranchScope) and to
 // [fromDate, toDate] (zero value on either end means "no bound" on that
 // side).
-func (s *GoldSaleService) List(ctx context.Context, branchID *uint, fromDate, toDate time.Time, limit, offset int) ([]GoldSale, int64, error) {
-	return s.repo.FindAll(ctx, branchID, fromDate, toDate, limit, offset)
+func (s *GoldSaleService) List(ctx context.Context, branchID *uint, fromDate, toDate time.Time, search string, limit, offset int) ([]GoldSale, int64, error) {
+	return s.repo.FindAll(ctx, branchID, fromDate, toDate, search, limit, offset)
 }
 
 // Get returns the gold sale by id, or ErrGoldSaleNotFound if it doesn't

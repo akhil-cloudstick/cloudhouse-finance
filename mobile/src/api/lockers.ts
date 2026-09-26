@@ -14,6 +14,8 @@ export function listLockersPage(params: {
   q?: string;
   /** true -> only active lockers (sent as `active=true`). */
   active?: boolean;
+  /** Server-side status bucket: active | full | inactive. */
+  status?: "active" | "full" | "inactive";
   limit: number;
   offset: number;
 }) {

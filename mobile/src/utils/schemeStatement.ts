@@ -4,6 +4,11 @@ import * as Print from "expo-print";
 import { API_BASE_URL } from "../api/config";
 import { getToken } from "../auth/tokenStorage";
 
+// goldWeight/goldRate: the prototype statement sheet's optional
+// "filter by weight / rate" inputs — sent as params; ignored by a backend
+// that doesn't support them yet.
+export type StatementFilters = { from?: string; to?: string; loanIds?: number[]; goldWeight?: number; goldRate?: number };
+
 function mimeTypeFor(format: "pdf" | "xlsx"): string {
   return format === "pdf" ? "application/pdf" : "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
 }
@@ -15,12 +20,14 @@ function mimeTypeFor(format: "pdf" | "xlsx"): string {
 async function downloadToCache(
   schemeId: number,
   format: "pdf" | "xlsx",
-  filters: { from?: string; to?: string; loanIds?: number[] }
+  filters: StatementFilters
 ): Promise<string> {
   const params = new URLSearchParams({ format });
   if (filters.from) params.set("from", filters.from);
   if (filters.to) params.set("to", filters.to);
   if (filters.loanIds?.length) params.set("loanIds", filters.loanIds.join(","));
+  if (filters.goldWeight) params.set("goldWeight", String(filters.goldWeight));
+  if (filters.goldRate) params.set("goldRate", String(filters.goldRate));
 
   const token = await getToken();
   const filename = `scheme-${schemeId}-statement-${Date.now()}.${format}`;
@@ -46,7 +53,7 @@ async function downloadToCache(
 export async function downloadSchemeStatement(
   schemeId: number,
   format: "pdf" | "xlsx",
-  filters: { from?: string; to?: string; loanIds?: number[] }
+  filters: StatementFilters
 ): Promise<void> {
   const uri = await downloadToCache(schemeId, format, filters);
   if (await Sharing.isAvailableAsync()) {
@@ -66,7 +73,7 @@ export async function downloadSchemeStatement(
 // no equivalent "preview" concept for the xlsx export.
 export async function previewSchemeStatementPdf(
   schemeId: number,
-  filters: { from?: string; to?: string; loanIds?: number[] }
+  filters: StatementFilters
 ): Promise<void> {
   const uri = await downloadToCache(schemeId, "pdf", filters);
   await Print.printAsync({ uri });

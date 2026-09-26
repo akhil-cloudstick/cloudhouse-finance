@@ -1,486 +1,440 @@
 import React, { useEffect, useState } from "react";
+import { View } from "react-native";
 import { useLocalSearchParams } from "expo-router";
-import { View, RefreshControl, Pressable, StyleSheet } from "react-native";
-import { useQuery, useInfiniteQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { ScreenContainer } from "../../../src/components/ScreenContainer";
-import { Card } from "../../../src/components/Card";
-import { ThemedText } from "../../../src/components/ThemedText";
-import { GoldTextInput } from "../../../src/components/GoldTextInput";
-import { GoldButton } from "../../../src/components/GoldButton";
-import { statusColors, StatusTone } from "../../../src/theme/colors";
-import type { Colors } from "../../../src/theme/colors";
-import { useTheme, useThemedStyles } from "../../../src/theme/ThemeProvider";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
-  getCashSummary,
-  listCashMovementsPage,
-  createCashMovement,
-  listExpensesPage,
-  createExpense,
-  approveExpense,
-  rejectExpense,
-  listGoldSalesPage,
-  createGoldSale,
-} from "../../../src/api/cash";
-import { CashMovement, Expense, GoldSale } from "../../../src/types/cash";
+  AccRow,
+  AccBtn,
+  Buffering,
+  C,
+  Card,
+  CashRow,
+  ChipToggle,
+  ClosingCard,
+  DateField,
+  Field,
+  FieldRow,
+  FlatHeader,
+  Input,
+  PillTabs,
+  PrimaryButton,
+  ResultBox,
+  Screen,
+  SearchInput,
+  SectionTitle,
+  ServerFlatList,
+  Sheet,
+  SheetListItem,
+  Txt,
+} from "../../../src/components/ui";
+import { useServerList } from "../../../src/hooks/useServerList";
 import { useAuth } from "../../../src/auth/AuthContext";
 import { ApiError } from "../../../src/api/client";
-import { useRefetchOnFocus, useResetOnBlur } from "../../../src/hooks/useRefetchOnFocus";
-import { Loading } from "../../../src/components/Loading";
-import { fmt } from "../../../src/lib/format";
-import { ExpandableTable, defaultVisibleCount, type TableColumn, type ExtraField } from "../../../src/components/ExpandableTable";
+import {
+  approveExpense,
+  createCashMovement,
+  createExpense,
+  createGoldSale,
+  getCashSummary,
+  listCashMovementsPage,
+  listExpensesPage,
+  listGoldSalesPage,
+  rejectExpense,
+  setOpeningBalance,
+} from "../../../src/api/cash";
+import { dmy, inr, todayISO } from "../../../src/lib/format";
+import type { CashMovement, Expense, GoldSale } from "../../../src/types/cash";
 
-const PAGE_SIZE = 10;
+// Cash & Expenses — prototype #header-cash + #page-cash and the
+// cash-actions / add-cash / cash-out / gold-sale / record-expense /
+// opening-balance sheets. Each tab (Movements / Expenses / Gold Sales) is its
+// own server-paged list with its own server-side search (`q`).
 
-// Three dedicated actions replace the old single "Add cash movement" toggle
-// with an in/out chip — mirrors the web Cash module's "Take Cash Out" /
-// "Add Cash" / "Gold Sale Amount" action menu (frontend/modules/cash/
-// components/Cash.tsx), plus the existing "Record Expense".
+const TABS = ["movements", "expenses", "goldSales"] as const;
+type Tab = (typeof TABS)[number];
 type CashAction = "addCash" | "takeCashOut" | "goldSale" | "expense" | null;
+const MOVE_MODES = ["Cash", "UPI", "Bank Transfer", "Cheque"] as const;
+const EXPENSE_MODES = ["Cash", "UPI", "Bank Transfer"] as const;
 
-function StatusPill({ label, tone }: { label: string; tone: StatusTone }) {
-  const { colors } = useTheme();
-  const t = statusColors(tone, colors);
-  return (
-    <ThemedText
-      variant="label"
-      numberOfLines={1}
-      style={{ backgroundColor: t.bg, color: t.fg, paddingHorizontal: 7, paddingVertical: 2, borderRadius: 6, alignSelf: "flex-start", fontSize: 11.5 }}
-    >
-      {label}
-    </ThemedText>
-  );
-}
+const errMsg = (err: unknown, fallback: string) => (err instanceof ApiError ? err.message : err instanceof Error ? err.message : fallback);
 
-function fmtDate(d: string) {
-  return new Date(d).toLocaleDateString("en-IN");
-}
-
-const MOVEMENT_COLUMNS: TableColumn<CashMovement>[] = [
-  { key: "amount", label: "Amount", render: (m) => fmt(m.amount) },
-  { key: "type", label: "Type", render: (m) => <StatusPill label={`Cash ${m.type}`} tone={m.type === "in" ? "green" : "amber"} /> },
-  { key: "purpose", label: "Purpose", render: (m) => m.purpose, weight: 1.4 },
-];
-// 3 columns + 4 detail-only fields (Date/Source/Bank/Branch) = 7 total —
-// "large", but there are only 3 columns to begin with, so all 3 stay
-// visible either way (defaultVisibleCount only ever trims, never adds).
-const MOVEMENT_VISIBLE = Math.min(MOVEMENT_COLUMNS.length, defaultVisibleCount(MOVEMENT_COLUMNS.length + 4));
-function movementExtraFields(m: CashMovement) {
-  return [
-    { label: "Date", value: fmtDate(m.occurredOn) },
-    { label: "Source", value: m.source },
-    // The mode this specific row was recorded in — for a payment split
-    // across cash/UPI/bank/cheque, each mode books its own CashMovement
-    // row (sharing transactionGroupId), so this is what surfaces that
-    // distribution here rather than only a single lump amount.
-    { label: "Mode", value: m.mode || "—" },
-    { label: "Bank", value: m.bank || "—" },
-    { label: "Branch", value: m.branch?.name || "—" },
-  ];
-}
-
-// --- Two tables on one screen, tab-switched (Cash Movements / Expenses) ---
-// used to be two separate routes (/cash/movements, /cash/expenses) reached
-// via nav buttons — merged in place per the approved table redesign.
 export default function CashScreen() {
-  const { colors } = useTheme();
-  const styles = useThemedStyles(makeStyles);
-  const queryClient = useQueryClient();
+  const qc = useQueryClient();
   const { employee } = useAuth();
   const isAdmin = employee?.role === "Administrator";
-  const today = new Date().toISOString().slice(0, 10);
+  const today = todayISO();
 
-  const [tab, setTab] = useState<"movements" | "expenses" | "goldSales">("movements");
-
+  const [tab, setTab] = useState<Tab>("movements");
   // Dashboard tiles deep-link here with ?tab=…; `t` re-applies it per tap.
   const params = useLocalSearchParams<{ tab?: string; t?: string }>();
   useEffect(() => {
     if (params.tab === "movements" || params.tab === "expenses" || params.tab === "goldSales") setTab(params.tab);
   }, [params.tab, params.t]);
+
+  const [actionsOpen, setActionsOpen] = useState(false);
   const [action, setAction] = useState<CashAction>(null);
-
-  // Add Cash form state (createCashMovement type "in")
-  const [mSource, setMSource] = useState("");
-  const [mPurpose, setMPurpose] = useState("");
-  const [mAmount, setMAmount] = useState("");
-  // Expense form state
-  const [eCategory, setECategory] = useState("");
-  const [eAmount, setEAmount] = useState("");
-  const [eMode, setEMode] = useState("");
-  const [ePayee, setEPayee] = useState("");
-  // Gold Sale form state
-  const [gType, setGType] = useState("");
-  const [gSold, setGSold] = useState("");
-  const [gCost, setGCost] = useState("");
-  const [gRemarks, setGRemarks] = useState("");
-  const [formError, setFormError] = useState<string | null>(null);
-
-  function closeForm() {
-    setAction(null);
-    setFormError(null);
-  }
+  const [openingOpen, setOpeningOpen] = useState(false);
 
   const summary = useQuery({
     queryKey: ["cash-summary", employee?.branchId, today],
     queryFn: () => getCashSummary(employee!.branchId, today),
     enabled: !!employee,
   });
-  const movements = useInfiniteQuery({
-    queryKey: ["cash-movements"],
-    queryFn: ({ pageParam = 0 }) => listCashMovementsPage({ limit: PAGE_SIZE, offset: pageParam }),
-    initialPageParam: 0,
-    getNextPageParam: (lastPage, allPages) => (lastPage.hasMore ? allPages.length * PAGE_SIZE : undefined),
-    enabled: tab === "movements",
-  });
-  const expenses = useInfiniteQuery({
-    queryKey: ["expenses"],
-    queryFn: ({ pageParam = 0 }) => listExpensesPage({ limit: PAGE_SIZE, offset: pageParam }),
-    initialPageParam: 0,
-    getNextPageParam: (lastPage, allPages) => (lastPage.hasMore ? allPages.length * PAGE_SIZE : undefined),
-    enabled: tab === "expenses",
-  });
-  const goldSales = useInfiniteQuery({
-    queryKey: ["gold-sales"],
-    queryFn: ({ pageParam = 0 }) => listGoldSalesPage({ limit: PAGE_SIZE, offset: pageParam }),
-    initialPageParam: 0,
-    getNextPageParam: (lastPage, allPages) => (lastPage.hasMore ? allPages.length * PAGE_SIZE : undefined),
-    enabled: tab === "goldSales",
-  });
 
-  useRefetchOnFocus(summary.refetch, movements.refetch, expenses.refetch, goldSales.refetch);
+  const movements = useServerList<CashMovement>({ key: ["cash-movements", "list"], fetchPage: (p) => listCashMovementsPage(p), enabled: tab === "movements" });
+  const expenses = useServerList<Expense>({ key: ["expenses", "list"], fetchPage: (p) => listExpensesPage(p), enabled: tab === "expenses" });
+  const goldSales = useServerList<GoldSale>({ key: ["gold-sales", "list"], fetchPage: (p) => listGoldSalesPage(p), enabled: tab === "goldSales" });
 
-  useResetOnBlur(() => {
-    closeForm();
-  });
-
-  const movementItems = movements.data?.pages.flatMap((p) => p.items) ?? [];
-  const expenseItems = expenses.data?.pages.flatMap((p) => p.items) ?? [];
-  const goldSaleItems = goldSales.data?.pages.flatMap((p) => p.items) ?? [];
-
-  const addCash = useMutation({
-    mutationFn: () => createCashMovement({ type: "in", source: mSource, purpose: mPurpose, amount: Number(mAmount), bank: undefined }),
-    onSuccess: () => {
-      setMSource(""); setMPurpose(""); setMAmount(""); closeForm();
-      queryClient.invalidateQueries({ queryKey: ["cash-movements"] });
-      queryClient.invalidateQueries({ queryKey: ["cash-summary"] });
-    },
-    onError: (err) => setFormError(err instanceof ApiError ? err.message : "Could not save."),
-  });
-  const takeCashOut = useMutation({
-    mutationFn: () => createCashMovement({ type: "out", source: mSource, purpose: mPurpose, amount: Number(mAmount), bank: undefined }),
-    onSuccess: () => {
-      setMSource(""); setMPurpose(""); setMAmount(""); closeForm();
-      queryClient.invalidateQueries({ queryKey: ["cash-movements"] });
-      queryClient.invalidateQueries({ queryKey: ["cash-summary"] });
-    },
-    onError: (err) => setFormError(err instanceof ApiError ? err.message : "Could not save."),
-  });
-  const createExp = useMutation({
-    mutationFn: () => createExpense({ category: eCategory, amount: Number(eAmount), mode: eMode, payee: ePayee, branchId: employee!.branchId }),
-    onSuccess: () => {
-      setECategory(""); setEAmount(""); setEMode(""); setEPayee(""); closeForm();
-      queryClient.invalidateQueries({ queryKey: ["expenses"] });
-      queryClient.invalidateQueries({ queryKey: ["cash-summary"] });
-    },
-    onError: (err) => setFormError(err instanceof ApiError ? err.message : "Could not save."),
-  });
-  const createGold = useMutation({
-    mutationFn: () =>
-      createGoldSale({
-        ornamentType: gType,
-        soldAmount: Number(gSold),
-        costAmount: Number(gCost || 0),
-        branchId: employee!.branchId,
-        remarks: gRemarks.trim() || undefined,
-      }),
-    onSuccess: () => {
-      setGType(""); setGSold(""); setGCost(""); setGRemarks(""); closeForm();
-      queryClient.invalidateQueries({ queryKey: ["gold-sales"] });
-      queryClient.invalidateQueries({ queryKey: ["cash-movements"] });
-      queryClient.invalidateQueries({ queryKey: ["cash-summary"] });
-    },
-    onError: (err) => setFormError(err instanceof ApiError ? err.message : "Could not save."),
-  });
   const approve = useMutation({
     mutationFn: (id: number) => approveExpense(id, employee?.name),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["expenses"] }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["expenses"] });
+      qc.invalidateQueries({ queryKey: ["cash-summary"] });
+    },
   });
   const reject = useMutation({
     mutationFn: (id: number) => rejectExpense(id, "Rejected from mobile app", employee?.name),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["expenses"] }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["expenses"] });
+      qc.invalidateQueries({ queryKey: ["cash-summary"] });
+    },
   });
 
-  const GOLD_SALE_COLUMNS: TableColumn<GoldSale>[] = [
-    { key: "ornamentType", label: "Ornament", render: (g) => g.ornamentType, weight: 1.3 },
-    { key: "soldAmount", label: "Sold For", render: (g) => fmt(g.soldAmount) },
-    {
-      key: "profit",
-      label: "Profit/Loss",
-      render: (g) => (
-        <ThemedText variant="small" color={g.profit >= 0 ? colors.green : colors.red}>
-          {g.profit >= 0 ? "+" : "−"}{fmt(Math.abs(g.profit))}
-        </ThemedText>
-      ),
-    },
-  ];
-  const GOLD_SALE_VISIBLE = Math.min(GOLD_SALE_COLUMNS.length, defaultVisibleCount(GOLD_SALE_COLUMNS.length + 4));
-  function goldSaleExtraFields(g: GoldSale): ExtraField[] {
-    return [
-      { label: "Date", value: fmtDate(g.soldOn) },
-      { label: "Cost", value: fmt(g.costAmount) },
-      { label: "Branch", value: g.branch?.name || "—" },
-      { label: "Remarks", value: g.remarks || "—" },
-    ];
-  }
-
-  const EXPENSE_COLUMNS: TableColumn<Expense>[] = [
-    { key: "amount", label: "Amount", render: (e) => fmt(e.amount) },
-    { key: "status", label: "Status", render: (e) => <StatusPill label={e.status} tone={e.status === "Approved" ? "green" : e.status === "Rejected" ? "red" : "amber"} /> },
-    { key: "category", label: "Category", render: (e) => e.category, weight: 1.4 },
-  ];
-  const EXPENSE_VISIBLE = Math.min(EXPENSE_COLUMNS.length, defaultVisibleCount(EXPENSE_COLUMNS.length + 4));
-  function expenseExtraFields(e: Expense): ExtraField[] {
-    const fields: ExtraField[] = [
-      { label: "Date", value: fmtDate(e.occurredOn) },
-      { label: "Payee", value: e.payee },
-      { label: "Mode", value: e.mode },
-      { label: "Branch", value: e.branch?.name || "—" },
-    ];
-    // Admin approve/reject lives inline in the expand strip rather than
-    // behind a "View Description" button — there's no per-expense detail
-    // screen to navigate to, this IS the detail.
-    if (isAdmin && e.status === "Pending") {
-      fields.push({
-        label: "Action",
-        value: (
-          <View style={{ flexDirection: "row", gap: 8, marginTop: 2 }}>
-            <Pressable onPress={() => approve.mutate(e.id)} style={styles.smallApprove}>
-              <ThemedText variant="small" color={colors.card}>Approve</ThemedText>
-            </Pressable>
-            <Pressable onPress={() => reject.mutate(e.id)} style={styles.smallReject}>
-              <ThemedText variant="small" color={colors.red}>Reject</ThemedText>
-            </Pressable>
-          </View>
-        ),
-      });
-    }
-    return fields;
-  }
-
-  // Summary, tab switch, actions and the open form scroll away WITH the table
-  // (ExpandableTable's headerContent) — as a fixed block above it they left
-  // the table almost no room and the page couldn't scroll.
-  const pageHeader = (
-    <View>
-        <Card>
-          <ThemedText variant="h3" style={{ marginBottom: 8 }}>
-            Today's cash summary
-          </ThemedText>
-          {summary.isLoading ? (
-            <Loading />
-          ) : summary.isError || !summary.data ? (
-            <ThemedText color={colors.red}>Could not load today's summary.</ThemedText>
-          ) : (
-            <>
-              <ThemedText variant="body">Opening cash: {fmt(summary.data.openingCash)}</ThemedText>
-              <ThemedText variant="body" color={colors.green}>
-                Cash in: {fmt(summary.data.collections)}
-              </ThemedText>
-              <ThemedText variant="body">Cash out: {fmt(summary.data.disbursements)}</ThemedText>
-              <ThemedText variant="body">Expenses (cash): {fmt(summary.data.cashExpenses)}</ThemedText>
-              <ThemedText variant="h3" color={colors.brandDeep} style={{ marginTop: 8 }}>
-                Expected cash in hand: {fmt(summary.data.expectedCash)}
-              </ThemedText>
-            </>
-          )}
-        </Card>
-
-        {/* --- Table tab switch: this screen holds three tables --- */}
-        <View style={styles.tableTabs}>
-          <Pressable
-            onPress={() => { setTab("movements"); closeForm(); }}
-            style={[styles.tableTab, tab === "movements" && styles.tableTabOn]}
-          >
-            <ThemedText variant="small" numberOfLines={1} color={tab === "movements" ? colors.card : colors.muted}>
-              Movements
-            </ThemedText>
-          </Pressable>
-          <Pressable
-            onPress={() => { setTab("expenses"); closeForm(); }}
-            style={[styles.tableTab, tab === "expenses" && styles.tableTabOn]}
-          >
-            <ThemedText variant="small" numberOfLines={1} color={tab === "expenses" ? colors.card : colors.muted}>
-              Expenses
-            </ThemedText>
-          </Pressable>
-          <Pressable
-            onPress={() => { setTab("goldSales"); closeForm(); }}
-            style={[styles.tableTab, tab === "goldSales" && styles.tableTabOn]}
-          >
-            <ThemedText variant="small" numberOfLines={1} color={tab === "goldSales" ? colors.card : colors.muted}>
-              Gold Sales
-            </ThemedText>
-          </Pressable>
-        </View>
-
-        {/* --- Actions: a dedicated button per action, matching the web's
-         * "Take Cash Out" / "Add Cash" / "Gold Sale Amount" / "Record
-         * Expense" set — rather than one generic form with an in/out toggle. */}
-        <View style={styles.actionRow}>
-          <Pressable style={styles.actionBtn} onPress={() => setAction((a) => (a === "addCash" ? null : "addCash"))}>
-            <ThemedText variant="small" color={colors.brandDeep}>Add Cash</ThemedText>
-          </Pressable>
-          <Pressable style={styles.actionBtn} onPress={() => setAction((a) => (a === "takeCashOut" ? null : "takeCashOut"))}>
-            <ThemedText variant="small" color={colors.brandDeep}>Take Cash Out</ThemedText>
-          </Pressable>
-          <Pressable style={styles.actionBtn} onPress={() => setAction((a) => (a === "goldSale" ? null : "goldSale"))}>
-            <ThemedText variant="small" color={colors.brandDeep}>Gold Sale</ThemedText>
-          </Pressable>
-          <Pressable style={styles.actionBtn} onPress={() => setAction((a) => (a === "expense" ? null : "expense"))}>
-            <ThemedText variant="small" color={colors.brandDeep}>Record Expense</ThemedText>
-          </Pressable>
-        </View>
-
-        {action === "addCash" || action === "takeCashOut" ? (
-          <Card>
-            <ThemedText variant="h3" style={{ marginBottom: 8 }}>
-              {action === "addCash" ? "Add Cash" : "Take Cash Out"}
-            </ThemedText>
-            <GoldTextInput label="Source / Purpose" value={mSource} onChangeText={setMSource} />
-            <GoldTextInput label="Purpose" value={mPurpose} onChangeText={setMPurpose} />
-            <GoldTextInput label="Amount" keyboardType="numeric" value={mAmount} onChangeText={setMAmount} />
-            {formError ? <ThemedText variant="small" color={colors.red} style={{ marginBottom: 8 }}>{formError}</ThemedText> : null}
-            <GoldButton
-              title="Save"
-              onPress={() => (action === "addCash" ? addCash.mutate() : takeCashOut.mutate())}
-              loading={action === "addCash" ? addCash.isPending : takeCashOut.isPending}
-              disabled={!mSource || !mPurpose || !mAmount}
-            />
-          </Card>
-        ) : null}
-
-        {action === "expense" ? (
-          <Card>
-            <ThemedText variant="h3" style={{ marginBottom: 8 }}>Record Expense</ThemedText>
-            <GoldTextInput label="Category" value={eCategory} onChangeText={setECategory} />
-            <GoldTextInput label="Amount" keyboardType="numeric" value={eAmount} onChangeText={setEAmount} />
-            <GoldTextInput label="Mode (Cash/UPI/...)" value={eMode} onChangeText={setEMode} />
-            <GoldTextInput label="Payee" value={ePayee} onChangeText={setEPayee} />
-            {formError ? <ThemedText variant="small" color={colors.red} style={{ marginBottom: 8 }}>{formError}</ThemedText> : null}
-            <GoldButton title="Save" onPress={() => createExp.mutate()} loading={createExp.isPending} disabled={!eCategory || !eAmount || !eMode || !ePayee} />
-          </Card>
-        ) : null}
-
-        {action === "goldSale" ? (
-          <Card>
-            <ThemedText variant="h3" style={{ marginBottom: 8 }}>Gold Sale Amount</ThemedText>
-            <GoldTextInput label="Ornament Type" value={gType} onChangeText={setGType} placeholder="e.g. Chain, Bangle, Studs" />
-            <GoldTextInput label="Sold For (₹)" keyboardType="numeric" value={gSold} onChangeText={setGSold} />
-            <GoldTextInput label="Cost to Acquire (₹)" keyboardType="numeric" value={gCost} onChangeText={setGCost} />
-            <GoldTextInput label="Remarks (optional)" value={gRemarks} onChangeText={setGRemarks} />
-            {formError ? <ThemedText variant="small" color={colors.red} style={{ marginBottom: 8 }}>{formError}</ThemedText> : null}
-            <GoldButton title="Save" onPress={() => createGold.mutate()} loading={createGold.isPending} disabled={!gType || !gSold} />
-          </Card>
-        ) : null}
+  const s = summary.data;
+  const header = (
+    <View style={{ paddingTop: 14 }}>
+      <Card style={{ marginBottom: 12 }}>
+        <SectionTitle flush style={{ marginBottom: 6 }}>
+          Today&apos;s cash summary
+        </SectionTitle>
+        {summary.isLoading ? (
+          <Buffering block />
+        ) : summary.isError || !s ? (
+          <Txt style={{ color: C.red, fontSize: 12.5, paddingVertical: 8 }}>Could not load today&apos;s summary.</Txt>
+        ) : (
+          <>
+            <CashRow first k="Opening cash" v={inr(s.openingCash)} />
+            <CashRow k="Cash in" v={`+${inr(s.collections)}`} color={C.green} />
+            <CashRow k="Cash out" v={`−${inr(s.disbursements)}`} />
+            <CashRow k="Expenses (cash)" v={`−${inr(s.cashExpenses)}`} />
+          </>
+        )}
+        <AccBtn label="Set Opening Balance" onPress={() => setOpeningOpen(true)} style={{ marginTop: 10, flex: 0 }} />
+      </Card>
+      <ClosingCard k="Closing Balance (Expected Cash in Hand)" v={s ? inr(s.expectedCash) : "—"} formula="Opening + Cash in − Cash out − Expenses" />
+      <View style={{ paddingHorizontal: 18, paddingBottom: 12 }}>
+        <PrimaryButton label="Cash Actions" onPress={() => setActionsOpen(true)} />
+      </View>
+      <PillTabs tabs={TABS} value={tab} onChange={setTab} labels={{ movements: "Movements", expenses: "Expenses", goldSales: "Gold Sales" }} />
+      <View style={{ paddingTop: 12 }}>
+        {tab === "movements" ? (
+          <SearchInput value={movements.search} onChangeText={movements.setSearch} placeholder="Search by purpose or source" style={{ paddingBottom: 8 }} />
+        ) : tab === "expenses" ? (
+          <SearchInput value={expenses.search} onChangeText={expenses.setSearch} placeholder="Search by category or payee" style={{ paddingBottom: 8 }} />
+        ) : (
+          <SearchInput value={goldSales.search} onChangeText={goldSales.setSearch} placeholder="Search by ornament type or remarks" style={{ paddingBottom: 8 }} />
+        )}
+      </View>
     </View>
   );
 
+  const refreshAll = (refetch: () => void) => () => {
+    summary.refetch();
+    refetch();
+  };
+
   return (
-    <ScreenContainer style={{ padding: 0 }}>
+    <Screen header={<FlatHeader title="Cash & Expenses" subtitle="Movements, expenses & gold sales" back />}>
       {tab === "movements" ? (
-        <View style={{ flex: 1, paddingHorizontal: 16, paddingTop: 20 }}>
-          <ExpandableTable<CashMovement>
-            columns={MOVEMENT_COLUMNS}
-            visibleCount={MOVEMENT_VISIBLE}
-            data={movementItems}
-            keyExtractor={(m) => String(m.id)}
-            extraFields={movementExtraFields}
-            loading={movements.isLoading}
-            emptyText={movements.isError ? "Could not load cash movements." : "No movements yet."}
-            refreshControl={
-              <RefreshControl
-                refreshing={summary.isRefetching || (movements.isRefetching && !movements.isFetchingNextPage)}
-                onRefresh={() => { summary.refetch(); movements.refetch(); }}
-              />
-            }
-            onEndReached={() => {
-              if (movements.hasNextPage && !movements.isFetchingNextPage) movements.fetchNextPage();
-            }}
-            isFetchingNextPage={movements.isFetchingNextPage}
-            headerContent={pageHeader}
-          />
-        </View>
+        <ServerFlatList
+          list={{ ...movements, refetch: refreshAll(movements.refetch) }}
+          items={movements.items}
+          header={header}
+          keyOf={(m) => `m${m.id}`}
+          emptyText={movements.search ? "No movements match your search." : "No movements yet."}
+          renderItem={(m, i) => (
+            <AccRow
+              defaultOpen={i === 0}
+              name={inr(m.amount)}
+              sub={m.purpose || m.source}
+              status={m.type === "in" ? "Cash in" : "Cash out"}
+              statusTone={m.type === "in" ? "active" : "due"}
+              details={[
+                { k: "Date", v: dmy(m.occurredOn) },
+                { k: "Source", v: m.source || "—" },
+                { k: "Mode", v: m.mode || "—" },
+                m.bank || m.bankRef?.name ? { k: "Bank", v: m.bank || m.bankRef?.name || "—" } : { k: "Branch", v: m.branch?.name || "—" },
+                ...(m.partyCustomer?.name ? [{ k: "Customer", v: m.partyCustomer.name }] : []),
+                ...(m.status ? [{ k: "Status", v: m.status }] : []),
+              ]}
+            />
+          )}
+        />
       ) : tab === "expenses" ? (
-        <View style={{ flex: 1, paddingHorizontal: 16, paddingTop: 20 }}>
-          <ExpandableTable<Expense>
-            columns={EXPENSE_COLUMNS}
-            visibleCount={EXPENSE_VISIBLE}
-            data={expenseItems}
-            keyExtractor={(e) => String(e.id)}
-            extraFields={expenseExtraFields}
-            loading={expenses.isLoading}
-            emptyText={expenses.isError ? "Could not load expenses." : "No expenses yet."}
-            refreshControl={
-              <RefreshControl
-                refreshing={summary.isRefetching || (expenses.isRefetching && !expenses.isFetchingNextPage)}
-                onRefresh={() => { summary.refetch(); expenses.refetch(); }}
-              />
-            }
-            onEndReached={() => {
-              if (expenses.hasNextPage && !expenses.isFetchingNextPage) expenses.fetchNextPage();
-            }}
-            isFetchingNextPage={expenses.isFetchingNextPage}
-            headerContent={pageHeader}
-          />
-        </View>
+        <ServerFlatList
+          list={{ ...expenses, refetch: refreshAll(expenses.refetch) }}
+          items={expenses.items}
+          header={header}
+          keyOf={(e) => `e${e.id}`}
+          emptyText={expenses.search ? "No expenses match your search." : "No expenses yet."}
+          renderItem={(e, i) => (
+            <AccRow
+              defaultOpen={i === 0}
+              name={inr(e.amount)}
+              sub={e.category}
+              status={e.status}
+              details={[
+                { k: "Date", v: dmy(e.occurredOn) },
+                { k: "Payee", v: e.payee || "—" },
+                { k: "Mode", v: e.mode || "—" },
+                { k: "Branch", v: e.branch?.name || "—" },
+                ...(e.remarks ? [{ k: "Remarks", v: e.remarks }] : []),
+                ...(e.approvedBy ? [{ k: e.status === "Rejected" ? "Rejected by" : "Approved by", v: e.approvedBy }] : []),
+              ]}
+              actions={
+                isAdmin && e.status === "Pending"
+                  ? [
+                      { label: "Approve", onPress: () => approve.mutate(e.id), disabled: approve.isPending },
+                      { label: "Reject", danger: true, onPress: () => reject.mutate(e.id), disabled: reject.isPending },
+                    ]
+                  : undefined
+              }
+            />
+          )}
+        />
       ) : (
-        <View style={{ flex: 1, paddingHorizontal: 16, paddingTop: 20 }}>
-          <ExpandableTable<GoldSale>
-            columns={GOLD_SALE_COLUMNS}
-            visibleCount={GOLD_SALE_VISIBLE}
-            data={goldSaleItems}
-            keyExtractor={(g) => String(g.id)}
-            extraFields={goldSaleExtraFields}
-            loading={goldSales.isLoading}
-            emptyText={goldSales.isError ? "Could not load gold sales." : 'No gold sales recorded yet. Use "Gold Sale".'}
-            refreshControl={
-              <RefreshControl
-                refreshing={summary.isRefetching || (goldSales.isRefetching && !goldSales.isFetchingNextPage)}
-                onRefresh={() => { summary.refetch(); goldSales.refetch(); }}
-              />
-            }
-            onEndReached={() => {
-              if (goldSales.hasNextPage && !goldSales.isFetchingNextPage) goldSales.fetchNextPage();
-            }}
-            isFetchingNextPage={goldSales.isFetchingNextPage}
-            headerContent={pageHeader}
-          />
-        </View>
+        <ServerFlatList
+          list={{ ...goldSales, refetch: refreshAll(goldSales.refetch) }}
+          items={goldSales.items}
+          header={header}
+          keyOf={(g) => `g${g.id}`}
+          emptyText={goldSales.search ? "No gold sales match your search." : 'No gold sales recorded yet. Use "Cash Actions" → Gold Sale.'}
+          renderItem={(g, i) => (
+            <AccRow
+              defaultOpen={i === 0}
+              name={g.ornamentType}
+              sub={`Sold ${inr(g.soldAmount)}`}
+              status={`${g.profit >= 0 ? "+" : "−"}${inr(Math.abs(g.profit))}`}
+              statusTone={g.profit >= 0 ? "active" : "overdue"}
+              details={[
+                { k: "Cost amount", v: inr(g.costAmount) },
+                { k: "Remarks", v: g.remarks || "—" },
+                { k: "Date", v: dmy(g.soldOn) },
+                { k: "Branch", v: g.branch?.name || "—" },
+              ]}
+            />
+          )}
+        />
       )}
-    </ScreenContainer>
+
+      <Sheet visible={actionsOpen} onClose={() => setActionsOpen(false)} title="Cash Actions" maxHeightPct={60}>
+        {(
+          [
+            { key: "addCash", icon: "coin", title: "Add Cash", sub: "Record cash coming into the branch" },
+            { key: "takeCashOut", icon: "card", title: "Take Cash Out", sub: "Record cash leaving the branch" },
+            { key: "goldSale", icon: "coin", title: "Gold Sale", sub: "Record an auctioned/sold ornament" },
+            { key: "expense", icon: "doc", title: "Record Expense", sub: "Log a branch expense" },
+          ] as const
+        ).map((a, i) => (
+          <SheetListItem
+            key={a.key}
+            first={i === 0}
+            icon={a.icon}
+            title={a.title}
+            sub={a.sub}
+            onPress={() => {
+              setActionsOpen(false);
+              setAction(a.key);
+            }}
+          />
+        ))}
+      </Sheet>
+
+      <MovementSheet type="in" visible={action === "addCash"} onClose={() => setAction(null)} branchId={employee?.branchId} />
+      <MovementSheet type="out" visible={action === "takeCashOut"} onClose={() => setAction(null)} branchId={employee?.branchId} />
+      <GoldSaleSheet visible={action === "goldSale"} onClose={() => setAction(null)} branchId={employee?.branchId} />
+      <ExpenseSheet visible={action === "expense"} onClose={() => setAction(null)} branchId={employee?.branchId} />
+      <OpeningBalanceSheet visible={openingOpen} onClose={() => setOpeningOpen(false)} branchId={employee?.branchId} current={s?.openingCash} />
+    </Screen>
   );
 }
 
-const makeStyles = (c: Colors) => StyleSheet.create({
-  tableTabs: { flexDirection: "row", gap: 8, marginTop: 4, marginBottom: 12 },
-  tableTab: {
-    flex: 1,
-    alignItems: "center",
-    paddingVertical: 9,
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: c.line,
-    backgroundColor: c.card,
-  },
-  tableTabOn: { backgroundColor: c.brandDeep, borderColor: c.brandDeep },
-  actionRow: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginBottom: 12 },
-  actionBtn: {
-    borderWidth: 1,
-    borderColor: c.brandDeep,
-    backgroundColor: c.brandPale,
-    borderRadius: 18,
-    paddingHorizontal: 14,
-    paddingVertical: 8,
-  },
-  smallApprove: { backgroundColor: c.green, borderRadius: 7, paddingHorizontal: 10, paddingVertical: 6 },
-  smallReject: { borderWidth: 1, borderColor: c.red, borderRadius: 7, paddingHorizontal: 10, paddingVertical: 6 },
-});
+type FormProps = { visible: boolean; onClose: () => void; branchId?: number };
+
+// prototype #add-cash-modal / #cash-out-modal
+function MovementSheet({ type, visible, onClose, branchId }: FormProps & { type: "in" | "out" }) {
+  const qc = useQueryClient();
+  const [source, setSource] = useState("");
+  const [purpose, setPurpose] = useState("");
+  const [amount, setAmount] = useState("");
+  const [mode, setMode] = useState<(typeof MOVE_MODES)[number]>("Cash");
+  const [error, setError] = useState<string | null>(null);
+  useEffect(() => {
+    if (visible) {
+      setSource("");
+      setPurpose("");
+      setAmount("");
+      setMode("Cash");
+      setError(null);
+    }
+  }, [visible]);
+  const m = useMutation({
+    mutationFn: () => createCashMovement({ type, source: source.trim(), purpose: purpose.trim(), amount: Number(amount), mode, bank: undefined, branchId }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["cash-movements"] });
+      qc.invalidateQueries({ queryKey: ["cash-summary"] });
+      onClose();
+    },
+    onError: (err) => setError(errMsg(err, "Could not save.")),
+  });
+  const title = type === "in" ? "Add Cash" : "Take Cash Out";
+  return (
+    <Sheet visible={visible} onClose={onClose} title={title} maxHeightPct={65}>
+      <Field label={type === "in" ? "Source" : "Source / Destination"}>
+        <Input placeholder={type === "in" ? "e.g. Loan repayment, Bank withdrawal" : "e.g. Bank deposit, Vendor payment"} value={source} onChangeText={setSource} />
+      </Field>
+      <Field label="Purpose">
+        <Input placeholder="Short description" value={purpose} onChangeText={setPurpose} />
+      </Field>
+      <Field label="Amount">
+        <Input keyboardType="decimal-pad" placeholder="₹" value={amount} onChangeText={setAmount} />
+      </Field>
+      <Field label="Mode">
+        <ChipToggle options={MOVE_MODES} value={mode} onChange={setMode} wrap />
+      </Field>
+      {error ? <Txt style={{ fontSize: 12, color: C.red, marginBottom: 10 }}>{error}</Txt> : null}
+      <PrimaryButton label={title} onPress={() => m.mutate()} loading={m.isPending} disabled={!source.trim() || !purpose.trim() || !(Number(amount) > 0)} />
+    </Sheet>
+  );
+}
+
+// prototype #gold-sale-modal — live profit/loss preview.
+function GoldSaleSheet({ visible, onClose, branchId }: FormProps) {
+  const qc = useQueryClient();
+  const [type, setType] = useState("");
+  const [sold, setSold] = useState("");
+  const [cost, setCost] = useState("");
+  const [remarks, setRemarks] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  useEffect(() => {
+    if (visible) {
+      setType("");
+      setSold("");
+      setCost("");
+      setRemarks("");
+      setError(null);
+    }
+  }, [visible]);
+  const profit = (Number(sold) || 0) - (Number(cost) || 0);
+  const m = useMutation({
+    mutationFn: () =>
+      createGoldSale({ ornamentType: type.trim(), soldAmount: Number(sold), costAmount: Number(cost || 0), branchId: branchId!, remarks: remarks.trim() || undefined }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["gold-sales"] });
+      qc.invalidateQueries({ queryKey: ["cash-movements"] });
+      qc.invalidateQueries({ queryKey: ["cash-summary"] });
+      onClose();
+    },
+    onError: (err) => setError(errMsg(err, "Could not save.")),
+  });
+  return (
+    <Sheet visible={visible} onClose={onClose} title="Gold Sale" maxHeightPct={75}>
+      <Field label="Ornament type">
+        <Input placeholder="e.g. Gold Chain" value={type} onChangeText={setType} />
+      </Field>
+      <FieldRow>
+        <Field label="Sold amount">
+          <Input keyboardType="decimal-pad" placeholder="₹" value={sold} onChangeText={setSold} />
+        </Field>
+        <Field label="Cost amount">
+          <Input keyboardType="decimal-pad" placeholder="₹" value={cost} onChangeText={setCost} />
+        </Field>
+      </FieldRow>
+      <ResultBox k="Profit / Loss" v={`${profit >= 0 ? "+" : "−"}${inr(Math.abs(profit))}`} tone={profit >= 0 ? "green" : "red"} />
+      <Field label="Remarks">
+        <Input placeholder="e.g. Auctioned — LN-2199" value={remarks} onChangeText={setRemarks} />
+      </Field>
+      {error ? <Txt style={{ fontSize: 12, color: C.red, marginBottom: 10 }}>{error}</Txt> : null}
+      <PrimaryButton label="Record Gold Sale" onPress={() => m.mutate()} loading={m.isPending} disabled={!type.trim() || !(Number(sold) > 0) || !branchId} />
+    </Sheet>
+  );
+}
+
+// prototype #record-expense-modal
+function ExpenseSheet({ visible, onClose, branchId }: FormProps) {
+  const qc = useQueryClient();
+  const [category, setCategory] = useState("");
+  const [amount, setAmount] = useState("");
+  const [mode, setMode] = useState<(typeof EXPENSE_MODES)[number]>("Cash");
+  const [payee, setPayee] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  useEffect(() => {
+    if (visible) {
+      setCategory("");
+      setAmount("");
+      setMode("Cash");
+      setPayee("");
+      setError(null);
+    }
+  }, [visible]);
+  const m = useMutation({
+    mutationFn: () => createExpense({ category: category.trim(), amount: Number(amount), mode, payee: payee.trim(), branchId: branchId! }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["expenses"] });
+      qc.invalidateQueries({ queryKey: ["cash-summary"] });
+      onClose();
+    },
+    onError: (err) => setError(errMsg(err, "Could not save.")),
+  });
+  return (
+    <Sheet visible={visible} onClose={onClose} title="Record Expense" maxHeightPct={65}>
+      <Field label="Category">
+        <Input placeholder="e.g. Stationery, Electricity, Rent" value={category} onChangeText={setCategory} />
+      </Field>
+      <Field label="Amount">
+        <Input keyboardType="decimal-pad" placeholder="₹" value={amount} onChangeText={setAmount} />
+      </Field>
+      <Field label="Mode">
+        <ChipToggle options={EXPENSE_MODES} value={mode} onChange={setMode} />
+      </Field>
+      <Field label="Payee">
+        <Input placeholder="Who was paid" value={payee} onChangeText={setPayee} />
+      </Field>
+      {error ? <Txt style={{ fontSize: 12, color: C.red, marginBottom: 10 }}>{error}</Txt> : null}
+      <PrimaryButton label="Record Expense" onPress={() => m.mutate()} loading={m.isPending} disabled={!category.trim() || !(Number(amount) > 0) || !payee.trim() || !branchId} />
+    </Sheet>
+  );
+}
+
+// prototype #opening-balance-modal
+function OpeningBalanceSheet({ visible, onClose, branchId, current }: FormProps & { current?: number }) {
+  const qc = useQueryClient();
+  const [date, setDate] = useState(todayISO());
+  const [amount, setAmount] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  useEffect(() => {
+    if (visible) {
+      setDate(todayISO());
+      setAmount(current != null ? String(current) : "");
+      setError(null);
+    }
+  }, [visible, current]);
+  const m = useMutation({
+    mutationFn: () => setOpeningBalance(branchId!, Number(amount), date),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["cash-summary"] });
+      onClose();
+    },
+    onError: (err) => setError(errMsg(err, "Could not save the opening balance.")),
+  });
+  return (
+    <Sheet visible={visible} onClose={onClose} title="Set Opening Balance" maxHeightPct={55}>
+      <DateField label="Date" value={date} onChange={setDate} max={todayISO()} />
+      <Field label="Opening balance amount">
+        <Input keyboardType="decimal-pad" placeholder="₹" value={amount} onChangeText={setAmount} />
+      </Field>
+      {error ? <Txt style={{ fontSize: 12, color: C.red, marginBottom: 10 }}>{error}</Txt> : null}
+      <PrimaryButton label="Save Opening Balance" onPress={() => m.mutate()} loading={m.isPending} disabled={amount.trim() === "" || isNaN(Number(amount)) || !branchId} />
+    </Sheet>
+  );
+}

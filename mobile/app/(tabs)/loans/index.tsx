@@ -1,159 +1,204 @@
 import React, { useEffect, useState } from "react";
-import { RefreshControl, View } from "react-native";
-import { useInfiniteQuery } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import { useLocalSearchParams, useRouter } from "expo-router";
-import { ScreenContainer } from "../../../src/components/ScreenContainer";
-import { ThemedText } from "../../../src/components/ThemedText";
-import { GoldTextInput } from "../../../src/components/GoldTextInput";
-import { GoldButton } from "../../../src/components/GoldButton";
-import { FilterSheetButton } from "../../../src/components/FilterSheetButton";
-import { statusColors } from "../../../src/theme/colors";
-import { useTheme } from "../../../src/theme/ThemeProvider";
+import {
+  AccRow,
+  C,
+  DateField,
+  Field,
+  FieldRow,
+  FilterChipRow,
+  FiltersBar,
+  FlatHeader,
+  PrimaryButton,
+  Screen,
+  SearchInput,
+  ServerFlatList,
+  Sheet,
+  ThemeDropdown,
+  useShell,
+} from "../../../src/components/ui";
+import { useServerList } from "../../../src/hooks/useServerList";
 import { listLoansPage } from "../../../src/api/loans";
-import { Loan } from "../../../src/types/loan";
-import { useDebouncedValue } from "../../../src/hooks/useDebouncedValue";
-import { useRefetchOnFocus } from "../../../src/hooks/useRefetchOnFocus";
-import { useAuth } from "../../../src/auth/AuthContext";
-import { fmt } from "../../../src/lib/format";
-import { ExpandableTable, defaultVisibleCount, type TableColumn } from "../../../src/components/ExpandableTable";
-import { HEADER_FADE_BELOW } from "../../../src/components/FloatingHeader";
+import { listSchemes } from "../../../src/api/schemes";
+import { dmy, inr, todayISO } from "../../../src/lib/format";
+import type { Loan } from "../../../src/types/loan";
+import type { Scheme } from "../../../src/types/scheme";
 
-const PAGE_SIZE = 10;
+// Loans list — prototype #header-loans + #page-loans + #filter-sheet-modal.
+// Search (loan no. / customer name / customer ID) and every filter are
+// server-side params on GET /loans; rows page in 10 at a time.
 
-// Status categories offered as a filter chip row — mirrors
-// frontend/modules/loans/components/Loans.tsx's CATS, minus "Defaulted"
-// (that one is a client-computed refinement of Overdue on the web side;
-// filtering server-side by loan.status directly, as this screen does,
-// doesn't have that distinction). "All" sends no status param at all.
-const STATUS_FILTERS = ["All", "Active", "Due Soon", "Overdue", "Pending Approval", "Auction Eligible", "Closed", "Rejected"] as const;
+// Chip label → backend `status` value ("All" sends none).
+export const LOAN_STATUS_FILTERS = ["All", "Active", "Overdue", "Due today", "Pending approval", "Closed"] as const;
+type StatusFilter = (typeof LOAN_STATUS_FILTERS)[number];
+const STATUS_PARAM: Record<StatusFilter, string | undefined> = {
+  All: undefined,
+  Active: "Active",
+  Overdue: "Overdue",
+  "Due today": "Due Today",
+  "Pending approval": "Pending Approval",
+  Closed: "Closed",
+};
+const SUMMARY: Record<StatusFilter, string> = {
+  All: "All loans",
+  Active: "Active loans",
+  Overdue: "Overdue loans",
+  "Due today": "Due today",
+  "Pending approval": "Pending approval",
+  Closed: "Closed loans",
+};
 
-function toneForStatus(status: string): "green" | "red" | "amber" | "info" | "muted" {
-  const s = status.toLowerCase();
-  if (s.includes("approved") || s.includes("closed")) return "green";
-  if (s.includes("reject") || s.includes("default")) return "red";
-  if (s.includes("pending")) return "amber";
-  return "info";
+type Filters = { status?: string; schemeId?: number; from?: string; to?: string };
+
+function daysBetween(fromISO: string, toISO: string) {
+  const a = new Date(+fromISO.slice(0, 4), +fromISO.slice(5, 7) - 1, +fromISO.slice(8, 10));
+  const b = new Date(+toISO.slice(0, 4), +toISO.slice(5, 7) - 1, +toISO.slice(8, 10));
+  return Math.round((b.getTime() - a.getTime()) / 86400000);
 }
 
-function StatusPill({ status }: { status: string }) {
-  const { colors } = useTheme();
-  const tone = statusColors(toneForStatus(status), colors);
-  return (
-    <ThemedText
-      variant="label"
-      numberOfLines={1}
-      style={{ backgroundColor: tone.bg, color: tone.fg, paddingHorizontal: 7, paddingVertical: 2, borderRadius: 6, alignSelf: "flex-start", fontSize: 11.5 }}
-    >
-      {status}
-    </ThemedText>
-  );
-}
-
-// 4 columns + 3 detail-only fields (Principal/Opened/Due) = 7 total fields
-// — over the defaultVisibleCount threshold, so this reads as a "large"
-// table and collapses to 3 visible columns (Outstanding folds into the
-// expand strip alongside the rest), matching the approved design.
-const LOAN_COLUMNS: TableColumn<Loan>[] = [
-  { key: "loanNumber", label: "Loan No", render: (l) => l.loanNumber, weight: 1.1 },
-  { key: "customer", label: "Customer", render: (l) => l.customer?.name ?? `#${l.customerId}`, weight: 1.3 },
-  { key: "status", label: "Status", render: (l) => <StatusPill status={l.status} /> },
-  { key: "outstanding", label: "Outstanding", render: (l) => fmt(l.outstandingAmount) },
-];
-const LOAN_VISIBLE_COUNT = defaultVisibleCount(LOAN_COLUMNS.length + 3);
-
-function loanExtraFields(l: Loan) {
+export function loanRowDetails(l: Loan) {
+  const status = (l.status ?? "").toLowerCase();
+  const weight = l.totalNetWeight != null ? `${+Number(l.totalNetWeight).toFixed(2)} g` : "—";
+  if (status.includes("closed") || status.includes("released")) {
+    return [
+      { k: "Gold weight", v: weight },
+      { k: "Opened on", v: dmy(l.openedDate) },
+    ];
+  }
+  const today = todayISO();
+  const due = l.dueDate?.slice(0, 10);
+  if (l.isOverdue || (due && due < today)) {
+    const d = l.daysOverdue ?? (due ? daysBetween(due, today) : 0);
+    return [
+      { k: "Gold weight", v: weight },
+      { k: "Overdue by", v: `${d} day${d === 1 ? "" : "s"}`, color: C.red },
+    ];
+  }
   return [
-    { label: "Principal", value: fmt(l.principalAmount) },
-    { label: "Opened", value: new Date(l.openedDate).toLocaleDateString("en-IN") },
-    { label: "Due", value: new Date(l.dueDate).toLocaleDateString("en-IN") },
+    { k: "Gold weight", v: weight },
+    { k: "Next due", v: due === today ? "Today" : dmy(l.dueDate) },
   ];
 }
 
 export default function LoansScreen() {
   const router = useRouter();
-  const { can } = useAuth();
-  // Mirrors new-loan.tsx's own gate — same permission, so a role that
-  // can't reach New Loan from here couldn't submit it anyway.
-  const canCreateLoan = can("Loan_Management", "can_create_loan");
-  const [search, setSearch] = useState("");
-  const debouncedSearch = useDebouncedValue(search);
-  const [statusFilter, setStatusFilter] = useState<(typeof STATUS_FILTERS)[number]>("All");
+  const shell = useShell();
+  const params = useLocalSearchParams<{ schemeId?: string; status?: string }>();
 
-  // Dashboard tiles deep-link here with ?status=…; `t` changes on every tap
-  // so the filter re-applies even though this tab screen stays mounted.
-  const params = useLocalSearchParams<{ status?: string; t?: string }>();
+  const [status, setStatus] = useState<StatusFilter>("All");
+  const [scheme, setScheme] = useState<Scheme | null>(null);
+  const [from, setFrom] = useState("");
+  const [to, setTo] = useState("");
+  const [sheetOpen, setSheetOpen] = useState(false);
+  // Staged filter values edited in the sheet, applied on "Apply Filters".
+  const [draft, setDraft] = useState({ status, scheme, from, to });
+
+  const schemes = useQuery({ queryKey: ["schemes", "all-picker"], queryFn: () => listSchemes() });
+
+  // Deep links: /loans?schemeId=… (global search "Scheme") / ?status=…
   useEffect(() => {
-    const s = STATUS_FILTERS.find((f) => f === params.status);
-    if (s) setStatusFilter(s);
-    else if (params.t) setStatusFilter("All");
-  }, [params.status, params.t]);
+    if (params.schemeId && schemes.data) {
+      const sc = schemes.data.find((x) => String(x.id) === params.schemeId);
+      if (sc) setScheme(sc);
+    }
+  }, [params.schemeId, schemes.data]);
+  useEffect(() => {
+    const match = LOAN_STATUS_FILTERS.find((f) => STATUS_PARAM[f]?.toLowerCase() === params.status?.toLowerCase());
+    if (match) setStatus(match);
+  }, [params.status]);
 
-  // Each page is its own, separate API call keyed by offset — a new
-  // search/filter changes the queryKey, so react-query starts a fresh
-  // page-1 fetch instead of reusing a stale accumulated list.
-  const { data, isLoading, isError, isFetching, isFetchingNextPage, fetchNextPage, hasNextPage, refetch } = useInfiniteQuery({
-    queryKey: ["loans", debouncedSearch, statusFilter],
-    queryFn: ({ pageParam = 0 }) =>
-      listLoansPage({
-        q: debouncedSearch || undefined,
-        status: statusFilter === "All" ? undefined : statusFilter,
-        limit: PAGE_SIZE,
-        offset: pageParam,
-      }),
-    initialPageParam: 0,
-    getNextPageParam: (lastPage, allPages) => (lastPage.hasMore ? allPages.length * PAGE_SIZE : undefined),
-  });
+  const filters: Filters = { status: STATUS_PARAM[status], schemeId: scheme?.id, from: from || undefined, to: to || undefined };
+  const list = useServerList<Loan, Filters>({ key: ["loans", "list"], filters, fetchPage: (p) => listLoansPage(p) });
+  const overdue = useQuery({ queryKey: ["loans", "overdue-count"], queryFn: () => listLoansPage({ status: "Overdue", limit: 1, offset: 0 }) });
 
-  useRefetchOnFocus(refetch);
-
-  const loans = data?.pages.flatMap((p) => p.items) ?? [];
-
-  // Search, +New Loan, status filter scroll away WITH the rows
-  // (ExpandableTable's headerContent) so the table's top fade sits right
-  // under the app header. Same containerStyle/margins as Customers' own
-  // search field + button, for an identical look between the two screens.
-  const listHeader = (
-    <View>
-      <GoldTextInput
-        label="Search loans"
-        placeholder="Loan number or customer…"
-        value={search}
-        onChangeText={setSearch}
-        containerStyle={{ marginTop: HEADER_FADE_BELOW + 4 }}
-        blur
-      />
-      {canCreateLoan ? (
-        <View style={{ marginBottom: 12 }}>
-          <GoldButton title="+ New Loan" onPress={() => router.push("/new-loan")} />
-        </View>
-      ) : null}
-      <View style={{ marginBottom: 12 }}>
-        <FilterSheetButton options={STATUS_FILTERS} value={statusFilter} onChange={setStatusFilter} />
-      </View>
-    </View>
-  );
+  const activeCount = (status !== "All" ? 1 : 0) + (scheme ? 1 : 0) + (from || to ? 1 : 0);
+  const summary = `${SUMMARY[status]}${scheme ? ` · ${scheme.name}` : ""} · ${list.total ?? list.items.length}`;
+  const overdueTotal = (overdue.data as { total?: number } | undefined)?.total;
 
   return (
-    <ScreenContainer style={{ paddingHorizontal: 0 }}>
-      {/* Reaching the bottom loads the next page. */}
-      <View style={{ flex: 1, paddingHorizontal: 16 }}>
-        <ExpandableTable<Loan>
-          headerContent={listHeader}
-          columns={LOAN_COLUMNS}
-          visibleCount={LOAN_VISIBLE_COUNT}
-          data={loans}
-          keyExtractor={(l) => String(l.id)}
-          extraFields={loanExtraFields}
-          onViewDescription={(l) => router.push(`/loans/${l.id}`)}
-          loading={isLoading}
-          emptyText={isError ? "Could not load loans." : "No loans found."}
-          refreshControl={<RefreshControl refreshing={isFetching && !isFetchingNextPage && !isLoading} onRefresh={refetch} />}
-          onEndReached={() => {
-            if (hasNextPage && !isFetchingNextPage) fetchNextPage();
-          }}
-          isFetchingNextPage={isFetchingNextPage}
+    <Screen
+      header={
+        <FlatHeader
+          title="Loans"
+          subtitle={list.total != null ? `${list.total} total${overdueTotal != null ? ` · ${overdueTotal} overdue` : ""}` : undefined}
+          icons={[{ icon: "search", onPress: shell.openSearch, label: "Search" }]}
         />
-      </View>
-    </ScreenContainer>
+      }
+    >
+      <ServerFlatList
+        list={list}
+        items={list.items}
+        keyOf={(l) => String(l.id)}
+        emptyText={list.search ? "No loans match your search." : "No loans found."}
+        header={
+          <>
+            <FiltersBar
+              count={activeCount}
+              summary={summary}
+              onPress={() => {
+                setDraft({ status, scheme, from, to });
+                setSheetOpen(true);
+              }}
+            />
+            <SearchInput
+              value={list.search}
+              onChangeText={list.setSearch}
+              placeholder="Search this list by loan ID or customer name"
+              style={{ paddingTop: 0 }}
+            />
+          </>
+        }
+        contentStyle={{ paddingTop: 0 }}
+        renderItem={(l, i) => {
+          const closed = /closed|released/i.test(l.status ?? "");
+          return (
+            <AccRow
+              defaultOpen={i === 0}
+              id={l.loanNumber}
+              name={l.customer?.name ?? `Customer #${l.customerId}`}
+              sub={l.scheme?.name ? `${l.scheme.name} scheme` : undefined}
+              amount={inr(l.principalAmount)}
+              status={l.status}
+              details={loanRowDetails(l)}
+              actions={[
+                { label: "Collect Payment", disabled: closed, onPress: () => router.push(`/loans/${l.id}?action=collect` as never) },
+                { label: "View Full Details", primary: true, onPress: () => router.push(`/loans/${l.id}` as never) },
+              ]}
+            />
+          );
+        }}
+      />
+
+      <Sheet visible={sheetOpen} onClose={() => setSheetOpen(false)} title="Filter Loans" maxHeightPct={80}>
+        <Field label="Status">
+          <FilterChipRow options={LOAN_STATUS_FILTERS} value={draft.status} onChange={(v) => setDraft((d) => ({ ...d, status: v }))} />
+        </Field>
+        <Field label="Scheme">
+          <ThemeDropdown<Scheme | null>
+            value={draft.scheme}
+            options={[null, ...(schemes.data ?? [])]}
+            onChange={(v) => setDraft((d) => ({ ...d, scheme: v }))}
+            labelOf={(v) => (v ? v.name : "All schemes")}
+            keyOf={(v) => (v ? v.id : 0)}
+            placeholder="All schemes"
+          />
+        </Field>
+        <FieldRow>
+          <DateField label="From date" value={draft.from} onChange={(v) => setDraft((d) => ({ ...d, from: v }))} clearable />
+          <DateField label="To date" value={draft.to} onChange={(v) => setDraft((d) => ({ ...d, to: v }))} clearable min={draft.from || undefined} />
+        </FieldRow>
+        <PrimaryButton
+          label="Apply Filters"
+          onPress={() => {
+            setStatus(draft.status);
+            setScheme(draft.scheme);
+            setFrom(draft.from);
+            setTo(draft.to);
+            setSheetOpen(false);
+          }}
+        />
+      </Sheet>
+    </Screen>
   );
 }

@@ -2,15 +2,31 @@ import React, { useEffect, useState } from "react";
 import { View } from "react-native";
 import { useRouter, usePathname } from "expo-router";
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { ThemedText } from "../ThemedText";
-import { GoldTextInput } from "../GoldTextInput";
-import { GoldDatePicker } from "../GoldDatePicker";
-import { GoldButton } from "../GoldButton";
-import { GoldCheckbox } from "../GoldCheckbox";
-import { ChipSelect } from "../ChipSelect";
-import { Icon } from "../Icon";
-import { useTheme } from "../../theme/ThemeProvider";
-import { fmt } from "../../lib/format";
+import {
+  AccBtn,
+  BtnRow2,
+  C,
+  Card,
+  CheckItem,
+  DateField,
+  Field,
+  FieldGrid,
+  FieldRow,
+  Input,
+  PaymentSplit,
+  PrimaryButton,
+  ReviewWarning,
+  SectionTitle,
+  SheetListItem,
+  TextField,
+  ThemeDropdown,
+  Txt,
+  WarningBanner,
+  ZERO_SPLIT,
+  isBalanced,
+  type SplitAmounts,
+} from "../ui";
+import { inr, todayISO } from "../../lib/format";
 import { useAuth } from "../../auth/AuthContext";
 import { verifyReleaseChecklist, recordReleasePayment, approveReleaseRequest, RELEASE_STAGE_PERMISSIONS } from "../../api/loans";
 import { recordPayment } from "../../api/payments";
@@ -39,8 +55,9 @@ function partialReleaseDrift(outstanding: number, remainingGoldValue: number, lt
  * components/modals/ReleaseReviewModal.tsx: "customer has seen the gold",
  * Record Payment (with a mode split), and the Manager → Management approval.
  * Final approval completes the release server-side (full: closes the loan;
- * partial: hands back only the selected ornaments). Used by the loan detail
- * Release card and the Requests list sheet. */
+ * partial: hands back only the selected ornaments). Drawn as the prototype's
+ * #release-review-modal body. Used by the loan detail screen's release sheet
+ * and the Requests list sheet — props API unchanged. */
 export function ReleaseReviewPanel({
   request,
   loan,
@@ -52,13 +69,11 @@ export function ReleaseReviewPanel({
   onSaved: () => void;
   onError: (message: string) => void;
 }) {
-  const { colors } = useTheme();
   const router = useRouter();
   const pathname = usePathname();
-  // The Bank Pledge card this would link to is already further down this
-  // very screen when the panel is embedded in the loan detail page (as
-  // opposed to the Requests list's sheet, viewed from elsewhere) — so that
-  // link is only useful, and only shown, from the Requests screen.
+  // The Bank Pledge action this would link to is already on this very
+  // screen when the panel is embedded in the loan detail page — so that
+  // link is only shown from elsewhere (the Requests screen).
   const onThisLoanPage = pathname === `/loans/${loan.id}`;
   const { can } = useAuth();
   const canDecide = can("Loan_Management", "can_update_loan");
@@ -73,14 +88,14 @@ export function ReleaseReviewPanel({
   const [notes, setNotes] = useState(request.verificationNotes || "");
   const [discount, setDiscount] = useState("0");
   const [amount, setAmount] = useState("");
-  const [mode, setMode] = useState<PaymentMode>("Cash");
+  const [split, setSplit] = useState<SplitAmounts>(ZERO_SPLIT);
   const [reference, setReference] = useState("");
   const [dueDate, setDueDate] = useState(request.paymentDueDate || "");
   const [decisionRemarks, setDecisionRemarks] = useState("");
   // Language being fetched ("partial" for the partial-release receipt).
   const [downloading, setDownloading] = useState<DocLang | "partial" | null>(null);
-  const [showTopUp, setShowTopUp] = useState(false);
   const [topUp, setTopUp] = useState("");
+  const [topUpMode, setTopUpMode] = useState<PaymentMode>("Cash");
   // Seed editable fields only when a different request arrives, so a
   // background refetch never stomps on what staff is typing.
   const [seenId, setSeenId] = useState(request.id);
@@ -89,7 +104,7 @@ export function ReleaseReviewPanel({
       setCharges(String(request.charges || 0));
       setNotes(request.verificationNotes || "");
       setDueDate(request.paymentDueDate || "");
-      setShowTopUp(false);
+      setTopUp("");
       setSeenId(request.id);
     }
   }, [request, seenId]);
@@ -110,6 +125,8 @@ export function ReleaseReviewPanel({
   const selectedIds = new Set((request.ornamentSelections ?? []).map((s) => s.ornamentId));
   const pledged = (loan.ornaments ?? []).filter((o) => !o.releasedAt);
   const selectedOrnaments = pledged.filter((o) => selectedIds.has(o.id));
+  // A full release covers every still-pledged ornament.
+  const shownOrnaments = request.isPartial ? selectedOrnaments : pledged;
   const remainingGoldValue = request.isPartial ? pledged.filter((o) => !selectedIds.has(o.id)).reduce((s, o) => s + o.goldValue, 0) : 0;
   const drift = request.isPartial ? partialReleaseDrift(outstanding, remainingGoldValue, ltv) : 0;
 
@@ -122,14 +139,21 @@ export function ReleaseReviewPanel({
   const needsDueDate = !request.isPartial && shortAfter > 0.01;
   const canApprove = !!request.customerSawGold && paymentConditionMet;
 
-  // Prefill the amount with what's required, once per request.
+  // Prefill the amount (and an all-cash split) with what's required, once per request.
   const [prefilledFor, setPrefilledFor] = useState<number | null>(null);
   useEffect(() => {
     if (prefilledFor !== request.id && canRecordPayment && isPending) {
-      setAmount(String(Math.max(0, +required.toFixed(2))));
+      const amt = Math.max(0, +required.toFixed(2));
+      setAmount(String(amt));
+      setSplit({ ...ZERO_SPLIT, cashAmount: amt });
       setPrefilledFor(request.id);
     }
   }, [prefilledFor, request.id, canRecordPayment, isPending, required]);
+
+  function setAmountAndSplit(v: string) {
+    setAmount(v);
+    setSplit({ ...ZERO_SPLIT, cashAmount: +v || 0 });
+  }
 
   function reportError(err: unknown) {
     onError(err instanceof ApiError ? err.message : "Something went wrong — try again.");
@@ -156,17 +180,18 @@ export function ReleaseReviewPanel({
     onError: reportError,
   });
 
+  const amt = +amount || 0;
+  const splitOk = amt <= 0 || isBalanced(split, amt);
+
   const savePayment = useMutation({
-    mutationFn: () => {
-      const amt = +amount || 0;
-      return recordReleasePayment(request.id, {
+    mutationFn: () =>
+      recordReleasePayment(request.id, {
         amount: amt,
         discount: +discount || 0,
-        ...splitForMode(mode, amt),
+        ...(amt > 0 ? split : ZERO_SPLIT),
         reference: reference.trim() || undefined,
         dueDate: needsDueDate ? dueDate : undefined,
-      });
-    },
+      }),
     onSuccess: () => {
       setDiscount("0");
       setReference("");
@@ -180,12 +205,11 @@ export function ReleaseReviewPanel({
   // loan payment (not against the request), then approve again.
   const saveTopUp = useMutation({
     mutationFn: () => {
-      const amt = +topUp || 0;
-      return recordPayment(loan.id, { amount: amt, type: "Partial", paidOn: new Date().toISOString().slice(0, 10), ...splitForMode(mode, amt) });
+      const t = +topUp || 0;
+      return recordPayment(loan.id, { amount: t, type: "Partial", paidOn: todayISO(), ...splitForMode(topUpMode, t) });
     },
     onSuccess: () => {
       setTopUp("");
-      setShowTopUp(false);
       onSaved();
     },
     onError: reportError,
@@ -200,7 +224,6 @@ export function ReleaseReviewPanel({
     },
     onError: (err) => {
       if (err instanceof ApiError && err.status === 409 && /drift|top-up/i.test(err.message)) {
-        setShowTopUp(true);
         setTopUp(String(Math.max(0, +drift.toFixed(2))));
         onError("The balance has drifted above what the remaining gold supports — record a top-up payment below, then approve again.");
       } else reportError(err);
@@ -211,70 +234,62 @@ export function ReleaseReviewPanel({
 
   return (
     <View>
-      {request.isPartial ? (
-        <View style={{ flexDirection: "row", marginBottom: 10 }}>
-          <ThemedText variant="label" color={colors.brandDeep} style={{ backgroundColor: colors.brandPale, paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6 }}>
-            Partial release · {selectedOrnaments.length} of {pledged.length || selectedIds.size} ornaments
-          </ThemedText>
-        </View>
-      ) : null}
-
       {request.status === "Approved" ? (
-        request.isPartial ? (
-          <GoldButton
-            title={downloading ? "Preparing…" : "Partial Release Receipt"}
-            icon="download"
-            variant="outline"
-            onPress={() => downloadReleaseAgreement("partial")}
-            loading={!!downloading}
-            style={{ marginBottom: 12 }}
-          />
-        ) : (
-          <View style={{ gap: 8, marginBottom: 12 }}>
-            {RELEASE_AGREEMENT_LANGS.map((lang) => (
-              <View key={lang}>
-                <GoldButton
-                  title={downloading === lang ? "Preparing…" : `Release Agreement — ${DOC_LANG_LABELS[lang]}`}
-                  icon="download"
-                  variant="outline"
-                  onPress={() => downloadReleaseAgreement(lang)}
-                  loading={downloading === lang}
-                  disabled={!!downloading}
-                />
-              </View>
-            ))}
-          </View>
-        )
-      ) : null}
-
-      <View style={{ flexDirection: "row", flexWrap: "wrap", marginBottom: 6 }}>
-        {[
-          ["Outstanding Principal", fmt(loan.outstandingAmount)],
-          ["Outstanding Interest", fmt(loan.outstandingInterest ?? 0)],
-          ["Penal Interest", fmt(loan.outstandingPenalInterest ?? 0)],
-          [request.isPartial ? "Required to Release" : "Final Settlement", fmt(required)],
-        ].map(([k, v]) => (
-          <View key={k} style={{ width: "50%", marginBottom: 8 }}>
-            <ThemedText variant="small" color={colors.muted}>{k}</ThemedText>
-            <ThemedText variant="body">{v}</ThemedText>
-          </View>
-        ))}
-      </View>
-
-      {request.isPartial && selectedOrnaments.length > 0 ? (
-        <View style={{ marginBottom: 12, borderWidth: 1, borderColor: colors.line, borderRadius: 12, overflow: "hidden" }}>
-          {selectedOrnaments.map((o, i) => (
-            <View key={o.id} style={{ flexDirection: "row", paddingVertical: 8, paddingHorizontal: 10, borderTopWidth: i ? 1 : 0, borderTopColor: colors.line }}>
-              <ThemedText variant="small" style={{ flex: 1.4 }}>{o.name}</ThemedText>
-              <ThemedText variant="small" style={{ flex: 0.8 }}>{o.purity}</ThemedText>
-              <ThemedText variant="small" style={{ flex: 0.8 }}>{o.netWeight.toFixed(2)}g</ThemedText>
-              <ThemedText variant="small" style={{ flex: 1, textAlign: "right" }}>{fmt(o.goldValue)}</ThemedText>
-            </View>
-          ))}
+        <View style={{ marginBottom: 10 }}>
+          {request.isPartial ? (
+            <SheetListItem
+              first
+              icon="doc"
+              title="Partial Release Receipt"
+              sub={downloading === "partial" ? "Preparing…" : "Download the partial-release receipt"}
+              onPress={() => downloadReleaseAgreement("partial")}
+            />
+          ) : (
+            RELEASE_AGREEMENT_LANGS.map((lang, i) => (
+              <SheetListItem
+                key={lang}
+                first={i === 0}
+                icon="doc"
+                title={`Release Agreement — ${DOC_LANG_LABELS[lang]}`}
+                sub={downloading === lang ? "Preparing…" : "Gold handed back to the customer"}
+                onPress={() => downloadReleaseAgreement(lang)}
+              />
+            ))
+          )}
         </View>
       ) : null}
 
-      <GoldTextInput
+      <FieldGrid
+        style={{ marginBottom: 14 }}
+        items={[
+          { k: "Outstanding principal", v: inr(loan.outstandingAmount) },
+          { k: "Outstanding interest", v: inr(loan.outstandingInterest ?? 0) },
+          { k: "Penal interest", v: inr(loan.outstandingPenalInterest ?? 0) },
+          { k: request.isPartial ? "Required to release" : "Final settlement", v: inr(required), color: C.brandDeep },
+        ]}
+      />
+
+      <SectionTitle flush style={{ marginTop: 0 }}>
+        {request.isPartial ? `Ornaments in this request · ${selectedOrnaments.length} of ${pledged.length || selectedIds.size}` : "Ornaments in this request"}
+      </SectionTitle>
+      {shownOrnaments.length === 0 ? (
+        <Txt style={{ fontSize: 12, color: C.muted, marginBottom: 14 }}>No ornaments still pledged.</Txt>
+      ) : (
+        shownOrnaments.map((o) => (
+          <Card key={o.id} style={{ marginHorizontal: 0, marginTop: 0, marginBottom: 10 }}>
+            <FieldGrid
+              items={[
+                { k: "Ornament", v: o.name },
+                { k: "Purity", v: o.purity },
+                { k: "Net weight", v: `${o.netWeight.toFixed(2)} g` },
+                { k: "Gold value", v: inr(o.goldValue) },
+              ]}
+            />
+          </Card>
+        ))
+      )}
+
+      <TextField
         label="Charges (₹)"
         keyboardType="numeric"
         value={charges}
@@ -282,151 +297,146 @@ export function ReleaseReviewPanel({
         onBlur={() => saveVerification.mutate({ charges: +charges || 0 })}
         editable={canDecide && isPending && canRecordPayment}
       />
+      <TextField
+        label="Verification notes"
+        placeholder="Notes from physical verification"
+        value={notes}
+        onChangeText={setNotes}
+        onBlur={() => saveVerification.mutate({ verificationNotes: notes })}
+        editable={canDecide && isPending}
+      />
 
-      <ThemedText variant="label" color={colors.muted} style={{ marginTop: 4, marginBottom: 10 }}>
-        Verification
-      </ThemedText>
-      <View style={{ flexDirection: "row", alignItems: "center", marginBottom: 10 }}>
-        <GoldCheckbox
-          value={!!request.customerSawGold}
-          onValueChange={(v) => saveVerification.mutate({ customerSawGold: v })}
-          disabled={sawGoldDisabled}
+      <View style={sawGoldDisabled ? { opacity: 0.6 } : null}>
+        <CheckItem
+          variant="confirm"
+          checked={!!request.customerSawGold}
+          onPress={() => {
+            if (!sawGoldDisabled) saveVerification.mutate({ customerSawGold: !request.customerSawGold });
+          }}
+          title="Customer has seen the gold"
+          sub="Required before this request can be approved"
         />
-        <View style={{ flex: 1, marginLeft: 10 }}>
-          <ThemedText variant="body">Customer has seen the gold</ThemedText>
-          <ThemedText variant="small" color={colors.muted}>
-            Confirm the customer has been shown the pledged ornaments
-          </ThemedText>
-        </View>
       </View>
       {goldStillHeld && isPending ? (
-        <View style={{ marginBottom: 10 }}>
-          <View style={{ flexDirection: "row", gap: 6, marginBottom: 8 }}>
-            <Icon name="shield" size={13} color={colors.red} />
-            <ThemedText variant="small" color={colors.red} style={{ flex: 1 }}>
-              This loan&apos;s gold is still {goldHeldReason}, so it can&apos;t be shown to the customer yet — release it from{" "}
-              {loan.bankPledgeStatus === "Bank Pledged" ? "Bank Pledge" : "the Locker"} first.
-            </ThemedText>
-          </View>
+        <View style={{ marginBottom: 6 }}>
+          <WarningBanner>
+            This loan&apos;s gold is still {goldHeldReason}, so it can&apos;t be shown to the customer yet — release it from{" "}
+            {loan.bankPledgeStatus === "Bank Pledged" ? "Bank Pledge" : "the Locker"} first.
+          </WarningBanner>
           {loan.bankPledgeStatus === "Bank Pledged" ? (
             onThisLoanPage ? null : (
-              <GoldButton title="Go to Bank Pledge" variant="outline" onPress={() => router.push(`/loans/${loan.id}`)} />
+              <AccBtn label="Go to Bank Pledge" onPress={() => router.push(`/loans/${loan.id}` as never)} style={{ marginBottom: 14 }} />
             )
           ) : (
-            <GoldButton
-              title="Go to Locker"
-              variant="outline"
-              onPress={() => (packetRecord ? router.push(`/packets/${packetRecord.id}`) : router.push("/lockers"))}
+            <AccBtn
+              label="Go to Locker"
+              onPress={() => (packetRecord ? router.push(`/packets/${packetRecord.id}` as never) : router.push("/lockers" as never))}
+              style={{ marginBottom: 14 }}
             />
           )}
         </View>
       ) : null}
 
-      <ThemedText variant="label" color={colors.muted} style={{ marginTop: 4, marginBottom: 8 }}>
-        Payment
-      </ThemedText>
+      <SectionTitle flush style={{ marginTop: 0 }}>
+        Payment — collect balance to settle this release
+      </SectionTitle>
       {request.recordedDiscount + request.recordedPayment > 0 ? (
-        <ThemedText variant="small" color={colors.muted} style={{ marginBottom: 8 }}>
-          Already recorded: {fmt(request.recordedDiscount)} discount + {fmt(request.recordedPayment)} payment.
-        </ThemedText>
+        <Txt style={{ fontSize: 12, color: C.muted, marginBottom: 10 }}>
+          Already recorded: {inr(request.recordedDiscount)} discount + {inr(request.recordedPayment)} payment.
+        </Txt>
       ) : null}
       {canRecordPayment && isPending ? (
-        <View style={{ marginBottom: 10 }}>
-          <View style={{ flexDirection: "row", gap: 8 }}>
-            <GoldTextInput
-              label="Discount (₹)"
-              keyboardType="numeric"
-              value={discount}
-              onChangeText={(v) => {
-                setDiscount(v);
-                setAmount(String(Math.max(0, +(required - (+v || 0)).toFixed(2))));
-              }}
-              containerStyle={{ flex: 1 }}
-            />
-            <GoldTextInput label="Amount (₹)" keyboardType="numeric" value={amount} onChangeText={setAmount} containerStyle={{ flex: 1 }} />
-          </View>
-          <ChipSelect label="Mode" options={MODES} value={mode} onChange={setMode} />
-          {mode !== "Cash" ? <GoldTextInput label="Reference (optional)" value={reference} onChangeText={setReference} /> : null}
-          {needsDueDate ? (
-            <GoldDatePicker label="Due date for the remaining balance" value={dueDate} onChange={setDueDate} min={new Date().toISOString().slice(0, 10)} />
+        <View style={{ marginBottom: 6 }}>
+          <FieldRow>
+            <Field label="Discount (₹)">
+              <Input
+                keyboardType="numeric"
+                value={discount}
+                onChangeText={(v) => {
+                  setDiscount(v);
+                  setAmountAndSplit(String(Math.max(0, +(required - (+v || 0)).toFixed(2))));
+                }}
+              />
+            </Field>
+            <Field label="Amount (₹)">
+              <Input keyboardType="numeric" value={amount} onChangeText={setAmountAndSplit} />
+            </Field>
+          </FieldRow>
+          {amt > 0 ? <PaymentSplit amount={amt} value={split} onChange={setSplit} /> : null}
+          {split.cashAmount !== amt ? (
+            <TextField label="Reference" placeholder="Transaction / cheque reference (optional)" value={reference} onChangeText={setReference} />
           ) : null}
-          <GoldButton
-            title={request.paymentRecorded ? "Record Additional Payment" : "Record Payment"}
+          {needsDueDate ? <DateField label="Due date for remaining balance" value={dueDate} onChange={setDueDate} min={todayISO()} /> : null}
+          <AccBtn
+            label={savePayment.isPending ? "Recording…" : request.paymentRecorded ? "Record Additional Payment" : "Record Payment"}
+            primary
             onPress={() => savePayment.mutate()}
-            loading={savePayment.isPending}
-            disabled={(+amount || 0) + (+discount || 0) <= 0 || (needsDueDate && !dueDate)}
+            disabled={savePayment.isPending || amt + (+discount || 0) <= 0 || !splitOk || (needsDueDate && !dueDate)}
+            style={{ marginBottom: 14 }}
           />
         </View>
       ) : !request.paymentRecorded && isPending ? (
-        <ThemedText variant="small" color={colors.muted} style={{ marginBottom: 10 }}>
-          Payment is recorded at the Manager stage.
-        </ThemedText>
+        <Txt style={{ fontSize: 12, color: C.muted, marginBottom: 14 }}>Payment is recorded at the Manager stage.</Txt>
       ) : null}
 
-      {showTopUp && isPending ? (
-        <View style={{ marginBottom: 10, padding: 12, borderRadius: 12, backgroundColor: colors.brandPale }}>
-          <ThemedText variant="body" style={{ marginBottom: 8 }}>Top-up payment</ThemedText>
-          <GoldTextInput label="Amount (₹)" keyboardType="numeric" value={topUp} onChangeText={setTopUp} />
-          <ChipSelect label="Mode" options={MODES} value={mode} onChange={setMode} />
-          <GoldButton title="Record Top-Up" onPress={() => saveTopUp.mutate()} loading={saveTopUp.isPending} disabled={!(+topUp > 0)} />
-        </View>
+      {isPending ? (
+        <>
+          <SectionTitle flush style={{ marginTop: 2 }}>
+            Top-up payment (optional)
+          </SectionTitle>
+          <FieldRow>
+            <Field label="Amount">
+              <Input keyboardType="numeric" placeholder="0" value={topUp} onChangeText={setTopUp} />
+            </Field>
+            <Field label="Mode">
+              <ThemeDropdown value={topUpMode} options={MODES} onChange={setTopUpMode} labelOf={(m) => m} />
+            </Field>
+          </FieldRow>
+          <AccBtn
+            label={saveTopUp.isPending ? "Recording…" : "Record Top-Up"}
+            onPress={() => saveTopUp.mutate()}
+            disabled={saveTopUp.isPending || !(+topUp > 0)}
+            style={{ marginBottom: 16 }}
+          />
+        </>
       ) : null}
-
-      <GoldTextInput
-        label="Verification Notes"
-        value={notes}
-        onChangeText={setNotes}
-        onBlur={() => saveVerification.mutate({ verificationNotes: notes })}
-        placeholder="optional"
-        editable={canDecide && isPending}
-      />
 
       {!isPending ? null : !canApprove ? (
-        <View style={{ flexDirection: "row", gap: 6, alignItems: "flex-start", marginTop: 8, marginBottom: 8 }}>
-          <Icon name="shield" size={13} color={colors.amber} />
-          <ThemedText variant="small" color={colors.amber} style={{ flex: 1 }}>
-            {!request.customerSawGold && !paymentConditionMet
-              ? "Confirm the customer has seen the gold and record the payment before approving."
-              : !request.customerSawGold
-                ? "Confirm the customer has seen the gold before approving."
-                : "Record the payment before approving."}
-          </ThemedText>
-        </View>
+        <ReviewWarning>
+          {!request.customerSawGold && !paymentConditionMet
+            ? "Confirm the customer has seen the gold and record the payment before approving."
+            : !request.customerSawGold
+              ? "Confirm the customer has seen the gold before approving."
+              : "Record the payment before approving."}
+        </ReviewWarning>
       ) : (
-        <View style={{ flexDirection: "row", gap: 6, alignItems: "flex-start", marginTop: 8, marginBottom: 8 }}>
-          <Icon name="clock" size={13} color={colors.muted} />
-          <ThemedText variant="small" color={colors.muted} style={{ flex: 1 }}>
-            Awaiting {stage} approval.{stage === "Management" ? " Final approval releases the gold." : ""}
-          </ThemedText>
-        </View>
+        <Txt style={{ fontSize: 12, color: C.muted, marginBottom: 12 }}>
+          Awaiting {stage} approval.{stage === "Management" ? " Final approval releases the gold." : ""}
+        </Txt>
       )}
 
       {isPending && canActOnStage && canDecide ? (
         <>
           {!request.locked ? (
-            <GoldTextInput label="Remarks (optional, for Reject)" value={decisionRemarks} onChangeText={setDecisionRemarks} />
+            <TextField label="Decision remarks (optional, for Reject)" placeholder="Add a note" value={decisionRemarks} onChangeText={setDecisionRemarks} />
           ) : null}
-          <View style={{ flexDirection: "row", gap: 8 }}>
+          <BtnRow2>
             {!request.locked ? (
-              <View style={{ flex: 1 }}>
-                <GoldButton
-                  title="Reject"
-                  variant="outline"
-                  style={{ borderColor: colors.red }}
-                  onPress={() => decide.mutate("Rejected")}
-                  loading={decide.isPending}
-                />
-              </View>
-            ) : null}
-            <View style={{ flex: 1 }}>
-              <GoldButton
-                title={`Approve (${stage})`}
-                onPress={() => decide.mutate("Approved")}
-                loading={decide.isPending}
-                disabled={!canApprove}
+              <PrimaryButton
+                label="Reject"
+                variant="reject"
+                onPress={() => decide.mutate("Rejected")}
+                loading={decide.isPending && decide.variables === "Rejected"}
+                disabled={decide.isPending}
               />
-            </View>
-          </View>
+            ) : null}
+            <PrimaryButton
+              label={`Approve (${stage})`}
+              onPress={() => decide.mutate("Approved")}
+              loading={decide.isPending && decide.variables === "Approved"}
+              disabled={!canApprove || decide.isPending}
+            />
+          </BtnRow2>
         </>
       ) : null}
     </View>

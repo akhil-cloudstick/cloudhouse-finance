@@ -39,11 +39,18 @@ func (r *Repository) FindByRole(ctx context.Context, roleName string) ([]Employe
 // pointer to confine results to that branch (see platform.GetBranchScope).
 // limit/offset paginate the result set; limit <= 0 means "no limit" (the
 // full result set, preserving existing bare-array callers).
-func (r *Repository) FindAll(ctx context.Context, branchID *uint, limit, offset int) ([]Employee, int64, error) {
+//
+// search, when non-empty, matches name, code, phone, username or email
+// (case-insensitive, partial).
+func (r *Repository) FindAll(ctx context.Context, branchID *uint, search string, limit, offset int) ([]Employee, int64, error) {
 	var employees []Employee
 	q := r.db.WithContext(ctx).Preload("Branch").Order("id asc")
 	if branchID != nil {
 		q = q.Where("branch_id = ?", *branchID)
+	}
+	if search != "" {
+		like := "%" + search + "%"
+		q = q.Where("name ILIKE ? OR code ILIKE ? OR phone ILIKE ? OR username ILIKE ? OR email ILIKE ?", like, like, like, like, like)
 	}
 	var total int64
 	if limit > 0 {

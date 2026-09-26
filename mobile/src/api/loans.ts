@@ -19,10 +19,15 @@ export function listLoansPage(params: {
   schemeId?: number;
   from?: string; // "YYYY-MM-DD", bounds openedDate (inclusive)
   to?: string; // "YYYY-MM-DD", bounds openedDate (inclusive)
+  // Auction case buckets, computed server-side (replaces the old on-phone
+  // isDefaulted filter): eligible | defaulted | auctioned_balance_due.
+  auctionCase?: string;
+  bankPledgeStatus?: string;
+  excludeBankPledged?: boolean;
   limit: number;
   offset: number;
 }) {
-  return apiRequest<{ items: Loan[]; hasMore: boolean }>("/loans", { params });
+  return apiRequest<{ items: Loan[]; hasMore: boolean; total?: number }>("/loans", { params });
 }
 
 // Mirrors frontend/modules/loans/services/loanService.ts's getInterestCollected
@@ -48,6 +53,7 @@ export type LoanRiskCounts = { loss: number; atRisk: number; safe: number };
 // see loanService.ts's LoanRiskCounts doc comment on the web side), not
 // just this page, for the screen's KPI tiles.
 export function listLoanRiskAssessmentPage(params: {
+  q?: string;
   status?: string;
   riskLevel?: LoanRiskLevel;
   from?: string; // "YYYY-MM-DD", bounds openedDate
@@ -210,6 +216,10 @@ export function listLoanRequests(params?: { status?: string; loanId?: number }) 
 // {items, hasMore} envelope instead of the bare array above — mirrors
 // listLoansPage, used by the standalone Requests list screen (10/page).
 export function listLoanRequestsPage(params: {
+  // Server-side search (loan no. / customer name / customer ID) and request
+  // type filter: "extension" | "release".
+  q?: string;
+  type?: string;
   status?: string;
   loanId?: number;
   limit: number;

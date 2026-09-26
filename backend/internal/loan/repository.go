@@ -105,7 +105,7 @@ type LoanFilter struct {
 	CustomerID uint
 	SchemeID   uint
 	LoanIDs    []uint // when non-empty, narrows to exactly these loans (e.g. a scheme statement's loan picker)
-	Query      string // matches LoanNumber or the customer's name (case-insensitive, partial)
+	Query      string // matches LoanNumber, the customer's name or the customer's code (case-insensitive, partial)
 
 	// BranchScope is the caller's branch-scoping restriction (see
 	// platform.GetBranchScope) — nil for Administrator (no restriction),
@@ -141,12 +141,36 @@ type LoanFilter struct {
 	// full list in the browser.
 	BankPledgeStatus string
 
+	// DueToday narrows to ordinary open loans (Active/Due Soon/Overdue)
+	// whose DueDate falls on today's calendar date — the mobile "Due today"
+	// chip. "Due today" is derived from due_date, never a stored status, so
+	// it can't be expressed through Status.
+	DueToday bool
+
+	// OnlyDefaulted keeps only loans whose read-time IsDefaulted flag is
+	// true (the mobile Auctions screen's "Defaulted" bucket). In SQL this
+	// narrows to the candidates that COULD be flagged — not Closed/Rejected/
+	// Auctioned and more than defaultedAfterDays past DueDate. IsDefaulted
+	// additionally needs genuine interest/penal arrears, which are computed
+	// at read time (see enrichStatusFlags) and can't be expressed in SQL, so
+	// Service.List applies the exact IsDefaulted check on top of that
+	// superset and paginates in Go afterwards.
+	OnlyDefaulted bool
+
 	// Limit/Offset paginate the result set; Limit <= 0 means "no limit"
 	// (the full listing every existing caller relies on). Ordering is by
 	// id desc, so paging is stable for a fixed filter.
 	Limit  int
 	Offset int
 }
+
+// openServicingStatuses are the three ordinary open statuses a loan can be
+// "due" in (see refreshServicingStatus).
+var openServicingStatuses = []string{StatusActive, StatusDueSoon, StatusOverdue}
+
+// notDefaultableStatuses are the statuses enrichStatusFlags never flags
+// (IsOverdue/IsDefaulted stay false for them regardless of DueDate).
+var notDefaultableStatuses = []string{StatusClosed, StatusRejected, StatusAuctioned}
 
 // startOfDay drops the clock time so date-only filters compare whole days
 // regardless of whether the caller sent YYYY-MM-DD or a full timestamp.
@@ -157,23 +181,28 @@ func startOfDay(t time.Time) time.Time {
 // applyFilters narrows q by every set field on f — the shared filter-building
 // logic behind FindAll and CountFiltered so the two can never drift out of
 // sync on what counts as a match.
+//
+// Every loans column is table-qualified because the Query search JOINs
+// customers, which has its own id/branch_id columns — an unqualified
+// "branch_id = ?" there was ambiguous and made Postgres reject a
+// branch-scoped search outright.
 func applyFilters(q *gorm.DB, f LoanFilter) *gorm.DB {
 	if len(f.StatusIn) > 0 {
-		q = q.Where("status IN ?", f.StatusIn)
+		q = q.Where("loans.status IN ?", f.StatusIn)
 	} else if f.Status != "" {
-		q = q.Where("status = ?", f.Status)
+		q = q.Where("loans.status = ?", f.Status)
 	}
 	if f.BranchID != 0 {
-		q = q.Where("branch_id = ?", f.BranchID)
+		q = q.Where("loans.branch_id = ?", f.BranchID)
 	}
 	if f.CustomerID != 0 {
-		q = q.Where("customer_id = ?", f.CustomerID)
+		q = q.Where("loans.customer_id = ?", f.CustomerID)
 	}
 	if f.SchemeID != 0 {
-		q = q.Where("scheme_id = ?", f.SchemeID)
+		q = q.Where("loans.scheme_id = ?", f.SchemeID)
 	}
 	if len(f.LoanIDs) > 0 {
-		q = q.Where("id IN ?", f.LoanIDs)
+		q = q.Where("loans.id IN ?", f.LoanIDs)
 	}
 	if f.Query != "" {
 		// Deliberately no explicit Select("loans.*") here — this filter is
@@ -185,24 +214,34 @@ func applyFilters(q *gorm.DB, f LoanFilter) *gorm.DB {
 		// model's own known column list rather than raw column position,
 		// exactly as personalloan.Repository's identical join already relies
 		// on (see personalloan/repository.go's Query handling).
+		like := "%" + f.Query + "%"
 		q = q.Joins("JOIN customers ON customers.id = loans.customer_id").
-			Where("loans.loan_number ILIKE ? OR customers.name ILIKE ?", "%"+f.Query+"%", "%"+f.Query+"%")
+			Where("loans.loan_number ILIKE ? OR customers.name ILIKE ? OR customers.code ILIKE ?", like, like, like)
 	}
 	if f.BranchScope != nil {
-		q = q.Where("branch_id = ?", *f.BranchScope)
+		q = q.Where("loans.branch_id = ?", *f.BranchScope)
 	}
 	if f.OpenedFrom != nil {
-		q = q.Where("opened_date >= ?", startOfDay(*f.OpenedFrom))
+		q = q.Where("loans.opened_date >= ?", startOfDay(*f.OpenedFrom))
 	}
 	if f.OpenedTo != nil {
-		q = q.Where("opened_date < ?", startOfDay(*f.OpenedTo).AddDate(0, 0, 1))
+		q = q.Where("loans.opened_date < ?", startOfDay(*f.OpenedTo).AddDate(0, 0, 1))
 	}
 	if f.ExcludeBankPledged {
-		q = q.Where("bank_pledge_status <> ?", BankPledgeStatusPledged)
-		q = q.Where("status NOT IN ?", bankPledgeIneligibleStatuses)
+		q = q.Where("loans.bank_pledge_status <> ?", BankPledgeStatusPledged)
+		q = q.Where("loans.status NOT IN ?", bankPledgeIneligibleStatuses)
 	}
 	if f.BankPledgeStatus != "" {
-		q = q.Where("bank_pledge_status = ?", f.BankPledgeStatus)
+		q = q.Where("loans.bank_pledge_status = ?", f.BankPledgeStatus)
+	}
+	if f.DueToday {
+		today := startOfDay(time.Now())
+		q = q.Where("loans.status IN ?", openServicingStatuses).
+			Where("loans.due_date >= ? AND loans.due_date < ?", today, today.AddDate(0, 0, 1))
+	}
+	if f.OnlyDefaulted {
+		q = q.Where("loans.status NOT IN ?", notDefaultableStatuses).
+			Where("loans.due_date < ?", time.Now().AddDate(0, 0, -defaultedAfterDays))
 	}
 	return q
 }
@@ -215,7 +254,7 @@ func (r *Repository) FindAll(ctx context.Context, f LoanFilter) ([]Loan, int64, 
 	// Most recently opened loan first. Ordering by id alone pinned whichever
 	// loan was inserted last to the top even when an older-dated loan was
 	// entered afterwards; id only breaks ties within the same day now.
-	q := applyFilters(preloadAll(r.db.WithContext(ctx)).Model(&Loan{}).Order("opened_date desc, id desc"), f)
+	q := applyFilters(preloadAll(r.db.WithContext(ctx)).Model(&Loan{}).Order("loans.opened_date desc, loans.id desc"), f)
 	var total int64
 	if f.Limit > 0 {
 		// A real COUNT over the same filter, ignoring Limit/Offset — computed
@@ -362,12 +401,19 @@ type CustomerOrnamentRow struct {
 // means "what's currently pledged," same intent as every other
 // currently-pledged-only consumer in this package (recalculate, risk
 // assessment, the loan statement).
-func (r *OrnamentRepository) FindByCustomerID(ctx context.Context, customerID uint, from, to *time.Time, limit, offset int) ([]CustomerOrnamentRow, int64, error) {
+//
+// search, when non-empty, matches the parent loan's number or the
+// ornament's name (case-insensitive, partial).
+func (r *OrnamentRepository) FindByCustomerID(ctx context.Context, customerID uint, from, to *time.Time, search string, limit, offset int) ([]CustomerOrnamentRow, int64, error) {
 	var rows []CustomerOrnamentRow
 	q := r.db.WithContext(ctx).Model(&Ornament{}).
 		Select("ornaments.*, loans.loan_number AS loan_number").
 		Joins("JOIN loans ON loans.id = ornaments.loan_id").
 		Where("loans.customer_id = ? AND ornaments.released_at IS NULL", customerID)
+	if search != "" {
+		like := "%" + search + "%"
+		q = q.Where("loans.loan_number ILIKE ? OR ornaments.name ILIKE ?", like, like)
+	}
 	if from != nil {
 		q = q.Where("loans.opened_date >= ?", startOfDay(*from))
 	}
@@ -504,12 +550,19 @@ type CustomerPaymentRow struct {
 // mobile app uses with no date filter at all.
 // FindByCustomerIDForProfile returns matching rows plus the TOTAL row count
 // (Limit/Offset ignored, 0 when limit <= 0).
-func (r *PaymentRepository) FindByCustomerIDForProfile(ctx context.Context, customerID uint, from, to *time.Time, limit, offset int) ([]CustomerPaymentRow, int64, error) {
+//
+// search, when non-empty, matches the parent loan's number or the payment's
+// type/method (case-insensitive, partial).
+func (r *PaymentRepository) FindByCustomerIDForProfile(ctx context.Context, customerID uint, from, to *time.Time, search string, limit, offset int) ([]CustomerPaymentRow, int64, error) {
 	var rows []CustomerPaymentRow
 	q := r.db.WithContext(ctx).Model(&LoanPayment{}).
 		Select("loan_payments.*, loans.loan_number AS loan_number").
 		Joins("JOIN loans ON loans.id = loan_payments.loan_id").
 		Where("loans.customer_id = ?", customerID)
+	if search != "" {
+		like := "%" + search + "%"
+		q = q.Where("loans.loan_number ILIKE ? OR loan_payments.type ILIKE ? OR loan_payments.method ILIKE ?", like, like, like)
+	}
 	if from != nil {
 		q = q.Where("loans.opened_date >= ?", startOfDay(*from))
 	}
@@ -688,8 +741,8 @@ func (r *BankPledgeRepository) FindAllHistory(ctx context.Context, branchID *uin
 	if query != "" {
 		like := "%" + query + "%"
 		q = q.Where(
-			"loans.loan_number ILIKE ? OR bank_pledge_records.bank_name ILIKE ? OR customers.name ILIKE ?",
-			like, like, like,
+			"loans.loan_number ILIKE ? OR bank_pledge_records.bank_name ILIKE ? OR customers.name ILIKE ? OR customers.code ILIKE ?",
+			like, like, like, like,
 		)
 	}
 	q = q.Order("bank_pledge_records.id desc")
@@ -717,12 +770,19 @@ type CustomerBankPledgeRow struct {
 // the PARENT LOAN's OpenedDate, matching GetCustomer360's window semantics.
 // FindAllByCustomerID returns matching rows plus the TOTAL row count (Limit/
 // Offset ignored, 0 when limit <= 0).
-func (r *BankPledgeRepository) FindAllByCustomerID(ctx context.Context, customerID uint, from, to *time.Time, limit, offset int) ([]CustomerBankPledgeRow, int64, error) {
+//
+// search, when non-empty, matches the parent loan's number or the bank name
+// (case-insensitive, partial).
+func (r *BankPledgeRepository) FindAllByCustomerID(ctx context.Context, customerID uint, from, to *time.Time, search string, limit, offset int) ([]CustomerBankPledgeRow, int64, error) {
 	var rows []CustomerBankPledgeRow
 	q := r.db.WithContext(ctx).Model(&BankPledgeRecord{}).
 		Select("bank_pledge_records.*, loans.loan_number AS loan_number").
 		Joins("JOIN loans ON loans.id = bank_pledge_records.loan_id").
 		Where("loans.customer_id = ?", customerID)
+	if search != "" {
+		like := "%" + search + "%"
+		q = q.Where("loans.loan_number ILIKE ? OR bank_pledge_records.bank_name ILIKE ?", like, like)
+	}
 	if from != nil {
 		q = q.Where("loans.opened_date >= ?", startOfDay(*from))
 	}
@@ -791,6 +851,14 @@ type LoanRequestFilter struct {
 	Status string
 	LoanID uint
 
+	// Type, when set, matches LoanRequest.Type exactly (RequestTypeExtension
+	// / RequestTypeRelease).
+	Type string
+
+	// Query, when set, matches the parent loan's number or its customer's
+	// name/code (case-insensitive, partial) via JOINs on loans/customers.
+	Query string
+
 	// BranchID is the caller's branch-scoping restriction (see
 	// platform.GetBranchScope) — nil for Administrator (no restriction),
 	// else limits results to requests whose underlying loan belongs to that
@@ -806,9 +874,20 @@ type LoanRequestFilter struct {
 // FindAll returns matching requests plus the TOTAL row count for f's
 // filters (Limit/Offset ignored, 0 when f.Limit <= 0).
 func (r *LoanRequestRepository) FindAll(ctx context.Context, f LoanRequestFilter) ([]LoanRequest, int64, error) {
-	q := r.db.WithContext(ctx).Preload("Loan.Customer").Model(&LoanRequest{}).Order("id desc")
+	q := r.db.WithContext(ctx).Preload("Loan.Customer").Model(&LoanRequest{}).Order("loan_requests.id desc")
+	if f.BranchID != nil || f.Query != "" {
+		q = q.Joins("JOIN loans ON loans.id = loan_requests.loan_id")
+	}
 	if f.BranchID != nil {
-		q = q.Joins("JOIN loans ON loans.id = loan_requests.loan_id").Where("loans.branch_id = ?", *f.BranchID)
+		q = q.Where("loans.branch_id = ?", *f.BranchID)
+	}
+	if f.Query != "" {
+		like := "%" + f.Query + "%"
+		q = q.Joins("JOIN customers ON customers.id = loans.customer_id").
+			Where("loans.loan_number ILIKE ? OR customers.name ILIKE ? OR customers.code ILIKE ?", like, like, like)
+	}
+	if f.Type != "" {
+		q = q.Where("loan_requests.type = ?", f.Type)
 	}
 	if f.Status != "" {
 		q = q.Where("loan_requests.status = ?", f.Status)
@@ -1018,8 +1097,8 @@ func (r *AuctionRepository) FindAllConcluded(ctx context.Context, branchID *uint
 	if query != "" {
 		like := "%" + query + "%"
 		q = q.Where(
-			"loans.loan_number ILIKE ? OR customers.name ILIKE ? OR auction_records.auction_reference_number ILIKE ?",
-			like, like, like,
+			"loans.loan_number ILIKE ? OR customers.name ILIKE ? OR customers.code ILIKE ? OR auction_records.auction_reference_number ILIKE ?",
+			like, like, like, like,
 		)
 	}
 	q = q.Order("auction_records.updated_at desc, auction_records.id desc")
@@ -1046,6 +1125,7 @@ type ScheduledAuctionCalendarRow struct {
 	BranchID     uint
 	CustomerID   uint
 	CustomerName string
+	CustomerCode string
 	AuctionDate  time.Time
 }
 
@@ -1058,7 +1138,7 @@ type ScheduledAuctionCalendarRow struct {
 func (r *AuctionRepository) FindScheduledForCalendar(ctx context.Context) ([]ScheduledAuctionCalendarRow, error) {
 	var rows []ScheduledAuctionCalendarRow
 	err := r.db.WithContext(ctx).Model(&AuctionRecord{}).
-		Select("auction_records.loan_id AS loan_id, loans.loan_number AS loan_number, loans.branch_id AS branch_id, loans.customer_id AS customer_id, customers.name AS customer_name, auction_records.auction_date AS auction_date").
+		Select("auction_records.loan_id AS loan_id, loans.loan_number AS loan_number, loans.branch_id AS branch_id, loans.customer_id AS customer_id, customers.name AS customer_name, customers.code AS customer_code, auction_records.auction_date AS auction_date").
 		Joins("JOIN loans ON loans.id = auction_records.loan_id").
 		Joins("JOIN customers ON customers.id = loans.customer_id").
 		Where("auction_records.stage = ? AND auction_records.auction_date IS NOT NULL", AuctionStageScheduled).
@@ -1082,12 +1162,19 @@ type CustomerAuctionRow struct {
 // OpenedDate, matching GetCustomer360's window semantics.
 // FindAllByCustomerID returns matching rows plus the TOTAL row count (Limit/
 // Offset ignored, 0 when limit <= 0).
-func (r *AuctionRepository) FindAllByCustomerID(ctx context.Context, customerID uint, from, to *time.Time, limit, offset int) ([]CustomerAuctionRow, int64, error) {
+//
+// search, when non-empty, matches the parent loan's number or the auction's
+// reference number (case-insensitive, partial).
+func (r *AuctionRepository) FindAllByCustomerID(ctx context.Context, customerID uint, from, to *time.Time, search string, limit, offset int) ([]CustomerAuctionRow, int64, error) {
 	var rows []CustomerAuctionRow
 	q := r.db.WithContext(ctx).Model(&AuctionRecord{}).
 		Select("auction_records.*, loans.loan_number AS loan_number").
 		Joins("JOIN loans ON loans.id = auction_records.loan_id").
 		Where("loans.customer_id = ?", customerID)
+	if search != "" {
+		like := "%" + search + "%"
+		q = q.Where("loans.loan_number ILIKE ? OR auction_records.auction_reference_number ILIKE ?", like, like)
+	}
 	if from != nil {
 		q = q.Where("loans.opened_date >= ?", startOfDay(*from))
 	}

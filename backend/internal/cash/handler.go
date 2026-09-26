@@ -130,6 +130,7 @@ func (h *MovementHandler) List(c *gin.Context) {
 		return
 	}
 	category := c.Query("category")
+	search := strings.TrimSpace(c.Query("q"))
 
 	limit, _ := strconv.Atoi(c.Query("limit"))
 	if limit > 0 {
@@ -137,7 +138,7 @@ func (h *MovementHandler) List(c *gin.Context) {
 		if offset < 0 {
 			offset = 0
 		}
-		rec, total, err := h.svc.List(ctx, branchID, fromDate, toDate, category, limit+1, offset)
+		rec, total, err := h.svc.List(ctx, branchID, fromDate, toDate, category, search, limit+1, offset)
 		if err != nil {
 			httpx.FailErr(c, err)
 			return
@@ -150,7 +151,7 @@ func (h *MovementHandler) List(c *gin.Context) {
 		return
 	}
 
-	rec, _, err := h.svc.List(ctx, branchID, fromDate, toDate, category, 0, 0)
+	rec, _, err := h.svc.List(ctx, branchID, fromDate, toDate, category, search, 0, 0)
 	if err != nil {
 		httpx.FailErr(c, err)
 		return
@@ -369,7 +370,7 @@ func (h *MovementHandler) Export(c *gin.Context) {
 	}
 	category := c.Query("category")
 
-	rows, _, err := h.svc.List(ctx, branchID, fromDate, toDate, category, 0, 0)
+	rows, _, err := h.svc.List(ctx, branchID, fromDate, toDate, category, "", 0, 0)
 	if err != nil {
 		httpx.FailErr(c, err)
 		return
@@ -518,6 +519,7 @@ func (h *ExpenseHandler) Record(c *gin.Context) {
 func (h *ExpenseHandler) List(c *gin.Context) {
 	ctx := platform.RequestContext(c)
 	branchID := platform.GetBranchScope(c)
+	search := strings.TrimSpace(c.Query("q"))
 
 	limit, _ := strconv.Atoi(c.Query("limit"))
 	if limit > 0 {
@@ -525,7 +527,7 @@ func (h *ExpenseHandler) List(c *gin.Context) {
 		if offset < 0 {
 			offset = 0
 		}
-		rec, total, err := h.svc.List(ctx, branchID, limit+1, offset)
+		rec, total, err := h.svc.List(ctx, branchID, search, limit+1, offset)
 		if err != nil {
 			httpx.FailErr(c, err)
 			return
@@ -538,7 +540,7 @@ func (h *ExpenseHandler) List(c *gin.Context) {
 		return
 	}
 
-	rec, _, err := h.svc.List(ctx, branchID, 0, 0)
+	rec, _, err := h.svc.List(ctx, branchID, search, 0, 0)
 	if err != nil {
 		httpx.FailErr(c, err)
 		return
@@ -552,7 +554,7 @@ func (h *ExpenseHandler) List(c *gin.Context) {
 func (h *ExpenseHandler) Export(c *gin.Context) {
 	ctx := platform.RequestContext(c)
 	branchID := platform.GetBranchScope(c)
-	rows, _, err := h.svc.List(ctx, branchID, 0, 0)
+	rows, _, err := h.svc.List(ctx, branchID, "", 0, 0)
 	if err != nil {
 		httpx.FailErr(c, err)
 		return
@@ -809,6 +811,7 @@ func (h *GoldSaleHandler) List(c *gin.Context) {
 		httpx.Fail(c, http.StatusBadRequest, "invalid toDate: expected YYYY-MM-DD")
 		return
 	}
+	search := strings.TrimSpace(c.Query("q"))
 
 	limit, _ := strconv.Atoi(c.Query("limit"))
 	if limit > 0 {
@@ -816,7 +819,7 @@ func (h *GoldSaleHandler) List(c *gin.Context) {
 		if offset < 0 {
 			offset = 0
 		}
-		rec, total, err := h.svc.List(ctx, branchID, fromDate, toDate, limit+1, offset)
+		rec, total, err := h.svc.List(ctx, branchID, fromDate, toDate, search, limit+1, offset)
 		if err != nil {
 			httpx.FailErr(c, err)
 			return
@@ -829,7 +832,7 @@ func (h *GoldSaleHandler) List(c *gin.Context) {
 		return
 	}
 
-	rec, _, err := h.svc.List(ctx, branchID, fromDate, toDate, 0, 0)
+	rec, _, err := h.svc.List(ctx, branchID, fromDate, toDate, search, 0, 0)
 	if err != nil {
 		httpx.FailErr(c, err)
 		return

@@ -1,130 +1,150 @@
-import React, { useState } from "react";
-import { TAB_BAR_SPACE } from "../../../src/theme/layout";
-import { TopFaded } from "../../../src/components/EdgeFade";
-import { FlatList, RefreshControl, View } from "react-native";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { ScreenContainer } from "../../../src/components/ScreenContainer";
-import { Card } from "../../../src/components/Card";
-import { ThemedText } from "../../../src/components/ThemedText";
-import { GoldTextInput } from "../../../src/components/GoldTextInput";
-import { GoldButton } from "../../../src/components/GoldButton";
-import { statusColors } from "../../../src/theme/colors";
-import { useTheme } from "../../../src/theme/ThemeProvider";
-import { listApiKeys, setApiKey } from "../../../src/api/settings";
-import { ApiKeyView, ApiKeyCategory } from "../../../src/types/apiKey";
+import React, { useEffect, useState } from "react";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
+import {
+  AccRow,
+  C,
+  FabCorner,
+  FlatHeader,
+  NoticeBanner,
+  PrimaryButton,
+  Screen,
+  SearchInput,
+  SelectField,
+  ServerFlatList,
+  Sheet,
+  TextField,
+  Txt,
+} from "../../../src/components/ui";
+import { useServerList } from "../../../src/hooks/useServerList";
+import { deleteApiKey, listApiKeysPage, setApiKey } from "../../../src/api/settings";
+import { API_KEY_CATEGORIES, type ApiKeyCategory, type ApiKeyView } from "../../../src/types/apiKey";
 import { ApiError } from "../../../src/api/client";
-import { useRefetchOnFocus, useResetOnBlur } from "../../../src/hooks/useRefetchOnFocus";
-import { Loading } from "../../../src/components/Loading";
+import { dmy } from "../../../src/lib/format";
 
-// Administrator-only, matching web — this whole route is hidden from the
-// More sheet for non-Administrators (src/components/MoreSheet.tsx), and the
-// backend's own RBAC check would 403 a non-Administrator regardless.
-export default function SettingsScreen() {
-  const { colors } = useTheme();
+// Settings (API keys) — not drawn in the prototype; built from its list
+// language (FlatHeader back, SearchInput, server-paged AccRows, Sheets).
+// Administrator-only: the route is hidden from More for everyone else and
+// the backend's RBAC 403s regardless. Raw key values are never returned —
+// only whether a category is configured.
+
+const label = (c: string) => c.replace(/_/g, " ").replace(/\b\w/g, (m) => m.toUpperCase());
+
+/** Add / replace a category's key. `category` null = pick one (FAB). */
+function ApiKeySheet({ visible, onClose, item }: { visible: boolean; onClose: () => void; item: ApiKeyView | null }) {
   const queryClient = useQueryClient();
-  const [editing, setEditing] = useState<ApiKeyCategory | null>(null);
+  const [category, setCategory] = useState<ApiKeyCategory>(API_KEY_CATEGORIES[0]);
+  const [name, setName] = useState("");
   const [value, setValue] = useState("");
   const [error, setError] = useState<string | null>(null);
 
-  const { data, isLoading, isError, refetch, isRefetching } = useQuery({
-    queryKey: ["api-keys"],
-    queryFn: listApiKeys,
-  });
-
-  useRefetchOnFocus(refetch);
-
-  useResetOnBlur(() => {
-    setEditing(null);
+  useEffect(() => {
+    if (!visible) return;
+    setCategory(item?.category ?? API_KEY_CATEGORIES[0]);
+    setName(item?.name ?? "");
     setValue("");
     setError(null);
-  });
+  }, [visible, item]);
 
   const save = useMutation({
-    mutationFn: (category: ApiKeyCategory) => setApiKey(category, value),
+    mutationFn: () => setApiKey(category, value, name.trim() || undefined),
     onSuccess: () => {
-      setEditing(null);
-      setValue("");
-      setError(null);
       queryClient.invalidateQueries({ queryKey: ["api-keys"] });
+      onClose();
     },
     onError: (err) => setError(err instanceof ApiError ? err.message : "Could not save."),
   });
 
   return (
-    <ScreenContainer style={{ paddingHorizontal: 0 }}>
-      <TopFaded>{(fade) => (
-      <FlatList<ApiKeyView>
-        {...fade}
-        data={data ?? []}
-        keyExtractor={(item) => item.category}
-        contentContainerStyle={{ paddingHorizontal: 8, paddingTop: 20, paddingBottom: TAB_BAR_SPACE }}
-        refreshControl={<RefreshControl refreshing={isRefetching} onRefresh={refetch} />}
-        ListEmptyComponent={
-          isLoading ? (
-            <Loading />
-          ) : (
-            <ThemedText color={colors.muted}>
-              {isError ? "Could not load API keys." : "No categories found."}
-            </ThemedText>
-          )
-        }
-        renderItem={({ item }) => {
-          const tone = statusColors(item.configured ? "green" : "muted", colors);
-          const isEditing = editing === item.category;
-          return (
-            <Card>
-              <ThemedText variant="h3">{item.category.replace(/_/g, " ")}</ThemedText>
-              <ThemedText
-                variant="label"
-                style={{
-                  marginTop: 6,
-                  marginBottom: 8,
-                  alignSelf: "flex-start",
-                  backgroundColor: tone.bg,
-                  color: tone.fg,
-                  paddingHorizontal: 8,
-                  paddingVertical: 3,
-                  borderRadius: 6,
-                }}
-              >
-                {item.configured ? "Configured" : "Not configured"}
-              </ThemedText>
-              {isEditing ? (
-                <View>
-                  <GoldTextInput
-                    label="New value"
-                    secureTextEntry
-                    value={value}
-                    onChangeText={setValue}
-                  />
-                  {error ? (
-                    <ThemedText variant="small" color={colors.red} style={{ marginBottom: 8 }}>
-                      {error}
-                    </ThemedText>
-                  ) : null}
-                  <GoldButton
-                    title="Save"
-                    onPress={() => save.mutate(item.category)}
-                    loading={save.isPending}
-                    disabled={!value}
-                  />
-                </View>
-              ) : (
-                <GoldButton
-                  title="Edit"
-                  variant="outline"
-                  onPress={() => {
-                    setEditing(item.category);
-                    setValue("");
-                    setError(null);
-                  }}
-                />
-              )}
-            </Card>
-          );
-        }}
+    <Sheet visible={visible} onClose={onClose} title={item ? `Edit ${label(item.category)}` : "Add API Key"} maxHeightPct={80}>
+      {item ? null : (
+        <SelectField label="Category" value={category} options={API_KEY_CATEGORIES} onChange={setCategory} labels={Object.fromEntries(API_KEY_CATEGORIES.map((c) => [c, label(c)]))} />
+      )}
+      <TextField label="Name (optional)" value={name} onChangeText={setName} placeholder="e.g. Provider account" />
+      <TextField label="New value" value={value} onChangeText={setValue} secureTextEntry placeholder="Paste the key" autoCapitalize="none" autoCorrect={false} />
+      {item?.configured ? <NoticeBanner>Saving replaces the stored key. The current value is never shown.</NoticeBanner> : null}
+      {error ? <Txt style={{ color: C.red, fontSize: 12, marginBottom: 10 }}>{error}</Txt> : null}
+      <PrimaryButton label="Save Key" onPress={() => save.mutate()} loading={save.isPending} disabled={!value} />
+    </Sheet>
+  );
+}
+
+/** Clear a category's stored key. */
+function DeleteKeySheet({ item, onClose }: { item: ApiKeyView | null; onClose: () => void }) {
+  const queryClient = useQueryClient();
+  const del = useMutation({
+    mutationFn: () => deleteApiKey(item!.category),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["api-keys"] });
+      onClose();
+    },
+  });
+  useEffect(() => del.reset(), [item]); // eslint-disable-line react-hooks/exhaustive-deps
+  return (
+    <Sheet visible={item != null} onClose={onClose} title="Remove API Key" maxHeightPct={50}>
+      <Txt style={{ fontSize: 13, color: C.muted, marginBottom: 14 }}>
+        The stored {item ? label(item.category) : ""} key will be cleared. Features using it stop working until a new key is saved.
+      </Txt>
+      {del.isError ? (
+        <Txt style={{ color: C.red, fontSize: 12, marginBottom: 10 }}>{del.error instanceof ApiError ? del.error.message : "Could not remove."}</Txt>
+      ) : null}
+      <PrimaryButton label="Remove Key" variant="danger" loading={del.isPending} onPress={() => del.mutate()} />
+    </Sheet>
+  );
+}
+
+export default function SettingsScreen() {
+  const [formOpen, setFormOpen] = useState(false);
+  const [editing, setEditing] = useState<ApiKeyView | null>(null);
+  const [deleting, setDeleting] = useState<ApiKeyView | null>(null);
+
+  const list = useServerList<ApiKeyView>({ key: ["api-keys", "list"], fetchPage: (p) => listApiKeysPage(p) });
+
+  return (
+    <Screen
+      header={<FlatHeader title="Settings" subtitle="API keys & integrations" back />}
+      floating={
+        <FabCorner
+          label="Add API key"
+          onPress={() => {
+            setEditing(null);
+            setFormOpen(true);
+          }}
+        />
+      }
+    >
+      <ServerFlatList
+        list={list}
+        items={list.items}
+        keyOf={(k) => k.category}
+        emptyText={list.search ? "No API keys match your search." : "No categories found."}
+        header={<SearchInput value={list.search} onChangeText={list.setSearch} placeholder="Search by category or name" style={{ paddingTop: 14 }} />}
+        renderItem={(k) => (
+          <AccRow
+            name={label(k.category)}
+            sub={k.name || undefined}
+            status={k.configured ? "Configured" : "Not configured"}
+            statusTone={k.configured ? "active" : "closed"}
+            details={[
+              { k: "Name", v: k.name || "—" },
+              { k: "Last updated", v: k.updatedAt ? dmy(k.updatedAt) : "—" },
+            ]}
+            actions={[
+              ...(k.configured ? [{ label: "Remove", danger: true, onPress: () => setDeleting(k) }] : []),
+              {
+                label: k.configured ? "Edit Key" : "Add Key",
+                primary: true,
+                onPress: () => {
+                  setEditing(k);
+                  setFormOpen(true);
+                },
+              },
+            ]}
+          />
+        )}
       />
-      )}</TopFaded>
-    </ScreenContainer>
+
+      <ApiKeySheet visible={formOpen} onClose={() => setFormOpen(false)} item={editing} />
+      <DeleteKeySheet item={deleting} onClose={() => setDeleting(null)} />
+    </Screen>
   );
 }

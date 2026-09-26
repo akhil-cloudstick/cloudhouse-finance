@@ -27,9 +27,9 @@ type Source = { key: string; label: string; icon: string; run: () => Promise<Pic
 
 // Thrown for a denied permission — the one non-API error whose message is
 // meant for the user as-is (see pick()'s catch).
-class PermissionError extends Error {}
+export class PermissionError extends Error {}
 
-async function fromCamera(): Promise<PickedFile | null> {
+export async function fromCamera(): Promise<PickedFile | null> {
   const perm = await ImagePicker.requestCameraPermissionsAsync();
   if (!perm.granted) throw new PermissionError("Camera permission is needed to take a photo.");
   // Low quality keeps full-resolution camera shots small enough to upload quickly.
@@ -39,14 +39,14 @@ async function fromCamera(): Promise<PickedFile | null> {
   return { uri: a.uri, name: a.fileName || "photo.jpg", mimeType: a.mimeType || "image/jpeg" };
 }
 
-async function fromLibrary(): Promise<PickedFile | null> {
+export async function fromLibrary(): Promise<PickedFile | null> {
   const res = await ImagePicker.launchImageLibraryAsync({ mediaTypes: "images", quality: 0.35, exif: false });
   if (res.canceled || !res.assets?.length) return null;
   const a = res.assets[0];
   return { uri: a.uri, name: a.fileName || "image.jpg", mimeType: a.mimeType || "image/jpeg" };
 }
 
-async function fromFiles(): Promise<PickedFile | null> {
+export async function fromFiles(): Promise<PickedFile | null> {
   const res = await DocumentPicker.getDocumentAsync({
     type: ["application/pdf", "image/*"],
     copyToCacheDirectory: true,

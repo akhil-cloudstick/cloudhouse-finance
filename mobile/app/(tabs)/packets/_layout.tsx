@@ -1,28 +1,12 @@
-﻿import { Stack } from "expo-router";
-import { FloatingHeader } from "../../../src/components/FloatingHeader";
+import { Stack } from "expo-router";
 import { colors } from "../../../src/theme/colors";
 
-// Keeps the list screen beneath a deep-linked detail route, so back/swipe
-// returns to the list rather than popping the whole tab. See loans/_layout.tsx.
+// Screens own their headers (FlatHeader inside <Screen>, see
+// src/components/ui/Shell.tsx), so this stack never draws one. `anchor`
+// keeps the list underneath a deep-linked detail screen so back always
+// lands on the list rather than popping the whole tab.
 export const unstable_settings = { anchor: "index" };
 
-export default function PacketsLayout() {
-  return (
-    <Stack
-      screenOptions={{
-        // Header floats over the scene; see useHeaderSpace (src/theme/layout.ts).
-        headerTransparent: true,
-        header: ({ options, route, navigation }) => (
-          <FloatingHeader title={options.title ?? route.name} navigation={navigation} />
-        ),
-        // The scene's own background: without it the Stack paints white,
-        // which showed through the transparent FloatingHeader as a pale band
-        // across the top of every nested screen.
-        contentStyle: { backgroundColor: colors.bg },
-      }}
-    >
-      <Stack.Screen name="index" options={{ title: "Packets" }} />
-      <Stack.Screen name="[id]" options={{ title: "Packet" }} />
-    </Stack>
-  );
+export default function ModuleLayout() {
+  return <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: colors.bg } }} />;
 }

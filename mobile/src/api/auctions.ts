@@ -53,7 +53,7 @@ export function settleAuction(loanId: number, disposition: AuctionSurplusDisposi
 // Without Auction" (Withdrawn before a sale) — two independently paginated
 // tables, same as web.
 export function listConcludedAuctions(params: { hasSale: boolean; limit: number; offset: number; q?: string }) {
-  return apiRequest<{ items: ConcludedAuctionRow[]; hasMore: boolean }>("/loans/auctions/concluded", { params });
+  return apiRequest<{ items: ConcludedAuctionRow[] | null; hasMore: boolean; total?: number }>("/loans/auctions/concluded", { params });
 }
 
 // resolveAuctionDecision applies a human ruling to an escalation the SYSTEM
