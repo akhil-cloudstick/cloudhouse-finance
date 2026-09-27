@@ -3,6 +3,7 @@ import * as Sharing from "expo-sharing";
 import * as Print from "expo-print";
 import { API_BASE_URL } from "../api/config";
 import { getToken } from "../auth/tokenStorage";
+import { ApiError } from "../api/client";
 
 // Downloads GET /investments/:id/bond/pdf into the cache dir — same
 // download-to-cache-file pattern as schemeStatement.ts's downloadToCache,
@@ -18,7 +19,7 @@ async function downloadToCache(investmentId: number, investmentNumber: string): 
     { headers: token ? { Authorization: `Bearer ${token}` } : {} }
   );
   if (result.status < 200 || result.status >= 300) {
-    throw new Error(`Could not download the agreement (${result.status})`);
+    throw new ApiError(result.status, "", undefined);
   }
   return result.uri;
 }

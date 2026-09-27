@@ -210,7 +210,7 @@ async function printServerPdf(path: string, filename: string): Promise<void> {
     headers: token ? { Authorization: `Bearer ${token}` } : {},
   });
   if (result.status < 200 || result.status >= 300) {
-    let message = `Could not download the document (${result.status}).`;
+    let message = "";
     let body: unknown = null;
     try {
       body = JSON.parse(await FileSystem.readAsStringAsync(result.uri));

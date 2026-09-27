@@ -33,10 +33,10 @@
       [
         "expo-splash-screen",
         {
-          "image": "./assets/cloudhouse.png",
-          "imageWidth": 220,
+          "image": "./assets/splash-tile.png",
+          "imageWidth": 96,
           "resizeMode": "contain",
-          "backgroundColor": "#ffffff"
+          "backgroundColor": "#6e1423"
         }
       ],
       [

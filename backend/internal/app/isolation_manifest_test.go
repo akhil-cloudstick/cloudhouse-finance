@@ -340,6 +340,8 @@ var routeManifest = map[string]routeSpec{
 
 	// ----------------------------------------------------------- dashboard
 	"GET /api/v1/dashboard/needs-attention": list(),
+	"GET /api/v1/dashboard/summary":         list(),
+	"GET /api/v1/dashboard/activity":        list(),
 	// Snapshot IS tenant-owned. It was not: it shipped with no tenant_id, a
 	// globally unique date, and a capture job under AllowCrossTenant, so one
 	// row per day held every business's counts added together and every

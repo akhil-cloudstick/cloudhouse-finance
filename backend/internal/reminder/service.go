@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"sort"
+	"strings"
 	"time"
 
 	"cloudhouse/backend/internal/commlog"
@@ -129,7 +130,7 @@ func (s *Service) Get(ctx context.Context, id uint, branchID *uint) (*Reminder, 
 	return rec, nil
 }
 
-func (s *Service) List(ctx context.Context, f Filter) ([]Reminder, error) {
+func (s *Service) List(ctx context.Context, f Filter) ([]Reminder, int64, error) {
 	return s.repo.FindAll(ctx, f)
 }
 
@@ -235,8 +236,14 @@ func (s *Service) Delete(ctx context.Context, id uint) error {
 // shape), matching the "additive query params" backward-compatibility rule
 // — existing callers that never send page/pageSize keep getting the exact
 // response shape they always have. The returned int is always the *full*
-// (pre-slice) event count.
-func (s *Service) GetCalendarEvents(ctx context.Context, from, to time.Time, branchID *uint, page, pageSize int) ([]CalendarEvent, int, error) {
+// (pre-slice, post-search) event count.
+//
+// query, when non-empty, keeps only events whose customer name, customer
+// code or loan number contains it (case-insensitive) — applied to the
+// merged list before sorting/pagination, so totalCount reflects the search.
+// A manual reminder carries no loan number of its own, so it matches on its
+// customer only.
+func (s *Service) GetCalendarEvents(ctx context.Context, from, to time.Time, branchID *uint, query string, page, pageSize int) ([]CalendarEvent, int, error) {
 	from = truncateDay(from)
 	to = truncateDay(to)
 
@@ -273,6 +280,7 @@ func (s *Service) GetCalendarEvents(ctx context.Context, from, to time.Time, bra
 				LoanNumber:   l.LoanNumber,
 				CustomerID:   &custID,
 				CustomerName: custName,
+				CustomerCode: l.Customer.Code,
 			})
 		}
 		// Also surface a currently-overdue loan even if its DueDate itself
@@ -289,6 +297,7 @@ func (s *Service) GetCalendarEvents(ctx context.Context, from, to time.Time, bra
 				LoanNumber:   l.LoanNumber,
 				CustomerID:   &custID,
 				CustomerName: custName,
+				CustomerCode: l.Customer.Code,
 			})
 		}
 
@@ -305,6 +314,7 @@ func (s *Service) GetCalendarEvents(ctx context.Context, from, to time.Time, bra
 				LoanNumber:   l.LoanNumber,
 				CustomerID:   &custID,
 				CustomerName: custName,
+				CustomerCode: l.Customer.Code,
 			})
 		}
 	}
@@ -336,6 +346,7 @@ func (s *Service) GetCalendarEvents(ctx context.Context, from, to time.Time, bra
 					LoanNumber:     inst.LoanNumber,
 					CustomerID:     &inst.CustomerID,
 					CustomerName:   inst.CustomerName,
+					CustomerCode:   inst.CustomerCode,
 				})
 			}
 			// Same "still overdue but outside the browsed range" anchor the
@@ -352,6 +363,7 @@ func (s *Service) GetCalendarEvents(ctx context.Context, from, to time.Time, bra
 					LoanNumber:     inst.LoanNumber,
 					CustomerID:     &inst.CustomerID,
 					CustomerName:   inst.CustomerName,
+					CustomerCode:   inst.CustomerCode,
 				})
 			}
 		}
@@ -380,11 +392,12 @@ func (s *Service) GetCalendarEvents(ctx context.Context, from, to time.Time, bra
 			LoanNumber:   a.LoanNumber,
 			CustomerID:   &custID,
 			CustomerName: a.CustomerName,
+			CustomerCode: a.CustomerCode,
 		})
 	}
 
 	from2, to2 := from, to
-	reminders, err := s.repo.FindAll(ctx, Filter{From: &from2, To: &to2, BranchID: branchID})
+	reminders, _, err := s.repo.FindAll(ctx, Filter{From: &from2, To: &to2, BranchID: branchID})
 	if err != nil {
 		return nil, 0, err
 	}
@@ -406,10 +419,13 @@ func (s *Service) GetCalendarEvents(ctx context.Context, from, to time.Time, bra
 			LoanID:       r.LoanID,
 			CustomerID:   &custID,
 			CustomerName: r.Customer.Name,
+			CustomerCode: r.Customer.Code,
 			ReminderID:   &rID,
 			Status:       r.Status,
 		})
 	}
+
+	events = filterCalendarEvents(events, query)
 
 	isOverdue := func(e CalendarEvent) bool { return e.Type == "Overdue" || e.Type == "PersonalLoanOverdue" }
 	sort.SliceStable(events, func(i, j int) bool {
@@ -433,6 +449,24 @@ func (s *Service) GetCalendarEvents(ctx context.Context, from, to time.Time, bra
 		end = total
 	}
 	return events[start:end], total, nil
+}
+
+// filterCalendarEvents keeps the events whose CustomerName, CustomerCode or
+// LoanNumber contains query (case-insensitive); an empty query keeps all.
+func filterCalendarEvents(events []CalendarEvent, query string) []CalendarEvent {
+	needle := strings.ToLower(strings.TrimSpace(query))
+	if needle == "" {
+		return events
+	}
+	kept := events[:0]
+	for _, e := range events {
+		if strings.Contains(strings.ToLower(e.CustomerName), needle) ||
+			strings.Contains(strings.ToLower(e.CustomerCode), needle) ||
+			strings.Contains(strings.ToLower(e.LoanNumber), needle) {
+			kept = append(kept, e)
+		}
+	}
+	return kept
 }
 
 // truncateDay zeroes out the time-of-day, always in UTC — regardless of

@@ -4,6 +4,7 @@ import { BlurView } from "expo-blur";
 import { colors } from "../theme/colors";
 import { typeScale } from "../theme/typography";
 import { ThemedText } from "./ThemedText";
+import { doneBarFor } from "./ui/KeyboardDone";
 
 // `right` renders an accessory (e.g. the show/hide-password eye toggle)
 // inside the input's right edge without every caller reimplementing the
@@ -56,6 +57,7 @@ export function GoldTextInput({
           <TextInput
             placeholderTextColor={colors.muted}
             style={[styles.input, right ? styles.inputWithRight : null, style]}
+            inputAccessoryViewID={doneBarFor(rest.keyboardType)}
             {...rest}
           />
         </InputSurface>

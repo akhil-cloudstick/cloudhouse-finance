@@ -1,13 +1,20 @@
 import { API_BASE_URL } from "./config";
 import { getToken } from "../auth/tokenStorage";
+import { friendlyServerMessage } from "./errors";
 
+// `message` is always safe to show: a readable server message passes
+// through, anything technical (parse/SQL/binding errors, raw statuses) is
+// replaced by a plain one — see errors.ts. The original stays on
+// `rawMessage` for debugging.
 export class ApiError extends Error {
   status: number;
   body: unknown;
+  rawMessage: string;
   constructor(status: number, message: string, body: unknown) {
-    super(message);
+    super(friendlyServerMessage(status, message));
     this.status = status;
     this.body = body;
+    this.rawMessage = message;
   }
 }
 
@@ -68,20 +75,39 @@ export async function apiRequest<T>(path: string, opts: RequestOptions = {}): Pr
       signal: controller.signal,
     });
   } catch (err) {
+    if (__DEV__) console.warn(`[api] ${method} ${path} failed`, err);
     if (err instanceof Error && err.name === "AbortError") {
-      throw new ApiError(0, `Request timed out after ${REQUEST_TIMEOUT_MS / 1000}s (${API_BASE_URL})`, undefined);
+      throw new ApiError(408, "The server took too long to respond. Please try again.", undefined);
     }
-    throw err;
+    throw new ApiError(0, "Couldn't reach the server. Check your internet connection and try again.", undefined);
   } finally {
     clearTimeout(timer);
   }
 
-  const text = await res.text();
-  const data = text ? JSON.parse(text) : undefined;
+  let text = "";
+  try {
+    text = await res.text();
+  } catch {
+    throw new ApiError(res.status || 0, "Couldn't read the server's response. Please try again.", undefined);
+  }
+  // A proxy/tunnel error page (HTML) or a truncated body isn't JSON — that
+  // used to surface as "JSON Parse error: Unexpected character: <".
+  let data: any;
+  let parsed = true;
+  try {
+    data = text ? JSON.parse(text) : undefined;
+  } catch {
+    parsed = false;
+    data = undefined;
+    if (__DEV__) console.warn(`[api] ${method} ${path} returned non-JSON (${res.status})`, text.slice(0, 200));
+  }
 
   if (!res.ok) {
-    const message = (data && (data.error || data.message)) || res.statusText;
-    throw new ApiError(res.status, message, data);
+    const message = (data && (data.error || data.message)) || "";
+    throw new ApiError(res.status, typeof message === "string" ? message : "", data);
+  }
+  if (!parsed) {
+    throw new ApiError(502, "The server sent an unexpected response. Please try again in a moment.", undefined);
   }
 
   return data as T;
@@ -97,7 +123,7 @@ export async function apiRequest<T>(path: string, opts: RequestOptions = {}): Pr
 export async function apiRequestEnveloped<T>(path: string, opts: RequestOptions = {}): Promise<T> {
   const envelope = await apiRequest<{ success: boolean; data?: T; message?: T; error?: string }>(path, opts);
   if (envelope && envelope.success === false) {
-    throw new ApiError(200, envelope.error || "Request failed", envelope);
+    throw new ApiError(200, envelope.error || "", envelope);
   }
   // Most success responses carry the resource under `data`; a
   // delete/action-confirmation response instead carries a plain string

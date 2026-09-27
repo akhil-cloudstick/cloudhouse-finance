@@ -40,13 +40,51 @@ func (r *Repository) UpdateTx(tx *gorm.DB, b *Branch) error {
 // FindAll lists branches with a non-empty name, optionally scoped to a
 // single branchID (nil = no scope, i.e. Administrator sees all).
 func (r *Repository) FindAll(ctx context.Context, branchID *uint) ([]Branch, error) {
+	branches, _, err := r.Find(ctx, Filter{BranchID: branchID})
+	return branches, err
+}
+
+// Filter narrows Find. Limit <= 0 means "no limit".
+type Filter struct {
+	// BranchID is the caller's branch-scope restriction (nil = every
+	// branch, Administrator only).
+	BranchID *uint
+	// Query matches name or code (case-insensitive, partial).
+	Query string
+	// ActiveOnly drops deactivated branches (GET /branches?active=true) —
+	// pickers that may only assign to a live branch.
+	ActiveOnly bool
+	Limit  int
+	Offset int
+}
+
+// Find is FindAll's filtered/paginated superset. Returns the TOTAL row
+// count for f's filters (Limit/Offset ignored, 0 when f.Limit <= 0).
+func (r *Repository) Find(ctx context.Context, f Filter) ([]Branch, int64, error) {
 	var branches []Branch
-	q := r.db.WithContext(ctx).Where("name <> ''").Order("name asc")
-	if branchID != nil {
-		q = q.Where("id = ?", *branchID)
+	q := r.db.WithContext(ctx).Model(&Branch{}).Where("name <> ''").Order("name asc")
+	if f.BranchID != nil {
+		q = q.Where("id = ?", *f.BranchID)
+	}
+	if f.ActiveOnly {
+		q = q.Where("is_active = ?", true)
+	}
+	if f.Query != "" {
+		like := "%" + f.Query + "%"
+		q = q.Where("name ILIKE ? OR code ILIKE ?", like, like)
+	}
+	var total int64
+	if f.Limit > 0 {
+		if err := q.Session(&gorm.Session{}).Count(&total).Error; err != nil {
+			return nil, 0, err
+		}
+		q = q.Limit(f.Limit)
+	}
+	if f.Offset > 0 {
+		q = q.Offset(f.Offset)
 	}
 	err := q.Find(&branches).Error
-	return branches, err
+	return branches, total, err
 }
 
 func (r *Repository) FindByID(ctx context.Context, id uint) (*Branch, error) {

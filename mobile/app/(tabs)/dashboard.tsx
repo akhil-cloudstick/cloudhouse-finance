@@ -1,749 +1,350 @@
-import React, { useEffect, useState } from "react";
-import { TAB_BAR_SPACE, useHeaderSpace } from "../../src/theme/layout";
-import { ScrollView, View, Pressable, StyleSheet, RefreshControl } from "react-native";
-import { useQuery } from "@tanstack/react-query";
-import { useRouter } from "expo-router";
-import { ScreenContainer } from "../../src/components/ScreenContainer";
-import { GlassCard } from "../../src/components/GlassCard";
-import { BottomSheetModal, SheetScrollView } from "../../src/components/BottomSheetModal";
-import { ThemedText } from "../../src/components/ThemedText";
-import { SearchDropdown } from "../../src/components/SearchDropdown";
-import { useDebouncedValue } from "../../src/hooks/useDebouncedValue";
-import { GoldTextInput } from "../../src/components/GoldTextInput";
-import { colors, statusColors, StatusTone } from "../../src/theme/colors";
-import type { Colors } from "../../src/theme/colors";
-import { useTheme } from "../../src/theme/ThemeProvider";
+import React, { useMemo, useState } from "react";
+import { View } from "react-native";
+import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
+import {
+  AccBtn,
+  AccGroup,
+  AccRow,
+  ActItem,
+  AsyncSelect,
+  Buffering,
+  C,
+  Card,
+  EmptyText,
+  Field,
+  FieldRow,
+  FilterChipRow,
+  HeroHeader,
+  Input,
+  PScroll,
+  QuickAction,
+  ResultBox,
+  Screen,
+  SectionTitle,
+  Sheet,
+  Sparkline,
+  SummaryCard,
+  ThemeDropdown,
+  Txt,
+  initialsOf,
+  useShell,
+  openPage,
+} from "../../src/components/ui";
 import { useAuth } from "../../src/auth/AuthContext";
-import { useRefetchOnFocus, useResetOnBlur } from "../../src/hooks/useRefetchOnFocus";
-import { latestGoldRate, listGoldRatesPage } from "../../src/api/goldRates";
-import { getCalendarEvents } from "../../src/api/reminders";
-import { listLoans, listLoanRequests, getInterestCollected } from "../../src/api/loans";
-import { listCashMovements, listExpenses } from "../../src/api/cash";
+import { useRefetchOnFocus } from "../../src/hooks/useRefetchOnFocus";
+import {
+  getDashboardSummary,
+  listDashboardActivityPage,
+  listNeedsAttentionPage,
+  NEEDS_ATTENTION_PAGE_SIZE,
+  type NeedsAttentionItem,
+  type NeedsAttentionKind,
+} from "../../src/api/dashboard";
+import { latestGoldRate } from "../../src/api/goldRates";
+import { listActiveSchemes } from "../../src/api/schemes";
+import { listLoansPage } from "../../src/api/loans";
+import { listCalendarEventsPage } from "../../src/api/reminders";
 import { listPurityStandards } from "../../src/api/purityStandards";
-import { listSchemes } from "../../src/api/schemes";
-import { latestDashboardSnapshot } from "../../src/api/dashboard";
-import { CalendarEvent } from "../../src/types/reminder";
-import { Scheme } from "../../src/types/scheme";
+import { rateForFineness, rateForKarat } from "../../src/lib/purity";
+import { dmy, inr, inrShort, todayISO } from "../../src/lib/format";
+import type { Scheme } from "../../src/types/scheme";
+import type { Loan } from "../../src/types/loan";
 
-import { fmt } from "../../src/lib/format";
-import { Loading } from "../../src/components/Loading";
+// Dashboard — prototype #header-dashboard + #page-dashboard. Every figure
+// comes from server-computed endpoints (GET /dashboard/summary, paged
+// /dashboard/activity and /dashboard/needs-attention); nothing is counted on
+// the phone.
+type Seg = "Overview" | "Activity";
+const ATTENTION_TABS = ["approvals", "requests", "auctions"] as const;
 
-// Mirrors backend/internal/loan/purity.go's ParsePurity/rateForPurity, same
-// as frontend/lib/purity.ts's rateForPurityString — kept local here since
-// mobile has no shared purity-math module yet (see purityStandards.ts).
-function rateForPurityString(k24: number, purity: string): number | null {
-  const karatMatch = /^(\d+)K$/.exec(purity);
-  if (karatMatch) {
-    const karat = Number(karatMatch[1]);
-    return karat >= 10 && karat <= 24 ? Math.round((k24 * karat) / 24) : null;
-  }
-  const finenessMatch = /^(\d+(?:\.\d+)?)%$/.exec(purity);
-  if (finenessMatch) {
-    const fineness = Number(finenessMatch[1]);
-    return fineness > 0 && fineness <= 100 ? Math.round((k24 * fineness) / 100) : null;
-  }
-  return null;
-}
-
-// Rows shown on the Needs Attention / Upcoming Reminders cards before "View all".
-const CARD_ROWS = 5;
-
-const expenseColors = (c: Colors) => [c.brandDeep, c.brandMid, c.info, c.green, c.red, c.amber];
-
-// Small "▲12% / ▼5%" badge comparing a live count/value against a real
-// previous-period baseline (yesterday's captured snapshot, or the prior
-// published gold rate) — never a fabricated trend. `goodDirection` picks
-// which arrow direction reads as green vs red: "up" for metrics where more
-// is good (e.g. Gold Rate), "down" for metrics where fewer is good (e.g.
-// Overdue). Renders nothing when there's no baseline yet (first day after
-// this feature ships, before any snapshot has been captured) or the value
-// is unchanged.
-function Trend({ current, previous, goodDirection = "up" }: { current: number; previous: number | null | undefined; goodDirection?: "up" | "down" }) {
-  if (previous == null || current === previous) return null;
-  const up = current > previous;
-  const pct = previous !== 0 ? Math.abs(((current - previous) / previous) * 100) : 100;
-  const good = up === (goodDirection === "up");
-  return (
-    <View style={styles.trendRow}>
-      <ThemedText variant="small" color={good ? colors.green : colors.red} style={styles.trendText}>
-        {up ? "▲" : "▼"} {pct >= 10 ? Math.round(pct) : pct.toFixed(1)}%
-      </ThemedText>
-      <ThemedText variant="small" color={colors.muted} style={styles.trendText}>
-        vs yesterday
-      </ThemedText>
-    </View>
-  );
-}
-
-function toneForType(type: CalendarEvent["type"]): StatusTone {
-  if (type === "Overdue") return "red";
-  if (type === "LoanDue" || type === "InterestDue") return "amber";
-  if (type === "PromiseToPay") return "info";
-  return "muted";
-}
-
-// Every module is reachable from the bottom bar or its More sheet
-// (app/(tabs)/_layout.tsx, src/components/AppTabBar.tsx) —
-// this screen only shows KPIs/summaries, not a link grid. Ported from
-// frontend/components/Dashboard.tsx's "Business Overview" — see that file
-// for the reference layout (KPI row, disbursement bars, Needs Attention,
-// gold-loan calculator, upcoming reminders, expense summary).
 export default function DashboardScreen() {
-  const { colors } = useTheme();
-  const EXPENSE_COLORS = expenseColors(colors);
-  const router = useRouter();
-  const headerSpace = useHeaderSpace();
-  const [attnOpen, setAttnOpen] = useState(false);
-  const [remindersOpen, setRemindersOpen] = useState(false);
-  const { employee } = useAuth();
-  const branchId = employee?.branchId;
-  const today = new Date().toISOString().slice(0, 10);
+  const { employee, can } = useAuth();
+  const shell = useShell();
+  const [seg, setSeg] = useState<Seg>("Overview");
+  const [collectOpen, setCollectOpen] = useState(false);
 
-  // Pushing straight to `/loans/[id]` from outside the Loans tab leaves that
-  // tab's Stack with the detail screen as its ONLY entry — `unstable_settings
-  // .anchor` on loans/_layout.tsx only backfills the list screen for a
-  // cold-start deep link, not an in-app push. Pushing the list first builds
-  // the history explicitly, so the back chevron and the Loans tab both land
-  // on the list instead of Dashboard/detail.
-  function openLoan(id: string | number) {
-    router.push("/loans");
-    router.push(`/loans/${id}`);
-  }
-
-  // KPI tile → its page, optionally pre-selecting a filter/tab/section.
-  // `t` is a fresh nonce so re-tapping the same tile re-applies the filter
-  // even when the (still-mounted) target screen already saw these params.
-  function go(path: string, params: Record<string, string> = {}) {
-    const qs = new URLSearchParams({ ...params, t: String(Date.now()) }).toString();
-    router.push(`${path}?${qs}` as never);
-  }
-
-  const goldRate = useQuery({ queryKey: ["gold-rates", "latest"], queryFn: latestGoldRate });
-  const events = useQuery({ queryKey: ["reminders", "calendar"], queryFn: () => getCalendarEvents() });
-  const loans = useQuery({ queryKey: ["loans", "all"], queryFn: () => listLoans() });
-  const expenses = useQuery({ queryKey: ["expenses", "all"], queryFn: listExpenses });
-  const requests = useQuery({
-    queryKey: ["loans", "requests", "pending"],
-    queryFn: () => listLoanRequests({ status: "Pending" }),
+  const summary = useQuery({ queryKey: ["dashboard", "summary"], queryFn: getDashboardSummary });
+  const rate = useQuery({ queryKey: ["gold-rates", "latest"], queryFn: latestGoldRate });
+  const todayReminders = useQuery({
+    queryKey: ["reminders", "today-count"],
+    queryFn: () => listCalendarEventsPage({ limit: 1, offset: 0, from: todayISO(), to: todayISO() }),
   });
-  // Gold Loan Calculator pickers — each dropdown searches its backend list
-  // (`?q=`) as the user types; the input shows the selected label until edited.
-  const [calcPurity, setCalcPurity] = useState("22K");
-  const [purityQuery, setPurityQuery] = useState("22K");
-  const [calcScheme, setCalcScheme] = useState<Scheme | null>(null);
-  const [schemeQuery, setSchemeQuery] = useState("");
-  const [openDropdown, setOpenDropdown] = useState<"purity" | "scheme" | null>(null);
-  const dropdownProps = (id: "purity" | "scheme") => ({
-    open: openDropdown === id,
-    onOpenChange: (o: boolean) => setOpenDropdown(o ? id : null),
-  });
-  // Typing narrows the list; while the input still shows the selection, list everything.
-  const debouncedPurityQuery = useDebouncedValue(purityQuery === calcPurity ? "" : purityQuery.trim());
-  const debouncedSchemeQuery = useDebouncedValue(schemeQuery === (calcScheme?.name ?? "") ? "" : schemeQuery.trim());
-  const purityStandards = useQuery({
-    queryKey: ["purity-standards", debouncedPurityQuery],
-    queryFn: () => listPurityStandards(debouncedPurityQuery || undefined),
-  });
-  const schemes = useQuery({
-    // Distinct from the Schemes list's ["schemes", q] infinite query — sharing
-    // that key put a plain array where it expects {pages}, crashing the list.
-    queryKey: ["schemes", "picker", debouncedSchemeQuery],
-    queryFn: () => listSchemes(debouncedSchemeQuery || undefined),
-  });
-  // Cash in Hand — mirrors frontend/components/Dashboard.tsx's own KPI
-  // exactly: all-time net(cash-in movements − cash-out movements), branch-
-  // scoped server-side from the logged-in employee's own branch (backend/
-  // internal/cash/handler.go's platform.GetBranchScope), NOT `/cash/summary`
-  // .expectedCash — that's a different, date-scoped reconciliation figure
-  // from the Cash module's own page (see cash/index.tsx), which requires an
-  // opening balance to have been entered for today or silently reads low.
-  const cashMovements = useQuery({ queryKey: ["cash", "movements", "all"], queryFn: listCashMovements });
-  // Mirrors web Dashboard's own no-args call — server defaults the range to
-  // [first-of-current-month, today] (backend/internal/loan/handler.go).
-  const interestCollected = useQuery({ queryKey: ["loans", "interest-collected"], queryFn: () => getInterestCollected() });
-  // Real vs-yesterday baselines for the trend badges below — a captured
-  // KPI-count snapshot (see backend/internal/dashboard/snapshot_model.go)
-  // and the previously published gold rate (limit:2 returns [current, prior]
-  // when both exist).
-  const snapshot = useQuery({ queryKey: ["dashboard", "snapshot", "latest"], queryFn: latestDashboardSnapshot });
-  const goldRateHistory = useQuery({
-    queryKey: ["gold-rates", "recent", 2],
-    queryFn: () => listGoldRatesPage({ limit: 2, offset: 0 }),
-  });
-  const previousK24 = goldRateHistory.data?.items?.[1]?.k24;
+  useRefetchOnFocus(summary.refetch, rate.refetch, todayReminders.refetch);
 
-  useRefetchOnFocus(
-    goldRate.refetch,
-    events.refetch,
-    loans.refetch,
-    expenses.refetch,
-    requests.refetch,
-    purityStandards.refetch,
-    schemes.refetch,
-    cashMovements.refetch,
-    interestCollected.refetch,
-    snapshot.refetch,
-    goldRateHistory.refetch
-  );
-
-  useResetOnBlur(() => {
-    setAttnOpen(false);
-    setRemindersOpen(false);
-  });
-
-  const [refreshing, setRefreshing] = useState(false);
-  async function onRefresh() {
-    setRefreshing(true);
-    await Promise.all([
-      goldRate.refetch(),
-      events.refetch(),
-      loans.refetch(),
-      expenses.refetch(),
-      requests.refetch(),
-      purityStandards.refetch(),
-      schemes.refetch(),
-      cashMovements.refetch(),
-      interestCollected.refetch(),
-      snapshot.refetch(),
-      goldRateHistory.refetch(),
-    ]);
-    setRefreshing(false);
-  }
-
-  const dueTodayCount =
-    events.data?.filter((e) => e.type === "LoanDue" && e.date === today).length ?? 0;
-
-  const loanList = loans.data ?? [];
-  const activeCount = loanList.filter((l) => ["Active", "Due Soon", "Overdue"].includes(l.status)).length;
-  const overdueCount = loanList.filter((l) => l.status === "Overdue").length;
-  const pendingApprovalLoans = loanList.filter((l) => l.status === "Pending Approval");
-  const auctionLoans = loanList.filter((l) => l.status === "Auction Eligible" || l.status === "Defaulted");
-  const openedTodayCount = loanList.filter((l) => l.openedDate === today).length;
-  const pledgedLoans = loanList.filter((l) => l.bankPledgeStatus === "Bank Pledged");
-
-  const requestList = requests.data ?? [];
-  // Needs Attention, in priority order. The card shows the first CARD_ROWS;
-  // "View all" raises a sheet with every item.
-  const attnItems: { key: string; color: string; label: string; action?: string; onPress?: () => void }[] = [
-    ...pendingApprovalLoans.map((l) => ({ key: `appr-${l.id}`, color: colors.amber, label: `Loan approval — ${l.loanNumber}`, action: "Review", onPress: () => openLoan(l.id) })),
-    ...requestList.map((r) => ({ key: `req-${r.id}`, color: colors.info, label: `${r.type} request — loan #${r.loanId}` })),
-    ...auctionLoans.map((l) => ({ key: `auc-${l.id}`, color: colors.red, label: `Auction case — ${l.loanNumber}`, action: "Open", onPress: () => openLoan(l.id) })),
-  ];
-  const extensionCount = requestList.filter((r) => r.type === "Extension").length;
-  const releaseCount = requestList.filter((r) => r.type === "Release").length;
-
-  // Mirrors frontend/components/Dashboard.tsx's own "Cash in Hand" KPI —
-  // all-time net(cash-in − cash-out) movements, branch-scoped server-side.
-  // See cashMovements query's own comment above for why this is NOT
-  // `/cash/summary`.expectedCash.
-  const movementList = cashMovements.data ?? [];
-  const cashInHand =
-    movementList.filter((m) => m.type === "in").reduce((s, m) => s + m.amount, 0) -
-    movementList.filter((m) => m.type === "out").reduce((s, m) => s + m.amount, 0);
-
-  const expToday = (expenses.data ?? [])
-    .filter((e) => e.occurredOn === today)
-    .reduce((s, e) => s + e.amount, 0);
-  const expPendingCount = (expenses.data ?? []).filter((e) => e.status === "Pending").length;
-
-  // Last 6 months' disbursement, in lakhs — grouped client-side from the
-  // already-fetched loan list (mirrors frontend/components/Dashboard.tsx's
-  // monthBuckets logic exactly).
-  const now = new Date();
-  const monthBuckets: [string, number][] = Array.from({ length: 6 }, (_, i) => {
-    const d = new Date(now.getFullYear(), now.getMonth() - (5 - i), 1);
-    return [d.toLocaleDateString("en-IN", { month: "short" }), 0] as [string, number];
-  });
-  loanList.forEach((l) => {
-    const opened = new Date(l.openedDate);
-    const idx = 5 - ((now.getFullYear() - opened.getFullYear()) * 12 + (now.getMonth() - opened.getMonth()));
-    if (idx >= 0 && idx < 6) monthBuckets[idx][1] += l.principalAmount / 100000;
-  });
-  const maxBar = Math.max(1, ...monthBuckets.map(([, v]) => v));
-
-  const allReminders = [...(events.data ?? [])].sort((a, b) =>
-    a.type === "Overdue" ? -1 : b.type === "Overdue" ? 1 : a.date.localeCompare(b.date)
-  );
-
-  function renderAttnRow(it: (typeof attnItems)[number]) {
-    const row = (
-      <View style={styles.attnRow}>
-        <View style={[styles.attnDot, { backgroundColor: it.color }]} />
-        <View style={{ flex: 1 }}>
-          <ThemedText variant="body">{it.label}</ThemedText>
-        </View>
-        {it.action ? (
-          <ThemedText variant="small" color={colors.brandDeep}>
-            {it.action}
-          </ThemedText>
-        ) : null}
-      </View>
-    );
-    return it.onPress ? (
-      <Pressable
-        key={it.key}
-        onPress={() => {
-          setAttnOpen(false);
-          it.onPress!();
-        }}
-      >
-        {row}
-      </Pressable>
-    ) : (
-      <View key={it.key}>{row}</View>
-    );
-  }
-
-  function renderReminderRow(e: CalendarEvent, i: number) {
-    const tone = statusColors(toneForType(e.type), colors);
-    return (
-      <View key={i} style={styles.attnRow}>
-        <View style={[styles.attnDot, { backgroundColor: tone.fg }]} />
-        <View style={{ flex: 1 }}>
-          <ThemedText variant="body">{e.title}</ThemedText>
-          <ThemedText variant="small" color={colors.muted}>
-            {e.detail} · {e.date}
-          </ThemedText>
-        </View>
-      </View>
-    );
-  }
-
-  // "View all (N)" beside a card title, only when the card is truncated.
-  function viewAll(count: number, onPress: () => void) {
-    return count > CARD_ROWS ? (
-      <Pressable onPress={onPress} hitSlop={8}>
-        <ThemedText variant="small" color={colors.brandDeep} style={{ fontWeight: "600" }}>
-          View all ({count})
-        </ThemedText>
-      </Pressable>
-    ) : null;
-  }
-
-  const expenseByCat = Object.entries(
-    (expenses.data ?? []).reduce<Record<string, number>>((acc, e) => {
-      acc[e.category] = (acc[e.category] || 0) + e.amount;
-      return acc;
-    }, {})
-  );
-  const expenseTotal = expenseByCat.reduce((s, [, v]) => s + v, 0);
-
-  // Gold Loan Calculator state.
-  const [calcWeight, setCalcWeight] = useState("10");
-  const activeSchemes = (schemes.data ?? []).filter((s) => s.isActive);
-  const activePurities = (purityStandards.data ?? []).filter((p) => p.isActive);
-  // Preselect the first active scheme once the list first loads.
-  const firstActiveScheme = activeSchemes[0];
-  useEffect(() => {
-    if (!calcScheme && firstActiveScheme) {
-      setCalcScheme(firstActiveScheme);
-      setSchemeQuery(firstActiveScheme.name);
-    }
-  }, [calcScheme, firstActiveScheme]);
-
-  const w = parseFloat(calcWeight) || 0;
-  const k24 = goldRate.data?.k24 ?? 0;
-  const rate = rateForPurityString(k24, calcPurity) ?? 0;
-  const selectedScheme = calcScheme;
-  const gross = w * rate;
-  const eligible = selectedScheme ? (gross * selectedScheme.ltvPercent) / 100 : 0;
+  const s = summary.data;
+  const r22 = s?.rate22k ?? rate.data?.k22 ?? 0;
+  const r24 = s?.rate24k ?? rate.data?.k24 ?? 0;
+  const r18 = rate.data?.k18 || (r24 ? rateForKarat(r24, 18) : 0);
+  const change = s?.rateChangePct;
+  const changeLabel = change == null ? undefined : `${change >= 0 ? "▲" : "▼"} ${Math.abs(change).toFixed(1)}%`;
 
   return (
-    <ScreenContainer style={{ padding: 0 }}>
+    <Screen
+      headerFade={false}
+      header={
+        <HeroHeader
+          initials={initialsOf(employee?.name)}
+          name={employee?.name ?? ""}
+          branch={employee?.branch?.name ? `${employee.branch.name} Branch` : employee?.role}
+          cashValue={summary.isLoading ? "…" : inr(s?.cashInHand ?? 0)}
+          rates={[
+            { k: "24K / g", v: inr(Math.round(r24)) },
+            { k: "22K / g", v: inr(Math.round(r22)) },
+            { k: "18K / g", v: inr(Math.round(r18)) },
+          ]}
+          rateChange={changeLabel}
+          onRatePress={shell.openGoldRate}
+          onSearch={shell.openSearch}
+          onBell={shell.openReminders}
+          bellDot={(todayReminders.data?.total ?? 0) > 0}
+          onAvatar={shell.openProfile}
+          segments={["Overview", "Activity"]}
+          activeSegment={seg}
+          onSegment={(v) => setSeg(v as Seg)}
+        />
+      }
+    >
+      <PScroll refreshing={summary.isRefetching} onRefresh={() => { summary.refetch(); rate.refetch(); }}>
+        {seg === "Overview" ? (
+          <>
+            <View style={{ paddingHorizontal: 18 }}>
+              <SectionTitle flush style={{ marginTop: 16, marginBottom: 12 }}>
+                Quick actions
+              </SectionTitle>
+            </View>
+            <View style={{ flexDirection: "row", justifyContent: "space-between", gap: 6, paddingHorizontal: 18 }}>
+              {can("Loan_Management", "can_create_loan") ? <QuickAction icon="plus" label={"Create\nLoan"} tone="loan" onPress={shell.openNewLoan} /> : null}
+              {can("Customer_Management", "can_create_customer") ? (
+                <QuickAction icon="user" label={"Register\nCustomer"} tone="cust" onPress={() => openPage("/customers?register=1")} />
+              ) : null}
+              <QuickAction icon="card" label={"Collect\nPayment"} tone="pay" onPress={() => setCollectOpen(true)} />
+            </View>
 
-      <ScrollView
-
-        showsVerticalScrollIndicator={false}
-        // Reaches up under the floating header so content scrolls behind it.
-        style={{ marginTop: -headerSpace }}
-        contentContainerStyle={{ paddingHorizontal: 8, paddingTop: 20 + headerSpace, paddingBottom: TAB_BAR_SPACE }}
-        keyboardShouldPersistTaps="handled"
-        onTouchStart={() => {
-          if (openDropdown) setOpenDropdown(null);
-        }}
-        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} progressViewOffset={headerSpace} />}
-      >
-        <ThemedText variant="h2" color={colors.brandDeep}>
-          Welcome, {employee?.name}
-        </ThemedText>
-        <ThemedText variant="small" color={colors.muted} style={{ marginBottom: 16 }}>
-          {employee?.role} · {employee?.branch?.name ?? `Branch #${employee?.branchId}`}
-        </ThemedText>
-
-        {/* One continuous 2-up grid, top KPIs included — used to be a
-            separate 3-across row above this grid, but that broke the
-            strict 2-column layout everything else follows. */}
-        <View style={styles.grid}>
-          <Tile onPress={() => go("/loans")}>
-            <ThemedText variant="label" color={colors.muted}>
-              Loans Opened Today
-            </ThemedText>
-            <ThemedText variant="h3">{loans.isLoading ? "…" : openedTodayCount}</ThemedText>
-            <Trend current={openedTodayCount} previous={snapshot.data?.openedTodayCount} goodDirection="up" />
-          </Tile>
-          <Tile onPress={() => go("/loans", { status: "Overdue" })}>
-            <ThemedText variant="label" color={colors.muted}>
-              Overdue
-            </ThemedText>
-            <ThemedText variant="h3" color={colors.red}>
-              {loans.isLoading ? "…" : overdueCount}
-            </ThemedText>
-            <Trend current={overdueCount} previous={snapshot.data?.overdueCount} goodDirection="down" />
-          </Tile>
-          <Tile onPress={() => go("/reminders")}>
-            <ThemedText variant="label" color={colors.muted}>
-              Due Today
-            </ThemedText>
-            <ThemedText variant="h3" color={colors.amber}>
-              {events.isLoading ? "…" : dueTodayCount}
-            </ThemedText>
-            <Trend current={dueTodayCount} previous={snapshot.data?.dueTodayCount} goodDirection="down" />
-          </Tile>
-          <Tile onPress={() => go("/gold-rates")}>
-            <ThemedText variant="label" color={colors.muted}>
-              24K Gold Rate
-            </ThemedText>
-            <ThemedText variant="h3" color={colors.brandDeep}>
-              {goldRate.isLoading ? "…" : goldRate.data ? `₹${goldRate.data.k24.toLocaleString("en-IN")}` : "—"}
-            </ThemedText>
-            {goldRate.data ? <Trend current={goldRate.data.k24} previous={previousK24} goodDirection="up" /> : null}
-          </Tile>
-          <Tile full onPress={() => go("/cash", { tab: "movements" })}>
-            <ThemedText variant="label" color={colors.muted}>
-              Cash in Hand
-            </ThemedText>
-            <ThemedText variant="h3" color={colors.green}>
-              {cashMovements.isLoading ? "…" : fmt(cashInHand)}
-            </ThemedText>
-            <ThemedText variant="small" color={colors.muted}>
-              across {movementList.length} movements
-            </ThemedText>
-          </Tile>
-          <Tile full onPress={() => go("/reports", { section: "interest-collection" })}>
-            <ThemedText variant="label" color={colors.muted}>
-              Interest Collected
-            </ThemedText>
-            <ThemedText variant="h3" color={colors.green}>
-              {interestCollected.isLoading ? "…" : interestCollected.data ? fmt(interestCollected.data.interestCollected) : "—"}
-            </ThemedText>
-            <ThemedText variant="small" color={colors.muted}>
-              this month
-            </ThemedText>
-          </Tile>
-          <Tile onPress={() => go("/loans", { status: "Active" })}>
-            <ThemedText variant="label" color={colors.muted}>
-              Active Loans
-            </ThemedText>
-            <ThemedText variant="h3">{loans.isLoading ? "…" : activeCount}</ThemedText>
-            <Trend current={activeCount} previous={snapshot.data?.activeCount} goodDirection="up" />
-          </Tile>
-          <Tile onPress={() => go("/loans")}>
-            <ThemedText variant="label" color={colors.muted}>
-              Loan Opened Today
-            </ThemedText>
-            <ThemedText variant="h3">{loans.isLoading ? "…" : openedTodayCount}</ThemedText>
-            <Trend current={openedTodayCount} previous={snapshot.data?.openedTodayCount} goodDirection="up" />
-          </Tile>
-          <Tile onPress={() => go("/loans", { status: "Pending Approval" })}>
-            <ThemedText variant="label" color={colors.muted}>
-              Pending Approvals
-            </ThemedText>
-            <ThemedText variant="h3" color={pendingApprovalLoans.length ? colors.amber : colors.ink}>
-              {loans.isLoading ? "…" : pendingApprovalLoans.length}
-            </ThemedText>
-            <Trend current={pendingApprovalLoans.length} previous={snapshot.data?.pendingApprovalCount} goodDirection="down" />
-          </Tile>
-          <Tile onPress={() => go("/requests")}>
-            <ThemedText variant="label" color={colors.muted}>
-              Extension Requests
-            </ThemedText>
-            <ThemedText variant="h3">{requests.isLoading ? "…" : extensionCount}</ThemedText>
-            <ThemedText variant="small" color={colors.muted}>
-              from mobile app
-            </ThemedText>
-          </Tile>
-          <Tile onPress={() => go("/requests")}>
-            <ThemedText variant="label" color={colors.muted}>
-              Gold Release Requests
-            </ThemedText>
-            <ThemedText variant="h3">{requests.isLoading ? "…" : releaseCount}</ThemedText>
-            <ThemedText variant="small" color={colors.muted}>
-              settlement review
-            </ThemedText>
-          </Tile>
-          <Tile onPress={() => go("/banks")}>
-            <ThemedText variant="label" color={colors.muted}>
-              Bank-Pledged Loans
-            </ThemedText>
-            <ThemedText variant="h3">{loans.isLoading ? "…" : pledgedLoans.length}</ThemedText>
-            <ThemedText variant="small" color={colors.muted}>
-              {fmt(pledgedLoans.reduce((s, l) => s + l.principalAmount, 0))} re-pledged
-            </ThemedText>
-          </Tile>
-          <Tile onPress={() => go("/auctions")}>
-            <ThemedText variant="label" color={colors.muted}>
-              Auction Cases
-            </ThemedText>
-            <ThemedText variant="h3" color={auctionLoans.length ? colors.red : colors.ink}>
-              {loans.isLoading ? "…" : auctionLoans.length}
-            </ThemedText>
-            <ThemedText variant="small" color={colors.muted}>
-              {fmt(auctionLoans.reduce((s, l) => s + l.outstandingAmount, 0))} outstanding
-            </ThemedText>
-          </Tile>
-          <Tile onPress={() => go("/cash", { tab: "expenses" })}>
-            <ThemedText variant="label" color={colors.muted}>
-              Today&apos;s Expenses
-            </ThemedText>
-            <ThemedText variant="h3">{expenses.isLoading ? "…" : fmt(expToday)}</ThemedText>
-            <ThemedText variant="small" color={colors.muted}>
-              {expPendingCount} pending approval
-            </ThemedText>
-          </Tile>
-        </View>
-
-        <GlassCard style={{ marginTop: 4 }}>
-          <ThemedText variant="h3" style={{ marginBottom: 12 }}>
-            Loan Portfolio — Disbursement (last 6 months)
-          </ThemedText>
-          <View style={styles.bars}>
-            {monthBuckets.map(([m, v], i) => (
-              <View key={m + i} style={styles.barCol}>
-                <ThemedText variant="small" color={colors.muted}>
-                  {v >= 0.1 ? `₹${v.toFixed(1)}L` : ""}
-                </ThemedText>
-                <View style={styles.barTrack}>
-                  <View style={[styles.barFill, { backgroundColor: colors.brandMid, height: `${(v / maxBar) * 100}%` }]} />
-                </View>
-                <ThemedText variant="small" color={colors.muted}>
-                  {m}
-                </ThemedText>
-              </View>
-            ))}
-          </View>
-        </GlassCard>
-
-        <GlassCard>
-          <View style={styles.cardTitleRow}>
-            <ThemedText variant="h3">Needs Attention</ThemedText>
-            {viewAll(attnItems.length, () => setAttnOpen(true))}
-          </View>
-          {attnItems.length === 0 ? (
-            <ThemedText variant="small" color={colors.muted}>
-              Nothing needs attention right now.
-            </ThemedText>
-          ) : (
-            attnItems.slice(0, CARD_ROWS).map(renderAttnRow)
-          )}
-        </GlassCard>
-
-        <GlassCard>
-          <ThemedText variant="h3" style={{ marginBottom: 4 }}>
-            Gold Loan Calculator
-          </ThemedText>
-          <GoldTextInput
-            label="Weight (grams)"
-            keyboardType="numeric"
-            value={calcWeight}
-            onChangeText={setCalcWeight}
-          />
-          <SearchDropdown
-            label="Purity"
-            placeholder="Select purity…"
-            query={purityQuery}
-            onQueryChange={setPurityQuery}
-            {...dropdownProps("purity")}
-            items={activePurities}
-            keyOf={(p) => p.id}
-            renderItem={(p) => <ThemedText variant="body">{p.label}</ThemedText>}
-            onSelect={(p) => {
-              setCalcPurity(p.label);
-              setPurityQuery(p.label);
-            }}
-            loading={purityStandards.isLoading}
-            emptyText="No purity standards found"
-          />
-          <SearchDropdown
-            label="Scheme"
-            placeholder="Select scheme…"
-            query={schemeQuery}
-            onQueryChange={setSchemeQuery}
-            {...dropdownProps("scheme")}
-            items={activeSchemes}
-            keyOf={(s) => s.id}
-            renderItem={(s) => (
-              <>
-                <ThemedText variant="body">{s.name}</ThemedText>
-                <ThemedText variant="small" color={colors.muted}>
-                  {s.interestRate}% · {s.durationMonths} months · LTV {s.ltvPercent}%
-                </ThemedText>
-              </>
+            <SectionTitle>Today</SectionTitle>
+            {summary.isLoading ? (
+              <Card>
+                <Buffering />
+              </Card>
+            ) : (
+              <SummaryCard
+                title="Today's summary"
+                onPress={can("Report_Management", "can_view_report") ? () => openPage("/reports") : undefined}
+                stats={[
+                  { n: String(s?.today.loansIssued ?? 0), l: "Loans issued" },
+                  { n: inrShort(s?.today.collections ?? 0), l: "Collections" },
+                  { n: String(s?.today.newCustomers ?? 0), l: "New customers" },
+                ]}
+              />
             )}
-            onSelect={(s) => {
-              setCalcScheme(s);
-              setSchemeQuery(s.name);
-            }}
-            loading={schemes.isLoading}
-            emptyText="No schemes found"
-          />
-          <View style={[styles.calcResult, { backgroundColor: colors.brandPale, borderColor: colors.brandLight }]}>
-            <View style={styles.calcRow}>
-              <ThemedText variant="small">Gross Gold Value</ThemedText>
-              <ThemedText variant="small" style={{ fontWeight: "600" }}>
-                {fmt(gross)}
-              </ThemedText>
-            </View>
-            <View style={styles.calcRow}>
-              <ThemedText variant="body" style={{ fontWeight: "600" }}>
-                Eligible Loan Amount
-              </ThemedText>
-              <ThemedText variant="h3" color={colors.brandDeep}>
-                {fmt(eligible)}
-              </ThemedText>
-            </View>
-          </View>
-          <ThemedText variant="small" color={colors.muted} style={{ marginTop: 6 }}>
-            Weight × Rate = Gross Value · Gross × LTV = Eligible
-          </ThemedText>
-        </GlassCard>
 
-        <GlassCard>
-          <View style={styles.cardTitleRow}>
-            <ThemedText variant="h3">Upcoming Reminders</ThemedText>
-            {viewAll(allReminders.length, () => setRemindersOpen(true))}
-          </View>
-          {allReminders.length ? (
-            allReminders.slice(0, CARD_ROWS).map(renderReminderRow)
-          ) : events.isLoading ? (
-            <Loading />
-          ) : (
-            <ThemedText variant="small" color={colors.muted}>
-              No pending reminders.
-            </ThemedText>
-          )}
-        </GlassCard>
+            <NeedsAttention />
 
-        <GlassCard>
-          <ThemedText variant="h3" style={{ marginBottom: 8 }}>
-            Expense Summary
-          </ThemedText>
-          {expenseByCat.length ? (
-            <>
-              <View style={styles.stackBar}>
-                {expenseByCat.map(([cat, amt], i) => (
-                  <View
-                    key={cat}
-                    style={{
-                      flex: amt / (expenseTotal || 1),
-                      backgroundColor: EXPENSE_COLORS[i % EXPENSE_COLORS.length],
-                    }}
-                  />
-                ))}
-              </View>
-              {expenseByCat.map(([cat, amt], i) => (
-                <View key={cat} style={styles.legendRow}>
-                  <View style={[styles.legendDot, { backgroundColor: EXPENSE_COLORS[i % EXPENSE_COLORS.length] }]} />
-                  <ThemedText variant="small" style={{ flex: 1 }}>
-                    {cat}
-                  </ThemedText>
-                  <ThemedText variant="small" color={colors.muted}>
-                    {fmt(amt)} · {((amt / (expenseTotal || 1)) * 100).toFixed(0)}%
-                  </ThemedText>
-                </View>
-              ))}
-            </>
-          ) : (
-            <ThemedText variant="small" color={colors.muted}>
-              No expenses recorded yet.
-            </ThemedText>
-          )}
-        </GlassCard>
-      </ScrollView>
+            <SectionTitle>Cash flow · 7 days</SectionTitle>
+            <Card>{summary.isLoading ? <Buffering /> : <Sparkline data={(s?.cashFlow7d ?? []).map((d) => d.net)} />}</Card>
 
-      <BottomSheetModal visible={attnOpen} onClose={() => setAttnOpen(false)} maxHeightPct={80}>
-        <ThemedText variant="h3" style={{ marginBottom: 8 }}>
-          Needs Attention ({attnItems.length})
-        </ThemedText>
-        <SheetScrollView showsVerticalScrollIndicator={false}>{attnItems.map(renderAttnRow)}</SheetScrollView>
-      </BottomSheetModal>
-      <BottomSheetModal visible={remindersOpen} onClose={() => setRemindersOpen(false)} maxHeightPct={80}>
-        <ThemedText variant="h3" style={{ marginBottom: 8 }}>
-          Upcoming Reminders ({allReminders.length})
-        </ThemedText>
-        <SheetScrollView showsVerticalScrollIndicator={false}>{allReminders.map(renderReminderRow)}</SheetScrollView>
-      </BottomSheetModal>
-    </ScreenContainer>
+            <SectionTitle>Gold loan calculator</SectionTitle>
+            <Calculator k24={rate.data?.k24 ?? r24} />
+          </>
+        ) : (
+          <ActivityFeed />
+        )}
+      </PScroll>
+      <CollectPaymentPicker visible={collectOpen} onClose={() => setCollectOpen(false)} />
+    </Screen>
   );
 }
 
-// A tappable KPI tile. The width lives on the Pressable (the grid item), and
-// the GlassCard simply fills it.
-function Tile({ full, onPress, children }: { full?: boolean; onPress: () => void; children: React.ReactNode }) {
+// ---- Approvals & review lists (kept from the old dashboard, restyled) -----
+function NeedsAttention() {
+  const [kind, setKind] = useState<NeedsAttentionKind>("approvals");
+  const query = useInfiniteQuery({
+    queryKey: ["dashboard", "needs-attention", kind],
+    initialPageParam: 0,
+    queryFn: ({ pageParam }) => listNeedsAttentionPage({ offset: pageParam, limit: NEEDS_ATTENTION_PAGE_SIZE, kind }),
+    getNextPageParam: (last, all) => (last.hasMore ? all.length * NEEDS_ATTENTION_PAGE_SIZE : undefined),
+  });
+  useRefetchOnFocus(query.refetch);
+  const first = query.data?.pages[0];
+  const items = useMemo(() => query.data?.pages.flatMap((p) => p.items ?? []) ?? [], [query.data]);
+  const labels = {
+    approvals: `Approvals${first ? ` · ${first.approvalsCount}` : ""}`,
+    requests: `Requests${first ? ` · ${first.requestsCount}` : ""}`,
+    auctions: `Auctions${first ? ` · ${first.auctionsCount}` : ""}`,
+  };
+
+  const open = (it: NeedsAttentionItem) => {
+    if (it.kind === "request") openPage(`/requests?requestId=${it.requestId}${it.loanId ? `&loanId=${it.loanId}` : ""}`);
+    else if (it.loanId) openPage(`/loans/${it.loanId}`);
+  };
+
   return (
-    <Pressable onPress={onPress} style={({ pressed }) => [full ? styles.tileFullWrap : styles.tileWrap, pressed && styles.tilePressed]}>
-      <GlassCard style={styles.tile}>{children}</GlassCard>
-    </Pressable>
+    <>
+      <SectionTitle>Needs attention</SectionTitle>
+      <Card style={{ padding: 12 }}>
+        <FilterChipRow options={ATTENTION_TABS} value={kind} onChange={setKind} labels={labels} />
+        {query.isLoading || (query.isFetching && !query.isFetchingNextPage && items.length === 0) ? (
+          <Buffering block />
+        ) : items.length === 0 ? (
+          <EmptyText>Nothing needs attention right now.</EmptyText>
+        ) : (
+          <AccGroup>
+          {items.map((it, i) => (
+            <AccRow
+              key={`${it.kind}-${it.requestId ?? it.loanId}-${i}`}
+              id={it.loanNumber}
+              name={it.customerName ?? "—"}
+              sub={
+                it.kind === "approval"
+                  ? `Awaiting ${it.approvalStage || "approval"}`
+                  : it.kind === "request"
+                    ? `${it.requestType ?? "Request"}${it.detail ? ` · ${it.detail}` : ""}`
+                    : it.status ?? "Auction case"
+              }
+              amount={it.kind === "approval" ? inr(it.principal) : it.kind === "auction" ? inr(it.outstanding) : undefined}
+              status={it.kind === "approval" ? "Pending" : it.kind === "request" ? "Pending" : it.status ?? "Overdue"}
+              details={
+                it.kind === "approval"
+                  ? [
+                      { k: "Stage", v: it.approvalStage || "—" },
+                      { k: "Principal", v: inr(it.principal) },
+                    ]
+                  : it.kind === "request"
+                    ? [
+                        { k: "Type", v: it.requestType ?? "—" },
+                        { k: "Detail", v: it.detail || "—" },
+                      ]
+                    : [
+                        { k: "Status", v: it.status ?? "—" },
+                        { k: "Outstanding", v: inr(it.outstanding), color: C.red },
+                      ]
+              }
+              actions={[{ label: it.kind === "auction" ? "View Loan" : "Review", primary: true, onPress: () => open(it) }]}
+            />
+          ))}
+          </AccGroup>
+        )}
+        {query.isFetchingNextPage ? <Buffering /> : query.hasNextPage ? <AccBtn label="Load more" onPress={() => query.fetchNextPage()} /> : null}
+      </Card>
+    </>
   );
 }
 
-const styles = StyleSheet.create({
-  cardTitleRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 8 },
-  trendRow: { flexDirection: "row", gap: 4, marginTop: 2 },
-  trendText: { fontSize: 11 },
-  grid: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginBottom: 12 },
-  // Background/border/radius deliberately omitted — GlassCard's own base
-  // style supplies those (the frosted fill, soft border, rounded corners);
-  // setting them here would paint over the glass effect and defeat it.
-  // width (not minWidth) pins this to a strict 2-up grid — every tile takes
-  // exactly half the row regardless of its own content length, so an odd
-  // tile count still lines up instead of one long label pushing a 3rd
-  // column onto some rows and 2 onto others.
-  tileWrap: { width: "48%" },
-  // Cash in Hand / Interest Collected take a full row each.
-  tileFullWrap: { width: "100%" },
-  tilePressed: { opacity: 0.7 },
-  tile: {
-    paddingVertical: 16,
-    paddingHorizontal: 12,
-  },
-  bars: { flexDirection: "row", justifyContent: "space-between", alignItems: "flex-end", height: 160 },
-  barCol: { flex: 1, alignItems: "center" },
-  barTrack: {
-    width: 18,
-    height: 100,
-    justifyContent: "flex-end",
-    marginVertical: 4,
-  },
-  barFill: {
-    width: "100%",
-    borderRadius: 4,
-    minHeight: 2,
-  },
-  attnRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 10,
-    minHeight: 56,
-    paddingVertical: 14,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.line,
-  },
-  attnDot: { width: 8, height: 8, borderRadius: 4 },
-  calcResult: {
-    borderWidth: 1,
-    borderRadius: 8,
-    padding: 12,
-    gap: 6,
-  },
-  calcRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
-  stackBar: {
-    flexDirection: "row",
-    height: 14,
-    borderRadius: 7,
-    overflow: "hidden",
-    marginBottom: 12,
-    backgroundColor: colors.line,
-  },
-  legendRow: { flexDirection: "row", alignItems: "center", gap: 8, paddingVertical: 4 },
-  legendDot: { width: 10, height: 10, borderRadius: 5 },
-});
+// ---- Activity tab ----------------------------------------------------------
+function ActivityFeed() {
+  const query = useInfiniteQuery({
+    queryKey: ["dashboard", "activity"],
+    initialPageParam: 0,
+    queryFn: ({ pageParam }) => listDashboardActivityPage({ limit: 10, offset: pageParam }),
+    getNextPageParam: (last, all) => (last.hasMore ? all.length * 10 : undefined),
+  });
+  useRefetchOnFocus(query.refetch);
+  const items = useMemo(() => query.data?.pages.flatMap((p) => p.items ?? []) ?? [], [query.data]);
+  return (
+    <>
+      <SectionTitle style={{ marginTop: 16 }}>Recent activity</SectionTitle>
+      <Card>
+        {query.isLoading ? (
+          <Buffering />
+        ) : items.length === 0 ? (
+          <EmptyText>No activity yet.</EmptyText>
+        ) : (
+          items.map((a, i) => {
+            const type = a.type.toLowerCase();
+            const color = type.includes("payment") ? C.green : type.includes("overdue") ? C.red : undefined;
+            return (
+              <ActItem
+                key={`${a.type}-${a.loanId}-${a.date}-${i}`}
+                first={i === 0}
+                title={a.customerName}
+                sub={[a.loanNumber, a.label, dmy(a.date)].filter(Boolean).join(" · ")}
+                amount={`${type.includes("payment") ? "+" : ""}${inr(a.amount)}`}
+                amountColor={color}
+                onPress={a.loanId ? () => openPage(`/loans/${a.loanId}`) : undefined}
+              />
+            );
+          })
+        )}
+        {query.isFetchingNextPage ? <Buffering /> : query.hasNextPage ? <AccBtn label="Load more" onPress={() => query.fetchNextPage()} style={{ marginTop: 8 }} /> : null}
+      </Card>
+    </>
+  );
+}
+
+// ---- Gold loan calculator --------------------------------------------------
+// Every karat the loan form accepts plus the common hallmark fineness grades,
+// merged with the tenant's own purity standards (GET /purity-standards) so a
+// custom grade set up on the web shows here too. Rates derive off the day's
+// 24K benchmark exactly like loan/purity.go.
+type PurityOpt = { key: string; label: string; rate: (k24: number) => number };
+const STD_KARATS = [24, 23, 22, 21, 20, 18, 16, 14, 12, 10];
+const STD_FINENESS = [99.9, 99.5, 91.6, 87.5, 83.3, 75, 58.5, 41.7];
+const karatOpt = (k: number, label?: string): PurityOpt => ({ key: `${k}K`, label: label || `${k} Karat`, rate: (k24) => rateForKarat(k24, k) });
+const finenessOpt = (f: number, label?: string): PurityOpt => ({ key: `${f}%`, label: label || `${f}% fineness`, rate: (k24) => rateForFineness(k24, f) });
+
+function usePurityOptions(): PurityOpt[] {
+  const standards = useQuery({ queryKey: ["purity-standards", "calculator"], queryFn: () => listPurityStandards() });
+  return useMemo(() => {
+    const byKey = new Map<string, PurityOpt>();
+    for (const k of STD_KARATS) byKey.set(`${k}K`, karatOpt(k));
+    for (const f of STD_FINENESS) byKey.set(`${f}%`, finenessOpt(f));
+    for (const ps of standards.data ?? []) {
+      if (!ps.isActive) continue;
+      const o = ps.karat ? karatOpt(ps.karat, ps.label) : ps.finenessPercent ? finenessOpt(ps.finenessPercent, ps.label) : null;
+      if (o && !byKey.has(o.key)) byKey.set(o.key, o);
+    }
+    const karats = [...byKey.values()].filter((o) => o.key.endsWith("K")).sort((a, b) => parseFloat(b.key) - parseFloat(a.key));
+    const fineness = [...byKey.values()].filter((o) => o.key.endsWith("%")).sort((a, b) => parseFloat(b.key) - parseFloat(a.key));
+    return [...karats, ...fineness];
+  }, [standards.data]);
+}
+
+function Calculator({ k24 }: { k24: number }) {
+  const [weight, setWeight] = useState("");
+  const purities = usePurityOptions();
+  const [purityKey, setPurityKey] = useState("22K");
+  const [scheme, setScheme] = useState<Scheme | null>(null);
+  const schemes = useQuery({ queryKey: ["schemes", "active"], queryFn: () => listActiveSchemes() });
+  const active = schemes.data ?? [];
+  const sc = scheme ?? active[0] ?? null;
+  const purity = purities.find((p) => p.key === purityKey) ?? purities[0];
+  const rate = k24 && purity ? purity.rate(k24) : 0;
+  const amount = Math.round(((Number(weight) || 0) * rate * (sc?.ltvPercent ?? 0)) / 100 / 10) * 10;
+  return (
+    <Card>
+      <Field label="Gold weight (grams)">
+        <Input keyboardType="decimal-pad" placeholder="18.5" value={weight} onChangeText={setWeight} />
+      </Field>
+      <FieldRow>
+        <Field label="Purity">
+          <ThemeDropdown value={purity} options={purities} onChange={(p) => setPurityKey(p.key)} labelOf={(p) => p.label} keyOf={(p) => p.key} />
+        </Field>
+        <Field label="Scheme">
+          <ThemeDropdown<Scheme> value={sc} options={active} onChange={setScheme} labelOf={(x) => x.name} keyOf={(x) => x.id} placeholder="Scheme" />
+        </Field>
+      </FieldRow>
+      <ResultBox k="Eligible loan amount" v={inr(amount)} style={{ marginBottom: 0 }} />
+      {sc ? <Txt style={{ fontSize: 11, color: C.muted, marginTop: 8 }}>At {inr(Math.round(rate))}/g · LTV {sc.ltvPercent}%</Txt> : null}
+    </Card>
+  );
+}
+
+// ---- Collect Payment quick action: pick a loan, then its Collect sheet ----
+function CollectPaymentPicker({ visible, onClose }: { visible: boolean; onClose: () => void }) {
+  const shell = useShell();
+  return (
+    <Sheet visible={visible} onClose={onClose} title="Collect Payment" maxHeightPct={70}>
+      <AsyncSelect<Loan>
+        label="Loan"
+        placeholder="Search by loan number, customer name or ID"
+        queryKey={["loans", "collect-picker"]}
+        fetcher={async (q) => (await listLoansPage({ q: q || undefined, status: "Active", limit: 20, offset: 0 })).items ?? []}
+        onSelect={(l) => {
+          onClose();
+          shell.openCollect(l.id);
+        }}
+        keyOf={(l) => l.id}
+        renderItem={(l) => ({ title: `${l.loanNumber} · ${l.customer?.name ?? ""}`, sub: `Outstanding ${inr(l.outstandingAmount)}` })}
+      />
+    </Sheet>
+  );
+}

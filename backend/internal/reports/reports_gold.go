@@ -23,6 +23,8 @@ func (s *Service) GoldWeight(ctx context.Context, f Filter) ([]GoldWeightRow, Go
 	if err := q.Scan(&rows).Error; err != nil {
 		return nil, GoldWeightTotals{}, err
 	}
+	// Search before totals, so Totals describe the rows actually shown.
+	rows = MatchRows(rows, f.Q)
 	var totals GoldWeightTotals
 	for _, r := range rows {
 		totals.TotalGrossWeight += r.GrossWeight
@@ -51,6 +53,8 @@ func (s *Service) Packets(ctx context.Context, f Filter) ([]PacketRow, PacketTot
 	if err := q.Scan(&rows).Error; err != nil {
 		return nil, PacketTotals{}, err
 	}
+	// Search before totals, so Totals describe the rows actually shown.
+	rows = MatchRows(rows, f.Q)
 	totals := PacketTotals{Count: len(rows)}
 	for _, r := range rows {
 		switch r.Status {

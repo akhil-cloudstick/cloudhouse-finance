@@ -44,8 +44,10 @@ const (
 // and optionally narrowed to one of the Category* buckets above. limit <= 0
 // returns every matching row unpaginated (used by the CSV export handlers,
 // which must never be capped to whatever page size the table itself is
-// currently showing).
-func (r *MovementRepository) FindAll(ctx context.Context, branchID *uint, fromDate, toDate time.Time, category string, limit, offset int) ([]CashMovement, int64, error) {
+// currently showing). search, when non-empty, narrows to rows whose
+// purpose, source or bank ILIKE-contains it (the mobile Cash screen's
+// search box).
+func (r *MovementRepository) FindAll(ctx context.Context, branchID *uint, fromDate, toDate time.Time, category, search string, limit, offset int) ([]CashMovement, int64, error) {
 	var movements []CashMovement
 	q := r.db.WithContext(ctx).Preload("Branch").Order("occurred_on desc, id desc")
 	if branchID != nil {
@@ -69,6 +71,10 @@ func (r *MovementRepository) FindAll(ctx context.Context, branchID *uint, fromDa
 			"type = ? AND source IS DISTINCT FROM ? AND source IS DISTINCT FROM ? AND (purpose IS NULL OR (purpose NOT LIKE ? AND purpose NOT LIKE ? AND purpose NOT LIKE ?))",
 			"out", "Loan", "Auction", "Loan disbursement — %", "Auction surplus refunded%", "Bank pledge release — %",
 		)
+	}
+	if search != "" {
+		like := "%" + search + "%"
+		q = q.Where("purpose ILIKE ? OR source ILIKE ? OR bank ILIKE ?", like, like, like)
 	}
 	var total int64
 	if limit > 0 {
@@ -188,11 +194,17 @@ func (r *ExpenseRepository) Create(ctx context.Context, e *Expense) error {
 // FindAll returns expenses, optionally scoped to a single branch — pass nil
 // for an Administrator's unfiltered "all branches" view, or a non-nil
 // pointer to confine results to that branch (see platform.GetBranchScope).
-func (r *ExpenseRepository) FindAll(ctx context.Context, branchID *uint, limit, offset int) ([]Expense, int64, error) {
+// search, when non-empty, narrows to rows whose category, payee or remarks
+// ILIKE-contains it.
+func (r *ExpenseRepository) FindAll(ctx context.Context, branchID *uint, search string, limit, offset int) ([]Expense, int64, error) {
 	var expenses []Expense
 	q := r.db.WithContext(ctx).Preload("Branch").Order("occurred_on desc, id desc")
 	if branchID != nil {
 		q = q.Where("branch_id = ?", *branchID)
+	}
+	if search != "" {
+		like := "%" + search + "%"
+		q = q.Where("category ILIKE ? OR payee ILIKE ? OR remarks ILIKE ?", like, like, like)
 	}
 	var total int64
 	if limit > 0 {
@@ -447,8 +459,9 @@ func (r *GoldSaleRepository) FindByID(ctx context.Context, id uint) (*GoldSale, 
 // an Administrator's unfiltered "all branches" view — see
 // platform.GetBranchScope) and bounded to [fromDate, toDate] on sold_on;
 // either end left zero-value means "no bound" on that side, same convention
-// as MovementRepository.FindAll.
-func (r *GoldSaleRepository) FindAll(ctx context.Context, branchID *uint, fromDate, toDate time.Time, limit, offset int) ([]GoldSale, int64, error) {
+// as MovementRepository.FindAll. search, when non-empty, narrows to rows
+// whose ornament_type or remarks ILIKE-contains it.
+func (r *GoldSaleRepository) FindAll(ctx context.Context, branchID *uint, fromDate, toDate time.Time, search string, limit, offset int) ([]GoldSale, int64, error) {
 	var sales []GoldSale
 	q := r.db.WithContext(ctx).Preload("Branch").Order("sold_on desc, id desc")
 	if branchID != nil {
@@ -459,6 +472,10 @@ func (r *GoldSaleRepository) FindAll(ctx context.Context, branchID *uint, fromDa
 	}
 	if !toDate.IsZero() {
 		q = q.Where("sold_on < ?", toDate.AddDate(0, 0, 1))
+	}
+	if search != "" {
+		like := "%" + search + "%"
+		q = q.Where("ornament_type ILIKE ? OR remarks ILIKE ?", like, like)
 	}
 	var total int64
 	if limit > 0 {
@@ -472,4 +489,55 @@ func (r *GoldSaleRepository) FindAll(ctx context.Context, branchID *uint, fromDa
 	}
 	err := q.Find(&sales).Error
 	return sales, total, err
+}
+
+// SumNet returns every cash movement's all-time net — SUM(in) − SUM(out),
+// optionally scoped to one branch (nil = all branches). This is the
+// dashboard "Cash in Hand" KPI exactly as the web and mobile dashboards
+// computed it client-side from the full movement list (not
+// Summary.ExpectedCash, which is a date-scoped reconciliation figure that
+// needs an opening balance for the day).
+func (r *MovementRepository) SumNet(ctx context.Context, branchID *uint) (float64, error) {
+	q := r.db.WithContext(ctx).Model(&CashMovement{})
+	if branchID != nil {
+		q = q.Where("branch_id = ?", *branchID)
+	}
+	var net float64
+	err := q.Select("COALESCE(SUM(CASE WHEN type = 'in' THEN amount WHEN type = 'out' THEN -amount ELSE 0 END), 0)").
+		Scan(&net).Error
+	return net, err
+}
+
+// NetByDay returns SUM(in) − SUM(out) per calendar day for movements with
+// occurred_on in [from, to), keyed "YYYY-MM-DD". Days are bucketed in Go
+// with the server's local time zone — the same startOfDay convention every
+// other date filter in this file uses — rather than SQL DATE(), whose
+// answer depends on the database session's time zone. Days with no
+// movements are simply absent from the map.
+func (r *MovementRepository) NetByDay(ctx context.Context, branchID *uint, from, to time.Time) (map[string]float64, error) {
+	type row struct {
+		Type       string
+		Amount     float64
+		OccurredOn time.Time
+	}
+	q := r.db.WithContext(ctx).Model(&CashMovement{}).
+		Where("occurred_on >= ? AND occurred_on < ?", from, to)
+	if branchID != nil {
+		q = q.Where("branch_id = ?", *branchID)
+	}
+	var rows []row
+	if err := q.Select("type, amount, occurred_on").Scan(&rows).Error; err != nil {
+		return nil, err
+	}
+	out := map[string]float64{}
+	for _, rw := range rows {
+		key := rw.OccurredOn.In(time.Local).Format("2006-01-02")
+		switch rw.Type {
+		case "in":
+			out[key] += rw.Amount
+		case "out":
+			out[key] -= rw.Amount
+		}
+	}
+	return out, nil
 }

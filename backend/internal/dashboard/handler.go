@@ -3,6 +3,7 @@ package dashboard
 import (
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 
@@ -19,13 +20,51 @@ func NewHandler(svc *Service) *Handler {
 	return &Handler{svc: svc}
 }
 
-// NeedsAttention backs GET /dashboard/needs-attention?page= — see
+// NeedsAttention backs GET /dashboard/needs-attention?page=&q=&kind= — see
 // Service.GetNeedsAttention for the merge/order/paginate rules. page is
-// 1-based; omitted or <= 0 defaults to page 1.
+// 1-based; omitted or <= 0 defaults to page 1. q matches loan number or
+// customer name/code; kind (approvals | requests | auctions) keeps only
+// that source's rows.
 func (h *Handler) NeedsAttention(c *gin.Context) {
 	ctx := platform.RequestContext(c)
 	page, _ := strconv.Atoi(c.Query("page"))
-	rec, err := h.svc.GetNeedsAttention(ctx, page, platform.GetBranchScope(c))
+	f := NeedsAttentionFilter{Query: strings.TrimSpace(c.Query("q"))}
+	switch k := strings.ToLower(strings.TrimSpace(c.Query("kind"))); k {
+	case "":
+	case NeedsAttentionKindApprovals, NeedsAttentionKindRequests, NeedsAttentionKindAuctions:
+		f.Kind = k
+	default:
+		httpx.Fail(c, http.StatusBadRequest, "invalid kind: expected approvals, requests or auctions")
+		return
+	}
+	rec, err := h.svc.GetNeedsAttention(ctx, page, platform.GetBranchScope(c), f)
+	if err != nil {
+		httpx.FailErr(c, err)
+		return
+	}
+	httpx.Success(c, http.StatusOK, rec)
+}
+
+// Summary backs GET /dashboard/summary — the mobile dashboard's KPI header
+// (cash in hand, latest gold rate + change, today's counts, 7-day cash
+// flow) in one round trip. See Service.GetSummary.
+func (h *Handler) Summary(c *gin.Context) {
+	rec, err := h.svc.GetSummary(platform.RequestContext(c), platform.GetBranchScope(c))
+	if err != nil {
+		httpx.FailErr(c, err)
+		return
+	}
+	httpx.Success(c, http.StatusOK, rec)
+}
+
+// Activity backs GET /dashboard/activity?limit=&offset= — the merged,
+// server-paginated recent-activity feed (always the {items, hasMore,
+// total} shape; limit defaults to ActivityDefaultLimit, capped at
+// ActivityMaxLimit). See Service.GetActivity.
+func (h *Handler) Activity(c *gin.Context) {
+	limit, _ := strconv.Atoi(c.Query("limit"))
+	offset, _ := strconv.Atoi(c.Query("offset"))
+	rec, err := h.svc.GetActivity(platform.RequestContext(c), platform.GetBranchScope(c), limit, offset)
 	if err != nil {
 		httpx.FailErr(c, err)
 		return

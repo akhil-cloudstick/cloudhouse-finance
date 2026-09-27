@@ -25,3 +25,21 @@ const HEADER_BELOW_INSET = 56;
 export function useHeaderSpace() {
   return useSafeAreaInsets().top + HEADER_BELOW_INSET;
 }
+
+// ---- Prototype (ui-demos/staff-app-prototype.html) shell metrics ----
+// .tabbar: left/right/bottom 14, height 70, radius 26.
+export const PTAB_INSET = 14;
+export const PTAB_HEIGHT = 70;
+// .tabfade: 88 tall, transparent → bg, solid from 65%.
+export const PTAB_FADE = 88;
+// .content: padding-bottom 110 so the last row clears the floating bar.
+export const PCONTENT_BOTTOM = 110;
+// Single canonical horizontal gutter (.table-container / .card margins).
+export const PGUTTER = 18;
+// Smooth fade under every header so content scrolls away gradually.
+export const PHEADER_FADE = 28;
+
+/** Bottom padding for a scroller under the prototype tab bar. */
+export function usePContentBottom(extra = 0) {
+  return PCONTENT_BOTTOM + useSafeAreaInsets().bottom + extra;
+}

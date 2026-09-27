@@ -17,7 +17,7 @@ export function listCustomers(q?: string) {
 // List) into the {items, hasMore} envelope — used by the paginated mobile
 // Customers list (10/page, one API call per page).
 export function listCustomersPage(params: { q?: string; limit: number; offset: number }) {
-  return apiRequest<{ items: Customer[]; hasMore: boolean }>("/customers", { params });
+  return apiRequest<{ items: Customer[]; hasMore: boolean; total?: number }>("/customers", { params });
 }
 
 export function getCustomer(id: number) {
@@ -39,23 +39,24 @@ export function getCustomerAadhaarFull(id: number) {
 // loans/index.tsx) rather than the web's 1-based page-number pager. Loan
 // History itself isn't here — it's already covered by
 // src/api/loans.ts's listLoansPage({customerId}).
-function customerSubTable<T>(path: string, customerId: number, limit: number, offset: number) {
-  return apiRequest<{ items: T[]; hasMore: boolean }>(`/customers/${customerId}/${path}`, {
-    params: { limit, offset },
+// `q` is the per-tab server search (loan no. / ornament / bank …).
+function customerSubTable<T>(path: string, customerId: number, limit: number, offset: number, q?: string) {
+  return apiRequest<{ items: T[]; hasMore: boolean; total?: number }>(`/customers/${customerId}/${path}`, {
+    params: { limit, offset, q: q || undefined },
   });
 }
 
-export function listCustomerOrnamentsPage(customerId: number, limit: number, offset: number) {
-  return customerSubTable<CustomerOrnamentRow>("ornaments", customerId, limit, offset);
+export function listCustomerOrnamentsPage(customerId: number, limit: number, offset: number, q?: string) {
+  return customerSubTable<CustomerOrnamentRow>("ornaments", customerId, limit, offset, q);
 }
-export function listCustomerPaymentsPage(customerId: number, limit: number, offset: number) {
-  return customerSubTable<CustomerPaymentRow>("payments", customerId, limit, offset);
+export function listCustomerPaymentsPage(customerId: number, limit: number, offset: number, q?: string) {
+  return customerSubTable<CustomerPaymentRow>("payments", customerId, limit, offset, q);
 }
-export function listCustomerBankPledgesPage(customerId: number, limit: number, offset: number) {
-  return customerSubTable<CustomerBankPledgeRow>("bank-pledges", customerId, limit, offset);
+export function listCustomerBankPledgesPage(customerId: number, limit: number, offset: number, q?: string) {
+  return customerSubTable<CustomerBankPledgeRow>("bank-pledges", customerId, limit, offset, q);
 }
-export function listCustomerAuctionHistoryPage(customerId: number, limit: number, offset: number) {
-  return customerSubTable<CustomerAuctionRow>("auction-history", customerId, limit, offset);
+export function listCustomerAuctionHistoryPage(customerId: number, limit: number, offset: number, q?: string) {
+  return customerSubTable<CustomerAuctionRow>("auction-history", customerId, limit, offset, q);
 }
 
 // Mirrors backend/internal/customer/handler.go's customerRequest body shape
@@ -65,7 +66,7 @@ export function listCustomerAuctionHistoryPage(customerId: number, limit: number
 // register screen uploads each pick immediately via src/api/uploads.ts and
 // only sends the resulting URLs here — the same two-step the web modal does
 // in save() (uploadFile ×4, then createCustomer).
-export function createCustomer(input: {
+export type CustomerInput = {
   name: string;
   phone: string;
   dob?: string;
@@ -80,7 +81,23 @@ export function createCustomer(input: {
   identityProofUrl?: string;
   addressProofUrl?: string;
   kycDocumentUrl?: string;
-}) {
+  // Personal-loan / investor-only fields (customerRequest in handler.go).
+  // The mobile form never edits them, but the PUT is a full replace, so the
+  // edit sheet re-sends whatever the customer already has on file.
+  customerType?: string;
+  fatherName?: string;
+  district?: string;
+  taluk?: string;
+  village?: string;
+  place?: string;
+  pinCode?: string;
+  age?: number;
+  bankAccountName?: string;
+  bankAccountNumber?: string;
+  bankIfsc?: string;
+};
+
+export function createCustomer(input: CustomerInput) {
   return apiRequest<Customer>("/customers", { method: "POST", body: input });
 }
 
@@ -91,24 +108,6 @@ export function createCustomer(input: {
 // Update only re-encrypts when non-empty); leaving a document URL as the
 // customer's existing value (rather than "") keeps that document instead of
 // wiping it, since the backend has no notion of "unchanged" vs "cleared".
-export function updateCustomer(
-  id: number,
-  input: {
-    name: string;
-    phone: string;
-    dob?: string;
-    address?: string;
-    branchId: number;
-    pan?: string;
-    aadhaar?: string;
-    nomineeName?: string;
-    nomineeRelation?: string;
-    nomineePhone?: string;
-    photoUrl?: string;
-    identityProofUrl?: string;
-    addressProofUrl?: string;
-    kycDocumentUrl?: string;
-  }
-) {
+export function updateCustomer(id: number, input: CustomerInput) {
   return apiRequest<Customer>(`/customers/${id}`, { method: "PUT", body: input });
 }

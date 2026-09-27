@@ -3,6 +3,7 @@ package reminder
 import (
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -85,7 +86,31 @@ func (h *Handler) List(c *gin.Context) {
 		}
 	}
 	f.BranchID = platform.GetBranchScope(c)
-	rec, err := h.svc.List(ctx, f)
+	f.Query = strings.TrimSpace(c.Query("q"))
+
+	// Opt-in pagination, same convention as GET /loans: no limit -> bare
+	// array; limit > 0 -> {items, hasMore, total}.
+	limit, _ := strconv.Atoi(c.Query("limit"))
+	if limit > 0 {
+		offset, _ := strconv.Atoi(c.Query("offset"))
+		if offset < 0 {
+			offset = 0
+		}
+		f.Limit, f.Offset = limit+1, offset
+		rec, total, err := h.svc.List(ctx, f)
+		if err != nil {
+			httpx.FailErr(c, err)
+			return
+		}
+		hasMore := len(rec) > limit
+		if hasMore {
+			rec = rec[:limit]
+		}
+		httpx.Success(c, http.StatusOK, gin.H{"items": rec, "hasMore": hasMore, "total": total})
+		return
+	}
+
+	rec, _, err := h.svc.List(ctx, f)
 	if err != nil {
 		httpx.FailErr(c, err)
 		return
@@ -219,7 +244,7 @@ func (h *Handler) Calendar(c *gin.Context) {
 	// "Upcoming Reminders" widget).
 	page, _ := strconv.Atoi(c.Query("page"))
 	pageSize, _ := strconv.Atoi(c.Query("pageSize"))
-	events, total, err := h.svc.GetCalendarEvents(ctx, from, to, platform.GetBranchScope(c), page, pageSize)
+	events, total, err := h.svc.GetCalendarEvents(ctx, from, to, platform.GetBranchScope(c), strings.TrimSpace(c.Query("q")), page, pageSize)
 	if err != nil {
 		httpx.FailErr(c, err)
 		return

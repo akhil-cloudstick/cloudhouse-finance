@@ -1,481 +1,394 @@
-import React, { useRef, useState } from "react";
-import { TAB_BAR_SPACE } from "../../../src/theme/layout";
-import { ActivityIndicator, NativeScrollEvent, NativeSyntheticEvent, Pressable, RefreshControl, ScrollView, StyleSheet, View, useWindowDimensions } from "react-native";
-import { useLocalSearchParams, useRouter } from "expo-router";
-import { useQuery, useInfiniteQuery } from "@tanstack/react-query";
-import { ScreenContainer } from "../../../src/components/ScreenContainer";
-import { Card } from "../../../src/components/Card";
-import { ThemedText } from "../../../src/components/ThemedText";
-import { GoldButton } from "../../../src/components/GoldButton";
-import { colors, statusColors } from "../../../src/theme/colors";
-import { useTheme } from "../../../src/theme/ThemeProvider";
-import { getCustomer } from "../../../src/api/customers";
+import React, { useState } from "react";
+import { LayoutAnimation, Pressable, StyleSheet, View } from "react-native";
+import { useLocalSearchParams } from "expo-router";
+import { useQuery } from "@tanstack/react-query";
 import {
+  AccRow,
+  Avatar,
+  Buffering,
+  C,
+  Card,
+  DetailRow,
+  EmptyText,
+  FlatHeader,
+  KycBadge,
+  PIcon,
+  PillTabs,
+  PrimaryButton,
+  Screen,
+  SearchInput,
+  SectionTitle,
+  ServerFlatList,
+  Txt,
+  openPage,
+} from "../../../src/components/ui";
+import { CustomerFormSheet } from "../../../src/components/staff/CustomerFormSheet";
+import { useServerList, type ServerPage } from "../../../src/hooks/useServerList";
+import { useRefetchOnFocus, useResetOnBlur } from "../../../src/hooks/useRefetchOnFocus";
+import {
+  getCustomer,
+  getCustomerAadhaarFull,
+  listCustomerAuctionHistoryPage,
+  listCustomerBankPledgesPage,
   listCustomerOrnamentsPage,
   listCustomerPaymentsPage,
-  listCustomerBankPledgesPage,
-  listCustomerAuctionHistoryPage,
 } from "../../../src/api/customers";
 import { listLoansPage } from "../../../src/api/loans";
-import { Loan, CustomerOrnamentRow, CustomerPaymentRow, CustomerBankPledgeRow, CustomerAuctionRow } from "../../../src/types/loan";
-import { fmt, fmtDate } from "../../../src/lib/format";
-import { useRefetchOnFocus } from "../../../src/hooks/useRefetchOnFocus";
-import { TableRow, type TableColumn } from "../../../src/components/ExpandableTable";
-import { Icon } from "../../../src/components/Icon";
-import { Loading } from "../../../src/components/Loading";
-import Svg, { Defs, LinearGradient, Rect, Stop } from "react-native-svg";
+import { ApiError } from "../../../src/api/client";
+import { dmy, inr } from "../../../src/lib/format";
+import type { Customer } from "../../../src/types/customer";
+import type { CustomerAuctionRow, CustomerBankPledgeRow, CustomerOrnamentRow, CustomerPaymentRow, Loan } from "../../../src/types/loan";
 
-const STICKY_FADE_STOPS = Array.from({ length: 21 }, (_, i) => i / 20);
-const PAGE_SIZE = 10; // matches the rest of the mobile app's paginated tables
+// Customer detail — prototype #header-customerdesc + #page-customerdesc:
+// expandable header card, nominee card, then pill tabs (Loans / Ornaments /
+// Payments / Bank Pledges / Auctions). Each tab is its own server-paged list
+// with its own search box (server `q` on the customer sub-endpoints; loans
+// via GET /loans?customerId=&q=).
 
-const fmtW = (n?: number | null) => `${(n ?? 0).toFixed(2)}g`;
+const TABS = ["Loans", "Ornaments", "Payments", "Bank Pledges", "Auctions"] as const;
+type Tab = (typeof TABS)[number];
+
+const hasDate = (v?: string | null) => !!v && !v.startsWith("0001");
 
 function ageFromDob(dob: string): number {
-  const birth = new Date(dob);
+  const birth = new Date(+dob.slice(0, 4), +dob.slice(5, 7) - 1, +dob.slice(8, 10));
   const today = new Date();
   let age = today.getFullYear() - birth.getFullYear();
-  const beforeBirthdayThisYear =
-    today.getMonth() < birth.getMonth() || (today.getMonth() === birth.getMonth() && today.getDate() < birth.getDate());
-  if (beforeBirthdayThisYear) age -= 1;
+  if (today.getMonth() < birth.getMonth() || (today.getMonth() === birth.getMonth() && today.getDate() < birth.getDate())) age -= 1;
   return age;
 }
 
-// Mirrors frontend/modules/customers/components/CustomerDetail.tsx's
-// TABLE_TABS — same 5 tabs, same order. Loan History reuses the existing
-// listLoansPage({customerId}) rather than a new endpoint; the other 4 are
-// new (see src/api/customers.ts's listCustomer*Page additions).
-const TABS = ["Loans", "Ornaments", "Payments", "Bank Pledges", "Auctions"] as const;
+const maskPan = (pan: string) => (pan.length >= 5 ? `${pan.slice(0, 2)}${"×".repeat(pan.length - 5)}${pan.slice(-3)}` : pan);
+const fmtAadhaar = (a: string) => a.replace(/\D/g, "").replace(/(\d{4})(?=\d)/g, "$1 ");
+const isVerified = (s?: string) => (s ?? "").toLowerCase() === "verified";
 
-function toneForLoanStatus(status: string): "green" | "red" | "amber" | "info" | "muted" {
-  const s = status.toLowerCase();
-  if (s.includes("approved") || s.includes("closed")) return "green";
-  if (s.includes("reject") || s.includes("default")) return "red";
-  if (s.includes("pending")) return "amber";
-  return "info";
+function StatusBadge({ status }: { status?: string }) {
+  if (!status) return null;
+  return <KycBadge verified={isVerified(status)} label={status} />;
 }
 
-function Pill({ label, tone }: { label: string; tone: "green" | "red" | "amber" | "info" | "muted" }) {
-  const { colors } = useTheme();
-  const t = statusColors(tone, colors);
+/** .cust-header-card — collapsible identity card. */
+function HeaderCard({ c, onEdit }: { c: Customer; onEdit: () => void }) {
+  const [open, setOpen] = useState(true);
+  const [aadhaarFull, setAadhaarFull] = useState<string | null>(null);
+  const [revealing, setRevealing] = useState(false);
+  const [revealError, setRevealError] = useState<string | null>(null);
+
+  async function reveal() {
+    if (aadhaarFull) return setAadhaarFull(null);
+    setRevealing(true);
+    setRevealError(null);
+    try {
+      const r = await getCustomerAadhaarFull(c.id);
+      setAadhaarFull(r.aadhaar);
+    } catch (e) {
+      setRevealError(e instanceof ApiError ? e.message : "Couldn't load Aadhaar.");
+    } finally {
+      setRevealing(false);
+    }
+  }
+
   return (
-    <ThemedText
-      variant="label"
-      numberOfLines={1}
-      style={{ backgroundColor: t.bg, color: t.fg, paddingHorizontal: 7, paddingVertical: 2, borderRadius: 6, alignSelf: "flex-start", fontSize: 11.5 }}
-    >
-      {label}
-    </ThemedText>
-  );
-}
-
-// Every customer name is already known on this screen (it's the page's own
-// subject), so the customer column each of these tables would otherwise
-// carry is dropped — 3 columns each, no "large"-table trimming needed.
-const LOAN_COLS: TableColumn<Loan>[] = [
-  { key: "loanNumber", label: "Loan No", render: (l) => l.loanNumber },
-  { key: "status", label: "Status", render: (l) => <Pill label={l.status} tone={toneForLoanStatus(l.status)} /> },
-  { key: "outstanding", label: "Outstanding", render: (l) => fmt(l.outstandingAmount) },
-];
-function loanExtra(l: Loan) {
-  return [
-    { label: "Principal", value: fmt(l.principalAmount) },
-    { label: "Opened", value: new Date(l.openedDate).toLocaleDateString("en-IN") },
-    { label: "Due", value: new Date(l.dueDate).toLocaleDateString("en-IN") },
-  ];
-}
-
-const ORNAMENT_COLS: TableColumn<CustomerOrnamentRow>[] = [
-  { key: "name", label: "Ornament", render: (o) => o.name, weight: 1.2 },
-  { key: "loan", label: "Loan", render: (o) => o.loanNumber },
-  { key: "purity", label: "Purity", render: (o) => o.purity },
-];
-function ornamentExtra(o: CustomerOrnamentRow) {
-  return [
-    { label: "Net Weight", value: fmtW(o.netWeight) },
-    { label: "Gold Value", value: fmt(o.goldValue) },
-  ];
-}
-
-const PAYMENT_COLS: TableColumn<CustomerPaymentRow>[] = [
-  { key: "loan", label: "Loan", render: (p) => p.loanNumber },
-  { key: "type", label: "Type", render: (p) => p.type, weight: 1.2 },
-  { key: "amount", label: "Amount", render: (p) => fmt(p.amount) },
-];
-function paymentExtra(p: CustomerPaymentRow) {
-  return [
-    { label: "Paid On", value: fmtDate(p.paidOn) },
-    { label: "Method", value: p.method || "—" },
-  ];
-}
-
-const PLEDGE_COLS: TableColumn<CustomerBankPledgeRow>[] = [
-  { key: "loan", label: "Loan", render: (b) => b.loanNumber },
-  { key: "bank", label: "Bank", render: (b) => b.bankName, weight: 1.2 },
-  { key: "amount", label: "Amount", render: (b) => fmt(b.pledgedAmount) },
-];
-function pledgeExtra(b: CustomerBankPledgeRow) {
-  return [
-    { label: "Pledge Date", value: fmtDate(b.pledgeDate) },
-    { label: "Status", value: b.status },
-  ];
-}
-
-const AUCTION_COLS: TableColumn<CustomerAuctionRow>[] = [
-  { key: "loan", label: "Loan", render: (a) => a.loanNumber },
-  { key: "stage", label: "Stage", render: (a) => a.stage, weight: 1.2 },
-  { key: "sale", label: "Sale", render: (a) => (a.saleAmount ? fmt(a.saleAmount) : "—") },
-];
-function auctionExtra(a: CustomerAuctionRow) {
-  const surplus = a.surplusShortfall ?? 0;
-  return [
-    { label: "Auction Date", value: fmtDate(a.auctionDate) },
-    {
-      label: surplus >= 0 ? "Surplus" : "Shortfall",
-      value: a.saleAmount ? (
-        <ThemedText variant="small" color={surplus >= 0 ? colors.green : colors.red}>
-          {fmt(Math.abs(surplus))}
-        </ThemedText>
-      ) : (
-        "—"
-      ),
-    },
-  ];
-}
-
-function TableSwitcher({ index, onGo }: { index: number; onGo: (i: number) => void }) {
-  const { colors } = useTheme();
-  const canPrev = index > 0;
-  const canNext = index < TABS.length - 1;
-  return (
-    <View style={styles.switcher}>
-      <Pressable onPress={() => canPrev && onGo(index - 1)} hitSlop={10} style={[styles.switchBtn, !canPrev && { opacity: 0.3 }]}>
-        <Icon name="chevronLeft" size={18} color={colors.brandDeep} />
-      </Pressable>
-      <View style={{ flex: 1, alignItems: "center" }}>
-        <ThemedText variant="h3" color={colors.brandDeep}>
-          {TABS[index]}
-        </ThemedText>
-        <View style={styles.dots}>
-          {TABS.map((t, i) => (
-            <Pressable key={t} onPress={() => onGo(i)} hitSlop={6}>
-              <View style={[styles.dot, i === index && styles.dotActive, i === index && { backgroundColor: colors.brandDeep }]} />
-            </Pressable>
-          ))}
+    <View style={s.hc}>
+      <Pressable
+        style={s.hcCollapsed}
+        onPress={() => {
+          LayoutAnimation.configureNext(LayoutAnimation.create(250, "easeInEaseOut", "opacity"));
+          setOpen((o) => !o);
+        }}
+      >
+        <Avatar name={c.name} size={44} radius={13} fontSize={15} />
+        <View style={{ flex: 1, minWidth: 0 }}>
+          <Txt style={s.hcName} numberOfLines={1}>
+            {c.name}
+          </Txt>
+          <Txt style={s.hcSub} numberOfLines={1}>
+            {[c.code, c.phone].filter(Boolean).join(" · ")}
+          </Txt>
         </View>
-      </View>
-      <Pressable onPress={() => canNext && onGo(index + 1)} hitSlop={10} style={[styles.switchBtn, !canNext && { opacity: 0.3 }]}>
-        <View style={{ transform: [{ rotate: "180deg" }] }}>
-          <Icon name="chevronLeft" size={18} color={colors.brandDeep} />
+        <View style={open ? { transform: [{ rotate: "180deg" }] } : null}>
+          <PIcon name="chevdown" color={C.muted} />
         </View>
       </Pressable>
+      {open ? (
+        <View style={s.hcExpand}>
+          <DetailRow first k="Date of birth" v={hasDate(c.dob) ? `${dmy(c.dob)} · ${ageFromDob(c.dob)} yrs` : "—"} />
+          <DetailRow k="Address" v={c.address || "—"} />
+          <DetailRow k="Branch" v={c.branch?.name || "—"} />
+          <DetailRow
+            k="PAN"
+            v={
+              c.pan ? (
+                <View style={s.inline}>
+                  <Txt style={s.v}>{maskPan(c.pan)}</Txt>
+                  <StatusBadge status={c.panStatus} />
+                </View>
+              ) : (
+                "—"
+              )
+            }
+          />
+          <DetailRow
+            k="Aadhaar"
+            v={
+              c.aadhaarLast4 ? (
+                <View style={{ alignItems: "flex-end" }}>
+                  <View style={s.inline}>
+                    <Txt style={s.v}>{aadhaarFull ? fmtAadhaar(aadhaarFull) : `×××× ×××× ${c.aadhaarLast4}`}</Txt>
+                    <StatusBadge status={c.aadhaarStatus} />
+                  </View>
+                  <Pressable onPress={reveal} hitSlop={6} disabled={revealing} style={{ marginTop: 4 }}>
+                    <Txt style={s.reveal}>{revealing ? "Loading…" : aadhaarFull ? "Hide" : "Show full"}</Txt>
+                  </Pressable>
+                  {revealError ? <Txt style={{ fontSize: 11, color: C.red, marginTop: 2 }}>{revealError}</Txt> : null}
+                </View>
+              ) : (
+                "—"
+              )
+            }
+          />
+          <DetailRow k="KYC status" v={c.kycStatus ? <StatusBadge status={c.kycStatus} /> : "—"} />
+          <PrimaryButton label="Edit Customer" onPress={onEdit} style={{ marginTop: 12 }} />
+        </View>
+      ) : null}
     </View>
   );
 }
 
+/** One tab's server-paged list with its own search. Mounted only while its
+ * tab is active, so inactive tabs never fetch. */
+function TabList<T>({
+  queryKey,
+  fetchPage,
+  top,
+  placeholder,
+  emptyText,
+  keyOf,
+  renderItem,
+}: {
+  queryKey: unknown[];
+  fetchPage: (p: { q?: string; limit: number; offset: number }) => Promise<ServerPage<T>>;
+  top: React.ReactElement;
+  placeholder: string;
+  emptyText: string;
+  keyOf: (t: T) => string;
+  renderItem: (t: T, i: number) => React.ReactElement;
+}) {
+  // Cached rows show straight away; the mount refetch updates them quietly.
+  const list = useServerList<T>({ key: queryKey, fetchPage });
+  return (
+    <ServerFlatList
+      list={list}
+      items={list.items}
+      keyOf={keyOf}
+      emptyText={list.search ? "Nothing matches your search." : emptyText}
+      header={
+        <>
+          {top}
+          <SearchInput value={list.search} onChangeText={list.setSearch} placeholder={placeholder} style={{ paddingTop: 12 }} />
+        </>
+      }
+      renderItem={renderItem}
+    />
+  );
+}
+
 export default function CustomerDetailScreen() {
-  const { colors } = useTheme();
   const { id } = useLocalSearchParams<{ id: string }>();
-  const router = useRouter();
   const customerId = Number(id);
-  const [tab, setTab] = useState(0);
-  const { width: windowWidth } = useWindowDimensions();
-  const [pageWidth, setPageWidth] = useState(windowWidth);
-  const [pageHeights, setPageHeights] = useState<number[]>([]);
-  const pagerRef = useRef<ScrollView>(null);
-  function goToTab(i: number) {
-    pagerRef.current?.scrollTo({ x: i * pageWidth, animated: true });
-    setTab(i);
-  }
-  // Current page plus its neighbours, so a swipe lands on already-loading data.
-  const near = (i: number) => Math.abs(tab - i) <= 1;
+  const [tab, setTab] = useState<Tab>("Loans");
+  const [editOpen, setEditOpen] = useState(false);
 
   const { data, isLoading, isError, refetch } = useQuery({
     queryKey: ["customer", id],
     queryFn: () => getCustomer(customerId),
     enabled: !!id,
   });
+  useRefetchOnFocus(refetch);
+  useResetOnBlur(() => setEditOpen(false));
 
-  // Each tab is its own infinite query, gated to the active tab so
-  // switching tabs doesn't eagerly fire all 5 requests up front — only the
-  // one currently showing (and any already-visited tab, since React Query
-  // caches by queryKey and `enabled` merely pauses future fetches, not the
-  // cache itself).
-  //
-  // staleTime: with the default 0, react-query treats a query as stale the
-  // instant it settles — so re-enabling it (tab A -> tab B -> back to tab
-  // A) triggered a brand new network refetch EVERY time, each one flashing
-  // the RefreshControl spinner even though the data was already sitting in
-  // cache from moments ago. useRefetchOnFocus below already covers the
-  // real "this went stale, get it again" case (leaving/re-entering the
-  // whole screen); a tab switch within one visit shouldn't re-hit the
-  // network at all. 30s is generous enough that a quick back-and-forth
-  // between tabs never refetches, short enough that genuinely reopening
-  // this screen later still gets fresh data.
-  const loansQ = useInfiniteQuery({
-    queryKey: ["loans", "customer", customerId],
-    queryFn: ({ pageParam = 0 }) => listLoansPage({ customerId, limit: PAGE_SIZE, offset: pageParam }),
-    initialPageParam: 0,
-    getNextPageParam: (lastPage, allPages) => (lastPage.hasMore ? allPages.length * PAGE_SIZE : undefined),
-    enabled: !!id && near(0),
-    staleTime: 30_000,
-  });
-  const ornamentsQ = useInfiniteQuery({
-    queryKey: ["customerOrnaments", customerId],
-    queryFn: ({ pageParam = 0 }) => listCustomerOrnamentsPage(customerId, PAGE_SIZE, pageParam),
-    initialPageParam: 0,
-    getNextPageParam: (lastPage, allPages) => (lastPage.hasMore ? allPages.length * PAGE_SIZE : undefined),
-    enabled: !!id && near(1),
-    staleTime: 30_000,
-  });
-  const paymentsQ = useInfiniteQuery({
-    queryKey: ["customerPayments", customerId],
-    queryFn: ({ pageParam = 0 }) => listCustomerPaymentsPage(customerId, PAGE_SIZE, pageParam),
-    initialPageParam: 0,
-    getNextPageParam: (lastPage, allPages) => (lastPage.hasMore ? allPages.length * PAGE_SIZE : undefined),
-    enabled: !!id && near(2),
-    staleTime: 30_000,
-  });
-  const bankPledgesQ = useInfiniteQuery({
-    queryKey: ["customerBankPledges", customerId],
-    queryFn: ({ pageParam = 0 }) => listCustomerBankPledgesPage(customerId, PAGE_SIZE, pageParam),
-    initialPageParam: 0,
-    getNextPageParam: (lastPage, allPages) => (lastPage.hasMore ? allPages.length * PAGE_SIZE : undefined),
-    enabled: !!id && near(3),
-    staleTime: 30_000,
-  });
-  const auctionsQ = useInfiniteQuery({
-    queryKey: ["customerAuctions", customerId],
-    queryFn: ({ pageParam = 0 }) => listCustomerAuctionHistoryPage(customerId, PAGE_SIZE, pageParam),
-    initialPageParam: 0,
-    getNextPageParam: (lastPage, allPages) => (lastPage.hasMore ? allPages.length * PAGE_SIZE : undefined),
-    enabled: !!id && near(4),
-    staleTime: 30_000,
-  });
+  const viewLoan = (loanId: number) => openPage(`/loans/${loanId}`);
 
-  const queries = [loansQ, ornamentsQ, paymentsQ, bankPledgesQ, auctionsQ];
-  const activeQuery = queries[tab];
+  const header = (
+    <FlatHeader
+      back
+      title={data?.name ?? "Customer"}
+      subtitle={data ? [data.code, data.phone].filter(Boolean).join(" · ") : undefined}
+    />
+  );
 
-  // Same fix as Customers list's onPullToRefresh: useRefetchOnFocus below
-  // calls the SAME refetch functions a pull gesture does, on every focus —
-  // not just re-entering this screen but every tab switch back to it, if
-  // it stays mounted. Tying the spinner to react-query's own
-  // isFetching/isRefetching made it flash on that background refetch too.
-  // Track an actual pull separately so the spinner only shows for one.
-  const [manualRefreshing, setManualRefreshing] = useState(false);
-  async function onPullToRefresh() {
-    setManualRefreshing(true);
-    try {
-      await Promise.all([refetch(), activeQuery.refetch()]);
-    } finally {
-      setManualRefreshing(false);
-    }
-  }
-
-  useRefetchOnFocus(refetch, () => activeQuery.refetch());
-
-  // activeQuery is picked at runtime from a union of 5 differently-typed
-  // useInfiniteQuery results (one per tab) — TS can't narrow which one
-  // without a discriminant, so `.data.pages` collapses to an unhelpful
-  // intersection. ExpandableTable below is given `any` columns per tab for
-  // the same reason.
-  const COLUMNS = [LOAN_COLS, ORNAMENT_COLS, PAYMENT_COLS, PLEDGE_COLS, AUCTION_COLS] as TableColumn<any>[][];
-  const EXTRAS = [loanExtra, ornamentExtra, paymentExtra, pledgeExtra, auctionExtra] as ((row: any) => { label: string; value: React.ReactNode }[])[];
-
-  if (isLoading) {
-    return <Loading full />;
-  }
-  if (isError || !data) {
+  if (isLoading || !data) {
     return (
-      <ScreenContainer style={{ paddingHorizontal: 16, paddingTop: 20 }}>
-        <ThemedText color={colors.red}>Could not load this customer.</ThemedText>
-      </ScreenContainer>
+      <Screen header={header}>{isError ? <EmptyText>Could not load this customer.</EmptyText> : <Buffering block />}</Screen>
     );
   }
 
-  // One vertical page: customer cards, then the table switcher (sticky once it
-  // reaches the top), then a horizontal pager holding only the tables — so a
-  // swipe or switcher tap changes the table, never the whole screen. The
-  // pager's height follows the visible table (each page reports its own).
-  const activeQ = activeQuery as any;
-  function onPageScroll(e: NativeSyntheticEvent<NativeScrollEvent>) {
-    const { layoutMeasurement, contentOffset, contentSize } = e.nativeEvent;
-    if (layoutMeasurement.height + contentOffset.y >= contentSize.height - 300) {
-      if (activeQ.hasNextPage && !activeQ.isFetchingNextPage) activeQ.fetchNextPage();
-    }
-  }
+  const top = (
+    <>
+      <HeaderCard c={data} onEdit={() => setEditOpen(true)} />
+      {data.nomineeName || data.nomineeRelation || data.nomineePhone ? (
+        <Card style={{ marginBottom: 14 }}>
+          <SectionTitle flush>Nominee</SectionTitle>
+          <DetailRow first k="Name" v={data.nomineeName || "—"} />
+          <DetailRow k="Relation" v={data.nomineeRelation || "—"} />
+          <DetailRow k="Mobile" v={data.nomineePhone || "—"} />
+        </Card>
+      ) : null}
+      <PillTabs tabs={TABS} value={tab} onChange={setTab} />
+    </>
+  );
 
   return (
-    <ScreenContainer style={{ padding: 0 }}>
-      <ScrollView
-        showsVerticalScrollIndicator={false}
-        stickyHeaderIndices={[1]}
-        removeClippedSubviews={false}
-        onScroll={onPageScroll}
-        scrollEventThrottle={64}
-        contentContainerStyle={{ paddingBottom: TAB_BAR_SPACE }}
-        refreshControl={<RefreshControl refreshing={manualRefreshing} onRefresh={onPullToRefresh} />}
-      >
-        <View style={{ paddingHorizontal: 10, paddingTop: 20 }}>
-          <Card>
-            <ThemedText variant="h2" color={colors.brandDeep}>
-              {data.name}
-            </ThemedText>
-            <ThemedText variant="body" style={{ marginTop: 8 }}>
-              {data.code} · {data.phone}
-            </ThemedText>
-            {data.dob ? (
-              <ThemedText variant="small" style={{ marginTop: 4 }} color={colors.muted}>
-                DOB {new Date(data.dob).toLocaleDateString("en-IN")} · Age {ageFromDob(data.dob)}
-              </ThemedText>
-            ) : null}
-            <ThemedText variant="body" style={{ marginTop: 4 }} color={colors.muted}>
-              {data.address}
-            </ThemedText>
-            {data.branch?.name ? (
-              <ThemedText variant="small" style={{ marginTop: 4 }} color={colors.muted}>
-                Branch: {data.branch.name}
-              </ThemedText>
-            ) : null}
-            <ThemedText variant="label" style={{ marginTop: 12 }}>
-              KYC {data.kycStatus} · PAN {data.panStatus} · Aadhaar {data.aadhaarStatus}
-            </ThemedText>
-            {data.pan ? (
-              <ThemedText variant="small" style={{ marginTop: 4 }} color={colors.muted}>
-                PAN {data.pan}
-              </ThemedText>
-            ) : null}
-            {data.aadhaarLast4 ? (
-              <ThemedText variant="small" style={{ marginTop: 4 }} color={colors.muted}>
-                Aadhaar ••••{data.aadhaarLast4}
-              </ThemedText>
-            ) : null}
-            <GoldButton
-              title="Edit Customer"
-              variant="outline"
-              onPress={() => router.push(`/customers/edit/${customerId}`)}
-              style={{ marginTop: 12 }}
+    <Screen header={header}>
+      {tab === "Loans" ? (
+        <TabList<Loan>
+          key="loans"
+          queryKey={["loans", "customer", customerId]}
+          fetchPage={(p) => listLoansPage({ ...p, customerId })}
+          top={top}
+          placeholder="Search by loan ID or scheme"
+          emptyText="No loans for this customer."
+          keyOf={(l) => String(l.id)}
+          renderItem={(l, i) => (
+            <AccRow
+              defaultOpen={i === 0}
+              id={l.loanNumber}
+              name={l.scheme?.name ?? "Loan"}
+              sub={l.status ? `${l.status} loan` : undefined}
+              amount={inr(l.outstandingAmount)}
+              status={l.status}
+              details={[
+                { k: "Principal", v: inr(l.principalAmount) },
+                { k: "Opened", v: dmy(l.openedDate) },
+                { k: "Due", v: dmy(l.dueDate) },
+              ]}
+              actions={[{ label: "View Loan", primary: true, onPress: () => viewLoan(l.id) }]}
             />
-          </Card>
-
-          {data.nomineeName ? (
-            <Card>
-              <ThemedText variant="h3" style={{ marginBottom: 8 }}>
-                Nominee
-              </ThemedText>
-              <ThemedText variant="body">{data.nomineeName}</ThemedText>
-              <ThemedText variant="small" color={colors.muted} style={{ marginTop: 4 }}>
-                {data.nomineeRelation} · {data.nomineePhone}
-              </ThemedText>
-            </Card>
-          ) : null}
-        </View>
-
-        {/* Sticky (stickyHeaderIndices) — page-coloured so rows slide under it,
-            with a gradual fade just below so they fade out rather than cut off.
-            collapsable={false} keeps it one stable native view, which stops
-            Android's sticky header from jumping while scrolling. */}
-        <View style={styles.stickyBar} collapsable={false}>
-          <TableSwitcher index={tab} onGo={goToTab} />
-          <View pointerEvents="none" style={styles.stickyFade}>
-            <Svg width="100%" height="100%">
-              <Defs>
-                <LinearGradient id="stickyFade" x1="0" y1="0" x2="0" y2="1">
-                  {STICKY_FADE_STOPS.map((s) => (
-                    <Stop key={s} offset={s} stopColor={colors.bg} stopOpacity={1 - s} />
-                  ))}
-                </LinearGradient>
-              </Defs>
-              <Rect x="0" y="0" width="100%" height="100%" fill="url(#stickyFade)" />
-            </Svg>
-          </View>
-        </View>
-
-        <ScrollView
-          ref={pagerRef}
-          horizontal
-          pagingEnabled
-          showsHorizontalScrollIndicator={false}
-          style={pageHeights[tab] ? { height: pageHeights[tab] } : undefined}
-          // flex-start so each page keeps its own height instead of stretching to the tallest.
-          contentContainerStyle={{ alignItems: "flex-start" }}
-          onLayout={(e) => setPageWidth(e.nativeEvent.layout.width)}
-          onMomentumScrollEnd={(e) => setTab(Math.round(e.nativeEvent.contentOffset.x / pageWidth))}
-        >
-          {TABS.map((name, i) => {
-            const q = queries[i] as any;
-            const items: any[] = q.data?.pages?.flatMap((p: any) => p.items) ?? [];
+          )}
+        />
+      ) : tab === "Ornaments" ? (
+        <TabList<CustomerOrnamentRow>
+          key="ornaments"
+          queryKey={["customerOrnaments", customerId]}
+          fetchPage={(p) => listCustomerOrnamentsPage(customerId, p.limit, p.offset, p.q)}
+          top={top}
+          placeholder="Search by ornament or loan ID"
+          emptyText="No ornaments for this customer."
+          keyOf={(o) => String(o.id)}
+          renderItem={(o) => (
+            <AccRow
+              id={o.name}
+              idColor={C.brandDeep}
+              name={o.loanNumber}
+              sub={o.purity}
+              amount={inr(o.goldValue)}
+              status={o.releasedAt ? "Released" : undefined}
+              details={[
+                { k: "Net weight", v: `${+Number(o.netWeight ?? 0).toFixed(2)} g` },
+                { k: "Gold value", v: inr(o.goldValue) },
+                ...(o.quantity > 1 ? [{ k: "Quantity", v: String(o.quantity) }] : []),
+              ]}
+              actions={[{ label: "View Loan", onPress: () => viewLoan(o.loanId) }]}
+            />
+          )}
+        />
+      ) : tab === "Payments" ? (
+        <TabList<CustomerPaymentRow>
+          key="payments"
+          queryKey={["customerPayments", customerId]}
+          fetchPage={(p) => listCustomerPaymentsPage(customerId, p.limit, p.offset, p.q)}
+          top={top}
+          placeholder="Search by loan ID or payment type"
+          emptyText="No payments for this customer."
+          keyOf={(p) => String(p.id)}
+          renderItem={(p) => (
+            <AccRow
+              id={p.loanNumber}
+              idColor={C.brandDeep}
+              name={p.type}
+              sub={dmy(p.paidOn)}
+              amount={inr(p.amount)}
+              details={[
+                { k: "Paid on", v: dmy(p.paidOn) },
+                { k: "Method", v: p.method || "—" },
+                ...(p.reference ? [{ k: "Reference", v: p.reference }] : []),
+              ]}
+              actions={[{ label: "View Loan", onPress: () => viewLoan(p.loanId) }]}
+            />
+          )}
+        />
+      ) : tab === "Bank Pledges" ? (
+        <TabList<CustomerBankPledgeRow>
+          key="pledges"
+          queryKey={["customerBankPledges", customerId]}
+          fetchPage={(p) => listCustomerBankPledgesPage(customerId, p.limit, p.offset, p.q)}
+          top={top}
+          placeholder="Search by loan ID or bank"
+          emptyText="No bank pledges for this customer."
+          keyOf={(b) => String(b.id)}
+          renderItem={(b) => (
+            <AccRow
+              id={b.loanNumber}
+              idColor={C.brandDeep}
+              name={b.bankName}
+              sub={dmy(b.pledgeDate)}
+              amount={inr(b.pledgedAmount)}
+              status={b.status}
+              details={[
+                { k: "Pledge date", v: dmy(b.pledgeDate) },
+                { k: "Status", v: b.status },
+                ...(b.referenceNumber ? [{ k: "Reference", v: b.referenceNumber }] : []),
+                ...(hasDate(b.releaseDate) ? [{ k: "Released on", v: dmy(b.releaseDate) }] : []),
+              ]}
+              actions={[{ label: "View Loan", onPress: () => viewLoan(b.loanId) }]}
+            />
+          )}
+        />
+      ) : (
+        <TabList<CustomerAuctionRow>
+          key="auctions"
+          queryKey={["customerAuctions", customerId]}
+          fetchPage={(p) => listCustomerAuctionHistoryPage(customerId, p.limit, p.offset, p.q)}
+          top={top}
+          placeholder="Search by loan ID or stage"
+          emptyText="No auction cases for this customer."
+          keyOf={(a) => String(a.id)}
+          renderItem={(a) => {
+            const surplus = a.surplusShortfall ?? 0;
             return (
-              <View
-                key={name}
-                style={{ width: pageWidth, paddingHorizontal: 10, paddingTop: 4 }}
-                onLayout={(e) => {
-                  const h = e.nativeEvent.layout.height;
-                  setPageHeights((prev) => (prev[i] === h ? prev : Object.assign([...prev], { [i]: h })));
-                }}
-              >
-                {items.length === 0 ? (
-                  q.isError ? (
-                    <ThemedText color={colors.muted} style={{ padding: 16 }}>
-                      Could not load.
-                    </ThemedText>
-                  ) : q.isLoading || !q.data ? (
-                    <Loading />
-                  ) : (
-                    <ThemedText color={colors.muted} style={{ padding: 16 }}>
-                      {`No ${name.toLowerCase()} found.`}
-                    </ThemedText>
-                  )
-                ) : (
-                  items.map((item: any, idx: number) => (
-                    <TableRow<any>
-                      key={`${i}-${item.id}`}
-                      row={item}
-                      columns={COLUMNS[i]}
-                      visibleCount={3}
-                      extraFields={EXTRAS[i]}
-                      onViewDescription={(r: any) => router.push(`/loans/${r.loanId ?? r.id}`)}
-                      isFirst={idx === 0}
-                      cardRows
-                    />
-                  ))
-                )}
-                {q.isFetchingNextPage ? (
-                  <View style={{ paddingVertical: 16, alignItems: "center" }}>
-                    <ActivityIndicator color={colors.brand} />
-                  </View>
-                ) : null}
-              </View>
+              <AccRow
+                id={a.loanNumber}
+                idColor={C.brandDeep}
+                name={a.stage}
+                sub={hasDate(a.auctionDate) ? dmy(a.auctionDate) : undefined}
+                amount={a.saleAmount ? inr(a.saleAmount) : undefined}
+                details={[
+                  { k: "Auction date", v: hasDate(a.auctionDate) ? dmy(a.auctionDate) : "—" },
+                  {
+                    k: surplus >= 0 ? "Surplus" : "Shortfall",
+                    v: a.saleAmount ? inr(Math.abs(surplus)) : "—",
+                    color: a.saleAmount ? (surplus >= 0 ? C.green : C.red) : undefined,
+                  },
+                ]}
+                actions={[{ label: "View Loan", onPress: () => viewLoan(a.loanId) }]}
+              />
             );
-          })}
-        </ScrollView>
-      </ScrollView>
-    </ScreenContainer>
+          }}
+        />
+      )}
+
+      <CustomerFormSheet visible={editOpen} onClose={() => setEditOpen(false)} customer={data} />
+    </Screen>
   );
 }
 
-const styles = StyleSheet.create({
-  stickyBar: { backgroundColor: colors.bg, paddingHorizontal: 10, paddingTop: 8, zIndex: 2 },
-  // Hangs below the bar; rows scrolling up fade into it.
-  stickyFade: { position: "absolute", left: 0, right: 0, bottom: -24, height: 24 },
-  switcher: {
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: colors.card,
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: colors.line,
-    paddingVertical: 8,
-    paddingHorizontal: 6,
-    marginBottom: 12,
-    shadowColor: colors.nav,
-    shadowOpacity: 0.08,
-    shadowRadius: 8,
-    shadowOffset: { width: 0, height: 3 },
-    elevation: 3,
-  },
-  switchBtn: { width: 36, height: 36, alignItems: "center", justifyContent: "center" },
-  dots: { flexDirection: "row", gap: 6, marginTop: 4 },
-  dot: { width: 6, height: 6, borderRadius: 3, backgroundColor: colors.line },
-  dotActive: { width: 16 },
+const s = StyleSheet.create({
+  hc: { marginVertical: 14, marginHorizontal: 18, backgroundColor: C.card, borderWidth: 1, borderColor: C.line, borderRadius: 18, overflow: "hidden" },
+  hcCollapsed: { flexDirection: "row", alignItems: "center", gap: 12, padding: 16 },
+  hcName: { fontWeight: "700", fontSize: 15 },
+  hcSub: { fontSize: 12, color: C.muted, marginTop: 2 },
+  hcExpand: { paddingHorizontal: 16, paddingBottom: 16, borderTopWidth: 1, borderTopColor: C.line, marginTop: 2 },
+  inline: { flexDirection: "row", alignItems: "center", gap: 6, flexWrap: "wrap", justifyContent: "flex-end" },
+  v: { fontSize: 12.5, fontWeight: "700", textAlign: "right" },
+  reveal: { fontSize: 11, fontWeight: "700", color: C.brandDeep },
 });
-

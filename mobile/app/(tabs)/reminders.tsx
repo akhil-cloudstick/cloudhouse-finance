@@ -1,439 +1,155 @@
 import React, { useMemo, useState } from "react";
-import { RefreshControl, View, Pressable, StyleSheet } from "react-native";
-import { GutterScrollView } from "../../src/components/Gutter";
-import { useQuery, useQueryClient, useMutation } from "@tanstack/react-query";
-import { ScreenContainer } from "../../src/components/ScreenContainer";
-import { BottomSheetModal, SheetScrollView } from "../../src/components/BottomSheetModal";
-import { Card } from "../../src/components/Card";
-import { ThemedText } from "../../src/components/ThemedText";
-import { GoldTextInput } from "../../src/components/GoldTextInput";
-import { GoldButton } from "../../src/components/GoldButton";
-import { ChipSelect } from "../../src/components/ChipSelect";
-import { statusColors, StatusTone } from "../../src/theme/colors";
-import { useTheme, useThemedStyles } from "../../src/theme/ThemeProvider";
-import type { Colors } from "../../src/theme/colors";
-import { getCalendarEvents, createReminder } from "../../src/api/reminders";
-import { listCustomers } from "../../src/api/customers";
-import { CalendarEvent } from "../../src/types/reminder";
-import { Customer } from "../../src/types/customer";
-import { useDebouncedValue } from "../../src/hooks/useDebouncedValue";
-import { ApiError } from "../../src/api/client";
-import { useAuth } from "../../src/auth/AuthContext";
-import { useRefetchOnFocus, useResetOnBlur } from "../../src/hooks/useRefetchOnFocus";
-import { Loading } from "../../src/components/Loading";
+import { Pressable, View } from "react-native";
+import { useQuery } from "@tanstack/react-query";
+import {
+  C,
+  FabCorner,
+  FlatHeader,
+  MonthGrid,
+  PIcon,
+  Screen,
+  SearchInput,
+  SectionTitle,
+  ServerFlatList,
+  Txt,
+  openPage,
+} from "../../src/components/ui";
+import { ReminderCreateSheet, ReminderItem } from "../../src/components/staff/ShellModals";
+import { useServerList } from "../../src/hooks/useServerList";
+import { getCalendarEvents, listCalendarEventsPage } from "../../src/api/reminders";
+import { todayISO } from "../../src/lib/format";
+import type { CalendarEvent } from "../../src/types/reminder";
 
-function toneForType(type: CalendarEvent["type"]): StatusTone {
-  if (type === "Overdue") return "red";
-  if (type === "LoanDue" || type === "InterestDue") return "amber";
-  if (type === "PromiseToPay") return "info";
-  return "muted";
+// Reminders — prototype #header-reminders + #page-reminders: month header
+// with prev/next, calendar grid with per-day dots (one bounded month query),
+// the selected day's events paged from the server, and a server-side search
+// (`q`) over the visible month. FAB opens Add Reminder for the selected day.
+
+const pad = (n: number) => String(n).padStart(2, "0");
+const isoOf = (y: number, m: number, d: number) => `${y}-${pad(m + 1)}-${pad(d)}`;
+const MONTHS = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+const MON = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+const DOW = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+
+function dotFor(t: CalendarEvent["type"]): "red" | "amber" | "blue" {
+  if (t === "Overdue") return "red";
+  if (t === "LoanDue" || t === "InterestDue") return "amber";
+  return "blue";
 }
 
-const REMINDER_TYPES = ["Follow-Up", "Promise-to-Pay", "Custom"] as const;
-const WEEKDAY_LABELS = ["S", "M", "T", "W", "T", "F", "S"];
-
-function toISODate(year: number, month: number, day: number): string {
-  const m = String(month + 1).padStart(2, "0");
-  const d = String(day).padStart(2, "0");
-  return `${year}-${m}-${d}`;
+function dayTitle(iso: string) {
+  const d = new Date(+iso.slice(0, 4), +iso.slice(5, 7) - 1, +iso.slice(8, 10));
+  return `${DOW[d.getDay()]}, ${d.getDate()} ${MON[d.getMonth()]} ${d.getFullYear()}`;
 }
 
-function fmtMonthYear(year: number, month: number): string {
-  return new Date(year, month, 1).toLocaleDateString("en-IN", { month: "long", year: "numeric" });
-}
-
-// "Add Reminder" modal — mirrors frontend/components/modals/ReminderModal.tsx's
-// AddReminderModalContent: logs a manual Customer Follow-Up / Promise-to-Pay /
-// Custom reminder (optionally tied to a loan) via POST /reminders
-// (backend/internal/reminder/handler.go's reminderRequest).
-function AddReminderModal({ visible, onClose }: { visible: boolean; onClose: () => void }) {
-  const { colors } = useTheme();
-  const styles = useThemedStyles(makeStyles);
-  const queryClient = useQueryClient();
-  const [customerSearch, setCustomerSearch] = useState("");
-  const debouncedCustomerSearch = useDebouncedValue(customerSearch);
-  const [customer, setCustomer] = useState<Customer | null>(null);
-  const [loanId, setLoanId] = useState("");
-  const [type, setType] = useState<(typeof REMINDER_TYPES)[number]>("Follow-Up");
-  const [dueDate, setDueDate] = useState(new Date().toISOString().slice(0, 10));
-  const [note, setNote] = useState("");
-  const [error, setError] = useState<string | null>(null);
-  const { employee } = useAuth();
-
-  const customerResults = useQuery({
-    queryKey: ["customers", "search-for-reminder", debouncedCustomerSearch],
-    queryFn: () => listCustomers(debouncedCustomerSearch || undefined),
-    enabled: visible && !customer && debouncedCustomerSearch.length > 0,
-  });
-
-  const create = useMutation({
-    mutationFn: () => {
-      if (!customer) throw new Error("Please select a customer.");
-      if (!employee) throw new Error("You must be signed in to log a reminder.");
-      return createReminder({
-        customerId: customer.id,
-        loanId: loanId ? Number(loanId) : null,
-        type,
-        dueDate,
-        note: note.trim(),
-        employeeId: employee.id,
-      });
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["reminders", "calendar"] });
-      reset();
-      onClose();
-    },
-    onError: (err) =>
-      setError(err instanceof ApiError || err instanceof Error ? err.message : "Failed to log reminder."),
-  });
-
-  function reset() {
-    setCustomerSearch("");
-    setCustomer(null);
-    setLoanId("");
-    setType("Follow-Up");
-    setDueDate(new Date().toISOString().slice(0, 10));
-    setNote("");
-    setError(null);
-  }
-
-  return (
-    <BottomSheetModal visible={visible} onClose={() => { reset(); onClose(); }} maxHeightPct={88}>
-      <View style={styles.sheetHeader}>
-        <ThemedText variant="h3" color={colors.brandDeep}>Add Reminder</ThemedText>
-        <Pressable onPress={() => { reset(); onClose(); }}>
-          <ThemedText variant="h3" color={colors.muted}>
-            ×
-          </ThemedText>
-        </Pressable>
-      </View>
-
-      <SheetScrollView showsVerticalScrollIndicator={false}>
-          {customer ? (
-            <Card>
-              <ThemedText variant="body">{customer.name} — {customer.code}</ThemedText>
-              <Pressable onPress={() => setCustomer(null)}>
-                <ThemedText variant="small" color={colors.brandDeep}>
-                  Change customer
-                </ThemedText>
-              </Pressable>
-            </Card>
-          ) : (
-            <>
-              <GoldTextInput
-                label="Customer *"
-                placeholder="Search by name, code, or phone…"
-                value={customerSearch}
-                onChangeText={setCustomerSearch}
-              />
-              {customerResults.data?.slice(0, 6).map((c) => (
-                <Pressable key={c.id} onPress={() => { setCustomer(c); setCustomerSearch(""); }}>
-                  <Card style={{ paddingVertical: 10 }}>
-                    <ThemedText variant="small">{c.name} — {c.code}</ThemedText>
-                  </Card>
-                </Pressable>
-              ))}
-            </>
-          )}
-
-          <ChipSelect label="Type *" options={REMINDER_TYPES} value={type} onChange={setType} />
-
-          <GoldTextInput label="Due Date * (YYYY-MM-DD)" value={dueDate} onChangeText={setDueDate} />
-
-          <GoldTextInput
-            label="Loan Number (optional)"
-            placeholder="Numeric loan id, if about a specific loan"
-            keyboardType="numeric"
-            value={loanId}
-            onChangeText={(t) => setLoanId(t.replace(/\D/g, ""))}
-          />
-
-          <GoldTextInput
-            label="Note"
-            placeholder="e.g. Call about overdue interest"
-            value={note}
-            onChangeText={setNote}
-          />
-
-          {error ? (
-            <ThemedText variant="small" color={colors.red} style={{ marginBottom: 8 }}>
-              {error}
-            </ThemedText>
-          ) : null}
-
-          <GoldButton
-            title={create.isPending ? "Saving…" : "Add Reminder"}
-            onPress={() => create.mutate()}
-            loading={create.isPending}
-            disabled={!customer || !dueDate}
-          />
-      </SheetScrollView>
-    </BottomSheetModal>
-  );
-}
-
-// A single day cell in the month grid — shows the day number plus one dot
-// per event type present that day (capped at 4 dots so a busy day doesn't
-// blow out the cell height), mirroring frontend/components/Calendar.tsx's
-// event-per-day rendering but as compact dots (there's no room for full
-// event-title chips at mobile cell width).
-function DayCell({
-  day,
-  events,
-  isToday,
-  isSelected,
-  onPress,
-}: {
-  day: number;
-  events: CalendarEvent[];
-  isToday: boolean;
-  isSelected: boolean;
-  onPress: () => void;
-}) {
-  const { colors } = useTheme();
-  const styles = useThemedStyles(makeStyles);
-  const dotTypes = Array.from(new Set(events.map((e) => e.type))).slice(0, 4);
-  return (
-    <Pressable
-      style={[styles.dayCell, isToday && styles.dayCellToday, isSelected && styles.dayCellSelected]}
-      onPress={onPress}
-    >
-      <ThemedText
-        variant="small"
-        color={isSelected ? colors.bg : isToday ? colors.brandDeep : colors.ink}
-      >
-        {day}
-      </ThemedText>
-      {dotTypes.length ? (
-        <View style={styles.dotsRow}>
-          {dotTypes.map((t) => (
-            <View key={t} style={[styles.dot, { backgroundColor: statusColors(toneForType(t), colors).fg }]} />
-          ))}
-        </View>
-      ) : null}
-    </Pressable>
-  );
-}
-
-// Month-grid Reminder Calendar — mirrors frontend/components/Calendar.tsx's
-// month view (event dots per day, prev/next navigation, click-a-day detail
-// panel) as plain RN Views/Pressables (no calendar library). Events are
-// computed server-side per visible month via GET /reminders/calendar
-// (manual reminders + live loan due/overdue/interest events) — no
-// client-side date filtering beyond bucketing by day-of-month.
 export default function RemindersScreen() {
-  const { colors } = useTheme();
-  const styles = useThemedStyles(makeStyles);
-  const [addVisible, setAddVisible] = useState(false);
-  const today = new Date();
-  const [year, setYear] = useState(today.getFullYear());
-  const [month, setMonth] = useState(today.getMonth()); // 0-based
-  const [selectedDay, setSelectedDay] = useState<number | null>(today.getDate());
+  const today = todayISO();
+  const [month, setMonth] = useState(() => new Date(+today.slice(0, 4), +today.slice(5, 7) - 1, 1));
+  const [selected, setSelected] = useState(today);
+  const [adding, setAdding] = useState(false);
 
-  const from = toISODate(year, month, 1);
-  const to = toISODate(year, month, new Date(year, month + 1, 0).getDate());
-  const isCurrentMonth = year === today.getFullYear() && month === today.getMonth();
+  const y = month.getFullYear();
+  const m = month.getMonth();
+  const from = isoOf(y, m, 1);
+  const to = isoOf(y, m, new Date(y, m + 1, 0).getDate());
 
-  const { data, isLoading, isError, refetch, isRefetching } = useQuery({
-    queryKey: ["reminders", "calendar", from, to],
-    queryFn: () => getCalendarEvents(from, to),
-  });
-
-  useRefetchOnFocus(refetch);
-
-  useResetOnBlur(() => {
-    setAddVisible(false);
-  });
-
-  const events = data ?? [];
-
-  const eventsByDay = useMemo(() => {
-    const map = new Map<number, CalendarEvent[]>();
-    for (const e of events) {
-      const day = Number(e.date.slice(8, 10));
-      if (!map.has(day)) map.set(day, []);
-      map.get(day)!.push(e);
+  // Dots for the visible month only (bounded window).
+  const monthEvents = useQuery({ queryKey: ["reminders", "calendar", from, to], queryFn: () => getCalendarEvents(from, to) });
+  const dots = useMemo(() => {
+    const map: Record<string, ("red" | "amber" | "blue")[]> = {};
+    for (const e of monthEvents.data ?? []) {
+      const k = e.date.slice(0, 10);
+      const c = dotFor(e.type);
+      const arr = (map[k] ??= []);
+      if (!arr.includes(c)) arr.push(c);
     }
     return map;
-  }, [events]);
+  }, [monthEvents.data]);
 
-  const daysInMonth = new Date(year, month + 1, 0).getDate();
-  const startDow = new Date(year, month, 1).getDay();
-  const cells: (number | null)[] = [
-    ...new Array(startDow).fill(null),
-    ...Array.from({ length: daysInMonth }, (_, i) => i + 1),
-  ];
-  while (cells.length % 7 !== 0) cells.push(null);
+  // Day list — or, while searching, matches across the visible month.
+  const [searchText, setSearchText] = useState("");
+  const searching = searchText.trim().length > 0;
+  const range = searching ? { from, to } : { from: selected, to: selected };
+  const list = useServerList<CalendarEvent, { from: string; to: string }>({
+    key: ["reminders", "day-list"],
+    filters: range,
+    fetchPage: (p) => listCalendarEventsPage(p),
+  });
+  const onSearch = (v: string) => {
+    setSearchText(v);
+    list.setSearch(v);
+  };
 
   function goMonth(delta: number) {
-    const d = new Date(year, month + delta, 1);
-    setYear(d.getFullYear());
-    setMonth(d.getMonth());
-    setSelectedDay(null);
+    const d = new Date(y, m + delta, 1);
+    setMonth(d);
+    const first = isoOf(d.getFullYear(), d.getMonth(), 1);
+    setSelected(today.slice(0, 7) === first.slice(0, 7) ? today : first);
   }
 
-  const dayEvents = selectedDay != null ? eventsByDay.get(selectedDay) ?? [] : [];
+  const last = list.items.length - 1;
+  const header = (
+    <View>
+      <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingVertical: 12, paddingHorizontal: 18 }}>
+        <Txt style={{ fontWeight: "700", fontSize: 14 }}>
+          {MONTHS[m]} {y}
+        </Txt>
+        <View style={{ flexDirection: "row", gap: 8 }}>
+          <Pressable onPress={() => goMonth(-1)} hitSlop={4} accessibilityLabel="Previous month" style={navBtn}>
+            <PIcon name="back" color={C.brandDeep} />
+          </Pressable>
+          <Pressable onPress={() => goMonth(1)} hitSlop={4} accessibilityLabel="Next month" style={[navBtn, { transform: [{ scaleX: -1 }] }]}>
+            <PIcon name="back" color={C.brandDeep} />
+          </Pressable>
+        </View>
+      </View>
+      <MonthGrid month={month} selected={selected} onSelect={setSelected} dots={dots} />
+      <SearchInput value={searchText} onChangeText={onSearch} placeholder="Search reminders by customer name, ID or loan number" style={{ paddingTop: 14, paddingBottom: 0 }} />
+      <SectionTitle>{searching ? `Matches in ${MONTHS[m]} ${y}` : dayTitle(selected)}</SectionTitle>
+    </View>
+  );
 
   return (
-    <ScreenContainer style={{ padding: 0 }}>
-      <View style={{ flex: 1, paddingHorizontal: 8, paddingTop: 16 }}>
-      <GutterScrollView
-        showsVerticalScrollIndicator={false}
-        refreshControl={<RefreshControl refreshing={isRefetching} onRefresh={refetch} />}
-      >
-        {/* Same paddingTop/marginBottom as gold-rates.tsx's own top action
-            button, so both sit at the same vertical position under the
-            floating header. */}
-        <View style={{ paddingTop: 20, marginBottom: 8 }}>
-          <GoldButton title="+ Add Reminder" onPress={() => setAddVisible(true)} />
-        </View>
-
-        <Card>
-          <View style={styles.monthNav}>
-            <Pressable onPress={() => goMonth(-1)} hitSlop={10} style={styles.monthNavArrowCircle}>
-              <ThemedText style={styles.monthNavChevron} color={colors.brandDeep}>‹</ThemedText>
-            </Pressable>
-            <ThemedText variant="h3">{fmtMonthYear(year, month)}</ThemedText>
-            <Pressable onPress={() => goMonth(1)} hitSlop={8} style={styles.monthNavArrowCircle}>
-              <ThemedText style={styles.monthNavChevron} color={colors.brandDeep}>›</ThemedText>
-            </Pressable>
+    <Screen
+      header={<FlatHeader title="Reminders" subtitle="Follow-ups & promise-to-pay" />}
+      floating={<FabCorner onPress={() => setAdding(true)} label="Add reminder" />}
+    >
+      <ServerFlatList
+        list={{ ...list, refetch: () => (monthEvents.refetch(), list.refetch()) }}
+        items={list.items}
+        header={header}
+        emptyText={searching ? "No reminders match your search." : "No reminders for this day."}
+        keyOf={(e, i) => `${e.date}-${e.type}-${e.reminderId ?? e.loanId ?? i}`}
+        renderItem={(e, i) => (
+          <View
+            style={{
+              backgroundColor: C.card,
+              borderColor: C.line,
+              borderLeftWidth: 1,
+              borderRightWidth: 1,
+              borderTopWidth: i === 0 ? 1 : 0,
+              borderBottomWidth: i === last ? 1 : 0,
+              borderTopLeftRadius: i === 0 ? 18 : 0,
+              borderTopRightRadius: i === 0 ? 18 : 0,
+              borderBottomLeftRadius: i === last ? 18 : 0,
+              borderBottomRightRadius: i === last ? 18 : 0,
+              paddingHorizontal: 16,
+              paddingTop: i === 0 ? 4 : 0,
+              paddingBottom: i === last ? 4 : 0,
+            }}
+          >
+            <ReminderItem
+              ev={e}
+              first={i === 0}
+              showDate={searching}
+              onPress={e.loanId ? () => openPage(`/loans/${e.loanId}`) : undefined}
+            />
           </View>
-
-          <View style={styles.weekRow}>
-            {WEEKDAY_LABELS.map((d, i) => (
-              <View key={i} style={styles.weekdayCell}>
-                <ThemedText variant="label" color={colors.muted}>{d}</ThemedText>
-              </View>
-            ))}
-          </View>
-
-          {isLoading ? (
-            <Loading />
-          ) : isError ? (
-            <ThemedText color={colors.red}>Could not load reminders.</ThemedText>
-          ) : (
-            <View style={styles.grid}>
-              {cells.map((day, i) =>
-                day == null ? (
-                  <View key={i} style={styles.dayCell} />
-                ) : (
-                  <DayCell
-                    key={i}
-                    day={day}
-                    events={eventsByDay.get(day) ?? []}
-                    isToday={isCurrentMonth && day === today.getDate()}
-                    isSelected={selectedDay === day}
-                    onPress={() => setSelectedDay(day)}
-                  />
-                )
-              )}
-            </View>
-          )}
-        </Card>
-
-        <ThemedText variant="h3" style={{ marginTop: 20, marginBottom: 8 }}>
-          {selectedDay != null ? `${fmtMonthYear(year, month)} ${selectedDay}` : "Select a day"}
-        </ThemedText>
-
-        {selectedDay == null ? (
-          <ThemedText color={colors.muted}>Tap a day above to see its events.</ThemedText>
-        ) : dayEvents.length === 0 ? (
-          <ThemedText color={colors.muted}>Nothing due this day.</ThemedText>
-        ) : (
-          dayEvents.map((item, idx) => {
-            const tone = statusColors(toneForType(item.type), colors);
-            return (
-              <Card key={`${item.date}-${item.type}-${item.loanId ?? item.reminderId ?? idx}`}>
-                <ThemedText
-                  variant="label"
-                  style={{
-                    alignSelf: "flex-start",
-                    backgroundColor: tone.bg,
-                    color: tone.fg,
-                    paddingHorizontal: 8,
-                    paddingVertical: 3,
-                    borderRadius: 6,
-                    marginBottom: 6,
-                  }}
-                >
-                  {item.type}
-                </ThemedText>
-                <ThemedText variant="h3">{item.title}</ThemedText>
-                <ThemedText variant="small" color={colors.muted}>
-                  {item.date} · {item.detail}
-                </ThemedText>
-              </Card>
-            );
-          })
         )}
-      </GutterScrollView>
-      <AddReminderModal visible={addVisible} onClose={() => setAddVisible(false)} />
-      </View>
-    </ScreenContainer>  );
+      />
+      <ReminderCreateSheet visible={adding} onClose={() => setAdding(false)} defaultDate={selected} />
+    </Screen>
+  );
 }
 
-const makeStyles = (c: Colors) => StyleSheet.create({
-  sheetHeader: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    marginBottom: 16,
-  },
-  monthNav: {
-    flexDirection: "row",
-    justifyContent: "center",
-    alignItems: "center",
-    gap: 16,
-    marginBottom: 10,
-  },
-  monthNavChevron: {
-    fontSize: 20,
-    lineHeight: 22,
-  },
-  weekRow: {
-    flexDirection: "row",
-  },
-  weekdayCell: {
-    width: `${100 / 7}%`,
-    alignItems: "center",
-    paddingBottom: 4,
-  },
-  grid: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-  },
-  dayCell: {
-    width: `${100 / 7}%`,
-    aspectRatio: 1,
-    alignItems: "center",
-    justifyContent: "center",
-    borderRadius: 8,
-    marginBottom: 2,
-  },
-  dayCellToday: {
-    borderWidth: 1.5,
-    borderColor: c.brandDeep,
-  },
-  dayCellSelected: {
-    backgroundColor: c.brandDeep,
-  },
-  monthNavArrowCircle: {
-    width: 30,
-    height: 30,
-    borderRadius: 15,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: c.brandPale,
-  },
-  dotsRow: {
-    flexDirection: "row",
-    gap: 2,
-    marginTop: 2,
-  },
-  dot: {
-    width: 5,
-    height: 5,
-    borderRadius: 3,
-  },
-});
+const navBtn = { width: 34, height: 34, borderRadius: 10, backgroundColor: C.brandFaint, alignItems: "center" as const, justifyContent: "center" as const };

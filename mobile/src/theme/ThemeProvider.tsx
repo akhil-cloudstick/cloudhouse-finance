@@ -3,7 +3,7 @@ import { AppState } from "react-native";
 import * as SecureStore from "expo-secure-store";
 import { colors as defaultColors, type Colors } from "./colors";
 import { typeScale } from "./typography";
-import { deriveBrandRampHex, DEFAULT_BRAND_COLOR } from "./brandRamp";
+import { DEFAULT_BRAND_COLOR } from "./brandRamp";
 import { fetchPublicBranding, fetchMyBranding, resolveLogoUrl, type PublicBranding, type SelfBranding } from "../api/branding";
 import { getBusinessCode } from "../auth/businessCode";
 import { getToken } from "../auth/tokenStorage";
@@ -105,7 +105,10 @@ const ThemeContext = createContext<ThemeState>({
 });
 
 export function ThemeProvider({ children }: { children: React.ReactNode }) {
-  const [colors, setColors] = useState<Colors>(defaultColors);
+  // The staff app uses the fixed maroon palette from the prototype redesign
+  // (see colors.ts) — the business's brand colour is still fetched for print
+  // templates (setPrintProfile) but never re-tints the UI.
+  const colors: Colors = defaultColors;
   const [logoUrl, setLogoUrl] = useState<string | null>(null);
   const [businessName, setBusinessName] = useState<string>(BRAND.name);
   // Comma-joined so an unchanged refresh doesn't hand consumers a new array.
@@ -122,7 +125,6 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
     const normalized = hex.trim().toLowerCase();
     if (appliedHex.current === normalized) return;
     appliedHex.current = normalized;
-    setColors({ ...defaultColors, ...deriveBrandRampHex(normalized) });
   }, []);
 
   const applyProfile = useCallback((p: CachedProfile, brandColor: string) => {

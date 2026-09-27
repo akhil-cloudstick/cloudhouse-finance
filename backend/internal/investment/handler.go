@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -90,10 +91,34 @@ func (h *Handler) UpdatePlan(c *gin.Context) {
 	httpx.Success(c, http.StatusOK, rec)
 }
 
+// ListPlans backs GET /investment-plans?activeOnly=&q=&limit=&offset= — q
+// matches the plan name. Opt-in pagination: no limit returns the bare array
+// (the original shape); limit > 0 returns {items, hasMore, total}.
 func (h *Handler) ListPlans(c *gin.Context) {
 	ctx := platform.RequestContext(c)
 	activeOnly := c.Query("activeOnly") == "true"
-	recs, err := h.svc.ListPlans(ctx, activeOnly)
+	search := strings.TrimSpace(c.Query("q"))
+
+	limit, _ := strconv.Atoi(c.Query("limit"))
+	if limit > 0 {
+		offset, _ := strconv.Atoi(c.Query("offset"))
+		if offset < 0 {
+			offset = 0
+		}
+		recs, total, err := h.svc.ListPlans(ctx, activeOnly, search, limit+1, offset)
+		if err != nil {
+			httpx.FailErr(c, err)
+			return
+		}
+		hasMore := len(recs) > limit
+		if hasMore {
+			recs = recs[:limit]
+		}
+		httpx.Success(c, http.StatusOK, gin.H{"items": recs, "hasMore": hasMore, "total": total})
+		return
+	}
+
+	recs, _, err := h.svc.ListPlans(ctx, activeOnly, search, 0, 0)
 	if err != nil {
 		httpx.FailErr(c, err)
 		return

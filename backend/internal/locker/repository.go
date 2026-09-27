@@ -37,9 +37,31 @@ type LockerFilter struct {
 	// ActiveOnly excludes inactive lockers — the packet Check-In picker
 	// never offers one you can't actually check gold into.
 	ActiveOnly bool
-	Limit      int
-	Offset     int
+	// Status narrows to one occupancy bucket (StatusActive/StatusFull/
+	// StatusInactive below); empty means every locker. The buckets are
+	// mutually exclusive — see statusOccupiedSQL.
+	Status string
+	Limit  int
+	Offset int
 }
+
+// Locker occupancy buckets accepted by LockerFilter.Status (GET /lockers
+// ?status=). Inactive is IsActive=false regardless of contents; among
+// active lockers, full means the Locker Stored packet count has reached
+// Capacity and active means there is still room.
+const (
+	StatusActive   = "active"
+	StatusFull     = "full"
+	StatusInactive = "inactive"
+)
+
+// occupiedSQL counts the packets physically stored in a locker — the same
+// predicate as packet.Repository.CountActivePackets (current_locker_id +
+// status "Locker Stored"), written as a correlated subquery so the
+// active/full buckets can be filtered and paginated in SQL. The literal is
+// kept here rather than importing internal/packet, which would create an
+// import cycle (see PacketCounter's doc comment).
+const occupiedSQL = "(SELECT COUNT(*) FROM packets WHERE packets.current_locker_id = lockers.id AND packets.status = 'Locker Stored')"
 
 // FindAll returns lockers, optionally scoped to a single branch — pass nil
 // for an Administrator's unfiltered "all branches" view, or a non-nil
@@ -55,18 +77,26 @@ func (r *Repository) FindAll(ctx context.Context, branchID *uint) ([]Locker, err
 // (Limit/Offset ignored, 0 when f.Limit <= 0).
 func (r *Repository) Find(ctx context.Context, f LockerFilter) ([]Locker, int64, error) {
 	var lockers []Locker
-	q := r.db.WithContext(ctx).Preload("Branch").Model(&Locker{}).Order("code asc")
+	q := r.db.WithContext(ctx).Preload("Branch").Model(&Locker{}).Order("lockers.code asc")
 	if f.BranchID != nil {
-		q = q.Where("branch_id = ?", *f.BranchID)
+		q = q.Where("lockers.branch_id = ?", *f.BranchID)
 	}
 	if f.FilterBranchID != nil {
-		q = q.Where("branch_id = ?", *f.FilterBranchID)
+		q = q.Where("lockers.branch_id = ?", *f.FilterBranchID)
 	}
 	if f.Q != "" {
-		q = q.Where("code ILIKE ?", "%"+f.Q+"%")
+		q = q.Where("lockers.code ILIKE ?", "%"+f.Q+"%")
 	}
 	if f.ActiveOnly {
-		q = q.Where("is_active = ?", true)
+		q = q.Where("lockers.is_active = ?", true)
+	}
+	switch f.Status {
+	case StatusInactive:
+		q = q.Where("lockers.is_active = ?", false)
+	case StatusFull:
+		q = q.Where("lockers.is_active = ? AND "+occupiedSQL+" >= lockers.capacity", true)
+	case StatusActive:
+		q = q.Where("lockers.is_active = ? AND "+occupiedSQL+" < lockers.capacity", true)
 	}
 	var total int64
 	if f.Limit > 0 {

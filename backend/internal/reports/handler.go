@@ -3,6 +3,7 @@ package reports
 import (
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -64,6 +65,7 @@ func parseFilter(c *gin.Context) (Filter, error) {
 			f.PageSize = n
 		}
 	}
+	f.Q = strings.TrimSpace(c.Query("q"))
 	return f, nil
 }
 
@@ -78,8 +80,11 @@ func serverError(c *gin.Context, err error) {
 // respond applies pagination (JSON list endpoints only — export endpoints
 // call the service directly and skip this) and writes the common envelope,
 // itself wrapped in the outer {success, data} envelope.
+//
+// Rows are narrowed by f.Q (MatchRows) before paging, so totalCount is the
+// post-search count.
 func respond[T any](c *gin.Context, rows []T, totals any, f Filter) {
-	page, total := Paginate(rows, f)
+	page, total := Paginate(MatchRows(rows, f.Q), f)
 	httpx.Success(c, http.StatusOK, Result{Rows: page, Totals: totals, TotalCount: total})
 }
 

@@ -38,6 +38,8 @@ func (s *Service) Disbursement(ctx context.Context, f Filter) ([]DisbursementRow
 	if err := q.Scan(&rows).Error; err != nil {
 		return nil, DisbursementTotals{}, err
 	}
+	// Search before totals, so Totals describe the rows actually shown.
+	rows = MatchRows(rows, f.Q)
 	totals := DisbursementTotals{Count: len(rows)}
 	for _, r := range rows {
 		totals.TotalAmount += r.Amount
@@ -99,6 +101,8 @@ func (s *Service) LoanStatus(ctx context.Context, f Filter, status string) ([]Lo
 	if err := q.Scan(&rows).Error; err != nil {
 		return nil, LoanStatusTotals{}, err
 	}
+	// Search before totals, so Totals describe the rows actually shown.
+	rows = MatchRows(rows, f.Q)
 	return rows, totals, nil
 }
 
@@ -123,6 +127,8 @@ func (s *Service) InterestCollection(ctx context.Context, f Filter) ([]InterestC
 	if err := q.Scan(&rows).Error; err != nil {
 		return nil, InterestCollectionTotals{}, err
 	}
+	// Search before totals, so Totals describe the rows actually shown.
+	rows = MatchRows(rows, f.Q)
 	var totals InterestCollectionTotals
 	for _, r := range rows {
 		totals.TotalInterest += r.InterestApplied
@@ -153,6 +159,8 @@ func (s *Service) OutstandingPrincipal(ctx context.Context, f Filter) ([]Outstan
 	if err := q.Scan(&rows).Error; err != nil {
 		return nil, OutstandingPrincipalTotals{}, err
 	}
+	// Search before totals, so Totals describe the rows actually shown.
+	rows = MatchRows(rows, f.Q)
 	var totals OutstandingPrincipalTotals
 	for _, r := range rows {
 		totals.TotalOutstanding += r.Outstanding
@@ -181,6 +189,8 @@ func (s *Service) PaymentCollection(ctx context.Context, f Filter) ([]PaymentCol
 	if err := q.Scan(&rows).Error; err != nil {
 		return nil, PaymentCollectionTotals{}, err
 	}
+	// Search before totals, so Totals describe the rows actually shown.
+	rows = MatchRows(rows, f.Q)
 	totals := PaymentCollectionTotals{Count: len(rows)}
 	for _, r := range rows {
 		totals.TotalAmount += r.Amount

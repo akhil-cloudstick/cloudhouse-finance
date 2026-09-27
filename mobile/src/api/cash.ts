@@ -9,14 +9,17 @@ export function listCashMovements() {
 // Page-scoped variant: passing `limit` flips the backend (cash/handler.go's
 // MovementHandler.List) into the {items, hasMore} envelope — used by the
 // paginated mobile Cash Movements table (10/page, one API call per page).
-export function listCashMovementsPage(params: { limit: number; offset: number }) {
-  return apiRequest<{ items: CashMovement[]; hasMore: boolean }>("/cash-movements", { params });
+// `q` (purpose/source), fromDate/toDate and category are server-side filters.
+export function listCashMovementsPage(params: { limit: number; offset: number; q?: string; fromDate?: string; toDate?: string; category?: string }) {
+  return apiRequest<{ items: CashMovement[]; hasMore: boolean; total?: number }>("/cash-movements", { params });
 }
 
 export function createCashMovement(input: {
   type: "in" | "out";
   source: string;
   purpose: string;
+  // Payment mode ("Cash"/"UPI"/"Bank Transfer"/"Cheque") — movementRequest.Mode.
+  mode?: string;
   bank?: string;
   amount: number;
   branchId?: number;
@@ -37,7 +40,7 @@ export function listExpenses() {
 // Page-scoped variant: passing `limit` flips the backend (cash/handler.go's
 // ExpenseHandler.List) into the {items, hasMore} envelope — used by the
 // paginated mobile Expenses table (10/page, one API call per page).
-export function listExpensesPage(params: { limit: number; offset: number }) {
+export function listExpensesPage(params: { limit: number; offset: number; q?: string; status?: string }) {
   return apiRequest<{ items: Expense[]; hasMore: boolean }>("/expenses", { params });
 }
 
@@ -76,7 +79,7 @@ export function setOpeningBalance(branchId: number, amount: number, date?: strin
 // "GoldSale"), cost amount books a matching cash-out if > 0; see
 // backend/internal/cash/handler.go's Record. Same {items,hasMore} pagination
 // pattern as cash movements/expenses when `limit` is passed.
-export function listGoldSalesPage(params: { limit: number; offset: number }) {
+export function listGoldSalesPage(params: { limit: number; offset: number; q?: string; fromDate?: string; toDate?: string }) {
   return apiRequest<{ items: GoldSale[]; hasMore: boolean }>("/gold-sales", { params });
 }
 

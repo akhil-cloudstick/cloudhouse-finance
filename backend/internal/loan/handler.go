@@ -124,6 +124,51 @@ func (h *Handler) Create(c *gin.Context) {
 	httpx.Success(c, http.StatusCreated, rec)
 }
 
+// StatusDueTodayFilter is the derived `status` value GET /loans accepts on
+// top of the stored statuses — see LoanFilter.DueToday.
+const StatusDueTodayFilter = "Due Today"
+
+// auctionCase values accepted by GET /loans (the mobile Auctions screen's
+// three buckets).
+const (
+	AuctionCaseEligible            = "eligible"
+	AuctionCaseDefaulted           = "defaulted"
+	AuctionCaseAuctionedBalanceDue = "auctioned_balance_due"
+)
+
+// applyStatusParam maps GET /loans's `status` onto f: stored statuses are
+// matched verbatim; "Due Today" (case-insensitive) is derived from due_date
+// instead, since no loan ever stores it.
+func applyStatusParam(f *LoanFilter, status string) {
+	status = strings.TrimSpace(status)
+	if strings.EqualFold(status, StatusDueTodayFilter) {
+		f.DueToday = true
+		f.Status = ""
+		return
+	}
+	f.Status = status
+}
+
+// applyAuctionCase maps GET /loans's `auctionCase` onto f, replacing any
+// `status` — "eligible" and "auctioned_balance_due" are stored statuses,
+// "defaulted" is the read-time IsDefaulted flag (LoanFilter.OnlyDefaulted).
+// Reports false for an unrecognised value; empty is a no-op.
+func applyAuctionCase(f *LoanFilter, auctionCase string) bool {
+	switch strings.ToLower(strings.TrimSpace(auctionCase)) {
+	case "":
+	case AuctionCaseEligible:
+		f.Status, f.DueToday = StatusAuctionEligible, false
+	case AuctionCaseAuctionedBalanceDue:
+		f.Status, f.DueToday = StatusAuctionedBalanceDue, false
+	case AuctionCaseDefaulted:
+		f.Status, f.DueToday = "", false
+		f.OnlyDefaulted = true
+	default:
+		return false
+	}
+	return true
+}
+
 // List returns a bare array of every matching loan when no `limit` query
 // param is given (the Loans page's behaviour, unchanged). When `limit` is
 // given — the paginated SearchableSelect loan pickers — it fetches one extra
@@ -134,9 +179,22 @@ func (h *Handler) Create(c *gin.Context) {
 // (itself now under the outer {success, data} envelope). Mirrors
 // internal/customer's List. `excludeBankPledged=true` additionally drops
 // loans already sitting with a bank (see LoanFilter.ExcludeBankPledged).
+//
+// `status` matches the stored Loan.Status verbatim (Pending Approval, Active,
+// Due Soon, Overdue, Closure Requested, Closed, Defaulted, Auction Eligible,
+// Auctioned, Auctioned - Balance Due, Rejected), plus one derived value,
+// "Due Today" (see LoanFilter.DueToday). `auctionCase` (eligible |
+// defaulted | auctioned_balance_due) selects one of the mobile Auctions
+// screen's buckets and, when given, replaces `status` — see
+// applyAuctionCase.
 func (h *Handler) List(c *gin.Context) {
 	ctx := platform.RequestContext(c)
-	f := LoanFilter{Query: c.Query("q"), Status: c.Query("status")}
+	f := LoanFilter{Query: strings.TrimSpace(c.Query("q"))}
+	applyStatusParam(&f, c.Query("status"))
+	if !applyAuctionCase(&f, c.Query("auctionCase")) {
+		httpx.Fail(c, http.StatusBadRequest, "invalid auctionCase: expected eligible, defaulted or auctioned_balance_due")
+		return
+	}
 	f.ExcludeBankPledged = c.Query("excludeBankPledged") == "true"
 	f.BankPledgeStatus = c.Query("bankPledgeStatus")
 	if v := c.Query("branchId"); v != "" {
@@ -529,7 +587,7 @@ func (h *Handler) ListLoansForCustomer(c *gin.Context) {
 		return
 	}
 	limit, offset := customerSubTableLimitOffset(c)
-	rec, total, err := h.svc.ListLoansForCustomer(ctx, customerID, from, to, limit+1, offset)
+	rec, total, err := h.svc.ListLoansForCustomer(ctx, customerID, from, to, strings.TrimSpace(c.Query("q")), limit+1, offset)
 	if err != nil {
 		httpx.FailErr(c, err)
 		return
@@ -555,7 +613,7 @@ func (h *Handler) ListOrnamentsForCustomer(c *gin.Context) {
 		return
 	}
 	limit, offset := customerSubTableLimitOffset(c)
-	rec, total, err := h.svc.ListOrnamentsForCustomer(ctx, customerID, from, to, limit+1, offset)
+	rec, total, err := h.svc.ListOrnamentsForCustomer(ctx, customerID, from, to, strings.TrimSpace(c.Query("q")), limit+1, offset)
 	if err != nil {
 		httpx.FailErr(c, err)
 		return
@@ -581,7 +639,7 @@ func (h *Handler) ListPaymentsForCustomer(c *gin.Context) {
 		return
 	}
 	limit, offset := customerSubTableLimitOffset(c)
-	rec, total, err := h.svc.ListPaymentsForCustomer(ctx, customerID, from, to, limit+1, offset)
+	rec, total, err := h.svc.ListPaymentsForCustomer(ctx, customerID, from, to, strings.TrimSpace(c.Query("q")), limit+1, offset)
 	if err != nil {
 		httpx.FailErr(c, err)
 		return
@@ -607,7 +665,7 @@ func (h *Handler) ListBankPledgesForCustomer(c *gin.Context) {
 		return
 	}
 	limit, offset := customerSubTableLimitOffset(c)
-	rec, total, err := h.svc.ListBankPledgesForCustomer(ctx, customerID, from, to, limit+1, offset)
+	rec, total, err := h.svc.ListBankPledgesForCustomer(ctx, customerID, from, to, strings.TrimSpace(c.Query("q")), limit+1, offset)
 	if err != nil {
 		httpx.FailErr(c, err)
 		return
@@ -633,7 +691,7 @@ func (h *Handler) ListAuctionHistoryForCustomer(c *gin.Context) {
 		return
 	}
 	limit, offset := customerSubTableLimitOffset(c)
-	rec, total, err := h.svc.ListAuctionHistoryForCustomer(ctx, customerID, from, to, limit+1, offset)
+	rec, total, err := h.svc.ListAuctionHistoryForCustomer(ctx, customerID, from, to, strings.TrimSpace(c.Query("q")), limit+1, offset)
 	if err != nil {
 		httpx.FailErr(c, err)
 		return
@@ -756,6 +814,7 @@ func (h *Handler) ListRiskAssessment(c *gin.Context) {
 		BranchScope: platform.GetBranchScope(c),
 		OpenedFrom:  from,
 		OpenedTo:    to,
+		Query:       strings.TrimSpace(c.Query("q")),
 	}
 
 	if limit, _ := strconv.Atoi(c.Query("limit")); limit > 0 {
@@ -1443,7 +1502,17 @@ func (h *Handler) CreateReleaseRequest(c *gin.Context) {
 
 func (h *Handler) ListRequests(c *gin.Context) {
 	ctx := platform.RequestContext(c)
-	f := LoanRequestFilter{Status: c.Query("status")}
+	f := LoanRequestFilter{Status: c.Query("status"), Query: strings.TrimSpace(c.Query("q"))}
+	switch strings.ToLower(strings.TrimSpace(c.Query("type"))) {
+	case "":
+	case "extension":
+		f.Type = RequestTypeExtension
+	case "release":
+		f.Type = RequestTypeRelease
+	default:
+		httpx.Fail(c, http.StatusBadRequest, "invalid type: expected extension or release")
+		return
+	}
 	if v := c.Query("loanId"); v != "" {
 		if id, err := strconv.ParseUint(v, 10, 64); err == nil {
 			f.LoanID = uint(id)

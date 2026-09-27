@@ -87,8 +87,8 @@ type Filter struct {
 	BranchID *uint
 	Status   string
 	LockerID uint
-	// Q searches the packet's own code, its loan's LoanNumber, and its
-	// loan's customer's name — the same fields the Packets screen's search
+	// Q searches the packet's own code, its loan's LoanNumber, the locker it sits in, and its
+	// loan's customer's name/code — the same fields the Packets screen's search
 	// box promises ("packet code, loan number, or customer name"). Case-
 	// insensitive substring match.
 	Q string
@@ -123,8 +123,13 @@ func (r *Repository) FindAll(ctx context.Context, f Filter) ([]Packet, int64, er
 		q = q.Where("loans.branch_id = ?", *f.BranchID)
 	}
 	if f.Q != "" {
+		// LEFT JOIN: a packet that isn't checked into a locker (Bank
+		// Pledged, Ready For Release, ...) has no current_locker_id and must
+		// still match on its own code/loan/customer.
 		needle := "%" + f.Q + "%"
-		q = q.Where("packets.code ILIKE ? OR loans.loan_number ILIKE ? OR customers.name ILIKE ?", needle, needle, needle)
+		q = q.Joins("LEFT JOIN lockers ON lockers.id = packets.current_locker_id").
+			Where("packets.code ILIKE ? OR loans.loan_number ILIKE ? OR customers.name ILIKE ? OR customers.code ILIKE ? OR lockers.code ILIKE ?",
+				needle, needle, needle, needle, needle)
 	}
 	var total int64
 	if f.Limit > 0 {
