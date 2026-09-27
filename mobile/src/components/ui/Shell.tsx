@@ -621,18 +621,42 @@ export function openPage(path: string) {
   // so the list is never created underneath, never flashes, and isn't there
   // for Back to land on. Back from the detail therefore falls straight
   // through to the tabs' history: the page it was opened from.
-  const newRoutes = state.routes.map((r, i) => {
+  if (!STACK_TABS.has(tab)) {
+    focusTab(nav, state, targetIndex, { params });
+    return;
+  }
+  focusTab(nav, state, targetIndex, { stack: { name: screen, params: screenParams } });
+}
+
+/**
+ * Focus a tab and, optionally, set its stack to a single screen — all in one
+ * RESET of the TABS navigator's own state.
+ *
+ * Why not address the tab's nested stack directly (`target: nested.key`)?
+ * The stack state openPage() hands down is rehydrated by the stack's own
+ * navigator, which gives it a NEW key and only reports that back up to the
+ * tabs state after the next action inside that stack. Until then the tabs
+ * state still holds the old key, so an action targeted at it reaches no
+ * navigator ("The action 'RESET' … was not handled by any navigator").
+ * Going through the tabs navigator never needs that key.
+ */
+function focusTab(
+  nav: TabsNav,
+  state: TabsState,
+  targetIndex: number,
+  change: { params?: object; stack?: { name: string; params?: object } }
+) {
+  const target = state.routes[targetIndex];
+  const routes = state.routes.map((r, i) => {
     if (i !== targetIndex) return r;
-    if (!STACK_TABS.has(tab)) return { ...r, params };
-    return {
-      ...r,
-      state: {
-        type: "stack" as const,
-        key: `direct-stack-${++directSeq}`,
-        index: 0,
-        routes: [{ key: `direct-${directSeq}`, name: screen, params: screenParams }],
-      },
-    };
+    if (change.stack) {
+      const n = ++directSeq;
+      return {
+        ...r,
+        state: { type: "stack" as const, key: `direct-stack-${n}`, index: 0, routes: [{ key: `direct-${n}`, ...change.stack }] },
+      };
+    }
+    return change.params ? { ...r, params: change.params } : r;
   });
   // The tab router's own back-navigation (both hardware Back and this
   // Tabs' `backBehavior="history"`) is driven entirely by `state.history`,
@@ -647,7 +671,7 @@ export function openPage(path: string) {
   const history = (state.history ?? [])
     .filter((it) => (it && typeof it === "object" && "key" in it ? it.key !== target.key : true))
     .concat({ type: "route" as const, key: target.key });
-  nav.dispatch({ type: "RESET", payload: { ...state, index: targetIndex, routes: newRoutes, history } });
+  nav.dispatch({ type: "RESET", payload: { ...state, index: targetIndex, routes, history } });
 }
 
 /** .tabbar + .tabfade — Dashboard / Customers / Loans (centre FAB) / Schemes / More. */
@@ -665,10 +689,12 @@ export function PTabBar({ state, navigation }: BottomTabBarProps) {
   // renders: the highlight commits first and navigation follows on the next
   // frame, so bar and page change together instead of the bar lagging.
   const [pressed, setPressed] = useState<string | null>(null);
-  const activeRoute = pressed ?? navRoute;
-  React.useEffect(() => {
-    if (pressed && pressed === navRoute) setPressed(null);
-  }, [pressed, navRoute]);
+  // Navigation has caught up with the tap: drop the early highlight. Done
+  // during render (React's "adjust state when a value changes" pattern), not
+  // in an effect — an effect would paint once with the stale value and then
+  // re-render, which is exactly the cascade the lint rule flags.
+  if (pressed && pressed === navRoute) setPressed(null);
+  const activeRoute = pressed && pressed !== navRoute ? pressed : navRoute;
   const tabs = TABS.filter((t) => !t.module || can(t.module, t.key!));
   const isPrimary = tabs.some((t) => t.route === activeRoute);
 
@@ -685,12 +711,18 @@ export function PTabBar({ state, navigation }: BottomTabBarProps) {
     // Always land on the tab's root list (a deep push, or a page opened
     // from another tab, can leave the nested stack parked on a detail).
     const nested = route.state;
-    if (nested?.type === "stack" && nested.key) {
-      if (nested.routes?.[0]?.name !== "index") {
-        navigation.dispatch({ type: "RESET", payload: { index: 0, routes: [{ name: "index" }] }, target: nested.key });
-      } else if ((nested.index ?? 0) > 0) {
-        navigation.dispatch({ type: "POP_TO_TOP", target: nested.key });
-      }
+    if (nested?.type === "stack" && nested.routes?.[0]?.name !== "index") {
+      // Opened via openPage(): the stack holds only a detail page, and its
+      // key in this state may be stale (see focusTab). Swap it for the list
+      // and focus the tab in one step, through the tabs navigator itself.
+      focusTab(navigation, state, state.routes.indexOf(route), { stack: { name: "index" } });
+      if (route.name === navRoute) setPressed(null);
+      return;
+    }
+    if (nested?.type === "stack" && nested.key && (nested.index ?? 0) > 0) {
+      // A stack with the list at its root got here by pushes made inside
+      // it, so its navigator has reported its real key — safe to target.
+      navigation.dispatch({ type: "POP_TO_TOP", target: nested.key });
     }
     if (route.name !== navRoute) navigation.navigate(route.name);
     else setPressed(null);
