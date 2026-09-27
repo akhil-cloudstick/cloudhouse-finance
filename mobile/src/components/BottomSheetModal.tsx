@@ -1,9 +1,27 @@
 import React, { createContext, useContext, useEffect, useMemo, useRef, useState } from "react";
-import { Animated, BackHandler, Easing, Keyboard, Pressable, View, StyleSheet, ScrollView, ScrollViewProps, FlatList, FlatListProps } from "react-native";
+import {
+  Animated,
+  BackHandler,
+  Easing,
+  Keyboard,
+  LayoutAnimation,
+  Platform,
+  Pressable,
+  View,
+  StyleSheet,
+  ScrollView,
+  TextInput,
+  useWindowDimensions,
+  ScrollViewProps,
+  FlatList,
+  FlatListProps,
+  type KeyboardEvent,
+} from "react-native";
 import { Gesture, GestureDetector, type PanGesture } from "react-native-gesture-handler";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { colors } from "../theme/colors";
 import { nextSheetId, sheetStore } from "./SheetHost";
+import { notifyLayoutShift, notifyUserScroll } from "./ui/Popover";
 
 type SheetScrollCtx = { pan: PanGesture; onScroll: (y: number) => void };
 const SheetScrollContext = createContext<SheetScrollCtx | null>(null);
@@ -14,12 +32,56 @@ const SheetScrollContext = createContext<SheetScrollCtx | null>(null);
 export function SheetScrollView(props: ScrollViewProps) {
   const ctx = useContext(SheetScrollContext);
   const native = useMemo(() => (ctx ? Gesture.Native().simultaneousWithExternalGesture(ctx.pan) : null), [ctx]);
+  const ref = useRef<ScrollView>(null);
+  const offset = useRef(0);
+  const viewH = useRef(0);
+  // iOS doesn't scroll a focused input into view (Android does). Once the
+  // keyboard is up and the sheet has shrunk above it, bring the focused
+  // field into the visible part of this scroller.
+  useEffect(() => {
+    if (Platform.OS !== "ios") return;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const sub = Keyboard.addListener("keyboardDidShow", () => {
+      timer = setTimeout(() => {
+        const input = TextInput.State.currentlyFocusedInput?.();
+        const inner = (ref.current as unknown as { getInnerViewRef?: () => View | null })?.getInnerViewRef?.();
+        if (!input || !inner || !viewH.current) return;
+        (input as unknown as View).measureLayout(
+          inner,
+          (_x, y, _w, h) => {
+            const top = offset.current;
+            const bottom = top + viewH.current;
+            if (y + h + 16 > bottom) ref.current?.scrollTo({ y: y + h + 16 - viewH.current, animated: true });
+            else if (y - 16 < top) ref.current?.scrollTo({ y: Math.max(0, y - 16), animated: true });
+          },
+          () => {}
+        );
+      }, 80);
+    });
+    return () => {
+      if (timer) clearTimeout(timer);
+      sub.remove();
+    };
+  }, []);
   const sv = (
     <ScrollView
+      ref={ref}
       bounces={false}
       scrollEventThrottle={16}
+      keyboardDismissMode={Platform.OS === "ios" ? "interactive" : undefined}
       {...props}
+      onScrollBeginDrag={(e) => {
+        notifyUserScroll();
+        props.onScrollBeginDrag?.(e);
+      }}
+      onLayout={(e) => {
+        viewH.current = e.nativeEvent.layout.height;
+        notifyLayoutShift();
+        props.onLayout?.(e);
+      }}
       onScroll={(e) => {
+        offset.current = e.nativeEvent.contentOffset.y;
+        notifyLayoutShift();
         ctx?.onScroll(e.nativeEvent.contentOffset.y);
         props.onScroll?.(e);
       }}
@@ -28,10 +90,24 @@ export function SheetScrollView(props: ScrollViewProps) {
   return native ? <GestureDetector gesture={native}>{sv}</GestureDetector> : sv;
 }
 
+/** A scroller nested inside a sheet's content (e.g. the calendar's year
+ * grid). The sheet's drag-to-close pan otherwise grabs every vertical drag
+ * before a plain inner ScrollView can scroll; here the pan is held back
+ * while the finger is on this list, so it scrolls normally. */
+export function SheetNestedScrollView(props: ScrollViewProps & { ref?: React.Ref<ScrollView> }) {
+  const ctx = useContext(SheetScrollContext);
+  const native = useMemo(() => (ctx ? Gesture.Native().blocksExternalGesture(ctx.pan) : null), [ctx]);
+  const sv = <ScrollView nestedScrollEnabled {...props} />;
+  return native ? <GestureDetector gesture={native}>{sv}</GestureDetector> : sv;
+}
+
 /** FlatList variant of SheetScrollView. */
 export function SheetFlatList<T>(props: FlatListProps<T>) {
   return <FlatList {...props} renderScrollComponent={(p) => <SheetScrollView {...p} />} />;
 }
+
+// Tallest overlay height seen (the full window) — see the keyboard lift below.
+let fullOverlayH = 0;
 
 // Shared "rises up from the bottom" sheet, publishing into SheetHost rather than
 // rendering a native Modal (see SheetHost.tsx's doc comment).
@@ -53,10 +129,18 @@ export function BottomSheetModal({
   bare?: boolean;
 }) {
   const insets = useSafeAreaInsets();
+  const win = useWindowDimensions();
   const translateY = useRef(new Animated.Value(0)).current;
+  // Slide distance = the sheet's own measured height (not a fixed 1000px),
+  // so the whole animation is spent on screen instead of partly off it —
+  // that dead time is what made short sheets look like they paused, then
+  // snapped. The backdrop fades over the same distance.
+  const sheetH = useRef(win.height);
+  const travel = useRef(new Animated.Value(win.height)).current;
   const backdropOpacity = useRef(
-    translateY.interpolate({ inputRange: [0, 600], outputRange: [1, 0], extrapolate: "clamp" })
+    Animated.divide(translateY, travel).interpolate({ inputRange: [0, 1], outputRange: [1, 0], extrapolate: "clamp" })
   ).current;
+  const offscreen = () => sheetH.current + 24;
   const closeRef = useRef(onClose);
   closeRef.current = onClose;
 
@@ -67,7 +151,7 @@ export function BottomSheetModal({
   const closeSheet = () => {
     // No reset to 0 here — that snapped the sheet back on-screen for a frame
     // before it unmounted (the flash). The open effect re-positions it.
-    Animated.timing(translateY, { toValue: 1000, duration: 220, easing: Easing.in(Easing.cubic), useNativeDriver: true }).start(() =>
+    Animated.timing(translateY, { toValue: offscreen(), duration: CLOSE_MS, easing: CLOSE_EASE, useNativeDriver: true }).start(() =>
       closeRef.current()
     );
   };
@@ -117,24 +201,95 @@ export function BottomSheetModal({
   // a sheet closed from outside (e.g. picking a page in the More sheet)
   // animates away instead of vanishing in one frame.
   const [mounted, setMounted] = useState(visible);
+  const mountedRef = useRef(false);
+  // Opening waits for the sheet's first layout, so the slide starts from
+  // exactly its own height and only after the content has been laid out
+  // (starting in the same frame as the mount dropped the first frames).
+  const pendingOpen = useRef(false);
+  // While sliding, Android draws the sheet as one cached layer instead of
+  // re-rasterising every row each frame (the main source of dropped frames
+  // on content-heavy sheets).
+  const [moving, setMoving] = useState(false);
+  const runOpen = () => {
+    pendingOpen.current = false;
+    setMoving(true);
+    // A critically-damped spring eases in more naturally than a fixed-time
+    // curve and never overshoots.
+    Animated.spring(translateY, { toValue: 0, ...OPEN_SPRING, useNativeDriver: true }).start(() => setMoving(false));
+  };
   useEffect(() => {
     if (visible) {
       setMounted(true);
       scrollY.current = 0;
-      translateY.setValue(1000);
-      Animated.timing(translateY, { toValue: 0, duration: 280, easing: Easing.out(Easing.cubic), useNativeDriver: true }).start();
+      if (mountedRef.current) {
+        // Re-opened while still sliding out: reverse from where it is.
+        runOpen();
+      } else {
+        translateY.setValue(offscreen());
+        pendingOpen.current = true;
+        // Safety net: never leave the sheet parked off-screen if a layout
+        // event is somehow missed.
+        setTimeout(() => pendingOpen.current && runOpen(), 150);
+      }
+      mountedRef.current = true;
     } else {
-      Animated.timing(translateY, { toValue: 1000, duration: 220, easing: Easing.in(Easing.cubic), useNativeDriver: true }).start(({ finished }) => {
-        if (finished) setMounted(false);
+      pendingOpen.current = false;
+      setMoving(true);
+      Animated.timing(translateY, { toValue: offscreen(), duration: CLOSE_MS, easing: CLOSE_EASE, useNativeDriver: true }).start(({ finished }) => {
+        setMoving(false);
+        if (finished) {
+          mountedRef.current = false;
+          setMounted(false);
+        }
       });
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [visible, translateY]);
+  const onSheetLayout = (h: number) => {
+    if (h <= 0) return;
+    notifyLayoutShift();
+    sheetH.current = h;
+    travel.setValue(h + 24);
+    if (pendingOpen.current) {
+      translateY.setValue(h + 24);
+      runOpen();
+    }
+  };
 
   const [keyboardHeight, setKeyboardHeight] = useState(0);
+  // Some Android devices resize the whole window for the keyboard (the
+  // overlay shrinks by the keyboard's height); others draw edge-to-edge and
+  // leave it full height. Lifting the sheet by the full keyboard height on a
+  // resized window counted it twice, pushing the sheet (and its dropdowns)
+  // far up the screen. So measure the overlay: its tallest measured height
+  // is the full window (the app is portrait-only); whatever it has shrunk by
+  // since comes off the lift. (The resize can land before the keyboard
+  // event, hence the running max rather than "height while keyboard down".)
+  const [overlayH, setOverlayH] = useState(0);
+  const onOverlayLayout = (h: number) => {
+    fullOverlayH = Math.max(fullOverlayH, h);
+    setOverlayH(h);
+  };
+  const fullH = { current: fullOverlayH };
+  const resizedBy = keyboardHeight && overlayH ? Math.max(0, fullOverlayH - overlayH) : 0;
+  const lift = Math.max(0, keyboardHeight - resizedBy);
+  const availH = overlayH || win.height;
   useEffect(() => {
     if (!visible) return;
-    const show = Keyboard.addListener("keyboardDidShow", (e) => setKeyboardHeight(e.endCoordinates.height));
-    const hide = Keyboard.addListener("keyboardDidHide", () => setKeyboardHeight(0));
+    // iOS: follow the keyboard as it moves (Will events + the keyboard's own
+    // curve) instead of jumping once it has finished animating.
+    const ios = Platform.OS === "ios";
+    const animate = (e: KeyboardEvent) => {
+      if (ios && e.duration) LayoutAnimation.configureNext({ duration: e.duration, update: { type: LayoutAnimation.Types.keyboard } });
+    };
+    const show = Keyboard.addListener(ios ? "keyboardWillShow" : "keyboardDidShow", (e) => {
+      animate(e);
+      setKeyboardHeight(e.endCoordinates.height);
+    });
+    const hide = Keyboard.addListener(ios ? "keyboardWillHide" : "keyboardDidHide", (e) => {
+      animate(e);
+      setKeyboardHeight(0);
+    });
     return () => {
       show.remove();
       hide.remove();
@@ -159,7 +314,7 @@ export function BottomSheetModal({
     sheetStore.set(
       id,
       // No touches while sliding out, so taps land on the page underneath.
-      <View style={styles.overlay} pointerEvents={visible ? "box-none" : "none"}>
+      <View style={styles.overlay} pointerEvents={visible ? "box-none" : "none"} onLayout={(e) => onOverlayLayout(e.nativeEvent.layout.height)}>
         {/* Backdrop dims in step with the sheet's position, so a drag or close
             fades it out instead of it vanishing in one frame at unmount. */}
         <Animated.View style={[StyleSheet.absoluteFill, bare ? styles.backdropBare : styles.backdrop, { opacity: backdropOpacity }]}>
@@ -168,11 +323,19 @@ export function BottomSheetModal({
         {(() => {
           const sheet = (
             <Animated.View
+              onLayout={(e) => onSheetLayout(e.nativeEvent.layout.height)}
+              renderToHardwareTextureAndroid={moving}
+              shouldRasterizeIOS={moving}
               style={[
                 bare ? styles.sheetBare : styles.sheet,
                 {
-                  maxHeight: `${maxHeightPct}%`,
-                  marginBottom: keyboardHeight,
+                  // With the keyboard up the sheet is lifted by its height, so
+                  // cap it to the space left above it — otherwise its top (and
+                  // the focused field) is pushed off the top of the screen.
+                  maxHeight: keyboardHeight
+                    ? Math.min((fullH.current * maxHeightPct) / 100 || Infinity, availH - lift - insets.top - 8)
+                    : `${maxHeightPct}%`,
+                  marginBottom: lift,
                   paddingBottom: bare ? (keyboardHeight ? 0 : insets.bottom) : keyboardHeight ? 14 : 14 + Math.max(insets.bottom, 10),
                   transform: [{ translateY }],
                 },
@@ -189,12 +352,17 @@ export function BottomSheetModal({
       </View>
     );
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mounted, visible, maxHeightPct, keyboardHeight, insets.bottom, children, dragGesture, dragToClose, scrollCtx, bare]);
+  }, [mounted, visible, moving, maxHeightPct, keyboardHeight, lift, availH, insets.bottom, insets.top, win.height, children, dragGesture, dragToClose, scrollCtx, bare]);
 
   useEffect(() => () => sheetStore.remove(id), [id]);
 
   return null;
 }
+
+// iOS-style sheet curves: a long, soft deceleration in; a quick ease out.
+const OPEN_SPRING = { damping: 30, stiffness: 260, mass: 1, overshootClamping: true, restDisplacementThreshold: 0.5, restSpeedThreshold: 0.5 };
+const CLOSE_MS = 240;
+const CLOSE_EASE = Easing.bezier(0.4, 0, 0.9, 0.6);
 
 const styles = StyleSheet.create({
   backdrop: { backgroundColor: "rgba(0,0,0,0.4)" },

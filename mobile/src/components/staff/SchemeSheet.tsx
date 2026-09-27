@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from "react";
-import { Alert, Pressable, View } from "react-native";
+import { Pressable, View } from "react-native";
 import { useInfiniteQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { AccBtn, Buffering, BtnRow2, C, CheckItem, ChipToggle, DateField, EmptyText, Field, FieldRow, Input, PrimaryButton, ResultBox, Sheet, Txt } from "../ui";
+import { AccBtn, Buffering, BtnRow2, C, CheckItem, ChipToggle, DateField, EmptyText, Field, FieldRow, Input, PrimaryButton, ResultBox, Sheet, ThemeDropdown, Txt, toast } from "../ui";
 import { useAuth } from "../../auth/AuthContext";
 import { useDebouncedValue } from "../../hooks/useDebouncedValue";
 import { calculateSchemeEligibility, createScheme, toggleSchemeActive, updateScheme, type SchemeInput } from "../../api/schemes";
@@ -10,6 +10,7 @@ import { downloadSchemeStatement, previewSchemeStatementPdf, type StatementFilte
 import { ApiError } from "../../api/client";
 import { inr, todayISO } from "../../lib/format";
 import type { Scheme, ServiceChargeMode, ServiceChargeType } from "../../types/scheme";
+import { isUserCancel, userMessage } from "../../api/errors";
 
 // ---------------------------------------------------------------------------
 // Scheme create / edit (prototype #scheme-create-modal). Same fields, wire
@@ -120,7 +121,7 @@ export function SchemeSheet({ visible, onClose, scheme }: { visible: boolean; on
         <Input placeholder="e.g. 75" keyboardType="decimal-pad" value={ltvPercent} onChangeText={(t) => setLtvPercent(num(t))} />
       </Field>
       <Field label="Interest calculation method">
-        <ChipToggle options={METHODS} value={method} onChange={setMethod} labels={METHOD_LABELS} wrap />
+        <ThemeDropdown<Method> value={method} options={[...METHODS]} onChange={setMethod} labelOf={(m) => METHOD_LABELS[m]} />
       </Field>
       <Field label="Penal charges (%/month)">
         <Input placeholder="e.g. 2.0" keyboardType="decimal-pad" value={penalRate} onChangeText={(t) => setPenalRate(num(t))} />
@@ -231,7 +232,8 @@ export function SchemeStatementSheet({ visible, onClose, scheme }: { visible: bo
       if (kind === "preview") await previewSchemeStatementPdf(scheme.id, filters);
       else await downloadSchemeStatement(scheme.id, kind, filters);
     } catch (e) {
-      Alert.alert(kind === "preview" ? "Preview failed" : "Download failed", e instanceof Error ? e.message : "Could not download statement.");
+      if (isUserCancel(e)) return;
+      toast.error(kind === "preview" ? "Preview failed" : "Download failed", userMessage(e, "Could not download the statement — try again."));
     } finally {
       setBusy(null);
     }

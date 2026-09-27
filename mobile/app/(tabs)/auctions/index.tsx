@@ -1,7 +1,6 @@
 import React, { useState } from "react";
 import { View } from "react-native";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { useRouter } from "expo-router";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   AccRow,
   AsyncSelect,
@@ -18,16 +17,17 @@ import {
   Sheet,
   SubTabs,
   Txt,
+  openPage,
 } from "../../../src/components/ui";
 import { AuctionFlowSheet } from "../../../src/components/staff/AuctionFlowSheet";
 import { useServerList } from "../../../src/hooks/useServerList";
 import { listLoansPage } from "../../../src/api/loans";
-import { listConcludedAuctions, markAuctionEligible } from "../../../src/api/auctions";
+import { getAuction, listConcludedAuctions, markAuctionEligible } from "../../../src/api/auctions";
 import { useAuth } from "../../../src/auth/AuthContext";
 import { ApiError } from "../../../src/api/client";
 import { inr } from "../../../src/lib/format";
 import type { Loan } from "../../../src/types/loan";
-import { AUCTION_OUTCOME_LABELS, type ConcludedAuctionRow } from "../../../src/types/auction";
+import { AUCTION_OUTCOME_LABELS, pendingDecision, type AuctionRecord, type AuctionStage, type ConcludedAuctionRow } from "../../../src/types/auction";
 
 // Auctions — prototype #header-auctions + #page-auctions, the auction filter
 // sheet and the Auction Flow sheet. Active Cases are loans bucketed
@@ -50,13 +50,9 @@ const HIST = ["conducted", "closed"] as const;
 type Hist = (typeof HIST)[number];
 const HIST_LABELS: Record<Hist, string> = { conducted: "Auctions Conducted", closed: "Closed Without Auction" };
 
-// Pushing the list first keeps the Loans stack's history sane (back lands
-// on the list, not stuck on the detail).
 function useOpenLoan() {
-  const router = useRouter();
   return (id: number) => {
-    router.push("/loans" as never);
-    router.push(`/loans/${id}` as never);
+    openPage(`/loans/${id}`);
   };
 }
 
@@ -64,7 +60,7 @@ export default function AuctionsScreen() {
   const [tab, setTab] = useState<Tab>("active");
   const tabs = <PillTabs tabs={TABS} value={tab} onChange={setTab} labels={TAB_LABELS} />;
   return (
-    <Screen header={<FlatHeader title="Auctions" subtitle="Active cases & history" back />}>
+    <Screen header={<FlatHeader title="Auctions" subtitle="Active cases & history" />}>
       {tab === "active" ? <ActiveCases tabs={tabs} /> : <AuctionHistory tabs={tabs} />}
     </Screen>
   );
@@ -128,28 +124,9 @@ function ActiveCases({ tabs }: { tabs: React.ReactNode }) {
             />
           </>
         }
-        renderItem={(l, i) => {
-          const days = l.daysOverdue ?? 0;
-          const overdue = !!l.isOverdue || days > 0;
-          return (
-            <AccRow
-              defaultOpen={i === 0}
-              id={l.loanNumber}
-              name={l.customer?.name ?? `Customer #${l.customerId}`}
-              sub={caseSub(l)}
-              amount={inr(l.totalOutstandingBalance ?? l.outstandingAmount)}
-              status={overdue ? "Overdue" : l.status}
-              details={[
-                { k: "Gold weight", v: l.totalNetWeight != null ? `${+Number(l.totalNetWeight).toFixed(2)} g` : "—" },
-                { k: "Days overdue", v: `${days} day${days === 1 ? "" : "s"}`, color: days > 0 ? C.red : undefined },
-              ]}
-              actions={[
-                { label: "View Loan", onPress: () => openLoan(l.id) },
-                { label: "Start Auction Flow", primary: true, onPress: () => setFlowLoan(l) },
-              ]}
-            />
-          );
-        }}
+        renderItem={(l, i) => (
+          <AuctionCaseRow loan={l} defaultOpen={i === 0} sub={caseSub(l)} onView={() => openLoan(l.id)} onFlow={() => setFlowLoan(l)} />
+        )}
       />
 
       <Sheet visible={sheetOpen} onClose={() => setSheetOpen(false)} title="Filter Auction Cases" maxHeightPct={70}>
@@ -194,6 +171,50 @@ function ActiveCases({ tabs }: { tabs: React.ReactNode }) {
 
       <AuctionFlowSheet loan={flowLoan} visible={!!flowLoan} onClose={() => setFlowLoan(null)} />
     </>
+  );
+}
+
+// The flow button names the step the case is on, read from its auction record
+// (same query the Auction Flow sheet uses, so opening it is instant).
+// Defaulted loans have no record yet — that's where the flow starts.
+const NEXT_STEP: Partial<Record<AuctionStage, string>> = {
+  AuctionEligible: "Issue Notice",
+  NoticeIssued: "Schedule Auction",
+  AuctionScheduled: "Record Sale",
+  Auctioned: "Settle Auction",
+};
+
+function flowLabel(l: Loan, rec: AuctionRecord | null | undefined, loading: boolean): string {
+  if (l.status === "Auctioned - Balance Due") return "View Auction";
+  if (l.status !== "Auction Eligible") return "Start Auction Flow";
+  if (loading || !rec) return "Auction Flow";
+  if (pendingDecision(rec)) return "Decision Pending";
+  if (rec.stage === "Settled" || rec.stage === "Withdrawn") return "View Auction";
+  return NEXT_STEP[rec.stage] ?? "Auction Flow";
+}
+
+function AuctionCaseRow({ loan: l, defaultOpen, sub, onView, onFlow }: { loan: Loan; defaultOpen: boolean; sub: string; onView: () => void; onFlow: () => void }) {
+  const hasRecord = l.status === "Auction Eligible";
+  const auction = useQuery({ queryKey: ["auction", String(l.id)], queryFn: () => getAuction(l.id), enabled: hasRecord });
+  const days = l.daysOverdue ?? 0;
+  const overdue = !!l.isOverdue || days > 0;
+  return (
+    <AccRow
+      defaultOpen={defaultOpen}
+      id={l.loanNumber}
+      name={l.customer?.name ?? `Customer #${l.customerId}`}
+      sub={sub}
+      amount={inr(l.totalOutstandingBalance ?? l.outstandingAmount)}
+      status={overdue ? "Overdue" : l.status}
+      details={[
+        { k: "Gold weight", v: l.totalNetWeight != null ? `${+Number(l.totalNetWeight).toFixed(2)} g` : "—" },
+        { k: "Days overdue", v: `${days} day${days === 1 ? "" : "s"}`, color: days > 0 ? C.red : undefined },
+      ]}
+      actions={[
+        { label: "View Loan", onPress: onView },
+        { label: flowLabel(l, auction.data, hasRecord && auction.isLoading), primary: true, onPress: onFlow },
+      ]}
+    />
   );
 }
 

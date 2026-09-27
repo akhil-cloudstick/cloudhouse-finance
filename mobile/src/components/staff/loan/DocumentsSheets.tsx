@@ -1,13 +1,10 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { Linking, View } from "react-native";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Buffering, C, ChipToggle, Field, FieldGrid, NoticeBanner, PrimaryButton, SectionTitle, Sheet, SheetListItem, Txt } from "../../ui";
 import { checkIndemnityBondEsign, startIndemnityBondEsign, type BondDeliverBy, type BondLang } from "../../../api/loans";
 import {
-  printLabelAndSlipOnePage,
-  printPacketLabel,
   printPledgeAgreementPdf,
-  printPledgeSlip,
   printReleaseAgreementPdf,
   printStatement,
   PLEDGE_AGREEMENT_LANGS,
@@ -30,7 +27,7 @@ function esignStatusText(l: Loan) {
 }
 
 /** Prototype #documents-modal plus #doc-agreement and #esign-modal. Every
- * print flow (pledge slip, packet label, slip + label, statement, pledge /
+ * print flow (statement, pledge /
  * release agreements) and the Aadhaar eSign of the indemnity bond. */
 export function DocumentsSheets({ loan: l, visible, onClose, onOpen }: { loan: Loan; visible: boolean; onClose: () => void; onOpen: () => void }) {
   const qc = useQueryClient();
@@ -43,6 +40,12 @@ export function DocumentsSheets({ loan: l, visible, onClose, onOpen }: { loan: L
   const [esignLang, setEsignLang] = useState<BondLang>("en");
   const [notice, setNotice] = useState<string | null>(null);
 
+  // Each opening starts clean — a failure from an earlier print shouldn't
+  // greet the next visit to this sheet.
+  useEffect(() => {
+    if (visible) setError(null);
+  }, [visible]);
+
   async function run(key: string, fn: () => Promise<unknown>, fail: string) {
     if (busy) return;
     setBusy(key);
@@ -50,7 +53,10 @@ export function DocumentsSheets({ loan: l, visible, onClose, onOpen }: { loan: L
     try {
       await fn();
     } catch (e) {
-      setError(apiErr(e, fail));
+      // Backing out of the system print dialog rejects printAsync with
+      // "Printing did not complete" — that's the user's choice, not an error.
+      const msg = e instanceof Error ? e.message : String(e ?? "");
+      if (!/did not complete|cancel/i.test(msg)) setError(apiErr(e, fail));
     } finally {
       setBusy(null);
     }
@@ -96,30 +102,7 @@ export function DocumentsSheets({ loan: l, visible, onClose, onOpen }: { loan: L
   return (
     <>
       <Sheet visible={visible} onClose={onClose} title="Loan Documents">
-        <SheetListItem first icon="doc" title="Pledge Slip" sub={sub("slip", "Print the customer's pledge receipt")} onPress={() => run("slip", () => printPledgeSlip(l), "Could not print the pledge slip — try again.")} />
-        <SheetListItem icon="doc" title="Packet Label" sub={sub("label", "Print the storage packet label")} onPress={() => run("label", () => printPacketLabel(l), "Could not print the packet label — try again.")} />
-        <SheetListItem
-          icon="doc"
-          title="Slip + Label"
-          sub={sub("onepage", "Both printed together on one page")}
-          onPress={() => run("onepage", () => printLabelAndSlipOnePage(l), "Could not print the label and slip — try again.")}
-        />
-        <SheetListItem
-          icon="doc"
-          title="Label & Slip (separate)"
-          sub={sub("both", "Packet label, then the pledge slip, as two prints")}
-          onPress={() =>
-            run(
-              "both",
-              async () => {
-                await printPacketLabel(l);
-                await printPledgeSlip(l);
-              },
-              "Could not print the label and slip — try again."
-            )
-          }
-        />
-        <SheetListItem icon="note" title="Statement" sub={sub("statement", "Statement of account for this loan")} onPress={() => run("statement", () => printStatement(l), "Could not print the statement — try again.")} />
+        <SheetListItem first icon="note" title="Statement" sub={sub("statement", "Statement of account for this loan")} onPress={() => run("statement", () => printStatement(l), "Could not print the statement — try again.")} />
         <SheetListItem
           icon="doc"
           title="Indemnity Bond"

@@ -1,7 +1,6 @@
-import React, { useEffect, useState } from "react";
-import { Alert, Pressable, StyleSheet, TextInput, View } from "react-native";
+import React, { useEffect, useRef, useState } from "react";
+import { Pressable, ScrollView, StyleSheet, TextInput, View } from "react-native";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useRouter } from "expo-router";
 import {
   AsyncSelect,
   Buffering,
@@ -18,6 +17,7 @@ import {
   PrimaryButton,
   ReminderPill,
   RepayItem,
+  ReviewWarning,
   SearchInput,
   ServerFlatList,
   Sheet,
@@ -25,6 +25,9 @@ import {
   TopModal,
   Txt,
   Avatar,
+  WarningBanner,
+  toast,
+  openPage,
 } from "../ui";
 import { useServerList } from "../../hooks/useServerList";
 import { latestGoldRate, listGoldRatesPage, publishGoldRate } from "../../api/goldRates";
@@ -36,29 +39,132 @@ import { useAuth } from "../../auth/AuthContext";
 import { useTheme } from "../../theme/ThemeProvider";
 import { routeEnabled } from "../../config/tenantModules";
 import { addDaysISO, dmy, inr, todayISO } from "../../lib/format";
+import { finenessForKarat, rateForFineness } from "../../lib/purity";
 import type { CalendarEvent } from "../../types/reminder";
 import type { Loan } from "../../types/loan";
 import type { Customer } from "../../types/customer";
 import type { Scheme } from "../../types/scheme";
 import type { GoldRate } from "../../types/goldRate";
+import { userMessage } from "../../api/errors";
 
 // ---------------------------------------------------------------------------
 // Gold Rate (prototype #gold-modal): Set Rate / History
+//
+// Same rules as the web RateModal and the pre-redesign mobile screen. Mode
+// is all-or-nothing across the three karats:
+// - Auto (default): 22K/18K derive live off 24K at an editable fineness %
+//   (prefilled with karat/24). 24K's own fineness scales the rate that was
+//   live when the modal opened.
+// - Manual: every karat is typed independently. Typing straight into the
+//   22K or 18K rate switches to Manual; typing 24K does not.
+// Only karats whose rate actually changed are published, 24 -> 22 -> 18.
+//
+// Set Rate lets staff set all three karats (Auto derives 22K/18K off 24K;
+// Manual types each independently) — only the History tab's list drops the
+// 22K/18K columns, showing 24K alone.
 // ---------------------------------------------------------------------------
+type RateMode = "Auto" | "Manual";
+type Karat = 24 | 22 | 18;
+const KARAT_ROWS: { k: Karat; label: string }[] = [
+  { k: 24, label: "24K · 999" },
+  { k: 22, label: "22K · 916" },
+  { k: 18, label: "18K · 750" },
+];
+const defaultFineness = (k: Karat) => (k === 24 ? "100" : String(finenessForKarat(k)));
+const clampFineness = (v: string) => (v !== "" && +v > 100 ? "100" : v);
+
 export function GoldRateModal({ visible, onClose }: { visible: boolean; onClose: () => void }) {
   const qc = useQueryClient();
   const { employee } = useAuth();
   const [tab, setTab] = useState<"set" | "history">("set");
   const latest = useQuery({ queryKey: ["gold-rates", "latest"], queryFn: latestGoldRate, enabled: visible });
-  const [r22, setR22] = useState("");
-  const [r24, setR24] = useState("");
+  const now: Record<Karat, number> = { 24: latest.data?.k24 ?? 0, 22: latest.data?.k22 ?? 0, 18: latest.data?.k18 ?? 0 };
+
+  const [mode, setMode] = useState<RateMode>("Auto");
+  const [ref24, setRef24] = useState(0);
+  const [rates, setRates] = useState<Record<Karat, string>>({ 24: "", 22: "", 18: "" });
+  const [fin, setFin] = useState<Record<Karat, string>>({ 24: "100", 22: defaultFineness(22), 18: defaultFineness(18) });
+  const [lastEdited, setLastEdited] = useState<Karat | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const resetAuto = (k24: number) => {
+    setMode("Auto");
+    setRef24(k24);
+    setFin({ 24: "100", 22: defaultFineness(22), 18: defaultFineness(18) });
+    setRates({
+      24: k24 > 0 ? String(Math.round(k24)) : "",
+      22: k24 > 0 ? String(rateForFineness(k24, finenessForKarat(22))) : "",
+      18: k24 > 0 ? String(rateForFineness(k24, finenessForKarat(18))) : "",
+    });
+    setLastEdited(null);
+    setError(null);
+  };
 
   useEffect(() => {
-    if (visible && latest.data) {
-      setR22(String(Math.round(latest.data.k22 || 0)));
-      setR24(String(Math.round(latest.data.k24 || 0)));
-    }
+    if (!visible) return;
+    setTab("set");
+    if (latest.data) resetAuto(latest.data.k24 || 0);
   }, [visible, latest.data]);
+
+  const switchMode = (m: RateMode) => {
+    if (m === "Auto") resetAuto(ref24 || now[24]);
+    else {
+      setMode("Manual");
+      setLastEdited(null);
+    }
+  };
+
+  const editRate = (k: Karat, v: string) => {
+    setError(null);
+    setLastEdited(k);
+    if (k !== 24) {
+      setMode("Manual");
+      setRates((r) => ({ ...r, [k]: v }));
+      return;
+    }
+    const k24 = +v;
+    setRates((r) =>
+      mode === "Auto" && k24 > 0
+        ? {
+            24: v,
+            22: +fin[22] > 0 ? String(rateForFineness(k24, +fin[22])) : r[22],
+            18: +fin[18] > 0 ? String(rateForFineness(k24, +fin[18])) : r[18],
+          }
+        : { ...r, 24: v }
+    );
+  };
+
+  const editFineness = (k: Karat, v: string) => {
+    const c = clampFineness(v);
+    setError(null);
+    setFin((f) => ({ ...f, [k]: c }));
+    if (!(+c > 0)) return;
+    if (k === 24) {
+      if (ref24 > 0) {
+        const k24 = rateForFineness(ref24, +c);
+        setRates((r) => ({
+          24: String(k24),
+          22: +fin[22] > 0 ? String(rateForFineness(k24, +fin[22])) : r[22],
+          18: +fin[18] > 0 ? String(rateForFineness(k24, +fin[18])) : r[18],
+        }));
+      }
+    } else {
+      setRates((r) => (+r[24] > 0 ? { ...r, [k]: String(rateForFineness(+r[24], +c)) } : r));
+    }
+  };
+
+  // Non-blocking sanity check (Manual only): a lower karat priced above a
+  // purer one inverts the purity hierarchy. Flagged on the field just typed.
+  const n: Record<Karat, number> = { 24: +rates[24], 22: +rates[22], 18: +rates[18] };
+  const bad2224 = mode === "Manual" && n[22] > 0 && n[24] > 0 && n[22] > n[24];
+  const bad1822 = mode === "Manual" && n[18] > 0 && n[22] > 0 && n[18] > n[22];
+  const bad1824 = mode === "Manual" && n[18] > 0 && n[24] > 0 && n[18] > n[24];
+  const invalid: Record<Karat, boolean> = {
+    24: lastEdited === 24 && (bad2224 || bad1824),
+    22: lastEdited === 22 && bad2224,
+    18: lastEdited === 18 && (bad1822 || bad1824),
+  };
+  const hierarchyMsg = bad2224 ? "22K is priced above 24K." : bad1822 ? "18K is priced above 22K." : bad1824 ? "18K is priced above 24K." : null;
 
   const history = useServerList<GoldRate>({
     key: ["gold-rates", "history"],
@@ -69,45 +175,80 @@ export function GoldRateModal({ visible, onClose }: { visible: boolean; onClose:
   const save = useMutation({
     mutationFn: async () => {
       const setBy = employee?.name ?? "Mobile App";
-      const jobs: { karat: 24 | 22; rate: number }[] = [];
-      if (+r24 > 0 && Math.round(+r24) !== Math.round(latest.data?.k24 ?? 0)) jobs.push({ karat: 24, rate: +r24 });
-      if (+r22 > 0 && Math.round(+r22) !== Math.round(latest.data?.k22 ?? 0)) jobs.push({ karat: 22, rate: +r22 });
-      if (!jobs.length) throw new Error("Change a rate before saving.");
+      const jobs = KARAT_ROWS.filter(({ k }) => n[k] > 0 && Math.round(n[k]) !== Math.round(now[k])).map(({ k }) => ({ karat: k, rate: n[k] }));
+      if (!jobs.length) throw new Error("Nothing has changed from the current rates.");
       for (const j of jobs) await publishGoldRate({ karat: j.karat, rate: j.rate, setBy });
       return jobs;
     },
-    onSuccess: () => {
+    onSuccess: (jobs) => {
       qc.invalidateQueries({ queryKey: ["gold-rates"] });
       qc.invalidateQueries({ queryKey: ["dashboard"] });
-      Alert.alert("Gold rate", "New rate saved.");
+      toast.success("Gold rate updated", `${jobs.map((j) => `${j.karat}K ${inr(j.rate)}`).join(" · ")} per gram`);
       onClose();
     },
-    onError: (e: Error) => Alert.alert("Couldn't save rate", e.message),
+    onError: (e: Error) => setError(userMessage(e, "Could not save the rate — try again.")),
   });
+
+  const canPublish = n[24] > 0 && n[22] > 0 && n[18] > 0;
+  // Height the Set Rate tab laid out at — the History tab reuses it.
+  const [setTabH, setSetTabH] = useState(0);
 
   return (
     <CenterModal visible={visible} onClose={onClose} title="Gold Rate">
       <GrmTabs tabs={["set", "history"] as const} value={tab} onChange={setTab} labels={{ set: "Set Rate", history: "History" }} />
       {tab === "set" ? (
-        <View style={{ paddingTop: 6, paddingHorizontal: 16, paddingBottom: 18 }}>
-          {latest.isLoading ? (
-            <Buffering block />
-          ) : (
-            <>
-              <View style={{ flexDirection: "row", gap: 10, marginTop: 14 }}>
-                <Field label="22 Karat rate (₹/g)" style={{ flex: 1 }}>
-                  <Input keyboardType="decimal-pad" value={r22} onChangeText={setR22} />
-                </Field>
-                <Field label="24 Karat rate (₹/g)" style={{ flex: 1 }}>
-                  <Input keyboardType="decimal-pad" value={r24} onChangeText={setR24} />
-                </Field>
+        latest.isLoading ? (
+          <Buffering block />
+        ) : (
+          <View style={{ flexShrink: 1 }} onLayout={(e) => setSetTabH(e.nativeEvent.layout.height)}>
+          <ScrollView
+            keyboardShouldPersistTaps="handled"
+            showsVerticalScrollIndicator={false}
+            style={{ flexShrink: 1 }}
+            contentContainerStyle={{ paddingTop: 14, paddingHorizontal: 16, paddingBottom: 10 }}
+          >
+            <View style={s.rateNow}>
+              {KARAT_ROWS.map(({ k }) => (
+                <View key={k} style={{ flex: 1, alignItems: "center" }}>
+                  <Txt style={s.rateNowK}>{k}K now</Txt>
+                  <Txt style={s.rateNowV}>{now[k] ? inr(Math.round(now[k])) : "—"}</Txt>
+                </View>
+              ))}
+            </View>
+            <Field label="Mode">
+              <ChipToggle options={["Auto", "Manual"] as const} value={mode} onChange={switchMode} />
+            </Field>
+            <Txt style={s.modeHint}>
+              {mode === "Auto" ? "22K and 18K follow 24K at their fineness %. Typing a 22K/18K rate switches to Manual." : "Each karat is set independently of 24K."}
+            </Txt>
+            {KARAT_ROWS.map(({ k, label }) => (
+              <View key={k} style={[s.karatRow, invalid[k] && { borderColor: C.red }]}>
+                <Txt style={s.karatLbl}>{label}</Txt>
+                <View style={{ flexDirection: "row", gap: 10 }}>
+                  {mode === "Auto" ? (
+                    <Field label="Fineness %" style={{ flex: 1, marginBottom: 0 }}>
+                      <Input keyboardType="decimal-pad" value={fin[k]} onChangeText={(v) => editFineness(k, v)} />
+                    </Field>
+                  ) : null}
+                  <Field label="Rate (₹/g)" style={{ flex: 1.3, marginBottom: 0 }}>
+                    <Input keyboardType="decimal-pad" value={rates[k]} onChangeText={(v) => editRate(k, v)} style={invalid[k] ? { borderColor: C.red } : undefined} />
+                  </Field>
+                </View>
               </View>
-              <PrimaryButton label="Save New Rate" onPress={() => save.mutate()} loading={save.isPending} />
-            </>
-          )}
-        </View>
+            ))}
+            {hierarchyMsg ? <ReviewWarning>{`Price hierarchy looks wrong: ${hierarchyMsg} You can still save if this is intended.`}</ReviewWarning> : null}
+            {error ? <WarningBanner>{error}</WarningBanner> : null}
+          </ScrollView>
+          {/* Sticky footer — the fields scroll, the button stays put. */}
+          <View style={s.modalFooter}>
+            <PrimaryButton label="Save New Rate" onPress={() => save.mutate()} loading={save.isPending} disabled={!canPublish} />
+          </View>
+          </View>
+        )
       ) : (
-        <View style={{ maxHeight: 420 }}>
+        // Same height as the Set Rate tab, so switching tabs never resizes
+        // the pop-up (both stay within the card's 76% screen cap).
+        <View style={setTabH ? { height: setTabH } : { maxHeight: 420 }}>
           <ServerFlatList
             list={history}
             items={history.items}
@@ -116,7 +257,13 @@ export function GoldRateModal({ visible, onClose }: { visible: boolean; onClose:
             emptyText="No rate history yet."
             keyOf={(r) => String(r.id)}
             renderItem={(r, i) => (
-              <RepayItem first={i === 0} label={`${dmy(r.date || r.createdAt)} · 24K ${inr(r.k24)}`} value={inr(r.k22)} valueColor={C.ink} />
+              <RepayItem
+                first={i === 0}
+                label={`${dmy(r.date || r.createdAt)}${r.setBy ? ` · ${r.setBy}` : ""}`}
+                value={`24K ${inr(r.k24)}`}
+                valueColor={C.ink}
+                style={s.histRow}
+              />
             )}
           />
         </View>
@@ -131,22 +278,33 @@ export function GoldRateModal({ visible, onClose }: { visible: boolean; onClose:
 type SearchScope = "All" | "Customers" | "Loan No." | "Scheme";
 
 export function SearchModal({ visible, onClose }: { visible: boolean; onClose: () => void }) {
-  const router = useRouter();
   const [scope, setScope] = useState<SearchScope>("All");
+  // Nothing heavy happens while the panel slides in: the result lists
+  // mount (and start fetching) and the keyboard rises only once it has
+  // finished — doing either mid-slide is what made the opening stutter.
+  const searchInput = useRef<TextInput>(null);
+  const [opened, setOpened] = useState(false);
+  useEffect(() => {
+    if (!visible) setOpened(false);
+  }, [visible]);
+  const onOpened = () => {
+    setOpened(true);
+    searchInput.current?.focus();
+  };
   const loanList = useServerList<Loan>({
     key: ["search", "loans"],
     fetchPage: (p) => listLoansPage(p),
-    enabled: visible && (scope === "All" || scope === "Loan No."),
+    enabled: opened && (scope === "All" || scope === "Loan No."),
   });
   const custList = useServerList<Customer>({
     key: ["search", "customers"],
     fetchPage: (p) => listCustomersPage(p),
-    enabled: visible && scope === "Customers",
+    enabled: opened && scope === "Customers",
   });
   const schemeList = useServerList<Scheme>({
     key: ["search", "schemes"],
     fetchPage: (p) => listSchemesPage(p),
-    enabled: visible && scope === "Scheme",
+    enabled: opened && scope === "Scheme",
   });
   const [text, setText] = useState("");
   useEffect(() => {
@@ -161,7 +319,7 @@ export function SearchModal({ visible, onClose }: { visible: boolean; onClose: (
 
   const go = (path: string) => {
     onClose();
-    router.push(path as never);
+    openPage(path);
   };
 
   const body =
@@ -207,20 +365,24 @@ export function SearchModal({ visible, onClose }: { visible: boolean; onClose: (
     );
 
   return (
-    <TopModal visible={visible} onClose={onClose}>
+    <TopModal visible={visible} onClose={onClose} onOpened={onOpened}>
       <View style={s.searchHead}>
-        <PIcon name="search" color={C.muted} />
-        <TextInput
-          autoFocus
-          value={text}
-          onChangeText={setText}
-          placeholder="Search customer, LN number, ID, scheme"
-          placeholderTextColor={C.muted}
-          autoCorrect={false}
-          autoCapitalize="none"
-          allowFontScaling={false}
-          style={s.searchInput}
-        />
+        <View style={s.searchBox}>
+          <TextInput
+            ref={searchInput}
+            value={text}
+            onChangeText={setText}
+            placeholder="Search customer, LN number, ID, scheme"
+            placeholderTextColor={C.muted}
+            autoCorrect={false}
+            autoCapitalize="none"
+            allowFontScaling={false}
+            style={s.searchInput}
+          />
+          <View style={s.searchIc} pointerEvents="none">
+            <PIcon name="search" color={C.muted} />
+          </View>
+        </View>
         <Pressable onPress={onClose} hitSlop={10}>
           <Txt style={s.cancel}>Cancel</Txt>
         </Pressable>
@@ -228,7 +390,9 @@ export function SearchModal({ visible, onClose }: { visible: boolean; onClose: (
       <View style={{ paddingTop: 12, paddingHorizontal: 16, paddingBottom: 4 }}>
         <FilterChipRow options={["All", "Customers", "Loan No.", "Scheme"] as const} value={scope} onChange={setScope} style={{ marginBottom: 0 }} />
       </View>
-      <View style={{ maxHeight: 460, paddingTop: 6 }}>{body}</View>
+      {/* Fixed-height placeholder while sliding, so the panel doesn't
+          change size (or render the lists) mid-animation. */}
+      <View style={{ maxHeight: 460, paddingTop: 6 }}>{opened ? body : <View style={{ height: 300 }} />}</View>
     </TopModal>
   );
 }
@@ -287,7 +451,6 @@ function rangeFor(scope: RemScope): { from: string; to: string } {
 }
 
 export function RemindersModal({ visible, onClose }: { visible: boolean; onClose: () => void }) {
-  const router = useRouter();
   const [scope, setScope] = useState<RemScope>("Today");
   const [adding, setAdding] = useState(false);
   const range = rangeFor(scope);
@@ -330,7 +493,7 @@ export function RemindersModal({ visible, onClose }: { visible: boolean; onClose
                 e.loanId
                   ? () => {
                       onClose();
-                      router.push(`/loans/${e.loanId}` as never);
+                      openPage(`/loans/${e.loanId}`);
                     }
                   : undefined
               }
@@ -379,10 +542,10 @@ export function ReminderCreateSheet({ visible, onClose, defaultDate }: { visible
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["reminders"] });
-      Alert.alert("Reminder", "Reminder added.");
+      toast.success("Reminder added");
       onClose();
     },
-    onError: (e: Error) => Alert.alert("Couldn't add reminder", e.message),
+    onError: (e: Error) => toast.error("Couldn't add reminder", userMessage(e, "Please try again.")),
   });
 
   return (
@@ -466,7 +629,7 @@ export function ProfileSheet({ visible, onClose }: { visible: boolean; onClose: 
 type MoreRow = { key: string; route?: string; title: string; sub: string; icon: string; perms: [string, string][]; action?: "gold" };
 
 const MORE_ROWS: MoreRow[] = [
-  { key: "auctions", route: "auctions", title: "Auctions", sub: "Active cases & auction history", icon: "alert", perms: [["Loan_Management", "can_view_loan"]] },
+  { key: "auctions", route: "auctions", title: "Auctions", sub: "Active cases & auction history", icon: "gavel", perms: [["Loan_Management", "can_view_loan"]] },
   { key: "packets", route: "packets", title: "Packets & Lockers", sub: "Ornament custody tracking", icon: "doc", perms: [["Packet_Management", "can_view_packet"], ["Locker_Management", "can_view_locker"]] },
   { key: "banks", route: "banks", title: "Bank Pledges", sub: "Loans pledged to a bank", icon: "card", perms: [["Bank_Pledge_Management", "can_view_bank_pledge"]] },
   { key: "requests", route: "requests", title: "Releases", sub: "Loan extensions & gold release", icon: "edit", perms: [["Loan_Management", "can_view_loan"]] },
@@ -475,7 +638,7 @@ const MORE_ROWS: MoreRow[] = [
   { key: "investments", route: "investments", title: "Investments", sub: "Deposits, plans & payouts", icon: "coin", perms: [["Investment_Management", "can_view_investment"]] },
   { key: "reminders", route: "reminders", title: "Reminders", sub: "Follow-ups & promise-to-pay", icon: "calendar", perms: [["Reminder_Management", "can_view_reminder"]] },
   { key: "reports", route: "reports", title: "Reports", sub: "Branch reports & summaries", icon: "note", perms: [["Report_Management", "can_view_report"]] },
-  { key: "loan-risk", route: "loan-risk", title: "Loan Risk", sub: "Risk assessment across active loans", icon: "alert", perms: [["Loan_Management", "can_view_loan"]] },
+  { key: "loan-risk", route: "loan-risk", title: "Loan Risk", sub: "Risk assessment across active loans", icon: "chart", perms: [["Loan_Management", "can_view_loan"]] },
   { key: "gold-rates", title: "Gold Rates", sub: "Set today's rate & view history", icon: "coin", perms: [["Gold_Rate_Management", "can_view_gold_rate"]], action: "gold" },
   { key: "employees", route: "employees", title: "Employees", sub: "Staff accounts & roles", icon: "user", perms: [["Employee_Management", "can_view_employee"]] },
   { key: "branches", route: "branches", title: "Branches", sub: "Branch details & lockers", icon: "home", perms: [["Branch_Management", "can_view_branch"]] },
@@ -484,7 +647,6 @@ const MORE_ROWS: MoreRow[] = [
 ];
 
 export function MoreSheet({ visible, onClose, onGoldRate }: { visible: boolean; onClose: () => void; onGoldRate: () => void }) {
-  const router = useRouter();
   const { can } = useAuth();
   const { hasModule } = useTheme();
   const rows = MORE_ROWS.filter((r) => r.perms.some(([m, k]) => can(m, k)) && (!r.route || routeEnabled(r.route, hasModule)));
@@ -500,7 +662,7 @@ export function MoreSheet({ visible, onClose, onGoldRate }: { visible: boolean; 
           onPress={() => {
             onClose();
             if (r.action === "gold") onGoldRate();
-            else router.push(`/${r.route}` as never);
+            else openPage(`/${r.route}`);
           }}
         />
       ))}
@@ -509,8 +671,18 @@ export function MoreSheet({ visible, onClose, onGoldRate }: { visible: boolean; 
 }
 
 const s = StyleSheet.create({
+  rateNow: { flexDirection: "row", backgroundColor: C.brandFaint, borderRadius: 12, paddingVertical: 10, marginBottom: 14 },
+  rateNowK: { fontSize: 10, fontWeight: "700", color: C.muted, textTransform: "uppercase", letterSpacing: 0.4 },
+  rateNowV: { fontSize: 14, fontWeight: "800", marginTop: 2 },
+  histRow: { paddingVertical: 16 },
+  modeHint: { fontSize: 11, color: C.muted, marginTop: -4, marginBottom: 12, lineHeight: 15 },
+  modalFooter: { paddingTop: 10, paddingHorizontal: 16, paddingBottom: 14, borderTopWidth: 1, borderTopColor: C.line, backgroundColor: C.card },
+  karatRow: { borderWidth: 1, borderColor: C.line, borderRadius: 14, padding: 12, marginBottom: 10 },
+  karatLbl: { fontSize: 12.5, fontWeight: "700", color: C.brandDeep, marginBottom: 8 },
   searchHead: { flexDirection: "row", alignItems: "center", gap: 10, paddingTop: 16, paddingHorizontal: 16, paddingBottom: 10, borderBottomWidth: 1, borderBottomColor: C.line },
-  searchInput: { flex: 1, backgroundColor: C.brandFaint, borderRadius: 11, paddingVertical: 11, paddingHorizontal: 13, fontSize: 14, color: C.ink },
+  searchBox: { flex: 1, justifyContent: "center" },
+  searchInput: { backgroundColor: C.card, borderWidth: 1, borderColor: C.line, borderRadius: 11, paddingVertical: 11, paddingLeft: 13, paddingRight: 42, fontSize: 14, color: C.ink },
+  searchIc: { position: "absolute", right: 12 },
   cancel: { fontSize: 13, fontWeight: "700", color: C.brandDeep },
   remItem: { flexDirection: "row", alignItems: "center", gap: 12, paddingVertical: 12 },
   remBorder: { borderTopWidth: 1, borderTopColor: C.line },

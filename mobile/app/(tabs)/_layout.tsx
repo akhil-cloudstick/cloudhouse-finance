@@ -3,15 +3,19 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter, useSegments } from "expo-router";
 import { Tabs } from "expo-router/js-tabs";
-import { Dimensions, Easing } from "react-native";
-import { PTabBar, ShellContext, type ShellActions } from "../../src/components/ui";
+import { Dimensions, Easing, View } from "react-native";
+import { HeaderHost, HeaderHostContext, PTabBar, ShellContext, type ShellActions } from "../../src/components/ui";
 import { GoldRateModal, MoreSheet, ProfileSheet, RemindersModal, SearchModal } from "../../src/components/staff/ShellModals";
 import { CreateLoanSheet } from "../../src/components/staff/CreateLoanSheet";
+import { CollectPaymentSheet } from "../../src/components/staff/loan/CollectPaymentSheet";
+import { useQuery } from "@tanstack/react-query";
+import { getLoan } from "../../src/api/loans";
+import { toast } from "../../src/components/ui";
 import { useTheme } from "../../src/theme/ThemeProvider";
 import { routeEnabled } from "../../src/config/tenantModules";
 
 // Staff shell (ui-demos/staff-app-prototype.html): a persistent floating tab
-// bar — Dashboard / Loans / Customers (centre FAB) / Schemes / More — and
+// bar — Dashboard / Customers / Loans (centre FAB) / Schemes / More — and
 // screen-owned headers (every screen renders its own FlatHeader/HeroHeader
 // via <Screen>, so navigators here never draw one: headerShown is false
 // everywhere). Every other module is reached from the More sheet.
@@ -36,10 +40,26 @@ function useTenantModuleGuard() {
 
 type SheetName = "newLoan" | "more" | "search" | "gold" | "reminders" | "profile" | null;
 
+// Collect Payment opened from a list or the dashboard: fetch just this loan
+// and show its sheet over the current page — no loan-detail navigation.
+function CollectLauncher({ loanId, onClose }: { loanId: number | null; onClose: () => void }) {
+  const loan = useQuery({ queryKey: ["loan", String(loanId)], queryFn: () => getLoan(loanId!), enabled: loanId != null });
+  useEffect(() => {
+    if (loanId != null && loan.isError) {
+      toast.error("Couldn't open Collect Payment", "The loan could not be loaded — try again.");
+      onClose();
+    }
+  }, [loanId, loan.isError, onClose]);
+  if (loanId == null || !loan.data || loan.data.id !== loanId) return null;
+  return <CollectPaymentSheet loan={loan.data} visible onClose={onClose} />;
+}
+
 export default function TabsLayout() {
   useTenantModuleGuard();
   const [open, setOpen] = useState<SheetName>(null);
   const close = useCallback(() => setOpen(null), []);
+  const [collectLoanId, setCollectLoanId] = useState<number | null>(null);
+  const closeCollect = useCallback(() => setCollectLoanId(null), []);
   const actions = useMemo<ShellActions>(
     () => ({
       openNewLoan: () => setOpen("newLoan"),
@@ -48,19 +68,28 @@ export default function TabsLayout() {
       openGoldRate: () => setOpen("gold"),
       openReminders: () => setOpen("reminders"),
       openProfile: () => setOpen("profile"),
+      openCollect: (loanId: number) => setCollectLoanId(loanId),
     }),
     []
   );
 
   return (
     <ShellContext.Provider value={actions}>
+      <HeaderHostContext.Provider value>
+      <View style={{ flex: 1 }}>
       <Tabs
         tabBar={(props) => <PTabBar {...props} />}
+        // Back walks the pages visited (so a page opened from a quick link
+        // returns to where it was opened), rather than jumping to Dashboard.
+        backBehavior="history"
         screenOptions={{
           headerShown: false,
           sceneStyle: { backgroundColor: "transparent" },
-          // Leaving a tab resets its nested stack to that module's root.
-          popToTopOnBlur: true,
+          // A tab keeps its stack when left, so Back can return to the exact
+          // page; tapping the tab in the bar resets it to the module root.
+          // openPage() (Shell.tsx) switches tabs and resets a tab's stack in
+          // one dispatch, so a hidden tab is never rendered mid-flight with
+          // stale content to freeze in place — every tab can freeze on blur.
           freezeOnBlur: true,
           // Slide only — no opacity (Android redraws elevation shadows under
           // an animating opacity, which made edges flash).
@@ -76,14 +105,13 @@ export default function TabsLayout() {
       >
         {/* --- tab bar destinations --- */}
         <Tabs.Screen name="dashboard" options={{ title: "Dashboard" }} />
-        <Tabs.Screen name="loans" options={{ title: "Loans", lazy: false }} />
         <Tabs.Screen name="customers" options={{ title: "Customers", lazy: false }} />
+        <Tabs.Screen name="loans" options={{ title: "Loans", lazy: false }} />
         <Tabs.Screen name="schemes" options={{ title: "Schemes" }} />
 
         {/* --- reachable from the More sheet --- */}
         <Tabs.Screen name="auctions" options={{ title: "Auctions", href: null }} />
         <Tabs.Screen name="packets" options={{ title: "Packets & Lockers", href: null }} />
-        <Tabs.Screen name="lockers" options={{ title: "Lockers", href: null }} />
         <Tabs.Screen name="banks" options={{ title: "Bank Pledges", href: null }} />
         <Tabs.Screen name="requests" options={{ title: "Requests", href: null }} />
         <Tabs.Screen name="cash" options={{ title: "Cash & Expenses", href: null }} />
@@ -97,6 +125,10 @@ export default function TabsLayout() {
         <Tabs.Screen name="roles" options={{ title: "Roles & Permissions", href: null }} />
         <Tabs.Screen name="settings" options={{ title: "Settings", href: null }} />
       </Tabs>
+      {/* One header above every page — see Screen in Shell.tsx. */}
+      <HeaderHost />
+      </View>
+      </HeaderHostContext.Provider>
 
       <CreateLoanSheet visible={open === "newLoan"} onClose={close} />
       <MoreSheet visible={open === "more"} onClose={close} onGoldRate={() => setOpen("gold")} />
@@ -104,6 +136,7 @@ export default function TabsLayout() {
       <GoldRateModal visible={open === "gold"} onClose={close} />
       <RemindersModal visible={open === "reminders"} onClose={close} />
       <ProfileSheet visible={open === "profile"} onClose={close} />
+      <CollectLauncher loanId={collectLoanId} onClose={closeCollect} />
     </ShellContext.Provider>
   );
 }

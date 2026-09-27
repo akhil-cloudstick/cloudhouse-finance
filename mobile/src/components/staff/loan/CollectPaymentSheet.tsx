@@ -4,13 +4,21 @@ import { C, DateField, Field, FieldRow, Input, PaymentSplit, PrimaryButton, Shee
 import { recordPayment } from "../../../api/payments";
 import { inr, todayISO } from "../../../lib/format";
 import type { Loan } from "../../../types/loan";
-import { ErrorText, PAYMENT_TYPES, apiErr, invalidateLoan, type PaymentType } from "./common";
+import { ErrorText, PAYMENT_TYPES, PAYMENT_TYPE_LABELS, apiErr, invalidateLoan, type PaymentType } from "./common";
 
 // Amount a payment type normally settles; undefined for types with no
-// natural figure (Partial / Adjustment / Waiver).
+// natural figure (Partial).
 function autoAmount(l: Loan, t: PaymentType) {
   const v =
-    t === "Interest" ? l.outstandingInterest : t === "Principal" ? l.outstandingAmount : t === "Full Settlement" ? l.settlementAmount ?? l.totalOutstandingBalance : undefined;
+    t === "Interest"
+      ? l.outstandingInterest
+      : t === "Penal Interest"
+        ? l.outstandingPenalInterest
+        : t === "Principal"
+          ? l.outstandingAmount
+          : t === "Full Settlement"
+            ? l.settlementAmount ?? l.totalOutstandingBalance
+            : undefined;
   return v != null && v > 0 ? String(Math.round(v * 100) / 100) : "";
 }
 
@@ -81,11 +89,11 @@ export function CollectPaymentSheet({ loan: l, visible, onClose }: { loan: Loan;
       <Txt style={{ fontSize: 11.5, color: C.muted, fontWeight: "600", marginVertical: 8 }}>
         {l.loanNumber} · Outstanding {inr(l.totalOutstandingBalance ?? l.outstandingAmount)}
       </Txt>
-      <Field label="Type">
+      <Field label="Apply payment to">
         <ThemeDropdown
           value={type}
           options={[...PAYMENT_TYPES]}
-          labelOf={(t) => t}
+          labelOf={(t) => PAYMENT_TYPE_LABELS[t]}
           onChange={(t) => {
             setType(t);
             changeAmount(autoAmount(l, t));

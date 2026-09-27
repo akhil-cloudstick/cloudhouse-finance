@@ -1,9 +1,9 @@
 import React, { useMemo, useState } from "react";
 import { View } from "react-native";
 import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
-import { useRouter } from "expo-router";
 import {
   AccBtn,
+  AccGroup,
   AccRow,
   ActItem,
   AsyncSelect,
@@ -20,7 +20,6 @@ import {
   QuickAction,
   ResultBox,
   Screen,
-  SearchInput,
   SectionTitle,
   Sheet,
   Sparkline,
@@ -29,10 +28,10 @@ import {
   Txt,
   initialsOf,
   useShell,
+  openPage,
 } from "../../src/components/ui";
 import { useAuth } from "../../src/auth/AuthContext";
 import { useRefetchOnFocus } from "../../src/hooks/useRefetchOnFocus";
-import { useDebouncedValue } from "../../src/hooks/useDebouncedValue";
 import {
   getDashboardSummary,
   listDashboardActivityPage,
@@ -42,10 +41,11 @@ import {
   type NeedsAttentionKind,
 } from "../../src/api/dashboard";
 import { latestGoldRate } from "../../src/api/goldRates";
-import { listSchemes } from "../../src/api/schemes";
+import { listActiveSchemes } from "../../src/api/schemes";
 import { listLoansPage } from "../../src/api/loans";
 import { listCalendarEventsPage } from "../../src/api/reminders";
-import { rateForKarat } from "../../src/lib/purity";
+import { listPurityStandards } from "../../src/api/purityStandards";
+import { rateForFineness, rateForKarat } from "../../src/lib/purity";
 import { dmy, inr, inrShort, todayISO } from "../../src/lib/format";
 import type { Scheme } from "../../src/types/scheme";
 import type { Loan } from "../../src/types/loan";
@@ -58,7 +58,6 @@ type Seg = "Overview" | "Activity";
 const ATTENTION_TABS = ["approvals", "requests", "auctions"] as const;
 
 export default function DashboardScreen() {
-  const router = useRouter();
   const { employee, can } = useAuth();
   const shell = useShell();
   const [seg, setSeg] = useState<Seg>("Overview");
@@ -75,6 +74,7 @@ export default function DashboardScreen() {
   const s = summary.data;
   const r22 = s?.rate22k ?? rate.data?.k22 ?? 0;
   const r24 = s?.rate24k ?? rate.data?.k24 ?? 0;
+  const r18 = rate.data?.k18 || (r24 ? rateForKarat(r24, 18) : 0);
   const change = s?.rateChangePct;
   const changeLabel = change == null ? undefined : `${change >= 0 ? "▲" : "▼"} ${Math.abs(change).toFixed(1)}%`;
 
@@ -88,8 +88,9 @@ export default function DashboardScreen() {
           branch={employee?.branch?.name ? `${employee.branch.name} Branch` : employee?.role}
           cashValue={summary.isLoading ? "…" : inr(s?.cashInHand ?? 0)}
           rates={[
-            { k: "22K / gram", v: inr(Math.round(r22)) },
-            { k: "24K / gram", v: inr(Math.round(r24)) },
+            { k: "24K / g", v: inr(Math.round(r24)) },
+            { k: "22K / g", v: inr(Math.round(r22)) },
+            { k: "18K / g", v: inr(Math.round(r18)) },
           ]}
           rateChange={changeLabel}
           onRatePress={shell.openGoldRate}
@@ -114,7 +115,7 @@ export default function DashboardScreen() {
             <View style={{ flexDirection: "row", justifyContent: "space-between", gap: 6, paddingHorizontal: 18 }}>
               {can("Loan_Management", "can_create_loan") ? <QuickAction icon="plus" label={"Create\nLoan"} tone="loan" onPress={shell.openNewLoan} /> : null}
               {can("Customer_Management", "can_create_customer") ? (
-                <QuickAction icon="user" label={"Register\nCustomer"} tone="cust" onPress={() => router.push("/customers?register=1" as never)} />
+                <QuickAction icon="user" label={"Register\nCustomer"} tone="cust" onPress={() => openPage("/customers?register=1")} />
               ) : null}
               <QuickAction icon="card" label={"Collect\nPayment"} tone="pay" onPress={() => setCollectOpen(true)} />
             </View>
@@ -127,7 +128,7 @@ export default function DashboardScreen() {
             ) : (
               <SummaryCard
                 title="Today's summary"
-                onPress={can("Report_Management", "can_view_report") ? () => router.push("/reports" as never) : undefined}
+                onPress={can("Report_Management", "can_view_report") ? () => openPage("/reports") : undefined}
                 stats={[
                   { n: String(s?.today.loansIssued ?? 0), l: "Loans issued" },
                   { n: inrShort(s?.today.collections ?? 0), l: "Collections" },
@@ -155,14 +156,11 @@ export default function DashboardScreen() {
 
 // ---- Approvals & review lists (kept from the old dashboard, restyled) -----
 function NeedsAttention() {
-  const router = useRouter();
   const [kind, setKind] = useState<NeedsAttentionKind>("approvals");
-  const [search, setSearch] = useState("");
-  const q = useDebouncedValue(search.trim());
   const query = useInfiniteQuery({
-    queryKey: ["dashboard", "needs-attention", kind, q],
+    queryKey: ["dashboard", "needs-attention", kind],
     initialPageParam: 0,
-    queryFn: ({ pageParam }) => listNeedsAttentionPage({ offset: pageParam, limit: NEEDS_ATTENTION_PAGE_SIZE, q: q || undefined, kind }),
+    queryFn: ({ pageParam }) => listNeedsAttentionPage({ offset: pageParam, limit: NEEDS_ATTENTION_PAGE_SIZE, kind }),
     getNextPageParam: (last, all) => (last.hasMore ? all.length * NEEDS_ATTENTION_PAGE_SIZE : undefined),
   });
   useRefetchOnFocus(query.refetch);
@@ -175,24 +173,22 @@ function NeedsAttention() {
   };
 
   const open = (it: NeedsAttentionItem) => {
-    if (it.kind === "request") router.push(`/requests?requestId=${it.requestId}` as never);
-    else if (it.loanId) router.push(`/loans/${it.loanId}` as never);
+    if (it.kind === "request") openPage(`/requests?requestId=${it.requestId}${it.loanId ? `&loanId=${it.loanId}` : ""}`);
+    else if (it.loanId) openPage(`/loans/${it.loanId}`);
   };
 
   return (
     <>
       <SectionTitle>Needs attention</SectionTitle>
-      <View style={{ paddingHorizontal: 18 }}>
+      <Card style={{ padding: 12 }}>
         <FilterChipRow options={ATTENTION_TABS} value={kind} onChange={setKind} labels={labels} />
-      </View>
-      <SearchInput value={search} onChangeText={setSearch} placeholder="Search by loan number, customer name or ID" />
-      <View style={{ paddingHorizontal: 18 }}>
         {query.isLoading || (query.isFetching && !query.isFetchingNextPage && items.length === 0) ? (
           <Buffering block />
         ) : items.length === 0 ? (
-          <EmptyText>{q ? "Nothing matches your search." : "Nothing needs attention right now."}</EmptyText>
+          <EmptyText>Nothing needs attention right now.</EmptyText>
         ) : (
-          items.map((it, i) => (
+          <AccGroup>
+          {items.map((it, i) => (
             <AccRow
               key={`${it.kind}-${it.requestId ?? it.loanId}-${i}`}
               id={it.loanNumber}
@@ -224,17 +220,17 @@ function NeedsAttention() {
               }
               actions={[{ label: it.kind === "auction" ? "View Loan" : "Review", primary: true, onPress: () => open(it) }]}
             />
-          ))
+          ))}
+          </AccGroup>
         )}
-        {query.isFetchingNextPage ? <Buffering /> : query.hasNextPage ? <AccBtn label="Load more" onPress={() => query.fetchNextPage()} style={{ marginBottom: 4 }} /> : null}
-      </View>
+        {query.isFetchingNextPage ? <Buffering /> : query.hasNextPage ? <AccBtn label="Load more" onPress={() => query.fetchNextPage()} /> : null}
+      </Card>
     </>
   );
 }
 
 // ---- Activity tab ----------------------------------------------------------
 function ActivityFeed() {
-  const router = useRouter();
   const query = useInfiniteQuery({
     queryKey: ["dashboard", "activity"],
     initialPageParam: 0,
@@ -263,7 +259,7 @@ function ActivityFeed() {
                 sub={[a.loanNumber, a.label, dmy(a.date)].filter(Boolean).join(" · ")}
                 amount={`${type.includes("payment") ? "+" : ""}${inr(a.amount)}`}
                 amountColor={color}
-                onPress={a.loanId ? () => router.push(`/loans/${a.loanId}` as never) : undefined}
+                onPress={a.loanId ? () => openPage(`/loans/${a.loanId}`) : undefined}
               />
             );
           })
@@ -275,20 +271,43 @@ function ActivityFeed() {
 }
 
 // ---- Gold loan calculator --------------------------------------------------
-const PURITIES = [
-  { k: 22, label: "22 Karat" },
-  { k: 18, label: "18 Karat" },
-  { k: 24, label: "24 Karat" },
-];
+// Every karat the loan form accepts plus the common hallmark fineness grades,
+// merged with the tenant's own purity standards (GET /purity-standards) so a
+// custom grade set up on the web shows here too. Rates derive off the day's
+// 24K benchmark exactly like loan/purity.go.
+type PurityOpt = { key: string; label: string; rate: (k24: number) => number };
+const STD_KARATS = [24, 23, 22, 21, 20, 18, 16, 14, 12, 10];
+const STD_FINENESS = [99.9, 99.5, 91.6, 87.5, 83.3, 75, 58.5, 41.7];
+const karatOpt = (k: number, label?: string): PurityOpt => ({ key: `${k}K`, label: label || `${k} Karat`, rate: (k24) => rateForKarat(k24, k) });
+const finenessOpt = (f: number, label?: string): PurityOpt => ({ key: `${f}%`, label: label || `${f}% fineness`, rate: (k24) => rateForFineness(k24, f) });
+
+function usePurityOptions(): PurityOpt[] {
+  const standards = useQuery({ queryKey: ["purity-standards", "calculator"], queryFn: () => listPurityStandards() });
+  return useMemo(() => {
+    const byKey = new Map<string, PurityOpt>();
+    for (const k of STD_KARATS) byKey.set(`${k}K`, karatOpt(k));
+    for (const f of STD_FINENESS) byKey.set(`${f}%`, finenessOpt(f));
+    for (const ps of standards.data ?? []) {
+      if (!ps.isActive) continue;
+      const o = ps.karat ? karatOpt(ps.karat, ps.label) : ps.finenessPercent ? finenessOpt(ps.finenessPercent, ps.label) : null;
+      if (o && !byKey.has(o.key)) byKey.set(o.key, o);
+    }
+    const karats = [...byKey.values()].filter((o) => o.key.endsWith("K")).sort((a, b) => parseFloat(b.key) - parseFloat(a.key));
+    const fineness = [...byKey.values()].filter((o) => o.key.endsWith("%")).sort((a, b) => parseFloat(b.key) - parseFloat(a.key));
+    return [...karats, ...fineness];
+  }, [standards.data]);
+}
 
 function Calculator({ k24 }: { k24: number }) {
   const [weight, setWeight] = useState("");
-  const [karat, setKarat] = useState(PURITIES[0]);
+  const purities = usePurityOptions();
+  const [purityKey, setPurityKey] = useState("22K");
   const [scheme, setScheme] = useState<Scheme | null>(null);
-  const schemes = useQuery({ queryKey: ["schemes", "active-picker"], queryFn: () => listSchemes() });
-  const active = (schemes.data ?? []).filter((sc) => sc.isActive !== false);
+  const schemes = useQuery({ queryKey: ["schemes", "active"], queryFn: () => listActiveSchemes() });
+  const active = schemes.data ?? [];
   const sc = scheme ?? active[0] ?? null;
-  const rate = k24 ? rateForKarat(k24, karat.k) : 0;
+  const purity = purities.find((p) => p.key === purityKey) ?? purities[0];
+  const rate = k24 && purity ? purity.rate(k24) : 0;
   const amount = Math.round(((Number(weight) || 0) * rate * (sc?.ltvPercent ?? 0)) / 100 / 10) * 10;
   return (
     <Card>
@@ -297,7 +316,7 @@ function Calculator({ k24 }: { k24: number }) {
       </Field>
       <FieldRow>
         <Field label="Purity">
-          <ThemeDropdown value={karat} options={PURITIES} onChange={setKarat} labelOf={(p) => p.label} keyOf={(p) => p.k} />
+          <ThemeDropdown value={purity} options={purities} onChange={(p) => setPurityKey(p.key)} labelOf={(p) => p.label} keyOf={(p) => p.key} />
         </Field>
         <Field label="Scheme">
           <ThemeDropdown<Scheme> value={sc} options={active} onChange={setScheme} labelOf={(x) => x.name} keyOf={(x) => x.id} placeholder="Scheme" />
@@ -311,7 +330,7 @@ function Calculator({ k24 }: { k24: number }) {
 
 // ---- Collect Payment quick action: pick a loan, then its Collect sheet ----
 function CollectPaymentPicker({ visible, onClose }: { visible: boolean; onClose: () => void }) {
-  const router = useRouter();
+  const shell = useShell();
   return (
     <Sheet visible={visible} onClose={onClose} title="Collect Payment" maxHeightPct={70}>
       <AsyncSelect<Loan>
@@ -321,7 +340,7 @@ function CollectPaymentPicker({ visible, onClose }: { visible: boolean; onClose:
         fetcher={async (q) => (await listLoansPage({ q: q || undefined, status: "Active", limit: 20, offset: 0 })).items ?? []}
         onSelect={(l) => {
           onClose();
-          router.push(`/loans/${l.id}?action=collect` as never);
+          shell.openCollect(l.id);
         }}
         keyOf={(l) => l.id}
         renderItem={(l) => ({ title: `${l.loanNumber} · ${l.customer?.name ?? ""}`, sub: `Outstanding ${inr(l.outstandingAmount)}` })}

@@ -104,3 +104,10 @@ export function printColors(): PrintColors {
   const ramp = deriveBrandRampHex(printProfile.brandColor);
   return { ...PRINT_COLORS, brand: ramp.brand, brandDeep: ramp.brandDeep, tint: ramp.brandFaint };
 }
+
+/** The CloudHouse mark, bundled with the app — used on the login screen and
+ * in every page header regardless of any tenant logo uploaded on the web. */
+export const APP_LOGO = require("../../assets/cloudhouse.png");
+/** The same mark cut out on a transparent background (no white square),
+ * for the page headers where it sits straight on the hero gradient. */
+export const HEADER_LOGO = require("../../assets/header-logo.png");

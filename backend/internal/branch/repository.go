@@ -50,7 +50,10 @@ type Filter struct {
 	// branch, Administrator only).
 	BranchID *uint
 	// Query matches name or code (case-insensitive, partial).
-	Query  string
+	Query string
+	// ActiveOnly drops deactivated branches (GET /branches?active=true) —
+	// pickers that may only assign to a live branch.
+	ActiveOnly bool
 	Limit  int
 	Offset int
 }
@@ -62,6 +65,9 @@ func (r *Repository) Find(ctx context.Context, f Filter) ([]Branch, int64, error
 	q := r.db.WithContext(ctx).Model(&Branch{}).Where("name <> ''").Order("name asc")
 	if f.BranchID != nil {
 		q = q.Where("id = ?", *f.BranchID)
+	}
+	if f.ActiveOnly {
+		q = q.Where("is_active = ?", true)
 	}
 	if f.Query != "" {
 		like := "%" + f.Query + "%"

@@ -1,12 +1,15 @@
-import React, { useMemo, useState } from "react";
-import { ActivityIndicator, LayoutAnimation, Pressable, StyleSheet, TextInput, View, type StyleProp, type TextInputProps, type ViewStyle } from "react-native";
+import React, { useMemo, useRef, useState } from "react";
+import { Keyboard, Pressable, ScrollView, StyleSheet, TextInput, View, type StyleProp, type TextInputProps, type ViewStyle } from "react-native";
 import { useQuery } from "@tanstack/react-query";
-import { C, Txt } from "./base";
+import { C, Spinner, Txt } from "./base";
 import { PIcon } from "./PIcon";
 import { Sheet } from "./Sheet";
+import { Popover, useAnchor, type Anchor } from "./Popover";
 import { MonthGrid } from "./Cards";
 import { useDebouncedValue } from "../../hooks/useDebouncedValue";
 import { ZERO_SPLIT, isBalanced, splitTotal } from "../PaymentBreakdown";
+import { SheetNestedScrollView } from "../BottomSheetModal";
+import { doneBarFor } from "./KeyboardDone";
 import type { SplitAmounts } from "../../api/investments";
 
 // ---- .field ---------------------------------------------------------------
@@ -29,13 +32,14 @@ export function FieldRow({ children }: { children: React.ReactNode }) {
 }
 
 /** .field input */
-export function Input({ style, editable = true, ...rest }: TextInputProps) {
+export function Input({ style, editable = true, ...rest }: TextInputProps & { ref?: React.Ref<TextInput> }) {
   const [focused, setFocused] = useState(false);
   return (
     <TextInput
       placeholderTextColor={C.muted}
       allowFontScaling={false}
       editable={editable}
+      inputAccessoryViewID={doneBarFor(rest.keyboardType)}
       {...rest}
       onFocus={(e) => {
         setFocused(true);
@@ -89,14 +93,22 @@ export function DateField({
   clearable?: boolean;
 }) {
   const [open, setOpen] = useState(false);
+  const [pickYear, setPickYear] = useState(false);
   const init = value ? new Date(+value.slice(0, 4), +value.slice(5, 7) - 1, 1) : new Date();
   const [cursor, setCursor] = useState(new Date(init.getFullYear(), init.getMonth(), 1));
+  const thisYear = new Date().getFullYear();
+  const minYear = min ? +min.slice(0, 4) : thisYear - 100;
+  const maxYear = max ? +max.slice(0, 4) : thisYear + 20;
+  const years = useMemo(() => Array.from({ length: maxYear - minYear + 1 }, (_, i) => maxYear - i), [minYear, maxYear]);
+  const yearScroll = useRef<ScrollView>(null);
   return (
     <Field label={label}>
       <Pressable
         onPress={() => {
           const base = value ? new Date(+value.slice(0, 4), +value.slice(5, 7) - 1, 1) : new Date();
           setCursor(new Date(base.getFullYear(), base.getMonth(), 1));
+          setPickYear(false);
+          Keyboard.dismiss();
           setOpen(true);
         }}
         style={[s.input, s.dateBtn]}
@@ -109,13 +121,47 @@ export function DateField({
           <Pressable style={s.calNav} onPress={() => setCursor(new Date(cursor.getFullYear(), cursor.getMonth() - 1, 1))}>
             <PIcon name="back" color={C.brandDeep} />
           </Pressable>
-          <Txt style={s.calTitle}>
-            {cursor.toLocaleString("en-IN", { month: "long" })} {cursor.getFullYear()}
-          </Txt>
+          <Pressable style={s.calTitleBtn} onPress={() => setPickYear((y) => !y)} hitSlop={6} accessibilityLabel="Choose year">
+            <Txt style={s.calTitle}>
+              {cursor.toLocaleString("en-IN", { month: "long" })} {cursor.getFullYear()}
+            </Txt>
+            <View style={pickYear ? { transform: [{ rotate: "180deg" }] } : null}>
+              <PIcon name="chevdown" color={C.brandDeep} />
+            </View>
+          </Pressable>
           <Pressable style={[s.calNav, { transform: [{ scaleX: -1 }] }]} onPress={() => setCursor(new Date(cursor.getFullYear(), cursor.getMonth() + 1, 1))}>
             <PIcon name="back" color={C.brandDeep} />
           </Pressable>
         </View>
+        {pickYear ? (
+          <SheetNestedScrollView
+            ref={yearScroll}
+            style={{ maxHeight: 280 }}
+            onLayout={() => {
+              const row = Math.floor(years.indexOf(cursor.getFullYear()) / 4);
+              yearScroll.current?.scrollTo({ y: Math.max(0, row * 48 - 96), animated: false });
+            }}
+          >
+            <View style={s.yearGrid}>
+              {years.map((y) => {
+                const sel = y === cursor.getFullYear();
+                return (
+                  <Pressable
+                    key={y}
+                    style={[s.yearCell, sel && s.yearCellSel]}
+                    onPress={() => {
+                      setCursor(new Date(y, cursor.getMonth(), 1));
+                      setPickYear(false);
+                    }}
+                  >
+                    <Txt style={[s.yearTxt, sel && { color: "#fff" }]}>{y}</Txt>
+                  </Pressable>
+                );
+              })}
+            </View>
+          </SheetNestedScrollView>
+        ) : null}
+        {pickYear ? null : (
         <MonthGrid
           month={cursor}
           selected={value}
@@ -127,6 +173,7 @@ export function DateField({
             setOpen(false);
           }}
         />
+        )}
         {clearable && value ? (
           <PrimaryButton
             label="Clear date"
@@ -144,8 +191,10 @@ export function DateField({
 }
 
 // ---- .theme-dropdown ------------------------------------------------------
-// Renders its menu in-flow (pushing content down) rather than absolutely
-// positioned — inside scrolling sheets an absolute menu is clipped on Android.
+// A normal dropdown: the field keeps its place in the form (same height as
+// an input), the list opens right under it — or above when there's no room
+// — over everything else (Popover.tsx), and closes on a pick or any tap
+// outside. Opening it never changes the height of the card around it.
 export function ThemeDropdown<T>({
   value,
   options,
@@ -163,41 +212,132 @@ export function ThemeDropdown<T>({
   placeholder?: string;
   style?: StyleProp<ViewStyle>;
 }) {
-  const [open, setOpen] = useState(false);
-  const toggle = () => {
-    LayoutAnimation.configureNext(LayoutAnimation.create(180, "easeInEaseOut", "opacity"));
-    setOpen((o) => !o);
+  const { ref, measure } = useAnchor();
+  const [anchor, setAnchor] = useState<Anchor | null>(null);
+  const close = () => setAnchor(null);
+  const openMenu = () => {
+    Keyboard.dismiss();
+    measure(setAnchor);
   };
   return (
     <View style={style}>
-      <Pressable style={[s.ddBtn, open && { borderColor: C.brandDeep }]} onPress={toggle}>
-        <Txt style={s.ddLabel} numberOfLines={1}>
-          {value != null ? labelOf(value) : placeholder}
-        </Txt>
-        <View style={open ? { transform: [{ rotate: "180deg" }] } : null}>
-          <PIcon name="chevdown" color={C.brandDeep} />
-        </View>
-      </Pressable>
-      {open ? (
-        <View style={s.ddMenu}>
-          {options.map((o, i) => {
-            const selected = value != null && (keyOf ? keyOf(o) === keyOf(value) : o === value);
-            return (
-              <Pressable
-                key={keyOf ? keyOf(o) : i}
-                style={[s.ddItem, selected && s.ddItemSel]}
-                onPress={() => {
-                  onChange(o);
-                  toggle();
-                }}
-              >
-                <Txt style={[s.ddItemTxt, selected && { color: C.brandDeep }]}>{labelOf(o)}</Txt>
-              </Pressable>
-            );
-          })}
-        </View>
-      ) : null}
+      <View ref={ref} collapsable={false}>
+        <Pressable style={[s.input, s.dateBtn, anchor && s.inputFocus]} onPress={() => (anchor ? close() : openMenu())}>
+          <Txt style={[s.ddValue, value == null && { color: C.muted }]} numberOfLines={1}>
+            {value != null ? labelOf(value) : placeholder}
+          </Txt>
+          <Chevron open={!!anchor} />
+        </Pressable>
+      </View>
+      <Popover anchor={anchor} onClose={close} onRemeasure={() => measure(setAnchor)}>
+        {options.length === 0 ? <Txt style={[s.ddItemTxt, { padding: 10, color: C.muted }]}>No options</Txt> : null}
+        {options.map((o, i) => {
+          const selected = value != null && (keyOf ? keyOf(o) === keyOf(value) : o === value);
+          return (
+            <MenuItem
+              key={keyOf ? keyOf(o) : i}
+              title={labelOf(o)}
+              selected={selected}
+              onPress={() => {
+                onChange(o);
+                close();
+              }}
+            />
+          );
+        })}
+      </Popover>
     </View>
+  );
+}
+
+function Chevron({ open }: { open: boolean }) {
+  return (
+    <View style={open ? { transform: [{ rotate: "180deg" }] } : null}>
+      <PIcon name="chevdown" color={C.brandDeep} />
+    </View>
+  );
+}
+
+/** Typeable dropdown (karat, fineness, ornament type): a normal input with
+ * a chevron; while it's focused the suggestions open under it. `menu`
+ * returns the rows (or null for none); call `close` after a pick. */
+export function ComboInput({
+  value,
+  onChangeText,
+  menu,
+  onClosed,
+  onOpened,
+  placeholder,
+  keyboardType,
+  style,
+  inputStyle,
+}: {
+  value: string;
+  onChangeText: (v: string) => void;
+  menu: (close: () => void) => React.ReactNode | null;
+  /** Called whenever the list closes (pick, outside tap, back). */
+  onClosed?: () => void;
+  /** Called when the field gains focus. */
+  onOpened?: () => void;
+  placeholder?: string;
+  keyboardType?: TextInputProps["keyboardType"];
+  style?: StyleProp<ViewStyle>;
+  inputStyle?: TextInputProps["style"];
+}) {
+  const { ref, measure } = useAnchor();
+  const input = useRef<TextInput>(null);
+  const [anchor, setAnchor] = useState<Anchor | null>(null);
+  const close = () => {
+    setAnchor(null);
+    input.current?.blur();
+    Keyboard.dismiss();
+    onClosed?.();
+  };
+  const body = anchor ? menu(close) : null;
+  return (
+    <View ref={ref} collapsable={false} style={style}>
+      <Input
+        ref={input}
+        value={value}
+        onChangeText={onChangeText}
+        placeholder={placeholder}
+        keyboardType={keyboardType}
+        autoCorrect={false}
+        onFocus={() => {
+          onOpened?.();
+          measure(setAnchor);
+        }}
+        onBlur={() => {
+          if (anchor) {
+            setAnchor(null);
+            onClosed?.();
+          }
+        }}
+        style={[{ paddingRight: 38 }, inputStyle]}
+      />
+      <Pressable style={s.comboChev} hitSlop={8} onPress={() => (anchor ? close() : input.current?.focus())} accessibilityLabel="Show options">
+        <Chevron open={!!anchor} />
+      </Pressable>
+      <Popover anchor={body != null ? anchor : null} onClose={close} onRemeasure={() => measure(setAnchor)} maxHeight={240} awaitKeyboard>
+        {body}
+      </Popover>
+    </View>
+  );
+}
+
+/** One row inside a dropdown list. */
+export function MenuItem({ title, sub, selected, accent, onPress }: { title: string; sub?: string; selected?: boolean; accent?: boolean; onPress: () => void }) {
+  return (
+    <Pressable style={({ pressed }) => [s.ddItem, selected && s.ddItemSel, pressed && !selected && { backgroundColor: C.brandFaint }]} onPress={onPress}>
+      <Txt style={[s.ddItemTxt, (selected || accent) && { color: C.brandDeep }, accent && { fontWeight: "700" }]} numberOfLines={2}>
+        {title}
+      </Txt>
+      {sub ? (
+        <Txt style={{ fontSize: 11, color: C.muted, marginTop: 1 }} numberOfLines={1}>
+          {sub}
+        </Txt>
+      ) : null}
+    </Pressable>
   );
 }
 
@@ -210,8 +350,10 @@ export function SelectField<T extends string>({ label, value, options, onChange,
   );
 }
 
-/** Search-as-you-type picker backed by a server `q` query — renders an
- * .field input with the results in a .theme-dropdown-menu card below. */
+/** Searchable dropdown backed by a server `q` query — works like the web's:
+ * the field itself is the search box. Tap it and type; the matching rows
+ * open right under it, and picking one fills the field. No second search
+ * box inside the list. */
 export function AsyncSelect<T>({
   label,
   placeholder,
@@ -235,62 +377,73 @@ export function AsyncSelect<T>({
   onClear?: () => void;
   minChars?: number;
 }) {
+  const { ref, measure } = useAnchor();
+  const input = useRef<TextInput>(null);
+  const [anchor, setAnchor] = useState<Anchor | null>(null);
   const [q, setQ] = useState("");
-  const [open, setOpen] = useState(false);
   const dq = useDebouncedValue(q);
+  const open = !!anchor;
   const enabled = open && dq.trim().length >= minChars;
   const { data, isFetching } = useQuery({ queryKey: [...queryKey, dq], queryFn: () => fetcher(dq.trim()), enabled });
   const items = useMemo(() => (data ?? []).slice(0, 30), [data]);
+  const close = () => {
+    setAnchor(null);
+    setQ("");
+    input.current?.blur();
+    Keyboard.dismiss();
+  };
+  const showClear = !!selectedLabel && !!onClear && !open;
   return (
     <Field label={label}>
-      {selectedLabel && !open ? (
-        <Pressable style={[s.input, s.dateBtn]} onPress={() => setOpen(true)}>
-          <Txt style={{ fontSize: 13.5, flex: 1 }} numberOfLines={1}>
-            {selectedLabel}
-          </Txt>
-          {onClear ? (
-            <Pressable hitSlop={10} onPress={onClear}>
-              <PIcon name="close" color={C.muted} size={14} />
-            </Pressable>
-          ) : (
-            <PIcon name="chevdown" color={C.brandDeep} />
-          )}
-        </Pressable>
-      ) : (
-        <Input placeholder={placeholder} value={q} onChangeText={setQ} onFocus={() => setOpen(true)} autoCorrect={false} />
-      )}
-      {open ? (
-        <View style={s.ddMenu}>
-          {isFetching ? (
-            <View style={{ paddingVertical: 12 }}>
-              <ActivityIndicator color={C.brandDeep} />
-            </View>
-          ) : items.length === 0 ? (
-            <Txt style={[s.ddItemTxt, { padding: 10, color: C.muted }]}>{dq.trim().length < minChars ? "Type to search" : "No matches"}</Txt>
-          ) : (
-            items.map((it) => {
-              const r = renderItem(it);
-              return (
-                <Pressable
-                  key={keyOf(it)}
-                  style={s.ddItem}
-                  onPress={() => {
-                    onSelect(it);
-                    setOpen(false);
-                    setQ("");
-                  }}
-                >
-                  <Txt style={s.ddItemTxt}>{r.title}</Txt>
-                  {r.sub ? <Txt style={{ fontSize: 11, color: C.muted, marginTop: 1 }}>{r.sub}</Txt> : null}
-                </Pressable>
-              );
-            })
-          )}
-          <Pressable style={[s.ddItem, { alignItems: "center" }]} onPress={() => setOpen(false)}>
-            <Txt style={{ fontSize: 12, fontWeight: "700", color: C.muted }}>Close</Txt>
+      <View ref={ref} collapsable={false}>
+        <Input
+          ref={input}
+          value={open ? q : selectedLabel ?? ""}
+          onChangeText={setQ}
+          placeholder={open && selectedLabel ? selectedLabel : placeholder || "Search"}
+          autoCorrect={false}
+          onFocus={() => measure(setAnchor)}
+          onBlur={() => {
+            if (anchor) {
+              setAnchor(null);
+              setQ("");
+            }
+          }}
+          style={{ paddingRight: showClear ? 66 : 38 }}
+        />
+        {showClear ? (
+          <Pressable style={[s.comboChev, { right: 30, width: 32 }]} hitSlop={8} onPress={onClear} accessibilityLabel="Clear">
+            <PIcon name="close" color={C.muted} size={14} />
           </Pressable>
-        </View>
-      ) : null}
+        ) : null}
+        <Pressable style={s.comboChev} hitSlop={8} onPress={() => (open ? close() : input.current?.focus())} accessibilityLabel="Show options">
+          <Chevron open={open} />
+        </Pressable>
+      </View>
+      <Popover anchor={anchor} onClose={close} onRemeasure={() => measure(setAnchor)} maxHeight={280} minWidth={240} awaitKeyboard>
+        {isFetching && items.length === 0 ? (
+          <View style={{ paddingVertical: 14, alignItems: "center" }}>
+            <Spinner size={20} />
+          </View>
+        ) : items.length === 0 ? (
+          <Txt style={[s.ddItemTxt, { padding: 10, color: C.muted }]}>{dq.trim().length < minChars ? "Type to search" : "No matches"}</Txt>
+        ) : (
+          items.map((it) => {
+            const r = renderItem(it);
+            return (
+              <MenuItem
+                key={keyOf(it)}
+                title={r.title}
+                sub={r.sub}
+                onPress={() => {
+                  onSelect(it);
+                  close();
+                }}
+              />
+            );
+          })
+        )}
+      </Popover>
     </Field>
   );
 }
@@ -325,10 +478,12 @@ export function PrimaryButton({
         style,
       ]}
     >
-      {loading ? <ActivityIndicator color={fg} size="small" /> : <Txt style={[s.btnTxt, { color: fg }]}>{label}</Txt>}
+      {loading ? <Spinner color={fg} size={20} /> : <Txt style={[s.btnTxt, { color: fg }]}>{label}</Txt>}
     </Pressable>
   );
 }
+
+(PrimaryButton as { stickyFooter?: boolean }).stickyFooter = true;
 
 /** .btn-row-2 */
 export function BtnRow2({ children, style }: { children: React.ReactNode; style?: StyleProp<ViewStyle> }) {
@@ -336,6 +491,63 @@ export function BtnRow2({ children, style }: { children: React.ReactNode; style?
     <View style={[s.btnRow2, style]}>
       {React.Children.map(children, (c) => (c ? <View style={{ flex: 1 }}>{c}</View> : null))}
     </View>
+  );
+}
+
+(BtnRow2 as { stickyFooter?: boolean }).stickyFooter = true;
+
+/** Themed replacement for a native Alert.alert() confirm: a rise-up sheet
+ * with the message, an optional remarks field, and Cancel / confirm. */
+export function ConfirmSheet({
+  visible,
+  onClose,
+  title,
+  message,
+  confirmLabel = "Confirm",
+  danger,
+  remarks,
+  loading,
+  error,
+  onConfirm,
+}: {
+  visible: boolean;
+  onClose: () => void;
+  title: string;
+  message: React.ReactNode;
+  confirmLabel?: string;
+  danger?: boolean;
+  /** Show a remarks input (value is passed to onConfirm). */
+  remarks?: { label: string; placeholder?: string; required?: boolean; initial?: string };
+  loading?: boolean;
+  error?: string | null;
+  onConfirm: (remarks: string) => void;
+}) {
+  const [text, setText] = useState("");
+  const [wasVisible, setWasVisible] = useState(visible);
+  if (visible !== wasVisible) {
+    setWasVisible(visible);
+    if (visible) setText(remarks?.initial ?? "");
+  }
+  return (
+    <Sheet visible={visible} onClose={onClose} title={title} maxHeightPct={70}>
+      {danger ? <WarningBanner>{message}</WarningBanner> : <Txt style={{ fontSize: 13, lineHeight: 19, marginVertical: 10 }}>{message}</Txt>}
+      {remarks ? (
+        <Field label={remarks.label}>
+          <Input placeholder={remarks.placeholder} value={text} onChangeText={setText} multiline />
+        </Field>
+      ) : null}
+      {error ? <Txt style={{ color: C.red, fontSize: 12, fontWeight: "600", marginBottom: 6 }}>{error}</Txt> : null}
+      <BtnRow2>
+        <PrimaryButton label="Cancel" variant="outline" onPress={onClose} disabled={loading} />
+        <PrimaryButton
+          label={confirmLabel}
+          variant={danger ? "danger" : "primary"}
+          onPress={() => onConfirm(text.trim())}
+          loading={loading}
+          disabled={!!remarks?.required && !text.trim()}
+        />
+      </BtnRow2>
+    </Sheet>
   );
 }
 
@@ -484,7 +696,7 @@ export function PaymentSplit({ amount, value, onChange, modes }: { amount: numbe
       </View>
       <View style={s.splitTotal}>
         <Txt style={[s.splitTotalTxt, match && { color: C.green }]}>Split total: {fmtINR(total)}</Txt>
-        <Txt style={[s.splitTotalTxt, match && { color: C.green }]}>{match ? "Matches amount ✓" : `Must equal ${fmtINR(amount)}`}</Txt>
+        {match ? null : <Txt style={[s.splitTotalTxt, { color: C.red }]}>Must equal {fmtINR(amount)}</Txt>}
       </View>
     </View>
   );
@@ -501,20 +713,26 @@ const s = StyleSheet.create({
     borderWidth: 1,
     borderColor: C.line,
     fontSize: 13.5,
-    backgroundColor: C.brandFaint,
+    backgroundColor: C.card,
     color: C.ink,
   },
-  inputFocus: { borderColor: C.brand, backgroundColor: "#fff" },
+  inputFocus: { borderColor: C.brand },
   inputDisabled: { color: C.muted },
   dateBtn: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 8 },
 
   calHead: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingVertical: 12 },
   calTitle: { fontWeight: "700", fontSize: 14 },
+  calTitleBtn: { flexDirection: "row", alignItems: "center", gap: 6, paddingVertical: 6, paddingHorizontal: 10, borderRadius: 10, backgroundColor: C.brandFaint },
+  yearGrid: { flexDirection: "row", flexWrap: "wrap", justifyContent: "space-between", rowGap: 8, paddingBottom: 6 },
+  yearCell: { width: "23%", height: 40, borderRadius: 10, alignItems: "center", justifyContent: "center", borderWidth: 1, borderColor: C.line },
+  yearCellSel: { backgroundColor: C.brandDeep, borderColor: C.brandDeep },
+  yearTxt: { fontSize: 13, fontWeight: "700", color: C.ink },
   calNav: { width: 34, height: 34, borderRadius: 10, backgroundColor: C.brandFaint, alignItems: "center", justifyContent: "center" },
 
   ddBtn: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 7, borderWidth: 1, borderColor: C.line, borderRadius: 10, paddingVertical: 8, paddingHorizontal: 11, backgroundColor: C.card },
+  ddValue: { fontSize: 13.5, flex: 1, color: C.ink },
   ddLabel: { fontSize: 12.5, fontWeight: "600", flexShrink: 1 },
-  ddMenu: { marginTop: 6, backgroundColor: C.card, borderWidth: 1, borderColor: C.line, borderRadius: 12, padding: 6, boxShadow: "0px 12px 28px rgba(43,26,94,0.18)" },
+  comboChev: { position: "absolute", right: 0, top: 0, bottom: 0, width: 38, alignItems: "center", justifyContent: "center" },
   ddItem: { paddingVertical: 9, paddingHorizontal: 10, borderRadius: 8 },
   ddItemSel: { backgroundColor: C.brandPale },
   ddItemTxt: { fontSize: 12.5, fontWeight: "600" },

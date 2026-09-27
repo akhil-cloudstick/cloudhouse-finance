@@ -9,6 +9,7 @@ import {
   C,
   Card,
   CashRow,
+  ConfirmSheet,
   ChipToggle,
   ClosingCard,
   DateField,
@@ -25,7 +26,9 @@ import {
   ServerFlatList,
   Sheet,
   SheetListItem,
+  ThemeDropdown,
   Txt,
+  toast,
 } from "../../../src/components/ui";
 import { useServerList } from "../../../src/hooks/useServerList";
 import { useAuth } from "../../../src/auth/AuthContext";
@@ -44,6 +47,7 @@ import {
 } from "../../../src/api/cash";
 import { dmy, inr, todayISO } from "../../../src/lib/format";
 import type { CashMovement, Expense, GoldSale } from "../../../src/types/cash";
+import { userMessage } from "../../../src/api/errors";
 
 // Cash & Expenses — prototype #header-cash + #page-cash and the
 // cash-actions / add-cash / cash-out / gold-sale / record-expense /
@@ -56,7 +60,7 @@ type CashAction = "addCash" | "takeCashOut" | "goldSale" | "expense" | null;
 const MOVE_MODES = ["Cash", "UPI", "Bank Transfer", "Cheque"] as const;
 const EXPENSE_MODES = ["Cash", "UPI", "Bank Transfer"] as const;
 
-const errMsg = (err: unknown, fallback: string) => (err instanceof ApiError ? err.message : err instanceof Error ? err.message : fallback);
+const errMsg = (err: unknown, fallback: string) => userMessage(err, fallback);
 
 export default function CashScreen() {
   const qc = useQueryClient();
@@ -90,14 +94,22 @@ export default function CashScreen() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["expenses"] });
       qc.invalidateQueries({ queryKey: ["cash-summary"] });
+      toast.success("Expense approved");
     },
+    onError: (err) => toast.error("Couldn't approve expense", errMsg(err, "Try again.")),
   });
+  // Reject asks for a reason first (as the web does), in a themed confirm.
+  const [rejecting, setRejecting] = useState<Expense | null>(null);
+  const [rejectError, setRejectError] = useState<string | null>(null);
   const reject = useMutation({
-    mutationFn: (id: number) => rejectExpense(id, "Rejected from mobile app", employee?.name),
+    mutationFn: ({ id, reason }: { id: number; reason: string }) => rejectExpense(id, reason, employee?.name),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["expenses"] });
       qc.invalidateQueries({ queryKey: ["cash-summary"] });
+      setRejecting(null);
+      toast.success("Expense rejected");
     },
+    onError: (err) => setRejectError(errMsg(err, "Could not reject the expense — try again.")),
   });
 
   const s = summary.data;
@@ -144,7 +156,7 @@ export default function CashScreen() {
   };
 
   return (
-    <Screen header={<FlatHeader title="Cash & Expenses" subtitle="Movements, expenses & gold sales" back />}>
+    <Screen header={<FlatHeader title="Cash & Expenses" subtitle="Movements, expenses & gold sales" />}>
       {tab === "movements" ? (
         <ServerFlatList
           list={{ ...movements, refetch: refreshAll(movements.refetch) }}
@@ -195,7 +207,15 @@ export default function CashScreen() {
                 isAdmin && e.status === "Pending"
                   ? [
                       { label: "Approve", onPress: () => approve.mutate(e.id), disabled: approve.isPending },
-                      { label: "Reject", danger: true, onPress: () => reject.mutate(e.id), disabled: reject.isPending },
+                      {
+                        label: "Reject",
+                        danger: true,
+                        onPress: () => {
+                          setRejectError(null);
+                          setRejecting(e);
+                        },
+                        disabled: reject.isPending,
+                      },
                     ]
                   : undefined
               }
@@ -254,6 +274,18 @@ export default function CashScreen() {
       <MovementSheet type="out" visible={action === "takeCashOut"} onClose={() => setAction(null)} branchId={employee?.branchId} />
       <GoldSaleSheet visible={action === "goldSale"} onClose={() => setAction(null)} branchId={employee?.branchId} />
       <ExpenseSheet visible={action === "expense"} onClose={() => setAction(null)} branchId={employee?.branchId} />
+      <ConfirmSheet
+        visible={!!rejecting}
+        onClose={() => setRejecting(null)}
+        title="Reject Expense"
+        danger
+        message={rejecting ? `Reject the ${inr(rejecting.amount)} ${rejecting.category} expense${rejecting.payee ? ` paid to ${rejecting.payee}` : ""}?` : ""}
+        remarks={{ label: "Reason", placeholder: "Why is this expense being rejected?", required: true }}
+        confirmLabel="Reject Expense"
+        loading={reject.isPending}
+        error={rejectError}
+        onConfirm={(reason) => rejecting && reject.mutate({ id: rejecting.id, reason })}
+      />
       <OpeningBalanceSheet visible={openingOpen} onClose={() => setOpeningOpen(false)} branchId={employee?.branchId} current={s?.openingCash} />
     </Screen>
   );
@@ -360,6 +392,9 @@ function GoldSaleSheet({ visible, onClose, branchId }: FormProps) {
   );
 }
 
+// Same list as the web's ExpenseModal (frontend/common/components/modals/ExpenseModal.tsx).
+const EXPENSE_CATEGORIES = ["Rent & Utilities", "Salaries", "Transportation", "Marketing", "Bank Charges", "Maintenance", "Stationery & Office", "Legal & Miscellaneous", "Other"];
+
 // prototype #record-expense-modal
 function ExpenseSheet({ visible, onClose, branchId }: FormProps) {
   const qc = useQueryClient();
@@ -389,7 +424,7 @@ function ExpenseSheet({ visible, onClose, branchId }: FormProps) {
   return (
     <Sheet visible={visible} onClose={onClose} title="Record Expense" maxHeightPct={65}>
       <Field label="Category">
-        <Input placeholder="e.g. Stationery, Electricity, Rent" value={category} onChangeText={setCategory} />
+        <ThemeDropdown<string> value={category || null} options={EXPENSE_CATEGORIES} onChange={setCategory} labelOf={(c) => c} placeholder="Select a category" />
       </Field>
       <Field label="Amount">
         <Input keyboardType="decimal-pad" placeholder="₹" value={amount} onChangeText={setAmount} />

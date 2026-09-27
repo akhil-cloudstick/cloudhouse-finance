@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { C, DateField, Field, FieldRow, Input, PrimaryButton, SectionTitle, Sheet, Txt } from "../ui";
+import { Pressable, View } from "react-native";
+import { C, DateField, Field, FieldRow, Input, PIcon, PrimaryButton, SectionTitle, Sheet, Txt } from "../ui";
 import { UploadField } from "./UploadField";
 import { useAuth } from "../../auth/AuthContext";
 import { createCustomer, updateCustomer, type CustomerInput } from "../../api/customers";
@@ -33,7 +34,6 @@ type CustomerExtras = Partial<{
   bankAccountName: string;
   bankAccountNumber: string;
   bankIfsc: string;
-  notes: string;
 }>;
 
 const digits = (t: string) => t.replace(/\D/g, "");
@@ -69,7 +69,16 @@ export function CustomerFormSheet({
   const [nomineeName, setNomineeName] = useState("");
   const [nomineeRelation, setNomineeRelation] = useState("");
   const [nomineePhone, setNomineePhone] = useState("");
-  const [notes, setNotes] = useState("");
+  // Additional Information — same eight fields as the web
+  // RegisterCustomerModal's collapsible section (fatherName … pinCode, dob).
+  const [showMore, setShowMore] = useState(false);
+  const [fatherName, setFatherName] = useState("");
+  const [age, setAge] = useState("");
+  const [district, setDistrict] = useState("");
+  const [taluk, setTaluk] = useState("");
+  const [village, setVillage] = useState("");
+  const [place, setPlace] = useState("");
+  const [pinCode, setPinCode] = useState("");
   const [error, setError] = useState<string | null>(null);
 
   // Seed (edit) or clear (register) every time the sheet opens.
@@ -90,7 +99,14 @@ export function CustomerFormSheet({
     setNomineeName(c?.nomineeName ?? "");
     setNomineeRelation(c?.nomineeRelation ?? "");
     setNomineePhone(c?.nomineePhone ?? "");
-    setNotes(x.notes ?? "");
+    setFatherName(x.fatherName ?? "");
+    setAge(x.age ? String(x.age) : "");
+    setDistrict(x.district ?? "");
+    setTaluk(x.taluk ?? "");
+    setVillage(x.village ?? "");
+    setPlace(x.place ?? "");
+    setPinCode(x.pinCode ?? "");
+    setShowMore(!!(x.fatherName || x.age || x.district || x.taluk || x.village || x.place || x.pinCode || isoDate(c?.dob)));
     setError(null);
   }, [visible, customer]);
 
@@ -115,20 +131,19 @@ export function CustomerFormSheet({
         identityProofUrl: identityProofUrl || undefined,
         addressProofUrl: addressProofUrl || undefined,
         kycDocumentUrl: kycDocumentUrl || undefined,
-        notes: notes.trim() || undefined,
+        fatherName: fatherName.trim() || undefined,
+        age: +age > 0 ? +age : undefined,
+        district: district.trim() || undefined,
+        taluk: taluk.trim() || undefined,
+        village: village.trim() || undefined,
+        place: place.trim() || undefined,
+        pinCode: pinCode.trim() || undefined,
       };
       if (customer) {
         const x = customer as Customer & CustomerExtras;
         return updateCustomer(customer.id, {
           ...body,
           customerType: x.customerType || undefined,
-          fatherName: x.fatherName || undefined,
-          district: x.district || undefined,
-          taluk: x.taluk || undefined,
-          village: x.village || undefined,
-          place: x.place || undefined,
-          pinCode: x.pinCode || undefined,
-          age: x.age ?? undefined,
           bankAccountName: x.bankAccountName || undefined,
           bankAccountNumber: x.bankAccountNumber || undefined,
           bankIfsc: x.bankIfsc || undefined,
@@ -153,7 +168,6 @@ export function CustomerFormSheet({
       <Field label="Mobile Number *">
         <Input placeholder="10-digit mobile number" keyboardType="number-pad" maxLength={10} value={phone} onChangeText={(t) => setPhone(digits(t))} />
       </Field>
-      <DateField label="Date of Birth" value={dob} onChange={setDob} placeholder="Select date of birth" max={todayISO()} clearable />
       <Field label="Address">
         <Input placeholder="Full address" value={address} onChangeText={setAddress} />
       </Field>
@@ -196,12 +210,52 @@ export function CustomerFormSheet({
         </Field>
       </FieldRow>
 
-      <Field label="Additional Information (optional)">
-        <Input placeholder="Any other notes about this customer" value={notes} onChangeText={setNotes} />
-      </Field>
+      <Pressable style={st.moreToggle} onPress={() => setShowMore((v) => !v)} accessibilityRole="button">
+        <View style={showMore ? { transform: [{ rotate: "180deg" }] } : null}>
+          <PIcon name="chevdown" color={C.brandDeep} />
+        </View>
+        <Txt style={st.moreTxt}>Additional Information</Txt>
+      </Pressable>
+      {showMore ? (
+        <>
+          <Field label="Father's Name">
+            <Input placeholder="e.g. Ravi Varma" value={fatherName} onChangeText={setFatherName} />
+          </Field>
+          <FieldRow>
+            <Field label="Age">
+              <Input placeholder="e.g. 35" keyboardType="number-pad" maxLength={3} value={age} onChangeText={(t) => setAge(digits(t))} />
+            </Field>
+            <DateField label="Date of Birth" value={dob} onChange={setDob} placeholder="Select date" max={todayISO()} clearable />
+          </FieldRow>
+          <FieldRow>
+            <Field label="District">
+              <Input placeholder="e.g. Thrissur" value={district} onChangeText={setDistrict} />
+            </Field>
+            <Field label="Taluk">
+              <Input placeholder="e.g. Kozhikode" value={taluk} onChangeText={setTaluk} />
+            </Field>
+          </FieldRow>
+          <FieldRow>
+            <Field label="Village">
+              <Input placeholder="e.g. Feroke" value={village} onChangeText={setVillage} />
+            </Field>
+            <Field label="Place">
+              <Input placeholder="e.g. Feroke" value={place} onChangeText={setPlace} />
+            </Field>
+          </FieldRow>
+          <Field label="Pin Code">
+            <Input placeholder="6-digit pin code" keyboardType="number-pad" maxLength={6} value={pinCode} onChangeText={(t) => setPinCode(digits(t))} />
+          </Field>
+        </>
+      ) : null}
 
       {error ? <Txt style={{ fontSize: 12, color: C.red, marginBottom: 10 }}>{error}</Txt> : null}
       <PrimaryButton label={editing ? "Save Changes" : "Register Customer"} onPress={() => save.mutate()} loading={save.isPending} disabled={!canSave} />
     </Sheet>
   );
 }
+
+const st = {
+  moreToggle: { flexDirection: "row" as const, alignItems: "center" as const, gap: 8, paddingVertical: 10, marginTop: 4, marginBottom: 6 },
+  moreTxt: { fontSize: 13, fontWeight: "700" as const, color: C.brandDeep },
+};

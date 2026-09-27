@@ -14,7 +14,6 @@ import type { Bank } from "../../types/bank";
 // old Bank Pledges screen's Add Bank sheet.
 
 const errText = (msg: string | null) => (msg ? <Txt style={{ fontSize: 12, color: C.red, marginBottom: 10 }}>{msg}</Txt> : null);
-const FINISHED = ["Closed", "Rejected", "Auctioned", "Auctioned - Balance Due", "Pending Approval"];
 const CASH = ["CashIn", "RecordOnly"] as const;
 const CASH_LABELS = { CashIn: "Cash Added", RecordOnly: "Record Only" } as const;
 const num = (v: string) => v.replace(/[^0-9.]/g, "");
@@ -79,7 +78,7 @@ export function AddBankPledgeSheet({ visible, onClose }: { visible: boolean; onC
         placeholder="Search by customer or LN number"
         queryKey={["loans", "bank-pledge-picker"]}
         // Only loans not already with a bank; finished loans can't be pledged.
-        fetcher={async (q) => ((await listLoansPage({ q: q || undefined, excludeBankPledged: true, limit: 20, offset: 0 })).items ?? []).filter((l) => !FINISHED.includes(l.status))}
+        fetcher={async (q) => (await listLoansPage({ q: q || undefined, excludeBankPledged: true, limit: 20, offset: 0 })).items ?? []}
         selectedLabel={loan ? `${loan.loanNumber} · ${loan.customer?.name ?? ""}` : undefined}
         onClear={() => setLoan(null)}
         onSelect={setLoan}

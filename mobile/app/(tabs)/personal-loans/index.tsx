@@ -55,6 +55,7 @@ import {
 } from "../../../src/api/personalLoans";
 import { dmy, inr, todayISO } from "../../../src/lib/format";
 import type { Customer } from "../../../src/types/customer";
+import { userMessage } from "../../../src/api/errors";
 
 // Personal Loans — prototype #header-personalloans + #page-personalloans and
 // the pl-filter / pl-create / pl-collect / pl-detail / pl-renew sheets.
@@ -69,7 +70,7 @@ const PER: Record<Frequency, string> = { Daily: "day", Weekly: "wk", Monthly: "m
 
 type Filters = { frequency?: Frequency };
 
-const errMsg = (err: unknown, fallback: string) => (err instanceof ApiError ? err.message : err instanceof Error ? err.message : fallback);
+const errMsg = (err: unknown, fallback: string) => userMessage(err, fallback);
 
 // Mirrors the web NewPersonalLoanModal's client-side preview of the
 // backend's computeInterest — the backend recomputes and is the source of truth.
@@ -97,7 +98,7 @@ export default function PersonalLoansScreen() {
 
   return (
     <Screen
-      header={<FlatHeader title="Personal Loans" subtitle="Non-gold loans & collections" back />}
+      header={<FlatHeader title="Personal Loans" subtitle="Non-gold loans & collections" />}
       floating={canCreate ? <FabCorner onPress={() => setCreateOpen(true)} label="Create personal loan" /> : null}
     >
       <ServerFlatList
@@ -192,6 +193,9 @@ function CreatePersonalLoanSheet({ visible, onClose, onCreated }: { visible: boo
   const [interestValue, setInterestValue] = useState("");
   const [frequency, setFrequency] = useState<Frequency>("Daily");
   const [tenureCount, setTenureCount] = useState("");
+  // Same as the web's "Full Amount" checkbox: withhold the interest upfront
+  // (default) or disburse the full principal now.
+  const [disburse, setDisburse] = useState<"Withhold interest" | "Full amount">("Withhold interest");
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -202,6 +206,7 @@ function CreatePersonalLoanSheet({ visible, onClose, onCreated }: { visible: boo
       setInterestValue("");
       setFrequency("Daily");
       setTenureCount("");
+      setDisburse("Withhold interest");
       setError(null);
     }
   }, [visible]);
@@ -210,8 +215,13 @@ function CreatePersonalLoanSheet({ visible, onClose, onCreated }: { visible: boo
   const interestValueNum = +interestValue || 0;
   const tenureNum = +tenureCount || 0;
   const interestAmount = principalNum > 0 ? computeInterest(principalNum, interestType, interestValueNum) : 0;
-  const disbursedAmount = Math.round((principalNum - interestAmount) * 100) / 100;
-  const installmentAmount = tenureNum > 0 ? Math.round((principalNum / tenureNum) * 100) / 100 : 0;
+  // Mirrors backend personalloan CreateLoan: withheld → disburse
+  // Principal-Interest, owe Principal; full → disburse Principal, owe
+  // Principal+Interest.
+  const fullDisbursement = disburse === "Full amount";
+  const disbursedAmount = fullDisbursement ? principalNum : Math.round((principalNum - interestAmount) * 100) / 100;
+  const obligation = fullDisbursement ? Math.round((principalNum + interestAmount) * 100) / 100 : principalNum;
+  const installmentAmount = tenureNum > 0 ? Math.round((obligation / tenureNum) * 100) / 100 : 0;
 
   const submit = useMutation({
     mutationFn: () =>
@@ -223,6 +233,7 @@ function CreatePersonalLoanSheet({ visible, onClose, onCreated }: { visible: boo
         interestValue: interestValueNum,
         frequency,
         tenureCount: tenureNum,
+        fullDisbursement,
       }),
     onSuccess: (loan) => {
       qc.invalidateQueries({ queryKey: ["personalLoans"] });
@@ -268,13 +279,16 @@ function CreatePersonalLoanSheet({ visible, onClose, onCreated }: { visible: boo
       <Field label="Collection frequency">
         <ChipToggle options={FREQS} value={frequency} onChange={setFrequency} />
       </Field>
+      <Field label="Disbursement">
+        <ChipToggle options={["Withhold interest", "Full amount"] as const} value={disburse} onChange={setDisburse} />
+      </Field>
       <Card style={{ marginHorizontal: 0, marginBottom: 14 }}>
         <FieldGrid
           items={[
             { k: "Interest amount", v: inr(interestAmount) },
             { k: "Disbursed to customer", v: inr(Math.max(0, disbursedAmount)) },
             { k: "Installment amount", v: `${inr(installmentAmount)} / ${PER[frequency]}` },
-            { k: "Repayment obligation", v: inr(principalNum) },
+            { k: "Repayment obligation", v: inr(obligation) },
           ]}
         />
       </Card>
@@ -355,7 +369,7 @@ function PersonalLoanDetailSheet({
       const result = await FileSystem.downloadAsync(`${API_BASE_URL}/personal-loans/${l.id}/bond`, targetUri, {
         headers: token ? { Authorization: `Bearer ${token}` } : {},
       });
-      if (result.status < 200 || result.status >= 300) throw new Error(`Could not download the bond (${result.status}).`);
+      if (result.status < 200 || result.status >= 300) throw new ApiError(result.status, "", undefined);
       if (await Sharing.isAvailableAsync()) await Sharing.shareAsync(result.uri, { mimeType: "application/pdf" });
     } catch (e) {
       setError(errMsg(e, "Could not download the bond."));

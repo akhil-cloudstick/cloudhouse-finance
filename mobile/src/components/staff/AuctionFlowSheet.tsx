@@ -185,6 +185,7 @@ export function AuctionFlowSheet({ loan, visible, onClose }: { loan: Loan | null
   const alreadyAuctioned = loan.status === "Auctioned" || balanceDue;
   const actionable = canAct && !frozen;
   const days = loan.daysOverdue ?? 0;
+  const isDefaulted = !!loan.isDefaulted;
   const customer = loan.customer?.name ?? "The customer";
 
   const backBtn = view > 0 ? <PrimaryButton label="Back" variant="outline" onPress={() => setView((v) => v - 1)} /> : null;
@@ -218,12 +219,12 @@ export function AuctionFlowSheet({ loan, visible, onClose }: { loan: Loan | null
             Step 1 · Issue Notice
           </SectionTitle>
           <NoticeBanner>
-            {loan.isDefaulted
+            {isDefaulted
               ? `${customer} has been overdue for ${days} day${days === 1 ? "" : "s"}. Mark the loan Auction Eligible first — then issue the notice that starts the legal auction-eligibility clock.`
               : "This loan is not eligible for auction."}
           </NoticeBanner>
           {errText(frozen ? null : error)}
-          {loan.isDefaulted ? (
+          {isDefaulted ? (
             canAct ? (
               <PrimaryButton label="Mark Loan Auction Eligible" onPress={() => eligible.mutate()} loading={eligible.isPending} />
             ) : (
@@ -263,7 +264,7 @@ export function AuctionFlowSheet({ loan, visible, onClose }: { loan: Loan | null
               <DateField label="Notice date" value={noticeDate} onChange={setNoticeDate} max={todayISO()} />
               <DateField label="Response deadline" value={deadline} onChange={setDeadline} min={noticeDate || undefined} clearable />
               {errText(frozen ? null : error)}
-              <PrimaryButton label="Issue Notice & Continue" onPress={() => notice.mutate()} loading={notice.isPending} disabled={!actionable} />
+              <PrimaryButton label="Issue Notice & Continue--" onPress={() => notice.mutate()} loading={notice.isPending} disabled={!actionable} />
             </>
           )}
         </>

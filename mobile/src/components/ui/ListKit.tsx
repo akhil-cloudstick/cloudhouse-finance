@@ -1,8 +1,10 @@
 import React, { useState } from "react";
-import { FlatList, RefreshControl, StyleSheet, TextInput, View, type StyleProp, type ViewStyle } from "react-native";
+import { usePullRefresh } from "../../hooks/usePullRefresh";
+import { FlatList, StyleSheet, TextInput, View, type StyleProp, type ViewStyle } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { SheetFlatList } from "../BottomSheetModal";
-import { Buffering, C, EmptyText, Txt } from "./base";
+import { Buffering, C, EmptyText, Txt, pullRefreshControl } from "./base";
+import { AccGroup, AccRowKey } from "./Rows";
 import { PCONTENT_BOTTOM } from "../../theme/layout";
 
 /** .local-search-input — every page's search box (server `q`). */
@@ -78,13 +80,20 @@ export function ServerFlatList<T>({
   stickyHeaderIndices?: number[];
 }) {
   const insets = useSafeAreaInsets();
-  const reloading = list.isLoading && items.length > 0;
+  const { pullRefreshing, onPull } = usePullRefresh(list.isRefreshing, list.refetch);
+  const reloading = (list.isLoading && items.length > 0) || pullRefreshing;
   const ListComp = (inSheet ? SheetFlatList : FlatList) as typeof FlatList;
   return (
+    // One row open at a time across the whole list.
+    <AccGroup>
     <ListComp
       data={list.isLoading && items.length === 0 ? [] : items}
       keyExtractor={(it, i) => keyOf(it as T, i)}
-      renderItem={({ item, index }) => <View style={{ paddingHorizontal: gutter, opacity: reloading ? 0.45 : 1 }}>{renderItem(item as T, index)}</View>}
+      renderItem={({ item, index }) => (
+        <AccRowKey.Provider value={keyOf(item as T, index)}>
+          <View style={{ paddingHorizontal: gutter, opacity: reloading ? 0.45 : 1 }}>{renderItem(item as T, index)}</View>
+        </AccRowKey.Provider>
+      )}
       ListHeaderComponent={
         <>
           {header}
@@ -107,10 +116,11 @@ export function ServerFlatList<T>({
       keyboardShouldPersistTaps="handled"
       showsVerticalScrollIndicator={false}
       refreshControl={
-        inSheet ? undefined : <RefreshControl refreshing={list.isRefreshing} onRefresh={list.refetch} tintColor={C.brandDeep} colors={[C.brandDeep]} />
+        inSheet || !onPull ? undefined : pullRefreshControl(pullRefreshing, onPull)
       }
       contentContainerStyle={[inSheet ? { paddingBottom: 24 } : { paddingBottom: PCONTENT_BOTTOM + insets.bottom }, contentStyle]}
     />
+    </AccGroup>
   );
 }
 

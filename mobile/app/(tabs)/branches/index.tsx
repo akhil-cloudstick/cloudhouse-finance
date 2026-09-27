@@ -108,7 +108,7 @@ export default function BranchesScreen() {
 
   return (
     <Screen
-      header={<FlatHeader title="Branches" subtitle={list.total != null ? `${list.total} branches` : "Branch details"} back />}
+      header={<FlatHeader title="Branches" subtitle={list.total != null ? `${list.total} branches` : "Branch details"} />}
       floating={
         <FabCorner
           label="Add branch"

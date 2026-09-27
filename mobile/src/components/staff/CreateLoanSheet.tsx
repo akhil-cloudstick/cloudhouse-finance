@@ -1,31 +1,33 @@
 import React, { useEffect, useState } from "react";
-import { Pressable, View } from "react-native";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useRouter } from "expo-router";
 import {
   AsyncSelect,
   C,
   Card,
   ChipToggle,
+  ComboInput,
   DashedButton,
   Field,
   FieldGrid,
   FieldRow,
   Input,
+  MenuItem,
   NoticeBanner,
   OrnamentCard,
   PrimaryButton,
   SectionTitle,
   Sheet,
-  ThemeDropdown,
   Txt,
   WarningBanner,
+  openPage,
 } from "../ui";
 import { UploadField } from "./UploadField";
 import { useAuth } from "../../auth/AuthContext";
 import { useDebouncedValue } from "../../hooks/useDebouncedValue";
 import { listCustomers } from "../../api/customers";
-import { listSchemes } from "../../api/schemes";
+import { listBranchesPage } from "../../api/branches";
+import { listLockersPage } from "../../api/lockers";
+import { listActiveSchemes } from "../../api/schemes";
 import { createLoan, addOrnamentImage, type CreateOrnamentInput } from "../../api/loans";
 import { latestGoldRate } from "../../api/goldRates";
 import { listOrnamentTypes, createOrnamentType } from "../../api/ornamentTypes";
@@ -34,15 +36,45 @@ import { inr, todayISO } from "../../lib/format";
 import { ApiError } from "../../api/client";
 import type { Customer } from "../../types/customer";
 import type { Scheme } from "../../types/scheme";
+import type { Locker } from "../../types/locker";
 
-// Create New Loan (prototype #loan-modal) — rise-up sheet opened from every
-// header's "+" and the dashboard's Create Loan quick action. Same business
+// Create New Loan (prototype #loan-modal) — rise-up sheet opened from the
+// Loans page "+" and the dashboard's Create Loan quick action. Same business
 // rules as the web NewLoan form: blocked until today's gold rate is
 // published, ornament value = net wt × qty × rate for its purity, principal
 // capped at the scheme's LTV-eligible amount.
 type OrnRow = { name: string; purityUnit: PurityUnit; purityValue: string; grossWeight: string; lessWeight: string; quantity: string; img: string };
 const emptyRow: OrnRow = { name: "", purityUnit: "karat", purityValue: "22", grossWeight: "", lessWeight: "", quantity: "1", img: "" };
 const KARATS = ["24", "23", "22", "21", "20", "18", "16", "14", "12", "10"];
+const FINENESS = ["99.9", "99.5", "91.6", "87.5", "83.3", "75", "58.5", "41.7"];
+
+/** Karat / fineness entry: type any value, or pick a standard one. */
+function PurityInput({ unit, value, onChange }: { unit: PurityUnit; value: string; onChange: (v: string) => void }) {
+  const opts = unit === "karat" ? KARATS : FINENESS;
+  return (
+    <ComboInput
+      value={value}
+      onChangeText={(v) => onChange(v.replace(/[^0-9.]/g, ""))}
+      keyboardType="decimal-pad"
+      placeholder={unit === "karat" ? "22" : "91.6"}
+      menu={(close) => (
+        <>
+          {opts.map((o) => (
+            <MenuItem
+              key={o}
+              title={unit === "karat" ? `${o}K` : `${o}%`}
+              selected={o === value}
+              onPress={() => {
+                onChange(o);
+                close();
+              }}
+            />
+          ))}
+        </>
+      )}
+    />
+  );
+}
 
 const netOf = (r: OrnRow) => Math.max(0, (Number(r.grossWeight) || 0) - (Number(r.lessWeight) || 0));
 const trim3 = (n: number) => String(+n.toFixed(3));
@@ -66,7 +98,6 @@ function OrnamentTypeField({ value, onChange }: { value: string; onChange: (v: s
     onSuccess: (t) => {
       qc.invalidateQueries({ queryKey: ["ornamentTypes"] });
       onChange(t.name);
-      setFocused(false);
     },
   });
   const trimmed = value.trim();
@@ -74,47 +105,64 @@ function OrnamentTypeField({ value, onChange }: { value: string; onChange: (v: s
   const exact = options.some((t) => t.name.toLowerCase() === trimmed.toLowerCase());
   return (
     <Field label="Ornament type">
-      <Input placeholder="e.g. Gold Chain, Bangle, Ring" value={value} onChangeText={onChange} onFocus={() => setFocused(true)} />
-      {focused && (options.length > 0 || (trimmed && !exact)) ? (
-        <View style={{ marginTop: 6, backgroundColor: C.card, borderWidth: 1, borderColor: C.line, borderRadius: 12, padding: 6 }}>
-          {options.map((t) => (
-            <Pressable
-              key={t.id}
-              style={{ paddingVertical: 9, paddingHorizontal: 10, borderRadius: 8 }}
-              onPress={() => {
-                onChange(t.name);
-                setFocused(false);
-              }}
-            >
-              <Txt style={{ fontSize: 12.5, fontWeight: "600" }}>{t.name}</Txt>
-            </Pressable>
-          ))}
-          {trimmed && !exact ? (
-            <Pressable style={{ paddingVertical: 9, paddingHorizontal: 10, borderRadius: 8 }} onPress={() => !create.isPending && create.mutate(trimmed)}>
-              <Txt style={{ fontSize: 12.5, fontWeight: "700", color: C.brandDeep }}>{create.isPending ? "Adding…" : `+ Add "${trimmed}"`}</Txt>
-            </Pressable>
-          ) : null}
-        </View>
-      ) : null}
+      <ComboInput
+        value={value}
+        onChangeText={onChange}
+        placeholder="e.g. Gold Chain, Bangle, Ring"
+        onOpened={() => setFocused(true)}
+        onClosed={() => setFocused(false)}
+        menu={(close) =>
+          options.length > 0 || (trimmed && !exact) ? (
+            <>
+              {options.map((o) => (
+                <MenuItem
+                  key={o.id}
+                  title={o.name}
+                  selected={o.name === value}
+                  onPress={() => {
+                    onChange(o.name);
+                    close();
+                  }}
+                />
+              ))}
+              {trimmed && !exact ? (
+                <MenuItem
+                  accent
+                  title={create.isPending ? "Adding…" : `+ Add "${trimmed}"`}
+                  onPress={() => {
+                    if (create.isPending) return;
+                    create.mutate(trimmed);
+                    close();
+                  }}
+                />
+              ) : null}
+            </>
+          ) : null
+        }
+      />
     </Field>
   );
 }
 
 export function CreateLoanSheet({ visible, onClose }: { visible: boolean; onClose: () => void }) {
-  const router = useRouter();
   const qc = useQueryClient();
   const { employee, can } = useAuth();
   const canCreate = can("Loan_Management", "can_create_loan");
+  // Same rule as the web NewLoan form: only an Administrator picks another
+  // branch — every other role books into their own (the backend enforces
+  // this too, overriding branchId for branch-bound roles).
+  const canPickBranch = employee?.role === "Administrator";
+  const ownBranch = employee ? { id: employee.branchId, name: employee.branch?.name ?? "Your branch" } : null;
 
   const [customer, setCustomer] = useState<Customer | null>(null);
   const [scheme, setScheme] = useState<Scheme | null>(null);
+  const [branch, setBranch] = useState<{ id: number; name: string } | null>(ownBranch);
+  const [locker, setLocker] = useState<Locker | null>(null);
   const [rows, setRows] = useState<OrnRow[]>([{ ...emptyRow }]);
   const [principal, setPrincipal] = useState("");
   const [info, setInfo] = useState("");
   const [error, setError] = useState<string | null>(null);
 
-  const schemes = useQuery({ queryKey: ["schemes", "active-picker"], queryFn: () => listSchemes(), enabled: visible });
-  const activeSchemes = (schemes.data ?? []).filter((sc) => sc.isActive !== false);
   const goldRate = useQuery({ queryKey: ["gold-rates", "latest"], queryFn: latestGoldRate, enabled: visible, refetchOnMount: "always" });
 
   useEffect(() => {
@@ -138,11 +186,13 @@ export function CreateLoanSheet({ visible, onClose }: { visible: boolean; onClos
   const goldValue = valid.reduce((sum, r) => sum + valueOf(r), 0);
   const eligible = scheme ? Math.round((goldValue * scheme.ltvPercent) / 100) : 0;
   const overEligible = !!scheme && valid.length > 0 && Number(principal) > eligible;
-  const canSubmit = canCreate && !!customer && !!scheme && Number(principal) > 0 && valid.length > 0 && isTodaySet && !lessExceeds;
+  const canSubmit = canCreate && !!branch && !!customer && !!scheme && Number(principal) > 0 && valid.length > 0 && isTodaySet && !lessExceeds;
 
   const reset = () => {
     setCustomer(null);
     setScheme(null);
+    setBranch(ownBranch);
+    setLocker(null);
     setRows([{ ...emptyRow }]);
     setPrincipal("");
     setInfo("");
@@ -161,7 +211,8 @@ export function CreateLoanSheet({ visible, onClose }: { visible: boolean; onClos
         quantity: r.quantity ? Number(r.quantity) : undefined,
       }));
       return createLoan({
-        branchId: employee!.branchId,
+        branchId: branch!.id,
+        ...(locker ? { lockerId: locker.id } : {}),
         customerId: customer!.id,
         schemeId: scheme!.id,
         openedDate: today,
@@ -180,7 +231,7 @@ export function CreateLoanSheet({ visible, onClose }: { visible: boolean; onClos
       qc.invalidateQueries({ queryKey: ["dashboard"] });
       reset();
       onClose();
-      router.push(`/loans/${loan.id}` as never);
+      openPage(`/loans/${loan.id}`);
     },
     onError: (err) => setError(err instanceof ApiError ? err.message : "Could not create loan."),
   });
@@ -207,9 +258,48 @@ export function CreateLoanSheet({ visible, onClose }: { visible: boolean; onClos
         keyOf={(c) => c.id}
         renderItem={(c) => ({ title: c.name, sub: [c.code, c.phone].filter(Boolean).join(" · ") })}
       />
-      <Field label="Scheme">
-        <ThemeDropdown<Scheme> value={scheme} options={activeSchemes} onChange={setScheme} labelOf={schemeLabel} keyOf={(sc) => sc.id} placeholder="Select a scheme" />
-      </Field>
+      <AsyncSelect<Scheme>
+        label="Scheme"
+        placeholder="Search active schemes"
+        queryKey={["schemes", "active"]}
+        fetcher={(q) => listActiveSchemes(q || undefined)}
+        selectedLabel={scheme ? schemeLabel(scheme) : undefined}
+        onClear={() => setScheme(null)}
+        onSelect={setScheme}
+        keyOf={(sc) => sc.id}
+        renderItem={(sc) => ({ title: sc.name, sub: `${sc.interestRate}% · ${sc.durationMonths}mo · LTV ${sc.ltvPercent}%` })}
+      />
+
+      {canPickBranch ? (
+        <AsyncSelect<{ id: number; name: string; code?: string }>
+          label="Branch"
+          placeholder="Search branch"
+          queryKey={["branches", "loan-picker"]}
+          fetcher={async (q) => (await listBranchesPage({ q: q || undefined, active: true, limit: 20, offset: 0 })).items ?? []}
+          selectedLabel={branch?.name}
+          onSelect={(b) => {
+            setBranch({ id: b.id, name: b.name });
+            if (locker && locker.branchId !== b.id) setLocker(null);
+          }}
+          keyOf={(b) => b.id}
+          renderItem={(b) => ({ title: b.name, sub: b.code })}
+        />
+      ) : (
+        <Field label="Branch">
+          <Input value={branch?.name ?? ""} editable={false} />
+        </Field>
+      )}
+      <AsyncSelect<Locker>
+        label="Locker (optional)"
+        placeholder="Assign later, or search locker code"
+        queryKey={["lockers", "loan-picker", branch?.id]}
+        fetcher={async (q) => (await listLockersPage({ branchId: branch?.id, status: "active", q: q || undefined, limit: 20, offset: 0 })).items ?? []}
+        selectedLabel={locker ? `${locker.code} (${locker.occupied}/${locker.capacity} packets)` : undefined}
+        onClear={() => setLocker(null)}
+        onSelect={setLocker}
+        keyOf={(l) => l.id}
+        renderItem={(l) => ({ title: `${l.code} (${l.occupied}/${l.capacity} packets)`, sub: l.branch?.name })}
+      />
 
       <SectionTitle flush style={{ marginTop: 16 }}>
         Ornaments
@@ -230,11 +320,7 @@ export function CreateLoanSheet({ visible, onClose }: { visible: boolean; onClos
             </Field>
             <FieldRow>
               <Field label={r.purityUnit === "karat" ? "Karat" : "Fineness %"}>
-                {r.purityUnit === "karat" ? (
-                  <ThemeDropdown value={r.purityValue} options={KARATS} onChange={(v) => update(i, { purityValue: v })} labelOf={(k) => `${k}K`} />
-                ) : (
-                  <Input keyboardType="decimal-pad" value={r.purityValue} onChangeText={(v) => update(i, { purityValue: v })} placeholder="91.6" />
-                )}
+                <PurityInput key={r.purityUnit} unit={r.purityUnit} value={r.purityValue} onChange={(v) => update(i, { purityValue: v })} />
               </Field>
               <Field label="Quantity">
                 <Input keyboardType="number-pad" value={r.quantity} onChangeText={(v) => update(i, { quantity: v })} />

@@ -5,6 +5,7 @@ import {
   AccRow,
   C,
   DateField,
+  FabCorner,
   Field,
   FieldRow,
   FilterChipRow,
@@ -19,6 +20,7 @@ import {
   useShell,
 } from "../../../src/components/ui";
 import { useServerList } from "../../../src/hooks/useServerList";
+import { useAuth } from "../../../src/auth/AuthContext";
 import { listLoansPage } from "../../../src/api/loans";
 import { listSchemes } from "../../../src/api/schemes";
 import { dmy, inr, todayISO } from "../../../src/lib/format";
@@ -84,6 +86,7 @@ export function loanRowDetails(l: Loan) {
 export default function LoansScreen() {
   const router = useRouter();
   const shell = useShell();
+  const { can } = useAuth();
   const params = useLocalSearchParams<{ schemeId?: string; status?: string }>();
 
   const [status, setStatus] = useState<StatusFilter>("All");
@@ -122,9 +125,9 @@ export default function LoansScreen() {
         <FlatHeader
           title="Loans"
           subtitle={list.total != null ? `${list.total} total${overdueTotal != null ? ` · ${overdueTotal} overdue` : ""}` : undefined}
-          icons={[{ icon: "search", onPress: shell.openSearch, label: "Search" }]}
         />
       }
+      floating={can("Loan_Management", "can_create_loan") ? <FabCorner onPress={shell.openNewLoan} label="New loan" /> : undefined}
     >
       <ServerFlatList
         list={list}
@@ -162,7 +165,7 @@ export default function LoansScreen() {
               status={l.status}
               details={loanRowDetails(l)}
               actions={[
-                { label: "Collect Payment", disabled: closed, onPress: () => router.push(`/loans/${l.id}?action=collect` as never) },
+                { label: "Collect Payment", disabled: closed, onPress: () => shell.openCollect(l.id) },
                 { label: "View Full Details", primary: true, onPress: () => router.push(`/loans/${l.id}` as never) },
               ]}
             />

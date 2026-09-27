@@ -11,16 +11,19 @@ import {
   Animated,
   Easing,
   Keyboard,
-  Dimensions,
+  useWindowDimensions,
   ScrollView,
   KeyboardAvoidingView,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { useIsFocused } from "expo-router";
 import Svg, { Defs, LinearGradient, Path, Rect, Stop } from "react-native-svg";
 import { typeScale } from "../theme/typography";
 import { useTheme } from "../theme/ThemeProvider";
 import { ThemedText } from "./ThemedText";
 import { Icon } from "./Icon";
+import { HEADER_LOGO } from "../config/brand";
+import { doneBarFor } from "./ui/KeyboardDone";
 
 // Shared building blocks for the (auth) screens — login, forgot password and
 // reset password all use the same angled brand panel, inputs and button so
@@ -46,6 +49,7 @@ export function KeyboardAnchor({ children }: { children: React.ReactNode }) {
   return <>{children}</>;
 }
 
+
 // ---------------------------------------------------------------------------
 // Shell
 
@@ -61,14 +65,34 @@ type ShellProps = {
 
 export function AuthShell({ eyebrow, title, subtitle, onBack, compact, children }: ShellProps) {
   const insets = useSafeAreaInsets();
-  const { colors, logoUrl } = useTheme();
+  const { colors } = useTheme();
   const enter = useRef(new Animated.Value(0)).current;
-  const [keyboardOpen, setKeyboardOpen] = useState(false);
+  const [keyboardState, setKeyboardOpen] = useState(false);
+  // Login stays mounted under Forgot/Reset password. Reacting to the
+  // keyboard opened on those screens left it collapsed (compact panel,
+  // keyboard padding) underneath, so going back showed it snap open — a
+  // white flash. Only the visible screen follows the keyboard.
+  const focused = useIsFocused();
+  const keyboardOpen = focused && keyboardState;
+  const [wasFocused, setWasFocused] = useState(focused);
+  if (wasFocused !== focused) {
+    setWasFocused(focused);
+    if (!focused) setKeyboardOpen(false);
+  }
 
-  const screenHeight = Dimensions.get("screen").height;
-  const panelHeight = keyboardOpen
-    ? insets.top + 96
-    : Math.round(Math.min(compact ? 280 : 350, screenHeight * (compact ? 0.34 : 0.42))) + insets.top;
+  // Window height (the screen minus system bars) — "screen" height included
+  // the navigation bar, so on large-display-size / big-font phones the page
+  // came out taller than the view and had to scroll. The brand panel now
+  // gives way to the form: it takes its preferred height only when the form
+  // still fits beneath it, and shrinks (down to a floor) when it wouldn't.
+  const windowHeight = useWindowDimensions().height;
+  const [formH, setFormH] = useState(0);
+  const bodyPad = (keyboardOpen ? 0 : insets.bottom) + 28 + 8;
+  const preferred = Math.round(Math.min(compact ? 280 : 350, windowHeight * (compact ? 0.34 : 0.42))) + insets.top;
+  const floor = insets.top + (compact ? 150 : 190);
+  const fitted = formH ? Math.max(floor, Math.min(preferred, windowHeight - formH - bodyPad)) : preferred;
+  const panelHeight = keyboardOpen ? insets.top + 96 : fitted;
+  const needsScroll = keyboardOpen || !formH || panelHeight + formH + bodyPad > windowHeight + 1;
 
   useEffect(() => {
     Animated.timing(enter, {
@@ -80,13 +104,14 @@ export function AuthShell({ eyebrow, title, subtitle, onBack, compact, children 
   }, [enter]);
 
   useEffect(() => {
+    if (!focused) return;
     const ios = Platform.OS === "ios";
     const subs = [
       Keyboard.addListener(ios ? "keyboardWillShow" : "keyboardDidShow", () => setKeyboardOpen(true)),
       Keyboard.addListener(ios ? "keyboardWillHide" : "keyboardDidHide", () => setKeyboardOpen(false)),
     ];
     return () => subs.forEach((s) => s.remove());
-  }, []);
+  }, [focused]);
 
   // Entrance only touches the brand panel's contents — never the form.
   const anim = useMemo(() => {
@@ -99,13 +124,14 @@ export function AuthShell({ eyebrow, title, subtitle, onBack, compact, children 
   }, [enter]);
 
   return (
-    <KeyboardAvoidingView style={[styles.screen, { backgroundColor: colors.card }]} behavior="padding">
+    <KeyboardAvoidingView style={[styles.screen, { backgroundColor: colors.card }]} behavior="padding" enabled={focused}>
       <ScrollView
         contentContainerStyle={styles.scroll}
         keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={false}
         bounces={false}
         overScrollMode="never"
+        scrollEnabled={needsScroll}
       >
         <View style={{ height: panelHeight }}>
           <BrandPanel colors={colors} />
@@ -113,7 +139,7 @@ export function AuthShell({ eyebrow, title, subtitle, onBack, compact, children 
             <Animated.View style={[styles.heroTop, keyboardOpen && styles.heroTopCompact, anim.top]}>
               <View style={[styles.logoTile, keyboardOpen && styles.logoTileCompact]}>
                 <Image
-                  source={logoUrl ? { uri: logoUrl } : require("../../assets/cloudhouse.png")}
+                  source={HEADER_LOGO}
                   resizeMode="contain"
                   style={keyboardOpen ? styles.logoCompact : styles.logo}
                 />
@@ -145,12 +171,14 @@ export function AuthShell({ eyebrow, title, subtitle, onBack, compact, children 
         </View>
 
         <View style={[styles.body, { paddingBottom: (keyboardOpen ? 0 : insets.bottom) + 28 }]}>
-          {subtitle && !keyboardOpen ? (
-            <ThemedText variant="body" color={colors.muted} style={styles.subtitle}>
-              {subtitle}
-            </ThemedText>
-          ) : null}
-          {children}
+          <View onLayout={(e) => setFormH(e.nativeEvent.layout.height)}>
+            {subtitle && !keyboardOpen ? (
+              <ThemedText variant="body" color={colors.muted} style={styles.subtitle}>
+                {subtitle}
+              </ThemedText>
+            ) : null}
+            {children}
+          </View>
         </View>
       </ScrollView>
     </KeyboardAvoidingView>
@@ -161,7 +189,19 @@ export function AuthShell({ eyebrow, title, subtitle, onBack, compact, children 
 // Brand gradient cut on a diagonal, with rings and a stripe for texture.
 function BrandPanel({ colors }: { colors: Colors }) {
   return (
-    <View style={StyleSheet.absoluteFill} pointerEvents="none">
+    <View
+      style={StyleSheet.absoluteFill}
+      pointerEvents="none"
+      // Login stays mounted under Forgot/Reset password, but Android's
+      // native screen stack can still detach and later reattach its native
+      // view surface. An SVG needs an extra native draw pass after that —
+      // reattaching mid-navigation left this panel blank (plain white) for
+      // a frame, read as a flash. Caching it as a texture (kept from its
+      // last, already-drawn frame) avoids that redraw gap; collapsable
+      // keeps Fabric from ever flattening it away in the first place.
+      collapsable={false}
+      renderToHardwareTextureAndroid
+    >
       <Svg style={StyleSheet.absoluteFill} viewBox="0 0 100 100" preserveAspectRatio="none">
         <Defs>
           <LinearGradient id="authPanel" x1="0" y1="0" x2="1" y2="1">
@@ -285,6 +325,7 @@ export function OtpInput({ value, onChange, length = 6 }: { value: string; onCha
           onFocus={() => setFocused(true)}
           onBlur={() => setFocused(false)}
           keyboardType="number-pad"
+          inputAccessoryViewID={doneBarFor("number-pad")}
           textContentType="oneTimeCode"
           maxLength={length}
           caretHidden
@@ -393,22 +434,18 @@ const styles = StyleSheet.create({
   heroTop: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 24 },
   heroTopCompact: { marginBottom: 0, gap: 12 },
   compactTitle: { flex: 1 },
+  // No white backing tile any more — the logo (HEADER_LOGO, cut out on a
+  // transparent background) sits straight on the hero gradient, matching
+  // every page header (Shell.tsx's flatLogo/aId).
   logoTile: {
     width: 60,
     height: 60,
-    borderRadius: 30,
-    backgroundColor: "#ffffff",
     alignItems: "center",
     justifyContent: "center",
-    shadowColor: "#000",
-    shadowOpacity: 0.2,
-    shadowRadius: 12,
-    shadowOffset: { width: 0, height: 8 },
-    elevation: 8,
   },
-  logo: { width: 38, height: 38 },
-  logoTileCompact: { width: 44, height: 44, borderRadius: 22 },
-  logoCompact: { width: 28, height: 28 },
+  logo: { width: 56, height: 56 },
+  logoTileCompact: { width: 44, height: 44 },
+  logoCompact: { width: 40, height: 40 },
   backBtn: {
     width: 44,
     height: 44,

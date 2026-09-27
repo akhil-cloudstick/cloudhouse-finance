@@ -81,8 +81,6 @@ export type CustomerInput = {
   identityProofUrl?: string;
   addressProofUrl?: string;
   kycDocumentUrl?: string;
-  // "Additional Information (optional)" from the Register Customer sheet.
-  notes?: string;
   // Personal-loan / investor-only fields (customerRequest in handler.go).
   // The mobile form never edits them, but the PUT is a full replace, so the
   // edit sheet re-sends whatever the customer already has on file.

@@ -6,7 +6,7 @@ export function listBranches() {
 }
 
 // Paged + searchable (`q`: name / code / address) — GET /branches?limit&offset.
-export function listBranchesPage(params: { q?: string; limit: number; offset: number }) {
+export function listBranchesPage(params: { q?: string; active?: boolean; limit: number; offset: number }) {
   return apiRequest<{ items: Branch[]; hasMore: boolean; total?: number }>("/branches", { params });
 }
 

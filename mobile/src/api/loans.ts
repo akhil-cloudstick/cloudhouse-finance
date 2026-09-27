@@ -155,7 +155,7 @@ export type SanctionStage = (typeof SANCTION_STAGES)[number];
 export const SANCTION_STAGE_LABELS: Record<SanctionStage, string> = {
   LoanOperator: "Verified by Loan Operator",
   BranchManager: "Approved by Branch Manager",
-  FinalSanction: "Final Sanction (Management)",
+  FinalSanction: "Final Sanction",
 };
 
 // Which employee role must act at each stage — Administrator may always
@@ -411,4 +411,15 @@ export type IndemnityBondEsignCheck = {
 
 export function checkIndemnityBondEsign(loanId: number) {
   return apiRequest<IndemnityBondEsignCheck>(`/loans/${loanId}/indemnity-bond/esign/status`);
+}
+
+// Top up an Active loan — POST /loans/:id/topup (backend/internal/loan/
+// handler.go topUpRequest). Raises principal + outstanding by `amount`, up to
+// the loan's headroom (eligibleLoanAmount − outstanding); the split must add
+// up to the amount. Returns the updated loan.
+export function topUpLoan(
+  loanId: number,
+  input: { amount: number; occurredOn?: string; reference?: string } & Partial<SplitAmounts>
+) {
+  return apiRequest<Loan>(`/loans/${loanId}/topup`, { method: "POST", body: input });
 }

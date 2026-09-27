@@ -2,17 +2,11 @@ import { Stack } from "expo-router";
 import { colors } from "../../src/theme/colors";
 
 export default function AuthLayout() {
-  // Login/forgot-password/reset-password share one visual shell (AuthShell,
-  // including its large colored BrandPanel gradient) — the default Stack
-  // transition slides the whole screen in from the side like a swipe
-  // between distinct pages, which reads wrong for what's really just the
-  // shell's content changing. A cross-fade was tried instead, but two
-  // semi-transparent copies of that same colored panel blending over each
-  // other mid-transition washes out to a visible white flash at the
-  // crossover point — an artifact of "fade" specifically, not of contentStyle
-  // (set below regardless, since the Stack's screen container needs an
-  // explicit background either way). No animation reads the cleanest here:
-  // an instant swap between screens that already look like the same shell.
+  // Login now carries Forgot/Reset password as internal phases (see its own
+  // comment) rather than as separate routes, so this stack in practice only
+  // ever shows one real screen — forgot-password.tsx/reset-password.tsx are
+  // just redirects, kept for old links. `animation: "none"` and an explicit
+  // background are still worth keeping for that redirect bounce itself.
   return (
     <Stack
       screenOptions={{

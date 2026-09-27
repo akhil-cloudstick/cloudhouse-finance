@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
-import { Alert, Share, View } from "react-native";
+import { View } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
@@ -7,6 +7,7 @@ import {
   Buffering,
   C,
   Card,
+  ConfirmSheet,
   EmptyText,
   FieldGrid,
   FlatHeader,
@@ -38,7 +39,6 @@ import {
 import { listPackets } from "../../../src/api/packets";
 import { getAuction } from "../../../src/api/auctions";
 import { dmy, inr } from "../../../src/lib/format";
-import type { Loan } from "../../../src/types/loan";
 import { apiErr, invalidateLoan } from "../../../src/components/staff/loan/common";
 import { CollectPaymentSheet } from "../../../src/components/staff/loan/CollectPaymentSheet";
 import { ExtendSheet } from "../../../src/components/staff/loan/ExtendSheet";
@@ -49,6 +49,7 @@ import { BankPledgeSheet } from "../../../src/components/staff/loan/BankPledgeSh
 import { AuctionSheet } from "../../../src/components/staff/loan/AuctionSheet";
 import { DisburseSheet } from "../../../src/components/staff/loan/DisburseSheet";
 import { LoanTimeline } from "../../../src/components/staff/loan/LoanTimeline";
+import { TOP_UP_STATUSES, TopUpSheet } from "../../../src/components/staff/loan/TopUpSheet";
 
 // Loan Description — prototype #header-loandesc + #page-loandesc with its
 // Actions / Documents rise-up sheets and every action sheet they open.
@@ -57,9 +58,9 @@ import { LoanTimeline } from "../../../src/components/staff/loan/LoanTimeline";
 // extension + release requests and their reviews, complete release, loan &
 // ornament edit, bank pledge record / release / delete / history, the auction
 // workflow, hard delete, every print flow and the indemnity bond eSign.
-// `?action=collect` (dashboard / loans list) opens Collect Payment on load.
+// `?action=bank` (release review's "Go to Bank Pledge") opens the Bank Pledge sheet on load.
 
-type SheetKey = "actions" | "documents" | "collect" | "extend" | "release" | "edit" | "bank" | "auction" | "disburse" | null;
+type SheetKey = "actions" | "documents" | "collect" | "extend" | "release" | "edit" | "bank" | "auction" | "disburse" | "topup" | "reject" | "delete" | null;
 
 const STAGE_SHORT: Record<SanctionStage, string> = {
   LoanOperator: "Loan Operator",
@@ -73,17 +74,6 @@ function monthsBetween(from?: string, to?: string) {
   const b = new Date(to.slice(0, 10));
   const m = (b.getFullYear() - a.getFullYear()) * 12 + (b.getMonth() - a.getMonth());
   return m > 0 ? m : null;
-}
-
-function shareText(l: Loan) {
-  return [
-    `Loan ${l.loanNumber} — ${l.customer?.name ?? `Customer #${l.customerId}`}`,
-    `Status: ${l.status}`,
-    `Principal: ${inr(l.principalAmount)}`,
-    `Outstanding: ${inr(l.totalOutstandingBalance ?? l.outstandingAmount)}`,
-    `Paid to date: ${inr(l.totalPaid ?? 0)}`,
-    `Next due: ${dmy(l.dueDate)}`,
-  ].join("\n");
 }
 
 export default function LoanDetailScreen() {
@@ -112,23 +102,24 @@ export default function LoanDetailScreen() {
   const [error, setError] = useState<string | null>(null);
   useResetOnBlur(() => setOpen(null));
 
-  // ?action=collect → open Collect Payment once the loan has loaded, then
+  // ?action=collect|bank → open that sheet once the loan has loaded, then
   // clear the param so a refetch / refocus doesn't reopen it.
   const handledAction = useRef(false);
   useEffect(() => {
-    if (action !== "collect") {
+    if (action !== "collect" && action !== "bank") {
       handledAction.current = false;
       return;
     }
     if (!loan.data || handledAction.current) return;
     handledAction.current = true;
     const finished = loan.data.status === "Closed" || loan.data.status === "Rejected";
-    if (!finished) setOpen("collect");
+    if (action === "bank") setOpen("bank");
+    else if (!finished) setOpen("collect");
     router.setParams({ action: undefined } as never);
   }, [action, loan.data, router]);
 
   const doApprove = useMutation({
-    mutationFn: (vars: { stage: SanctionStage; action: "Approved" | "Rejected" | "Verified" } & Partial<SplitAmounts>) => approveLoan(loanId, vars),
+    mutationFn: (vars: { stage: SanctionStage; action: "Approved" | "Rejected" | "Verified"; remarks?: string } & Partial<SplitAmounts>) => approveLoan(loanId, vars),
     onSuccess: () => {
       setError(null);
       setOpen(null);
@@ -151,7 +142,6 @@ export default function LoanDetailScreen() {
       back
       title={loan.data?.loanNumber ?? "Loan"}
       subtitle={loan.data ? loan.data.customer?.name ?? `Customer #${loan.data.customerId}` : undefined}
-      icons={loan.data ? [{ icon: "share", label: "Share loan summary", onPress: () => Share.share({ message: shareText(loan.data!) }).catch(() => {}) }] : []}
     />
   );
 
@@ -208,22 +198,11 @@ export default function LoanDetailScreen() {
 
   function rejectCurrent() {
     if (!pendingStage) return;
-    Alert.alert("Reject loan", `Reject ${l.loanNumber} at the ${STAGE_SHORT[pendingStage]} stage? A rejected loan is never disbursed.`, [
-      { text: "Cancel", style: "cancel" },
-      { text: "Reject", style: "destructive", onPress: () => doApprove.mutate({ stage: pendingStage, action: "Rejected" }) },
-    ]);
+    go("reject");
   }
 
   function confirmHardDelete() {
-    setOpen(null);
-    Alert.alert(
-      "Delete Loan Permanently",
-      `This permanently and irreversibly deletes loan ${l.loanNumber}.\n\nEvery record tied to it will be removed: payments, ornaments, approvals, extension/release requests, auctions, bank pledges, packets, and reminders.\n\nThis cannot be undone.`,
-      [
-        { text: "Cancel", style: "cancel" },
-        { text: "Delete Permanently", style: "destructive", onPress: () => doHardDelete.mutate() },
-      ]
-    );
+    go("delete");
   }
 
   const bar =
@@ -308,8 +287,10 @@ export default function LoanDetailScreen() {
               {l.approvalWarning ? <ReviewWarning>{l.approvalWarning}</ReviewWarning> : null}
               <Txt style={{ fontSize: 12, color: C.muted }}>
                 {canActOnStage
-                  ? `Your ${isVerifyStage ? "verification" : "approval"} is needed — use the buttons below.${pendingStage === "FinalSanction" ? " Final sanction disburses the loan." : ""}`
-                  : `Awaiting ${requiredRole} ${isVerifyStage ? "verification" : "approval"}`}
+                  ? pendingStage === "FinalSanction"
+                    ? "Your approval disburses the loan."
+                    : `Needs your ${isVerifyStage ? "verification" : "approval"}.`
+                  : `Awaiting ${requiredRole}.`}
               </Txt>
               {doApprove.isPending ? <Buffering /> : null}
             </Card>
@@ -378,20 +359,17 @@ export default function LoanDetailScreen() {
               onPress: () => go("release"),
             });
           }
+          if (canEditLoan && TOP_UP_STATUSES.includes(l.status)) {
+            add("topup", { icon: "plus", title: "Top Up Loan", sub: "Disburse more against the pledged gold", onPress: () => go("topup") });
+          }
           if (canEditThis) add("edit", { icon: "edit", title: "Edit Loan Details", sub: "Scheme, principal, and ornament details", onPress: () => go("edit") });
-          if (pendingStage && canActOnStage) add("docs", { icon: "doc", title: "Loan Documents", sub: "Pledge slip, packet label, bond & eSign", onPress: () => go("documents") });
+          if (pendingStage && canActOnStage) add("docs", { icon: "doc", title: "Loan Documents", sub: "Statement, bond & eSign", onPress: () => go("documents") });
           add("bank", {
             icon: "shield",
             title: "Bank Pledge",
             sub: l.bankPledges?.some((p) => p.status === "Active") ? "Pledged to a bank — release, delete or view history" : "Repledge to a bank · view history",
             onPress: () => go("bank"),
           });
-          if (packet) {
-            add("packet", { icon: "layers", title: "Packet & Locker", sub: `${packet.code} · ${packet.status}`, onPress: () => {
-              setOpen(null);
-              router.push(`/packets/${packet.id}` as never);
-            } });
-          }
           if (showAuction) add("auction", { icon: "bolt", title: "Auction", sub: auction.data ? `Stage: ${auction.data.stage}` : alreadyAuctioned ? "Auction concluded" : "Defaulted — auction workflow", onPress: () => go("auction") });
           if (canHardDeleteLoan) add("delete", { icon: "alert", title: "Delete Loan Permanently", sub: "Removes the loan and every record tied to it", warn: true, onPress: confirmHardDelete });
           return items.length ? items : <EmptyText>No actions available for this loan.</EmptyText>;
@@ -401,6 +379,32 @@ export default function LoanDetailScreen() {
 
       <DocumentsSheets loan={l} visible={open === "documents"} onClose={() => setOpen(null)} onOpen={() => setOpen("documents")} />
       <CollectPaymentSheet loan={l} visible={open === "collect"} onClose={() => setOpen(null)} />
+      <TopUpSheet loan={l} visible={open === "topup"} onClose={() => setOpen(null)} onAddOrnaments={canEditThis ? () => go("edit") : undefined} />
+      {pendingStage ? (
+        <ConfirmSheet
+          visible={open === "reject"}
+          onClose={() => setOpen(null)}
+          title="Reject Loan"
+          danger
+          message={`Reject ${l.loanNumber} at the ${STAGE_SHORT[pendingStage]} stage? A rejected loan is never disbursed.`}
+          remarks={{ label: "Reason (optional)", placeholder: "Why is this loan being rejected?" }}
+          confirmLabel="Reject Loan"
+          loading={doApprove.isPending}
+          error={open === "reject" ? error : null}
+          onConfirm={(remarks) => doApprove.mutate({ stage: pendingStage, action: "Rejected", remarks: remarks || undefined })}
+        />
+      ) : null}
+      <ConfirmSheet
+        visible={open === "delete"}
+        onClose={() => setOpen(null)}
+        title="Delete Loan Permanently"
+        danger
+        message={`This permanently deletes loan ${l.loanNumber} and every record tied to it — payments, ornaments, approvals, requests, auctions, bank pledges, packets and reminders. This cannot be undone.`}
+        confirmLabel="Delete Permanently"
+        loading={doHardDelete.isPending}
+        error={open === "delete" ? error : null}
+        onConfirm={() => doHardDelete.mutate()}
+      />
       <ExtendSheet loan={l} pending={pendingExtension} visible={open === "extend"} onClose={() => setOpen(null)} />
       <ReleaseSheet loan={l} pending={pendingRelease} visible={open === "release"} onClose={() => setOpen(null)} />
       {canEditThis ? <EditLoanSheet loan={l} visible={open === "edit"} onClose={() => setOpen(null)} /> : null}

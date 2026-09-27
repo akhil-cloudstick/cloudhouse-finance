@@ -14,6 +14,7 @@ export type ReportFilters = {
   pageSize?: number;
   status?: string; // /reports/loans/status
   triggerType?: string; // /reports/communication-history
+  q?: string; // free-text search (sent as `q`)
 };
 
 export type ReportResult<Row, Totals> = {
@@ -32,6 +33,7 @@ function fetchReport<Row, Totals>(path: string, filters: ReportFilters) {
       page_size: filters.pageSize,
       status: filters.status,
       trigger_type: filters.triggerType,
+      q: filters.q,
     },
   });
 }

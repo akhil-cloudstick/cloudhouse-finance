@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import { LayoutAnimation, Pressable, StyleSheet, View } from "react-native";
-import { useLocalSearchParams, useRouter } from "expo-router";
+import { useLocalSearchParams } from "expo-router";
 import { useQuery } from "@tanstack/react-query";
 import {
   AccRow,
@@ -20,6 +20,7 @@ import {
   SectionTitle,
   ServerFlatList,
   Txt,
+  openPage,
 } from "../../../src/components/ui";
 import { CustomerFormSheet } from "../../../src/components/staff/CustomerFormSheet";
 import { useServerList, type ServerPage } from "../../../src/hooks/useServerList";
@@ -173,6 +174,7 @@ function TabList<T>({
   keyOf: (t: T) => string;
   renderItem: (t: T, i: number) => React.ReactElement;
 }) {
+  // Cached rows show straight away; the mount refetch updates them quietly.
   const list = useServerList<T>({ key: queryKey, fetchPage });
   return (
     <ServerFlatList
@@ -193,7 +195,6 @@ function TabList<T>({
 
 export default function CustomerDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
-  const router = useRouter();
   const customerId = Number(id);
   const [tab, setTab] = useState<Tab>("Loans");
   const [editOpen, setEditOpen] = useState(false);
@@ -206,14 +207,13 @@ export default function CustomerDetailScreen() {
   useRefetchOnFocus(refetch);
   useResetOnBlur(() => setEditOpen(false));
 
-  const viewLoan = (loanId: number) => router.push(`/loans/${loanId}` as never);
+  const viewLoan = (loanId: number) => openPage(`/loans/${loanId}`);
 
   const header = (
     <FlatHeader
       back
       title={data?.name ?? "Customer"}
       subtitle={data ? [data.code, data.phone].filter(Boolean).join(" · ") : undefined}
-      icons={data ? [{ icon: "edit", onPress: () => setEditOpen(true), label: "Edit customer" }] : []}
     />
   );
 

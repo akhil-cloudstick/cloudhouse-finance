@@ -1,5 +1,4 @@
 import React, { useState } from "react";
-import { useRouter } from "expo-router";
 import {
   AccRow,
   C,
@@ -16,6 +15,7 @@ import {
   Sheet,
   SummaryCard,
   type ChipTone,
+  openPage,
 } from "../../src/components/ui";
 import { View } from "react-native";
 import { useServerList } from "../../src/hooks/useServerList";
@@ -43,7 +43,6 @@ type Filters = { status?: string; riskLevel?: LoanRiskLevel; from?: string; to?:
 type RiskPage = { items: LoanRiskRow[]; hasMore: boolean; total: number; counts: LoanRiskCounts };
 
 export default function LoanRiskScreen() {
-  const router = useRouter();
   const [status, setStatus] = useState<StatusFilter>("All");
   const [level, setLevel] = useState<LevelFilter>("All");
   const [from, setFrom] = useState("");
@@ -73,7 +72,7 @@ export default function LoanRiskScreen() {
   const summary = `${level === "All" ? "All levels" : level}${status !== "All" ? ` · ${status}` : ""} · ${list.total ?? list.items.length}`;
 
   return (
-    <Screen header={<FlatHeader title="Loan Risk" subtitle="Risk assessment across active loans" back />}>
+    <Screen header={<FlatHeader title="Loan Risk" subtitle="Risk assessment across active loans" />}>
       <ServerFlatList
         list={list}
         items={list.items}
@@ -87,7 +86,7 @@ export default function LoanRiskScreen() {
         }
         header={
           <>
-            <View style={{ paddingHorizontal: 18, paddingTop: 14 }}>
+            <View style={{ paddingTop: 14 }}>
               <SummaryCard
                 title="Gold-value risk"
                 stats={[
@@ -130,7 +129,7 @@ export default function LoanRiskScreen() {
                 { k: "Outstanding", v: inr(r.principalAmount) },
                 { k: "Margin", v: `${margin >= 0 ? "+" : "−"}${inr(Math.abs(margin))}`, color: margin >= 0 ? C.green : C.red },
               ]}
-              actions={[{ label: "View Loan", primary: true, onPress: () => router.push(`/loans/${r.loanId}` as never) }]}
+              actions={[{ label: "View Loan", primary: true, onPress: () => openPage(`/loans/${r.loanId}`) }]}
             />
           );
         }}

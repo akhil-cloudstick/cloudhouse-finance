@@ -124,7 +124,7 @@ export function PacketDetailBody({ packetId, onOpenLoan }: { packetId: number; o
   const hasActions = canMove && !movementLocked && (canCheckIn || canRelease || canRepledge);
 
   const actionNote = movementLocked
-    ? `${isAuctioned ? "The loan was auctioned" : "The loan is closed"} — no further packet movements are possible.`
+    ? `${isAuctioned ? "The loan was auctioned" : loanStatus === "Rejected" ? "The loan was rejected" : "The loan is closed"} — no further packet movements are possible.`
     : status === BANK_PLEDGED
       ? "This packet's gold is pledged with a bank. Release it from Bank Pledges — that returns the packet here automatically as \"Returned\"."
       : status === RELEASED
@@ -139,6 +139,7 @@ export function PacketDetailBody({ packetId, onOpenLoan }: { packetId: number; o
         style={{ marginTop: 10, marginBottom: 14 }}
         items={[
           { k: "Loan", v: `${p.loan?.loanNumber ?? `#${p.loanId}`}${p.loan?.customer?.name ? ` · ${p.loan.customer.name}` : ""}` },
+          { k: "Loan status", v: loanStatus || "—", color: loanStatus === "Rejected" ? C.red : undefined },
           { k: "Branch", v: p.loan?.branch?.name ?? "—" },
           { k: "Current locker", v: lockerCode(p.currentLockerId) ?? "—" },
           { k: "Gross / Net weight", v: `${g(grossWeight)} / ${g(netWeight)}` },

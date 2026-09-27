@@ -14,6 +14,8 @@ export function ErrorText({ children }: { children?: string | null }) {
   if (!children) return null;
   return <Txt style={{ color: C.red, fontSize: 12, fontWeight: "600", marginBottom: 10 }}>{children}</Txt>;
 }
+// Sits in a Sheet's sticky footer, right above the action button.
+(ErrorText as { stickyFooter?: boolean }).stickyFooter = true;
 
 /** Everything a change on one loan can affect — the loan itself, its auction
  * case, approvals, requests (prefix also refreshes the Requests list), bank
@@ -32,5 +34,14 @@ export function invalidateLoan(qc: QueryClient, loanId: number | string) {
 // Payment types accepted by backend/internal/loan/model.go's PaymentType*
 // constants — Auction Sale/Write-Off are system-generated only, never
 // staff-entered here (mirrors frontend/components/modals/PaymentModal.tsx).
-export const PAYMENT_TYPES = ["Interest", "Principal", "Partial", "Full Settlement", "Adjustment", "Waiver"] as const;
+// Same order and wording as the web's "Apply payment to" list
+// (frontend/common/components/modals/PaymentModal.tsx ALLOCATION_MODES).
+export const PAYMENT_TYPES = ["Partial", "Interest", "Penal Interest", "Principal", "Full Settlement"] as const;
 export type PaymentType = (typeof PAYMENT_TYPES)[number];
+export const PAYMENT_TYPE_LABELS: Record<PaymentType, string> = {
+  Partial: "Both — interest, then principal",
+  Interest: "Interest only",
+  "Penal Interest": "Penal interest only",
+  Principal: "Principal only",
+  "Full Settlement": "Full settlement — close the loan",
+};

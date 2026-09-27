@@ -15,8 +15,6 @@ export const TENANT_MODULES = {
   settings: "settings",
   branches: "branches",
   demoReset: "demo_reset",
-  personalLoans: "personal_loans",
-  investments: "investments",
 } as const;
 
 export type TenantModule = (typeof TENANT_MODULES)[keyof typeof TENANT_MODULES];
@@ -25,8 +23,6 @@ export type TenantModule = (typeof TENANT_MODULES)[keyof typeof TENANT_MODULES];
 export const ROUTE_TENANT_MODULE: Record<string, TenantModule> = {
   settings: TENANT_MODULES.settings,
   branches: TENANT_MODULES.branches,
-  "personal-loans": TENANT_MODULES.personalLoans,
-  investments: TENANT_MODULES.investments,
 };
 
 /** Whether a top-level route is available to this business. Routes with no

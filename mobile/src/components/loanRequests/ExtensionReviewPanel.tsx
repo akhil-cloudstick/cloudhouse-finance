@@ -1,7 +1,7 @@
 import React, { useState } from "react";
 import { View } from "react-native";
 import { useMutation } from "@tanstack/react-query";
-import { BtnRow2, C, FieldGrid, PrimaryButton, ReviewWarning, Stepper, TextField, Txt } from "../ui";
+import { BtnRow2, C, ConfirmSheet, FieldGrid, PrimaryButton, ReviewWarning, SheetFooter, Stepper, TextField, Txt, toast } from "../ui";
 import { useAuth } from "../../auth/AuthContext";
 import {
   approveExtensionRequest,
@@ -43,14 +43,21 @@ export function ExtensionReviewPanel({
   const canActOnStage = !!stageKey && can("Loan_Extension_Approval", EXTENSION_STAGE_PERMISSIONS[stageKey]);
   const l = loan ?? request.loan;
 
+  // Reject goes through a themed confirm (with the reason) first.
+  const [confirmReject, setConfirmReject] = useState(false);
   const decide = useMutation({
-    mutationFn: (action: "Approved" | "Rejected") =>
-      approveExtensionRequest(request.id, { stage: stageKey!, action, remarks: remarks.trim() || undefined }),
-    onSuccess: () => {
+    mutationFn: ({ action, note }: { action: "Approved" | "Rejected"; note: string }) =>
+      approveExtensionRequest(request.id, { stage: stageKey!, action, remarks: note.trim() || undefined }),
+    onSuccess: (_d, v) => {
       setRemarks("");
+      setConfirmReject(false);
+      toast.success(v.action === "Rejected" ? "Extension request rejected" : "Extension request approved");
       onSaved();
     },
-    onError: (err) => onError(err instanceof ApiError ? err.message : "Could not record the decision — try again."),
+    onError: (err) => {
+      setConfirmReject(false);
+      onError(err instanceof ApiError ? err.message : "Could not record the decision — try again.");
+    },
   });
 
   const currentIdx = stageKey ? EXTENSION_STAGES.indexOf(stageKey) : EXTENSION_STAGES.length;
@@ -84,15 +91,28 @@ export function ExtensionReviewPanel({
       {request.status === "Pending" && stageKey && canActOnStage && canDecide ? (
         <>
           <TextField label="Decision remarks (optional)" placeholder="Add a note" value={remarks} onChangeText={setRemarks} />
-          <BtnRow2>
-            <PrimaryButton label="Reject" variant="reject" onPress={() => decide.mutate("Rejected")} loading={decide.isPending && decide.variables === "Rejected"} disabled={decide.isPending} />
-            <PrimaryButton
-              label={`Approve (${EXTENSION_STAGE_LABELS[stageKey]})`}
-              onPress={() => decide.mutate("Approved")}
-              loading={decide.isPending && decide.variables === "Approved"}
-              disabled={decide.isPending}
-            />
-          </BtnRow2>
+          <SheetFooter>
+            <BtnRow2>
+              <PrimaryButton label="Reject" variant="reject" onPress={() => setConfirmReject(true)} disabled={decide.isPending} />
+              <PrimaryButton
+                label="Approve"
+                onPress={() => decide.mutate({ action: "Approved", note: remarks })}
+                loading={decide.isPending && decide.variables?.action === "Approved"}
+                disabled={decide.isPending}
+              />
+            </BtnRow2>
+          </SheetFooter>
+          <ConfirmSheet
+            visible={confirmReject}
+            onClose={() => setConfirmReject(false)}
+            title="Reject Extension"
+            danger
+            message="Reject this extension request? The loan keeps its current due date."
+            remarks={{ label: "Reason (optional)", placeholder: "Why is this request being rejected?", initial: remarks }}
+            confirmLabel="Reject Request"
+            loading={decide.isPending && decide.variables?.action === "Rejected"}
+            onConfirm={(note) => decide.mutate({ action: "Rejected", note })}
+          />
         </>
       ) : null}
     </View>

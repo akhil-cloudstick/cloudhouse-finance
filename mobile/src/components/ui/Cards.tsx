@@ -134,7 +134,9 @@ export function Stepper({ steps, current, allDone }: { steps: string[]; current:
         const done = allDone || i < current;
         const cur = !allDone && i === current;
         return (
-          <View key={label} style={s.step}>
+          // Each step's connector reaches back into the previous step's cell;
+          // stacking earlier steps above later ones keeps it UNDER that dot.
+          <View key={label} style={[s.step, { zIndex: steps.length - i }]}>
             {i > 0 ? <View style={[s.stepLine, done && { backgroundColor: C.brandDeep }]} /> : null}
             <View style={[s.stepDot, done && { backgroundColor: C.brandDeep }, cur && { backgroundColor: C.accent }]}>
               {done ? <PIcon name="check" color="#fff" size={12} strokeWidth={3} /> : <Txt style={[s.stepDotTxt, cur && { color: "#fff" }]}>{i + 1}</Txt>}
@@ -285,8 +287,9 @@ const s = StyleSheet.create({
   closingF: { color: "#fff", fontSize: 11, opacity: 0.75, marginTop: 6 },
   stepper: { flexDirection: "row", alignItems: "flex-start", paddingVertical: 6, paddingHorizontal: 2 },
   step: { flex: 1, alignItems: "center" },
-  stepLine: { position: "absolute", top: 11, right: "50%", width: "100%", height: 2, backgroundColor: C.line },
-  stepDot: { width: 22, height: 22, borderRadius: 11, backgroundColor: C.line, alignItems: "center", justifyContent: "center", marginBottom: 6 },
+  stepLine: { position: "absolute", top: 13, right: "50%", width: "100%", height: 2, backgroundColor: C.line },
+  // The card-coloured ring leaves a clean gap where the connector meets the dot.
+  stepDot: { width: 28, height: 28, borderRadius: 14, borderWidth: 3, borderColor: C.card, backgroundColor: C.line, alignItems: "center", justifyContent: "center", marginBottom: 4 },
   stepDotTxt: { fontSize: 10, fontWeight: "800", color: C.muted },
   stepLabel: { fontSize: 9.5, fontWeight: "700", color: C.muted, textAlign: "center", lineHeight: 11.5 },
   calRow: { flexDirection: "row", justifyContent: "space-between" },

@@ -9,14 +9,15 @@ import {
   EmptyText,
   FlatHeader,
   NoticeBanner,
-  PillButton,
-  PillTabs,
+  FabCorner,
+  PIcon,
   PrimaryButton,
   PScroll,
   Screen,
   SearchInput,
   SectionTitle,
   Sheet,
+  SheetListItem,
   TextField,
   Txt,
 } from "../../src/components/ui";
@@ -35,10 +36,11 @@ import {
   type PermissionRow,
   type Role,
 } from "../../src/api/roles";
+import { userMessage } from "../../src/api/errors";
 
 // Roles & Permissions — not drawn in the prototype; mobile port of
 // frontend/modules/roles/components/RolesPermissions.tsx restyled in the
-// prototype's language: role PillTabs, SearchInput (server-side `search`),
+// prototype's language: a role picker sheet, SearchInput (server-side `search`),
 // per-module cards of CheckItem permission rows, and Sheets for new /
 // edit role. Same gates: can_view_role_and_permission on the page, plus
 // create / update / delete role; system roles are read-only.
@@ -187,6 +189,7 @@ export default function RolesPermissionsScreen() {
   const [saving, setSaving] = useState(false);
   const [pending, setPending] = useState<Record<number, boolean>>({});
   const [showNewRole, setShowNewRole] = useState(false);
+  const [pickerOpen, setPickerOpen] = useState(false);
   const [editVisible, setEditVisible] = useState(false);
 
   function loadRoles(selectId?: number) {
@@ -199,7 +202,7 @@ export default function RolesPermissionsScreen() {
           setRoleId(list[0].id);
         }
       })
-      .catch((e) => setError(e instanceof Error ? e.message : "Failed to load roles."));
+      .catch((e) => setError(userMessage(e, "Could not load roles — pull down to try again.")));
   }
 
   useEffect(() => {
@@ -229,6 +232,7 @@ export default function RolesPermissionsScreen() {
   useResetOnBlur(() => {
     setShowNewRole(false);
     setEditVisible(false);
+    setPickerOpen(false);
   });
 
   const effective = useMemo(() => {
@@ -279,7 +283,7 @@ export default function RolesPermissionsScreen() {
     }
   }
 
-  const header = <FlatHeader title="Roles & Permissions" subtitle="What each role can do" back />;
+  const header = <FlatHeader title="Roles & Permissions" subtitle="What each role can do" />;
 
   if (!canView) {
     return (
@@ -294,24 +298,35 @@ export default function RolesPermissionsScreen() {
   const pendingCount = Object.keys(pending).length;
   const moduleEntries = Object.entries(effective ?? {});
   const editable = canUpdateRole && !!role && !role.isSystem;
-  const roleKeys = (roles ?? []).map((r) => String(r.id));
-  const roleLabels = Object.fromEntries((roles ?? []).map((r) => [String(r.id), `${r.name}${r.isSystem ? " (system)" : ""}`]));
+  const selectedRole = (roles ?? []).find((r) => r.id === roleId) ?? null;
+  const canEditRole = (canUpdateRole || canDeleteRole) && !!role && !role.isSystem;
 
   return (
-    <Screen header={header}>
-      <PScroll>
+    <Screen
+      header={header}
+      floating={
+        <>
+          {canEditRole ? <FabCorner side="left" icon="edit" caption="Edit Role" label="Edit role" onPress={() => setEditVisible(true)} /> : null}
+          {canCreateRole ? <FabCorner label="New role" onPress={() => setShowNewRole(true)} /> : null}
+        </>
+      }
+    >
+      <PScroll extraBottom={60}>
         {roles == null && !error ? (
           <Buffering block />
         ) : (
-          <PillTabs tabs={roleKeys} value={roleId != null ? String(roleId) : ""} onChange={(v) => setRoleId(Number(v))} labels={roleLabels} />
+          // The role is picked from a rise-up list rather than a tab strip.
+          <Card style={{ marginTop: 14, marginBottom: 0, paddingVertical: 4 }}>
+            <SheetListItem
+              first
+              icon="shield"
+              title={selectedRole ? `${selectedRole.name}${selectedRole.isSystem ? " (system)" : ""}` : "Select a role"}
+              sub={`${(roles ?? []).length} role${(roles ?? []).length === 1 ? "" : "s"} · tap to switch`}
+              onPress={() => setPickerOpen(true)}
+              right={<PIcon name="chevdown" color={C.brandDeep} />}
+            />
+          </Card>
         )}
-
-        {canCreateRole || ((canUpdateRole || canDeleteRole) && role && !role.isSystem) ? (
-          <View style={{ flexDirection: "row", gap: 8, paddingHorizontal: 18, paddingTop: 12 }}>
-            {canCreateRole ? <PillButton label="+ New Role" onPress={() => setShowNewRole(true)} /> : null}
-            {(canUpdateRole || canDeleteRole) && role && !role.isSystem ? <PillButton label="Edit Role" onPress={() => setEditVisible(true)} /> : null}
-          </View>
-        ) : null}
 
         <SearchInput value={search} onChangeText={setSearch} placeholder="Search permissions, e.g. loan" style={{ paddingTop: 12 }} />
 
@@ -357,6 +372,22 @@ export default function RolesPermissionsScreen() {
         ))}
       </PScroll>
 
+      <Sheet visible={pickerOpen} onClose={() => setPickerOpen(false)} title="Select Role" maxHeightPct={75}>
+        {(roles ?? []).map((r, i) => (
+          <SheetListItem
+            key={r.id}
+            first={i === 0}
+            icon="shield"
+            title={r.name}
+            sub={r.isSystem ? "System role · read-only" : r.description || "Custom role"}
+            onPress={() => {
+              setRoleId(r.id);
+              setPickerOpen(false);
+            }}
+            right={r.id === roleId ? <PIcon name="check" color={C.brandDeep} /> : undefined}
+          />
+        ))}
+      </Sheet>
       <NewRoleSheet
         visible={showNewRole}
         onClose={() => setShowNewRole(false)}

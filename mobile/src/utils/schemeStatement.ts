@@ -3,6 +3,7 @@ import * as Sharing from "expo-sharing";
 import * as Print from "expo-print";
 import { API_BASE_URL } from "../api/config";
 import { getToken } from "../auth/tokenStorage";
+import { ApiError } from "../api/client";
 
 // goldWeight/goldRate: the prototype statement sheet's optional
 // "filter by weight / rate" inputs — sent as params; ignored by a backend
@@ -38,7 +39,7 @@ async function downloadToCache(
     { headers: token ? { Authorization: `Bearer ${token}` } : {} }
   );
   if (result.status < 200 || result.status >= 300) {
-    throw new Error(`Could not download statement (${result.status})`);
+    throw new ApiError(result.status, "", undefined);
   }
   return result.uri;
 }

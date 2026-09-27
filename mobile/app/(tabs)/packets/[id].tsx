@@ -1,8 +1,8 @@
 import React from "react";
 import { View } from "react-native";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useLocalSearchParams, useRouter } from "expo-router";
-import { FlatHeader, PScroll, Screen } from "../../../src/components/ui";
+import { useLocalSearchParams } from "expo-router";
+import { FlatHeader, PScroll, Screen, openPage } from "../../../src/components/ui";
 import { PacketDetailBody } from "../../../src/components/staff/PacketDetail";
 import { getPacket } from "../../../src/api/packets";
 import { useRefetchOnFocus } from "../../../src/hooks/useRefetchOnFocus";
@@ -12,7 +12,6 @@ import { useRefetchOnFocus } from "../../../src/hooks/useRefetchOnFocus";
 export default function PacketDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const packetId = Number(id);
-  const router = useRouter();
   const qc = useQueryClient();
   const packet = useQuery({ queryKey: ["packet", String(packetId)], queryFn: () => getPacket(packetId), enabled: packetId > 0 });
 
@@ -28,8 +27,7 @@ export default function PacketDetailScreen() {
           <PacketDetailBody
             packetId={packetId}
             onOpenLoan={(loanId) => {
-              router.push("/loans" as never);
-              router.push(`/loans/${loanId}` as never);
+              openPage(`/loans/${loanId}`);
             }}
           />
         </View>

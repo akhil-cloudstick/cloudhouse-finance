@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { useLocalSearchParams, useRouter } from "expo-router";
-import { CountLine, CustRow, FabCorner, FlatHeader, Screen, SearchInput, ServerFlatList, useShell } from "../../../src/components/ui";
+import { AccRow, CountLine, FabCorner, FlatHeader, Screen, SearchInput, ServerFlatList } from "../../../src/components/ui";
+import { dmy } from "../../../src/lib/format";
 import { CustomerFormSheet } from "../../../src/components/staff/CustomerFormSheet";
 import { useServerList } from "../../../src/hooks/useServerList";
 import { useResetOnBlur } from "../../../src/hooks/useRefetchOnFocus";
@@ -13,7 +14,6 @@ import type { Customer } from "../../../src/types/customer";
 // Customer quick action, via ?register=1) opens the Register Customer sheet.
 export default function CustomersScreen() {
   const router = useRouter();
-  const shell = useShell();
   const params = useLocalSearchParams<{ register?: string }>();
   const [registerOpen, setRegisterOpen] = useState(false);
 
@@ -35,7 +35,6 @@ export default function CustomersScreen() {
         <FlatHeader
           title="Customers"
           subtitle={total != null ? `${total} total` : undefined}
-          icons={[{ icon: "search", onPress: shell.openSearch, label: "Search" }]}
         />
       }
       floating={<FabCorner onPress={() => setRegisterOpen(true)} label="Register customer" />}
@@ -43,7 +42,6 @@ export default function CustomersScreen() {
       <ServerFlatList
         list={list}
         items={list.items}
-        gutter={0}
         keyOf={(c) => String(c.id)}
         emptyText={list.search ? "No customers match your search." : "No customers yet."}
         header={
@@ -57,8 +55,21 @@ export default function CustomersScreen() {
             />
           </>
         }
-        renderItem={(c) => (
-          <CustRow name={c.name} sub={[c.code, c.phone].filter(Boolean).join(" · ")} onPress={() => router.push(`/customers/${c.id}` as never)} />
+        renderItem={(c, i) => (
+          <AccRow
+            defaultOpen={i === 0}
+            id={c.code}
+            name={c.name}
+            sub={c.phone || undefined}
+            status={c.kycStatus || undefined}
+            details={[
+              { k: "Phone", v: c.phone || "—" },
+              { k: "Branch", v: c.branch?.name || "—" },
+              { k: "KYC status", v: c.kycStatus || "—" },
+              { k: "Added on", v: c.createdAt ? dmy(c.createdAt) : "—" },
+            ]}
+            actions={[{ label: "View Customer", primary: true, onPress: () => router.push(`/customers/${c.id}` as never) }]}
+          />
         )}
       />
 

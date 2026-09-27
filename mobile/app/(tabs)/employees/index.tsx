@@ -1,12 +1,11 @@
 import React, { useEffect, useState } from "react";
-import { useRouter } from "expo-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
+  AccRow,
   Buffering,
   C,
   Card,
   CountLine,
-  CustRow,
   DetailRow,
   EmptyText,
   FabCorner,
@@ -21,6 +20,7 @@ import {
   SheetListItem,
   TextField,
   Txt,
+  openPage,
 } from "../../../src/components/ui";
 import { useServerList } from "../../../src/hooks/useServerList";
 import { createEmployee, deleteEmployee, getEmployee, listEmployeesPage, updateEmployee } from "../../../src/api/employees";
@@ -85,7 +85,6 @@ function EmployeeDetailSheet({
   onClose: () => void;
   onEdit: (e: Employee) => void;
 }) {
-  const router = useRouter();
   const queryClient = useQueryClient();
   const [confirm, setConfirm] = useState(false);
   const q = useQuery({ queryKey: ["employee", String(id)], queryFn: () => getEmployee(id!), enabled: id != null });
@@ -132,7 +131,7 @@ function EmployeeDetailSheet({
             sub={`What a ${e.role} can do`}
             onPress={() => {
               onClose();
-              router.push("/roles" as never);
+              openPage("/roles");
             }}
           />
           <PrimaryButton
@@ -162,7 +161,7 @@ export default function EmployeesScreen() {
 
   return (
     <Screen
-      header={<FlatHeader title="Employees" subtitle="Staff accounts & roles" back />}
+      header={<FlatHeader title="Employees" subtitle="Staff accounts & roles" />}
       floating={
         <FabCorner
           label="Add employee"
@@ -176,7 +175,6 @@ export default function EmployeesScreen() {
       <ServerFlatList
         list={list}
         items={list.items}
-        gutter={0}
         keyOf={(e) => String(e.id)}
         emptyText={list.search ? "No employees match your search." : "No employees found."}
         header={
@@ -185,11 +183,31 @@ export default function EmployeesScreen() {
             <SearchInput value={list.search} onChangeText={list.setSearch} placeholder="Search by employee name, ID, or phone" />
           </>
         }
-        renderItem={(e) => (
-          <CustRow
+        renderItem={(e, i) => (
+          <AccRow
+            defaultOpen={i === 0}
+            id={e.code || undefined}
             name={e.name}
-            sub={[e.code, e.role, e.phone].filter(Boolean).join(" · ")}
-            onPress={() => setDetailId(e.id)}
+            sub={e.branch?.name}
+            status={e.role}
+            statusTone="info"
+            details={[
+              { k: "Phone", v: e.phone || "—" },
+              { k: "Email", v: e.email || "—" },
+              { k: "Username", v: e.username || "—" },
+              { k: "Loans processed", v: String(e.loansProcessed ?? 0) },
+            ]}
+            actions={[
+              { label: "View", onPress: () => setDetailId(e.id) },
+              {
+                label: "Edit Employee",
+                primary: true,
+                onPress: () => {
+                  setEditing(e);
+                  setFormOpen(true);
+                },
+              },
+            ]}
           />
         )}
       />

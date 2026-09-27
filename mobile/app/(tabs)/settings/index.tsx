@@ -101,7 +101,7 @@ export default function SettingsScreen() {
 
   return (
     <Screen
-      header={<FlatHeader title="Settings" subtitle="API keys & integrations" back />}
+      header={<FlatHeader title="Settings" subtitle="API keys & integrations" />}
       floating={
         <FabCorner
           label="Add API key"

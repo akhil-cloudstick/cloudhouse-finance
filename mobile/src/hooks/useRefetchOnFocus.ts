@@ -1,4 +1,4 @@
-import { useCallback, useRef } from "react";
+import { useCallback, useLayoutEffect, useRef } from "react";
 import { useFocusEffect } from "expo-router";
 
 // React Query's `refetchOnWindowFocus` (on by default) only fires off a
@@ -16,16 +16,30 @@ import { useFocusEffect } from "expo-router";
 // window focus. Pass the `refetch` function(s) a `useQuery`/
 // `useInfiniteQuery` call returns; a screen with several independent
 // queries just lists all of them.
-export function useRefetchOnFocus(...refetches: Array<() => void>) {
+//
+// The FIRST focus is skipped: the query's own mount already fetches, and
+// refetching 300 ms into that load cancelled and restarted it — the page
+// painted, then showed the buffering spinner and loaded a second time.
+// Later focuses never cancel a fetch that's still in flight either.
+type Refetch = (opts?: { cancelRefetch?: boolean }) => unknown;
+export function useRefetchOnFocus(...refetches: Refetch[]) {
+  const focusedOnce = useRef(false);
+  const latest = useRef(refetches);
+  useLayoutEffect(() => {
+    latest.current = refetches;
+  });
   useFocusEffect(
     useCallback(() => {
+      if (!focusedOnce.current) {
+        focusedOnce.current = true;
+        return;
+      }
       // Deferred a beat so the newly focused screen paints before N network
       // requests and their re-renders compete with it (tab switches felt
       // laggy). Cancelled if the screen loses focus first.
-      const t = setTimeout(() => refetches.forEach((r) => r()), 300);
+      const t = setTimeout(() => latest.current.forEach((r) => r({ cancelRefetch: false })), 300);
       return () => clearTimeout(t);
-      // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, refetches)
+    }, [])
   );
 }
 

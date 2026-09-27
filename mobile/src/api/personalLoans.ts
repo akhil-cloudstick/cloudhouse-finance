@@ -105,6 +105,9 @@ export type CreatePersonalLoanInput = {
   penalInterestRate?: number;
   // Omit or 0 for no grace period.
   gracePeriodDays?: number;
+  // true: hand over the full principal now (no interest withheld upfront);
+  // the customer then owes Principal + Interest. Default false.
+  fullDisbursement?: boolean;
 };
 
 export function createPersonalLoan(input: CreatePersonalLoanInput) {

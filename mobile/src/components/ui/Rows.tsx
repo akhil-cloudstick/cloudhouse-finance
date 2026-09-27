@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { createContext, useContext, useId, useMemo, useState } from "react";
 import { LayoutAnimation, Pressable, StyleSheet, View, type StyleProp, type ViewStyle } from "react-native";
 import { C, Txt, initialsOf } from "./base";
 import { PIcon } from "./PIcon";
@@ -8,6 +8,22 @@ const expandAnim = () => LayoutAnimation.configureNext(LayoutAnimation.create(25
 
 export type AccDetail = { k: string; v: React.ReactNode; color?: string };
 export type AccAction = { label: string; onPress: () => void; primary?: boolean; danger?: boolean; disabled?: boolean };
+
+// ---- one-open-at-a-time accordion -----------------------------------------
+// Rows inside an <AccGroup> share a single "open" slot: opening a row closes
+// whichever was open before. ServerFlatList wraps every list in one, and
+// gives each row its item key (AccRowKey) so the open row survives the list
+// virtualising it off-screen and back.
+type AccGroupState = { open: string | null | undefined; setOpen: (k: string | null) => void };
+const AccGroupContext = createContext<AccGroupState | null>(null);
+export const AccRowKey = createContext<string | null>(null);
+
+export function AccGroup({ children }: { children: React.ReactNode }) {
+  // undefined = nothing touched yet, so rows marked defaultOpen are open.
+  const [open, setOpen] = useState<string | null | undefined>(undefined);
+  const value = useMemo(() => ({ open, setOpen }), [open]);
+  return <AccGroupContext.Provider value={value}>{children}</AccGroupContext.Provider>;
+}
 
 /** .acc-row — the accordion table row every list in the prototype uses:
  * id | name + sub | amount + status chip | chevron, expanding to a 2-col
@@ -42,7 +58,13 @@ export function AccRow({
   onPress?: () => void;
   style?: StyleProp<ViewStyle>;
 }) {
-  const [open, setOpen] = useState(!!defaultOpen);
+  const group = useContext(AccGroupContext);
+  const itemKey = useContext(AccRowKey);
+  const autoId = useId();
+  const rowKey = itemKey ?? autoId;
+  const [ownOpen, setOwnOpen] = useState(!!defaultOpen);
+  const open = group ? (group.open === undefined ? !!defaultOpen : group.open === rowKey) : ownOpen;
+  const setOpen = (next: boolean) => (group ? group.setOpen(next ? rowKey : null) : setOwnOpen(next));
   const expandable = !onPress && ((details && details.length > 0) || (actions && actions.length > 0));
   return (
     <View style={[s.row, style]}>
@@ -52,7 +74,7 @@ export function AccRow({
           if (onPress) return onPress();
           if (!expandable) return;
           expandAnim();
-          setOpen((o) => !o);
+          setOpen(!open);
         }}
       >
         {id ? (
@@ -306,9 +328,23 @@ export function MoveItem({ title, sub, date, first }: { title: string; sub?: str
 }
 
 /** .repay-item / .grm-history-item — label left, value right. */
-export function RepayItem({ label, value, labelColor, valueColor, first }: { label: string; value: string; labelColor?: string; valueColor?: string; first?: boolean }) {
+export function RepayItem({
+  label,
+  value,
+  labelColor,
+  valueColor,
+  first,
+  style,
+}: {
+  label: string;
+  value: string;
+  labelColor?: string;
+  valueColor?: string;
+  first?: boolean;
+  style?: StyleProp<ViewStyle>;
+}) {
   return (
-    <View style={[s.repay, !first && s.actBorder]}>
+    <View style={[s.repay, !first && s.actBorder, style]}>
       <Txt style={[s.repayD, labelColor ? { color: labelColor } : null]}>{label}</Txt>
       <Txt style={[s.repayV, valueColor ? { color: valueColor } : null]}>{value}</Txt>
     </View>

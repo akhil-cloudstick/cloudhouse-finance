@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { useQueries } from "@tanstack/react-query";
-import { useLocalSearchParams, useRouter } from "expo-router";
+import { useLocalSearchParams } from "expo-router";
 import {
   AccRow,
   C,
@@ -17,6 +17,7 @@ import {
   ServerFlatList,
   Sheet,
   Txt,
+  openPage,
 } from "../../../src/components/ui";
 import { PacketDetailSheet } from "../../../src/components/staff/PacketDetail";
 import { LockerDetailSheet, LockerFormSheet, lockerStatus } from "../../../src/components/staff/LockerSheets";
@@ -48,7 +49,6 @@ const LKR_PARAM: Record<LkrStatus, "active" | "full" | "inactive" | undefined> =
 const AUCTIONED_LOAN = ["Auctioned", "Auctioned - Balance Due"];
 
 export default function PacketsScreen() {
-  const router = useRouter();
   const params = useLocalSearchParams<{ tab?: string; lockerId?: string }>();
   const { can } = useAuth();
   const canViewPackets = can("Packet_Management", "can_view_packet");
@@ -75,8 +75,7 @@ export default function PacketsScreen() {
   const openLoan = (loanId: number) => {
     setPacketId(null);
     setLockerDetail(null);
-    router.push("/loans" as never);
-    router.push(`/loans/${loanId}` as never);
+    openPage(`/loans/${loanId}`);
   };
 
   // QR label → packet lookup (GET /packets/by-code), opens its sheet.
@@ -106,7 +105,6 @@ export default function PacketsScreen() {
         <FlatHeader
           title="Packets & Lockers"
           subtitle="Ornament custody tracking"
-          back
           icons={canViewPackets ? [{ icon: "scan", onPress: () => setScannerOpen(true), label: "Scan packet label" }] : []}
         />
       }
@@ -211,7 +209,7 @@ function PacketsTab({ header, lockerIdParam, onOpen }: { header: React.ReactNode
           return (
             <PktCard
               code={p.code}
-              status={auctioned ? "Auctioned" : p.status}
+              status={auctioned ? "Auctioned" : p.loan?.status === "Rejected" ? "Rejected" : p.status}
               loan={p.loan?.loanNumber ?? `Loan #${p.loanId}`}
               customer={p.loan?.customer?.name ?? "—"}
               items={items}

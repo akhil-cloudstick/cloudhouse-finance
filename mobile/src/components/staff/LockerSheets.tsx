@@ -192,7 +192,7 @@ export function LockerFormSheet({ visible, editing, onClose }: { visible: boolea
         label="Branch"
         placeholder="Search branch"
         queryKey={["branches", "locker-picker"]}
-        fetcher={async (q) => ((await listBranchesPage({ q: q || undefined, limit: 20, offset: 0 })).items ?? []).filter((b) => b.isActive || b.id === branch?.id)}
+        fetcher={async (q) => (await listBranchesPage({ q: q || undefined, active: true, limit: 20, offset: 0 })).items ?? []}
         selectedLabel={branch ? branch.name ?? (branch.id === employee?.branchId ? "Your branch" : `Branch #${branch.id}`) : undefined}
         onSelect={(b) => setBranch({ id: b.id, name: b.name })}
         keyOf={(b) => b.id}

@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { Alert, View } from "react-native";
+import { View } from "react-native";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   AccRow,
@@ -10,7 +10,7 @@ import {
   Card,
   ChipToggle,
   EmptyText,
-  FabCorner,
+  FabMenu,
   Field,
   FieldGrid,
   FieldRow,
@@ -29,6 +29,7 @@ import {
   StatusChip,
   ThemeDropdown,
   Txt,
+  toast,
 } from "../../../src/components/ui";
 import { useServerList } from "../../../src/hooks/useServerList";
 import { useAuth } from "../../../src/auth/AuthContext";
@@ -52,7 +53,7 @@ import {
   type CreatePlanInput,
   type PaymentMode,
 } from "../../../src/api/investments";
-import { downloadInvestmentBondPdf, previewInvestmentBondPdf } from "../../../src/utils/investmentBond";
+import { previewInvestmentBondPdf } from "../../../src/utils/investmentBond";
 import { dmy, inr } from "../../../src/lib/format";
 import type { Customer } from "../../../src/types/customer";
 import type {
@@ -66,6 +67,7 @@ import type {
   InterestRateType,
   PayoutFrequency,
 } from "../../../src/types/investment";
+import { isUserCancel, userMessage } from "../../../src/api/errors";
 
 // Investments — prototype #header-investments + #page-investments and the
 // inv-filter / inv-create / investment-plans / inv-plan-create / inv-detail /
@@ -79,7 +81,7 @@ const WITHDRAW_FROM = ["Interest", "Principal", "Both"] as const;
 
 type Filters = { status?: InvestmentStatus };
 
-const errMsg = (err: unknown, fallback: string) => (err instanceof ApiError ? err.message : err instanceof Error ? err.message : fallback);
+const errMsg = (err: unknown, fallback: string) => userMessage(err, fallback);
 const planLabel = (p: InvestmentPlan) => `${p.name} — ${p.interestRatePercent}% · ${p.engine === "Live" ? "Single payout" : p.payoutFrequency} · ${p.tenureMonths}mo`;
 
 export default function InvestmentsScreen() {
@@ -104,11 +106,20 @@ export default function InvestmentsScreen() {
         <FlatHeader
           title="Investments"
           subtitle="Deposits, plans & payouts"
-          back
-          icons={canUpdate ? [{ icon: "layers", onPress: () => setPlansOpen(true), label: "Investment plans" }] : []}
         />
       }
-      floating={canCreate ? <FabCorner onPress={() => setCreateOpen(true)} label="Create investment" /> : null}
+      floating={
+        // One corner button that opens upward into both actions.
+        canCreate || canUpdate ? (
+          <FabMenu
+            label="Investment actions"
+            actions={[
+              ...(canCreate ? [{ label: "New Investment", icon: "plus", onPress: () => setCreateOpen(true) }] : []),
+              ...(canUpdate ? [{ label: "Plans", icon: "layers", onPress: () => setPlansOpen(true) }] : []),
+            ]}
+          />
+        ) : null
+      }
     >
       <ServerFlatList
         list={list}
@@ -238,7 +249,8 @@ function PlansSheet({ visible, onClose }: { visible: boolean; onClose: () => voi
             <SheetListItem
               first={i === 0}
               icon="layers"
-              title={p.isActive ? p.name : `${p.name} (Retired)`}
+              title={p.name}
+              right={<StatusChip label={p.isActive ? "Active" : "Inactive"} tone={p.isActive ? "active" : "closed"} />}
               sub={`${p.interestRatePercent}% ${p.interestRateType} · ${p.engine === "Live" ? "Single payout" : `${p.payoutFrequency} payout`} · ${p.tenureMonths}mo · Min ${inr(p.minPrincipal)}`}
               onPress={() =>
                 setForm({
@@ -347,7 +359,7 @@ function PlanFormSheet({ form, setForm }: { form: PlanForm | null; setForm: (f: 
             </Field>
           </FieldRow>
           <Field label="Status">
-            <ChipToggle options={["Active", "Retired"] as const} value={f.isActive ? "Active" : "Retired"} onChange={(v) => setForm({ ...f, isActive: v === "Active" })} />
+            <ChipToggle options={["Active", "Inactive"] as const} value={f.isActive ? "Active" : "Inactive"} onChange={(v) => setForm({ ...f, isActive: v === "Active" })} />
           </Field>
           {error ? <Txt style={{ fontSize: 12, color: C.red, marginBottom: 10 }}>{error}</Txt> : null}
           <PrimaryButton
@@ -465,7 +477,6 @@ function InvestmentDetailSheet({ investmentId, onClose, canUpdate }: { investmen
   const [action, setAction] = useState<"addCash" | "withdraw" | "mature" | null>(null);
   const [payout, setPayout] = useState<InvestmentPayout | null>(null);
   const [printing, setPrinting] = useState(false);
-  const [downloading, setDownloading] = useState(false);
 
   const investment = useQuery({ queryKey: ["investment", String(id)], queryFn: () => getInvestment(id), enabled: visible });
   const inv = investment.data;
@@ -500,20 +511,10 @@ function InvestmentDetailSheet({ investmentId, onClose, canUpdate }: { investmen
     try {
       await previewInvestmentBondPdf(inv.id, inv.investmentNumber);
     } catch (e) {
-      Alert.alert("Preview failed", errMsg(e, "Could not open the agreement."));
+      if (isUserCancel(e)) return;
+      toast.error("Preview failed", errMsg(e, "Could not open the agreement."));
     } finally {
       setPrinting(false);
-    }
-  }
-  async function downloadBond() {
-    if (!inv) return;
-    setDownloading(true);
-    try {
-      await downloadInvestmentBondPdf(inv.id, inv.investmentNumber);
-    } catch (e) {
-      Alert.alert("Download failed", errMsg(e, "Could not download the agreement."));
-    } finally {
-      setDownloading(false);
     }
   }
 
@@ -553,10 +554,7 @@ function InvestmentDetailSheet({ investmentId, onClose, canUpdate }: { investmen
         </NoticeBanner>
       ) : null}
       {inv.plan?.productType === "Bond" ? (
-        <BtnRow2 style={{ marginBottom: 10 }}>
-          <PrimaryButton label="Print Agreement" variant="outline" loading={printing} onPress={printBond} />
-          <PrimaryButton label="Download Agreement" variant="outline" loading={downloading} onPress={downloadBond} />
-        </BtnRow2>
+        <PrimaryButton label="Print Agreement" variant="outline" loading={printing} onPress={printBond} style={{ marginBottom: 10 }} />
       ) : null}
       {canUpdate && inv.status === "Active" && isLive ? (
         <BtnRow2 style={{ marginBottom: 10 }}>

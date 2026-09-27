@@ -53,12 +53,13 @@ func (h *Handler) Create(c *gin.Context) {
 	httpx.Success(c, http.StatusCreated, rec)
 }
 
-// List backs GET /branches?q=&limit=&offset= — q matches name/code. Opt-in
+// List backs GET /branches?q=&active=&limit=&offset= — q matches name/code,
+// active=true drops deactivated branches. Opt-in
 // pagination: no limit returns the bare array (the original shape); limit
 // > 0 returns {items, hasMore, total}.
 func (h *Handler) List(c *gin.Context) {
 	ctx := platform.RequestContext(c)
-	f := Filter{BranchID: platform.GetBranchScope(c), Query: strings.TrimSpace(c.Query("q"))}
+	f := Filter{BranchID: platform.GetBranchScope(c), Query: strings.TrimSpace(c.Query("q")), ActiveOnly: c.Query("active") == "true"}
 
 	limit, _ := strconv.Atoi(c.Query("limit"))
 	if limit > 0 {

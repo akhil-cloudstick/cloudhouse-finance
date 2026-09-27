@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { View } from "react-native";
-import { useRouter, usePathname } from "expo-router";
+import { usePathname } from "expo-router";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import {
   AccBtn,
@@ -19,30 +19,24 @@ import {
   SectionTitle,
   SheetListItem,
   TextField,
-  ThemeDropdown,
   Txt,
   WarningBanner,
   ZERO_SPLIT,
   isBalanced,
   type SplitAmounts,
+  SheetFooter,
+  ConfirmSheet,
+  toast,
+  openPage,
 } from "../ui";
 import { inr, todayISO } from "../../lib/format";
 import { useAuth } from "../../auth/AuthContext";
 import { verifyReleaseChecklist, recordReleasePayment, approveReleaseRequest, RELEASE_STAGE_PERMISSIONS } from "../../api/loans";
-import { recordPayment } from "../../api/payments";
 import { listPackets } from "../../api/packets";
-import { splitForMode, PaymentMode } from "../../api/investments";
-import {
-  printReleaseAgreementPdf,
-  printPartialReleaseReceiptPdf,
-  RELEASE_AGREEMENT_LANGS,
-  DOC_LANG_LABELS,
-  type DocLang,
-} from "../../utils/loanPrint";
+import { printReleaseAgreementPdf, printPartialReleaseReceiptPdf, RELEASE_AGREEMENT_LANGS, DOC_LANG_LABELS, type DocLang } from "../../utils/loanPrint";
 import { LoanRequest, Loan } from "../../types/loan";
 import { ApiError } from "../../api/client";
 
-const MODES: PaymentMode[] = ["Cash", "UPI", "Bank Transfer", "Cheque"];
 
 // Mirrors backend partialReleaseDrift: what the remaining collateral can't
 // cover at the scheme LTV. ApproveReleaseRequest refuses a partial release
@@ -58,18 +52,7 @@ function partialReleaseDrift(outstanding: number, remainingGoldValue: number, lt
  * partial: hands back only the selected ornaments). Drawn as the prototype's
  * #release-review-modal body. Used by the loan detail screen's release sheet
  * and the Requests list sheet — props API unchanged. */
-export function ReleaseReviewPanel({
-  request,
-  loan,
-  onSaved,
-  onError,
-}: {
-  request: LoanRequest;
-  loan: Loan;
-  onSaved: () => void;
-  onError: (message: string) => void;
-}) {
-  const router = useRouter();
+export function ReleaseReviewPanel({ request, loan, onSaved, onError }: { request: LoanRequest; loan: Loan; onSaved: () => void; onError: (message: string) => void }) {
   const pathname = usePathname();
   // The Bank Pledge action this would link to is already on this very
   // screen when the panel is embedded in the loan detail page — so that
@@ -91,11 +74,8 @@ export function ReleaseReviewPanel({
   const [split, setSplit] = useState<SplitAmounts>(ZERO_SPLIT);
   const [reference, setReference] = useState("");
   const [dueDate, setDueDate] = useState(request.paymentDueDate || "");
-  const [decisionRemarks, setDecisionRemarks] = useState("");
   // Language being fetched ("partial" for the partial-release receipt).
   const [downloading, setDownloading] = useState<DocLang | "partial" | null>(null);
-  const [topUp, setTopUp] = useState("");
-  const [topUpMode, setTopUpMode] = useState<PaymentMode>("Cash");
   // Seed editable fields only when a different request arrives, so a
   // background refetch never stomps on what staff is typing.
   const [seenId, setSeenId] = useState(request.id);
@@ -104,7 +84,6 @@ export function ReleaseReviewPanel({
       setCharges(String(request.charges || 0));
       setNotes(request.verificationNotes || "");
       setDueDate(request.paymentDueDate || "");
-      setTopUp("");
       setSeenId(request.id);
     }
   }, [request, seenId]);
@@ -117,8 +96,10 @@ export function ReleaseReviewPanel({
   });
   const packetRecord = packet.data?.[0];
   const packetStatus = packetRecord?.status;
-  const goldStillHeld = loan.bankPledgeStatus === "Bank Pledged" || packetStatus === "Locker Stored";
-  const goldHeldReason = loan.bankPledgeStatus === "Bank Pledged" ? "pledged to a bank" : "checked into a locker";
+  const bankPledged = loan.bankPledgeStatus === "Bank Pledged" || !!loan.bankPledges?.some((p) => p.status === "Active");
+  const inLocker = packetStatus === "Locker Stored";
+  const goldStillHeld = bankPledged || inLocker;
+  const goldHeldReason = bankPledged ? "pledged to a bank" : "checked into a locker";
 
   const outstanding = loan.totalOutstandingBalance ?? loan.outstandingAmount;
   const ltv = loan.schemeLtvPercent ?? loan.scheme?.ltvPercent ?? 0;
@@ -137,7 +118,9 @@ export function ReleaseReviewPanel({
   const paymentConditionMet = !!request.paymentRecorded || (request.isPartial ? drift <= 0.01 : outstanding <= 0.01);
   const shortAfter = required - (+discount || 0) - (+amount || 0);
   const needsDueDate = !request.isPartial && shortAfter > 0.01;
-  const canApprove = !!request.customerSawGold && paymentConditionMet;
+  // Blocked outright while the gold is at a bank or in a locker — it has to
+  // come back (bank pledge released / packet checked out) first.
+  const canApprove = !goldStillHeld && !!request.customerSawGold && paymentConditionMet;
 
   // Prefill the amount (and an all-cash split) with what's required, once per request.
   const [prefilledFor, setPrefilledFor] = useState<number | null>(null);
@@ -201,31 +184,24 @@ export function ReleaseReviewPanel({
     onError: reportError,
   });
 
-  // Top-up for a partial release whose drift grew after the request: a plain
-  // loan payment (not against the request), then approve again.
-  const saveTopUp = useMutation({
-    mutationFn: () => {
-      const t = +topUp || 0;
-      return recordPayment(loan.id, { amount: t, type: "Partial", paidOn: todayISO(), ...splitForMode(topUpMode, t) });
-    },
-    onSuccess: () => {
-      setTopUp("");
-      onSaved();
-    },
-    onError: reportError,
-  });
-
+  // Reject goes through a themed confirm (with the reason) first.
+  const [confirmReject, setConfirmReject] = useState(false);
   const decide = useMutation({
-    mutationFn: (action: "Approved" | "Rejected") =>
-      approveReleaseRequest(request.id, { stage, action, remarks: decisionRemarks.trim() || undefined }),
-    onSuccess: () => {
-      setDecisionRemarks("");
+    mutationFn: ({ action, note }: { action: "Approved" | "Rejected"; note?: string }) =>
+      approveReleaseRequest(request.id, {
+        stage,
+        action,
+        remarks: note?.trim() || undefined,
+      }),
+    onSuccess: (_d, v) => {
+      setConfirmReject(false);
+      toast.success(v.action === "Rejected" ? "Release request rejected" : "Release approved");
       onSaved();
     },
     onError: (err) => {
-      if (err instanceof ApiError && err.status === 409 && /drift|top-up/i.test(err.message)) {
-        setTopUp(String(Math.max(0, +drift.toFixed(2))));
-        onError("The balance has drifted above what the remaining gold supports — record a top-up payment below, then approve again.");
+      setConfirmReject(false);
+      if (err instanceof ApiError && err.status === 409 && /drift|top-up/i.test(err.rawMessage)) {
+        onError("The balance has grown past what the remaining gold covers — collect the shortfall through Payment Reception, then approve again.");
       } else reportError(err);
     },
   });
@@ -265,7 +241,11 @@ export function ReleaseReviewPanel({
           { k: "Outstanding principal", v: inr(loan.outstandingAmount) },
           { k: "Outstanding interest", v: inr(loan.outstandingInterest ?? 0) },
           { k: "Penal interest", v: inr(loan.outstandingPenalInterest ?? 0) },
-          { k: request.isPartial ? "Required to release" : "Final settlement", v: inr(required), color: C.brandDeep },
+          {
+            k: request.isPartial ? "Required to release" : "Final settlement",
+            v: inr(required),
+            color: C.brandDeep,
+          },
         ]}
       />
 
@@ -311,7 +291,10 @@ export function ReleaseReviewPanel({
           variant="confirm"
           checked={!!request.customerSawGold}
           onPress={() => {
-            if (!sawGoldDisabled) saveVerification.mutate({ customerSawGold: !request.customerSawGold });
+            if (!sawGoldDisabled)
+              saveVerification.mutate({
+                customerSawGold: !request.customerSawGold,
+              });
           }}
           title="Customer has seen the gold"
           sub="Required before this request can be approved"
@@ -320,17 +303,18 @@ export function ReleaseReviewPanel({
       {goldStillHeld && isPending ? (
         <View style={{ marginBottom: 6 }}>
           <WarningBanner>
-            This loan&apos;s gold is still {goldHeldReason}, so it can&apos;t be shown to the customer yet — release it from{" "}
-            {loan.bankPledgeStatus === "Bank Pledged" ? "Bank Pledge" : "the Locker"} first.
+            Release is blocked — this loan&apos;s gold is still {goldHeldReason}. {bankPledged ? "Release the bank pledge first." : "Check the packet out of the locker first."}
           </WarningBanner>
-          {loan.bankPledgeStatus === "Bank Pledged" ? (
-            onThisLoanPage ? null : (
-              <AccBtn label="Go to Bank Pledge" onPress={() => router.push(`/loans/${loan.id}` as never)} style={{ marginBottom: 14 }} />
+          {bankPledged ? (
+            onThisLoanPage ? (
+              <Txt style={{ fontSize: 12, color: C.muted, marginBottom: 14 }}>Use Loan Actions → Bank Pledge on this page.</Txt>
+            ) : (
+              <AccBtn label="Go to Bank Pledge" onPress={() => openPage(`/loans/${loan.id}?action=bank`)} style={{ marginBottom: 14 }} />
             )
           ) : (
             <AccBtn
-              label="Go to Locker"
-              onPress={() => (packetRecord ? router.push(`/packets/${packetRecord.id}` as never) : router.push("/lockers" as never))}
+              label={packetRecord ? `Go to Packet ${packetRecord.code}` : "Go to Lockers"}
+              onPress={() => (packetRecord ? openPage(`/packets/${packetRecord.id}`) : openPage("/packets?tab=lockers"))}
               style={{ marginBottom: 14 }}
             />
           )}
@@ -363,9 +347,7 @@ export function ReleaseReviewPanel({
             </Field>
           </FieldRow>
           {amt > 0 ? <PaymentSplit amount={amt} value={split} onChange={setSplit} /> : null}
-          {split.cashAmount !== amt ? (
-            <TextField label="Reference" placeholder="Transaction / cheque reference (optional)" value={reference} onChangeText={setReference} />
-          ) : null}
+          {split.cashAmount !== amt ? <TextField label="Reference" placeholder="Transaction / cheque reference (optional)" value={reference} onChangeText={setReference} /> : null}
           {needsDueDate ? <DateField label="Due date for remaining balance" value={dueDate} onChange={setDueDate} min={todayISO()} /> : null}
           <AccBtn
             label={savePayment.isPending ? "Recording…" : request.paymentRecorded ? "Record Additional Payment" : "Record Payment"}
@@ -379,64 +361,54 @@ export function ReleaseReviewPanel({
         <Txt style={{ fontSize: 12, color: C.muted, marginBottom: 14 }}>Payment is recorded at the Manager stage.</Txt>
       ) : null}
 
-      {isPending ? (
-        <>
-          <SectionTitle flush style={{ marginTop: 2 }}>
-            Top-up payment (optional)
-          </SectionTitle>
-          <FieldRow>
-            <Field label="Amount">
-              <Input keyboardType="numeric" placeholder="0" value={topUp} onChangeText={setTopUp} />
-            </Field>
-            <Field label="Mode">
-              <ThemeDropdown value={topUpMode} options={MODES} onChange={setTopUpMode} labelOf={(m) => m} />
-            </Field>
-          </FieldRow>
-          <AccBtn
-            label={saveTopUp.isPending ? "Recording…" : "Record Top-Up"}
-            onPress={() => saveTopUp.mutate()}
-            disabled={saveTopUp.isPending || !(+topUp > 0)}
-            style={{ marginBottom: 16 }}
-          />
-        </>
-      ) : null}
-
       {!isPending ? null : !canApprove ? (
         <ReviewWarning>
-          {!request.customerSawGold && !paymentConditionMet
-            ? "Confirm the customer has seen the gold and record the payment before approving."
-            : !request.customerSawGold
-              ? "Confirm the customer has seen the gold before approving."
-              : "Record the payment before approving."}
+          {goldStillHeld
+            ? `Blocked until the gold is no longer ${goldHeldReason}.`
+            : !request.customerSawGold && !paymentConditionMet
+              ? "Confirm the customer has seen the gold and record the payment before approving."
+              : !request.customerSawGold
+                ? "Confirm the customer has seen the gold before approving."
+                : "Record the payment before approving."}
         </ReviewWarning>
       ) : (
         <Txt style={{ fontSize: 12, color: C.muted, marginBottom: 12 }}>
-          Awaiting {stage} approval.{stage === "Management" ? " Final approval releases the gold." : ""}
+          Awaiting {stage} approval.
+          {stage === "Management" ? " Final approval releases the gold." : ""}
         </Txt>
       )}
 
       {isPending && canActOnStage && canDecide ? (
         <>
-          {!request.locked ? (
-            <TextField label="Decision remarks (optional, for Reject)" placeholder="Add a note" value={decisionRemarks} onChangeText={setDecisionRemarks} />
-          ) : null}
-          <BtnRow2>
-            {!request.locked ? (
+          <SheetFooter>
+            <BtnRow2>
+              {!request.locked ? (
+                <PrimaryButton
+                  label="Reject"
+                  variant="reject"
+                  onPress={() => setConfirmReject(true)}
+                  disabled={decide.isPending}
+                />
+              ) : null}
               <PrimaryButton
-                label="Reject"
-                variant="reject"
-                onPress={() => decide.mutate("Rejected")}
-                loading={decide.isPending && decide.variables === "Rejected"}
-                disabled={decide.isPending}
+                label="Approve"
+                onPress={() => decide.mutate({ action: "Approved" })}
+                loading={decide.isPending && decide.variables?.action === "Approved"}
+                disabled={!canApprove || decide.isPending}
               />
-            ) : null}
-            <PrimaryButton
-              label={`Approve (${stage})`}
-              onPress={() => decide.mutate("Approved")}
-              loading={decide.isPending && decide.variables === "Approved"}
-              disabled={!canApprove || decide.isPending}
-            />
-          </BtnRow2>
+            </BtnRow2>
+          </SheetFooter>
+          <ConfirmSheet
+            visible={confirmReject}
+            onClose={() => setConfirmReject(false)}
+            title="Reject Release"
+            danger
+            message="Reject this release request? The gold stays pledged and the loan stays open."
+            remarks={{ label: "Reason (optional)", placeholder: "Why is this request being rejected?" }}
+            confirmLabel="Reject Request"
+            loading={decide.isPending && decide.variables?.action === "Rejected"}
+            onConfirm={(note) => decide.mutate({ action: "Rejected", note })}
+          />
         </>
       ) : null}
     </View>

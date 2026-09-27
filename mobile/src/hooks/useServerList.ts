@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { keepPreviousData, useInfiniteQuery } from "@tanstack/react-query";
+import { keepPreviousData, useInfiniteQuery, useQueryClient } from "@tanstack/react-query";
 import { useDebouncedValue } from "./useDebouncedValue";
 import { useRefetchOnFocus } from "./useRefetchOnFocus";
 
@@ -21,13 +21,23 @@ export function useServerList<T, F extends Record<string, unknown> = Record<stri
   filters,
   enabled = true,
   pageSize = PAGE_SIZE,
+  fresh = false,
 }: {
   key: unknown[];
   fetchPage: (params: F & { q?: string; limit: number; offset: number }) => Promise<ServerPage<T>>;
   filters?: F;
   enabled?: boolean;
   pageSize?: number;
+  /** Drop any cached pages when this list mounts, so it always loads fresh
+   * (with the buffering spinner) instead of flashing stale rows. */
+  fresh?: boolean;
 }) {
+  const qc = useQueryClient();
+  // Runs once, before the query subscribes.
+  useState(() => {
+    if (fresh) qc.removeQueries({ queryKey: key });
+    return null;
+  });
   const [search, setSearch] = useState("");
   const q = useDebouncedValue(search.trim());
 
