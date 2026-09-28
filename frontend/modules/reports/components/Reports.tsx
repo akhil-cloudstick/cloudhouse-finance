@@ -6,6 +6,7 @@ import { useToast } from "@/common/components/Toast";
 import { ApiError } from "@/common/services/httpClient";
 import { fmt, fmtW } from "@/common/utils/format";
 import { FormGReportView } from "@/modules/reports/components/FormGReportView";
+import { LedgerExportView } from "@/modules/reports/components/LedgerExportView";
 import { ReportView, type ReportConfig } from "@/modules/reports/components/ReportView";
 import {
   getDisbursement, getPersonalLoans, getLoansStatus, getInterestCollection, getOutstandingPrincipal,
@@ -492,6 +493,16 @@ const FORM_G_TILE = {
   icon: "doc",
 };
 
+/* Ledger export's own tile — like Form G, kept out of REPORT_CONFIGS since
+ * it's a party-selector (customer/branch/bank) feeding the existing
+ * exportPartyStatementBy* calls, not a fixed-dataset Row/Totals report. */
+const LEDGER_EXPORT_TILE = {
+  id: "ledger-export",
+  title: "Ledger / Statement Export",
+  description: "Download a full ledger for one customer, branch or bank",
+  icon: "coin",
+};
+
 /* Ported from legacy/app.js's `renderReports()` tile grid, now wired to
  * real backend/internal/reports endpoints. Clicking a tile swaps the grid
  * for that report's ReportView (filter bar + paginated table + totals +
@@ -506,12 +517,16 @@ export function Reports() {
   if (activeId === "form-g") {
     return <FormGReportView onBack={() => setActiveId(null)} />;
   }
+  if (activeId === "ledger-export") {
+    return <LedgerExportView onBack={() => setActiveId(null)} />;
+  }
   if (active) {
     return <ReportView config={active} onBack={() => setActiveId(null)} />;
   }
 
-  async function handlePrint(e: React.MouseEvent, r: ReportConfig | typeof FORM_G_TILE) {
+  async function handlePrint(e: React.MouseEvent, r: ReportConfig | typeof FORM_G_TILE | typeof LEDGER_EXPORT_TILE) {
     e.stopPropagation();
+    if (r.id === "ledger-export") { setActiveId("ledger-export"); return; }
     setPrintingId(r.id);
     try {
       // Form G defaults to the last 3 months everywhere else in this view
@@ -541,7 +556,7 @@ export function Reports() {
        * as its own divider line. */}
       <hr className="gold-rule" style={smallScreen ? { margin: "4px 0 18px" } : undefined} />
       <div className="grid" style={{ gridTemplateColumns: "repeat(auto-fill,minmax(250px,1fr))" }}>
-        {[...REPORT_CONFIGS, FORM_G_TILE].map((r) => (
+        {[...REPORT_CONFIGS, FORM_G_TILE, LEDGER_EXPORT_TILE].map((r) => (
           <div className="card" style={{ cursor: "pointer", minHeight: 120, display: "flex", flexDirection: "column", position: "relative" }} key={r.id} onClick={() => setActiveId(r.id)}>
             <button
               className="btn ghost sm"

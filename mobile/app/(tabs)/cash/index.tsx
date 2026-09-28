@@ -156,7 +156,7 @@ export default function CashScreen() {
   };
 
   return (
-    <Screen header={<FlatHeader title="Cash & Expenses" subtitle="Movements, expenses & gold sales" />}>
+    <Screen header={<FlatHeader title="Ledger" subtitle="Movements, expenses & gold sales" />}>
       {tab === "movements" ? (
         <ServerFlatList
           list={{ ...movements, refetch: refreshAll(movements.refetch) }}

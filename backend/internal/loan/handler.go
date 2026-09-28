@@ -930,6 +930,9 @@ type topUpRequest struct {
 	// RecordMovementInput's convention) when omitted.
 	OccurredOn string `json:"occurredOn"`
 	Reference  string `json:"reference"`
+	// SettleInterest is "require" (default, if omitted) or "deduct" — see
+	// TopUpSettleRequire/TopUpSettleDeduct's own doc comments.
+	SettleInterest string `json:"settleInterest"`
 }
 
 // TopUpLoan lets staff draw additional cash against an already-Active
@@ -963,6 +966,7 @@ func (h *Handler) TopUpLoan(c *gin.Context) {
 		ChequeAmount:         req.ChequeAmount,
 		OccurredOn:           occurredOn,
 		Reference:            req.Reference,
+		SettleInterest:       req.SettleInterest,
 		ReceivedByEmployeeID: actorEmployeeID,
 	})
 	if err != nil {

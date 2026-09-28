@@ -6,6 +6,7 @@ import { useToast } from "@/common/components/Toast";
 import { Icon } from "@/common/components/Icon";
 import { BranchModalContent } from "@/common/components/modals/BranchModal";
 import { ConfirmModalContent } from "@/common/components/modals/ConfirmModal";
+import { BranchLedgerModalContent } from "@/common/components/modals/BranchLedgerModal";
 import { deactivateBranch, listBranches, type BranchView } from "@/modules/branches/services/branchService";
 import { useAuth } from "@/common/auth-context";
 
@@ -91,6 +92,7 @@ export function Branches() {
                     <td>{b.isActive ? <span className="chip green">Active</span> : <span className="chip gray">Inactive</span>}</td>
                     <td>
                       <div style={{ display: "flex", gap: 12 }}>
+                        <a href="#" onClick={(e) => { e.preventDefault(); openModal(<BranchLedgerModalContent branch={b} />); }}>Ledger</a>
                         {canUpdateBranches && <a href="#" onClick={(e) => { e.preventDefault(); openModal(<BranchModalContent branch={b} onSaved={onSaved} />); }}>Edit</a>}
                         {canUpdateBranches && b.isActive && (
                           <a href="#" style={{ color: "var(--red)" }} onClick={(e) => { e.preventDefault(); onDeactivate(b); }}>Deactivate</a>

@@ -537,6 +537,52 @@ h3,
   display: block
 }
 
+/* FilterPanel.tsx's own popover — a small, capped-width card (never the
+   full-bleed .gs-results search-result panel above, which this component
+   used to reuse: styled for a text-search dropdown filling its trigger's
+   own width, it rendered as a giant unstyled box once given a `width:auto`
+   trigger instead). box-sizing:border-box keeps the inline width (set in
+   JS, viewport-clamped) from growing past the viewport once padding/border
+   are added on top. */
+.filter-popover {
+  box-sizing: border-box;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  box-shadow: 0 24px 60px -18px color-mix(in oklab, var(--nav) 40%, transparent);
+  overflow: hidden;
+}
+
+.filter-rail-btn {
+  border: none;
+  border-radius: 8px;
+  padding: 8px 12px;
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+  transition: background .15s, color .15s;
+}
+
+.filter-rail-btn:hover {
+  background: color-mix(in oklab, var(--brand-deep) 12%, transparent);
+}
+
+.filter-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  margin-left: 4px;
+  border-radius: 999px;
+  background: var(--brand-deep, var(--nav));
+  color: #fff;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1;
+}
+
 .gs-results .gs-grp {
   font-size: 9.5px;
   letter-spacing: .24em;
@@ -898,6 +944,29 @@ h3,
 .cash-filter-row .dp.dp-date {
   width: 130px;
   flex: 0 0 130px
+}
+
+/* FilterPanel.tsx's own Date category — same 230px-ignoring problem: its
+   From/To DatePickers sit inside the popover's ~380px content column
+   (minus padding), where a 230px fixed width forced them to overflow/wrap
+   instead of filling the column, leaving a large empty gap beside each
+   field. Stretched to the column's own width instead. */
+.filter-popover .dp.dp-date {
+  width: 100%;
+  flex: 1 1 auto
+}
+
+/* Ledger tables' Ref No column (CustomerDetail.tsx's Ledger tab,
+   BranchLedgerModal.tsx, LedgerExportView.tsx) — a split-payment's
+   transactionGroupId is a raw UUID, long enough to blow the column out to
+   the point of misaligning every other column against the table's header
+   row. Capped and ellipsized; the full value is still available via the
+   cell's title tooltip. */
+.ledger-ref {
+  max-width: 130px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 /* Small-screen 3-col grid packs "Bank Pledge Due Date" into a column
@@ -3614,6 +3683,26 @@ table.tbl {
   }
 }
 
+/* Smooths CustomerDetail.tsx's swap between its "Loading customer…"
+   placeholder and the loaded hero + 360 view — both states carry this class
+   so the transition into a customer's page (e.g. from the dashboard) reads
+   as one continuous fade instead of the hero visibly popping in a beat
+   after the page's header/sidebar, which are already on screen and don't
+   remount on navigation. */
+.page-fade-in {
+  animation: pageFadeIn .18s ease
+}
+
+@keyframes pageFadeIn {
+  from {
+    opacity: 0
+  }
+
+  to {
+    opacity: 1
+  }
+}
+
 /* Slide-up transition between the tabbed sub-tables on customer detail
    (Loan History / Ornaments / Payments / Bank Pledges / Auctions). */
 .tab-slide-up {
@@ -4418,6 +4507,20 @@ table.tbl {
   }
 
   .cust-360 .tbl-card-fill .tbl-wrap {
+    flex: 0 1 auto;
+    max-height: 56vh;
+  }
+
+  /* The profile card's own bd (KYC + documents + nominee + loan totals)
+   * still carries the desktop layout's `flex:1 1 auto` from further up
+   * this file — with no defined-height flex container to grow into once
+   * this column stacks to one-per-row, that flex basis was read against
+   * the CARD's own natural content height instead, so the card rendered
+   * squashed with a mid-card scrollbar rather than showing its full
+   * content or scrolling its actual overflow cleanly. Capped to a real
+   * viewport-relative height with its own scroll, matching the tabbed
+   * table card's 56vh cap right above. */
+  .grid.cols12.cust-360 > .grid > .card > .bd {
     flex: 0 1 auto;
     max-height: 56vh;
   }

@@ -10,6 +10,7 @@ import (
 
 	"cloudhouse/backend/internal/platform"
 	"cloudhouse/backend/internal/platform/httpx"
+	"cloudhouse/backend/internal/reports"
 )
 
 // MovementHandler wires HTTP requests to the MovementService.
@@ -115,6 +116,70 @@ func (h *MovementHandler) Record(c *gin.Context) {
 // distinct from the app's usual 10, per that page's own convention.
 const partyPageSize = 12
 
+// parseUintCSV parses a comma-separated list of uint ids (e.g.
+// "3,7,12" from ?branchIds=3,7,12) — empty entries (from a leading/
+// trailing/doubled comma) and non-numeric entries are silently skipped
+// rather than failing the whole request, since this only ever narrows a
+// filter (a bad id just matches nothing).
+func parseUintCSV(s string) []uint {
+	if s == "" {
+		return nil
+	}
+	var out []uint
+	for _, part := range strings.Split(s, ",") {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			continue
+		}
+		v, err := strconv.ParseUint(part, 10, 64)
+		if err != nil {
+			continue
+		}
+		out = append(out, uint(v))
+	}
+	return out
+}
+
+// parseStringCSV is parseUintCSV's counterpart for the Type section's
+// comma-separated category list (e.g. "loan,auction").
+func parseStringCSV(s string) []string {
+	if s == "" {
+		return nil
+	}
+	var out []string
+	for _, part := range strings.Split(s, ",") {
+		part = strings.TrimSpace(part)
+		if part != "" {
+			out = append(out, part)
+		}
+	}
+	return out
+}
+
+// loanNumbersFromQuery reads the customer-drilldown Loan filter's selection
+// off a request — ?loanNumbers=LN-1,LN-2 (the Ledger tab's multi-select
+// picker) merged with the older single ?loanNumber= param (kept for any
+// existing caller/bookmark that still sends just one).
+func loanNumbersFromQuery(c *gin.Context) []string {
+	numbers := parseStringCSV(c.Query("loanNumbers"))
+	if single := c.Query("loanNumber"); single != "" {
+		numbers = append(numbers, single)
+	}
+	return numbers
+}
+
+// movementQueryFilter builds a MovementFilter from the Ledger filter's
+// ?branchIds=/?customerIds=/?types= query params — shared by List and
+// Export so the downloaded file always matches what the table's filter
+// panel currently shows.
+func movementQueryFilter(c *gin.Context) MovementFilter {
+	return MovementFilter{
+		BranchIDs:   parseUintCSV(c.Query("branchIds")),
+		CustomerIDs: parseUintCSV(c.Query("customerIds")),
+		Categories:  parseStringCSV(c.Query("types")),
+	}
+}
+
 func (h *MovementHandler) List(c *gin.Context) {
 	ctx := platform.RequestContext(c)
 	branchID := platform.GetBranchScope(c)
@@ -129,7 +194,7 @@ func (h *MovementHandler) List(c *gin.Context) {
 		httpx.Fail(c, http.StatusBadRequest, "invalid toDate: expected YYYY-MM-DD")
 		return
 	}
-	category := c.Query("category")
+	filter := movementQueryFilter(c)
 	search := strings.TrimSpace(c.Query("q"))
 
 	limit, _ := strconv.Atoi(c.Query("limit"))
@@ -138,7 +203,7 @@ func (h *MovementHandler) List(c *gin.Context) {
 		if offset < 0 {
 			offset = 0
 		}
-		rec, total, err := h.svc.List(ctx, branchID, fromDate, toDate, category, search, limit+1, offset)
+		rec, total, err := h.svc.ListFiltered(ctx, branchID, fromDate, toDate, filter, search, limit+1, offset)
 		if err != nil {
 			httpx.FailErr(c, err)
 			return
@@ -151,7 +216,7 @@ func (h *MovementHandler) List(c *gin.Context) {
 		return
 	}
 
-	rec, _, err := h.svc.List(ctx, branchID, fromDate, toDate, category, search, 0, 0)
+	rec, _, err := h.svc.ListFiltered(ctx, branchID, fromDate, toDate, filter, search, 0, 0)
 	if err != nil {
 		httpx.FailErr(c, err)
 		return
@@ -225,7 +290,42 @@ func (h *MovementHandler) ListByCustomer(c *gin.Context) {
 	if offset < 0 {
 		offset = 0
 	}
-	rec, total, totals, err := h.svc.ListCashMovementsByCustomer(ctx, customerID, fromDate, toDate, limit, offset)
+	loanNumbers := loanNumbersFromQuery(c)
+	rec, total, totals, err := h.svc.ListCashMovementsByCustomer(ctx, customerID, fromDate, toDate, loanNumbers, limit, offset)
+	if err != nil {
+		httpx.FailErr(c, err)
+		return
+	}
+	httpx.Success(c, http.StatusOK, gin.H{"items": rec, "total": total, "totals": totals})
+}
+
+// ListByBranch is ListByBank's counterpart for :branchId.
+func (h *MovementHandler) ListByBranch(c *gin.Context) {
+	ctx := platform.RequestContext(c)
+	branchID, err := httpx.IDParam(c, "id")
+	if err != nil {
+		httpx.FailErr(c, err)
+		return
+	}
+	fromDate, err := parseOptionalDate(c.Query("fromDate"))
+	if err != nil {
+		httpx.Fail(c, http.StatusBadRequest, "invalid fromDate: expected YYYY-MM-DD")
+		return
+	}
+	toDate, err := parseOptionalDate(c.Query("toDate"))
+	if err != nil {
+		httpx.Fail(c, http.StatusBadRequest, "invalid toDate: expected YYYY-MM-DD")
+		return
+	}
+	limit, _ := strconv.Atoi(c.Query("limit"))
+	if limit <= 0 {
+		limit = partyPageSize
+	}
+	offset, _ := strconv.Atoi(c.Query("offset"))
+	if offset < 0 {
+		offset = 0
+	}
+	rec, total, totals, err := h.svc.ListCashMovementsByBranch(ctx, branchID, fromDate, toDate, limit, offset)
 	if err != nil {
 		httpx.FailErr(c, err)
 		return
@@ -312,6 +412,43 @@ func (h *MovementHandler) ExportByBank(c *gin.Context) {
 	c.Data(http.StatusOK, "application/pdf", pdfBytes)
 }
 
+// ExportByBranch is ExportByBank's counterpart for :branchId.
+func (h *MovementHandler) ExportByBranch(c *gin.Context) {
+	ctx := platform.RequestContext(c)
+	branchID, err := httpx.IDParam(c, "id")
+	if err != nil {
+		httpx.FailErr(c, err)
+		return
+	}
+	fromDate, err := parseOptionalDate(c.Query("fromDate"))
+	if err != nil {
+		httpx.Fail(c, http.StatusBadRequest, "invalid fromDate: expected YYYY-MM-DD")
+		return
+	}
+	toDate, err := parseOptionalDate(c.Query("toDate"))
+	if err != nil {
+		httpx.Fail(c, http.StatusBadRequest, "invalid toDate: expected YYYY-MM-DD")
+		return
+	}
+	rows, _, err := h.svc.repo.ListByBranch(ctx, branchID, fromDate, toDate, 0, 0)
+	if err != nil {
+		httpx.FailErr(c, err)
+		return
+	}
+	pdfBytes, err := renderTablePDF(
+		"Party Transactions",
+		partyStatementNote(fromDate, toDate),
+		[]string{"Date", "Type", "Source", "Purpose", "Mode", "Bank", "Branch", "Amount", "Status"},
+		partyStatementRows(rows),
+	)
+	if err != nil {
+		httpx.Fail(c, http.StatusInternalServerError, err.Error())
+		return
+	}
+	c.Header("Content-Disposition", `attachment; filename="party-transactions.pdf"`)
+	c.Data(http.StatusOK, "application/pdf", pdfBytes)
+}
+
 // ExportByCustomer is ExportByBank's counterpart for :customerId.
 func (h *MovementHandler) ExportByCustomer(c *gin.Context) {
 	ctx := platform.RequestContext(c)
@@ -330,7 +467,7 @@ func (h *MovementHandler) ExportByCustomer(c *gin.Context) {
 		httpx.Fail(c, http.StatusBadRequest, "invalid toDate: expected YYYY-MM-DD")
 		return
 	}
-	rows, _, err := h.svc.repo.ListByCustomer(ctx, customerID, fromDate, toDate, 0, 0)
+	rows, _, err := h.svc.repo.ListByCustomer(ctx, customerID, fromDate, toDate, loanNumbersFromQuery(c), 0, 0)
 	if err != nil {
 		httpx.FailErr(c, err)
 		return
@@ -368,9 +505,9 @@ func (h *MovementHandler) Export(c *gin.Context) {
 		httpx.Fail(c, http.StatusBadRequest, "invalid toDate: expected YYYY-MM-DD")
 		return
 	}
-	category := c.Query("category")
+	filter := movementQueryFilter(c)
 
-	rows, _, err := h.svc.List(ctx, branchID, fromDate, toDate, category, "", 0, 0)
+	rows, _, err := h.svc.ListFiltered(ctx, branchID, fromDate, toDate, filter, "", 0, 0)
 	if err != nil {
 		httpx.FailErr(c, err)
 		return
@@ -387,10 +524,11 @@ func (h *MovementHandler) Export(c *gin.Context) {
 		}
 		noteParts = append(noteParts, from+" – "+to)
 	}
-	if category != "" {
-		noteParts = append(noteParts, "type: "+category)
+	if len(filter.Categories) > 0 {
+		noteParts = append(noteParts, "type: "+strings.Join(filter.Categories, ", "))
 	}
 
+	headers := []string{"Date", "Type", "Source", "Purpose", "Mode", "Bank", "Branch", "Amount", "Loan Status"}
 	tableRows := make([][]string, len(rows))
 	for i, m := range rows {
 		branchName := ""
@@ -410,10 +548,25 @@ func (h *MovementHandler) Export(c *gin.Context) {
 		}
 	}
 
+	// format defaults to "pdf" for every existing caller that never sent
+	// one — the Ledger filter panel's "Export PDF" / "Export XL" pair (added
+	// alongside this) is the only caller that sets it to "xlsx", same
+	// ?format= convention internal/reports/export.go's own Export uses.
+	if c.Query("format") == "xlsx" {
+		xlsxBytes, err := reports.BuildXLSX("Cash Movements", headers, tableRows)
+		if err != nil {
+			httpx.Fail(c, http.StatusInternalServerError, err.Error())
+			return
+		}
+		c.Header("Content-Disposition", `attachment; filename="cash-movements.xlsx"`)
+		c.Data(http.StatusOK, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", xlsxBytes)
+		return
+	}
+
 	pdfBytes, err := renderTablePDF(
 		"Cash Movements",
 		strings.Join(noteParts, " · "),
-		[]string{"Date", "Type", "Source", "Purpose", "Mode", "Bank", "Branch", "Amount", "Loan Status"},
+		headers,
 		tableRows,
 	)
 	if err != nil {

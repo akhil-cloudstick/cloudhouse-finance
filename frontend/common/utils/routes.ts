@@ -19,7 +19,7 @@ export const TITLES: Record<string, string> = {
   loans: "Loans", loan: "Loan Details", newloan: "New Gold Loan", schemes: "Loan Schemes",
   personalloans: "Personal Loans", personalloan: "Personal Loan Details",
   investments: "Investments", investment: "Investment Details",
-  goldrates: "Gold Rates", packets: "Packets & Lockers", packet: "Packet Detail", cash: "Cash & Expenses",
+  goldrates: "Gold Rates", packets: "Packets & Lockers", packet: "Packet Detail", cash: "Ledger",
   calendar: "Reminder Calendar", requests: "Extensions & Release", bankpledge: "Bank Re-Pledge",
   auctions: "Auctions", reports: "Reports", employees: "Employees",
   branches: "Branch Management",

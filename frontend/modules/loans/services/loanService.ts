@@ -923,6 +923,12 @@ export type TopUpInput = {
   chequeAmount?: number;
   occurredOn?: string; // "YYYY-MM-DD" — omit for today
   reference?: string;
+  // "require" (default, if omitted) blocks the top-up when the loan has
+  // outstanding interest/penal interest — staff must record that payment
+  // separately first. "deduct" clears it out of this top-up's own cash
+  // payout instead (the customer still draws the full requested amount
+  // against the loan, but gets less cash out).
+  settleInterest?: "require" | "deduct";
 };
 
 export async function topUpLoan(loanId: number, input: TopUpInput): Promise<LoanView> {

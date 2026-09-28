@@ -22,6 +22,8 @@ func RegisterMovementRoutes(rg *gin.RouterGroup, h *MovementHandler, perms platf
 	rg.GET("/transactions/bank/:bankId/export", perms.Read, h.ExportByBank)
 	rg.GET("/transactions/customer/:customerId", perms.Read, h.ListByCustomer)
 	rg.GET("/transactions/customer/:customerId/export", perms.Read, h.ExportByCustomer)
+	rg.GET("/transactions/branch/:id", perms.Read, h.ListByBranch)
+	rg.GET("/transactions/branch/:id/export", perms.Read, h.ExportByBranch)
 	rg.GET("/:id", perms.Read, h.Get)
 	rg.PATCH("/:id/status", perms.Update, h.SetStatus)
 }

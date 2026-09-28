@@ -172,6 +172,11 @@ var (
 	// ErrLoanNotActiveForTopUp guards TopUpLoan: only an Active loan has
 	// spare eligible value worth drawing against.
 	ErrLoanNotActiveForTopUp = httpx.NewConflict("loan must be Active to top up")
+	// ErrTopUpNeedsPayment mirrors ErrExtensionNeedsPayment — returned when
+	// TopUpInput.SettleInterest is "require" and outstanding interest/penal
+	// interest still stands (same rationale: extending the customer's credit
+	// on top of unpaid arrears would just let them compound further).
+	ErrTopUpNeedsPayment = httpx.NewBadRequest("outstanding interest and penal interest must be paid before a top-up can proceed, or set the top-up to deduct it from the payout instead")
 	// ErrNotManagerStage guards RecordReleasePayment: recording a payment/
 	// discount from the release review screen is only allowed while the
 	// request is still at the first (Manager) stage — once it has moved to
@@ -2263,15 +2268,40 @@ func (s *Service) RecordPayment(ctx context.Context, loanID uint, in PaymentInpu
 	return s.Get(ctx, l.ID, nil)
 }
 
+// TopUpSettleInterest values for TopUpInput.SettleInterest — staff's choice
+// for how a loan's currently-outstanding interest/penal interest (if any)
+// is handled at top-up time, rather than silently left to keep accruing on
+// top of a now-larger balance.
+const (
+	// TopUpSettleRequire blocks the top-up outright (ErrTopUpNeedsPayment)
+	// if any interest/penal interest is outstanding — staff records a
+	// separate payment first, then retries. Same gate CreateExtensionRequest
+	// already enforces for extensions.
+	TopUpSettleRequire = "require"
+	// TopUpSettleDeduct clears the outstanding interest/penal interest out
+	// of the top-up's own cash payout — the customer's principal/outstanding
+	// balance still increases by the full Amount, but the cash actually
+	// disbursed is Amount minus what was owed, mirroring how a
+	// WithheldFromPayout service charge reduces DisbursedAmount at
+	// sanction (see Service.Approve's FinalSanction branch) rather than
+	// requiring a separate payment.
+	TopUpSettleDeduct = "deduct"
+)
+
 // TopUpInput mirrors the "Top Up Loan" form.
 type TopUpInput struct {
-	Amount               float64
-	CashAmount           float64
-	UpiAmount            float64
-	BankTransferAmount   float64
-	ChequeAmount         float64
-	OccurredOn           time.Time
-	Reference            string
+	Amount             float64
+	CashAmount         float64
+	UpiAmount          float64
+	BankTransferAmount float64
+	ChequeAmount       float64
+	OccurredOn         time.Time
+	Reference          string
+	// SettleInterest is TopUpSettleRequire (default, if empty) or
+	// TopUpSettleDeduct — staff's per-top-up choice for handling any
+	// interest/penal interest already outstanding on the loan. Ignored
+	// (no-op) when nothing is currently outstanding.
+	SettleInterest       string
 	ReceivedByEmployeeID uint
 }
 
@@ -2304,6 +2334,7 @@ func (s *Service) TopUpLoan(ctx context.Context, loanID uint, in TopUpInput) (*L
 
 	var result *Loan
 	var eligibleAtTopUp float64
+	var cashOut float64
 	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		l, err := s.repo.LockByID(ctx, tx, loanID)
 		if err != nil {
@@ -2353,11 +2384,78 @@ func (s *Service) TopUpLoan(ctx context.Context, loanID uint, in TopUpInput) (*L
 		}
 		eligibleAtTopUp = l.EligibleLoanAmount
 
+		// Bring AccruedInterest/AccruedPenalInterest up to date before
+		// judging what's outstanding — same "catch stale accrual up first"
+		// rationale as CreateExtensionRequest, inlined rather than calling
+		// s.accrueAndSave/s.enrich directly: those write via s.db, not tx,
+		// which would race against this function's own tx-bound update of
+		// the same already-locked row below.
+		now := time.Now()
+		var firstMonthTopUps []LoanTopUp
+		if l.LastAccrualDate.IsZero() || l.LastAccrualDate.Equal(l.OpenedDate) {
+			if ups, err := s.topUpRepo.FindByLoanID(ctx, l.ID); err == nil {
+				firstMonthTopUps = ups
+			}
+		}
+		interestDelta, penalDelta, anchor := projectAccrual(l, now, firstMonthTopUps)
+		if interestDelta > 0 || penalDelta > 0 {
+			l.AccruedInterest = platform.RoundMoney(l.AccruedInterest + interestDelta)
+			l.AccruedPenalInterest = platform.RoundMoney(l.AccruedPenalInterest + penalDelta)
+			l.LastAccrualDate = anchor
+			refreshServicingStatus(l, now)
+		}
+		outstandingInterest := clampMoney(l.AccruedInterest - l.InterestPaid)
+		outstandingPenal := clampMoney(l.AccruedPenalInterest - l.PenalInterestPaid)
+		arrears := platform.RoundMoney(outstandingInterest + outstandingPenal)
+
+		settleMode := in.SettleInterest
+		if settleMode == "" {
+			settleMode = TopUpSettleRequire
+		}
+		// deductedFromPayout — 0 unless settleMode is TopUpSettleDeduct and
+		// there's actually something owed — is what shrinks the cash
+		// disbursed below (see cashOutAmount) without touching the
+		// principal/OutstandingAmount increase the customer is drawing.
+		var deductedFromPayout float64
+		if arrears > moneyEpsilon {
+			switch settleMode {
+			case TopUpSettleDeduct:
+				// Capped at the top-up amount itself — a top-up can only ever
+				// settle arrears out of its OWN payout, never claw back
+				// principal the customer isn't actually drawing right now.
+				deductedFromPayout = math.Min(arrears, amount)
+				penalPortion := math.Min(deductedFromPayout, outstandingPenal)
+				interestPortion := deductedFromPayout - penalPortion
+				l.PenalInterestPaid = platform.RoundMoney(l.PenalInterestPaid + penalPortion)
+				l.InterestPaid = platform.RoundMoney(l.InterestPaid + interestPortion)
+			default: // TopUpSettleRequire
+				// Still persist the caught-up accrual even though the top-up
+				// itself is being rejected — the customer/loan owes this
+				// interest regardless of whether the top-up proceeds, and
+				// leaving it unpersisted would just make the next accrual
+				// run redo the same catch-up.
+				if interestDelta > 0 || penalDelta > 0 {
+					_ = s.repo.UpdateTx(ctx, tx, l)
+				}
+				return ErrTopUpNeedsPayment
+			}
+		}
+
 		l.PrincipalAmount = platform.RoundMoney(l.PrincipalAmount + amount)
 		l.OutstandingAmount = platform.RoundMoney(l.OutstandingAmount + amount)
 		if err := s.repo.UpdateTx(ctx, tx, l); err != nil {
 			return err
 		}
+
+		// cashOutAmount is what actually leaves the till — the full top-up
+		// amount, less whatever was just withheld to clear arrears (0 unless
+		// TopUpSettleDeduct fired above). The split fields on LoanTopUp
+		// record what the CUSTOMER handed over (still Amount, split across
+		// modes as entered on the form) — CashRecorder gets the smaller
+		// cashOutAmount separately below, mirroring how a WithheldFromPayout
+		// service charge shrinks DisbursedAmount without changing
+		// PrincipalAmount/SanctionedAmount.
+		cashOutAmount := platform.RoundMoney(amount - deductedFromPayout)
 
 		topUp := &LoanTopUp{
 			LoanID:                l.ID,
@@ -2378,6 +2476,7 @@ func (s *Service) TopUpLoan(ctx context.Context, loanID uint, in TopUpInput) (*L
 			return err
 		}
 
+		cashOut = cashOutAmount
 		result = l
 		return nil
 	})
@@ -2388,8 +2487,30 @@ func (s *Service) TopUpLoan(ctx context.Context, loanID uint, in TopUpInput) (*L
 	// Best-effort and outside the transaction, same rationale as
 	// RecordPayment's disbursement/collection cash recording.
 	if s.cashRecorder != nil {
-		if _, _, err := s.cashRecorder.RecordLoanTopUpCashOut(ctx, result.ID, result.LoanNumber, in.Amount, in.CashAmount, in.UpiAmount, in.BankTransferAmount, in.ChequeAmount, result.BranchID, occurredOn, result.CustomerID); err != nil {
+		// cashOut is in.Amount unless TopUpSettleDeduct withheld part of it
+		// to clear arrears above — shrink each mode's split proportionally
+		// (rather than favoring one mode) so the recorded split still sums
+		// to exactly cashOut. A no-op when nothing was withheld.
+		cashAmt, upiAmt, bankAmt, chequeAmt := in.CashAmount, in.UpiAmount, in.BankTransferAmount, in.ChequeAmount
+		if cashOut < in.Amount-0.01 && in.Amount > 0 {
+			scale := cashOut / in.Amount
+			cashAmt = platform.RoundMoney(in.CashAmount * scale)
+			upiAmt = platform.RoundMoney(in.UpiAmount * scale)
+			bankAmt = platform.RoundMoney(in.BankTransferAmount * scale)
+			chequeAmt = platform.RoundMoney(cashOut - cashAmt - upiAmt - bankAmt) // absorbs rounding remainder
+		}
+		if _, _, err := s.cashRecorder.RecordLoanTopUpCashOut(ctx, result.ID, result.LoanNumber, cashOut, cashAmt, upiAmt, bankAmt, chequeAmt, result.BranchID, occurredOn, result.CustomerID); err != nil {
 			log.Printf("cash-out movement (top-up) failed for loan %d: %v", result.ID, err)
+		}
+		// The withheld arrears never left the till — booked as its own
+		// cash-in (income/collection) so it's visible in Cash & Expenses
+		// like any other collection, not just as a smaller cash-out above.
+		// Mirrors RecordServiceChargeCashIn's "withheld, not paid out and
+		// collected back" rationale.
+		if deducted := platform.RoundMoney(in.Amount - cashOut); deducted > 0.01 {
+			if _, _, err := s.cashRecorder.RecordLoanPaymentCashIn(ctx, result.ID, result.LoanNumber, deducted, deducted, 0, 0, 0, result.BranchID, occurredOn, "Interest (top-up settlement)", result.CustomerID); err != nil {
+				log.Printf("cash-in movement (top-up interest settlement) failed for loan %d: %v", result.ID, err)
+			}
 		}
 	}
 	return s.Get(ctx, result.ID, nil)
@@ -4423,6 +4544,22 @@ func (s *Service) ApproveExtensionRequest(ctx context.Context, requestID uint, b
 	}
 	if requiredPermission != "" && !s.checkStagePermission(ctx, in.ActorRoleID, requiredPermission) {
 		return nil, ErrWrongStage
+	}
+
+	// Re-check the same arrears gate CreateExtensionRequest enforced at
+	// request time — interest/penal interest keeps accruing while the
+	// request sits in the approval chain, so a request that was clean when
+	// raised can arrive at any stage with fresh arrears standing again. Only
+	// gates Approved: rejecting a request must always go through regardless
+	// of the loan's current arrears.
+	if in.Action == ApprovalStageApproved {
+		if l, err := s.repo.FindByID(ctx, req.LoanID); err == nil {
+			s.accrueAndSave(ctx, l)
+			s.enrich(ctx, l)
+			if l.OutstandingInterest > moneyEpsilon || l.OutstandingPenalInterest > moneyEpsilon {
+				return nil, ErrExtensionNeedsPayment
+			}
+		}
 	}
 
 	audit := &RequestApproval{

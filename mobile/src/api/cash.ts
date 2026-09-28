@@ -32,6 +32,16 @@ export function setCashMovementStatus(id: number, status: string) {
   return apiRequest<CashMovement>(`/cash-movements/${id}/status`, { method: "PATCH", body: { status } });
 }
 
+// One customer's full cash-movement ledger — same backend endpoint the web
+// Party Transactions page (PartyLedger.tsx) and CustomerDetail.tsx's Ledger
+// tab both call (GET /cash-movements/transactions/customer/:id). `totals` is
+// the party's overall in/out summary, not scoped to the current page.
+export type PartyTotals = { totalIn: number; totalOut: number; net: number; inCount: number; outCount: number };
+
+export function listCashMovementsByCustomer(customerId: number, params: { limit: number; offset: number; fromDate?: string; toDate?: string }) {
+  return apiRequest<{ items: CashMovement[]; total: number; totals: PartyTotals }>(`/cash-movements/transactions/customer/${customerId}`, { params });
+}
+
 // Expenses — same "no query params" note.
 export function listExpenses() {
   return apiRequest<Expense[]>("/expenses");

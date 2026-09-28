@@ -1,5 +1,5 @@
 import { apiRequestEnveloped as apiRequest } from "./client";
-import { Loan, LoanApproval, LoanRequest, LoanRiskLevel, LoanRiskRow } from "../types/loan";
+import { Loan, LoanApproval, LoanRequest, LoanRiskLevel, LoanRiskRow, LoanTopUp } from "../types/loan";
 import type { SplitAmounts } from "./investments";
 
 // q/status/branchId/customerId mirror backend/internal/loan/handler.go's
@@ -419,7 +419,22 @@ export function checkIndemnityBondEsign(loanId: number) {
 // up to the amount. Returns the updated loan.
 export function topUpLoan(
   loanId: number,
-  input: { amount: number; occurredOn?: string; reference?: string } & Partial<SplitAmounts>
+  input: {
+    amount: number;
+    occurredOn?: string;
+    reference?: string;
+    // "require" (default, if omitted) blocks the top-up while outstanding
+    // interest/penal interest stands; "deduct" clears it out of this
+    // top-up's own cash payout instead.
+    settleInterest?: "require" | "deduct";
+  } & Partial<SplitAmounts>
 ) {
   return apiRequest<Loan>(`/loans/${loanId}/topup`, { method: "POST", body: input });
+}
+
+// A loan's top-ups — GET /loans/:id/topups (same call the web LoanDetail
+// makes; the loan payload itself doesn't carry them). Feeds the Payment
+// Ledger alongside the loan's payments.
+export function listTopUps(loanId: number) {
+  return apiRequest<LoanTopUp[]>(`/loans/${loanId}/topups`);
 }

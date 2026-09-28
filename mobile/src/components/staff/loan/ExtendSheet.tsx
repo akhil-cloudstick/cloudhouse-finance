@@ -1,13 +1,11 @@
 import React, { useEffect, useRef, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { Field, Input, PrimaryButton, Sheet, TextField, ThemeDropdown, WarningBanner } from "../../ui";
+import { Field, Input, PrimaryButton, Sheet, TextField, WarningBanner } from "../../ui";
 import { ExtensionReviewPanel } from "../../loanRequests/ExtensionReviewPanel";
 import { createExtensionRequest } from "../../../api/loans";
 import { dmy, inr } from "../../../lib/format";
 import type { Loan, LoanRequest } from "../../../types/loan";
 import { ErrorText, apiErr, invalidateLoan } from "./common";
-
-const EXTEND_OPTIONS = [1, 2, 3, 6, 12];
 
 /** Prototype #act-extend — request a tenure extension; once one is Pending,
  * the sheet shows the review (stage approve / reject) instead. */
@@ -23,7 +21,12 @@ export function ExtendSheet({
   onClose: () => void;
 }) {
   const qc = useQueryClient();
-  const [months, setMonths] = useState(1);
+  // Free-text month count (was a fixed 1/2/3/6/12 dropdown) — kept as a
+  // string while editing so the field can be legitimately empty mid-type,
+  // parsed/validated only on submit. The backend already accepts any
+  // positive integer (ExtensionRequestInput.Months), so this needed no
+  // backend change.
+  const [monthsText, setMonthsText] = useState("1");
   const [detail, setDetail] = useState("");
   const [error, setError] = useState<string | null>(null);
   // Guards against a fast double-tap creating two duplicate requests (the
@@ -32,7 +35,7 @@ export function ExtendSheet({
 
   useEffect(() => {
     if (visible) {
-      setMonths(1);
+      setMonthsText("1");
       setDetail("");
       setError(null);
     }
@@ -41,6 +44,8 @@ export function ExtendSheet({
   const oi = l.outstandingInterest ?? 0;
   const penal = l.outstandingPenalInterest ?? 0;
   const blocked = oi > 0.01 || penal > 0.01;
+  const months = Math.trunc(Number(monthsText));
+  const monthsValid = monthsText.trim() !== "" && Number.isFinite(months) && months > 0 && months <= 60;
 
   const request = useMutation({
     mutationFn: async () => {
@@ -91,9 +96,15 @@ export function ExtendSheet({
       <Field label="Current due date">
         <Input value={dmy(l.dueDate)} editable={false} />
       </Field>
-      <Field label="Extend by">
-        <ThemeDropdown value={months} options={EXTEND_OPTIONS} onChange={setMonths} labelOf={(m) => `${m} month${m === 1 ? "" : "s"}`} />
+      <Field label="Extend by (months)">
+        <Input
+          value={monthsText}
+          onChangeText={setMonthsText}
+          keyboardType="number-pad"
+          placeholder="e.g. 3"
+        />
       </Field>
+      {!monthsValid && monthsText.trim() !== "" ? <ErrorText>Enter a whole number of months (1–60).</ErrorText> : null}
       <TextField label="Reason" placeholder="e.g. customer requested extension" value={detail} onChangeText={setDetail} />
       <ErrorText>{error}</ErrorText>
       <PrimaryButton
@@ -103,7 +114,7 @@ export function ExtendSheet({
           request.mutate();
         }}
         loading={request.isPending}
-        disabled={blocked}
+        disabled={blocked || !monthsValid}
       />
     </Sheet>
   );

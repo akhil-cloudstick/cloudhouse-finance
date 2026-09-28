@@ -8,7 +8,6 @@ import { useAuth } from "@/common/auth-context";
 import { ConfirmModalContent } from "@/common/components/modals/ConfirmModal";
 import { fmt, fmtW, initials } from "@/common/utils/format";
 import { StatusChip } from "@/common/components/ui/StatusChip";
-import { DatePicker } from "@/common/components/ui/DatePicker";
 import { LoanRow } from "@/modules/loans/components/LoanRow";
 import { Icon } from "@/common/components/Icon";
 import {
@@ -39,7 +38,9 @@ import {
   RequestReleaseModalContent,
 } from "@/common/components/modals/RequestExtensionModal";
 import { EditCustomerModalContent } from "@/common/components/modals/EditCustomerModal";
-import { listCashMovementsByCustomer, type CashMovementView } from "@/modules/cash/services/cashService";
+import { listCashMovementsByCustomer, exportPartyStatementByCustomer, type CashMovementView } from "@/modules/cash/services/cashService";
+import { FilterPanel, type FilterCategory, type FilterValue } from "@/common/components/ui/FilterPanel";
+import { ApiError } from "@/common/services/httpClient";
 
 /* Server-side pager for the 360 view's sub-tables: each of the 5 tables
  * below fetches its own page (limit 10) from its own
@@ -151,8 +152,15 @@ export function CustomerDetail({ id }: { id?: string }) {
   // side; both are handed to the backend, which filters the loans and
   // recomputes the relationship totals over the narrowed set — nothing here
   // is filtered client-side.
-  const [from, setFrom] = useState("");
-  const [to, setTo] = useState("");
+  // Opened-date filter for the 5 non-Ledger tables (Loan History, Pledged
+  // Ornaments, Payment History, Bank Pledges, Auction History) — rendered as
+  // a FilterPanel in the table card's own header (same spot/pattern as the
+  // Ledger tab's filter) rather than a standalone row above the whole 360
+  // view, so it reads as belonging to "this table" instead of the page.
+  const [openedDateFilter, setOpenedDateFilter] = useState<FilterValue>({});
+  const openedDateCategories: FilterCategory[] = [{ key: "__date", label: "Date", kind: "date" }];
+  const from = openedDateFilter.__dateFrom || "";
+  const to = openedDateFilter.__dateTo || "";
   const [reloading, setReloading] = useState(false);
 
   useEffect(() => {
@@ -178,15 +186,55 @@ export function CustomerDetail({ id }: { id?: string }) {
   // view. listCashMovementsByCustomer's {items,total,totals} envelope is
   // adapted to useSubTablePage's {items,hasMore,total} contract.
   const numericCustomerId = Number(id);
+
+  // Ledger tab's own filters — a Loan picker (scroll-paginated, backend-
+  // driven via listCustomerLoansPage) plus a Date range, kept separate from
+  // the shared 360-view `from`/`to` above since the ledger can be filtered
+  // independently of the rest of the profile.
+  const [ledgerFilters, setLedgerFilters] = useState<FilterValue>({});
+  const ledgerLoanFilters = Array.isArray(ledgerFilters.loan) ? ledgerFilters.loan : []; // multi-select — any of these loans
+  const ledgerFrom = ledgerFilters.__dateFrom;
+  const ledgerTo = ledgerFilters.__dateTo;
+  const ledgerCategories: FilterCategory[] = [
+    {
+      key: "loan",
+      label: "Loan",
+      kind: "async",
+      fetchOptions: (search, page) =>
+        listCustomerLoansPage(id || "", page, undefined, 20).then((res) => ({
+          items: res.items
+            .filter((l) => !search || l.loanNumber.toLowerCase().includes(search.toLowerCase()))
+            .map((l) => ({ value: l.loanNumber, label: l.loanNumber })),
+          hasMore: res.hasMore,
+        })),
+    },
+    { key: "__date", label: "Date", kind: "date" },
+  ];
   const listTransactions = useCallback(
-    (page: number, r?: { from?: string; to?: string }) =>
-      listCashMovementsByCustomer(numericCustomerId, page, { fromDate: r?.from, toDate: r?.to }, subtablePageSize)
-        .then((res) => ({ items: res.items, total: res.total, hasMore: page * subtablePageSize < res.total })),
-    [numericCustomerId, subtablePageSize]
+    (page: number) =>
+      listCashMovementsByCustomer(numericCustomerId, page, { fromDate: ledgerFrom, toDate: ledgerTo, loanNumbers: ledgerLoanFilters }, subtablePageSize)
+        .then((res) => ({
+          items: res.items,
+          total: res.total,
+          hasMore: page * subtablePageSize < res.total,
+        })),
+    [numericCustomerId, subtablePageSize, ledgerFrom, ledgerTo, JSON.stringify(ledgerLoanFilters)]
   );
 
+  const [ledgerExporting, setLedgerExporting] = useState(false);
+  async function onExportLedger() {
+    setLedgerExporting(true);
+    try {
+      await exportPartyStatementByCustomer(numericCustomerId, { fromDate: ledgerFrom, toDate: ledgerTo, loanNumbers: ledgerLoanFilters });
+    } catch (e) {
+      toast(e instanceof ApiError ? e.message : "Could not export the ledger.");
+    } finally {
+      setLedgerExporting(false);
+    }
+  }
+
   const [activeTable, setActiveTable] = useState(0);
-  const TABLE_TABS = ["Loan History", "Pledged Ornaments", "Payment History", "Bank Pledges", "Auction History", "Transactions"];
+  const TABLE_TABS = ["Loan History", "Pledged Ornaments", "Payment History", "Bank Pledges", "Auction History", "Ledger"];
   // One icon per tab, same order as TABLE_TABS — shown on the rail so each
   // stop says which table it selects.
   const TABLE_TAB_ICONS = ["list", "scale", "coin", "bank", "gavel", "chart"];
@@ -255,7 +303,8 @@ export function CustomerDetail({ id }: { id?: string }) {
   const paymentPager = useSubTablePage<CustomerPaymentRowView>(listPayments, range, !!id);
   const bankPledgePager = useSubTablePage<CustomerBankPledgeRowView>(listBankPledges, range, !!id);
   const auctionPager = useSubTablePage<CustomerAuctionRowView>(listAuctionHistory, range, !!id);
-  const transactionPager = useSubTablePage<CashMovementView>(listTransactions, range, !!id);
+  const transactionPager = useSubTablePage<CashMovementView>(listTransactions, { from: ledgerFrom, to: ledgerTo }, !!id);
+  useEffect(() => { transactionPager.setPage(1); }, [JSON.stringify(ledgerLoanFilters)]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // profile.loans still backs the "Request Extension / Release" picker
   // below — that's a full-set picker, not a paginated table, so it keeps
@@ -265,7 +314,14 @@ export function CustomerDetail({ id }: { id?: string }) {
   // A range change keeps the previously loaded profile on screen (dimmed
   // via `reloading`) so the page doesn't blank out between fetches.
   if (error && !profile) return <div className="empty">Customer not found — {error}</div>;
-  if (!profile) return <div className="empty">Loading customer…</div>;
+  // `page-fade-in` on both the loading placeholder and the loaded content
+  // below smooths the swap between them — without it, switching into a
+  // customer's page from elsewhere (e.g. the dashboard) hard-cut from the
+  // page's header/sidebar (already on screen) to this bare loading line,
+  // then hard-cut again to the full hero once the fetch resolved. Now both
+  // states fade in the same way, so the hero doesn't feel like a separate,
+  // late-arriving element next to a header that "loaded" first.
+  if (!profile) return <div className="empty page-fade-in">Loading customer…</div>;
 
   const c = profile.customer;
 
@@ -360,7 +416,7 @@ export function CustomerDetail({ id }: { id?: string }) {
   }
 
   return (
-    <>
+    <div className="page-fade-in">
       <div className="page-h">
         <div className="dhead">
           <div className="big-av">{initials(c.name)}</div>
@@ -460,23 +516,9 @@ export function CustomerDetail({ id }: { id?: string }) {
        * (useIsSmallScreen) windows, sitting too close to the header above
        * to read as its own divider line. */}
       <hr className="gold-rule" style={{ margin: smallScreen ? "4px 0 6px" : "4px 0 10px" }} />
-      {/* Opened-date filter for the whole 360 view — every card below plus
-          the relationship totals come from the backend-filtered loan set. */}
-      <div style={{ display: "flex", alignItems: "flex-end", justifyContent: "flex-end", gap: 12, flexWrap: "wrap", marginBottom: 18 }}>
-        <div style={{ minWidth: 190 }}>
-          <label className="f" style={{ textTransform: "none" }}>Loans Opened From</label>
-          <DatePicker value={from} onChange={setFrom} placeholder="Any start date…" max={to || undefined} />
-        </div>
-        <div style={{ minWidth: 190 }}>
-          <label className="f" style={{ textTransform: "none" }}>To</label>
-          <DatePicker value={to} onChange={setTo} placeholder="Any end date…" min={from || undefined} />
-        </div>
-        {(from || to) && (
-          <button className="btn ghost" onClick={() => { setFrom(""); setTo(""); }}>Clear</button>
-        )}
-        {reloading && <span style={{ fontSize: 12.5, color: "var(--muted)" }}>Loading…</span>}
-        {error && <span style={{ fontSize: 12.5, color: "var(--red)" }}>{error}</span>}
-      </div>
+      {error && (
+        <div style={{ marginBottom: 12, fontSize: 12.5, color: "var(--red)" }}>{error}</div>
+      )}
       {/* cust-360 pins the left card column to a fixed width so it stays put
           when the tab switches between tables of different column counts, and
           makes the tables fit their column instead of scrolling sideways. */}
@@ -619,12 +661,33 @@ export function CustomerDetail({ id }: { id?: string }) {
           </div>
 
           <div className="card tbl-card tbl-card-fill">
-            <div className="hd">
+            <div className="hd" style={{ flexWrap: "wrap", rowGap: 10 }}>
               <h3>{TABLE_TABS[activeTable]}</h3>
+              {activeTable === 5 ? (
+                <>
+                  <div className="sp" />
+                  <FilterPanel categories={ledgerCategories} value={ledgerFilters} onChange={setLedgerFilters} hideChips />
+                  <button className="btn ghost sm" disabled={ledgerExporting} onClick={onExportLedger}>
+                    {ledgerExporting ? "Exporting…" : "Download"}
+                  </button>
+                </>
+              ) : (
+                <>
+                  <div className="sp" />
+                  {reloading && <span style={{ fontSize: 12.5, color: "var(--muted)" }}>Loading…</span>}
+                  <FilterPanel categories={openedDateCategories} value={openedDateFilter} onChange={setOpenedDateFilter} hideChips />
+                </>
+              )}
             </div>
 
-            {activeTable === 0 && (
-              <div key={activeTable} className="tab-slide-up">
+            {/* All 6 panels stay mounted and are only shown/hidden via
+              * `hidden` — a conditional `{activeTable === i && <div>...}`
+              * used to unmount/remount the whole table (rows, pager, DOM)
+              * on every tab click, which read as the page reloading even
+              * though no data was ever refetched. `hidden` keeps each
+              * panel's DOM and the tab-slide-up entrance animation intact,
+              * without re-running any of the fetches above. */}
+            <div hidden={activeTable !== 0} className={activeTable === 0 ? "tab-slide-up" : undefined}>
                 <div className="tbl-wrap tbl-wrap-auto"><table className="tbl tbl-center">
                   <thead><tr><th>Loan</th><th>Scheme</th><th className="th-opened-due">Opened / <span className="th-due-part">Due</span></th><th className="num">Principal</th><th className="num">Outstanding</th><th>Pledge</th><th>Status</th></tr></thead>
                   <tbody>
@@ -635,10 +698,8 @@ export function CustomerDetail({ id }: { id?: string }) {
                 </table></div>
                 <Pager page={loanPager.page} total={loanPager.total} pageSize={subtablePageSize} onChange={loanPager.setPage} />
               </div>
-            )}
 
-            {activeTable === 1 && (
-              <div key={activeTable} className="tab-slide-up">
+            <div hidden={activeTable !== 1} className={activeTable === 1 ? "tab-slide-up" : undefined}>
                 <div className="tbl-wrap tbl-wrap-auto"><table className="tbl tbl-center">
                   <thead><tr><th>Loan</th><th>Ornament</th><th>Purity</th><th className="num">Net (g)</th><th className="num">Gold Value</th></tr></thead>
                   <tbody>
@@ -657,10 +718,8 @@ export function CustomerDetail({ id }: { id?: string }) {
                 </table></div>
                 <Pager page={ornamentPager.page} total={ornamentPager.total} pageSize={subtablePageSize} onChange={ornamentPager.setPage} />
               </div>
-            )}
 
-            {activeTable === 2 && (
-              <div key={activeTable} className="tab-slide-up">
+            <div hidden={activeTable !== 2} className={activeTable === 2 ? "tab-slide-up" : undefined}>
                 <div className="tbl-wrap tbl-wrap-auto"><table className="tbl tbl-center">
                   <thead><tr><th>Loan</th><th>Date</th><th>Type</th><th className="num">Amount</th><th>Method</th></tr></thead>
                   <tbody>
@@ -679,10 +738,8 @@ export function CustomerDetail({ id }: { id?: string }) {
                 </table></div>
                 <Pager page={paymentPager.page} total={paymentPager.total} pageSize={subtablePageSize} onChange={paymentPager.setPage} />
               </div>
-            )}
 
-            {activeTable === 3 && (
-              <div key={activeTable} className="tab-slide-up">
+            <div hidden={activeTable !== 3} className={activeTable === 3 ? "tab-slide-up" : undefined}>
                 <div className="tbl-wrap tbl-wrap-auto"><table className="tbl tbl-center">
                   <thead><tr><th>Loan</th><th>Bank</th><th className="num">Amount</th><th>Pledged On</th><th>Status</th></tr></thead>
                   <tbody>
@@ -701,10 +758,8 @@ export function CustomerDetail({ id }: { id?: string }) {
                 </table></div>
                 <Pager page={bankPledgePager.page} total={bankPledgePager.total} pageSize={subtablePageSize} onChange={bankPledgePager.setPage} />
               </div>
-            )}
 
-            {activeTable === 4 && (
-              <div key={activeTable} className="tab-slide-up">
+            <div hidden={activeTable !== 4} className={activeTable === 4 ? "tab-slide-up" : undefined}>
                 <div className="tbl-wrap tbl-wrap-auto"><table className="tbl tbl-center">
                   <thead><tr><th>Loan</th><th>Stage</th><th>Auction Date</th><th className="num">Sale Amount</th><th className="num th-surplus-shortfall">Surplus / <span className="th-shortfall-part">Shortfall</span></th></tr></thead>
                   <tbody>
@@ -723,34 +778,60 @@ export function CustomerDetail({ id }: { id?: string }) {
                 </table></div>
                 <Pager page={auctionPager.page} total={auctionPager.total} pageSize={subtablePageSize} onChange={auctionPager.setPage} />
               </div>
-            )}
 
-            {activeTable === 5 && (
-              <div key={activeTable} className="tab-slide-up">
+            <div hidden={activeTable !== 5} className={activeTable === 5 ? "tab-slide-up" : undefined}>
                 <div className="tbl-wrap tbl-wrap-auto"><table className="tbl tbl-center">
-                  <thead><tr><th>Date</th><th>Type</th><th>Mode</th><th>Purpose</th><th className="num">Amount</th></tr></thead>
+                  <thead><tr><th>Date</th><th>Ref No</th><th>Particulars</th><th className="num">Debit</th><th className="num">Credit</th><th className="num">Balance</th></tr></thead>
                   <tbody>
                     {transactionPager.items.length === 0 ? (
-                      <tr><td colSpan={5} className="empty compact">No transactions recorded yet.</td></tr>
-                    ) : transactionPager.items.map((m) => (
-                      <tr key={m.id}>
-                        <td>{m.d}</td>
-                        <td>{m.type === "in" ? <span className="chip green">In</span> : <span className="chip red">Out</span>}</td>
-                        <td>{m.mode || "—"}</td>
-                        <td>{m.purpose || m.source || "—"}</td>
-                        <td className="num" style={{ color: m.type === "in" ? "var(--green)" : "var(--red)" }}>
-                          {m.type === "in" ? "+" : "−"}{fmt(m.amount)}
-                        </td>
-                      </tr>
-                    ))}
+                      <tr><td colSpan={6} className="empty compact">No ledger entries recorded yet.</td></tr>
+                    ) : (() => {
+                      // Running balance accumulates oldest-first regardless of
+                      // the table's own newest-first display order (matches
+                      // LoanDetail.tsx's Payment Ledger convention: a debit —
+                      // money owed by the customer, e.g. a loan disbursement —
+                      // increases the balance, a credit — money received —
+                      // reduces it).
+                      const chronological = [...transactionPager.items].reverse();
+                      let running = 0;
+                      const withBalance = chronological.map((m) => {
+                        if (m.type === "out") running += m.amount; else running -= m.amount;
+                        return { m, balance: running };
+                      });
+                      // Every loan-related movement's Purpose is literally
+                      // "{paymentType} — {loanNumber}" (e.g. "Partial —
+                      // LN-00049", "Loan disbursement — LN-00049" — see
+                      // cash.MovementService.RecordLoanPaymentCashIn/
+                      // RecordLoanDisbursementCashOut/etc): split it so Ref
+                      // No shows the loan number (not the internal
+                      // transaction-group id) and Particulars shows the
+                      // payment type/status half. Falls back to the old
+                      // transactionGroupId/source for non-loan rows (manual
+                      // top-ups, gold sales, …), which carry no loan number.
+                      const loanRefRe = /^(.*?)\s*—\s*(LN-\S+)$/;
+                      return withBalance.reverse().map(({ m, balance }) => {
+                        const match = m.purpose ? loanRefRe.exec(m.purpose) : null;
+                        const ref = match ? match[2] : m.transactionGroupId || m.id;
+                        const particulars = match ? match[1] : m.purpose || m.source || "—";
+                        return (
+                          <tr key={m.id}>
+                            <td>{m.d}</td>
+                            <td className="ledger-ref" title={String(ref)}>{ref}</td>
+                            <td>{particulars}</td>
+                            <td className="num" style={{ color: m.type === "out" ? "var(--red)" : undefined }}>{m.type === "out" ? fmt(m.amount) : "—"}</td>
+                            <td className="num" style={{ color: m.type === "in" ? "var(--green)" : undefined }}>{m.type === "in" ? fmt(m.amount) : "—"}</td>
+                            <td className="num">{fmt(balance)}</td>
+                          </tr>
+                        );
+                      });
+                    })()}
                   </tbody>
                 </table></div>
                 <Pager page={transactionPager.page} total={transactionPager.total} pageSize={subtablePageSize} onChange={transactionPager.setPage} />
               </div>
-            )}
           </div>
         </div>
       </div>
-    </>
+    </div>
   );
 }

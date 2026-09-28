@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
-import { Animated, Image, Pressable, ScrollView, StyleSheet, View, type ScrollViewProps } from "react-native";
+import { Animated, Easing, Image, Keyboard, Pressable, ScrollView, StyleSheet, View, type ScrollViewProps } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { router as globalRouter, useIsFocused, useNavigation, useRoute, useRouter } from "expo-router";
 import type { BottomTabBarProps } from "expo-router/js-tabs";
@@ -8,7 +8,7 @@ import { Buffering, C, Fade, Txt, pullRefreshControl } from "./base";
 import { PIcon } from "./PIcon";
 import { notifyLayoutShift, notifyUserScroll } from "./Popover";
 import { setOverlayOrigin } from "./overlayOrigin";
-import { PCONTENT_BOTTOM, PHEADER_FADE, PTAB_HEIGHT, PTAB_INSET } from "../../theme/layout";
+import { PCONTENT_BOTTOM, PHEADER_FADE, PTAB_HEIGHT, PTAB_INSET, tabBarLift } from "../../theme/layout";
 import { useAuth } from "../../auth/AuthContext";
 import { HEADER_LOGO } from "../../config/brand";
 import { usePullRefresh } from "../../hooks/usePullRefresh";
@@ -297,12 +297,98 @@ const headerStore = {
 };
 export const HeaderHostContext = createContext(false);
 
-/** Mounted once by app/(tabs)/_layout.tsx, after the navigator. */
+// Material "standard" curve: eases in and out, so the header neither jumps
+// off at the start nor stops dead at the end.
+const HEADER_MS = 380;
+const HEADER_EASE = Easing.bezier(0.4, 0, 0.2, 1);
+const HEADER_FADE_MS = 220;
+
+type Curtain = { h: number; content: React.ReactNode };
+
+/** Mounted once by app/(tabs)/_layout.tsx, after the navigator.
+ *
+ * Leaving the Dashboard swaps its tall hero for a page's short flat header,
+ * which used to happen in one frame and read as the header snapping
+ * shorter. The swap is spotted during render (the node's type changes), so
+ * in that same frame the hero's last content is kept as a "curtain" behind
+ * the new header: it slides up to the new header's bottom edge while its
+ * content fades, and the new header fades in on top. Coming back, the hero
+ * mounts shifted up so only its bottom strip shows, then slides down.
+ * Every animation here runs on the native driver, so a heavy page mounting
+ * underneath can't make the header stutter. */
 export function HeaderHost() {
   const node = useSyncExternalStore(headerStore.subscribe, headerStore.get, headerStore.get);
+  const tall = React.isValidElement(node) && node.type === HeroHeader;
+  // Last measured height of each kind of header (0 until first seen).
+  const [heights, setHeights] = useState({ tall: 0, short: 0 });
+  // The most recent hero, kept so the curtain can carry its content away.
+  const [heroNode, setHeroNode] = useState<React.ReactNode>(tall ? node : null);
+  if (tall && heroNode !== node) setHeroNode(node);
+
+  const [curtain, setCurtain] = useState<Curtain | null>(null);
+  const [curtainY] = useState(() => new Animated.Value(0));
+  const [curtainFade] = useState(() => new Animated.Value(1));
+  const [headerFade] = useState(() => new Animated.Value(1));
+  // Growing remounts the wrapper (new key) so it mounts already holding the
+  // shifted-up offset — a native value changed on a view that's already
+  // mounted can reach the screen a frame after the new hero does.
+  const [dropY] = useState(() => new Animated.Value(0));
+  const [growKey, setGrowKey] = useState(0);
+  const [growing, setGrowing] = useState(false);
+
+  const [prevTall, setPrevTall] = useState(tall);
+  if (prevTall !== tall) {
+    setPrevTall(tall);
+    if (!tall && heights.tall) {
+      curtainY.setValue(0);
+      curtainFade.setValue(1);
+      headerFade.setValue(0);
+      setCurtain({ h: heights.tall, content: heroNode });
+      setGrowing(false);
+    } else if (tall && heights.tall && heights.short) {
+      setCurtain(null);
+      headerFade.setValue(1);
+      dropY.setValue(heights.short - heights.tall);
+      setGrowKey((k) => k + 1);
+      setGrowing(true);
+    }
+  }
+
+  const onLayout = (h: number) => {
+    if (h <= 0) return;
+    const kind = tall ? "tall" : "short";
+    if (heights[kind] !== h) setHeights((prev) => ({ ...prev, [kind]: h }));
+    if (!tall && curtain != null) {
+      Animated.parallel([
+        Animated.timing(curtainY, { toValue: Math.min(0, h - curtain.h), duration: HEADER_MS, easing: HEADER_EASE, useNativeDriver: true }),
+        Animated.timing(curtainFade, { toValue: 0, duration: HEADER_FADE_MS, easing: HEADER_EASE, useNativeDriver: true }),
+        Animated.timing(headerFade, { toValue: 1, duration: HEADER_FADE_MS, delay: 60, easing: HEADER_EASE, useNativeDriver: true }),
+      ]).start(({ finished }) => {
+        if (finished) setCurtain(null);
+      });
+    } else if (tall && growing) {
+      Animated.timing(dropY, { toValue: 0, duration: HEADER_MS, easing: HEADER_EASE, useNativeDriver: true }).start(({ finished }) => {
+        if (finished) setGrowing(false);
+      });
+    }
+  };
+
   return (
     <View style={s.headerHost} pointerEvents="box-none">
-      {node}
+      {curtain != null ? (
+        <Animated.View pointerEvents="none" style={[s.headerCurtain, { height: curtain.h, transform: [{ translateY: curtainY }] }]}>
+          <HeroBackground />
+          <Animated.View style={{ opacity: curtainFade }}>{curtain.content}</Animated.View>
+        </Animated.View>
+      ) : null}
+      <Animated.View
+        key={growKey}
+        pointerEvents="box-none"
+        style={{ opacity: headerFade, transform: [{ translateY: growing ? dropY : 0 }] }}
+        onLayout={(e) => onLayout(e.nativeEvent.layout.height)}
+      >
+        {node}
+      </Animated.View>
     </View>
   );
 }
@@ -333,7 +419,11 @@ export function Screen({
   // can't re-render to report focused=false itself).
   useEffect(() => {
     if (!hosted) return;
-    const off = navigation.addListener("blur", () => headerStore.blur(routeKey));
+    // Leaving a page (tab, push, back) also closes a keyboard opened on it.
+    const off = navigation.addListener("blur", () => {
+      Keyboard.dismiss();
+      headerStore.blur(routeKey);
+    });
     return () => {
       off();
       headerStore.remove(routeKey);
@@ -372,6 +462,7 @@ export function PScroll({
     <ScrollView
       showsVerticalScrollIndicator={false}
       keyboardShouldPersistTaps="handled"
+      keyboardDismissMode="on-drag"
       refreshControl={onPull ? pullRefreshControl(pullRefreshing, onPull) : undefined}
       scrollEventThrottle={16}
       {...rest}
@@ -383,7 +474,7 @@ export function PScroll({
         notifyUserScroll();
         rest.onScrollBeginDrag?.(e);
       }}
-      contentContainerStyle={[{ paddingBottom: PCONTENT_BOTTOM + insets.bottom + extraBottom }, contentContainerStyle]}
+      contentContainerStyle={[{ paddingBottom: PCONTENT_BOTTOM + tabBarLift(insets.bottom) + extraBottom }, contentContainerStyle]}
     >
       {pullRefreshing ? <Buffering style={{ paddingVertical: 10 }} /> : null}
       {children}
@@ -415,7 +506,7 @@ export function FabCorner({
     return (
       // The caption sits where an uncaptioned FAB's bottom edge would be, so
       // the whole button + label stays clear of the tab bar below it.
-      <View style={[s.fabWrap, { bottom: 96 + insets.bottom }, side === "left" ? { left: 16 } : { right: 16 }]} pointerEvents="box-none">
+      <View style={[s.fabWrap, { bottom: 96 + tabBarLift(insets.bottom) }, side === "left" ? { left: 16 } : { right: 16 }]} pointerEvents="box-none">
         <Pressable style={[s.fab, s.fabInline]} onPress={onPress} accessibilityLabel={label ?? caption}>
           <PIcon name={icon} color="#fff" />
         </Pressable>
@@ -423,7 +514,7 @@ export function FabCorner({
       </View>
     );
   return (
-    <Pressable style={[s.fab, { bottom: 96 + FAB_CAPTION_H + insets.bottom }, side === "left" ? { left: 16, right: undefined } : null]} onPress={onPress} accessibilityLabel={label ?? "Add"}>
+    <Pressable style={[s.fab, { bottom: 96 + FAB_CAPTION_H + tabBarLift(insets.bottom) }, side === "left" ? { left: 16, right: undefined } : null]} onPress={onPress} accessibilityLabel={label ?? "Add"}>
       <PIcon name={icon} color="#fff" />
     </Pressable>
   );
@@ -452,7 +543,7 @@ export function FabMenu({ actions, label = "More actions" }: { actions: { label:
       useNativeDriver: true,
     }).start();
   };
-  const bottom = 96 + FAB_CAPTION_H + insets.bottom;
+  const bottom = 96 + FAB_CAPTION_H + tabBarLift(insets.bottom);
   return (
     <>
       {open ? <Pressable style={[StyleSheet.absoluteFill, { zIndex: 44 }]} onPress={() => toggle(false)} accessibilityLabel="Close actions" /> : null}
@@ -510,7 +601,7 @@ export function ActionsBar({
 }) {
   const insets = useSafeAreaInsets();
   return (
-    <View style={[s.ldBar, { bottom: 102 + insets.bottom }]} pointerEvents="box-none">
+    <View style={[s.ldBar, { bottom: 102 + tabBarLift(insets.bottom) }]} pointerEvents="box-none">
       {actions.map((a) => {
         const fg = a.primary ? "#fff" : a.tone === "danger" ? C.red : C.brandDeep;
         return (
@@ -737,8 +828,8 @@ export function PTabBar({ state, navigation }: BottomTabBarProps) {
       {/* Gradual fade covering the bar's full height plus a strip above it,
           so content eases out before it reaches the bar instead of meeting
           a hard edge. */}
-      <Fade from="bottom" height={PTAB_INSET + PTAB_HEIGHT + TAB_FADE_ABOVE + insets.bottom} solidAt={0.6} style={s.tabFade} />
-      <View style={[s.tabbar, { bottom: PTAB_INSET + insets.bottom }]}>
+      <Fade from="bottom" height={PTAB_INSET + PTAB_HEIGHT + TAB_FADE_ABOVE + tabBarLift(insets.bottom)} solidAt={0.6} style={s.tabFade} />
+      <View style={[s.tabbar, { bottom: PTAB_INSET + tabBarLift(insets.bottom) }]}>
         {tabs.map((t) => {
           const active = t.route === activeRoute;
           if (t.fab) {
@@ -779,6 +870,8 @@ const s = StyleSheet.create({
   headerShell: { zIndex: 20 },
   headerSpacer: { opacity: 0 },
   headerHost: { position: "absolute", top: 0, left: 0, right: 0, zIndex: 30 },
+  // Same rounded bottom as the hero (aHeader) it stands in for.
+  headerCurtain: { position: "absolute", top: 0, left: 0, right: 0, borderBottomLeftRadius: 26, borderBottomRightRadius: 26, overflow: "hidden" },
   body: { flex: 1 },
   headerFade: { position: "absolute", top: 0, left: 0, right: 0 },
 

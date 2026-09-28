@@ -254,7 +254,24 @@ func (r *Repository) FindAll(ctx context.Context, f LoanFilter) ([]Loan, int64, 
 	// Most recently opened loan first. Ordering by id alone pinned whichever
 	// loan was inserted last to the top even when an older-dated loan was
 	// entered afterwards; id only breaks ties within the same day now.
-	q := applyFilters(preloadAll(r.db.WithContext(ctx)).Model(&Loan{}).Order("loans.opened_date desc, loans.id desc"), f)
+	//
+	// The Bank Pledge "Active" tab (f.BankPledgeStatus == Pledged) is the one
+	// exception: staff expect the most recently PLEDGED loan at the top, not
+	// the one that happened to be opened most recently — a loan taken out
+	// months ago but pledged to a bank just now would otherwise sort to the
+	// bottom, looking like nothing had just happened. Ordered by that loan's
+	// own active pledge record instead (there's at most one, per
+	// Service.RecordBankPledge's guard), falling back to the usual
+	// opened_date order for every other filter.
+	base := preloadAll(r.db.WithContext(ctx)).Model(&Loan{})
+	if f.BankPledgeStatus == BankPledgeStatusPledged {
+		base = base.
+			Joins("JOIN bank_pledge_records ON bank_pledge_records.loan_id = loans.id AND bank_pledge_records.status = ?", BankPledgeStatusRecordActive).
+			Order("bank_pledge_records.pledge_date desc, bank_pledge_records.id desc")
+	} else {
+		base = base.Order("loans.opened_date desc, loans.id desc")
+	}
+	q := applyFilters(base, f)
 	var total int64
 	if f.Limit > 0 {
 		// A real COUNT over the same filter, ignoring Limit/Offset — computed

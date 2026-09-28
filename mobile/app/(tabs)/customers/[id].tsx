@@ -8,6 +8,7 @@ import {
   Buffering,
   C,
   Card,
+  DateField,
   DetailRow,
   EmptyText,
   FlatHeader,
@@ -21,6 +22,7 @@ import {
   ServerFlatList,
   Txt,
   openPage,
+  type AccDetail,
 } from "../../../src/components/ui";
 import { CustomerFormSheet } from "../../../src/components/staff/CustomerFormSheet";
 import { useServerList, type ServerPage } from "../../../src/hooks/useServerList";
@@ -34,18 +36,23 @@ import {
   listCustomerPaymentsPage,
 } from "../../../src/api/customers";
 import { listLoansPage } from "../../../src/api/loans";
+import { listCashMovementsByCustomer } from "../../../src/api/cash";
 import { ApiError } from "../../../src/api/client";
 import { dmy, inr } from "../../../src/lib/format";
 import type { Customer } from "../../../src/types/customer";
 import type { CustomerAuctionRow, CustomerBankPledgeRow, CustomerOrnamentRow, CustomerPaymentRow, Loan } from "../../../src/types/loan";
+import type { CashMovement } from "../../../src/types/cash";
 
 // Customer detail — prototype #header-customerdesc + #page-customerdesc:
 // expandable header card, nominee card, then pill tabs (Loans / Ornaments /
-// Payments / Bank Pledges / Auctions). Each tab is its own server-paged list
-// with its own search box (server `q` on the customer sub-endpoints; loans
-// via GET /loans?customerId=&q=).
+// Payments / Bank Pledges / Auctions / Ledger). Each tab is its own
+// server-paged list with its own search box (server `q` on the customer
+// sub-endpoints; loans via GET /loans?customerId=&q=). Ledger has no search
+// box — it's the same Date/Ref No/Particulars/Debit/Credit/Balance shape as
+// the web CustomerDetail.tsx's Ledger tab, backed by the same
+// GET /cash-movements/transactions/customer/:id endpoint.
 
-const TABS = ["Loans", "Ornaments", "Payments", "Bank Pledges", "Auctions"] as const;
+const TABS = ["Loans", "Ornaments", "Payments", "Bank Pledges", "Auctions", "Ledger"] as const;
 type Tab = (typeof TABS)[number];
 
 const hasDate = (v?: string | null) => !!v && !v.startsWith("0001");
@@ -189,6 +196,84 @@ function TabList<T>({
         </>
       }
       renderItem={renderItem}
+    />
+  );
+}
+
+/** Ledger tab — same Date/Ref No/Particulars/Debit/Credit/Balance shape as
+ * the web CustomerDetail.tsx's Ledger tab, rendered with the same
+ * AccGroup/AccRow accordion style as LoanLedger.tsx for visual consistency.
+ * Only a Date filter (no search box — cash movements don't have a loan-
+ * number-style free-text field to search). */
+function LedgerTabList({ customerId, top }: { customerId: number; top: React.ReactElement }) {
+  const [fromDate, setFromDate] = useState<string | undefined>();
+  const [toDate, setToDate] = useState<string | undefined>();
+  const list = useServerList<CashMovement>({
+    key: ["customerLedger", customerId, fromDate, toDate],
+    fetchPage: (p) =>
+      listCashMovementsByCustomer(customerId, { limit: p.limit, offset: p.offset, fromDate, toDate }).then((r) => ({
+        items: r.items,
+        hasMore: p.offset + p.limit < r.total,
+        total: r.total,
+      })),
+    fresh: true,
+  });
+
+  // Running balance accumulates oldest-first regardless of the list's own
+  // newest-first display order — same convention as the web Ledger tab
+  // (a debit, e.g. a loan disbursement, increases the balance; a credit,
+  // e.g. a payment received, reduces it).
+  const chronological = [...(list.items ?? [])].reverse();
+  let running = 0;
+  const balanceById = new Map<number, number>();
+  for (const m of chronological) {
+    running += m.type === "out" ? m.amount : -m.amount;
+    balanceById.set(m.id, running);
+  }
+
+  return (
+    <ServerFlatList
+      list={list}
+      items={list.items}
+      keyOf={(m) => String(m.id)}
+      emptyText="No ledger entries yet."
+      header={
+        <>
+          {top}
+          <View style={{ flexDirection: "row", gap: 10, paddingHorizontal: 18, paddingTop: 12 }}>
+            <View style={{ flex: 1 }}>
+              <DateField label="From" value={fromDate} onChange={setFromDate} max={toDate} clearable />
+            </View>
+            <View style={{ flex: 1 }}>
+              <DateField label="To" value={toDate} onChange={setToDate} min={fromDate} clearable />
+            </View>
+          </View>
+        </>
+      }
+      renderItem={(m, i) => {
+        const isDebit = m.type === "out";
+        const details: AccDetail[] = [
+          { k: "Date", v: dmy(m.occurredOn) },
+          { k: "Ref No", v: m.transactionGroupId ?? String(m.id) },
+          { k: "Particulars", v: m.purpose || m.source || "—" },
+          { k: "Debit", v: isDebit ? inr(m.amount) : "—", color: isDebit ? C.red : C.muted },
+          { k: "Credit", v: isDebit ? "—" : inr(m.amount), color: isDebit ? C.muted : C.green },
+          { k: "Balance", v: inr(balanceById.get(m.id) ?? 0), color: C.brandDeep },
+        ];
+        return (
+          <AccRow
+            defaultOpen={i === 0}
+            id={dmy(m.occurredOn)}
+            name={m.purpose || m.source || "—"}
+            sub={m.transactionGroupId ?? String(m.id)}
+            amount={isDebit ? `−${inr(m.amount)}` : `+${inr(m.amount)}`}
+            amountColor={isDebit ? C.red : C.green}
+            status={isDebit ? "Debit" : "Credit"}
+            statusTone={isDebit ? "overdue" : "active"}
+            details={details}
+          />
+        );
+      }}
     />
   );
 }
@@ -344,6 +429,8 @@ export default function CustomerDetailScreen() {
             />
           )}
         />
+      ) : tab === "Ledger" ? (
+        <LedgerTabList key="ledger" customerId={customerId} top={top} />
       ) : (
         <TabList<CustomerAuctionRow>
           key="auctions"

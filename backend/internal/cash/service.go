@@ -159,6 +159,13 @@ func (s *MovementService) List(ctx context.Context, branchID *uint, fromDate, to
 	return s.repo.FindAll(ctx, branchID, fromDate, toDate, category, search, limit, offset)
 }
 
+// ListFiltered is List's counterpart for the Ledger filter's multi-select
+// Branch/Customer/Type sections (MovementFilter) — see
+// MovementRepository.FindAllFiltered.
+func (s *MovementService) ListFiltered(ctx context.Context, branchID *uint, fromDate, toDate time.Time, filter MovementFilter, search string, limit, offset int) ([]CashMovement, int64, error) {
+	return s.repo.FindAllFiltered(ctx, branchID, fromDate, toDate, filter, search, limit, offset)
+}
+
 // PartyTotals is the Party Transactions page's KPI row — Total In / Total
 // Out / Net across every movement matching the same filter as the list
 // beneath it (not just the current page), plus how many transactions each
@@ -205,12 +212,27 @@ func (s *MovementService) ListCashMovementsByBank(ctx context.Context, bankID ui
 // ListCashMovementsByCustomer is ListCashMovementsByBank's counterpart for
 // CashMovement.PartyCustomerID — backs the Party Transactions page's
 // customer drill-down and CustomerDetail.tsx's "Transactions" tab.
-func (s *MovementService) ListCashMovementsByCustomer(ctx context.Context, customerID uint, fromDate, toDate time.Time, limit, offset int) ([]CashMovement, int64, PartyTotals, error) {
-	rows, total, err := s.repo.ListByCustomer(ctx, customerID, fromDate, toDate, limit, offset)
+func (s *MovementService) ListCashMovementsByCustomer(ctx context.Context, customerID uint, fromDate, toDate time.Time, loanNumbers []string, limit, offset int) ([]CashMovement, int64, PartyTotals, error) {
+	rows, total, err := s.repo.ListByCustomer(ctx, customerID, fromDate, toDate, loanNumbers, limit, offset)
 	if err != nil {
 		return nil, 0, PartyTotals{}, err
 	}
-	all, _, err := s.repo.ListByCustomer(ctx, customerID, fromDate, toDate, 0, 0)
+	all, _, err := s.repo.ListByCustomer(ctx, customerID, fromDate, toDate, loanNumbers, 0, 0)
+	if err != nil {
+		return nil, 0, PartyTotals{}, err
+	}
+	return rows, total, sumPartyTotals(all), nil
+}
+
+// ListCashMovementsByBranch is ListCashMovementsByBank's counterpart for
+// CashMovement.BranchID — backs the Party Transactions page's branch
+// drill-down.
+func (s *MovementService) ListCashMovementsByBranch(ctx context.Context, branchID uint, fromDate, toDate time.Time, limit, offset int) ([]CashMovement, int64, PartyTotals, error) {
+	rows, total, err := s.repo.ListByBranch(ctx, branchID, fromDate, toDate, limit, offset)
+	if err != nil {
+		return nil, 0, PartyTotals{}, err
+	}
+	all, _, err := s.repo.ListByBranch(ctx, branchID, fromDate, toDate, 0, 0)
 	if err != nil {
 		return nil, 0, PartyTotals{}, err
 	}

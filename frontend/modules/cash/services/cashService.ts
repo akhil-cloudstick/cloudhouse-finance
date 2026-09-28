@@ -85,15 +85,30 @@ export const CASH_MOVEMENTS_PAGE_SIZE = 8;
 // "" (CategoryAll) applies no filter. Kept as a plain string union rather
 // than an enum so a stray unrecognized value just falls through to "no
 // filter" server-side instead of a client-side type error.
-export type CashMovementCategory = "" | "loan" | "auction" | "collection" | "expenses";
+export type CashMovementCategory = "" | "loan" | "auction" | "collection" | "expenses" | "personal loan" | "investment";
 
-export type CashMovementFilters = { fromDate?: string; toDate?: string; category?: CashMovementCategory };
+export type CashMovementFilters = {
+  fromDate?: string;
+  toDate?: string;
+  category?: CashMovementCategory;
+  // branchIds/customerIds/types are the Ledger filter panel's multi-select
+  // Branch/Customer/Type sections — separate from the single `category`
+  // above (kept for existing single-select callers, e.g. Cash.tsx's legacy
+  // state) since a Type section can now have several buckets checked at
+  // once.
+  branchIds?: string[];
+  customerIds?: string[];
+  types?: CashMovementCategory[];
+};
 
 function movementFilterParams(filters?: CashMovementFilters): URLSearchParams {
   const params = new URLSearchParams();
   if (filters?.fromDate) params.set("fromDate", filters.fromDate);
   if (filters?.toDate) params.set("toDate", filters.toDate);
   if (filters?.category) params.set("category", filters.category);
+  if (filters?.branchIds?.length) params.set("branchIds", filters.branchIds.join(","));
+  if (filters?.customerIds?.length) params.set("customerIds", filters.customerIds.join(","));
+  if (filters?.types?.length) params.set("types", filters.types.join(","));
   return params;
 }
 
@@ -134,14 +149,18 @@ async function downloadFile(path: string, fallbackFilename: string): Promise<voi
   URL.revokeObjectURL(url);
 }
 
-/* Downloads every cash movement matching the given filters as a PDF —
- * respects fromDate/toDate/category exactly like the table above, but is
- * NEVER capped to a page size: the export always covers the full filtered
- * set, not just whatever's currently paginated into the browser. */
-export async function exportCashMovements(filters?: CashMovementFilters): Promise<void> {
+/* Downloads every cash movement matching the given filters as a PDF (the
+ * default) or, with format: "xlsx", a spreadsheet — respects
+ * fromDate/toDate/category/branchIds/customerIds/types exactly like the
+ * table above, but is NEVER capped to a page size: the export always
+ * covers the full filtered set, not just whatever's currently paginated
+ * into the browser. */
+export async function exportCashMovements(filters?: CashMovementFilters & { format?: "pdf" | "xlsx" }): Promise<void> {
   const params = movementFilterParams(filters);
+  const format = filters?.format || "pdf";
+  if (format === "xlsx") params.set("format", "xlsx");
   const qs = params.toString() ? `?${params.toString()}` : "";
-  await downloadFile(`/cash-movements/export${qs}`, "cash-movements.pdf");
+  await downloadFile(`/cash-movements/export${qs}`, `cash-movements.${format}`);
 }
 
 /* Downloads every expense-register row (branch-scoped server-side, same as
@@ -435,12 +454,16 @@ export type PartyTotals = {
   outCount: number;
 };
 
-export type PartyDateRange = { fromDate?: string; toDate?: string };
+// loanNumbers is the customer drilldown's Loan filter, now multi-select —
+// loanNumber (singular) is kept for any caller still passing exactly one.
+export type PartyDateRange = { fromDate?: string; toDate?: string; loanNumber?: string; loanNumbers?: string[] };
 
 function partyRangeParams(range?: PartyDateRange): URLSearchParams {
   const params = new URLSearchParams();
   if (range?.fromDate) params.set("fromDate", range.fromDate);
   if (range?.toDate) params.set("toDate", range.toDate);
+  if (range?.loanNumber) params.set("loanNumber", range.loanNumber);
+  if (range?.loanNumbers?.length) params.set("loanNumbers", range.loanNumbers.join(","));
   return params;
 }
 
@@ -480,4 +503,23 @@ export async function exportPartyStatementByCustomer(customerId: number, range?:
   const params = partyRangeParams(range);
   const qs = params.toString() ? `?${params.toString()}` : "";
   await downloadFile(`/cash-movements/transactions/customer/${customerId}/export${qs}`, "party-transactions.pdf");
+}
+
+export async function listCashMovementsByBranch(
+  branchId: number,
+  page: number,
+  range?: PartyDateRange,
+  pageSize: number = PARTY_PAGE_SIZE
+): Promise<{ items: CashMovementView[]; total: number; totals: PartyTotals }> {
+  const params = partyRangeParams(range);
+  params.set("limit", String(pageSize));
+  params.set("offset", String((page - 1) * pageSize));
+  const rec = await apiFetch<{ items: BackendCashMovement[]; total: number; totals: PartyTotals }>(`/cash-movements/transactions/branch/${branchId}?${params}`);
+  return { items: (rec?.items || []).map(movementToView), total: rec?.total ?? 0, totals: rec?.totals ?? { totalIn: 0, totalOut: 0, net: 0, inCount: 0, outCount: 0 } };
+}
+
+export async function exportPartyStatementByBranch(branchId: number, range?: PartyDateRange): Promise<void> {
+  const params = partyRangeParams(range);
+  const qs = params.toString() ? `?${params.toString()}` : "";
+  await downloadFile(`/cash-movements/transactions/branch/${branchId}/export${qs}`, "branch-ledger.pdf");
 }
