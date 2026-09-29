@@ -244,6 +244,52 @@ func (h *Handler) AdjustExpiry(c *gin.Context) {
 	httpx.Success(c, http.StatusOK, rec)
 }
 
+// --- Administrator login ---------------------------------------------------
+
+func (h *Handler) GetAdminLogin(c *gin.Context) {
+	id, err := httpx.IDParam(c, "id")
+	if err != nil {
+		httpx.FailErr(c, err)
+		return
+	}
+	rec, err := h.svc.GetAdminLogin(platform.RequestContext(c), id)
+	if err != nil {
+		httpx.FailErr(c, err)
+		return
+	}
+	httpx.Success(c, http.StatusOK, rec)
+}
+
+type updateAdminLoginRequest struct {
+	Name     string `json:"name"`
+	Username string `json:"username"`
+	Password string `json:"password"`
+	Reason   string `json:"reason"`
+}
+
+func (h *Handler) UpdateAdminLogin(c *gin.Context) {
+	id, err := httpx.IDParam(c, "id")
+	if err != nil {
+		httpx.FailErr(c, err)
+		return
+	}
+	var req updateAdminLoginRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		httpx.Fail(c, http.StatusBadRequest, "invalid input")
+		return
+	}
+	rec, err := h.svc.UpdateAdminLogin(platform.RequestContext(c), actor(c), id, UpdateAdminLoginInput{
+		Name:     req.Name,
+		Username: req.Username,
+		Password: req.Password,
+	}, req.Reason)
+	if err != nil {
+		httpx.FailErr(c, err)
+		return
+	}
+	httpx.Success(c, http.StatusOK, rec)
+}
+
 // --- Tiers ---------------------------------------------------------------
 
 func (h *Handler) ListTiers(c *gin.Context) {

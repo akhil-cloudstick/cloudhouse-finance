@@ -36,6 +36,8 @@ func RegisterRoutes(rg *gin.RouterGroup, h *Handler, superAdminAuth gin.HandlerF
 	protected.POST("/businesses/:id/logo", h.SetLogo)
 	protected.PUT("/businesses/:id/modules", h.SetModules)
 	protected.PUT("/businesses/:id/languages", h.SetLanguages)
+	protected.GET("/businesses/:id/admin", h.GetAdminLogin)
+	protected.PUT("/businesses/:id/admin", h.UpdateAdminLogin)
 
 	protected.GET("/audit-log", h.ListAuditLog)
 }

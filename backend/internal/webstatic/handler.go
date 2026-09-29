@@ -208,7 +208,8 @@ var appRoutes = map[string]bool{
 	"investments": true, "investment": true, "cash": true,
 	"auctions": true, "packets": true, "packet": true,
 	"bankpledge": true, "reports": true, "employees": true,
-	"calendar": true, "branches": true, "roles-permissions": true,
+	"calendar": true, "branches": true, "banks": true,
+	"party-bank": true, "party-customer": true, "roles-permissions": true,
 	"billing": true, "settings": true,
 }
 

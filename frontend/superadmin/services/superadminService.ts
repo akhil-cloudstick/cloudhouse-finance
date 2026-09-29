@@ -310,6 +310,25 @@ export function setLanguages(id: number, languages: string[], reason: string): P
   });
 }
 
+/* The business's Administrator login — how the vendor gets an owner back in
+ * after a forgotten password. The password is write-only: it is never read
+ * back, and an empty one on update keeps the current password. */
+export type AdminLogin = { employeeId: number; name: string; username: string; phone: string };
+
+export function getAdminLogin(id: number): Promise<AdminLogin> {
+  return request<AdminLogin>(`/superadmin/businesses/${id}/admin`);
+}
+
+export function updateAdminLogin(
+  id: number,
+  input: { name: string; username: string; password: string; reason: string },
+): Promise<AdminLogin> {
+  return request<AdminLogin>(`/superadmin/businesses/${id}/admin`, {
+    method: "PUT",
+    body: JSON.stringify(input),
+  });
+}
+
 /* Multipart, so it cannot go through request() — that helper sets a JSON
  * Content-Type, and setting any Content-Type by hand on a FormData body
  * strips the boundary the server needs to parse it. */

@@ -115,4 +115,8 @@ const (
 	// longer exists to point at, so TenantName is the only surviving record
 	// of which business this was.
 	ActionDeleteBusiness = "delete_business"
+	// ActionUpdateAdminLogin logs the vendor changing a business's
+	// Administrator username or resetting its password. The detail names
+	// what changed; it never contains the password.
+	ActionUpdateAdminLogin = "update_admin_login"
 )

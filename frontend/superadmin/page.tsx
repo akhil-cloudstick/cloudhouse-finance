@@ -19,6 +19,8 @@ import {
   setModules,
   setLanguages,
   uploadLogo,
+  getAdminLogin,
+  updateAdminLogin,
   SuperAdminApiError,
   type Business,
   type Tier,
@@ -739,9 +741,8 @@ function ReasonField({
   );
 }
 
-/* The wizard's steps. `admin` is create-only — an existing business already
- * has its administrator, and changing that login is an employee-management
- * job inside the business, not a vendor one. */
+/* The wizard's steps. `admin` sets the first login on create; on edit it is
+ * how the vendor resets that login for an owner who has forgotten it. */
 type StepId = "profile" | "branding" | "grants" | "admin" | "review";
 
 type Step = { id: StepId; label: string };
@@ -752,7 +753,7 @@ function stepsFor(isCreate: boolean): Step[] {
     { id: "branding", label: "Branding" },
     { id: "grants", label: "Modules & languages" },
   ];
-  if (isCreate) steps.push({ id: "admin", label: "Administrator" });
+  steps.push({ id: "admin", label: isCreate ? "Administrator" : "Admin login" });
   steps.push({ id: "review", label: "Review" });
   return steps;
 }
@@ -901,9 +902,33 @@ function BusinessWizard({
     setLanguagesState((prev) => prev.filter((l) => allowed.includes(l)));
   }
 
-  const [adminUsername, setAdminUsername] = useState("admin");
+  const [adminUsername, setAdminUsername] = useState(isCreate ? "admin" : "");
   const [adminPassword, setAdminPassword] = useState("");
   const [adminName, setAdminName] = useState("");
+  /* On edit, the admin login as it is saved now — the baseline "changed" is
+   * measured against. null until loaded; adminLoadError when it cannot be
+   * (e.g. the business has no Administrator left), which disables the step's
+   * save rather than letting a blank username overwrite a real one. */
+  const [adminInitial, setAdminInitial] = useState<{ name: string; username: string } | null>(null);
+  const [adminLoadError, setAdminLoadError] = useState<string | null>(null);
+  const businessId = business?.id;
+  useEffect(() => {
+    if (businessId === undefined) return;
+    let cancelled = false;
+    getAdminLogin(businessId)
+      .then((a) => {
+        if (cancelled) return;
+        setAdminInitial({ name: a.name, username: a.username });
+        setAdminName(a.name);
+        setAdminUsername(a.username);
+      })
+      .catch((err) => {
+        if (!cancelled) setAdminLoadError(err instanceof SuperAdminApiError ? err.message : "Could not load the admin login.");
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [businessId]);
 
   const [reason, setReason] = useState("");
   const [submitting, setSubmitting] = useState(false);
@@ -939,9 +964,16 @@ function BusinessWizard({
     if (id === "branding" && color && !/^#[0-9a-fA-F]{6}$/.test(color)) {
       return "The colour must be a hex value like #6054bf.";
     }
-    if (id === "admin") {
+    if (id === "admin" && isCreate) {
       if (!adminUsername.trim()) return "An administrator username is required.";
       if (adminPassword.length < 8) return "The administrator password must be at least 8 characters.";
+    }
+    // On edit the password is optional (empty keeps the current one), and
+    // nothing is checked until the saved login has loaded.
+    if (id === "admin" && !isCreate && adminInitial) {
+      if (!adminUsername.trim()) return "An administrator username is required.";
+      if (adminPassword && adminPassword.length < 8)
+        return "The new password must be at least 8 characters, or leave it empty to keep the current one.";
     }
     if (id === "review" && reasonRequired && !reason.trim()) return "A reason is required.";
     return null;
@@ -1009,6 +1041,12 @@ function BusinessWizard({
     logo: logoFile !== null,
     modules: !isCreate && !sameSet(modules, business.modules ?? []),
     languages: !isCreate && !sameSet(languages, business.languages ?? ["en"]),
+    admin:
+      !isCreate &&
+      adminInitial !== null &&
+      (adminPassword !== "" ||
+        adminUsername.trim() !== adminInitial.username ||
+        (adminName.trim() !== "" && adminName.trim() !== adminInitial.name)),
   };
   const nothingToSave = !isCreate && !Object.values(changed).some(Boolean);
 
@@ -1100,6 +1138,14 @@ function BusinessWizard({
         if (changed.logo && logoFile) await uploadLogo(business.id, logoFile, reason);
         if (changed.modules) await setModules(business.id, modules, reason);
         if (changed.languages) await setLanguages(business.id, languages, reason);
+        if (changed.admin) {
+          await updateAdminLogin(business.id, {
+            name: adminName,
+            username: adminUsername,
+            password: adminPassword,
+            reason,
+          });
+        }
       }
       onDone();
       onClose();
@@ -1500,11 +1546,18 @@ function BusinessWizard({
             </>
           )}
 
-          {step.id === "admin" && (
+          {step.id === "admin" && !isCreate && !adminInitial && (
+            <p className={adminLoadError ? "sa-error" : "sa-modal-note"}>
+              {adminLoadError ?? "Loading the administrator login…"}
+            </p>
+          )}
+
+          {step.id === "admin" && (isCreate || adminInitial) && (
             <>
               <p className="sa-modal-note">
-                The first login for this business&apos;s own owner. They can create the rest of their staff themselves
-                once signed in.
+                {isCreate
+                  ? "The first login for this business\u2019s own owner. They can create the rest of their staff themselves once signed in."
+                  : "The owner\u2019s Administrator login. Change the username, or set a new password if they have forgotten it, then send it to them."}
               </p>
               <div className="sa-field">
                 <label>Administrator name</label>
@@ -1516,14 +1569,18 @@ function BusinessWizard({
                   <input value={adminUsername} onChange={(e) => setAdminUsername(e.target.value)} />
                 </div>
                 <div className="sa-field">
-                  <label>Password</label>
+                  <label>{isCreate ? "Password" : "New password"}</label>
                   <input
                     type="password"
                     value={adminPassword}
                     onChange={(e) => setAdminPassword(e.target.value)}
                     minLength={8}
+                    autoComplete="new-password"
+                    placeholder={isCreate ? undefined : "Leave empty to keep the current one"}
                   />
-                  <span className="sa-hint">At least 8 characters.</span>
+                  <span className="sa-hint">
+                    At least 8 characters.{!isCreate && " Takes effect at their next sign-in."}
+                  </span>
                 </div>
               </div>
             </>
@@ -1573,7 +1630,18 @@ function BusinessWizard({
                   value={languages.map((l) => LANGUAGE_LABELS[l] ?? l).join(", ")}
                   changed={changed.languages}
                 />
-                {isCreate && <ReviewRow label="Administrator" value={adminUsername} />}
+                {isCreate ? (
+                  <ReviewRow label="Administrator" value={adminUsername} />
+                ) : (
+                  <>
+                    <ReviewRow label="Admin username" value={adminUsername} changed={changed.admin} />
+                    <ReviewRow
+                      label="Admin password"
+                      value={adminPassword ? "will be reset" : "unchanged"}
+                      changed={changed.admin}
+                    />
+                  </>
+                )}
               </dl>
               <div style={{ marginTop: 14 }}>
                 <ReasonField value={reason} onChange={setReason} required={reasonRequired} />

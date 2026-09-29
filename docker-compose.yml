@@ -39,6 +39,7 @@ services:
       context: ./frontend
       dockerfile: Dockerfile
     container_name: cloudhousewild_frontend
+    mem_limit: 2048m
     volumes:
       - cloudhousewild_frontend_out:/shared-out
     networks:
