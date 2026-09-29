@@ -195,7 +195,7 @@ func (r *Repository) CreatePayment(ctx context.Context, tx *gorm.DB, rec *Person
 // first) — limit+1 rows for the same cheap hasMore trick as FindInstallments.
 func (r *Repository) FindPayments(ctx context.Context, loanID uint, limit, offset int) ([]PersonalLoanPayment, error) {
 	var recs []PersonalLoanPayment
-	err := r.db.WithContext(ctx).Where("personal_loan_id = ?", loanID).Order("id desc").
+	err := r.db.WithContext(ctx).Preload("BankRef").Where("personal_loan_id = ?", loanID).Order("id desc").
 		Limit(limit + 1).Offset(offset).Find(&recs).Error
 	return recs, err
 }

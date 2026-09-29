@@ -548,7 +548,7 @@ h3,
   box-sizing: border-box;
   background: var(--bg);
   border: 1px solid var(--line);
-  border-radius: 10px;
+  border-radius: 12px;
   box-shadow: 0 24px 60px -18px color-mix(in oklab, var(--nav) 40%, transparent);
   overflow: hidden;
 }
@@ -556,7 +556,7 @@ h3,
 .filter-rail-btn {
   border: none;
   border-radius: 8px;
-  padding: 8px 12px;
+  padding: 9px 12px;
   font-size: 13px;
   text-align: left;
   cursor: pointer;
@@ -5405,4 +5405,44 @@ table.tbl {
 .loans-filter-row.small .loans-date-filter .dp-trigger {
   height: 31px;
   box-sizing: border-box;
+}
+
+/* LedgerRefLink.tsx — the clickable "reference" pill on a combined ledger
+ * row (loan number / customer / bank), linking to that entity's own ledger.
+ * One color per kind, matching scratch/ledger-drilldown-mockup.html's chip
+ * palette (brand=loan, green=customer, blue=bank). */
+.ledger-ref-chip {
+  display: inline-flex;
+  align-items: center;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 2px 9px;
+  border-radius: 99px;
+  text-decoration: none;
+  border: 1px solid transparent;
+  white-space: nowrap;
+}
+
+.ledger-ref-chip:hover {
+  border-color: currentColor;
+}
+
+.ledger-ref-chip-loan {
+  background: var(--brand-faint);
+  color: var(--brand-deep);
+}
+
+.ledger-ref-chip-customer {
+  background: var(--green-bg);
+  color: var(--green);
+}
+
+.ledger-ref-chip-bank {
+  background: var(--info-bg);
+  color: var(--info);
+}
+
+.ledger-ref-chip-category {
+  background: var(--amber-bg);
+  color: var(--amber);
 }

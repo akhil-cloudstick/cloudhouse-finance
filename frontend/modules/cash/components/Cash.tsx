@@ -8,16 +8,17 @@ import { fmt } from "@/common/utils/format";
 import { StatusChip } from "@/common/components/ui/StatusChip";
 import { AddCashModalContent } from "@/common/components/modals/AddCashModal";
 import { OpeningCashModalContent } from "@/common/components/modals/OpeningCashModal";
-import { CashOutModalContent } from "@/common/components/modals/CashOutModal";
 import { ExpenseModalContent, ReceiptViewModalContent } from "@/common/components/modals/ExpenseModal";
 import { GoldSaleModalContent } from "@/common/components/modals/GoldSaleModal";
 import { listActiveBranches, type BranchView } from "@/modules/branches/services/branchService";
 import { listCustomersPage } from "@/modules/customers/services/customerService";
 import { FilterPanel, type FilterCategory, type FilterValue } from "@/common/components/ui/FilterPanel";
+import { LedgerRefLink } from "@/common/components/ui/LedgerRefLink";
 import {
   listCashMovementsPage, listExpensesPage, listGoldSalesPage, getCashSummary,
   approveExpense, rejectExpense,
   exportCashMovements, exportExpenses,
+  MODE_LEDGER_ROUTE,
   type CashMovementView, type ExpenseView, type GoldSaleView, type CashSummary, type CashMovementCategory,
 } from "@/modules/cash/services/cashService";
 import { ApiError } from "@/common/services/httpClient";
@@ -67,10 +68,10 @@ function KpiParts({ parts }: { parts: [string, number][] }) {
 function particularsFor(m: CashMovementView) {
   const text = m.type === "in" ? (m.purpose ? `${m.source} · ${m.purpose}` : m.source) : m.purpose || "—";
   if (m.partyCustomerId) {
-    return <a href="#" onClick={(e) => { e.preventDefault(); location.hash = "party-customer/" + m.partyCustomerId; }}>{text}</a>;
+    return <LedgerRefLink kind="customer" id={m.partyCustomerId} label={text || "Customer"} />;
   }
   if (m.bankId) {
-    return <a href="#" onClick={(e) => { e.preventDefault(); location.hash = "party-bank/" + m.bankId; }}>{text}</a>;
+    return <LedgerRefLink kind="bank" id={m.bankId} label={text || "Bank"} />;
   }
   return text;
 }
@@ -87,6 +88,15 @@ function loanNumberFor(m: CashMovementView): string {
   return match?.[1] || m.transactionGroupId || String(m.id);
 }
 
+// A row's Ref No column is only ever clickable when it actually resolved to
+// a real loan number (LOAN_NUMBER_RE matched) — the transactionGroupId/id
+// fallback isn't a navigable entity, just an internal identifier.
+function refCellFor(m: CashMovementView) {
+  const ref = loanNumberFor(m);
+  if (ref.startsWith("LN-")) return <LedgerRefLink kind="loan" id={ref} label={ref} />;
+  return ref;
+}
+
 function withRunningBalance(items: CashMovementView[]): { m: CashMovementView; balance: number }[] {
   const chronological = [...items].reverse();
   let running = 0;
@@ -97,13 +107,21 @@ function withRunningBalance(items: CashMovementView[]): { m: CashMovementView; b
   return withBalance.reverse();
 }
 
+// Every mode is a drill-down link to that mode's own ledger — same "click a
+// reference, land on its ledger" pattern as LedgerRefLink's other kinds.
+function modeCellFor(mode: string | undefined) {
+  if (!mode) return "—";
+  const route = MODE_LEDGER_ROUTE[mode];
+  return route ? <a href={`#${route}`}>{mode}</a> : mode;
+}
+
 function MovementRow({ m, balance }: { m: CashMovementView; balance: number }) {
   return (
     <tr>
       <td data-label="Date">{m.d}</td>
-      <td className="ledger-ref" data-label="Ref No" title={loanNumberFor(m)}>{loanNumberFor(m)}</td>
+      <td className="ledger-ref" data-label="Ref No" title={loanNumberFor(m)}>{refCellFor(m)}</td>
       <td data-label="Particulars">{particularsFor(m)}</td>
-      <td data-label="Mode">{m.mode || "—"}</td>
+      <td data-label="Mode">{modeCellFor(m.mode)}</td>
       <td className="num" data-label="Debit" style={{ color: m.type === "out" ? "var(--red)" : undefined }}>{m.type === "out" ? fmt(m.amount) : "—"}</td>
       <td className="num" data-label="Credit" style={{ color: m.type === "in" ? "var(--green)" : undefined }}>{m.type === "in" ? fmt(m.amount) : "—"}</td>
       <td className="num" data-label="Balance">{fmt(balance)}</td>
@@ -327,8 +345,6 @@ export function Cash() {
   useEffect(() => { refresh(); }, [refresh]);
 
   const total = expenses.reduce((s, e) => s + e.amt, 0);
-  const cashIn = movements.filter((m) => m.type === "in").reduce((s, m) => s + m.amount, 0);
-  const cashOut = movements.filter((m) => m.type === "out").reduce((s, m) => s + m.amount, 0);
   // Running balance over the currently loaded (paginated) page only — same
   // best-effort approach LedgerExportView.tsx's preview table uses, not a
   // true running balance across the whole filtered set.
@@ -419,9 +435,6 @@ export function Cash() {
               </button>
               {cashActionsMenuOpen && (
                 <div className="docs-dd-menu" role="menu">
-                  <a href="#" title="Take Cash Out" onClick={(e) => { e.preventDefault(); setCashActionsMenuOpen(false); openModal(<CashOutModalContent onSaved={refresh} />); }}>
-                    <Icon name="coin" /><span className="tx">Take Cash Out</span>
-                  </a>
                   <a href="#" title="Add Cash" onClick={(e) => { e.preventDefault(); setCashActionsMenuOpen(false); openModal(<AddCashModalContent onSaved={refresh} />); }}>
                     <Icon name="coin" /><span className="tx">Add Cash</span>
                   </a>
@@ -554,8 +567,6 @@ export function Cash() {
               * just the current page rather than a fabricated "of N". */}
             <span style={{ fontSize: 12.5 }}>Page {movementsPage} of {movementsTotalPages}</span>
             <button className="btn plain sm" disabled={movementsPage >= movementsTotalPages} onClick={() => setMovementsPage((p) => Math.min(movementsTotalPages, p + 1))}>Next ›</button>
-            <div className="sp" />
-            <span style={{ fontSize: 12.5, color: "var(--muted)" }}>In {fmt(cashIn)} · Out {fmt(cashOut)}</span>
           </div>
         </div>
       )}

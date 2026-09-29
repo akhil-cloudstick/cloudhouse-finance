@@ -2,8 +2,12 @@ package cash
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"strings"
 	"time"
+
+	"gorm.io/gorm"
 
 	"cloudhouse/backend/internal/branch"
 	"cloudhouse/backend/internal/platform"
@@ -34,6 +38,15 @@ var (
 	// ErrBankRequired above, which are Expense's/Loan-source's own errors.
 	ErrModeOfCashRequired  = httpx.NewBadRequest("mode of cash is required for cash-in movements")
 	ErrBankRequiredForMode = httpx.NewBadRequest("bank is required when mode is UPI or Bank Transfer")
+
+	// Loan Details block errors (AddCashModal.tsx's "Source of Cash" ==
+	// "Loan") — Bank/Loan Number/Principal Amount are required; Interest
+	// Rate/Duration are optional (see LoanCashSource's own doc comment).
+	ErrLoanBankRequired      = httpx.NewBadRequest("bank is required for a loan-sourced cash entry")
+	ErrLoanNumberRequired    = httpx.NewBadRequest("loan number is required for a loan-sourced cash entry")
+	ErrLoanPrincipalRequired = httpx.NewBadRequest("principal amount must be greater than zero for a loan-sourced cash entry")
+
+	ErrCashSourceNameRequired = httpx.NewBadRequest("name is required")
 )
 
 // Cash-in Mode values for RecordMovementInput.Mode/CashMovement.Mode — free
@@ -76,21 +89,33 @@ type RecordExpenseInput struct {
 	ReceiptImage string
 }
 
+// LoanSourceInput mirrors AddCashModal.tsx's "Loan Details" block, sent
+// alongside RecordMovementInput when Source == "Loan". BankID/LoanNumber/
+// PrincipalAmount are required; InterestRate/DurationMonths are optional.
+type LoanSourceInput struct {
+	BankID          uint
+	LoanNumber      string
+	PrincipalAmount float64
+	InterestRate    *float64
+	DurationMonths  *int
+}
+
 // MovementService implements cash-movement business rules. It also carries
 // expenseRepo so it can satisfy loan.CashRecorder's expense-writing method
 // (RecordBankPledgeReleaseExpense) without loan having to depend on a second
 // cash sub-service.
 type MovementService struct {
-	repo        *MovementRepository
-	expenseRepo *ExpenseRepository
-	branchRepo  *branch.Repository
+	repo           *MovementRepository
+	expenseRepo    *ExpenseRepository
+	branchRepo     *branch.Repository
+	loanSourceRepo *LoanCashSourceRepository
 }
 
-func NewMovementService(repo *MovementRepository, expenseRepo *ExpenseRepository, branchRepo *branch.Repository) *MovementService {
-	return &MovementService{repo: repo, expenseRepo: expenseRepo, branchRepo: branchRepo}
+func NewMovementService(repo *MovementRepository, expenseRepo *ExpenseRepository, branchRepo *branch.Repository, loanSourceRepo *LoanCashSourceRepository) *MovementService {
+	return &MovementService{repo: repo, expenseRepo: expenseRepo, branchRepo: branchRepo, loanSourceRepo: loanSourceRepo}
 }
 
-func (s *MovementService) Record(ctx context.Context, in RecordMovementInput) (*CashMovement, error) {
+func (s *MovementService) Record(ctx context.Context, in RecordMovementInput, loanSource *LoanSourceInput) (*CashMovement, error) {
 	if in.Amount <= 0 {
 		return nil, ErrInvalidAmount
 	}
@@ -145,10 +170,48 @@ func (s *MovementService) Record(ctx context.Context, in RecordMovementInput) (*
 		rec.Purpose = in.Purpose
 	}
 
+	if in.Type == "in" && in.Source == "Loan" {
+		if loanSource == nil || loanSource.BankID == 0 {
+			return nil, ErrLoanBankRequired
+		}
+		if loanSource.LoanNumber == "" {
+			return nil, ErrLoanNumberRequired
+		}
+		if loanSource.PrincipalAmount <= 0 {
+			return nil, ErrLoanPrincipalRequired
+		}
+	}
+
 	if err := s.repo.Create(ctx, rec); err != nil {
 		return nil, err
 	}
+
+	if in.Type == "in" && in.Source == "Loan" {
+		loanRec := &LoanCashSource{
+			CashMovementID:  rec.ID,
+			BankID:          loanSource.BankID,
+			LoanNumber:      loanSource.LoanNumber,
+			PrincipalAmount: loanSource.PrincipalAmount,
+			InterestRate:    loanSource.InterestRate,
+			DurationMonths:  loanSource.DurationMonths,
+		}
+		if err := s.loanSourceRepo.Create(ctx, loanRec); err != nil {
+			return nil, err
+		}
+	}
+
 	return s.repo.FindByID(ctx, rec.ID)
+}
+
+// GetLoanSource returns the LoanCashSource attached to movementID, or nil
+// (not an error) when the movement isn't loan-sourced — the handler uses
+// this to fill CashMovement's response-only LoanSource field on Get/List.
+func (s *MovementService) GetLoanSource(ctx context.Context, movementID uint) *LoanCashSource {
+	rec, err := s.loanSourceRepo.FindByCashMovementID(ctx, movementID)
+	if err != nil {
+		return nil
+	}
+	return rec
 }
 
 // List returns cash movements, optionally scoped to branchID (nil = all
@@ -377,11 +440,12 @@ func (s *MovementService) RecordServiceChargeCashIn(ctx context.Context, loanID 
 // populates PartyCustomerID for the Party Transactions ledger. Purpose
 // carries the loan number so it reads sensibly in the Cash Movements table
 // without a dedicated column.
-func (s *MovementService) RecordLoanDisbursementCashOut(ctx context.Context, loanID uint, loanNumber string, amount, cashAmount, upiAmount, bankTransferAmount, chequeAmount float64, branchID uint, occurredOn time.Time, customerID uint) (uint, string, error) {
+func (s *MovementService) RecordLoanDisbursementCashOut(ctx context.Context, loanID uint, loanNumber string, amount, cashAmount, upiAmount, bankTransferAmount, chequeAmount float64, branchID uint, occurredOn time.Time, customerID uint, bankID *uint) (uint, string, error) {
 	base := CashMovement{
 		Type:     "out",
 		Purpose:  "Loan disbursement — " + loanNumber,
 		BranchID: &branchID,
+		BankID:   bankID,
 	}
 	if occurredOn.IsZero() {
 		base.OccurredOn = time.Now()
@@ -434,12 +498,13 @@ func (s *MovementService) RecordLoanTopUpCashOut(ctx context.Context, loanID uin
 // (that "Loan" source means the branch itself borrowed cash from a bank,
 // unrelated to a customer repaying their gold loan). See
 // RecordLoanDisbursementCashOut for the split/customerID parameters.
-func (s *MovementService) RecordLoanPaymentCashIn(ctx context.Context, loanID uint, loanNumber string, amount, cashAmount, upiAmount, bankTransferAmount, chequeAmount float64, branchID uint, occurredOn time.Time, paymentType string, customerID uint) (uint, string, error) {
+func (s *MovementService) RecordLoanPaymentCashIn(ctx context.Context, loanID uint, loanNumber string, amount, cashAmount, upiAmount, bankTransferAmount, chequeAmount float64, branchID uint, occurredOn time.Time, paymentType string, customerID uint, bankID *uint) (uint, string, error) {
 	base := CashMovement{
 		Type:     "in",
 		Source:   "Collection",
 		Purpose:  fmt.Sprintf("%s — %s", paymentType, loanNumber),
 		BranchID: &branchID,
+		BankID:   bankID,
 	}
 	if occurredOn.IsZero() {
 		base.OccurredOn = time.Now()
@@ -600,12 +665,14 @@ func (s *MovementService) RecordAuctionSurplusCashOut(ctx context.Context, loanI
 // distinct from "Collection"/"Auction"/"Savings"/"Loan" so it is told apart
 // from a customer repayment or an auction realisation in the Cash Movements
 // table, in reports, and in SumBreakdownByDate's GoldSales bucket.
-func (s *MovementService) RecordGoldSaleCashIn(ctx context.Context, ornamentType string, amount float64, branchID uint, occurredOn time.Time) (uint, error) {
+func (s *MovementService) RecordGoldSaleCashIn(ctx context.Context, ornamentType string, amount float64, branchID uint, occurredOn time.Time, mode string, bankID *uint) (uint, error) {
 	rec := &CashMovement{
 		Type:     "in",
 		Source:   "GoldSale",
 		Purpose:  "Gold sale — " + ornamentType,
 		Amount:   amount,
+		Mode:     mode,
+		BankID:   bankID,
 		BranchID: &branchID,
 	}
 	if occurredOn.IsZero() {
@@ -1009,7 +1076,13 @@ type RecordGoldSaleInput struct {
 	CostAmount float64
 	SoldOn     time.Time
 	BranchID   uint
-	Remarks    string
+	// Mode is how the sale proceeds were received — "" defaults to Cash
+	// (see GoldSale.Mode's doc comment).
+	Mode string
+	// BankID — required when Mode is UPI or Bank Transfer (see
+	// ErrBankRequiredForMode).
+	BankID  *uint
+	Remarks string
 }
 
 var (
@@ -1052,13 +1125,20 @@ func (s *GoldSaleService) Create(ctx context.Context, in RecordGoldSaleInput) (*
 	} else if !ok {
 		return nil, ErrBranchInvalid
 	}
+	mode := in.Mode
+	if mode == "" {
+		mode = CashModeCash
+	}
+	if (mode == CashModeUPI || mode == CashModeBankTransfer) && in.BankID == nil {
+		return nil, ErrBankRequiredForMode
+	}
 
 	soldOn := in.SoldOn
 	if soldOn.IsZero() {
 		soldOn = time.Now()
 	}
 
-	movementID, err := s.movementSvc.RecordGoldSaleCashIn(ctx, in.OrnamentType, in.SoldAmount, in.BranchID, soldOn)
+	movementID, err := s.movementSvc.RecordGoldSaleCashIn(ctx, in.OrnamentType, in.SoldAmount, in.BranchID, soldOn, mode, in.BankID)
 	if err != nil {
 		return nil, err
 	}
@@ -1083,6 +1163,8 @@ func (s *GoldSaleService) Create(ctx context.Context, in RecordGoldSaleInput) (*
 		Profit:             in.SoldAmount - in.CostAmount,
 		SoldOn:             soldOn,
 		BranchID:           in.BranchID,
+		Mode:               mode,
+		BankID:             in.BankID,
 		CashMovementID:     &movementID,
 		CostCashMovementID: costMovementID,
 		Remarks:            in.Remarks,
@@ -1114,4 +1196,115 @@ func (s *GoldSaleService) Get(ctx context.Context, id uint, branchID *uint) (*Go
 		return nil, ErrGoldSaleNotFound
 	}
 	return rec, nil
+}
+
+// CashSourceService implements CashSource's find-or-create business rules —
+// same pattern as bank.Service.FindOrCreate.
+type CashSourceService struct {
+	repo *CashSourceRepository
+}
+
+func NewCashSourceService(repo *CashSourceRepository) *CashSourceService {
+	return &CashSourceService{repo: repo}
+}
+
+func (s *CashSourceService) List(ctx context.Context, query string, limit, offset int) ([]CashSource, int64, error) {
+	return s.repo.FindAll(ctx, query, limit, offset)
+}
+
+// FindOrCreate trims the given name, rejects it if empty, and returns the
+// existing row with a case-insensitive matching name if one exists;
+// otherwise creates and returns a new row. The bool result reports whether a
+// new row was created (true) or an existing one was reused (false).
+func (s *CashSourceService) FindOrCreate(ctx context.Context, name string) (*CashSource, bool, error) {
+	trimmed := strings.TrimSpace(name)
+	if trimmed == "" {
+		return nil, false, ErrCashSourceNameRequired
+	}
+	existing, err := s.repo.FindByName(ctx, trimmed)
+	if err == nil {
+		return existing, false, nil
+	}
+	if !errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, false, err
+	}
+	rec := &CashSource{Name: trimmed}
+	if err := s.repo.Create(ctx, rec); err != nil {
+		return nil, false, err
+	}
+	return rec, true, nil
+}
+
+// ExpenseCategoryService implements ExpenseCategory's find-or-create
+// business rules — same pattern as CashSourceService.
+type ExpenseCategoryService struct {
+	repo *ExpenseCategoryRepository
+}
+
+func NewExpenseCategoryService(repo *ExpenseCategoryRepository) *ExpenseCategoryService {
+	return &ExpenseCategoryService{repo: repo}
+}
+
+func (s *ExpenseCategoryService) List(ctx context.Context, query string, limit, offset int) ([]ExpenseCategory, int64, error) {
+	return s.repo.FindAll(ctx, query, limit, offset)
+}
+
+// FindByID backs the category ledger drill-down — see
+// MovementService.ListLedgerByCategory's doc comment.
+func (s *ExpenseCategoryService) FindByID(ctx context.Context, id uint) (*ExpenseCategory, error) {
+	return s.repo.FindByID(ctx, id)
+}
+
+func (s *ExpenseCategoryService) FindOrCreate(ctx context.Context, name string) (*ExpenseCategory, bool, error) {
+	trimmed := strings.TrimSpace(name)
+	if trimmed == "" {
+		return nil, false, ErrCashSourceNameRequired
+	}
+	existing, err := s.repo.FindByName(ctx, trimmed)
+	if err == nil {
+		return existing, false, nil
+	}
+	if !errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, false, err
+	}
+	rec := &ExpenseCategory{Name: trimmed}
+	if err := s.repo.Create(ctx, rec); err != nil {
+		return nil, false, err
+	}
+	return rec, true, nil
+}
+
+// defaultCashSources/defaultExpenseCategories are what AddCashModal.tsx's
+// fixed SOURCE_OPTIONS and ExpenseModal.tsx's hardcoded CATS used to be
+// before both became a real, addable lookup list — seeded once per tenant
+// (SeedDefaults) so upgrading an existing installation doesn't lose them.
+var defaultCashSources = []string{"Savings", "Loan"}
+
+var defaultExpenseCategories = []string{
+	"Rent & Utilities", "Salaries", "Transportation", "Marketing",
+	"Bank Charges", "Maintenance", "Stationery & Office",
+	"Legal & Miscellaneous", "Other",
+}
+
+// SeedDefaultSourcesAndCategories find-or-creates every default cash
+// source/expense category — called once at boot (see migrate.go), same
+// cross-tenant boot-time pattern as puritystandard.SeedStandards, and safe
+// to call repeatedly (FindOrCreate is idempotent by name).
+func SeedDefaultSourcesAndCategories(db *gorm.DB) error {
+	// Boot-time seeding runs outside any request, so it has no tenant.
+	// Marked cross-tenant deliberately — see platform.AllowCrossTenant.
+	ctx := platform.AllowCrossTenant(context.Background())
+	sourceSvc := NewCashSourceService(NewCashSourceRepository(db))
+	categorySvc := NewExpenseCategoryService(NewExpenseCategoryRepository(db))
+	for _, name := range defaultCashSources {
+		if _, _, err := sourceSvc.FindOrCreate(ctx, name); err != nil {
+			return err
+		}
+	}
+	for _, name := range defaultExpenseCategories {
+		if _, _, err := categorySvc.FindOrCreate(ctx, name); err != nil {
+			return err
+		}
+	}
+	return nil
 }

@@ -26,5 +26,6 @@ export const TITLES: Record<string, string> = {
   "roles-permissions": "Roles & Permissions",
   billing: "Billing",
   settings: "Settings",
-  "party-bank": "Transactions", "party-customer": "Transactions",
+  "ledger-bank": "Ledger", "ledger-customer": "Ledger",
+  "cash-ledger": "Ledger", "upi-ledger": "Ledger", "bank-transfer-ledger": "Ledger", "cheque-ledger": "Ledger",
 };

@@ -31,6 +31,31 @@ type movementRequest struct {
 	Amount     float64 `json:"amount" binding:"required"`
 	BranchID   *uint   `json:"branchId"`   // optional — not every cash movement is tied to a till yet
 	OccurredOn string  `json:"occurredOn"` // optional, "YYYY-MM-DD" — defaults to today
+	// LoanSource is required (see toLoanSourceInput) when Source == "Loan" —
+	// the Loan Details block on AddCashModal.tsx / MovementSheet's Loan
+	// source picker.
+	LoanSource *loanSourceRequest `json:"loanSource"`
+}
+
+type loanSourceRequest struct {
+	BankID          uint     `json:"bankId"`
+	LoanNumber      string   `json:"loanNumber"`
+	PrincipalAmount float64  `json:"principalAmount"`
+	InterestRate    *float64 `json:"interestRate"`
+	DurationMonths  *int     `json:"durationMonths"`
+}
+
+func (req movementRequest) toLoanSourceInput() *LoanSourceInput {
+	if req.LoanSource == nil {
+		return nil
+	}
+	return &LoanSourceInput{
+		BankID:          req.LoanSource.BankID,
+		LoanNumber:      req.LoanSource.LoanNumber,
+		PrincipalAmount: req.LoanSource.PrincipalAmount,
+		InterestRate:    req.LoanSource.InterestRate,
+		DurationMonths:  req.LoanSource.DurationMonths,
+	}
 }
 
 func parseOptionalDate(s string) (time.Time, error) {
@@ -104,12 +129,12 @@ func (h *MovementHandler) Record(c *gin.Context) {
 		branchID := platform.EnforceBranchOnWrite(c, *input.BranchID)
 		input.BranchID = &branchID
 	}
-	rec, err := h.svc.Record(ctx, input)
+	rec, err := h.svc.Record(ctx, input, req.toLoanSourceInput())
 	if err != nil {
 		httpx.FailErr(c, err)
 		return
 	}
-	httpx.Success(c, http.StatusCreated, rec)
+	httpx.Success(c, http.StatusCreated, movementResponse{CashMovement: rec, LoanSource: h.svc.GetLoanSource(ctx, rec.ID)})
 }
 
 // partyPageSize is the Party Transactions page's own page size (12) —
@@ -224,6 +249,109 @@ func (h *MovementHandler) List(c *gin.Context) {
 	httpx.Success(c, http.StatusOK, rec)
 }
 
+// GetCashLedger backs GET /cash-movements/cash-ledger — the "Cash Ledger"
+// sub-ledger drill-down off the Cash entity: every transaction across
+// CashMovement/LoanPayment/PersonalLoanPayment/GoldSale whose mode was pure
+// Cash (see MovementService.ListCashModeLedger's doc comment), as opposed to
+// the bank/customer/loan ledgers which show every mode. Branch-scoped the
+// same way List above is: platform.GetBranchScope pins a non-cross-branch
+// role to their own branch; a cross-branch role additionally may narrow to
+// specific branches via ?branchIds=1,2,3 (same query param List's own
+// MovementFilter.BranchIDs reads), ignored for a scoped caller.
+func (h *MovementHandler) GetCashLedger(c *gin.Context) {
+	ctx := platform.RequestContext(c)
+	branchID := platform.GetBranchScope(c)
+	branchIDs := parseUintCSV(c.Query("branchIds"))
+
+	fromDate, err := parseOptionalDate(c.Query("fromDate"))
+	if err != nil {
+		httpx.Fail(c, http.StatusBadRequest, "invalid fromDate: expected YYYY-MM-DD")
+		return
+	}
+	toDate, err := parseOptionalDate(c.Query("toDate"))
+	if err != nil {
+		httpx.Fail(c, http.StatusBadRequest, "invalid toDate: expected YYYY-MM-DD")
+		return
+	}
+	limit, _ := strconv.Atoi(c.Query("limit"))
+	if limit <= 0 {
+		limit = partyPageSize
+	}
+	offset, _ := strconv.Atoi(c.Query("offset"))
+	if offset < 0 {
+		offset = 0
+	}
+	rec, total, err := h.svc.ListCashModeLedger(ctx, branchID, branchIDs, fromDate, toDate, limit, offset)
+	if err != nil {
+		httpx.FailErr(c, err)
+		return
+	}
+	httpx.Success(c, http.StatusOK, gin.H{"items": rec, "total": total})
+}
+
+// modeVocabulary is every payment mode a mode-scoped ledger drill-down can be
+// asked for — the same free-text vocabulary CashMovement.Mode/Expense.Mode/
+// SplitPaymentInput.tsx's SPLIT_PAYMENT_MODES use everywhere else in the app.
+var modeVocabulary = map[string]bool{
+	"Cash":          true,
+	"UPI":           true,
+	"Bank Transfer": true,
+	"Cheque":        true,
+}
+
+// GetModeLedger backs GET /cash-movements/mode-ledger — the generic
+// per-payment-mode ledger drill-down (see MovementService.ListModeLedger's
+// doc comment): Cash, UPI, Bank Transfer or Cheque, each optionally narrowed
+// to one bankId (meaningless for Cash, which never has a bank of record).
+// ?mode is a query param rather than a path segment since "Bank Transfer"
+// contains a space that would need URL-encoding either way, and this keeps
+// the route registration simple (no per-mode route to add later).
+func (h *MovementHandler) GetModeLedger(c *gin.Context) {
+	ctx := platform.RequestContext(c)
+	mode := c.Query("mode")
+	if !modeVocabulary[mode] {
+		httpx.Fail(c, http.StatusBadRequest, "invalid mode: expected Cash, UPI, Bank Transfer or Cheque")
+		return
+	}
+	var bankID *uint
+	if raw := c.Query("bankId"); raw != "" {
+		id, err := strconv.ParseUint(raw, 10, 64)
+		if err != nil {
+			httpx.Fail(c, http.StatusBadRequest, "invalid bankId")
+			return
+		}
+		v := uint(id)
+		bankID = &v
+	}
+	branchID := platform.GetBranchScope(c)
+	branchIDs := parseUintCSV(c.Query("branchIds"))
+
+	fromDate, err := parseOptionalDate(c.Query("fromDate"))
+	if err != nil {
+		httpx.Fail(c, http.StatusBadRequest, "invalid fromDate: expected YYYY-MM-DD")
+		return
+	}
+	toDate, err := parseOptionalDate(c.Query("toDate"))
+	if err != nil {
+		httpx.Fail(c, http.StatusBadRequest, "invalid toDate: expected YYYY-MM-DD")
+		return
+	}
+	limit, _ := strconv.Atoi(c.Query("limit"))
+	if limit <= 0 {
+		limit = partyPageSize
+	}
+	offset, _ := strconv.Atoi(c.Query("offset"))
+	if offset < 0 {
+		offset = 0
+	}
+	rec, total, err := h.svc.ListModeLedger(ctx, mode, bankID, branchID, branchIDs, fromDate, toDate, limit, offset)
+	if err != nil {
+		httpx.FailErr(c, err)
+		return
+	}
+	httpx.Success(c, http.StatusOK, gin.H{"items": rec, "total": total})
+}
+
 // ListByBank returns one page of every cash movement tagged to :bankId,
 // plus PartyTotals across every matching row — backs the Party Transactions
 // page's bank drill-down. Page size defaults to 12 (per the Party
@@ -262,9 +390,12 @@ func (h *MovementHandler) ListByBank(c *gin.Context) {
 	httpx.Success(c, http.StatusOK, gin.H{"items": rec, "total": total, "totals": totals})
 }
 
-// ListByCustomer is ListByBank's counterpart for :customerId — backs the
-// Party Transactions page's customer drill-down and CustomerDetail.tsx's
-// "Transactions" tab.
+// ListByCustomer backs the Party Transactions page's customer drill-down and
+// CustomerDetail.tsx's "Transactions" tab. Returns the COMBINED, normalized
+// ledger (CashMovement + LoanPayment + PersonalLoanPayment rows tagged to
+// this customer — see ledger.go's dedup rule) rather than plain CashMovement
+// rows — same URL as before, richer payload, so no frontend caller needs a
+// new endpoint to pick up the richer ledger.
 func (h *MovementHandler) ListByCustomer(c *gin.Context) {
 	ctx := platform.RequestContext(c)
 	customerID, err := httpx.IDParam(c, "customerId")
@@ -290,13 +421,55 @@ func (h *MovementHandler) ListByCustomer(c *gin.Context) {
 	if offset < 0 {
 		offset = 0
 	}
-	loanNumbers := loanNumbersFromQuery(c)
-	rec, total, totals, err := h.svc.ListCashMovementsByCustomer(ctx, customerID, fromDate, toDate, loanNumbers, limit, offset)
+	rec, total, err := h.svc.ListCombinedLedgerByCustomer(ctx, customerID, fromDate, toDate, limit, offset)
 	if err != nil {
 		httpx.FailErr(c, err)
 		return
 	}
-	httpx.Success(c, http.StatusOK, gin.H{"items": rec, "total": total, "totals": totals})
+	httpx.Success(c, http.StatusOK, gin.H{"items": rec, "total": total})
+}
+
+// GetBankLedger backs GET /banks/:id/ledger — the combined, normalized
+// ledger (CashMovement + LoanPayment + PersonalLoanPayment + GoldSale rows
+// tagged to this bank — see ledger.go's dedup rule) for one bank. Lives on
+// MovementHandler (not bank.Handler) because internal/bank cannot import
+// internal/cash's CashMovement/GoldSale models without an import cycle —
+// internal/cash already imports internal/bank (bank.Bank/bank.NewRepository)
+// — so the handler is here and the route is mounted under /banks/:id/ledger
+// from app.go instead, same "handler in one package, route path in
+// another's URL shape" precedent as loanHandler.GetCustomer360 under
+// /customers/:id/profile360.
+func (h *MovementHandler) GetBankLedger(c *gin.Context) {
+	ctx := platform.RequestContext(c)
+	bankID, err := httpx.IDParam(c, "id")
+	if err != nil {
+		httpx.FailErr(c, err)
+		return
+	}
+	fromDate, err := parseOptionalDate(c.Query("fromDate"))
+	if err != nil {
+		httpx.Fail(c, http.StatusBadRequest, "invalid fromDate: expected YYYY-MM-DD")
+		return
+	}
+	toDate, err := parseOptionalDate(c.Query("toDate"))
+	if err != nil {
+		httpx.Fail(c, http.StatusBadRequest, "invalid toDate: expected YYYY-MM-DD")
+		return
+	}
+	limit, _ := strconv.Atoi(c.Query("limit"))
+	if limit <= 0 {
+		limit = partyPageSize
+	}
+	offset, _ := strconv.Atoi(c.Query("offset"))
+	if offset < 0 {
+		offset = 0
+	}
+	rec, total, err := h.svc.ListCombinedLedgerByBank(ctx, bankID, fromDate, toDate, limit, offset)
+	if err != nil {
+		httpx.FailErr(c, err)
+		return
+	}
+	httpx.Success(c, http.StatusOK, gin.H{"items": rec, "total": total})
 }
 
 // ListByBranch is ListByBank's counterpart for :branchId.
@@ -577,6 +750,15 @@ func (h *MovementHandler) Export(c *gin.Context) {
 	c.Data(http.StatusOK, "application/pdf", pdfBytes)
 }
 
+// movementResponse embeds CashMovement plus its LoanSource (nil unless this
+// is a loan-sourced cash-in) — LoanCashSource lives in its own table (see
+// model.go's doc comment), so it's attached here rather than preloaded as a
+// GORM association.
+type movementResponse struct {
+	*CashMovement
+	LoanSource *LoanCashSource `json:"loanSource,omitempty"`
+}
+
 func (h *MovementHandler) Get(c *gin.Context) {
 	ctx := platform.RequestContext(c)
 	id, err := httpx.IDParam(c, "id")
@@ -589,7 +771,7 @@ func (h *MovementHandler) Get(c *gin.Context) {
 		httpx.FailErr(c, err)
 		return
 	}
-	httpx.Success(c, http.StatusOK, rec)
+	httpx.Success(c, http.StatusOK, movementResponse{CashMovement: rec, LoanSource: h.svc.GetLoanSource(ctx, rec.ID)})
 }
 
 type setStatusRequest struct {
@@ -915,7 +1097,13 @@ type goldSaleRequest struct {
 	CostAmount   float64 `json:"costAmount"`
 	SoldOn       string  `json:"soldOn"` // optional, "YYYY-MM-DD" — defaults to today
 	BranchID     uint    `json:"branchId" binding:"required"`
-	Remarks      string  `json:"remarks"`
+	// Mode — see GoldSale.Mode's doc comment. Optional; defaults to "Cash"
+	// when blank, matching this field's implicit prior behavior.
+	Mode string `json:"mode"`
+	// BankID — see GoldSale.BankID's doc comment. Required when Mode is UPI
+	// or Bank Transfer.
+	BankID  *uint  `json:"bankId"`
+	Remarks string `json:"remarks"`
 }
 
 func (req goldSaleRequest) toInput() (RecordGoldSaleInput, error) {
@@ -925,7 +1113,7 @@ func (req goldSaleRequest) toInput() (RecordGoldSaleInput, error) {
 	}
 	return RecordGoldSaleInput{
 		OrnamentType: req.OrnamentType, SoldAmount: req.SoldAmount, CostAmount: req.CostAmount,
-		SoldOn: soldOn, BranchID: req.BranchID, Remarks: req.Remarks,
+		SoldOn: soldOn, BranchID: req.BranchID, Mode: req.Mode, BankID: req.BankID, Remarks: req.Remarks,
 	}, nil
 }
 
@@ -1006,4 +1194,172 @@ func (h *GoldSaleHandler) Get(c *gin.Context) {
 		return
 	}
 	httpx.Success(c, http.StatusOK, rec)
+}
+
+// CashSourceHandler wires HTTP requests to the CashSourceService — backs
+// AddCashModal.tsx's "Source of Cash" searchable/creatable picker.
+type CashSourceHandler struct {
+	svc *CashSourceService
+}
+
+func NewCashSourceHandler(svc *CashSourceService) *CashSourceHandler {
+	return &CashSourceHandler{svc: svc}
+}
+
+// List mirrors bank.Handler.List's pagination convention: plain array when
+// `limit` is absent, {items, hasMore} envelope when present (the
+// SearchableSelect/mobile picker's paginated fetch).
+func (h *CashSourceHandler) List(c *gin.Context) {
+	ctx := platform.RequestContext(c)
+	limit, _ := strconv.Atoi(c.Query("limit"))
+	offset, _ := strconv.Atoi(c.Query("offset"))
+
+	if limit <= 0 {
+		rec, _, err := h.svc.List(ctx, c.Query("q"), 0, 0)
+		if err != nil {
+			httpx.FailErr(c, err)
+			return
+		}
+		httpx.Success(c, http.StatusOK, rec)
+		return
+	}
+
+	rec, total, err := h.svc.List(ctx, c.Query("q"), limit+1, offset)
+	if err != nil {
+		httpx.FailErr(c, err)
+		return
+	}
+	hasMore := len(rec) > limit
+	if hasMore {
+		rec = rec[:limit]
+	}
+	httpx.Success(c, http.StatusOK, gin.H{"items": rec, "hasMore": hasMore, "total": total})
+}
+
+type cashSourceRequest struct {
+	Name string `json:"name"`
+}
+
+func (h *CashSourceHandler) Create(c *gin.Context) {
+	ctx := platform.RequestContext(c)
+	var req cashSourceRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		httpx.Fail(c, http.StatusBadRequest, "Invalid input")
+		return
+	}
+	rec, created, err := h.svc.FindOrCreate(ctx, req.Name)
+	if err != nil {
+		httpx.FailErr(c, err)
+		return
+	}
+	if created {
+		httpx.Success(c, http.StatusCreated, rec)
+		return
+	}
+	httpx.Success(c, http.StatusOK, rec)
+}
+
+// ExpenseCategoryHandler wires HTTP requests to the ExpenseCategoryService —
+// backs ExpenseModal.tsx's Category searchable/creatable picker, plus (via
+// movementSvc) the category ledger drill-down.
+type ExpenseCategoryHandler struct {
+	svc         *ExpenseCategoryService
+	movementSvc *MovementService
+}
+
+func NewExpenseCategoryHandler(svc *ExpenseCategoryService, movementSvc *MovementService) *ExpenseCategoryHandler {
+	return &ExpenseCategoryHandler{svc: svc, movementSvc: movementSvc}
+}
+
+func (h *ExpenseCategoryHandler) List(c *gin.Context) {
+	ctx := platform.RequestContext(c)
+	limit, _ := strconv.Atoi(c.Query("limit"))
+	offset, _ := strconv.Atoi(c.Query("offset"))
+
+	if limit <= 0 {
+		rec, _, err := h.svc.List(ctx, c.Query("q"), 0, 0)
+		if err != nil {
+			httpx.FailErr(c, err)
+			return
+		}
+		httpx.Success(c, http.StatusOK, rec)
+		return
+	}
+
+	rec, total, err := h.svc.List(ctx, c.Query("q"), limit+1, offset)
+	if err != nil {
+		httpx.FailErr(c, err)
+		return
+	}
+	hasMore := len(rec) > limit
+	if hasMore {
+		rec = rec[:limit]
+	}
+	httpx.Success(c, http.StatusOK, gin.H{"items": rec, "hasMore": hasMore, "total": total})
+}
+
+type expenseCategoryRequest struct {
+	Name string `json:"name"`
+}
+
+func (h *ExpenseCategoryHandler) Create(c *gin.Context) {
+	ctx := platform.RequestContext(c)
+	var req expenseCategoryRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		httpx.Fail(c, http.StatusBadRequest, "Invalid input")
+		return
+	}
+	rec, created, err := h.svc.FindOrCreate(ctx, req.Name)
+	if err != nil {
+		httpx.FailErr(c, err)
+		return
+	}
+	if created {
+		httpx.Success(c, http.StatusCreated, rec)
+		return
+	}
+	httpx.Success(c, http.StatusOK, rec)
+}
+
+// GetLedger backs GET /expense-categories/:id/ledger — resolves :id to its
+// category name (Expense.Category is still free text; see
+// MovementService.ListLedgerByCategory's doc comment), then returns every
+// expense recorded under that name as the same normalized LedgerRow shape
+// the bank/customer/loan ledgers use.
+func (h *ExpenseCategoryHandler) GetLedger(c *gin.Context) {
+	ctx := platform.RequestContext(c)
+	id, err := httpx.IDParam(c, "id")
+	if err != nil {
+		httpx.FailErr(c, err)
+		return
+	}
+	cat, err := h.svc.FindByID(ctx, id)
+	if err != nil {
+		httpx.Fail(c, http.StatusNotFound, "expense category not found")
+		return
+	}
+	fromDate, err := parseOptionalDate(c.Query("fromDate"))
+	if err != nil {
+		httpx.Fail(c, http.StatusBadRequest, "invalid fromDate: expected YYYY-MM-DD")
+		return
+	}
+	toDate, err := parseOptionalDate(c.Query("toDate"))
+	if err != nil {
+		httpx.Fail(c, http.StatusBadRequest, "invalid toDate: expected YYYY-MM-DD")
+		return
+	}
+	limit, _ := strconv.Atoi(c.Query("limit"))
+	if limit <= 0 {
+		limit = partyPageSize
+	}
+	offset, _ := strconv.Atoi(c.Query("offset"))
+	if offset < 0 {
+		offset = 0
+	}
+	rec, total, err := h.movementSvc.ListLedgerByCategory(ctx, cat.Name, fromDate, toDate, limit, offset)
+	if err != nil {
+		httpx.FailErr(c, err)
+		return
+	}
+	httpx.Success(c, http.StatusOK, gin.H{"items": rec, "total": total, "categoryName": cat.Name})
 }

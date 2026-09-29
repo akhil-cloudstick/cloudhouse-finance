@@ -8,6 +8,7 @@ import { Icon } from "@/common/components/Icon";
 import { ApiError } from "@/common/services/httpClient";
 import { fmt } from "@/common/utils/format";
 import { StatusChip } from "@/common/components/ui/StatusChip";
+import { LedgerRefLink } from "@/common/components/ui/LedgerRefLink";
 import {
   getPersonalLoan,
   getPersonalLoanSchedulePage,
@@ -314,7 +315,14 @@ export function PersonalLoanDetail({ id }: { id?: string }) {
                 <tr key={p.id}>
                   <td>{p.paidOn.slice(0, 10)}</td>
                   <td className="num">{fmt(p.amount)}</td>
-                  <td>{p.method}</td>
+                  <td>
+                    {p.method}
+                    {p.bankId && (
+                      <div style={{ marginTop: 4 }}>
+                        <LedgerRefLink kind="bank" id={p.bankId} label={p.bankRef?.name || "Bank"} />
+                      </div>
+                    )}
+                  </td>
                   <td className="num">{fmt(p.runningBalance)}</td>
                 </tr>
               ))}

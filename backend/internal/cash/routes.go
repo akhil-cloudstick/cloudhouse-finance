@@ -24,6 +24,14 @@ func RegisterMovementRoutes(rg *gin.RouterGroup, h *MovementHandler, perms platf
 	rg.GET("/transactions/customer/:customerId/export", perms.Read, h.ExportByCustomer)
 	rg.GET("/transactions/branch/:id", perms.Read, h.ListByBranch)
 	rg.GET("/transactions/branch/:id/export", perms.Read, h.ExportByBranch)
+	// Cash Ledger — the Cash-mode-only sub-ledger drill-down (see
+	// MovementHandler.GetCashLedger's doc comment). Registered before /:id so
+	// the literal "cash-ledger" segment isn't swallowed by that param route.
+	rg.GET("/cash-ledger", perms.Read, h.GetCashLedger)
+	// Generic per-payment-mode ledger drill-down (see
+	// MovementHandler.GetModeLedger's doc comment) — ?mode=UPI|Bank
+	// Transfer|Cheque|Cash, optionally &bankId=. Also registered before /:id.
+	rg.GET("/mode-ledger", perms.Read, h.GetModeLedger)
 	rg.GET("/:id", perms.Read, h.Get)
 	rg.PATCH("/:id/status", perms.Update, h.SetStatus)
 }
@@ -37,6 +45,23 @@ func RegisterExpenseRoutes(rg *gin.RouterGroup, h *ExpenseHandler, perms platfor
 	rg.GET("/:id", perms.Read, h.Get)
 	rg.PATCH("/:id/approve", perms.Update, h.Approve)
 	rg.PATCH("/:id/reject", perms.Update, h.Reject)
+}
+
+// RegisterCashSourceRoutes mounts the cash-source lookup-list endpoints
+// under the given group (expected to be r.Group(ctx, "/api/v1/cash-sources"))
+// — backs AddCashModal.tsx's "Source of Cash" picker. Shares the "cash"
+// resource permission, same as every other Cash & Expenses endpoint.
+func RegisterCashSourceRoutes(rg *gin.RouterGroup, h *CashSourceHandler, perms platform.CRUDMiddlewares) {
+	rg.GET("", perms.Read, h.List)
+	rg.POST("", perms.Create, h.Create)
+}
+
+// RegisterExpenseCategoryRoutes mounts the expense-category lookup-list
+// endpoints under the given group (expected to be r.Group(ctx,
+// "/api/v1/expense-categories")) — backs ExpenseModal.tsx's Category picker.
+func RegisterExpenseCategoryRoutes(rg *gin.RouterGroup, h *ExpenseCategoryHandler, perms platform.CRUDMiddlewares) {
+	rg.GET("", perms.Read, h.List)
+	rg.POST("", perms.Create, h.Create)
 }
 
 // RegisterCashRoutes mounts the opening-balance and summary endpoints under

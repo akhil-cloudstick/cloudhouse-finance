@@ -252,10 +252,22 @@ function LedgerTabList({ customerId, top }: { customerId: number; top: React.Rea
       }
       renderItem={(m, i) => {
         const isDebit = m.type === "out";
+        // Every loan-related movement's Purpose is literally "{paymentType}
+        // — {loanNumber}" (e.g. "Partial — LN-00049") — see cash.
+        // MovementService.RecordLoanPaymentCashIn/RecordLoanDisbursementCashOut/
+        // etc — so split it: Ref No shows the loan number (not the internal
+        // transaction-group id) and Particulars shows the payment type/status
+        // half. Falls back to transactionGroupId/source for non-loan rows
+        // (manual top-ups, gold sales, …), which carry no loan number. Same
+        // convention as the web CustomerDetail.tsx Ledger tab.
+        const loanRefRe = /^(.*?)\s*—\s*(LN-\S+)$/;
+        const match = m.purpose ? loanRefRe.exec(m.purpose) : null;
+        const ref = match ? match[2] : m.transactionGroupId ?? String(m.id);
+        const particulars = match ? match[1] : m.purpose || m.source || "—";
         const details: AccDetail[] = [
           { k: "Date", v: dmy(m.occurredOn) },
-          { k: "Ref No", v: m.transactionGroupId ?? String(m.id) },
-          { k: "Particulars", v: m.purpose || m.source || "—" },
+          { k: "Ref No", v: ref },
+          { k: "Particulars", v: particulars },
           { k: "Debit", v: isDebit ? inr(m.amount) : "—", color: isDebit ? C.red : C.muted },
           { k: "Credit", v: isDebit ? "—" : inr(m.amount), color: isDebit ? C.muted : C.green },
           { k: "Balance", v: inr(balanceById.get(m.id) ?? 0), color: C.brandDeep },
@@ -264,8 +276,8 @@ function LedgerTabList({ customerId, top }: { customerId: number; top: React.Rea
           <AccRow
             defaultOpen={i === 0}
             id={dmy(m.occurredOn)}
-            name={m.purpose || m.source || "—"}
-            sub={m.transactionGroupId ?? String(m.id)}
+            name={particulars}
+            sub={ref}
             amount={isDebit ? `−${inr(m.amount)}` : `+${inr(m.amount)}`}
             amountColor={isDebit ? C.red : C.green}
             status={isDebit ? "Debit" : "Credit"}

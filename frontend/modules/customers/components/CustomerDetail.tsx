@@ -38,7 +38,8 @@ import {
   RequestReleaseModalContent,
 } from "@/common/components/modals/RequestExtensionModal";
 import { EditCustomerModalContent } from "@/common/components/modals/EditCustomerModal";
-import { listCashMovementsByCustomer, exportPartyStatementByCustomer, type CashMovementView } from "@/modules/cash/services/cashService";
+import { listCashMovementsByCustomer, exportPartyStatementByCustomer, type LedgerRowView } from "@/modules/cash/services/cashService";
+import { LedgerRefLink } from "@/common/components/ui/LedgerRefLink";
 import { FilterPanel, type FilterCategory, type FilterValue } from "@/common/components/ui/FilterPanel";
 import { ApiError } from "@/common/services/httpClient";
 
@@ -303,7 +304,7 @@ export function CustomerDetail({ id }: { id?: string }) {
   const paymentPager = useSubTablePage<CustomerPaymentRowView>(listPayments, range, !!id);
   const bankPledgePager = useSubTablePage<CustomerBankPledgeRowView>(listBankPledges, range, !!id);
   const auctionPager = useSubTablePage<CustomerAuctionRowView>(listAuctionHistory, range, !!id);
-  const transactionPager = useSubTablePage<CashMovementView>(listTransactions, { from: ledgerFrom, to: ledgerTo }, !!id);
+  const transactionPager = useSubTablePage<LedgerRowView>(listTransactions, { from: ledgerFrom, to: ledgerTo }, !!id);
   useEffect(() => { transactionPager.setPage(1); }, [JSON.stringify(ledgerLoanFilters)]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // profile.loans still backs the "Request Extension / Release" picker
@@ -781,50 +782,28 @@ export function CustomerDetail({ id }: { id?: string }) {
 
             <div hidden={activeTable !== 5} className={activeTable === 5 ? "tab-slide-up" : undefined}>
                 <div className="tbl-wrap tbl-wrap-auto"><table className="tbl tbl-center">
-                  <thead><tr><th>Date</th><th>Ref No</th><th>Particulars</th><th className="num">Debit</th><th className="num">Credit</th><th className="num">Balance</th></tr></thead>
+                  <thead><tr><th>Date</th><th>Particulars</th><th>Method</th><th>Reference</th><th className="num">Debit</th><th className="num">Credit</th><th className="num">Balance</th></tr></thead>
                   <tbody>
                     {transactionPager.items.length === 0 ? (
-                      <tr><td colSpan={6} className="empty compact">No ledger entries recorded yet.</td></tr>
-                    ) : (() => {
-                      // Running balance accumulates oldest-first regardless of
-                      // the table's own newest-first display order (matches
-                      // LoanDetail.tsx's Payment Ledger convention: a debit —
-                      // money owed by the customer, e.g. a loan disbursement —
-                      // increases the balance, a credit — money received —
-                      // reduces it).
-                      const chronological = [...transactionPager.items].reverse();
-                      let running = 0;
-                      const withBalance = chronological.map((m) => {
-                        if (m.type === "out") running += m.amount; else running -= m.amount;
-                        return { m, balance: running };
-                      });
-                      // Every loan-related movement's Purpose is literally
-                      // "{paymentType} — {loanNumber}" (e.g. "Partial —
-                      // LN-00049", "Loan disbursement — LN-00049" — see
-                      // cash.MovementService.RecordLoanPaymentCashIn/
-                      // RecordLoanDisbursementCashOut/etc): split it so Ref
-                      // No shows the loan number (not the internal
-                      // transaction-group id) and Particulars shows the
-                      // payment type/status half. Falls back to the old
-                      // transactionGroupId/source for non-loan rows (manual
-                      // top-ups, gold sales, …), which carry no loan number.
-                      const loanRefRe = /^(.*?)\s*—\s*(LN-\S+)$/;
-                      return withBalance.reverse().map(({ m, balance }) => {
-                        const match = m.purpose ? loanRefRe.exec(m.purpose) : null;
-                        const ref = match ? match[2] : m.transactionGroupId || m.id;
-                        const particulars = match ? match[1] : m.purpose || m.source || "—";
-                        return (
-                          <tr key={m.id}>
-                            <td>{m.d}</td>
-                            <td className="ledger-ref" title={String(ref)}>{ref}</td>
-                            <td>{particulars}</td>
-                            <td className="num" style={{ color: m.type === "out" ? "var(--red)" : undefined }}>{m.type === "out" ? fmt(m.amount) : "—"}</td>
-                            <td className="num" style={{ color: m.type === "in" ? "var(--green)" : undefined }}>{m.type === "in" ? fmt(m.amount) : "—"}</td>
-                            <td className="num">{fmt(balance)}</td>
-                          </tr>
-                        );
-                      });
-                    })()}
+                      <tr><td colSpan={7} className="empty compact">No ledger entries recorded yet.</td></tr>
+                    ) : transactionPager.items.map((r) => (
+                      <tr key={r.id}>
+                        <td>{r.d}</td>
+                        <td>
+                          {r.description || r.type}
+                          {r.bankId ? (
+                            <div style={{ marginTop: 4 }}>
+                              <LedgerRefLink kind="bank" id={r.bankId} label={r.bankName || "Bank"} />
+                            </div>
+                          ) : null}
+                        </td>
+                        <td>{r.method || "—"}</td>
+                        <td className="ledger-ref" title={r.reference || undefined}>{r.reference || "—"}</td>
+                        <td className="num" style={{ color: r.debitOrCredit === "debit" ? "var(--red)" : undefined }}>{r.debitOrCredit === "debit" ? fmt(r.amount) : "—"}</td>
+                        <td className="num" style={{ color: r.debitOrCredit === "credit" ? "var(--green)" : undefined }}>{r.debitOrCredit === "credit" ? fmt(r.amount) : "—"}</td>
+                        <td className="num">{fmt(r.runningBalance)}</td>
+                      </tr>
+                    ))}
                   </tbody>
                 </table></div>
                 <Pager page={transactionPager.page} total={transactionPager.total} pageSize={subtablePageSize} onChange={transactionPager.setPage} />

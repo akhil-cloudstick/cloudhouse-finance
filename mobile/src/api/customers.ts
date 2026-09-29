@@ -15,9 +15,15 @@ export function listCustomers(q?: string) {
 
 // Page-scoped variant: passing `limit` flips the backend (customer/handler.go's
 // List) into the {items, hasMore} envelope — used by the paginated mobile
-// Customers list (10/page, one API call per page).
-export function listCustomersPage(params: { q?: string; limit: number; offset: number }) {
-  return apiRequest<{ items: Customer[]; hasMore: boolean; total?: number }>("/customers", { params });
+// Customers list (10/page, one API call per page). branchIds narrows to
+// customers whose home branch is one of these (a customer belongs to
+// exactly one branch — see customer.model.go) — used by the Cash Movements
+// filter's Branch→Customer narrowing (mirrors web's listCustomersPage).
+export function listCustomersPage(params: { q?: string; limit: number; offset: number; branchIds?: number[] }) {
+  const { branchIds, ...rest } = params;
+  return apiRequest<{ items: Customer[]; hasMore: boolean; total?: number }>("/customers", {
+    params: { ...rest, branchIds: branchIds?.length ? branchIds.join(",") : undefined },
+  });
 }
 
 export function getCustomer(id: number) {

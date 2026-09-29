@@ -126,17 +126,10 @@ export function BranchLedgerModalContent({ branch }: { branch: BranchView }) {
           <div className="i"><div className="k">Phone</div><div className="v">{branch.phone || "—"}</div></div>
         </div>
 
-        <div className="kpis" style={{ marginBottom: 14 }}>
-          <div className="kpi"><div className="l">Total In</div><div className="v">{fmt(totals.totalIn)}</div><div className="s">across {totals.inCount} txns</div></div>
-          <div className="kpi"><div className="l">Total Out</div><div className="v">{fmt(totals.totalOut)}</div><div className="s">across {totals.outCount} txns</div></div>
-          <div className="kpi"><div className="l">Net</div><div className="v">{fmt(totals.net)}</div></div>
-        </div>
-
         {error && <div className="notice" style={{ marginBottom: 14 }}>{error}</div>}
 
-        <div className="hd" style={{ flexWrap: "wrap", rowGap: 10, padding: "0 0 10px" }}>
+        <div className="hd" style={{ flexWrap: "wrap", rowGap: 10, columnGap: 16, padding: "0 0 14px", justifyContent: "flex-end" }}>
           <FilterPanel categories={categories} value={filters} onChange={setFilters} />
-          <div className="sp" />
           <button className="btn ghost sm" disabled={exporting} onClick={onExport}>{exporting ? "Exporting…" : "Download"}</button>
         </div>
 
@@ -172,6 +165,7 @@ export function BranchLedgerModalContent({ branch }: { branch: BranchView }) {
           </table>
         </div>
         <Pager page={page} total={total} pageSize={PAGE_SIZE} onChange={setPage} />
+        <div style={{ height: 10 }} />
       </div>
     </>
   );

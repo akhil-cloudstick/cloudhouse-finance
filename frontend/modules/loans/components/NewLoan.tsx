@@ -27,7 +27,7 @@ import {
 } from "@/modules/loans/services/loanService";
 import { publishGoldRate } from "@/modules/gold-rates/services/goldRateService";
 import { listActiveBranches, type BranchView } from "@/modules/branches/services/branchService";
-import { listLockers, type LockerView } from "@/modules/lockers/services/lockerService";
+import { getLocker, searchLockersPage, type LockerView } from "@/modules/lockers/services/lockerService";
 import { SearchableSelect } from "@/common/components/ui/SearchableSelect";
 import { StatusChip } from "@/common/components/ui/StatusChip";
 import { PurityPicker } from "@/common/components/ui/PurityPicker";
@@ -123,8 +123,6 @@ export function NewLoan() {
   // creation (see submitNewLoan's `lockerId` on createLoan()) instead of
   // requiring a separate manual "check in to locker" step afterward on the
   // Packets page — leaving it on "Assign later" keeps the old manual flow.
-  const [lockers, setLockers] = useState<LockerView[]>([]);
-  const activeLockers = lockers.filter((k) => k.isActive);
 
   // Deliberately NOT defaulted to the first verified customer/active scheme — the
   // SearchableSelect fields below start blank (custLabel/schemeLabel === "")
@@ -197,40 +195,37 @@ export function NewLoan() {
         }
       })
       .catch(() => toast("Could not load branches — try again later."));
-    listLockers()
-      .then(setLockers)
-      .catch(() => toast("Could not load lockers — try again later."));
     // This staff member's own saved drafts, so an interrupted loan can be
     // picked back up (see the "Saved drafts" card below).
     void loadDrafts();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Branch/locker are short, already-loaded lists (not paginated backend
-  // searches like customers/schemes/ornament types), so these just filter
-  // the in-memory list client-side — but they're plugged into the same
-  // SearchableSelect component so Branch/Locker share its themed dropdown
-  // instead of a native <select>'s unstyled browser popup.
+  // Branch is a short, already-loaded list (not a paginated backend search
+  // like customers/schemes/ornament types), so this just filters the
+  // in-memory list client-side — but it's plugged into the same
+  // SearchableSelect component so Branch shares its themed dropdown instead
+  // of a native <select>'s unstyled browser popup.
   async function searchBranchesLocal(q: string, _page: number): Promise<{ items: BranchView[]; hasMore: boolean }> {
     const query = q.trim().toLowerCase();
     const items = query ? branches.filter((b) => b.name.toLowerCase().includes(query)) : branches;
     return { items, hasMore: false };
   }
 
-  async function searchLockersLocal(q: string, _page: number): Promise<{ items: LockerView[]; hasMore: boolean }> {
-    const query = q.trim().toLowerCase();
-    // Full lockers were previously shown but disabled (unclickable) — since
-    // SearchableSelect rows are always clickable, they're excluded outright
-    // instead, matching the same "can't pick a full locker" behavior.
-    //
-    // Also scoped to the loan's selected branch: a locker physically lives
-    // at one branch, so listing every branch's lockers here let staff
-    // assign gold into a locker the branch doesn't actually have access to.
-    const available = activeLockers.filter((k) => k.occupied < k.capacity && (branchId === "" || k.branchId === branchId));
-    const items = query
-      ? available.filter((k) => `${k.code} ${k.branchName}`.toLowerCase().includes(query))
-      : available;
-    return { items, hasMore: false };
+  // Server-side paginated + searched (same lockerService.ts's
+  // searchLockersPage the Packet Check-In picker already uses) instead of a
+  // bulk-fetch-then-filter-in-JS list — that approach needed a manual
+  // re-fetch on every branch change and still relied on the branch filter
+  // matching the fetched snapshot's own shape. Full lockers are filtered out
+  // of each page rather than shown disabled. Scoped to the loan's selected
+  // branch: a locker physically lives at one branch, so listing every
+  // branch's lockers here would let staff assign gold into a locker the
+  // branch doesn't actually have access to.
+  function searchLockers(q: string, page: number): Promise<{ items: LockerView[]; hasMore: boolean }> {
+    return searchLockersPage(q, page, { activeOnly: true, branchId: branchId === "" ? undefined : branchId }).then((res) => ({
+      items: res.items.filter((k) => k.occupied < k.capacity),
+      hasMore: res.hasMore,
+    }));
   }
 
   const sch = (schemeObj && schemeObj.id === schemeId) ? schemeObj : schemes.find((s) => s.id === schemeId);
@@ -441,8 +436,9 @@ export function NewLoan() {
 
   // Reopens a saved draft into the form. Labels for the pickers come from the
   // draft's preloaded customer/scheme/branch (the backend sends them for
-  // exactly this reason); the locker label is resolved from the already-loaded
-  // locker list, which has no equivalent preload.
+  // exactly this reason); the locker label has no equivalent preload, so it's
+  // looked up by id directly (searchLockersPage no longer keeps a full
+  // in-memory list around to search for it).
   function applyDraft(d: BackendLoanDraft) {
     setDraftId(d.id);
     setCustId(d.customerId ? String(d.customerId) : "");
@@ -453,8 +449,12 @@ export function NewLoan() {
     setBranchId(d.branchId);
     setBranchLabel(d.branch?.name || "");
     setLockerId(d.lockerId ?? "");
-    const k = d.lockerId ? lockers.find((x) => x.id === d.lockerId) : undefined;
-    setLockerLabel(k ? `${k.code} — ${k.branchName} (${k.occupied}/${k.capacity} packets)` : "");
+    setLockerLabel("");
+    if (d.lockerId) {
+      getLocker(d.lockerId)
+        .then((k) => setLockerLabel(`${k.code} — ${k.branchName} (${k.occupied}/${k.capacity} packets)`))
+        .catch(() => {/* locker may have since been deleted — leave the label blank */});
+    }
     setRows(d.ornaments.map((o) => ({
       n: o.name,
       p: o.purity || "22K",
@@ -682,7 +682,7 @@ export function NewLoan() {
               <SearchableSelect<LockerView>
                 value={lockerLabel}
                 onChange={(id, item) => { setLockerId(+id); setLockerLabel(`${item.code} — ${item.branchName} (${item.occupied}/${item.capacity} packets)`); }}
-                fetchFn={searchLockersLocal}
+                fetchFn={searchLockers}
                 getLabel={(k) => `${k.code} — ${k.branchName} (${k.occupied}/${k.capacity} packets)`}
                 getId={(k) => String(k.id)}
                 placeholder="— Assign later — or search locker…"

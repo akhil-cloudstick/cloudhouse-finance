@@ -8,13 +8,13 @@ import { fmt } from "@/common/utils/format";
 import { ApiError } from "@/common/services/httpClient";
 import { listActiveBranches, type BranchView } from "@/modules/branches/services/branchService";
 import { createExpense, uploadReceipt, type ExpenseView } from "@/modules/cash/services/cashService";
+import { searchExpenseCategoriesPage, createExpenseCategory, type BackendExpenseCategory } from "@/modules/cash/services/expenseCategoryService";
 import { Select } from "@/common/components/ui/Select";
+import { SearchableSelect } from "@/common/components/ui/SearchableSelect";
 import { DatePicker } from "@/common/components/ui/DatePicker";
 import { FileInput } from "@/common/components/ui/FileInput";
 
-const CATS = ["Rent & Utilities", "Salaries", "Transportation", "Marketing", "Bank Charges", "Maintenance", "Stationery & Office", "Legal & Miscellaneous", "Other"];
 const MODES = ["Cash", "UPI", "Bank"];
-const CAT_OPTIONS = CATS.map((c) => ({ value: c, label: c }));
 const MODE_OPTIONS = MODES.map((m) => ({ value: m, label: m }));
 
 /* Ported from legacy/app.js's `openExpenseModal()` / `saveExpense()`. Now
@@ -33,7 +33,7 @@ export function ExpenseModalContent({ onSaved }: { onSaved?: () => void }) {
   const [desc, setDesc] = useState("");
   const [amt, setAmt] = useState("");
   const [date, setDate] = useState(today);
-  const [cat, setCat] = useState(CATS[0]);
+  const [cat, setCat] = useState("");
   const [mode, setMode] = useState(MODES[0]);
   const [remarks, setRemarks] = useState("");
   const [branches, setBranches] = useState<BranchView[]>([]);
@@ -55,6 +55,7 @@ export function ExpenseModalContent({ onSaved }: { onSaved?: () => void }) {
     if (!(amount > 0)) { setErr("Please enter a valid amount."); return; }
     if (!date) { setErr("Please select the date."); return; }
     if (!branchId) { setErr("Please select a branch."); return; }
+    if (!cat.trim()) { setErr("Please select a category."); return; }
 
     setSaving(true);
     try {
@@ -86,8 +87,17 @@ export function ExpenseModalContent({ onSaved }: { onSaved?: () => void }) {
           <div><label className="f">Date *</label><DatePicker value={date} onChange={setDate} /></div>
         </div>
         <div className="frow c2">
-          <div><label className="f">Category</label>
-            <Select options={CAT_OPTIONS} value={cat} onChange={setCat} /></div>
+          <div><label className="f">Category *</label>
+            <SearchableSelect<BackendExpenseCategory>
+              value={cat}
+              onChange={(_id, item) => setCat(item.name)}
+              fetchFn={searchExpenseCategoriesPage}
+              getLabel={(c) => c.name}
+              getId={(c) => String(c.id)}
+              placeholder="Search or add a category…"
+              allowCreate
+              onCreate={createExpenseCategory}
+            /></div>
           <div><label className="f">Payment Mode</label>
             <Select options={MODE_OPTIONS} value={mode} onChange={setMode} /></div>
         </div>

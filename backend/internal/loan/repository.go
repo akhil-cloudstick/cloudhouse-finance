@@ -32,7 +32,7 @@ func preloadAll(db *gorm.DB) *gorm.DB {
 		Preload("Ornaments.PurityTest").
 		Preload("Ornaments.Images").
 		Preload("Approvals").
-		Preload("Payments").
+		Preload("Payments.BankRef").
 		Preload("Pledges")
 }
 
@@ -520,6 +520,26 @@ func (r *PaymentRepository) FindByLoanID(ctx context.Context, loanID uint) ([]Lo
 	var payments []LoanPayment
 	err := r.db.WithContext(ctx).Where("loan_id = ?", loanID).Order("paid_on desc, id desc").Find(&payments).Error
 	return payments, err
+}
+
+// FindByLoanIDPaged is FindByLoanID's ledger-drill-down counterpart —
+// chronological (oldest first) since RunningBalance only reads correctly in
+// that order, and paginated with a total count the same way
+// cash.MovementRepository.ListByBank/ListByCustomer/ListByBranch are. Preloads
+// BankRef for the ledger row's bankName column.
+func (r *PaymentRepository) FindByLoanIDPaged(ctx context.Context, loanID uint, limit, offset int) ([]LoanPayment, int64, error) {
+	var payments []LoanPayment
+	var total int64
+	q := r.db.WithContext(ctx).Model(&LoanPayment{}).Where("loan_id = ?", loanID)
+	if err := q.Count(&total).Error; err != nil {
+		return nil, 0, err
+	}
+	find := r.db.WithContext(ctx).Preload("BankRef").Where("loan_id = ?", loanID).Order("paid_on asc, id asc")
+	if limit > 0 {
+		find = find.Limit(limit).Offset(offset)
+	}
+	err := find.Find(&payments).Error
+	return payments, total, err
 }
 
 // FindByID looks up a single payment by its primary key — used by the

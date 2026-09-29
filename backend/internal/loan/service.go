@@ -94,8 +94,8 @@ type CashRecorder interface {
 	// TransactionGroupID every row this call wrote shares — callers store
 	// it (see LoanPayment.CashTransactionGroupID) so a payment can be
 	// traced back to its full mode breakdown, not just a single row.
-	RecordLoanDisbursementCashOut(ctx context.Context, loanID uint, loanNumber string, amount, cashAmount, upiAmount, bankTransferAmount, chequeAmount float64, branchID uint, occurredOn time.Time, customerID uint) (movementID uint, groupID string, err error)
-	RecordLoanPaymentCashIn(ctx context.Context, loanID uint, loanNumber string, amount, cashAmount, upiAmount, bankTransferAmount, chequeAmount float64, branchID uint, occurredOn time.Time, paymentType string, customerID uint) (movementID uint, groupID string, err error)
+	RecordLoanDisbursementCashOut(ctx context.Context, loanID uint, loanNumber string, amount, cashAmount, upiAmount, bankTransferAmount, chequeAmount float64, branchID uint, occurredOn time.Time, customerID uint, bankID *uint) (movementID uint, groupID string, err error)
+	RecordLoanPaymentCashIn(ctx context.Context, loanID uint, loanNumber string, amount, cashAmount, upiAmount, bankTransferAmount, chequeAmount float64, branchID uint, occurredOn time.Time, paymentType string, customerID uint, bankID *uint) (movementID uint, groupID string, err error)
 
 	// RecordLoanTopUpCashOut books a loan top-up's cash-out — additional
 	// principal handed to the customer against spare eligible value,
@@ -1724,6 +1724,11 @@ type ApprovalInput struct {
 	UpiAmount          float64
 	BankTransferAmount float64
 	ChequeAmount       float64
+	// BankID — which bank the UPI/Bank Transfer/Cheque portion of the
+	// disbursement was sent from; mirrors PaymentInput.BankID. Only
+	// meaningful (and only stored) at the FinalSanction stage that triggers
+	// the actual cash-out movement.
+	BankID *uint
 }
 
 // Approve advances (or terminates) a loan's 3-step sanction chain:
@@ -1853,7 +1858,7 @@ func (s *Service) Approve(ctx context.Context, loanID uint, in ApprovalInput) (*
 	// (not PrincipalAmount) is what's actually handed over — see this
 	// field's own doc comment just above for why they can differ.
 	if disbursing && s.cashRecorder != nil {
-		if _, _, err := s.cashRecorder.RecordLoanDisbursementCashOut(ctx, l.ID, l.LoanNumber, l.DisbursedAmount, in.CashAmount, in.UpiAmount, in.BankTransferAmount, in.ChequeAmount, l.BranchID, time.Now(), l.CustomerID); err != nil {
+		if _, _, err := s.cashRecorder.RecordLoanDisbursementCashOut(ctx, l.ID, l.LoanNumber, l.DisbursedAmount, in.CashAmount, in.UpiAmount, in.BankTransferAmount, in.ChequeAmount, l.BranchID, time.Now(), l.CustomerID, in.BankID); err != nil {
 			log.Printf("cash-out movement (disbursement) failed for loan %d: %v", l.ID, err)
 		}
 		// The withheld charge is real cash the branch keeps rather than
@@ -1865,6 +1870,32 @@ func (s *Service) Approve(ctx context.Context, loanID uint, in ApprovalInput) (*
 			if _, err := s.cashRecorder.RecordServiceChargeCashIn(ctx, l.ID, l.LoanNumber, l.ServiceChargeAmount, l.BranchID, time.Now()); err != nil {
 				log.Printf("cash-in movement (service charge) failed for loan %d: %v", l.ID, err)
 			}
+		}
+	}
+
+	// Mirrors the cash-out movement above as a row on the loan's OWN ledger
+	// (GetLoanLedger reads only from LoanPayment, never CashMovement — see
+	// PaymentTypeDisbursement's doc comment) — without this, LoanDetail's
+	// Transactions tab has no entry at all for the disbursement, so its
+	// Bank/Method (in.BankID above) never surface there even though the
+	// cash-out movement itself was recorded correctly.
+	if disbursing {
+		p := &LoanPayment{
+			LoanID:             l.ID,
+			Amount:             l.DisbursedAmount,
+			Type:               PaymentTypeDisbursement,
+			PaidOn:             time.Now(),
+			Description:        "Loan disbursed",
+			Method:             platform.DeriveMethod(in.CashAmount, in.UpiAmount, in.BankTransferAmount, in.ChequeAmount),
+			CashAmount:         in.CashAmount,
+			UpiAmount:          in.UpiAmount,
+			BankTransferAmount: in.BankTransferAmount,
+			ChequeAmount:       in.ChequeAmount,
+			BankID:             in.BankID,
+			RunningBalance:     l.OutstandingAmount,
+		}
+		if err := s.paymentRepo.Create(ctx, p); err != nil {
+			log.Printf("loan-payment ledger row (disbursement) failed for loan %d: %v", l.ID, err)
 		}
 	}
 
@@ -1949,6 +1980,11 @@ type PaymentInput struct {
 	Method      string
 	Reference   string
 	Description string
+	// BankID is which bank the UPI/Bank Transfer/Cheque portion of this
+	// payment landed in — required by validation when any of those three
+	// split amounts is non-zero (see ErrBankRequiredForSplitMode). Nil for
+	// a Cash-only payment.
+	BankID *uint
 	// InterestOverride, when set, replaces the system-computed interest
 	// bucket (AccruedInterest − InterestPaid) for THIS call only — the
 	// Record Payment screen shows the live-calculated interest prefilled,
@@ -1969,6 +2005,11 @@ type PaymentInput struct {
 // interest+penal interest, or a "Full Settlement" smaller than the total
 // owed).
 var ErrExceedsOutstanding = httpx.NewBadRequest("amount does not match what is owed for this payment type")
+
+// ErrBankRequiredForSplitMode is returned when any of UpiAmount/
+// BankTransferAmount/ChequeAmount is non-zero but PaymentInput.BankID is
+// nil — mirrors cash.ErrBankRequiredForMode's rationale for AddCashModal.
+var ErrBankRequiredForSplitMode = httpx.NewBadRequest("bank is required when the payment breakdown includes UPI, Bank Transfer, or Cheque")
 
 // allocatePayment splits amount across the processing-fee/penal-interest/
 // interest/principal buckets according to paymentType's waterfall rule,
@@ -2152,6 +2193,9 @@ func (s *Service) RecordPayment(ctx context.Context, loanID uint, in PaymentInpu
 		if err := platform.ValidateSplit(in.CashAmount, in.UpiAmount, in.BankTransferAmount, in.ChequeAmount, in.Amount); err != nil {
 			return nil, err
 		}
+		if (in.UpiAmount > 0 || in.BankTransferAmount > 0 || in.ChequeAmount > 0) && in.BankID == nil {
+			return nil, ErrBankRequiredForSplitMode
+		}
 	}
 	if in.InterestOverride != nil && *in.InterestOverride < 0 {
 		return nil, ErrInvalidAmount
@@ -2221,6 +2265,7 @@ func (s *Service) RecordPayment(ctx context.Context, loanID uint, in PaymentInpu
 		UpiAmount:            in.UpiAmount,
 		BankTransferAmount:   in.BankTransferAmount,
 		ChequeAmount:         in.ChequeAmount,
+		BankID:               in.BankID,
 		Reference:            in.Reference,
 		PenalInterestApplied: penal,
 		InterestApplied:      interest,
@@ -2235,7 +2280,7 @@ func (s *Service) RecordPayment(ctx context.Context, loanID uint, in PaymentInpu
 	// of this same amount, not collected on top of it (see allocatePayment's
 	// fee-first priority), so the cash-in movement is just Amount.
 	if isCashPaymentType(in.Type) && s.cashRecorder != nil {
-		if _, groupID, err := s.cashRecorder.RecordLoanPaymentCashIn(ctx, l.ID, l.LoanNumber, in.Amount, in.CashAmount, in.UpiAmount, in.BankTransferAmount, in.ChequeAmount, l.BranchID, in.PaidOn, in.Type, l.CustomerID); err != nil {
+		if _, groupID, err := s.cashRecorder.RecordLoanPaymentCashIn(ctx, l.ID, l.LoanNumber, in.Amount, in.CashAmount, in.UpiAmount, in.BankTransferAmount, in.ChequeAmount, l.BranchID, in.PaidOn, in.Type, l.CustomerID, in.BankID); err != nil {
 			log.Printf("cash-in movement (payment) failed for loan %d: %v", l.ID, err)
 		} else if groupID != "" {
 			// Best-effort, same as the cash recording itself above: losing
@@ -2508,7 +2553,7 @@ func (s *Service) TopUpLoan(ctx context.Context, loanID uint, in TopUpInput) (*L
 		// Mirrors RecordServiceChargeCashIn's "withheld, not paid out and
 		// collected back" rationale.
 		if deducted := platform.RoundMoney(in.Amount - cashOut); deducted > 0.01 {
-			if _, _, err := s.cashRecorder.RecordLoanPaymentCashIn(ctx, result.ID, result.LoanNumber, deducted, deducted, 0, 0, 0, result.BranchID, occurredOn, "Interest (top-up settlement)", result.CustomerID); err != nil {
+			if _, _, err := s.cashRecorder.RecordLoanPaymentCashIn(ctx, result.ID, result.LoanNumber, deducted, deducted, 0, 0, 0, result.BranchID, occurredOn, "Interest (top-up settlement)", result.CustomerID, nil); err != nil {
 				log.Printf("cash-in movement (top-up interest settlement) failed for loan %d: %v", result.ID, err)
 			}
 		}
@@ -2523,6 +2568,96 @@ func (s *Service) ListTopUps(ctx context.Context, loanID uint) ([]LoanTopUp, err
 		return nil, ErrNotFound
 	}
 	return s.topUpRepo.FindByLoanID(ctx, loanID)
+}
+
+// ledgerCreditTypes are the LoanPayment.Type values that reduce what the
+// customer owes — cash actually received (Interest/Penal Interest/Principal/
+// Partial/Full Settlement) plus the two ways a balance is cleared without
+// new cash (Auction Sale applies auction proceeds, Auction Write-Off forgives
+// a shortfall) — mirrors scratch/loan-ledger-history-mockup.html's "payment
+// received" (cr) bucket. Everything else on a loan's ledger today
+// (Adjustment, Waiver, Discount) is a balance-reducing entry too but isn't a
+// customer-facing "payment" in the mockup's sense; they still classify as
+// credit here since none of them increase what's owed.
+var ledgerCreditTypes = map[string]bool{
+	PaymentTypeInterest:        true,
+	PaymentTypePenalInterest:   true,
+	PaymentTypePrincipal:       true,
+	PaymentTypePartial:         true,
+	PaymentTypeFullSettlement:  true,
+	PaymentTypeAuctionSale:     true,
+	PaymentTypeAuctionWriteOff: true,
+	PaymentTypeWaiver:          true,
+	PaymentTypeAdjustment:      true,
+	PaymentTypeDiscount:        true,
+}
+
+// LoanLedgerRow is one normalized row of a single loan's payment ledger —
+// GET /loans/:id/ledger's response shape. Field names mirror
+// cash.CashMovement's own ledger-facing fields (see PartyLedger.tsx) so a
+// follow-up task can reuse the same rendering logic across both ledgers.
+type LoanLedgerRow struct {
+	ID             uint      `json:"id"`
+	Date           time.Time `json:"date"`
+	Description    string    `json:"description"`
+	Type           string    `json:"type"`
+	Method         string    `json:"method"`
+	Reference      string    `json:"reference"`
+	DebitOrCredit  string    `json:"debitOrCredit"` // "debit" | "credit"
+	Amount         float64   `json:"amount"`
+	RunningBalance float64   `json:"runningBalance"`
+	BankID         *uint     `json:"bankId"`
+	BankName       string    `json:"bankName,omitempty"`
+	CustomerID     uint      `json:"customerId"`
+	CustomerName   string    `json:"customerName"`
+}
+
+// GetLoanLedger returns one loan's payment ledger as a normalized,
+// chronological (oldest first) list — backs GET /loans/:id/ledger, the
+// single-loan drill-down counterpart of
+// ListCashMovementsByBank/ByCustomer/ByBranch (those query cross-entity
+// CashMovement rows; this queries only LoanPayment rows scoped to loanID,
+// since a single loan's ledger has nothing to do with other entities'
+// movements). branchID nil (Administrator/Management) skips the scope
+// check, same convention as Get/checkLoanBranch.
+func (s *Service) GetLoanLedger(ctx context.Context, loanID uint, branchID *uint, limit, offset int) ([]LoanLedgerRow, int64, error) {
+	loanRec, err := s.repo.FindByID(ctx, loanID)
+	if err != nil {
+		return nil, 0, ErrNotFound
+	}
+	if branchID != nil && loanRec.BranchID != *branchID {
+		return nil, 0, ErrNotFound
+	}
+	payments, total, err := s.paymentRepo.FindByLoanIDPaged(ctx, loanID, limit, offset)
+	if err != nil {
+		return nil, 0, err
+	}
+	rows := make([]LoanLedgerRow, len(payments))
+	for i, p := range payments {
+		debitOrCredit := "debit"
+		if ledgerCreditTypes[p.Type] {
+			debitOrCredit = "credit"
+		}
+		row := LoanLedgerRow{
+			ID:             p.ID,
+			Date:           p.PaidOn,
+			Description:    p.Description,
+			Type:           p.Type,
+			Method:         p.Method,
+			Reference:      p.Reference,
+			DebitOrCredit:  debitOrCredit,
+			Amount:         p.Amount,
+			RunningBalance: p.RunningBalance,
+			BankID:         p.BankID,
+			CustomerID:     loanRec.CustomerID,
+			CustomerName:   loanRec.Customer.Name,
+		}
+		if p.BankRef != nil {
+			row.BankName = p.BankRef.Name
+		}
+		rows[i] = row
+	}
+	return rows, total, nil
 }
 
 // resolveAuctionAfterPayment reacts to a payment on a loan whose gold is still
@@ -3998,9 +4133,11 @@ type ReleasePaymentInput struct {
 	UpiAmount          float64
 	BankTransferAmount float64
 	ChequeAmount       float64
-	Method             string
-	Reference          string
-	InterestOverride   *float64
+	// BankID — see PaymentInput.BankID's own doc comment.
+	BankID           *uint
+	Method           string
+	Reference        string
+	InterestOverride *float64
 	// DueDate is required only when Discount+Amount don't cover the final
 	// settlement (see RecordReleaseRequestPayment).
 	DueDate         *time.Time
@@ -4114,6 +4251,7 @@ func (s *Service) RecordReleaseRequestPayment(ctx context.Context, requestID uin
 			UpiAmount:            in.UpiAmount,
 			BankTransferAmount:   in.BankTransferAmount,
 			ChequeAmount:         in.ChequeAmount,
+			BankID:               in.BankID,
 			Method:               in.Method,
 			Reference:            in.Reference,
 			InterestOverride:     in.InterestOverride,

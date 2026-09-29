@@ -123,6 +123,10 @@ export function recordPersonalLoanPayment(
     upiAmount: number;
     bankTransferAmount: number;
     chequeAmount: number;
+    // Which bank the UPI/Bank Transfer/Cheque portion landed in — required
+    // when any of those three is non-zero (see backend's
+    // ErrBankRequiredForSplitMode).
+    bankId?: number;
     reference?: string;
     description?: string;
   }

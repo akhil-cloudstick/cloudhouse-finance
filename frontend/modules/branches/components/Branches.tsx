@@ -92,7 +92,7 @@ export function Branches() {
                     <td>{b.isActive ? <span className="chip green">Active</span> : <span className="chip gray">Inactive</span>}</td>
                     <td>
                       <div style={{ display: "flex", gap: 12 }}>
-                        <a href="#" onClick={(e) => { e.preventDefault(); openModal(<BranchLedgerModalContent branch={b} />); }}>Ledger</a>
+                        <a href="#" onClick={(e) => { e.preventDefault(); openModal(<BranchLedgerModalContent branch={b} />, true); }}>Ledger</a>
                         {canUpdateBranches && <a href="#" onClick={(e) => { e.preventDefault(); openModal(<BranchModalContent branch={b} onSaved={onSaved} />); }}>Edit</a>}
                         {canUpdateBranches && b.isActive && (
                           <a href="#" style={{ color: "var(--red)" }} onClick={(e) => { e.preventDefault(); onDeactivate(b); }}>Deactivate</a>

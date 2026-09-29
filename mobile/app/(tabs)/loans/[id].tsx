@@ -235,7 +235,6 @@ export default function LoanDetailScreen() {
 
   const detailItems: { k: string; v: string; color?: string }[] = [
     { k: "Gold weight", v: `${weight.toFixed(2)} g${purities.length === 1 ? ` · ${purities[0]}` : purities.length > 1 ? ` · ${ornaments.length} items` : ""}` },
-    { k: "Appraised value", v: inr(l.totalGoldValue ?? ornaments.reduce((s, o) => s + o.goldValue, 0)) },
     { k: "Interest rate", v: l.scheme ? `${l.scheme.interestRate}%` : "—" },
     { k: "Tenure", v: tenure ? `${tenure} month${tenure === 1 ? "" : "s"}` : "—" },
     { k: "Disbursed on", v: l.disbursementDate ? dmy(l.disbursementDate) : "Not yet" },

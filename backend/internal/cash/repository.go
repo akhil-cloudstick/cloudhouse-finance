@@ -620,6 +620,122 @@ func (r *MovementRepository) SumNet(ctx context.Context, branchID *uint) (float6
 	return net, err
 }
 
+// CashSourceRepository provides GORM-backed persistence for CashSource
+// records — a small find-or-create lookup list, same shape as bank.Repository.
+type CashSourceRepository struct {
+	db platform.DB
+}
+
+func NewCashSourceRepository(db platform.DB) *CashSourceRepository {
+	return &CashSourceRepository{db: db}
+}
+
+func (r *CashSourceRepository) Create(ctx context.Context, s *CashSource) error {
+	return r.db.WithContext(ctx).Create(s).Error
+}
+
+// FindAll returns cash sources matching query, plus the TOTAL row count
+// (Limit/Offset ignored, 0 when limit <= 0) — same convention as
+// bank.Repository.FindAll: limit == 0 returns every match unpaged, limit > 0
+// applies Limit/Offset for a paginated picker.
+func (r *CashSourceRepository) FindAll(ctx context.Context, query string, limit, offset int) ([]CashSource, int64, error) {
+	var sources []CashSource
+	q := r.db.WithContext(ctx).Order("name asc")
+	if query != "" {
+		q = q.Where("name ILIKE ?", "%"+query+"%")
+	}
+	var total int64
+	if limit > 0 {
+		if err := q.Session(&gorm.Session{}).Model(&CashSource{}).Count(&total).Error; err != nil {
+			return nil, 0, err
+		}
+		q = q.Limit(limit).Offset(offset)
+	}
+	err := q.Find(&sources).Error
+	return sources, total, err
+}
+
+func (r *CashSourceRepository) FindByName(ctx context.Context, name string) (*CashSource, error) {
+	var s CashSource
+	if err := r.db.WithContext(ctx).Where("name ILIKE ?", name).First(&s).Error; err != nil {
+		return nil, err
+	}
+	return &s, nil
+}
+
+// ExpenseCategoryRepository provides GORM-backed persistence for
+// ExpenseCategory records — same shape as CashSourceRepository.
+type ExpenseCategoryRepository struct {
+	db platform.DB
+}
+
+func NewExpenseCategoryRepository(db platform.DB) *ExpenseCategoryRepository {
+	return &ExpenseCategoryRepository{db: db}
+}
+
+func (r *ExpenseCategoryRepository) Create(ctx context.Context, c *ExpenseCategory) error {
+	return r.db.WithContext(ctx).Create(c).Error
+}
+
+func (r *ExpenseCategoryRepository) FindAll(ctx context.Context, query string, limit, offset int) ([]ExpenseCategory, int64, error) {
+	var cats []ExpenseCategory
+	q := r.db.WithContext(ctx).Order("name asc")
+	if query != "" {
+		q = q.Where("name ILIKE ?", "%"+query+"%")
+	}
+	var total int64
+	if limit > 0 {
+		if err := q.Session(&gorm.Session{}).Model(&ExpenseCategory{}).Count(&total).Error; err != nil {
+			return nil, 0, err
+		}
+		q = q.Limit(limit).Offset(offset)
+	}
+	err := q.Find(&cats).Error
+	return cats, total, err
+}
+
+func (r *ExpenseCategoryRepository) FindByName(ctx context.Context, name string) (*ExpenseCategory, error) {
+	var c ExpenseCategory
+	if err := r.db.WithContext(ctx).Where("name ILIKE ?", name).First(&c).Error; err != nil {
+		return nil, err
+	}
+	return &c, nil
+}
+
+// FindByID backs the category ledger drill-down (GET
+// /expense-categories/:id/ledger), which needs the category's NAME to
+// filter expenses by (see MovementService.ListLedgerByCategory's doc
+// comment on why this is a name match, not a FK join).
+func (r *ExpenseCategoryRepository) FindByID(ctx context.Context, id uint) (*ExpenseCategory, error) {
+	var c ExpenseCategory
+	if err := r.db.WithContext(ctx).First(&c, id).Error; err != nil {
+		return nil, err
+	}
+	return &c, nil
+}
+
+// LoanCashSourceRepository provides GORM-backed persistence for
+// LoanCashSource records — one row per loan-sourced CashMovement.
+type LoanCashSourceRepository struct {
+	db platform.DB
+}
+
+func NewLoanCashSourceRepository(db platform.DB) *LoanCashSourceRepository {
+	return &LoanCashSourceRepository{db: db}
+}
+
+func (r *LoanCashSourceRepository) Create(ctx context.Context, rec *LoanCashSource) error {
+	return r.db.WithContext(ctx).Create(rec).Error
+}
+
+func (r *LoanCashSourceRepository) FindByCashMovementID(ctx context.Context, cashMovementID uint) (*LoanCashSource, error) {
+	var rec LoanCashSource
+	if err := r.db.WithContext(ctx).Preload("Bank").Where("cash_movement_id = ?", cashMovementID).First(&rec).Error; err != nil {
+		return nil, err
+	}
+	return &rec, nil
+}
+
 // NetByDay returns SUM(in) − SUM(out) per calendar day for movements with
 // occurred_on in [from, to), keyed "YYYY-MM-DD". Days are bucketed in Go
 // with the server's local time zone — the same startOfDay convention every

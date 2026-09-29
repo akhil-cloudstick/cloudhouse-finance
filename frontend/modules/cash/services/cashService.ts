@@ -25,6 +25,30 @@ export type BackendCashMovement = {
   transactionGroupId?: string;
   bankId?: number | null;
   partyCustomerId?: number | null;
+  // loanSource is only present when source is "Loan" — see
+  // backend/internal/cash/model.go's LoanCashSource.
+  loanSource?: BackendLoanCashSource;
+};
+
+// Mirrors backend/internal/cash/model.go's LoanCashSource — the Loan
+// Details block AddCashModal.tsx captures when Source of Cash is "Loan".
+export type BackendLoanCashSource = {
+  id: number;
+  cashMovementId: number;
+  bankId: number;
+  bank?: { id: number; name: string };
+  loanNumber: string;
+  principalAmount: number;
+  interestRate?: number | null;
+  durationMonths?: number | null;
+};
+
+export type LoanSourceInput = {
+  bankId: number;
+  loanNumber: string;
+  principalAmount: number;
+  interestRate?: number;
+  durationMonths?: number;
 };
 
 export type CashMovementView = {
@@ -42,6 +66,7 @@ export type CashMovementView = {
   transactionGroupId?: string;
   bankId?: number | null;
   partyCustomerId?: number | null;
+  loanSource?: BackendLoanCashSource;
 };
 
 function movementToView(m: BackendCashMovement): CashMovementView {
@@ -60,6 +85,7 @@ function movementToView(m: BackendCashMovement): CashMovementView {
     transactionGroupId: m.transactionGroupId,
     bankId: m.bankId,
     partyCustomerId: m.partyCustomerId,
+    loanSource: m.loanSource,
   };
 }
 
@@ -72,6 +98,7 @@ export type CashMovementInput = {
   amount: number;
   branchId?: number;
   occurredOn?: string; // "YYYY-MM-DD"
+  loanSource?: LoanSourceInput;
 };
 
 export async function listCashMovements(): Promise<CashMovementView[]> {
@@ -372,6 +399,9 @@ export type BackendGoldSale = {
   soldOn: string;
   branchId: number;
   branch?: { id: number; name: string };
+  mode?: string;
+  bankId?: number | null;
+  bankRef?: { id: number; name: string } | null;
   cashMovementId?: number | null;
   costCashMovementId?: number | null;
   remarks?: string;
@@ -387,6 +417,9 @@ export type GoldSaleView = {
   profit: number;
   branch: string;
   branchId: number;
+  mode: string;
+  bankId?: number;
+  bankName?: string;
   remarks?: string;
 };
 
@@ -400,6 +433,9 @@ function goldSaleToView(g: BackendGoldSale): GoldSaleView {
     profit: g.profit,
     branch: g.branch?.name || "",
     branchId: g.branchId,
+    mode: g.mode || "Cash",
+    bankId: g.bankId ?? undefined,
+    bankName: g.bankRef?.name,
     remarks: g.remarks,
   };
 }
@@ -409,6 +445,11 @@ export type GoldSaleInput = {
   soldAmount: number;
   costAmount: number;
   branchId: number;
+  // Mode is how the sale proceeds were received — "Cash" | "UPI" | "Bank
+  // Transfer" (see backend GoldSale.Mode's doc comment). Omit for Cash.
+  mode?: string;
+  // bankId is required when mode is UPI or Bank Transfer.
+  bankId?: number;
   soldOn?: string; // "YYYY-MM-DD"
   remarks?: string;
 };
@@ -480,17 +521,154 @@ export async function listCashMovementsByBank(
   return { items: (rec?.items || []).map(movementToView), total: rec?.total ?? 0, totals: rec?.totals ?? { totalIn: 0, totalOut: 0, net: 0, inCount: 0, outCount: 0 } };
 }
 
+/* Combined ledger row shape returned by the customer/bank drill-down
+ * endpoints (backend/internal/cash/ledger.go's LedgerRow) — a UNION of
+ * CashMovement/LoanPayment/PersonalLoanPayment/GoldSale rows, not just plain
+ * cash movements, so it's a distinct type from CashMovementView. Field names
+ * mirror backend/internal/loan/service.go's LoanLedgerRow (the single-loan
+ * ledger) so both can share one rendering component. */
+export type LedgerRowView = {
+  id: number;
+  d: string;
+  description: string;
+  type: string;
+  method: string;
+  reference: string;
+  debitOrCredit: "debit" | "credit";
+  amount: number;
+  runningBalance: number;
+  bankId?: number | null;
+  bankName?: string;
+  customerId?: number;
+  customerName?: string;
+};
+
+export type BackendLedgerRow = {
+  id: number;
+  date: string;
+  description: string;
+  type: string;
+  method: string;
+  reference: string;
+  debitOrCredit: "debit" | "credit";
+  amount: number;
+  runningBalance: number;
+  bankId?: number | null;
+  bankName?: string;
+  customerId?: number;
+  customerName?: string;
+};
+
+export function ledgerRowToView(r: BackendLedgerRow): LedgerRowView {
+  return {
+    id: r.id,
+    d: r.date.slice(0, 10),
+    description: r.description,
+    type: r.type,
+    method: r.method,
+    reference: r.reference,
+    debitOrCredit: r.debitOrCredit,
+    amount: r.amount,
+    runningBalance: r.runningBalance,
+    bankId: r.bankId,
+    bankName: r.bankName,
+    customerId: r.customerId,
+    customerName: r.customerName,
+  };
+}
+
+/* Customer drill-down now returns the combined ledger (loans, personal
+ * loans, gold sales, plain cash movements — see ledger.go's dedup rule),
+ * not just CashMovement rows — hence LedgerRowView, not CashMovementView.
+ * No `totals` in this envelope (the combined ledger's debit/credit split
+ * per row makes a single "totalIn/totalOut" pair the wrong summary shape;
+ * callers derive totals by summing debitOrCredit themselves). */
 export async function listCashMovementsByCustomer(
   customerId: number,
   page: number,
   range?: PartyDateRange,
   pageSize: number = PARTY_PAGE_SIZE
-): Promise<{ items: CashMovementView[]; total: number; totals: PartyTotals }> {
+): Promise<{ items: LedgerRowView[]; total: number }> {
   const params = partyRangeParams(range);
   params.set("limit", String(pageSize));
   params.set("offset", String((page - 1) * pageSize));
-  const rec = await apiFetch<{ items: BackendCashMovement[]; total: number; totals: PartyTotals }>(`/cash-movements/transactions/customer/${customerId}?${params}`);
-  return { items: (rec?.items || []).map(movementToView), total: rec?.total ?? 0, totals: rec?.totals ?? { totalIn: 0, totalOut: 0, net: 0, inCount: 0, outCount: 0 } };
+  const rec = await apiFetch<{ items: BackendLedgerRow[]; total: number }>(`/cash-movements/transactions/customer/${customerId}?${params}`);
+  return { items: (rec?.items || []).map(ledgerRowToView), total: rec?.total ?? 0 };
+}
+
+/* Bank drill-down's combined ledger — same shape/rationale as the customer
+ * one above, but its own endpoint (backend/internal/bank has no ledger
+ * query of its own; this lives under /banks/:id/ledger, handled by
+ * cash.MovementHandler per the ledger.go dedup-rule comment). */
+export async function getBankLedger(
+  bankId: number,
+  page: number,
+  range?: PartyDateRange,
+  pageSize: number = PARTY_PAGE_SIZE
+): Promise<{ items: LedgerRowView[]; total: number }> {
+  const params = partyRangeParams(range);
+  params.set("limit", String(pageSize));
+  params.set("offset", String((page - 1) * pageSize));
+  const rec = await apiFetch<{ items: BackendLedgerRow[]; total: number }>(`/banks/${bankId}/ledger?${params}`);
+  return { items: (rec?.items || []).map(ledgerRowToView), total: rec?.total ?? 0 };
+}
+
+/* Cash Ledger — the Cash-mode-only sub-ledger drill-down off the Cash
+ * entity (backend/internal/cash/ledger.go's ListCashModeLedger): every
+ * transaction across loans/personal loans/gold sales/plain cash movements
+ * whose mode was pure Cash, as opposed to the bank/customer/loan ledgers
+ * which show every mode. Branch-scoped server-side the same way the plain
+ * cash-movements list is — a Branch Manager's own branch is locked in
+ * automatically; branchIds additionally narrows an Administrator/
+ * Management view when they've picked specific branches from the switcher. */
+export async function getCashLedger(
+  page: number,
+  range?: PartyDateRange & { branchIds?: number[] },
+  pageSize: number = PARTY_PAGE_SIZE
+): Promise<{ items: LedgerRowView[]; total: number }> {
+  const params = partyRangeParams(range);
+  if (range?.branchIds?.length) params.set("branchIds", range.branchIds.join(","));
+  params.set("limit", String(pageSize));
+  params.set("offset", String((page - 1) * pageSize));
+  const rec = await apiFetch<{ items: BackendLedgerRow[]; total: number }>(`/cash-movements/cash-ledger?${params}`);
+  return { items: (rec?.items || []).map(ledgerRowToView), total: rec?.total ?? 0 };
+}
+
+export const LEDGER_MODES = ["Cash", "UPI", "Bank Transfer", "Cheque"] as const;
+export type LedgerMode = (typeof LEDGER_MODES)[number];
+
+/* Maps a payment mode to its own ledger's hash route (ModeLedgerPage.tsx) —
+ * shared by every ledger table's Mode column (Cash.tsx, PartyLedger.tsx) so
+ * clicking a mode drills into that mode's transactions across every source. */
+export const MODE_LEDGER_ROUTE: Record<string, string> = {
+  Cash: "cash-ledger",
+  UPI: "upi-ledger",
+  "Bank Transfer": "bank-transfer-ledger",
+  Cheque: "cheque-ledger",
+};
+
+/* Generic per-payment-mode ledger drill-down (backend/internal/cash/
+ * ledger.go's ListModeLedger) — every transaction across loans/personal
+ * loans/gold sales/plain cash movements whose mode matches, optionally
+ * narrowed to one bank (meaningless for "Cash", which never has a bank of
+ * record). getCashLedger above is kept as its own function (rather than
+ * every existing caller switching to this with mode="Cash") since it's the
+ * one mode callers reach for by name most often; this backs the newer
+ * UPI/Bank Transfer/Cheque ledgers (and could replace getCashLedger too). */
+export async function getModeLedger(
+  mode: LedgerMode,
+  page: number,
+  range?: PartyDateRange & { branchIds?: number[]; bankId?: number },
+  pageSize: number = PARTY_PAGE_SIZE
+): Promise<{ items: LedgerRowView[]; total: number }> {
+  const params = partyRangeParams(range);
+  params.set("mode", mode);
+  if (range?.bankId) params.set("bankId", String(range.bankId));
+  if (range?.branchIds?.length) params.set("branchIds", range.branchIds.join(","));
+  params.set("limit", String(pageSize));
+  params.set("offset", String((page - 1) * pageSize));
+  const rec = await apiFetch<{ items: BackendLedgerRow[]; total: number }>(`/cash-movements/mode-ledger?${params}`);
+  return { items: (rec?.items || []).map(ledgerRowToView), total: rec?.total ?? 0 };
 }
 
 export async function exportPartyStatementByBank(bankId: number, range?: PartyDateRange): Promise<void> {
