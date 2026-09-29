@@ -146,7 +146,7 @@ export function PacketDetail({ code }: { code?: string }) {
   // (e.g. still "Locker Stored" from before the sale) is no longer the
   // meaningful status to show: the loan's own outcome overrides it.
   const isAuctioned = p.loanStatus === "Auctioned" || p.loanStatus === "Auctioned - Balance Due";
-  const movementLocked = isAuctioned || p.loanStatus === "Closed";
+  const movementLocked = isAuctioned || p.loanStatus === "Closed" || p.loanStatus === "Rejected";
   const displayStatus = isAuctioned ? "Auctioned" : p.status;
 
   return (

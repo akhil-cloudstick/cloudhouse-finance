@@ -11,7 +11,7 @@ import { useResponsivePageSize, useIsSmallScreen } from "@/product/utils/respons
 import { routeHref } from "@/product/services/appRoutes";
 import { DatePicker } from "@/product/components/ui/DatePicker";
 
-const CATS = ["All", "Active", "Due Soon", "Overdue", "Defaulted", "Pending Approval", "Auction Eligible", "Closed"];
+const CATS = ["All", "Active", "Due Soon", "Overdue", "Defaulted", "Pending Approval", "Auction Eligible", "Closed", "Rejected"];
 
 /* "Due Soon"/"Overdue"/"Defaulted" are computed read-time flags (isDueSoon/
  * isOverdue/isDefaulted, see loan/accrual.go's enrichStatusFlags), NOT

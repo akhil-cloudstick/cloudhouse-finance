@@ -7,7 +7,10 @@ import (
 
 	"gorm.io/gorm"
 
+	"cloudhouse/backend/internal/cash"
+	"cloudhouse/backend/internal/goldrate"
 	"cloudhouse/backend/internal/loan"
+	"cloudhouse/backend/internal/platform"
 )
 
 // NeedsAttentionPageSize is fixed (not caller-adjustable) — matches the
@@ -18,14 +21,42 @@ const NeedsAttentionPageSize = 15
 // internal/loan's own repositories — the exact same ones loan.Service.List
 // and loan.Service.ListRequests already delegate to — so none of loan's
 // filtering/status logic is duplicated here.
+//
+// db/goldRateRepo/movementRepo back GET /dashboard/summary and
+// /dashboard/activity (summary.go): small read-only aggregates over tables
+// other modules own, always issued through a model (never raw SQL) so the
+// tenant scope still applies.
 type Service struct {
+	db           platform.DB
 	loanRepo     *loan.Repository
 	requestRepo  *loan.LoanRequestRepository
 	snapshotRepo *SnapshotRepository
+	goldRateRepo *goldrate.Repository
+	movementRepo *cash.MovementRepository
 }
 
-func NewService(loanRepo *loan.Repository, requestRepo *loan.LoanRequestRepository, snapshotRepo *SnapshotRepository) *Service {
-	return &Service{loanRepo: loanRepo, requestRepo: requestRepo, snapshotRepo: snapshotRepo}
+func NewService(db platform.DB, loanRepo *loan.Repository, requestRepo *loan.LoanRequestRepository, snapshotRepo *SnapshotRepository, goldRateRepo *goldrate.Repository, movementRepo *cash.MovementRepository) *Service {
+	return &Service{db: db, loanRepo: loanRepo, requestRepo: requestRepo, snapshotRepo: snapshotRepo, goldRateRepo: goldRateRepo, movementRepo: movementRepo}
+}
+
+// Needs Attention kinds accepted by NeedsAttentionFilter.Kind (GET
+// /dashboard/needs-attention?kind=).
+const (
+	NeedsAttentionKindApprovals = "approvals"
+	NeedsAttentionKindRequests  = "requests"
+	NeedsAttentionKindAuctions  = "auctions"
+)
+
+// NeedsAttentionFilter narrows GetNeedsAttention.
+type NeedsAttentionFilter struct {
+	// Query matches loan number or customer name/code in all three sources
+	// (pushed into each source's own SQL — see loan.LoanFilter.Query /
+	// loan.LoanRequestFilter.Query).
+	Query string
+	// Kind, when set, keeps only that source's rows in Items/TotalCount.
+	// The per-kind counts are still reported for every kind (under the
+	// same Query), so the widget's chips keep their numbers.
+	Kind string
 }
 
 // GetNeedsAttention merges pending-approval loans, pending Extension/Release
@@ -39,25 +70,30 @@ func NewService(loanRepo *loan.Repository, requestRepo *loan.LoanRequestReposito
 // internal/reports.Paginate already uses for its own cross-table
 // aggregations. The counts returned alongside Items are taken from these
 // same full fetches, so they are always exact.
-func (s *Service) GetNeedsAttention(ctx context.Context, page int, branchScope *uint) (*NeedsAttentionResult, error) {
-	approvals, _, err := s.loanRepo.FindAll(ctx, loan.LoanFilter{Status: loan.StatusPendingApproval, BranchScope: branchScope})
+func (s *Service) GetNeedsAttention(ctx context.Context, page int, branchScope *uint, f NeedsAttentionFilter) (*NeedsAttentionResult, error) {
+	approvals, _, err := s.loanRepo.FindAll(ctx, loan.LoanFilter{Status: loan.StatusPendingApproval, BranchScope: branchScope, Query: f.Query})
 	if err != nil {
 		return nil, err
 	}
-	requests, _, err := s.requestRepo.FindAll(ctx, loan.LoanRequestFilter{Status: loan.RequestStatusPending, BranchID: branchScope})
+	requests, _, err := s.requestRepo.FindAll(ctx, loan.LoanRequestFilter{Status: loan.RequestStatusPending, BranchID: branchScope, Query: f.Query})
 	if err != nil {
 		return nil, err
 	}
 	auctions, _, err := s.loanRepo.FindAll(ctx, loan.LoanFilter{
 		StatusIn:    []string{loan.StatusAuctionEligible, loan.StatusDefaulted},
 		BranchScope: branchScope,
+		Query:       f.Query,
 	})
 	if err != nil {
 		return nil, err
 	}
 
+	include := func(kind string) bool { return f.Kind == "" || f.Kind == kind }
 	items := make([]NeedsAttentionItem, 0, len(approvals)+len(requests)+len(auctions))
 	for _, l := range approvals {
+		if !include(NeedsAttentionKindApprovals) {
+			break
+		}
 		items = append(items, NeedsAttentionItem{
 			Kind:          "approval",
 			LoanID:        l.ID,
@@ -68,6 +104,9 @@ func (s *Service) GetNeedsAttention(ctx context.Context, page int, branchScope *
 		})
 	}
 	for _, r := range requests {
+		if !include(NeedsAttentionKindRequests) {
+			break
+		}
 		items = append(items, NeedsAttentionItem{
 			Kind:         "request",
 			RequestID:    r.ID,
@@ -79,6 +118,9 @@ func (s *Service) GetNeedsAttention(ctx context.Context, page int, branchScope *
 		})
 	}
 	for _, l := range auctions {
+		if !include(NeedsAttentionKindAuctions) {
+			break
+		}
 		items = append(items, NeedsAttentionItem{
 			Kind:         "auction",
 			LoanID:       l.ID,

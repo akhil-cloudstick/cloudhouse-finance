@@ -1,92 +1,93 @@
 import React, { useState } from "react";
-import { RefreshControl, View } from "react-native";
-import { useInfiniteQuery } from "@tanstack/react-query";
-import { useRouter } from "expo-router";
-import { ScreenContainer } from "../../../src/components/ScreenContainer";
-import { ThemedText } from "../../../src/components/ThemedText";
-import { GoldTextInput } from "../../../src/components/GoldTextInput";
-import { GoldButton } from "../../../src/components/GoldButton";
-import { colors, statusColors } from "../../../src/theme/colors";
+import { AccRow, FabCorner, FlatHeader, Screen, SearchInput, ServerFlatList } from "../../../src/components/ui";
+import { SchemeSheet, SchemeStatementSheet } from "../../../src/components/staff/SchemeSheet";
+import { useServerList } from "../../../src/hooks/useServerList";
+import { useResetOnBlur } from "../../../src/hooks/useRefetchOnFocus";
 import { listSchemesPage } from "../../../src/api/schemes";
-import { Scheme } from "../../../src/types/scheme";
-import { useDebouncedValue } from "../../../src/hooks/useDebouncedValue";
-import { useRefetchOnFocus } from "../../../src/hooks/useRefetchOnFocus";
-import { ExpandableTable, defaultVisibleCount, type TableColumn } from "../../../src/components/ExpandableTable";
+import type { Scheme } from "../../../src/types/scheme";
 
-const PAGE_SIZE = 10;
+// Schemes tab — prototype #header-schemes + #page-schemes. Search (scheme
+// name / code) is the server `q` on GET /schemes; rows page in 10 at a time.
+// Create / edit open the Scheme sheet; Download Statement opens the
+// statement sheet (server-built PDF / xlsx).
 
-function StatusPill({ active }: { active: boolean }) {
-  const tone = statusColors(active ? "green" : "muted");
-  return (
-    <ThemedText
-      variant="label"
-      style={{ backgroundColor: tone.bg, color: tone.fg, paddingHorizontal: 7, paddingVertical: 2, borderRadius: 6, alignSelf: "flex-start", fontSize: 11.5 }}
-    >
-      {active ? "Active" : "Inactive"}
-    </ThemedText>
-  );
-}
-
-// 3 columns + 6 detail-only fields (LTV/Duration/Code/Branch/Penal/
-// Conditions) = 9 total — "large", so Name/Interest/Status stay visible and
-// the rest fold into the expand strip.
-const SCHEME_COLUMNS: TableColumn<Scheme>[] = [
-  { key: "name", label: "Name", render: (s) => s.name, weight: 1.4 },
-  { key: "interest", label: "Interest", render: (s) => `${s.interestRate}%` },
-  { key: "status", label: "Status", render: (s) => <StatusPill active={s.isActive} /> },
-];
-const SCHEME_VISIBLE_COUNT = defaultVisibleCount(SCHEME_COLUMNS.length + 6);
-
-function schemeExtraFields(s: Scheme) {
-  return [
-    { label: "LTV", value: `${s.ltvPercent}%` },
-    { label: "Duration", value: `${s.durationMonths} months` },
-    { label: "Code", value: s.code },
-    { label: "Branch", value: s.branch?.name || "—" },
-    { label: "Penal Rate", value: s.penalRate != null ? `${s.penalRate}%` : "—" },
-    { label: "Conditions", value: s.conditions || "—" },
-  ];
+function serviceCharge(sc: Scheme) {
+  if (!sc.serviceChargeType || sc.serviceChargeType === "None") return null;
+  const v = sc.serviceChargeType === "Flat" ? `₹${(sc.serviceChargeValue ?? 0).toLocaleString("en-IN")}` : `${sc.serviceChargeValue ?? 0}%`;
+  return `${v} · ${sc.serviceChargeMode === "AddedToPrincipal" ? "added to principal" : "withheld"}`;
 }
 
 export default function SchemesScreen() {
-  const router = useRouter();
-  const [search, setSearch] = useState("");
-  const debouncedSearch = useDebouncedValue(search);
+  const list = useServerList<Scheme>({ key: ["schemes", "list"], fetchPage: (p) => listSchemesPage(p) });
+  const [editing, setEditing] = useState<Scheme | null>(null);
+  const [formOpen, setFormOpen] = useState(false);
+  const [statementFor, setStatementFor] = useState<Scheme | null>(null);
+  const [statementOpen, setStatementOpen] = useState(false);
 
-  const { data, isLoading, isError, isFetching, isFetchingNextPage, fetchNextPage, hasNextPage, refetch } = useInfiniteQuery({
-    queryKey: ["schemes", debouncedSearch],
-    queryFn: ({ pageParam = 0 }) => listSchemesPage({ q: debouncedSearch || undefined, limit: PAGE_SIZE, offset: pageParam }),
-    initialPageParam: 0,
-    getNextPageParam: (lastPage, allPages) => (lastPage.hasMore ? allPages.length * PAGE_SIZE : undefined),
+  useResetOnBlur(() => {
+    setFormOpen(false);
+    setStatementOpen(false);
   });
 
-  useRefetchOnFocus(refetch);
-
-  const schemes = data?.pages.flatMap((p) => p.items) ?? [];
-
   return (
-    <ScreenContainer style={{ paddingHorizontal: 0 }}>
-      <View style={{ paddingHorizontal: 16, paddingTop: 20 }}>
-        <GoldTextInput label="Search schemes" value={search} onChangeText={setSearch} blur />
-        <GoldButton title="+ New Scheme" variant="outline" onPress={() => router.push("/schemes/new")} />
-      </View>
-
-      <View style={{ flex: 1, paddingHorizontal: 16, paddingTop: 16 }}>
-        <ExpandableTable<Scheme>
-          columns={SCHEME_COLUMNS}
-          visibleCount={SCHEME_VISIBLE_COUNT}
-          data={schemes}
-          keyExtractor={(s) => String(s.id)}
-          extraFields={schemeExtraFields}
-          onViewDescription={(s) => router.push(`/schemes/${s.id}`)}
-          emptyText={isLoading ? "Loading…" : isError ? "Could not load schemes." : "No schemes found."}
-          refreshControl={<RefreshControl refreshing={isFetching && !isFetchingNextPage && !isLoading} onRefresh={refetch} />}
-          onEndReached={() => {
-            if (hasNextPage && !isFetchingNextPage) fetchNextPage();
+    <Screen
+      header={<FlatHeader title="Schemes" subtitle="Interest, LTV & scheme rules" />}
+      floating={
+        <FabCorner
+          label="New scheme"
+          onPress={() => {
+            setEditing(null);
+            setFormOpen(true);
           }}
-          isFetchingNextPage={isFetchingNextPage}
         />
-      </View>
-    </ScreenContainer>
+      }
+    >
+      <ServerFlatList
+        list={list}
+        items={list.items}
+        keyOf={(sc) => String(sc.id)}
+        emptyText={list.search ? "No schemes match your search." : "No schemes yet."}
+        header={<SearchInput value={list.search} onChangeText={list.setSearch} placeholder="Search by scheme name or code" style={{ paddingTop: 12 }} />}
+        renderItem={(sc, i) => {
+          const charge = serviceCharge(sc);
+          return (
+            <AccRow
+              defaultOpen={i === 0}
+              name={sc.name}
+              sub={`Interest ${sc.interestRate}% p.a.`}
+              status={sc.isActive ? "Active" : "Inactive"}
+              details={[
+                { k: "LTV", v: `${sc.ltvPercent}%` },
+                { k: "Duration", v: `${sc.durationMonths} month${sc.durationMonths === 1 ? "" : "s"}` },
+                { k: "Code", v: sc.code || "—" },
+                { k: "Branch", v: sc.branch?.name || "—" },
+                { k: "Penal rate", v: sc.penalRate != null ? `${sc.penalRate}% /mo` : "—" },
+                { k: "Conditions", v: sc.conditions || "—" },
+                ...(sc.interestMethod ? [{ k: "Interest method", v: sc.interestMethod }] : []),
+                ...(charge ? [{ k: "Service charge", v: charge }] : []),
+              ]}
+              actions={[
+                { label: "Download Statement", onPress: () => {
+                    setStatementFor(sc);
+                    setStatementOpen(true);
+                  },
+                },
+                {
+                  label: "Edit Scheme",
+                  primary: true,
+                  onPress: () => {
+                    setEditing(sc);
+                    setFormOpen(true);
+                  },
+                },
+              ]}
+            />
+          );
+        }}
+      />
+
+      <SchemeSheet visible={formOpen} onClose={() => setFormOpen(false)} scheme={editing} />
+      <SchemeStatementSheet visible={statementOpen} onClose={() => setStatementOpen(false)} scheme={statementFor} />
+    </Screen>
   );
 }

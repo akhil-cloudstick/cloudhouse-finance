@@ -30,6 +30,9 @@ type Filter struct {
 	BranchID *uint
 	Page     int
 	PageSize int
+	// Q is the free-text search (`q` query param) — see MatchRows. Empty
+	// means no search.
+	Q string
 }
 
 // Paginate applies f's Page/PageSize (both 1-based; PageSize defaults to

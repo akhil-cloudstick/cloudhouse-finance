@@ -3,6 +3,7 @@ package employee
 import (
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 
@@ -69,6 +70,7 @@ func (h *Handler) Create(c *gin.Context) {
 func (h *Handler) List(c *gin.Context) {
 	ctx := platform.RequestContext(c)
 	branchScope := platform.GetBranchScope(c)
+	search := strings.TrimSpace(c.Query("q"))
 
 	limit, _ := strconv.Atoi(c.Query("limit"))
 	if limit > 0 {
@@ -76,7 +78,7 @@ func (h *Handler) List(c *gin.Context) {
 		if offset < 0 {
 			offset = 0
 		}
-		rec, total, err := h.svc.List(ctx, branchScope, limit+1, offset)
+		rec, total, err := h.svc.List(ctx, branchScope, search, limit+1, offset)
 		if err != nil {
 			httpx.FailErr(c, err)
 			return
@@ -96,7 +98,7 @@ func (h *Handler) List(c *gin.Context) {
 		return
 	}
 
-	rec, _, err := h.svc.List(ctx, branchScope, 0, 0)
+	rec, _, err := h.svc.List(ctx, branchScope, search, 0, 0)
 	if err != nil {
 		httpx.FailErr(c, err)
 		return

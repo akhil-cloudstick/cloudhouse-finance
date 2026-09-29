@@ -1,252 +1,284 @@
 import React, { useState } from "react";
-import { RefreshControl, View } from "react-native";
-import { useInfiniteQuery } from "@tanstack/react-query";
-import { useRouter } from "expo-router";
-import { ScreenContainer } from "../../../src/components/ScreenContainer";
-import { ThemedText } from "../../../src/components/ThemedText";
-import { ChipSelect } from "../../../src/components/ChipSelect";
-import { FilterSheetButton } from "../../../src/components/FilterSheetButton";
-import { GoldTextInput } from "../../../src/components/GoldTextInput";
-import { colors, statusColors, StatusTone } from "../../../src/theme/colors";
+import { View } from "react-native";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  AccRow,
+  AsyncSelect,
+  C,
+  Field,
+  FilterChipRow,
+  FiltersBar,
+  FlatHeader,
+  PillTabs,
+  PrimaryButton,
+  Screen,
+  SearchInput,
+  ServerFlatList,
+  Sheet,
+  SubTabs,
+  Txt,
+  openPage,
+} from "../../../src/components/ui";
+import { AuctionFlowSheet } from "../../../src/components/staff/AuctionFlowSheet";
+import { useServerList } from "../../../src/hooks/useServerList";
 import { listLoansPage } from "../../../src/api/loans";
-import { listConcludedAuctions } from "../../../src/api/auctions";
-import { Loan } from "../../../src/types/loan";
-import { AUCTION_OUTCOME_LABELS, ConcludedAuctionRow } from "../../../src/types/auction";
-import { fmt } from "../../../src/lib/format";
-import { useDebouncedValue } from "../../../src/hooks/useDebouncedValue";
-import { useRefetchOnFocus } from "../../../src/hooks/useRefetchOnFocus";
-import { ExpandableTable, type TableColumn } from "../../../src/components/ExpandableTable";
+import { getAuction, listConcludedAuctions, markAuctionEligible } from "../../../src/api/auctions";
+import { useAuth } from "../../../src/auth/AuthContext";
+import { ApiError } from "../../../src/api/client";
+import { inr } from "../../../src/lib/format";
+import type { Loan } from "../../../src/types/loan";
+import { AUCTION_OUTCOME_LABELS, pendingDecision, type AuctionRecord, type AuctionStage, type ConcludedAuctionRow } from "../../../src/types/auction";
 
-const PAGE_SIZE = 10;
+// Auctions — prototype #header-auctions + #page-auctions, the auction filter
+// sheet and the Auction Flow sheet. Active Cases are loans bucketed
+// server-side by `auctionCase` (eligible | defaulted | auctioned_balance_due);
+// Auction History is GET /loans/auctions/concluded split by `hasSale`.
 
-// There's no dedicated "auctions" list endpoint for the Active tab —
-// eligible/defaulted loans come from the Loans module. The actual auction
-// actions (eligible → notice → schedule → sale → settle) live on the loan's
-// own detail screen (/loans/[id]) since every action is per-loan, not a
-// separate resource.
-//
-// "Defaulted" is NOT filterable server-side: it's a read-time derived flag
-// (Loan.isDefaulted, backend/internal/loan/model.go's IsDefaulted —
-// gorm:"-"), never a value the persisted `status` column holds. Asking the
-// backend for status=Defaulted silently returns zero rows every time —
-// that's why this screen used to show no auctions at all. Instead we fetch
-// the loans once and bucket client-side by isDefaulted vs. the real
-// "Auction Eligible" status.
-// "Auctioned - Balance Due" surfaces loans whose sale left a shortfall
-// still frozen on a management decision (see [id].tsx's escalation banner)
-// — previously invisible on this screen entirely; staff could only reach
-// one by already knowing its loan number. A loan merely awaiting its
-// surplus to be settled (plain "Auctioned", sale fully covered the debt)
-// still isn't listed here — telling "surplus still open" apart from
-// "already settled" needs each loan's own auction record, which this list
-// doesn't fetch (see [id].tsx, which does and gets it right per-loan).
-const FILTERS = ["Auction Eligible", "Defaulted", "Auctioned - Balance Due"] as const;
+const TABS = ["active", "history"] as const;
+type Tab = (typeof TABS)[number];
+const TAB_LABELS: Record<Tab, string> = { active: "Active Cases", history: "Auction History" };
 
-// Mirrors frontend/components/Auctions.tsx's Active Cases / Auction History
-// split — the mobile screen used to be Active-only. History reuses the same
-// paginated {items, hasMore} endpoint (handler.go's ListConcludedAuctions)
-// the web app's two tables page independently.
-const TOP_TABS = ["Active Cases", "Auction History"] as const;
-const HISTORY_TABLES = ["Auctions Conducted", "Closed Without Auction"] as const;
+const CASES = ["Auction Eligible", "Defaulted", "Auctioned - Balance Due"] as const;
+type CaseType = (typeof CASES)[number];
+const CASE_PARAM: Record<CaseType, string> = {
+  "Auction Eligible": "eligible",
+  Defaulted: "defaulted",
+  "Auctioned - Balance Due": "auctioned_balance_due",
+};
+
+const HIST = ["conducted", "closed"] as const;
+type Hist = (typeof HIST)[number];
+const HIST_LABELS: Record<Hist, string> = { conducted: "Auctions Conducted", closed: "Closed Without Auction" };
+
+function useOpenLoan() {
+  return (id: number) => {
+    openPage(`/loans/${id}`);
+  };
+}
 
 export default function AuctionsScreen() {
-  const [topTab, setTopTab] = useState<(typeof TOP_TABS)[number]>("Active Cases");
-
+  const [tab, setTab] = useState<Tab>("active");
+  const tabs = <PillTabs tabs={TABS} value={tab} onChange={setTab} labels={TAB_LABELS} />;
   return (
-    <ScreenContainer style={{ paddingHorizontal: 0 }}>
-      <View style={{ paddingHorizontal: 16, paddingTop: 20 }}>
-        <ChipSelect options={TOP_TABS} value={topTab} onChange={setTopTab} />
-      </View>
-      {topTab === "Active Cases" ? <ActiveCases /> : <AuctionHistory />}
-    </ScreenContainer>
+    <Screen header={<FlatHeader title="Auctions" subtitle="Active cases & history" />}>
+      {tab === "active" ? <ActiveCases tabs={tabs} /> : <AuctionHistory tabs={tabs} />}
+    </Screen>
   );
 }
 
-function LoanStatusPill({ status }: { status: string }) {
-  const s = status.toLowerCase();
-  const tone: StatusTone = s.includes("default") ? "red" : s.includes("balance due") ? "amber" : "info";
-  const t = statusColors(tone);
-  return (
-    <ThemedText
-      variant="label"
-      numberOfLines={1}
-      style={{ backgroundColor: t.bg, color: t.fg, paddingHorizontal: 7, paddingVertical: 2, borderRadius: 6, alignSelf: "flex-start", fontSize: 11.5 }}
-    >
-      {status}
-    </ThemedText>
-  );
-}
+function ActiveCases({ tabs }: { tabs: React.ReactNode }) {
+  const openLoan = useOpenLoan();
+  const qc = useQueryClient();
+  const { can } = useAuth();
+  const canAct = can("Loan_Management", "can_update_loan");
 
-// 4 columns + 2 detail-only fields (Gold weight/Days overdue) = 6 total —
-// right at the defaultVisibleCount threshold (which trims only past 6), so
-// all 4 stay visible here.
-const ACTIVE_COLUMNS: TableColumn<Loan>[] = [
-  { key: "loanNumber", label: "Loan No", render: (l) => l.loanNumber, weight: 1.1 },
-  { key: "customer", label: "Customer", render: (l) => l.customer?.name ?? `#${l.customerId}`, weight: 1.3 },
-  { key: "status", label: "Status", render: (l) => <LoanStatusPill status={l.status} /> },
-  { key: "outstanding", label: "Outstanding", render: (l) => fmt(l.totalOutstandingBalance ?? l.outstandingAmount) },
-];
-function activeExtraFields(l: Loan) {
-  return [
-    { label: "Gold Weight", value: l.totalNetWeight != null ? `${l.totalNetWeight.toFixed(2)} g` : "—" },
-    { label: "Days Overdue", value: l.daysOverdue ? String(l.daysOverdue) : "—" },
-  ];
-}
+  const [caseType, setCaseType] = useState<CaseType>("Auction Eligible");
+  const [sheetOpen, setSheetOpen] = useState(false);
+  const [draft, setDraft] = useState<CaseType>(caseType);
+  const [flowLoan, setFlowLoan] = useState<Loan | null>(null);
 
-function ActiveCases() {
-  const router = useRouter();
-  const [filter, setFilter] = useState<(typeof FILTERS)[number]>("Auction Eligible");
-  const [search, setSearch] = useState("");
-  const debouncedSearch = useDebouncedValue(search);
-  // "Auction Eligible"/"Auctioned - Balance Due" are real stored status
-  // values, so the backend can filter+paginate them directly. "Defaulted"
-  // has no such column (see the top-of-file comment) — for that one this
-  // still fetches a real, separate 10-row page per Next tap, just filtered
-  // client-side after it arrives, so a page can come back holding fewer
-  // than 10 matching rows even though a full page was actually fetched.
-  const isDefaultedFilter = filter === "Defaulted";
-
-  const { data, isLoading, isError, isFetching, isFetchingNextPage, fetchNextPage, hasNextPage, refetch } = useInfiniteQuery({
-    queryKey: ["loans", "auctions", filter, debouncedSearch],
-    queryFn: ({ pageParam = 0 }) =>
-      listLoansPage({
-        status: isDefaultedFilter ? undefined : filter,
-        q: debouncedSearch || undefined,
-        limit: PAGE_SIZE,
-        offset: pageParam,
-      }),
-    initialPageParam: 0,
-    getNextPageParam: (lastPage, allPages) => (lastPage.hasMore ? allPages.length * PAGE_SIZE : undefined),
+  // "Mark a loan as Auction Eligible" — picker limited server-side to
+  // defaulted loans (the only ones the backend lets you mark).
+  const [markLoan, setMarkLoan] = useState<Loan | null>(null);
+  const [markMsg, setMarkMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  const mark = useMutation({
+    mutationFn: (l: Loan) => markAuctionEligible(l.id),
+    onSuccess: (_r, l) => {
+      setMarkMsg({ ok: true, text: `${l.loanNumber} marked Auction Eligible.` });
+      setMarkLoan(null);
+      qc.invalidateQueries({ queryKey: ["loans"] });
+      qc.invalidateQueries({ queryKey: ["auction", String(l.id)] });
+      qc.invalidateQueries({ queryKey: ["loan", String(l.id)] });
+    },
+    onError: (err) => setMarkMsg({ ok: false, text: err instanceof ApiError ? err.message : "Could not mark the loan Auction Eligible." }),
   });
 
-  useRefetchOnFocus(refetch);
+  const list = useServerList<Loan, { auctionCase: string }>({
+    key: ["loans", "auctions"],
+    filters: { auctionCase: CASE_PARAM[caseType] },
+    fetchPage: (p) => listLoansPage(p),
+  });
 
-  const allLoans = data?.pages.flatMap((p) => p.items) ?? [];
-  const filtered = isDefaultedFilter ? allLoans.filter((l) => !!l.isDefaulted) : allLoans;
-
-  // Pushing straight to `/loans/[id]` from outside the Loans tab leaves that
-  // tab's Stack with the detail screen as its ONLY entry — see the matching
-  // comment in dashboard.tsx. Pushing the list first builds the history
-  // explicitly so back/the Loans tab land on the list, not stuck on detail.
-  function openLoan(id: string | number) {
-    router.push("/loans");
-    router.push(`/loans/${id}`);
-  }
+  const caseSub = (l: Loan) => (l.status === "Auction Eligible" || l.status === "Auctioned - Balance Due" ? l.status : "Defaulted");
 
   return (
     <>
-      <GoldTextInput
-        label="Search auctions"
-        placeholder="Loan no or customer…"
-        value={search}
-        onChangeText={setSearch}
-        containerStyle={{ marginHorizontal: 16, marginTop: 12 }}
-        blur
+      <ServerFlatList
+        list={list}
+        items={list.items}
+        keyOf={(l) => String(l.id)}
+        emptyText="No auction cases match your search."
+        header={
+          <>
+            {tabs}
+            <SearchInput value={list.search} onChangeText={list.setSearch} placeholder="Search by loan ID or customer name" style={{ paddingTop: 12, paddingBottom: 8 }} />
+            <FiltersBar
+              count={1}
+              summary={`${caseType} · ${list.total ?? list.items.length}`}
+              style={{ marginTop: 0, marginBottom: 14 }}
+              onPress={() => {
+                setDraft(caseType);
+                setMarkMsg(null);
+                setSheetOpen(true);
+              }}
+            />
+          </>
+        }
+        renderItem={(l, i) => (
+          <AuctionCaseRow loan={l} defaultOpen={i === 0} sub={caseSub(l)} onView={() => openLoan(l.id)} onFlow={() => setFlowLoan(l)} />
+        )}
       />
-      <View style={{ paddingHorizontal: 16, marginTop: 12, marginBottom: 12 }}>
-        <FilterSheetButton options={FILTERS} value={filter} onChange={setFilter} label="Filter" />
-      </View>
-      <View style={{ flex: 1, paddingHorizontal: 16 }}>
-        <ExpandableTable<Loan>
-          columns={ACTIVE_COLUMNS}
-          visibleCount={ACTIVE_COLUMNS.length}
-          data={filtered}
-          keyExtractor={(l) => String(l.id)}
-          extraFields={activeExtraFields}
-          onViewDescription={(l) => openLoan(l.id)}
-          emptyText={isLoading ? "Loading…" : isError ? "Could not load loans." : "No loans found for this filter."}
-          refreshControl={<RefreshControl refreshing={isFetching && !isFetchingNextPage && !isLoading} onRefresh={refetch} />}
-          onEndReached={() => {
-            if (hasNextPage && !isFetchingNextPage) fetchNextPage();
+
+      <Sheet visible={sheetOpen} onClose={() => setSheetOpen(false)} title="Filter Auction Cases" maxHeightPct={70}>
+        <Field label="Case type">
+          <FilterChipRow options={CASES} value={draft} onChange={setDraft} />
+        </Field>
+        {canAct ? (
+          <>
+            <AsyncSelect<Loan>
+              label="Mark a loan as Auction Eligible"
+              placeholder="Search customer or LN number"
+              queryKey={["loans", "auction-mark-picker"]}
+              fetcher={async (q) => (await listLoansPage({ q: q || undefined, auctionCase: "defaulted", limit: 20, offset: 0 })).items ?? []}
+              selectedLabel={markLoan ? `${markLoan.loanNumber} · ${markLoan.customer?.name ?? ""}` : undefined}
+              onClear={() => setMarkLoan(null)}
+              onSelect={(l) => {
+                setMarkLoan(l);
+                setMarkMsg(null);
+              }}
+              keyOf={(l) => l.id}
+              renderItem={(l) => ({ title: `${l.loanNumber} · ${l.customer?.name ?? ""}`, sub: `${l.daysOverdue ?? 0} days overdue · ${inr(l.totalOutstandingBalance ?? l.outstandingAmount)}` })}
+            />
+            {markMsg ? <Txt style={{ fontSize: 12, color: markMsg.ok ? C.green : C.red, marginBottom: 10 }}>{markMsg.text}</Txt> : null}
+            <PrimaryButton
+              label="Mark Loan Auction Eligible"
+              variant="outline"
+              style={{ marginBottom: 14 }}
+              disabled={!markLoan}
+              loading={mark.isPending}
+              onPress={() => markLoan && mark.mutate(markLoan)}
+            />
+          </>
+        ) : null}
+        <PrimaryButton
+          label="Apply Filters"
+          onPress={() => {
+            setCaseType(draft);
+            setSheetOpen(false);
           }}
-          isFetchingNextPage={isFetchingNextPage}
         />
-      </View>
+      </Sheet>
+
+      <AuctionFlowSheet loan={flowLoan} visible={!!flowLoan} onClose={() => setFlowLoan(null)} />
     </>
   );
 }
 
-const HISTORY_COLUMNS: TableColumn<ConcludedAuctionRow>[] = [
-  { key: "loan", label: "Loan", render: (r) => r.loanNumber },
-  { key: "outcome", label: "Outcome", render: (r) => (r.stage === "Withdrawn" ? "Withdrawn" : AUCTION_OUTCOME_LABELS[r.finalSettlementStatus ?? "Pending"]), weight: 1.3 },
-  { key: "sale", label: "Sale", render: (r) => (r.saleAmount ? fmt(r.saleAmount) : "—") },
-  {
-    key: "surplus",
-    label: "Surplus/Short",
-    render: (r) =>
-      r.saleAmount ? (
-        <ThemedText variant="small" color={(r.surplusShortfall ?? 0) < 0 ? colors.red : colors.green}>
-          {fmt(r.surplusShortfall ?? 0)}
-        </ThemedText>
-      ) : (
-        "—"
-      ),
-  },
-];
-function historyExtraFields(r: ConcludedAuctionRow) {
-  return [
-    { label: "Customer", value: r.customerName },
-    { label: "Stage", value: r.stage },
-  ];
+// The flow button names the step the case is on, read from its auction record
+// (same query the Auction Flow sheet uses, so opening it is instant).
+// Defaulted loans have no record yet — that's where the flow starts.
+const NEXT_STEP: Partial<Record<AuctionStage, string>> = {
+  AuctionEligible: "Issue Notice",
+  NoticeIssued: "Schedule Auction",
+  AuctionScheduled: "Record Sale",
+  Auctioned: "Settle Auction",
+};
+
+function flowLabel(l: Loan, rec: AuctionRecord | null | undefined, loading: boolean): string {
+  if (l.status === "Auctioned - Balance Due") return "View Auction";
+  if (l.status !== "Auction Eligible") return "Start Auction Flow";
+  if (loading || !rec) return "Auction Flow";
+  if (pendingDecision(rec)) return "Decision Pending";
+  if (rec.stage === "Settled" || rec.stage === "Withdrawn") return "View Auction";
+  return NEXT_STEP[rec.stage] ?? "Auction Flow";
 }
 
-function AuctionHistory() {
-  const router = useRouter();
-  const [table, setTable] = useState<(typeof HISTORY_TABLES)[number]>("Auctions Conducted");
-  const hasSale = table === "Auctions Conducted";
-  const [search, setSearch] = useState("");
-  const debouncedSearch = useDebouncedValue(search);
+function AuctionCaseRow({ loan: l, defaultOpen, sub, onView, onFlow }: { loan: Loan; defaultOpen: boolean; sub: string; onView: () => void; onFlow: () => void }) {
+  const hasRecord = l.status === "Auction Eligible";
+  const auction = useQuery({ queryKey: ["auction", String(l.id)], queryFn: () => getAuction(l.id), enabled: hasRecord });
+  const days = l.daysOverdue ?? 0;
+  const overdue = !!l.isOverdue || days > 0;
+  return (
+    <AccRow
+      defaultOpen={defaultOpen}
+      id={l.loanNumber}
+      name={l.customer?.name ?? `Customer #${l.customerId}`}
+      sub={sub}
+      amount={inr(l.totalOutstandingBalance ?? l.outstandingAmount)}
+      status={overdue ? "Overdue" : l.status}
+      details={[
+        { k: "Gold weight", v: l.totalNetWeight != null ? `${+Number(l.totalNetWeight).toFixed(2)} g` : "—" },
+        { k: "Days overdue", v: `${days} day${days === 1 ? "" : "s"}`, color: days > 0 ? C.red : undefined },
+      ]}
+      actions={[
+        { label: "View Loan", onPress: onView },
+        { label: flowLabel(l, auction.data, hasRecord && auction.isLoading), primary: true, onPress: onFlow },
+      ]}
+    />
+  );
+}
 
-  // Same rationale as ActiveCases' openLoan below — [id].tsx's route param
-  // is the loan's numeric id (it calls getLoan(Number(id))), not its
-  // human-readable loanNumber, so this pushes `item.loanId`, not
-  // `item.loanNumber` (which is only for display).
-  function openLoan(loanId: number) {
-    router.push("/loans");
-    router.push(`/loans/${loanId}`);
-  }
-
-  const { data, isLoading, isError, isFetching, isFetchingNextPage, fetchNextPage, hasNextPage, refetch } = useInfiniteQuery({
-    queryKey: ["auctionHistory", hasSale, debouncedSearch],
-    queryFn: ({ pageParam = 0 }) =>
-      listConcludedAuctions({ hasSale, q: debouncedSearch || undefined, limit: PAGE_SIZE, offset: pageParam }),
-    initialPageParam: 0,
-    getNextPageParam: (lastPage, allPages) => (lastPage.hasMore ? allPages.length * PAGE_SIZE : undefined),
+function AuctionHistory({ tabs }: { tabs: React.ReactNode }) {
+  const openLoan = useOpenLoan();
+  const [hist, setHist] = useState<Hist>("conducted");
+  const list = useServerList<ConcludedAuctionRow, { hasSale: boolean }>({
+    key: ["auctionHistory"],
+    filters: { hasSale: hist === "conducted" },
+    fetchPage: async (p) => listConcludedAuctions(p),
   });
 
-  useRefetchOnFocus(refetch);
-
-  const records = data?.pages.flatMap((p) => p.items) ?? [];
-
   return (
-    <>
-      <GoldTextInput
-        label="Search auction history"
-        placeholder="Loan no, customer, or reference…"
-        value={search}
-        onChangeText={setSearch}
-        containerStyle={{ marginHorizontal: 16, marginTop: 12 }}
-        blur
-      />
-      <View style={{ paddingHorizontal: 16, marginTop: 12 }}>
-        <ChipSelect options={HISTORY_TABLES} value={table} onChange={setTable} label="Table" />
-      </View>
-      <View style={{ flex: 1, paddingHorizontal: 16 }}>
-        <ExpandableTable<ConcludedAuctionRow>
-          columns={HISTORY_COLUMNS}
-          visibleCount={HISTORY_COLUMNS.length}
-          data={records}
-          keyExtractor={(r) => String(r.id)}
-          extraFields={historyExtraFields}
-          onViewDescription={(r) => openLoan(r.loanId)}
-          emptyText={isLoading ? "Loading…" : isError ? "Could not load auction history." : "No concluded auctions."}
-          refreshControl={<RefreshControl refreshing={isFetching && !isFetchingNextPage && !isLoading} onRefresh={refetch} />}
-          onEndReached={() => {
-            if (hasNextPage && !isFetchingNextPage) fetchNextPage();
-          }}
-          isFetchingNextPage={isFetchingNextPage}
-        />
-      </View>
-    </>
+    <ServerFlatList
+      list={list}
+      items={list.items}
+      keyOf={(r) => String(r.id)}
+      emptyText="No auction history matches your search."
+      header={
+        <>
+          {tabs}
+          <SearchInput value={list.search} onChangeText={list.setSearch} placeholder="Search by loan ID or customer name" style={{ paddingTop: 12, paddingBottom: 8 }} />
+          <View style={{ paddingHorizontal: 18 }}>
+            <SubTabs tabs={HIST} value={hist} onChange={setHist} labels={HIST_LABELS} />
+          </View>
+        </>
+      }
+      renderItem={(r) => {
+        if (r.stage === "Withdrawn" || !r.saleAmount) {
+          return (
+            <AccRow
+              id={r.loanNumber}
+              name="Withdrawn"
+              sub="Settled before auction"
+              amount={inr(0)}
+              status="Closed"
+              statusTone="active"
+              details={[
+                { k: "Customer", v: r.customerName || "—" },
+                { k: "Stage", v: r.stage === "Withdrawn" ? "Withdrawn — customer settled" : r.stage },
+              ]}
+              actions={[{ label: "View Loan", onPress: () => openLoan(r.loanId) }]}
+            />
+          );
+        }
+        const ss = r.surplusShortfall ?? 0;
+        return (
+          <AccRow
+            id={r.loanNumber}
+            name="Auctioned"
+            sub={`Sale ${inr(r.saleAmount)}`}
+            amount={`${ss >= 0 ? "+" : "−"}${inr(Math.abs(ss))}`}
+            amountColor={ss >= 0 ? C.green : C.red}
+            status={ss >= 0 ? "Surplus" : "Shortfall"}
+            statusTone={ss >= 0 ? "closed" : "overdue"}
+            details={[
+              { k: "Customer", v: r.customerName || "—" },
+              { k: "Stage", v: r.stage === "Settled" ? "Sale completed" : r.stage },
+              { k: "Outcome", v: AUCTION_OUTCOME_LABELS[r.finalSettlementStatus ?? "Pending"] },
+            ]}
+            actions={[{ label: "View Loan", onPress: () => openLoan(r.loanId) }]}
+          />
+        );
+      }}
+    />
   );
 }

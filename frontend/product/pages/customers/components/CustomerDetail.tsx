@@ -394,7 +394,7 @@ export function CustomerDetail({ id }: { id?: string }) {
                     onClick={(e) => {
                       e.preventDefault();
                       setActionsMenuOpen(false);
-                      const activeLoans = cLoans.filter((l) => l.status !== "Closed" && l.status !== "Auctioned");
+                      const activeLoans = cLoans.filter((l) => l.status !== "Closed" && l.status !== "Rejected" && l.status !== "Auctioned");
                       const hasActiveLoans = activeLoans.length > 0 || (profile?.activeLoanCount ?? 0) > 0;
                       const activeLoanListStr = activeLoans.map((l) => l.loanNumber || l.id).filter(Boolean).join(", ");
 

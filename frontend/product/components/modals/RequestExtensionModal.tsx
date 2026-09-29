@@ -278,7 +278,7 @@ export function SelectLoanForRequestModalContent({ loans, onPicked }: { loans: L
   const [type, setType] = useState<"Extension" | "Release">("Extension");
   const [err, setErr] = useState("");
 
-  const eligible = loans.filter((l) => l.status !== "Closed");
+  const eligible = loans.filter((l) => l.status !== "Closed" && l.status !== "Rejected");
   const selected = eligible.find((l) => l.id === loanId);
 
   // Not blanket-disabled on `!selected` — see RepledgeModal.tsx's own

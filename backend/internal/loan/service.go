@@ -134,6 +134,7 @@ type CashRecorder interface {
 var (
 	ErrNotFound              = httpx.NewNotFound("loan not found")
 	ErrOrnamentNotFound      = httpx.NewNotFound("ornament not found")
+	ErrReleaseAlreadyPending = httpx.NewConflict("a release has already been requested for this loan and is waiting for approval")
 	ErrBranchInvalid         = httpx.NewBadRequest("branch does not exist")
 	ErrCustomerInvalid       = httpx.NewBadRequest("customer does not exist")
 	ErrSchemeInvalid         = httpx.NewBadRequest("scheme does not exist")
@@ -248,7 +249,7 @@ var (
 	// before a sale is even recorded) so a stale client screen that still
 	// shows a "Settle Surplus" button gets a message that actually explains
 	// what happened, rather than the generic wrong-stage text.
-	ErrAuctionAlreadyConcluded   = httpx.NewConflict("this auction case has already been settled — refresh the page to see its current state")
+	ErrAuctionAlreadyConcluded   = httpx.NewConflict("this auction case has already been settled")
 	ErrNoSurplusToDispose        = httpx.NewBadRequest("this auction left no surplus to dispose of")
 	ErrSurplusAlreadyDisposed    = httpx.NewConflict("this auction's surplus has already been disposed of")
 	ErrInvalidSurplusDisposition = httpx.NewBadRequest("surplus disposition must be either \"RefundedToCustomer\" or \"RecordedAsIncome\"")
@@ -881,6 +882,11 @@ type RiskAssessmentFilter struct {
 	OpenedFrom *time.Time
 	OpenedTo   *time.Time
 
+	// Query matches loan number or customer name/code — same semantics as
+	// LoanFilter.Query, pushed into the SQL fetch, so (like Status) it
+	// narrows Counts/Total too.
+	Query string
+
 	// Limit/Offset paginate Items below; Limit <= 0 means "no limit"
 	// (return everything matching, unpaginated). Applied in Go, AFTER
 	// every matching loan has already been fetched and classified — see
@@ -927,6 +933,7 @@ func (s *Service) ListLoanRiskAssessment(ctx context.Context, f RiskAssessmentFi
 		BranchScope: f.BranchScope,
 		OpenedFrom:  f.OpenedFrom,
 		OpenedTo:    f.OpenedTo,
+		Query:       f.Query,
 	}
 	if f.Status != "" {
 		lf.Status = f.Status
@@ -999,6 +1006,14 @@ func (s *Service) ListLoanRiskAssessment(ctx context.Context, f RiskAssessmentFi
 }
 
 func (s *Service) List(ctx context.Context, f LoanFilter) ([]Loan, int64, error) {
+	// OnlyDefaulted depends on read-time arrears (see LoanFilter.
+	// OnlyDefaulted), so the SQL candidate set is fetched in full, enriched,
+	// narrowed to IsDefaulted, and only then paginated — the same
+	// fetch-classify-then-page approach ListLoanRiskAssessment uses.
+	limit, offset := f.Limit, f.Offset
+	if f.OnlyDefaulted {
+		f.Limit, f.Offset = 0, 0
+	}
 	loans, total, err := s.repo.FindAll(ctx, f)
 	if err != nil {
 		return nil, 0, err
@@ -1018,7 +1033,37 @@ func (s *Service) List(ctx context.Context, f LoanFilter) ([]Loan, int64, error)
 		l.AccruedPenalInterest = platform.RoundMoney(l.AccruedPenalInterest + penalDelta)
 		s.enrich(ctx, l)
 	}
+	if f.OnlyDefaulted {
+		loans, total = pageDefaulted(loans, limit, offset)
+	}
 	return loans, total, nil
+}
+
+// pageDefaulted keeps only the IsDefaulted loans (already enriched) and
+// returns the requested page of them plus the total match count. limit <= 0
+// returns every match (total is still reported).
+func pageDefaulted(loans []Loan, limit, offset int) ([]Loan, int64) {
+	kept := loans[:0]
+	for _, l := range loans {
+		if l.IsDefaulted {
+			kept = append(kept, l)
+		}
+	}
+	total := int64(len(kept))
+	if limit <= 0 {
+		return kept, total
+	}
+	if offset < 0 {
+		offset = 0
+	}
+	if offset > len(kept) {
+		offset = len(kept)
+	}
+	end := offset + limit
+	if end > len(kept) {
+		end = len(kept)
+	}
+	return kept[offset:end], total
 }
 
 // CountList returns how many loans match f overall, ignoring its
@@ -1161,7 +1206,7 @@ func (s *Service) DeleteOrnament(ctx context.Context, ornamentID uint) (*Loan, e
 		return nil, ErrNotFound
 	}
 	switch l.Status {
-	case StatusClosed, StatusAuctioned, StatusAuctionedBalanceDue:
+	case StatusClosed, StatusRejected, StatusAuctioned, StatusAuctionedBalanceDue:
 		return nil, ErrLoanTerminalState
 	}
 	existing, err := s.ornamentRepo.FindByLoanID(ctx, l.ID)
@@ -1239,7 +1284,7 @@ func (s *Service) UpdateLoan(ctx context.Context, loanID uint, in UpdateLoanInpu
 		return nil, ErrNotFound
 	}
 	switch l.Status {
-	case StatusClosed, StatusAuctioned, StatusAuctionedBalanceDue:
+	case StatusClosed, StatusRejected, StatusAuctioned, StatusAuctionedBalanceDue:
 		return nil, ErrLoanTerminalState
 	}
 
@@ -1749,7 +1794,12 @@ func (s *Service) Approve(ctx context.Context, loanID uint, in ApprovalInput) (*
 	var nextStageLabel string
 	if rejected {
 		l.ApprovalStage = ApprovalStageRejected
-		l.Status = StatusClosed
+		l.Status = StatusRejected
+		now := time.Now()
+		l.RejectedAt = &now
+		l.RejectedByEmployeeID = &in.ActorEmployeeID
+		l.RejectedByName = s.employeeName(ctx, in.ActorEmployeeID)
+		l.RejectionRemarks = in.Remarks
 	} else {
 		switch stage {
 		case SanctionStageLoanOperator:
@@ -1832,6 +1882,17 @@ func (s *Service) Approve(ctx context.Context, loanID uint, in ApprovalInput) (*
 	}
 
 	return s.Get(ctx, l.ID, nil)
+}
+
+// employeeName looks up an employee's display name for denormalized audit
+// fields like Loan.RejectedByName. Best-effort: a failed lookup returns ""
+// rather than failing the decision it is only describing.
+func (s *Service) employeeName(ctx context.Context, employeeID uint) string {
+	var name string
+	if err := s.db.WithContext(ctx).Table("employees").Select("name").Where("id = ?", employeeID).Limit(1).Scan(&name).Error; err != nil {
+		log.Printf("employee name lookup failed for employee %d: %v", employeeID, err)
+	}
+	return name
 }
 
 // GetInterestCollected sums the interest + penal-interest portions of
@@ -3600,6 +3661,18 @@ func (s *Service) CreateReleaseRequest(ctx context.Context, loanID uint, in Rele
 		requestedBy = RequestedByStaff
 	}
 
+	// One pending release per loan: a second request (a double tap, or the
+	// customer and staff apps at once) would ask for the same gold twice.
+	pending, _, err := s.requestRepo.FindAll(ctx, LoanRequestFilter{LoanID: loanID, Status: RequestStatusPending})
+	if err != nil {
+		return nil, err
+	}
+	for _, r := range pending {
+		if r.Type == RequestTypeRelease {
+			return nil, ErrReleaseAlreadyPending
+		}
+	}
+
 	active := make([]Ornament, 0, len(l.Ornaments))
 	for _, o := range l.Ornaments {
 		if o.ReleasedAt == nil {
@@ -3705,11 +3778,11 @@ func (s *Service) DecideRequest(ctx context.Context, requestID uint, branchID *u
 }
 
 // isLoanTerminal reports whether a loan has already reached a state with
-// nothing left to extend or release — Closed, Auctioned, or Defaulted.
+// nothing left to extend or release — Closed, Rejected, Auctioned, or Defaulted.
 // Everything else (Overdue, Due Soon, Closure Requested, ...) is left to
 // staff judgment, per the extension business rules.
 func isLoanTerminal(status string) bool {
-	return status == StatusClosed || status == StatusAuctioned || status == StatusDefaulted
+	return status == StatusClosed || status == StatusRejected || status == StatusAuctioned || status == StatusDefaulted
 }
 
 // ChecklistInput mirrors the body of PUT /loans/requests/:requestId/verify.
@@ -4024,10 +4097,14 @@ func (s *Service) ApproveReleaseRequest(ctx context.Context, requestID uint, bra
 	if in.Action == ApprovalStageRejected && req.Locked {
 		return nil, ErrRequestLocked
 	}
-	if !req.CustomerSawGold {
+	// The checklist gates APPROVAL only. Rejecting is exactly what staff do
+	// when the customer never came to see the gold or never paid, so
+	// demanding a ticked checklist and a recorded payment first made a
+	// rejection impossible in the very case it exists for.
+	if in.Action == ApprovalStageApproved && !req.CustomerSawGold {
 		return nil, ErrChecklistIncomplete
 	}
-	if !req.PaymentRecorded {
+	if in.Action == ApprovalStageApproved && !req.PaymentRecorded {
 		// PaymentRecorded is ordinarily set by RecordReleaseRequestPayment,
 		// tying a specific settlement figure to this request for the audit
 		// trail. But a loan can also already satisfy the release's own
@@ -4857,7 +4934,10 @@ func (s *Service) GetCustomer360(ctx context.Context, customerID uint, from, to 
 // Reuses the existing List/FindAll path (with enrichment and accrual
 // projection) rather than a bespoke query, since a customer's loan list is
 // already exactly what LoanFilter{CustomerID: ...} produces.
-func (s *Service) ListLoansForCustomer(ctx context.Context, customerID uint, from, to *time.Time, limit, offset int) ([]Loan, int64, error) {
+//
+// search, when non-empty, matches the loan number (LoanFilter.Query also
+// matches the customer's own name/code, which is constant here).
+func (s *Service) ListLoansForCustomer(ctx context.Context, customerID uint, from, to *time.Time, search string, limit, offset int) ([]Loan, int64, error) {
 	// The customer is resolved first, exactly as the four sibling sub-table
 	// methods below do. This was the one of the five that omitted it, so it
 	// answered 200 with an empty list for a customer belonging to another
@@ -4867,48 +4947,48 @@ func (s *Service) ListLoansForCustomer(ctx context.Context, customerID uint, fro
 	if _, err := s.customerRepo.FindByID(ctx, customerID); err != nil {
 		return nil, 0, ErrCustomerInvalid
 	}
-	return s.List(ctx, LoanFilter{CustomerID: customerID, OpenedFrom: from, OpenedTo: to, Limit: limit, Offset: offset})
+	return s.List(ctx, LoanFilter{CustomerID: customerID, OpenedFrom: from, OpenedTo: to, Query: search, Limit: limit, Offset: offset})
 }
 
 // ListOrnamentsForCustomer paginates every ornament pledged across every
 // loan belonging to customerID — backs GET /customers/:id/ornaments, the
 // Customer 360 view's Pledged Ornaments sub-table.
-func (s *Service) ListOrnamentsForCustomer(ctx context.Context, customerID uint, from, to *time.Time, limit, offset int) ([]CustomerOrnamentRow, int64, error) {
+func (s *Service) ListOrnamentsForCustomer(ctx context.Context, customerID uint, from, to *time.Time, search string, limit, offset int) ([]CustomerOrnamentRow, int64, error) {
 	if _, err := s.customerRepo.FindByID(ctx, customerID); err != nil {
 		return nil, 0, ErrCustomerInvalid
 	}
-	return s.ornamentRepo.FindByCustomerID(ctx, customerID, from, to, limit, offset)
+	return s.ornamentRepo.FindByCustomerID(ctx, customerID, from, to, search, limit, offset)
 }
 
 // ListPaymentsForCustomer paginates every payment across every loan
 // belonging to customerID — backs GET /customers/:id/payments, the
 // Customer 360 view's Payment History sub-table.
-func (s *Service) ListPaymentsForCustomer(ctx context.Context, customerID uint, from, to *time.Time, limit, offset int) ([]CustomerPaymentRow, int64, error) {
+func (s *Service) ListPaymentsForCustomer(ctx context.Context, customerID uint, from, to *time.Time, search string, limit, offset int) ([]CustomerPaymentRow, int64, error) {
 	if _, err := s.customerRepo.FindByID(ctx, customerID); err != nil {
 		return nil, 0, ErrCustomerInvalid
 	}
-	return s.paymentRepo.FindByCustomerIDForProfile(ctx, customerID, from, to, limit, offset)
+	return s.paymentRepo.FindByCustomerIDForProfile(ctx, customerID, from, to, search, limit, offset)
 }
 
 // ListBankPledgesForCustomer paginates every re-pledge record across every
 // loan belonging to customerID — backs GET /customers/:id/bank-pledges, the
 // Customer 360 view's Bank Pledges sub-table.
-func (s *Service) ListBankPledgesForCustomer(ctx context.Context, customerID uint, from, to *time.Time, limit, offset int) ([]CustomerBankPledgeRow, int64, error) {
+func (s *Service) ListBankPledgesForCustomer(ctx context.Context, customerID uint, from, to *time.Time, search string, limit, offset int) ([]CustomerBankPledgeRow, int64, error) {
 	if _, err := s.customerRepo.FindByID(ctx, customerID); err != nil {
 		return nil, 0, ErrCustomerInvalid
 	}
-	return s.pledgeRepo.FindAllByCustomerID(ctx, customerID, from, to, limit, offset)
+	return s.pledgeRepo.FindAllByCustomerID(ctx, customerID, from, to, search, limit, offset)
 }
 
 // ListAuctionHistoryForCustomer paginates every auction case ever opened
 // across every loan belonging to customerID — backs
 // GET /customers/:id/auction-history, the Customer 360 view's Auction
 // History sub-table.
-func (s *Service) ListAuctionHistoryForCustomer(ctx context.Context, customerID uint, from, to *time.Time, limit, offset int) ([]CustomerAuctionRow, int64, error) {
+func (s *Service) ListAuctionHistoryForCustomer(ctx context.Context, customerID uint, from, to *time.Time, search string, limit, offset int) ([]CustomerAuctionRow, int64, error) {
 	if _, err := s.customerRepo.FindByID(ctx, customerID); err != nil {
 		return nil, 0, ErrCustomerInvalid
 	}
-	return s.auctionRepo.FindAllByCustomerID(ctx, customerID, from, to, limit, offset)
+	return s.auctionRepo.FindAllByCustomerID(ctx, customerID, from, to, search, limit, offset)
 }
 
 // --- Indemnity bond Aadhaar eSign (Setu) ------------------------------------

@@ -62,6 +62,14 @@ func (h *Handler) List(c *gin.Context) {
 	if v := c.Query("active"); v == "true" {
 		f.ActiveOnly = true
 	}
+	switch s := strings.ToLower(strings.TrimSpace(c.Query("status"))); s {
+	case "":
+	case StatusActive, StatusFull, StatusInactive:
+		f.Status = s
+	default:
+		httpx.Fail(c, http.StatusBadRequest, "invalid status: expected active, full or inactive")
+		return
+	}
 
 	limit, _ := strconv.Atoi(c.Query("limit"))
 	if limit > 0 {
@@ -86,7 +94,9 @@ func (h *Handler) List(c *gin.Context) {
 		httpx.Success(c, http.StatusOK, gin.H{"items": rec, "hasMore": hasMore, "total": total})
 		return
 	}
-	rec, err := h.svc.List(ctx, platform.GetBranchScope(c))
+	// Unpaginated path honours the same q/active/status/branchId filters as
+	// the paginated one (with none of them set it is exactly Service.List).
+	rec, _, err := h.svc.Find(ctx, f)
 	if err != nil {
 		httpx.FailErr(c, err)
 		return

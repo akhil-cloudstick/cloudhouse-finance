@@ -1,12 +1,10 @@
-// Single place to change the backend base URL. Per the plan's "online-only,
-// no offline mode" decision, the app always talks to this URL live — there's
-// no local proxy layer like the web app's single-port dev workflow, since a
-// device/emulator can't reach the Go binary via a Next.js proxy the way the
-// browser does. Point this at your machine's LAN IP (not localhost — the
-// Android emulator/device is a separate host) while developing, e.g.
-// "http://192.168.1.23:8080/api/v1".
-export const API_BASE_URL =
-  process.env.EXPO_PUBLIC_API_BASE_URL ?? "http://10.0.2.2:8080/api/v1";
+// The backend. Per the plan's "online-only, no offline mode" decision, the
+// app always talks to this server live: golddemo.cloudhousesupport.site.
+// EXPO_PUBLIC_API_BASE_URL (.env.local for `expo start`, eas.json's `base`
+// profile for EAS builds) is set to this same address everywhere; it exists
+// only so a different environment could be pointed elsewhere on purpose.
+export const BACKEND_URL = "https://golddemo.cloudhousesupport.site/api/v1";
+export const API_BASE_URL = process.env.EXPO_PUBLIC_API_BASE_URL || BACKEND_URL;
 
 // The server root, i.e. API_BASE_URL without its "/api/v1" suffix. Uploaded
 // files come back as server-root-relative paths ("/uploads/<id>-<name>",
@@ -14,6 +12,3 @@ export const API_BASE_URL =
 // mounted outside the API group — so displaying one means joining it to the
 // ORIGIN, not to API_BASE_URL, which would produce "/api/v1/uploads/...".
 export const API_ORIGIN = API_BASE_URL.replace(/\/api\/v\d+\/?$/, "");
-// 10.0.2.2 is the Android emulator's alias for the host machine's localhost —
-// works out of the box in the emulator; a physical device needs the LAN IP
-// above instead (set EXPO_PUBLIC_API_BASE_URL in .env.local or eas.json).

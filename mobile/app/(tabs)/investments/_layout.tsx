@@ -1,26 +1,21 @@
 import { Stack } from "expo-router";
-import { FloatingHeader } from "../../../src/components/FloatingHeader";
 import { colors } from "../../../src/theme/colors";
 
-// Same "anchor: index" reasoning as personal-loans/_layout.tsx: a deep link
-// straight to an investment's detail screen must still leave a list
-// underneath it to swipe/back into.
-export const unstable_settings = { anchor: "index" };
-
-export default function InvestmentsLayout() {
+// Screens own their headers (FlatHeader inside <Screen>, see
+// src/components/ui/Shell.tsx), so this stack never draws one. No anchor:
+// a detail opened from another page (openPage) lands on its own, with Back
+// returning to that page instead of this module's list.
+export default function ModuleLayout() {
   return (
     <Stack
-      screenOptions={{
-        header: ({ options, route, navigation }) => (
-          <FloatingHeader title={options.title ?? route.name} navigation={navigation} />
-        ),
+      screenOptions={({ route }) => ({
+        headerShown: false,
         contentStyle: { backgroundColor: colors.bg },
-      }}
-    >
-      <Stack.Screen name="index" options={{ title: "Investments" }} />
-      <Stack.Screen name="new" options={{ title: "New Investment" }} />
-      <Stack.Screen name="plans" options={{ title: "Manage Plans" }} />
-      <Stack.Screen name="[id]" options={{ title: "Investment" }} />
-    </Stack>
+        // Native slide (list -> detail) instead of the default fade; a page
+        // opened straight from elsewhere (openPage marks it `direct`) just
+        // appears, so the list is never seen sliding away under it.
+        animation: (route.params as { direct?: string } | undefined)?.direct ? "none" : "ios_from_right",
+      })}
+    />
   );
 }

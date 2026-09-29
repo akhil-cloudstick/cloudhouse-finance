@@ -21,6 +21,7 @@ var loanNoLongerMovableStatuses = map[string]bool{
 	loan.StatusAuctioned:           true,
 	loan.StatusAuctionedBalanceDue: true,
 	loan.StatusClosed:              true,
+	loan.StatusRejected:            true,
 }
 
 // Handler wires HTTP requests to the Service.

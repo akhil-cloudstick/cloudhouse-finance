@@ -1,12 +1,9 @@
-// Mobile port of frontend/common/utils/print.ts + frontend/modules/loans/
-// utils/indemnityBond.ts's document bodies. The web versions open a new
-// browser tab and drive window.print() — there's no such thing on mobile,
-// so this wraps the same HTML/CSS in Print.printAsync, which raises the
-// OS's own print/share sheet directly. Unlike the web versions (which fetch
-// the customer separately via getCustomer), everything needed is already on
-// the `Loan` the caller has in hand — the backend embeds the full customer/
-// scheme/branch rows on every loan response; src/types/loan.ts just didn't
-// declare them until now.
+// Mobile port of frontend/common/utils/print.ts's slip/statement/label
+// bodies. The web versions open a new browser tab and drive window.print()
+// — there's no such thing on mobile, so this wraps the same HTML/CSS in
+// Print.printAsync, which raises the OS's own print/share sheet directly.
+// The pledge and release agreements are NOT built here: they come from the
+// backend's per-language templates (see printServerPdf below).
 import * as Print from "expo-print";
 import * as FileSystem from "expo-file-system/legacy";
 import { fmt } from "../lib/format";
@@ -15,12 +12,17 @@ import { Loan } from "../types/loan";
 import { listPackets } from "../api/packets";
 import { API_BASE_URL, API_ORIGIN } from "../api/config";
 import { getToken } from "../auth/tokenStorage";
-import { BRAND, BRAND_PHONES, PRINT_COLORS as C } from "../config/brand";
+import { ApiError } from "../api/client";
+import { BRAND, printBrand, printColors } from "../config/brand";
 
 // Same CSS as openPrintWindow (frontend/common/utils/print.ts) — kept
 // byte-for-byte so a printed slip/statement/bond looks the same whichever
 // app produced it.
-const DOC_STYLE = `
+// A function, not a constant: the colours are the signed-in business's own
+// (printColors), which are only known at runtime and can change.
+function docStyle(): string {
+  const C = printColors();
+  return `
   body{font-family:'Inter','Segoe UI',ui-sans-serif,system-ui,-apple-system,Helvetica,Arial,sans-serif;color:${C.ink};margin:40px auto;max-width:760px;line-height:1.55;font-size:14px;padding:0 20px}
   h1{font-size:20px;text-align:center;margin:0 0 2px;letter-spacing:1px}
   h2{font-size:15px;text-align:center;margin:0 0 18px;font-weight:normal;color:${C.muted}}
@@ -40,20 +42,32 @@ const DOC_STYLE = `
   .sig span{display:block;border-top:1px solid ${C.ink};padding-top:6px;margin-top:44px;font-size:12.5px}
   .muted{color:${C.muted};font-size:12.5px}
 `;
+}
 
-/** Mirrors brandHeader() in frontend/common/utils/print.ts. */
+// Business particulars come from the backend, so escape them before they go
+// into the HTML (a legal name like "… Financiers & Investments" is common).
+function esc(v: string): string {
+  return v.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+}
+
+/** Mirrors brandHeader() in frontend/common/utils/print.ts — the signed-in
+ * business's own particulars, falling back to the platform brand field by
+ * field (see printBrand). */
 function brandHeader(docTitle?: string): string {
+  const B = printBrand();
+  const meta = [B.kmlRegLabel, B.phones].filter(Boolean).map(esc).join(" &nbsp;·&nbsp; ");
   return `<header class="brandhead">
-    <div class="bh-name">${BRAND.legalName.toUpperCase()}</div>
-    <div class="bh-desc">${BRAND.descriptor}</div>
-    <div class="bh-meta">${BRAND.kmlRegLabel} &nbsp;·&nbsp; ${BRAND_PHONES}</div>
+    <div class="bh-name">${esc(B.legalName.toUpperCase())}</div>
+    <div class="bh-desc">${esc(BRAND.descriptor)}</div>
+    <div class="bh-meta">${meta}</div>${B.addressLine ? `
+    <div class="bh-meta">${esc(B.addressLine)}</div>` : ""}
     <div class="bh-rule"></div>
     ${docTitle ? `<h2>${docTitle}</h2>` : ""}
   </header>`;
 }
 
 async function printDoc(title: string, body: string) {
-  const html = `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>${title}</title><style>${DOC_STYLE}</style></head><body>${body}</body></html>`;
+  const html = `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>${title}</title><style>${docStyle()}</style></head><body>${body}</body></html>`;
   await Print.printAsync({ html });
 }
 
@@ -64,10 +78,13 @@ function fmtDate(d?: string | null) {
 // Ported from frontend/modules/loans/components/LoanDetail.tsx's
 // printPledgeSlip.
 export async function printPledgeSlip(l: Loan) {
+  await printDoc(`Pledge Slip — ${l.loanNumber}`, pledgeSlipBody(l));
+}
+
+function pledgeSlipBody(l: Loan): string {
   const c = l.customer;
   const ornaments = l.ornaments ?? [];
-  await printDoc(
-    `Pledge Slip — ${l.loanNumber}`,
+  return (
     `${brandHeader("Gold Loan Pledge Slip")}
     <table>
       <tr><th style="width:110px">Loan No</th><td>${l.loanNumber}</td><th style="width:110px">Date</th><td>${fmtDate(new Date().toISOString())}</td></tr>
@@ -92,6 +109,25 @@ export async function printPledgeSlip(l: Loan) {
     <p><b>Principal disbursed: ${fmt(l.principalAmount)}</b> <span class="muted">(eligible amount at pledge time: ${fmt(l.eligibleLoanAmount ?? 0)})</span></p>
     <div class="sig"><div><span>Customer Signature</span></div><div><span>Cashier</span></div><div><span>Branch Manager</span></div></div>`
   );
+}
+
+/** Packet label and pledge slip on ONE A4 page: the label at its real size in
+ * a dashed cut-out box at the top, the full slip below — a single print job. */
+export async function printLabelAndSlipOnePage(l: Loan) {
+  const C = printColors();
+  const label = await packetLabelParts(l);
+  const html = `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Label &amp; Slip — ${l.loanNumber}</title><style>
+    @page{size:A4;margin:12mm}
+    ${docStyle()}
+    body{margin:0 auto}
+    ${label.css}
+    .cutout{display:flex;align-items:center;gap:4mm;margin-bottom:8mm}
+    .cutout .hint{font-size:11px;color:${C.muted}}
+  </style></head><body>
+    <div class="cutout">${label.html}<div class="hint">✂ Cut along the dashed line and attach to the packet</div></div>
+    ${pledgeSlipBody(l)}
+  </body></html>`;
+  await Print.printAsync({ html });
 }
 
 // Ported from frontend/modules/loans/components/LoanDetail.tsx's
@@ -154,193 +190,55 @@ export async function printStatement(l: Loan) {
   );
 }
 
-// Ported from frontend/modules/loans/utils/indemnityBond.ts's "en" branch
-// — the English translation of the branch's own actual reference
-// Malayalam pledge letter (a short promissory-pledge letter + built-in
-// release acknowledgment), not the old formal "MEMORANDUM OF AGREEMENT...
-// BETWEEN" numbered-clause deed this used to be. English only here (this
-// app has no bond-language picker — the Malayalam version lives in the
-// web/backend print flows only). Same establishment identity as backend/
-// internal/loan/indemnitybond.go's lenderName/lenderAddressShort/
-// lenderKMLRegNo — MLL No. 32080354468, registered as "Chittilapilly
-// Thommana Financiers and Investments".
-const LENDER_NAME = "Chittilapilly Thommana Financiers and Investments";
-const LENDER_ADDRESS_SHORT = "XXI/118-BLOCK JUNCTION, VELLANGALLUR, 680662";
-const LENDER_KML_REG_NO = "32080354468";
-const MONTHS_ABBR = ["JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"];
+// --- Server-rendered agreements -------------------------------------------
+// The pledge agreement (indemnity bond) and release agreement are rendered
+// by the backend from its own per-language templates (backend/internal/loan/
+// indemnitybond.go, releaseagreement.go) — same PDFs the web downloads.
+// Languages each endpoint accepts (?lang=); anything else is a 400.
+export type DocLang = "en" | "ml" | "gu";
+export const DOC_LANG_LABELS: Record<DocLang, string> = { en: "English", ml: "Malayalam", gu: "Gujarati" };
+export const PLEDGE_AGREEMENT_LANGS: DocLang[] = ["en", "ml", "gu"];
+export const RELEASE_AGREEMENT_LANGS: DocLang[] = ["en", "ml"];
 
-function fmtINR(n?: number) {
-  return n != null ? n.toLocaleString("en-IN") : "";
+// Downloads an authenticated PDF into the cache dir and opens the OS print
+// preview. A failed download leaves the JSON error envelope in the target
+// file, so its message is surfaced as an ApiError.
+async function printServerPdf(path: string, filename: string): Promise<void> {
+  const token = await getToken();
+  const targetUri = `${FileSystem.cacheDirectory}${filename.replace(/[^\w.-]+/g, "-")}`;
+  const result = await FileSystem.downloadAsync(`${API_BASE_URL}${path}`, targetUri, {
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  });
+  if (result.status < 200 || result.status >= 300) {
+    let message = "";
+    let body: unknown = null;
+    try {
+      body = JSON.parse(await FileSystem.readAsStringAsync(result.uri));
+      const b = body as { error?: string; message?: string };
+      if (typeof (b.error || b.message) === "string") message = (b.error || b.message) as string;
+    } catch {
+      // not JSON — keep the generic message
+    }
+    FileSystem.deleteAsync(result.uri, { idempotent: true }).catch(() => undefined);
+    throw new ApiError(result.status, message, body);
+  }
+  await Print.printAsync({ uri: result.uri });
 }
 
-export async function printIndemnityBond(l: Loan) {
-  const c = l.customer;
-  const now = new Date();
-  const dd = String(now.getDate()).padStart(2, "0");
-  const yyyy = now.getFullYear();
-  const dateDisplay = `${dd} ${MONTHS_ABBR[now.getMonth()]} ${yyyy}`;
-  const B = "________________";
-  const name = c?.name || B;
-  const loanNumber = l.loanNumber;
-  const principal = l.principalAmount;
-  const ornaments = l.ornaments ?? [];
-  const itemNames = ornaments.length ? ornaments.map((o) => o.name).join(", ") : B;
-  const itemWeights = ornaments.length ? ornaments.map((o) => `${o.netWeight.toFixed(2)} GM`).join(", ") : B;
-  const amountWords = principal != null ? rupeesInWords(principal).replace(/^Rupees /, "").replace(/ Only$/i, "") : "";
-
-  await printDoc(
-    `${LENDER_NAME} — ${loanNumber}`,
-    `<style>
-      @page{size:A4;margin:20mm 15mm}
-      .hd-table{border:none;margin-bottom:10px}
-      .hd-table td{border:none;padding:2px 0;vertical-align:top}
-    </style>
-    <h1>${LENDER_NAME}</h1>
-    <h2>${LENDER_ADDRESS_SHORT}<br>KML Reg No: ${LENDER_KML_REG_NO}</h2>
-
-    <table class="hd-table">
-      <tr>
-        <td style="width:50%">ITEM NAME: ${itemNames}<br>ITEM Weight: ${itemWeights}</td>
-        <td>Loan No. ${loanNumber}<br>Date: ${dateDisplay}</td>
-      </tr>
-    </table>
-
-    <p>CUSTOMER NAME: ${name}<br>CUSTOMER MOB NO: ${c?.phone || B}</p>
-    <p>AMOUNT: ${fmtINR(principal) || B}</p>
-
-    <p>
-    I, <b>${name}</b>, declare that the gold ornaments shown above are my own property and no one else has any claim to them. I have pledged these ornaments with your establishment, <b>${LENDER_NAME}</b>, and hereby humbly request that a loan of Rs. <b>${fmtINR(principal) || B}</b> ( ${amountWords || B} only ), equal to the appraised value of the ornaments, be granted to me at monthly interest.
-    </p>
-    <p>Name: ${name}<br>Signature: ${B}</p>
-
-    <h3 style="text-align:center;margin-top:30px">DECLARATION</h3>
-
-    <p>
-    I, <b>${name}</b>, undertake to pay the interest on the loan of Rs. <b>${fmtINR(principal) || B}</b> availed by me every month without fail, and assure that I will close the loan by repaying the full amount along with interest within one year. If for any reason I am unable to repay the borrowed money with interest, I hereby agree that the owner of <b>${LENDER_NAME}</b> shall have the right to auction or sell these ornaments to recover any loss incurred by the establishment, and that I will not raise any claim regarding this thereafter.
-    </p>
-
-    <p>Name: ${name}<br>Signature: ${B}</p>
-    <p style="margin-top:18px"><b>Loan Sanctioned.</b></p>
-    <p>Date: ${dateDisplay}</p>
-
-    <hr style="margin-top:40px;border:none;border-top:1px solid #999">
-    <p style="margin-top:24px"><b>Signature of the person who receives the jewellery back</b></p>
-    <p>Ornaments received back without any damage.</p>
-    <p>Date: ${B}<br>Name: ${name}<br>Signature: ${B}</p>`
-  );
+// GET /loans/:id/indemnity-bond/pdf?lang=en|ml|gu
+export function printPledgeAgreementPdf(loanId: number, loanNumber: string, lang: DocLang) {
+  return printServerPdf(`/loans/${loanId}/indemnity-bond/pdf?lang=${lang}`, `pledge-agreement-${lang}-${loanNumber}.pdf`);
 }
 
-// Ported from frontend/modules/loans/utils/releaseAgreement.ts — same
-// "Acknowledgment of Safe Receipt and Release of Pledged Gold" wording,
-// verbatim (Part A/B/C plus the Essential Rules footer). Reachable only
-// once a loan has actually closed (l.status === "Closed"), same as web's
-// Release Agreement document.
-const B = "________________";
-
-function fmtReleaseDate(iso?: string) {
-  if (!iso) return B;
-  const d = new Date(iso);
-  if (isNaN(d.getTime())) return B;
-  return `${String(d.getDate()).padStart(2, "0")}/${String(d.getMonth() + 1).padStart(2, "0")}/${d.getFullYear()}`;
+// GET /loans/:id/release-agreement/pdf?lang=en|ml — full release (FORM 7).
+export function printReleaseAgreementPdf(loanId: number, loanNumber: string, lang: DocLang) {
+  return printServerPdf(`/loans/${loanId}/release-agreement/pdf?lang=${lang}`, `release-agreement-${lang}-${loanNumber}.pdf`);
 }
 
-export type ReleaseAgreementOrnament = {
-  name: string;
-  purity?: string;
-  quantity: number;
-  grossWeight: number;
-  netWeight: number;
-};
-
-export type ReleaseAgreementParty = {
-  loanNumber: string;
-  branchName?: string;
-  branchCode?: string;
-  customerName?: string;
-  customerAddress?: string;
-  customerId?: string;
-  aadhaarLast4?: string;
-  pan?: string;
-  // Date the loan was actually repaid/settled — the release request's
-  // decidedAt, or today if there was no formal request.
-  closedOn?: string; // "YYYY-MM-DD"
-  ornaments?: ReleaseAgreementOrnament[];
-};
-
-export async function printReleaseAgreement(p: ReleaseAgreementParty) {
-  const today = new Date();
-  const deliveryDate = fmtReleaseDate(today.toISOString());
-  const closureDate = fmtReleaseDate(p.closedOn) || deliveryDate;
-  const ornaments = p.ornaments ?? [];
-
-  const totalQty = ornaments.reduce((s, o) => s + (o.quantity || 0), 0);
-  const totalGross = ornaments.reduce((s, o) => s + (o.grossWeight || 0) * (o.quantity || 1), 0);
-  const totalNet = ornaments.reduce((s, o) => s + (o.netWeight || 0) * (o.quantity || 1), 0);
-
-  const rows = ornaments.length
-    ? ornaments
-        .map(
-          (o, i) =>
-            `<tr><td>${i + 1}</td><td>${o.name}</td><td class="num">${o.quantity}</td>
-            <td class="num">${o.grossWeight.toFixed(2)}</td><td class="num">${o.netWeight.toFixed(2)}</td>
-            <td>${o.purity || "—"}</td><td>Sound / Intact</td></tr>`
-        )
-        .join("")
-    : `<tr><td colspan="7" style="text-align:center;color:#777">${B}</td></tr>`;
-
-  const customerIdLine =
-    [p.customerId, p.aadhaarLast4 ? `Aadhaar •••• ${p.aadhaarLast4}` : "", p.pan].filter(Boolean).join(" · ") || B;
-
-  const html = `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Release Agreement — ${p.loanNumber}</title><style>
-    ${DOC_STYLE}
-    @page{size:A4;margin:30mm 20mm 25mm 20mm}
-  </style></head><body>
-    <h1>ACKNOWLEDGMENT OF SAFE RECEIPT AND RELEASE OF PLEDGED GOLD</h1>
-    <p><b>Loan Account Number:</b> ${p.loanNumber}<br>
-    <b>Branch Name/Code:</b> ${p.branchName || B}${p.branchCode ? " / " + p.branchCode : ""}<br>
-    <b>Lender Name:</b> ${LENDER_NAME} (KML Reg No. ${LENDER_KML_REG_NO})<br>
-    <b>Borrower Name:</b> ${p.customerName || B}<br>
-    <b>Customer ID / Aadhaar / PAN:</b> ${customerIdLine}</p>
-
-    <h2 style="text-align:left;font-weight:bold;font-size:15px;margin-top:22px">PART A: LENDER DISCHARGE DECLARATION</h2>
-    <p class="muted">(To be filled by the NBFC)</p>
-    <p>We confirm that Loan Account No. <b>${p.loanNumber}</b> availed by Sri/Smt. <b>${p.customerName || B}</b> has been fully repaid and settled on <b>${closureDate}</b>. The pledged collateral detailed below has been unsealed and delivered to the borrower on <b>${deliveryDate}</b>.</p>
-
-    <p><b>Details of Released Collateral:</b></p>
-    <table>
-      <thead><tr><th>Item No.</th><th>Description of Ornaments</th><th class="num">Quantity</th><th class="num">Gross Wt. (g)</th><th class="num">Net Wt. (g)</th><th>Purity (K)</th><th>Condition</th></tr></thead>
-      <tbody>${rows}</tbody>
-      <tfoot><tr><td colspan="2"><b>Total</b></td><td class="num"><b>${totalQty}</b></td><td class="num"><b>${totalGross.toFixed(2)}</b></td><td class="num"><b>${totalNet.toFixed(2)}</b></td><td></td><td></td></tr></tfoot>
-    </table>
-
-    <h2 style="text-align:left;font-weight:bold;font-size:15px;margin-top:22px">PART B: BORROWER ACKNOWLEDGMENT</h2>
-    <p class="muted">(To be signed by the Borrower)</p>
-    <p>I, <b>${p.customerName || B}</b>, residing at <b>${p.customerAddress || B}</b>, hereby acknowledge and declare that:</p>
-    <ol>
-      <li>I have physically inspected and weighed all the gold items listed above in the presence of the branch official(s).</li>
-      <li>The returned ornaments match the exact item description, weight, and purity specified in my original Pledge Receipt / Valuation Certificate.</li>
-      <li>I have received all items intact and in satisfactory condition, with no damage, loss, or substitution.</li>
-      <li>By signing this document, I confirm full receipt of my pledged collateral and release the Lender from any further custodial liability for this loan account.</li>
-    </ol>
-    <p><b>Date:</b> ${deliveryDate} &nbsp;&nbsp; <b>Place:</b> ${p.branchName || B}</p>
-    <div class="sig">
-      <div><span>(Signature / Thumb Impression of Borrower)</span></div>
-    </div>
-
-    <h2 style="text-align:left;font-weight:bold;font-size:15px;margin-top:22px">PART C: AUTHORIZED SIGNATORY</h2>
-    <p>Delivered in the presence of:</p>
-    <div class="sig">
-      <div><span>Authorized Signatory / Branch Manager<br>(Seal &amp; Branch Stamp)</span></div>
-    </div>
-
-    <h2 style="text-align:left;font-weight:bold;font-size:14px;margin-top:26px">Essential Rules Before Signing</h2>
-    <ol>
-      <li><b>Inspect First, Sign Second:</b> Always weigh and examine the items on the branch scale before signing. Once signed, proving subsequent loss or alteration is legally difficult.</li>
-      <li><b>Cross-Reference:</b> Compare the net weight and item descriptions against your original pledge card or assay certificate.</li>
-      <li><b>No Blanket Signatures:</b> Never sign a blank or partially pre-filled receipt form.</li>
-    </ol>
-  </body></html>`;
-  await Print.printAsync({ html });
+// GET /loans/requests/:requestId/partial-release-receipt/pdf — the partial
+// release counterpart; the backend renders it in English only.
+export function printPartialReleaseReceiptPdf(requestId: number) {
+  return printServerPdf(`/loans/requests/${requestId}/partial-release-receipt/pdf`, `partial-release-receipt-${requestId}.pdf`);
 }
 
 // Fetches a QR PNG from the backend's internal/qr package (no QR-generation
@@ -378,34 +276,45 @@ async function fetchQrDataUri(data: string, size = 256): Promise<string> {
 // QR would open (API_ORIGIN — the Go binary serves both the API and the
 // built frontend from one origin, see backend/internal/platform/config.go).
 export async function printPacketLabel(l: Loan) {
+  const label = await packetLabelParts(l);
+  const html = `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Packet Label — ${l.loanNumber}</title><style>
+    @page{size:81mm 12mm;margin:0}
+    body{margin:0;font-family:Arial,Helvetica,sans-serif;-webkit-print-color-adjust:exact}
+    ${label.css}
+  </style></head><body>
+    ${label.html}
+  </body></html>`;
+  await Print.printAsync({ html });
+}
+
+// The label's CSS and markup, shared by the label-stock print and the
+// one-page Label & Slip print.
+async function packetLabelParts(l: Loan): Promise<{ css: string; html: string }> {
+  const C = printColors();
   const packets = await listPackets({ loanId: l.id }).catch(() => []);
   const packet = packets[0];
   const packetLabel = packet?.code || `PKT-${l.id}`;
   const url = packet ? `${API_ORIGIN}/app#packet/${packet.code}` : `${API_ORIGIN}/app#loan/${l.loanNumber}`;
   const qr = await fetchQrDataUri(url, 256);
-
-  const html = `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Packet Label — ${l.loanNumber}</title><style>
-    @page{size:81mm 12mm;margin:0}
-    body{margin:0;font-family:Arial,Helvetica,sans-serif;-webkit-print-color-adjust:exact}
+  const css = `
     .label{width:50mm;height:30mm;box-sizing:border-box;padding:1.6mm;display:flex;align-items:center;gap:1.8mm;
-      border:0.3mm dashed #aaa;overflow:hidden;page-break-inside:avoid}
+      border:0.3mm dashed #aaa;overflow:hidden;page-break-inside:avoid;font-family:Arial,Helvetica,sans-serif;-webkit-print-color-adjust:exact;flex:none}
     .label img{width:25mm;height:25mm;flex:none}
-    .t{font-size:2.5mm;line-height:1.45;min-width:0}
-    .t .brand{font-size:2mm;letter-spacing:0.3mm;color:${C.brand}}
-    .t .id{font-size:3.4mm;font-weight:bold}
-    .t div{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-  </style></head><body>
+    .label .t{font-size:2.5mm;line-height:1.45;min-width:0}
+    .label .t .brand{font-size:2mm;letter-spacing:0.3mm;color:${C.brand}}
+    .label .t .id{font-size:3.4mm;font-weight:bold}
+    .label .t div{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}`;
+  const html = `
     <div class="label">
       <img src="${qr}" alt="QR">
       <div class="t">
-        <div class="brand">${BRAND.name.toUpperCase()}</div>
+        <div class="brand">${esc(printBrand().name.toUpperCase())}</div>
         <div class="id">${l.loanNumber} · ${packetLabel}</div>
         <div>${l.customer?.name || "—"}</div>
         <div>${l.customer?.code || l.customer?.id || "—"} · ${l.customer?.phone || ""}</div>
         <div>${new Date().toLocaleDateString("en-IN")} · ${(l.totalNetWeight ?? 0).toFixed(1)} g · ${(l.ornaments ?? []).length} item(s)</div>
       </div>
       <div class="strap"></div>
-    </div>
-  </body></html>`;
-  await Print.printAsync({ html });
+    </div>`;
+  return { css, html };
 }

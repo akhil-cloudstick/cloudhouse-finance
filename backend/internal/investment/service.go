@@ -274,8 +274,8 @@ func (s *Service) UpdatePlan(ctx context.Context, id uint, in PlanInput) (*Inves
 	return rec, nil
 }
 
-func (s *Service) ListPlans(ctx context.Context, activeOnly bool) ([]InvestmentPlan, error) {
-	return s.repo.FindAllPlans(ctx, activeOnly)
+func (s *Service) ListPlans(ctx context.Context, activeOnly bool, search string, limit, offset int) ([]InvestmentPlan, int64, error) {
+	return s.repo.FindAllPlans(ctx, activeOnly, search, limit, offset)
 }
 
 func (s *Service) GetPlan(ctx context.Context, id uint) (*InvestmentPlan, error) {

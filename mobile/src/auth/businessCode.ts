@@ -37,9 +37,28 @@ export async function saveBusinessCode(code: string): Promise<void> {
   await SecureStore.setItemAsync(BUSINESS_CODE_KEY, normalized);
 }
 
-export async function getBusinessCode(): Promise<string> {
+/* The login screen hides the business code field, so the business this build
+ * belongs to comes from EXPO_PUBLIC_DEFAULT_BUSINESS_CODE in .env.local or
+ * eas.json. When it is set it is AUTHORITATIVE: it wins over whatever code
+ * this device remembered from an earlier sign-in, otherwise a device that
+ * once signed in to another business would stay stuck on it (and on its
+ * branding) forever, with no visible field to change it. The remembered code
+ * is only used when no code is configured. */
+const DEFAULT_BUSINESS_CODE = normalizeBusinessCode(process.env.EXPO_PUBLIC_DEFAULT_BUSINESS_CODE ?? "");
+
+/** The build's configured business code, or "" when none is configured. */
+export function configuredBusinessCode(): string {
+  return isValidBusinessCode(DEFAULT_BUSINESS_CODE) ? DEFAULT_BUSINESS_CODE : "";
+}
+
+/** The code remembered from this device's last successful sign-in, if any. */
+export async function getStoredBusinessCode(): Promise<string> {
   const stored = await SecureStore.getItemAsync(BUSINESS_CODE_KEY);
   return stored && isValidBusinessCode(stored) ? stored : "";
+}
+
+export async function getBusinessCode(): Promise<string> {
+  return configuredBusinessCode() || (await getStoredBusinessCode());
 }
 
 export async function clearBusinessCode(): Promise<void> {

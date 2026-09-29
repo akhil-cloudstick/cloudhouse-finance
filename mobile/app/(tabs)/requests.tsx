@@ -1,236 +1,260 @@
-import React, { useState } from "react";
-import { RefreshControl, View, ScrollView } from "react-native";
-import { useInfiniteQuery, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ScreenContainer } from "../../src/components/ScreenContainer";
-import { ThemedText } from "../../src/components/ThemedText";
-import { BottomSheetModal } from "../../src/components/BottomSheetModal";
-import { FilterSheetButton } from "../../src/components/FilterSheetButton";
-import { colors, statusColors } from "../../src/theme/colors";
+import React, { useEffect, useState } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useLocalSearchParams, useRouter } from "expo-router";
+import {
+  AccRow,
+  Buffering,
+  C,
+  Field,
+  FilterChipRow,
+  FiltersBar,
+  FlatHeader,
+  PrimaryButton,
+  Screen,
+  SearchInput,
+  ServerFlatList,
+  Sheet,
+  SheetListItem,
+  Txt,
+} from "../../src/components/ui";
+import { useServerList } from "../../src/hooks/useServerList";
 import { listLoanRequestsPage, getLoan } from "../../src/api/loans";
-import { getCustomer } from "../../src/api/customers";
-import { printReleaseAgreement } from "../../src/utils/loanPrint";
-import { LoanRequest } from "../../src/types/loan";
-import { useRefetchOnFocus } from "../../src/hooks/useRefetchOnFocus";
-import { ExpandableTable, defaultVisibleCount, type TableColumn } from "../../src/components/ExpandableTable";
+import {
+  printReleaseAgreementPdf,
+  printPartialReleaseReceiptPdf,
+  RELEASE_AGREEMENT_LANGS,
+  DOC_LANG_LABELS,
+  type DocLang,
+} from "../../src/utils/loanPrint";
+import { ApiError } from "../../src/api/client";
+import { dmy } from "../../src/lib/format";
+import type { LoanRequest } from "../../src/types/loan";
+import { useResetOnBlur } from "../../src/hooks/useRefetchOnFocus";
 import { ExtensionReviewPanel } from "../../src/components/loanRequests/ExtensionReviewPanel";
 import { ReleaseReviewPanel } from "../../src/components/loanRequests/ReleaseReviewPanel";
 import { useAuth } from "../../src/auth/AuthContext";
-import { GoldButton } from "../../src/components/GoldButton";
 
-const PAGE_SIZE = 10;
+// Requests (loan extensions & gold release) — prototype #header-requests +
+// #page-requests + #request-filter-modal. Every request across every loan,
+// searched (`q`) and filtered (`status`, `type`) server-side; "Review
+// Request" raises the same review panels the loan detail screen uses.
 
-// "All" sends no status param at all — mirrors frontend/modules/loans/
-// components/Requests.tsx's STATUS_OPTIONS.
-const STATUS_FILTERS = ["All", "Pending", "Approved", "Rejected"] as const;
+const STATUSES = ["All", "Pending", "Approved", "Rejected"] as const;
+type Status = (typeof STATUSES)[number];
+const TYPES = ["All", "Extension", "Release"] as const;
+type ReqType = (typeof TYPES)[number];
+type Filters = { status?: string; type?: string };
 
-function toneForStatus(status: string): "green" | "red" | "amber" | "blue" | "muted" {
-  if (status === "Approved") return "green";
-  if (status === "Rejected") return "red";
-  if (status === "Pending") return "amber";
-  return "muted";
-}
-
-function StatusPill({ status }: { status: string }) {
-  const tone = statusColors(toneForStatus(status));
-  return (
-    <ThemedText
-      variant="label"
-      numberOfLines={1}
-      style={{ backgroundColor: tone.bg, color: tone.fg, paddingHorizontal: 7, paddingVertical: 2, borderRadius: 6, alignSelf: "flex-start", fontSize: 11.5 }}
-    >
-      {status}
-    </ThemedText>
-  );
-}
-
-function TypePill({ type }: { type: "Extension" | "Release" }) {
-  const tone = statusColors(type === "Extension" ? "blue" : "amber");
-  return (
-    <ThemedText
-      variant="label"
-      numberOfLines={1}
-      style={{ backgroundColor: tone.bg, color: tone.fg, paddingHorizontal: 7, paddingVertical: 2, borderRadius: 6, alignSelf: "flex-start", fontSize: 11.5 }}
-    >
-      {type}
-    </ThemedText>
-  );
-}
-
-// 7 fields total (id, type, loan, customer, detail, date, status) — over
-// defaultVisibleCount's 6-field threshold, so this collapses to 3 visible
-// columns same as the Loans list, with the rest folded into the expand strip.
-const REQUEST_COLUMNS: TableColumn<LoanRequest>[] = [
-  { key: "id", label: "Request", render: (r) => `#${r.id}`, weight: 0.7 },
-  { key: "type", label: "Type", render: (r) => <TypePill type={r.type} />, weight: 0.9 },
-  { key: "loan", label: "Loan", render: (r) => r.loan?.loanNumber ?? `#${r.loanId}`, weight: 1 },
-  { key: "customer", label: "Customer", render: (r) => r.loan?.customer?.name ?? "—", weight: 1.2 },
-  { key: "status", label: "Status", render: (r) => <StatusPill status={r.status} /> },
-];
-const REQUEST_VISIBLE_COUNT = defaultVisibleCount(REQUEST_COLUMNS.length + 2);
-
-function requestExtraFields(
-  r: LoanRequest,
-  onDownload: (r: LoanRequest) => void,
-  downloadingId: number | null
-) {
-  const fields: { label: string; value: React.ReactNode }[] = [
-    { label: "Detail", value: r.detail || "—" },
-    { label: "Date", value: r.requestedAt ? r.requestedAt.slice(0, 10) : "—" },
-  ];
-  // Lets an Approved release row's document be re-downloaded right from
-  // this list, without navigating to Loan Detail first — mirrors web
-  // frontend/modules/loans/components/Requests.tsx's downloadReleaseAgreement.
-  if (r.type === "Release" && r.status === "Approved") {
-    fields.push({
-      label: "Document",
-      value: (
-        <GoldButton
-          title={downloadingId === r.id ? "Preparing…" : "Download"}
-          variant="outline"
-          onPress={() => onDownload(r)}
-          disabled={downloadingId === r.id}
-          style={{ height: 32, paddingHorizontal: 12, alignSelf: "flex-start" }}
-        />
-      ),
-    });
-  }
-  return fields;
-}
-
-/* Standalone "Loan Extensions & Gold Release" list — mirrors frontend/
- * modules/loans/components/Requests.tsx: every Extension/Release request
- * across every loan, filterable by status, reviewed (full checklist/
- * payment/approve-reject, not just a link out to the loan) from a sheet
- * raised right here — ExtensionReviewPanel/ReleaseReviewPanel are the same
- * components the loan detail screen's own Extension/Release cards use, so
- * there's exactly one implementation of that review logic either way. */
 export default function RequestsScreen() {
+  const router = useRouter();
+  const qc = useQueryClient();
   const { can } = useAuth();
   const canDecide = can("Loan_Management", "can_update_loan");
-  const queryClient = useQueryClient();
-  const [statusFilter, setStatusFilter] = useState<(typeof STATUS_FILTERS)[number]>("All");
-  // Holds just the id, not a snapshot of the row — `selected` below is
-  // derived live from `requests` every render, so the sheet keeps showing
-  // this request's CURRENT stage/checklist/status after a save invalidates
-  // and refetches the list, instead of freezing on whatever it looked like
-  // the moment it was tapped (which would make a multi-stage approval look
-  // like nothing happened after each step).
+  const params = useLocalSearchParams<{ requestId?: string; loanId?: string }>();
+
+  const [status, setStatus] = useState<Status>("All");
+  const [type, setType] = useState<ReqType>("All");
+  const [draft, setDraft] = useState({ status, type });
+  const [filterOpen, setFilterOpen] = useState(false);
+  // Holds just the id — the sheet derives the request live from the list (or
+  // the deep-link lookup) so it always shows the CURRENT stage after a save.
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [sheetError, setSheetError] = useState<string | null>(null);
-  const [downloadingId, setDownloadingId] = useState<number | null>(null);
+  const [listError, setListError] = useState<string | null>(null);
+  const [downloadFor, setDownloadFor] = useState<LoanRequest | null>(null);
+  const [downloading, setDownloading] = useState<string | null>(null);
 
-  const { data, isLoading, isError, isFetching, isFetchingNextPage, fetchNextPage, hasNextPage, refetch } = useInfiniteQuery({
-    queryKey: ["loanRequests", "list", statusFilter],
-    queryFn: ({ pageParam = 0 }) =>
-      listLoanRequestsPage({
-        status: statusFilter === "All" ? undefined : statusFilter,
-        limit: PAGE_SIZE,
-        offset: pageParam,
-      }),
-    initialPageParam: 0,
-    getNextPageParam: (lastPage, allPages) => (lastPage.hasMore ? allPages.length * PAGE_SIZE : undefined),
+  const filters: Filters = { status: status === "All" ? undefined : status, type: type === "All" ? undefined : type.toLowerCase() };
+  const list = useServerList<LoanRequest, Filters>({ key: ["loanRequests", "list"], filters, fetchPage: (p) => listLoanRequestsPage(p) });
+
+  // ?requestId=<id> (dashboard "Needs attention") opens that request's review.
+  const deepId = params.requestId ? Number(params.requestId) : null;
+  const deepLoanId = params.loanId ? Number(params.loanId) : undefined;
+  useEffect(() => {
+    if (deepId) setSelectedId(deepId);
+  }, [deepId]);
+  // There is no GET /loans/requests/:id — page through (server-side, 50 at a
+  // time) until the request turns up, narrowed by loanId when provided.
+  const deep = useQuery({
+    queryKey: ["loanRequests", "deep", deepId, deepLoanId],
+    enabled: !!deepId && selectedId === deepId,
+    queryFn: async () => {
+      for (let offset = 0; offset < 1000; offset += 50) {
+        const page = await listLoanRequestsPage({ loanId: deepLoanId, limit: 50, offset });
+        const hit = (page.items ?? []).find((r) => r.id === deepId);
+        if (hit) return hit;
+        if (!page.hasMore) break;
+      }
+      return null;
+    },
   });
 
-  useRefetchOnFocus(refetch);
+  const selected = (selectedId != null ? list.items.find((r) => r.id === selectedId) : null) ?? (selectedId != null && deep.data?.id === selectedId ? deep.data : null);
 
-  const requests = data?.pages.flatMap((p) => p.items) ?? [];
-  const selected = requests.find((r) => r.id === selectedId) ?? null;
-
-  // Only fetched while a Release request's review sheet is actually open —
-  // ReleaseReviewPanel needs the loan's live outstanding balance, which this
-  // list's own rows don't carry. Extension review needs no such fetch.
+  // Release review needs the loan's live outstanding balance.
   const loanForSelected = useQuery({
     queryKey: ["loan", "for-request-review", selected?.loanId],
     queryFn: () => getLoan(selected!.loanId),
-    enabled: !!selected && selected.type === "Release",
+    enabled: !!selected,
   });
 
-  async function downloadReleaseAgreement(r: LoanRequest) {
-    setDownloadingId(r.id);
+  useResetOnBlur(() => {
+    setSelectedId(null);
+    setSheetError(null);
+    setDownloadFor(null);
+  });
+
+  function closeReview() {
+    setSelectedId(null);
+    setSheetError(null);
+    if (params.requestId) router.setParams({ requestId: undefined, loanId: undefined } as never);
+  }
+
+  async function download(r: LoanRequest, lang: DocLang | "partial") {
+    if (downloading) return;
+    setDownloading(`${r.id}-${lang}`);
+    setListError(null);
     try {
-      const loan = await getLoan(r.loanId);
-      const customer = await getCustomer(loan.customerId);
-      await printReleaseAgreement({
-        loanNumber: loan.loanNumber,
-        branchName: loan.branch?.name,
-        customerName: customer.name,
-        customerAddress: customer.address,
-        customerId: String(customer.id),
-        aadhaarLast4: customer.aadhaarLast4,
-        pan: customer.pan,
-        ornaments: (loan.ornaments ?? []).map((o) => ({
-          name: o.name,
-          purity: o.purity,
-          quantity: o.quantity,
-          grossWeight: o.grossWeight,
-          netWeight: o.netWeight,
-        })),
-      });
-    } catch {
-      setSheetError("Could not load customer details — try again");
+      if (lang === "partial") await printPartialReleaseReceiptPdf(r.id);
+      else await printReleaseAgreementPdf(r.loanId, r.loan?.loanNumber ?? String(r.loanId), lang);
+      setDownloadFor(null);
+    } catch (err) {
+      setListError(err instanceof ApiError ? err.message : "Could not download the Release Agreement — try again.");
     } finally {
-      setDownloadingId(null);
+      setDownloading(null);
     }
   }
 
   function refreshAfterSave() {
-    // Both this list's own pages and the loan detail screen's per-loan
-    // ["loanRequests", loanId] query share the "loanRequests" prefix —
-    // invalidateQueries matches by prefix, so this refreshes either place a
-    // request might also be showing. ["loan", ...] covers the outstanding
-    // balance shown inside ReleaseReviewPanel above.
-    queryClient.invalidateQueries({ queryKey: ["loanRequests"] });
-    queryClient.invalidateQueries({ queryKey: ["loan"] });
+    qc.invalidateQueries({ queryKey: ["loanRequests"] });
+    qc.invalidateQueries({ queryKey: ["loan"] });
   }
 
+  const count = (status !== "All" ? 1 : 0) + (type !== "All" ? 1 : 0);
+  const summary = `${status === "All" && type === "All" ? "All requests" : [status !== "All" ? status : null, type !== "All" ? type : null].filter(Boolean).join(" · ")} · ${list.total ?? list.items.length}`;
+
   return (
-    <ScreenContainer style={{ paddingHorizontal: 0 }}>
-      <View style={{ marginHorizontal: 16, marginTop: 28, marginBottom: 12 }}>
-        <FilterSheetButton options={STATUS_FILTERS} value={statusFilter} onChange={setStatusFilter} />
-      </View>
-
-      <View style={{ flex: 1, paddingHorizontal: 16 }}>
-        <ExpandableTable<LoanRequest>
-          columns={REQUEST_COLUMNS}
-          visibleCount={REQUEST_VISIBLE_COUNT}
-          data={requests}
-          keyExtractor={(r) => String(r.id)}
-          extraFields={(r) => requestExtraFields(r, downloadReleaseAgreement, downloadingId)}
-          onViewDescription={(r) => setSelectedId(r.id)}
-          emptyText={isLoading ? "Loading…" : isError ? "Could not load requests." : "No extension or release requests yet."}
-          refreshControl={<RefreshControl refreshing={isFetching && !isFetchingNextPage && !isLoading} onRefresh={refetch} />}
-          onEndReached={() => {
-            if (hasNextPage && !isFetchingNextPage) fetchNextPage();
-          }}
-          isFetchingNextPage={isFetchingNextPage}
-        />
-      </View>
-
-      <BottomSheetModal
-        visible={!!selected}
-        onClose={() => {
-          setSelectedId(null);
-          setSheetError(null);
+    <Screen header={<FlatHeader title="Requests" subtitle="Loan extensions & gold release" />}>
+      <ServerFlatList
+        list={list}
+        items={list.items}
+        keyOf={(r) => String(r.id)}
+        emptyText={list.search || count ? "No requests match your search." : "No extension or release requests yet."}
+        header={
+          <>
+            <SearchInput value={list.search} onChangeText={list.setSearch} placeholder="Search by loan ID or customer name" style={{ paddingTop: 12, paddingBottom: 8 }} />
+            <FiltersBar
+              count={count}
+              summary={summary}
+              style={{ marginTop: 0, marginBottom: 14 }}
+              onPress={() => {
+                setDraft({ status, type });
+                setFilterOpen(true);
+              }}
+            />
+            {listError ? <Txt style={{ fontSize: 12, color: C.red, paddingHorizontal: 18, marginBottom: 10 }}>{listError}</Txt> : null}
+          </>
+        }
+        renderItem={(r, i) => {
+          const approvedRelease = r.type === "Release" && r.status === "Approved";
+          const details =
+            r.type === "Extension"
+              ? [
+                  { k: "Requested", v: r.requestedExtensionMonths ? `+${r.requestedExtensionMonths} month${r.requestedExtensionMonths === 1 ? "" : "s"}` : r.detail || "—" },
+                  { k: "Date", v: dmy(r.requestedAt) },
+                ]
+              : approvedRelease
+                ? [
+                    { k: "Type", v: r.isPartial ? "Partial release" : "Full release" },
+                    { k: "Document", v: r.isPartial ? "Receipt (EN)" : RELEASE_AGREEMENT_LANGS.map((l) => l.toUpperCase()).join(" / ") },
+                  ]
+                : [
+                    { k: "Type", v: r.isPartial ? "Partial release" : "Full release" },
+                    { k: "Date", v: dmy(r.requestedAt) },
+                  ];
+          return (
+            <AccRow
+              defaultOpen={i === 0}
+              id={r.loan?.loanNumber ?? `#${r.loanId}`}
+              name={r.type}
+              sub={r.loan?.customer?.name ?? "—"}
+              status={r.status}
+              details={details}
+              actions={
+                approvedRelease
+                  ? [
+                      {
+                        label: downloading?.startsWith(`${r.id}-`) ? "Preparing…" : "Download",
+                        primary: true,
+                        disabled: downloading !== null,
+                        onPress: () => (r.isPartial ? download(r, "partial") : setDownloadFor(r)),
+                      },
+                      { label: "View", onPress: () => setSelectedId(r.id) },
+                    ]
+                  : [{ label: "Review Request", primary: true, onPress: () => setSelectedId(r.id) }]
+              }
+            />
+          );
         }}
+      />
+
+      <Sheet visible={filterOpen} onClose={() => setFilterOpen(false)} title="Filter Requests" maxHeightPct={60}>
+        <Field label="Status">
+          <FilterChipRow options={STATUSES} value={draft.status} onChange={(v) => setDraft((d) => ({ ...d, status: v }))} />
+        </Field>
+        <Field label="Type">
+          <FilterChipRow options={TYPES} value={draft.type} onChange={(v) => setDraft((d) => ({ ...d, type: v }))} />
+        </Field>
+        <PrimaryButton
+          label="Apply Filters"
+          onPress={() => {
+            setStatus(draft.status);
+            setType(draft.type);
+            setFilterOpen(false);
+          }}
+        />
+      </Sheet>
+
+      <Sheet visible={!!downloadFor} onClose={() => setDownloadFor(null)} title="Release Agreement" maxHeightPct={50}>
+        {downloadFor
+          ? RELEASE_AGREEMENT_LANGS.map((lang, i) => (
+              <SheetListItem
+                key={lang}
+                first={i === 0}
+                icon="doc"
+                title={DOC_LANG_LABELS[lang]}
+                sub={`${downloadFor.loan?.loanNumber ?? `#${downloadFor.loanId}`} · release agreement`}
+                right={downloading === `${downloadFor.id}-${lang}` ? <Buffering style={{ paddingVertical: 0 }} /> : undefined}
+                onPress={() => download(downloadFor, lang)}
+              />
+            ))
+          : null}
+        {listError ? <Txt style={{ fontSize: 12, color: C.red, marginTop: 8 }}>{listError}</Txt> : null}
+      </Sheet>
+
+      <Sheet
+        visible={selectedId != null}
+        onClose={closeReview}
+        title={selected ? `${selected.type === "Extension" ? "Review Extension" : "Review Release"} — ${selected.loan?.loanNumber ?? `#${selected.loanId}`}` : "Review Request"}
         maxHeightPct={90}
       >
-        {selected ? (
-          <ScrollView showsVerticalScrollIndicator={false}>
-            <ThemedText variant="h3" color={colors.goldDeep} style={{ marginBottom: 4 }}>
-              {selected.type === "Extension" ? "Review Extension" : "Review Release"} — {selected.loan?.loanNumber ?? `#${selected.loanId}`}
-            </ThemedText>
-            <ThemedText variant="small" color={colors.muted} style={{ marginBottom: 14 }}>
+        {!selected ? (
+          deep.isLoading || deep.isFetching ? (
+            <Buffering block />
+          ) : (
+            <Txt style={{ fontSize: 12.5, color: C.muted, paddingVertical: 20 }}>This request could not be found.</Txt>
+          )
+        ) : (
+          <>
+            <Txt style={{ fontSize: 12, color: C.muted, marginTop: 8, marginBottom: 12 }}>
               {selected.loan?.customer?.name ?? "Customer"}
               {!canDecide ? " · view only — you don't have permission to act on requests" : ""}
-            </ThemedText>
-            {sheetError ? (
-              <ThemedText variant="small" color={colors.red} style={{ marginBottom: 10 }}>
-                {sheetError}
-              </ThemedText>
-            ) : null}
+            </Txt>
+            {sheetError ? <Txt style={{ fontSize: 12, color: C.red, marginBottom: 10 }}>{sheetError}</Txt> : null}
             {selected.type === "Extension" ? (
               <ExtensionReviewPanel
                 request={selected}
+                loan={loanForSelected.data}
                 onSaved={() => {
                   setSheetError(null);
                   refreshAfterSave();
@@ -238,7 +262,7 @@ export default function RequestsScreen() {
                 onError={setSheetError}
               />
             ) : loanForSelected.isLoading ? (
-              <ThemedText color={colors.muted}>Loading loan financials…</ThemedText>
+              <Buffering block />
             ) : loanForSelected.data ? (
               <ReleaseReviewPanel
                 request={selected}
@@ -251,11 +275,11 @@ export default function RequestsScreen() {
                 onError={setSheetError}
               />
             ) : (
-              <ThemedText color={colors.red}>Could not load this loan's financials.</ThemedText>
+              <Txt style={{ fontSize: 12.5, color: C.red }}>Could not load this loan&apos;s financials.</Txt>
             )}
-          </ScrollView>
-        ) : null}
-      </BottomSheetModal>
-    </ScreenContainer>
+          </>
+        )}
+      </Sheet>
+    </Screen>
   );
 }

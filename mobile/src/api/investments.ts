@@ -110,3 +110,10 @@ export function createInvestmentPlan(input: CreatePlanInput) {
 export function updateInvestmentPlan(id: number, input: CreatePlanInput) {
   return apiRequest<InvestmentPlan>(`/investment-plans/${id}`, { method: "PUT", body: input });
 }
+
+// Paged + searchable plan list (GET /investment-plans?limit=&offset=&q=) —
+// opt-in pagination server-side returns {items, hasMore, total}. Used by the
+// Investment Plans sheet (10 per page, `q` matches the plan name).
+export function listInvestmentPlansPage(params: { q?: string; activeOnly?: boolean; limit: number; offset: number }) {
+  return apiRequest<{ items: InvestmentPlan[] | null; hasMore: boolean; total?: number }>("/investment-plans", { params });
+}

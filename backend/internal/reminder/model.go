@@ -84,6 +84,7 @@ type CalendarEvent struct {
 
 	CustomerID   *uint  `json:"customerId,omitempty"`
 	CustomerName string `json:"customerName,omitempty"`
+	CustomerCode string `json:"customerCode,omitempty"`
 
 	// ReminderID/Status are only set for manual (persisted) events — lets
 	// the frontend offer edit/complete actions on those specifically.

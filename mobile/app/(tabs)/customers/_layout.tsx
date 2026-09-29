@@ -1,28 +1,21 @@
-﻿import { Stack } from "expo-router";
-import { FloatingHeader } from "../../../src/components/FloatingHeader";
+import { Stack } from "expo-router";
 import { colors } from "../../../src/theme/colors";
 
-// Keeps the list screen beneath a deep-linked detail route, so back/swipe
-// returns to the list rather than popping the whole tab. See loans/_layout.tsx.
-export const unstable_settings = { anchor: "index" };
-
-export default function CustomersLayout() {
+// Screens own their headers (FlatHeader inside <Screen>, see
+// src/components/ui/Shell.tsx), so this stack never draws one. No anchor:
+// a detail opened from another page (openPage) lands on its own, with Back
+// returning to that page instead of this module's list.
+export default function ModuleLayout() {
   return (
     <Stack
-      screenOptions={{
-        header: ({ options, route, navigation }) => (
-          <FloatingHeader title={options.title ?? route.name} navigation={navigation} />
-        ),
-        // The scene's own background: without it the Stack paints white,
-        // which showed through the transparent FloatingHeader as a pale band
-        // across the top of every nested screen.
+      screenOptions={({ route }) => ({
+        headerShown: false,
         contentStyle: { backgroundColor: colors.bg },
-      }}
-    >
-      <Stack.Screen name="index" options={{ title: "Customers" }} />
-      <Stack.Screen name="new" options={{ title: "Register Customer" }} />
-      <Stack.Screen name="[id]" options={{ title: "Customer" }} />
-      <Stack.Screen name="edit/[id]" options={{ title: "Edit Customer" }} />
-    </Stack>
+        // Native slide (list -> detail) instead of the default fade; a page
+        // opened straight from elsewhere (openPage marks it `direct`) just
+        // appears, so the list is never seen sliding away under it.
+        animation: (route.params as { direct?: string } | undefined)?.direct ? "none" : "ios_from_right",
+      })}
+    />
   );
 }

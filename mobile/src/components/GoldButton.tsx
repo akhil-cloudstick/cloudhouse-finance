@@ -1,7 +1,9 @@
 import React from "react";
-import { Pressable, ActivityIndicator, StyleSheet, ViewStyle, Platform } from "react-native";
-import { colors } from "../theme/colors";
+import { Pressable, ActivityIndicator, StyleSheet, ViewStyle, Platform, View } from "react-native";
+import type { Colors } from "../theme/colors";
+import { useTheme, useThemedStyles } from "../theme/ThemeProvider";
 import { ThemedText } from "./ThemedText";
+import { Icon } from "./Icon";
 
 type Props = {
   title: string;
@@ -10,9 +12,13 @@ type Props = {
   loading?: boolean;
   variant?: "primary" | "outline";
   style?: ViewStyle;
+  /** Icon.tsx glyph name shown before the title. */
+  icon?: string;
 };
 
-export function GoldButton({ title, onPress, disabled, loading, variant = "primary", style }: Props) {
+export function GoldButton({ title, onPress, disabled, loading, variant = "primary", style, icon }: Props) {
+  const { colors } = useTheme();
+  const styles = useThemedStyles(makeStyles);
   const isPrimary = variant === "primary";
   return (
     <Pressable
@@ -31,16 +37,20 @@ export function GoldButton({ title, onPress, disabled, loading, variant = "prima
       ) : (
         // One step up from typeScale.label (13) — buttons read a little
         // more confident at this size without jumping all the way to body.
-        <ThemedText variant="label" color={isPrimary ? colors.bg : colors.brandDeep} style={styles.title}>
-          {title}
-        </ThemedText>
+        <View style={styles.row}>
+          {icon ? <Icon name={icon} size={18} color={isPrimary ? colors.bg : colors.brandDeep} /> : null}
+          <ThemedText variant="label" color={isPrimary ? colors.bg : colors.brandDeep} style={styles.title} numberOfLines={1}>
+            {title}
+          </ThemedText>
+        </View>
       )}
     </Pressable>
   );
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (c: Colors) => StyleSheet.create({
   title: { fontSize: 15 },
+  row: { flexDirection: "row", alignItems: "center", gap: 8 },
   base: {
     height: 48,
     borderRadius: 14,
@@ -49,12 +59,12 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
   },
   primary: {
-    backgroundColor: colors.brandDeep,
+    backgroundColor: c.brandDeep,
     // A soft gold-tinted lift under the primary button only — the outline
     // variant stays flat, matching the approved modern/minimal mockups.
     ...Platform.select({
       ios: {
-        shadowColor: colors.brandDeep,
+        shadowColor: c.brandDeep,
         shadowOpacity: 0.3,
         shadowRadius: 10,
         shadowOffset: { width: 0, height: 5 },
@@ -62,7 +72,7 @@ const styles = StyleSheet.create({
       android: { elevation: 3 },
     }),
   },
-  outline: { backgroundColor: "transparent", borderWidth: 1.5, borderColor: colors.brandDeep },
+  outline: { backgroundColor: "transparent", borderWidth: 1.5, borderColor: c.brandDeep },
   disabled: { opacity: 0.5 },
   pressed: { opacity: 0.85 },
 });

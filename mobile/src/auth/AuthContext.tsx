@@ -2,9 +2,10 @@ import React, { createContext, useContext, useEffect, useState, useCallback, use
 import { Employee } from "../types/employee";
 import * as authApi from "../api/auth";
 import { saveToken, getToken, clearToken } from "./tokenStorage";
-import { normalizeBusinessCode, saveBusinessCode } from "./businessCode";
+import { configuredBusinessCode, getStoredBusinessCode, normalizeBusinessCode, saveBusinessCode } from "./businessCode";
 import { ApiError } from "../api/client";
 import { fetchMyPermissions, type PermissionMap } from "../api/permissions";
+import { useTheme } from "../theme/ThemeProvider";
 
 type AuthState = {
   employee: Employee | null;
@@ -28,6 +29,7 @@ type AuthState = {
 const AuthContext = createContext<AuthState | undefined>(undefined);
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
+  const { refreshBranding } = useTheme();
   const [employee, setEmployee] = useState<Employee | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [permissions, setPermissions] = useState<PermissionMap>({});
@@ -56,6 +58,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     (async () => {
       try {
+        // A session left over from a different business than the one this
+        // build is configured for (e.g. EXPO_PUBLIC_DEFAULT_BUSINESS_CODE
+        // was changed) must not be resumed — it would keep showing that
+        // business's data and branding. Drop it and sign in afresh.
+        const configured = configuredBusinessCode();
+        if (configured && (await getStoredBusinessCode()) !== configured && (await getToken())) {
+          await clearToken();
+          await saveBusinessCode(configured);
+          refreshBranding();
+        }
+
         const token = await getToken();
         if (token) {
           const emp = await authApi.me();
@@ -65,12 +78,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       } catch (err) {
         if (err instanceof ApiError && err.status === 401) {
           await clearToken();
+          // The theme may have tried the signed-in /branding with this dead
+          // token; re-fetch now that it's gone so the public one is used.
+          refreshBranding();
         }
       } finally {
         setIsLoading(false);
       }
     })();
-  }, [loadPermissions]);
+  }, [loadPermissions, refreshBranding]);
 
   const signIn = useCallback(
     async (identifier: string, password: string, businessCode = "") => {
@@ -83,8 +99,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setEmployee(emp);
       setPermissionsLoaded(false);
       await loadPermissions(emp);
+      // The business code (and therefore its branding) may have just
+      // changed, and the theme can now use the authenticated /branding
+      // endpoint instead of the public one.
+      refreshBranding();
     },
-    [loadPermissions]
+    [loadPermissions, refreshBranding]
   );
 
   const signOut = useCallback(async () => {
@@ -93,7 +113,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setPermissions({});
     setPermissionsLoaded(false);
     setPermissionsFailed(false);
-  }, []);
+    // Drops back to the public branding endpoint for the still-remembered
+    // business code (my /branding was only valid for the ended session).
+    refreshBranding();
+  }, [refreshBranding]);
 
   const can = useCallback(
     (moduleKey: string, permissionKey: string) => permissions?.[moduleKey]?.[permissionKey] === true,

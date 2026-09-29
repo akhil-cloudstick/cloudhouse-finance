@@ -71,7 +71,7 @@ type ListFilter struct {
 	CustomerID *uint
 	Status     string
 	Frequency  string
-	// Query matches LoanNumber or the customer's Name (case-insensitive,
+	// Query matches LoanNumber or the customer's Name/Code (case-insensitive,
 	// partial) — needs a join to customers, only added when Query is set so
 	// every other list call stays a plain single-table query.
 	Query  string
@@ -87,22 +87,24 @@ type ListFilter struct {
 func (r *Repository) FindAll(ctx context.Context, f ListFilter) ([]PersonalLoan, int64, error) {
 	var recs []PersonalLoan
 	q := r.db.WithContext(ctx).Preload("Customer").Model(&PersonalLoan{}).Order("personal_loans.id desc")
+	// Columns are table-qualified: the Query search JOINs customers, which
+	// has its own branch_id, so an unqualified branch_id was ambiguous.
 	if f.BranchID != nil {
-		q = q.Where("branch_id = ?", *f.BranchID)
+		q = q.Where("personal_loans.branch_id = ?", *f.BranchID)
 	}
 	if f.CustomerID != nil {
-		q = q.Where("customer_id = ?", *f.CustomerID)
+		q = q.Where("personal_loans.customer_id = ?", *f.CustomerID)
 	}
 	if f.Status != "" {
-		q = q.Where("status = ?", f.Status)
+		q = q.Where("personal_loans.status = ?", f.Status)
 	}
 	if f.Frequency != "" {
-		q = q.Where("frequency = ?", f.Frequency)
+		q = q.Where("personal_loans.frequency = ?", f.Frequency)
 	}
 	if f.Query != "" {
 		like := "%" + f.Query + "%"
 		q = q.Joins("JOIN customers ON customers.id = personal_loans.customer_id").
-			Where("personal_loans.loan_number ILIKE ? OR customers.name ILIKE ?", like, like)
+			Where("personal_loans.loan_number ILIKE ? OR customers.name ILIKE ? OR customers.code ILIKE ?", like, like, like)
 	}
 	var total int64
 	if f.Limit > 0 {
@@ -215,6 +217,7 @@ type CalendarInstallment struct {
 	LoanNumber   string
 	CustomerID   uint
 	CustomerName string
+	CustomerCode string
 	BranchID     uint
 	DueDate      time.Time
 	Amount       float64
@@ -231,7 +234,7 @@ func (r *Repository) FindPendingInstallmentsForCalendar(ctx context.Context, bra
 	q := r.db.WithContext(ctx).Table("personal_loan_installments").
 		Select("personal_loan_installments.due_date AS due_date, personal_loan_installments.amount AS amount, "+
 			"personal_loans.id AS loan_id, personal_loans.loan_number AS loan_number, "+
-			"personal_loans.customer_id AS customer_id, customers.name AS customer_name, "+
+			"personal_loans.customer_id AS customer_id, customers.name AS customer_name, customers.code AS customer_code, "+
 			"personal_loans.branch_id AS branch_id").
 		Joins("JOIN personal_loans ON personal_loans.id = personal_loan_installments.personal_loan_id").
 		Joins("JOIN customers ON customers.id = personal_loans.customer_id").

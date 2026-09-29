@@ -1,22 +1,35 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { Slot, useRouter, useSegments } from "expo-router";
 import { QueryClient, QueryClientProvider, focusManager } from "@tanstack/react-query";
 import { useFonts, Inter_400Regular, Inter_500Medium, Inter_600SemiBold } from "@expo-google-fonts/inter";
 import { Montserrat_700Bold } from "@expo-google-fonts/montserrat";
 import { NunitoSans_800ExtraBold } from "@expo-google-fonts/nunito-sans";
 import * as SplashScreen from "expo-splash-screen";
+import * as SystemUI from "expo-system-ui";
 import { Asset } from "expo-asset";
 import { View, ActivityIndicator, AppState, type AppStateStatus, StatusBar as RNStatusBar, Platform } from "react-native";
 import { StatusBar } from "expo-status-bar";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 
-import { ThemeProvider } from "../src/theme/ThemeProvider";
+import { ThemeProvider, useTheme } from "../src/theme/ThemeProvider";
 import { SheetHost } from "../src/components/SheetHost";
+import { ToastHost } from "../src/components/ui/Toast";
+import { KeyboardDoneBar } from "../src/components/ui/KeyboardDone";
+import { AnimatedSplash } from "../src/components/AnimatedSplash";
 import { AuthProvider, useAuth } from "../src/auth/AuthContext";
 import { colors } from "../src/theme/colors";
 
 SplashScreen.preventAutoHideAsync();
+
+// The Android window's own background (what briefly shows through during a
+// screen transition, before the incoming screen's own view has drawn over
+// it) defaults to the OS theme's white, not this app's ivory — a plain RN
+// `<View style={{ backgroundColor }}>` only paints once React has mounted
+// and laid it out, one frame later. Setting it here paints the actual
+// window straight away, so that gap (most visible going back from Forgot
+// Password to Login, where the keyboard closing can stretch it out) shows
+// this app's own background instead of stock white. A no-op on iOS/web.
+SystemUI.setBackgroundColorAsync(colors.bg).catch(() => {});
 
 const queryClient = new QueryClient();
 
@@ -54,25 +67,10 @@ function useAndroidStatusBarTranslucency() {
   }, []);
 }
 
-function StatusBarBackdrop() {
-  const insets = useSafeAreaInsets();
-  return (
-    <View
-      pointerEvents="none"
-      style={{
-        position: "absolute",
-        top: 0,
-        left: 0,
-        right: 0,
-        height: insets.top,
-        backgroundColor: colors.bg,
-      }}
-    />
-  );
-}
 
 function RootNavigation() {
   const { employee, isLoading } = useAuth();
+  const { colors: themed } = useTheme();
   const segments = useSegments();
   const router = useRouter();
   useAndroidStatusBarTranslucency();
@@ -91,7 +89,7 @@ function RootNavigation() {
     return (
       <View style={{ flex: 1, alignItems: "center", justifyContent: "center", backgroundColor: colors.bg }}>
         <StatusBar style="dark" />
-        <ActivityIndicator color={colors.brand} />
+        <ActivityIndicator color={themed.brand} />
       </View>
     );
   }
@@ -106,12 +104,16 @@ function RootNavigation() {
     // older (and in Expo Go), where the OS otherwise reserves an opaque
     // system-bar area and paints it black instead of drawing behind it.
     <View style={{ flex: 1, backgroundColor: colors.bg }}>
-      <StatusBar style="dark" />
+      {/* Every page header (and the auth brand panel) paints the hero
+          gradient up behind the status bar, so its icons are light
+          everywhere and no separate status-bar strip is drawn. */}
+      <StatusBar style="light" />
       <Slot />
       {/* Bottom sheets render here — above every screen, laid out against
           the real screen bounds. See src/components/SheetHost.tsx. */}
       <SheetHost />
-      <StatusBarBackdrop />
+      <ToastHost />
+      <KeyboardDoneBar />
     </View>
   );
 }
@@ -133,26 +135,46 @@ export default function RootLayout() {
   const [assetsLoaded, setAssetsLoaded] = useState(false);
 
   useEffect(() => {
-    Asset.loadAsync(require("../assets/cloudhouse.png"))
+    Asset.loadAsync([require("../assets/cloudhouse.png"), require("../assets/header-logo.png")])
       .catch(() => {})
       .finally(() => setAssetsLoaded(true));
   }, []);
 
-  useEffect(() => {
-    if (fontsLoaded && assetsLoaded) SplashScreen.hideAsync();
-  }, [fontsLoaded, assetsLoaded]);
-
-  if (!fontsLoaded || !assetsLoaded) return null;
-
+  // ThemeProvider mounts straight away (not after fonts) so its cached-brand
+  // read runs in parallel with font loading; SplashGate holds the splash
+  // until all three are done.
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
       <QueryClientProvider client={queryClient}>
         <ThemeProvider>
-          <AuthProvider>
-            <RootNavigation />
-          </AuthProvider>
+          <SplashGate loaded={fontsLoaded && assetsLoaded}>
+            <AuthProvider>
+              <RootNavigation />
+            </AuthProvider>
+          </SplashGate>
         </ThemeProvider>
       </QueryClientProvider>
     </GestureHandlerRootView>
+  );
+}
+
+// Keeps the native splash up until fonts/assets are loaded AND the
+// business's cached brand colour has been applied, so the platform default
+// colour never flashes before the business's own. Sits under ThemeProvider
+// because RootLayout renders the provider and so can't read it itself.
+function SplashGate({ loaded, children }: { loaded: boolean; children: ReactNode }) {
+  const { ready } = useTheme();
+  const show = loaded && ready;
+  // Once ready, the app renders underneath while the animated splash plays
+  // over it; the native splash is hidden the moment the animated one has
+  // drawn its first (identical) frame, so the hand-off is seamless.
+  const [splashDone, setSplashDone] = useState(false);
+
+  if (!show) return null;
+  return (
+    <>
+      {children}
+      {splashDone ? null : <AnimatedSplash onReady={() => SplashScreen.hideAsync().catch(() => {})} onDone={() => setSplashDone(true)} />}
+    </>
   );
 }

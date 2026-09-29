@@ -2,6 +2,8 @@ package branch
 
 import (
 	"net/http"
+	"strconv"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 
@@ -51,9 +53,35 @@ func (h *Handler) Create(c *gin.Context) {
 	httpx.Success(c, http.StatusCreated, rec)
 }
 
+// List backs GET /branches?q=&active=&limit=&offset= — q matches name/code,
+// active=true drops deactivated branches. Opt-in
+// pagination: no limit returns the bare array (the original shape); limit
+// > 0 returns {items, hasMore, total}.
 func (h *Handler) List(c *gin.Context) {
 	ctx := platform.RequestContext(c)
-	rec, err := h.svc.List(ctx, platform.GetBranchScope(c))
+	f := Filter{BranchID: platform.GetBranchScope(c), Query: strings.TrimSpace(c.Query("q")), ActiveOnly: c.Query("active") == "true"}
+
+	limit, _ := strconv.Atoi(c.Query("limit"))
+	if limit > 0 {
+		offset, _ := strconv.Atoi(c.Query("offset"))
+		if offset < 0 {
+			offset = 0
+		}
+		f.Limit, f.Offset = limit+1, offset
+		rec, total, err := h.svc.Find(ctx, f)
+		if err != nil {
+			httpx.FailErr(c, err)
+			return
+		}
+		hasMore := len(rec) > limit
+		if hasMore {
+			rec = rec[:limit]
+		}
+		httpx.Success(c, http.StatusOK, gin.H{"items": rec, "hasMore": hasMore, "total": total})
+		return
+	}
+
+	rec, _, err := h.svc.Find(ctx, f)
 	if err != nil {
 		httpx.FailErr(c, err)
 		return

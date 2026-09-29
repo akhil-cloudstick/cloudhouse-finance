@@ -1,21 +1,21 @@
-﻿import { Stack } from "expo-router";
-import { FloatingHeader } from "../../../src/components/FloatingHeader";
+import { Stack } from "expo-router";
 import { colors } from "../../../src/theme/colors";
 
-export default function AuctionsLayout() {
+// Screens own their headers (FlatHeader inside <Screen>, see
+// src/components/ui/Shell.tsx), so this stack never draws one. No anchor:
+// a detail opened from another page (openPage) lands on its own, with Back
+// returning to that page instead of this module's list.
+export default function ModuleLayout() {
   return (
     <Stack
-      screenOptions={{
-        header: ({ options, route, navigation }) => (
-          <FloatingHeader title={options.title ?? route.name} navigation={navigation} />
-        ),
-        // The scene's own background: without it the Stack paints white,
-        // which showed through the transparent FloatingHeader as a pale band
-        // across the top of every nested screen.
+      screenOptions={({ route }) => ({
+        headerShown: false,
         contentStyle: { backgroundColor: colors.bg },
-      }}
-    >
-      <Stack.Screen name="index" options={{ title: "Auctions" }} />
-    </Stack>
+        // Native slide (list -> detail) instead of the default fade; a page
+        // opened straight from elsewhere (openPage marks it `direct`) just
+        // appears, so the list is never seen sliding away under it.
+        animation: (route.params as { direct?: string } | undefined)?.direct ? "none" : "ios_from_right",
+      })}
+    />
   );
 }

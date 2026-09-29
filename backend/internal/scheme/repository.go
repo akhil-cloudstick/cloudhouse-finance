@@ -31,7 +31,7 @@ func (r *Repository) FindAll(ctx context.Context, query string, branchID *uint, 
 	var schemes []Scheme
 	q := r.db.WithContext(ctx).Preload("Branch").Order("id asc")
 	if query != "" {
-		q = q.Where("name ILIKE ?", "%"+query+"%")
+		q = q.Where("name ILIKE ? OR code ILIKE ?", "%"+query+"%", "%"+query+"%")
 	}
 	if branchID != nil {
 		q = q.Where("branch_id = ?", *branchID)
@@ -57,7 +57,7 @@ func (r *Repository) FindActive(ctx context.Context, query string, branchID *uin
 	var schemes []Scheme
 	q := r.db.WithContext(ctx).Where("is_active = ?", true).Order("id asc")
 	if query != "" {
-		q = q.Where("name ILIKE ?", "%"+query+"%")
+		q = q.Where("name ILIKE ? OR code ILIKE ?", "%"+query+"%", "%"+query+"%")
 	}
 	if branchID != nil {
 		q = q.Where("branch_id = ?", *branchID)

@@ -2,7 +2,7 @@ import React, { useEffect, useState } from "react";
 import { BRAND } from "../../src/config/brand";
 import { View, StyleSheet, KeyboardAvoidingView, Image, ScrollView } from "react-native";
 import * as LocalAuthentication from "expo-local-authentication";
-import { colors } from "../../src/theme/colors";
+import { useTheme } from "../../src/theme/ThemeProvider";
 import { ThemedText } from "../../src/components/ThemedText";
 import { GoldTextInput } from "../../src/components/GoldTextInput";
 import { GoldButton } from "../../src/components/GoldButton";
@@ -23,6 +23,7 @@ type Step = "phone" | "otp";
 // start on that device just falls back to OTP (see app/_layout.tsx).
 export default function LoginScreen() {
   const { completeLogin } = useAuth();
+  const { colors, logoUrl, refreshBranding } = useTheme();
   const [step, setStep] = useState<Step>("phone");
   const [phone, setPhone] = useState("");
   const [code, setCode] = useState("");
@@ -48,6 +49,13 @@ export default function LoginScreen() {
     getDeviceToken().then((t) => setHasDeviceToken(!!t));
     getBusinessCode().then(setBusinessCode);
   }, []);
+
+  // Debounced: previews the entered lender's theme/logo as the customer
+  // types, without hammering the public branding endpoint on every keystroke.
+  useEffect(() => {
+    const timer = setTimeout(() => refreshBranding(businessCode), 400);
+    return () => clearTimeout(timer);
+  }, [businessCode, refreshBranding]);
 
   async function handleBiometricLogin() {
     setError(null);
@@ -146,10 +154,14 @@ export default function LoginScreen() {
   }
 
   return (
-    <KeyboardAvoidingView style={styles.screen} behavior="padding">
+    <KeyboardAvoidingView style={[styles.screen, { backgroundColor: colors.bg }]} behavior="padding">
       <ScrollView contentContainerStyle={styles.scrollContent} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
-        <View style={styles.card}>
-          <Image source={require("../../assets/cloudhouse.png")} style={styles.logo} resizeMode="contain" />
+        <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.line }]}>
+          <Image
+            source={logoUrl ? { uri: logoUrl } : require("../../assets/cloudhouse.png")}
+            style={styles.logo}
+            resizeMode="contain"
+          />
           <ThemedText variant="body" color={colors.muted} style={styles.subtitle}>
             Customer sign in
           </ThemedText>
@@ -235,13 +247,11 @@ export default function LoginScreen() {
 }
 
 const styles = StyleSheet.create({
-  screen: { flex: 1, backgroundColor: colors.bg },
+  screen: { flex: 1 },
   scrollContent: { flexGrow: 1, justifyContent: "center", padding: 24 },
   card: {
-    backgroundColor: colors.card,
     borderRadius: 16,
     borderWidth: 1,
-    borderColor: colors.line,
     padding: 24,
   },
   logo: { width: "86%", height: 200, alignSelf: "center", marginBottom: 4 },

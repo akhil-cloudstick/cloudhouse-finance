@@ -1,33 +1,37 @@
-// Ported from frontend/app/app/app.css ":root" — the CloudHouse Finance
-// admin theme. Keep these values in sync with that file; do not invent new
-// colors in screens/components, import from here instead.
+// Staff app palette — the maroon theme from ui-demos/staff-app-prototype.html
+// (its `:root` block). That prototype is the source of truth for the staff UI:
+// do not invent colours in screens/components, import from here instead.
 //
-// The key names below are the ROLE each colour plays, not its hue, so a
-// re-theme stays a values-only change: `brand` is the primary (buttons,
-// links, active state) and carries the magenta at the heart of the CloudHouse
-// cloud; `nav`/`nav2` are the violet dark grounds; `accent` is the orange the
-// logo's gradient lands on and is deliberately rationed.
+// The palette is fixed for every business — per-tenant brand tinting was
+// removed from the staff app with the prototype redesign, so these values can
+// be imported directly or read through useTheme().colors interchangeably.
+//
+// Key names are the ROLE each colour plays (`brand` = primary, `nav`/`nav2` =
+// dark grounds), so existing screens keep compiling against the same keys.
 export const colors = {
-  brandDeep: "#8a0f5c",
-  brand: "#c0177a",
-  brandMid: "#d91786",
-  brandLight: "#f2a3d0",
-  brandPale: "#fce4f1",
-  brandFaint: "#fdf4f9",
+  // prototype: --brand-deep / --brand / --brand-pale / --brand-faint
+  brandDeep: "#6e1423",
+  brand: "#8a2035",
+  brandMid: "#a8475a",
+  brandLight: "#d49aa5",
+  brandPale: "#f6e3e6",
+  brandFaint: "#fbf0f1",
 
-  nav: "#2b1a5e",
-  nav2: "#45248f",
+  // prototype: --nav / --nav2 (hero header gradient runs nav → nav2 → brand)
+  nav: "#3b0d14",
+  nav2: "#6e1423",
 
-  accent: "#ef7f28",
-  accentDeep: "#a85205",
-  accentPale: "#fdeeda",
+  // prototype: --accent (stepper "current" dot)
+  accent: "#c9a24b",
+  accentDeep: "#9a7a2e",
+  accentPale: "#f7eed8",
 
-  ink: "#16233d",
-  muted: "#64748b",
+  ink: "#2b1013",
+  muted: "#7a5a5e",
 
-  bg: "#f7f6fb",
+  bg: "#faf6f6",
   card: "#ffffff",
-  line: "#e9e4f2",
+  line: "#eee0e1",
 
   green: "#157f4a",
   greenBg: "#e6f5ed",
@@ -35,30 +39,32 @@ export const colors = {
   redBg: "#fcebe9",
   amber: "#b57a0a",
   amberBg: "#fdf3dc",
-  // Teal rather than blue, so an "informational" tone cannot be mistaken for
-  // a brand tone at a glance.
-  info: "#0e7490",
-  infoBg: "#e0f2f7",
-} as const;
+  blue: "#1d6fd8",
+  blueBg: "#e6f0fd",
+  // "info" is the prototype's blue — kept as an alias for existing call sites.
+  info: "#1d6fd8",
+  infoBg: "#e6f0fd",
+};
 
-// "brand"/"info" replace the old "gold"/"blue" tones — they name the role, so
-// they survive a re-theme. Matches the .chip.* classes in the web app and the
-// STATUS_COLOR map in frontend/common/utils/format.ts; keep all three in step.
+export type Colors = { [K in keyof typeof colors]: string };
+
 export type StatusTone = "green" | "red" | "amber" | "info" | "brand" | "muted";
 
-export function statusColors(tone: StatusTone): { fg: string; bg: string } {
+// Maps onto the prototype's four chip styles: .status-active (green),
+// .status-overdue (red), .status-due (amber), .status-closed (faint/muted).
+export function statusColors(tone: StatusTone, c: Colors = colors): { fg: string; bg: string } {
   switch (tone) {
     case "green":
-      return { fg: colors.green, bg: colors.greenBg };
+      return { fg: c.green, bg: c.greenBg };
     case "red":
-      return { fg: colors.red, bg: colors.redBg };
+      return { fg: c.red, bg: c.redBg };
     case "amber":
-      return { fg: colors.amber, bg: colors.amberBg };
+      return { fg: c.amber, bg: c.amberBg };
     case "info":
-      return { fg: colors.info, bg: colors.infoBg };
+      return { fg: c.blue, bg: c.blueBg };
     case "brand":
-      return { fg: colors.brand, bg: colors.brandPale };
+      return { fg: c.brandDeep, bg: c.brandPale };
     default:
-      return { fg: colors.muted, bg: colors.brandFaint };
+      return { fg: c.muted, bg: c.brandFaint };
   }
 }

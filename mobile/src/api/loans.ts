@@ -1,5 +1,6 @@
 import { apiRequestEnveloped as apiRequest } from "./client";
 import { Loan, LoanApproval, LoanRequest, LoanRiskLevel, LoanRiskRow } from "../types/loan";
+import type { SplitAmounts } from "./investments";
 
 // q/status/branchId/customerId mirror backend/internal/loan/handler.go's
 // LoanFilter — all server-side, per the plan's "no client-side filtering" rule.
@@ -18,10 +19,15 @@ export function listLoansPage(params: {
   schemeId?: number;
   from?: string; // "YYYY-MM-DD", bounds openedDate (inclusive)
   to?: string; // "YYYY-MM-DD", bounds openedDate (inclusive)
+  // Auction case buckets, computed server-side (replaces the old on-phone
+  // isDefaulted filter): eligible | defaulted | auctioned_balance_due.
+  auctionCase?: string;
+  bankPledgeStatus?: string;
+  excludeBankPledged?: boolean;
   limit: number;
   offset: number;
 }) {
-  return apiRequest<{ items: Loan[]; hasMore: boolean }>("/loans", { params });
+  return apiRequest<{ items: Loan[]; hasMore: boolean; total?: number }>("/loans", { params });
 }
 
 // Mirrors frontend/modules/loans/services/loanService.ts's getInterestCollected
@@ -47,6 +53,7 @@ export type LoanRiskCounts = { loss: number; atRisk: number; safe: number };
 // see loanService.ts's LoanRiskCounts doc comment on the web side), not
 // just this page, for the screen's KPI tiles.
 export function listLoanRiskAssessmentPage(params: {
+  q?: string;
   status?: string;
   riskLevel?: LoanRiskLevel;
   from?: string; // "YYYY-MM-DD", bounds openedDate
@@ -148,7 +155,7 @@ export type SanctionStage = (typeof SANCTION_STAGES)[number];
 export const SANCTION_STAGE_LABELS: Record<SanctionStage, string> = {
   LoanOperator: "Verified by Loan Operator",
   BranchManager: "Approved by Branch Manager",
-  FinalSanction: "Final Sanction (Management)",
+  FinalSanction: "Final Sanction",
 };
 
 // Which employee role must act at each stage — Administrator may always
@@ -169,7 +176,9 @@ export function normalizeSanctionStage(stage: string): SanctionStage | null {
 
 export function approveLoan(
   loanId: number,
-  input: { stage: SanctionStage | string; action: "Approved" | "Rejected" | "Verified"; remarks?: string }
+  // The split is required on the FinalSanction approval, which disburses the
+  // loan: it must add up to the disbursed amount (platform.ValidateSplit).
+  input: { stage: SanctionStage | string; action: "Approved" | "Rejected" | "Verified"; remarks?: string } & Partial<SplitAmounts>
 ) {
   return apiRequest<Loan>(`/loans/${loanId}/approve`, { method: "POST", body: input });
 }
@@ -193,7 +202,9 @@ export function createExtensionRequest(
   return apiRequest<LoanRequest>(`/loans/${loanId}/extension-request`, { method: "POST", body: input });
 }
 
-export function createReleaseRequest(loanId: number, input: { detail?: string; requestedBy?: string }) {
+// ornamentIds: the ornaments to hand back. Empty, or every still-pledged
+// ornament, is a full release; a strict subset is a partial release.
+export function createReleaseRequest(loanId: number, input: { detail?: string; requestedBy?: string; ornamentIds?: number[] }) {
   return apiRequest<LoanRequest>(`/loans/${loanId}/release-request`, { method: "POST", body: input });
 }
 
@@ -205,6 +216,10 @@ export function listLoanRequests(params?: { status?: string; loanId?: number }) 
 // {items, hasMore} envelope instead of the bare array above — mirrors
 // listLoansPage, used by the standalone Requests list screen (10/page).
 export function listLoanRequestsPage(params: {
+  // Server-side search (loan no. / customer name / customer ID) and request
+  // type filter: "extension" | "release".
+  q?: string;
+  type?: string;
   status?: string;
   loanId?: number;
   limit: number;
@@ -223,15 +238,12 @@ export function decideLoanRequest(requestId: number, action: "Approved" | "Rejec
   });
 }
 
-// Release-request verification checklist — all four booleans must be true
-// before the release approval chain (below) can be submitted.
+// Release verification: the single "customer has seen the gold" flag
+// (locked once a release payment is recorded), plus notes and charges.
 export function verifyReleaseChecklist(
   requestId: number,
   input: {
-    paymentVerified?: boolean;
-    packetVerified?: boolean;
-    bankPledgeVerified?: boolean;
-    customerConfirmed?: boolean;
+    customerSawGold?: boolean;
     verificationNotes?: string;
     charges?: number;
   }
@@ -239,16 +251,24 @@ export function verifyReleaseChecklist(
   return apiRequest<LoanRequest>(`/loans/requests/${requestId}/verify`, { method: "PUT", body: input });
 }
 
-// "Record Payment" step on the Manager-stage release review screen —
-// records a Discount and/or a Payment straight against the loan and, if
-// together they cover the final settlement, ticks the paymentVerified
-// checklist item — nothing more (see backend/internal/loan/service.go's
-// RecordReleasePayment). Falls short → dueDate is required for the
-// remaining balance. employeeId/role are NOT sent — derived server-side
-// from the JWT, same as everywhere else in this file.
+// Records a payment (and optional discount, posted first as its own entry)
+// against a release request; unapplied charges are folded in server-side.
+// The split must sum to `amount` (platform.ValidateSplit). Sets
+// paymentRecorded/locked and advances the request to Management the first
+// time. dueDate is only needed when a FULL release is still short after it.
 export function recordReleasePayment(
   requestId: number,
-  input: { discount: number; payment: number; dueDate?: string }
+  input: {
+    type?: string;
+    amount: number;
+    discount: number;
+    cashAmount: number;
+    upiAmount: number;
+    bankTransferAmount: number;
+    chequeAmount: number;
+    reference?: string;
+    dueDate?: string;
+  }
 ) {
   return apiRequest<LoanRequest>(`/loans/requests/${requestId}/release-payment`, { method: "POST", body: input });
 }
@@ -355,7 +375,8 @@ export function hardDeleteLoan(loanId: number) {
 // endpoints (backend/internal/loan/handler.go's StartIndemnityBondEsign/
 // CheckIndemnityBondEsign).
 
-export type BondLang = "en" | "ml";
+// Backend accepts gu only for businesses allowed Gujarati; it rejects otherwise.
+export type BondLang = "en" | "ml" | "gu";
 // How the signing URL reaches the customer, in addition to always being
 // returned to the caller (see backend/internal/loan/service.go's
 // StartIndemnityBondSign doc comment):
@@ -390,4 +411,15 @@ export type IndemnityBondEsignCheck = {
 
 export function checkIndemnityBondEsign(loanId: number) {
   return apiRequest<IndemnityBondEsignCheck>(`/loans/${loanId}/indemnity-bond/esign/status`);
+}
+
+// Top up an Active loan — POST /loans/:id/topup (backend/internal/loan/
+// handler.go topUpRequest). Raises principal + outstanding by `amount`, up to
+// the loan's headroom (eligibleLoanAmount − outstanding); the split must add
+// up to the amount. Returns the updated loan.
+export function topUpLoan(
+  loanId: number,
+  input: { amount: number; occurredOn?: string; reference?: string } & Partial<SplitAmounts>
+) {
+  return apiRequest<Loan>(`/loans/${loanId}/topup`, { method: "POST", body: input });
 }

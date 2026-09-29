@@ -9,8 +9,17 @@ export function listLockers() {
 // Page-scoped variant: passing `limit` flips the backend (locker/
 // handler.go's List) into the {items, hasMore} envelope — used by the
 // paginated mobile Lockers list (10/page, one API call per page).
-export function listLockersPage(params: { limit: number; offset: number }) {
-  return apiRequest<{ items: Locker[]; hasMore: boolean }>("/lockers", { params });
+export function listLockersPage(params: {
+  branchId?: number;
+  q?: string;
+  /** true -> only active lockers (sent as `active=true`). */
+  active?: boolean;
+  /** Server-side status bucket: active | full | inactive. */
+  status?: "active" | "full" | "inactive";
+  limit: number;
+  offset: number;
+}) {
+  return apiRequest<{ items: Locker[]; hasMore: boolean; total?: number }>("/lockers", { params });
 }
 
 export function getLocker(id: number) {

@@ -13,6 +13,11 @@ export function recordPayment(
     processingFee?: number;
     paidOn: string;
     method?: string;
+    // Per-mode split; must sum to amount when sent (platform.ValidateSplit).
+    cashAmount?: number;
+    upiAmount?: number;
+    bankTransferAmount?: number;
+    chequeAmount?: number;
     reference?: string;
     description?: string;
     // Overrides the system-calculated interest bucket for this payment

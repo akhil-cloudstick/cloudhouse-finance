@@ -6,8 +6,10 @@ import { ThemedText } from "./ThemedText";
 import { BottomSheetModal } from "./BottomSheetModal";
 import { Icon } from "./Icon";
 import { colors } from "../theme/colors";
+import { useTheme } from "../theme/ThemeProvider";
 import { API_ORIGIN } from "../api/config";
 import { uploadFile, PickedFile } from "../api/uploads";
+import { ApiError } from "../api/client";
 
 // The web modal collects these with a bare <input type="file">. On mobile the
 // equivalent is drawn in the app's own language instead of the platform's:
@@ -23,23 +25,28 @@ import { uploadFile, PickedFile } from "../api/uploads";
 
 type Source = { key: string; label: string; icon: string; run: () => Promise<PickedFile | null> };
 
-async function fromCamera(): Promise<PickedFile | null> {
+// Thrown for a denied permission — the one non-API error whose message is
+// meant for the user as-is (see pick()'s catch).
+export class PermissionError extends Error {}
+
+export async function fromCamera(): Promise<PickedFile | null> {
   const perm = await ImagePicker.requestCameraPermissionsAsync();
-  if (!perm.granted) throw new Error("Camera permission is needed to take a photo.");
-  const res = await ImagePicker.launchCameraAsync({ mediaTypes: "images", quality: 0.7 });
+  if (!perm.granted) throw new PermissionError("Camera permission is needed to take a photo.");
+  // Low quality keeps full-resolution camera shots small enough to upload quickly.
+  const res = await ImagePicker.launchCameraAsync({ mediaTypes: "images", quality: 0.35, exif: false });
   if (res.canceled || !res.assets?.length) return null;
   const a = res.assets[0];
   return { uri: a.uri, name: a.fileName || "photo.jpg", mimeType: a.mimeType || "image/jpeg" };
 }
 
-async function fromLibrary(): Promise<PickedFile | null> {
-  const res = await ImagePicker.launchImageLibraryAsync({ mediaTypes: "images", quality: 0.7 });
+export async function fromLibrary(): Promise<PickedFile | null> {
+  const res = await ImagePicker.launchImageLibraryAsync({ mediaTypes: "images", quality: 0.35, exif: false });
   if (res.canceled || !res.assets?.length) return null;
   const a = res.assets[0];
   return { uri: a.uri, name: a.fileName || "image.jpg", mimeType: a.mimeType || "image/jpeg" };
 }
 
-async function fromFiles(): Promise<PickedFile | null> {
+export async function fromFiles(): Promise<PickedFile | null> {
   const res = await DocumentPicker.getDocumentAsync({
     type: ["application/pdf", "image/*"],
     copyToCacheDirectory: true,
@@ -63,6 +70,7 @@ export function DocumentField({
   onChange: (url: string) => void;
   allowPdf?: boolean;
 }) {
+  const { colors } = useTheme();
   const [choosing, setChoosing] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -87,7 +95,17 @@ export function DocumentField({
       setName(file.name);
       onChange(url);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Upload failed — try again.");
+      // Backend rejections (ApiError) carry a message written for staff —
+      // "file is too large", "unsupported file type" — so those are shown.
+      // Anything else is an internal JS/native error ("Unsupported
+      // FormDataPart implementation", a picker crash) that means nothing to
+      // the person holding the phone, so it's logged and replaced.
+      if (e instanceof ApiError) {
+        setError(e.message);
+      } else {
+        console.warn("DocumentField upload failed", e);
+        setError(e instanceof PermissionError ? e.message : "Couldn't attach that file — please try again.");
+      }
     } finally {
       setBusy(false);
     }
@@ -102,9 +120,9 @@ export function DocumentField({
       {value ? (
         <View style={styles.attached}>
           {isImage ? (
-            <Image source={{ uri: `${API_ORIGIN}${value}` }} style={styles.thumb} />
+            <Image source={{ uri: `${API_ORIGIN}${value}` }} style={[styles.thumb, { backgroundColor: colors.brandPale }]} />
           ) : (
-            <View style={[styles.thumb, styles.thumbDoc]}>
+            <View style={[styles.thumb, { backgroundColor: colors.brandPale }, styles.thumbDoc]}>
               <Icon name="doc" size={20} color={colors.brandDeep} />
             </View>
           )}
@@ -135,7 +153,7 @@ export function DocumentField({
           </Pressable>
         </View>
       ) : (
-        <Pressable style={styles.dropzone} onPress={() => setChoosing(true)} disabled={busy}>
+        <Pressable style={[styles.dropzone, { borderColor: colors.brand }]} onPress={() => setChoosing(true)} disabled={busy}>
           {busy ? (
             <ActivityIndicator color={colors.brand} />
           ) : (
@@ -194,7 +212,6 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     borderWidth: 1,
     borderStyle: "dashed",
-    borderColor: colors.brand,
     backgroundColor: colors.card,
     flexDirection: "row",
     alignItems: "center",
@@ -211,7 +228,7 @@ const styles = StyleSheet.create({
     borderColor: colors.line,
     backgroundColor: colors.card,
   },
-  thumb: { width: 38, height: 38, borderRadius: 8, backgroundColor: colors.brandPale },
+  thumb: { width: 38, height: 38, borderRadius: 8 },
   thumbDoc: { alignItems: "center", justifyContent: "center" },
   action: { paddingHorizontal: 4 },
   island: {

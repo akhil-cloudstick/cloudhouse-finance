@@ -129,6 +129,11 @@ func (s *Service) List(ctx context.Context, branchID *uint) ([]Branch, error) {
 	return s.repo.FindAll(ctx, branchID)
 }
 
+// Find is List's filtered/paginated superset (GET /branches?q=&limit=).
+func (s *Service) Find(ctx context.Context, f Filter) ([]Branch, int64, error) {
+	return s.repo.Find(ctx, f)
+}
+
 func (s *Service) Get(ctx context.Context, id uint) (*Branch, error) {
 	rec, err := s.repo.FindByID(ctx, id)
 	if err != nil {

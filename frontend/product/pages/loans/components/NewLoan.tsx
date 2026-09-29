@@ -1036,7 +1036,7 @@ export function NewLoan() {
               JWT), so this is a personal work-in-progress list, not a
               branch queue. */}
           {drafts.length > 0 && (
-            <div className="card gtop"><div className="hd"><h3>Saved drafts</h3></div>
+            <div className="card gtop newloan-drafts"><div className="hd"><h3>Saved drafts</h3></div>
               <div className="bd" style={{ fontSize: 13 }}>
                 {drafts.map((d) => (
                   <div
@@ -1066,7 +1066,7 @@ export function NewLoan() {
               <div className="ft">Opening a draft replaces whatever is currently in the form above.</div>
             </div>
           )}
-          <div className="notice"><Icon name="shield" /> Every loan is verified by the Loan Operator, approved by the Branch Manager, then finally sanctioned by Management.</div>
+          {/* <div className="notice"><Icon name="shield" /> Every loan is verified by the Loan Operator, approved by the Branch Manager, then finally sanctioned by Management.</div> */}
         </div>
       </div>
     </div>

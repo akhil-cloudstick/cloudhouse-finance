@@ -27,6 +27,8 @@ func (s *Service) PersonalLoans(ctx context.Context, f Filter) ([]PersonalLoanRo
 	if err := q.Scan(&rows).Error; err != nil {
 		return nil, PersonalLoanTotals{}, err
 	}
+	// Search before totals, so Totals describe the rows actually shown.
+	rows = MatchRows(rows, f.Q)
 	totals := PersonalLoanTotals{Count: len(rows)}
 	for _, r := range rows {
 		totals.TotalPrincipal += r.PrincipalAmount

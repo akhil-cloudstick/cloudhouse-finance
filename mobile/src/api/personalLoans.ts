@@ -105,6 +105,9 @@ export type CreatePersonalLoanInput = {
   penalInterestRate?: number;
   // Omit or 0 for no grace period.
   gracePeriodDays?: number;
+  // true: hand over the full principal now (no interest withheld upfront);
+  // the customer then owes Principal + Interest. Default false.
+  fullDisbursement?: boolean;
 };
 
 export function createPersonalLoan(input: CreatePersonalLoanInput) {
@@ -113,7 +116,16 @@ export function createPersonalLoan(input: CreatePersonalLoanInput) {
 
 export function recordPersonalLoanPayment(
   id: number,
-  input: { amount: number; method: string; reference?: string; description?: string }
+  input: {
+    amount: number;
+    // Backend requires these to sum to amount (platform.ValidateSplit).
+    cashAmount: number;
+    upiAmount: number;
+    bankTransferAmount: number;
+    chequeAmount: number;
+    reference?: string;
+    description?: string;
+  }
 ) {
   return apiRequest<PersonalLoan>(`/personal-loans/${id}/payments`, { method: "POST", body: input });
 }

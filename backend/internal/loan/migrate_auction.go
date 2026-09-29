@@ -156,3 +156,45 @@ func BackfillAuctionedLoanStatus(db *gorm.DB) error {
 	}
 	return nil
 }
+
+// BackfillRejectedLoanStatus corrects loans rejected in the sanction chain
+// before StatusRejected existed: Service.Approve used to write the bare
+// StatusClosed on rejection, so a turned-down application read exactly like
+// a loan that was disbursed, repaid and released. ApprovalStage was always
+// set to ApprovalStageRejected alongside it, which is what identifies them.
+// RejectedByName is filled from the rejecting LoanApproval row so the loan
+// page can show who rejected it for these older loans too. Idempotent: only
+// rows still at "Closed" are touched.
+func BackfillRejectedLoanStatus(db *gorm.DB) error {
+	if !db.Migrator().HasTable(&Loan{}) || !db.Migrator().HasColumn(&Loan{}, "rejected_by_name") {
+		return nil // fresh install, or AutoMigrate hasn't added the columns yet
+	}
+	res := db.Exec(`
+		UPDATE loans SET
+		  status = ?,
+		  rejected_by_employee_id = a.actor_employee_id,
+		  rejected_by_name = COALESCE(e.name, ''),
+		  rejected_at = a.created_at,
+		  rejection_remarks = COALESCE(a.remarks, '')
+		FROM loan_approvals a
+		LEFT JOIN employees e ON e.id = a.actor_employee_id
+		WHERE a.loan_id = loans.id
+		  AND a.action = ?
+		  AND loans.status = ?
+		  AND loans.approval_stage = ?`,
+		StatusRejected, ApprovalStageRejected, StatusClosed, ApprovalStageRejected)
+	if res.Error != nil {
+		return res.Error
+	}
+	// A rejected loan with no surviving approval row still gets the right
+	// status, just without a name to show.
+	res2 := db.Exec(`UPDATE loans SET status = ? WHERE status = ? AND approval_stage = ?`,
+		StatusRejected, StatusClosed, ApprovalStageRejected)
+	if res2.Error != nil {
+		return res2.Error
+	}
+	if n := res.RowsAffected + res2.RowsAffected; n > 0 {
+		log.Printf("backfilled %d loan(s) from Closed to Rejected status (rejected during sanction)", n)
+	}
+	return nil
+}

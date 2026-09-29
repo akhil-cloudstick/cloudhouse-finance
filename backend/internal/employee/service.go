@@ -289,8 +289,8 @@ func (s *Service) Create(ctx context.Context, in CreateInput, actorEmployeeID ui
 
 // List returns employees, optionally scoped to branchID (nil = all
 // branches — Administrator only, see platform.GetBranchScope).
-func (s *Service) List(ctx context.Context, branchID *uint, limit, offset int) ([]Employee, int64, error) {
-	return s.repo.FindAll(ctx, branchID, limit, offset)
+func (s *Service) List(ctx context.Context, branchID *uint, search string, limit, offset int) ([]Employee, int64, error) {
+	return s.repo.FindAll(ctx, branchID, search, limit, offset)
 }
 
 // Get returns the employee by id, or ErrNotFound if it doesn't exist OR

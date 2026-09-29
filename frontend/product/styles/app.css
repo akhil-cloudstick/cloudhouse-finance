@@ -439,7 +439,16 @@ h3,
   width: 100%;
   max-width: 100%;
   box-sizing: border-box;
-  overflow: hidden;
+  /* Clip only sideways (to stop the header row overflowing the viewport) —
+   * a plain `overflow:hidden` also clipped vertically and cut off the
+   * global-search results panel that hangs below the bar. `clip` on one
+   * axis, unlike `hidden`, leaves the other axis truly `visible`.
+   * position+z-index lift that panel above .page's content (kept under
+   * .side's 40 so the mobile drawer still covers the header). */
+  overflow-x: clip;
+  overflow-y: visible;
+  position: relative;
+  z-index: 30;
 }
 
 .top .crumb {
@@ -1620,7 +1629,7 @@ h3,
  * trailing `.notice` set to grow (below) is what actually pushes the
  * visible extra space into that last box rather than leaving it as dead
  * grid-cell area past the sidebar's real content. No overflow/scroll is
- * introduced here — deliberately, since the ornament form's own
+ * introduced on the form column — deliberately, since the ornament form's own
  * SearchableSelect dropdowns pop out via position:absolute and would get
  * clipped by any scrollable ancestor (see NewLoan.tsx's own comment on
  * this near its ornament table). The page still simply scrolls if the
@@ -1639,6 +1648,67 @@ h3,
 }
 .newloan-sidebar > .notice:last-child {
   flex: 1 1 auto;
+}
+
+/* Side-by-side layout only: a long "Saved drafts" list used to drive the
+ * row's height (the sidebar is a stretched grid item), dragging the form
+ * card taller with it and making the whole page scroll. Only the drafts
+ * LIST (`.bd`) is taken out of the height calculation (`contain:size`,
+ * floored at ~2 rows by min-height) — the rest of the sidebar (Valuation,
+ * the drafts heading/footer, the notice) still counts. So the row is
+ * max(form card, that sidebar minimum, the rest of `.page`'s height via
+ * flex/1fr), both columns always end on the same line with `.page`'s own
+ * bottom padding below them — including when the "set today's gold rate"
+ * banner above eats into the viewport — and the drafts card grows into
+ * whatever is left, scrolling its list internally. Only that list
+ * scrolls; the form card still has no overflow, so its dropdowns aren't
+ * clipped (see the comment above). Below 1061px the grid stacks to one
+ * column (see `.grid.cols21` in the max-width:1060px block) and the
+ * sidebar keeps its natural height. */
+@media (min-width:1061px) {
+  .grid.cols21.newloan-orn-grid {
+    flex: 1 0 auto;
+    grid-template-rows: 1fr;
+  }
+  .newloan-sidebar > .card:first-child {
+    flex: none;
+  }
+  .newloan-sidebar > .newloan-drafts {
+    flex: 1 1 auto;
+    min-height: 0;
+  }
+  .newloan-sidebar > .newloan-drafts > .bd {
+    flex: 1 1 auto;
+    contain: size;
+    min-height: 120px;
+    overflow-y: auto;
+  }
+  /* The drafts card takes the spare height when it's there; the notice
+   * only grows to fill it when there are no drafts (card not rendered). */
+  .newloan-sidebar:has(> .newloan-drafts) > .notice:last-child {
+    flex: none;
+  }
+}
+
+/* Dashboard.tsx's two columns end on the same bottom line: both columns
+ * stretch to the taller one, and the shorter column's last card (Needs
+ * Attention / Expense Summary) absorbs the difference as blank space in
+ * its `.bd` — `.card` is already a flex column, so footers/pagers stay
+ * pinned to the card bottom. */
+.grid.cols21.dash-grid {
+  align-items: stretch;
+}
+.grid.cols21.dash-grid > .grid {
+  display: flex;
+  flex-direction: column;
+}
+.grid.cols21.dash-grid > .grid > .card:last-child {
+  flex: 1 1 auto;
+}
+.grid.cols21.dash-grid > .grid:last-child > .card:last-child > .bd {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
 }
 
 /* minmax(0,…) like .cols21 above — a bare `1fr` leaves grid items at
@@ -4529,7 +4599,8 @@ table.tbl {
   .top.search-open {
     gap: 8px;
     max-width: 100%;
-    overflow: hidden;
+    overflow-x: clip;
+    overflow-y: visible;
   }
 
   /* Side gold rate: expanded when search closed, shrinks when search open */

@@ -248,7 +248,7 @@ export function Dashboard() {
       </div>
       <hr className="gold-rule" />
 
-      <div className="grid cols21">
+      <div className="grid cols21 dash-grid">
         <div className="grid">
           {/* dashboard-kpis scopes the 1280px-ish 3-column override
            * (app.css) to just this Business Overview row — plain `.kpis`
