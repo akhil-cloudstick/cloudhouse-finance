@@ -453,6 +453,11 @@ type approvalRequest struct {
 	UpiAmount          float64 `json:"upiAmount"`
 	BankTransferAmount float64 `json:"bankTransferAmount"`
 	ChequeAmount       float64 `json:"chequeAmount"`
+	// BankID — which bank the UPI/Bank Transfer/Cheque portion of the
+	// disbursement was sent from; mirrors PaymentInput.BankID. Only
+	// meaningful (and only stored) at the FinalSanction stage that triggers
+	// the actual cash-out movement.
+	BankID *uint `json:"bankId"`
 }
 
 func (h *Handler) Approve(c *gin.Context) {
@@ -482,6 +487,7 @@ func (h *Handler) Approve(c *gin.Context) {
 		UpiAmount:          req.UpiAmount,
 		BankTransferAmount: req.BankTransferAmount,
 		ChequeAmount:       req.ChequeAmount,
+		BankID:             req.BankID,
 	})
 	if err != nil {
 		httpx.FailErr(c, err)
@@ -853,8 +859,11 @@ type paymentRequest struct {
 	UpiAmount          float64 `json:"upiAmount"`
 	BankTransferAmount float64 `json:"bankTransferAmount"`
 	ChequeAmount       float64 `json:"chequeAmount"`
-	Reference          string  `json:"reference"`
-	Description        string  `json:"description"`
+	// BankID — see PaymentInput.BankID's own doc comment. Required when any
+	// of UpiAmount/BankTransferAmount/ChequeAmount is non-zero.
+	BankID      *uint  `json:"bankId"`
+	Reference   string `json:"reference"`
+	Description string `json:"description"`
 	// InterestOverride — see PaymentInput.InterestOverride's own doc
 	// comment. Omitted/null means "use the system-calculated figure",
 	// same as before this field existed.
@@ -909,6 +918,7 @@ func (h *Handler) RecordPayment(c *gin.Context) {
 		UpiAmount:            req.UpiAmount,
 		BankTransferAmount:   req.BankTransferAmount,
 		ChequeAmount:         req.ChequeAmount,
+		BankID:               req.BankID,
 		Reference:            req.Reference,
 		Description:          req.Description,
 		InterestOverride:     req.InterestOverride,
@@ -930,6 +940,9 @@ type topUpRequest struct {
 	// RecordMovementInput's convention) when omitted.
 	OccurredOn string `json:"occurredOn"`
 	Reference  string `json:"reference"`
+	// SettleInterest is "require" (default, if omitted) or "deduct" — see
+	// TopUpSettleRequire/TopUpSettleDeduct's own doc comments.
+	SettleInterest string `json:"settleInterest"`
 }
 
 // TopUpLoan lets staff draw additional cash against an already-Active
@@ -963,6 +976,7 @@ func (h *Handler) TopUpLoan(c *gin.Context) {
 		ChequeAmount:         req.ChequeAmount,
 		OccurredOn:           occurredOn,
 		Reference:            req.Reference,
+		SettleInterest:       req.SettleInterest,
 		ReceivedByEmployeeID: actorEmployeeID,
 	})
 	if err != nil {
@@ -1647,6 +1661,7 @@ type releasePaymentRequest struct {
 	UpiAmount          float64  `json:"upiAmount"`
 	BankTransferAmount float64  `json:"bankTransferAmount"`
 	ChequeAmount       float64  `json:"chequeAmount"`
+	BankID             *uint    `json:"bankId"`
 	Method             string   `json:"method"`
 	Reference          string   `json:"reference"`
 	InterestOverride   *float64 `json:"interestOverride"`
@@ -1695,6 +1710,7 @@ func (h *Handler) RecordReleasePayment(c *gin.Context) {
 		UpiAmount:          req.UpiAmount,
 		BankTransferAmount: req.BankTransferAmount,
 		ChequeAmount:       req.ChequeAmount,
+		BankID:             req.BankID,
 		Method:             req.Method,
 		Reference:          req.Reference,
 		InterestOverride:   req.InterestOverride,
@@ -2244,4 +2260,28 @@ func (h *Handler) Statement(c *gin.Context) {
 	// naming the file after the loan means it is identifiable once saved.
 	c.Header("Content-Disposition", `attachment; filename="`+filename+`"`)
 	c.Data(http.StatusOK, "application/pdf", data)
+}
+
+// GetLedger backs GET /loans/:id/ledger — this one loan's payment ledger,
+// paginated like cash.MovementHandler.ListByBank/ByCustomer/ByBranch (limit/
+// offset, {items, total} envelope), read-gated and branch-scoped the same as
+// Get/Statement above.
+func (h *Handler) GetLedger(c *gin.Context) {
+	ctx := platform.RequestContext(c)
+	loanID, err := httpx.IDParam(c, "id")
+	if err != nil {
+		httpx.FailErr(c, err)
+		return
+	}
+	limit, _ := strconv.Atoi(c.Query("limit"))
+	offset, _ := strconv.Atoi(c.Query("offset"))
+	if offset < 0 {
+		offset = 0
+	}
+	rows, total, err := h.svc.GetLoanLedger(ctx, loanID, platform.GetBranchScope(c), limit, offset)
+	if err != nil {
+		httpx.FailErr(c, err)
+		return
+	}
+	httpx.Success(c, http.StatusOK, gin.H{"items": rows, "total": total})
 }

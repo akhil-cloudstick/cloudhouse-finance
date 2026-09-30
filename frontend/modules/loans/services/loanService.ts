@@ -105,6 +105,8 @@ export type BackendLoanPayment = {
    * that never recorded cash (e.g. a Waiver) or whose cash-recording
    * failed. */
   cashTransactionGroupId?: string;
+  bankId?: number | null;
+  bankRef?: { id: number; name: string } | null;
   createdAt: string;
 };
 
@@ -257,6 +259,10 @@ export type PaymentView = {
   principalApplied: number;
   runningBalance: number;
   cashTransactionGroupId?: string;
+  // Which bank the UPI/Bank Transfer/Cheque portion landed in — see
+  // backend LoanPayment.BankID's doc comment. Nil for a Cash-only payment.
+  bankId?: number | null;
+  bankName?: string;
 };
 
 export type BankPledgeView = {
@@ -377,6 +383,8 @@ function toPaymentView(p: BackendLoanPayment): PaymentView {
     principalApplied: p.principalApplied,
     runningBalance: p.runningBalance,
     cashTransactionGroupId: p.cashTransactionGroupId,
+    bankId: p.bankId,
+    bankName: p.bankRef?.name,
   };
 }
 
@@ -828,6 +836,9 @@ export type ApprovalInput = {
   upiAmount?: number;
   bankTransferAmount?: number;
   chequeAmount?: number;
+  // Which bank the UPI/Bank Transfer/Cheque portion was sent from —
+  // mirrors PaymentInput.bankId. Only stored at FinalSanction disbursement.
+  bankId?: number;
 };
 
 export async function approveLoan(loanId: number, input: ApprovalInput): Promise<LoanView> {
@@ -894,6 +905,10 @@ export type PaymentInput = {
   upiAmount?: number;
   bankTransferAmount?: number;
   chequeAmount?: number;
+  // Which bank the UPI/Bank Transfer/Cheque portion landed in — required
+  // when any of those three is non-zero (see backend's
+  // ErrBankRequiredForSplitMode).
+  bankId?: number;
   reference?: string;
   description?: string;
   // Overrides the system-calculated interest bucket for this payment only
@@ -923,6 +938,12 @@ export type TopUpInput = {
   chequeAmount?: number;
   occurredOn?: string; // "YYYY-MM-DD" — omit for today
   reference?: string;
+  // "require" (default, if omitted) blocks the top-up when the loan has
+  // outstanding interest/penal interest — staff must record that payment
+  // separately first. "deduct" clears it out of this top-up's own cash
+  // payout instead (the customer still draws the full requested amount
+  // against the loan, but gets less cash out).
+  settleInterest?: "require" | "deduct";
 };
 
 export async function topUpLoan(loanId: number, input: TopUpInput): Promise<LoanView> {
@@ -1745,6 +1766,7 @@ export type ReleasePaymentInput = {
   upiAmount?: number;
   bankTransferAmount?: number;
   chequeAmount?: number;
+  bankId?: number;
   method?: string;
   reference?: string;
   interestOverride?: number;

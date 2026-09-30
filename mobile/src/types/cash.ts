@@ -61,6 +61,9 @@ export type GoldSale = {
   soldOn: string;
   branchId: number;
   branch?: { id: number; name: string };
+  mode?: string;
+  bankId?: number | null;
+  bankRef?: { id: number; name: string } | null;
   remarks?: string;
   createdAt: string;
 };

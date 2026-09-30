@@ -309,14 +309,30 @@ export function SearchableSelect<T>({
       // bottom of the viewport that 5 full rows wouldn't fit; 120 is the
       // floor for that squeeze so it's never so short it's useless.
       const maxHeight = Math.min(ROWS_BOX_HEIGHT, Math.max(120, spaceBelow - 8));
-      setCoords({ top: rect.bottom, left: rect.left, width: rect.width, maxHeight });
+      // Clamps left so the (up to 160px-wide) dropdown never runs past the
+      // right edge of the viewport — a bank/purity picker sitting near the
+      // right edge of a modal (e.g. SplitPaymentInput's Bank column) would
+      // otherwise open a box that's partly clipped by the modal's own
+      // overflow:hidden, rather than just the box being narrow.
+      const width = Math.min(Math.max(rect.width, compactMinWidth), 160);
+      const left = Math.min(rect.left, window.innerWidth - width - 16);
+      setCoords({ top: rect.bottom, left, width: rect.width, maxHeight });
     }
     reposition();
+    // Closes on scroll OUTSIDE this dropdown's own results list instead of
+    // repositioning — see Select.tsx's identical fix for why a
+    // `position:fixed`/portaled panel re-anchored mid-scroll reads as a
+    // floating, detached dropdown. Scrolling the results list itself
+    // (onResultsScroll's own infinite-scroll paging) must not close it.
+    function closeOnScroll(e: Event) {
+      if (resultsRef.current?.contains(e.target as Node)) return;
+      setOpen(false);
+    }
     window.addEventListener("resize", reposition);
-    window.addEventListener("scroll", reposition, true);
+    window.addEventListener("scroll", closeOnScroll, true);
     return () => {
       window.removeEventListener("resize", reposition);
-      window.removeEventListener("scroll", reposition, true);
+      window.removeEventListener("scroll", closeOnScroll, true);
     };
   }, [compact, open]);
 

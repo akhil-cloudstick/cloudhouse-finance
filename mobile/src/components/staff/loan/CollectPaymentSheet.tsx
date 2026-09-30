@@ -1,7 +1,9 @@
 import React, { useEffect, useRef, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { C, DateField, Field, FieldRow, Input, PaymentSplit, PrimaryButton, Sheet, TextField, ThemeDropdown, Txt, ZERO_SPLIT, isBalanced, type SplitAmounts } from "../../ui";
+import { AsyncSelect, C, DateField, Field, FieldRow, Input, PaymentSplit, PrimaryButton, Sheet, TextField, ThemeDropdown, Txt, ZERO_SPLIT, isBalanced, type SplitAmounts } from "../../ui";
 import { recordPayment } from "../../../api/payments";
+import { createBank, listBanksPage } from "../../../api/banks";
+import type { Bank } from "../../../types/bank";
 import { inr, todayISO } from "../../../lib/format";
 import type { Loan } from "../../../types/loan";
 import { ErrorText, PAYMENT_TYPES, PAYMENT_TYPE_LABELS, apiErr, invalidateLoan, type PaymentType } from "./common";
@@ -36,7 +38,9 @@ export function CollectPaymentSheet({ loan: l, visible, onClose }: { loan: Loan;
   const [reference, setReference] = useState("");
   const [description, setDescription] = useState("");
   const [split, setSplit] = useState<SplitAmounts>(ZERO_SPLIT);
+  const [bank, setBank] = useState<Bank | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const bankRequired = split.upiAmount > 0 || split.bankTransferAmount > 0 || split.chequeAmount > 0;
 
   // Fresh form each time the sheet opens.
   useEffect(() => {
@@ -48,6 +52,7 @@ export function CollectPaymentSheet({ loan: l, visible, onClose }: { loan: Loan;
     setDate(todayISO());
     setReference("");
     setDescription("");
+    setBank(null);
     setError(null);
     interestTouched.current = false;
     setInterest((l.outstandingInterest ?? 0) > 0 ? String(l.outstandingInterest) : "");
@@ -68,6 +73,7 @@ export function CollectPaymentSheet({ loan: l, visible, onClose }: { loan: Loan;
         type,
         paidOn: date,
         ...split,
+        bankId: bankRequired ? bank?.id : undefined,
         reference: reference.trim() || undefined,
         description: description.trim() || undefined,
         interestOverride: interest.trim() ? Number(interest) : undefined,
@@ -123,6 +129,20 @@ export function CollectPaymentSheet({ loan: l, visible, onClose }: { loan: Loan;
       <Field label="Payment breakdown">
         <PaymentSplit amount={amt} value={split} onChange={setSplit} />
       </Field>
+      {bankRequired ? (
+        <AsyncSelect<Bank>
+          label="Bank"
+          placeholder="Search or add a bank"
+          queryKey={["banks", "picker"]}
+          fetcher={async (q) => (await listBanksPage({ q: q || undefined, limit: 20, offset: 0 })).items ?? []}
+          selectedLabel={bank?.name}
+          onSelect={setBank}
+          onClear={() => setBank(null)}
+          keyOf={(b) => b.id}
+          renderItem={(b) => ({ title: b.name })}
+          onCreateNew={(name) => createBank({ name })}
+        />
+      ) : null}
       <TextField label="Reference" placeholder="Transaction / cheque reference (optional)" value={reference} onChangeText={setReference} />
       <TextField label="Description" placeholder="Add a note (optional)" value={description} onChangeText={setDescription} />
       <ErrorText>{error}</ErrorText>
@@ -133,7 +153,7 @@ export function CollectPaymentSheet({ loan: l, visible, onClose }: { loan: Loan;
           pay.mutate();
         }}
         loading={pay.isPending}
-        disabled={!(amt > 0) || !date || !isBalanced(split, amt)}
+        disabled={!(amt > 0) || !date || !isBalanced(split, amt) || (bankRequired && !bank)}
       />
     </Sheet>
   );

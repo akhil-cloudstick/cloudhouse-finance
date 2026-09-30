@@ -8,18 +8,19 @@ import { fmt } from "@/common/utils/format";
 import { StatusChip } from "@/common/components/ui/StatusChip";
 import { AddCashModalContent } from "@/common/components/modals/AddCashModal";
 import { OpeningCashModalContent } from "@/common/components/modals/OpeningCashModal";
-import { CashOutModalContent } from "@/common/components/modals/CashOutModal";
 import { ExpenseModalContent, ReceiptViewModalContent } from "@/common/components/modals/ExpenseModal";
 import { GoldSaleModalContent } from "@/common/components/modals/GoldSaleModal";
-import { listActiveBranches } from "@/modules/branches/services/branchService";
-import { DatePicker } from "@/common/components/ui/DatePicker";
+import { listActiveBranches, type BranchView } from "@/modules/branches/services/branchService";
+import { listCustomersPage } from "@/modules/customers/services/customerService";
+import { FilterPanel, type FilterCategory, type FilterValue } from "@/common/components/ui/FilterPanel";
+import { LedgerRefLink } from "@/common/components/ui/LedgerRefLink";
 import {
   listCashMovementsPage, listExpensesPage, listGoldSalesPage, getCashSummary,
-  setCashMovementLoanStatus, approveExpense, rejectExpense,
+  approveExpense, rejectExpense,
   exportCashMovements, exportExpenses,
+  MODE_LEDGER_ROUTE,
   type CashMovementView, type ExpenseView, type GoldSaleView, type CashSummary, type CashMovementCategory,
 } from "@/modules/cash/services/cashService";
-import { Select } from "@/common/components/ui/Select";
 import { ApiError } from "@/common/services/httpClient";
 import { useAuth } from "@/common/auth-context";
 import { useResponsivePageSize, useIsSmallScreen } from "@/common/utils/responsive";
@@ -60,48 +61,70 @@ function KpiParts({ parts }: { parts: [string, number][] }) {
   );
 }
 
-function MovementRow({ m, canUpdate, onToggleLoan }: { m: CashMovementView; canUpdate: boolean; onToggleLoan: (id: number) => void }) {
-  const isLoan = m.type === "in" && m.source === "Loan";
+// particularsFor mirrors LedgerExportView.tsx's "Particulars" column — the
+// same purpose-or-source text, with the party link Cash.tsx's own Ledger
+// table already had layered on top (customer/bank drill-down), so the two
+// ledgers read the same way with this one kept clickable.
+function particularsFor(m: CashMovementView) {
+  const text = m.type === "in" ? (m.purpose ? `${m.source} · ${m.purpose}` : m.source) : m.purpose || "—";
+  if (m.partyCustomerId) {
+    return <LedgerRefLink kind="customer" id={m.partyCustomerId} label={text || "Customer"} />;
+  }
+  if (m.bankId) {
+    return <LedgerRefLink kind="bank" id={m.bankId} label={text || "Bank"} />;
+  }
+  return text;
+}
+
+// loanNumberFor pulls the loan number back out of `purpose` — every
+// loan-related movement's Purpose carries it as a "… — LN-00049" suffix
+// (see cash.MovementService.RecordLoanDisbursementCashOut/
+// RecordLoanPaymentCashIn/etc), there's no dedicated column for it. Movements
+// with no loan number (manual top-ups, expenses, gold sales, …) fall back to
+// the transaction group id / movement id, same as before.
+const LOAN_NUMBER_RE = /—\s*(LN-\S+)\s*$/;
+function loanNumberFor(m: CashMovementView): string {
+  const match = m.purpose ? LOAN_NUMBER_RE.exec(m.purpose) : null;
+  return match?.[1] || m.transactionGroupId || String(m.id);
+}
+
+// A row's Ref No column is only ever clickable when it actually resolved to
+// a real loan number (LOAN_NUMBER_RE matched) — the transactionGroupId/id
+// fallback isn't a navigable entity, just an internal identifier.
+function refCellFor(m: CashMovementView) {
+  const ref = loanNumberFor(m);
+  if (ref.startsWith("LN-")) return <LedgerRefLink kind="loan" id={ref} label={ref} />;
+  return ref;
+}
+
+function withRunningBalance(items: CashMovementView[]): { m: CashMovementView; balance: number }[] {
+  const chronological = [...items].reverse();
+  let running = 0;
+  const withBalance = chronological.map((m) => {
+    running += m.type === "out" ? m.amount : -m.amount;
+    return { m, balance: running };
+  });
+  return withBalance.reverse();
+}
+
+// Every mode is a drill-down link to that mode's own ledger — same "click a
+// reference, land on its ledger" pattern as LedgerRefLink's other kinds.
+function modeCellFor(mode: string | undefined) {
+  if (!mode) return "—";
+  const route = MODE_LEDGER_ROUTE[mode];
+  return route ? <a href={`#${route}`}>{mode}</a> : mode;
+}
+
+function MovementRow({ m, balance }: { m: CashMovementView; balance: number }) {
   return (
     <tr>
       <td data-label="Date">{m.d}</td>
-      <td data-label="Type">{m.type === "in" ? <span className="chip green">Cash In</span> : <span className="chip red">Cash Out</span>}</td>
-      {/* Loan repayments post as source="Collection" with the payment
-          type/loan number in `purpose` (see cash.MovementService.
-          RecordLoanPaymentCashIn) — show both, not just source, so those
-          rows don't all read as a bare "Collection". */}
-      <td data-label="Source / Purpose">
-        {m.partyCustomerId ? (
-          <a href="#" onClick={(e) => { e.preventDefault(); location.hash = "party-customer/" + m.partyCustomerId; }}>
-            {m.type === "in" ? (m.purpose ? `${m.source} · ${m.purpose}` : m.source) : m.purpose || "—"}
-          </a>
-        ) : (
-          m.type === "in" ? (m.purpose ? `${m.source} · ${m.purpose}` : m.source) : m.purpose || "—"
-        )}
-      </td>
-      <td data-label="Mode">{m.mode || "—"}</td>
-      <td data-label="Bank">
-        {m.bankId ? (
-          <a href="#" onClick={(e) => { e.preventDefault(); location.hash = "party-bank/" + m.bankId; }}>{m.bank || "—"}</a>
-        ) : (
-          m.bank || "—"
-        )}
-      </td>
-      <td className="num" data-label="Amount" style={{ color: m.type === "in" ? "var(--green)" : "var(--red)" }}>
-        {m.type === "in" ? "+" : "−"}{fmt(m.amount)}
-      </td>
-      <td data-label="Loan Status">
-        {isLoan ? (
-          <>
-            <span className={`chip ${m.status === "Closed" ? "gray" : "amber"}`}>{m.status || "Open"}</span>
-            {canUpdate && (
-              <button className="btn plain sm" style={{ padding: "3px 8px", marginLeft: 6 }} onClick={() => onToggleLoan(m.id)}>
-                {m.status === "Closed" ? "Reopen" : "Mark Closed"}
-              </button>
-            )}
-          </>
-        ) : "—"}
-      </td>
+      <td className="ledger-ref" data-label="Ref No" title={loanNumberFor(m)}>{refCellFor(m)}</td>
+      <td data-label="Particulars">{particularsFor(m)}</td>
+      <td data-label="Mode">{modeCellFor(m.mode)}</td>
+      <td className="num" data-label="Debit" style={{ color: m.type === "out" ? "var(--red)" : undefined }}>{m.type === "out" ? fmt(m.amount) : "—"}</td>
+      <td className="num" data-label="Credit" style={{ color: m.type === "in" ? "var(--green)" : undefined }}>{m.type === "in" ? fmt(m.amount) : "—"}</td>
+      <td className="num" data-label="Balance">{fmt(balance)}</td>
     </tr>
   );
 }
@@ -214,9 +237,61 @@ export function Cash() {
   // Loan/Auction/Collection/Expenses — narrows which cash movements show,
   // same Category* buckets backend/internal/cash/repository.go's FindAll
   // filters on server-side (not a client-side re-filter of loaded rows).
-  const [movementsCategory, setMovementsCategory] = useState<CashMovementCategory>("");
+  // Now multi-select (the Type filter section allows checking several
+  // buckets at once), so this is an array rather than the old single value.
+  const [movementsTypes, setMovementsTypes] = useState<CashMovementCategory[]>([]);
+  // Branch/Customer sections of the Ledger filter — independent of the KPI
+  // row's own single `branchId` above (which picks whose summary to show);
+  // these narrow the movement *rows* across however many branches/customers
+  // are checked, same server-side filter as movementsTypes.
+  const [movementsBranchIds, setMovementsBranchIds] = useState<string[]>([]);
+  const [movementsCustomerIds, setMovementsCustomerIds] = useState<string[]>([]);
+  const [allBranches, setAllBranches] = useState<BranchView[]>([]);
   const [downloadingMovements, setDownloadingMovements] = useState(false);
   const [downloadingExpenses, setDownloadingExpenses] = useState(false);
+
+  useEffect(() => { listActiveBranches().then(setAllBranches).catch(() => {}); }, []);
+
+  // Ledger table's grouped filter — Branch, Customer, Type (all
+  // multi-select) + Date. Selecting one or more Branches narrows the
+  // Customer picker to customers whose home branch is one of those
+  // (customers belong to exactly one branch — see customer.model.go); a
+  // Customer already picked whose home branch isn't among the selected
+  // Branches then matches no rows server-side, same "customer has no
+  // account in that branch → nothing shown" rule as the spec.
+  const movementsFilterCategories: FilterCategory[] = [
+    {
+      key: "branch", label: "Branch", kind: "static",
+      options: allBranches.map((b) => ({ value: String(b.id), label: b.name })),
+    },
+    {
+      key: "customer", label: "Customer", kind: "async",
+      fetchOptions: (search, p) =>
+        listCustomersPage(search, p, { branchIds: movementsBranchIds.length ? movementsBranchIds : undefined }, 20).then((res) => ({
+          items: res.items.map((c) => ({ value: String(c.id), label: `${c.name} (${c.code})` })),
+          hasMore: res.hasMore,
+        })),
+    },
+    {
+      key: "type", label: "Type", kind: "static",
+      options: [
+        { value: "loan", label: "Loan" },
+        { value: "auction", label: "Auction" },
+        { value: "collection", label: "Collection" },
+        { value: "personal loan", label: "Personal Loan" },
+        { value: "investment", label: "Investment" },
+        { value: "expenses", label: "Expenses" },
+      ],
+    },
+    { key: "__date", label: "Date", kind: "date" },
+  ];
+  const movementsFilterValue: FilterValue = {
+    branch: movementsBranchIds,
+    customer: movementsCustomerIds,
+    type: movementsTypes,
+    __dateFrom: movementsFrom || undefined,
+    __dateTo: movementsTo || undefined,
+  };
 
   /* Guards against a stale response winning. The first render fires a
    * summary request before the branch list has loaded (branchId ""), then a
@@ -227,7 +302,13 @@ export function Cash() {
   const summarySeq = useRef(0);
 
   const refresh = useCallback(() => {
-    listCashMovementsPage(movementsPage, cashPageSize, { fromDate: movementsFrom || undefined, toDate: movementsTo || undefined, category: movementsCategory || undefined }).then(({ items, hasMore, total }) => {
+    listCashMovementsPage(movementsPage, cashPageSize, {
+      fromDate: movementsFrom || undefined,
+      toDate: movementsTo || undefined,
+      branchIds: movementsBranchIds.length ? movementsBranchIds : undefined,
+      customerIds: movementsCustomerIds.length ? movementsCustomerIds : undefined,
+      types: movementsTypes.length ? movementsTypes : undefined,
+    }).then(({ items, hasMore, total }) => {
       setMovements(items);
       setMovementsHasMore(hasMore);
       setMovementsTotal(total);
@@ -250,7 +331,7 @@ export function Cash() {
       if (seq !== summarySeq.current) return;
       setSummary(null);
     });
-  }, [branchId, today, movementsPage, expensesPage, goldSalesPage, cashPageSize, movementsFrom, movementsTo, movementsCategory]);
+  }, [branchId, today, movementsPage, expensesPage, goldSalesPage, cashPageSize, movementsFrom, movementsTo, movementsBranchIds, movementsCustomerIds, movementsTypes]);
 
   useEffect(() => {
     listActiveBranches().then((list) => {
@@ -264,21 +345,10 @@ export function Cash() {
   useEffect(() => { refresh(); }, [refresh]);
 
   const total = expenses.reduce((s, e) => s + e.amt, 0);
-  const cashIn = movements.filter((m) => m.type === "in").reduce((s, m) => s + m.amount, 0);
-  const cashOut = movements.filter((m) => m.type === "out").reduce((s, m) => s + m.amount, 0);
-
-  async function toggleCashLoan(id: number) {
-    const m = movements.find((x) => x.id === id);
-    if (!m) return;
-    const next = m.status === "Closed" ? "Open" : "Closed";
-    try {
-      await setCashMovementLoanStatus(id, next);
-      refresh();
-      toast(`Loan from ${m.bank} marked ${next.toLowerCase()}`);
-    } catch (e) {
-      toast(e instanceof ApiError ? e.message : "Could not update loan status.");
-    }
-  }
+  // Running balance over the currently loaded (paginated) page only — same
+  // best-effort approach LedgerExportView.tsx's preview table uses, not a
+  // true running balance across the whole filtered set.
+  const movementsWithBalance = withRunningBalance(movements);
 
   async function handleApprove(id: number) {
     try {
@@ -296,7 +366,13 @@ export function Cash() {
   async function downloadMovements() {
     setDownloadingMovements(true);
     try {
-      await exportCashMovements({ fromDate: movementsFrom || undefined, toDate: movementsTo || undefined, category: movementsCategory || undefined });
+      await exportCashMovements({
+        fromDate: movementsFrom || undefined,
+        toDate: movementsTo || undefined,
+        branchIds: movementsBranchIds.length ? movementsBranchIds : undefined,
+        customerIds: movementsCustomerIds.length ? movementsCustomerIds : undefined,
+        types: movementsTypes.length ? movementsTypes : undefined,
+      });
     } catch {
       toast("Could not download cash movements — try again.");
     } finally {
@@ -337,7 +413,7 @@ export function Cash() {
          * + subtitle's natural width plus the 3 buttons tipped `.page-h`
          * past its wrap threshold on narrower screens well before the
          * buttons actually ran out of room beside the title. */}
-        <div className="page-h-title"><h1>Cash-in-Hand &amp; Expenses</h1><p>Daily cash movements, opening balances and branch expenses.</p></div>
+        <div className="page-h-title"><h1>Ledger</h1><p>Daily cash movements, opening balances and branch expenses.</p></div>
         {/* .page-h-actions (app.css) rather than flat siblings of `.page-h`
          * — its own margin-left:auto/justify-content:flex-end keeps all 3
          * buttons right-aligned as a group even once they wrap to their
@@ -359,9 +435,6 @@ export function Cash() {
               </button>
               {cashActionsMenuOpen && (
                 <div className="docs-dd-menu" role="menu">
-                  <a href="#" title="Take Cash Out" onClick={(e) => { e.preventDefault(); setCashActionsMenuOpen(false); openModal(<CashOutModalContent onSaved={refresh} />); }}>
-                    <Icon name="coin" /><span className="tx">Take Cash Out</span>
-                  </a>
                   <a href="#" title="Add Cash" onClick={(e) => { e.preventDefault(); setCashActionsMenuOpen(false); openModal(<AddCashModalContent onSaved={refresh} />); }}>
                     <Icon name="coin" /><span className="tx">Add Cash</span>
                   </a>
@@ -455,35 +528,23 @@ export function Cash() {
       {activeCashTab === "movements" && (
         <div className="card tbl-card tbl-card-fill">
           <div className="hd" style={{ flexWrap: "wrap", rowGap: 10 }}>
-            <h3>Cash Movements</h3>
+            <h3>Ledger</h3>
             <div className="sp" />
-            {/* From/To/Clear as one tight group, then the In/Out summary
-                further right still — the rightmost thing in the row. The
-                whole cluster wraps as a unit onto its own line below the
-                title on narrow screens (flexWrap above), not each control
-                wrapping individually. */}
-            {/* DatePicker is a fixed 230px app-wide by house convention
-                (app.css's `.dp.dp-date` rule ignores a narrower wrapper),
-                so these sit at their natural width rather than fighting it. */}
             <div className="cash-filter-row" style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-              <div style={{ width: 150 }}>
-                <Select
-                  options={[
-                    { value: "", label: "All types" },
-                    { value: "loan", label: "Loan" },
-                    { value: "auction", label: "Auction" },
-                    { value: "collection", label: "Collection" },
-                    { value: "expenses", label: "Expenses" },
-                  ]}
-                  value={movementsCategory}
-                  onChange={(v) => { setMovementsCategory(v as CashMovementCategory); setMovementsPage(1); }}
-                />
-              </div>
-              <DatePicker value={movementsFrom} onChange={(v) => { setMovementsFrom(v); setMovementsPage(1); }} placeholder="From date…" max={movementsTo || undefined} />
-              <DatePicker value={movementsTo} onChange={(v) => { setMovementsTo(v); setMovementsPage(1); }} placeholder="To date…" min={movementsFrom || undefined} />
-              {(movementsFrom || movementsTo || movementsCategory) && (
-                <button className="btn ghost sm" onClick={() => { setMovementsFrom(""); setMovementsTo(""); setMovementsCategory(""); setMovementsPage(1); }}>Clear</button>
-              )}
+              <FilterPanel
+                categories={movementsFilterCategories}
+                value={movementsFilterValue}
+                onChange={(next) => {
+                  setMovementsTypes((Array.isArray(next.type) ? next.type : []) as CashMovementCategory[]);
+                  setMovementsFrom(next.__dateFrom || "");
+                  setMovementsTo(next.__dateTo || "");
+                  const nextBranchIds = Array.isArray(next.branch) ? next.branch : [];
+                  setMovementsBranchIds(nextBranchIds);
+                  setMovementsCustomerIds(Array.isArray(next.customer) ? next.customer : []);
+                  setMovementsPage(1);
+                }}
+                hideChips
+              />
               <button className="btn ghost sm" onClick={downloadMovements} disabled={downloadingMovements} title="Download every row matching the current filters">
                 <Icon name="download" /> {downloadingMovements ? "Preparing…" : "Download"}
               </button>
@@ -491,10 +552,10 @@ export function Cash() {
           </div>
           <div className="tbl-wrap tbl-scroll">
             <table className="tbl tbl-center tbl-roomy tbl-stack">
-              <thead><tr><th>Date</th><th>Type</th><th>Source / Purpose</th><th>Mode</th><th>Bank</th><th className="num">Amount</th><th>Loan Status</th></tr></thead>
+              <thead><tr><th>Date</th><th>Ref No</th><th>Particulars</th><th>Mode</th><th className="num">Debit</th><th className="num">Credit</th><th className="num">Balance</th></tr></thead>
               <tbody>
                 {movements.length
-                  ? movements.map((m) => <MovementRow key={m.id} m={m} canUpdate={canUpdateCash} onToggleLoan={toggleCashLoan} />)
+                  ? movementsWithBalance.map(({ m, balance }) => <MovementRow key={m.id} m={m} balance={balance} />)
                   : <tr><td colSpan={7} className="empty">No cash movements recorded yet. Use &quot;Add Cash&quot; or &quot;Take Cash Out&quot;.</td></tr>}
               </tbody>
             </table>
@@ -506,8 +567,6 @@ export function Cash() {
               * just the current page rather than a fabricated "of N". */}
             <span style={{ fontSize: 12.5 }}>Page {movementsPage} of {movementsTotalPages}</span>
             <button className="btn plain sm" disabled={movementsPage >= movementsTotalPages} onClick={() => setMovementsPage((p) => Math.min(movementsTotalPages, p + 1))}>Next ›</button>
-            <div className="sp" />
-            <span style={{ fontSize: 12.5, color: "var(--muted)" }}>In {fmt(cashIn)} · Out {fmt(cashOut)}</span>
           </div>
         </div>
       )}

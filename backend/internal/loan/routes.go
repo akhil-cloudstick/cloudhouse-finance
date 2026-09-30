@@ -47,6 +47,11 @@ func RegisterRoutes(rg *gin.RouterGroup, h *Handler, perms platform.CRUDMiddlewa
 	// Customer-facing account statement PDF. Read-gated: it shows nothing
 	// the loan detail screen does not already show.
 	rg.GET("/:id/statement", perms.Read, h.Statement)
+	// Single-loan payment ledger drill-down — the universal-ledger pattern's
+	// loan-scoped counterpart of cash's /transactions/bank|customer|branch
+	// routes, but querying LoanPayment rows for this one loan rather than
+	// cross-entity CashMovement rows. Read-gated like Statement above.
+	rg.GET("/:id/ledger", perms.Read, h.GetLedger)
 
 	rg.POST("/:id/ornaments", perms.Update, h.AddOrnament)
 	rg.PUT("/ornaments/:ornamentId", perms.Update, h.UpdateOrnament)

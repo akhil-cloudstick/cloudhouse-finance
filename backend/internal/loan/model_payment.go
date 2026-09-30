@@ -1,6 +1,7 @@
 package loan
 
 import (
+	"cloudhouse/backend/internal/bank"
 	"cloudhouse/backend/internal/platform"
 	"time"
 )
@@ -44,6 +45,20 @@ const (
 	// cash — but unlike Waiver it can reach principal, because what is being
 	// written off after the gold is gone is principal, not just interest.
 	PaymentTypeAuctionWriteOff = "Auction Write-Off"
+
+	// PaymentTypeDisbursement records the loan's own principal payout at
+	// final sanction (see Service.Decide's `disbursing` branch) as a ledger
+	// entry, the same way every other cash-moving event on the loan gets
+	// one — without it, GetLoanLedger (which reads only from LoanPayment
+	// rows) has no row at all for the disbursement, so its Bank/Method never
+	// surface in the loan's own Transactions tab even though the cash-out
+	// movement itself is recorded correctly. Deliberately EXCLUDED from both
+	// ledgerCreditTypes (money going OUT increases what's owed, so this
+	// stays a debit — the same "not yet paid back" direction as the loan
+	// opening) and isCashPaymentType (Service.Decide books the cash-out
+	// movement itself via cashRecorder, so isCashPaymentType including this
+	// too would double-count the till).
+	PaymentTypeDisbursement = "Disbursement"
 )
 
 // LoanPayment is one entry in a loan's payment ledger: what was received
@@ -89,6 +104,16 @@ type LoanPayment struct {
 	UpiAmount          float64 `json:"upiAmount" gorm:"not null;type:numeric(16,2);default:0"`
 	BankTransferAmount float64 `json:"bankTransferAmount" gorm:"not null;type:numeric(16,2);default:0"`
 	ChequeAmount       float64 `json:"chequeAmount" gorm:"not null;type:numeric(16,2);default:0"`
+
+	// BankID is which bank the UPI/Bank Transfer/Cheque portion of this
+	// payment landed in — mirrors CashMovement.BankID/BankRef. Nullable:
+	// blank for a Cash-only payment, and for historical rows recorded before
+	// this field existed. One payment event stores exactly one bank today
+	// (matches the one-row-per-collection-event shape above), even though
+	// the split can span multiple non-cash lines — staff pick the bank the
+	// non-cash portion(s) actually went through.
+	BankID  *uint      `json:"bankId"`
+	BankRef *bank.Bank `json:"bankRef,omitempty" gorm:"foreignKey:BankID"`
 
 	// NeedsModeReview flags a row the one-time Method backfill migration
 	// could not map to exactly one of Cash/UPI/Bank Transfer/Cheque (blank,

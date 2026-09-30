@@ -27,6 +27,7 @@ export function DisburseLoanModalContent({
   const toast = useToast();
   const [split, setSplit] = useState<SplitAmounts>(ZERO_SPLIT);
   const [remaining, setRemaining] = useState(0);
+  const [bankId, setBankId] = useState<number | undefined>(undefined);
   const [err, setErr] = useState("");
   const [saving, setSaving] = useState(false);
   const balanced = Math.abs(remaining) < 0.01;
@@ -43,6 +44,7 @@ export function DisburseLoanModalContent({
         upiAmount: split.upiAmount,
         bankTransferAmount: split.bankTransferAmount,
         chequeAmount: split.chequeAmount,
+        bankId,
       });
       toast(`Approved — ${fmt(loan.principal)} disbursed to the customer`);
       onSaved(updated);
@@ -59,7 +61,7 @@ export function DisburseLoanModalContent({
       <div className="hd" style={{ minHeight: 66 }}><h3>Approve &amp; Disburse — {loan.id}</h3><button className="x" onClick={closeModal}>×</button></div>
       <div className="bd bd-scroll">
         <div className="frow">
-          <SplitPaymentInput totalAmount={loan.principal} onChange={(s, r) => { setSplit(s); setRemaining(r); }} />
+          <SplitPaymentInput totalAmount={loan.principal} onChange={(s, r, bid) => { setSplit(s); setRemaining(r); setBankId(bid); }} />
         </div>
         {err && <div className="notice" style={{ marginTop: 10 }}>{err}</div>}
       </div>

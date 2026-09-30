@@ -8,20 +8,10 @@ type Ev = { key: string; at: string; order: number; icon: string; iconBg?: strin
 
 const PAGE = 10;
 
-function paymentMethod(p: NonNullable<Loan["payments"]>[number]) {
-  if (p.method) return p.method;
-  const modes = [
-    ["Cash", p.cashAmount],
-    ["UPI", p.upiAmount],
-    ["Bank Transfer", p.bankTransferAmount],
-    ["Cheque", p.chequeAmount],
-  ].filter(([, v]) => (v as number) > 0);
-  return modes.length > 1 ? "Split" : modes.length === 1 ? (modes[0][0] as string) : "";
-}
-
-/** Builds the "History of pledges, payments, sanction, extension & release"
- * timeline from the loan payload (approvals, payments, bank pledges) and the
- * loan's extension / release requests. Oldest first, as in the prototype. */
+/** Builds the loan page's History tab: pledge, approvals, rejection, bank
+ * pledges and extension / release requests. Money movements (disbursement,
+ * top-ups, payments) live in the Payment Ledger tab instead (LoanLedger.tsx).
+ * Oldest first, as in the prototype. */
 export function buildLoanEvents(l: Loan, requests: LoanRequest[]): Ev[] {
   const ev: Ev[] = [];
   const weight = l.totalNetWeight ?? (l.ornaments ?? []).reduce((s, o) => s + o.netWeight * (o.quantity || 1), 0);
@@ -64,32 +54,6 @@ export function buildLoanEvents(l: Loan, requests: LoanRequest[]): Ev[] {
       iconColor: C.red,
       title: "Loan rejected",
       sub: [l.rejectedByName ? `by ${l.rejectedByName}` : "", l.rejectionRemarks].filter(Boolean).join(" · "),
-    });
-  }
-
-  if (l.disbursementDate) {
-    const withheld = (l.sanctionedAmount ?? 0) - (l.disbursedAmount ?? 0);
-    ev.push({
-      key: "disbursed",
-      at: l.disbursementDate,
-      order: 2,
-      icon: "check",
-      title: "Loan disbursed",
-      sub: `${inr(l.disbursedAmount ?? l.principalAmount)} released${withheld > 0.004 ? ` · ${inr(withheld)} withheld as service charge` : ""}`,
-    });
-  }
-
-  for (const p of l.payments ?? []) {
-    const m = paymentMethod(p);
-    ev.push({
-      key: `pay-${p.id}`,
-      at: p.paidOn || p.createdAt,
-      order: 3,
-      icon: "card",
-      iconBg: C.greenBg,
-      iconColor: C.green,
-      title: `${p.type} payment received`,
-      sub: `${inr(p.amount)}${m ? ` via ${m}` : ""}${p.reference ? ` · Ref ${p.reference}` : ""}`,
     });
   }
 

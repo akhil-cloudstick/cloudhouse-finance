@@ -21,10 +21,11 @@ import {
 } from "../../../src/components/ui";
 import { PacketDetailSheet } from "../../../src/components/staff/PacketDetail";
 import { LockerDetailSheet, LockerFormSheet, lockerStatus } from "../../../src/components/staff/LockerSheets";
-import { QrScanner, parsePacketCode } from "../../../src/components/QrScanner";
+import { QrScanner, parseLabel } from "../../../src/components/QrScanner";
 import { useServerList } from "../../../src/hooks/useServerList";
 import { useResetOnBlur } from "../../../src/hooks/useRefetchOnFocus";
-import { getPacketByCode, listPacketsPage } from "../../../src/api/packets";
+import { getPacketByCode, listPackets, listPacketsPage } from "../../../src/api/packets";
+import { listLoans } from "../../../src/api/loans";
 import { getLocker, listLockersPage } from "../../../src/api/lockers";
 import { useAuth } from "../../../src/auth/AuthContext";
 import type { Packet } from "../../../src/types/packet";
@@ -78,19 +79,38 @@ export default function PacketsScreen() {
     openPage(`/loans/${loanId}`);
   };
 
-  // QR label → packet lookup (GET /packets/by-code), opens its sheet.
+  // QR label → packet lookup (GET /packets/by-code), opens its sheet. A
+  // loan-only label (printed before the packet existed) resolves the loan by
+  // number, then opens its packet if one has since been created, else the
+  // loan itself.
   async function onScanned(scanned: string) {
     setScannerOpen(false);
-    const code = parsePacketCode(scanned);
-    if (!code) {
+    const label = parseLabel(scanned);
+    if (!label) {
       setScanError("That QR code isn't a packet label.");
       return;
     }
     setScanError(null);
     try {
-      const p = await getPacketByCode(code);
-      setTab("packets");
-      setPacketId(p.id);
+      if (label.kind === "packet") {
+        const p = await getPacketByCode(label.code);
+        setTab("packets");
+        setPacketId(p.id);
+        return;
+      }
+      const loans = await listLoans({ q: label.loanNumber });
+      const loan = loans.find((l) => l.loanNumber.toLowerCase() === label.loanNumber.toLowerCase());
+      if (!loan) {
+        setScanError("No loan found for that label.");
+        return;
+      }
+      const packets = await listPackets({ loanId: loan.id }).catch(() => []);
+      if (packets[0]) {
+        setTab("packets");
+        setPacketId(packets[0].id);
+      } else {
+        openLoan(loan.id);
+      }
     } catch {
       setScanError("No packet found for that code.");
     }

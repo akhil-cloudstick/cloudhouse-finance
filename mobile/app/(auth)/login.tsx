@@ -33,8 +33,8 @@ import {
 // at all — just this one screen, always mounted, switching what it shows
 // via local state. A `phase` NAVIGATION STACK (not React Navigation, just
 // an array) plays the same role a real stack would: pushed to go forward,
-// popped by the header's back chevron, by hardware Back, or by "Back to
-// sign in", same as before. Nothing here can flash, because nothing is
+// popped by hardware Back or by the "Back to sign in" / "Use a different
+// number" links. Nothing here can flash, because nothing is
 // ever un/remounted or handed to a native screen transition to swap.
 type Phase = "login" | "forgot" | "reset";
 
@@ -69,7 +69,6 @@ export default function LoginScreen() {
       return false;
     });
     return () => sub.remove();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [stack.length]);
 
   // ---- Login --------------------------------------------------------------
@@ -176,7 +175,7 @@ export default function LoginScreen() {
 
   if (phase === "reset") {
     return (
-      <AuthShell compact eyebrow="Verify & reset" title={"Set a new\npassword."} subtitle={`Enter the 6-digit code sent to ${phone.trim()}.`} onBack={pop}>
+      <AuthShell compact eyebrow="Verify & reset" title={"Set a new\npassword."} subtitle={`Enter the 6-digit code sent to ${phone.trim()}.`}>
         <OtpInput value={otp} onChange={setOtp} />
         <AuthField
           label="New password"
@@ -215,7 +214,7 @@ export default function LoginScreen() {
   if (phase === "forgot") {
     if (sent) {
       return (
-        <AuthShell eyebrow="Code sent" title={"Check your\nphone."} onBack={pop}>
+        <AuthShell eyebrow="Code sent" title={"Check your\nphone."}>
           <View style={[styles.sentCard, { backgroundColor: colors.bg }]}>
             <View style={[styles.sentIcon, { backgroundColor: colors.greenBg }]}>
               <Icon name="check" size={22} color={colors.green} />
@@ -241,7 +240,6 @@ export default function LoginScreen() {
         eyebrow="Account recovery"
         title={"Forgot your\npassword?"}
         subtitle="Enter your registered phone number and we'll text you a reset code."
-        onBack={pop}
       >
         <AuthField
           label="Phone number"

@@ -5,7 +5,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { SheetFlatList } from "../BottomSheetModal";
 import { Buffering, C, EmptyText, Txt, pullRefreshControl } from "./base";
 import { AccGroup, AccRowKey } from "./Rows";
-import { PCONTENT_BOTTOM } from "../../theme/layout";
+import { PCONTENT_BOTTOM, tabBarLift } from "../../theme/layout";
 
 /** .local-search-input — every page's search box (server `q`). */
 export function SearchInput({
@@ -114,11 +114,12 @@ export function ServerFlatList<T>({
       onEndReached={list.fetchNextPage}
       onEndReachedThreshold={0.4}
       keyboardShouldPersistTaps="handled"
+      keyboardDismissMode="on-drag"
       showsVerticalScrollIndicator={false}
       refreshControl={
         inSheet || !onPull ? undefined : pullRefreshControl(pullRefreshing, onPull)
       }
-      contentContainerStyle={[inSheet ? { paddingBottom: 24 } : { paddingBottom: PCONTENT_BOTTOM + insets.bottom }, contentStyle]}
+      contentContainerStyle={[inSheet ? { paddingBottom: 24 } : { paddingBottom: PCONTENT_BOTTOM + tabBarLift(insets.bottom) }, contentStyle]}
     />
     </AccGroup>
   );

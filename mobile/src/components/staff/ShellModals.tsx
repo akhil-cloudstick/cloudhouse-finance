@@ -633,7 +633,7 @@ const MORE_ROWS: MoreRow[] = [
   { key: "packets", route: "packets", title: "Packets & Lockers", sub: "Ornament custody tracking", icon: "doc", perms: [["Packet_Management", "can_view_packet"], ["Locker_Management", "can_view_locker"]] },
   { key: "banks", route: "banks", title: "Bank Pledges", sub: "Loans pledged to a bank", icon: "card", perms: [["Bank_Pledge_Management", "can_view_bank_pledge"]] },
   { key: "requests", route: "requests", title: "Releases", sub: "Loan extensions & gold release", icon: "edit", perms: [["Loan_Management", "can_view_loan"]] },
-  { key: "cash", route: "cash", title: "Cash & Expenses", sub: "Movements, expenses & gold sales", icon: "coin", perms: [["Cash_Management", "can_view_cash"]] },
+  { key: "cash", route: "cash", title: "Ledger", sub: "Movements, expenses & gold sales", icon: "coin", perms: [["Cash_Management", "can_view_cash"]] },
   { key: "personal-loans", route: "personal-loans", title: "Personal Loans", sub: "Non-gold loans & collections", icon: "card", perms: [["Personal_Loan_Management", "can_view_personal_loan"]] },
   { key: "investments", route: "investments", title: "Investments", sub: "Deposits, plans & payouts", icon: "coin", perms: [["Investment_Management", "can_view_investment"]] },
   { key: "reminders", route: "reminders", title: "Reminders", sub: "Follow-ups & promise-to-pay", icon: "calendar", perms: [["Reminder_Management", "can_view_reminder"]] },

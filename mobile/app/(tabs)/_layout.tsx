@@ -114,7 +114,7 @@ export default function TabsLayout() {
         <Tabs.Screen name="packets" options={{ title: "Packets & Lockers", href: null }} />
         <Tabs.Screen name="banks" options={{ title: "Bank Pledges", href: null }} />
         <Tabs.Screen name="requests" options={{ title: "Requests", href: null }} />
-        <Tabs.Screen name="cash" options={{ title: "Cash & Expenses", href: null }} />
+        <Tabs.Screen name="cash" options={{ title: "Ledger", href: null }} />
         <Tabs.Screen name="personal-loans" options={{ title: "Personal Loans", href: null }} />
         <Tabs.Screen name="investments" options={{ title: "Investments", href: null }} />
         <Tabs.Screen name="reminders" options={{ title: "Reminders", href: null }} />

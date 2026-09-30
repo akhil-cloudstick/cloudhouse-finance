@@ -32,7 +32,7 @@ func preloadAll(db *gorm.DB) *gorm.DB {
 		Preload("Ornaments.PurityTest").
 		Preload("Ornaments.Images").
 		Preload("Approvals").
-		Preload("Payments").
+		Preload("Payments.BankRef").
 		Preload("Pledges")
 }
 
@@ -254,7 +254,24 @@ func (r *Repository) FindAll(ctx context.Context, f LoanFilter) ([]Loan, int64, 
 	// Most recently opened loan first. Ordering by id alone pinned whichever
 	// loan was inserted last to the top even when an older-dated loan was
 	// entered afterwards; id only breaks ties within the same day now.
-	q := applyFilters(preloadAll(r.db.WithContext(ctx)).Model(&Loan{}).Order("loans.opened_date desc, loans.id desc"), f)
+	//
+	// The Bank Pledge "Active" tab (f.BankPledgeStatus == Pledged) is the one
+	// exception: staff expect the most recently PLEDGED loan at the top, not
+	// the one that happened to be opened most recently — a loan taken out
+	// months ago but pledged to a bank just now would otherwise sort to the
+	// bottom, looking like nothing had just happened. Ordered by that loan's
+	// own active pledge record instead (there's at most one, per
+	// Service.RecordBankPledge's guard), falling back to the usual
+	// opened_date order for every other filter.
+	base := preloadAll(r.db.WithContext(ctx)).Model(&Loan{})
+	if f.BankPledgeStatus == BankPledgeStatusPledged {
+		base = base.
+			Joins("JOIN bank_pledge_records ON bank_pledge_records.loan_id = loans.id AND bank_pledge_records.status = ?", BankPledgeStatusRecordActive).
+			Order("bank_pledge_records.pledge_date desc, bank_pledge_records.id desc")
+	} else {
+		base = base.Order("loans.opened_date desc, loans.id desc")
+	}
+	q := applyFilters(base, f)
 	var total int64
 	if f.Limit > 0 {
 		// A real COUNT over the same filter, ignoring Limit/Offset — computed
@@ -503,6 +520,26 @@ func (r *PaymentRepository) FindByLoanID(ctx context.Context, loanID uint) ([]Lo
 	var payments []LoanPayment
 	err := r.db.WithContext(ctx).Where("loan_id = ?", loanID).Order("paid_on desc, id desc").Find(&payments).Error
 	return payments, err
+}
+
+// FindByLoanIDPaged is FindByLoanID's ledger-drill-down counterpart —
+// chronological (oldest first) since RunningBalance only reads correctly in
+// that order, and paginated with a total count the same way
+// cash.MovementRepository.ListByBank/ListByCustomer/ListByBranch are. Preloads
+// BankRef for the ledger row's bankName column.
+func (r *PaymentRepository) FindByLoanIDPaged(ctx context.Context, loanID uint, limit, offset int) ([]LoanPayment, int64, error) {
+	var payments []LoanPayment
+	var total int64
+	q := r.db.WithContext(ctx).Model(&LoanPayment{}).Where("loan_id = ?", loanID)
+	if err := q.Count(&total).Error; err != nil {
+		return nil, 0, err
+	}
+	find := r.db.WithContext(ctx).Preload("BankRef").Where("loan_id = ?", loanID).Order("paid_on asc, id asc")
+	if limit > 0 {
+		find = find.Limit(limit).Offset(offset)
+	}
+	err := find.Find(&payments).Error
+	return payments, total, err
 }
 
 // FindByID looks up a single payment by its primary key — used by the

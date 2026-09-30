@@ -166,6 +166,10 @@ func Run(db *gorm.DB, cfg platform.Config) error {
 		return err
 	}
 
+	if err := cash.SeedDefaultSourcesAndCategories(db); err != nil {
+		return err
+	}
+
 	if err := loan.NormalizeLegacyPurities(db); err != nil {
 		return err
 	}
@@ -1028,6 +1032,9 @@ var allModels = []any{
 	&cash.Expense{},
 	&cash.OpeningCashBalance{},
 	&cash.GoldSale{},
+	&cash.CashSource{},
+	&cash.ExpenseCategory{},
+	&cash.LoanCashSource{},
 	&settings.ApiKeySetting{},
 	&customer.Customer{},
 	&loan.Loan{},

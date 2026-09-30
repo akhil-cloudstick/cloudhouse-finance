@@ -1,34 +1,12 @@
 import React, { useEffect, useState } from "react";
 import { View } from "react-native";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import {
-  AccBtn,
-  AsyncSelect,
-  BtnRow2,
-  Buffering,
-  C,
-  ChipToggle,
-  DateField,
-  EmptyText,
-  Field,
-  FieldGrid,
-  FieldRow,
-  Input,
-  NoticeBanner,
-  PledgeItem,
-  PrimaryButton,
-  Sheet,
-  TextField,
-  Txt,
-  WarningBanner,
-} from "../../ui";
+import { AccBtn, BtnRow2, Buffering, C, EmptyText, FieldGrid, NoticeBanner, PledgeItem, PrimaryButton, Sheet, TextField, Txt, WarningBanner } from "../../ui";
 import { getBankPledgeHistory, recordBankPledge, releaseBankPledge, voidBankPledge } from "../../../api/bankPledges";
-import { listBanks } from "../../../api/banks";
 import { dmy, inr, todayISO } from "../../../lib/format";
 import type { Loan } from "../../../types/loan";
 import { ErrorText, apiErr, invalidateLoan } from "./common";
-
-type CashTreatment = "RecordOnly" | "CashIn";
+import { BankPledgeForm, bankPledgeFormInit } from "./BankPledgeForm";
 
 /** Bank pledge (repledge) for one loan, in the prototype's sheet style —
  * parity with frontend BankPledge.tsx: bank picker (bankId), interest rate +
@@ -49,14 +27,7 @@ export function BankPledgeSheet({
   const isFinished = l.status === "Closed" || l.status === "Rejected";
   const activePledge = l.bankPledges?.find((p) => p.status === "Active");
 
-  const [bankId, setBankId] = useState<number | undefined>();
-  const [bankName, setBankName] = useState("");
-  const [amount, setAmount] = useState("");
-  const [date, setDate] = useState(todayISO());
-  const [rate, setRate] = useState("");
-  const [due, setDue] = useState("");
-  const [reference, setReference] = useState("");
-  const [cash, setCash] = useState<CashTreatment>("RecordOnly");
+  const [form, setForm] = useState(() => bankPledgeFormInit(l));
   const [error, setError] = useState<string | null>(null);
   const [confirmRelease, setConfirmRelease] = useState(false);
   const [voidOpen, setVoidOpen] = useState(false);
@@ -75,23 +46,17 @@ export function BankPledgeSheet({
   const record = useMutation({
     mutationFn: () =>
       recordBankPledge(l.id, {
-        bankId,
-        bankName,
-        pledgedAmount: Number(amount),
-        pledgeDate: date || todayISO(),
-        bankInterestRate: rate ? Number(rate) : undefined,
-        referenceNumber: reference.trim() || undefined,
-        bankPledgeDueDate: due || undefined,
-        cashTreatment: cash,
+        bankId: form.bankId,
+        bankName: form.bankName,
+        pledgedAmount: Number(form.amount),
+        pledgeDate: form.pledgeDate || todayISO(),
+        bankInterestRate: form.rate ? Number(form.rate) : undefined,
+        referenceNumber: form.reference.trim() || undefined,
+        bankPledgeDueDate: form.dueDate || undefined,
+        cashTreatment: form.cash,
       }),
     onSuccess: () => {
-      setBankId(undefined);
-      setBankName("");
-      setAmount("");
-      setDate(todayISO());
-      setRate("");
-      setDue("");
-      setReference("");
+      setForm(bankPledgeFormInit(l));
       done();
     },
     onError: (e) => setError(apiErr(e)),
@@ -163,35 +128,7 @@ export function BankPledgeSheet({
             </BtnRow2>
           </>
         ) : !isFinished ? (
-          <>
-            <AsyncSelect
-              label="Bank"
-              placeholder="Search banks"
-              queryKey={["banks-picker"]}
-              fetcher={(q) => listBanks(q || undefined)}
-              selectedLabel={bankName || undefined}
-              keyOf={(b) => b.id}
-              renderItem={(b) => ({ title: b.name })}
-              onSelect={(b) => {
-                setBankId(b.id);
-                setBankName(b.name);
-              }}
-            />
-            <TextField label="Pledged amount" keyboardType="decimal-pad" value={amount} onChangeText={setAmount} placeholder="0" />
-            <FieldRow>
-              <DateField label="Pledge date" value={date} onChange={setDate} max={todayISO()} />
-              <Field label="Interest rate %">
-                <Input keyboardType="decimal-pad" value={rate} onChangeText={setRate} placeholder="0" />
-              </Field>
-            </FieldRow>
-            <DateField label="Due date" value={due} onChange={setDue} min={date || undefined} clearable />
-            <TextField label="Reference number" value={reference} onChangeText={setReference} placeholder="Optional" />
-            <Field label="Cash treatment">
-              <ChipToggle options={["RecordOnly", "CashIn"] as const} value={cash} onChange={setCash} labels={{ RecordOnly: "Record only", CashIn: "Add to cash-in-hand" }} />
-            </Field>
-            <ErrorText>{error}</ErrorText>
-            <PrimaryButton label="Repledge to Bank" onPress={() => record.mutate()} loading={record.isPending} disabled={!bankName || !(Number(amount) > 0)} style={{ marginBottom: 12 }} />
-          </>
+          <BankPledgeForm value={form} onChange={setForm} fixedLoan={l} error={error} onSubmit={() => record.mutate()} submitting={record.isPending} />
         ) : (
           <Txt style={{ fontSize: 12.5, color: C.muted, marginBottom: 14 }}>
             Gold is {l.bankPledgeStatus === "Released" ? "released to customer" : "held in-house"}

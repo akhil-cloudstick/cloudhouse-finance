@@ -3,6 +3,7 @@ package customer
 import (
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"cloudhouse/backend/internal/platform"
@@ -10,6 +11,28 @@ import (
 
 	"github.com/gin-gonic/gin"
 )
+
+// parseUintCSV parses a comma-separated list of uint ids (e.g. "3,7,12"
+// from ?branchIds=3,7,12) — empty/non-numeric entries are silently skipped
+// since this only ever narrows a filter (a bad id just matches nothing).
+func parseUintCSV(s string) []uint {
+	if s == "" {
+		return nil
+	}
+	var out []uint
+	for _, part := range strings.Split(s, ",") {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			continue
+		}
+		v, err := strconv.ParseUint(part, 10, 64)
+		if err != nil {
+			continue
+		}
+		out = append(out, uint(v))
+	}
+	return out
+}
 
 // Handler wires HTTP requests to the Service.
 type Handler struct {
@@ -149,6 +172,7 @@ func (h *Handler) List(c *gin.Context) {
 	f := CustomerFilter{
 		Query:         c.Query("q"),
 		BranchID:      platform.GetBranchScope(c),
+		BranchIDs:     parseUintCSV(c.Query("branchIds")),
 		PANStatus:     c.Query("panStatus"),
 		AadhaarStatus: c.Query("aadhaarStatus"),
 		CustomerType:  c.Query("customerType"),

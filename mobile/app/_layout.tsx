@@ -1,5 +1,5 @@
 import { useEffect, useState, type ReactNode } from "react";
-import { Slot, useRouter, useSegments } from "expo-router";
+import { DefaultTheme, Slot, ThemeProvider as NavThemeProvider, useRouter, useSegments } from "expo-router";
 import { QueryClient, QueryClientProvider, focusManager } from "@tanstack/react-query";
 import { useFonts, Inter_400Regular, Inter_500Medium, Inter_600SemiBold } from "@expo-google-fonts/inter";
 import { Montserrat_700Bold } from "@expo-google-fonts/montserrat";
@@ -18,6 +18,7 @@ import { KeyboardDoneBar } from "../src/components/ui/KeyboardDone";
 import { AnimatedSplash } from "../src/components/AnimatedSplash";
 import { AuthProvider, useAuth } from "../src/auth/AuthContext";
 import { colors } from "../src/theme/colors";
+import { useDismissKeyboardOnOutsideTouch } from "../src/hooks/useDismissKeyboardOnOutsideTouch";
 
 SplashScreen.preventAutoHideAsync();
 
@@ -32,6 +33,18 @@ SplashScreen.preventAutoHideAsync();
 SystemUI.setBackgroundColorAsync(colors.bg).catch(() => {});
 
 const queryClient = new QueryClient();
+
+// Without this every navigator (the Tabs container, each module Stack's
+// card) falls back to React Navigation's stock light theme — a grey
+// rgb(242,242,242) background and white cards. The tab scenes are
+// transparent and slide in, and a lazily-mounted tab or a stack screen
+// shows its card before its own content lays out, so page switches flashed
+// that white/grey. Pointing both at the app's ivory makes any such gap
+// match the page instead.
+const navTheme = {
+  ...DefaultTheme,
+  colors: { ...DefaultTheme.colors, background: colors.bg, card: colors.bg },
+};
 
 // React Query's `refetchOnWindowFocus` (on by default) listens for a
 // browser 'visibilitychange' event, which doesn't exist in React Native.
@@ -74,6 +87,7 @@ function RootNavigation() {
   const segments = useSegments();
   const router = useRouter();
   useAndroidStatusBarTranslucency();
+  const dismissKeyboard = useDismissKeyboardOnOutsideTouch();
 
   useEffect(() => {
     if (isLoading) return;
@@ -103,12 +117,16 @@ function RootNavigation() {
     // no-ops under enforced edge-to-edge, but they matter on Android 14 and
     // older (and in Expo Go), where the OS otherwise reserves an opaque
     // system-bar area and paints it black instead of drawing behind it.
-    <View style={{ flex: 1, backgroundColor: colors.bg }}>
+    // Closes the keyboard on any touch outside the field being typed in —
+    // see useDismissKeyboardOnOutsideTouch.
+    <View style={{ flex: 1, backgroundColor: colors.bg }} {...dismissKeyboard}>
       {/* Every page header (and the auth brand panel) paints the hero
           gradient up behind the status bar, so its icons are light
           everywhere and no separate status-bar strip is drawn. */}
       <StatusBar style="light" />
-      <Slot />
+      <NavThemeProvider value={navTheme}>
+        <Slot />
+      </NavThemeProvider>
       {/* Bottom sheets render here — above every screen, laid out against
           the real screen bounds. See src/components/SheetHost.tsx. */}
       <SheetHost />

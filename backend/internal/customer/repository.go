@@ -25,8 +25,13 @@ func (r *Repository) Create(ctx context.Context, c *Customer) error {
 // zero-value fields are ignored. PANStatus/AadhaarStatus back the
 // Customers & KYC page's "PAN Verified"/"Aadhaar Verified" filters.
 type CustomerFilter struct {
-	Query         string
-	BranchID      *uint
+	Query    string
+	BranchID *uint
+	// BranchIDs is the Ledger filter's multi-select Branch section — narrows
+	// the Customer picker to customers whose home branch is one of these,
+	// separate from BranchID (the caller's auth-derived branch SCOPE, which
+	// still applies together with this via AND).
+	BranchIDs     []uint
 	PANStatus     string
 	AadhaarStatus string
 	// CustomerType narrows to Borrower or Investor (see model.go's
@@ -52,6 +57,9 @@ func (r *Repository) FindAll(ctx context.Context, f CustomerFilter) ([]Customer,
 	}
 	if f.BranchID != nil {
 		q = q.Where("branch_id = ?", *f.BranchID)
+	}
+	if len(f.BranchIDs) > 0 {
+		q = q.Where("branch_id IN ?", f.BranchIDs)
 	}
 	if f.PANStatus != "" {
 		q = q.Where("pan_status = ?", f.PANStatus)
