@@ -1,13 +1,20 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { searchExpenseCategoriesPage } from "@/modules/cash/services/expenseCategoryService";
+import { searchExpenseCategoriesPage, EXPENSE_CATEGORIES_CHANGED } from "@/modules/cash/services/expenseCategoryService";
 
 /* Lower-cased category name -> id. Expense.category is free text server
  * side, so ledger rows only carry the name; this resolves it to the id the
- * category ledger route (#party-category/:id) needs. Loaded once per mount. */
+ * category ledger route (#party-category/:id) needs. Loaded on mount and
+ * again whenever a category is created. */
 export function useExpenseCategoryIds(): Record<string, number> {
   const [map, setMap] = useState<Record<string, number>>({});
+  const [version, setVersion] = useState(0);
+  useEffect(() => {
+    const bump = () => setVersion((v) => v + 1);
+    window.addEventListener(EXPENSE_CATEGORIES_CHANGED, bump);
+    return () => window.removeEventListener(EXPENSE_CATEGORIES_CHANGED, bump);
+  }, []);
   useEffect(() => {
     let cancelled = false;
     (async () => {
@@ -20,7 +27,7 @@ export function useExpenseCategoryIds(): Record<string, number> {
       if (!cancelled) setMap(next);
     })().catch(() => {});
     return () => { cancelled = true; };
-  }, []);
+  }, [version]);
   return map;
 }
 

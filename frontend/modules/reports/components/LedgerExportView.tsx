@@ -150,7 +150,7 @@ export function LedgerExportView({ onBack }: { onBack: () => void }) {
           <p>Preview and download the ledger — narrow it by branch, customer, type or date</p>
         </div>
         <div className="sp" />
-        <FilterPanel categories={categories} value={filters} onChange={setFilters} hideChips />
+        <FilterPanel categories={categories} value={filters} onChange={setFilters} hideChips size="md" />
         <button className="btn ghost" disabled={exporting} onClick={() => onDownload("pdf")}>
           <Icon name="download" /> {exporting ? "Exporting…" : "Export PDF"}
         </button>
