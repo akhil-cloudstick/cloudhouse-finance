@@ -43,3 +43,15 @@ export const PHEADER_FADE = 28;
 export function usePContentBottom(extra = 0) {
   return PCONTENT_BOTTOM + useSafeAreaInsets().bottom + extra;
 }
+
+/** How far the floating tab bar (and everything positioned relative to it —
+ * page end padding, FABs, action bars, the fade) rises for the device's
+ * bottom safe-area inset. The bar's own PTAB_INSET margin is absorbed into
+ * the inset rather than stacked on top of it: stacking put the bar 14px
+ * above a 34px home indicator / 48px 3-button nav bar, leaving a tall
+ * empty strip under it (and a matching extra gap at every page's end) on
+ * exactly the devices with the biggest insets. The bar never goes below the
+ * inset, so it still clears the system navigation. */
+export function tabBarLift(insetBottom: number) {
+  return Math.max(insetBottom - PTAB_INSET, 0);
+}

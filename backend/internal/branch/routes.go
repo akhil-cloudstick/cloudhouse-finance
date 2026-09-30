@@ -28,6 +28,7 @@ func RegisterRoutes(rg *gin.RouterGroup, h *Handler, perms platform.CRUDMiddlewa
 	// segment regardless of order. Answers "which branches may I switch
 	// between", which the scoped list above cannot: see Handler.Switchable.
 	rg.GET("/switchable", perms.Read, h.Switchable)
+	rg.GET("/quota", perms.Read, h.Quota)
 	rg.GET("/:id", perms.Read, h.Get)
 	rg.PUT("/:id", moduleGate, perms.Update, h.Update)
 	rg.DELETE("/:id", moduleGate, perms.Delete, h.Delete)

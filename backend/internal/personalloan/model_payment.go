@@ -3,6 +3,7 @@ package personalloan
 import (
 	"time"
 
+	"cloudhouse/backend/internal/bank"
 	"cloudhouse/backend/internal/platform"
 )
 
@@ -47,6 +48,11 @@ type PersonalLoanPayment struct {
 	UpiAmount          float64 `json:"upiAmount" gorm:"not null;type:numeric(16,2);default:0"`
 	BankTransferAmount float64 `json:"bankTransferAmount" gorm:"not null;type:numeric(16,2);default:0"`
 	ChequeAmount       float64 `json:"chequeAmount" gorm:"not null;type:numeric(16,2);default:0"`
+
+	// BankID — see LoanPayment's identical field. Nil for a Cash-only
+	// payment or the RenewLoan rollover entry.
+	BankID  *uint      `json:"bankId"`
+	BankRef *bank.Bank `json:"bankRef,omitempty" gorm:"foreignKey:BankID"`
 
 	// NeedsModeReview — see LoanPayment's identical field.
 	NeedsModeReview bool `json:"needsModeReview" gorm:"not null;default:false"`

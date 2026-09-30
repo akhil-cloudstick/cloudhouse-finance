@@ -81,8 +81,13 @@ func TestScopedTableSetIsNotEmptyAndHasNoGlobals(t *testing.T) {
 	// they were served unfiltered — the exact uploaded_files failure this
 	// comment describes, repeated. Their routes were also absent from
 	// internal/app's route manifest, which is why no probe caught it.
-	if len(tenantScopedTables) != 48 {
-		t.Errorf("expected 48 tenant-scoped tables, got %d — update this test "+
+	// 48 -> 51: cash_sources, expense_categories and loan_cash_sources were
+	// added (expense-category/bank-source tracking work).
+	// 51 -> 55: loan_top_ups, loan_request_ornaments, personal_loan_history
+	// and investment_transactions — the same "embeds TenantScoped, missing
+	// from the map" defect again; their rows were never stamped either.
+	if len(tenantScopedTables) != 55 {
+		t.Errorf("expected 55 tenant-scoped tables, got %d — update this test "+
 			"deliberately when adding a model, so a new table cannot slip in "+
 			"unfiltered", len(tenantScopedTables))
 	}

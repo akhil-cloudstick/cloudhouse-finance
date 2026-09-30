@@ -28,6 +28,7 @@ export function invalidateLoan(qc: QueryClient, loanId: number | string) {
   qc.invalidateQueries({ queryKey: ["loanRequests"] });
   qc.invalidateQueries({ queryKey: ["bankPledgeHistory", id] });
   qc.invalidateQueries({ queryKey: ["loanPacket", id] });
+  qc.invalidateQueries({ queryKey: ["loanTopUps", id] });
   qc.invalidateQueries({ queryKey: ["loans"] });
 }
 

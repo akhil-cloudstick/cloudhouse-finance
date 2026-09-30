@@ -41,6 +41,20 @@ export async function listSwitchableBranches(): Promise<SwitchableBranches> {
   return rec || { branches: [], canSwitch: false };
 }
 
+/* The business's plan and how many active branches it runs — GET
+ * /branches/quota. Advisory only: the server refuses an over-limit create or
+ * reactivate on its own, whatever this page shows. quota 0 = unlimited. */
+export type BranchQuota = {
+  plan: string;
+  quota: number;
+  used: number;
+  unlimited: boolean;
+};
+
+export async function getBranchQuota(): Promise<BranchQuota> {
+  return apiFetchEnveloped<BranchQuota>("/branches/quota");
+}
+
 export async function getBranch(id: number): Promise<BranchView> {
   return apiFetchEnveloped<BranchView>(`/branches/${id}`);
 }

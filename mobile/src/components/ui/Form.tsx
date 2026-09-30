@@ -365,6 +365,7 @@ export function AsyncSelect<T>({
   renderItem,
   onClear,
   minChars = 0,
+  onCreateNew,
 }: {
   label?: string;
   placeholder?: string;
@@ -376,6 +377,11 @@ export function AsyncSelect<T>({
   renderItem: (v: T) => { title: string; sub?: string };
   onClear?: () => void;
   minChars?: number;
+  // Opt-in "+ Create '<query>'" row, shown ahead of results when the typed
+  // query doesn't exactly match (case-insensitive) any loaded item's title —
+  // same allowCreate convention as the web's SearchableSelect.tsx. Resolves
+  // to the created item, which is then selected exactly like a picked row.
+  onCreateNew?: (q: string) => Promise<T>;
 }) {
   const { ref, measure } = useAnchor();
   const input = useRef<TextInput>(null);
@@ -386,6 +392,7 @@ export function AsyncSelect<T>({
   const enabled = open && dq.trim().length >= minChars;
   const { data, isFetching } = useQuery({ queryKey: [...queryKey, dq], queryFn: () => fetcher(dq.trim()), enabled });
   const items = useMemo(() => (data ?? []).slice(0, 30), [data]);
+  const [creating, setCreating] = useState(false);
   const close = () => {
     setAnchor(null);
     setQ("");
@@ -393,6 +400,20 @@ export function AsyncSelect<T>({
     Keyboard.dismiss();
   };
   const showClear = !!selectedLabel && !!onClear && !open;
+  const trimmedQ = dq.trim();
+  const showCreateRow =
+    !!onCreateNew && trimmedQ.length > 0 && !items.some((it) => renderItem(it).title.toLowerCase() === trimmedQ.toLowerCase());
+  async function pickCreate() {
+    if (!onCreateNew || !trimmedQ || creating) return;
+    setCreating(true);
+    try {
+      const created = await onCreateNew(trimmedQ);
+      onSelect(created);
+      close();
+    } finally {
+      setCreating(false);
+    }
+  }
   return (
     <Field label={label}>
       <View ref={ref} collapsable={false}>
@@ -421,11 +442,14 @@ export function AsyncSelect<T>({
         </Pressable>
       </View>
       <Popover anchor={anchor} onClose={close} onRemeasure={() => measure(setAnchor)} maxHeight={280} minWidth={240} awaitKeyboard>
+        {showCreateRow ? (
+          <MenuItem title={creating ? "Creating…" : `+ Create "${trimmedQ}"`} onPress={pickCreate} />
+        ) : null}
         {isFetching && items.length === 0 ? (
           <View style={{ paddingVertical: 14, alignItems: "center" }}>
             <Spinner size={20} />
           </View>
-        ) : items.length === 0 ? (
+        ) : items.length === 0 && !showCreateRow ? (
           <Txt style={[s.ddItemTxt, { padding: 10, color: C.muted }]}>{dq.trim().length < minChars ? "Type to search" : "No matches"}</Txt>
         ) : (
           items.map((it) => {

@@ -1,14 +1,16 @@
-import React, { useEffect, useState } from "react";
-import { View } from "react-native";
+import React, { useEffect, useMemo, useState } from "react";
+import { Pressable, StyleSheet, View } from "react-native";
 import { useLocalSearchParams } from "expo-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   AccRow,
   AccBtn,
+  AsyncSelect,
   Buffering,
   C,
   Card,
   CashRow,
+  CheckItem,
   ConfirmSheet,
   ChipToggle,
   ClosingCard,
@@ -26,7 +28,6 @@ import {
   ServerFlatList,
   Sheet,
   SheetListItem,
-  ThemeDropdown,
   Txt,
   toast,
 } from "../../../src/components/ui";
@@ -36,17 +37,29 @@ import { ApiError } from "../../../src/api/client";
 import {
   approveExpense,
   createCashMovement,
+  createCashSource,
   createExpense,
+  createExpenseCategory,
   createGoldSale,
   getCashSummary,
   listCashMovementsPage,
+  listCashSourcesPage,
+  listExpenseCategoriesPage,
   listExpensesPage,
   listGoldSalesPage,
   rejectExpense,
   setOpeningBalance,
+  type CashSource,
+  type ExpenseCategory,
 } from "../../../src/api/cash";
+import { createBank, listBanksPage } from "../../../src/api/banks";
+import type { Bank } from "../../../src/types/bank";
+import { listBranches } from "../../../src/api/branches";
+import { listCustomersPage } from "../../../src/api/customers";
 import { dmy, inr, todayISO } from "../../../src/lib/format";
 import type { CashMovement, Expense, GoldSale } from "../../../src/types/cash";
+import type { Branch } from "../../../src/types/branch";
+import type { Customer } from "../../../src/types/customer";
 import { userMessage } from "../../../src/api/errors";
 
 // Cash & Expenses — prototype #header-cash + #page-cash and the
@@ -56,11 +69,84 @@ import { userMessage } from "../../../src/api/errors";
 
 const TABS = ["movements", "expenses", "goldSales"] as const;
 type Tab = (typeof TABS)[number];
-type CashAction = "addCash" | "takeCashOut" | "goldSale" | "expense" | null;
+type CashAction = "addCash" | "goldSale" | "expense" | null;
 const MOVE_MODES = ["Cash", "UPI", "Bank Transfer", "Cheque"] as const;
 const EXPENSE_MODES = ["Cash", "UPI", "Bank Transfer"] as const;
 
+// Mirrors backend/internal/cash/repository.go's Category* constants — same
+// list web's Cash.tsx/LedgerExportView.tsx Type filter offers.
+const MOVEMENT_TYPE_OPTIONS = [
+  { value: "loan", label: "Loan" },
+  { value: "auction", label: "Auction" },
+  { value: "collection", label: "Collection" },
+  { value: "personal loan", label: "Personal Loan" },
+  { value: "investment", label: "Investment" },
+  { value: "expenses", label: "Expenses" },
+];
+
+// The Movements tab's Branch/Customer/Type multi-select filter state,
+// server-applied via listCashMovementsPage's branchIds/customerIds/types
+// (mirrors web's FilterPanel on Cash.tsx). Kept as plain state in the
+// screen (not inside useServerList) since it's also read by the Customer
+// picker sheet to narrow its own options by the selected branches.
+type MovementFilters = { branchIds: number[]; customerIds: number[]; types: string[] };
+const EMPTY_MOVEMENT_FILTERS: MovementFilters = { branchIds: [], customerIds: [], types: [] };
+
+const fs = StyleSheet.create({
+  filterBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+    borderRadius: 11,
+    borderWidth: 1,
+    borderColor: C.line,
+    backgroundColor: C.card,
+  },
+  filterBtnTxt: { fontSize: 13, fontWeight: "700", color: C.ink },
+  filterBadge: {
+    minWidth: 18,
+    height: 18,
+    borderRadius: 9,
+    paddingHorizontal: 4,
+    backgroundColor: C.brandDeep,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  filterBadgeTxt: { fontSize: 10.5, fontWeight: "700", color: "#fff" },
+  filterTabWrap: { paddingHorizontal: 16, paddingTop: 4 },
+  filterList: { paddingHorizontal: 16, paddingTop: 8, gap: 2 },
+});
+
 const errMsg = (err: unknown, fallback: string) => userMessage(err, fallback);
+
+// loanRefFor pulls the loan number back out of `purpose` — every
+// loan-related movement's Purpose carries it as a "… — LN-00049" suffix
+// (see cash.MovementService.RecordLoanDisbursementCashOut/
+// RecordLoanPaymentCashIn/etc) — same regex web's Cash.tsx uses. Falls back
+// to the transaction group id / movement id for a movement with no loan
+// number (manual top-ups, expenses, gold sales, …).
+const LOAN_NUMBER_RE = /—\s*(LN-\S+)\s*$/;
+function loanRefFor(m: CashMovement): string {
+  const match = m.purpose ? LOAN_NUMBER_RE.exec(m.purpose) : null;
+  return match?.[1] || m.transactionGroupId || String(m.id);
+}
+
+// Running balance over the currently loaded (paginated) page only — same
+// best-effort approach web's Cash.tsx/LedgerExportView.tsx use, not a true
+// running balance across the whole filtered set. Items are newest-first
+// (occurred_on desc from the backend), so this walks oldest→newest to
+// accumulate, then re-reverses to line back up with `items`' own order.
+function runningBalances(items: CashMovement[]): number[] {
+  const chronological = [...items].reverse();
+  let running = 0;
+  const balances = chronological.map((m) => {
+    running += m.type === "out" ? -m.amount : m.amount;
+    return running;
+  });
+  return balances.reverse();
+}
 
 export default function CashScreen() {
   const qc = useQueryClient();
@@ -78,6 +164,9 @@ export default function CashScreen() {
   const [actionsOpen, setActionsOpen] = useState(false);
   const [action, setAction] = useState<CashAction>(null);
   const [openingOpen, setOpeningOpen] = useState(false);
+  const [movementFilters, setMovementFilters] = useState<MovementFilters>(EMPTY_MOVEMENT_FILTERS);
+  const [movementFilterSheetOpen, setMovementFilterSheetOpen] = useState(false);
+  const movementFilterCount = movementFilters.branchIds.length + movementFilters.customerIds.length + movementFilters.types.length;
 
   const summary = useQuery({
     queryKey: ["cash-summary", employee?.branchId, today],
@@ -85,7 +174,13 @@ export default function CashScreen() {
     enabled: !!employee,
   });
 
-  const movements = useServerList<CashMovement>({ key: ["cash-movements", "list"], fetchPage: (p) => listCashMovementsPage(p), enabled: tab === "movements" });
+  const movements = useServerList<CashMovement, MovementFilters>({
+    key: ["cash-movements", "list"],
+    fetchPage: (p) => listCashMovementsPage(p),
+    filters: movementFilters,
+    enabled: tab === "movements",
+  });
+  const movementBalances = useMemo(() => runningBalances(movements.items), [movements.items]);
   const expenses = useServerList<Expense>({ key: ["expenses", "list"], fetchPage: (p) => listExpensesPage(p), enabled: tab === "expenses" });
   const goldSales = useServerList<GoldSale>({ key: ["gold-sales", "list"], fetchPage: (p) => listGoldSalesPage(p), enabled: tab === "goldSales" });
 
@@ -140,7 +235,19 @@ export default function CashScreen() {
       <PillTabs tabs={TABS} value={tab} onChange={setTab} labels={{ movements: "Movements", expenses: "Expenses", goldSales: "Gold Sales" }} />
       <View style={{ paddingTop: 12 }}>
         {tab === "movements" ? (
-          <SearchInput value={movements.search} onChangeText={movements.setSearch} placeholder="Search by purpose or source" style={{ paddingBottom: 8 }} />
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 8, paddingHorizontal: 18, paddingBottom: 8 }}>
+            <View style={{ flex: 1 }}>
+              <SearchInput value={movements.search} onChangeText={movements.setSearch} placeholder="Search by purpose or source" style={{ paddingHorizontal: 0, paddingBottom: 0 }} />
+            </View>
+            <Pressable onPress={() => setMovementFilterSheetOpen(true)} style={fs.filterBtn}>
+              <Txt style={fs.filterBtnTxt}>Filters</Txt>
+              {movementFilterCount > 0 ? (
+                <View style={fs.filterBadge}>
+                  <Txt style={fs.filterBadgeTxt}>{movementFilterCount}</Txt>
+                </View>
+              ) : null}
+            </Pressable>
+          </View>
         ) : tab === "expenses" ? (
           <SearchInput value={expenses.search} onChangeText={expenses.setSearch} placeholder="Search by category or payee" style={{ paddingBottom: 8 }} />
         ) : (
@@ -156,7 +263,7 @@ export default function CashScreen() {
   };
 
   return (
-    <Screen header={<FlatHeader title="Cash & Expenses" subtitle="Movements, expenses & gold sales" />}>
+    <Screen header={<FlatHeader title="Ledger" subtitle="Movements, expenses & gold sales" />}>
       {tab === "movements" ? (
         <ServerFlatList
           list={{ ...movements, refetch: refreshAll(movements.refetch) }}
@@ -173,8 +280,11 @@ export default function CashScreen() {
               statusTone={m.type === "in" ? "active" : "due"}
               details={[
                 { k: "Date", v: dmy(m.occurredOn) },
-                { k: "Source", v: m.source || "—" },
+                { k: "Ref No", v: loanRefFor(m) },
                 { k: "Mode", v: m.mode || "—" },
+                { k: "Debit", v: m.type === "out" ? inr(m.amount) : "—" },
+                { k: "Credit", v: m.type === "in" ? inr(m.amount) : "—" },
+                { k: "Balance", v: inr(movementBalances[i] ?? 0) },
                 m.bank || m.bankRef?.name ? { k: "Bank", v: m.bank || m.bankRef?.name || "—" } : { k: "Branch", v: m.branch?.name || "—" },
                 ...(m.partyCustomer?.name ? [{ k: "Customer", v: m.partyCustomer.name }] : []),
                 ...(m.status ? [{ k: "Status", v: m.status }] : []),
@@ -251,7 +361,6 @@ export default function CashScreen() {
         {(
           [
             { key: "addCash", icon: "coin", title: "Add Cash", sub: "Record cash coming into the branch" },
-            { key: "takeCashOut", icon: "card", title: "Take Cash Out", sub: "Record cash leaving the branch" },
             { key: "goldSale", icon: "coin", title: "Gold Sale", sub: "Record an auctioned/sold ornament" },
             { key: "expense", icon: "doc", title: "Record Expense", sub: "Log a branch expense" },
           ] as const
@@ -270,8 +379,7 @@ export default function CashScreen() {
         ))}
       </Sheet>
 
-      <MovementSheet type="in" visible={action === "addCash"} onClose={() => setAction(null)} branchId={employee?.branchId} />
-      <MovementSheet type="out" visible={action === "takeCashOut"} onClose={() => setAction(null)} branchId={employee?.branchId} />
+      <MovementSheet visible={action === "addCash"} onClose={() => setAction(null)} branchId={employee?.branchId} />
       <GoldSaleSheet visible={action === "goldSale"} onClose={() => setAction(null)} branchId={employee?.branchId} />
       <ExpenseSheet visible={action === "expense"} onClose={() => setAction(null)} branchId={employee?.branchId} />
       <ConfirmSheet
@@ -287,31 +395,69 @@ export default function CashScreen() {
         onConfirm={(reason) => rejecting && reject.mutate({ id: rejecting.id, reason })}
       />
       <OpeningBalanceSheet visible={openingOpen} onClose={() => setOpeningOpen(false)} branchId={employee?.branchId} current={s?.openingCash} />
+      <MovementFilterSheet
+        visible={movementFilterSheetOpen}
+        onClose={() => setMovementFilterSheetOpen(false)}
+        value={movementFilters}
+        onChange={setMovementFilters}
+      />
     </Screen>
   );
 }
 
 type FormProps = { visible: boolean; onClose: () => void; branchId?: number };
 
-// prototype #add-cash-modal / #cash-out-modal
-function MovementSheet({ type, visible, onClose, branchId }: FormProps & { type: "in" | "out" }) {
+// prototype #add-cash-modal
+function MovementSheet({ visible, onClose, branchId }: FormProps) {
   const qc = useQueryClient();
-  const [source, setSource] = useState("");
+  const [source, setSource] = useState<CashSource | null>(null);
   const [purpose, setPurpose] = useState("");
   const [amount, setAmount] = useState("");
   const [mode, setMode] = useState<(typeof MOVE_MODES)[number]>("Cash");
   const [error, setError] = useState<string | null>(null);
+
+  const isLoan = source?.name === "Loan";
+  const [loanBank, setLoanBank] = useState<Bank | null>(null);
+  const [loanNumber, setLoanNumber] = useState("");
+  const [principalAmount, setPrincipalAmount] = useState("");
+  const [interestRate, setInterestRate] = useState("");
+  const [durationMonths, setDurationMonths] = useState("");
+
   useEffect(() => {
     if (visible) {
-      setSource("");
+      setSource(null);
       setPurpose("");
       setAmount("");
       setMode("Cash");
       setError(null);
+      setLoanBank(null);
+      setLoanNumber("");
+      setPrincipalAmount("");
+      setInterestRate("");
+      setDurationMonths("");
     }
   }, [visible]);
+
   const m = useMutation({
-    mutationFn: () => createCashMovement({ type, source: source.trim(), purpose: purpose.trim(), amount: Number(amount), mode, bank: undefined, branchId }),
+    mutationFn: () =>
+      createCashMovement({
+        type: "in",
+        source: source!.name,
+        purpose: purpose.trim(),
+        amount: Number(amount),
+        mode,
+        bank: undefined,
+        branchId,
+        loanSource: isLoan
+          ? {
+              bankId: loanBank!.id,
+              loanNumber: loanNumber.trim(),
+              principalAmount: Number(principalAmount),
+              interestRate: interestRate.trim() ? Number(interestRate) : undefined,
+              durationMonths: durationMonths.trim() ? Number(durationMonths) : undefined,
+            }
+          : undefined,
+      }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["cash-movements"] });
       qc.invalidateQueries({ queryKey: ["cash-summary"] });
@@ -319,12 +465,24 @@ function MovementSheet({ type, visible, onClose, branchId }: FormProps & { type:
     },
     onError: (err) => setError(errMsg(err, "Could not save.")),
   });
-  const title = type === "in" ? "Add Cash" : "Take Cash Out";
+
+  const loanValid = !isLoan || (!!loanBank && !!loanNumber.trim() && Number(principalAmount) > 0);
+  const canSubmit = !!source && !!purpose.trim() && Number(amount) > 0 && loanValid;
+
   return (
-    <Sheet visible={visible} onClose={onClose} title={title} maxHeightPct={65}>
-      <Field label={type === "in" ? "Source" : "Source / Destination"}>
-        <Input placeholder={type === "in" ? "e.g. Loan repayment, Bank withdrawal" : "e.g. Bank deposit, Vendor payment"} value={source} onChangeText={setSource} />
-      </Field>
+    <Sheet visible={visible} onClose={onClose} title="Add Cash" maxHeightPct={isLoan ? 90 : 65}>
+      <AsyncSelect<CashSource>
+        label="Source"
+        placeholder="Search or add a source (e.g. Savings, Loan)"
+        queryKey={["cash-sources", "picker"]}
+        fetcher={async (q) => (await listCashSourcesPage(q, 0)).items ?? []}
+        selectedLabel={source?.name}
+        onSelect={setSource}
+        onClear={() => setSource(null)}
+        keyOf={(s) => s.id}
+        renderItem={(s) => ({ title: s.name })}
+        onCreateNew={createCashSource}
+      />
       <Field label="Purpose">
         <Input placeholder="Short description" value={purpose} onChangeText={setPurpose} />
       </Field>
@@ -334,25 +492,65 @@ function MovementSheet({ type, visible, onClose, branchId }: FormProps & { type:
       <Field label="Mode">
         <ChipToggle options={MOVE_MODES} value={mode} onChange={setMode} wrap />
       </Field>
+
+      {isLoan ? (
+        <View style={{ borderWidth: 1, borderColor: C.line, borderStyle: "dashed", borderRadius: 10, padding: 12, marginBottom: 10 }}>
+          <Txt style={{ fontSize: 12, fontWeight: "700", color: C.brandDeep, marginBottom: 8 }}>LOAN DETAILS</Txt>
+          <AsyncSelect<Bank>
+            label="Bank"
+            placeholder="Search or add a bank"
+            queryKey={["banks", "picker"]}
+            fetcher={async (q) => (await listBanksPage({ q: q || undefined, limit: 20, offset: 0 })).items ?? []}
+            selectedLabel={loanBank?.name}
+            onSelect={setLoanBank}
+            onClear={() => setLoanBank(null)}
+            keyOf={(b) => b.id}
+            renderItem={(b) => ({ title: b.name })}
+            onCreateNew={(name) => createBank({ name })}
+          />
+          <Field label="Loan Number">
+            <Input placeholder="e.g. LN-00049" value={loanNumber} onChangeText={setLoanNumber} />
+          </Field>
+          <FieldRow>
+            <Field label="Principal Amount (₹)">
+              <Input keyboardType="decimal-pad" value={principalAmount} onChangeText={setPrincipalAmount} />
+            </Field>
+            <Field label="Interest Rate (%)">
+              <Input keyboardType="decimal-pad" placeholder="Optional" value={interestRate} onChangeText={setInterestRate} />
+            </Field>
+          </FieldRow>
+          <Field label="Duration (months)">
+            <Input keyboardType="number-pad" placeholder="Optional" value={durationMonths} onChangeText={setDurationMonths} />
+          </Field>
+        </View>
+      ) : null}
+
       {error ? <Txt style={{ fontSize: 12, color: C.red, marginBottom: 10 }}>{error}</Txt> : null}
-      <PrimaryButton label={title} onPress={() => m.mutate()} loading={m.isPending} disabled={!source.trim() || !purpose.trim() || !(Number(amount) > 0)} />
+      <PrimaryButton label="Add Cash" onPress={() => m.mutate()} loading={m.isPending} disabled={!canSubmit} />
     </Sheet>
   );
 }
 
 // prototype #gold-sale-modal — live profit/loss preview.
+const GOLD_SALE_MODES = ["Cash", "UPI", "Bank Transfer"] as const;
+
 function GoldSaleSheet({ visible, onClose, branchId }: FormProps) {
   const qc = useQueryClient();
   const [type, setType] = useState("");
   const [sold, setSold] = useState("");
   const [cost, setCost] = useState("");
+  const [mode, setMode] = useState<(typeof GOLD_SALE_MODES)[number]>("Cash");
+  const [bank, setBank] = useState<Bank | null>(null);
   const [remarks, setRemarks] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const bankRequired = mode === "UPI" || mode === "Bank Transfer";
   useEffect(() => {
     if (visible) {
       setType("");
       setSold("");
       setCost("");
+      setMode("Cash");
+      setBank(null);
       setRemarks("");
       setError(null);
     }
@@ -360,7 +558,11 @@ function GoldSaleSheet({ visible, onClose, branchId }: FormProps) {
   const profit = (Number(sold) || 0) - (Number(cost) || 0);
   const m = useMutation({
     mutationFn: () =>
-      createGoldSale({ ornamentType: type.trim(), soldAmount: Number(sold), costAmount: Number(cost || 0), branchId: branchId!, remarks: remarks.trim() || undefined }),
+      createGoldSale({
+        ornamentType: type.trim(), soldAmount: Number(sold), costAmount: Number(cost || 0), branchId: branchId!,
+        mode, bankId: bankRequired ? bank?.id : undefined,
+        remarks: remarks.trim() || undefined,
+      }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["gold-sales"] });
       qc.invalidateQueries({ queryKey: ["cash-movements"] });
@@ -382,30 +584,49 @@ function GoldSaleSheet({ visible, onClose, branchId }: FormProps) {
           <Input keyboardType="decimal-pad" placeholder="₹" value={cost} onChangeText={setCost} />
         </Field>
       </FieldRow>
+      <Field label="Payment Mode">
+        <ChipToggle options={GOLD_SALE_MODES} value={mode} onChange={(v) => { setMode(v); if (v === "Cash") setBank(null); }} wrap />
+      </Field>
+      {bankRequired ? (
+        <AsyncSelect<Bank>
+          label="Bank"
+          placeholder="Search or add a bank"
+          queryKey={["banks", "picker"]}
+          fetcher={async (q) => (await listBanksPage({ q: q || undefined, limit: 20, offset: 0 })).items ?? []}
+          selectedLabel={bank?.name}
+          onSelect={setBank}
+          onClear={() => setBank(null)}
+          keyOf={(b) => b.id}
+          renderItem={(b) => ({ title: b.name })}
+          onCreateNew={(name) => createBank({ name })}
+        />
+      ) : null}
       <ResultBox k="Profit / Loss" v={`${profit >= 0 ? "+" : "−"}${inr(Math.abs(profit))}`} tone={profit >= 0 ? "green" : "red"} />
       <Field label="Remarks">
         <Input placeholder="e.g. Auctioned — LN-2199" value={remarks} onChangeText={setRemarks} />
       </Field>
       {error ? <Txt style={{ fontSize: 12, color: C.red, marginBottom: 10 }}>{error}</Txt> : null}
-      <PrimaryButton label="Record Gold Sale" onPress={() => m.mutate()} loading={m.isPending} disabled={!type.trim() || !(Number(sold) > 0) || !branchId} />
+      <PrimaryButton
+        label="Record Gold Sale"
+        onPress={() => m.mutate()}
+        loading={m.isPending}
+        disabled={!type.trim() || !(Number(sold) > 0) || !branchId || (bankRequired && !bank)}
+      />
     </Sheet>
   );
 }
 
-// Same list as the web's ExpenseModal (frontend/common/components/modals/ExpenseModal.tsx).
-const EXPENSE_CATEGORIES = ["Rent & Utilities", "Salaries", "Transportation", "Marketing", "Bank Charges", "Maintenance", "Stationery & Office", "Legal & Miscellaneous", "Other"];
-
 // prototype #record-expense-modal
 function ExpenseSheet({ visible, onClose, branchId }: FormProps) {
   const qc = useQueryClient();
-  const [category, setCategory] = useState("");
+  const [category, setCategory] = useState<ExpenseCategory | null>(null);
   const [amount, setAmount] = useState("");
   const [mode, setMode] = useState<(typeof EXPENSE_MODES)[number]>("Cash");
   const [payee, setPayee] = useState("");
   const [error, setError] = useState<string | null>(null);
   useEffect(() => {
     if (visible) {
-      setCategory("");
+      setCategory(null);
       setAmount("");
       setMode("Cash");
       setPayee("");
@@ -413,7 +634,7 @@ function ExpenseSheet({ visible, onClose, branchId }: FormProps) {
     }
   }, [visible]);
   const m = useMutation({
-    mutationFn: () => createExpense({ category: category.trim(), amount: Number(amount), mode, payee: payee.trim(), branchId: branchId! }),
+    mutationFn: () => createExpense({ category: category!.name, amount: Number(amount), mode, payee: payee.trim(), branchId: branchId! }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["expenses"] });
       qc.invalidateQueries({ queryKey: ["cash-summary"] });
@@ -423,9 +644,18 @@ function ExpenseSheet({ visible, onClose, branchId }: FormProps) {
   });
   return (
     <Sheet visible={visible} onClose={onClose} title="Record Expense" maxHeightPct={65}>
-      <Field label="Category">
-        <ThemeDropdown<string> value={category || null} options={EXPENSE_CATEGORIES} onChange={setCategory} labelOf={(c) => c} placeholder="Select a category" />
-      </Field>
+      <AsyncSelect<ExpenseCategory>
+        label="Category"
+        placeholder="Search or add a category"
+        queryKey={["expense-categories", "picker"]}
+        fetcher={async (q) => (await listExpenseCategoriesPage(q, 0)).items ?? []}
+        selectedLabel={category?.name}
+        onSelect={setCategory}
+        onClear={() => setCategory(null)}
+        keyOf={(c) => c.id}
+        renderItem={(c) => ({ title: c.name })}
+        onCreateNew={createExpenseCategory}
+      />
       <Field label="Amount">
         <Input keyboardType="decimal-pad" placeholder="₹" value={amount} onChangeText={setAmount} />
       </Field>
@@ -436,7 +666,7 @@ function ExpenseSheet({ visible, onClose, branchId }: FormProps) {
         <Input placeholder="Who was paid" value={payee} onChangeText={setPayee} />
       </Field>
       {error ? <Txt style={{ fontSize: 12, color: C.red, marginBottom: 10 }}>{error}</Txt> : null}
-      <PrimaryButton label="Record Expense" onPress={() => m.mutate()} loading={m.isPending} disabled={!category.trim() || !(Number(amount) > 0) || !payee.trim() || !branchId} />
+      <PrimaryButton label="Record Expense" onPress={() => m.mutate()} loading={m.isPending} disabled={!category || !(Number(amount) > 0) || !payee.trim() || !branchId} />
     </Sheet>
   );
 }
@@ -470,6 +700,108 @@ function OpeningBalanceSheet({ visible, onClose, branchId, current }: FormProps 
       </Field>
       {error ? <Txt style={{ fontSize: 12, color: C.red, marginBottom: 10 }}>{error}</Txt> : null}
       <PrimaryButton label="Save Opening Balance" onPress={() => m.mutate()} loading={m.isPending} disabled={amount.trim() === "" || isNaN(Number(amount)) || !branchId} />
+    </Sheet>
+  );
+}
+
+const FILTER_TABS = ["branch", "customer", "type"] as const;
+type FilterTab = (typeof FILTER_TABS)[number];
+
+/** Movements tab's Branch/Customer/Type multi-select filter — mirrors web's
+ * FilterPanel (Cash.tsx) as 3 tabs of checkable rows inside one sheet
+ * (mobile has no direct FilterPanel equivalent). Selecting a Branch narrows
+ * the Customer tab's own list to customers whose home branch is one of
+ * those (a customer belongs to exactly one branch), same cross-filter rule
+ * as web. Applies immediately (no separate "Apply" step) since each toggle
+ * already re-queries the (debounced) list underneath via useServerList's
+ * `filters`. */
+function MovementFilterSheet({
+  visible,
+  onClose,
+  value,
+  onChange,
+}: {
+  visible: boolean;
+  onClose: () => void;
+  value: MovementFilters;
+  onChange: (next: MovementFilters) => void;
+}) {
+  const [filterTab, setFilterTab] = useState<FilterTab>("branch");
+  useEffect(() => {
+    if (visible) setFilterTab("branch");
+  }, [visible]);
+
+  const branches = useQuery({ queryKey: ["branches", "all"], queryFn: listBranches, enabled: visible });
+  const customers = useServerList<Customer, { branchIds?: number[] }>({
+    key: ["customers", "filter-picker"],
+    fetchPage: (p) => listCustomersPage(p),
+    filters: value.branchIds.length ? { branchIds: value.branchIds } : {},
+    enabled: visible && filterTab === "customer",
+  });
+
+  function toggleBranch(id: number) {
+    onChange({
+      ...value,
+      branchIds: value.branchIds.includes(id) ? value.branchIds.filter((b) => b !== id) : [...value.branchIds, id],
+    });
+  }
+  function toggleCustomer(id: number) {
+    onChange({
+      ...value,
+      customerIds: value.customerIds.includes(id) ? value.customerIds.filter((c) => c !== id) : [...value.customerIds, id],
+    });
+  }
+  function toggleType(v: string) {
+    onChange({ ...value, types: value.types.includes(v) ? value.types.filter((t) => t !== v) : [...value.types, v] });
+  }
+
+  const count = value.branchIds.length + value.customerIds.length + value.types.length;
+
+  return (
+    <Sheet visible={visible} onClose={onClose} title="Filter Movements" maxHeightPct={80} scroll={false}>
+      <View style={fs.filterTabWrap}>
+        <PillTabs
+          tabs={FILTER_TABS}
+          value={filterTab}
+          onChange={setFilterTab}
+          labels={{ branch: `Branch${value.branchIds.length ? ` (${value.branchIds.length})` : ""}`, customer: `Customer${value.customerIds.length ? ` (${value.customerIds.length})` : ""}`, type: `Type${value.types.length ? ` (${value.types.length})` : ""}` }}
+          inSheet
+        />
+      </View>
+      {filterTab === "branch" ? (
+        <View style={fs.filterList}>
+          {branches.isLoading ? (
+            <Buffering style={{ paddingVertical: 20 }} />
+          ) : (
+            (branches.data ?? []).map((b: Branch) => (
+              <CheckItem key={b.id} checked={value.branchIds.includes(b.id)} onPress={() => toggleBranch(b.id)} title={b.name} />
+            ))
+          )}
+        </View>
+      ) : filterTab === "type" ? (
+        <View style={fs.filterList}>
+          {MOVEMENT_TYPE_OPTIONS.map((o) => (
+            <CheckItem key={o.value} checked={value.types.includes(o.value)} onPress={() => toggleType(o.value)} title={o.label} />
+          ))}
+        </View>
+      ) : (
+        <ServerFlatList
+          list={customers}
+          items={customers.items}
+          inSheet
+          keyOf={(c) => `c${c.id}`}
+          emptyText={value.branchIds.length ? "No customers in the selected branch(es)." : "No customers found."}
+          header={<SearchInput value={customers.search} onChangeText={customers.setSearch} placeholder="Search customer" style={{ paddingHorizontal: 16 }} />}
+          renderItem={(c) => (
+            <CheckItem checked={value.customerIds.includes(c.id)} onPress={() => toggleCustomer(c.id)} title={c.name} sub={c.code} />
+          )}
+        />
+      )}
+      {count > 0 ? (
+        <View style={{ paddingHorizontal: 16, paddingTop: 8, paddingBottom: 4 }}>
+          <AccBtn label="Clear all filters" onPress={() => onChange(EMPTY_MOVEMENT_FILTERS)} />
+        </View>
+      ) : null}
     </Sheet>
   );
 }

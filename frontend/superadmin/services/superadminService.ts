@@ -200,6 +200,96 @@ export function adjustExpiry(id: number, expiresAt: string | null, reason: strin
   });
 }
 
+/* --- Business detail page ------------------------------------------------ */
+
+/* Every figure is for the ONE business asked about — see
+ * backend/internal/superadmin/overview.go's businessUsage. */
+export type BusinessUsage = {
+  branches: number;
+  branchesTotal: number;
+  /* 0 means unlimited (then `unlimited` is also true). */
+  branchQuota: number;
+  unlimited: boolean;
+  employees: number;
+  customers: number;
+  loansTotal: number;
+  loansActive: number;
+  personalLoansActive: number;
+  investmentsActive: number;
+  goldSales: number;
+  files: number;
+  storageBytes: number;
+  /* Rupees (not paise) — the loans table stores numeric rupees. */
+  outstandingPrincipal: number;
+  lastActivityAt?: string | null;
+};
+
+export type PaymentMode = "cash" | "bank_transfer" | "upi" | "cheque" | "card" | "other";
+
+export const PAYMENT_MODE_LABELS: Record<PaymentMode, string> = {
+  cash: "Cash",
+  bank_transfer: "Bank transfer",
+  upi: "UPI",
+  cheque: "Cheque",
+  card: "Card",
+  other: "Other",
+};
+
+/* A hand-recorded plan payment. Information only — recording one charges
+ * nothing and changes no status, plan or expiry. */
+export type SubscriptionPayment = {
+  id: number;
+  tenantId: number;
+  amountInPaise: number;
+  paidOn: string;
+  mode: PaymentMode;
+  reference: string;
+  note: string;
+  periodFrom?: string | null;
+  periodTo?: string | null;
+  planName: string;
+  recordedById: number;
+  recordedByName: string;
+  createdAt: string;
+};
+
+export type BusinessOverview = {
+  business: Business;
+  usage: BusinessUsage;
+  payments: SubscriptionPayment[];
+  totalPaidInPaise: number;
+  lastPayment?: SubscriptionPayment | null;
+  recentActivity: AuditLogEntry[];
+};
+
+export function getBusinessOverview(id: number): Promise<BusinessOverview> {
+  return request<BusinessOverview>(`/superadmin/businesses/${id}/overview`);
+}
+
+export type RecordPaymentInput = {
+  amountInPaise: number;
+  paidOn: string; // YYYY-MM-DD
+  mode: PaymentMode;
+  reference?: string;
+  note?: string;
+  periodFrom?: string;
+  periodTo?: string;
+};
+
+export function recordPayment(id: number, input: RecordPaymentInput): Promise<SubscriptionPayment> {
+  return request<SubscriptionPayment>(`/superadmin/businesses/${id}/payments`, {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+}
+
+export function deletePayment(id: number, paymentId: number, reason: string): Promise<{ deleted: boolean }> {
+  return request<{ deleted: boolean }>(`/superadmin/businesses/${id}/payments/${paymentId}`, {
+    method: "DELETE",
+    body: JSON.stringify({ reason }),
+  });
+}
+
 export type AuditLogEntry = {
   id: number;
   superAdminUserId: number;

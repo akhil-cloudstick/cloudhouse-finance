@@ -46,7 +46,8 @@ type Tier struct {
 	Name string `json:"name" gorm:"uniqueIndex;not null;size:60"`
 	// BranchQuota is the maximum number of ACTIVE branches. Enforced
 	// transactionally at branch creation — a plain count-then-create lets
-	// two concurrent requests both pass the check.
+	// two concurrent requests both pass the check. 0 means UNLIMITED (see
+	// UnlimitedBranches / Repository.ReserveBranchSlot).
 	BranchQuota uint `json:"branchQuota" gorm:"not null;default:1"`
 
 	// PriceInPaise is this tier's subscription price, billed monthly via
@@ -74,6 +75,12 @@ type Tier struct {
 }
 
 func (Tier) TableName() string { return "tiers" }
+
+// UnlimitedBranches is the BranchQuota value meaning "no branch limit".
+const UnlimitedBranches uint = 0
+
+// IsUnlimited reports whether this tier places no cap on active branches.
+func (t Tier) IsUnlimited() bool { return t.BranchQuota == UnlimitedBranches }
 
 // Tenant is one paying business.
 type Tenant struct {

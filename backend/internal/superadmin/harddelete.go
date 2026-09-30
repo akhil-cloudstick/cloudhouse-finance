@@ -21,6 +21,10 @@ import (
 // nothing left to preserve: the whole business is going away.
 var hardDeleteOrder = []string{
 	// Grandchildren.
+	"loan_request_ornaments",
+	"loan_top_ups",
+	"personal_loan_history",
+	"investment_transactions",
 	"ornament_purity_tests",
 	"ornament_images",
 	"packet_movements",
@@ -101,6 +105,10 @@ var hardDeleteUntenanted = map[string]bool{
 // not trusted, deleted instead by walking up to the parent a real foreign key
 // anchors them to. See wipe.go's doc comment for the failure this fixes.
 var hardDeleteChildOf = map[string]struct{ fk, parent string }{
+	"loan_request_ornaments":     {"request_id", "loan_requests"},
+	"loan_top_ups":               {"loan_id", "loans"},
+	"personal_loan_history":      {"personal_loan_id", "personal_loans"},
+	"investment_transactions":    {"investment_id", "investments"},
 	"ornament_purity_tests":      {"ornament_id", "ornaments"},
 	"ornament_images":            {"ornament_id", "ornaments"},
 	"packet_movements":           {"packet_id", "packets"},

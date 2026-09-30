@@ -98,10 +98,16 @@ export function DatePicker({
       setPanelPos({ top: r.bottom + 6, left: r.left, width: r.width });
     }
     updatePos();
-    window.addEventListener("scroll", updatePos, true);
+    // Closes on scroll instead of repositioning — see Select.tsx's identical
+    // fix for why a `position:fixed` panel re-anchored mid-scroll reads as a
+    // floating, detached dropdown instead of tracking its trigger smoothly.
+    function closeOnScroll() {
+      setOpen(false);
+    }
+    window.addEventListener("scroll", closeOnScroll, true);
     window.addEventListener("resize", updatePos);
     return () => {
-      window.removeEventListener("scroll", updatePos, true);
+      window.removeEventListener("scroll", closeOnScroll, true);
       window.removeEventListener("resize", updatePos);
     };
   }, [open]);

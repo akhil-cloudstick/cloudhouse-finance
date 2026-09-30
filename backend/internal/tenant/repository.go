@@ -125,6 +125,11 @@ func (r *Repository) ReserveBranchSlot(ctx context.Context, tenantID uint, apply
 		if err := tx.First(&tier, t.TierID).Error; err != nil {
 			return fmt.Errorf("loading tier for tenant %d: %w", tenantID, err)
 		}
+		// The tenant row is still locked above even for an unlimited plan, so
+		// a concurrent ChangeTier to a capped plan cannot slip in between.
+		if tier.IsUnlimited() {
+			return apply(tx)
+		}
 		var active int64
 		if err := tx.Table("branches").
 			Where("tenant_id = ? AND is_active = true AND deleted_at IS NULL", tenantID).
@@ -132,9 +137,7 @@ func (r *Repository) ReserveBranchSlot(ctx context.Context, tenantID uint, apply
 			return err
 		}
 		if uint(active) >= tier.BranchQuota {
-			return httpx.NewConflict(fmt.Sprintf(
-				"the %s plan includes %d active branch(es); this business already has %d",
-				tier.Name, tier.BranchQuota, active))
+			return httpx.NewConflict(BranchLimitMessage(tier, active))
 		}
 		return apply(tx)
 	})
@@ -176,7 +179,67 @@ func (r *Repository) UpsertTier(ctx context.Context, name string, quota uint) (*
 	if err := r.db.WithContext(ctx).Create(rec).Error; err != nil {
 		return nil, err
 	}
+	// GORM omits a zero value on a column with a default tag, so an
+	// unlimited (0) tier would be inserted as the column default of 1.
+	if quota == UnlimitedBranches {
+		if err := r.db.WithContext(ctx).Model(rec).Update("branch_quota", 0).Error; err != nil {
+			return nil, err
+		}
+		rec.BranchQuota = 0
+	}
 	return rec, nil
+}
+
+// RenameTier renames a tier in place (keeping its id, so every business on
+// it stays on it). A no-op when from no longer exists or to already does —
+// which makes it safe to run on every boot.
+func (r *Repository) RenameTier(ctx context.Context, from, to string) error {
+	if _, err := r.FindTierByName(ctx, to); err == nil {
+		return nil
+	}
+	return r.db.WithContext(ctx).Model(&Tier{}).Where("name = ?", from).Update("name", to).Error
+}
+
+// BranchLimitMessage is the refusal a tenant sees when adding a branch would
+// exceed its plan — worded for the business's staff, not the vendor.
+func BranchLimitMessage(tier Tier, active int64) string {
+	return fmt.Sprintf(
+		"Your current plan (%s) allows %d branch%s and you already have %d. "+
+			"To add more branches, contact your administrator to upgrade your plan.",
+		tier.Name, tier.BranchQuota, plural(tier.BranchQuota), active)
+}
+
+func plural(n uint) string {
+	if n == 1 {
+		return ""
+	}
+	return "es"
+}
+
+// BranchUsage is what the tenant's Branches page shows about its plan.
+type BranchUsage struct {
+	Plan      string `json:"plan"`
+	Quota     uint   `json:"quota"`
+	Used      int64  `json:"used"`
+	Unlimited bool   `json:"unlimited"`
+}
+
+// BranchUsage reports the tenant's plan and how many active branches it has.
+// Read-only and advisory — ReserveBranchSlot remains the enforcement.
+func (r *Repository) BranchUsage(ctx context.Context, tenantID uint) (*BranchUsage, error) {
+	t, err := r.FindByID(ctx, tenantID)
+	if err != nil {
+		return nil, err
+	}
+	var tier Tier
+	if err := r.db.WithContext(ctx).First(&tier, t.TierID).Error; err != nil {
+		return nil, err
+	}
+	used, err := r.CountActiveBranches(ctx, tenantID)
+	if err != nil {
+		return nil, err
+	}
+	return &BranchUsage{Plan: tier.Name, Quota: tier.BranchQuota, Used: used, Unlimited: tier.IsUnlimited()}, nil
 }
 
 // SaveTier persists changes to an existing tier — used by billing.Service to

@@ -34,6 +34,18 @@ func (h *Handler) SchemeStatement(c *gin.Context) {
 		httpx.FailErr(c, err)
 		return
 	}
+	// The loan list below is tenant-filtered, so another business's scheme id
+	// could only ever yield an empty statement — but an empty 200 still
+	// answers "yes" to a probe. Refuse it like every other id route.
+	owned, err := platform.ExistsInTenant(ctx, h.svc.repo.db, "schemes", schemeID)
+	if err != nil {
+		httpx.FailErr(c, err)
+		return
+	}
+	if !owned {
+		httpx.Fail(c, http.StatusNotFound, "scheme not found")
+		return
+	}
 	from, to, ok := parseOpenedRange(c)
 	if !ok {
 		return

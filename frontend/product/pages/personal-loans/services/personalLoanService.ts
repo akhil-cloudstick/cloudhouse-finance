@@ -91,6 +91,11 @@ export type BackendPersonalLoanPayment = {
   description: string;
   runningBalance: number;
   installmentId: number | null;
+  // Which bank the UPI/Bank Transfer/Cheque portion landed in — see
+  // backend PersonalLoanPayment.BankID's doc comment. Nil for a Cash-only
+  // payment.
+  bankId?: number | null;
+  bankRef?: { id: number; name: string } | null;
   createdAt: string;
 };
 
@@ -174,6 +179,7 @@ export function recordPersonalLoanPayment(
     upiAmount?: number;
     bankTransferAmount?: number;
     chequeAmount?: number;
+    bankId?: number;
     reference?: string;
     description?: string;
   }

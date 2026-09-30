@@ -29,6 +29,7 @@ var ErrNoTenantInContext = errors.New("query on a tenant-owned table with no ten
 var tenantScopedTables = map[string]bool{
 	"branches": true, "schemes": true, "gold_rates": true, "employees": true,
 	"cash_movements": true, "expenses": true, "opening_cash_balances": true,
+	"cash_sources": true, "expense_categories": true, "loan_cash_sources": true,
 	"customers": true, "loans": true, "ornaments": true,
 	"ornament_purity_tests": true, "ornament_images": true,
 	"loan_approvals": true, "loan_payments": true,
@@ -62,6 +63,12 @@ var tenantScopedTables = map[string]bool{
 	// business's counts summed together and every business read it — see
 	// dashboard.Snapshot.s doc comment.
 	"dashboard_snapshots": true,
+	// Embedded TenantScoped from the start but were never listed here, so
+	// the filter skipped them and the create callback never stamped them —
+	// their existing rows are repaired from their parent by
+	// migrate.backfillTenantFromParent before NOT NULL/RLS apply.
+	"loan_top_ups": true, "loan_request_ornaments": true,
+	"personal_loan_history": true, "investment_transactions": true,
 }
 
 // TenantScopedTableNames returns every tenant-owned table, in a stable

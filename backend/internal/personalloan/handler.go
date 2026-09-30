@@ -161,8 +161,11 @@ type paymentRequest struct {
 	UpiAmount          float64 `json:"upiAmount"`
 	BankTransferAmount float64 `json:"bankTransferAmount"`
 	ChequeAmount       float64 `json:"chequeAmount"`
-	Reference          string  `json:"reference"`
-	Description        string  `json:"description"`
+	// BankID — see PaymentInput.BankID's own doc comment. Required when any
+	// of UpiAmount/BankTransferAmount/ChequeAmount is non-zero.
+	BankID      *uint  `json:"bankId"`
+	Reference   string `json:"reference"`
+	Description string `json:"description"`
 }
 
 // History returns one page of a loan's change-history timeline as the
@@ -205,6 +208,7 @@ func (h *Handler) RecordPayment(c *gin.Context) {
 		UpiAmount:            req.UpiAmount,
 		BankTransferAmount:   req.BankTransferAmount,
 		ChequeAmount:         req.ChequeAmount,
+		BankID:               req.BankID,
 		Reference:            req.Reference,
 		Description:          req.Description,
 		ReceivedByEmployeeID: &employeeID,

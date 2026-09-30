@@ -21,7 +21,7 @@ export function QrScanner({
   visible: boolean;
   onClose: () => void;
   /** Called once per open with the decoded QR string (raw, unparsed) — the
-   * caller owns interpreting it (see parsePacketCode below) and closing the
+   * caller owns interpreting it (see parseLabel below) and closing the
    * scanner once it's done with the result. */
   onScanned: (data: string) => void;
   title?: string;
@@ -103,12 +103,24 @@ const styles = StyleSheet.create({
   },
 });
 
-// Recovers a packet code from a scanned URL shaped like
-// `${API_ORIGIN}/app#packet/<code>` (see loanPrint.ts's printPacketLabel).
-// Returns null for anything else (a loan-only label's `#loan/...`, a
-// QR code from another system, a bare code someone printed by hand, etc.) so callers
-// can show "not a packet label" rather than silently mis-navigating.
-export function parsePacketCode(scanned: string): string | null {
-  const m = scanned.match(/#packet\/([^/?#]+)/);
-  return m ? decodeURIComponent(m[1]) : null;
+// Recovers what a scanned label points at. Both printers (loanPrint.ts's
+// printPacketLabel and the web LoanDetail) encode `<origin>/<app path>#packet/<code>`
+// when the loan already has a packet, but fall back to `#loan/<loanNumber>`
+// when it doesn't — so a label printed before the packet was created only
+// carries the loan. Some scanners hand the fragment back percent-encoded
+// (`%23packet/...`), so the string is decoded before matching. Returns null
+// for anything else (a QR code from another system, etc.) so callers can
+// show "not a packet label" rather than silently mis-navigating.
+export type ScannedLabel = { kind: "packet"; code: string } | { kind: "loan"; loanNumber: string };
+
+export function parseLabel(scanned: string): ScannedLabel | null {
+  let s = scanned.trim();
+  try {
+    s = decodeURIComponent(s);
+  } catch {
+    // Malformed escape — match against the raw string instead.
+  }
+  const m = s.match(/#(packet|loan)\/([^/?#\s]+)/i);
+  if (!m) return null;
+  return m[1].toLowerCase() === "packet" ? { kind: "packet", code: m[2] } : { kind: "loan", loanNumber: m[2] };
 }

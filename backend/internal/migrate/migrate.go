@@ -166,6 +166,10 @@ func Run(db *gorm.DB, cfg platform.Config) error {
 		return err
 	}
 
+	if err := cash.SeedDefaultSourcesAndCategories(db); err != nil {
+		return err
+	}
+
 	if err := loan.NormalizeLegacyPurities(db); err != nil {
 		return err
 	}
@@ -353,6 +357,11 @@ func Run(db *gorm.DB, cfg platform.Config) error {
 	// Must run BEFORE backfillTenancy, which would otherwise hand these rows
 	// to the default business as if they were its own.
 	if err := purgeGlobalDashboardSnapshots(db); err != nil {
+		return err
+	}
+
+	// Must run BEFORE backfillTenancy — see backfillTenantFromParent.
+	if err := backfillTenantFromParent(db); err != nil {
 		return err
 	}
 
@@ -1038,6 +1047,9 @@ var allModels = []any{
 	&cash.Expense{},
 	&cash.OpeningCashBalance{},
 	&cash.GoldSale{},
+	&cash.CashSource{},
+	&cash.ExpenseCategory{},
+	&cash.LoanCashSource{},
 	&settings.ApiKeySetting{},
 	&customer.Customer{},
 	&loan.Loan{},
@@ -1097,6 +1109,9 @@ var allModels = []any{
 	// entry across every tenant.
 	&superadmin.SuperAdminUser{},
 	&superadmin.AuditLog{},
+	// Hand-recorded plan payments shown on the superadmin business detail
+	// page. Vendor-side, not tenant-scoped — see its doc comment.
+	&superadmin.SubscriptionPayment{},
 	// This business's own audit log (Step 11) — tenant-scoped, unlike
 	// superadmin.AuditLog above.
 	&auditlog.Entry{},
@@ -1138,6 +1153,62 @@ func purgeGlobalDashboardSnapshots(db *gorm.DB) error {
 	}
 	if res.RowsAffected > 0 {
 		log.Printf("tenancy: deleted %d pre-tenancy dashboard snapshot(s) — they held every business's counts summed together", res.RowsAffected)
+	}
+	return nil
+}
+
+// tenantFromParent lists tenant-owned tables whose tenant_id cannot be
+// trusted on its own and is instead derived from the parent row a real
+// foreign key ties it to. Parents come before their children, so a child
+// always copies an already-corrected value.
+//
+// Why: these tables embed platform.TenantScoped but were missing from
+// platform's tenantScopedTables, so the create callback never stamped them
+// and their rows sit at tenant_id = 0. backfillTenancy's ordinary rule —
+// "a row with no tenant belongs to the default business" — would then hand
+// every OTHER business's top-ups, history and ledger rows to the default
+// business. Ownership is decided by the parent, not by the default.
+var tenantFromParent = []struct{ table, fk, parent string }{
+	{"investments", "customer_id", "customers"},
+	{"investment_plans", "id", ""}, // special-cased below: owned via investments.plan_id
+	{"investment_payouts", "investment_id", "investments"},
+	{"investment_transactions", "investment_id", "investments"},
+	{"loan_top_ups", "loan_id", "loans"},
+	{"loan_request_ornaments", "request_id", "loan_requests"},
+	{"personal_loan_history", "personal_loan_id", "personal_loans"},
+}
+
+// backfillTenantFromParent repoints each tenantFromParent row at the business
+// that owns its parent. Must run BEFORE backfillTenancy so only genuine
+// orphans (no parent at all) are left for the default-business rule.
+//
+// Idempotent: IS DISTINCT FROM matches nothing once every row agrees with its
+// parent, so on a healthy database this is a handful of no-op UPDATEs.
+func backfillTenantFromParent(db *gorm.DB) error {
+	for _, r := range tenantFromParent {
+		var q string
+		if r.table == "investment_plans" {
+			// A plan has no single parent column; it belongs to the business
+			// whose investments use it. Only fills plans still lacking a
+			// tenant, so a plan shared by mistake is never flipped back and
+			// forth between two businesses.
+			q = `UPDATE investment_plans p SET tenant_id = i.tenant_id
+				FROM investments i
+				WHERE i.plan_id = p.id AND i.tenant_id <> 0
+				  AND (p.tenant_id IS NULL OR p.tenant_id = 0)`
+		} else {
+			q = fmt.Sprintf(`UPDATE %[1]s c SET tenant_id = p.tenant_id
+				FROM %[3]s p
+				WHERE c.%[2]s = p.id AND p.tenant_id IS NOT NULL AND p.tenant_id <> 0
+				  AND c.tenant_id IS DISTINCT FROM p.tenant_id`, r.table, r.fk, r.parent)
+		}
+		res := db.Exec(q)
+		if res.Error != nil {
+			return fmt.Errorf("deriving tenant_id on %s from its parent: %w", r.table, res.Error)
+		}
+		if res.RowsAffected > 0 {
+			log.Printf("tenancy: corrected tenant_id on %d row(s) in %s from their parent", res.RowsAffected, r.table)
+		}
 	}
 	return nil
 }

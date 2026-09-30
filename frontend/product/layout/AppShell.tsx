@@ -43,6 +43,7 @@ import { Settings } from "@/product/pages/settings/components/Settings";
 import { RolesPermissions } from "@/product/pages/roles/components/RolesPermissions";
 import { Billing } from "@/product/pages/billing/components/Billing";
 import { useAuth } from "@/product/providers/auth-context";
+import { ModeLedgerPage } from "@/product/pages/cash/components/ModeLedgerPage";
 
 /* Every route the router can reach, mapped to the permission that
  * gates it — the same module/key pairs Sidebar.tsx filters its nav on (see
@@ -79,8 +80,13 @@ const ROUTE_PERMISSIONS: Record<string, { module: string | null; key?: string; t
   // Drill-down-only routes off the Cash & Expenses page — reuse can_view_cash
   // (viewing a party's ledger is a drill-down of data the user can already
   // see there, not a new resource) rather than a new permission.
-  "party-bank": { module: "Cash_Management", key: "can_view_cash" },
-  "party-customer": { module: "Cash_Management", key: "can_view_cash" },
+  "ledger-bank": { module: "Cash_Management", key: "can_view_cash" },
+  "ledger-customer": { module: "Cash_Management", key: "can_view_cash" },
+  "party-category": { module: "Cash_Management", key: "can_view_cash" },
+  "cash-ledger": { module: "Cash_Management", key: "can_view_cash" },
+  "upi-ledger": { module: "Cash_Management", key: "can_view_cash" },
+  "bank-transfer-ledger": { module: "Cash_Management", key: "can_view_cash" },
+  "cheque-ledger": { module: "Cash_Management", key: "can_view_cash" },
   "roles-permissions": { module: "Role_Management", key: "can_view_role_and_permission" },
   billing: { module: "Billing", key: "can_manage_billing" },
   settings: { module: "Settings_Management", key: "can_view_setting", tenantModule: "settings" },
@@ -181,10 +187,20 @@ function View({ route, arg }: { route: string; arg?: string }) {
       return <Branches />;
     case "banks":
       return <Banks />;
-    case "party-bank":
+    case "ledger-bank":
       return <PartyLedger kind="bank" id={arg} />;
-    case "party-customer":
+    case "ledger-customer":
       return <PartyLedger kind="customer" id={arg} />;
+    case "party-category":
+      return <PartyLedger kind="category" id={arg} />;
+    case "cash-ledger":
+      return <ModeLedgerPage mode="Cash" />;
+    case "upi-ledger":
+      return <ModeLedgerPage mode="UPI" />;
+    case "bank-transfer-ledger":
+      return <ModeLedgerPage mode="Bank Transfer" />;
+    case "cheque-ledger":
+      return <ModeLedgerPage mode="Cheque" />;
     case "roles-permissions":
       return <RolesPermissions />;
     case "billing":

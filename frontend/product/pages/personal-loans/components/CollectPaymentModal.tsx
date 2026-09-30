@@ -21,6 +21,7 @@ export function CollectPaymentModalContent({ loan, onSaved }: { loan: BackendPer
   const [amount, setAmount] = useState(defaultAmount > 0 ? String(defaultAmount) : "");
   const [split, setSplit] = useState<SplitAmounts>(ZERO_SPLIT);
   const [remaining, setRemaining] = useState(0);
+  const [bankId, setBankId] = useState<number | undefined>(undefined);
   const [reference, setReference] = useState("");
   const [description, setDescription] = useState("");
   const [err, setErr] = useState("");
@@ -42,6 +43,7 @@ export function CollectPaymentModalContent({ loan, onSaved }: { loan: BackendPer
         upiAmount: split.upiAmount,
         bankTransferAmount: split.bankTransferAmount,
         chequeAmount: split.chequeAmount,
+        bankId,
         reference: reference.trim() || undefined,
         description: description.trim() || undefined,
       });
@@ -63,7 +65,7 @@ export function CollectPaymentModalContent({ loan, onSaved }: { loan: BackendPer
           <div><label className="f">Amount (₹) *</label><input className="inp" type="number" min={1} max={loan.outstandingAmount} placeholder={`e.g. ${defaultAmount}`} value={amount} onChange={(e) => setAmount(e.target.value)} /></div>
         </div>
         <div className="frow" style={{ marginTop: 4 }}>
-          <SplitPaymentInput totalAmount={amt} onChange={(s, r) => { setSplit(s); setRemaining(r); }} />
+          <SplitPaymentInput totalAmount={amt} onChange={(s, r, b) => { setSplit(s); setRemaining(r); setBankId(b); }} />
         </div>
         <div className="frow c2">
           <div><label className="f">Reference</label><input className="inp" value={reference} onChange={(e) => setReference(e.target.value)} maxLength={80} /></div>

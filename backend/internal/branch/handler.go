@@ -53,6 +53,17 @@ func (h *Handler) Create(c *gin.Context) {
 	httpx.Success(c, http.StatusCreated, rec)
 }
 
+// Quota backs GET /branches/quota — the business's plan and how many active
+// branches it has. Advisory only: the create/reactivate paths enforce it.
+func (h *Handler) Quota(c *gin.Context) {
+	usage, err := h.svc.Usage(platform.RequestContext(c))
+	if err != nil {
+		httpx.FailErr(c, err)
+		return
+	}
+	httpx.Success(c, http.StatusOK, usage)
+}
+
 // List backs GET /branches?q=&active=&limit=&offset= — q matches name/code,
 // active=true drops deactivated branches. Opt-in
 // pagination: no limit returns the bare array (the original shape); limit

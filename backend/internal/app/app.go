@@ -231,11 +231,20 @@ func Build(db *gorm.DB, cfg platform.Config) (*App, error) {
 
 	movementRepo := cash.NewMovementRepository(pinned)
 	expenseRepo := cash.NewExpenseRepository(pinned)
-	movementSvc := cash.NewMovementService(movementRepo, expenseRepo, branchRepo)
+	loanCashSourceRepo := cash.NewLoanCashSourceRepository(pinned)
+	movementSvc := cash.NewMovementService(movementRepo, expenseRepo, branchRepo, loanCashSourceRepo)
 	movementHandler := cash.NewMovementHandler(movementSvc)
 
 	expenseSvc := cash.NewExpenseService(expenseRepo, branchRepo)
 	expenseHandler := cash.NewExpenseHandler(expenseSvc)
+
+	cashSourceRepo := cash.NewCashSourceRepository(pinned)
+	cashSourceSvc := cash.NewCashSourceService(cashSourceRepo)
+	cashSourceHandler := cash.NewCashSourceHandler(cashSourceSvc)
+
+	expenseCategoryRepo := cash.NewExpenseCategoryRepository(pinned)
+	expenseCategorySvc := cash.NewExpenseCategoryService(expenseCategoryRepo)
+	expenseCategoryHandler := cash.NewExpenseCategoryHandler(expenseCategorySvc, movementSvc)
 
 	openingBalanceRepo := cash.NewOpeningBalanceRepository(pinned)
 	openingBalanceSvc := cash.NewOpeningBalanceService(openingBalanceRepo, branchRepo)
@@ -502,6 +511,11 @@ func Build(db *gorm.DB, cfg platform.Config) (*App, error) {
 	cash.RegisterExpenseRoutes(protected.Group("/expenses"), expenseHandler, platform.CRUDPermissions(authzRepo, "cash"))
 	cash.RegisterCashRoutes(protected.Group("/cash"), openingBalanceHandler, summaryHandler, platform.CRUDPermissions(authzRepo, "cash"))
 	cash.RegisterGoldSaleRoutes(protected.Group("/gold-sales"), goldSaleHandler, platform.CRUDPermissions(authzRepo, "cash"))
+	cash.RegisterCashSourceRoutes(protected.Group("/cash-sources"), cashSourceHandler, platform.CRUDPermissions(authzRepo, "cash"))
+	cash.RegisterExpenseCategoryRoutes(protected.Group("/expense-categories"), expenseCategoryHandler, platform.CRUDPermissions(authzRepo, "cash"))
+	// Category ledger drill-down — same "cash" read permission as every
+	// other ledger drill-down (bank/customer/loan) this reuses.
+	protected.GET("/expense-categories/:id/ledger", platform.CRUDPermissions(authzRepo, "cash").Read, expenseCategoryHandler.GetLedger)
 	// Settings is an optional module and the page is self-contained, so the
 	// whole group is gated — reads included.
 	settings.RegisterRoutes(protected.Group("/settings/api-keys"), settingsHandler, platform.CRUDPermissions(authzRepo, "settings"),
@@ -529,6 +543,14 @@ func Build(db *gorm.DB, cfg platform.Config) (*App, error) {
 	branding.RegisterRoutes(protected.Group("/branding"), brandingHandler)
 	ornamenttype.RegisterRoutes(protected.Group("/ornament-types"), ornamentTypeHandler, platform.CRUDPermissions(authzRepo, "ornamenttypes"))
 	bank.RegisterRoutes(protected.Group("/banks"), bankHandler, platform.CRUDPermissions(authzRepo, "banks"))
+	// Bank ledger drill-down lives on movementHandler (see
+	// cash.MovementHandler.GetBankLedger's doc comment — avoids a
+	// cash<->bank import cycle) but is mounted under /banks to keep the URL
+	// bank-shaped, same "handler in one package, route path in another's URL
+	// shape" precedent as loanHandler.GetCustomer360 under
+	// /customers/:id/profile360. Gated by "cash" read, same permission as
+	// every other Party Transactions drill-down this ledger reuses data from.
+	protected.GET("/banks/:id/ledger", platform.CRUDPermissions(authzRepo, "cash").Read, movementHandler.GetBankLedger)
 	locker.RegisterRoutes(protected.Group("/lockers"), lockerHandler, platform.CRUDPermissions(authzRepo, "lockers"))
 	packet.RegisterRoutes(protected.Group("/packets"), packetHandler, platform.CRUDPermissions(authzRepo, "packets"))
 	reminder.RegisterRoutes(protected.Group("/reminders"), reminderHandler, platform.CRUDPermissions(authzRepo, "reminders"))

@@ -1,6 +1,6 @@
 "use client";
 
-import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
+import { createContext, useCallback, useContext, useMemo, useState, useLayoutEffect } from "react";
 import { login as loginRequest, type AuthEmployee } from "@/product/services/authService";
 import { fetchMyPermissions, type PermissionMap } from "@/product/services/permissionService";
 import {
@@ -115,17 +115,33 @@ type AuthContextValue = {
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
+  // Every piece of session state below starts from the same SSR-safe
+  // default (null/true/{}/false) on both the server and the client's FIRST
+  // render — never a lazy initializer reading localStorage/sessionStorage
+  // directly, which used to return one thing server-side (no storage exists
+  // there) and a DIFFERENT thing on the client's first render (the real
+  // stored session), a guaranteed hydration mismatch that threw away and
+  // rebuilt this entire subtree on every page load in dev (`next dev` still
+  // server-renders this "use client" page per-request; only the production
+  // static export skips that step, which is why this only ever surfaced in
+  // dev).
+  //
+  // The restore below still runs before the browser paints anything,
+  // though: `useLayoutEffect` (unlike `useEffect`) fires synchronously after
+  // the DOM commit but before paint, so a valid stored session still swaps
+  // in fast enough that no visible blank/"headerless" frame appears — same
+  // user-facing result the old synchronous initializers were after, just
+  // moved to a point in the lifecycle where hydration has already reconciled
+  // against the identical (default) values the server rendered.
   const [token, setToken] = useState<string | null>(null);
   const [employee, setEmployee] = useState<AuthEmployee | null>(null);
 
-  // The branch switcher's current selection, read from sessionStorage via a
-  // lazy initializer — session-scoped by design (see branchSelection.ts's
-  // header comment) — rather than a mount effect, so there is no render with
-  // a briefly-wrong value to reconcile.
+  // The branch switcher's current selection — session-scoped by design (see
+  // branchSelection.ts's header comment).
   //
   // Declared here (ahead of login/logout below, which both reset it) purely
   // so those callbacks can reference the setter without a forward reference.
-  const [selectedBranchId, setSelectedBranchIdState] = useState<number | null>(() => getSelectedBranchId());
+  const [selectedBranchId, setSelectedBranchIdState] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
 
   const [permissions, setPermissions] = useState<PermissionMap>({});
@@ -151,13 +167,21 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   }, []);
 
-  // Restore session from localStorage on first mount, discarding it if the
-  // token has already expired.
-  useEffect(() => {
+  // Restore session from localStorage before the browser paints, discarding
+  // it if the token has already expired. `useLayoutEffect`, not `useEffect`
+  // — it runs synchronously right after this render commits to the DOM but
+  // before the browser draws anything, so a valid stored session swaps in
+  // ahead of the first visible frame instead of after it (no blank/
+  // "headerless" flash), while every render up to and including this one
+  // still matched the server's SSR-safe defaults (see the state
+  // declarations' own comment above for why that match matters).
+  useLayoutEffect(() => {
     // Housekeeping: drop the storage keys written under the app's previous
     // name. Nothing is carried over — the rebrand renamed the session keys,
     // so those values are unreadable and their holder signs in again once.
     purgeStaleSession();
+
+    setSelectedBranchIdState(getSelectedBranchId());
 
     const storedToken = readToken();
     const storedEmployee = readEmployeeRaw();

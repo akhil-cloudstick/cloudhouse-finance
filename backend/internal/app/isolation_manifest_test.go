@@ -547,8 +547,83 @@ var routeManifest = map[string]routeSpec{
 	"POST /api/v1/superadmin/businesses/:id/logo":     superAdminRoute("stores a logo AS that business — the write runs under platform.WithTenant, so the uploaded_files row is stamped to it, not to the vendor"),
 	"PUT /api/v1/superadmin/businesses/:id/modules":   superAdminRoute("grants/revokes optional modules; enforced per request by platform.RequireTenantModule"),
 	"PUT /api/v1/superadmin/businesses/:id/languages": superAdminRoute("grants/revokes the languages a business may issue customer documents in"),
+	"GET /api/v1/superadmin/businesses/:id/admin":     superAdminRoute("reads the business's Administrator login (never the password hash) under that business's tenant tx — see superadmin.inTenantTx"),
+	"PUT /api/v1/superadmin/businesses/:id/admin":     superAdminRoute("vendor-side reset of the Administrator's name/username/password, for an owner locked out with no phone for the SMS reset"),
 
 	"GET /api/v1/superadmin/catalogue": superAdminRoute("the closed sets of toggleable modules/languages — a static vocabulary, no business's data at all"),
 
 	"GET /api/v1/superadmin/audit-log": superAdminRoute("every privileged superadmin action across every business, by design — this IS the record of who saw/changed what"),
+
+	"DELETE /api/v1/superadmin/businesses/:id": superAdminRoute("permanent hard delete of one business — every query in it is explicitly narrowed to that business id (see superadmin.hardDeletePredicate)"),
+
+	// Business detail page. Every query narrows to the :id business by an
+	// explicit tenant_id predicate (superadmin/overview.go); DELETE requires
+	// the payment to match BOTH ids, so another business's payment id is 404.
+	"GET /api/v1/superadmin/businesses/:id/overview":               superAdminRoute("one business's details, plan usage counts and recent superadmin activity"),
+	"GET /api/v1/superadmin/businesses/:id/payments":               superAdminRoute("hand-recorded plan payments for one business — information only"),
+	"POST /api/v1/superadmin/businesses/:id/payments":              superAdminRoute("records a plan payment by hand; changes no status, plan or expiry"),
+	"DELETE /api/v1/superadmin/businesses/:id/payments/:paymentId": superAdminRoute("removes a mistaken payment record; audited with a reason"),
+
+	// ================================================================
+	// Routes that shipped after the manifest was last reconciled
+	// (ledgers, top-ups, cash sources, expense categories, bank
+	// management). Each carries or implies a tenant-owned record, so each
+	// is probed like the routes above rather than waved through.
+	// ================================================================
+	"GET /api/v1/branches/quota": self("the caller's own plan and active-branch count; the tenant comes only from the session, there is no parameter to point it elsewhere"),
+
+	"GET /api/v1/banks/:id":        probe("id=banks"),
+	"PUT /api/v1/banks/:id":        probe("id=banks"),
+	"DELETE /api/v1/banks/:id":     probe("id=banks"),
+	"GET /api/v1/banks/:id/ledger": probe("id=banks"),
+	"POST /api/v1/banks/:id/merge": probe("id=banks"),
+
+	"GET /api/v1/cash-sources":                  list(),
+	"POST /api/v1/cash-sources":                 list(),
+	"GET /api/v1/expense-categories":            list(),
+	"POST /api/v1/expense-categories":           list(),
+	"GET /api/v1/expense-categories/:id/ledger": probe("id=expense_categories"),
+
+	"GET /api/v1/cash-movements/cash-ledger":                              list(),
+	"GET /api/v1/cash-movements/mode-ledger":                              list(),
+	"GET /api/v1/cash-movements/transactions/bank/:bankId":                probe("bankId=banks"),
+	"GET /api/v1/cash-movements/transactions/bank/:bankId/export":         probe("bankId=banks"),
+	"GET /api/v1/cash-movements/transactions/branch/:id":                  probe("id=branches"),
+	"GET /api/v1/cash-movements/transactions/branch/:id/export":           probe("id=branches"),
+	"GET /api/v1/cash-movements/transactions/customer/:customerId":        probe("customerId=customers"),
+	"GET /api/v1/cash-movements/transactions/customer/:customerId/export": probe("customerId=customers"),
+
+	"GET /api/v1/loans/:id/ledger":                                      probe("id=loans"),
+	"GET /api/v1/loans/:id/topups":                                      probe("id=loans"),
+	"POST /api/v1/loans/:id/topup":                                      probe("id=loans"),
+	"GET /api/v1/loans/:id/release-agreement/pdf":                       probe("id=loans"),
+	"GET /api/v1/loans/requests/:requestId/partial-release-receipt/pdf": probe("requestId=loan_requests"),
+
+	"GET /api/v1/personal-loans/:id/history": probe("id=personal_loans"),
+	"GET /api/v1/schemes/:id/statement":      probe("id=schemes"),
+
+	"GET /api/v1/investments/:id/transactions":  probe("id=investments"),
+	"GET /api/v1/investments/:id/bond/pdf":      probe("id=investments"),
+	"GET /api/v1/investments/:id/statement/pdf": probe("id=investments"),
+	"POST /api/v1/investments/:id/add-cash":     probe("id=investments"),
+	"POST /api/v1/investments/:id/withdraw":     probe("id=investments"),
+
+	"GET /api/v1/public/branding": public("host-resolved login branding — the business is picked from the Host header, which may only narrow, never authorise (see tenant.FindByAppURL)"),
+}
+
+// whatsAppProxyWhy is shared by every method of the OpenWA dashboard proxy.
+//
+// OPEN RISK, recorded rather than cleared: webstatic.RegisterWhatsAppProxy
+// forwards every method under /admin/whatsapp to the ONE shared OpenWA
+// instance with no authentication from this application at all — protection
+// rests entirely on OpenWA's own dashboard login/API key. It touches no
+// tenant-owned table, hence "global", but it is the single WhatsApp sender
+// every business's borrower messages go through.
+const whatsAppProxyWhy = "reverse proxy to the shared OpenWA dashboard; no tenant table, but NO app-level auth — relies on OpenWA's own login (see whatsAppProxyWhy)"
+
+func init() {
+	for _, m := range []string{"GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS", "CONNECT", "TRACE"} {
+		routeManifest[m+" /admin/whatsapp"] = global(whatsAppProxyWhy)
+		routeManifest[m+" /admin/whatsapp/*proxyPath"] = global(whatsAppProxyWhy)
+	}
 }

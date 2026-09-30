@@ -21,8 +21,16 @@ import {
   uploadLogo,
   getAdminLogin,
   updateAdminLogin,
+  adjustExpiry,
+  getBusinessOverview,
+  recordPayment,
+  deletePayment,
+  PAYMENT_MODE_LABELS,
   SuperAdminApiError,
   type Business,
+  type BusinessOverview,
+  type PaymentMode,
+  type SubscriptionPayment,
   type Tier,
   type AuditLogEntry,
   type Catalogue,
@@ -93,6 +101,37 @@ const NAV: { group: string; items: { id: Tab; label: string; icon: IconName; tit
 ];
 
 type IconName = "building" | "layers" | "clipboard" | "bell" | "sun" | "user" | "copy" | "external";
+
+/* A plan's branch allowance in words. branchQuota 0 is the backend's
+ * "unlimited" (tenant.UnlimitedBranches) — never render it as "0 branches". */
+function quotaText(quota: number): string {
+  if (quota === 0) return "Unlimited branches";
+  return `${quota} branch${quota === 1 ? "" : "es"}`;
+}
+
+function planLabel(t: Tier): string {
+  return `${t.name} (${quotaText(t.branchQuota)})`;
+}
+
+function planLabelFor(tiers: Tier[], id: number): string {
+  const t = tiers.find((x) => x.id === id);
+  return t ? planLabel(t) : `#${id}`;
+}
+
+function formatINR(rupees: number): string {
+  return `₹${rupees.toLocaleString("en-IN", { maximumFractionDigits: 2 })}`;
+}
+
+function formatBytes(n: number): string {
+  if (n < 1024) return `${n} B`;
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
+  if (n < 1024 * 1024 * 1024) return `${(n / (1024 * 1024)).toFixed(1)} MB`;
+  return `${(n / (1024 * 1024 * 1024)).toFixed(2)} GB`;
+}
+
+function formatDate(iso?: string | null): string {
+  return iso ? new Date(iso).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" }) : "—";
+}
 
 /* Inline SVGs rather than an icon package. This console's dependencies are
  * next + react and nothing else, deliberately, and six glyphs do not justify
@@ -202,6 +241,11 @@ export default function SuperAdminDashboard() {
   );
   const [pricingTier, setPricingTier] = useState<Tier | null>(null);
   const [user, setUser] = useState<ReturnType<typeof readSuperAdminUser>>(null);
+  /* The business whose detail page is open, or null for the list. Bumping
+   * detailVersion makes the open detail page refetch after any action. */
+  const [detailId, setDetailId] = useState<number | null>(null);
+  const [detailVersion, setDetailVersion] = useState(0);
+  const [detailBranches, setDetailBranches] = useState<number | undefined>(undefined);
 
   const reload = useCallback(async () => {
     setLoadError(null);
@@ -221,6 +265,12 @@ export default function SuperAdminDashboard() {
     }
   }, [router]);
 
+  // Every modal's onDone: refresh the list AND any open detail page.
+  const afterAction = useCallback(() => {
+    void reload();
+    setDetailVersion((v) => v + 1);
+  }, [reload]);
+
   useEffect(() => {
     if (!readSuperAdminToken()) {
       router.replace("/superadmin/login");
@@ -237,13 +287,10 @@ export default function SuperAdminDashboard() {
 
   const tierName = (id: number) => tiers?.find((t) => t.id === id)?.name ?? `#${id}`;
 
-  // The link an operator actually wants to hand a business: its OWN deployed
-  // URL with the sign-in code appended, not the generic tenant-app fallback,
-  // whenever the business has a deployment URL set. The code leads the path
-  // (/<code>/login) — see tenantLoginLink's doc comment for why the reverse
-  // order doesn't match any real route.
-  const businessSignInLink = (b: Business) =>
-    b.appUrl ? `${b.appUrl.replace(/\/+$/, "")}/${b.code}/login` : tenantLoginLink(b.code);
+  // The link an operator hands a business. Built from where this console is
+  // running (see tenantLoginLink), NOT from the saved appUrl — that value
+  // pins the link to one old domain and breaks locally or after a move.
+  const businessSignInLink = (b: Business) => tenantLoginLink(b.code);
 
   async function copySignInLink(b: Business) {
     const link = businessSignInLink(b);
@@ -386,7 +433,25 @@ export default function SuperAdminDashboard() {
         <div className="sa-content">
           {loadError && <p className="sa-error">{loadError}</p>}
 
-          {tab === "businesses" && (
+          {tab === "businesses" && detailId !== null && tiers && (
+            <BusinessDetail
+              id={detailId}
+              version={detailVersion}
+              tiers={tiers}
+              onBack={() => setDetailId(null)}
+              onEdit={(b) => setWizard({ business: b, openAt: "profile" })}
+              onAct={(b, kind, activeBranches) => {
+                setDetailBranches(activeBranches);
+                setActingOn({ business: b, kind });
+              }}
+              onChanged={afterAction}
+              signInLink={businessSignInLink}
+              onCopyLink={copySignInLink}
+              copied={copiedCode}
+            />
+          )}
+
+          {tab === "businesses" && detailId === null && (
             <>
               <div className="sa-toolbar">
                 <button className="sa-btn primary" onClick={() => setWizard({ business: null, openAt: "profile" })}>
@@ -405,17 +470,27 @@ export default function SuperAdminDashboard() {
                         <th>Business</th>
                         <th>Code</th>
                         <th>URL</th>
-                        <th>Tier</th>
+                        <th>Plan</th>
                         <th>Status</th>
                         <th>Modules</th>
                         <th>Languages</th>
                         <th>Renewal</th>
-                        <th>Actions</th>
+                        <th>Active</th>
                       </tr>
                     </thead>
                     <tbody>
                       {businesses.map((b) => (
-                        <tr key={b.id}>
+                        <tr
+                          key={b.id}
+                          className="sa-row-link"
+                          title={`Open ${b.name}`}
+                          onClick={(e) => {
+                            // The row opens the detail page, but its own
+                            // buttons, links and toggle keep doing their job.
+                            if ((e.target as HTMLElement).closest("button, a, label, input")) return;
+                            setDetailId(b.id);
+                          }}
+                        >
                           <td>
                             <div className="sa-biz">
                               {/* The business's own identity as its staff see
@@ -442,13 +517,9 @@ export default function SuperAdminDashboard() {
                             <code>{b.code}</code>
                           </td>
                           <td>
-                            {b.appUrl ? (
-                              <a className="sa-url" href={b.appUrl} target="_blank" rel="noreferrer">
-                                {b.appUrl.replace(/^https?:\/\//, "")}
-                              </a>
-                            ) : (
-                              <span className="sa-biz-sub">not set</span>
-                            )}
+                            <a className="sa-url" href={businessSignInLink(b)} target="_blank" rel="noreferrer">
+                              {businessSignInLink(b).replace(/^https?:\/\//, "")}
+                            </a>
                             <div className="sa-signin-row">
                               <button
                                 type="button"
@@ -470,7 +541,10 @@ export default function SuperAdminDashboard() {
                               </a>
                             </div>
                           </td>
-                          <td>{b.tier?.name ?? tierName(b.tierId)}</td>
+                          <td>
+                            {b.tier?.name ?? tierName(b.tierId)}
+                            <span className="sa-biz-sub">{quotaText(b.tier?.branchQuota ?? 1)}</span>
+                          </td>
                           <td>
                             <span className={`sa-chip ${b.status}`}>{b.status}</span>
                           </td>
@@ -499,10 +573,10 @@ export default function SuperAdminDashboard() {
                               </span>
                             )}
                           </td>
+                          {/* View, Edit and Delete live on the detail page — the
+                            * row itself opens it. Only the quick on/off switch
+                            * stays here. */}
                           <td className="sa-actions">
-                            <button className="sa-btn" onClick={() => setWizard({ business: b, openAt: "profile" })}>
-                              Edit
-                            </button>
                             <label
                               className="sa-toggle"
                               title={b.status === "suspended" ? "Reactivate business" : "Suspend business"}
@@ -521,12 +595,6 @@ export default function SuperAdminDashboard() {
                                 <span className="sa-toggle-thumb" />
                               </span>
                             </label>
-                            <button
-                              className="sa-btn danger"
-                              onClick={() => setActingOn({ business: b, kind: "delete" })}
-                            >
-                              Delete
-                            </button>
                           </td>
                         </tr>
                       ))}
@@ -553,7 +621,7 @@ export default function SuperAdminDashboard() {
                   {(tiers ?? []).map((t) => (
                     <tr key={t.id}>
                       <td>{t.name}</td>
-                      <td>{t.branchQuota}</td>
+                      <td>{quotaText(t.branchQuota)}</td>
                       <td>{t.priceInPaise > 0 ? `₹${(t.priceInPaise / 100).toLocaleString("en-IN")}` : "Not billed"}</td>
                       <td>{t.isActive ? "Yes" : "No"}</td>
                       <td>
@@ -619,7 +687,7 @@ export default function SuperAdminDashboard() {
           tiers={tiers}
           catalogue={catalogue}
           onClose={() => setWizard(null)}
-          onDone={reload}
+          onDone={afterAction}
         />
       )}
       {actingOn && (
@@ -627,11 +695,19 @@ export default function SuperAdminDashboard() {
           business={actingOn.business}
           kind={actingOn.kind}
           tiers={tiers ?? []}
-          onClose={() => setActingOn(null)}
-          onDone={reload}
+          activeBranches={detailBranches}
+          onClose={() => {
+            setActingOn(null);
+            setDetailBranches(undefined);
+          }}
+          onDone={() => {
+            // A deleted business has no detail page left to show.
+            if (actingOn.kind === "delete") setDetailId(null);
+            afterAction();
+          }}
         />
       )}
-      {pricingTier && <TierPriceModal tier={pricingTier} onClose={() => setPricingTier(null)} onDone={reload} />}
+      {pricingTier && <TierPriceModal tier={pricingTier} onClose={() => setPricingTier(null)} onDone={afterAction} />}
     </div>
   );
 }
@@ -943,7 +1019,10 @@ function BusinessWizard({
   // button. Edits are the case where "why" carries information, and those
   // were already optional. The field stays on both paths and is still
   // recorded whenever it is filled in — it just no longer blocks.
-  const reasonRequired = false;
+  // A plan change is audited with a mandatory reason on the server
+  // (superadmin.Service.ChangeTier), so the Review step asks for one then.
+  const planChanged = !isCreate && tierId !== business.tierId;
+  const reasonRequired = planChanged;
 
   function goTo(i: number) {
     setStepIdx(i);
@@ -960,6 +1039,7 @@ function BusinessWizard({
       if (isCreate && !code.trim()) return "A sign-in code is required.";
       if (isCreate && !/^[a-z0-9][a-z0-9-]*$/.test(code.trim()))
         return "The sign-in code must be lowercase letters, numbers and dashes.";
+      if (isCreate && !tiers.some((t) => t.id === tierId)) return "Choose a plan for this business.";
     }
     if (id === "branding" && color && !/^#[0-9a-fA-F]{6}$/.test(color)) {
       return "The colour must be a hex value like #6054bf.";
@@ -1020,6 +1100,7 @@ function BusinessWizard({
   // What this save will actually write — drives the Review step's change
   // markers and, in edit mode, which endpoints get called at all.
   const changed = {
+    plan: planChanged,
     profile:
       !isCreate &&
       (name !== business.name ||
@@ -1117,6 +1198,7 @@ function BusinessWizard({
           });
         }
       } else {
+        if (changed.plan) await changeTier(business.id, tierId, reason);
         if (changed.profile) {
           await updateProfile(business.id, {
             name, legalName, shortName, lockupTagline: tagline, addressLine, kmlRegNo, policy, appUrl, reason,
@@ -1215,22 +1297,6 @@ function BusinessWizard({
                 </div>
               </div>
 
-              {isCreate && (
-                <div className="sa-field">
-                  <label>Tier</label>
-                  <Select
-                    value={String(tierId)}
-                    onChange={(v) => setTierId(Number(v))}
-                    ariaLabel="Tier"
-                    options={tiers.map((t) => ({
-                      value: String(t.id),
-                      label: `${t.name} (${t.branchQuota} branch${t.branchQuota === 1 ? "" : "es"})`,
-                    }))}
-                  />
-                  <span className="sa-hint">Changed later from the Tier action on the business row.</span>
-                </div>
-              )}
-
               <div className="sa-grid-2">
                 <div className="sa-field">
                   <label>Legal name</label>
@@ -1283,14 +1349,39 @@ function BusinessWizard({
               </div>
 
               <div className="sa-field">
-                <label>Deployment URL</label>
-                <input
-                  value={appUrl}
-                  onChange={(e) => setAppUrl(e.target.value)}
-                  placeholder="https://acme.cloudhousesupport.site"
+                <label>Plan</label>
+                <Select
+                  value={String(tierId)}
+                  onChange={(v) => setTierId(Number(v))}
+                  ariaLabel="Plan"
+                  options={tiers.map((t) => ({ value: String(t.id), label: planLabel(t) }))}
                 />
-                <span className="sa-hint">Recorded for reference only — sign-in still uses the code above.</span>
+                <span className="sa-hint">
+                  {isCreate
+                    ? "Decides how many active branches this business may run. Enforced by the server."
+                    : "Takes effect on save and asks for a reason. Existing branches are never removed — a business above the new limit just cannot add or reactivate branches."}
+                </span>
               </div>
+
+              {/* Deployment URL is optional, so it lives behind a disclosure — but
+                * it is not decorative: when set, a session issued for this
+                * business is refused on any other business's host
+                * (platform.RequireHostMatchesTenant). */}
+              <details className="sa-advanced" open={!!appUrl}>
+                <summary>Advanced (optional)</summary>
+                <div className="sa-field">
+                  <label>Deployment URL</label>
+                  <input
+                    value={appUrl}
+                    onChange={(e) => setAppUrl(e.target.value)}
+                    placeholder="https://acme.cloudhousesupport.site"
+                  />
+                  <span className="sa-hint">
+                    Only if this business has its own web address. Sign-in still uses the code above; when set, this
+                    business&rsquo;s sessions are refused on any other business&rsquo;s address.
+                  </span>
+                </div>
+              </details>
             </>
           )}
 
@@ -1598,6 +1689,7 @@ function BusinessWizard({
               <dl className="sa-review">
                 <ReviewRow label="Business name" value={name} changed={changed.profile} />
                 <ReviewRow label="Sign-in code" value={isCreate ? code : business.code} />
+                <ReviewRow label="Plan" value={planLabelFor(tiers, tierId)} changed={changed.plan} />
                 <ReviewRow label="Legal name" value={legalName} changed={changed.profile} />
                 <ReviewRow label="Short name" value={shortName || "(falls back to business name)"} changed={changed.profile} />
                 <ReviewRow label="Address" value={addressLine} changed={changed.profile} />
@@ -1703,12 +1795,16 @@ function BusinessActionModal({
   business,
   kind,
   tiers,
+  activeBranches,
   onClose,
   onDone,
 }: {
   business: Business;
   kind: "suspend" | "reactivate" | "tier" | "delete";
   tiers: Tier[];
+  /* Known when opened from the detail page — lets the plan change warn that
+   * the business is already above the new plan's branch limit. */
+  activeBranches?: number;
   onClose: () => void;
   onDone: () => void;
 }) {
@@ -1725,7 +1821,14 @@ function BusinessActionModal({
         ? "Reactivate business"
         : kind === "delete"
           ? "Delete business permanently"
-          : "Change tier";
+          : "Change plan";
+  const newTier = tiers.find((t) => t.id === tierId);
+  const overNewLimit =
+    kind === "tier" &&
+    activeBranches !== undefined &&
+    newTier !== undefined &&
+    newTier.branchQuota !== 0 &&
+    activeBranches > newTier.branchQuota;
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -1783,18 +1886,28 @@ function BusinessActionModal({
             </>
           )}
           {kind === "tier" && (
-            <div className="sa-field">
-              <label>New tier</label>
-              <Select
-                value={String(tierId)}
-                onChange={(v) => setTierId(Number(v))}
-                ariaLabel="New tier"
-                options={tiers.map((t) => ({
-                  value: String(t.id),
-                  label: `${t.name} (${t.branchQuota} branch${t.branchQuota === 1 ? "" : "es"})`,
-                }))}
-              />
-            </div>
+            <>
+              <div className="sa-field">
+                <label>New plan</label>
+                <Select
+                  value={String(tierId)}
+                  onChange={(v) => setTierId(Number(v))}
+                  ariaLabel="New plan"
+                  options={tiers.map((t) => ({ value: String(t.id), label: planLabel(t) }))}
+                />
+                <span className="sa-hint">
+                  Takes effect immediately. Existing branches are never removed — a business above its plan&rsquo;s
+                  limit simply cannot add or reactivate branches until it is within it.
+                </span>
+              </div>
+              {overNewLimit && newTier && (
+                <p className="sa-modal-note danger">
+                  {business.name} already has {activeBranches} active branches, more than {newTier.name} allows (
+                  {newTier.branchQuota}). They keep working, but no new branch can be added until the business is
+                  within the limit.
+                </p>
+              )}
+            </>
           )}
           <ReasonField value={reason} onChange={setReason} required />
           {error && <p className="sa-error">{error}</p>}
@@ -1876,6 +1989,599 @@ function TierPriceModal({ tier, onClose, onDone }: { tier: Tier; onClose: () => 
           </button>
           <button type="submit" className="sa-btn primary" disabled={submitting}>
             {submitting ? "Working…" : "Set price"}
+          </button>
+        </div>
+      </form>
+    </div>
+  );
+}
+
+/* ---------------------------------------------------------------------------
+ * Business detail page — opened by clicking a row in the business list.
+ *
+ * One overview call (GET /superadmin/businesses/:id/overview) supplies the
+ * whole page: the business's details, its plan and renewal, how much of the
+ * product it is using, the hand-kept payment history and the most recent
+ * superadmin actions taken on it. Every figure is for this one business —
+ * the backend narrows each query to its id (superadmin/overview.go).
+ * ------------------------------------------------------------------------- */
+
+type ActKind = "suspend" | "reactivate" | "tier" | "delete";
+
+function BusinessDetail({
+  id,
+  version,
+  tiers,
+  onBack,
+  onEdit,
+  onAct,
+  onChanged,
+  signInLink,
+  onCopyLink,
+  copied,
+}: {
+  id: number;
+  version: number;
+  tiers: Tier[];
+  onBack: () => void;
+  onEdit: (b: Business) => void;
+  onAct: (b: Business, kind: ActKind, activeBranches?: number) => void;
+  onChanged: () => void;
+  signInLink: (b: Business) => string;
+  onCopyLink: (b: Business) => void;
+  /* Code of the business whose link was just copied, to flash "Copied". */
+  copied: string | null;
+}) {
+  const [data, setData] = useState<BusinessOverview | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [recording, setRecording] = useState(false);
+  const [removing, setRemoving] = useState<SubscriptionPayment | null>(null);
+  const [editingExpiry, setEditingExpiry] = useState(false);
+
+  useEffect(() => {
+    let live = true;
+    getBusinessOverview(id)
+      .then((d) => {
+        if (!live) return;
+        setData(d);
+        setError(null);
+      })
+      .catch((err) => {
+        if (live) setError(err instanceof Error ? err.message : "Could not load this business.");
+      });
+    return () => {
+      live = false;
+    };
+  }, [id, version]);
+
+  if (error) {
+    return (
+      <>
+        <div className="sa-toolbar">
+          <button className="sa-btn" onClick={onBack}>
+            ← All businesses
+          </button>
+        </div>
+        <p className="sa-error">{error}</p>
+      </>
+    );
+  }
+  if (!data) return <p className="sa-empty">Loading…</p>;
+
+  const { business: b, usage: u, payments } = data;
+  const plan = tiers.find((t) => t.id === b.tierId) ?? b.tier;
+  const atLimit = !u.unlimited && u.branches >= u.branchQuota;
+  const expired = b.subscriptionExpiresAt ? new Date(b.subscriptionExpiresAt) < new Date() : false;
+
+  return (
+    <div className="sa-detail">
+      <div className="sa-toolbar sa-detail-toolbar">
+        <button className="sa-btn" onClick={onBack}>
+          ← All businesses
+        </button>
+        <span className="sa-foot-spacer" />
+        <button className="sa-btn" onClick={() => onEdit(b)}>
+          Edit details
+        </button>
+        <button className="sa-btn" onClick={() => onAct(b, "tier", u.branches)}>
+          Change plan
+        </button>
+        <button
+          className={`sa-btn${b.status === "suspended" ? " primary" : ""}`}
+          onClick={() => onAct(b, b.status === "suspended" ? "reactivate" : "suspend")}
+        >
+          {b.status === "suspended" ? "Reactivate" : "Suspend"}
+        </button>
+        <button className="sa-btn danger" onClick={() => onAct(b, "delete")}>
+          Delete
+        </button>
+      </div>
+
+      <section className="sa-panel sa-detail-head">
+        {b.logoUrl ? (
+          <img className="sa-detail-logo" src={b.logoUrl} alt="" />
+        ) : (
+          <span className="sa-detail-logo sa-biz-swatch" style={{ background: b.brandColor || DEFAULT_BRAND_COLOR }} />
+        )}
+        <div className="sa-detail-title">
+          <h2>{b.name}</h2>
+          <p>
+            <code>{b.code}</code> · <span className={`sa-chip ${b.status}`}>{b.status}</span> · created{" "}
+            {formatDate(b.createdAt)}
+          </p>
+          <div className="sa-signin-row">
+            <a className="sa-url" href={signInLink(b)} target="_blank" rel="noreferrer">
+              {signInLink(b).replace(/^https?:\/\//, "")}
+            </a>
+            <button type="button" className="sa-btn" onClick={() => onCopyLink(b)} title={signInLink(b)}>
+              <Icon name="copy" />
+              {copied === b.code ? "Copied" : "Copy sign-in link"}
+            </button>
+            <a
+              className="sa-btn"
+              href={signInLink(b)}
+              target="_blank"
+              rel="noreferrer"
+              title={`Open ${signInLink(b)} in a new tab`}
+            >
+              <Icon name="external" />
+              Open in new tab
+            </a>
+          </div>
+        </div>
+      </section>
+
+      <section className="sa-cards sa-detail-stats">
+        <Stat
+          label="Branches"
+          value={u.unlimited ? `${u.branches}` : `${u.branches} / ${u.branchQuota}`}
+          sub={u.unlimited ? "Unlimited plan" : atLimit ? "At plan limit" : `${u.branchQuota - u.branches} left on plan`}
+          tone={atLimit ? "amber" : "violet"}
+        />
+        <Stat label="Staff" value={u.employees} />
+        <Stat label="Customers" value={u.customers} />
+        <Stat label="Gold loans" value={u.loansActive} sub={`open · ${u.loansTotal} total`} />
+        <Stat label="Outstanding principal" value={formatINR(u.outstandingPrincipal)} sub="open gold loans" />
+        <Stat label="Personal loans" value={u.personalLoansActive} sub="active" />
+        <Stat label="Investments" value={u.investmentsActive} sub="active" />
+        <Stat label="Files" value={u.files} sub={formatBytes(u.storageBytes)} />
+      </section>
+
+      <div className="sa-detail-grid">
+        <section className="sa-panel">
+          <h3>Current plan</h3>
+          <dl className="sa-kv">
+            <dt>Plan</dt>
+            <dd>{plan ? plan.name : `#${b.tierId}`}</dd>
+            <dt>Branch allowance</dt>
+            <dd>{quotaText(u.branchQuota)}</dd>
+            <dt>Plan price</dt>
+            <dd>{plan && plan.priceInPaise > 0 ? `${formatINR(plan.priceInPaise / 100)} / month` : "Not billed"}</dd>
+            <dt>Renews / expires</dt>
+            <dd style={{ color: expired ? "var(--sa-red)" : undefined }}>
+              {formatDate(b.subscriptionExpiresAt)}
+              {expired && " (expired)"}{" "}
+              <button type="button" className="sa-link-btn" onClick={() => setEditingExpiry(true)}>
+                Change
+              </button>
+            </dd>
+            {b.gracePeriodEndsAt && (
+              <>
+                <dt>Grace period ends</dt>
+                <dd>{formatDate(b.gracePeriodEndsAt)}</dd>
+              </>
+            )}
+            <dt>Total paid</dt>
+            <dd>{formatINR(data.totalPaidInPaise / 100)}</dd>
+            <dt>Last payment</dt>
+            <dd>
+              {data.lastPayment
+                ? `${formatINR(data.lastPayment.amountInPaise / 100)} on ${formatDate(data.lastPayment.paidOn)}`
+                : "—"}
+            </dd>
+            <dt>Last activity</dt>
+            <dd>{u.lastActivityAt ? new Date(u.lastActivityAt).toLocaleString("en-IN") : "—"}</dd>
+          </dl>
+        </section>
+
+        <section className="sa-panel">
+          <h3>Business details</h3>
+          <dl className="sa-kv">
+            <dt>Legal name</dt>
+            <dd>{b.legalName || "—"}</dd>
+            <dt>Short name</dt>
+            <dd>{b.shortName || "—"}</dd>
+            <dt>Registered address</dt>
+            <dd>{b.addressLine || "—"}</dd>
+            <dt>Registration no.</dt>
+            <dd>{b.kmlRegNo || "—"}</dd>
+            <dt>Document policy</dt>
+            <dd>{(b.policy || "kml").toUpperCase()}</dd>
+            <dt>Deployment URL</dt>
+            <dd>{b.appUrl || "—"}</dd>
+            <dt>Modules</dt>
+            <dd>
+              <GrantChips values={b.modules} labels={MODULE_LABELS} emptyLabel="none" />
+            </dd>
+            <dt>Languages</dt>
+            <dd>
+              <GrantChips values={b.languages} labels={LANGUAGE_LABELS} emptyLabel="English" />
+            </dd>
+          </dl>
+        </section>
+      </div>
+
+      <section className="sa-panel">
+        <div className="sa-panel-head">
+          <h3>Payment history</h3>
+          <button className="sa-btn primary" onClick={() => setRecording(true)}>
+            + Record payment
+          </button>
+        </div>
+        <p className="sa-hint">
+          For your records only — payments are not taken through this portal. Recording one does not change the
+          business&rsquo;s plan, status or renewal date.
+        </p>
+        {payments.length === 0 ? (
+          <p className="sa-empty">No payments recorded yet.</p>
+        ) : (
+          <div className="sa-table-wrap">
+            <table className="sa-table">
+              <thead>
+                <tr>
+                  <th>Paid on</th>
+                  <th>Amount</th>
+                  <th>Mode</th>
+                  <th>Reference</th>
+                  <th>Period</th>
+                  <th>Plan</th>
+                  <th>Note</th>
+                  <th>Recorded by</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody>
+                {payments.map((p) => (
+                  <tr key={p.id}>
+                    <td>{formatDate(p.paidOn)}</td>
+                    <td>{formatINR(p.amountInPaise / 100)}</td>
+                    <td>{PAYMENT_MODE_LABELS[p.mode] ?? p.mode}</td>
+                    <td>{p.reference || "—"}</td>
+                    <td>
+                      {p.periodFrom || p.periodTo ? `${formatDate(p.periodFrom)} – ${formatDate(p.periodTo)}` : "—"}
+                    </td>
+                    <td>{p.planName || "—"}</td>
+                    <td>{p.note || "—"}</td>
+                    <td>{p.recordedByName}</td>
+                    <td>
+                      <button className="sa-btn danger" onClick={() => setRemoving(p)}>
+                        Remove
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </section>
+
+      <section className="sa-panel">
+        <h3>Recent admin activity</h3>
+        {data.recentActivity.length === 0 ? (
+          <p className="sa-empty">Nothing recorded yet.</p>
+        ) : (
+          <ul className="sa-activity">
+            {data.recentActivity.map((a) => (
+              <li key={a.id}>
+                <span className="sa-activity-when">{new Date(a.createdAt).toLocaleString("en-IN")}</span>
+                <span>
+                  <b>{a.actorName}</b> — {a.detail}
+                  {a.reason && <span className="sa-biz-sub">Reason: {a.reason}</span>}
+                </span>
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
+
+      {recording && (
+        <RecordPaymentModal
+          business={b}
+          onClose={() => setRecording(false)}
+          onDone={() => {
+            setRecording(false);
+            onChanged();
+          }}
+        />
+      )}
+      {removing && (
+        <RemovePaymentModal
+          business={b}
+          payment={removing}
+          onClose={() => setRemoving(null)}
+          onDone={() => {
+            setRemoving(null);
+            onChanged();
+          }}
+        />
+      )}
+      {editingExpiry && (
+        <ExpiryModal
+          business={b}
+          onClose={() => setEditingExpiry(false)}
+          onDone={() => {
+            setEditingExpiry(false);
+            onChanged();
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+function Stat({
+  label,
+  value,
+  sub,
+  tone = "violet",
+}: {
+  label: string;
+  value: string | number;
+  sub?: string;
+  tone?: "violet" | "amber";
+}) {
+  return (
+    <div className={`sa-card sa-stat ${tone}`}>
+      <div>
+        <div className="sa-card-value">{value}</div>
+        <div className="sa-card-label">{label}</div>
+        {sub && <div className="sa-stat-sub">{sub}</div>}
+      </div>
+    </div>
+  );
+}
+
+function todayISO(): string {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
+function RecordPaymentModal({
+  business,
+  onClose,
+  onDone,
+}: {
+  business: Business;
+  onClose: () => void;
+  onDone: () => void;
+}) {
+  const [amount, setAmount] = useState("");
+  const [paidOn, setPaidOn] = useState(todayISO());
+  const [mode, setMode] = useState<PaymentMode>("bank_transfer");
+  const [reference, setReference] = useState("");
+  const [periodFrom, setPeriodFrom] = useState("");
+  const [periodTo, setPeriodTo] = useState("");
+  const [note, setNote] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function submit(e: React.FormEvent) {
+    e.preventDefault();
+    setError(null);
+    const rupees = Number(amount);
+    if (!Number.isFinite(rupees) || rupees <= 0) {
+      setError("Enter an amount greater than zero.");
+      return;
+    }
+    if (!paidOn) {
+      setError("Enter the date the payment was made.");
+      return;
+    }
+    setSubmitting(true);
+    try {
+      await recordPayment(business.id, {
+        amountInPaise: Math.round(rupees * 100),
+        paidOn,
+        mode,
+        reference,
+        note,
+        periodFrom: periodFrom || undefined,
+        periodTo: periodTo || undefined,
+      });
+      onDone();
+    } catch (err) {
+      setError(err instanceof SuperAdminApiError ? err.message : "Could not record the payment.");
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  return (
+    <div className="sa-modal-backdrop" onClick={onClose}>
+      <form className="sa-modal" onClick={(e) => e.stopPropagation()} onSubmit={submit}>
+        <div className="sa-modal-head">
+          <h2>Record payment — {business.name}</h2>
+        </div>
+        <div className="sa-modal-body">
+          <p className="sa-modal-note">
+            For your records only. Nothing is charged, and the plan, status and renewal date stay as they are.
+          </p>
+          <div className="sa-grid-2">
+            <div className="sa-field">
+              <label>Amount (₹)</label>
+              <input
+                type="number"
+                min="0.01"
+                step="0.01"
+                inputMode="decimal"
+                value={amount}
+                onChange={(e) => setAmount(e.target.value)}
+                autoFocus
+              />
+            </div>
+            <div className="sa-field">
+              <label>Paid on</label>
+              <input type="date" value={paidOn} max={todayISO()} onChange={(e) => setPaidOn(e.target.value)} />
+            </div>
+            <div className="sa-field">
+              <label>Mode</label>
+              <Select
+                value={mode}
+                onChange={(v) => setMode(v as PaymentMode)}
+                ariaLabel="Payment mode"
+                options={(Object.keys(PAYMENT_MODE_LABELS) as PaymentMode[]).map((m) => ({
+                  value: m,
+                  label: PAYMENT_MODE_LABELS[m],
+                }))}
+              />
+            </div>
+            <div className="sa-field">
+              <label>Reference (optional)</label>
+              <input value={reference} onChange={(e) => setReference(e.target.value)} placeholder="UTR / cheque no." />
+            </div>
+            <div className="sa-field">
+              <label>Period from (optional)</label>
+              <input type="date" value={periodFrom} onChange={(e) => setPeriodFrom(e.target.value)} />
+            </div>
+            <div className="sa-field">
+              <label>Period to (optional)</label>
+              <input
+                type="date"
+                value={periodTo}
+                min={periodFrom || undefined}
+                onChange={(e) => setPeriodTo(e.target.value)}
+              />
+            </div>
+          </div>
+          <div className="sa-field">
+            <label>Note (optional)</label>
+            <textarea value={note} onChange={(e) => setNote(e.target.value)} rows={2} />
+          </div>
+          {error && <p className="sa-error">{error}</p>}
+        </div>
+        <div className="sa-modal-foot">
+          <span className="sa-foot-spacer" />
+          <button type="button" className="sa-btn" onClick={onClose}>
+            Cancel
+          </button>
+          <button type="submit" className="sa-btn primary" disabled={submitting}>
+            {submitting ? "Saving…" : "Record payment"}
+          </button>
+        </div>
+      </form>
+    </div>
+  );
+}
+
+function RemovePaymentModal({
+  business,
+  payment,
+  onClose,
+  onDone,
+}: {
+  business: Business;
+  payment: SubscriptionPayment;
+  onClose: () => void;
+  onDone: () => void;
+}) {
+  const [reason, setReason] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function submit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!reason.trim()) {
+      setError("A reason is required.");
+      return;
+    }
+    setSubmitting(true);
+    try {
+      await deletePayment(business.id, payment.id, reason);
+      onDone();
+    } catch (err) {
+      setError(err instanceof SuperAdminApiError ? err.message : "Could not remove the payment.");
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  return (
+    <div className="sa-modal-backdrop" onClick={onClose}>
+      <form className="sa-modal" onClick={(e) => e.stopPropagation()} onSubmit={submit}>
+        <div className="sa-modal-head">
+          <h2>Remove payment record</h2>
+        </div>
+        <div className="sa-modal-body">
+          <p className="sa-modal-note danger">
+            Removes the {formatINR(payment.amountInPaise / 100)} payment of {formatDate(payment.paidOn)} from{" "}
+            {business.name}&rsquo;s history. The audit log keeps a record that it existed.
+          </p>
+          <ReasonField value={reason} onChange={setReason} required />
+          {error && <p className="sa-error">{error}</p>}
+        </div>
+        <div className="sa-modal-foot">
+          <span className="sa-foot-spacer" />
+          <button type="button" className="sa-btn" onClick={onClose}>
+            Cancel
+          </button>
+          <button type="submit" className="sa-btn danger" disabled={submitting}>
+            {submitting ? "Removing…" : "Remove"}
+          </button>
+        </div>
+      </form>
+    </div>
+  );
+}
+
+/* Sets (or clears) the renewal/expiry date by hand — the existing
+ * PUT /superadmin/businesses/:id/expiry, which had no screen until now. */
+function ExpiryModal({ business, onClose, onDone }: { business: Business; onClose: () => void; onDone: () => void }) {
+  const [date, setDate] = useState(business.subscriptionExpiresAt ? business.subscriptionExpiresAt.slice(0, 10) : "");
+  const [reason, setReason] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function submit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!reason.trim()) {
+      setError("A reason is required.");
+      return;
+    }
+    setSubmitting(true);
+    try {
+      // End of the chosen day, so "expires 30 Sep" is still usable all of 30 Sep.
+      await adjustExpiry(business.id, date ? new Date(`${date}T23:59:59`).toISOString() : null, reason);
+      onDone();
+    } catch (err) {
+      setError(err instanceof SuperAdminApiError ? err.message : "Could not change the renewal date.");
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  return (
+    <div className="sa-modal-backdrop" onClick={onClose}>
+      <form className="sa-modal" onClick={(e) => e.stopPropagation()} onSubmit={submit}>
+        <div className="sa-modal-head">
+          <h2>Renewal date — {business.name}</h2>
+        </div>
+        <div className="sa-modal-body">
+          <div className="sa-field">
+            <label>Renews / expires on</label>
+            <input type="date" value={date} onChange={(e) => setDate(e.target.value)} />
+            <span className="sa-hint">Leave empty to clear it (no expiry).</span>
+          </div>
+          <ReasonField value={reason} onChange={setReason} required />
+          {error && <p className="sa-error">{error}</p>}
+        </div>
+        <div className="sa-modal-foot">
+          <span className="sa-foot-spacer" />
+          <button type="button" className="sa-btn" onClick={onClose}>
+            Cancel
+          </button>
+          <button type="submit" className="sa-btn primary" disabled={submitting}>
+            {submitting ? "Saving…" : "Save"}
           </button>
         </div>
       </form>

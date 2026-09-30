@@ -104,8 +104,12 @@ func (s *Service) HardDeleteCustomer(ctx context.Context, id uint) error {
 		if err := tx.Exec("DELETE FROM customer_device_tokens WHERE customer_id = ?", rec.ID).Error; err != nil {
 			return err
 		}
+		// customer_otp is keyed by phone, and the same phone can be a
+		// borrower at several businesses — raw Exec bypasses the GORM tenant
+		// filter, so the tenant must be named here explicitly or this would
+		// wipe another business's pending OTPs.
 		if rec.Phone != "" {
-			if err := tx.Exec("DELETE FROM customer_otp WHERE phone = ?", rec.Phone).Error; err != nil {
+			if err := tx.Exec("DELETE FROM customer_otp WHERE phone = ? AND tenant_id = ?", rec.Phone, rec.TenantID).Error; err != nil {
 				return err
 			}
 		}

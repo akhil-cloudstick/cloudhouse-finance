@@ -67,8 +67,11 @@ export function SheetScrollView(props: ScrollViewProps) {
     <ScrollView
       ref={ref}
       bounces={false}
+      // Android 12+ stretches a list pulled past its top; that stretch and
+      // the sheet following the same drag fought each other (jitter).
+      overScrollMode="never"
       scrollEventThrottle={16}
-      keyboardDismissMode={Platform.OS === "ios" ? "interactive" : undefined}
+      keyboardDismissMode={Platform.OS === "ios" ? "interactive" : "on-drag"}
       {...props}
       onScrollBeginDrag={(e) => {
         notifyUserScroll();
@@ -148,12 +151,28 @@ export function BottomSheetModal({
   if (!idRef.current) idRef.current = nextSheetId();
   const id = idRef.current;
 
+  // Set once a drag has committed to closing: a second touch landing during
+  // the slide-out used to start a fresh drag, whose setValue stopped the
+  // close mid-way and whose short distance then sprang the sheet back open.
+  const closing = useRef(false);
+  const visibleRef = useRef(visible);
+  visibleRef.current = visible;
+
   const closeSheet = () => {
+    closing.current = true;
     // No reset to 0 here — that snapped the sheet back on-screen for a frame
     // before it unmounted (the flash). The open effect re-positions it.
-    Animated.timing(translateY, { toValue: offscreen(), duration: CLOSE_MS, easing: CLOSE_EASE, useNativeDriver: true }).start(() =>
-      closeRef.current()
-    );
+    Animated.timing(translateY, { toValue: offscreen(), duration: CLOSE_MS, easing: CLOSE_EASE, useNativeDriver: true }).start(() => {
+      closeRef.current();
+      // An onClose that declines to close (e.g. a form mid-save) left the
+      // sheet parked off-screen but still mounted — an invisible overlay
+      // over the page. Bring it back instead.
+      setTimeout(() => {
+        if (!visibleRef.current || !closing.current) return;
+        closing.current = false;
+        Animated.spring(translateY, { toValue: 0, ...OPEN_SPRING, useNativeDriver: true }).start();
+      }, 0);
+    });
   };
 
   // Whole-sheet drag. A SheetScrollView inside reports its offset here; the
@@ -169,21 +188,39 @@ export function BottomSheetModal({
         .activeOffsetY([-8, 8])
         .failOffsetX([-24, 24])
         .onStart(() => {
+          if (closing.current) return;
+          // Take over from an open/spring-back still in flight rather than
+          // fighting it frame by frame.
+          translateY.stopAnimation();
           dragBase.current = scrollY.current <= 1 ? 0 : null;
         })
         .onUpdate((e) => {
-          if (scrollY.current > 1) {
-            dragBase.current = null;
+          if (closing.current) return;
+          if (dragBase.current === null) {
+            if (scrollY.current > 1) return;
+            dragBase.current = e.translationY;
+          }
+          const d = e.translationY - dragBase.current;
+          // Once the sheet has been pulled down it keeps following the
+          // finger. It used to snap to 0 the moment the inner list reported
+          // any scroll offset — which it can mid-drag, a frame late — and
+          // that snap-then-follow was the visible stutter. It only hands
+          // back to the list once the finger returns above where the pull
+          // began.
+          if (d <= 0) {
             translateY.setValue(0);
+            if (scrollY.current > 1) dragBase.current = null;
             return;
           }
-          if (dragBase.current === null) dragBase.current = e.translationY;
-          translateY.setValue(Math.max(0, e.translationY - dragBase.current));
+          translateY.setValue(d);
         })
         .onEnd((e) => {
+          if (closing.current) return;
           const dist = dragBase.current === null ? 0 : e.translationY - dragBase.current;
           dragBase.current = 0;
-          if (dist > 120 || (dist > 24 && e.velocityY > 800)) {
+          // A quarter of a short sheet's height is enough; a tall one still
+          // needs the fixed 120.
+          if (dist > Math.min(120, sheetH.current * 0.25) || (dist > 24 && e.velocityY > 600)) {
             closeSheet();
           } else {
             Animated.spring(translateY, { toValue: 0, useNativeDriver: true, bounciness: 4 }).start();
@@ -220,6 +257,7 @@ export function BottomSheetModal({
   useEffect(() => {
     if (visible) {
       setMounted(true);
+      closing.current = false;
       scrollY.current = 0;
       if (mountedRef.current) {
         // Re-opened while still sliding out: reverse from where it is.

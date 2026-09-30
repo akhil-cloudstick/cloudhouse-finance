@@ -16,7 +16,7 @@ import (
 // semver, no ordering guarantees) — Run's own steps are already ordered and
 // idempotent; this version exists only to answer one yes/no question at
 // boot, not to drive a migration framework.
-const CurrentSchemaVersion = "2026-08-29-billing"
+const CurrentSchemaVersion = "2026-09-30-tenant-hardening-plans"
 
 // schemaVersionRow is a single-row table (id is always 1) recording the
 // last schema version Run() successfully completed.

@@ -53,7 +53,7 @@ export const NAV: [string, NavItem[]][] = [
     { route: "auctions", title: "Auctions", icon: "gavel", module: "Loan_Management", key: "can_view_loan" },
   ]],
   ["Operations", [
-    { route: "cash", title: "Cash & Expenses", icon: "coin", module: "Cash_Management", key: "can_view_cash" },
+    { route: "cash", title: "Ledger", icon: "coin", module: "Cash_Management", key: "can_view_cash" },
     { route: "employees", title: "Employees & Roles", icon: "user", module: "Employee_Management", key: "can_view_employee" },
   ]],
   ["Administration", [

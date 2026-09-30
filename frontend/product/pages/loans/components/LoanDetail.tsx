@@ -11,6 +11,8 @@ import { Icon } from "@/product/components/Icon";
 import { fmt, fmtW } from "@/product/utils/format";
 import { appPath } from "@/product/services/tenantSession";
 import { rupeesInWords } from "@/product/utils/numberToWords";
+import { DatePicker } from "@/product/components/ui/DatePicker";
+import { LedgerRefLink } from "@/product/components/ui/LedgerRefLink";
 import {
   getLoanByNumber,
   approveLoan,
@@ -154,6 +156,13 @@ export function LoanDetail({ id }: { id?: string }) {
   const [releasing, setReleasing] = useState(false);
   const [completing, setCompleting] = useState(false);
   const [statementBusy, setStatementBusy] = useState(false);
+  // Payment Ledger's own date filter — narrows which sanction/top-up/payment
+  // rows are shown, purely client-side (this loan's full history is already
+  // in memory via `loan`/`topUps`, unlike the customer/branch ledgers which
+  // page against the backend).
+  const [ledgerFromDate, setLedgerFromDate] = useState("");
+  const [ledgerToDate, setLedgerToDate] = useState("");
+  const [ledgerExporting, setLedgerExporting] = useState(false);
   const [printingLabel, setPrintingLabel] = useState(false);
   const [printingSlip, setPrintingSlip] = useState(false);
   const [printingSlipAndLabel, setPrintingSlipAndLabel] = useState(false);
@@ -454,6 +463,18 @@ export function LoanDetail({ id }: { id?: string }) {
       toast(e instanceof ApiError ? e.message : "Could not prepare the statement — try again.");
     } finally {
       setStatementBusy(false);
+    }
+  }
+
+  async function onExportLedger() {
+    if (!l) return;
+    setLedgerExporting(true);
+    try {
+      await downloadLoanStatement(l.numericId);
+    } catch (e) {
+      toast(e instanceof ApiError ? e.message : "Could not export the ledger — try again.");
+    } finally {
+      setLedgerExporting(false);
     }
   }
 
@@ -877,7 +898,7 @@ export function LoanDetail({ id }: { id?: string }) {
           {!l.isDefaulted && l.isOverdue && l.status !== "Active" && l.status !== "Overdue" && <StatusChip status="Overdue" />}
           {!l.isOverdue && l.isDueSoon && <StatusChip status="Due Soon" />}
           </h1>
-          <p style={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}><a href={routeHref(`customer/${l.customerId}`)}>{l.customerName}</a> · {l.schemeName} · opened {l.opened} · due {l.due}{l.isOverdue ? ` · ${l.daysOverdue} days overdue` : ""}</p></div>
+          <p style={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}><a href={routeHref(`customer/${l.customerId}`)} style={{ fontSize: 15, fontWeight: 600 }}>{l.customerName}</a> · {l.schemeName} · opened {l.opened} · due {l.due}{l.isOverdue ? ` · ${l.daysOverdue} days overdue` : ""}</p></div>
         {/* Everything from here down is one right-aligned group rather than
          * flat siblings of `.page-h` itself — `.page-h`'s own flex-wrap
          * only right-aligns this whole cluster while it fits on the title's
@@ -1159,13 +1180,24 @@ export function LoanDetail({ id }: { id?: string }) {
             <div className="ft">Jewellery images linked to loan record</div></div>
       </div>
 
-      <div className="card gtop" style={{ marginTop: 16 }}><div className="hd"><h3>Payment Ledger</h3></div>
+      <div className="card gtop" style={{ marginTop: 16 }}>
+            <div className="hd">
+              <h3>Payment Ledger</h3>
+              <div className="sp" />
+              <DatePicker value={ledgerFromDate} onChange={setLedgerFromDate} placeholder="From…" max={ledgerToDate || undefined} />
+              <DatePicker value={ledgerToDate} onChange={setLedgerToDate} placeholder="To…" min={ledgerFromDate || undefined} />
+              {(ledgerFromDate || ledgerToDate) && (
+                <button className="btn ghost sm" onClick={() => { setLedgerFromDate(""); setLedgerToDate(""); }}>Clear</button>
+              )}
+              <button className="btn ghost sm" disabled={ledgerExporting} onClick={onExportLedger}>{ledgerExporting ? "Exporting…" : "Download"}</button>
+            </div>
             <div className="tbl-wrap"><table className="tbl">
-              <thead><tr><th>Date</th><th>Description</th><th>Method</th><th>Reference</th><th className="num">Debit</th><th className="num">Credit</th><th className="num">Running Balance</th></tr></thead>
+              <thead><tr><th>Date</th><th>Ref No</th><th>Particulars</th><th>Method</th><th className="num">Debit</th><th className="num">Credit</th><th className="num">Balance</th></tr></thead>
               <tbody>
-                {l.disbursementDate && (
+                {l.disbursementDate && (!ledgerFromDate || l.disbursementDate >= ledgerFromDate) && (!ledgerToDate || l.disbursementDate <= ledgerToDate) && (
                   <tr>
                     <td>{l.disbursementDate}</td>
+                    <td>{l.loanNumber}</td>
                     <td>
                       Loan Sanctioned
                       {l.sanctionedAmount !== l.disbursedAmount && (
@@ -1174,7 +1206,6 @@ export function LoanDetail({ id }: { id?: string }) {
                         </div>
                       )}
                     </td>
-                    <td>—</td>
                     <td>—</td>
                     <td className="num" style={{ color: "var(--red)" }}>{fmt(l.disbursedAmount)}</td>
                     <td className="num">—</td>
@@ -1193,6 +1224,7 @@ export function LoanDetail({ id }: { id?: string }) {
                     ...l.payments.map((p) => ({ kind: "payment" as const, date: p.paidOn, sortKey: p.paidOn, row: p })),
                     ...topUps.map((t) => ({ kind: "topup" as const, date: t.occurredOn.slice(0, 10), sortKey: t.occurredOn, row: t })),
                   ]
+                    .filter((e) => (!ledgerFromDate || e.date >= ledgerFromDate) && (!ledgerToDate || e.date <= ledgerToDate))
                     .sort((a, b) => a.sortKey.localeCompare(b.sortKey))
                     .map((entry) => {
                       if (entry.kind === "topup") {
@@ -1206,12 +1238,12 @@ export function LoanDetail({ id }: { id?: string }) {
                         return (
                           <tr key={`topup-${t.id}`}>
                             <td>{entry.date}</td>
+                            <td>{t.reference || "—"}</td>
                             <td>
                               Loan Top-Up
                               <div style={{ fontSize: "0.85em", color: "var(--muted)" }}>Eligible at top-up {fmt(t.eligibleAmountAtTopUp)}</div>
                             </td>
                             <td>{modeParts || "—"}</td>
-                            <td>{t.reference || "—"}</td>
                             <td className="num" style={{ color: "var(--red)" }}>{fmt(t.amount)}</td>
                             <td className="num">—</td>
                             <td className="num">—</td>
@@ -1240,15 +1272,20 @@ export function LoanDetail({ id }: { id?: string }) {
                       return (
                         <tr key={p.id}>
                           <td>{p.paidOn}</td>
+                          <td>{p.reference || "—"}</td>
                           <td>
                             {p.type}
                             {p.processingFee > 0 && (
                               <div style={{ fontSize: "0.85em", color: "var(--red)" }}>+{fmt(p.processingFee)} fee charged</div>
                             )}
                             {breakdown && <div style={{ fontSize: "0.85em", color: "var(--muted)" }}>{breakdown}</div>}
+                            {p.bankId && (
+                              <div style={{ marginTop: 4 }}>
+                                <LedgerRefLink kind="bank" id={p.bankId} label={p.bankName || "Bank"} />
+                              </div>
+                            )}
                           </td>
                           <td>{isCash ? p.method || "—" : <span style={{ color: "var(--muted)" }}>Non-cash</span>}</td>
-                          <td>{p.reference || "—"}</td>
                           <td className="num">—</td>
                           <td className="num" style={{ color: "var(--green)" }}>{fmt(p.amount)}</td>
                           <td className="num">{fmt(p.runningBalance)}</td>

@@ -10,6 +10,14 @@ import { listActiveBranches, type BranchView } from "@/product/pages/branches/se
 import { createGoldSale } from "@/product/pages/cash/services/cashService";
 import { Select } from "@/product/components/ui/Select";
 import { DatePicker } from "@/product/components/ui/DatePicker";
+import { searchBanksPage, createBank, type BackendBank } from "@/product/pages/banks/services/bankService";
+import { SearchableSelect } from "@/product/components/ui/SearchableSelect";
+
+const MODE_OPTIONS = [
+  { value: "Cash", label: "Cash" },
+  { value: "UPI", label: "UPI" },
+  { value: "Bank Transfer", label: "Bank Transfer" },
+];
 
 /* "Gold Sale" — the business selling gold it owns (bought stock, not a
  * customer's pledged loan collateral, which goes through the Auction
@@ -30,8 +38,12 @@ export function GoldSaleModalContent({ onSaved }: { onSaved?: () => void }) {
   const [remarks, setRemarks] = useState("");
   const [branches, setBranches] = useState<BranchView[]>([]);
   const [branchId, setBranchId] = useState<number | "">("");
+  const [mode, setMode] = useState("Cash");
+  const [bankId, setBankId] = useState<number | undefined>(undefined);
+  const [bankName, setBankName] = useState("");
   const [err, setErr] = useState("");
   const [saving, setSaving] = useState(false);
+  const bankRequired = mode === "UPI" || mode === "Bank Transfer";
 
   useEffect(() => {
     listActiveBranches().then((list) => {
@@ -51,11 +63,13 @@ export function GoldSaleModalContent({ onSaved }: { onSaved?: () => void }) {
     if (cost < 0) { setErr("Cost amount cannot be negative."); return; }
     if (!date) { setErr("Please select the date."); return; }
     if (!branchId) { setErr("Please select a branch."); return; }
+    if (bankRequired && !bankId) { setErr("Please select a bank."); return; }
 
     setSaving(true);
     try {
       await createGoldSale({
         ornamentType: type, soldAmount: sold, costAmount: cost, branchId,
+        mode, bankId: bankRequired ? bankId : undefined,
         soldOn: date, remarks: remarks.trim() || undefined,
       });
       onSaved?.();
@@ -77,6 +91,28 @@ export function GoldSaleModalContent({ onSaved }: { onSaved?: () => void }) {
         <div className="frow c2">
           <div><label className="f">Sold For (₹) *</label><input className="inp" type="number" min={1} value={soldAmount} onChange={(e) => setSoldAmount(e.target.value)} /></div>
           <div><label className="f">Cost to Acquire (₹) *</label><input className="inp" type="number" min={0} value={costAmount} onChange={(e) => setCostAmount(e.target.value)} /></div>
+        </div>
+        <div className={bankRequired ? "frow c2" : "frow"}>
+          <div><label className="f">Payment Mode *</label>
+            <Select
+              options={MODE_OPTIONS}
+              value={mode}
+              onChange={(v) => { setMode(v); if (v !== "UPI" && v !== "Bank Transfer") { setBankId(undefined); setBankName(""); } }}
+              placeholder="Select mode…"
+            /></div>
+          {bankRequired && (
+            <div><label className="f">Bank *</label>
+              <SearchableSelect<BackendBank>
+                value={bankName}
+                onChange={(id, item) => { setBankId(Number(id)); setBankName(item.name); }}
+                fetchFn={searchBanksPage}
+                getLabel={(b) => b.name}
+                getId={(b) => String(b.id)}
+                placeholder="Search or add a bank…"
+                allowCreate
+                onCreate={createBank}
+              /></div>
+          )}
         </div>
         <div className="frow c2">
           <div><label className="f">Date *</label><DatePicker value={date} onChange={setDate} /></div>

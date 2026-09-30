@@ -123,6 +123,20 @@ func (s *Service) reserveAndCreate(ctx context.Context, rec *Branch) error {
 	})
 }
 
+// ErrNoTenant is returned by Usage when the request carries no business.
+var ErrNoTenant = httpx.NewUnauthorized("no business in session")
+
+// Usage reports the caller's plan and active-branch count, for the Branches
+// page's "1 of 1 used" line. The tenant comes only from the session context,
+// never from the request — there is no parameter to point it elsewhere.
+func (s *Service) Usage(ctx context.Context) (*tenant.BranchUsage, error) {
+	tenantID, ok := platform.TenantFromContext(ctx)
+	if !ok || s.tenantRepo == nil {
+		return nil, ErrNoTenant
+	}
+	return s.tenantRepo.BranchUsage(ctx, tenantID)
+}
+
 // List returns branches, optionally scoped to a single branchID (nil = all,
 // used for Administrator).
 func (s *Service) List(ctx context.Context, branchID *uint) ([]Branch, error) {

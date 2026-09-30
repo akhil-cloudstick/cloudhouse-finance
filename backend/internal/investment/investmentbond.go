@@ -23,8 +23,32 @@ import (
 // depend on loan and a one-off shared helper isn't worth the coupling.
 const templatesDir = "./templates"
 
+// findTemplatesDir mirrors loan/indemnitybond.go's: walks up from the working
+// directory so `go test` (whose working directory is the package, not
+// backend/) finds backend/templates instead of panicking at init.
+func findTemplatesDir() string {
+	if _, err := os.Stat(templatesDir); err == nil {
+		return templatesDir
+	}
+	dir, err := os.Getwd()
+	if err != nil {
+		return templatesDir
+	}
+	for {
+		candidate := filepath.Join(dir, "templates")
+		if _, err := os.Stat(candidate); err == nil {
+			return candidate
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			return templatesDir
+		}
+		dir = parent
+	}
+}
+
 func mustLoadTemplate(templateName, fileName string) *template.Template {
-	b, err := os.ReadFile(filepath.Join(templatesDir, fileName))
+	b, err := os.ReadFile(filepath.Join(findTemplatesDir(), fileName))
 	if err != nil {
 		panic(fmt.Sprintf("debenture subscription agreement: read template %s: %v", fileName, err))
 	}

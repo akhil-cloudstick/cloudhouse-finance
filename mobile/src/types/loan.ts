@@ -247,3 +247,19 @@ export type Loan = {
   indemnityBondSignStatus?: string;
   indemnityBondSignedUrl?: string;
 };
+
+// One top-up on a loan — mirrors web loanService.ts's LoanTopUpView
+// (backend/internal/loan ListTopUps).
+export type LoanTopUp = {
+  id: number;
+  amount: number;
+  eligibleAmountAtTopUp: number;
+  cashAmount: number;
+  upiAmount: number;
+  bankTransferAmount: number;
+  chequeAmount: number;
+  occurredOn: string;
+  reference: string;
+  status: "Active" | "Reversed";
+  createdAt: string;
+};

@@ -178,7 +178,11 @@ func TestEveryTenantScopedModelIsFiltered(t *testing.T) {
 	// (see internal/superadmin's package doc comment). Scoping it would silently
 	// hide every OTHER business's audit entries from the one query that is
 	// supposed to show all of them.
-	exempt := map[string]bool{"sequences": true, "superadmin_audit_logs": true, "usage_counters": true}
+	//
+	// `subscription_payments` is the same kind of vendor-side record: payments
+	// a superadmin logs by hand against a business, read only by the
+	// superadmin console with an explicit tenant_id predicate.
+	exempt := map[string]bool{"sequences": true, "superadmin_audit_logs": true, "usage_counters": true, "subscription_payments": true}
 
 	for _, table := range withTenantColumn {
 		if exempt[table] {

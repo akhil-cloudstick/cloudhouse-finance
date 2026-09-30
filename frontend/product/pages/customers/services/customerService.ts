@@ -240,13 +240,14 @@ export const CUSTOMERS_TABLE_PAGE_SIZE = 10;
 export async function listCustomersPage(
   q: string,
   page: number,
-  filters?: { panStatus?: string; aadhaarStatus?: string },
+  filters?: { panStatus?: string; aadhaarStatus?: string; branchIds?: string[] },
   limit?: number
 ): Promise<{ items: CustomerView[]; hasMore: boolean; total: number }> {
   const pageSize = limit ?? (isSmallScreen() ? 7 : 9);
   const params = new URLSearchParams({ q, limit: String(pageSize), offset: String((page - 1) * pageSize) });
   if (filters?.panStatus) params.set("panStatus", filters.panStatus);
   if (filters?.aadhaarStatus) params.set("aadhaarStatus", filters.aadhaarStatus);
+  if (filters?.branchIds?.length) params.set("branchIds", filters.branchIds.join(","));
   const rec = await apiFetch<{ items: BackendCustomer[]; hasMore: boolean; total?: number }>(`/customers?${params}`);
   return { items: (rec?.items || []).map(toView), hasMore: !!rec?.hasMore, total: rec?.total ?? 0 };
 }

@@ -30,11 +30,60 @@ func (r *MovementRepository) Create(ctx context.Context, m *CashMovement) error 
 // split. "" (CategoryAll) applies no filter at all.
 const (
 	CategoryAll        = ""
-	CategoryLoan       = "loan"       // Source == "Loan" (manual top-up) OR Purpose starts with "Loan disbursement — "
+	CategoryLoan       = "loan"       // Source == "Loan" (manual top-up) OR Purpose starts with "Loan disbursement — " — gold loans only, excludes PL- (see CategoryPersonalLoan)
 	CategoryAuction    = "auction"    // Source == "Auction" OR Purpose starts with "Auction surplus refunded"
-	CategoryCollection = "collection" // Source == "Collection" (loan repayments)
+	CategoryCollection = "collection" // Source == "Collection" (loan repayments) — gold loans only, excludes PL-
 	CategoryExpenses   = "expenses"   // everything else type=out that isn't Loan/Auction/Bank — the informal "Take Cash Out" bucket (CashOutBreakdown.Withdrawals)
+	// CategoryPersonalLoan/CategoryInvestment are the Ledger filter's
+	// Personal Loan / Investment Type options. personalloan.Service reuses
+	// the exact same cash.MovementService.RecordLoanDisbursementCashOut/
+	// RecordLoanPaymentCashIn gold loans use (same Source "Loan"/
+	// "Collection", same "{…} — {loanNumber}" Purpose shape) — there is no
+	// separate Source for it — so a personal loan movement is told apart
+	// from a gold loan one only by its embedded loan number's "PL-" prefix
+	// (personalloan.Service.CreateLoan: `fmt.Sprintf("PL-%05d", …)`),
+	// distinct from gold loans' "LN-" prefix. Investments DO have their own
+	// Source ("Investment", cash-in) / Purpose prefix ("… — INV-…",
+	// cash-out payouts), so no such loan-number scraping is needed there.
+	CategoryPersonalLoan = "personal loan"
+	CategoryInvestment   = "investment"
 )
+
+// MovementFilter is FindAll's multi-value filter set — separate from
+// FindAll's own branchID/fromDate/toDate/search params (which predate this
+// and stay as-is for every other existing caller) so adding the Ledger
+// filter's Branch/Customer/Type sections (all multi-select) didn't mean
+// widening FindAll's already-long positional parameter list further.
+// BranchIDs/CustomerIDs/Categories, each nil or empty, apply no filter on
+// that dimension; non-empty means "any row matching one of these".
+type MovementFilter struct {
+	BranchIDs   []uint
+	CustomerIDs []uint
+	Categories  []string
+}
+
+// categoryWhere returns the FindAll switch's single-category WHERE clause
+// (SQL fragment + args) for one Category* bucket, or "" for CategoryAll —
+// factored out so applyCategoryFilter can OR several of these together for
+// FindAllFiltered's multi-select Type section.
+func categoryWhere(category string) (string, []interface{}) {
+	switch category {
+	case CategoryLoan:
+		return "((source = ? OR purpose LIKE ?) AND purpose NOT LIKE ?)", []interface{}{"Loan", "Loan disbursement — %", "%PL-%"}
+	case CategoryAuction:
+		return "(source = ? OR purpose LIKE ?)", []interface{}{"Auction", "Auction surplus refunded%"}
+	case CategoryCollection:
+		return "(source = ? AND purpose NOT LIKE ?)", []interface{}{"Collection", "%PL-%"}
+	case CategoryExpenses:
+		return "(type = ? AND source IS DISTINCT FROM ? AND source IS DISTINCT FROM ? AND (purpose IS NULL OR (purpose NOT LIKE ? AND purpose NOT LIKE ? AND purpose NOT LIKE ?)))",
+			[]interface{}{"out", "Loan", "Auction", "Loan disbursement — %", "Auction surplus refunded%", "Bank pledge release — %"}
+	case CategoryPersonalLoan:
+		return "((source = ? OR source = ?) AND purpose LIKE ?)", []interface{}{"Loan", "Collection", "%PL-%"}
+	case CategoryInvestment:
+		return "(source = ? OR purpose LIKE ?)", []interface{}{"Investment", "%INV-%"}
+	}
+	return "", nil
+}
 
 // FindAll returns cash movements, optionally scoped to a single branch —
 // pass nil for an Administrator's unfiltered "all branches" view, or a
@@ -48,10 +97,30 @@ const (
 // purpose, source or bank ILIKE-contains it (the mobile Cash screen's
 // search box).
 func (r *MovementRepository) FindAll(ctx context.Context, branchID *uint, fromDate, toDate time.Time, category, search string, limit, offset int) ([]CashMovement, int64, error) {
+	categories := []string{}
+	if category != "" {
+		categories = []string{category}
+	}
+	return r.FindAllFiltered(ctx, branchID, fromDate, toDate, MovementFilter{Categories: categories}, search, limit, offset)
+}
+
+// FindAllFiltered is FindAll plus the Ledger filter's multi-select Branch/
+// Customer/Type sections (MovementFilter) — branchID (the caller's
+// non-admin branch SCOPE) and filter.BranchIDs (the Branch section's own
+// selection, Administrator-only in practice since a scoped caller already
+// has branchID fixed) apply together via AND, same as every other
+// dimension here.
+func (r *MovementRepository) FindAllFiltered(ctx context.Context, branchID *uint, fromDate, toDate time.Time, filter MovementFilter, search string, limit, offset int) ([]CashMovement, int64, error) {
 	var movements []CashMovement
 	q := r.db.WithContext(ctx).Preload("Branch").Order("occurred_on desc, id desc")
 	if branchID != nil {
 		q = q.Where("branch_id = ?", *branchID)
+	}
+	if len(filter.BranchIDs) > 0 {
+		q = q.Where("branch_id IN ?", filter.BranchIDs)
+	}
+	if len(filter.CustomerIDs) > 0 {
+		q = q.Where("party_customer_id IN ?", filter.CustomerIDs)
 	}
 	if !fromDate.IsZero() {
 		q = q.Where("occurred_on >= ?", fromDate)
@@ -59,18 +128,20 @@ func (r *MovementRepository) FindAll(ctx context.Context, branchID *uint, fromDa
 	if !toDate.IsZero() {
 		q = q.Where("occurred_on < ?", toDate.AddDate(0, 0, 1))
 	}
-	switch category {
-	case CategoryLoan:
-		q = q.Where("source = ? OR purpose LIKE ?", "Loan", "Loan disbursement — %")
-	case CategoryAuction:
-		q = q.Where("source = ? OR purpose LIKE ?", "Auction", "Auction surplus refunded%")
-	case CategoryCollection:
-		q = q.Where("source = ?", "Collection")
-	case CategoryExpenses:
-		q = q.Where(
-			"type = ? AND source IS DISTINCT FROM ? AND source IS DISTINCT FROM ? AND (purpose IS NULL OR (purpose NOT LIKE ? AND purpose NOT LIKE ? AND purpose NOT LIKE ?))",
-			"out", "Loan", "Auction", "Loan disbursement — %", "Auction surplus refunded%", "Bank pledge release — %",
-		)
+	if len(filter.Categories) > 0 {
+		orQ := r.db.WithContext(ctx)
+		any := false
+		for _, cat := range filter.Categories {
+			clause, args := categoryWhere(cat)
+			if clause == "" {
+				continue
+			}
+			orQ = orQ.Or(clause, args...)
+			any = true
+		}
+		if any {
+			q = q.Where(orQ)
+		}
 	}
 	if search != "" {
 		like := "%" + search + "%"
@@ -124,9 +195,50 @@ func (r *MovementRepository) ListByBank(ctx context.Context, bankID uint, fromDa
 // PartyCustomerID — backs the Party Transactions page's customer drill-down
 // and CustomerDetail.tsx's "Transactions" tab (Service.
 // ListCashMovementsByCustomer), same shape/semantics.
-func (r *MovementRepository) ListByCustomer(ctx context.Context, customerID uint, fromDate, toDate time.Time, limit, offset int) ([]CashMovement, int64, error) {
+func (r *MovementRepository) ListByCustomer(ctx context.Context, customerID uint, fromDate, toDate time.Time, loanNumbers []string, limit, offset int) ([]CashMovement, int64, error) {
 	q := r.db.WithContext(ctx).Preload("Branch").Model(&CashMovement{}).
 		Where("party_customer_id = ?", customerID).
+		Order("occurred_on desc, id desc")
+	if !fromDate.IsZero() {
+		q = q.Where("occurred_on >= ?", fromDate)
+	}
+	if !toDate.IsZero() {
+		q = q.Where("occurred_on < ?", toDate.AddDate(0, 0, 1))
+	}
+	// Every loan-related movement's Purpose carries its loan number (e.g.
+	// "Loan disbursement — LN-00049", "Collection — LN-00049" — see
+	// RecordLoanDisbursementCashOut/RecordLoanPaymentCashIn/etc in
+	// service.go), so a Purpose match is how the Ledger tab's Loan filter
+	// narrows to one or more loans without a dedicated LoanID column. The
+	// Loan filter is multi-select, so this ORs a LIKE per loan number rather
+	// than taking a single one.
+	if len(loanNumbers) > 0 {
+		orQ := r.db.WithContext(ctx)
+		for _, ln := range loanNumbers {
+			orQ = orQ.Or("purpose LIKE ?", "%"+ln)
+		}
+		q = q.Where(orQ)
+	}
+	var total int64
+	if limit > 0 {
+		if err := q.Session(&gorm.Session{}).Model(&CashMovement{}).Count(&total).Error; err != nil {
+			return nil, 0, err
+		}
+		q = q.Limit(limit)
+	}
+	if offset > 0 {
+		q = q.Offset(offset)
+	}
+	var movements []CashMovement
+	err := q.Find(&movements).Error
+	return movements, total, err
+}
+
+// ListByBranch is ListByBank's counterpart for CashMovement.BranchID — backs
+// the Party Transactions page's branch drill-down, same shape/semantics.
+func (r *MovementRepository) ListByBranch(ctx context.Context, branchID uint, fromDate, toDate time.Time, limit, offset int) ([]CashMovement, int64, error) {
+	q := r.db.WithContext(ctx).Preload("Branch").Model(&CashMovement{}).
+		Where("branch_id = ?", branchID).
 		Order("occurred_on desc, id desc")
 	if !fromDate.IsZero() {
 		q = q.Where("occurred_on >= ?", fromDate)
@@ -506,6 +618,122 @@ func (r *MovementRepository) SumNet(ctx context.Context, branchID *uint) (float6
 	err := q.Select("COALESCE(SUM(CASE WHEN type = 'in' THEN amount WHEN type = 'out' THEN -amount ELSE 0 END), 0)").
 		Scan(&net).Error
 	return net, err
+}
+
+// CashSourceRepository provides GORM-backed persistence for CashSource
+// records — a small find-or-create lookup list, same shape as bank.Repository.
+type CashSourceRepository struct {
+	db platform.DB
+}
+
+func NewCashSourceRepository(db platform.DB) *CashSourceRepository {
+	return &CashSourceRepository{db: db}
+}
+
+func (r *CashSourceRepository) Create(ctx context.Context, s *CashSource) error {
+	return r.db.WithContext(ctx).Create(s).Error
+}
+
+// FindAll returns cash sources matching query, plus the TOTAL row count
+// (Limit/Offset ignored, 0 when limit <= 0) — same convention as
+// bank.Repository.FindAll: limit == 0 returns every match unpaged, limit > 0
+// applies Limit/Offset for a paginated picker.
+func (r *CashSourceRepository) FindAll(ctx context.Context, query string, limit, offset int) ([]CashSource, int64, error) {
+	var sources []CashSource
+	q := r.db.WithContext(ctx).Order("name asc")
+	if query != "" {
+		q = q.Where("name ILIKE ?", "%"+query+"%")
+	}
+	var total int64
+	if limit > 0 {
+		if err := q.Session(&gorm.Session{}).Model(&CashSource{}).Count(&total).Error; err != nil {
+			return nil, 0, err
+		}
+		q = q.Limit(limit).Offset(offset)
+	}
+	err := q.Find(&sources).Error
+	return sources, total, err
+}
+
+func (r *CashSourceRepository) FindByName(ctx context.Context, name string) (*CashSource, error) {
+	var s CashSource
+	if err := r.db.WithContext(ctx).Where("name ILIKE ?", name).First(&s).Error; err != nil {
+		return nil, err
+	}
+	return &s, nil
+}
+
+// ExpenseCategoryRepository provides GORM-backed persistence for
+// ExpenseCategory records — same shape as CashSourceRepository.
+type ExpenseCategoryRepository struct {
+	db platform.DB
+}
+
+func NewExpenseCategoryRepository(db platform.DB) *ExpenseCategoryRepository {
+	return &ExpenseCategoryRepository{db: db}
+}
+
+func (r *ExpenseCategoryRepository) Create(ctx context.Context, c *ExpenseCategory) error {
+	return r.db.WithContext(ctx).Create(c).Error
+}
+
+func (r *ExpenseCategoryRepository) FindAll(ctx context.Context, query string, limit, offset int) ([]ExpenseCategory, int64, error) {
+	var cats []ExpenseCategory
+	q := r.db.WithContext(ctx).Order("name asc")
+	if query != "" {
+		q = q.Where("name ILIKE ?", "%"+query+"%")
+	}
+	var total int64
+	if limit > 0 {
+		if err := q.Session(&gorm.Session{}).Model(&ExpenseCategory{}).Count(&total).Error; err != nil {
+			return nil, 0, err
+		}
+		q = q.Limit(limit).Offset(offset)
+	}
+	err := q.Find(&cats).Error
+	return cats, total, err
+}
+
+func (r *ExpenseCategoryRepository) FindByName(ctx context.Context, name string) (*ExpenseCategory, error) {
+	var c ExpenseCategory
+	if err := r.db.WithContext(ctx).Where("name ILIKE ?", name).First(&c).Error; err != nil {
+		return nil, err
+	}
+	return &c, nil
+}
+
+// FindByID backs the category ledger drill-down (GET
+// /expense-categories/:id/ledger), which needs the category's NAME to
+// filter expenses by (see MovementService.ListLedgerByCategory's doc
+// comment on why this is a name match, not a FK join).
+func (r *ExpenseCategoryRepository) FindByID(ctx context.Context, id uint) (*ExpenseCategory, error) {
+	var c ExpenseCategory
+	if err := r.db.WithContext(ctx).First(&c, id).Error; err != nil {
+		return nil, err
+	}
+	return &c, nil
+}
+
+// LoanCashSourceRepository provides GORM-backed persistence for
+// LoanCashSource records — one row per loan-sourced CashMovement.
+type LoanCashSourceRepository struct {
+	db platform.DB
+}
+
+func NewLoanCashSourceRepository(db platform.DB) *LoanCashSourceRepository {
+	return &LoanCashSourceRepository{db: db}
+}
+
+func (r *LoanCashSourceRepository) Create(ctx context.Context, rec *LoanCashSource) error {
+	return r.db.WithContext(ctx).Create(rec).Error
+}
+
+func (r *LoanCashSourceRepository) FindByCashMovementID(ctx context.Context, cashMovementID uint) (*LoanCashSource, error) {
+	var rec LoanCashSource
+	if err := r.db.WithContext(ctx).Preload("Bank").Where("cash_movement_id = ?", cashMovementID).First(&rec).Error; err != nil {
+		return nil, err
+	}
+	return &rec, nil
 }
 
 // NetByDay returns SUM(in) − SUM(out) per calendar day for movements with

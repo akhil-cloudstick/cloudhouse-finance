@@ -61,7 +61,8 @@
         {
           "cameraPermission": "CloudHouse Finance needs the camera to scan packet label QR codes."
         }
-      ]
+      ],
+      "expo-asset"
     ],
     "androidStatusBar": {
       "backgroundColor": "transparent",

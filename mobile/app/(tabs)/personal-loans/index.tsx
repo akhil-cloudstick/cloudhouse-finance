@@ -35,6 +35,8 @@ import { SheetScrollView } from "../../../src/components/BottomSheetModal";
 import { useServerList } from "../../../src/hooks/useServerList";
 import { useAuth } from "../../../src/auth/AuthContext";
 import { listCustomers } from "../../../src/api/customers";
+import { createBank, listBanksPage } from "../../../src/api/banks";
+import type { Bank } from "../../../src/types/bank";
 import { ApiError } from "../../../src/api/client";
 import { API_BASE_URL } from "../../../src/api/config";
 import { getToken } from "../../../src/auth/tokenStorage";
@@ -521,14 +523,17 @@ function CollectSheet({ loan, onClose }: { loan: PersonalLoan | null; onClose: (
   const qc = useQueryClient();
   const [amount, setAmount] = useState("");
   const [method, setMethod] = useState<(typeof PAYMENT_METHODS)[number]>("Cash");
+  const [bank, setBank] = useState<Bank | null>(null);
   const [reference, setReference] = useState("");
   const [description, setDescription] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const bankRequired = method === "UPI" || method === "Bank Transfer";
 
   useEffect(() => {
     if (loan) {
       setAmount(String(Math.min(loan.installmentAmount, loan.outstandingAmount) || ""));
       setMethod("Cash");
+      setBank(null);
       setReference("");
       setDescription("");
       setError(null);
@@ -544,6 +549,7 @@ function CollectSheet({ loan, onClose }: { loan: PersonalLoan | null; onClose: (
         upiAmount: method === "UPI" ? amt : 0,
         bankTransferAmount: method === "Bank Transfer" ? amt : 0,
         chequeAmount: 0,
+        bankId: bankRequired ? bank?.id : undefined,
         reference: reference || undefined,
         description: description || undefined,
       });
@@ -566,8 +572,22 @@ function CollectSheet({ loan, onClose }: { loan: PersonalLoan | null; onClose: (
         <Input keyboardType="decimal-pad" value={amount} onChangeText={setAmount} placeholder="₹" />
       </Field>
       <Field label="Method">
-        <ChipToggle options={PAYMENT_METHODS} value={method} onChange={setMethod} />
+        <ChipToggle options={PAYMENT_METHODS} value={method} onChange={(v) => { setMethod(v); if (v === "Cash") setBank(null); }} />
       </Field>
+      {bankRequired ? (
+        <AsyncSelect<Bank>
+          label="Bank"
+          placeholder="Search or add a bank"
+          queryKey={["banks", "picker"]}
+          fetcher={async (q) => (await listBanksPage({ q: q || undefined, limit: 20, offset: 0 })).items ?? []}
+          selectedLabel={bank?.name}
+          onSelect={setBank}
+          onClear={() => setBank(null)}
+          keyOf={(b) => b.id}
+          renderItem={(b) => ({ title: b.name })}
+          onCreateNew={(name) => createBank({ name })}
+        />
+      ) : null}
       <Field label="Reference">
         <Input placeholder="Optional" value={reference} onChangeText={setReference} />
       </Field>
@@ -575,7 +595,7 @@ function CollectSheet({ loan, onClose }: { loan: PersonalLoan | null; onClose: (
         <Input placeholder="Optional" value={description} onChangeText={setDescription} />
       </Field>
       {error ? <Txt style={{ fontSize: 12, color: C.red, marginBottom: 10 }}>{error}</Txt> : null}
-      <PrimaryButton label="Confirm Payment" onPress={() => collect.mutate()} loading={collect.isPending} disabled={!amount || Number(amount) <= 0} />
+      <PrimaryButton label="Confirm Payment" onPress={() => collect.mutate()} loading={collect.isPending} disabled={!amount || Number(amount) <= 0 || (bankRequired && !bank)} />
     </Sheet>
   );
 }

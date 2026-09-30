@@ -165,10 +165,78 @@ type GoldSale struct {
 	CostCashMovementID *uint         `json:"costCashMovementId"`
 	CostCashMovement   *CashMovement `json:"-" gorm:"foreignKey:CostCashMovementID"`
 
+	// Mode is how the sale proceeds were received — Cash/UPI/Bank Transfer,
+	// same vocabulary as CashMovement.Mode. Defaults to "Cash" for legacy
+	// rows and any sale that doesn't set it explicitly, matching the
+	// implicit cash-only behavior this field replaces.
+	Mode string `json:"mode" gorm:"not null;size:20;default:Cash"`
+	// BankID is which bank UPI/Bank Transfer proceeds landed in — mirrors
+	// CashMovement.BankID/BankRef. Nil for a Cash sale.
+	BankID  *uint      `json:"bankId"`
+	BankRef *bank.Bank `json:"bankRef,omitempty" gorm:"foreignKey:BankID"`
+
 	Remarks   string    `json:"remarks" gorm:"size:500"`
 	CreatedAt time.Time `json:"createdAt"`
 }
 
 func (GoldSale) TableName() string {
 	return "gold_sales"
+}
+
+// CashSource is a named source of cash for a manual "Add Cash" entry —
+// "Savings"/"Loan" ship as seeded defaults, and staff can add further
+// sources on the fly from AddCashModal.tsx's source picker (same
+// find-or-create pattern as bank.Bank). CashMovement.Source keeps storing
+// the resolved name as free text (no FK), so adding this lookup list
+// doesn't change how a movement itself is read/filtered.
+type CashSource struct {
+	platform.TenantScoped
+	ID        uint      `json:"id" gorm:"primaryKey"`
+	Name      string    `json:"name" gorm:"index;not null;size:60"`
+	CreatedAt time.Time `json:"createdAt"`
+}
+
+func (CashSource) TableName() string {
+	return "cash_sources"
+}
+
+// ExpenseCategory is a named expense category — ships seeded with the
+// list ExpenseModal.tsx used to hardcode, and staff can add further
+// categories from the Category picker (same find-or-create pattern as
+// bank.Bank/CashSource). Expense.Category keeps storing the resolved name
+// as free text (no FK).
+type ExpenseCategory struct {
+	platform.TenantScoped
+	ID        uint      `json:"id" gorm:"primaryKey"`
+	Name      string    `json:"name" gorm:"index;not null;size:80"`
+	CreatedAt time.Time `json:"createdAt"`
+}
+
+func (ExpenseCategory) TableName() string {
+	return "expense_categories"
+}
+
+// LoanCashSource captures the loan-specific details staff enter on
+// AddCashModal.tsx when Source is "Loan" — which bank the loan itself came
+// from, its loan number, principal, and (optionally) interest rate/
+// duration. One row per CashMovement (Type "in", Source "Loan"); nothing
+// else reads or writes this table, so a bare FK back to the movement is
+// enough — no reverse pointer needed on CashMovement itself.
+type LoanCashSource struct {
+	platform.TenantScoped
+	ID              uint       `json:"id" gorm:"primaryKey"`
+	CashMovementID  uint       `json:"cashMovementId" gorm:"not null;index"`
+	BankID          uint       `json:"bankId" gorm:"not null"`
+	Bank            *bank.Bank `json:"bank,omitempty" gorm:"foreignKey:BankID"`
+	LoanNumber      string     `json:"loanNumber" gorm:"not null;size:60"`
+	PrincipalAmount float64    `json:"principalAmount" gorm:"not null;type:numeric(16,2)"`
+	// InterestRate/DurationMonths are optional — staff may not always know
+	// or want to record them at cash-entry time.
+	InterestRate   *float64  `json:"interestRate" gorm:"type:numeric(6,2)"`
+	DurationMonths *int      `json:"durationMonths"`
+	CreatedAt      time.Time `json:"createdAt"`
+}
+
+func (LoanCashSource) TableName() string {
+	return "loan_cash_sources"
 }

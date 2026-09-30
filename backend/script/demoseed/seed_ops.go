@@ -76,7 +76,7 @@ func seedCashAndExpenses(ctx context.Context, d *Deps, st *state, rep *Report) e
 			Amount:     f.Amount,
 			BranchID:   &branchID,
 			OccurredOn: st.clk.daysAgo(f.DaysAgo),
-		}); err != nil {
+		}, nil); err != nil {
 			return fmt.Errorf("record cash movement %d: %w", i+1, err)
 		}
 	}

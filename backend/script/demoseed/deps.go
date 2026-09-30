@@ -132,13 +132,14 @@ func NewDeps(db *gorm.DB, cfg platform.Config) *Deps {
 	movementRepo := cash.NewMovementRepository(db)
 	expenseRepo := cash.NewExpenseRepository(db)
 	openingRepo := cash.NewOpeningBalanceRepository(db)
+	loanCashSourceRepo := cash.NewLoanCashSourceRepository(db)
 
 	// The repos satisfy each other's narrow interfaces (locker.PacketCounter
 	// and packet.LockerCapacityProvider), so neither service depends on the
 	// other and there is no construction order problem.
 	packetSvc := packet.NewService(packetRepo, lockerRepo)
 	lockerSvc := locker.NewService(lockerRepo, branchRepo, packetRepo)
-	movementSvc := cash.NewMovementService(movementRepo, expenseRepo, branchRepo)
+	movementSvc := cash.NewMovementService(movementRepo, expenseRepo, branchRepo, loanCashSourceRepo)
 
 	// Aadhaar cipher: real, so the six customers given an Aadhaar number show
 	// a last-four in the UI like production data does. An error here is not

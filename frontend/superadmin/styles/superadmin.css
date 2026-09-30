@@ -1614,3 +1614,165 @@ body {
   content: " •";
   color: var(--sa-brand);
 }
+
+/* ---- Business list: the whole row opens the detail page. ---------------- */
+.sa-row-link {
+  cursor: pointer;
+}
+.sa-row-link:hover > td {
+  background: var(--sa-side-hover);
+}
+
+/* The Deployment URL disclosure on wizard step 1. */
+.sa-advanced {
+  border: 1px dashed var(--sa-line);
+  border-radius: var(--sa-radius-sm);
+  padding: 8px 12px;
+}
+.sa-advanced > summary {
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--sa-muted);
+}
+.sa-advanced[open] > summary {
+  margin-bottom: 10px;
+}
+
+/* ---- Business detail page ---------------------------------------------- */
+.sa-detail {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.sa-detail-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+.sa-panel {
+  background: var(--sa-card);
+  border: 1px solid var(--sa-line);
+  border-radius: var(--sa-radius);
+  box-shadow: var(--sa-shadow);
+  padding: 16px 18px;
+  min-width: 0;
+}
+.sa-panel h3 {
+  margin: 0 0 12px;
+  font-size: 15px;
+}
+.sa-panel > .sa-hint {
+  display: block;
+  margin: -4px 0 12px;
+  font-size: 12px;
+  color: var(--sa-muted);
+}
+.sa-panel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+.sa-panel-head h3 {
+  margin: 0;
+}
+.sa-detail-head {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+.sa-detail-logo {
+  width: 56px;
+  height: 56px;
+  border-radius: 12px;
+  object-fit: contain;
+  flex-shrink: 0;
+}
+.sa-detail-title h2 {
+  margin: 0 0 4px;
+  font-size: 20px;
+}
+.sa-detail-title p {
+  margin: 0 0 4px;
+  color: var(--sa-muted);
+  font-size: 13px;
+}
+/* Reuses .sa-cards' grid, minus its page-level padding. */
+.sa-cards.sa-detail-stats {
+  padding: 0;
+}
+.sa-stat.amber {
+  border-color: var(--sa-amber);
+  background: var(--sa-amber-bg);
+}
+.sa-stat-sub {
+  font-size: 11.5px;
+  color: var(--sa-muted);
+  margin-top: 2px;
+}
+.sa-detail-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: 16px;
+}
+.sa-kv {
+  display: grid;
+  grid-template-columns: minmax(120px, 38%) 1fr;
+  gap: 8px 14px;
+  margin: 0;
+  font-size: 13.5px;
+}
+.sa-kv dt {
+  color: var(--sa-muted);
+}
+.sa-kv dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.sa-link-btn {
+  border: 0;
+  background: none;
+  padding: 0;
+  color: var(--sa-brand);
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+  text-decoration: underline;
+}
+.sa-activity {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  font-size: 13px;
+}
+.sa-activity li {
+  display: grid;
+  grid-template-columns: 170px 1fr;
+  gap: 12px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--sa-line);
+}
+.sa-activity li:last-child {
+  border-bottom: 0;
+  padding-bottom: 0;
+}
+.sa-activity-when {
+  color: var(--sa-muted);
+  font-variant-numeric: tabular-nums;
+}
+@media (max-width: 640px) {
+  .sa-activity li,
+  .sa-kv {
+    grid-template-columns: 1fr;
+  }
+  .sa-kv dt {
+    margin-top: 6px;
+  }
+}

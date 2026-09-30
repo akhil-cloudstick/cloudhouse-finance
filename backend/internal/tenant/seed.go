@@ -11,13 +11,24 @@ import (
 
 // The tiers seeded on every boot. Quotas are the vendor's price list, not a
 // technical limit — adding a tier here is how a new plan is introduced.
+//
+// BranchQuota 0 is UnlimitedBranches.
 var SeedTiers = []struct {
 	Name        string
 	BranchQuota uint
 }{
-	{"Starter", 1},
-	{"Growth", 3},
-	{"Enterprise", 10},
+	{"Single Branch", 1},
+	{"Up to 5 Branches", 5},
+	{"Unlimited", UnlimitedBranches},
+}
+
+// legacyTierNames maps the original tier names onto the ones that replaced
+// them. Seed renames in place — same row, same id — so every business
+// already on a tier stays on it and simply sees the new name and quota.
+var legacyTierNames = []struct{ from, to string }{
+	{"Starter", "Single Branch"},
+	{"Growth", "Up to 5 Branches"},
+	{"Enterprise", "Unlimited"},
 }
 
 const (
@@ -49,7 +60,7 @@ const (
 	// installation may already have more branches than a smaller tier
 	// allows, and a backfill must never put a live business instantly over
 	// quota.
-	DefaultTenantTier = "Enterprise"
+	DefaultTenantTier = "Unlimited"
 )
 
 // Seed creates the tier catalogue. Idempotent — safe on every boot.
@@ -58,6 +69,13 @@ func Seed(db *gorm.DB) error {
 	// Marked cross-tenant deliberately — see platform.AllowCrossTenant.
 	ctx := platform.AllowCrossTenant(context.Background())
 	repo := NewRepository(db)
+	// Renames first, or the upserts below would create fresh rows under the
+	// new names and leave every existing business on an orphaned old tier.
+	for _, r := range legacyTierNames {
+		if err := repo.RenameTier(ctx, r.from, r.to); err != nil {
+			return err
+		}
+	}
 	for _, t := range SeedTiers {
 		if _, err := repo.UpsertTier(ctx, t.Name, t.BranchQuota); err != nil {
 			return err

@@ -7,8 +7,10 @@ import { useAuth } from "@/product/providers/auth-context";
 import { StageTracker } from "@/product/components/ui/StageTracker";
 import { Icon } from "@/product/components/Icon";
 import { fmt } from "@/product/utils/format";
-import { approveExtensionRequest, getLoan, type PaymentView, type RequestView } from "@/product/pages/loans/services/loanService";
+import { approveExtensionRequest, getLoan, type PaymentView, type RequestView, type LoanView } from "@/product/pages/loans/services/loanService";
 import { ApiError } from "@/product/services/httpClient";
+import { PaymentModalContent } from "@/product/components/modals/PaymentModal";
+import { ConfirmModalContent } from "@/product/components/modals/ConfirmModal";
 
 const EXTENSION_STAGES = ["LoanOfficer", "BranchManager", "Management"] as const;
 type ExtensionStage = (typeof EXTENSION_STAGES)[number];
@@ -58,7 +60,7 @@ function stageKeyFor(approvalStage: string): ExtensionStage | null {
  * "Loan Extension Approval" permissions (see internal/authz.Catalogue) rather
  * than a hardcoded role-name match. */
 export function ExtensionReviewModalContent({ request, onSaved }: { request: RequestView; onSaved: () => void }) {
-  const { closeModal } = useModal();
+  const { closeModal, openModal } = useModal();
   const toast = useToast();
   const { can } = useAuth();
   // canActOnStage below decides whose turn it is in the chain; this decides
@@ -77,6 +79,18 @@ export function ExtensionReviewModalContent({ request, onSaved }: { request: Req
   // modal always reflects the loan's real payment history rather than a
   // snapshot that could drift from it.
   const [clearingPayments, setClearingPayments] = useState<PaymentView[] | null>(null);
+  // Fetched purely to hand to PaymentModalContent if Approve gets bounced
+  // for still-unpaid arrears — see needsPayment below.
+  const [loan, setLoan] = useState<LoanView | null>(null);
+  // Reveals the Record Payment prompt only after ApproveExtensionRequest
+  // actually refuses with ErrExtensionNeedsPayment — hidden otherwise, same
+  // pattern as ReleaseReviewModal's Top-Up Payment reveal.
+  const [needsPayment, setNeedsPayment] = useState(false);
+  const [rejectReason, setRejectReason] = useState("");
+
+  useEffect(() => {
+    getLoan(request.loanNumericId).then(setLoan).catch(() => setLoan(null));
+  }, [request.loanNumericId]);
 
   useEffect(() => {
     let cancelled = false;
@@ -99,12 +113,8 @@ export function ExtensionReviewModalContent({ request, onSaved }: { request: Req
   const requiredRole = stageKey ? STAGE_ROLES[stageKey] : null;
   const canActOnStage = !!stageKey && can("Loan_Extension_Approval", STAGE_PERMISSIONS[stageKey]);
 
-  async function decide(action: "Approved" | "Rejected") {
+  async function decide(action: "Approved" | "Rejected", remarks = "") {
     if (!stageKey) return;
-    let remarks = "";
-    if (action === "Rejected") {
-      remarks = window.prompt("Reason for rejecting (optional):") || "";
-    }
     setSaving(true);
     setErr("");
     try {
@@ -122,10 +132,42 @@ export function ExtensionReviewModalContent({ request, onSaved }: { request: Req
           : "Extension request rejected"
       );
     } catch (e) {
-      setErr(e instanceof ApiError ? e.message : "Could not record the decision — try again.");
+      if (e instanceof ApiError && e.status === 400 && /outstanding interest/i.test(e.message)) {
+        // ErrExtensionNeedsPayment — arrears have re-accrued past what they
+        // were when this request was raised. Reveal the Record Payment
+        // prompt instead of just showing the raw error.
+        setNeedsPayment(true);
+        setErr("Outstanding interest/penal interest must be paid before this extension can be approved — record a payment below, then try approving again.");
+      } else {
+        setErr(e instanceof ApiError ? e.message : "Could not record the decision — try again.");
+      }
     } finally {
       setSaving(false);
     }
+  }
+
+  function promptReject() {
+    openModal(
+      <ConfirmModalContent
+        title="Reject Extension Request"
+        confirmLabel="Reject"
+        busyLabel="Rejecting…"
+        onConfirm={() => decide("Rejected", rejectReason)}
+      >
+        <div className="frow">
+          <div>
+            <label className="f">Reason for rejecting (optional)</label>
+            <input
+              className="inp"
+              autoFocus
+              value={rejectReason}
+              onChange={(e) => setRejectReason(e.target.value)}
+              placeholder="optional"
+            />
+          </div>
+        </div>
+      </ConfirmModalContent>
+    );
   }
 
   return (
@@ -145,8 +187,6 @@ export function ExtensionReviewModalContent({ request, onSaved }: { request: Req
             <div className="v">{req.requestedAt}</div>
           </div>
         </div>
-        {req.detail && <p className="notice">{req.detail}</p>}
-
         {clearingPayments && clearingPayments.length > 0 && (
           <div className="notice" style={{ marginBottom: 14 }}>
             <Icon name="check" /> Interest paid to clear arrears before this request:
@@ -171,13 +211,30 @@ export function ExtensionReviewModalContent({ request, onSaved }: { request: Req
             <Icon name="clock" /> {canActOnStage ? "Awaiting your" : "Awaiting"} {requiredRole} approval
           </p>
         )}
+        {needsPayment && loan && (
+          <div style={{ marginTop: 12 }}>
+            <label className="f">Record Payment</label>
+            <p className="ccheck-hint" style={{ marginBottom: 8 }}>Clear the outstanding interest/penal interest, then try Approve again.</p>
+            <button
+              className="btn ghost sm"
+              onClick={() => openModal(
+                <PaymentModalContent
+                  loan={loan}
+                  onSaved={() => { setNeedsPayment(false); setErr(""); getLoan(request.loanNumericId).then(setLoan); }}
+                />
+              )}
+            >
+              <Icon name="coin" /> Record Payment
+            </button>
+          </div>
+        )}
         <p style={{ color: "var(--red)", fontSize: 12.5, minHeight: 16, marginTop: 8 }}>{err}</p>
       </div>
       <div className="ft">
         <button className="btn ghost" onClick={closeModal}>Close</button>
         {req.status === "Pending" && stageKey && canActOnStage && canDecide && (
           <>
-            <button className="btn danger" disabled={saving} onClick={() => decide("Rejected")}>Reject</button>
+            <button className="btn danger" disabled={saving} onClick={promptReject}>Reject</button>
             <button className="btn" disabled={saving} onClick={() => decide("Approved")}>
               <Icon name="check" /> Approve ({STAGE_LABELS[stageKey]})
             </button>

@@ -305,7 +305,7 @@ func (h *harness) newBusiness(t *testing.T, code string) *business {
 
 	var tierID uint
 	if err := h.db.WithContext(ctx).Raw(
-		`SELECT id FROM tiers WHERE name = 'Enterprise' LIMIT 1`).Scan(&tierID).Error; err != nil {
+		`SELECT id FROM tiers WHERE name = 'Unlimited' LIMIT 1`).Scan(&tierID).Error; err != nil {
 		t.Fatalf("tier lookup: %v", err)
 	}
 
@@ -1449,7 +1449,7 @@ func jsonUnmarshal(body string, out any) error {
 // business can be created, but that the plan you sold it actually limits it.
 // Tier.BranchQuota existed as a column before this — nothing read it.
 //
-// Creates a business on the Starter tier (quota 1) through the real superadmin
+// Creates a business on the Single Branch plan (quota 1) through the real superadmin
 // API, exactly like TestSuperAdminCreatedBusinessIsFullyIsolated, then exercises
 // the limit as that business's own signed-in Administrator: the seeded "Head
 // Office" already fills the one slot, so a second branch must be refused,
@@ -1472,12 +1472,12 @@ func TestBranchQuotaIsEnforced(t *testing.T) {
 	}
 	var starterID uint
 	for _, tr := range tiers.Data {
-		if tr.Name == "Starter" {
+		if tr.Name == "Single Branch" {
 			starterID = tr.ID
 		}
 	}
 	if starterID == 0 {
-		t.Fatal("no \"Starter\" tier found — expected the seeded tier catalogue (Starter/Growth/Enterprise)")
+		t.Fatal("no \"Single Branch\" tier found — expected the seeded plan catalogue (Single Branch / Up to 5 Branches / Unlimited)")
 	}
 
 	suffix := fmt.Sprintf("quotaprobe%d", time.Now().UnixNano())

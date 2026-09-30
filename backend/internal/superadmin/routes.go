@@ -25,6 +25,12 @@ func RegisterRoutes(rg *gin.RouterGroup, h *Handler, superAdminAuth gin.HandlerF
 	protected.PUT("/businesses/:id/expiry", h.AdjustExpiry)
 	protected.DELETE("/businesses/:id", h.DeleteBusiness)
 
+	// Business detail page: overview/usage, and the hand-kept payment log.
+	protected.GET("/businesses/:id/overview", h.BusinessOverview)
+	protected.GET("/businesses/:id/payments", h.ListPayments)
+	protected.POST("/businesses/:id/payments", h.RecordPayment)
+	protected.DELETE("/businesses/:id/payments/:paymentId", h.DeletePayment)
+
 	protected.GET("/tiers", h.ListTiers)
 	protected.PUT("/tiers/:id/price", h.SetTierPrice)
 

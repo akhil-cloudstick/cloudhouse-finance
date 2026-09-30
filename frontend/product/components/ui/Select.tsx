@@ -63,10 +63,26 @@ export function Select({
       setPanelPos({ top: r.bottom + 6, left: r.left, width: r.width });
     }
     updatePos();
-    window.addEventListener("scroll", updatePos, true);
+    // Closes on any scroll OUTSIDE this dropdown's own option list (modal
+    // body, page, a scrollable container the trigger sits in) instead of
+    // repositioning — a `position:fixed` panel re-anchored to the trigger's
+    // new viewport rect used to visually detach from it mid-scroll (the
+    // trigger scrolls out from under a panel that hasn't repainted at its
+    // new position yet), reading as a floating, broken dropdown. Closing is
+    // simpler and matches how a native <select>'s list behaves when the
+    // page scrolls under it. Scrolling the option list itself (long option
+    // sets, `overflowY: auto` above) must NOT close it — capture-phase
+    // `scroll` on window fires for that internal scroll too, so it's
+    // excluded here the same way onDocClick above excludes clicks inside
+    // boxRef.
+    function closeOnScroll(e: Event) {
+      if (listRef.current?.contains(e.target as Node)) return;
+      setOpen(false);
+    }
+    window.addEventListener("scroll", closeOnScroll, true);
     window.addEventListener("resize", updatePos);
     return () => {
-      window.removeEventListener("scroll", updatePos, true);
+      window.removeEventListener("scroll", closeOnScroll, true);
       window.removeEventListener("resize", updatePos);
     };
   }, [open]);

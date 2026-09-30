@@ -12,6 +12,7 @@ import {
   FieldGrid,
   FlatHeader,
   LdHero,
+  PillTabs,
   PScroll,
   ReviewWarning,
   Screen,
@@ -31,6 +32,7 @@ import {
   getLoan,
   hardDeleteLoan,
   listLoanRequests,
+  listTopUps,
   normalizeSanctionStage,
   SANCTION_STAGES,
   SANCTION_STAGE_ROLES,
@@ -49,6 +51,7 @@ import { BankPledgeSheet } from "../../../src/components/staff/loan/BankPledgeSh
 import { AuctionSheet } from "../../../src/components/staff/loan/AuctionSheet";
 import { DisburseSheet } from "../../../src/components/staff/loan/DisburseSheet";
 import { LoanTimeline } from "../../../src/components/staff/loan/LoanTimeline";
+import { LoanLedger } from "../../../src/components/staff/loan/LoanLedger";
 import { TOP_UP_STATUSES, TopUpSheet } from "../../../src/components/staff/loan/TopUpSheet";
 
 // Loan Description — prototype #header-loandesc + #page-loandesc with its
@@ -61,6 +64,10 @@ import { TOP_UP_STATUSES, TopUpSheet } from "../../../src/components/staff/loan/
 // `?action=bank` (release review's "Go to Bank Pledge") opens the Bank Pledge sheet on load.
 
 type SheetKey = "actions" | "documents" | "collect" | "extend" | "release" | "edit" | "bank" | "auction" | "disburse" | "topup" | "reject" | "delete" | null;
+
+const RECORD_TABS = ["ledger", "history"] as const;
+type RecordTab = (typeof RECORD_TABS)[number];
+const RECORD_TAB_LABELS: Record<RecordTab, string> = { ledger: "Payment Ledger", history: "History" };
 
 const STAGE_SHORT: Record<SanctionStage, string> = {
   LoanOperator: "Loan Operator",
@@ -94,12 +101,15 @@ export default function LoanDetailScreen() {
   // All of this loan's extension / release requests: the Pending ones switch
   // the Extend / Release sheets to their review, the rest feed the timeline.
   const requests = useQuery({ queryKey: ["loanRequests", id], queryFn: () => listLoanRequests({ loanId }), enabled: !!id });
+  // Top-ups aren't in the loan payload — the Payment Ledger needs them.
+  const topUps = useQuery({ queryKey: ["loanTopUps", id], queryFn: () => listTopUps(loanId), enabled: !!id });
 
   // react-navigation keeps this screen mounted — refetch whenever it regains focus.
-  useRefetchOnFocus(loan.refetch, auction.refetch, requests.refetch, packetQuery.refetch);
+  useRefetchOnFocus(loan.refetch, auction.refetch, requests.refetch, packetQuery.refetch, topUps.refetch);
 
   const [open, setOpen] = useState<SheetKey>(null);
   const [error, setError] = useState<string | null>(null);
+  const [recordTab, setRecordTab] = useState<RecordTab>("ledger");
   useResetOnBlur(() => setOpen(null));
 
   // ?action=collect|bank → open that sheet once the loan has loaded, then
@@ -225,7 +235,6 @@ export default function LoanDetailScreen() {
 
   const detailItems: { k: string; v: string; color?: string }[] = [
     { k: "Gold weight", v: `${weight.toFixed(2)} g${purities.length === 1 ? ` · ${purities[0]}` : purities.length > 1 ? ` · ${ornaments.length} items` : ""}` },
-    { k: "Appraised value", v: inr(l.totalGoldValue ?? ornaments.reduce((s, o) => s + o.goldValue, 0)) },
     { k: "Interest rate", v: l.scheme ? `${l.scheme.interestRate}%` : "—" },
     { k: "Tenure", v: tenure ? `${tenure} month${tenure === 1 ? "" : "s"}` : "—" },
     { k: "Disbursed on", v: l.disbursementDate ? dmy(l.disbursementDate) : "Not yet" },
@@ -255,10 +264,20 @@ export default function LoanDetailScreen() {
         <LdHero
           name={l.customer?.name ?? `Customer #${l.customerId}`}
           sub={`${l.loanNumber}${l.scheme?.name ? ` · ${l.scheme.name} scheme` : ""}`}
-          status={<StatusChip label={l.isOverdue && l.status === "Active" ? "Overdue" : l.status} />}
+          status={
+            <View style={{ alignItems: "flex-end", gap: 6 }}>
+              <StatusChip label={l.isOverdue && l.status === "Active" ? "Overdue" : l.status} />
+              {l.bankPledgeStatus === "Bank Pledged" ? <StatusChip label="Bank Pledged" /> : null}
+            </View>
+          }
           amounts={[
             { k: "Principal", v: inr(l.principalAmount) },
-            { k: "Outstanding", v: inr(l.outstandingAmount) },
+            // Outstanding is the full amount owed to close the loan today —
+            // principal left + accrued interest + penal interest + fees
+            // (Service.enrich's TotalOutstandingBalance), not just principal
+            // (outstandingAmount). Falls back to outstandingAmount only if
+            // the backend ever omits the enriched field.
+            { k: "Outstanding", v: inr(l.totalOutstandingBalance ?? l.outstandingAmount) },
             { k: "Paid to date", v: inr(l.totalPaid ?? 0), color: C.green },
           ]}
         />
@@ -328,8 +347,10 @@ export default function LoanDetailScreen() {
           <FieldGrid items={detailItems} />
         </Card>
 
-        <SectionTitle>History of pledges, payments, sanction, extension & release</SectionTitle>
-        <LoanTimeline loan={l} requests={allRequests} />
+        {/* Money movements and everything else, one at a time — the web
+            page's Payment Ledger table and the loan's History. */}
+        <PillTabs tabs={RECORD_TABS} value={recordTab} onChange={setRecordTab} labels={RECORD_TAB_LABELS} style={{ marginTop: 20, marginBottom: 12 }} />
+        {recordTab === "ledger" ? <LoanLedger loan={l} topUps={topUps.data ?? []} /> : <LoanTimeline loan={l} requests={allRequests} />}
         <View style={{ height: 8 }} />
       </PScroll>
 
@@ -379,7 +400,13 @@ export default function LoanDetailScreen() {
 
       <DocumentsSheets loan={l} visible={open === "documents"} onClose={() => setOpen(null)} onOpen={() => setOpen("documents")} />
       <CollectPaymentSheet loan={l} visible={open === "collect"} onClose={() => setOpen(null)} />
-      <TopUpSheet loan={l} visible={open === "topup"} onClose={() => setOpen(null)} onAddOrnaments={canEditThis ? () => go("edit") : undefined} />
+      <TopUpSheet
+        loan={l}
+        visible={open === "topup"}
+        onClose={() => setOpen(null)}
+        onAddOrnaments={canEditThis ? () => go("edit") : undefined}
+        onRecordPayment={() => go("collect")}
+      />
       {pendingStage ? (
         <ConfirmSheet
           visible={open === "reject"}

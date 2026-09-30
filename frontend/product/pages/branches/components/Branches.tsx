@@ -6,8 +6,15 @@ import { useToast } from "@/product/components/Toast";
 import { Icon } from "@/product/components/Icon";
 import { BranchModalContent } from "@/product/components/modals/BranchModal";
 import { ConfirmModalContent } from "@/product/components/modals/ConfirmModal";
-import { deactivateBranch, listBranches, type BranchView } from "@/product/pages/branches/services/branchService";
+import {
+  deactivateBranch,
+  getBranchQuota,
+  listBranches,
+  type BranchQuota,
+  type BranchView,
+} from "@/product/pages/branches/services/branchService";
 import { useAuth } from "@/product/providers/auth-context";
+import { BranchLedgerModalContent } from "@/product/components/modals/BranchLedgerModal";
 
 /* Centralized branch management — admin-only. Loads real data from the Go
  * backend (`GET /api/v1/branches`), following the Schemes.tsx pattern. */
@@ -21,6 +28,7 @@ export function Branches() {
   const canUpdateBranches = can("Branch_Management", "can_update_branch");
   const [branches, setBranches] = useState<BranchView[] | null>(null);
   const [error, setError] = useState("");
+  const [quota, setQuota] = useState<BranchQuota | null>(null);
 
   async function load() {
     try {
@@ -29,7 +37,20 @@ export function Branches() {
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to load branches.");
     }
+    // Loaded separately so a failure here never hides the branch list —
+    // without it the page simply behaves as before and the server still
+    // refuses an over-limit create.
+    try {
+      setQuota(await getBranchQuota());
+    } catch {
+      setQuota(null);
+    }
   }
+
+  const atLimit = quota !== null && !quota.unlimited && quota.used >= quota.quota;
+  const limitMessage = quota
+    ? `Your current plan (${quota.plan}) allows ${quota.quota} branch${quota.quota === 1 ? "" : "es"}. To add more branches, contact your administrator to upgrade your plan.`
+    : "";
 
   useEffect(() => { load(); }, []);
 
@@ -58,9 +79,41 @@ export function Branches() {
       <div className="page-h">
         <div><h1>Branch Management</h1><p>Add, edit and manage every branch location — customers, employees, loans and expenses all link back here</p></div>
         <div className="sp" />
-        {canCreateBranches && <button className="btn" onClick={() => openModal(<BranchModalContent onSaved={onSaved} />)}><Icon name="plus" /> Add Branch</button>}
+        {canCreateBranches && (
+          <button
+            className="btn"
+            disabled={atLimit}
+            title={atLimit ? limitMessage : undefined}
+            onClick={() => openModal(<BranchModalContent onSaved={onSaved} />)}
+          >
+            <Icon name="plus" /> Add Branch
+          </button>
+        )}
       </div>
       <hr className="gold-rule" />
+      {quota && (
+        <p style={{ color: "var(--muted)", fontSize: 13, margin: "0 0 10px" }}>
+          {quota.unlimited
+            ? `${quota.used} active branch${quota.used === 1 ? "" : "es"} · ${quota.plan} plan (no branch limit)`
+            : `${quota.used} of ${quota.quota} branch${quota.quota === 1 ? "" : "es"} used · ${quota.plan} plan`}
+        </p>
+      )}
+      {atLimit && canCreateBranches && (
+        <div
+          role="status"
+          style={{
+            background: "var(--amber-bg)",
+            color: "var(--amber)",
+            border: "1px solid var(--amber)",
+            borderRadius: 8,
+            padding: "10px 14px",
+            fontSize: 13.5,
+            marginBottom: 12,
+          }}
+        >
+          {limitMessage}
+        </div>
+      )}
       {error && (
         <p style={{ color: "var(--red)", fontSize: 13.5 }}>
           Something went wrong. Please try again later.
@@ -91,6 +144,7 @@ export function Branches() {
                     <td>{b.isActive ? <span className="chip green">Active</span> : <span className="chip gray">Inactive</span>}</td>
                     <td>
                       <div style={{ display: "flex", gap: 12 }}>
+                        <a href="#" onClick={(e) => { e.preventDefault(); openModal(<BranchLedgerModalContent branch={b} />, true); }}>Ledger</a>
                         {canUpdateBranches && <a href="#" onClick={(e) => { e.preventDefault(); openModal(<BranchModalContent branch={b} onSaved={onSaved} />); }}>Edit</a>}
                         {canUpdateBranches && b.isActive && (
                           <a href="#" style={{ color: "var(--red)" }} onClick={(e) => { e.preventDefault(); onDeactivate(b); }}>Deactivate</a>
