@@ -806,6 +806,40 @@ body {
 /* Sticky header: these tables now scroll inside their own box (the wrap has a
    max-height), and a long business list otherwise scrolls its own column
    headings out of view. */
+/* The businesses table fits its card instead of scrolling sideways: no
+   min-width, cells wrap, and the chip lists wrap onto extra lines. The Code
+   column drops out first on a narrower laptop — the code is already in the
+   URL beside it. Only a phone (see the 720px block) falls back to a scroll. */
+.sa-table-wrap-fit {
+  overflow-x: hidden;
+}
+.sa-table-biz {
+  min-width: 0;
+}
+.sa-table-biz th,
+.sa-table-biz td {
+  padding: 10px 10px;
+}
+.sa-table-biz td {
+  overflow-wrap: anywhere;
+}
+.sa-table-biz .sa-biz-sub {
+  display: block;
+}
+.sa-table-biz .sa-chips {
+  max-width: 240px;
+}
+.sa-table-biz .sa-signin-row .sa-btn {
+  white-space: nowrap;
+}
+@media (max-width: 1400px) {
+  .sa-table-biz .sa-col-code {
+    display: none;
+  }
+  .sa-table-biz .sa-chips {
+    max-width: 180px;
+  }
+}
 .sa-table th {
   position: sticky;
   top: 0;
@@ -1204,6 +1238,12 @@ body {
 /* Tablet and below: tighten the gutters so the tables and cards get the width
    back, and let the topbar stack rather than squeeze. */
 @media (max-width: 720px) {
+  .sa-table-wrap-fit {
+    overflow-x: auto;
+  }
+  .sa-table-biz {
+    min-width: 640px;
+  }
   .sa-topbar {
     align-items: flex-start;
     gap: 10px;

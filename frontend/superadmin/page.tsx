@@ -463,12 +463,12 @@ export default function SuperAdminDashboard() {
               ) : businesses.length === 0 ? (
                 <p className="sa-empty">No businesses yet.</p>
               ) : (
-                <div className="sa-table-wrap">
-                  <table className="sa-table">
+                <div className="sa-table-wrap sa-table-wrap-fit">
+                  <table className="sa-table sa-table-biz">
                     <thead>
                       <tr>
                         <th>Business</th>
-                        <th>Code</th>
+                        <th className="sa-col-code">Code</th>
                         <th>URL</th>
                         <th>Plan</th>
                         <th>Status</th>
@@ -513,7 +513,7 @@ export default function SuperAdminDashboard() {
                               </span>
                             </div>
                           </td>
-                          <td>
+                          <td className="sa-col-code">
                             <code>{b.code}</code>
                           </td>
                           <td>
