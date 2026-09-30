@@ -380,6 +380,32 @@ type Service struct {
 	// directly, structurally satisfied by *authz.Repository — see main.go's
 	// wiring.
 	permChecker platform.PermissionChecker
+
+	// cashGuard blocks a payout larger than the branch's Balance in Hand —
+	// see SetCashBalanceGuard. nil skips the check.
+	cashGuard CashBalanceGuard
+}
+
+// CashBalanceGuard is satisfied by *cash.SummaryService — declared here so
+// loan doesn't import cash (same reason as CashRecorder). EnsureCashInHand
+// returns a Conflict error when amount exceeds the branch's Balance in Hand.
+type CashBalanceGuard interface {
+	EnsureCashInHand(ctx context.Context, branchID uint, amount float64) error
+}
+
+// SetCashBalanceGuard wires the Balance-in-Hand limit on disbursement,
+// top-up and bank-pledge release — a setter rather than another NewService
+// argument.
+func (s *Service) SetCashBalanceGuard(g CashBalanceGuard) {
+	s.cashGuard = g
+}
+
+// ensureCashInHand is a nil-safe wrapper around cashGuard.
+func (s *Service) ensureCashInHand(ctx context.Context, branchID uint, amount float64) error {
+	if s.cashGuard == nil {
+		return nil
+	}
+	return s.cashGuard.EnsureCashInHand(ctx, branchID, amount)
 }
 
 func NewService(
@@ -853,15 +879,16 @@ var riskEligibleStatuses = []string{
 // LoanRiskRow is one loan's risk-assessment listing row — see
 // ListLoanRiskAssessment.
 type LoanRiskRow struct {
-	LoanID           uint      `json:"loanId"`
-	LoanNumber       string    `json:"loanNumber"`
-	CustomerID       uint      `json:"customerId"`
-	CustomerName     string    `json:"customerName"`
-	Status           string    `json:"status"`
-	PrincipalAmount  float64   `json:"principalAmount"`
-	TotalNetWeight   float64   `json:"totalNetWeight"`
-	CurrentGoldValue float64   `json:"currentGoldValue"`
-	RiskLevel        RiskLevel `json:"riskLevel"`
+	LoanID            uint      `json:"loanId"`
+	LoanNumber        string    `json:"loanNumber"`
+	CustomerID        uint      `json:"customerId"`
+	CustomerName      string    `json:"customerName"`
+	Status            string    `json:"status"`
+	PrincipalAmount   float64   `json:"principalAmount"`
+	OutstandingAmount float64   `json:"outstandingAmount"`
+	TotalNetWeight    float64   `json:"totalNetWeight"`
+	CurrentGoldValue  float64   `json:"currentGoldValue"`
+	RiskLevel         RiskLevel `json:"riskLevel"`
 }
 
 // RiskAssessmentFilter narrows ListLoanRiskAssessment's results.
@@ -973,21 +1000,24 @@ func (s *Service) ListLoanRiskAssessment(ctx context.Context, f RiskAssessmentFi
 			}
 			currentValue += o.NetWeight * r
 		}
-		level := ClassifyRisk(currentValue, l.PrincipalAmount)
+		// Compared against what is still owed, not the original principal:
+		// repayments/part-releases shrink the exposure the gold has to cover.
+		level := ClassifyRisk(currentValue, l.OutstandingAmount)
 		counts[level]++
 		if f.RiskLevel != "" && level != f.RiskLevel {
 			continue
 		}
 		rows = append(rows, LoanRiskRow{
-			LoanID:           l.ID,
-			LoanNumber:       l.LoanNumber,
-			CustomerID:       l.CustomerID,
-			CustomerName:     l.Customer.Name,
-			Status:           l.Status,
-			PrincipalAmount:  l.PrincipalAmount,
-			TotalNetWeight:   l.TotalNetWeight,
-			CurrentGoldValue: currentValue,
-			RiskLevel:        level,
+			LoanID:            l.ID,
+			LoanNumber:        l.LoanNumber,
+			CustomerID:        l.CustomerID,
+			CustomerName:      l.Customer.Name,
+			Status:            l.Status,
+			PrincipalAmount:   l.PrincipalAmount,
+			OutstandingAmount: l.OutstandingAmount,
+			TotalNetWeight:    l.TotalNetWeight,
+			CurrentGoldValue:  currentValue,
+			RiskLevel:         level,
 		})
 	}
 
@@ -1787,6 +1817,18 @@ func (s *Service) Approve(ctx context.Context, loanID uint, in ApprovalInput) (*
 		return nil, ErrWrongStage
 	}
 
+	// Final sanction pays the loan out — refuse it before anything (the
+	// audit row included) is written if the branch can't cover it.
+	if stage == SanctionStageFinalSanction && in.Action != ApprovalStageRejected {
+		payout := l.PrincipalAmount
+		if l.ServiceChargeMode == scheme.ServiceChargeModeWithheldFromPayout && l.ServiceChargeAmount > 0 {
+			payout = platform.RoundMoney(l.PrincipalAmount - l.ServiceChargeAmount)
+		}
+		if err := s.ensureCashInHand(ctx, l.BranchID, payout); err != nil {
+			return nil, err
+		}
+	}
+
 	audit := &LoanApproval{
 		LoanID:          loanID,
 		Stage:           stage,
@@ -2484,6 +2526,10 @@ func (s *Service) TopUpLoan(ctx context.Context, loanID uint, in TopUpInput) (*L
 				}
 				return ErrTopUpNeedsPayment
 			}
+		}
+
+		if err := s.ensureCashInHand(ctx, l.BranchID, platform.RoundMoney(amount-deductedFromPayout)); err != nil {
+			return err
 		}
 
 		l.PrincipalAmount = platform.RoundMoney(l.PrincipalAmount + amount)
@@ -4990,6 +5036,12 @@ func (s *Service) ReleaseBankPledge(ctx context.Context, loanID, pledgeID uint, 
 	p, err := s.pledgeRepo.FindByID(ctx, pledgeID)
 	if err != nil || p.LoanID != loanID {
 		return nil, ErrNotFound
+	}
+	// A CashIn pledge's release pays the pledged amount back out of the till.
+	if p.CashTreatment == BankPledgeCashTreatmentCashIn {
+		if err := s.ensureCashInHand(ctx, l.BranchID, p.PledgedAmount); err != nil {
+			return nil, err
+		}
 	}
 
 	now := time.Now()

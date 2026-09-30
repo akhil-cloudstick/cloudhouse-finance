@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { useModal } from "@/common/components/Modal";
+import { Icon } from "@/common/components/Icon";
 import { fmt } from "@/common/utils/format";
 import { ApiError } from "@/common/services/httpClient";
 import {
@@ -130,7 +131,7 @@ export function BranchLedgerModalContent({ branch }: { branch: BranchView }) {
 
         <div className="hd" style={{ flexWrap: "wrap", rowGap: 10, columnGap: 16, padding: "0 0 14px", justifyContent: "flex-end" }}>
           <FilterPanel categories={categories} value={filters} onChange={setFilters} />
-          <button className="btn ghost sm" disabled={exporting} onClick={onExport}>{exporting ? "Exporting…" : "Download"}</button>
+          <button className="btn ghost sm" disabled={exporting} onClick={onExport}><Icon name="download" /> {exporting ? "Exporting…" : "Download"}</button>
         </div>
 
         <div className="tbl-wrap tbl-scroll">

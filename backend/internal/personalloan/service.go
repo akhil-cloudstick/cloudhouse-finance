@@ -64,10 +64,33 @@ type Service struct {
 	// pledge agreement. Optional: nil (e.g. not configured) just leaves
 	// the bond's Aadhaar line blank rather than failing the download.
 	aadhaarCipher *platform.Cipher
+
+	// cashGuard blocks a disbursement larger than the branch's Balance in
+	// Hand — see SetCashBalanceGuard. nil skips the check.
+	cashGuard CashBalanceGuard
+}
+
+// CashBalanceGuard is satisfied by *cash.SummaryService (same no-import
+// rationale as CashRecorder). EnsureCashInHand returns a Conflict error when
+// amount exceeds the branch's Balance in Hand.
+type CashBalanceGuard interface {
+	EnsureCashInHand(ctx context.Context, branchID uint, amount float64) error
 }
 
 func NewService(repo *Repository, customerRepo *customer.Repository, cashRecorder CashRecorder, aadhaarCipher *platform.Cipher) *Service {
 	return &Service{repo: repo, customerRepo: customerRepo, cashRecorder: cashRecorder, aadhaarCipher: aadhaarCipher}
+}
+
+// SetCashBalanceGuard wires the Balance-in-Hand limit on create and renewal.
+func (s *Service) SetCashBalanceGuard(g CashBalanceGuard) {
+	s.cashGuard = g
+}
+
+func (s *Service) ensureCashInHand(ctx context.Context, branchID uint, amount float64) error {
+	if s.cashGuard == nil {
+		return nil
+	}
+	return s.cashGuard.EnsureCashInHand(ctx, branchID, amount)
 }
 
 // CreateInput mirrors the "New Personal Loan" form.
@@ -190,6 +213,9 @@ func (s *Service) CreateLoan(ctx context.Context, in CreateInput) (*PersonalLoan
 	if in.FullDisbursement {
 		disbursed = principal
 		obligation = platform.RoundMoney(principal + interestAmount)
+	}
+	if err := s.ensureCashInHand(ctx, in.BranchID, disbursed); err != nil {
+		return nil, err
 	}
 	installmentAmount := platform.RoundMoney(obligation / float64(in.TenureCount))
 
@@ -795,6 +821,9 @@ func (s *Service) RenewLoan(ctx context.Context, loanID uint, branchID *uint, in
 		}
 		if interestAmount >= principal {
 			return ErrInterestTooHigh
+		}
+		if err := s.ensureCashInHand(ctx, old.BranchID, disbursed); err != nil {
+			return err
 		}
 
 		now := time.Now()

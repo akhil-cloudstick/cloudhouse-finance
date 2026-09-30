@@ -1,4 +1,5 @@
 import { apiFetchEnveloped as apiFetch } from "@/common/services/httpClient";
+import type { BackendLoanCashSource } from "./cashService";
 
 /* Shape returned by the Go backend (backend/internal/cash/model.go's
  * CashSource) — a small find-or-create lookup list backing AddCashModal.tsx's
@@ -19,6 +20,17 @@ export async function searchCashSourcesPage(q: string, page: number): Promise<{ 
   const params = new URLSearchParams({ limit: String(CASH_SOURCES_PAGE_SIZE), offset: String(page * CASH_SOURCES_PAGE_SIZE) });
   if (q) params.set("q", q);
   const res = await apiFetch<{ items: BackendCashSource[] | null; hasMore: boolean }>(`/cash-sources?${params}`);
+  return { items: res.items || [], hasMore: !!res.hasMore };
+}
+
+/* Distinct loan numbers already recorded as a "Loan" cash source, newest
+ * details per loan — AddCashModal.tsx's Loan Number picker, so one loan can
+ * be drawn against across several Add Cash entries. */
+export async function searchLoanSourcesPage(q: string, page: number, bankId?: number): Promise<{ items: BackendLoanCashSource[]; hasMore: boolean }> {
+  const params = new URLSearchParams({ limit: String(CASH_SOURCES_PAGE_SIZE), offset: String(page * CASH_SOURCES_PAGE_SIZE) });
+  if (bankId) params.set("bankId", String(bankId));
+  if (q) params.set("q", q);
+  const res = await apiFetch<{ items: BackendLoanCashSource[] | null; hasMore: boolean }>(`/cash-movements/loan-sources?${params}`);
   return { items: res.items || [], hasMore: !!res.hasMore };
 }
 

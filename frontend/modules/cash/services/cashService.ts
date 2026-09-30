@@ -24,6 +24,9 @@ export type BackendCashMovement = {
   // movement is tied to (nullable — not every movement has either).
   transactionGroupId?: string;
   bankId?: number | null;
+  // toBankId is the destination account for a bank-to-bank transfer — see
+  // backend/internal/cash/model.go's CashMovement.ToBankID.
+  toBankId?: number | null;
   partyCustomerId?: number | null;
   // loanSource is only present when source is "Loan" — see
   // backend/internal/cash/model.go's LoanCashSource.
@@ -65,6 +68,7 @@ export type CashMovementView = {
   branchName?: string;
   transactionGroupId?: string;
   bankId?: number | null;
+  toBankId?: number | null;
   partyCustomerId?: number | null;
   loanSource?: BackendLoanCashSource;
 };
@@ -84,6 +88,7 @@ function movementToView(m: BackendCashMovement): CashMovementView {
     branchName: m.branch?.name,
     transactionGroupId: m.transactionGroupId,
     bankId: m.bankId,
+    toBankId: m.toBankId,
     partyCustomerId: m.partyCustomerId,
     loanSource: m.loanSource,
   };
@@ -95,6 +100,8 @@ export type CashMovementInput = {
   purpose?: string;
   mode?: string;
   bank?: string;
+  bankId?: number;
+  toBankId?: number;
   amount: number;
   branchId?: number;
   occurredOn?: string; // "YYYY-MM-DD"
@@ -143,13 +150,14 @@ export async function listCashMovementsPage(
   page: number,
   limit?: number,
   filters?: CashMovementFilters
-): Promise<{ items: CashMovementView[]; hasMore: boolean; total: number }> {
+): Promise<{ items: CashMovementView[]; hasMore: boolean; total: number; totalDebit: number; totalCredit: number }> {
   const pageSize = limit ?? (typeof window !== "undefined" && (window.innerWidth < 1600 || window.innerHeight < 950) ? 7 : 8);
   const params = movementFilterParams(filters);
   params.set("limit", String(pageSize));
   params.set("offset", String((page - 1) * pageSize));
-  const rec = await apiFetch<{ items: BackendCashMovement[]; hasMore: boolean; total?: number }>(`/cash-movements?${params}`);
-  return { items: (rec?.items || []).map(movementToView), hasMore: !!rec?.hasMore, total: rec?.total ?? 0 };
+  const rec = await apiFetch<{ items: BackendCashMovement[]; hasMore: boolean; total?: number; totalDebit?: number; totalCredit?: number }>(`/cash-movements?${params}`);
+  // totalDebit/totalCredit: every movement matching the filters, not the page.
+  return { items: (rec?.items || []).map(movementToView), hasMore: !!rec?.hasMore, total: rec?.total ?? 0, totalDebit: rec?.totalDebit ?? 0, totalCredit: rec?.totalCredit ?? 0 };
 }
 
 /* Downloads a file from an endpoint that returns a raw file body (CSV),
@@ -161,7 +169,11 @@ async function downloadFile(path: string, fallbackFilename: string): Promise<voi
   const res = await fetch(`${API_BASE}${path}`, {
     headers: token ? { Authorization: `Bearer ${token}` } : {},
   });
-  if (!res.ok) throw new Error(`Download failed (${res.status})`);
+  // A JSON body (even with 200) means no file was produced — saving it would
+  // just be a broken PDF.
+  if (!res.ok || (res.headers.get("Content-Type") || "").includes("application/json")) {
+    throw new Error("Could not download the file. Please try again.");
+  }
   const blob = await res.blob();
   const disposition = res.headers.get("Content-Disposition") || "";
   const match = /filename="([^"]+)"/.exec(disposition);
@@ -173,7 +185,9 @@ async function downloadFile(path: string, fallbackFilename: string): Promise<voi
   document.body.appendChild(a);
   a.click();
   a.remove();
-  URL.revokeObjectURL(url);
+  // Revoked on the next tick, not synchronously — revoking in the same tick
+  // as the click can make Chrome report the download as "Failed".
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
 /* Downloads every cash movement matching the given filters as a PDF (the
@@ -220,6 +234,11 @@ export type BackendExpense = {
   amount: number;
   mode: string;
   payee: string;
+  // fromBankId/toBankId record an internal transfer between two of the
+  // branch's own bank accounts when Mode is UPI/Bank — see
+  // backend/internal/cash/model.go's Expense.FromBankID.
+  fromBankId?: number | null;
+  toBankId?: number | null;
   branchId: number;
   branch?: { id: number; name: string };
   status: "Pending" | "Approved" | "Rejected";
@@ -237,6 +256,8 @@ export type ExpenseView = {
   amt: number;
   mode: string;
   payee: string;
+  fromBankId?: number | null;
+  toBankId?: number | null;
   branch: string;
   branchId: number;
   status: "Pending" | "Approved" | "Rejected";
@@ -252,6 +273,8 @@ function expenseToView(e: BackendExpense): ExpenseView {
     amt: e.amount,
     mode: e.mode,
     payee: e.payee,
+    fromBankId: e.fromBankId,
+    toBankId: e.toBankId,
     branch: e.branch?.name || "",
     branchId: e.branchId,
     status: e.status,
@@ -265,6 +288,8 @@ export type ExpenseFormInput = {
   amount: number;
   mode: string;
   payee: string;
+  fromBankId?: number;
+  toBankId?: number;
   branchId: number;
   occurredOn?: string; // "YYYY-MM-DD"
   remarks?: string;
@@ -278,14 +303,14 @@ export async function listExpenses(): Promise<ExpenseView[]> {
 
 export const EXPENSES_PAGE_SIZE = 8;
 
-export async function listExpensesPage(page: number, limit?: number): Promise<{ items: ExpenseView[]; hasMore: boolean; total: number }> {
+export async function listExpensesPage(page: number, limit?: number): Promise<{ items: ExpenseView[]; hasMore: boolean; total: number; totalAmount: number }> {
   const pageSize = limit ?? (typeof window !== "undefined" && (window.innerWidth < 1600 || window.innerHeight < 950) ? 7 : 8);
   const params = new URLSearchParams({
     limit: String(pageSize),
     offset: String((page - 1) * pageSize),
   });
-  const rec = await apiFetch<{ items: BackendExpense[]; hasMore: boolean; total?: number }>(`/expenses?${params}`);
-  return { items: (rec?.items || []).map(expenseToView), hasMore: !!rec?.hasMore, total: rec?.total ?? 0 };
+  const rec = await apiFetch<{ items: BackendExpense[]; hasMore: boolean; total?: number; totalAmount?: number }>(`/expenses?${params}`);
+  return { items: (rec?.items || []).map(expenseToView), hasMore: !!rec?.hasMore, total: rec?.total ?? 0, totalAmount: rec?.totalAmount ?? 0 };
 }
 
 export async function createExpense(input: ExpenseFormInput): Promise<ExpenseView> {
@@ -321,31 +346,9 @@ export async function uploadReceipt(file: File): Promise<string> {
   return res.url;
 }
 
-/* Opening cash balance — one entry per branch per day. */
-export type OpeningBalanceView = {
-  branchId: number;
-  balanceDate: string;
-  amount: number;
-  // False when nothing has been entered for that branch/day yet — `amount`
-  // alone can't say, since an entered ₹0 and a missing entry both read as 0
-  // (see cash.OpeningCashBalance.IsSet).
-  isSet: boolean;
-};
-
-export async function getOpeningBalance(branchId: number, date?: string): Promise<OpeningBalanceView> {
-  const qs = new URLSearchParams({ branchId: String(branchId) });
-  if (date) qs.set("date", date);
-  return apiFetch<OpeningBalanceView>(`/cash/opening-balance?${qs.toString()}`);
-}
-
-export async function setOpeningBalance(branchId: number, amount: number, date?: string): Promise<OpeningBalanceView> {
-  return apiFetch<OpeningBalanceView>("/cash/opening-balance", {
-    method: "POST",
-    body: JSON.stringify({ branchId, amount, date }),
-  });
-}
-
-/* Expected Cash in Hand summary — Opening + Collections - Disbursements - Cash Expenses. */
+/* Expected Cash in Hand summary — Opening + Collections - Disbursements - Cash Expenses.
+ * Opening is carried forward: the previous day's closing Balance in Hand
+ * (see cash.SummaryService.openingFor). */
 /* Mirrors cash.CashInBreakdown / cash.CashOutBreakdown — the per-source split
  * of the day's `collections` / `disbursements` totals (see
  * cash.MovementRepository.SumBreakdownByDate). */
@@ -460,7 +463,7 @@ export async function listGoldSalesPage(
   page: number,
   limit?: number,
   filters?: { fromDate?: string; toDate?: string }
-): Promise<{ items: GoldSaleView[]; hasMore: boolean; total: number }> {
+): Promise<{ items: GoldSaleView[]; hasMore: boolean; total: number; totalSold: number; totalCost: number; totalProfit: number }> {
   const pageSize = limit ?? GOLD_SALES_PAGE_SIZE;
   const params = new URLSearchParams({
     limit: String(pageSize),
@@ -468,8 +471,11 @@ export async function listGoldSalesPage(
   });
   if (filters?.fromDate) params.set("fromDate", filters.fromDate);
   if (filters?.toDate) params.set("toDate", filters.toDate);
-  const rec = await apiFetch<{ items: BackendGoldSale[]; hasMore: boolean; total?: number }>(`/gold-sales?${params}`);
-  return { items: (rec?.items || []).map(goldSaleToView), hasMore: !!rec?.hasMore, total: rec?.total ?? 0 };
+  const rec = await apiFetch<{ items: BackendGoldSale[]; hasMore: boolean; total?: number; totalSold?: number; totalCost?: number; totalProfit?: number }>(`/gold-sales?${params}`);
+  return {
+    items: (rec?.items || []).map(goldSaleToView), hasMore: !!rec?.hasMore, total: rec?.total ?? 0,
+    totalSold: rec?.totalSold ?? 0, totalCost: rec?.totalCost ?? 0, totalProfit: rec?.totalProfit ?? 0,
+  };
 }
 
 export async function createGoldSale(input: GoldSaleInput): Promise<GoldSaleView> {
@@ -588,12 +594,12 @@ export async function listCashMovementsByCustomer(
   page: number,
   range?: PartyDateRange,
   pageSize: number = PARTY_PAGE_SIZE
-): Promise<{ items: LedgerRowView[]; total: number }> {
+): Promise<{ items: LedgerRowView[]; total: number; totalDebit: number; totalCredit: number }> {
   const params = partyRangeParams(range);
   params.set("limit", String(pageSize));
   params.set("offset", String((page - 1) * pageSize));
-  const rec = await apiFetch<{ items: BackendLedgerRow[]; total: number }>(`/cash-movements/transactions/customer/${customerId}?${params}`);
-  return { items: (rec?.items || []).map(ledgerRowToView), total: rec?.total ?? 0 };
+  const rec = await apiFetch<{ items: BackendLedgerRow[]; total: number; totalDebit?: number; totalCredit?: number }>(`/cash-movements/transactions/customer/${customerId}?${params}`);
+  return { items: (rec?.items || []).map(ledgerRowToView), total: rec?.total ?? 0, totalDebit: rec?.totalDebit ?? 0, totalCredit: rec?.totalCredit ?? 0 };
 }
 
 /* Bank drill-down's combined ledger — same shape/rationale as the customer
@@ -605,12 +611,12 @@ export async function getBankLedger(
   page: number,
   range?: PartyDateRange,
   pageSize: number = PARTY_PAGE_SIZE
-): Promise<{ items: LedgerRowView[]; total: number }> {
+): Promise<{ items: LedgerRowView[]; total: number; totalDebit: number; totalCredit: number }> {
   const params = partyRangeParams(range);
   params.set("limit", String(pageSize));
   params.set("offset", String((page - 1) * pageSize));
-  const rec = await apiFetch<{ items: BackendLedgerRow[]; total: number }>(`/banks/${bankId}/ledger?${params}`);
-  return { items: (rec?.items || []).map(ledgerRowToView), total: rec?.total ?? 0 };
+  const rec = await apiFetch<{ items: BackendLedgerRow[]; total: number; totalDebit?: number; totalCredit?: number }>(`/banks/${bankId}/ledger?${params}`);
+  return { items: (rec?.items || []).map(ledgerRowToView), total: rec?.total ?? 0, totalDebit: rec?.totalDebit ?? 0, totalCredit: rec?.totalCredit ?? 0 };
 }
 
 /* Cash Ledger — the Cash-mode-only sub-ledger drill-down off the Cash
@@ -625,13 +631,13 @@ export async function getCashLedger(
   page: number,
   range?: PartyDateRange & { branchIds?: number[] },
   pageSize: number = PARTY_PAGE_SIZE
-): Promise<{ items: LedgerRowView[]; total: number }> {
+): Promise<{ items: LedgerRowView[]; total: number; totalDebit: number; totalCredit: number }> {
   const params = partyRangeParams(range);
   if (range?.branchIds?.length) params.set("branchIds", range.branchIds.join(","));
   params.set("limit", String(pageSize));
   params.set("offset", String((page - 1) * pageSize));
-  const rec = await apiFetch<{ items: BackendLedgerRow[]; total: number }>(`/cash-movements/cash-ledger?${params}`);
-  return { items: (rec?.items || []).map(ledgerRowToView), total: rec?.total ?? 0 };
+  const rec = await apiFetch<{ items: BackendLedgerRow[]; total: number; totalDebit?: number; totalCredit?: number }>(`/cash-movements/cash-ledger?${params}`);
+  return { items: (rec?.items || []).map(ledgerRowToView), total: rec?.total ?? 0, totalDebit: rec?.totalDebit ?? 0, totalCredit: rec?.totalCredit ?? 0 };
 }
 
 export const LEDGER_MODES = ["Cash", "UPI", "Bank Transfer", "Cheque"] as const;
@@ -660,15 +666,34 @@ export async function getModeLedger(
   page: number,
   range?: PartyDateRange & { branchIds?: number[]; bankId?: number },
   pageSize: number = PARTY_PAGE_SIZE
-): Promise<{ items: LedgerRowView[]; total: number }> {
+): Promise<{ items: LedgerRowView[]; total: number; totalDebit: number; totalCredit: number }> {
   const params = partyRangeParams(range);
   params.set("mode", mode);
   if (range?.bankId) params.set("bankId", String(range.bankId));
   if (range?.branchIds?.length) params.set("branchIds", range.branchIds.join(","));
   params.set("limit", String(pageSize));
   params.set("offset", String((page - 1) * pageSize));
-  const rec = await apiFetch<{ items: BackendLedgerRow[]; total: number }>(`/cash-movements/mode-ledger?${params}`);
-  return { items: (rec?.items || []).map(ledgerRowToView), total: rec?.total ?? 0 };
+  const rec = await apiFetch<{ items: BackendLedgerRow[]; total: number; totalDebit?: number; totalCredit?: number }>(`/cash-movements/mode-ledger?${params}`);
+  return { items: (rec?.items || []).map(ledgerRowToView), total: rec?.total ?? 0, totalDebit: rec?.totalDebit ?? 0, totalCredit: rec?.totalCredit ?? 0 };
+}
+
+/* PDF of every row in a ledger matching the date range (and bank/branch
+ * narrowing for a mode ledger), ending in a Total Debit/Total Credit line —
+ * the same endpoint as the ledger itself, with ?export=pdf. */
+export async function downloadLedger(
+  kind: "bank" | "customer" | "category" | "mode",
+  ref: number | LedgerMode,
+  range?: PartyDateRange & { bankId?: number; branchIds?: number[] }
+): Promise<void> {
+  const params = partyRangeParams(range);
+  params.set("export", "pdf");
+  if (range?.bankId) params.set("bankId", String(range.bankId));
+  if (range?.branchIds?.length) params.set("branchIds", range.branchIds.join(","));
+  let path: string;
+  if (kind === "bank") path = `/banks/${ref}/ledger`;
+  else if (kind === "customer") path = `/cash-movements/transactions/customer/${ref}`;
+  else if (kind === "category") path = `/expense-categories/${ref}/ledger`;  else { params.set("mode", String(ref)); path = "/cash-movements/mode-ledger"; }
+  await downloadFile(`${path}?${params}`, "ledger.pdf");
 }
 
 export async function exportPartyStatementByBank(bankId: number, range?: PartyDateRange): Promise<void> {

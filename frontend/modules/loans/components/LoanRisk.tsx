@@ -80,7 +80,7 @@ export function LoanRisk() {
   return (
     <>
       <div className="page-h">
-        <div><h1>Loan Risk</h1><p>Principal vs. today&apos;s gold value for every open loan — flags loans a falling gold price has put at risk or at a loss</p></div>
+        <div><h1>Loan Risk</h1><p>Outstanding principal vs. today&apos;s gold value for every open loan — flags loans a falling gold price has put at risk or at a loss</p></div>
       </div>
       <hr className="gold-rule" />
 
@@ -145,7 +145,7 @@ export function LoanRisk() {
               <tr>
                 <th>Loan / Customer</th>
                 <th>Status</th>
-                <th className="num">Principal</th>
+                <th className="num">Outstanding Principal</th>
                 <th className="num">Gold Weight</th>
                 <th className="num">Current Gold Value</th>
                 <th className="num">Margin</th>
@@ -158,7 +158,7 @@ export function LoanRisk() {
               ) : rows.length === 0 ? (
                 <tr><td colSpan={7} className="empty">No loans in this category.</td></tr>
               ) : rows.map((r) => {
-                const margin = r.currentGoldValue - r.principalAmount;
+                const margin = r.currentGoldValue - r.outstandingAmount;
                 return (
                   <tr key={r.loanId}>
                     <td>
@@ -166,7 +166,7 @@ export function LoanRisk() {
                       <div style={{ fontSize: 11.5, color: "var(--muted)" }}>{r.customerName}</div>
                     </td>
                     <td>{r.status}</td>
-                    <td className="num">{fmt(r.principalAmount)}</td>
+                    <td className="num">{fmt(r.outstandingAmount)}</td>
                     <td className="num">{r.totalNetWeight.toFixed(2)} g</td>
                     <td className="num">{fmt(r.currentGoldValue)}</td>
                     <td className="num" style={{ color: margin >= 0 ? "var(--green)" : "var(--red)" }}>

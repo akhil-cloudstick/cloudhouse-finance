@@ -30,6 +30,23 @@ func parseDate(s string) (time.Time, error) {
 	return time.Parse(time.RFC3339, s)
 }
 
+// parsePaidOn is parseDate for a payment date: a date-only value for today
+// becomes the current time, so the payment sorts with everything else
+// recorded today in the newest-first Ledger instead of at UTC midnight
+// (05:30 IST) underneath it — same rule as cash.parseOccurredOn. Other dates
+// are left exactly as parseDate reads them.
+func parsePaidOn(s string) (time.Time, error) {
+	t, err := parseDate(s)
+	if err != nil || len(s) != len("2006-01-02") {
+		return t, err
+	}
+	now := time.Now()
+	if s == now.Format("2006-01-02") {
+		return now, nil
+	}
+	return t, nil
+}
+
 // --- Loan create/list/get -------------------------------------------------
 
 type ornamentRequest struct {
@@ -900,7 +917,7 @@ func (h *Handler) RecordPayment(c *gin.Context) {
 		httpx.Fail(c, http.StatusBadRequest, "type must be one of: Interest, Penal Interest, Principal, Partial, Full Settlement")
 		return
 	}
-	paidOn, err := parseDate(req.PaidOn)
+	paidOn, err := parsePaidOn(req.PaidOn)
 	if err != nil {
 		httpx.Fail(c, http.StatusBadRequest, "invalid paidOn: expected YYYY-MM-DD")
 		return

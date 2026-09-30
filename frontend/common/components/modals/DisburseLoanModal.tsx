@@ -7,6 +7,7 @@ import { ApiError } from "@/common/services/httpClient";
 import { fmt } from "@/common/utils/format";
 import { SplitPaymentInput, ZERO_SPLIT, type SplitAmounts } from "@/common/components/ui/SplitPaymentInput";
 import { approveLoan, type LoanView, type SanctionStage } from "@/modules/loans/services/loanService";
+import { useBalanceInHand } from "@/hooks/useBalanceInHand";
 
 /* The FinalSanction stage's "Approve" action is also the moment the
  * principal actually leaves the till (see backend Service.Approve's
@@ -31,9 +32,13 @@ export function DisburseLoanModalContent({
   const [err, setErr] = useState("");
   const [saving, setSaving] = useState(false);
   const balanced = Math.abs(remaining) < 0.01;
+  // Disbursement is blocked until the branch has enough balance in hand.
+  const balanceInHand = useBalanceInHand(loan.branchId);
+  const insufficient = balanceInHand !== null && loan.principal > balanceInHand + 0.005;
 
   async function save() {
     if (!balanced) { setErr("The payment breakdown must add up to the principal amount."); return; }
+    if (insufficient) { setErr("Insufficient balance in hand to disburse this loan."); return; }
     setSaving(true);
     setErr("");
     try {
@@ -63,11 +68,17 @@ export function DisburseLoanModalContent({
         <div className="frow">
           <SplitPaymentInput totalAmount={loan.principal} onChange={(s, r, bid) => { setSplit(s); setRemaining(r); setBankId(bid); }} />
         </div>
+        {balanceInHand !== null && (
+          <p style={{ fontSize: 12.5, marginTop: 8, color: insufficient ? "var(--red)" : "var(--muted)" }}>
+            Balance in hand: <strong>{fmt(balanceInHand)}</strong>
+            {insufficient && " — not enough to disburse this loan. Add cash before approving."}
+          </p>
+        )}
         {err && <div className="notice" style={{ marginTop: 10 }}>{err}</div>}
       </div>
       <div className="ft">
         <button className="btn ghost" onClick={closeModal}>Cancel</button>
-        <button className="btn" disabled={saving || !balanced} onClick={save}>{saving ? "Approving…" : `Approve & Disburse ${fmt(loan.principal)}`}</button>
+        <button className="btn" disabled={saving || !balanced || insufficient} onClick={save}>{saving ? "Approving…" : `Approve & Disburse ${fmt(loan.principal)}`}</button>
       </div>
     </>
   );

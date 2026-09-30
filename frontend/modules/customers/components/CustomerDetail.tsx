@@ -669,7 +669,7 @@ export function CustomerDetail({ id }: { id?: string }) {
                   <div className="sp" />
                   <FilterPanel categories={ledgerCategories} value={ledgerFilters} onChange={setLedgerFilters} hideChips />
                   <button className="btn ghost sm" disabled={ledgerExporting} onClick={onExportLedger}>
-                    {ledgerExporting ? "Exporting…" : "Download"}
+                    <Icon name="download" /> {ledgerExporting ? "Exporting…" : "Download"}
                   </button>
                 </>
               ) : (

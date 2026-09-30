@@ -486,6 +486,35 @@ func (h *Handler) Withdraw(c *gin.Context) {
 }
 
 // ListTransactions returns one page of a Live-engine investment's ledger.
+// Ledger backs GET /investments/:id/ledger — the investment's full ledger
+// (see Service.GetLedger), unpaginated like a single loan's ledger.
+func (h *Handler) Ledger(c *gin.Context) {
+	ctx := platform.RequestContext(c)
+	id, err := httpx.IDParam(c, "id")
+	if err != nil {
+		httpx.FailErr(c, err)
+		return
+	}
+	rows, err := h.svc.GetLedger(ctx, id, platform.GetBranchScope(c))
+	if err != nil {
+		httpx.FailErr(c, err)
+		return
+	}
+	httpx.Success(c, http.StatusOK, gin.H{"items": rows})
+}
+
+// ByNumber backs GET /investments/by-number/:number — resolves an
+// investment number to its ID for ledger reference links.
+func (h *Handler) ByNumber(c *gin.Context) {
+	ctx := platform.RequestContext(c)
+	id, err := h.svc.ResolveNumber(ctx, strings.TrimSpace(c.Param("number")), platform.GetBranchScope(c))
+	if err != nil {
+		httpx.FailErr(c, err)
+		return
+	}
+	httpx.Success(c, http.StatusOK, gin.H{"id": id})
+}
+
 func (h *Handler) ListTransactions(c *gin.Context) {
 	ctx := platform.RequestContext(c)
 	id, err := httpx.IDParam(c, "id")

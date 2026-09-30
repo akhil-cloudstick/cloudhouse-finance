@@ -16,7 +16,9 @@ import (
 func RegisterRoutes(rg *gin.RouterGroup, h *Handler, perms platform.CRUDMiddlewares) {
 	rg.POST("", perms.Create, h.Create)
 	rg.GET("", perms.Read, h.List)
+	rg.GET("/by-number/:number", perms.Read, h.ByNumber)
 	rg.GET("/:id", perms.Read, h.Get)
+	rg.GET("/:id/ledger", perms.Read, h.Ledger)
 	rg.GET("/:id/schedule", perms.Read, h.Schedule)
 	rg.GET("/:id/bond/pdf", perms.Read, h.DownloadBondPDF)
 	rg.GET("/:id/statement/pdf", perms.Read, h.DownloadStatement)

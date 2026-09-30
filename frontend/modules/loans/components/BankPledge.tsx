@@ -17,7 +17,7 @@ import {
   type LoanView,
 } from "@/modules/loans/services/loanService";
 import { RepledgeModalContent, SelectLoanForRepledgeModalContent } from "@/common/components/modals/RepledgeModal";
-import { BankModalContent } from "@/common/components/modals/BankModal";
+import { BanksModalContent } from "@/modules/banks/components/Banks";
 import { ConfirmModalContent } from "@/common/components/modals/ConfirmModal";
 import { ApiError } from "@/common/services/httpClient";
 import { useResponsivePageSize } from "@/common/utils/responsive";
@@ -48,7 +48,7 @@ export function BankPledge({ focusLoanNumber }: { focusLoanNumber?: string } = {
   // hidden outright (see Customers.tsx).
   const canCreatePledges = can("Bank_Pledge_Management", "can_create_bank_pledge");
   const canUpdatePledges = can("Bank_Pledge_Management", "can_update_bank_pledge");
-  const canCreateBanks = can("Bank_Management", "can_create_bank");
+  const canViewBanks = can("Bank_Management", "can_view_bank");
   const pageSize = useResponsivePageSize(15, 15);
   const [tab, setTab] = useState<"active" | "history">("active");
   // One search box for both tabs, matching loan number, bank name, or
@@ -195,7 +195,7 @@ export function BankPledge({ focusLoanNumber }: { focusLoanNumber?: string } = {
         <div><h1>Bank &amp; Gold Re-Pledge</h1><p>Customer gold re-pledged with external banks</p></div>
         <div className="sp" />
         <div className="search"><Icon name="search" /><input className="inp" placeholder="Search loan no, bank, customer…" value={q} onChange={(e) => setQ(e.target.value)} /></div>
-        {canCreateBanks && <button className="btn ghost" onClick={() => openModal(<BankModalContent onSaved={() => {}} />)}><Icon name="plus" /> Add Bank</button>}
+        {canViewBanks && <button className="btn ghost" onClick={() => openModal(<BanksModalContent />, true)}><Icon name="bank" /> Banks</button>}
         {canCreatePledges && <button className="btn" onClick={startNewRepledge}><Icon name="plus" /> New Re-Pledge</button>}
       </div>
       <hr className="gold-rule" style={{ margin: "4px 0 10px" }} />
