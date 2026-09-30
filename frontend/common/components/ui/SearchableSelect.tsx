@@ -65,6 +65,7 @@ export function SearchableSelect<T>({
   renderOption,
   compact = false,
   compactMinWidth = 60,
+  portal = false,
 }: {
   value: string;
   onChange: (id: string, item: T) => void;
@@ -107,7 +108,12 @@ export function SearchableSelect<T>({
   // default 60px, while others (RateModal's own PurityPicker) keep the
   // original 60px. Ignored unless `compact` is true.
   compactMinWidth?: number;
+  // Floats the full-width list above the page (document.body portal,
+  // position:fixed) — for pickers inside a scrolling modal body (.bd-scroll),
+  // whose overflow would otherwise clip the list at the modal footer.
+  portal?: boolean;
 }) {
+  const floating = compact || portal;
   const [query, setQuery] = useState(value);
   // Separate from `query` (the input's displayed text, which starts out as
   // the already-selected item's label): fetching off `query` directly meant
@@ -296,7 +302,7 @@ export function SearchableSelect<T>({
     // Stale `coords` left over from the last time this was open is
     // harmless: the render below gates on `open && coords`, and `open` is
     // already false here, so there's nothing to clear.
-    if (!compact || !open) return;
+    if (!floating || !open) return;
     function reposition() {
       const el = boxRef.current;
       if (!el) return;
@@ -314,7 +320,7 @@ export function SearchableSelect<T>({
       // right edge of a modal (e.g. SplitPaymentInput's Bank column) would
       // otherwise open a box that's partly clipped by the modal's own
       // overflow:hidden, rather than just the box being narrow.
-      const width = Math.min(Math.max(rect.width, compactMinWidth), 160);
+      const width = compact ? Math.min(Math.max(rect.width, compactMinWidth), 160) : rect.width;
       const left = Math.min(rect.left, window.innerWidth - width - 16);
       setCoords({ top: rect.bottom, left, width: rect.width, maxHeight });
     }
@@ -334,7 +340,7 @@ export function SearchableSelect<T>({
       window.removeEventListener("resize", reposition);
       window.removeEventListener("scroll", closeOnScroll, true);
     };
-  }, [compact, open]);
+  }, [floating, compact, open]);
 
   const showCreateRowForNav = allowCreate && query.trim().length > 0 &&
     !items.some((it) => getLabel(it).toLowerCase() === query.trim().toLowerCase()) && !loading;
@@ -537,7 +543,7 @@ export function SearchableSelect<T>({
        * results existed server-side. Matching the window to the page size
        * makes it overflow (and start loading page 2 on scroll) the moment
        * a 6th result exists. */}
-      {!compact && open && (
+      {!floating && open && (
         <div
           ref={resultsRef}
           className="gs-results open"
@@ -550,10 +556,10 @@ export function SearchableSelect<T>({
       {/* PurityPicker's search half only — see the `compact` prop's doc
        * comment for why this needs the portal/fixed-position/capped-size
        * treatment that every other dropdown deliberately does NOT get. */}
-      {compact && open && coords && createPortal(
+      {floating && open && coords && createPortal(
         <div
           ref={resultsRef}
-          className="gs-results open no-scrollbar"
+          className={compact ? "gs-results open no-scrollbar" : "gs-results open"}
           onScroll={onResultsScroll}
           // Every property below is given an explicit value, including the
           // "off" ones ("auto") — the shared .gs-results class (app.css)
@@ -575,7 +581,7 @@ export function SearchableSelect<T>({
             // un-squeezed width — see PurityPicker.tsx's `flex:1` split)
             // the dropdown would visibly outgrow the field it belongs to
             // for a plain 2-3-digit purity value.
-            width: Math.min(Math.max(coords.width, compactMinWidth), 160),
+            width: compact ? Math.min(Math.max(coords.width, compactMinWidth), 160) : coords.width,
             marginTop: 4,
             // Always exactly ROWS_BOX_HEIGHT (~5 rows) unless the field
             // sits too close to the bottom of the viewport for that to fit

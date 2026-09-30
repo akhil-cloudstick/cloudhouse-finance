@@ -97,6 +97,21 @@ func (r *Repository) FindByID(ctx context.Context, id uint, branchID *uint) (*In
 	return &rec, nil
 }
 
+// FindIDByNumber resolves an investment number ("INV-00003") to its ID,
+// branch-scoped like FindByID — lets a ledger reference link straight to
+// the investment.
+func (r *Repository) FindIDByNumber(ctx context.Context, number string, branchID *uint) (uint, error) {
+	var rec Investment
+	q := r.db.WithContext(ctx).Select("id").Where("investment_number = ?", number)
+	if branchID != nil {
+		q = q.Where("branch_id = ?", *branchID)
+	}
+	if err := q.First(&rec).Error; err != nil {
+		return 0, err
+	}
+	return rec.ID, nil
+}
+
 // LockByID is FindByID's row-locking counterpart, used by MarkPayoutPaid
 // and MatureInvestment to serialize concurrent writers — mirrors
 // personalloan.Repository.LockByID. Must be called within tx.
@@ -275,6 +290,24 @@ func (r *Repository) FindTransactions(ctx context.Context, investmentID uint, li
 	var recs []InvestmentTransaction
 	err := r.db.WithContext(ctx).Where("investment_id = ?", investmentID).
 		Order("occurred_on desc, id desc").Limit(limit + 1).Offset(offset).Find(&recs).Error
+	return recs, err
+}
+
+// FindAllTransactions returns every transaction on an investment, oldest
+// first — the ledger's order (see Service.GetLedger).
+func (r *Repository) FindAllTransactions(ctx context.Context, investmentID uint) ([]InvestmentTransaction, error) {
+	var recs []InvestmentTransaction
+	err := r.db.WithContext(ctx).Where("investment_id = ?", investmentID).
+		Order("occurred_on asc, id asc").Find(&recs).Error
+	return recs, err
+}
+
+// FindPaidPayouts returns every Paid payout on an investment, in schedule
+// order — the Schedule engine's ledger rows (see Service.GetLedger).
+func (r *Repository) FindPaidPayouts(ctx context.Context, investmentID uint) ([]InvestmentPayout, error) {
+	var recs []InvestmentPayout
+	err := r.db.WithContext(ctx).Where("investment_id = ? AND status = ?", investmentID, PayoutStatusPaid).
+		Order("sequence_no asc").Find(&recs).Error
 	return recs, err
 }
 

@@ -2,6 +2,7 @@ package cash
 
 import (
 	"context"
+	"regexp"
 	"sort"
 	"time"
 
@@ -174,14 +175,20 @@ func scanCashMovementsForLedger(db *gorm.DB, whereCol string, whereArg uint, fro
 		BankName        string
 		PartyCustomerID uint
 		CustomerName    string
+		LoanNumber      string
 	}
 	q := db.Table("cash_movements m").
 		Select(`m.id, m.occurred_on, m.type, m.source, m.purpose, m.mode, m.amount,
-			m.bank_id, bk.name as bank_name, m.party_customer_id, c.name as customer_name`).
+			m.bank_id, bk.name as bank_name, m.party_customer_id, c.name as customer_name,
+			lcs.loan_number as loan_number`).
 		Joins("LEFT JOIN banks bk ON bk.id = m.bank_id").
 		Joins("LEFT JOIN customers c ON c.id = m.party_customer_id").
+		Joins("LEFT JOIN loan_cash_sources lcs ON lcs.cash_movement_id = m.id").
 		Where("m."+whereCol, whereArg).
-		Where("m.source IS DISTINCT FROM ?", "Collection")
+		Where("m.source IS DISTINCT FROM ?", "Collection").
+		// A gold sale's proceeds come in through its richer gold_sales row
+		// (scanGoldSalesForLedger) — drop the movement echo of the same sale.
+		Where("m.source IS DISTINCT FROM ?", "GoldSale")
 	if !fromDate.IsZero() {
 		q = q.Where("m.occurred_on >= ?", fromDate)
 	}
@@ -205,6 +212,7 @@ func scanCashMovementsForLedger(db *gorm.DB, whereCol string, whereArg uint, fro
 			Description:  desc,
 			Type:         m.Source,
 			Method:       m.Mode,
+			Reference:    refOrPurpose(m.LoanNumber, m.Purpose),
 			Amount:       m.Amount,
 			BankID:       m.BankID,
 			BankName:     m.BankName,
@@ -217,6 +225,24 @@ func scanCashMovementsForLedger(db *gorm.DB, whereCol string, whereArg uint, fro
 		}
 	}
 	return out, nil
+}
+
+// purposeRefRe matches the "… — LN-00049" / "… — INV-00003" suffix every
+// loan/investment movement's Purpose carries (see RecordLoan*/
+// RecordInvestment*/RecordAuction*), which has no dedicated column.
+var purposeRefRe = regexp.MustCompile(`—\s*((?:LN|INV)-\S+)\s*$`)
+
+// refOrPurpose returns loanNumber (a loan-sourced Add Cash entry's linked
+// loan) when set, else the loan/investment number pulled back out of
+// purpose, or "" when it carries none (expenses, manual top-ups, …).
+func refOrPurpose(loanNumber, purpose string) string {
+	if loanNumber != "" {
+		return loanNumber
+	}
+	if m := purposeRefRe.FindStringSubmatch(purpose); m != nil {
+		return m[1]
+	}
+	return ""
 }
 
 // scanLoanPaymentsForLedger reads loan_payments (joined to loans/customers)
@@ -415,10 +441,10 @@ func toLedgerRow(r ledgerSourceRow) LedgerRow {
 // there's no "read top to bottom to watch the balance move" expectation to
 // preserve, and newest-first matches every other Party Transactions
 // drill-down on this page).
-func (s *MovementService) ListCombinedLedgerByBank(ctx context.Context, bankID uint, fromDate, toDate time.Time, limit, offset int) ([]LedgerRow, int64, error) {
+func (s *MovementService) ListCombinedLedgerByBank(ctx context.Context, bankID uint, fromDate, toDate time.Time, limit, offset int) ([]LedgerRow, int64, LedgerTotals, error) {
 	rows, err := s.repo.combinedLedgerByBank(ctx, bankID, fromDate, toDate)
 	if err != nil {
-		return nil, 0, err
+		return nil, 0, LedgerTotals{}, err
 	}
 	return paginateLedgerRows(rows, limit, offset)
 }
@@ -427,10 +453,10 @@ func (s *MovementService) ListCombinedLedgerByBank(ctx context.Context, bankID u
 // a customer — replaces ListCashMovementsByCustomer's plain-CashMovement
 // result on GET /cash-movements/transactions/customer/:customerId in place
 // (same URL, richer payload).
-func (s *MovementService) ListCombinedLedgerByCustomer(ctx context.Context, customerID uint, fromDate, toDate time.Time, limit, offset int) ([]LedgerRow, int64, error) {
+func (s *MovementService) ListCombinedLedgerByCustomer(ctx context.Context, customerID uint, fromDate, toDate time.Time, limit, offset int) ([]LedgerRow, int64, LedgerTotals, error) {
 	rows, err := s.repo.combinedLedgerByCustomer(ctx, customerID, fromDate, toDate)
 	if err != nil {
-		return nil, 0, err
+		return nil, 0, LedgerTotals{}, err
 	}
 	return paginateLedgerRows(rows, limit, offset)
 }
@@ -442,9 +468,20 @@ func (s *MovementService) ListCombinedLedgerByCustomer(ctx context.Context, cust
 // query; row counts per bank/customer are small enough (a bank's or
 // customer's own transactions) that sorting/paging this set in Go is not a
 // concern the way it would be for an unscoped table-wide list.
-func paginateLedgerRows(rows []ledgerSourceRow, limit, offset int) ([]LedgerRow, int64, error) {
+//
+// Totals cover every row matching the filters, not just the returned page —
+// the ledger footer's Total Debit/Total Credit.
+func paginateLedgerRows(rows []ledgerSourceRow, limit, offset int) ([]LedgerRow, int64, LedgerTotals, error) {
 	sortLedgerSourceRows(rows)
 	total := int64(len(rows))
+	var totals LedgerTotals
+	for _, r := range rows {
+		if toLedgerRow(r).DebitOrCredit == "debit" {
+			totals.TotalDebit += r.Amount
+		} else {
+			totals.TotalCredit += r.Amount
+		}
+	}
 	if offset < 0 {
 		offset = 0
 	}
@@ -460,7 +497,14 @@ func paginateLedgerRows(rows []ledgerSourceRow, limit, offset int) ([]LedgerRow,
 	for i, r := range page {
 		out[i] = toLedgerRow(r)
 	}
-	return out, total, nil
+	return out, total, totals, nil
+}
+
+// LedgerTotals is the debit/credit sum across every row matching a ledger's
+// filters (see paginateLedgerRows).
+type LedgerTotals struct {
+	TotalDebit  float64 `json:"totalDebit"`
+	TotalCredit float64 `json:"totalCredit"`
 }
 
 func sortLedgerSourceRows(rows []ledgerSourceRow) {
@@ -476,7 +520,7 @@ func sortLedgerSourceRows(rows []ledgerSourceRow) {
 // entry point (rather than callers passing mode="Cash" into ListModeLedger)
 // since it's the one mode with no bank of record — see ListModeLedger's own
 // doc comment for why a bankID makes sense for every other mode but this one.
-func (s *MovementService) ListCashModeLedger(ctx context.Context, branchID *uint, branchIDs []uint, fromDate, toDate time.Time, limit, offset int) ([]LedgerRow, int64, error) {
+func (s *MovementService) ListCashModeLedger(ctx context.Context, branchID *uint, branchIDs []uint, fromDate, toDate time.Time, limit, offset int) ([]LedgerRow, int64, LedgerTotals, error) {
 	return s.ListModeLedger(ctx, "Cash", nil, branchID, branchIDs, fromDate, toDate, limit, offset)
 }
 
@@ -492,10 +536,10 @@ func (s *MovementService) ListCashModeLedger(ctx context.Context, branchID *uint
 // they've picked specific branches, and is ignored entirely for a scoped
 // caller (branchID takes precedence — a Branch Manager's own branch can
 // never be widened by a client-supplied filter).
-func (s *MovementService) ListModeLedger(ctx context.Context, mode string, bankID *uint, branchID *uint, branchIDs []uint, fromDate, toDate time.Time, limit, offset int) ([]LedgerRow, int64, error) {
+func (s *MovementService) ListModeLedger(ctx context.Context, mode string, bankID *uint, branchID *uint, branchIDs []uint, fromDate, toDate time.Time, limit, offset int) ([]LedgerRow, int64, LedgerTotals, error) {
 	rows, err := s.repo.modeLedger(ctx, mode, bankID, branchID, branchIDs, fromDate, toDate)
 	if err != nil {
-		return nil, 0, err
+		return nil, 0, LedgerTotals{}, err
 	}
 	return paginateLedgerRows(rows, limit, offset)
 }
@@ -570,14 +614,19 @@ func scanCashMovementsForModeLedger(db *gorm.DB, mode string, bankID *uint, bran
 		BankName        string
 		PartyCustomerID uint
 		CustomerName    string
+		LoanNumber      string
 	}
 	q := db.Table("cash_movements m").
 		Select(`m.id, m.occurred_on, m.type, m.source, m.purpose, m.mode, m.amount,
-			m.bank_id, bk.name as bank_name, m.party_customer_id, c.name as customer_name`).
+			m.bank_id, bk.name as bank_name, m.party_customer_id, c.name as customer_name,
+			lcs.loan_number as loan_number`).
 		Joins("LEFT JOIN banks bk ON bk.id = m.bank_id").
 		Joins("LEFT JOIN customers c ON c.id = m.party_customer_id").
+		Joins("LEFT JOIN loan_cash_sources lcs ON lcs.cash_movement_id = m.id").
 		Where("m.mode = ?", mode).
-		Where("m.source IS DISTINCT FROM ?", "Collection")
+		Where("m.source IS DISTINCT FROM ?", "Collection").
+		// Same gold-sale dedup as scanCashMovementsForLedger.
+		Where("m.source IS DISTINCT FROM ?", "GoldSale")
 	if bankID != nil {
 		q = q.Where("m.bank_id = ?", *bankID)
 	}
@@ -605,6 +654,7 @@ func scanCashMovementsForModeLedger(db *gorm.DB, mode string, bankID *uint, bran
 			Description:  desc,
 			Type:         m.Source,
 			Method:       m.Mode,
+			Reference:    refOrPurpose(m.LoanNumber, m.Purpose),
 			Amount:       m.Amount,
 			BankID:       m.BankID,
 			BankName:     m.BankName,
@@ -805,10 +855,10 @@ func scanGoldSalesForModeLedger(db *gorm.DB, mode string, bankID *uint, branchID
 // FindByID below) and passes that name in here. Once Expense gains a real
 // CategoryID column, this should switch to filtering "category_id = ?" —
 // the LedgerRow shape returned to the frontend does not need to change.
-func (s *MovementService) ListLedgerByCategory(ctx context.Context, categoryName string, fromDate, toDate time.Time, limit, offset int) ([]LedgerRow, int64, error) {
+func (s *MovementService) ListLedgerByCategory(ctx context.Context, categoryName string, fromDate, toDate time.Time, limit, offset int) ([]LedgerRow, int64, LedgerTotals, error) {
 	rows, err := s.repo.expenseLedgerByCategory(ctx, categoryName, fromDate, toDate)
 	if err != nil {
-		return nil, 0, err
+		return nil, 0, LedgerTotals{}, err
 	}
 	return paginateLedgerRows(rows, limit, offset)
 }

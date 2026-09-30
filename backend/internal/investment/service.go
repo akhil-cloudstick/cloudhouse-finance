@@ -52,7 +52,9 @@ const epsilon = 0.01
 // personalloan.CashRecorder's direction, mirroring its narrow-interface
 // pattern so this package doesn't import internal/cash directly.
 type CashRecorder interface {
-	RecordInvestmentDepositCashIn(ctx context.Context, investmentID uint, investmentNumber string, amount float64, branchID uint, occurredOn time.Time) (movementID uint, err error)
+	// customerID populates CashMovement.PartyCustomerID so the deposit shows
+	// on the investor's own customer ledger.
+	RecordInvestmentDepositCashIn(ctx context.Context, investmentID uint, investmentNumber string, amount float64, branchID uint, occurredOn time.Time, customerID uint) (movementID uint, err error)
 
 	// cashAmount/upiAmount/bankTransferAmount/chequeAmount split amount
 	// across the mode CashMovement rows actually written (see
@@ -396,7 +398,7 @@ func (s *Service) CreateInvestment(ctx context.Context, in CreateInput) (*Invest
 	// is durably persisted — best-effort and outside the transaction, same
 	// as personalloan.Service.CreateLoan's disbursement recording.
 	if s.cashRecorder != nil {
-		if _, err := s.cashRecorder.RecordInvestmentDepositCashIn(ctx, rec.ID, rec.InvestmentNumber, rec.PrincipalAmount, rec.BranchID, startDate); err != nil {
+		if _, err := s.cashRecorder.RecordInvestmentDepositCashIn(ctx, rec.ID, rec.InvestmentNumber, rec.PrincipalAmount, rec.BranchID, startDate, rec.CustomerID); err != nil {
 			log.Printf("cash-in movement (investment deposit) failed for investment %d: %v", rec.ID, err)
 		}
 	}
@@ -824,7 +826,7 @@ func (s *Service) AddCash(ctx context.Context, investmentID uint, branchID *uint
 		occurredOn = time.Now()
 	}
 
-	var invID, branchOfInv uint
+	var invID, branchOfInv, custID uint
 	var invNumber string
 	var txRow InvestmentTransaction
 	err := s.repo.DB().WithContext(ctx).Transaction(func(tx *gorm.DB) error {
@@ -844,6 +846,7 @@ func (s *Service) AddCash(ctx context.Context, investmentID uint, branchID *uint
 		if err := platform.ValidateOccurredOn(occurredOn, inv.LastAccrualDate, time.Now()); err != nil {
 			return err
 		}
+		custID = inv.CustomerID
 
 		// 1. Settle first, against the pre-deposit OutstandingPrincipal.
 		if err := s.settleAndSave(ctx, tx, inv, occurredOn); err != nil {
@@ -889,7 +892,7 @@ func (s *Service) AddCash(ctx context.Context, investmentID uint, branchID *uint
 	}
 
 	if s.cashRecorder != nil {
-		if movementID, err := s.cashRecorder.RecordInvestmentDepositCashIn(ctx, invID, invNumber, amount, branchOfInv, occurredOn); err != nil {
+		if movementID, err := s.cashRecorder.RecordInvestmentDepositCashIn(ctx, invID, invNumber, amount, branchOfInv, occurredOn, custID); err != nil {
 			log.Printf("cash-in movement (investment add-cash) failed for investment %d: %v", invID, err)
 		} else {
 			txRow.CashMovementID = &movementID

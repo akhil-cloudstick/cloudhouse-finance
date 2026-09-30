@@ -267,7 +267,7 @@ export function Dashboard() {
             <Kpi l="Gold Release Requests" v={pendingReq.filter((r) => r.type === "Release").length} s="settlement review" href="#requests" />
             <Kpi l="Bank-Pledged Loans" v={pledged.length} s={fmt(pledged.reduce((s, l) => s + l.principal, 0)) + " re-pledged"} href="#bankpledge" />
             <Kpi l="Auction Cases" v={auctionLoans.length} s="notice stage" cls={auctionLoans.length ? "warn" : ""} href="#auctions" />
-            <Kpi l="Today's Expenses" v={fmt(expToday)} s={expenses.filter((e) => e.status === "Pending").length + " pending approval"} href="#cash" />
+            <Kpi l="Today's Expenses" v={fmt(expToday)} href="#cash" />
             <Kpi l="Interest Collected" v={fmt(interestCollected)} cls="ok" href="#reports" />
           </div>
 

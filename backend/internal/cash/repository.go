@@ -112,7 +112,46 @@ func (r *MovementRepository) FindAll(ctx context.Context, branchID *uint, fromDa
 // dimension here.
 func (r *MovementRepository) FindAllFiltered(ctx context.Context, branchID *uint, fromDate, toDate time.Time, filter MovementFilter, search string, limit, offset int) ([]CashMovement, int64, error) {
 	var movements []CashMovement
-	q := r.db.WithContext(ctx).Preload("Branch").Order("occurred_on desc, id desc")
+	// Newest first by the transaction's day, then by when it was actually
+	// recorded within that day — a date-only entry is stored at midnight, so
+	// ordering on occurred_on alone sank it below everything else that day.
+	// PartyCustomer/BankRef carry the names the Ledger's customer/bank links
+	// show (mobile labels them from these) — PartyCustomer is trimmed to its
+	// identity columns so the list never ships a customer's KYC details.
+	q := r.filteredMovements(ctx, branchID, fromDate, toDate, filter, search).Preload("Branch").
+		Preload("PartyCustomer", func(db *gorm.DB) *gorm.DB { return db.Select("id", "tenant_id", "name", "code") }).
+		Preload("BankRef").
+		Order("DATE(occurred_on) desc, created_at desc, id desc")
+	var total int64
+	if limit > 0 {
+		if err := q.Session(&gorm.Session{}).Model(&CashMovement{}).Count(&total).Error; err != nil {
+			return nil, 0, err
+		}
+		q = q.Limit(limit)
+	}
+	if offset > 0 {
+		q = q.Offset(offset)
+	}
+	err := q.Find(&movements).Error
+	return movements, total, err
+}
+
+// SumFiltered is the Ledger table footer's Total Debit (cash out) / Total
+// Credit (cash in) across every movement FindAllFiltered would match — not
+// just the current page.
+func (r *MovementRepository) SumFiltered(ctx context.Context, branchID *uint, fromDate, toDate time.Time, filter MovementFilter, search string) (debit, credit float64, err error) {
+	var row struct{ Debit, Credit float64 }
+	err = r.filteredMovements(ctx, branchID, fromDate, toDate, filter, search).
+		Select(`COALESCE(SUM(CASE WHEN type = 'out' THEN amount ELSE 0 END), 0) AS debit,
+			COALESCE(SUM(CASE WHEN type = 'in' THEN amount ELSE 0 END), 0) AS credit`).
+		Scan(&row).Error
+	return row.Debit, row.Credit, err
+}
+
+// filteredMovements applies FindAllFiltered's WHERE conditions — shared with
+// SumFiltered so the list and its totals can never disagree.
+func (r *MovementRepository) filteredMovements(ctx context.Context, branchID *uint, fromDate, toDate time.Time, filter MovementFilter, search string) *gorm.DB {
+	q := r.db.WithContext(ctx).Model(&CashMovement{})
 	if branchID != nil {
 		q = q.Where("branch_id = ?", *branchID)
 	}
@@ -147,18 +186,7 @@ func (r *MovementRepository) FindAllFiltered(ctx context.Context, branchID *uint
 		like := "%" + search + "%"
 		q = q.Where("purpose ILIKE ? OR source ILIKE ? OR bank ILIKE ?", like, like, like)
 	}
-	var total int64
-	if limit > 0 {
-		if err := q.Session(&gorm.Session{}).Model(&CashMovement{}).Count(&total).Error; err != nil {
-			return nil, 0, err
-		}
-		q = q.Limit(limit)
-	}
-	if offset > 0 {
-		q = q.Offset(offset)
-	}
-	err := q.Find(&movements).Error
-	return movements, total, err
+	return q
 }
 
 // ListByBank returns every cash movement tagged to bankID (CashMovement.
@@ -332,6 +360,22 @@ func (r *ExpenseRepository) FindAll(ctx context.Context, branchID *uint, search 
 	return expenses, total, err
 }
 
+// SumFiltered is the Expense Register footer's total amount across every
+// expense FindAll would match (same branch scope/search), not just the page.
+func (r *ExpenseRepository) SumFiltered(ctx context.Context, branchID *uint, search string) (float64, error) {
+	q := r.db.WithContext(ctx).Model(&Expense{})
+	if branchID != nil {
+		q = q.Where("branch_id = ?", *branchID)
+	}
+	if search != "" {
+		like := "%" + search + "%"
+		q = q.Where("category ILIKE ? OR payee ILIKE ? OR remarks ILIKE ?", like, like, like)
+	}
+	var sum float64
+	err := q.Select("COALESCE(SUM(amount), 0)").Scan(&sum).Error
+	return sum, err
+}
+
 func (r *ExpenseRepository) FindByID(ctx context.Context, id uint) (*Expense, error) {
 	var e Expense
 	if err := r.db.WithContext(ctx).Preload("Branch").First(&e, id).Error; err != nil {
@@ -348,12 +392,25 @@ func (r *ExpenseRepository) Update(ctx context.Context, e *Expense) error {
 // day (and branch, if provided) — the figure that automatically reduces
 // Expected Cash in Hand.
 func (r *ExpenseRepository) SumCashByDate(ctx context.Context, branchID *uint, date time.Time) (float64, error) {
+	return r.SumCashBetween(ctx, branchID, nil, startOfDay(date), startOfDay(date).AddDate(0, 0, 1))
+}
+
+// SumCashBetween is SumCashByDate over [from, to) — a zero from means "since
+// the beginning". excludeBranchIDs drops those branches (used when summing
+// the unseeded remainder across all branches, see SummaryService.openingFor).
+func (r *ExpenseRepository) SumCashBetween(ctx context.Context, branchID *uint, excludeBranchIDs []uint, from, to time.Time) (float64, error) {
 	q := r.db.WithContext(ctx).Model(&Expense{}).
 		Where("mode = ?", "Cash").
 		Where("status <> ?", "Rejected").
-		Where("occurred_on >= ? AND occurred_on < ?", startOfDay(date), startOfDay(date).AddDate(0, 0, 1))
+		Where("occurred_on < ?", to)
+	if !from.IsZero() {
+		q = q.Where("occurred_on >= ?", from)
+	}
 	if branchID != nil {
 		q = q.Where("branch_id = ?", *branchID)
+	}
+	if len(excludeBranchIDs) > 0 {
+		q = q.Where("branch_id NOT IN ?", excludeBranchIDs)
 	}
 	var total float64
 	if err := q.Select("COALESCE(SUM(amount), 0)").Scan(&total).Error; err != nil {
@@ -388,14 +445,33 @@ func startOfDay(t time.Time) time.Time {
 // MovementRepository.SumByTypeAndDate sums cash-in/cash-out movement
 // amounts for the given day (and branch, if provided).
 func (r *MovementRepository) SumByTypeAndDate(ctx context.Context, branchID *uint, date time.Time) (in float64, out float64, err error) {
+	return r.SumByTypeBetween(ctx, branchID, nil, startOfDay(date), startOfDay(date).AddDate(0, 0, 1))
+}
+
+// SumByTypeBetween is SumByTypeAndDate over [from, to) — a zero from means
+// "since the beginning". excludeBranchIDs drops those branches but keeps
+// branch-less movements (see SummaryService.openingFor).
+func (r *MovementRepository) SumByTypeBetween(ctx context.Context, branchID *uint, excludeBranchIDs []uint, from, to time.Time) (in float64, out float64, err error) {
 	type row struct {
 		Type string
 		Sum  float64
 	}
+	// expense_id IS NULL: an expense's cash-out movement (see
+	// MovementService.RecordExpenseCashOut) is excluded here since the
+	// Summary's Disbursements figure already counts it via
+	// ExpenseRepository.SumCashByDate — including it too would deduct the
+	// same expense twice from ExpectedCash.
 	q := r.db.WithContext(ctx).Model(&CashMovement{}).
-		Where("occurred_on >= ? AND occurred_on < ?", startOfDay(date), startOfDay(date).AddDate(0, 0, 1))
+		Where("occurred_on < ?", to).
+		Where("expense_id IS NULL")
+	if !from.IsZero() {
+		q = q.Where("occurred_on >= ?", from)
+	}
 	if branchID != nil {
 		q = q.Where("branch_id = ?", *branchID)
+	}
+	if len(excludeBranchIDs) > 0 {
+		q = q.Where("(branch_id IS NULL OR branch_id NOT IN ?)", excludeBranchIDs)
 	}
 	var rows []row
 	if err := q.Select("type, COALESCE(SUM(amount), 0) as sum").Group("type").Scan(&rows).Error; err != nil {
@@ -464,8 +540,11 @@ func (r *MovementRepository) SumBreakdownByDate(ctx context.Context, branchID *u
 		Purpose string
 		Amount  float64
 	}
+	// expense_id IS NULL: same exclusion as SumByTypeAndDate above, for the
+	// same double-counting reason.
 	q := r.db.WithContext(ctx).Model(&CashMovement{}).
-		Where("occurred_on >= ? AND occurred_on < ?", startOfDay(date), startOfDay(date).AddDate(0, 0, 1))
+		Where("occurred_on >= ? AND occurred_on < ?", startOfDay(date), startOfDay(date).AddDate(0, 0, 1)).
+		Where("expense_id IS NULL")
 	if branchID != nil {
 		q = q.Where("branch_id = ?", *branchID)
 	}
@@ -519,21 +598,57 @@ func NewOpeningBalanceRepository(db platform.DB) *OpeningBalanceRepository {
 	return &OpeningBalanceRepository{db: db}
 }
 
-func (r *OpeningBalanceRepository) FindByBranchAndDate(ctx context.Context, branchID uint, date time.Time) (*OpeningCashBalance, error) {
+// FindByBranchDateMode returns the opening balance for one (branch, date,
+// mode, bank) — bankID nil for Cash.
+func (r *OpeningBalanceRepository) FindByBranchDateMode(ctx context.Context, branchID uint, date time.Time, mode string, bankID *uint) (*OpeningCashBalance, error) {
 	var rec OpeningCashBalance
-	err := r.db.WithContext(ctx).Where("branch_id = ? AND balance_date = ?", branchID, startOfDay(date)).First(&rec).Error
+	q := r.db.WithContext(ctx).Preload("Bank").Preload("FromBank").
+		Where("branch_id = ? AND balance_date = ? AND mode = ?", branchID, startOfDay(date), mode)
+	if bankID == nil {
+		q = q.Where("bank_id IS NULL")
+	} else {
+		q = q.Where("bank_id = ?", *bankID)
+	}
+	if err := q.First(&rec).Error; err != nil {
+		return nil, err
+	}
+	return &rec, nil
+}
+
+// FindLatestCashOnOrBefore returns the most recent manually entered Cash-mode
+// opening balance for the branch dated on or before date — the seed the
+// carried-forward opening is rolled forward from (see SummaryService.openingFor).
+func (r *OpeningBalanceRepository) FindLatestCashOnOrBefore(ctx context.Context, branchID uint, date time.Time) (*OpeningCashBalance, error) {
+	var rec OpeningCashBalance
+	err := r.db.WithContext(ctx).
+		Where("branch_id = ? AND mode = ? AND bank_id IS NULL AND balance_date <= ?", branchID, "Cash", startOfDay(date)).
+		Order("balance_date DESC").
+		First(&rec).Error
 	if err != nil {
 		return nil, err
 	}
 	return &rec, nil
 }
 
-// Upsert creates or updates the opening balance for rec's (BranchID, BalanceDate).
+// CashSeedBranchIDs lists every branch that has at least one Cash-mode opening
+// balance dated on or before date.
+func (r *OpeningBalanceRepository) CashSeedBranchIDs(ctx context.Context, date time.Time) ([]uint, error) {
+	var ids []uint
+	err := r.db.WithContext(ctx).Model(&OpeningCashBalance{}).
+		Where("mode = ? AND bank_id IS NULL AND balance_date <= ?", "Cash", startOfDay(date)).
+		Distinct().Pluck("branch_id", &ids).Error
+	return ids, err
+}
+
+// Upsert creates or updates the opening balance for rec's (BranchID,
+// BalanceDate, Mode, BankID).
 func (r *OpeningBalanceRepository) Upsert(ctx context.Context, rec *OpeningCashBalance) error {
 	rec.BalanceDate = startOfDay(rec.BalanceDate)
-	existing, err := r.FindByBranchAndDate(ctx, rec.BranchID, rec.BalanceDate)
+	existing, err := r.FindByBranchDateMode(ctx, rec.BranchID, rec.BalanceDate, rec.Mode, rec.BankID)
 	if err == nil {
 		existing.Amount = rec.Amount
+		existing.FromBankID = rec.FromBankID
+		existing.FromBank = nil
 		if err := r.db.WithContext(ctx).Save(existing).Error; err != nil {
 			return err
 		}
@@ -561,7 +676,7 @@ func (r *GoldSaleRepository) Create(ctx context.Context, rec *GoldSale) error {
 
 func (r *GoldSaleRepository) FindByID(ctx context.Context, id uint) (*GoldSale, error) {
 	var rec GoldSale
-	if err := r.db.WithContext(ctx).Preload("Branch").First(&rec, id).Error; err != nil {
+	if err := r.db.WithContext(ctx).Preload("Branch").Preload("BankRef").First(&rec, id).Error; err != nil {
 		return nil, err
 	}
 	return &rec, nil
@@ -575,7 +690,7 @@ func (r *GoldSaleRepository) FindByID(ctx context.Context, id uint) (*GoldSale, 
 // whose ornament_type or remarks ILIKE-contains it.
 func (r *GoldSaleRepository) FindAll(ctx context.Context, branchID *uint, fromDate, toDate time.Time, search string, limit, offset int) ([]GoldSale, int64, error) {
 	var sales []GoldSale
-	q := r.db.WithContext(ctx).Preload("Branch").Order("sold_on desc, id desc")
+	q := r.db.WithContext(ctx).Preload("Branch").Preload("BankRef").Order("sold_on desc, id desc")
 	if branchID != nil {
 		q = q.Where("branch_id = ?", *branchID)
 	}
@@ -601,6 +716,35 @@ func (r *GoldSaleRepository) FindAll(ctx context.Context, branchID *uint, fromDa
 	}
 	err := q.Find(&sales).Error
 	return sales, total, err
+}
+
+// GoldSaleTotals is the Gold Sales footer across every sale FindAll would
+// match (same filters), not just the page.
+type GoldSaleTotals struct {
+	TotalSold   float64 `json:"totalSold"`
+	TotalCost   float64 `json:"totalCost"`
+	TotalProfit float64 `json:"totalProfit"`
+}
+
+func (r *GoldSaleRepository) SumFiltered(ctx context.Context, branchID *uint, fromDate, toDate time.Time, search string) (GoldSaleTotals, error) {
+	q := r.db.WithContext(ctx).Model(&GoldSale{})
+	if branchID != nil {
+		q = q.Where("branch_id = ?", *branchID)
+	}
+	if !fromDate.IsZero() {
+		q = q.Where("sold_on >= ?", fromDate)
+	}
+	if !toDate.IsZero() {
+		q = q.Where("sold_on < ?", toDate.AddDate(0, 0, 1))
+	}
+	if search != "" {
+		like := "%" + search + "%"
+		q = q.Where("ornament_type ILIKE ? OR remarks ILIKE ?", like, like)
+	}
+	var t GoldSaleTotals
+	err := q.Select(`COALESCE(SUM(sold_amount), 0) AS total_sold, COALESCE(SUM(cost_amount), 0) AS total_cost,
+		COALESCE(SUM(profit), 0) AS total_profit`).Scan(&t).Error
+	return t, err
 }
 
 // SumNet returns every cash movement's all-time net — SUM(in) − SUM(out),
@@ -726,6 +870,48 @@ func NewLoanCashSourceRepository(db platform.DB) *LoanCashSourceRepository {
 
 func (r *LoanCashSourceRepository) Create(ctx context.Context, rec *LoanCashSource) error {
 	return r.db.WithContext(ctx).Create(rec).Error
+}
+
+// SearchDistinctLoans returns one row per distinct loan number (case
+// insensitive) — the most recent entry for it, so its bank/principal/rate
+// are the latest ones recorded — for AddCashModal.tsx's Loan Number picker,
+// which lets the same loan be drawn against across several Add Cash entries.
+func (r *LoanCashSourceRepository) SearchDistinctLoans(ctx context.Context, query string, bankID uint, limit, offset int) ([]LoanCashSource, error) {
+	var recs []LoanCashSource
+	q := r.db.WithContext(ctx).Model(&LoanCashSource{}).
+		Select("DISTINCT ON (LOWER(loan_number)) *").
+		Order("LOWER(loan_number), created_at DESC")
+	if query != "" {
+		q = q.Where("loan_number ILIKE ?", "%"+query+"%")
+	}
+	// bankID > 0 narrows to loans drawn from that bank — the Add Cash modal
+	// picks the bank first, then lists only that bank's loans.
+	if bankID > 0 {
+		q = q.Where("bank_id = ?", bankID)
+	}
+	if limit > 0 {
+		q = q.Limit(limit).Offset(offset)
+	}
+	err := q.Preload("Bank").Find(&recs).Error
+	return recs, err
+}
+
+// FindByCashMovementIDs batch-loads the LoanCashSource rows for ids, keyed by
+// cash_movement_id. Errors degrade to an empty map — a missing loan number
+// must never fail the movement list it decorates.
+func (r *LoanCashSourceRepository) FindByCashMovementIDs(ctx context.Context, ids []uint) map[uint]*LoanCashSource {
+	out := map[uint]*LoanCashSource{}
+	if len(ids) == 0 {
+		return out
+	}
+	var recs []LoanCashSource
+	if err := r.db.WithContext(ctx).Preload("Bank").Where("cash_movement_id IN ?", ids).Find(&recs).Error; err != nil {
+		return out
+	}
+	for i := range recs {
+		out[recs[i].CashMovementID] = &recs[i]
+	}
+	return out
 }
 
 func (r *LoanCashSourceRepository) FindByCashMovementID(ctx context.Context, cashMovementID uint) (*LoanCashSource, error) {

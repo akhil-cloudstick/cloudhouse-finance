@@ -9,6 +9,7 @@ import { ApiError } from "@/common/services/httpClient";
 import { listActiveBranches, type BranchView } from "@/modules/branches/services/branchService";
 import { createExpense, uploadReceipt, type ExpenseView } from "@/modules/cash/services/cashService";
 import { searchExpenseCategoriesPage, createExpenseCategory, type BackendExpenseCategory } from "@/modules/cash/services/expenseCategoryService";
+import { searchBanksPage, createBank, type BackendBank } from "@/modules/banks/services/bankService";
 import { Select } from "@/common/components/ui/Select";
 import { SearchableSelect } from "@/common/components/ui/SearchableSelect";
 import { DatePicker } from "@/common/components/ui/DatePicker";
@@ -35,6 +36,12 @@ export function ExpenseModalContent({ onSaved }: { onSaved?: () => void }) {
   const [date, setDate] = useState(today);
   const [cat, setCat] = useState("");
   const [mode, setMode] = useState(MODES[0]);
+  // From Bank — the branch account the expense is paid from, required when
+  // Mode is UPI/Bank (see backend/internal/cash/service.go's
+  // ExpenseService.Record).
+  const [fromBankId, setFromBankId] = useState("");
+  const [fromBankName, setFromBankName] = useState("");
+  const banksRequired = mode === "UPI" || mode === "Bank";
   const [remarks, setRemarks] = useState("");
   const [branches, setBranches] = useState<BranchView[]>([]);
   const [branchId, setBranchId] = useState<number | "">("");
@@ -56,6 +63,7 @@ export function ExpenseModalContent({ onSaved }: { onSaved?: () => void }) {
     if (!date) { setErr("Please select the date."); return; }
     if (!branchId) { setErr("Please select a branch."); return; }
     if (!cat.trim()) { setErr("Please select a category."); return; }
+    if (banksRequired && !fromBankId) { setErr("Please select the From Bank."); return; }
 
     setSaving(true);
     try {
@@ -64,6 +72,7 @@ export function ExpenseModalContent({ onSaved }: { onSaved?: () => void }) {
 
       await createExpense({
         category: cat, amount, mode, payee, branchId,
+        fromBankId: banksRequired ? +fromBankId : undefined,
         occurredOn: date, remarks: remarks.trim() || undefined, receiptImage,
       });
       onSaved?.();
@@ -99,8 +108,27 @@ export function ExpenseModalContent({ onSaved }: { onSaved?: () => void }) {
               onCreate={createExpenseCategory}
             /></div>
           <div><label className="f">Payment Mode</label>
-            <Select options={MODE_OPTIONS} value={mode} onChange={setMode} /></div>
+            <Select
+              options={MODE_OPTIONS}
+              value={mode}
+              onChange={(v) => { setMode(v); if (v !== "UPI" && v !== "Bank") { setFromBankId(""); setFromBankName(""); } }}
+            /></div>
         </div>
+        {banksRequired && (
+          <div className="frow">
+            <div><label className="f">Bank *</label>
+              <SearchableSelect<BackendBank>
+                value={fromBankName}
+                onChange={(id, item) => { setFromBankId(id); setFromBankName(item.name); }}
+                fetchFn={searchBanksPage}
+                getLabel={(b) => b.name}
+                getId={(b) => String(b.id)}
+                placeholder="Search or add a bank…"
+                allowCreate
+                onCreate={createBank}
+              /></div>
+          </div>
+        )}
         <div className="frow"><div><label className="f">Branch *</label>
           <Select
             options={branches.map((b) => ({ value: String(b.id), label: b.name }))}
@@ -111,7 +139,7 @@ export function ExpenseModalContent({ onSaved }: { onSaved?: () => void }) {
         <div className="frow"><div><label className="f">Receipt / Bill Image</label>
           <FileInput value={receiptFile} onChange={setReceiptFile} accept="image/*" /></div></div>
         <div className="frow"><div><label className="f">Remarks</label>
-          <textarea className="inp" rows={2} placeholder="Optional notes for the approver" value={remarks} onChange={(e) => setRemarks(e.target.value)} /></div></div>
+          <textarea className="inp" rows={2} placeholder="Optional notes" value={remarks} onChange={(e) => setRemarks(e.target.value)} /></div></div>
         <p style={{ color: "var(--red)", fontSize: 12.5, minHeight: 16, marginTop: 8 }}>{err}</p>
       </div>
       <div className="ft">

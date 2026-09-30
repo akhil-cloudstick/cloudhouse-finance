@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { fmt } from "@/common/utils/format";
 import { useToast } from "@/common/components/Toast";
+import { Icon } from "@/common/components/Icon";
 import { ApiError } from "@/common/services/httpClient";
 import {
   listCashMovementsPage,
@@ -13,6 +14,8 @@ import {
 import { listCustomersPage } from "@/modules/customers/services/customerService";
 import { listActiveBranches, type BranchView } from "@/modules/branches/services/branchService";
 import { FilterPanel, type FilterCategory, type FilterValue } from "@/common/components/ui/FilterPanel";
+import { useExpenseCategoryIds } from "@/hooks/useExpenseCategoryIds";
+import { particularsFor, loanNumberFor, refCellFor, modeCellFor } from "@/modules/cash/components/ledgerCells";
 
 // Mirrors backend/internal/cash/repository.go's Category* constants.
 const TRANSACTION_TYPE_OPTIONS = [
@@ -64,6 +67,8 @@ export function LedgerExportView({ onBack }: { onBack: () => void }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [exporting, setExporting] = useState(false);
+  // Category name -> id, for the category-ledger links on expense rows.
+  const categoryIds = useExpenseCategoryIds();
 
   useEffect(() => { listActiveBranches().then(setBranches).catch(() => {}); }, []);
 
@@ -145,12 +150,12 @@ export function LedgerExportView({ onBack }: { onBack: () => void }) {
           <p>Preview and download the ledger — narrow it by branch, customer, type or date</p>
         </div>
         <div className="sp" />
-        <FilterPanel categories={categories} value={filters} onChange={setFilters} hideChips />
+        <FilterPanel categories={categories} value={filters} onChange={setFilters} hideChips size="md" />
         <button className="btn ghost" disabled={exporting} onClick={() => onDownload("pdf")}>
-          {exporting ? "Exporting…" : "Export PDF"}
+          <Icon name="download" /> {exporting ? "Exporting…" : "Export PDF"}
         </button>
         <button className="btn" disabled={exporting} onClick={() => onDownload("xlsx")}>
-          {exporting ? "Exporting…" : "Export XL"}
+          <Icon name="download" /> {exporting ? "Exporting…" : "Export XL"}
         </button>
       </div>
       <hr className="gold-rule" />
@@ -161,18 +166,20 @@ export function LedgerExportView({ onBack }: { onBack: () => void }) {
         <div className="tbl-wrap tbl-scroll">
           <table className="tbl">
             <thead>
-              <tr><th>Date</th><th>Ref No</th><th>Particulars</th><th className="num">Debit</th><th className="num">Credit</th><th className="num">Balance</th></tr>
+              <tr><th>Date</th><th>Ref No</th><th>Particulars</th><th>Mode</th><th className="num">Debit</th><th className="num">Credit</th><th className="num">Balance</th></tr>
             </thead>
             <tbody>
               {loading ? (
-                <tr><td colSpan={6} className="empty compact">Loading…</td></tr>
+                <tr><td colSpan={7} className="empty compact">Loading…</td></tr>
               ) : rows.length === 0 ? (
-                <tr><td colSpan={6} className="empty compact">No ledger entries found.</td></tr>
+                <tr><td colSpan={7} className="empty compact">No ledger entries found.</td></tr>
               ) : rows.map(({ m, balance }) => (
                 <tr key={m.id}>
                   <td>{m.d}</td>
-                  <td className="ledger-ref" title={String(m.transactionGroupId || m.id)}>{m.transactionGroupId || m.id}</td>
-                  <td>{m.purpose || m.source || "—"}</td>
+                  {/* Same clickable cells as Cash.tsx's Ledger tab (ledgerCells.tsx). */}
+                  <td className="ledger-ref" title={loanNumberFor(m)}>{refCellFor(m)}</td>
+                  <td>{particularsFor(m, categoryIds)}</td>
+                  <td>{modeCellFor(m.mode)}</td>
                   <td className="num" style={{ color: m.type === "out" ? "var(--red)" : undefined }}>{m.type === "out" ? fmt(m.amount) : "—"}</td>
                   <td className="num" style={{ color: m.type === "in" ? "var(--green)" : undefined }}>{m.type === "in" ? fmt(m.amount) : "—"}</td>
                   <td className="num">{fmt(balance)}</td>

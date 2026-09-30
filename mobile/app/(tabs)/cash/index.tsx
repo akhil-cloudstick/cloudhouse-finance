@@ -15,6 +15,7 @@ import {
   ChipToggle,
   ClosingCard,
   DateField,
+  FabCorner,
   Field,
   FieldRow,
   FlatHeader,
@@ -32,6 +33,7 @@ import {
   toast,
 } from "../../../src/components/ui";
 import { useServerList } from "../../../src/hooks/useServerList";
+import { UploadField } from "../../../src/components/staff/UploadField";
 import { useAuth } from "../../../src/auth/AuthContext";
 import { ApiError } from "../../../src/api/client";
 import {
@@ -48,7 +50,7 @@ import {
   listExpensesPage,
   listGoldSalesPage,
   rejectExpense,
-  setOpeningBalance,
+  PICKER_PAGE_SIZE,
   type CashSource,
   type ExpenseCategory,
 } from "../../../src/api/cash";
@@ -60,16 +62,19 @@ import { dmy, inr, todayISO } from "../../../src/lib/format";
 import type { CashMovement, Expense, GoldSale } from "../../../src/types/cash";
 import type { Branch } from "../../../src/types/branch";
 import type { Customer } from "../../../src/types/customer";
-import { userMessage } from "../../../src/api/errors";
+import { isUserCancel, userMessage } from "../../../src/api/errors";
+import { shareMovementsPdf } from "../../../src/utils/ledgerExport";
+import { EXPENSE_CATEGORY_IDS_KEY, LedgerLink, expenseCategoryOf, modeLink, openLedger, openLoanByNumber, useExpenseCategoryIds } from "../../../src/components/staff/LedgerList";
 
 // Cash & Expenses — prototype #header-cash + #page-cash and the
-// cash-actions / add-cash / cash-out / gold-sale / record-expense /
-// opening-balance sheets. Each tab (Movements / Expenses / Gold Sales) is its
+// cash-actions / add-cash (incl. the Gold Sale source) / record-expense
+// sheets. Opening cash is carried forward server-side, so there's no
+// opening-balance sheet. Each tab (Movements / Expenses / Gold Sales) is its
 // own server-paged list with its own server-side search (`q`).
 
 const TABS = ["movements", "expenses", "goldSales"] as const;
 type Tab = (typeof TABS)[number];
-type CashAction = "addCash" | "goldSale" | "expense" | null;
+type CashAction = "addCash" | "expense" | null;
 const MOVE_MODES = ["Cash", "UPI", "Bank Transfer", "Cheque"] as const;
 const EXPENSE_MODES = ["Cash", "UPI", "Bank Transfer"] as const;
 
@@ -89,7 +94,7 @@ const MOVEMENT_TYPE_OPTIONS = [
 // (mirrors web's FilterPanel on Cash.tsx). Kept as plain state in the
 // screen (not inside useServerList) since it's also read by the Customer
 // picker sheet to narrow its own options by the selected branches.
-type MovementFilters = { branchIds: number[]; customerIds: number[]; types: string[] };
+type MovementFilters = { branchIds: number[]; customerIds: number[]; types: string[]; fromDate?: string; toDate?: string };
 const EMPTY_MOVEMENT_FILTERS: MovementFilters = { branchIds: [], customerIds: [], types: [] };
 
 const fs = StyleSheet.create({
@@ -163,10 +168,26 @@ export default function CashScreen() {
 
   const [actionsOpen, setActionsOpen] = useState(false);
   const [action, setAction] = useState<CashAction>(null);
-  const [openingOpen, setOpeningOpen] = useState(false);
   const [movementFilters, setMovementFilters] = useState<MovementFilters>(EMPTY_MOVEMENT_FILTERS);
   const [movementFilterSheetOpen, setMovementFilterSheetOpen] = useState(false);
-  const movementFilterCount = movementFilters.branchIds.length + movementFilters.customerIds.length + movementFilters.types.length;
+  const movementFilterCount =
+    movementFilters.branchIds.length + movementFilters.customerIds.length + movementFilters.types.length +
+    (movementFilters.fromDate || movementFilters.toDate ? 1 : 0);
+  // Ledger page Download — PDF of every movement matching the filters.
+  const [exporting, setExporting] = useState(false);
+  async function onDownload() {
+    if (exporting) return;
+    setExporting(true);
+    toast.info("Preparing PDF", "The ledger will open in the share sheet.");
+    try {
+      await shareMovementsPdf({ ...movementFilters, q: movements.search || undefined });
+    } catch (e) {
+      if (isUserCancel(e)) return;
+      toast.error("Download failed", errMsg(e, "Could not download the ledger — try again."));
+    } finally {
+      setExporting(false);
+    }
+  }
 
   const summary = useQuery({
     queryKey: ["cash-summary", employee?.branchId, today],
@@ -181,6 +202,7 @@ export default function CashScreen() {
     enabled: tab === "movements",
   });
   const movementBalances = useMemo(() => runningBalances(movements.items), [movements.items]);
+  const categoryIds = useExpenseCategoryIds();
   const expenses = useServerList<Expense>({ key: ["expenses", "list"], fetchPage: (p) => listExpensesPage(p), enabled: tab === "expenses" });
   const goldSales = useServerList<GoldSale>({ key: ["gold-sales", "list"], fetchPage: (p) => listGoldSalesPage(p), enabled: tab === "goldSales" });
 
@@ -220,13 +242,12 @@ export default function CashScreen() {
           <Txt style={{ color: C.red, fontSize: 12.5, paddingVertical: 8 }}>Could not load today&apos;s summary.</Txt>
         ) : (
           <>
-            <CashRow first k="Opening cash" v={inr(s.openingCash)} />
+            <CashRow first k="Opening cash (carried forward)" v={inr(s.openingCash)} />
             <CashRow k="Cash in" v={`+${inr(s.collections)}`} color={C.green} />
-            <CashRow k="Cash out" v={`−${inr(s.disbursements)}`} />
-            <CashRow k="Expenses (cash)" v={`−${inr(s.cashExpenses)}`} />
+            <CashRow k="Cash out" v={inr(s.disbursements)} />
+            <CashRow k="Expenses (cash)" v={inr(s.cashExpenses)} />
           </>
         )}
-        <AccBtn label="Set Opening Balance" onPress={() => setOpeningOpen(true)} style={{ marginTop: 10, flex: 0 }} />
       </Card>
       <ClosingCard k="Closing Balance (Expected Cash in Hand)" v={s ? inr(s.expectedCash) : "—"} formula="Opening + Cash in − Cash out − Expenses" />
       <View style={{ paddingHorizontal: 18, paddingBottom: 12 }}>
@@ -271,26 +292,39 @@ export default function CashScreen() {
           header={header}
           keyOf={(m) => `m${m.id}`}
           emptyText={movements.search ? "No movements match your search." : "No movements yet."}
-          renderItem={(m, i) => (
-            <AccRow
-              defaultOpen={i === 0}
-              name={inr(m.amount)}
-              sub={m.purpose || m.source}
-              status={m.type === "in" ? "Cash in" : "Cash out"}
-              statusTone={m.type === "in" ? "active" : "due"}
-              details={[
-                { k: "Date", v: dmy(m.occurredOn) },
-                { k: "Ref No", v: loanRefFor(m) },
-                { k: "Mode", v: m.mode || "—" },
-                { k: "Debit", v: m.type === "out" ? inr(m.amount) : "—" },
-                { k: "Credit", v: m.type === "in" ? inr(m.amount) : "—" },
-                { k: "Balance", v: inr(movementBalances[i] ?? 0) },
-                m.bank || m.bankRef?.name ? { k: "Bank", v: m.bank || m.bankRef?.name || "—" } : { k: "Branch", v: m.branch?.name || "—" },
-                ...(m.partyCustomer?.name ? [{ k: "Customer", v: m.partyCustomer.name }] : []),
-                ...(m.status ? [{ k: "Status", v: m.status }] : []),
-              ]}
-            />
-          )}
+          renderItem={(m, i) => {
+            const ref = loanRefFor(m);
+            const bankName = m.bankRef?.name || m.bank || "Bank";
+            const category = expenseCategoryOf(m.purpose);
+            const categoryId = category ? categoryIds[category.toLowerCase()] : undefined;
+            return (
+              <AccRow
+                defaultOpen={i === 0}
+                name={inr(m.amount)}
+                sub={m.purpose || m.source}
+                status={m.type === "in" ? "Cash in" : "Cash out"}
+                statusTone={m.type === "in" ? "active" : "due"}
+                details={[
+                  { k: "Date", v: dmy(m.occurredOn) },
+                  { k: "Ref No", v: ref.startsWith("LN-") ? <LedgerLink label={ref} onPress={() => openLoanByNumber(ref)} /> : ref },
+                  { k: "Mode", v: modeLink(m.mode) },
+                  { k: "Debit", v: m.type === "out" ? inr(m.amount) : "—" },
+                  { k: "Credit", v: m.type === "in" ? inr(m.amount) : "—" },
+                  { k: "Balance", v: inr(movementBalances[i] ?? 0) },
+                  m.bankId
+                    ? { k: "Bank", v: <LedgerLink label={bankName} onPress={() => openLedger("bank", m.bankId!, bankName)} /> }
+                    : m.bank
+                      ? { k: "Bank", v: m.bank }
+                      : { k: "Branch", v: m.branch?.name || "—" },
+                  ...(m.partyCustomerId
+                    ? [{ k: "Customer", v: <LedgerLink label={m.partyCustomer?.name || "Customer"} onPress={() => openLedger("customer", m.partyCustomerId!, m.partyCustomer?.name || "Customer")} /> }]
+                    : []),
+                  ...(categoryId ? [{ k: "Category", v: <LedgerLink label={category!} onPress={() => openLedger("category", categoryId, category!)} /> }] : []),
+                  ...(m.status ? [{ k: "Status", v: m.status }] : []),
+                ]}
+              />
+            );
+          }}
         />
       ) : tab === "expenses" ? (
         <ServerFlatList
@@ -307,8 +341,16 @@ export default function CashScreen() {
               status={e.status}
               details={[
                 { k: "Date", v: dmy(e.occurredOn) },
-                { k: "Payee", v: e.payee || "—" },
-                { k: "Mode", v: e.mode || "—" },
+                {
+                  k: "Category",
+                  v: categoryIds[e.category.toLowerCase()] ? (
+                    <LedgerLink label={e.category} onPress={() => openLedger("category", categoryIds[e.category.toLowerCase()], e.category)} />
+                  ) : (
+                    e.category
+                  ),
+                },
+                { k: "Description", v: e.payee || "—" },
+                { k: "Mode", v: modeLink(e.mode) },
                 { k: "Branch", v: e.branch?.name || "—" },
                 ...(e.remarks ? [{ k: "Remarks", v: e.remarks }] : []),
                 ...(e.approvedBy ? [{ k: e.status === "Rejected" ? "Rejected by" : "Approved by", v: e.approvedBy }] : []),
@@ -338,7 +380,7 @@ export default function CashScreen() {
           items={goldSales.items}
           header={header}
           keyOf={(g) => `g${g.id}`}
-          emptyText={goldSales.search ? "No gold sales match your search." : 'No gold sales recorded yet. Use "Cash Actions" → Gold Sale.'}
+          emptyText={goldSales.search ? "No gold sales match your search." : 'No gold sales recorded yet. Use "Cash Actions" → Add Cash with the Gold Sale source.'}
           renderItem={(g, i) => (
             <AccRow
               defaultOpen={i === 0}
@@ -348,6 +390,10 @@ export default function CashScreen() {
               statusTone={g.profit >= 0 ? "active" : "overdue"}
               details={[
                 { k: "Cost amount", v: inr(g.costAmount) },
+                { k: "Mode", v: modeLink(g.mode || "Cash") },
+                ...(g.bankId
+                  ? [{ k: "Bank", v: <LedgerLink label={g.bankRef?.name || "Bank"} onPress={() => openLedger("bank", g.bankId!, g.bankRef?.name || "Bank")} /> }]
+                  : []),
                 { k: "Remarks", v: g.remarks || "—" },
                 { k: "Date", v: dmy(g.soldOn) },
                 { k: "Branch", v: g.branch?.name || "—" },
@@ -357,11 +403,13 @@ export default function CashScreen() {
         />
       )}
 
+      {/* Same floating Download corner button as the drill-down ledgers (LedgerList). */}
+      {tab === "movements" && movements.items.length > 0 ? <FabCorner icon="download" label="Download ledger PDF" onPress={onDownload} /> : null}
+
       <Sheet visible={actionsOpen} onClose={() => setActionsOpen(false)} title="Cash Actions" maxHeightPct={60}>
         {(
           [
-            { key: "addCash", icon: "coin", title: "Add Cash", sub: "Record cash coming into the branch" },
-            { key: "goldSale", icon: "coin", title: "Gold Sale", sub: "Record an auctioned/sold ornament" },
+            { key: "addCash", icon: "coin", title: "Add Cash", sub: "Record cash coming in, or a gold sale" },
             { key: "expense", icon: "doc", title: "Record Expense", sub: "Log a branch expense" },
           ] as const
         ).map((a, i) => (
@@ -380,7 +428,6 @@ export default function CashScreen() {
       </Sheet>
 
       <MovementSheet visible={action === "addCash"} onClose={() => setAction(null)} branchId={employee?.branchId} />
-      <GoldSaleSheet visible={action === "goldSale"} onClose={() => setAction(null)} branchId={employee?.branchId} />
       <ExpenseSheet visible={action === "expense"} onClose={() => setAction(null)} branchId={employee?.branchId} />
       <ConfirmSheet
         visible={!!rejecting}
@@ -394,7 +441,6 @@ export default function CashScreen() {
         error={rejectError}
         onConfirm={(reason) => rejecting && reject.mutate({ id: rejecting.id, reason })}
       />
-      <OpeningBalanceSheet visible={openingOpen} onClose={() => setOpeningOpen(false)} branchId={employee?.branchId} current={s?.openingCash} />
       <MovementFilterSheet
         visible={movementFilterSheetOpen}
         onClose={() => setMovementFilterSheetOpen(false)}
@@ -407,16 +453,37 @@ export default function CashScreen() {
 
 type FormProps = { visible: boolean; onClose: () => void; branchId?: number };
 
-// prototype #add-cash-modal
+// "Gold Sale" is a built-in source, not a cash.CashSource row — picking it
+// turns the Add Cash sheet into the gold-sale form and posts to /gold-sales
+// (same as web's AddCashModal; the backend refuses a real source by this name).
+const GOLD_SALE = "Gold Sale";
+const GOLD_SALE_SOURCE: CashSource = { id: -1, name: GOLD_SALE, createdAt: "" };
+const GOLD_SALE_MODES = ["Cash", "UPI", "Bank Transfer"] as const;
+
+async function fetchSourcesWithGoldSale(q: string): Promise<CashSource[]> {
+  const items = (await listCashSourcesPage(q, 0, PICKER_PAGE_SIZE)).items ?? [];
+  const matches = !q || GOLD_SALE.toLowerCase().includes(q.trim().toLowerCase());
+  return matches ? [GOLD_SALE_SOURCE, ...items] : items;
+}
+
+// prototype #add-cash-modal (+ #gold-sale-modal, now a source of Add Cash)
 function MovementSheet({ visible, onClose, branchId }: FormProps) {
   const qc = useQueryClient();
   const [source, setSource] = useState<CashSource | null>(null);
   const [purpose, setPurpose] = useState("");
   const [amount, setAmount] = useState("");
   const [mode, setMode] = useState<(typeof MOVE_MODES)[number]>("Cash");
+  // The branch's own account a UPI/Bank Transfer landed in.
+  const [bank, setBank] = useState<Bank | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const bankRequired = mode === "UPI" || mode === "Bank Transfer";
 
   const isLoan = source?.name === "Loan";
+  const isGoldSale = source?.name === GOLD_SALE;
+  const [ornamentType, setOrnamentType] = useState("");
+  const [cost, setCost] = useState("");
+  const [remarks, setRemarks] = useState("");
+  const profit = (Number(amount) || 0) - (Number(cost) || 0);
   const [loanBank, setLoanBank] = useState<Bank | null>(null);
   const [loanNumber, setLoanNumber] = useState("");
   const [principalAmount, setPrincipalAmount] = useState("");
@@ -429,7 +496,11 @@ function MovementSheet({ visible, onClose, branchId }: FormProps) {
       setPurpose("");
       setAmount("");
       setMode("Cash");
+      setBank(null);
       setError(null);
+      setOrnamentType("");
+      setCost("");
+      setRemarks("");
       setLoanBank(null);
       setLoanNumber("");
       setPrincipalAmount("");
@@ -439,14 +510,23 @@ function MovementSheet({ visible, onClose, branchId }: FormProps) {
   }, [visible]);
 
   const m = useMutation({
-    mutationFn: () =>
-      createCashMovement({
+    mutationFn: async () => {
+      if (isGoldSale) {
+        await createGoldSale({
+          ornamentType: ornamentType.trim(), soldAmount: Number(amount), costAmount: Number(cost || 0), branchId: branchId!,
+          mode, bankId: bankRequired ? bank?.id : undefined,
+          remarks: remarks.trim() || undefined,
+        });
+        return;
+      }
+      await createCashMovement({
         type: "in",
         source: source!.name,
         purpose: purpose.trim(),
         amount: Number(amount),
         mode,
-        bank: undefined,
+        bank: bankRequired ? bank?.name : undefined,
+        bankId: bankRequired ? bank?.id : undefined,
         branchId,
         loanSource: isLoan
           ? {
@@ -457,41 +537,95 @@ function MovementSheet({ visible, onClose, branchId }: FormProps) {
               durationMonths: durationMonths.trim() ? Number(durationMonths) : undefined,
             }
           : undefined,
-      }),
+      });
+    },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["cash-movements"] });
       qc.invalidateQueries({ queryKey: ["cash-summary"] });
+      if (isGoldSale) qc.invalidateQueries({ queryKey: ["gold-sales"] });
       onClose();
     },
     onError: (err) => setError(errMsg(err, "Could not save.")),
   });
 
   const loanValid = !isLoan || (!!loanBank && !!loanNumber.trim() && Number(principalAmount) > 0);
-  const canSubmit = !!source && !!purpose.trim() && Number(amount) > 0 && loanValid;
+  const bankValid = !bankRequired || !!bank;
+  const canSubmit = isGoldSale
+    ? !!ornamentType.trim() && Number(amount) > 0 && !!branchId && bankValid
+    : !!source && !!purpose.trim() && Number(amount) > 0 && loanValid && bankValid;
 
   return (
-    <Sheet visible={visible} onClose={onClose} title="Add Cash" maxHeightPct={isLoan ? 90 : 65}>
+    <Sheet visible={visible} onClose={onClose} title="Add Cash" maxHeightPct={isLoan || isGoldSale ? 90 : 65}>
       <AsyncSelect<CashSource>
         label="Source"
-        placeholder="Search or add a source (e.g. Savings, Loan)"
+        placeholder="Search or add a source (e.g. Savings, Loan, Gold Sale)"
         queryKey={["cash-sources", "picker"]}
-        fetcher={async (q) => (await listCashSourcesPage(q, 0)).items ?? []}
+        fetcher={fetchSourcesWithGoldSale}
         selectedLabel={source?.name}
-        onSelect={setSource}
+        onSelect={(s) => {
+          setSource(s);
+          // Gold sales don't take Cheque.
+          if (s.name === GOLD_SALE && mode === "Cheque") setMode("Cash");
+        }}
         onClear={() => setSource(null)}
         keyOf={(s) => s.id}
         renderItem={(s) => ({ title: s.name })}
         onCreateNew={createCashSource}
       />
-      <Field label="Purpose">
-        <Input placeholder="Short description" value={purpose} onChangeText={setPurpose} />
-      </Field>
-      <Field label="Amount">
-        <Input keyboardType="decimal-pad" placeholder="₹" value={amount} onChangeText={setAmount} />
-      </Field>
+      {isGoldSale ? (
+        <>
+          <Field label="Ornament type">
+            <Input placeholder="e.g. Gold Chain" value={ornamentType} onChangeText={setOrnamentType} />
+          </Field>
+          <FieldRow>
+            <Field label="Sold amount">
+              <Input keyboardType="decimal-pad" placeholder="₹" value={amount} onChangeText={setAmount} />
+            </Field>
+            <Field label="Cost amount">
+              <Input keyboardType="decimal-pad" placeholder="₹" value={cost} onChangeText={setCost} />
+            </Field>
+          </FieldRow>
+        </>
+      ) : (
+        <>
+          <Field label="Purpose">
+            <Input placeholder="Short description" value={purpose} onChangeText={setPurpose} />
+          </Field>
+          <Field label="Amount">
+            <Input keyboardType="decimal-pad" placeholder="₹" value={amount} onChangeText={setAmount} />
+          </Field>
+        </>
+      )}
       <Field label="Mode">
-        <ChipToggle options={MOVE_MODES} value={mode} onChange={setMode} wrap />
+        <ChipToggle
+          options={isGoldSale ? GOLD_SALE_MODES : MOVE_MODES}
+          value={mode}
+          onChange={(v) => { setMode(v); if (v !== "UPI" && v !== "Bank Transfer") setBank(null); }}
+          wrap
+        />
       </Field>
+      {bankRequired ? (
+        <AsyncSelect<Bank>
+          label="Bank (your account)"
+          placeholder="Search or add a bank"
+          queryKey={["banks", "picker"]}
+          fetcher={async (q) => (await listBanksPage({ q: q || undefined, limit: 20, offset: 0 })).items ?? []}
+          selectedLabel={bank?.name}
+          onSelect={setBank}
+          onClear={() => setBank(null)}
+          keyOf={(b) => b.id}
+          renderItem={(b) => ({ title: b.name })}
+          onCreateNew={(name) => createBank({ name })}
+        />
+      ) : null}
+      {isGoldSale ? (
+        <>
+          <ResultBox k="Profit / Loss" v={`${profit >= 0 ? "+" : "−"}${inr(Math.abs(profit))}`} tone={profit >= 0 ? "green" : "red"} />
+          <Field label="Remarks">
+            <Input placeholder="Optional notes" value={remarks} onChangeText={setRemarks} />
+          </Field>
+        </>
+      ) : null}
 
       {isLoan ? (
         <View style={{ borderWidth: 1, borderColor: C.line, borderStyle: "dashed", borderRadius: 10, padding: 12, marginBottom: 10 }}>
@@ -526,92 +660,7 @@ function MovementSheet({ visible, onClose, branchId }: FormProps) {
       ) : null}
 
       {error ? <Txt style={{ fontSize: 12, color: C.red, marginBottom: 10 }}>{error}</Txt> : null}
-      <PrimaryButton label="Add Cash" onPress={() => m.mutate()} loading={m.isPending} disabled={!canSubmit} />
-    </Sheet>
-  );
-}
-
-// prototype #gold-sale-modal — live profit/loss preview.
-const GOLD_SALE_MODES = ["Cash", "UPI", "Bank Transfer"] as const;
-
-function GoldSaleSheet({ visible, onClose, branchId }: FormProps) {
-  const qc = useQueryClient();
-  const [type, setType] = useState("");
-  const [sold, setSold] = useState("");
-  const [cost, setCost] = useState("");
-  const [mode, setMode] = useState<(typeof GOLD_SALE_MODES)[number]>("Cash");
-  const [bank, setBank] = useState<Bank | null>(null);
-  const [remarks, setRemarks] = useState("");
-  const [error, setError] = useState<string | null>(null);
-  const bankRequired = mode === "UPI" || mode === "Bank Transfer";
-  useEffect(() => {
-    if (visible) {
-      setType("");
-      setSold("");
-      setCost("");
-      setMode("Cash");
-      setBank(null);
-      setRemarks("");
-      setError(null);
-    }
-  }, [visible]);
-  const profit = (Number(sold) || 0) - (Number(cost) || 0);
-  const m = useMutation({
-    mutationFn: () =>
-      createGoldSale({
-        ornamentType: type.trim(), soldAmount: Number(sold), costAmount: Number(cost || 0), branchId: branchId!,
-        mode, bankId: bankRequired ? bank?.id : undefined,
-        remarks: remarks.trim() || undefined,
-      }),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["gold-sales"] });
-      qc.invalidateQueries({ queryKey: ["cash-movements"] });
-      qc.invalidateQueries({ queryKey: ["cash-summary"] });
-      onClose();
-    },
-    onError: (err) => setError(errMsg(err, "Could not save.")),
-  });
-  return (
-    <Sheet visible={visible} onClose={onClose} title="Gold Sale" maxHeightPct={75}>
-      <Field label="Ornament type">
-        <Input placeholder="e.g. Gold Chain" value={type} onChangeText={setType} />
-      </Field>
-      <FieldRow>
-        <Field label="Sold amount">
-          <Input keyboardType="decimal-pad" placeholder="₹" value={sold} onChangeText={setSold} />
-        </Field>
-        <Field label="Cost amount">
-          <Input keyboardType="decimal-pad" placeholder="₹" value={cost} onChangeText={setCost} />
-        </Field>
-      </FieldRow>
-      <Field label="Payment Mode">
-        <ChipToggle options={GOLD_SALE_MODES} value={mode} onChange={(v) => { setMode(v); if (v === "Cash") setBank(null); }} wrap />
-      </Field>
-      {bankRequired ? (
-        <AsyncSelect<Bank>
-          label="Bank"
-          placeholder="Search or add a bank"
-          queryKey={["banks", "picker"]}
-          fetcher={async (q) => (await listBanksPage({ q: q || undefined, limit: 20, offset: 0 })).items ?? []}
-          selectedLabel={bank?.name}
-          onSelect={setBank}
-          onClear={() => setBank(null)}
-          keyOf={(b) => b.id}
-          renderItem={(b) => ({ title: b.name })}
-          onCreateNew={(name) => createBank({ name })}
-        />
-      ) : null}
-      <ResultBox k="Profit / Loss" v={`${profit >= 0 ? "+" : "−"}${inr(Math.abs(profit))}`} tone={profit >= 0 ? "green" : "red"} />
-      <Field label="Remarks">
-        <Input placeholder="e.g. Auctioned — LN-2199" value={remarks} onChangeText={setRemarks} />
-      </Field>
-      {error ? <Txt style={{ fontSize: 12, color: C.red, marginBottom: 10 }}>{error}</Txt> : null}
-      <PrimaryButton
-        label="Record Gold Sale"
-        onPress={() => m.mutate()}
-        loading={m.isPending}
-        disabled={!type.trim() || !(Number(sold) > 0) || !branchId || (bankRequired && !bank)}
-      />
+      <PrimaryButton label={isGoldSale ? "Record Gold Sale" : "Add Cash"} onPress={() => m.mutate()} loading={m.isPending} disabled={!canSubmit} />
     </Sheet>
   );
 }
@@ -622,89 +671,103 @@ function ExpenseSheet({ visible, onClose, branchId }: FormProps) {
   const [category, setCategory] = useState<ExpenseCategory | null>(null);
   const [amount, setAmount] = useState("");
   const [mode, setMode] = useState<(typeof EXPENSE_MODES)[number]>("Cash");
-  const [payee, setPayee] = useState("");
+  // Description — sent as the expense's payee, same as web's ExpenseModal.
+  const [description, setDescription] = useState("");
+  const [date, setDate] = useState(todayISO());
+  // Uploaded "/uploads/..." URL of the receipt/bill photo, "" when none.
+  const [receiptImage, setReceiptImage] = useState("");
+  // From Bank — the branch account a non-Cash expense is paid from.
+  const [fromBank, setFromBank] = useState<Bank | null>(null);
+  const bankRequired = mode !== "Cash";
   const [error, setError] = useState<string | null>(null);
   useEffect(() => {
     if (visible) {
       setCategory(null);
       setAmount("");
       setMode("Cash");
-      setPayee("");
+      setDescription("");
+      setDate(todayISO());
+      setReceiptImage("");
+      setFromBank(null);
       setError(null);
     }
   }, [visible]);
   const m = useMutation({
-    mutationFn: () => createExpense({ category: category!.name, amount: Number(amount), mode, payee: payee.trim(), branchId: branchId! }),
+    mutationFn: () =>
+      createExpense({
+        category: category!.name, amount: Number(amount), mode, payee: description.trim(), branchId: branchId!,
+        fromBankId: bankRequired ? fromBank?.id : undefined,
+        occurredOn: date || undefined,
+        receiptImage: receiptImage || undefined,
+      }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["expenses"] });
+      qc.invalidateQueries({ queryKey: ["cash-movements"] });
       qc.invalidateQueries({ queryKey: ["cash-summary"] });
+      qc.invalidateQueries({ queryKey: EXPENSE_CATEGORY_IDS_KEY });
       onClose();
     },
     onError: (err) => setError(errMsg(err, "Could not save.")),
   });
+  // A newly created category needs its ledger link resolvable right away.
+  const createCategory = async (name: string) => {
+    const created = await createExpenseCategory(name);
+    qc.invalidateQueries({ queryKey: EXPENSE_CATEGORY_IDS_KEY });
+    return created;
+  };
   return (
-    <Sheet visible={visible} onClose={onClose} title="Record Expense" maxHeightPct={65}>
+    <Sheet visible={visible} onClose={onClose} title="Record Expense" maxHeightPct={90}>
+      <Field label="Description">
+        <Input placeholder="e.g. Office maintenance" value={description} onChangeText={setDescription} />
+      </Field>
       <AsyncSelect<ExpenseCategory>
         label="Category"
         placeholder="Search or add a category"
         queryKey={["expense-categories", "picker"]}
-        fetcher={async (q) => (await listExpenseCategoriesPage(q, 0)).items ?? []}
+        fetcher={async (q) => (await listExpenseCategoriesPage(q, 0, PICKER_PAGE_SIZE)).items ?? []}
         selectedLabel={category?.name}
         onSelect={setCategory}
         onClear={() => setCategory(null)}
         keyOf={(c) => c.id}
         renderItem={(c) => ({ title: c.name })}
-        onCreateNew={createExpenseCategory}
+        onCreateNew={createCategory}
       />
-      <Field label="Amount">
-        <Input keyboardType="decimal-pad" placeholder="₹" value={amount} onChangeText={setAmount} />
-      </Field>
+      <FieldRow>
+        <Field label="Amount">
+          <Input keyboardType="decimal-pad" placeholder="₹" value={amount} onChangeText={setAmount} />
+        </Field>
+        <DateField label="Date" value={date} onChange={setDate} max={todayISO()} />
+      </FieldRow>
       <Field label="Mode">
-        <ChipToggle options={EXPENSE_MODES} value={mode} onChange={setMode} />
+        <ChipToggle options={EXPENSE_MODES} value={mode} onChange={(v) => { setMode(v); if (v === "Cash") setFromBank(null); }} />
       </Field>
-      <Field label="Payee">
-        <Input placeholder="Who was paid" value={payee} onChangeText={setPayee} />
-      </Field>
+      {bankRequired ? (
+        <AsyncSelect<Bank>
+          label="From Bank"
+          placeholder="Search or add a bank"
+          queryKey={["banks", "picker"]}
+          fetcher={async (q) => (await listBanksPage({ q: q || undefined, limit: 20, offset: 0 })).items ?? []}
+          selectedLabel={fromBank?.name}
+          onSelect={setFromBank}
+          onClear={() => setFromBank(null)}
+          keyOf={(b) => b.id}
+          renderItem={(b) => ({ title: b.name })}
+          onCreateNew={(name) => createBank({ name })}
+        />
+      ) : null}
+      <UploadField label="Receipt / Bill Image" value={receiptImage} onChange={setReceiptImage} allowPdf={false} />
       {error ? <Txt style={{ fontSize: 12, color: C.red, marginBottom: 10 }}>{error}</Txt> : null}
-      <PrimaryButton label="Record Expense" onPress={() => m.mutate()} loading={m.isPending} disabled={!category || !(Number(amount) > 0) || !payee.trim() || !branchId} />
+      <PrimaryButton
+        label="Record Expense"
+        onPress={() => m.mutate()}
+        loading={m.isPending}
+        disabled={!category || !(Number(amount) > 0) || !description.trim() || !date || !branchId || (bankRequired && !fromBank)}
+      />
     </Sheet>
   );
 }
 
-// prototype #opening-balance-modal
-function OpeningBalanceSheet({ visible, onClose, branchId, current }: FormProps & { current?: number }) {
-  const qc = useQueryClient();
-  const [date, setDate] = useState(todayISO());
-  const [amount, setAmount] = useState("");
-  const [error, setError] = useState<string | null>(null);
-  useEffect(() => {
-    if (visible) {
-      setDate(todayISO());
-      setAmount(current != null ? String(current) : "");
-      setError(null);
-    }
-  }, [visible, current]);
-  const m = useMutation({
-    mutationFn: () => setOpeningBalance(branchId!, Number(amount), date),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["cash-summary"] });
-      onClose();
-    },
-    onError: (err) => setError(errMsg(err, "Could not save the opening balance.")),
-  });
-  return (
-    <Sheet visible={visible} onClose={onClose} title="Set Opening Balance" maxHeightPct={55}>
-      <DateField label="Date" value={date} onChange={setDate} max={todayISO()} />
-      <Field label="Opening balance amount">
-        <Input keyboardType="decimal-pad" placeholder="₹" value={amount} onChangeText={setAmount} />
-      </Field>
-      {error ? <Txt style={{ fontSize: 12, color: C.red, marginBottom: 10 }}>{error}</Txt> : null}
-      <PrimaryButton label="Save Opening Balance" onPress={() => m.mutate()} loading={m.isPending} disabled={amount.trim() === "" || isNaN(Number(amount)) || !branchId} />
-    </Sheet>
-  );
-}
-
-const FILTER_TABS = ["branch", "customer", "type"] as const;
+const FILTER_TABS = ["branch", "customer", "type", "date"] as const;
 type FilterTab = (typeof FILTER_TABS)[number];
 
 /** Movements tab's Branch/Customer/Type multi-select filter — mirrors web's
@@ -755,7 +818,8 @@ function MovementFilterSheet({
     onChange({ ...value, types: value.types.includes(v) ? value.types.filter((t) => t !== v) : [...value.types, v] });
   }
 
-  const count = value.branchIds.length + value.customerIds.length + value.types.length;
+  const hasDate = !!(value.fromDate || value.toDate);
+  const count = value.branchIds.length + value.customerIds.length + value.types.length + (hasDate ? 1 : 0);
 
   return (
     <Sheet visible={visible} onClose={onClose} title="Filter Movements" maxHeightPct={80} scroll={false}>
@@ -764,7 +828,7 @@ function MovementFilterSheet({
           tabs={FILTER_TABS}
           value={filterTab}
           onChange={setFilterTab}
-          labels={{ branch: `Branch${value.branchIds.length ? ` (${value.branchIds.length})` : ""}`, customer: `Customer${value.customerIds.length ? ` (${value.customerIds.length})` : ""}`, type: `Type${value.types.length ? ` (${value.types.length})` : ""}` }}
+          labels={{ branch: `Branch${value.branchIds.length ? ` (${value.branchIds.length})` : ""}`, customer: `Customer${value.customerIds.length ? ` (${value.customerIds.length})` : ""}`, type: `Type${value.types.length ? ` (${value.types.length})` : ""}`, date: `Date${hasDate ? " (1)" : ""}` }}
           inSheet
         />
       </View>
@@ -783,6 +847,15 @@ function MovementFilterSheet({
           {MOVEMENT_TYPE_OPTIONS.map((o) => (
             <CheckItem key={o.value} checked={value.types.includes(o.value)} onPress={() => toggleType(o.value)} title={o.label} />
           ))}
+        </View>
+      ) : filterTab === "date" ? (
+        <View style={[fs.filterList, { flexDirection: "row", gap: 10 }]}>
+          <View style={{ flex: 1 }}>
+            <DateField label="From" value={value.fromDate} onChange={(v) => onChange({ ...value, fromDate: v || undefined })} max={value.toDate} clearable />
+          </View>
+          <View style={{ flex: 1 }}>
+            <DateField label="To" value={value.toDate} onChange={(v) => onChange({ ...value, toDate: v || undefined })} min={value.fromDate} clearable />
+          </View>
         </View>
       ) : (
         <ServerFlatList

@@ -4,19 +4,23 @@ import { useCallback, useEffect, useState } from "react";
 import { fmt } from "@/common/utils/format";
 import { ApiError } from "@/common/services/httpClient";
 import { DatePicker } from "@/common/components/ui/DatePicker";
-import { LedgerRefLink } from "@/common/components/ui/LedgerRefLink";
-import { getModeLedger, PARTY_PAGE_SIZE, type LedgerMode, type LedgerRowView } from "@/modules/cash/services/cashService";
+import { LedgerRefLink, CategoryChip } from "@/common/components/ui/LedgerRefLink";
+import { useExpenseCategoryIds } from "@/hooks/useExpenseCategoryIds";
+import { getModeLedger, downloadLedger, PARTY_PAGE_SIZE, type LedgerMode, type LedgerRowView } from "@/modules/cash/services/cashService";
+import { Icon } from "@/common/components/Icon";
+import { FooterTotals } from "@/common/components/ui/FooterTotals";
 import { listActiveBranches, type BranchView } from "@/modules/branches/services/branchService";
 import { searchBanksPage, type BackendBank } from "@/modules/banks/services/bankService";
 import { FilterPanel, type FilterCategory, type FilterValue } from "@/common/components/ui/FilterPanel";
 
-function Pager({ page, total, pageSize, onChange }: { page: number; total: number; pageSize: number; onChange: (p: number) => void }) {
+function Pager({ page, total, pageSize, onChange, children }: { page: number; total: number; pageSize: number; onChange: (p: number) => void; children?: React.ReactNode }) {
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
   return (
     <div className="ft ft-static" style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 14px" }}>
       <button className="btn plain" disabled={page <= 1} onClick={() => onChange(Math.max(1, page - 1))}>‹ Prev</button>
       <span style={{ fontSize: 13 }}>Page {page} of {totalPages}</span>
       <button className="btn plain" disabled={page >= totalPages} onClick={() => onChange(Math.min(totalPages, page + 1))}>Next ›</button>
+      {children}
     </div>
   );
 }
@@ -38,6 +42,7 @@ const MODE_DESCRIPTION: Record<LedgerMode, string> = {
  * here. Cash has no bank of record, so its own ledger never shows the Bank
  * filter; every other mode does. */
 export function ModeLedgerPage({ mode }: { mode: LedgerMode }) {
+  const categoryIds = useExpenseCategoryIds();
   const [items, setItems] = useState<LedgerRowView[]>([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
@@ -47,6 +52,9 @@ export function ModeLedgerPage({ mode }: { mode: LedgerMode }) {
   const [filters, setFilters] = useState<FilterValue>({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  // Server-side sums over every row matching the filters, not just this page.
+  const [totals, setTotals] = useState({ debit: 0, credit: 0 });
+  const [exporting, setExporting] = useState(false);
 
   const branchIds = Array.isArray(filters.branch) ? filters.branch : [];
   const bankValues = Array.isArray(filters.bank) ? filters.bank : [];
@@ -67,9 +75,10 @@ export function ModeLedgerPage({ mode }: { mode: LedgerMode }) {
       { fromDate: fromDate || undefined, toDate: toDate || undefined, branchIds: branchIds.length ? branchIds.map(Number) : undefined, bankId },
       PARTY_PAGE_SIZE
     )
-      .then(({ items, total }) => {
+      .then(({ items, total, totalDebit, totalCredit }) => {
         setItems(items);
         setTotal(total);
+        setTotals({ debit: totalDebit, credit: totalCredit });
         setError("");
       })
       .catch((e) => {
@@ -81,6 +90,20 @@ export function ModeLedgerPage({ mode }: { mode: LedgerMode }) {
   }, [mode, page, fromDate, toDate, JSON.stringify(branchIds), bankId]);
 
   useEffect(() => { refresh(); }, [refresh]);
+
+  async function onDownload() {
+    setExporting(true);
+    try {
+      await downloadLedger("mode", mode, {
+        fromDate: fromDate || undefined, toDate: toDate || undefined,
+        branchIds: branchIds.length ? branchIds.map(Number) : undefined, bankId,
+      });
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not download the ledger.");
+    } finally {
+      setExporting(false);
+    }
+  }
 
   const filterCategories: FilterCategory[] = [
     { key: "branch", label: "Branch", kind: "static", options: branches.map((b) => ({ value: String(b.id), label: b.name })) },
@@ -107,6 +130,10 @@ export function ModeLedgerPage({ mode }: { mode: LedgerMode }) {
           <h1>{mode} Ledger</h1>
           <p>{MODE_DESCRIPTION[mode]}</p>
         </div>
+        <div className="sp" />
+        <button className="btn ghost" disabled={exporting} onClick={onDownload} title="PDF of every transaction matching the current filters">
+          <Icon name="download" /> {exporting ? "Preparing…" : "Download"}
+        </button>
       </div>
       <hr className="gold-rule" />
 
@@ -162,6 +189,10 @@ export function ModeLedgerPage({ mode }: { mode: LedgerMode }) {
                     (r.reference && r.reference.match(/^LN-\d+/i)?.[0]) ||
                     r.description.match(/—\s*(LN-\S+)\s*$/i)?.[1] ||
                     null;
+                  const invRef =
+                    (r.reference && r.reference.match(/^INV-\d+/i)?.[0]) ||
+                    r.description.match(/—\s*(INV-\S+)\s*$/i)?.[1] ||
+                    null;
                   return (
                   <tr key={r.id}>
                     <td>{r.d}</td>
@@ -169,6 +200,7 @@ export function ModeLedgerPage({ mode }: { mode: LedgerMode }) {
                       {r.description || r.type}
                       <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginTop: 4 }}>
                         {r.customerId ? <LedgerRefLink kind="customer" id={r.customerId} label={r.customerName || "Customer"} /> : null}
+                        <CategoryChip text={r.description} categoryIds={categoryIds} />
                       </div>
                     </td>
                     <td>{r.method || mode}</td>
@@ -178,6 +210,8 @@ export function ModeLedgerPage({ mode }: { mode: LedgerMode }) {
                     <td>
                       {loanRef ? (
                         <a href={`#loan/${loanRef}`} className="ledger-ref-chip ledger-ref-chip-loan">{r.reference || loanRef}</a>
+                      ) : invRef ? (
+                        <LedgerRefLink kind="investment" id={invRef} label={invRef} />
                       ) : (
                         r.reference || "—"
                       )}
@@ -192,7 +226,12 @@ export function ModeLedgerPage({ mode }: { mode: LedgerMode }) {
             </tbody>
           </table>
         </div>
-        <Pager page={page} total={total} pageSize={PARTY_PAGE_SIZE} onChange={setPage} />
+        <Pager page={page} total={total} pageSize={PARTY_PAGE_SIZE} onChange={setPage}>
+          <FooterTotals items={[
+            { label: "Total Debit", value: totals.debit, color: "var(--red)" },
+            { label: "Total Credit", value: totals.credit, color: "var(--green)" },
+          ]} />
+        </Pager>
       </div>
     </>
   );

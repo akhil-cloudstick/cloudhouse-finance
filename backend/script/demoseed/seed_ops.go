@@ -56,7 +56,7 @@ func seedCashAndExpenses(ctx context.Context, d *Deps, st *state, rep *Report) e
 			// Varied by branch so the branch filter visibly changes the
 			// figures rather than showing the same number everywhere.
 			amount := float64(75000 + i*15000)
-			if _, err := d.openingSvc.Set(ctx, branchID, day, amount); err != nil {
+			if _, err := d.openingSvc.Set(ctx, branchID, day, cash.CashModeCash, nil, nil, amount); err != nil {
 				return fmt.Errorf("set opening balance for branch %d on %s: %w",
 					branchID, day.Format("2006-01-02"), err)
 			}

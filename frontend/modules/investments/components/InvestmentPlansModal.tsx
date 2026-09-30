@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useModal } from "@/common/components/Modal";
 import { ApiError } from "@/common/services/httpClient";
 import { fmt } from "@/common/utils/format";
@@ -49,12 +49,16 @@ const FIXED_PAYOUT_FREQUENCIES: PayoutFrequency[] = ["Monthly", "Quarterly", "Ye
 export function InvestmentPlansModalContent({ onChanged }: { onChanged: () => void }) {
   const { closeModal } = useModal();
 
-  const PAGE_SIZE = 5;
+  // Scroll-paginated: 10 plans shown at a time, the next 10 revealed as the
+  // height-capped table is scrolled to its end. The plan list is one small
+  // unpaged fetch, so "pages" are revealed client-side.
+  const PAGE_SIZE = 10;
 
   const [plans, setPlans] = useState<BackendInvestmentPlan[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [page, setPage] = useState(1);
+  const wrapRef = useRef<HTMLDivElement>(null);
   const [editingId, setEditingId] = useState<number | null>(null);
   const [form, setForm] = useState<CreatePlanInput>(emptyForm);
   const [saving, setSaving] = useState(false);
@@ -74,13 +78,20 @@ export function InvestmentPlansModalContent({ onChanged }: { onChanged: () => vo
 
   useEffect(() => { void refresh(); }, []);
 
-  const totalPages = Math.max(1, Math.ceil(plans.length / PAGE_SIZE));
-  const pagePlans = plans.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+  const shownPlans = plans.slice(0, page * PAGE_SIZE);
+  const hasMore = shownPlans.length < plans.length;
 
-  // A save/delete can shrink the list out from under the current page (e.g.
-  // page 3 no longer exists once a plan is removed) — clamp back rather
-  // than showing an empty page with working Prev/Next stuck past the end.
-  useEffect(() => { setPage((p) => Math.min(p, totalPages)); }, [totalPages]);
+  function onWrapScroll() {
+    const el = wrapRef.current;
+    if (hasMore && el && el.scrollHeight - el.scrollTop - el.clientHeight < 48) setPage((p) => p + 1);
+  }
+
+  // A batch too short to overflow the table never fires onScroll, so keep
+  // revealing until the rows actually scroll or the list runs out.
+  useEffect(() => {
+    const el = wrapRef.current;
+    if (hasMore && el && el.scrollHeight <= el.clientHeight) setPage((p) => p + 1);
+  }, [shownPlans.length, hasMore, editingId]);
 
   function startCreate() {
     setEditingId(0);
@@ -145,14 +156,14 @@ export function InvestmentPlansModalContent({ onChanged }: { onChanged: () => vo
               <button className="btn sm" onClick={startCreate}>+ New Plan</button>
             </div>
             {error && <div className="notice">{error}</div>}
-            <div className="tbl-wrap tbl-wrap-auto"><table className="tbl tbl-center">
+            <div className="tbl-wrap tbl-wrap-auto tbl-scroll-paged" ref={wrapRef} onScroll={onWrapScroll}><table className="tbl tbl-center plans-tbl">
               <thead><tr><th>Name</th><th>Type</th><th className="num">Rate</th><th>Frequency</th><th className="num">Tenure</th><th className="num">Min Principal</th><th>Payout</th><th>Status</th><th></th></tr></thead>
               <tbody>
                 {loading ? (
                   <tr><td colSpan={9} className="empty compact">Loading…</td></tr>
                 ) : plans.length === 0 ? (
                   <tr><td colSpan={9} className="empty compact">No plans yet.</td></tr>
-                ) : pagePlans.map((p) => (
+                ) : shownPlans.map((p) => (
                   <tr key={p.id} className="click" onClick={() => startEdit(p)}>
                     <td>{p.name}<div className="sub">{p.interestRateType}</div></td>
                     <td>{p.productType === "Bond" ? <span className="chip info">Bond</span> : "Deposit"}</td>
@@ -167,11 +178,9 @@ export function InvestmentPlansModalContent({ onChanged }: { onChanged: () => vo
                 ))}
               </tbody>
             </table></div>
-            {!loading && plans.length > PAGE_SIZE && (
-              <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 12, marginTop: 12 }}>
-                <button className="btn plain sm" disabled={page <= 1} onClick={() => setPage((p) => Math.max(1, p - 1))}>‹ Prev</button>
-                <span style={{ fontSize: 12.5 }}>Page {page} of {totalPages}</span>
-                <button className="btn plain sm" disabled={page >= totalPages} onClick={() => setPage((p) => Math.min(totalPages, p + 1))}>Next ›</button>
+            {!loading && plans.length > 0 && (
+              <div style={{ fontSize: 12.5, color: "var(--muted)", marginTop: 10 }}>
+                Showing {shownPlans.length} of {plans.length}{hasMore ? " — scroll for more" : ""}
               </div>
             )}
           </>

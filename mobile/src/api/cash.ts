@@ -55,6 +55,9 @@ export function createCashMovement(input: {
   // Payment mode ("Cash"/"UPI"/"Bank Transfer"/"Cheque") — movementRequest.Mode.
   mode?: string;
   bank?: string;
+  // The branch's own account a UPI/Bank Transfer landed in — required for
+  // those modes (see backend cash.MovementService.Record).
+  bankId?: number;
   amount: number;
   branchId?: number;
   occurredOn?: string;
@@ -70,9 +73,11 @@ export type CashSource = { id: number; name: string; createdAt: string };
 
 export const CASH_SOURCES_PAGE_SIZE = 5;
 
-export function listCashSourcesPage(q: string, page: number) {
+// A dropdown picker passes a larger pageSize — at 5 its list has too few
+// rows to scroll through (AsyncSelect shows up to 30).
+export function listCashSourcesPage(q: string, page: number, pageSize: number = CASH_SOURCES_PAGE_SIZE) {
   return apiRequest<{ items: CashSource[]; hasMore: boolean }>("/cash-sources", {
-    params: { q: q || undefined, limit: CASH_SOURCES_PAGE_SIZE, offset: page * CASH_SOURCES_PAGE_SIZE },
+    params: { q: q || undefined, limit: pageSize, offset: page * pageSize },
   });
 }
 
@@ -86,11 +91,14 @@ export type ExpenseCategory = { id: number; name: string; createdAt: string };
 
 export const EXPENSE_CATEGORIES_PAGE_SIZE = 5;
 
-export function listExpenseCategoriesPage(q: string, page: number) {
+export function listExpenseCategoriesPage(q: string, page: number, pageSize: number = EXPENSE_CATEGORIES_PAGE_SIZE) {
   return apiRequest<{ items: ExpenseCategory[]; hasMore: boolean }>("/expense-categories", {
-    params: { q: q || undefined, limit: EXPENSE_CATEGORIES_PAGE_SIZE, offset: page * EXPENSE_CATEGORIES_PAGE_SIZE },
+    params: { q: q || undefined, limit: pageSize, offset: page * pageSize },
   });
 }
+
+// How many rows a mobile dropdown picker asks for (AsyncSelect's own cap).
+export const PICKER_PAGE_SIZE = 30;
 
 export function createExpenseCategory(name: string) {
   return apiRequest<ExpenseCategory>("/expense-categories", { method: "POST", body: { name } });
@@ -100,14 +108,63 @@ export function setCashMovementStatus(id: number, status: string) {
   return apiRequest<CashMovement>(`/cash-movements/${id}/status`, { method: "PATCH", body: { status } });
 }
 
-// One customer's full cash-movement ledger — same backend endpoint the web
-// Party Transactions page (PartyLedger.tsx) and CustomerDetail.tsx's Ledger
-// tab both call (GET /cash-movements/transactions/customer/:id). `totals` is
-// the party's overall in/out summary, not scoped to the current page.
-export type PartyTotals = { totalIn: number; totalOut: number; net: number; inCount: number; outCount: number };
+// One row of any combined ledger (bank / customer / mode / expense category)
+// — backend/internal/cash/ledger.go's LedgerRow, same shape the web
+// PartyLedger.tsx/ModeLedgerPage.tsx render. runningBalance is computed
+// server-side across the whole ledger, not just the loaded page.
+export type LedgerRow = {
+  id: number;
+  date: string;
+  description: string;
+  type: string;
+  method: string;
+  reference: string;
+  debitOrCredit: "debit" | "credit";
+  amount: number;
+  runningBalance: number;
+  bankId?: number | null;
+  bankName?: string;
+  customerId?: number;
+  customerName?: string;
+};
 
-export function listCashMovementsByCustomer(customerId: number, params: { limit: number; offset: number; fromDate?: string; toDate?: string }) {
-  return apiRequest<{ items: CashMovement[]; total: number; totals: PartyTotals }>(`/cash-movements/transactions/customer/${customerId}`, { params });
+export const LEDGER_MODES = ["Cash", "UPI", "Bank Transfer", "Cheque"] as const;
+export type LedgerMode = (typeof LEDGER_MODES)[number];
+
+export type LedgerKind = "bank" | "customer" | "category" | "mode";
+
+type LedgerParams = { limit: number; offset: number; fromDate?: string; toDate?: string };
+// totalDebit/totalCredit cover every row matching the filters, not the page.
+type LedgerPage = { items: LedgerRow[]; total: number; totalDebit?: number; totalCredit?: number; categoryName?: string };
+
+export function listCashMovementsByCustomer(customerId: number, params: LedgerParams) {
+  return apiRequest<LedgerPage>(`/cash-movements/transactions/customer/${customerId}`, { params });
+}
+
+export function getBankLedger(bankId: number, params: LedgerParams) {
+  return apiRequest<LedgerPage>(`/banks/${bankId}/ledger`, { params });
+}
+
+export function getModeLedger(mode: string, params: LedgerParams & { bankId?: number }) {
+  return apiRequest<LedgerPage>("/cash-movements/mode-ledger", { params: { ...params, mode } });
+}
+
+export function getExpenseCategoryLedger(categoryId: number, params: LedgerParams) {
+  return apiRequest<LedgerPage>(`/expense-categories/${categoryId}/ledger`, { params });
+}
+
+// One entry point for the shared ledger screen (app/(tabs)/cash/[id].tsx).
+export function getLedger(kind: LedgerKind, ref: string, params: LedgerParams) {
+  switch (kind) {
+    case "bank":
+      return getBankLedger(Number(ref), params);
+    case "customer":
+      return listCashMovementsByCustomer(Number(ref), params);
+    case "category":
+      return getExpenseCategoryLedger(Number(ref), params);
+    case "mode":
+      return getModeLedger(ref, params);
+  }
 }
 
 // Expenses — same "no query params" note.
@@ -129,6 +186,9 @@ export function createExpense(input: {
   mode: string;
   payee: string;
   branchId: number;
+  // The branch account a UPI/Bank expense was paid from — required for
+  // those modes (see backend cash.ExpenseService.Record).
+  fromBankId?: number;
   remarks?: string;
   receiptImage?: string;
 }) {
@@ -143,14 +203,11 @@ export function rejectExpense(id: number, remarks: string, approvedBy?: string) 
   return apiRequest<Expense>(`/expenses/${id}/reject`, { method: "PATCH", body: { approvedBy, remarks } });
 }
 
-// Cash summary / opening balance — branchId/date are real server-side
-// params (see plan).
+// Cash summary — branchId/date are real server-side params. Opening cash is
+// carried forward from the previous day's closing Balance in Hand (backend
+// cash.SummaryService.openingFor), so there's no opening balance to set.
 export function getCashSummary(branchId: number, date?: string) {
   return apiRequest<CashSummary>("/cash/summary", { params: { branchId, date } });
-}
-
-export function setOpeningBalance(branchId: number, amount: number, date?: string) {
-  return apiRequest<void>("/cash/opening-balance", { method: "POST", body: { branchId, amount, date } });
 }
 
 // Gold sales — sold amount books a cash-in movement server-side (Source

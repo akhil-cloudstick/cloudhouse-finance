@@ -17,3 +17,14 @@ export function listBanksPage(params: { q?: string; limit: number; offset: numbe
 export function createBank(input: { name: string; branch?: string; ifsc?: string; accountNo?: string; phone?: string }) {
   return apiRequest<Bank>("/banks", { method: "POST", body: input });
 }
+
+// Real rename/edit — rejects a name another bank already uses.
+export function updateBank(id: number, input: { name: string; branch?: string; ifsc?: string; accountNo?: string; phone?: string }) {
+  return apiRequest<Bank>(`/banks/${id}`, { method: "PUT", body: input });
+}
+
+// Hard delete — the backend refuses (409, naming the count) while any
+// transaction, payment or pledge still references the bank.
+export function deleteBank(id: number) {
+  return apiRequest<void>(`/banks/${id}`, { method: "DELETE" });
+}

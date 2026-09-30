@@ -24,11 +24,23 @@ export async function searchExpenseCategoriesPage(q: string, page: number): Prom
 /* Creates a new expense category, or — if one with the same name (case
  * insensitive) already exists — returns the existing row instead (the
  * backend's find-or-create behaviour). */
+// Fired by createExpenseCategory so every mounted useExpenseCategoryIds
+// reloads — otherwise a category added from ExpenseModal has no ledger link
+// until the page is refreshed.
+export const EXPENSE_CATEGORIES_CHANGED = "expense-categories-changed";
+
+function notifyExpenseCategoriesChanged() {
+  if (typeof window !== "undefined") window.dispatchEvent(new Event(EXPENSE_CATEGORIES_CHANGED));
+}
+
 export async function createExpenseCategory(name: string): Promise<BackendExpenseCategory> {
-  return apiFetch<BackendExpenseCategory>("/expense-categories", {
+  const rec = await apiFetch<BackendExpenseCategory>("/expense-categories", {
     method: "POST",
     body: JSON.stringify({ name }),
   });
+  // Lets every category-ledger link resolve the new category straight away.
+  notifyExpenseCategoriesChanged();
+  return rec;
 }
 
 export const EXPENSE_CATEGORY_LEDGER_PAGE_SIZE = 12;
@@ -44,12 +56,12 @@ export async function getExpenseCategoryLedger(
   page: number,
   range?: { fromDate?: string; toDate?: string },
   pageSize: number = EXPENSE_CATEGORY_LEDGER_PAGE_SIZE
-): Promise<{ items: LedgerRowView[]; total: number; categoryName: string }> {
+): Promise<{ items: LedgerRowView[]; total: number; totalDebit: number; totalCredit: number; categoryName: string }> {
   const params = new URLSearchParams();
   if (range?.fromDate) params.set("fromDate", range.fromDate);
   if (range?.toDate) params.set("toDate", range.toDate);
   params.set("limit", String(pageSize));
   params.set("offset", String((page - 1) * pageSize));
-  const rec = await apiFetch<{ items: BackendLedgerRow[]; total: number; categoryName: string }>(`/expense-categories/${categoryId}/ledger?${params}`);
-  return { items: (rec?.items || []).map(ledgerRowToView), total: rec?.total ?? 0, categoryName: rec?.categoryName ?? "" };
+  const rec = await apiFetch<{ items: BackendLedgerRow[]; total: number; totalDebit?: number; totalCredit?: number; categoryName: string }>(`/expense-categories/${categoryId}/ledger?${params}`);
+  return { items: (rec?.items || []).map(ledgerRowToView), total: rec?.total ?? 0, totalDebit: rec?.totalDebit ?? 0, totalCredit: rec?.totalCredit ?? 0, categoryName: rec?.categoryName ?? "" };
 }

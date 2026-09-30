@@ -7,24 +7,21 @@ import { Icon } from "@/common/components/Icon";
 import { fmt } from "@/common/utils/format";
 import { StatusChip } from "@/common/components/ui/StatusChip";
 import { AddCashModalContent } from "@/common/components/modals/AddCashModal";
-import { OpeningCashModalContent } from "@/common/components/modals/OpeningCashModal";
 import { ExpenseModalContent, ReceiptViewModalContent } from "@/common/components/modals/ExpenseModal";
-import { GoldSaleModalContent } from "@/common/components/modals/GoldSaleModal";
 import { listActiveBranches, type BranchView } from "@/modules/branches/services/branchService";
 import { listCustomersPage } from "@/modules/customers/services/customerService";
 import { FilterPanel, type FilterCategory, type FilterValue } from "@/common/components/ui/FilterPanel";
 import { LedgerRefLink } from "@/common/components/ui/LedgerRefLink";
+import { FooterTotals } from "@/common/components/ui/FooterTotals";
+import { useExpenseCategoryIds } from "@/hooks/useExpenseCategoryIds";
+import { particularsFor, loanNumberFor, refCellFor, modeCellFor } from "@/modules/cash/components/ledgerCells";
 import {
   listCashMovementsPage, listExpensesPage, listGoldSalesPage, getCashSummary,
-  approveExpense, rejectExpense,
   exportCashMovements, exportExpenses,
-  MODE_LEDGER_ROUTE,
   type CashMovementView, type ExpenseView, type GoldSaleView, type CashSummary, type CashMovementCategory,
 } from "@/modules/cash/services/cashService";
-import { ApiError } from "@/common/services/httpClient";
 import { useAuth } from "@/common/auth-context";
 import { useResponsivePageSize, useIsSmallScreen } from "@/common/utils/responsive";
-import { useDropdownMenu } from "@/hooks/useDropdownMenu";
 
 function Kpi({ l, v, s, parts, cls }: {
   l: string; v: string | number; s?: string; parts?: [string, number][]; cls?: string;
@@ -61,42 +58,6 @@ function KpiParts({ parts }: { parts: [string, number][] }) {
   );
 }
 
-// particularsFor mirrors LedgerExportView.tsx's "Particulars" column — the
-// same purpose-or-source text, with the party link Cash.tsx's own Ledger
-// table already had layered on top (customer/bank drill-down), so the two
-// ledgers read the same way with this one kept clickable.
-function particularsFor(m: CashMovementView) {
-  const text = m.type === "in" ? (m.purpose ? `${m.source} · ${m.purpose}` : m.source) : m.purpose || "—";
-  if (m.partyCustomerId) {
-    return <LedgerRefLink kind="customer" id={m.partyCustomerId} label={text || "Customer"} />;
-  }
-  if (m.bankId) {
-    return <LedgerRefLink kind="bank" id={m.bankId} label={text || "Bank"} />;
-  }
-  return text;
-}
-
-// loanNumberFor pulls the loan number back out of `purpose` — every
-// loan-related movement's Purpose carries it as a "… — LN-00049" suffix
-// (see cash.MovementService.RecordLoanDisbursementCashOut/
-// RecordLoanPaymentCashIn/etc), there's no dedicated column for it. Movements
-// with no loan number (manual top-ups, expenses, gold sales, …) fall back to
-// the transaction group id / movement id, same as before.
-const LOAN_NUMBER_RE = /—\s*(LN-\S+)\s*$/;
-function loanNumberFor(m: CashMovementView): string {
-  const match = m.purpose ? LOAN_NUMBER_RE.exec(m.purpose) : null;
-  return match?.[1] || m.transactionGroupId || String(m.id);
-}
-
-// A row's Ref No column is only ever clickable when it actually resolved to
-// a real loan number (LOAN_NUMBER_RE matched) — the transactionGroupId/id
-// fallback isn't a navigable entity, just an internal identifier.
-function refCellFor(m: CashMovementView) {
-  const ref = loanNumberFor(m);
-  if (ref.startsWith("LN-")) return <LedgerRefLink kind="loan" id={ref} label={ref} />;
-  return ref;
-}
-
 function withRunningBalance(items: CashMovementView[]): { m: CashMovementView; balance: number }[] {
   const chronological = [...items].reverse();
   let running = 0;
@@ -107,20 +68,12 @@ function withRunningBalance(items: CashMovementView[]): { m: CashMovementView; b
   return withBalance.reverse();
 }
 
-// Every mode is a drill-down link to that mode's own ledger — same "click a
-// reference, land on its ledger" pattern as LedgerRefLink's other kinds.
-function modeCellFor(mode: string | undefined) {
-  if (!mode) return "—";
-  const route = MODE_LEDGER_ROUTE[mode];
-  return route ? <a href={`#${route}`}>{mode}</a> : mode;
-}
-
-function MovementRow({ m, balance }: { m: CashMovementView; balance: number }) {
+function MovementRow({ m, balance, categoryIds }: { m: CashMovementView; balance: number; categoryIds: Record<string, number> }) {
   return (
     <tr>
       <td data-label="Date">{m.d}</td>
       <td className="ledger-ref" data-label="Ref No" title={loanNumberFor(m)}>{refCellFor(m)}</td>
-      <td data-label="Particulars">{particularsFor(m)}</td>
+      <td data-label="Particulars">{particularsFor(m, categoryIds)}</td>
       <td data-label="Mode">{modeCellFor(m.mode)}</td>
       <td className="num" data-label="Debit" style={{ color: m.type === "out" ? "var(--red)" : undefined }}>{m.type === "out" ? fmt(m.amount) : "—"}</td>
       <td className="num" data-label="Credit" style={{ color: m.type === "in" ? "var(--green)" : undefined }}>{m.type === "in" ? fmt(m.amount) : "—"}</td>
@@ -129,13 +82,15 @@ function MovementRow({ m, balance }: { m: CashMovementView; balance: number }) {
   );
 }
 
-function ExpenseRow({ e, canUpdate, onViewReceipt, onApprove, onReject }: {
-  e: ExpenseView; canUpdate: boolean; onViewReceipt: () => void; onApprove: () => void; onReject: () => void;
+function ExpenseRow({ e, categoryId, onViewReceipt }: {
+  e: ExpenseView; categoryId?: number; onViewReceipt: () => void;
 }) {
   return (
     <tr>
       <td data-label="Date">{e.d}</td>
-      <td data-label="Category">{e.cat}</td>
+      <td data-label="Category">
+        {categoryId ? <LedgerRefLink kind="category" id={categoryId} label={e.cat} /> : e.cat}
+      </td>
       <td className="num" data-label="Amount">{fmt(e.amt)}</td>
       <td data-label="Mode">{e.mode}</td>
       <td data-label="Description / Payee">{e.payee}</td>
@@ -148,14 +103,6 @@ function ExpenseRow({ e, canUpdate, onViewReceipt, onApprove, onReject }: {
         {e.img
           ? <img src={e.img} style={{ width: 34, height: 34, objectFit: "cover", borderRadius: 6, border: "1px solid var(--line)", cursor: "pointer", verticalAlign: "middle" }} title="View receipt" onClick={onViewReceipt} />
           : <span style={{ color: "var(--muted)" }}>—</span>}
-      </td>
-      <td data-label="Actions">
-        {e.status === "Pending" && canUpdate ? (
-          <div style={{ display: "flex", gap: 4 }}>
-            <button className="btn plain sm" style={{ padding: "3px 8px", color: "var(--green)" }} onClick={onApprove}>Approve</button>
-            <button className="btn plain sm" style={{ padding: "3px 8px", color: "var(--red)" }} onClick={onReject}>Reject</button>
-          </div>
-        ) : "—"}
       </td>
     </tr>
   );
@@ -171,6 +118,8 @@ function GoldSaleRow({ g }: { g: GoldSaleView }) {
       <td className="num" style={{ color: g.profit >= 0 ? "var(--green)" : "var(--red)" }}>
         {g.profit >= 0 ? "+" : "−"}{fmt(Math.abs(g.profit))}
       </td>
+      <td>{modeCellFor(g.mode)}</td>
+      <td>{g.bankId ? <LedgerRefLink kind="bank" id={g.bankId} label={g.bankName || "Bank"} /> : "—"}</td>
       <td>{g.branch}</td>
       <td>{g.remarks || "—"}</td>
     </tr>
@@ -184,33 +133,23 @@ function GoldSaleRow({ g }: { g: GoldSaleView }) {
 export function Cash() {
   const { openModal } = useModal();
   const toast = useToast();
-  // Recording cash movements and expenses is a create; approving an expense,
-  // closing a loan movement and setting the opening balance are updates.
+  // Recording cash movements and expenses is a create; closing a loan movement is an update.
   // Whatever the role can't do is hidden outright (see Customers.tsx).
   const { can } = useAuth();
   const canCreateCash = can("Cash_Management", "can_create_cash");
-  const canUpdateCash = can("Cash_Management", "can_update_cash");
   const today = new Date().toISOString().slice(0, 10);
 
-  // Take Cash Out / Add Cash / Gold Sale Amount used to be 3 separate ghost
-  // buttons beside "Record Expense" — collapsed into one "Actions" dropdown
-  // the same way LoanDetail.tsx's Loan Actions/Documents menus are, since
-  // they outgrew the header on anything but a very wide screen. Record
-  // Expense stays its own visible button — it's the primary action here
-  // (styled `btn`, not `btn ghost`), not something to bury a click deeper for.
-  const {
-    open: cashActionsMenuOpen,
-    setOpen: setCashActionsMenuOpen,
-    menuRef: cashActionsMenuRef,
-    triggerRef: cashActionsMenuTriggerRef,
-    onKeyDown: onCashActionsMenuKeyDown,
-  } = useDropdownMenu<HTMLDivElement>();
-
   const [branchId, setBranchId] = useState<number | "">("");
-  const [branchLabel, setBranchLabel] = useState("");
   const [movements, setMovements] = useState<CashMovementView[]>([]);
   const [expenses, setExpenses] = useState<ExpenseView[]>([]);
+  // Category name -> id, for the category-ledger links on expense rows.
+  const categoryIdByName = useExpenseCategoryIds();
   const [goldSales, setGoldSales] = useState<GoldSaleView[]>([]);
+  // Table-footer totals from the server — every row matching the current
+  // filters, not just the loaded page.
+  const [movementSums, setMovementSums] = useState({ debit: 0, credit: 0 });
+  const [expenseSum, setExpenseSum] = useState(0);
+  const [goldSaleSums, setGoldSaleSums] = useState({ sold: 0, cost: 0, profit: 0 });
   const [movementsPage, setMovementsPage] = useState(1);
   const [movementsHasMore, setMovementsHasMore] = useState(false);
   const [movementsTotal, setMovementsTotal] = useState(0);
@@ -308,20 +247,23 @@ export function Cash() {
       branchIds: movementsBranchIds.length ? movementsBranchIds : undefined,
       customerIds: movementsCustomerIds.length ? movementsCustomerIds : undefined,
       types: movementsTypes.length ? movementsTypes : undefined,
-    }).then(({ items, hasMore, total }) => {
+    }).then(({ items, hasMore, total, totalDebit, totalCredit }) => {
       setMovements(items);
       setMovementsHasMore(hasMore);
       setMovementsTotal(total);
+      setMovementSums({ debit: totalDebit, credit: totalCredit });
     }).catch(() => { setMovements([]); setMovementsHasMore(false); setMovementsTotal(0); });
-    listExpensesPage(expensesPage, cashPageSize).then(({ items, hasMore, total }) => {
+    listExpensesPage(expensesPage, cashPageSize).then(({ items, hasMore, total, totalAmount }) => {
       setExpenses(items);
       setExpensesHasMore(hasMore);
       setExpensesTotal(total);
+      setExpenseSum(totalAmount);
     }).catch(() => { setExpenses([]); setExpensesHasMore(false); setExpensesTotal(0); });
-    listGoldSalesPage(goldSalesPage, cashPageSize).then(({ items, hasMore, total }) => {
+    listGoldSalesPage(goldSalesPage, cashPageSize).then(({ items, hasMore, total, totalSold, totalCost, totalProfit }) => {
       setGoldSales(items);
       setGoldSalesHasMore(hasMore);
       setGoldSalesTotal(total);
+      setGoldSaleSums({ sold: totalSold, cost: totalCost, profit: totalProfit });
     }).catch(() => { setGoldSales([]); setGoldSalesHasMore(false); setGoldSalesTotal(0); });
     const seq = ++summarySeq.current;
     getCashSummary(branchId || undefined, today).then((s) => {
@@ -335,30 +277,16 @@ export function Cash() {
 
   useEffect(() => {
     listActiveBranches().then((list) => {
-      if (list.length) {
-        setBranchId((cur) => cur || list[0].id);
-        setBranchLabel((cur) => cur || list[0].name);
-      }
+      if (list.length) setBranchId((cur) => cur || list[0].id);
     }).catch(() => {});
   }, []);
 
   useEffect(() => { refresh(); }, [refresh]);
 
-  const total = expenses.reduce((s, e) => s + e.amt, 0);
   // Running balance over the currently loaded (paginated) page only — same
   // best-effort approach LedgerExportView.tsx's preview table uses, not a
   // true running balance across the whole filtered set.
   const movementsWithBalance = withRunningBalance(movements);
-
-  async function handleApprove(id: number) {
-    try {
-      await approveExpense(id);
-      refresh();
-      toast("Expense approved");
-    } catch (e) {
-      toast(e instanceof ApiError ? e.message : "Could not approve expense.");
-    }
-  }
 
   // Both downloads use whatever's currently in the filter state (date
   // range + category for movements) — never the loaded page's row count —
@@ -391,18 +319,6 @@ export function Cash() {
     }
   }
 
-  async function handleReject(id: number) {
-    const remarks = window.prompt("Reason for rejecting this expense?");
-    if (!remarks || !remarks.trim()) return;
-    try {
-      await rejectExpense(id, remarks.trim());
-      refresh();
-      toast("Expense rejected");
-    } catch (e) {
-      toast(e instanceof ApiError ? e.message : "Could not reject expense.");
-    }
-  }
-
   return (
     <>
       <div className="page-h">
@@ -413,7 +329,7 @@ export function Cash() {
          * + subtitle's natural width plus the 3 buttons tipped `.page-h`
          * past its wrap threshold on narrower screens well before the
          * buttons actually ran out of room beside the title. */}
-        <div className="page-h-title"><h1>Ledger</h1><p>Daily cash movements, opening balances and branch expenses.</p></div>
+        <div className="page-h-title"><h1>Ledger</h1><p>Daily cash movements, balance in hand and branch expenses.</p></div>
         {/* .page-h-actions (app.css) rather than flat siblings of `.page-h`
          * — its own margin-left:auto/justify-content:flex-end keeps all 3
          * buttons right-aligned as a group even once they wrap to their
@@ -423,43 +339,8 @@ export function Cash() {
          * Cash beside the title). */}
         {canCreateCash && (
           <div className="page-h-actions">
-            <div className="docs-dd" ref={cashActionsMenuRef} onKeyDown={onCashActionsMenuKeyDown}>
-              <button
-                ref={cashActionsMenuTriggerRef}
-                className="btn ghost"
-                onClick={() => setCashActionsMenuOpen((v) => !v)}
-                aria-haspopup="menu"
-                aria-expanded={cashActionsMenuOpen}
-              >
-                <Icon name="coin" /> Actions <Icon name="chevronDown" className="docs-dd-chev" />
-              </button>
-              {cashActionsMenuOpen && (
-                <div className="docs-dd-menu" role="menu">
-                  <a href="#" title="Add Cash" onClick={(e) => { e.preventDefault(); setCashActionsMenuOpen(false); openModal(<AddCashModalContent onSaved={refresh} />); }}>
-                    <Icon name="coin" /><span className="tx">Add Cash</span>
-                  </a>
-                  <a href="#" title="Gold Sale Amount" onClick={(e) => { e.preventDefault(); setCashActionsMenuOpen(false); openModal(<GoldSaleModalContent onSaved={refresh} />); }}>
-                    <Icon name="coin" /><span className="tx">Gold Sale Amount</span>
-                  </a>
-                </div>
-              )}
-            </div>
+            <button className="btn ghost" onClick={() => openModal(<AddCashModalContent onSaved={refresh} />)}><Icon name="coin" /> Add Cash</button>
             <button className="btn" onClick={() => openModal(<ExpenseModalContent onSaved={refresh} />)}><Icon name="plus" /> Record Expense</button>
-            {canUpdateCash && (
-              <button
-                className="btn ghost"
-                onClick={() => openModal(
-                  <OpeningCashModalContent
-                    initialBranchId={branchId || undefined}
-                    initialBranchLabel={branchId ? branchLabel : undefined}
-                    date={today}
-                    onSaved={refresh}
-                  />
-                )}
-              >
-                <Icon name="coin" /> Opening Balance
-              </button>
-            )}
           </div>
         )}
       </div>
@@ -467,7 +348,7 @@ export function Cash() {
 
       <div style={{ display: "flex", flexWrap: "wrap", alignItems: "flex-start", gap: smallScreen ? 8 : 15, marginBottom: smallScreen?0:20  }}>
         <div className="kpis kpis-money" style={{ marginBottom: 0, maxWidth: 1113 }}>
-          <Kpi l="Opening Cash (today)" v={fmt(summary?.openingCash || 0)} />
+          <Kpi l="Opening Cash (today)" v={fmt(summary?.openingCash || 0)} s="carried forward" />
           {/* Backend's `collections` is every cash-in movement for the day —
               Savings top-ups, bank pledges and loan repayments alike, not just
               interest/principal (see cash.SummaryService.GetExpectedCash), so
@@ -555,7 +436,7 @@ export function Cash() {
               <thead><tr><th>Date</th><th>Ref No</th><th>Particulars</th><th>Mode</th><th className="num">Debit</th><th className="num">Credit</th><th className="num">Balance</th></tr></thead>
               <tbody>
                 {movements.length
-                  ? movementsWithBalance.map(({ m, balance }) => <MovementRow key={m.id} m={m} balance={balance} />)
+                  ? movementsWithBalance.map(({ m, balance }) => <MovementRow key={m.id} m={m} balance={balance} categoryIds={categoryIdByName} />)
                   : <tr><td colSpan={7} className="empty">No cash movements recorded yet. Use &quot;Add Cash&quot; or &quot;Take Cash Out&quot;.</td></tr>}
               </tbody>
             </table>
@@ -567,6 +448,10 @@ export function Cash() {
               * just the current page rather than a fabricated "of N". */}
             <span style={{ fontSize: 12.5 }}>Page {movementsPage} of {movementsTotalPages}</span>
             <button className="btn plain sm" disabled={movementsPage >= movementsTotalPages} onClick={() => setMovementsPage((p) => Math.min(movementsTotalPages, p + 1))}>Next ›</button>
+            <FooterTotals items={[
+              { label: "Total Debit", value: movementSums.debit, color: "var(--red)" },
+              { label: "Total Credit", value: movementSums.credit, color: "var(--green)" },
+            ]} />
           </div>
         </div>
       )}
@@ -579,24 +464,22 @@ export function Cash() {
             <button className="btn ghost sm" onClick={downloadExpenses} disabled={downloadingExpenses} title="Download every expense row">
               <Icon name="download" /> {downloadingExpenses ? "Preparing…" : "Download"}
             </button>
-            <span style={{ fontSize: 12.5, color: "var(--muted)", marginLeft: 12 }}>Total {fmt(total)}</span>
+            <span style={{ fontSize: 12.5, color: "var(--muted)", marginLeft: 12 }}>Total {fmt(expenseSum)}</span>
           </div>
           <div className="tbl-wrap tbl-scroll">
             <table className="tbl tbl-center tbl-roomy tbl-stack">
-              <thead><tr><th>Date</th><th>Category</th><th className="num">Amount</th><th>Mode</th><th>Description / Payee</th><th>Branch</th><th>Status</th><th style={{ textAlign: "center" }}>Receipt</th><th>Actions</th></tr></thead>
+              <thead><tr><th>Date</th><th>Category</th><th className="num">Amount</th><th>Mode</th><th>Description / Payee</th><th>Branch</th><th>Status</th><th style={{ textAlign: "center" }}>Receipt</th></tr></thead>
               <tbody>
                 {expenses.length
                   ? expenses.map((e) => (
                     <ExpenseRow
                       key={e.id}
                       e={e}
-                      canUpdate={canUpdateCash}
+                      categoryId={categoryIdByName[e.cat.toLowerCase()]}
                       onViewReceipt={() => openModal(<ReceiptViewModalContent e={e} />, true)}
-                      onApprove={() => handleApprove(e.id)}
-                      onReject={() => handleReject(e.id)}
                     />
                   ))
-                  : <tr><td colSpan={9} className="empty">No expenses recorded yet.</td></tr>}
+                  : <tr><td colSpan={8} className="empty">No expenses recorded yet.</td></tr>}
               </tbody>
             </table>
           </div>
@@ -604,7 +487,8 @@ export function Cash() {
             <button className="btn plain sm" disabled={expensesPage <= 1} onClick={() => setExpensesPage((p) => Math.max(1, p - 1))}>‹ Prev</button>
             <span style={{ fontSize: 12.5 }}>Page {expensesPage} of {expensesTotalPages}</span>
             <button className="btn plain sm" disabled={expensesPage >= expensesTotalPages} onClick={() => setExpensesPage((p) => Math.min(expensesTotalPages, p + 1))}>Next ›</button>
-            <span style={{ fontSize: 12.5, color: "var(--muted)" }}>Cash expenses automatically reflect in Cash-in-Hand calculations · receipt images attached to expense records</span>
+            <span style={{ fontSize: 12.5, color: "var(--muted)" }}></span>
+            <FooterTotals items={[{ label: "Total", value: expenseSum, color: "var(--red)" }]} />
           </div>
         </div>
       )}
@@ -616,15 +500,14 @@ export function Cash() {
             <div className="sp" />
             <span style={{ fontSize: 12.5, color: "var(--muted)" }}>
               Total profit {fmt(goldSales.reduce((s, g) => s + g.profit, 0))}
-            </span>
-          </div>
+            </span>          </div>
           <div className="tbl-wrap tbl-scroll">
             <table className="tbl tbl-center tbl-roomy">
-              <thead><tr><th>Date</th><th>Ornament Type</th><th className="num">Sold For</th><th className="num">Cost</th><th className="num">Profit / Loss</th><th>Branch</th><th>Remarks</th></tr></thead>
+              <thead><tr><th>Date</th><th>Ornament Type</th><th className="num">Sold For</th><th className="num">Cost</th><th className="num">Profit / Loss</th><th>Mode</th><th>Bank</th><th>Branch</th><th>Remarks</th></tr></thead>
               <tbody>
                 {goldSales.length
                   ? goldSales.map((g) => <GoldSaleRow key={g.id} g={g} />)
-                  : <tr><td colSpan={7} className="empty">No gold sales recorded yet. Use &quot;Gold Sale Amount&quot;.</td></tr>}
+                  : <tr><td colSpan={9} className="empty">No gold sales recorded yet. Use &quot;Add Cash&quot; with the Gold Sale source.</td></tr>}
               </tbody>
             </table>
           </div>
@@ -633,6 +516,11 @@ export function Cash() {
             <span style={{ fontSize: 12.5 }}>Page {goldSalesPage} of {goldSalesTotalPages}</span>
             <button className="btn plain sm" disabled={goldSalesPage >= goldSalesTotalPages} onClick={() => setGoldSalesPage((p) => Math.min(goldSalesTotalPages, p + 1))}>Next ›</button>
             <span style={{ fontSize: 12.5, color: "var(--muted)" }}>Sold amount automatically books into Cash-in-Hand as a cash-in movement</span>
+            <FooterTotals items={[
+              { label: "Total Sold", value: goldSaleSums.sold },
+              { label: "Total Cost", value: goldSaleSums.cost },
+              { label: "Total Profit", value: goldSaleSums.profit, color: goldSaleSums.profit >= 0 ? "var(--green)" : "var(--red)" },
+            ]} />
           </div>
         </div>
       )}

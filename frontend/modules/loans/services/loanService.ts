@@ -1655,6 +1655,7 @@ export type LoanRiskRow = {
   customerName: string;
   status: string;
   principalAmount: number;
+  outstandingAmount: number;
   totalNetWeight: number;
   currentGoldValue: number;
   riskLevel: LoanRiskLevel;

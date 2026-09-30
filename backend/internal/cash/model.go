@@ -57,6 +57,15 @@ type CashMovement struct {
 	BankID  *uint      `json:"bankId"`
 	BankRef *bank.Bank `json:"bankRef,omitempty" gorm:"foreignKey:BankID"`
 
+	// ToBankID is the destination account for a bank-to-bank transfer — the
+	// branch's own account that received the money BankID/Bank moved from
+	// (AddCashModal.tsx's "To Bank", offered alongside the existing "From
+	// Bank" picker when Mode is UPI/Bank Transfer). Nullable: most movements
+	// (plain cash, a single-bank UPI/transfer with no internal destination
+	// recorded) have none.
+	ToBankID  *uint      `json:"toBankId"`
+	ToBankRef *bank.Bank `json:"toBankRef,omitempty" gorm:"foreignKey:ToBankID"`
+
 	// PartyCustomerID links this movement to the customer it was actually
 	// collected from/paid to, when the recorder call already has one in
 	// hand (a loan/personal-loan/investment payment always does — the
@@ -65,6 +74,16 @@ type CashMovement struct {
 	// party has none.
 	PartyCustomerID *uint              `json:"partyCustomerId"`
 	PartyCustomer   *customer.Customer `json:"partyCustomer,omitempty" gorm:"foreignKey:PartyCustomerID"`
+
+	// ExpenseID links a cash-out row to the Expense it was booked for (see
+	// MovementService.RecordExpenseCashOut, called from ExpenseService.
+	// Approve). Nullable — most movements have no expense behind them.
+	// Rows with this set are excluded from Summary's Disbursements sum
+	// (MovementRepository.SumByTypeAndDate/SumBreakdownByDate) since the
+	// expense is already counted there via ExpenseRepository.SumCashByDate/
+	// SumAllByDate — this column exists purely to make the expense visible
+	// in the Cash Movements ledger table without double-counting it.
+	ExpenseID *uint `json:"expenseId"`
 
 	CreatedAt time.Time `json:"createdAt"`
 }
@@ -76,12 +95,20 @@ func (CashMovement) TableName() string {
 // Expense represents one expense-register entry.
 type Expense struct {
 	platform.TenantScoped
-	ID           uint          `json:"id" gorm:"primaryKey"`
-	OccurredOn   time.Time     `json:"occurredOn" gorm:"not null"`
-	Category     string        `json:"category" gorm:"not null;size:80"`
-	Amount       float64       `json:"amount" gorm:"not null;type:numeric(16,2)"`
-	Mode         string        `json:"mode" gorm:"not null;size:20"`
-	Payee        string        `json:"payee" gorm:"not null;size:120"`
+	ID         uint      `json:"id" gorm:"primaryKey"`
+	OccurredOn time.Time `json:"occurredOn" gorm:"not null"`
+	Category   string    `json:"category" gorm:"not null;size:80"`
+	Amount     float64   `json:"amount" gorm:"not null;type:numeric(16,2)"`
+	Mode       string    `json:"mode" gorm:"not null;size:20"`
+	Payee      string    `json:"payee" gorm:"not null;size:120"`
+	// FromBankID/ToBankID record an internal transfer between two of the
+	// branch's own bank accounts when this expense's Mode is UPI/Bank —
+	// ExpenseModal.tsx's "From Bank"/"To Bank" pickers. Nullable: a Cash-mode
+	// expense has neither.
+	FromBankID   *uint         `json:"fromBankId"`
+	FromBank     *bank.Bank    `json:"fromBank,omitempty" gorm:"foreignKey:FromBankID"`
+	ToBankID     *uint         `json:"toBankId"`
+	ToBank       *bank.Bank    `json:"toBank,omitempty" gorm:"foreignKey:ToBankID"`
 	BranchID     uint          `json:"branchId" gorm:"not null"`
 	Branch       branch.Branch `json:"branch" gorm:"foreignKey:BranchID"`
 	Status       string        `json:"status" gorm:"not null;size:20;default:Pending"` // "Pending" | "Approved" | "Rejected"
@@ -89,22 +116,38 @@ type Expense struct {
 	ApprovedBy   *string       `json:"approvedBy,omitempty" gorm:"size:120"`
 	ApprovedAt   *time.Time    `json:"approvedAt,omitempty"`
 	ReceiptImage string        `json:"receiptImage,omitempty" gorm:"type:text"` // /uploads/... URL from the upload module (see internal/upload)
-	CreatedAt    time.Time     `json:"createdAt"`
+	// CashMovementID is set once this expense is Approved (see
+	// ExpenseService.Approve / MovementService.RecordExpenseCashOut) — the
+	// cash-out row that made this expense visible in the Cash Movements
+	// ledger table. Nil for Pending/Rejected expenses, which never move cash.
+	CashMovementID *uint     `json:"cashMovementId,omitempty"`
+	CreatedAt      time.Time `json:"createdAt"`
 }
 
 func (Expense) TableName() string {
 	return "expenses"
 }
 
-// OpeningCashBalance records the opening cash-in-hand figure entered by
-// authorized staff at the start of a day, per branch. One row per
-// (branch, date) — see OpeningBalanceRepository.Upsert.
+// OpeningCashBalance records an opening balance entered by authorized staff
+// at the start of a day, per branch and payment mode. Mode "Cash" is the
+// till's cash in hand (the only one Summary/ExpectedCash uses); UPI/Bank
+// Transfer/Cheque rows are the opening balance of one of the branch's bank
+// accounts, so they carry a BankID. One row per (branch, date, mode, bank) —
+// unique index created in EnsureOpeningBalanceModeIndex, not a struct tag,
+// because it needs COALESCE(bank_id, 0) so Cash rows (no bank) still collide.
+// BankID is the "to" bank — the account the balance sits in, and the one the
+// row is keyed on; FromBankID records the bank the funds came from.
 type OpeningCashBalance struct {
 	platform.TenantScoped
 	ID          uint          `json:"id" gorm:"primaryKey"`
-	BranchID    uint          `json:"branchId" gorm:"not null;uniqueIndex:idx_branch_date"`
+	BranchID    uint          `json:"branchId" gorm:"not null;index"`
 	Branch      branch.Branch `json:"branch" gorm:"foreignKey:BranchID"`
-	BalanceDate time.Time     `json:"balanceDate" gorm:"not null;uniqueIndex:idx_branch_date"`
+	BalanceDate time.Time     `json:"balanceDate" gorm:"not null;index"`
+	Mode        string        `json:"mode" gorm:"not null;size:20;default:Cash"`
+	BankID      *uint         `json:"bankId"`
+	Bank        *bank.Bank    `json:"bank,omitempty" gorm:"foreignKey:BankID"`
+	FromBankID  *uint         `json:"fromBankId"`
+	FromBank    *bank.Bank    `json:"fromBank,omitempty" gorm:"foreignKey:FromBankID"`
 	Amount      float64       `json:"amount" gorm:"not null;type:numeric(16,2)"`
 	CreatedAt   time.Time     `json:"createdAt"`
 
