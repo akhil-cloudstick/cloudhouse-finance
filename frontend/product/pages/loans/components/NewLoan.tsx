@@ -31,13 +31,13 @@ import { getLocker, searchLockersPage, type LockerView } from "@/product/pages/l
 import { SearchableSelect } from "@/product/components/ui/SearchableSelect";
 import { StatusChip } from "@/product/components/ui/StatusChip";
 import { PurityPicker } from "@/product/components/ui/PurityPicker";
-import { rateForPurityString } from "@/product/utils/purity";
+import { rateForPurityFull } from "@/product/utils/purity";
 import { makeEnterToSubmitHandler } from "@/product/utils/enterToSubmit";
+import { ApiError } from "@/product/services/httpClient";
 import { openPrintWindow, brandHeader } from "@/product/utils/print";
 import { printColors, tenantLenderProfile } from "@/product/config/brand";
 import { bondLangOptionsFor, type BondLang } from "@/product/pages/loans/utils/indemnityBond";
 import { useBranding } from "@/product/providers/BrandingProvider";
-import { ApiError } from "@/product/services/httpClient";
 import type { Ornament } from "@/product/utils/data";
 import { navigate } from "@/product/services/appRoutes";
 
@@ -60,6 +60,13 @@ import { navigate } from "@/product/services/appRoutes";
 // NetWeight × rate with no quantity factor — this frontend calc was the
 // one out of step, not the backend.
 type OrnRow = { n: string; p: string; w: number; lessWt: number; netW: number; q: number; img?: string; imgName?: string };
+
+// A focused <input type="number"> steps its value on mouse-wheel scroll, so
+// scrolling the page past a weight/qty field silently changes it. Dropping
+// focus makes the wheel scroll the page instead.
+function blurOnWheel(e: React.WheelEvent<HTMLInputElement>) {
+  e.currentTarget.blur();
+}
 
 /* Ported from legacy/app.js's `renderNewLoan()` (legacy/app.js:845-1151).
  * Customer/scheme/ornament-type pickers now hit the real backend search
@@ -236,7 +243,11 @@ export function NewLoan() {
 
   const sch = (schemeObj && schemeObj.id === schemeId) ? schemeObj : schemes.find((s) => s.id === schemeId);
 
-  const rowVals = rows.map((r) => r.netW * (rateForPurityString(rates.k24, r.p) ?? 0));
+  // rateForPurityFull, not the K24-only derivation: the backend values an
+  // exact 22K/18K ornament at its independently published K22/K18 rate, and
+  // rejects a principal above ITS eligible amount — so the preview here must
+  // use the same rate or it offers an amount the server then refuses.
+  const rowVals = rows.map((r) => r.netW * (rateForPurityFull(rates, r.p) ?? 0));
   const totalWeight = rows.reduce((s, r) => s + r.netW, 0);
   const totalGross = rowVals.reduce((s, v) => s + v, 0);
   const eligible = sch ? (totalGross * sch.ltv) / 100 : 0;
@@ -426,18 +437,45 @@ export function NewLoan() {
 
   async function saveDraftNow() {
     if (branchId === "") { toast("Please select a branch before saving a draft"); return; }
+    // A draft with nothing entered would just be an empty row in "Saved
+    // drafts". Blank ornament rows (just added, nothing typed) don't count.
+    const hasOrnamentDetail = rows.some((r) => r.n.trim() || r.w > 0 || r.img);
+    if (!custId && !schemeId && lockerId === "" && !hasOrnamentDetail) {
+      toast("Enter some loan details before saving a draft");
+      return;
+    }
     setSavingDraft(true);
     try {
       const input = buildDraftInput();
-      const saved = draftId ? await updateDraft(draftId, input) : await saveDraft(input);
-      setDraftId(saved.id);
+      if (draftId) await updateDraft(draftId, input); else await saveDraft(input);
       await loadDrafts();
       toast(draftId ? "Draft updated" : "Draft saved — reopen it from “Saved drafts” below");
+      // The draft is safely stored, so hand back a blank form — otherwise
+      // draftId stays set and every later "Save Draft" just overwrites this
+      // one, leaving no way to start another draft short of a page refresh.
+      resetForm();
     } catch (e) {
       toast(e instanceof ApiError ? e.message : "Could not save draft — try again");
     } finally {
       setSavingDraft(false);
     }
+  }
+
+  // Returns the form to its freshly-loaded state. Branch is kept — it's
+  // preset on load (and locked for non-admins), not something staff pick per loan.
+  function resetForm() {
+    setDraftId(null);
+    setCustId("");
+    setCustLabel("");
+    setSchemeId("");
+    setSchemeObj(null);
+    setSchemeLabel("");
+    setLockerId("");
+    setLockerLabel("");
+    setRows([]);
+    setPrincipalOverride("");
+    setPrincipalExceedsEligible(false);
+    setAdditionalInfo("");
   }
 
   // Reopens a saved draft into the form. Labels for the pickers come from the
@@ -605,7 +643,7 @@ export function NewLoan() {
           <div style={{ display: "flex", alignItems: "center", gap: 8, color: "var(--red)" }}>
             <Icon name="warning" /> <b>Today&apos;s gold rate must be set before creating a loan.</b>
           </div>
-          <div className="frow"><div><label className="f">24K · 999 (₹/g)</label><input className="inp" type="number" value={rateR24} onChange={(e) => setRateR24(e.target.value)} /></div></div>
+          <div className="frow"><div><label className="f">24K · 999 (₹/g)</label><input className="inp" type="number" onWheel={blurOnWheel} value={rateR24} onChange={(e) => setRateR24(e.target.value)} /></div></div>
           <p style={{ fontSize: 12, color: "var(--muted)", margin: 0 }}>
             Only the 24K benchmark needs to be set — other purities are resolved per-ornament when pledged.
           </p>
@@ -677,7 +715,11 @@ export function NewLoan() {
                   search like Customer/Scheme above. */}
               <SearchableSelect<BranchView>
                 value={branchLabel}
-                onChange={(id, item) => { setBranchId(+id); setBranchLabel(item.name); }}
+                onChange={(id, item) => {
+                  // A picked locker belongs to the old branch — drop it.
+                  if (+id !== branchId) { setLockerId(""); setLockerLabel(""); }
+                  setBranchId(+id); setBranchLabel(item.name);
+                }}
                 fetchFn={searchBranchesLocal}
                 getLabel={(b) => b.name}
                 getId={(b) => String(b.id)}
@@ -685,7 +727,11 @@ export function NewLoan() {
                 disabled={!isAdmin}
               /></div>
             <div><label className="f">Locker / Storage</label>
+              {/* key={branchId}: SearchableSelect caches results per search
+                * term, so without remounting it kept showing the previous
+                * branch's lockers after the branch changed. */}
               <SearchableSelect<LockerView>
+                key={branchId}
                 value={lockerLabel}
                 onChange={(id, item) => { setLockerId(+id); setLockerLabel(`${item.code} — ${item.branchName} (${item.occupied}/${item.capacity} packets)`); }}
                 fetchFn={searchLockers}
@@ -804,14 +850,14 @@ export function NewLoan() {
                       onCreate={createOrnamentType}
                     />
                   </td>
-                  <td style={{ paddingRight: 4 }}><input className="inp" style={{ padding: "6px 8px", width: "100%", minWidth: 32, height: 31, textAlign: "center", boxSizing: "border-box" }} type="number" min={0} placeholder="Qty" value={r.q === 0 ? "" : r.q} onChange={(e) => updOrn(i, "q", e.target.value === "" ? 0 : Math.max(0, +e.target.value || 0))} /></td>
+                  <td style={{ paddingRight: 4 }}><input className="inp" style={{ padding: "6px 8px", width: "100%", minWidth: 32, height: 31, textAlign: "center", boxSizing: "border-box" }} type="number" onWheel={blurOnWheel} min={0} placeholder="Qty" value={r.q === 0 ? "" : r.q} onChange={(e) => updOrn(i, "q", e.target.value === "" ? 0 : Math.max(0, +e.target.value || 0))} /></td>
                   <td style={{ paddingLeft: 4 }}><PurityPicker value={r.p} onChange={(v) => updOrn(i, "p", v)} dropdownMinWidth={0} /></td>
-                  <td className="num" style={{ paddingRight: 8 }}><input className="inp" style={{ padding: "6px 8px", width: "100%", minWidth: 68, height: 31, textAlign: "right", boxSizing: "border-box" }} type="number" min={0} placeholder="0.0gm" value={r.w === 0 ? "" : r.w} onChange={(e) => updOrn(i, "w", e.target.value === "" ? 0 : Math.max(0, +e.target.value || 0))} /></td>
-                  <td className="num" style={{ paddingLeft: 8, paddingRight: 8 }}><input className="inp" style={{ padding: "6px 8px", width: "100%", minWidth: 68, height: 31, textAlign: "right", boxSizing: "border-box" }} type="number" min={0} max={r.w || undefined} placeholder="0.0gm" value={r.lessWt === 0 ? "" : r.lessWt} onChange={(e) => updOrn(i, "lessWt", e.target.value === "" ? 0 : Math.max(0, +e.target.value || 0))} /></td>
+                  <td className="num" style={{ paddingRight: 8 }}><input className="inp" style={{ padding: "6px 8px", width: "100%", minWidth: 68, height: 31, textAlign: "right", boxSizing: "border-box" }} type="number" onWheel={blurOnWheel} min={0} placeholder="0.0gm" value={r.w === 0 ? "" : r.w} onChange={(e) => updOrn(i, "w", e.target.value === "" ? 0 : Math.max(0, +e.target.value || 0))} /></td>
+                  <td className="num" style={{ paddingLeft: 8, paddingRight: 8 }}><input className="inp" style={{ padding: "6px 8px", width: "100%", minWidth: 68, height: 31, textAlign: "right", boxSizing: "border-box" }} type="number" onWheel={blurOnWheel} min={0} max={r.w || undefined} placeholder="0.0gm" value={r.lessWt === 0 ? "" : r.lessWt} onChange={(e) => updOrn(i, "lessWt", e.target.value === "" ? 0 : Math.max(0, +e.target.value || 0))} /></td>
                   {/* Net Wt is directly editable — editing it derives Less
                       Wt instead (see updOrn); Gross Wt never changes as a
                       side effect. */}
-                  <td className="num" style={{ paddingLeft: 8 }}><input className="inp" style={{ padding: "6px 8px", width: "100%", minWidth: 68, height: 31, textAlign: "right", boxSizing: "border-box" }} type="number" min={0} max={r.w || undefined} placeholder="0.0gm" value={r.netW === 0 ? "" : r.netW} onChange={(e) => updOrn(i, "netW", e.target.value === "" ? 0 : Math.max(0, +e.target.value || 0))} /></td>
+                  <td className="num" style={{ paddingLeft: 8 }}><input className="inp" style={{ padding: "6px 8px", width: "100%", minWidth: 68, height: 31, textAlign: "right", boxSizing: "border-box" }} type="number" onWheel={blurOnWheel} min={0} max={r.w || undefined} placeholder="0.0gm" value={r.netW === 0 ? "" : r.netW} onChange={(e) => updOrn(i, "netW", e.target.value === "" ? 0 : Math.max(0, +e.target.value || 0))} /></td>
                   <td className="num" style={{ textAlign: "center", paddingLeft: 6, paddingRight: 2 }}>{fmt(rowVals[i])}</td>
                   <td style={{ textAlign: "left", whiteSpace: "nowrap", paddingLeft: 6, paddingRight: 2 }}>
                     <input type="file" accept="image/*" ref={(el) => { fileRefs.current[i] = el; }} style={{ display: "none" }} onChange={(e) => ornImgPicked(i, e.target)} />
@@ -864,7 +910,7 @@ export function NewLoan() {
                       weight fields) to match the table view's column order. */}
                   <div style={{ width: 60, flexShrink: 0 }}>
                     <label className="f">Qty</label>
-                    <input className="inp" style={{ padding: "6px 8px", width: "100%", height: 31, boxSizing: "border-box", textAlign: "center" }} type="number" min={0} placeholder="Qty" value={r.q === 0 ? "" : r.q} onChange={(e) => updOrn(i, "q", e.target.value === "" ? 0 : Math.max(0, +e.target.value || 0))} />
+                    <input className="inp" style={{ padding: "6px 8px", width: "100%", height: 31, boxSizing: "border-box", textAlign: "center" }} type="number" onWheel={blurOnWheel} min={0} placeholder="Qty" value={r.q === 0 ? "" : r.q} onChange={(e) => updOrn(i, "q", e.target.value === "" ? 0 : Math.max(0, +e.target.value || 0))} />
                   </div>
                   <button className="btn danger sm" style={{ height: 31, width: 31, padding: 0, marginTop: 20, flexShrink: 0, display: "inline-flex", alignItems: "center", justifyContent: "center" }} title="Remove ornament" onClick={() => delOrnRow(i)}>✕</button>
                 </div>
@@ -875,16 +921,16 @@ export function NewLoan() {
                 <div className="orn-card-row" style={{ flexWrap: "wrap" }}>
                   <div style={{ flex: 1, minWidth: 90 }}>
                     <label className="f">Gross Wt (g)</label>
-                    <input className="inp" style={{ padding: "6px 8px", width: "100%", height: 31, boxSizing: "border-box" }} type="number" min={0} placeholder="0.00 " value={r.w === 0 ? "" : r.w} onChange={(e) => updOrn(i, "w", e.target.value === "" ? 0 : Math.max(0, +e.target.value || 0))} />
+                    <input className="inp" style={{ padding: "6px 8px", width: "100%", height: 31, boxSizing: "border-box" }} type="number" onWheel={blurOnWheel} min={0} placeholder="0.00 " value={r.w === 0 ? "" : r.w} onChange={(e) => updOrn(i, "w", e.target.value === "" ? 0 : Math.max(0, +e.target.value || 0))} />
                   </div>
                   <div style={{ flex: 1, minWidth: 90 }}>
                     <label className="f">Less Wt (g)</label>
-                    <input className="inp" style={{ padding: "6px 8px", width: "100%", height: 31, boxSizing: "border-box" }} type="number" min={0} max={r.w || undefined} placeholder="0.00 " value={r.lessWt === 0 ? "" : r.lessWt} onChange={(e) => updOrn(i, "lessWt", e.target.value === "" ? 0 : Math.max(0, +e.target.value || 0))} />
+                    <input className="inp" style={{ padding: "6px 8px", width: "100%", height: 31, boxSizing: "border-box" }} type="number" onWheel={blurOnWheel} min={0} max={r.w || undefined} placeholder="0.00 " value={r.lessWt === 0 ? "" : r.lessWt} onChange={(e) => updOrn(i, "lessWt", e.target.value === "" ? 0 : Math.max(0, +e.target.value || 0))} />
                   </div>
                   <div style={{ flex: 1, minWidth: 90 }}>
                     <label className="f">Net Wt (g)</label>
                     {/* Editable — editing derives Less Wt instead, see updOrn. */}
-                    <input className="inp" style={{ padding: "6px 8px", width: "100%", height: 31, boxSizing: "border-box" }} type="number" min={0} max={r.w || undefined} placeholder="0.00 " value={r.netW === 0 ? "" : r.netW} onChange={(e) => updOrn(i, "netW", e.target.value === "" ? 0 : Math.max(0, +e.target.value || 0))} />
+                    <input className="inp" style={{ padding: "6px 8px", width: "100%", height: 31, boxSizing: "border-box" }} type="number" onWheel={blurOnWheel} min={0} max={r.w || undefined} placeholder="0.00 " value={r.netW === 0 ? "" : r.netW} onChange={(e) => updOrn(i, "netW", e.target.value === "" ? 0 : Math.max(0, +e.target.value || 0))} />
                   </div>
                 </div>
                 {/* Value/Photo are a tighter-knit summary pair than the

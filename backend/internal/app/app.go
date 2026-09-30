@@ -235,7 +235,7 @@ func Build(db *gorm.DB, cfg platform.Config) (*App, error) {
 	movementSvc := cash.NewMovementService(movementRepo, expenseRepo, branchRepo, loanCashSourceRepo)
 	movementHandler := cash.NewMovementHandler(movementSvc)
 
-	expenseSvc := cash.NewExpenseService(expenseRepo, branchRepo)
+	expenseSvc := cash.NewExpenseService(expenseRepo, branchRepo, movementSvc)
 	expenseHandler := cash.NewExpenseHandler(expenseSvc)
 
 	cashSourceRepo := cash.NewCashSourceRepository(pinned)
@@ -252,6 +252,8 @@ func Build(db *gorm.DB, cfg platform.Config) (*App, error) {
 
 	summarySvc := cash.NewSummaryService(movementRepo, expenseRepo, openingBalanceSvc)
 	summaryHandler := cash.NewSummaryHandler(summarySvc)
+	// Cash-mode expenses can't exceed Balance in Hand.
+	expenseSvc.SetSummaryService(summarySvc)
 
 	goldSaleRepo := cash.NewGoldSaleRepository(pinned)
 	goldSaleSvc := cash.NewGoldSaleService(goldSaleRepo, movementSvc, branchRepo)
@@ -339,6 +341,8 @@ func Build(db *gorm.DB, cfg platform.Config) (*App, error) {
 	notificationHandler := notification.NewHandler(notificationSvc, realtimeHub)
 
 	loanSvc := loan.NewService(pinned, loanRepo, loanOrnamentRepo, loanApprovalRepo, loanPaymentRepo, loanPledgeRepo, loanRequestRepo, requestApprovalRepo, loanAuctionRepo, loanApprovalLimitRepo, branchRepo, customerRepo, schemeRepo, goldRateRepo, packetSvc, packetSvc, movementSvc, notificationSvc, whatsappSender, commlogRepo, esignClient, cfg.UploadsDir, uploadRepo, tenantRepo, razorpayClient, aadhaarCipher, authzRepo)
+	// Disbursement, top-up and bank-pledge release can't exceed Balance in Hand.
+	loanSvc.SetCashBalanceGuard(summarySvc)
 	loanHandler := loan.NewHandler(loanSvc)
 
 	// customer hard-delete needs loan hard-delete, and loan already imports
@@ -348,6 +352,7 @@ func Build(db *gorm.DB, cfg platform.Config) (*App, error) {
 
 	personalLoanRepo := personalloan.NewRepository(pinned)
 	personalLoanSvc := personalloan.NewService(personalLoanRepo, customerRepo, movementSvc, aadhaarCipher)
+	personalLoanSvc.SetCashBalanceGuard(summarySvc)
 	personalLoanHandler := personalloan.NewHandler(personalLoanSvc)
 
 	investmentRepo := investment.NewRepository(pinned)

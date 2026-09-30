@@ -1,32 +1,30 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Icon } from "@/product/components/Icon";
 import { useAuth } from "@/product/providers/auth-context";
 import { useModal } from "@/product/components/Modal";
 import { ApiError } from "@/product/services/httpClient";
-import { useIsSmallScreen, useResponsivePageSize } from "@/product/utils/responsive";
+import { useIsSmallScreen } from "@/product/utils/responsive";
 import { listInvestmentsPage, type BackendInvestment, type InvestmentStatus } from "@/product/pages/investments/services/investmentService";
 import { InvestmentRow } from "@/product/pages/investments/components/InvestmentRow";
 import { NewInvestmentModalContent } from "@/product/pages/investments/components/NewInvestmentModal";
 import { InvestmentPlansModalContent } from "@/product/pages/investments/components/InvestmentPlansModal";
 
 const STATUSES: ("All" | InvestmentStatus)[] = ["All", "Active", "Matured", "Closed", "Renewed"];
+const PAGE_SIZE = 10;
 
 /* Investments list — investor deposits managed separately from borrower
  * loans (see backend/internal/investment's package doc). Search (investment
  * # or investor name) and the status filter are both server-side (GET
- * /investments?q=&status=&limit=&offset=), table paginated 10 (7 on a small
- * screen) rows at a time, using the backend's real `total` row count for
- * "Page N of M" — mirrors personal-loans/components/PersonalLoans.tsx
- * exactly. */
+ * /investments?q=&status=&limit=&offset=). Scroll-paginated: 10 rows at a
+ * time, the next 10 fetched as the table is scrolled to its end. */
 export function Investments() {
   const { can } = useAuth();
   const { openModal, closeModal } = useModal();
   const canCreate = can("Investment_Management", "can_create_investment");
   const canUpdate = can("Investment_Management", "can_update_investment");
   const smallScreen = useIsSmallScreen();
-  const pageSize = useResponsivePageSize(15, 15);
 
   const [status, setStatus] = useState<"All" | InvestmentStatus>("All");
   const [q, setQ] = useState("");
@@ -35,40 +33,68 @@ export function Investments() {
   const [hasMore, setHasMore] = useState(false);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState("");
+  const [reloadKey, setReloadKey] = useState(0);
+  const wrapRef = useRef<HTMLDivElement>(null);
 
-  useEffect(() => { setPage(1); }, [status, q, pageSize]);
+  // A new filter/search restarts from page 1 (search debounced). Skipped on
+  // mount — the fetch effect below already loads page 1 then.
+  const mounted = useRef(false);
+  useEffect(() => {
+    if (!mounted.current) { mounted.current = true; return; }
+    const handle = setTimeout(() => { setPage(1); setReloadKey((k) => k + 1); }, q ? 300 : 0);
+    return () => clearTimeout(handle);
+  }, [status, q]);
 
-  const refresh = useCallback(async () => {
-    setLoading(true);
+  // Page 1 replaces the rows (new filter/search, or a reload); every later
+  // page appends — scrolling to the end of the table fetches the next 10.
+  const fetchPage = useCallback(async (p: number) => {
+    if (p === 1) setLoading(true); else setLoadingMore(true);
     setError("");
     try {
-      const res = await listInvestmentsPage({ page, q: q.trim() || undefined, status, pageSize });
-      setInvestments(res?.items || []);
+      const res = await listInvestmentsPage({ page: p, q: q.trim() || undefined, status, pageSize: PAGE_SIZE });
+      const items = res?.items || [];
+      setInvestments((prev) => (p === 1 ? items : [...prev, ...items]));
+      if (p === 1 && wrapRef.current) wrapRef.current.scrollTop = 0;
       setHasMore(!!res?.hasMore);
       setTotal(res?.total || 0);
     } catch (e) {
       setError(e instanceof ApiError ? e.message : "Could not load investments.");
     } finally {
       setLoading(false);
+      setLoadingMore(false);
     }
-  }, [page, q, status, pageSize]);
+  }, [q, status]);
 
   useEffect(() => {
-    const handle = setTimeout(() => void refresh(), q ? 300 : 0);
-    return () => clearTimeout(handle);
+    void fetchPage(page);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [page, status, q, pageSize]);
+  }, [page, reloadKey]);
 
-  const knownTotal = total > 0;
-  const totalPages = knownTotal ? Math.max(1, Math.ceil(total / pageSize)) : (hasMore ? page + 1 : page);
-  const nextDisabled = knownTotal ? page >= totalPages : !hasMore;
+  const refresh = () => { setPage(1); setReloadKey((k) => k + 1); };
+
+  function loadNextPage() {
+    if (hasMore && !loading && !loadingMore) setPage((p) => p + 1);
+  }
+
+  function onWrapScroll() {
+    const el = wrapRef.current;
+    if (el && el.scrollHeight - el.scrollTop - el.clientHeight < 48) loadNextPage();
+  }
+
+  // A batch too short to overflow the table never fires onScroll, so keep
+  // loading until the rows actually scroll or the server runs out.
+  useEffect(() => {
+    const el = wrapRef.current;
+    if (el && el.scrollHeight <= el.clientHeight) loadNextPage();
+  }, [investments, hasMore, loading, loadingMore]); // eslint-disable-line react-hooks/exhaustive-deps
 
   function openNewInvestment() {
-    openModal(<NewInvestmentModalContent onSaved={() => { closeModal(); setPage(1); void refresh(); }} />);
+    openModal(<NewInvestmentModalContent onSaved={() => { closeModal(); refresh(); }} />);
   }
   function openPlans() {
-    openModal(<InvestmentPlansModalContent onChanged={() => void refresh()} />, true);
+    openModal(<InvestmentPlansModalContent onChanged={refresh} />, true);
   }
 
   return (
@@ -93,7 +119,7 @@ export function Investments() {
         * the shape that class exists for — without it the footer falls back
         * to the sticky-overlay behavior and the card doesn't size to its own
         * rows, which is why this table sat differently to Loans'. */}
-      <div className="card tbl-card tbl-card-fill"><div className="tbl-wrap tbl-scroll"><table className="tbl tbl-center">
+      <div className="card tbl-card tbl-card-fill"><div className="tbl-wrap tbl-scroll" ref={wrapRef} onScroll={onWrapScroll}><table className="tbl tbl-center">
         <thead><tr><th>Investment / Investor</th><th className="num">Principal</th><th>Rate</th><th>Maturity</th><th>Status</th></tr></thead>
         <tbody>
           {loading ? (
@@ -101,12 +127,11 @@ export function Investments() {
           ) : investments.length === 0 ? (
             <tr><td colSpan={5} className="empty">No investments in this category.</td></tr>
           ) : investments.map((i) => <InvestmentRow investment={i} key={i.id} />)}
+          {loadingMore && <tr><td colSpan={5} className="empty compact">Loading more…</td></tr>}
         </tbody>
       </table></div>
-      <div className="ft" style={{ display: "flex", alignItems: "center", gap: 10 }}>
-        <button className="btn plain sm" disabled={page <= 1} onClick={() => setPage((p) => Math.max(1, p - 1))}>‹ Prev</button>
-        <span style={{ fontSize: 12.5 }}>Page {page} of {totalPages}</span>
-        <button className="btn plain sm" disabled={nextDisabled} onClick={() => setPage((p) => (knownTotal ? Math.min(totalPages, p + 1) : p + 1))}>Next ›</button>
+      <div className="ft" style={{ fontSize: 12.5, color: "var(--muted)" }}>
+        Showing {investments.length} of {total || investments.length}{hasMore ? " — scroll for more" : ""}
       </div>
       </div>
     </>

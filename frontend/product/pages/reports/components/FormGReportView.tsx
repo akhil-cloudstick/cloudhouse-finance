@@ -119,10 +119,10 @@ export function FormGReportView({ onBack }: { onBack: () => void }) {
         </div>
         <div className="sp" />
         <button className="btn ghost" disabled={exporting !== null} onClick={() => handleExport("xlsx")}>
-          <Icon name="doc" /> {exporting === "xlsx" ? "Exporting…" : "Export Excel"}
+          <Icon name="download" /> {exporting === "xlsx" ? "Exporting…" : "Export Excel"}
         </button>
         <button className="btn" disabled={exporting !== null} onClick={() => handleExport("pdf")}>
-          <Icon name="doc" /> {exporting === "pdf" ? "Exporting…" : "Export PDF"}
+          <Icon name="download" /> {exporting === "pdf" ? "Exporting…" : "Export PDF"}
         </button>
       </div>
       <hr className="gold-rule" />

@@ -169,6 +169,7 @@ export function FilterPanel({
   value,
   onChange,
   hideChips,
+  size = "sm",
 }: {
   categories: FilterCategory[];
   value: FilterValue;
@@ -178,6 +179,9 @@ export function FilterPanel({
   // row alongside it. Used where the chip row would crowd a tight table
   // header (e.g. CustomerDetail.tsx's Ledger tab).
   hideChips?: boolean;
+  // "sm" (default) suits a card header; "md" matches full-size page-header
+  // buttons beside it (e.g. LedgerExportView's Export PDF / Export XL).
+  size?: "sm" | "md";
 }) {
   const [open, setOpen] = useState(false);
   const [activeKey, setActiveKey] = useState(categories[0]?.key || "");
@@ -296,7 +300,7 @@ export function FilterPanel({
   return (
     <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 8, minWidth: 0 }}>
       <div className="dp" ref={boxRef}>
-        <button type="button" className="btn ghost sm" onClick={() => setOpen((o) => !o)} title="Filters" aria-label="Filters">
+        <button type="button" className={size === "sm" ? "btn ghost sm" : "btn ghost"} onClick={() => setOpen((o) => !o)} title="Filters" aria-label="Filters">
           <Icon name="filter" />
           {activeCount > 0 && <span className="filter-badge">{activeCount}</span>}
         </button>

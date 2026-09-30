@@ -30,8 +30,8 @@ export function MergeBankModalContent({ source, banks, onSaved }: { source: Back
     try {
       await mergeBanks(source.id, target.id);
       toast(`"${source.name}" merged into "${target.name}"`);
-      onSaved();
       closeModal();
+      onSaved();
     } catch (e) {
       setErr(e instanceof ApiError ? e.message : "Failed to merge banks.");
     } finally {

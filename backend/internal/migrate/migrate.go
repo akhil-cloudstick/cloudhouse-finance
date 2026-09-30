@@ -104,6 +104,12 @@ func Run(db *gorm.DB, cfg platform.Config) error {
 		return err
 	}
 
+	// opening_cash_balances became per-mode. See
+	// cash.PrepareOpeningBalanceMode - must run BEFORE AutoMigrate.
+	if err := cash.PrepareOpeningBalanceMode(db); err != nil {
+		return err
+	}
+
 	// personal_loans grew a NOT NULL full_disbursement column after it
 	// shipped — same AutoMigrate limitation as gold_sales above. See
 	// personalloan.BackfillFullDisbursementColumn - must run BEFORE
@@ -142,6 +148,18 @@ func Run(db *gorm.DB, cfg platform.Config) error {
 	}
 
 	if err := scheme.DropLegacyDateColumns(db); err != nil {
+		return err
+	}
+
+	if err := cash.EnsureOpeningBalanceModeIndex(db); err != nil {
+		return err
+	}
+
+	if err := cash.BackfillInvestmentDepositParty(db); err != nil {
+		return err
+	}
+
+	if err := cash.BackfillGoldPurchaseCostMode(db); err != nil {
 		return err
 	}
 

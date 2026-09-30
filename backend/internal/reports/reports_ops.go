@@ -29,6 +29,9 @@ func (s *Service) ExpenseCashflow(ctx context.Context, f Filter) ([]ExpenseCashf
 			COALESCE(sum(m.amount), 0) as amount`).
 		Joins("LEFT JOIN branches b ON b.id = m.branch_id").
 		Where("m.occurred_on >= ? AND m.occurred_on < ?", from, to).
+		// An approved expense's own cash-out row — the expenses query below
+		// already counts it.
+		Where("m.expense_id IS NULL").
 		Group("date(m.occurred_on), b.name, m.branch_id, m.type")
 	if f.BranchID != nil {
 		mq = mq.Where("m.branch_id = ?", *f.BranchID)

@@ -82,8 +82,7 @@ const ROUTE_PERMISSIONS: Record<string, { module: string | null; key?: string; t
   // see there, not a new resource) rather than a new permission.
   "ledger-bank": { module: "Cash_Management", key: "can_view_cash" },
   "ledger-customer": { module: "Cash_Management", key: "can_view_cash" },
-  "party-category": { module: "Cash_Management", key: "can_view_cash" },
-  "cash-ledger": { module: "Cash_Management", key: "can_view_cash" },
+  "party-category": { module: "Cash_Management", key: "can_view_cash" },  "cash-ledger": { module: "Cash_Management", key: "can_view_cash" },
   "upi-ledger": { module: "Cash_Management", key: "can_view_cash" },
   "bank-transfer-ledger": { module: "Cash_Management", key: "can_view_cash" },
   "cheque-ledger": { module: "Cash_Management", key: "can_view_cash" },
@@ -192,8 +191,7 @@ function View({ route, arg }: { route: string; arg?: string }) {
     case "ledger-customer":
       return <PartyLedger kind="customer" id={arg} />;
     case "party-category":
-      return <PartyLedger kind="category" id={arg} />;
-    case "cash-ledger":
+      return <PartyLedger kind="category" id={arg} />;    case "cash-ledger":
       return <ModeLedgerPage mode="Cash" />;
     case "upi-ledger":
       return <ModeLedgerPage mode="UPI" />;

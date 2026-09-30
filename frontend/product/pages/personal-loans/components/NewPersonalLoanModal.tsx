@@ -14,6 +14,7 @@ import {
   type Frequency,
   type InterestType,
 } from "@/product/pages/personal-loans/services/personalLoanService";
+import { useBalanceInHand } from "@/product/hooks/useBalanceInHand";
 
 /* Client-side mirror of backend/internal/personalloan/service.go's
  * computeInterest — used only to render a live preview before submit; the
@@ -73,9 +74,13 @@ export function NewPersonalLoanModalContent({ onSaved }: { onSaved: () => void }
     ? Math.round((principalNum + interestAmount) * 100) / 100
     : principalNum;
   const installmentAmount = tenureNum > 0 ? Math.round((obligation / tenureNum) * 100) / 100 : 0;
+  // Disbursement is blocked until the branch has enough balance in hand.
+  const balanceInHand = useBalanceInHand(customerBranchId);
+  const insufficient = balanceInHand !== null && disbursedAmount > balanceInHand + 0.005;
 
   async function save() {
     if (!customerId || !customerBranchId) { setErr("Please select a customer."); return; }
+    if (insufficient) { setErr("Insufficient balance in hand to disburse this loan."); return; }
     if (!principalNum || principalNum <= 0) { setErr("Please enter the principal amount."); return; }
     if (!tenureNum || tenureNum <= 0) { setErr("Please enter the number of installments."); return; }
     if (interestValueNum < 0) { setErr("Interest value must not be negative."); return; }
@@ -193,12 +198,18 @@ export function NewPersonalLoanModalContent({ onSaved }: { onSaved: () => void }
             <div>Repayment obligation: <strong>{fmt(obligation)}</strong></div>
           </div>
         )}
+        {balanceInHand !== null && (
+          <p style={{ fontSize: 12.5, marginTop: 8, color: insufficient ? "var(--red)" : "var(--muted)" }}>
+            Balance in hand: <strong>{fmt(balanceInHand)}</strong>
+            {insufficient && " — not enough to disburse this loan. Add cash first."}
+          </p>
+        )}
 
         {err && <div className="notice" style={{ marginTop: 10 }}>{err}</div>}
       </div>
       <div className="ft">
         <button className="btn plain" style={{ fontSize: 12.5, fontWeight: 600, letterSpacing: ".16em", textTransform: "uppercase" }} onClick={closeModal}>Cancel</button>
-        <button className="btn" disabled={saving} onClick={save}>{saving ? "Creating…" : "Create & Disburse"}</button>
+        <button className="btn" disabled={saving || insufficient} onClick={save}>{saving ? "Creating…" : "Create & Disburse"}</button>
       </div>
     </>
   );

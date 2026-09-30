@@ -45,8 +45,8 @@ export function BankModalContent({ bank: b, onSaved }: { bank?: BackendBank; onS
     try {
       if (b) await updateBank(b.id, input);
       else await createBankFull(input);
-      onSaved();
       closeModal();
+      onSaved();
       toast(b ? `Bank "${n}" updated` : `Bank "${n}" added`);
     } catch (e) {
       setErr(e instanceof ApiError ? e.message : "Failed to save bank.");

@@ -3102,6 +3102,37 @@ table.tbl {
   padding-bottom: 10px
 }
 
+/* Employees table (.emp-tbl): eight columns overflowed the card on laptop-
+ * width screens, hiding the Action column behind .tbl-wrap's invisible
+ * horizontal scrollbar. Below 1440px, tighten the horizontal gaps — cell
+ * padding, the first column's 54px indent, header letter-spacing — and let
+ * the two-word headers wrap, so Edit/Delete stay in view. */
+.tbl.emp-tbl .emp-actions {
+  gap: 12px;
+}
+@media (max-width: 1440px) {
+  .tbl.emp-tbl th,
+  .tbl.emp-tbl td {
+    padding-left: 8px;
+    padding-right: 8px;
+  }
+  .tbl.emp-tbl th {
+    letter-spacing: .08em;
+    white-space: normal;
+  }
+  .tbl.tbl-center.col1-left.emp-tbl tr>th:first-child,
+  .tbl.tbl-center.col1-left.emp-tbl tr>td:first-child {
+    padding-left: 16px;
+  }
+  .tbl.emp-tbl th:last-child,
+  .tbl.emp-tbl td:last-child {
+    padding-right: 14px;
+  }
+  .tbl.emp-tbl .emp-actions {
+    gap: 8px;
+  }
+}
+
 /* Personal Loan detail page's History table Event/detail cell: all three
  * switchable/side-by-side tables there (Schedule, Payment History, History)
  * share the exact same base .tbl row padding and page size (10 rows) so a
@@ -3219,6 +3250,23 @@ table.tbl {
 
 .tbl.tbl-center .num {
   text-align: center
+}
+
+/* Investment Plans modal: 9 columns inside a 820px modal overflowed and the
+ * Edit column was clipped (scrollbars are hidden, so it looked cut off).
+ * Tighter cell padding + no forced min-width lets it fit at any width. */
+.tbl.plans-tbl {
+  min-width: 0
+}
+
+.tbl.plans-tbl th,
+.tbl.plans-tbl td {
+  padding-left: 8px;
+  padding-right: 8px
+}
+
+.tbl.plans-tbl th {
+  letter-spacing: .08em
 }
 
 .tbl.tbl-center.col1-left tr>th:first-child,
@@ -3866,6 +3914,17 @@ table.tbl {
   color: var(--nav)
 }
 
+/* Spacer between a modal title and header action buttons (Banks' "Add Bank")
+ * — `.sp` only had flex:1 under `.card .hd`, so in a modal the button sat
+ * jammed against the title. */
+.modal .hd .sp {
+  flex: 1
+}
+
+.modal .hd .sp ~ .btn {
+  margin-right: 14px
+}
+
 .modal .hd .x {
   margin-left: auto;
   border: 0;
@@ -3996,6 +4055,45 @@ table.tbl {
   overscroll-behavior: contain;
   scrollbar-width: thin;
   scrollbar-color: var(--line) transparent;
+}
+
+/* A bd-scroll modal whose body is one table (Banks.tsx's BanksModalContent):
+ * the table's own .tbl-wrap scrolls instead of the whole .bd, so the sticky
+ * column header stays in view while the rows scroll (and load more). */
+.modal .bd.bd-scroll.bd-tbl {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.modal .bd.bd-scroll.bd-tbl > .tbl-card > .tbl-wrap {
+  max-height: none;
+  scrollbar-width: thin;
+}
+
+/* Scroll-paginated table (loads 10 rows at a time, next batch on scrolling
+ * to the end): capped just under 10 rows' height so the first batch always
+ * overflows and the table — not the modal/page — is what scrolls. */
+.card.tbl-card.tbl-scroll-paged > .tbl-wrap,
+.modal .bd.bd-scroll.bd-tbl > .tbl-card.tbl-scroll-paged > .tbl-wrap,
+.modal .tbl-wrap.tbl-scroll-paged {
+  flex: 0 1 auto;
+  max-height: min(360px, calc(100dvh - 260px));
+  overflow-y: auto;
+}
+
+/* Borderless variant of `.card.tbl-card` for a table sitting straight in a
+ * modal — the modal box is already the frame. */
+.card.tbl-card.tbl-flat {
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  background: transparent;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+.card.tbl-card.tbl-flat > .tbl-wrap {
+  background: transparent;
+  border-radius: 0;
 }
 
 /* ── misc widgets ───────────────────────── */
@@ -5500,6 +5598,11 @@ table.tbl {
 }
 
 .ledger-ref-chip-loan {
+  background: var(--brand-faint);
+  color: var(--brand-deep);
+}
+
+.ledger-ref-chip-investment {
   background: var(--brand-faint);
   color: var(--brand-deep);
 }

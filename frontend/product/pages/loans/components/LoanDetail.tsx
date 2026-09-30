@@ -18,6 +18,8 @@ import {
   approveLoan,
   listTopUps,
   type LoanTopUpView,
+  getAuctionHistory,
+  type AuctionRecordView,
   releaseBankPledge,
   completeRelease,
   SANCTION_STAGES,
@@ -50,6 +52,24 @@ import { EditLoanModalContent } from "@/product/components/modals/EditLoanModal"
 import { navigate, routeHref } from "@/product/services/appRoutes";
 import { DisburseLoanModalContent } from "@/product/components/modals/DisburseLoanModal";
 import { TopUpLoanModalContent } from "@/product/components/modals/TopUpLoanModal";
+
+/* Auction rows in the Payment Ledger. RecordAuctionSale writes an "Auction
+ * Sale" payment (Reference = the auction reference) for the portion of the
+ * net proceeds that settled debt; these helpers tie that payment back to its
+ * auction case for the sale/expense breakdown, and date the sale/surplus
+ * rows from the case's own audit events. */
+function auctionSalePaymentFor(a: AuctionRecordView, payments: LoanView["payments"]) {
+  return payments.find((p) => p.type === "Auction Sale" && (!a.auctionReferenceNumber || p.reference === a.auctionReferenceNumber));
+}
+function auctionSaleDate(a: AuctionRecordView) {
+  return a.events.find((e) => e.action === "SaleRecorded")?.createdAt || a.auctionDate || a.auctionEligibleDate;
+}
+function auctionSurplusDate(a: AuctionRecordView) {
+  return a.events.find((e) => e.action === "Settled")?.createdAt || auctionSaleDate(a);
+}
+function auctionBreakdown(a: AuctionRecordView) {
+  return `Sold ${fmt(a.saleAmount)} · Expenses ${fmt(a.auctionExpenses)} · Net ${fmt(a.saleAmount - a.auctionExpenses)}`;
+}
 
 /* One row of the "Documents" dropdown below — either a click action
  * (onClick, e.g. printing something in-browser) or a plain link (href,
@@ -147,6 +167,9 @@ export function LoanDetail({ id }: { id?: string }) {
 
   const [loan, setLoan] = useState<LoanView | null>(null);
   const [topUps, setTopUps] = useState<LoanTopUpView[]>([]);
+  // Auction cases that reached a sale — their sale/expense breakdown and any
+  // surplus paid back to the customer are shown in the Payment Ledger.
+  const [auctions, setAuctions] = useState<AuctionRecordView[]>([]);
   // This loan's tracking packet — small, separate fetch (LoanView itself
   // carries no packet/locker info), used only to drive the "Gold Pledge /
   // Locker" release warning below.
@@ -251,6 +274,13 @@ export function LoanDetail({ id }: { id?: string }) {
     if (!loan) return;
     listTopUps(loan.numericId).then(setTopUps).catch(() => setTopUps([]));
   }, [loan?.numericId, loan?.outstanding]);
+
+  useEffect(() => {
+    if (!loan) return;
+    getAuctionHistory(loan.numericId)
+      .then((recs) => setAuctions(recs.filter((r) => r.saleAmount > 0)))
+      .catch(() => setAuctions([]));
+  }, [loan?.numericId, loan?.status]);
 
   // Re-fetched whenever bankPledgeStatus/status change, e.g. right after a
   // locker check-in/out or the bank pledge being released — the "Gold
@@ -1189,7 +1219,7 @@ export function LoanDetail({ id }: { id?: string }) {
               {(ledgerFromDate || ledgerToDate) && (
                 <button className="btn ghost sm" onClick={() => { setLedgerFromDate(""); setLedgerToDate(""); }}>Clear</button>
               )}
-              <button className="btn ghost sm" disabled={ledgerExporting} onClick={onExportLedger}>{ledgerExporting ? "Exporting…" : "Download"}</button>
+              <button className="btn ghost sm" disabled={ledgerExporting} onClick={onExportLedger}><Icon name="download" /> {ledgerExporting ? "Exporting…" : "Download"}</button>
             </div>
             <div className="tbl-wrap"><table className="tbl">
               <thead><tr><th>Date</th><th>Ref No</th><th>Particulars</th><th>Method</th><th className="num">Debit</th><th className="num">Credit</th><th className="num">Balance</th></tr></thead>
@@ -1212,7 +1242,7 @@ export function LoanDetail({ id }: { id?: string }) {
                     <td className="num">{fmt(l.sanctionedAmount)}</td>
                   </tr>
                 )}
-                {l.payments.length === 0 && !l.disbursementDate && topUps.length === 0 ? (
+                {l.payments.length === 0 && !l.disbursementDate && topUps.length === 0 && auctions.length === 0 ? (
                   <tr><td colSpan={7} className="empty">No ledger entries yet.</td></tr>
                 ) : (
                   // Top-ups are additional disbursements, not repayments —
@@ -1223,10 +1253,58 @@ export function LoanDetail({ id }: { id?: string }) {
                   [
                     ...l.payments.map((p) => ({ kind: "payment" as const, date: p.paidOn, sortKey: p.paidOn, row: p })),
                     ...topUps.map((t) => ({ kind: "topup" as const, date: t.occurredOn.slice(0, 10), sortKey: t.occurredOn, row: t })),
+                    // A sale whose net proceeds settled nothing writes no
+                    // Auction Sale payment — still record that it happened.
+                    ...auctions
+                      .filter((a) => !auctionSalePaymentFor(a, l.payments))
+                      .map((a) => ({ kind: "auction-sale" as const, date: auctionSaleDate(a), sortKey: auctionSaleDate(a), row: a })),
+                    ...auctions
+                      .filter((a) => a.surplusPayableAmount > 0.01)
+                      .map((a) => ({ kind: "auction-surplus" as const, date: auctionSurplusDate(a), sortKey: `${auctionSurplusDate(a)}~`, row: a })),
                   ]
                     .filter((e) => (!ledgerFromDate || e.date >= ledgerFromDate) && (!ledgerToDate || e.date <= ledgerToDate))
                     .sort((a, b) => a.sortKey.localeCompare(b.sortKey))
                     .map((entry) => {
+                      if (entry.kind === "auction-sale") {
+                        const a = entry.row;
+                        return (
+                          <tr key={`auction-sale-${a.id}`}>
+                            <td>{entry.date}</td>
+                            <td>{a.auctionReferenceNumber || "—"}</td>
+                            <td>
+                              Auction Sale
+                              <div style={{ fontSize: "0.85em", color: "var(--muted)" }}>{auctionBreakdown(a)}</div>
+                            </td>
+                            <td>Auction</td>
+                            <td className="num">—</td>
+                            <td className="num">—</td>
+                            <td className="num">—</td>
+                          </tr>
+                        );
+                      }
+
+                      if (entry.kind === "auction-surplus") {
+                        const a = entry.row;
+                        const refunded = a.surplusDisposition === "RefundedToCustomer";
+                        const note = refunded ? "Refunded to customer"
+                          : a.surplusDisposition === "RecordedAsIncome" ? "Retained as income — no cash paid out"
+                          : "Payable to customer — awaiting settlement";
+                        return (
+                          <tr key={`auction-surplus-${a.id}`}>
+                            <td>{entry.date}</td>
+                            <td>{a.auctionReferenceNumber || "—"}</td>
+                            <td>
+                              Auction Surplus {fmt(a.surplusPayableAmount)}
+                              <div style={{ fontSize: "0.85em", color: "var(--muted)" }}>{note}</div>
+                            </td>
+                            <td>{refunded ? "—" : <span style={{ color: "var(--muted)" }}>Non-cash</span>}</td>
+                            <td className="num" style={{ color: refunded ? "var(--red)" : undefined }}>{refunded ? fmt(a.surplusPayableAmount) : "—"}</td>
+                            <td className="num">—</td>
+                            <td className="num">—</td>
+                          </tr>
+                        );
+                      }
+
                       if (entry.kind === "topup") {
                         const t = entry.row;
                         const modeParts = [
@@ -1278,6 +1356,10 @@ export function LoanDetail({ id }: { id?: string }) {
                             {p.processingFee > 0 && (
                               <div style={{ fontSize: "0.85em", color: "var(--red)" }}>+{fmt(p.processingFee)} fee charged</div>
                             )}
+                            {p.type === "Auction Sale" && (() => {
+                              const a = auctions.find((x) => auctionSalePaymentFor(x, [p]));
+                              return a ? <div style={{ fontSize: "0.85em", color: "var(--muted)" }}>{auctionBreakdown(a)}</div> : null;
+                            })()}
                             {breakdown && <div style={{ fontSize: "0.85em", color: "var(--muted)" }}>{breakdown}</div>}
                             {p.bankId && (
                               <div style={{ marginTop: 4 }}>

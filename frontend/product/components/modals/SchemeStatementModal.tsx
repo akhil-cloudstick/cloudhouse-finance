@@ -282,10 +282,10 @@ export function SchemeStatementModalContent({ scheme: s }: { scheme: SchemeView 
         <span style={{ flex: 1 }} />
         <button className="btn ghost" onClick={closeModal}>Cancel</button>
         <button className="btn ghost" disabled={downloading !== null || shown.length === 0} onClick={() => handleDownload("xlsx")}>
-          <Icon name="doc" /> {downloading === "xlsx" ? "Preparing…" : "Excel"}
+          <Icon name="download" /> {downloading === "xlsx" ? "Preparing…" : "Excel"}
         </button>
         <button className="btn" disabled={downloading !== null || shown.length === 0} onClick={() => handleDownload("pdf")}>
-          <Icon name="doc" /> {downloading === "pdf" ? "Preparing…" : "PDF"}
+          <Icon name="download" /> {downloading === "pdf" ? "Preparing…" : "PDF"}
         </button>
       </div>
     </>

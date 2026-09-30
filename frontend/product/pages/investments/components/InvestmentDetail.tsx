@@ -9,21 +9,24 @@ import { StatusChip } from "@/product/components/ui/StatusChip";
 import {
   getInvestment,
   getInvestmentSchedulePage,
-  getInvestmentTransactionsPage,
+  getInvestmentLedger,
+  resolveInvestmentNumber,
   printInvestmentBondPdf,
   printInvestmentStatementPdf,
   type BackendInvestment,
   type BackendInvestmentPayout,
-  type BackendInvestmentTransaction,
+  type InvestmentLedgerRow,
 } from "@/product/pages/investments/services/investmentService";
+import { LedgerRefLink } from "@/product/components/ui/LedgerRefLink";
+import { MODE_LEDGER_ROUTE } from "@/product/pages/cash/services/cashService";
 import { MaturityModalContent } from "@/product/pages/investments/components/MaturityModal";
 import { MarkPayoutPaidModalContent } from "@/product/components/modals/MarkPayoutPaidModal";
 import { AddInvestmentCashModalContent } from "@/product/components/modals/AddInvestmentCashModal";
 import { WithdrawInvestmentModalContent } from "@/product/components/modals/WithdrawInvestmentModal";
 import { useModal } from "@/product/components/Modal";
-import { routeHref } from "@/product/services/appRoutes";
 import { useDropdownMenu } from "@/product/hooks/useDropdownMenu";
 import { Icon } from "@/product/components/Icon";
+import { routeHref } from "@/product/services/appRoutes";
 
 /* Same click-paginated table pattern as personal-loans/components/
  * PersonalLoanDetail.tsx's usePagedTable + Pager. */
@@ -92,7 +95,33 @@ export function InvestmentDetail({ id }: { id?: string }) {
     onKeyDown: onDocsMenuKeyDown,
   } = useDropdownMenu<HTMLDivElement>();
 
-  const numericId = Number(id);
+  // `id` is the numeric id, or an investment number ("INV-00003") when
+  // reached from a ledger reference — resolved to the numeric id first.
+  const [numericId, setNumericId] = useState(() => Number(id) || 0);
+  useEffect(() => {
+    if (Number(id)) { setNumericId(Number(id)); return; }
+    if (!id) return;
+    resolveInvestmentNumber(id)
+      .then(setNumericId)
+      .catch((e) => { setError(e instanceof ApiError ? e.message : "Investment not found."); setLoading(false); });
+  }, [id]);
+
+  const [ledger, setLedger] = useState<InvestmentLedgerRow[]>([]);
+  const [ledgerLoading, setLedgerLoading] = useState(true);
+  const [ledgerError, setLedgerError] = useState("");
+  const refreshLedger = useCallback(async () => {
+    if (!numericId) return;
+    setLedgerLoading(true);
+    try {
+      setLedger(await getInvestmentLedger(numericId));
+      setLedgerError("");
+    } catch (e) {
+      setLedgerError(e instanceof ApiError ? e.message : "Could not load the ledger.");
+    } finally {
+      setLedgerLoading(false);
+    }
+  }, [numericId]);
+  useEffect(() => { void refreshLedger(); }, [refreshLedger]);
 
   const refreshInvestment = useCallback(async () => {
     if (!numericId) return;
@@ -113,10 +142,6 @@ export function InvestmentDetail({ id }: { id?: string }) {
     useCallback((page) => getInvestmentSchedulePage(numericId, page), [numericId]),
     numericId
   );
-  const transactions = usePagedTable<BackendInvestmentTransaction>(
-    useCallback((page) => getInvestmentTransactionsPage(numericId, page), [numericId]),
-    numericId
-  );
 
   if (loading) return <div className="notice">Loading investment…</div>;
   if (error || !investment) return <div className="notice">{error || "Investment not found."}</div>;
@@ -133,6 +158,7 @@ export function InvestmentDetail({ id }: { id?: string }) {
           toast(`${payout.isPrincipalReturn ? "Principal return" : "Interest payout"} of ${fmt(payout.amount)} recorded as paid`);
           await refreshInvestment();
           schedule.reload();
+          void refreshLedger();
         }}
       />
     );
@@ -140,7 +166,7 @@ export function InvestmentDetail({ id }: { id?: string }) {
 
   function openMaturity() {
     if (!investment) return;
-    openModal(<MaturityModalContent investment={investment} onSaved={() => { closeModal(); void refreshInvestment(); schedule.reload(); }} />);
+    openModal(<MaturityModalContent investment={investment} onSaved={() => { closeModal(); void refreshInvestment(); schedule.reload(); void refreshLedger(); }} />);
   }
 
   async function handlePrintBond() {
@@ -175,7 +201,7 @@ export function InvestmentDetail({ id }: { id?: string }) {
         onSaved={async () => {
           toast("Cash added to this investment");
           await refreshInvestment();
-          transactions.reload();
+          void refreshLedger();
         }}
       />
     );
@@ -189,7 +215,7 @@ export function InvestmentDetail({ id }: { id?: string }) {
         onSaved={async () => {
           toast("Withdrawal recorded");
           await refreshInvestment();
-          transactions.reload();
+          void refreshLedger();
         }}
       />
     );
@@ -275,33 +301,54 @@ export function InvestmentDetail({ id }: { id?: string }) {
         )}
       </div>
 
-      {isLive ? (
-        <div className="card tbl-card tbl-card-fill">
-          <div className="hd"><h3>Transactions</h3></div>
-          {transactions.error && <div className="notice" style={{ margin: 14 }}>{transactions.error}</div>}
-          <div className="tbl-wrap"><table className="tbl tbl-center">
-            <thead><tr><th>Date</th><th>Type</th><th className="num">Amount</th><th className="num">Principal</th><th className="num">Interest</th><th className="num">Principal After</th><th className="num">Interest After</th></tr></thead>
-            <tbody>
-              {transactions.loading ? (
-                <tr><td colSpan={7} className="empty compact">Loading…</td></tr>
-              ) : transactions.items.length === 0 ? (
-                <tr><td colSpan={7} className="empty compact">No transactions yet.</td></tr>
-              ) : transactions.items.map((tx) => (
-                <tr key={tx.id}>
-                  <td>{tx.occurredOn.slice(0, 10)}</td>
-                  <td>{tx.type}</td>
-                  <td className="num">{fmt(tx.amount)}</td>
-                  <td className="num">{fmt(tx.principalAmount)}</td>
-                  <td className="num">{fmt(tx.interestAmount)}</td>
-                  <td className="num">{fmt(tx.principalAfter)}</td>
-                  <td className="num">{fmt(tx.interestAfter)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table></div>
-          <Pager page={transactions.page} totalPages={transactions.totalPages} onChange={transactions.setPage} />
+      {/* The investment's ledger — opening deposit, then every Add Cash/
+        * Withdraw (Live) or paid payout (Schedule). Balance is the principal
+        * still owed to the investor after each row. */}
+      <div className="card tbl-card" style={{ marginBottom: 16 }}>
+        <div className="hd">
+          <h3>Ledger</h3>
+          <div className="sp" />
+          {investment.customerId ? (
+            <LedgerRefLink kind="customer" id={investment.customerId} label={`${investorName || "Investor"} — customer ledger`} />
+          ) : null}
         </div>
-      ) : (
+        {ledgerError && <div className="notice" style={{ margin: 14 }}>{ledgerError}</div>}
+        <div className="tbl-wrap"><table className="tbl">
+          <thead><tr><th>Date</th><th>Ref No</th><th>Particulars</th><th>Method</th><th className="num">Debit</th><th className="num">Credit</th><th className="num">Balance</th></tr></thead>
+          <tbody>
+            {ledgerLoading ? (
+              <tr><td colSpan={7} className="empty compact">Loading…</td></tr>
+            ) : ledger.length === 0 ? (
+              <tr><td colSpan={7} className="empty compact">No ledger entries yet.</td></tr>
+            ) : ledger.map((r) => {
+              const split = [
+                r.principalAmount > 0 && `Principal ${fmt(r.principalAmount)}`,
+                r.interestAmount > 0 && `Interest ${fmt(r.interestAmount)}`,
+              ].filter(Boolean).join(" · ");
+              return (
+                <tr key={r.id}>
+                  <td>{r.date.slice(0, 10)}</td>
+                  <td>{r.reference || "—"}</td>
+                  <td>
+                    {r.description || r.type}
+                    {split && r.debitOrCredit === "debit" && <div style={{ fontSize: "0.85em", color: "var(--muted)" }}>{split}</div>}
+                  </td>
+                  <td>
+                    {!r.method ? "—"
+                      : MODE_LEDGER_ROUTE[r.method] ? <a href={routeHref(MODE_LEDGER_ROUTE[r.method])}>{r.method}</a>
+                      : r.method}
+                  </td>
+                  <td className="num" style={{ color: r.debitOrCredit === "debit" ? "var(--red)" : undefined }}>{r.debitOrCredit === "debit" ? fmt(r.amount) : "—"}</td>
+                  <td className="num" style={{ color: r.debitOrCredit === "credit" ? "var(--green)" : undefined }}>{r.debitOrCredit === "credit" ? fmt(r.amount) : "—"}</td>
+                  <td className="num">{fmt(r.runningBalance)}</td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table></div>
+      </div>
+
+      {!isLive && (
         <div className="card tbl-card tbl-card-fill">
           <div className="hd"><h3>Interest Payout Schedule</h3></div>
           {schedule.error && <div className="notice" style={{ margin: 14 }}>{schedule.error}</div>}

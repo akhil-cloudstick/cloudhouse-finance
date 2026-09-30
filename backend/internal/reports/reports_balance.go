@@ -62,10 +62,16 @@ func (s *Service) BalanceSheet(ctx context.Context, f Filter) ([]BalanceSheetRow
 			(SELECT COALESCE(SUM(e.amount), 0) FROM expenses e
 				WHERE e.branch_id = ocb.branch_id AND e.mode = 'Cash' AND e.status <> 'Rejected'
 				AND e.occurred_on >= ocb.balance_date AND e.occurred_on <= ?) as cash_expenses`, asOf).
+		// cm.expense_id IS NULL: an approved expense's cash-out row is already
+		// counted by the cash_expenses subquery above.
 		Joins(`LEFT JOIN cash_movements cm ON cm.branch_id = ocb.branch_id
-			AND cm.occurred_on >= ocb.balance_date AND cm.occurred_on <= ?`, asOf).
+			AND cm.occurred_on >= ocb.balance_date AND cm.occurred_on <= ?
+			AND cm.expense_id IS NULL`, asOf).
+		// Only the Cash-mode opening row is cash in hand — UPI/Bank Transfer
+		// opening balances are bank money, not notes in the till.
+		Where("ocb.mode = ?", "Cash").
 		Where(`ocb.balance_date = (SELECT MAX(o2.balance_date) FROM opening_cash_balances o2
-			WHERE o2.branch_id = ocb.branch_id AND o2.balance_date <= ?)`, asOf).
+			WHERE o2.branch_id = ocb.branch_id AND o2.mode = 'Cash' AND o2.balance_date <= ?)`, asOf).
 		Group("ocb.branch_id, ocb.amount, ocb.balance_date")
 	if f.BranchID != nil {
 		cq = cq.Where("ocb.branch_id = ?", *f.BranchID)

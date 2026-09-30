@@ -38,6 +38,8 @@ var (
 	// ErrBankRequired above, which are Expense's/Loan-source's own errors.
 	ErrModeOfCashRequired  = httpx.NewBadRequest("mode of cash is required for cash-in movements")
 	ErrBankRequiredForMode = httpx.NewBadRequest("bank is required when mode is UPI or Bank Transfer")
+	ErrFromBankRequired    = httpx.NewBadRequest("from bank is required when mode is not Cash")
+	ErrExpenseBankRequired = httpx.NewBadRequest("from bank is required when mode is UPI or Bank")
 
 	// Loan Details block errors (AddCashModal.tsx's "Source of Cash" ==
 	// "Loan") — Bank/Loan Number/Principal Amount are required; Interest
@@ -47,6 +49,7 @@ var (
 	ErrLoanPrincipalRequired = httpx.NewBadRequest("principal amount must be greater than zero for a loan-sourced cash entry")
 
 	ErrCashSourceNameRequired = httpx.NewBadRequest("name is required")
+	ErrCashSourceReserved     = httpx.NewBadRequest("\"Gold Sale\" is a built-in source")
 )
 
 // Cash-in Mode values for RecordMovementInput.Mode/CashMovement.Mode — free
@@ -62,6 +65,10 @@ const (
 	CashModeCheque       = "Cheque"
 )
 
+// GoldPurchaseCostPrefix starts the Purpose of a gold sale's cost cash-out
+// (RecordGoldSaleCashOut) — matched by SumBreakdownByDate.
+const GoldPurchaseCostPrefix = "Gold purchase cost — "
+
 // RecordMovementInput mirrors the fields supplied by AddCashModal.tsx /
 // CashOutModal.tsx.
 type RecordMovementInput struct {
@@ -70,8 +77,12 @@ type RecordMovementInput struct {
 	Purpose string // required when Type == "out"
 	// Mode is required when Type == "in" — "Cash" | "UPI" | "Bank Transfer"
 	// (see the CashMode* constants above).
-	Mode       string
-	Bank       string
+	Mode   string
+	Bank   string
+	BankID *uint // real FK behind Bank — "From Bank" for a UPI/Bank Transfer-mode movement
+	// ToBankID is the destination account for a bank-to-bank transfer — see
+	// CashMovement.ToBankID's doc comment.
+	ToBankID   *uint
 	Amount     float64
 	BranchID   *uint // optional — not every cash movement is tied to a till yet
 	OccurredOn time.Time
@@ -79,11 +90,14 @@ type RecordMovementInput struct {
 
 // RecordExpenseInput mirrors the fields supplied by ExpenseModal.tsx.
 type RecordExpenseInput struct {
-	OccurredOn   time.Time
-	Category     string
-	Amount       float64
-	Mode         string
-	Payee        string
+	OccurredOn time.Time
+	Category   string
+	Amount     float64
+	Mode       string
+	Payee      string
+	// FromBankID/ToBankID — see Expense.FromBankID's doc comment.
+	FromBankID   *uint
+	ToBankID     *uint
 	BranchID     uint
 	Remarks      string
 	ReceiptImage string
@@ -138,6 +152,8 @@ func (s *MovementService) Record(ctx context.Context, in RecordMovementInput, lo
 		Amount:   in.Amount,
 		Mode:     in.Mode,
 		Bank:     in.Bank,
+		BankID:   in.BankID,
+		ToBankID: in.ToBankID,
 		BranchID: in.BranchID,
 	}
 	if in.OccurredOn.IsZero() {
@@ -156,7 +172,9 @@ func (s *MovementService) Record(ctx context.Context, in RecordMovementInput, lo
 		if in.Source == "Loan" && in.Bank == "" {
 			return nil, ErrBankRequired
 		}
-		if (in.Mode == CashModeUPI || in.Mode == CashModeBankTransfer) && in.Bank == "" {
+		// UPI/Bank Transfer names the branch's own account the money landed
+		// in (BankID) — the account whose ledger it shows in.
+		if (in.Mode == CashModeUPI || in.Mode == CashModeBankTransfer) && in.BankID == nil && in.Bank == "" {
 			return nil, ErrBankRequiredForMode
 		}
 		rec.Source = in.Source
@@ -180,6 +198,14 @@ func (s *MovementService) Record(ctx context.Context, in RecordMovementInput, lo
 		if loanSource.PrincipalAmount <= 0 {
 			return nil, ErrLoanPrincipalRequired
 		}
+		rec.Purpose = "Loan no. " + loanSource.LoanNumber
+		// Tag the lending bank on the movement itself so the entry lands in
+		// that bank's ledger and the mode (UPI/Bank Transfer) ledger's Bank
+		// column, instead of living only in the free-text Bank field.
+		if rec.BankID == nil {
+			bankID := loanSource.BankID
+			rec.BankID = &bankID
+		}
 	}
 
 	if err := s.repo.Create(ctx, rec); err != nil {
@@ -201,6 +227,18 @@ func (s *MovementService) Record(ctx context.Context, in RecordMovementInput, lo
 	}
 
 	return s.repo.FindByID(ctx, rec.ID)
+}
+
+// SearchLoanSources backs GET /cash-movements/loan-sources — see
+// LoanCashSourceRepository.SearchDistinctLoans.
+func (s *MovementService) SearchLoanSources(ctx context.Context, query string, bankID uint, limit, offset int) ([]LoanCashSource, error) {
+	return s.loanSourceRepo.SearchDistinctLoans(ctx, query, bankID, limit, offset)
+}
+
+// LoanSourcesByMovementIDs maps movement id → its LoanCashSource for the
+// loan-sourced ones among ids (one query, no per-row lookups).
+func (s *MovementService) LoanSourcesByMovementIDs(ctx context.Context, ids []uint) map[uint]*LoanCashSource {
+	return s.loanSourceRepo.FindByCashMovementIDs(ctx, ids)
 }
 
 // GetLoanSource returns the LoanCashSource attached to movementID, or nil
@@ -227,6 +265,11 @@ func (s *MovementService) List(ctx context.Context, branchID *uint, fromDate, to
 // MovementRepository.FindAllFiltered.
 func (s *MovementService) ListFiltered(ctx context.Context, branchID *uint, fromDate, toDate time.Time, filter MovementFilter, search string, limit, offset int) ([]CashMovement, int64, error) {
 	return s.repo.FindAllFiltered(ctx, branchID, fromDate, toDate, filter, search, limit, offset)
+}
+
+// SumFiltered is ListFiltered's Total Debit/Total Credit across every match.
+func (s *MovementService) SumFiltered(ctx context.Context, branchID *uint, fromDate, toDate time.Time, filter MovementFilter, search string) (float64, float64, error) {
+	return s.repo.SumFiltered(ctx, branchID, fromDate, toDate, filter, search)
 }
 
 // PartyTotals is the Party Transactions page's KPI row — Total In / Total
@@ -546,6 +589,35 @@ func (s *MovementService) RecordBankPledgeCashOut(ctx context.Context, loanID ui
 	return rec.ID, nil
 }
 
+// RecordExpenseCashOut creates the cash-out movement for an Expense once it
+// is Approved (called from ExpenseService.Approve). ExpenseID tags the row
+// so it shows up in the Cash Movements ledger table while staying excluded
+// from Summary's Disbursements sum (SumByTypeAndDate/SumBreakdownByDate both
+// skip rows with ExpenseID set) — the expense is already counted there via
+// ExpenseRepository.SumCashByDate/SumAllByDate, so including this row too
+// would double the deduction.
+func (s *MovementService) RecordExpenseCashOut(ctx context.Context, expenseID uint, category, mode string, fromBankID, toBankID *uint, amount float64, branchID uint, occurredOn time.Time) (uint, error) {
+	rec := &CashMovement{
+		Type:      "out",
+		Purpose:   "Expense — " + category,
+		Mode:      mode,
+		BankID:    fromBankID,
+		ToBankID:  toBankID,
+		Amount:    amount,
+		BranchID:  &branchID,
+		ExpenseID: &expenseID,
+	}
+	if occurredOn.IsZero() {
+		rec.OccurredOn = time.Now()
+	} else {
+		rec.OccurredOn = occurredOn
+	}
+	if err := s.repo.Create(ctx, rec); err != nil {
+		return 0, err
+	}
+	return rec.ID, nil
+}
+
 // RecordInvestmentDepositCashIn creates the cash-in movement for an
 // investor's deposit (investment.CashRecorder, called from
 // investment.Service.CreateInvestment). Source "Investment" is distinct
@@ -553,13 +625,19 @@ func (s *MovementService) RecordBankPledgeCashOut(ctx context.Context, loanID ui
 // ordinary loan repayments in the Cash Movements table and in reports —
 // money coming IN from a depositor is a fundamentally different event from
 // money coming IN as a loan repayment.
-func (s *MovementService) RecordInvestmentDepositCashIn(ctx context.Context, investmentID uint, investmentNumber string, amount float64, branchID uint, occurredOn time.Time) (uint, error) {
+//
+// customerID (0 = none) tags PartyCustomerID so the deposit lands on the
+// investor's customer ledger alongside their payouts.
+func (s *MovementService) RecordInvestmentDepositCashIn(ctx context.Context, investmentID uint, investmentNumber string, amount float64, branchID uint, occurredOn time.Time, customerID uint) (uint, error) {
 	rec := &CashMovement{
 		Type:     "in",
 		Source:   "Investment",
 		Purpose:  "Investment deposit — " + investmentNumber,
 		Amount:   amount,
 		BranchID: &branchID,
+	}
+	if customerID != 0 {
+		rec.PartyCustomerID = &customerID
 	}
 	if occurredOn.IsZero() {
 		rec.OccurredOn = time.Now()
@@ -694,9 +772,12 @@ func (s *MovementService) RecordGoldSaleCashIn(ctx context.Context, ornamentType
 // not just the net profit. Purpose's "Gold purchase cost — " prefix is
 // what SumBreakdownByDate's GoldPurchases bucket matches on.
 func (s *MovementService) RecordGoldSaleCashOut(ctx context.Context, ornamentType string, amount float64, branchID uint, occurredOn time.Time) (uint, error) {
+	// Mode Cash: the acquisition cost is paid out of the till, so it belongs
+	// in the Cash ledger.
 	rec := &CashMovement{
 		Type:     "out",
-		Purpose:  "Gold purchase cost — " + ornamentType,
+		Purpose:  GoldPurchaseCostPrefix + ornamentType,
+		Mode:     CashModeCash,
 		Amount:   amount,
 		BranchID: &branchID,
 	}
@@ -725,9 +806,8 @@ func (s *MovementService) RecordBankPledgeReleaseExpense(ctx context.Context, lo
 }
 
 // recordSystemExpense creates a pre-approved Expense row for a system-driven
-// event (as opposed to a manually entered one, which always starts
-// "Pending" — see ExpenseService.Record) since there's no staff member to
-// approve it and the amount is already validated by the caller.
+// event, tagged ApprovedBy "System" and the bank-pledge remark so it can be
+// told apart from a manually entered one (see ExpenseService.Record).
 func (s *MovementService) recordSystemExpense(ctx context.Context, category, bankName string, amount float64, occurredOn time.Time, branchID uint) (uint, error) {
 	now := time.Now()
 	rec := &Expense{
@@ -802,12 +882,21 @@ func (s *MovementService) SetLoanStatus(ctx context.Context, id uint, status str
 
 // ExpenseService implements expense-register business rules.
 type ExpenseService struct {
-	repo       *ExpenseRepository
-	branchRepo *branch.Repository
+	repo        *ExpenseRepository
+	branchRepo  *branch.Repository
+	movementSvc *MovementService
+	// summarySvc blocks a Cash-mode expense larger than Balance in Hand.
+	// Optional — nil skips the check.
+	summarySvc *SummaryService
 }
 
-func NewExpenseService(repo *ExpenseRepository, branchRepo *branch.Repository) *ExpenseService {
-	return &ExpenseService{repo: repo, branchRepo: branchRepo}
+func NewExpenseService(repo *ExpenseRepository, branchRepo *branch.Repository, movementSvc *MovementService) *ExpenseService {
+	return &ExpenseService{repo: repo, branchRepo: branchRepo, movementSvc: movementSvc}
+}
+
+// SetSummaryService wires the Balance-in-Hand check for Cash-mode expenses.
+func (s *ExpenseService) SetSummaryService(summarySvc *SummaryService) {
+	s.summarySvc = summarySvc
 }
 
 func (s *ExpenseService) Record(ctx context.Context, in RecordExpenseInput) (*Expense, error) {
@@ -831,10 +920,22 @@ func (s *ExpenseService) Record(ctx context.Context, in RecordExpenseInput) (*Ex
 	} else if !ok {
 		return nil, ErrBranchInvalid
 	}
+	if (in.Mode == CashModeUPI || in.Mode == "Bank") && in.FromBankID == nil {
+		return nil, ErrExpenseBankRequired
+	}
+	if in.Mode == CashModeCash && s.summarySvc != nil {
+		if err := s.summarySvc.EnsureCashInHand(ctx, in.BranchID, in.Amount); err != nil {
+			return nil, err
+		}
+	}
 
+	// Expenses no longer go through an approve/reject step — a recorded
+	// expense is Approved on entry and its cash-out movement is posted
+	// straight away, so it lands in the register and the ledger at once.
+	now := time.Now()
 	occurredOn := in.OccurredOn
 	if occurredOn.IsZero() {
-		occurredOn = time.Now()
+		occurredOn = now
 	}
 	rec := &Expense{
 		OccurredOn:   occurredOn,
@@ -842,12 +943,23 @@ func (s *ExpenseService) Record(ctx context.Context, in RecordExpenseInput) (*Ex
 		Amount:       in.Amount,
 		Mode:         in.Mode,
 		Payee:        in.Payee,
+		FromBankID:   in.FromBankID,
+		ToBankID:     in.ToBankID,
 		BranchID:     in.BranchID,
-		Status:       "Pending",
+		Status:       "Approved",
+		ApprovedAt:   &now,
 		Remarks:      in.Remarks,
 		ReceiptImage: in.ReceiptImage,
 	}
 	if err := s.repo.Create(ctx, rec); err != nil {
+		return nil, err
+	}
+	movementID, err := s.movementSvc.RecordExpenseCashOut(ctx, rec.ID, rec.Category, rec.Mode, rec.FromBankID, rec.ToBankID, rec.Amount, rec.BranchID, rec.OccurredOn)
+	if err != nil {
+		return nil, err
+	}
+	rec.CashMovementID = &movementID
+	if err := s.repo.Update(ctx, rec); err != nil {
 		return nil, err
 	}
 	return s.repo.FindByID(ctx, rec.ID)
@@ -895,6 +1007,13 @@ func (s *ExpenseService) Approve(ctx context.Context, id uint, approvedBy string
 		rec.ApprovedBy = &approvedBy
 	}
 	rec.ApprovedAt = &now
+
+	movementID, err := s.movementSvc.RecordExpenseCashOut(ctx, rec.ID, rec.Category, rec.Mode, rec.FromBankID, rec.ToBankID, rec.Amount, rec.BranchID, rec.OccurredOn)
+	if err != nil {
+		return nil, err
+	}
+	rec.CashMovementID = &movementID
+
 	if err := s.repo.Update(ctx, rec); err != nil {
 		return nil, err
 	}
@@ -943,7 +1062,26 @@ func NewOpeningBalanceService(repo *OpeningBalanceRepository, branchRepo *branch
 	return &OpeningBalanceService{repo: repo, branchRepo: branchRepo}
 }
 
-func (s *OpeningBalanceService) Set(ctx context.Context, branchID uint, date time.Time, amount float64) (*OpeningCashBalance, error) {
+// normalizeOpeningMode defaults a blank mode to Cash, validates it against
+// the ledger's mode vocabulary, and enforces the bank rule: Cash never has a
+// bank, every other mode needs one.
+func normalizeOpeningMode(mode string, bankID *uint) (string, *uint, error) {
+	if mode == "" {
+		mode = CashModeCash
+	}
+	if !modeVocabulary[mode] {
+		return "", nil, httpx.NewBadRequest("mode must be Cash, UPI, Bank Transfer or Cheque")
+	}
+	if mode == CashModeCash {
+		return mode, nil, nil
+	}
+	if bankID == nil || *bankID == 0 {
+		return "", nil, ErrBankRequiredForMode
+	}
+	return mode, bankID, nil
+}
+
+func (s *OpeningBalanceService) Set(ctx context.Context, branchID uint, date time.Time, mode string, bankID, fromBankID *uint, amount float64) (*OpeningCashBalance, error) {
 	if amount < 0 {
 		return nil, ErrInvalidBalance
 	}
@@ -955,10 +1093,21 @@ func (s *OpeningBalanceService) Set(ctx context.Context, branchID uint, date tim
 	} else if !ok {
 		return nil, ErrBranchInvalid
 	}
+	mode, bankID, err := normalizeOpeningMode(mode, bankID)
+	if err != nil {
+		return nil, err
+	}
+	// Cash never has banks; every other mode records both the bank the
+	// funds came from and the bank (BankID) they sit in.
+	if mode == CashModeCash {
+		fromBankID = nil
+	} else if fromBankID == nil || *fromBankID == 0 {
+		return nil, ErrFromBankRequired
+	}
 	if date.IsZero() {
 		date = time.Now()
 	}
-	rec := &OpeningCashBalance{BranchID: branchID, BalanceDate: date, Amount: amount}
+	rec := &OpeningCashBalance{BranchID: branchID, BalanceDate: date, Mode: mode, BankID: bankID, FromBankID: fromBankID, Amount: amount}
 	if err := s.repo.Upsert(ctx, rec); err != nil {
 		return nil, err
 	}
@@ -966,16 +1115,21 @@ func (s *OpeningBalanceService) Set(ctx context.Context, branchID uint, date tim
 	return rec, nil
 }
 
-// Get returns the opening balance for a branch/date, or a zero-amount
-// record with IsSet false if none has been entered yet — the frontend
-// always gets a number, plus a way to tell an entered 0 from no entry.
-func (s *OpeningBalanceService) Get(ctx context.Context, branchID uint, date time.Time) (*OpeningCashBalance, error) {
+// Get returns the opening balance for a branch/date/mode/bank, or a
+// zero-amount record with IsSet false if none has been entered yet — the
+// frontend always gets a number, plus a way to tell an entered 0 from no
+// entry.
+func (s *OpeningBalanceService) Get(ctx context.Context, branchID uint, date time.Time, mode string, bankID *uint) (*OpeningCashBalance, error) {
+	mode, bankID, err := normalizeOpeningMode(mode, bankID)
+	if err != nil {
+		return nil, err
+	}
 	if date.IsZero() {
 		date = time.Now()
 	}
-	rec, err := s.repo.FindByBranchAndDate(ctx, branchID, date)
+	rec, err := s.repo.FindByBranchDateMode(ctx, branchID, date, mode, bankID)
 	if err != nil {
-		return &OpeningCashBalance{BranchID: branchID, BalanceDate: date, Amount: 0}, nil
+		return &OpeningCashBalance{BranchID: branchID, BalanceDate: date, Mode: mode, BankID: bankID, Amount: 0}, nil
 	}
 	rec.IsSet = true
 	return rec, nil
@@ -1022,20 +1176,104 @@ func NewSummaryService(movementRepo *MovementRepository, expenseRepo *ExpenseRep
 	return &SummaryService{movementRepo: movementRepo, expenseRepo: expenseRepo, openingSvc: openingSvc}
 }
 
+// ErrInsufficientCashInHand blocks a payout larger than the branch's current
+// Balance in Hand (see SummaryService.EnsureCashInHand).
+func ErrInsufficientCashInHand(available, required float64) error {
+	return httpx.NewConflict(fmt.Sprintf("Insufficient balance in hand: available ₹%.2f, required ₹%.2f", available, required))
+}
+
+// openingFor is the carried-forward opening cash for a day: yesterday's
+// closing Balance in Hand. It starts from the latest manually entered Cash
+// opening balance on or before the day (a seed; 0 from the beginning when
+// none exists) and rolls every movement and cash expense since then forward
+// up to the start of the day. A nil branchID sums every branch — seeded
+// branches individually, the rest (and branch-less movements) from the
+// beginning.
+func (s *SummaryService) openingFor(ctx context.Context, branchID *uint, date time.Time) (float64, error) {
+	day := startOfDay(date)
+	if branchID == nil {
+		ids, err := s.openingSvc.repo.CashSeedBranchIDs(ctx, day)
+		if err != nil {
+			return 0, err
+		}
+		var total float64
+		for _, id := range ids {
+			id := id
+			v, err := s.openingFor(ctx, &id, day)
+			if err != nil {
+				return 0, err
+			}
+			total += v
+		}
+		in, out, err := s.movementRepo.SumByTypeBetween(ctx, nil, ids, time.Time{}, day)
+		if err != nil {
+			return 0, err
+		}
+		exp, err := s.expenseRepo.SumCashBetween(ctx, nil, ids, time.Time{}, day)
+		if err != nil {
+			return 0, err
+		}
+		return total + in - out - exp, nil
+	}
+
+	var seed float64
+	var from time.Time
+	rec, err := s.openingSvc.repo.FindLatestCashOnOrBefore(ctx, *branchID, day)
+	switch {
+	case err == nil:
+		seed, from = rec.Amount, startOfDay(rec.BalanceDate)
+		if !from.Before(day) {
+			return seed, nil
+		}
+	case !errors.Is(err, gorm.ErrRecordNotFound):
+		return 0, err
+	}
+	in, out, err := s.movementRepo.SumByTypeBetween(ctx, branchID, nil, from, day)
+	if err != nil {
+		return 0, err
+	}
+	exp, err := s.expenseRepo.SumCashBetween(ctx, branchID, nil, from, day)
+	if err != nil {
+		return 0, err
+	}
+	return seed + in - out - exp, nil
+}
+
+// CashInHand is the branch's Balance in Hand right now — the figure every
+// payout limit checks against.
+func (s *SummaryService) CashInHand(ctx context.Context, branchID uint) (float64, error) {
+	sum, err := s.GetExpectedCash(ctx, &branchID, time.Now())
+	if err != nil {
+		return 0, err
+	}
+	return sum.ExpectedCash, nil
+}
+
+// EnsureCashInHand returns ErrInsufficientCashInHand when amount exceeds the
+// branch's current Balance in Hand.
+func (s *SummaryService) EnsureCashInHand(ctx context.Context, branchID uint, amount float64) error {
+	if amount <= 0 {
+		return nil
+	}
+	available, err := s.CashInHand(ctx, branchID)
+	if err != nil {
+		return err
+	}
+	if amount > available+0.005 {
+		return ErrInsufficientCashInHand(available, amount)
+	}
+	return nil
+}
+
 func (s *SummaryService) GetExpectedCash(ctx context.Context, branchID *uint, date time.Time) (Summary, error) {
 	if date.IsZero() {
 		date = time.Now()
 	}
-	var opening float64
-	var openingSet bool
-	if branchID != nil {
-		ob, err := s.openingSvc.Get(ctx, *branchID, date)
-		if err != nil {
-			return Summary{}, err
-		}
-		opening = ob.Amount
-		openingSet = ob.IsSet
+	opening, err := s.openingFor(ctx, branchID, date)
+	if err != nil {
+		return Summary{}, err
 	}
+	openingSet := true
 	in, out, err := s.movementRepo.SumByTypeAndDate(ctx, branchID, date)
 	if err != nil {
 		return Summary{}, err
@@ -1170,6 +1408,12 @@ func (s *GoldSaleService) Create(ctx context.Context, in RecordGoldSaleInput) (*
 		Remarks:            in.Remarks,
 	}
 	if err := s.repo.Create(ctx, rec); err != nil {
+		// Don't leave the movements booked above behind for a sale that was
+		// never recorded — they would inflate Balance in Hand.
+		_ = s.movementSvc.repo.Delete(ctx, movementID)
+		if costMovementID != nil {
+			_ = s.movementSvc.repo.Delete(ctx, *costMovementID)
+		}
 		return nil, err
 	}
 	return s.repo.FindByID(ctx, rec.ID)
@@ -1220,6 +1464,11 @@ func (s *CashSourceService) FindOrCreate(ctx context.Context, name string) (*Cas
 	trimmed := strings.TrimSpace(name)
 	if trimmed == "" {
 		return nil, false, ErrCashSourceNameRequired
+	}
+	// "Gold Sale" is a built-in Add Cash source that posts to /gold-sales —
+	// a real source row with that name would be booked as a plain top-up.
+	if strings.ToLower(strings.ReplaceAll(trimmed, " ", "")) == "goldsale" {
+		return nil, false, ErrCashSourceReserved
 	}
 	existing, err := s.repo.FindByName(ctx, trimmed)
 	if err == nil {

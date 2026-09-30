@@ -268,7 +268,7 @@ export function Dashboard() {
             <Kpi l="Gold Release Requests" v={pendingReq.filter((r) => r.type === "Release").length} s="settlement review" href={routeHref("requests")} />
             <Kpi l="Bank-Pledged Loans" v={pledged.length} s={fmt(pledged.reduce((s, l) => s + l.principal, 0)) + " re-pledged"} href={routeHref("bankpledge")} />
             <Kpi l="Auction Cases" v={auctionLoans.length} s="notice stage" cls={auctionLoans.length ? "warn" : ""} href={routeHref("auctions")} />
-            <Kpi l="Today's Expenses" v={fmt(expToday)} s={expenses.filter((e) => e.status === "Pending").length + " pending approval"} href={routeHref("cash")} />
+            <Kpi l="Today's Expenses" v={fmt(expToday)} href={routeHref("cash")} />
             <Kpi l="Interest Collected" v={fmt(interestCollected)} cls="ok" href={routeHref("reports")} />
           </div>
 

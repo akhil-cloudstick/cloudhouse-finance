@@ -25,6 +25,7 @@ import {
   Sheet,
   Txt,
   type AccDetail,
+  openPage,
   toast,
 } from "../../src/components/ui";
 import { SheetScrollView } from "../../src/components/BottomSheetModal";
@@ -74,7 +75,8 @@ import { isUserCancel, userMessage } from "../../src/api/errors";
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 type RowView = { id?: string; name: string; sub?: string; amount?: string; status?: string; details?: AccDetail[] };
-type Kind = "table" | "statement" | "formg";
+// "link" opens another screen instead of a report sheet (see `href`).
+type Kind = "table" | "statement" | "formg" | "link";
 type ReportDef = {
   key: string;
   title: string;
@@ -86,6 +88,7 @@ type ReportDef = {
   sub?: (t: any) => string;
   defaultRange?: () => { from?: string; to?: string };
   tenantModule?: TenantModule;
+  href?: string;
 };
 
 const w = (n?: number | null) => `${(n ?? 0).toFixed(2)} g`;
@@ -349,6 +352,17 @@ const REPORTS: ReportDef[] = [
     kind: "formg",
     defaultRange: () => ({ from: monthsAgo(3), to: todayISO() }),
   },
+  // Web's "Ledger / Statement Export" tile — on mobile it opens the Ledger
+  // (Cash tab Movements), which carries the same Branch/Customer/Type/Date
+  // filters, clickable loan/customer/bank/category/mode links and a PDF
+  // download of whatever the filters show.
+  {
+    key: "ledger-export",
+    title: "Ledger / Statement Export",
+    group: "Financial Statements",
+    kind: "link",
+    href: "/cash?tab=movements",
+  },
   // Investments
   {
     key: "investments-deposit-register",
@@ -402,9 +416,13 @@ export default function ReportsScreen() {
 
   // Dashboard tiles deep-link here with ?section=<key>; `t` re-applies it per tap.
   const params = useLocalSearchParams<{ section?: string; t?: string }>();
+  const openReport = (r: ReportDef) => {
+    if (r.kind === "link" && r.href) openPage(`${r.href}&t=${Date.now()}`);
+    else setOpen(r);
+  };
   useEffect(() => {
     const target = available.find((r) => r.key === params.section);
-    if (target) setOpen(target);
+    if (target) openReport(target);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [params.section, params.t]);
 
@@ -419,7 +437,7 @@ export default function ReportsScreen() {
             <View key={g}>
               <ReportSectionLabel>{g}</ReportSectionLabel>
               {rows.map((r) => (
-                <ReportRow key={r.key} title={r.title} onPress={() => setOpen(r)} />
+                <ReportRow key={r.key} title={r.title} onPress={() => openReport(r)} />
               ))}
             </View>
           );

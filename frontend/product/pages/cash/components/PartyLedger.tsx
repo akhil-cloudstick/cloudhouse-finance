@@ -2,16 +2,18 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { fmt } from "@/product/utils/format";
+import { Icon } from "@/product/components/Icon";
+import { FooterTotals } from "@/product/components/ui/FooterTotals";
 import { ApiError } from "@/product/services/httpClient";
-import { routeHref } from "@/product/services/appRoutes";
 import { DatePicker } from "@/product/components/ui/DatePicker";
-import { LedgerRefLink } from "@/product/components/ui/LedgerRefLink";
+import { LedgerRefLink, CategoryChip } from "@/product/components/ui/LedgerRefLink";
+import { useExpenseCategoryIds } from "@/product/hooks/useExpenseCategoryIds";
+import { routeHref } from "@/product/services/appRoutes";
 import {
   listCashMovementsByCustomer,
   getBankLedger,
   getModeLedger,
-  exportPartyStatementByBank,
-  exportPartyStatementByCustomer,
+  downloadLedger,
   PARTY_PAGE_SIZE,
   MODE_LEDGER_ROUTE,
   LEDGER_MODES,
@@ -24,13 +26,14 @@ import { getCustomer, type CustomerView } from "@/product/pages/customers/servic
 import { getExpenseCategoryLedger, EXPENSE_CATEGORY_LEDGER_PAGE_SIZE } from "@/product/pages/cash/services/expenseCategoryService";
 import { FilterPanel, type FilterCategory, type FilterValue } from "@/product/components/ui/FilterPanel";
 
-function Pager({ page, total, pageSize, onChange }: { page: number; total: number; pageSize: number; onChange: (p: number) => void }) {
+function Pager({ page, total, pageSize, onChange, children }: { page: number; total: number; pageSize: number; onChange: (p: number) => void; children?: React.ReactNode }) {
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
   return (
     <div className="ft ft-static" style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 14px" }}>
       <button className="btn plain" disabled={page <= 1} onClick={() => onChange(Math.max(1, page - 1))}>‹ Prev</button>
       <span style={{ fontSize: 13 }}>Page {page} of {totalPages}</span>
       <button className="btn plain" disabled={page >= totalPages} onClick={() => onChange(Math.min(totalPages, page + 1))}>Next ›</button>
+      {children}
     </div>
   );
 }
@@ -43,6 +46,7 @@ function Pager({ page, total, pageSize, onChange }: { page: number; total: numbe
  * points, per the plan's design. */
 export function PartyLedger({ kind, id }: { kind: "bank" | "customer" | "category"; id?: string }) {
   const numericId = Number(id);
+  const categoryIds = useExpenseCategoryIds();
   const [label, setLabel] = useState("");
   const [labelError, setLabelError] = useState("");
   const [items, setItems] = useState<LedgerRowView[]>([]);
@@ -53,6 +57,7 @@ export function PartyLedger({ kind, id }: { kind: "bank" | "customer" | "categor
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [exporting, setExporting] = useState(false);
+  const [totals, setTotals] = useState({ debit: 0, credit: 0 });
   // Mode filter — only offered on a bank's own ledger (UPI/Bank
   // Transfer/Cheque/Cash all pass through a bank); customer/category ledgers
   // don't get this, same "meaningless outside a bank ledger" reasoning as
@@ -102,6 +107,7 @@ export function PartyLedger({ kind, id }: { kind: "bank" | "customer" | "categor
       .then((res) => {
         setItems(res.items);
         setTotal(res.total);
+        setTotals({ debit: res.totalDebit, credit: res.totalCredit });
         if (kind === "category" && "categoryName" in res) setLabel(res.categoryName as string);
         setError("");
       })
@@ -112,11 +118,9 @@ export function PartyLedger({ kind, id }: { kind: "bank" | "customer" | "categor
       .finally(() => setLoading(false));
   }, [kind, numericId, page, fromDate, toDate, singleMode]);
 
-  // Totals are derived from the combined ledger's own debit/credit split —
-  // the endpoint no longer returns a separate `totals` object (see
-  // cashService.ts's listCashMovementsByCustomer/getBankLedger doc comment).
-  const totalDebit = items.filter((r) => r.debitOrCredit === "debit").reduce((s, r) => s + r.amount, 0);
-  const totalCredit = items.filter((r) => r.debitOrCredit === "credit").reduce((s, r) => s + r.amount, 0);
+  // Server-side sums over every row matching the filters, not just this page.
+  const totalDebit = totals.debit;
+  const totalCredit = totals.credit;
 
   useEffect(() => { refresh(); }, [refresh]);
 
@@ -124,10 +128,10 @@ export function PartyLedger({ kind, id }: { kind: "bank" | "customer" | "categor
     setExporting(true);
     try {
       const range = { fromDate: fromDate || undefined, toDate: toDate || undefined };
-      if (kind === "bank") await exportPartyStatementByBank(numericId, range);
-      else if (kind === "customer") await exportPartyStatementByCustomer(numericId, range);
+      if (singleMode) await downloadLedger("mode", singleMode, { ...range, bankId: numericId });
+      else await downloadLedger(kind, numericId, range);
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : "Could not export the statement.");
+      setError(e instanceof Error ? e.message : "Could not download the ledger.");
     } finally {
       setExporting(false);
     }
@@ -144,9 +148,9 @@ export function PartyLedger({ kind, id }: { kind: "bank" | "customer" | "categor
           <p>Every {kind === "category" ? "expense recorded under this category" : `transaction ever recorded against this ${kind}`}</p>
         </div>
         <div className="sp" />
-        {kind !== "category" && (
-          <button className="btn ghost" disabled={exporting} onClick={onExport}>{exporting ? "Exporting…" : "Export Statement"}</button>
-        )}
+        <button className="btn ghost" disabled={exporting} onClick={onExport} title="PDF of every transaction in the selected date range">
+          <Icon name="download" /> {exporting ? "Preparing…" : "Download"}
+        </button>
       </div>
       <hr className="gold-rule" />
 
@@ -196,6 +200,12 @@ export function PartyLedger({ kind, id }: { kind: "bank" | "customer" | "categor
                   (r.reference && r.reference.match(/^LN-\d+/i)?.[0]) ||
                   r.description.match(/—\s*(LN-\S+)\s*$/i)?.[1] ||
                   null;
+                // Same for an investment deposit/payout ("… — INV-00003"),
+                // linking to that investment's own ledger.
+                const invRef =
+                  (r.reference && r.reference.match(/^INV-\d+/i)?.[0]) ||
+                  r.description.match(/—\s*(INV-\S+)\s*$/i)?.[1] ||
+                  null;
                 return (
                 <tr key={r.id}>
                   <td>{r.d}</td>
@@ -208,7 +218,7 @@ export function PartyLedger({ kind, id }: { kind: "bank" | "customer" | "categor
                       {kind !== "bank" && r.bankId ? (
                         <LedgerRefLink kind="bank" id={r.bankId} label={r.bankName || "Bank"} />
                       ) : null}
-                    </div>
+                      {kind !== "category" ? <CategoryChip text={r.description} categoryIds={categoryIds} /> : null}                    </div>
                   </td>
                   <td>
                     {!r.method ? "—"
@@ -218,6 +228,8 @@ export function PartyLedger({ kind, id }: { kind: "bank" | "customer" | "categor
                   <td>
                     {loanRef ? (
                       <a href={routeHref("loan", loanRef)} className="ledger-ref-chip ledger-ref-chip-loan">{r.reference || loanRef}</a>
+                    ) : invRef ? (
+                      <LedgerRefLink kind="investment" id={invRef} label={invRef} />
                     ) : (
                       r.reference || "—"
                     )}
@@ -231,7 +243,12 @@ export function PartyLedger({ kind, id }: { kind: "bank" | "customer" | "categor
             </tbody>
           </table>
         </div>
-        <Pager page={page} total={total} pageSize={kind === "category" ? EXPENSE_CATEGORY_LEDGER_PAGE_SIZE : PARTY_PAGE_SIZE} onChange={setPage} />
+        <Pager page={page} total={total} pageSize={kind === "category" ? EXPENSE_CATEGORY_LEDGER_PAGE_SIZE : PARTY_PAGE_SIZE} onChange={setPage}>
+          <FooterTotals items={[
+            { label: "Total Debit", value: totalDebit, color: "var(--red)" },
+            { label: "Total Credit", value: totalCredit, color: "var(--green)" },
+          ]} />
+        </Pager>
       </div>
     </>
   );

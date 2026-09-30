@@ -29,6 +29,8 @@ type movementRequest struct {
 	Purpose    string  `json:"purpose"`
 	Mode       string  `json:"mode"`
 	Bank       string  `json:"bank"`
+	BankID     *uint   `json:"bankId"`   // real FK behind Bank — "From Bank" for a UPI/Bank Transfer-mode movement
+	ToBankID   *uint   `json:"toBankId"` // destination account for a bank-to-bank transfer — see CashMovement.ToBankID
 	Amount     float64 `json:"amount" binding:"required"`
 	BranchID   *uint   `json:"branchId"`   // optional — not every cash movement is tied to a till yet
 	OccurredOn string  `json:"occurredOn"` // optional, "YYYY-MM-DD" — defaults to today
@@ -107,8 +109,38 @@ func (req movementRequest) toInput() (RecordMovementInput, error) {
 	}
 	return RecordMovementInput{
 		Type: req.Type, Source: req.Source, Purpose: req.Purpose, Mode: req.Mode,
-		Bank: req.Bank, Amount: req.Amount, BranchID: req.BranchID, OccurredOn: occurred,
+		Bank: req.Bank, BankID: req.BankID, ToBankID: req.ToBankID,
+		Amount: req.Amount, BranchID: req.BranchID, OccurredOn: occurred,
 	}, nil
+}
+
+// ListLoanSources backs GET /cash-movements/loan-sources?q=&limit=&offset= —
+// AddCashModal.tsx's Loan Number picker, one row per distinct loan number.
+func (h *MovementHandler) ListLoanSources(c *gin.Context) {
+	ctx := platform.RequestContext(c)
+	limit, _ := strconv.Atoi(c.Query("limit"))
+	offset, _ := strconv.Atoi(c.Query("offset"))
+	if offset < 0 {
+		offset = 0
+	}
+	fetch := 0
+	if limit > 0 {
+		fetch = limit + 1
+	}
+	bankID, _ := strconv.Atoi(c.Query("bankId"))
+	if bankID < 0 {
+		bankID = 0
+	}
+	rec, err := h.svc.SearchLoanSources(ctx, strings.TrimSpace(c.Query("q")), uint(bankID), fetch, offset)
+	if err != nil {
+		httpx.FailErr(c, err)
+		return
+	}
+	hasMore := limit > 0 && len(rec) > limit
+	if hasMore {
+		rec = rec[:limit]
+	}
+	httpx.Success(c, http.StatusOK, gin.H{"items": rec, "hasMore": hasMore})
 }
 
 func (h *MovementHandler) Record(c *gin.Context) {
@@ -238,7 +270,12 @@ func (h *MovementHandler) List(c *gin.Context) {
 		if hasMore {
 			rec = rec[:limit]
 		}
-		httpx.Success(c, http.StatusOK, gin.H{"items": rec, "hasMore": hasMore, "total": total})
+		debit, credit, err := h.svc.SumFiltered(ctx, branchID, fromDate, toDate, filter, search)
+		if err != nil {
+			httpx.FailErr(c, err)
+			return
+		}
+		httpx.Success(c, http.StatusOK, gin.H{"items": h.withLoanSources(ctx, rec), "hasMore": hasMore, "total": total, "totalDebit": debit, "totalCredit": credit})
 		return
 	}
 
@@ -247,7 +284,25 @@ func (h *MovementHandler) List(c *gin.Context) {
 		httpx.FailErr(c, err)
 		return
 	}
-	httpx.Success(c, http.StatusOK, rec)
+	httpx.Success(c, http.StatusOK, h.withLoanSources(ctx, rec))
+}
+
+// withLoanSources decorates a list page with each loan-sourced movement's
+// LoanSource (same shape Get/Record return) so the ledger's Ref No can show
+// the loan number staff typed in Add Cash.
+func (h *MovementHandler) withLoanSources(ctx context.Context, rows []CashMovement) []movementResponse {
+	var ids []uint
+	for _, m := range rows {
+		if m.Source == "Loan" {
+			ids = append(ids, m.ID)
+		}
+	}
+	sources := h.svc.LoanSourcesByMovementIDs(ctx, ids)
+	out := make([]movementResponse, len(rows))
+	for i := range rows {
+		out[i] = movementResponse{CashMovement: &rows[i], LoanSource: sources[rows[i].ID]}
+	}
+	return out
 }
 
 // GetCashLedger backs GET /cash-movements/cash-ledger — the "Cash Ledger"
@@ -274,20 +329,13 @@ func (h *MovementHandler) GetCashLedger(c *gin.Context) {
 		httpx.Fail(c, http.StatusBadRequest, "invalid toDate: expected YYYY-MM-DD")
 		return
 	}
-	limit, _ := strconv.Atoi(c.Query("limit"))
-	if limit <= 0 {
-		limit = partyPageSize
-	}
-	offset, _ := strconv.Atoi(c.Query("offset"))
-	if offset < 0 {
-		offset = 0
-	}
-	rec, total, err := h.svc.ListCashModeLedger(ctx, branchID, branchIDs, fromDate, toDate, limit, offset)
+	limit, offset, export := ledgerPaging(c)
+	rec, total, totals, err := h.svc.ListCashModeLedger(ctx, branchID, branchIDs, fromDate, toDate, limit, offset)
 	if err != nil {
 		httpx.FailErr(c, err)
 		return
 	}
-	httpx.Success(c, http.StatusOK, gin.H{"items": rec, "total": total})
+	respondLedger(c, export, "Cash Ledger", "cash-ledger.pdf", fromDate, toDate, rec, total, totals, nil)
 }
 
 // modeVocabulary is every payment mode a mode-scoped ledger drill-down can be
@@ -337,20 +385,14 @@ func (h *MovementHandler) GetModeLedger(c *gin.Context) {
 		httpx.Fail(c, http.StatusBadRequest, "invalid toDate: expected YYYY-MM-DD")
 		return
 	}
-	limit, _ := strconv.Atoi(c.Query("limit"))
-	if limit <= 0 {
-		limit = partyPageSize
-	}
-	offset, _ := strconv.Atoi(c.Query("offset"))
-	if offset < 0 {
-		offset = 0
-	}
-	rec, total, err := h.svc.ListModeLedger(ctx, mode, bankID, branchID, branchIDs, fromDate, toDate, limit, offset)
+	limit, offset, export := ledgerPaging(c)
+	rec, total, totals, err := h.svc.ListModeLedger(ctx, mode, bankID, branchID, branchIDs, fromDate, toDate, limit, offset)
 	if err != nil {
 		httpx.FailErr(c, err)
 		return
 	}
-	httpx.Success(c, http.StatusOK, gin.H{"items": rec, "total": total})
+	slug := strings.ToLower(strings.ReplaceAll(mode, " ", "-"))
+	respondLedger(c, export, mode+" Ledger", slug+"-ledger.pdf", fromDate, toDate, rec, total, totals, nil)
 }
 
 // ListByBank returns one page of every cash movement tagged to :bankId,
@@ -420,20 +462,13 @@ func (h *MovementHandler) ListByCustomer(c *gin.Context) {
 		httpx.Fail(c, http.StatusBadRequest, "invalid toDate: expected YYYY-MM-DD")
 		return
 	}
-	limit, _ := strconv.Atoi(c.Query("limit"))
-	if limit <= 0 {
-		limit = partyPageSize
-	}
-	offset, _ := strconv.Atoi(c.Query("offset"))
-	if offset < 0 {
-		offset = 0
-	}
-	rec, total, err := h.svc.ListCombinedLedgerByCustomer(ctx, customerID, fromDate, toDate, limit, offset)
+	limit, offset, export := ledgerPaging(c)
+	rec, total, totals, err := h.svc.ListCombinedLedgerByCustomer(ctx, customerID, fromDate, toDate, limit, offset)
 	if err != nil {
 		httpx.FailErr(c, err)
 		return
 	}
-	httpx.Success(c, http.StatusOK, gin.H{"items": rec, "total": total})
+	respondLedger(c, export, "Customer Ledger", "customer-ledger.pdf", fromDate, toDate, rec, total, totals, nil)
 }
 
 // GetBankLedger backs GET /banks/:id/ledger — the combined, normalized
@@ -466,20 +501,13 @@ func (h *MovementHandler) GetBankLedger(c *gin.Context) {
 		httpx.Fail(c, http.StatusBadRequest, "invalid toDate: expected YYYY-MM-DD")
 		return
 	}
-	limit, _ := strconv.Atoi(c.Query("limit"))
-	if limit <= 0 {
-		limit = partyPageSize
-	}
-	offset, _ := strconv.Atoi(c.Query("offset"))
-	if offset < 0 {
-		offset = 0
-	}
-	rec, total, err := h.svc.ListCombinedLedgerByBank(ctx, bankID, fromDate, toDate, limit, offset)
+	limit, offset, export := ledgerPaging(c)
+	rec, total, totals, err := h.svc.ListCombinedLedgerByBank(ctx, bankID, fromDate, toDate, limit, offset)
 	if err != nil {
 		httpx.FailErr(c, err)
 		return
 	}
-	httpx.Success(c, http.StatusOK, gin.H{"items": rec, "total": total})
+	respondLedger(c, export, "Bank Ledger", "bank-ledger.pdf", fromDate, toDate, rec, total, totals, nil)
 }
 
 // ownsParty answers 404 (and returns false) unless the :id in the path is a
@@ -559,6 +587,59 @@ func partyStatementRows(rows []CashMovement) [][]string {
 		}
 	}
 	return tableRows
+}
+
+// ledgerPaging reads a ledger request's limit/offset. ?export=pdf asks for
+// every matching row instead (limit 0 is unpaged in paginateLedgerRows).
+func ledgerPaging(c *gin.Context) (limit, offset int, export bool) {
+	if c.Query("export") == "pdf" {
+		return 0, 0, true
+	}
+	limit, _ = strconv.Atoi(c.Query("limit"))
+	if limit <= 0 {
+		limit = partyPageSize
+	}
+	offset, _ = strconv.Atoi(c.Query("offset"))
+	if offset < 0 {
+		offset = 0
+	}
+	return limit, offset, false
+}
+
+// respondLedger writes one ledger page as JSON — with totalDebit/totalCredit
+// across the whole filter, not just the page — or, when export is set, a PDF
+// of every matching row ending in a totals line. extra adds JSON-only keys.
+func respondLedger(c *gin.Context, export bool, title, filename string, fromDate, toDate time.Time, rows []LedgerRow, total int64, totals LedgerTotals, extra gin.H) {
+	if !export {
+		body := gin.H{"items": rows, "total": total, "totalDebit": totals.TotalDebit, "totalCredit": totals.TotalCredit}
+		for k, v := range extra {
+			body[k] = v
+		}
+		httpx.Success(c, http.StatusOK, body)
+		return
+	}
+	money := func(v float64) string { return strconv.FormatFloat(v, 'f', 2, 64) }
+	tableRows := make([][]string, 0, len(rows)+1)
+	for _, r := range rows {
+		debit, credit := "", ""
+		if r.DebitOrCredit == "debit" {
+			debit = money(r.Amount)
+		} else {
+			credit = money(r.Amount)
+		}
+		tableRows = append(tableRows, []string{
+			r.Date.Format("2006-01-02"), r.Description, r.Method, r.Reference, r.BankName, r.CustomerName, debit, credit,
+		})
+	}
+	tableRows = append(tableRows, []string{"", "Total", "", "", "", "", money(totals.TotalDebit), money(totals.TotalCredit)})
+	pdfBytes, err := renderTablePDF(title, partyStatementNote(fromDate, toDate),
+		[]string{"Date", "Description", "Mode", "Reference", "Bank", "Customer", "Debit", "Credit"}, tableRows)
+	if err != nil {
+		httpx.Fail(c, http.StatusInternalServerError, err.Error())
+		return
+	}
+	c.Header("Content-Disposition", `attachment; filename="`+filename+`"`)
+	c.Data(http.StatusOK, "application/pdf", pdfBytes)
 }
 
 func partyStatementNote(fromDate, toDate time.Time) string {
@@ -851,6 +932,8 @@ type expenseRequest struct {
 	Amount       float64 `json:"amount" binding:"required"`
 	Mode         string  `json:"mode" binding:"required"`
 	Payee        string  `json:"payee" binding:"required"`
+	FromBankID   *uint   `json:"fromBankId"`
+	ToBankID     *uint   `json:"toBankId"`
 	BranchID     uint    `json:"branchId" binding:"required"`
 	Remarks      string  `json:"remarks"`
 	ReceiptImage string  `json:"receiptImage"`
@@ -863,8 +946,8 @@ func (req expenseRequest) toInput() (RecordExpenseInput, error) {
 	}
 	return RecordExpenseInput{
 		OccurredOn: occurred, Category: req.Category, Amount: req.Amount,
-		Mode: req.Mode, Payee: req.Payee, BranchID: req.BranchID,
-		Remarks: req.Remarks, ReceiptImage: req.ReceiptImage,
+		Mode: req.Mode, Payee: req.Payee, FromBankID: req.FromBankID, ToBankID: req.ToBankID,
+		BranchID: req.BranchID, Remarks: req.Remarks, ReceiptImage: req.ReceiptImage,
 	}, nil
 }
 
@@ -909,7 +992,12 @@ func (h *ExpenseHandler) List(c *gin.Context) {
 		if hasMore {
 			rec = rec[:limit]
 		}
-		httpx.Success(c, http.StatusOK, gin.H{"items": rec, "hasMore": hasMore, "total": total})
+		totalAmount, err := h.svc.repo.SumFiltered(ctx, branchID, search)
+		if err != nil {
+			httpx.FailErr(c, err)
+			return
+		}
+		httpx.Success(c, http.StatusOK, gin.H{"items": rec, "hasMore": hasMore, "total": total, "totalAmount": totalAmount})
 		return
 	}
 
@@ -1032,9 +1120,12 @@ func NewOpeningBalanceHandler(svc *OpeningBalanceService) *OpeningBalanceHandler
 }
 
 type setOpeningBalanceRequest struct {
-	BranchID uint    `json:"branchId" binding:"required"`
-	Date     string  `json:"date"` // optional, "YYYY-MM-DD" — defaults to today
-	Amount   float64 `json:"amount"`
+	BranchID   uint    `json:"branchId" binding:"required"`
+	Date       string  `json:"date"`       // optional, "YYYY-MM-DD" — defaults to today
+	Mode       string  `json:"mode"`       // optional — defaults to "Cash"
+	BankID     *uint   `json:"bankId"`     // "to" bank — required unless Mode is Cash
+	FromBankID *uint   `json:"fromBankId"` // required unless Mode is Cash
+	Amount     float64 `json:"amount"`
 }
 
 func (h *OpeningBalanceHandler) Set(c *gin.Context) {
@@ -1049,7 +1140,7 @@ func (h *OpeningBalanceHandler) Set(c *gin.Context) {
 		httpx.Fail(c, http.StatusBadRequest, "invalid date: expected YYYY-MM-DD")
 		return
 	}
-	rec, err := h.svc.Set(ctx, req.BranchID, date, req.Amount)
+	rec, err := h.svc.Set(ctx, req.BranchID, date, req.Mode, req.BankID, req.FromBankID, req.Amount)
 	if err != nil {
 		httpx.FailErr(c, err)
 		return
@@ -1078,7 +1169,17 @@ func (h *OpeningBalanceHandler) Get(c *gin.Context) {
 		httpx.Fail(c, http.StatusBadRequest, "invalid date: expected YYYY-MM-DD")
 		return
 	}
-	rec, err := h.svc.Get(ctx, uint(branchID), date)
+	var bankID *uint
+	if raw := c.Query("bankId"); raw != "" {
+		v, err := strconv.ParseUint(raw, 10, 64)
+		if err != nil {
+			httpx.Fail(c, http.StatusBadRequest, "invalid bankId")
+			return
+		}
+		id := uint(v)
+		bankID = &id
+	}
+	rec, err := h.svc.Get(ctx, uint(branchID), date, c.Query("mode"), bankID)
 	if err != nil {
 		httpx.FailErr(c, err)
 		return
@@ -1207,7 +1308,13 @@ func (h *GoldSaleHandler) List(c *gin.Context) {
 		if hasMore {
 			rec = rec[:limit]
 		}
-		httpx.Success(c, http.StatusOK, gin.H{"items": rec, "hasMore": hasMore, "total": total})
+		totals, err := h.svc.repo.SumFiltered(ctx, branchID, fromDate, toDate, search)
+		if err != nil {
+			httpx.FailErr(c, err)
+			return
+		}
+		httpx.Success(c, http.StatusOK, gin.H{"items": rec, "hasMore": hasMore, "total": total,
+			"totalSold": totals.TotalSold, "totalCost": totals.TotalCost, "totalProfit": totals.TotalProfit})
 		return
 	}
 
@@ -1386,18 +1493,11 @@ func (h *ExpenseCategoryHandler) GetLedger(c *gin.Context) {
 		httpx.Fail(c, http.StatusBadRequest, "invalid toDate: expected YYYY-MM-DD")
 		return
 	}
-	limit, _ := strconv.Atoi(c.Query("limit"))
-	if limit <= 0 {
-		limit = partyPageSize
-	}
-	offset, _ := strconv.Atoi(c.Query("offset"))
-	if offset < 0 {
-		offset = 0
-	}
-	rec, total, err := h.movementSvc.ListLedgerByCategory(ctx, cat.Name, fromDate, toDate, limit, offset)
+	limit, offset, export := ledgerPaging(c)
+	rec, total, totals, err := h.movementSvc.ListLedgerByCategory(ctx, cat.Name, fromDate, toDate, limit, offset)
 	if err != nil {
 		httpx.FailErr(c, err)
 		return
 	}
-	httpx.Success(c, http.StatusOK, gin.H{"items": rec, "total": total, "categoryName": cat.Name})
+	respondLedger(c, export, "Expense Ledger — "+cat.Name, "expense-category-ledger.pdf", fromDate, toDate, rec, total, totals, gin.H{"categoryName": cat.Name})
 }

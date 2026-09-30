@@ -32,6 +32,9 @@ func RegisterMovementRoutes(rg *gin.RouterGroup, h *MovementHandler, perms platf
 	// MovementHandler.GetModeLedger's doc comment) — ?mode=UPI|Bank
 	// Transfer|Cheque|Cash, optionally &bankId=. Also registered before /:id.
 	rg.GET("/mode-ledger", perms.Read, h.GetModeLedger)
+	// Distinct loan numbers already recorded as a "Loan" cash source — the
+	// Add Cash Loan Number picker. Registered before /:id.
+	rg.GET("/loan-sources", perms.Read, h.ListLoanSources)
 	rg.GET("/:id", perms.Read, h.Get)
 	rg.PATCH("/:id/status", perms.Update, h.SetStatus)
 }

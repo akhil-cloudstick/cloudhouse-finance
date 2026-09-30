@@ -189,6 +189,33 @@ export function getInvestment(id: number): Promise<BackendInvestment> {
   return apiFetch<BackendInvestment>(`/investments/${id}`);
 }
 
+/* Resolves "INV-00003" to its numeric id — lets a ledger reference link to
+ * #investment/INV-00003 (see LedgerRefLink's "investment" kind). */
+export async function resolveInvestmentNumber(number: string): Promise<number> {
+  return (await apiFetch<{ id: number }>(`/investments/by-number/${encodeURIComponent(number)}`)).id;
+}
+
+/* One row of GET /investments/:id/ledger — deposit = credit (money in),
+ * payout/withdrawal = debit; runningBalance is the principal still owed to
+ * the investor after the row. Oldest first. */
+export type InvestmentLedgerRow = {
+  id: string;
+  date: string;
+  description: string;
+  type: string;
+  method: string;
+  reference: string;
+  debitOrCredit: "debit" | "credit";
+  amount: number;
+  principalAmount: number;
+  interestAmount: number;
+  runningBalance: number;
+};
+
+export async function getInvestmentLedger(id: number): Promise<InvestmentLedgerRow[]> {
+  return (await apiFetch<{ items: InvestmentLedgerRow[] | null }>(`/investments/${id}/ledger`)).items || [];
+}
+
 export const INVESTMENT_PAGE_SIZE = 20;
 
 /* Unpaginated in practice (limit 20 comfortably covers a Monthly/12mo or

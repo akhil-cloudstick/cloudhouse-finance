@@ -220,7 +220,7 @@ func NewDeps(db *gorm.DB, cfg platform.Config) *Deps {
 		packetSvc:   packetSvc,
 		loanSvc:     loanSvc,
 		movementSvc: movementSvc,
-		expenseSvc:  cash.NewExpenseService(expenseRepo, branchRepo),
+		expenseSvc:  cash.NewExpenseService(expenseRepo, branchRepo, movementSvc),
 		openingSvc:  cash.NewOpeningBalanceService(openingRepo, branchRepo),
 		personalSvc: personalSvc,
 		// whatsapp and commlogRepo nil for the same reason as loanSvc: the

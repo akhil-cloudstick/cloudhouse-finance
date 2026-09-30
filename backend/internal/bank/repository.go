@@ -69,16 +69,30 @@ func (r *Repository) Update(ctx context.Context, b *Bank) error {
 	return r.db.WithContext(ctx).Save(b).Error
 }
 
-// CountReferences mirrors branch.Repository.CountReferences's raw-table-name
-// approach (avoiding an import cycle — cash already imports bank for
-// CashMovement.BankRef, so bank cannot import cash back) — counts every
-// CashMovement/BankPledgeRecord still pointing at bankID, so Delete can
+// bankRefColumns is every (table, column) that stores a bank id — raw names
+// rather than model types to avoid an import cycle (cash/loan/personalloan
+// all import bank). CountReferences and ReassignBankID both walk this list,
+// so a new bank column only needs adding here once.
+var bankRefColumns = []struct{ table, column string }{
+	{"cash_movements", "bank_id"},
+	{"cash_movements", "to_bank_id"},
+	{"expenses", "from_bank_id"},
+	{"expenses", "to_bank_id"},
+	{"bank_pledge_records", "bank_id"},
+	{"loan_cash_sources", "bank_id"},
+	{"gold_sales", "bank_id"},
+	{"loan_payments", "bank_id"},
+	{"personal_loan_payments", "bank_id"},
+	{"opening_cash_balances", "bank_id"},
+}
+
+// CountReferences counts every row still pointing at bankID, so Delete can
 // refuse to remove a bank still referenced by history.
 func (r *Repository) CountReferences(ctx context.Context, bankID uint) (int64, error) {
 	var count int64
-	for _, table := range []string{"cash_movements", "bank_pledge_records"} {
+	for _, ref := range bankRefColumns {
 		var c int64
-		if err := r.db.WithContext(ctx).Table(table).Where("bank_id = ?", bankID).Count(&c).Error; err != nil {
+		if err := r.db.WithContext(ctx).Table(ref.table).Where(ref.column+" = ?", bankID).Count(&c).Error; err != nil {
 			return 0, err
 		}
 		count += c
@@ -99,8 +113,8 @@ func (r *Repository) Delete(ctx context.Context, id uint) error {
 // from the historical free-text-bank backfill (see migrate.
 // backfillCashMovementBankID), not solved by fuzzy name matching.
 func (r *Repository) ReassignBankID(ctx context.Context, fromID, toID uint) error {
-	for _, table := range []string{"cash_movements", "bank_pledge_records"} {
-		if err := r.db.WithContext(ctx).Table(table).Where("bank_id = ?", fromID).Update("bank_id", toID).Error; err != nil {
+	for _, ref := range bankRefColumns {
+		if err := r.db.WithContext(ctx).Table(ref.table).Where(ref.column+" = ?", fromID).Update(ref.column, toID).Error; err != nil {
 			return err
 		}
 	}

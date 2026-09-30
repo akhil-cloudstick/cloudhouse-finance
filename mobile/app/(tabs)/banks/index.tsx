@@ -20,7 +20,7 @@ import {
   WarningBanner,
   openPage,
 } from "../../../src/components/ui";
-import { AddBankPledgeSheet, AddBankSheet, invalidateBankPledgeViews } from "../../../src/components/staff/BankPledgeSheets";
+import { AddBankPledgeSheet, BanksSheet, invalidateBankPledgeViews } from "../../../src/components/staff/BankPledgeSheets";
 import { useServerList } from "../../../src/hooks/useServerList";
 import {
   listBankPledgedLoansPage,
@@ -64,11 +64,11 @@ export default function BankPledgeScreen() {
   const canCreatePledge = can("Bank_Pledge_Management", "can_create_bank_pledge");
   const canUpdatePledges = can("Bank_Pledge_Management", "can_update_bank_pledge");
   const canVoid = canUpdatePledges && !!employee?.role && VOID_ROLES.includes(employee.role);
-  const canCreateBanks = can("Bank_Management", "can_create_bank");
+  const canViewBanks = can("Bank_Management", "can_view_bank");
 
   const [tab, setTab] = useState<Tab>("active");
   const [addPledge, setAddPledge] = useState(false);
-  const [addBank, setAddBank] = useState(false);
+  const [banksOpen, setBanksOpen] = useState(false);
   const [releaseTarget, setReleaseTarget] = useState<PledgeTarget | null>(null);
   const [releaseError, setReleaseError] = useState<string | null>(null);
   const [voidTarget, setVoidTarget] = useState<PledgeTarget | null>(null);
@@ -111,12 +111,12 @@ export default function BankPledgeScreen() {
       header={<FlatHeader title="Bank Pledges" subtitle="Active & history" />}
       floating={
         // One corner button that opens upward into both actions.
-        canCreateBanks || canCreatePledge ? (
+        canViewBanks || canCreatePledge ? (
           <FabMenu
             label="Bank actions"
             actions={[
               ...(canCreatePledge ? [{ label: "Add Pledge", icon: "plus", onPress: () => setAddPledge(true) }] : []),
-              ...(canCreateBanks ? [{ label: "Add Bank", icon: "coin", onPress: () => setAddBank(true) }] : []),
+              ...(canViewBanks ? [{ label: "Banks", icon: "coin", onPress: () => setBanksOpen(true) }] : []),
             ]}
           />
         ) : undefined
@@ -217,7 +217,7 @@ export default function BankPledgeScreen() {
       )}
 
       <AddBankPledgeSheet visible={addPledge} onClose={() => setAddPledge(false)} />
-      <AddBankSheet visible={addBank} onClose={() => setAddBank(false)} />
+      <BanksSheet visible={banksOpen} onClose={() => setBanksOpen(false)} />
 
       <Sheet visible={!!releaseTarget} onClose={() => setReleaseTarget(null)} title="Release Bank Pledge" maxHeightPct={60}>
         {releaseTarget ? (
