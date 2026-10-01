@@ -8,7 +8,8 @@ import { useLoans } from "@/product/pages/loans/store/LoansProvider";
 import { useGoldRates } from "@/product/pages/gold-rates/store/GoldRatesProvider";
 import { useModal } from "@/product/components/Modal";
 import { useToast } from "@/product/components/Toast";
-import { useAuth } from "@/product/providers/auth-context";
+import { useAuth, useApprovalWorkflow } from "@/product/providers/auth-context";
+import { stageByPending } from "@/product/services/approvalWorkflowService";
 import { Icon } from "@/product/components/Icon";
 import { fmt, custOf, schemeOf } from "@/product/utils/format";
 import { uploadFile, searchCustomersPage, type CustomerView } from "@/product/pages/customers/services/customerService";
@@ -74,6 +75,7 @@ function blurOnWheel(e: React.WheelEvent<HTMLInputElement>) {
  * list or a localStorage-backed type list. */
 export function NewLoan() {
   const { isAdmin, can } = useAuth();
+  const { config: workflow } = useApprovalWorkflow();
   const { refresh } = useData();
   const { customers } = useCustomers();
   const { schemes } = useSchemes();
@@ -603,7 +605,11 @@ export function NewLoan() {
 
       refresh();
       refreshLoans();
-      toast(`Loan ${loan.loanNumber} submitted for approval`);
+      // Loan sanction always has at least one stage switched on, so every
+      // new loan enters the chain — name the stage it is now waiting at (the
+      // first enabled one, read back from the created loan).
+      const firstStage = stageByPending(workflow, "loan_sanction", loan.approvalStage);
+      toast(`Loan ${loan.loanNumber} submitted for approval${firstStage ? ` — awaiting ${firstStage.label}` : ""}`);
       navigate("loan/" + loan.loanNumber);
     } catch (err) {
       toast(err instanceof ApiError ? err.message : "Could not submit loan — try again");

@@ -83,7 +83,7 @@ export function EditLoanSheet({ loan: l, visible, onClose }: { loan: Loan; visib
   return (
     <Sheet visible={visible} onClose={onClose} title="Edit Loan Details" maxHeightPct={90}>
       <NoticeBanner>
-        Changing the scheme or principal amount requires re-approval before the loan is active again — saving will resubmit it through the sanction chain from the first stage.
+        Changing the scheme or principal amount requires re-approval before the loan is active again — saving will resubmit it through the sanction chain from its first enabled stage.
       </NoticeBanner>
 
       <AsyncSelect<Scheme>

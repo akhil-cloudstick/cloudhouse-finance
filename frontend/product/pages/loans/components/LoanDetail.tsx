@@ -5,7 +5,15 @@ import { toDataURL } from "qrcode";
 import { useDropdownMenu } from "@/product/hooks/useDropdownMenu";
 import { useModal } from "@/product/components/Modal";
 import { useToast } from "@/product/components/Toast";
-import { useAuth } from "@/product/providers/auth-context";
+import { useAuth, useApprovalWorkflow } from "@/product/providers/auth-context";
+import {
+  canActAtStage,
+  chainFor,
+  isFinalStage,
+  nextStage,
+  stageByPending,
+  trackerLabels,
+} from "@/product/services/approvalWorkflowService";
 import { StatusChip } from "@/product/components/ui/StatusChip";
 import { Icon } from "@/product/components/Icon";
 import { fmt, fmtW } from "@/product/utils/format";
@@ -17,14 +25,12 @@ import {
   getLoanByNumber,
   approveLoan,
   listTopUps,
+  approveTopUp,
   type LoanTopUpView,
   getAuctionHistory,
   type AuctionRecordView,
   releaseBankPledge,
   completeRelease,
-  SANCTION_STAGES,
-  SANCTION_STAGE_LABELS,
-  SANCTION_STAGE_ROLES,
   startIndemnityBondEsign,
   checkIndemnityBondEsign,
   canAcceptBankPledge,
@@ -32,7 +38,6 @@ import {
   hardDeleteLoan,
   downloadIndemnityBondPDF,
   downloadReleaseAgreementPDF,
-  type SanctionStage,
   type LoanView,
 } from "@/product/pages/loans/services/loanService";
 import { getCustomer } from "@/product/pages/customers/services/customerService";
@@ -52,6 +57,8 @@ import { EditLoanModalContent } from "@/product/components/modals/EditLoanModal"
 import { navigate, routeHref } from "@/product/services/appRoutes";
 import { DisburseLoanModalContent } from "@/product/components/modals/DisburseLoanModal";
 import { TopUpLoanModalContent } from "@/product/components/modals/TopUpLoanModal";
+import { WaiverRequestModalContent } from "@/product/components/modals/WaiverRequestModal";
+import { RejectRemarksModalContent } from "@/product/components/modals/RejectRemarksModal";
 
 /* Auction rows in the Payment Ledger. RecordAuctionSale writes an "Auction
  * Sale" payment (Reference = the auction reference) for the portion of the
@@ -152,6 +159,9 @@ export function LoanDetail({ id }: { id?: string }) {
   // pre-change status until a full page reload re-fetched everything.
   const { refresh: refreshLoans } = useLoans();
   const { can } = useAuth();
+  // Which sanction/top-up stages apply is per-business configuration — see
+  // approvalWorkflowService.ts.
+  const { config: workflow } = useApprovalWorkflow();
   // Every action on this page is hidden, not disabled, when the role lacks
   // the grant behind it (see Customers.tsx). The print/export buttons are
   // deliberately not gated — they only render what the viewer can already
@@ -167,6 +177,11 @@ export function LoanDetail({ id }: { id?: string }) {
 
   const [loan, setLoan] = useState<LoanView | null>(null);
   const [topUps, setTopUps] = useState<LoanTopUpView[]>([]);
+  // Bumped after a top-up is submitted/decided — a top-up submitted into the
+  // loan_topup approval chain leaves the loan itself unchanged, so the
+  // outstanding-keyed refetch below wouldn't notice it.
+  const [topUpsVersion, setTopUpsVersion] = useState(0);
+  const [decidingTopUp, setDecidingTopUp] = useState(false);
   // Auction cases that reached a sale — their sale/expense breakdown and any
   // surplus paid back to the customer are shown in the Payment Ledger.
   const [auctions, setAuctions] = useState<AuctionRecordView[]>([]);
@@ -273,7 +288,7 @@ export function LoanDetail({ id }: { id?: string }) {
   useEffect(() => {
     if (!loan) return;
     listTopUps(loan.numericId).then(setTopUps).catch(() => setTopUps([]));
-  }, [loan?.numericId, loan?.outstanding]);
+  }, [loan?.numericId, loan?.outstanding, topUpsVersion]);
 
   useEffect(() => {
     if (!loan) return;
@@ -328,7 +343,7 @@ export function LoanDetail({ id }: { id?: string }) {
     );
   }
 
-  async function doApprove(stage: SanctionStage, action: "Approved" | "Rejected" | "Verified") {
+  async function doApprove(stage: string, action: "Approved" | "Rejected" | "Verified") {
     setApproving(true);
     try {
       // The acting employee/role are derived server-side from the
@@ -337,7 +352,15 @@ export function LoanDetail({ id }: { id?: string }) {
       const updated = await approveLoan(l.numericId, { stage, action });
       setLoan(updated);
       refreshLoans();
-      toast(action === "Approved" ? "Approved" : action === "Rejected" ? "Rejected" : "Verified — sent to the Branch Manager");
+      // Name the stage the loan moved on to, from this business's own chain
+      // (a stage may have been switched off, so it isn't always the next
+      // one in the catalogue).
+      const next = nextStage(workflow, "loan_sanction", stage);
+      toast(
+        action === "Rejected"
+          ? "Rejected"
+          : `${action === "Verified" ? "Verified" : "Approved"}${next ? ` — sent to ${next.label}` : ""}`
+      );
     } catch (err) {
       toast(err instanceof ApiError ? err.message : "Could not record the decision — try again");
     } finally {
@@ -345,12 +368,17 @@ export function LoanDetail({ id }: { id?: string }) {
     }
   }
 
-  // "AuthorizedManagement" is the retired 4th stage — the backend migrates
-  // rows off it, but map it here too so a loan fetched before that ran
+  // The pending sanction stage, looked up in this business's configured
+  // chain. stageByPending also maps the retired "AuthorizedManagement" 4th
+  // stage to FinalSanction, so a loan fetched before the backend migrated it
   // still renders its pending stage instead of silently showing no buttons.
-  const currentStage = (l.approvalStage === "AuthorizedManagement" ? "FinalSanction" : l.approvalStage) as SanctionStage;
-  const pendingStageIndex = SANCTION_STAGES.indexOf(currentStage);
-  const pendingStage = pendingStageIndex >= 0 ? SANCTION_STAGES[pendingStageIndex] : null;
+  // A loan parked on a stage that has since been switched off still finds
+  // it here (and chainFor keeps it on the tracker) — it can still be acted
+  // on there.
+  const pendingStageView = stageByPending(workflow, "loan_sanction", l.approvalStage);
+  const pendingStage = pendingStageView?.key ?? null;
+  const sanctionChain = chainFor(workflow, "loan_sanction", l.approvalStage);
+  const pendingStageIndex = pendingStage ? sanctionChain.findIndex((s) => s.key === pendingStage) : -1;
   // Whether the viewer may act at the CURRENT pending stage is now a real
   // "Loan Sanction" permission grant (see internal/authz.Catalogue),
   // not a role-name match — an admin can grant e.g. "can approve branch
@@ -361,21 +389,54 @@ export function LoanDetail({ id }: { id?: string }) {
   // nicety only — the server enforces it regardless of what the client
   // shows. requiredRole is kept purely for the "Awaiting <role>
   // approval" display text below.
-  const requiredRole = pendingStage ? SANCTION_STAGE_ROLES[pendingStage] : null;
+  const requiredRole = pendingStageView?.role ?? null;
   // The LoanOperator stage is a verification, not a sanction — the operator
   // who made the loan confirms it and it moves on to the Branch Manager,
   // who is the first real approver (backend: Service.Approve). So the
   // affirmative action at that stage is "Verified", "Approved" above it.
   const isVerifyStage = pendingStage === "LoanOperator";
-  const STAGE_PERMISSIONS: Record<SanctionStage, string> = {
-    LoanOperator: "can_verify_loan",
-    BranchManager: "can_approve_branch_manager_stage",
-    FinalSanction: "can_sanction_loan",
-  };
-  // The stage permission says whose turn it is; "can update loan" says
-  // whether the viewer may act on loans at all. Both must hold, or they
-  // see the "awaiting …" note instead of clickable buttons.
-  const canActOnStage = !!pendingStage && canUpdateLoans && can("Loan_Sanction", STAGE_PERMISSIONS[pendingStage]);
+  // The last ENABLED stage of the chain disburses — whichever one that is.
+  const isDisburseStage = !!pendingStage && isFinalStage(workflow, "loan_sanction", pendingStage);
+  // The stage permission (from the stage's own config entry) says whose
+  // turn it is; "can update loan" says whether the viewer may act on loans
+  // at all. Both must hold, or they see the "awaiting …" note instead of
+  // clickable buttons.
+  const canActOnStage = !!pendingStage && canUpdateLoans && canActAtStage(can, pendingStageView);
+
+  // A top-up waiting in the loan_topup approval chain (only one per loan).
+  // Pending/Rejected rows paid nothing out, so only the others belong in the
+  // Payment Ledger below.
+  const pendingTopUp = topUps.find((t) => t.status === "Pending") ?? null;
+  const ledgerTopUps = topUps.filter((t) => t.status !== "Pending" && t.status !== "Rejected");
+  const topUpStageView = pendingTopUp ? stageByPending(workflow, "loan_topup", pendingTopUp.approvalStage) : null;
+  const topUpChain = pendingTopUp ? chainFor(workflow, "loan_topup", pendingTopUp.approvalStage) : [];
+  const topUpStageIndex = topUpStageView ? topUpChain.findIndex((s) => s.key === topUpStageView.key) : topUpChain.length;
+  const canActOnTopUp = canUpdateLoans && canActAtStage(can, topUpStageView);
+  const topUpIsFinal = !!topUpStageView && isFinalStage(workflow, "loan_topup", topUpStageView.key);
+
+  async function decideTopUp(action: "Approved" | "Rejected", remarks = "") {
+    if (!pendingTopUp || !topUpStageView) return;
+    setDecidingTopUp(true);
+    try {
+      const updated = await approveTopUp(pendingTopUp.id, { stage: topUpStageView.key, action, remarks: remarks || undefined });
+      const next = nextStage(workflow, "loan_topup", topUpStageView.key);
+      toast(
+        action === "Rejected"
+          ? "Top-up rejected"
+          : updated.status === "Active"
+            ? `Top-up approved — ${fmt(updated.amount)} disbursed`
+            : `Top-up approved${next ? ` — sent to ${next.label}` : ""}`
+      );
+      setTopUpsVersion((v) => v + 1);
+      load();
+    } catch (err) {
+      toast(err instanceof ApiError ? err.message : "Could not record the decision — try again");
+      // Rethrown so the reject prompt keeps itself open with the message.
+      if (action === "Rejected") throw err;
+    } finally {
+      setDecidingTopUp(false);
+    }
+  }
   // `sm` matches the other page-header buttons (Print Label, Print Slip,
   // Record Payment, …) — these used to render at the default, larger size
   // and towered over the row.
@@ -392,18 +453,18 @@ export function LoanDetail({ id }: { id?: string }) {
     </button>
   ) : null;
 
-  // The FinalSanction stage's Approve action is also the disbursement
+  // The final enabled stage's Approve/Verify is also the disbursement
   // moment (Service.Approve's disbursing branch) — collect the split-mode
   // breakdown via a modal instead of the earlier stages' plain one-click
-  // Approve/Verify, which move no cash.
+  // Approve/Verify, which move no cash. DisburseLoanModal toasts itself.
   function onApproveClick() {
     if (!pendingStage) return;
-    if (pendingStage === "FinalSanction") {
+    if (isDisburseStage) {
       openModal(
         <DisburseLoanModalContent
           loan={l}
           stage={pendingStage}
-          onSaved={(updated) => { setLoan(updated); refreshLoans(); toast("Approved and disbursed"); }}
+          onSaved={(updated) => { setLoan(updated); refreshLoans(); }}
         />
       );
       return;
@@ -415,7 +476,7 @@ export function LoanDetail({ id }: { id?: string }) {
     canActOnStage ? (
       <>
         <button className="btn" disabled={approving} onClick={onApproveClick}>
-          <Icon name="check" /> {isVerifyStage ? "Verify" : "Approve"}
+          <Icon name="check" /> {isDisburseStage ? (isVerifyStage ? "Verify & Disburse" : "Approve & Disburse") : isVerifyStage ? "Verify" : "Approve"}
         </button>
         <button className="btn danger" disabled={approving} onClick={() => doApprove(pendingStage, "Rejected")}>
           Reject
@@ -994,8 +1055,13 @@ export function LoanDetail({ id }: { id?: string }) {
                   </a>
                 )}
                 {l.status === "Active" && canUpdateLoans && (
-                  <a href="#" title="Top Up Loan" onClick={(e) => { e.preventDefault(); setLoanActionsMenuOpen(false); openModal(<TopUpLoanModalContent loan={l} onSaved={() => load()} />); }}>
+                  <a href="#" title="Top Up Loan" onClick={(e) => { e.preventDefault(); setLoanActionsMenuOpen(false); openModal(<TopUpLoanModalContent loan={l} onSaved={() => { load(); setTopUpsVersion((v) => v + 1); }} />); }}>
                     <Icon name="coin" /><span className="tx">Top Up</span>
+                  </a>
+                )}
+                {!isFinished && l.status !== "Auctioned" && canUpdateLoans && (
+                  <a href="#" title="Waiver / Adjustment" onClick={(e) => { e.preventDefault(); setLoanActionsMenuOpen(false); openModal(<WaiverRequestModalContent loan={l} onSaved={load} />); }}>
+                    <Icon name="edit" /><span className="tx">Waiver / Adjustment</span>
                   </a>
                 )}
                 {/* Deliberately the ONLY delete action offered here — there
@@ -1127,12 +1193,48 @@ export function LoanDetail({ id }: { id?: string }) {
         <div className="card" style={{ marginBottom: 14 }}>
           <div className="bd">
             <StageTracker
-              stages={SANCTION_STAGES.map((s) => SANCTION_STAGE_LABELS[s])}
+              stages={trackerLabels(workflow, "loan_sanction", sanctionChain)}
               currentIndex={pendingStageIndex}
             />
             {l.approvalWarning && (
               <div className="notice" style={{ marginTop: 10, color: "var(--amber)" }}><Icon name="shield" /> {l.approvalWarning}</div>
             )}
+          </div>
+        </div>
+      )}
+      {pendingTopUp && (
+        <div className="card" style={{ marginBottom: 14 }}>
+          <div className="hd">
+            <h3>Top-up pending approval — {fmt(pendingTopUp.amount)}</h3>
+            <div style={{ display: "flex", gap: 8 }}>
+              {topUpStageView && canActOnTopUp ? (
+                <>
+                  <button
+                    className="btn danger sm"
+                    disabled={decidingTopUp}
+                    onClick={() => openModal(<RejectRemarksModalContent title="Reject Top-up" required onConfirm={(remarks) => decideTopUp("Rejected", remarks)} />)}
+                  >
+                    Reject
+                  </button>
+                  <button className="btn sm" disabled={decidingTopUp} onClick={() => decideTopUp("Approved")}>
+                    <Icon name="check" /> {topUpIsFinal ? "Approve & Disburse" : `Approve (${topUpStageView.label})`}
+                  </button>
+                </>
+              ) : topUpStageView ? (
+                <span style={{ color: "var(--muted)", fontSize: 13 }}>Awaiting {topUpStageView.role} approval</span>
+              ) : null}
+            </div>
+          </div>
+          <div className="bd">
+            {topUpChain.length > 0 && (
+              <StageTracker stages={trackerLabels(workflow, "loan_topup", topUpChain)} currentIndex={topUpStageIndex} />
+            )}
+            <p className="ccheck-hint" style={{ marginTop: 10 }}>
+              Requested {pendingTopUp.createdAt.slice(0, 10)}
+              {pendingTopUp.reference ? ` · Ref ${pendingTopUp.reference}` : ""}
+              {pendingTopUp.settleInterest === "deduct" ? " · outstanding interest to be deducted from the payout" : ""}
+              {" "}— nothing is paid out until the final stage approves it.
+            </p>
           </div>
         </div>
       )}
@@ -1242,7 +1344,7 @@ export function LoanDetail({ id }: { id?: string }) {
                     <td className="num">{fmt(l.sanctionedAmount)}</td>
                   </tr>
                 )}
-                {l.payments.length === 0 && !l.disbursementDate && topUps.length === 0 && auctions.length === 0 ? (
+                {l.payments.length === 0 && !l.disbursementDate && ledgerTopUps.length === 0 && auctions.length === 0 ? (
                   <tr><td colSpan={7} className="empty">No ledger entries yet.</td></tr>
                 ) : (
                   // Top-ups are additional disbursements, not repayments —
@@ -1252,7 +1354,7 @@ export function LoanDetail({ id }: { id?: string }) {
                   // movement against the loan, sanction through settlement.
                   [
                     ...l.payments.map((p) => ({ kind: "payment" as const, date: p.paidOn, sortKey: p.paidOn, row: p })),
-                    ...topUps.map((t) => ({ kind: "topup" as const, date: t.occurredOn.slice(0, 10), sortKey: t.occurredOn, row: t })),
+                    ...ledgerTopUps.map((t) => ({ kind: "topup" as const, date: t.occurredOn.slice(0, 10), sortKey: t.occurredOn, row: t })),
                     // A sale whose net proceeds settled nothing writes no
                     // Auction Sale payment — still record that it happened.
                     ...auctions

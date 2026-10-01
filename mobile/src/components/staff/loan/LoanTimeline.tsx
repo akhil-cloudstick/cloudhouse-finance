@@ -1,6 +1,7 @@
 import React, { useState } from "react";
 import { AccBtn, C, Card, EmptyText, PledgeItem } from "../../ui";
-import { SANCTION_STAGE_LABELS, normalizeSanctionStage } from "../../../api/loans";
+import { normalizeSanctionStage } from "../../../api/loans";
+import { DEFAULT_WORKFLOW, stageByKey, useApprovalWorkflow, type WorkflowConfig } from "../../../api/approvalWorkflow";
 import { dmy, inr } from "../../../lib/format";
 import type { Loan, LoanRequest } from "../../../types/loan";
 
@@ -12,7 +13,7 @@ const PAGE = 10;
  * pledges and extension / release requests. Money movements (disbursement,
  * top-ups, payments) live in the Payment Ledger tab instead (LoanLedger.tsx).
  * Oldest first, as in the prototype. */
-export function buildLoanEvents(l: Loan, requests: LoanRequest[]): Ev[] {
+export function buildLoanEvents(l: Loan, requests: LoanRequest[], wf: WorkflowConfig = DEFAULT_WORKFLOW): Ev[] {
   const ev: Ev[] = [];
   const weight = l.totalNetWeight ?? (l.ornaments ?? []).reduce((s, o) => s + o.netWeight * (o.quantity || 1), 0);
   const value = l.totalGoldValue ?? (l.ornaments ?? []).reduce((s, o) => s + o.goldValue, 0);
@@ -27,11 +28,17 @@ export function buildLoanEvents(l: Loan, requests: LoanRequest[]): Ev[] {
     sub: `${count} ornament${count === 1 ? "" : "s"} · ${weight.toFixed(2)} g · valued at ${inr(value)}`,
   });
 
-  for (const a of l.approvals ?? []) {
+  // Which stage disburses is per-tenant (the last enabled "loan_sanction"
+  // stage), so "Loan sanctioned" marks the LAST approval row of a loan whose
+  // chain has completed, whichever stage that was.
+  const approvals = l.approvals ?? [];
+  const lastApprovalId = [...approvals].reverse().find((a) => a.action !== "Rejected")?.id;
+  for (const a of approvals) {
     const stage = normalizeSanctionStage(a.stage);
-    const label = stage ? SANCTION_STAGE_LABELS[stage] : a.stage;
+    const def = stageByKey(wf, "loan_sanction", stage);
+    const label = def ? `${a.action === "Verified" ? "Verified" : "Approved"} by ${def.role}` : a.stage;
     const rejected = a.action === "Rejected";
-    const sanctioned = stage === "FinalSanction" && a.action === "Approved";
+    const sanctioned = !rejected && a.id === lastApprovalId && l.approvalStage === "Approved";
     ev.push({
       key: `ap-${a.id}`,
       at: a.createdAt,
@@ -75,7 +82,17 @@ export function buildLoanEvents(l: Loan, requests: LoanRequest[]): Ev[] {
     const amber = r.status === "Pending";
     const tone = amber ? { iconBg: C.amberBg, iconColor: C.amber } : r.status === "Rejected" ? { iconBg: C.redBg, iconColor: C.red } : { iconBg: C.greenBg, iconColor: C.green };
     const verb = r.status === "Pending" ? "requested" : r.status === "Approved" ? "approved" : "rejected";
-    if (r.type === "Extension") {
+    if (r.type === "Waiver" || r.type === "Adjustment") {
+      ev.push({
+        key: `rq-${r.id}`,
+        at: r.decidedAt && r.status !== "Pending" ? r.decidedAt : r.requestedAt || r.createdAt,
+        order: 5,
+        icon: "coin",
+        ...tone,
+        title: `${r.type} ${verb}`,
+        sub: [inr(r.amount ?? 0), r.detail, r.status === "Pending" ? "pending approval" : ""].filter(Boolean).join(" · "),
+      });
+    } else if (r.type === "Extension") {
       const m = r.requestedExtensionMonths;
       ev.push({
         key: `rq-${r.id}`,
@@ -104,7 +121,8 @@ export function buildLoanEvents(l: Loan, requests: LoanRequest[]): Ev[] {
 }
 
 export function LoanTimeline({ loan, requests }: { loan: Loan; requests: LoanRequest[] }) {
-  const events = buildLoanEvents(loan, requests);
+  const wf = useApprovalWorkflow();
+  const events = buildLoanEvents(loan, requests, wf);
   // Oldest first; long histories start collapsed to the latest PAGE entries.
   const [shown, setShown] = useState(PAGE);
   const hidden = Math.max(0, events.length - shown);

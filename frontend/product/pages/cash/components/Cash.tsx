@@ -17,10 +17,13 @@ import { useExpenseCategoryIds } from "@/product/hooks/useExpenseCategoryIds";
 import { particularsFor, loanNumberFor, refCellFor, modeCellFor } from "@/product/pages/cash/components/ledgerCells";
 import {
   listCashMovementsPage, listExpensesPage, listGoldSalesPage, getCashSummary,
+  approveExpense, rejectExpense,
   exportCashMovements, exportExpenses,
   type CashMovementView, type ExpenseView, type GoldSaleView, type CashSummary, type CashMovementCategory,
 } from "@/product/pages/cash/services/cashService";
 import { useAuth } from "@/product/providers/auth-context";
+import { ApiError } from "@/product/services/httpClient";
+import { RejectRemarksModalContent } from "@/product/components/modals/RejectRemarksModal";
 import { useResponsivePageSize, useIsSmallScreen } from "@/product/utils/responsive";
 
 function Kpi({ l, v, s, parts, cls }: {
@@ -82,8 +85,11 @@ function MovementRow({ m, balance, categoryIds }: { m: CashMovementView; balance
   );
 }
 
-function ExpenseRow({ e, categoryId, onViewReceipt }: {
+/* canApprove/onApprove/onReject drive the Approve/Reject pair shown on a
+ * Pending row (the expense approval flow) — gated by "can approve expense". */
+function ExpenseRow({ e, categoryId, onViewReceipt, canApprove, busy, onApprove, onReject }: {
   e: ExpenseView; categoryId?: number; onViewReceipt: () => void;
+  canApprove: boolean; busy: boolean; onApprove: () => void; onReject: () => void;
 }) {
   return (
     <tr>
@@ -98,6 +104,12 @@ function ExpenseRow({ e, categoryId, onViewReceipt }: {
       <td data-label="Status">
         <StatusChip status={e.status} />
         {e.remarks ? <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 2 }}>{e.remarks}</div> : null}
+        {e.status === "Pending" && canApprove && (
+          <div style={{ display: "flex", gap: 6, justifyContent: "center", marginTop: 6 }}>
+            <button className="btn sm" disabled={busy} onClick={onApprove}><Icon name="check" /> Approve</button>
+            <button className="btn danger sm" disabled={busy} onClick={onReject}>Reject</button>
+          </div>
+        )}
       </td>
       <td data-label="Receipt" style={{ textAlign: "center" }}>
         {e.img
@@ -137,6 +149,10 @@ export function Cash() {
   // Whatever the role can't do is hidden outright (see Customers.tsx).
   const { can } = useAuth();
   const canCreateCash = can("Cash_Management", "can_create_cash");
+  // Pending expenses (expense approval flow on) — approving posts the cash
+  // movement; enforced server-side by the same permission.
+  const canApproveExpense = can("Expense_Approval", "can_approve_expense");
+  const [decidingExpenseId, setDecidingExpenseId] = useState<number | null>(null);
   const today = new Date().toISOString().slice(0, 10);
 
   const [branchId, setBranchId] = useState<number | "">("");
@@ -283,6 +299,33 @@ export function Cash() {
 
   useEffect(() => { refresh(); }, [refresh]);
 
+  async function onApproveExpense(e: ExpenseView) {
+    setDecidingExpenseId(e.id);
+    try {
+      await approveExpense(e.id);
+      toast(`Expense of ${fmt(e.amt)} approved`);
+      refresh();
+    } catch (err) {
+      toast(err instanceof ApiError ? err.message : "Could not approve the expense — try again");
+    } finally {
+      setDecidingExpenseId(null);
+    }
+  }
+
+  function onRejectExpense(e: ExpenseView) {
+    openModal(
+      <RejectRemarksModalContent
+        title={`Reject Expense — ${fmt(e.amt)}`}
+        required
+        onConfirm={async (remarks) => {
+          await rejectExpense(e.id, remarks);
+          toast("Expense rejected");
+          refresh();
+        }}
+      />
+    );
+  }
+
   // Running balance over the currently loaded (paginated) page only — same
   // best-effort approach LedgerExportView.tsx's preview table uses, not a
   // true running balance across the whole filtered set.
@@ -339,7 +382,7 @@ export function Cash() {
          * Cash beside the title). */}
         {canCreateCash && (
           <div className="page-h-actions">
-            <button className="btn ghost" onClick={() => openModal(<AddCashModalContent onSaved={refresh} />)}><Icon name="coin" /> Add Cash</button>
+            <button className="btn ghost" onClick={() => openModal(<AddCashModalContent onSaved={refresh} defaultBranchId={branchId || undefined} />)}><Icon name="coin" /> Add Cash</button>
             <button className="btn" onClick={() => openModal(<ExpenseModalContent onSaved={refresh} />)}><Icon name="plus" /> Record Expense</button>
           </div>
         )}
@@ -477,6 +520,10 @@ export function Cash() {
                       e={e}
                       categoryId={categoryIdByName[e.cat.toLowerCase()]}
                       onViewReceipt={() => openModal(<ReceiptViewModalContent e={e} />, true)}
+                      canApprove={canApproveExpense}
+                      busy={decidingExpenseId === e.id}
+                      onApprove={() => onApproveExpense(e)}
+                      onReject={() => onRejectExpense(e)}
                     />
                   ))
                   : <tr><td colSpan={8} className="empty">No expenses recorded yet.</td></tr>}

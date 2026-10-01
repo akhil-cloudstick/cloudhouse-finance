@@ -75,6 +75,8 @@ var hardDeleteOrder = []string{
 	"expenses",
 	"opening_cash_balances",
 	"approval_limits",
+	"approval_stage_settings",
+	"approval_actions",
 	"communication_logs",
 	"audit_log_entries",
 	"purity_standards",

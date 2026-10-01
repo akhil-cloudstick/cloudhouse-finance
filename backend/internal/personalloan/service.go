@@ -12,6 +12,7 @@ import (
 	"cloudhouse/backend/internal/customer"
 	"cloudhouse/backend/internal/platform"
 	"cloudhouse/backend/internal/platform/httpx"
+	"cloudhouse/backend/internal/workflow"
 )
 
 var (
@@ -68,6 +69,15 @@ type Service struct {
 	// cashGuard blocks a disbursement larger than the branch's Balance in
 	// Hand — see SetCashBalanceGuard. nil skips the check.
 	cashGuard CashBalanceGuard
+
+	// workflowSvc says whether this tenant has personal-loan approval
+	// stages switched on (see SetWorkflow). nil = catalogue default (off).
+	workflowSvc *workflow.Service
+}
+
+// SetWorkflow wires the per-tenant approval-workflow configuration.
+func (s *Service) SetWorkflow(w *workflow.Service) {
+	s.workflowSvc = w
 }
 
 // CashBalanceGuard is satisfied by *cash.SummaryService (same no-import
@@ -214,8 +224,18 @@ func (s *Service) CreateLoan(ctx context.Context, in CreateInput) (*PersonalLoan
 		disbursed = principal
 		obligation = platform.RoundMoney(principal + interestAmount)
 	}
-	if err := s.ensureCashInHand(ctx, in.BranchID, disbursed); err != nil {
+	// With the tenant's personal-loan approval chain switched on, the loan
+	// is only saved here — its schedule, history and cash-out (and so the
+	// Balance-in-Hand check) all wait for the final approval (ApproveLoan).
+	chain, err := s.workflowSvc.Chain(ctx, workflow.FlowPersonalLoan)
+	if err != nil {
 		return nil, err
+	}
+	firstStage, needsApproval := chain.First()
+	if !needsApproval {
+		if err := s.ensureCashInHand(ctx, in.BranchID, disbursed); err != nil {
+			return nil, err
+		}
 	}
 	installmentAmount := platform.RoundMoney(obligation / float64(in.TenureCount))
 
@@ -248,8 +268,12 @@ func (s *Service) CreateLoan(ctx context.Context, in CreateInput) (*PersonalLoan
 		PenalFlatAmount:     penalFlatAmount,
 		GracePeriodDays:     in.GracePeriodDays,
 	}
+	if needsApproval {
+		rec.Status = StatusPendingApproval
+		rec.ApprovalStage = firstStage.Pending
+	}
 
-	err := s.repo.DB().WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	err = s.repo.DB().WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		count, err := s.repo.CountAll(ctx)
 		if err != nil {
 			return err
@@ -259,7 +283,25 @@ func (s *Service) CreateLoan(ctx context.Context, in CreateInput) (*PersonalLoan
 		if err := s.repo.Create(ctx, tx, rec); err != nil {
 			return err
 		}
+		if needsApproval {
+			return nil
+		}
+		return s.activateTx(ctx, tx, rec, now)
+	})
+	if err != nil {
+		return nil, err
+	}
+	if !needsApproval {
+		s.recordDisbursement(ctx, rec, now)
+	}
+	return rec, nil
+}
 
+// activateTx creates a disbursed loan's repayment schedule and its
+// "loan opened" history row — the part of creation that only happens once
+// the money goes out (at creation, or at an approval chain's final stage).
+func (s *Service) activateTx(ctx context.Context, tx *gorm.DB, rec *PersonalLoan, now time.Time) error {
+	{
 		installments := generateSchedule(rec)
 		// GORM's tenant-stamp Create hook (platform.stampCallback) reliably
 		// sets TenantID when the create target is a single struct — which is
@@ -280,15 +322,15 @@ func (s *Service) CreateLoan(ctx context.Context, in CreateInput) (*PersonalLoan
 		}
 		return s.logHistory(ctx, tx, rec.ID, rec.TenantID, EventLoanCreated,
 			fmt.Sprintf("Loan opened for ₹%.2f", rec.PrincipalAmount), rec.PrincipalAmount, nil, now)
-	})
-	if err != nil {
-		return nil, err
 	}
+}
 
-	// The cash actually leaves the till only once the loan (and its
-	// schedule) is durably persisted — best-effort and outside the
-	// transaction, same as internal/loan's disbursement/payment cash
-	// recording: a failure here is logged, not fatal to loan creation.
+// recordDisbursement books the disbursement cash-out. The cash actually
+// leaves the till only once the loan (and its schedule) is durably
+// persisted — best-effort and outside the transaction, same as
+// internal/loan's disbursement/payment cash recording: a failure here is
+// logged, not fatal to loan creation.
+func (s *Service) recordDisbursement(ctx context.Context, rec *PersonalLoan, now time.Time) {
 	if s.cashRecorder != nil {
 		// No split-mode UI on loan creation (Phase 2's split-payment work
 		// covers repayments/disbursement-with-a-breakdown for gold loans,
@@ -299,7 +341,99 @@ func (s *Service) CreateLoan(ctx context.Context, in CreateInput) (*PersonalLoan
 			log.Printf("cash-out movement (personal loan disbursement) failed for loan %d: %v", rec.ID, err)
 		}
 	}
-	return rec, nil
+}
+
+// ApprovalInput mirrors the body of POST /personal-loans/:id/approve.
+type ApprovalInput struct {
+	Stage           string // workflow.FlowPersonalLoan stage key — must match the loan's current stage
+	Action          string // "Approved" | "Rejected"
+	ActorEmployeeID uint
+	ActorRole       string
+	ActorRoleID     uint
+	Remarks         string
+}
+
+var (
+	ErrNotPendingApproval = httpx.NewConflict("this personal loan is not waiting for approval")
+	ErrWrongApprovalStage = httpx.NewForbidden("this loan is not at a stage your role can act on")
+	ErrInvalidAction      = httpx.NewBadRequest("action must be Approved or Rejected")
+)
+
+// ApproveLoan advances (or rejects) a StatusPendingApproval loan through the
+// tenant's personal-loan approval chain. The final enabled stage disburses
+// it: Balance-in-Hand check, schedule from today, history, cash-out.
+func (s *Service) ApproveLoan(ctx context.Context, id uint, branchID *uint, in ApprovalInput) (*PersonalLoan, error) {
+	rec, err := s.repo.FindByID(ctx, id, branchID)
+	if err != nil {
+		return nil, ErrLoanNotFound
+	}
+	if rec.Status != StatusPendingApproval {
+		return nil, ErrNotPendingApproval
+	}
+	if in.Action != workflow.ActionApproved && in.Action != workflow.ActionRejected {
+		return nil, ErrInvalidAction
+	}
+	chain, err := s.workflowSvc.Chain(ctx, workflow.FlowPersonalLoan)
+	if err != nil {
+		return nil, err
+	}
+	step, ok := chain.ByPending(rec.ApprovalStage)
+	if !ok || in.Stage != step.Key {
+		return nil, ErrWrongApprovalStage
+	}
+	if !s.workflowSvc.CanAct(ctx, in.ActorRoleID, workflow.FlowPersonalLoan, step.Key) {
+		return nil, ErrWrongApprovalStage
+	}
+
+	next, hasNext := chain.Next(step.Key)
+	disbursing := false
+	now := time.Now()
+	switch {
+	case in.Action == workflow.ActionRejected:
+		rec.Status = StatusRejected
+		rec.ApprovalStage = workflow.ActionRejected
+	case hasNext:
+		rec.ApprovalStage = next.Pending
+	default:
+		if err := s.ensureCashInHand(ctx, rec.BranchID, rec.DisbursedAmount); err != nil {
+			return nil, err
+		}
+		disbursing = true
+		rec.Status = StatusActive
+		rec.ApprovalStage = workflow.ActionApproved
+		// The schedule runs from the day the money actually goes out.
+		rec.OpenedDate = now
+		rec.DisbursedAt = now
+	}
+
+	err = s.repo.DB().WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := s.repo.Update(ctx, tx, rec); err != nil {
+			return err
+		}
+		if disbursing {
+			return s.activateTx(ctx, tx, rec, now)
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	if disbursing {
+		s.recordDisbursement(ctx, rec, now)
+	}
+	s.workflowSvc.RecordAction(ctx, &workflow.ApprovalAction{
+		Flow: workflow.FlowPersonalLoan, EntityID: rec.ID, Stage: step.Key, Action: in.Action,
+		ActorEmployeeID: in.ActorEmployeeID, ActorRole: in.ActorRole, Remarks: in.Remarks,
+	})
+	return s.repo.FindByID(ctx, rec.ID, branchID)
+}
+
+// ListApprovals returns a loan's approval-decision history.
+func (s *Service) ListApprovals(ctx context.Context, id uint, branchID *uint) ([]workflow.ApprovalAction, error) {
+	if _, err := s.repo.FindByID(ctx, id, branchID); err != nil {
+		return nil, ErrLoanNotFound
+	}
+	return s.workflowSvc.ListActions(ctx, workflow.FlowPersonalLoan, id)
 }
 
 // generateSchedule builds loan.TenureCount installment rows starting the

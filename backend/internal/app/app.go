@@ -56,6 +56,7 @@ import (
 	"cloudhouse/backend/internal/tenant"
 	"cloudhouse/backend/internal/upload"
 	"cloudhouse/backend/internal/webstatic"
+	"cloudhouse/backend/internal/workflow"
 )
 
 // corsMiddleware allows a fixed, comma-separated set of origins to call this
@@ -235,7 +236,19 @@ func Build(db *gorm.DB, cfg platform.Config) (*App, error) {
 	movementSvc := cash.NewMovementService(movementRepo, expenseRepo, branchRepo, loanCashSourceRepo)
 	movementHandler := cash.NewMovementHandler(movementSvc)
 
+	// Per-tenant approval-workflow configuration (which approval stages each
+	// flow uses) — read by loan, cash and personal-loan services.
+	workflowSvc := workflow.NewService(workflow.NewRepository(pinned), authzRepo)
+	workflowHandler := workflow.NewHandler(workflowSvc)
+
 	expenseSvc := cash.NewExpenseService(expenseRepo, branchRepo, movementSvc)
+	expenseSvc.SetWorkflow(workflowSvc)
+	expenseSvc.SetEmployeeNamer(func(ctx context.Context, employeeID uint) string {
+		if e, err := employeeRepo.FindByID(ctx, employeeID); err == nil {
+			return e.Name
+		}
+		return ""
+	})
 	expenseHandler := cash.NewExpenseHandler(expenseSvc)
 
 	cashSourceRepo := cash.NewCashSourceRepository(pinned)
@@ -343,6 +356,7 @@ func Build(db *gorm.DB, cfg platform.Config) (*App, error) {
 	loanSvc := loan.NewService(pinned, loanRepo, loanOrnamentRepo, loanApprovalRepo, loanPaymentRepo, loanPledgeRepo, loanRequestRepo, requestApprovalRepo, loanAuctionRepo, loanApprovalLimitRepo, branchRepo, customerRepo, schemeRepo, goldRateRepo, packetSvc, packetSvc, movementSvc, notificationSvc, whatsappSender, commlogRepo, esignClient, cfg.UploadsDir, uploadRepo, tenantRepo, razorpayClient, aadhaarCipher, authzRepo)
 	// Disbursement, top-up and bank-pledge release can't exceed Balance in Hand.
 	loanSvc.SetCashBalanceGuard(summarySvc)
+	loanSvc.SetWorkflow(workflowSvc)
 	loanHandler := loan.NewHandler(loanSvc)
 
 	// customer hard-delete needs loan hard-delete, and loan already imports
@@ -353,6 +367,7 @@ func Build(db *gorm.DB, cfg platform.Config) (*App, error) {
 	personalLoanRepo := personalloan.NewRepository(pinned)
 	personalLoanSvc := personalloan.NewService(personalLoanRepo, customerRepo, movementSvc, aadhaarCipher)
 	personalLoanSvc.SetCashBalanceGuard(summarySvc)
+	personalLoanSvc.SetWorkflow(workflowSvc)
 	personalLoanHandler := personalloan.NewHandler(personalLoanSvc)
 
 	investmentRepo := investment.NewRepository(pinned)
@@ -593,6 +608,9 @@ func Build(db *gorm.DB, cfg platform.Config) (*App, error) {
 	// CRUD — see internal/authz/handler.go.
 	authzHandler := authz.NewHandler(authzRepo)
 	authz.RegisterRoutes(protected.Group("/employees"), protected.Group("/roles"), authzHandler, authzRepo)
+	// Approval workflow configuration — edited on the Roles & Permissions
+	// screen, so writing it takes the same "can update role" grant.
+	workflow.RegisterRoutes(protected.Group("/approval-workflow"), workflowHandler, platform.RequirePermission(authzRepo, "can update role"))
 
 	// This business's own subscription billing (Step 10) — one permission
 	// gate, Administrator-only (see authz.Restrictions), same posture as

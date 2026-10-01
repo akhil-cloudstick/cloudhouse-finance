@@ -22,7 +22,8 @@ import {
   Txt,
   WarningBanner,
 } from "../ui";
-import { useAuth, useRole } from "../../auth/AuthContext";
+import { useAuth } from "../../auth/AuthContext";
+import { isFlowOff, stageByKey, stagePerm, useApprovalWorkflow } from "../../api/approvalWorkflow";
 import { ApiError } from "../../api/client";
 import {
   getAuction,
@@ -50,9 +51,6 @@ import type { Loan } from "../../types/loan";
 // every action is the same API call the loan detail screen makes, with the
 // same permission and role gates.
 
-// Who may decide each kind of system-raised escalation (mirrors loans/[id]).
-const PARTIAL_DECISION_ROLES = ["Administrator", "Management", "Branch Manager", "Auction Administrator"];
-const SHORTFALL_DECISION_ROLES = ["Administrator", "Management", "Branch Manager"];
 
 const STEPS = ["Notice", "Schedule", "Conduct", "Settle"];
 const NOTICE_TYPES = ["Registered post", "SMS + Email", "In-person"];
@@ -88,7 +86,7 @@ const errText = (msg: string | null) => (msg ? <Txt style={{ fontSize: 12, color
 export function AuctionFlowSheet({ loan, visible, onClose }: { loan: Loan | null; visible: boolean; onClose: () => void }) {
   const qc = useQueryClient();
   const { can } = useAuth();
-  const myRole = useRole();
+  const wf = useApprovalWorkflow();
   const canAct = can("Loan_Management", "can_update_loan");
   const loanId = loan?.id ?? 0;
   const key = String(loanId);
@@ -179,8 +177,13 @@ export function AuctionFlowSheet({ loan, visible, onClose }: { loan: Loan | null
 
   const decisionReq = pendingDecision(rec);
   const frozen = !!decisionReq;
-  const canDecide =
-    canAct && !!myRole && (decisionReq?.kind === "Shortfall" ? SHORTFALL_DECISION_ROLES.includes(myRole) : PARTIAL_DECISION_ROLES.includes(myRole));
+  // Who may decide is the flow's own "Auction Workflow" permission; with the
+  // tenant's decision flow switched off no human decision is taken (the
+  // backend applies the flow's automatic outcome instead).
+  const decisionFlow = decisionReq?.kind === "Shortfall" ? "auction_shortfall" : "auction_partial_repayment";
+  const decisionFlowOff = isFlowOff(wf, decisionFlow);
+  const decisionStage = stageByKey(wf, decisionFlow, "Decision");
+  const canDecide = canAct && !!decisionStage && can(...stagePerm(decisionStage));
   const balanceDue = loan.status === "Auctioned - Balance Due";
   const alreadyAuctioned = loan.status === "Auctioned" || balanceDue;
   const actionable = canAct && !frozen;
@@ -419,6 +422,7 @@ export function AuctionFlowSheet({ loan, visible, onClose }: { loan: Loan | null
               : `Decision pending. ${inr(decisionReq.amountPaid)} was paid, leaving ${inr(decisionReq.outstandingAtRequest)} owing. No notice, schedule, or sale can proceed until this is resolved.`}
             {!canDecide ? " Your role can view this but not decide it." : ""}
           </WarningBanner>
+          {decisionFlowOff ? <NoticeBanner>Decisions are now switched off for new cases, but this one was raised before that change and still needs a decision.</NoticeBanner> : null}
           {canDecide ? (
             <>
               <Field label="Decision">

@@ -25,13 +25,15 @@ import {
   isBalanced,
   type SplitAmounts,
   SheetFooter,
+  Stepper,
   ConfirmSheet,
   toast,
   openPage,
 } from "../ui";
 import { inr, todayISO } from "../../lib/format";
 import { useAuth } from "../../auth/AuthContext";
-import { verifyReleaseChecklist, recordReleasePayment, approveReleaseRequest, RELEASE_STAGE_PERMISSIONS } from "../../api/loans";
+import { verifyReleaseChecklist, recordReleasePayment, approveReleaseRequest } from "../../api/loans";
+import { isFinalStage, stageByPending, stageIndex, stagePerm, stepperSteps, useApprovalWorkflow } from "../../api/approvalWorkflow";
 import { listPackets } from "../../api/packets";
 import { printReleaseAgreementPdf, printPartialReleaseReceiptPdf, RELEASE_AGREEMENT_LANGS, DOC_LANG_LABELS, type DocLang } from "../../utils/loanPrint";
 import { LoanRequest, Loan } from "../../types/loan";
@@ -61,8 +63,17 @@ export function ReleaseReviewPanel({ request, loan, onSaved, onError }: { reques
   const { can } = useAuth();
   const canDecide = can("Loan_Management", "can_update_loan");
   const canVerifyChecklist = can("Release_Approval", "can_verify_release_checklist");
-  const stage: "Manager" | "Management" = request.approvalStage === "PendingManagement" ? "Management" : "Manager";
-  const canActOnStage = can("Release_Approval", RELEASE_STAGE_PERMISSIONS[stage]);
+  // Tenant-configured "loan_release" chain. An empty approvalStage is the
+  // PendingManager position (it doubles as "awaiting payment"), which the
+  // request can sit on even when the Manager stage is switched off.
+  const wf = useApprovalWorkflow();
+  const pendingValue = request.approvalStage || "PendingManager";
+  const stageDef = stageByPending(wf, "loan_release", pendingValue);
+  const stage = stageDef?.key ?? "Manager";
+  const stageLabel = stageDef?.label ?? "Manager";
+  const isFinal = isFinalStage(wf, "loan_release", pendingValue);
+  const steps = stepperSteps(wf, "loan_release", pendingValue);
+  const canActOnStage = !!stageDef && can(...stagePerm(stageDef));
   // RecordReleasePayment is refused past the Manager stage.
   const canRecordPayment = request.approvalStage === "" || request.approvalStage === "PendingManager";
   const isPending = request.status === "Pending";
@@ -361,6 +372,8 @@ export function ReleaseReviewPanel({ request, loan, onSaved, onError }: { reques
         <Txt style={{ fontSize: 12, color: C.muted, marginBottom: 14 }}>Payment is recorded at the Manager stage.</Txt>
       ) : null}
 
+      {isPending && steps.length ? <Stepper steps={steps} current={Math.max(0, stageIndex(wf, "loan_release", pendingValue))} /> : null}
+
       {!isPending ? null : !canApprove ? (
         <ReviewWarning>
           {goldStillHeld
@@ -373,8 +386,8 @@ export function ReleaseReviewPanel({ request, loan, onSaved, onError }: { reques
         </ReviewWarning>
       ) : (
         <Txt style={{ fontSize: 12, color: C.muted, marginBottom: 12 }}>
-          Awaiting {stage} approval.
-          {stage === "Management" ? " Final approval releases the gold." : ""}
+          Awaiting {stageLabel} approval.
+          {isFinal ? " Final approval releases the gold." : ""}
         </Txt>
       )}
 

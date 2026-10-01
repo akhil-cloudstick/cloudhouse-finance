@@ -42,10 +42,12 @@ export function RequestExtensionModalContent({ loan, onSaved }: { loan: LoanView
     submittingRef.current = true;
     setSaving(true);
     try {
-      await createExtensionRequest(loan.numericId, m, detail.trim() || `+${m} month${m === 1 ? "" : "s"}`);
+      const created = await createExtensionRequest(loan.numericId, m, detail.trim() || `+${m} month${m === 1 ? "" : "s"}`);
       onSaved();
       closeModal();
-      toast(`Extension request logged for ${loan.id}`);
+      // With the loan_extension approval flow switched off the backend
+      // applies the extension on creation — the request comes back Approved.
+      toast(created.status === "Approved" ? `Extension applied — ${loan.id}'s due date updated` : `Extension request logged for ${loan.id}`);
     } catch (e) {
       setErr(e instanceof ApiError ? e.message : "Could not log the request — try again.");
     } finally {

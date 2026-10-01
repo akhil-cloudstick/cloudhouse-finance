@@ -12,6 +12,7 @@ import (
 	"cloudhouse/backend/internal/branch"
 	"cloudhouse/backend/internal/platform"
 	"cloudhouse/backend/internal/platform/httpx"
+	"cloudhouse/backend/internal/workflow"
 )
 
 var (
@@ -888,6 +889,68 @@ type ExpenseService struct {
 	// summarySvc blocks a Cash-mode expense larger than Balance in Hand.
 	// Optional — nil skips the check.
 	summarySvc *SummaryService
+	// workflowSvc says whether this tenant has the expense approval stage
+	// switched on (see SetWorkflow). nil = the catalogue default (off).
+	workflowSvc *workflow.Service
+	// employeeName resolves the approver's display name for ApprovedBy.
+	// Optional — nil leaves it to the caller-supplied name.
+	employeeName func(ctx context.Context, employeeID uint) string
+}
+
+// SetWorkflow wires the per-tenant approval-workflow configuration.
+func (s *ExpenseService) SetWorkflow(w *workflow.Service) {
+	s.workflowSvc = w
+}
+
+// SetEmployeeNamer wires the lookup used to stamp ApprovedBy from the
+// authenticated approver rather than from the request body.
+func (s *ExpenseService) SetEmployeeNamer(f func(ctx context.Context, employeeID uint) string) {
+	s.employeeName = f
+}
+
+// ErrExpenseApprovalNotPermitted: the caller's role lacks the expense
+// approval stage's permission.
+var ErrExpenseApprovalNotPermitted = httpx.NewForbidden("your role may not approve or reject expenses")
+
+// ExpenseActor is the authenticated employee deciding an expense.
+type ExpenseActor struct {
+	EmployeeID uint
+	RoleID     uint
+	Name       string // fallback display name when no namer is wired
+}
+
+// authorizeDecision checks the actor may decide at the expense stage and
+// returns the name to stamp on ApprovedBy.
+func (s *ExpenseService) authorizeDecision(ctx context.Context, actor ExpenseActor) (string, error) {
+	if !s.workflowSvc.CanAct(ctx, actor.RoleID, workflow.FlowExpense, "Approver") {
+		return "", ErrExpenseApprovalNotPermitted
+	}
+	name := actor.Name
+	if s.employeeName != nil && actor.EmployeeID != 0 {
+		if n := s.employeeName(ctx, actor.EmployeeID); n != "" {
+			name = n
+		}
+	}
+	return name, nil
+}
+
+// ApproveAs is Approve for an HTTP caller: permission-checked, and stamped
+// with the authenticated approver's name.
+func (s *ExpenseService) ApproveAs(ctx context.Context, id uint, actor ExpenseActor, branchID *uint) (*Expense, error) {
+	name, err := s.authorizeDecision(ctx, actor)
+	if err != nil {
+		return nil, err
+	}
+	return s.Approve(ctx, id, name, branchID)
+}
+
+// RejectAs is Reject for an HTTP caller — see ApproveAs.
+func (s *ExpenseService) RejectAs(ctx context.Context, id uint, actor ExpenseActor, remarks string, branchID *uint) (*Expense, error) {
+	name, err := s.authorizeDecision(ctx, actor)
+	if err != nil {
+		return nil, err
+	}
+	return s.Reject(ctx, id, name, remarks, branchID)
 }
 
 func NewExpenseService(repo *ExpenseRepository, branchRepo *branch.Repository, movementSvc *MovementService) *ExpenseService {
@@ -923,20 +986,46 @@ func (s *ExpenseService) Record(ctx context.Context, in RecordExpenseInput) (*Ex
 	if (in.Mode == CashModeUPI || in.Mode == "Bank") && in.FromBankID == nil {
 		return nil, ErrExpenseBankRequired
 	}
-	if in.Mode == CashModeCash && s.summarySvc != nil {
+	// With the tenant's expense approval stage switched on, a recorded
+	// expense waits as Pending — no cash-out (and so no Balance-in-Hand
+	// check) until Approve posts it.
+	chain, err := s.workflowSvc.Chain(ctx, workflow.FlowExpense)
+	if err != nil {
+		return nil, err
+	}
+	if chain.Off() && in.Mode == CashModeCash && s.summarySvc != nil {
 		if err := s.summarySvc.EnsureCashInHand(ctx, in.BranchID, in.Amount); err != nil {
 			return nil, err
 		}
 	}
-
-	// Expenses no longer go through an approve/reject step — a recorded
-	// expense is Approved on entry and its cash-out movement is posted
-	// straight away, so it lands in the register and the ledger at once.
 	now := time.Now()
 	occurredOn := in.OccurredOn
 	if occurredOn.IsZero() {
 		occurredOn = now
 	}
+	if !chain.Off() {
+		rec := &Expense{
+			OccurredOn:   occurredOn,
+			Category:     in.Category,
+			Amount:       in.Amount,
+			Mode:         in.Mode,
+			Payee:        in.Payee,
+			FromBankID:   in.FromBankID,
+			ToBankID:     in.ToBankID,
+			BranchID:     in.BranchID,
+			Status:       "Pending",
+			Remarks:      in.Remarks,
+			ReceiptImage: in.ReceiptImage,
+		}
+		if err := s.repo.Create(ctx, rec); err != nil {
+			return nil, err
+		}
+		return s.repo.FindByID(ctx, rec.ID)
+	}
+
+	// Without an approval stage a recorded expense is Approved on entry and
+	// its cash-out movement is posted straight away, so it lands in the
+	// register and the ledger at once.
 	rec := &Expense{
 		OccurredOn:   occurredOn,
 		Category:     in.Category,
@@ -1000,6 +1089,12 @@ func (s *ExpenseService) Approve(ctx context.Context, id uint, approvedBy string
 	}
 	if rec.Status != "Pending" {
 		return nil, ErrExpenseNotPending
+	}
+	// The money only leaves now, so the Balance-in-Hand check runs now.
+	if rec.Mode == CashModeCash && s.summarySvc != nil {
+		if err := s.summarySvc.EnsureCashInHand(ctx, rec.BranchID, rec.Amount); err != nil {
+			return nil, err
+		}
 	}
 	now := time.Now()
 	rec.Status = "Approved"

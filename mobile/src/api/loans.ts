@@ -144,40 +144,27 @@ export function deleteOrnament(ornamentId: number) {
 // --- Sanction-chain approvals (backend/internal/loan/handler.go's Approve/
 // ListApprovals, POST/GET /loans/:id/approve|approvals) ---------------------
 
-// Mirrors backend/internal/loan/model.go's SanctionStage* constants, in
-// chain order: made by a Loan Operator, verified by the Loan Operator,
-// approved by the Branch Manager, finally sanctioned by Management. (The
-// retired 4th stage "AuthorizedManagement" made Management sign off twice;
-// the backend migrates any loan still on it to FinalSanction.)
-export const SANCTION_STAGES = ["LoanOperator", "BranchManager", "FinalSanction"] as const;
-export type SanctionStage = (typeof SANCTION_STAGES)[number];
-
-export const SANCTION_STAGE_LABELS: Record<SanctionStage, string> = {
-  LoanOperator: "Verified by Loan Operator",
-  BranchManager: "Approved by Branch Manager",
-  FinalSanction: "Final Sanction",
-};
-
-// Which employee role must act at each stage — Administrator may always
-// act too (enforced server-side, mirrored client-side only for UI gating).
-export const SANCTION_STAGE_ROLES: Record<SanctionStage, string> = {
-  LoanOperator: "Loan Operator",
-  BranchManager: "Branch Manager",
-  FinalSanction: "Management",
-};
+// Which sanction stages a loan walks — and which permission acts at each —
+// is per-tenant configuration now (src/api/approvalWorkflow.ts, flow
+// "loan_sanction"): the chain starts at the first enabled stage and the LAST
+// enabled stage disburses. Stage keys are LoanOperator / BranchManager /
+// FinalSanction (key and pending value are identical for this flow).
+export type SanctionStage = string;
 
 // Maps the retired AuthorizedManagement value onto the stage that replaced
 // it, so a loan fetched before the backend migration ran still resolves to
-// a pending stage instead of none.
-export function normalizeSanctionStage(stage: string): SanctionStage | null {
-  const s = stage === "AuthorizedManagement" ? "FinalSanction" : stage;
-  return (SANCTION_STAGES as readonly string[]).includes(s) ? (s as SanctionStage) : null;
+// a pending stage instead of none. Anything that isn't a sanction stage
+// (Approved / Rejected / "") is null.
+export function normalizeSanctionStage(stage: string | null | undefined): SanctionStage | null {
+  const s = stage === "AuthorizedManagement" ? "FinalSanction" : stage ?? "";
+  return s === "LoanOperator" || s === "BranchManager" || s === "FinalSanction" ? s : null;
 }
 
 export function approveLoan(
   loanId: number,
-  // The split is required on the FinalSanction approval, which disburses the
-  // loan: it must add up to the disbursed amount (platform.ValidateSplit).
+  // The split is required on the FINAL enabled stage's approval, which
+  // disburses the loan: it must add up to the disbursed amount
+  // (platform.ValidateSplit).
   input: { stage: SanctionStage | string; action: "Approved" | "Rejected" | "Verified"; remarks?: string } & Partial<SplitAmounts>
 ) {
   return apiRequest<Loan>(`/loans/${loanId}/approve`, { method: "POST", body: input });
@@ -273,75 +260,27 @@ export function recordReleasePayment(
   return apiRequest<LoanRequest>(`/loans/requests/${requestId}/release-payment`, { method: "POST", body: input });
 }
 
-// Release-request approval chain (PendingManager -> PendingManagement ->
-// Approved/Rejected) — same two-role hand-off shape as the loan sanction
-// chain above, but scoped to the request, not the loan.
-export function approveReleaseRequest(
+// Stage decision on an Extension / Release / Waiver / Adjustment request —
+// POST /loans/requests/:requestId/approve; the backend dispatches on the
+// request's own Type. `stage` is the stage KEY from the request's flow in
+// src/api/approvalWorkflow.ts (loan_extension / loan_release / loan_waiver).
+export function approveLoanRequest(
   requestId: number,
   input: { stage: string; action: "Approved" | "Rejected"; remarks?: string }
 ) {
   return apiRequest<LoanRequest>(`/loans/requests/${requestId}/approve`, { method: "POST", body: input });
 }
 
-// Extension-request 3-stage approval chain (PendingLoanOfficer ->
-// PendingBranchManager -> PendingManagement -> Approved/Rejected) — mirrors
-// frontend/modules/loans/services/loanService.ts's approveExtensionRequest
-// and frontend/common/components/modals/ExtensionReviewModal.tsx's stage
-// constants. Reuses the same generalized POST /loans/requests/:requestId/
-// approve route as Release above; the backend dispatches on the request's
-// own Type.
-export const EXTENSION_STAGES = ["LoanOfficer", "BranchManager", "Management"] as const;
-export type ExtensionApprovalStage = (typeof EXTENSION_STAGES)[number];
+export const approveReleaseRequest = approveLoanRequest;
+export const approveExtensionRequest = approveLoanRequest;
 
-export const EXTENSION_STAGE_LABELS: Record<ExtensionApprovalStage, string> = {
-  LoanOfficer: "Loan Officer",
-  BranchManager: "Branch Manager",
-  Management: "Management",
-};
-
-// Display-only — whose "turn" this label names in the "Awaiting <role>
-// approval" text. Who can actually ACT is a real permission grant
-// (EXTENSION_STAGE_PERMISSIONS below), not a role-name match.
-export const EXTENSION_STAGE_ROLES: Record<ExtensionApprovalStage, string> = {
-  LoanOfficer: "Loan Operator",
-  BranchManager: "Branch Manager",
-  Management: "Management",
-};
-
-// The "Loan Extension Approval" permission actually checked server-side
-// (backend/internal/loan/service.go's extensionChain/checkStagePermission).
-export const EXTENSION_STAGE_PERMISSIONS: Record<ExtensionApprovalStage, string> = {
-  LoanOfficer: "can_verify_the_loan_extension",
-  BranchManager: "can_approve_extension_branch_manager_stage",
-  Management: "can_approve_extension_management_stage",
-};
-
-export function extensionStageKeyFor(approvalStage: string): ExtensionApprovalStage | null {
-  switch (approvalStage) {
-    case "PendingLoanOfficer":
-      return "LoanOfficer";
-    case "PendingBranchManager":
-      return "BranchManager";
-    case "PendingManagement":
-      return "Management";
-    default:
-      return null;
-  }
+// Waiver (forgive interest + penal interest owed) or Adjustment (reduce
+// principal) — POST /loans/:id/waiver-request. With the tenant's
+// "loan_waiver" flow off it posts immediately; otherwise it waits in that
+// chain like an extension request and shows in GET /loans/requests.
+export function createWaiverRequest(loanId: number, input: { type: "Waiver" | "Adjustment"; amount: number; reason: string }) {
+  return apiRequest<LoanRequest>(`/loans/${loanId}/waiver-request`, { method: "POST", body: input });
 }
-
-export function approveExtensionRequest(
-  requestId: number,
-  input: { stage: ExtensionApprovalStage; action: "Approved" | "Rejected"; remarks?: string }
-) {
-  return apiRequest<LoanRequest>(`/loans/requests/${requestId}/approve`, { method: "POST", body: input });
-}
-
-// Release-request 2-stage approval chain's own permissions (Release_Approval
-// module — backend/internal/authz.Catalogue), mirrors ReleaseReviewModal.tsx.
-export const RELEASE_STAGE_PERMISSIONS: Record<"Manager" | "Management", string> = {
-  Manager: "can_approve_release_manager_stage",
-  Management: "can_approve_release_management_stage",
-};
 
 // Finalizes a fully-approved release request: hands the gold back to the
 // customer and closes the loan. Requires the outstanding balance to be
@@ -430,6 +369,12 @@ export function topUpLoan(
   } & Partial<SplitAmounts>
 ) {
   return apiRequest<Loan>(`/loans/${loanId}/topup`, { method: "POST", body: input });
+}
+
+// Stage decision on a Pending top-up (tenant's "loan_topup" flow) — the
+// final stage's approval pays it out with the split captured at request.
+export function approveTopUp(topUpId: number, input: { stage: string; action: "Approved" | "Rejected"; remarks?: string }) {
+  return apiRequest<LoanTopUp>(`/loans/topups/${topUpId}/approve`, { method: "POST", body: input });
 }
 
 // A loan's top-ups — GET /loans/:id/topups (same call the web LoanDetail

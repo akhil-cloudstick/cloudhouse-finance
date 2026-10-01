@@ -2,13 +2,23 @@ import { apiFetchEnveloped as apiFetch } from "@/product/services/httpClient";
 
 /* Mirrors backend/internal/dashboard/model.go's NeedsAttentionItem exactly —
  * one row of the merged "Needs Attention" feed, discriminated by `kind`. */
+/* Approval rows carry the workflow flow they belong to — "loan_sanction"
+ * (loanId), "loan_topup" (entityId = top-up id, loanId set), "personal_loan"
+ * (entityId = personal loan id) or "expense" (entityId = expense id;
+ * customerName holds the payee, detail the category). approvalStage is the
+ * raw stored pending value — look its label up with approvalWorkflowService's
+ * stageLabel(config, flow, approvalStage). */
+export type NeedsAttentionApprovalFlow = "loan_sanction" | "loan_topup" | "personal_loan" | "expense";
+
 export type NeedsAttentionItem =
-  | { kind: "approval"; loanId: number; loanNumber: string; customerName: string; principal: number; approvalStage: string }
-  | { kind: "request"; requestId: number; loanId: number; loanNumber: string; customerName: string; requestType: "Extension" | "Release"; detail: string }
+  | { kind: "approval"; flow: NeedsAttentionApprovalFlow; entityId: number; loanId: number; loanNumber: string; customerName: string; principal: number; approvalStage: string; detail: string }
+  | { kind: "request"; requestId: number; loanId: number; loanNumber: string; customerName: string; requestType: "Extension" | "Release" | "Waiver" | "Adjustment"; detail: string }
   | { kind: "auction"; loanId: number; loanNumber: string; customerName: string; outstanding: number; status: string };
 
 type BackendNeedsAttentionItem = {
   kind: "approval" | "request" | "auction";
+  flow?: string;
+  entityId?: number;
   loanId?: number;
   loanNumber?: string;
   customerName?: string;
@@ -41,6 +51,9 @@ function toNeedsAttentionItem(r: BackendNeedsAttentionItem): NeedsAttentionItem 
   if (r.kind === "approval") {
     return {
       kind: "approval",
+      flow: (r.flow as NeedsAttentionApprovalFlow) || "loan_sanction",
+      entityId: r.entityId || r.loanId || 0,
+      detail: r.detail || "",
       loanId: r.loanId || 0,
       loanNumber: r.loanNumber || "",
       customerName: r.customerName || "—",
@@ -55,7 +68,7 @@ function toNeedsAttentionItem(r: BackendNeedsAttentionItem): NeedsAttentionItem 
       loanId: r.loanId || 0,
       loanNumber: r.loanNumber || "",
       customerName: r.customerName || "—",
-      requestType: (r.requestType as "Extension" | "Release") || "Extension",
+      requestType: (r.requestType as "Extension" | "Release" | "Waiver" | "Adjustment") || "Extension",
       detail: r.detail || "",
     };
   }

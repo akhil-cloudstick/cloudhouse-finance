@@ -80,6 +80,9 @@ func RegisterRoutes(rg *gin.RouterGroup, h *Handler, perms platform.CRUDMiddlewa
 	// new catalogue entry, same "can update loan" permission as payments.
 	rg.POST("/:id/topup", perms.Update, h.TopUpLoan)
 	rg.GET("/:id/topups", perms.Read, h.ListTopUps)
+	// Which stage (if any) a Pending top-up needs is per-tenant configuration
+	// (workflow.FlowLoanTopUp); the stage permission is checked in the service.
+	rg.POST("/topups/:topUpId/approve", perms.Update, h.ApproveTopUp)
 
 	// Auctions are gated by the same "can view/create/update/delete loan" set
 	// as every other loan sub-resource — the house role-permission standard
@@ -115,6 +118,9 @@ func RegisterRoutes(rg *gin.RouterGroup, h *Handler, perms platform.CRUDMiddlewa
 
 	rg.POST("/:id/extension-request", perms.Update, h.CreateExtensionRequest)
 	rg.POST("/:id/release-request", perms.Update, h.CreateReleaseRequest)
+	// Waiver/adjustment requests ride the same requests list and
+	// /requests/:requestId/approve endpoint as extensions and releases.
+	rg.POST("/:id/waiver-request", perms.Update, h.CreateWaiverRequest)
 	rg.GET("/requests", perms.Read, h.ListRequests)
 	rg.PUT("/requests/:requestId/decide", perms.Update, h.DecideRequest)
 	rg.PUT("/requests/:requestId/verify", perms.Update, h.VerifyReleaseChecklist)

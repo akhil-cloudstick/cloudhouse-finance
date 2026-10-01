@@ -108,13 +108,19 @@ export type LoanRequest = {
   // without a separate lookup per row (mirrors frontend/modules/loans/
   // services/loanService.ts's RequestView flattening).
   loan?: Loan;
-  type: "Extension" | "Release";
+  type: "Extension" | "Release" | "Waiver" | "Adjustment";
   status: "Pending" | "Approved" | "Rejected";
+  // Waiver/Adjustment only: how much to forgive (Waiver: interest + penal
+  // interest; Adjustment: principal). The reason rides in `detail`.
+  amount?: number;
   requestedBy: string;
   detail?: string;
   requestedExtensionMonths?: number | null;
   newDueDate?: string | null;
-  approvalStage?: string; // Release only — "PendingManager" | "PendingManagement" | "Approved" | "Rejected"
+  // Pending stage value of the request's approval flow (src/api/
+  // approvalWorkflow.ts: loan_extension / loan_release / loan_waiver), or
+  // "Approved" / "Rejected" once decided.
+  approvalStage?: string;
   // Release only. isPartial: a strict subset of ornaments (ornamentSelections).
   // Approve needs customerSawGold plus a recorded payment (or the balance
   // condition already met); `locked` (set by the first release payment)
@@ -260,6 +266,11 @@ export type LoanTopUp = {
   chequeAmount: number;
   occurredOn: string;
   reference: string;
-  status: "Active" | "Reversed";
+  // Pending/Rejected only when the tenant's "loan_topup" approval flow is on.
+  status: "Active" | "Reversed" | "Pending" | "Rejected";
+  // Pending stage value (loan_topup flow) while Pending; "Approved" /
+  // "Rejected" once decided; "" for a top-up paid out without a chain.
+  approvalStage?: string;
+  settleInterest?: string;
   createdAt: string;
 };

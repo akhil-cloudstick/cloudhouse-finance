@@ -203,11 +203,17 @@ h3,
 /* One horizontal lockup: logo, then a text column. 20px left matches
  * .nav .grp's own inset, so the logo, the section labels ("OVERVIEW") and the
  * nav items all hang off the same vertical line. */
+/* Right padding is kept small (rather than reclaimed with a negative right
+ * margin, as it once was) so the wordmark keeps its room while the divider
+ * below stays inside the sidebar at every width — a negative margin pushed
+ * the border-bottom out past the sidebar's edge. */
 .side .brand {
   display: flex;
   align-items: center;
   gap: 12px;
-  padding: 18px 14px 16px 18px;
+  padding: 18px 4px 16px 18px;
+  box-sizing: border-box;
+  max-width: 100%;
   border-bottom: 1px solid rgba(201, 151, 28, .22);
 }
 
@@ -3410,7 +3416,9 @@ table.tbl {
  *   auctions-tabs      Auctions.tsx       Active Cases/Auction History
  *   pl-freq-tabs       PersonalLoans.tsx  All/Daily/Weekly/Monthly
  *   investments-tabs   Investments.tsx    status filter
- *   bank-pledge-tabs   BankPledge.tsx     Pledged/History switch */
+ *   bank-pledge-tabs   BankPledge.tsx     Pledged/History switch
+ *   roles-tabs         RolesPermissions.tsx Permissions/Approval Workflow */
+.tabs.roles-tabs,
 .tabs.loans-cat-tabs,
 .tabs.loans-filter-toggle-tabs,
 .tabs.auctions-tabs,
@@ -5620,4 +5628,49 @@ table.tbl {
 .ledger-ref-chip-category {
   background: var(--amber-bg);
   color: var(--amber);
+}
+
+/* Save buttons with click + success feedback (Roles & Permissions).
+ * .save-btn presses in on click; .saved plays a one-shot green pulse while
+ * the button reads "Saved", and .save-msg is the inline "Changes saved" note
+ * beside it — both cleared after a couple of seconds by the component. */
+.save-btn {
+  transition: transform .12s ease, box-shadow .2s ease, background-color .2s ease;
+}
+
+.save-btn:active:not(:disabled) {
+  transform: scale(.94);
+}
+
+.save-btn.saved {
+  background: var(--green);
+  border-color: var(--green);
+  color: #fff;
+  animation: save-pop .55s ease;
+}
+
+@keyframes save-pop {
+  0%   { transform: scale(1);    box-shadow: 0 0 0 0 color-mix(in oklab, var(--green) 55%, transparent); }
+  35%  { transform: scale(1.06); }
+  100% { transform: scale(1);    box-shadow: 0 0 0 10px transparent; }
+}
+
+.save-msg {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--green);
+  font-size: 12.5px;
+  font-weight: 600;
+  animation: save-msg-in .3s ease;
+}
+
+@keyframes save-msg-in {
+  from { opacity: 0; transform: translateY(4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .save-btn, .save-btn.saved, .save-msg { animation: none; transition: none; }
+  .save-btn:active:not(:disabled) { transform: none; }
 }

@@ -53,7 +53,7 @@ func (s *Service) ExpenseCashflow(ctx context.Context, f Filter) ([]ExpenseCashf
 		Joins("LEFT JOIN branches b ON b.id = e.branch_id").
 		Where("e.occurred_on >= ? AND e.occurred_on < ?", from, to).
 		Where("e.mode = ?", "Cash").
-		Where("e.status <> ?", "Rejected").
+		Where("e.status = ?", "Approved").
 		Group("date(e.occurred_on), b.name, e.branch_id")
 	if f.BranchID != nil {
 		eq = eq.Where("e.branch_id = ?", *f.BranchID)
@@ -163,7 +163,7 @@ func (s *Service) EmployeePerformance(ctx context.Context, f Filter) ([]Employee
 	var approvals []countRow
 	if err := s.db.WithContext(ctx).Table("loan_approvals a").
 		Select("a.actor_employee_id as employee_id, count(*) as count").
-		Where("a.action = ?", "Approved").
+		Where("a.action IN ?", []string{"Approved", "Verified"}).
 		Where("a.created_at >= ? AND a.created_at < ?", from, to).
 		Group("a.actor_employee_id").
 		Scan(&approvals).Error; err != nil {

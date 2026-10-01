@@ -600,6 +600,15 @@ var routeManifest = map[string]routeSpec{
 	"GET /api/v1/loans/requests/:requestId/partial-release-receipt/pdf": probe("requestId=loan_requests"),
 
 	"GET /api/v1/personal-loans/:id/history": probe("id=personal_loans"),
+
+	// Configurable approval workflow (internal/workflow) and the approval
+	// endpoints of the flows it made configurable.
+	"GET /api/v1/approval-workflow":               list(),
+	"PUT /api/v1/approval-workflow/:flow":         list(),
+	"POST /api/v1/loans/topups/:topUpId/approve":  probe("topUpId=loan_top_ups"),
+	"POST /api/v1/loans/:id/waiver-request":       probe("id=loans"),
+	"POST /api/v1/personal-loans/:id/approve":     probe("id=personal_loans"),
+	"GET /api/v1/personal-loans/:id/approvals":    probe("id=personal_loans"),
 	"GET /api/v1/schemes/:id/statement":      probe("id=schemes"),
 
 	"GET /api/v1/investments/:id/transactions":  probe("id=investments"),

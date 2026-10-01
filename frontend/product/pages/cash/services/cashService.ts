@@ -321,18 +321,22 @@ export async function createExpense(input: ExpenseFormInput): Promise<ExpenseVie
   return expenseToView(rec);
 }
 
-export async function approveExpense(id: number, approvedBy?: string): Promise<ExpenseView> {
+/* Approve/reject a Pending expense (only raised while the business has the
+ * expense approval flow switched on) — permission-checked server-side ("can
+ * approve expense"). The approver is taken from the JWT, so no approvedBy is
+ * sent. Approving is what posts the expense's cash movement. */
+export async function approveExpense(id: number): Promise<ExpenseView> {
   const rec = await apiFetch<BackendExpense>(`/expenses/${id}/approve`, {
     method: "PATCH",
-    body: JSON.stringify({ approvedBy: approvedBy || "" }),
+    body: JSON.stringify({}),
   });
   return expenseToView(rec);
 }
 
-export async function rejectExpense(id: number, remarks: string, approvedBy?: string): Promise<ExpenseView> {
+export async function rejectExpense(id: number, remarks: string): Promise<ExpenseView> {
   const rec = await apiFetch<BackendExpense>(`/expenses/${id}/reject`, {
     method: "PATCH",
-    body: JSON.stringify({ remarks, approvedBy: approvedBy || "" }),
+    body: JSON.stringify({ remarks }),
   });
   return expenseToView(rec);
 }

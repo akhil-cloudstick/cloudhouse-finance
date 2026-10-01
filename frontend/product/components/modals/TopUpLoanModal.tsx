@@ -6,6 +6,8 @@ import { useToast } from "@/product/components/Toast";
 import { Icon } from "@/product/components/Icon";
 import { fmt } from "@/product/utils/format";
 import { ApiError } from "@/product/services/httpClient";
+import { useApprovalWorkflow } from "@/product/providers/auth-context";
+import { isFlowOff } from "@/product/services/approvalWorkflowService";
 import { SplitPaymentInput, ZERO_SPLIT, type SplitAmounts } from "@/product/components/ui/SplitPaymentInput";
 import { topUpLoan, getLoan, type LoanView } from "@/product/pages/loans/services/loanService";
 import { EditLoanModalContent } from "@/product/components/modals/EditLoanModal";
@@ -17,10 +19,17 @@ import { PaymentModalContent } from "@/product/components/modals/PaymentModal";
  * outstanding); if the requested amount exceeds it, the backend rejects
  * with ErrTopUpShortfall and this modal chains straight into the existing
  * "Edit Loan" ornament-add flow, then reopens itself once ornaments are
- * saved so the new (larger) headroom is visible without a second click. */
+ * saved so the new (larger) headroom is visible without a second click.
+ *
+ * When the business has the loan_topup approval flow switched on, the same
+ * form submits the top-up INTO that chain instead: nothing is paid out yet,
+ * the loan comes back unchanged, and LoanDetail shows the pending top-up
+ * with its stage tracker until the final stage approves (and pays) it. */
 export function TopUpLoanModalContent({ loan, onSaved }: { loan: LoanView; onSaved: (updated: LoanView) => void }) {
   const { openModal, closeModal } = useModal();
   const toast = useToast();
+  const { config: workflow } = useApprovalWorkflow();
+  const needsApproval = !isFlowOff(workflow, "loan_topup");
   // liveLoan (not the loan prop directly) so arrears/headroom re-check
   // against a fresh figure after the Record Payment fallback below clears
   // some or all of the arrears mid-modal.
@@ -84,9 +93,11 @@ export function TopUpLoanModalContent({ loan, onSaved }: { loan: LoanView; onSav
         settleInterest: hasArrears ? settleMode : undefined,
       });
       toast(
-        settleMode === "deduct" && hasArrears
-          ? `${fmt(amt)} topped up on loan ${loan.id} — ${fmt(arrears)} interest deducted from the payout`
-          : `${fmt(amt)} topped up on loan ${loan.id}`
+        needsApproval
+          ? "Top-up submitted for approval"
+          : settleMode === "deduct" && hasArrears
+            ? `${fmt(amt)} topped up on loan ${loan.id} — ${fmt(arrears)} interest deducted from the payout`
+            : `${fmt(amt)} topped up on loan ${loan.id}`
       );
       onSaved(updated);
       closeModal();
@@ -169,7 +180,7 @@ export function TopUpLoanModalContent({ loan, onSaved }: { loan: LoanView; onSav
       </div>
       <div className="ft">
         <button className="btn ghost" onClick={closeModal}>Cancel</button>
-        <button className="btn" disabled={saving || !balanced} onClick={save}>{saving ? "Recording…" : "Top Up"}</button>
+        <button className="btn" disabled={saving || !balanced} onClick={save}>{saving ? (needsApproval ? "Submitting…" : "Recording…") : needsApproval ? "Submit for Approval" : "Top Up"}</button>
       </div>
     </>
   );

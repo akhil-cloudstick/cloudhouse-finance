@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { DataProvider } from "@/product/providers/DataProvider";
 import { useBranding } from "@/product/providers/BrandingProvider";
 import { CustomersProvider } from "@/product/pages/customers/store/CustomersProvider";
@@ -267,8 +267,19 @@ function AppShellInner() {
 
   useEffect(() => {
     setSidebarOpen(false);
-    window.scrollTo(0, 0);
   }, [route, arg]);
+
+  // .page (not the window) is the only scroller since .shell became a fixed
+  // 100vh box (see app.css's .main comment), and it isn't remounted on
+  // navigation — only View is keyed — so its scrollTop survived route
+  // changes: leaving a scrolled-down Dashboard painted the next page with
+  // its header scrolled out of view until the content height clamped it
+  // back. Layout effect so the reset lands before paint, not a frame after.
+  const pageRef = useRef<HTMLElement>(null);
+  useLayoutEffect(() => {
+    if (pageRef.current) pageRef.current.scrollTop = 0;
+    window.scrollTo(0, 0);
+  }, [route, arg, reloadSeq]);
 
   // Sidebar and Topbar used to render immediately with the PLATFORM DEFAULT
   // identity (CloudHouse's name/logo/colours) for every business, briefly
@@ -293,7 +304,7 @@ function AppShellInner() {
       <Sidebar route={route} open={sidebarOpen} onNavigateSameRoute={() => setReloadSeq((n) => n + 1)} />
       <div className="main">
         <Topbar route={route} arg={arg} onBurger={() => setSidebarOpen((v) => !v)} />
-        <main className="page" id="view">
+        <main className="page" id="view" ref={pageRef}>
           <View key={`${route}/${arg ?? ""}/${reloadSeq}`} route={route} arg={arg} />
         </main>
       </div>

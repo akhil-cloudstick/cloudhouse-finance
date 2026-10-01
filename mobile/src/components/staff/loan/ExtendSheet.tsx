@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { Field, Input, PrimaryButton, Sheet, TextField, WarningBanner } from "../../ui";
+import { Field, Input, PrimaryButton, Sheet, TextField, WarningBanner, toast } from "../../ui";
 import { ExtensionReviewPanel } from "../../loanRequests/ExtensionReviewPanel";
 import { createExtensionRequest } from "../../../api/loans";
 import { dmy, inr } from "../../../lib/format";
@@ -57,8 +57,12 @@ export function ExtendSheet({
         submitting.current = false;
       }
     },
-    onSuccess: () => {
+    onSuccess: (r) => {
       invalidateLoan(qc, l.id);
+      // With the tenant's "loan_extension" flow off the request is approved
+      // (and the loan extended) as soon as it is raised.
+      if (r?.status === "Approved") toast.success("Loan extended", `+${months} month${months === 1 ? "" : "s"} on ${l.loanNumber}`);
+      else toast.success("Extension submitted for approval");
       onClose();
     },
     onError: (e) => {

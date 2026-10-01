@@ -85,6 +85,7 @@ func seedCashAndExpenses(ctx context.Context, d *Deps, st *state, rep *Report) e
 	// Expenses, then a decision pass so the approval queue is not uniformly
 	// pending: eight approved, two rejected, five left waiting.
 	expenseIDs := make([]uint, 0, len(expenseFixtures))
+	pending := make([]bool, 0, len(expenseFixtures))
 	for i, f := range expenseFixtures {
 		var receipt string
 		if i < 4 && i < len(st.uploadKeys) {
@@ -104,10 +105,17 @@ func seedCashAndExpenses(ctx context.Context, d *Deps, st *state, rep *Report) e
 			return fmt.Errorf("record expense %q: %w", f.Category, err)
 		}
 		expenseIDs = append(expenseIDs, e.ID)
+		pending = append(pending, e.Status == "Pending")
 	}
 	rep.created("expenses", len(expenseIDs))
 
+	// Only Pending expenses can be decided — they exist only while the
+	// tenant has expense approval switched on; otherwise Record already
+	// posted every expense as Approved and there is nothing to decide.
 	for i, id := range expenseIDs {
+		if !pending[i] {
+			continue
+		}
 		switch {
 		case i < 8:
 			if _, err := d.expenseSvc.Approve(ctx, id, "Admin", nil); err != nil {

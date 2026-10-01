@@ -19,6 +19,8 @@ func (s *Service) PersonalLoans(ctx context.Context, f Filter) ([]PersonalLoanRo
 		Joins("LEFT JOIN branches b ON b.id = p.branch_id").
 		Joins("LEFT JOIN customers c ON c.id = p.customer_id").
 		Where("p.opened_date >= ? AND p.opened_date < ?", from, to).
+		// Loans still awaiting (or refused) approval never disbursed anything.
+		Where("p.status NOT IN ?", []string{"Pending Approval", "Rejected"}).
 		Where("p.deleted_at IS NULL").
 		Order("p.opened_date desc")
 	if f.BranchID != nil {

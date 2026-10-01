@@ -1540,8 +1540,12 @@ func (h *Handler) ListRequests(c *gin.Context) {
 		f.Type = RequestTypeExtension
 	case "release":
 		f.Type = RequestTypeRelease
+	case "waiver":
+		f.Type = RequestTypeWaiver
+	case "adjustment":
+		f.Type = RequestTypeAdjustment
 	default:
-		httpx.Fail(c, http.StatusBadRequest, "invalid type: expected extension or release")
+		httpx.Fail(c, http.StatusBadRequest, "invalid type: expected extension, release, waiver or adjustment")
 		return
 	}
 	if v := c.Query("loanId"); v != "" {
@@ -1804,9 +1808,85 @@ func (h *Handler) ApproveRequest(c *gin.Context) {
 			return
 		}
 		httpx.Success(c, http.StatusOK, rec)
+	case RequestTypeWaiver, RequestTypeAdjustment:
+		rec, err := h.svc.ApproveWaiverRequest(ctx, requestID, platform.GetBranchScope(c), WaiverApprovalInput{
+			Stage:           req.Stage,
+			Action:          req.Action,
+			ActorEmployeeID: actorEmployeeID,
+			ActorRoleID:     actorRoleID,
+			Remarks:         req.Remarks,
+		})
+		if err != nil {
+			httpx.FailErr(c, err)
+			return
+		}
+		httpx.Success(c, http.StatusOK, rec)
 	default:
 		httpx.FailErr(c, ErrInvalidRequestType)
 	}
+}
+
+// ApproveTopUp backs POST /loans/topups/:topUpId/approve — the same
+// {stage, action, remarks} body as the request approvals above.
+func (h *Handler) ApproveTopUp(c *gin.Context) {
+	ctx := platform.RequestContext(c)
+	topUpID, err := httpx.IDParam(c, "topUpId")
+	if err != nil {
+		httpx.FailErr(c, err)
+		return
+	}
+	var req releaseApprovalRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		httpx.Fail(c, http.StatusBadRequest, "Invalid input")
+		return
+	}
+	actorEmployeeID, actorRole, actorRoleID := platform.ActorFromContext(c)
+	rec, err := h.svc.ApproveTopUp(ctx, topUpID, platform.GetBranchScope(c), TopUpApprovalInput{
+		Stage:           req.Stage,
+		Action:          req.Action,
+		ActorEmployeeID: actorEmployeeID,
+		ActorRole:       actorRole,
+		ActorRoleID:     actorRoleID,
+		Remarks:         req.Remarks,
+	})
+	if err != nil {
+		httpx.FailErr(c, err)
+		return
+	}
+	httpx.Success(c, http.StatusOK, rec)
+}
+
+type waiverRequestBody struct {
+	Type   string  `json:"type" binding:"required"` // "Waiver" | "Adjustment"
+	Amount float64 `json:"amount" binding:"required"`
+	Reason string  `json:"reason" binding:"required"`
+}
+
+// CreateWaiverRequest backs POST /loans/:id/waiver-request.
+func (h *Handler) CreateWaiverRequest(c *gin.Context) {
+	ctx := platform.RequestContext(c)
+	loanID, err := httpx.IDParam(c, "id")
+	if err != nil {
+		httpx.FailErr(c, err)
+		return
+	}
+	var req waiverRequestBody
+	if err := c.ShouldBindJSON(&req); err != nil {
+		httpx.Fail(c, http.StatusBadRequest, "Invalid input")
+		return
+	}
+	actorEmployeeID, _, _ := platform.ActorFromContext(c)
+	rec, err := h.svc.CreateWaiverRequest(ctx, loanID, platform.GetBranchScope(c), WaiverRequestInput{
+		Type:            req.Type,
+		Amount:          req.Amount,
+		Reason:          req.Reason,
+		ActorEmployeeID: actorEmployeeID,
+	})
+	if err != nil {
+		httpx.FailErr(c, err)
+		return
+	}
+	httpx.Success(c, http.StatusCreated, rec)
 }
 
 func (h *Handler) CompleteRelease(c *gin.Context) {

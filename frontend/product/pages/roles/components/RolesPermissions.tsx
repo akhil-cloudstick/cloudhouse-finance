@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useToast } from "@/product/components/Toast";
 import { useModal } from "@/product/components/Modal";
 import { Icon } from "@/product/components/Icon";
@@ -18,6 +18,7 @@ import {
   type PermissionRow,
   type Role,
 } from "@/product/services/permissionService";
+import { ApprovalWorkflowSettings } from "@/product/pages/roles/components/ApprovalWorkflowSettings";
 
 /* Rename/delete for one role, opened from the Edit button beside the role
  * picker. Kept in this file since nothing else opens it. */
@@ -128,6 +129,9 @@ export function RolesPermissions() {
   // (the "view only" notice, the "system role" caveat) that don't belong to
   // just one of the three granular actions above.
   const canChangeAnything = canCreateRole || canUpdateRole || canDeleteRole;
+  // "Permissions" (the role matrix) | "Approval Workflow" (which stages each
+  // approval flow uses — see ApprovalWorkflowSettings.tsx).
+  const [activeTab, setActiveTab] = useState<"permissions" | "workflow">("permissions");
 
   const [roles, setRoles] = useState<Role[] | null>(null);
   const [roleId, setRoleId] = useState<number | null>(null);
@@ -136,6 +140,10 @@ export function RolesPermissions() {
   const [search, setSearch] = useState("");
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
+  // Brief "Changes saved" confirmation beside Save after a successful save.
+  const [justSaved, setJustSaved] = useState(false);
+  const savedTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => () => { if (savedTimer.current) clearTimeout(savedTimer.current); }, []);
   const [pending, setPending] = useState<Record<number, boolean>>({});
 
   // New-role inline form state (rename lives in the Edit modal above).
@@ -203,6 +211,9 @@ export function RolesPermissions() {
       }));
       await updateRolePermissions(employee.id, roleId, updates);
       toast(`Permissions updated for ${role?.name ?? "role"}`);
+      setJustSaved(true);
+      if (savedTimer.current) clearTimeout(savedTimer.current);
+      savedTimer.current = setTimeout(() => setJustSaved(false), 2500);
       const res = await fetchRoleMatrix(employee.id, roleId, search || undefined);
       setRole(res.role);
       setMatrix(res.data);
@@ -276,10 +287,10 @@ export function RolesPermissions() {
       <div className="page-h">
         <div>
           <h1>Roles &amp; Permissions</h1>
-          <p>Grant or revoke what each role may view and change, across every module.</p>
+          <p>Grant or revoke what each role may view and change, across every module, and choose the approval workflow.</p>
         </div>
         <div className="sp" />
-        {canCreateRole && (
+        {canCreateRole && activeTab === "permissions" && (
           <button className="btn ghost" onClick={() => setShowNewRole((v) => !v)}>
             <Icon name="plus" /> New Role
           </button>
@@ -287,7 +298,18 @@ export function RolesPermissions() {
       </div>
       <hr className="gold-rule" />
 
-      {showNewRole && (
+      <div className="tabs roles-tabs" style={{ marginBottom: 16 }}>
+        <button className={activeTab === "permissions" ? "on" : ""} onClick={() => setActiveTab("permissions")}>
+          Permissions
+        </button>
+        <button className={activeTab === "workflow" ? "on" : ""} onClick={() => setActiveTab("workflow")}>
+          Approval Workflow
+        </button>
+      </div>
+
+      {activeTab === "workflow" && <ApprovalWorkflowSettings />}
+
+      {activeTab === "permissions" && showNewRole && (
         <div className="card" style={{ padding: 16, marginBottom: 16 }}>
           <div className="frow" style={{ gap: 10 }}>
             <div style={{ flex: 1 }}>
@@ -309,6 +331,7 @@ export function RolesPermissions() {
         </div>
       )}
 
+      {activeTab === "permissions" && (
       <div className="card" style={{ padding: 16 }}>
         {/* Two control rows: the role picker sits on one line with Edit
             (rename/delete now live in that modal rather than as their own
@@ -337,8 +360,15 @@ export function RolesPermissions() {
             <>
               <button className="btn ghost" onClick={() => setAll(true)} disabled={saving}>Grant all</button>
               <button className="btn ghost" onClick={() => setAll(false)} disabled={saving}>Revoke all</button>
-              <button className="btn" onClick={save} disabled={saving || Object.keys(pending).length === 0}>
-                <Icon name="check" /> {saving ? "Saving…" : `Save${Object.keys(pending).length ? ` (${Object.keys(pending).length})` : ""}`}
+              {justSaved && (
+                <span className="save-msg" role="status"><Icon name="check" /> Changes saved</span>
+              )}
+              <button
+                className={`btn save-btn${justSaved ? " saved" : ""}`}
+                onClick={save}
+                disabled={saving || (Object.keys(pending).length === 0 && !justSaved)}
+              >
+                <Icon name="check" /> {saving ? "Saving…" : justSaved && Object.keys(pending).length === 0 ? "Saved" : `Save${Object.keys(pending).length ? ` (${Object.keys(pending).length})` : ""}`}
               </button>
             </>
           )}
@@ -401,6 +431,7 @@ export function RolesPermissions() {
           </div>
         )}
       </div>
+      )}
     </>
   );
 }

@@ -76,6 +76,9 @@ export function buildLedger(l: Loan, topUps: LoanTopUp[]): Entry[] {
   }
 
   for (const t of topUps) {
+    // A top-up still in (or turned down by) the approval chain never paid
+    // anything out — it's shown on the loan page's pending card instead.
+    if (t.status === "Pending" || t.status === "Rejected") continue;
     const modes = modeSplit(t);
     const reversed = t.status === "Reversed";
     rows.push({

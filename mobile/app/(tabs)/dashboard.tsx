@@ -41,6 +41,7 @@ import {
   type NeedsAttentionKind,
 } from "../../src/api/dashboard";
 import { latestGoldRate } from "../../src/api/goldRates";
+import { stageByPending, useApprovalWorkflow } from "../../src/api/approvalWorkflow";
 import { listActiveSchemes } from "../../src/api/schemes";
 import { listLoansPage } from "../../src/api/loans";
 import { listCalendarEventsPage } from "../../src/api/reminders";
@@ -166,6 +167,13 @@ function NeedsAttention() {
   useRefetchOnFocus(query.refetch);
   const first = query.data?.pages[0];
   const items = useMemo(() => query.data?.pages.flatMap((p) => p.items ?? []) ?? [], [query.data]);
+  const wf = useApprovalWorkflow();
+  // Approval items carry their workflow flow (gold loan sanction by default)
+  // and the raw pending value — shown as the configured stage label.
+  const flowOf = (it: NeedsAttentionItem) => it.flow || "loan_sanction";
+  const stageLabel = (it: NeedsAttentionItem) =>
+    stageByPending(wf, flowOf(it), it.approvalStage === "AuthorizedManagement" ? "FinalSanction" : it.approvalStage)?.label ?? it.approvalStage;
+  const FLOW_NAMES: Record<string, string> = { loan_sanction: "Gold loan", loan_topup: "Top-up", personal_loan: "Personal loan", expense: "Expense" };
   const labels = {
     approvals: `Approvals${first ? ` · ${first.approvalsCount}` : ""}`,
     requests: `Requests${first ? ` · ${first.requestsCount}` : ""}`,
@@ -173,6 +181,8 @@ function NeedsAttention() {
   };
 
   const open = (it: NeedsAttentionItem) => {
+    if (it.kind === "approval" && it.flow === "personal_loan" && it.entityId) return openPage(`/personal-loans?id=${it.entityId}&t=${Date.now()}`);
+    if (it.kind === "approval" && it.flow === "expense") return openPage(`/cash?tab=expenses&t=${Date.now()}`);
     if (it.kind === "request") openPage(`/requests?requestId=${it.requestId}${it.loanId ? `&loanId=${it.loanId}` : ""}`);
     else if (it.loanId) openPage(`/loans/${it.loanId}`);
   };
@@ -190,12 +200,12 @@ function NeedsAttention() {
           <AccGroup>
           {items.map((it, i) => (
             <AccRow
-              key={`${it.kind}-${it.requestId ?? it.loanId}-${i}`}
-              id={it.loanNumber}
+              key={`${it.kind}-${it.flow ?? ""}-${it.requestId ?? it.entityId ?? it.loanId}-${i}`}
+              id={it.loanNumber ?? (it.flow === "expense" ? it.detail : undefined)}
               name={it.customerName ?? "—"}
               sub={
                 it.kind === "approval"
-                  ? `Awaiting ${it.approvalStage || "approval"}`
+                  ? `${flowOf(it) !== "loan_sanction" ? `${FLOW_NAMES[flowOf(it)] ?? "Approval"} · ` : ""}Awaiting ${stageLabel(it) || "approval"}`
                   : it.kind === "request"
                     ? `${it.requestType ?? "Request"}${it.detail ? ` · ${it.detail}` : ""}`
                     : it.status ?? "Auction case"
@@ -205,8 +215,8 @@ function NeedsAttention() {
               details={
                 it.kind === "approval"
                   ? [
-                      { k: "Stage", v: it.approvalStage || "—" },
-                      { k: "Principal", v: inr(it.principal) },
+                      { k: "Stage", v: stageLabel(it) || "—" },
+                      { k: flowOf(it) === "loan_sanction" || flowOf(it) === "personal_loan" ? "Principal" : "Amount", v: inr(it.principal) },
                     ]
                   : it.kind === "request"
                     ? [

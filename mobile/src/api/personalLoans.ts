@@ -5,7 +5,11 @@ import { apiRequestEnveloped as apiRequest } from "./client";
 // no-KYC loan product separate from the Gold Loan module.
 export type InterestType = "Flat" | "Percentage";
 export type Frequency = "Daily" | "Weekly" | "Monthly";
-export type PersonalLoanStatus = "Active" | "Pending" | "Closed" | "Renewed" | "Defaulted";
+// "Pending Approval" / "Rejected" only when the tenant's "personal_loan"
+// approval flow is on: nothing is disbursed (and there is no schedule) until
+// its final stage approves the loan. "Pending" is unrelated — a penal-cycle
+// state of an already-disbursed loan.
+export type PersonalLoanStatus = "Active" | "Pending" | "Closed" | "Renewed" | "Defaulted" | "Pending Approval" | "Rejected";
 
 export type PersonalLoan = {
   id: number;
@@ -24,6 +28,9 @@ export type PersonalLoan = {
   outstandingAmount: number;
   totalPaid: number;
   status: PersonalLoanStatus;
+  // Pending stage value (personal_loan flow) while "Pending Approval";
+  // "Approved" / "Rejected" once decided; "" when created without a chain.
+  approvalStage?: string;
   openedDate: string;
   disbursedAt: string;
   closedAt: string | null;
@@ -157,4 +164,28 @@ export type RenewResult = { oldLoan: PersonalLoan; newLoan: PersonalLoan };
 
 export function renewPersonalLoan(id: number, input: RenewInput) {
   return apiRequest<RenewResult>(`/personal-loans/${id}/renew`, { method: "POST", body: input });
+}
+
+// --- Approval chain (tenant's "personal_loan" flow) ---------------------------
+
+export type PersonalLoanApproval = {
+  id: number;
+  flow: string;
+  entityId: number;
+  stage: string;
+  action: "Approved" | "Rejected";
+  actorEmployeeId: number;
+  actorRole: string;
+  remarks: string;
+  createdAt: string;
+};
+
+// Stage decision on a "Pending Approval" personal loan — the final stage's
+// approval disburses it and builds its schedule.
+export function approvePersonalLoan(id: number, input: { stage: string; action: "Approved" | "Rejected"; remarks?: string }) {
+  return apiRequest<PersonalLoan>(`/personal-loans/${id}/approve`, { method: "POST", body: input });
+}
+
+export function listPersonalLoanApprovals(id: number) {
+  return apiRequest<PersonalLoanApproval[]>(`/personal-loans/${id}/approvals`);
 }

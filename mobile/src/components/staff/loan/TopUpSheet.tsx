@@ -2,6 +2,7 @@ import React, { useEffect, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { AccBtn, CheckItem, DateField, Field, Input, NoticeBanner, PaymentSplit, PrimaryButton, ResultBox, Sheet, TextField, Txt, C, ZERO_SPLIT, isBalanced, toast, type SplitAmounts } from "../../ui";
 import { topUpLoan } from "../../../api/loans";
+import { isFlowOff, useApprovalWorkflow } from "../../../api/approvalWorkflow";
 import { inr, todayISO } from "../../../lib/format";
 import type { Loan } from "../../../types/loan";
 import { ErrorText, apiErr, invalidateLoan } from "./common";
@@ -31,6 +32,10 @@ export function TopUpSheet({
   onRecordPayment?: () => void;
 }) {
   const qc = useQueryClient();
+  // Tenant's "loan_topup" flow: off → paid out right away (unchanged);
+  // on → saved as a Pending top-up that walks the approval chain, and only
+  // its final stage pays it out.
+  const needsApproval = !isFlowOff(useApprovalWorkflow(), "loan_topup");
   const [amount, setAmount] = useState("");
   const [split, setSplit] = useState<SplitAmounts>(ZERO_SPLIT);
   const [date, setDate] = useState(todayISO());
@@ -74,6 +79,11 @@ export function TopUpSheet({
       }),
     onSuccess: () => {
       invalidateLoan(qc, l.id);
+      if (needsApproval) {
+        toast.success("Top-up submitted for approval", `${inr(amt)} on ${l.loanNumber} — paid out once approved`);
+        onClose();
+        return;
+      }
       toast.success(
         "Loan topped up",
         settleMode === "deduct" && hasArrears
@@ -133,7 +143,7 @@ export function TopUpSheet({
       {needsPayment && onRecordPayment ? <AccBtn label="Record Payment to clear the arrears" onPress={onRecordPayment} style={{ marginBottom: 12 }} /> : null}
       <ErrorText>{error}</ErrorText>
       <PrimaryButton
-        label="Top Up"
+        label={needsApproval ? "Submit for Approval" : "Top Up"}
         onPress={() => {
           setError(null);
           save.mutate();

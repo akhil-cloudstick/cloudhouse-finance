@@ -4,6 +4,11 @@ import { createContext, useCallback, useContext, useMemo, useState, useLayoutEff
 import { login as loginRequest, type AuthEmployee } from "@/product/services/authService";
 import { fetchMyPermissions, type PermissionMap } from "@/product/services/permissionService";
 import {
+  DEFAULT_APPROVAL_WORKFLOW,
+  fetchApprovalWorkflow,
+  type ApprovalWorkflowConfig,
+} from "@/product/services/approvalWorkflowService";
+import {
   activeBusinessSlug,
   businessCodeForRequest,
   clearSession,
@@ -110,6 +115,12 @@ type AuthContextValue = {
   // derives (e.g. "Loan_Management", "can_view_loan").
   can: (moduleKey: string, permissionKey: string) => boolean;
   refetchPermissions: () => void;
+  // This business's approval-workflow configuration (which stages of each
+  // approval flow are switched on) — loaded next to the permission map and
+  // falling back to the catalogue defaults until/unless the fetch succeeds.
+  // Read it through useApprovalWorkflow() below.
+  approvalWorkflow: ApprovalWorkflowConfig;
+  refreshApprovalWorkflow: () => Promise<void>;
 };
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
@@ -147,6 +158,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [permissions, setPermissions] = useState<PermissionMap>({});
   const [permissionsLoaded, setPermissionsLoaded] = useState(false);
   const [permissionsFailed, setPermissionsFailed] = useState(false);
+  const [approvalWorkflow, setApprovalWorkflow] = useState<ApprovalWorkflowConfig>(DEFAULT_APPROVAL_WORKFLOW);
+
+  // Not an authority either — every stage transition is enforced
+  // server-side. On failure the catalogue defaults stay in place so trackers
+  // and buttons still render something sensible.
+  const loadApprovalWorkflow = useCallback(async () => {
+    try {
+      const data = await fetchApprovalWorkflow();
+      if (data.length) setApprovalWorkflow(data);
+    } catch {
+      /* keep whatever is already loaded (defaults on first load) */
+    }
+  }, []);
 
   // Fetched on login AND on every app mount (the effect below) — a refresh
   // must not run on a potentially days-old cached grant (§9.2). Mirrors into
@@ -201,6 +225,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             }
           }
           void loadPermissions(emp);
+          void loadApprovalWorkflow();
         } catch {
           setEmployee(null);
         }
@@ -230,9 +255,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setEmployee(res.employee);
       setPermissionsLoaded(false);
       void loadPermissions(res.employee);
+      void loadApprovalWorkflow();
       return res.employee;
     },
-    [loadPermissions]
+    [loadPermissions, loadApprovalWorkflow]
   );
 
   /* Signs out of THIS business only. Another business signed in in another
@@ -271,6 +297,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setPermissions({});
     setPermissionsLoaded(false);
     setPermissionsFailed(false);
+    setApprovalWorkflow(DEFAULT_APPROVAL_WORKFLOW);
     // `token` is a real dependency now, not incidental: clearSessionsForToken
     // matches on its value. Signing out with a stale closure would sweep the
     // PREVIOUS token's buckets and leave the current one behind.
@@ -331,6 +358,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       permissionsFailed,
       can,
       refetchPermissions,
+      approvalWorkflow,
+      refreshApprovalWorkflow: loadApprovalWorkflow,
     }),
     [
       token,
@@ -349,6 +378,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       permissionsFailed,
       can,
       refetchPermissions,
+      approvalWorkflow,
+      loadApprovalWorkflow,
     ]
   );
 
@@ -359,6 +390,14 @@ export function useAuth(): AuthContextValue {
   const ctx = useContext(AuthContext);
   if (!ctx) throw new Error("useAuth must be used within an AuthProvider");
   return ctx;
+}
+
+/* The approval-workflow configuration plus a refresh (call after saving it
+ * on the Roles & Permissions page). Pair with the lookup helpers in
+ * approvalWorkflowService.ts (chainFor, stageByPending, isFinalStage, …). */
+export function useApprovalWorkflow(): { config: ApprovalWorkflowConfig; refresh: () => Promise<void> } {
+  const { approvalWorkflow, refreshApprovalWorkflow } = useAuth();
+  return { config: approvalWorkflow, refresh: refreshApprovalWorkflow };
 }
 
 export { isTokenValid };
