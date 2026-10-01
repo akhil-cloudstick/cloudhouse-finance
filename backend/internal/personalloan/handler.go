@@ -188,6 +188,60 @@ func (h *Handler) History(c *gin.Context) {
 	httpx.Success(c, http.StatusOK, gin.H{"items": recs, "hasMore": hasMore, "total": total})
 }
 
+type approvalRequest struct {
+	Stage   string `json:"stage" binding:"required"`
+	Action  string `json:"action" binding:"required"`
+	Remarks string `json:"remarks"`
+}
+
+// Approve advances or rejects a loan waiting in the tenant's personal-loan
+// approval chain — POST /personal-loans/:id/approve. The acting employee
+// comes from the JWT, never the body.
+func (h *Handler) Approve(c *gin.Context) {
+	ctx := platform.RequestContext(c)
+	id, err := httpx.IDParam(c, "id")
+	if err != nil {
+		httpx.FailErr(c, err)
+		return
+	}
+	var req approvalRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		httpx.Fail(c, http.StatusBadRequest, "Invalid input")
+		return
+	}
+	employeeID, role, roleID := platform.ActorFromContext(c)
+	rec, err := h.svc.ApproveLoan(ctx, id, platform.GetBranchScope(c), ApprovalInput{
+		Stage:           req.Stage,
+		Action:          req.Action,
+		ActorEmployeeID: employeeID,
+		ActorRole:       role,
+		ActorRoleID:     roleID,
+		Remarks:         req.Remarks,
+	})
+	if err != nil {
+		httpx.FailErr(c, err)
+		return
+	}
+	httpx.Success(c, http.StatusOK, rec)
+}
+
+// Approvals returns a loan's approval-decision history —
+// GET /personal-loans/:id/approvals.
+func (h *Handler) Approvals(c *gin.Context) {
+	ctx := platform.RequestContext(c)
+	id, err := httpx.IDParam(c, "id")
+	if err != nil {
+		httpx.FailErr(c, err)
+		return
+	}
+	recs, err := h.svc.ListApprovals(ctx, id, platform.GetBranchScope(c))
+	if err != nil {
+		httpx.FailErr(c, err)
+		return
+	}
+	httpx.Success(c, http.StatusOK, recs)
+}
+
 // RecordPayment collects a payment against a loan.
 func (h *Handler) RecordPayment(c *gin.Context) {
 	ctx := platform.RequestContext(c)

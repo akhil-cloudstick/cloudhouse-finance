@@ -195,12 +195,16 @@ export function createExpense(input: {
   return apiRequest<Expense>("/expenses", { method: "POST", body: input });
 }
 
-export function approveExpense(id: number, approvedBy?: string) {
-  return apiRequest<Expense>(`/expenses/${id}/approve`, { method: "PATCH", body: { approvedBy } });
+// Expense approval (tenant's "expense" flow — off by default, in which case
+// expenses post immediately and never sit Pending). The server identifies
+// the approver from the token and checks "can approve expense" (module
+// Expense Approval), so no approver name is sent.
+export function approveExpense(id: number) {
+  return apiRequest<Expense>(`/expenses/${id}/approve`, { method: "PATCH", body: {} });
 }
 
-export function rejectExpense(id: number, remarks: string, approvedBy?: string) {
-  return apiRequest<Expense>(`/expenses/${id}/reject`, { method: "PATCH", body: { approvedBy, remarks } });
+export function rejectExpense(id: number, remarks: string) {
+  return apiRequest<Expense>(`/expenses/${id}/reject`, { method: "PATCH", body: { remarks } });
 }
 
 // Cash summary — branchId/date are real server-side params. Opening cash is

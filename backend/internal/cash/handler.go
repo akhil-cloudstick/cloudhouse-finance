@@ -161,6 +161,12 @@ func (h *MovementHandler) Record(c *gin.Context) {
 	if input.BranchID != nil {
 		branchID := platform.EnforceBranchOnWrite(c, *input.BranchID)
 		input.BranchID = &branchID
+	} else if scope := platform.GetBranchScope(c); scope != nil {
+		// A branch-bound employee's manual cash-in/out with no branch given
+		// (an older client) is their own till's money — left branch-less it
+		// would never reach that branch's Balance in Hand, which only sums
+		// the branch's own movements (see SummaryService.openingFor).
+		input.BranchID = scope
 	}
 	rec, err := h.svc.Record(ctx, input, req.toLoanSourceInput())
 	if err != nil {
@@ -1077,7 +1083,7 @@ func (h *ExpenseHandler) Approve(c *gin.Context) {
 	}
 	var req approveExpenseRequest
 	_ = c.ShouldBindJSON(&req) // body is optional
-	rec, err := h.svc.Approve(ctx, id, req.ApprovedBy, platform.GetBranchScope(c))
+	rec, err := h.svc.ApproveAs(ctx, id, expenseActor(c, req.ApprovedBy), platform.GetBranchScope(c))
 	if err != nil {
 		httpx.FailErr(c, err)
 		return
@@ -1102,12 +1108,23 @@ func (h *ExpenseHandler) Reject(c *gin.Context) {
 		httpx.Fail(c, http.StatusBadRequest, "Invalid input")
 		return
 	}
-	rec, err := h.svc.Reject(ctx, id, req.ApprovedBy, req.Remarks, platform.GetBranchScope(c))
+	rec, err := h.svc.RejectAs(ctx, id, expenseActor(c, req.ApprovedBy), req.Remarks, platform.GetBranchScope(c))
 	if err != nil {
 		httpx.FailErr(c, err)
 		return
 	}
 	httpx.Success(c, http.StatusOK, rec)
+}
+
+// expenseActor builds the deciding employee from the JWT. fallbackName (the
+// optional body field older clients still send) is only used for display
+// when the employee's own name can't be looked up.
+func expenseActor(c *gin.Context, fallbackName string) ExpenseActor {
+	employeeID, role, roleID := platform.ActorFromContext(c)
+	if fallbackName == "" {
+		fallbackName = role
+	}
+	return ExpenseActor{EmployeeID: employeeID, RoleID: roleID, Name: fallbackName}
 }
 
 // OpeningBalanceHandler wires HTTP requests to the OpeningBalanceService.

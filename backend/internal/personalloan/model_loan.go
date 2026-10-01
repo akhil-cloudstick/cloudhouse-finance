@@ -42,7 +42,21 @@ const (
 	// Pending if that cycle also finishes unpaid — see
 	// evaluateAndApplyPenal/SweepPenalInterest.
 	StatusPending = "Pending"
+
+	// StatusPendingApproval is a loan waiting in the tenant's personal-loan
+	// approval chain (workflow.FlowPersonalLoan). Nothing has been disbursed
+	// and it has no schedule yet — both are created when its final stage
+	// approves it (see Service.ApproveLoan). Distinct from StatusPending,
+	// which is a penal-cycle state of an already-disbursed loan.
+	StatusPendingApproval = "Pending Approval"
+	// StatusRejected is a StatusPendingApproval loan turned down in its
+	// approval chain — no money ever moved.
+	StatusRejected = "Rejected"
 )
+
+// NotDisbursedStatuses are the statuses of loans whose money never went out
+// — excluded from every portfolio figure.
+var NotDisbursedStatuses = []string{StatusPendingApproval, StatusRejected}
 
 // Interest type values for PersonalLoan.InterestType.
 const (
@@ -116,6 +130,10 @@ type PersonalLoan struct {
 	TotalPaid         float64 `json:"totalPaid" gorm:"not null;type:numeric(16,2);default:0"`
 
 	Status string `json:"status" gorm:"not null;size:20"`
+	// ApprovalStage is the pending stage value (workflow.FlowPersonalLoan)
+	// while Status is StatusPendingApproval; "Approved"/"Rejected" once
+	// decided; "" for a loan created without an approval chain.
+	ApprovalStage string `json:"approvalStage" gorm:"size:30;default:''"`
 
 	OpenedDate time.Time  `json:"openedDate" gorm:"not null"`
 	DisbursedAt time.Time `json:"disbursedAt"`

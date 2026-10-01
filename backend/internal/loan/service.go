@@ -23,6 +23,7 @@ import (
 	"cloudhouse/backend/internal/scheme"
 	"cloudhouse/backend/internal/tenant"
 	"cloudhouse/backend/internal/upload"
+	"cloudhouse/backend/internal/workflow"
 )
 
 // PacketCreator auto-generates a loan's tracking packet right after
@@ -169,6 +170,9 @@ var (
 	// the requested top-up exceeds the loan's current headroom
 	// (EligibleLoanAmount - OutstandingAmount); reject, don't clamp.
 	ErrTopUpShortfall = httpx.NewBadRequest("requested amount exceeds the loan's available headroom — add more ornaments first")
+	ErrTopUpAlreadyPending = httpx.NewConflict("this loan already has a top-up waiting for approval")
+	ErrTopUpNotFound       = httpx.NewNotFound("top-up not found")
+	ErrTopUpAlreadyDecided = httpx.NewConflict("this top-up has already been approved or rejected")
 	// ErrLoanNotActiveForTopUp guards TopUpLoan: only an Active loan has
 	// spare eligible value worth drawing against.
 	ErrLoanNotActiveForTopUp = httpx.NewConflict("loan must be Active to top up")
@@ -247,6 +251,7 @@ var (
 	// not perform this specific action (only Branch Manager/Management/
 	// Administrator may decide a shortfall) — Forbidden, not BadRequest.
 	ErrShortfallAuthorityRequired    = httpx.NewForbidden("only a Branch Manager, Management, or Administrator may decide a post-auction shortfall")
+	ErrPartialRepaymentAuthority     = httpx.NewForbidden("your role may not decide whether a part-paid loan stays in auction")
 	ErrAuctionBalanceDueCannotSettle = httpx.NewBadRequest("this auction left a balance owing — resolve the shortfall decision instead of settling")
 	// ErrAuctionAlreadyConcluded: SettleAuction was called against a case
 	// that has already left the Auctioned stage (typically Settled) —
@@ -384,6 +389,21 @@ type Service struct {
 	// cashGuard blocks a payout larger than the branch's Balance in Hand —
 	// see SetCashBalanceGuard. nil skips the check.
 	cashGuard CashBalanceGuard
+
+	// workflowSvc resolves which approval stages this tenant has switched on
+	// for each chain (see internal/workflow and SetWorkflow). nil falls back
+	// to the catalogue defaults — the chains exactly as they were hardcoded.
+	workflowSvc *workflow.Service
+}
+
+// SetWorkflow wires the per-tenant approval-workflow configuration.
+func (s *Service) SetWorkflow(w *workflow.Service) {
+	s.workflowSvc = w
+}
+
+// chain loads flow's configured stages for the tenant in ctx.
+func (s *Service) chain(ctx context.Context, flow string) (*workflow.Chain, error) {
+	return s.workflowSvc.Chain(ctx, flow)
 }
 
 // CashBalanceGuard is satisfied by *cash.SummaryService — declared here so
@@ -737,6 +757,11 @@ func (s *Service) Create(ctx context.Context, in CreateInput) (*Loan, error) {
 		ornaments = append(ornaments, o)
 	}
 
+	firstStage, err := s.firstSanctionStage(ctx)
+	if err != nil {
+		return nil, err
+	}
+
 	rec := &Loan{
 		BranchID:         in.BranchID,
 		CustomerID:       in.CustomerID,
@@ -745,7 +770,7 @@ func (s *Service) Create(ctx context.Context, in CreateInput) (*Loan, error) {
 		DueDate:          in.DueDate,
 		AdditionalInfo:   in.AdditionalInfo,
 		Status:           StatusPendingApproval,
-		ApprovalStage:    SanctionStageLoanOperator,
+		ApprovalStage:    firstStage,
 		BankPledgeStatus: BankPledgeStatusNotPledged,
 		// Interest accrues from the day the loan is opened, not from
 		// whenever it happens to first be viewed/paid against.
@@ -1373,8 +1398,12 @@ func (s *Service) UpdateLoan(ctx context.Context, loanID uint, in UpdateLoanInpu
 		l.ServiceChargeAmount = computeServiceChargeAmount(l.ServiceChargeType, l.ServiceChargeValue, l.PrincipalAmount)
 	}
 
+	firstStage := SanctionStageLoanOperator
 	if materialChange {
-		l.ApprovalStage = SanctionStageLoanOperator
+		if firstStage, err = s.firstSanctionStage(ctx); err != nil {
+			return nil, err
+		}
+		l.ApprovalStage = firstStage
 		l.Status = StatusPendingApproval
 		// The loan will be disbursed again, at the new amount, once it
 		// clears the chain — the old sanction/disbursement snapshot no
@@ -1404,7 +1433,7 @@ func (s *Service) UpdateLoan(ctx context.Context, loanID uint, in UpdateLoanInpu
 	if materialChange {
 		audit := &LoanApproval{
 			LoanID:          l.ID,
-			Stage:           SanctionStageLoanOperator,
+			Stage:           firstStage,
 			Action:          ApprovalActionEdited,
 			ActorEmployeeID: in.ActorEmployeeID,
 			ActorRole:       in.ActorRole,
@@ -1646,18 +1675,23 @@ func (s *Service) AddOrnamentImage(ctx context.Context, ornamentID uint, imageUR
 	return s.ornamentRepo.FindByID(ctx, ornamentID)
 }
 
-// sanctionChain is the loan sanction chain's fixed stage order — index i's
-// Permission must be held by the acting employee's role (see Approve and
-// checkStagePermission) to advance from SanctionStage[i] to
-// SanctionStage[i+1] (or to ApprovalStageApproved, for the last stage).
-// Role is kept only as a human-readable label for sanctionWarning's advisory
-// message text below — it plays no part in the actual authorization check
-// any more (see the "Approval Workflow" permissions in internal/authz.Catalogue,
-// which default-grant these to the same roles this used to hardcode).
-var sanctionChain = []struct{ Stage, Role, Permission string }{
-	{SanctionStageLoanOperator, "Loan Operator", "can verify loan"},
-	{SanctionStageBranchManager, "Branch Manager", "can approve branch manager stage"},
-	{SanctionStageFinalSanction, "Management", "can sanction loan"},
+// The loan sanction chain's stages (their order, labels and required
+// permissions) live in workflow.Catalogue under workflow.FlowLoanSanction;
+// which of them apply is per-tenant configuration (see s.chain). The chain
+// can never be switched fully off — its last enabled stage is the one that
+// disburses the loan (see Approve).
+
+// firstSanctionStage returns the first enabled stage of the tenant's loan
+// sanction chain — where a new (or materially edited) loan starts.
+func (s *Service) firstSanctionStage(ctx context.Context) (string, error) {
+	c, err := s.chain(ctx, workflow.FlowLoanSanction)
+	if err != nil {
+		return "", err
+	}
+	if st, ok := c.First(); ok {
+		return st.Key, nil
+	}
+	return SanctionStageLoanOperator, nil
 }
 
 // normalizeSanctionStage maps the retired AuthorizedManagement stage onto
@@ -1688,8 +1722,9 @@ var sanctionLimits = map[string]float64{
 
 func sanctionWarning(l *Loan) string {
 	stage := normalizeSanctionStage(l.ApprovalStage)
-	for _, step := range sanctionChain {
-		if step.Stage != stage {
+	f, _ := workflow.FindFlow(workflow.FlowLoanSanction)
+	for _, step := range f.Stages {
+		if step.Key != stage {
 			continue
 		}
 		limit := sanctionLimits[step.Role]
@@ -1761,15 +1796,15 @@ type ApprovalInput struct {
 	BankID *uint
 }
 
-// Approve advances (or terminates) a loan's 3-step sanction chain:
+// Approve advances (or terminates) a loan's sanction chain. By default:
 //
 //	LoanOperator (verified) -> BranchManager (approved) -> FinalSanction (Management) -> Approved (Status -> Active)
 //
-// A Rejected action at any stage closes the loan (Status -> Closed) since
-// the doc's status list has no distinct "Rejected" bucket. in.ActorRole
-// must match the current stage's required role (see sanctionChain); an
-// "Administrator" actor is exempt and may act at whichever stage is
-// currently pending.
+// but each tenant chooses which of those stages apply (workflow.
+// FlowLoanSanction): approving moves the loan to the next ENABLED stage,
+// and the last enabled stage disburses it. A Rejected action at any stage
+// sets Status -> Rejected. The actor's role must hold the current stage's
+// permission (see checkStagePermission).
 //
 // The LoanOperator stage is a *verification*, not a sanction: the operator
 // who made the loan confirms it and the chain moves on to the Branch
@@ -1797,29 +1832,34 @@ func (s *Service) Approve(ctx context.Context, loanID uint, in ApprovalInput) (*
 		return nil, ErrWrongStage
 	}
 
-	var requiredRole, requiredPermission string
-	for _, step := range sanctionChain {
-		if step.Stage == stage {
-			requiredRole = step.Role
-			requiredPermission = step.Permission
-			break
-		}
+	chain, err := s.chain(ctx, workflow.FlowLoanSanction)
+	if err != nil {
+		return nil, err
 	}
+	step, ok := chain.ByKey(stage)
+	if !ok {
+		return nil, ErrWrongStage
+	}
+	// The last ENABLED stage of this tenant's chain is the one that pays the
+	// loan out — FinalSanction by default, but e.g. the Loan Operator's
+	// Verify when that is the only stage switched on.
+	final := chain.IsFinal(stage)
+	next, _ := chain.Next(stage)
 
 	// Verified belongs to the LoanOperator stage only.
-	if in.Action == ApprovalActionVerified && requiredRole != "Loan Operator" {
+	if in.Action == ApprovalActionVerified && stage != SanctionStageLoanOperator {
 		return nil, ErrWrongStage
 	}
 	// Permission-gated (see checkStagePermission's doc comment) — "Administrator"
 	// is no longer special-cased here: its role's grants can't be revoked
-	// (see authz.Repository), so it always holds requiredPermission already.
-	if requiredPermission != "" && !s.checkStagePermission(ctx, in.ActorRoleID, requiredPermission) {
+	// (see authz.Repository), so it always holds the permission already.
+	if !s.checkStagePermission(ctx, in.ActorRoleID, step.Permission) {
 		return nil, ErrWrongStage
 	}
 
-	// Final sanction pays the loan out — refuse it before anything (the
+	// The final stage pays the loan out — refuse it before anything (the
 	// audit row included) is written if the branch can't cover it.
-	if stage == SanctionStageFinalSanction && in.Action != ApprovalStageRejected {
+	if final && in.Action != ApprovalStageRejected {
 		payout := l.PrincipalAmount
 		if l.ServiceChargeMode == scheme.ServiceChargeModeWithheldFromPayout && l.ServiceChargeAmount > 0 {
 			payout = platform.RoundMoney(l.PrincipalAmount - l.ServiceChargeAmount)
@@ -1853,14 +1893,11 @@ func (s *Service) Approve(ctx context.Context, loanID uint, in ApprovalInput) (*
 		l.RejectedByName = s.employeeName(ctx, in.ActorEmployeeID)
 		l.RejectionRemarks = in.Remarks
 	} else {
-		switch stage {
-		case SanctionStageLoanOperator:
-			l.ApprovalStage = SanctionStageBranchManager
-			nextStageLabel = "Branch Manager"
-		case SanctionStageBranchManager:
-			l.ApprovalStage = SanctionStageFinalSanction
-			nextStageLabel = "Management"
-		case SanctionStageFinalSanction:
+		switch {
+		case !final:
+			l.ApprovalStage = next.Key
+			nextStageLabel = next.Label
+		default:
 			l.ApprovalStage = ApprovalStageApproved
 			l.Status = StatusActive
 			disbursing = true
@@ -2407,7 +2444,164 @@ type TopUpInput struct {
 // going forward, so interest naturally starts accruing on the larger
 // balance from OccurredOn without any separate recalculation (interest is
 // never charged on interest — only principal ever feeds accrual.go).
+//
+// When the tenant has the top-up approval chain switched on (workflow.
+// FlowLoanTopUp) nothing is paid out here: the top-up is saved as Pending
+// and only runs — re-validated against the loan's figures at that moment —
+// when its final stage approves it (see ApproveTopUp).
 func (s *Service) TopUpLoan(ctx context.Context, loanID uint, in TopUpInput) (*Loan, error) {
+	chain, err := s.chain(ctx, workflow.FlowLoanTopUp)
+	if err != nil {
+		return nil, err
+	}
+	if chain.Off() {
+		return s.executeTopUp(ctx, loanID, in, nil)
+	}
+	first, _ := chain.First()
+	return s.requestTopUp(ctx, loanID, in, first)
+}
+
+// requestTopUp saves a top-up as Pending at the chain's first stage after
+// the same up-front checks the payout itself would run (loan state, split,
+// headroom) — so an obviously impossible request is refused immediately
+// rather than after it has gone round the approvers.
+func (s *Service) requestTopUp(ctx context.Context, loanID uint, in TopUpInput, first workflow.StageDef) (*Loan, error) {
+	if in.Amount <= 0 {
+		return nil, ErrInvalidAmount
+	}
+	if err := platform.ValidateSplit(in.CashAmount, in.UpiAmount, in.BankTransferAmount, in.ChequeAmount, in.Amount); err != nil {
+		return nil, err
+	}
+	l, err := s.repo.FindByID(ctx, loanID)
+	if err != nil {
+		return nil, ErrNotFound
+	}
+	if l.Status != StatusActive && l.Status != StatusDueSoon && l.Status != StatusOverdue {
+		return nil, ErrLoanNotActiveForTopUp
+	}
+	if pending, err := s.topUpRepo.FindPendingByLoanID(ctx, loanID); err != nil {
+		return nil, err
+	} else if pending != nil {
+		return nil, ErrTopUpAlreadyPending
+	}
+	ornaments, err := s.ornamentRepo.FindByLoanID(ctx, l.ID)
+	if err != nil {
+		return nil, err
+	}
+	recalculateTotals(l, ornaments)
+	amount := platform.RoundMoney(in.Amount)
+	if amount > platform.RoundMoney(l.EligibleLoanAmount-l.OutstandingAmount)+0.01 {
+		return nil, ErrTopUpShortfall
+	}
+	occurredOn := in.OccurredOn
+	if occurredOn.IsZero() {
+		occurredOn = time.Now()
+	}
+	t := &LoanTopUp{
+		LoanID:                l.ID,
+		Amount:                amount,
+		EligibleAmountAtTopUp: l.EligibleLoanAmount,
+		CashAmount:            in.CashAmount,
+		UpiAmount:             in.UpiAmount,
+		BankTransferAmount:    in.BankTransferAmount,
+		ChequeAmount:          in.ChequeAmount,
+		OccurredOn:            occurredOn,
+		Reference:             in.Reference,
+		Status:                TopUpStatusPending,
+		ApprovalStage:         first.Pending,
+		SettleInterest:        in.SettleInterest,
+	}
+	if in.ReceivedByEmployeeID != 0 {
+		t.ReceivedByEmployeeID = &in.ReceivedByEmployeeID
+	}
+	if err := s.topUpRepo.CreateTx(ctx, s.db.WithContext(ctx), t); err != nil {
+		return nil, err
+	}
+	return s.Get(ctx, l.ID, nil)
+}
+
+// TopUpApprovalInput mirrors the body of POST /loans/topups/:topUpId/approve.
+type TopUpApprovalInput struct {
+	Stage           string // workflow.FlowLoanTopUp stage key — must match the top-up's current stage
+	Action          string // "Approved" | "Rejected"
+	ActorEmployeeID uint
+	ActorRole       string
+	ActorRoleID     uint
+	Remarks         string
+}
+
+// ApproveTopUp advances (or rejects) a Pending top-up through the tenant's
+// top-up approval chain. The final enabled stage pays it out through the
+// same executeTopUp path an unapproved top-up uses, so every headroom,
+// arrears and cash-in-hand check runs again against today's figures.
+func (s *Service) ApproveTopUp(ctx context.Context, topUpID uint, branchID *uint, in TopUpApprovalInput) (*LoanTopUp, error) {
+	t, err := s.topUpRepo.FindByID(ctx, topUpID)
+	if err != nil {
+		return nil, ErrTopUpNotFound
+	}
+	if err := s.checkLoanBranch(ctx, t.LoanID, branchID); err != nil {
+		return nil, err
+	}
+	if t.Status != TopUpStatusPending {
+		return nil, ErrTopUpAlreadyDecided
+	}
+	if in.Action != ApprovalStageApproved && in.Action != ApprovalStageRejected {
+		return nil, ErrInvalidAction
+	}
+	chain, err := s.chain(ctx, workflow.FlowLoanTopUp)
+	if err != nil {
+		return nil, err
+	}
+	step, ok := chain.ByPending(t.ApprovalStage)
+	if !ok || in.Stage != step.Key {
+		return nil, ErrWrongStage
+	}
+	if !s.checkStagePermission(ctx, in.ActorRoleID, step.Permission) {
+		return nil, ErrWrongStage
+	}
+
+	switch next, hasNext := chain.Next(step.Key); {
+	case in.Action == ApprovalStageRejected:
+		t.Status = TopUpStatusRejected
+		t.ApprovalStage = ApprovalStageRejected
+		if err := s.topUpRepo.Update(ctx, t); err != nil {
+			return nil, err
+		}
+	case hasNext:
+		t.ApprovalStage = next.Pending
+		if err := s.topUpRepo.Update(ctx, t); err != nil {
+			return nil, err
+		}
+	default:
+		// The money leaves now, so the top-up is dated now — the backdating
+		// guard compares against the loan's latest event today, not the day
+		// the request was raised.
+		if _, err := s.executeTopUp(ctx, t.LoanID, TopUpInput{
+			Amount:               t.Amount,
+			CashAmount:           t.CashAmount,
+			UpiAmount:            t.UpiAmount,
+			BankTransferAmount:   t.BankTransferAmount,
+			ChequeAmount:         t.ChequeAmount,
+			OccurredOn:           time.Now(),
+			Reference:            t.Reference,
+			SettleInterest:       t.SettleInterest,
+			ReceivedByEmployeeID: in.ActorEmployeeID,
+		}, t); err != nil {
+			return nil, err
+		}
+	}
+
+	s.workflowSvc.RecordAction(ctx, &workflow.ApprovalAction{
+		Flow: workflow.FlowLoanTopUp, EntityID: t.ID, Stage: step.Key, Action: in.Action,
+		ActorEmployeeID: in.ActorEmployeeID, ActorRole: in.ActorRole, Remarks: in.Remarks,
+	})
+	return s.topUpRepo.FindByID(ctx, t.ID)
+}
+
+// executeTopUp pays a top-up out (see TopUpLoan's doc comment). pending, when
+// non-nil, is the approved Pending row to turn Active instead of inserting a
+// new one.
+func (s *Service) executeTopUp(ctx context.Context, loanID uint, in TopUpInput, pending *LoanTopUp) (*Loan, error) {
 	if in.Amount <= 0 {
 		return nil, ErrInvalidAmount
 	}
@@ -2480,7 +2674,7 @@ func (s *Service) TopUpLoan(ctx context.Context, loanID uint, in TopUpInput) (*L
 		now := time.Now()
 		var firstMonthTopUps []LoanTopUp
 		if l.LastAccrualDate.IsZero() || l.LastAccrualDate.Equal(l.OpenedDate) {
-			if ups, err := s.topUpRepo.FindByLoanID(ctx, l.ID); err == nil {
+			if ups, err := s.topUpRepo.FindActiveByLoanID(ctx, l.ID); err == nil {
 				firstMonthTopUps = ups
 			}
 		}
@@ -2563,7 +2757,17 @@ func (s *Service) TopUpLoan(ctx context.Context, loanID uint, in TopUpInput) (*L
 		if in.ReceivedByEmployeeID != 0 {
 			topUp.ReceivedByEmployeeID = &in.ReceivedByEmployeeID
 		}
-		if err := s.topUpRepo.CreateTx(ctx, tx, topUp); err != nil {
+		if pending != nil {
+			// The approved request becomes the ledger row itself.
+			topUp.ID = pending.ID
+			topUp.TenantScoped = pending.TenantScoped
+			topUp.CreatedAt = pending.CreatedAt
+			topUp.ApprovalStage = ApprovalStageApproved
+			topUp.SettleInterest = pending.SettleInterest
+			if err := s.topUpRepo.UpdateTx(ctx, tx, topUp); err != nil {
+				return err
+			}
+		} else if err := s.topUpRepo.CreateTx(ctx, tx, topUp); err != nil {
 			return err
 		}
 
@@ -2728,6 +2932,12 @@ func (s *Service) GetLoanLedger(ctx context.Context, loanID uint, branchID *uint
 // notifications for one payment.
 func (s *Service) resolveAuctionAfterPayment(ctx context.Context, l *Loan, p *LoanPayment) bool {
 	hadActiveAuction := false
+	// autoKeep: the tenant switched the partial-repayment decision stage off,
+	// so a part-payment no longer freezes the auction for a human decision.
+	autoKeep, autoKept := false, false
+	if c, err := s.chain(ctx, workflow.FlowAuctionPartialRepayment); err == nil && c.Off() {
+		autoKeep = true
+	}
 	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		// Locked: a concurrent auction action must not read this same state and
 		// overwrite the freeze we are about to apply.
@@ -2825,6 +3035,30 @@ func (s *Service) resolveAuctionAfterPayment(ctx context.Context, l *Loan, p *Lo
 		if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
 			return err
 		}
+		if existing == nil && autoKeep {
+			// This tenant has no partial-repayment decision stage: the
+			// auction simply carries on (Keep in Auction), recorded as an
+			// already-decided request so the case history still shows it.
+			now := time.Now()
+			if err := s.auctionRepo.CreateDecision(ctx, tx, &AuctionDecisionRequest{
+				AuctionRecordID:      rec.ID,
+				LoanID:               l.ID,
+				Kind:                 AuctionDecisionKindPartialRepayment,
+				TriggeredByPaymentID: &p.ID,
+				AmountPaid:           platform.RoundMoney(p.Amount),
+				OutstandingAtRequest: outstanding,
+				Status:               AuctionDecisionKeepInAuction,
+				DecidedByRole:        "System",
+				DecisionRemarks:      "No approval configured — auction continues automatically",
+				DecidedAt:            &now,
+			}); err != nil {
+				return err
+			}
+			autoKept = true
+			s.recordAuctionEvent(ctx, tx, rec.ID, AuctionEventDecisionKeep, nil, "", fmt.Sprintf(
+				"Part-payment of ₹%.2f received (₹%.2f still owed) — kept in auction automatically (no decision stage configured)", p.Amount, outstanding))
+			return nil
+		}
 		if existing != nil {
 			existing.AmountPaid = platform.RoundMoney(existing.AmountPaid + p.Amount)
 			existing.OutstandingAtRequest = outstanding
@@ -2860,7 +3094,7 @@ func (s *Service) resolveAuctionAfterPayment(ctx context.Context, l *Loan, p *Lo
 	// non-closing payment on ANY loan (auction or not), because it wasn't
 	// actually gated on an active auction having been found above — now it
 	// only fires for the case it was written for.
-	if hadActiveAuction && l.Status != StatusClosed {
+	if hadActiveAuction && l.Status != StatusClosed && !autoKept {
 		s.notifyCustomer(ctx, l.CustomerID, l.Customer.Phone, "Payment Received — Auction On Hold", s.brandedMessage(ctx,
 			"Dear %s, we have received your payment of ₹%.2f towards loan %s. As the loan is not yet fully settled, the auction of your pledged gold is on hold while our management reviews your account. We will inform you of the decision. — CloudHouse Finance",
 			l.Customer.Name, p.Amount, l.LoanNumber,
@@ -3342,6 +3576,13 @@ func (s *Service) RecordAuctionSale(ctx context.Context, loanID uint, branchID *
 	if err := s.requireNoPendingDecision(ctx, rec.ID); err != nil {
 		return nil, err
 	}
+	// autoPursue: the tenant switched the shortfall decision stage off, so a
+	// shortfall is pursued automatically instead of escalated.
+	shortfallChain, err := s.chain(ctx, workflow.FlowAuctionShortfall)
+	if err != nil {
+		return nil, err
+	}
+	autoPursue := shortfallChain.Off()
 	l, err := s.repo.FindByID(ctx, loanID)
 	if err != nil {
 		return nil, ErrNotFound
@@ -3449,7 +3690,34 @@ func (s *Service) RecordAuctionSale(ctx context.Context, loanID uint, branchID *
 			return err
 		}
 
-		if !fullyCovered {
+		if !fullyCovered && autoPursue {
+			// No shortfall decision stage for this tenant: the balance is
+			// pursued automatically — the same effect as a PursueBalance
+			// decision (see ResolveAuctionDecision), recorded as decided.
+			shortfall := platform.RoundMoney(totalDebt - netProceeds)
+			rec.Stage = AuctionStageWithdrawn
+			if err := s.auctionRepo.UpdateTx(ctx, tx, rec); err != nil {
+				return err
+			}
+			l.Status = StatusOverdue
+			if err := tx.Save(l).Error; err != nil {
+				return err
+			}
+			now := time.Now()
+			if err := s.auctionRepo.CreateDecision(ctx, tx, &AuctionDecisionRequest{
+				AuctionRecordID:      rec.ID,
+				LoanID:               loanID,
+				Kind:                 AuctionDecisionKindShortfall,
+				AmountPaid:           netProceeds,
+				OutstandingAtRequest: shortfall,
+				Status:               AuctionDecisionPursueBalance,
+				DecidedByRole:        "System",
+				DecisionRemarks:      "No approval configured — balance pursued automatically",
+				DecidedAt:            &now,
+			}); err != nil {
+				return err
+			}
+		} else if !fullyCovered {
 			shortfall := platform.RoundMoney(totalDebt - netProceeds)
 			if err := s.auctionRepo.CreateDecision(ctx, tx, &AuctionDecisionRequest{
 				AuctionRecordID:      rec.ID,
@@ -3494,6 +3762,14 @@ func (s *Service) RecordAuctionSale(ctx context.Context, loanID uint, branchID *
 		s.notifyCustomer(ctx, l.CustomerID, l.Customer.Phone, "Auction Settled", s.brandedMessage(ctx,
 			"Dear %s, the gold pledged against loan %s was auctioned on %s for ₹%.2f. Your loan is now fully settled and closed.%s — CloudHouse Finance",
 			l.Customer.Name, l.LoanNumber, auctionDate.Format("02-Jan-2006"), saleAmount, surplusNote,
+		), commlog.TriggerAuctionEvent, "auction_record", rec.ID)
+	} else if autoPursue {
+		shortfall := platform.RoundMoney(totalDebt - netProceeds)
+		s.recordAuctionEvent(ctx, nil, rec.ID, AuctionEventDecisionPursue, nil, "System", fmt.Sprintf(
+			"Auction proceeds fell short by ₹%.2f — balance pursued automatically (no shortfall decision stage configured)", shortfall))
+		s.notifyCustomer(ctx, l.CustomerID, l.Customer.Phone, "Auction Shortfall", s.brandedMessage(ctx,
+			"Dear %s, the auction of your pledged gold under loan %s did not clear the full amount due. A balance of ₹%.2f remains payable and will continue to accrue interest. Please contact the branch to arrange settlement. — CloudHouse Finance",
+			l.Customer.Name, l.LoanNumber, shortfall,
 		), commlog.TriggerAuctionEvent, "auction_record", rec.ID)
 	} else {
 		s.recordAuctionEvent(ctx, nil, rec.ID, AuctionEventShortfallEscalated, actorID, actorRole, fmt.Sprintf(
@@ -3699,7 +3975,7 @@ func (s *Service) ResolveAuctionDecision(ctx context.Context, loanID, requestID 
 		switch req.Kind {
 		case AuctionDecisionKindPartialRepayment:
 			if !s.checkStagePermission(ctx, actorRoleID, "can decide auction partial repayment") {
-				return ErrShortfallAuthorityRequired
+				return ErrPartialRepaymentAuthority
 			}
 			switch decision {
 			case AuctionDecisionKeepInAuction:
@@ -3900,6 +4176,16 @@ func (s *Service) CreateExtensionRequest(ctx context.Context, loanID uint, in Ex
 	if requestedBy == "" {
 		requestedBy = RequestedByStaff
 	}
+	chain, err := s.chain(ctx, workflow.FlowLoanExtension)
+	if err != nil {
+		return nil, err
+	}
+	// With no extension stage switched on for this tenant the request is
+	// approved on the spot — logged for the audit trail, then applied.
+	first, needsApproval := chain.First()
+	if !needsApproval && isLoanTerminal(l.Status) {
+		return nil, ErrLoanTerminalState
+	}
 	months := in.Months
 	req := &LoanRequest{
 		LoanID:                   loanID,
@@ -3908,13 +4194,68 @@ func (s *Service) CreateExtensionRequest(ctx context.Context, loanID uint, in Ex
 		RequestedBy:              requestedBy,
 		Detail:                   in.Detail,
 		RequestedExtensionMonths: &months,
-		ApprovalStage:            ApprovalStagePendingLoanOfficer,
+		ApprovalStage:            first.Pending,
 		RequestedAt:              time.Now(),
 	}
 	if err := s.requestRepo.Create(ctx, req); err != nil {
 		return nil, err
 	}
+	if !needsApproval {
+		if _, err := s.applyExtension(ctx, req, nil, "Auto-approved — no extension approval stages configured"); err != nil {
+			return nil, err
+		}
+		if err := s.requestRepo.Update(ctx, req); err != nil {
+			return nil, err
+		}
+		s.notifyExtensionApproved(ctx, l, req)
+	}
 	return s.requestRepo.FindByID(ctx, req.ID)
+}
+
+// applyExtension is an Extension request's final approval: it pushes the
+// loan's DueDate out by the requested months and marks req Approved (the
+// caller persists req). Shared by ApproveExtensionRequest's final stage and
+// CreateExtensionRequest when the tenant has no extension stage enabled.
+func (s *Service) applyExtension(ctx context.Context, req *LoanRequest, actorEmployeeID *uint, remarks string) (*Loan, error) {
+	l, err := s.repo.FindByID(ctx, req.LoanID)
+	if err != nil {
+		return nil, ErrNotFound
+	}
+	if isLoanTerminal(l.Status) {
+		return nil, ErrLoanTerminalState
+	}
+
+	months := 0
+	if req.RequestedExtensionMonths != nil {
+		months = *req.RequestedExtensionMonths
+	}
+	newDue := l.DueDate.AddDate(0, months, 0)
+	l.DueDate = newDue
+	req.NewDueDate = &newDue
+	// The due-soon/overdue check (CheckDueAndOverdueLoans) dedupes on
+	// these two timestamps — a fresh due date means the customer hasn't
+	// been reminded against it yet, so both must reset.
+	l.DueSoonNotifiedAt = nil
+	l.OverdueNotifiedAt = nil
+	if _, err := s.recalculateAndSave(ctx, l); err != nil {
+		return nil, err
+	}
+
+	req.ApprovalStage = ApprovalStageApproved
+	req.Status = RequestStatusApproved
+	now := time.Now()
+	req.DecidedAt = &now
+	req.DecidedByEmployeeID = actorEmployeeID
+	req.Remarks = remarks
+	return l, nil
+}
+
+// notifyExtensionApproved tells the customer an extension was fully approved.
+func (s *Service) notifyExtensionApproved(ctx context.Context, l *Loan, req *LoanRequest) {
+	s.notifyCustomer(ctx, l.CustomerID, l.Customer.Phone, "Extension Approved", s.brandedMessage(ctx,
+		"Dear %s, your extension request for loan %s has been fully approved. New due date: %s. — CloudHouse Finance",
+		l.Customer.Name, l.LoanNumber, l.DueDate.Format("02-Jan-2006"),
+	), commlog.TriggerExtensionRequest, "loan_request", req.ID)
 }
 
 // ReleaseRequestInput mirrors the body of POST /loans/:id/release-request.
@@ -4349,12 +4690,17 @@ func (s *Service) RecordReleaseRequestPayment(ctx context.Context, requestID uin
 		return nil, err
 	}
 
-	if !wasAlreadyRecorded {
+	// A request still at the pre-payment position was never advanced (e.g. a
+	// drift error on the first attempt, possible when the tenant has no
+	// later release stage and this advance is the final one), so a later
+	// payment advances it too.
+	stillAtPaymentStage := req.ApprovalStage == "" || req.ApprovalStage == ApprovalStagePendingManager
+	if !wasAlreadyRecorded || stillAtPaymentStage {
 		// Auto-advance one stage forward, exactly like ApproveReleaseRequest's
 		// Manager-stage branch — this is the mechanism, not a second
 		// approval action staff must separately click. Runs with the SAME
 		// actor identity that recorded the payment; a top-up/drift payment
-		// recorded later (wasAlreadyRecorded == true) does not repeat this.
+		// recorded later against an already-advanced request does not repeat this.
 		if _, err := s.advanceReleaseRequestStage(ctx, req, in.ActorEmployeeID, "Auto-advanced after payment was recorded"); err != nil {
 			return nil, err
 		}
@@ -4446,22 +4792,17 @@ func (s *Service) ApproveReleaseRequest(ctx context.Context, requestID uint, bra
 	if stage == "" {
 		stage = ApprovalStagePendingManager
 	}
-	var expectedStage, requiredPermission string
-	switch stage {
-	case ApprovalStagePendingManager:
-		expectedStage = "Manager"
-		requiredPermission = "can approve release manager stage"
-	case ApprovalStagePendingManagement:
-		expectedStage = "Management"
-		requiredPermission = "can approve release management stage"
+	chain, err := s.chain(ctx, workflow.FlowLoanRelease)
+	if err != nil {
+		return nil, err
 	}
-	if in.Stage != expectedStage {
+	step, ok := chain.ByPending(stage)
+	if !ok || in.Stage != step.Key {
 		return nil, ErrWrongStage
 	}
-	// Previously had no role gate at all — any authenticated caller could
-	// approve either release stage; now requires the matching "Approval
-	// Workflow" permission (see internal/authz.Catalogue).
-	if requiredPermission != "" && !s.checkStagePermission(ctx, in.ActorRoleID, requiredPermission) {
+	// Requires the stage's "Release Approval" permission (see
+	// internal/authz.Catalogue and workflow.Catalogue).
+	if !s.checkStagePermission(ctx, in.ActorRoleID, step.Permission) {
 		return nil, ErrWrongStage
 	}
 
@@ -4546,11 +4887,25 @@ func (s *Service) advanceReleaseRequestStage(ctx context.Context, req *LoanReque
 
 	notifyLoan, _ := s.repo.FindByID(ctx, req.LoanID)
 
+	// PendingManager doubles as the "awaiting payment" position (see
+	// RecordReleaseRequestPayment), so a request can sit there even when the
+	// tenant switched the Manager stage off; moving on always goes to the
+	// next ENABLED stage, and with none left this step is the final one.
+	chain, err := s.chain(ctx, workflow.FlowLoanRelease)
+	if err != nil {
+		return nil, err
+	}
+	cur, ok := chain.ByPending(stage)
+	if !ok {
+		return nil, ErrWrongStage
+	}
+	next, hasNext := chain.Next(cur.Key)
+
 	finalApproval := false
-	switch stage {
-	case ApprovalStagePendingManager:
-		req.ApprovalStage = ApprovalStagePendingManagement
-	case ApprovalStagePendingManagement:
+	switch {
+	case hasNext:
+		req.ApprovalStage = next.Pending
+	default:
 		l, err := s.Get(ctx, req.LoanID, nil)
 		if err != nil {
 			return nil, err
@@ -4625,8 +4980,8 @@ func (s *Service) advanceReleaseRequestStage(ctx context.Context, req *LoanReque
 			), commlog.TriggerReleaseRequest, "loan_request", req.ID)
 		} else {
 			s.notifyCustomer(ctx, notifyLoan.CustomerID, notifyLoan.Customer.Phone, "Release Approved", s.brandedMessage(ctx,
-				"Dear %s, your gold release request for loan %s has moved to the next approval stage (Management). — CloudHouse Finance",
-				notifyLoan.Customer.Name, notifyLoan.LoanNumber,
+				"Dear %s, your gold release request for loan %s has moved to the next approval stage (%s). — CloudHouse Finance",
+				notifyLoan.Customer.Name, notifyLoan.LoanNumber, next.Label,
 			), commlog.TriggerReleaseRequest, "loan_request", req.ID)
 		}
 	}
@@ -4661,17 +5016,9 @@ func (s *Service) partialReleaseRemainingGoldValue(ctx context.Context, req *Loa
 	return remaining, nil
 }
 
-// extensionChain is the Extension-request chain's fixed stage order,
-// mirroring sanctionChain above — index i's Permission must be held by the
-// acting employee's role (see ApproveExtensionRequest and
-// checkStagePermission) to advance from extensionChain[i]'s stage to the
-// next one, or to ApprovalStageApproved for the last stage. Role is kept
-// only as a display label — no longer used for authorization.
-var extensionChain = []struct{ ApprovalStage, Stage, Role, Permission string }{
-	{ApprovalStagePendingLoanOfficer, "LoanOfficer", "Loan Operator", "can verify the loan extension"},
-	{ApprovalStagePendingBranchManager, "BranchManager", "Branch Manager", "can approve extension branch manager stage"},
-	{ApprovalStagePendingManagement, "Management", "Management", "can approve extension management stage"},
-}
+// The Extension-request chain's stages live in workflow.Catalogue under
+// workflow.FlowLoanExtension (stage key e.g. "LoanOfficer", stored as
+// LoanRequest.ApprovalStage "PendingLoanOfficer"); which apply is per-tenant.
 
 // ExtensionApprovalInput mirrors the body of
 // POST /loans/requests/:requestId/approve for an Extension-type request.
@@ -4715,20 +5062,18 @@ func (s *Service) ApproveExtensionRequest(ctx context.Context, requestID uint, b
 	if stage == "" {
 		stage = ApprovalStagePendingLoanOfficer
 	}
-	var expectedStage, requiredPermission string
-	for _, step := range extensionChain {
-		if step.ApprovalStage == stage {
-			expectedStage = step.Stage
-			requiredPermission = step.Permission
-			break
-		}
+	chain, err := s.chain(ctx, workflow.FlowLoanExtension)
+	if err != nil {
+		return nil, err
 	}
-	if in.Stage != expectedStage {
+	step, ok := chain.ByPending(stage)
+	if !ok || in.Stage != step.Key {
 		return nil, ErrWrongStage
 	}
-	if requiredPermission != "" && !s.checkStagePermission(ctx, in.ActorRoleID, requiredPermission) {
+	if !s.checkStagePermission(ctx, in.ActorRoleID, step.Permission) {
 		return nil, ErrWrongStage
 	}
+	next, hasNext := chain.Next(step.Key)
 
 	// Re-check the same arrears gate CreateExtensionRequest enforced at
 	// request time — interest/penal interest keeps accruing while the
@@ -4783,44 +5128,15 @@ func (s *Service) ApproveExtensionRequest(ctx context.Context, requestID uint, b
 
 	finalApproval := false
 	var nextStageLabel string
-	switch stage {
-	case ApprovalStagePendingLoanOfficer:
-		req.ApprovalStage = ApprovalStagePendingBranchManager
-		nextStageLabel = "Branch Manager"
-	case ApprovalStagePendingBranchManager:
-		req.ApprovalStage = ApprovalStagePendingManagement
-		nextStageLabel = "Management"
-	case ApprovalStagePendingManagement:
-		l, err := s.repo.FindByID(ctx, req.LoanID)
+	if hasNext {
+		req.ApprovalStage = next.Pending
+		nextStageLabel = next.Label
+	} else {
+		actor := in.ActorEmployeeID
+		l, err := s.applyExtension(ctx, req, &actor, in.Remarks)
 		if err != nil {
-			return nil, ErrNotFound
-		}
-		if isLoanTerminal(l.Status) {
-			return nil, ErrLoanTerminalState
-		}
-
-		months := 0
-		if req.RequestedExtensionMonths != nil {
-			months = *req.RequestedExtensionMonths
-		}
-		newDue := l.DueDate.AddDate(0, months, 0)
-		l.DueDate = newDue
-		req.NewDueDate = &newDue
-		// The due-soon/overdue check (CheckDueAndOverdueLoans) dedupes on
-		// these two timestamps — a fresh due date means the customer hasn't
-		// been reminded against it yet, so both must reset.
-		l.DueSoonNotifiedAt = nil
-		l.OverdueNotifiedAt = nil
-		if _, err := s.recalculateAndSave(ctx, l); err != nil {
 			return nil, err
 		}
-
-		req.ApprovalStage = ApprovalStageApproved
-		req.Status = RequestStatusApproved
-		now := time.Now()
-		req.DecidedAt = &now
-		req.DecidedByEmployeeID = &in.ActorEmployeeID
-		req.Remarks = in.Remarks
 		finalApproval = true
 		notifyLoan = l
 	}
@@ -4830,10 +5146,7 @@ func (s *Service) ApproveExtensionRequest(ctx context.Context, requestID uint, b
 	}
 	if notifyLoan != nil {
 		if finalApproval {
-			s.notifyCustomer(ctx, notifyLoan.CustomerID, notifyLoan.Customer.Phone, "Extension Approved", s.brandedMessage(ctx,
-				"Dear %s, your extension request for loan %s has been fully approved. New due date: %s. — CloudHouse Finance",
-				notifyLoan.Customer.Name, notifyLoan.LoanNumber, notifyLoan.DueDate.Format("02-Jan-2006"),
-			), commlog.TriggerExtensionRequest, "loan_request", req.ID)
+			s.notifyExtensionApproved(ctx, notifyLoan, req)
 		} else if nextStageLabel != "" {
 			s.notifyCustomer(ctx, notifyLoan.CustomerID, notifyLoan.Customer.Phone, "Extension Approved", s.brandedMessage(ctx,
 				"Dear %s, your extension request for loan %s has moved to the next approval stage (%s). — CloudHouse Finance",

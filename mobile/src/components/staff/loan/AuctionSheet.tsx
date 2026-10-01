@@ -18,14 +18,12 @@ import {
   type AuctionRecord,
   type AuctionSurplusDisposition,
 } from "../../../types/auction";
-import { useAuth, useRole } from "../../../auth/AuthContext";
+import { useAuth } from "../../../auth/AuthContext";
+import { isFlowOff, stageByKey, stagePerm, useApprovalWorkflow } from "../../../api/approvalWorkflow";
 import { dmy, inr, todayISO } from "../../../lib/format";
 import type { Loan } from "../../../types/loan";
 import { ErrorText, apiErr, invalidateLoan } from "./common";
 
-// Mirrors frontend/modules/loans/components/Auctions.tsx's role gating.
-const PARTIAL_DECISION_ROLES = ["Administrator", "Management", "Branch Manager", "Auction Administrator"];
-const SHORTFALL_DECISION_ROLES = ["Administrator", "Management", "Branch Manager"];
 const DECISION_LABELS: Record<string, string> = {
   PursueBalance: "Pursue balance",
   WriteOff: "Write off",
@@ -50,7 +48,7 @@ export function AuctionSheet({
   onClose: () => void;
 }) {
   const qc = useQueryClient();
-  const myRole = useRole();
+  const wf = useApprovalWorkflow();
   const { can } = useAuth();
   const canAct = can("Loan_Management", "can_update_loan");
   const [error, setError] = useState<string | null>(null);
@@ -96,8 +94,13 @@ export function AuctionSheet({
   const decisionReq = pendingDecision(rec);
   // While an escalation is open the pipeline is frozen server-side.
   const frozen = !!decisionReq;
-  const canDecideThis =
-    canAct && !!myRole && (decisionReq?.kind === "Shortfall" ? SHORTFALL_DECISION_ROLES.includes(myRole) : PARTIAL_DECISION_ROLES.includes(myRole));
+  // Who may decide is the flow's own "Auction Workflow" permission; with the
+  // tenant's decision flow switched off no human decision is taken (the
+  // backend applies the flow's automatic outcome instead).
+  const decisionFlow = decisionReq?.kind === "Shortfall" ? "auction_shortfall" : "auction_partial_repayment";
+  const decisionFlowOff = isFlowOff(wf, decisionFlow);
+  const decisionStage = stageByKey(wf, decisionFlow, "Decision");
+  const canDecideThis = canAct && !!decisionStage && can(...stagePerm(decisionStage));
   const balanceDue = l.status === "Auctioned - Balance Due";
   // getAuction only returns the ACTIVE case — a null record with an Auctioned
   // status means the pipeline already concluded, not "never started".
@@ -144,6 +147,7 @@ export function AuctionSheet({
                   : `Decision pending. ${inr(decisionReq.amountPaid)} was paid, leaving ${inr(decisionReq.outstandingAtRequest)} owing. No notice, schedule, or sale can proceed until this is resolved.`}
                 {!canDecideThis ? " Your role can view this but not decide it." : ""}
               </WarningBanner>
+              {decisionFlowOff ? <NoticeBanner>Decisions are now switched off for new cases, but this one was raised before that change and still needs a decision.</NoticeBanner> : null}
               {canDecideThis ? (
                 <>
                   <Field label="Decision">

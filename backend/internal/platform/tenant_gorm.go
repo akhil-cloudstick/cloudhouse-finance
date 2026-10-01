@@ -69,6 +69,9 @@ var tenantScopedTables = map[string]bool{
 	// migrate.backfillTenantFromParent before NOT NULL/RLS apply.
 	"loan_top_ups": true, "loan_request_ornaments": true,
 	"personal_loan_history": true, "investment_transactions": true,
+	// Per-tenant approval-workflow configuration and the audit trail of the
+	// flows that have no audit table of their own (see internal/workflow).
+	"approval_stage_settings": true, "approval_actions": true,
 }
 
 // TenantScopedTableNames returns every tenant-owned table, in a stable

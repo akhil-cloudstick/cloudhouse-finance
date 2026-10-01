@@ -183,6 +183,20 @@ var Catalogue = []PermissionDef{
 	{"can schedule auction", "Schedule an auction date for a loan", "Auction Workflow"},
 	{"can record auction sale", "Record the sale amount and expenses of a conducted auction", "Auction Workflow"},
 	{"can settle auction", "Settle an auction's surplus disposition", "Auction Workflow"},
+
+	// Stage permissions for the approval flows an admin can switch on per
+	// tenant (see internal/workflow.Catalogue) — they only matter while the
+	// matching stage is enabled on the Approval Workflow screen.
+	{"can approve expense", "Approve or reject a recorded expense before it is posted", "Expense Approval"},
+
+	{"can approve top-up branch manager stage", "Approve a loan top-up at the Branch Manager stage", "Top-Up Approval"},
+	{"can approve top-up management stage", "Approve a loan top-up at the Management stage", "Top-Up Approval"},
+
+	{"can approve waiver branch manager stage", "Approve a waiver/adjustment request at the Branch Manager stage", "Waiver Approval"},
+	{"can approve waiver management stage", "Approve a waiver/adjustment request at the Management stage", "Waiver Approval"},
+
+	{"can approve personal loan branch manager stage", "Approve a personal loan at the Branch Manager stage", "Personal Loan Approval"},
+	{"can approve personal loan management stage", "Approve a personal loan at the Management stage", "Personal Loan Approval"},
 }
 
 // ApprovalModuleNames are the four approval-stage modules split out of what
@@ -193,7 +207,10 @@ var Catalogue = []PermissionDef{
 // "never touch an existing row" rule would otherwise leave them stuck under
 // the old single-module grouping forever, since the permission NAMES
 // themselves didn't change — only which module they're filed under).
-var ApprovalModuleNames = []string{"Loan Sanction", "Loan Extension Approval", "Release Approval", "Auction Workflow"}
+var ApprovalModuleNames = []string{
+	"Loan Sanction", "Loan Extension Approval", "Release Approval", "Auction Workflow",
+	"Expense Approval", "Top-Up Approval", "Waiver Approval", "Personal Loan Approval",
+}
 
 // StaffRoles is the canonical role list, seeded into the roles table by
 // internal/migrate. Kept IDENTICAL to employee.ValidRoles — see that var's
@@ -265,43 +282,15 @@ var Restrictions = []RoleRestriction{
 	{"can view audit log", []string{"Administrator", "Management", "Auditor"}},
 	{"can manage billing", []string{"Administrator"}},
 
-	// Approval-stage defaults (Loan Sanction / Loan Extension Approval /
-	// Release Approval / Auction Workflow modules) — without these,
-	// BackfillGrants' allow-all default would let every role approve every
-	// stage, defeating the separation-of-duties these chains exist for.
-	// Each reproduces exactly the access the hardcoded check it replaces
-	// already granted (see the catalogue entries' own doc comment) — an
-	// admin can then rebalance who approves what per-role from here,
-	// without a code change.
-	{"can verify loan", []string{"Administrator", "Loan Operator"}},
-	{"can approve branch manager stage", []string{"Administrator", "Branch Manager"}},
-	{"can sanction loan", []string{"Administrator", "Management"}},
-
-	{"can verify the loan extension", []string{"Administrator", "Loan Operator"}},
-	{"can approve extension branch manager stage", []string{"Administrator", "Branch Manager"}},
-	{"can approve extension management stage", []string{"Administrator", "Management"}},
-
-	// The release chain has no prior hardcoded check to mirror — these are
-	// new gates. The checklist step happens before either approval stage
-	// (see VerifyReleaseChecklist, which sets ApprovalStage to
-	// PendingManager on completion) and is branch-level prep work, so it's
-	// defaulted a bit wider than the two approval stages themselves, which
-	// mirror the sanction/extension chains' own Manager/Management stages.
-	{"can verify release checklist", []string{"Administrator", "Loan Operator", "Branch Manager"}},
-	{"can approve release manager stage", []string{"Administrator", "Branch Manager"}},
-	{"can approve release management stage", []string{"Administrator", "Management"}},
-
-	{"can decide auction partial repayment", []string{"Administrator", "Auction Administrator", "Branch Manager", "Management"}},
-	{"can decide auction shortfall", []string{"Administrator", "Branch Manager", "Management"}},
-
-	// The five auction process steps also have no prior hardcoded check —
-	// previously gated only by the blanket "can update loan". Defaulted to
-	// the same auction-authority roles as the two decisions above.
-	{"can mark loan auction eligible", []string{"Administrator", "Auction Administrator", "Branch Manager", "Management"}},
-	{"can issue auction notice", []string{"Administrator", "Auction Administrator", "Branch Manager", "Management"}},
-	{"can schedule auction", []string{"Administrator", "Auction Administrator", "Branch Manager", "Management"}},
-	{"can record auction sale", []string{"Administrator", "Auction Administrator", "Branch Manager", "Management"}},
-	{"can settle auction", []string{"Administrator", "Auction Administrator", "Branch Manager", "Management"}},
+	// Configurable approval flows (internal/workflow) — each stage defaults
+	// to the role its label names, like the sanction/extension chains above.
+	{"can approve expense", []string{"Administrator", "Branch Manager", "Management"}},
+	{"can approve top-up branch manager stage", []string{"Administrator", "Branch Manager"}},
+	{"can approve top-up management stage", []string{"Administrator", "Management"}},
+	{"can approve waiver branch manager stage", []string{"Administrator", "Branch Manager"}},
+	{"can approve waiver management stage", []string{"Administrator", "Management"}},
+	{"can approve personal loan branch manager stage", []string{"Administrator", "Branch Manager"}},
+	{"can approve personal loan management stage", []string{"Administrator", "Management"}},
 }
 
 // CRUDSplitNouns lists every noun whose "can change <noun>" permission was

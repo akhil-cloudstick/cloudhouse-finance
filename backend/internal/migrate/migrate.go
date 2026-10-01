@@ -39,6 +39,7 @@ import (
 	"cloudhouse/backend/internal/superadmin"
 	"cloudhouse/backend/internal/tenant"
 	"cloudhouse/backend/internal/upload"
+	"cloudhouse/backend/internal/workflow"
 )
 
 // Run applies every backfill, AutoMigrate, post-migrate cleanup and
@@ -839,6 +840,7 @@ var tenantUniqueIndexes = []tenantUniqueIndex{
 	{"ornament_types", "idx_ornament_types_name", "uq_ornament_types_tenant_name", "name", ""},
 	{"roles", "idx_roles_name", "uq_roles_tenant_name", "name", ""},
 	{"approval_limits", "idx_approval_limits_role", "uq_approval_limits_tenant_role", "role", ""},
+	{"approval_stage_settings", "idx_approval_stage_settings_flow_stage", "uq_approval_stage_settings_tenant_flow_stage", "flow, stage", ""},
 
 	// Both of these were missed when this list was first written, and both
 	// are generated per business exactly like loans.loan_number above — the
@@ -1087,6 +1089,8 @@ var allModels = []any{
 	&loan.LoanRequestOrnament{},
 	&loan.RequestApproval{},
 	&loan.ApprovalLimit{},
+	&workflow.ApprovalStageSetting{},
+	&workflow.ApprovalAction{},
 	// Unsubmitted New Gold Loan forms behind the "Save Draft" button.
 	&loan.LoanDraft{},
 	&loan.LoanDraftOrnament{},

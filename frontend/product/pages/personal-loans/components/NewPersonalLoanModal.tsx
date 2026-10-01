@@ -15,6 +15,8 @@ import {
   type InterestType,
 } from "@/product/pages/personal-loans/services/personalLoanService";
 import { useBalanceInHand } from "@/product/hooks/useBalanceInHand";
+import { useApprovalWorkflow } from "@/product/providers/auth-context";
+import { firstStage, isFlowOff } from "@/product/services/approvalWorkflowService";
 
 /* Client-side mirror of backend/internal/personalloan/service.go's
  * computeInterest — used only to render a live preview before submit; the
@@ -76,7 +78,12 @@ export function NewPersonalLoanModalContent({ onSaved }: { onSaved: () => void }
   const installmentAmount = tenureNum > 0 ? Math.round((obligation / tenureNum) * 100) / 100 : 0;
   // Disbursement is blocked until the branch has enough balance in hand.
   const balanceInHand = useBalanceInHand(customerBranchId);
-  const insufficient = balanceInHand !== null && disbursedAmount > balanceInHand + 0.005;
+  // With the personal_loan approval flow on, creating the loan only submits
+  // it into the chain — nothing leaves the till until the final stage
+  // approves it, so the balance check doesn't block submitting.
+  const { config: workflow } = useApprovalWorkflow();
+  const needsApproval = !isFlowOff(workflow, "personal_loan");
+  const insufficient = !needsApproval && balanceInHand !== null && disbursedAmount > balanceInHand + 0.005;
 
   async function save() {
     if (!customerId || !customerBranchId) { setErr("Please select a customer."); return; }
@@ -89,7 +96,7 @@ export function NewPersonalLoanModalContent({ onSaved }: { onSaved: () => void }
     setSaving(true);
     setErr("");
     try {
-      await createPersonalLoan({
+      const created = await createPersonalLoan({
         branchId: customerBranchId,
         customerId,
         principalAmount: principalNum,
@@ -101,7 +108,12 @@ export function NewPersonalLoanModalContent({ onSaved }: { onSaved: () => void }
         penalInterestRate: penalInterestRate ? +penalInterestRate : undefined,
         gracePeriodDays: gracePeriodDays ? +gracePeriodDays : undefined,
       });
-      toast(`Personal loan created — ${fmt(disbursedAmount)} disbursed to the customer`);
+      if (created.status === "Pending Approval") {
+        const first = firstStage(workflow, "personal_loan");
+        toast(`Personal loan ${created.loanNumber} submitted for approval${first ? ` — awaiting ${first.label}` : ""}`);
+      } else {
+        toast(`Personal loan created — ${fmt(disbursedAmount)} disbursed to the customer`);
+      }
       onSaved();
     } catch (e) {
       setErr(e instanceof ApiError ? e.message : "Could not create the loan — try again.");
@@ -209,7 +221,7 @@ export function NewPersonalLoanModalContent({ onSaved }: { onSaved: () => void }
       </div>
       <div className="ft">
         <button className="btn plain" style={{ fontSize: 12.5, fontWeight: 600, letterSpacing: ".16em", textTransform: "uppercase" }} onClick={closeModal}>Cancel</button>
-        <button className="btn" disabled={saving || insufficient} onClick={save}>{saving ? "Creating…" : "Create & Disburse"}</button>
+        <button className="btn" disabled={saving || insufficient} onClick={save}>{saving ? (needsApproval ? "Submitting…" : "Creating…") : needsApproval ? "Submit for Approval" : "Create & Disburse"}</button>
       </div>
     </>
   );

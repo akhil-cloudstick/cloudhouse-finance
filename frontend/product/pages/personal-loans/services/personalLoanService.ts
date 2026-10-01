@@ -3,7 +3,9 @@ import { printPdfBlob } from "@/product/utils/print";
 
 export type InterestType = "Flat" | "Percentage";
 export type Frequency = "Daily" | "Weekly" | "Monthly";
-export type PersonalLoanStatus = "Active" | "Pending" | "Closed" | "Renewed" | "Defaulted";
+// "Pending Approval" = waiting in the business's personal_loan approval
+// chain (nothing disbursed, no schedule yet); "Rejected" = turned down there.
+export type PersonalLoanStatus = "Active" | "Pending" | "Closed" | "Renewed" | "Defaulted" | "Pending Approval" | "Rejected";
 
 /* Mirrors backend/internal/personalloan/handler.go's createRequest exactly. */
 export type CreatePersonalLoanInput = {
@@ -46,6 +48,10 @@ export type BackendPersonalLoan = {
   outstandingAmount: number;
   totalPaid: number;
   status: PersonalLoanStatus;
+  // The pending stage value ("PendingBranchManager", …) while status is
+  // "Pending Approval"; "Approved"/"Rejected" once decided; "" when created
+  // with no approval chain.
+  approvalStage?: string;
   openedDate: string;
   disbursedAt: string;
   closedAt: string | null;
@@ -99,8 +105,36 @@ export type BackendPersonalLoanPayment = {
   createdAt: string;
 };
 
+/* With the personal_loan approval flow switched on the loan comes back
+ * "Pending Approval" (with approvalStage set) — no schedule or disbursement
+ * until the final stage approves it (approvePersonalLoan below). */
 export function createPersonalLoan(input: CreatePersonalLoanInput): Promise<BackendPersonalLoan> {
   return apiFetch<BackendPersonalLoan>("/personal-loans", { method: "POST", body: JSON.stringify(input) });
+}
+
+/* One decision in the personal_loan approval chain — stage is the stage KEY
+ * ("BranchManager"/"Management"); the final enabled stage disburses. The
+ * acting employee/role come from the JWT. */
+export type PersonalLoanApprovalInput = { stage: string; action: "Approved" | "Rejected"; remarks?: string };
+
+export function approvePersonalLoan(id: number, input: PersonalLoanApprovalInput): Promise<BackendPersonalLoan> {
+  return apiFetch<BackendPersonalLoan>(`/personal-loans/${id}/approve`, { method: "POST", body: JSON.stringify(input) });
+}
+
+/* Audit trail of the approval chain (backend workflow.ApprovalAction). */
+export type PersonalLoanApprovalRecord = {
+  flow: string;
+  entityId: number;
+  stage: string;
+  action: string;
+  actorEmployeeId: number;
+  actorRole: string;
+  remarks: string;
+  createdAt: string;
+};
+
+export async function listPersonalLoanApprovals(id: number): Promise<PersonalLoanApprovalRecord[]> {
+  return (await apiFetch<PersonalLoanApprovalRecord[]>(`/personal-loans/${id}/approvals`)) || [];
 }
 
 export const PERSONAL_LOANS_TABLE_PAGE_SIZE = 10;

@@ -18,6 +18,8 @@ import {
   type AuctionSurplusDisposition,
 } from "@/product/pages/loans/services/loanService";
 import { ApiError } from "@/product/services/httpClient";
+import { useApprovalWorkflow } from "@/product/providers/auth-context";
+import { isFlowOff } from "@/product/services/approvalWorkflowService";
 import type { LoanView } from "@/product/pages/loans/services/loanService";
 
 /* One modal body per auction stage-advance action — each posts to its own
@@ -136,6 +138,10 @@ export function RecordSaleModalContent({ loan, onSaved, onError }: { loan: LoanV
   const sale = +amount || 0;
   const exp = +expenses || 0;
   const preview = sale - exp - loan.totalOutstandingBalance;
+  // With the auction_shortfall approval flow off no decision request is
+  // raised — the balance is simply pursued (the loan moves to Overdue).
+  const { config: workflow } = useApprovalWorkflow();
+  const shortfallAuto = isFlowOff(workflow, "auction_shortfall");
 
   async function save() {
     if (!sale || sale <= 0) { setErr("Please enter the sale amount."); return; }
@@ -183,8 +189,10 @@ export function RecordSaleModalContent({ loan, onSaved, onError }: { loan: LoanV
                 {preview > 0.01 ? <>, and a surplus of <b>{fmt(preview)}</b> will be payable back to {loan.customerName}</> : null}.</>
               ) : (
                 <>Partial recovery — net proceeds of {fmt(sale - exp)} will be added to Cash-in-Hand and applied to the debt,
-                leaving <b>{fmt(Math.abs(preview))}</b> still owing. The loan stays open and a decision request goes to the
-                Branch Manager to write the balance off or pursue it.</>
+                leaving <b>{fmt(Math.abs(preview))}</b> still owing. The loan stays open and{" "}
+                {shortfallAuto
+                  ? <>the balance is pursued automatically — no decision is needed.</>
+                  : <>a decision request goes to the Branch Manager to write the balance off or pursue it.</>}</>
               )}
             </span>
           </div>

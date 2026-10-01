@@ -26,7 +26,7 @@ import {
   type SplitAmounts,
 } from "../../../src/components/ui";
 import { useRefetchOnFocus, useResetOnBlur } from "../../../src/hooks/useRefetchOnFocus";
-import { useAuth, useRole } from "../../../src/auth/AuthContext";
+import { useAuth } from "../../../src/auth/AuthContext";
 import {
   approveLoan,
   getLoan,
@@ -34,10 +34,9 @@ import {
   listLoanRequests,
   listTopUps,
   normalizeSanctionStage,
-  SANCTION_STAGES,
-  SANCTION_STAGE_ROLES,
   type SanctionStage,
 } from "../../../src/api/loans";
+import { isFinalStage, stageByKey, stageByPending, stageIndex, stagePerm, stepperSteps, useApprovalWorkflow } from "../../../src/api/approvalWorkflow";
 import { listPackets } from "../../../src/api/packets";
 import { getAuction } from "../../../src/api/auctions";
 import { dmy, inr } from "../../../src/lib/format";
@@ -53,6 +52,9 @@ import { DisburseSheet } from "../../../src/components/staff/loan/DisburseSheet"
 import { LoanTimeline } from "../../../src/components/staff/loan/LoanTimeline";
 import { LoanLedger } from "../../../src/components/staff/loan/LoanLedger";
 import { TOP_UP_STATUSES, TopUpSheet } from "../../../src/components/staff/loan/TopUpSheet";
+import { TopUpReviewPanel } from "../../../src/components/staff/loan/TopUpReviewPanel";
+import { WaiverSheet } from "../../../src/components/staff/loan/WaiverSheet";
+import { WaiverReviewPanel } from "../../../src/components/loanRequests/WaiverReviewPanel";
 
 // Loan Description — prototype #header-loandesc + #page-loandesc with its
 // Actions / Documents rise-up sheets and every action sheet they open.
@@ -63,17 +65,27 @@ import { TOP_UP_STATUSES, TopUpSheet } from "../../../src/components/staff/loan/
 // workflow, hard delete, every print flow and the indemnity bond eSign.
 // `?action=bank` (release review's "Go to Bank Pledge") opens the Bank Pledge sheet on load.
 
-type SheetKey = "actions" | "documents" | "collect" | "extend" | "release" | "edit" | "bank" | "auction" | "disburse" | "topup" | "reject" | "delete" | null;
+type SheetKey =
+  | "actions"
+  | "documents"
+  | "collect"
+  | "extend"
+  | "release"
+  | "edit"
+  | "bank"
+  | "auction"
+  | "disburse"
+  | "topup"
+  | "topupReview"
+  | "waiver"
+  | "waiverReview"
+  | "reject"
+  | "delete"
+  | null;
 
 const RECORD_TABS = ["ledger", "history"] as const;
 type RecordTab = (typeof RECORD_TABS)[number];
 const RECORD_TAB_LABELS: Record<RecordTab, string> = { ledger: "Payment Ledger", history: "History" };
-
-const STAGE_SHORT: Record<SanctionStage, string> = {
-  LoanOperator: "Loan Operator",
-  BranchManager: "Branch Manager",
-  FinalSanction: "Final Sanction",
-};
 
 function monthsBetween(from?: string, to?: string) {
   if (!from || !to) return null;
@@ -88,8 +100,8 @@ export default function LoanDetailScreen() {
   const router = useRouter();
   const qc = useQueryClient();
   const loanId = Number(id);
-  const myRole = useRole();
   const { can } = useAuth();
+  const wf = useApprovalWorkflow();
   const canEditLoan = can("Loan_Management", "can_update_loan");
   const canHardDeleteLoan = can("Loan_Management", "can_hard_delete_loan");
 
@@ -110,6 +122,8 @@ export default function LoanDetailScreen() {
   const [open, setOpen] = useState<SheetKey>(null);
   const [error, setError] = useState<string | null>(null);
   const [recordTab, setRecordTab] = useState<RecordTab>("ledger");
+  // Which pending top-up / waiver request the review sheet is showing.
+  const [reviewId, setReviewId] = useState<number | null>(null);
   useResetOnBlur(() => setOpen(null));
 
   // ?action=collect|bank → open that sheet once the loan has loaded, then
@@ -178,13 +192,25 @@ export default function LoanDetailScreen() {
   const allRequests = requests.data ?? [];
   const pendingExtension = allRequests.find((r) => r.type === "Extension" && r.status === "Pending");
   const pendingRelease = allRequests.find((r) => r.type === "Release" && r.status === "Pending");
+  const pendingWaivers = allRequests.filter((r) => (r.type === "Waiver" || r.type === "Adjustment") && r.status === "Pending");
+  const pendingTopUps = (topUps.data ?? []).filter((t) => t.status === "Pending");
+  const reviewWaiver = pendingWaivers.find((r) => r.id === reviewId);
+  const reviewTopUp = pendingTopUps.find((t) => t.id === reviewId);
 
   // Who may act on the pending sanction stage — a UX nicety only; the server
-  // enforces it regardless. LoanOperator is a verification ("Verified").
+  // enforces it regardless. The stages walked, and which one disburses (the
+  // LAST enabled one), come from the tenant's "loan_sanction" workflow;
+  // acting needs that stage's Loan Sanction permission plus loan update.
+  // LoanOperator is a verification ("Verified").
   const pendingStage = normalizeSanctionStage(l.approvalStage);
-  const requiredRole = pendingStage ? SANCTION_STAGE_ROLES[pendingStage] : null;
+  const stageDef = stageByKey(wf, "loan_sanction", pendingStage);
+  const requiredRole = stageDef?.role ?? null;
+  const stageLabel = stageDef?.label ?? pendingStage ?? "";
   const isVerifyStage = pendingStage === "LoanOperator";
-  const canActOnStage = !!requiredRole && (myRole === "Administrator" || myRole === requiredRole);
+  const isFinalSanction = isFinalStage(wf, "loan_sanction", pendingStage);
+  const canActOnStage = !!stageDef && canEditLoan && can(...stagePerm(stageDef));
+  const sanctionSteps = stepperSteps(wf, "loan_sanction", pendingStage);
+  const approveLabel = isFinalSanction ? (isVerifyStage ? "Verify & Disburse" : "Approve & Disburse") : isVerifyStage ? "Verify" : "Approve";
 
   const alreadyAuctioned = l.status === "Auctioned" || l.status === "Auctioned - Balance Due";
   const showAuction = !!auction.data || alreadyAuctioned || !!l.isDefaulted;
@@ -199,10 +225,25 @@ export default function LoanDetailScreen() {
     setOpen(k);
   }
 
+  function review(k: "topupReview" | "waiverReview", itemId: number) {
+    setReviewId(itemId);
+    go(k);
+  }
+
+  function stageLabelFor(flow: "loan_topup" | "loan_waiver", pending?: string) {
+    return stageByPending(wf, flow, pending)?.label;
+  }
+
+  function afterReview() {
+    setError(null);
+    setOpen(null);
+    invalidateLoan(qc, loanId);
+  }
+
   function approveCurrent() {
     if (!pendingStage) return;
     setError(null);
-    if (pendingStage === "FinalSanction") return setOpen("disburse");
+    if (isFinalSanction) return setOpen("disburse");
     doApprove.mutate({ stage: pendingStage, action: isVerifyStage ? "Verified" : "Approved" });
   }
 
@@ -221,7 +262,7 @@ export default function LoanDetailScreen() {
           { label: "Actions", icon: "bolt", onPress: () => go("actions") },
           { label: "Reject", tone: "danger" as const, onPress: rejectCurrent, disabled: doApprove.isPending },
           {
-            label: isVerifyStage ? "Verify" : pendingStage === "FinalSanction" ? "Disburse" : "Approve",
+            label: approveLabel,
             icon: "check",
             primary: true,
             onPress: approveCurrent,
@@ -302,42 +343,64 @@ export default function LoanDetailScreen() {
           <>
             <SectionTitle>Sanction approval</SectionTitle>
             <Card>
-              <Stepper steps={SANCTION_STAGES.map((s) => STAGE_SHORT[s])} current={SANCTION_STAGES.indexOf(pendingStage)} />
+              {sanctionSteps.length ? <Stepper steps={sanctionSteps} current={Math.max(0, stageIndex(wf, "loan_sanction", pendingStage))} /> : null}
               {l.approvalWarning ? <ReviewWarning>{l.approvalWarning}</ReviewWarning> : null}
               <Txt style={{ fontSize: 12, color: C.muted }}>
                 {canActOnStage
-                  ? pendingStage === "FinalSanction"
-                    ? "Your approval disburses the loan."
+                  ? isFinalSanction
+                    ? `Your ${isVerifyStage ? "verification" : "approval"} disburses the loan.`
                     : `Needs your ${isVerifyStage ? "verification" : "approval"}.`
-                  : `Awaiting ${requiredRole}.`}
+                  : `Awaiting ${requiredRole ?? stageLabel}.`}
               </Txt>
               {doApprove.isPending ? <Buffering /> : null}
             </Card>
           </>
         ) : null}
 
-        {pendingExtension || pendingRelease ? (
+        {pendingExtension || pendingRelease || pendingWaivers.length || pendingTopUps.length ? (
           <>
             <SectionTitle>Pending requests</SectionTitle>
             <Card style={{ paddingVertical: 4 }}>
-              {pendingExtension ? (
-                <SheetListItem
-                  first
-                  icon="calendar"
-                  title="Extension requested"
-                  sub={`+${pendingExtension.requestedExtensionMonths ?? "?"} month(s) · awaiting approval — tap to review`}
-                  onPress={() => go("extend")}
-                />
-              ) : null}
-              {pendingRelease ? (
-                <SheetListItem
-                  first={!pendingExtension}
-                  icon="coin"
-                  title={pendingRelease.isPartial ? "Partial release requested" : "Release requested"}
-                  sub="Awaiting approval — tap to review"
-                  onPress={() => go("release")}
-                />
-              ) : null}
+              {(() => {
+                const rows: React.ReactNode[] = [];
+                const add = (key: string, props: Omit<React.ComponentProps<typeof SheetListItem>, "first">) =>
+                  rows.push(<SheetListItem key={key} first={rows.length === 0} {...props} />);
+                if (pendingExtension) {
+                  add("ext", {
+                    icon: "calendar",
+                    title: "Extension requested",
+                    sub: `+${pendingExtension.requestedExtensionMonths ?? "?"} month(s) · awaiting approval — tap to review`,
+                    onPress: () => go("extend"),
+                  });
+                }
+                if (pendingRelease) {
+                  add("rel", {
+                    icon: "coin",
+                    title: pendingRelease.isPartial ? "Partial release requested" : "Release requested",
+                    sub: "Awaiting approval — tap to review",
+                    onPress: () => go("release"),
+                  });
+                }
+                for (const t of pendingTopUps) {
+                  const st = stageLabelFor("loan_topup", t.approvalStage);
+                  add(`tu-${t.id}`, {
+                    icon: "plus",
+                    title: `Top-up requested · ${inr(t.amount)}`,
+                    sub: `${st ? `Awaiting ${st}` : "Awaiting approval"} — tap to review`,
+                    onPress: () => review("topupReview", t.id),
+                  });
+                }
+                for (const r of pendingWaivers) {
+                  const st = stageLabelFor("loan_waiver", r.approvalStage);
+                  add(`wv-${r.id}`, {
+                    icon: "coin",
+                    title: `${r.type} requested · ${inr(r.amount ?? 0)}`,
+                    sub: `${st ? `Awaiting ${st}` : "Awaiting approval"} — tap to review`,
+                    onPress: () => review("waiverReview", r.id),
+                  });
+                }
+                return rows;
+              })()}
             </Card>
           </>
         ) : null}
@@ -383,6 +446,16 @@ export default function LoanDetailScreen() {
           if (canEditLoan && TOP_UP_STATUSES.includes(l.status)) {
             add("topup", { icon: "plus", title: "Top Up Loan", sub: "Disburse more against the pledged gold", onPress: () => go("topup") });
           }
+          // Mirrors the backend's CreateWaiverRequest guard (not terminal, not
+          // still awaiting sanction).
+          if (canEditLoan && !isFinished && !["Pending Approval", "Auctioned", "Defaulted"].includes(l.status)) {
+            add("waiver", {
+              icon: "coin",
+              title: "Request Waiver / Adjustment",
+              sub: pendingWaivers.length ? `${pendingWaivers.length} awaiting approval · raise another` : "Waive interest or adjust the principal",
+              onPress: () => go("waiver"),
+            });
+          }
           if (canEditThis) add("edit", { icon: "edit", title: "Edit Loan Details", sub: "Scheme, principal, and ornament details", onPress: () => go("edit") });
           if (pendingStage && canActOnStage) add("docs", { icon: "doc", title: "Loan Documents", sub: "Statement, bond & eSign", onPress: () => go("documents") });
           add("bank", {
@@ -413,7 +486,7 @@ export default function LoanDetailScreen() {
           onClose={() => setOpen(null)}
           title="Reject Loan"
           danger
-          message={`Reject ${l.loanNumber} at the ${STAGE_SHORT[pendingStage]} stage? A rejected loan is never disbursed.`}
+          message={`Reject ${l.loanNumber} at the ${stageLabel} stage? A rejected loan is never disbursed.`}
           remarks={{ label: "Reason (optional)", placeholder: "Why is this loan being rejected?" }}
           confirmLabel="Reject Loan"
           loading={doApprove.isPending}
@@ -437,16 +510,26 @@ export default function LoanDetailScreen() {
       {canEditThis ? <EditLoanSheet loan={l} visible={open === "edit"} onClose={() => setOpen(null)} /> : null}
       <BankPledgeSheet loan={l} packetStatus={packet?.status} visible={open === "bank"} onClose={() => setOpen(null)} />
       <AuctionSheet loan={l} auction={auction.data} loading={auction.isLoading} visible={open === "auction"} onClose={() => setOpen(null)} />
-      {pendingStage === "FinalSanction" ? (
+      {pendingStage && isFinalSanction ? (
         <DisburseSheet
           loan={l}
           visible={open === "disburse"}
           onClose={() => setOpen(null)}
           loading={doApprove.isPending}
           error={open === "disburse" ? error : null}
-          onConfirm={(split) => doApprove.mutate({ stage: "FinalSanction", action: "Approved", ...split })}
+          verb={isVerifyStage ? "Verify" : "Approve"}
+          onConfirm={(split) => doApprove.mutate({ stage: pendingStage, action: isVerifyStage ? "Verified" : "Approved", ...split })}
         />
       ) : null}
+      <WaiverSheet loan={l} visible={open === "waiver"} onClose={() => setOpen(null)} />
+      <Sheet visible={open === "waiverReview" && !!reviewWaiver} onClose={() => setOpen(null)} title={`Review ${reviewWaiver?.type ?? "Waiver"} — ${l.loanNumber}`} maxHeightPct={85}>
+        {error && open === "waiverReview" ? <WarningBanner>{error}</WarningBanner> : null}
+        {reviewWaiver ? <WaiverReviewPanel request={reviewWaiver} loan={l} onSaved={afterReview} onError={setError} /> : null}
+      </Sheet>
+      <Sheet visible={open === "topupReview" && !!reviewTopUp} onClose={() => setOpen(null)} title={`Review Top-up — ${l.loanNumber}`} maxHeightPct={85}>
+        {error && open === "topupReview" ? <WarningBanner>{error}</WarningBanner> : null}
+        {reviewTopUp ? <TopUpReviewPanel loan={l} topUp={reviewTopUp} onSaved={afterReview} onError={setError} /> : null}
+      </Sheet>
     </Screen>
   );
 }

@@ -3,7 +3,8 @@
 import { useEffect, useState } from "react";
 import { useModal } from "@/product/components/Modal";
 import { useToast } from "@/product/components/Toast";
-import { useAuth } from "@/product/providers/auth-context";
+import { useAuth, useApprovalWorkflow } from "@/product/providers/auth-context";
+import { canActAtStage, chainFor, stageByPending, trackerLabels } from "@/product/services/approvalWorkflowService";
 import { StageTracker } from "@/product/components/ui/StageTracker";
 import { Icon } from "@/product/components/Icon";
 import { fmt } from "@/product/utils/format";
@@ -12,57 +13,20 @@ import { ApiError } from "@/product/services/httpClient";
 import { PaymentModalContent } from "@/product/components/modals/PaymentModal";
 import { ConfirmModalContent } from "@/product/components/modals/ConfirmModal";
 
-const EXTENSION_STAGES = ["LoanOfficer", "BranchManager", "Management"] as const;
-type ExtensionStage = (typeof EXTENSION_STAGES)[number];
-
-const STAGE_LABELS: Record<ExtensionStage, string> = {
-  LoanOfficer: "Loan Officer",
-  BranchManager: "Branch Manager",
-  Management: "Management",
-};
-
-// Display-only now — whose "turn" this label names in the "Awaiting <role>
-// approval" text below. Who can actually ACT is a real permission grant
-// (STAGE_PERMISSIONS below), not a role-name match; an admin can grant a
-// stage's permission to any role, not just the one this label names.
-const STAGE_ROLES: Record<ExtensionStage, string> = {
-  LoanOfficer: "Loan Operator",
-  BranchManager: "Branch Manager",
-  Management: "Management",
-};
-
-// The "Loan Extension Approval" permission actually checked server-side (backend/
-// internal/loan/service.go's extensionChain/checkStagePermission).
-const STAGE_PERMISSIONS: Record<ExtensionStage, string> = {
-  LoanOfficer: "can_verify_the_loan_extension",
-  BranchManager: "can_approve_extension_branch_manager_stage",
-  Management: "can_approve_extension_management_stage",
-};
-
-function stageKeyFor(approvalStage: string): ExtensionStage | null {
-  switch (approvalStage) {
-    case "PendingLoanOfficer":
-      return "LoanOfficer";
-    case "PendingBranchManager":
-      return "BranchManager";
-    case "PendingManagement":
-      return "Management";
-    default:
-      return null;
-  }
-}
-
 /* Staff review screen for a pending Extension request — shown from
  * Requests.tsx's "Review" button, mirroring ReleaseReviewModal's pattern.
  * Unlike Release, there's no verification checklist here — just the
- * 3-stage Loan Officer -> Branch Manager -> Management chain (see
- * backend/internal/loan/service.go's ApproveExtensionRequest), gated by the
- * "Loan Extension Approval" permissions (see internal/authz.Catalogue) rather
- * than a hardcoded role-name match. */
+ * extension approval chain (Loan Officer -> Branch Manager -> Management by
+ * default; which stages apply is per-business configuration, flow
+ * "loan_extension" — see approvalWorkflowService.ts and backend
+ * ApproveExtensionRequest). Who may act at a stage is that stage's own
+ * "Loan Extension Approval" permission grant, not a role-name match; the
+ * stage's role is display-only ("Awaiting <role> approval"). */
 export function ExtensionReviewModalContent({ request, onSaved }: { request: RequestView; onSaved: () => void }) {
   const { closeModal, openModal } = useModal();
   const toast = useToast();
   const { can } = useAuth();
+  const { config: workflow } = useApprovalWorkflow();
   // canActOnStage below decides whose turn it is in the chain; this decides
   // whether the viewer may act on requests at all — without it the
   // approve/reject pair never renders (see Requests.tsx).
@@ -108,10 +72,15 @@ export function ExtensionReviewModalContent({ request, onSaved }: { request: Req
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [req.loanNumericId, req.requestedAt]);
 
-  const stageKey = stageKeyFor(req.approvalStage);
-  const stageIndex = stageKey ? EXTENSION_STAGES.indexOf(stageKey) : EXTENSION_STAGES.length;
-  const requiredRole = stageKey ? STAGE_ROLES[stageKey] : null;
-  const canActOnStage = !!stageKey && can("Loan_Extension_Approval", STAGE_PERMISSIONS[stageKey]);
+  // Looked up in this business's configured chain — a request parked on a
+  // stage that has since been switched off still resolves (and stays on the
+  // tracker via chainFor), since it can still be acted on there.
+  const stageView = req.status === "Pending" ? stageByPending(workflow, "loan_extension", req.approvalStage) : null;
+  const stageKey = stageView?.key ?? null;
+  const chain = chainFor(workflow, "loan_extension", req.status === "Pending" ? req.approvalStage : null);
+  const stageIndex = stageKey ? chain.findIndex((s) => s.key === stageKey) : chain.length;
+  const requiredRole = stageView?.role ?? null;
+  const canActOnStage = canActAtStage(can, stageView);
 
   async function decide(action: "Approved" | "Rejected", remarks = "") {
     if (!stageKey) return;
@@ -128,7 +97,7 @@ export function ExtensionReviewModalContent({ request, onSaved }: { request: Req
         action === "Approved"
           ? updated.status === "Approved"
             ? "Extension approved — due date updated"
-            : `${STAGE_LABELS[stageKey]} stage approved`
+            : `${stageView?.label ?? stageKey} stage approved`
           : "Extension request rejected"
       );
     } catch (e) {
@@ -200,11 +169,15 @@ export function ExtensionReviewModalContent({ request, onSaved }: { request: Req
           </div>
         )}
 
-        <StageTracker
-          stages={EXTENSION_STAGES.map((k) => STAGE_LABELS[k])}
-          currentIndex={stageIndex}
-          terminal={req.status === "Rejected" ? "Rejected" : undefined}
-        />
+        {/* No tracker when the flow has no stages at all (an extension
+          * raised then was applied on creation). */}
+        {chain.length > 0 && (
+          <StageTracker
+            stages={trackerLabels(workflow, "loan_extension", chain)}
+            currentIndex={stageIndex}
+            terminal={req.status === "Rejected" ? "Rejected" : undefined}
+          />
+        )}
 
         {req.status === "Pending" && stageKey && (
           <p className="notice" style={{ marginTop: 12 }}>
@@ -236,7 +209,7 @@ export function ExtensionReviewModalContent({ request, onSaved }: { request: Req
           <>
             <button className="btn danger" disabled={saving} onClick={promptReject}>Reject</button>
             <button className="btn" disabled={saving} onClick={() => decide("Approved")}>
-              <Icon name="check" /> Approve ({STAGE_LABELS[stageKey]})
+              <Icon name="check" /> Approve ({stageView?.label ?? stageKey})
             </button>
           </>
         )}

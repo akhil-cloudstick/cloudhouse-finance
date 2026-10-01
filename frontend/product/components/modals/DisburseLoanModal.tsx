@@ -6,24 +6,32 @@ import { useToast } from "@/product/components/Toast";
 import { ApiError } from "@/product/services/httpClient";
 import { fmt } from "@/product/utils/format";
 import { SplitPaymentInput, ZERO_SPLIT, type SplitAmounts } from "@/product/components/ui/SplitPaymentInput";
-import { approveLoan, type LoanView, type SanctionStage } from "@/product/pages/loans/services/loanService";
+import { approveLoan, type LoanView } from "@/product/pages/loans/services/loanService";
 import { useBalanceInHand } from "@/product/hooks/useBalanceInHand";
 
-/* The FinalSanction stage's "Approve" action is also the moment the
- * principal actually leaves the till (see backend Service.Approve's
- * disbursing branch) — unlike the LoanOperator/BranchManager stages, which
- * just advance the sanction chain with no cash movement. This modal collects
- * the split-mode breakdown of that disbursement before confirming, instead
- * of the plain one-click Approve the earlier stages use. */
+/* The FINAL enabled sanction stage's affirmative action is also the moment
+ * the principal actually leaves the till (see backend Service.Approve's
+ * disbursing branch) — unlike the earlier stages, which just advance the
+ * sanction chain with no cash movement. Which stage is final is per-business
+ * configuration (flow "loan_sanction"): FinalSanction by default, but it can
+ * be the Branch Manager's Approve or even the Loan Operator's Verify. This
+ * modal collects the split-mode breakdown of that disbursement before
+ * confirming, instead of the plain one-click Approve/Verify the earlier
+ * stages use. */
 export function DisburseLoanModalContent({
   loan,
   stage,
   onSaved,
 }: {
   loan: LoanView;
-  stage: SanctionStage;
+  // The sanction stage KEY being cleared — whichever one is final.
+  stage: string;
   onSaved: (updated: LoanView) => void;
 }) {
+  // "Verified" is the LoanOperator stage's own action (backend: only valid
+  // there); every other stage approves.
+  const isVerify = stage === "LoanOperator";
+  const actionLabel = isVerify ? "Verify & Disburse" : "Approve & Disburse";
   const { closeModal } = useModal();
   const toast = useToast();
   const [split, setSplit] = useState<SplitAmounts>(ZERO_SPLIT);
@@ -44,14 +52,14 @@ export function DisburseLoanModalContent({
     try {
       const updated = await approveLoan(loan.numericId, {
         stage,
-        action: "Approved",
+        action: isVerify ? "Verified" : "Approved",
         cashAmount: split.cashAmount,
         upiAmount: split.upiAmount,
         bankTransferAmount: split.bankTransferAmount,
         chequeAmount: split.chequeAmount,
         bankId,
       });
-      toast(`Approved — ${fmt(loan.principal)} disbursed to the customer`);
+      toast(`${isVerify ? "Verified" : "Approved"} — ${fmt(loan.principal)} disbursed to the customer`);
       onSaved(updated);
       closeModal();
     } catch (e) {
@@ -63,7 +71,7 @@ export function DisburseLoanModalContent({
 
   return (
     <>
-      <div className="hd" style={{ minHeight: 66 }}><h3>Approve &amp; Disburse — {loan.id}</h3><button className="x" onClick={closeModal}>×</button></div>
+      <div className="hd" style={{ minHeight: 66 }}><h3>{actionLabel} — {loan.id}</h3><button className="x" onClick={closeModal}>×</button></div>
       <div className="bd bd-scroll">
         <div className="frow">
           <SplitPaymentInput totalAmount={loan.principal} onChange={(s, r, bid) => { setSplit(s); setRemaining(r); setBankId(bid); }} />
@@ -78,7 +86,7 @@ export function DisburseLoanModalContent({
       </div>
       <div className="ft">
         <button className="btn ghost" onClick={closeModal}>Cancel</button>
-        <button className="btn" disabled={saving || !balanced || insufficient} onClick={save}>{saving ? "Approving…" : `Approve & Disburse ${fmt(loan.principal)}`}</button>
+        <button className="btn" disabled={saving || !balanced || insufficient} onClick={save}>{saving ? (isVerify ? "Verifying…" : "Approving…") : `${actionLabel} ${fmt(loan.principal)}`}</button>
       </div>
     </>
   );

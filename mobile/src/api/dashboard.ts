@@ -68,6 +68,11 @@ export type NeedsAttentionItem = {
   customerCode?: string;
   principal?: number;
   approvalStage?: string;
+  // Approval items only: which workflow flow ("loan_sanction" |
+  // "loan_topup" | "personal_loan" | "expense") and that item's own id (the
+  // top-up / personal loan / expense). loanId stays the gold loan's.
+  flow?: string;
+  entityId?: number;
   requestId?: number;
   requestType?: string;
   detail?: string;

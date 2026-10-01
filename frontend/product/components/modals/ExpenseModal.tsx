@@ -70,14 +70,16 @@ export function ExpenseModalContent({ onSaved }: { onSaved?: () => void }) {
       let receiptImage: string | undefined;
       if (receiptFile) receiptImage = await uploadReceipt(receiptFile);
 
-      await createExpense({
+      const created = await createExpense({
         category: cat, amount, mode, payee, branchId,
         fromBankId: banksRequired ? +fromBankId : undefined,
         occurredOn: date, remarks: remarks.trim() || undefined, receiptImage,
       });
       onSaved?.();
       closeModal();
-      toast(`Expense of ${fmt(amount)} recorded`);
+      // With the expense approval flow on, the expense comes back Pending —
+      // no cash moves until it is approved from the Expense Register.
+      toast(created.status === "Pending" ? `Expense of ${fmt(amount)} submitted for approval` : `Expense of ${fmt(amount)} recorded`);
     } catch (e) {
       setErr(e instanceof ApiError ? e.message : "Could not save — try again.");
     } finally {

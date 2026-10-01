@@ -14,6 +14,12 @@ import (
 const (
 	TopUpStatusActive   = "Active"
 	TopUpStatusReversed = "Reversed"
+	// TopUpStatusPending is a top-up waiting in the tenant's top-up approval
+	// chain (workflow.FlowLoanTopUp) — nothing has been paid out and the
+	// loan's principal is unchanged until its final stage approves it.
+	TopUpStatusPending = "Pending"
+	// TopUpStatusRejected is a Pending top-up turned down in its chain.
+	TopUpStatusRejected = "Rejected"
 )
 
 // LoanTopUp records one instance of a customer drawing additional cash
@@ -43,6 +49,13 @@ type LoanTopUp struct {
 	Reference            string    `json:"reference" gorm:"size:80"`
 
 	Status string `json:"status" gorm:"not null;size:15;default:'Active'"`
+	// ApprovalStage is the pending stage value (workflow.FlowLoanTopUp) while
+	// Status is Pending; "Approved"/"Rejected" once decided; "" for a top-up
+	// paid out without an approval chain.
+	ApprovalStage string `json:"approvalStage" gorm:"size:30;default:''"`
+	// SettleInterest is the requester's TopUpInput.SettleInterest choice,
+	// kept so the final approval pays out exactly what was asked for.
+	SettleInterest string `json:"settleInterest" gorm:"size:10;default:''"`
 	// ReversalOfMovementID is a self-reference (to another LoanTopUp.ID) —
 	// see the package-level Status* doc comment.
 	ReversalOfMovementID *uint `json:"reversalOfMovementId"`

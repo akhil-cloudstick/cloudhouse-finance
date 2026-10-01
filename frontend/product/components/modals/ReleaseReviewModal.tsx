@@ -9,7 +9,9 @@ import { getLoan, listLoanRequests, verifyReleaseChecklist, approveReleaseReques
 import { listPackets, type PacketView } from "@/product/pages/packets/services/packetService";
 import { PaymentModalContent } from "@/product/components/modals/PaymentModal";
 import { ApiError } from "@/product/services/httpClient";
-import { useAuth } from "@/product/providers/auth-context";
+import { useAuth, useApprovalWorkflow } from "@/product/providers/auth-context";
+import { canActAtStage, chainFor, flowOf, isFlowOff, stageByPending, trackerLabels } from "@/product/services/approvalWorkflowService";
+import { StageTracker } from "@/product/components/ui/StageTracker";
 import { appPath } from "@/product/services/tenantSession";
 
 // Mirrors backend/internal/loan/service.go's partialReleaseDrift — the
@@ -44,6 +46,9 @@ export function ReleaseReviewModalContent({ request, onSaved }: { request: Reque
   // general canDecide gate — see internal/authz.Catalogue and backend/
   // internal/loan/service.go's VerifyReleaseChecklist/ApproveReleaseRequest.
   const canVerifyChecklist = can("Release_Approval", "can_verify_release_checklist");
+  // Which of the Manager/Management stages apply is per-business
+  // configuration (flow "loan_release").
+  const { config: workflow } = useApprovalWorkflow();
 
   const [loan, setLoan] = useState<LoanView | null>(null);
   const [packet, setPacket] = useState<PacketView | null>(null);
@@ -88,8 +93,20 @@ export function ReleaseReviewModalContent({ request, onSaved }: { request: Reque
     }
   }
 
-  const stage = req.approvalStage === "PendingManagement" ? "Management" : "Manager";
-  const canActOnStage = can("Release_Approval", stage === "Management" ? "can_approve_release_management_stage" : "can_approve_release_manager_stage");
+  // The pending stage from this business's chain (an empty approvalStage
+  // reads as PendingManager, like the backend). With every release stage
+  // switched off there is nothing to approve — recording the payment
+  // completes the release — unless the request was already parked on a
+  // stage before it was switched off, which can still be acted on.
+  const releaseOff = isFlowOff(workflow, "loan_release");
+  const stageView = req.status === "Pending" ? stageByPending(workflow, "loan_release", req.approvalStage) : null;
+  const parkedOnDisabled = !!stageView && !stageView.enabled && !!req.approvalStage;
+  const activeStage = releaseOff && !parkedOnDisabled ? null : stageView;
+  const stage = activeStage?.key ?? "";
+  const stageName = activeStage?.label ?? "";
+  const canActOnStage = canActAtStage(can, activeStage);
+  const chain = chainFor(workflow, "loan_release", activeStage ? activeStage.pending : null);
+  const stageIndex = activeStage ? chain.findIndex((s) => s.key === activeStage.key) : chain.length;
 
   const gaveGoldCheckboxDisabled = saving || !canDecide || !canVerifyChecklist || req.status !== "Pending" || req.locked || goldStillHeld;
 
@@ -157,7 +174,7 @@ export function ReleaseReviewModalContent({ request, onSaved }: { request: Reque
           closeModal();
           toast("Release request rejected");
         } else {
-          toast(`Release ${stage} stage approved`);
+          toast(`Release ${stageName} stage approved`);
         }
       } else {
         closeModal();
@@ -282,21 +299,33 @@ export function ReleaseReviewModalContent({ request, onSaved }: { request: Reque
                 : "The minimum amount must be paid (via Record Payment above, or an earlier payment on the loan) before this can be approved."}
           </p>
         )}
-        {req.status === "Pending" && req.customerSawGold && paymentConditionMet && (
-          <p className="notice" style={{ marginTop: 12 }}><Icon name="clock" /> Awaiting {stage} approval — same chain used for loan sanctioning.</p>
+        {chain.length > 0 && (
+          <div style={{ marginTop: 14 }}>
+            <StageTracker
+              stages={trackerLabels(workflow, "loan_release", chain)}
+              currentIndex={req.status === "Pending" ? stageIndex : chain.length}
+              terminal={req.status === "Rejected" ? "Rejected" : undefined}
+            />
+          </div>
+        )}
+        {req.status === "Pending" && req.customerSawGold && paymentConditionMet && activeStage && (
+          <p className="notice" style={{ marginTop: 12 }}><Icon name="clock" /> Awaiting {activeStage.role} approval ({stageName} stage).</p>
+        )}
+        {req.status === "Pending" && !activeStage && (
+          <p className="notice" style={{ marginTop: 12 }}><Icon name="clock" /> No release approval is configured — {flowOf(workflow, "loan_release")?.offBehavior}</p>
         )}
         <p style={{ color: "var(--red)", fontSize: 12.5, minHeight: 16, marginTop: 8 }}>{err}</p>
       </div>
       <div className="ft">
         <button className="btn ghost" onClick={closeModal}>Close</button>
-        {req.status === "Pending" && canDecide && canActOnStage && (
+        {req.status === "Pending" && canDecide && canActOnStage && !!stage && (
           <>
             {/* Locked (a payment has already been recorded against this
               * request) removes Reject entirely — see LoanRequest.Locked's
               * own doc comment (ErrRequestLocked). */}
             {!req.locked && <button className="btn danger" disabled={saving} onClick={() => decide("Rejected")}>Reject</button>}
             <button className="btn" disabled={saving || !req.customerSawGold || !paymentConditionMet} onClick={() => decide("Approved")}>
-              <Icon name="check" /> Approve ({stage})
+              <Icon name="check" /> Approve ({stageName})
             </button>
           </>
         )}

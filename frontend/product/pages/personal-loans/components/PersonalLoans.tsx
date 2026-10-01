@@ -9,8 +9,20 @@ import { useIsSmallScreen, useResponsivePageSize } from "@/product/utils/respons
 import { listPersonalLoansPage, type BackendPersonalLoan, type Frequency } from "@/product/pages/personal-loans/services/personalLoanService";
 import { PersonalLoanRow } from "@/product/pages/personal-loans/components/PersonalLoanRow";
 import { NewPersonalLoanModalContent } from "@/product/pages/personal-loans/components/NewPersonalLoanModal";
+import { Select } from "@/product/components/ui/Select";
 
 const FREQS: ("All" | Frequency)[] = ["All", "Daily", "Weekly", "Monthly"];
+// Status filter — "Pending Approval"/"Rejected" only occur while the
+// business has the personal_loan approval flow switched on.
+const STATUS_OPTIONS = [
+  { value: "", label: "All statuses" },
+  { value: "Active", label: "Active" },
+  { value: "Pending Approval", label: "Pending Approval" },
+  { value: "Rejected", label: "Rejected" },
+  { value: "Closed", label: "Closed" },
+  { value: "Renewed", label: "Renewed" },
+  { value: "Defaulted", label: "Defaulted" },
+];
 
 /* Personal Loans list — an unsecured, no-KYC loan product separate from the
  * Gold Loan module (see backend/internal/personalloan's package doc).
@@ -29,6 +41,7 @@ export function PersonalLoans() {
 
   const [freq, setFreq] = useState<"All" | Frequency>("All");
   const [q, setQ] = useState("");
+  const [status, setStatus] = useState("");
   const [page, setPage] = useState(1);
   const [loans, setLoans] = useState<BackendPersonalLoan[]>([]);
   const [hasMore, setHasMore] = useState(false);
@@ -38,13 +51,13 @@ export function PersonalLoans() {
 
   // Any filter change resets back to page 1 rather than leaving the user
   // stranded on a page number the new filter may not have.
-  useEffect(() => { setPage(1); }, [freq, q, pageSize]);
+  useEffect(() => { setPage(1); }, [freq, q, status, pageSize]);
 
   const refresh = useCallback(async () => {
     setLoading(true);
     setError("");
     try {
-      const res = await listPersonalLoansPage({ page, q: q.trim() || undefined, frequency: freq === "All" ? undefined : freq, pageSize });
+      const res = await listPersonalLoansPage({ page, q: q.trim() || undefined, frequency: freq === "All" ? undefined : freq, status: status || undefined, pageSize });
       setLoans(res?.items || []);
       setHasMore(!!res?.hasMore);
       setTotal(res?.total || 0);
@@ -53,13 +66,13 @@ export function PersonalLoans() {
     } finally {
       setLoading(false);
     }
-  }, [page, q, freq, pageSize]);
+  }, [page, q, freq, status, pageSize]);
 
   useEffect(() => {
     const handle = setTimeout(() => void refresh(), q ? 300 : 0);
     return () => clearTimeout(handle);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [page, freq, q, pageSize]);
+  }, [page, freq, q, status, pageSize]);
 
   const knownTotal = total > 0;
   const totalPages = knownTotal ? Math.max(1, Math.ceil(total / pageSize)) : (hasMore ? page + 1 : page);
@@ -86,10 +99,16 @@ export function PersonalLoans() {
         {canCreate && <button className="btn" onClick={openNewLoan}><Icon name="plus" /> New Personal Loan</button>}
       </div>
       <hr className="gold-rule" style={{ margin: smallScreen ? "4px 0 6px" : "4px 0 10px" }} />
-      <div style={{ marginTop: 4, marginBottom: 6 }} className="tabs pl-freq-tabs">
-        {FREQS.map((f) => (
-          <button key={f} className={f === freq ? "on" : ""} onClick={() => setFreq(f)}>{f}</button>
-        ))}
+      <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap", marginTop: 4, marginBottom: 6 }}>
+        <div className="tabs pl-freq-tabs" style={{ margin: 0 }}>
+          {FREQS.map((f) => (
+            <button key={f} className={f === freq ? "on" : ""} onClick={() => setFreq(f)}>{f}</button>
+          ))}
+        </div>
+        <div className="sp" style={{ flex: 1 }} />
+        <div style={{ width: 180 }}>
+          <Select options={STATUS_OPTIONS} value={status} onChange={setStatus} />
+        </div>
       </div>
       {error && <div className="notice" style={{ marginBottom: 14 }}>{error}</div>}
       <div className="card tbl-card tbl-card-fill"><div className="tbl-wrap tbl-scroll"><table className="tbl tbl-center">

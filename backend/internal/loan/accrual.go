@@ -332,7 +332,7 @@ func (s *Service) accrueAndSave(ctx context.Context, l *Loan) bool {
 	// never been topped up at all (the overwhelming majority).
 	var firstMonthTopUps []LoanTopUp
 	if l.LastAccrualDate.IsZero() || l.LastAccrualDate.Equal(l.OpenedDate) {
-		if ups, err := s.topUpRepo.FindByLoanID(ctx, l.ID); err == nil {
+		if ups, err := s.topUpRepo.FindActiveByLoanID(ctx, l.ID); err == nil {
 			firstMonthTopUps = ups
 		}
 	}

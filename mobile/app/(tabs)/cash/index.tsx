@@ -155,8 +155,10 @@ function runningBalances(items: CashMovement[]): number[] {
 
 export default function CashScreen() {
   const qc = useQueryClient();
-  const { employee } = useAuth();
-  const isAdmin = employee?.role === "Administrator";
+  const { employee, can } = useAuth();
+  // Approving / rejecting a Pending expense is the "expense" workflow stage's
+  // own permission (checked server-side too), not a role-name match.
+  const canApproveExpense = can("Expense_Approval", "can_approve_expense");
   const today = todayISO();
 
   const [tab, setTab] = useState<Tab>("movements");
@@ -207,7 +209,7 @@ export default function CashScreen() {
   const goldSales = useServerList<GoldSale>({ key: ["gold-sales", "list"], fetchPage: (p) => listGoldSalesPage(p), enabled: tab === "goldSales" });
 
   const approve = useMutation({
-    mutationFn: (id: number) => approveExpense(id, employee?.name),
+    mutationFn: (id: number) => approveExpense(id),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["expenses"] });
       qc.invalidateQueries({ queryKey: ["cash-summary"] });
@@ -219,7 +221,7 @@ export default function CashScreen() {
   const [rejecting, setRejecting] = useState<Expense | null>(null);
   const [rejectError, setRejectError] = useState<string | null>(null);
   const reject = useMutation({
-    mutationFn: ({ id, reason }: { id: number; reason: string }) => rejectExpense(id, reason, employee?.name),
+    mutationFn: ({ id, reason }: { id: number; reason: string }) => rejectExpense(id, reason),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["expenses"] });
       qc.invalidateQueries({ queryKey: ["cash-summary"] });
@@ -356,7 +358,7 @@ export default function CashScreen() {
                 ...(e.approvedBy ? [{ k: e.status === "Rejected" ? "Rejected by" : "Approved by", v: e.approvedBy }] : []),
               ]}
               actions={
-                isAdmin && e.status === "Pending"
+                canApproveExpense && e.status === "Pending"
                   ? [
                       { label: "Approve", onPress: () => approve.mutate(e.id), disabled: approve.isPending },
                       {

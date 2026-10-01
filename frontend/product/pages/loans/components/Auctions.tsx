@@ -10,7 +10,8 @@ import { openPrintWindow, brandHeader } from "@/product/utils/print";
 import { BRAND, printColors } from "@/product/config/brand";
 import { StatusChip } from "@/product/components/ui/StatusChip";
 import { StageTracker } from "@/product/components/ui/StageTracker";
-import { useAuth } from "@/product/providers/auth-context";
+import { useAuth, useApprovalWorkflow } from "@/product/providers/auth-context";
+import { isFlowOff } from "@/product/services/approvalWorkflowService";
 import {
   IssueNoticeModalContent,
   ScheduleAuctionModalContent,
@@ -91,6 +92,7 @@ export function printAuctionLetter(loan: LoanView, toast: (m: string) => void) {
 function AuctionCard({ l, onLoanChanged }: { l: LoanView; onLoanChanged: () => void }) {
   const { openModal } = useModal();
   const { can } = useAuth();
+  const { config: workflow } = useApprovalWorkflow();
   const toast = useToast();
   // Auctions are a facet of a loan, so every step here (eligible → notice →
   // schedule → sale → settle) needs "can update loan"; without it the card
@@ -174,6 +176,13 @@ function AuctionCard({ l, onLoanChanged }: { l: LoanView; onLoanChanged: () => v
   // advance buttons keeps the UI honest instead of offering actions that 409.
   const frozen = !!decision;
   const balanceDue = l.status === "Auctioned - Balance Due";
+  // With an auction decision flow switched off, the backend raises no
+  // decision request for that case — it records the outcome as already
+  // decided by "System" — so there is nothing to click; say so instead. A
+  // request still Pending from before the switch keeps its buttons above.
+  const partialAuto = isFlowOff(workflow, "auction_partial_repayment");
+  const lastAutoDecision = rec ? [...rec.decisionRequests].reverse().find((d) => d.decidedByRole === "System") : undefined;
+  const preSale = !!rec && (rec.stage === "AuctionEligible" || rec.stage === "NoticeIssued" || rec.stage === "AuctionScheduled");
 
   return (
     <div className="card gtop" style={{ marginBottom: 16 }}>
@@ -232,6 +241,19 @@ function AuctionCard({ l, onLoanChanged }: { l: LoanView; onLoanChanged: () => v
                 </>
               )}
               {!canDecide && <> Your role can view this but not decide it.</>}
+            </span>
+          </div>
+        )}
+
+        {!decision && (lastAutoDecision || (preSale && partialAuto)) && (
+          <div className="notice" style={{ marginTop: 12 }}>
+            <Icon name="clock" />
+            <span>
+              {lastAutoDecision
+                ? lastAutoDecision.kind === "Shortfall"
+                  ? "Balance pursued automatically — shortfall decisions are switched off in the approval workflow."
+                  : "No decision needed — the auction continues automatically (partial-repayment decisions are switched off in the approval workflow)."
+                : "No decision needed for partial repayments — the auction continues automatically."}
             </span>
           </div>
         )}

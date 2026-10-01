@@ -95,6 +95,9 @@ var wipeOrder = []string{
 	"expenses",
 	"opening_cash_balances",
 	"approval_limits",
+	// approval_stage_settings is NOT wiped: which approval stages a business
+	// uses is configuration, kept across a reset like its roles and grants.
+	"approval_actions",
 	"communication_logs",
 	"audit_log_entries",
 	// uploaded_files is NOT here: it is emptied in wipeIdentityTables, which

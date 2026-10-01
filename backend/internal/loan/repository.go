@@ -663,20 +663,63 @@ func (r *LoanTopUpRepository) CreateTx(ctx context.Context, tx *gorm.DB, t *Loan
 	return tx.WithContext(ctx).Create(t).Error
 }
 
+// UpdateTx saves a top-up row — used only to move a Pending (awaiting
+// approval) top-up through its approval stages to Active/Rejected; an
+// Active row is still never edited.
+func (r *LoanTopUpRepository) UpdateTx(ctx context.Context, tx *gorm.DB, t *LoanTopUp) error {
+	return tx.WithContext(ctx).Save(t).Error
+}
+
+// Update is UpdateTx outside a transaction.
+func (r *LoanTopUpRepository) Update(ctx context.Context, t *LoanTopUp) error {
+	return r.db.WithContext(ctx).Save(t).Error
+}
+
+func (r *LoanTopUpRepository) FindByID(ctx context.Context, id uint) (*LoanTopUp, error) {
+	var t LoanTopUp
+	if err := r.db.WithContext(ctx).First(&t, id).Error; err != nil {
+		return nil, err
+	}
+	return &t, nil
+}
+
+// FindPendingByLoanID returns the loan's top-up awaiting approval, if any.
+func (r *LoanTopUpRepository) FindPendingByLoanID(ctx context.Context, loanID uint) (*LoanTopUp, error) {
+	var t LoanTopUp
+	err := r.db.WithContext(ctx).Where("loan_id = ? AND status = ?", loanID, TopUpStatusPending).First(&t).Error
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return &t, nil
+}
+
+// FindByLoanID returns every top-up row of a loan — including ones still
+// awaiting approval or rejected — for the loan's top-up history.
 func (r *LoanTopUpRepository) FindByLoanID(ctx context.Context, loanID uint) ([]LoanTopUp, error) {
 	var recs []LoanTopUp
 	err := r.db.WithContext(ctx).Where("loan_id = ?", loanID).Order("occurred_on desc, id desc").Find(&recs).Error
 	return recs, err
 }
 
-// FindMostRecentDate returns the OccurredOn of the loan's latest top-up, or
-// the zero time if it has none yet — feeds the Phase 0.5 backdating check
-// (platform.ValidateOccurredOn), alongside the loan's latest LoanPayment
-// date (see PaymentRepository.FindLatestPaidOn), since either kind of event
-// can be the most recent one on the account.
+// FindActiveByLoanID returns only the top-ups whose money actually went out
+// (Status Active) — what accrual must count.
+func (r *LoanTopUpRepository) FindActiveByLoanID(ctx context.Context, loanID uint) ([]LoanTopUp, error) {
+	var recs []LoanTopUp
+	err := r.db.WithContext(ctx).Where("loan_id = ? AND status = ?", loanID, TopUpStatusActive).Order("occurred_on desc, id desc").Find(&recs).Error
+	return recs, err
+}
+
+// FindMostRecentDate returns the OccurredOn of the loan's latest paid-out
+// top-up, or the zero time if it has none yet — feeds the Phase 0.5
+// backdating check (platform.ValidateOccurredOn), alongside the loan's latest
+// LoanPayment date (see PaymentRepository.FindLatestPaidOn), since either
+// kind of event can be the most recent one on the account.
 func (r *LoanTopUpRepository) FindMostRecentDate(ctx context.Context, loanID uint) (time.Time, error) {
 	var t LoanTopUp
-	err := r.db.WithContext(ctx).Where("loan_id = ?", loanID).Order("occurred_on desc, id desc").First(&t).Error
+	err := r.db.WithContext(ctx).Where("loan_id = ? AND status = ?", loanID, TopUpStatusActive).Order("occurred_on desc, id desc").First(&t).Error
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return time.Time{}, nil

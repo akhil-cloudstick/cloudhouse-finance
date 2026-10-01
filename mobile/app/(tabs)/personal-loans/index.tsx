@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { Pressable, View } from "react-native";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useLocalSearchParams } from "expo-router";
 import * as FileSystem from "expo-file-system/legacy";
 import * as Sharing from "expo-sharing";
 import {
@@ -30,7 +31,10 @@ import {
   StatusChip,
   Txt,
   WarningBanner,
+  toast,
 } from "../../../src/components/ui";
+import { ApprovalChainPanel } from "../../../src/components/loanRequests/ApprovalChainPanel";
+import { isFlowOff, stageByKey, useApprovalWorkflow } from "../../../src/api/approvalWorkflow";
 import { SheetScrollView } from "../../../src/components/BottomSheetModal";
 import { useServerList } from "../../../src/hooks/useServerList";
 import { useAuth } from "../../../src/auth/AuthContext";
@@ -41,9 +45,11 @@ import { ApiError } from "../../../src/api/client";
 import { API_BASE_URL } from "../../../src/api/config";
 import { getToken } from "../../../src/auth/tokenStorage";
 import {
+  approvePersonalLoan,
   createPersonalLoan,
   getPersonalLoan,
   getPersonalLoanSchedulePage,
+  listPersonalLoanApprovals,
   listPersonalLoanPaymentsPage,
   listPersonalLoansPage,
   previewRenewal,
@@ -70,7 +76,12 @@ const FREQS = ["Daily", "Weekly", "Monthly"] as const;
 const PAYMENT_METHODS = ["Cash", "UPI", "Bank Transfer"] as const;
 const PER: Record<Frequency, string> = { Daily: "day", Weekly: "wk", Monthly: "mo" };
 
-type Filters = { frequency?: Frequency };
+// "Pending approval" lists loans waiting in the tenant's "personal_loan"
+// approval chain (status filter is server-side).
+const STATUS_FILTERS = ["All", "Pending approval"] as const;
+type StatusFilter = (typeof STATUS_FILTERS)[number];
+
+type Filters = { frequency?: Frequency; status?: string };
 
 const errMsg = (err: unknown, fallback: string) => userMessage(err, fallback);
 
@@ -87,15 +98,25 @@ export default function PersonalLoansScreen() {
   const canUpdate = can("Personal_Loan_Management", "can_update_personal_loan");
 
   const [freq, setFreq] = useState<FreqFilter>("All");
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>("All");
   const [filterOpen, setFilterOpen] = useState(false);
   const [draftFreq, setDraftFreq] = useState<FreqFilter>("All");
+  const [draftStatus, setDraftStatus] = useState<StatusFilter>("All");
 
   const [createOpen, setCreateOpen] = useState(false);
   const [detailId, setDetailId] = useState<number | null>(null);
   const [collectLoan, setCollectLoan] = useState<PersonalLoan | null>(null);
   const [renewLoan, setRenewLoan] = useState<PersonalLoan | null>(null);
 
-  const filters: Filters = { frequency: freq === "All" ? undefined : freq };
+  // ?id=<personal loan id> (dashboard "Needs attention") opens its detail.
+  const params = useLocalSearchParams<{ id?: string; t?: string }>();
+  useEffect(() => {
+    if (params.id && Number(params.id)) setDetailId(Number(params.id));
+  }, [params.id, params.t]);
+
+  const filters: Filters = { frequency: freq === "All" ? undefined : freq, status: statusFilter === "Pending approval" ? "Pending Approval" : undefined };
+  const filterCount = (freq !== "All" ? 1 : 0) + (statusFilter !== "All" ? 1 : 0);
+  const filterSummary = [statusFilter !== "All" ? statusFilter : null, freq === "All" ? "All frequencies" : `${freq} collection`].filter(Boolean).join(" · ");
   const list = useServerList<PersonalLoan, Filters>({ key: ["personalLoans", "list"], filters, fetchPage: (p) => listPersonalLoansPage(p) });
 
   return (
@@ -112,10 +133,11 @@ export default function PersonalLoansScreen() {
           <View style={{ paddingTop: 12 }}>
             <SearchInput value={list.search} onChangeText={list.setSearch} placeholder="Search by loan ID or customer name" style={{ paddingBottom: 8 }} />
             <FiltersBar
-              count={freq !== "All" ? 1 : 0}
-              summary={freq === "All" ? "All frequencies" : `${freq} collection`}
+              count={filterCount}
+              summary={filterSummary}
               onPress={() => {
                 setDraftFreq(freq);
+                setDraftStatus(statusFilter);
                 setFilterOpen(true);
               }}
               style={{ marginTop: 0, marginBottom: 10 }}
@@ -143,6 +165,9 @@ export default function PersonalLoansScreen() {
       />
 
       <Sheet visible={filterOpen} onClose={() => setFilterOpen(false)} title="Filter Personal Loans" maxHeightPct={55}>
+        <Field label="Status">
+          <FilterChipRow options={STATUS_FILTERS} value={draftStatus} onChange={setDraftStatus} />
+        </Field>
         <Field label="Collection frequency">
           <FilterChipRow options={FREQ_FILTERS} value={draftFreq} onChange={setDraftFreq} />
         </Field>
@@ -150,6 +175,7 @@ export default function PersonalLoansScreen() {
           label="Apply Filters"
           onPress={() => {
             setFreq(draftFreq);
+            setStatusFilter(draftStatus);
             setFilterOpen(false);
           }}
         />
@@ -189,6 +215,9 @@ export default function PersonalLoansScreen() {
 // ---------------------------------------------------------------------------
 function CreatePersonalLoanSheet({ visible, onClose, onCreated }: { visible: boolean; onClose: () => void; onCreated: (l: PersonalLoan) => void }) {
   const qc = useQueryClient();
+  // Tenant's "personal_loan" flow on → the loan is created "Pending
+  // Approval" and only disbursed once its final stage approves it.
+  const needsApproval = !isFlowOff(useApprovalWorkflow(), "personal_loan");
   const [customer, setCustomer] = useState<Customer | null>(null);
   const [principal, setPrincipal] = useState("");
   const [interestType, setInterestType] = useState<InterestType>("Flat");
@@ -239,6 +268,7 @@ function CreatePersonalLoanSheet({ visible, onClose, onCreated }: { visible: boo
       }),
     onSuccess: (loan) => {
       qc.invalidateQueries({ queryKey: ["personalLoans"] });
+      if (loan.status === "Pending Approval") toast.success("Personal loan submitted for approval", `${loan.loanNumber} — disbursed once approved`);
       onCreated(loan);
     },
     onError: (err) => setError(errMsg(err, "Could not create the loan — try again.")),
@@ -296,7 +326,7 @@ function CreatePersonalLoanSheet({ visible, onClose, onCreated }: { visible: boo
       </Card>
       {error ? <Txt style={{ fontSize: 12, color: C.red, marginBottom: 10 }}>{error}</Txt> : null}
       <PrimaryButton
-        label="Create & Disburse"
+        label={needsApproval ? "Submit for Approval" : "Create & Disburse"}
         loading={submit.isPending}
         onPress={() => {
           const v = validate();
@@ -342,7 +372,17 @@ function PersonalLoanDetailSheet({
     setError(null);
   }, [loanId]);
 
+  const qc = useQueryClient();
+  const wf = useApprovalWorkflow();
   const loan = useQuery({ queryKey: ["personalLoan", String(id)], queryFn: () => getPersonalLoan(id), enabled: visible });
+  // Approval chain (tenant's "personal_loan" flow) — only for a loan that
+  // went through it (approvalStage set).
+  const inChain = !!loan.data?.approvalStage;
+  const approvals = useQuery({
+    queryKey: ["personalLoanApprovals", String(id)],
+    queryFn: () => listPersonalLoanApprovals(id),
+    enabled: visible && inChain,
+  });
   const schedule = useServerList<PersonalLoanInstallment>({
     key: ["personalLoanSchedule", id],
     fetchPage: (p) => getPersonalLoanSchedulePage(id, p.limit, p.offset),
@@ -402,6 +442,36 @@ function PersonalLoanDetailSheet({
           { k: "Total paid", v: inr(l.totalPaid), color: C.green },
         ]}
       />
+      {inChain ? (
+        <Card style={{ marginHorizontal: 0, marginBottom: 14 }}>
+          <Txt style={{ fontSize: 12, fontWeight: "700", marginBottom: 8 }}>Approval</Txt>
+          <ApprovalChainPanel
+            flow="personal_loan"
+            pending={l.approvalStage}
+            status={l.status === "Pending Approval" ? "Pending" : l.status === "Rejected" ? "Rejected" : "Approved"}
+            rejectionRemarks={(approvals.data ?? []).find((a) => a.action === "Rejected")?.remarks}
+            noun="Personal loan"
+            rejectMessage={`Reject ${l.loanNumber}? Nothing is disbursed.`}
+            canDecide={canUpdate}
+            decide={(input) => approvePersonalLoan(l.id, input)}
+            onSaved={() => {
+              setError(null);
+              qc.invalidateQueries({ queryKey: ["personalLoans"] });
+              qc.invalidateQueries({ queryKey: ["personalLoan", String(l.id)] });
+              qc.invalidateQueries({ queryKey: ["personalLoanApprovals", String(l.id)] });
+              qc.invalidateQueries({ queryKey: ["personalLoanSchedule", l.id] });
+            }}
+            onError={setError}
+          />
+          {(approvals.data ?? []).map((a) => (
+            <Txt key={a.id} style={{ fontSize: 11, color: C.muted, marginTop: 4 }}>
+              {dmy(a.createdAt)} · {a.action} at {stageByKey(wf, "personal_loan", a.stage)?.label ?? a.stage}
+              {a.actorRole ? ` by ${a.actorRole}` : ""}
+              {a.remarks ? ` — ${a.remarks}` : ""}
+            </Txt>
+          ))}
+        </Card>
+      ) : null}
       {l.penalCycleCount > 0 ? (
         <WarningBanner>
           Penal interest applied {l.penalCycleCount} time(s) — {inr(l.totalPenalInterestCharged)} added at {l.penalInterestRate}% p.a.

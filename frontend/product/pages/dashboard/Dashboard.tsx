@@ -8,7 +8,8 @@ import { useCustomers } from "@/product/pages/customers/store/CustomersProvider"
 import { useLoans } from "@/product/pages/loans/store/LoansProvider";
 import { useGoldRates } from "@/product/pages/gold-rates/store/GoldRatesProvider";
 import { useModal } from "@/product/components/Modal";
-import { useAuth } from "@/product/providers/auth-context";
+import { useAuth, useApprovalWorkflow } from "@/product/providers/auth-context";
+import { stageLabel } from "@/product/services/approvalWorkflowService";
 import { fmt } from "@/product/utils/format";
 import { Icon } from "@/product/components/Icon";
 import { RateModalContent } from "@/product/components/modals/RateModal";
@@ -98,6 +99,7 @@ export function Dashboard() {
   const { refresh: refreshCustomers } = useCustomers();
   const { loans } = useLoans();
   const { can } = useAuth();
+  const { config: workflow } = useApprovalWorkflow();
   // Gated on the real permission (not a hardcoded role check) — the backend
   // already 403s a POST /loans without "can create loan", hide the button
   // rather than let a user click into a form that can only ever fail.
@@ -292,10 +294,32 @@ export function Dashboard() {
                 )}
                 {needsAttentionPageItems.map((item) => {
                   if (item.kind === "approval") {
+                    // The stage LABEL from this business's workflow config
+                    // (the row carries the raw stored pending value), and a
+                    // route per flow.
+                    const stage = stageLabel(workflow, item.flow, item.approvalStage);
+                    if (item.flow === "expense") {
+                      return (
+                        <li key={"appr-exp-" + item.entityId}>
+                          <span className="ic"><Icon name="stamp" /></span>
+                          <span className="tx"><b>Expense approval — {item.detail || "Expense"}</b><small>{item.customerName} · {fmt(item.principal)}</small></span>
+                          <span className="rt"><a className="btn sm" href={routeHref("cash")}>Review</a></span>
+                        </li>
+                      );
+                    }
+                    if (item.flow === "personal_loan") {
+                      return (
+                        <li key={"appr-pl-" + item.entityId}>
+                          <span className="ic"><Icon name="stamp" /></span>
+                          <span className="tx"><b>Personal loan approval — {item.loanNumber}</b><small>{item.customerName} · {fmt(item.principal)} · at {stage} stage</small></span>
+                          <span className="rt"><a className="btn sm" href={routeHref(`personalloan/${item.entityId}`)}>Review</a></span>
+                        </li>
+                      );
+                    }
                     return (
-                      <li key={"appr-" + item.loanId}>
+                      <li key={`appr-${item.flow}-${item.entityId}`}>
                         <span className="ic"><Icon name="stamp" /></span>
-                        <span className="tx"><b>Loan approval — {item.loanNumber}</b><small>{item.customerName} · {fmt(item.principal)} · at {item.approvalStage} stage</small></span>
+                        <span className="tx"><b>{item.flow === "loan_topup" ? "Top-up approval" : "Loan approval"} — {item.loanNumber}</b><small>{item.customerName} · {fmt(item.principal)} · at {stage} stage</small></span>
                         <span className="rt"><a className="btn sm" href={routeHref(`loan/${item.loanNumber}`)}>Review</a></span>
                       </li>
                     );
@@ -303,7 +327,7 @@ export function Dashboard() {
                   if (item.kind === "request") {
                     return (
                       <li key={"req-" + item.requestId}>
-                        <span className="ic"><Icon name={item.requestType === "Extension" ? "clock" : "unlock"} /></span>
+                        <span className="ic"><Icon name={item.requestType === "Extension" ? "clock" : item.requestType === "Release" ? "unlock" : "edit"} /></span>
                         <span className="tx"><b>{item.requestType} request — {item.loanNumber}</b><small>{item.customerName} · {item.detail}</small></span>
                         <span className="rt"><a className="btn sm ghost" href={routeHref("requests")}>Open</a></span>
                       </li>

@@ -88,20 +88,30 @@ func (s *Service) GetNeedsAttention(ctx context.Context, page int, branchScope *
 		return nil, err
 	}
 
+	otherApprovals, err := s.pendingOtherApprovals(ctx, branchScope, f.Query)
+	if err != nil {
+		return nil, err
+	}
+
 	include := func(kind string) bool { return f.Kind == "" || f.Kind == kind }
-	items := make([]NeedsAttentionItem, 0, len(approvals)+len(requests)+len(auctions))
+	items := make([]NeedsAttentionItem, 0, len(approvals)+len(otherApprovals)+len(requests)+len(auctions))
 	for _, l := range approvals {
 		if !include(NeedsAttentionKindApprovals) {
 			break
 		}
 		items = append(items, NeedsAttentionItem{
 			Kind:          "approval",
+			Flow:          "loan_sanction",
+			EntityID:      l.ID,
 			LoanID:        l.ID,
 			LoanNumber:    l.LoanNumber,
 			CustomerName:  l.Customer.Name,
 			Principal:     l.PrincipalAmount,
 			ApprovalStage: l.ApprovalStage,
 		})
+	}
+	if include(NeedsAttentionKindApprovals) {
+		items = append(items, otherApprovals...)
 	}
 	for _, r := range requests {
 		if !include(NeedsAttentionKindRequests) {
@@ -147,7 +157,7 @@ func (s *Service) GetNeedsAttention(ctx context.Context, page int, branchScope *
 	return &NeedsAttentionResult{
 		Items:          items[start:end],
 		TotalCount:     total,
-		ApprovalsCount: len(approvals),
+		ApprovalsCount: len(approvals) + len(otherApprovals),
 		RequestsCount:  len(requests),
 		AuctionsCount:  len(auctions),
 	}, nil

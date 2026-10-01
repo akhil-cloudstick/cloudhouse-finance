@@ -1,7 +1,11 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { useAuth } from "@/product/providers/auth-context";
+import { useAuth, useApprovalWorkflow } from "@/product/providers/auth-context";
+import { useToast } from "@/product/components/Toast";
+import { StageTracker } from "@/product/components/ui/StageTracker";
+import { RejectRemarksModalContent } from "@/product/components/modals/RejectRemarksModal";
+import { canActAtStage, chainFor, isFinalStage, nextStage, stageByPending, trackerLabels } from "@/product/services/approvalWorkflowService";
 import { useModal } from "@/product/components/Modal";
 import { useDropdownMenu } from "@/product/hooks/useDropdownMenu";
 import { Icon } from "@/product/components/Icon";
@@ -15,6 +19,9 @@ import {
   getPersonalLoanHistoryPage,
   listPersonalLoanPaymentsPage,
   downloadPersonalLoanBond,
+  approvePersonalLoan,
+  listPersonalLoanApprovals,
+  type PersonalLoanApprovalRecord,
   PERSONAL_LOAN_PAGE_SIZE,
   type BackendPersonalLoan,
   type BackendPersonalLoanInstallment,
@@ -84,6 +91,9 @@ export function PersonalLoanDetail({ id }: { id?: string }) {
   const { can } = useAuth();
   const { openModal, closeModal } = useModal();
   const canUpdate = can("Personal_Loan_Management", "can_update_personal_loan");
+  const toast = useToast();
+  // Which personal-loan approval stages apply is per-business configuration.
+  const { config: workflow } = useApprovalWorkflow();
   // Download Bond + Renew Loan used to be two separate header buttons —
   // collapsed into one "Loan Actions" dropdown, same shape as gold loan's
   // LoanDetail.tsx (LoanActions/Documents menus, both built on this hook).
@@ -100,6 +110,10 @@ export function PersonalLoanDetail({ id }: { id?: string }) {
   const [error, setError] = useState("");
   const [downloadingBond, setDownloadingBond] = useState(false);
   const [downloadError, setDownloadError] = useState("");
+  const [deciding, setDeciding] = useState(false);
+  // The approval chain's audit trail — only fetched for a loan that is (or
+  // was) in the chain, to show who rejected it and why.
+  const [approvals, setApprovals] = useState<PersonalLoanApprovalRecord[]>([]);
 
   const numericId = Number(id);
 
@@ -117,6 +131,11 @@ export function PersonalLoanDetail({ id }: { id?: string }) {
   }, [numericId]);
 
   useEffect(() => { void refreshLoan(); }, [refreshLoan]);
+
+  useEffect(() => {
+    if (!loan || (loan.status !== "Pending Approval" && loan.status !== "Rejected")) return;
+    listPersonalLoanApprovals(loan.id).then(setApprovals).catch(() => setApprovals([]));
+  }, [loan?.id, loan?.status, loan?.approvalStage]);
 
   const [scheduleTab, setScheduleTab] = useState<"schedule" | "history">("schedule");
 
@@ -160,6 +179,42 @@ export function PersonalLoanDetail({ id }: { id?: string }) {
 
   const customerName = loan.customer?.name || loan.customer?.code || "";
 
+  // Approval chain (personal_loan flow) — a loan parked on a stage that has
+  // since been switched off still resolves here and stays on the tracker.
+  const pendingApproval = loan.status === "Pending Approval";
+  const approvalStageView = pendingApproval ? stageByPending(workflow, "personal_loan", loan.approvalStage) : null;
+  const approvalChain = pendingApproval ? chainFor(workflow, "personal_loan", loan.approvalStage) : [];
+  const approvalIndex = approvalStageView ? approvalChain.findIndex((s) => s.key === approvalStageView.key) : approvalChain.length;
+  const canActOnApproval = canUpdate && canActAtStage(can, approvalStageView);
+  const approvalIsFinal = !!approvalStageView && isFinalStage(workflow, "personal_loan", approvalStageView.key);
+  const lastRejection = loan.status === "Rejected" ? [...approvals].reverse().find((a) => a.action === "Rejected") : undefined;
+
+  async function decide(action: "Approved" | "Rejected", remarks = "") {
+    if (!loan || !approvalStageView) return;
+    setDeciding(true);
+    try {
+      const updated = await approvePersonalLoan(loan.id, { stage: approvalStageView.key, action, remarks: remarks || undefined });
+      const next = nextStage(workflow, "personal_loan", approvalStageView.key);
+      toast(
+        action === "Rejected"
+          ? "Personal loan rejected"
+          : updated.status === "Pending Approval"
+            ? `Approved${next ? ` — sent to ${next.label}` : ""}`
+            : `Approved — ${fmt(updated.disbursedAmount)} disbursed to the customer`
+      );
+      setLoan(updated);
+      schedule.reload();
+      history.reload();
+      payments.reload();
+    } catch (e) {
+      toast(e instanceof ApiError ? e.message : "Could not record the decision — try again");
+      // Rethrown so the reject prompt keeps itself open with the message.
+      if (action === "Rejected") throw e;
+    } finally {
+      setDeciding(false);
+    }
+  }
+
   return (
     <>
       <div className="page-h">
@@ -167,6 +222,22 @@ export function PersonalLoanDetail({ id }: { id?: string }) {
           <h1>Loan {loan.loanNumber}{customerName ? ` · ${customerName}` : ""}</h1>
         </div>
         <div className="sp" />
+        {pendingApproval && approvalStageView && (canActOnApproval ? (
+          <>
+            <button className="btn" disabled={deciding} onClick={() => decide("Approved")}>
+              <Icon name="check" /> {approvalIsFinal ? "Approve & Disburse" : "Approve"}
+            </button>
+            <button
+              className="btn danger"
+              disabled={deciding}
+              onClick={() => openModal(<RejectRemarksModalContent title={`Reject ${loan.loanNumber}`} required onConfirm={(remarks) => decide("Rejected", remarks)} />)}
+            >
+              Reject
+            </button>
+          </>
+        ) : (
+          <span style={{ color: "var(--muted)", fontSize: 13 }}>Awaiting {approvalStageView.role} approval</span>
+        ))}
         {canUpdate && (loan.status === "Active" || loan.status === "Pending") && (
           <button className="btn" onClick={openCollect}>+ Collect</button>
         )}
@@ -211,6 +282,23 @@ export function PersonalLoanDetail({ id }: { id?: string }) {
       </div>
       {downloadError && <div className="notice" style={{ marginBottom: 12 }}>{downloadError}</div>}
       <hr className="gold-rule" />
+
+      {pendingApproval && approvalChain.length > 0 && (
+        <div className="card" style={{ marginBottom: 14 }}>
+          <div className="bd">
+            <StageTracker stages={trackerLabels(workflow, "personal_loan", approvalChain)} currentIndex={approvalIndex} />
+            <p className="ccheck-hint" style={{ marginTop: 10 }}>
+              Nothing is disbursed and no schedule is created until the final stage approves this loan.
+            </p>
+          </div>
+        </div>
+      )}
+      {loan.status === "Rejected" && (
+        <div className="notice" style={{ marginBottom: 14, color: "var(--red)" }}>
+          <Icon name="shield" /> Rejected{lastRejection ? ` by ${lastRejection.actorRole} on ${lastRejection.createdAt.slice(0, 10)}` : ""}
+          {lastRejection?.remarks ? ` — ${lastRejection.remarks}` : ""}. This loan was never disbursed.
+        </div>
+      )}
 
       <div className="kpis-strip" style={{ marginBottom: 16 }}>
         <div className="kpis-strip-item"><span className="l">Created</span><span className="v">{loan.openedDate.slice(0, 10)}</span></div>

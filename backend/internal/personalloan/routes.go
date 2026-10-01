@@ -23,4 +23,7 @@ func RegisterRoutes(rg *gin.RouterGroup, h *Handler, perms platform.CRUDMiddlewa
 	rg.POST("/:id/payments", perms.Update, h.RecordPayment)
 	rg.POST("/:id/renewal-preview", perms.Update, h.RenewalPreview)
 	rg.POST("/:id/renew", perms.Update, h.Renew)
+	// Stage permission (workflow.FlowPersonalLoan) is checked in the service.
+	rg.POST("/:id/approve", perms.Update, h.Approve)
+	rg.GET("/:id/approvals", perms.Read, h.Approvals)
 }

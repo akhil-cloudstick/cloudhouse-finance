@@ -19,6 +19,12 @@ type NeedsAttentionItem struct {
 	// approval only.
 	Principal     float64 `json:"principal,omitempty"`
 	ApprovalStage string  `json:"approvalStage,omitempty"`
+	// Flow is the workflow.Flow* key of the approval — "loan_sanction" for
+	// a gold loan, or "loan_topup" / "personal_loan" / "expense" for the
+	// other items waiting on an approver. EntityID is that item's own id
+	// (the top-up, personal loan or expense); LoanID stays the gold loan's.
+	Flow     string `json:"flow,omitempty"`
+	EntityID uint   `json:"entityId,omitempty"`
 
 	// request only.
 	RequestID   uint   `json:"requestId,omitempty"`

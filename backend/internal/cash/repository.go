@@ -401,7 +401,7 @@ func (r *ExpenseRepository) SumCashByDate(ctx context.Context, branchID *uint, d
 func (r *ExpenseRepository) SumCashBetween(ctx context.Context, branchID *uint, excludeBranchIDs []uint, from, to time.Time) (float64, error) {
 	q := r.db.WithContext(ctx).Model(&Expense{}).
 		Where("mode = ?", "Cash").
-		Where("status <> ?", "Rejected").
+		Where("status = ?", "Approved").
 		Where("occurred_on < ?", to)
 	if !from.IsZero() {
 		q = q.Where("occurred_on >= ?", from)
@@ -419,13 +419,13 @@ func (r *ExpenseRepository) SumCashBetween(ctx context.Context, branchID *uint, 
 	return total, nil
 }
 
-// SumAllByDate sums every non-rejected expense amount (any Mode) for the
+// SumAllByDate sums every approved (posted) expense amount (any Mode) for the
 // given day (and branch, if provided) — the all-modes total shown next to
 // SumCashByDate's Cash-only figure so the frontend can display both without
 // having to re-derive one from the unscoped expense list.
 func (r *ExpenseRepository) SumAllByDate(ctx context.Context, branchID *uint, date time.Time) (float64, error) {
 	q := r.db.WithContext(ctx).Model(&Expense{}).
-		Where("status <> ?", "Rejected").
+		Where("status = ?", "Approved").
 		Where("occurred_on >= ? AND occurred_on < ?", startOfDay(date), startOfDay(date).AddDate(0, 0, 1))
 	if branchID != nil {
 		q = q.Where("branch_id = ?", *branchID)

@@ -230,6 +230,8 @@ func (s *Service) personalLoansAdvanced(ctx context.Context, f Filter, from, to 
 	q := s.db.WithContext(ctx).Table("personal_loans").
 		Select("COUNT(DISTINCT customer_id) as persons, COALESCE(SUM(principal_amount),0) as amount").
 		Where("opened_date >= ? AND opened_date < ?", from, to).
+		// A loan still awaiting (or refused) approval never disbursed anything.
+		Where("status NOT IN ?", []string{"Pending Approval", "Rejected"}).
 		Where("deleted_at IS NULL")
 	if f.BranchID != nil {
 		q = q.Where("branch_id = ?", *f.BranchID)
@@ -382,6 +384,7 @@ func (s *Service) loanSpansForMaxOutstanding(ctx context.Context, f Filter, from
 		Select("opened_date, principal_amount, status, closed_at").
 		Where("opened_date < ?", to).
 		Where("status <> ? OR closed_at IS NULL OR closed_at >= ?", "Closed", from).
+		Where("status NOT IN ?", []string{"Pending Approval", "Rejected"}).
 		Where("deleted_at IS NULL")
 	if f.BranchID != nil {
 		pq = pq.Where("branch_id = ?", *f.BranchID)

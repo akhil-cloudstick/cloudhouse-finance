@@ -777,7 +777,13 @@ export async function recordPurityTest(ornamentId: number, input: PurityTestInpu
   });
 }
 
-/* The 3-stage loan sanction chain: a loan is made by a Loan Operator,
+/* FALLBACK ONLY — which sanction stages actually apply is now per-business
+ * configuration (GET /approval-workflow, flow "loan_sanction"; read it via
+ * useApprovalWorkflow() + approvalWorkflowService's chainFor/isFinalStage).
+ * These constants describe the full catalogue chain and are kept for type
+ * names and the few call sites that just need the canonical keys.
+ *
+ * The 3-stage loan sanction chain: a loan is made by a Loan Operator,
  * verified by the Loan Operator, approved by the Branch Manager, then
  * finally sanctioned by Management. `role` must match the stage's required
  * role below — except "Administrator", which may act at whichever stage is
@@ -826,12 +832,13 @@ export async function listLoanApprovals(loanId: number): Promise<ApprovalStageRe
 // like an "Approved" action does at the two stages above it. It is not
 // valid at any other stage (backend: Service.Approve).
 export type ApprovalInput = {
-  stage: SanctionStage;
+  stage: SanctionStage | string;
   action: "Approved" | "Rejected" | "Verified";
   remarks?: string;
   // Only meaningful (and only validated server-side) when this call is the
-  // one that clears FinalSanction and triggers disbursement — must sum to
-  // the loan's principal amount.
+  // one that clears the FINAL enabled sanction stage (FinalSanction by
+  // default, but whichever stage is last in this business's configured
+  // chain) and triggers disbursement — must sum to the principal amount.
   cashAmount?: number;
   upiAmount?: number;
   bankTransferAmount?: number;
@@ -946,6 +953,10 @@ export type TopUpInput = {
   settleInterest?: "require" | "deduct";
 };
 
+/* When the business has the loan_topup approval flow switched on, this
+ * returns the loan UNCHANGED and parks a "Pending" top-up row in the chain
+ * instead (see listTopUps/approveTopUp below) — nothing is paid out until its
+ * final stage approves it. Only one pending top-up per loan (409 otherwise). */
 export async function topUpLoan(loanId: number, input: TopUpInput): Promise<LoanView> {
   const rec = await apiFetch<BackendLoan>(`/loans/${loanId}/topup`, {
     method: "POST",
@@ -964,12 +975,31 @@ export type LoanTopUpView = {
   chequeAmount: number;
   occurredOn: string;
   reference: string;
-  status: "Active" | "Reversed";
+  // Pending = waiting in the loan_topup approval chain (nothing paid out
+  // yet); Rejected = turned down there. Only Active rows are real
+  // disbursements.
+  status: "Active" | "Reversed" | "Pending" | "Rejected";
+  // The pending stage value while Pending ("PendingBranchManager", …),
+  // "Approved"/"Rejected" once decided, "" when paid out with no chain.
+  approvalStage: string;
+  settleInterest: string;
   createdAt: string;
 };
 
 export async function listTopUps(loanId: number): Promise<LoanTopUpView[]> {
   return (await apiFetch<LoanTopUpView[]>(`/loans/${loanId}/topups`)) || [];
+}
+
+/* One decision on a pending top-up — stage is the stage KEY
+ * ("BranchManager"/"Management"). The final enabled stage pays it out. The
+ * acting employee/role come from the JWT. */
+export type TopUpApprovalInput = { stage: string; action: "Approved" | "Rejected"; remarks?: string };
+
+export async function approveTopUp(topUpId: number, input: TopUpApprovalInput): Promise<LoanTopUpView> {
+  return apiFetch<LoanTopUpView>(`/loans/topups/${topUpId}/approve`, {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
 }
 
 export type BankPledgeInput = {
@@ -1495,10 +1525,13 @@ export type BackendLoanRequest = {
   id: number;
   loanId: number;
   loan?: BackendLoan;
-  type: "Extension" | "Release";
+  type: LoanRequestType;
   status: "Pending" | "Approved" | "Rejected";
   requestedBy: "Customer" | "Staff";
   detail: string;
+  // Waiver/Adjustment only — how much to forgive (Waiver: interest + penal)
+  // or write off the principal (Adjustment). detail carries the reason.
+  amount?: number;
   requestedExtensionMonths?: number | null;
   newDueDate?: string | null;
   // Release only — the same Manager→Management chain used for loan
@@ -1540,15 +1573,20 @@ export type BackendLoanRequest = {
   createdAt: string;
 };
 
+/* Waiver/Adjustment requests (the loan_waiver approval flow) share the
+ * requests table and endpoints with Extension/Release. */
+export type LoanRequestType = "Extension" | "Release" | "Waiver" | "Adjustment";
+
 export type RequestView = {
   id: number;
   loanId: string; // loanNumber, matches LoanView.id
   loanNumericId: number; // raw backend loan id, needed to fetch full loan financials
   loanNumber: string;
   customerName: string;
-  type: "Extension" | "Release";
+  type: LoanRequestType;
   status: "Pending" | "Approved" | "Rejected";
   detail: string;
+  amount: number;
   requestedAt: string; // "YYYY-MM-DD"
   remarks: string;
   requestedExtensionMonths: number | null;
@@ -1579,6 +1617,7 @@ function toRequestView(r: BackendLoanRequest): RequestView {
     type: r.type,
     status: r.status,
     detail: r.detail,
+    amount: r.amount ?? 0,
     requestedAt: r.requestedAt ? r.requestedAt.slice(0, 10) : "",
     remarks: r.remarks,
     requestedExtensionMonths: r.requestedExtensionMonths ?? null,
@@ -1783,7 +1822,9 @@ export async function recordReleasePayment(requestId: number, input: ReleasePaym
 }
 
 // employeeId is NOT sent — see platform.ActorFromContext's doc comment.
-export type ReleaseApprovalInput = { stage: "Manager" | "Management"; action: "Approved" | "Rejected"; remarks?: string };
+// stage is the release flow's stage KEY ("Manager"/"Management") — which of
+// them apply is per-business configuration (flow "loan_release").
+export type ReleaseApprovalInput = { stage: string; action: "Approved" | "Rejected"; remarks?: string };
 
 export async function approveReleaseRequest(requestId: number, input: ReleaseApprovalInput): Promise<RequestView> {
   const rec = await apiFetch<BackendLoanRequest>(`/loans/requests/${requestId}/approve`, {
@@ -1802,9 +1843,41 @@ export async function approveReleaseRequest(requestId: number, input: ReleaseApp
  * against each stage's required role, Administrator bypasses); employeeId/
  * role are still not sent from here — the backend derives both from the
  * JWT (platform.ActorFromContext). */
-export type ExtensionApprovalInput = { stage: "LoanOfficer" | "BranchManager" | "Management"; action: "Approved" | "Rejected"; remarks?: string };
+// stage is the extension flow's stage KEY ("LoanOfficer"/"BranchManager"/
+// "Management") — which of them apply is per-business configuration (flow
+// "loan_extension").
+export type ExtensionApprovalInput = { stage: string; action: "Approved" | "Rejected"; remarks?: string };
 
 export async function approveExtensionRequest(requestId: number, input: ExtensionApprovalInput): Promise<RequestView> {
+  const rec = await apiFetch<BackendLoanRequest>(`/loans/requests/${requestId}/approve`, {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+  return toRequestView(rec);
+}
+
+/* --- Waiver / adjustment requests ----------------------------------------
+ * A Waiver forgives outstanding interest + penal interest (amount ≤ that
+ * total); an Adjustment writes down principal (amount ≤ principal
+ * outstanding). Goes through the loan_waiver approval chain (Branch Manager
+ * -> Management by default); with that flow switched off the request comes
+ * back already "Approved" and posted to the loan. */
+export type WaiverRequestInput = { type: "Waiver" | "Adjustment"; amount: number; reason: string };
+
+export async function createWaiverRequest(loanId: number, input: WaiverRequestInput): Promise<RequestView> {
+  const rec = await apiFetch<BackendLoanRequest>(`/loans/${loanId}/waiver-request`, {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+  return toRequestView(rec);
+}
+
+// Same generalized approve endpoint as Extension/Release — the backend
+// dispatches on the request's own Type. stage is the stage KEY
+// ("BranchManager"/"Management").
+export type WaiverApprovalInput = { stage: string; action: "Approved" | "Rejected"; remarks?: string };
+
+export async function approveWaiverRequest(requestId: number, input: WaiverApprovalInput): Promise<RequestView> {
   const rec = await apiFetch<BackendLoanRequest>(`/loans/requests/${requestId}/approve`, {
     method: "POST",
     body: JSON.stringify(input),

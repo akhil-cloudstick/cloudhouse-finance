@@ -18,6 +18,8 @@ const STATUS_OPTIONS = [
 ];
 import { ReleaseReviewModalContent } from "@/product/components/modals/ReleaseReviewModal";
 import { ExtensionReviewModalContent } from "@/product/components/modals/ExtensionReviewModal";
+import { WaiverReviewModalContent } from "@/product/components/modals/WaiverReviewModal";
+import { fmt } from "@/product/utils/format";
 import { routeHref } from "@/product/services/appRoutes";
 
 /* Real "Extensions & Release" review page — staff approve/reject the
@@ -28,7 +30,12 @@ import { routeHref } from "@/product/services/appRoutes";
  * Review/View modal below — see ExtensionReviewModal.tsx / ReleaseReviewModal.tsx
  * and backend/internal/loan/service.go's ApproveExtensionRequest /
  * ApproveReleaseRequest. Approving the final stage pushes the loan's due
- * date out (Extension) or moves it to "Closure Requested" (Release). */
+ * date out (Extension) or moves it to "Closure Requested" (Release).
+ * Waiver/Adjustment requests (the loan_waiver flow, raised from LoanDetail's
+ * Loan Actions menu) are listed here too and reviewed in
+ * WaiverReviewModal.tsx; their final stage posts the amount to the loan.
+ * Which stages each chain has is per-business configuration (Roles &
+ * Permissions → Approval Workflow). */
 export function Requests() {
   const { openModal } = useModal();
   const { refresh: refreshLoans } = useLoans();
@@ -125,12 +132,12 @@ export function Requests() {
               {loading ? (
                 <tr><td colSpan={8} className="empty">Loading requests…</td></tr>
               ) : reqs.length === 0 ? (
-                <tr><td colSpan={8} className="empty">No extension or release requests yet.</td></tr>
+                <tr><td colSpan={8} className="empty">No extension, release or waiver requests yet.</td></tr>
               ) : reqs.map((r) => (
                 <tr key={r.id}>
                   <td><span className="id">#{r.id}</span></td>
                   <td>
-                    <span className={`chip ${r.type === "Extension" ? "info" : "brand"}`}>{r.type}</span>
+                    <span className={`chip ${r.type === "Extension" ? "info" : r.type === "Release" ? "brand" : "amber"}`}>{r.type}</span>
                     {/* Only meaningful for Release — flags at a glance which
                         rows hand back every ornament vs. only some, since
                         the review chain and CompleteRelease behave
@@ -142,7 +149,7 @@ export function Requests() {
                   </td>
                   <td><a href={routeHref(`loan/${r.loanNumber}`)}>{r.loanNumber}</a></td>
                   <td>{r.customerName}</td>
-                  <td>{r.detail}</td>
+                  <td>{r.type === "Waiver" || r.type === "Adjustment" ? `${fmt(r.amount)} — ${r.detail}` : r.detail}</td>
                   <td>{r.requestedAt}</td>
                   <td>
                     <StatusChip status={r.status} />
@@ -167,7 +174,9 @@ export function Requests() {
                         onClick={() => openModal(
                           r.type === "Extension"
                             ? <ExtensionReviewModalContent request={r} onSaved={refreshAfterSave} />
-                            : <ReleaseReviewModalContent request={r} onSaved={refreshAfterSave} />,
+                            : r.type === "Waiver" || r.type === "Adjustment"
+                              ? <WaiverReviewModalContent request={r} onSaved={refreshAfterSave} />
+                              : <ReleaseReviewModalContent request={r} onSaved={refreshAfterSave} />,
                           true
                         )}
                       >

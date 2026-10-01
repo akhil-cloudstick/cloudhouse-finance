@@ -60,7 +60,7 @@ func (s *Service) BalanceSheet(ctx context.Context, f Filter) ([]BalanceSheetRow
 			COALESCE(SUM(CASE WHEN cm.type = 'in' AND cm.mode = 'Cash' THEN cm.amount ELSE 0 END), 0) as total_in,
 			COALESCE(SUM(CASE WHEN cm.type = 'out' AND cm.mode = 'Cash' THEN cm.amount ELSE 0 END), 0) as total_out,
 			(SELECT COALESCE(SUM(e.amount), 0) FROM expenses e
-				WHERE e.branch_id = ocb.branch_id AND e.mode = 'Cash' AND e.status <> 'Rejected'
+				WHERE e.branch_id = ocb.branch_id AND e.mode = 'Cash' AND e.status = 'Approved'
 				AND e.occurred_on >= ocb.balance_date AND e.occurred_on <= ?) as cash_expenses`, asOf).
 		// cm.expense_id IS NULL: an approved expense's cash-out row is already
 		// counted by the cash_expenses subquery above.

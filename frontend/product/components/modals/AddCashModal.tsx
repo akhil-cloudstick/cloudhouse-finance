@@ -57,7 +57,7 @@ async function searchSourcesWithGoldSale(q: string, page: number) {
  *
  * The built-in "Gold Sale" source (see GOLD_SALE) swaps in the gold-sale
  * fields — ornament type, cost, branch, remarks — and records a gold sale. */
-export function AddCashModalContent({ onSaved }: { onSaved?: () => void }) {
+export function AddCashModalContent({ onSaved, defaultBranchId }: { onSaved?: () => void; defaultBranchId?: number }) {
   const { closeModal } = useModal();
   const toast = useToast();
   const today = new Date().toISOString().slice(0, 10);
@@ -79,15 +79,18 @@ export function AddCashModalContent({ onSaved }: { onSaved?: () => void }) {
   const [ornamentType, setOrnamentType] = useState("");
   const [costAmount, setCostAmount] = useState("");
   const [remarks, setRemarks] = useState("");
+  // Every cash-in lands in one branch's till — without a branch it never
+  // reaches any branch's Balance in Hand (cash.SummaryService only sums a
+  // branch's own movements), so Branch is required for every source.
+  // Defaults to the branch the Cash page is currently showing.
   const [branches, setBranches] = useState<BranchView[]>([]);
-  const [branchId, setBranchId] = useState<number | "">("");
+  const [branchId, setBranchId] = useState<number | "">(defaultBranchId || "");
   useEffect(() => {
-    if (!isGoldSale || branches.length) return;
     listActiveBranches().then((list) => {
       setBranches(list);
       if (list.length) setBranchId((cur) => cur || list[0].id);
     }).catch(() => setErr("Could not load branches — try again later."));
-  }, [isGoldSale, branches.length]);
+  }, []);
   const sold = +amt || 0;
   const profit = sold > 0 ? sold - (+costAmount || 0) : 0;
 
@@ -142,6 +145,7 @@ export function AddCashModalContent({ onSaved }: { onSaved?: () => void }) {
       setErr("Please select the bank.");
       return;
     }
+    if (!branchId) { setErr("Please select a branch."); return; }
     if (isGoldSale) { await saveGoldSale(); return; }
     const amount = +amt;
     if (!(amount > 0)) { setErr("Please enter a valid cash amount."); return; }
@@ -168,7 +172,7 @@ export function AddCashModalContent({ onSaved }: { onSaved?: () => void }) {
         type: "in", source, mode,
         bank: bankRequired ? bank : isLoan ? loanBankName : undefined,
         bankId: bankRequired ? +bankId : undefined,
-        amount, occurredOn: date, loanSource,
+        amount, branchId, occurredOn: date, loanSource,
       });
       onSaved?.();
       closeModal();
@@ -223,19 +227,19 @@ export function AddCashModalContent({ onSaved }: { onSaved?: () => void }) {
           </div>
         )}
 
-        {isGoldSale && (
-          <div className="frow c2">
+        <div className={isGoldSale ? "frow c2" : "frow"}>
+          {isGoldSale && (
             <div><label className="f">Ornament Type *</label>
               <input className="inp" placeholder="e.g. Chain, Bangle, Studs" value={ornamentType} onChange={(e) => setOrnamentType(e.target.value)} /></div>
-            <div><label className="f">Branch *</label>
-              <Select
-                options={branches.map((b) => ({ value: String(b.id), label: b.name }))}
-                value={branchId ? String(branchId) : ""}
-                onChange={(v) => setBranchId(v ? Number(v) : "")}
-                placeholder="Select branch…"
-              /></div>
-          </div>
-        )}
+          )}
+          <div><label className="f">Branch *</label>
+            <Select
+              options={branches.map((b) => ({ value: String(b.id), label: b.name }))}
+              value={branchId ? String(branchId) : ""}
+              onChange={(v) => setBranchId(v ? Number(v) : "")}
+              placeholder="Select branch…"
+            /></div>
+        </div>
 
         {isLoan && (
           <div style={{ border: "1px dashed var(--line)", borderRadius: 8, padding: 12, marginTop: 4 }}>

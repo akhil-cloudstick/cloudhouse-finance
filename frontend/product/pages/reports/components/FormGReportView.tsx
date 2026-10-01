@@ -131,7 +131,7 @@ export function FormGReportView({ onBack }: { onBack: () => void }) {
        * 150px — its own root otherwise carries a global `.dp-date{width:
        * 230px}` that ignores this wrapper's width, same as ReportView.tsx's
        * own filter row (see that file's comment on the same class). */}
-      <div className="report-filter-row" style={{ display: "flex", flexWrap: "wrap", gap: 50, marginBottom: 18, justifyContent: "flex-end", alignItems: "flex-end" }}>
+      <div className="report-filter-row" style={{ display: "flex", flexWrap: "wrap", gap: 12, marginBottom: 18, justifyContent: "flex-end", alignItems: "flex-end" }}>
         <div style={{ width: 170 }}>
           <label style={{ fontSize: 11.5, color: "var(--muted)", display: "block", marginBottom: 4 }}>Quick Range</label>
           {/* Sets From/To below and resets back to the placeholder — this is

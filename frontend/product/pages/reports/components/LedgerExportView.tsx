@@ -27,7 +27,7 @@ const TRANSACTION_TYPE_OPTIONS = [
   { value: "expenses", label: "Expenses" },
 ];
 
-const PAGE_SIZE = 10;
+const PAGE_SIZE = 15;
 
 function Pager({ page, total, pageSize, onChange }: { page: number; total: number; pageSize: number; onChange: (p: number) => void }) {
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
@@ -155,7 +155,7 @@ export function LedgerExportView({ onBack }: { onBack: () => void }) {
           <Icon name="download" /> {exporting ? "Exporting…" : "Export PDF"}
         </button>
         <button className="btn" disabled={exporting} onClick={() => onDownload("xlsx")}>
-          <Icon name="download" /> {exporting ? "Exporting…" : "Export XL"}
+          <Icon name="download" /> {exporting ? "Exporting…" : "Export Excel"}
         </button>
       </div>
       <hr className="gold-rule" />

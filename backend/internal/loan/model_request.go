@@ -9,6 +9,13 @@ import (
 const (
 	RequestTypeExtension = "Extension"
 	RequestTypeRelease   = "Release"
+	// RequestTypeWaiver/Adjustment are staff requests to forgive owed
+	// interest/penal interest (Waiver) or correct the principal
+	// (Adjustment), posted as the matching non-cash payment type once the
+	// tenant's waiver approval chain (workflow.FlowLoanWaiver) clears them —
+	// see Service.CreateWaiverRequest.
+	RequestTypeWaiver     = "Waiver"
+	RequestTypeAdjustment = "Adjustment"
 
 	RequestStatusPending  = "Pending"
 	RequestStatusApproved = "Approved"
@@ -37,6 +44,10 @@ type LoanRequest struct {
 	Status      string `json:"status" gorm:"not null;size:20"` // "Pending" | "Approved" | "Rejected"
 	RequestedBy string `json:"requestedBy" gorm:"not null;size:20"`
 	Detail      string `json:"detail" gorm:"size:255"`
+
+	// Amount only applies to Type == Waiver/Adjustment: how much to forgive
+	// or correct.
+	Amount float64 `json:"amount" gorm:"type:numeric(16,2);default:0"`
 
 	// RequestedExtensionMonths/NewDueDate only apply to Type == Extension.
 	RequestedExtensionMonths *int       `json:"requestedExtensionMonths,omitempty"`
