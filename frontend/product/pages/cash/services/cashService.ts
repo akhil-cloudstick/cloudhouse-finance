@@ -242,6 +242,9 @@ export type BackendExpense = {
   branchId: number;
   branch?: { id: number; name: string };
   status: "Pending" | "Approved" | "Rejected";
+  // The approval-chain stage a Pending expense waits at (e.g. "R4"); empty
+  // on rows from before the chain was configurable.
+  approvalStage?: string;
   remarks?: string;
   approvedBy?: string;
   approvedAt?: string;
@@ -261,6 +264,7 @@ export type ExpenseView = {
   branch: string;
   branchId: number;
   status: "Pending" | "Approved" | "Rejected";
+  approvalStage?: string;
   remarks?: string;
   img?: string;
 };
@@ -278,6 +282,7 @@ function expenseToView(e: BackendExpense): ExpenseView {
     branch: e.branch?.name || "",
     branchId: e.branchId,
     status: e.status,
+    approvalStage: e.approvalStage,
     remarks: e.remarks,
     img: e.receiptImage,
   };

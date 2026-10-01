@@ -270,6 +270,96 @@ func (s *Service) SetLogo(ctx context.Context, actor *SuperAdminUser, id uint, f
 	return t, nil
 }
 
+// ErrNoSignatureFile / ErrNoSignature / ErrSignatureNotImage back the lender
+// signature endpoints below.
+var (
+	ErrNoSignatureFile   = httpx.NewBadRequest("no signature file provided (expected multipart field \"file\")")
+	ErrNoSignature       = httpx.NewNotFound("no signature for this business")
+	ErrSignatureNotImage = httpx.NewBadRequest("signature must be a PNG, JPEG or WebP image")
+)
+
+// maxSignatureBytes caps the lender signature well below upload.MaxUploadBytes:
+// it is inlined as base64 into every PDF this business renders, so a
+// multi-megabyte photo would slow every print for no visible gain.
+const maxSignatureBytes = 1 << 20 // 1 MB
+
+// SetSignature stores the lender's signature image and points the tenant row
+// at it. Same storage path and same SVG refusal as SetLogo (see its doc
+// comment), plus an image-only check: upload.ValidateBytes also admits PDFs,
+// which cannot be inlined as an <img>.
+func (s *Service) SetSignature(ctx context.Context, actor *SuperAdminUser, id uint, filename string, data []byte, reason string) (*tenant.Tenant, error) {
+	reason = optionalReason(reason)
+	if len(data) == 0 {
+		return nil, ErrNoSignatureFile
+	}
+	if len(data) > maxSignatureBytes {
+		return nil, httpx.NewBadRequest("signature image must be 1 MB or smaller")
+	}
+	switch upload.DetectContentType(data) {
+	case "image/png", "image/jpeg", "image/webp":
+	default:
+		return nil, ErrSignatureNotImage
+	}
+	t, err := s.tenantRepo.FindByID(ctx, id)
+	if err != nil {
+		return nil, ErrBusinessNotFound
+	}
+	if s.files == nil || s.uploadsDir == "" {
+		return nil, httpx.NewBadRequest("file storage is not configured on this server")
+	}
+	url, err := upload.SaveBytesRecorded(platform.WithTenant(ctx, t.ID), s.files, s.uploadsDir, filename, data)
+	if err != nil {
+		return nil, err
+	}
+	before := t.SignatureStorageKey
+	if before == "" {
+		before = "none"
+	}
+	t.SignatureStorageKey = strings.TrimPrefix(url, "/uploads/")
+	if err := s.tenantRepo.Update(ctx, t); err != nil {
+		return nil, err
+	}
+	s.audit(ctx, actor, ActionSetSignature, &t.ID, t.Name,
+		fmt.Sprintf("signature: %s -> %s (%d bytes)", before, t.SignatureStorageKey, len(data)), reason)
+	return t, nil
+}
+
+// Signature returns a business's lender signature bytes for the console's
+// preview. Resolved from the tenant row, never from a caller-supplied key.
+func (s *Service) Signature(ctx context.Context, id uint) ([]byte, string, error) {
+	t, err := s.tenantRepo.FindByID(ctx, id)
+	if err != nil {
+		return nil, "", ErrBusinessNotFound
+	}
+	data, ct, ok := t.SignatureImage(s.uploadsDir)
+	if !ok {
+		return nil, "", ErrNoSignature
+	}
+	return data, ct, nil
+}
+
+// ClearSignature removes the signature pointer. The file stays on disk for
+// the same reason a replaced logo does (see SetLogo).
+func (s *Service) ClearSignature(ctx context.Context, actor *SuperAdminUser, id uint, reason string) (*tenant.Tenant, error) {
+	reason = optionalReason(reason)
+	t, err := s.tenantRepo.FindByID(ctx, id)
+	if err != nil {
+		return nil, ErrBusinessNotFound
+	}
+	if t.SignatureStorageKey == "" {
+		return t, nil
+	}
+	before := t.SignatureStorageKey
+	t.SignatureStorageKey = ""
+	if err := s.tenantRepo.Update(ctx, t); err != nil {
+		return nil, err
+	}
+	t.HasSignature = false
+	s.audit(ctx, actor, ActionSetSignature, &t.ID, t.Name,
+		fmt.Sprintf("signature: %s -> none", before), reason)
+	return t, nil
+}
+
 // SetModules replaces the optional modules a business has been granted.
 //
 // An unknown key is a 400 rather than being silently dropped: the caller is
@@ -299,6 +389,48 @@ func (s *Service) SetModules(ctx context.Context, actor *SuperAdminUser, id uint
 	s.audit(ctx, actor, ActionSetModules, &t.ID, t.Name,
 		fmt.Sprintf("modules: %s -> %s", before, after), reason)
 	return t, nil
+}
+
+// SetBranchMode switches ONE business between single-branch and multi-branch.
+// Only this business's own row changes; no other tenant is affected.
+//
+// Turning single-branch ON is refused while the business has more than one
+// active branch: the mode means "work on the default branch", and with two or
+// more there is no honest answer to which one that is. The vendor deactivates
+// the extras first (or has the business do it), then retries.
+func (s *Service) SetBranchMode(ctx context.Context, actor *SuperAdminUser, id uint, singleBranch bool, reason string) (*tenant.Tenant, error) {
+	reason = optionalReason(reason)
+	t, err := s.tenantRepo.FindByID(ctx, id)
+	if err != nil {
+		return nil, ErrBusinessNotFound
+	}
+	if t.SingleBranch == singleBranch {
+		return t, nil
+	}
+	if singleBranch {
+		active, err := s.tenantRepo.CountActiveBranches(platform.AllowCrossTenant(ctx), t.ID)
+		if err != nil {
+			return nil, err
+		}
+		if active > 1 {
+			return nil, httpx.NewConflict(fmt.Sprintf(
+				"This business has %d active branches. Deactivate all but one before switching it to single-branch.", active))
+		}
+	}
+	t.SingleBranch = singleBranch
+	if err := s.tenantRepo.Update(ctx, t); err != nil {
+		return nil, err
+	}
+	s.audit(ctx, actor, ActionSetBranchMode, &t.ID, t.Name,
+		fmt.Sprintf("branch mode: %s -> %s", branchModeLabel(!singleBranch), branchModeLabel(singleBranch)), reason)
+	return t, nil
+}
+
+func branchModeLabel(single bool) string {
+	if single {
+		return "single"
+	}
+	return "multi"
 }
 
 // outsidePolicy returns the entries of languages that policy has no document

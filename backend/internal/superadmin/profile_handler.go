@@ -146,6 +146,75 @@ func (h *Handler) SetLogo(c *gin.Context) {
 	httpx.Success(c, http.StatusOK, rec)
 }
 
+// SetSignature mirrors SetLogo's multipart shape: file field "file" plus a
+// text field "reason".
+func (h *Handler) SetSignature(c *gin.Context) {
+	id, err := httpx.IDParam(c, "id")
+	if err != nil {
+		httpx.FailErr(c, err)
+		return
+	}
+	fileHeader, err := c.FormFile("file")
+	if err != nil {
+		httpx.FailErr(c, ErrNoSignatureFile)
+		return
+	}
+	if fileHeader.Size > upload.MaxUploadBytes {
+		httpx.FailErr(c, upload.ErrFileTooLarge)
+		return
+	}
+	src, err := fileHeader.Open()
+	if err != nil {
+		httpx.FailErr(c, err)
+		return
+	}
+	defer src.Close()
+	data, err := io.ReadAll(io.LimitReader(src, upload.MaxUploadBytes+1))
+	if err != nil {
+		httpx.FailErr(c, err)
+		return
+	}
+	rec, err := h.svc.SetSignature(platform.RequestContext(c), actor(c), id,
+		fileHeader.Filename, data, c.PostForm("reason"))
+	if err != nil {
+		httpx.FailErr(c, err)
+		return
+	}
+	httpx.Success(c, http.StatusOK, rec)
+}
+
+// GetSignature streams the signature image for the console's preview. The
+// console fetches it with its bearer token into a blob URL — an <img src>
+// pointing here directly would carry no Authorization header.
+func (h *Handler) GetSignature(c *gin.Context) {
+	id, err := httpx.IDParam(c, "id")
+	if err != nil {
+		httpx.FailErr(c, err)
+		return
+	}
+	data, ct, err := h.svc.Signature(platform.RequestContext(c), id)
+	if err != nil {
+		httpx.FailErr(c, err)
+		return
+	}
+	c.Header("Cache-Control", "no-store")
+	c.Data(http.StatusOK, ct, data)
+}
+
+func (h *Handler) ClearSignature(c *gin.Context) {
+	id, err := httpx.IDParam(c, "id")
+	if err != nil {
+		httpx.FailErr(c, err)
+		return
+	}
+	rec, err := h.svc.ClearSignature(platform.RequestContext(c), actor(c), id, c.Query("reason"))
+	if err != nil {
+		httpx.FailErr(c, err)
+		return
+	}
+	httpx.Success(c, http.StatusOK, rec)
+}
+
 type setModulesRequest struct {
 	Modules []string `json:"modules"`
 	Reason  string   `json:"reason"`
@@ -163,6 +232,30 @@ func (h *Handler) SetModules(c *gin.Context) {
 		return
 	}
 	rec, err := h.svc.SetModules(platform.RequestContext(c), actor(c), id, req.Modules, req.Reason)
+	if err != nil {
+		httpx.FailErr(c, err)
+		return
+	}
+	httpx.Success(c, http.StatusOK, rec)
+}
+
+type setBranchModeRequest struct {
+	SingleBranch bool   `json:"singleBranch"`
+	Reason       string `json:"reason"`
+}
+
+func (h *Handler) SetBranchMode(c *gin.Context) {
+	id, err := httpx.IDParam(c, "id")
+	if err != nil {
+		httpx.FailErr(c, err)
+		return
+	}
+	var req setBranchModeRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		httpx.Fail(c, http.StatusBadRequest, "invalid input")
+		return
+	}
+	rec, err := h.svc.SetBranchMode(platform.RequestContext(c), actor(c), id, req.SingleBranch, req.Reason)
 	if err != nil {
 		httpx.FailErr(c, err)
 		return

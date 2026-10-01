@@ -253,6 +253,60 @@ export function HeroHeader({
 // header the moment a direct link is followed, so the old page's header
 // (e.g. the Dashboard hero) never lingers while the new page renders.
 // ---------------------------------------------------------------------------
+// A page opened across tabs (openPage) reveals its tab first: that tab's
+// native stack still shows whatever it was left on (its list) for a frame or
+// two before the destination (e.g. a loan's detail) replaces it, which read
+// as the list loading first and the detail after. NavCover (drawn by the tab
+// bar, over the pages and under the header / bar) hides that gap from the
+// moment the jump starts until the destination has drawn, then fades away.
+type CoverPhase = "off" | "on" | "leaving";
+let coverPhase: CoverPhase = "off";
+let coverTimer: ReturnType<typeof setTimeout> | null = null;
+const coverListeners = new Set<() => void>();
+const coverStore = {
+  get: () => coverPhase,
+  set: (p: CoverPhase) => {
+    if (coverPhase === p) return;
+    coverPhase = p;
+    coverListeners.forEach((l) => l());
+  },
+  subscribe: (l: () => void) => {
+    coverListeners.add(l);
+    return () => {
+      coverListeners.delete(l);
+    };
+  },
+  begin: () => {
+    if (coverTimer) clearTimeout(coverTimer);
+    coverStore.set("on");
+    // Never leave the page covered if the destination fails to report in.
+    coverTimer = setTimeout(coverStore.end, 1500);
+  },
+  /** The destination has taken focus: give its native screen two frames to
+   * draw, then fade the cover away. */
+  end: () => {
+    if (coverTimer) clearTimeout(coverTimer);
+    coverTimer = null;
+    if (coverPhase !== "on") return;
+    requestAnimationFrame(() => requestAnimationFrame(() => coverPhase === "on" && coverStore.set("leaving")));
+  },
+};
+
+function NavCover() {
+  const phase = useSyncExternalStore(coverStore.subscribe, coverStore.get, coverStore.get);
+  const [fade] = useState(() => new Animated.Value(1));
+  useEffect(() => {
+    if (phase === "on") fade.setValue(1);
+    else if (phase === "leaving") {
+      Animated.timing(fade, { toValue: 0, duration: 160, easing: Easing.out(Easing.quad), useNativeDriver: true }).start(({ finished }) => {
+        if (finished) coverStore.set("off");
+      });
+    }
+  }, [phase, fade]);
+  if (phase === "off") return null;
+  return <Animated.View style={[StyleSheet.absoluteFill, { backgroundColor: C.bg, opacity: fade }]} />;
+}
+
 type HeaderEntry = { node: React.ReactNode; focused: boolean; seq: number };
 const headerEntries = new Map<string, HeaderEntry>();
 const headerListeners = new Set<() => void>();
@@ -270,7 +324,10 @@ const headerStore = {
   set: (key: string, node: React.ReactNode, focused: boolean) => {
     const prev = headerEntries.get(key);
     const gained = focused && !prev?.focused;
-    if (gained) headerPending = false;
+    if (gained) {
+      if (headerPending) coverStore.end();
+      headerPending = false;
+    }
     headerEntries.set(key, { node, focused, seq: gained ? ++headerSeq : (prev?.seq ?? 0) });
     publishHeader();
   },
@@ -286,6 +343,7 @@ const headerStore = {
   /** A page switch is under way: blank until the next page takes focus. */
   pending: () => {
     headerPending = true;
+    coverStore.begin();
     publishHeader();
   },
   subscribe: (l: () => void) => {
@@ -345,6 +403,12 @@ export function HeaderHost() {
       headerFade.setValue(0);
       setCurtain({ h: heights.tall, content: heroNode });
       setGrowing(false);
+      // Same reason as growing below: zeroing the fade on the wrapper that's
+      // already mounted can reach the screen a frame BEFORE the curtain that
+      // replaces the hero does — the header blinked out for that frame.
+      // Remounting makes the wrapper arrive already at 0, in the same commit
+      // as the curtain.
+      setGrowKey((k) => k + 1);
     } else if (tall && heights.tall && heights.short) {
       setCurtain(null);
       headerFade.setValue(1);
@@ -601,7 +665,7 @@ export function ActionsBar({
 }) {
   const insets = useSafeAreaInsets();
   return (
-    <View style={[s.ldBar, { bottom: 102 + tabBarLift(insets.bottom) }]} pointerEvents="box-none">
+    <View style={[s.ldBar, { bottom: 116 + tabBarLift(insets.bottom) }]} pointerEvents="box-none">
       {actions.map((a) => {
         const fg = a.primary ? "#fff" : a.tone === "danger" ? C.red : C.brandDeep;
         return (
@@ -659,6 +723,7 @@ const STACK_TABS = new Set([
   "employees",
   "branches",
   "settings",
+  "billing",
 ]);
 
 function parsePath(path: string) {
@@ -821,10 +886,11 @@ export function PTabBar({ state, navigation }: BottomTabBarProps) {
 
   // Hidden while typing: on devices where the window resizes for the
   // keyboard, the bottom-anchored bar would otherwise ride up above it.
-  if (keyboardUp) return null;
+  if (keyboardUp) return <NavCover />;
 
   return (
     <>
+      <NavCover />
       {/* Gradual fade covering the bar's full height plus a strip above it,
           so content eases out before it reaches the bar instead of meeting
           a hard edge. */}

@@ -43,6 +43,8 @@ export type MyBranding = PublicBranding & {
   modules: string[];
   /** Languages this business may issue customer documents in; always has "en". */
   languages: string[];
+  /** Set per business by the vendor: work on the one default branch only. */
+  singleBranch?: boolean;
 };
 
 /* A bare fetch rather than apiFetch: see the module comment. A failure here

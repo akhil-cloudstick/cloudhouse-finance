@@ -908,3 +908,166 @@ func (r *MovementRepository) expenseLedgerByCategory(ctx context.Context, catego
 	}
 	return out, nil
 }
+
+// ListLoanSourceLedger is a loan source's own ledger — backs GET
+// /cash-sources/:id/ledger and, for a loan source's same-named category, GET
+// /expense-categories/:id/ledger. Unlike the other ledgers it reads oldest
+// first with a real running balance: an opening row for the principal, each
+// Add Cash drawn from the loan as a debit (balance down) and each approved
+// repayment expense as a credit (balance back up, never above principal —
+// see MovementService.EnsureLoanRepayment). BankName is the "from" bank:
+// the lending bank for a draw, the paying account for a repayment. The
+// balance always runs over the whole loan; fromDate/toDate only narrow
+// which rows are returned.
+func (s *MovementService) ListLoanSourceLedger(ctx context.Context, src *CashSource, fromDate, toDate time.Time, limit, offset int) ([]LedgerRow, int64, LedgerTotals, error) {
+	rows, err := s.repo.loanSourceLedgerRows(ctx, src)
+	if err != nil {
+		return nil, 0, LedgerTotals{}, err
+	}
+	principal := 0.0
+	if src.PrincipalAmount != nil {
+		principal = *src.PrincipalAmount
+	}
+	opened := src.CreatedAt
+	if src.LoanOpenedAt != nil {
+		opened = *src.LoanOpenedAt
+	}
+	bankName := ""
+	if src.Bank != nil {
+		bankName = src.Bank.Name
+	}
+	all := make([]LedgerRow, 0, len(rows)+1)
+	all = append(all, LedgerRow{
+		Date: opened, Description: "Opening — loan principal", Type: src.Name,
+		Reference: src.LoanNumber, DebitOrCredit: "credit", Amount: principal,
+		RunningBalance: principal, BankID: src.BankID, BankName: bankName,
+	})
+	balance := principal
+	for _, r := range rows {
+		if r.DebitOrCredit == "debit" {
+			balance -= r.Amount
+		} else {
+			balance += r.Amount
+		}
+		r.RunningBalance = balance
+		all = append(all, r)
+	}
+
+	var page []LedgerRow
+	var totals LedgerTotals
+	for _, r := range all {
+		day := r.Date
+		if !fromDate.IsZero() && day.Before(fromDate) {
+			continue
+		}
+		if !toDate.IsZero() && !day.Before(toDate.AddDate(0, 0, 1)) {
+			continue
+		}
+		if r.DebitOrCredit == "debit" {
+			totals.TotalDebit += r.Amount
+		} else {
+			totals.TotalCredit += r.Amount
+		}
+		page = append(page, r)
+	}
+	total := int64(len(page))
+	if offset > len(page) {
+		offset = len(page)
+	}
+	end := len(page)
+	if limit > 0 && offset+limit < end {
+		end = offset + limit
+	}
+	return page[offset:end], total, totals, nil
+}
+
+// loanSourceLedgerRows reads a loan source's draws (cash-in movements under
+// its name) and approved repayments (expenses in its same-named category)
+// since it was opened, oldest first.
+func (r *MovementRepository) loanSourceLedgerRows(ctx context.Context, src *CashSource) ([]LedgerRow, error) {
+	since := src.CreatedAt
+	if src.LoanOpenedAt != nil {
+		since = *src.LoanOpenedAt
+	}
+	lendingBank := ""
+	if src.Bank != nil {
+		lendingBank = src.Bank.Name
+	}
+
+	type draw struct {
+		ID         uint
+		OccurredOn time.Time
+		CreatedAt  time.Time
+		Mode       string
+		Amount     float64
+		ToBank     string
+	}
+	var draws []draw
+	if err := r.db.WithContext(ctx).Table("cash_movements m").
+		Select("m.id, m.occurred_on, m.created_at, m.mode, m.amount, COALESCE(b.name, '') AS to_bank").
+		Joins("LEFT JOIN banks b ON b.id = m.bank_id").
+		Where("m.type = ? AND m.source ILIKE ? AND m.created_at >= ?", "in", src.Name, since).
+		Scan(&draws).Error; err != nil {
+		return nil, err
+	}
+
+	type repayment struct {
+		ID         uint
+		OccurredOn time.Time
+		CreatedAt  time.Time
+		Mode       string
+		Amount     float64
+		Payee      string
+		Remarks    string
+		FromBankID *uint
+		FromBank   string
+	}
+	var repays []repayment
+	if err := r.db.WithContext(ctx).Table("expenses e").
+		Select("e.id, e.occurred_on, e.created_at, e.mode, e.amount, e.payee, e.remarks, e.from_bank_id, COALESCE(b.name, '') AS from_bank").
+		Joins("LEFT JOIN banks b ON b.id = e.from_bank_id").
+		Where("e.category ILIKE ? AND e.status = ? AND e.created_at >= ?", src.Name, "Approved", since).
+		Scan(&repays).Error; err != nil {
+		return nil, err
+	}
+
+	type keyed struct {
+		row     LedgerRow
+		created time.Time
+	}
+	merged := make([]keyed, 0, len(draws)+len(repays))
+	for _, d := range draws {
+		desc := "Cash drawn from loan"
+		// A UPI/transfer draw names the account it landed in.
+		if d.ToBank != "" && d.ToBank != lendingBank && d.Mode != CashModeCash {
+			desc += " → " + d.ToBank
+		}
+		merged = append(merged, keyed{created: d.CreatedAt, row: LedgerRow{
+			ID: d.ID, Date: d.OccurredOn, Description: desc, Type: src.Name, Method: d.Mode,
+			Reference: src.LoanNumber, DebitOrCredit: "debit", Amount: d.Amount,
+			BankID: src.BankID, BankName: lendingBank,
+		}})
+	}
+	for _, e := range repays {
+		desc := "Repayment — " + e.Payee
+		if e.Remarks != "" {
+			desc += " — " + e.Remarks
+		}
+		merged = append(merged, keyed{created: e.CreatedAt, row: LedgerRow{
+			ID: e.ID, Date: e.OccurredOn, Description: desc, Type: src.Name, Method: e.Mode,
+			Reference: src.LoanNumber, DebitOrCredit: "credit", Amount: e.Amount,
+			BankID: e.FromBankID, BankName: e.FromBank,
+		}})
+	}
+	sort.SliceStable(merged, func(i, j int) bool {
+		if !merged[i].row.Date.Equal(merged[j].row.Date) {
+			return merged[i].row.Date.Before(merged[j].row.Date)
+		}
+		return merged[i].created.Before(merged[j].created)
+	})
+	out := make([]LedgerRow, len(merged))
+	for i := range merged {
+		out[i] = merged[i].row
+	}
+	return out, nil
+}

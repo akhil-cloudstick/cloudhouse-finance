@@ -238,6 +238,17 @@ type Tenant struct {
 	// never reach the file store (see internal/branding and upload/serve.go).
 	LogoStorageKey string `json:"-" gorm:"size:120"`
 
+	// SignatureStorageKey points at the lender's own signature image, an
+	// uploaded_files row owned by THIS tenant, set by the vendor in the
+	// superadmin console. Every server-rendered document with a lender/owner
+	// signature line embeds it — see SignatureImgHTML. Same key-not-URL rule
+	// as LogoStorageKey.
+	SignatureStorageKey string `json:"-" gorm:"size:120"`
+	// HasSignature is the JSON-facing view of SignatureStorageKey, filled by
+	// syncDerived. The console only needs to know one exists; the image itself
+	// is fetched through the authenticated superadmin route.
+	HasSignature bool `json:"hasSignature" gorm:"-"`
+
 	// --- Optional modules and document languages ----------------------------
 
 	// EnabledModules is a comma-separated subset of KnownModules, and
@@ -245,6 +256,13 @@ type Tenant struct {
 	// it on, including for businesses that predate this column. Never parse
 	// it at a call site; read it through HasModule.
 	EnabledModules string `json:"-" gorm:"size:200"`
+
+	// SingleBranch pins THIS business to its default branch (the "Head
+	// Office" created at provisioning). Set per business by the vendor and
+	// never affects any other tenant. While on, Branch Management is hidden
+	// and refused (EffectiveModuleList / Repository.HasModule) and the app's
+	// branch dropdowns lock to the one active branch.
+	SingleBranch bool `json:"singleBranch" gorm:"not null;default:false"`
 
 	// DocumentLanguages is a comma-separated subset of KnownLanguages. English
 	// is always available and cannot be removed, so an empty value still

@@ -56,12 +56,27 @@ export async function getExpenseCategoryLedger(
   page: number,
   range?: { fromDate?: string; toDate?: string },
   pageSize: number = EXPENSE_CATEGORY_LEDGER_PAGE_SIZE
-): Promise<{ items: LedgerRowView[]; total: number; totalDebit: number; totalCredit: number; categoryName: string }> {
+): Promise<{ items: LedgerRowView[]; total: number; totalDebit: number; totalCredit: number; categoryName: string; loan?: LoanLedgerSummary }> {
   const params = new URLSearchParams();
   if (range?.fromDate) params.set("fromDate", range.fromDate);
   if (range?.toDate) params.set("toDate", range.toDate);
   params.set("limit", String(pageSize));
   params.set("offset", String((page - 1) * pageSize));
-  const rec = await apiFetch<{ items: BackendLedgerRow[]; total: number; totalDebit?: number; totalCredit?: number; categoryName: string }>(`/expense-categories/${categoryId}/ledger?${params}`);
-  return { items: (rec?.items || []).map(ledgerRowToView), total: rec?.total ?? 0, totalDebit: rec?.totalDebit ?? 0, totalCredit: rec?.totalCredit ?? 0, categoryName: rec?.categoryName ?? "" };
+  const rec = await apiFetch<{ items: BackendLedgerRow[]; total: number; totalDebit?: number; totalCredit?: number; categoryName: string; loan?: LoanLedgerSummary }>(`/expense-categories/${categoryId}/ledger?${params}`);
+  return { items: (rec?.items || []).map(ledgerRowToView), total: rec?.total ?? 0, totalDebit: rec?.totalDebit ?? 0, totalCredit: rec?.totalCredit ?? 0, categoryName: rec?.categoryName ?? "", loan: rec?.loan };
 }
+
+/* Present when the category is a loan source's repayment category — the
+ * ledger is then the loan's own (backend/internal/cash/ledger.go's
+ * ListLoanSourceLedger): principal opening, draws as debits, repayments as
+ * credits, running balance capped at the principal. */
+export type LoanLedgerSummary = {
+  sourceId: number;
+  name: string;
+  bankName: string;
+  loanNumber: string;
+  principal: number;
+  drawn: number;
+  repaid: number;
+  balance: number;
+};

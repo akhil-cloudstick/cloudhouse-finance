@@ -4,6 +4,7 @@ import * as Print from "expo-print";
 import { API_BASE_URL } from "../api/config";
 import { getToken } from "../auth/tokenStorage";
 import { ApiError } from "../api/client";
+import { withPrintProgress } from "../components/ui/PrintProgress";
 
 // Downloads GET /investments/:id/bond/pdf into the cache dir — same
 // download-to-cache-file pattern as schemeStatement.ts's downloadToCache,
@@ -38,6 +39,6 @@ export async function downloadInvestmentBondPdf(investmentId: number, investment
 // Opens the agreement in the OS's native print-preview dialog — same
 // pattern as schemeStatement.ts's previewSchemeStatementPdf.
 export async function previewInvestmentBondPdf(investmentId: number, investmentNumber: string): Promise<void> {
-  const uri = await downloadToCache(investmentId, investmentNumber);
+  const uri = await withPrintProgress(() => downloadToCache(investmentId, investmentNumber));
   await Print.printAsync({ uri });
 }

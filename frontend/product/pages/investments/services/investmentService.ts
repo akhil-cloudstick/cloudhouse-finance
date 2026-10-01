@@ -1,6 +1,6 @@
 import { apiFetchEnveloped as apiFetch, API_BASE, getAuthToken, ApiError } from "@/product/services/httpClient";
 import type { SplitAmounts } from "@/product/components/ui/SplitPaymentInput";
-import { printPdfBlob } from "@/product/utils/print";
+import { printPdfJob } from "@/product/utils/print";
 
 export type InterestRateType = "Simple" | "Compound";
 /* Daily/Weekly/Quarterly only apply to Engine "Live" plans/investments —
@@ -334,14 +334,12 @@ async function fetchInvestmentStatementPdf(investmentId: number): Promise<Blob> 
  * print dialog — same printPdfBlob flow as loanService.ts's
  * downloadIndemnityBondPDF/downloadReleaseAgreementPDF. */
 export async function printInvestmentBondPdf(investmentId: number): Promise<void> {
-  const blob = await fetchInvestmentBondPdf(investmentId);
-  printPdfBlob(blob);
+  return printPdfJob(() => fetchInvestmentBondPdf(investmentId));
 }
 
 /* Sends the investment's account statement straight to the browser's print
  * dialog — same printPdfBlob flow as printInvestmentBondPdf above. */
 export async function printInvestmentStatementPdf(investmentId: number): Promise<void> {
-  const blob = await fetchInvestmentStatementPdf(investmentId);
-  printPdfBlob(blob);
+  return printPdfJob(() => fetchInvestmentStatementPdf(investmentId));
 }
 

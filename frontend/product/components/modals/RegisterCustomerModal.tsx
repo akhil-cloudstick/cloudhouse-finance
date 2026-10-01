@@ -9,6 +9,7 @@ import { DatePicker } from "@/product/components/ui/DatePicker";
 import { Icon } from "@/product/components/Icon";
 import { createCustomer, uploadFile, type CustomerView } from "@/product/pages/customers/services/customerService";
 import { listActiveBranches, type BranchView } from "@/product/pages/branches/services/branchService";
+import { useBranding } from "@/product/providers/BrandingProvider";
 import { navigate } from "@/product/services/appRoutes";
 
 /* Ported from legacy/app.js's `openCustomerModal()` / `saveCustomer()`. Now
@@ -44,6 +45,8 @@ export function RegisterCustomerModalContent({
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
   const [branches, setBranches] = useState<BranchView[]>([]);
+  // Single-branch business: the one branch is preselected and the picker locked.
+  const { singleBranch } = useBranding();
   const [branchId, setBranchId] = useState<number | "">("");
   const [addr, setAddr] = useState("");
   const [pan, setPan] = useState("");
@@ -152,6 +155,7 @@ export function RegisterCustomerModalContent({
             <Select
               value={branchId === "" ? "" : String(branchId)}
               onChange={(v) => setBranchId(v ? Number(v) : "")}
+              disabled={singleBranch}
               options={branches.map((b) => ({ value: String(b.id), label: b.name }))}
               placeholder="Select branch…"
             />

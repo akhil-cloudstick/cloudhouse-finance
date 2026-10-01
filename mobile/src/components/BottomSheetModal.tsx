@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useEffect, useMemo, useRef, useState } from "react";
+import React, { createContext, useContext, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import {
   Animated,
   BackHandler,
@@ -23,7 +23,33 @@ import { colors } from "../theme/colors";
 import { nextSheetId, sheetStore } from "./SheetHost";
 import { notifyLayoutShift, notifyUserScroll } from "./ui/Popover";
 
-type SheetScrollCtx = { pan: PanGesture; onScroll: (y: number) => void };
+// Whether the sheet itself is being pulled down / sliding shut. While it is,
+// the scroller inside is held still: the list used to keep scrolling under
+// the same finger (and carry on with momentum after the release) while the
+// sheet moved, the two fighting each other as a jitter. A tiny store so only
+// the scrollers re-render when it flips.
+type ScrollLock = { get: () => boolean; set: (v: boolean) => void; subscribe: (l: () => void) => () => void };
+function createScrollLock(): ScrollLock {
+  let locked = false;
+  const listeners = new Set<() => void>();
+  return {
+    get: () => locked,
+    set: (v) => {
+      if (locked === v) return;
+      locked = v;
+      listeners.forEach((l) => l());
+    },
+    subscribe: (l) => {
+      listeners.add(l);
+      return () => {
+        listeners.delete(l);
+      };
+    },
+  };
+}
+const NO_LOCK: ScrollLock = { get: () => false, set: () => {}, subscribe: () => () => {} };
+
+type SheetScrollCtx = { pan: PanGesture; onScroll: (y: number) => void; lock: ScrollLock };
 const SheetScrollContext = createContext<SheetScrollCtx | null>(null);
 
 /** Use for any scrollable content inside a BottomSheetModal: it cooperates with
@@ -32,6 +58,8 @@ const SheetScrollContext = createContext<SheetScrollCtx | null>(null);
 export function SheetScrollView(props: ScrollViewProps) {
   const ctx = useContext(SheetScrollContext);
   const native = useMemo(() => (ctx ? Gesture.Native().simultaneousWithExternalGesture(ctx.pan) : null), [ctx]);
+  const lock = ctx?.lock ?? NO_LOCK;
+  const held = useSyncExternalStore(lock.subscribe, lock.get, lock.get);
   const ref = useRef<ScrollView>(null);
   const offset = useRef(0);
   const viewH = useRef(0);
@@ -73,6 +101,7 @@ export function SheetScrollView(props: ScrollViewProps) {
       scrollEventThrottle={16}
       keyboardDismissMode={Platform.OS === "ios" ? "interactive" : "on-drag"}
       {...props}
+      scrollEnabled={held ? false : props.scrollEnabled}
       onScrollBeginDrag={(e) => {
         notifyUserScroll();
         props.onScrollBeginDrag?.(e);
@@ -155,11 +184,13 @@ export function BottomSheetModal({
   // the slide-out used to start a fresh drag, whose setValue stopped the
   // close mid-way and whose short distance then sprang the sheet back open.
   const closing = useRef(false);
+  const [scrollLock] = useState(createScrollLock);
   const visibleRef = useRef(visible);
   visibleRef.current = visible;
 
   const closeSheet = () => {
     closing.current = true;
+    scrollLock.set(true);
     // No reset to 0 here — that snapped the sheet back on-screen for a frame
     // before it unmounted (the flash). The open effect re-positions it.
     Animated.timing(translateY, { toValue: offscreen(), duration: CLOSE_MS, easing: CLOSE_EASE, useNativeDriver: true }).start(() => {
@@ -170,6 +201,7 @@ export function BottomSheetModal({
       setTimeout(() => {
         if (!visibleRef.current || !closing.current) return;
         closing.current = false;
+        scrollLock.set(false);
         Animated.spring(translateY, { toValue: 0, ...OPEN_SPRING, useNativeDriver: true }).start();
       }, 0);
     });
@@ -209,9 +241,12 @@ export function BottomSheetModal({
           // began.
           if (d <= 0) {
             translateY.setValue(0);
+            scrollLock.set(false);
             if (scrollY.current > 1) dragBase.current = null;
             return;
           }
+          // The sheet is moving: hold the list still under the finger.
+          scrollLock.set(true);
           translateY.setValue(d);
         })
         .onEnd((e) => {
@@ -225,13 +260,17 @@ export function BottomSheetModal({
           } else {
             Animated.spring(translateY, { toValue: 0, useNativeDriver: true, bounciness: 4 }).start();
           }
+        })
+        .onFinalize(() => {
+          // Released or cancelled without closing: the list is free again.
+          if (!closing.current) scrollLock.set(false);
         }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     []
   );
   const scrollCtx = useMemo<SheetScrollCtx>(
-    () => ({ pan: dragGesture, onScroll: (y) => (scrollY.current = y) }),
-    [dragGesture]
+    () => ({ pan: dragGesture, onScroll: (y) => (scrollY.current = y), lock: scrollLock }),
+    [dragGesture, scrollLock]
   );
 
   // Stays mounted after `visible` goes false until the slide-out finishes, so
@@ -258,6 +297,7 @@ export function BottomSheetModal({
     if (visible) {
       setMounted(true);
       closing.current = false;
+      scrollLock.set(false);
       scrollY.current = 0;
       if (mountedRef.current) {
         // Re-opened while still sliding out: reverse from where it is.

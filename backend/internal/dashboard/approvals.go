@@ -73,14 +73,15 @@ func (s *Service) pendingOtherApprovals(ctx context.Context, branchScope *uint, 
 	}
 
 	type expenseRow struct {
-		ID       uint
-		Category string
-		Payee    string
-		Amount   float64
+		ID            uint
+		Category      string
+		Payee         string
+		Amount        float64
+		ApprovalStage string
 	}
 	var expenses []expenseRow
 	eq := s.db.WithContext(ctx).Table("expenses e").
-		Select("e.id, e.category, e.payee, e.amount").
+		Select("e.id, e.category, e.payee, e.amount, e.approval_stage").
 		Where("e.status = ?", "Pending").
 		Order("e.id")
 	if branchScope != nil {
@@ -96,7 +97,7 @@ func (s *Service) pendingOtherApprovals(ctx context.Context, branchScope *uint, 
 		items = append(items, NeedsAttentionItem{
 			Kind: "approval", Flow: "expense", EntityID: r.ID,
 			CustomerName: r.Payee, Detail: r.Category,
-			Principal: r.Amount, ApprovalStage: "Pending",
+			Principal: r.Amount, ApprovalStage: r.ApprovalStage,
 		})
 	}
 	return items, nil

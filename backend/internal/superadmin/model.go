@@ -107,8 +107,10 @@ const (
 	ActionUpdateProfile = "update_profile"
 	ActionSetBranding   = "set_branding"
 	ActionSetLogo       = "set_logo"
+	ActionSetSignature  = "set_signature"
 	ActionSetModules    = "set_modules"
 	ActionSetLanguages  = "set_languages"
+	ActionSetBranchMode = "set_branch_mode"
 	// ActionDeleteBusiness logs a permanent, irreversible business deletion —
 	// every row it owned and its uploaded files, gone. TenantID is left nil
 	// on this entry (see AuditLog.TenantID's doc comment): the tenants row no

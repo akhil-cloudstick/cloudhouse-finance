@@ -9,6 +9,7 @@ import { DatePicker } from "@/product/components/ui/DatePicker";
 import { Icon } from "@/product/components/Icon";
 import { updateCustomer, uploadFile, type CustomerView } from "@/product/pages/customers/services/customerService";
 import { listActiveBranches, type BranchView } from "@/product/pages/branches/services/branchService";
+import { useBranding } from "@/product/providers/BrandingProvider";
 
 /* Edit counterpart to RegisterCustomerModal.tsx's create form, wired to the
  * PUT /api/v1/customers/:id update that already existed in customersApi.ts
@@ -28,6 +29,8 @@ export function EditCustomerModalContent({ customer, onSaved }: { customer: Cust
   const [phone, setPhone] = useState(customer.phone);
   const [dob, setDob] = useState(customer.dob);
   const [branches, setBranches] = useState<BranchView[]>([]);
+  // Single-branch business: the one branch is preselected and the picker locked.
+  const { singleBranch } = useBranding();
   const [branchId, setBranchId] = useState<number | "">(customer.branchId);
   const [addr, setAddr] = useState(customer.address);
   const [pan, setPan] = useState(customer.pan);
@@ -126,6 +129,7 @@ export function EditCustomerModalContent({ customer, onSaved }: { customer: Cust
             <Select
               value={branchId === "" ? "" : String(branchId)}
               onChange={(v) => setBranchId(v ? Number(v) : "")}
+              disabled={singleBranch}
               options={branches.map((b) => ({ value: String(b.id), label: b.name }))}
               placeholder="Select branch…"
             />

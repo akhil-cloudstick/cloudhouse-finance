@@ -1465,6 +1465,11 @@ body {
   object-fit: contain;
   flex-shrink: 0;
 }
+/* Signatures are wide and short; on white, as they will print. */
+.sa-sign-preview {
+  width: 140px;
+  background: #fff;
+}
 
 /* Also previously near-white on white. */
 .sa-empty {

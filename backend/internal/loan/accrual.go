@@ -382,7 +382,7 @@ func (s *Service) enrich(ctx context.Context, l *Loan) {
 	l.TotalPaid = totalPaid
 
 	enrichStatusFlags(l, time.Now())
-	l.ApprovalWarning = sanctionWarning(l)
+	l.ApprovalWarning = s.sanctionWarning(ctx, l)
 }
 
 // refreshServicingStatus recomputes an open loan's Status from whether the

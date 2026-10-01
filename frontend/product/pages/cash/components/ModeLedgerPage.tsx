@@ -10,6 +10,7 @@ import { getModeLedger, downloadLedger, PARTY_PAGE_SIZE, type LedgerMode, type L
 import { Icon } from "@/product/components/Icon";
 import { FooterTotals } from "@/product/components/ui/FooterTotals";
 import { listActiveBranches, type BranchView } from "@/product/pages/branches/services/branchService";
+import { useBranding } from "@/product/providers/BrandingProvider";
 import { searchBanksPage, type BackendBank } from "@/product/pages/banks/services/bankService";
 import { FilterPanel, type FilterCategory, type FilterValue } from "@/product/components/ui/FilterPanel";
 import { routeHref } from "@/product/services/appRoutes";
@@ -50,6 +51,8 @@ export function ModeLedgerPage({ mode }: { mode: LedgerMode }) {
   const [fromDate, setFromDate] = useState("");
   const [toDate, setToDate] = useState("");
   const [branches, setBranches] = useState<BranchView[]>([]);
+  // Single-branch business: no branch filter — every row is its one branch.
+  const { singleBranch } = useBranding();
   const [filters, setFilters] = useState<FilterValue>({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -107,7 +110,7 @@ export function ModeLedgerPage({ mode }: { mode: LedgerMode }) {
   }
 
   const filterCategories: FilterCategory[] = [
-    { key: "branch", label: "Branch", kind: "static", options: branches.map((b) => ({ value: String(b.id), label: b.name })) },
+    ...(singleBranch ? [] : [{ key: "branch", label: "Branch", kind: "static" as const, options: branches.map((b) => ({ value: String(b.id), label: b.name })) }]),
     ...(mode !== "Cash"
       ? [{
           key: "bank",

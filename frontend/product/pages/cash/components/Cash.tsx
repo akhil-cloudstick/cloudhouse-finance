@@ -21,10 +21,12 @@ import {
   exportCashMovements, exportExpenses,
   type CashMovementView, type ExpenseView, type GoldSaleView, type CashSummary, type CashMovementCategory,
 } from "@/product/pages/cash/services/cashService";
-import { useAuth } from "@/product/providers/auth-context";
+import { useAuth, useApprovalWorkflow } from "@/product/providers/auth-context";
+import { canActAtStage, stageByPending } from "@/product/services/approvalWorkflowService";
 import { ApiError } from "@/product/services/httpClient";
 import { RejectRemarksModalContent } from "@/product/components/modals/RejectRemarksModal";
 import { useResponsivePageSize, useIsSmallScreen } from "@/product/utils/responsive";
+import { useBranding } from "@/product/providers/BrandingProvider";
 
 function Kpi({ l, v, s, parts, cls }: {
   l: string; v: string | number; s?: string; parts?: [string, number][]; cls?: string;
@@ -86,10 +88,11 @@ function MovementRow({ m, balance, categoryIds }: { m: CashMovementView; balance
 }
 
 /* canApprove/onApprove/onReject drive the Approve/Reject pair shown on a
- * Pending row (the expense approval flow) — gated by "can approve expense". */
-function ExpenseRow({ e, categoryId, onViewReceipt, canApprove, busy, onApprove, onReject }: {
+ * Pending row (the expense approval flow) — shown only to the role of the
+ * step the expense waits at (or Administrator); awaiting names that role. */
+function ExpenseRow({ e, categoryId, onViewReceipt, canApprove, awaiting, busy, onApprove, onReject }: {
   e: ExpenseView; categoryId?: number; onViewReceipt: () => void;
-  canApprove: boolean; busy: boolean; onApprove: () => void; onReject: () => void;
+  canApprove: boolean; awaiting?: string; busy: boolean; onApprove: () => void; onReject: () => void;
 }) {
   return (
     <tr>
@@ -104,6 +107,9 @@ function ExpenseRow({ e, categoryId, onViewReceipt, canApprove, busy, onApprove,
       <td data-label="Status">
         <StatusChip status={e.status} />
         {e.remarks ? <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 2 }}>{e.remarks}</div> : null}
+        {e.status === "Pending" && awaiting && !canApprove && (
+          <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 2 }}>Awaiting {awaiting}</div>
+        )}
         {e.status === "Pending" && canApprove && (
           <div style={{ display: "flex", gap: 6, justifyContent: "center", marginTop: 6 }}>
             <button className="btn sm" disabled={busy} onClick={onApprove}><Icon name="check" /> Approve</button>
@@ -147,11 +153,16 @@ export function Cash() {
   const toast = useToast();
   // Recording cash movements and expenses is a create; closing a loan movement is an update.
   // Whatever the role can't do is hidden outright (see Customers.tsx).
-  const { can } = useAuth();
+  const { can, role, isAdmin } = useAuth();
+  const { singleBranch } = useBranding();
+  const { config: workflow } = useApprovalWorkflow();
   const canCreateCash = can("Cash_Management", "can_create_cash");
-  // Pending expenses (expense approval flow on) — approving posts the cash
-  // movement; enforced server-side by the same permission.
-  const canApproveExpense = can("Expense_Approval", "can_approve_expense");
+  // Pending expenses (expense approval chain configured) — each waits at one
+  // approver role; the last approval posts the cash movement. Enforced
+  // server-side by the same role check.
+  // A row from before the chain was configurable has no stage — it waits at
+  // the first step, the same as the backend reads it.
+  const expenseStage = (e: ExpenseView) => stageByPending(workflow, "expense", e.approvalStage || "Pending");
   const [decidingExpenseId, setDecidingExpenseId] = useState<number | null>(null);
   const today = new Date().toISOString().slice(0, 10);
 
@@ -214,11 +225,13 @@ export function Cash() {
   // Customer already picked whose home branch isn't among the selected
   // Branches then matches no rows server-side, same "customer has no
   // account in that branch → nothing shown" rule as the spec.
+  // A single-branch business has nothing to filter by branch — the category
+  // is dropped rather than shown with one option.
   const movementsFilterCategories: FilterCategory[] = [
-    {
-      key: "branch", label: "Branch", kind: "static",
+    ...(singleBranch ? [] : [{
+      key: "branch", label: "Branch", kind: "static" as const,
       options: allBranches.map((b) => ({ value: String(b.id), label: b.name })),
-    },
+    }]),
     {
       key: "customer", label: "Customer", kind: "async",
       fetchOptions: (search, p) =>
@@ -520,7 +533,8 @@ export function Cash() {
                       e={e}
                       categoryId={categoryIdByName[e.cat.toLowerCase()]}
                       onViewReceipt={() => openModal(<ReceiptViewModalContent e={e} />, true)}
-                      canApprove={canApproveExpense}
+                      canApprove={canActAtStage({ role, isAdmin }, expenseStage(e)) || (isAdmin && !expenseStage(e))}
+                      awaiting={expenseStage(e)?.label}
                       busy={decidingExpenseId === e.id}
                       onApprove={() => onApproveExpense(e)}
                       onReject={() => onRejectExpense(e)}

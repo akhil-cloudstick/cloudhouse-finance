@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useAuth } from "@/product/providers/auth-context";
+import { useBranding } from "@/product/providers/BrandingProvider";
 import { listSwitchableBranches, type BranchView } from "@/product/pages/branches/services/branchService";
 
 /* Step 6 of the multi-tenancy plan: Administrator and Management see every
@@ -13,7 +14,10 @@ import { listSwitchableBranches, type BranchView } from "@/product/pages/branche
  * Renders nothing (not even a loading state) until it knows the caller is
  * cross-branch, so it never flashes for the vast majority of sign-ins. */
 export function BranchSwitcher() {
-  const { isCrossBranch, selectedBranchId, setSelectedBranch } = useAuth();
+  const { isCrossBranch: crossBranchRole, selectedBranchId, setSelectedBranch } = useAuth();
+  // A single-branch business has nothing to switch between.
+  const { singleBranch } = useBranding();
+  const isCrossBranch = crossBranchRole && !singleBranch;
   const [branches, setBranches] = useState<BranchView[] | null>(null);
   const [error, setError] = useState(false);
 

@@ -124,6 +124,7 @@ export default function TabsLayout() {
         <Tabs.Screen name="branches" options={{ title: "Branches", href: null }} />
         <Tabs.Screen name="roles" options={{ title: "Roles & Permissions", href: null }} />
         <Tabs.Screen name="settings" options={{ title: "Settings", href: null }} />
+        <Tabs.Screen name="billing" options={{ title: "Billing & Plan", href: null }} />
       </Tabs>
       {/* One header above every page — see Screen in Shell.tsx. */}
       <HeaderHost />

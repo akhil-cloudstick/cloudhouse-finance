@@ -66,7 +66,7 @@ var bondTemplate = mustLoadTemplate("investment_bond", "debenture-subscription-a
 // plain-document CSS (a signature-line table, a data table, no letterhead
 // graphics), reused here as its own copy rather than exported cross-package.
 const bondStyle = `
-body{font-family:'Mona Sans','Segoe UI',ui-sans-serif,system-ui,-apple-system,Helvetica,Arial,sans-serif;color:#1a1a1a;margin:40px auto;max-width:760px;line-height:1.55;font-size:13.5px;padding:0 20px}
+body{font-family:'Mona Sans','Segoe UI',ui-sans-serif,system-ui,-apple-system,Helvetica,Arial,sans-serif;color:#1a1a1a;margin:0;line-height:1.55;font-size:13.5px;padding:0}
 h1{font-size:19px;text-align:center;margin:0 0 2px;letter-spacing:0.5px}
 h3{font-size:14px;margin:20px 0 8px}
 table{width:100%;border-collapse:collapse;margin:10px 0}
@@ -74,7 +74,8 @@ th,td{border:1px solid #999;padding:6px 8px;font-size:13px;text-align:left;verti
 td.num,th.num{text-align:right}
 .sig-row{display:flex;justify-content:space-between;margin-top:40px;gap:40px}
 .sig-row>div{flex:1;text-align:center;font-size:12px}
-.sig-line{display:block;border-bottom:1px solid #333;height:34px}
+.sig-line{display:flex;align-items:flex-end;justify-content:center;border-bottom:1px solid #333;height:48px}
+.sig-line .sig-img{max-height:44px;max-width:170px;display:block}
 `
 
 // InvestmentBondData carries everything the Debenture Subscription
@@ -98,6 +99,10 @@ type InvestmentBondData struct {
 	// to a neutral placeholder rather than another business's name.
 	LegalName   string
 	AddressLine string
+	// LenderSignature is the issuer's uploaded signature as an inline <img>
+	// (tenant.Tenant.SignatureImgHTML), printed on the Authorized Signatory
+	// line. Empty leaves the line blank for a wet-ink signature.
+	LenderSignature template.HTML
 }
 
 // investmentBondTemplateData wraps InvestmentBondData with pre-formatted
@@ -120,6 +125,7 @@ type investmentBondTemplateData struct {
 	MaturityDate        string
 	ProjectedReturn     string
 	GeneratedOn         string
+	LenderSignature     template.HTML
 }
 
 // bondFmtAmount/bondFmtDate mirror loan/releaseagreement.go's
@@ -212,6 +218,7 @@ func renderInvestmentBondHTML(data InvestmentBondData) (string, error) {
 		MaturityDate:        bondFmtDate(data.MaturityDate),
 		ProjectedReturn:     bondFmtAmount(projected),
 		GeneratedOn:         bondFmtDate(time.Now()),
+		LenderSignature:     data.LenderSignature,
 	}
 
 	var sb strings.Builder
@@ -293,9 +300,11 @@ func RenderInvestmentBondPDF(data InvestmentBondData) ([]byte, error) {
 		chromedp.ActionFunc(func(ctx context.Context) error {
 			buf, _, err := page.PrintToPDF().
 				WithPrintBackground(true).
-				WithPreferCSSPageSize(true).
-				WithMarginTop(0.7).
-				WithMarginBottom(0.7).
+				WithPreferCSSPageSize(false).
+				WithPaperWidth(8.27).
+				WithPaperHeight(11.69).
+				WithMarginTop(0.75).
+				WithMarginBottom(0.55).
 				WithMarginLeft(0.6).
 				WithMarginRight(0.6).
 				WithDisplayHeaderFooter(true).
@@ -321,10 +330,12 @@ func RenderInvestmentBondPDF(data InvestmentBondData) ([]byte, error) {
 // partialReleaseReceiptDataForRequest structure.
 func (s *Service) investmentBondDataFor(ctx context.Context, inv *Investment) InvestmentBondData {
 	legalName, addressLine := "", ""
+	var signature template.HTML
 	if s.tenantRepo != nil {
 		if id, ok := platform.TenantFromContext(ctx); ok {
 			if t, err := s.tenantRepo.FindByID(ctx, id); err == nil {
 				legalName, addressLine = t.LegalName, t.AddressLine
+				signature = t.SignatureImgHTML(s.uploadsDir)
 			}
 		}
 	}
@@ -342,6 +353,7 @@ func (s *Service) investmentBondDataFor(ctx context.Context, inv *Investment) In
 		AgreementDate:       inv.StartDate,
 		LegalName:           legalName,
 		AddressLine:         addressLine,
+		LenderSignature:     signature,
 	}
 }
 

@@ -73,11 +73,12 @@ func (s *Service) ForTenant(ctx context.Context) (*Self, error) {
 		return nil, err
 	}
 	return &Self{
-		Public:      publicOf(t, t.LogoPath()),
-		AddressLine: t.AddressLine,
-		KMLRegNo:    t.KMLRegNo,
-		Modules:     t.ModuleList(),
-		Languages:   t.LanguageList(),
+		Public:       publicOf(t, t.LogoPath()),
+		AddressLine:  t.AddressLine,
+		KMLRegNo:     t.KMLRegNo,
+		Modules:      t.EffectiveModuleList(),
+		Languages:    t.LanguageList(),
+		SingleBranch: t.SingleBranch,
 	}, nil
 }
 

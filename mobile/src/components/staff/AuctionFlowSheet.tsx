@@ -23,7 +23,7 @@ import {
   WarningBanner,
 } from "../ui";
 import { useAuth } from "../../auth/AuthContext";
-import { isFlowOff, stageByKey, stagePerm, useApprovalWorkflow } from "../../api/approvalWorkflow";
+import { isFlowOff, stageByKey, canActAtStage, useApprovalWorkflow } from "../../api/approvalWorkflow";
 import { ApiError } from "../../api/client";
 import {
   getAuction,
@@ -85,7 +85,7 @@ const errText = (msg: string | null) => (msg ? <Txt style={{ fontSize: 12, color
 
 export function AuctionFlowSheet({ loan, visible, onClose }: { loan: Loan | null; visible: boolean; onClose: () => void }) {
   const qc = useQueryClient();
-  const { can } = useAuth();
+  const { can, employee } = useAuth();
   const wf = useApprovalWorkflow();
   const canAct = can("Loan_Management", "can_update_loan");
   const loanId = loan?.id ?? 0;
@@ -183,7 +183,7 @@ export function AuctionFlowSheet({ loan, visible, onClose }: { loan: Loan | null
   const decisionFlow = decisionReq?.kind === "Shortfall" ? "auction_shortfall" : "auction_partial_repayment";
   const decisionFlowOff = isFlowOff(wf, decisionFlow);
   const decisionStage = stageByKey(wf, decisionFlow, "Decision");
-  const canDecide = canAct && !!decisionStage && can(...stagePerm(decisionStage));
+  const canDecide = canAct && !!decisionStage && canActAtStage(employee?.role, decisionStage);
   const balanceDue = loan.status === "Auctioned - Balance Due";
   const alreadyAuctioned = loan.status === "Auctioned" || balanceDue;
   const actionable = canAct && !frozen;

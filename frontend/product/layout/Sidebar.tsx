@@ -6,6 +6,7 @@ import { useBranding } from "@/product/providers/BrandingProvider";
 import BrandLogo from "@/product/components/BrandLogo";
 import { routeHref } from "@/product/services/appRoutes";
 import { resolveLockup } from "@/product/utils/brandLockup";
+import { UpdateNotice } from "./UpdateNotice";
 
 /* Ported from legacy/app.js's `NAV` array + nav-building/active-link logic
  * in `router()`. Each item now also carries the permission that gates it
@@ -167,6 +168,7 @@ export function Sidebar({ route, open, onNavigateSameRoute }: { route: string; o
           );
         })}
       </nav>
+      <UpdateNotice />
       <div className="sfoot">
         Trust · Value · Growth
         <br />

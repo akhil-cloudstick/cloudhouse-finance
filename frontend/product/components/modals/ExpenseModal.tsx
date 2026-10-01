@@ -7,6 +7,7 @@ import { Icon } from "@/product/components/Icon";
 import { fmt } from "@/product/utils/format";
 import { ApiError } from "@/product/services/httpClient";
 import { listActiveBranches, type BranchView } from "@/product/pages/branches/services/branchService";
+import { useBranding } from "@/product/providers/BrandingProvider";
 import { createExpense, uploadReceipt, type ExpenseView } from "@/product/pages/cash/services/cashService";
 import { searchExpenseCategoriesPage, createExpenseCategory, type BackendExpenseCategory } from "@/product/pages/cash/services/expenseCategoryService";
 import { searchBanksPage, createBank, type BackendBank } from "@/product/pages/banks/services/bankService";
@@ -44,6 +45,8 @@ export function ExpenseModalContent({ onSaved }: { onSaved?: () => void }) {
   const banksRequired = mode === "UPI" || mode === "Bank";
   const [remarks, setRemarks] = useState("");
   const [branches, setBranches] = useState<BranchView[]>([]);
+  // Single-branch business: the one branch is preselected and the picker locked.
+  const { singleBranch } = useBranding();
   const [branchId, setBranchId] = useState<number | "">("");
   const [err, setErr] = useState("");
   const [saving, setSaving] = useState(false);
@@ -133,6 +136,7 @@ export function ExpenseModalContent({ onSaved }: { onSaved?: () => void }) {
         )}
         <div className="frow"><div><label className="f">Branch *</label>
           <Select
+            disabled={singleBranch}
             options={branches.map((b) => ({ value: String(b.id), label: b.name }))}
             value={branchId ? String(branchId) : ""}
             onChange={(v) => setBranchId(v ? Number(v) : "")}

@@ -59,7 +59,7 @@
       [
         "expo-camera",
         {
-          "cameraPermission": "CloudHouse Finance needs the camera to scan packet label QR codes."
+          "cameraPermission": "CloudHouse Finance needs the camera to scan your business QR code and packet label QR codes."
         }
       ],
       "expo-asset"

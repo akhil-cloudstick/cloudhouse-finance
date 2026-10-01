@@ -7,6 +7,7 @@ import { Icon } from "@/product/components/Icon";
 import { ApiError } from "@/product/services/httpClient";
 import { useAuth } from "@/product/providers/auth-context";
 import { listActiveBranches, type BranchView } from "@/product/pages/branches/services/branchService";
+import { useBranding } from "@/product/providers/BrandingProvider";
 import { createEmployee, updateEmployee, type EmployeeView } from "@/product/pages/employees/services/employeeService";
 import { Select } from "@/product/components/ui/Select";
 
@@ -40,6 +41,23 @@ const PHONE_RE = /^\d{10}$/;
 // Mirrors backend/internal/employee/service.go's usernameRe.
 const USERNAME_RE = /^[A-Za-z0-9._-]{3,60}$/;
 
+// Look-alike characters (0/O, 1/l/I) are left out so a password read off the
+// screen to a new employee can't be mistyped.
+const PW_LETTERS = "abcdefghjkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ";
+const PW_DIGITS = "23456789";
+
+/* 10-character random password with at least one letter and one digit —
+ * comfortably over the backend's 8-character minimum (ErrPasswordTooShort). */
+function generatePassword(): string {
+  const all = PW_LETTERS + PW_DIGITS;
+  const rnd = new Uint32Array(10);
+  crypto.getRandomValues(rnd);
+  const chars = Array.from(rnd, (n) => all[n % all.length]);
+  chars[rnd[0] % 5] = PW_LETTERS[rnd[1] % PW_LETTERS.length];
+  chars[5 + (rnd[2] % 5)] = PW_DIGITS[rnd[3] % PW_DIGITS.length];
+  return chars.join("");
+}
+
 /* Ported from legacy/app.js's `openEmployeeModal()` / `saveEmployee()`, now
  * wired to the real Go backend (`POST`/`PUT /api/v1/employees`) following
  * the BranchModal.tsx pattern. Supports both create and edit modes — pass
@@ -54,15 +72,19 @@ export function EmployeeModalContent({ employee, onSaved }: { employee?: Employe
   const [phone, setPhone] = useState(employee?.phone || "");
   const [role, setRole] = useState(employee?.role || "");
   const [branches, setBranches] = useState<BranchView[]>([]);
+  // Single-branch business: the one branch is preselected and the picker locked.
+  const { singleBranch } = useBranding();
   const [branchId, setBranchId] = useState<number | "">(
     employee?.branchId || (!isAdmin && myBranchId ? myBranchId : "")
   );
-  // Login credentials — only offered at creation time (see
-  // employeeApi.ts's EmployeeFormInput doc comment); both blank means "no
-  // login access yet", set up later via Update once that UI exists.
-  const [username, setUsername] = useState("");
-  const [password, setPassword] = useState("");
-  const [passwordVisible, setPasswordVisible] = useState(false);
+  // Login credentials. On create the password is pre-filled with a generated
+  // one (shown, so it can be handed to the employee). On edit it starts blank
+  // and is only changed if someone types/generates a new one — saving an
+  // edit never rotates the password on its own (backend Update skips a
+  // blank password).
+  const [username, setUsername] = useState(employee?.username || "");
+  const [password, setPassword] = useState(() => (employee ? "" : generatePassword()));
+  const [passwordVisible, setPasswordVisible] = useState(!employee);
   const [err, setErr] = useState("");
   const [saving, setSaving] = useState(false);
 
@@ -98,13 +120,11 @@ export function EmployeeModalContent({ employee, onSaved }: { employee?: Employe
     if (!branchId) { setErr("Please select a branch."); return; }
     if (p && !PHONE_RE.test(p)) { setErr("Phone number must be exactly 10 digits."); return; }
     const uname = username.trim();
-    if (!employee) {
-      if (uname && !USERNAME_RE.test(uname)) {
-        setErr("Username must be at least 3 characters (letters, numbers, dots, underscores or hyphens only).");
-        return;
-      }
-      if (password && password.length < 8) { setErr("Password must be at least 8 characters."); return; }
+    if (uname && !USERNAME_RE.test(uname)) {
+      setErr("Username must be at least 3 characters (letters, numbers, dots, underscores or hyphens only).");
+      return;
     }
+    if (password && password.length < 8) { setErr("Password must be at least 8 characters."); return; }
 
     setSaving(true);
     setErr("");
@@ -114,8 +134,9 @@ export function EmployeeModalContent({ employee, onSaved }: { employee?: Employe
           name: trimmed, role, branchId: branchId as number, phone: p,
           loansProcessed: employee.loansProcessed, collections: employee.collections,
           followups: employee.followups, pending: employee.pending,
+          username: uname || undefined, password: password || undefined,
         });
-        toast(`${trimmed} updated`);
+        toast(password ? `${trimmed} updated — password changed` : `${trimmed} updated`);
       } else {
         await createEmployee({
           name: trimmed, role, branchId: branchId as number, phone: p,
@@ -164,6 +185,7 @@ export function EmployeeModalContent({ employee, onSaved }: { employee?: Employe
           <div><label className="f">Branch *</label>
             {isAdmin ? (
               <Select
+                disabled={singleBranch}
                 options={branches.map((b) => ({ value: String(b.id), label: b.name }))}
                 value={branchId ? String(branchId) : ""}
                 onChange={(v) => setBranchId(v ? Number(v) : "")}
@@ -181,20 +203,19 @@ export function EmployeeModalContent({ employee, onSaved }: { employee?: Employe
               />
             )}</div>
         </div>
-        {!employee && (
-          // Login credentials — set up now, at creation time, so you don't
-          // need a separate "reset password" step just to test as this
-          // employee. Optional: leave both blank to add the employee
-          // without login access yet.
-          <div className="frow c2">
+        {/* Login credentials. Create: password is pre-generated (shown) so it
+          * can be handed to the employee. Edit: username can be set/changed
+          * and the password field starts blank — fill it (or Generate) only
+          * to change the password; blank keeps the current one. */}
+        <div className="frow c2">
             <div><label className="f">Username (for login)</label>
               <input className="inp" placeholder="e.g. arun.kumar" value={username} onChange={(e) => setUsername(e.target.value)} maxLength={60} autoComplete="off" /></div>
-            <div><label className="f">Password</label>
+            <div><label className="f">{employee ? "New Password" : "Password"}</label>
               <div style={{ position: "relative" }}>
                 <input
                   className="inp"
                   type={passwordVisible ? "text" : "password"}
-                  placeholder="At least 8 characters"
+                  placeholder={employee ? "Leave blank to keep current" : "At least 8 characters"}
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   autoComplete="new-password"
@@ -213,9 +234,18 @@ export function EmployeeModalContent({ employee, onSaved }: { employee?: Employe
                 >
                   <Icon name={passwordVisible ? "eyeOff" : "eye"} />
                 </button>
+              </div>
+              <div style={{ display: "flex", gap: 6, marginTop: 6 }}>
+                <button type="button" className="btn plain sm" onClick={() => { setPassword(generatePassword()); setPasswordVisible(true); }}>Generate</button>
+                {password && (
+                  <button
+                    type="button"
+                    className="btn plain sm"
+                    onClick={() => navigator.clipboard?.writeText(password).then(() => toast("Password copied"), () => toast("Could not copy — select and copy it manually"))}
+                  >Copy</button>
+                )}
               </div></div>
-          </div>
-        )}
+        </div>
         <div className="notice"><Icon name="shield" /> The employee gets role-based access — sensitive actions stay behind approval workflows with a full audit trail.</div>
         <p style={{ color: "var(--red)", fontSize: 12.5, minHeight: 16, marginTop: 8 }}>{err}</p>
       </div>

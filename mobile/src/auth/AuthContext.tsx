@@ -2,7 +2,7 @@ import React, { createContext, useContext, useEffect, useState, useCallback, use
 import { Employee } from "../types/employee";
 import * as authApi from "../api/auth";
 import { saveToken, getToken, clearToken } from "./tokenStorage";
-import { configuredBusinessCode, getStoredBusinessCode, normalizeBusinessCode, saveBusinessCode } from "./businessCode";
+import { clearBusinessCode, getBusinessCode, normalizeBusinessCode, saveBusinessCode } from "./businessCode";
 import { ApiError } from "../api/client";
 import { fetchMyPermissions, type PermissionMap } from "../api/permissions";
 import { useTheme } from "../theme/ThemeProvider";
@@ -12,6 +12,13 @@ type AuthState = {
   isLoading: boolean;
   signIn: (identifier: string, password: string, businessCode?: string) => Promise<void>;
   signOut: () => Promise<void>;
+  // The business this device is connected to ("" = none yet → the connect
+  // screen). Set by connectBusiness (QR scan / typed code), kept across a
+  // plain sign-out, and cleared only by exitBusiness.
+  businessCode: string;
+  connectBusiness: (code: string) => Promise<void>;
+  // Signs out AND forgets the business, so the app goes back to the scanner.
+  exitBusiness: () => Promise<void>;
   // Permission map — see the house role-permission standard's §9. Fetched
   // on sign-in AND on every app cold-start (the rehydrate effect below), not
   // persisted to device storage: SecureStore's per-item size limit is too
@@ -35,6 +42,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [permissions, setPermissions] = useState<PermissionMap>({});
   const [permissionsLoaded, setPermissionsLoaded] = useState(false);
   const [permissionsFailed, setPermissionsFailed] = useState(false);
+  const [businessCode, setBusinessCode] = useState("");
 
   const loadPermissions = useCallback(async (emp: Employee) => {
     try {
@@ -58,16 +66,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     (async () => {
       try {
-        // A session left over from a different business than the one this
-        // build is configured for (e.g. EXPO_PUBLIC_DEFAULT_BUSINESS_CODE
-        // was changed) must not be resumed — it would keep showing that
-        // business's data and branding. Drop it and sign in afresh.
-        const configured = configuredBusinessCode();
-        if (configured && (await getStoredBusinessCode()) !== configured && (await getToken())) {
-          await clearToken();
-          await saveBusinessCode(configured);
-          refreshBranding();
-        }
+        setBusinessCode(await getBusinessCode());
 
         const token = await getToken();
         if (token) {
@@ -95,6 +94,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       // Remembered only after login actually worked, so a mistyped code is
       // never persisted and offered back on the next sign-in.
       await saveBusinessCode(code);
+      if (code) setBusinessCode(code);
       await saveToken(token);
       setEmployee(emp);
       setPermissionsLoaded(false);
@@ -118,14 +118,30 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     refreshBranding();
   }, [refreshBranding]);
 
+  const connectBusiness = useCallback(
+    async (code: string) => {
+      await saveBusinessCode(code);
+      setBusinessCode(await getBusinessCode());
+      refreshBranding();
+    },
+    [refreshBranding]
+  );
+
+  const exitBusiness = useCallback(async () => {
+    await signOut();
+    await clearBusinessCode();
+    setBusinessCode("");
+    refreshBranding();
+  }, [signOut, refreshBranding]);
+
   const can = useCallback(
     (moduleKey: string, permissionKey: string) => permissions?.[moduleKey]?.[permissionKey] === true,
     [permissions]
   );
 
   const value = useMemo(
-    () => ({ employee, isLoading, signIn, signOut, permissions, permissionsLoaded, permissionsFailed, can }),
-    [employee, isLoading, signIn, signOut, permissions, permissionsLoaded, permissionsFailed, can]
+    () => ({ employee, isLoading, signIn, signOut, businessCode, connectBusiness, exitBusiness, permissions, permissionsLoaded, permissionsFailed, can }),
+    [employee, isLoading, signIn, signOut, businessCode, connectBusiness, exitBusiness, permissions, permissionsLoaded, permissionsFailed, can]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

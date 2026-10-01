@@ -23,7 +23,7 @@ import {
 import { getBank, type BackendBank } from "@/product/pages/banks/services/bankService";
 import { getCustomer, type CustomerView } from "@/product/pages/customers/services/customerService";
 
-import { getExpenseCategoryLedger, EXPENSE_CATEGORY_LEDGER_PAGE_SIZE } from "@/product/pages/cash/services/expenseCategoryService";
+import { getExpenseCategoryLedger, EXPENSE_CATEGORY_LEDGER_PAGE_SIZE, type LoanLedgerSummary } from "@/product/pages/cash/services/expenseCategoryService";
 import { FilterPanel, type FilterCategory, type FilterValue } from "@/product/components/ui/FilterPanel";
 
 function Pager({ page, total, pageSize, onChange, children }: { page: number; total: number; pageSize: number; onChange: (p: number) => void; children?: React.ReactNode }) {
@@ -58,6 +58,9 @@ export function PartyLedger({ kind, id }: { kind: "bank" | "customer" | "categor
   const [error, setError] = useState("");
   const [exporting, setExporting] = useState(false);
   const [totals, setTotals] = useState({ debit: 0, credit: 0 });
+  // Set when this category is a loan source — the ledger is then the loan's
+  // own, with a principal-based running balance.
+  const [loan, setLoan] = useState<LoanLedgerSummary | undefined>();
   // Mode filter — only offered on a bank's own ledger (UPI/Bank
   // Transfer/Cheque/Cash all pass through a bank); customer/category ledgers
   // don't get this, same "meaningless outside a bank ledger" reasoning as
@@ -109,6 +112,7 @@ export function PartyLedger({ kind, id }: { kind: "bank" | "customer" | "categor
         setTotal(res.total);
         setTotals({ debit: res.totalDebit, credit: res.totalCredit });
         if (kind === "category" && "categoryName" in res) setLabel(res.categoryName as string);
+        setLoan(kind === "category" && "loan" in res ? (res.loan as LoanLedgerSummary | undefined) : undefined);
         setError("");
       })
       .catch((e) => {
@@ -145,7 +149,9 @@ export function PartyLedger({ kind, id }: { kind: "bank" | "customer" | "categor
         <div>
           <a href={routeHref("cash")} style={{ fontSize: 13 }}>← Back</a>
           <h1>{label || "Loading…"}</h1>
-          <p>Every {kind === "category" ? "expense recorded under this category" : `transaction ever recorded against this ${kind}`}</p>
+          <p>{loan
+            ? `Loan ledger — ${loan.bankName || "Bank"} · Loan no. ${loan.loanNumber}. Add Cash draws the balance down, repayments (expenses in this category) bring it back up to the principal.`
+            : `Every ${kind === "category" ? "expense recorded under this category" : `transaction ever recorded against this ${kind}`}`}</p>
         </div>
         <div className="sp" />
         <button className="btn ghost" disabled={exporting} onClick={onExport} title="PDF of every transaction in the selected date range">
@@ -154,11 +160,20 @@ export function PartyLedger({ kind, id }: { kind: "bank" | "customer" | "categor
       </div>
       <hr className="gold-rule" />
 
-      <div className="kpis" style={{ marginBottom: 16 }}>
-        <div className="kpi"><div className="l">Total Debit</div><div className="v">{fmt(totalDebit)}</div></div>
-        <div className="kpi"><div className="l">Total Credit</div><div className="v">{fmt(totalCredit)}</div></div>
-        <div className="kpi"><div className="l">Net</div><div className="v">{fmt(totalCredit - totalDebit)}</div></div>
-      </div>
+      {loan ? (
+        <div className="kpis" style={{ marginBottom: 16 }}>
+          <div className="kpi"><div className="l">Principal</div><div className="v">{fmt(loan.principal)}</div></div>
+          <div className="kpi"><div className="l">Drawn</div><div className="v">{fmt(loan.drawn)}</div></div>
+          <div className="kpi"><div className="l">Repaid</div><div className="v">{fmt(loan.repaid)}</div></div>
+          <div className="kpi"><div className="l">Balance</div><div className="v">{fmt(loan.balance)}</div></div>
+        </div>
+      ) : (
+        <div className="kpis" style={{ marginBottom: 16 }}>
+          <div className="kpi"><div className="l">Total Debit</div><div className="v">{fmt(totalDebit)}</div></div>
+          <div className="kpi"><div className="l">Total Credit</div><div className="v">{fmt(totalCredit)}</div></div>
+          <div className="kpi"><div className="l">Net</div><div className="v">{fmt(totalCredit - totalDebit)}</div></div>
+        </div>
+      )}
 
       {error && <div className="notice" style={{ marginBottom: 14 }}>{error}</div>}
 
@@ -180,14 +195,14 @@ export function PartyLedger({ kind, id }: { kind: "bank" | "customer" | "categor
         <div className="tbl-wrap tbl-scroll">
           <table className="tbl">
             <thead>
-              <tr><th>Date</th><th>Description</th><th>Method</th><th>Reference</th><th className="num">Debit</th><th className="num">Credit</th><th className="num">Balance</th></tr>
+              <tr><th>Date</th><th>Description</th>{loan && <th>From Bank</th>}<th>{loan ? "Mode" : "Method"}</th><th>Reference</th><th className="num">Debit</th><th className="num">Credit</th><th className="num">Balance</th></tr>
             </thead>
             <tbody>
               {loading ? (
-                <tr><td colSpan={7} className="empty compact">Loading…</td></tr>
+                <tr><td colSpan={loan ? 8 : 7} className="empty compact">Loading…</td></tr>
               ) : items.length === 0 ? (
-                <tr><td colSpan={7} className="empty compact">No transactions found.</td></tr>
-              ) : items.map((r) => {
+                <tr><td colSpan={loan ? 8 : 7} className="empty compact">No transactions found.</td></tr>
+              ) : items.map((r, i) => {
                 // A loan-number-shaped reference (e.g. "LN-00047") gets a
                 // clickable ledger-ref chip like the customer/bank refs
                 // beside it, instead of sitting there as dead text — same
@@ -207,7 +222,9 @@ export function PartyLedger({ kind, id }: { kind: "bank" | "customer" | "categor
                   r.description.match(/—\s*(INV-\S+)\s*$/i)?.[1] ||
                   null;
                 return (
-                <tr key={r.id}>
+                // A loan ledger mixes movement and expense ids (plus the
+                // id-less opening row), so key by position there.
+                <tr key={loan ? `${i}-${r.id}` : r.id}>
                   <td>{r.d}</td>
                   <td>
                     {r.description || r.type}
@@ -215,11 +232,14 @@ export function PartyLedger({ kind, id }: { kind: "bank" | "customer" | "categor
                       {kind !== "customer" && r.customerId ? (
                         <LedgerRefLink kind="customer" id={r.customerId} label={r.customerName || "Customer"} />
                       ) : null}
-                      {kind !== "bank" && r.bankId ? (
+                      {!loan && kind !== "bank" && r.bankId ? (
                         <LedgerRefLink kind="bank" id={r.bankId} label={r.bankName || "Bank"} />
                       ) : null}
                       {kind !== "category" ? <CategoryChip text={r.description} categoryIds={categoryIds} /> : null}                    </div>
                   </td>
+                  {loan && (
+                    <td>{r.bankId ? <LedgerRefLink kind="bank" id={r.bankId} label={r.bankName || "Bank"} /> : "—"}</td>
+                  )}
                   <td>
                     {!r.method ? "—"
                       : MODE_LEDGER_ROUTE[r.method] ? <a href={routeHref(MODE_LEDGER_ROUTE[r.method])}>{r.method}</a>

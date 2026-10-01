@@ -69,7 +69,7 @@ type MovementFilter struct {
 func categoryWhere(category string) (string, []interface{}) {
 	switch category {
 	case CategoryLoan:
-		return "((source = ? OR purpose LIKE ?) AND purpose NOT LIKE ?)", []interface{}{"Loan", "Loan disbursement — %", "%PL-%"}
+		return "((source ILIKE ? OR purpose LIKE ?) AND purpose NOT LIKE ?)", []interface{}{"Loan%", "Loan disbursement — %", "%PL-%"}
 	case CategoryAuction:
 		return "(source = ? OR purpose LIKE ?)", []interface{}{"Auction", "Auction surplus refunded%"}
 	case CategoryCollection:
@@ -784,7 +784,7 @@ func (r *CashSourceRepository) Create(ctx context.Context, s *CashSource) error 
 // applies Limit/Offset for a paginated picker.
 func (r *CashSourceRepository) FindAll(ctx context.Context, query string, limit, offset int) ([]CashSource, int64, error) {
 	var sources []CashSource
-	q := r.db.WithContext(ctx).Order("name asc")
+	q := r.db.WithContext(ctx).Preload("Bank").Order("name asc")
 	if query != "" {
 		q = q.Where("name ILIKE ?", "%"+query+"%")
 	}
@@ -801,10 +801,25 @@ func (r *CashSourceRepository) FindAll(ctx context.Context, query string, limit,
 
 func (r *CashSourceRepository) FindByName(ctx context.Context, name string) (*CashSource, error) {
 	var s CashSource
-	if err := r.db.WithContext(ctx).Where("name ILIKE ?", name).First(&s).Error; err != nil {
+	if err := r.db.WithContext(ctx).Preload("Bank").Where("name ILIKE ?", name).First(&s).Error; err != nil {
 		return nil, err
 	}
 	return &s, nil
+}
+
+func (r *CashSourceRepository) FindByID(ctx context.Context, id uint) (*CashSource, error) {
+	var s CashSource
+	if err := r.db.WithContext(ctx).Preload("Bank").First(&s, id).Error; err != nil {
+		return nil, err
+	}
+	return &s, nil
+}
+
+// SaveLoanDetails stores a loan source's bank/number/principal — written
+// once, on the first Add Cash entry drawn from it.
+func (r *CashSourceRepository) SaveLoanDetails(ctx context.Context, s *CashSource) error {
+	return r.db.WithContext(ctx).Model(&CashSource{}).Where("id = ?", s.ID).
+		Updates(map[string]interface{}{"bank_id": s.BankID, "loan_number": s.LoanNumber, "principal_amount": s.PrincipalAmount, "loan_opened_at": s.LoanOpenedAt}).Error
 }
 
 // ExpenseCategoryRepository provides GORM-backed persistence for
@@ -856,6 +871,34 @@ func (r *ExpenseCategoryRepository) FindByID(ctx context.Context, id uint) (*Exp
 		return nil, err
 	}
 	return &c, nil
+}
+
+// loanDrawn sums every cash-in drawn from the loan source named name since
+// it was opened — what has been taken out of the loan so far.
+func (r *MovementRepository) loanDrawn(ctx context.Context, name string, since time.Time) (float64, error) {
+	var total float64
+	err := r.db.WithContext(ctx).Model(&CashMovement{}).
+		Select("COALESCE(SUM(amount), 0)").
+		Where("type = ? AND source ILIKE ? AND created_at >= ?", "in", name, since).
+		Scan(&total).Error
+	return total, err
+}
+
+// loanRepaid sums the expenses booked against the loan source's same-named
+// category since it was opened — repayments. includePending also counts
+// expenses still waiting for approval, so two pending repayments can't
+// together overshoot the principal once both are approved.
+func (r *MovementRepository) loanRepaid(ctx context.Context, name string, since time.Time, includePending bool) (float64, error) {
+	statuses := []string{"Approved"}
+	if includePending {
+		statuses = append(statuses, "Pending")
+	}
+	var total float64
+	err := r.db.WithContext(ctx).Model(&Expense{}).
+		Select("COALESCE(SUM(amount), 0)").
+		Where("category ILIKE ? AND status IN ? AND created_at >= ?", name, statuses, since).
+		Scan(&total).Error
+	return total, err
 }
 
 // LoanCashSourceRepository provides GORM-backed persistence for

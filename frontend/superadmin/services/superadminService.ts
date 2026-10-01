@@ -114,11 +114,17 @@ export type Business = {
   /* Empty when the business has no logo. Derived server-side from the
    * business code (tenant.Tenant.LogoPath) — never a raw storage key. */
   logoUrl: string;
+  /* Whether a lender signature has been uploaded — the image itself comes
+   * from fetchSignatureUrl, behind the superadmin token. */
+  hasSignature: boolean;
   /* Optional modules and document languages this business has been granted.
    * Both arrive as arrays even though the backend stores them as CSV — see
    * tenant.Tenant's AfterFind. */
   modules: string[];
   languages: string[];
+  /* Single-branch mode: this business works only on its Head Office branch,
+   * and Branch Management is hidden in its app. Per business. */
+  singleBranch: boolean;
   createdAt: string;
   updatedAt: string;
 };
@@ -152,6 +158,7 @@ export type CreateBusinessInput = {
   brandColor?: string;
   modules?: string[];
   languages?: string[];
+  singleBranch?: boolean;
   reason: string;
 };
 
@@ -393,6 +400,15 @@ export function setModules(id: number, modules: string[], reason: string): Promi
   });
 }
 
+/* Switches one business between single- and multi-branch. Turning single-branch
+ * on is refused (409) while the business has more than one active branch. */
+export function setBranchMode(id: number, singleBranch: boolean, reason: string): Promise<Business> {
+  return request<Business>(`/superadmin/businesses/${id}/branch-mode`, {
+    method: "PUT",
+    body: JSON.stringify({ singleBranch, reason }),
+  });
+}
+
 export function setLanguages(id: number, languages: string[], reason: string): Promise<Business> {
   return request<Business>(`/superadmin/businesses/${id}/languages`, {
     method: "PUT",
@@ -442,4 +458,49 @@ export async function uploadLogo(id: number, file: File, reason: string): Promis
     throw new SuperAdminApiError(body?.error || res.statusText, res.status);
   }
   return body?.data as Business;
+}
+
+/* The lender's signature, embedded by the backend on every printed document
+ * with a lender/owner signature line (pledge agreements, FORM 7, release
+ * receipts, debenture agreement). Multipart like uploadLogo; PNG/JPEG/WebP,
+ * 1 MB max — the backend refuses anything else. */
+export async function uploadSignature(id: number, file: File, reason: string): Promise<Business> {
+  const token = readSuperAdminToken();
+  const form = new FormData();
+  form.append("file", file);
+  form.append("reason", reason);
+  const res = await fetch(`${API_BASE}/superadmin/businesses/${id}/signature`, {
+    method: "POST",
+    headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+    body: form,
+  });
+  let body: { success?: boolean; data?: Business; error?: string } | undefined;
+  try {
+    body = await res.json();
+  } catch {
+    /* non-JSON body */
+  }
+  if (!res.ok || body?.success === false) {
+    throw new SuperAdminApiError(body?.error || res.statusText, res.status);
+  }
+  return body?.data as Business;
+}
+
+/* Fetches the saved signature as an object URL for the preview. Fetched with
+ * the bearer token rather than pointed at by <img src>, which would carry no
+ * Authorization header. Caller revokes the URL. Null when none is set. */
+export async function fetchSignatureUrl(id: number): Promise<string | null> {
+  const token = readSuperAdminToken();
+  const res = await fetch(`${API_BASE}/superadmin/businesses/${id}/signature`, {
+    headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+  });
+  if (res.status === 404) return null;
+  if (!res.ok) throw new SuperAdminApiError(res.statusText, res.status);
+  return URL.createObjectURL(await res.blob());
+}
+
+export function clearSignature(id: number, reason: string): Promise<Business> {
+  return request<Business>(`/superadmin/businesses/${id}/signature?reason=${encodeURIComponent(reason)}`, {
+    method: "DELETE",
+  });
 }

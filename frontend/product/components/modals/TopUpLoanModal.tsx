@@ -24,24 +24,27 @@ import { PaymentModalContent } from "@/product/components/modals/PaymentModal";
  * When the business has the loan_topup approval flow switched on, the same
  * form submits the top-up INTO that chain instead: nothing is paid out yet,
  * the loan comes back unchanged, and LoanDetail shows the pending top-up
- * with its stage tracker until the final stage approves (and pays) it. */
-export function TopUpLoanModalContent({ loan, onSaved }: { loan: LoanView; onSaved: (updated: LoanView) => void }) {
+ * with its stage tracker until the final stage approves (and pays) it.
+ *
+ * When interest is outstanding and staff pick "Customer pays it first", Top
+ * Up redirects to Record Payment preset to "Interest only" instead of
+ * letting the backend bounce it; once that payment is confirmed this modal
+ * reopens on the refreshed loan with the entered amount/reference kept
+ * (initialAmount/initialReference). The modal host holds one modal at a
+ * time, so the reopen has to be explicit. */
+export function TopUpLoanModalContent({ loan, onSaved, initialAmount = "", initialReference = "" }: { loan: LoanView; onSaved: (updated: LoanView) => void; initialAmount?: string; initialReference?: string }) {
   const { openModal, closeModal } = useModal();
   const toast = useToast();
   const { config: workflow } = useApprovalWorkflow();
   const needsApproval = !isFlowOff(workflow, "loan_topup");
-  // liveLoan (not the loan prop directly) so arrears/headroom re-check
-  // against a fresh figure after the Record Payment fallback below clears
-  // some or all of the arrears mid-modal.
-  const [liveLoan, setLiveLoan] = useState(loan);
-  const headroom = Math.max(0, liveLoan.eligibleLoanAmount - liveLoan.outstanding);
-  const arrears = (liveLoan.outstandingInterest ?? 0) + (liveLoan.outstandingPenalInterest ?? 0);
+  const headroom = Math.max(0, loan.eligibleLoanAmount - loan.outstanding);
+  const arrears = (loan.outstandingInterest ?? 0) + (loan.outstandingPenalInterest ?? 0);
   const hasArrears = arrears > 0.01;
 
-  const [amount, setAmount] = useState("");
+  const [amount, setAmount] = useState(initialAmount);
   const [split, setSplit] = useState<SplitAmounts>(ZERO_SPLIT);
   const [remaining, setRemaining] = useState(0);
-  const [reference, setReference] = useState("");
+  const [reference, setReference] = useState(initialReference);
   const [err, setErr] = useState("");
   const [shortfall, setShortfall] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -75,9 +78,27 @@ export function TopUpLoanModalContent({ loan, onSaved }: { loan: LoanView; onSav
     );
   }
 
+  // Redirects to Record Payment on "Interest only" (prefilled with the
+  // interest + penal owed), then reopens this modal on the refreshed loan.
+  function openPayInterest() {
+    openModal(
+      <PaymentModalContent
+        loan={loan}
+        initialMode="Interest"
+        onSaved={async () => {
+          const updated = await getLoan(loan.numericId);
+          onSaved(updated);
+          openModal(<TopUpLoanModalContent loan={updated} onSaved={onSaved} initialAmount={amount} initialReference={reference} />);
+        }}
+      />,
+      true
+    );
+  }
+
   async function save() {
     if (!amt || amt <= 0) { setErr("Please enter the top-up amount."); return; }
     if (!balanced) { setErr("The payment breakdown must add up to the amount."); return; }
+    if (hasArrears && settleMode === "require") { openPayInterest(); return; }
     setSaving(true);
     setErr("");
     setShortfall(false);
@@ -160,19 +181,7 @@ export function TopUpLoanModalContent({ loan, onSaved }: { loan: LoanView; onSav
         )}
         {needsPayment && (
           <div style={{ marginTop: 10 }}>
-            <button
-              className="btn ghost sm"
-              onClick={() => openModal(
-                <PaymentModalContent
-                  loan={liveLoan}
-                  onSaved={async () => {
-                    setNeedsPayment(false);
-                    setErr("");
-                    setLiveLoan(await getLoan(loan.numericId));
-                  }}
-                />
-              )}
-            >
+            <button className="btn ghost sm" onClick={openPayInterest}>
               <Icon name="coin" /> Record Payment
             </button>
           </div>
@@ -180,7 +189,7 @@ export function TopUpLoanModalContent({ loan, onSaved }: { loan: LoanView; onSav
       </div>
       <div className="ft">
         <button className="btn ghost" onClick={closeModal}>Cancel</button>
-        <button className="btn" disabled={saving || !balanced} onClick={save}>{saving ? (needsApproval ? "Submitting…" : "Recording…") : needsApproval ? "Submit for Approval" : "Top Up"}</button>
+        <button className="btn" disabled={saving || !balanced} onClick={save}>{saving ? (needsApproval ? "Submitting…" : "Recording…") : hasArrears && settleMode === "require" ? "Pay Interest First" : needsApproval ? "Submit for Approval" : "Top Up"}</button>
       </div>
     </>
   );

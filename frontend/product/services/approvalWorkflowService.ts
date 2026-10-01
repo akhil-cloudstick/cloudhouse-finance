@@ -1,16 +1,16 @@
 import { apiFetchEnveloped as apiFetch } from "@/product/services/httpClient";
 
 /* Per-tenant approval-workflow configuration — mirrors backend/internal/
- * workflow's FlowView/StageView. The stage list of every flow is fixed in
- * code (workflow.Catalogue); a business only switches individual stages on
- * or off. Who may act at a stage is still a role-permission grant — this
- * only says which stages exist for this business right now.
+ * workflow's FlowView/StageView. Each flow's chain is an ordered list of
+ * approver ROLES chosen on the Roles & Permissions → Approval Workflow tab;
+ * a stage's key/pending value is "R<roleId>" and its label is the role
+ * name. Only that role (or Administrator) may act at it.
  *
- * Semantics (backend workflow.Chain): an item starts at the first ENABLED
- * stage, approving moves it to the next enabled stage, and the last enabled
- * stage performs the flow's real action (disburse/extend/release/post). An
- * item parked on a stage that has since been switched off can still be acted
- * on there, so trackers include the current stage even when disabled. */
+ * Semantics (backend workflow.Chain): an item starts at the first role,
+ * approving moves it to the next, and the last role performs the flow's
+ * real action (disburse/extend/release/post). An item still stored with a
+ * pre-chain stage value ("PendingBranchManager", …) maps onto the current
+ * chain — see resolveIndex. */
 
 export type ApprovalFlowKey =
   | "loan_sanction"
@@ -29,6 +29,7 @@ export type StageView = {
   pending: string;
   label: string;
   role: string;
+  roleId: number;
   permission: string;
   module: string;
   defaultEnabled: boolean;
@@ -38,99 +39,133 @@ export type StageView = {
 export type FlowView = {
   key: string;
   label: string;
+  actionLabel: string;
+  category: string;
   finalAction: string;
   offBehavior: string;
   minEnabled: number;
+  maxSteps: number;
   stages: StageView[];
 };
 
 export type ApprovalWorkflowConfig = FlowView[];
 
-function stage(key: string, pending: string, label: string, role: string, permission: string, module: string, on: boolean): StageView {
-  return { key, pending, label, role, permission, module, defaultEnabled: on, enabled: on };
+/* --- Admin screen (GET/PUT /approval-workflow/categories) --------------- */
+
+export type ChainRole = { roleId: number; name: string; active: boolean };
+
+export type CategoryFlow = {
+  key: string;
+  label: string;
+  actionLabel: string;
+  finalAction: string;
+  offBehavior: string;
+  minEnabled: number;
+  maxSteps: number;
+  steps: ChainRole[];
+};
+
+export type CategoryView = {
+  key: string;
+  label: string;
+  description: string;
+  shared: boolean;
+  sharedSteps: ChainRole[];
+  // Strictest of the category's flows — what a shared chain must satisfy.
+  minEnabled: number;
+  maxSteps: number;
+  flows: CategoryFlow[];
+};
+
+export type UpdateCategoryInput = {
+  shared: boolean;
+  steps?: number[];
+  flows?: Record<string, number[]>;
+};
+
+/* Legacy (pre-chain) stage values per flow, in their old order, with the
+ * role each stood for — mirrors the Stages of workflow.Catalogue. Used only
+ * to place an item still stored with one of them onto the current chain. */
+type LegacyStage = { key: string; pending: string; role: string };
+const LEGACY: Record<string, LegacyStage[]> = {
+  loan_sanction: [
+    { key: "LoanOperator", pending: "LoanOperator", role: "Loan Operator" },
+    { key: "BranchManager", pending: "BranchManager", role: "Branch Manager" },
+    { key: "FinalSanction", pending: "FinalSanction", role: "Management" },
+  ],
+  loan_extension: [
+    { key: "LoanOfficer", pending: "PendingLoanOfficer", role: "Loan Operator" },
+    { key: "BranchManager", pending: "PendingBranchManager", role: "Branch Manager" },
+    { key: "Management", pending: "PendingManagement", role: "Management" },
+  ],
+  loan_release: [
+    { key: "Manager", pending: "PendingManager", role: "Branch Manager" },
+    { key: "Management", pending: "PendingManagement", role: "Management" },
+  ],
+  loan_topup: [
+    { key: "BranchManager", pending: "PendingBranchManager", role: "Branch Manager" },
+    { key: "Management", pending: "PendingManagement", role: "Management" },
+  ],
+  loan_waiver: [
+    { key: "BranchManager", pending: "PendingBranchManager", role: "Branch Manager" },
+    { key: "Management", pending: "PendingManagement", role: "Management" },
+  ],
+  personal_loan: [
+    { key: "BranchManager", pending: "PendingBranchManager", role: "Branch Manager" },
+    { key: "Management", pending: "PendingManagement", role: "Management" },
+  ],
+  auction_partial_repayment: [{ key: "Decision", pending: "Pending", role: "Branch Manager" }],
+  auction_shortfall: [{ key: "Decision", pending: "Pending", role: "Management" }],
+  expense: [{ key: "Approver", pending: "Pending", role: "Branch Manager" }],
+};
+
+function flowMeta(
+  key: ApprovalFlowKey, label: string, actionLabel: string, category: string, finalAction: string,
+  offBehavior: string, defaultRoles: string[], minEnabled = 0, maxSteps = 0,
+): FlowView {
+  const stages = (LEGACY[key] || [])
+    .filter((s) => defaultRoles.includes(s.role))
+    .map((s) => ({ key: s.key, pending: s.pending, label: s.role, role: s.role, roleId: 0, permission: "", module: label, defaultEnabled: true, enabled: true }));
+  return { key, label, actionLabel, category, finalAction, offBehavior, minEnabled, maxSteps, stages };
 }
 
-/* Fallback used until GET /approval-workflow answers, or if it fails — a
- * copy of workflow.Catalogue with every stage at its default. Keep in step
- * with backend/internal/workflow/catalogue.go. */
+/* Fallback used until GET /approval-workflow answers, or if it fails — the
+ * legacy default chains. Keep in step with backend/internal/workflow/
+ * catalogue.go. */
 export const DEFAULT_APPROVAL_WORKFLOW: ApprovalWorkflowConfig = [
-  {
-    key: "loan_sanction", label: "Gold loan sanction", finalAction: "disburses", minEnabled: 1,
-    offBehavior: "At least one stage must stay on — the last enabled stage disburses the loan.",
-    stages: [
-      stage("LoanOperator", "LoanOperator", "Loan Operator", "Loan Operator", "can verify loan", "Loan Sanction", true),
-      stage("BranchManager", "BranchManager", "Branch Manager", "Branch Manager", "can approve branch manager stage", "Loan Sanction", true),
-      stage("FinalSanction", "FinalSanction", "Final Sanction", "Management", "can sanction loan", "Loan Sanction", true),
-    ],
-  },
-  {
-    key: "loan_extension", label: "Loan extension", finalAction: "extends", minEnabled: 0,
-    offBehavior: "The extension is applied as soon as the request is raised.",
-    stages: [
-      stage("LoanOfficer", "PendingLoanOfficer", "Loan Officer", "Loan Operator", "can verify the loan extension", "Loan Extension Approval", true),
-      stage("BranchManager", "PendingBranchManager", "Branch Manager", "Branch Manager", "can approve extension branch manager stage", "Loan Extension Approval", true),
-      stage("Management", "PendingManagement", "Management", "Management", "can approve extension management stage", "Loan Extension Approval", true),
-    ],
-  },
-  {
-    key: "loan_release", label: "Gold release", finalAction: "releases", minEnabled: 0,
-    offBehavior: "The release completes as soon as the checklist is done and the payment is recorded.",
-    stages: [
-      stage("Manager", "PendingManager", "Manager", "Branch Manager", "can approve release manager stage", "Release Approval", true),
-      stage("Management", "PendingManagement", "Management", "Management", "can approve release management stage", "Release Approval", true),
-    ],
-  },
-  {
-    key: "auction_partial_repayment", label: "Auction — partial repayment decision", finalAction: "decides", minEnabled: 0,
-    offBehavior: "The loan automatically stays in auction (Keep in Auction); no decision request is raised.",
-    stages: [stage("Decision", "Pending", "Decision", "Branch Manager", "can decide auction partial repayment", "Auction Workflow", true)],
-  },
-  {
-    key: "auction_shortfall", label: "Auction — shortfall decision", finalAction: "decides", minEnabled: 0,
-    offBehavior: "The balance is automatically pursued (loan moves to Overdue); a write-off is not possible.",
-    stages: [stage("Decision", "Pending", "Decision", "Management", "can decide auction shortfall", "Auction Workflow", true)],
-  },
-  {
-    key: "expense", label: "Expense", finalAction: "posts", minEnabled: 0,
-    offBehavior: "Expenses are recorded and posted to the ledger immediately.",
-    stages: [stage("Approver", "Pending", "Approver", "Branch Manager", "can approve expense", "Expense Approval", false)],
-  },
-  {
-    key: "loan_topup", label: "Loan top-up", finalAction: "disburses", minEnabled: 0,
-    offBehavior: "Top-ups are paid out immediately.",
-    stages: [
-      stage("BranchManager", "PendingBranchManager", "Branch Manager", "Branch Manager", "can approve top-up branch manager stage", "Top-Up Approval", false),
-      stage("Management", "PendingManagement", "Management", "Management", "can approve top-up management stage", "Top-Up Approval", false),
-    ],
-  },
-  {
-    key: "loan_waiver", label: "Waiver / adjustment", finalAction: "posts", minEnabled: 0,
-    offBehavior: "Waivers and adjustments are posted to the loan immediately.",
-    stages: [
-      stage("BranchManager", "PendingBranchManager", "Branch Manager", "Branch Manager", "can approve waiver branch manager stage", "Waiver Approval", true),
-      stage("Management", "PendingManagement", "Management", "Management", "can approve waiver management stage", "Waiver Approval", true),
-    ],
-  },
-  {
-    key: "personal_loan", label: "Personal loan", finalAction: "disburses", minEnabled: 0,
-    offBehavior: "Personal loans are created active and disbursed immediately.",
-    stages: [
-      stage("BranchManager", "PendingBranchManager", "Branch Manager", "Branch Manager", "can approve personal loan branch manager stage", "Personal Loan Approval", false),
-      stage("Management", "PendingManagement", "Management", "Management", "can approve personal loan management stage", "Personal Loan Approval", false),
-    ],
-  },
+  flowMeta("loan_sanction", "Gold loan sanction", "Sanction", "gold_loan", "disburses",
+    "At least one approver is required — the last approver disburses the loan.", ["Loan Operator", "Branch Manager", "Management"], 1),
+  flowMeta("loan_extension", "Loan extension", "Extension", "gold_loan", "extends",
+    "The extension is applied as soon as the request is raised.", ["Loan Operator", "Branch Manager", "Management"]),
+  flowMeta("loan_release", "Gold release", "Release", "gold_loan", "releases",
+    "The release completes as soon as the checklist is done and the payment is recorded.", ["Branch Manager", "Management"]),
+  flowMeta("loan_topup", "Loan top-up", "Top-up", "gold_loan", "disburses", "Top-ups are paid out immediately.", []),
+  flowMeta("loan_waiver", "Waiver / adjustment", "Waiver / adjustment", "gold_loan", "posts",
+    "Waivers and adjustments are posted to the loan immediately.", ["Branch Manager", "Management"]),
+  flowMeta("personal_loan", "Personal loan", "Sanction", "personal_loan", "disburses",
+    "Personal loans are created active and disbursed immediately.", []),
+  flowMeta("auction_partial_repayment", "Auction — partial repayment decision", "Partial repayment", "auction", "decides",
+    "The loan automatically stays in auction (Keep in Auction); no decision request is raised.", ["Branch Manager"], 0, 1),
+  flowMeta("auction_shortfall", "Auction — shortfall decision", "Shortfall", "auction", "decides",
+    "The balance is automatically pursued (loan moves to Overdue); a write-off is not possible.", ["Management"], 0, 1),
+  flowMeta("expense", "Expense", "Approval", "expense", "posts", "Expenses are recorded and posted to the ledger immediately.", []),
 ];
 
 export async function fetchApprovalWorkflow(): Promise<ApprovalWorkflowConfig> {
   return (await apiFetch<ApprovalWorkflowConfig>("/approval-workflow")) || [];
 }
 
-/* stages maps stage key → enabled. The backend refuses (400) a loan_sanction
- * update that would leave no stage on. */
-export function updateApprovalWorkflow(flow: ApprovalFlowKey | string, stages: Record<string, boolean>): Promise<FlowView> {
-  return apiFetch<FlowView>(`/approval-workflow/${flow}`, {
+export async function fetchApprovalCategories(): Promise<CategoryView[]> {
+  return (await apiFetch<CategoryView[]>("/approval-workflow/categories")) || [];
+}
+
+/* Saves one category: its mode and, for shared, the one chain (steps) or,
+ * for per-action, each flow's chain (flows). Role IDs in approval order.
+ * The backend refuses (400) a chain that breaks a flow's min/max. */
+export function updateApprovalCategory(category: string, body: UpdateCategoryInput): Promise<CategoryView> {
+  return apiFetch<CategoryView>(`/approval-workflow/categories/${category}`, {
     method: "PUT",
-    body: JSON.stringify({ stages }),
+    body: JSON.stringify(body),
   });
 }
 
@@ -160,22 +195,44 @@ function normalizePending(flow: string, pending: string): string {
   return pending;
 }
 
+/* Index in the chain of the stage an item stored with value v waits at —
+ * mirrors workflow.Chain.resolve: an exact match; else a legacy value (its
+ * flow's first legacy stage → the first step, any other → the step of the
+ * same role); else, for a role key no longer in the chain, the first step.
+ * -1 for an empty chain, no value, or a decided item ("Approved"/…). */
+function resolveIndex(stages: StageView[], flow: string, v: string, field: "key" | "pending"): number {
+  if (!v || stages.length === 0) return -1;
+  const exact = stages.findIndex((s) => s[field] === v);
+  if (exact >= 0) return exact;
+  const legacy = LEGACY[flow] || [];
+  const li = legacy.findIndex((s) => s[field] === v);
+  if (li > 0) {
+    const byRole = stages.findIndex((s) => s.role === legacy[li].role);
+    if (byRole >= 0) return byRole;
+  }
+  // Only a legacy value or a role key ("R<id>") whose role has left the
+  // chain waits at the first step. Anything else — "Approved", "Rejected" —
+  // is not waiting anywhere.
+  return li >= 0 || /^R\d+$/.test(v) ? 0 : -1;
+}
+
 export function stageByPending(config: ApprovalWorkflowConfig, flow: ApprovalFlowKey | string, pending: string | null | undefined): StageView | null {
-  const p = normalizePending(flow, pending || "");
-  return flowOf(config, flow)?.stages.find((s) => s.pending === p) ?? null;
+  const stages = enabledStages(config, flow);
+  const i = resolveIndex(stages, flow, normalizePending(flow, pending || ""), "pending");
+  return i >= 0 ? stages[i] : null;
 }
 
 export function stageByKey(config: ApprovalWorkflowConfig, flow: ApprovalFlowKey | string, key: string | null | undefined): StageView | null {
-  return flowOf(config, flow)?.stages.find((s) => s.key === key) ?? null;
+  const stages = enabledStages(config, flow);
+  const i = resolveIndex(stages, flow, key || "", "key");
+  return i >= 0 ? stages[i] : null;
 }
 
-/* The next ENABLED stage after stageKey in canonical order (stageKey itself
- * may be disabled) — mirrors workflow.Chain.Next. */
+/* The stage after stageKey — mirrors workflow.Chain.Next. */
 export function nextStage(config: ApprovalWorkflowConfig, flow: ApprovalFlowKey | string, stageKey: string): StageView | null {
-  const stages = flowOf(config, flow)?.stages || [];
-  const i = stages.findIndex((s) => s.key === stageKey);
-  if (i < 0) return stages.find((s) => s.enabled) ?? null;
-  return stages.slice(i + 1).find((s) => s.enabled) ?? null;
+  const stages = enabledStages(config, flow);
+  const i = resolveIndex(stages, flow, stageKey, "key");
+  return i >= 0 ? stages[i + 1] ?? null : null;
 }
 
 /* Whether acting at stageKey runs the flow's real action (disburse, extend,
@@ -188,12 +245,12 @@ export function firstStage(config: ApprovalWorkflowConfig, flow: ApprovalFlowKey
   return enabledStages(config, flow)[0] ?? null;
 }
 
-/* The chain a tracker draws: every enabled stage in order, plus the item's
- * current stage when it has since been switched off (it can still be acted
- * on there). */
-export function chainFor(config: ApprovalWorkflowConfig, flow: ApprovalFlowKey | string, currentPending?: string | null): StageView[] {
-  const current = currentPending !== undefined && currentPending !== null ? stageByPending(config, flow, currentPending) : null;
-  return (flowOf(config, flow)?.stages || []).filter((s) => s.enabled || (current && s.key === current.key));
+/* The chain a tracker draws: every role of the flow, in order. The item's
+ * current stage always resolves onto one of them (see stageByPending), so
+ * the current-pending argument older callers pass is no longer needed. */
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+export function chainFor(config: ApprovalWorkflowConfig, flow: ApprovalFlowKey | string, _currentPending?: string | null): StageView[] {
+  return enabledStages(config, flow);
 }
 
 /* Tracker labels for a chain — the last step names what it does, e.g.
@@ -208,16 +265,10 @@ export function stageLabel(config: ApprovalWorkflowConfig, flow: ApprovalFlowKey
   return stageByPending(config, flow, pending)?.label ?? (pending || "—");
 }
 
-/* The underscored (module, key) pair `can()` expects for a stage's
- * permission — "Top-Up Approval"/"can approve top-up management stage" →
- * "Top-Up_Approval"/"can_approve_top-up_management_stage", the same
- * derivation the backend uses for the permission map. */
-export function stagePermission(s: StageView): { module: string; key: string } {
-  return { module: s.module.replace(/ /g, "_"), key: s.permission.replace(/ /g, "_") };
-}
-
-export function canActAtStage(can: (moduleKey: string, permissionKey: string) => boolean, s: StageView | null | undefined): boolean {
+/* Whether the signed-in user may act at stage s: its own role, or
+ * Administrator — mirrors workflow.Service.CanAct. Role names are unique per
+ * business. A UX nicety only; the server enforces it regardless. */
+export function canActAtStage(actor: { role: string | null; isAdmin: boolean }, s: StageView | null | undefined): boolean {
   if (!s) return false;
-  const p = stagePermission(s);
-  return can(p.module, p.key);
+  return actor.isAdmin || (!!actor.role && actor.role === s.role);
 }

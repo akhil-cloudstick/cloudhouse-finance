@@ -85,6 +85,23 @@ func TestSetModulesCanonicalisesAndDropsUnknown(t *testing.T) {
 	}
 }
 
+func TestEffectiveModuleListHidesBranchesForSingleBranch(t *testing.T) {
+	multi := &Tenant{EnabledModules: "settings,branches"}
+	if !reflect.DeepEqual(multi.EffectiveModuleList(), []string{ModuleSettings, ModuleBranches}) {
+		t.Errorf("multi-branch EffectiveModuleList = %v; must match the stored grants", multi.EffectiveModuleList())
+	}
+
+	single := &Tenant{EnabledModules: "settings,branches", SingleBranch: true}
+	if !reflect.DeepEqual(single.EffectiveModuleList(), []string{ModuleSettings}) {
+		t.Errorf("single-branch EffectiveModuleList = %v, want [settings]", single.EffectiveModuleList())
+	}
+	// The stored grant is untouched, so flipping back to multi-branch
+	// restores Branch Management without the vendor re-ticking it.
+	if !single.HasModule(ModuleBranches) {
+		t.Error("SingleBranch must not rewrite the stored module column")
+	}
+}
+
 func TestSetLanguagesAlwaysStoresEnglish(t *testing.T) {
 	tn := &Tenant{}
 	tn.SetLanguages([]string{"ml"}) // caller omitted English entirely

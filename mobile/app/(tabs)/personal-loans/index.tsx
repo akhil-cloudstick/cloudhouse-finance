@@ -44,6 +44,7 @@ import type { Bank } from "../../../src/types/bank";
 import { ApiError } from "../../../src/api/client";
 import { API_BASE_URL } from "../../../src/api/config";
 import { getToken } from "../../../src/auth/tokenStorage";
+import { withPrintProgress } from "../../../src/components/ui/PrintProgress";
 import {
   approvePersonalLoan,
   createPersonalLoan,
@@ -408,9 +409,11 @@ function PersonalLoanDetailSheet({
     try {
       const token = await getToken();
       const targetUri = `${FileSystem.cacheDirectory}bond-${l.loanNumber}.pdf`;
-      const result = await FileSystem.downloadAsync(`${API_BASE_URL}/personal-loans/${l.id}/bond`, targetUri, {
-        headers: token ? { Authorization: `Bearer ${token}` } : {},
-      });
+      const result = await withPrintProgress(() =>
+        FileSystem.downloadAsync(`${API_BASE_URL}/personal-loans/${l.id}/bond`, targetUri, {
+          headers: token ? { Authorization: `Bearer ${token}` } : {},
+        })
+      );
       if (result.status < 200 || result.status >= 300) throw new ApiError(result.status, "", undefined);
       if (await Sharing.isAvailableAsync()) await Sharing.shareAsync(result.uri, { mimeType: "application/pdf" });
     } catch (e) {

@@ -7,6 +7,7 @@ import { Icon } from "@/product/components/Icon";
 import { Select } from "@/product/components/ui/Select";
 import { ApiError } from "@/product/services/httpClient";
 import { listActiveBranches, type BranchView } from "@/product/pages/branches/services/branchService";
+import { useBranding } from "@/product/providers/BrandingProvider";
 import { createLocker, updateLocker, type LockerView } from "@/product/pages/lockers/services/lockerService";
 
 const CODE_RE = /^[A-Za-z0-9-]*$/;
@@ -25,6 +26,8 @@ export function LockerModalContent({ locker, onSaved }: { locker?: LockerView; o
   const [branchId, setBranchId] = useState<number | "">(locker?.branchId || "");
   const [isActive, setIsActive] = useState(locker?.isActive ?? true);
   const [branches, setBranches] = useState<BranchView[]>([]);
+  // Single-branch business: the one branch is preselected and the picker locked.
+  const { singleBranch } = useBranding();
   const [err, setErr] = useState("");
   const [saving, setSaving] = useState(false);
 
@@ -74,6 +77,7 @@ export function LockerModalContent({ locker, onSaved }: { locker?: LockerView; o
         </div>
         <div className="frow"><div><label className="f">Branch *</label>
           <Select
+            disabled={singleBranch}
             options={[{ value: "", label: "Select branch…" }, ...branches.map((b) => ({ value: String(b.id), label: b.name }))]}
             value={branchId === "" ? "" : String(branchId)}
             onChange={(v) => setBranchId(v ? Number(v) : "")}

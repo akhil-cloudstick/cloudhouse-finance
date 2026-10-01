@@ -36,7 +36,7 @@ import {
   normalizeSanctionStage,
   type SanctionStage,
 } from "../../../src/api/loans";
-import { isFinalStage, stageByKey, stageByPending, stageIndex, stagePerm, stepperSteps, useApprovalWorkflow } from "../../../src/api/approvalWorkflow";
+import { isFinalStage, stageByKey, stageByPending, stageIndex, canActAtStage, stepperSteps, useApprovalWorkflow } from "../../../src/api/approvalWorkflow";
 import { listPackets } from "../../../src/api/packets";
 import { getAuction } from "../../../src/api/auctions";
 import { dmy, inr } from "../../../src/lib/format";
@@ -100,7 +100,7 @@ export default function LoanDetailScreen() {
   const router = useRouter();
   const qc = useQueryClient();
   const loanId = Number(id);
-  const { can } = useAuth();
+  const { can, employee } = useAuth();
   const wf = useApprovalWorkflow();
   const canEditLoan = can("Loan_Management", "can_update_loan");
   const canHardDeleteLoan = can("Loan_Management", "can_hard_delete_loan");
@@ -206,11 +206,11 @@ export default function LoanDetailScreen() {
   const stageDef = stageByKey(wf, "loan_sanction", pendingStage);
   const requiredRole = stageDef?.role ?? null;
   const stageLabel = stageDef?.label ?? pendingStage ?? "";
-  const isVerifyStage = pendingStage === "LoanOperator";
+  const isVerifyStage = stageDef?.role === "Loan Operator";
   const isFinalSanction = isFinalStage(wf, "loan_sanction", pendingStage);
-  const canActOnStage = !!stageDef && canEditLoan && can(...stagePerm(stageDef));
+  const canActOnStage = !!stageDef && canEditLoan && canActAtStage(employee?.role, stageDef);
   const sanctionSteps = stepperSteps(wf, "loan_sanction", pendingStage);
-  const approveLabel = isFinalSanction ? (isVerifyStage ? "Verify & Disburse" : "Approve & Disburse") : isVerifyStage ? "Verify" : "Approve";
+  const approveLabel = isFinalSanction ? (isVerifyStage ? " Disburse" : "Disburse") : isVerifyStage ? "Verify" : "Approve";
 
   const alreadyAuctioned = l.status === "Auctioned" || l.status === "Auctioned - Balance Due";
   const showAuction = !!auction.data || alreadyAuctioned || !!l.isDefaulted;

@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { BackHandler, Keyboard, StyleSheet, View } from "react-native";
+import { Alert, BackHandler, Keyboard, StyleSheet, View } from "react-native";
 import { useAuth } from "../../src/auth/AuthContext";
 import { ApiError } from "../../src/api/client";
 import { getBusinessCode, isValidBusinessCode, normalizeBusinessCode } from "../../src/auth/businessCode";
@@ -78,12 +78,18 @@ export default function LoginScreen() {
   const [loading, setLoading] = useState(false);
   const [loginError, setLoginError] = useState<string | null>(null);
 
-  // The business this device last signed in to. The field itself is hidden
-  // (single-business deployment), but a stored code is still sent.
-  const [businessCode, setBusinessCode] = useState("");
-  useEffect(() => {
-    getBusinessCode().then(setBusinessCode);
-  }, []);
+  // The business the connect screen (QR scan / typed code) stored — this
+  // screen is only reachable once there is one. "Exit business" below
+  // forgets it and returns to the scanner.
+  const { businessCode, exitBusiness } = useAuth();
+  const { businessName } = useTheme();
+
+  function confirmExitBusiness() {
+    Alert.alert("Exit business?", `You'll need to scan ${businessName}'s QR code again to sign in.`, [
+      { text: "Cancel", style: "cancel" },
+      { text: "Exit business", style: "destructive", onPress: () => exitBusiness() },
+    ]);
+  }
 
   async function handleSignIn() {
     Keyboard.dismiss();
@@ -259,7 +265,7 @@ export default function LoginScreen() {
   }
 
   return (
-    <AuthShell eyebrow="Staff portal" title={"Good to see\nyou again."} subtitle="Sign in with your username and password.">
+    <AuthShell eyebrow="Staff portal" title={"Good to see\nyou again."} subtitle={`Sign in to ${businessName} with your username and password.`}>
       <AuthField
         label="Username"
         icon="user"
@@ -286,6 +292,8 @@ export default function LoginScreen() {
       <KeyboardAnchor>
         <AuthButton title="Sign in" onPress={handleSignIn} disabled={!identifier || !password} loading={loading} />
       </KeyboardAnchor>
+
+      <AuthLink label="Exit business" onPress={confirmExitBusiness} />
 
       <SecureNote />
     </AuthShell>

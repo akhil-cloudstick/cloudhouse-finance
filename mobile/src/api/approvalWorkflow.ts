@@ -3,11 +3,10 @@ import { apiRequestEnveloped as apiRequest } from "./client";
 import { useAuth } from "../auth/AuthContext";
 
 // Per-tenant approval workflow — mirrors backend/internal/workflow's
-// Catalogue + GET /approval-workflow (any signed-in user). The stage list
-// of each flow is fixed in code; only each stage's on/off is per business.
-// Who may ACT at a stage is still a real permission grant (StageView's
-// module/permission), never a role-name match. Mobile only reads this —
-// the settings screen lives on the web.
+// Catalogue + GET /approval-workflow (any signed-in user). Each flow's
+// stages are the business's own ordered approver roles; only a stage's role
+// (or Administrator) may ACT at it (see canActAtStage). Mobile only reads
+// this — the settings screen lives on the web.
 
 export type FlowKey =
   | "loan_sanction"
@@ -26,6 +25,7 @@ export type StageView = {
   pending: string;
   label: string;
   role: string;
+  roleId?: number;
   permission: string;
   module: string;
   defaultEnabled: boolean;
@@ -169,6 +169,11 @@ export function useApprovalWorkflow(): WorkflowConfig {
 }
 
 // --- Helpers ----------------------------------------------------------------
+// Each flow's chain is an ordered list of approver ROLES (set on the web's
+// Roles & Permissions → Approval Workflow tab): a stage's key/pending is
+// "R<roleId>", its label/role the role's name. An item still stored with a
+// pre-chain value ("PendingBranchManager", …) maps onto the current chain
+// exactly like backend workflow.Chain.resolve — see resolveIndex.
 
 export function flowOf(config: WorkflowConfig, flow: string): FlowView | undefined {
   return config.find((f) => f.key === flow) ?? DEFAULT_WORKFLOW.find((f) => f.key === flow);
@@ -178,55 +183,57 @@ export function enabledStages(config: WorkflowConfig, flow: string): StageView[]
   return (flowOf(config, flow)?.stages ?? []).filter((s) => s.enabled);
 }
 
-/** The chain an item actually walks: every enabled stage in canonical order,
- * plus the item's current pending stage if it is parked on one that has
- * since been switched off (it can still be acted on there). */
-export function chainFor(config: WorkflowConfig, flow: string, currentPending?: string | null): StageView[] {
-  const f = flowOf(config, flow);
-  if (!f) return [];
-  return f.stages.filter((s) => s.enabled || (!!currentPending && s.pending === currentPending));
+/** The chain an item walks: every role of the flow, in order. */
+export function chainFor(config: WorkflowConfig, flow: string, _currentPending?: string | null): StageView[] {
+  return enabledStages(config, flow);
+}
+
+/** Index in the chain of the stage an item stored with value v (its pending
+ * value or stage key) waits at: an exact match; else a legacy value (its
+ * flow's first legacy stage → the first step, any other → the step of the
+ * same role); else, for a role key no longer in the chain, the first step.
+ * -1 for no value, an empty chain, or a decided item ("Approved"/…). */
+function resolveIndex(config: WorkflowConfig, flow: string, v?: string | null): number {
+  const chain = enabledStages(config, flow);
+  if (!v || chain.length === 0) return -1;
+  const exact = chain.findIndex((s) => s.pending === v || s.key === v);
+  if (exact >= 0) return exact;
+  const legacy = DEFAULT_WORKFLOW.find((f) => f.key === flow)?.stages ?? [];
+  const li = legacy.findIndex((s) => s.pending === v || s.key === v);
+  if (li > 0) {
+    const byRole = chain.findIndex((s) => s.role === legacy[li].role);
+    if (byRole >= 0) return byRole;
+  }
+  return li >= 0 || /^R\d+$/.test(v) ? 0 : -1;
 }
 
 export function stageByPending(config: WorkflowConfig, flow: string, pending?: string | null): StageView | undefined {
-  if (!pending) return undefined;
-  return flowOf(config, flow)?.stages.find((s) => s.pending === pending);
+  const i = resolveIndex(config, flow, pending);
+  return i >= 0 ? enabledStages(config, flow)[i] : undefined;
 }
 
 export function stageByKey(config: WorkflowConfig, flow: string, key?: string | null): StageView | undefined {
-  if (!key) return undefined;
-  return flowOf(config, flow)?.stages.find((s) => s.key === key);
+  return stageByPending(config, flow, key);
 }
 
 /** True when `pending` is the LAST stage of the item's chain — the one whose
  * approval performs the flow's action (disburse / extend / release / post). */
 export function isFinalStage(config: WorkflowConfig, flow: string, pending?: string | null): boolean {
-  if (!pending) return false;
-  const chain = chainFor(config, flow, pending);
-  return chain.length > 0 && chain[chain.length - 1].pending === pending;
+  const i = resolveIndex(config, flow, pending);
+  return i >= 0 && i === enabledStages(config, flow).length - 1;
 }
 
-/** A flow with no enabled stage needs no approval at all. */
+/** A flow with no approver needs no approval at all. */
 export function isFlowOff(config: WorkflowConfig, flow: string): boolean {
   return enabledStages(config, flow).length === 0;
 }
 
-// Both keys are derived exactly like backend/internal/authz's underscored():
-// every space becomes an underscore, nothing else — so "Top-Up Approval"
-// stays "Top-Up_Approval" and "can approve top-up ..." keeps its hyphen.
-
-/** "Loan Sanction" -> "Loan_Sanction" — the module key AuthContext.can() takes. */
-export function moduleKey(module: string): string {
-  return module.replace(/ /g, "_");
-}
-
-/** "can verify loan" -> "can_verify_loan" — the permission key can() takes. */
-export function permissionKey(permission: string): string {
-  return permission.replace(/ /g, "_");
-}
-
-/** [module, key] pair for a stage, ready to spread into can(...). */
-export function stagePerm(stage: StageView): [string, string] {
-  return [moduleKey(stage.module), permissionKey(stage.permission)];
+/** Whether the signed-in employee (by role name) may act at stage: its own
+ * role, or Administrator — mirrors backend workflow.Service.CanAct. Role
+ * names are unique per business. A UX nicety; the server enforces it. */
+export function canActAtStage(role: string | null | undefined, stage: StageView | null | undefined): boolean {
+  if (!stage || !role) return false;
+  return role === "Administrator" || role === stage.role;
 }
 
 /** Stepper labels for a chain: one per stage, the last one suffixed with the
@@ -239,6 +246,5 @@ export function stepperSteps(config: WorkflowConfig, flow: string, currentPendin
 
 /** Index of the pending stage in its chain (for Stepper's `current`). */
 export function stageIndex(config: WorkflowConfig, flow: string, pending?: string | null): number {
-  if (!pending) return -1;
-  return chainFor(config, flow, pending).findIndex((s) => s.pending === pending);
+  return resolveIndex(config, flow, pending);
 }

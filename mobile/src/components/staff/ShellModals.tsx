@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
-import { Pressable, ScrollView, StyleSheet, TextInput, View } from "react-native";
+import { Alert, Pressable, ScrollView, StyleSheet, TextInput, View } from "react-native";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   AsyncSelect,
@@ -38,6 +38,7 @@ import { createReminder, listCalendarEventsPage } from "../../api/reminders";
 import { useAuth } from "../../auth/AuthContext";
 import { useTheme } from "../../theme/ThemeProvider";
 import { routeEnabled } from "../../config/tenantModules";
+import { FEATURES } from "../../config/features";
 import { addDaysISO, dmy, inr, todayISO } from "../../lib/format";
 import { finenessForKarat, rateForFineness } from "../../lib/purity";
 import type { CalendarEvent } from "../../types/reminder";
@@ -596,8 +597,24 @@ export function ReminderCreateSheet({ visible, onClose, defaultDate }: { visible
 // Profile (tap on the dashboard avatar) — sign out lives here.
 // ---------------------------------------------------------------------------
 export function ProfileSheet({ visible, onClose }: { visible: boolean; onClose: () => void }) {
-  const { employee, signOut } = useAuth();
+  const { employee, signOut, exitBusiness } = useAuth();
   const { businessName } = useTheme();
+  // Unlike Sign out (which keeps the business, so the next sign-in goes
+  // straight to its login page), this also forgets the business and sends
+  // the app back to the QR scanner (app/(auth)/connect.tsx).
+  function confirmExitBusiness() {
+    Alert.alert("Exit business?", `You'll be signed out and need to scan ${businessName}'s QR code again to sign in.`, [
+      { text: "Cancel", style: "cancel" },
+      {
+        text: "Exit business",
+        style: "destructive",
+        onPress: () => {
+          onClose();
+          exitBusiness();
+        },
+      },
+    ]);
+  }
   return (
     <Sheet visible={visible} onClose={onClose} title="Profile" maxHeightPct={50}>
       <View style={{ flexDirection: "row", alignItems: "center", gap: 12, paddingVertical: 12 }}>
@@ -619,6 +636,7 @@ export function ProfileSheet({ visible, onClose }: { visible: boolean; onClose: 
           signOut();
         }}
       />
+      <SheetListItem icon="home" title="Exit business" sub={`Disconnect ${businessName} from this device`} warn onPress={confirmExitBusiness} />
     </Sheet>
   );
 }
@@ -643,13 +661,17 @@ const MORE_ROWS: MoreRow[] = [
   { key: "employees", route: "employees", title: "Employees", sub: "Staff accounts & roles", icon: "user", perms: [["Employee_Management", "can_view_employee"]] },
   { key: "branches", route: "branches", title: "Branches", sub: "Branch details & lockers", icon: "home", perms: [["Branch_Management", "can_view_branch"]] },
   { key: "roles", route: "roles", title: "Roles & Permissions", sub: "What each role can do", icon: "shield", perms: [["Role_Management", "can_view_role_and_permission"]] },
+  // Shown only with EXPO_PUBLIC_ENABLE_PLAN_UPGRADE on (filtered in MoreSheet).
+  { key: "billing", route: "billing", title: "Billing & Plan", sub: "Your plan, branch limit & upgrades", icon: "card", perms: [["Billing", "can_manage_billing"]] },
   { key: "settings", route: "settings", title: "Settings", sub: "Branch, staff, and app settings", icon: "dots", perms: [["Settings_Management", "can_view_setting"]] },
 ];
 
 export function MoreSheet({ visible, onClose, onGoldRate }: { visible: boolean; onClose: () => void; onGoldRate: () => void }) {
   const { can } = useAuth();
   const { hasModule } = useTheme();
-  const rows = MORE_ROWS.filter((r) => r.perms.some(([m, k]) => can(m, k)) && (!r.route || routeEnabled(r.route, hasModule)));
+  const rows = MORE_ROWS.filter(
+    (r) => r.perms.some(([m, k]) => can(m, k)) && (!r.route || routeEnabled(r.route, hasModule)) && (r.key !== "billing" || FEATURES.planUpgrade)
+  );
   return (
     <Sheet visible={visible} onClose={onClose} title="More" maxHeightPct={80}>
       {rows.map((r, i) => (

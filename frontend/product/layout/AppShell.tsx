@@ -149,7 +149,7 @@ function View({ route, arg }: { route: string; arg?: string }) {
     case "loan":
       return <LoanDetail id={arg} />;
     case "newloan":
-      return <NewLoan />;
+      return <NewLoan customerId={arg} />;
     case "schemes":
       return <Schemes />;
     case "goldrates":

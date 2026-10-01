@@ -171,7 +171,7 @@ func (s *Service) ApproveWaiverRequest(ctx context.Context, requestID uint, bran
 	if !ok || in.Stage != step.Key {
 		return nil, ErrWrongStage
 	}
-	if !s.checkStagePermission(ctx, in.ActorRoleID, step.Permission) {
+	if !s.workflowSvc.CanAct(ctx, in.ActorRoleID, workflow.FlowLoanWaiver, step.Key) {
 		return nil, ErrWrongStage
 	}
 

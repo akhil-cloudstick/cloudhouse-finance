@@ -13,6 +13,7 @@ import {
 } from "@/product/pages/cash/services/cashService";
 import { listCustomersPage } from "@/product/pages/customers/services/customerService";
 import { listActiveBranches, type BranchView } from "@/product/pages/branches/services/branchService";
+import { useBranding } from "@/product/providers/BrandingProvider";
 import { FilterPanel, type FilterCategory, type FilterValue } from "@/product/components/ui/FilterPanel";
 import { useExpenseCategoryIds } from "@/product/hooks/useExpenseCategoryIds";
 import { particularsFor, loanNumberFor, refCellFor, modeCellFor } from "@/product/pages/cash/components/ledgerCells";
@@ -60,6 +61,8 @@ function withRunningBalance(items: CashMovementView[]): { m: CashMovementView; b
 export function LedgerExportView({ onBack }: { onBack: () => void }) {
   const toast = useToast();
   const [branches, setBranches] = useState<BranchView[]>([]);
+  // Single-branch business: no branch filter — every row is its one branch.
+  const { singleBranch } = useBranding();
   const [filters, setFilters] = useState<FilterValue>({});
   const [page, setPage] = useState(1);
   const [items, setItems] = useState<CashMovementView[]>([]);
@@ -87,7 +90,7 @@ export function LedgerExportView({ onBack }: { onBack: () => void }) {
   // "customer has no account in that branch → nothing shown" rule this
   // filter is spec'd to enforce.
   const categories: FilterCategory[] = [
-    { key: "branch", label: "Branch", kind: "static", options: branches.map((b) => ({ value: String(b.id), label: b.name })) },
+    ...(singleBranch ? [] : [{ key: "branch", label: "Branch", kind: "static" as const, options: branches.map((b) => ({ value: String(b.id), label: b.name })) }]),
     {
       key: "customer", label: "Customer", kind: "async",
       fetchOptions: (search, p) =>

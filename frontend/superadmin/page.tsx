@@ -17,8 +17,12 @@ import {
   updateProfile,
   setBranding,
   setModules,
+  setBranchMode,
   setLanguages,
   uploadLogo,
+  uploadSignature,
+  fetchSignatureUrl,
+  clearSignature,
   getAdminLogin,
   updateAdminLogin,
   adjustExpiry,
@@ -543,7 +547,9 @@ export default function SuperAdminDashboard() {
                           </td>
                           <td>
                             {b.tier?.name ?? tierName(b.tierId)}
-                            <span className="sa-biz-sub">{quotaText(b.tier?.branchQuota ?? 1)}</span>
+                            <span className="sa-biz-sub">
+                              {b.singleBranch ? "Single branch" : quotaText(b.tier?.branchQuota ?? 1)}
+                            </span>
                           </td>
                           <td>
                             <span className={`sa-chip ${b.status}`}>{b.status}</span>
@@ -827,7 +833,7 @@ function stepsFor(isCreate: boolean): Step[] {
   const steps: Step[] = [
     { id: "profile", label: "Business" },
     { id: "branding", label: "Branding" },
-    { id: "grants", label: "Modules & languages" },
+    { id: "grants", label: "Modules, languages & signature" },
   ];
   steps.push({ id: "admin", label: isCreate ? "Administrator" : "Admin login" });
   steps.push({ id: "review", label: "Review" });
@@ -894,6 +900,14 @@ function BusinessWizard({
   const [name, setName] = useState(business?.name ?? "");
   const [code, setCode] = useState("");
   const [tierId, setTierId] = useState(business?.tierId ?? tiers[0]?.id ?? 0);
+  /* Single-branch mode, per business: the app hides Branch Management and
+   * locks every branch picker to Head Office. Independent of the plan. */
+  const [singleBranch, setSingleBranch] = useState(business?.singleBranch ?? false);
+  /* The server's refusal to switch to single-branch (too many active
+   * branches), shown right under the Branch setup field. Kept apart from
+   * `error` because goTo() clears that one, and the wizard jumps back to the
+   * Business step to show this. */
+  const [branchModeError, setBranchModeError] = useState<string | null>(null);
   const [legalName, setLegalName] = useState(business?.legalName ?? "");
   const initialShortName = business?.shortName ?? "";
   const [shortName, setShortName] = useState(initialShortName);
@@ -948,6 +962,16 @@ function BusinessWizard({
   const [logoFile, setLogoFile] = useState<File | null>(null);
   const [logoPreview, setLogoPreview] = useState<string | null>(null);
   const [suggestedPalette, setSuggestedPalette] = useState<string[]>([]);
+
+  /* The lender's signature, printed by the backend on every document with a
+   * lender/owner signature line. A new pick is held locally and uploaded on
+   * save, like the logo; `removeSignature` clears a saved one instead. The
+   * saved image is fetched behind the superadmin token for the preview. */
+  const [signatureFile, setSignatureFile] = useState<File | null>(null);
+  const [signaturePreview, setSignaturePreview] = useState<string | null>(null);
+  const [savedSignatureUrl, setSavedSignatureUrl] = useState<string | null>(null);
+  const [removeSignature, setRemoveSignature] = useState(false);
+  const [signatureError, setSignatureError] = useState<string | null>(null);
 
   const [modules, setModulesState] = useState<string[]>(business?.modules ?? []);
   /* The module whose GRANT is awaiting confirmation, or null.
@@ -1005,6 +1029,45 @@ function BusinessWizard({
       cancelled = true;
     };
   }, [businessId]);
+
+  const hasSavedSignature = business?.hasSignature ?? false;
+  useEffect(() => {
+    if (businessId === undefined || !hasSavedSignature) return;
+    let cancelled = false;
+    let url: string | null = null;
+    fetchSignatureUrl(businessId)
+      .then((u) => {
+        url = u;
+        if (cancelled) {
+          if (u) URL.revokeObjectURL(u);
+          return;
+        }
+        setSavedSignatureUrl(u);
+      })
+      .catch(() => {
+        /* preview only — the row still says a signature is set */
+      });
+    return () => {
+      cancelled = true;
+      if (url) URL.revokeObjectURL(url);
+    };
+  }, [businessId, hasSavedSignature]);
+
+  function pickSignature(file: File | null) {
+    setSignatureError(null);
+    if (file && !["image/png", "image/jpeg", "image/webp"].includes(file.type)) {
+      setSignatureError("Use a PNG, JPEG or WebP image.");
+      return;
+    }
+    if (file && file.size > 1024 * 1024) {
+      setSignatureError("The signature image must be 1 MB or smaller.");
+      return;
+    }
+    if (signaturePreview) URL.revokeObjectURL(signaturePreview);
+    setSignatureFile(file);
+    setSignaturePreview(file ? URL.createObjectURL(file) : null);
+    if (file) setRemoveSignature(false);
+  }
 
   const [reason, setReason] = useState("");
   const [submitting, setSubmitting] = useState(false);
@@ -1101,6 +1164,7 @@ function BusinessWizard({
   // markers and, in edit mode, which endpoints get called at all.
   const changed = {
     plan: planChanged,
+    branchMode: !isCreate && singleBranch !== (business.singleBranch ?? false),
     profile:
       !isCreate &&
       (name !== business.name ||
@@ -1120,6 +1184,7 @@ function BusinessWizard({
         logoScale !== initialLogoScale ||
         logoDisplay !== initialLogoDisplay),
     logo: logoFile !== null,
+    signature: signatureFile !== null || (removeSignature && hasSavedSignature),
     modules: !isCreate && !sameSet(modules, business.modules ?? []),
     languages: !isCreate && !sameSet(languages, business.languages ?? ["en"]),
     admin:
@@ -1171,6 +1236,7 @@ function BusinessWizard({
           brandColor: color,
           modules,
           languages,
+          singleBranch,
           reason,
         });
         // The logo needs an existing business to belong to, so it is the one
@@ -1179,6 +1245,7 @@ function BusinessWizard({
         // does not carry (see superadmin.CreateBusinessInput's own comment).
         // shortName rides the follow-up profile update for the same reason.
         if (logoFile) await uploadLogo(created.id, logoFile, reason);
+        if (signatureFile) await uploadSignature(created.id, signatureFile, reason);
         if (shortName || tagline) {
           await updateProfile(created.id, {
             name, legalName, shortName, lockupTagline: tagline, addressLine, kmlRegNo, policy, appUrl, reason,
@@ -1198,6 +1265,18 @@ function BusinessWizard({
           });
         }
       } else {
+        // Branch mode FIRST: it is the one change the server may refuse on
+        // the business's current state, and a refusal should stop the save
+        // before anything else has been written.
+        if (changed.branchMode) {
+          try {
+            await setBranchMode(business.id, singleBranch, reason);
+          } catch (err) {
+            goTo(steps.findIndex((s) => s.id === "profile"));
+            setBranchModeError(err instanceof SuperAdminApiError ? err.message : "Could not change the branch setup.");
+            return;
+          }
+        }
         if (changed.plan) await changeTier(business.id, tierId, reason);
         if (changed.profile) {
           await updateProfile(business.id, {
@@ -1218,6 +1297,8 @@ function BusinessWizard({
           });
         }
         if (changed.logo && logoFile) await uploadLogo(business.id, logoFile, reason);
+        if (signatureFile) await uploadSignature(business.id, signatureFile, reason);
+        else if (removeSignature && hasSavedSignature) await clearSignature(business.id, reason);
         if (changed.modules) await setModules(business.id, modules, reason);
         if (changed.languages) await setLanguages(business.id, languages, reason);
         if (changed.admin) {
@@ -1361,6 +1442,31 @@ function BusinessWizard({
                     ? "Decides how many active branches this business may run. Enforced by the server."
                     : "Takes effect on save and asks for a reason. Existing branches are never removed — a business above the new limit just cannot add or reactivate branches."}
                 </span>
+              </div>
+
+              <div className="sa-field">
+                <label>Branch setup</label>
+                <Select
+                  value={singleBranch ? "single" : "multi"}
+                  onChange={(v) => { setSingleBranch(v === "single"); setBranchModeError(null); }}
+                  ariaLabel="Branch setup"
+                  options={[
+                    { value: "multi", label: "Multiple branches" },
+                    { value: "single", label: "Single branch" },
+                  ]}
+                />
+                <span className="sa-hint">
+                  {singleBranch
+                    ? "This business works on its Head Office branch only: Branch Management is hidden and every branch picker is locked to it."
+                    : "This business can manage its own branches, within its plan's limit."}
+                  {!isCreate && singleBranch && !business.singleBranch &&
+                    " Refused on save if the business has more than one active branch."}
+                </span>
+                {branchModeError && (
+                  <p className="sa-error" role="alert" ref={(el) => el?.scrollIntoView({ block: "nearest" })}>
+                    {branchModeError}
+                  </p>
+                )}
               </div>
 
               {/* Deployment URL is optional, so it lives behind a disclosure — but
@@ -1541,13 +1647,18 @@ function BusinessWizard({
                 </span>
                 {catalogue.modules.map((m) => {
                   const destructive = DESTRUCTIVE_MODULES.has(m);
-                  const on = modules.includes(m);
+                  // Branch Management is meaningless for a single-branch
+                  // business; the server refuses it regardless. The stored
+                  // tick is kept so switching back restores it.
+                  const locked = m === "branches" && singleBranch;
+                  const on = modules.includes(m) && !locked;
                   return (
                     <div key={m}>
-                      <label className={`sa-check${destructive ? " danger" : ""}${confirmGrant === m ? " confirming" : ""}`}>
+                      <label className={`sa-check${destructive ? " danger" : ""}${confirmGrant === m ? " confirming" : ""}${locked ? " locked" : ""}`}>
                         <input
                           type="checkbox"
                           checked={on}
+                          disabled={locked}
                           onChange={() => {
                             // Confirm the GRANT of a destructive module, never
                             // the revoke. Turning it back off is the safe
@@ -1565,7 +1676,9 @@ function BusinessWizard({
                           {/* Only on the destructive ones. A badge on every row
                               is wallpaper; on one row it is a stop sign. */}
                           {destructive && <span className="sa-check-flag">irreversible</span>}
-                          <span className="sa-check-sub">{MODULE_HINTS[m] ?? ""}</span>
+                          <span className="sa-check-sub">
+                            {locked ? "Off for single-branch businesses (see Branch setup)." : MODULE_HINTS[m] ?? ""}
+                          </span>
                         </span>
                       </label>
 
@@ -1634,6 +1747,40 @@ function BusinessWizard({
                   );
                 })}
               </div>
+
+              <div className="sa-field">
+                <label>Lender signature</label>
+                <div className="sa-logo-row">
+                  {(signaturePreview || (!removeSignature && savedSignatureUrl)) && (
+                    <img
+                      className="sa-logo-preview sa-sign-preview"
+                      src={signaturePreview || savedSignatureUrl || undefined}
+                      alt="Lender signature"
+                    />
+                  )}
+                  <input
+                    type="file"
+                    accept="image/png,image/jpeg,image/webp"
+                    onChange={(e) => pickSignature(e.target.files?.[0] ?? null)}
+                  />
+                  {!signatureFile && hasSavedSignature && (
+                    <button
+                      type="button"
+                      className="sa-link-btn"
+                      onClick={() => setRemoveSignature((r) => !r)}
+                    >
+                      {removeSignature ? "Keep signature" : "Remove"}
+                    </button>
+                  )}
+                </div>
+                {signatureError && <span className="sa-error">{signatureError}</span>}
+                <span className="sa-hint">
+                  Printed on the lender/owner signature line of every document — pledge agreements, release
+                  agreements, receipts and debenture agreements. Use a PNG with a transparent or white background, 1 MB
+                  max.{isCreate && " Uploaded once the business has been created."}
+                  {removeSignature && " It will be removed on save; documents then print a blank line for a wet-ink signature."}
+                </span>
+              </div>
             </>
           )}
 
@@ -1690,6 +1837,11 @@ function BusinessWizard({
                 <ReviewRow label="Business name" value={name} changed={changed.profile} />
                 <ReviewRow label="Sign-in code" value={isCreate ? code : business.code} />
                 <ReviewRow label="Plan" value={planLabelFor(tiers, tierId)} changed={changed.plan} />
+                <ReviewRow
+                  label="Branch setup"
+                  value={singleBranch ? "Single branch (Head Office)" : "Multiple branches"}
+                  changed={changed.branchMode}
+                />
                 <ReviewRow label="Legal name" value={legalName} changed={changed.profile} />
                 <ReviewRow label="Short name" value={shortName || "(falls back to business name)"} changed={changed.profile} />
                 <ReviewRow label="Address" value={addressLine} changed={changed.profile} />
@@ -1710,6 +1862,19 @@ function BusinessWizard({
                   label="Logo"
                   value={logoFile ? logoFile.name : business?.logoUrl ? "already set" : ""}
                   changed={changed.logo}
+                />
+                <ReviewRow
+                  label="Lender signature"
+                  value={
+                    signatureFile
+                      ? signatureFile.name
+                      : removeSignature && hasSavedSignature
+                        ? "removed"
+                        : hasSavedSignature
+                          ? "already set"
+                          : ""
+                  }
+                  changed={changed.signature}
                 />
                 <ReviewRow
                   label="Modules"
@@ -1741,7 +1906,9 @@ function BusinessWizard({
             </>
           )}
 
-          {error && <p className="sa-error">{error}</p>}
+          {/* The body scrolls, so an error rendered down here can sit below
+            * the fold — scroll it into view the moment it appears. */}
+          {error && <p className="sa-error" ref={(el) => el?.scrollIntoView({ block: "nearest" })}>{error}</p>}
         </div>
 
         <div className="sa-modal-foot">
@@ -2155,6 +2322,8 @@ function BusinessDetail({
             <dd>{plan ? plan.name : `#${b.tierId}`}</dd>
             <dt>Branch allowance</dt>
             <dd>{quotaText(u.branchQuota)}</dd>
+            <dt>Branch setup</dt>
+            <dd>{b.singleBranch ? "Single branch (Head Office only)" : "Multiple branches"}</dd>
             <dt>Plan price</dt>
             <dd>{plan && plan.priceInPaise > 0 ? `${formatINR(plan.priceInPaise / 100)} / month` : "Not billed"}</dd>
             <dt>Renews / expires</dt>

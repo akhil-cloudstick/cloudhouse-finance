@@ -57,6 +57,9 @@ func RegisterExpenseRoutes(rg *gin.RouterGroup, h *ExpenseHandler, perms platfor
 func RegisterCashSourceRoutes(rg *gin.RouterGroup, h *CashSourceHandler, perms platform.CRUDMiddlewares) {
 	rg.GET("", perms.Read, h.List)
 	rg.POST("", perms.Create, h.Create)
+	rg.GET("/:id", perms.Read, h.Get)
+	// A loan source's own ledger (principal → draws → repayments).
+	rg.GET("/:id/ledger", perms.Read, h.GetLedger)
 }
 
 // RegisterExpenseCategoryRoutes mounts the expense-category lookup-list

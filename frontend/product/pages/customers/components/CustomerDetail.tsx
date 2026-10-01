@@ -504,7 +504,7 @@ export function CustomerDetail({ id }: { id?: string }) {
           </div>
         )}
         {canUpdateLoans && <button className="btn ghost" onClick={openRequestPicker}><Icon name="unlock" /> Extension / Release</button>}
-        {canCreateLoans && <a className="btn" href="#newloan"><Icon name="plus" /> New Loan</a>}
+        {canCreateLoans && <a className="btn" href={routeHref("newloan", c.id)}><Icon name="plus" /> New Loan</a>}
         {/* Edit Customer + Delete Customer collapsed into one "Actions"
          * dropdown — same pattern as LoanDetail.tsx's "Documents"/"Loan
          * Actions" menus. Delete stays the ONLY delete action offered here —

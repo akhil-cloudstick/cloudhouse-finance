@@ -4,6 +4,7 @@ import { LedgerRefLink } from "@/product/components/ui/LedgerRefLink";
 import { expenseCategoryOf } from "@/product/hooks/useExpenseCategoryIds";
 import { MODE_LEDGER_ROUTE, type CashMovementView } from "@/product/pages/cash/services/cashService";
 import { routeHref } from "@/product/services/appRoutes";
+import { isLoanSource } from "@/product/pages/cash/services/cashSourceService";
 
 /* Clickable cells for a cash-movement ledger row — shared by Cash.tsx's
  * Ledger tab and the Reports Ledger / Statement Export
@@ -20,6 +21,12 @@ export function particularsFor(m: CashMovementView, categoryIds: Record<string, 
   const categoryId = category ? categoryIds[category.toLowerCase()] : undefined;
   if (categoryId) {
     return <LedgerRefLink kind="category" id={categoryId} label={text || category!} />;
+  }
+  // A loan-sourced Add Cash entry links to that loan's own ledger — served
+  // by the loan's same-named repayment category.
+  const loanCategoryId = m.type === "in" && m.source && isLoanSource(m.source) ? categoryIds[m.source.toLowerCase()] : undefined;
+  if (loanCategoryId) {
+    return <LedgerRefLink kind="category" id={loanCategoryId} label={text || m.source!} />;
   }
   if (m.partyCustomerId) {
     return <LedgerRefLink kind="customer" id={m.partyCustomerId} label={text || "Customer"} />;

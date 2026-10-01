@@ -8,6 +8,6 @@ import { useAuth } from "../src/auth/AuthContext";
 // "/" resolve on its own. RootNavigation only renders the <Slot> once auth has
 // finished loading, so `employee` is already settled here.
 export default function Index() {
-  const { employee } = useAuth();
-  return <Redirect href={employee ? "/(tabs)/dashboard" : "/(auth)/login"} />;
+  const { employee, businessCode } = useAuth();
+  return <Redirect href={employee ? "/(tabs)/dashboard" : businessCode ? "/(auth)/login" : "/(auth)/connect"} />;
 }

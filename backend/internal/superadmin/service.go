@@ -124,6 +124,9 @@ type CreateBusinessInput struct {
 	// tenant.KnownPolicies. It also bounds Languages — see CreateBusiness.
 	// Empty means the KML default.
 	Policy string
+	// SingleBranch pins the new business to its Head Office branch — see
+	// tenant.Tenant.SingleBranch. Changeable later via SetBranchMode.
+	SingleBranch bool
 }
 
 // CreateBusiness is the single transaction that replaces the five
@@ -212,6 +215,7 @@ func (s *Service) CreateBusiness(ctx context.Context, actor *SuperAdminUser, in 
 		t.KMLRegNo = strings.TrimSpace(in.KMLRegNo)
 		t.AppURL = strings.TrimSpace(in.AppURL)
 		t.SetModules(in.Modules)
+		t.SingleBranch = in.SingleBranch
 		// Policy before languages: SetLanguages filters against the policy on
 		// the tenant, so the order here is what makes that filter see the
 		// new business's own family rather than the zero value.

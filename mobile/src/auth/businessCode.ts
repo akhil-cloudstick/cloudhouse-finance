@@ -37,28 +37,32 @@ export async function saveBusinessCode(code: string): Promise<void> {
   await SecureStore.setItemAsync(BUSINESS_CODE_KEY, normalized);
 }
 
-/* The login screen hides the business code field, so the business this build
- * belongs to comes from EXPO_PUBLIC_DEFAULT_BUSINESS_CODE in .env.local or
- * eas.json. When it is set it is AUTHORITATIVE: it wins over whatever code
- * this device remembered from an earlier sign-in, otherwise a device that
- * once signed in to another business would stay stuck on it (and on its
- * branding) forever, with no visible field to change it. The remembered code
- * is only used when no code is configured. */
-const DEFAULT_BUSINESS_CODE = normalizeBusinessCode(process.env.EXPO_PUBLIC_DEFAULT_BUSINESS_CODE ?? "");
-
-/** The build's configured business code, or "" when none is configured. */
-export function configuredBusinessCode(): string {
-  return isValidBusinessCode(DEFAULT_BUSINESS_CODE) ? DEFAULT_BUSINESS_CODE : "";
-}
-
-/** The code remembered from this device's last successful sign-in, if any. */
-export async function getStoredBusinessCode(): Promise<string> {
+/* The business is no longer baked into the build. The app starts on the
+ * connect screen (app/(auth)/connect.tsx), which learns it by scanning the
+ * QR in the web dashboard's header (frontend ConnectMobileModal) or from a
+ * typed code, and stores it here. It stays until the user picks "Exit
+ * business" — a plain sign-out keeps it, so the next sign-in goes straight
+ * to that business's login page. */
+export async function getBusinessCode(): Promise<string> {
   const stored = await SecureStore.getItemAsync(BUSINESS_CODE_KEY);
   return stored && isValidBusinessCode(stored) ? stored : "";
 }
 
-export async function getBusinessCode(): Promise<string> {
-  return configuredBusinessCode() || (await getStoredBusinessCode());
+/* Reads the business code out of a scanned QR. The web encodes
+ * `cloudhouse://connect?b=<code>` (the app's own scheme, so the phone camera
+ * can open it too); a bare code is accepted as well, for a QR someone made
+ * by hand. Anything else — a packet label, another app's QR — is null. */
+export function parseConnectQr(scanned: string): string | null {
+  const s = scanned.trim();
+  const m = s.match(/^cloudhouse:\/\/\/?connect\?(?:.*&)?b=([^&#\s]+)/i);
+  let raw = m ? m[1] : s;
+  try {
+    raw = decodeURIComponent(raw);
+  } catch {
+    return null;
+  }
+  const code = normalizeBusinessCode(raw);
+  return isValidBusinessCode(code) ? code : null;
 }
 
 export async function clearBusinessCode(): Promise<void> {

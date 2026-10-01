@@ -57,7 +57,6 @@ import { EditLoanModalContent } from "@/product/components/modals/EditLoanModal"
 import { navigate, routeHref } from "@/product/services/appRoutes";
 import { DisburseLoanModalContent } from "@/product/components/modals/DisburseLoanModal";
 import { TopUpLoanModalContent } from "@/product/components/modals/TopUpLoanModal";
-import { WaiverRequestModalContent } from "@/product/components/modals/WaiverRequestModal";
 import { RejectRemarksModalContent } from "@/product/components/modals/RejectRemarksModal";
 
 /* Auction rows in the Payment Ledger. RecordAuctionSale writes an "Auction
@@ -158,7 +157,7 @@ export function LoanDetail({ id }: { id?: string }) {
   // without also refreshing that, those pages kept showing the
   // pre-change status until a full page reload re-fetched everything.
   const { refresh: refreshLoans } = useLoans();
-  const { can } = useAuth();
+  const { can, role, isAdmin } = useAuth();
   // Which sanction/top-up stages apply is per-business configuration — see
   // approvalWorkflowService.ts.
   const { config: workflow } = useApprovalWorkflow();
@@ -379,29 +378,25 @@ export function LoanDetail({ id }: { id?: string }) {
   const pendingStage = pendingStageView?.key ?? null;
   const sanctionChain = chainFor(workflow, "loan_sanction", l.approvalStage);
   const pendingStageIndex = pendingStage ? sanctionChain.findIndex((s) => s.key === pendingStage) : -1;
-  // Whether the viewer may act at the CURRENT pending stage is now a real
-  // "Loan Sanction" permission grant (see internal/authz.Catalogue),
-  // not a role-name match — an admin can grant e.g. "can approve branch
-  // manager stage" to any role, not just one literally named "Branch
-  // Manager". This mirrors the backend's real check (Service.Approve,
-  // checkStagePermission) so someone outside the flow doesn't see
-  // clickable Approve/Reject buttons that would just 403; it's a UX
-  // nicety only — the server enforces it regardless of what the client
-  // shows. requiredRole is kept purely for the "Awaiting <role>
-  // approval" display text below.
+  // Each stage is one approver role from the business's configured chain
+  // (Roles & Permissions → Approval Workflow); only that role or
+  // Administrator may act at it. This mirrors the backend's real check
+  // (workflow.Service.CanAct) so someone outside the flow doesn't see
+  // clickable Approve/Reject buttons that would just 403; it's a UX nicety
+  // only — the server enforces it regardless of what the client shows.
   const requiredRole = pendingStageView?.role ?? null;
-  // The LoanOperator stage is a verification, not a sanction — the operator
-  // who made the loan confirms it and it moves on to the Branch Manager,
-  // who is the first real approver (backend: Service.Approve). So the
-  // affirmative action at that stage is "Verified", "Approved" above it.
-  const isVerifyStage = pendingStage === "LoanOperator";
+  // A Loan Operator step is a verification, not a sanction — the operator
+  // who made the loan confirms it and it moves on. So the affirmative
+  // action there is "Verified", "Approved" elsewhere (the backend treats
+  // both the same).
+  const isVerifyStage = requiredRole === "Loan Operator";
   // The last ENABLED stage of the chain disburses — whichever one that is.
   const isDisburseStage = !!pendingStage && isFinalStage(workflow, "loan_sanction", pendingStage);
   // The stage permission (from the stage's own config entry) says whose
   // turn it is; "can update loan" says whether the viewer may act on loans
   // at all. Both must hold, or they see the "awaiting …" note instead of
   // clickable buttons.
-  const canActOnStage = !!pendingStage && canUpdateLoans && canActAtStage(can, pendingStageView);
+  const canActOnStage = !!pendingStage && canUpdateLoans && canActAtStage({ role, isAdmin }, pendingStageView);
 
   // A top-up waiting in the loan_topup approval chain (only one per loan).
   // Pending/Rejected rows paid nothing out, so only the others belong in the
@@ -411,7 +406,7 @@ export function LoanDetail({ id }: { id?: string }) {
   const topUpStageView = pendingTopUp ? stageByPending(workflow, "loan_topup", pendingTopUp.approvalStage) : null;
   const topUpChain = pendingTopUp ? chainFor(workflow, "loan_topup", pendingTopUp.approvalStage) : [];
   const topUpStageIndex = topUpStageView ? topUpChain.findIndex((s) => s.key === topUpStageView.key) : topUpChain.length;
-  const canActOnTopUp = canUpdateLoans && canActAtStage(can, topUpStageView);
+  const canActOnTopUp = canUpdateLoans && canActAtStage({ role, isAdmin }, topUpStageView);
   const topUpIsFinal = !!topUpStageView && isFinalStage(workflow, "loan_topup", topUpStageView.key);
 
   async function decideTopUp(action: "Approved" | "Rejected", remarks = "") {
@@ -1007,7 +1002,7 @@ export function LoanDetail({ id }: { id?: string }) {
         <div className="page-h-actions">
           {approvalButtons ? approvalButtons : (
             !isFinished && canUpdateLoans && (
-              <button className="btn" onClick={() => openModal(<PaymentModalContent loan={l} onSaved={load} />)}><Icon name="coin" /> Record Payment</button>
+              <button className="btn" onClick={() => openModal(<PaymentModalContent loan={l} onSaved={load} />, true)}><Icon name="coin" /> Record Payment</button>
             )
           )}
           {l.status === "Closure Requested" && canUpdateLoans && (
@@ -1057,11 +1052,6 @@ export function LoanDetail({ id }: { id?: string }) {
                 {l.status === "Active" && canUpdateLoans && (
                   <a href="#" title="Top Up Loan" onClick={(e) => { e.preventDefault(); setLoanActionsMenuOpen(false); openModal(<TopUpLoanModalContent loan={l} onSaved={() => { load(); setTopUpsVersion((v) => v + 1); }} />); }}>
                     <Icon name="coin" /><span className="tx">Top Up</span>
-                  </a>
-                )}
-                {!isFinished && l.status !== "Auctioned" && canUpdateLoans && (
-                  <a href="#" title="Waiver / Adjustment" onClick={(e) => { e.preventDefault(); setLoanActionsMenuOpen(false); openModal(<WaiverRequestModalContent loan={l} onSaved={load} />); }}>
-                    <Icon name="edit" /><span className="tx">Waiver / Adjustment</span>
                   </a>
                 )}
                 {/* Deliberately the ONLY delete action offered here — there

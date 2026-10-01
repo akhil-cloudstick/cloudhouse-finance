@@ -48,6 +48,7 @@ var (
 	ErrLoanBankRequired      = httpx.NewBadRequest("bank is required for a loan-sourced cash entry")
 	ErrLoanNumberRequired    = httpx.NewBadRequest("loan number is required for a loan-sourced cash entry")
 	ErrLoanPrincipalRequired = httpx.NewBadRequest("principal amount must be greater than zero for a loan-sourced cash entry")
+	ErrCashSourceNotFound    = httpx.NewNotFound("cash source not found")
 
 	ErrCashSourceNameRequired = httpx.NewBadRequest("name is required")
 	ErrCashSourceReserved     = httpx.NewBadRequest("\"Gold Sale\" is a built-in source")
@@ -124,10 +125,91 @@ type MovementService struct {
 	expenseRepo    *ExpenseRepository
 	branchRepo     *branch.Repository
 	loanSourceRepo *LoanCashSourceRepository
+	// sourceRepo/categoryRepo back loan sources — see SetLoanSourceLookups.
+	sourceRepo   *CashSourceRepository
+	categoryRepo *ExpenseCategoryRepository
 }
 
 func NewMovementService(repo *MovementRepository, expenseRepo *ExpenseRepository, branchRepo *branch.Repository, loanSourceRepo *LoanCashSourceRepository) *MovementService {
 	return &MovementService{repo: repo, expenseRepo: expenseRepo, branchRepo: branchRepo, loanSourceRepo: loanSourceRepo}
+}
+
+// SetLoanSourceLookups wires the cash-source/expense-category lists a loan
+// source needs: its bank/number/principal live on the CashSource row, and
+// its repayments are expenses in the same-named ExpenseCategory.
+func (s *MovementService) SetLoanSourceLookups(sourceRepo *CashSourceRepository, categoryRepo *ExpenseCategoryRepository) {
+	s.sourceRepo = sourceRepo
+	s.categoryRepo = categoryRepo
+}
+
+// IsLoanSource reports whether a cash source name is a bank loan — any
+// name starting with "Loan", case-insensitive ("Loan", "Loan HDFC 4471").
+func IsLoanSource(name string) bool {
+	return strings.HasPrefix(strings.ToLower(strings.TrimSpace(name)), "loan")
+}
+
+// LoanBalance is a loan source's position: the balance starts at Principal,
+// each Add Cash drawn from it lowers it and each approved repayment (an
+// expense in its same-named category) raises it back, never above Principal.
+type LoanBalance struct {
+	Principal float64 `json:"principal"`
+	Drawn     float64 `json:"drawn"`
+	Repaid    float64 `json:"repaid"`
+	Balance   float64 `json:"balance"`
+}
+
+func (s *MovementService) loanBalance(ctx context.Context, src *CashSource, includePending bool) (LoanBalance, error) {
+	var b LoanBalance
+	if src.PrincipalAmount != nil {
+		b.Principal = *src.PrincipalAmount
+	}
+	since := src.CreatedAt
+	if src.LoanOpenedAt != nil {
+		since = *src.LoanOpenedAt
+	}
+	var err error
+	if b.Drawn, err = s.repo.loanDrawn(ctx, src.Name, since); err != nil {
+		return b, err
+	}
+	if b.Repaid, err = s.repo.loanRepaid(ctx, src.Name, since, includePending); err != nil {
+		return b, err
+	}
+	b.Balance = b.Principal - b.Drawn + b.Repaid
+	return b, nil
+}
+
+// findLoanSource returns the loan CashSource named name with its details
+// captured, or nil when name isn't a loan source / has no details yet / the
+// lookups aren't wired.
+func (s *MovementService) findLoanSource(ctx context.Context, name string) *CashSource {
+	if s.sourceRepo == nil || !IsLoanSource(name) {
+		return nil
+	}
+	src, err := s.sourceRepo.FindByName(ctx, strings.TrimSpace(name))
+	if err != nil || !src.HasLoanDetails() {
+		return nil
+	}
+	return src
+}
+
+// EnsureLoanRepayment refuses an expense booked against a loan source's
+// category when it would lift the loan's balance above its principal.
+// includePending counts repayments still awaiting approval (used when the
+// expense is recorded); approval itself counts approved ones only. A
+// category that isn't a loan source always passes.
+func (s *MovementService) EnsureLoanRepayment(ctx context.Context, category string, amount float64, includePending bool) error {
+	src := s.findLoanSource(ctx, category)
+	if src == nil {
+		return nil
+	}
+	b, err := s.loanBalance(ctx, src, includePending)
+	if err != nil {
+		return err
+	}
+	if room := b.Principal - b.Balance; amount > room+0.005 {
+		return httpx.NewBadRequest(fmt.Sprintf("repayment exceeds the loan principal — only ₹%.2f is still owed on %s", max(room, 0), src.Name))
+	}
+	return nil
 }
 
 func (s *MovementService) Record(ctx context.Context, in RecordMovementInput, loanSource *LoanSourceInput) (*CashMovement, error) {
@@ -170,18 +252,12 @@ func (s *MovementService) Record(ctx context.Context, in RecordMovementInput, lo
 		if in.Mode == "" {
 			return nil, ErrModeOfCashRequired
 		}
-		if in.Source == "Loan" && in.Bank == "" {
-			return nil, ErrBankRequired
-		}
 		// UPI/Bank Transfer names the branch's own account the money landed
 		// in (BankID) — the account whose ledger it shows in.
 		if (in.Mode == CashModeUPI || in.Mode == CashModeBankTransfer) && in.BankID == nil && in.Bank == "" {
 			return nil, ErrBankRequiredForMode
 		}
 		rec.Source = in.Source
-		if in.Source == "Loan" {
-			rec.Status = "Open"
-		}
 	} else {
 		if in.Purpose == "" {
 			return nil, ErrPurposeRequired
@@ -189,22 +265,51 @@ func (s *MovementService) Record(ctx context.Context, in RecordMovementInput, lo
 		rec.Purpose = in.Purpose
 	}
 
-	if in.Type == "in" && in.Source == "Loan" {
-		if loanSource == nil || loanSource.BankID == 0 {
-			return nil, ErrLoanBankRequired
+	isLoan := in.Type == "in" && IsLoanSource(in.Source)
+	// src is the loan's CashSource row: its first Add Cash entry captures
+	// the bank/number/principal onto it (newLoan), every later one reuses
+	// them and ignores any loanSource sent.
+	var src *CashSource
+	newLoan := false
+	if isLoan {
+		var err error
+		if src, err = s.resolveLoanSource(ctx, in.Source); err != nil {
+			return nil, err
 		}
-		if loanSource.LoanNumber == "" {
-			return nil, ErrLoanNumberRequired
+		if !src.HasLoanDetails() {
+			if loanSource == nil || loanSource.BankID == 0 {
+				return nil, ErrLoanBankRequired
+			}
+			if strings.TrimSpace(loanSource.LoanNumber) == "" {
+				return nil, ErrLoanNumberRequired
+			}
+			if loanSource.PrincipalAmount <= 0 {
+				return nil, ErrLoanPrincipalRequired
+			}
+			bankID, principal, opened := loanSource.BankID, loanSource.PrincipalAmount, time.Now()
+			src.BankID, src.LoanNumber, src.PrincipalAmount = &bankID, strings.TrimSpace(loanSource.LoanNumber), &principal
+			src.LoanOpenedAt = &opened
+			newLoan = true
 		}
-		if loanSource.PrincipalAmount <= 0 {
-			return nil, ErrLoanPrincipalRequired
+		// Add Cash draws the loan down — it can't draw more than is left.
+		b, err := s.loanBalance(ctx, src, false)
+		if err != nil {
+			return nil, err
 		}
-		rec.Purpose = "Loan no. " + loanSource.LoanNumber
+		if in.Amount > b.Balance+0.005 {
+			return nil, httpx.NewBadRequest(fmt.Sprintf("amount exceeds the loan balance — only ₹%.2f is left to draw on %s", max(b.Balance, 0), src.Name))
+		}
+		rec.Source = src.Name
+		rec.Status = "Open"
+		rec.Purpose = "Loan no. " + src.LoanNumber
+		if rec.Bank == "" && src.Bank != nil {
+			rec.Bank = src.Bank.Name
+		}
 		// Tag the lending bank on the movement itself so the entry lands in
 		// that bank's ledger and the mode (UPI/Bank Transfer) ledger's Bank
 		// column, instead of living only in the free-text Bank field.
 		if rec.BankID == nil {
-			bankID := loanSource.BankID
+			bankID := *src.BankID
 			rec.BankID = &bankID
 		}
 	}
@@ -213,14 +318,22 @@ func (s *MovementService) Record(ctx context.Context, in RecordMovementInput, lo
 		return nil, err
 	}
 
-	if in.Type == "in" && in.Source == "Loan" {
+	if isLoan {
+		if newLoan {
+			if err := s.sourceRepo.SaveLoanDetails(ctx, src); err != nil {
+				return nil, err
+			}
+			// Repayments are booked as expenses in a same-named category,
+			// so the loan shows up in the Expense modal's Category picker.
+			if err := s.ensureLoanCategory(ctx, src.Name); err != nil {
+				return nil, err
+			}
+		}
 		loanRec := &LoanCashSource{
 			CashMovementID:  rec.ID,
-			BankID:          loanSource.BankID,
-			LoanNumber:      loanSource.LoanNumber,
-			PrincipalAmount: loanSource.PrincipalAmount,
-			InterestRate:    loanSource.InterestRate,
-			DurationMonths:  loanSource.DurationMonths,
+			BankID:          *src.BankID,
+			LoanNumber:      src.LoanNumber,
+			PrincipalAmount: *src.PrincipalAmount,
 		}
 		if err := s.loanSourceRepo.Create(ctx, loanRec); err != nil {
 			return nil, err
@@ -228,6 +341,56 @@ func (s *MovementService) Record(ctx context.Context, in RecordMovementInput, lo
 	}
 
 	return s.repo.FindByID(ctx, rec.ID)
+}
+
+// resolveLoanSource find-or-creates the CashSource row a loan entry draws
+// from (normally it already exists — the Add Cash picker creates it).
+func (s *MovementService) resolveLoanSource(ctx context.Context, name string) (*CashSource, error) {
+	if s.sourceRepo == nil {
+		return nil, errors.New("cash: loan source lookups not wired")
+	}
+	trimmed := strings.TrimSpace(name)
+	src, err := s.sourceRepo.FindByName(ctx, trimmed)
+	if err == nil {
+		return src, nil
+	}
+	if !errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, err
+	}
+	src = &CashSource{Name: trimmed}
+	if err := s.sourceRepo.Create(ctx, src); err != nil {
+		return nil, err
+	}
+	return src, nil
+}
+
+func (s *MovementService) ensureLoanCategory(ctx context.Context, name string) error {
+	if s.categoryRepo == nil {
+		return nil
+	}
+	if _, err := s.categoryRepo.FindByName(ctx, name); err == nil {
+		return nil
+	} else if !errors.Is(err, gorm.ErrRecordNotFound) {
+		return err
+	}
+	return s.categoryRepo.Create(ctx, &ExpenseCategory{Name: name})
+}
+
+// GetCashSource returns a cash source with its loan details and current
+// balance (zero LoanBalance when it isn't a loan with details captured).
+func (s *MovementService) GetCashSource(ctx context.Context, id uint) (*CashSource, LoanBalance, error) {
+	if s.sourceRepo == nil {
+		return nil, LoanBalance{}, ErrCashSourceNotFound
+	}
+	src, err := s.sourceRepo.FindByID(ctx, id)
+	if err != nil {
+		return nil, LoanBalance{}, ErrCashSourceNotFound
+	}
+	if !IsLoanSource(src.Name) || !src.HasLoanDetails() {
+		return src, LoanBalance{}, nil
+	}
+	b, err := s.loanBalance(ctx, src, false)
+	return src, b, err
 }
 
 // SearchLoanSources backs GET /cash-movements/loan-sources — see
@@ -919,11 +1082,32 @@ type ExpenseActor struct {
 	Name       string // fallback display name when no namer is wired
 }
 
-// authorizeDecision checks the actor may decide at the expense stage and
-// returns the name to stamp on ApprovedBy.
-func (s *ExpenseService) authorizeDecision(ctx context.Context, actor ExpenseActor) (string, error) {
-	if !s.workflowSvc.CanAct(ctx, actor.RoleID, workflow.FlowExpense, "Approver") {
-		return "", ErrExpenseApprovalNotPermitted
+// expenseDecision is a Pending expense resolved onto the tenant's expense
+// chain, with the actor cleared to act at its current step.
+type expenseDecision struct {
+	rec   *Expense
+	chain *workflow.Chain
+	step  workflow.StageDef
+	name  string // to stamp on ApprovedBy
+}
+
+// authorizeDecision loads the expense, resolves the step it waits at, and
+// checks the actor holds that step's role (or is Administrator).
+func (s *ExpenseService) authorizeDecision(ctx context.Context, id uint, actor ExpenseActor, branchID *uint) (*expenseDecision, error) {
+	rec, err := s.Get(ctx, id, branchID)
+	if err != nil {
+		return nil, err
+	}
+	if rec.Status != "Pending" {
+		return nil, ErrExpenseNotPending
+	}
+	chain, err := s.workflowSvc.Chain(ctx, workflow.FlowExpense)
+	if err != nil {
+		return nil, err
+	}
+	step, _ := chain.ByPending(rec.ApprovalStage)
+	if !s.workflowSvc.CanAct(ctx, actor.RoleID, workflow.FlowExpense, step.Key) {
+		return nil, ErrExpenseApprovalNotPermitted
 	}
 	name := actor.Name
 	if s.employeeName != nil && actor.EmployeeID != 0 {
@@ -931,26 +1115,46 @@ func (s *ExpenseService) authorizeDecision(ctx context.Context, actor ExpenseAct
 			name = n
 		}
 	}
-	return name, nil
+	return &expenseDecision{rec: rec, chain: chain, step: step, name: name}, nil
 }
 
-// ApproveAs is Approve for an HTTP caller: permission-checked, and stamped
-// with the authenticated approver's name.
+// ApproveAs is Approve for an HTTP caller: checked against the step the
+// expense waits at, and stamped with the authenticated approver's name. A
+// step before the last only moves the expense on (still Pending); the last
+// step posts it.
 func (s *ExpenseService) ApproveAs(ctx context.Context, id uint, actor ExpenseActor, branchID *uint) (*Expense, error) {
-	name, err := s.authorizeDecision(ctx, actor)
+	d, err := s.authorizeDecision(ctx, id, actor, branchID)
 	if err != nil {
 		return nil, err
 	}
-	return s.Approve(ctx, id, name, branchID)
+	s.workflowSvc.RecordAction(ctx, &workflow.ApprovalAction{
+		Flow: workflow.FlowExpense, EntityID: id, Stage: d.step.Key, Action: workflow.ActionApproved,
+		ActorEmployeeID: actor.EmployeeID, ActorRole: d.step.Role,
+	})
+	if next, ok := d.chain.Next(d.step.Key); ok && d.step.Key != "" {
+		d.rec.ApprovalStage = next.Pending
+		if err := s.repo.Update(ctx, d.rec); err != nil {
+			return nil, err
+		}
+		return s.repo.FindByID(ctx, id)
+	}
+	return s.Approve(ctx, id, d.name, branchID)
 }
 
 // RejectAs is Reject for an HTTP caller — see ApproveAs.
 func (s *ExpenseService) RejectAs(ctx context.Context, id uint, actor ExpenseActor, remarks string, branchID *uint) (*Expense, error) {
-	name, err := s.authorizeDecision(ctx, actor)
+	d, err := s.authorizeDecision(ctx, id, actor, branchID)
 	if err != nil {
 		return nil, err
 	}
-	return s.Reject(ctx, id, name, remarks, branchID)
+	rec, err := s.Reject(ctx, id, d.name, remarks, branchID)
+	if err == nil {
+		s.workflowSvc.RecordAction(ctx, &workflow.ApprovalAction{
+			Flow: workflow.FlowExpense, EntityID: id, Stage: d.step.Key, Action: workflow.ActionRejected,
+			ActorEmployeeID: actor.EmployeeID, ActorRole: d.step.Role, Remarks: remarks,
+		})
+	}
+	return rec, err
 }
 
 func NewExpenseService(repo *ExpenseRepository, branchRepo *branch.Repository, movementSvc *MovementService) *ExpenseService {
@@ -986,6 +1190,10 @@ func (s *ExpenseService) Record(ctx context.Context, in RecordExpenseInput) (*Ex
 	if (in.Mode == CashModeUPI || in.Mode == "Bank") && in.FromBankID == nil {
 		return nil, ErrExpenseBankRequired
 	}
+	// A loan source's category is its repayment — capped at the principal.
+	if err := s.movementSvc.EnsureLoanRepayment(ctx, in.Category, in.Amount, true); err != nil {
+		return nil, err
+	}
 	// With the tenant's expense approval stage switched on, a recorded
 	// expense waits as Pending — no cash-out (and so no Balance-in-Hand
 	// check) until Approve posts it.
@@ -1003,19 +1211,20 @@ func (s *ExpenseService) Record(ctx context.Context, in RecordExpenseInput) (*Ex
 	if occurredOn.IsZero() {
 		occurredOn = now
 	}
-	if !chain.Off() {
+	if first, ok := chain.First(); ok {
 		rec := &Expense{
-			OccurredOn:   occurredOn,
-			Category:     in.Category,
-			Amount:       in.Amount,
-			Mode:         in.Mode,
-			Payee:        in.Payee,
-			FromBankID:   in.FromBankID,
-			ToBankID:     in.ToBankID,
-			BranchID:     in.BranchID,
-			Status:       "Pending",
-			Remarks:      in.Remarks,
-			ReceiptImage: in.ReceiptImage,
+			ApprovalStage: first.Pending,
+			OccurredOn:    occurredOn,
+			Category:      in.Category,
+			Amount:        in.Amount,
+			Mode:          in.Mode,
+			Payee:         in.Payee,
+			FromBankID:    in.FromBankID,
+			ToBankID:      in.ToBankID,
+			BranchID:      in.BranchID,
+			Status:        "Pending",
+			Remarks:       in.Remarks,
+			ReceiptImage:  in.ReceiptImage,
 		}
 		if err := s.repo.Create(ctx, rec); err != nil {
 			return nil, err
@@ -1095,6 +1304,9 @@ func (s *ExpenseService) Approve(ctx context.Context, id uint, approvedBy string
 		if err := s.summarySvc.EnsureCashInHand(ctx, rec.BranchID, rec.Amount); err != nil {
 			return nil, err
 		}
+	}
+	if err := s.movementSvc.EnsureLoanRepayment(ctx, rec.Category, rec.Amount, false); err != nil {
+		return nil, err
 	}
 	now := time.Now()
 	rec.Status = "Approved"

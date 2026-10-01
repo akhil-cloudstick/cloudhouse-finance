@@ -1,7 +1,7 @@
 import { apiFetchEnveloped as apiFetch, API_BASE, getAuthToken, ApiError } from "@/product/services/httpClient";
 import { branchHeader } from "@/product/services/branchSelection";
 import { isSmallScreen } from "@/product/utils/responsive";
-import { printPdfBlob } from "@/product/utils/print";
+import { printPdfJob } from "@/product/utils/print";
 import type { BondLang } from "@/product/pages/loans/utils/indemnityBond";
 
 /* Mirrors backend/internal/loan/handler.go's ornamentRequest exactly. */
@@ -1985,23 +1985,24 @@ export async function downloadLoanStatement(loanId: number): Promise<void> {
  * still uses the client-side copy, since there's no loan id yet to render
  * against. */
 export async function downloadIndemnityBondPDF(loanNumericId: number, lang: BondLang): Promise<void> {
-  const token = getAuthToken();
-  const res = await fetch(`${API_BASE}/loans/${loanNumericId}/indemnity-bond/pdf?lang=${lang}`, {
-    headers: token ? { Authorization: `Bearer ${token}` } : {},
-  });
-  if (!res.ok) {
-    let message = res.statusText;
-    try {
-      const body = await res.json();
-      if (body?.error) message = body.error;
-    } catch {
-      /* non-JSON error body — fall back to statusText */
+  return printPdfJob(async () => {
+    const token = getAuthToken();
+    const res = await fetch(`${API_BASE}/loans/${loanNumericId}/indemnity-bond/pdf?lang=${lang}`, {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    });
+    if (!res.ok) {
+      let message = res.statusText;
+      try {
+        const body = await res.json();
+        if (body?.error) message = body.error;
+      } catch {
+        /* non-JSON error body — fall back to statusText */
+      }
+      throw new ApiError(message, res.status);
     }
-    throw new ApiError(message, res.status);
-  }
 
-  const blob = await res.blob();
-  printPdfBlob(blob);
+    return res.blob();
+  });
 }
 
 /* Partial Ornament Release counterpart to downloadReleaseAgreementPDF below
@@ -2010,23 +2011,24 @@ export async function downloadIndemnityBondPDF(loanNumericId: number, lang: Bond
  * released BY THIS REQUEST). Only valid for a Release request with
  * isPartial true — see DownloadPartialReleaseReceiptPDF's own doc comment. */
 export async function downloadPartialReleaseReceiptPDF(requestId: number): Promise<void> {
-  const token = getAuthToken();
-  const res = await fetch(`${API_BASE}/loans/requests/${requestId}/partial-release-receipt/pdf`, {
-    headers: token ? { Authorization: `Bearer ${token}` } : {},
-  });
-  if (!res.ok) {
-    let message = res.statusText;
-    try {
-      const body = await res.json();
-      if (body?.error) message = body.error;
-    } catch {
-      /* non-JSON error body — fall back to statusText */
+  return printPdfJob(async () => {
+    const token = getAuthToken();
+    const res = await fetch(`${API_BASE}/loans/requests/${requestId}/partial-release-receipt/pdf`, {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    });
+    if (!res.ok) {
+      let message = res.statusText;
+      try {
+        const body = await res.json();
+        if (body?.error) message = body.error;
+      } catch {
+        /* non-JSON error body — fall back to statusText */
+      }
+      throw new ApiError(message, res.status);
     }
-    throw new ApiError(message, res.status);
-  }
 
-  const blob = await res.blob();
-  printPdfBlob(blob);
+    return res.blob();
+  });
 }
 
 /* Sends the FORM 7 release/discharge agreement straight to the print dialog
@@ -2039,23 +2041,24 @@ export async function downloadPartialReleaseReceiptPDF(requestId: number): Promi
  * Requests.tsx) only reaches this once a loan is closed/release-approved, so
  * there is no pre-save preview variant, unlike the indemnity bond. */
 export async function downloadReleaseAgreementPDF(loanNumericId: number, lang: "en" | "ml"): Promise<void> {
-  const token = getAuthToken();
-  const res = await fetch(`${API_BASE}/loans/${loanNumericId}/release-agreement/pdf?lang=${lang}`, {
-    headers: token ? { Authorization: `Bearer ${token}` } : {},
-  });
-  if (!res.ok) {
-    let message = res.statusText;
-    try {
-      const body = await res.json();
-      if (body?.error) message = body.error;
-    } catch {
-      /* non-JSON error body — fall back to statusText */
+  return printPdfJob(async () => {
+    const token = getAuthToken();
+    const res = await fetch(`${API_BASE}/loans/${loanNumericId}/release-agreement/pdf?lang=${lang}`, {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    });
+    if (!res.ok) {
+      let message = res.statusText;
+      try {
+        const body = await res.json();
+        if (body?.error) message = body.error;
+      } catch {
+        /* non-JSON error body — fall back to statusText */
+      }
+      throw new ApiError(message, res.status);
     }
-    throw new ApiError(message, res.status);
-  }
 
-  const blob = await res.blob();
-  printPdfBlob(blob);
+    return res.blob();
+  });
 }
 
 /* Same shape NewLoan.tsx's buildDraft() already assembles for the old
@@ -2082,26 +2085,27 @@ export type IndemnityBondPreviewInput = {
  * an already-saved loan, and sends it straight to the print dialog the
  * same way via printPdfBlob — just POST with a JSON body instead of GET. */
 export async function previewIndemnityBondPDF(data: IndemnityBondPreviewInput, lang: BondLang): Promise<void> {
-  const token = getAuthToken();
-  const res = await fetch(`${API_BASE}/loans/indemnity-bond/preview-pdf?lang=${lang}`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-    },
-    body: JSON.stringify(data),
-  });
-  if (!res.ok) {
-    let message = res.statusText;
-    try {
-      const body = await res.json();
-      if (body?.error) message = body.error;
-    } catch {
-      /* non-JSON error body — fall back to statusText */
+  return printPdfJob(async () => {
+    const token = getAuthToken();
+    const res = await fetch(`${API_BASE}/loans/indemnity-bond/preview-pdf?lang=${lang}`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+      body: JSON.stringify(data),
+    });
+    if (!res.ok) {
+      let message = res.statusText;
+      try {
+        const body = await res.json();
+        if (body?.error) message = body.error;
+      } catch {
+        /* non-JSON error body — fall back to statusText */
+      }
+      throw new ApiError(message, res.status);
     }
-    throw new ApiError(message, res.status);
-  }
 
-  const blob = await res.blob();
-  printPdfBlob(blob);
+    return res.blob();
+  });
 }

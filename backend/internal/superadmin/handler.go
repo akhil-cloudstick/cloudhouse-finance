@@ -73,6 +73,7 @@ type createBusinessRequest struct {
 	BrandColor    string   `json:"brandColor"`
 	Modules       []string `json:"modules"`
 	Languages     []string `json:"languages"`
+	SingleBranch  bool     `json:"singleBranch"`
 	Reason        string   `json:"reason"`
 }
 
@@ -98,6 +99,7 @@ func (h *Handler) CreateBusiness(c *gin.Context) {
 		BrandColor:    req.BrandColor,
 		Modules:       req.Modules,
 		Languages:     req.Languages,
+		SingleBranch:  req.SingleBranch,
 	}, req.Reason)
 	if err != nil {
 		httpx.FailErr(c, err)

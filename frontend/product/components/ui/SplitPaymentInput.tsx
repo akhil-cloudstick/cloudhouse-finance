@@ -113,9 +113,15 @@ export function SplitPaymentInput({
   // Keeps the single untouched starting line following the amount field
   // above it (e.g. staff opens the modal, then types the amount) — stops
   // the moment the user actually interacts with this component.
+  // A single line always follows the total, even once its mode/bank has been
+  // picked — one line can only ever be the whole amount, so leaving it on a
+  // stale figure just left the split unbalanced (and the parent's submit
+  // disabled) for no reason. Once there are two or more lines the user's
+  // own split is kept.
   useEffect(() => {
-    if (touched || lines.length !== 1) return;
-    setLines([{ mode: lines[0].mode, amount: totalAmount > 0 ? String(totalAmount) : "" }]);
+    if (lines.length !== 1) return;
+    if (touched && lines[0].amount === String(totalAmount)) return;
+    setLines([{ ...lines[0], amount: totalAmount > 0 ? String(totalAmount) : "" }]);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [totalAmount]);
 

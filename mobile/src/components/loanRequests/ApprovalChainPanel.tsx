@@ -4,7 +4,7 @@ import { useMutation } from "@tanstack/react-query";
 import { BtnRow2, C, ConfirmSheet, PrimaryButton, ReviewWarning, SheetFooter, Stepper, TextField, Txt, toast } from "../ui";
 import { useAuth } from "../../auth/AuthContext";
 import { ApiError } from "../../api/client";
-import { flowOf, isFinalStage, stageByPending, stageIndex, stagePerm, stepperSteps, useApprovalWorkflow, type FlowKey } from "../../api/approvalWorkflow";
+import { flowOf, isFinalStage, stageByPending, stageIndex, canActAtStage, stepperSteps, useApprovalWorkflow, type FlowKey } from "../../api/approvalWorkflow";
 
 /* The tenant-configured approval chain for one item — the Stepper (enabled
  * stages, plus the item's own stage if it's parked on a disabled one), whose
@@ -39,7 +39,7 @@ export function ApprovalChainPanel({
   onSaved: () => void;
   onError: (message: string) => void;
 }) {
-  const { can } = useAuth();
+  const { can, employee } = useAuth();
   const wf = useApprovalWorkflow();
   const [remarks, setRemarks] = useState("");
   const [confirmReject, setConfirmReject] = useState(false);
@@ -49,7 +49,7 @@ export function ApprovalChainPanel({
   const steps = stepperSteps(wf, flow, stage?.pending);
   const current = stage ? stageIndex(wf, flow, stage.pending) : steps.length;
   const isFinal = !!stage && isFinalStage(wf, flow, stage.pending);
-  const canActOnStage = !!stage && canDecide && can(...stagePerm(stage));
+  const canActOnStage = !!stage && canDecide && canActAtStage(employee?.role, stage);
   const finalAction = flowOf(wf, flow)?.finalAction;
 
   const run = useMutation({

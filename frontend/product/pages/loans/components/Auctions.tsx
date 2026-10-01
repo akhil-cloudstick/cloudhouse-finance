@@ -11,7 +11,7 @@ import { BRAND, printColors } from "@/product/config/brand";
 import { StatusChip } from "@/product/components/ui/StatusChip";
 import { StageTracker } from "@/product/components/ui/StageTracker";
 import { useAuth, useApprovalWorkflow } from "@/product/providers/auth-context";
-import { isFlowOff } from "@/product/services/approvalWorkflowService";
+import { canActAtStage, firstStage, isFlowOff } from "@/product/services/approvalWorkflowService";
 import {
   IssueNoticeModalContent,
   ScheduleAuctionModalContent,
@@ -91,7 +91,7 @@ export function printAuctionLetter(loan: LoanView, toast: (m: string) => void) {
  * just read `l.status`. */
 function AuctionCard({ l, onLoanChanged }: { l: LoanView; onLoanChanged: () => void }) {
   const { openModal } = useModal();
-  const { can } = useAuth();
+  const { can, role, isAdmin } = useAuth();
   const { config: workflow } = useApprovalWorkflow();
   const toast = useToast();
   // Auctions are a facet of a loan, so every step here (eligible → notice →
@@ -170,8 +170,8 @@ function AuctionCard({ l, onLoanChanged }: { l: LoanView; onLoanChanged: () => v
 
   const decision = pendingDecision(rec);
   const canDecide = canAct && (decision?.kind === "Shortfall"
-    ? can("Auction_Workflow", "can_decide_auction_shortfall")
-    : can("Auction_Workflow", "can_decide_auction_partial_repayment"));
+    ? canActAtStage({ role, isAdmin }, firstStage(workflow, "auction_shortfall")) || isAdmin
+    : canActAtStage({ role, isAdmin }, firstStage(workflow, "auction_partial_repayment")) || isAdmin);
   // While an escalation is open the pipeline is frozen server-side; hiding the
   // advance buttons keeps the UI honest instead of offering actions that 409.
   const frozen = !!decision;

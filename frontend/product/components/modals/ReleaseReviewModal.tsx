@@ -39,7 +39,7 @@ export function ReleaseReviewModalContent({ request, onSaved }: { request: Reque
   // Without "can update loan" this modal is a read-only view: the checklist
   // toggles stay locked and the approve/reject pair never renders (see
   // Requests.tsx, which labels the row button View in that case).
-  const { can } = useAuth();
+  const { can, role, isAdmin } = useAuth();
   const canDecide = can("Loan_Management", "can_update_loan");
   // Checklist verification and the two Manager/Management approval stages
   // each need their own "Release Approval" permission on top of the
@@ -104,7 +104,7 @@ export function ReleaseReviewModalContent({ request, onSaved }: { request: Reque
   const activeStage = releaseOff && !parkedOnDisabled ? null : stageView;
   const stage = activeStage?.key ?? "";
   const stageName = activeStage?.label ?? "";
-  const canActOnStage = canActAtStage(can, activeStage);
+  const canActOnStage = canActAtStage({ role, isAdmin }, activeStage);
   const chain = chainFor(workflow, "loan_release", activeStage ? activeStage.pending : null);
   const stageIndex = activeStage ? chain.findIndex((s) => s.key === activeStage.key) : chain.length;
 
@@ -261,7 +261,7 @@ export function ReleaseReviewModalContent({ request, onSaved }: { request: Reque
         <button
           className="btn ghost sm"
           disabled={req.status !== "Pending" || !canDecide || !loan}
-          onClick={() => openModal(<PaymentModalContent loan={loan!} releaseRequestId={req.id} onSaved={() => { onSaved(); getLoan(request.loanNumericId).then(setLoan); refreshRequest(); }} />)}
+          onClick={() => openModal(<PaymentModalContent loan={loan!} releaseRequestId={req.id} onSaved={() => { onSaved(); getLoan(request.loanNumericId).then(setLoan); refreshRequest(); }} />, true)}
         >
           <Icon name="coin" /> Record Payment
         </button>
@@ -283,7 +283,7 @@ export function ReleaseReviewModalContent({ request, onSaved }: { request: Reque
               * VerifyReleaseChecklist/ApproveReleaseRequest are), posted
               * through the plain /loans/:id/payments endpoint like any
               * other payment, not the release-request endpoint. */}
-            <button className="btn ghost sm" onClick={() => openModal(<PaymentModalContent loan={loan} onSaved={() => { setShowTopUp(false); onSaved(); getLoan(request.loanNumericId).then(setLoan); refreshRequest(); }} />)}>
+            <button className="btn ghost sm" onClick={() => openModal(<PaymentModalContent loan={loan} onSaved={() => { setShowTopUp(false); onSaved(); getLoan(request.loanNumericId).then(setLoan); refreshRequest(); }} />, true)}>
               <Icon name="coin" /> Record Top-Up Payment
             </button>
           </div>

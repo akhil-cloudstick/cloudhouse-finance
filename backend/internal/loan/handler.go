@@ -2180,6 +2180,7 @@ func (h *Handler) PreviewIndemnityBondPDF(c *gin.Context) {
 		Year:            now.Year(),
 		DueDate:         dueDate,
 	}
+	h.svc.FillLenderProfile(platform.RequestContext(c), &data)
 
 	pdfBytes, err := RenderIndemnityBondPDF(data, lang)
 	if err != nil {

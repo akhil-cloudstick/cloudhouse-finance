@@ -12,7 +12,7 @@ import { useAuth, useApprovalWorkflow } from "@/product/providers/auth-context";
 import { stageByPending } from "@/product/services/approvalWorkflowService";
 import { Icon } from "@/product/components/Icon";
 import { fmt, custOf, schemeOf } from "@/product/utils/format";
-import { uploadFile, searchCustomersPage, type CustomerView } from "@/product/pages/customers/services/customerService";
+import { uploadFile, searchCustomersPage, getCustomer, type CustomerView } from "@/product/pages/customers/services/customerService";
 import { VerifiedBadge } from "@/product/pages/customers/components/VerifiedBadge";
 import { searchActiveSchemesPage, type SchemeView } from "@/product/pages/schemes/services/schemeService";
 import { searchOrnamentTypesPage, createOrnamentType, type BackendOrnamentType } from "@/product/pages/ornament-types/services/ornamentTypeService";
@@ -30,6 +30,7 @@ import { publishGoldRate } from "@/product/pages/gold-rates/services/goldRateSer
 import { listActiveBranches, type BranchView } from "@/product/pages/branches/services/branchService";
 import { getLocker, searchLockersPage, type LockerView } from "@/product/pages/lockers/services/lockerService";
 import { SearchableSelect } from "@/product/components/ui/SearchableSelect";
+import { DatePicker } from "@/product/components/ui/DatePicker";
 import { StatusChip } from "@/product/components/ui/StatusChip";
 import { PurityPicker } from "@/product/components/ui/PurityPicker";
 import { rateForPurityFull } from "@/product/utils/purity";
@@ -69,12 +70,20 @@ function blurOnWheel(e: React.WheelEvent<HTMLInputElement>) {
   e.currentTarget.blur();
 }
 
+// "YYYY-MM-DD" in the browser's local timezone — toISOString() would give the
+// UTC date, which is still yesterday before 05:30 IST.
+function localISO(d: Date): string {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
 /* Ported from legacy/app.js's `renderNewLoan()` (legacy/app.js:845-1151).
  * Customer/scheme/ornament-type pickers now hit the real backend search
  * endpoints (via SearchableSelect) instead of filtering an in-memory mock
  * list or a localStorage-backed type list. */
-export function NewLoan() {
+export function NewLoan({ customerId }: { customerId?: string } = {}) {
   const { isAdmin, can } = useAuth();
+  // Single-branch business: the Branch picker is locked to its one branch.
+  const { singleBranch } = useBranding();
   const { config: workflow } = useApprovalWorkflow();
   const { refresh } = useData();
   const { customers } = useCustomers();
@@ -147,6 +156,21 @@ export function NewLoan() {
   // selecting a customer.
   const [custId, setCustId] = useState("");
   const [custLabel, setCustLabel] = useState("");
+  // Opened from a customer's profile ("New Loan" on CustomerDetail.tsx) —
+  // the route carries that customer's id, so pre-select them here. This is
+  // an explicit choice by staff, not the hidden default warned about above.
+  useEffect(() => {
+    if (!customerId) return;
+    let cancelled = false;
+    getCustomer(customerId)
+      .then((c) => {
+        if (cancelled) return;
+        setCustId(c.id);
+        setCustLabel(`${c.name} (${c.code})`);
+      })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [customerId]);
   const [schemeId, setSchemeId] = useState("");
   // The scheme picker searches GET /schemes/active live on every keystroke,
   // while `schemes` (useSchemes()) is a snapshot fetched once on app load —
@@ -180,6 +204,10 @@ export function NewLoan() {
   // Free text staff may want to record on this loan that no standard field
   // captures — carried through onto the printed Statement of Account.
   const [additionalInfo, setAdditionalInfo] = useState("");
+  // Loan (opened) date — defaults to today, may be backdated but never set
+  // in the future (the DatePicker's max blocks it; the backend re-checks).
+  // Interest accrues from this date, and the due date is derived from it.
+  const [openedDate, setOpenedDate] = useState(localISO(new Date()));
   const fileRefs = useRef<(HTMLInputElement | null)[]>([]);
 
   // Non-admin staff are confined to their own branch — the backend's
@@ -552,11 +580,13 @@ export function NewLoan() {
       requestAnimationFrame(() => setShakeRateBanner(true));
       return;
     }
+    const today = localISO(new Date());
+    if (!openedDate) { toast("Please select the loan date"); return; }
+    if (openedDate > today) { toast("Loan date cannot be in the future"); return; }
     const months = s.durationMonths || 12;
-    const opened = new Date();
-    const due = new Date(opened);
+    const [oy, om, od] = openedDate.split("-").map(Number);
+    const due = new Date(oy, om - 1, od);
     due.setMonth(due.getMonth() + months);
-    const iso = (d: Date) => d.toISOString().slice(0, 10);
 
     setSubmitting(true);
     try {
@@ -564,8 +594,8 @@ export function NewLoan() {
         branchId: Number(branchId),
         customerId: Number(custId),
         schemeId: Number(schemeId),
-        openedDate: iso(opened),
-        dueDate: iso(due),
+        openedDate,
+        dueDate: localISO(due),
         principalAmount: principal,
         ornaments: validRows.map((r) => ({
           name: r.n,
@@ -730,7 +760,7 @@ export function NewLoan() {
                 getLabel={(b) => b.name}
                 getId={(b) => String(b.id)}
                 placeholder={branches.length === 0 ? "Loading branches…" : "Search branch…"}
-                disabled={!isAdmin}
+                disabled={!isAdmin || singleBranch}
               /></div>
             <div><label className="f">Locker / Storage</label>
               {/* key={branchId}: SearchableSelect caches results per search
@@ -748,6 +778,7 @@ export function NewLoan() {
           </div>
           <div className="frow c2">
             <div><label className="f">Loan No (auto)</label><input className="inp" value={provId} disabled /></div>
+            <div><label className="f">Loan Date</label><DatePicker value={openedDate} onChange={setOpenedDate} max={localISO(new Date())} /></div>
           </div>
           <label className="f" style={{ marginTop: 6 }}>Pledged Ornaments</label>
           {/* Deliberately NOT wrapped in .tbl-wrap (unlike other tables) — that
@@ -802,7 +833,7 @@ export function NewLoan() {
               the search field's 34px floor + ~6px cell padding), comfortably
               inside 22% of 900px (198px). table-layout:fixed does NOT
               reallocate a tight column's shortfall from another column's
-              slack, so these 9 <col> percentages are kept summing to
+              slack, so these 8 <col> percentages are kept summing to
               exactly 100 (not left to silently normalize down) — a sum
               over 100 shrinks EVERY column's real rendered share,
               including Purity's, which is exactly what caused it to clip
@@ -822,24 +853,23 @@ export function NewLoan() {
               old "📷 Upload" text label it used to need room for. */}
           <div className="orn-table-view" style={{ width: "100%", minWidth: 900, paddingBottom: 6 }}><table className="tbl orn-table" style={{ width: "100%", tableLayout: "fixed" }}>
             <colgroup>
-              <col style={{ width: "22%" }} />
+              <col style={{ width: "24%" }} />
               <col style={{ width: "7%" }} />
               {/* Purity needs real room for its Karat/Fineness toggle
                * plus the number field beside it — it can't be squeezed
                * to the same width as the plain number columns without
                * clipping (see the width-budget note further up). */}
-              <col style={{ width: "20%" }} />
-              <col style={{ width: "9%" }} />
-              <col style={{ width: "9%" }} />
-              <col style={{ width: "9%" }} />
-              <col style={{ width: "8%" }} />
-              <col style={{ width: "9%" }} />
+              <col style={{ width: "22%" }} />
+              <col style={{ width: "10%" }} />
+              <col style={{ width: "10%" }} />
+              <col style={{ width: "10%" }} />
+              <col style={{ width: "10%" }} />
               <col style={{ width: "7%" }} />
             </colgroup>
-            <thead><tr><th>Ornament</th><th style={{ textAlign: "center", paddingRight: 4 }}>Qty</th><th style={{ paddingLeft: 4 }}>Purity</th><th className="num" style={{ paddingRight: 8, overflow: "hidden", textOverflow: "ellipsis" }}>Gross(g)</th><th className="num" style={{ paddingLeft: 8, paddingRight: 8, overflow: "hidden", textOverflow: "ellipsis" }}>Less(g)</th><th className="num" style={{ paddingLeft: 8, overflow: "hidden", textOverflow: "ellipsis" }}>Net(g)</th><th style={{ textAlign: "center", paddingLeft: 6, paddingRight: 2 }}>Value</th><th style={{ textAlign: "left", paddingLeft: 6 }}>Photo</th><th></th></tr></thead>
+            <thead><tr><th>Ornament</th><th style={{ textAlign: "center", paddingRight: 4 }}>Qty</th><th style={{ paddingLeft: 4, paddingRight: 0 }}>Purity</th><th className="num" style={{ paddingLeft: 2, paddingRight: 8, overflow: "hidden", textOverflow: "ellipsis" }}>Gross(g)</th><th className="num" style={{ paddingLeft: 8, paddingRight: 8, overflow: "hidden", textOverflow: "ellipsis" }}>Less(g)</th><th className="num" style={{ paddingLeft: 8, paddingRight: 8, overflow: "hidden", textOverflow: "ellipsis" }}>Net(g)</th><th style={{ textAlign: "left", paddingLeft: 8 }}>Photo</th><th></th></tr></thead>
             <tbody>
               {rows.length === 0 && (
-                <tr><td colSpan={9} className="empty">No ornaments added yet — click &quot;Add Ornament&quot; below.</td></tr>
+                <tr><td colSpan={8} className="empty">No ornaments added yet — click &quot;Add Ornament&quot; below.</td></tr>
               )}
               {rows.map((r, i) => (
                 <tr key={i}>
@@ -857,15 +887,14 @@ export function NewLoan() {
                     />
                   </td>
                   <td style={{ paddingRight: 4 }}><input className="inp" style={{ padding: "6px 8px", width: "100%", minWidth: 32, height: 31, textAlign: "center", boxSizing: "border-box" }} type="number" onWheel={blurOnWheel} min={0} placeholder="Qty" value={r.q === 0 ? "" : r.q} onChange={(e) => updOrn(i, "q", e.target.value === "" ? 0 : Math.max(0, +e.target.value || 0))} /></td>
-                  <td style={{ paddingLeft: 4 }}><PurityPicker value={r.p} onChange={(v) => updOrn(i, "p", v)} dropdownMinWidth={0} /></td>
-                  <td className="num" style={{ paddingRight: 8 }}><input className="inp" style={{ padding: "6px 8px", width: "100%", minWidth: 68, height: 31, textAlign: "right", boxSizing: "border-box" }} type="number" onWheel={blurOnWheel} min={0} placeholder="0.0gm" value={r.w === 0 ? "" : r.w} onChange={(e) => updOrn(i, "w", e.target.value === "" ? 0 : Math.max(0, +e.target.value || 0))} /></td>
+                  <td style={{ paddingLeft: 4, paddingRight: 0 }}><PurityPicker value={r.p} onChange={(v) => updOrn(i, "p", v)} dropdownMinWidth={0} /></td>
+                  <td className="num" style={{ paddingLeft: 2, paddingRight: 8 }}><input className="inp" style={{ padding: "6px 8px", width: "100%", minWidth: 68, height: 31, textAlign: "right", boxSizing: "border-box" }} type="number" onWheel={blurOnWheel} min={0} placeholder="0.0gm" value={r.w === 0 ? "" : r.w} onChange={(e) => updOrn(i, "w", e.target.value === "" ? 0 : Math.max(0, +e.target.value || 0))} /></td>
                   <td className="num" style={{ paddingLeft: 8, paddingRight: 8 }}><input className="inp" style={{ padding: "6px 8px", width: "100%", minWidth: 68, height: 31, textAlign: "right", boxSizing: "border-box" }} type="number" onWheel={blurOnWheel} min={0} max={r.w || undefined} placeholder="0.0gm" value={r.lessWt === 0 ? "" : r.lessWt} onChange={(e) => updOrn(i, "lessWt", e.target.value === "" ? 0 : Math.max(0, +e.target.value || 0))} /></td>
                   {/* Net Wt is directly editable — editing it derives Less
                       Wt instead (see updOrn); Gross Wt never changes as a
                       side effect. */}
-                  <td className="num" style={{ paddingLeft: 8 }}><input className="inp" style={{ padding: "6px 8px", width: "100%", minWidth: 68, height: 31, textAlign: "right", boxSizing: "border-box" }} type="number" onWheel={blurOnWheel} min={0} max={r.w || undefined} placeholder="0.0gm" value={r.netW === 0 ? "" : r.netW} onChange={(e) => updOrn(i, "netW", e.target.value === "" ? 0 : Math.max(0, +e.target.value || 0))} /></td>
-                  <td className="num" style={{ textAlign: "center", paddingLeft: 6, paddingRight: 2 }}>{fmt(rowVals[i])}</td>
-                  <td style={{ textAlign: "left", whiteSpace: "nowrap", paddingLeft: 6, paddingRight: 2 }}>
+                  <td className="num" style={{ paddingLeft: 8, paddingRight: 8 }}><input className="inp" style={{ padding: "6px 8px", width: "100%", minWidth: 68, height: 31, textAlign: "right", boxSizing: "border-box" }} type="number" onWheel={blurOnWheel} min={0} max={r.w || undefined} placeholder="0.0gm" value={r.netW === 0 ? "" : r.netW} onChange={(e) => updOrn(i, "netW", e.target.value === "" ? 0 : Math.max(0, +e.target.value || 0))} /></td>
+                  <td style={{ textAlign: "left", whiteSpace: "nowrap", paddingLeft: 8, paddingRight: 2 }}>
                     <input type="file" accept="image/*" ref={(el) => { fileRefs.current[i] = el; }} style={{ display: "none" }} onChange={(e) => ornImgPicked(i, e.target)} />
                     {r.img ? (
                       <div style={{ display: "inline-flex", gap: 4, alignItems: "center", justifyContent: "flex-start" }}>
@@ -939,16 +968,7 @@ export function NewLoan() {
                     <input className="inp" style={{ padding: "6px 8px", width: "100%", height: 31, boxSizing: "border-box" }} type="number" onWheel={blurOnWheel} min={0} max={r.w || undefined} placeholder="0.00 " value={r.netW === 0 ? "" : r.netW} onChange={(e) => updOrn(i, "netW", e.target.value === "" ? 0 : Math.max(0, +e.target.value || 0))} />
                   </div>
                 </div>
-                {/* Value/Photo are a tighter-knit summary pair than the
-                    sections above them (Ornament picker, Purity, Gross/
-                    Less Wt/Qty) — negative margin-top pulls them closer than
-                    `.orn-card`'s own shared 10px inter-row gap, without
-                    changing that gap for every other card app-wide. */}
                 <div className="orn-card-row" style={{ justifyContent: "space-between", alignItems: "center" }}>
-                  <span style={{ fontSize: 11, letterSpacing: ".14em", textTransform: "uppercase", color: "var(--muted)" }}>Value</span>
-                  <b>{fmt(rowVals[i])}</b>
-                </div>
-                <div className="orn-card-row" style={{ justifyContent: "space-between", alignItems: "center", marginTop: -4 }}>
                   <span style={{ fontSize: 11, letterSpacing: ".14em", textTransform: "uppercase", color: "var(--muted)" }}>Photo</span>
                   {/* Reuses the table view's own hidden file <input>/ref for
                       this row — see the comment above the table wrapper. */}

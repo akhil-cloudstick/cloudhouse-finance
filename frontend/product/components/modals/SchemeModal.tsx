@@ -6,6 +6,7 @@ import { useToast } from "@/product/components/Toast";
 import { Icon } from "@/product/components/Icon";
 import { useAuth } from "@/product/providers/auth-context";
 import { listActiveBranches, type BranchView } from "@/product/pages/branches/services/branchService";
+import { useBranding } from "@/product/providers/BrandingProvider";
 import {
   createScheme, updateScheme,
   type SchemeView, type ServiceChargeType, type ServiceChargeMode,
@@ -46,6 +47,8 @@ export function SchemeModalContent({ scheme: s, onSaved }: { scheme?: SchemeView
   const [chargeValue, setChargeValue] = useState(s && s.serviceChargeType !== "None" ? String(s.serviceChargeValue) : "");
   const [chargeMode, setChargeMode] = useState<ServiceChargeMode>(s?.serviceChargeMode || "WithheldFromPayout");
   const [branches, setBranches] = useState<BranchView[]>([]);
+  // Single-branch business: the one branch is preselected and the picker locked.
+  const { singleBranch } = useBranding();
   const [branchId, setBranchId] = useState<number | "">(
     s?.branchId || (!isAdmin && myBranchId ? myBranchId : "")
   );
@@ -146,6 +149,7 @@ export function SchemeModalContent({ scheme: s, onSaved }: { scheme?: SchemeView
           <div><label className="f">Branch *</label>
             {isAdmin ? (
               <Select
+                disabled={singleBranch}
                 options={branches.map((b) => ({ value: String(b.id), label: b.name }))}
                 value={branchId ? String(branchId) : ""}
                 onChange={(v) => setBranchId(v ? Number(v) : "")}

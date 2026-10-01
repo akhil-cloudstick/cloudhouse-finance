@@ -22,7 +22,7 @@ import { ApiError } from "@/product/services/httpClient";
 export function WaiverReviewModalContent({ request, onSaved }: { request: RequestView; onSaved: () => void }) {
   const { closeModal } = useModal();
   const toast = useToast();
-  const { can } = useAuth();
+  const { can, role, isAdmin } = useAuth();
   const { config: workflow } = useApprovalWorkflow();
   // Same general "may act on requests at all" gate as the extension review.
   const canDecide = can("Loan_Management", "can_update_loan");
@@ -35,7 +35,7 @@ export function WaiverReviewModalContent({ request, onSaved }: { request: Reques
   const stageView = req.status === "Pending" ? stageByPending(workflow, "loan_waiver", req.approvalStage) : null;
   const chain = chainFor(workflow, "loan_waiver", req.status === "Pending" ? req.approvalStage : null);
   const stageIndex = stageView ? chain.findIndex((s) => s.key === stageView.key) : chain.length;
-  const canActOnStage = canActAtStage(can, stageView);
+  const canActOnStage = canActAtStage({ role, isAdmin }, stageView);
 
   async function decide(action: "Approved" | "Rejected") {
     if (!stageView) return;

@@ -33,7 +33,7 @@ import {
 import { inr, todayISO } from "../../lib/format";
 import { useAuth } from "../../auth/AuthContext";
 import { verifyReleaseChecklist, recordReleasePayment, approveReleaseRequest } from "../../api/loans";
-import { isFinalStage, stageByPending, stageIndex, stagePerm, stepperSteps, useApprovalWorkflow } from "../../api/approvalWorkflow";
+import { isFinalStage, stageByPending, stageIndex, canActAtStage, stepperSteps, useApprovalWorkflow } from "../../api/approvalWorkflow";
 import { listPackets } from "../../api/packets";
 import { printReleaseAgreementPdf, printPartialReleaseReceiptPdf, RELEASE_AGREEMENT_LANGS, DOC_LANG_LABELS, type DocLang } from "../../utils/loanPrint";
 import { LoanRequest, Loan } from "../../types/loan";
@@ -60,7 +60,7 @@ export function ReleaseReviewPanel({ request, loan, onSaved, onError }: { reques
   // screen when the panel is embedded in the loan detail page — so that
   // link is only shown from elsewhere (the Requests screen).
   const onThisLoanPage = pathname === `/loans/${loan.id}`;
-  const { can } = useAuth();
+  const { can, employee } = useAuth();
   const canDecide = can("Loan_Management", "can_update_loan");
   const canVerifyChecklist = can("Release_Approval", "can_verify_release_checklist");
   // Tenant-configured "loan_release" chain. An empty approvalStage is the
@@ -73,7 +73,7 @@ export function ReleaseReviewPanel({ request, loan, onSaved, onError }: { reques
   const stageLabel = stageDef?.label ?? "Manager";
   const isFinal = isFinalStage(wf, "loan_release", pendingValue);
   const steps = stepperSteps(wf, "loan_release", pendingValue);
-  const canActOnStage = !!stageDef && can(...stagePerm(stageDef));
+  const canActOnStage = !!stageDef && canActAtStage(employee?.role, stageDef);
   // RecordReleasePayment is refused past the Manager stage.
   const canRecordPayment = request.approvalStage === "" || request.approvalStage === "PendingManager";
   const isPending = request.status === "Pending";

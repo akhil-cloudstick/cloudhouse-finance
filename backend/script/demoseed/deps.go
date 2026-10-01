@@ -140,6 +140,7 @@ func NewDeps(db *gorm.DB, cfg platform.Config) *Deps {
 	packetSvc := packet.NewService(packetRepo, lockerRepo)
 	lockerSvc := locker.NewService(lockerRepo, branchRepo, packetRepo)
 	movementSvc := cash.NewMovementService(movementRepo, expenseRepo, branchRepo, loanCashSourceRepo)
+	movementSvc.SetLoanSourceLookups(cash.NewCashSourceRepository(db), cash.NewExpenseCategoryRepository(db))
 
 	// Aadhaar cipher: real, so the six customers given an Aadhaar number show
 	// a last-four in the UI like production data does. An error here is not
@@ -228,7 +229,7 @@ func NewDeps(db *gorm.DB, cfg platform.Config) *Deps {
 		reminderSvc: reminder.NewService(reminder.NewRepository(db), customerRepo, loanRepo, personalSvc, auctionRepo, nil, nil, tenantRepo),
 		// comms nil: investment.Service only uses it to announce payouts and
 		// maturity over WhatsApp.
-		investmentSvc: investment.NewService(investment.NewRepository(db), customerRepo, movementSvc, nil, tenantRepo),
+		investmentSvc: investment.NewService(investment.NewRepository(db), customerRepo, movementSvc, nil, tenantRepo, cfg.UploadsDir),
 	}
 }
 

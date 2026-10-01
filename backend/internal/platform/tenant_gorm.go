@@ -72,6 +72,7 @@ var tenantScopedTables = map[string]bool{
 	// Per-tenant approval-workflow configuration and the audit trail of the
 	// flows that have no audit table of their own (see internal/workflow).
 	"approval_stage_settings": true, "approval_actions": true,
+	"approval_chains": true, "approval_category_modes": true,
 }
 
 // TenantScopedTableNames returns every tenant-owned table, in a stable

@@ -16,7 +16,7 @@ import (
 // genericMessage is what a client sees for an error that isn't a known,
 // user-safe StatusedError — e.g. an unexpected DB/driver failure. The real
 // error is logged server-side by FailErr; the client never sees it.
-const genericMessage = "Something went wrong on our end. Please try again."
+const genericMessage = "Something went wrong. Please try again."
 
 // Success writes {success: true, data: <data>} — the envelope for a single
 // resource (Create/Get/Update) and for a plain confirmation message.

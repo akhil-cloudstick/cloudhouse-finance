@@ -8,6 +8,7 @@ import { Select } from "@/product/components/ui/Select";
 import { useToast } from "@/product/components/Toast";
 import { ApiError } from "@/product/services/httpClient";
 import { listActiveBranches, type BranchView } from "@/product/pages/branches/services/branchService";
+import { useBranding } from "@/product/providers/BrandingProvider";
 import {
   exportFormG, getFormG,
   type FormGOverrides, type FormGStatement, type ReportFilters,
@@ -39,6 +40,8 @@ const fmt = (n: number) => n.toLocaleString("en-IN", { minimumFractionDigits: 2,
 export function FormGReportView({ onBack }: { onBack: () => void }) {
   const toast = useToast();
   const [branches, setBranches] = useState<BranchView[]>([]);
+  // Single-branch business: no branch filter — every row is its one branch.
+  const { singleBranch } = useBranding();
   const [branchId, setBranchId] = useState<number>(0);
   const [branchLabel, setBranchLabel] = useState("All branches");
   // Default range is the LAST 3 MONTHS, not the firstOfMonth()/today() every
@@ -174,6 +177,7 @@ export function FormGReportView({ onBack }: { onBack: () => void }) {
           <label style={{ fontSize: 11.5, color: "var(--muted)", display: "block", marginBottom: 4 }}>To</label>
           <DatePicker value={to} onChange={setTo} min={from} />
         </div>
+        {!singleBranch && (
         <div style={{ width: 150 }}>
           <label style={{ fontSize: 11.5, color: "var(--muted)", display: "block", marginBottom: 4 }}>Branch</label>
           <SearchableSelect<BranchView>
@@ -185,6 +189,7 @@ export function FormGReportView({ onBack }: { onBack: () => void }) {
             placeholder="Search branch…"
           />
         </div>
+        )}
       </div>
 
       {error && <div className="notice" style={{ marginBottom: 14 }}>{error}</div>}

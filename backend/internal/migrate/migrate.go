@@ -841,6 +841,8 @@ var tenantUniqueIndexes = []tenantUniqueIndex{
 	{"roles", "idx_roles_name", "uq_roles_tenant_name", "name", ""},
 	{"approval_limits", "idx_approval_limits_role", "uq_approval_limits_tenant_role", "role", ""},
 	{"approval_stage_settings", "idx_approval_stage_settings_flow_stage", "uq_approval_stage_settings_tenant_flow_stage", "flow, stage", ""},
+	{"approval_chains", "idx_approval_chains_scope", "uq_approval_chains_tenant_scope", "scope", ""},
+	{"approval_category_modes", "idx_approval_category_modes_category", "uq_approval_category_modes_tenant_category", "category", ""},
 
 	// Both of these were missed when this list was first written, and both
 	// are generated per business exactly like loans.loan_number above — the
@@ -1091,6 +1093,8 @@ var allModels = []any{
 	&loan.ApprovalLimit{},
 	&workflow.ApprovalStageSetting{},
 	&workflow.ApprovalAction{},
+	&workflow.ApprovalChain{},
+	&workflow.ApprovalCategoryMode{},
 	// Unsubmitted New Gold Loan forms behind the "Save Draft" button.
 	&loan.LoanDraft{},
 	&loan.LoanDraftOrnament{},

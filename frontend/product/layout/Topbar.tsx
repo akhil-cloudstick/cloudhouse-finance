@@ -7,6 +7,7 @@ import { fmt } from "@/product/utils/format";
 import { TITLES, PARENT_ROUTE } from "@/product/utils/routes";
 import { useModal } from "@/product/components/Modal";
 import { RateModalContent } from "@/product/components/modals/RateModal";
+import { ConnectMobileModalContent } from "@/product/components/modals/ConnectMobileModal";
 import { Icon } from "@/product/components/Icon";
 import { useAuth } from "@/product/providers/auth-context";
 import { loginPath } from "@/product/services/tenantSession";
@@ -94,6 +95,15 @@ export function Topbar({ route, arg, onBurger }: { route: string; arg?: string; 
           </button>
         )}
       </a>
+      <button
+        type="button"
+        className="connect-mobile"
+        title="Connect mobile app"
+        aria-label="Connect mobile app"
+        onClick={() => openModal(<ConnectMobileModalContent />)}
+      >
+        <Icon name="smartphone" />
+      </button>
       <span className="user">
         <span className="av">{employee?.name ? employee.name.charAt(0).toUpperCase() : "—"}</span>
         <span className="nm">
